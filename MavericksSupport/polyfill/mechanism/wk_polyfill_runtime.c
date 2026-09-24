@@ -244,14 +244,15 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 }
 
 // Called from a polyfill body that is running, so the process is already using this API and loading
-// the provider costs nothing it has not already paid for.
+// the provider costs nothing it has not already paid for. Any thread may be first: `original` is
+// published before `resolved`, so a reader that sees `resolved` also sees the answer.
 void *wk_polyfill_original(struct wk_polyfill_entry *entry)
 {
-    if (!entry->resolved) {
-        entry->original = resolveOriginal(entry, 1);
-        entry->resolved = 1;
+    if (!__atomic_load_n(&entry->resolved, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&entry->original, resolveOriginal(entry, 1), __ATOMIC_RELAXED);
+        __atomic_store_n(&entry->resolved, 1, __ATOMIC_RELEASE);
     }
-    return entry->original;
+    return __atomic_load_n(&entry->original, __ATOMIC_RELAXED);
 }
 
 // Every polyfilled symbol, whether or not it was reached by a link-time reference. Returns the entry

@@ -53,7 +53,10 @@ WK_POLYFILL_REPLACES("CFNetwork", CFIndex, CFHTTPCookieStorageGetCookieAcceptPol
 
 WK_POLYFILL_REPLACES("CFNetwork", CFHTTPCookieStorageRef, _CFHTTPCookieStorageGetDefault, (CFAllocatorRef allocator))
 {
-    CFHTTPCookieStorageRef (*sharedStorage)(void) = dlsym(RTLD_DEFAULT, "wk_sharedCookieStorage");
+    // Resolved with dlsym: the published jar lives in the WebCore-only half of the layer.
+    static CFHTTPCookieStorageRef (*sharedStorage)(void);
+    if (!sharedStorage)
+        sharedStorage = (CFHTTPCookieStorageRef (*)(void))dlsym(RTLD_DEFAULT, "wk_sharedCookieStorage");
     CFHTTPCookieStorageRef storage = sharedStorage ? sharedStorage() : NULL;
     return storage ? storage : WK_ORIGINAL(_CFHTTPCookieStorageGetDefault)(allocator);
 }
@@ -76,39 +79,16 @@ WK_POLYFILL_CONST("CFNetwork", CFStringRef, kCFURLRequestContentDecoderSkipURLCh
 // and rehydrates into a live storage. Returning NULL here instead would be a fake value: it forces a
 // NULL check into CookieStorageUtilsCF and makes NetworkProcess skip installing the shared storage at
 // all, so the process silently runs on a different cookie jar than the one it was handed.
-// Resolved with dlsym, not declared extern: both live in 10.9's CFNetwork but neither is in the 26.1
+// Resolved at run time, not declared extern: both live in 10.9's CFNetwork but neither is in the 26.1
 // SDK's stub library, so a link-time reference fails to build even though the call works at runtime.
-typedef CFArrayRef (*wk_cookieArchiveCreate)(CFAllocatorRef, void *);
-typedef void *(*wk_cookieArchiveRestore)(CFAllocatorRef, CFArrayRef);
-
-static wk_cookieArchiveCreate wk_cookieStorageCreateArchive(void)
-{
-    static wk_cookieArchiveCreate function;
-    static bool resolved;
-    if (!resolved) {
-        function = (wk_cookieArchiveCreate)dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCreateArchive");
-        resolved = true;
-    }
-    return function;
-}
-
-static wk_cookieArchiveRestore wk_cookieStorageCreateFromArchive(void)
-{
-    static wk_cookieArchiveRestore function;
-    static bool resolved;
-    if (!resolved) {
-        function = (wk_cookieArchiveRestore)dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCreateFromArchive");
-        resolved = true;
-    }
-    return function;
-}
+WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCreateArchive, (CFAllocatorRef, void *));
+WK_SYSTEM_FN("CFNetwork", void *, CFHTTPCookieStorageCreateFromArchive, (CFAllocatorRef, CFArrayRef));
 
 WK_POLYFILL_ABSENT("CFNetwork", CFDataRef, CFHTTPCookieStorageCreateIdentifyingData, (CFAllocatorRef allocator, void *storage))
 {
     if (!storage)
         return NULL;
-    wk_cookieArchiveCreate createArchive = wk_cookieStorageCreateArchive();
-    CFArrayRef archive = createArchive ? createArchive(allocator, storage) : NULL;
+    CFArrayRef archive = WK_SYSTEM(CFHTTPCookieStorageCreateArchive) ? WK_SYSTEM(CFHTTPCookieStorageCreateArchive)(allocator, storage) : NULL;
     if (!archive)
         return NULL;
     CFDataRef data = CFPropertyListCreateData(allocator, archive, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
@@ -123,10 +103,9 @@ WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateFromIdentifying
     CFArrayRef archive = (CFArrayRef)CFPropertyListCreateWithData(allocator, data, kCFPropertyListMutableContainers, NULL, NULL);
     if (!archive)
         return NULL;
-    wk_cookieArchiveRestore restoreArchive = wk_cookieStorageCreateFromArchive();
     void *storage = NULL;
-    if (restoreArchive && CFGetTypeID(archive) == CFArrayGetTypeID())
-        storage = restoreArchive(allocator, archive);
+    if (WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive) && CFGetTypeID(archive) == CFArrayGetTypeID())
+        storage = WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive)(allocator, archive);
     CFRelease(archive);
     return storage;
 }
@@ -203,19 +182,17 @@ static Boolean wk_propertiesAskForPrivateSession(CFDictionaryRef properties)
 
 static CFHTTPCookieStorageRef wk_createLockedInMemoryCookieStorage(CFAllocatorRef allocator)
 {
-    wk_cookieArchiveCreate createArchive = wk_cookieStorageCreateArchive();
-    wk_cookieArchiveRestore restoreArchive = wk_cookieStorageCreateFromArchive();
-    if (!WK_SYSTEM(CFHTTPCookieStorageCreateInMemory) || !createArchive || !restoreArchive)
+    if (!WK_SYSTEM(CFHTTPCookieStorageCreateInMemory) || !WK_SYSTEM(CFHTTPCookieStorageCreateArchive) || !WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive))
         wk_patch_fail(kPrivateStorageSession, "CFNetwork does not export the in-memory cookie storage entry points");
 
     CFHTTPCookieStorageRef empty = WK_SYSTEM(CFHTTPCookieStorageCreateInMemory)(allocator, NULL);
     if (!empty)
         wk_patch_fail(kPrivateStorageSession, "CFNetwork refused an in-memory cookie storage");
-    CFArrayRef archive = createArchive(allocator, empty);
+    CFArrayRef archive = WK_SYSTEM(CFHTTPCookieStorageCreateArchive)(allocator, empty);
     CFRelease(empty);
     if (!archive)
         wk_patch_fail(kPrivateStorageSession, "an empty cookie storage did not archive");
-    CFHTTPCookieStorageRef storage = (CFHTTPCookieStorageRef)restoreArchive(allocator, archive);
+    CFHTTPCookieStorageRef storage = (CFHTTPCookieStorageRef)WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive)(allocator, archive);
     CFRelease(archive);
     if (!storage)
         wk_patch_fail(kPrivateStorageSession, "CFNetwork refused to rebuild a cookie storage from its archive");
