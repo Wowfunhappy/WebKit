@@ -98,6 +98,8 @@ media/modern-media-controls/css/cursor.html [ Skip ]
 media/modern-media-controls/css/pointer-events-none.html [ Skip ]
 media/modern-media-controls/css/transformed-media.html [ Skip ]
 media/modern-media-controls/css/webkit-cursor-visibility-auto-hide.html [ Skip ]
+# The classic controls panel fades in over 0.25s, so the snapshot catches it mid-fade.
+imported/w3c/web-platform-tests/css/css-writing-modes/abs-pos-replaced-vrl-001.html [ Skip ]
 media/modern-media-controls/macos-inline-media-controls/macos-inline-media-controls-zoomed.html [ Skip ]
 media/modern-media-controls/media-controller/media-controller-auto-hide-rewind-with-mouse-enter.html [ Skip ]
 media/modern-media-controls/media-controller/media-controller-controls-sizing-with-border-and-padding.html [ Skip ]
@@ -470,12 +472,37 @@ imported/w3c/web-platform-tests/css/css-inline/text-box-trim/text-box-trim-start
 imported/w3c/web-platform-tests/css/css-values/cap-unit-001.html [ Skip ]
 # A line keeps the shaping advance of a leading combining mark or keycap for itself, outside every run.
 fast/text/combining-enclosing-keycap.html [ Skip ]
-# An upright glyph of a font without vmtx or VORG hangs from its own bounding box, not the font's ascent.
+# A font without vhea or vmtx advances each upright glyph by its bounding-box height plus 0.099em and hangs it
+# from that box, so upright glyphs and the vertical ch and ic units are not 1em.
 fast/text/multiple-codeunit-vertical-upright.html [ Skip ]
 fast/text/multiple-codeunit-vertical-upright-2.html [ Skip ]
+fast/writing-mode/text-orientation-basic.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-writing-modes/text-shadow-orientation-upright-001.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-values/ch-unit-002.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-values/ic-unit-002.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-values/ic-unit-003.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/central-baseline-alignment-002.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/inline-block-alignment-004.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/inline-block-alignment-005.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/inline-block-alignment-orthogonal-vlr-005.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/inline-block-alignment-orthogonal-vrl-004.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/inline-table-alignment-004.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/inline-table-alignment-005.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/text-baseline-vlr-005.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/text-baseline-vrl-004.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/vertical-alignment-vlr-023.xht [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/vertical-alignment-vrl-022.xht [ Skip ]
 # A GSUB ligature whose record ends the table never forms.
 fast/text/zwj-ligature.html [ Skip ]
+# A font that has U+2010 but not U+2011 maps U+2011 to no glyph, so it falls back to another font.
+imported/w3c/web-platform-tests/css/css-text/line-break/line-break-anywhere-overrides-uax-behavior-013.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/line-break/line-break-anywhere-overrides-uax-behavior-014.html [ Skip ]
+# CoreGraphics rounds glyph origins down to half-pixel steps, and Courier's 1229/2048em advance puts the justified
+# glyphs 0.02px short of the reference's, across a step boundary.
+imported/w3c/web-platform-tests/css/css-text/text-justify/text-justify-and-trailing-spaces-001.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/text-justify/text-justify-and-trailing-spaces-002.html [ Skip ]
+# The fallback for U+FFFC is ArialMT's inked box glyph, which moves the emphasis mark over combined text by 0.5em.
+imported/w3c/web-platform-tests/css/css-writing-modes/text-combine-upright-decorations-001.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: glyph display-list dumps.
 fast/text/glyph-display-lists/glyph-display-list-sharing-colr.html [ Skip ]
@@ -524,6 +551,7 @@ fast/text/updateNewFont.html [ Skip ]
 fast/text/international/system-language/jp-circled.html [ Skip ]
 # Maintainer scope decision 2026-09-15: the mac baselines use PingFang's CJK fallback metrics; 10.9 has no PingFang.
 # WebKitTestRunner's AppleLanguages=en selects Hiragino, whose line pitch and punctuation widths differ.
+fast/writing-mode/Kusa-Makura-background-canvas.html [ Skip ]
 fast/text/backslash-to-yen-sign.html [ Skip ]
 fast/text/backslash-to-yen-sign-euc.html [ Skip ]
 fast/text/international/wrap-CJK-001.html [ Skip ]
@@ -822,3 +850,11 @@ webkit.org/b/305514 http/wpt/mediarecorder/MediaRecorder-audio-samplingrate-chan
 
 # A 32767x32767 VP9 encoder zero-fills about 51 GB synchronously while configuring.
 http/wpt/webcodecs/configure-encoder-big-frame-size.html [ Skip ]
+
+# Maintainer decision: SwitchControlEnabled is off, so <input type=checkbox switch> is a 12x12 checkbox.
+imported/w3c/web-platform-tests/css/css-writing-modes/forms/checkbox-switch-input-computed-style.tentative.html [ Skip ]
+
+# The WebCore PNG decoder this port runs, as the GLib ports do, reads no eXIf chunk; platform/glib/TestExpectations
+# records both tests.
+imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-exif-png.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-exif-png-2.html [ Skip ]

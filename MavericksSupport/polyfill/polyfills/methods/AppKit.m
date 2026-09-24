@@ -1367,6 +1367,26 @@ WK_POLYFILL_ADD_METHODS(NSMenu)
 { NSNumber *v = objc_getAssociatedObject(self, wk_uildMenuKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
 @end
 
+// -[NSLevelIndicatorCell drawWithFrame:inView:] fills from the leading edge -userInterfaceLayoutDirection
+// names. 10.9's level indicator ignores that property and mirrors on -baseWritingDirection, whose setter
+// marks the cell's control for display. A right-to-left cell draws a copy, detached from the control, with
+// a right-to-left writing direction.
+WK_POLYFILL_REPLACE_METHODS(NSLevelIndicatorCell)
+- (void)drawWithFrame:(NSRect)frame inView:(NSView *)view
+{
+    if ([self userInterfaceLayoutDirection] != NSUserInterfaceLayoutDirectionRightToLeft) {
+        WK_ORIGINAL_METHOD(void, (NSRect, NSView *), frame, view);
+        return;
+    }
+    NSLevelIndicatorCell *mirrored = [self copy];
+    [mirrored setControlView:nil];
+    [mirrored setBaseWritingDirection:NSWritingDirectionRightToLeft];
+    struct wk_original original = wk_original_of(self, _cmd);
+    ((void (*)(id, SEL, NSRect, NSView *))original.imp)(mirrored, original.sel, frame, view);
+    [mirrored release];
+}
+@end
+
 // ---------------------------------------------------------------------------------------------------
 // -[NSPopover showRelativeToRect:ofView:preferredEdge:] and the anchor window's first responder.
 //

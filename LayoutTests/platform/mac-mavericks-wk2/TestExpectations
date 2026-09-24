@@ -463,3 +463,7 @@ media/video-multiple-concurrent-playback.html [ Skip ]
 # Under a parallel run, two animation frames do not always populate these internal paint caches; both dumps
 # come back empty and compare equal. The test passes run alone.
 fast/text/glyph-display-lists/glyph-display-list-scaled-unshared.html [ Skip ]
+
+# Maintainer scope decision 2026-09-15: pixel near miss. Green glyphs over the green background composite to 127
+# instead of 128 in 65 pixels.
+imported/w3c/web-platform-tests/css/css-values/ch-unit-004.html [ Skip ]

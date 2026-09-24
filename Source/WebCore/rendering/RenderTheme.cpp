@@ -405,15 +405,15 @@ StyleAppearance RenderTheme::autoAppearanceForElement(Style::ComputedStyle& styl
     if (RefPtr input = dynamicDowncast<HTMLInputElement>(element)) {
         if (input->isTextButton()) {
 #if PLATFORM(MAC)
-            // MAVERICKS_BACKPORT: 10.9 draws submit/reset/button inputs as Aqua push buttons --
-            // the bezel owns the border and the control size dictates the font
+            // MAVERICKS_BACKPORT: 10.9 draws horizontal submit/reset/button inputs as Aqua push
+            // buttons -- the bezel owns the border and the control size dictates the font
             // (RenderThemeMac::adjustButtonStyle) -- while <button> keeps author styling under
-            // the plain Button appearance. Returning Button for both loses that split and the
-            // Aqua metrics with it.
-            return StyleAppearance::PushButton;
-#else
-            return StyleAppearance::Button;
+            // the plain Button appearance. The push-button bezel is horizontal only, so a
+            // vertical input button takes the Button appearance.
+            if (style.writingMode().isHorizontal())
+                return StyleAppearance::PushButton;
 #endif // MAVERICKS_BACKPORT
+            return StyleAppearance::Button;
         }
 
         if (input->isSwitch())

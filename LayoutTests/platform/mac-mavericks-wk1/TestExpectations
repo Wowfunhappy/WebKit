@@ -1049,6 +1049,7 @@ fast/text/user-installed-fonts/shadow-family.html [ Skip ]
 fast/text/user-installed-fonts/shadow-postscript-family.html [ Skip ]
 # eventSender.asyncKeyDown, called by resources/testdriver-vendor.js
 imported/w3c/web-platform-tests/IndexedDB/file_support.sub.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/forms/select-multiple-keyboard-selection.optional.html [ Skip ]
 
 # These tests require WebKitTestRunner's language header option, absent from DumpRenderTree's TestOptions.
 fast/text/international/system-language/navigator-language [ Skip ]
@@ -2099,3 +2100,7 @@ imported/w3c/web-platform-tests/webrtc/RTCRtpReceiver-getSynchronizationSources.
 # Reads inbound-rtp before the first frame of the negotiated H.264 stream arrives: 10.9's only H.264 encoder, the
 # software one, emits its first output after 10 submitted frames and refuses RealTime and MaxFrameDelayCount (-12900).
 webrtc/video-stats.html [ Skip ]
+
+# Maintainer scope decision 2026-09-15: pixel near miss. The EXIF-transposed JPEG, drawn into DumpRenderTree's
+# bitmap context, differs from the pre-rotated reference by up to 11 levels in 90 edge pixels.
+imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-img-object-fit.html [ Skip ]
