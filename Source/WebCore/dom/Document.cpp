@@ -935,6 +935,9 @@ void Document::removedLastRef()
 #endif
         m_associatedFormControls.clear();
         m_pendingRenderTreeUpdate = { };
+        // MAVERICKS_BACKPORT: cached querySelectorAll results hold Refs to this document's elements, which count
+        // toward m_referencingNodeCount; clear them with the retaining pointers above.
+        clearQuerySelectorAllResults();
 
         if (RefPtr fontLoader = m_fontLoader.get())
             fontLoader->stopLoadingAndClearFonts();
