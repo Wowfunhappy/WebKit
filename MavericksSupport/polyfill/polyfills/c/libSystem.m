@@ -508,6 +508,71 @@ WK_POLYFILL_ABSENT(NULL, int, __darwin_check_fd_set_overflow, (int n, const void
     return (n >= 0 && (unlimited || n < FD_SETSIZE)) ? 1 : 0;
 }
 
+#pragma mark - dladdr
+
+// dladdr names the nearest symbol at or below an address. 10.9's dyld finds it by scanning every
+// external and local symbol of the containing image (ImageLoaderMachO::findClosestSymbol) -- measured
+// ~130 us a call against WebCore's 236k-entry table -- and JSC symbolicates up to 31 native frames for
+// each exception a JSC API client leaves unhandled (JSGlobalObjectInspectorController::
+// appendAPIBacktrace), which Safari 7's AutoFill does as part of normal operation through
+// JSValueToObject. An answer holds while its image stays loaded, so answers are kept per address and
+// all of them are dropped when any image is removed. A failed lookup is not kept, since an image loaded
+// later may cover the address. The system dladdr is reached through WK_SYSTEM: resolving WK_ORIGINAL
+// asks dladdr which image an address belongs to.
+WK_SYSTEM_FN(NULL, int, dladdr, (const void *, Dl_info *));
+
+enum { wk_dladdrMemoCapacityLog2 = 10 };
+static struct {
+    const void *address;
+    uint64_t generation;
+    Dl_info info;
+} wk_dladdrMemo[1 << wk_dladdrMemoCapacityLog2];
+static pthread_mutex_t wk_dladdrMemoLock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t wk_dladdrGeneration;
+
+static void wk_dladdrImageRemoved(const struct mach_header *header, intptr_t slide)
+{
+    (void)header;
+    (void)slide;
+    pthread_mutex_lock(&wk_dladdrMemoLock);
+    wk_dladdrGeneration++;
+    pthread_mutex_unlock(&wk_dladdrMemoLock);
+}
+
+__attribute__((constructor)) static void wk_initializeDladdrMemo(void)
+{
+    _dyld_register_func_for_remove_image(wk_dladdrImageRemoved);
+    pthread_mutex_lock(&wk_dladdrMemoLock);
+    wk_dladdrGeneration = 1;
+    pthread_mutex_unlock(&wk_dladdrMemoLock);
+}
+
+WK_POLYFILL_REPLACES(NULL, int, dladdr, (const void *address, Dl_info *info))
+{
+    size_t slot = (size_t)(((uint64_t)(uintptr_t)address * 0x9E3779B97F4A7C15ull) >> (64 - wk_dladdrMemoCapacityLog2));
+    // A contended or reentered lookup (a signal handler on a thread that holds the lock) skips the memo.
+    if (!info || pthread_mutex_trylock(&wk_dladdrMemoLock))
+        return WK_SYSTEM(dladdr)(address, info);
+    uint64_t generation = wk_dladdrGeneration;
+    if (generation && wk_dladdrMemo[slot].generation == generation && wk_dladdrMemo[slot].address == address) {
+        *info = wk_dladdrMemo[slot].info;
+        pthread_mutex_unlock(&wk_dladdrMemoLock);
+        return 1;
+    }
+    pthread_mutex_unlock(&wk_dladdrMemoLock);
+
+    int found = WK_SYSTEM(dladdr)(address, info);
+    if (!found || pthread_mutex_trylock(&wk_dladdrMemoLock))
+        return found;
+    if (generation && generation == wk_dladdrGeneration) {
+        wk_dladdrMemo[slot].address = address;
+        wk_dladdrMemo[slot].generation = generation;
+        wk_dladdrMemo[slot].info = *info;
+    }
+    pthread_mutex_unlock(&wk_dladdrMemoLock);
+    return found;
+}
+
 #pragma mark - dyld image identity and the shared cache (10.10+)
 
 // The image an address belongs to. dladdr already answers exactly this question -- dli_fbase is the
