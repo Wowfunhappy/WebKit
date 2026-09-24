@@ -1593,30 +1593,29 @@ static CTFontDescriptorRef wk_realizableDescriptor(CTFontDescriptorRef descripto
         return NULL;
     }
 
-    CFMutableDictionaryRef realizable = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes);
+    // A copy replaces the traits dictionary whole, and keeps what the descriptor is bound to: a font
+    // read from data, and the system UI option.
+    CFMutableDictionaryRef changes = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFMutableDictionaryRef reducedTraits = traits
         ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, traits) : NULL;
     CFRelease(attributes);
     CTFontDescriptorRef realized = NULL;
-    if (realizable && (reducedTraits || !traits)) {
+    if (changes && (reducedTraits || !traits)) {
         if (reducedTraits) {
             CFDictionaryRemoveValue(reducedTraits, kCTFontWeightTrait);
             CFDictionaryRemoveValue(reducedTraits, kCTFontWidthTrait);
             CFDictionaryRemoveValue(reducedTraits, kCTFontSlantTrait);
-            if (CFDictionaryGetCount(reducedTraits))
-                CFDictionarySetValue(realizable, kCTFontTraitsAttribute, reducedTraits);
-            else
-                CFDictionaryRemoveValue(realizable, kCTFontTraitsAttribute);
+            CFDictionarySetValue(changes, kCTFontTraitsAttribute, reducedTraits);
         }
         if (wantsMonospaced)
-            CFDictionarySetValue(realizable, kCTFontFamilyNameAttribute, CFSTR("Menlo"));
-        realized = CTFontDescriptorCreateWithAttributesAndOptions(realizable,
-            wk_descriptorIsSystemUI(descriptor) ? WK_SYSTEM_UI_FONT_OPTION : 0);
+            CFDictionarySetValue(changes, kCTFontFamilyNameAttribute, CFSTR("Menlo"));
+        realized = CTFontDescriptorCreateCopyWithAttributes(descriptor, changes);
     }
     if (reducedTraits)
         CFRelease(reducedTraits);
-    if (realizable)
-        CFRelease(realizable);
+    if (changes)
+        CFRelease(changes);
     return realized;
 }
 
@@ -2130,7 +2129,16 @@ static CTFontDescriptorRef wkWeightRequestDescriptor(CGFloat weight)
     return descriptor;
 }
 
-// The URL reader preserves the CFF FontMatrix; the graphics font retains the open file.
+static void wk_removeFontFile(void *path, void *info)
+{
+    (void)info;
+    unlink(path);
+    free(path);
+}
+
+// CFF is read from a file, because 10.9's in-memory CFF reader scales vertical advances and translations
+// by about 1.007 and loses vertical origins. 10.9 closes font files it is not drawing from and reopens
+// them by path, so the file lives until the graphics font is deallocated.
 static CGFontRef wk_createGraphicsFontFromSfnt(CFDataRef data)
 {
     if (CFDataGetLength(data) < 4 || wk_be32(CFDataGetBytePtr(data)) != 'OTTO') {
@@ -2172,14 +2180,7 @@ static CGFontRef wk_createGraphicsFontFromSfnt(CFDataRef data)
         url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)path, strlen(path), false);
         CFArrayRef descriptors = url ? CTFontManagerCreateFontDescriptorsFromURL(url) : NULL;
         if (descriptors && CFArrayGetCount(descriptors) == 1) {
-            const void *keys[] = { kCTFontURLAttribute };
-            const void *values[] = { url };
-            CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
-                &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-            CTFontDescriptorRef descriptor = CTFontDescriptorCreateCopyWithAttributes((CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0), attributes);
-            CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, 12, NULL);
-            CFRelease(descriptor);
-            CFRelease(attributes);
+            CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)((CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0), 12, NULL);
             if (font) {
                 result = CTFontCopyGraphicsFont(font, NULL);
                 CFRelease(font);
@@ -2195,10 +2196,15 @@ static CGFontRef wk_createGraphicsFontFromSfnt(CFDataRef data)
             CFRelease(url);
         return NULL;
     }
-    unlink(path);
-    free(path);
     CFRelease(url);
-    objc_setAssociatedObject((id)(void *)result, sel_registerName("wk_cffURLFont"), (id)(void *)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFAllocatorContext context = { .deallocate = wk_removeFontFile };
+    CFAllocatorRef allocator = CFAllocatorCreate(kCFAllocatorDefault, &context);
+    CFDataRef file = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (const UInt8 *)path, (CFIndex)strlen(path) + 1, allocator);
+    CFRelease(allocator);
+    if (!file)
+        abort();
+    objc_setAssociatedObject((id)(void *)result, sel_registerName("wk_fontFile"), (id)(void *)file, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFRelease(file);
     return result;
 }
 
@@ -2697,6 +2703,8 @@ static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attribu
     return selected;
 }
 
+static CTFontRef wk_copyFromGraphicsFont(CTFontRef, CGFontRef, CGFloat, const CGAffineTransform *, CTFontDescriptorRef);
+
 // The copy entry point, where the source's scale is the font's own and the size that can name a
 // new one is the attributes descriptor's. This is how WebCore realizes a font whose base is a
 // CTFont rather than a descriptor (UnrealizedCoreTextFont::realize). A NULL matrix here means the
@@ -2738,7 +2746,9 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
     CTFontDescriptorRef realizable = wk_attributesWithRealizableVariations(font, attributes);
     if (realizable)
         attributes = realizable;
-    CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)
+    CGFontRef graphics = (CGFontRef)objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_fontGraphicsFont"));
+    CTFontRef copy = graphics ? wk_copyFromGraphicsFont(font, graphics, size, matrix, attributes)
+        : WK_ORIGINAL(CTFontCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, attributes) : NULL;
     copy = wkApplyTraitsToFace(copy, attributes);
     copy = wk_fontWithRealizableVariations(copy, attributes, size, matrix);
@@ -2881,9 +2891,30 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithGraphicsFont,
 {
     CTFontRef result = WK_ORIGINAL(CTFontCreateWithGraphicsFont)(font, size, matrix, attributes);
     wk_recordDescriptorOptions(result, attributes);
-    if (result && font && objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_cffURLFont")))
+    if (result && font && objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_fontFile")))
         objc_setAssociatedObject((id)(void *)result, sel_registerName("wk_fontGraphicsFont"), (id)(void *)font, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return wk_recordFontRequest(result, size, matrix);
+}
+
+// Given attributes, 10.9 copies a font built on a file-read graphics font by rematching its name, which
+// the file is not registered under, and answers the system face. The copy is built on the same graphics
+// font at the copy's size and matrix, with the copy's attributes laid over the font's own.
+static CTFontRef wk_copyFromGraphicsFont(CTFontRef font, CGFontRef graphics, CGFloat size,
+    const CGAffineTransform *matrix, CTFontDescriptorRef attributes)
+{
+    CGAffineTransform fontMatrix = WK_ORIGINAL(CTFontGetMatrix) ? WK_ORIGINAL(CTFontGetMatrix)(font) : wk_identityFontMatrix;
+    CTFontDescriptorRef own = WK_ORIGINAL(CTFontCopyFontDescriptor) ? WK_ORIGINAL(CTFontCopyFontDescriptor)(font) : NULL;
+    CFDictionaryRef laid = attributes ? CTFontDescriptorCopyAttributes(attributes) : NULL;
+    CTFontDescriptorRef merged = own && laid ? CTFontDescriptorCreateCopyWithAttributes(own, laid) : NULL;
+    CTFontRef copy = WK_ORIGINAL(CTFontCreateWithGraphicsFont)(graphics, size > 0 ? size : CTFontGetSize(font),
+        matrix ? matrix : &fontMatrix, merged ? merged : own ? own : attributes);
+    if (merged)
+        CFRelease(merged);
+    if (laid)
+        CFRelease(laid);
+    if (own)
+        CFRelease(own);
+    return copy;
 }
 
 // CTFontDescriptorCopyAttribute answers the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute

@@ -575,6 +575,13 @@ probe_font_provenance() {
         "$T/font_provenance"
 }
 
+probe_font_data_descriptors() {
+    "$CLANG" $MODERN $INC -o "$T/font_data_descriptors" "$TBEHAV/CoreText-font-data-descriptors.c" $PROBE_LIBS \
+        -framework CoreText -framework CoreGraphics -lc++ &&
+        "$T/font_data_descriptors" "$REPO/LayoutTests/resources/Ahem.otf" "$REPO/LayoutTests/resources/Ahem.ttf" \
+            /Library/Fonts/Skia.ttf
+}
+
 probe_feature_clear() {
     "$CLANG" $MODERN $INC -o "$T/feature_clear" "$TBEHAV/CoreText-feature-clear.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -lc++ &&
@@ -821,6 +828,7 @@ run_probe delay_mode_excess_input "$@"
 run_probe optical_size "$@"
 run_probe face_selection "$@"
 run_probe font_provenance "$@"
+run_probe font_data_descriptors "$@"
 run_probe font_collections "$@"
 run_probe h264_parameter_sets "$@"
 run_probe encode_cadence "$@"
