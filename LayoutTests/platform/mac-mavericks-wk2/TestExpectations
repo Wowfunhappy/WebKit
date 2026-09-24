@@ -459,3 +459,7 @@ imported/w3c/web-platform-tests/fetch/local-network-access/websocket.tentative.h
 # pipeline's queued STREAM_START is handled, so canplaythrough can precede track discovery when the main thread
 # is blocked during load in upstream's synchronous GPU-connection (DidInitialize) and AudioSessionMac paths.
 media/video-multiple-concurrent-playback.html [ Skip ]
+
+# Under a parallel run, two animation frames do not always populate these internal paint caches; both dumps
+# come back empty and compare equal. The test passes run alone.
+fast/text/glyph-display-lists/glyph-display-list-scaled-unshared.html [ Skip ]

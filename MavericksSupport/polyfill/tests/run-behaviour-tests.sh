@@ -614,7 +614,6 @@ probe_font_heights() {
     mkdir -p "$T/font-height-fixtures" &&
         "$REPO/MavericksSupport/toolchain/build/python3/bin/python3" "$TBEHAV/CoreText-font-heights-fixtures.py" \
             "$T/font-height-fixtures" \
-            "$REPO/LayoutTests/imported/w3c/web-platform-tests/fonts/noto/noto-sans-v8-latin-regular.woff" \
             "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/RobotoExtremo-VF.subset.ttf" \
             "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/resources/avar/rvrnTest[opsz,wdth,wght].ttf" &&
         "$CLANG" $MODERN $INC -I"$PF/c" -o "$T/font_heights" "$TBEHAV/CoreText-font-heights.c" $PROBE_LIBS \
@@ -701,18 +700,6 @@ probe_shape_glyphs_context() {
         "$T/shape_glyphs_context" "$REPO/LayoutTests/imported/w3c/web-platform-tests"
 }
 
-probe_run_initial_advance() {
-    "$CLANG" $MODERN $INC -o "$T/run_initial_advance" "$TBEHAV/CoreText-run-initial-advance.c" $PROBE_LIBS \
-        -framework CoreText -framework CoreGraphics &&
-        "$T/run_initial_advance"
-}
-
-probe_vertical_origins() {
-    "$CLANG" $MODERN $INC -o "$T/vertical_origins" "$TBEHAV/CoreText-vertical-origins.c" $PROBE_LIBS \
-        -framework CoreText -framework CoreGraphics &&
-        "$T/vertical_origins" "$REPO/LayoutTests/fast/text/resources"
-}
-
 probe_css_family_language() {
     "$CLANG" $MODERN $INC -o "$T/css_family_language" "$TBEHAV/CoreText-css-family-language.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics &&
@@ -729,12 +716,6 @@ probe_user_installed_matching() {
     "$CLANG" $MODERN $INC -o "$T/user_installed_matching" "$TBEHAV/CoreText-user-installed-matching.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics &&
         "$T/user_installed_matching" "$REPO/LayoutTests/resources/Ahem.ttf" "$REPO/Tools/WebKitTestRunner/fonts/FakeHelvetica-SingleExtendedCharacter.ttf"
-}
-
-probe_gsub_ligature_tail() {
-    "$CLANG" $MODERN $INC -o "$T/gsub_ligature_tail" "$TBEHAV/CoreText-gsub-ligature-tail.c" $PROBE_LIBS \
-        -framework CoreText -framework CoreGraphics &&
-        "$T/gsub_ligature_tail" "$REPO/LayoutTests/fast/text/resources/Ahem-GSUB-ligatures.ttf"
 }
 
 probe_gpos_last_pair_set() {
@@ -859,12 +840,9 @@ run_probe logical_order "$@"
 run_probe depth_sorting "$@"
 run_probe frame_rate_range "$@"
 run_probe shape_glyphs_context "$@"
-run_probe run_initial_advance "$@"
-run_probe vertical_origins "$@"
 run_probe css_family_language "$@"
 run_probe clipped_glyphs "$@"
 run_probe user_installed_matching "$@"
-run_probe gsub_ligature_tail "$@"
 run_probe gpos_last_pair_set "$@"
 run_probe control_character_glyphs "$@"
 

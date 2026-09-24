@@ -48,25 +48,7 @@ def write(path, source):
 
 
 out = Path(sys.argv[1])
-base = tables(sys.argv[2])
-write(out / "ordinary.ttf", base)
-for name, xheight, capheight in [("signed", -250, -500), ("zero", 0, 0)]:
-    changed = dict(base)
-    os2 = bytearray(base[b"OS/2"])
-    struct.pack_into(">hh", os2, 86, xheight, capheight)
-    changed[b"OS/2"] = bytes(os2)
-    write(out / (name + ".ttf"), changed)
-for name, length in [("old-version", 78), ("truncated", 88), ("missing", 0)]:
-    changed = dict(base)
-    if length:
-        os2 = bytearray(base[b"OS/2"][:length])
-        if name == "old-version":
-            struct.pack_into(">H", os2, 0, 0)
-        changed[b"OS/2"] = bytes(os2)
-    else:
-        del changed[b"OS/2"]
-    write(out / (name + ".ttf"), changed)
-variable = tables(sys.argv[3])
+variable = tables(sys.argv[2])
 write(out / "variable.ttf", variable)
 cap = dict(variable)
 mvar = bytearray(variable[b"MVAR"])
@@ -83,7 +65,7 @@ def constant_store(deltas):
     data = struct.pack(">HHHH", len(deltas), 1, 1, 0) + struct.pack(">" + "h" * len(deltas), *deltas)
     return struct.pack(">HIHI", 1, 12, 1, 12 + len(regions)) + regions + data
 
-origin = tables(sys.argv[4])
+origin = tables(sys.argv[3])
 index_map = struct.pack(">BBHIII", 0, 0x3f, 3, 0, 1, 0xffffffff)
 origin[b"avar"] = struct.pack(">HHHHII", 2, 0, 0, 0, 16, 16 + len(index_map)) + index_map + constant_store([8192, -3277])
 origin[b"MVAR"] = struct.pack(">HHHHHH4sHH", 1, 0, 0, 8, 1, 20, b"cpht", 0, 0) + constant_store([100])

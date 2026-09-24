@@ -1014,14 +1014,8 @@ std::vector<uint8_t> gposWithLastPairSetsReachable(const uint8_t *bytes, size_t 
     return out;
 }
 
-// This OS forms a GSUB ligature only when two bytes lie past its record: OTL::GSUB::ApplyLigatureSubst
-// (CoreText 0x446f0) bounds the component array as (end - (ligature + 4)) / 2 entries at 0x448aa and
-// requires that to reach ComponentCount at 0x44a28, where the record holds ComponentCount - 1 entries. A
-// font whose last ligature record ends its GSUB never forms that ligature. OTS writes GSUB exactly as long
-// as its data, so the sanitized font's GSUB is lengthened by two zero bytes.
-//
-// The font is written again with GSUB lengthened and GPOS rewritten as above; every table keeps its bytes
-// otherwise and its order, and the tables after a changed one move with it.
+// The font is written again with GPOS rewritten as above; every table keeps its bytes and its order, and
+// the tables after GPOS move with it.
 CFDataRef accommodateLayoutReaders(CFDataRef font)
 {
     const uint8_t *sfnt = CFDataGetBytePtr(font);
@@ -1046,10 +1040,7 @@ CFDataRef accommodateLayoutReaders(CFDataRef font)
         const uint8_t *record = recordAt(t);
         const uint8_t *table = sfnt + readBE32(record + 8);
         const size_t tableLength = readBE32(record + 12);
-        if (readBE32(record) == OTS_TAG('G', 'S', 'U', 'B')) {
-            replacements[t].assign(table, table + tableLength);
-            replacements[t].insert(replacements[t].end(), 2, 0);
-        } else if (readBE32(record) == OTS_TAG('G', 'P', 'O', 'S'))
+        if (readBE32(record) == OTS_TAG('G', 'P', 'O', 'S'))
             replacements[t] = gposWithLastPairSetsReachable(table, tableLength);
         replaced[t] = !replacements[t].empty();
         changed = changed || replaced[t];
@@ -1225,16 +1216,6 @@ CFDataRef sanitizeCollection(CFDataRef data, uint32_t fontCount)
 }
 
 } // namespace
-
-extern "C" CFDataRef wk_copy_gpos_with_reachable_last_pair_sets(CFDataRef data)
-{
-    if (!data)
-        return nullptr;
-    auto bytes = gposWithLastPairSetsReachable(CFDataGetBytePtr(data), static_cast<size_t>(CFDataGetLength(data)));
-    return bytes.empty() ? nullptr : CFDataCreate(kCFAllocatorDefault, bytes.data(), static_cast<CFIndex>(bytes.size()));
-}
-
-
 
 // WOFF and WOFF2 wrap a sfnt, and OTS unwraps both as it reads them -- ots.cc inflates a WOFF through
 // zlib and a WOFF2 through the WOFF2 decoder before it looks at a table -- so a container handed here

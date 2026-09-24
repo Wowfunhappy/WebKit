@@ -32,7 +32,6 @@
 // ots_font_parser.cpp: the memory-safe font parser, and the test for a CFData that parser already
 // produced, which the entry points realize without sanitizing it again.
 extern CFDataRef wk_ots_sanitize_font(CFDataRef data);
-extern CFDataRef wk_copy_gpos_with_reachable_last_pair_sets(CFDataRef data);
 static CTFontRef wk_shapingFont(CTFontRef, bool rightToLeft);
 static CGFontRef wk_createGraphicsFontFromSfnt(CFDataRef);
 extern CFArrayRef wk_ots_copy_font_faces(CFDataRef sanitized);
@@ -1909,44 +1908,6 @@ WK_POLYFILL_REPLACES("CoreText", CFDataRef, CTFontCopyTable, (CTFontRef font, CT
     CFDataRef copied = wk_legacy_variable_font_copy_table(source, table);
     CFRelease(source);
     return copied;
-}
-
-// FontParser's averaged glyph heights include overshoot. OS/2 supplies the font's
-// typographic cap and x heights, including MVAR deltas in a realized static instance.
-static bool wk_os2Height(CTFontRef font, CFIndex offset, CGFloat *height)
-{
-    if (!font)
-        return false;
-    CFDataRef nativeVariations = WK_ORIGINAL(CTFontCopyTable)(font, 'MVAR', kCTFontTableOptionNoOptions);
-    if (nativeVariations) {
-        CFRelease(nativeVariations);
-        return false;
-    }
-    CFDataRef os2 = wk_fontTable(font, sel_registerName("wk_os2Style"), kCTFontTableOS2);
-    if (!os2 || CFDataGetLength(os2) < offset + 2)
-        return false;
-    const UInt8 *bytes = CFDataGetBytePtr(os2);
-    uint16_t version = ((uint16_t)bytes[0] << 8) | bytes[1];
-    int16_t units = (int16_t)(((uint16_t)bytes[offset] << 8) | bytes[offset + 1]);
-    unsigned unitsPerEm = CTFontGetUnitsPerEm(font);
-    if (version < 2 || !units || !unitsPerEm)
-        return false;
-    CGFloat scale = CTFontGetSize(font) / unitsPerEm;
-    CGAffineTransform matrix = CGAffineTransformScale(CTFontGetMatrix(font), scale, scale);
-    *height = CGPointApplyAffineTransform(CGPointMake(0, units), matrix).y;
-    return true;
-}
-
-WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetCapHeight, (CTFontRef font))
-{
-    CGFloat height;
-    return wk_os2Height(font, 88, &height) ? height : WK_ORIGINAL(CTFontGetCapHeight)(font);
-}
-
-WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetXHeight, (CTFontRef font))
-{
-    CGFloat height;
-    return wk_os2Height(font, 86, &height) ? height : WK_ORIGINAL(CTFontGetXHeight)(font);
 }
 
 // A copy's attributes with their variation request rewritten against the axes of the font being copied,
@@ -5230,54 +5191,6 @@ WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     return zero;   // a transformed glyph array starts at the origin; there is no initial advance to report
 }
 
-// 10.9 stores a line's shaping advance in TLine, separately from each TRun's advance.
-// A retained CTRun keeps this first-visual-run contribution after its CTLine is released.
-static const void *wk_lineInitialAdvanceKey(void)
-{
-    return sel_registerName("wk_lineInitialAdvance");
-}
-
-WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTLineGetGlyphRuns, (CTLineRef line))
-{
-    CFArrayRef runs = WK_ORIGINAL(CTLineGetGlyphRuns)(line);
-    if (!line || !runs || !CFArrayGetCount(runs))
-        return runs;
-
-    // CTLineGetTypographicBounds reads CTLine's TLine at +0x28; TLine::CachePositions
-    // reads its shaping advance at +0xa8/+0xb0 before positioning the first run.
-    const char *nativeLine;
-    memcpy(&nativeLine, (const char *)line + 0x28, sizeof(nativeLine));
-    CGSize initial;
-    memcpy(&initial, nativeLine + 0xa8, sizeof(initial));
-    if (!initial.width && !initial.height)
-        return runs;
-
-    id run = (id)(void *)CFArrayGetValueAtIndex(runs, 0);
-    objc_sync_enter(run);
-    if (!objc_getAssociatedObject(run, wk_lineInitialAdvanceKey())) {
-        CFDataRef data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&initial, sizeof(initial));
-        if (!data)
-            abort();
-        objc_setAssociatedObject(run, wk_lineInitialAdvanceKey(), (id)(void *)data, OBJC_ASSOCIATION_RETAIN);
-        CFRelease(data);
-    }
-    objc_sync_exit(run);
-    return runs;
-}
-
-WK_POLYFILL_REPLACES("CoreText", CGSize, CTRunGetInitialAdvance, (CTRunRef run))
-{
-    CGSize initial = WK_ORIGINAL(CTRunGetInitialAdvance)(run);
-    CFDataRef data = run ? (CFDataRef)objc_getAssociatedObject((id)(void *)run, wk_lineInitialAdvanceKey()) : NULL;
-    if (data) {
-        CGSize lineInitial;
-        memcpy(&lineInitial, CFDataGetBytePtr(data), sizeof(lineInitial));
-        initial.width += lineInitial.width;
-        initial.height += lineInitial.height;
-    }
-    return initial;
-}
-
 // 10.9 encodes mark placement in paint advances. Base advances keep mark glyphs at zero,
 // and origins retain their displacement from the advancing pen, so normalizing a space's width
 // does not erase the following mark's placement.
@@ -5820,50 +5733,6 @@ WK_POLYFILL_REPLACES("CoreText", bool, CTFontGetVerticalGlyphsForCharacters,
     return wk_mapControlCharactersToNull(font, characters, glyphs, count, mapped, WK_ORIGINAL(CTFontGetVerticalGlyphsForCharacters));
 }
 
-// A font with neither vmtx nor VORG has no vertical origin of its own, and hangs every glyph set upright
-// from its ascent, as the fonts that do carry vertical metrics here report theirs: Hiragino Kaku Gothic
-// ProN answers -88 at 100pt for every glyph, its ascent. 10.9 instead derives the height of such a font's
-// origin from each glyph's bounding box -- Ahem at 100pt answers -84.9 for a full-height glyph and -64.9
-// for a shorter one, Times -49.85 for 'x' and -71.14 for 'T' -- so an upright glyph moves off the line its
-// horizontal setting sits on. The width, half the advance, is left as 10.9 computes it.
-static const void *wk_verticalOriginTablesKey(void) { return sel_registerName("wk_verticalOriginTables"); }
-
-// Whether the font carries vmtx or VORG, kept on the CTFont as kCFBooleanTrue or kCFBooleanFalse. The
-// association is set once and never replaced, so a present value is read without a lock.
-static bool wk_fontHasVerticalOrigins(CTFontRef font)
-{
-    CFBooleanRef cached = (CFBooleanRef)objc_getAssociatedObject((id)(void *)font, wk_verticalOriginTablesKey());
-    if (!cached) {
-        objc_sync_enter((id)(void *)font);
-        cached = (CFBooleanRef)objc_getAssociatedObject((id)(void *)font, wk_verticalOriginTablesKey());
-        if (!cached) {
-            CFDataRef vmtx = CTFontCopyTable(font, kCTFontTableVmtx, kCTFontTableOptionNoOptions);
-            CFDataRef vorg = vmtx ? NULL : CTFontCopyTable(font, kCTFontTableVORG, kCTFontTableOptionNoOptions);
-            cached = (vmtx || vorg) ? kCFBooleanTrue : kCFBooleanFalse;
-            if (vmtx)
-                CFRelease(vmtx);
-            if (vorg)
-                CFRelease(vorg);
-            objc_setAssociatedObject((id)(void *)font, wk_verticalOriginTablesKey(), (id)(void *)cached, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        objc_sync_exit((id)(void *)font);
-    }
-    return cached == kCFBooleanTrue;
-}
-
-WK_POLYFILL_REPLACES("CoreText", void, CTFontGetVerticalTranslationsForGlyphs,
-                     (CTFontRef font, const CGGlyph glyphs[], CGSize translations[], CFIndex count))
-{
-    if (!WK_ORIGINAL(CTFontGetVerticalTranslationsForGlyphs))
-        return;
-    WK_ORIGINAL(CTFontGetVerticalTranslationsForGlyphs)(font, glyphs, translations, count);
-    if (!font || !translations || count <= 0 || wk_fontHasVerticalOrigins(font))
-        return;
-    CGFloat height = -CTFontGetAscent(font);
-    for (CFIndex i = 0; i < count; ++i)
-        translations[i].height = height;
-}
-
 WK_POLYFILL_REPLACES("CoreText", CGRect, CTFontGetBoundingRectsForGlyphs,
                      (CTFontRef font, CTFontOrientation orientation, const CGGlyph *glyphs, CGRect *boundingRects, CFIndex count))
 {
@@ -6387,23 +6256,9 @@ static void wk_unmapShapingSfnt(void *bytes, void *length)
     munmap(bytes, (size_t)length);
 }
 
-// A shaping instance carries the installed font's GPOS repair and the RTL morx flags.
-static CGFontRef wk_createShapingInstance(CTFontRef font, bool rightToLeft)
+// A shaping instance carries the font's morx with its logical-order subtables flagged for right-to-left text.
+static CGFontRef wk_createShapingInstance(CTFontRef font)
 {
-    CFDataRef morx = rightToLeft ? CTFontCopyTable(font, 'morx', kCTFontTableOptionNoOptions) : NULL;
-    bool logicalOrder = morx && wk_morxLogicalOrderSubtables((uint8_t *)CFDataGetBytePtr(morx), CFDataGetLength(morx), false);
-    if (morx)
-        CFRelease(morx);
-    CFTypeRef url = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontURLAttribute);
-    CFDataRef gpos = url ? CTFontCopyTable(font, kCTFontTableGPOS, kCTFontTableOptionNoOptions) : NULL;
-    CFDataRef repairedGPOS = wk_copy_gpos_with_reachable_last_pair_sets(gpos);
-    if (gpos)
-        CFRelease(gpos);
-    if (url)
-        CFRelease(url);
-    if (!logicalOrder && !repairedGPOS)
-        return NULL;
-
     CFArrayRef tagArray = CTFontCopyAvailableTables(font, kCTFontTableOptionNoOptions);
     CFIndex tagCount = tagArray ? CFArrayGetCount(tagArray) : 0;
     uint32_t *tags = (uint32_t *)malloc((size_t)(tagCount + 1) * sizeof(uint32_t));
@@ -6420,8 +6275,7 @@ static CGFontRef wk_createShapingInstance(CTFontRef font, bool rightToLeft)
     CFIndex tablesLength = 0;
     bool compactFontFormat = false;
     for (CFIndex i = 0; i < tagCount; ++i) {
-        CFDataRef table = tags[i] == 'GPOS' && repairedGPOS ? (CFDataRef)CFRetain(repairedGPOS)
-            : CTFontCopyTable(font, tags[i], kCTFontTableOptionNoOptions);
+        CFDataRef table = CTFontCopyTable(font, tags[i], kCTFontTableOptionNoOptions);
         if (!table)
             continue;
         if (tags[i] == 'sbix') {
@@ -6450,7 +6304,7 @@ static CGFontRef wk_createShapingInstance(CTFontRef font, bool rightToLeft)
     for (CFIndex i = 0; i < count; ++i) {
         CFIndex tableLength = CFDataGetLength(tables[i]);
         memcpy(bytes + offset, CFDataGetBytePtr(tables[i]), (size_t)tableLength);
-        if (tags[i] == 'morx' && logicalOrder)
+        if (tags[i] == 'morx')
             wk_morxLogicalOrderSubtables(bytes + offset, tableLength, true);
         uint8_t *entry = bytes + 12 + 16 * i;
         wk_writeBigEndian32(entry, tags[i]);
@@ -6461,8 +6315,6 @@ static CGFontRef wk_createShapingInstance(CTFontRef font, bool rightToLeft)
     }
     free(tags);
     free(tables);
-    if (repairedGPOS)
-        CFRelease(repairedGPOS);
 
     CFAllocatorContext context = { .info = (void *)length, .deallocate = wk_unmapShapingSfnt };
     CFAllocatorRef allocator = CFAllocatorCreate(kCFAllocatorDefault, &context);
@@ -6475,31 +6327,24 @@ static CGFontRef wk_createShapingInstance(CTFontRef font, bool rightToLeft)
     return instance;
 }
 
-static const void *wk_shapingInstanceKey(bool rightToLeft)
-{
-    return sel_registerName(rightToLeft ? "wk_shapingInstanceRTL" : "wk_shapingInstanceLTR");
-}
-
 static const void *wk_isShapingInstanceKey(void) { return sel_registerName("wk_isShapingInstance"); }
 
-static CGFontRef wk_copyShapingInstanceForFont(CTFontRef font, bool rightToLeft)
+static CGFontRef wk_copyShapingInstanceForFont(CTFontRef font)
 {
-    if (rightToLeft) {
-        CFDataRef morx = CTFontCopyTable(font, 'morx', kCTFontTableOptionNoOptions);
-        bool logicalOrder = morx && wk_morxLogicalOrderSubtables((uint8_t *)CFDataGetBytePtr(morx), CFDataGetLength(morx), false);
-        if (morx)
-            CFRelease(morx);
-        if (!logicalOrder)
-            return wk_copyShapingInstanceForFont(font, false);
-    }
+    CFDataRef morx = CTFontCopyTable(font, 'morx', kCTFontTableOptionNoOptions);
+    bool logicalOrder = morx && wk_morxLogicalOrderSubtables((uint8_t *)CFDataGetBytePtr(morx), CFDataGetLength(morx), false);
+    if (morx)
+        CFRelease(morx);
+    if (!logicalOrder)
+        return NULL;
     CGFontRef graphicsFont = CTFontCopyGraphicsFont(font, NULL);
     if (!graphicsFont)
         return NULL;
-    const void *key = wk_shapingInstanceKey(rightToLeft);
+    const void *key = sel_registerName("wk_shapingInstance");
     objc_sync_enter((id)(void *)graphicsFont);
     CFTypeRef instance = (CFTypeRef)objc_getAssociatedObject((id)(void *)graphicsFont, key);
     if (!instance) {
-        CGFontRef created = wk_createShapingInstance(font, rightToLeft);
+        CGFontRef created = wk_createShapingInstance(font);
         instance = created ? (CFTypeRef)created : kCFNull;
         if (created)
             objc_setAssociatedObject((id)(void *)created, wk_isShapingInstanceKey(), (id)(void *)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -6523,10 +6368,12 @@ static bool wk_isShapingInstance(CTFontRef font)
     return instance;
 }
 
-// The source font owns its realized shaping fonts.
+// The source font owns its realized shaping font.
 static CTFontRef wk_shapingFont(CTFontRef font, bool rightToLeft)
 {
-    const void *key = sel_registerName(rightToLeft ? "wk_shapingFontRTL" : "wk_shapingFontLTR");
+    if (!rightToLeft)
+        return NULL;
+    const void *key = sel_registerName("wk_shapingFont");
     objc_sync_enter((id)(void *)font);
     CFTypeRef cached = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, key);
     if (cached) {
@@ -6534,7 +6381,7 @@ static CTFontRef wk_shapingFont(CTFontRef font, bool rightToLeft)
         return cached == kCFNull ? NULL : (CTFontRef)cached;
     }
     CFTypeRef shapingFont = kCFNull;
-    CGFontRef instance = wk_isShapingInstance(font) ? NULL : wk_copyShapingInstanceForFont(font, rightToLeft);
+    CGFontRef instance = wk_isShapingInstance(font) ? NULL : wk_copyShapingInstanceForFont(font);
     if (instance) {
         CGAffineTransform matrix = CTFontGetMatrix(font);
         CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(font);
@@ -7602,8 +7449,8 @@ static CFTypeRef wk_createFromReplay(wk_naturalKind kind, wk_replayProvider *pro
     return WK_ORIGINAL(CTTypesetterCreateWithUniCharProviderAndOptions)(wk_replayProvide, dispose, provider, options);
 }
 
-// Attributed-string clients use the same installed-font GPOS instances as character providers.
-static CFAttributedStringRef wk_copyWithShapingFonts(CFAttributedStringRef string)
+// Attributed-string clients get the same cluster fallback as character providers.
+static CFAttributedStringRef wk_copyWithClusterFallbackFonts(CFAttributedStringRef string)
 {
     CFMutableAttributedStringRef copy = NULL;
     CFIndex length = CFAttributedStringGetLength(string);
@@ -7630,15 +7477,6 @@ static CFAttributedStringRef wk_copyWithShapingFonts(CFAttributedStringRef strin
             }
             wk_clusterFontProviderRelease(&provider);
             free(characters);
-            i = range.location + range.length;
-            continue;
-        }
-        CTFontRef shaping = font && CFGetTypeID(font) == CTFontGetTypeID() ? wk_shapingFont(font, false) : NULL;
-        if (shaping) {
-            if (!copy)
-                copy = CFAttributedStringCreateMutableCopy(kCFAllocatorDefault, 0, string);
-            CFAttributedStringSetAttribute(copy, range, kCTFontAttributeName, shaping);
-            CFAttributedStringSetAttribute(copy, range, wk_sourceAttributesKey(), attributes);
         }
         i = range.location + range.length;
     }
@@ -7647,7 +7485,7 @@ static CFAttributedStringRef wk_copyWithShapingFonts(CFAttributedStringRef strin
 
 WK_POLYFILL_REPLACES("CoreText", CTLineRef, CTLineCreateWithAttributedString, (CFAttributedStringRef string))
 {
-    CFAttributedStringRef copy = string ? wk_copyWithShapingFonts(string) : NULL;
+    CFAttributedStringRef copy = string ? wk_copyWithClusterFallbackFonts(string) : NULL;
     CTLineRef line = WK_ORIGINAL(CTLineCreateWithAttributedString)(copy ? copy : string);
     if (copy)
         CFRelease(copy);
@@ -7657,7 +7495,7 @@ WK_POLYFILL_REPLACES("CoreText", CTLineRef, CTLineCreateWithAttributedString, (C
 WK_POLYFILL_REPLACES("CoreText", CTTypesetterRef, CTTypesetterCreateWithAttributedStringAndOptions,
     (CFAttributedStringRef string, CFDictionaryRef options))
 {
-    CFAttributedStringRef copy = string ? wk_copyWithShapingFonts(string) : NULL;
+    CFAttributedStringRef copy = string ? wk_copyWithClusterFallbackFonts(string) : NULL;
     CTTypesetterRef typesetter = WK_ORIGINAL(CTTypesetterCreateWithAttributedStringAndOptions)(copy ? copy : string, options);
     if (copy)
         CFRelease(copy);

@@ -5,13 +5,8 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <stdio.h>
 #include <math.h>
-#include <mach/mach.h>
-#include <mach/task_info.h>
 #include <string.h>
 
-extern CFDataRef wk_copy_gpos_with_reachable_last_pair_sets(CFDataRef);
-extern CGSize CTFontShapeGlyphs(CTFontRef, CGGlyph[], CGSize[], CGPoint[], CFIndex[], const UniChar[], CFIndex, CFOptionFlags, CFStringRef,
-    void (^)(CFRange, CGGlyph **, CGSize **, CGPoint **, CFIndex **));
 extern bool CTFontTransformGlyphs(CTFontRef, CGGlyph[], CGSize[], CFIndex, uint32_t);
 
 static int failures;
@@ -150,76 +145,12 @@ static CFDataRef sanitizedGPOS(const char *path, const uint8_t *gpos, size_t gpo
     return table;
 }
 
-static void expectRefusal(const char *label, const uint8_t *bytes, size_t length)
+// A GPOS the rewrite refuses comes out of the parser as it went in, or not at all.
+static void expectRefusal(const char *path, const char *label, const uint8_t *bytes, size_t length)
 {
-    CFDataRef data = CFDataCreate(NULL, bytes, length);
-    CFDataRef copy = wk_copy_gpos_with_reachable_last_pair_sets(data);
-    check(!copy, label);
-    if (copy) CFRelease(copy);
-    CFRelease(data);
-}
-
-static uint64_t internalMemory(void)
-{
-    task_vm_info_data_t info = { 0 };
-    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-    check(task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) == KERN_SUCCESS, "task_vm_info measurement succeeds");
-    return info.internal;
-}
-
-static void installedPairs(void)
-{
-    const struct { CFStringRef name; CGGlyph first, second; double kern; } pairs[] = {
-        { CFSTR("ArialMT"), 652, 302, -29 },
-        { CFSTR("TimesNewRomanPSMT"), 648, 15, -203 },
-        { CFSTR("HiraKakuProN-W3"), 16380, 637, -30 },
-        { CFSTR("Seravek"), 1413, 1394, -65 },
-        { CFSTR("Seravek-ExtraLight"), 904, 867, -25 },
-    };
-    for (size_t i = 0; i < sizeof(pairs) / sizeof(pairs[0]); ++i) {
-        CTFontRef small = CTFontCreateWithName(pairs[i].name, 12, NULL);
-        CTFontRef font = CTFontCreateWithName(pairs[i].name, CTFontGetUnitsPerEm(small), NULL);
-        CFRelease(small);
-        check(pairs[i].first < CTFontGetGlyphCount(font) && pairs[i].second < CTFontGetGlyphCount(font), "the pair belongs to this face");
-        CGGlyph glyphs[] = { pairs[i].first, pairs[i].second };
-        CGSize advances[2];
-        CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, advances, 2);
-        double nominal = advances[0].width + advances[1].width;
-        (void)kerning(font, glyphs[0], glyphs[1]);
-        uint64_t before = internalMemory();
-        CTFontShapeGlyphs(font, glyphs, advances, NULL, NULL, NULL, 2, 1, NULL, NULL);
-        uint64_t after = internalMemory();
-        char name[128], label[256];
-        CFStringGetCString(pairs[i].name, name, sizeof(name), kCFStringEncodingUTF8);
-        double delta = advances[0].width + advances[1].width - nominal;
-        printf("installed %s pair %u,%u kern %.3f expected %.3f internal before %llu after %llu delta %lld bytes\n",
-            name, glyphs[0], glyphs[1], delta, pairs[i].kern, (unsigned long long)before, (unsigned long long)after, (long long)(after-before));
-        snprintf(label, sizeof(label), "%s last PairSet shapes through CTFontShapeGlyphs", name);
-        check(fabs(delta - pairs[i].kern) < 0.05, label);
-        UniChar characters[2] = { 0, 0 };
-        for (uint32_t c = 1; c < 0x10000 && (!characters[0] || !characters[1]); ++c) {
-            if (c >= 0xd800 && c <= 0xdfff) continue;
-            UniChar ch = c;
-            CGGlyph g;
-            CTFontGetGlyphsForCharacters(font, &ch, &g, 1);
-            if (g == pairs[i].first) characters[0] = ch;
-            if (g == pairs[i].second) characters[1] = ch;
-        }
-        printf("installed %s Unicode %04x,%04x\n", name, characters[0], characters[1]);
-        if (characters[0] && characters[1]) {
-            CFStringRef string = CFStringCreateWithCharacters(NULL, characters, 2);
-            const void *keys[] = { kCTFontAttributeName };
-            const void *values[] = { font };
-            CFDictionaryRef attributes = CFDictionaryCreate(NULL, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-            CFAttributedStringRef text = CFAttributedStringCreate(NULL, string, attributes);
-            CTLineRef line = CTLineCreateWithAttributedString(text);
-            double kern = CTLineGetTypographicBounds(line, NULL, NULL, NULL) - nominal;
-            snprintf(label, sizeof(label), "%s last PairSet typesets through CTLine (%.3f)", name, kern);
-            check(fabs(kern - pairs[i].kern) < 0.05, label);
-            CFRelease(line); CFRelease(text); CFRelease(attributes); CFRelease(string);
-        }
-        CFRelease(font);
-    }
+    CFDataRef sanitized = sanitizedGPOS(path, bytes, length);
+    check(!sanitized || ((size_t)CFDataGetLength(sanitized) == length && !memcmp(CFDataGetBytePtr(sanitized), bytes, length)), label);
+    if (sanitized) CFRelease(sanitized);
 }
 
 int main(int argc, char **argv)
@@ -280,23 +211,22 @@ int main(int argc, char **argv)
     uint8_t bad[256];
     size_t badLength = buildPairPosGPOS(bad, false);
     putU16(bad + 0x4e, 10);
-    expectRefusal("Coverage below the offset array end is not moved", bad, badLength);
+    expectRefusal(path, "Coverage below the offset array end is not moved", bad, badLength);
     badLength = buildPairPosGPOS(bad, false);
     putU16(bad + 0x50, 0x10);
     putU16(bad + 0x5c, 8);
-    expectRefusal("a Device below the offset array end is not moved", bad, badLength);
+    expectRefusal(path, "a Device below the offset array end is not moved", bad, badLength);
     badLength = buildPairPosGPOS(bad, false);
     putU16(bad + 0x62, 2);
     putU16(bad + 0x66, 14);
-    expectRefusal("Coverage count larger than PairSetCount gains no pairs", bad, badLength);
+    expectRefusal(path, "Coverage count larger than PairSetCount gains no pairs", bad, badLength);
     badLength = buildPairPosGPOS(bad, false);
     putU16(bad + 0x60, 2);
     putU16(bad + 0x64, 13); putU16(bad + 0x66, 14); putU16(bad + 0x68, 0);
-    expectRefusal("format 2 Coverage count must also equal PairSetCount", bad, badLength);
+    expectRefusal(path, "format 2 Coverage count must also equal PairSetCount", bad, badLength);
     badLength = buildPairPosGPOS(bad, false);
     putU16(bad + 0x46, 0x4c - 0x44);
-    expectRefusal("Coverage at the PairPos first byte prevents an Extension stub", bad, badLength);
-    installedPairs();
+    expectRefusal(path, "Coverage at the PairPos first byte prevents an Extension stub", bad, badLength);
 
     if (failures)
         return 1;

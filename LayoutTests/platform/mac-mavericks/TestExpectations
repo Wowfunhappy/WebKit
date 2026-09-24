@@ -460,6 +460,23 @@ webkit.org/b/193518 imported/w3c/web-platform-tests/fetch/range/general.window.h
 imported/w3c/web-platform-tests/css/css-fonts/font-size-adjust-ic-height.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-writing-modes/text-combine-upright-line-breaking-rules-001.html [ Skip ]
 
+# Maintainer scope decision 2026-09-23: 10.9 CoreText behaviour stock Safari 7 also had.
+# CTFontGetCapHeight and CTFontGetXHeight measure the glyph outlines, overshoot included, not OS/2.
+imported/w3c/web-platform-tests/css/css-fonts/font-size-adjust-009.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-inline/text-box-trim/text-box-trim-end-001-vlr-cap.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-inline/text-box-trim/text-box-trim-initial-letter-start-001.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-inline/text-box-trim/text-box-trim-start-001-cap.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-inline/text-box-trim/text-box-trim-start-001-vrl-cap.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-values/cap-unit-001.html [ Skip ]
+# A line keeps the shaping advance of a leading combining mark or keycap for itself, outside every run.
+fast/text/combining-enclosing-keycap.html [ Skip ]
+# An upright glyph of a font without vmtx or VORG hangs from its own bounding box, not the font's ascent.
+fast/text/multiple-codeunit-vertical-upright.html [ Skip ]
+fast/text/multiple-codeunit-vertical-upright-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-writing-modes/text-shadow-orientation-upright-001.html [ Skip ]
+# A GSUB ligature whose record ends the table never forms.
+fast/text/zwj-ligature.html [ Skip ]
+
 # Maintainer scope decision 2026-09-15: glyph display-list dumps.
 fast/text/glyph-display-lists/glyph-display-list-sharing-colr.html [ Skip ]
 
@@ -536,7 +553,7 @@ fast/text/vertical-rl-rtl-linebreak.html [ Skip ]
 fast/text/vertical-rl-rtl-linebreak-mixed.html [ Skip ]
 
 # Maintainer OTS scope decision 2026-09-15: the test's font is refused by upstream OTS 9.2.0 (collection.ttc and
-# collection2.ttc face 1 and gw432047.ttf: "cmap: Failed to parse table"; header-totalsfntsize-001.woff2: "Size of
+# collection2.ttc face 1, gw432047.ttf and FontWithFeatures.ttf: "cmap: Failed to parse table"; header-totalsfntsize-001.woff2: "Size of
 # decompressed WOFF 2.0 is less than compressed size"), or loses the table it tests: OpenTypeKERN::ShouldSerialize
 # (src/kern.cc) drops kern from a font without glyf, which the SVG font's CFF conversion is.
 fast/text/font-collection.html [ Skip ]
@@ -544,6 +561,7 @@ fast/text/font-collection-2.html [ Skip ]
 fast/text/woff2-totalsfntsize.html [ Skip ]
 fast/text/unicode-variation-selector.html [ Skip ]
 fast/text/svg-font-face-with-kerning.html [ Skip ]
+css3/font-feature-settings-rendering.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: near miss (five flag emoji at 36px measure 180.0005 and dump as 181).
 fast/text/midword-break-before-surrogate-pair-2.html [ Skip ]

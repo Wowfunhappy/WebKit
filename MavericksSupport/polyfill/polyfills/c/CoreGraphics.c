@@ -801,10 +801,8 @@ static CGColorSpaceRef wk_makeCalibratedRGB(const CGFloat whitePoint[3], CGFloat
 // Display P3: P3's primaries with sRGB's transfer function. That transfer function is piecewise -- a
 // linear segment below 0.04045 and a 2.4 power above it -- and CGColorSpaceCreateCalibratedRGB takes
 // one exponent per channel, so a calibrated space cannot carry it. The nearest exponent, 2.2, costs a
-// 1/255 step: measured on this host by filling into an sRGB bitmap, the P3 green
-// fast/canvas/canvas-color-space-display-p3.html paints, (0.26374, 0.59085, 0.16434), lands on
-// 0,154,0 through a 2.2 exponent and on 0,153,0 -- #009900, the sRGB colour the test's own reference
-// paints beside it -- through the real curve.
+// 1/255 step: measured on this host by filling into an sRGB bitmap, the P3 green (0.26374, 0.59085,
+// 0.16434) lands on 0,154,0 through a 2.2 exponent and on 0,153,0 (sRGB #009900) through the real curve.
 //
 // So the space is built from an ICC profile: this CoreGraphics' own sRGB profile with the three
 // colorant tags replaced by the Display P3 primaries. Every curve in it is the one this CoreGraphics
@@ -1117,25 +1115,6 @@ WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceUsesITUR_2100TF, (CGColorSp
     return transfer == 16 || transfer == 18;
 }
 
-// ROMM RGB's primaries, whose gamut holds every printable colour, in a profile built the same way. Its
-// white is D50, so the primaries are the colorants as they are.
-static CGColorSpaceRef wk_rommProfile_storage;
-static void wk_build_rommProfile(void)
-{
-    uint32_t colorants[3][3];
-    for (unsigned c = 0; c < 3; c++) {
-        for (unsigned component = 0; component < 3; component++)
-            colorants[c][component] = (uint32_t)(int32_t)lround(wk_rommPrimariesToXYZ[3 * c + component] * 65536.0);
-    }
-    wk_rommProfile_storage = wk_createICCSpaceFromSRGB(colorants, "ROMM RGB");
-}
-static CGColorSpaceRef wk_rommProfile_space(void)
-{
-    static pthread_once_t once = PTHREAD_ONCE_INIT;
-    pthread_once(&once, wk_build_rommProfile);
-    return wk_rommProfile_storage;
-}
-
 // The same primaries with a linear transfer.
 static CGColorSpaceRef wk_linearDisplayP3_storage;
 static void wk_build_linearDisplayP3(void)
@@ -1417,22 +1396,6 @@ size_t wk_coreAnimationTextureLimit(void)
     return wk_ioSurfaceTextureLimit_storage;
 }
 
-// A float bitmap in an extended-range colour space holds components outside [0, 1]; WebKit carries a CMYK
-// or Lab image between processes in one so its gamut is not clipped
-// (ShareableBitmapConfiguration::validateColorSpace). 10.9 clamps the result of a conversion that runs
-// through a lookup-table profile -- CMYK, Lab -- to the destination's [0, 1], while a conversion between
-// two matrix RGB spaces keeps components outside it: Generic CMYK cyan reaches extended sRGB as red
-// 0.0000 directly and as -0.4352 through ROMM RGB. Such an image is drawn from a float copy in ROMM RGB,
-// where the table lookup lands in range, and the matrix step into the destination keeps the rest.
-static bool wk_drawsIntoExtendedRangeBitmap(CGContextRef context)
-{
-    return WK_SYSTEM(CGContextGetType) && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_BITMAP
-        && (CGBitmapContextGetBitmapInfo(context) & kCGBitmapFloatComponents)
-        && wk_colorSpaceUsesExtendedRange(CGBitmapContextGetColorSpace(context));
-}
-
-static CGImageRef wk_copyImageInROMMRGB(CGImageRef);
-
 static bool wk_drawOversizedImageInIOSurface(CGContextRef, CGRect, CGImageRef);
 
 // Direct IOSurface contexts and asynchronous CA layer contexts share this renderer delegate.
@@ -1488,154 +1451,10 @@ bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef context)
         && wk_contextDelegateVTable(context) == wk_coreAnimationIOSurfaceDelegateVTable;
 }
 
-static void wk_freeEdgeReplicatedPixels(void *info, const void *data, size_t size)
-{
-    (void)data;
-    (void)size;
-    free(info);
-}
-
-// _blt_image_initialize (10.9, 0x3179c; 0x321d4-0x321ec) admits an axis-aligned
-// sample box up to 1/512 source pixel outside the image. argb32_image_mark_image
-// (0x5a5f6-0x5a646) floors its 32.32 coordinates; argb32_image_mark_argb32
-// (0x5a81c-0x5a838, 0x5ab61-0x5ab73) clamps to the one-past-end address and reads it.
-// Replicate row edges only when this admitted box contains an out-of-range column.
-static bool wk_imageSampleAxis(double origin, double scale, double first, double last,
-    size_t extent, bool *outside)
-{
-    if (!isfinite(scale) || !scale || !isfinite(origin) || !isfinite(first) || !isfinite(last) || first > last)
-        return false;
-    const double fixed = 4294967296.0;
-    double start = (first + 0.5 - origin) / scale;
-    double step = 1 / scale;
-    if (!isfinite(start) || !isfinite(step) || fabs(start) >= INT32_MAX || fabs(step) >= INT32_MAX)
-        return false;
-    double sampleFirst = trunc(start * fixed) / fixed;
-    double sampleLast = sampleFirst + (last - first) * (trunc(step * fixed) / fixed);
-    double low = fmin(sampleFirst, sampleLast), high = fmax(sampleFirst, sampleLast);
-    // The initializer expands the half-source-pixel interpolation bound by 1/256 of itself.
-    if (low - fabs(step) / 2 < -1.0 / 512 || high + fabs(step) / 2 > extent + 1.0 / 512)
-        return false;
-    *outside = low < 0 || high >= extent;
-    return true;
-}
-
-static bool wk_imageDrawOverreadsRow(CGContextRef context, CGRect rect, CGImageRef image)
-{
-    if (!context || !image || CGContextGetShouldAntialias(context))
-        return false;
-    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
-    if (!width || !height)
-        return false;
-    CGAffineTransform matrix = CGAffineTransformConcat(
-        CGAffineTransformMake(rect.size.width / width, 0, 0, -rect.size.height / height,
-            rect.origin.x, rect.origin.y + rect.size.height), CGContextGetCTM(context));
-    // The rasterizer stores the image-to-device matrix as floats.
-    matrix = CGAffineTransformMake((float)matrix.a, (float)matrix.b, (float)matrix.c,
-        (float)matrix.d, (float)matrix.tx, (float)matrix.ty);
-    bool swapped = !matrix.a && !matrix.d;
-    if (!swapped && (matrix.b || matrix.c))
-        return false;
-    CGRect imageBounds = CGRectApplyAffineTransform(CGRectMake(0, 0, width, height), matrix);
-    CGRect clip = CGContextConvertRectToDeviceSpace(context, CGContextGetClipBoundingBox(context));
-    CGRect pixels = CGRectIntersection(CGRectIntegral(imageBounds), CGRectIntegral(clip));
-    if (CGRectIsEmpty(pixels) || CGRectIsInfinite(pixels))
-        return false;
-    bool outsideColumn = false, outsideRow = false;
-    bool columns = wk_imageSampleAxis(swapped ? matrix.ty : matrix.tx, swapped ? matrix.b : matrix.a,
-        swapped ? CGRectGetMinY(pixels) : CGRectGetMinX(pixels),
-        (swapped ? CGRectGetMaxY(pixels) : CGRectGetMaxX(pixels)) - 1, width, &outsideColumn);
-    bool rows = wk_imageSampleAxis(swapped ? matrix.tx : matrix.ty, swapped ? matrix.c : matrix.d,
-        swapped ? CGRectGetMinX(pixels) : CGRectGetMinY(pixels),
-        (swapped ? CGRectGetMaxX(pixels) : CGRectGetMaxY(pixels)) - 1, height, &outsideRow);
-    return columns && rows && outsideColumn && !outsideRow;
-}
-
-extern CGImageRef CGImageGetMask(CGImageRef);
-extern const CGFloat *CGImageGetMaskingColors(CGImageRef);
-static CGImageRef wk_copyColorMatchedImage(CGImageRef, CGColorSpaceRef);
-
-static CGImageRef wk_edgeReplicatedImageForOverread(CGContextRef context, CGRect rect, CGImageRef image)
-{
-    if (!image || CGImageIsMask(image) || CGImageGetMask(image) || CGImageGetMaskingColors(image)
-        || !wk_imageDrawOverreadsRow(context, rect, image))
-        return NULL;
-    if (CGImageGetBitmapInfo(image) & kCGBitmapFloatComponents || CGImageGetBitsPerComponent(image) != 8)
-        return NULL;
-    // CG colour matching creates a tightly packed intermediate. Match before padding
-    // so the rasterizer consumes the replicated rows in the destination space.
-    CGColorSpaceRef destination = CGContextGetColorSpace(context);
-    CGColorSpaceRef sourceSpace = CGImageGetColorSpace(image);
-    if (sourceSpace && destination && !wk_drawsIntoExtendedRangeBitmap(context)
-        && !WK_SYSTEM(CGColorSpaceEqualToColorSpace)(sourceSpace, destination)) {
-        CGImageRef matched = wk_copyColorMatchedImage(image, destination);
-        if (matched) {
-            CGImageRef padded = wk_edgeReplicatedImageForOverread(context, rect, matched);
-            CGImageRelease(matched);
-            return padded;
-        }
-    }
-    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
-    if (!width || !height)
-        return NULL;
-    size_t bitsPerPixel = CGImageGetBitsPerPixel(image);
-    if (bitsPerPixel % 8)
-        return NULL;
-    size_t pixelBytes = bitsPerPixel / 8, sourceStride = CGImageGetBytesPerRow(image);
-    if (!pixelBytes || width > (SIZE_MAX / pixelBytes) - 2 || sourceStride < width * pixelBytes
-        || height > SIZE_MAX / sourceStride || height > SIZE_MAX / ((width + 2) * pixelBytes))
-        return NULL;
-    CGDataProviderRef provider = CGImageGetDataProvider(image);
-    CFDataRef pixels = provider ? CGDataProviderCopyData(provider) : NULL;
-    if (!pixels)
-        return NULL;
-    const uint8_t *source = CFDataGetBytePtr(pixels);
-    if (!source || (size_t)CFDataGetLength(pixels) < (height - 1) * sourceStride + width * pixelBytes) {
-        CFRelease(pixels);
-        return NULL;
-    }
-    size_t paddedStride = (width + 2) * pixelBytes;
-    uint8_t *buffer = calloc(height, paddedStride);
-    if (!buffer) {
-        CFRelease(pixels);
-        return NULL;
-    }
-    for (size_t y = 0; y < height; ++y) {
-        uint8_t *row = buffer + y * paddedStride + pixelBytes;
-        memcpy(row, source + y * sourceStride, width * pixelBytes);
-        memcpy(row - pixelBytes, row, pixelBytes);
-        memcpy(row + width * pixelBytes, row + (width - 1) * pixelBytes, pixelBytes);
-    }
-    CFRelease(pixels);
-    uint8_t *centre = buffer + pixelBytes;
-    CGDataProviderRef padded = CGDataProviderCreateWithData(buffer, centre, paddedStride * height - pixelBytes, wk_freeEdgeReplicatedPixels);
-    if (!padded) {
-        free(buffer);
-        return NULL;
-    }
-    CGImageRef result = CGImageCreate(width, height, 8, bitsPerPixel, paddedStride, CGImageGetColorSpace(image),
-        CGImageGetBitmapInfo(image), padded, CGImageGetDecode(image), CGImageGetShouldInterpolate(image), CGImageGetRenderingIntent(image));
-    CGDataProviderRelease(padded);
-    return result;
-}
-
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef context, CGRect rect, CGImageRef image))
 {
     if (!WK_ORIGINAL(CGContextDrawImage))
         return;
-    CGImageRef edgeReplicated = wk_edgeReplicatedImageForOverread(context, rect, image);
-    if (edgeReplicated)
-        image = edgeReplicated;
-    if (context && image && wk_drawsIntoExtendedRangeBitmap(context)) {
-        CGImageRef wide = wk_copyImageInROMMRGB(image);
-        if (wide) {
-            WK_ORIGINAL(CGContextDrawImage)(context, rect, wide);
-            CGImageRelease(wide);
-            if (edgeReplicated)
-                CGImageRelease(edgeReplicated);
-            return;
-        }
-    }
     if (context && image && wk_drawsThroughCoreAnimationIOSurface(context)) {
         if (!wk_drawOversizedImageInIOSurface(context, rect, image)) {
             CGColorSpaceRef colorSpace = CGContextGetColorSpace(context);
@@ -1644,30 +1463,6 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef con
         }
     } else
         WK_ORIGINAL(CGContextDrawImage)(context, rect, image);
-    if (edgeReplicated)
-        CGImageRelease(edgeReplicated);
-}
-
-static CGImageRef wk_copyColorMatchedImage(CGImageRef image, CGColorSpaceRef colorSpace)
-{
-    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
-    CGContextRef bitmap = CGBitmapContextCreate(NULL, width, height, 8, 0, colorSpace, kCGImageAlphaPremultipliedLast);
-    if (!bitmap)
-        return NULL;
-    CGContextSetBlendMode(bitmap, kCGBlendModeCopy);
-    CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
-    CGContextSetRenderingIntent(bitmap, CGImageGetRenderingIntent(image));
-    WK_ORIGINAL(CGContextDrawImage)(bitmap, CGRectMake(0, 0, width, height), image);
-    CGImageRef matched = CGBitmapContextCreateImage(bitmap);
-    CGContextRelease(bitmap);
-    if (!matched)
-        return NULL;
-    CGImageRef result = CGImageCreate(width, height, CGImageGetBitsPerComponent(matched),
-        CGImageGetBitsPerPixel(matched), CGImageGetBytesPerRow(matched), colorSpace,
-        CGImageGetBitmapInfo(matched), CGImageGetDataProvider(matched), NULL,
-        CGImageGetShouldInterpolate(image), CGImageGetRenderingIntent(image));
-    CGImageRelease(matched);
-    return result;
 }
 
 // CGContextClipToRect and CGContextClipToRects — DELIBERATE REPLACEMENTS of present 10.9 functions, for
@@ -1797,38 +1592,6 @@ static bool wk_drawOversizedImageInIOSurface(CGContextRef context, CGRect rect, 
     }
     CGContextEndTransparencyLayer(context);
     return true;
-}
-
-static CGImageRef wk_copyImageInROMMRGB(CGImageRef image)
-{
-    CGColorSpaceModel model = CGColorSpaceGetModel(CGImageGetColorSpace(image));
-    if (model != kCGColorSpaceModelCMYK && model != kCGColorSpaceModelLab)
-        return NULL;
-    CGColorSpaceRef space = wk_rommProfile_space();
-    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
-    const size_t pixelBytes = 16;
-    if (!space || !width || !height || width > SIZE_MAX / pixelBytes || height > (SIZE_MAX >> 1) / (width * pixelBytes))
-        return NULL;
-    CFMutableDataRef pixels = CFDataCreateMutable(kCFAllocatorDefault, 0);
-    if (!pixels)
-        return NULL;
-    CFDataSetLength(pixels, (CFIndex)(width * height * pixelBytes));
-    const CGBitmapInfo info = (CGBitmapInfo)kCGImageAlphaPremultipliedLast | kCGBitmapFloatComponents | kCGBitmapByteOrder32Host;
-    CGContextRef copy = CGBitmapContextCreate(CFDataGetMutableBytePtr(pixels), width, height, 32, width * pixelBytes, space, info);
-    if (!copy) {
-        CFRelease(pixels);
-        return NULL;
-    }
-    WK_ORIGINAL(CGContextDrawImage)(copy, CGRectMake(0, 0, width, height), image);
-    CGContextRelease(copy);
-    CGDataProviderRef provider = CGDataProviderCreateWithCFData(pixels);
-    CFRelease(pixels);
-    if (!provider)
-        return NULL;
-    CGImageRef result = CGImageCreate(width, height, 32, 32 * 4, width * pixelBytes, space, info, provider, NULL,
-        CGImageGetShouldInterpolate(image), CGImageGetRenderingIntent(image));
-    CGDataProviderRelease(provider);
-    return result;
 }
 
 // CGContextDrawTiledImage and the pattern setters below draw a private copy of a premultiplied image's
@@ -2104,9 +1867,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawTiledImage, (CGContextRe
         return;
     CGImageRef drawn = NULL;
     if (context && image) {
-        if (wk_drawsIntoExtendedRangeBitmap(context))
-            drawn = wk_copyImageInROMMRGB(image);
-        else if (wk_drawsThroughCoreAnimationIOSurface(context))
+        if (wk_drawsThroughCoreAnimationIOSurface(context))
             drawn = wk_copyImageForIOSurfacePattern(context, image);
     }
     WK_ORIGINAL(CGContextDrawTiledImage)(context, rect, drawn ? drawn : image);
@@ -2119,22 +1880,14 @@ extern CGImageRef CGPatternGetImage(CGPatternRef);
 extern CGAffineTransform CGPatternGetMatrix(CGPatternRef);
 extern CGPatternTiling CGPatternGetTiling(CGPatternRef);
 
-// Image patterns use the same extended-range conversion and IOSurface provider
-// as direct image draws, retaining the pattern transform and tiling mode.
+// Image patterns use the same IOSurface provider as direct image draws, retaining the pattern transform
+// and tiling mode.
 static bool wk_cleanedPattern(CGContextRef context, CGPatternRef pattern, CGPatternRef *replacement)
 {
     *replacement = NULL;
     CGImageRef image = pattern ? CGPatternGetImage(pattern) : NULL;
     if (!context || !image)
         return false;
-    if (wk_drawsIntoExtendedRangeBitmap(context)) {
-        CGImageRef wide = wk_copyImageInROMMRGB(image);
-        if (!wide)
-            return false;
-        *replacement = CGPatternCreateWithImage2(wide, CGPatternGetMatrix(pattern), CGPatternGetTiling(pattern));
-        CGImageRelease(wide);
-        return true;
-    }
     if (!wk_drawsThroughCoreAnimationIOSurface(context))
         return false;
     CGImageRef cleaned = wk_copyImageForIOSurfacePattern(context, image);
@@ -2147,7 +1900,7 @@ static bool wk_cleanedPattern(CGContextRef context, CGPatternRef pattern, CGPatt
 
 // CGContextSetFillPattern, CGContextSetStrokePattern, CGContextSetFillColorWithColor and
 // CGContextSetStrokeColorWithColor — DELIBERATE REPLACEMENTS of present 10.9 functions, for image
-// patterns set on extended-range bitmap or IOSurface contexts.
+// patterns set on IOSurface contexts.
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetFillPattern, (CGContextRef context, CGPatternRef pattern, const CGFloat *components))
 {
     if (!WK_ORIGINAL(CGContextSetFillPattern))

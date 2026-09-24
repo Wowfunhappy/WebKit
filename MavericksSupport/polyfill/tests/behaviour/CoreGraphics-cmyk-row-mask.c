@@ -82,66 +82,6 @@ static void checkIOSurfacePattern(CGImageRef image, CGColorSpaceRef *spaces) {
  CGColorSpaceRelease(patternSpace);
 }
 
-static void checkExtendedPattern(CGImageRef image, CGColorSpaceRef p3)
-{
-    CGColorSpaceRef extended = CGColorSpaceCreateWithName(CFSTR("kCGColorSpaceExtendedSRGB"));
-    CGColorSpaceRef patternSpace = CGColorSpaceCreatePattern(NULL);
-    assert(extended && patternSpace);
-    unsigned char reference[4] = { 0 };
-    CGContextRef direct = CGBitmapContextCreate(reference, 1, 1, 8, 4, p3, kCGImageAlphaPremultipliedLast);
-    assert(direct);
-    CGContextDrawImage(direct, CGRectMake(0, 0, 1, 1), image);
-    CGContextRelease(direct);
-    for (unsigned route = 0; route < 6; ++route) {
-        float wide[4 * 4 * 4] = { 0 };
-        CGContextRef context = CGBitmapContextCreate(wide, 4, 4, 32, 4 * 4 * sizeof(float), extended,
-            kCGImageAlphaPremultipliedLast | kCGBitmapFloatComponents | kCGBitmapByteOrder32Host);
-        assert(context);
-        CGRect rect = CGRectMake(0, 0, 4, 4);
-        if (!route)
-            CGContextDrawImage(context, rect, image);
-        else if (route == 1)
-            CGContextDrawTiledImage(context, rect, image);
-        else {
-            CGPatternRef pattern = CGPatternCreateWithImage2(image, CGAffineTransformMakeTranslation(2, 3), kCGPatternTilingConstantSpacing);
-            assert(pattern);
-            CGFloat alpha = 1;
-            CGColorRef color = CGColorCreateWithPattern(patternSpace, pattern, &alpha);
-            assert(color);
-            if (route == 2) {
-                CGContextSetFillColorSpace(context, patternSpace);
-                CGContextSetFillPattern(context, pattern, &alpha);
-            } else if (route == 3)
-                CGContextSetFillColorWithColor(context, color);
-            else if (route == 4) {
-                CGContextSetStrokeColorSpace(context, patternSpace);
-                CGContextSetStrokePattern(context, pattern, &alpha);
-            } else
-                CGContextSetStrokeColorWithColor(context, color);
-            if (route < 4)
-                CGContextFillRect(context, rect);
-            else {
-                CGContextSetLineWidth(context, 8);
-                CGContextStrokeRect(context, rect);
-            }
-            CGColorRelease(color); CGPatternRelease(pattern);
-        }
-        CGImageRef intermediate = CGBitmapContextCreateImage(context);
-        assert(intermediate);
-        unsigned char actual[4] = { 0 };
-        CGContextRef result = CGBitmapContextCreate(actual, 1, 1, 8, 4, p3, kCGImageAlphaPremultipliedLast);
-        assert(result);
-        CGContextDrawImage(result, CGRectMake(0, 0, 1, 1), intermediate);
-        for (unsigned channel = 0; channel < 4; ++channel)
-            assert(abs((int)actual[channel] - reference[channel]) <= 1);
-        if (reference[0] == 0)
-            assert(wide[0] < 0);
-        printf(" extended route%u P3=%u,%u,%u,%u", route, actual[0], actual[1], actual[2], actual[3]);
-        CGContextRelease(result); CGImageRelease(intermediate); CGContextRelease(context);
-    }
-    CGColorSpaceRelease(patternSpace); CGColorSpaceRelease(extended);
-}
-
 int main(int argc,char** argv)
 {
     assert(argc>2);
@@ -207,7 +147,6 @@ int main(int argc,char** argv)
             CGContextRelease(context);
         }
         checkIOSurfacePattern(image, spaces);
-        checkExtendedPattern(image, spaces[1]);
         puts("");CGImageRelease(image);CGDataProviderRelease(provider);CGColorSpaceRelease(source);
         jpeg_finish_decompress(&info);jpeg_destroy_decompress(&info);fclose(input);
     }

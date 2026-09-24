@@ -1,31 +1,19 @@
-// Noto's OS/2 values exclude glyph overshoot. Roboto Extremo's MVAR xhgt
-// changes from 1052 to 914 at opsz=144 (independently checked with fontTools).
+// The variable-font instancer (polyfills/c/VariableFontInstancer.cpp) bakes MVAR into a static instance's OS/2:
+// Roboto Extremo's MVAR xhgt changes from 1052 to 914 at opsz=144 (independently checked with fontTools).
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
-#include <dlfcn.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "VariableFontInstancer.h"
 
 static int failures;
-static CGFloat (*nativeCap)(CTFontRef);
-static CGFloat (*nativeX)(CTFontRef);
 
 static void check(int condition, const char *message)
 {
     if (!condition) {
         printf("FAIL: %s\n", message);
-        ++failures;
-    }
-}
-
-static void closeTo(CGFloat actual, CGFloat expected, const char *message)
-{
-    if (!(fabs(actual - expected) < 0.00001)) {
-        printf("FAIL: %s: got %.9g, expected %.9g\n", message, actual, expected);
         ++failures;
     }
 }
@@ -42,44 +30,6 @@ static CFDataRef readData(const char *path)
         CFDataAppendBytes(result, buffer, count);
     fclose(file);
     return result;
-}
-
-static CTFontDescriptorRef fromURL(const char *path)
-{
-    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, strlen(path), false);
-    CFArrayRef descriptors = url ? CTFontManagerCreateFontDescriptorsFromURL(url) : NULL;
-    CTFontDescriptorRef descriptor = descriptors && CFArrayGetCount(descriptors) ? (CTFontDescriptorRef)CFRetain(CFArrayGetValueAtIndex(descriptors, 0)) : NULL;
-    if (descriptors)
-        CFRelease(descriptors);
-    if (url)
-        CFRelease(url);
-    return descriptor;
-}
-
-static void staticHeights(const char *path, int cap, int x, int fallbackCap, int fallbackX)
-{
-    CTFontDescriptorRef descriptor = fromURL(path);
-    check(descriptor != NULL, path);
-    if (!descriptor)
-        return;
-    const CGAffineTransform matrices[] = {
-        { 1, 0, 0, 1, 0, 0 }, { 2, 0, 0, 2, 0, 0 },
-        { 1, 0, 0, -1, 0, 0 }, { 0, 1, -1, 0, 7, 9 },
-        { 1.5, 0.25, 0.5, 0.75, 11, -13 }
-    };
-    for (size_t m = 0; m < sizeof matrices / sizeof *matrices; ++m) {
-        for (unsigned size = 14; size <= 84; size += 14) {
-            CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, size, &matrices[m]);
-            check(font != NULL, "font realizes with matrix and size");
-            if (!font)
-                continue;
-            CGAffineTransform transform = CGAffineTransformScale(CTFontGetMatrix(font), CTFontGetSize(font) / CTFontGetUnitsPerEm(font), CTFontGetSize(font) / CTFontGetUnitsPerEm(font));
-            closeTo(CTFontGetCapHeight(font), fallbackCap ? nativeCap(font) : CGPointApplyAffineTransform(CGPointMake(0, cap), transform).y, "cap height");
-            closeTo(CTFontGetXHeight(font), fallbackX ? nativeX(font) : CGPointApplyAffineTransform(CGPointMake(0, x), transform).y, "x height");
-            CFRelease(font);
-        }
-    }
-    CFRelease(descriptor);
 }
 
 static CFDictionaryRef opticalSize(double value)
@@ -121,22 +71,6 @@ static void variableHeights(const char *path, int capVaries)
         CFRelease(os2);
     if (instance)
         CFRelease(instance);
-    CTFontDescriptorRef base = CTFontManagerCreateFontDescriptorFromData(source);
-    const void *key = kCTFontVariationAttribute;
-    CFDictionaryRef attributes = CFDictionaryCreate(NULL, &key, (const void **)&variation, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CTFontDescriptorRef descriptor = base ? CTFontDescriptorCreateCopyWithAttributes(base, attributes) : NULL;
-    CTFontRef font = descriptor ? CTFontCreateWithFontDescriptor(descriptor, 64, NULL) : NULL;
-    check(font != NULL, "CoreText realizes the MVAR font");
-    if (font) {
-        closeTo(CTFontGetXHeight(font), (capVaries ? 1052 : 914) / 32., "CoreText varied x height");
-        closeTo(CTFontGetCapHeight(font), (capVaries ? 1318 : 1456) / 32., "CoreText varied cap height");
-        CFRelease(font);
-    }
-    if (descriptor)
-        CFRelease(descriptor);
-    if (base)
-        CFRelease(base);
-    CFRelease(attributes);
     CFRelease(variation);
     CFRelease(source);
 }
@@ -241,22 +175,7 @@ int main(int argc, char **argv)
 {
     if (argc != 4)
         return 1;
-    void *coreText = dlopen("/System/Library/Frameworks/CoreText.framework/CoreText", RTLD_NOW | RTLD_LOCAL);
-    nativeCap = (CGFloat (*)(CTFontRef))dlsym(coreText, "CTFontGetCapHeight");
-    nativeX = (CGFloat (*)(CTFontRef))dlsym(coreText, "CTFontGetXHeight");
-    check(nativeCap && nativeX, "native comparison APIs resolve");
-    if (!nativeCap || !nativeX)
-        return 1;
-    struct { const char *name; int cap; int x; int fallbackCap; int fallbackX; } cases[] = {
-        { "ordinary", 1462, 1098, 0, 0 }, { "signed", -500, -250, 0, 0 },
-        { "zero", 0, 0, 1, 1 }, { "old-version", 0, 0, 1, 1 },
-        { "truncated", 0, 1098, 1, 0 }, { "missing", 0, 0, 1, 1 }
-    };
     char path[4096];
-    for (size_t i = 0; i < sizeof cases / sizeof *cases; ++i) {
-        snprintf(path, sizeof path, "%s/%s.ttf", argv[1], cases[i].name);
-        staticHeights(path, cases[i].cap, cases[i].x, cases[i].fallbackCap, cases[i].fallbackX);
-    }
     snprintf(path, sizeof path, "%s/variable.ttf", argv[1]);
     variableHeights(path, 0);
     snprintf(path, sizeof path, "%s/variable-cap.ttf", argv[1]);
@@ -265,6 +184,6 @@ int main(int argc, char **argv)
     layoutVariations(argv[3]);
     snprintf(path, sizeof path, "%s/remapped-origin.ttf", argv[1]);
     remappedDefault(path);
-    printf("CoreText font heights: %d failure(s)\n", failures);
+    printf("font heights: %d failure(s)\n", failures);
     return !!failures;
 }
