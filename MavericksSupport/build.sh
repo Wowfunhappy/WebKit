@@ -283,9 +283,23 @@ if [ ! -f "$BUILD/build.ninja" ] || ! "$NINJA" -C "$BUILD" -t targets >/dev/null
     fi
 fi
 
+# --- Header overlay membership ---------------------------------------------------------------
+# Every compile searches MavericksSupport/polyfill/headers with -idirafter, so adding or removing a
+# header there changes what an #include or __has_include resolves to in any translation unit. Neither
+# ninja's depfiles nor ccache's depend mode records a header that was absent, so the overlay's file
+# list enters every cache key below, and a change to it removes the built objects and precompiled
+# headers for ninja to rebuild.
+OVERLAY_LIST="$BUILD/polyfill-header-overlay.list"
+_overlay_now="$(cd "$ROOT/MavericksSupport/polyfill/headers" && find . -type f | LC_ALL=C sort)"
+if [ "$_overlay_now" != "$(cat "$OVERLAY_LIST" 2>/dev/null)" ]; then
+    echo "### header overlay membership changed -> removing built objects and precompiled headers"
+    find "$BUILD" -type f \( -name '*.o' -o -name '*.pch' \) -delete
+    printf '%s\n' "$_overlay_now" > "$OVERLAY_LIST"
+fi
+
 # Hash the VFS map and both replacement headers to make overlay changes invalidate direct hits.
 CCACHE_OVERLAY_HEADERS="$ROOT/WebKitLibraries/AvailabilityOverlay/usr/include"
-export CCACHE_EXTRAFILES="$BUILD/availability-overlay.yaml:$CCACHE_OVERLAY_HEADERS/Availability.h:$CCACHE_OVERLAY_HEADERS/os/availability.h"
+export CCACHE_EXTRAFILES="$BUILD/availability-overlay.yaml:$CCACHE_OVERLAY_HEADERS/Availability.h:$CCACHE_OVERLAY_HEADERS/os/availability.h:$OVERLAY_LIST"
 [ -x "$CCACHE" ] && "$CCACHE" -z >/dev/null   # per-build ccache stats
 
 # The counts below read the log back, and the deps relink and the polyfill build have already
