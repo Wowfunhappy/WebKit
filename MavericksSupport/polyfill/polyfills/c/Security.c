@@ -9,6 +9,7 @@
 #include <Security/cssmapple.h>
 #include <Security/cssmerr.h>
 #include <objc/message.h>
+#include <objc/objc-sync.h>
 #include <objc/runtime.h>
 #include <dispatch/dispatch.h>
 #include <errno.h>
@@ -560,9 +561,10 @@ WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef t
 // WRONG hostname reports kSecTrustResultRecoverableTrustFailure where the right one reports Proceed,
 // and basic X.509 reports Proceed for both -- accepting a chain the hostname-bound question rejects.
 //
-// 10.9 has no way to install a trust result on a trust object, so a receiver that asks for a verdict
-// re-evaluates; carrying the policies, anchors and date is what makes that re-evaluation answer the
-// sender's question.
+// The sender's evaluation travels too, as Security's own SecTrustCopyPlist carries it: the evaluated
+// chain, the result, and the window trustd dates that result with (see "a trust's evaluation, carried
+// with it" below). A receiver whose evaluation is absent or has lapsed re-evaluates, and the policies,
+// anchors and date are what make that re-evaluation answer the sender's question.
 static CFStringRef const kMavTrustCertificates = CFSTR("certificates");
 static CFStringRef const kMavTrustPolicies = CFSTR("policies");
 static CFStringRef const kMavTrustAnchors = CFSTR("anchors");
@@ -762,6 +764,383 @@ static SecPolicyRef mav_createPolicyFromDescription(CFDictionaryRef description)
     return policy;
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Security — a trust's evaluation, carried with it
+// ---------------------------------------------------------------------------------------------------
+
+// Security's SecTrustSerialize carries the evaluated chain and result with a trust, SecTrustDeserialize
+// installs them on the new one (SecTrustCopyPlist / SecTrustCreateFromPlist), and an evaluation whose
+// result is still valid answers the accessors without evaluating again (SecTrustEvaluateIfNecessary).
+// A result is valid while the verification time lies within the window trustd dates it with
+// (SecPathBuilderReportTrustValidityPeriod): from the latest of the evaluation time less
+// TRUST_TIME_LEEWAY and each chain certificate's notBefore, to the earliest of the evaluation time plus
+// TRUST_TIME_LEEWAY and each chain certificate's notAfter; a verification date more than
+// TRUST_TIME_LEEWAY from now keeps the result valid outright (SecTrustIsTrustResultValid). Every setter
+// that changes an input of the evaluation discards it (SecTrustSetNeedsEvaluation).
+//
+// 10.9's Trust keeps its own evaluation where only Security can read it, so the evaluation is kept
+// beside the trust as an associated dictionary: recorded when SecTrustEvaluate or SecTrustEvaluateAsync
+// produces a result, installed by SecTrustDeserialize, and answered from by the accessors below. An
+// accessor that reports what only 10.9's own evaluation holds (CSSM evidence, properties, exceptions)
+// first has 10.9 evaluate when its Trust holds no result, and keeps that evaluation, as Security's
+// readers evaluate if necessary. 10.9's SecTrustGetVerifyTime answers 0 for a trust with no
+// verification date; Security answers the current time.
+enum { kMavTrustTimeLeeway = 4500 };
+static CFStringRef const kMavTrustResult = CFSTR("result");
+static CFStringRef const kMavTrustChain = CFSTR("chain");
+static CFStringRef const kMavTrustResultNotBefore = CFSTR("resultNotBefore");
+static CFStringRef const kMavTrustResultNotAfter = CFSTR("resultNotAfter");
+
+// Association keys are selectors so that every image's copy of this file agrees on them.
+static const void *mav_trustEvaluationKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = sel_registerName("wk_trustEvaluation");
+    return key;
+}
+
+// Evaluations the trust no longer answers from. SecTrustGetCertificateAtIndex hands out certificates
+// the evaluation owns, and 10.9 keeps a chain it handed out until the trust evaluates again, so a
+// discarded evaluation stays alive until the trust records a new one.
+static const void *mav_retiredTrustEvaluationsKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = sel_registerName("wk_retiredTrustEvaluations");
+    return key;
+}
+
+static double mav_numberValue(CFDictionaryRef dictionary, CFStringRef key)
+{
+    CFNumberRef number = (CFNumberRef)CFDictionaryGetValue(dictionary, key);
+    double value = 0;
+    if (number && CFGetTypeID(number) == CFNumberGetTypeID())
+        CFNumberGetValue(number, kCFNumberDoubleType, &value);
+    return value;
+}
+
+// Called with the trust's lock held.
+static void mav_retireTrustEvaluationLocked(SecTrustRef trust)
+{
+    CFDictionaryRef current = (CFDictionaryRef)objc_getAssociatedObject((id)trust, mav_trustEvaluationKey());
+    if (!current)
+        return;
+    CFMutableArrayRef retired = (CFMutableArrayRef)objc_getAssociatedObject((id)trust, mav_retiredTrustEvaluationsKey());
+    if (!retired) {
+        retired = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+        objc_setAssociatedObject((id)trust, mav_retiredTrustEvaluationsKey(), (id)retired, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFRelease(retired);
+    }
+    CFArrayAppendValue(retired, current);
+    objc_setAssociatedObject((id)trust, mav_trustEvaluationKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+// Installs a new evaluation beside the trust, releasing every earlier one; with NULL, stops answering
+// from the one there.
+static void mav_setTrustEvaluation(SecTrustRef trust, CFDictionaryRef evaluation)
+{
+    if (!trust)
+        return;
+    objc_sync_enter((id)trust);
+    if (evaluation) {
+        objc_setAssociatedObject((id)trust, mav_retiredTrustEvaluationsKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject((id)trust, mav_trustEvaluationKey(), (id)evaluation, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else
+        mav_retireTrustEvaluationLocked(trust);
+    objc_sync_exit((id)trust);
+}
+
+// The evaluation beside a trust, +1, while its result is valid; one whose result has lapsed is retired.
+static CFDictionaryRef mav_copyTrustEvaluation(SecTrustRef trust)
+{
+    if (!trust)
+        return NULL;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    CFAbsoluteTime verifyTime = SecTrustGetVerifyTime(trust);
+    if (!verifyTime)
+        verifyTime = now;
+    objc_sync_enter((id)trust);
+    CFDictionaryRef evaluation = (CFDictionaryRef)objc_getAssociatedObject((id)trust, mav_trustEvaluationKey());
+    if (evaluation) {
+        bool divorcedFromNow = verifyTime > now + kMavTrustTimeLeeway || verifyTime < now - kMavTrustTimeLeeway;
+        if (divorcedFromNow || (now > mav_numberValue(evaluation, kMavTrustResultNotBefore) && now < mav_numberValue(evaluation, kMavTrustResultNotAfter)))
+            CFRetain(evaluation);
+        else {
+            mav_retireTrustEvaluationLocked(trust);
+            evaluation = NULL;
+        }
+    }
+    objc_sync_exit((id)trust);
+    return evaluation;
+}
+
+static SecTrustResultType mav_trustEvaluationResult(CFDictionaryRef evaluation)
+{
+    return (SecTrustResultType)mav_numberValue(evaluation, kMavTrustResult);
+}
+
+static CFArrayRef mav_trustEvaluationChain(CFDictionaryRef evaluation)
+{
+    return (CFArrayRef)CFDictionaryGetValue(evaluation, kMavTrustChain);
+}
+
+// An evaluation for this chain and result, dated as trustd dates one produced at `evaluatedAt`.
+static CFDictionaryRef mav_createTrustEvaluation(SecTrustResultType result, CFArrayRef chain, CFAbsoluteTime evaluatedAt, CFAbsoluteTime notBefore, CFAbsoluteTime notAfter)
+{
+    if (!notBefore && !notAfter) {
+        static void *notBeforeOIDCache;
+        static void *notAfterOIDCache;
+        notBefore = evaluatedAt - kMavTrustTimeLeeway;
+        notAfter = evaluatedAt + kMavTrustTimeLeeway;
+        CFIndex count = CFArrayGetCount(chain);
+        for (CFIndex i = 0; i < count; ++i) {
+            SecCertificateRef certificate = (SecCertificateRef)CFArrayGetValueAtIndex(chain, i);
+            CFDateRef before = mav_copyCertificateValidityDate(certificate, "kSecOIDX509V1ValidityNotBefore", &notBeforeOIDCache);
+            if (before) {
+                CFAbsoluteTime when = CFDateGetAbsoluteTime(before);
+                if (when < evaluatedAt && when > notBefore)
+                    notBefore = when;
+                CFRelease(before);
+            }
+            CFDateRef after = mav_copyCertificateValidityDate(certificate, "kSecOIDX509V1ValidityNotAfter", &notAfterOIDCache);
+            if (after) {
+                CFAbsoluteTime when = CFDateGetAbsoluteTime(after);
+                if (when > evaluatedAt && when < notAfter)
+                    notAfter = when;
+                CFRelease(after);
+            }
+        }
+    }
+    int32_t resultValue = (int32_t)result;
+    CFNumberRef resultNumber = CFNumberCreate(NULL, kCFNumberSInt32Type, &resultValue);
+    CFNumberRef notBeforeNumber = CFNumberCreate(NULL, kCFNumberDoubleType, &notBefore);
+    CFNumberRef notAfterNumber = CFNumberCreate(NULL, kCFNumberDoubleType, &notAfter);
+    CFArrayRef chainCopy = CFArrayCreateCopy(NULL, chain);
+    const void *keys[] = { kMavTrustResult, kMavTrustChain, kMavTrustResultNotBefore, kMavTrustResultNotAfter };
+    const void *values[] = { resultNumber, chainCopy, notBeforeNumber, notAfterNumber };
+    CFDictionaryRef evaluation = CFDictionaryCreate(NULL, keys, values, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(resultNumber);
+    CFRelease(notBeforeNumber);
+    CFRelease(notAfterNumber);
+    CFRelease(chainCopy);
+    return evaluation;
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+WK_POLYFILL_REPLACES("Security", CFIndex, SecTrustGetCertificateCount, (SecTrustRef trust))
+{
+    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
+    if (!evaluation)
+        return WK_ORIGINAL(SecTrustGetCertificateCount)(trust);
+    CFIndex count = CFArrayGetCount(mav_trustEvaluationChain(evaluation));
+    CFRelease(evaluation);
+    return count;
+}
+
+WK_POLYFILL_REPLACES("Security", SecCertificateRef, SecTrustGetCertificateAtIndex, (SecTrustRef trust, CFIndex ix))
+{
+    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
+    if (!evaluation)
+        return WK_ORIGINAL(SecTrustGetCertificateAtIndex)(trust, ix);
+    CFArrayRef chain = mav_trustEvaluationChain(evaluation);
+    // The chain the evaluation holds lives as long as the trust holds the evaluation, as 10.9's does.
+    SecCertificateRef certificate = ix >= 0 && ix < CFArrayGetCount(chain) ? (SecCertificateRef)CFArrayGetValueAtIndex(chain, ix) : NULL;
+    CFRelease(evaluation);
+    return certificate;
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustGetTrustResult, (SecTrustRef trust, SecTrustResultType *result))
+{
+    CFDictionaryRef evaluation = result ? mav_copyTrustEvaluation(trust) : NULL;
+    if (!evaluation)
+        return WK_ORIGINAL(SecTrustGetTrustResult)(trust, result);
+    *result = mav_trustEvaluationResult(evaluation);
+    CFRelease(evaluation);
+    return errSecSuccess;
+}
+
+// Keeps what 10.9 just evaluated beside the trust.
+static void mav_recordTrustEvaluation(SecTrustRef trust, SecTrustResultType result)
+{
+    if (!trust || result == kSecTrustResultInvalid)
+        return;
+    CFAbsoluteTime evaluatedAt = CFAbsoluteTimeGetCurrent();
+    CFIndex count = WK_ORIGINAL(SecTrustGetCertificateCount)(trust);
+    if (count <= 0)
+        return;
+    CFMutableArrayRef chain = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
+    for (CFIndex i = 0; i < count; ++i) {
+        SecCertificateRef certificate = WK_ORIGINAL(SecTrustGetCertificateAtIndex)(trust, i);
+        if (!certificate) {
+            CFRelease(chain);
+            return;
+        }
+        CFArrayAppendValue(chain, certificate);
+    }
+    CFDictionaryRef evaluation = mav_createTrustEvaluation(result, chain, evaluatedAt, 0, 0);
+    CFRelease(chain);
+    mav_setTrustEvaluation(trust, evaluation);
+    CFRelease(evaluation);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustEvaluate, (SecTrustRef trust, SecTrustResultType *result))
+{
+    if (!result)
+        return WK_ORIGINAL(SecTrustEvaluate)(trust, result);
+    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
+    if (evaluation) {
+        *result = mav_trustEvaluationResult(evaluation);
+        CFRelease(evaluation);
+        return errSecSuccess;
+    }
+    OSStatus status = WK_ORIGINAL(SecTrustEvaluate)(trust, result);
+    if (status == errSecSuccess)
+        mav_recordTrustEvaluation(trust, *result);
+    return status;
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustEvaluateAsync, (SecTrustRef trust, dispatch_queue_t queue, SecTrustCallback result))
+{
+    if (!trust || !queue || !result)
+        return WK_ORIGINAL(SecTrustEvaluateAsync)(trust, queue, result);
+    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
+    if (evaluation) {
+        SecTrustResultType evaluated = mav_trustEvaluationResult(evaluation);
+        CFRelease(evaluation);
+        CFRetain(trust);
+        dispatch_async(queue, ^{
+            result(trust, evaluated);
+            CFRelease(trust);
+        });
+        return errSecSuccess;
+    }
+    return WK_ORIGINAL(SecTrustEvaluateAsync)(trust, queue, ^(SecTrustRef evaluatedTrust, SecTrustResultType evaluated) {
+        mav_recordTrustEvaluation(evaluatedTrust, evaluated);
+        result(evaluatedTrust, evaluated);
+    });
+}
+
+// Security's readers of evaluation state evaluate first when the trust holds no result
+// (SecTrustEvaluateIfNecessary); 10.9's report whatever its Trust holds.
+static void mav_evaluateNativelyIfNecessary(SecTrustRef trust)
+{
+    SecTrustResultType native = kSecTrustResultInvalid;
+    if (!trust || WK_ORIGINAL(SecTrustGetTrustResult)(trust, &native) != errSecSuccess || native != kSecTrustResultInvalid)
+        return;
+    SecTrustResultType evaluated = kSecTrustResultInvalid;
+    if (WK_ORIGINAL(SecTrustEvaluate)(trust, &evaluated) == errSecSuccess)
+        mav_recordTrustEvaluation(trust, evaluated);
+}
+
+// What only 10.9's own evaluation holds.
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustGetResult, (SecTrustRef trust, SecTrustResultType *result, CFArrayRef *certChain, CSSM_TP_APPLE_EVIDENCE_INFO **statusChain))
+{
+    mav_evaluateNativelyIfNecessary(trust);
+    return WK_ORIGINAL(SecTrustGetResult)(trust, result, certChain, statusChain);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustGetCssmResult, (SecTrustRef trust, CSSM_TP_VERIFY_CONTEXT_RESULT_PTR *result))
+{
+    mav_evaluateNativelyIfNecessary(trust);
+    return WK_ORIGINAL(SecTrustGetCssmResult)(trust, result);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustGetCssmResultCode, (SecTrustRef trust, OSStatus *resultCode))
+{
+    mav_evaluateNativelyIfNecessary(trust);
+    return WK_ORIGINAL(SecTrustGetCssmResultCode)(trust, resultCode);
+}
+
+WK_POLYFILL_REPLACES("Security", CFArrayRef, SecTrustCopyProperties, (SecTrustRef trust))
+{
+    mav_evaluateNativelyIfNecessary(trust);
+    return WK_ORIGINAL(SecTrustCopyProperties)(trust);
+}
+
+WK_POLYFILL_REPLACES("Security", CFDictionaryRef, SecTrustCopyResult, (SecTrustRef trust))
+{
+    mav_evaluateNativelyIfNecessary(trust);
+    return WK_ORIGINAL(SecTrustCopyResult)(trust);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustCopyExtendedResult, (SecTrustRef trust, CFDictionaryRef *result))
+{
+    mav_evaluateNativelyIfNecessary(trust);
+    return WK_ORIGINAL(SecTrustCopyExtendedResult)(trust, result);
+}
+
+WK_POLYFILL_REPLACES("Security", CFDataRef, SecTrustCopyExceptions, (SecTrustRef trust))
+{
+    mav_evaluateNativelyIfNecessary(trust);
+    return WK_ORIGINAL(SecTrustCopyExceptions)(trust);
+}
+
+// Every input of an evaluation: setting one discards the evaluation beside the trust.
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetPolicies, (SecTrustRef trust, CFTypeRef policies))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetPolicies)(trust, policies);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetOptions, (SecTrustRef trust, SecTrustOptionFlags options))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetOptions)(trust, options);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetParameters, (SecTrustRef trust, CSSM_TP_ACTION action, CFDataRef actionData))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetParameters)(trust, action, actionData);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetAnchorCertificates, (SecTrustRef trust, CFArrayRef anchorCertificates))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetAnchorCertificates)(trust, anchorCertificates);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetAnchorCertificatesOnly, (SecTrustRef trust, Boolean anchorCertificatesOnly))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetAnchorCertificatesOnly)(trust, anchorCertificatesOnly);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetKeychains, (SecTrustRef trust, CFTypeRef keychainOrArray))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetKeychains)(trust, keychainOrArray);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetVerifyDate, (SecTrustRef trust, CFDateRef verifyDate))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetVerifyDate)(trust, verifyDate);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetNetworkFetchAllowed, (SecTrustRef trust, Boolean allowFetch))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetNetworkFetchAllowed)(trust, allowFetch);
+}
+
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetOCSPResponse, (SecTrustRef trust, CFTypeRef responseData))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetOCSPResponse)(trust, responseData);
+}
+
+WK_POLYFILL_REPLACES("Security", bool, SecTrustSetExceptions, (SecTrustRef trust, CFDataRef exceptions))
+{
+    mav_setTrustEvaluation(trust, NULL);
+    return WK_ORIGINAL(SecTrustSetExceptions)(trust, exceptions);
+}
+
+#pragma clang diagnostic pop
+
 WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust, CFErrorRef *error))
 {
     if (error)
@@ -838,6 +1217,19 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
         CFNumberRef date = CFNumberCreate(NULL, kCFNumberDoubleType, &verifyTime);
         CFDictionarySetValue(state, kMavTrustVerifyDate, date);
         CFRelease(date);
+    }
+
+    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
+    if (evaluation) {
+        CFArrayRef chainDatas = mav_certificateDataArray(mav_trustEvaluationChain(evaluation));
+        if (chainDatas) {
+            CFDictionarySetValue(state, kMavTrustChain, chainDatas);
+            CFDictionarySetValue(state, kMavTrustResult, CFDictionaryGetValue(evaluation, kMavTrustResult));
+            CFDictionarySetValue(state, kMavTrustResultNotBefore, CFDictionaryGetValue(evaluation, kMavTrustResultNotBefore));
+            CFDictionarySetValue(state, kMavTrustResultNotAfter, CFDictionaryGetValue(evaluation, kMavTrustResultNotAfter));
+            CFRelease(chainDatas);
+        }
+        CFRelease(evaluation);
     }
 
     CFDataRef data = CFPropertyListCreateData(NULL, state, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
@@ -928,6 +1320,22 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
             CFRelease(date);
         }
     }
+
+    // Installed last: every setter above discards an evaluation.
+    CFArrayRef chain = mav_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kMavTrustChain));
+    CFNumberRef resultNumber = (CFNumberRef)CFDictionaryGetValue(state, kMavTrustResult);
+    double notBefore = mav_numberValue(state, kMavTrustResultNotBefore);
+    double notAfter = mav_numberValue(state, kMavTrustResultNotAfter);
+    int32_t resultValue = 0;
+    if (chain && CFArrayGetCount(chain) && resultNumber && CFGetTypeID(resultNumber) == CFNumberGetTypeID()
+        && CFNumberGetValue(resultNumber, kCFNumberSInt32Type, &resultValue) && resultValue > kSecTrustResultInvalid
+        && notBefore < notAfter) {
+        CFDictionaryRef evaluation = mav_createTrustEvaluation((SecTrustResultType)resultValue, chain, 0, notBefore, notAfter);
+        mav_setTrustEvaluation(trust, evaluation);
+        CFRelease(evaluation);
+    }
+    if (chain)
+        CFRelease(chain);
 
     CFRelease(state);
     return trust;
