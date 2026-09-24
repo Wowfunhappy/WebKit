@@ -575,7 +575,7 @@ bool isValidCocoaCurlRequestHeaderValue(const String& value)
 bool CocoaCurlTransfer::setup()
 {
     auto& request = m_options.request;
-    if (!request.url().isValid() || !request.url().protocolIsInHTTPFamily() || !isValidHTTPToken(request.httpMethod()))
+    if (!connectionURL().isValid() || !connectionURL().protocolIsInHTTPFamily() || !isValidHTTPToken(request.httpMethod()))
         return false;
     m_easy = curl_easy_init();
     if (!m_easy)
@@ -623,7 +623,7 @@ bool CocoaCurlTransfer::setup()
     if (!request.hasHTTPHeaderField(HTTPHeaderName::AcceptEncoding) && !appendHeader(CString("Accept-Encoding: " COCOA_CURL_ACCEPT_ENCODING)))
         return false;
 #define CURL_SET(option, value) do { if (curl_easy_setopt(m_easy, option, value) != CURLE_OK) return false; } while (false)
-    CURL_SET(CURLOPT_URL, request.url().string().utf8().data());
+    CURL_SET(CURLOPT_URL, connectionURL().string().utf8().data());
     CURL_SET(CURLOPT_PROTOCOLS_STR, "http,https");
     CURL_SET(CURLOPT_FOLLOWLOCATION, 0L);
     CURL_SET(CURLOPT_HTTPAUTH, m_options.authentication);
@@ -635,7 +635,7 @@ bool CocoaCurlTransfer::setup()
     CURL_SET(CURLOPT_NOSIGNAL, 1L);
     // As upstream's CurlHandle::enableHttp does: let ALPN pick the version, and wait for a connection
     // whose protocol is known rather than opening another one that cannot be multiplexed on.
-    if (m_options.request.url().protocolIs("https"_s)) {
+    if (connectionURL().protocolIs("https"_s)) {
         CURL_SET(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_NONE);
         CURL_SET(CURLOPT_PIPEWAIT, 1L);
     } else
@@ -722,13 +722,17 @@ void CocoaCurlTransfer::start()
         return;
     m_running = true;
     m_started = m_metrics.fetchStart = MonotonicTime::now();
-    auto url = cocoaCurlRequestURL(m_options.request.url());
+    auto url = cocoaCurlRequestURL(connectionURL());
     if (!url) {
         finish(url.error(), "The HTTP URL is not valid"_s);
         return;
     }
-    if (m_options.request.url() != *url)
-        m_options.request.setURL(WTF::move(*url));
+    if (connectionURL() != *url) {
+        if (m_options.connectionURL.isNull())
+            m_options.request.setURL(WTF::move(*url));
+        else
+            m_options.connectionURL = WTF::move(*url);
+    }
     // CFNetwork answers a request whose Cache-Control names only-if-cached from its cache alone, and fails it
     // with NSURLErrorCannotLoadFromNetwork when the cache holds nothing for it.
     if (cocoaCurlRequestIsOnlyIfCached(m_options.request)) {
@@ -741,7 +745,7 @@ void CocoaCurlTransfer::start()
     }
     // PAC resolution is part of the request inactivity timeout.
     activity();
-    m_proxyResolver = CocoaCurlProxyResolver::create(m_options.request.url(), m_options.proxySettings.get(), [transfer = Ref { *this }](RetainPtr<CFDictionaryRef>&& proxy, const String& error) {
+    m_proxyResolver = CocoaCurlProxyResolver::create(connectionURL(), m_options.proxySettings.get(), [transfer = Ref { *this }](RetainPtr<CFDictionaryRef>&& proxy, const String& error) {
         if (!transfer->m_running)
             return;
         if (!error.isEmpty()) {
@@ -797,7 +801,7 @@ CURLcode CocoaCurlTransfer::sslContextCallback(CURL*, void* context, void* data)
     auto& transfer = *static_cast<CocoaCurlTransfer*>(data);
     transfer.m_tls = std::make_shared<CocoaCurlTLSState>();
     auto& state = *transfer.m_tls;
-    state.url = transfer.m_options.request.url();
+    state.url = transfer.connectionURL();
     state.acceptedChain = transfer.m_options.acceptedCertificateChain;
     state.allowedTrust = transfer.m_options.allowedServerTrust;
     // keychain access is an asynchronous native operation; no SSL handle crosses into its work queue.
@@ -969,7 +973,7 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
     char* canonicalName = nullptr;
     curl_easy_getinfo(m_easy, CURLINFO_PRIMARY_CANONICAL_NAME, &canonicalName);
     m_response.canonicalName = canonicalName && m_response.proxyHost.isEmpty() ? String::fromUTF8(canonicalName) : String();
-    auto host = m_options.request.url().host().toString();
+    auto host = connectionURL().host().toString();
     if (host.endsWith('.'))
         host = host.left(host.length() - 1);
     if (m_response.canonicalName.endsWith('.'))
@@ -1259,7 +1263,7 @@ bool validateCocoaCurlCompletedResume(const ResourceResponse& response, uint64_t
         && (range.instanceLength() == ParsedContentRange::unknownLength || fileLength == static_cast<uint64_t>(range.instanceLength()));
 }
 
-void collectCocoaCurlMetrics(CURL* easy, const ResourceRequest& request, MonotonicTime started, bool isProxy, NetworkLoadMetrics& metrics)
+void collectCocoaCurlMetrics(CURL* easy, const ResourceRequest& request, const URL& connectedURL, MonotonicTime started, bool isProxy, NetworkLoadMetrics& metrics)
 {
     if (!easy)
         return;
@@ -1274,7 +1278,7 @@ void collectCocoaCurlMetrics(CURL* easy, const ResourceRequest& request, Monoton
     // own; NetworkSessionCocoa marks such a TLS connection with reusedTLSConnectionSentinel.
     bool reused = ready && !connections;
     if (reused) {
-        if (request.url().protocolIs("https"_s))
+        if (connectedURL.protocolIs("https"_s))
             metrics.secureConnectionStart = reusedTLSConnectionSentinel;
     } else {
         if (dns) {
@@ -1324,7 +1328,7 @@ void collectCocoaCurlMetrics(CURL* easy, const ResourceRequest& request, Monoton
 
 void CocoaCurlTransfer::updateMetrics()
 {
-    collectCocoaCurlMetrics(m_easy, m_options.request, m_started, !m_response.proxyHost.isEmpty(), m_metrics);
+    collectCocoaCurlMetrics(m_easy, m_options.request, connectionURL(), m_started, !m_response.proxyHost.isEmpty(), m_metrics);
     if (m_version == "HTTP/0.9"_s)
         m_metrics.protocol = "http/0.9"_s;
 }

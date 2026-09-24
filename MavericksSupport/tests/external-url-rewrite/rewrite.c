@@ -1,8 +1,23 @@
-// Maps every http(s)://rewrite-source.invalid[:port]/path?query to http://127.0.0.1:18991/path?query.
+// Maps every http(s)://rewrite-source.invalid[:port]/path?query to http://127.0.0.1:18991/path?query. For
+// every load it adds X-Rewrite-Test, appends " ExternalURLRewrite/1" to User-Agent (naming it in another case)
+// and removes X-Page-Header.
 #include <CoreFoundation/CoreFoundation.h>
 
-CFURLRef WKExternalURLRewrite(CFURLRef url)
+static void rewriteHeaders(CFMutableDictionaryRef headers)
 {
+    CFDictionarySetValue(headers, CFSTR("X-Rewrite-Test"), CFSTR("added"));
+    CFDictionaryRemoveValue(headers, CFSTR("x-page-header"));
+    CFStringRef userAgent = CFDictionaryGetValue(headers, CFSTR("user-agent"));
+    if (userAgent) {
+        CFStringRef appended = CFStringCreateWithFormat(NULL, NULL, CFSTR("%@ ExternalURLRewrite/1"), userAgent);
+        CFDictionarySetValue(headers, CFSTR("user-agent"), appended);
+        CFRelease(appended);
+    }
+}
+
+CFURLRef WKExternalURLRewrite(CFURLRef url, CFMutableDictionaryRef headers)
+{
+    rewriteHeaders(headers);
     CFStringRef host = CFURLCopyHostName(url);
     if (!host)
         return NULL;

@@ -23,6 +23,8 @@ struct CocoaCurlDownloadTransfer {
     Ref<CocoaCurlConnectionPool> pool;
     WeakPtr<NetworkStorageSession> storage;
     ResourceRequest request;
+    // The URL the transfer connects to in place of request's (ExternalURLRewrite.h); null for request's own.
+    URL connectionURL;
     CocoaCurlTransferResponse response;
     CompletionHandler<void()> completion;
     Vector<uint8_t> bufferedData;
@@ -58,6 +60,7 @@ private:
     void publishCachedResponse(ResourceResponse&&, NSCachedURLResponse *);
     void deliver(std::span<const uint8_t>);
     void redirect();
+    const URL& connectionURL() const { return m_connectionURL.isNull() ? m_request.url() : m_connectionURL; }
     void authenticate(bool proxy);
     void challenge(const ProtectionSpace&, const Credential&, unsigned, const ResourceError&, CocoaCurlAuthenticationCompletion&&);
     void finish(const ResourceError&);
@@ -81,6 +84,9 @@ private:
     RetainPtr<WebCoreResourceHandleAsOperationQueueDelegate> m_dispatcher;
     RefPtr<CocoaCurlConnection> m_connection;
     ResourceRequest m_request;
+    // The URL a WKExternalURLRewrite has the current request connect to (ExternalURLRewrite.h); null for
+    // m_request's own.
+    URL m_connectionURL;
     CocoaCurlTransferResponse m_response;
     CompletionHandler<void()> m_continuation;
     std::optional<ResourceError> m_result;

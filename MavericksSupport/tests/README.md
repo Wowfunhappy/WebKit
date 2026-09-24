@@ -48,12 +48,16 @@ Negotiate covers password credentials, an existing ticket, cancellation, and the
 The runner owns a temporary Kerberos realm on 127.0.0.1:18988 and removes its processes and credentials
 after the run; it does not change the system Kerberos configuration.
 
-`external-url-rewrite/run.sh` puts `rewrite.c`'s `WKExternalURLRewrite` into the installed Networking service
-and loads `https://rewrite-source.invalid:18990/page.html` in Safari. The rewrite sends every load to a fixture on
-127.0.0.1:18991. The address bar and `location` keep the requested URL, the navigation reports no redirect, every
-request reaches the fixture with `Host: 127.0.0.1:18991`, and the cookie the page set returns on the next top-level
-navigation. One pass inserts the rewrite at launch. A second pass loads it into the running service after its first
-load, through `late-loader.c`. The script needs sudo, relaunches Safari, and restores the service's `Info.plist` on exit.
+`external-url-rewrite/run.sh` loads `https://rewrite-source.invalid:18990/page.html` with `rewrite.c`'s
+`WKExternalURLRewrite`, which connects every load to a fixture on 127.0.0.1:18991 and edits every load's header
+fields. The page sees only the requested URL, in its address, `location`, `XMLHttpRequest.responseURL`, `fetch`
+responses and navigation timing, and its navigation reports no redirect. Every request reaches the fixture with
+`Host: 127.0.0.1:18991` and the rewrite's header changes (one added, `User-Agent` changed, one the page set removed),
+including a load whose URL the rewrite keeps. The cookie the fixture sets belongs to the requested site: the page's
+`document.cookie` holds it, and its XHR, `fetch` and next top-level navigation carry it. The WebKit1 pass inserts the
+rewrite into `wk1-client.m`, which also downloads a rewritten URL with `WebDownload`. The Safari passes put it into
+the installed Networking service, one at launch and one after its first load through `late-loader.c`. The script
+needs sudo, relaunches Safari, and restores the service's `Info.plist` on exit.
 
 Hand-driven pages for the 10.9 backport. Serve them over http, never `file://`:
 

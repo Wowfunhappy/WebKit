@@ -13,6 +13,8 @@
 #import <WebCore/CocoaCurlResourceHandle.h>
 #import <WebCore/CocoaCookie.h>
 #import <WebCore/Cookie.h>
+#import <WebCore/DNS.h>
+#import <WebCore/ExternalURLRewrite.h>
 #import <WebCore/CookieJar.h>
 #import <WebCore/Credential.h>
 #import <WebCore/CredentialStorage.h>
@@ -60,6 +62,7 @@ public:
         client->m_storageID = transfer.storage->sessionID();
         client->m_pool = WTF::move(transfer.pool);
         client->m_request = WTF::move(transfer.request);
+        client->m_connectionURL = WTF::move(transfer.connectionURL);
         client->m_generatedCookieHeader = transfer.generatedCookieHeader;
         client->m_allowCredentials = transfer.allowStoredCredentials;
         client->m_transfer = WTF::move(transfer.connection);
@@ -96,6 +99,7 @@ private:
     WebDownloadCurlClient(WebDownloadCurl *controller, WebDownload *download, id delegate, NSURLRequest *request, NSDictionary *resume, NSString *path, NSString *directory)
         : m_controller(controller), m_download(download), m_delegate(delegate), m_request(request), m_resume(resume), m_path(path), m_directory(directory) { }
     void beginTransfer();
+    const URL& connectionURL() const { return m_connectionURL.isNull() ? m_request.url() : m_connectionURL; }
     void detachTransfer();
     void finish(NSError *, bool cancelled = false);
     void fail(NSInteger, NSString *);
@@ -149,6 +153,9 @@ private:
     std::optional<ProtectionSpace> m_proxySpace;
     uint64_t m_received { 0 };
     unsigned m_redirects { 0 };
+    // The URL a WKExternalURLRewrite has the current request connect to (ExternalURLRewrite.h); null for
+    // m_request's own.
+    URL m_connectionURL;
     z_stream m_inflate { };
     bool m_inflateInitialized { false };
     bool m_inflateEnded { false };
@@ -263,6 +270,7 @@ void WebDownloadCurlClient::start()
         }
         m_request = ResourceRequest(approved.get());
     }
+    m_connectionURL = applyExternalURLRewrite(m_request);
     beginTransfer();
 }
 
@@ -297,7 +305,22 @@ void WebDownloadCurlClient::beginTransfer()
         return;
     }
     auto& storage = *m_storage;
-    if (m_request.url().protocolIs("http"_s) && storage.httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
+    if (!m_connectionURL.isNull()) {
+        if (!m_connectionURL.isValid() || !m_connectionURL.protocolIsInHTTPFamily()) {
+            fail(NSURLErrorUnsupportedURL, @"The rewritten download URL is not an HTTP URL");
+            return;
+        }
+        if (!portAllowed(m_connectionURL) || isIPAddressDisallowed(m_connectionURL)) {
+            fail(NSURLErrorCannotConnectToHost, @"The rewritten download URL is blocked by URL policy");
+            return;
+        }
+        // A retargeted connection takes its server's HSTS policy without a redirect the download would report.
+        if (m_connectionURL.protocolIs("http"_s) && storage.httpStrictTransportSecurityStore().shouldUpgrade(m_connectionURL)) {
+            m_connectionURL.setProtocol("https"_s);
+            if (m_connectionURL.port() == 80)
+                m_connectionURL.setPort(std::nullopt);
+        }
+    } else if (m_request.url().protocolIs("http"_s) && storage.httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
         auto secureURL = m_request.url();
         secureURL.setProtocol("https"_s);
         if (secureURL.port() == 80)
@@ -345,6 +368,7 @@ void WebDownloadCurlClient::beginTransfer()
     Ref scheduler { *m_pool };
     CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
+    options.connectionURL = m_connectionURL;
     if (m_cachedEntry)
         addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());
     if (auto body = m_request.httpBody())
@@ -393,7 +417,7 @@ void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& res
     auto tls = m_transfer ? m_transfer->tlsState() : nullptr;
     SecTrustResultType trustResult = kSecTrustResultInvalid;
     if (m_storage && tls && tls->trust && SecTrustGetTrustResult(tls->trust.get(), &trustResult) == errSecSuccess && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
-        m_storage->httpStrictTransportSecurityStore().receiveHeader(m_request.url(), m_response.response.httpHeaderField("Strict-Transport-Security"_s));
+        m_storage->httpStrictTransportSecurityStore().receiveHeader(connectionURL(), m_response.response.httpHeaderField("Strict-Transport-Security"_s));
     m_responseCompletion = WTF::move(completion);
     // A 304 to a revalidation delivers the stored response it confirms, and the stored body once the
     // destination is ready.
@@ -412,7 +436,13 @@ void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& res
         return;
     }
     auto& storage = *m_storage;
-    if (m_request.url().protocolIs("http"_s) && storage.httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
+    if (!m_connectionURL.isNull()) {
+        // beginTransfer upgrades a retargeted connection its server's HSTS policy now covers.
+        if (m_connectionURL.protocolIs("http"_s) && storage.httpStrictTransportSecurityStore().shouldUpgrade(m_connectionURL)) {
+            beginTransfer();
+            return;
+        }
+    } else if (m_request.url().protocolIs("http"_s) && storage.httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
         auto secureURL = m_request.url();
         secureURL.setProtocol("https"_s);
         if (secureURL.port() == 80)
@@ -540,6 +570,7 @@ void WebDownloadCurlClient::redirect()
         m_acceptedChain = nullptr;
     }
     ++m_redirects;
+    m_connectionURL = applyExternalURLRewrite(redirected);
     m_request = WTF::move(redirected);
     beginTransfer();
 }
@@ -626,7 +657,7 @@ void WebDownloadCurlClient::authenticate(bool proxy, long method)
 
 void WebDownloadCurlClient::curlRequestedIdentity(CFArrayRef authorities, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion)
 {
-    auto space = cocoaCurlTLSProtectionSpace(m_request.url(), 7, authorities, nullptr);
+    auto space = cocoaCurlTLSProtectionSpace(connectionURL(), 7, authorities, nullptr);
     if (!space) {
         completion(nullptr, nullptr);
         return;
@@ -736,7 +767,7 @@ void WebDownloadCurlClient::curlCompleted(const ResourceError& error, const Netw
     auto tls = m_transfer ? m_transfer->tlsState() : nullptr;
     if (!error.isNull() && tls && tls->evaluated && !tls->accepted && tls->trust && !m_acceptedChain) {
         // the challenge is raised for an HSTS-known host too; the user's decision governs.
-        auto space = cocoaCurlTLSProtectionSpace(m_request.url(), 8, nullptr, tls->trust.get());
+        auto space = cocoaCurlTLSProtectionSpace(connectionURL(), 8, nullptr, tls->trust.get());
         if (space) {
             challenge(space.get(), 0, nil, [protectedThis = Ref { *this }, tls, error](NSURLCredential *credential, bool cancelled, bool) {
                 if (protectedThis->m_finished)

@@ -27,6 +27,7 @@
 #import <WebCore/CocoaCurlTransfer.h> // all Cocoa clients report the same curl metrics.
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/CocoaCurlTLS.h>
+#import <WebCore/ExternalURLRewrite.h>
 #import <WebCore/CocoaCookie.h>
 #import <WebCore/CocoaCurlMultipartHandle.h>
 #import <WebCore/CocoaMIMESniffing.h>
@@ -99,6 +100,13 @@ NetworkDataTaskCurlCocoa::NetworkDataTaskCurlCocoa(NetworkSession& session, Netw
         m_downloadSandboxExtension = parameters.downloadResume->sandboxExtension;
         m_allowOverwriteDownload = true;
     }
+    m_connectionURL = applyExternalURLRewrite(m_request);
+    if (!m_connectionURL.isNull() && !m_failureScheduled) {
+        if (!m_connectionURL.isValid() || !m_connectionURL.protocolIsInHTTPFamily())
+            scheduleFailure(FailureType::InvalidURL);
+        else if (!portAllowed(m_connectionURL) || isIPAddressDisallowed(m_connectionURL))
+            scheduleFailure(FailureType::Blocked);
+    }
     m_metrics.responseBodyBytesReceived = 0;
     m_metrics.responseBodyDecodedSize = 0;
     m_metrics.additionalNetworkLoadMetricsForWebInspector = AdditionalNetworkLoadMetricsForWebInspector::create();
@@ -163,6 +171,7 @@ void NetworkDataTaskCurlCocoa::setup()
     RetainPtr<NSURLSessionConfiguration> configuration = wrapper->session.get().configuration;
     CocoaCurlTransferOptions options(configuration.get().TLSMinimumSupportedProtocolVersion);
     options.request = m_request;
+    options.connectionURL = m_connectionURL;
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body, &m_session->blobRegistry());
     // NetworkSessionCocoa writes the explicit dictionary, or the one its HTTP and HTTPS proxy URLs make, into the configuration.
@@ -170,7 +179,7 @@ void NetworkDataTaskCurlCocoa::setup()
     options.acceptedCertificateChain = m_acceptedCertificateChain;
     // a certificate the user accepted for this host governs whether or not the host
     // is HSTS-known; the exception stays scoped to that exact host and chain.
-    if (auto allowed = m_session->networkProcess().allowedHTTPSCertificateForHost(m_request.url().host().toString()))
+    if (auto allowed = m_session->networkProcess().allowedHTTPSCertificateForHost(connectionURL().host().toString()))
         options.allowedServerTrust = allowed->trust();
     options.boundInterface = downcast<NetworkSessionCocoa>(*m_session).boundInterfaceIdentifier();
     options.connectionPartition = Site { m_request.firstPartyForCookies() }.toString();
@@ -240,7 +249,14 @@ void NetworkDataTaskCurlCocoa::start()
         return;
     auto* storage = m_session->networkStorageSession();
     bool ignoreDynamicHSTS = m_storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless || (storage && storage->shouldBlockCookies(m_request, m_frameID, m_pageID, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No));
-    if (m_request.url().protocolIs("http"_s) && !ignoreDynamicHSTS && downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
+    // A retargeted connection takes its server's HSTS policy without a redirect the load would report.
+    if (!m_connectionURL.isNull()) {
+        if (m_connectionURL.protocolIs("http"_s) && !ignoreDynamicHSTS && downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().shouldUpgrade(m_connectionURL)) {
+            m_connectionURL.setProtocol("https"_s);
+            if (m_connectionURL.port() == 80)
+                m_connectionURL.setPort(std::nullopt);
+        }
+    } else if (m_request.url().protocolIs("http"_s) && !ignoreDynamicHSTS && downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
         URL secureURL = m_request.url();
         secureURL.setProtocol("https"_s);
         if (secureURL.port() == 80)
@@ -351,7 +367,7 @@ void NetworkDataTaskCurlCocoa::continueAfterHeaders()
     if (m_serverTrust && m_storedCredentialsPolicy != StoredCredentialsPolicy::EphemeralStateless) {
         SecTrustResultType trustResult = kSecTrustResultInvalid;
         if (SecTrustGetTrustResult(m_serverTrust.get(), &trustResult) == errSecSuccess && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
-            downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().receiveHeader(m_request.url(), m_response.httpHeaderField("Strict-Transport-Security"_s));
+            downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().receiveHeader(connectionURL(), m_response.httpHeaderField("Strict-Transport-Security"_s));
     }
     if (m_response.isRedirection() && !m_response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
         redirect();
@@ -463,6 +479,7 @@ void NetworkDataTaskCurlCocoa::redirect()
                 protectedThis->m_authPassword = String();
                 protectedThis->m_authMethod = CURLAUTH_NONE;
             }
+            protectedThis->m_connectionURL = applyExternalURLRewrite(approved);
             protectedThis->restart(WTF::move(approved));
         });
     } else
@@ -579,7 +596,7 @@ void NetworkDataTaskCurlCocoa::curlRequestedServerTrust(CompletionHandler<void(b
         completion(false);
         return;
     }
-    if (auto allowed = m_session->networkProcess().allowedHTTPSCertificateForHost(m_request.url().host().toString()); m_tlsState->accepted && allowed && certificatesMatch(allowed->trust().get(), m_serverTrust.get())) {
+    if (auto allowed = m_session->networkProcess().allowedHTTPSCertificateForHost(connectionURL().host().toString()); m_tlsState->accepted && allowed && certificatesMatch(allowed->trust().get(), m_serverTrust.get())) {
         completion(true);
         return;
     }
@@ -605,7 +622,7 @@ void NetworkDataTaskCurlCocoa::challengeServerTrust(CompletionHandler<void(bool)
 {
     // the challenge is raised for an HSTS-known host too; the user's decision governs.
     m_waitingForPolicy = true;
-    auto space = cocoaCurlTLSProtectionSpace(m_request.url(), 8, nullptr, m_serverTrust.get());
+    auto space = cocoaCurlTLSProtectionSpace(connectionURL(), 8, nullptr, m_serverTrust.get());
     if (!space) {
         completion(false);
         finish(NSURLErrorServerCertificateUntrusted, "Could not construct a certificate challenge"_s);
@@ -654,6 +671,16 @@ void NetworkDataTaskCurlCocoa::restart(ResourceRequest&& request)
     if (!portAllowed(request.url()) || isIPAddressDisallowed(request.url())) {
         finish(NSURLErrorCannotConnectToHost, "The redirect target is blocked by URL policy"_s);
         return;
+    }
+    if (!m_connectionURL.isNull()) {
+        if (!m_connectionURL.isValid() || !m_connectionURL.protocolIsInHTTPFamily()) {
+            finish(NSURLErrorUnsupportedURL, "The rewritten redirect target is not an HTTP URL"_s);
+            return;
+        }
+        if (!portAllowed(m_connectionURL) || isIPAddressDisallowed(m_connectionURL)) {
+            finish(NSURLErrorCannotConnectToHost, "The rewritten redirect target is blocked by URL policy"_s);
+            return;
+        }
     }
     if (!SecurityOrigin::create(request.url())->isSameOriginAs(SecurityOrigin::create(m_request.url()).get())) {
         m_authMethod = CURLAUTH_NONE;
@@ -1091,7 +1118,7 @@ void NetworkDataTaskCurlCocoa::curlSentData(uint64_t sent, uint64_t total)
 
 void NetworkDataTaskCurlCocoa::curlRequestedIdentity(CFArrayRef authorities, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion)
 {
-    auto native = cocoaCurlTLSProtectionSpace(m_request.url(), 7, authorities, nullptr);
+    auto native = cocoaCurlTLSProtectionSpace(connectionURL(), 7, authorities, nullptr);
     if (!native || m_state != State::Running) {
         completion(nullptr, nullptr);
         if (!native)

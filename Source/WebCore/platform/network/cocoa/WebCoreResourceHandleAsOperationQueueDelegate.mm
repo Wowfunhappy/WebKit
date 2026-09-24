@@ -363,7 +363,13 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         // MAVERICKS_BACKPORT: a gzip decode error, or a body that ended partway through a member,
         // fails the load rather than surfacing truncated.
         if (protectedSelf->m_gzipDecoder && (protectedSelf->m_gzipDecoder->failed() || protectedSelf->m_gzipDecoder->isTruncated())) {
-            auto error = adoptNS([[NSError alloc] initWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData userInfo:nil]);
+            // The error names the URL whose body failed, as CFNetwork's own errors do.
+            RetainPtr userInfo = adoptNS([[NSMutableDictionary alloc] init]);
+            if (RetainPtr url = [[connection currentRequest] URL]) {
+                [userInfo setObject:url.get() forKey:NSURLErrorFailingURLErrorKey];
+                [userInfo setObject:[url absoluteString] forKey:NSURLErrorFailingURLStringErrorKey];
+            }
+            auto error = adoptNS([[NSError alloc] initWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData userInfo:userInfo.get()]);
             protectedSelf->m_handle->client()->didFail(protectedSelf->m_handle.get(), ResourceError(error.get()));
             if (protectedSelf->m_messageQueue) {
                 protectedSelf->m_messageQueue->kill();

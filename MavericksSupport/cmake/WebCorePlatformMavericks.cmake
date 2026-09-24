@@ -888,7 +888,8 @@ list(REMOVE_ITEM WebCore_SOURCES page/mac/TextIndicatorWindow.mm)
 list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS page/mac/TextIndicatorWindow.h)
 
 # The Cocoa curl transport: curl carries every HTTP(S) transfer while WebCore's CF platform types stay
-# selected. These are this backport's own sources, so they live with the rest of the 10.9 glue;
+# selected, and ExternalURLRewrite retargets the connection of each HTTP(S) request those transfers send.
+# These are this backport's own sources, so they live with the rest of the 10.9 glue;
 # platform/network/cocoa is already on the private include path above.
 find_package(CURL 8.22 REQUIRED)
 find_library(COCOA_CURL_SSL_LIBRARY ssl PATHS "${MAVERICKS_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
@@ -907,6 +908,7 @@ list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTLS.mm
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTransfer.mm
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaMIMESniffing.cpp
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/ExternalURLRewrite.mm
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/HTTPStrictTransportSecurityStore.mm
 )
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
@@ -925,6 +927,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTransfer.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaDownloadTransport.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaMIMESniffing.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/ExternalURLRewrite.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/HTTPStrictTransportSecurityStore.h
 )
 

@@ -478,7 +478,7 @@ MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "S
 MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "Sources.txt" MAVERICKS_WITHHELD_WEBKIT_SOURCES MAVERICKS_ADDED_WEBKIT_SOURCES)
 MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES)
 
-# The Cocoa curl transport's NetworkProcess task, the task factory that applies the host's URL rewrite, the Private Click Measurement request, Safari's native
+# The Cocoa curl transport's NetworkProcess task and Private Click Measurement request, Safari's native
 # resume facade and its typed resume record -- this backport's own sources, beside the rest of the 10.9 glue. NetworkDataTask.cpp and
 # the download code reach the headers by bare name, so the directories go on the include path.
 find_package(CURL 8.22 REQUIRED)
@@ -493,7 +493,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 )
 list(APPEND WebKit_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCurlCocoa.mm
-    ${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/cocoa/NetworkDataTaskFactoryCocoa.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/PrivateClickMeasurement/cocoa/PrivateClickMeasurementCurlLoadTask.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/Cocoa/CocoaCurlLegacyDownload.mm

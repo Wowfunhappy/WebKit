@@ -54,7 +54,7 @@ private:
 WEBCORE_EXPORT std::optional<uint64_t> cocoaCurlUploadLength(const FormData&);
 WEBCORE_EXPORT bool validateCocoaCurlResumeResponse(const ResourceResponse&, uint64_t offset, const String& validator);
 WEBCORE_EXPORT bool validateCocoaCurlCompletedResume(const ResourceResponse&, uint64_t fileLength);
-WEBCORE_EXPORT void collectCocoaCurlMetrics(CURL*, const ResourceRequest&, MonotonicTime start, bool isProxy, NetworkLoadMetrics&);
+WEBCORE_EXPORT void collectCocoaCurlMetrics(CURL*, const ResourceRequest&, const URL& connectedURL, MonotonicTime start, bool isProxy, NetworkLoadMetrics&);
 // The bytes a request field value may carry, as CFNetwork admits them: everything but NUL, CR and LF.
 bool isValidCocoaCurlRequestHeaderValue(const String&);
 // Parse the escaped native request URL before applying scheme, origin and port policy.
@@ -97,6 +97,9 @@ struct CocoaCurlTransferOptions {
 
     tls_protocol_version_t minimumTLSProtocol;
     ResourceRequest request;
+    // The URL the transfer connects to and asks for in place of request's, when a WKExternalURLRewrite
+    // retargeted it (ExternalURLRewrite.h). The response and errors carry request's URL.
+    URL connectionURL;
     RefPtr<CocoaCurlUploadBody> upload;
     RetainPtr<CFDictionaryRef> proxySettings;
     RetainPtr<CFArrayRef> acceptedCertificateChain;
@@ -156,6 +159,7 @@ public:
 private:
     CocoaCurlTransfer(CocoaCurlScheduler&, CocoaCurlTransferClient&, CocoaCurlTransferOptions&&);
     CURL* curlHandle() const final { return m_easy; }
+    const URL& connectionURL() const { return m_options.connectionURL.isNull() ? m_options.request.url() : m_options.connectionURL; }
     void curlDidComplete(CURLcode) final;
     void curlDidFail() final;
     void curlCancel() final { cancel(); }

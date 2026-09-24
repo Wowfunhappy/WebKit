@@ -81,6 +81,7 @@ private:
     void continueAfterHeaders();
     void continueTransfer();
     void detachTransfer();
+    const URL& connectionURL() const { return m_connectionURL.isNull() ? m_request.url() : m_connectionURL; }
     void redirect();
     void authenticate(bool proxy);
     void challengeServerTrust(CompletionHandler<void(bool)>&&);
@@ -101,6 +102,9 @@ private:
     void finish(int, const String&, const WebCore::ResourceError& = { });
 
     WebCore::ResourceRequest m_request;
+    // The URL a WKExternalURLRewrite has the current request connect to (WebCore's ExternalURLRewrite.h);
+    // null for m_request's own.
+    URL m_connectionURL;
     RetainPtr<SecTrustRef> m_serverTrust;
     RetainPtr<CFArrayRef> m_acceptedCertificateChain;
     std::shared_ptr<CocoaCurlTLSState> m_tlsState;

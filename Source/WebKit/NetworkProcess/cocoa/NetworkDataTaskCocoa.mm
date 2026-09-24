@@ -425,8 +425,17 @@ void NetworkDataTaskCocoa::didCompleteWithError(const WebCore::ResourceError& er
     // MAVERICKS_BACKPORT: a gzip decode error, or a body that ended partway through a member, fails
     // the load rather than surfacing truncated.
     if (m_gzipDecoder && (m_gzipDecoder->failed() || (error.isNull() && m_gzipDecoder->isTruncated()))) {
-        if (RefPtr client = m_client.get())
-            client->didCompleteWithError(WebCore::ResourceError(String(NSURLErrorDomain), NSURLErrorCannotDecodeContentData, firstRequest().url(), "cannot decode gzip response body"_s), networkLoadMetrics);
+        if (RefPtr client = m_client.get()) {
+            // The error names the URL whose body failed.
+            const auto& currentURL = (m_previousRequest.isNull() ? firstRequest() : m_previousRequest).url();
+            RetainPtr userInfo = adoptNS([@{
+                NSURLErrorFailingURLStringErrorKey: currentURL.string().createNSString().get(),
+                NSLocalizedDescriptionKey: @"cannot decode gzip response body"
+            } mutableCopy]);
+            if (RetainPtr url = currentURL.createNSURL())
+                [userInfo setObject:url.get() forKey:NSURLErrorFailingURLErrorKey];
+            client->didCompleteWithError(WebCore::ResourceError([NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData userInfo:userInfo.get()]), networkLoadMetrics);
+        }
         return;
     }
 

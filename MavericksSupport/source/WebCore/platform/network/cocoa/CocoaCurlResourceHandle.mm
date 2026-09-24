@@ -6,6 +6,7 @@
 #include "CocoaCurlResourceHandle.h"
 #include "CocoaCookie.h"
 #include "CocoaCurlMultipartHandle.h"
+#include "ExternalURLRewrite.h"
 #include "SecurityOrigin.h"
 #include "ResourceHandleInternal.h"
 #include "CookieJar.h"
@@ -53,6 +54,7 @@ CocoaCurlResourceHandle::CocoaCurlResourceHandle(ResourceHandle& handle, Network
     , m_deferred(handle.d->m_defersLoading)
     , m_allowCredentials(allowStoredCredentials)
 {
+    m_connectionURL = applyExternalURLRewrite(m_request);
     if (m_allowCredentials && m_request.url().protocolIsInHTTPFamily()) {
         if (handle.d->m_user.isEmpty() && handle.d->m_password.isEmpty())
             m_initialCredential = m_storage->credentialStorage().get(m_request.cachePartition(), m_request.url());
@@ -118,7 +120,22 @@ void CocoaCurlResourceHandle::beginTransfer()
         fail(NSURLErrorCannotConnectToHost, "The request URL or storage session is no longer available"_s);
         return;
     }
-    if (m_request.url().protocolIs("http"_s) && m_storage->httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
+    if (!m_connectionURL.isNull()) {
+        if (!m_connectionURL.isValid() || !m_connectionURL.protocolIsInHTTPFamily()) {
+            fail(NSURLErrorUnsupportedURL, "The rewritten URL is not an HTTP URL"_s);
+            return;
+        }
+        if (!portAllowed(m_connectionURL) || isIPAddressDisallowed(m_connectionURL)) {
+            fail(NSURLErrorCannotConnectToHost, "The rewritten URL is blocked by URL policy"_s);
+            return;
+        }
+        // A retargeted connection takes its server's HSTS policy without a redirect the load would report.
+        if (m_connectionURL.protocolIs("http"_s) && m_storage->httpStrictTransportSecurityStore().shouldUpgrade(m_connectionURL)) {
+            m_connectionURL.setProtocol("https"_s);
+            if (m_connectionURL.port() == 80)
+                m_connectionURL.setPort(std::nullopt);
+        }
+    } else if (m_request.url().protocolIs("http"_s) && m_storage->httpStrictTransportSecurityStore().shouldUpgrade(m_request.url())) {
         auto secureURL = m_request.url();
         secureURL.setProtocol("https"_s);
         if (secureURL.port() == 80)
@@ -151,6 +168,7 @@ void CocoaCurlResourceHandle::beginTransfer()
     }
     CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
+    options.connectionURL = m_connectionURL;
     if (m_cachedEntry)
         addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());
     if (auto body = m_request.httpBody())
@@ -213,7 +231,7 @@ void CocoaCurlResourceHandle::curlReceivedResponse(CocoaCurlTransferResponse&& r
     auto tls = m_connection->tlsState();
     SecTrustResultType trustResult = kSecTrustResultInvalid;
     if (m_storage && tls && tls->trust && SecTrustGetTrustResult(tls->trust.get(), &trustResult) == errSecSuccess && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
-        m_storage->httpStrictTransportSecurityStore().receiveHeader(m_request.url(), m_response.response.httpHeaderField("Strict-Transport-Security"_s));
+        m_storage->httpStrictTransportSecurityStore().receiveHeader(connectionURL(), m_response.response.httpHeaderField("Strict-Transport-Security"_s));
     m_responseTimestamp = WallTime::now();
     auto status = m_response.response.httpStatusCode();
     // A 304 refreshes the stored metadata before completing the validating request.
@@ -344,6 +362,7 @@ void CocoaCurlResourceHandle::redirect()
             loader->m_auth = CURLAUTH_NONE;
         }
         approved.removeCredentials();
+        loader->m_connectionURL = applyExternalURLRewrite(approved);
         loader->m_request = WTF::move(approved);
         loader->m_handle->d->m_previousRequest = loader->m_request;
         loader->m_handle->d->m_lastHTTPMethod = loader->m_request.httpMethod();
@@ -610,7 +629,7 @@ void CocoaCurlResourceHandle::didCompleteFromMultipart()
 }
 void CocoaCurlResourceHandle::curlRequestedIdentity(CFArrayRef authorities, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion)
 {
-    auto space = cocoaCurlTLSProtectionSpace(m_request.url(), 7, authorities, nullptr);
+    auto space = cocoaCurlTLSProtectionSpace(connectionURL(), 7, authorities, nullptr);
     if (!space) {
         completion(nullptr, nullptr);
         fail(NSURLErrorClientCertificateRejected, "Could not construct a client certificate challenge"_s);
@@ -627,7 +646,7 @@ void CocoaCurlResourceHandle::curlRequestedServerTrust(CompletionHandler<void(bo
 {
     // A host given +[NSURLRequest setAllowsAnyHTTPSCertificate:forHost:] is trusted by the handshake
     // itself, with no challenge, as NSURLConnection trusts it.
-    bool hostAllowsAnyCertificate = [NSURLRequest allowsAnyHTTPSCertificateForHost:m_request.url().host().createNSString().get()];
+    bool hostAllowsAnyCertificate = [NSURLRequest allowsAnyHTTPSCertificateForHost:connectionURL().host().createNSString().get()];
     completion(!m_cancelled && (m_connection->tlsState()->accepted || hostAllowsAnyCertificate));
 }
 void CocoaCurlResourceHandle::curlCompleted(const ResourceError& error, const NetworkLoadMetrics& metrics)
@@ -643,7 +662,7 @@ void CocoaCurlResourceHandle::curlCompleted(const ResourceError& error, const Ne
     auto tls = m_connection->tlsState();
     if (error.errorCode() == NSURLErrorServerCertificateUntrusted && tls && tls->trust && !m_acceptedChain) {
         // the challenge is raised for an HSTS-known host too; the user's decision governs.
-        auto space = cocoaCurlTLSProtectionSpace(m_request.url(), 8, nullptr, tls->trust.get());
+        auto space = cocoaCurlTLSProtectionSpace(connectionURL(), 8, nullptr, tls->trust.get());
         if (space) {
             challenge(ProtectionSpace(space.get()), { }, 0, error, [weakThis = WeakPtr { *this }, tls, error](CocoaCurlAuthenticationDisposition disposition, RetainPtr<NSURLCredential>&& credential) {
                 RefPtr loader = weakThis.get();
@@ -726,6 +745,6 @@ std::optional<CocoaCurlDownloadTransfer> CocoaCurlResourceHandle::takeDownload()
     m_cancelled = true;
     m_response.metrics = m_metrics;
     m_cacheBody.reset();
-    return CocoaCurlDownloadTransfer { std::exchange(m_connection, nullptr),m_pool.copyRef(), m_storage, m_request, m_response, std::exchange(m_continuation, nullptr), std::exchange(m_sniffed, { }), m_generatedCookie, m_allowCredentials, m_result };
+    return CocoaCurlDownloadTransfer { std::exchange(m_connection, nullptr),m_pool.copyRef(), m_storage, m_request, m_connectionURL, m_response, std::exchange(m_continuation, nullptr), std::exchange(m_sniffed, { }), m_generatedCookie, m_allowCredentials, m_result };
 }
 }
