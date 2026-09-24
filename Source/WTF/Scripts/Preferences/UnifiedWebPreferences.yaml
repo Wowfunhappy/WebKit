@@ -1816,8 +1816,8 @@ CaptureVideoInGPUProcessEnabled:
   defaultValue:
     WebKit:
       # MAVERICKS_BACKPORT: video capture runs in the web process here, which holds the camera grant;
-      # see ENABLE_GPU_PROCESS_RASTERIZATION_ONLY in MavericksSupport/cmake/OptionsMacMavericks.cmake.
-      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)": true
+      # see ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
       default: false
 
 CaretBrowsingEnabled:
@@ -9943,8 +9943,8 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
       default: false
     WebKit:
       # MAVERICKS_BACKPORT: the WebRTC platform codecs run in the web process here; see
-      # ENABLE_GPU_PROCESS_RASTERIZATION_ONLY in MavericksSupport/cmake/OptionsMacMavericks.cmake.
-      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)": true
+      # ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
       default: false
     WebCore:
       default: false

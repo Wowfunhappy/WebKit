@@ -63,7 +63,14 @@ Ref<WebCore::AudioDestination> WebMediaStrategy::createAudioDestination(const We
 {
     ASSERT(isMainRunLoop());
 #if ENABLE(GPU_PROCESS)
-    if (m_useGPUProcess)
+    // MAVERICKS_BACKPORT: Web Audio renders in the GPU process, as on every Cocoa port; this port's GStreamer media players are what UseGPUProcessForMediaEnabled keeps in the web process.
+    // if (m_useGPUProcess)
+#if PLATFORM(COCOA) && USE(GSTREAMER)
+    bool rendersInGPUProcess = true;
+#else
+    bool rendersInGPUProcess = m_useGPUProcess;
+#endif
+    if (rendersInGPUProcess)
         return WebCore::SharedAudioDestination::create(options, [] (auto& options) {
             return RemoteAudioDestinationProxy::create(options);
         });

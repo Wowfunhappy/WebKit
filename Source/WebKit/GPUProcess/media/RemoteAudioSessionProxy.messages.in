@@ -25,11 +25,9 @@
 
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
 
-[
-    DispatchedFrom=WebContent,
-    DispatchedTo=GPU,
-    EnabledBy=UseGPUProcessForMediaEnabled && MediaPlaybackEnabled
-]
+# MAVERICKS_BACKPORT: the audio session is the GPU process's wherever Web Audio renders there, which on this port's GStreamer build is without UseGPUProcessForMediaEnabled.
+#    DispatchedFrom=WebContent, DispatchedTo=GPU, EnabledBy=UseGPUProcessForMediaEnabled && MediaPlaybackEnabled
+[ DispatchedFrom=WebContent, DispatchedTo=GPU, EnabledBy=MediaPlaybackEnabled ]
 messages -> RemoteAudioSessionProxy {
     SetCategory(enum:uint8_t WebCore::AudioSessionCategory type, enum:uint8_t WebCore::AudioSessionMode mode, enum:uint8_t WebCore::RouteSharingPolicy policy)
     SetPreferredBufferSize(uint64_t preferredBufferSize)

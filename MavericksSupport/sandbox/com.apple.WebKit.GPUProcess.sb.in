@@ -10,9 +10,9 @@
 ; It is therefore written in the vocabulary 10.9's compiler accepts -- `(import "system.sb")`,
 ; `iokit-open` rather than iokit-open-service/iokit-open-user-client, no with-filter, no
 ; file-map-executable, no message filters -- and grants what this port's GPU process actually
-; does: DOM and canvas rasterization, and WebGL. Media playback, capture and WebRTC codecs all stay
-; in the web process (CaptureAudio/Video/DisplayInGPUProcessEnabled and
-; WebRTCPlatformCodecsInGPUProcessEnabled key on ENABLE_GPU_PROCESS_RASTERIZATION_ONLY, and
+; does: DOM and canvas rasterization, WebGL, and Web Audio output. Media playback, capture and WebRTC
+; codecs all stay in the web process (CaptureAudio/Video/DisplayInGPUProcessEnabled and
+; WebRTCPlatformCodecsInGPUProcessEnabled key on ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS, and
 ; UseGPUProcessForMediaEnabled on upstream's own GStreamer term; the web process
 ; profile holds the camera and microphone grants), so upstream's AVFoundation playback, capture and
 ; codec grants -- and the camera, microphone and TCC rules that go with them -- have no counterpart here.
@@ -136,6 +136,24 @@
        (global-name "com.apple.system.notification_center")
        (global-name "com.apple.system.opendirectoryd.membership")
        (global-name-regex #"^com.apple.distributed_notifications"))
+
+;; Web Audio output: RemoteAudioDestinationManager renders the web process's Web Audio graph to the
+;; default output device through CoreAudio. These are the audio rules of this port's WebProcess profile,
+;; where CoreAudio output runs for media playback.
+(allow file-read*
+       (subpath "/Library/Audio/Plug-Ins/HAL")
+       (subpath "/Library/Audio/Plug-Ins/Components")
+       (home-subpath "/Library/Audio/Plug-Ins/Components")
+       (home-literal "/Library/Caches/com.apple.coreaudio.components.plist"))
+(allow iokit-open
+       (iokit-user-client-class "IOAudioControlUserClient")
+       (iokit-user-client-class "IOAudioEngineUserClient"))
+(allow ipc-posix-shm-read* ipc-posix-shm-write-data
+    (ipc-posix-name-regex #"^AudioIO"))
+(allow mach-lookup
+       (global-name "com.apple.audio.SystemSoundServer-OSX")
+       (global-name "com.apple.audio.audiohald")
+       (global-name "com.apple.audio.coreaudiod"))
 
 ;; Preferences this process reads for itself.
 (allow user-preference-read

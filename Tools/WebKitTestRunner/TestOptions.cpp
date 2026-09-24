@@ -38,8 +38,8 @@ namespace WTR {
 // GPU process then has the web process terminated. This is the same term
 // defaultCaptureAudioInGPUProcessEnabled() uses. Video capture is left at upstream's value: the mock
 // video sources the layout tests use draw with CoreGraphics inside the GPU process and need none of the
-// camera grants this port's rasterization-only GPU process lacks.
-#if PLATFORM(COCOA) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)
+// camera grants this port's GPU process lacks.
+#if PLATFORM(COCOA) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)
 static constexpr bool captureAudioInGPUProcessEnabledValue = true;
 #else
 static constexpr bool captureAudioInGPUProcessEnabledValue = false;

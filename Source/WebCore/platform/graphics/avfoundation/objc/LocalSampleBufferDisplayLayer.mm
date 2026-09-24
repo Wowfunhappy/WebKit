@@ -394,7 +394,7 @@ static inline CGAffineTransform transformationMatrixForVideoFrame(VideoFrame& vi
 // TiledCoreAnimationDrawingArea hosting layer (and WebKitLegacy's flipped hosting view), whose flipped
 // geometry mirrors a rotation, so the angle keeps the frame's own sign.
 // #if PLATFORM(MAC)
-#if PLATFORM(MAC) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)
+#if PLATFORM(MAC) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)
     int rotationAngle = -static_cast<int>(videoFrame.rotation());
 #else
     int rotationAngle = static_cast<int>(videoFrame.rotation());

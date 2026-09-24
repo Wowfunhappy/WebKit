@@ -614,6 +614,10 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
 #if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
     protect(remoteMediaPlayerManager())->initialize(parameters);
 #endif
+// MAVERICKS_BACKPORT: Web Audio renders in the GPU process here (WebMediaStrategy::createAudioDestination), so the audio session is the GPU process's, through upstream's RemoteAudioSession; setUseGPUProcessForMedia installs it only with the media players.
+#if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION) && PLATFORM(COCOA) && USE(GSTREAMER)
+    AudioSession::setSharedSession(RemoteAudioSession::create(*this));
+#endif
 
     setCacheModel(parameters.cacheModel);
 
