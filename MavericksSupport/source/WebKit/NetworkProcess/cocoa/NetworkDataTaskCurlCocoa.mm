@@ -428,6 +428,15 @@ void NetworkDataTaskCurlCocoa::redirect()
     m_user = request.url().user();
     m_password = request.url().password();
     request.removeCredentials();
+    // The first party follows a top-level navigation, and follows any redirect whose source and target both have storage access, as NetworkDataTaskCocoa decides it.
+    if (isTopLevelNavigation())
+        request.setFirstPartyForCookies(request.url());
+    else if (auto* storageSession = m_session->networkStorageSession()) {
+        RegistrableDomain firstPartyDomain { request.firstPartyForCookies() };
+        if (storageSession->hasStorageAccess(RegistrableDomain { m_response.url() }, firstPartyDomain, m_frameID, m_pageID)
+            && storageSession->hasStorageAccess(RegistrableDomain { request.url() }, firstPartyDomain, m_frameID, m_pageID))
+            request.setFirstPartyForCookies(request.url());
+    }
     if (RefPtr client = m_client.get()) {
         client->willPerformHTTPRedirection(ResourceResponse(m_response), WTF::move(request), [protectedThis = Ref { *this }](ResourceRequest&& approved) {
             if (protectedThis->m_state != State::Running)

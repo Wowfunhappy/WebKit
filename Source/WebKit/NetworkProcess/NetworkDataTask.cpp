@@ -41,7 +41,7 @@
 
 #if PLATFORM(COCOA)
 #include "NetworkDataTaskCocoa.h"
-#include "NetworkDataTaskCurlCocoa.h" // MAVERICKS_BACKPORT: Cocoa HTTP transport.
+#include "NetworkDataTaskFactoryCocoa.h" // MAVERICKS_BACKPORT: host URL rewrite and the Cocoa HTTP transport.
 #endif
 #if USE(SOUP)
 #include "NetworkDataTaskSoup.h"
@@ -58,10 +58,9 @@ Ref<NetworkDataTask> NetworkDataTask::create(NetworkSession& session, NetworkDat
     ASSERT(!parameters.request.url().protocolIsBlob());
     auto dataTask = [&] {
 #if PLATFORM(COCOA)
-        // MAVERICKS_BACKPORT: HTTP(S) uses curl; Cocoa dispatches local and registered custom protocols.
-        if (NetworkDataTaskCurlCocoa::canHandle(session, parameters))
-            return NetworkDataTaskCurlCocoa::create(session, client, parameters);
-        return NetworkDataTaskCocoa::create(session, client, parameters);
+        // MAVERICKS_BACKPORT: the host's WKExternalURLRewrite retargets the request, then HTTP(S) uses curl and Cocoa dispatches local and registered custom protocols.
+        return createNetworkDataTaskCocoa(session, client, parameters);
+        // return NetworkDataTaskCocoa::create(session, client, parameters);
 #else
         if (parameters.request.url().protocolIsData())
             return NetworkDataTaskDataURL::create(session, client, parameters);
