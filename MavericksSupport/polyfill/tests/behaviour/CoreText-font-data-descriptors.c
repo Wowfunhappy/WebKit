@@ -1,11 +1,8 @@
 // Descriptors from CTFontManagerCreateFontDescriptorFromData (polyfills/c/CoreText.c) realize their
-// own font's data for as long as anything built from them lives:
+// own font's data:
 //
-//   * A CFF font is read through a temporary file, because 10.9's in-memory CFF reader answers vertical
-//     metrics wrong. Its vertical advances and translations match the system reader of the same file.
-//   * 10.9 closes font files it is not drawing from once enough fonts are open, and reopens them by
-//     path. The face keeps its outlines, and realizes at a new size as itself rather than LastResort,
-//     after hundreds of other faces open. Its file goes away once no font uses it.
+//   * A CFF face keeps its outlines, and realizes at a new size as itself rather than LastResort,
+//     after hundreds of other faces open.
 //   * A descriptor narrowed with traits or feature settings realizes the same face, CFF, TrueType and
 //     GX alike, and so does a CFF font copied with such attributes.
 //   * A variation request keyed by string names no axis: realizing or copying with one answers the
@@ -15,10 +12,8 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 static int failures;
 
@@ -46,19 +41,6 @@ static CTFontDescriptorRef descriptorFromFile(const char *path)
     return descriptor;
 }
 
-static CTFontRef systemReaderFont(const char *path, CGFloat size)
-{
-    CFURLRef url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)path, (CFIndex)strlen(path), false);
-    CFArrayRef descriptors = url ? CTFontManagerCreateFontDescriptorsFromURL(url) : NULL;
-    CTFontRef font = descriptors && CFArrayGetCount(descriptors)
-        ? CTFontCreateWithFontDescriptor((CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0), size, NULL) : NULL;
-    if (descriptors)
-        CFRelease(descriptors);
-    if (url)
-        CFRelease(url);
-    return font;
-}
-
 static CGGlyph glyphFor(CTFontRef font, UniChar character)
 {
     CGGlyph glyph = 0;
@@ -75,15 +57,6 @@ static CGRect outlineBounds(CTFontRef font, CGGlyph glyph)
     return bounds;
 }
 
-static int fontFileExists(CTFontRef font, char *path, size_t length)
-{
-    CFURLRef url = (CFURLRef)CTFontCopyAttribute(font, kCTFontURLAttribute);
-    int ok = url && CFURLGetFileSystemRepresentation(url, true, (UInt8 *)path, (CFIndex)length);
-    if (url)
-        CFRelease(url);
-    return ok && !access(path, F_OK);
-}
-
 static int sameName(CTFontRef font, CTFontRef other)
 {
     CFStringRef name = font ? CTFontCopyPostScriptName(font) : NULL;
@@ -96,36 +69,7 @@ static int sameName(CTFontRef font, CTFontRef other)
     return same;
 }
 
-static int nearly(CGFloat a, CGFloat b)
-{
-    return fabs(a - b) < 0.0005;
-}
-
-static void checkVerticalMetrics(const char *path, CTFontDescriptorRef descriptor)
-{
-    const CGFloat size = 20;
-    CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, size, NULL);
-    CTFontRef reference = systemReaderFont(path, size);
-    check(reference != NULL, "the system reader opens the CFF font");
-    if (!reference) {
-        CFRelease(font);
-        return;
-    }
-    CGGlyph glyph = glyphFor(font, 'p');
-    CGSize advance, referenceAdvance, translation, referenceTranslation;
-    CTFontGetAdvancesForGlyphs(font, kCTFontOrientationVertical, &glyph, &advance, 1);
-    CTFontGetAdvancesForGlyphs(reference, kCTFontOrientationVertical, &glyph, &referenceAdvance, 1);
-    CTFontGetVerticalTranslationsForGlyphs(font, &glyph, &translation, 1);
-    CTFontGetVerticalTranslationsForGlyphs(reference, &glyph, &referenceTranslation, 1);
-    check(nearly(advance.width, referenceAdvance.width) && nearly(advance.height, referenceAdvance.height),
-        "the CFF vertical advance matches the system reader of the file");
-    check(nearly(translation.width, referenceTranslation.width) && nearly(translation.height, referenceTranslation.height),
-        "the CFF vertical translation matches the system reader of the file");
-    CFRelease(reference);
-    CFRelease(font);
-}
-
-static void checkFileLifetime(const char *path, CTFontDescriptorRef descriptor)
+static void checkManyFaces(const char *path, CTFontDescriptorRef descriptor)
 {
     const CGFloat size = 14;
     enum { otherFaces = 300 };
@@ -133,8 +77,6 @@ static void checkFileLifetime(const char *path, CTFontDescriptorRef descriptor)
     CGGlyph glyph = glyphFor(font, 'p');
     CGRect bounds = outlineBounds(font, glyph);
     check(glyph != 0 && !CGRectIsEmpty(bounds), "the CFF face maps and outlines 'p'");
-    char file[1024];
-    check(fontFileExists(font, file, sizeof file), "the CFF face's file exists while the face is alive");
 
     CTFontRef others[otherFaces];
     for (int i = 0; i < otherFaces; ++i) {
@@ -146,7 +88,7 @@ static void checkFileLifetime(const char *path, CTFontDescriptorRef descriptor)
             outlineBounds(others[i], glyphFor(others[i], 'p'));
     }
 
-    check(CGRectEqualToRect(outlineBounds(font, glyph), bounds), "the outline is unchanged once other faces opened files");
+    check(CGRectEqualToRect(outlineBounds(font, glyph), bounds), "the outline is unchanged once other faces opened");
     CTFontRef resized = CTFontCreateWithFontDescriptor(descriptor, 2 * size, NULL);
     check(glyphFor(resized, 'p') == glyph, "the face realizes at a new size as itself, not LastResort");
     check(CGRectEqualToRect(outlineBounds(resized, glyph),
@@ -160,7 +102,6 @@ static void checkFileLifetime(const char *path, CTFontDescriptorRef descriptor)
             CFRelease(others[i]);
     }
     CFRelease(descriptor);
-    check(access(file, F_OK), "the CFF face's file is removed once no font uses it");
 }
 
 static void checkNarrowedDescriptors(CTFontDescriptorRef descriptor, const char *flavor)
@@ -307,7 +248,6 @@ int main(int argc, char **argv)
     if (!cff || !trueType || !variable)
         return 1;
 
-    checkVerticalMetrics(argv[1], cff);
     checkNarrowedDescriptors(cff, "CFF");
     checkWeightNarrowing(trueType, "TrueType");
     checkWeightNarrowing(variable, "GX variable");
@@ -316,7 +256,7 @@ int main(int argc, char **argv)
     checkStringKeyedVariation(variable, "GX variable");
     CFRelease(variable);
     CFRelease(trueType);
-    checkFileLifetime(argv[1], cff);
+    checkManyFaces(argv[1], cff);
 
     if (!failures)
         printf("PASS\n");

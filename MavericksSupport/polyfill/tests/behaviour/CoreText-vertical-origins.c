@@ -76,24 +76,6 @@ int main(int argc, char **argv)
         CFStringRef name = CTFontCopyPostScriptName(font);
         check(name && CFEqual(name, CFSTR("NotoSansCJKjp-Regular")), "CFF descriptor retains the web font's identity");
         if (name) CFRelease(name);
-        const UniChar water[] = { 0x6c34, 0x6c34 };
-        CGGlyph glyphs[2]; CGSize advances[2];
-        CTFontGetGlyphsForCharacters(font, water, glyphs, 2);
-        double advance = CTFontGetAdvancesForGlyphs(font, kCTFontOrientationVertical, glyphs, advances, 2);
-        printf("CFF vertical advance %.9f %.9f total %.9f\n", advances[0].width, advances[1].width, advance);
-        check(glyphs[0] && advances[0].width == 100 && advances[1].width == 100 && advance == 200,
-            "CFF vertical advances equal vmtx font units");
-        expectTranslation("CFF water", font, water, 1, -50, -88);
-        CFStringRef string = CFStringCreateWithCharacters(NULL, water, 2);
-        const void *keys[] = { kCTFontAttributeName, kCTVerticalFormsAttributeName };
-        const void *values[] = { font, kCFBooleanTrue };
-        CFDictionaryRef attributes = CFDictionaryCreate(NULL, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-        CFAttributedStringRef text = CFAttributedStringCreate(NULL, string, attributes);
-        CTLineRef line = CTLineCreateWithAttributedString(text);
-        double width = CTLineGetTypographicBounds(line, NULL, NULL, NULL);
-        printf("CFF vertical CTLine width %.9f\n", width);
-        check(width == 200, "CFF vertical CTLine uses exact advance heights");
-        CFRelease(line); CFRelease(text); CFRelease(attributes); CFRelease(string);
         CFRelease(font); CFRelease(cffDescriptor);
     }
     if (cff) CFRelease(cff);

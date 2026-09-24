@@ -315,9 +315,6 @@ static CTFontRef wk_recordDescriptorOptions(CTFontRef font, CTFontDescriptorRef 
 {
     if (font && descriptor) {
         CFDictionaryRef carried = CTFontDescriptorCopyAttributes(descriptor);
-        CFTypeRef owner = carried ? CFDictionaryGetValue(carried, CFSTR("WKFontGraphicsFont")) : NULL;
-        if (owner)
-            objc_setAssociatedObject((id)(void *)font, sel_registerName("wk_fontGraphicsFont"), (id)owner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         CFTypeRef fallback = carried ? CFDictionaryGetValue(carried, kCTFontFallbackOptionAttribute) : NULL;
         if (fallback && CFGetTypeID(fallback) == CFNumberGetTypeID())
             objc_setAssociatedObject((id)(void *)font, wk_fallbackOptionKey(), (id)fallback, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -337,15 +334,12 @@ static CTFontRef wk_recordDescriptorOptions(CTFontRef font, CTFontDescriptorRef 
     return font;
 }
 
-// A copy keeps its graphics-font binding, palette and fallback policy.
+// A copy keeps its palette and fallback policy.
 static void wk_inheritDescriptorOptions(CTFontRef copy, CTFontRef source, CTFontDescriptorRef attributes)
 {
     if (!copy || copy == source)
         return;
     if (source) {
-        CFTypeRef owner = (CFTypeRef)objc_getAssociatedObject((id)(void *)source, sel_registerName("wk_fontGraphicsFont"));
-        if (owner)
-            objc_setAssociatedObject((id)(void *)copy, sel_registerName("wk_fontGraphicsFont"), (id)owner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         CFTypeRef fallback = (CFTypeRef)objc_getAssociatedObject((id)(void *)source, wk_fallbackOptionKey());
         if (fallback)
             objc_setAssociatedObject((id)(void *)copy, wk_fallbackOptionKey(), (id)fallback, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -648,7 +642,7 @@ WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageA
 #define WK_LEGACY_VARIABLE_FONT_SOURCE_KEY CFSTR("WKMavericksLegacyVariableFontSourceSFNT")
 
 // Descriptors retain a CGFont binding: 10.9's descriptor-from-data route frees an object that
-// TFontFeatures reads on realization. CFF uses the URL reader for exact vertical font units.
+// TFontFeatures reads on realization.
 //
 // For a variable font the descriptor describes the default master — the variation tables are
 // stripped, so that CoreGraphics reads a plain static font — and the original bytes ride along
@@ -676,7 +670,6 @@ static CTFontDescriptorRef wk_descriptorWithZeroSize(CTFontDescriptorRef descrip
 }
 
 // Realize a descriptor from an already sanitized sfnt, including legacy variable-font handling.
-// The native data-parser fallback is for non-CFF fonts; its CFF path crashes on valid subsets on 10.9.
 // This never sanitizes; the sanitizing entry points call it once.
 static CTFontDescriptorRef wk_realizeDescriptorFromSfnt(CFDataRef sfnt);
 
@@ -730,10 +723,7 @@ static CTFontDescriptorRef wk_realizeDescriptorFromSfnt(CFDataRef sfnt)
             }
         }
     }
-    if (sfnt && CFDataGetLength(sfnt) >= 4 && wk_be32(CFDataGetBytePtr(sfnt)) == 'OTTO')
-        return NULL;
-    return WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)
-        ? WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)(sfnt) : NULL;
+    return NULL;
 }
 
 // The size CoreText would use for a descriptor realized at `size`: an explicit size wins, then the
@@ -1858,30 +1848,12 @@ WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTFontCopyVariation, (CTFontRe
     return wk_copyRealizedVariation(descriptor);
 }
 
-static CTFontDescriptorRef wk_descriptorWithGraphicsFont(CTFontRef font, CTFontDescriptorRef descriptor)
-{
-    if (!descriptor)
-        return NULL;
-    CGFontRef graphics = (CGFontRef)objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_fontGraphicsFont"));
-    if (graphics) {
-        const void *key = CFSTR("WKFontGraphicsFont");
-        const void *value = graphics;
-        CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1,
-            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-        CTFontDescriptorRef copy = CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes);
-        CFRelease(attributes);
-        CFRelease(descriptor);
-        descriptor = copy;
-    }
-    return descriptor;
-}
-
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontCopyFontDescriptor, (CTFontRef font))
 {
     CTFontDescriptorRef descriptor = wk_variableFontSource(font);
     if (!descriptor)
-        return wk_descriptorWithGraphicsFont(font, wk_descriptorWithCarriedOptions(font,
-            WK_ORIGINAL(CTFontCopyFontDescriptor) ? WK_ORIGINAL(CTFontCopyFontDescriptor)(font) : NULL));
+        return wk_descriptorWithCarriedOptions(font,
+            WK_ORIGINAL(CTFontCopyFontDescriptor) ? WK_ORIGINAL(CTFontCopyFontDescriptor)(font) : NULL);
     CGFloat size = CTFontGetSize(font);
     CFNumberRef sizeNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &size);
     const void *keys[] = { kCTFontSizeAttribute };
@@ -2047,11 +2019,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
     if (!instance) {
         CTFontDescriptorRef realizable = wk_realizableDescriptor(descriptor);
         CTFontDescriptorRef nativeDescriptor = realizable ? realizable : descriptor;
-        CGFontRef graphics = nativeDescriptor ? (CGFontRef)wk_carriedAttribute(nativeDescriptor, CFSTR("WKFontGraphicsFont")) : NULL;
-        instance = graphics ? CTFontCreateWithGraphicsFont(graphics, size, matrix, nativeDescriptor)
-            : WK_ORIGINAL(CTFontCreateWithFontDescriptor)(nativeDescriptor, size, matrix);
-        if (graphics)
-            CGFontRelease(graphics);
+        instance = WK_ORIGINAL(CTFontCreateWithFontDescriptor)(nativeDescriptor, size, matrix);
         if (realizable)
             CFRelease(realizable);
         instance = wkApplyTraitsToFace(instance, descriptor);
@@ -2084,11 +2052,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
     if (!instance) {
         CTFontDescriptorRef realizable = wk_realizableDescriptor(descriptor);
         CTFontDescriptorRef nativeDescriptor = realizable ? realizable : descriptor;
-        CGFontRef graphics = nativeDescriptor ? (CGFontRef)wk_carriedAttribute(nativeDescriptor, CFSTR("WKFontGraphicsFont")) : NULL;
-        instance = graphics ? CTFontCreateWithGraphicsFont(graphics, size, matrix, nativeDescriptor)
-            : WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(nativeDescriptor, size, matrix, options);
-        if (graphics)
-            CGFontRelease(graphics);
+        instance = WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(nativeDescriptor, size, matrix, options);
         if (realizable)
             CFRelease(realizable);
         instance = wkApplyTraitsToFace(instance, descriptor);
@@ -2129,83 +2093,13 @@ static CTFontDescriptorRef wkWeightRequestDescriptor(CGFloat weight)
     return descriptor;
 }
 
-static void wk_removeFontFile(void *path, void *info)
-{
-    (void)info;
-    unlink(path);
-    free(path);
-}
-
-// CFF is read from a file, because 10.9's in-memory CFF reader scales vertical advances and translations
-// by about 1.007 and loses vertical origins. 10.9 closes font files it is not drawing from and reopens
-// them by path, so the file lives until the graphics font is deallocated.
 static CGFontRef wk_createGraphicsFontFromSfnt(CFDataRef data)
 {
-    if (CFDataGetLength(data) < 4 || wk_be32(CFDataGetBytePtr(data)) != 'OTTO') {
-        CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
-        CGFontRef font = provider ? CGFontCreateWithDataProvider(provider) : NULL;
-        if (provider)
-            CGDataProviderRelease(provider);
-        return font;
-    }
-    char directory[PATH_MAX];
-    size_t length = confstr(_CS_DARWIN_USER_TEMP_DIR, directory, sizeof(directory));
-    if (!length || length > sizeof(directory))
-        return NULL;
-    char *path = malloc(strlen(directory) + sizeof("wk-font-XXXXXX"));
-    if (!path)
-        return NULL;
-    strcpy(path, directory);
-    strcat(path, "wk-font-XXXXXX");
-    int fd = mkstemp(path);
-    if (fd < 0) {
-        free(path);
-        return NULL;
-    }
-    const UInt8 *bytes = CFDataGetBytePtr(data);
-    CFIndex remaining = CFDataGetLength(data);
-    while (remaining) {
-        ssize_t written = write(fd, bytes, (size_t)remaining);
-        if (written < 0 && errno == EINTR)
-            continue;
-        if (written <= 0)
-            break;
-        bytes += written;
-        remaining -= written;
-    }
-    close(fd);
-    CGFontRef result = NULL;
-    CFURLRef url = NULL;
-    if (!remaining) {
-        url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)path, strlen(path), false);
-        CFArrayRef descriptors = url ? CTFontManagerCreateFontDescriptorsFromURL(url) : NULL;
-        if (descriptors && CFArrayGetCount(descriptors) == 1) {
-            CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)((CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0), 12, NULL);
-            if (font) {
-                result = CTFontCopyGraphicsFont(font, NULL);
-                CFRelease(font);
-            }
-        }
-        if (descriptors)
-            CFRelease(descriptors);
-    }
-    if (!result) {
-        unlink(path);
-        free(path);
-        if (url)
-            CFRelease(url);
-        return NULL;
-    }
-    CFRelease(url);
-    CFAllocatorContext context = { .deallocate = wk_removeFontFile };
-    CFAllocatorRef allocator = CFAllocatorCreate(kCFAllocatorDefault, &context);
-    CFDataRef file = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (const UInt8 *)path, (CFIndex)strlen(path) + 1, allocator);
-    CFRelease(allocator);
-    if (!file)
-        abort();
-    objc_setAssociatedObject((id)(void *)result, sel_registerName("wk_fontFile"), (id)(void *)file, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    CFRelease(file);
-    return result;
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
+    CGFontRef font = provider ? CGFontCreateWithDataProvider(provider) : NULL;
+    if (provider)
+        CGDataProviderRelease(provider);
+    return font;
 }
 
 // The trait values a descriptor carries in its kCTFontTraitsAttribute.
@@ -2703,8 +2597,6 @@ static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attribu
     return selected;
 }
 
-static CTFontRef wk_copyFromGraphicsFont(CTFontRef, CGFontRef, CGFloat, const CGAffineTransform *, CTFontDescriptorRef);
-
 // The copy entry point, where the source's scale is the font's own and the size that can name a
 // new one is the attributes descriptor's. This is how WebCore realizes a font whose base is a
 // CTFont rather than a descriptor (UnrealizedCoreTextFont::realize). A NULL matrix here means the
@@ -2746,9 +2638,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
     CTFontDescriptorRef realizable = wk_attributesWithRealizableVariations(font, attributes);
     if (realizable)
         attributes = realizable;
-    CGFontRef graphics = (CGFontRef)objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_fontGraphicsFont"));
-    CTFontRef copy = graphics ? wk_copyFromGraphicsFont(font, graphics, size, matrix, attributes)
-        : WK_ORIGINAL(CTFontCreateCopyWithAttributes)
+    CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, attributes) : NULL;
     copy = wkApplyTraitsToFace(copy, attributes);
     copy = wk_fontWithRealizableVariations(copy, attributes, size, matrix);
@@ -2891,30 +2781,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithGraphicsFont,
 {
     CTFontRef result = WK_ORIGINAL(CTFontCreateWithGraphicsFont)(font, size, matrix, attributes);
     wk_recordDescriptorOptions(result, attributes);
-    if (result && font && objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_fontFile")))
-        objc_setAssociatedObject((id)(void *)result, sel_registerName("wk_fontGraphicsFont"), (id)(void *)font, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return wk_recordFontRequest(result, size, matrix);
-}
-
-// Given attributes, 10.9 copies a font built on a file-read graphics font by rematching its name, which
-// the file is not registered under, and answers the system face. The copy is built on the same graphics
-// font at the copy's size and matrix, with the copy's attributes laid over the font's own.
-static CTFontRef wk_copyFromGraphicsFont(CTFontRef font, CGFontRef graphics, CGFloat size,
-    const CGAffineTransform *matrix, CTFontDescriptorRef attributes)
-{
-    CGAffineTransform fontMatrix = WK_ORIGINAL(CTFontGetMatrix) ? WK_ORIGINAL(CTFontGetMatrix)(font) : wk_identityFontMatrix;
-    CTFontDescriptorRef own = WK_ORIGINAL(CTFontCopyFontDescriptor) ? WK_ORIGINAL(CTFontCopyFontDescriptor)(font) : NULL;
-    CFDictionaryRef laid = attributes ? CTFontDescriptorCopyAttributes(attributes) : NULL;
-    CTFontDescriptorRef merged = own && laid ? CTFontDescriptorCreateCopyWithAttributes(own, laid) : NULL;
-    CTFontRef copy = WK_ORIGINAL(CTFontCreateWithGraphicsFont)(graphics, size > 0 ? size : CTFontGetSize(font),
-        matrix ? matrix : &fontMatrix, merged ? merged : own ? own : attributes);
-    if (merged)
-        CFRelease(merged);
-    if (laid)
-        CFRelease(laid);
-    if (own)
-        CFRelease(own);
-    return copy;
 }
 
 // CTFontDescriptorCopyAttribute answers the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute
