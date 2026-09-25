@@ -1,7 +1,8 @@
 # Every backport change to WebKit's Mac CMake configuration.
 #
-# Source/WebKit/PlatformMac.cmake is kept BYTE-UPSTREAM and ends with a single `include()` of this
-# file. See MavericksSupport/cmake/WebCorePlatformMavericks.cmake for the rationale.
+# Source/WebKit/PlatformMac.cmake ends with a single `include()` of this file; the edits upstream's
+# statements need in place carry their own markers there. See
+# MavericksSupport/cmake/WebCorePlatformMavericks.cmake for the rationale.
 
 # SOVERSION "A" pins the standard Versions/A framework layout, matching WebCore/JavaScriptCore/
 # WebKitLegacy, the nested XPCServices (which build into Versions/A/XPCServices) and Safari 7's
@@ -197,10 +198,28 @@ set(GPUProcess_OUTPUT_NAME com.apple.WebKit.GPU)
 
 # CryptoTokenKit is absent on 10.9; the CCID transport handles a nil smart-card slot manager.
 target_link_options(WebKit PRIVATE "SHELL:-weak_framework CryptoTokenKit")
-# Retain the stock inspector's weak load command for NSBundle lookup.
-target_link_options(WebKit PRIVATE
-    -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI
-    "LINKER:-needed_library,/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI")
+# Upstream's WebKit link options, less AuthKit (absent on 10.9: the polyfill supplies
+# AKAuthorizationController and AppSSO is soft-linked) and the -u reference to
+# _WebInspectorUIFrameworkLoad, which 10.9's WebInspectorUI does not export; the WebInspectorUI stub,
+# built into the library output directory, is instead a needed framework against -dead_strip_dylibs.
+get_target_property(_mavericks_webkit_link_options WebKit LINK_OPTIONS)
+list(FIND _mavericks_webkit_link_options AuthKit _mavericks_authkit_index)
+if (_mavericks_authkit_index LESS 1)
+    message(FATAL_ERROR "WebKit's LINK_OPTIONS carry no `-framework AuthKit` to withhold.")
+endif ()
+math(EXPR _mavericks_framework_index "${_mavericks_authkit_index} - 1")
+list(GET _mavericks_webkit_link_options ${_mavericks_framework_index} _mavericks_framework_flag)
+if (NOT _mavericks_framework_flag STREQUAL "-framework")
+    message(FATAL_ERROR "WebKit's LINK_OPTIONS name AuthKit after `${_mavericks_framework_flag}`, not `-framework`.")
+endif ()
+list(REMOVE_AT _mavericks_webkit_link_options ${_mavericks_framework_index} ${_mavericks_authkit_index})
+list(FIND _mavericks_webkit_link_options "-Wl,-u,_WebInspectorUIFrameworkLoad" _mavericks_marker_index)
+if (_mavericks_marker_index EQUAL -1)
+    message(FATAL_ERROR "WebKit's LINK_OPTIONS carry no -u reference to _WebInspectorUIFrameworkLoad to withhold.")
+endif ()
+list(REMOVE_AT _mavericks_webkit_link_options ${_mavericks_marker_index})
+set_property(TARGET WebKit PROPERTY LINK_OPTIONS "${_mavericks_webkit_link_options}")
+target_link_options(WebKit PRIVATE -F${CMAKE_LIBRARY_OUTPUT_DIRECTORY} "LINKER:-needed_framework,WebInspectorUI")
 
 # weak-link Metal (10.11+; MTLCopyAllDevices etc. on the GPU-process
 # resource-purge path), which 10.9 does not ship and whose symbols WebKit references through
@@ -230,8 +249,7 @@ target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal")
 # NetworkProcess decodes them itself (same vendored static brotli WebCore's WOFF2 decoder uses).
 
 # --------------------------------------------------------------------------
-# Entries withheld from upstream's lists. Expressed as REMOVE_ITEM rather than by
-# editing upstream's file, so PlatformMac.cmake stays byte-upstream.
+# Entries withheld from upstream's lists.
 # --------------------------------------------------------------------------
 list(REMOVE_ITEM WebKit_MESSAGES_IN_FILES
     UIProcess/Cocoa/VideoFullscreenManagerProxy
@@ -385,18 +403,6 @@ list(APPEND WebKit_SERIALIZATION_IN_FILES
     Shared/KeyEventInterpretationContext.serialization.in
     Shared/UserInterfaceIdiom.serialization.in
 )
-
-# --------------------------------------------------------------------------
-# Applied IN PLACE in Source/WebKit/PlatformMac.cmake instead of here, because each modifies or
-# removes an upstream statement rather than appending to a list, and this file runs at the END of
-# upstream's:
-#   * -framework AuthKit dropped from target_link_options (AuthKit is absent on 10.9)
-#   * CMAKE_SHARED_LINKER_FLAGS set in string form, not list form
-#   * the DEPENDS added to the .sb preprocessing rule (inside an add_custom_command())
-#   * upstream's global add_definitions("-ObjC++ ...") dropped
-# Each carries its own marker at the site.
-# --------------------------------------------------------------------------
-
 
 # --------------------------------------------------------------------------
 # Source-list entries withheld from and added to upstream's Sources*.txt

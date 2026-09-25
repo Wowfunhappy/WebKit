@@ -89,12 +89,18 @@ endforeach ()
 # re-exports libobjc (Source/WebCore's -Wl,-reexport-lobjc), and this re-export carries it onward.
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport_library,${CMAKE_BINARY_DIR}/lib/WebCore.framework/Versions/A/WebCore")
 
-# Upstream's WK_WEBINSPECTORUI_LDFLAGS (WebKitLegacy.xcconfig: -weak_framework WebInspectorUI) -- the
-# load command dyld needs so [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"] finds the
-# frontend bundle in WK1 host processes (WebInspectorFrontendClient and WebInspectorWindowController
-# resolve Main.html and localizedStrings.js through it). The xcconfig flag has no CMake counterpart.
-# Linked by exact dylib path because the stock 10.9 framework is not in the modern SDK's search paths.
-target_link_options(WebKitLegacy PRIVATE -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI)
+# Upstream's WK_WEBINSPECTORUI_LDFLAGS (WebKitLegacy.xcconfig: -weak_framework WebInspectorUI), needed
+# against -dead_strip_dylibs as WebKitPlatformMavericks.cmake links it into WebKit.
+target_link_options(WebKitLegacy PRIVATE
+    -F${CMAKE_LIBRARY_OUTPUT_DIRECTORY}
+    "SHELL:-weak_framework WebInspectorUI"
+    "LINKER:-needed_framework,WebInspectorUI"
+)
+add_dependencies(WebKitLegacy WebInspectorUIFramework)
+
+# Upstream's INSTALL_NAME_DIR for the WebInspectorUI stub, applied at build time so WebKit and
+# WebKitLegacy record the system framework's path; under CMP0068 BUILD_WITH_INSTALL_RPATH does not.
+set_target_properties(WebInspectorUIFramework PROPERTIES BUILD_WITH_INSTALL_NAME_DIR ON)
 
 # The image for the inspector window's native dock button, which the frontend this port ships needs to
 # re-dock (see -[WebInspectorWindowController window]). Upstream ships it from its Xcode project; this

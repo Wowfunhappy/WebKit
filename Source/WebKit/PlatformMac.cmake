@@ -440,14 +440,13 @@ list(REMOVE_DUPLICATES WebKit_PUBLIC_FRAMEWORK_HEADERS)
 unset(_webkit_api_headers)
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
-# MAVERICKS_BACKPORT: the port overlay retains the weak inspector dependency with -needed_library.
+# -Wl,-u forces a symbol reference so -dead_strip_dylibs won't prune the weak framework.
 target_link_options(WebKit PRIVATE
     -lsandbox
-    # -framework AuthKit # MAVERICKS_BACKPORT: the polyfill supplies AKAuthorizationController; AppSSO is soft-linked.
-    # -F${CMAKE_BINARY_DIR}
-    -F${CMAKE_LIBRARY_OUTPUT_DIRECTORY} # MAVERICKS_BACKPORT: local test frameworks.
+    -framework AuthKit
+    -F${CMAKE_BINARY_DIR}
     -weak_framework WebInspectorUI
-    # -Wl,-u,_WebInspectorUIFrameworkLoad # MAVERICKS_BACKPORT: the system inspector has no load marker.
+    -Wl,-u,_WebInspectorUIFrameworkLoad
     "SHELL:-weak_framework CoreML"
     "SHELL:-weak_framework NaturalLanguage"
     # for bincompat, cf. rdar://117360317
