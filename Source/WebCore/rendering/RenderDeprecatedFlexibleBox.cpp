@@ -46,6 +46,11 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/unicode/CharacterNames.h>
 
+#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: SDKAlignedBehavior::BoxPackAccountsForBoxDirection, read in layoutHorizontalBox().
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderDeprecatedFlexibleBox);
@@ -695,6 +700,14 @@ void RenderDeprecatedFlexibleBox::layoutHorizontalBox(RelayoutChildren relayoutC
     if (style().boxOrient() == BoxOrient::Horizontal && style().boxDirection() == BoxDirection::Reverse)
         isEffectiveLTR = !isEffectiveLTR;
 
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: hosts without BoxPackAccountsForBoxDirection pick the pack side from the
+    // writing direction alone, and only positive free space moves children.
+    bool boxPackAccountsForBoxDirection = WTF::linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::BoxPackAccountsForBoxDirection);
+    if (!boxPackAccountsForBoxDirection)
+        isEffectiveLTR = style().writingMode().deprecatedIsLeftToRightDirection();
+#endif
+
     auto forEachFlexChild = [&](auto callback) {
         for (auto* child = iterator.first(); child; child = iterator.next()) {
             if (!childDoesNotAffectWidthOrFlexing(child))
@@ -740,6 +753,10 @@ void RenderDeprecatedFlexibleBox::layoutHorizontalBox(RelayoutChildren relayoutC
         else if ((isEffectiveLTR && style().boxPack() == BoxPack::End)
             || (!isEffectiveLTR && style().boxPack() != BoxPack::End))
             offset += remainingSpace;
+#if PLATFORM(COCOA)
+        if (!boxPackAccountsForBoxDirection && remainingSpace <= 0)
+            offset = 0; // MAVERICKS_BACKPORT: see boxPackAccountsForBoxDirection above.
+#endif
         offsetChildren(offset);
     }
 
