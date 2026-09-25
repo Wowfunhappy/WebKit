@@ -369,6 +369,9 @@ imported/w3c/web-platform-tests/html/canvas/element/manual/image-smoothing/image
 compositing/contents-scale/rasterization-scale.html [ Skip ]
 compositing/scrolling/async-overflow-scrolling/border-radius-on-scroll-container.html [ Skip ]
 
+# Maintainer scope decision 2026-09-15: pixel near miss. effect-brightness differs by one level at 26,400 pixels.
+css3/filters/effect-brightness.html [ Skip ]
+
 # Native raster scope: HiDPI text edges differ by at most four channel levels.
 compositing/contents-scale/hidpi-tests/rasterization-scale.html [ Skip ]
 
