@@ -8,6 +8,7 @@
 #import "avf-resource-loader-drain.h"
 #import "avf-display-color.h"
 #import <objc/runtime.h>
+#include <dlfcn.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -157,10 +158,75 @@ WK_POLYFILL_ADD_LAYER_PROPERTIES_ON(NSObject, "AVSampleBufferDisplayLayer")
 }
 @end
 
+// 10.9's AVSampleBufferDisplayLayer renders through a FigVideoQueue, which it keeps in
+// _sampleBufferDisplayLayerInternal->videoQueue and addresses as a CMBaseObject. The queue's
+// PerformanceDictionary property holds its cumulative frame counts.
+typedef OSStatus (*WKCMBaseObjectCopyPropertyFunction)(CFTypeRef object, CFStringRef key, CFAllocatorRef allocator, void *valueOut);
+#pragma pack(push, 4)
+typedef struct {
+    uint32_t version;
+    size_t derivedStorageSize;
+    void *equal;
+    void *invalidate;
+    void *finalize;
+    void *copyDebugDescription;
+    WKCMBaseObjectCopyPropertyFunction copyProperty;
+} WKCMBaseClass;
+#pragma pack(pop)
+typedef struct {
+    const void *reserved;
+    const WKCMBaseClass *baseClass;
+} WKCMBaseVTable;
+extern const WKCMBaseVTable *CMBaseObjectGetVTable(CFTypeRef object);
+
+@protocol WKAVVideoPerformanceMetrics <NSObject>
+- (instancetype)initWithFigVideoQueuePerformanceDictionary:(NSDictionary *)dictionary;
+@end
+
+static void wkAVFPerformanceMetricsFatal(const char *missing)
+{
+    fprintf(stderr, "[wk_polyfill] FATAL: -[AVSampleBufferDisplayLayer videoPerformanceMetrics] cannot find %s.\n", missing);
+    fflush(stderr);
+    abort();
+}
+
 WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (id)videoPerformanceMetrics
 {
-    return nil;
+    static ptrdiff_t internalOffset;
+    static ptrdiff_t videoQueueOffset;
+    static CFStringRef performanceDictionaryKey;
+    static Class metricsClass;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Ivar internalIvar = class_getInstanceVariable(objc_getClass("AVSampleBufferDisplayLayer"), "_sampleBufferDisplayLayerInternal");
+        Ivar videoQueueIvar = class_getInstanceVariable(objc_getClass("AVSampleBufferDisplayLayerInternal"), "videoQueue");
+        // MediaToolbox is AVFoundation's dependency, not WebCore's.
+        CFStringRef *key = (CFStringRef *)dlsym(RTLD_DEFAULT, "kFigVideoQueueProperty_PerformanceDictionary");
+        metricsClass = objc_getClass("AVVideoPerformanceMetrics");
+        if (!internalIvar)
+            wkAVFPerformanceMetricsFatal("AVSampleBufferDisplayLayer._sampleBufferDisplayLayerInternal");
+        if (!videoQueueIvar)
+            wkAVFPerformanceMetricsFatal("AVSampleBufferDisplayLayerInternal.videoQueue");
+        if (!key)
+            wkAVFPerformanceMetricsFatal("kFigVideoQueueProperty_PerformanceDictionary");
+        if (!metricsClass)
+            wkAVFPerformanceMetricsFatal("the AVVideoPerformanceMetrics class");
+        internalOffset = ivar_getOffset(internalIvar);
+        videoQueueOffset = ivar_getOffset(videoQueueIvar);
+        performanceDictionaryKey = *key;
+    });
+
+    id internal = *(id *)((char *)self + internalOffset);
+    CFTypeRef videoQueue = *(CFTypeRef *)((char *)internal + videoQueueOffset);
+    WKCMBaseObjectCopyPropertyFunction copyProperty = CMBaseObjectGetVTable(videoQueue)->baseClass->copyProperty;
+    CFDictionaryRef copied = NULL;
+    // The queue has no dictionary until it has been handed a frame; its counts are all zero until then.
+    NSDictionary *dictionary = nil;
+    if (copyProperty && !copyProperty(videoQueue, performanceDictionaryKey, kCFAllocatorDefault, &copied))
+        dictionary = [(NSDictionary *)copied autorelease];
+    id<WKAVVideoPerformanceMetrics> metrics = [metricsClass alloc];
+    return [[metrics initWithFigVideoQueuePerformanceDictionary:dictionary] autorelease];
 }
 @end
 

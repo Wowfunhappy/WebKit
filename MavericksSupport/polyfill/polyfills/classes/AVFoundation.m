@@ -660,6 +660,61 @@ static float wkNSSpeechRateForAVRate(float avRate)
 WK_PRIV_ALIAS(AVSpeechSynthesizer);
 WK_POLYFILL_CLASS("AVFoundation", AVSpeechSynthesizer);
 
+// AVVideoPerformanceMetrics (AVFoundation SPI, 14.4+): a renderer's cumulative frame counts, as
+// -[AVSampleBufferDisplayLayer videoPerformanceMetrics] (methods/AVFoundation.m) reports them from the
+// performance dictionary of the layer's FigVideoQueue. Dropped frames are those the decoder dropped
+// plus those the pre-queue and image queue discarded or refused for arriving after their display
+// time; the total is those plus the frames displayed. Every displayed frame is composited with the
+// rest of the window, because 10.9 has no detached video compositing. 10.9's queue counts no
+// corrupted frames and does not measure how late a frame was displayed, only whether it was.
+WK_PRIV_CLASS(AVVideoPerformanceMetrics) @interface AVVideoPerformanceMetrics : NSObject
+- (instancetype)initWithFigVideoQueuePerformanceDictionary:(NSDictionary *)dictionary;
+@property (nonatomic, readonly) NSInteger totalNumberOfFrames;
+@property (nonatomic, readonly) NSInteger numberOfDroppedFrames;
+@property (nonatomic, readonly) NSInteger numberOfCorruptedFrames;
+@property (nonatomic, readonly) NSInteger numberOfFramesDisplayedUsingOptimizedCompositing;
+@property (nonatomic, readonly) NSTimeInterval totalAccumulatedFrameDelay;
+@property (nonatomic, readonly) unsigned long totalNumberOfVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfDroppedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfCorruptedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfNonDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) double totalFrameDelay;
+@end
+
+@implementation AVVideoPerformanceMetrics {
+    unsigned long _displayedFrames;
+    unsigned long _droppedFrames;
+}
+
+- (instancetype)initWithFigVideoQueuePerformanceDictionary:(NSDictionary *)dictionary
+{
+    if (!(self = [super init]))
+        return nil;
+    _displayedFrames = [dictionary[@"NumberOfFramesDisplayedFromImageQueue"] unsignedLongValue];
+    _droppedFrames = [dictionary[@"NumberOfFramesDroppedByVideoDecoder"] unsignedLongValue]
+        + [dictionary[@"NumberOfFramesDroppedFromPreQueue"] unsignedLongValue]
+        + [dictionary[@"NumberOfFramesDroppedFromImageQueue"] unsignedLongValue]
+        + [dictionary[@"NumberOfFramesNotAddedToImageQueueDueToLateArrival"] unsignedLongValue];
+    return self;
+}
+
+- (NSInteger)totalNumberOfFrames { return (NSInteger)self.totalNumberOfVideoFrames; }
+- (NSInteger)numberOfDroppedFrames { return (NSInteger)_droppedFrames; }
+- (NSInteger)numberOfCorruptedFrames { return 0; }
+- (NSInteger)numberOfFramesDisplayedUsingOptimizedCompositing { return 0; }
+- (NSTimeInterval)totalAccumulatedFrameDelay { return 0; }
+- (unsigned long)totalNumberOfVideoFrames { return _displayedFrames + _droppedFrames; }
+- (unsigned long)numberOfDroppedVideoFrames { return _droppedFrames; }
+- (unsigned long)numberOfCorruptedVideoFrames { return 0; }
+- (unsigned long)numberOfDisplayCompositedVideoFrames { return 0; }
+- (unsigned long)numberOfNonDisplayCompositedVideoFrames { return _displayedFrames; }
+- (double)totalFrameDelay { return 0; }
+
+@end
+WK_PRIV_ALIAS(AVVideoPerformanceMetrics);
+WK_POLYFILL_CLASS("AVFoundation", AVVideoPerformanceMetrics);
+
 // AVOutputContext / AVOutputDevice (AVFoundation SPI, 10.11+): the wireless-playback-target ("AirPlay to
 // this device") routing surface. 10.9 has no such facility at all — no route discovery, no output-device
 // registry — so the honest answer to every query is the empty one, and that is exactly what these return.
