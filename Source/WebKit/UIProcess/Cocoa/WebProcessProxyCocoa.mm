@@ -32,10 +32,14 @@
 #import "CoreIPCAuditToken.h"
 #import "DefaultWebBrowserChecks.h"
 #import "Logging.h"
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#import "ObjCObjectGraph.h"
 #import "SandboxUtilities.h"
 #import "SharedBufferReference.h"
 #import "WKAPICast.h"
 #import "WKBrowsingContextHandleInternal.h"
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#import "WKBrowsingContextControllerInternal.h"
 #import "WKMouseDeviceObserver.h"
 #import "WKStylusDeviceObserver.h"
 #import "WebPageProxy.h"
@@ -108,6 +112,67 @@ const MemoryCompactLookupOnlyRobinHoodHashSet<String>& WebProcessProxy::platform
     });
 
     return platformPathsWithAssumedReadAccess;
+}
+
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+RefPtr<ObjCObjectGraph> WebProcessProxy::transformHandlesToObjects(ObjCObjectGraph& objectGraph)
+{
+    struct Transformer final : ObjCObjectGraph::Transformer {
+        Transformer(WebProcessProxy& webProcessProxy)
+            : m_webProcessProxy(webProcessProxy)
+        {
+        }
+
+        bool shouldTransformObject(id object) const override
+        {
+            if (dynamic_objc_cast<WKBrowsingContextHandle>(object))
+                return true;
+            return false;
+        }
+
+        RetainPtr<id> transformObject(id object) const override
+        {
+            if (auto* handle = dynamic_objc_cast<WKBrowsingContextHandle>(object)) {
+                if (RefPtr webPageProxy = m_webProcessProxy->webPage(*handle.pageProxyID)) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+                    return [WKBrowsingContextController _browsingContextControllerForPageRef:toAPI(webPageProxy.get())];
+ALLOW_DEPRECATED_DECLARATIONS_END
+                }
+
+                return [NSNull null];
+            }
+            return object;
+        }
+
+        WeakRef<WebProcessProxy> m_webProcessProxy;
+    };
+
+    return ObjCObjectGraph::create(ObjCObjectGraph::transform(objectGraph.rootObject(), Transformer(*this)).get());
+}
+
+RefPtr<ObjCObjectGraph> WebProcessProxy::transformObjectsToHandles(ObjCObjectGraph& objectGraph)
+{
+    struct Transformer final : ObjCObjectGraph::Transformer {
+        bool shouldTransformObject(id object) const override
+        {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+            if (dynamic_objc_cast<WKBrowsingContextController>(object))
+                return true;
+ALLOW_DEPRECATED_DECLARATIONS_END
+            return false;
+        }
+
+        RetainPtr<id> transformObject(id object) const override
+        {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+            if (auto* controller = dynamic_objc_cast<WKBrowsingContextController>(object))
+                return controller.handle;
+ALLOW_DEPRECATED_DECLARATIONS_END
+            return object;
+        }
+    };
+
+    return ObjCObjectGraph::create(ObjCObjectGraph::transform(objectGraph.rootObject(), Transformer()).get());
 }
 
 static Vector<String>& NODELETE mediaTypeCache()

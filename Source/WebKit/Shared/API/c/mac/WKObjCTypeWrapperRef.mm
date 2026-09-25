@@ -26,10 +26,18 @@
 #import "config.h"
 #import "WKObjCTypeWrapperRef.h"
 
+// MAVERICKS_BACKPORT: see WKObjCTypeWrapperRef.h.
+#import "ObjCObjectGraph.h"
 #import "WKData.h"
 #import "WKNSData.h"
 #import "WKSharedAPICast.h"
 #import "WKType.h"
+
+// MAVERICKS_BACKPORT: see WKObjCTypeWrapperRef.h.
+WKTypeID WKObjCTypeWrapperGetTypeID()
+{
+    return WebKit::toAPI(WebKit::ObjCObjectGraph::APIType);
+}
 
 id WKObjCTypeWrapperGetObject(WKObjCTypeWrapperRef wrapperRef)
 {
@@ -37,5 +45,7 @@ id WKObjCTypeWrapperGetObject(WKObjCTypeWrapperRef wrapperRef)
         RefPtr impl = WebKit::toImpl((WKDataRef)wrapperRef);
         return WebKit::wrapper(impl.get());
     }
-    return nil;
+    // MAVERICKS_BACKPORT: see WKObjCTypeWrapperRef.h.
+    // return nil;
+    return WebKit::toImpl(wrapperRef)->rootObject();
 }

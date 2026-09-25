@@ -81,6 +81,9 @@ class WebArchiveResource;
 
 namespace WebKit {
 
+// MAVERICKS_BACKPORT: the WKConnection channel and its ObjCObjectGraph bodies (see WebConnection.h).
+class ObjCObjectGraph;
+class WebConnection;
 class WebContextMenuItem;
 class WebImage;
 
@@ -100,6 +103,8 @@ WK_ADD_API_MAPPING(WKBooleanRef, API::Boolean)
 // MAVERICKS_BACKPORT: WKCertificateInfoRef maps to API::CertificateInfo (#103).
 WK_ADD_API_MAPPING(WKCertificateInfoRef, API::CertificateInfo)
 WK_ADD_API_MAPPING(WKCompletionListenerRef, API::CompletionListener);
+// MAVERICKS_BACKPORT: see WebConnection.h.
+WK_ADD_API_MAPPING(WKConnectionRef, WebConnection)
 WK_ADD_API_MAPPING(WKContextMenuItemRef, WebContextMenuItem)
 WK_ADD_API_MAPPING(WKDataRef, API::Data)
 WK_ADD_API_MAPPING(WKDictionaryRef, API::Dictionary)
@@ -130,6 +135,8 @@ template<> struct APITypeInfo<WKMutableDictionaryRef> {
 #if PLATFORM(COCOA)
 WK_ADD_API_MAPPING(WKWebArchiveRef, API::WebArchive)
 WK_ADD_API_MAPPING(WKWebArchiveResourceRef, API::WebArchiveResource)
+// MAVERICKS_BACKPORT: see WebConnection.h.
+WK_ADD_API_MAPPING(WKObjCTypeWrapperRef, ObjCObjectGraph)
 #endif
 
 template<typename T, typename APIType = typename ImplTypeInfo<T>::APIType>

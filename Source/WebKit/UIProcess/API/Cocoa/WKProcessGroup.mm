@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,220 +23,271 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: minimal restoration of the legacy WebKit2 ObjC WKProcessGroup,
-// removed upstream. QuickLook's Web2.qldisplay creates one to back its WKView.
-// We wrap a WKContextRef (WebProcessPool) created through the still-present C
-// SPI; WKView pulls it back out via -_contextRef (WKProcessGroupInternal.h).
+// MAVERICKS_BACKPORT: see WKProcessGroup.h.
 
 #import "config.h"
-#import "WKProcessGroupInternal.h"
+#import "WKProcessGroupPrivate.h"
 
+#import "APINavigationData.h"
+#import "APIProcessPoolConfiguration.h"
+#import "ObjCObjectGraph.h"
 #import "WKAPICast.h"
+#import "WKBrowsingContextControllerInternal.h"
+#import "WKBrowsingContextHistoryDelegate.h"
 #import "WKConnectionInternal.h"
-#import "WKContext.h"
-#import "WKContextInjectedBundleClient.h"
-#import "WKData.h"
-#import "WKString.h"
+#import "WKNSString.h"
+#import "WKNSURL.h"
+#import "WKNavigationDataInternal.h"
+#import "WKRetainPtr.h"
 #import "WKStringCF.h"
-#import "WKType.h"
-// MAVERICKS_BACKPORT: the pool's web-process-launch observer drives the legacy
-// didCreateConnection delegate callback (see -_webProcessDidFinishLaunching).
+#import "WebFrameProxy.h"
 #import "WebProcessPool.h"
 #import <wtf/RetainPtr.h>
+#import <wtf/StdLibExtras.h>
+#import <wtf/WeakObjCPtr.h>
 
-@interface WKProcessGroup ()
-- (void)_webProcessDidFinishLaunching;
-@end
+#if PLATFORM(IOS_FAMILY)
+#import "WKAPICast.h"
+#import "WKGeolocationProviderIOS.h"
+#import <WebCore/WebCoreThreadSystemInterface.h>
+#endif
 
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 @implementation WKProcessGroup {
-    WKContextRef _context;
-    id <WKProcessGroupDelegate> _delegate; // assign: Mail owns the process group and outlives it.
-    WKConnection *_connection;             // app-side end of the bundle<->app channel.
-    BOOL _bundleConnectionEstablished;     // MAVERICKS_BACKPORT: a web process (and thus its injected bundle) has launched for this context.
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+    RefPtr<WebKit::WebProcessPool> _processPool;
+
+    WeakObjCPtr<id <WKProcessGroupDelegate>> _delegate;
+
+#if PLATFORM(IOS_FAMILY)
+    RetainPtr<WKGeolocationProviderIOS> _geolocationProvider;
+#endif // PLATFORM(IOS_FAMILY)
 }
 
-// MAVERICKS_BACKPORT (#137): bundle->app messages (MailUIWebBundle -> Mail.app, e.g.
-// MUIMessageKeyWebProcessDidLayoutContent) arrive here and are dispatched to the WKConnection delegate.
-static void didReceiveMessageFromInjectedBundle(WKContextRef, WKStringRef messageName, WKTypeRef messageBody, const void* clientInfo)
+static void didCreateConnection(WKContextRef, WKConnectionRef connectionRef, const void* clientInfo)
 {
-    WKProcessGroup *processGroup = (__bridge WKProcessGroup *)clientInfo;
-    WKConnection *connection = processGroup->_connection;
-    RetainPtr<CFStringRef> cfName = adoptCF(WKStringCopyCFString(kCFAllocatorDefault, messageName));
-    if (!connection)
-        return;
-    [connection _dispatchDidReceiveMessageWithName:(__bridge NSString *)cfName.get() serializedBody:messageBody];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto processGroup = (__bridge WKProcessGroup *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto delegate = processGroup->_delegate.get();
+
+    if ([delegate respondsToSelector:@selector(processGroup:didCreateConnectionToWebProcessPlugIn:)])
+        [delegate processGroup:processGroup didCreateConnectionToWebProcessPlugIn:wrapper(*WebKit::toImpl(connectionRef))];
 }
 
-// MAVERICKS_BACKPORT: asked once per web-process launch while the process's creation parameters
-// are assembled. The original WKProcessGroup forwarded this to the delegate's
-// -processGroupWillCreateConnectionToWebProcessPlugIn: and shipped the returned object graph to
-// the injected bundle, which receives it as -webProcessPlugIn:initializeWithObject:'s object.
-// iBooks' BKDocumentWorker returns its pluginInitializationDictionaryForBook: dictionary here
-// (bookContentsPath, sinf/resource data, sandbox-extension tokens, pagination mode); without it
-// the bundle's BKURLProtocol has no book info and throws on the first load's policy check.
-// ObjCObjectGraph was removed upstream, so the graph travels NSKeyedArchiver-coded in a WKData
-// (same transport as WKConnection message bodies); InjectedBundleMac decodes it.
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+static void setUpConnectionClient(WKProcessGroup *processGroup, WKContextRef contextRef)
+ALLOW_DEPRECATED_DECLARATIONS_END
+{
+    WKContextConnectionClientV0 connectionClient;
+    zeroBytes(connectionClient);
+
+    connectionClient.base.version = 0;
+    connectionClient.base.clientInfo = (__bridge CFTypeRef)processGroup;
+    connectionClient.didCreateConnection = didCreateConnection;
+
+    WKContextSetConnectionClient(contextRef, &connectionClient.base);
+}
+
 static WKTypeRef getInjectedBundleInitializationUserData(WKContextRef, const void* clientInfo)
 {
-    WKProcessGroup *processGroup = (__bridge WKProcessGroup *)clientInfo;
-    id <WKProcessGroupDelegate> delegate = processGroup->_delegate;
-    if (![delegate respondsToSelector:@selector(processGroupWillCreateConnectionToWebProcessPlugIn:)])
-        return nullptr;
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto processGroup = (__bridge WKProcessGroup *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto delegate = processGroup->_delegate.get();
 
-    id userData = [delegate processGroupWillCreateConnectionToWebProcessPlugIn:processGroup];
-    if (!userData)
-        return nullptr;
+    if ([delegate respondsToSelector:@selector(processGroupWillCreateConnectionToWebProcessPlugIn:)]) {
+        RetainPtr<id> initializationUserData = [delegate processGroupWillCreateConnectionToWebProcessPlugIn:processGroup];
 
-    // NOTE: unlike the removed ObjCObjectGraph, this transport carries plist-style object
-    // graphs only (NSKeyedArchiver-codable classes) — it cannot carry WebKit wrapper objects
-    // such as WKBrowsingContextHandle. iBooks' dictionary (strings, numbers, NSData arrays)
-    // is within that; an embedder handing back anything else must fail LOUDLY here, not get
-    // silently degraded to nil user data (which surfaces as an undebuggable bundle-side hang).
-    NSError *archiveError = nil;
-    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:userData requiringSecureCoding:NO error:&archiveError];
-    if (!data) {
-        NSLog(@"WKProcessGroup: FAILED to archive the injected-bundle initialization user data (%@) — the bundle's plug-in will be initialized with a nil object. The archiver transport carries NSKeyedArchiver-codable graphs only.", archiveError);
-        return nullptr;
+        return toAPI(&WebKit::ObjCObjectGraph::create(initializationUserData.get()).leakRef());
     }
-    return WKDataCreate(static_cast<const unsigned char*>(data.bytes), data.length);
+
+    return 0;
 }
 
-- (instancetype)init
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+static void setUpInjectedBundleClient(WKProcessGroup *processGroup, WKContextRef contextRef)
+ALLOW_DEPRECATED_DECLARATIONS_END
+{
+    WKContextInjectedBundleClientV1 injectedBundleClient;
+    zeroBytes(injectedBundleClient);
+
+    injectedBundleClient.base.version = 1;
+    injectedBundleClient.base.clientInfo = (__bridge void*)processGroup;
+    injectedBundleClient.getInjectedBundleInitializationUserData = getInjectedBundleInitializationUserData;
+
+    WKContextSetInjectedBundleClient(contextRef, &injectedBundleClient.base);
+}
+
+static void didNavigateWithNavigationData(WKContextRef, WKPageRef pageRef, WKNavigationDataRef navigationDataRef, WKFrameRef frameRef, const void*)
+{
+    if (!WebKit::toImpl(frameRef)->isMainFrame())
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto historyDelegate = controller->_historyDelegate.get();
+
+    if ([historyDelegate respondsToSelector:@selector(browsingContextController:didNavigateWithNavigationData:)])
+        [historyDelegate browsingContextController:controller didNavigateWithNavigationData:wrapper(*WebKit::toImpl(navigationDataRef))];
+}
+
+static void didPerformClientRedirect(WKContextRef, WKPageRef pageRef, WKURLRef sourceURLRef, WKURLRef destinationURLRef, WKFrameRef frameRef, const void*)
+{
+    if (!WebKit::toImpl(frameRef)->isMainFrame())
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto historyDelegate = controller->_historyDelegate.get();
+
+    if ([historyDelegate respondsToSelector:@selector(browsingContextController:didPerformClientRedirectFromURL:toURL:)])
+        [historyDelegate browsingContextController:controller didPerformClientRedirectFromURL:wrapper(*WebKit::toImpl(sourceURLRef)) toURL:wrapper(*WebKit::toImpl(destinationURLRef))];
+}
+
+static void didPerformServerRedirect(WKContextRef, WKPageRef pageRef, WKURLRef sourceURLRef, WKURLRef destinationURLRef, WKFrameRef frameRef, const void*)
+{
+    if (!WebKit::toImpl(frameRef)->isMainFrame())
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto historyDelegate = controller->_historyDelegate.get();
+
+    if ([historyDelegate respondsToSelector:@selector(browsingContextController:didPerformServerRedirectFromURL:toURL:)])
+        [historyDelegate browsingContextController:controller didPerformServerRedirectFromURL:wrapper(*WebKit::toImpl(sourceURLRef)) toURL:wrapper(*WebKit::toImpl(destinationURLRef))];
+}
+
+static void didUpdateHistoryTitle(WKContextRef, WKPageRef pageRef, WKStringRef titleRef, WKURLRef urlRef, WKFrameRef frameRef, const void*)
+{
+    if (!WebKit::toImpl(frameRef)->isMainFrame())
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto historyDelegate = controller->_historyDelegate.get();
+
+    if ([historyDelegate respondsToSelector:@selector(browsingContextController:didUpdateHistoryTitle:forURL:)])
+        [historyDelegate browsingContextController:controller didUpdateHistoryTitle:wrapper(*WebKit::toImpl(titleRef)) forURL:wrapper(*WebKit::toImpl(urlRef))];
+}
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+static void setUpHistoryClient(WKProcessGroup *processGroup, WKContextRef contextRef)
+ALLOW_DEPRECATED_DECLARATIONS_END
+{
+    WKContextHistoryClientV0 historyClient;
+    zeroBytes(historyClient);
+
+    historyClient.base.version = 0;
+    historyClient.base.clientInfo = (__bridge CFTypeRef)processGroup;
+    historyClient.didNavigateWithNavigationData = didNavigateWithNavigationData;
+    historyClient.didPerformClientRedirect = didPerformClientRedirect;
+    historyClient.didPerformServerRedirect = didPerformServerRedirect;
+    historyClient.didUpdateHistoryTitle = didUpdateHistoryTitle;
+
+    WKContextSetHistoryClient(contextRef, &historyClient.base);
+}
+
+- (id)init
 {
     return [self initWithInjectedBundleURL:nil];
 }
 
-- (instancetype)initWithInjectedBundleURL:(NSURL *)bundleURL
+- (id)initWithInjectedBundleURL:(NSURL *)bundleURL
 {
     self = [super init];
     if (!self)
         return nil;
 
-    if (bundleURL) {
-        WKStringRef path = WKStringCreateWithCFString((__bridge CFStringRef)[bundleURL path]);
-        _context = WKContextCreateWithInjectedBundlePath(path);
-        WKRelease(path);
-    } else
-        _context = WKContextCreate();
+    auto configuration = API::ProcessPoolConfiguration::create();
+    configuration->setInjectedBundlePath(bundleURL ? String(bundleURL.path) : String());
+    // MAVERICKS_BACKPORT: the 537 process model these hosts were built against: one shared web process, and
+    // navigation keeps the page's WebPage (see WKContextCreate).
+    configuration->setProcessSwapsOnNavigation(false);
+    configuration->setUsesSingleWebProcess(true);
 
-    // Route bundle->app messages and supply the per-launch bundle initialization user data.
-    // Installed here (not when the delegate is set) so getInjectedBundleInitializationUserData
-    // is in place before the first web process launches.
-    WKContextInjectedBundleClientV1 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
-    injectedBundleClient.base.version = 1;
-    injectedBundleClient.base.clientInfo = (__bridge void*)self;
-    injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
-    injectedBundleClient.getInjectedBundleInitializationUserData = getInjectedBundleInitializationUserData;
-    WKContextSetInjectedBundleClient(_context, &injectedBundleClient.base);
+    _processPool = WebKit::WebProcessPool::create(configuration);
 
-    // MAVERICKS_BACKPORT: in real WebKit2 the WKContextConnectionClient's didCreateConnection —
-    // the callback behind -processGroup:didCreateConnectionToWebProcessPlugIn: — fired when a
-    // web process of this context launched and its injected bundle connected back to the UI
-    // process. Observe launches through the pool so the delegate callback keeps that timing
-    // (see -_webProcessDidFinishLaunching). `self` is unretained; the handler is cleared in
-    // -dealloc before the context is released.
-    WKProcessGroup *unretainedSelf = self;
-    WebKit::toImpl(_context)->setWebProcessDidFinishLaunchingHandler([unretainedSelf] {
-        [unretainedSelf _webProcessDidFinishLaunching];
-    });
+    setUpConnectionClient(self, toAPI(_processPool.get()));
+    setUpInjectedBundleClient(self, toAPI(_processPool.get()));
+    setUpHistoryClient(self, toAPI(_processPool.get()));
 
     return self;
 }
 
+- (id)initWithInjectedBundleURL:(NSURL *)bundleURL andCustomClassesForParameterCoder:(NSSet *)classesForCoder
+{
+    self = [super init];
+    if (!self)
+        return nil;
+
+    auto configuration = API::ProcessPoolConfiguration::create();
+    configuration->setInjectedBundlePath(bundleURL ? String(bundleURL.path) : String());
+    // MAVERICKS_BACKPORT: the 537 process model these hosts were built against: one shared web process, and
+    // navigation keeps the page's WebPage (see WKContextCreate).
+    configuration->setProcessSwapsOnNavigation(false);
+    configuration->setUsesSingleWebProcess(true);
+
+    _processPool = WebKit::WebProcessPool::create(configuration);
+
+    setUpConnectionClient(self, toAPI(_processPool.get()));
+    setUpInjectedBundleClient(self, toAPI(_processPool.get()));
+    setUpHistoryClient(self, toAPI(_processPool.get()));
+
+    return self;
+}
+
+// MAVERICKS_BACKPORT: the pool can outlive the group (a WKView retains it), and these clients hold an unretained self.
 - (void)dealloc
 {
-    if (_context) {
-        // MAVERICKS_BACKPORT: drop the pool's unretained reference to self before releasing the
-        // context (the pool can outlive this wrapper if something else retains it).
-        WebKit::toImpl(_context)->setWebProcessDidFinishLaunchingHandler(nullptr);
-        WKContextSetInjectedBundleClient(_context, nullptr);
-        WKRelease(_context);
-    }
-    [_connection _dispatchDidClose];
-    [_connection release];
+    WKContextRef contextRef = toAPI(_processPool.get());
+    WKContextSetConnectionClient(contextRef, nullptr);
+    WKContextSetInjectedBundleClient(contextRef, nullptr);
+    WKContextSetHistoryClient(contextRef, nullptr);
     [super dealloc];
 }
 
 - (id <WKProcessGroupDelegate>)delegate
 {
-    return _delegate;
-}
-
-// Create the app-side WKConnection (sends to the injected bundle); Mail and iBooks set
-// themselves as the connection's delegate once it is handed over in
-// -processGroup:didCreateConnectionToWebProcessPlugIn:.
-- (void)_ensureConnection
-{
-    if (_connection)
-        return;
-
-    WKContextRef context = _context;
-    _connection = [[WKConnection alloc] initWithSender:^(NSString *messageName, WKTypeRef serializedBody) {
-        WKStringRef wkName = WKStringCreateWithCFString((__bridge CFStringRef)messageName);
-        WKContextPostMessageToInjectedBundle(context, wkName, serializedBody);
-        WKRelease(wkName);
-    }];
-}
-
-- (void)_deliverConnectionToDelegate
-{
-    id <WKProcessGroupDelegate> delegate = _delegate;
-    if (!delegate || ![delegate respondsToSelector:@selector(processGroup:didCreateConnectionToWebProcessPlugIn:)])
-        return;
-    [self _ensureConnection];
-    [delegate processGroup:self didCreateConnectionToWebProcessPlugIn:_connection];
-}
-
-// MAVERICKS_BACKPORT: fired (on the main thread) whenever a web process of this context finishes
-// launching — the point where real WebKit2 fired the WKContextConnectionClient's
-// didCreateConnection. Embedders sequence their bundle messaging on this callback: iBooks'
-// BKDocumentWorker sends BKEpubWebProcessPlugInMessageUpdateBookInfo from its handler before it
-// loads any book resource, so the bundle-side BKURLProtocol knows the book's contents path by the
-// time the first load's policy check calls +canInitWithRequest: (with no book info it throws on
-// [path hasPrefix:nil] and the web process dies). Delivery is deferred one turn: the pool is in
-// the middle of processDidFinishLaunching bookkeeping, and the handler may reenter WebKit
-// (set page clients, post messages, start loads). Firing per launch also matches the original
-// per-web-process semantics — a relaunch after a web process crash re-notifies the delegate,
-// which re-sends its bundle state, exactly as on stock.
-- (void)_webProcessDidFinishLaunching
-{
-    _bundleConnectionEstablished = YES;
-    [self retain];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self _deliverConnectionToDelegate];
-        [self release];
-    });
+    return _delegate.getAutoreleased();
 }
 
 - (void)setDelegate:(id <WKProcessGroupDelegate>)delegate
 {
     _delegate = delegate;
 
-    if (!delegate || !_context)
-        return;
-
-    [self _ensureConnection];
-
-    // MAVERICKS_BACKPORT: a delegate installed after the bundle connection already exists would
-    // otherwise never hear about it (didCreateConnection fires at web-process launch, above).
-    // iBooks reuses one process group across documents and swaps a fresh BKDocumentWorker in as
-    // the delegate for each; each worker needs the connection to send its book info. Deliver on
-    // the next turn so the caller's synchronous setup finishes first, and only if this delegate
-    // is still current by then (a newer -setDelegate: schedules its own delivery).
-    if (!_bundleConnectionEstablished)
-        return;
-    [self retain];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (_delegate == delegate)
-            [self _deliverConnectionToDelegate];
-        [self release];
-    });
-}
-
-- (WKContextRef)_contextRef
-{
-    return _context;
+    // If the client can observe when the connection to the WebProcess injected bundle is established, then
+    // delaying the launch of the WebProcess until something is loaded in the web view may not be safe.
+    // As a result, we disable the feature by default and let the client opt-in via WKWebViewConfiguration.
+    // MAVERICKS_BACKPORT: WebProcessPool has no launch-delay default; WKView launches its page's process at creation.
+    // if ([delegate respondsToSelector:@selector(processGroup:didCreateConnectionToWebProcessPlugIn:)])
+    //     _processPool->setDelaysWebProcessLaunchDefaultValue(false);
 }
 
 @end
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+@implementation WKProcessGroup (Private)
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+
+- (WKContextRef)_contextRef
+{
+    return toAPI(_processPool.get());
+}
+
+#if PLATFORM(IOS_FAMILY)
+- (WKGeolocationProviderIOS *)_geolocationProvider
+{
+    if (!_geolocationProvider)
+        _geolocationProvider = adoptNS([[WKGeolocationProviderIOS alloc] initWithProcessPool:*_processPool.get()]);
+    return _geolocationProvider.get();
+}
+#endif // PLATFORM(IOS_FAMILY)
+
+@end
+ALLOW_DEPRECATED_DECLARATIONS_END

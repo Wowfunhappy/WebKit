@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,30 +23,22 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT (#137): internal creation/dispatch + body-coding surface for WKConnection.
+// MAVERICKS_BACKPORT: see WKConnection.h.
 
-#import "WKConnection.h"
-#import "WKBase.h"
+#import <WebKit/WKConnection.h>
 
-// The send block performs the actual cross-process post (WebProcess: WKBundlePostMessage;
-// UIProcess: WKContextPostMessageToInjectedBundle). serializedBody is a +0 WKDataRef (or null).
-typedef void (^WKConnectionSendBlock)(NSString *messageName, WKTypeRef serializedBody);
+#import "WKObject.h"
+#import "WebConnection.h"
 
-@interface WKConnection ()
-- (instancetype)initWithSender:(WKConnectionSendBlock)sender;
-// Invoked by the receive sites (bundle/context clients) when a message arrives for this connection.
-- (void)_dispatchDidReceiveMessageWithName:(NSString *)messageName serializedBody:(WKTypeRef)serializedBody;
-- (void)_dispatchDidClose;
+namespace WebKit {
+
+template<> struct WrapperTraits<WebConnection> {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    using WrapperClass = WKConnection;
+ALLOW_DEPRECATED_DECLARATIONS_END
+};
+
+}
+
+@interface WKConnection () <WKObject>
 @end
-
-// Body coding: arbitrary NSCoding ObjC object <-> a +1 WKDataRef (NSKeyedArchiver). Mail's message
-// classes (MUIMessage*, NSAttributedString, NSData, …) are present in both the app and the WebContent
-// (MailUI/MailUIWebBundle is loaded in each), so a plain keyed archive round-trips them.
-WKTypeRef WKConnectionCreateSerializedBody(id body);   // +1 WK object graph, or nullptr
-id WKConnectionBodyFromSerialized(WKTypeRef serialized); // autoreleased, or nil
-
-// Register a page controller (WKWebProcessPlugInBrowserContextController in the WebProcess, or
-// WKBrowsingContextController in the UIProcess) under the page's cross-process WebPageProxyIdentifier,
-// so a controller referenced in a message body round-trips to the peer process's controller for the
-// same page. Called once per controller, at creation.
-void WKConnectionRegisterController(uint64_t pageProxyID, id controller);

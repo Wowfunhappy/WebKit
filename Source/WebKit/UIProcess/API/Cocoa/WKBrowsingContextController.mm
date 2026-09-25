@@ -24,420 +24,103 @@
  */
 
 #import "config.h"
-// MAVERICKS_BACKPORT: import the Internal header (not the public one) to reach the restored
-// _initWithPageRef:/loader-client SPI this file re-implements for QuickLook/Mail.
+// MAVERICKS_BACKPORT: the legacy controller (see WKBrowsingContextController.h), which implements its Internal SPI.
+// #import "WKBrowsingContextController.h"
 #import "WKBrowsingContextControllerInternal.h"
 
+// MAVERICKS_BACKPORT: imports of the legacy controller.
+#import "APIData.h"
+#import "APINavigation.h"
+#import "ObjCObjectGraph.h"
 #import "PageLoadStateObserver.h"
-// MAVERICKS_BACKPORT: the load-delegate protocol, so the sends below are checked against the
-// selectors 10.9's clients actually implement. That header is diverged to the pre-2013 spelling of
-// the two failure callbacks for exactly this reason -- see the MAVERICKS_BACKPORT note on them.
-#import "WKBrowsingContextLoadDelegate.h"
-// MAVERICKS_BACKPORT: extra imports backing the restored controller implementation below.
-#import "WebPageProxy.h"
-#import "WebProcessPool.h"
+// MAVERICKS_BACKPORT: imports of the legacy controller.
+#import "RemoteObjectRegistry.h"
+#import "RemoteObjectRegistryMessages.h"
 #import "WKAPICast.h"
-#import "WKConnectionInternal.h"
-#import "WKData.h"
+#import "WKBackForwardListInternal.h"
+#import "WKBackForwardListItemInternal.h"
+#import "WKBrowsingContextHandleInternal.h"
+#import "WKBrowsingContextLoadDelegatePrivate.h"
+#import "WKBrowsingContextPolicyDelegate.h"
 #import "WKErrorCF.h"
 #import "WKFrame.h"
-#import "WKPage.h"
-// MAVERICKS_BACKPORT: pagination C SPI (WKPageSet/GetPaginationMode etc.) backing the restored
-// -[WKBrowsingContextController(Private)] pagination accessors iBooks' BKAssetEpub drives.
-#import "WKPagePrivate.h"
-#import "WKPageLoaderClient.h"
-#import "WKString.h"
-#import "WKStringCF.h"
-#import "WKType.h"
-#import "WKURL.h"
-#import "WKURLCF.h"
+#import "WKFramePolicyListener.h"
+#import "WKNSArray.h"
+#import "WKNSData.h"
+#import "WKNSError.h"
+#import "WKNSURLAuthenticationChallenge.h"
+#import "WKNSURLExtras.h"
+#import "WKPagePolicyClientInternal.h"
+#import "WKProcessGroupPrivate.h"
+#import "WKRetainPtr.h"
+#import "WKSharedAPICast.h"
+#import "WKURLRequestNS.h"
+#import "WKURLResponseNS.h"
+#import "WKViewInternal.h"
+#import "WebFrameProxy.h"
+#import "WebPageProxy.h"
+#import "WebProcessPool.h"
+// MAVERICKS_BACKPORT: imports of the legacy controller.
+#import "WebProtectionSpace.h"
+#import "_WKRemoteObjectRegistryInternal.h"
+#import <WebCore/Pagination.h>
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/BlockPtr.h>
+#import <wtf/CheckedPtr.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/StdLibExtras.h>
+#import <wtf/WeakObjCPtr.h>
+#import <wtf/cf/CFURLExtras.h>
+#import <wtf/cocoa/SpanCocoa.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
-// MAVERICKS_BACKPORT: the legacy controller's loading/delegate API was gutted
-// upstream. QuickLook's Web2.qldisplay needs a controller it can pull off a
-// WKView (-[WKView browsingContextController]) and drive. It loads/observes via
-// the C SPI (WKPageLoad*, WKPageSetPageLoaderClient) on the page it gets from
-// the view, so the controller here only needs to wrap a WKPageRef, vend it, and
-// honor the few ObjC convenience selectors the bundle may send.
-@interface WKBrowsingContextController () {
-    WKPageRef _pageRef;
-    id _loadDelegate;
-}
-- (id)loadDelegate;
-@end
+// MAVERICKS_BACKPORT: the policy action keys (WKBrowsingContextPolicyDelegate.h).
+NSString * const WKActionIsMainFrameKey = @"WKActionIsMainFrameKey";
+NSString * const WKActionNavigationTypeKey = @"WKActionNavigationTypeKey";
+NSString * const WKActionMouseButtonKey = @"WKActionMouseButtonKey";
+NSString * const WKActionModifierFlagsKey = @"WKActionModifierFlagsKey";
+NSString * const WKActionOriginalURLRequestKey = @"WKActionOriginalURLRequestKey";
+NSString * const WKActionURLRequestKey = @"WKActionURLRequestKey";
+NSString * const WKActionURLResponseKey = @"WKActionURLResponseKey";
+NSString * const WKActionFrameNameKey = @"WKActionFrameNameKey";
+NSString * const WKActionOriginatingFrameURLKey = @"WKActionOriginatingFrameURLKey";
+NSString * const WKActionCanShowMIMETypeKey = @"WKActionCanShowMIMETypeKey";
 
-// MAVERICKS_BACKPORT: the original WKBrowsingContextController(Private) pagination SPI enum,
-// restored so BKAssetEpub's -setPaginationMode: argument type matches (NSInteger-backed). Its
-// values line up 1:1 with the C SPI's WKPaginationMode (kWKPaginationMode*), so the accessors
-// below map by a direct cast.
-typedef NS_ENUM(NSInteger, WKBrowsingContextPaginationMode) {
-    WKPaginationModeUnpaginated,
-    WKPaginationModeLeftToRight,
-    WKPaginationModeRightToLeft,
-    WKPaginationModeTopToBottom,
-    WKPaginationModeBottomToTop,
-};
-
-// MAVERICKS_BACKPORT: bridge the WebKit2 C-SPI page loader client to the legacy
-// -[<loadDelegate> browsingContextControllerDid...] callbacks that Web2.qldisplay
-// relies on to know when its preview has finished loading (so it can snapshot).
-// Only main-frame milestones are forwarded, matching the original SPI semantics.
-static WKBrowsingContextController *controllerFromClientInfo(const void *clientInfo)
-{
-    return (__bridge WKBrowsingContextController *)clientInfo;
-}
-
-static void didStartProvisionalLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef, const void *clientInfo)
-{
-    if (!WKFrameIsMainFrame(frame))
-        return;
-    WKBrowsingContextController *controller = controllerFromClientInfo(clientInfo);
-    id delegate = [controller loadDelegate];
-    if ([delegate respondsToSelector:@selector(browsingContextControllerDidStartProvisionalLoad:)])
-        [delegate browsingContextControllerDidStartProvisionalLoad:controller];
-}
-
-static void didReceiveServerRedirectForProvisionalLoadForFrame(WKPageRef, WKFrameRef frame, WKTypeRef, const void *clientInfo)
-{
-    if (!WKFrameIsMainFrame(frame))
-        return;
-    WKBrowsingContextController *controller = controllerFromClientInfo(clientInfo);
-    id delegate = [controller loadDelegate];
-    if ([delegate respondsToSelector:@selector(browsingContextControllerDidReceiveServerRedirectForProvisionalLoad:)])
-        [delegate browsingContextControllerDidReceiveServerRedirectForProvisionalLoad:controller];
-}
-
-static void didCommitLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef, const void *clientInfo)
-{
-    if (!WKFrameIsMainFrame(frame))
-        return;
-    WKBrowsingContextController *controller = controllerFromClientInfo(clientInfo);
-    id delegate = [controller loadDelegate];
-    if ([delegate respondsToSelector:@selector(browsingContextControllerDidCommitLoad:)])
-        [delegate browsingContextControllerDidCommitLoad:controller];
-}
-
-static void didFinishLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef, const void *clientInfo)
-{
-    if (!WKFrameIsMainFrame(frame))
-        return;
-    WKBrowsingContextController *controller = controllerFromClientInfo(clientInfo);
-    id delegate = [controller loadDelegate];
-    if ([delegate respondsToSelector:@selector(browsingContextControllerDidFinishLoad:)])
-        [delegate browsingContextControllerDidFinishLoad:controller];
-}
-
-static NSError *nsErrorFromWKError(WKErrorRef error)
-{
-    if (!error)
-        return nil;
-    // MRC: WKErrorCopyCFError returns +1; balance via autorelease (toll-free bridge).
-    CFErrorRef cfError = WKErrorCopyCFError(kCFAllocatorDefault, error);
-    return [(NSError *)cfError autorelease];
-}
-
-// MAVERICKS_BACKPORT: convert a +1 WKURLRef to an autoreleased NSURL, consuming the WKURLRef.
-static NSURL *nsURLFromWKURLConsuming(WKURLRef wkURL)
-{
-    if (!wkURL)
-        return nil;
-    CFURLRef cfURL = WKURLCopyCFURL(kCFAllocatorDefault, wkURL); // +1
-    WKRelease(wkURL);
-    return cfURL ? [(NSURL *)cfURL autorelease] : nil;
-}
-
-// MAVERICKS_BACKPORT: convert a +1 WKStringRef to an autoreleased NSString, consuming the WKStringRef.
-static NSString *nsStringFromWKStringConsuming(WKStringRef wkString)
-{
-    if (!wkString)
-        return nil;
-    CFStringRef cfString = WKStringCopyCFString(kCFAllocatorDefault, wkString); // +1
-    WKRelease(wkString);
-    return cfString ? [(NSString *)cfString autorelease] : nil;
-}
-
-static void didFailProvisionalLoadWithErrorForFrame(WKPageRef, WKFrameRef frame, WKErrorRef error, WKTypeRef, const void *clientInfo)
-{
-    if (!WKFrameIsMainFrame(frame))
-        return;
-    WKBrowsingContextController *controller = controllerFromClientInfo(clientInfo);
-    id delegate = [controller loadDelegate];
-    if ([delegate respondsToSelector:@selector(browsingContextControllerDidFailProvisionalLoad:withError:)])
-        [delegate browsingContextControllerDidFailProvisionalLoad:controller withError:nsErrorFromWKError(error)];
-}
-
-static void didFailLoadWithErrorForFrame(WKPageRef, WKFrameRef frame, WKErrorRef error, WKTypeRef, const void *clientInfo)
-{
-    if (!WKFrameIsMainFrame(frame))
-        return;
-    WKBrowsingContextController *controller = controllerFromClientInfo(clientInfo);
-    id delegate = [controller loadDelegate];
-    if ([delegate respondsToSelector:@selector(browsingContextControllerDidFailLoad:withError:)])
-        [delegate browsingContextControllerDidFailLoad:controller withError:nsErrorFromWKError(error)];
-}
-
+// MAVERICKS_BACKPORT: the legacy controller's state and its page -> controller map.
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-@implementation WKBrowsingContextController
+@implementation WKBrowsingContextController {
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+    // MAVERICKS_BACKPORT: PageLoadStateObserver is ref-counted.
+    const RefPtr<WebKit::WebPageProxy> _page;
+    RefPtr<WebKit::PageLoadStateObserver> _pageLoadStateObserver;
 
-// MAVERICKS_BACKPORT: installed once at controller creation (matching the original
-// setUpPageLoaderClient called from -_initWithPageRef:); the callbacks read -loadDelegate
-// dynamically, and an embedder that later sets its own loader client through
-// WKPageSetPageLoaderClient replaces this one, as on stock (see -setLoadDelegate:).
-static void installControllerPageLoaderClient(WKBrowsingContextController *controller, WKPageRef pageRef)
-{
-    WKPageLoaderClientV0 client;
-    memset(&client, 0, sizeof(client));
-    client.base.version = 0;
-    client.base.clientInfo = (__bridge const void *)controller;
-    client.didStartProvisionalLoadForFrame = didStartProvisionalLoadForFrame;
-    client.didReceiveServerRedirectForProvisionalLoadForFrame = didReceiveServerRedirectForProvisionalLoadForFrame;
-    client.didFailProvisionalLoadWithErrorForFrame = didFailProvisionalLoadWithErrorForFrame;
-    client.didCommitLoadForFrame = didCommitLoadForFrame;
-    client.didFinishLoadForFrame = didFinishLoadForFrame;
-    client.didFailLoadWithErrorForFrame = didFailLoadWithErrorForFrame;
-    WKPageSetPageLoaderClient(pageRef, &client.base);
+    WeakObjCPtr<id <WKBrowsingContextLoadDelegate>> _loadDelegate;
+    WeakObjCPtr<id <WKBrowsingContextPolicyDelegate>> _policyDelegate;
 }
 
-- (instancetype)_initWithPageRef:(WKPageRef)pageRef
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+static HashMap<WeakRef<WebKit::WebPageProxy>, __unsafe_unretained WKBrowsingContextController *>& browsingContextControllerMap()
 {
-    self = [super init];
-    if (!self)
-        return nil;
-    _pageRef = pageRef;
-    if (_pageRef) {
-        WKRetain(_pageRef);
-        // MAVERICKS_BACKPORT (#137): register so a controller referenced in a WKConnection message body
-        // (Mail keys its DidLayout/DidPaintContent and MessageContents by it) round-trips to this object.
-        WKConnectionRegisterController(WebKit::toImpl(_pageRef)->identifier().toUInt64(), self);
-        installControllerPageLoaderClient(self, _pageRef);
-    }
-    return self;
+    static NeverDestroyed<HashMap<WeakRef<WebKit::WebPageProxy>, __unsafe_unretained WKBrowsingContextController *>> browsingContextControllerMap;
+    return browsingContextControllerMap;
 }
+ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)dealloc
 {
-    if (_pageRef) {
-        // Drop the loader client first so its clientInfo (self) can't be used after we're
-        // gone (installed unconditionally at -_initWithPageRef: time).
-        WKPageSetPageLoaderClient(_pageRef, nullptr);
-        WKRelease(_pageRef);
-    }
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKBrowsingContextController.class, self))
+        return;
+
+    ASSERT(browsingContextControllerMap().get(*_page) == self);
+    browsingContextControllerMap().remove(*_page);
+
+    // MAVERICKS_BACKPORT: see setUpPageLoaderClient.
+    WKPageSetPageLoaderClient(toAPI(_page.get()), nullptr);
+
+    _page->pageLoadState().removeObserver(*_pageLoadStateObserver);
+    _pageLoadStateObserver->clearObject();
+
     [super dealloc];
-}
-
-- (WKPageRef)_pageRefInternal
-{
-    return _pageRef;
-}
-
-// Web2.qldisplay calls -pageRef to obtain the page for its own C-SPI clients.
-- (WKPageRef)pageRef
-{
-    return _pageRef;
-}
-
-// Web2.qldisplay installs its observer via -setLoadDelegate:; -setDelegate: is
-// kept as an alias for any caller compiled against the older spelling. The
-// delegate is unretained (the delegate owns the controller).
-// MAVERICKS_BACKPORT: like the original controller, this ONLY stores the delegate — the page
-// loader client is installed unconditionally at -_initWithPageRef: time (see
-// installControllerPageLoaderClient) and its callbacks read the current delegate dynamically.
-// Installing a client HERE instead would clobber whatever loader client the embedder set
-// directly through WKPageSetPageLoaderClient in the meantime: a WKPage has one loader client,
-// and iBooks installs its own (carrying the didLayout layout-milestone callbacks its chapter
-// transitions wait on) after creating the view but before its worker calls -setLoadDelegate:
-// from the process-group connection handler — with the original ordering iBooks' client wins,
-// exactly as on stock.
-- (void)setLoadDelegate:(id)loadDelegate
-{
-    _loadDelegate = loadDelegate;
-}
-
-- (id)loadDelegate
-{
-    return _loadDelegate;
-}
-
-- (void)setDelegate:(id)delegate
-{
-    [self setLoadDelegate:delegate];
-}
-
-- (id)delegate
-{
-    return _loadDelegate;
-}
-
-- (void)loadRequest:(NSURLRequest *)request
-{
-    if (!_pageRef || !request.URL)
-        return;
-    WKURLRef url = WKURLCreateWithCFURL((__bridge CFURLRef)request.URL);
-    WKPageLoadURL(_pageRef, url);
-    WKRelease(url);
-}
-
-- (void)loadFileURL:(NSURL *)URL restrictToFilesWithin:(NSURL *)allowedDirectory
-{
-    if (!_pageRef || !URL)
-        return;
-    WKURLRef fileURL = WKURLCreateWithCFURL((__bridge CFURLRef)URL);
-    WKURLRef resourceDirectoryURL = allowedDirectory ? WKURLCreateWithCFURL((__bridge CFURLRef)allowedDirectory) : nullptr;
-    WKPageLoadFile(_pageRef, fileURL, resourceDirectoryURL);
-    WKRelease(fileURL);
-    if (resourceDirectoryURL)
-        WKRelease(resourceDirectoryURL);
-}
-
-// MAVERICKS_BACKPORT: Mail renders a message by loading its HTML as data (not a URL)
-// through this — -[MUIWebDocumentView ...] calls it on the message-view controller.
-// Without it Mail throws an unrecognized-selector exception and terminates after the
-// message view is built. Route through the still-present WKPageLoadData* C SPI.
-- (void)loadData:(NSData *)data MIMEType:(NSString *)MIMEType textEncodingName:(NSString *)encodingName baseURL:(NSURL *)baseURL userData:(id)userData
-{
-    if (!_pageRef || !data)
-        return;
-    WKDataRef wkData = WKDataCreate(static_cast<const unsigned char*>(data.bytes), data.length);
-    WKStringRef wkMIMEType = MIMEType ? WKStringCreateWithCFString((__bridge CFStringRef)MIMEType) : nullptr;
-    WKStringRef wkEncoding = encodingName ? WKStringCreateWithCFString((__bridge CFStringRef)encodingName) : nullptr;
-    WKURLRef wkBaseURL = baseURL ? WKURLCreateWithCFURL((__bridge CFURLRef)baseURL) : nullptr;
-    // MAVERICKS_BACKPORT (#142): Mail passes its document load context (which carries
-    // MUIDocumentLoadContextKeyLoadRemoteContent and other per-load display flags) as userData; the
-    // MailUIWebBundle reads it back in -willLoadDataRequest to decide whether to load images/remote
-    // content. Dropping it left every (re)load with remote content blocked, so "Load Images" did
-    // nothing. Serialize it to a WK object graph (the standard injected-bundle ObjC bridge re-wraps it
-    // as an NSDictionary on the bundle side) and route through WKPageLoadDataWithUserData.
-    WKTypeRef wkUserData = userData ? WKConnectionCreateSerializedBody(userData) : nullptr;
-    WKPageLoadDataWithUserData(_pageRef, wkData, wkMIMEType, wkEncoding, wkBaseURL, wkUserData);
-    WKRelease(wkData);
-    if (wkMIMEType)
-        WKRelease(wkMIMEType);
-    if (wkEncoding)
-        WKRelease(wkEncoding);
-    if (wkBaseURL)
-        WKRelease(wkBaseURL);
-    if (wkUserData)
-        WKRelease(wkUserData);
-}
-
-// MAVERICKS_BACKPORT: Mail also drives stop/zoom on the message-view controller
-// (wkView.browsingContextController.pageZoom / stopLoading).
-- (void)stopLoading
-{
-    if (_pageRef)
-        WKPageStopLoading(_pageRef);
-}
-
-- (CGFloat)pageZoom
-{
-    return _pageRef ? WKPageGetPageZoomFactor(_pageRef) : 1;
-}
-
-- (void)setPageZoom:(CGFloat)pageZoom
-{
-    if (_pageRef)
-        WKPageSetPageZoomFactor(_pageRef, pageZoom);
-}
-
-// MAVERICKS_BACKPORT: pagination SPI, restored from the original WKBrowsingContextController(Private).
-// iBooks' BKAssetEpub lays a book out as columns by sending -setPaginationMode:/-setPaginationBehavesLikeColumns:/
-// -setPageLength:/-setGapBetweenPages: on the controller and reading back -pageCount to drive its page turner.
-// Our restored controller only had the loader/URL API, so these were unrecognized selectors: -setPaginationMode:
-// logged an NSInvalidArgumentException (iBooks catches it) and the book never paginated — it opened stuck on the
-// cover with page turns dead. Route through the still-present WKPageSet/Get pagination C SPI on the wrapped page,
-// exactly as the original controller did.
-- (WKBrowsingContextPaginationMode)paginationMode
-{
-    return _pageRef ? (WKBrowsingContextPaginationMode)WKPageGetPaginationMode(_pageRef) : WKPaginationModeUnpaginated;
-}
-
-- (void)setPaginationMode:(WKBrowsingContextPaginationMode)paginationMode
-{
-    if (_pageRef)
-        WKPageSetPaginationMode(_pageRef, (WKPaginationMode)paginationMode);
-}
-
-- (BOOL)paginationBehavesLikeColumns
-{
-    return _pageRef ? WKPageGetPaginationBehavesLikeColumns(_pageRef) : NO;
-}
-
-- (void)setPaginationBehavesLikeColumns:(BOOL)behavesLikeColumns
-{
-    if (_pageRef)
-        WKPageSetPaginationBehavesLikeColumns(_pageRef, behavesLikeColumns);
-}
-
-- (CGFloat)pageLength
-{
-    return _pageRef ? WKPageGetPageLength(_pageRef) : 0;
-}
-
-- (void)setPageLength:(CGFloat)pageLength
-{
-    if (_pageRef)
-        WKPageSetPageLength(_pageRef, pageLength);
-}
-
-- (CGFloat)gapBetweenPages
-{
-    return _pageRef ? WKPageGetGapBetweenPages(_pageRef) : 0;
-}
-
-- (void)setGapBetweenPages:(CGFloat)gapBetweenPages
-{
-    if (_pageRef)
-        WKPageSetGapBetweenPages(_pageRef, gapBetweenPages);
-}
-
-- (NSUInteger)pageCount
-{
-    return _pageRef ? WKPageGetPageCount(_pageRef) : 0;
-}
-
-// MAVERICKS_BACKPORT: text-zoom SPI, restored from the original WKBrowsingContextController(Private).
-// iBooks sends -setTextZoom: to scale the book's font size independently of page zoom; without it the
-// send is an unrecognized selector (iBooks catches it, but the reader's font-size control no-ops).
-- (CGFloat)textZoom
-{
-    return _pageRef ? WKPageGetTextZoomFactor(_pageRef) : 1;
-}
-
-- (void)setTextZoom:(CGFloat)textZoom
-{
-    if (_pageRef)
-        WKPageSetTextZoomFactor(_pageRef, textZoom);
-}
-
-// MAVERICKS_BACKPORT (#137): Mail's load-delegate handlers (browsingContextControllerDidStartProvisionalLoad:
-// / DidCommitLoad: etc.) read back the controller's current URL/title to update the message-view chrome.
-// These read-only accessors were part of the original WKBrowsingContextController SPI Mail compiled
-// against; without them Mail throws -[WKBrowsingContextController activeURL]: unrecognized selector and
-// terminates the moment the message body actually starts loading. Route through the still-present
-// WKPageCopy*/WKPageGet* C SPI on the wrapped page.
-- (NSURL *)activeURL
-{
-    return _pageRef ? nsURLFromWKURLConsuming(WKPageCopyActiveURL(_pageRef)) : nil;
-}
-
-- (NSURL *)provisionalURL
-{
-    return _pageRef ? nsURLFromWKURLConsuming(WKPageCopyProvisionalURL(_pageRef)) : nil;
-}
-
-- (NSURL *)committedURL
-{
-    return _pageRef ? nsURLFromWKURLConsuming(WKPageCopyCommittedURL(_pageRef)) : nil;
-}
-
-- (NSString *)title
-{
-    return _pageRef ? nsStringFromWKStringConsuming(WKPageCopyTitle(_pageRef)) : nil;
-}
-
-- (double)estimatedProgress
-{
-    return _pageRef ? WKPageGetEstimatedProgress(_pageRef) : 0;
 }
 
 #pragma mark Loading
@@ -466,4 +149,631 @@ static void installControllerPageLoaderClient(WKBrowsingContextController *contr
     }
 }
 
+// MAVERICKS_BACKPORT: the legacy controller's loading, introspection and delegate API.
+- (void)loadRequest:(NSURLRequest *)request
+{
+    [self loadRequest:request userData:nil];
+}
+
+- (void)loadRequest:(NSURLRequest *)request userData:(id)userData
+{
+    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
+    RefPtr<WebKit::ObjCObjectGraph> wkUserData;
+    if (userData)
+        wkUserData = WebKit::ObjCObjectGraph::create(userData);
+
+    _page->loadRequest(request, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, wkUserData.get());
+}
+
+- (void)loadFileURL:(NSURL *)URL restrictToFilesWithin:(NSURL *)allowedDirectory
+{
+    [self loadFileURL:URL restrictToFilesWithin:allowedDirectory userData:nil];
+}
+
+- (void)loadFileURL:(NSURL *)URL restrictToFilesWithin:(NSURL *)allowedDirectory userData:(id)userData
+{
+    if (![URL isFileURL] || (allowedDirectory && ![allowedDirectory isFileURL]))
+        [NSException raise:NSInvalidArgumentException format:@"Attempted to load a non-file URL"];
+
+    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
+    RefPtr<WebKit::ObjCObjectGraph> wkUserData;
+    if (userData)
+        wkUserData = WebKit::ObjCObjectGraph::create(userData);
+
+    _page->loadFile(bytesAsString(bridge_cast(URL)), bytesAsString(bridge_cast(allowedDirectory)), { }, wkUserData.get());
+}
+
+- (void)loadHTMLString:(NSString *)HTMLString baseURL:(NSURL *)baseURL
+{
+    [self loadHTMLString:HTMLString baseURL:baseURL userData:nil];
+}
+
+- (void)loadHTMLString:(NSString *)HTMLString baseURL:(NSURL *)baseURL userData:(id)userData
+{
+    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
+    RefPtr<WebKit::ObjCObjectGraph> wkUserData;
+    if (userData)
+        wkUserData = WebKit::ObjCObjectGraph::create(userData);
+
+    NSData *data = [HTMLString dataUsingEncoding:NSUTF8StringEncoding];
+    _page->loadData(WebCore::SharedBuffer::create(data), "text/html"_s, "UTF-8"_s, bytesAsString(bridge_cast(baseURL)), wkUserData.get());
+}
+
+- (void)loadAlternateHTMLString:(NSString *)string baseURL:(NSURL *)baseURL forUnreachableURL:(NSURL *)unreachableURL
+{
+    RetainPtr data = bridge_cast([string dataUsingEncoding:NSUTF8StringEncoding]);
+    _page->loadAlternateHTML(WebCore::DataSegment::create(WTF::move(data)), "UTF-8"_s, baseURL, unreachableURL, nullptr);
+}
+
+- (void)loadData:(NSData *)data MIMEType:(NSString *)MIMEType textEncodingName:(NSString *)encodingName baseURL:(NSURL *)baseURL
+{
+    [self loadData:data MIMEType:MIMEType textEncodingName:encodingName baseURL:baseURL userData:nil];
+}
+
+- (void)loadData:(NSData *)data MIMEType:(NSString *)MIMEType textEncodingName:(NSString *)encodingName baseURL:(NSURL *)baseURL userData:(id)userData
+{
+    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
+    RefPtr<WebKit::ObjCObjectGraph> wkUserData;
+    if (userData)
+        wkUserData = WebKit::ObjCObjectGraph::create(userData);
+
+    _page->loadData(WebCore::SharedBuffer::create(data), MIMEType, encodingName, bytesAsString(bridge_cast(baseURL)), wkUserData.get());
+}
+
+- (void)stopLoading
+{
+    _page->stopLoading();
+}
+
+- (void)reload
+{
+    _page->reload({ });
+}
+
+- (void)reloadFromOrigin
+{
+    _page->reload(WebCore::ReloadOption::FromOrigin);
+}
+
+- (NSString *)applicationNameForUserAgent
+{
+    const String& applicationName = _page->applicationNameForUserAgent();
+    return !applicationName ? nil : applicationName.createNSString().autorelease();
+}
+
+- (void)setApplicationNameForUserAgent:(NSString *)applicationNameForUserAgent
+{
+    _page->setApplicationNameForDesktopUserAgent(applicationNameForUserAgent);
+    _page->setApplicationNameForUserAgent(applicationNameForUserAgent);
+}
+
+- (NSString *)customUserAgent
+{
+    const String& customUserAgent = _page->customUserAgent();
+    return !customUserAgent ? nil : customUserAgent.createNSString().autorelease();
+}
+
+- (void)setCustomUserAgent:(NSString *)customUserAgent
+{
+    _page->setCustomUserAgent(customUserAgent);
+}
+
+#pragma mark Back/Forward
+
+- (void)goForward
+{
+    _page->goForward();
+}
+
+- (BOOL)canGoForward
+{
+    return !!_page->backForwardList().forwardItem();
+}
+
+- (void)goBack
+{
+    _page->goBack();
+}
+
+- (BOOL)canGoBack
+{
+    return !!_page->backForwardList().backItem();
+}
+
+- (void)goToBackForwardListItem:(WKBackForwardListItem *)item
+{
+    _page->goToBackForwardItem(Ref { item._item });
+}
+
+- (WKBackForwardList *)backForwardList
+{
+    return wrapper(_page->backForwardList());
+}
+
+#pragma mark Active Load Introspection
+
+- (BOOL)isLoading
+{
+    return _page->pageLoadState().isLoading();
+}
+
+- (NSURL *)activeURL
+{
+    return _page->pageLoadState().activeURL().createNSURL().autorelease();
+}
+
+- (NSURL *)provisionalURL
+{
+    return _page->pageLoadState().provisionalURL().createNSURL().autorelease();
+}
+
+- (NSURL *)committedURL
+{
+    return _page->pageLoadState().url().createNSURL().autorelease();
+}
+
+- (NSURL *)unreachableURL
+{
+    return _page->pageLoadState().unreachableURL().createNSURL().autorelease();
+}
+
+- (BOOL)hasOnlySecureContent
+{
+    return _page->pageLoadState().hasOnlySecureContent();
+}
+
+- (double)estimatedProgress
+{
+    return _page->estimatedProgress();
+}
+
+#pragma mark Active Document Introspection
+
+- (NSString *)title
+{
+    return _page->pageLoadState().title().createNSString().autorelease();
+}
+
+- (NSArray *)certificateChain
+{
+    if (RefPtr mainFrame = _page->mainFrame())
+        return (__bridge NSArray *)WebCore::CertificateInfo::certificateChainFromSecTrust(mainFrame->certificateInfo().trust().get()).autorelease();
+
+    return nil;
+}
+
+#pragma mark Zoom
+
+- (CGFloat)textZoom
+{
+    return _page->textZoomFactor();
+}
+
+- (void)setTextZoom:(CGFloat)textZoom
+{
+    _page->setTextZoomFactor(textZoom);
+}
+
+- (CGFloat)pageZoom
+{
+    return _page->pageZoomFactor();
+}
+
+- (void)setPageZoom:(CGFloat)pageZoom
+{
+    _page->setPageZoomFactor(pageZoom);
+}
+
+// MAVERICKS_BACKPORT: the 537 loader-client delegate model this system's clients (QuickLook's Web2.qldisplay,
+// MailUI, iBooks' BKAssetEpub) were built against: a page loader client installed when the controller is
+// created, reporting main-frame loads with the pre-2013 failure selectors. Web2 and BKAssetEpub install page
+// loader clients of their own, and on 537 whichever was installed last received the callbacks.
+static void didStartProvisionalLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef userData, const void* clientInfo)
+{
+    if (!WKFrameIsMainFrame(frame))
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto loadDelegate = browsingContext->_loadDelegate.get();
+
+    if ([loadDelegate respondsToSelector:@selector(browsingContextControllerDidStartProvisionalLoad:)])
+        [loadDelegate browsingContextControllerDidStartProvisionalLoad:browsingContext];
+}
+
+static void didReceiveServerRedirectForProvisionalLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef userData, const void* clientInfo)
+{
+    if (!WKFrameIsMainFrame(frame))
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto loadDelegate = browsingContext->_loadDelegate.get();
+
+    if ([loadDelegate respondsToSelector:@selector(browsingContextControllerDidReceiveServerRedirectForProvisionalLoad:)])
+        [loadDelegate browsingContextControllerDidReceiveServerRedirectForProvisionalLoad:browsingContext];
+}
+
+static void didFailProvisionalLoadWithErrorForFrame(WKPageRef page, WKFrameRef frame, WKErrorRef error, WKTypeRef userData, const void* clientInfo)
+{
+    if (!WKFrameIsMainFrame(frame))
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto loadDelegate = browsingContext->_loadDelegate.get();
+
+    if ([loadDelegate respondsToSelector:@selector(browsingContextControllerDidFailProvisionalLoad:withError:)]) {
+        RetainPtr<CFErrorRef> cfError = adoptCF(WKErrorCopyCFError(kCFAllocatorDefault, error));
+        [loadDelegate browsingContextControllerDidFailProvisionalLoad:browsingContext withError:(__bridge NSError *)cfError.get()];
+    }
+}
+
+static void didCommitLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef userData, const void* clientInfo)
+{
+    if (!WKFrameIsMainFrame(frame))
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto loadDelegate = browsingContext->_loadDelegate.get();
+
+    if ([loadDelegate respondsToSelector:@selector(browsingContextControllerDidCommitLoad:)])
+        [loadDelegate browsingContextControllerDidCommitLoad:browsingContext];
+}
+
+static void didFinishLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef userData, const void* clientInfo)
+{
+    if (!WKFrameIsMainFrame(frame))
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto loadDelegate = browsingContext->_loadDelegate.get();
+
+    if ([loadDelegate respondsToSelector:@selector(browsingContextControllerDidFinishLoad:)])
+        [loadDelegate browsingContextControllerDidFinishLoad:browsingContext];
+}
+
+static void didFailLoadWithErrorForFrame(WKPageRef page, WKFrameRef frame, WKErrorRef error, WKTypeRef userData, const void* clientInfo)
+{
+    if (!WKFrameIsMainFrame(frame))
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    auto loadDelegate = browsingContext->_loadDelegate.get();
+
+    if ([loadDelegate respondsToSelector:@selector(browsingContextControllerDidFailLoad:withError:)]) {
+        RetainPtr<CFErrorRef> cfError = adoptCF(WKErrorCopyCFError(kCFAllocatorDefault, error));
+        [loadDelegate browsingContextControllerDidFailLoad:browsingContext withError:(__bridge NSError *)cfError.get()];
+    }
+}
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+static void setUpPageLoaderClient(WKBrowsingContextController *browsingContext, WebKit::WebPageProxy& page)
+ALLOW_DEPRECATED_DECLARATIONS_END
+{
+    WKPageLoaderClientV0 loaderClient;
+    zeroBytes(loaderClient);
+
+    loaderClient.base.version = 0;
+    loaderClient.base.clientInfo = (__bridge void*)browsingContext;
+    loaderClient.didStartProvisionalLoadForFrame = didStartProvisionalLoadForFrame;
+    loaderClient.didReceiveServerRedirectForProvisionalLoadForFrame = didReceiveServerRedirectForProvisionalLoadForFrame;
+    loaderClient.didFailProvisionalLoadWithErrorForFrame = didFailProvisionalLoadWithErrorForFrame;
+    loaderClient.didCommitLoadForFrame = didCommitLoadForFrame;
+    loaderClient.didFinishLoadForFrame = didFinishLoadForFrame;
+    loaderClient.didFailLoadWithErrorForFrame = didFailLoadWithErrorForFrame;
+
+    WKPageSetPageLoaderClient(toAPI(&page), &loaderClient.base);
+}
+
+static BlockPtr<void(WKPolicyDecision)> makePolicyDecisionBlock(WKFramePolicyListenerRef listener)
+{
+    return makeBlockPtr([listener = retainWK(listener)](WKPolicyDecision decision) {
+        switch (decision) {
+        case WKPolicyDecisionCancel:
+            WKFramePolicyListenerIgnore(listener.get());
+            break;
+        case WKPolicyDecisionAllow:
+            WKFramePolicyListenerUse(listener.get());
+            break;
+        case WKPolicyDecisionBecomeDownload:
+            WKFramePolicyListenerDownload(listener.get());
+            break;
+        };
+    });
+}
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+static void setUpPagePolicyClient(WKBrowsingContextController *browsingContext, WebKit::WebPageProxy& page)
+ALLOW_DEPRECATED_DECLARATIONS_END
+{
+    WKPagePolicyClientInternal policyClient;
+    zeroBytes(policyClient);
+
+    policyClient.base.version = 2;
+    policyClient.base.clientInfo = (__bridge void*)browsingContext;
+
+    policyClient.decidePolicyForNavigationAction = [](WKPageRef page, WKFrameRef frame, WKFrameNavigationType navigationType, WKEventModifiers modifiers, WKEventMouseButton mouseButton, WKFrameRef originatingFrame, WKURLRequestRef originalRequest, WKURLRequestRef request, WKFramePolicyListenerRef listener, WKTypeRef userData, const void* clientInfo)
+    {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+        auto policyDelegate = browsingContext->_policyDelegate.get();
+
+        if ([policyDelegate respondsToSelector:@selector(browsingContextController:decidePolicyForNavigationAction:decisionHandler:)]) {
+            auto actionDictionary = retainPtr(@{
+                WKActionIsMainFrameKey: @(WKFrameIsMainFrame(frame)),
+                WKActionNavigationTypeKey: @(navigationType),
+                WKActionModifierFlagsKey: @(modifiers),
+                WKActionMouseButtonKey: @(mouseButton),
+                WKActionOriginalURLRequestKey: adoptNS(WKURLRequestCopyNSURLRequest(originalRequest)).get(),
+                WKActionURLRequestKey: adoptNS(WKURLRequestCopyNSURLRequest(request)).get()
+            });
+
+            if (originatingFrame) {
+                actionDictionary = adoptNS([actionDictionary mutableCopy]);
+                [(NSMutableDictionary *)actionDictionary.get() setObject:WebKit::toImpl(originatingFrame)->url().createNSURL().get() forKey:WKActionOriginatingFrameURLKey];
+            }
+            
+            [policyDelegate browsingContextController:browsingContext decidePolicyForNavigationAction:actionDictionary.get() decisionHandler:makePolicyDecisionBlock(listener).get()];
+        } else
+            WKFramePolicyListenerUse(listener);
+    };
+
+    policyClient.decidePolicyForNewWindowAction = [](WKPageRef page, WKFrameRef frame, WKFrameNavigationType navigationType, WKEventModifiers modifiers, WKEventMouseButton mouseButton, WKURLRequestRef request, WKStringRef frameName, WKFramePolicyListenerRef listener, WKTypeRef userData, const void* clientInfo)
+    {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+        auto policyDelegate = browsingContext->_policyDelegate.get();
+
+        if ([policyDelegate respondsToSelector:@selector(browsingContextController:decidePolicyForNewWindowAction:decisionHandler:)]) {
+            NSDictionary *actionDictionary = @{
+                WKActionIsMainFrameKey: @(WKFrameIsMainFrame(frame)),
+                WKActionNavigationTypeKey: @(navigationType),
+                WKActionModifierFlagsKey: @(modifiers),
+                WKActionMouseButtonKey: @(mouseButton),
+                WKActionURLRequestKey: adoptNS(WKURLRequestCopyNSURLRequest(request)).get(),
+                WKActionFrameNameKey: WebKit::toImpl(frameName)->wrapper()
+            };
+            
+            [policyDelegate browsingContextController:browsingContext decidePolicyForNewWindowAction:actionDictionary decisionHandler:makePolicyDecisionBlock(listener).get()];
+        } else
+            WKFramePolicyListenerUse(listener);
+    };
+
+    policyClient.decidePolicyForResponse = [](WKPageRef page, WKFrameRef frame, WKURLResponseRef response, WKURLRequestRef request, bool canShowMIMEType, WKFramePolicyListenerRef listener, WKTypeRef userData, const void* clientInfo)
+    {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        auto browsingContext = (__bridge WKBrowsingContextController *)clientInfo;
+ALLOW_DEPRECATED_DECLARATIONS_END
+        auto policyDelegate = browsingContext->_policyDelegate.get();
+
+        if ([policyDelegate respondsToSelector:@selector(browsingContextController:decidePolicyForResponseAction:decisionHandler:)]) {
+            NSDictionary *actionDictionary = @{
+                WKActionIsMainFrameKey: @(WKFrameIsMainFrame(frame)),
+                WKActionURLRequestKey: adoptNS(WKURLRequestCopyNSURLRequest(request)).get(),
+                WKActionURLResponseKey: adoptNS(WKURLResponseCopyNSURLResponse(response)).get(),
+                WKActionCanShowMIMETypeKey: @(canShowMIMEType),
+            };
+
+            [policyDelegate browsingContextController:browsingContext decidePolicyForResponseAction:actionDictionary decisionHandler:makePolicyDecisionBlock(listener).get()];
+        } else
+            WKFramePolicyListenerUse(listener);
+    };
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKPageSetPagePolicyClient(toAPI(&page), &policyClient.base);
+ALLOW_DEPRECATED_DECLARATIONS_END
+}
+
+- (id <WKBrowsingContextLoadDelegate>)loadDelegate
+{
+    return _loadDelegate.getAutoreleased();
+}
+
+- (void)setLoadDelegate:(id <WKBrowsingContextLoadDelegate>)loadDelegate
+{
+    _loadDelegate = loadDelegate;
+}
+
+- (id <WKBrowsingContextPolicyDelegate>)policyDelegate
+{
+    return _policyDelegate.getAutoreleased();
+}
+
+- (void)setPolicyDelegate:(id <WKBrowsingContextPolicyDelegate>)policyDelegate
+{
+    _policyDelegate = policyDelegate;
+
+    if (policyDelegate)
+        setUpPagePolicyClient(self, *_page);
+    else {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        WKPageSetPagePolicyClient(toAPI(_page.get()), nullptr);
+ALLOW_DEPRECATED_DECLARATIONS_END
+    }
+}
+
+- (id <WKBrowsingContextHistoryDelegate>)historyDelegate
+{
+    return _historyDelegate.getAutoreleased();
+}
+
+- (void)setHistoryDelegate:(id <WKBrowsingContextHistoryDelegate>)historyDelegate
+{
+    _historyDelegate = historyDelegate;
+}
+
++ (NSMutableSet *)customSchemes
+{
+    static NSMutableSet *customSchemes = [[NSMutableSet alloc] init];
+    return customSchemes;
+}
+
+- (instancetype)_initWithPageRef:(WKPageRef)pageRef
+{
+    if (!(self = [super init]))
+        return nil;
+
+    if (RefPtr page = WebKit::toImpl(pageRef))
+        lazyInitialize(_page, page.releaseNonNull());
+
+    _pageLoadStateObserver = WebKit::PageLoadStateObserver::create(self);
+    _page->pageLoadState().addObserver(*_pageLoadStateObserver);
+
+    // MAVERICKS_BACKPORT: see setUpPageLoaderClient.
+    setUpPageLoaderClient(self, *_page);
+
+    ASSERT(!browsingContextControllerMap().contains(*_page));
+    browsingContextControllerMap().set(*_page, self);
+
+    return self;
+}
+
++ (WKBrowsingContextController *)_browsingContextControllerForPageRef:(WKPageRef)pageRef
+{
+    return browsingContextControllerMap().get(WebKit::toImpl(pageRef));
+}
+
 @end
+
+// MAVERICKS_BACKPORT: the legacy controller's Private SPI (pagination for iBooks, handle for ObjCObjectGraph).
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+@implementation WKBrowsingContextController (Private)
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+
+- (WKPageRef)_pageRef
+{
+    return WebKit::toAPI(_page.get());
+}
+
+- (void)setPaginationMode:(WKBrowsingContextPaginationMode)paginationMode
+{
+    WebCore::Pagination::Mode mode;
+    switch (paginationMode) {
+    case WKPaginationModeUnpaginated:
+        mode = WebCore::PaginationMode::Unpaginated;
+        break;
+    case WKPaginationModeLeftToRight:
+        mode = WebCore::PaginationMode::LeftToRightPaginated;
+        break;
+    case WKPaginationModeRightToLeft:
+        mode = WebCore::PaginationMode::RightToLeftPaginated;
+        break;
+    case WKPaginationModeTopToBottom:
+        mode = WebCore::PaginationMode::TopToBottomPaginated;
+        break;
+    case WKPaginationModeBottomToTop:
+        mode = WebCore::PaginationMode::BottomToTopPaginated;
+        break;
+    default:
+        return;
+    }
+
+    _page->setPaginationMode(mode);
+}
+
+- (WKBrowsingContextPaginationMode)paginationMode
+{
+    switch (_page->paginationMode()) {
+    case WebCore::PaginationMode::Unpaginated:
+        return WKPaginationModeUnpaginated;
+    case WebCore::PaginationMode::LeftToRightPaginated:
+        return WKPaginationModeLeftToRight;
+    case WebCore::PaginationMode::RightToLeftPaginated:
+        return WKPaginationModeRightToLeft;
+    case WebCore::PaginationMode::TopToBottomPaginated:
+        return WKPaginationModeTopToBottom;
+    case WebCore::PaginationMode::BottomToTopPaginated:
+        return WKPaginationModeBottomToTop;
+    }
+
+    ASSERT_NOT_REACHED();
+    return WKPaginationModeUnpaginated;
+}
+
+- (void)setPaginationBehavesLikeColumns:(BOOL)behavesLikeColumns
+{
+    _page->setPaginationBehavesLikeColumns(behavesLikeColumns);
+}
+
+- (BOOL)paginationBehavesLikeColumns
+{
+    return _page->paginationBehavesLikeColumns();
+}
+
+- (void)setPageLength:(CGFloat)pageLength
+{
+    _page->setPageLength(pageLength);
+}
+
+- (CGFloat)pageLength
+{
+    return _page->pageLength();
+}
+
+- (void)setGapBetweenPages:(CGFloat)gapBetweenPages
+{
+    _page->setGapBetweenPages(gapBetweenPages);
+}
+
+- (CGFloat)gapBetweenPages
+{
+    return _page->gapBetweenPages();
+}
+
+- (void)setPaginationLineGridEnabled:(BOOL)lineGridEnabled
+{
+}
+
+- (BOOL)paginationLineGridEnabled
+{
+    return NO;
+}
+
+- (NSUInteger)pageCount
+{
+    return _page->pageCount();
+}
+
+- (WKBrowsingContextHandle *)handle
+{
+    return adoptNS([[WKBrowsingContextHandle alloc] _initWithPageProxy:*_page]).autorelease();
+}
+
+- (_WKRemoteObjectRegistry *)_remoteObjectRegistry
+{
+#if PLATFORM(MAC)
+    return _page->remoteObjectRegistry();
+#else
+    return nil;
+#endif
+}
+
+- (pid_t)processIdentifier
+{
+    return _page->legacyMainFrameProcessID();
+}
+
+- (BOOL)_webProcessIsResponsive
+{
+    return protect(_page->legacyMainFrameProcess())->isResponsive();
+}
+
+@end
+ALLOW_DEPRECATED_DECLARATIONS_END

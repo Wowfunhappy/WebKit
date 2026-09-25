@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Apple Inc. All rights reserved.
+# Copyright (C) 2010 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -20,38 +20,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-header: "APIObject.h"
-# MAVERICKS_BACKPORT: WKConnection bodies and legacy bundle user data cross IPC as ObjCObjectGraphs.
-#if PLATFORM(COCOA)
-header: "ObjCObjectGraph.h"
-#endif
-
-[RefCounted, CustomHeader] class API::Object subclasses {
-    API::Array
-    API::Boolean
-    API::Data
-    API::Dictionary
-    API::Double
-    API::Error
-    API::FrameHandle
-    WebKit::WebImage
-    API::PageHandle
-    # MAVERICKS_BACKPORT: Safari 7 puts its WKPageGroup in the injected-bundle initialization UserData.
-    API::PageGroupHandle
-    API::Point
-    API::Rect
-    # MAVERICKS_BACKPORT: WKSerializedScriptValue values cross IPC inside UserData (Safari 7 extension messages).
-    API::SerializedScriptValue
-    API::Size
-    API::String
-    API::URL
-    API::URLRequest
-    API::URLResponse
-    API::UInt64
-    API::Int64
-    API::UserContentURLPattern
-# MAVERICKS_BACKPORT: see the header line above.
-#if PLATFORM(COCOA)
-    WebKit::ObjCObjectGraph
-#endif
+# MAVERICKS_BACKPORT: the WKConnection channel runs in both directions between the UI and WebContent processes.
+[
+    ExceptionForDispatchedFrom,
+    ExceptionForDispatchedTo,
+    ExceptionForEnabledBy
+]
+messages -> WebConnection {
+    HandleMessage(String messageName, WebKit::UserData messageBody)
 }

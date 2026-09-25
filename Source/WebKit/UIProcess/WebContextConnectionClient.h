@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,38 +23,30 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the legacy WebKit2 WKProcessGroup (52fa87c^). QuickLook's Web2.qldisplay hosts its WKView in one, and
-// Apple Mail and iBooks reach their injected bundles through its delegate.
+// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
 
-#import <WebKit/WKFoundation.h>
+#ifndef WebContextConnectionClient_h
+#define WebContextConnectionClient_h
 
-#import <Foundation/Foundation.h>
-#import <WebKit/WKConnection.h>
+#include "APIClient.h"
+#include "WKContext.h"
 
-@class WKProcessGroup;
+namespace API {
+template<> struct ClientTraits<WKContextConnectionClientBase> {
+    typedef std::tuple<WKContextConnectionClientV0> Versions;
+};
+}
 
-@protocol WKProcessGroupDelegate <NSObject>
-@optional
+namespace WebKit {
 
-- (id)processGroupWillCreateConnectionToWebProcessPlugIn:(WKProcessGroup *)processGroup;
+class WebConnection;
+class WebProcessPool;
 
-@required
+class WebContextConnectionClient : public API::Client<WKContextConnectionClientBase> {
+public:
+    void didCreateConnection(WebProcessPool*, WebConnection*);
+};
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-- (void)processGroup:(WKProcessGroup *)processGroup didCreateConnectionToWebProcessPlugIn:(WKConnection *)connection;
-#pragma clang diagnostic pop
+} // namespace WebKit
 
-@end
-
-WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKProcessPool", macos(10.10, 10.14.4), ios(8.0, 12.2))
-@interface WKProcessGroup : NSObject
-
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL;
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL andCustomClassesForParameterCoder:(NSSet *)classesForCoder;
-
-#pragma mark Delegates
-
-@property (nonatomic, weak) id <WKProcessGroupDelegate> delegate;
-
-@end
+#endif // WebContextConnectionClient_h

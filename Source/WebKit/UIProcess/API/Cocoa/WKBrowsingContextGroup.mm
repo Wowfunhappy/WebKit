@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,153 +23,184 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: minimal restoration of the legacy WebKit2 ObjC
-// WKBrowsingContextGroup, removed upstream. QuickLook's Web2.qldisplay creates
-// one to back its WKView. We wrap a WKPageGroupRef created through the still-
-// present C SPI; WKView pulls it back out via -_pageGroupRef.
+// MAVERICKS_BACKPORT: see WKBrowsingContextGroup.h.
 
 #import "config.h"
 #import "WKBrowsingContextGroupInternal.h"
+#import "WKBrowsingContextGroupPrivate.h"
 
-#import "WKMutableArray.h"
+#import "APIArray.h"
+#import "APIString.h"
+#import "WKAPICast.h"
+#import "WKArray.h"
 #import "WKPageGroup.h"
 #import "WKPreferencesRef.h"
 #import "WKRetainPtr.h"
-#import "WKString.h"
+#import "WKSharedAPICast.h"
 #import "WKStringCF.h"
-#import "WKType.h"
+#import "WKURL.h"
 #import "WKURLCF.h"
-#import "WKUserContentInjectedFrames.h"
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
+#import <wtf/Vector.h>
 
-// MAVERICKS_BACKPORT: convert an NSArray<NSString *> of URL patterns to a WKArray for
-// the WKPageGroup user-content C SPI.
-static WKRetainPtr<WKMutableArrayRef> createWKArray(NSArray<NSString *> *array)
-{
-    auto wkArray = adoptWK(WKMutableArrayCreate());
-    for (id entry in array) {
-        if ([entry isKindOfClass:[NSString class]]) {
-            auto wkString = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)entry));
-            WKArrayAppendItem(wkArray.get(), wkString.get());
-        }
-    }
-    return wkArray;
-}
-
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 @implementation WKBrowsingContextGroup {
-    WKPageGroupRef _pageGroup;
-    BOOL _allowsJavaScript;
-    BOOL _allowsPlugIns;
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+    AlignedStorage<WebKit::WebPageGroup> _pageGroup;
 }
 
-- (instancetype)initWithIdentifier:(NSString *)identifier
+- (void)dealloc
+{
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKBrowsingContextGroup.class, self))
+        return;
+
+    _pageGroup->~WebPageGroup();
+
+    [super dealloc];
+}
+
+- (id)initWithIdentifier:(NSString *)identifier
 {
     self = [super init];
     if (!self)
         return nil;
 
-    WKStringRef wkIdentifier = WKStringCreateWithCFString((__bridge CFStringRef)identifier);
-    _pageGroup = WKPageGroupCreateWithIdentifier(wkIdentifier);
-    WKRelease(wkIdentifier);
+    API::Object::constructInWrapper<WebKit::WebPageGroup>(self, identifier);
 
-    _allowsJavaScript = YES;
-    [self setAllowsJavaScript:YES];
-    _allowsPlugIns = YES;
+    // Give the WKBrowsingContextGroup a identifier-less preferences, so that they
+    // don't get automatically written to the disk. The automatic writing has proven
+    // confusing to users of the API.
+    WKRetainPtr<WKPreferencesRef> preferences = adoptWK(WKPreferencesCreate());
+    WKPageGroupSetPreferences(WebKit::toAPI(_pageGroup.get()), preferences.get());
 
     return self;
 }
 
-- (void)dealloc
-{
-    if (_pageGroup)
-        WKRelease(_pageGroup);
-    [super dealloc];
-}
-
-- (WKPageGroupRef)_pageGroupRef
-{
-    return _pageGroup;
-}
-
 - (BOOL)allowsJavaScript
 {
-    return _allowsJavaScript;
+    return WKPreferencesGetJavaScriptEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())));
 }
 
 - (void)setAllowsJavaScript:(BOOL)allowsJavaScript
 {
-    _allowsJavaScript = allowsJavaScript;
-    if (_pageGroup)
-        WKPreferencesSetJavaScriptEnabled(WKPageGroupGetPreferences(_pageGroup), allowsJavaScript);
+    WKPreferencesSetJavaScriptEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())), allowsJavaScript);
 }
 
-// Web2.qldisplay's getter is spelled -allowsJavascript and its setter
-// -setAllowsJavaScript:; provide the lowercase-'s' spellings as aliases.
-- (BOOL)allowsJavascript
+- (BOOL)allowsJavaScriptMarkup
 {
-    return [self allowsJavaScript];
+    return WKPreferencesGetJavaScriptMarkupEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())));
 }
 
-- (void)setAllowsJavascript:(BOOL)allowsJavascript
+- (void)setAllowsJavaScriptMarkup:(BOOL)allowsJavaScriptMarkup
 {
-    [self setAllowsJavaScript:allowsJavascript];
+    WKPreferencesSetJavaScriptMarkupEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())), allowsJavaScriptMarkup);
 }
 
 - (BOOL)allowsPlugIns
 {
-    return _allowsPlugIns;
+    return WKPreferencesGetPluginsEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())));
 }
 
 - (void)setAllowsPlugIns:(BOOL)allowsPlugIns
 {
-    // Modern WebKit has no plug-in support, so there is nothing to enable; track
-    // the flag for API fidelity. Web2.qldisplay sets this while configuring the
-    // HTML preview's page group (a null page group here would crash the QL host).
-    _allowsPlugIns = allowsPlugIns;
+    WKPreferencesSetPluginsEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())), allowsPlugIns);
 }
 
-// Forward to the WKPageGroup user-content C SPI, which adds the scripts/style sheets
-// to the group's user content controller (WebPageGroup); pages created in the group
-// share that controller, so the content is injected. QuickLook's Web2.qldisplay
-// installs a preview style sheet here, and Mail's -[MUIWebDocumentViewGroup
-// _refreshUserStyleSheet]/_refreshUserScripts clear and reinstall the message-view
-// style sheet and scripts when a message opens.
+- (BOOL)privateBrowsingEnabled
+{
+    return WKPreferencesGetPrivateBrowsingEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())));
+}
 
-- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns mainFrameOnly:(BOOL)mainFrameOnly
+- (void)setPrivateBrowsingEnabled:(BOOL)enablePrivateBrowsing
+{
+    WKPreferencesSetPrivateBrowsingEnabled(WKPageGroupGetPreferences(WebKit::toAPI(_pageGroup.get())), enablePrivateBrowsing);
+}
+
+static WKRetainPtr<WKArrayRef> createWKArray(NSArray *array)
+{
+    NSUInteger count = [array count];
+
+    if (!count)
+        return nullptr;
+
+    Vector<RefPtr<API::Object>> strings;
+    strings.reserveInitialCapacity(count);
+
+    for (id entry in array) {
+        if ([entry isKindOfClass:[NSString class]])
+            strings.append(adoptRef(WebKit::toImpl(WKStringCreateWithCFString((__bridge CFStringRef)entry))));
+    }
+
+    return WebKit::toAPI(&API::Array::create(WTF::move(strings)).leakRef());
+}
+
+- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings mainFrameOnly:(BOOL)mainFrameOnly
 {
     if (!source)
-        return;
+        CRASH();
 
-    auto wkSource = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)source));
-    auto wkBaseURL = baseURL ? adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)baseURL)) : WKRetainPtr<WKURLRef>();
-    auto wkWhitelist = createWKArray(whitelistedURLPatterns);
-    auto wkBlacklist = createWKArray(blacklistedURLPatterns);
+    WKRetainPtr<WKStringRef> wkSource = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)source));
+    WKRetainPtr<WKURLRef> wkBaseURL = adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)baseURL));
+    auto wkIncludeMatchPatternStrings = createWKArray(includeMatchPatternStrings);
+    auto wkExcludeMatchPatternStrings = createWKArray(excludeMatchPatternStrings);
     WKUserContentInjectedFrames injectedFrames = mainFrameOnly ? kWKInjectInTopFrameOnly : kWKInjectInAllFrames;
 
-    WKPageGroupAddUserStyleSheet(_pageGroup, wkSource.get(), wkBaseURL.get(), wkWhitelist.get(), wkBlacklist.get(), injectedFrames);
+    WKPageGroupAddUserStyleSheet(WebKit::toAPI(_pageGroup.get()), wkSource.get(), wkBaseURL.get(), wkIncludeMatchPatternStrings.get(), wkExcludeMatchPatternStrings.get(), injectedFrames);
+}
+
+-(void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist mainFrameOnly:(BOOL)mainFrameOnly
+{
+    [self addUserStyleSheet:source baseURL:baseURL includeMatchPatternStrings:whitelist excludeMatchPatternStrings:blacklist mainFrameOnly:mainFrameOnly];
 }
 
 - (void)removeAllUserStyleSheets
 {
-    WKPageGroupRemoveAllUserStyleSheets(_pageGroup);
+    WKPageGroupRemoveAllUserStyleSheets(WebKit::toAPI(_pageGroup.get()));
 }
 
-- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly
+- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly
 {
     if (!source)
-        return;
+        CRASH();
 
-    auto wkSource = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)source));
-    auto wkBaseURL = baseURL ? adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)baseURL)) : WKRetainPtr<WKURLRef>();
-    auto wkWhitelist = createWKArray(whitelistedURLPatterns);
-    auto wkBlacklist = createWKArray(blacklistedURLPatterns);
+    WKRetainPtr<WKStringRef> wkSource = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)source));
+    WKRetainPtr<WKURLRef> wkBaseURL = adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)baseURL));
+    auto wkIncludeMatchPatternStrings = createWKArray(includeMatchPatternStrings);
+    auto wkExcludeMatchPatternStrings = createWKArray(excludeMatchPatternStrings);
     WKUserContentInjectedFrames injectedFrames = mainFrameOnly ? kWKInjectInTopFrameOnly : kWKInjectInAllFrames;
 
-    WKPageGroupAddUserScript(_pageGroup, wkSource.get(), wkBaseURL.get(), wkWhitelist.get(), wkBlacklist.get(), injectedFrames, injectionTime);
+    WKPageGroupAddUserScript(WebKit::toAPI(_pageGroup.get()), wkSource.get(), wkBaseURL.get(), wkIncludeMatchPatternStrings.get(), wkExcludeMatchPatternStrings.get(), injectedFrames, injectionTime);
+}
+
+- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly
+{
+    [self addUserScript:source baseURL:baseURL includeMatchPatternStrings:whitelist excludeMatchPatternStrings:blacklist injectionTime:injectionTime mainFrameOnly:mainFrameOnly];
 }
 
 - (void)removeAllUserScripts
 {
-    WKPageGroupRemoveAllUserScripts(_pageGroup);
+    WKPageGroupRemoveAllUserScripts(WebKit::toAPI(_pageGroup.get()));
+}
+
+#pragma mark WKObject protocol implementation
+
+- (API::Object&)_apiObject
+{
+    return *_pageGroup;
 }
 
 @end
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+@implementation WKBrowsingContextGroup (Private)
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+
+- (WKPageGroupRef)_pageGroupRef
+{
+    return WebKit::toAPI(_pageGroup.get());
+}
+
+@end
+ALLOW_DEPRECATED_DECLARATIONS_END

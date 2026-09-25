@@ -56,8 +56,8 @@
 // legacy ObjC group/controller classes that QuickLook's
 // Web2.qldisplay drives through WKView.
 #import "WKBrowsingContextControllerInternal.h"
-#import "WKProcessGroupInternal.h"
-#import "WKBrowsingContextGroupInternal.h"
+#import "WKProcessGroupPrivate.h"
+#import "WKBrowsingContextGroupPrivate.h"
 #import <WebCore/ActivityState.h>
 #import <WebCore/ColorCocoa.h>
 #import <WebCore/FloatPoint.h>

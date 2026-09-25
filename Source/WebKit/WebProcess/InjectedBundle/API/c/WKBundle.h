@@ -77,6 +77,9 @@ WK_EXPORT void WKBundleSetServiceWorkerProxyCreationCallback(WKBundleRef bundle,
 WK_EXPORT void WKBundlePostMessage(WKBundleRef bundle, WKStringRef messageName, WKTypeRef messageBody);
 WK_EXPORT void WKBundlePostSynchronousMessage(WKBundleRef bundle, WKStringRef messageName, WKTypeRef messageBody, WKTypeRef* returnRetainedData) WK_C_API_DEPRECATED;
 
+// MAVERICKS_BACKPORT: see WKConnectionRef.h.
+WK_EXPORT WKConnectionRef WKBundleGetApplicationConnection(WKBundleRef bundle);
+
 WK_EXPORT void WKBundleReportException(JSContextRef, JSValueRef exception);
 
 #ifdef __cplusplus

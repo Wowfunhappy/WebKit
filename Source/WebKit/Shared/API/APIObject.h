@@ -64,6 +64,8 @@ public:
         AuthenticationDecisionListener,
         CaptionUserPreferencesTestingModeToken,
         CertificateInfo,
+        // MAVERICKS_BACKPORT: WebConnection, the bundle<->app channel behind WKConnection.
+        Connection,
         ContextMenuItem,
         Credential,
         Data,
@@ -242,6 +244,8 @@ public:
 
         // Platform specific
         EditCommandProxy,
+        // MAVERICKS_BACKPORT: WebKit::ObjCObjectGraph (Shared/mac/ObjCObjectGraph.h).
+        ObjCObjectGraph,
         View,
 #if USE(SOUP)
         SoupRequestManager,

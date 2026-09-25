@@ -58,6 +58,8 @@
 #include "WebBroadcastChannelRegistry.h"
 #include "WebCacheStorageProvider.h"
 #include "WebChromeClient.h"
+// MAVERICKS_BACKPORT: see WebConnection.h.
+#include "WebConnectionToUIProcess.h"
 #include "WebCookieJar.h"
 #include "WebFileSystemStorageConnection.h"
 #include "WebFrame.h"
@@ -175,6 +177,11 @@
 
 #if ENABLE(MEDIA_STREAM)
 #include "UserMediaCaptureManager.h"
+#endif
+
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+#include "ObjCObjectGraph.h"
 #endif
 
 #if USE(CG)
@@ -471,6 +478,9 @@ void WebProcess::initializeConnection(IPC::Connection* connection)
 
     for (auto& supplement : m_supplements.values())
         supplement->initializeConnection(connection);
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    m_webConnection = WebConnectionToUIProcess::create(this);
 }
 
 static void scheduleLogMemoryStatistics(LogMemoryStatisticsReason reason)
@@ -1140,6 +1150,10 @@ void WebProcess::terminate()
     FontCache::invalidateAllFontCaches();
     MemoryCache::singleton().setDisabled(true);
 #endif
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    m_webConnection->invalidate();
+    m_webConnection = nullptr;
 
     platformTerminate();
 
@@ -2101,6 +2115,12 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             case API::Object::Type::PageGroupHandle:
                 return true;
 
+            // MAVERICKS_BACKPORT: WKConnection bodies and legacy bundle user data (see ObjCObjectGraph.h).
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+                return true;
+#endif
+
             default:
                 return false;
             }
@@ -2119,6 +2139,12 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             // MAVERICKS_BACKPORT: resolve page-group handles to this process's WebPageGroupProxy (Safari 7).
             case API::Object::Type::PageGroupHandle:
                 return &WebProcess::singleton().webPageGroup(WebPageGroupData { downcast<const API::PageGroupHandle>(object).pageGroupData() });
+
+            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+                return WebProcess::singleton().transformHandlesToObjects(downcast<ObjCObjectGraph>(object));
+#endif
 
             default:
                 return &object;
@@ -2139,6 +2165,10 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             case API::Object::Type::BundlePage:
             // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
             case API::Object::Type::BundlePageGroup:
+            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+#endif
                 return true;
 
             default:
@@ -2158,6 +2188,12 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
             case API::Object::Type::BundlePageGroup:
                 return API::PageGroupHandle::create(WebPageGroupData { downcast<const WebPageGroupProxy>(object).data() });
+
+            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+                return transformObjectsToHandles(downcast<ObjCObjectGraph>(object));
+#endif
 
             default:
                 return &object;

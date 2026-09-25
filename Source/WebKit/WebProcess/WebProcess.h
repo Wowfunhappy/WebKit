@@ -141,6 +141,8 @@ class LibWebRTCCodecs;
 class LibWebRTCNetwork;
 class ModelProcessConnection;
 class ModelProcessModelPlayerManager;
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+class ObjCObjectGraph;
 class RemoteCDMFactory;
 class RemoteImageDecoderAVFManager;
 class RemoteLegacyCDMFactory;
@@ -154,6 +156,8 @@ class WebBroadcastChannelRegistry;
 class WebCacheStorageProvider;
 class WebCompiledContentRuleListData;
 class WebCookieJar;
+// MAVERICKS_BACKPORT: see WebConnection.h.
+class WebConnectionToUIProcess;
 class WebFileSystemStorageConnection;
 class WebFrame;
 class WebGeolocationManager;
@@ -246,6 +250,9 @@ public:
     // This is for objects owned by the WebProcess to forward their refcounting to their owner.
     void ref() const final { }
     void deref() const final { }
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    WebConnectionToUIProcess* webConnectionToUIProcess() const { return m_webConnection.get(); }
 
     WebPage* webPage(WebCore::PageIdentifier) const;
     void createWebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -401,6 +408,12 @@ public:
 
     RefPtr<API::Object> transformHandlesToObjects(API::Object*);
     static RefPtr<API::Object> transformObjectsToHandles(API::Object*);
+
+    // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+    RefPtr<ObjCObjectGraph> transformHandlesToObjects(ObjCObjectGraph&);
+    static RefPtr<ObjCObjectGraph> transformObjectsToHandles(ObjCObjectGraph&);
+#endif
 
 #if ENABLE(SERVICE_CONTROLS)
     bool hasImageServices() const { return m_hasImageServices; }
@@ -741,6 +754,8 @@ private:
     void platformInitializeProcess(const AuxiliaryProcessInitializationParameters&);
 
     // IPC::Connection::Client
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    friend class WebConnectionToUIProcess;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     void didClose(IPC::Connection&) final;
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
@@ -806,6 +821,9 @@ private:
 #endif
 
     bool NODELETE isProcessBeingCachedForPerformance();
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    RefPtr<WebConnectionToUIProcess> m_webConnection;
 
     HashMap<WebCore::PageIdentifier, Ref<WebPage>> m_pageMap;
     HashMap<PageGroupIdentifier, Ref<WebPageGroupProxy>> m_pageGroupMap;

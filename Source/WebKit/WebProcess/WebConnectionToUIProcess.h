@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,38 +23,35 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the legacy WebKit2 WKProcessGroup (52fa87c^). QuickLook's Web2.qldisplay hosts its WKView in one, and
-// Apple Mail and iBooks reach their injected bundles through its delegate.
+// MAVERICKS_BACKPORT: the web-process end of the WebConnection (see WebConnection.h).
 
-#import <WebKit/WKFoundation.h>
+#pragma once
 
-#import <Foundation/Foundation.h>
-#import <WebKit/WKConnection.h>
+#include "WebConnection.h"
 
-@class WKProcessGroup;
+namespace WebKit {
 
-@protocol WKProcessGroupDelegate <NSObject>
-@optional
+class WebProcess;
 
-- (id)processGroupWillCreateConnectionToWebProcessPlugIn:(WKProcessGroup *)processGroup;
+class WebConnectionToUIProcess : public WebConnection {
+public:
+    static Ref<WebConnectionToUIProcess> create(WebProcess*);
 
-@required
+    void invalidate();
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-- (void)processGroup:(WKProcessGroup *)processGroup didCreateConnectionToWebProcessPlugIn:(WKConnection *)connection;
-#pragma clang diagnostic pop
+private:
+    WebConnectionToUIProcess(WebProcess*);
 
-@end
+    // WebConnection
+    RefPtr<API::Object> transformHandlesToObjects(API::Object*) override;
+    RefPtr<API::Object> transformObjectsToHandles(API::Object*) override;
+    bool hasValidConnection() const override;
 
-WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKProcessPool", macos(10.10, 10.14.4), ios(8.0, 12.2))
-@interface WKProcessGroup : NSObject
+    // IPC::MessageSender
+    IPC::Connection* messageSenderConnection() const override;
+    uint64_t messageSenderDestinationID() const override;
 
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL;
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL andCustomClassesForParameterCoder:(NSSet *)classesForCoder;
+    WebProcess* m_process;
+};
 
-#pragma mark Delegates
-
-@property (nonatomic, weak) id <WKProcessGroupDelegate> delegate;
-
-@end
+} // namespace WebKit

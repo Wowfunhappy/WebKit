@@ -43,6 +43,8 @@
 #include "SpeechRecognitionServer.h"
 #include "UserContentControllerIdentifier.h"
 #include "VisibleWebPageCounter.h"
+// MAVERICKS_BACKPORT: see WebConnection.h.
+#include "WebConnectionToWebProcess.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebPermissionControllerProxy.h"
 #include "WebProcessCreationParameters.h"
@@ -128,6 +130,8 @@ class AudioSessionRoutingArbitratorProxy;
 class FrameState;
 class JavaScriptEvaluationResult;
 class ModelProcessProxy;
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+class ObjCObjectGraph;
 class ProvisionalPageProxy;
 class RemotePageProxy;
 class SuspendedPageProxy;
@@ -214,6 +218,10 @@ public:
     const std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>& allowedFirstPartiesForCookiesData() const { return m_allowedFirstPartiesForCookies; }
 
     void initializeWebProcess(WebProcessCreationParameters&&);
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    WebConnection* webConnection() const { return m_webConnection.get(); }
+    RefPtr<WebConnection> protectedWebConnection() const { return m_webConnection; }
 
     unsigned suspendedPageCount() const;
     void addSuspendedPageProxy(SuspendedPageProxy&);
@@ -375,6 +383,12 @@ public:
 
     RefPtr<API::Object> transformHandlesToObjects(API::Object*);
     static RefPtr<API::Object> transformObjectsToHandles(API::Object*);
+
+    // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+    RefPtr<ObjCObjectGraph> transformHandlesToObjects(ObjCObjectGraph&);
+    static RefPtr<ObjCObjectGraph> transformObjectsToHandles(ObjCObjectGraph&);
+#endif
 
     void windowServerConnectionStateChanged();
 
@@ -731,6 +745,8 @@ private:
     void processDidTerminateOrFailedToLaunch(ProcessTerminationReason);
 
     // IPC::Connection::Client
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    friend class WebConnectionToWebProcess;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
     void didClose(IPC::Connection&) final;
@@ -827,6 +843,8 @@ private:
 
     const UniqueRef<BackgroundProcessResponsivenessTimer> m_backgroundResponsivenessTimer;
     
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    RefPtr<WebConnectionToWebProcess> m_webConnection;
     WeakOrStrongPtr<WebProcessPool> m_processPool; // Pre-warmed and cached processes do not hold a strong reference to their pool.
 
     bool m_mayHaveUniversalFileReadSandboxExtension { false }; // True if a read extension for "/" was ever granted - we don't track whether WebProcess still has it.

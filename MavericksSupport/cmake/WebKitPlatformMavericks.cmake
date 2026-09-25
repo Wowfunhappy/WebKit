@@ -115,11 +115,6 @@ list(APPEND WebKit_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebKit/WebProcess/InjectedBundle/Safari7StandardWorldBindings.cpp
 )
 
-# upstream's PlatformMac.cmake lists WKProcessGroupPrivate.h among the framework
-# headers to copy, but ships no such file (the same class of stale list entry as TextIndicatorWindow).
-# Drop it from the copy list rather than carrying a content-free placeholder to satisfy it.
-list(REMOVE_ITEM WebKit_PUBLIC_FRAMEWORK_HEADERS UIProcess/API/Cocoa/WKProcessGroupPrivate.h)
-
 # two more source entries with no file behind them here. handleXPCEndpointMessage
 # is compiled from Shared/EntryPointUtilities/Cocoa/XPCService/XPCEndpointMessages.mm, and the
 # connection-termination watchdog's reason string is inline in AuxiliaryProcessProxyCocoa.mm, so
@@ -258,6 +253,11 @@ list(REMOVE_ITEM WebKit_MESSAGES_IN_FILES
     WebProcess/cocoa/VideoFullscreenManager
 )
 
+# The WKConnection channel Apple Mail and iBooks talk to their injected bundles over.
+list(APPEND WebKit_MESSAGES_IN_FILES
+    Shared/WebConnection
+)
+
 list(REMOVE_ITEM WebKit_PRIVATE_LIBRARIES
     Accessibility
     ${DEVICEIDENTITY_LIBRARY}
@@ -321,6 +321,13 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
+    # The legacy WKConnection and WKProcessGroup API, reached through <WebKit/WKContext.h>,
+    # <WebKit/WebKit2_C.h>, WKBrowsingContextController.h and their Internal headers.
+    Shared/API/c/WKConnectionRef.h
+    UIProcess/API/C/WKContextConnectionClient.h
+    UIProcess/API/Cocoa/WKConnection.h
+    UIProcess/API/Cocoa/WKProcessGroup.h
+    UIProcess/API/Cocoa/WKProcessGroupPrivate.h
     # Referenced via <WebKit/...> by, respectively, _WKWebExtensionController.h and
     # FullscreenTouchSecheuristic.h (FullscreenTouchSecheuristic.cpp is built on Mac).
     UIProcess/API/Cocoa/_WKWebExtensionWindowCreationOptions.h
@@ -417,13 +424,20 @@ set(MAVERICKS_WITHHELD_WEBKIT_SOURCES
     "UIProcess/Automation/WebAutomationSession.cpp @no-unify-when(bundle<=8) @cost:8"
 )
 
-# Safari 7's icon database and injected-bundle policy clients, plus standalone automation.
+# Safari 7's icon database and injected-bundle policy clients, the WKConnection channel, plus
+# standalone automation.
 set(MAVERICKS_ADDED_WEBKIT_SOURCES
     "UIProcess/Automation/WebAutomationSession.cpp @no-unify @cost:8"
     "UIProcess/WebIconDatabase.cpp"
     "UIProcess/WebProcessPoolIconDatabase.cpp"
     "WebProcess/InjectedBundle/InjectedBundleNavigationAction.cpp"
     "WebProcess/InjectedBundle/InjectedBundlePagePolicyClient.cpp"
+    "Shared/WebConnection.cpp"
+    "Shared/WebConnectionClient.cpp"
+    "Shared/API/c/WKConnectionRef.cpp"
+    "UIProcess/WebConnectionToWebProcess.cpp"
+    "UIProcess/WebContextConnectionClient.cpp"
+    "WebProcess/WebConnectionToUIProcess.cpp"
 )
 
 # Withheld from SourcesCocoa.txt. WKWebView.mm comes back below with @no-unify; WKView.mm's place is
@@ -454,6 +468,7 @@ set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
 # Legacy Objective-C API classes, text extraction, and standalone CoreIPC translation units.
 set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
     "Shared/API/Cocoa/WKTypeRefWrapper.mm @nonARC @no-unify"
+    "Shared/mac/ObjCObjectGraph.mm @nonARC"
     "Shared/cf/CoreIPCCFArray.mm @nonARC @no-unify"
     "Shared/cf/CoreIPCCFDictionary.mm @nonARC @no-unify"
     "Shared/cf/CoreIPCCGColorSpace.mm @nonARC @no-unify"

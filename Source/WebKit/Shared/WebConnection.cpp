@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,38 +23,49 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the legacy WebKit2 WKProcessGroup (52fa87c^). QuickLook's Web2.qldisplay hosts its WKView in one, and
-// Apple Mail and iBooks reach their injected bundles through its delegate.
+// MAVERICKS_BACKPORT: see WebConnection.h.
 
-#import <WebKit/WKFoundation.h>
+#include "config.h"
+#include "WebConnection.h"
 
-#import <Foundation/Foundation.h>
-#import <WebKit/WKConnection.h>
+#include "ArgumentCoders.h"
+#include "MessageSenderInlines.h"
+#include "UserData.h"
+#include "WebConnectionMessages.h"
+#include <wtf/text/WTFString.h>
 
-@class WKProcessGroup;
+namespace WebKit {
 
-@protocol WKProcessGroupDelegate <NSObject>
-@optional
+WebConnection::WebConnection()
+{
+}
 
-- (id)processGroupWillCreateConnectionToWebProcessPlugIn:(WKProcessGroup *)processGroup;
+WebConnection::~WebConnection()
+{
+}
 
-@required
+void WebConnection::initializeConnectionClient(const WKConnectionClientBase* client)
+{
+    m_client.initialize(client);
+}
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-- (void)processGroup:(WKProcessGroup *)processGroup didCreateConnectionToWebProcessPlugIn:(WKConnection *)connection;
-#pragma clang diagnostic pop
+void WebConnection::postMessage(const String& messageName, API::Object* messageBody)
+{
+    if (!hasValidConnection())
+        return;
 
-@end
+    send(Messages::WebConnection::HandleMessage(messageName, UserData(transformObjectsToHandles(messageBody))));
+}
 
-WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKProcessPool", macos(10.10, 10.14.4), ios(8.0, 12.2))
-@interface WKProcessGroup : NSObject
+void WebConnection::didClose()
+{
+    m_client.didClose(this);
+}
 
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL;
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL andCustomClassesForParameterCoder:(NSSet *)classesForCoder;
+void WebConnection::handleMessage(const String& messageName, const UserData& messageBody)
+{
+    RefPtr protectedObject = messageBody.object();
+    m_client.didReceiveMessage(this, messageName, transformHandlesToObjects(protectedObject.get()).get());
+}
 
-#pragma mark Delegates
-
-@property (nonatomic, weak) id <WKProcessGroupDelegate> delegate;
-
-@end
+} // namespace WebKit

@@ -32,6 +32,8 @@
 #include <WebKit/WKArray.h>
 #include <WebKit/WKBackForwardListRef.h>
 #include <WebKit/WKBackForwardListItemRef.h>
+// MAVERICKS_BACKPORT: see WKConnectionRef.h.
+#include <WebKit/WKConnectionRef.h>
 #include <WebKit/WKContext.h>
 #include <WebKit/WKData.h>
 #include <WebKit/WKDictionary.h>

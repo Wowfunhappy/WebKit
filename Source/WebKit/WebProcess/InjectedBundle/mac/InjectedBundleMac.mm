@@ -29,6 +29,8 @@
 #import "APIArray.h"
 #import "APIData.h"
 #import "Logging.h"
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#import "ObjCObjectGraph.h"
 #import "WKBrowsingContextHandle.h"
 #import "WKBundleAPICast.h"
 #import "WKBundleInitialize.h"
@@ -202,31 +204,14 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
         return false;
     }
 
+    // MAVERICKS_BACKPORT: the plug-in is initialized with the ObjCObjectGraph its embedder's
+    // WKProcessGroup delegate returned (iBooks' book configuration; see ObjCObjectGraph.h).
+    // if ([instance respondsToSelector:@selector(webProcessPlugIn:initializeWithObject:)])
+    //     [instance webProcessPlugIn:plugInController.get() initializeWithObject:nil];
     if ([instance respondsToSelector:@selector(webProcessPlugIn:initializeWithObject:)]) {
-        // MAVERICKS_BACKPORT: the injected-bundle initialization user data — the object the
-        // UIProcess's WKContextInjectedBundleClient getInjectedBundleInitializationUserData
-        // callback returned (WKProcessGroup asks its delegate's
-        // processGroupWillCreateConnectionToWebProcessPlugIn:) — historically arrived as an
-        // ObjCObjectGraph, which upstream removed. It now travels NSKeyedArchiver-coded in an
-        // API::Data (same transport as WKConnection message bodies). Decode it back to the ObjC
-        // object graph the plug-in expects: iBooks' BKEpubWebProcessPlugIn reads its book
-        // configuration (bookContentsPath, sinf/resource data, sandbox-extension tokens,
-        // pagination mode) out of this dictionary, and its BKURLProtocol throws on the first
-        // load's +canInitWithRequest: if the book info is missing.
-        // NOTE: unlike the removed ObjCObjectGraph, this transport carries plist-style object
-        // graphs only (NSKeyedArchiver-codable classes). An unarchive failure — e.g. a class
-        // encoded by the app that is not linked into this web process — must fail LOUDLY, not
-        // silently hand the plug-in a nil object (the resulting misconfiguration is otherwise
-        // undebuggable: iBooks' BKURLProtocol, for one, throws on its first policy check).
         RetainPtr<id> objCInitializationUserData;
-        if (initializationUserData && initializationUserData->type() == API::Object::Type::Data) {
-            Ref data = downcast<API::Data>(initializationUserData.releaseNonNull());
-            // MAVERICKS_BACKPORT: no @try/@catch here. Swallowing the exception handed the plug-in a nil
-            // object and moved the failure to whatever it did next (iBooks' +canInitWithRequest:); an
-            // object graph this process cannot decode is a bug to diagnose at the point of corruption.
-            objCInitializationUserData = [NSKeyedUnarchiver unarchiveObjectWithData:toNSData(data->span()).get()];
-            RELEASE_ASSERT(objCInitializationUserData);
-        }
+        if (initializationUserData && initializationUserData->type() == API::Object::Type::ObjCObjectGraph)
+            objCInitializationUserData = downcast<ObjCObjectGraph>(*initializationUserData).rootObject();
         [instance webProcessPlugIn:plugInController.get() initializeWithObject:objCInitializationUserData.get()];
     }
 

@@ -40,6 +40,8 @@
 #include "WKNumber.h"
 #include "WKRetainPtr.h"
 #include "WKString.h"
+// MAVERICKS_BACKPORT: see WebConnection.h.
+#include "WebConnection.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageGroupProxy.h"
@@ -78,6 +80,12 @@ void WKBundlePostSynchronousMessage(WKBundleRef bundleRef, WKStringRef messageNa
     protect(WebKit::toImpl(bundleRef))->postSynchronousMessage(WebKit::toWTFString(messageNameRef), protect(WebKit::toImpl(messageBodyRef)).get(), returnData);
     if (returnRetainedDataRef)
         *returnRetainedDataRef = WebKit::toAPILeakingRef(WTF::move(returnData));
+}
+
+// MAVERICKS_BACKPORT: see WebConnection.h.
+WKConnectionRef WKBundleGetApplicationConnection(WKBundleRef bundleRef)
+{
+    return toAPI(WebKit::toImpl(bundleRef)->webConnectionToUIProcess());
 }
 
 void WKBundleGarbageCollectJavaScriptObjects(WKBundleRef bundleRef)

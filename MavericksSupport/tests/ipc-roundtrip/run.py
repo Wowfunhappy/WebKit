@@ -44,12 +44,21 @@ with open("/tmp/wk_build.log", "a") as log:
         run_logged(args + ["-x", "objective-c++", "-c", str(source), "-o", str(compiled)],
                    log, cwd=entry["directory"])
         objects.append(compiled)
+    # ObjCObjectGraph's coder is internal to WebKit2; its wrapped API objects travel through the exported UserData coder.
+    for relative in ("mac/ObjCObjectGraph.mm", "UserData.cpp"):
+        source = root / "Source/WebKit/Shared" / relative
+        compiled = out / (source.stem + ".o")
+        run_logged(args + ["-x", "objective-c++", "-fno-objc-arc", "-c", str(source), "-o", str(compiled)], log, cwd=entry["directory"])
+        objects.append(compiled)
     if "--compile-only" in sys.argv:
         sys.exit(0)
     sdk = root.parent / "MacOSX26.1.sdk"
     executable = out / "DumpRenderTree"
     run_logged([command[0], "--no-default-config", "-isysroot", str(sdk), "-mmacosx-version-min=10.9",
                     "-fuse-ld=lld", *map(str, objects), "-o", str(executable),
+                    # UserData.cpp and ObjCObjectGraph.mm reference WebKit2-internal API::Object helpers the
+                    # round trips never call; they stay lazily bound.
+                    "-Wl,-undefined,dynamic_lookup",
                     "/System/Library/PrivateFrameworks/WebKit2.framework/WebKit2",
                     "/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/WebCore",
                     "/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore",

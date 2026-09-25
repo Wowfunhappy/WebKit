@@ -30,46 +30,40 @@
 
 // FIXME: Remove this header once rdar://112426343 is resolved.
 
-// MAVERICKS_BACKPORT: the WKBrowsingContextGroup class interface was gutted upstream
-// (only the header shell remains). Restore the minimal surface that Apple's
-// QuickLook Web2.qldisplay and Mail.app (MUIWebDocumentViewGroup) use so those
-// clients can link and instantiate it. Without the class, dlopen of Web2 fails
-// on the missing _OBJC_CLASS_$_WKBrowsingContextGroup symbol, and Mail crashes
-// when it sends the user-content messages below while opening a message.
-
-#if !TARGET_OS_IPHONE
-
-// visibility("default") so _OBJC_CLASS_$_WKBrowsingContextGroup is exported from
-// WebKit2 (the build defaults to hidden visibility).
-__attribute__((visibility("default")))
+// MAVERICKS_BACKPORT: the legacy WKBrowsingContextGroup (5065b21^) that QuickLook's Web2.qldisplay and Apple Mail
+// use, with the 537-era user-content selectors those clients send (a91ec2e^).
+WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKUserContentController and WKPreferences", macos(10.10, 10.14.4), ios(8.0, 12.2))
 @interface WKBrowsingContextGroup : NSObject
 
-- (instancetype)initWithIdentifier:(NSString *)identifier;
+- (id)initWithIdentifier:(NSString *)identifier;
 
-// Web2.qldisplay toggles JavaScript on the preview's page group. The getter it
-// sends is -allowsJavascript and the setter -setAllowsJavaScript:; we expose
-// both spellings to match whichever the bundle was compiled against.
-@property (nonatomic) BOOL allowsJavaScript;
-- (BOOL)allowsJavascript;
-- (void)setAllowsJavascript:(BOOL)allowsJavascript;
+/* User Content */
 
-// Web2.qldisplay also toggles plug-ins on the preview's page group while
-// configuring it. Modern WebKit has no plug-in support, so this is tracked for
-// API fidelity but is inert.
-@property (nonatomic) BOOL allowsPlugIns;
+- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings mainFrameOnly:(BOOL)mainFrameOnly;
+- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist mainFrameOnly:(BOOL)mainFrameOnly WK_API_DEPRECATED_WITH_REPLACEMENT("addUserStyleSheet:baseURL:includeMatchPatternStrings:excludeMatchPatternStrings:mainFrameOnly:", macos(10.10, WK_MAC_TBA), ios(8.0, WK_IOS_TBA));
 
-// User-content management on the group, forwarded to the page group's user content
-// controller (WebPageGroup). Web2.qldisplay installs a preview style sheet; Mail's
-// -[MUIWebDocumentViewGroup _refreshUserStyleSheet]/_refreshUserScripts clear and
-// reinstall the message-view style sheet and scripts here, which are then injected
-// into pages created in the group. Mail sends these while opening a message, so the
-// selectors must exist (a missing one terminates Mail with an unrecognized-selector
-// exception).
-- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns mainFrameOnly:(BOOL)mainFrameOnly;
 - (void)removeAllUserStyleSheets;
-- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly;
+
+- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly;
+- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly WK_API_DEPRECATED_WITH_REPLACEMENT("addUserScript:baseURL:includeMatchPatternStrings:excludeMatchPatternStrings:injectionTime:mainFrameOnly:", macos(10.10, WK_MAC_TBA), ios(8.0, WK_IOS_TBA));
 - (void)removeAllUserScripts;
 
-@end
 
-#endif // !TARGET_OS_IPHONE
+/* Settings */
+
+/* Setting to control whether JavaScript is enabled.
+   Default: YES
+*/
+@property BOOL allowsJavaScript;
+
+/* Setting to control whether plug-ins are enabled.
+   Default: YES
+*/
+@property BOOL allowsPlugIns;
+
+/* Setting to control whether private browsing is enabled.
+ Default: NO
+ */
+@property BOOL privateBrowsingEnabled;
+
+@end

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,38 +23,25 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the legacy WebKit2 WKProcessGroup (52fa87c^). QuickLook's Web2.qldisplay hosts its WKView in one, and
-// Apple Mail and iBooks reach their injected bundles through its delegate.
+// MAVERICKS_BACKPORT: the context client that vends each web process's WebConnection; WKProcessGroup installs it.
 
-#import <WebKit/WKFoundation.h>
+#ifndef WKContextConnectionClient_h
+#define WKContextConnectionClient_h
 
-#import <Foundation/Foundation.h>
-#import <WebKit/WKConnection.h>
+#include <WebKit/WKBase.h>
 
-@class WKProcessGroup;
+typedef void (*WKContextDidCreateConnection)(WKContextRef context, WKConnectionRef connection, const void* clientInfo);
 
-@protocol WKProcessGroupDelegate <NSObject>
-@optional
+typedef struct WKContextConnectionClientBase {
+    int                                                                 version;
+    const void *                                                        clientInfo;
+} WKContextConnectionClientBase;
 
-- (id)processGroupWillCreateConnectionToWebProcessPlugIn:(WKProcessGroup *)processGroup;
+typedef struct WKContextConnectionClientV0 {
+    WKContextConnectionClientBase                                       base;
 
-@required
+    // Version 0.
+    WKContextDidCreateConnection                                        didCreateConnection;
+} WKContextConnectionClientV0;
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-- (void)processGroup:(WKProcessGroup *)processGroup didCreateConnectionToWebProcessPlugIn:(WKConnection *)connection;
-#pragma clang diagnostic pop
-
-@end
-
-WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKProcessPool", macos(10.10, 10.14.4), ios(8.0, 12.2))
-@interface WKProcessGroup : NSObject
-
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL;
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL andCustomClassesForParameterCoder:(NSSet *)classesForCoder;
-
-#pragma mark Delegates
-
-@property (nonatomic, weak) id <WKProcessGroupDelegate> delegate;
-
-@end
+#endif // WKContextConnectionClient_h

@@ -9,6 +9,9 @@ and links the installed frameworks and their private C++ runtime.
 Compiler and linker output goes to `/tmp/wk_build.log`; the executable lives under
 `WebKitBuild/Release/ipc-roundtrip`.
 
+It round-trips ObjCObjectGraph (compiled from Source/WebKit/Shared/mac) with a nil root followed by another field, and a
+nested graph of WKTypeRefWrappers, dates, data and typed numbers.
+
 It checks mutable, immutable and file requests through CoreIPCNSURLRequest, comparing every
 native property-list field and the concrete request class. Repeated requests cross autorelease-pool drains
 to verify the protocol-key filters retain their static collections. SameSite checks preserve native URL,

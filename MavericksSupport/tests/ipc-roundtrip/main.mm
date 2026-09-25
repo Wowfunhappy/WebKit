@@ -6,6 +6,12 @@
 #include "Encoder.h"
 #include "GeneratedSerializers.h"
 #include "MessageNames.h"
+#include "ObjCObjectGraph.h"
+#include "WKRetainPtr.h"
+#include "WKString.h"
+#include "WKStringCF.h"
+#include "WKType.h"
+#import "WKTypeRefWrapper.h"
 #include <wtf/MainThread.h>
 #import <AppKit/AppKit.h>
 #include <pal/spi/cocoa/DataDetectorsCoreSPI.h>
@@ -93,10 +99,46 @@ template<typename T> static RetainPtr<T> roundTrip(T *object)
     return WTF::move(*result);
 }
 
+static RetainPtr<id> objectGraphRoundTrip(id root)
+{
+    IPC::Encoder encoder(message, 5);
+    WebKit::ObjCObjectGraph::encode(encoder, root);
+    encoder << true;
+    auto decoder = IPC::Decoder::create(encoder.span(), encoder.releaseAttachments());
+    RELEASE_ASSERT(decoder && decoder->messageName() == message);
+    RetainPtr<id> result;
+    RELEASE_ASSERT(WebKit::ObjCObjectGraph::decode(*decoder, result));
+    auto trailing = decoder->decode<bool>();
+    RELEASE_ASSERT(trailing && *trailing && decoder->isValid());
+    return result;
+}
+
+static void objectGraphRoundTrips()
+{
+    RELEASE_ASSERT(!objectGraphRoundTrip(nil));
+    puts("PASS ObjCObjectGraph nil root keeps the following field aligned");
+
+    auto string = adoptWK(WKStringCreateWithCFString(CFSTR("wrapped")));
+    auto wrapper = adoptNS([[WKTypeRefWrapper alloc] initWithObject:string.get()]);
+    NSArray *list = @[@1, @YES, @2.5, @"text", [NSData dataWithBytes:"ab" length:2], [NSDate dateWithTimeIntervalSinceReferenceDate:12345]];
+    NSDictionary *body = @{ @"wrapper": wrapper.get(), @"list": list, @"large": @(1ULL << 60), @"nested": @{ @"inner": @[wrapper.get()] } };
+    auto decodedRoot = objectGraphRoundTrip(body);
+    NSDictionary *decoded = decodedRoot.get();
+    RELEASE_ASSERT([decoded isKindOfClass:NSDictionary.class] && decoded.count == body.count);
+    RELEASE_ASSERT([decoded[@"list"] isEqual:list] && [decoded[@"large"] isEqual:body[@"large"]]);
+    for (WKTypeRefWrapper *decodedWrapper in @[decoded[@"wrapper"], decoded[@"nested"][@"inner"][0]]) {
+        RELEASE_ASSERT([decodedWrapper isKindOfClass:WKTypeRefWrapper.class]);
+        RELEASE_ASSERT(WKGetTypeID(decodedWrapper.object) == WKStringGetTypeID());
+        RELEASE_ASSERT(WKStringIsEqual((WKStringRef)decodedWrapper.object, string.get()));
+    }
+    puts("PASS ObjCObjectGraph carries nested WKTypeRefWrappers, dates, data and typed numbers");
+}
+
 int main()
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
     WTF::initializeMainThread();
+    objectGraphRoundTrips();
     @autoreleasepool {
         auto request = adoptNS([[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:@"https://request.test/path?q=1"]
             cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:17]);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,38 +23,22 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the legacy WebKit2 WKProcessGroup (52fa87c^). QuickLook's Web2.qldisplay hosts its WKView in one, and
-// Apple Mail and iBooks reach their injected bundles through its delegate.
+// MAVERICKS_BACKPORT: see WKProcessGroup.h.
 
-#import <WebKit/WKFoundation.h>
+#import <WebKit/WKProcessGroup.h>
 
-#import <Foundation/Foundation.h>
-#import <WebKit/WKConnection.h>
+#import <WebKit/WKBase.h>
 
-@class WKProcessGroup;
+#if TARGET_OS_IPHONE
+@class WKGeolocationProviderIOS;
+#endif
 
-@protocol WKProcessGroupDelegate <NSObject>
-@optional
+@interface WKProcessGroup (Private)
 
-- (id)processGroupWillCreateConnectionToWebProcessPlugIn:(WKProcessGroup *)processGroup;
+@property(readonly) WKContextRef _contextRef;
 
-@required
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-- (void)processGroup:(WKProcessGroup *)processGroup didCreateConnectionToWebProcessPlugIn:(WKConnection *)connection;
-#pragma clang diagnostic pop
-
-@end
-
-WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKProcessPool", macos(10.10, 10.14.4), ios(8.0, 12.2))
-@interface WKProcessGroup : NSObject
-
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL;
-- (id)initWithInjectedBundleURL:(NSURL *)bundleURL andCustomClassesForParameterCoder:(NSSet *)classesForCoder;
-
-#pragma mark Delegates
-
-@property (nonatomic, weak) id <WKProcessGroupDelegate> delegate;
+#if TARGET_OS_IPHONE
+@property(readonly) WKGeolocationProviderIOS *_geolocationProvider;
+#endif
 
 @end

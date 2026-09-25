@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,27 +23,26 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT (#137): the legacy WebKit2 WKConnection bundle<->app message channel, removed
-// upstream. Apple Mail uses it to ferry message data both ways between its main app and its WebContent
-// injected bundle (MailUIWebBundle): the app sends MUIMessageKeyMessageContents/MessageObject to the
-// bundle, and the bundle replies MUIMessageKeyWebProcessDidLayoutContent/DidPaintContent so the app can
-// size and reveal the message-body WKView. Restored as a thin wrapper over the still-present
-// WKBundlePostMessage / WKContextPostMessageToInjectedBundle IPC, with NSKeyedArchiver body coding.
+// MAVERICKS_BACKPORT: the Objective-C face of WebConnection, the bundle<->app channel Apple Mail and iBooks use.
+
+#import <WebKit/WKFoundation.h>
 
 #import <Foundation/Foundation.h>
 
 @class WKConnection;
 
 @protocol WKConnectionDelegate <NSObject>
-@optional
-- (void)connection:(WKConnection *)connection didReceiveMessageWithName:(NSString *)name body:(id)body;
+
+- (void)connection:(WKConnection *)connection didReceiveMessageWithName:(NSString *)messageName body:(id)messageBody;
 - (void)connectionDidClose:(WKConnection *)connection;
+
 @end
 
+WK_CLASS_DEPRECATED_WITH_REPLACEMENT("_WKRemoteObjectRegistry", macos(10.10, 10.14.4), ios(8.0, 12.2))
 @interface WKConnection : NSObject
 
-@property (nonatomic, assign) id <WKConnectionDelegate> delegate;
-
 - (void)sendMessageWithName:(NSString *)messageName body:(id)messageBody;
+
+@property (nonatomic, weak) id <WKConnectionDelegate> delegate;
 
 @end

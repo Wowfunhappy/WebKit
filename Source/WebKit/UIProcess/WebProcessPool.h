@@ -36,6 +36,8 @@
 #include "ProcessThrottler.h"
 #include "VisitedLinkStore.h"
 #include "WebContextClient.h"
+// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+#include "WebContextConnectionClient.h"
 #include "WebPreferencesStore.h"
 #include "WebProcessProxy.h"
 #include "WebsiteDataStore.h"
@@ -208,6 +210,8 @@ public:
 
     void initializeClient(const WKContextClientBase*);
     void setInjectedBundleClient(std::unique_ptr<API::InjectedBundleClient>&&);
+    // MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+    void initializeConnectionClient(const WKContextConnectionClientBase*);
     void setHistoryClient(std::unique_ptr<API::LegacyContextHistoryClient>&&);
     void setLegacyDownloadClient(RefPtr<API::DownloadClient>&&);
     void setAutomationClient(std::unique_ptr<API::AutomationClient>&&);
@@ -225,12 +229,6 @@ public:
     template<typename T> static void sendToAllRemoteWorkerProcesses(const T& message);
 
     void processDidFinishLaunching(WebProcessProxy&);
-
-    // MAVERICKS_BACKPORT: per-pool observer fired from processDidFinishLaunching(). The legacy
-    // ObjC WKProcessGroup uses it to emulate the removed WKContextConnectionClient, whose
-    // didCreateConnection fired when a web process's injected bundle connected back to the UI
-    // process (embedders like iBooks sequence their bundle messaging on that callback).
-    void setWebProcessDidFinishLaunchingHandler(Function<void()>&& handler) { m_webProcessDidFinishLaunchingHandler = WTF::move(handler); }
 
     WebProcessCache& webProcessCache() { return m_webProcessCache.get(); }
 
@@ -824,6 +822,8 @@ private:
     std::unique_ptr<API::InjectedBundleClient> m_injectedBundleClient;
 
     WebContextClient m_client;
+    // MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+    WebContextConnectionClient m_connectionClient;
     std::unique_ptr<API::AutomationClient> m_automationClient;
     RefPtr<API::DownloadClient> m_legacyDownloadClient;
     std::unique_ptr<API::LegacyContextHistoryClient> m_historyClient;
@@ -832,9 +832,6 @@ private:
 
     const Ref<VisitedLinkStore> m_visitedLinkStore;
     bool m_visitedLinksPopulated { false };
-
-    // MAVERICKS_BACKPORT: see setWebProcessDidFinishLaunchingHandler().
-    Function<void()> m_webProcessDidFinishLaunchingHandler;
 
     // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49).
     RefPtr<WebIconDatabase> m_iconDatabase;

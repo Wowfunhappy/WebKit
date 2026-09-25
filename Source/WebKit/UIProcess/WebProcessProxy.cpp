@@ -129,6 +129,8 @@
 #include <wtf/text/WTFString.h>
 
 #if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#include "ObjCObjectGraph.h"
 #include "RemoteObjectRegistry.h"
 #include "RemoteObjectRegistryMessages.h"
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -401,6 +403,10 @@ WebProcessProxy::~WebProcessProxy()
     auto isResponsiveCallbacks = WTF::move(m_isResponsiveCallbacks);
     for (auto& callback : isResponsiveCallbacks)
         callback(false);
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    if (RefPtr webConnection = m_webConnection)
+        webConnection->invalidate();
 
     while (m_numberOfTimesSuddenTerminationWasDisabled-- > 0)
         WebCore::enableSuddenTermination();
@@ -766,6 +772,10 @@ void WebProcessProxy::shutDown()
 #endif
 
     shutDownProcess();
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    if (RefPtr webConnection = std::exchange(m_webConnection, nullptr))
+        webConnection->invalidate();
 
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
     // Tear down the log stream as soon as the process shuts down, rather than waiting for this
@@ -1461,6 +1471,10 @@ void WebProcessProxy::processDidTerminateOrFailedToLaunch(ProcessTerminationReas
 
     liveProcessesLRU().remove(*this);
 
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    if (RefPtr webConnection = this->webConnection())
+        webConnection->didClose();
+
     auto pages = mainPages();
 
     Vector<Ref<ProvisionalPageProxy>> provisionalPages;
@@ -1608,6 +1622,10 @@ void WebProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connect
     if (RefPtr websiteDataStore = m_websiteDataStore)
         protect(websiteDataStore->networkProcess())->sendXPCEndpointToProcess(*this);
 #endif
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    RELEASE_ASSERT(!m_webConnection);
+    m_webConnection = WebConnectionToWebProcess::create(this);
 
     protect(processPool())->processDidFinishLaunching(*this);
     m_backgroundResponsivenessTimer->updateState();
@@ -1979,6 +1997,12 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             case API::Object::Type::PageGroupHandle:
                 return true;
 
+            // MAVERICKS_BACKPORT: WKConnection bodies and legacy bundle user data (see ObjCObjectGraph.h).
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+                return true;
+#endif
+
             default:
                 return false;
             }
@@ -1999,6 +2023,12 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7); resolve back to the WebPageGroup.
             case API::Object::Type::PageGroupHandle:
                 return WebPageGroup::get(downcast<API::PageGroupHandle>(object).pageGroupData().pageGroupID);
+
+            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+                return protect(process())->transformHandlesToObjects(downcast<ObjCObjectGraph>(object));
+#endif
 
             default:
                 return &object;
@@ -2022,6 +2052,10 @@ RefPtr<API::Object> WebProcessProxy::transformObjectsToHandles(API::Object* obje
             case API::Object::Type::Frame:
             case API::Object::Type::Page:
             case API::Object::Type::PageGroup:
+            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+#endif
                 return true;
 
             default:
@@ -2044,6 +2078,12 @@ RefPtr<API::Object> WebProcessProxy::transformObjectsToHandles(API::Object* obje
             // would corrupt the stream).
             case API::Object::Type::PageGroup:
                 return API::PageGroupHandle::create(WebKit::WebPageGroupData { downcast<WebPageGroup>(object).data() });
+
+            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+#if PLATFORM(COCOA)
+            case API::Object::Type::ObjCObjectGraph:
+                return transformObjectsToHandles(downcast<ObjCObjectGraph>(object));
+#endif
 
             default:
                 return &object;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2010 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +23,40 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WKObjCTypeWrapperRef_h
-#define WKObjCTypeWrapperRef_h
+// MAVERICKS_BACKPORT: C API for the WKConnection bundle<->app channel (see WebConnection.h).
 
-#include <Foundation/Foundation.h>
+#ifndef WKConnectionRef_h
+#define WKConnectionRef_h
+
 #include <WebKit/WKBase.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// MAVERICKS_BACKPORT: a WKObjCTypeWrapperRef is an ObjCObjectGraph; MailUIWebBundle unwraps load user data with it.
-WK_EXPORT WKTypeID WKObjCTypeWrapperGetTypeID();
+typedef void (*WKConnectionDidReceiveMessageCallback)(WKConnectionRef connection, WKStringRef messageName, WKTypeRef messageBody, const void *clientInfo);
+typedef void (*WKConnectionDidCloseCallback)(WKConnectionRef connection, const void* clientInfo);
 
-WK_EXPORT id WKObjCTypeWrapperGetObject(WKObjCTypeWrapperRef wrapper);
+typedef struct WKConnectionClientBase {
+    int                                                                 version;
+    const void *                                                        clientInfo;
+} WKConnectionClientBase;
+
+typedef struct WKConnectionClientV0 {
+    WKConnectionClientBase                                              base;
+
+    // Version 0.
+    WKConnectionDidReceiveMessageCallback                               didReceiveMessage;
+    WKConnectionDidCloseCallback                                        didClose;
+} WKConnectionClientV0;
+
+WK_EXPORT WKTypeID WKConnectionGetTypeID(void);
+
+WK_EXPORT void WKConnectionSetConnectionClient(WKConnectionRef connection, const WKConnectionClientBase* client);
+WK_EXPORT void WKConnectionPostMessage(WKConnectionRef connection, WKStringRef messageName, WKTypeRef messageBody);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* WKObjCTypeWrapperRef_h */
+#endif // WKConnectionRef_h

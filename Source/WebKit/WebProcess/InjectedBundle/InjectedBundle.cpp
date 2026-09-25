@@ -34,6 +34,8 @@
 #include "NetworkSessionCreationParameters.h"
 #include "NotificationPermissionRequestManager.h"
 #include "UserData.h"
+// MAVERICKS_BACKPORT: see WebConnection.h.
+#include "WebConnectionToUIProcess.h"
 #include "WebFrame.h"
 #include "WebFrameNetworkingContext.h"
 #include "WebPage.h"
@@ -134,6 +136,12 @@ void InjectedBundle::postSynchronousMessage(const String& messageName, API::Obje
         returnData = webProcess.transformHandlesToObjects(protect(returnUserData.object()).get());
     } else
         returnData = nullptr;
+}
+
+// MAVERICKS_BACKPORT: see WebConnection.h.
+WebConnection* InjectedBundle::webConnectionToUIProcess() const
+{
+    return WebProcess::singleton().webConnectionToUIProcess();
 }
 
 void InjectedBundle::addOriginAccessAllowListEntry(const String& sourceOrigin, const String& destinationProtocol, const String& destinationHost, bool allowDestinationSubdomains)

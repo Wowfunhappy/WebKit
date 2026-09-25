@@ -405,6 +405,12 @@ void WebProcessPool::setInjectedBundleClient(std::unique_ptr<API::InjectedBundle
         m_injectedBundleClient = WTF::move(client);
 }
 
+// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+void WebProcessPool::initializeConnectionClient(const WKContextConnectionClientBase* client)
+{
+    m_connectionClient.initialize(client);
+}
+
 void WebProcessPool::setHistoryClient(std::unique_ptr<API::LegacyContextHistoryClient>&& historyClient)
 {
     if (!historyClient)
@@ -1171,11 +1177,6 @@ void WebProcessPool::processDidFinishLaunching(WebProcessProxy& process)
 {
     ASSERT(m_processes.containsIf([&](auto& item) { return item.ptr() == &process; }));
 
-    // MAVERICKS_BACKPORT: legacy WKContextConnectionClient emulation for the ObjC WKProcessGroup
-    // (see setWebProcessDidFinishLaunchingHandler in the header).
-    if (m_webProcessDidFinishLaunchingHandler)
-        m_webProcessDidFinishLaunchingHandler();
-
     if (!m_visitedLinksPopulated) {
         populateVisitedLinks();
         m_visitedLinksPopulated = true;
@@ -1200,6 +1201,9 @@ void WebProcessPool::processDidFinishLaunching(WebProcessProxy& process)
 
     if (m_configuration->ignoreSynchronousMessagingTimeoutsForTesting())
         process.connection().ignoreTimeoutsForTesting();
+
+    // MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+    m_connectionClient.didCreateConnection(this, process.protectedWebConnection().get());
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     for (auto& page : process.pages()) {

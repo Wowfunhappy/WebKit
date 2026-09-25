@@ -68,6 +68,8 @@ typedef void* PlatformBundle;
 #endif
 
 class InjectedBundleScriptWorld;
+// MAVERICKS_BACKPORT: see WebConnection.h.
+class WebConnection;
 class WebFrame;
 class WebPage;
 class WebPageGroupProxy;
@@ -89,6 +91,9 @@ public:
     void postMessage(const String&, API::Object*);
     void postSynchronousMessage(const String&, API::Object*, RefPtr<API::Object>& returnData);
     void NODELETE setServiceWorkerProxyCreationCallback(void (*)(uint64_t));
+
+    // MAVERICKS_BACKPORT: see WebConnection.h.
+    WebConnection* webConnectionToUIProcess() const;
 
     // TestRunner only SPI
     void addOriginAccessAllowListEntry(const String&, const String&, const String&, bool);

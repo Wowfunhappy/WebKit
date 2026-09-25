@@ -270,6 +270,12 @@ void WKContextSetDownloadClient(WKContextRef context, const WKContextDownloadCli
     protect(WebKit::toImpl(context))->setLegacyDownloadClient(adoptRef(*new LegacyDownloadClient(wkClient, context)));
 }
 
+// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+void WKContextSetConnectionClient(WKContextRef contextRef, const WKContextConnectionClientBase* wkClient)
+{
+    WebKit::toImpl(contextRef)->initializeConnectionClient(wkClient);
+}
+
 void WKContextSetInitializationUserDataForInjectedBundle(WKContextRef contextRef,  WKTypeRef userDataRef)
 {
     protect(WebKit::toImpl(contextRef))->setInjectedBundleInitializationUserData(WebKit::toImpl(userDataRef));
