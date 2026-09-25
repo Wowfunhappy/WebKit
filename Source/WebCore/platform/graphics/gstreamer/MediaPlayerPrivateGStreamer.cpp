@@ -4372,7 +4372,10 @@ void MediaPlayerPrivateGStreamer::flushCurrentBuffer()
 
 void MediaPlayerPrivateGStreamer::setViewportVisibility(ViewportVisibility visibility)
 {
-    bool isVisible = visibility == ViewportVisibility::VisibleInViewport;
+    // MAVERICKS_BACKPORT: a video shown fullscreen or in picture-in-picture is visible, as in
+    // MediaPlayerPrivateMediaStreamAVFObjC::setViewportVisibility().
+    // bool isVisible = visibility == ViewportVisibility::VisibleInViewport;
+    bool isVisible = visibility != ViewportVisibility::NotVisible && visibility != ViewportVisibility::IntersectingViewport;
     GST_DEBUG_OBJECT(pipeline(), "Player is now %svisible in the viewport", isVisible ? "" : "not ");
 
     if (isMediaStreamPlayer() || isVisible == m_isVisibleInViewport)
