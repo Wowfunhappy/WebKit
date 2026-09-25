@@ -916,6 +916,13 @@ void RenderLayerBacking::updateBackdropFiltersGeometry()
 
 bool RenderLayerBacking::updateBackdropRoot()
 {
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: 10.9 backgroundFilters sample only up to the nearest CALayer that is not a CATransformLayer,
+    // so this layer passes sampling through when it lies below the backdrop root's outermost layer.
+    if (auto* layer = dynamicDowncast<GraphicsLayerCA>(m_graphicsLayer.get()))
+        layer->setPassesBackdropSampling(m_owningLayer.hasBackdropFilterDescendantsWithoutRoot() && (!m_owningLayer.isBackdropRoot() || m_contentsContainmentLayer));
+#endif // MAVERICKS_BACKPORT: closes the backdrop sampling block above.
+
     // Don't try to make the RenderView's layer a backdrop root if it's going to
     // paint into the window since it won't work (WebKitLegacy only).
     bool willBeBackdropRoot = m_owningLayer.isBackdropRoot() && !paintsIntoWindow();

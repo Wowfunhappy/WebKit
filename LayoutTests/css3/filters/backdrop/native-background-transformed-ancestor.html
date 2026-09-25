@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { margin: 0; }
+.background { width: 200px; height: 200px; background: linear-gradient(black 100px, white 100px); }
+.container { position: absolute; left: 220px; top: 0; transform: translateX(0); }
+.wrapper { position: absolute; left: 30px; top: 30px; width: 100px; height: 100px; transform: translate(20px, 20px); }
+.panel { position: absolute; left: 0; top: 0; width: 100px; height: 100px; -webkit-backdrop-filter: blur(8px); }
+</style>
+</head>
+<body>
+<div class="background"></div>
+<div class="wrapper"><div class="panel"></div></div>
+<div class="container background"><div class="wrapper"><div class="panel"></div></div></div>
+</body>
+</html>

@@ -318,8 +318,8 @@ imported/w3c/web-platform-tests/webrtc/legacy/munge-dont.html [ Pass ]
 
 # --- Graphics: 10.9 system behaviour ------------------------------------------------------------
 
-# Native backgroundFilters have limited sampling across clipping and grouping layers.
-# The enabled pixel tests exercise backgrounds in the same native render group.
+# Native backgroundFilters sample only up to the nearest CALayer, so clips, clip-path, masks and reflections
+# between a backdrop and its backdrop root bound the sample. Every test that passes is listed [ Pass ].
 css3/filters/backdrop [ Skip ]
 css3/filters/backdrop/native-background-filter.html [ Pass ]
 css3/filters/backdrop/native-background-filter-dynamic.html [ Pass ]
@@ -329,6 +329,25 @@ css3/filters/backdrop/native-background-opacity.html [ Pass ]
 css3/filters/backdrop/native-background-opacity-change.html [ Pass ]
 css3/filters/backdrop/native-background-opacity-coverage.html [ Pass ]
 css3/filters/backdrop/native-background-opacity-host-change.html [ Pass ]
+css3/filters/backdrop/native-background-transformed-ancestor.html [ Pass ]
+css3/filters/backdrop/native-background-sampling-perspective.html [ Pass ]
+css3/filters/backdrop/native-background-sampling-perspective-change.html [ Pass ]
+css3/filters/backdrop/native-background-sampling-preserve-3d.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-nested.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-with-backface-visibility.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-with-composited-blend-mode.html [ Pass ]
+css3/filters/backdrop/add-remove-add-backdrop-filter.html [ Pass ]
+css3/filters/backdrop/animation.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-does-not-size-properly-absolute.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-does-not-size-properly-border-and-padding.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-with-border-radius-and-reflection-remove.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-with-border-radius-value-remove.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-with-cliprect.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-with-mask.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-with-reflection-remove-backdrop.html [ Pass ]
+css3/filters/backdrop/blur-input-bounds.html [ Pass ]
+css3/filters/backdrop/dynamic-backdrop-filter-change.html [ Pass ]
+css3/filters/backdrop/dynamic-with-clip-path.html [ Pass ]
 css3/filters/backdrop/effect-hw.html [ Pass ]
 css3/filters/backdrop/backdropfilter-property-computed-style.html [ Pass ]
 css3/filters/backdrop/backdropfilter-property-parsing-invalid.html [ Pass ]

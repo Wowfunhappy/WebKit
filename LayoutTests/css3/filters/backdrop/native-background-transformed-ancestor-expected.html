@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { margin: 0; }
+.background { width: 200px; height: 200px; background: linear-gradient(black 100px, white 100px); }
+.copy { position: absolute; left: 220px; top: 0; }
+.panel { position: absolute; top: 50px; width: 100px; height: 100px; overflow: hidden; }
+.filtered { position: absolute; left: -50px; top: -50px; -webkit-filter: blur(8px); transform: translateZ(0); }
+</style>
+</head>
+<body>
+<div class="background"></div>
+<div class="panel" style="left: 50px"><div class="background filtered"></div></div>
+<div class="background copy"></div>
+<div class="panel" style="left: 270px"><div class="background filtered"></div></div>
+</body>
+</html>

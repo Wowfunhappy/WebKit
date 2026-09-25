@@ -675,6 +675,8 @@ void GraphicsLayerCA::setTransform(const TransformationMatrix& t)
 
     GraphicsLayer::setTransform(t);
     noteLayerPropertyChanged(TransformChanged);
+    if (type() == Type::Structural) // MAVERICKS_BACKPORT: see passesBackdropSampling().
+        noteChildrenBackdropSamplingContextChanged();
 }
 
 void GraphicsLayerCA::setChildrenTransform(const TransformationMatrix& t)
@@ -742,6 +744,7 @@ void GraphicsLayerCA::setPreserves3D(bool preserves3D)
 
     GraphicsLayer::setPreserves3D(preserves3D);
     noteLayerPropertyChanged(Preserves3DChanged);
+    noteChildrenBackdropSamplingContextChanged(); // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
 }
 
 void GraphicsLayerCA::setMasksToBounds(bool masksToBounds)
@@ -974,6 +977,15 @@ bool GraphicsLayerCA::setBackdropFilters(const FilterOperations& filterOperation
 void GraphicsLayerCA::setIsBackdropRoot(bool isBackdropRoot)
 {
     GraphicsLayer::setIsBackdropRoot(isBackdropRoot);
+    noteLayerPropertyChanged(BackdropRootChanged);
+}
+
+// MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+void GraphicsLayerCA::setPassesBackdropSampling(bool passesBackdropSampling)
+{
+    if (passesBackdropSampling == m_passesBackdropSampling)
+        return;
+    m_passesBackdropSampling = passesBackdropSampling;
     noteLayerPropertyChanged(BackdropRootChanged);
 }
 
@@ -2195,8 +2207,13 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     // Need to handle Preserves3DChanged first, because it affects which layers subsequent properties are applied to
     LayerChangeFlags structuralLayerUpdateReasons = Preserves3DChanged | ReplicatedLayerChanged | BackdropFiltersChanged;
     // MAVERICKS_BACKPORT: native background sampling requires a host without group effects.
-    if (needsBackdrop() && is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting())
-        structuralLayerUpdateReasons |= FiltersChanged | MaskLayerChanged | BlendModeChanged | AnimationChanged;
+    if (is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()) {
+        structuralLayerUpdateReasons |= BackdropRootChanged;
+        if (needsBackdrop() || m_passesBackdropSampling)
+            structuralLayerUpdateReasons |= FiltersChanged | MaskLayerChanged | BlendModeChanged | AnimationChanged;
+        if (m_passesBackdropSampling)
+            structuralLayerUpdateReasons |= OpacityChanged | TransformChanged | MasksToBoundsChanged | ContentsRectsChanged | BackfaceVisibilityChanged;
+    }
 #if HAVE(CORE_MATERIAL)
     structuralLayerUpdateReasons |= AppleVisualEffectChanged;
 #endif
@@ -2403,6 +2420,9 @@ void GraphicsLayerCA::updateNames()
         break;
     case StructuralLayerForBackdrop:
         protect(m_structuralLayer)->setName(makeString("backdrop hosting: "_s, name));
+        break;
+    case StructuralLayerForBackdropSampling: // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+        protect(m_structuralLayer)->setName(makeString("backdrop sampling: "_s, name));
         break;
 #if HAVE(MATERIAL_HOSTING)
     case StructuralLayerForMaterial:
@@ -2856,6 +2876,44 @@ void GraphicsLayerCA::updateBackdropRoot()
     protect(m_layer)->setIsBackdropRoot(isBackdropRoot());
 }
 
+// MAVERICKS_BACKPORT: the host does not flatten its children into this layer's plane. The flattening layer above
+// gives the same result when every transform from it down to the host is 2D and none of those layers is a 3D
+// context. Group effects, clips and backface culling need a CALayer, which bounds the sampling.
+bool GraphicsLayerCA::passesBackdropSampling() const
+{
+    if (!m_passesBackdropSampling || !is<PlatformCALayerCocoa>(*m_layer) || !PlatformCALayerCocoa::needsExplicitDepthSorting())
+        return false;
+    if (m_opacity != 1 || !m_filters.isEmpty() || m_maskLayer || m_blendMode != BlendMode::Normal
+        || m_masksToBounds || m_contentsRectClipsDescendants || !m_backfaceVisibility || !transform().isAffine())
+        return false;
+    if (m_animations.containsIf([](auto& animation) {
+        return !animation.m_pendingRemoval && (animation.m_property == AnimatedProperty::Opacity || animation.m_property == AnimatedProperty::Filter || !animation.m_isAffine);
+    }))
+        return false;
+    // A backdrop sampling ancestor checks the layers above it; a structural ancestor is transparent to flattening.
+    for (auto* ancestor = parent(); ancestor; ancestor = ancestor->parent()) {
+        if (ancestor->preserves3D() || !ancestor->childrenTransform().isAffine())
+            return false;
+        if (ancestor->type() != Type::Structural)
+            break;
+        if (!ancestor->transform().isAffine())
+            return false;
+    }
+    return true;
+}
+
+// MAVERICKS_BACKPORT: children's backdrop sampling hosts depend on this layer's 3D context and children transform.
+void GraphicsLayerCA::noteChildrenBackdropSamplingContextChanged()
+{
+    for (Ref child : children()) {
+        auto& childLayer = downcast<GraphicsLayerCA>(child.get());
+        if (childLayer.type() == Type::Structural)
+            childLayer.noteChildrenBackdropSamplingContextChanged();
+        else if (childLayer.m_passesBackdropSampling)
+            childLayer.noteLayerPropertyChanged(BackdropRootChanged);
+    }
+}
+
 // MAVERICKS_BACKPORT: backgroundFilters output ignores layer opacity, but is scaled by its layer's mask. Under a
 // transform host, the backdrop's shape mask takes the layer's opacity and opacity animations.
 bool GraphicsLayerCA::backdropNeedsCoverage() const
@@ -3036,12 +3094,13 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
     // MAVERICKS_BACKPORT: CATransformLayer lets backgroundFilters sample the parent's surface. It passes its
     // opacity to each sublayer, and the backdrop's shape mask carries that opacity (updateBackdropCoverage()).
     RefPtr oldStructuralLayer = m_structuralLayer;
-    bool backdropHostingLayer = purpose == StructuralLayerForBackdrop
-        && is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
-        && m_filters.isEmpty() && !m_maskLayer && m_blendMode == BlendMode::Normal
-        && !m_animations.containsIf([](auto& animation) {
-            return !animation.m_pendingRemoval && animation.m_property == AnimatedProperty::Filter;
-        });
+    bool backdropHostingLayer = purpose == StructuralLayerForBackdropSampling
+        || (purpose == StructuralLayerForBackdrop
+            && is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
+            && m_filters.isEmpty() && !m_maskLayer && m_blendMode == BlendMode::Normal
+            && !m_animations.containsIf([](auto& animation) {
+                return !animation.m_pendingRemoval && animation.m_property == AnimatedProperty::Filter;
+            }));
     // MAVERICKS_BACKPORT: each host role starts with its own native sorting and perspective state.
     if (auto* cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get()); cocoaLayer && cocoaLayer->isBackdropHostingLayer() != backdropHostingLayer)
         m_structuralLayer = nullptr;
@@ -3137,6 +3196,9 @@ GraphicsLayerCA::StructuralLayerPurpose GraphicsLayerCA::structuralLayerPurpose(
 
     if (needsBackdrop())
         return StructuralLayerForBackdrop;
+
+    if (passesBackdropSampling()) // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+        return StructuralLayerForBackdropSampling;
 
     return NoStructuralLayer;
 }
@@ -4005,6 +4067,14 @@ bool GraphicsLayerCA::appendToUncommittedAnimations(const GraphicsLayerKeyframeV
         return false;
 
     m_animations.append(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, timeOffset));
+    // MAVERICKS_BACKPORT: interpolating between 2D transform functions yields 2D transforms. Core Animation decomposes
+    // matrix keyframes in 3D, where a mirrored keyframe (negative determinant) can interpolate through a 3D rotation.
+    for (size_t i = 0; i < valueList.size(); ++i) {
+        TransformationMatrix keyframeTransform;
+        downcast<GraphicsLayerTransformAnimationValue>(valueList.at(i)).value().apply(keyframeTransform);
+        if (!keyframeTransform.isAffine() || (isMatrixAnimation && keyframeTransform.a() * keyframeTransform.d() - keyframeTransform.b() * keyframeTransform.c() <= 0))
+            m_animations.last().m_isAffine = false;
+    }
     return true;
 }
 
@@ -5407,6 +5477,9 @@ void GraphicsLayerCA::noteSublayersChanged(ScheduleFlushOrNot scheduleFlush)
 {
     noteLayerPropertyChanged(ChildrenChanged, scheduleFlush);
     propagateLayerChangeToReplicas(scheduleFlush);
+    // MAVERICKS_BACKPORT: a child list or children transform change outside a commit re-evaluates the children's hosts.
+    if (scheduleFlush == ScheduleFlush)
+        noteChildrenBackdropSamplingContextChanged();
 }
 
 void GraphicsLayerCA::addUncommittedChanges(LayerChangeFlags flags)

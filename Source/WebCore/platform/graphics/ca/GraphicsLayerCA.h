@@ -139,6 +139,8 @@ public:
     WEBCORE_EXPORT bool setBackdropFilters(const FilterOperations&) override;
     WEBCORE_EXPORT void setBackdropFiltersRect(const FloatRoundedRect&) override;
     WEBCORE_EXPORT void setIsBackdropRoot(bool) override;
+    // MAVERICKS_BACKPORT: this layer lies between a backdrop and its backdrop root.
+    WEBCORE_EXPORT void setPassesBackdropSampling(bool);
 
     WEBCORE_EXPORT void setBlendMode(BlendMode) override;
 
@@ -538,6 +540,8 @@ private:
     void updateBackdropRoot();
     // MAVERICKS_BACKPORT: the backdrop's shape mask carries the layer's opacity while a transform host holds it.
     bool backdropNeedsCoverage() const;
+    bool passesBackdropSampling() const; // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+    void noteChildrenBackdropSamplingContextChanged(); // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
     void updateBackdropCoverage();
     Vector<Ref<PlatformCALayer>> backdropCoverageLayers() const;
     void updateShadowPath();
@@ -566,6 +570,9 @@ private:
         StructuralLayerForPreserves3D,
         StructuralLayerForReplicaFlattening,
         StructuralLayerForBackdrop,
+        // MAVERICKS_BACKPORT: 10.9 backgroundFilters sample only the nearest ancestor that is not a CATransformLayer.
+        // A CATransformLayer hosting this layer and its children lets them sample the pixels behind this layer.
+        StructuralLayerForBackdropSampling,
 #if HAVE(MATERIAL_HOSTING)
         StructuralLayerForMaterial,
 #endif
@@ -601,6 +608,7 @@ private:
         std::optional<Seconds> m_beginTime;
         PlayState m_playState { PlayState::PlayPending };
         bool m_pendingRemoval { false };
+        bool m_isAffine { true }; // MAVERICKS_BACKPORT: every interpolated value is a 2D transform.
     };
 
     void setAnimationOnLayer(LayerPropertyAnimation&);
@@ -765,6 +773,7 @@ private:
     ContentsLayerPurpose m_contentsLayerPurpose { ContentsLayerPurpose::None };
     bool m_isCommittingChanges { false };
     bool m_backdropHasCoverage { false }; // MAVERICKS_BACKPORT: the backdrop's shape mask holds this layer's opacity.
+    bool m_passesBackdropSampling { false }; // MAVERICKS_BACKPORT: set by the client for layers between a backdrop and its root.
     bool m_shouldUpdateRootRelativeScaleFactor : 1 { false };
     bool m_needsFullRepaint : 1;
     bool m_allowsBackingStoreDetaching : 1;
