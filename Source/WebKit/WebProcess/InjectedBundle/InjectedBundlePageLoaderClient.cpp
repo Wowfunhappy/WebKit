@@ -263,7 +263,7 @@ void InjectedBundlePageLoaderClient::globalObjectIsAvailableForFrame(WebPage& pa
 
     RefPtr<InjectedBundleScriptWorld> injectedWorld = InjectedBundleScriptWorld::getOrCreate(world);
     m_client.globalObjectIsAvailableForFrame(toAPI(&page), toAPI(&frame), toAPI(injectedWorld.get()), m_client.base.clientInfo);
-    applyModernSafariStandardWorldBindings(frame, world); // MAVERICKS_BACKPORT: pages see Safari 17's standard-world bindings in place of the ones Safari 7's bundle just defined.
+    removeSafari7StandardWorldBindings(frame, world); // MAVERICKS_BACKPORT: removes the page-visible bindings Safari 7's bundle just defined, which Safari 26 lacks.
 }
 
 void InjectedBundlePageLoaderClient::serviceWorkerGlobalObjectIsAvailableForFrame(WebPage& page, WebFrame& frame, DOMWrapperWorld& world)

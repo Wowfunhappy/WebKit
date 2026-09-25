@@ -8,6 +8,6 @@ namespace WebKit {
 
 class WebFrame;
 
-void applyModernSafariStandardWorldBindings(WebFrame&, WebCore::DOMWrapperWorld&);
+void removeSafari7StandardWorldBindings(WebFrame&, WebCore::DOMWrapperWorld&);
 
 }
