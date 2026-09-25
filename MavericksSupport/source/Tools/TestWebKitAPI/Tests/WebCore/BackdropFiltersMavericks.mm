@@ -35,6 +35,36 @@ TEST(BackdropFiltersMavericks, NativePropertiesAndBackendRouting)
     EXPECT_EQ(1U, [[foreground backgroundFilters] count]);
 }
 
+TEST(BackdropFiltersMavericks, HiddenLayerHasNoBackgroundFilters)
+{
+    RetainPtr backdrop = adoptNS([[WebBackdropLayerMavericks alloc] init]);
+    FilterOperations blur { { BlurFilterOperation::create(8) } };
+    PlatformCAFilters::setFiltersOnLayer(backdrop.get(), blur, true);
+    EXPECT_EQ(1U, [[backdrop backgroundFilters] count]);
+
+    [backdrop setHidden:YES];
+    EXPECT_EQ(0U, [[backdrop backgroundFilters] count]);
+
+    // Filters assigned while hidden take effect when the layer is shown.
+    FilterOperations twoBlurs { { BlurFilterOperation::create(8), BlurFilterOperation::create(4) } };
+    PlatformCAFilters::setFiltersOnLayer(backdrop.get(), twoBlurs, true);
+    EXPECT_EQ(0U, [[backdrop backgroundFilters] count]);
+    [backdrop setHidden:NO];
+    EXPECT_EQ(2U, [[backdrop backgroundFilters] count]);
+
+    // Copies made by initWithLayer: carry the assigned filters and the same hidden behavior.
+    RetainPtr visibleCopy = adoptNS([[WebBackdropLayerMavericks alloc] initWithLayer:backdrop.get()]);
+    EXPECT_EQ(2U, [[visibleCopy backgroundFilters] count]);
+
+    [backdrop setHidden:YES];
+    RetainPtr copyOfHidden = adoptNS([[WebBackdropLayerMavericks alloc] initWithLayer:backdrop.get()]);
+    EXPECT_EQ([copyOfHidden isHidden] ? 0U : 2U, [[copyOfHidden backgroundFilters] count]);
+    [copyOfHidden setHidden:YES];
+    EXPECT_EQ(0U, [[copyOfHidden backgroundFilters] count]);
+    [copyOfHidden setHidden:NO];
+    EXPECT_EQ(2U, [[copyOfHidden backgroundFilters] count]);
+}
+
 TEST(BackdropFiltersMavericks, AnimationKeyPaths)
 {
     auto foreground = PlatformCAAnimation::makeKeyPath(AnimatedProperty::Filter, FilterOperation::Type::Blur, 2);

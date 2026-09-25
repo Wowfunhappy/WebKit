@@ -112,6 +112,9 @@ css3/filters/backdrop/backdrop-filter-with-border-radius-value-remove.html
 css3/filters/backdrop/backdrop-filter-with-cliprect.html
 css3/filters/backdrop/backdrop-filter-with-mask.html
 css3/filters/backdrop/backdrop-filter-with-reflection-remove-backdrop.html
+css3/filters/backdrop/backdrop-with-visibility-hidden.html
+css3/filters/backdrop/backdrop-with-visibility-hidden-2.html
+css3/filters/backdrop/backdrop-with-visibility-hidden-changing.html
 css3/filters/backdrop/blur-input-bounds.html
 css3/filters/backdrop/dynamic-backdrop-filter-change.html
 css3/filters/backdrop/dynamic-with-clip-path.html
