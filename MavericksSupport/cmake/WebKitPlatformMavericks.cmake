@@ -106,11 +106,13 @@ endif ()
 # unified bundle, so relocating them would move every file after them into a different bundle.
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_SUPPORT}/source/WebKit/UIProcess"
+    "${MAVERICKS_SUPPORT}/source/WebKit/WebProcess/InjectedBundle"
 )
 list(APPEND WebKit_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewMavericks.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewToolTip.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/mac/MavericksPageClient.mm
+    ${MAVERICKS_SUPPORT}/source/WebKit/WebProcess/InjectedBundle/Safari7StandardWorldBindings.cpp
 )
 
 # upstream's PlatformMac.cmake lists WKProcessGroupPrivate.h among the framework
