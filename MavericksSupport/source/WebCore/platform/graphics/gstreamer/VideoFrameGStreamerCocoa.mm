@@ -143,19 +143,26 @@ CVPixelBufferRef VideoFrameGStreamer::pixelBuffer() const
 void MediaPlayerPrivateGStreamer::initializeVideoLayer()
 {
     m_videoLayerManager = makeUnique<VideoLayerManagerObjC>(m_logger, m_logIdentifier);
-    m_sampleBufferDisplayLayer = LocalSampleBufferDisplayLayer::create(*this);
-    if (!m_sampleBufferDisplayLayer)
+    createSampleBufferDisplayLayer();
+}
+
+void MediaPlayerPrivateGStreamer::createSampleBufferDisplayLayer()
+{
+    RefPtr sampleBufferDisplayLayer = LocalSampleBufferDisplayLayer::create(*this);
+    if (!sampleBufferDisplayLayer)
         return;
-    m_sampleBufferDisplayLayer->setLogIdentifier(m_logIdentifier);
+    sampleBufferDisplayLayer->setLogIdentifier(m_logIdentifier);
     // GstBaseSink delivers preroll and clock-scheduled frames, including after pause/seek.
-    m_sampleBufferDisplayLayer->setRenderPolicy(SampleBufferDisplayLayer::RenderPolicy::Immediately);
-    m_sampleBufferDisplayLayer->initialize(false, { }, false, [](bool) { });
-    m_videoLayerManager->setVideoLayer(m_sampleBufferDisplayLayer->rootLayer(), { });
+    sampleBufferDisplayLayer->setRenderPolicy(SampleBufferDisplayLayer::RenderPolicy::Immediately);
+    sampleBufferDisplayLayer->initialize(false, { }, false, [](bool) { });
+    m_videoLayerManager->setVideoLayer(sampleBufferDisplayLayer->rootLayer(), { });
     m_videoLayerBoundsObserver = adoptNS([[WebRootSampleBufferBoundsChangeListener alloc] initWithCallback:[weakThis = ThreadSafeWeakPtr { *this }] {
         if (RefPtr self = weakThis.get())
             self->m_sampleBufferDisplayLayer->updateBoundsAndPosition(self->m_sampleBufferDisplayLayer->rootLayer().bounds);
     }]);
-    [m_videoLayerBoundsObserver begin:m_sampleBufferDisplayLayer->rootLayer()];
+    [m_videoLayerBoundsObserver begin:sampleBufferDisplayLayer->rootLayer()];
+    Locker locker { m_videoLayerLock };
+    m_sampleBufferDisplayLayer = WTF::move(sampleBufferDisplayLayer);
 }
 
 void MediaPlayerPrivateGStreamer::destroyVideoLayer()
@@ -163,12 +170,19 @@ void MediaPlayerPrivateGStreamer::destroyVideoLayer()
     [m_videoLayerBoundsObserver invalidate];
     m_videoLayerBoundsObserver = nullptr;
     m_videoLayerManager->didDestroyVideoLayer();
-    m_sampleBufferDisplayLayer = nullptr;
+    RefPtr<SampleBufferDisplayLayer> sampleBufferDisplayLayer;
+    Locker locker { m_videoLayerLock };
+    sampleBufferDisplayLayer = std::exchange(m_sampleBufferDisplayLayer, nullptr);
 }
 
+// A failed layer stays failed, so the presenter replaces it.
 void MediaPlayerPrivateGStreamer::sampleBufferDisplayLayerStatusDidFail()
 {
-    pushSampleToVideoLayer(true, true);
+    destroyVideoLayer();
+    createSampleBufferDisplayLayer();
+    if (RefPtr player = m_player.get())
+        player->renderingModeChanged();
+    pushSampleToVideoLayer(true);
 }
 
 void MediaPlayerPrivateGStreamer::updateVideoFrameCounters(uint64_t totalFrameCount, uint64_t droppedFrameCount)
@@ -182,13 +196,11 @@ PlatformLayer* MediaPlayerPrivateGStreamer::platformLayer() const
     return m_videoLayerManager->videoInlineLayer();
 }
 
-void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample, bool flush)
+void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
 {
     Locker layerLocker { m_videoLayerLock };
     if (!m_sampleBufferDisplayLayer)
         return;
-    if (flush)
-        m_sampleBufferDisplayLayer->flush();
     GRefPtr<GstSample> sample;
     ImageOrientation::Orientation orientation;
     {

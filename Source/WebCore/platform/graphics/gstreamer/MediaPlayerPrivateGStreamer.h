@@ -356,8 +356,9 @@ protected:
 #elif PLATFORM(COCOA)
     // MAVERICKS_BACKPORT: GstBaseSink schedules frames; Cocoa owns display and layer hosting.
     void initializeVideoLayer();
+    void createSampleBufferDisplayLayer();
     void destroyVideoLayer();
-    void pushSampleToVideoLayer(bool isDuplicateSample, bool flush = false);
+    void pushSampleToVideoLayer(bool isDuplicateSample);
     void sampleBufferDisplayLayerStatusDidFail() final;
     void updateVideoFrameCounters(uint64_t, uint64_t) final; // MAVERICKS_BACKPORT: receive Cocoa display-layer playback metrics.
 #endif

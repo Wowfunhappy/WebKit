@@ -146,15 +146,11 @@ WK_POLYFILL_ADD_METHODS(AVPlayer)
 WK_POLYFILL_ADD_LAYER_PROPERTIES_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (NSInteger)status
 {
-    @synchronized (self) {
-        return [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) status];
-    }
+    return [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) status];
 }
 - (NSError *)error
 {
-    @synchronized (self) {
-        return [[[(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) error] retain] autorelease];
-    }
+    return [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) error];
 }
 @end
 
@@ -205,31 +201,61 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 }
 @end
 
+static CGSize wkAVFDisplayLayerPresentationSize(id layer)
+{
+    id internal = object_getIvar(layer, class_getInstanceVariable(objc_getClass("AVSampleBufferDisplayLayer"), "_sampleBufferDisplayLayerInternal"));
+    return *(CGSize *)((char *)internal + ivar_getOffset(class_getInstanceVariable(object_getClass(internal), "presentationSize")));
+}
+
+static WKAVFDisplayColor *wkAVFDisplayColorFor(id layer)
+{
+    @synchronized (layer) {
+        WKAVFDisplayColor *color = objc_getAssociatedObject(layer, wkAVFDisplayColorKey);
+        if (!color) {
+            color = [[WKAVFDisplayColor alloc] init];
+            objc_setAssociatedObject(layer, wkAVFDisplayColorKey, color, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [color release];
+        }
+        return color;
+    }
+}
+
 // Mavericks presents packed RGB samples in the layer's destination space. vImage supplies the
 // attachment-derived color match at the display API boundary, preserving the caller's image buffer.
+//
+// A sample of a new presentation size makes Mavericks' layer lay out its content layer from bounds it
+// read before applying that layout, so on a thread other than the one setting the bounds the layout
+// can be stale. The layer then lays itself out again on the main thread from its current bounds.
 WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (void)enqueueSampleBuffer:(CMSampleBufferRef)sample
 {
     @autoreleasepool {
-        @synchronized (self) {
-            WKAVFDisplayColor *color = objc_getAssociatedObject(self, wkAVFDisplayColorKey);
-            if (!color) {
-                color = [[WKAVFDisplayColor alloc] init];
-                objc_setAssociatedObject(self, wkAVFDisplayColorKey, color, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                [color release];
-            }
-            if (!sample || !CMSampleBufferGetFormatDescription(sample)) {
-                WK_ORIGINAL_METHOD(void, (CMSampleBufferRef), sample);
+        WKAVFDisplayColor *color = wkAVFDisplayColorFor(self);
+        void (^enqueue)(CMSampleBufferRef) = ^(CMSampleBufferRef enqueued) {
+            CGSize presentationSize = wkAVFDisplayLayerPresentationSize(self);
+            WK_ORIGINAL_METHOD(void, (CMSampleBufferRef), enqueued);
+            if (CGSizeEqualToSize(presentationSize, wkAVFDisplayLayerPresentationSize(self)))
                 return;
-            }
-            if ([color error])
-                return;
-            CMSampleBufferRef matched = [color copySample:sample forLayer:(CALayer *)self];
-            if (matched) {
-                WK_ORIGINAL_METHOD(void, (CMSampleBufferRef), matched);
-                CFRelease(matched);
-                [color setStatus:1 error:nil forLayer:(CALayer *)self];
-            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [CATransaction begin];
+                [CATransaction setDisableActions:YES];
+                [CATransaction lock];
+                [(CALayer *)self setBounds:[(CALayer *)self bounds]];
+                [CATransaction unlock];
+                [CATransaction commit];
+            });
+        };
+        if (!sample || !CMSampleBufferGetFormatDescription(sample)) {
+            enqueue(sample);
+            return;
+        }
+        if ([color error])
+            return;
+        CMSampleBufferRef matched = [color copySample:sample forLayer:(CALayer *)self];
+        if (matched) {
+            enqueue(matched);
+            CFRelease(matched);
+            [color setStatus:1 error:nil forLayer:(CALayer *)self];
         }
     }
 }
@@ -238,17 +264,13 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (void)flush
 {
-    @synchronized (self) {
-        WK_ORIGINAL_METHOD(void, ());
-        [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
-    }
+    WK_ORIGINAL_METHOD(void, ());
+    [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
 }
 - (void)flushAndRemoveImage
 {
-    @synchronized (self) {
-        WK_ORIGINAL_METHOD(void, ());
-        [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
-    }
+    WK_ORIGINAL_METHOD(void, ());
+    [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
 }
 @end
 

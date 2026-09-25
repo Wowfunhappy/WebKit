@@ -504,6 +504,16 @@ probe_avf_display_color_kvo() {
         "$T/avf_display_color_kvo"
 }
 
+probe_avf_display_layer_layout() {
+    prepare_method_objects AVFoundation &&
+        "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new -fno-objc-arc -o "$T/avf_display_layer_layout" "$TBEHAV/AVFoundation-display-layer-layout.m" \
+            "$OBJ/methods/AVFoundation.o" "$OBJ/mech/wk_selref_scope.o" "$PF/methods/Accelerate.m" -I"$PF/c" -framework Accelerate \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework QuartzCore -framework AppKit -framework Foundation \
+            -framework CoreServices -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
+        "$T/avf_display_layer_layout"
+}
+
 probe_constant_packet_input() {
     "$CLANG" $MODERN $INC -o "$T/constant_packet_input" "$TBEHAV/AudioToolbox-constant-packet-input.c" \
         $PROBE_LIBS -framework AudioToolbox -framework AudioUnit &&
@@ -821,6 +831,7 @@ run_probe language_minimization "$@"
 run_probe avf_display_color "$@"
 run_probe avf_resource_loader_drain "$@"
 run_probe avf_display_color_kvo "$@"
+run_probe avf_display_layer_layout "$@"
 run_probe constant_packet_input "$@"
 run_probe delay_mode_excess_input "$@"
 run_probe optical_size "$@"

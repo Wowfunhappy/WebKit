@@ -84,21 +84,40 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
     [super dealloc];
 }
 
-- (NSInteger)status { return _status; }
-- (NSError *)error { return _error; }
+// The object's lock guards its fields only. Core Animation posts layer KVO while holding its own lock,
+// so the layer's colour space is read and the layer's status notifications are posted outside it.
+- (NSInteger)status
+{
+    @synchronized (self) {
+        return _status;
+    }
+}
+
+- (NSError *)error
+{
+    @synchronized (self) {
+        return [[_error retain] autorelease];
+    }
+}
 
 - (void)setStatus:(NSInteger)status error:(NSError *)error forLayer:(CALayer *)layer
 {
-    BOOL statusChanged = status != _status;
-    BOOL errorChanged = error != _error;
+    BOOL statusChanged;
+    BOOL errorChanged;
+    @synchronized (self) {
+        statusChanged = status != _status;
+        errorChanged = error != _error;
+    }
     if (statusChanged)
         [layer willChangeValueForKey:@"status"];
     if (errorChanged)
         [layer willChangeValueForKey:@"error"];
-    [error retain];
-    [_error release];
-    _error = error;
-    _status = status;
+    @synchronized (self) {
+        [error retain];
+        [_error release];
+        _error = error;
+        _status = status;
+    }
     if (errorChanged)
         [layer didChangeValueForKey:@"error"];
     if (statusChanged)
@@ -107,20 +126,36 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
 
 - (void)flushForLayer:(CALayer *)layer
 {
-    if (_pool) {
-        CVPixelBufferPoolRelease(_pool);
-        _pool = NULL;
+    @synchronized (self) {
+        if (_pool) {
+            CVPixelBufferPoolRelease(_pool);
+            _pool = NULL;
+        }
     }
     [self setStatus:0 error:nil forLayer:layer];
 }
 
-- (CMSampleBufferRef)fail:(NSInteger)code forLayer:(CALayer *)layer
+- (CMSampleBufferRef)fail:(NSInteger)code failure:(NSInteger *)failure
 {
-    [self setStatus:2 error:[NSError errorWithDomain:NSOSStatusErrorDomain code:code userInfo:nil] forLayer:layer];
+    *failure = code;
     return NULL;
 }
 
 - (CMSampleBufferRef)copySample:(CMSampleBufferRef)sample forLayer:(CALayer *)layer
+{
+    CGColorSpaceRef destination = [layer _retainColorSpace];
+    NSInteger failure = 0;
+    CMSampleBufferRef result;
+    @synchronized (self) {
+        result = [self copySample:sample toColorSpace:destination failure:&failure];
+    }
+    CGColorSpaceRelease(destination);
+    if (!result)
+        [self setStatus:2 error:[NSError errorWithDomain:NSOSStatusErrorDomain code:failure userInfo:nil] forLayer:layer];
+    return result;
+}
+
+- (CMSampleBufferRef)copySample:(CMSampleBufferRef)sample toColorSpace:(CGColorSpaceRef)destination failure:(NSInteger *)failure CF_RETURNS_RETAINED
 {
     CVPixelBufferRef input = CMSampleBufferGetImageBuffer(sample);
     CGBitmapInfo bitmapInfo;
@@ -128,10 +163,8 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
         return (CMSampleBufferRef)CFRetain(sample);
 
     CGColorSpaceRef source = wkAVFCopyImageColorSpace(input, CMSampleBufferGetFormatDescription(sample));
-    CGColorSpaceRef destination = [layer _retainColorSpace];
     if (!source || !destination || CFEqual(source, destination)) {
         CGColorSpaceRelease(source);
-        CGColorSpaceRelease(destination);
         return (CMSampleBufferRef)CFRetain(sample);
     }
     if (!_converter || bitmapInfo != _bitmapInfo || !CFEqual(source, _source) || !CFEqual(destination, _destination)) {
@@ -151,12 +184,10 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
         _converter = vImageConverter_CreateWithCGImageFormat(&from, &to, NULL, kvImageNoFlags, &error);
         if (!_converter) {
             CGColorSpaceRelease(source);
-            CGColorSpaceRelease(destination);
-            return [self fail:error forLayer:layer];
+            return [self fail:error failure:failure];
         }
     }
     CGColorSpaceRelease(source);
-    CGColorSpaceRelease(destination);
 
     size_t width = CVPixelBufferGetWidth(input), height = CVPixelBufferGetHeight(input);
     if (!_pool || width != _width || height != _height) {
@@ -170,22 +201,22 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
             (id)kCVPixelBufferIOSurfacePropertiesKey: @{} };
         CVReturn status = CVPixelBufferPoolCreate(NULL, NULL, (CFDictionaryRef)attributes, &_pool);
         if (status)
-            return [self fail:status forLayer:layer];
+            return [self fail:status failure:failure];
     }
     CVPixelBufferRef output = NULL;
     CVReturn status = CVPixelBufferPoolCreatePixelBuffer(NULL, _pool, &output);
     if (status)
-        return [self fail:status forLayer:layer];
+        return [self fail:status failure:failure];
     status = CVPixelBufferLockBaseAddress(input, kCVPixelBufferLock_ReadOnly);
     if (status) {
         CVPixelBufferRelease(output);
-        return [self fail:status forLayer:layer];
+        return [self fail:status failure:failure];
     }
     status = CVPixelBufferLockBaseAddress(output, 0);
     if (status) {
         CVPixelBufferUnlockBaseAddress(input, kCVPixelBufferLock_ReadOnly);
         CVPixelBufferRelease(output);
-        return [self fail:status forLayer:layer];
+        return [self fail:status failure:failure];
     }
     vImage_Buffer from = { CVPixelBufferGetBaseAddress(input), height, width, CVPixelBufferGetBytesPerRow(input) };
     vImage_Buffer to = { CVPixelBufferGetBaseAddress(output), height, width, CVPixelBufferGetBytesPerRow(output) };
@@ -194,7 +225,7 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
     CVPixelBufferUnlockBaseAddress(input, kCVPixelBufferLock_ReadOnly);
     if (error) {
         CVPixelBufferRelease(output);
-        return [self fail:error forLayer:layer];
+        return [self fail:error failure:failure];
     }
 
     CVBufferRemoveAllAttachments(output);
@@ -241,7 +272,7 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
         CFRelease(format);
     CVPixelBufferRelease(output);
     if (!result)
-        return [self fail:sampleStatus forLayer:layer];
+        return [self fail:sampleStatus failure:failure];
 
     for (CMAttachmentMode mode = kCMAttachmentMode_ShouldNotPropagate; mode <= kCMAttachmentMode_ShouldPropagate; ++mode) {
         CFDictionaryRef attachments = CMCopyDictionaryOfAttachments(NULL, sample, mode);
