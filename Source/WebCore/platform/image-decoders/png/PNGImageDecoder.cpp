@@ -732,6 +732,40 @@ void PNGImageDecoder::frameHeader()
     png_read_update_info(m_png, m_info);
 }
 
+// MAVERICKS_BACKPORT: the n-th fcTL chunk in the stream controls frame n, and carries its delay
+// in the same encoding readChunks() reads.
+std::optional<Seconds> PNGImageDecoder::frameDurationFromHeaderAtIndex(size_t index) const
+{
+    if (!m_isAnimated || !m_data || index >= m_frameCount)
+        return std::nullopt;
+
+    auto data = m_data->span();
+    constexpr size_t signatureSize = 8;
+    constexpr size_t chunkOverhead = 12; // Length, type and CRC.
+    size_t fcTLCount = 0;
+    for (size_t offset = signatureSize; offset + chunkOverhead <= data.size();) {
+        size_t length = png_get_uint_32(data.subspan(offset).data());
+        if (length > data.size() - offset - chunkOverhead)
+            return std::nullopt;
+
+        auto name = byteCast<char>(data.subspan(offset + 4, 4));
+        if (length == 26 && spanHasPrefix(name, "fcTL"_span)) {
+            if (fcTLCount++ == index) {
+                auto chunk = data.subspan(offset + 8, length);
+                unsigned delayNumerator = png_get_uint_16(chunk.subspan(20).data());
+                unsigned delayDenominator = png_get_uint_16(chunk.subspan(22).data());
+                if (!delayDenominator)
+                    return Seconds::fromMilliseconds(delayNumerator * 10);
+                return Seconds::fromMilliseconds(delayNumerator * 1000 / delayDenominator);
+            }
+        } else if (spanHasPrefix(name, "IEND"_span))
+            break;
+
+        offset += chunkOverhead + length;
+    }
+    return std::nullopt;
+}
+
 void PNGImageDecoder::init()
 {
     m_isAnimated = false;

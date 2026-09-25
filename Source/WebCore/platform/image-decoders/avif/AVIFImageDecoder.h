@@ -53,6 +53,7 @@ private:
     AVIFImageDecoder(AlphaOption, GammaAndColorProfileOption);
 
     void tryDecodeSize(bool allDataReceived) final;
+    std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const final WTF_REQUIRES_LOCK(m_lock); // MAVERICKS_BACKPORT: the frame's timing in the sequence's sample table.
     void decode(size_t frameIndex, bool allDataReceived) WTF_REQUIRES_LOCK(m_lock);
     bool isComplete() WTF_REQUIRES_LOCK(m_lock);
     size_t findFirstRequiredFrameToDecode(size_t frameIndex) WTF_REQUIRES_LOCK(m_lock);

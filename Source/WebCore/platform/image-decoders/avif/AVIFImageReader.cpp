@@ -137,6 +137,16 @@ size_t AVIFImageReader::imageCount() const
     return m_avifDecoder->imageCount;
 }
 
+// MAVERICKS_BACKPORT: libavif answers a frame's timing from the parsed sample table, without
+// decoding the frame.
+std::optional<Seconds> AVIFImageReader::frameDurationAtIndex(size_t index) const
+{
+    avifImageTiming timing;
+    if (index >= imageCount() || avifDecoderNthImageTiming(m_avifDecoder.get(), index, &timing) != AVIF_RESULT_OK)
+        return std::nullopt;
+    return Seconds(timing.duration);
+}
+
 } // namespace WebCore
 
 #endif // USE(AVIF)

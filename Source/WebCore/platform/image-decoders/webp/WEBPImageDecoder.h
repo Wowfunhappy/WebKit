@@ -54,6 +54,7 @@ public:
 private:
     WEBPImageDecoder(AlphaOption, GammaAndColorProfileOption);
     void tryDecodeSize(bool) override { parseHeader(); }
+    std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const final WTF_REQUIRES_LOCK(m_lock); // MAVERICKS_BACKPORT: the delay in the frame's ANMF chunk.
     void decode(size_t, bool);
     void decodeFrame(size_t, WebPDemuxer*);
     void parseHeader();

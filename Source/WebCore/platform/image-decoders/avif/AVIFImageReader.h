@@ -49,6 +49,7 @@ MAVERICKS_BACKPORT */
     bool parseHeader(const SharedBuffer&, bool allDataReceived);
     void decodeFrame(size_t index, ScalableImageDecoderFrame&, const SharedBuffer&);
     size_t imageCount() const;
+    std::optional<Seconds> frameDurationAtIndex(size_t) const; // MAVERICKS_BACKPORT: a frame's duration without decoding it.
 
 private:
     AVIFImageDecoder* m_decoder; // MAVERICKS_BACKPORT: non-owning; see the constructor above.

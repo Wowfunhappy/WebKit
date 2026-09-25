@@ -266,18 +266,31 @@ bool ScalableImageDecoder::frameHasAlphaAtIndex(size_t index) const
 Seconds ScalableImageDecoder::frameDurationAtIndex(size_t index) const
 {
     Locker locker { m_lock };
+    // MAVERICKS_BACKPORT: a frame that is not decoded yet answers with the duration its container
+    // header declares, as ImageDecoderCG answers from ImageIO's frame properties. ImageFrameAnimator
+    // reads the current frame's duration before BitmapImageSource decodes that frame.
+    std::optional<Seconds> declaredDuration;
+    if (index < m_frameBufferCache.size() && m_frameBufferCache[index].isComplete())
+        declaredDuration = m_frameBufferCache[index].duration();
+    else
+        declaredDuration = frameDurationFromHeaderAtIndex(index);
+    if (!declaredDuration)
+        return 0_s;
+/* MAVERICKS_BACKPORT: upstream answers 0_s for every frame that is not decoded yet.
     if (index >= m_frameBufferCache.size())
         return 0_s;
 
     auto& frame = m_frameBufferCache[index];
     if (!frame.isComplete())
         return 0_s;
+MAVERICKS_BACKPORT */
 
     // Many annoying ads specify a 0 duration to make an image flash as quickly as possible.
     // We follow Firefox's behavior and use a duration of 100 ms for any frames that specify
     // a duration of <= 10 ms. See <rdar://problem/7689300> and <http://webkit.org/b/36082>
     // for more information.
-    Seconds duration = frame.duration();
+    // Seconds duration = frame.duration();
+    Seconds duration = *declaredDuration; // MAVERICKS_BACKPORT: the decoded or header-declared duration found above.
     if (duration < 11_ms)
         return 100_ms;
     return duration;

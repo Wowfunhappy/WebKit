@@ -65,6 +65,7 @@ public:
 private:
     GIFImageDecoder(AlphaOption, GammaAndColorProfileOption);
     void tryDecodeSize(bool allDataReceived) final { decode(0, GIFSizeQuery, allDataReceived); }
+    std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const final WTF_REQUIRES_LOCK(m_lock); // MAVERICKS_BACKPORT: the frame's Graphic Control Extension delay.
     size_t findFirstRequiredFrameToDecode(size_t);
 
     // If the query is GIFFullQuery, decodes the image up to (but not

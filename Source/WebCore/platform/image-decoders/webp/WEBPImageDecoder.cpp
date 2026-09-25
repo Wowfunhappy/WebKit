@@ -337,6 +337,30 @@ void WEBPImageDecoder::parseHeader()
     WebPDemuxDelete(demuxer);
 }
 
+// MAVERICKS_BACKPORT: the demuxer reads a frame's ANMF header, which carries its duration, without
+// decoding the frame.
+std::optional<Seconds> WEBPImageDecoder::frameDurationFromHeaderAtIndex(size_t index) const
+{
+    if (failed() || !m_data || index >= m_frameCount)
+        return std::nullopt;
+
+    auto dataSpan = m_data->span();
+    WebPData inputData { dataSpan.data(), dataSpan.size() };
+    WebPDemuxState demuxerState;
+    WebPDemuxer* demuxer = WebPDemuxPartial(&inputData, &demuxerState);
+    if (!demuxer)
+        return std::nullopt;
+
+    std::optional<Seconds> duration;
+    WebPIterator webpFrame;
+    if (webpFrameAtIndex(demuxer, index, &webpFrame)) {
+        duration = Seconds::fromMilliseconds(webpFrame.duration);
+        WebPDemuxReleaseIterator(&webpFrame);
+    }
+    WebPDemuxDelete(demuxer);
+    return duration;
+}
+
 void WEBPImageDecoder::clearFrameBufferCache(size_t clearBeforeFrame)
 {
     if (m_frameBufferCache.isEmpty())

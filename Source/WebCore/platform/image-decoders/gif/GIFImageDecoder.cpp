@@ -145,6 +145,15 @@ ScalableImageDecoderFrame* GIFImageDecoder::frameBufferAtIndex(size_t index)
     return &frame;
 }
 
+// MAVERICKS_BACKPORT: the reader counts a frame once its image descriptor is parsed, and the
+// Graphic Control Extension carrying its delay precedes that descriptor.
+std::optional<Seconds> GIFImageDecoder::frameDurationFromHeaderAtIndex(size_t index) const
+{
+    if (!m_reader || index >= m_reader->imagesCount())
+        return std::nullopt;
+    return Seconds::fromMilliseconds(m_reader->frameContext(index)->delayTime);
+}
+
 bool GIFImageDecoder::setFailed()
 {
     m_reader = nullptr;

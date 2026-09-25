@@ -182,6 +182,10 @@ public:
     std::optional<IntPoint> hotSpot() const override { return std::nullopt; }
 
 protected:
+    // MAVERICKS_BACKPORT: the duration a frame's container header declares, before the frame is
+    // decoded; see frameDurationAtIndex().
+    virtual std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const WTF_REQUIRES_LOCK(m_lock) { return std::nullopt; }
+
 #if USE(CG) // MAVERICKS_BACKPORT: format decoders preserve source samples through native image creation.
     virtual PlatformImagePtr createNativeImage(const ScalableImageDecoderFrame&) const;
     void setEmbeddedRGBColorProfile(std::span<const uint8_t>);
