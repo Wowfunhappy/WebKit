@@ -2097,10 +2097,6 @@ imported/w3c/web-platform-tests/fetch/metadata/embed.https.sub.tentative.html [ 
 # (platform/mac-wk1/TestExpectations:79).
 imported/w3c/web-platform-tests/webrtc/RTCRtpReceiver-getSynchronizationSources.https.html [ Skip ]
 
-# Reads inbound-rtp before the first frame of the negotiated H.264 stream arrives: 10.9's only H.264 encoder, the
-# software one, emits its first output after 10 submitted frames and refuses RealTime and MaxFrameDelayCount (-12900).
-webrtc/video-stats.html [ Skip ]
-
 # Maintainer scope decision 2026-09-15: pixel near miss. The EXIF-transposed JPEG, drawn into DumpRenderTree's
 # bitmap context, differs from the pre-rotated reference by up to 11 levels in 90 edge pixels.
 imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-img-object-fit.html [ Skip ]

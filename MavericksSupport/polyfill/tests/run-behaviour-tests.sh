@@ -561,6 +561,12 @@ probe_encode_cadence() {
         "$T/encode_cadence"
 }
 
+probe_encode_low_latency() {
+    "$CLANG" $MODERN $INC -o "$T/encode_low_latency" "$TBEHAV/VideoToolbox-low-latency.c" $PROBE_LIBS \
+        -framework VideoToolbox -framework CoreVideo &&
+        "$T/encode_low_latency"
+}
+
 probe_h264_parameter_sets() {
     "$CLANG" $MODERN $INC -o "$T/h264_parameter_sets" "$TBEHAV/CoreMedia-h264-parameter-sets.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -framework ImageIO -framework VideoToolbox -framework CoreVideo &&
@@ -824,6 +830,7 @@ run_probe font_data_descriptors "$@"
 run_probe font_collections "$@"
 run_probe h264_parameter_sets "$@"
 run_probe encode_cadence "$@"
+run_probe encode_low_latency "$@"
 run_probe public_suffix "$@"
 run_probe cookie_notifications "$@"
 run_probe display_p3_profile "$@"

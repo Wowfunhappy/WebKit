@@ -805,7 +805,8 @@ echo "==== 10.9 gap archive ===="
 #                       VTCompressionSessionEncodeFrame: 10.9's software H.264 encoder derives a
 #                       duration-less frame's rate from its absolute presentation time; frames after
 #                       a session's first carry the session's average duration, and the output
-#                       samples are handed back without it (vtenc submits duration-less frames)
+#                       samples are handed back without it (vtenc submits duration-less frames); a
+#                       specification requiring RequiredLowLatency gets 10.9's EncoderUsage 1
 #   wk_symbols          loaded-image symbol lookup the overrides above resolve 10.9's entry points with
 #
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"

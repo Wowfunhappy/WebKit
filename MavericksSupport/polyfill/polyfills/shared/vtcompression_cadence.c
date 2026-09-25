@@ -24,6 +24,16 @@
  * it once the session names a colour property; its BT.601 conversion is kept for a session that names
  * none at a BT.601 size.
  *
+ * A specification requiring kVTVideoEncoderSpecification_RequiredLowLatency (10.13+, which libwebrtc's
+ * RTCVideoEncoderH264 passes) gets 10.9's own request for a low-latency encoder, kVTVideoEncoderSpecification_Usage
+ * 1. Without it the software H.264 encoder holds ten frames before emitting one (333 ms at 30 fps); with it each
+ * frame is emitted as it is submitted. Under that usage the encoder writes Constrained Baseline syntax whatever
+ * profile is asked for (CAVLC, P and I slices in order, no weighted prediction, slice groups or redundant
+ * pictures) but labels it Main. A frame submitted while the session's ProfileLevel is a Baseline one is handed back
+ * with a format description whose sequence parameter sets say profile_idc 66 with constraint_set0_flag, as asked,
+ * when its parameter sets and its own slices bear that out; a session whose encoder writes a sample they do not
+ * keeps the encoder's labels from then on.
+ *
  * Per-session state lives in an associated object on the session and goes with it. Each frame's
  * refcon is wrapped; 10.9 delivers a frame's output on the thread that submits or completes it and
  * discards the frames still queued when the session is invalidated or released without calling back
@@ -102,6 +112,28 @@ typedef size_t (*WKCVPixelBufferGetBytesPerRowOfPlaneFunction)(CFTypeRef, size_t
 typedef int32_t (*WKCVPixelBufferPoolCreateFunction)(CFAllocatorRef, CFDictionaryRef, CFDictionaryRef, CFTypeRef *);
 typedef int32_t (*WKCVPixelBufferPoolCreatePixelBufferFunction)(CFAllocatorRef, CFTypeRef, CFTypeRef *);
 typedef OSStatus (*WKVTSessionCopyPropertyFunction)(CFTypeRef, CFStringRef, CFAllocatorRef, void *);
+typedef struct WKOpaqueCMFormatDescription *WKCMFormatDescriptionRef;
+typedef struct WKOpaqueCMBlockBuffer *WKCMBlockBufferRef;
+typedef struct {
+    int32_t width;
+    int32_t height;
+} WKCMVideoDimensions;
+typedef WKCMFormatDescriptionRef (*WKCMSampleBufferGetFormatDescriptionFunction)(WKCMSampleBufferRef);
+typedef WKCMBlockBufferRef (*WKCMSampleBufferGetDataBufferFunction)(WKCMSampleBufferRef);
+typedef CFIndex (*WKCMSampleBufferGetNumSamplesFunction)(WKCMSampleBufferRef);
+typedef OSStatus (*WKCMSampleBufferGetSampleSizeArrayFunction)(WKCMSampleBufferRef, CFIndex, size_t *, CFIndex *);
+typedef CFArrayRef (*WKCMSampleBufferGetSampleAttachmentsArrayFunction)(WKCMSampleBufferRef, Boolean);
+typedef OSStatus (*WKCMSampleBufferCreateFunction)(CFAllocatorRef, WKCMBlockBufferRef, Boolean, void *, void *,
+    WKCMFormatDescriptionRef, CFIndex, CFIndex, const WKCMSampleTimingInfo *, CFIndex, const size_t *, WKCMSampleBufferRef *);
+typedef CFDictionaryRef (*WKCMCopyDictionaryOfAttachmentsFunction)(CFAllocatorRef, CFTypeRef, uint32_t);
+typedef void (*WKCMSetAttachmentsFunction)(CFTypeRef, CFDictionaryRef, uint32_t);
+typedef CFDictionaryRef (*WKCMFormatDescriptionGetExtensionsFunction)(WKCMFormatDescriptionRef);
+typedef uint32_t (*WKCMFormatDescriptionGetMediaSubTypeFunction)(WKCMFormatDescriptionRef);
+typedef WKCMVideoDimensions (*WKCMVideoFormatDescriptionGetDimensionsFunction)(WKCMFormatDescriptionRef);
+typedef OSStatus (*WKCMVideoFormatDescriptionCreateFunction)(CFAllocatorRef, uint32_t, int32_t, int32_t, CFDictionaryRef,
+    WKCMFormatDescriptionRef *);
+typedef size_t (*WKCMBlockBufferGetDataLengthFunction)(WKCMBlockBufferRef);
+typedef OSStatus (*WKCMBlockBufferCopyDataBytesFunction)(WKCMBlockBufferRef, size_t, size_t, void *);
 
 static const char kWKVideoToolboxImage[] = "/System/Library/Frameworks/VideoToolbox.framework/Versions/A/VideoToolbox";
 static const char kWKCoreMediaImage[] = "/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia";
@@ -165,6 +197,20 @@ WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMTimeGetSeconds)
 WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMTimeMultiplyByFloat64)
 WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetSampleTimingInfoArray)
 WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferCreateCopyWithNewTiming)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetFormatDescription)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetDataBuffer)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetNumSamples)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetSampleSizeArray)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetSampleAttachmentsArray)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSampleBufferCreate)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMCopyDictionaryOfAttachments)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMSetAttachments)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMFormatDescriptionGetExtensions)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMFormatDescriptionGetMediaSubType)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMVideoFormatDescriptionGetDimensions)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMVideoFormatDescriptionCreate)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMBlockBufferGetDataLength)
+WK_CADENCE_FUNCTION(kWKCoreMediaImage, CMBlockBufferCopyDataBytes)
 
 WK_CADENCE_FUNCTION(kWKObjCImage, objc_getAssociatedObject)
 WK_CADENCE_FUNCTION(kWKObjCImage, objc_setAssociatedObject)
@@ -210,6 +256,7 @@ typedef struct WKCadenceFrame {
     struct WKCadenceFrame *next;
     void *sourceFrameRefCon;
     int durationSupplied;
+    int baselineRequested;
 } WKCadenceFrame;
 
 typedef struct {
@@ -224,6 +271,10 @@ typedef struct {
     CFTypeRef conversionPool;
     size_t conversionPoolWidth;
     size_t conversionPoolHeight;
+    WKCMFormatDescriptionRef encodedFormat;
+    WKCMFormatDescriptionRef baselineFormat;
+    unsigned nalLengthSize;
+    int baselineRefused;
 } WKCadenceSession;
 
 static void wk_cadence_session_free(void *pointer, void *info)
@@ -237,6 +288,10 @@ static void wk_cadence_session_free(void *pointer, void *info)
     }
     if (session->conversionPool)
         CFRelease(session->conversionPool);
+    if (session->encodedFormat)
+        CFRelease(session->encodedFormat);
+    if (session->baselineFormat)
+        CFRelease(session->baselineFormat);
     free(session);
 }
 
@@ -258,6 +313,327 @@ static CFAllocatorRef wk_cadence_session_deallocator(void)
     return wk_cadenceSessionDeallocator;
 }
 
+typedef struct {
+    uint8_t bytes[256];
+    size_t length;
+    size_t position;
+    int overrun;
+} WKRBSPReader;
+
+// The RBSP of a NAL unit after its header byte, without emulation-prevention bytes.
+static int wk_rbsp_load(WKRBSPReader *reader, const uint8_t *unit, size_t length)
+{
+    reader->length = 0;
+    reader->position = 0;
+    reader->overrun = 0;
+    unsigned zeros = 0;
+    for (size_t i = 1; i < length; ++i) {
+        if (zeros == 2 && unit[i] == 3) {
+            zeros = 0;
+            continue;
+        }
+        if (reader->length == sizeof(reader->bytes))
+            return 0;
+        reader->bytes[reader->length++] = unit[i];
+        zeros = unit[i] ? 0 : zeros + 1;
+    }
+    return 1;
+}
+
+static uint32_t wk_rbsp_bits(WKRBSPReader *reader, unsigned count)
+{
+    uint32_t value = 0;
+    while (count--) {
+        if (reader->position >= reader->length * 8) {
+            reader->overrun = 1;
+            return 0;
+        }
+        value = (value << 1) | ((reader->bytes[reader->position / 8] >> (7 - reader->position % 8)) & 1);
+        ++reader->position;
+    }
+    return value;
+}
+
+static uint32_t wk_rbsp_ue(WKRBSPReader *reader)
+{
+    unsigned zeros = 0;
+    while (!wk_rbsp_bits(reader, 1)) {
+        if (reader->overrun || ++zeros > 31) {
+            reader->overrun = 1;
+            return 0;
+        }
+    }
+    return (uint32_t)((1ull << zeros) - 1) + wk_rbsp_bits(reader, zeros);
+}
+
+// Whether a profile_idc 77 sequence parameter set describes frames only, which Constrained Baseline requires.
+static int wk_h264_sps_is_baseline(const uint8_t *unit, size_t length)
+{
+    WKRBSPReader reader;
+    if (length < 4 || unit[1] != 77 || !wk_rbsp_load(&reader, unit, length))
+        return 0;
+    wk_rbsp_bits(&reader, 24); // profile_idc, constraint flags, level_idc
+    wk_rbsp_ue(&reader); // seq_parameter_set_id
+    wk_rbsp_ue(&reader); // log2_max_frame_num_minus4
+    uint32_t pictureOrderCountType = wk_rbsp_ue(&reader);
+    if (!pictureOrderCountType)
+        wk_rbsp_ue(&reader);
+    else if (pictureOrderCountType == 1) {
+        wk_rbsp_bits(&reader, 1);
+        wk_rbsp_ue(&reader);
+        wk_rbsp_ue(&reader);
+        for (uint32_t cycle = wk_rbsp_ue(&reader); cycle && !reader.overrun; --cycle)
+            wk_rbsp_ue(&reader);
+    }
+    wk_rbsp_ue(&reader); // max_num_ref_frames
+    wk_rbsp_bits(&reader, 1); // gaps_in_frame_num_value_allowed_flag
+    wk_rbsp_ue(&reader); // pic_width_in_mbs_minus1
+    wk_rbsp_ue(&reader); // pic_height_in_map_units_minus1
+    uint32_t frameMacroblocksOnly = wk_rbsp_bits(&reader, 1);
+    return !reader.overrun && frameMacroblocksOnly;
+}
+
+// Whether a picture parameter set uses none of the tools Constrained Baseline excludes: CABAC, slice groups,
+// weighted prediction, redundant pictures, and the High profiles' 8x8 transform and scaling-matrix extension.
+static int wk_h264_pps_is_baseline(const uint8_t *unit, size_t length)
+{
+    WKRBSPReader reader;
+    if (!wk_rbsp_load(&reader, unit, length))
+        return 0;
+    wk_rbsp_ue(&reader); // pic_parameter_set_id
+    wk_rbsp_ue(&reader); // seq_parameter_set_id
+    uint32_t entropyCodingMode = wk_rbsp_bits(&reader, 1);
+    wk_rbsp_bits(&reader, 1); // bottom_field_pic_order_in_frame_present_flag
+    uint32_t sliceGroupsMinus1 = wk_rbsp_ue(&reader);
+    wk_rbsp_ue(&reader); // num_ref_idx_l0_default_active_minus1
+    wk_rbsp_ue(&reader); // num_ref_idx_l1_default_active_minus1
+    uint32_t weightedPrediction = wk_rbsp_bits(&reader, 3);
+    wk_rbsp_ue(&reader); // pic_init_qp_minus26
+    wk_rbsp_ue(&reader); // pic_init_qs_minus26
+    wk_rbsp_ue(&reader); // chroma_qp_index_offset
+    wk_rbsp_bits(&reader, 2); // deblocking_filter_control_present_flag, constrained_intra_pred_flag
+    uint32_t redundantPictures = wk_rbsp_bits(&reader, 1);
+    if (reader.overrun || entropyCodingMode || sliceGroupsMinus1 || weightedPrediction || redundantPictures)
+        return 0;
+    // Only the rbsp_stop_one_bit and its alignment zeros may follow.
+    if (wk_rbsp_bits(&reader, 1) != 1 || reader.overrun)
+        return 0;
+    while (reader.position < reader.length * 8) {
+        if (wk_rbsp_bits(&reader, 1))
+            return 0;
+    }
+    return 1;
+}
+
+// A copy of an H.264 format description that labels its sequence parameter sets Constrained Baseline, or NULL when
+// they are not profile_idc 77 or a parameter set uses a tool Constrained Baseline excludes.
+static WKCMFormatDescriptionRef wk_h264_copy_baseline_format(WKCMFormatDescriptionRef format, unsigned *nalLengthSize)
+{
+    enum { kAVC1 = 0x61766331 };
+    if (!format || wk_system_CMFormatDescriptionGetMediaSubType()(format) != kAVC1)
+        return NULL;
+    CFDictionaryRef extensions = wk_system_CMFormatDescriptionGetExtensions()(format);
+    CFDictionaryRef atoms = extensions ? CFDictionaryGetValue(extensions, CFSTR("SampleDescriptionExtensionAtoms")) : NULL;
+    CFDataRef record = atoms && CFGetTypeID(atoms) == CFDictionaryGetTypeID() ? CFDictionaryGetValue(atoms, CFSTR("avcC")) : NULL;
+    if (!record || CFGetTypeID(record) != CFDataGetTypeID())
+        return NULL;
+
+    CFIndex recordLength = CFDataGetLength(record);
+    const uint8_t *bytes = CFDataGetBytePtr(record);
+    if (recordLength < 7 || bytes[1] != 77)
+        return NULL;
+    *nalLengthSize = (bytes[4] & 3) + 1;
+    CFMutableDataRef relabeled = CFDataCreateMutableCopy(kCFAllocatorDefault, 0, record);
+    if (!relabeled)
+        return NULL;
+    uint8_t *relabeledBytes = CFDataGetMutableBytePtr(relabeled);
+    CFIndex offset = 5;
+    int conforms = 1;
+    for (int array = 0; array < 2 && conforms; ++array) {
+        if (offset >= recordLength) {
+            conforms = 0;
+            break;
+        }
+        unsigned count = array ? bytes[offset] : (bytes[offset] & 0x1f);
+        ++offset;
+        for (unsigned i = 0; i < count && conforms; ++i) {
+            if (offset + 2 > recordLength) {
+                conforms = 0;
+                break;
+            }
+            size_t length = ((size_t)bytes[offset] << 8) | bytes[offset + 1];
+            offset += 2;
+            if (!length || offset + (CFIndex)length > recordLength) {
+                conforms = 0;
+                break;
+            }
+            const uint8_t *unit = bytes + offset;
+            if (array) {
+                conforms = (unit[0] & 0x1f) == 8 && wk_h264_pps_is_baseline(unit, length);
+            } else {
+                conforms = (unit[0] & 0x1f) == 7 && wk_h264_sps_is_baseline(unit, length);
+                // profile_idc 66 with constraint_set0_flag (Baseline) kept alongside the encoder's own flags.
+                // The bytes stay non-zero, so no emulation-prevention byte is gained or lost.
+                relabeledBytes[offset + 1] = 66;
+                relabeledBytes[offset + 2] |= 0x80;
+            }
+            offset += (CFIndex)length;
+        }
+    }
+    if (!conforms) {
+        CFRelease(relabeled);
+        return NULL;
+    }
+    relabeledBytes[1] = 66;
+    relabeledBytes[2] |= 0x80;
+
+    CFMutableDictionaryRef relabeledAtoms = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, atoms);
+    CFMutableDictionaryRef relabeledExtensions = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, extensions);
+    WKCMFormatDescriptionRef baselineFormat = NULL;
+    if (relabeledAtoms && relabeledExtensions) {
+        CFDictionarySetValue(relabeledAtoms, CFSTR("avcC"), relabeled);
+        CFDictionarySetValue(relabeledExtensions, CFSTR("SampleDescriptionExtensionAtoms"), relabeledAtoms);
+        WKCMVideoDimensions dimensions = wk_system_CMVideoFormatDescriptionGetDimensions()(format);
+        if (wk_system_CMVideoFormatDescriptionCreate()(kCFAllocatorDefault, kAVC1, dimensions.width, dimensions.height, relabeledExtensions, &baselineFormat))
+            baselineFormat = NULL;
+    }
+    if (relabeledExtensions)
+        CFRelease(relabeledExtensions);
+    if (relabeledAtoms)
+        CFRelease(relabeledAtoms);
+    CFRelease(relabeled);
+    return baselineFormat;
+}
+
+// Whether an encoded sample holds nothing Constrained Baseline excludes that its parameter sets cannot rule out:
+// only non-B, non-switching slices, and no parameter sets of its own.
+static int wk_h264_sample_is_baseline(WKCMSampleBufferRef sampleBuffer, unsigned nalLengthSize)
+{
+    WKCMBlockBufferRef data = wk_system_CMSampleBufferGetDataBuffer()(sampleBuffer);
+    size_t length = data ? wk_system_CMBlockBufferGetDataLength()(data) : 0;
+    size_t offset = 0;
+    while (offset < length) {
+        uint8_t prefix[4];
+        if (offset + nalLengthSize > length || wk_system_CMBlockBufferCopyDataBytes()(data, offset, nalLengthSize, prefix))
+            return 0;
+        size_t unitLength = 0;
+        for (unsigned i = 0; i < nalLengthSize; ++i)
+            unitLength = (unitLength << 8) | prefix[i];
+        offset += nalLengthSize;
+        if (!unitLength || unitLength > length - offset)
+            return 0;
+        uint8_t unit[24];
+        size_t headerLength = unitLength < sizeof(unit) ? unitLength : sizeof(unit);
+        if (wk_system_CMBlockBufferCopyDataBytes()(data, offset, headerLength, unit))
+            return 0;
+        switch (unit[0] & 0x1f) {
+        case 1:
+        case 5: {
+            WKRBSPReader reader;
+            wk_rbsp_load(&reader, unit, headerLength);
+            wk_rbsp_ue(&reader); // first_mb_in_slice
+            uint32_t sliceType = wk_rbsp_ue(&reader) % 5;
+            // P and I; B, SP and SI are outside Constrained Baseline.
+            if (reader.overrun || (sliceType != 0 && sliceType != 2))
+                return 0;
+            break;
+        }
+        case 2: // Data partitions.
+        case 3:
+        case 4:
+        case 7: // In-band parameter sets.
+        case 8:
+            return 0;
+        default:
+            break;
+        }
+        offset += unitLength;
+    }
+    return 1;
+}
+
+// The format a sample is handed back with when the caller asked for a Baseline profile: its Constrained Baseline
+// label, retained, or NULL to keep the sample's own. A session whose encoder writes a sample the label would not
+// describe keeps the encoder's labels from then on.
+static WKCMFormatDescriptionRef wk_cadence_copy_delivered_format(WKCadenceSession *session, WKCMSampleBufferRef sampleBuffer)
+{
+    WKCMFormatDescriptionRef format = wk_system_CMSampleBufferGetFormatDescription()(sampleBuffer);
+    if (!format)
+        return NULL;
+    os_unfair_lock_lock(&session->lock);
+    if (session->baselineRefused) {
+        os_unfair_lock_unlock(&session->lock);
+        return NULL;
+    }
+    WKCMFormatDescriptionRef baselineFormat = NULL;
+    unsigned nalLengthSize = session->nalLengthSize;
+    int known = session->encodedFormat && CFEqual(format, session->encodedFormat);
+    if (known && session->baselineFormat)
+        baselineFormat = (WKCMFormatDescriptionRef)CFRetain(session->baselineFormat);
+    os_unfair_lock_unlock(&session->lock);
+
+    if (!known) {
+        baselineFormat = wk_h264_copy_baseline_format(format, &nalLengthSize);
+        os_unfair_lock_lock(&session->lock);
+        if (session->encodedFormat)
+            CFRelease(session->encodedFormat);
+        if (session->baselineFormat)
+            CFRelease(session->baselineFormat);
+        session->encodedFormat = (WKCMFormatDescriptionRef)CFRetain(format);
+        session->baselineFormat = baselineFormat ? (WKCMFormatDescriptionRef)CFRetain(baselineFormat) : NULL;
+        session->nalLengthSize = nalLengthSize;
+        os_unfair_lock_unlock(&session->lock);
+    }
+    if (baselineFormat && !wk_h264_sample_is_baseline(sampleBuffer, nalLengthSize)) {
+        CFRelease(baselineFormat);
+        baselineFormat = NULL;
+        os_unfair_lock_lock(&session->lock);
+        session->baselineRefused = 1;
+        os_unfair_lock_unlock(&session->lock);
+    }
+    return baselineFormat;
+}
+
+static void wk_cadence_copy_attachment(const void *key, const void *value, void *context)
+{
+    CFDictionarySetValue(context, key, value);
+}
+
+// |sampleBuffer| with |format| in place of its own and |timing| in place of its own, its data and attachments shared.
+static WKCMSampleBufferRef wk_cadence_copy_sample(WKCMSampleBufferRef sampleBuffer, WKCMFormatDescriptionRef format,
+    CFIndex timingCount, const WKCMSampleTimingInfo *timing)
+{
+    CFIndex sampleCount = wk_system_CMSampleBufferGetNumSamples()(sampleBuffer);
+    CFIndex sizeCount = 0;
+    if (wk_system_CMSampleBufferGetSampleSizeArray()(sampleBuffer, 0, NULL, &sizeCount))
+        sizeCount = 0;
+    size_t *sizes = sizeCount ? malloc((size_t)sizeCount * sizeof(*sizes)) : NULL;
+    if (sizeCount && (!sizes || wk_system_CMSampleBufferGetSampleSizeArray()(sampleBuffer, sizeCount, sizes, &sizeCount)))
+        wk_patch_fail("VTCompressionSessionEncodeFrame", "an encoded sample's sizes did not read");
+
+    WKCMSampleBufferRef copy = NULL;
+    if (wk_system_CMSampleBufferCreate()(kCFAllocatorDefault, wk_system_CMSampleBufferGetDataBuffer()(sampleBuffer), true, NULL, NULL,
+        format, sampleCount, timingCount, timing, sizeCount, sizes, &copy) || !copy)
+        wk_patch_fail("VTCompressionSessionEncodeFrame", "an encoded sample did not copy");
+    free(sizes);
+
+    CFArrayRef attachments = wk_system_CMSampleBufferGetSampleAttachmentsArray()(sampleBuffer, false);
+    if (attachments && CFArrayGetCount(attachments)) {
+        CFArrayRef copiedAttachments = wk_system_CMSampleBufferGetSampleAttachmentsArray()(copy, true);
+        CFIndex count = copiedAttachments ? CFArrayGetCount(copiedAttachments) : 0;
+        for (CFIndex i = 0; i < count && i < CFArrayGetCount(attachments); ++i)
+            CFDictionaryApplyFunction(CFArrayGetValueAtIndex(attachments, i), wk_cadence_copy_attachment, (void *)CFArrayGetValueAtIndex(copiedAttachments, i));
+    }
+    for (uint32_t mode = 0; mode < 2; ++mode) { // kCMAttachmentMode_ShouldNotPropagate, kCMAttachmentMode_ShouldPropagate
+        CFDictionaryRef bufferAttachments = wk_system_CMCopyDictionaryOfAttachments()(kCFAllocatorDefault, sampleBuffer, mode);
+        if (bufferAttachments) {
+            wk_system_CMSetAttachments()(copy, bufferAttachments, mode);
+            CFRelease(bufferAttachments);
+        }
+    }
+    return copy;
+}
+
 static void wk_cadence_output(void *outputCallbackRefCon, void *sourceFrameRefCon, OSStatus status,
     uint32_t infoFlags, WKCMSampleBufferRef sampleBuffer)
 {
@@ -269,25 +645,57 @@ static void wk_cadence_output(void *outputCallbackRefCon, void *sourceFrameRefCo
     os_unfair_lock_unlock(&session->lock);
     void *callerRefCon = frame->sourceFrameRefCon;
     int durationSupplied = frame->durationSupplied;
+    int baselineRequested = frame->baselineRequested;
     free(frame);
 
     WKCMSampleBufferRef delivered = sampleBuffer;
+    WKCMFormatDescriptionRef baselineFormat = baselineRequested && sampleBuffer ? wk_cadence_copy_delivered_format(session, sampleBuffer) : NULL;
     CFIndex count = 0;
-    if (durationSupplied && sampleBuffer
-        && !wk_system_CMSampleBufferGetSampleTimingInfoArray()(sampleBuffer, 0, NULL, &count) && count > 0) {
-        WKCMSampleTimingInfo *timing = malloc((size_t)count * sizeof(*timing));
-        if (!timing || wk_system_CMSampleBufferGetSampleTimingInfoArray()(sampleBuffer, count, timing, &count))
+    if (sampleBuffer && (durationSupplied || baselineFormat)) {
+        if (wk_system_CMSampleBufferGetSampleTimingInfoArray()(sampleBuffer, 0, NULL, &count))
+            count = 0;
+        WKCMSampleTimingInfo *timing = count > 0 ? malloc((size_t)count * sizeof(*timing)) : NULL;
+        if (count > 0 && (!timing || wk_system_CMSampleBufferGetSampleTimingInfoArray()(sampleBuffer, count, timing, &count)))
             wk_patch_fail("VTCompressionSessionEncodeFrame", "an encoded sample's timing did not read");
-        for (CFIndex i = 0; i < count; ++i)
-            timing[i].duration = (WKCMTime) { 0, 0, 0, 0 };
-        delivered = NULL;
-        if (wk_system_CMSampleBufferCreateCopyWithNewTiming()(kCFAllocatorDefault, sampleBuffer, count, timing, &delivered) || !delivered)
-            wk_patch_fail("VTCompressionSessionEncodeFrame", "an encoded sample did not copy");
+        if (durationSupplied) {
+            for (CFIndex i = 0; i < count; ++i)
+                timing[i].duration = (WKCMTime) { 0, 0, 0, 0 };
+        }
+        if (baselineFormat)
+            delivered = wk_cadence_copy_sample(sampleBuffer, baselineFormat, count, timing);
+        else if (count > 0) {
+            delivered = NULL;
+            if (wk_system_CMSampleBufferCreateCopyWithNewTiming()(kCFAllocatorDefault, sampleBuffer, count, timing, &delivered) || !delivered)
+                wk_patch_fail("VTCompressionSessionEncodeFrame", "an encoded sample did not copy");
+        }
         free(timing);
     }
+    if (baselineFormat)
+        CFRelease(baselineFormat);
     session->outputCallback(session->outputCallbackRefCon, callerRefCon, status, infoFlags, delivered);
     if (delivered != sampleBuffer)
         CFRelease(delivered);
+}
+
+// A copy of an encoder specification requiring kVTVideoEncoderSpecification_RequiredLowLatency (10.13+) that asks
+// 10.9 for the same thing: kVTVideoEncoderSpecification_Usage 1, the value 10.9's conferencing stack
+// (AVConference's Encoder.c) passes, under which the encoder emits each frame as it is submitted. NULL when the
+// specification does not require low latency or already names a usage.
+static CFMutableDictionaryRef wk_encode_copy_low_latency_specification(CFDictionaryRef encoderSpecification)
+{
+    if (!encoderSpecification || CFDictionaryContainsKey(encoderSpecification, CFSTR("EncoderUsage")))
+        return NULL;
+    CFTypeRef required = CFDictionaryGetValue(encoderSpecification, CFSTR("RequiredLowLatency"));
+    if (!required || CFGetTypeID(required) != CFBooleanGetTypeID() || !CFBooleanGetValue(required))
+        return NULL;
+    CFMutableDictionaryRef specification = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, encoderSpecification);
+    int32_t usage = 1;
+    CFNumberRef usageNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &usage);
+    if (!specification || !usageNumber)
+        wk_patch_fail("VTCompressionSessionCreate", "no memory for the low-latency encoder specification");
+    CFDictionarySetValue(specification, CFSTR("EncoderUsage"), usageNumber);
+    CFRelease(usageNumber);
+    return specification;
 }
 
 OSStatus VTCompressionSessionCreate(CFAllocatorRef allocator, int32_t width, int32_t height, uint32_t codecType,
@@ -295,9 +703,15 @@ OSStatus VTCompressionSessionCreate(CFAllocatorRef allocator, int32_t width, int
     CFAllocatorRef compressedDataAllocator, WKVTCompressionOutputCallback outputCallback,
     void *outputCallbackRefCon, WKVTCompressionSessionRef *compressionSessionOut)
 {
+    CFMutableDictionaryRef lowLatencySpecification = wk_encode_copy_low_latency_specification(encoderSpecification);
+    if (lowLatencySpecification)
+        encoderSpecification = lowLatencySpecification;
     if (!outputCallback) {
-        return wk_system_VTCompressionSessionCreate()(allocator, width, height, codecType, encoderSpecification,
+        OSStatus status = wk_system_VTCompressionSessionCreate()(allocator, width, height, codecType, encoderSpecification,
             sourceImageBufferAttributes, compressedDataAllocator, outputCallback, outputCallbackRefCon, compressionSessionOut);
+        if (lowLatencySpecification)
+            CFRelease(lowLatencySpecification);
+        return status;
     }
 
     WKCadenceSession *session = calloc(1, sizeof(*session));
@@ -313,6 +727,8 @@ OSStatus VTCompressionSessionCreate(CFAllocatorRef allocator, int32_t width, int
 
     OSStatus status = wk_system_VTCompressionSessionCreate()(allocator, width, height, codecType, encoderSpecification,
         sourceImageBufferAttributes, compressedDataAllocator, wk_cadence_output, session, compressionSessionOut);
+    if (lowLatencySpecification)
+        CFRelease(lowLatencySpecification);
     if (status || !compressionSessionOut || !*compressionSessionOut) {
         free(session);
         return status;
@@ -447,6 +863,12 @@ OSStatus VTCompressionSessionEncodeFrame(WKVTCompressionSessionRef compressionSe
     if (!frame)
         wk_patch_fail("VTCompressionSessionEncodeFrame", "no memory for a frame's cadence");
     frame->sourceFrameRefCon = sourceFrameRefCon;
+
+    CFTypeRef profileLevel = wk_encode_copy_session_string(compressionSession, CFSTR("ProfileLevel"));
+    if (profileLevel) {
+        frame->baselineRequested = CFStringHasPrefix(profileLevel, CFSTR("H264_Baseline_"));
+        CFRelease(profileLevel);
+    }
 
     os_unfair_lock_lock(&session->lock);
     if (wk_time_is_numeric(presentationTimeStamp)) {

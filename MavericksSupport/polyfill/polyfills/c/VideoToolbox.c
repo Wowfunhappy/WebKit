@@ -9,7 +9,8 @@
 #include <string.h>
 
 // kVTVideoEncoderSpecification_RequiredLowLatency is a 10.13+ VideoToolbox encoder-spec key that
-// libwebrtc's H.264/VP9 encoder references. Its real CFString value; 10.9's encoder ignores the key.
+// libwebrtc's H.264/VP9 encoder references. Its real CFString value; polyfills/shared/vtcompression_cadence.c
+// asks 10.9 for a low-latency encoder when a specification requires it.
 WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTVideoEncoderSpecification_RequiredLowLatency, CFSTR("RequiredLowLatency"));
 
 // VTRegisterSupplementalVideoDecoderIfAvailable (11.0+) registers the system's supplemental decoders
@@ -20,11 +21,8 @@ WK_POLYFILL_ABSENT("VideoToolbox", void, VTRegisterSupplementalVideoDecoderIfAva
 }
 
 // The constrained-baseline profile level (10.13+). 10.9 spells the same encoder configuration
-// "H264_Baseline_AutoLevel": its baseline encoder writes profile_idc 66 with constraint_set1_flag
-// set, which is a Constrained Baseline bitstream. Naming the 10.13 string instead makes
-// VTSessionSetProperty answer kVTPropertyValueNotSupportedErr, after which the session emits sample
-// buffers whose format description carries no parameter sets at all -- so
-// H264CMSampleBufferToAnnexBBuffer rejects every frame and a WebRTC sender transmits nothing.
+// "H264_Baseline_AutoLevel": its baseline encoder writes profile_idc 66 with constraint_set0_flag and
+// constraint_set1_flag set, which is a Constrained Baseline bitstream.
 WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel, CFSTR("H264_Baseline_AutoLevel"));
 
 // The base-layer frame-rate fraction for temporal layering (10.15+). Real CFString value; 10.9's
