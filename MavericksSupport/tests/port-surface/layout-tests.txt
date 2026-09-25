@@ -92,6 +92,10 @@ css3/filters/backdrop/native-background-filter.html
 css3/filters/backdrop/native-background-filter-dynamic.html
 css3/filters/backdrop/native-background-blur.html
 css3/filters/backdrop/native-background-animation.html
+css3/filters/backdrop/native-background-opacity.html
+css3/filters/backdrop/native-background-opacity-change.html
+css3/filters/backdrop/native-background-opacity-coverage.html
+css3/filters/backdrop/native-background-opacity-host-change.html
 imported/w3c/web-platform-tests/html/canvas/element
 webgl/webgl2-rendering-context-obtain.html
 webgl/read-framebuffer-attachment-preserves-draw-state.html

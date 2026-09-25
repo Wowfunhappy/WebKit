@@ -1026,9 +1026,6 @@ void PlatformCALayerCocoa::setOpacity(float value)
 
 void PlatformCALayerCocoa::setFilters(const FilterOperations& filters)
 {
-    // MAVERICKS_BACKPORT: coordinate-only hosts have no foreground filters or shadow properties.
-    if (m_isBackdropHostingLayer && filters.isEmpty())
-        return;
     PlatformCAFilters::setFiltersOnLayer(platformLayer(), filters, m_backdropRootIsOpaque);
 }
 

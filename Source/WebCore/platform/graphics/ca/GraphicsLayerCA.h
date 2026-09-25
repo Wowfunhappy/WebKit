@@ -384,7 +384,8 @@ private:
     void setupContentsLayer(PlatformCALayer*, CompositingCoordinatesOrientation = defaultContentsOrientation);
     PlatformCALayer* contentsLayer() const { return m_contentsLayer.get(); }
 
-    void updateClippingStrategy(PlatformCALayer&, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect&);
+    // void updateClippingStrategy(PlatformCALayer&, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect&);
+    void updateClippingStrategy(PlatformCALayer&, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect&, bool forceShapeMask = false); // MAVERICKS_BACKPORT: a backdrop's shape mask also carries its coverage.
 
     WEBCORE_EXPORT void setReplicatedByLayer(RefPtr<GraphicsLayer>&&) override;
 
@@ -535,6 +536,10 @@ private:
     void updateBackdropFilters(CommitState&);
     void updateBackdropFiltersRect();
     void updateBackdropRoot();
+    // MAVERICKS_BACKPORT: the backdrop's shape mask carries the layer's opacity while a transform host holds it.
+    bool backdropNeedsCoverage() const;
+    void updateBackdropCoverage();
+    Vector<Ref<PlatformCALayer>> backdropCoverageLayers() const;
     void updateShadowPath();
 
     void updateBlendMode();
@@ -759,6 +764,7 @@ private:
 
     ContentsLayerPurpose m_contentsLayerPurpose { ContentsLayerPurpose::None };
     bool m_isCommittingChanges { false };
+    bool m_backdropHasCoverage { false }; // MAVERICKS_BACKPORT: the backdrop's shape mask holds this layer's opacity.
     bool m_shouldUpdateRootRelativeScaleFactor : 1 { false };
     bool m_needsFullRepaint : 1;
     bool m_allowsBackingStoreDetaching : 1;

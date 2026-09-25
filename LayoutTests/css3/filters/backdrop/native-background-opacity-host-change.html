@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>A paused opacity animation keeps its value when a filter or blend mode moves a backdrop into a group host</title>
+<style>
+body { margin: 0; }
+.panel { position: absolute; top: 50px; width: 100px; height: 100px; background: green; -webkit-backdrop-filter: invert(0); }
+</style>
+</head>
+<body>
+<div class="panel" id="filter" style="left: 50px"></div>
+<div class="panel" id="blend" style="left: 250px"></div>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+(async () => {
+    const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const panels = [document.getElementById('filter'), document.getElementById('blend')];
+    await frame();
+    const animations = panels.map(panel => panel.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 1000, fill: 'both' }));
+    await Promise.all(animations.map(animation => animation.ready));
+    await frame();
+    for (const animation of animations) {
+        animation.pause();
+        animation.currentTime = 500;
+    }
+    await frame();
+    panels[0].style.filter = 'saturate(1)';
+    panels[1].style.mixBlendMode = 'multiply';
+    await frame();
+    if (window.internals && panels.some(panel => !internals.acceleratedAnimationsForElement(panel).length))
+        document.body.style.background = 'red';
+    if (window.testRunner)
+        testRunner.notifyDone();
+})();
+</script>
+</body>
+</html>

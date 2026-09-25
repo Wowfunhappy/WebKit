@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+.background { width: 200px; height: 200px; background: linear-gradient(black 100px, white 100px); }
+#panel { position: absolute; left: 50px; top: 50px; width: 100px; height: 100px; border-radius: 20px; -webkit-backdrop-filter: blur(8px); opacity: 0.5; }
+</style>
+</head>
+<body>
+<div class="background"></div>
+<div id="panel"></div>
+<pre id="result"></pre>
+<script>
+if (window.testRunner) {
+    testRunner.dumpAsText();
+    testRunner.waitUntilDone();
+}
+const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+const hasBackdropMask = () => internals.layerTreeAsText(document, internals.LAYER_TREE_INCLUDES_CONTENT_LAYERS).includes('backdrop clipping layer');
+(async () => {
+    const results = [];
+    const panel = document.getElementById('panel');
+    await frame();
+    results.push('opacity 0.5, mask present: ' + hasBackdropMask());
+    panel.style.opacity = '1';
+    await frame();
+    results.push('opacity 1, mask present: ' + hasBackdropMask());
+    panel.style.opacity = '0.5';
+    await frame();
+    results.push('opacity 0.5 again, mask present: ' + hasBackdropMask());
+    document.getElementById('result').textContent = results.join('\n');
+    if (window.testRunner)
+        testRunner.notifyDone();
+})();
+</script>
+</body>
+</html>

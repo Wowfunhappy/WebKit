@@ -2196,7 +2196,7 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     LayerChangeFlags structuralLayerUpdateReasons = Preserves3DChanged | ReplicatedLayerChanged | BackdropFiltersChanged;
     // MAVERICKS_BACKPORT: native background sampling requires a host without group effects.
     if (needsBackdrop() && is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting())
-        structuralLayerUpdateReasons |= OpacityChanged | FiltersChanged | MaskLayerChanged | BlendModeChanged | AnimationChanged;
+        structuralLayerUpdateReasons |= FiltersChanged | MaskLayerChanged | BlendModeChanged | AnimationChanged;
 #if HAVE(CORE_MATERIAL)
     structuralLayerUpdateReasons |= AppleVisualEffectChanged;
 #endif
@@ -2292,6 +2292,10 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
 
     if (m_uncommittedChanges & AnimationChanged)
         updateAnimations();
+
+    // MAVERICKS_BACKPORT: follows opacity, its animations, and the host and backdrop layers they apply to.
+    if ((m_uncommittedChanges & (structuralLayerUpdateReasons | OpacityChanged | AnimationChanged | BackdropFiltersRectChanged)) || backdropNeedsCoverage() != m_backdropHasCoverage)
+        updateBackdropCoverage();
 
     updateRootRelativeScale(); // Needs to happen before ContentsScaleChanged.
 
@@ -2823,7 +2827,8 @@ void GraphicsLayerCA::updateBackdropFiltersRect()
 
     auto backdropRectRelativeToBackdropLayer = m_backdropFiltersRect;
     backdropRectRelativeToBackdropLayer.setLocation({ });
-    updateClippingStrategy(*backdropLayer, m_backdropClippingLayer, backdropRectRelativeToBackdropLayer);
+    // updateClippingStrategy(*backdropLayer, m_backdropClippingLayer, backdropRectRelativeToBackdropLayer);
+    updateClippingStrategy(*backdropLayer, m_backdropClippingLayer, backdropRectRelativeToBackdropLayer, m_backdropHasCoverage); // MAVERICKS_BACKPORT: the mask carries coverage.
 
     if (m_layerClones) {
         for (auto& clone : m_layerClones->backdropLayerClones) {
@@ -2835,7 +2840,8 @@ void GraphicsLayerCA::updateBackdropFiltersRect()
             RefPtr<PlatformCALayer> backdropClippingLayerClone = m_layerClones->backdropClippingLayerClones.get(cloneID);
 
             bool hadBackdropClippingLayer = backdropClippingLayerClone;
-            updateClippingStrategy(backdropCloneLayer, backdropClippingLayerClone, backdropRectRelativeToBackdropLayer);
+            // updateClippingStrategy(backdropCloneLayer, backdropClippingLayerClone, backdropRectRelativeToBackdropLayer);
+            updateClippingStrategy(backdropCloneLayer, backdropClippingLayerClone, backdropRectRelativeToBackdropLayer, m_backdropHasCoverage); // MAVERICKS_BACKPORT: the mask carries coverage.
 
             if (!backdropClippingLayerClone)
                 m_layerClones->backdropClippingLayerClones.remove(cloneID);
@@ -2848,6 +2854,59 @@ void GraphicsLayerCA::updateBackdropFiltersRect()
 void GraphicsLayerCA::updateBackdropRoot()
 {
     protect(m_layer)->setIsBackdropRoot(isBackdropRoot());
+}
+
+// MAVERICKS_BACKPORT: backgroundFilters output ignores layer opacity, but is scaled by its layer's mask. Under a
+// transform host, the backdrop's shape mask takes the layer's opacity and opacity animations.
+bool GraphicsLayerCA::backdropNeedsCoverage() const
+{
+    auto* host = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get());
+    return m_backdropLayer && host && host->isBackdropHostingLayer()
+        && (m_opacity != 1 || m_animations.containsIf([](auto& animation) {
+            return !animation.m_pendingRemoval && animation.m_property == AnimatedProperty::Opacity;
+        }));
+}
+
+// MAVERICKS_BACKPORT: the backdrop shape masks of this layer and its clones.
+Vector<Ref<PlatformCALayer>> GraphicsLayerCA::backdropCoverageLayers() const
+{
+    Vector<Ref<PlatformCALayer>> layers;
+    if (RefPtr backdropClippingLayer = m_backdropClippingLayer)
+        layers.append(backdropClippingLayer.releaseNonNull());
+    if (m_layerClones) {
+        for (auto& clone : m_layerClones->backdropClippingLayerClones.values())
+            layers.append(clone.copyRef());
+    }
+    return layers;
+}
+
+// MAVERICKS_BACKPORT: the shape masks mirror the host's opacity and opacity animations.
+void GraphicsLayerCA::updateBackdropCoverage()
+{
+    bool needsCoverage = backdropNeedsCoverage();
+    if (needsCoverage != m_backdropHasCoverage) {
+        if (!needsCoverage) {
+            for (auto& layer : backdropCoverageLayers()) {
+                for (auto& animation : m_animations) {
+                    if (animation.m_property == AnimatedProperty::Opacity)
+                        layer->removeAnimationForKey(animation.animationIdentifier());
+                }
+            }
+        }
+        m_backdropHasCoverage = needsCoverage;
+        updateBackdropFiltersRect();
+    }
+
+    RefPtr animatedLayer = primaryLayer();
+    for (auto& layer : backdropCoverageLayers()) {
+        layer->setOpacity(needsCoverage ? m_opacity : 1);
+        if (!needsCoverage)
+            continue;
+        for (auto& animation : m_animations) {
+            if (animation.m_property == AnimatedProperty::Opacity && !animation.m_pendingRemoval)
+                moveOrCopyLayerAnimation(Copy, animation.animationIdentifier(), std::nullopt, animatedLayer.get(), layer.ptr());
+        }
+    }
 }
 
 void GraphicsLayerCA::updateBlendMode()
@@ -2974,13 +3033,14 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         return structuralLayerChanged;
     }
 
-    // MAVERICKS_BACKPORT: CATransformLayer lets backgroundFilters sample the parent's surface.
+    // MAVERICKS_BACKPORT: CATransformLayer lets backgroundFilters sample the parent's surface. It passes its
+    // opacity to each sublayer, and the backdrop's shape mask carries that opacity (updateBackdropCoverage()).
     RefPtr oldStructuralLayer = m_structuralLayer;
     bool backdropHostingLayer = purpose == StructuralLayerForBackdrop
         && is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
-        && m_opacity == 1 && m_filters.isEmpty() && !m_maskLayer && m_blendMode == BlendMode::Normal
+        && m_filters.isEmpty() && !m_maskLayer && m_blendMode == BlendMode::Normal
         && !m_animations.containsIf([](auto& animation) {
-            return !animation.m_pendingRemoval && (animation.m_property == AnimatedProperty::Opacity || animation.m_property == AnimatedProperty::Filter);
+            return !animation.m_pendingRemoval && animation.m_property == AnimatedProperty::Filter;
         });
     // MAVERICKS_BACKPORT: each host role starts with its own native sorting and perspective state.
     if (auto* cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get()); cocoaLayer && cocoaLayer->isBackdropHostingLayer() != backdropHostingLayer)
@@ -3031,7 +3091,7 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         m_layerClones->structuralLayerClones.clear();
     } // MAVERICKS_BACKPORT: replicas are recreated with the new host's native type and role.
     if (oldStructuralLayer && oldStructuralLayer != m_structuralLayer)
-        moveAnimations(oldStructuralLayer.get(), m_structuralLayer.get());
+        addUncommittedChanges(AnimationChanged); // MAVERICKS_BACKPORT: updateAnimations() puts every live animation on the new host.
 
     addUncommittedChanges(structuralLayerChangeFlags);
 
@@ -3291,7 +3351,8 @@ void GraphicsLayerCA::updateContentsColorLayer()
 
 // The clipping strategy depends on whether the rounded rect has equal corner radii.
 // roundedRect is in the coordinate space of clippingLayer.
-void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect)
+// void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect)
+void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect, bool forceShapeMask) // MAVERICKS_BACKPORT: see updateBackdropCoverage().
 {
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     if (m_isSeparated && roundedRect.radii().hasEvenCorners() && clippingLayer.bounds() == roundedRect.rect()) {
@@ -3301,7 +3362,8 @@ void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, Ref
     m_layer->setCornerRadius(0);
 #endif
 
-    if (roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) {
+    // if (roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) {
+    if (!forceShapeMask && roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) { // MAVERICKS_BACKPORT: see updateBackdropCoverage().
         clippingLayer.setMaskLayer(nullptr);
         if (shapeMaskLayer) {
             shapeMaskLayer->setOwner(nullptr);
@@ -3813,6 +3875,12 @@ bool GraphicsLayerCA::removeCAAnimationFromLayer(LayerPropertyAnimation& animati
     RefPtr layer = animatedLayer(animation.m_property);
 
     String animationID = animation.animationIdentifier();
+
+    // MAVERICKS_BACKPORT: backdrop shape masks hold copies of the opacity animations, including when the host was just replaced.
+    if (m_backdropHasCoverage && animation.m_property == AnimatedProperty::Opacity) {
+        for (auto& coverageLayer : backdropCoverageLayers())
+            coverageLayer->removeAnimationForKey(animationID);
+    }
 
     if (!layer->animationForKey(animationID))
         return false;
