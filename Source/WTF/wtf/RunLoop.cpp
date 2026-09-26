@@ -147,6 +147,7 @@ void RunLoop::performWork()
     }
 
     // Suspend only for a single cycle.
+    m_wasFunctionDispatchSuspended = m_isFunctionDispatchSuspended || didSuspendFunctions; // MAVERICKS_BACKPORT: see RunLoop.h.
     m_isFunctionDispatchSuspended = false;
     m_hasSuspendedFunctions = didSuspendFunctions;
 

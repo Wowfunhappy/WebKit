@@ -2,9 +2,19 @@
 // iterates it (prepare, query, a non-blocking poll, check, dispatch); while nothing is ready, a
 // helper thread blocks in the poll on the queried descriptors and the queried timeout.
 //
-// Each context iteration is RunLoop work: the GLib ports attach bus watches at
-// RunLoopSourcePriority::RunLoopDispatcher, the priority of RunLoop::dispatch(), so RunLoop work
-// that a dispatched callback queues runs before the context's next iteration.
+// A run of the pump is RunLoop work. It iterates the context while a source at or above
+// RunLoopSourcePriority::RunLoopDispatcher is ready, dispatching the RunLoop's queued functions
+// between two iterations: on the GLib ports the RunLoop's dispatcher source sits at that priority,
+// attached before any bus watch, so each GLib iteration runs the functions the previous
+// iteration's callbacks queued before it pops the next message of a bus, and a burst of messages
+// drains within one pass of the main loop. A source below that priority is idle work; its next
+// iteration is queued as a fresh RunLoop dispatch so the run loop's own timers and observers run
+// in between. A function that asks the RunLoop to hold the rest of its cycle for the run loop's
+// observers (a rendering update) holds the functions behind it for one dispatcher call, as on the
+// GLib ports, where the render source runs at its own priority; the pump keeps draining and, once
+// the drain is over, holds the outer cycle so the observers run before the RunLoop's next
+// functions. A descriptor source is ready only while its descriptor is, and drains like a source
+// at the dispatcher's priority.
 //
 // GLib wakes an owned context only for sources attached from other threads, so before the run loop
 // waits or exits the main thread prepares and queries the context again, which picks up sources and
@@ -31,6 +41,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
+#include <wtf/glib/RunLoopSourcePriority.h>
 #include <wtf/Threading.h>
 #include <wtf/Vector.h>
 
@@ -112,13 +123,34 @@ private:
     {
         ASSERT(isMainThread());
         m_iterationQueued = false;
-        int timeout = prepareAndQuery();
-        pollNow();
-        bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
-        if (dispatched)
-            g_main_context_dispatch(m_context);
-        clearResults();
-        arm(dispatched ? 0 : timeout);
+        disarm();
+        auto& runLoop = RunLoop::mainSingleton();
+        bool suspended = false;
+        while (true) {
+            int timeout = prepareAndQuery();
+            pollNow();
+            bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
+            if (dispatched)
+                g_main_context_dispatch(m_context);
+            clearResults();
+            // g_main_context_prepare() reports the priority of the sources ready before polling; it
+            // reports G_MAXINT when only descriptor sources are ready, which the check found.
+            bool idle = dispatched && m_maxPriority != G_MAXINT && m_maxPriority > RunLoopSourcePriority::RunLoopDispatcher;
+            if (!dispatched || idle) {
+                if (suspended)
+                    runLoop.suspendFunctionDispatchForCurrentCycle();
+                arm(dispatched || suspended ? 0 : timeout);
+                return;
+            }
+            // The RunLoop's queued functions run before the next messages. A function that suspends
+            // the rest of the cycle holds the ones behind it for one call; they run in the next.
+            do {
+                runLoop.performWork();
+                if (!runLoop.wasFunctionDispatchSuspended())
+                    break;
+                suspended = true;
+            } while (true);
+        }
     }
 
     void prepareBeforeWaitingOrExit()
@@ -129,6 +161,20 @@ private:
             timeout = 0;
         clearResults();
         arm(timeout);
+    }
+
+    // The helper polls only while the main thread is not iterating the context; a run of the pump
+    // owns the context's descriptors from its first prepare to its last arm().
+    void disarm()
+    {
+        Locker locker { m_lock };
+        if (!m_pollArmed)
+            return;
+        m_pollArmed = false;
+        ++m_request;
+        m_condition.notifyOne();
+        char byte = 0;
+        (void)!write(m_wakePipe[1], &byte, 1);
     }
 
     void arm(int timeout)
@@ -168,7 +214,7 @@ private:
             uint64_t request;
             {
                 Locker locker { m_lock };
-                while (m_request == signaled)
+                while (m_request == signaled || !m_pollArmed)
                     m_condition.wait(m_lock);
                 request = m_request;
                 fds = m_pollFDs;

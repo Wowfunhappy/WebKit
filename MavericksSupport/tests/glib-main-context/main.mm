@@ -1,5 +1,6 @@
 // Serves GLib's default context from the main CFRunLoop, as WebContent does, and checks timeouts,
-// idle sources, run-loop fairness, and that RunLoop work queued by a dispatched callback runs before
+// idle sources, run-loop fairness, that a backlog drains within one pass of the run loop unless a
+// dispatched callback's RunLoop work holds the cycle, and that RunLoop work queued by a dispatched callback runs before
 // the context's next dispatch while an fd source's backlog drains.
 
 #include "config.h"
@@ -106,19 +107,37 @@ int main()
         int pipeFDs[2];
         pipe(pipeFDs);
         static unsigned delivered, followed, overtaken;
+        static void (^deliveryHook)();
+        static bool suspendOnDelivery;
         g_unix_fd_add_full(G_PRIORITY_DEFAULT, pipeFDs[0], G_IO_IN, [](gint fd, GIOCondition, gpointer) -> gboolean {
             char byte;
             if (read(fd, &byte, 1) == 1) {
                 if (followed != delivered)
                     ++overtaken;
                 ++delivered;
+                if (deliveryHook)
+                    deliveryHook();
                 RunLoop::mainSingleton().dispatch([] {
                     followed = delivered;
+                    if (suspendOnDelivery)
+                        RunLoop::mainSingleton().suspendFunctionDispatchForCurrentCycle();
                 });
             }
             return G_SOURCE_CONTINUE;
         }, nullptr, nullptr);
         int writeFD = pipeFDs[1];
+        // The run loop's Exit and BeforeWaiting observers mark the passes of the run loop.
+        static unsigned passes;
+        CFRunLoopObserverRef passObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+            ++passes;
+        });
+        CFRunLoopAddObserver(CFRunLoopGetMain(), passObserver, kCFRunLoopCommonModes);
+        static unsigned passesAtFirstDelivery, passesAtLastDelivery;
+        deliveryHook = ^{
+            if (delivered == 1)
+                passesAtFirstDelivery = passes;
+            passesAtLastDelivery = passes;
+        };
         MonotonicTime backlogStart = MonotonicTime::now();
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             char backlog[200] = { };
@@ -126,9 +145,33 @@ int main()
         });
         runUntil(^{ return delivered >= 200 && followed == delivered; }, 5);
         double backlogTime = (MonotonicTime::now() - backlogStart).milliseconds();
-        printf("200-byte backlog: %u delivered in %.1f ms, %u dispatches ahead of the previous one's RunLoop work\n", delivered, backlogTime, overtaken);
+        printf("200-byte backlog: %u delivered in %.1f ms, %u dispatches ahead of the previous one's RunLoop work, %u run-loop passes between the first and the last delivery\n", delivered, backlogTime, overtaken, passesAtLastDelivery - passesAtFirstDelivery);
         check(delivered == 200 && backlogTime < 500, "a default-priority backlog drains promptly");
         check(!overtaken, "RunLoop work queued by a dispatch runs before the next dispatch");
+        check(passesAtLastDelivery == passesAtFirstDelivery, "a backlog drains within one pass of the run loop");
+
+        // The RunLoop work of each delivery asks the RunLoop to hold the rest of its cycle for the
+        // run loop's observers: the drain still completes within one pass, each delivery's work
+        // still runs before the next delivery, and the pass follows the drain.
+        static unsigned passesAtFirstSuspendedDelivery, passesAtLastSuspendedDelivery, overtakenBefore;
+        overtakenBefore = overtaken;
+        suspendOnDelivery = true;
+        deliveryHook = ^{
+            if (delivered == 201)
+                passesAtFirstSuspendedDelivery = passes;
+            passesAtLastSuspendedDelivery = passes;
+        };
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            char backlog[20] = { };
+            write(writeFD, backlog, sizeof(backlog));
+        });
+        runUntil(^{ return delivered >= 220 && followed == delivered; }, 5);
+        unsigned passesAfterSuspendedDrain = passes;
+        printf("20-byte backlog with suspended cycles: %u delivered, %u dispatches ahead of the previous one's RunLoop work, %u run-loop passes between the first and the last delivery, %u after the drain\n", delivered - 200, overtaken - overtakenBefore, passesAtLastSuspendedDelivery - passesAtFirstSuspendedDelivery, passesAfterSuspendedDrain - passesAtLastSuspendedDelivery);
+        check(delivered == 220 && overtaken == overtakenBefore, "RunLoop work that suspends the cycle still runs before the next dispatch");
+        check(passesAtLastSuspendedDelivery == passesAtFirstSuspendedDelivery, "a backlog whose RunLoop work suspends the cycle drains within one pass of the run loop");
+        check(passesAfterSuspendedDrain > passesAtLastSuspendedDelivery, "the run loop passes after a drain that suspended the cycle");
+        CFRunLoopObserverInvalidate(passObserver);
 
         finished = true;
         printf("%s\n", failed ? "FAIL" : "PASS");
