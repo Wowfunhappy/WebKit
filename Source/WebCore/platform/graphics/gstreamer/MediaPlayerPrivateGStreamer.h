@@ -441,6 +441,7 @@ protected:
     std::atomic<bool> m_hasLoopPassStartedRendering { false };
     std::atomic<uint64_t> m_loopPassGeneration { 0 };
     bool m_isCompletingLoopPass { false };
+    bool m_hasDeferredLoopPass { false };
     GRefPtr<GstElement> m_platformAudioSink;
     // MAVERICKS_BACKPORT: end of the seamless loop declarations above.
 
