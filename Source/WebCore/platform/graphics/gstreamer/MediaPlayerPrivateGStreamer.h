@@ -360,6 +360,7 @@ protected:
     void destroyVideoLayer();
     void pushSampleToVideoLayer(bool isDuplicateSample);
     void sampleBufferDisplayLayerStatusDidFail() final;
+    void setShouldMaintainAspectRatio(bool) final; // MAVERICKS_BACKPORT: the presenter's video gravity, as in MediaPlayerPrivateMediaStreamAVFObjC.
     void updateVideoFrameCounters(uint64_t, uint64_t) final; // MAVERICKS_BACKPORT: receive Cocoa display-layer playback metrics.
 #endif
 
@@ -657,6 +658,7 @@ private:
     RefPtr<SampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
     std::unique_ptr<VideoLayerManager> m_videoLayerManager;
     RetainPtr<WebRootSampleBufferBoundsChangeListener> m_videoLayerBoundsObserver;
+    bool m_shouldMaintainAspectRatio { true }; // MAVERICKS_BACKPORT: see setShouldMaintainAspectRatio().
 #endif
 
     // These attributes can ONLY be changed from updateBufferingStatus() in order to keep the

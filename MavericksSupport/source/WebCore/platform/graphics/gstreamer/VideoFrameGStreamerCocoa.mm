@@ -154,7 +154,7 @@ void MediaPlayerPrivateGStreamer::createSampleBufferDisplayLayer()
     sampleBufferDisplayLayer->setLogIdentifier(m_logIdentifier);
     // GstBaseSink delivers preroll and clock-scheduled frames, including after pause/seek.
     sampleBufferDisplayLayer->setRenderPolicy(SampleBufferDisplayLayer::RenderPolicy::Immediately);
-    sampleBufferDisplayLayer->initialize(false, { }, false, [](bool) { });
+    sampleBufferDisplayLayer->initialize(false, { }, m_shouldMaintainAspectRatio, [](bool) { });
     m_videoLayerManager->setVideoLayer(sampleBufferDisplayLayer->rootLayer(), { });
     m_videoLayerBoundsObserver = adoptNS([[WebRootSampleBufferBoundsChangeListener alloc] initWithCallback:[weakThis = ThreadSafeWeakPtr { *this }] {
         if (RefPtr self = weakThis.get())
@@ -163,6 +163,14 @@ void MediaPlayerPrivateGStreamer::createSampleBufferDisplayLayer()
     [m_videoLayerBoundsObserver begin:sampleBufferDisplayLayer->rootLayer()];
     Locker locker { m_videoLayerLock };
     m_sampleBufferDisplayLayer = WTF::move(sampleBufferDisplayLayer);
+}
+
+void MediaPlayerPrivateGStreamer::setShouldMaintainAspectRatio(bool shouldMaintainAspectRatio)
+{
+    ASSERT(isMainThread());
+    m_shouldMaintainAspectRatio = shouldMaintainAspectRatio;
+    if (RefPtr sampleBufferDisplayLayer = m_sampleBufferDisplayLayer)
+        sampleBufferDisplayLayer->setShouldMaintainAspectRatio(shouldMaintainAspectRatio);
 }
 
 void MediaPlayerPrivateGStreamer::destroyVideoLayer()
