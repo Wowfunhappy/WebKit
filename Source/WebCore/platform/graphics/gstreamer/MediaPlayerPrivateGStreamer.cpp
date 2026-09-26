@@ -289,6 +289,7 @@ void MediaPlayerPrivateGStreamer::tearDown(bool clearMediaPlayer)
         m_source = nullptr;
         m_videoSink = nullptr;
         m_audioSink = nullptr;
+        m_platformAudioSink = nullptr; // MAVERICKS_BACKPORT: see createAudioSink().
         m_textSink = nullptr;
         m_pipeline = nullptr;
     }
@@ -416,6 +417,7 @@ void MediaPlayerPrivateGStreamer::load(const String& urlString)
     m_isSeeking = false;
     m_isSeekPending = false;
     m_seekTarget = { };
+    discardQueuedLoopPass(); // MAVERICKS_BACKPORT: see queueLoopPass().
 
 #if ENABLE(ENCRYPTED_MEDIA)
     if (m_cdmContext)
@@ -632,6 +634,8 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
         flag = GST_SEEK_FLAG_FLUSH;
     }
     auto seekFlags = static_cast<GstSeekFlags>(flag | GST_SEEK_FLAG_ACCURATE);
+    if (flag == GST_SEEK_FLAG_FLUSH) // MAVERICKS_BACKPORT: a flush discards the queued loop pass, see queueLoopPass().
+        discardQueuedLoopPass();
 
     // Seeking towards the end is not well supported in oggdemux, sometimes it receives EOS
     // while trying to retrieve a chain and thus disables seeking in push mode.
@@ -784,6 +788,15 @@ bool MediaPlayerPrivateGStreamer::prepareSeek(const SeekTarget& target)
     // m_isSeeking set (and m_seekTarget) to complete the seek promise.
     m_isSeeking = true;
     m_seekTarget = target;
+
+    // MAVERICKS_BACKPORT: the element's loop seek from didEnd() when a queued loop pass starts
+    // rendering; that pass already plays from the start, see queueLoopPass().
+    if (m_isCompletingLoopPass && target.time == MediaTime::zeroTime()) {
+        m_hasLoopPassStartedRendering = false;
+        m_isEndReached = false;
+        finishSeek();
+        return true;
+    }
 
     if (getStateResult == GST_STATE_CHANGE_ASYNC || state < GST_STATE_PAUSED || m_isEndReached) {
         m_isSeekPending = true;
@@ -1720,6 +1733,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
     if (!audioSink)
         return nullptr;
 
+    m_platformAudioSink = audioSink; // MAVERICKS_BACKPORT: the rendering audio sink, see queueLoopPass().
 #if ENABLE(WEB_AUDIO)
     GstElement* audioSinkBin = gst_bin_new("audio-sink");
     ensureAudioSourceProvider();
@@ -1745,7 +1759,10 @@ GstClockTime MediaPlayerPrivateGStreamer::gstreamerPositionFromSinks() const
     // Asking directly to the sinks and choosing the highest value is faster than asking to the pipeline.
     GST_TRACE_OBJECT(pipeline(), "Querying position to audio sink (if any).");
     GRefPtr<GstQuery> query = adoptGRef(gst_query_new_position(GST_FORMAT_TIME));
-    if (m_audioSink && gst_element_query(m_audioSink.get(), query.get())) {
+    // MAVERICKS_BACKPORT: the audio bin also holds the WebAudio provider's unsynchronized appsinks,
+    // which run ahead of what is rendered; the platform sink is the one that renders.
+    // if (m_audioSink && gst_element_query(m_audioSink.get(), query.get())) {
+    if (m_platformAudioSink && gst_element_query(m_platformAudioSink.get(), query.get())) {
         gint64 audioPosition = GST_CLOCK_TIME_NONE;
         gst_query_parse_position(query.get(), 0, &audioPosition);
         if (GST_CLOCK_TIME_IS_VALID(audioPosition))
@@ -1781,6 +1798,9 @@ MediaTime MediaPlayerPrivateGStreamer::playbackPosition() const
         GST_TRACE_OBJECT(pipeline(), "Seek in progress, returning target time %s", m_seekTarget.toString().ascii().data());
         return m_seekTarget.time;
     }
+
+    if (m_hasLoopPassStartedRendering) // MAVERICKS_BACKPORT: the previous pass has ended, see queueLoopPass().
+        return duration();
 
     if (m_isEndReached) {
         auto position = m_playbackRate > 0 ? this->duration() : MediaTime::zeroTime();
@@ -3797,6 +3817,8 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
             if (!mediaPlayer || !mediaPlayer->isLooping())
                 return;
             GST_DEBUG_OBJECT(player->pipeline(), "Handling segment-done message");
+            if (player->queueLoopPass()) // MAVERICKS_BACKPORT: see queueLoopPass().
+                return; // MAVERICKS_BACKPORT: as above.
             player->didEnd();
         });
     }), this);
@@ -4254,6 +4276,129 @@ bool MediaPlayerPrivateGStreamer::isSeamlessSeekingEnabled() const
 
     return player->isLooping() && m_isSegmentSeekAllowed;
 }
+
+// MAVERICKS_BACKPORT: seamless looping. A segment-done means the demuxer has delivered the last
+// sample of a pass, while the sinks still hold what is queued behind it. Each segment-done queues the
+// next pass at once with a non-flushing segment seek, GStreamer's seamless looping protocol, and a
+// pass ends for the media element when the next pass's segment event has reached every rendering
+// sink, behind the last queued sample: didEnd() then runs the element's loop seek to the start, which
+// that pass already satisfies. The rendering sinks are the video sink and the platform audio sink
+// the player created, those of them that carry the current segment. The playback position reads as
+// the end from the moment the first of them reaches the next pass. Flushing seeks and loads discard
+// the queued passes.
+static GRefPtr<GstPad> renderingSinkPad(GstElement* sink)
+{
+    while (sink && GST_IS_BIN(sink)) {
+        GUniquePtr<GstIterator> iterator(gst_bin_iterate_sinks(GST_BIN_CAST(sink)));
+        GValue value = G_VALUE_INIT;
+        if (gst_iterator_next(iterator.get(), &value) != GST_ITERATOR_OK)
+            return nullptr;
+        sink = GST_ELEMENT_CAST(g_value_get_object(&value));
+        g_value_unset(&value);
+    }
+    return sink ? adoptGRef(gst_element_get_static_pad(sink, "sink")) : nullptr;
+}
+
+bool MediaPlayerPrivateGStreamer::queueLoopPass()
+{
+    ASSERT(isMainThread());
+    if (!isSeamlessSeekingEnabled() || m_playbackRate <= 0 || !m_isPipelinePlaying)
+        return false;
+    if (m_loopPassProbes.isEmpty()) {
+        Vector<GRefPtr<GstPad>> sinkPads;
+        for (auto* sink : { m_videoSink.get(), m_platformAudioSink.get() }) {
+            auto sinkPad = renderingSinkPad(sink);
+            if (sinkPad && adoptGRef(gst_pad_get_sticky_event(sinkPad.get(), GST_EVENT_SEGMENT, 0)))
+                sinkPads.append(WTF::move(sinkPad));
+        }
+        if (sinkPads.isEmpty())
+            return false;
+        {
+            Locker locker { m_loopPassLock };
+            m_loopPassSinkCount = sinkPads.size();
+        }
+        for (auto& sinkPad : sinkPads) {
+            auto probe = gst_pad_add_probe(sinkPad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, [](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
+                auto* event = GST_PAD_PROBE_INFO_EVENT(info);
+                if (GST_EVENT_TYPE(event) == GST_EVENT_SEGMENT) {
+                    if (RefPtr player = static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(userData)->get())
+                        player->loopPassSegmentReachedSink(gst_event_get_seqnum(event));
+                }
+                return GST_PAD_PROBE_OK;
+            }, new ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> { *this }, [](gpointer data) {
+                delete static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(data);
+            });
+            m_loopPassProbes.append({ WTF::move(sinkPad), probe });
+        }
+    }
+
+    auto seek = adoptGRef(gst_event_new_seek(m_playbackRate, GST_FORMAT_TIME, static_cast<GstSeekFlags>(GST_SEEK_FLAG_SEGMENT | GST_SEEK_FLAG_ACCURATE),
+        GST_SEEK_TYPE_SET, 0, GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE));
+    auto seqnum = gst_event_get_seqnum(seek.get());
+    {
+        Locker locker { m_loopPassLock };
+        m_loopPasses.append({ seqnum });
+    }
+    GST_DEBUG_OBJECT(pipeline(), "Queueing the next loop pass, seqnum %u", seqnum);
+    if (gst_element_send_event(m_pipeline.get(), seek.leakRef()))
+        return true;
+    discardQueuedLoopPass();
+    return false;
+}
+
+void MediaPlayerPrivateGStreamer::loopPassSegmentReachedSink(uint32_t seqnum)
+{
+    {
+        Locker locker { m_loopPassLock };
+        if (m_loopPasses.isEmpty() || m_loopPasses.first().seqnum != seqnum)
+            return;
+        m_hasLoopPassStartedRendering = true;
+        if (++m_loopPasses.first().sinksReached < m_loopPassSinkCount)
+            return;
+        m_loopPasses.removeFirst();
+    }
+    RunLoop::mainSingleton().dispatch([weakThis = ThreadSafeWeakPtr { *this }, generation = m_loopPassGeneration.load()] {
+        if (RefPtr self = weakThis.get())
+            self->loopPassStartedRendering(generation);
+    });
+}
+
+void MediaPlayerPrivateGStreamer::removeLoopPassProbes()
+{
+    for (auto& [sinkPad, probe] : std::exchange(m_loopPassProbes, { }))
+        gst_pad_remove_probe(sinkPad.get(), probe);
+}
+
+void MediaPlayerPrivateGStreamer::discardQueuedLoopPass()
+{
+    ++m_loopPassGeneration;
+    {
+        Locker locker { m_loopPassLock };
+        m_loopPasses.clear();
+    }
+    m_hasLoopPassStartedRendering = false;
+    removeLoopPassProbes();
+}
+
+void MediaPlayerPrivateGStreamer::loopPassStartedRendering(uint64_t generation)
+{
+    ASSERT(isMainThread());
+    if (generation != m_loopPassGeneration)
+        return;
+    GST_DEBUG_OBJECT(pipeline(), "A queued loop pass started rendering");
+    bool hasQueuedPasses;
+    {
+        Locker locker { m_loopPassLock };
+        hasQueuedPasses = !m_loopPasses.isEmpty();
+    }
+    if (!hasQueuedPasses)
+        removeLoopPassProbes();
+    m_isCompletingLoopPass = true;
+    didEnd();
+    m_isCompletingLoopPass = false;
+    m_hasLoopPassStartedRendering = false;
+}
+// MAVERICKS_BACKPORT: end of the seamless looping helpers above.
 
 void MediaPlayerPrivateGStreamer::triggerRepaint(GRefPtr<GstSample>&& sample)
 {

@@ -42,6 +42,7 @@
 #include <glib.h>
 #include <gst/gst.h>
 #include <gst/pbutils/install-plugins.h>
+#include <wtf/Deque.h> // MAVERICKS_BACKPORT: the queued loop passes, see queueLoopPass().
 #include <wtf/Atomics.h>
 #include <wtf/Condition.h>
 #include <wtf/DataMutex.h>
@@ -422,6 +423,26 @@ protected:
 
     bool isSeamlessSeekingEnabled() const;
     bool m_isSegmentSeekAllowed { true };
+
+    // MAVERICKS_BACKPORT: the next passes of a seamless loop, see queueLoopPass().
+    bool queueLoopPass();
+    void discardQueuedLoopPass();
+    void loopPassStartedRendering(uint64_t generation);
+    void loopPassSegmentReachedSink(uint32_t seqnum);
+    void removeLoopPassProbes();
+    struct LoopPass {
+        uint32_t seqnum;
+        unsigned sinksReached { 0 };
+    };
+    Lock m_loopPassLock;
+    Deque<LoopPass> m_loopPasses WTF_GUARDED_BY_LOCK(m_loopPassLock);
+    unsigned m_loopPassSinkCount WTF_GUARDED_BY_LOCK(m_loopPassLock) { 0 };
+    Vector<std::pair<GRefPtr<GstPad>, gulong>> m_loopPassProbes;
+    std::atomic<bool> m_hasLoopPassStartedRendering { false };
+    std::atomic<uint64_t> m_loopPassGeneration { 0 };
+    bool m_isCompletingLoopPass { false };
+    GRefPtr<GstElement> m_platformAudioSink;
+    // MAVERICKS_BACKPORT: end of the seamless loop declarations above.
 
     // Must reflect whether the last successfull call to gst_element_set_state() was for PLAYING.
     bool m_isPipelinePlaying = false;
