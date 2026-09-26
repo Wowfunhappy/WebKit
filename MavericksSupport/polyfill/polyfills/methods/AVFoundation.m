@@ -202,6 +202,12 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 }
 @end
 
+static CGSize wkAVFDisplayLayerPresentationSize(id layer)
+{
+    id internal = object_getIvar(layer, class_getInstanceVariable(objc_getClass("AVSampleBufferDisplayLayer"), "_sampleBufferDisplayLayerInternal"));
+    return *(CGSize *)((char *)internal + ivar_getOffset(class_getInstanceVariable(object_getClass(internal), "presentationSize")));
+}
+
 static WKAVFDisplayColor *wkAVFDisplayColorFor(id layer)
 {
     @synchronized (layer) {
@@ -223,6 +229,11 @@ static WKAVFDisplayColor *wkAVFDisplayColorFor(id layer)
 // thread without a run loop commits an implicit transaction only when it exits, so once the call
 // returns the caller's implicit transaction is flushed, as that thread's owner would. The main
 // thread's implicit transaction belongs to its run loop's commit observer.
+//
+// A sample of a new presentation size makes Mavericks' layer lay out its content layer from bounds it
+// read before applying that layout, so on a thread other than the one setting the bounds the layout
+// can be stale. The layer then lays itself out again on the main thread from its current bounds:
+// -[AVSampleBufferDisplayLayer setBounds:] lays the content layer out before it reaches CALayer.
 static void wkAVFFlushCallerTransaction(void)
 {
     if (!pthread_main_np())
@@ -235,8 +246,19 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
     @autoreleasepool {
         WKAVFDisplayColor *color = wkAVFDisplayColorFor(self);
         void (^enqueue)(CMSampleBufferRef) = ^(CMSampleBufferRef enqueued) {
+            CGSize presentationSize = wkAVFDisplayLayerPresentationSize(self);
             WK_ORIGINAL_METHOD(void, (CMSampleBufferRef), enqueued);
             wkAVFFlushCallerTransaction();
+            if (CGSizeEqualToSize(presentationSize, wkAVFDisplayLayerPresentationSize(self)))
+                return;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [CATransaction begin];
+                [CATransaction setDisableActions:YES];
+                [CATransaction lock];
+                [(CALayer *)self setBounds:[(CALayer *)self bounds]];
+                [CATransaction unlock];
+                [CATransaction commit];
+            });
         };
         if (!sample || !CMSampleBufferGetFormatDescription(sample)) {
             enqueue(sample);
