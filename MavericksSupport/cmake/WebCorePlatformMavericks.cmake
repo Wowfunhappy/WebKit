@@ -467,6 +467,7 @@ if (USE_GSTREAMER)
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/ID3v2FrameParser.cpp
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerHLSTrack.cpp
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoFrameGStreamerCocoa.mm
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GLibMainContextMavericks.cpp
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerPackagingMavericks.cpp
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/audio/gstreamer/GStreamerAudioDataCocoa.mm
     )

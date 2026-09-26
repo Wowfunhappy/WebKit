@@ -666,6 +666,9 @@ private:
     int m_previousBufferingPercentage { 0 };
     int m_bufferingPercentage { 0 };
 
+    bool m_isBufferingChangeDelayed { false }; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
+    bool m_isBufferingActedOn { false }; // MAVERICKS_BACKPORT: as above.
+
     bool m_hasWebKitWebSrcSentEOS { false };
     mutable unsigned long long m_totalBytes { 0 };
     bool m_shouldPreservePitch { false };

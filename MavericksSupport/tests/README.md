@@ -26,6 +26,16 @@ High AutoLevel profiles.
 The `display_p3_profile` behavior probe verifies that primary colors and translucent pixels
 retain their values when drawn from an embedded Display P3 profile into the named native space.
 
+`media-segment-loop.sh` checks repeated MP4 and FLV segment playback through a file-backed
+HTTP push source, including TIME completion, seek sequence numbers, released seek events,
+and complete audio/video tails at each loop boundary, with the application pausing the
+pipeline while queue2 reports buffering.
+It uses the published GStreamer libraries and performs no network I/O.
+
+`glib-main-context/run.py` serves GLib's default context from the main run loop with WebCore's
+pump (`GLibMainContextMavericks.cpp`) and checks timeouts, idle sources, run-loop fairness and
+the order of a descriptor source's dispatches and the RunLoop work they queue; see its README.
+
 `cocoa-curl/` is not a manual page either: it holds the programs that exercise the Cocoa curl
 transport directly -- transfers, uploads, cookies, HSTS, proxies and PAC, HTTP and proxy
 authentication, client certificates, downloads and resume, the WebKitLegacy ResourceHandle, the

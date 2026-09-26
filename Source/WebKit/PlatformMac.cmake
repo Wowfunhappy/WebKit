@@ -544,8 +544,6 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
                      "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/XPCServices" SYMBOLIC)
 
     function(WEBKIT_XPC_SERVICE _target _bundle_identifier _info_plist _executable_name)
-        # MAVERICKS_BACKPORT: native 10.9 run-loop and process-type configuration.
-        mavericks_configure_xpc_service(${_target})
         set(_service_dir ${WebKit_XPC_SERVICE_DIR}/${_bundle_identifier}.xpc/Contents)
         make_directory(${_service_dir}/MacOS)
         make_directory(${_service_dir}/_CodeSignature)

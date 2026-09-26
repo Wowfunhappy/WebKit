@@ -1,0 +1,117 @@
+--- a/plugins/elements/gstqueue2.c
++++ b/plugins/elements/gstqueue2.c
+@@ -542,6 +542,7 @@
+   queue->srcresult = GST_FLOW_FLUSHING;
+   queue->sinkresult = GST_FLOW_FLUSHING;
+   queue->is_eos = FALSE;
++  queue->is_segment_done = FALSE;
+   queue->in_timer = g_timer_new ();
+   queue->out_timer = g_timer_new ();
+ 
+@@ -1078,11 +1079,13 @@
+ #define GET_BUFFER_LEVEL_FOR_QUANTITY(format,alt_max) \
+     normalize_to_buffering_level (queue->cur_level.format,queue->max_level.format,(alt_max))
+ 
+-  if (queue->is_eos || queue->srcresult == GST_FLOW_NOT_LINKED) {
+-    /* on EOS and NOT_LINKED we are always 100% full, we set the var
+-     * here so that we can reuse the logic below to stop buffering */
++  if (queue->is_eos || queue->is_segment_done
++      || queue->srcresult == GST_FLOW_NOT_LINKED) {
++    /* on EOS, SEGMENT_DONE and NOT_LINKED we are always 100% full, we set
++     * the var here so that we can reuse the logic below to stop buffering */
+     buflevel = MAX_BUFFERING_LEVEL;
+-    GST_LOG_OBJECT (queue, "we are %s", queue->is_eos ? "EOS" : "NOT_LINKED");
++    GST_LOG_OBJECT (queue, "we are %s", queue->is_eos ? "EOS" :
++        queue->is_segment_done ? "SEGMENT_DONE" : "NOT_LINKED");
+   } else {
+     GST_LOG_OBJECT (queue,
+         "Cur level bytes/time/rate-time/buffers %u/%" GST_TIME_FORMAT "/%"
+@@ -2370,7 +2373,14 @@
+         /* Force updating the input bitrate */
+         update_in_rates (queue, TRUE);
+         break;
++      case GST_EVENT_SEGMENT_DONE:
++        /* No data follows until the next segment, as after EOS, so the
++         * queue can be drained completely. */
++        GST_DEBUG_OBJECT (queue, "we have SEGMENT_DONE");
++        queue->is_segment_done = TRUE;
++        break;
+       case GST_EVENT_SEGMENT:
++        queue->is_segment_done = FALSE;
+         apply_segment (queue, event, &queue->sink_segment, TRUE);
+         /* This is our first new segment, we hold it
+          * as we can't save it on the temp file */
+@@ -2392,6 +2402,7 @@
+         apply_gap (queue, event, &queue->sink_segment, TRUE);
+         break;
+       case GST_EVENT_STREAM_START:
++        queue->is_segment_done = FALSE;
+         if (!QUEUE_IS_USING_QUEUE (queue)) {
+           gst_event_replace (&queue->stream_start_event, event);
+           gst_event_unref (event);
+@@ -2633,6 +2644,7 @@
+         queue->srcresult = GST_FLOW_OK;
+         queue->sinkresult = GST_FLOW_OK;
+         queue->is_eos = FALSE;
++        queue->is_segment_done = FALSE;
+         queue->unexpected = FALSE;
+         queue->seeking = FALSE;
+         queue->src_tags_bitrate = queue->sink_tags_bitrate = 0;
+@@ -2645,6 +2657,7 @@
+         GST_QUEUE2_MUTEX_LOCK (queue);
+         queue->segment_event_received = FALSE;
+         queue->is_eos = FALSE;
++        queue->is_segment_done = FALSE;
+         queue->unexpected = FALSE;
+         queue->sinkresult = GST_FLOW_OK;
+         queue->seeking = FALSE;
+@@ -2714,6 +2727,7 @@
+               if (GST_PAD_MODE (queue->srcpad) == GST_PAD_MODE_PUSH) {
+                 queue->srcresult = GST_FLOW_OK;
+                 queue->is_eos = FALSE;
++                queue->is_segment_done = FALSE;
+                 queue->unexpected = FALSE;
+                 queue->seeking = FALSE;
+                 queue->src_tags_bitrate = queue->sink_tags_bitrate = 0;
+@@ -2723,6 +2737,7 @@
+                     (GstTaskFunction) gst_queue2_loop, queue->srcpad, NULL);
+               } else {
+                 queue->is_eos = FALSE;
++                queue->is_segment_done = FALSE;
+                 queue->unexpected = FALSE;
+                 queue->seeking = FALSE;
+                 queue->src_tags_bitrate = queue->sink_tags_bitrate = 0;
+@@ -3657,6 +3672,7 @@
+         queue->srcresult = GST_FLOW_OK;
+         queue->sinkresult = GST_FLOW_OK;
+         queue->is_eos = FALSE;
++        queue->is_segment_done = FALSE;
+         queue->unexpected = FALSE;
+         reset_rate_timer (queue);
+         GST_QUEUE2_MUTEX_UNLOCK (queue);
+@@ -3701,6 +3717,7 @@
+     queue->srcresult = GST_FLOW_OK;
+     queue->sinkresult = GST_FLOW_OK;
+     queue->is_eos = FALSE;
++    queue->is_segment_done = FALSE;
+     queue->unexpected = FALSE;
+     result =
+         gst_pad_start_task (pad, (GstTaskFunction) gst_queue2_loop, pad, NULL);
+@@ -3753,6 +3770,7 @@
+       queue->srcresult = GST_FLOW_OK;
+       queue->sinkresult = GST_FLOW_OK;
+       queue->is_eos = FALSE;
++      queue->is_segment_done = FALSE;
+       queue->unexpected = FALSE;
+       queue->upstream_size = 0;
+     } else {
+--- a/plugins/elements/gstqueue2.h
++++ b/plugins/elements/gstqueue2.h
+@@ -97,6 +97,7 @@
+   GstFlowReturn srcresult;
+   GstFlowReturn sinkresult;
+   gboolean is_eos;
++  gboolean is_segment_done;
+   gboolean unexpected;
+ 
+   /* the queue of data we're keeping our hands on */

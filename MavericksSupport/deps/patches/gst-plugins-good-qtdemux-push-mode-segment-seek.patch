@@ -1,0 +1,81 @@
+# Push-mode segment seeks retain the source's segment flag and translate its
+# completion into TIME after delivering the demuxed samples.
+# Applied after gst-plugins-good-qtdemux-upstream-stream-tags.patch.
+
+--- a/gst/isomp4/qtdemux.c
++++ b/gst/isomp4/qtdemux.c
+@@ -2327,6 +2327,15 @@
+             "segment %" GST_TIME_FORMAT " - %" GST_TIME_FORMAT,
+             GST_TIME_ARGS (segment.start), GST_TIME_ARGS (segment.stop));
+         GST_OBJECT_UNLOCK (demux);
++
++        if (segment.flags & GST_SEGMENT_FLAG_SEGMENT) {
++          GstMessage *msg =
++              gst_message_new_segment_start (GST_OBJECT_CAST (demux),
++              GST_FORMAT_TIME, segment.start);
++          if (demux->segment_seqnum != GST_SEQNUM_INVALID)
++            gst_message_set_seqnum (msg, demux->segment_seqnum);
++          gst_element_post_message (GST_ELEMENT_CAST (demux), msg);
++        }
+       }
+ 
+       /* we only expect a BYTE segment, e.g. following a seek */
+@@ -2426,6 +2435,11 @@
+       }
+       break;
+     }
++    case GST_EVENT_SEGMENT_DONE:
++      if (demux->pullbased || !(demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT))
++        break;
++      /* A byte source segment completes this demuxer's TIME segment. */
++      G_GNUC_FALLTHROUGH;
+     case GST_EVENT_EOS:
+       /* If we are in push mode, and get an EOS before we've seen any streams,
+        * then error out - we have nowhere to send the EOS */
+@@ -2446,6 +2460,32 @@
+           if (gst_qtdemux_process_adapter (demux, TRUE) != GST_FLOW_OK) {
+             res = FALSE;
+           }
++
++          /* a push-mode segment seek ends here, in stream time, as it does
++           * in the pull loop */
++          if (demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT) {
++            GstMessage *message;
++            GstEvent *done;
++            gint64 stop;
++
++            if ((stop = demux->segment.stop) == -1)
++              stop = demux->segment.duration;
++            if (GST_CLOCK_TIME_IS_VALID (stop))
++              demux->segment.position = stop;
++
++            GST_LOG_OBJECT (demux, "Sending segment done, at end of segment");
++            message = gst_message_new_segment_done (GST_OBJECT_CAST (demux),
++                GST_FORMAT_TIME, stop);
++            done = gst_event_new_segment_done (GST_FORMAT_TIME, stop);
++            if (demux->segment_seqnum != GST_SEQNUM_INVALID) {
++              gst_message_set_seqnum (message, demux->segment_seqnum);
++              gst_event_set_seqnum (done, demux->segment_seqnum);
++            }
++            gst_element_post_message (GST_ELEMENT_CAST (demux), message);
++            gst_qtdemux_push_event (demux, done);
++            gst_event_unref (event);
++            goto drop;
++          }
+         }
+       }
+       break;
+@@ -8971,7 +9011,12 @@
+ eos:
+   {
+     GST_DEBUG_OBJECT (demux, "no next entry, EOS");
+-    ret = GST_FLOW_EOS;
++    if (demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT) {
++      /* Consume trailing bytes until the source's segment-done event. */
++      gst_adapter_clear (demux->adapter);
++      ret = GST_FLOW_OK;
++    } else
++      ret = GST_FLOW_EOS;
+     goto done;
+   }
+ invalid_state:

@@ -2597,7 +2597,8 @@ void MediaPlayerPrivateGStreamer::updateMaxTimeLoaded(double percentage)
 
 void MediaPlayerPrivateGStreamer::updateBufferingStatus(GstBufferingMode mode, double percentage, bool resetHistory, bool shouldUpdateStates)
 {
-    m_wasBuffering = m_isBuffering;
+    // m_wasBuffering = m_isBuffering;
+    m_wasBuffering = m_isBufferingChangeDelayed ? m_isBufferingActedOn : m_isBuffering; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
     m_previousBufferingPercentage = m_bufferingPercentage;
 
 #ifndef GST_DISABLE_GST_DEBUG
@@ -2657,6 +2658,8 @@ void MediaPlayerPrivateGStreamer::updateBufferingStatus(GstBufferingMode mode, d
     // keeping m_isBuffering to false, delay it, and when the buffering percentage reaches the high watermark it's ignored
     // because of m_isBuffering being false because of the delay.
     if (resetHistory) {
+        m_isBufferingChangeDelayed = false; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
+        m_isBufferingActedOn = m_isBuffering; // MAVERICKS_BACKPORT: as above.
         m_wasBuffering = m_isBuffering;
         m_previousBufferingPercentage = m_bufferingPercentage;
     }
@@ -3142,6 +3145,9 @@ void MediaPlayerPrivateGStreamer::updateStates()
     case GST_STATE_CHANGE_SUCCESS: {
         GST_DEBUG_OBJECT(pipeline(), "State: %s, pending: %s", gst_state_get_name(m_currentState), gst_state_get_name(pending));
 
+        if (std::exchange(m_isBufferingChangeDelayed, false)) // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case.
+            m_wasBuffering = m_isBufferingActedOn; // MAVERICKS_BACKPORT: as above.
+
         // Do nothing if on EOS and state changed to READY to avoid recreating the player
         // on HTMLMediaElement and properly generate the video 'ended' event.
         if (m_isEndReached && m_currentState == GST_STATE_READY && eosState != GST_STATE_READY)
@@ -3246,6 +3252,7 @@ void MediaPlayerPrivateGStreamer::updateStates()
             shouldUpdatePlaybackState = true;
         }
 
+        m_isBufferingActedOn = m_isBuffering; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case.
         break;
     }
     case GST_STATE_CHANGE_ASYNC:
@@ -3259,12 +3266,21 @@ void MediaPlayerPrivateGStreamer::updateStates()
             m_networkState = MediaPlayer::NetworkState::Loading;
         }
 
+        /* MAVERICKS_BACKPORT: see the delay below.
         // Delay the m_isBuffering change by returning it to its previous value. Without this, the false --> true change
         // would go unnoticed by the code that should trigger a pause.
         if (m_wasBuffering != m_isBuffering && !m_isPaused && m_playbackRate) {
             GST_TRACE_OBJECT(pipeline(), "[Buffering] Delaying m_isBuffering %s --> %s to force the proper change from not buffering to buffering when the async state change completes.", boolForPrinting(m_wasBuffering), boolForPrinting(m_isBuffering));
             m_isBuffering = m_wasBuffering;
             m_bufferingPercentage = m_previousBufferingPercentage;
+        }
+        */
+        // MAVERICKS_BACKPORT: an m_isBuffering change since the last completed state change is delayed:
+        // m_wasBuffering keeps the value that change acted on, whatever further buffering messages arrive,
+        // until a state change completes and acts on the net change.
+        if (m_isBufferingActedOn != m_isBuffering && !m_isPaused && m_playbackRate) {
+            GST_TRACE_OBJECT(pipeline(), "[Buffering] Delaying m_isBuffering %s --> %s until the async state change completes.", boolForPrinting(m_isBufferingActedOn), boolForPrinting(m_isBuffering));
+            m_isBufferingChangeDelayed = true;
         }
 
         break;

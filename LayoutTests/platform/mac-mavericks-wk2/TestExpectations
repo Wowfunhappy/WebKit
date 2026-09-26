@@ -41,6 +41,10 @@ fast/events/contextmenu-lookup-action-for-image.html [ Skip ]
 # so ImageDecoderGStreamer decodes the sequence, and the frame counts and durations match the baseline.
 fast/images/animated-heics-verify.html [ Pass ]
 
+# platform/mac-wk2 expects a timeout here for Apple's AVFoundation MSE; this port's MSE is the GStreamer engine,
+# where the test passes.
+media/media-source/media-source-reopen.html [ Pass ]
+
 # platform/mac skips the WPT encrypted-media suite as unimplemented (webkit.org/b/158836): Apple's
 # ports carry no ClearKey. This port's CDM set is ClearKey and Widevine over the GStreamer engine, so
 # the ClearKey half of the suite runs here, under the per-test skips below.

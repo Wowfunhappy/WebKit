@@ -525,16 +525,6 @@ list(APPEND WebKit_SERIALIZATION_IN_FILES
     ../../MavericksSupport/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.serialization.in
 )
 
-# Mavericks' libxpc maps _NSApplicationMain to POSIXSpawnType App, matching stock WebContent.
-# The other services use the native adaptive NSRunLoop bootstrap and the launcher's importance boost.
-function(mavericks_configure_xpc_service target)
-    if (target STREQUAL "WebProcess")
-        set(RUNLOOP_TYPE _NSApplicationMain PARENT_SCOPE)
-    else ()
-        set(RUNLOOP_TYPE NSRunLoop PARENT_SCOPE)
-    endif ()
-endfunction()
-
 # Objective-C text extraction serves the legacy API; the other Swift sources require
 # material hosting or the inline PDF plugin, both unavailable at this deployment target.
 list(REMOVE_ITEM WebKit_SOURCES
