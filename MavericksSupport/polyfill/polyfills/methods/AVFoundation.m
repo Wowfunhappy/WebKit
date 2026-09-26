@@ -8,6 +8,7 @@
 #import "avf-resource-loader-drain.h"
 #import "avf-display-color.h"
 #import <objc/runtime.h>
+#include <pthread.h>
 #include <dlfcn.h>
 
 #pragma clang diagnostic push
@@ -201,12 +202,6 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 }
 @end
 
-static CGSize wkAVFDisplayLayerPresentationSize(id layer)
-{
-    id internal = object_getIvar(layer, class_getInstanceVariable(objc_getClass("AVSampleBufferDisplayLayer"), "_sampleBufferDisplayLayerInternal"));
-    return *(CGSize *)((char *)internal + ivar_getOffset(class_getInstanceVariable(object_getClass(internal), "presentationSize")));
-}
-
 static WKAVFDisplayColor *wkAVFDisplayColorFor(id layer)
 {
     @synchronized (layer) {
@@ -223,27 +218,25 @@ static WKAVFDisplayColor *wkAVFDisplayColorFor(id layer)
 // Mavericks presents packed RGB samples in the layer's destination space. vImage supplies the
 // attachment-derived color match at the display API boundary, preserving the caller's image buffer.
 //
-// A sample of a new presentation size makes Mavericks' layer lay out its content layer from bounds it
-// read before applying that layout, so on a thread other than the one setting the bounds the layout
-// can be stale. The layer then lays itself out again on the main thread from its current bounds.
+// Mavericks' layer lays out its content layer and its video queue's layers on the calling thread,
+// in explicit transactions that nest inside any implicit transaction already open on that thread. A
+// thread without a run loop commits an implicit transaction only when it exits, so once the call
+// returns the caller's implicit transaction is flushed, as that thread's owner would. The main
+// thread's implicit transaction belongs to its run loop's commit observer.
+static void wkAVFFlushCallerTransaction(void)
+{
+    if (!pthread_main_np())
+        [CATransaction flush];
+}
+
 WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (void)enqueueSampleBuffer:(CMSampleBufferRef)sample
 {
     @autoreleasepool {
         WKAVFDisplayColor *color = wkAVFDisplayColorFor(self);
         void (^enqueue)(CMSampleBufferRef) = ^(CMSampleBufferRef enqueued) {
-            CGSize presentationSize = wkAVFDisplayLayerPresentationSize(self);
             WK_ORIGINAL_METHOD(void, (CMSampleBufferRef), enqueued);
-            if (CGSizeEqualToSize(presentationSize, wkAVFDisplayLayerPresentationSize(self)))
-                return;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [CATransaction begin];
-                [CATransaction setDisableActions:YES];
-                [CATransaction lock];
-                [(CALayer *)self setBounds:[(CALayer *)self bounds]];
-                [CATransaction unlock];
-                [CATransaction commit];
-            });
+            wkAVFFlushCallerTransaction();
         };
         if (!sample || !CMSampleBufferGetFormatDescription(sample)) {
             enqueue(sample);
@@ -265,11 +258,13 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (void)flush
 {
     WK_ORIGINAL_METHOD(void, ());
+    wkAVFFlushCallerTransaction();
     [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
 }
 - (void)flushAndRemoveImage
 {
     WK_ORIGINAL_METHOD(void, ());
+    wkAVFFlushCallerTransaction();
     [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
 }
 @end
