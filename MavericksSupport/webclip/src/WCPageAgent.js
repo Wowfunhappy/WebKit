@@ -937,9 +937,15 @@
         state.moveObserver = new IntersectionObserver(entries => {
             const ratio = entries[entries.length - 1].intersectionRatio;
             if (initial) {
+                initial = false;
+                // The element can move between the measurement and the first report.
+                const current = state.element.getBoundingClientRect();
+                if (current.top !== box.top || current.left !== box.left || current.width !== box.width || current.height !== box.height) {
+                    scheduleTrackedElementCheck();
+                    return;
+                }
                 // The box is rounded to whole pixels, so the element can start out covering a
                 // little less than all of it; that coverage becomes the level a move crosses.
-                initial = false;
                 if (ratio && ratio !== threshold)
                     observeTrackedElementMoves(state, ratio);
                 return;
@@ -958,7 +964,9 @@
         Promise.resolve().then(checkTrackedElement);
     }
 
-    const kTrackedDocumentEvents = ['load', 'transitionend', 'animationend'];
+    // Scroll anchoring moves an element through the document while keeping it still in the
+    // viewport, where the move observer cannot see it; the scroll it makes is reported instead.
+    const kTrackedDocumentEvents = ['load', 'transitionend', 'animationend', 'scroll'];
 
     function untrack()
     {

@@ -568,11 +568,12 @@ verify_no_rpath    "$WEBRTC_STAGED"
 echo "  rewritten: $(webkit_machos | wc -l | tr -d ' ') Mach-O binaries carry absolute paths and no LC_RPATH"
 
 # The Web Clip plug-in goes through the same rewriting, from the build's WebClipPlugin directory into
-# its place inside the widget.
+# its place inside the widget; the widget's script is Apple's with WebClip.js.patch applied.
 echo "### Staging the Web Clip plug-in"
 mkdir -p "$(s "$WEBCLIP_PLUGIN")/MacOS" "$(s "$WEBCLIP_PLUGIN")/Resources"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WebClip" "$(s "$WEBCLIP_BINARY")"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WCPageAgent.js" "$(s "$WEBCLIP_PAGE_AGENT")"
+patch -s -o "$(s "$WEBCLIP_WIDGET_SCRIPT")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.js" "$REPO/MavericksSupport/webclip/WebClip.js.patch"
 rewrite_rpath_deps "$(s "$WEBCLIP_BINARY")"
 rewrite_abs_deps   "$(s "$WEBCLIP_BINARY")"
 strip_rpaths       "$(s "$WEBCLIP_BINARY")"

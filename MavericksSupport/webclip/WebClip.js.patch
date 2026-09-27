@@ -1,0 +1,19 @@
+--- WebClip.js
++++ WebClip.js
+@@ -480,7 +480,15 @@
+         widget.resizeAndMoveTo(window.screenX + backXOffset, window.screenY + backYOffset, backsideWidth, backsideHeight);
+     }
+     
+-    setTimeout('widget.performTransition();', 50);
++    setTimeout('performTransition();', 50);
++}
++
++// The Dock reports a flip complete only when it can animate it.
++function performTransition()
++{
++    widget.performTransition();
++    if (!webClip.dashboardAnimatesFlips())
++        transitioncomplete();
+ }
+ 
+ function flipToFront(event)

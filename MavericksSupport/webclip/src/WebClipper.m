@@ -343,6 +343,27 @@
     [_webClipperView notifyTransitionIsComplete];
 }
 
+// The Dock animates a flip, and afterwards reports it complete, only when the window server can make
+// the transition: every active display OpenGL-accelerated and at least 32 bits deep.
+- (BOOL)dashboardAnimatesFlips
+{
+    CGDirectDisplayID displays[32];
+    uint32_t count = 0;
+    CGGetActiveDisplayList(32, displays, &count);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!CGDisplayUsesOpenGLAcceleration(displays[i]))
+            return NO;
+        CGDisplayModeRef mode = CGDisplayCopyDisplayMode(displays[i]);
+        CFStringRef encoding = CGDisplayModeCopyPixelEncoding(mode);
+        CGDisplayModeRelease(mode);
+        CFIndex depth = CFStringGetLength(encoding);
+        CFRelease(encoding);
+        if (depth < 32)
+            return NO;
+    }
+    return YES;
+}
+
 - (void)fadeButtonWithOpacity:(float)opacity
 {
     [_webClipperView fadeButtonWithOpacity:opacity];
@@ -352,6 +373,7 @@
 {
     return !(selector == @selector(cookiesAsString)
         || selector == @selector(clipRectString)
+        || selector == @selector(dashboardAnimatesFlips)
         || selector == @selector(customTextEncodingName)
         || selector == @selector(defaultTextEncodingName)
         || selector == @selector(didFlipWidget:)

@@ -33,10 +33,12 @@ WEBCORE_BUNDLE=$WEBKIT_BUNDLE/Versions/A/Frameworks/WebCore.framework
 # The three bundles an install replaces. WebCore rides inside WEBKIT_BUNDLE.
 WK_INSTALL_ROOTS="$JSC_BUNDLE $WEBKIT_BUNDLE $WEBKIT2_BUNDLE"
 # The Web Clip widget's plug-in. The port supplies its executable (fat: ours for x86_64, the stock
-# i386 slice for a 32-bit DashboardClient) and its page script; the rest of the widget is Apple's.
+# i386 slice for a 32-bit DashboardClient), its page script, and the widget's script with
+# MavericksSupport/webclip/WebClip.js.patch applied; the rest of the widget is Apple's.
 WEBCLIP_PLUGIN="/Library/Widgets/Web Clip.wdgt/WebClip.plugin/Contents"
 WEBCLIP_BINARY="$WEBCLIP_PLUGIN/MacOS/WebClip"
 WEBCLIP_PAGE_AGENT="$WEBCLIP_PLUGIN/Resources/WCPageAgent.js"
+WEBCLIP_WIDGET_SCRIPT="/Library/Widgets/Web Clip.wdgt/WebClip.js"
 
 # #68: the private C++ runtime (libc++/libc++abi from the clang-22 toolchain) and the polyfill
 # ObjC-classes dylib live INSIDE the framework bundles, so the product is fully self-contained —
@@ -185,6 +187,8 @@ wk_verify_tree() {
         esac
     fi
     [ -f "$pre$WEBCLIP_PAGE_AGENT" ] || { echo "  MISSING Web Clip page script: $pre$WEBCLIP_PAGE_AGENT" >&2; bad=1; }
+    grep -q "if (!webClip.dashboardAnimatesFlips())" "$pre$WEBCLIP_WIDGET_SCRIPT" 2>/dev/null \
+        || { echo "  UNPATCHED Web Clip widget script: $pre$WEBCLIP_WIDGET_SCRIPT" >&2; bad=1; }
 
     # The private C++ runtime and the polyfill ObjC classes every WebKit binary loads.
     for f in "$PRIVLIBCXX/libc++.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" \
