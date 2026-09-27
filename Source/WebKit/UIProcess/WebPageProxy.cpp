@@ -5716,9 +5716,18 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
         policyAction = PolicyAction::Download;
 
     bool navigatingIFrameWithoutSiteIsolation = !frame.isMainFrame() && !preferences->siteIsolationEnabled();
-    if (policyAction != PolicyAction::Use || navigatingIFrameWithoutSiteIsolation) {
+    // MAVERICKS_BACKPORT: a main-frame decision for the navigation that committed the current document is a
+    // same-document navigation's (FrameLoader asks with the committed DocumentLoader's navigationID only when
+    // it has no policy or provisional loader); it loads nothing, so no process or data store is chosen for it.
+    bool isSameDocumentNavigationOfMainFrame = frame.isMainFrame() && m_committedMainFrameNavigationID == navigation.navigationID();
+    // if (policyAction != PolicyAction::Use || navigatingIFrameWithoutSiteIsolation) {
+    if (policyAction != PolicyAction::Use || navigatingIFrameWithoutSiteIsolation || isSameDocumentNavigationOfMainFrame) {
         auto previousPendingNavigationID = pageLoadState().pendingAPIRequest().navigationID;
-        receivedPolicyDecision(policyAction, &navigation, navigatingIFrameWithoutSiteIsolation ? websitePoliciesAndProcess(websitePolicies.get(), protect(legacyMainFrameProcess())) : std::nullopt, WTF::move(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, WTF::move(message), WTF::move(completionHandler));
+        // receivedPolicyDecision(policyAction, &navigation, navigatingIFrameWithoutSiteIsolation ? websitePoliciesAndProcess(websitePolicies.get(), protect(legacyMainFrameProcess())) : std::nullopt, WTF::move(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, WTF::move(message), WTF::move(completionHandler));
+        // MAVERICKS_BACKPORT: a same-document Use keeps the frame's process and carries its website policies, as a same-process navigation does.
+        auto policiesAndProcess = navigatingIFrameWithoutSiteIsolation ? websitePoliciesAndProcess(websitePolicies.get(), protect(legacyMainFrameProcess()))
+            : isSameDocumentNavigationOfMainFrame && policyAction == PolicyAction::Use ? websitePoliciesAndProcess(websitePolicies.get(), protect(frame.process())) : std::nullopt;
+        receivedPolicyDecision(policyAction, &navigation, WTF::move(policiesAndProcess), WTF::move(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, WTF::move(message), WTF::move(completionHandler));
 #if HAVE(APP_SSO)
         if (policyAction == PolicyAction::Ignore && navigation.navigationID() == previousPendingNavigationID && wasNavigationIntercepted == WasNavigationIntercepted::Yes) {
             WEBPAGEPROXY_RELEASE_LOG_ERROR(Loading, "receivedNavigationActionPolicyDecision: Failing navigation because decision was intercepted and policy action is Ignore.");
@@ -9245,7 +9254,10 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
 
     Ref process = WebProcessProxy::fromConnection(connection);
     MESSAGE_CHECK_URL(process, url);
-    MESSAGE_CHECK(process, url.protocolIsFile() || frame->url().isEmpty() || protocolHostAndPortAreEqual(url, frame->url()));
+    // MAVERICKS_BACKPORT: a committed web archive's document takes its archive's page URL (LegacyWebArchive::
+    // shouldUseMainResourceURL), so the frame's URL carries no host to compare against.
+    // MESSAGE_CHECK(process, url.protocolIsFile() || frame->url().isEmpty() || protocolHostAndPortAreEqual(url, frame->url()));
+    MESSAGE_CHECK(process, url.protocolIsFile() || frame->url().isEmpty() || MIMETypeRegistry::isWebArchiveMIMEType(frame->mimeType()) || protocolHostAndPortAreEqual(url, frame->url()));
 
     WEBPAGEPROXY_RELEASE_LOG(Loading, "didSameDocumentNavigationForFrameViaJS: frameID=%" PRIu64 ", isMainFrame=%d, type=%u", frameID.toUInt64(), frame->isMainFrame(), std::to_underlying(navigationType));
 
