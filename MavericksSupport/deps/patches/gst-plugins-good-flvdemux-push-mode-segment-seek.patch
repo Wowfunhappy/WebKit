@@ -24,7 +24,15 @@
        demux->state = FLV_STATE_TAG_TYPE;
        goto beach;
      }
-@@ -3838,11 +3840,11 @@
+@@ -3809,6 +3811,7 @@
+   gint64 start, stop;
+   gdouble rate;
+   gboolean update, flush, ret;
++  gboolean posted_segment_start = FALSE;
+   GstSegment seeksegment;
+ 
+   gst_event_parse_seek (event, &rate, &format, &flags,
+@@ -3838,11 +3841,24 @@
  
      GST_DEBUG_OBJECT (demux, "generating an upstream seek at position %"
          G_GUINT64_FORMAT, offset);
@@ -37,15 +45,29 @@
 +        flags | GST_SEEK_FLAG_ACCURATE,
 +        GST_SEEK_TYPE_SET, offset, GST_SEEK_TYPE_NONE, 0);
 +    gst_event_set_seqnum (upstream_seek, gst_event_get_seqnum (event));
++
++    /* a segment seek starts here, in stream time: posted before the source
++     * runs its own byte segment, so the bin holds one segment open until this
++     * demuxer's segment-done ends it */
++    if (seeksegment.flags & GST_SEGMENT_FLAG_SEGMENT) {
++      GstMessage *message =
++          gst_message_new_segment_start (GST_OBJECT_CAST (demux),
++          GST_FORMAT_TIME, seeksegment.start);
++      gst_message_set_seqnum (message, gst_event_get_seqnum (event));
++      gst_element_post_message (GST_ELEMENT_CAST (demux), message);
++      posted_segment_start = TRUE;
++    }
++
 +    ret = gst_pad_push_event (demux->sinkpad, upstream_seek);
      if (G_UNLIKELY (!ret)) {
        GST_WARNING_OBJECT (demux, "upstream seek failed");
      }
-@@ -3867,6 +3869,14 @@
+@@ -3867,6 +3883,15 @@
      /* Ok seek succeeded, take the newly configured segment */
      memcpy (&demux->segment, &seeksegment, sizeof (GstSegment));
  
-+    if (demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT) {
++    if ((demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT)
++        && !posted_segment_start) {
 +      GstMessage *message =
 +          gst_message_new_segment_start (GST_OBJECT_CAST (demux),
 +          GST_FORMAT_TIME, demux->segment.start);
@@ -56,7 +78,7 @@
      /* Tell all the stream a new segment is needed */
      for (guint i = 0; i < demux->audio_tracks->len; i++) {
        GstFlvDemuxTrack *track = g_ptr_array_index (demux->audio_tracks, i);
-@@ -3937,6 +3947,7 @@
+@@ -3937,6 +3962,7 @@
  
      /* copy the event */
      gst_event_replace (&demux->seek_event, event);
@@ -64,7 +86,7 @@
  
      /* set the building_index flag so that only one thread can setup the
       * structures for index seeking. */
-@@ -4236,6 +4247,12 @@
+@@ -4236,6 +4262,12 @@
        gst_flv_demux_flush (demux, TRUE);
        ret = gst_flv_demux_push_src_event (demux, event);
        break;
@@ -77,7 +99,7 @@
      case GST_EVENT_EOS:
      {
        GstIndex *index;
-@@ -4260,7 +4277,32 @@
+@@ -4260,7 +4292,32 @@
            demux->no_more_pads = TRUE;
          }
  

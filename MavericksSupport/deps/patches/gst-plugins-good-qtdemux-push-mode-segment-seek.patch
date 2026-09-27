@@ -1,26 +1,31 @@
-# Push-mode segment seeks retain the source's segment flag and translate its
-# completion into TIME after delivering the demuxed samples.
+# Push-mode segment seeks retain the source's segment flag and translate their
+# completion into TIME after delivering the demuxed samples. The demuxer posts
+# its TIME segment-start from the seek handler, before the source's own byte
+# segment starts and ends, so the bin reports one segment-done per seek.
 # Applied after gst-plugins-good-qtdemux-upstream-stream-tags.patch.
 
 --- a/gst/isomp4/qtdemux.c
 +++ b/gst/isomp4/qtdemux.c
-@@ -2327,6 +2327,15 @@
-             "segment %" GST_TIME_FORMAT " - %" GST_TIME_FORMAT,
-             GST_TIME_ARGS (segment.start), GST_TIME_ARGS (segment.stop));
-         GST_OBJECT_UNLOCK (demux);
-+
-+        if (segment.flags & GST_SEGMENT_FLAG_SEGMENT) {
-+          GstMessage *msg =
-+              gst_message_new_segment_start (GST_OBJECT_CAST (demux),
-+              GST_FORMAT_TIME, segment.start);
-+          if (demux->segment_seqnum != GST_SEQNUM_INVALID)
-+            gst_message_set_seqnum (msg, demux->segment_seqnum);
-+          gst_element_post_message (GST_ELEMENT_CAST (demux), msg);
-+        }
-       }
+@@ -1419,6 +1419,18 @@
+   GST_OBJECT_UNLOCK (qtdemux);
  
-       /* we only expect a BYTE segment, e.g. following a seek */
-@@ -2426,6 +2435,11 @@
+   qtdemux->segment_seqnum = seqnum;
++
++  /* a push-mode segment seek starts here, in stream time, as it does in the
++   * pull loop: posted before the source runs its own byte segment, so the bin
++   * holds one segment open until this demuxer's segment-done ends it */
++  if (flags & GST_SEEK_FLAG_SEGMENT) {
++    GstMessage *msg = gst_message_new_segment_start (GST_OBJECT_CAST (qtdemux),
++        GST_FORMAT_TIME, cur);
++    if (seqnum != GST_SEQNUM_INVALID)
++      gst_message_set_seqnum (msg, seqnum);
++    gst_element_post_message (GST_ELEMENT_CAST (qtdemux), msg);
++  }
++
+   /* BYTE seek event */
+   event = gst_event_new_seek (rate, GST_FORMAT_BYTES, flags, cur_type, byte_cur,
+       stop_type, stop);
+@@ -2426,6 +2438,11 @@
        }
        break;
      }
@@ -32,7 +37,7 @@
      case GST_EVENT_EOS:
        /* If we are in push mode, and get an EOS before we've seen any streams,
         * then error out - we have nowhere to send the EOS */
-@@ -2446,6 +2460,32 @@
+@@ -2446,6 +2463,32 @@
            if (gst_qtdemux_process_adapter (demux, TRUE) != GST_FLOW_OK) {
              res = FALSE;
            }
@@ -65,7 +70,7 @@
          }
        }
        break;
-@@ -8971,7 +9011,12 @@
+@@ -8971,7 +9014,12 @@
  eos:
    {
      GST_DEBUG_OBJECT (demux, "no next entry, EOS");

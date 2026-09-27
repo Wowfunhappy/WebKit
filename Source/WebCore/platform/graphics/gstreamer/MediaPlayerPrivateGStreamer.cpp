@@ -1260,8 +1260,6 @@ MediaPlayerPrivateGStreamer::ChangePipelineStateResult MediaPlayerPrivateGStream
     }
 
     m_isPipelinePlaying = newState == GST_STATE_PLAYING;
-    if (m_isPipelinePlaying && m_hasDeferredLoopPass) // MAVERICKS_BACKPORT: see queueLoopPass().
-        queueLoopPass(); // MAVERICKS_BACKPORT: as above.
 
     auto& quirksManager = GStreamerQuirksManager::singleton();
     auto eosState = quirksManager.eosMediaPlayerState();
@@ -4287,9 +4285,9 @@ bool MediaPlayerPrivateGStreamer::isSeamlessSeekingEnabled() const
 // that pass already satisfies. The rendering sinks are the video sink and the platform audio sink
 // the player created, those of them that carry the current segment. The playback position reads as
 // the end from the moment the first of them reaches the next pass. Flushing seeks and loads discard
-// the queued passes. A segment-done that arrives while the pipeline is not playing (suspended out of
-// the viewport, or paused for buffering) defers the pass to the next request for PLAYING; a segment
-// seek is sent only to a pipeline whose target state is PLAYING.
+// the queued passes. The pass is sent whatever the pipeline's state: a segment seek is valid in PAUSED,
+// and when the sinks have drained the previous pass it is the only source of the buffer a pending
+// state change prerolls on.
 static GRefPtr<GstPad> renderingSinkPad(GstElement* sink)
 {
     while (sink && GST_IS_BIN(sink)) {
@@ -4308,11 +4306,6 @@ bool MediaPlayerPrivateGStreamer::queueLoopPass()
     ASSERT(isMainThread());
     if (!isSeamlessSeekingEnabled() || m_playbackRate <= 0)
         return false;
-    if (!m_isPipelinePlaying) {
-        GST_DEBUG_OBJECT(pipeline(), "Deferring the next loop pass until the pipeline plays");
-        m_hasDeferredLoopPass = true;
-        return true;
-    }
     if (m_loopPassProbes.isEmpty()) {
         Vector<GRefPtr<GstPad>> sinkPads;
         for (auto* sink : { m_videoSink.get(), m_platformAudioSink.get() }) {
@@ -4349,10 +4342,8 @@ bool MediaPlayerPrivateGStreamer::queueLoopPass()
         m_loopPasses.append({ seqnum });
     }
     GST_DEBUG_OBJECT(pipeline(), "Queueing the next loop pass, seqnum %u", seqnum);
-    if (gst_element_send_event(m_pipeline.get(), seek.leakRef())) {
-        m_hasDeferredLoopPass = false;
+    if (gst_element_send_event(m_pipeline.get(), seek.leakRef()))
         return true;
-    }
     discardQueuedLoopPass();
     return false;
 }
@@ -4382,7 +4373,6 @@ void MediaPlayerPrivateGStreamer::removeLoopPassProbes()
 
 void MediaPlayerPrivateGStreamer::discardQueuedLoopPass()
 {
-    m_hasDeferredLoopPass = false;
     ++m_loopPassGeneration;
     {
         Locker locker { m_loopPassLock };
