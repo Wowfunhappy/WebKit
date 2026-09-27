@@ -141,3 +141,8 @@
 #define HAVE_CG_PATH_CONTINUOUS_ROUNDED_RECT 0
 #define HAVE_SUPPORT_HDR_DISPLAY 0
 #define HAVE_PASSKIT_DISBURSEMENTS 0
+
+// CoreGraphics draws a CSS drop-shadow() as a CGStyle shadow (CGStyleCreateShadow2 + CGContextSetStyle,
+// both exported by 10.9's CoreGraphics and already drawing every box-shadow and text-shadow here), so
+// FEDropShadow renders through the destination context rather than a software blur of an image buffer.
+#define HAVE_CGSTYLE_FIXES_DROP_SHADOW_BLUR 1
