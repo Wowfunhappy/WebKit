@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "wk_polyfill.h"
 #include "wk_symbols.h"
+#import <objc/message.h>
 
 #pragma clang diagnostic ignored "-Wunguarded-availability-new"
 #pragma clang diagnostic ignored "-Wunguarded-availability"
@@ -657,6 +659,84 @@ static NSData *wk_archivedDataWithRootObject(id self, SEL selector, id root, BOO
     return [result autorelease];
 }
 
+// -[NSURLResponse initWithCoder:] under requiresSecureCoding. 10.9 reads a secure archive's response
+// fields under the __nsurlrequest_proto_prop_obj_<n> keys a secure archiver writes; a response archived
+// by a plain archiver carries them in the unkeyed sequence instead. Such an archive decodes here from
+// that sequence, following 10.9's own reading of it, with each field restricted to the classes 10.9's
+// secure reading allows. An archive older than version 8 does not decode under secure coding.
+WK_SYSTEM_FN("CFNetwork", CFTypeRef, _CFURLResponseCreateArchiveList, (CFAllocatorRef, CFTypeRef, long *, const void ***, long *));
+WK_SYSTEM_FN("CFNetwork", CFTypeRef, _CFURLResponseCreateFromArchiveList, (CFAllocatorRef, long, const void **, long));
+
+static IMP wk_original_URLResponseInitWithCoder;
+
+static NSSet *wk_URLResponseFieldClasses(NSCoder *coder)
+{
+    NSSet *propertyListClasses = [NSSet setWithObjects:NSNumber.class, NSString.class, NSDictionary.class,
+        NSArray.class, NSData.class, NSURL.class, NSDate.class, nil];
+    NSSet *allowed = [coder allowedClasses];
+    return allowed ? [allowed setByAddingObjectsFromSet:propertyListClasses] : propertyListClasses;
+}
+
+// Reads the fields into *response, which an initializer may replace; nil when the fields do not form a response.
+static id wk_URLResponseFromUnkeyedFields(id *response, NSCoder *coder)
+{
+    int version = 0;
+    [coder decodeValueOfObjCType:@encode(int) at:&version];
+    if (version < 8)
+        return nil;
+
+    int archiveVersion = 0, count = 0;
+    [coder decodeValueOfObjCType:@encode(int) at:&archiveVersion];
+    [coder decodeValueOfObjCType:@encode(int) at:&count];
+    long capacity = 0;
+    WK_SYSTEM(_CFURLResponseCreateArchiveList)(NULL, NULL, NULL, NULL, &capacity);
+    if (count < 0 || count > capacity)
+        return nil;
+    const void **fields = calloc(count ? (size_t)count : 1, sizeof(*fields));
+    if (!fields)
+        return nil;
+    @try {
+        for (int i = 0; i < count; ++i)
+            fields[i] = [coder decodeObject];
+    } @catch (NSException *exception) {
+        free(fields);
+        @throw;
+    }
+    CFTypeRef cfResponse = WK_SYSTEM(_CFURLResponseCreateFromArchiveList)(NULL, archiveVersion, fields, count);
+    free(fields);
+    if (!cfResponse)
+        return nil;
+    *response = ((id (*)(id, SEL, CFTypeRef))objc_msgSend)(*response, sel_registerName("_initWithCFURLResponse:"), cfResponse);
+    CFRelease(cfResponse);
+    return *response;
+}
+
+static id wk_URLResponseInitWithCoder(NSURLResponse *self, SEL selector, NSCoder *coder)
+{
+    if (![coder isKindOfClass:NSKeyedUnarchiver.class] || ![coder requiresSecureCoding]
+        || [coder containsValueForKey:@"__nsurlrequest_proto_prop_obj_0"])
+        return ((id (*)(id, SEL, NSCoder *))wk_original_URLResponseInitWithCoder)(self, selector, coder);
+
+    // The unkeyed reads check each value against the innermost allowed-class set, as a keyed
+    // -decodeObjectOfClasses:forKey: does against the set it pushes.
+    NSMutableArray *allowed = wk_pointerIvar(wk_pointerIvar(coder, wk_helper), wk_allowedClasses);
+    NSUInteger depth = allowed.count;
+    [allowed addObject:wk_URLResponseFieldClasses(coder)];
+    id response = self;
+    id result = nil;
+    @try {
+        result = wk_URLResponseFromUnkeyedFields(&response, coder);
+    } @catch (NSException *exception) {
+        result = nil;
+    } @finally {
+        while (allowed.count > depth)
+            [allowed removeLastObject];
+    }
+    if (!result)
+        [response release];
+    return result;
+}
+
 static Ivar wk_codingIvar(Class cls, const char *name, NSUInteger expectedSize)
 {
     Ivar ivar = class_getInstanceVariable(cls, name);
@@ -820,6 +900,7 @@ void wk_initializeFoundationCoding(void)
         WRAP(decodeArray, decodeArrayOfObjCType:count:at:);
         WRAP(validateAllowedClass, validateAllowedClass:forKey:);
 #undef WRAP
+        wk_wrapDecoder(NSURLResponse.class, @selector(initWithCoder:), (IMP)wk_URLResponseInitWithCoder, &wk_original_URLResponseInitWithCoder);
 #define ADD(cls, selector, function, types) class_addMethod(cls, sel_registerName(selector), (IMP)function, types)
         ADD(NSCoder.class, "decodingFailurePolicy", wk_getDecodingPolicy, "q@:");
         ADD(NSCoder.class, "error", wk_getDecodingError, "@@:");

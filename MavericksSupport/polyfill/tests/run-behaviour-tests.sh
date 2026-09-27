@@ -428,6 +428,11 @@ probe_keyed_coding() {
         $PROBE_LIBS && "$T/keyed_coding"
 }
 
+probe_url_response_coding() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_response_coding" "$TBEHAV/Foundation-url-response-coding.m" \
+        $PROBE_LIBS && "$T/url_response_coding"
+}
+
 probe_secure_coding() {
     prepare_method_objects Foundation &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/secure_coding" "$TBEHAV/Foundation-secure-coding.m" \
@@ -822,6 +827,7 @@ run_probe secure_coding "$@"
 run_probe url_request_coding "$@"
 run_probe dd_secure_coding "$@"
 run_probe keyed_coding "$@"
+run_probe url_response_coding "$@"
 run_probe getentropy "$@"
 run_probe notify_tokens "$@"
 run_probe user_dir_suffix "$@"
