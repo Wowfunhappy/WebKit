@@ -257,6 +257,12 @@ public:
             || a.gridItem != b.gridItem)
             return true;
 
+#if ENABLE(DASHBOARD_SUPPORT)
+        // MAVERICKS_BACKPORT: If regions change, trigger a relayout to re-calc regions.
+        if (a.dashboardRegions != b.dashboardRegions)
+            return true;
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(DASHBOARD_SUPPORT) block above.
+
         if (a.willChange != b.willChange) {
             changedContextSensitiveProperties.add(DifferenceContextSensitiveProperty::WillChange);
             // Don't return; keep looking for another change

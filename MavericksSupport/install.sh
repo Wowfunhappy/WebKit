@@ -43,6 +43,10 @@ if [ ! -f "$WK_STAGE_ROOT/.build-complete" ]; then
     echo "       Rebuild it: bash MavericksSupport/build.sh" >&2
     exit 1
 fi
+if [ ! -d "$WEBCLIP_PLUGIN/MacOS" ]; then
+    echo "ERROR: no Web Clip widget plug-in at $WEBCLIP_PLUGIN." >&2
+    exit 1
+fi
 wk_verify_tree "$WK_STAGE_ROOT" "the staged tree ($WK_STAGE_ROOT)" || {
     echo "       Rebuild it: bash MavericksSupport/build.sh" >&2
     exit 1; }
@@ -114,26 +118,28 @@ fi
 # the system, Apple's and third-party alike, keeps whatever its author declared.
 force_64bit_web_clip_widget() {
     echo "### Clearing AllowInternetPlugins on the Web Clip widget (64-bit DashboardClient)"
-    local wdgt="/Library/Widgets/Web Clip.wdgt"
-    local wplist="$wdgt/Info.plist"
-    [ -f "$wplist" ] || wplist="$wdgt/Contents/Info.plist"
-    if [ ! -f "$wplist" ]; then
-        echo "  no Web Clip widget installed"
-        return 0
-    fi
+    local wplist="/Library/Widgets/Web Clip.wdgt/Info.plist"
     local cur
     cur=$(/usr/libexec/PlistBuddy -c 'Print :AllowInternetPlugins' "$wplist" 2>/dev/null) || cur=""
     if [ "$cur" != "true" ]; then
         echo "  already 64-bit"
         return 0
     fi
-    if /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$wplist"; then
-        echo "  AllowInternetPlugins -> false"
-    else
-        echo "  warning: could not clear AllowInternetPlugins on $wplist"
+    if ! /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$wplist"; then
+        echo "ERROR: could not clear AllowInternetPlugins on $wplist." >&2
+        exit 1
     fi
+    echo "  AllowInternetPlugins -> false"
 }
 force_64bit_web_clip_widget
+
+# The Web Clip widget's plug-in executable and page script are this port's (staged under the widget's
+# path); the widget's HTML, images and localized strings stay Apple's.
+echo "### Installing the Web Clip plug-in"
+cp -p "$WK_STAGE_ROOT$WEBCLIP_BINARY" "$WEBCLIP_BINARY"
+cp -p "$WK_STAGE_ROOT$WEBCLIP_PAGE_AGENT" "$WEBCLIP_PAGE_AGENT"
+chown root:admin "$WEBCLIP_BINARY" "$WEBCLIP_PAGE_AGENT"
+echo "  installed."
 
 # ---------------------------------------------------------------------------
 echo "### Verifying the installed product"

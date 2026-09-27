@@ -35,6 +35,7 @@ macro(_MAVERICKS_FINALIZE_WEBKIT_TARGET _target)
             "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
     endif ()
     _MAVERICKS_DEFINE_WEBPUSHD()
+    _MAVERICKS_DEFINE_WEBCLIP_PLUGIN()
 endmacro()
 
 # The webpushd daemon executable, which upstream builds only from WebKit.xcodeproj. As there, the tool
@@ -54,6 +55,11 @@ macro(_MAVERICKS_DEFINE_WEBPUSHD)
         set_target_properties(webpushd PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Daemons")
     endif ()
+endmacro()
+
+# The Web Clip Dashboard widget's plug-in (MavericksSupport/webclip), linked against both frameworks.
+macro(_MAVERICKS_DEFINE_WEBCLIP_PLUGIN)
+    add_subdirectory("${CMAKE_SOURCE_DIR}/MavericksSupport/webclip" "${CMAKE_BINARY_DIR}/MavericksSupport/webclip")
 endmacro()
 
 # --------------------------------------------------------------------------

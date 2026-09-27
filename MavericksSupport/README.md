@@ -31,6 +31,8 @@ MavericksSupport/
 ├── cmake/                      the CMake side: mac10.9-toolchain.cmake (the toolchain file) and the
 │                               overlays Source/cmake includes (OptionsMacMavericks, *PlatformMavericks)
 ├── source/                     out-of-tree WebKit source the overlays add to the build (WKViewMavericks.mm, webpushd, …)
+├── webclip/                    the Dashboard Web Clip widget's plug-in (WebClip.plugin, WebKit 2 page view); the
+│                               widget's HTML, images and strings stay Apple's
 ├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
 │                               framework-layout.sh (sourced: the installed layout, shared by stage + install),
 │                               check-absent-references.sh and check-gap-archive-current.sh (build gates),

@@ -143,7 +143,7 @@ tr '\n' '\0' < "$scratch/artifacts" \
 awk -v syms="$SYMBOLS" '
     BEGIN { while ((getline s < syms) > 0) { gap["_" s] = 1; total++ } }
     NF >= 3 {
-        f = substr($1, 1, length($1) - 1)
+        f = substr($0, 1, index($0, ": ") - 1)
         if (!(f in seen)) { seen[f] = 1; order[++n] = f }
         if ($NF in gap) { if ($(NF - 1) == "U") u[f]++; else d[f]++ }
     }
@@ -188,7 +188,7 @@ tr '\n' '\0' < "$scratch/staged_linked" \
 awk -v syms="$SYMBOLS" -v seen_out="$scratch/staged_seen" '
     BEGIN { while ((getline s < syms) > 0) gap["_" s] = 1 }
     NF >= 3 {
-        f = substr($1, 1, length($1) - 1)
+        f = substr($0, 1, index($0, ": ") - 1)
         if (!(f in seen)) { seen[f] = 1; order[++n] = f }
         if ($(NF - 1) == "U" && $NF in gap) u[f] = u[f] " " $NF
     }

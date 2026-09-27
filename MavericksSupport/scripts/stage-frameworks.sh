@@ -134,6 +134,25 @@ ensure_stock_backup() {
 }
 ensure_stock_backup
 
+# The stock Web Clip plug-in supplies the i386 slice of ours. Captured from the widget the first time
+# staging sees it stock (fat, and none of this port's classes), like the frameworks above.
+WEBCLIP_STOCK_BINARY="/Web Clip.wdgt/WebClip.plugin/Contents/MacOS/WebClip"
+is_stock_webclip() {
+    [ -f "$1" ] || return 1
+    case "$("$LIPO" -info "$1" 2>/dev/null)" in *i386*) ;; *) return 1;; esac
+    ! grep -q WCClipperView "$1"
+}
+if ! is_stock_webclip "$STOCK_BACKUP$WEBCLIP_STOCK_BINARY"; then
+    if ! is_stock_webclip "$WEBCLIP_BINARY"; then
+        echo "ERROR: no stock Web Clip plug-in at $STOCK_BACKUP$WEBCLIP_STOCK_BINARY, and the one at" >&2
+        echo "       $WEBCLIP_BINARY is not stock. Restore Apple's Web Clip.wdgt into $STOCK_BACKUP." >&2
+        exit 1
+    fi
+    echo "  capturing the stock Web Clip widget"
+    rm -rf "$STOCK_BACKUP/Web Clip.wdgt"
+    cp -Rp "/Library/Widgets/Web Clip.wdgt" "$STOCK_BACKUP/Web Clip.wdgt"
+fi
+
 # ---------------------------------------------------------------------------
 # Map an @rpath/X.framework/... or @rpath/libY.dylib dependency to its absolute target.
 absolute_for_rpath_dep() {
@@ -548,6 +567,17 @@ strip_rpaths       "$WEBRTC_STAGED"
 verify_no_rpath    "$WEBRTC_STAGED"
 echo "  rewritten: $(webkit_machos | wc -l | tr -d ' ') Mach-O binaries carry absolute paths and no LC_RPATH"
 
+# The Web Clip plug-in goes through the same rewriting, from the build's WebClipPlugin directory into
+# its place inside the widget.
+echo "### Staging the Web Clip plug-in"
+mkdir -p "$(s "$WEBCLIP_PLUGIN")/MacOS" "$(s "$WEBCLIP_PLUGIN")/Resources"
+cp "$(dirname "$LIBDIR")/WebClipPlugin/WebClip" "$(s "$WEBCLIP_BINARY")"
+cp "$(dirname "$LIBDIR")/WebClipPlugin/WCPageAgent.js" "$(s "$WEBCLIP_PAGE_AGENT")"
+rewrite_rpath_deps "$(s "$WEBCLIP_BINARY")"
+rewrite_abs_deps   "$(s "$WEBCLIP_BINARY")"
+strip_rpaths       "$(s "$WEBCLIP_BINARY")"
+verify_no_rpath    "$(s "$WEBCLIP_BINARY")"
+
 # ---------------------------------------------------------------------------
 # Step 5: the demangler guard. The 10.9 libc++abi __cxa_demangle heap-corrupts on some modern-C++
 # mangled names (WebCore's Style CSSValueCreation/ToCSS lambda locals). ReportCrash demangles every
@@ -685,6 +715,7 @@ graft_i386 "$(s "$WEBKIT2_BUNDLE")/Versions/A/WebKit2" \
            "$STOCK_BACKUP/WebKit2.framework/Versions/A/WebKit2"
 graft_i386 "$(s "$WEBCORE_BUNDLE")/Versions/A/WebCore" \
            "$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore"
+graft_i386 "$(s "$WEBCLIP_BINARY")" "$STOCK_BACKUP$WEBCLIP_STOCK_BINARY"
 
 # ---------------------------------------------------------------------------
 # Everything under /System is world-readable with traversable parents — the sandbox grants read on
