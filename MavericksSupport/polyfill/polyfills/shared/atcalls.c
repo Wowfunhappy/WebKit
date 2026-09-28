@@ -80,8 +80,10 @@ _fullpathat(int dirfd, const char *relative, char *buf)
     if (ret == -1)
         goto fail;
 
-    strlcat(buf, "/", PATH_MAX);
-    strlcat(buf, relative, PATH_MAX);
+    if (strlcat(buf, "/", PATH_MAX) >= PATH_MAX || strlcat(buf, relative, PATH_MAX) >= PATH_MAX) {
+        errno = ENAMETOOLONG;
+        ret = -1;
+    }
 
 fail:
     if (cwd != -1)

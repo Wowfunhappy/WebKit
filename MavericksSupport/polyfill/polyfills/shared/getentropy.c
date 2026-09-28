@@ -19,8 +19,6 @@
 
 #include <fcntl.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/random.h>
@@ -36,7 +34,6 @@ int
 getentropy(void* buf, size_t n)
 {
 
-    static int cachedFD = -1;
     uint8_t* b    = (uint8_t*)buf;
 
     /* POSIX/BSD getentropy() rejects requests larger than 256 bytes. */
@@ -47,17 +44,9 @@ getentropy(void* buf, size_t n)
     if (!n)
         return 0;
 
-    int fd = __atomic_load_n(&cachedFD, __ATOMIC_ACQUIRE);
-    if (fd < 0) {
-        fd = _randopen("/dev/urandom");
-        if (fd < 0)
-            return -1;
-        int expected = -1;
-        if (!__atomic_compare_exchange_n(&cachedFD, &expected, fd, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-            close(fd);
-            fd = expected;
-        }
-    }
+    int fd = _randopen("/dev/urandom");
+    if (fd < 0)
+        return -1;
 
     while (n > 0)
     {
@@ -65,9 +54,13 @@ getentropy(void* buf, size_t n)
 
         if (m < 0) {
             if (errno == EINTR) continue;
+            int savedErrno = errno;
+            close(fd);
+            errno = savedErrno;
             return -1;
         }
         if (m == 0) {
+            close(fd);
             errno = EIO;
             return -1;
         }
@@ -75,5 +68,6 @@ getentropy(void* buf, size_t n)
         n -= m;
     }
 
+    close(fd);
     return 0;
 }

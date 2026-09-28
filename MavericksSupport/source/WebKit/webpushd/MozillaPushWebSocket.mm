@@ -35,8 +35,11 @@
 
 static NSString * const webSocketGUID = @"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-// Frames larger than this indicate a broken peer; autopush messages are a few KB at most.
+// Frames and complete fragmented messages larger than this indicate a broken peer; autopush
+// messages are a few KB at most. Bound the HTTP upgrade too: it is parsed before frame limits apply.
 static const uint64_t maxFramePayloadLength = 4 * 1024 * 1024;
+static const uint64_t maxMessagePayloadLength = maxFramePayloadLength;
+static const NSUInteger maxHandshakeHeaderLength = 64 * 1024;
 
 enum : uint8_t {
     OpcodeContinuation = 0x0,
@@ -280,31 +283,67 @@ enum : uint8_t {
 {
     NSData *delimiter = [NSData dataWithBytes:"\r\n\r\n" length:4];
     NSRange headerEnd = [_readBuffer rangeOfData:delimiter options:0 range:NSMakeRange(0, _readBuffer.length)];
-    if (headerEnd.location == NSNotFound)
+    if (headerEnd.location == NSNotFound) {
+        if (_readBuffer.length > maxHandshakeHeaderLength)
+            [self failWithMessage:@"oversized handshake response"];
         return NO;
+    }
+    if (headerEnd.location + headerEnd.length > maxHandshakeHeaderLength) {
+        [self failWithMessage:@"oversized handshake response"];
+        return NO;
+    }
 
     NSString *response = [[NSString alloc] initWithData:[_readBuffer subdataWithRange:NSMakeRange(0, headerEnd.location)] encoding:NSUTF8StringEncoding];
     [_readBuffer replaceBytesInRange:NSMakeRange(0, headerEnd.location + headerEnd.length) withBytes:nullptr length:0];
+    if (!response) {
+        [self failWithMessage:@"handshake response is not valid UTF-8"];
+        return NO;
+    }
 
     NSArray<NSString *> *lines = [response componentsSeparatedByString:@"\r\n"];
-    if (!lines.count || [lines[0] rangeOfString:@" 101"].location == NSNotFound) {
+    NSRegularExpression *statusPattern = [NSRegularExpression regularExpressionWithPattern:@"^HTTP/1\\.[01] 101(?: |$)" options:NSRegularExpressionCaseInsensitive error:nil];
+    if (!lines.count || ![statusPattern firstMatchInString:lines[0] options:0 range:NSMakeRange(0, [lines[0] length])]) {
         [self failWithMessage:[NSString stringWithFormat:@"handshake rejected: %@", lines.count ? lines[0] : @"(empty)"]];
         return NO;
     }
 
     NSString *acceptValue = nil;
+    NSString *upgradeValue = nil;
+    NSString *connectionValue = nil;
     for (NSString *line in lines) {
         NSRange colon = [line rangeOfString:@":"];
         if (colon.location == NSNotFound)
             continue;
-        NSString *name = [[line substringToIndex:colon.location] lowercaseString];
+        NSString *name = [[[line substringToIndex:colon.location] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] lowercaseString];
+        NSString *value = [[line substringFromIndex:colon.location + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
         if ([name isEqualToString:@"sec-websocket-accept"]) {
-            acceptValue = [[line substringFromIndex:colon.location + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-            break;
-        }
+            if (acceptValue) {
+                [self failWithMessage:@"duplicate handshake accept header"];
+                return NO;
+            }
+            acceptValue = value;
+        } else if ([name isEqualToString:@"upgrade"])
+            upgradeValue = value;
+        else if ([name isEqualToString:@"connection"])
+            connectionValue = value;
     }
     if (![acceptValue isEqualToString:_expectedAcceptKey]) {
         [self failWithMessage:@"handshake accept key mismatch"];
+        return NO;
+    }
+    if (!upgradeValue || [upgradeValue caseInsensitiveCompare:@"websocket"] != NSOrderedSame) {
+        [self failWithMessage:@"handshake Upgrade header mismatch"];
+        return NO;
+    }
+    BOOL connectionUpgrades = NO;
+    for (NSString *token in [connectionValue componentsSeparatedByString:@","]) {
+        if ([[token stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] caseInsensitiveCompare:@"upgrade"] == NSOrderedSame) {
+            connectionUpgrades = YES;
+            break;
+        }
+    }
+    if (!connectionUpgrades) {
+        [self failWithMessage:@"handshake Connection header mismatch"];
         return NO;
     }
 
@@ -328,11 +367,24 @@ enum : uint8_t {
         uint64_t payloadLength = bytes[1] & 0x7F;
         NSUInteger offset = 2;
 
+        if (bytes[0] & 0x70) {
+            [self failWithMessage:@"frame sets a reserved bit"];
+            return;
+        }
+        if (masked) {
+            [self failWithMessage:@"server frame is masked"];
+            return;
+        }
+
         if (payloadLength == 126) {
             if (available < 4)
                 return;
             payloadLength = ((uint64_t)bytes[2] << 8) | bytes[3];
             offset = 4;
+            if (payloadLength < 126) {
+                [self failWithMessage:@"frame length is not minimally encoded"];
+                return;
+            }
         } else if (payloadLength == 127) {
             if (available < 10)
                 return;
@@ -340,6 +392,14 @@ enum : uint8_t {
             for (int i = 0; i < 8; i++)
                 payloadLength = (payloadLength << 8) | bytes[2 + i];
             offset = 10;
+            if (payloadLength & 0x8000000000000000ULL) {
+                [self failWithMessage:@"frame length has its most significant bit set"];
+                return;
+            }
+            if (payloadLength <= 0xFFFF) {
+                [self failWithMessage:@"frame length is not minimally encoded"];
+                return;
+            }
         }
 
         if (payloadLength > maxFramePayloadLength) {
@@ -347,23 +407,40 @@ enum : uint8_t {
             return;
         }
 
-        uint8_t mask[4] = { 0, 0, 0, 0 };
-        if (masked) {
-            if (available < offset + 4)
+        switch (opcode) {
+        case OpcodeContinuation:
+        case OpcodeText:
+        case OpcodeBinary:
+        case OpcodeClose:
+        case OpcodePing:
+        case OpcodePong:
+            break;
+        default:
+            [self failWithMessage:[NSString stringWithFormat:@"reserved opcode %u", opcode]];
+            return;
+        }
+        if (opcode & 0x8) {
+            if (!fin) {
+                [self failWithMessage:@"fragmented control frame"];
                 return;
-            memcpy(mask, bytes + offset, 4);
-            offset += 4;
+            }
+            if (payloadLength > 125) {
+                [self failWithMessage:@"oversized control frame"];
+                return;
+            }
+            if (opcode == OpcodeClose && payloadLength == 1) {
+                [self failWithMessage:@"invalid close frame payload"];
+                return;
+            }
+        } else if ((uint64_t)_fragmentBuffer.length + payloadLength > maxMessagePayloadLength) {
+            [self failWithMessage:@"oversized message"];
+            return;
         }
 
         if (available < offset + payloadLength)
             return;
 
-        NSMutableData *payload = [[_readBuffer subdataWithRange:NSMakeRange(offset, (NSUInteger)payloadLength)] mutableCopy];
-        if (masked) {
-            uint8_t *payloadBytes = (uint8_t *)payload.mutableBytes;
-            for (uint64_t i = 0; i < payloadLength; i++)
-                payloadBytes[i] ^= mask[i % 4];
-        }
+        NSData *payload = [_readBuffer subdataWithRange:NSMakeRange(offset, (NSUInteger)payloadLength)];
         [_readBuffer replaceBytesInRange:NSMakeRange(0, offset + (NSUInteger)payloadLength) withBytes:nullptr length:0];
 
         [self handleFrameWithOpcode:opcode fin:fin payload:payload];
@@ -375,6 +452,10 @@ enum : uint8_t {
     switch (opcode) {
     case OpcodeText:
     case OpcodeBinary:
+        if (_fragmentBuffer) {
+            [self failWithMessage:@"data frame interrupts a fragmented message"];
+            return;
+        }
         if (!fin) {
             _fragmentedOpcode = opcode;
             _fragmentBuffer = [payload mutableCopy];

@@ -27,6 +27,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/MakeString.h>
+#include <cmath>
 
 namespace WebKit {
 
@@ -148,24 +149,30 @@ static JSClassRef hostContextNativeClass()
     return nativeClass;
 }
 
+// An identifier an extension passes as a JSON number, when that number is a positive integer that
+// converts to uint64_t exactly.
+static std::optional<uint64_t> integerIdentifier(double value)
+{
+    constexpr double maximumSafeInteger = 9007199254740991.0;
+    if (!(value > 0 && value <= maximumSafeInteger) || std::trunc(value) != value)
+        return std::nullopt;
+    return static_cast<uint64_t>(value);
+}
+
 static std::optional<WebCore::FrameIdentifier> frameIdentifier(double value)
 {
-    if (value <= 0)
+    auto rawValue = integerIdentifier(value);
+    if (!rawValue || !WebCore::FrameIdentifier::isValidIdentifier(*rawValue))
         return std::nullopt;
-    auto rawValue = static_cast<uint64_t>(value);
-    if (!WebCore::FrameIdentifier::isValidIdentifier(rawValue))
-        return std::nullopt;
-    return WebCore::FrameIdentifier { rawValue };
+    return WebCore::FrameIdentifier { *rawValue };
 }
 
 static RefPtr<WebPageProxy> pageForTabID(std::optional<double> tabID)
 {
-    if (!tabID || *tabID <= 0)
+    auto rawValue = tabID ? integerIdentifier(*tabID) : std::nullopt;
+    if (!rawValue || !WebPageProxyIdentifier::isValidIdentifier(*rawValue))
         return nullptr;
-    auto rawValue = static_cast<uint64_t>(*tabID);
-    if (!WebPageProxyIdentifier::isValidIdentifier(rawValue))
-        return nullptr;
-    RefPtr page = WebProcessProxy::webPage(WebPageProxyIdentifier { rawValue });
+    RefPtr page = WebProcessProxy::webPage(WebPageProxyIdentifier { *rawValue });
     if (!page || page->isClosed())
         return nullptr;
     return page;
@@ -934,8 +941,10 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
 
 void LegacyExtensionHost::routeCallResult(const Endpoint& from, JSON::Object& message)
 {
-    auto callID = static_cast<uint64_t>(message.getDouble("callId"_s).value_or(0));
-    auto iterator = m_routerCalls.find(callID);
+    auto callID = integerIdentifier(message.getDouble("callId"_s).value_or(0));
+    if (!callID)
+        return;
+    auto iterator = m_routerCalls.find(*callID);
     if (iterator == m_routerCalls.end())
         return;
     auto& call = iterator->value;
@@ -949,7 +958,7 @@ void LegacyExtensionHost::routeCallResult(const Endpoint& from, JSON::Object& me
         auto result = message.getValue("result"_s);
         call.results->pushValue(result ? result.releaseNonNull() : JSON::Value::null());
     }
-    finishRouterCallIfComplete(callID);
+    finishRouterCallIfComplete(*callID);
 }
 
 void LegacyExtensionHost::finishRouterCallIfComplete(uint64_t callID)
@@ -1234,8 +1243,10 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, const
 
 void LegacyExtensionHost::routeWebRequestResponse(const HostContext& context, JSON::Object& message)
 {
-    auto token = static_cast<uint64_t>(message.getDouble("token"_s).value_or(0));
-    auto iterator = m_webRequestCalls.find(token);
+    auto token = integerIdentifier(message.getDouble("token"_s).value_or(0));
+    if (!token)
+        return;
+    auto iterator = m_webRequestCalls.find(*token);
     if (iterator == m_webRequestCalls.end())
         return;
     auto& call = iterator->value;
@@ -1253,7 +1264,7 @@ void LegacyExtensionHost::routeWebRequestResponse(const HostContext& context, JS
         if (RefPtr headers = result->getArray("responseHeaders"_s))
             call.response->setArray("responseHeaders"_s, headers.releaseNonNull());
     }
-    finishWebRequestCallIfComplete(token);
+    finishWebRequestCallIfComplete(*token);
 }
 
 void LegacyExtensionHost::finishWebRequestCallIfComplete(uint64_t token)

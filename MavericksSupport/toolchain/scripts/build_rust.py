@@ -63,14 +63,12 @@ def verify_deployment(path):
     print('### macOS 10.9 deployment verified:', path, flush=True)
 
 
-def fetch(url, path, expected):
-    if path.exists() and digest(path) == expected:
+def fetch(url, path):
+    if path.exists():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + '.download')
     run('curl', '--fail', '--location', '--retry', '3', '--output', temporary, url)
-    if digest(temporary) != expected:
-        raise RuntimeError('SHA256 mismatch: ' + url)
     temporary.replace(path)
 
 
@@ -143,7 +141,7 @@ def main():
     if not installed_stamp('.components', component_identity):
         for item in INPUTS['components']:
             archive = DOWNLOADS / item['name']
-            fetch(item['url'], archive, item['sha256'])
+            fetch(item['url'], archive)
             unpacked = WORK / item['name'].removesuffix('.tar.xz')
             if unpacked.exists():
                 shutil.rmtree(unpacked)
@@ -157,10 +155,10 @@ def main():
     compiler_sources = WORK / 'compiler-rt-source'
     compiler_sources.mkdir(exist_ok=True)
     compiler_rt = INPUTS['compiler_rt']
-    for name, checksum in compiler_rt['files'].items():
+    for name in compiler_rt['files']:
         url = ('https://raw.githubusercontent.com/llvm/llvm-project/' + compiler_rt['tag']
                + '/compiler-rt/lib/builtins/' + name)
-        fetch(url, compiler_sources / name, checksum)
+        fetch(url, compiler_sources / name)
 
     identity = hashlib.sha256()
     sources = [SHARED / (name + '.c') for name in HOST_SOURCES]

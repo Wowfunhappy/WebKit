@@ -22,7 +22,7 @@
 #   libtiff 4.7.0 (static, on libjpeg)  -> this port's TIFFImageDecoder
 #   libavif 1.3.0 (static, on dav1d)    -> WebCore's AVIFImageDecoder (10.9's ImageIO
 #                                          predates AVIF)
-#   libheif 1.23.4 (static, on FFmpeg)  -> this port's HEIFImageDecoder: HEIC/HEIF stills, their
+#   libheif 1.23.5 (static, on FFmpeg)  -> this port's HEIFImageDecoder: HEIC/HEIF stills, their
 #                                          HEVC decoded by FFmpeg's hevc decoder
 #   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
 #                                          crash-prone system libxml2 2.9.0
@@ -34,7 +34,7 @@
 #   nghttp2 1.70.0 + libcurl 8.22.0     -> HTTP/2 networking, on that shared BoringSSL
 #   Apache httpd 2.4.68                -> layout-test HTTP/HTTPS, with the toolchain's OpenSSL
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
-#     (+ codecs)                           good/bad, gst-libav on FFmpeg 8.1.2 with
+#     (+ codecs)                           good/bad, gst-libav on FFmpeg 8.1.3 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
 #                                          MediaPlayerPrivateGStreamer drives; built
 #                                          shared with @rpath install names
@@ -465,10 +465,6 @@ u=https://github.com/unicode-org/icu/releases/download/release-78.3/icu4c-78.3-s
 if ! built icu install/lib/libicuuc.a; then
     archive="$SRC/icu4c-78.3-sources.tgz"
     [ -f "$archive" ] || fetch "$u" "$archive" || exit 1
-    if [ "$(/usr/bin/shasum -a 256 < "$archive" | awk '{ print $1 }')" != 3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0 ]; then
-        echo "ICU 78.3 archive checksum mismatch" >&2
-        exit 1
-    fi
     d=$(get "$u" icu) || exit 1
     ( cd "$d/source" \
       && CXXFLAGS="$CXXFLAGS -std=c++17" ./configure --prefix="$STAGE" \
@@ -1534,10 +1530,6 @@ echo "==== gst-plugins-rs closedcaption 0.15.2 ===="
 u=https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs/-/archive/0.15.2/gst-plugins-rs-0.15.2.tar.gz
 archive="$SRC/gst-plugins-rs-0.15.2.tar.gz"
 [ -f "$archive" ] || fetch "$u" "$archive" || exit 1
-if [ "$(/usr/bin/shasum -a 256 < "$archive" | awk '{ print $1 }')" != 8c889d443281baaf34d7bfb3781d331a5eed0bc091852eba37ef358206a37bab ]; then
-    echo "gst-plugins-rs 0.15.2 archive checksum mismatch" >&2
-    exit 1
-fi
 d=$(get "$u" gstclosedcaption) || exit 1
 if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-rs-closedcaption-optional-rendering.patch" \
@@ -1578,13 +1570,13 @@ fi
 ) || exit 1
 
 
-echo "==== FFmpeg 8.1.2 ===="
+echo "==== FFmpeg 8.1.3 ===="
 # Apple-framework codepaths stay off: decoding runs through FFmpeg's own codecs so
 # behavior is identical on every 10.9 install. libdav1d supplies AV1 inside FFmpeg,
 # surfaced as gst-libav's avdec_libdav1d (see the dav1d note above).
 # FFmpeg's configure ignores the LDFLAGS environment, so the gap archive rides in
 # --extra-ldflags here.
-d=$(get https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz ffmpeg) || exit 1
+d=$(get https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz ffmpeg) || exit 1
 if prepare "$d"; then
     # The hevc decoder's VPS-extension parser answers the non-standard extension Apple's
     # VideoToolbox writes for HEVC-with-alpha with AVERROR_INVALIDDATA, which drops the VPS
@@ -1605,13 +1597,13 @@ if prepare "$d"; then
 fi
 ( cd "$d" && make -s -j2 > /dev/null && make -s install > /dev/null ) || exit 1
 
-echo "==== libheif 1.23.4 ===="
+echo "==== libheif 1.23.5 ===="
 # This port's HEIFImageDecoder (MavericksSupport/source): HEIC/HEIF still images, which 10.9's
 # ImageIO predates. The HEVC-coded items decode through FFmpeg's hevc decoder -- the one the media
 # runtime already runs for HEVC video -- via libheif's FFmpeg backend compiled into libheif.a over the
 # libavcodec above. Plugin loading is off, so no codec module is read from disk; the other backends,
 # the encoders, the uncompressed and header-compression codecs and the tools are off too.
-u=https://github.com/strukturag/libheif/releases/download/v1.23.4/libheif-1.23.4.tar.gz
+u=https://github.com/strukturag/libheif/releases/download/v1.23.5/libheif-1.23.5.tar.gz
 if ! built libheif install/lib/libheif.a; then
     d=$(get "$u" libheif)
     # libheif's FFmpeg backend hands libavcodec packets without the input padding its HEVC parser

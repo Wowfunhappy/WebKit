@@ -231,16 +231,22 @@ static char wk_absentSymbolSentinel;
 
 void *wk_polyfill_system_symbol(const char *provider, const char *name, void **cache)
 {
-    if (!*cache) {
+    void *resolved = __atomic_load_n(cache, __ATOMIC_ACQUIRE);
+    if (!resolved) {
         resolveSystemDlsym();
         void *handle = providerHandle(provider, 1);
         // A token names a framework that is not here, so there is no image behind it to search.
         void *address = NULL;
         if (handle && !wk_polyfill_is_absent_provider_token(handle))
             address = systemDlsym(handle, name);
-        *cache = address ? address : (void *)&wk_absentSymbolSentinel;
+        void *candidate = address ? address : (void *)&wk_absentSymbolSentinel;
+        void *expected = NULL;
+        if (__atomic_compare_exchange_n(cache, &expected, candidate, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+            resolved = candidate;
+        else
+            resolved = expected;
     }
-    return *cache == &wk_absentSymbolSentinel ? NULL : *cache;
+    return resolved == &wk_absentSymbolSentinel ? NULL : resolved;
 }
 
 // Called from a polyfill body that is running, so the process is already using this API and loading

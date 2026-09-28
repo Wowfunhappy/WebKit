@@ -20,8 +20,10 @@ list(APPEND TestWebCore_SOURCES
 # Upstream's TestWebKit target includes the Cocoa API tests and their fixtures.
 list(APPEND TestWebKit_SOURCES
     ${MAVERICKS_SUPPORT}/source/Tools/TestWebKitAPI/cocoa/NetworkFrameworkMavericks.mm
+    ${MAVERICKS_SUPPORT}/source/Tools/TestWebKitAPI/Tests/WebKit/MozillaPushWebSocket.mm
     ${MAVERICKS_SUPPORT}/source/Tools/TestWebKitAPI/Tests/WebSocketServerTrust.mm
 )
+list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES ${MAVERICKS_SUPPORT}/source/WebKit/webpushd)
 list(REMOVE_ITEM TestWebKit_LIBRARIES "-framework Network")
 # Tests built on API this OS does not have: system accent colours, WebTransport over Network.framework,
 # the font-panel helper's object_setInstanceVariableWithStrongDefault and NSImmediateActionGestureRecognizer.

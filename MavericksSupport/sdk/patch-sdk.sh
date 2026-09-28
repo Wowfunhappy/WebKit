@@ -43,7 +43,7 @@ t = open(tbd).read(); removed = 0
 for c in sorted(classes, key=len, reverse=True):
     t, n = re.subn(r'\b%s\b,?[ \t]*' % re.escape(c), '', t); removed += n
 for c in sorted(consts, key=len, reverse=True):
-    t, n = re.subn(r"'?%s'?,?[ \t]*" % re.escape(c), '', t); removed += n
+    t, n = re.subn(r"(?<![A-Za-z0-9_$])'?%s'?(?![A-Za-z0-9_$]),?[ \t]*" % re.escape(c), '', t); removed += n
 open(tbd, 'w').write(t)
 if removed:
     print("  %s: removed %d class + %d const (%d hits)" % (tbd.split('Frameworks/')[-1], len(classes), len(consts), removed))

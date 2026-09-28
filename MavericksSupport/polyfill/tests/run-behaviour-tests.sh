@@ -190,6 +190,17 @@ probe_getentropy() {
         "$T/getentropy"
 }
 
+probe_mkostemp() {
+    "$CLANG" $HOST -I"$PF/shared/include" -o "$T/mkostemp" "$TBEHAV/shared-mkostemp.c" &&
+        "$T/mkostemp"
+}
+
+probe_atcalls() {
+    "$CLANG" $HOST -I"$PF/shared/include" -o "$T/atcalls" "$TBEHAV/shared-atcalls.c" \
+        "$PF/shared/atcalls.c" "$PF/shared/pthread_chdir.c" &&
+        "$T/atcalls"
+}
+
 probe_clonefile() {
     "$CLANG" $HOST -I"$PF/shared/include" -o "$T/clonefile" "$TBEHAV/shared-clonefile.c" \
         "$PF/shared/clonefile.c" "$PF/shared/atcalls.c" "$PF/shared/statxx.c" "$PF/shared/pthread_chdir.c" &&
@@ -829,6 +840,8 @@ run_probe dd_secure_coding "$@"
 run_probe keyed_coding "$@"
 run_probe url_response_coding "$@"
 run_probe getentropy "$@"
+run_probe mkostemp "$@"
+run_probe atcalls "$@"
 run_probe notify_tokens "$@"
 run_probe user_dir_suffix "$@"
 run_probe url_data_representation "$@"

@@ -103,11 +103,12 @@ static void concurrentInitialization(void)
     for (unsigned i = 0; i < threadCount; ++i)
         assert(!pthread_join(threads[i], NULL));
     assert(opens == threadCount);
-    assert(closes == threadCount - 1);
-    assert(descriptorCount() == before + 1);
+    assert(closes == threadCount);
+    assert(descriptorCount() == before);
     mode = native;
     fill(buffers[0]);
-    assert(opens == threadCount);
+    assert(opens == threadCount + 1);
+    assert(closes == threadCount + 1);
     assert(memcmp(buffers[0], buffers[1], sizeof(buffers[0])));
 }
 
@@ -124,6 +125,7 @@ static void sizesAndOpenFailure(void)
     mode = native;
     assert(testedGetentropy(buffer, 256) == 0);
     assert(opens == 2);
+    assert(closes == 1);
 }
 
 static void readConditions(void)
@@ -140,7 +142,32 @@ static void readConditions(void)
     assert(testedGetentropy(buffer, 1) == -1 && errno == EFAULT);
     mode = native;
     assert(testedGetentropy(buffer, sizeof(buffer)) == 0);
-    assert(opens == 1);
+    assert(opens == 4);
+    assert(closes == 4);
+}
+
+static void descriptorReuseBetweenCalls(void)
+{
+    mode = native;
+    uint8_t buffer[256];
+    assert(testedGetentropy(buffer, sizeof(buffer)) == 0);
+    for (int fd = 3; fd < getdtablesize(); ++fd)
+        close(fd);
+
+    char path[] = "/tmp/wk-getentropy.XXXXXX";
+    int file = mkstemp(path);
+    assert(file >= 0);
+    memset(buffer, 'A', sizeof(buffer));
+    assert(write(file, buffer, sizeof(buffer)) == sizeof(buffer));
+    assert(lseek(file, 0, SEEK_SET) == 0);
+    assert(!unlink(path));
+
+    assert(testedGetentropy(buffer, sizeof(buffer)) == 0);
+    unsigned fileBytes = 0;
+    for (unsigned i = 0; i < sizeof(buffer); ++i)
+        fileBytes += buffer[i] == 'A';
+    assert(fileBytes < sizeof(buffer));
+    close(file);
 }
 
 static void run(void (*test)(void), const char *name)
@@ -160,8 +187,9 @@ static void run(void (*test)(void), const char *name)
 
 int main(void)
 {
-    run(concurrentInitialization, "concurrent first calls publish one entropy descriptor");
+    run(concurrentInitialization, "concurrent calls use and close independent entropy descriptors");
     run(sizesAndOpenFailure, "zero length, size limit, and retry after open failure");
     run(readConditions, "complete fill, EINTR, EOF, and read errors");
+    run(descriptorReuseBetweenCalls, "a descriptor number reused between calls is never read as entropy");
     return 0;
 }

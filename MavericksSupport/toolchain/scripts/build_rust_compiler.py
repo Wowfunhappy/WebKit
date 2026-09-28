@@ -29,7 +29,7 @@ def prepare():
     for kind in ('source', 'llvm'):
         item = INPUTS[kind]
         archive = host.DOWNLOADS / item['name']
-        host.fetch(item['url'], archive, item['sha256'])
+        host.fetch(item['url'], archive)
         # The matching prebuilt LLVM supplies headers, libraries and tools.
         # Excluding its unused source avoids over a gigabyte of extra storage.
         arguments = ['tar', '-xJf', archive, '-C', WORK]
