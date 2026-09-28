@@ -180,26 +180,31 @@ void WKBundleAddUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, W
 void WKBundleRemoveUserScript(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKURLRef urlRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserScriptWithURL(*WebKit::toImpl(scriptWorldRef), URL { WebKit::toWTFString(urlRef) });
+    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
 }
 
 void WKBundleRemoveUserScripts(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserScripts(*WebKit::toImpl(scriptWorldRef));
+    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
 }
 
 void WKBundleRemoveUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKURLRef urlRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserStyleSheetWithURL(*WebKit::toImpl(scriptWorldRef), URL { WebKit::toWTFString(urlRef) });
+    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
 }
 
 void WKBundleRemoveUserStyleSheets(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserStyleSheets(*WebKit::toImpl(scriptWorldRef));
+    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
 }
 
 void WKBundleRemoveAllUserContent(WKBundleRef, WKBundlePageGroupRef pageGroupRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserContent();
+    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
 }
 
 void WKBundleAddOriginAccessWhitelistEntry(WKBundleRef bundleRef, WKStringRef sourceOrigin, WKStringRef destinationProtocol, WKStringRef destinationHost, bool allowDestinationSubdomains)

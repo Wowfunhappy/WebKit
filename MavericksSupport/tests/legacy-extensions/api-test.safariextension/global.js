@@ -105,3 +105,8 @@ fetch('/content.js').then(r => r.text()).then(
         error => report('blob-fetch', { ok: false, error: String(error), blobURL, origin: self.origin })
     );
 }
+
+safari.application.addEventListener('contextmenu', event => {
+    const info = event.userInfo;
+    report('contextmenu-userinfo', { json: JSON.stringify(info), types: info && Object.fromEntries(Object.entries(info).map(([k, v]) => [k, Array.isArray(v) ? 'array' : typeof v])) });
+}, false);

@@ -49,3 +49,10 @@ if (typeof browser !== 'object') {
         note('extClosedShadowRoot', browser.dom.openOrClosedShadowRoot(host) === root ? 'reachable' : 'unreachable');
     });
 }
+
+// What survives Safari's context-menu user info, which the global page reports.
+if (typeof safari === 'object' && safari.self && safari.self.tab) {
+    window.addEventListener('contextmenu', event => {
+        safari.self.tab.setContextMenuEventUserInfo(event, { number: 0, fraction: 1.5, flag: true, text: 's', list: [ 1, 'a' ], nested: { n: 2 } });
+    }, true);
+}

@@ -1,11 +1,13 @@
 #include "config.h"
 #include "LegacyExtensionContent.h"
 
+#include "InjectedBundleScriptWorld.h"
 #include "LegacyExtensionContentMessages.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionJavaScript.h"
 #include "WebFrame.h"
 #include "WebProcess.h"
+#include "WebUserContentController.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSLock.h>
 #include <WebCore/DOMWrapperWorld.h>
@@ -29,15 +31,19 @@ namespace WebKit {
 static constexpr auto extensionScheme = "safari-extension"_s;
 
 // The native object LegacyExtensionAPI.js receives in a content context. A context stays bound to the
-// document it was installed for: once its frame shows another document, the context is inert.
+// document and world it was installed for: once its frame shows another document, or its world is
+// withdrawn, the context is inert.
 struct ContentContextNative {
     WebCore::FrameIdentifier frameID;
     WebCore::ScriptExecutionContextIdentifier documentIdentifier;
     String extensionKey;
+    SingleThreadWeakPtr<WebCore::DOMWrapperWorld> world;
 };
 
 static RefPtr<WebCore::Document> documentForNative(const ContentContextNative& native)
 {
+    if (!native.world || !LegacyExtensionContent::singleton().isContextWorldLive(*native.world))
+        return nullptr;
     RefPtr frame = WebFrame::webFrame(native.frameID);
     RefPtr coreFrame = frame ? frame->coreLocalFrame() : nullptr;
     RefPtr document = coreFrame ? coreFrame->document() : nullptr;
@@ -157,6 +163,23 @@ void LegacyExtensionContent::didAddUserContent(WebCore::DOMWrapperWorld& world, 
     m_contentScriptWorlds.set(world, extensionKey);
 }
 
+void LegacyExtensionContent::didRemoveUserContent()
+{
+    Vector<Ref<WebCore::DOMWrapperWorld>> withdrawnWorlds;
+    for (auto&& entry : m_contentScriptWorlds) {
+        RefPtr bundleWorld = InjectedBundleScriptWorld::get(entry.key);
+        if (!bundleWorld || !WebUserContentController::anyHoldsUserContent(*bundleWorld))
+            withdrawnWorlds.append(entry.key);
+    }
+    for (auto& world : withdrawnWorlds)
+        m_contentScriptWorlds.remove(world);
+}
+
+bool LegacyExtensionContent::isContextWorldLive(WebCore::DOMWrapperWorld& world) const
+{
+    return world.isNormal() || m_contentScriptWorlds.contains(world);
+}
+
 WebCore::DOMWrapperWorld* LegacyExtensionContent::contentScriptWorld(const String& extensionKey) const
 {
     for (auto& entry : m_contentScriptWorlds) {
@@ -191,7 +214,7 @@ void LegacyExtensionContent::didClearWindowObjectForFrame(WebFrame& frame, WebCo
         return;
     // The main world of a frame showing an extension page is that page; any other world is a content script.
     auto kind = world.isNormal() ? LegacyExtensions::ContextKind::Host : LegacyExtensions::ContextKind::Content;
-    LegacyExtensions::installAPI(*globalObject, kind, contentContextNativeClass(), new ContentContextNative { frame.frameID(), document->identifier(), extensionKey });
+    LegacyExtensions::installAPI(*globalObject, kind, contentContextNativeClass(), new ContentContextNative { frame.frameID(), document->identifier(), extensionKey, world });
 }
 
 void LegacyExtensionContent::insertStyleSheet(WebCore::Document& document, const String& extensionKey, WebCore::UserStyleSheet&& styleSheet)

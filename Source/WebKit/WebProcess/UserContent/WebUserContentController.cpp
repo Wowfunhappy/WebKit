@@ -681,6 +681,17 @@ void WebUserContentController::removeUserStyleSheets(InjectedBundleScriptWorld& 
     invalidateInjectedStyleSheetCacheInAllFramesInAllPages();
 }
 
+// MAVERICKS_BACKPORT: whether any user content controller of this process holds user scripts or style
+// sheets in the world, which LegacyExtensionContent asks when Safari 7 removes an extension's user content.
+bool WebUserContentController::anyHoldsUserContent(InjectedBundleScriptWorld& world)
+{
+    for (auto& controller : userContentControllers().values()) {
+        if (RefPtr strongController = controller.get(); strongController && (strongController->m_userScripts.contains(world) || strongController->m_userStyleSheets.contains(world)))
+            return true;
+    }
+    return false;
+}
+
 void WebUserContentController::removeAllUserContent()
 {
     m_userScripts.clear();
