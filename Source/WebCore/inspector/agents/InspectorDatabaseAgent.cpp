@@ -37,6 +37,7 @@
 #include "DatabaseTracker.h"
 #include "Document.h"
 #include "InspectorDatabaseResource.h"
+#include "InspectorInstrumentation.h"
 #include "InstrumentingAgents.h"
 #include "SQLError.h"
 #include "SQLResultSet.h"
@@ -277,8 +278,14 @@ Inspector::Protocol::ErrorStringOr<void> InspectorDatabaseAgent::enable()
 
     Ref { m_instrumentingAgents.get() }->setEnabledDatabaseAgent(this);
 
-    for (auto& database : DatabaseTracker::singleton().openDatabases())
-        didOpenDatabase(database.get());
+    // MAVERICKS_BACKPORT: DatabaseTracker lists every database open in the process. The agent reports the ones
+    // whose page routes InspectorInstrumentation::didOpenDatabase to it, the same set its per-page hook reports.
+    // for (auto& database : DatabaseTracker::singleton().openDatabases())
+    //     didOpenDatabase(database.get());
+    for (auto& database : DatabaseTracker::singleton().openDatabases()) {
+        if (InspectorInstrumentation::instrumentingAgents(database->document().page()) == m_instrumentingAgents.ptr())
+            didOpenDatabase(database.get());
+    }
 
     return { };
 }
