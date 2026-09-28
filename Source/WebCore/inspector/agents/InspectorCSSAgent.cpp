@@ -55,6 +55,8 @@
 #include "HTMLSlotElement.h"
 #include "HTMLStyleElement.h"
 #include "InspectorDOMAgent.h"
+// MAVERICKS_BACKPORT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+#include "InspectorCSSOMWrappers.h"
 #include "InspectorHistory.h"
 #include "InspectorIdentifierRegistry.h"
 #include "InspectorPageAgent.h"
@@ -91,6 +93,50 @@ using namespace Inspector;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorCSSAgent);
 
+// MAVERICKS_BACKPORT: upstream's CSS selector profiler (removed with bug 127039), restored for the Safari 7
+// Web Inspector's CSS Selector Profiles. It times each rule the rule collector matches and keys the time by
+// the rule; buildObjectForSelectorProfile() names each rule by its selector, URL and line when the profile
+// stops, as the CSSOM wrappers and parsed source that name a rule are not built during style resolution.
+struct RuleMatchingStats {
+    double totalTime { 0 };
+    unsigned hits { 0 };
+    unsigned matches { 0 };
+};
+
+class SelectorProfile {
+    WTF_MAKE_TZONE_ALLOCATED(SelectorProfile);
+public:
+    double totalMatchingTimeMs() const { return m_totalMatchingTimeMS; }
+    const HashMap<RefPtr<const StyleRule>, RuleMatchingStats>& ruleMatchingStats() const LIFETIME_BOUND { return m_ruleMatchingStats; }
+
+    void startSelector();
+    void commitSelector(const StyleRule&, bool matched);
+
+private:
+    double m_totalMatchingTimeMS { 0 };
+    HashMap<RefPtr<const StyleRule>, RuleMatchingStats> m_ruleMatchingStats;
+    MonotonicTime m_startTime;
+};
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SelectorProfile);
+
+inline void SelectorProfile::startSelector()
+{
+    m_startTime = MonotonicTime::now();
+}
+
+inline void SelectorProfile::commitSelector(const StyleRule& rule, bool matched)
+{
+    double matchTimeMS = (MonotonicTime::now() - m_startTime).milliseconds();
+    m_totalMatchingTimeMS += matchTimeMS;
+
+    auto& stats = m_ruleMatchingStats.add(&rule, RuleMatchingStats { }).iterator->value;
+    stats.totalTime += matchTimeMS;
+    stats.hits += 1;
+    if (matched)
+        stats.matches += 1;
+}
+
 InspectorCSSAgent::InspectorCSSAgent(PageAgentContext& context)
     : InspectorAgentBase("CSS"_s, context)
     , m_frontendDispatcher(makeUniqueRef<CSSFrontendDispatcher>(context.frontendRouter))
@@ -109,6 +155,8 @@ void InspectorCSSAgent::didCreateFrontendAndBackend()
 void InspectorCSSAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
     std::ignore = disable();
+    // MAVERICKS_BACKPORT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+    m_currentSelectorProfile = nullptr;
 }
 
 void InspectorCSSAgent::reset()
@@ -1187,6 +1235,94 @@ RefPtr<Inspector::Protocol::CSS::CSSRule> InspectorCSSAgent::buildObjectForRule(
 
     RefPtr cssomWrapper = styleResolver.inspectorCSSOMWrappers().getWrapperForRuleInSheets(styleRule);
     return buildObjectForRule(cssomWrapper);
+}
+
+// MAVERICKS_BACKPORT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+Inspector::Protocol::ErrorStringOr<void> InspectorCSSAgent::startSelectorProfiler()
+{
+    m_currentSelectorProfile = makeUnique<SelectorProfile>();
+    return { };
+}
+
+Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::CSS::SelectorProfile>> InspectorCSSAgent::stopSelectorProfiler()
+{
+    auto profile = std::exchange(m_currentSelectorProfile, nullptr);
+    if (!profile)
+        return makeUnexpected("Selector profiler is not running"_s);
+    return buildObjectForSelectorProfile(*profile);
+}
+
+void InspectorCSSAgent::willMatchRule()
+{
+    if (m_currentSelectorProfile)
+        m_currentSelectorProfile->startSelector();
+}
+
+void InspectorCSSAgent::didMatchRule(const StyleRule& rule, bool matched)
+{
+    if (m_currentSelectorProfile)
+        m_currentSelectorProfile->commitSelector(rule, matched);
+}
+
+Ref<Inspector::Protocol::CSS::SelectorProfile> InspectorCSSAgent::buildObjectForSelectorProfile(const SelectorProfile& profile)
+{
+    Style::InspectorCSSOMWrappers wrappers;
+    if (CheckedPtr domAgent = Ref { m_instrumentingAgents.get() }->persistentDOMAgent()) {
+        for (RefPtr document : domAgent->documents()) {
+            if (auto* extensionStyleSheets = document->extensionStyleSheetsIfExists())
+                wrappers.collectDocumentWrappers(*extensionStyleSheets);
+            wrappers.collectScopeWrappers(document->styleScope());
+            for (Ref shadowRoot : document->inDocumentShadowRoots())
+                wrappers.collectScopeWrappers(shadowRoot->styleScope());
+        }
+    }
+
+    struct RuleMatchingEntry {
+        String selector;
+        String url;
+        int lineNumber { 0 };
+        RuleMatchingStats stats;
+    };
+
+    // Key is "selector?url:line".
+    HashMap<String, RuleMatchingEntry> entries;
+    for (auto& [rule, stats] : profile.ruleMatchingStats()) {
+        RuleMatchingEntry entry { rule->selectorList().selectorsText(), emptyString(), 0, stats };
+        if (RefPtr cssRule = wrappers.getWrapperForRuleInSheets(rule.get())) {
+            entry.selector = cssRule->selectorText();
+            if (RefPtr styleSheet = cssRule->parentStyleSheet()) {
+                entry.url = InspectorStyleSheet::styleSheetURL(styleSheet.get());
+                if (entry.url.isEmpty())
+                    entry.url = InspectorDOMAgent::documentURLString(styleSheet->ownerDocument());
+            }
+            if (RefPtr ruleObject = buildObjectForRule(cssRule.get()))
+                entry.lineNumber = ruleObject->asObject()->getInteger("sourceLine"_s).value_or(0);
+        }
+
+        auto result = entries.add(makeString(entry.selector, '?', entry.url, ':', entry.lineNumber), entry);
+        if (!result.isNewEntry) {
+            result.iterator->value.stats.totalTime += stats.totalTime;
+            result.iterator->value.stats.hits += stats.hits;
+            result.iterator->value.stats.matches += stats.matches;
+        }
+    }
+
+    auto selectorProfileData = JSON::ArrayOf<Inspector::Protocol::CSS::SelectorProfileEntry>::create();
+    for (auto& entry : entries.values()) {
+        selectorProfileData->addItem(Inspector::Protocol::CSS::SelectorProfileEntry::create()
+            .setSelector(entry.selector)
+            .setUrl(entry.url)
+            .setLineNumber(entry.lineNumber)
+            .setTime(entry.stats.totalTime)
+            .setHitCount(entry.stats.hits)
+            .setMatchCount(entry.stats.matches)
+            .release());
+    }
+
+    return Inspector::Protocol::CSS::SelectorProfile::create()
+        .setTotalTime(profile.totalMatchingTimeMs())
+        .setData(WTF::move(selectorProfileData))
+        .release();
 }
 
 RefPtr<Inspector::Protocol::CSS::CSSRule> InspectorCSSAgent::buildObjectForRule(CSSStyleRule* rule)

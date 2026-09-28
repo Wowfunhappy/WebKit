@@ -34,6 +34,8 @@
 #include "CSSSelector.h"
 #include "CanvasBase.h"
 #include "CanvasRenderingContext.h"
+// MAVERICKS_BACKPORT: the Database agent's didOpenDatabase hook, restored for the Safari 7 Web Inspector.
+#include "Database.h"
 #include "Element.h"
 #include "Event.h"
 #include "EventTarget.h"
@@ -101,6 +103,8 @@ class ScriptExecutionContext;
 class SecurityOrigin;
 class ServiceWorkerGlobalScope;
 class ShadowRoot;
+// MAVERICKS_BACKPORT: the CSS selector profiler's hooks, restored for the Safari 7 Web Inspector.
+class StyleRule;
 class FragmentedSharedBuffer;
 class TimerBase;
 class WebKitNamedFlow;
@@ -150,6 +154,10 @@ public:
     static void willPopShadowRoot(Element& host, ShadowRoot&);
     static void didChangeAssignedSlot(Node&);
     static void didChangeAssignedNodes(Element& slotElement);
+    // MAVERICKS_BACKPORT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
+    // Safari 7 Web Inspector.
+    static void willMatchRule(Document&);
+    static void didMatchRule(Document&, const StyleRule&, bool matched);
     static void didChangeCustomElementState(Element&);
     static void pseudoElementCreated(Page*, PseudoElement&);
     static void pseudoElementDestroyed(Page*, PseudoElement&);
@@ -296,6 +304,9 @@ public:
     static void willFireObserverCallback(ScriptExecutionContext&, const String& callbackType);
     static void didFireObserverCallback(ScriptExecutionContext&);
 
+    // MAVERICKS_BACKPORT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+    static void didOpenDatabase(Database&);
+
     static void didDispatchDOMStorageEvent(Page&, const String& key, const String& oldValue, const String& newValue, StorageType, const SecurityOrigin&);
 
     static bool shouldWaitForDebuggerOnStart(ScriptExecutionContext&);
@@ -383,6 +394,10 @@ private:
     static void willPopShadowRootImpl(InstrumentingAgents&, Element& host, ShadowRoot&);
     static void didChangeAssignedSlotImpl(InstrumentingAgents&, Node&);
     static void didChangeAssignedNodesImpl(InstrumentingAgents&, Element& slotElement);
+    // MAVERICKS_BACKPORT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
+    // Safari 7 Web Inspector.
+    static void willMatchRuleImpl(InstrumentingAgents&);
+    static void didMatchRuleImpl(InstrumentingAgents&, const StyleRule&, bool matched);
     static void didChangeCustomElementStateImpl(InstrumentingAgents&, Element&);
     static void pseudoElementCreatedImpl(InstrumentingAgents&, PseudoElement&);
     static void pseudoElementDestroyedImpl(InstrumentingAgents&, PseudoElement&);
@@ -501,6 +516,9 @@ private:
 
     static void willFireObserverCallbackImpl(InstrumentingAgents&, const String&);
     static void didFireObserverCallbackImpl(InstrumentingAgents&);
+
+    // MAVERICKS_BACKPORT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+    static void didOpenDatabaseImpl(InstrumentingAgents&, Database&);
 
     static void didDispatchDOMStorageEventImpl(InstrumentingAgents&, const String& key, const String& oldValue, const String& newValue, StorageType, const SecurityOrigin&);
 
@@ -729,6 +747,22 @@ inline void InspectorInstrumentation::didChangeAssignedNodes(Element& slotElemen
     FAST_RETURN_IF_NO_FRONTENDS(void());
     if (RefPtr agents = instrumentingAgents(slotElement.document()))
         didChangeAssignedNodesImpl(*agents, slotElement);
+}
+
+// MAVERICKS_BACKPORT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
+// Safari 7 Web Inspector.
+inline void InspectorInstrumentation::willMatchRule(Document& document)
+{
+    FAST_RETURN_IF_NO_FRONTENDS(void());
+    if (auto* agents = instrumentingAgents(document))
+        willMatchRuleImpl(*agents);
+}
+
+inline void InspectorInstrumentation::didMatchRule(Document& document, const StyleRule& rule, bool matched)
+{
+    FAST_RETURN_IF_NO_FRONTENDS(void());
+    if (auto* agents = instrumentingAgents(document))
+        didMatchRuleImpl(*agents, rule, matched);
 }
 
 inline void InspectorInstrumentation::didChangeCustomElementState(Element& element)
@@ -1339,6 +1373,14 @@ inline void InspectorInstrumentation::interceptResponse(const LocalFrame& frame,
 {
     ASSERT(InspectorInstrumentation::shouldInterceptResponse(frame, response));
     interceptResponseImpl(protect(instrumentingAgents(frame)), response, identifier, WTF::move(handler));
+}
+
+// MAVERICKS_BACKPORT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+inline void InspectorInstrumentation::didOpenDatabase(Database& database)
+{
+    FAST_RETURN_IF_NO_FRONTENDS(void());
+    if (auto* agents = instrumentingAgents(database.document()))
+        didOpenDatabaseImpl(*agents, database);
 }
 
 inline void InspectorInstrumentation::didDispatchDOMStorageEvent(Page& page, const String& key, const String& oldValue, const String& newValue, StorageType storageType, const SecurityOrigin& securityOrigin)

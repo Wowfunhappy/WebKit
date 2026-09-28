@@ -42,6 +42,8 @@
 #include "InspectorCSSAgent.h"
 #include "InspectorDOMAgent.h"
 #include "InspectorDOMStorageAgent.h"
+// MAVERICKS_BACKPORT: the Database agent, restored for the Safari 7 Web Inspector.
+#include "InspectorDatabaseAgent.h"
 #include "InspectorFrontendClient.h"
 #include "InspectorIdentifierRegistry.h"
 #include "InspectorIndexedDBAgent.h"
@@ -179,6 +181,8 @@ void PageInspectorController::createLazyAgents()
     m_agents.append(makeUniqueRef<InspectorLayerTreeAgent>(pageContext));
     m_agents.append(makeUniqueRef<PageWorkerAgent>(pageContext));
     m_agents.append(makeUniqueRef<InspectorDOMStorageAgent>(pageContext));
+    // MAVERICKS_BACKPORT: the Database agent, restored for the Safari 7 Web Inspector.
+    m_agents.append(makeUniqueRef<InspectorDatabaseAgent>(pageContext));
     m_agents.append(makeUniqueRef<InspectorIndexedDBAgent>(pageContext));
 
     auto scriptProfilerAgent = makeUniqueRef<InspectorScriptProfilerAgent>(pageContext);

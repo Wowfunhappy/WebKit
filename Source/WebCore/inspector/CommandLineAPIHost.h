@@ -84,6 +84,8 @@ public:
     void gatherRTCLogs(JSC::JSGlobalObject&, RefPtr<RTCLogsCallback>&&);
 #endif
 
+    // MAVERICKS_BACKPORT: the Database agent's CommandLineAPI hook, restored for the Safari 7 Web Inspector.
+    String databaseId(Database&);
     String storageId(Storage&);
 
     JSC::JSValue wrapper(JSC::JSGlobalObject*, JSDOMGlobalObject*);

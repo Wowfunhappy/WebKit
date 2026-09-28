@@ -667,6 +667,17 @@ Inspector::CommandResult<void> FrameCSSAgent::setLayoutContextTypeChangedMode(In
     return makeUnexpected("Not supported on frame targets"_s);
 }
 
+// MAVERICKS_BACKPORT: the CSS selector profiler's commands, restored for the Safari 7 Web Inspector on page targets.
+Inspector::CommandResult<void> FrameCSSAgent::startSelectorProfiler()
+{
+    return makeUnexpected("Not supported on frame targets"_s);
+}
+
+Inspector::CommandResult<Ref<Inspector::Protocol::CSS::SelectorProfile>> FrameCSSAgent::stopSelectorProfiler()
+{
+    return makeUnexpected("Not supported on frame targets"_s);
+}
+
 void FrameCSSAgent::styleSheetChanged(InspectorStyleSheet* inspectorStyleSheet)
 {
     if (!inspectorStyleSheet)

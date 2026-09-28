@@ -277,6 +277,9 @@ void LegacyWebPageInspectorController::removeTarget(const String& targetID)
         return;
 
     protect(targetAgent())->targetDestroyed(protect(*it->value));
+    // MAVERICKS_BACKPORT: the target owns the channel its page or frame inspector controller holds; a
+    // connected target ends that connection before the channel goes away with it.
+    it->value->disconnect();
     m_targets.remove(it);
 }
 

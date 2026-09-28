@@ -211,7 +211,8 @@ static void ensureWebInspectorClassicFrontendRegistered()
         WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler("inspector-resource"_s);
         [NSURLProtocol registerClass:[WebInspectorResourceProtocol class]];
         // Native user scripts are exempt from the page CSP, so injecting the bridge here (main world,
-        // document start) leaves the frontend's own script-src untouched.
+        // document start, top frame only as WK2's forMainFrameOnly:YES) leaves the frontend's own
+        // script-src untouched.
         [WebView _addUserScriptToGroup:WebInspectorFrontendGroupName
                                  world:[WebScriptWorld standardWorld]
                                 source:[NSString stringWithUTF8String:WebCore::classicInspectorFrontendBridgeScriptUTF8()]
@@ -219,7 +220,7 @@ static void ensureWebInspectorClassicFrontendRegistered()
             includeMatchPatternStrings:nil
             excludeMatchPatternStrings:nil
                          injectionTime:WebInjectAtDocumentStart
-                        injectedFrames:WebInjectInAllFrames];
+                        injectedFrames:WebInjectInTopFrameOnly];
     });
 }
 

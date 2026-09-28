@@ -51,6 +51,8 @@
 #include "InspectorDOMAgent.h"
 #include "InspectorDOMDebuggerAgent.h"
 #include "InspectorDOMStorageAgent.h"
+// MAVERICKS_BACKPORT: the Database agent, restored for the Safari 7 Web Inspector.
+#include "InspectorDatabaseAgent.h"
 #include "InspectorLayerTreeAgent.h"
 #include "InspectorMemoryAgent.h"
 #include "InspectorNetworkAgent.h"
@@ -345,6 +347,20 @@ void InspectorInstrumentation::didChangeAssignedNodesImpl(InstrumentingAgents& i
 {
     if (CheckedPtr cssAgent = instrumentingAgents.enabledCSSAgent())
         cssAgent->didChangeAssignedNodes(slotElement);
+}
+
+// MAVERICKS_BACKPORT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
+// Safari 7 Web Inspector.
+void InspectorInstrumentation::willMatchRuleImpl(InstrumentingAgents& instrumentingAgents)
+{
+    if (auto* cssAgent = instrumentingAgents.enabledCSSAgent())
+        cssAgent->willMatchRule();
+}
+
+void InspectorInstrumentation::didMatchRuleImpl(InstrumentingAgents& instrumentingAgents, const StyleRule& rule, bool matched)
+{
+    if (auto* cssAgent = instrumentingAgents.enabledCSSAgent())
+        cssAgent->didMatchRule(rule, matched);
 }
 
 void InspectorInstrumentation::didChangeCustomElementStateImpl(InstrumentingAgents& instrumentingAgents, Element& element)
@@ -858,6 +874,10 @@ void InspectorInstrumentation::didCommitLoadImpl(InstrumentingAgents& instrument
         if (CheckedPtr cssAgent = instrumentingAgents.enabledCSSAgent())
             cssAgent->reset();
 
+        // MAVERICKS_BACKPORT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+        if (auto* databaseAgent = instrumentingAgents.enabledDatabaseAgent())
+            databaseAgent->didCommitLoad();
+
         if (CheckedPtr domAgent = instrumentingAgents.persistentDOMAgent())
             domAgent->setDocument(protect(frame.document()));
 
@@ -1138,6 +1158,13 @@ void InspectorInstrumentation::consoleStopRecordingCanvasImpl(InstrumentingAgent
 {
     if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
         canvasAgent->consoleStopRecordingCanvas(context);
+}
+
+// MAVERICKS_BACKPORT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+void InspectorInstrumentation::didOpenDatabaseImpl(InstrumentingAgents& instrumentingAgents, Database& database)
+{
+    if (auto* databaseAgent = instrumentingAgents.enabledDatabaseAgent())
+        databaseAgent->didOpenDatabase(database);
 }
 
 void InspectorInstrumentation::didDispatchDOMStorageEventImpl(InstrumentingAgents& instrumentingAgents, const String& key, const String& oldValue, const String& newValue, StorageType storageType, const SecurityOrigin& securityOrigin)

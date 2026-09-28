@@ -36,6 +36,8 @@
 #include "EventTarget.h"
 #include "FrameInspectorController.h"
 #include "InspectorDOMStorageAgent.h"
+// MAVERICKS_BACKPORT: the Database agent, restored for the Safari 7 Web Inspector.
+#include "InspectorDatabaseAgent.h"
 #include "JSCommandLineAPIHost.h"
 #include "JSDOMGlobalObject.h"
 #include "JSEventListener.h"
@@ -206,6 +208,17 @@ JSC::JSValue CommandLineAPIHost::inspectedObject(JSC::JSGlobalObject& lexicalGlo
     JSC::JSLockHolder lock(&lexicalGlobalObject);
     auto scriptValue = m_inspectedObject->get(lexicalGlobalObject);
     return scriptValue ? scriptValue : jsUndefined();
+}
+
+// MAVERICKS_BACKPORT: the Database agent's CommandLineAPI hook, restored for the Safari 7 Web Inspector,
+// reaching the agent through the database's frame as inspect() reaches the inspector agent.
+String CommandLineAPIHost::databaseId(Database& database)
+{
+    if (RefPtr frame = database.document().frame()) {
+        if (auto* databaseAgent = frame->inspectorController().instrumentingAgents().enabledDatabaseAgent())
+            return databaseAgent->databaseId(database);
+    }
+    return { };
 }
 
 String CommandLineAPIHost::storageId(Storage& storage)
