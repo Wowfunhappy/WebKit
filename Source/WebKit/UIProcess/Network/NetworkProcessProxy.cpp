@@ -45,6 +45,7 @@
 #include "FormDataReference.h"
 #include "FrameInfoData.h"
 #include "ITPThirdPartyData.h"
+#include "LegacyExtensionHost.h" // MAVERICKS_BACKPORT: the constructor below.
 #include "LegacyGlobalSettings.h"
 #include "LoadedWebArchive.h"
 #include "Logging.h"
@@ -278,6 +279,7 @@ NetworkProcessProxy::NetworkProcessProxy()
 
     connect();
     sendCreationParametersToNewProcess();
+    LegacyExtensionHost::singleton().networkProcessCreated(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.
     updateProcessAssertion();
     networkProcessesSet().add(*this);
 #if PLATFORM(IOS_FAMILY)

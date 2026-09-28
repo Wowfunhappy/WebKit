@@ -20,6 +20,7 @@ if (MAVERICKS_WEBKITLEGACY_PHASE STREQUAL "LISTS")
 # WebView +initialize calls PAL::GCrypt::initialize() (WebCrypto is libgcrypt-backed on this port), so
 # WebKitLegacy needs gcrypt.h reachable.
 list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
+    "${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/LegacyExtensions"
     "${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/Misc"
     "${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport"
     "${MAVERICKS_DEPS}/include"
@@ -54,6 +55,8 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Misc/WebKeyGenerator.mm
     # The restored WebKit1 getUserMedia client.
     ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport/WebUserMediaClient.mm
+    # Hands WebKit's UI-process router the WebKit 1 views Safari 7 extension pages live in.
+    ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/LegacyExtensions/WebLegacyExtensionPageObserver.mm
 )
 
 elseif (MAVERICKS_WEBKITLEGACY_PHASE STREQUAL "POST")

@@ -1,0 +1,10 @@
+# A network process's webRequest events, for the UI process's router to dispatch to Safari 7 extensions.
+[
+    DispatchedFrom=Networking,
+    DispatchedTo=UI,
+    ExceptionForEnabledBy
+]
+messages -> LegacyExtensionNetworkProxy {
+    DispatchBlockingEvent(String eventName, String details) -> (String response)
+    DispatchEvent(String eventName, String details)
+}

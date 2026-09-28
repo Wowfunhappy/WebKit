@@ -47,6 +47,7 @@
 #include "FrameProcess.h"
 #include "GPUProcessConnectionParameters.h"
 #include "GamepadData.h"
+#include "LegacyExtensionHost.h" // MAVERICKS_BACKPORT: the constructor below.
 #include "LegacyGlobalSettings.h"
 #include "LoadedWebArchive.h"
 #include "Logging.h"
@@ -101,6 +102,7 @@
 #include "WebsiteDataStoreParameters.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <WebCore/GamepadProvider.h>
+#include <WebCore/LegacySchemeRegistry.h> // MAVERICKS_BACKPORT: registerGlobalURLSchemeAsHavingCustomProtocolHandlers below.
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotImplemented.h>
@@ -347,6 +349,8 @@ WebProcessPool::WebProcessPool(API::ProcessPoolConfiguration& configuration)
     storageAccessPromptQuirkController->initializeIfNeeded();
     storageAccessUserAgentStringQuirkController->initializeIfNeeded();
 #endif // ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
+
+    LegacyExtensionHost::singleton(); // MAVERICKS_BACKPORT: observes the WebKit 1 views that host Safari 7 extension pages from here on.
 }
 
 WebProcessPool::~WebProcessPool()
@@ -1690,6 +1694,9 @@ void WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(const
     globalURLSchemesWithCustomProtocolHandlers().add(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->registerSchemeForLegacyCustomProtocol(urlScheme);
+    // MAVERICKS_BACKPORT: the UI process's own WebKit 1 views load the scheme through the same custom protocol,
+    // so it is handled there as each web process handles it (WebPage's urlSchemesWithLegacyCustomProtocolHandlers).
+    WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(urlScheme);
     // MAVERICKS_BACKPORT: also tell already-running WebProcesses, so WebPage::canHandleRequest accepts
     // the scheme and WebCore's PolicyChecker lets the navigation through to the NetworkProcess.
     for (Ref processPool : allProcessPools())

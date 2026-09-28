@@ -27,6 +27,7 @@
 #include "NetworkConnectionToWebProcess.h"
 
 #include "BlobDataFileReferenceWithSandboxExtension.h"
+#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: dispatchMessage and createSocketChannel below.
 #include "LogInitialization.h"
 #include "Logging.h"
 #include "NetworkBroadcastChannelRegistry.h"
@@ -304,6 +305,8 @@ bool NetworkConnectionToWebProcess::dispatchMessage(IPC::Connection& connection,
         }
 
         MESSAGE_CHECK_WITH_RETURN_VALUE(AtomicObjectIdentifier<WebSocketIdentifierType>::isValidIdentifier(decoder.destinationID()), false);
+        if (LegacyExtensionNetwork::singleton().didReceivePendingWebSocketMessage(*this, decoder)) // MAVERICKS_BACKPORT: a WebSocket waiting on Safari 7 extensions' webRequest.
+            return true;
         if (RefPtr channel = m_networkSocketChannels.get(AtomicObjectIdentifier<WebSocketIdentifierType>(decoder.destinationID())))
             channel->didReceiveMessage(connection, decoder);
         return true;
@@ -551,6 +554,13 @@ void NetworkConnectionToWebProcess::createSocketChannel(const ResourceRequest& r
         RELEASE_LOG_ERROR(IPC, "createSocketChannel: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return;
     }
+
+    // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onBeforeRequest decides a WebSocket before its channel exists.
+    if (LegacyExtensionNetwork::singleton().interceptWebSocket(*this, request, identifier, webPageProxyID, frameID, clientOrigin, [this, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker] {
+        if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))
+            m_networkSocketChannels.add(identifier, channel.releaseNonNull());
+    }))
+        return;
 
     ASSERT(!m_networkSocketChannels.contains(identifier));
     if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))

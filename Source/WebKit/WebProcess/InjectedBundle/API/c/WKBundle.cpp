@@ -31,6 +31,7 @@
 #include "InjectedBundle.h"
 #include "InjectedBundleClient.h"
 #include "InjectedBundleScriptWorld.h"
+#include "LegacyExtensionContent.h" // MAVERICKS_BACKPORT: page-group user content C API below.
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
 #include "WKBundlePrivate.h"
@@ -122,7 +123,9 @@ void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
 // injected bundle to install extension content scripts and style sheets.
 // Restored from upstream e05340a^ (InjectedBundle::addUserScript and friends):
 // the content goes into the user content controller the page group's pages
-// share, so each script is registered once per page group.
+// share, so each script is registered once per page group. Each script's
+// safari-extension:// URL tells LegacyExtensionContent which extension the
+// script world belongs to.
 // Also restored: the OriginAccessWhitelist spellings (renamed AllowList
 // upstream) Safari calls for extension cross-origin access.
 
@@ -155,6 +158,7 @@ void WKBundleAddUserScript(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBun
         WebKit::toUserScriptInjectionTime(injectionTime),
         WebKit::toUserContentInjectedFrames(injectedFrames)
     };
+    WebKit::LegacyExtensionContent::singleton().didAddUserContent(WebKit::toImpl(scriptWorldRef)->coreWorld(), userScript.url());
     WebKit::toImpl(pageGroupRef)->userContentController().addUserScript(*WebKit::toImpl(scriptWorldRef), WTF::move(userScript));
 }
 
@@ -169,6 +173,7 @@ void WKBundleAddUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, W
         blockList ? blockList->toStringVector() : Vector<String>(),
         WebKit::toUserContentInjectedFrames(injectedFrames)
     };
+    WebKit::LegacyExtensionContent::singleton().didAddUserContent(WebKit::toImpl(scriptWorldRef)->coreWorld(), userStyleSheet.url());
     WebKit::toImpl(pageGroupRef)->userContentController().addUserStyleSheet(*WebKit::toImpl(scriptWorldRef), WTF::move(userStyleSheet));
 }
 

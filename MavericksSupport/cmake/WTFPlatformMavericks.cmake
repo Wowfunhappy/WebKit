@@ -55,7 +55,10 @@ list(APPEND WTF_SOURCES
     # TextStream::operator<<(id) and the CGRect/CGSize/CGPoint overloads, which
     # WebKitTestRunner's text-extraction description builder streams into.
     text/cocoa/TextStreamCocoa.mm
+    # Resolves a Safari 7 extension document's root-relative references under its per-launch root.
+    ${CMAKE_SOURCE_DIR}/MavericksSupport/source/WTF/wtf/LegacyExtensionURL.cpp
 )
+list(APPEND WTF_PRIVATE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/MavericksSupport/source/WTF/wtf")
 
 # The WTF GLib HELPER layer the upstream GStreamer media player needs. Only the smart-pointer / type
 # helpers (GRefPtr/GMallocString/GSpanExtras + header-only GUniquePtr/WTFGType/...), not the GLib

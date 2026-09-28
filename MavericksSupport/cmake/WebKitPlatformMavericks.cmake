@@ -121,6 +121,47 @@ list(APPEND WebKit_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebKit/WebProcess/InjectedBundle/Safari7StandardWorldBindings.cpp
 )
 
+# The `browser` namespace WebKit gives Safari 7 legacy extensions: LegacyExtensionAPI.js, the UI-process
+# router (LegacyExtensionHost), and its web-content (LegacyExtensionContent) and network-process
+# (LegacyExtensionNetwork) ends. Their message receivers are generated from DerivedSources copies of the
+# .messages.in files, which the generator finds by bare name.
+set(MAVERICKS_LEGACY_EXTENSIONS "${MAVERICKS_SUPPORT}/source/WebKit")
+list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
+    "${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions"
+    "${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions"
+    "${MAVERICKS_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions"
+    "${MAVERICKS_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions"
+    "${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/LegacyExtensions"
+)
+list(APPEND WebKit_SOURCES
+    ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionJavaScript.cpp
+    ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHost.cpp
+    ${MAVERICKS_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
+    ${MAVERICKS_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp
+)
+foreach (_mavReceiver
+    UIProcess/LegacyExtensions/LegacyExtensionHost
+    UIProcess/LegacyExtensions/LegacyExtensionNetworkProxy
+    WebProcess/LegacyExtensions/LegacyExtensionContent
+    NetworkProcess/LegacyExtensions/LegacyExtensionNetwork
+)
+    get_filename_component(_mavReceiverName ${_mavReceiver} NAME)
+    configure_file("${MAVERICKS_LEGACY_EXTENSIONS}/${_mavReceiver}.messages.in"
+        "${WebKit_DERIVED_SOURCES_DIR}/${_mavReceiverName}.messages.in" COPYONLY)
+    list(APPEND WebKit_MESSAGES_IN_FILES ${_mavReceiverName})
+endforeach ()
+add_custom_command(
+    OUTPUT ${WebKit_DERIVED_SOURCES_DIR}/LegacyExtensionAPIScriptSource.h ${WebKit_DERIVED_SOURCES_DIR}/LegacyExtensionAPI.sourced.js
+    MAIN_DEPENDENCY ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionAPI.js
+    DEPENDS ${JavaScriptCore_SCRIPTS_DIR}/xxd.pl
+    COMMAND ${CMAKE_COMMAND} -E echo "//# sourceURL=__InjectedScript_LegacyExtensionAPI.js" > ${WebKit_DERIVED_SOURCES_DIR}/LegacyExtensionAPI.sourced.js
+    COMMAND ${CMAKE_COMMAND} -E cat ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionAPI.js >> ${WebKit_DERIVED_SOURCES_DIR}/LegacyExtensionAPI.sourced.js
+    COMMAND ${PERL_EXECUTABLE} ${JavaScriptCore_SCRIPTS_DIR}/xxd.pl LegacyExtensionAPIScriptSource ${WebKit_DERIVED_SOURCES_DIR}/LegacyExtensionAPI.sourced.js ${WebKit_DERIVED_SOURCES_DIR}/LegacyExtensionAPIScriptSource.h
+    VERBATIM)
+list(APPEND WebKit_HEADERS
+    ${WebKit_DERIVED_SOURCES_DIR}/LegacyExtensionAPIScriptSource.h
+)
+
 # two more source entries with no file behind them here. handleXPCEndpointMessage
 # is compiled from Shared/EntryPointUtilities/Cocoa/XPCService/XPCEndpointMessages.mm, and the
 # connection-termination watchdog's reason string is inline in AuxiliaryProcessProxyCocoa.mm, so

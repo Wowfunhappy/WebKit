@@ -40,6 +40,7 @@
 #if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
 #include "LegacyCustomProtocolManager.h"
 #endif
+#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: the constructor below.
 #include "LoadedWebArchive.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcess.h"
@@ -201,6 +202,7 @@ NetworkProcess::NetworkProcess(AuxiliaryProcessInitializationParameters&& parame
 #if PLATFORM(COCOA) && ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
     LegacyCustomProtocolManager::networkProcessCreated(*this);
 #endif
+    LegacyExtensionNetwork::singleton().initialize(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.
 
     NetworkStateNotifier::singleton().addListener([weakThis = WeakPtr { *this }](bool isOnLine) {
         if (!weakThis)

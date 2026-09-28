@@ -1,0 +1,11 @@
+# The UI process's router delivering a message to one frame's context of one Safari 7 extension, and
+# webRequest.handlerBehaviorChanged emptying the memory cache, whose hits never reach webRequest.
+[
+    DispatchedFrom=UI,
+    DispatchedTo=WebContent,
+    ExceptionForEnabledBy
+]
+messages -> LegacyExtensionContent {
+    Deliver(WebCore::FrameIdentifier frameID, std::optional<WebCore::ScriptExecutionContextIdentifier> documentID, String extensionKey, String message)
+    EvictMemoryCache()
+}

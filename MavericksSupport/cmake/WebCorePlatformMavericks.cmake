@@ -446,6 +446,8 @@ list(APPEND WebCore_SOURCES
     # goes on the include path below. Its own translation unit: it includes FFmpeg's headers, whose
     # macros must not reach any other source.
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/mediarecorder/MediaRecorderPrivateWriterMP4.cpp
+    # Safari 7 extensions' tabs.insertCSS style sheets.
+    ${MAVERICKS_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.cpp
 )
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa"
@@ -455,6 +457,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerMavericks.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.h
     # The classic inspector frontend's bridge script, which both ports inject.
     ${MAVERICKS_SUPPORT}/source/WebCore/inspector/InspectorFrontendClassicBridge.h
 )

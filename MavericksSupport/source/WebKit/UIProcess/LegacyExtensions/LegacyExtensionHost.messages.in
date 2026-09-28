@@ -1,0 +1,10 @@
+# Messages from a web content process's Safari 7 extension contexts (content scripts and extension pages)
+# to the UI process's router.
+[
+    DispatchedFrom=WebContent,
+    DispatchedTo=UI,
+    ExceptionForEnabledBy
+]
+messages -> LegacyExtensionHost {
+    Post(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, String message)
+}

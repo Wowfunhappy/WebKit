@@ -37,6 +37,7 @@
 #include "IPCTestingAPI.h"
 #include "InjectedBundle.h"
 #include "InjectedBundleDOMWindowExtension.h"
+#include "LegacyExtensionContent.h" // MAVERICKS_BACKPORT: dispatchDidClearWindowObjectInWorld below.
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "NavigationActionData.h"
@@ -1990,6 +1991,8 @@ void WebLocalFrameLoaderClient::dispatchDidClearWindowObjectInWorld(DOMWrapperWo
 #endif
 
     webPage->injectedBundleLoaderClient().didClearWindowObjectForFrame(*webPage, m_frame, world);
+
+    LegacyExtensionContent::singleton().didClearWindowObjectForFrame(m_frame, world); // MAVERICKS_BACKPORT: Safari 7 extensions' browser namespace.
 
     RefPtr automationSessionProxy = WebProcess::singleton().automationSessionProxy();
     if (automationSessionProxy && world.isNormal())

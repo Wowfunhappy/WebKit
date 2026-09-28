@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>legacy extension coverage</title>
+<link rel="stylesheet" href="/res/blocked-stylesheet.css">
+<link rel="stylesheet" href="/res/allowed-stylesheet.css">
+<style>
+@font-face { font-family: probe; src: url(/res/blocked-font.woff); }
+#bg { width: 1px; height: 1px; background-image: url(/res/blocked-bgimage.png); }
+#font { font-family: probe; }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<p id="font">font</p>
+<div id="css-target">cosmetic target</div>
+<div id="css-file-target">file style sheet target</div>
+<div id="css-code-target">code style sheet target</div>
+<div id="host"></div>
+<img id="img-blocked" src="/res/blocked-image.png">
+<img id="img-allowed" src="/res/allowed-image.png">
+<iframe id="frame-blocked" src="/res/blocked-frame.html"></iframe>
+<iframe id="frame-allowed" src="/res/allowed-frame.html"></iframe>
+<script src="/res/blocked-script.js"></script>
+<script src="/res/allowed-script.js"></script>
+<script src="/res/redirect-script.js"></script>
+<script>
+'use strict';
+const results = window.__results = {};
+const settle = (name, promise) => {
+    results[name] = 'pending';
+    return promise.then(v => { results[name] = v; }, e => { results[name] = 'error:' + (e && e.message || e); });
+};
+const xhr = url => new Promise(resolve => {
+    const r = new XMLHttpRequest();
+    r.open('GET', url);
+    r.onload = () => resolve('loaded:' + r.status);
+    r.onerror = () => resolve('error');
+    r.send();
+});
+settle('xhr-blocked', xhr('/res/blocked-xhr.json'));
+settle('xhr-allowed', xhr('/res/allowed-xhr.json'));
+settle('fetch-blocked', fetch('/res/blocked-fetch.json').then(r => 'loaded:' + r.status));
+settle('fetch-allowed', fetch('/res/allowed-fetch.json').then(r => 'loaded:' + r.status));
+settle('headers-blocked', fetch('/res/blocked-by-headers.json').then(r => 'loaded:' + r.status));
+settle('websocket-blocked', new Promise(resolve => {
+    // Closed while the extension decides: the handshake never reaches the server.
+    const pending = new WebSocket('ws://127.0.0.1:8844/slow-ws');
+    results['websocket-closed-pending'] = 'pending';
+    pending.onclose = event => { results['websocket-closed-pending'] = 'close:' + event.code; };
+    pending.close();
+    const ws = new WebSocket('ws://127.0.0.1:8844/blocked-ws');
+    ws.onmessage = () => resolve('message');
+    ws.onerror = () => resolve('error');
+}));
+settle('websocket-allowed', new Promise(resolve => {
+    const ws = new WebSocket('ws://127.0.0.1:8844/allowed-ws');
+    ws.onmessage = () => resolve('message');
+    ws.onerror = () => resolve('error');
+}));
+settle('beacon', Promise.resolve(navigator.sendBeacon('/res/blocked-beacon.txt', 'x') ? 'queued' : 'refused'));
+settle('eventsource-blocked', new Promise(resolve => {
+    const es = new EventSource('/sse/blocked-eventsource');
+    es.onmessage = () => { es.close(); resolve('message'); };
+    es.onerror = () => { es.close(); resolve('error'); };
+}));
+settle('worker-blocked', new Promise(resolve => {
+    const w = new Worker('/res/blocked-worker.js');
+    w.onerror = () => resolve('error');
+    setTimeout(() => resolve('no-error'), 1000);
+}));
+window.addEventListener('load', () => {
+    results['img-blocked'] = document.getElementById('img-blocked').naturalWidth ? 'loaded' : 'blocked';
+    results['img-allowed'] = document.getElementById('img-allowed').naturalWidth ? 'loaded' : 'blocked';
+    results['script-blocked'] = (window.__loaded || []).includes('blocked-script.js') ? 'loaded' : 'blocked';
+    results['script-allowed'] = (window.__loaded || []).includes('allowed-script.js') ? 'loaded' : 'blocked';
+    results['script-redirected'] = window.__redirected === true ? 'redirected' : 'not-redirected';
+    results['css-target'] = getComputedStyle(document.getElementById('css-target')).display;
+    results['stylesheet-count'] = document.styleSheets.length;
+    results['own-globals'] = ['browser', 'chrome', 'safari', 'vAPI'].filter(n => n in window);
+    results['xhr-open-native'] = /\[native code\]/.test(Function.prototype.toString.call(XMLHttpRequest.prototype.open));
+    results['fetch-native'] = /\[native code\]/.test(Function.prototype.toString.call(window.fetch));
+});
+</script>
+</body>
+</html>

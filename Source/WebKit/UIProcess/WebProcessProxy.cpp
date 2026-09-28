@@ -38,6 +38,7 @@
 #include "GPUProcessConnectionParameters.h"
 #include "GoToBackForwardItemParameters.h"
 #include "JavaScriptEvaluationResult.h"
+#include "LegacyExtensionHost.h" // MAVERICKS_BACKPORT: the Safari 7 extension hooks below.
 #include "LoadParameters.h"
 #include "Logging.h"
 #include "ModelProcessConnectionParameters.h"
@@ -359,6 +360,7 @@ WebProcessProxy::WebProcessProxy(WebProcessPool& processPool, WebsiteDataStore* 
         registerNotifyObservers();
     }
 #endif
+    LegacyExtensionHost::singleton().webProcessCreated(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' content contexts.
 }
 
 #if !PLATFORM(IOS_FAMILY)
@@ -859,6 +861,7 @@ Ref<WebPageProxy> WebProcessProxy::createWebPage(PageClient& pageClient, Ref<API
     Ref webPage = WebPageProxy::create(pageClient, *this, WTF::move(pageConfiguration));
 
     addExistingWebPage(webPage.get(), BeginsUsingDataStore::Yes);
+    LegacyExtensionHost::singleton().pageWasCreated(webPage); // MAVERICKS_BACKPORT: Safari 7 extensions' tabs events.
 
     return webPage;
 }

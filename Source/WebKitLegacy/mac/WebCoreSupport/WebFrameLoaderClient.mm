@@ -57,6 +57,7 @@
 #import "WebKitLogging.h"
 #import "WebKitNSStringExtras.h"
 #import "WebKitVersionChecks.h"
+#import "WebLegacyExtensionPageObserver.h" // MAVERICKS_BACKPORT: the Safari 7 extension-page hooks below.
 #import "WebNSURLExtras.h"
 #import "WebNavigationData.h"
 #import "WebPanelAuthenticationHandler.h"
@@ -269,6 +270,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 void WebFrameLoaderClient::detachedFromParent2()
 {
+    WebLegacyExtensionPageObserverFrameWillBeDestroyed(m_webFrame.get()); // MAVERICKS_BACKPORT: ends the frame's Safari 7 extension-page routing.
+
     //remove any NetScape plugins that are children of this frame because they are about to be detached
     RetainPtr webView = getWebView(m_webFrame.get());
 #if !PLATFORM(IOS_FAMILY)
@@ -1863,6 +1866,9 @@ AtomString WebFrameLoaderClient::overrideMediaType() const
 
 void WebFrameLoaderClient::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld& world)
 {
+    if (world.isNormal()) // MAVERICKS_BACKPORT: gives Safari 7 extension pages, which Safari hosts in WebKit 1, their browser namespace.
+        WebLegacyExtensionPageObserverDidClearWindowObject(m_webFrame.get());
+
     RetainPtr webView = getWebView(m_webFrame.get());
     WebFrameLoadDelegateImplementationCache* implementations = WebViewGetFrameLoadDelegateImplementations(webView.get());
 

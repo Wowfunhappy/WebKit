@@ -488,7 +488,9 @@ bool ScriptElement::requestModuleScript(const String& sourceText, const TextPosi
     ScriptSourceCode sourceCode(sourceText, m_taintedOrigin, URL(document->url()), position, JSC::SourceProviderSourceType::Module, script.copyRef());
 
     ASSERT(document->contentSecurityPolicy());
-    {
+    // {
+    // MAVERICKS_BACKPORT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
+    if (!document->shouldBypassMainWorldContentSecurityPolicy()) {
         CheckedRef contentSecurityPolicy = *document->contentSecurityPolicy();
         if (!contentSecurityPolicy->allowScriptForStrictDynamic(URL(), document->url(), m_startPosition.m_line, element->nonce(), script->parameters().integrity(), sourceCode.source(), m_parserInserted))
             return false;
@@ -513,7 +515,11 @@ void ScriptElement::executeClassicScript(const ScriptSourceCode& sourceCode)
 
     Ref element = this->element();
     Ref document = element->document();
-    if (!m_isExternalScript) {
+    // if (!m_isExternalScript) {
+    // MAVERICKS_BACKPORT: an inline script an isolated world inserts is not subject to the page's Content
+    // Security Policy, as that world's fetches, WebSockets and workers are not; Safari 7 extensions'
+    // content scripts inject page-world code this way.
+    if (!m_isExternalScript && !document->shouldBypassMainWorldContentSecurityPolicy()) {
         ASSERT(document->contentSecurityPolicy());
         CheckedRef contentSecurityPolicy = *document->contentSecurityPolicy();
         if (!contentSecurityPolicy->allowScriptForStrictDynamic(URL(), document->url(), m_startPosition.m_line, element->nonce(), emptyString(), sourceCode.source(), m_parserInserted))
@@ -551,7 +557,9 @@ void ScriptElement::registerImportMap(const ScriptSourceCode& sourceCode)
         return;
     }
 
-    if (!m_isExternalScript) {
+    // if (!m_isExternalScript) {
+    // MAVERICKS_BACKPORT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
+    if (!m_isExternalScript && !document->shouldBypassMainWorldContentSecurityPolicy()) {
         ASSERT(document->contentSecurityPolicy());
         CheckedRef contentSecurityPolicy = *document->contentSecurityPolicy();
         if (!contentSecurityPolicy->allowScriptForStrictDynamic(URL(), document->url(), m_startPosition.m_line, element->nonce(), emptyString(), sourceCode.source(), m_parserInserted))
@@ -722,7 +730,9 @@ void ScriptElement::registerSpeculationRules(const ScriptSourceCode& sourceCode)
         return;
     }
 
-    if (!m_isExternalScript) {
+    // if (!m_isExternalScript) {
+    // MAVERICKS_BACKPORT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
+    if (!m_isExternalScript && !document->shouldBypassMainWorldContentSecurityPolicy()) {
         CheckedPtr contentSecurityPolicy = document->contentSecurityPolicy();
         if (!contentSecurityPolicy)
             return;

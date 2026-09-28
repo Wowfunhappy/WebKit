@@ -94,6 +94,7 @@
 #include "GoToBackForwardItemParameters.h"
 #include "ImageOptions.h"
 #include "JavaScriptEvaluationResult.h"
+#include "LegacyExtensionHost.h" // MAVERICKS_BACKPORT: the Safari 7 extension hooks below.
 #include "LegacyGlobalSettings.h"
 #include "LoadParameters.h"
 #include "LoadedWebArchive.h"
@@ -1929,6 +1930,8 @@ void WebPageProxy::close()
     WEBPAGEPROXY_RELEASE_LOG(Loading, "close:");
 
     m_isClosed = true;
+
+    LegacyExtensionHost::singleton().pageWillClose(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' tabs.onRemoved; ends the page's extension ports.
 
     // Make sure we do this before we clear the UIClient so that we can ask the UIClient
     // to release the wake locks.
@@ -7769,6 +7772,7 @@ void WebPageProxy::didDestroyFrame(IPC::Connection& connection, FrameIdentifier 
 #endif
     if (RefPtr automationSession = m_configuration->processPool().automationSession())
         automationSession->didDestroyFrame(frameID);
+    LegacyExtensionHost::singleton().didDestroyFrame(frameID); // MAVERICKS_BACKPORT: ends the frame's Safari 7 extension ports.
     if (RefPtr frame = WebFrameProxy::webFrame(frameID))
         frame->disconnect();
 
@@ -8757,6 +8761,7 @@ void WebPageProxy::didCommitLoadForFrame(IPC::Connection& connection, FrameIdent
     if (RefPtr automationSession = activeAutomationSession())
         automationSession->navigationCommittedForFrame(*frame, navigationID);
 #endif
+    LegacyExtensionHost::singleton().didCommitLoad(*this, *frame, frameInfo.documentID, navigation.get(), frameLoadType, frame->url()); // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onCommitted.
     if (m_loaderClient)
         m_loaderClient->didCommitLoadForFrame(*this, *frame, navigation, process->transformHandlesToObjects(protect(userData.object()).get()).get());
     else {
@@ -8833,6 +8838,7 @@ void WebPageProxy::didFinishDocumentLoadForFrame(IPC::Connection& connection, Fr
 
     if (RefPtr automationSession = activeAutomationSession())
         automationSession->documentLoadedForFrame(*frame, navigationID, timestamp);
+    LegacyExtensionHost::singleton().didFinishDocumentLoad(*this, *frame); // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onDOMContentLoaded.
 
     // FIXME: We should message check that navigationID is not zero here, but it's currently zero for some navigations through the back/forward cache.
     RefPtr<API::Navigation> navigation;
@@ -10761,7 +10767,8 @@ void WebPageProxy::createNewPage(IPC::Connection& connection, WindowFeatures&& w
         navigationDataForNewProcess = WTF::move(navigationDataForNewProcess),
         shouldOpenExternalURLsPolicy = navigationActionData.shouldOpenExternalURLsPolicy,
         openedBlobURL,
-        wantsNoOpener = windowFeatures.wantsNoOpener()
+        wantsNoOpener = windowFeatures.wantsNoOpener(),
+        originatingFrameID = originatingFrame->frameID() // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onCreatedNavigationTarget.
     ] (RefPtr<WebPageProxy> newPage) mutable {
 
 #if PLATFORM(MAC)
@@ -10781,6 +10788,7 @@ void WebPageProxy::createNewPage(IPC::Connection& connection, WindowFeatures&& w
             pageClient->dismissAnyOpenPicker();
 
         newPage->setOpenedByDOM();
+        LegacyExtensionHost::singleton().didCreateNavigationTarget(*this, originatingFrameID, *newPage, request.url()); // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onCreatedNavigationTarget.
 
         if (openerAppInitiatedState)
             newPage->m_lastNavigationWasAppInitiated = *openerAppInitiatedState;

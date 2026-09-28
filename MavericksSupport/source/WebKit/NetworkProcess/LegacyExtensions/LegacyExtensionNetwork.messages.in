@@ -1,0 +1,10 @@
+# The webRequest events Safari 7 extensions listen to, and the filter of each blocking listener: a JSON
+# object mapping an event name to an array of {extension, urls, types, tabId}.
+[
+    DispatchedFrom=UI,
+    DispatchedTo=Networking,
+    ExceptionForEnabledBy
+]
+messages -> LegacyExtensionNetwork {
+    SetListeners(Vector<String> observedEvents, String blockingListeners)
+}

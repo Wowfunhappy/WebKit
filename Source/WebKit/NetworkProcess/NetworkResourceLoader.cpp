@@ -29,6 +29,7 @@
 #include "ArgumentCoders.h"
 #include "EarlyHintsResourceLoader.h"
 #include "FormDataReference.h"
+#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: the Safari 7 extension webRequest hooks below.
 #include "LoadedWebArchive.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
@@ -606,6 +607,8 @@ void NetworkResourceLoader::cleanup(LoadResult result)
         break;
     }
 
+    LegacyExtensionNetwork::singleton().loaderDidFinish(*this, result); // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onCompleted and onErrorOccurred.
+
     Ref connection = m_connection;
     connection->stopTrackingResourceLoad(coreIdentifier(), code);
 
@@ -928,6 +931,9 @@ void NetworkResourceLoader::didReceiveInformationalResponse(ResourceResponse&& r
 
 void NetworkResourceLoader::didReceiveResponse(ResourceResponse&& receivedResponse, PrivateRelayed privateRelayed, ResponseCompletionHandler&& completionHandler)
 {
+    if (LegacyExtensionNetwork::singleton().interceptResponse(*this, receivedResponse, privateRelayed, completionHandler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onHeadersReceived.
+        return;
+
     LOADER_RELEASE_LOG("didReceiveResponse: (httpStatusCode=%d, MIMEType=%" PUBLIC_LOG_STRING ", expectedContentLength=%lld, hasCachedEntryForValidation=%d, hasNetworkLoadChecker=%d)", receivedResponse.httpStatusCode(), receivedResponse.mimeType().utf8().data(), receivedResponse.expectedContentLength(), !!m_cacheEntryForValidation, !!m_networkLoadChecker);
 
 #if ENABLE(CONTENT_FILTERING)
@@ -1281,6 +1287,7 @@ void NetworkResourceLoader::didFailLoading(const ResourceError& error)
         protect(connection->networkProcess().parentProcessConnection())->send(Messages::NetworkProcessProxy::DidBlockLoadToKnownTracker(webPageProxyID(), WTF::move(effectiveBlockedURL)), 0);
     }
 #endif
+    LegacyExtensionNetwork::singleton().loaderDidFail(*this, error); // MAVERICKS_BACKPORT: the error Safari 7 extensions' webRequest.onErrorOccurred reports.
     cleanup(LoadResult::Failure);
 }
 
@@ -1757,6 +1764,9 @@ void NetworkResourceLoader::initializeReportingEndpoints(const ResourceResponse&
 
 void NetworkResourceLoader::didRetrieveCacheEntry(std::unique_ptr<NetworkCache::Entry> entry)
 {
+    if (LegacyExtensionNetwork::singleton().interceptCachedResponse(*this, entry)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onHeadersReceived.
+        return;
+
     LOADER_RELEASE_LOG("didRetrieveCacheEntry:");
     auto response = entry->response();
 

@@ -27,6 +27,7 @@
 #include "NetworkLoadChecker.h"
 
 #include "Download.h"
+#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: checkRequest below.
 #include "Logging.h"
 #include "NetworkCORSPreflightChecker.h"
 #include "NetworkOriginAccessPatterns.h"
@@ -315,6 +316,9 @@ auto NetworkLoadChecker::accessControlErrorForValidationHandler(String&& message
 
 void NetworkLoadChecker::checkRequest(ResourceRequest&& request, ContentSecurityPolicyClient* client, ValidationHandler&& handler)
 {
+    if (LegacyExtensionNetwork::singleton().interceptRequest(*this, request, client, handler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onBeforeRequest.
+        return;
+
     ResourceRequest originalRequest = request;
 
     if (CheckedPtr contentSecurityPolicy = this->contentSecurityPolicy()) {

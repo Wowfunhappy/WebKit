@@ -33,6 +33,7 @@
 #include "AuxiliaryProcessMessages.h"
 #include "EventDispatcher.h"
 #include "InjectedBundle.h"
+#include "LegacyExtensionContent.h" // MAVERICKS_BACKPORT: the constructor below.
 #include "LibWebRTCNetwork.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
@@ -420,6 +421,7 @@ WebProcess::WebProcess()
 
     WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
     WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
+    LegacyExtensionContent::singleton().initialize(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' browser namespace.
 }
 
 WebProcess::~WebProcess()
