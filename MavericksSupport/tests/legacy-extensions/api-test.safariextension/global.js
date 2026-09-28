@@ -33,6 +33,12 @@ browser.webRequest.onHeadersReceived.addListener(details => {
     }
 }, { urls: ['http://127.0.0.1/*'] }, ['blocking', 'responseHeaders']);
 
+// An extension page's permission read waits on this listener's verdict while its process is blocked on it.
+browser.webRequest.onBeforeRequest.addListener(details => {
+    report('manifest-request', { url: details.url, type: details.type, tabId: details.tabId });
+    return new Promise(resolve => setTimeout(() => resolve({}), 200));
+}, { urls: ['safari-extension://*/*manifest.json'] }, ['blocking']);
+
 browser.webNavigation.onCommitted.addListener(details => report('onCommitted', details));
 browser.webNavigation.onCreatedNavigationTarget.addListener(details => report('onCreatedNavigationTarget', details));
 browser.tabs.onRemoved.addListener(tabId => report('onRemoved', { tabId }));
@@ -110,3 +116,39 @@ safari.application.addEventListener('contextmenu', event => {
     const info = event.userInfo;
     report('contextmenu-userinfo', { json: JSON.stringify(info), types: info && Object.fromEntries(Object.entries(info).map(([k, v]) => [k, Array.isArray(v) ? 'array' : typeof v])) });
 }, false);
+
+// The clipboard, well after any user gesture, as a password manager clears what it copied.
+(async () => {
+    const clipboard = navigator.clipboard;
+    const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+    const result = {
+        type: Object.prototype.toString.call(clipboard),
+        writeTextLength: clipboard.writeText.length,
+    };
+    try {
+        await fetch(`${SERVER}/report?clipboard-start=${Date.now()}`);
+        await wait(1500);
+        const copied = `legacy-extension-clipboard-${Date.now()}`;
+        result.write = await clipboard.writeText(copied);
+        result.readBack = await clipboard.readText() === copied;
+        result.systemPasteboard = await (await fetch(`${SERVER}/pbpaste`)).text() === copied;
+
+        await wait(1000);
+        if (await clipboard.readText() === copied)
+            await clipboard.writeText('');
+        result.clearedUnchanged = await clipboard.readText() === '';
+
+        await clipboard.writeText(copied);
+        const external = `external-${Date.now()}`;
+        await fetch(`${SERVER}/pbcopy?${encodeURIComponent(external)}`);
+        await wait(500);
+        if (await clipboard.readText() === copied)
+            await clipboard.writeText('');
+        result.keptExternal = await clipboard.readText() === external;
+
+        result.wrongThis = await clipboard.writeText.call({}, 'x').then(() => 'resolved', error => error.name);
+    } catch (error) {
+        result.error = `${error.name}: ${error.message}`;
+    }
+    report('clipboard', result);
+})();

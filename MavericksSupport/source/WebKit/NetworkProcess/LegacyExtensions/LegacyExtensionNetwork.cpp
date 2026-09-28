@@ -5,6 +5,7 @@
 #include "Decoder.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
+#include "LegacyExtensionScheme.h"
 #include "MessageNames.h"
 #include "NetworkCache.h"
 #include "NetworkCacheEntry.h"
@@ -256,6 +257,7 @@ LegacyExtensionNetwork& LegacyExtensionNetwork::singleton()
 
 void LegacyExtensionNetwork::initialize(NetworkProcess& networkProcess)
 {
+    LegacyExtensions::registerExtensionScheme();
     m_networkProcess = networkProcess;
     networkProcess.addMessageReceiver(Messages::LegacyExtensionNetwork::messageReceiverName(), *this);
 }

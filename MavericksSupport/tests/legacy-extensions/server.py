@@ -8,9 +8,11 @@ import http.server
 import json
 import os
 import socketserver
+import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 LOG = []
@@ -55,6 +57,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.reply('ok')
         record({'method': 'GET', 'path': path, 'referer': self.headers.get('Referer', '')})
         if path.startswith('/report'):
+            return self.reply('ok')
+        # The general pasteboard as a process outside the browser sees it, and a copy made there.
+        if path == '/pbpaste':
+            return self.reply(subprocess.run(['pbpaste'], capture_output=True).stdout)
+        if path.startswith('/pbcopy?'):
+            subprocess.run(['pbcopy'], input=urllib.parse.unquote(path.split('?', 1)[1]).encode(), check=True)
             return self.reply('ok')
         if path.startswith('/res/'):
             name = path.split('?')[0].rsplit('/', 1)[-1]

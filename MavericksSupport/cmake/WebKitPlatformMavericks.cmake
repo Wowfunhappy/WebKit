@@ -135,6 +135,8 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 )
 list(APPEND WebKit_SOURCES
     ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionJavaScript.cpp
+    ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionScheme.cpp
+    ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm
     ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHost.cpp
     ${MAVERICKS_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
     ${MAVERICKS_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp

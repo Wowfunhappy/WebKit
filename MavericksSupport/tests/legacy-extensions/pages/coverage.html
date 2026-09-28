@@ -59,6 +59,9 @@ settle('websocket-allowed', new Promise(resolve => {
     ws.onmessage = () => resolve('message');
     ws.onerror = () => resolve('error');
 }));
+// A web page keeps WebCore's clipboard rules: no gesture, no access.
+settle('clipboard-write', navigator.clipboard.writeText('web page').then(() => 'resolved', error => error.name));
+settle('clipboard-read', navigator.clipboard.readText().then(() => 'resolved', error => error.name));
 settle('beacon', Promise.resolve(navigator.sendBeacon('/res/blocked-beacon.txt', 'x') ? 'queued' : 'refused'));
 settle('eventsource-blocked', new Promise(resolve => {
     const es = new EventSource('/sse/blocked-eventsource');

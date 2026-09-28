@@ -18,10 +18,15 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <QuartzCore/QuartzCore.h>
 #import <dlfcn.h>
+#import <errno.h>
+#import <fcntl.h>
 #import <math.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <pthread.h>
+#import <spawn.h>
+#import <sys/wait.h>
+#import <unistd.h>
 
 #define SRGB(r, g, b, a) [NSColor colorWithSRGBRed:(r)/255.0 green:(g)/255.0 blue:(b)/255.0 alpha:(a)/255.0]
 
@@ -704,11 +709,94 @@ WK_POLYFILL_ADD_METHODS(NSMenu)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSPasteboard _setExpirationDate:] (11.0+ private SPI): auto-clears ephemeral pasteboard data after a
-// delay. 10.9 has no such pasteboard-server mechanism, so the faithful 10.9 behavior is a no-op (the data
-// simply persists, exactly as when the guard skipped the call).
+// -[NSPasteboard _setExpirationDate:] (11.0+ private SPI): the pasteboard's current contents are cleared
+// at `date` unless something has replaced them by then, and a later call replaces the date. On 11.0 the
+// pasteboard server keeps the expiration; here the pasteboard-expiration helper beside this image does,
+// so the expiration outlives the caller. Writing to the helper's input cancels it.
+static dispatch_queue_t pasteboardExpirationQueue(void)
+{
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        queue = dispatch_queue_create("org.webkit.pasteboard-expiration", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
+static const char* pasteboardExpirationHelperPath(void)
+{
+    static char path[PATH_MAX];
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Dl_info info;
+        char image[PATH_MAX];
+        dladdr((const void*)&pasteboardExpirationHelperPath, &info);
+        if (!realpath(info.dli_fname, image))
+            return;
+        *strrchr(image, '/') = 0;
+        snprintf(path, sizeof(path), "%s/Helpers/pasteboard-expiration", image);
+    });
+    return path[0] ? path : NULL;
+}
+
+static char pasteboardExpirationKey;
+
 WK_POLYFILL_ADD_METHODS(NSPasteboard)
-- (void)_setExpirationDate:(NSDate *)date { (void)date; }
+- (BOOL)_setExpirationDate:(NSDate *)date
+{
+    NSString *name = self.name;
+    NSInteger changeCount = self.changeCount;
+    NSTimeInterval deadline = date.timeIntervalSince1970;
+    __block BOOL scheduled = NO;
+    dispatch_sync(pasteboardExpirationQueue(), ^{
+        NSFileHandle *pending = objc_getAssociatedObject(self, &pasteboardExpirationKey);
+        if (pending) {
+            char cancel = 0;
+            write(pending.fileDescriptor, &cancel, 1);
+            objc_setAssociatedObject(self, &pasteboardExpirationKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+
+        const char* helper = pasteboardExpirationHelperPath();
+        int channel[2];
+        if (!helper || pipe(channel))
+            return;
+        fcntl(channel[1], F_SETFD, FD_CLOEXEC);
+        fcntl(channel[1], F_SETNOSIGPIPE, 1);
+
+        char changeCountArgument[32], deadlineArgument[32];
+        snprintf(changeCountArgument, sizeof(changeCountArgument), "%lld", (long long)changeCount);
+        snprintf(deadlineArgument, sizeof(deadlineArgument), "%.3f", deadline);
+        char* arguments[] = { (char*)helper, (char*)name.UTF8String, changeCountArgument, deadlineArgument, NULL };
+
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, channel[0], STDIN_FILENO);
+        posix_spawnattr_t attributes;
+        posix_spawnattr_init(&attributes);
+        posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT);
+        pid_t pid;
+        int error = posix_spawn(&pid, helper, &actions, &attributes, arguments, NULL);
+        posix_spawnattr_destroy(&attributes);
+        posix_spawn_file_actions_destroy(&actions);
+        close(channel[0]);
+        if (error) {
+            close(channel[1]);
+            return;
+        }
+        // The helper hands the expiration to a detached child and exits at once.
+        int status;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) { }
+        if (!WIFEXITED(status) || WEXITSTATUS(status)) {
+            close(channel[1]);
+            return;
+        }
+        NSFileHandle *handle = [[NSFileHandle alloc] initWithFileDescriptor:channel[1] closeOnDealloc:YES];
+        objc_setAssociatedObject(self, &pasteboardExpirationKey, handle, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [handle release];
+        scheduled = YES;
+    });
+    return scheduled;
+}
 @end
 
 // ---------------------------------------------------------------------------------------------------

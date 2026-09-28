@@ -1,10 +1,11 @@
-// The `browser` namespace WebKit gives Safari 7 legacy extensions, shaped after the WebExtensions API.
+// The `browser` namespace WebKit gives Safari 7 legacy extensions, shaped after the WebExtensions API, and
+// the clipboard access their pages' permissions grant.
 //
 // Evaluated once per extension context. `kind` is "host" for the extension's own pages -- the global page
 // and toolbar popovers, which Safari hosts in WebKit 1 views, and pages opened in tabs or frames -- and
 // "content" for content scripts. `native.send(json)` hands one message to the LegacyExtension router;
-// the returned function receives the router's messages, one JSON string at a time. Everything crossing that boundary is JSON, so messages carry exactly what
-// Chrome's extension messaging carries.
+// the returned function receives the router's messages, one JSON string at a time. Everything crossing
+// that boundary is JSON, so messages carry exactly what Chrome's extension messaging carries.
 
 (function (native, kind) {
 "use strict";
@@ -408,11 +409,8 @@ if (isHost) {
         },
     };
 
-    const extensionBaseURL = () => {
-        const safari = globalThis.safari;
-        return safari && safari.extension && safari.extension.baseURI ? safari.extension.baseURI : location.href;
-    };
-    const resourceURL = path => new URL(String(path).replace(/^\/+/, ""), extensionBaseURL()).href;
+    // A path within the extension, from its root.
+    const resourceURL = path => new URL(`/${String(path).replace(/^\/+/, "")}`, location.href).href;
     const resourceText = async path => {
         const response = await fetch(resourceURL(path));
         return response.text();
@@ -471,6 +469,82 @@ if (isHost) {
         onRemoved: trackedEvent("tabs.onRemoved"),
         onUpdated: trackedEvent("tabs.onUpdated"),
     };
+
+    // The permissions manifest.json declares, as WebExtensions declare them. Safari 7's protocol fails an
+    // absent file as it fails any other load, so the document's own file tells an extension without a
+    // manifest from a channel that cannot load; only the first is an answer to keep.
+    const load = url => {
+        const request = new XMLHttpRequest();
+        request.open("GET", url, false);
+        try {
+            request.send();
+        } catch (error) {
+            if (error.name === "NetworkError")
+                return null;
+            throw error;
+        }
+        return request.responseText;
+    };
+    let permissions;
+    const hasPermission = name => {
+        if (!permissions) {
+            const manifest = load(resourceURL("manifest.json"));
+            if (manifest === null && load(location.href) === null)
+                throw new Error("The extension's files cannot be loaded.");
+            const declared = manifest === null ? [] : JSON.parse(manifest).permissions;
+            permissions = new Set(Array.isArray(declared) ? declared : []);
+        }
+        return permissions.has(name);
+    };
+
+    // navigator.clipboard's text methods: with clipboardWrite or clipboardRead, the page writes or reads the
+    // general pasteboard through the router whenever it asks, as a WebExtension's pages do; without, WebCore's
+    // methods apply their own rules.
+    const notAllowedError = () => new DOMException("The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.", "NotAllowedError");
+    const clipboardCall = (method, ...args) => callRouter(method, ...args).catch(() => {
+        throw notAllowedError();
+    });
+    if (typeof Clipboard === "function") {
+        const clipboard = navigator.clipboard;
+        const { writeText, readText } = Clipboard.prototype;
+        const granted = name => {
+            try {
+                return { granted: hasPermission(name) };
+            } catch (error) {
+                return { error };
+            }
+        };
+        const clipboardMethods = {
+            writeText(data) {
+                if (this !== clipboard || !arguments.length)
+                    return writeText.apply(this, arguments);
+                const permission = granted("clipboardWrite");
+                if (permission.error)
+                    return Promise.reject(permission.error);
+                if (!permission.granted)
+                    return writeText.apply(this, arguments);
+                let text;
+                try {
+                    text = `${data}`;
+                } catch (error) {
+                    return Promise.reject(error);
+                }
+                return clipboardCall("clipboard.writeText", text);
+            },
+            readText() {
+                if (this !== clipboard)
+                    return readText.apply(this, arguments);
+                const permission = granted("clipboardRead");
+                if (permission.error)
+                    return Promise.reject(permission.error);
+                if (!permission.granted)
+                    return readText.apply(this, arguments);
+                return clipboardCall("clipboard.readText");
+            },
+        };
+        for (const name of Object.keys(clipboardMethods))
+            Object.defineProperty(Clipboard.prototype, name, { value: clipboardMethods[name], writable: true, enumerable: true, configurable: true });
+    }
 }
 
 // Incoming messages.

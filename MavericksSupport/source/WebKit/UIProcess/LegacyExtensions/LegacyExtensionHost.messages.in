@@ -6,5 +6,5 @@
     ExceptionForEnabledBy
 ]
 messages -> LegacyExtensionHost {
-    Post(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, String message)
+    Post(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String pasteboardOriginIdentifier, String extensionKey, String message)
 }

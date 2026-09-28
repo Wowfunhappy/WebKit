@@ -94,6 +94,16 @@ macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
             "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
         set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
             "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
+
+        # -[NSPasteboard _setExpirationDate:]'s polyfill runs its helper from beside the WebCore image.
+        add_custom_command(TARGET ${_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_target}>/Helpers"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MAVERICKS_SUPPORT}/polyfill/build/pasteboard-expiration"
+                "$<TARGET_FILE_DIR:${_target}>/Helpers/pasteboard-expiration"
+            VERBATIM)
+        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
+            "${MAVERICKS_SUPPORT}/polyfill/build/pasteboard-expiration")
     endif ()
 endmacro()
 

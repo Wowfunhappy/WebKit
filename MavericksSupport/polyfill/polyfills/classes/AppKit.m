@@ -1,4 +1,4 @@
-// AppKit: stubs of the AppKit classes 10.9 does not have.
+// AppKit: the AppKit classes 10.9 does not have.
 #import "wk_priv_class.h"
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
@@ -8,28 +8,30 @@
 WK_PRIV_CLASS(NSFilePromiseReceiver) @interface NSFilePromiseReceiver : NSObject @end
 @implementation NSFilePromiseReceiver @end
 WK_PRIV_ALIAS(NSFilePromiseReceiver);
-// NSFilePromiseProvider (10.12+): the modern promised-file drag source. WebViewImpl's attachment-element
-// drag-out builds one and hands it to -[NSDraggingItem initWithPasteboardWriter:]; on 10.9 the class
-// binds as a nil weak import. The initializer tolerates the nil writer and returns a real item, and the
-// items array builds fine — the throw comes inside -[NSView beginDraggingSessionWithItems:event:source:],
-// where AppKit inserts each item's pasteboard WRITER into an internal mutable array and the nil one
-// raises (NSInvalidArgumentException, -[__NSArrayM insertObject:atIndex:]: object cannot be nil —
-// isolated step-by-step on this host), killing the UI process mid-drag. This stub holds the
-// fileType/delegate/userInfo it is given and satisfies
-// NSPasteboardWriting by writing nothing: 10.9 drop destinations only understand the classic
-// PasteboardRef promise protocol, which AppKit's modern promise machinery never engages here, so the
-// drag proceeds with no promise payload instead of throwing. (A classic NSFilesPromisePboardType
-// bridge is possible if a WKWebView-backed view ever hosts attachment drags on this system — the
-// Safari-facing WKView has its own classic promised-file path.)
+// NSFilePromiseProvider (10.12+): a pasteboard writer that promises a file, built on the pasteboard's
+// file promise (HIServices Pasteboard.h): it writes kPasteboardTypeFilePromiseContent, the file's type,
+// and promises kPasteboardTypeFileURLPromise. When the receiver asks for the promised URL, the file is
+// named by the delegate inside the receiver's paste location, and the delegate writes it there on its
+// operation queue.
+@protocol WKFilePromiseProviderDelegate <NSObject>
+- (NSString *)filePromiseProvider:(id)filePromiseProvider fileNameForType:(NSString *)fileType;
+- (void)filePromiseProvider:(id)filePromiseProvider writePromiseToURL:(NSURL *)url completionHandler:(void (^)(NSError *))completionHandler;
+@optional
+- (NSOperationQueue *)operationQueueForFilePromiseProvider:(id)filePromiseProvider;
+@end
+
 WK_PRIV_CLASS(NSFilePromiseProvider) @interface NSFilePromiseProvider : NSObject <NSPasteboardWriting>
 {
     NSString *_wkFileType;
-    id _wkDelegate;
+    id<WKFilePromiseProviderDelegate> _wkDelegate;
     id _wkUserInfo;
+    NSString *_wkPasteboardName;
 }
 - (instancetype)initWithFileType:(NSString *)fileType delegate:(id)delegate;
 - (NSString *)fileType;
+- (void)setFileType:(NSString *)fileType;
 - (id)delegate;
+- (void)setDelegate:(id)delegate;
 - (id)userInfo;
 - (void)setUserInfo:(id)userInfo;
 @end
@@ -46,10 +48,19 @@ WK_PRIV_CLASS(NSFilePromiseProvider) @interface NSFilePromiseProvider : NSObject
 {
     [_wkFileType release];
     [_wkUserInfo release];
+    [_wkPasteboardName release];
     [super dealloc];
 }
 - (NSString *)fileType { return _wkFileType; }
+- (void)setFileType:(NSString *)fileType
+{
+    if (_wkFileType == fileType)
+        return;
+    [_wkFileType release];
+    _wkFileType = [fileType copy];
+}
 - (id)delegate { return _wkDelegate; }
+- (void)setDelegate:(id)delegate { _wkDelegate = delegate; }
 - (id)userInfo { return _wkUserInfo; }
 - (void)setUserInfo:(id)userInfo
 {
@@ -60,13 +71,53 @@ WK_PRIV_CLASS(NSFilePromiseProvider) @interface NSFilePromiseProvider : NSObject
 }
 - (NSArray *)writableTypesForPasteboard:(NSPasteboard *)pasteboard
 {
+    [_wkPasteboardName release];
+    _wkPasteboardName = [pasteboard.name copy];
+    return @[ (NSString *)kPasteboardTypeFilePromiseContent, (NSString *)kPasteboardTypeFileURLPromise ];
+}
+- (NSPasteboardWritingOptions)writingOptionsForType:(NSString *)type pasteboard:(NSPasteboard *)pasteboard
+{
     (void)pasteboard;
-    return [NSArray array];
+    return [type isEqualToString:(NSString *)kPasteboardTypeFileURLPromise] ? NSPasteboardWritingPromised : 0;
 }
 - (id)pasteboardPropertyListForType:(NSString *)type
 {
-    (void)type;
-    return nil;
+    if ([type isEqualToString:(NSString *)kPasteboardTypeFilePromiseContent])
+        return [_wkFileType dataUsingEncoding:NSUTF8StringEncoding];
+    if (![type isEqualToString:(NSString *)kPasteboardTypeFileURLPromise])
+        return nil;
+
+    PasteboardRef pasteboard;
+    PasteboardCreate((CFStringRef)_wkPasteboardName, &pasteboard);
+    CFURLRef pasteLocation = NULL;
+    PasteboardCopyPasteLocation(pasteboard, &pasteLocation);
+    CFRelease(pasteboard);
+    if (!pasteLocation)
+        return nil;
+    NSURL *directory = [(NSURL *)pasteLocation autorelease];
+
+    NSString *fileName = [_wkDelegate filePromiseProvider:self fileNameForType:_wkFileType];
+    if (!fileName.length)
+        return nil;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSURL *fileURL = [directory URLByAppendingPathComponent:fileName];
+    NSString *baseName = fileName.stringByDeletingPathExtension;
+    NSString *extension = fileName.pathExtension;
+    for (NSUInteger suffix = 2; [fileManager fileExistsAtPath:fileURL.path]; ++suffix) {
+        NSString *candidate = [NSString stringWithFormat:@"%@ %lu", baseName, (unsigned long)suffix];
+        if (extension.length)
+            candidate = [candidate stringByAppendingPathExtension:extension];
+        fileURL = [directory URLByAppendingPathComponent:candidate];
+    }
+
+    NSOperationQueue *queue = [_wkDelegate respondsToSelector:@selector(operationQueueForFilePromiseProvider:)] ? [_wkDelegate operationQueueForFilePromiseProvider:self] : [NSOperationQueue mainQueue];
+    id<WKFilePromiseProviderDelegate> delegate = _wkDelegate;
+    [queue addOperationWithBlock:^{
+        [delegate filePromiseProvider:self writePromiseToURL:fileURL completionHandler:^(NSError *error) {
+            (void)error;
+        }];
+    }];
+    return [fileURL.absoluteString dataUsingEncoding:NSUTF8StringEncoding];
 }
 @end
 WK_PRIV_ALIAS(NSFilePromiseProvider);

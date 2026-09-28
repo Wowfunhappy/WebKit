@@ -3,9 +3,10 @@
 // Safari 7 hosts an extension's global page and toolbar popovers in WebKit 1 views in its own process,
 // and extension pages opened in tabs or frames in web content processes; with content scripts, which run
 // in web content processes too, they are the extension's contexts. The router connects them: runtime
-// ports and one-shot messages between contexts, the tabs/webNavigation/webRequest events and methods
-// extension pages use, and the webRequest verdicts network processes wait on. Tabs are WebPageProxy identifiers and frames are FrameIdentifiers,
-// with 0 standing for a tab's main frame as in the WebExtensions API.
+// ports and one-shot messages between contexts, the tabs/webNavigation/webRequest events and methods and
+// the clipboard extension pages use, and the webRequest verdicts network processes wait on. Tabs are
+// WebPageProxy identifiers and frames are FrameIdentifiers, with 0 standing for a tab's main frame as in
+// the WebExtensions API.
 
 #pragma once
 
@@ -92,6 +93,8 @@ private:
         JSC::Weak<JSC::JSGlobalObject> globalObject;
         Markable<WebCore::FrameIdentifier> frameID;
         Markable<WebCore::ScriptExecutionContextIdentifier> documentID;
+        // The document's Document::originIdentifierForPasteboard, as its web content process reports it.
+        String pasteboardOriginIdentifier;
         // Each event a listener is registered for, with the JSON filters of its blocking listeners.
         HashMap<String, String> interests;
     };
@@ -135,7 +138,7 @@ private:
         CompletionHandler<void(String&&)> completionHandler;
     };
 
-    void post(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& extensionKey, String&& message);
+    void post(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& pasteboardOriginIdentifier, String&& extensionKey, String&& message);
 
     void route(const Endpoint&, const String& extensionKey, const String& message);
     void routeConnect(const Endpoint&, const String& extensionKey, JSON::Object&);
@@ -165,6 +168,7 @@ private:
     Ref<JSON::Object> tabDescription(WebPageProxy&) const;
     void resultToHostContext(HostContext&, double callID, RefPtr<JSON::Value>&& result, const String& error = { });
 
+    String pasteboardOriginIdentifier(const HostContext&) const;
     RefPtr<HostContext> extensionPageContext(WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, const URL& documentURL, const String& extensionKey);
     URL documentURL(WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier>) const;
     void documentsDidGoAway(NOESCAPE const Function<bool(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier)>&);

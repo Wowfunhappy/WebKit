@@ -5,6 +5,7 @@
 #include "LegacyExtensionContentMessages.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionJavaScript.h"
+#include "LegacyExtensionScheme.h"
 #include "WebFrame.h"
 #include "WebProcess.h"
 #include "WebUserContentController.h"
@@ -58,7 +59,7 @@ static JSValueRef contentContextSend(JSContextRef context, JSObjectRef, JSObject
     auto message = LegacyExtensions::stringArgument(context, argumentCount, arguments, 0);
     RefPtr document = native && !message.isNull() ? documentForNative(*native) : nullptr;
     if (document)
-        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(native->frameID, native->documentIdentifier, document->url(), native->extensionKey, message), 0);
+        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(native->frameID, native->documentIdentifier, document->url(), document->originIdentifierForPasteboard(), native->extensionKey, message), 0);
     return JSValueMakeUndefined(context);
 }
 
@@ -148,6 +149,7 @@ LegacyExtensionContent& LegacyExtensionContent::singleton()
 
 void LegacyExtensionContent::initialize(WebProcess& process)
 {
+    LegacyExtensions::registerExtensionScheme();
     process.addMessageReceiver(Messages::LegacyExtensionContent::messageReceiverName(), *this);
 }
 
@@ -285,6 +287,7 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
     if (document && document->identifier() != documentID)
         document = nullptr;
     URL documentURL = document ? document->url() : URL { };
+    String pasteboardOriginIdentifier = document ? document->originIdentifierForPasteboard() : String { };
 
     if (type == "exec"_s || type == "css"_s) {
         RefPtr world = contentScriptWorld(extensionKey);
@@ -298,7 +301,7 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
         if (auto callID = object->getDouble("callId"_s))
             reply->setDouble("callId"_s, *callID);
         reply->setString("error"_s, "The extension has no access to this frame."_s);
-        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString()), 0);
+        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, pasteboardOriginIdentifier, extensionKey, reply->toJSONString()), 0);
         return;
     }
 
@@ -312,7 +315,7 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
         reply->setBoolean("none"_s, true);
     } else
         return;
-    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString()), 0);
+    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, pasteboardOriginIdentifier, extensionKey, reply->toJSONString()), 0);
 }
 
 } // namespace WebKit

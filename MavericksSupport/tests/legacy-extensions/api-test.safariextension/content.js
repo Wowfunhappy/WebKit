@@ -25,6 +25,12 @@ if (typeof browser !== 'object') {
     });
     port.onDisconnect.addListener(() => note('extDisconnected', 'yes'));
     note('extFrameId', String(browser.runtime.getFrameId(window)));
+    // A content script keeps the page's clipboard rules.
+    if (window === window.top) {
+        Promise.all([ navigator.clipboard.writeText('content script'), navigator.clipboard.readText() ].map(promise => promise.then(() => 'resolved', error => error.name))).then(
+            outcomes => note('extClipboard', outcomes)
+        );
+    }
     port.postMessage({ what: 'hello', frameId: browser.runtime.getFrameId(window) });
     if (window === window.top) {
         port.postMessage({ what: 'css' });

@@ -211,6 +211,10 @@ wk_verify_tree() {
         [ -f "$pre$f" ] || { echo "  MISSING XPC service executable: $pre$f" >&2; bad=1; }
     done
 
+    # The pasteboard-expiration helper, which a method polyfill in WebCore runs from beside its image.
+    f="$WEBCORE_BUNDLE/Versions/A/Helpers/pasteboard-expiration"
+    [ -x "$pre$f" ] || { echo "  MISSING pasteboard-expiration helper: $pre$f" >&2; bad=1; }
+
     # The Web Push daemon: it rides inside WebKit2.framework, and WebKit submits its launchd job
     # from WebsiteDataStoreCocoa.mm by this path, so a tree without it has no Web Push.
     f="$WEBKIT2_BUNDLE/Versions/A/Daemons/webpushd"

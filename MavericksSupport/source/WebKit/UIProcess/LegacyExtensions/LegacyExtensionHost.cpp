@@ -1,9 +1,11 @@
 #include "config.h"
 #include "LegacyExtensionHost.h"
 
+#include "LegacyExtensionClipboard.h"
 #include "LegacyExtensionContentMessages.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionJavaScript.h"
+#include "LegacyExtensionScheme.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
 #include "APINavigation.h"
@@ -18,10 +20,15 @@
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCast.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/WeakInlines.h>
+#include <WebCore/Document.h>
+#include <WebCore/JSDOMWindow.h>
+#include <WebCore/LocalDOMWindow.h>
 #include <WebCore/MemoryCache.h>
+#include <WebCore/PlatformPasteboard.h>
 #include <WebCore/ResourceRequest.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
@@ -248,6 +255,7 @@ LegacyExtensionHost& LegacyExtensionHost::singleton()
 
 LegacyExtensionHost::LegacyExtensionHost()
 {
+    LegacyExtensions::registerExtensionScheme();
     WebSetLegacyExtensionPageObserver(&pageObserver());
 }
 
@@ -306,6 +314,17 @@ void LegacyExtensionHost::postFromHostContext(uint64_t hostContextIdentifier, co
     route(Endpoint { context, std::nullopt }, context->extensionKey, message);
 }
 
+// A WebKit 1 context's document is in this process; a web content process reports its documents'.
+String LegacyExtensionHost::pasteboardOriginIdentifier(const HostContext& context) const
+{
+    if (context.frameID)
+        return context.pasteboardOriginIdentifier;
+    auto* window = dynamicDowncast<WebCore::JSDOMWindow>(context.globalObject.get());
+    RefPtr localWindow = window ? dynamicDowncast<WebCore::LocalDOMWindow>(window->wrapped()) : nullptr;
+    RefPtr document = localWindow ? localWindow->document() : nullptr;
+    return document ? document->originIdentifierForPasteboard() : String { };
+}
+
 void LegacyExtensionHost::hostContextDidGoAway(HostContext& context)
 {
     bool hadNetworkInterests = false;
@@ -334,7 +353,7 @@ void LegacyExtensionHost::hostContextDidGoAway(HostContext& context)
 
 // Content contexts.
 
-void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& extensionKey, String&& message)
+void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& pasteboardOriginIdentifier, String&& extensionKey, String&& message)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameID);
     if (!frame || !frame->page())
@@ -343,6 +362,7 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
         return;
     m_documents.set(documentID, std::pair { frameID, documentURL });
     if (RefPtr context = extensionPageContext(*frame, documentID, documentURL, extensionKey)) {
+        context->pasteboardOriginIdentifier = WTF::move(pasteboardOriginIdentifier);
         route(Endpoint { context, std::nullopt, std::nullopt }, extensionKey, message);
         return;
     }
@@ -818,6 +838,32 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         for (Ref pool : WebProcessPool::allProcessPools())
             pool->sendToAllProcesses(Messages::LegacyExtensionContent::EvictMemoryCache());
         resultToHostContext(context, callID, nullptr);
+        return;
+    }
+
+    // navigator.clipboard's text methods, for pages whose extension declares the permission.
+    if (method == "clipboard.writeText"_s) {
+        RefPtr text = argument(0);
+        auto string = text ? text->asString() : String();
+        if (string.isNull()) {
+            resultToHostContext(context, callID, nullptr, "Invalid text."_s);
+            return;
+        }
+        RefPtr frame = context.frameID ? WebFrameProxy::webFrame(*context.frameID) : nullptr;
+        RefPtr page = frame ? frame->page() : nullptr;
+        auto lifetime = page && page->sessionID().isEphemeral() ? WebCore::PasteboardDataLifetime::Ephemeral : WebCore::PasteboardDataLifetime::Persistent;
+        LegacyExtensions::writeClipboardText(string, pasteboardOriginIdentifier(context), lifetime);
+        resultToHostContext(context, callID, nullptr);
+        return;
+    }
+
+    if (method == "clipboard.readText"_s) {
+        auto text = LegacyExtensions::readClipboardText();
+        if (!text) {
+            resultToHostContext(context, callID, nullptr, "The clipboard changed while it was read."_s);
+            return;
+        }
+        resultToHostContext(context, callID, JSON::Value::create(text->isNull() ? emptyString() : *text));
         return;
     }
 

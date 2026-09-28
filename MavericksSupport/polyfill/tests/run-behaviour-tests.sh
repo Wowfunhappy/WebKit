@@ -148,6 +148,18 @@ probe_accent_color() {
         "$T/accent_color"
 }
 
+probe_pasteboard_expiration() {
+    prepare_method_objects AppKit &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/pasteboard_expiration" "$TBEHAV/AppKit-pasteboard-expiration.m" \
+            "$OBJ/methods/AppKit.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        mkdir -p "$T/Helpers" &&
+        cp -f "$OUT/pasteboard-expiration" "$T/Helpers/pasteboard-expiration" &&
+        "$T/pasteboard_expiration"
+}
+
 probe_level_indicator_direction() {
     prepare_method_objects AppKit &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/level_indicator_direction" "$TBEHAV/AppKit-level-indicator-direction.m" \
@@ -800,6 +812,7 @@ probe_audiounit_max_frames() {
 
 run_probe accent_color "$@"
 run_probe level_indicator_direction "$@"
+run_probe pasteboard_expiration "$@"
 run_probe touch_bar "$@"
 run_probe scrollview_insets "$@"
 run_probe color_popover_top_bar "$@"

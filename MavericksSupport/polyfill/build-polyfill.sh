@@ -10,6 +10,7 @@
 #   polyfills/webkit/   libpolyfill_webkit.a    force-loaded into WebKit.framework only
 #   polyfills/jsc/      libwtf_compat.a         force-loaded into JavaScriptCore only
 #   polyfills/cdm/      libwidevinegap.dylib    loaded by the Widevine CDM, not by WebKit
+#   polyfills/helpers/  pasteboard-expiration   an executable in WebCore.framework's Helpers, run by a method polyfill
 #   mechanism/          wk_polyfill_runtime.o -> libpolyfill.a; wk_selref_scope.o -> libpolyfill_methods.a;
 #                       wk_image_marker.o -> libwk_marker.a (force-loaded into every WebKit framework)
 set -euo pipefail
@@ -252,7 +253,7 @@ echo "### libpolyfill_classes.dylib"
 # name staging stamps on it.
 "$CLANG" --no-default-config -mmacosx-version-min=10.9 -dynamiclib -Wl,-headerpad_max_install_names \
     -install_name @rpath/libpolyfill_classes.dylib -compatibility_version 9999.0.0 -current_version 9999.0.0 \
-    -licucore -framework CoreFoundation \
+    -licucore -framework CoreFoundation -framework ApplicationServices \
     -Wl,-reexport_framework,Foundation -Wl,-reexport_framework,AppKit -Wl,-reexport_framework,QuartzCore \
     -Wl,-reexport_framework,CoreServices -Wl,-reexport_framework,Security -Wl,-reexport_framework,CFNetwork \
     "$OBJ"/classes/*.o -o "$OUT/libpolyfill_classes.dylib.tmp"
@@ -279,6 +280,12 @@ echo "### libwidevinegap.dylib"
 "$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
     -install_name @loader_path/libwidevinegap.dylib "$OBJ"/cdm/*.o -o "$OUT/libwidevinegap.dylib.tmp"
 tmp_stable "$OUT/libwidevinegap.dylib"
+
+echo "### pasteboard-expiration"
+# Built against 10.9's own AppKit: it uses nothing newer, so it needs no polyfill.
+"$CLANG" $HOST -Wl,-headerpad_max_install_names -o "$OUT/pasteboard-expiration.tmp" "$PF/helpers/pasteboard-expiration.m" \
+    -Wl,-force_load,"$OUT/libwk_marker.a" -framework AppKit
+tmp_stable "$OUT/pasteboard-expiration"
 
 # --- shadow gates ------------------------------------------------------------------------------
 # Every polyfill's body runs unconditionally: force_load makes our definition win, the selref rewrite sends
