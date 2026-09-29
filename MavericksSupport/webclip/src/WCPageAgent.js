@@ -1,7 +1,7 @@
 // Web Clip page agent. Runs in an isolated content world of the clip's WKWebView and does
 // everything the Web Clip plug-in does with the DOM: finding the clipped element from a
-// persisted ClipSignature, building a ClipSignature for a crop rect, collecting the nodes the
-// Snapper snaps to, and collecting the plug-in elements reported as Dashboard control regions.
+// ClipSignature, collecting the nodes the Snapper snaps to, and collecting the plug-in elements
+// reported as Dashboard control regions.
 //
 // All rects are in document coordinates as {x, y, width, height}. An element's box is
 // WebKit's absolute bounding box: the union of its fragment rects, each widened to whole
@@ -10,12 +10,7 @@
 (function () {
     'use strict';
 
-    if (window.__webClip)
-        window.__webClip.untrack();
-
     const f32 = Math.fround;
-    const kNotFound = -1;
-
     const kBoxedDOMElementTagNameKey = 'BoxedDOMElementTagName';
     const kBoxedDOMElementIDNameKey = 'BoxedDOMElementIDName';
     const kBoxedDOMElementClassNameKey = 'BoxedDOMElementClassName';
@@ -43,110 +38,6 @@
     function isZeroRect(rect)
     {
         return rect.x === 0 && rect.y === 0 && rect.width === 0 && rect.height === 0;
-    }
-
-    function equalRects(a, b)
-    {
-        return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-    }
-
-    function intersectionRect(a, b)
-    {
-        if (0 >= a.width || 0 >= b.width || 0 >= a.height || 0 >= b.height)
-            return kZeroRect;
-        const aMaxX = a.x + a.width;
-        const bMaxX = b.x + b.width;
-        const maxX = aMaxX < bMaxX ? aMaxX : bMaxX;
-        const minX = b.x > a.x ? b.x : a.x;
-        if (minX >= maxX)
-            return kZeroRect;
-        const aMaxY = a.y + a.height;
-        const bMaxY = b.y + b.height;
-        const maxY = aMaxY < bMaxY ? aMaxY : bMaxY;
-        const minY = b.y > a.y ? b.y : a.y;
-        if (minY >= maxY)
-            return kZeroRect;
-        return makeRect(minX, minY, maxX - minX, maxY - minY);
-    }
-
-    // NSStringFromRect: "{{%.17g, %.17g}, {%.17g, %.17g}}".
-
-    function formatG17(value)
-    {
-        if (Number.isNaN(value))
-            return 'nan';
-        const negative = value < 0 || Object.is(value, -0);
-        const magnitude = Math.abs(value);
-        if (magnitude === Infinity)
-            return negative ? '-inf' : 'inf';
-        if (magnitude === 0)
-            return negative ? '-0' : '0';
-
-        // Exact decimal expansion of the double: digits * 10^exponent10.
-        const view = new DataView(new ArrayBuffer(8));
-        view.setFloat64(0, magnitude);
-        const high = view.getUint32(0);
-        const low = view.getUint32(4);
-        const biasedExponent = (high >>> 20) & 0x7ff;
-        let mantissa = (BigInt(high & 0xfffff) << 32n) | BigInt(low);
-        let exponent2;
-        if (biasedExponent) {
-            mantissa |= 1n << 52n;
-            exponent2 = biasedExponent - 1075;
-        } else
-            exponent2 = -1074;
-        let digitsInt;
-        let exponent10;
-        if (exponent2 >= 0) {
-            digitsInt = mantissa << BigInt(exponent2);
-            exponent10 = 0;
-        } else {
-            digitsInt = mantissa * 5n ** BigInt(-exponent2);
-            exponent10 = exponent2;
-        }
-
-        // Round to 17 significant digits, ties to even.
-        let digits = digitsInt.toString();
-        const precision = 17;
-        if (digits.length > precision) {
-            const drop = digits.length - precision;
-            const divisor = 10n ** BigInt(drop);
-            let kept = digitsInt / divisor;
-            const remainder = digitsInt - kept * divisor;
-            const twice = remainder * 2n;
-            if (twice > divisor || (twice === divisor && (kept & 1n)))
-                kept += 1n;
-            exponent10 += drop;
-            digits = kept.toString();
-            if (digits.length > precision) {
-                digits = digits.slice(0, precision);
-                exponent10 += 1;
-            }
-        }
-        const decimalExponent = exponent10 + digits.length - 1;
-        digits = digits.replace(/0+$/, '');
-        if (!digits)
-            digits = '0';
-
-        let text;
-        if (decimalExponent < -4 || decimalExponent >= precision) {
-            text = digits[0];
-            if (digits.length > 1)
-                text += '.' + digits.slice(1);
-            const absExponent = Math.abs(decimalExponent);
-            text += (decimalExponent < 0 ? 'e-' : 'e+') + (absExponent < 10 ? '0' : '') + absExponent;
-        } else if (decimalExponent < 0)
-            text = '0.' + '0'.repeat(-decimalExponent - 1) + digits;
-        else if (digits.length > decimalExponent + 1)
-            text = digits.slice(0, decimalExponent + 1) + '.' + digits.slice(decimalExponent + 1);
-        else
-            text = digits + '0'.repeat(decimalExponent + 1 - digits.length);
-        return negative ? '-' + text : text;
-    }
-
-    function stringFromRect(rect)
-    {
-        return '{{' + formatG17(rect.x) + ', ' + formatG17(rect.y) + '}, {' + formatG17(rect.width) + ', ' + formatG17(rect.height) + '}}';
     }
 
     // NSRectFromString: four strtod() scans in the C locale. Before each scan, anything that
@@ -476,32 +367,6 @@
         return 900 > box.height;
     }
 
-    // A node matches when the rect covers more than 90% of it, and beats a rival when it is
-    // covered at least as fully and is at least as large.
-    function matchesRectBetterThanNode(node, rect, otherNode, boundingBox)
-    {
-        if (!isHTMLElement(node) && !sizeIsReasonable(boundingBox(node)))
-            return false;
-        const box = boundingBox(node);
-        const intersection = intersectionRect(rect, box);
-        if (isZeroRect(intersection))
-            return false;
-        const area = f32(box.width * box.height);
-        const otherBox = otherNode ? boundingBox(otherNode) : kZeroRect;
-        const otherIntersection = intersectionRect(rect, otherBox);
-        const coverage = f32((intersection.width * intersection.height) / area);
-        if (!(coverage > 0.9))
-            return false;
-        // The first node to qualify has no rival to beat.
-        if (!otherNode)
-            return true;
-        const otherArea = f32(otherBox.width * otherBox.height);
-        const otherCoverage = f32((otherIntersection.height * otherIntersection.width) / otherArea);
-        if (!(coverage >= otherCoverage))
-            return false;
-        return area >= otherArea;
-    }
-
     // BoxedDOMElement.
 
     function boxedElementFromDOMElement(element)
@@ -528,26 +393,7 @@
         return boxed;
     }
 
-    function dictionaryFromBoxedElement(boxed)
-    {
-        return {
-            [kBoxedDOMElementTagNameKey]: boxed.tagName ?? '',
-            [kBoxedDOMElementIDNameKey]: boxed.idName ?? '',
-            [kBoxedDOMElementClassNameKey]: boxed.className ?? '',
-        };
-    }
-
     // ClipSignature.
-
-    function borderOffsetOfRect(domBorderRect, originalBorderRect)
-    {
-        return {
-            top: f32(domBorderRect.y - originalBorderRect.y),
-            bottom: f32((originalBorderRect.y + originalBorderRect.height) - (domBorderRect.y + domBorderRect.height)),
-            left: f32(domBorderRect.x - originalBorderRect.x),
-            right: f32((originalBorderRect.x + originalBorderRect.width) - (domBorderRect.x + domBorderRect.width)),
-        };
-    }
 
     function adjustRectByBorderOffset(rect, offset)
     {
@@ -556,23 +402,6 @@
             rect.y - offset.top,
             rect.width + f32(offset.right + offset.left),
             rect.height + f32(offset.bottom + offset.top));
-    }
-
-    function signatureForClippedElement(element, originalBorderRect, boundingBox)
-    {
-        const signature = {
-            boxedElement: boxedElementFromDOMElement(element),
-            boxedParent: null,
-            boxedChildren: childElements(element).map(boxedElementFromDOMElement),
-            boxedSiblings: siblingElements(element).map(boxedElementFromDOMElement),
-            borderOffset: borderOffsetOfRect(boundingBox(element), originalBorderRect),
-            originalBorderRect: makeRect(originalBorderRect.x, originalBorderRect.y, originalBorderRect.width, originalBorderRect.height),
-            indexInDocument: 0,
-        };
-        const parent = element.parentNode;
-        if (isHTMLElement(parent))
-            signature.boxedParent = boxedElementFromDOMElement(parent);
-        return signature;
     }
 
     function signatureFromDictionary(dictionary)
@@ -617,25 +446,6 @@
         if (isPropertyListNumber(indexInDocument))
             signature.indexInDocument = unsignedIntValue(indexInDocument);
         return signature;
-    }
-
-    function dictionaryFromSignature(signature)
-    {
-        const dictionary = {};
-        dictionary[kClipSignatureElementKey] = dictionaryFromBoxedElement(signature.boxedElement);
-        if (signature.boxedParent)
-            dictionary[kClipSignatureParentElementKey] = dictionaryFromBoxedElement(signature.boxedParent);
-        if (signature.boxedChildren && signature.boxedChildren.length)
-            dictionary[kClipSignatureChildrenKey] = signature.boxedChildren.map(dictionaryFromBoxedElement);
-        if (signature.boxedSiblings && signature.boxedSiblings.length)
-            dictionary[kClipSignatureSiblingsKey] = signature.boxedSiblings.map(dictionaryFromBoxedElement);
-        dictionary[kClipSignatureBorderOffsetTopKey] = signature.borderOffset.top;
-        dictionary[kClipSignatureBorderOffsetBottomKey] = signature.borderOffset.bottom;
-        dictionary[kClipSignatureBorderOffsetLeftKey] = signature.borderOffset.left;
-        dictionary[kClipSignatureBorderOffsetRightKey] = signature.borderOffset.right;
-        dictionary[kClipSignatureOriginalBorderRectKey] = stringFromRect(signature.originalBorderRect);
-        dictionary[kClipSignatureIndexInDocumentKey] = signature.indexInDocument >>> 0;
-        return dictionary;
     }
 
     // DOMBorderFinder.
@@ -718,7 +528,6 @@
         const boxedElements = new Map();
         const htmlChildCounts = new Map();
         return {
-            borderElement: null,
             foundBorderElements: [],
             highestScore: 0,
             boundingBox: createMeasurer(),
@@ -771,62 +580,24 @@
         forEachNode(document, node => scoreNodeAgainstSignature(finder, node, signature));
     }
 
-    function findDOMBorderForCropRect(finder, rect)
+    // -[DOMBorderFinder borderRectForSignature:]. Returns null where the stock finder returns
+    // NSZeroRect or raises.
+    function rectForSignature(signatureDictionary)
     {
-        forEachNode(document, node => {
-            if (isHTMLElement(node) && sizeIsReasonable(finder.boundingBox(node)) && matchesRectBetterThanNode(node, rect, finder.borderElement, finder.boundingBox))
-                finder.borderElement = node;
-        });
-    }
-
-    function indexOfBorderElementInSignature(finder, signature)
-    {
-        findBorderElementForSignature(finder, signature);
-        const index = finder.foundBorderElements.indexOf(finder.borderElement);
-        return index < 0 ? kNotFound : index;
-    }
-
-    // -[DOMBorderFinder borderRectForSignature:] without the final rect, so a tracker can keep
-    // the element. Returns null where the stock finder returns NSZeroRect or raises.
-    function findSignatureElement(signature)
-    {
+        if (!isDictionary(signatureDictionary))
+            return null;
+        const signature = signatureFromDictionary(signatureDictionary);
         const finder = createBorderFinder();
         findBorderElementForSignature(finder, signature);
         const found = finder.foundBorderElements;
         if (!found.length || signature.indexInDocument >= found.length)
             return null;
-        const element = found[signature.indexInDocument];
-        return { element, rect: adjustRectByBorderOffset(finder.boundingBox(element), signature.borderOffset) };
+        return publicRect(adjustRectByBorderOffset(finder.boundingBox(found[signature.indexInDocument]), signature.borderOffset));
     }
 
     function publicRect(rect)
     {
         return isZeroRect(rect) ? null : makeRect(rect.x, rect.y, rect.width, rect.height);
-    }
-
-    function inputRect(rect)
-    {
-        return makeRect(Number(rect.x), Number(rect.y), Number(rect.width), Number(rect.height));
-    }
-
-    function signatureForRect(rect)
-    {
-        const borderRect = inputRect(rect);
-        const finder = createBorderFinder();
-        findDOMBorderForCropRect(finder, borderRect);
-        if (!finder.borderElement)
-            return null;
-        const signature = signatureForClippedElement(finder.borderElement, borderRect, finder.boundingBox);
-        signature.indexInDocument = indexOfBorderElementInSignature(finder, signature);
-        return dictionaryFromSignature(signature);
-    }
-
-    function rectForSignature(signatureDictionary)
-    {
-        if (!isDictionary(signatureDictionary))
-            return null;
-        const found = findSignatureElement(signatureFromDictionary(signatureDictionary));
-        return found ? publicRect(found.rect) : null;
     }
 
     // Snapper.
@@ -864,147 +635,6 @@
             rects.push(makeRect(box.x, box.y, box.width, box.height));
         });
         return rects;
-    }
-
-    // Tracking the clipped element.
-
-    let tracker = null;
-
-    function postClipRect(rect)
-    {
-        window.webkit.messageHandlers.webClip.postMessage({ type: 'clipRect', rect });
-    }
-
-    function currentTrackedRect(state)
-    {
-        const box = createMeasurer()(state.element);
-        return publicRect(adjustRectByBorderOffset(box, state.signature.borderOffset));
-    }
-
-    function sameRectOrNull(a, b)
-    {
-        if (!a || !b)
-            return a === b;
-        return equalRects(a, b);
-    }
-
-    function checkTrackedElement()
-    {
-        const state = tracker;
-        if (!state)
-            return;
-        state.checkPending = false;
-        if (!state.element.isConnected) {
-            const found = findSignatureElement(state.signature);
-            if (!found) {
-                untrack();
-                postClipRect(null);
-                return;
-            }
-            state.resizeObserver.unobserve(state.element);
-            state.element = found.element;
-            state.resizeObserver.observe(state.element);
-            observeTrackedElementMoves(state, 1);
-            state.lastRect = publicRect(found.rect);
-            postClipRect(state.lastRect);
-            return;
-        }
-        const rect = currentTrackedRect(state);
-        observeTrackedElementMoves(state, 1);
-        if (sameRectOrNull(rect, state.lastRect))
-            return;
-        state.lastRect = rect;
-        postClipRect(rect);
-    }
-
-    // Watches the element's position: the observer's root margin shrinks the viewport to the
-    // element's current box, so any move changes how much of the element that box covers.
-    function observeTrackedElementMoves(state, threshold)
-    {
-        if (state.moveObserver)
-            state.moveObserver.disconnect();
-        state.moveObserver = null;
-        const box = state.element.getBoundingClientRect();
-        if (!box.width || !box.height)
-            return;
-        const root = document.documentElement;
-        const top = Math.floor(box.top);
-        const left = Math.floor(box.left);
-        const right = Math.floor(root.clientWidth - box.right);
-        const bottom = Math.floor(root.clientHeight - box.bottom);
-        const rootMargin = `${-top}px ${-right}px ${-bottom}px ${-left}px`;
-        let initial = true;
-        state.moveObserver = new IntersectionObserver(entries => {
-            const ratio = entries[entries.length - 1].intersectionRatio;
-            if (initial) {
-                initial = false;
-                // The element can move between the measurement and the first report.
-                const current = state.element.getBoundingClientRect();
-                if (current.top !== box.top || current.left !== box.left || current.width !== box.width || current.height !== box.height) {
-                    scheduleTrackedElementCheck();
-                    return;
-                }
-                // The box is rounded to whole pixels, so the element can start out covering a
-                // little less than all of it; that coverage becomes the level a move crosses.
-                if (ratio && ratio !== threshold)
-                    observeTrackedElementMoves(state, ratio);
-                return;
-            }
-            scheduleTrackedElementCheck();
-        }, { rootMargin, threshold });
-        state.moveObserver.observe(state.element);
-    }
-
-    function scheduleTrackedElementCheck()
-    {
-        const state = tracker;
-        if (!state || state.checkPending)
-            return;
-        state.checkPending = true;
-        Promise.resolve().then(checkTrackedElement);
-    }
-
-    // Scroll anchoring moves an element through the document while keeping it still in the
-    // viewport, where the move observer cannot see it; the scroll it makes is reported instead.
-    const kTrackedDocumentEvents = ['load', 'transitionend', 'animationend', 'scroll'];
-
-    function untrack()
-    {
-        const state = tracker;
-        if (!state)
-            return;
-        tracker = null;
-        state.resizeObserver.disconnect();
-        if (state.moveObserver)
-            state.moveObserver.disconnect();
-        for (const type of kTrackedDocumentEvents)
-            document.removeEventListener(type, scheduleTrackedElementCheck, true);
-    }
-
-    function trackSignature(signatureDictionary)
-    {
-        untrack();
-        if (!isDictionary(signatureDictionary))
-            return null;
-        const signature = signatureFromDictionary(signatureDictionary);
-        const found = findSignatureElement(signature);
-        if (!found)
-            return null;
-        const state = {
-            signature,
-            element: found.element,
-            lastRect: publicRect(found.rect),
-            resizeObserver: new ResizeObserver(scheduleTrackedElementCheck),
-            moveObserver: null,
-            checkPending: false,
-        };
-        tracker = state;
-        state.resizeObserver.observe(state.element);
-        state.resizeObserver.observe(document.documentElement);
-        for (const type of kTrackedDocumentEvents)
-            document.addEventListener(type, scheduleTrackedElementCheck, true);
-        observeTrackedElementMoves(state, 1);
-        return state.lastRect;
     }
 
     // The plug-in places the web view at the page's vertical scroll offset, so it hears of every
@@ -1050,12 +680,9 @@
 
     const api = Object.freeze({
         scrollToY,
-        signatureForRect,
         rectForSignature,
         snapNodes,
         draggableRects,
-        trackSignature,
-        untrack,
     });
     window.__webClip = api;
 })();

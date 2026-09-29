@@ -74,11 +74,6 @@ static NSRect rectFromPageRect(id value)
     return NSMakeRect([rect[@"x"] doubleValue], [rect[@"y"] doubleValue], [rect[@"width"] doubleValue], [rect[@"height"] doubleValue]);
 }
 
-static NSDictionary *pageRectFromRect(NSRect rect)
-{
-    return @{ @"x": @(rect.origin.x), @"y": @(rect.origin.y), @"width": @(rect.size.width), @"height": @(rect.size.height) };
-}
-
 @implementation WCClipperView {
     NSClipView *_clipView;
     WebClipper *_controller;
@@ -89,7 +84,8 @@ static NSDictionary *pageRectFromRect(NSRect rect)
     WCDoneButton *_lockCameraButton;
     NSTimer *_progressTimer;
     NSView *_resizer;
-    NSImage *_screenshot;
+    NSImageView *_screenshotView;
+    NSImageView *_pageSnapshotView;
     WCSnapper *_snapper;
     NSTextField *_statusTextField;
     WCVoidView *_voidView;
@@ -110,9 +106,9 @@ static NSDictionary *pageRectFromRect(NSRect rect)
     BOOL _loadError;
     BOOL _hasBeenShown;
     BOOL _transitionInProgress;
+    NSRect _clipRectAfterTransition;
     CGFloat _pageScrollY;
     unsigned _progressPeriodCount;
-    NSDictionary *_trackedSignature;
 }
 
 + (NSImage *)flipperImage
@@ -182,18 +178,28 @@ static NSDictionary *pageRectFromRect(NSRect rect)
     [_currentTheme setEventRegion:region];
 }
 
-- (void)drawRect:(NSRect)rect
-{
-    if (!_screenshot)
-        return;
-    [[NSColor whiteColor] set];
-    NSRectFillUsingOperation([_clipView frame], NSCompositeCopy);
-    [_screenshot wc_drawAtPoint:NSZeroPoint dirtyRect:rect];
-}
-
+// A screenshot of the widget stands in for it, beneath the plug-in's other views, over white
+// where the clip is.
 - (void)setScreenshot:(NSImage *)screenshot
 {
-    _screenshot = screenshot;
+    [_screenshotView removeFromSuperview];
+    _screenshotView = nil;
+    if (!screenshot)
+        return;
+    NSSize size = [screenshot size];
+    NSRect clipFrame = [_clipView frame];
+    NSImage *image = [[NSImage alloc] initWithSize:size];
+    [image lockFocus];
+    [[NSColor whiteColor] set];
+    NSRectFillUsingOperation(clipFrame, NSCompositeCopy);
+    [screenshot drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+    [image unlockFocus];
+    _screenshotView = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height)];
+    [_screenshotView setImageScaling:NSImageScaleNone];
+    [_screenshotView setImageAlignment:NSImageAlignBottomLeft];
+    [_screenshotView setImage:image];
+    [_screenshotView setWantsLayer:YES];
+    [self addSubview:_screenshotView positioned:NSWindowBelow relativeTo:nil];
 }
 
 - (void)setTransitionInProgress
@@ -205,14 +211,16 @@ static NSDictionary *pageRectFromRect(NSRect rect)
 {
     BOOL hidden = YES;
     if ([[self controller] hasSettings] && !_isLoading && !_loadError && !_isEditingCameraPosition)
-        hidden = _screenshot != nil;
+        hidden = _screenshotView || _pageSnapshotView;
     [_flipButton setHidden:hidden];
     [_flipperImageView setHidden:hidden];
 }
 
 - (void)clearScreenshot
 {
-    _screenshot = nil;
+    [self setScreenshot:nil];
+    [_pageSnapshotView removeFromSuperview];
+    _pageSnapshotView = nil;
     [_clipView setHidden:NO];
     [self updateFlipperVisibility];
 }
@@ -446,7 +454,7 @@ static NSDictionary *pageRectFromRect(NSRect rect)
             return;
     }
     if ([_currentTheme drawsInAttachedWindow])
-        [[_currentTheme window] setContentView:nil];
+        [_currentTheme releaseAttachedWindow];
     else
         [_currentTheme removeFromSuperview];
 
@@ -606,6 +614,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
         return;
     _isEditingCameraPosition = editing;
     if (editing) {
+        _clipRectAfterTransition = NSZeroRect;
         [self callPageFunction:@"snapNodes" argument:nil completionHandler:^(id nodes) {
             if (_isEditingCameraPosition && [nodes isKindOfClass:[NSArray class]])
                 _snapper = [[WCSnapper alloc] initWithNodes:nodes];
@@ -738,7 +747,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 - (void)reload:(id)sender
 {
     NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL _web_URLWithUserTypedString:[[self controller] URLString]] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:31536000];
-    [self stopTrackingClippedElement];
+    _isLoading = _webView != nil;
     [_webView loadRequest:request];
 }
 
@@ -751,18 +760,30 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     return NSMakeSize(width, (double)(insetTop + insetBottom) + size.height);
 }
 
-// Moves the clip to a rect the page found for the clipped element, and sizes the widget to it.
+// Moves the clip to the rect the page found for its signature, and sizes the widget to it. The
+// widget's window is the front's size only while the front shows: during a flip the rect waits for
+// the flip to complete, and behind the back side the clipper element alone takes the size, which is
+// the size the widget flips to the front with.
 - (void)adjustClipToRect:(NSRect)rect
 {
     if (NSEqualRects(rect, NSZeroRect))
         return;
+    if (_transitionInProgress) {
+        _clipRectAfterTransition = rect;
+        return;
+    }
     NSRect bounds = [_clipView bounds];
     if (fabs(rect.origin.x - bounds.origin.x) >= 0.5 || fabs(rect.origin.y - bounds.origin.y) >= 0.5)
         [self scrollClipViewToPoint:rect.origin];
     NSSize widgetSize = [self frame].size;
     if (fabs(rect.size.width - bounds.size.width) >= 0.5 || fabs(rect.size.height - bounds.size.height) >= 0.5) {
         widgetSize = [self convertDOMBorderSizeToWindowSize:rect.size];
-        [self setWidgetWindowSize:widgetSize keepClipperCentered:NO];
+        if ([self isBacksideShowing]) {
+            widgetSize = [self constrainedSizeFromSize:widgetSize];
+            [self setClipperSize:widgetSize];
+            [_clipView setFrame:[self clipViewFrame]];
+        } else
+            [self setWidgetWindowSize:widgetSize keepClipperCentered:NO];
     }
     [self recordClipRectWithWidgetSize:widgetSize];
 }
@@ -779,11 +800,8 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [self setIsEditingCameraPosition:NO];
     [self recordClipRectWithWidgetSize:[self frame].size];
     WebClipper *controller = [self controller];
-    [self callPageFunction:@"signatureForRect" argument:pageRectFromRect([_clipView bounds]) completionHandler:^(id signature) {
-        [controller setClipSignature:[signature isKindOfClass:[NSDictionary class]] ? signature : nil];
-        [controller exitEditingCameraPosition];
-        [self trackClippedElementWithSignature:[controller clipSignature]];
-    }];
+    [controller setClipSignature:nil];
+    [controller exitEditingCameraPosition];
 }
 
 - (void)showControls:(id)sender
@@ -1211,6 +1229,12 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 - (void)notifyTransitionIsComplete
 {
     _transitionInProgress = NO;
+    if (!NSEqualRects(_clipRectAfterTransition, NSZeroRect)) {
+        NSRect rect = _clipRectAfterTransition;
+        _clipRectAfterTransition = NSZeroRect;
+        if (!_isEditingCameraPosition)
+            [self adjustClipToRect:rect];
+    }
     [self updateEventRegion];
     if (!_didFlipToFront)
         return;
@@ -1280,20 +1304,51 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [self clearScreenshotIfNeeded];
 }
 
-- (void)didHideWidget
+- (void)closeWebView
 {
-    _isHidden = YES;
-    if (_disableAutoRefresh || [[self controller] playAudioOutOfDashboard] || _isEditingCameraPosition || [self isShowingLoadingText] || [self isBacksideShowing] || _loadError)
-        return;
-    [self setScreenshot:[self snapshotIncludingTheme:NO]];
-    [self stopTrackingClippedElement];
     [_webView stopLoading:nil];
     [_webView setNavigationDelegate:nil];
     [_webView setUIDelegate:nil];
     [_webView _close];
     [_webView removeFromSuperview];
     _webView = nil;
-    [_clipView setHidden:YES];
+    _isLoading = NO;
+}
+
+// The clip's last pixels stand in for the page from a hide, which closes the web view, to the end
+// of the load the next show starts. They sit where the page was in the clip view, under the same
+// theme and content mask.
+- (void)showPageSnapshot:(NSImage *)image inRect:(NSRect)rect
+{
+    [_pageSnapshotView removeFromSuperview];
+    _pageSnapshotView = [[NSImageView alloc] initWithFrame:rect];
+    [_pageSnapshotView setImageScaling:NSImageScaleAxesIndependently];
+    [_pageSnapshotView setImage:image];
+    addLayerBackedSubview(_voidView, _pageSnapshotView);
+    [self updateFlipperVisibility];
+}
+
+// The page renders the clip's pixels, and the web view closes once it has.
+- (void)didHideWidget
+{
+    _isHidden = YES;
+    if (_disableAutoRefresh || [[self controller] playAudioOutOfDashboard] || _isEditingCameraPosition || [self isShowingLoadingText] || [self isBacksideShowing] || _loadError)
+        return;
+    WKWebView *webView = _webView;
+    NSRect pageRect = NSIntersectionRect([_clipView bounds], [webView frame]);
+    if (!webView || [webView isHidden] || NSIsEmptyRect(pageRect)) {
+        [self closeWebView];
+        return;
+    }
+    WKSnapshotConfiguration *configuration = [[WKSnapshotConfiguration alloc] init];
+    configuration.rect = [webView convertRect:pageRect fromView:_voidView];
+    [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *error) {
+        if (webView != _webView || !_isHidden)
+            return;
+        if (image)
+            [self showPageSnapshot:image inRect:pageRect];
+        [self closeWebView];
+    }];
 }
 
 - (void)didFlipWidget:(BOOL)toFront
@@ -1333,7 +1388,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
         [_currentTheme setFrameSize:themeSize];
     }
     NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL _web_URLWithUserTypedString:URLString] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:31536000];
-    [self stopTrackingClippedElement];
+    _isLoading = YES;
     [_webView loadRequest:request];
     _didFlipToFront = YES;
 }
@@ -1345,7 +1400,6 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 
 - (void)webPlugInDestroy
 {
-    [self stopTrackingClippedElement];
     [_webView stopLoading:nil];
     [[_webView configuration].userContentController removeAllScriptMessageHandlers];
     [_webView setUIDelegate:nil];
@@ -1384,28 +1438,6 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     }];
 }
 
-// Finds the clipped element again, moves the clip onto it, and keeps the clip on it as the page
-// lays out.
-- (void)trackClippedElementWithSignature:(NSDictionary *)signature
-{
-    _trackedSignature = signature;
-    if (!signature)
-        return;
-    [self callPageFunction:@"trackSignature" argument:signature completionHandler:^(id rect) {
-        if (_trackedSignature != signature || _isEditingCameraPosition)
-            return;
-        [self adjustClipToRect:rectFromPageRect(rect)];
-    }];
-}
-
-- (void)stopTrackingClippedElement
-{
-    if (!_trackedSignature)
-        return;
-    _trackedSignature = nil;
-    [self callPageFunction:@"untrack" argument:nil completionHandler:^(id result) { }];
-}
-
 - (void)pageDidPostMessage:(NSDictionary *)message
 {
     NSString *type = message[@"type"];
@@ -1414,8 +1446,6 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
         [self layoutPageViewport];
     } else if ([type isEqual:@"documentHeight"])
         [self layoutPageViewport];
-    else if ([type isEqual:@"clipRect"] && _trackedSignature && !_isEditingCameraPosition)
-        [self adjustClipToRect:rectFromPageRect(message[@"rect"])];
 }
 
 #pragma mark - WKNavigationDelegate
@@ -1442,28 +1472,18 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [_webView _setTextZoomFactor:[[self controller] textSizeMultiplier]];
     [self clearScreenshotIfNeeded];
 
+    // A signature places the clip once, on the page that finished loading; the rect that leaves
+    // is the clip from then on.
     WebClipper *controller = [self controller];
     NSDictionary *signature = [controller clipSignature];
-    void (^recordSignature)(void) = ^{
-        [self callPageFunction:@"signatureForRect" argument:pageRectFromRect([_clipView bounds]) completionHandler:^(id newSignature) {
-            [controller setClipSignature:[newSignature isKindOfClass:[NSDictionary class]] ? newSignature : nil];
-            [self trackClippedElementWithSignature:[controller clipSignature]];
-        }];
-    };
-    if (!signature) {
-        recordSignature();
+    if (!signature)
         return;
-    }
-    // A signature that still finds its element keeps identifying the clip; re-signing from the
-    // clip's rect is for a page whose element is gone.
-    [self callPageFunction:@"trackSignature" argument:signature completionHandler:^(id rect) {
-        if (!rect) {
-            recordSignature();
+    [self callPageFunction:@"rectForSignature" argument:signature completionHandler:^(id rect) {
+        if (webView != _webView || _isEditingCameraPosition)
             return;
-        }
-        _trackedSignature = signature;
-        if (!_isEditingCameraPosition)
-            [self adjustClipToRect:rectFromPageRect(rect)];
+        [self adjustClipToRect:rectFromPageRect(rect)];
+        [controller setClipSignature:nil];
+        [controller savePreferencesToDisk];
     }];
 }
 

@@ -531,7 +531,8 @@ void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerLis
             physicalChildren.append(list[i]);
         }
     }
-    [m_layer setSortsSublayers:NO];
+    if (m_layerType != LayerType::LayerTypeTransformLayer) // MAVERICKS_BACKPORT: a transform layer sorts in its ancestor's context.
+        [m_layer setSortsSublayers:NO];
     [m_layer setSublayerTransform:has3DContext ? TransformationMatrix() : m_depthSortingTransform];
     updateDepthSortingGeometry();
     [m_layer setSublayers:createNSArray(physicalChildren, [] (auto& layer) {

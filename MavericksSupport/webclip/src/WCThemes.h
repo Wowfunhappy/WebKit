@@ -15,6 +15,7 @@ typedef NS_ENUM(int, WCThemeID) {
 // The widget-side object DashboardClient hands out as -[DBCWebView widget].
 @protocol WCDashboardWidget <NSObject>
 - (NSWindow *)createAttachedWindow:(NSRect)frame options:(unsigned int)options;
+- (void)releaseAttachedWindow:(NSWindow *)window;
 - (void)orderAttachedWindow:(NSWindow *)window place:(NSWindowOrderingMode)place relativeTo:(int)relativeTo delayed:(BOOL)delayed;
 - (void)setEventRegionWithRects:(const NSRect *)rects count:(int)count;
 @end
@@ -116,6 +117,7 @@ NSString *WCLocalizedString(const char *key);
 - (NSImage *)doneButtonImage;
 - (NSImage *)resizerImage;
 - (void)orderAttachedWindow:(NSWindowOrderingMode)place relativeTo:(int)relativeTo delayed:(BOOL)delayed;
+- (void)releaseAttachedWindow;
 - (BOOL)drawsInAttachedWindow;
 - (void)setEventRegion:(NSRect)rect;
 - (NSRect)controlRegion;

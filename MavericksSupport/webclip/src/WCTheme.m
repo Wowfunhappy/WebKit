@@ -253,6 +253,15 @@
     [(id<WCDashboardWidget>)_widgetObject orderAttachedWindow:_attachedWindow place:place relativeTo:relativeTo delayed:delayed];
 }
 
+// The widget owns the attached window and its window-server window until it is released.
+- (void)releaseAttachedWindow
+{
+    NSWindow *window = _attachedWindow;
+    _attachedWindow = nil;
+    [window setContentView:nil];
+    [(id<WCDashboardWidget>)_widgetObject releaseAttachedWindow:window];
+}
+
 - (BOOL)drawsInAttachedWindow
 {
     return YES;
