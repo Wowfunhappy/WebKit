@@ -511,13 +511,21 @@ WK_PRIV_ALIAS(NSAccessibilityCustomAction);
 
 // NSPreviewRepresentingActivityItem (13.0+): an item to share, wrapped with the title and artwork the
 // modern share sheet draws above it. WebContextMenuProxyMac::createShareMenuItem wraps the page's
-// image in one for the Share submenu of a right-click.
+// image in one for the Share submenu of a right-click, and WKShareSheet wraps each URL and file that
+// navigator.share() hands the picker.
 //
 // 10.9's NSSharingServicePicker takes any NSPasteboardWriting and has no preview area to draw the
 // title or artwork in, so forwarding the pasteboard protocol to the wrapped item gives the picker
 // exactly the item upstream means to share: measured with +[NSSharingService sharingServicesForItems:],
 // the wrapper and the bare item offer the same services.
 @class NSItemProvider;
+
+// The metadata's class is classes/LinkPresentation.m's.
+@interface LPLinkMetadata : NSObject
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic, retain) NSItemProvider *imageProvider;
+@property (nonatomic, retain) NSItemProvider *iconProvider;
+@end
 
 WK_PRIV_CLASS(NSPreviewRepresentingActivityItem) @interface NSPreviewRepresentingActivityItem : NSObject <NSPasteboardWriting> {
     id _item;
@@ -527,7 +535,7 @@ WK_PRIV_CLASS(NSPreviewRepresentingActivityItem) @interface NSPreviewRepresentin
 }
 - (instancetype)initWithItem:(id)item title:(NSString *)title image:(NSImage *)image icon:(NSImage *)icon;
 - (instancetype)initWithItem:(id)item title:(NSString *)title imageProvider:(NSItemProvider *)imageProvider iconProvider:(NSItemProvider *)iconProvider;
-- (instancetype)initWithItem:(id)item linkMetadata:(id)linkMetadata;
+- (instancetype)initWithItem:(id)item linkMetadata:(LPLinkMetadata *)linkMetadata;
 @property (readonly) id item;
 @property (readonly, copy) NSString *title;
 @property (readonly) NSItemProvider *imageProvider;
@@ -560,12 +568,9 @@ WK_PRIV_CLASS(NSPreviewRepresentingActivityItem) @interface NSPreviewRepresentin
     return [self initWithItem:item title:title imageProvider:imageProvider iconProvider:iconProvider];
 }
 
-- (instancetype)initWithItem:(id)item linkMetadata:(id)linkMetadata
+- (instancetype)initWithItem:(id)item linkMetadata:(LPLinkMetadata *)linkMetadata
 {
-    return [self initWithItem:item
-                        title:[linkMetadata respondsToSelector:@selector(title)] ? [linkMetadata title] : nil
-                imageProvider:nil
-                 iconProvider:nil];
+    return [self initWithItem:item title:[linkMetadata title] imageProvider:[linkMetadata imageProvider] iconProvider:[linkMetadata iconProvider]];
 }
 
 - (void)dealloc

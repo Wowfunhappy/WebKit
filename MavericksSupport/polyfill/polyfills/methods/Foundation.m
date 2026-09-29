@@ -1127,6 +1127,29 @@ WK_POLYFILL_ADD_METHODS(NSURL)
     BOOL stale = NO;
     return (id)[NSURL URLByResolvingBookmarkData:bookmarkData options:options relativeToURL:nil bookmarkDataIsStale:&stale error:error];
 }
+// -getPromisedItemResourceValue:forKey:error: and -promisedItemResourceValuesForKeys:error: (10.10+) read
+// resource values of a URL whose item may exist only as a promise: the placeholder iCloud Drive (10.10+)
+// leaves in place of a file it has not downloaded. For any other URL they are defined to answer exactly as
+// -getResourceValue:forKey:error: and -resourceValuesForKeys:error:. 10.9 has no such placeholders, so
+// every URL is the non-promised case. The dictionary form asks per key
+// so a key 10.9's -resourceValuesForKeys:error: does not know still reaches the -getResourceValue:forKey:error:
+// REPLACE below.
+- (BOOL)getPromisedItemResourceValue:(id *)value forKey:(NSURLResourceKey)key error:(NSError **)error
+{
+    return [self getResourceValue:value forKey:key error:error];
+}
+- (NSDictionary<NSURLResourceKey, id> *)promisedItemResourceValuesForKeys:(NSArray<NSURLResourceKey> *)keys error:(NSError **)error
+{
+    NSMutableDictionary *values = [NSMutableDictionary dictionaryWithCapacity:keys.count];
+    for (NSURLResourceKey key in keys) {
+        id value = nil;
+        if (![self getResourceValue:&value forKey:key error:error])
+            return nil;
+        if (value)
+            values[key] = value;
+    }
+    return values;
+}
 @end
 
 WK_POLYFILL_REPLACE_METHODS(NSURL)

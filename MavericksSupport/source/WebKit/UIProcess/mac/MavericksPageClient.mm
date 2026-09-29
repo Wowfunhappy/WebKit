@@ -33,6 +33,12 @@
 #import "UndoOrRedo.h"
 #import "EditorState.h"
 #import "WKEditCommand.h"
+// navigator.share()'s picker (see showShareSheet).
+#import "PickerDismissalReason.h"
+#import "WKViewPrivate.h"
+#import <WebCore/ShareData.h>
+#import <WebKit/WKShareSheet.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 // WKView's promised-file drag entry point, implemented in WKViewMavericks.mm.
 // An internal bridge between this page client and its view, not Safari-7-facing SPI, so it is
@@ -314,6 +320,9 @@ public:
     // The popovers and panels anchored to page content, dismissed together when
     // the content under them goes away (WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly).
     void dismissContentRelativeChildWindows();
+
+    // -[WKView shareSheetDidDismiss:] calls this back, as WKWebView does WebViewImpl's.
+    void shareSheetDidDismiss(WKShareSheet *);
 
     // The paste menu's delegate calls these back (see requestDOMPasteAccess).
     void handleDOMPasteRequestForCategoryWithResult(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteAccessResponse);
@@ -748,6 +757,7 @@ private:
     void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) final;
 #endif
     void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, WebCore::FrameIdentifier, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    bool showShareSheet(WebCore::ShareDataWithParsedURL&&, WTF::CompletionHandler<void(bool)>&&) final;
 #if USE(WPE_RENDERER)
     UnixFileDescriptor hostFileDescriptor() final;
 #endif
@@ -793,6 +803,8 @@ private:
     RetainPtr<NSMenu> m_domPasteMenu;
     RetainPtr<NSObject<NSMenuDelegate>> m_domPasteMenuDelegate;
     CompletionHandler<void(WebCore::DOMPasteAccessResponse)> m_domPasteRequestHandler;
+    // navigator.share()'s picker, as WebViewImpl holds it.
+    RetainPtr<WKShareSheet> m_shareSheet;
     RetainPtr<NSColorSpace> m_colorSpace;
     // Upstream's WebViewImpl default; -[WKView setWindowOcclusionDetectionEnabled:] carries the
     // embedder's choice through to isActiveViewVisible.
@@ -2112,6 +2124,30 @@ void MavericksPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory 
     RetainPtr event = m_page->createSyntheticEventForContextMenu([window convertPointFromScreen:NSEvent.mouseLocation]);
     [NSMenu popUpContextMenu:m_domPasteMenu.get() withEvent:event.get() forView:retainPtr(window.get().contentView).get()];
 }
+
+// WebViewImpl::showShareSheet against the WKView. WKShareSheet sends its view the NSView presentation
+// messages plus -_resolutionForShareSheetImmediateCompletionForTesting, which WKView answers as a
+// WKWebView without a testing override does, so the WKView stands in for the WKWebView it is typed as.
+bool MavericksPageClient::showShareSheet(WebCore::ShareDataWithParsedURL&& shareData, WTF::CompletionHandler<void(bool)>&& completionHandler)
+{
+    if (m_shareSheet)
+        [m_shareSheet dismissIfNeededWithReason:PickerDismissalReason::ResetState];
+
+    RetainPtr view = checked_objc_cast<WKView>(m_view);
+    m_shareSheet = adoptNS([[WKShareSheet alloc] initWithView:(WKWebView *)view.get()]);
+    [m_shareSheet setDelegate:(id<WKShareSheetDelegate>)view.get()];
+
+    [m_shareSheet presentWithParameters:shareData inRect:std::nullopt completionHandler:WTF::move(completionHandler)];
+    return true;
+}
+
+void MavericksPageClient::shareSheetDidDismiss(WKShareSheet *shareSheet)
+{
+    ASSERT(m_shareSheet == shareSheet);
+
+    [m_shareSheet setDelegate:nil];
+    m_shareSheet = nil;
+}
 #if USE(WPE_RENDERER)
 UnixFileDescriptor MavericksPageClient::hostFileDescriptor()
 { return { }; }
@@ -2182,6 +2218,11 @@ void setMavericksPageClientWindowOcclusionDetectionEnabled(PageClient& client, b
 bool mavericksPageClientWindowOcclusionDetectionEnabled(PageClient& client)
 {
     return static_cast<MavericksPageClient&>(client).windowOcclusionDetectionEnabled();
+}
+
+void mavericksPageClientShareSheetDidDismiss(PageClient& client, WKShareSheet *shareSheet)
+{
+    static_cast<MavericksPageClient&>(client).shareSheetDidDismiss(shareSheet);
 }
 
 #if ENABLE(FULLSCREEN_API)

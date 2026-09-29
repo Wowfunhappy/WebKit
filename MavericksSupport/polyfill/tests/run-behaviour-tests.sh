@@ -160,6 +160,16 @@ probe_pasteboard_expiration() {
         "$T/pasteboard_expiration"
 }
 
+probe_share_picker_popover() {
+    prepare_method_objects AppKit &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/share_picker_popover" "$TBEHAV/AppKit-share-picker-popover.m" \
+            "$OBJ/methods/AppKit.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/share_picker_popover"
+}
+
 probe_level_indicator_direction() {
     prepare_method_objects AppKit &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/level_indicator_direction" "$TBEHAV/AppKit-level-indicator-direction.m" \
@@ -357,6 +367,12 @@ probe_accessibility_absent_framework() {
         "$T/accessibility_absent_framework"
 }
 
+probe_link_presentation_absent_framework() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/link_presentation_absent_framework" "$TBEHAV/LinkPresentation-absent-framework.m" \
+        -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
+        "$T/link_presentation_absent_framework"
+}
+
 probe_item_provider() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/item_provider" "$TBEHAV/Foundation-item-provider.m" \
         -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
@@ -484,6 +500,16 @@ probe_url_data_representation() {
             -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
             $PROBE_LIBS &&
         "$T/url_data_representation"
+}
+
+probe_promised_item_values() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/promised_item_values" "$TBEHAV/Foundation-promised-item-values.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/promised_item_values"
 }
 
 probe_relative_file_url() {
@@ -813,6 +839,7 @@ probe_audiounit_max_frames() {
 run_probe accent_color "$@"
 run_probe level_indicator_direction "$@"
 run_probe pasteboard_expiration "$@"
+run_probe share_picker_popover "$@"
 run_probe touch_bar "$@"
 run_probe scrollview_insets "$@"
 run_probe color_popover_top_bar "$@"
@@ -838,6 +865,7 @@ run_probe cg_live_image "$@"
 run_probe cg_iosurface_image_reference "$@"
 run_probe cg_iosurface_premultiplied_sanitize "$@"
 run_probe accessibility_absent_framework "$@"
+run_probe link_presentation_absent_framework "$@"
 run_probe rsabssa "$@"
 run_probe item_provider "$@"
 run_probe samesite "$@"
@@ -859,6 +887,7 @@ run_probe notify_tokens "$@"
 run_probe user_dir_suffix "$@"
 run_probe url_data_representation "$@"
 run_probe relative_file_url "$@"
+run_probe promised_item_values "$@"
 run_probe language_minimization "$@"
 run_probe avf_display_color "$@"
 run_probe avf_resource_loader_drain "$@"

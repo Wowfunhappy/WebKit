@@ -1751,6 +1751,117 @@ WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 
 @end
 
+// -[NSSharingServicePicker showPopoverRelativeToRect:ofView:preferredEdge:completion:] and -hide, the
+// SPI pair WKShareSheet presents and dismisses navigator.share()'s picker with; both absent on 10.9
+// (probed on-host). The picker's 10.9 UI is a pop-up menu of services, which
+// -showRelativeToRect:ofView:preferredEdge: tracks synchronously: ShareKit's implementation returns once
+// the menu closes, having told the delegate -sharingServicePicker:didChooseSharingService: with the
+// chosen service, or with nil when the menu closed without a choice (read off ShareKit's disassembly).
+// So the popover form shows that menu and calls the completion with the same service once it returns.
+// The service is observed through the picker's delegate: for the duration of the menu a relay stands in
+// as the delegate, records the choice, and hands every delegate message on to the client's delegate.
+// The relay also captures the menu as it begins tracking, which is what -hide cancels; outside that
+// window nothing is on screen and -hide has nothing to do.
+@interface NSSharingServicePicker (WKPolyfillSharePopoverSPI)
+- (void)showRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge;
+@end
+
+@interface WKPolyfillSharePickerRelay : NSObject <NSSharingServicePickerDelegate> {
+    id<NSSharingServicePickerDelegate> _delegate;
+    NSSharingService *_chosenService;
+    NSMenu *_trackedMenu;
+}
+- (id)initWithDelegate:(id<NSSharingServicePickerDelegate>)delegate;
+- (id<NSSharingServicePickerDelegate>)delegate;
+- (NSSharingService *)chosenService;
+- (void)cancelTracking;
+@end
+
+@implementation WKPolyfillSharePickerRelay
+
+- (id)initWithDelegate:(id<NSSharingServicePickerDelegate>)delegate
+{
+    if (!(self = [super init]))
+        return nil;
+    _delegate = delegate;
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(wk_menuDidBeginTracking:) name:NSMenuDidBeginTrackingNotification object:nil];
+    return self;
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [_chosenService release];
+    [_trackedMenu release];
+    [super dealloc];
+}
+
+- (id<NSSharingServicePickerDelegate>)delegate { return _delegate; }
+- (NSSharingService *)chosenService { return _chosenService; }
+
+- (void)wk_menuDidBeginTracking:(NSNotification *)notification
+{
+    if (_trackedMenu)
+        return;
+    _trackedMenu = [[notification object] retain];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSMenuDidBeginTrackingNotification object:nil];
+}
+
+- (void)cancelTracking
+{
+    [_trackedMenu cancelTracking];
+}
+
+- (void)sharingServicePicker:(NSSharingServicePicker *)sharingServicePicker didChooseSharingService:(NSSharingService *)service
+{
+    [_chosenService release];
+    _chosenService = [service retain];
+    if ([_delegate respondsToSelector:@selector(sharingServicePicker:didChooseSharingService:)])
+        [_delegate sharingServicePicker:sharingServicePicker didChooseSharingService:service];
+}
+
+- (BOOL)respondsToSelector:(SEL)selector
+{
+    return [super respondsToSelector:selector] || [_delegate respondsToSelector:selector];
+}
+
+- (id)forwardingTargetForSelector:(SEL)selector
+{
+    return _delegate;
+}
+
+@end
+
+static const void *kWKSharePickerRelayKey = &kWKSharePickerRelayKey;
+
+WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
+
+- (void)showPopoverRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge completion:(void (^)(NSSharingService *))completion
+{
+    [[self retain] autorelease];
+    void (^completionCopy)(NSSharingService *) = [[completion copy] autorelease];
+
+    WKPolyfillSharePickerRelay *relay = [[[WKPolyfillSharePickerRelay alloc] initWithDelegate:[self delegate]] autorelease];
+    [self setDelegate:relay];
+    objc_setAssociatedObject(self, kWKSharePickerRelayKey, relay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    [self showRelativeToRect:rect ofView:view preferredEdge:preferredEdge];
+
+    objc_setAssociatedObject(self, kWKSharePickerRelayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if ([self delegate] == relay)
+        [self setDelegate:[relay delegate]];
+
+    if (completionCopy)
+        completionCopy([relay chosenService]);
+}
+
+- (void)hide
+{
+    [(WKPolyfillSharePickerRelay *)objc_getAssociatedObject(self, kWKSharePickerRelayKey) cancelTracking];
+}
+
+@end
+
 // ---------------------------------------------------------------------------------------------
 // AppKit pieces the Web Inspector's window/panel code needs, all absent on 10.9 (probed on-host).
 

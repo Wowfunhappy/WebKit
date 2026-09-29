@@ -22,6 +22,7 @@
 // below (the WKContentAnchor enum, the view-in-window deferral family, the async drawing-area
 // size-update pair, and the automatic-substitution flags).
 #import "WKViewPrivate.h"
+#import <WebKit/WKShareSheet.h>
 
 #import "APIPageConfiguration.h"
 #import "NativeWebKeyboardEvent.h"
@@ -110,6 +111,7 @@ void setMavericksPageClientPage(PageClient&, WebPageProxy *);
 void mavericksPageClientViewDidChangeBackingProperties(PageClient&);
 void setMavericksPageClientWindowOcclusionDetectionEnabled(PageClient&, bool);
 bool mavericksPageClientWindowOcclusionDetectionEnabled(PageClient&);
+void mavericksPageClientShareSheetDidDismiss(PageClient&, WKShareSheet *);
 #if ENABLE(FULLSCREEN_API)
 NSView *mavericksPageClientFullScreenPlaceholderView(PageClient&);
 #endif
@@ -214,7 +216,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 - (void)stopSpeaking:(id)sender;
 @end
 
-@interface WKView () {
+@interface WKView () <WKShareSheetDelegate> {
     WKViewState *_wkState;
     WKBrowsingContextController *_browsingContextController;
     // cached intrinsic content size for the auto-layout SPI Mail's
@@ -964,6 +966,19 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         return mavericksPageClientFullScreenPlaceholderView(*_wkState->pageClient);
 #endif // closes the FULLSCREEN_API guard on -fullScreenPlaceholderView (see above).
     return nil;
+}
+
+// navigator.share()'s picker, which MavericksPageClient::showShareSheet presents with this view in
+// place of a WKWebView: the delegate callback WKWebView forwards to WebViewImpl, and the testing
+// override WKShareSheet reads off its view, which a WKView never carries.
+- (void)shareSheetDidDismiss:(WKShareSheet *)shareSheet
+{
+    mavericksPageClientShareSheetDidDismiss(*_wkState->pageClient, shareSheet);
+}
+
+- (std::optional<BOOL>)_resolutionForShareSheetImmediateCompletionForTesting
+{
+    return std::nullopt;
 }
 
 // legacy fullscreen SPI, declared in WKViewPrivate.h and sent unguarded by
