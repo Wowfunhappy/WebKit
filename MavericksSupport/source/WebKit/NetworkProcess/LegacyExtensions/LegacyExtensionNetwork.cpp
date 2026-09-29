@@ -1,8 +1,9 @@
 #include "config.h"
 #include "LegacyExtensionNetwork.h"
 
-#include "APIError.h"
+#include "AuthenticationChallengeDisposition.h"
 #include "Decoder.h"
+#include "LegacyExtensionErrors.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
 #include "LegacyExtensionScheme.h"
@@ -16,7 +17,9 @@
 #include "NetworkResourceLoader.h"
 #include "WebErrors.h"
 #include "WebSocketChannelMessages.h"
+#include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/ClientOrigin.h>
+#include <WebCore/Credential.h>
 #include <WebCore/CocoaCurlTransfer.h>
 #include <WebCore/CocoaCookie.h>
 #include <WebCore/CookieJar.h>
@@ -49,6 +52,7 @@ static constexpr auto onHeadersReceived = "onHeadersReceived"_s;
 static constexpr auto onResponseStarted = "onResponseStarted"_s;
 static constexpr auto onCompleted = "onCompleted"_s;
 static constexpr auto onErrorOccurred = "onErrorOccurred"_s;
+static constexpr auto onAuthRequired = "onAuthRequired"_s;
 static constexpr auto requestBodyOption = "requestBody"_s;
 static constexpr auto extraHeadersOption = "extraHeaders"_s;
 
@@ -178,55 +182,6 @@ static bool matchPatternMatches(StringView pattern, const URL& url)
         return false;
 
     return globMatches(rest.substring(pathStart), StringView(url.string()).substring(url.pathStart()));
-}
-
-// A WebExtensions network error name (net::ERR_*) for a failed load.
-static ASCIILiteral networkErrorName(const ResourceError& error)
-{
-    if (error.domain() == API::Error::webKitPolicyErrorDomain() && error.errorCode() == API::Error::Policy::FrameLoadBlockedByContentBlocker)
-        return "net::ERR_BLOCKED_BY_CLIENT"_s;
-    if (error.isCancellation())
-        return "net::ERR_ABORTED"_s;
-    if (error.isTimeout())
-        return "net::ERR_TIMED_OUT"_s;
-    if (error.domain() != "NSURLErrorDomain"_s)
-        return "net::ERR_FAILED"_s;
-    switch (error.errorCode()) {
-    case -999: // NSURLErrorCancelled
-        return "net::ERR_ABORTED"_s;
-    case -1000: // NSURLErrorBadURL
-        return "net::ERR_INVALID_URL"_s;
-    case -1001: // NSURLErrorTimedOut
-        return "net::ERR_TIMED_OUT"_s;
-    case -1002: // NSURLErrorUnsupportedURL
-        return "net::ERR_UNKNOWN_URL_SCHEME"_s;
-    case -1003: // NSURLErrorCannotFindHost
-    case -1006: // NSURLErrorDNSLookupFailed
-        return "net::ERR_NAME_NOT_RESOLVED"_s;
-    case -1004: // NSURLErrorCannotConnectToHost
-        return "net::ERR_CONNECTION_REFUSED"_s;
-    case -1005: // NSURLErrorNetworkConnectionLost
-        return "net::ERR_CONNECTION_CLOSED"_s;
-    case -1007: // NSURLErrorHTTPTooManyRedirects
-        return "net::ERR_TOO_MANY_REDIRECTS"_s;
-    case -1009: // NSURLErrorNotConnectedToInternet
-        return "net::ERR_INTERNET_DISCONNECTED"_s;
-    case -1011: // NSURLErrorBadServerResponse
-    case -1017: // NSURLErrorCannotParseResponse
-        return "net::ERR_INVALID_RESPONSE"_s;
-    case -1100: // NSURLErrorFileDoesNotExist
-        return "net::ERR_FILE_NOT_FOUND"_s;
-    case -1200: // NSURLErrorSecureConnectionFailed
-        return "net::ERR_SSL_PROTOCOL_ERROR"_s;
-    case -1201: // NSURLErrorServerCertificateHasBadDate
-    case -1204: // NSURLErrorServerCertificateNotYetValid
-        return "net::ERR_CERT_DATE_INVALID"_s;
-    case -1202: // NSURLErrorServerCertificateUntrusted
-    case -1203: // NSURLErrorServerCertificateHasUnknownRoot
-        return "net::ERR_CERT_AUTHORITY_INVALID"_s;
-    default:
-        return "net::ERR_FAILED"_s;
-    }
 }
 
 static double timeStamp()
@@ -555,7 +510,8 @@ void LegacyExtensionNetwork::setListeners(Vector<String>&& observedEvents, Vecto
             RefPtr listener = listenerValue->asObject();
             if (!listener)
                 continue;
-            eventListeners.append({ listener->getString("extension"_s), stringsFromJSON(*listener, "urls"_s), stringsFromJSON(*listener, "types"_s), listener->getDouble("tabId"_s) });
+            RefPtr access = listener->getObject("access"_s);
+            eventListeners.append({ listener->getString("extension"_s), access ? LegacyExtensions::WebsiteAccess::fromJSON(*access) : LegacyExtensions::WebsiteAccess { }, stringsFromJSON(*listener, "urls"_s), stringsFromJSON(*listener, "types"_s), listener->getDouble("tabId"_s) });
         }
         if (!eventListeners.isEmpty())
             m_blockingListeners.add(eventName, WTF::move(eventListeners));
@@ -563,7 +519,8 @@ void LegacyExtensionNetwork::setListeners(Vector<String>&& observedEvents, Vecto
 }
 
 // Whether a blocking listener's filter matches the event's details, as the API script decides for each
-// listener; an extension's listeners see its own safari-extension:// resources and no other extension's.
+// listener; an extension's listeners see its own safari-extension:// resources and no other extension's,
+// and web requests only within its website access.
 bool LegacyExtensionNetwork::blocks(ASCIILiteral eventName, const JSON::Object& details) const
 {
     auto iterator = m_blockingListeners.find(String { eventName });
@@ -573,7 +530,7 @@ bool LegacyExtensionNetwork::blocks(ASCIILiteral eventName, const JSON::Object& 
     auto type = details.getString("type"_s);
     auto tabID = details.getDouble("tabId"_s);
     for (auto& listener : iterator->value) {
-        if (url.protocolIs("safari-extension"_s) && url.host() != listener.extensionKey)
+        if (url.protocolIs("safari-extension"_s) ? url.host() != listener.extensionKey : !listener.access.allows(url))
             continue;
         // The router reports -1 for a load it finds no tab for, which only it can tell.
         if (listener.tabID && *listener.tabID != -1 && (!tabID || *tabID != *listener.tabID))
@@ -675,21 +632,10 @@ Ref<JSON::Object> LegacyExtensionNetwork::responseDetails(NetworkResourceLoader&
     return details;
 }
 
-// A request an extension cancels fails as one WebKit's content rules block; a navigation is interrupted
-// instead, and no error page replaces the page it leaves.
-ResourceError LegacyExtensionNetwork::cancellationError(NetworkLoadChecker& checker, const ResourceRequest& request)
+// A request an extension cancels fails as one WebKit's content rules block, as Chrome fails it with
+// net::ERR_BLOCKED_BY_CLIENT.
+static ResourceError cancellationError(const ResourceRequest& request)
 {
-    if (checker.m_requestLoadType != NetworkLoadChecker::LoadType::MainFrame)
-        return blockedByContentBlockerError(request);
-    if (RefPtr loader = checker.m_networkResourceLoader.get())
-        m_loadsBlockedByExtensions.add(*loader);
-    return interruptedForPolicyChangeError(request);
-}
-
-ResourceError LegacyExtensionNetwork::cancellationError(NetworkResourceLoader& loader, const ResourceRequest& request)
-{
-    if (RefPtr checker = loader.m_networkLoadChecker)
-        return cancellationError(*checker, request);
     return blockedByContentBlockerError(request);
 }
 
@@ -801,6 +747,8 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
 {
     if (m_resumingRequests.remove(checker))
         return false;
+    if (RefPtr loader = checker.m_networkResourceLoader.get())
+        m_loaders.add(*loader);
     auto redirectResponse = m_redirectResponses.take(checker);
     // An extension's Cookie edit is its exchange's alone: a redirect generates its own.
     if (auto editedCookie = m_editedCookies.take(checker); !editedCookie.isNull() && request.httpHeaderField(HTTPHeaderName::Cookie) == editedCookie)
@@ -849,7 +797,7 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
             return handler(ResourceError { ResourceError::Type::Cancellation });
 
         if (response && response->getBoolean("cancel"_s).value_or(false))
-            return handler(cancellationError(*checker, request));
+            return handler(cancellationError(request));
 
         ContentSecurityPolicyClient* client = hasClient ? loader.get() : nullptr;
         URL redirectURL { response ? response->getString("redirectUrl"_s) : String() };
@@ -925,7 +873,7 @@ bool LegacyExtensionNetwork::interceptRequestHeaders(NetworkLoadChecker& checker
             return handler(ResourceError { ResourceError::Type::Cancellation });
 
         if (response && response->getBoolean("cancel"_s).value_or(false))
-            return handler(cancellationError(*checker, request));
+            return handler(cancellationError(request));
         if (RefPtr headers = response ? response->getArray("requestHeaders"_s) : nullptr) {
             request.setHTTPHeaderFields(headerMap(*headers));
             for (auto& field : generatedFields) {
@@ -1000,7 +948,7 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
         if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
             if (task)
                 task->discardHeldCookies();
-            return handler(makeUnexpected(cancellationError(*checker, redirectRequest)));
+            return handler(makeUnexpected(cancellationError(redirectRequest)));
         }
         if (task) {
             RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr;
@@ -1082,7 +1030,7 @@ bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, Re
             RunLoop::mainSingleton().dispatch([this, weakLoader = WTF::move(weakLoader)] {
                 RefPtr loader = weakLoader.get();
                 if (loader && loader->m_networkLoad)
-                    loader->didFailLoading(cancellationError(*loader, loader->originalRequest()));
+                    loader->didFailLoading(cancellationError(loader->originalRequest()));
             });
             return completionHandler(PolicyAction::Ignore);
         }
@@ -1129,7 +1077,7 @@ bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& load
         if (!loader)
             return;
         if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
-            loader->didFailLoading(cancellationError(*loader, loader->originalRequest()));
+            loader->didFailLoading(cancellationError(loader->originalRequest()));
             return;
         }
         if (RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr) {
@@ -1195,11 +1143,87 @@ bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& c
     return true;
 }
 
+// The WebExtensions name of an HTTP authentication scheme; null for a challenge that is not HTTP
+// authentication.
+static String authenticationSchemeName(const AuthenticationChallenge& challenge)
+{
+    using Scheme = ProtectionSpace::AuthenticationScheme;
+    switch (challenge.protectionSpace().authenticationScheme()) {
+    case Scheme::HTTPBasic:
+        return "basic"_s;
+    case Scheme::HTTPDigest:
+        return "digest"_s;
+    case Scheme::NTLM:
+        return "ntlm"_s;
+    case Scheme::Negotiate:
+        return "negotiate"_s;
+    case Scheme::Default: {
+        auto& response = challenge.failureResponse();
+        auto field = response.httpHeaderField(challenge.protectionSpace().isProxy() ? "Proxy-Authenticate"_s : "WWW-Authenticate"_s);
+        auto token = StringView(field).trim(isASCIIWhitespace<char16_t>);
+        if (size_t end = token.find(isASCIIWhitespace<char16_t>); end != notFound)
+            token = token.left(end);
+        return token.isEmpty() ? String() : token.convertToASCIILowercase();
+    }
+    default:
+        return { };
+    }
+}
+
+// onAuthRequired, for a load's HTTP or proxy authentication challenge. A verdict's authCredentials answer
+// it; a cancel continues without credentials, so the 401 or 407 response is the load's, as Chrome cancels
+// the authentication; a load no verdict answers leaves the challenge to the browser.
+bool LegacyExtensionNetwork::interceptAuthenticationChallenge(NetworkLoad& networkLoad, const AuthenticationChallenge& challenge, NegotiatedLegacyTLS negotiatedLegacyTLS, ChallengeCompletionHandler& completionHandler)
+{
+    if (m_resumingChallenges.remove(networkLoad))
+        return false;
+    if (!observes(onAuthRequired))
+        return false;
+    auto scheme = authenticationSchemeName(challenge);
+    if (scheme.isNull())
+        return false;
+    RefPtr<NetworkResourceLoader> loader;
+    for (auto& candidate : m_loaders) {
+        if (candidate.m_networkLoad == &networkLoad) {
+            loader = &candidate;
+            break;
+        }
+    }
+    if (!loader)
+        return false;
+
+    auto& protectionSpace = challenge.protectionSpace();
+    auto details = loaderDetails(*loader);
+    addResponseFields(details, challenge.failureResponse());
+    details->setString("scheme"_s, scheme);
+    if (!protectionSpace.realm().isEmpty())
+        details->setString("realm"_s, protectionSpace.realm());
+    auto challenger = JSON::Object::create();
+    challenger->setString("host"_s, protectionSpace.host());
+    challenger->setDouble("port"_s, protectionSpace.port());
+    details->setObject("challenger"_s, WTF::move(challenger));
+    details->setBoolean("isProxy"_s, protectionSpace.isProxy());
+    if (!blocks(onAuthRequired, details)) {
+        notify(onAuthRequired, details->toJSONString());
+        return false;
+    }
+
+    dispatch(onAuthRequired, details->toJSONString(), [this, networkLoad = Ref { networkLoad }, challenge = AuthenticationChallenge { challenge }, negotiatedLegacyTLS, completionHandler = WTF::move(completionHandler)](RefPtr<JSON::Object>&& verdict) mutable {
+        if (verdict && verdict->getBoolean("cancel"_s).value_or(false))
+            return completionHandler(AuthenticationChallengeDisposition::UseCredential, { });
+        if (RefPtr credentials = verdict ? verdict->getObject("authCredentials"_s) : nullptr)
+            return completionHandler(AuthenticationChallengeDisposition::UseCredential, Credential { credentials->getString("username"_s), credentials->getString("password"_s), CredentialPersistence::ForSession });
+        m_resumingChallenges.add(networkLoad.get());
+        networkLoad->didReceiveChallenge(WTF::move(challenge), negotiatedLegacyTLS, WTF::move(completionHandler));
+    });
+    return true;
+}
+
 void LegacyExtensionNetwork::loaderDidFail(NetworkResourceLoader& loader, const ResourceError& error)
 {
     if (!observes(onErrorOccurred))
         return;
-    m_loadErrors.set(loader, m_loadsBlockedByExtensions.contains(loader) ? "net::ERR_BLOCKED_BY_CLIENT"_s : networkErrorName(error));
+    m_loadErrors.set(loader, LegacyExtensions::networkErrorName(error));
 }
 
 bool LegacyExtensionNetwork::didReceivePendingWebSocketMessage(NetworkConnectionToWebProcess& connection, IPC::Decoder& decoder)
@@ -1220,7 +1244,6 @@ void LegacyExtensionNetwork::loaderDidFinish(NetworkResourceLoader& loader, Netw
 {
     bool succeeded = result == NetworkResourceLoader::LoadResult::Success;
     auto error = m_loadErrors.take(loader);
-    bool wasBlocked = m_loadsBlockedByExtensions.remove(loader);
     auto eventName = succeeded ? onCompleted : onErrorOccurred;
     if (!observes(eventName))
         return;
@@ -1235,7 +1258,7 @@ void LegacyExtensionNetwork::loaderDidFinish(NetworkResourceLoader& loader, Netw
         if (!error.isNull())
             details->setString("error"_s, error);
         else
-            details->setString("error"_s, wasBlocked ? "net::ERR_BLOCKED_BY_CLIENT"_s : result == NetworkResourceLoader::LoadResult::Cancel ? "net::ERR_ABORTED"_s : "net::ERR_FAILED"_s);
+            details->setString("error"_s, result == NetworkResourceLoader::LoadResult::Cancel ? "net::ERR_ABORTED"_s : "net::ERR_FAILED"_s);
     }
     notify(eventName, details->toJSONString());
 }

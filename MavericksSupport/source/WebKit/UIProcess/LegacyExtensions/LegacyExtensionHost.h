@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "LegacyExtensionWebsiteAccess.h"
 #include "MessageReceiver.h"
 #include <JavaScriptCore/Weak.h>
 #include <WebCore/FrameIdentifier.h>
@@ -29,12 +30,18 @@ namespace JSC {
 class JSGlobalObject;
 }
 
+namespace WebCore {
+class ResourceError;
+struct Cookie;
+}
+
 namespace API {
 class Navigation;
 }
 
 namespace WebKit {
 
+class LegacyExtensionCookieObserver;
 class NetworkProcessProxy;
 class WebBackForwardListItem;
 class WebFrameProxy;
@@ -66,13 +73,17 @@ public:
     void pageWasCreated(WebPageProxy&);
     void pageWillClose(WebPageProxy&);
     void didCommitLoad(WebPageProxy&, WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, API::Navigation*, WebCore::FrameLoadType, const URL&);
+    void didStartProvisionalLoad(WebPageProxy&, WebFrameProxy&, const URL&);
     void didFinishDocumentLoad(WebPageProxy&, WebFrameProxy&);
+    void didFinishLoad(WebPageProxy&, WebFrameProxy&);
+    void didFailLoad(WebPageProxy&, WebFrameProxy&, const URL&, const WebCore::ResourceError&);
     void didCreateNavigationTarget(WebPageProxy& sourcePage, WebCore::FrameIdentifier sourceFrameID, WebPageProxy& newPage, const URL&);
     void didDestroyFrame(WebCore::FrameIdentifier);
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     void dispatchWebRequestEvent(const String& eventName, const String& details, CompletionHandler<void(String&&)>&&);
+    void dispatchCookieChange(const WebCore::Cookie&, Ref<JSON::Array>&&);
 
     // WebKit 1 host contexts.
     void didClearWindowObject(const void* frame, JSC::JSGlobalObject&, const URL& documentURL);
@@ -82,6 +93,7 @@ public:
 private:
     friend class NeverDestroyed<LegacyExtensionHost>;
     LegacyExtensionHost();
+    ~LegacyExtensionHost();
 
     // An extension page: a WebKit 1 view in this process, or a frame of a web content process.
     struct HostContext : RefCounted<HostContext> {
@@ -164,6 +176,9 @@ private:
     void finishWebRequestCallIfComplete(uint64_t);
     void dispatchEvent(const String& eventName, Ref<JSON::Array>&& arguments);
     void updateNetworkListeners();
+    void updateCookieObservers();
+    void loadWebsiteAccess(const String& extensionKey, const URL&);
+    void withWebsiteAccess(const String& extensionKey, Function<void(const LegacyExtensions::WebsiteAccess&)>&&);
     void sendNetworkListeners(NetworkProcessProxy&);
 
     Ref<JSON::Object> tabDescription(WebPageProxy&) const;
@@ -191,6 +206,10 @@ private:
     Vector<String> m_networkListenerOptions;
     String m_blockingNetworkListeners;
     LegacyExtensionNetworkProxy m_networkProxy;
+    HashMap<String, Ref<LegacyExtensionCookieObserver>> m_cookieObservers;
+    HashMap<String, LegacyExtensions::WebsiteAccess> m_websiteAccess;
+    HashMap<String, URL> m_websiteAccessRoots;
+    HashMap<String, Vector<Function<void(const LegacyExtensions::WebsiteAccess&)>>> m_websiteAccessWaiters;
 };
 
 } // namespace WebKit

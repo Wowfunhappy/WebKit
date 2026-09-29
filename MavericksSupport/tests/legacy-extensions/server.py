@@ -103,10 +103,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             return self.reply('{"revalidated":true}', 'application/json', headers=[('ETag', '"v1"'), ('Cache-Control', 'no-cache')])
         if path.startswith('/clear-cookies'):
-            return self.reply('ok', headers=[('Set-Cookie', 'keep=; Path=/; Max-Age=0'), ('Set-Cookie', 'strip=; Path=/; Max-Age=0'), ('Set-Cookie', 'hop=; Path=/; Max-Age=0')])
+            return self.reply('ok', headers=[('Set-Cookie', 'keep=; Path=/; Max-Age=0'), ('Set-Cookie', 'strip=; Path=/; Max-Age=0'), ('Set-Cookie', 'hop=; Path=/; Max-Age=0'), ('Set-Cookie', 'limited=; Path=/; Max-Age=0')])
         # Same-origin redirects: one the extension retargets, one whose first hop loses its Cookie, one that sets a cookie.
         if path.startswith('/auth-hop'):
             return self.reply('', status=302, headers=[('Location', '/res/auth-original.json')])
+        # HTTP authentication, for onAuthRequired.
+        # Each has a realm of its own, so credentials kept for one do not answer the other.
+        if path.startswith('/auth-basic') or path.startswith('/auth-cancel'):
+            if self.headers.get('Authorization') == 'Basic ' + base64.b64encode(b'extension:secret').decode():
+                return self.reply('{"authenticated":true}', 'application/json')
+            realm = 'legacy-extension-test' if path.startswith('/auth-basic') else 'legacy-extension-cancel'
+            return self.reply('{"authenticated":false}', 'application/json', status=401, headers=[('WWW-Authenticate', f'Basic realm="{realm}"')])
         if path.startswith('/moved-script'):
             return self.reply('', status=302, headers=[('Location', '/res/moved-original.js')])
         if path.startswith('/cookie-hop'):
@@ -120,7 +127,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # A redirect whose response the extension rewrites or cancels.
         if path.startswith('/moved-'):
             return self.reply('', status=302, headers=[('Location', '/res/redirect-original.json')])
-        if path.startswith('/echo-headers'):
+        if path.startswith('/echo-headers') or path.startswith('/extension-cookies/echo'):
             return self.reply(json.dumps({k.lower(): v for k, v in self.headers.items()}), 'application/json')
         if path.startswith('/sse'):
             return self.reply('data: hello\n\n', 'text/event-stream')

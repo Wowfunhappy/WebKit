@@ -43,6 +43,7 @@ if (typeof browser !== 'object') {
                 port.postMessage({ what: 'aboutblank', blankFrameId: browser.runtime.getFrameId(blank) });
         });
         browser.runtime.sendMessage({ one: 'shot' }).then(response => note('extSendMessage', response));
+        browser.runtime.sendMessage({ what: 'cookies' }).then(response => note('extCookies', response), error => note('extCookies', { error: error.message }));
     }
 
     // An inline script this world inserts runs in the page even where the page's CSP forbids inline scripts.

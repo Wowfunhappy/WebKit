@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "LegacyExtensionWebsiteAccess.h"
 #include "MessageReceiver.h"
 #include "NetworkLoadChecker.h"
 #include "NetworkLoadClient.h"
@@ -26,6 +27,7 @@
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
+class AuthenticationChallenge;
 class ResourceResponse;
 struct ClientOrigin;
 }
@@ -33,6 +35,7 @@ struct ClientOrigin;
 namespace WebKit {
 
 class NetworkConnectionToWebProcess;
+class NetworkLoad;
 class NetworkDataTaskCurlCocoa;
 class NetworkProcess;
 
@@ -69,6 +72,8 @@ public:
 
     bool continueWillSendRequest(NetworkResourceLoader&, WebCore::ResourceRequest&);
 
+    bool interceptAuthenticationChallenge(NetworkLoad&, const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, ChallengeCompletionHandler&);
+
     void loaderDidFail(NetworkResourceLoader&, const WebCore::ResourceError&);
 
     // A field the network layer adds to a request without one, as the request carries it and as an
@@ -86,6 +91,7 @@ private:
 
     struct BlockingListener {
         String extensionKey;
+        LegacyExtensions::WebsiteAccess access;
         std::optional<Vector<String>> urlPatterns;
         std::optional<Vector<String>> types;
         std::optional<double> tabID;
@@ -98,8 +104,6 @@ private:
 
     bool interceptBeforeRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
     bool interceptRequestHeaders(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
-    WebCore::ResourceError cancellationError(NetworkLoadChecker&, const WebCore::ResourceRequest&);
-    WebCore::ResourceError cancellationError(NetworkResourceLoader&, const WebCore::ResourceRequest&);
     void redirect(NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);
     bool loadsInPlace(NetworkResourceLoader&, const URL&);
     void redirectInPlace(NetworkLoadChecker&, NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);
@@ -125,6 +129,9 @@ private:
     uint64_t m_nextRequestIdentifier { 1 };
     WeakHashSet<NetworkLoadChecker> m_resumingRequests;
     WeakHashSet<NetworkLoadChecker> m_resumingRedirections;
+    WeakHashSet<NetworkDataTaskClient> m_resumingChallenges;
+    // The loads whose requests the extensions have seen, which an authentication challenge's load is one of.
+    WeakHashSet<NetworkResourceLoader> m_loaders;
     WeakHashSet<NetworkLoadChecker> m_extensionRedirects;
     WeakHashMap<NetworkLoadChecker, unsigned> m_internalRedirectCounts;
     WeakHashMap<NetworkLoadChecker, String> m_editedCookies;
@@ -138,7 +145,6 @@ private:
     WeakHashMap<NetworkLoadChecker, std::unique_ptr<WebCore::ResourceResponse>> m_redirectResponses;
     WeakHashSet<NetworkResourceLoader> m_resumingResponses;
     WeakHashSet<NetworkResourceLoader> m_resumingCacheEntries;
-    WeakHashSet<NetworkResourceLoader> m_loadsBlockedByExtensions;
     WeakHashMap<NetworkResourceLoader, String> m_loadErrors;
     WeakHashMap<NetworkConnectionToWebProcess, HashSet<uint64_t>> m_pendingWebSockets;
 };

@@ -33,11 +33,31 @@ browser.webRequest.onHeadersReceived.addListener(details => {
     }
 }, { urls: ['http://127.0.0.1/*'] }, ['blocking', 'responseHeaders']);
 
-// An extension page's permission read waits on this listener's verdict while its process is blocked on it.
+// onAuthRequired: credentials from an asyncBlocking listener, a cancel from a blocking one.
+browser.webRequest.onAuthRequired.addListener((details, callback) => {
+    if (!details.url.includes('/auth-basic'))
+        return callback({});
+    report('onAuthRequired', { url: details.url, scheme: details.scheme, realm: details.realm, challenger: details.challenger, isProxy: details.isProxy, statusCode: details.statusCode, type: details.type, requestId: typeof details.requestId });
+    setTimeout(() => callback({ authCredentials: { username: 'extension', password: 'secret' } }), 100);
+}, { urls: ['http://127.0.0.1/*'] }, ['asyncBlocking']);
+browser.webRequest.onAuthRequired.addListener(details => {
+    if (details.url.includes('/auth-cancel'))
+        return { cancel: true };
+}, { urls: ['http://127.0.0.1/*', 'http://localhost/*'] }, ['blocking']);
+
+// webNavigation's start, completion and failure of navigations to the test server.
+for (const name of ['onBeforeNavigate', 'onCompleted', 'onErrorOccurred']) {
+    browser.webNavigation[name].addListener(details => {
+        if (/127\.0\.0\.1:(8843|8849|1)\//.test(details.url) && !details.url.includes('/report?'))
+            report(`nav-${name}`, { url: details.url, frameId: details.frameId, parentFrameId: details.parentFrameId, tabId: typeof details.tabId, error: details.error });
+    });
+}
+
+// A navigation the extension cancels.
 browser.webRequest.onBeforeRequest.addListener(details => {
-    report('manifest-request', { url: details.url, type: details.type, tabId: details.tabId });
-    return new Promise(resolve => setTimeout(() => resolve({}), 200));
-}, { urls: ['safari-extension://*/*manifest.json'] }, ['blocking']);
+    if (details.url.endsWith('/cancelled-document'))
+        return { cancel: true };
+}, { urls: ['http://127.0.0.1/*'], types: ['main_frame'] }, ['blocking']);
 
 // onHeadersReceived for a redirect: cancel one, move another by its Location header; and a response the
 // extension redirects after its headers arrive.
@@ -217,8 +237,51 @@ browser.runtime.onConnect.addListener(port => {
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     report('onMessage', { message, sender });
+    if (message.what === 'cookies')
+        return cookiesTest();
     sendResponse({ echo: message });
 });
+
+// cookies with website access to every site: set, read back as a request sends it, list, remove; each
+// change reaching onChanged.
+async function cookiesTest() {
+    const changes = [];
+    const onChanged = change => {
+        if (change.cookie.name === 'extension-cookie')
+            changes.push({ removed: change.removed, cause: change.cause, value: change.cookie.value });
+    };
+    browser.cookies.onChanged.addListener(onChanged);
+    // Under a path of their own, so the coverage page's own cookie checks never see them.
+    const url = 'http://127.0.0.1:8843/extension-cookies/';
+    const set = await browser.cookies.set({ url, name: 'extension-cookie', value: 'one', httpOnly: true, expirationDate: Date.now() / 1000 + 3600 });
+    const sent = (await (await fetch('http://127.0.0.1:8843/extension-cookies/echo')).json()).cookie || '';
+    // WebKit's cookie store keeps a stored HttpOnly cookie from being replaced by one without the flag.
+    const overwritten = await browser.cookies.set({ url, name: 'extension-cookie', value: 'two', httpOnly: true });
+    const unflagged = await browser.cookies.set({ url, name: 'extension-cookie', value: 'three' });
+    const got = await browser.cookies.get({ url, name: 'extension-cookie' });
+    await browser.cookies.set({ url, name: 'plain-cookie', value: 'first' });
+    const plainOverwritten = await browser.cookies.set({ url, name: 'plain-cookie', value: 'second' });
+    await browser.cookies.remove({ url, name: 'plain-cookie' });
+    const all = await browser.cookies.getAll({ domain: '127.0.0.1', name: 'extension-cookie' });
+    const stores = await browser.cookies.getAllCookieStores();
+    const removed = await browser.cookies.remove({ url, name: 'extension-cookie' });
+    const afterRemove = await browser.cookies.get({ url, name: 'extension-cookie' });
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    browser.cookies.onChanged.removeListener(onChanged);
+    return {
+        set: set && { name: set.name, value: set.value, domain: set.domain, hostOnly: set.hostOnly, httpOnly: set.httpOnly, session: set.session, storeId: set.storeId, hasExpiration: typeof set.expirationDate === 'number' },
+        sentWithRequest: sent.includes('extension-cookie=one'),
+        overwritten: overwritten && { value: overwritten.value, httpOnly: overwritten.httpOnly, session: overwritten.session },
+        unflagged: unflagged && { value: unflagged.value, httpOnly: unflagged.httpOnly },
+        plainOverwritten: plainOverwritten && plainOverwritten.value,
+        got: got && got.value,
+        allCount: all.length,
+        stores: stores.map(store => store.id),
+        removed,
+        afterRemove,
+        changes,
+    };
+}
 
 // The extension's own files, addressed from the origin's root.
 fetch('/content.js').then(r => r.text()).then(

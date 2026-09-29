@@ -19,7 +19,7 @@ else {
     browser.runtime.connect({ name: 'page-port' });
     browser.runtime.sendMessage({ what: 'page-tab' }).then(response => report('page-reply', response));
     // An extension page in a tab has the extension's clipboard access, with no gesture.
-    fetch('/manifest.json').then(() => navigator.clipboard.writeText('page-clipboard')).then(() => navigator.clipboard.readText()).then(
+    navigator.clipboard.writeText('page-clipboard').then(() => navigator.clipboard.readText()).then(
         text => report('page-clipboard', { text }),
         error => report('page-clipboard', { error: error.name })
     );

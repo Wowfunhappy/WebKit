@@ -1,5 +1,5 @@
 // The `browser` namespace WebKit gives Safari 7 legacy extensions, shaped after the WebExtensions API, and
-// the clipboard access their pages' permissions grant.
+// the clipboard access their pages have.
 //
 // Evaluated once per extension context. `kind` is "host" for the extension's own pages -- the global page
 // and toolbar popovers, which Safari hosts in WebKit 1 views, and pages opened in tabs or frames -- and
@@ -43,6 +43,9 @@ const withOptionalCallback = (args, run) => {
 };
 
 const hasExtraInfo = ({ extraInfoSpec }, name) => Array.isArray(extraInfoSpec) && extraInfoSpec.includes(name);
+// A listener whose answer the load waits for: its return value, or with "asyncBlocking" (onAuthRequired's)
+// the argument it passes the callback it receives.
+const isBlocking = entry => hasExtraInfo(entry, "blocking") || hasExtraInfo(entry, "asyncBlocking");
 
 let interestUpdateScheduled = false;
 const scheduleInterestUpdate = () => {
@@ -55,7 +58,7 @@ const scheduleInterestUpdate = () => {
         for (const [name, event] of trackedEvents) {
             if (!event.hasListeners())
                 continue;
-            const blockingFilters = event._listeners.filter(entry => hasExtraInfo(entry, "blocking")).map(({ filter }) => {
+            const blockingFilters = event._listeners.filter(isBlocking).map(({ filter }) => {
                 if (!filter || typeof filter !== "object")
                     return {};
                 const { urls, types, tabId } = filter;
@@ -290,7 +293,8 @@ const decodeRequestBody = details => {
 };
 
 // webRequest listeners run in registration order; their blocking responses merge as Chrome merges
-// the responses of one extension: any cancel wins, the first redirect wins, header rewrites stack.
+// the responses of one extension: any cancel wins, the first redirect and the first credentials win,
+// header rewrites stack.
 const dispatchWebRequestEvent = async (event, details) => {
     decodeRequestBody(details);
     const response = {};
@@ -298,7 +302,7 @@ const dispatchWebRequestEvent = async (event, details) => {
         const { callback, filter } = entry;
         if (!filterMatches(filter, details))
             continue;
-        const blocking = hasExtraInfo(entry, "blocking");
+        const blocking = isBlocking(entry);
         const listenerDetails = Object.assign({}, details);
         for (const name of optionalDetails) {
             if (!hasExtraInfo(entry, name))
@@ -311,9 +315,13 @@ const dispatchWebRequestEvent = async (event, details) => {
         }
         let result;
         try {
-            result = callback(listenerDetails);
-            if (blocking && result && typeof result.then === "function")
-                result = await result;
+            if (hasExtraInfo(entry, "asyncBlocking"))
+                result = await new Promise(resolve => callback(listenerDetails, resolve));
+            else {
+                result = callback(listenerDetails);
+                if (blocking && result && typeof result.then === "function")
+                    result = await result;
+            }
         } catch (error) {
             console.error(error);
             continue;
@@ -324,6 +332,8 @@ const dispatchWebRequestEvent = async (event, details) => {
             response.cancel = true;
         if (typeof result.redirectUrl === "string" && response.redirectUrl === undefined)
             response.redirectUrl = result.redirectUrl;
+        if (result.authCredentials && typeof result.authCredentials === "object" && response.authCredentials === undefined)
+            response.authCredentials = { username: String(result.authCredentials.username), password: String(result.authCredentials.password) };
         for (const kind of Object.keys(extraHeaderNames)) {
             if (!Array.isArray(result[kind]))
                 continue;
@@ -420,7 +430,7 @@ if (!isHost) {
 }
 
 if (isHost) {
-    const webRequestEventNames = ["onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived", "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred"];
+    const webRequestEventNames = ["onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived", "onAuthRequired", "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred"];
     browser.webRequest = {
         ResourceType: {
             MAIN_FRAME: "main_frame",
@@ -446,8 +456,11 @@ if (isHost) {
         browser.webRequest[name] = trackedEvent(`webRequest.${name}`);
 
     browser.webNavigation = {
+        onBeforeNavigate: trackedEvent("webNavigation.onBeforeNavigate"),
         onCommitted: trackedEvent("webNavigation.onCommitted"),
         onDOMContentLoaded: trackedEvent("webNavigation.onDOMContentLoaded"),
+        onCompleted: trackedEvent("webNavigation.onCompleted"),
+        onErrorOccurred: trackedEvent("webNavigation.onErrorOccurred"),
         onCreatedNavigationTarget: trackedEvent("webNavigation.onCreatedNavigationTarget"),
         getFrame(...args) {
             return withOptionalCallback(args, details => callRouter("webNavigation.getFrame", details));
@@ -518,36 +531,87 @@ if (isHost) {
         onUpdated: trackedEvent("tabs.onUpdated"),
     };
 
-    // The permissions manifest.json declares, as WebExtensions declare them. Safari 7's protocol fails an
-    // absent file as it fails any other load, so the document's own file tells an extension without a
-    // manifest from a channel that cannot load; only the first is an answer to keep.
-    const load = url => {
-        const request = new XMLHttpRequest();
-        request.open("GET", url, false);
-        try {
-            request.send();
-        } catch (error) {
-            if (error.name === "NetworkError")
-                return null;
-            throw error;
-        }
-        return request.responseText;
+    // cookies. The router reads and writes a cookie store within the extension's website access; matching a
+    // URL and the details' filters is Chrome's cookies API over the cookies it answers with.
+    const domainMatches = (host, domain) => {
+        const bare = domain.replace(/^\./, "").toLowerCase();
+        host = host.toLowerCase();
+        return host === bare || (domain.startsWith(".") && host.endsWith(`.${bare}`));
     };
-    let permissions;
-    const hasPermission = name => {
-        if (!permissions) {
-            const manifest = load(resourceURL("manifest.json"));
-            if (manifest === null && load(location.href) === null)
-                throw new Error("The extension's files cannot be loaded.");
-            const declared = manifest === null ? [] : JSON.parse(manifest).permissions;
-            permissions = new Set(Array.isArray(declared) ? declared : []);
-        }
-        return permissions.has(name);
+    const isDomainOrSubdomain = (domain, ancestor) => {
+        const bare = domain.replace(/^\./, "").toLowerCase();
+        const bareAncestor = ancestor.replace(/^\./, "").toLowerCase();
+        return bare === bareAncestor || bare.endsWith(`.${bareAncestor}`);
     };
+    const pathMatches = (path, cookiePath) => path === cookiePath || (path.startsWith(cookiePath) && (cookiePath.endsWith("/") || path[cookiePath.length] === "/"));
+    const cookieMatchesURL = (cookie, url) => domainMatches(url.hostname, cookie.domain) && pathMatches(url.pathname || "/", cookie.path) && (!cookie.secure || url.protocol === "https:");
+    const storeCookies = (storeId, url) => callRouter("cookies.getAll", storeId === undefined ? "0" : String(storeId), url && url.href);
+    // Chrome's order: the longest path first, then the earliest created.
+    const sortCookies = cookies => cookies.sort((a, b) => b.path.length - a.path.length || a.created - b.created);
+    const publicCookie = ({ created, ...cookie }) => cookie;
+    const cookieForURL = async (details = {}) => {
+        const url = new URL(details.url);
+        const cookies = await storeCookies(details.storeId, url);
+        const [cookie] = sortCookies(cookies.filter(cookie => cookie.name === details.name && cookieMatchesURL(cookie, url)));
+        return cookie || null;
+    };
+    const cookies = {
+        get(...args) {
+            return withOptionalCallback(args, async details => {
+                const cookie = await cookieForURL(details);
+                return cookie && publicCookie(cookie);
+            });
+        },
+        getAll(...args) {
+            return withOptionalCallback(args, async (details = {}) => {
+                const url = typeof details.url === "string" ? new URL(details.url) : null;
+                const cookies = (await storeCookies(details.storeId, url)).filter(cookie => (!url || cookieMatchesURL(cookie, url))
+                    && (details.domain === undefined || isDomainOrSubdomain(cookie.domain, String(details.domain)))
+                    && (details.name === undefined || cookie.name === details.name)
+                    && (details.path === undefined || cookie.path === details.path)
+                    && (details.secure === undefined || cookie.secure === details.secure)
+                    && (details.session === undefined || cookie.session === details.session));
+                return sortCookies(cookies).map(publicCookie);
+            });
+        },
+        set(...args) {
+            return withOptionalCallback(args, async (details = {}) => {
+                const url = new URL(details.url);
+                const storeId = details.storeId === undefined ? "0" : String(details.storeId);
+                const directory = url.pathname.slice(0, url.pathname.lastIndexOf("/")) || "/";
+                const cookie = {
+                    name: details.name === undefined ? "" : String(details.name),
+                    value: details.value === undefined ? "" : String(details.value),
+                    domain: details.domain === undefined ? url.hostname : `.${String(details.domain).replace(/^\./, "")}`,
+                    path: details.path === undefined ? directory : String(details.path),
+                    secure: details.secure === true,
+                    httpOnly: details.httpOnly === true,
+                    sameSite: ["lax", "strict"].includes(details.sameSite) ? details.sameSite : "no_restriction",
+                    expirationDate: typeof details.expirationDate === "number" ? details.expirationDate : undefined,
+                };
+                await callRouter("cookies.set", storeId, cookie, url.href);
+                const [stored] = sortCookies((await storeCookies(storeId, url)).filter(candidate => candidate.name === cookie.name && candidate.domain === cookie.domain && candidate.path === cookie.path));
+                return stored ? publicCookie(stored) : null;
+            });
+        },
+        remove(...args) {
+            return withOptionalCallback(args, async (details = {}) => {
+                const cookie = await cookieForURL(details);
+                if (!cookie)
+                    return null;
+                await callRouter("cookies.remove", cookie.storeId, cookie, details.url);
+                return { url: details.url, name: details.name, storeId: cookie.storeId };
+            });
+        },
+        getAllCookieStores(...args) {
+            return withOptionalCallback(args, () => callRouter("cookies.getAllCookieStores"));
+        },
+        onChanged: trackedEvent("cookies.onChanged"),
+    };
+    browser.cookies = cookies;
 
-    // navigator.clipboard's text methods: with clipboardWrite or clipboardRead, the page writes or reads the
-    // general pasteboard through the router whenever it asks, as a WebExtension's pages do; without, WebCore's
-    // methods apply their own rules.
+    // navigator.clipboard's text methods: an extension's page writes and reads the general pasteboard through
+    // the router whenever it asks, as a WebExtension's pages with the clipboard permissions do.
     const notAllowedError = () => new DOMException("The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.", "NotAllowedError");
     const clipboardCall = (method, ...args) => callRouter(method, ...args).catch(() => {
         throw notAllowedError();
@@ -555,21 +619,9 @@ if (isHost) {
     if (typeof Clipboard === "function") {
         const clipboard = navigator.clipboard;
         const { writeText, readText } = Clipboard.prototype;
-        const granted = name => {
-            try {
-                return { granted: hasPermission(name) };
-            } catch (error) {
-                return { error };
-            }
-        };
         const clipboardMethods = {
             writeText(data) {
                 if (this !== clipboard || !arguments.length)
-                    return writeText.apply(this, arguments);
-                const permission = granted("clipboardWrite");
-                if (permission.error)
-                    return Promise.reject(permission.error);
-                if (!permission.granted)
                     return writeText.apply(this, arguments);
                 let text;
                 try {
@@ -581,11 +633,6 @@ if (isHost) {
             },
             readText() {
                 if (this !== clipboard)
-                    return readText.apply(this, arguments);
-                const permission = granted("clipboardRead");
-                if (permission.error)
-                    return Promise.reject(permission.error);
-                if (!permission.granted)
                     return readText.apply(this, arguments);
                 return clipboardCall("clipboard.readText");
             },

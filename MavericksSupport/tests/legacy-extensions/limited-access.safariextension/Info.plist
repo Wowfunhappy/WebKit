@@ -4,8 +4,8 @@
 <dict>
 	<key>Author</key><string>WebKit</string>
 	<key>Builder Version</key><string>9537.78.2</string>
-	<key>CFBundleDisplayName</key><string>Legacy Extension Clipboard Denied</string>
-	<key>CFBundleIdentifier</key><string>org.webkit.legacy-extension-clipboard-denied</string>
+	<key>CFBundleDisplayName</key><string>Legacy Extension Limited Access</string>
+	<key>CFBundleIdentifier</key><string>org.webkit.legacy-extension-limited-access</string>
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>
 	<key>CFBundleVersion</key><string>1</string>
@@ -13,14 +13,19 @@
 	<dict>
 		<key>Global Page</key><string>global.html</string>
 	</dict>
-	<key>Description</key><string>A global page with no clipboard permission and no manifest.json.</string>
+	<key>Description</key><string>A global page whose website access is localhost alone, without secure pages.</string>
 	<key>DeveloperIdentifier</key><string>WDAOQFIKHZ</string>
 	<key>ExtensionInfoDictionaryVersion</key><string>1.0</string>
 	<key>Permissions</key>
 	<dict>
 		<key>Website Access</key>
 		<dict>
-			<key>Level</key><string>None</string>
+			<key>Allowed Domains</key>
+			<array>
+				<string>localhost</string>
+			</array>
+			<key>Include Secure Pages</key><false/>
+			<key>Level</key><string>Some</string>
 		</dict>
 	</dict>
 </dict>

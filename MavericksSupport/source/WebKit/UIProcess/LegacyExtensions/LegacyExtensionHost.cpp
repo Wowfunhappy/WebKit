@@ -3,11 +3,14 @@
 
 #include "LegacyExtensionClipboard.h"
 #include "LegacyExtensionContentMessages.h"
+#include "LegacyExtensionErrors.h"
 #include "LegacyExtensionHostMessages.h"
+#include "LegacyExtensionInfoPlist.h"
 #include "LegacyExtensionJavaScript.h"
 #include "LegacyExtensionScheme.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
+#include "APIHTTPCookieStore.h"
 #include "APINavigation.h"
 #include "FrameTreeNodeData.h"
 #include "NetworkProcessProxy.h"
@@ -19,11 +22,13 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include "WebsiteDataStore.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSCast.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/WeakInlines.h>
+#include <WebCore/Cookie.h>
 #include <WebCore/Document.h>
 #include <WebCore/JSDOMWindow.h>
 #include <WebCore/LocalDOMWindow.h>
@@ -247,11 +252,200 @@ static const WebLegacyExtensionPageObserver& pageObserver()
     return observer;
 }
 
+// cookies. Chrome's store IDs: "0" is the store Safari's tabs use, "1" the private browsing store.
+static constexpr auto persistentCookieStoreID = "0"_s;
+static constexpr auto privateCookieStoreID = "1"_s;
+
+static RefPtr<WebsiteDataStore> dataStoreForCookieStoreID(const String& storeID)
+{
+    bool isPrivate = storeID == privateCookieStoreID;
+    if (!isPrivate && storeID != persistentCookieStoreID)
+        return nullptr;
+    for (auto identifier : tabObservers().keys()) {
+        RefPtr page = WebProcessProxy::webPage(identifier);
+        if (page && !page->isClosed() && page->sessionID().isEphemeral() == isPrivate)
+            return &page->websiteDataStore();
+    }
+    if (isPrivate)
+        return nullptr;
+    if (RefPtr dataStore = WebsiteDataStore::existingDataStoreForSessionID(PAL::SessionID::defaultSessionID()))
+        return dataStore;
+    return &WebsiteDataStore::defaultDataStore();
+}
+
+static ASCIILiteral sameSiteName(WebCore::Cookie::SameSitePolicy policy)
+{
+    switch (policy) {
+    case WebCore::Cookie::SameSitePolicy::Lax:
+        return "lax"_s;
+    case WebCore::Cookie::SameSitePolicy::Strict:
+        return "strict"_s;
+    case WebCore::Cookie::SameSitePolicy::None:
+        break;
+    }
+    return "no_restriction"_s;
+}
+
+// A cookie as Chrome's cookies API describes it, with its creation time for ordering.
+static Ref<JSON::Object> cookieDescription(const WebCore::Cookie& cookie, const String& storeID)
+{
+    auto description = JSON::Object::create();
+    description->setString("name"_s, cookie.name);
+    description->setString("value"_s, cookie.value);
+    description->setString("domain"_s, cookie.domain);
+    description->setBoolean("hostOnly"_s, !cookie.domain.startsWith('.'));
+    description->setString("path"_s, cookie.path);
+    description->setBoolean("secure"_s, cookie.secure);
+    description->setBoolean("httpOnly"_s, cookie.httpOnly);
+    description->setString("sameSite"_s, sameSiteName(cookie.sameSite));
+    description->setBoolean("session"_s, cookie.session || !cookie.expires);
+    if (!cookie.session && cookie.expires)
+        description->setDouble("expirationDate"_s, *cookie.expires / 1000);
+    description->setString("storeId"_s, storeID);
+    description->setDouble("created"_s, cookie.created);
+    return description;
+}
+
+static WebCore::Cookie cookieFromDescription(const JSON::Object& description)
+{
+    WebCore::Cookie cookie;
+    cookie.name = description.getString("name"_s);
+    cookie.value = description.getString("value"_s);
+    cookie.domain = description.getString("domain"_s);
+    cookie.path = description.getString("path"_s);
+    cookie.secure = description.getBoolean("secure"_s).value_or(false);
+    cookie.httpOnly = description.getBoolean("httpOnly"_s).value_or(false);
+    auto sameSite = description.getString("sameSite"_s);
+    cookie.sameSite = sameSite == "lax"_s ? WebCore::Cookie::SameSitePolicy::Lax : sameSite == "strict"_s ? WebCore::Cookie::SameSitePolicy::Strict : WebCore::Cookie::SameSitePolicy::None;
+    cookie.created = description.getDouble("created"_s).value_or(WallTime::now().secondsSinceEpoch().milliseconds());
+    if (auto expirationDate = description.getDouble("expirationDate"_s)) {
+        cookie.expires = *expirationDate * 1000;
+        cookie.session = false;
+    } else
+        cookie.session = true;
+    return cookie;
+}
+
+static String cookieKey(const WebCore::Cookie& cookie)
+{
+    return makeString(cookie.name, '\n', cookie.domain, '\n', cookie.path);
+}
+
+// The site a cookie belongs to, as website access covers it: its domain, over https for a secure cookie.
+static URL cookieURL(const WebCore::Cookie& cookie)
+{
+    auto domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+    return URL { makeString(cookie.secure ? "https://"_s : "http://"_s, domain, cookie.path) };
+}
+
+static bool cookiesDiffer(const WebCore::Cookie& a, const WebCore::Cookie& b)
+{
+    return a.value != b.value || a.expires != b.expires || a.session != b.session || a.httpOnly != b.httpOnly || a.secure != b.secure || a.sameSite != b.sameSite;
+}
+
+// The cookie stores whose changes reach cookies.onChanged listeners, each with the cookies it held when
+// last read.
+class LegacyExtensionCookieObserver final : public API::HTTPCookieStoreObserver {
+public:
+    static Ref<LegacyExtensionCookieObserver> create(WebsiteDataStore& dataStore, const String& storeID)
+    {
+        return adoptRef(*new LegacyExtensionCookieObserver(dataStore, storeID));
+    }
+
+    ~LegacyExtensionCookieObserver()
+    {
+        if (RefPtr dataStore = m_dataStore.get())
+            dataStore->cookieStore().unregisterObserver(*this);
+    }
+
+    WebsiteDataStore* dataStore() const { return m_dataStore.get(); }
+
+private:
+    LegacyExtensionCookieObserver(WebsiteDataStore& dataStore, const String& storeID)
+        : m_dataStore(dataStore)
+        , m_storeID(storeID)
+    {
+        dataStore.cookieStore().registerObserver(*this);
+        read();
+    }
+
+    void cookiesDidChange(API::HTTPCookieStore&) final
+    {
+        if (std::exchange(m_isReading, true)) {
+            m_changedWhileReading = true;
+            return;
+        }
+        read();
+    }
+
+    // Each change as Chrome reports it: a removal, an addition, or an overwrite reported as the old
+    // cookie's removal and the new one's addition.
+    void read()
+    {
+        RefPtr dataStore = m_dataStore.get();
+        if (!dataStore)
+            return;
+        m_isReading = true;
+        dataStore->cookieStore().cookies([weakThis = WeakPtr { *this }](Vector<WebCore::Cookie>&& cookies) {
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedThis)
+                return;
+            HashMap<String, size_t> index;
+            for (size_t i = 0; i < cookies.size(); ++i)
+                index.set(cookieKey(cookies[i]), i);
+            if (protectedThis->m_hasRead)
+                protectedThis->reportChanges(cookies, index);
+            protectedThis->m_cookies = WTF::move(cookies);
+            protectedThis->m_cookieIndex = WTF::move(index);
+            protectedThis->m_hasRead = true;
+            protectedThis->m_isReading = false;
+            if (std::exchange(protectedThis->m_changedWhileReading, false))
+                protectedThis->cookiesDidChange(protectedThis->m_dataStore->cookieStore());
+        });
+    }
+
+    void reportChanges(const Vector<WebCore::Cookie>& current, const HashMap<String, size_t>& currentIndex)
+    {
+        auto now = WallTime::now().secondsSinceEpoch().milliseconds();
+        auto report = [&](const WebCore::Cookie& cookie, bool removed, ASCIILiteral cause) {
+            auto changeInfo = JSON::Object::create();
+            changeInfo->setBoolean("removed"_s, removed);
+            changeInfo->setObject("cookie"_s, cookieDescription(cookie, m_storeID));
+            changeInfo->setString("cause"_s, cause);
+            auto arguments = JSON::Array::create();
+            arguments->pushObject(WTF::move(changeInfo));
+            LegacyExtensionHost::singleton().dispatchCookieChange(cookie, WTF::move(arguments));
+        };
+        for (auto& cookie : m_cookies) {
+            auto iterator = currentIndex.find(cookieKey(cookie));
+            if (iterator == currentIndex.end())
+                report(cookie, true, cookie.expires && *cookie.expires <= now ? "expired"_s : "explicit"_s);
+            else if (cookiesDiffer(cookie, current[iterator->value]))
+                report(cookie, true, "overwrite"_s);
+        }
+        for (auto& cookie : current) {
+            auto iterator = m_cookieIndex.find(cookieKey(cookie));
+            if (iterator == m_cookieIndex.end() || cookiesDiffer(m_cookies[iterator->value], cookie))
+                report(cookie, false, "explicit"_s);
+        }
+    }
+
+    WeakPtr<WebsiteDataStore> m_dataStore;
+    String m_storeID;
+    Vector<WebCore::Cookie> m_cookies;
+    HashMap<String, size_t> m_cookieIndex;
+    bool m_hasRead { false };
+    bool m_isReading { false };
+    bool m_changedWhileReading { false };
+};
+
 LegacyExtensionHost& LegacyExtensionHost::singleton()
 {
     static NeverDestroyed<LegacyExtensionHost> host;
     return host;
 }
+
+LegacyExtensionHost::~LegacyExtensionHost() = default;
 
 LegacyExtensionHost::LegacyExtensionHost()
 {
@@ -294,6 +488,7 @@ void LegacyExtensionHost::didClearWindowObject(const void* frame, JSC::JSGlobalO
         return;
 
     m_hostContextByFrame.add(frame, context->identifier);
+    loadWebsiteAccess(context->extensionKey, context->url);
     m_hostContexts.add(context->identifier, WTF::move(context));
 }
 
@@ -349,6 +544,8 @@ void LegacyExtensionHost::hostContextDidGoAway(HostContext& context)
 
     if (hadNetworkInterests)
         updateNetworkListeners();
+    if (!m_cookieObservers.isEmpty())
+        updateCookieObservers();
 }
 
 // Content contexts.
@@ -393,6 +590,7 @@ RefPtr<LegacyExtensionHost::HostContext> LegacyExtensionHost::extensionPageConte
     context->frameID = frame.frameID();
     context->documentID = documentID;
     m_hostContextByRemoteFrame.set(frame.frameID(), context->identifier);
+    loadWebsiteAccess(context->extensionKey, context->url);
     m_hostContexts.add(context->identifier, context.copyRef());
     return context;
 }
@@ -841,7 +1039,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
-    // navigator.clipboard's text methods, for pages whose extension declares the permission.
+    // navigator.clipboard's text methods, for an extension's pages.
     if (method == "clipboard.writeText"_s) {
         RefPtr text = argument(0);
         auto string = text ? text->asString() : String();
@@ -864,6 +1062,73 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
             return;
         }
         resultToHostContext(context, callID, JSON::Value::create(text->isNull() ? emptyString() : *text));
+        return;
+    }
+
+    // cookies, within the extension's website access: getAll(storeId, url?) answers the store's cookies it
+    // covers; set and remove(storeId, cookie, url) act on a cookie it covers, for a URL it covers.
+    if (method.startsWith("cookies."_s) && method != "cookies.getAllCookieStores"_s) {
+        RefPtr storeIDValue = argument(0);
+        auto storeID = storeIDValue ? storeIDValue->asString() : String();
+        RefPtr urlValue = argument(method == "cookies.getAll"_s ? 1 : 2);
+        URL url { urlValue ? urlValue->asString() : String() };
+        RefPtr description = objectArgument(1);
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, method, storeID, url = WTF::move(url), description = WTF::move(description)](const LegacyExtensions::WebsiteAccess& access) {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            RefPtr dataStore = dataStoreForCookieStoreID(storeID);
+            if (!dataStore)
+                return resultToHostContext(context, callID, nullptr, makeString("Invalid cookie store id: \""_s, storeID, "\"."_s));
+            if (url.isValid() && !access.allows(url))
+                return resultToHostContext(context, callID, nullptr, makeString("No website access for cookies at url: \""_s, url.string(), "\"."_s));
+            if (method == "cookies.getAll"_s) {
+                dataStore->cookieStore().cookies([this, context, callID, storeID, access](Vector<WebCore::Cookie>&& cookies) {
+                    if (!m_hostContexts.contains(context->identifier))
+                        return;
+                    auto descriptions = JSON::Array::create();
+                    for (auto& cookie : cookies) {
+                        if (access.allows(cookieURL(cookie)))
+                            descriptions->pushObject(cookieDescription(cookie, storeID));
+                    }
+                    resultToHostContext(context, callID, descriptions.ptr());
+                });
+                return;
+            }
+            if (!description || !url.isValid() || (method != "cookies.set"_s && method != "cookies.remove"_s))
+                return resultToHostContext(context, callID, nullptr, makeString("Unsupported method "_s, method));
+            auto cookie = cookieFromDescription(*description);
+            if (!access.allows(cookieURL(cookie)))
+                return resultToHostContext(context, callID, nullptr, makeString("No website access for cookies at url: \""_s, cookieURL(cookie).string(), "\"."_s));
+            auto finish = [this, context, callID] {
+                if (m_hostContexts.contains(context->identifier))
+                    resultToHostContext(context, callID, nullptr);
+            };
+            if (method == "cookies.set"_s)
+                dataStore->cookieStore().setCookies({ WTF::move(cookie) }, WTF::move(finish));
+            else
+                dataStore->cookieStore().deleteCookie(cookie, WTF::move(finish));
+        });
+        return;
+    }
+
+    if (method == "cookies.getAllCookieStores"_s) {
+        auto stores = JSON::Array::create();
+        for (auto storeID : { persistentCookieStoreID, privateCookieStoreID }) {
+            bool isPrivate = storeID == privateCookieStoreID;
+            auto tabIDs = JSON::Array::create();
+            for (auto identifier : tabObservers().keys()) {
+                RefPtr page = WebProcessProxy::webPage(identifier);
+                if (page && !page->isClosed() && page->sessionID().isEphemeral() == isPrivate)
+                    tabIDs->pushDouble(tabIDForPage(*page));
+            }
+            if (isPrivate && !tabIDs->length())
+                continue;
+            auto store = JSON::Object::create();
+            store->setString("id"_s, storeID);
+            store->setArray("tabIds"_s, WTF::move(tabIDs));
+            stores->pushObject(WTF::move(store));
+        }
+        resultToHostContext(context, callID, stores.ptr());
         return;
     }
 
@@ -1048,6 +1313,91 @@ void LegacyExtensionHost::routeInterest(HostContext& context, JSON::Object& mess
     context.interests = WTF::move(interests);
     if (networkInterestsChanged)
         updateNetworkListeners();
+    updateCookieObservers();
+}
+
+// cookies.onChanged observes each store a listener's extension can read while some context listens.
+void LegacyExtensionHost::updateCookieObservers()
+{
+    bool hasListener = false;
+    for (auto& context : m_hostContexts.values())
+        hasListener |= context->interests.contains("cookies.onChanged"_s);
+    if (!hasListener) {
+        m_cookieObservers.clear();
+        return;
+    }
+    for (auto storeID : { persistentCookieStoreID, privateCookieStoreID }) {
+        RefPtr dataStore = dataStoreForCookieStoreID(storeID);
+        auto iterator = m_cookieObservers.find(storeID);
+        if (iterator != m_cookieObservers.end() && iterator->value->dataStore() == dataStore.get())
+            continue;
+        if (!dataStore) {
+            m_cookieObservers.remove(storeID);
+            continue;
+        }
+        m_cookieObservers.set(storeID, LegacyExtensionCookieObserver::create(*dataStore, storeID));
+    }
+}
+
+// A cookie's change reaches the listeners of the extensions whose website access covers it.
+void LegacyExtensionHost::dispatchCookieChange(const WebCore::Cookie& cookie, Ref<JSON::Array>&& arguments)
+{
+    auto event = JSON::Object::create();
+    event->setString("t"_s, "event"_s);
+    event->setString("name"_s, "cookies.onChanged"_s);
+    event->setArray("args"_s, WTF::move(arguments));
+    auto message = event->toJSONString();
+    auto url = cookieURL(cookie);
+    for (auto& context : copyToVector(m_hostContexts.values())) {
+        if (!context->interests.contains("cookies.onChanged"_s))
+            continue;
+        auto iterator = m_websiteAccess.find(context->extensionKey);
+        if (iterator != m_websiteAccess.end() && iterator->value.allows(url))
+            deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message);
+    }
+}
+
+// Website access. Each extension's is read from its Info.plist when its first page appears; what waits on it
+// runs once it is read, and until then its webRequest listeners see nothing.
+static URL extensionRoot(const URL& url)
+{
+    auto path = url.path();
+    size_t tokenEnd = path.find('/', 1);
+    if (!url.protocolIs(extensionScheme) || !path.startsWith('/') || tokenEnd == notFound)
+        return { };
+    URL root = url;
+    root.setPath(path.left(tokenEnd + 1));
+    root.removeQueryAndFragmentIdentifier();
+    return root;
+}
+
+// An extension Safari reloads serves its files from a new root, whose Info.plist is read again.
+void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const URL& url)
+{
+    auto root = extensionRoot(url);
+    if (!root.isValid() || m_websiteAccessRoots.get(extensionKey) == root)
+        return;
+    m_websiteAccessRoots.set(extensionKey, root);
+    m_websiteAccess.remove(extensionKey);
+    m_websiteAccessWaiters.ensure(extensionKey, [] { return Vector<Function<void(const LegacyExtensions::WebsiteAccess&)>> { }; });
+    LegacyExtensions::loadWebsiteAccess(root, [this, extensionKey, root](LegacyExtensions::WebsiteAccess&& access) {
+        if (m_websiteAccessRoots.get(extensionKey) != root)
+            return;
+        m_websiteAccess.set(extensionKey, WTF::move(access));
+        auto& loaded = m_websiteAccess.find(extensionKey)->value;
+        for (auto& waiter : m_websiteAccessWaiters.take(extensionKey))
+            waiter(loaded);
+        updateNetworkListeners();
+    });
+}
+
+void LegacyExtensionHost::withWebsiteAccess(const String& extensionKey, Function<void(const LegacyExtensions::WebsiteAccess&)>&& function)
+{
+    if (auto iterator = m_websiteAccess.find(extensionKey); iterator != m_websiteAccess.end())
+        return function(iterator->value);
+    if (auto iterator = m_websiteAccessWaiters.find(extensionKey); iterator != m_websiteAccessWaiters.end())
+        return iterator->value.append(WTF::move(function));
+    function({ });
 }
 
 void LegacyExtensionHost::dispatchEvent(const String& eventName, Ref<JSON::Array>&& arguments)
@@ -1084,6 +1434,8 @@ void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
     auto arguments = JSON::Array::create();
     arguments->pushObject(tabDescription(page));
     dispatchEvent("tabs.onCreated"_s, WTF::move(arguments));
+    if (!m_cookieObservers.isEmpty())
+        updateCookieObservers();
 }
 
 void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
@@ -1185,6 +1537,30 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
     dispatchEvent("webNavigation.onCommitted"_s, WTF::move(arguments));
 }
 
+void LegacyExtensionHost::didStartProvisionalLoad(WebPageProxy& page, WebFrameProxy& frame, const URL& url)
+{
+    auto arguments = JSON::Array::create();
+    arguments->pushObject(navigationDetails(page, frame, url));
+    dispatchEvent("webNavigation.onBeforeNavigate"_s, WTF::move(arguments));
+}
+
+void LegacyExtensionHost::didFinishLoad(WebPageProxy& page, WebFrameProxy& frame)
+{
+    auto arguments = JSON::Array::create();
+    arguments->pushObject(navigationDetails(page, frame, frame.url()));
+    dispatchEvent("webNavigation.onCompleted"_s, WTF::move(arguments));
+}
+
+// A frame's navigation that fails before it commits, or a committed document's load that fails.
+void LegacyExtensionHost::didFailLoad(WebPageProxy& page, WebFrameProxy& frame, const URL& url, const WebCore::ResourceError& error)
+{
+    auto details = navigationDetails(page, frame, url);
+    details->setString("error"_s, LegacyExtensions::networkErrorName(error));
+    auto arguments = JSON::Array::create();
+    arguments->pushObject(WTF::move(details));
+    dispatchEvent("webNavigation.onErrorOccurred"_s, WTF::move(arguments));
+}
+
 void LegacyExtensionHost::didFinishDocumentLoad(WebPageProxy& page, WebFrameProxy& frame)
 {
     auto arguments = JSON::Array::create();
@@ -1240,13 +1616,18 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, const
     normalizeWebRequestDetails(*details);
 
     auto qualifiedName = makeString("webRequest."_s, eventName);
-    // An extension's own resources are visible only to that extension.
-    auto owningExtension = extensionKeyForURL(URL { details->getString("url"_s) });
+    // An extension's own resources are visible only to that extension; a web request, only to the extensions
+    // whose website access covers it.
+    URL requestURL { details->getString("url"_s) };
+    auto owningExtension = extensionKeyForURL(requestURL);
     Vector<Ref<HostContext>> listeners;
     for (auto& context : m_hostContexts.values()) {
         if (!context->interests.contains(qualifiedName))
             continue;
-        if (!owningExtension.isNull() && context->extensionKey != owningExtension)
+        if (!owningExtension.isNull()) {
+            if (context->extensionKey != owningExtension)
+                continue;
+        } else if (auto iterator = m_websiteAccess.find(context->extensionKey); iterator == m_websiteAccess.end() || !iterator->value.allows(requestURL))
             continue;
         listeners.append(context);
     }
@@ -1299,12 +1680,15 @@ void LegacyExtensionHost::routeWebRequestResponse(const HostContext& context, JS
     if (!call.pendingHostContexts.removeFirst(context.identifier))
         return;
 
-    // Chrome's merge across extensions: any cancel wins, the first redirect wins, header rewrites replace.
+    // Chrome's merge across extensions: any cancel wins, the first redirect and the first credentials win,
+    // header rewrites replace.
     if (RefPtr result = message.getObject("result"_s)) {
         if (result->getBoolean("cancel"_s).value_or(false))
             call.response->setBoolean("cancel"_s, true);
         if (auto redirectURL = result->getString("redirectUrl"_s); !redirectURL.isNull() && call.response->getString("redirectUrl"_s).isNull())
             call.response->setString("redirectUrl"_s, redirectURL);
+        if (RefPtr credentials = result->getObject("authCredentials"_s); credentials && !call.response->getObject("authCredentials"_s))
+            call.response->setObject("authCredentials"_s, credentials.releaseNonNull());
         if (RefPtr headers = result->getArray("requestHeaders"_s))
             call.response->setArray("requestHeaders"_s, headers.releaseNonNull());
         if (RefPtr headers = result->getArray("responseHeaders"_s))
@@ -1356,6 +1740,8 @@ void LegacyExtensionHost::updateNetworkListeners()
                 if (!filter)
                     continue;
                 filter->setString("extension"_s, context->extensionKey);
+                if (auto iterator = m_websiteAccess.find(context->extensionKey); iterator != m_websiteAccess.end())
+                    filter->setObject("access"_s, iterator->value.toJSON());
                 listeners->pushObject(filter.releaseNonNull());
             }
         }

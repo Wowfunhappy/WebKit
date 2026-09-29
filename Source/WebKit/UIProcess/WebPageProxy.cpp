@@ -8214,6 +8214,7 @@ void WebPageProxy::didStartProvisionalLoadForFrameShared(Ref<WebProcessProxy>&& 
 
     frame->setUnreachableURL(unreachableURL);
     frame->didStartProvisionalLoad(WTF::move(url));
+    LegacyExtensionHost::singleton().didStartProvisionalLoad(*this, *frame, frame->provisionalURL()); // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onBeforeNavigate.
 
 #if ENABLE(WEBDRIVER_BIDI)
     if (RefPtr automationSession = activeAutomationSession())
@@ -8451,6 +8452,9 @@ void WebPageProxy::didFailProvisionalLoadForFrameShared(Ref<WebProcessProxy>&& p
     if (protect(preferences())->siteIsolationEnabled() && isBlockedByContentFilterError(error) && willContinueLoading == WillContinueLoading::Yes)
         m_allowsLoadingAlternateHTMLForFailingProvisionalLoadURL = false;
 #endif
+
+    if (willContinueLoading == WillContinueLoading::No)
+        LegacyExtensionHost::singleton().didFailLoad(*this, frame, request.url(), error); // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onErrorOccurred.
 
     if (willInternallyHandleFailure == WillInternallyHandleFailure::No) {
         auto callClientFunctions = [this, protectedThis = Ref { *this }, frame = protect(frame), navigation, error, process, request = WTF::move(request), frameInfo = WTF::move(frameInfo), protectedObject = protect(userData.object())]() mutable {
@@ -9085,6 +9089,7 @@ void WebPageProxy::didFinishLoadForFrame(IPC::Connection& connection, FrameIdent
         frame->broadcastFrameTreeSyncData(frame->calculateFrameTreeSyncData());
 
     Ref process = WebProcessProxy::fromConnection(connection);
+    LegacyExtensionHost::singleton().didFinishLoad(*this, *frame); // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onCompleted.
     if (m_loaderClient)
         m_loaderClient->didFinishLoadForFrame(*this, *frame, navigation.get(), process->transformHandlesToObjects(protect(userData.object()).get()).get());
     else {
@@ -9164,6 +9169,7 @@ void WebPageProxy::didFailLoadForFrame(IPC::Connection& connection, FrameIdentif
     if (RefPtr automationSession = activeAutomationSession())
         automationSession->navigationFailedForFrame(*frame, navigationID);
 #endif
+    LegacyExtensionHost::singleton().didFailLoad(*this, *frame, frame->url(), error); // MAVERICKS_BACKPORT: Safari 7 extensions' webNavigation.onErrorOccurred.
     if (m_loaderClient)
         m_loaderClient->didFailLoadWithErrorForFrame(*this, *frame, navigation.get(), error, process->transformHandlesToObjects(protect(userData.object()).get()).get());
     else {

@@ -1,6 +1,0 @@
-{
-    "manifest_version": 2,
-    "name": "Legacy Extension API Test",
-    "version": "1.0",
-    "permissions": [ "clipboardRead", "clipboardWrite" ]
-}

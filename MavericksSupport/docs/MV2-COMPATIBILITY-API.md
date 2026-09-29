@@ -1,10 +1,10 @@
 # MV2 compatibility API for Safari 7 extensions
 
-This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `browser` namespace modeled on the WebExtensions (MV2) API. It sits alongside Safari 7's own `safari.extension` / `safari.application` / `safari.self` API, which stays fully available. Use `browser` for what Safari 7 cannot do: messaging addressed by tab and frame, script and style injection on demand, network interception, navigation events, and the clipboard.
+This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `browser` namespace modeled on the WebExtensions (MV2) API. It sits alongside Safari 7's own `safari.extension` / `safari.application` / `safari.self` API, which stays fully available. Use `browser` for what Safari 7 cannot do: messaging addressed by tab and frame, script and style injection on demand, network interception, navigation events, cookies, and the clipboard.
 
 The engine provides only what needs the engine. Anything an extension can build from `safari.*` or the web platform, such as `runtime.getURL`, `storage`, `tabs.query`, `tabs.create`, and menus, is left to the extension's own platform layer (the uBlock Origin port's `browser-safari.js`, for example, builds these on top).
 
-Not provided: `webRequest.onAuthRequired`, the `ip` field of `webRequest` details, and the `documentId`, `documentLifecycle`, and `frameType` fields Chrome added after MV2.
+Not provided: the `ip` field of `webRequest` details, and the `documentId`, `documentLifecycle`, and `frameType` fields Chrome added after MV2.
 
 Sources:
 
@@ -35,7 +35,8 @@ The API is installed in two kinds of context, and the namespaces available depen
 | `browser.tabs` | yes | no |
 | `browser.webNavigation` | yes | no |
 | `browser.webRequest` | yes | no |
-| `navigator.clipboard` with manifest permissions | yes | no (page rules apply) |
+| `browser.cookies` | yes | no |
+| `navigator.clipboard` without the page's restrictions | yes | no (page rules apply) |
 
 `browser` is a writable, configurable, non-enumerable property of the global object. There is no `chrome` alias.
 
@@ -194,8 +195,11 @@ Navigation events go to every extension's host contexts that listen for them. Al
 
 | Event | Additional fields |
 | --- | --- |
+| `onBeforeNavigate` | none |
 | `onCommitted` | `transitionType`, `transitionQualifiers` |
 | `onDOMContentLoaded` | none |
+| `onCompleted` | none |
+| `onErrorOccurred` | `error`, a network error name as `webRequest` reports it |
 | `onCreatedNavigationTarget` | replaces the common fields with `sourceTabId`, `sourceFrameId`, `sourceProcessId` (`-1`), `tabId`, `url`, `timeStamp` |
 
 `transitionType` is `"auto_subframe"` for subframes. For main frames it is `"reload"`, `"form_submit"`, `"link"`, or `"typed"` (a load the browser or the user started). A back/forward navigation reports the transition type of the history item's first commit. `transitionQualifiers` may contain `"forward_back"` and `"server_redirect"`.
@@ -212,7 +216,7 @@ Both describe the frames the tab currently shows. Frames kept in the back/forwar
 
 ## `browser.webRequest` (host contexts only)
 
-Interception happens in the network process, at the same points WebKit applies its own content rules. Every request and redirect is checked, including pings, beacons, and CSP reports, as are redirect responses, responses from both the network and the disk cache, and WebSocket handshakes. Only `http`, `https`, `ws`, `wss`, and `safari-extension` URLs are visible. An extension sees requests for its own `safari-extension://` resources and never another extension's.
+Interception happens in the network process, at the same points WebKit applies its own content rules. Every request and redirect is checked, including pings, beacons, and CSP reports, as are redirect responses, responses from both the network and the disk cache, and WebSocket handshakes. Only `http`, `https`, `ws`, `wss`, and `safari-extension` URLs are visible. An extension sees web requests within its website access (see [`browser.cookies`](#browsercookies-host-contexts-only)), and requests for its own `safari-extension://` resources but never another extension's.
 
 ### Listeners and filters
 
@@ -226,6 +230,7 @@ browser.webRequest.onBeforeRequest.addListener(listener, filter, extraInfoSpec);
 - `filter.windowId` is ignored.
 - `extraInfoSpec`:
   - `"blocking"` makes the listener's return value (or the fulfillment value of a returned Promise) the listener's verdict.
+  - `"asyncBlocking"` (for `onAuthRequired`) passes the listener a callback as its second argument, and the value it calls that with is the verdict.
   - `"requestHeaders"` gives the listener `requestHeaders` (`onBeforeSendHeaders`, `onSendHeaders`).
   - `"responseHeaders"` gives the listener `responseHeaders` (`onHeadersReceived`, `onResponseStarted`, `onBeforeRedirect`, `onCompleted`).
   - `"requestBody"` gives the listener `requestBody` (`onBeforeRequest`).
@@ -241,6 +246,7 @@ Each blocking listener's filter is evaluated in the network process, so a load n
 | `onBeforeSendHeaders` | yes: `cancel`, `requestHeaders` | `requestHeaders` |
 | `onSendHeaders` | no | `requestHeaders` |
 | `onHeadersReceived` | yes: `cancel`, `redirectUrl`, `responseHeaders` | `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
+| `onAuthRequired` | yes: `cancel`, `authCredentials` | `scheme`, `realm`, `challenger` (`host`, `port`), `isProxy`, `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
 | `onResponseStarted` | no | `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
 | `onBeforeRedirect` | no | `redirectUrl`, `statusCode`, `statusLine`, `responseHeaders`, `fromCache` (`url` is the URL redirected from) |
 | `onCompleted` | no | `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
@@ -273,19 +279,23 @@ A successful cache revalidation (a `304` for a cached entry) reports the cached 
 
 | Verdict | Effect |
 | --- | --- |
-| `{ cancel: true }` in `onBeforeRequest` | A subresource fails with `net::ERR_BLOCKED_BY_CLIENT`. A main-frame navigation stops without an error page. A WebSocket fails and closes with code `1006`. |
+| `{ cancel: true }` in `onBeforeRequest` | The load fails with `net::ERR_BLOCKED_BY_CLIENT`, as a load WebKit's content rules block does; a main-frame navigation shows Safari's error page for it. A WebSocket fails and closes with code `1006`. |
 | `{ redirectUrl }` in `onBeforeRequest` | A main-frame navigation follows a `307 Internal Redirect` to the new URL, keeping its method and body, so the address and history show it. Any other request loads the new URL in place, as WebKit's content rules redirect one, after `onBeforeRedirect` and the new URL's own `onBeforeRequest`. An invalid URL is ignored. After 20 such redirects the load fails. |
 | `{ cancel: true }` in `onBeforeSendHeaders` | As `cancel` in `onBeforeRequest`. |
 | `{ requestHeaders }` in `onBeforeSendHeaders` | Replaces the request's header fields. |
-| `{ cancel: true }` in `onHeadersReceived` | As `cancel` in `onBeforeRequest`: the load fails with `net::ERR_BLOCKED_BY_CLIENT`, and a main-frame navigation stops without an error page. |
+| `{ cancel: true }` in `onHeadersReceived` | As `cancel` in `onBeforeRequest`. |
 | `{ redirectUrl }` in `onHeadersReceived` | The response becomes a `302 Found` to the new URL, as Chrome rewrites it: the redirected request starts over at `onBeforeRequest`, a `POST` becoming a `GET`. A response from the cache, or one the cache revalidated, redirects the same way, without the revalidation's conditional headers. For a redirect response, the redirect goes to the new URL instead, and a request that leaves the redirect's origin loses its `Authorization`, `Origin`, and `Cookie` headers. |
 | `{ responseHeaders }` in `onHeadersReceived` | Replaces the response's header fields, including for cached responses, before any `redirectUrl` of the same verdict applies. For a redirect response, a changed `Location` header moves the redirect to the new location. |
+| `{ authCredentials: { username, password } }` in `onAuthRequired` | Answers the challenge with those credentials, kept for the session as the browser keeps its own. If they fail, the next challenge asks again. |
+| `{ cancel: true }` in `onAuthRequired` | Continues without credentials, so the `401` or `407` response is the load's, as Chrome cancels the authentication. |
+
+An `onAuthRequired` challenge no verdict answers goes to Safari's own authentication sheet. Only HTTP and proxy authentication reach `onAuthRequired`: `basic`, `digest`, `ntlm`, `negotiate`, or the first token of the challenge header for another scheme.
 
 A redirect an extension makes may go to any scheme, as Chrome allows: a navigation can be sent to one of the extension's own pages. WebKit fails a subresource's redirect to a `data:` URL, so a subresource sent to `data:` loads it in place, after `onBeforeRedirect`. A main-frame navigation to a `data:` URL is refused, as WebKit refuses every top-level `data:` document the page did not load itself.
 
 Fields that do not apply to the event are ignored: `requestHeaders` outside `onBeforeSendHeaders`, `responseHeaders` outside `onHeadersReceived`, and `redirectUrl` outside `onBeforeRequest` and `onHeadersReceived`.
 
-When several listeners answer, whether in one extension or across extensions, they merge as Chrome merges them: any cancel wins, the first `redirectUrl` wins, and a later header array replaces an earlier one. Within an extension, listeners run in registration order and each later listener sees the headers an earlier one set.
+When several listeners answer, whether in one extension or across extensions, they merge as Chrome merges them: any cancel wins, the first `redirectUrl` and the first `authCredentials` win, and a later header array replaces an earlier one. Within an extension, listeners run in registration order and each later listener sees the headers an earlier one set.
 
 A listener that throws is logged and skipped. A context that goes away while a load waits on it stops being waited on.
 
@@ -293,24 +303,51 @@ A listener that throws is logged and skipped. A context that goes away while a l
 
 Empties the in-memory caches of the Safari process and of every web content process, so resources held there reach `webRequest` again. `MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES` is `20`. Calls beyond it still empty the caches, as Chrome's do.
 
-## Clipboard (host contexts only)
+## `browser.cookies` (host contexts only)
 
-In host contexts, `navigator.clipboard.writeText()` and `navigator.clipboard.readText()` follow the permissions declared in a `manifest.json` at the root of the extension bundle:
+Cookies of the sites the extension's website access covers: the `Website Access` of its `Info.plist` `Permissions`, which Safari 7 also applies to its content scripts. Safari's process reads it when the extension's first page appears, and applies it to the cookies it answers with and acts on, to `onChanged`, and to `webRequest`. `Level` `All` covers every site, `Some` the `Allowed Domains` (a host, or `*.host` for the host and its subdomains), and `None` no site. Secure pages count only with `Include Secure Pages`. A cookie's site is its domain, over `https` for a secure cookie.
 
-```json
-{
-    "manifest_version": 2,
-    "permissions": [ "clipboardRead", "clipboardWrite" ]
-}
+### Cookie objects
+
+```js
+{ name, value, domain, hostOnly, path, secure, httpOnly, sameSite, session, expirationDate, storeId }
 ```
 
-Only `permissions` is read. The rest of the manifest, and the file itself, are optional.
+`sameSite` is `"no_restriction"`, `"lax"`, or `"strict"`. `expirationDate` is in seconds since the epoch, and absent for a session cookie.
 
-- With `clipboardWrite`, `writeText(text)` writes plain text to the general pasteboard at any time, with no user gesture and no focus required. In a private browsing page, the pasteboard entry expires as WebKit's ephemeral pasteboard data does.
-- With `clipboardRead`, `readText()` reads the pasteboard's plain text at any time. It resolves with `""` when there is no text.
-- Without the permission, the call falls through to WebCore's own method with WebCore's rules: user activation, and paste confirmation for reads.
-- A permitted call that fails rejects with a `NotAllowedError` `DOMException`.
-- The manifest is read once per context, synchronously, on the first clipboard call, so an unpermitted call still runs within the caller's user gesture. A bundle whose files cannot be loaded at all rejects with `"The extension's files cannot be loaded."` and is asked again on the next call.
+### Stores
+
+`storeId` `"0"` is the store Safari's tabs use, and `"1"` the private browsing store, while a tab uses it. Methods take an optional `storeId`, `"0"` by default.
+
+### `cookies.get({ url, name, storeId })` → `Promise<Cookie | null>`
+
+The cookie a request to `url` would send with that name: the one with the longest path, then the earliest created. Rejects when the extension's website access does not cover `url`.
+
+### `cookies.getAll({ url, domain, name, path, secure, session, storeId })` → `Promise<Cookie[]>`
+
+The store's cookies the website access covers, narrowed by each given field: `url` to those a request to it would send, `domain` to that domain and its subdomains, the rest to exact matches. They come longest path first, then earliest created.
+
+### `cookies.set({ url, name, value, domain, path, secure, httpOnly, sameSite, expirationDate, storeId })` → `Promise<Cookie | null>`
+
+Sets a cookie for `url`: host-only without `domain`, on the domain and its subdomains with it; the directory of `url`'s path without `path`; a session cookie without `expirationDate`. Resolves with the cookie as stored. WebKit's cookie store does not let a cookie without `httpOnly` replace a stored HttpOnly cookie of the same name, domain, and path, as the macOS cookie store it follows does not; such a call leaves the stored cookie, and resolves with it.
+
+### `cookies.remove({ url, name, storeId })` → `Promise<{ url, name, storeId } | null>`
+
+Removes the cookie `cookies.get` would return. Resolves with `null` when there is none.
+
+### `cookies.getAllCookieStores()` → `Promise<{ id, tabIds }[]>`
+
+### `cookies.onChanged`
+
+`({ removed, cookie, cause })` for each cookie that appears, changes, or goes, within the extension's website access. A changed cookie reports its removal with cause `"overwrite"` and then its addition with cause `"explicit"`. A cookie that goes after its expiration date reports `"expired"`; any other removal or addition reports `"explicit"`.
+
+## Clipboard (host contexts only)
+
+In the extension's own pages, `navigator.clipboard.writeText()` and `navigator.clipboard.readText()` work at any time, with no user gesture and no focus required, as they do in a WebExtension's pages with the clipboard permissions.
+
+- `writeText(text)` writes plain text to the general pasteboard. In a private browsing page, the pasteboard entry expires as WebKit's ephemeral pasteboard data does.
+- `readText()` reads the pasteboard's plain text. It resolves with `""` when there is no text.
+- A call that fails rejects with a `NotAllowedError` `DOMException`.
 
 Content scripts keep the page's clipboard rules.
 
@@ -338,4 +375,4 @@ Safari 7's extension resource protocol has limits that apply to every file in th
 
 ## Testing
 
-`MavericksSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844), and `clipboard-denied.safariextension`, which has no manifest. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
+`MavericksSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844), and `limited-access.safariextension`, whose website access is `localhost` alone. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.

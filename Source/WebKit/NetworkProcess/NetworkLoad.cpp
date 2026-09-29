@@ -28,6 +28,7 @@
 
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationManager.h"
+#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: didReceiveChallenge below.
 #include "MessageSenderInlines.h"
 #include "NetworkDataTaskBlob.h"
 #include "NetworkLoadClient.h"
@@ -230,6 +231,9 @@ void NetworkLoad::didReceiveChallenge(AuthenticationChallenge&& challenge, Negot
         completionHandler(AuthenticationChallengeDisposition::Cancel, { });
         return;
     }
+
+    if (LegacyExtensionNetwork::singleton().interceptAuthenticationChallenge(*this, challenge, negotiatedLegacyTLS, completionHandler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onAuthRequired.
+        return;
 
     client->didReceiveChallenge(challenge);
 
