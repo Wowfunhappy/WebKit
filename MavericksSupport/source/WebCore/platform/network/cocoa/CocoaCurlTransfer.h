@@ -57,6 +57,9 @@ WEBCORE_EXPORT bool validateCocoaCurlCompletedResume(const ResourceResponse&, ui
 WEBCORE_EXPORT void collectCocoaCurlMetrics(CURL*, const ResourceRequest&, const URL& connectedURL, MonotonicTime start, bool isProxy, NetworkLoadMetrics&);
 // The bytes a request field value may carry, as CFNetwork admits them: everything but NUL, CR and LF.
 bool isValidCocoaCurlRequestHeaderValue(const String&);
+// The Accept-Language and Accept-Encoding fields a request without its own sends.
+WEBCORE_EXPORT String cocoaCurlDefaultAcceptLanguage();
+WEBCORE_EXPORT String cocoaCurlDefaultAcceptEncoding();
 // Parse the escaped native request URL before applying scheme, origin and port policy.
 WEBCORE_EXPORT Expected<URL, int> cocoaCurlRequestURL(const URL&);
 enum class IsMainResourceLoad : bool;
@@ -132,7 +135,7 @@ struct CocoaCurlTransferResponse {
 
 class CocoaCurlTransferClient : public AbstractRefCounted {
 public:
-    virtual void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) = 0;
+    virtual void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) = 0;
     virtual void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) = 0;
     virtual void curlReceivedInformationalResponse(ResourceResponse&&) = 0;
     virtual void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) = 0;

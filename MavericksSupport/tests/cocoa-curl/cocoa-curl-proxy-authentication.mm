@@ -177,7 +177,7 @@ private:
         m_connection = CocoaCurlConnection::create(m_pool, *this, WTF::move(options));
         m_connection->start();
     }
-    void curlReceivedCookies(Vector<String>&&, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
+    void curlReceivedCookies(Vector<String>&&, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
     void curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion) final
     {
         m_status = response.response.httpStatusCode();

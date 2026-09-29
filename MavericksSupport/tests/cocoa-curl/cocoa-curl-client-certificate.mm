@@ -41,7 +41,7 @@ public:
     void deref() const final { RefCounted::deref(); }
 private:
     IdentityProbe(SecIdentityRef identity, bool supply) : m_identity(identity), m_supply(supply) { }
-    void curlReceivedCookies(Vector<String>&&, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
+    void curlReceivedCookies(Vector<String>&&, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
     void curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion) final { m_status = response.response.httpStatusCode(); completion(); }
     void curlReceivedData(const SharedBuffer& data, CompletionHandler<void()>&& completion) final { m_body = makeString(m_body, String::fromUTF8(data.span())); completion(); }
     void curlSentData(uint64_t, uint64_t) final { }

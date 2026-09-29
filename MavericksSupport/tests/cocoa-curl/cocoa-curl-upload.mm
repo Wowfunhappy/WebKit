@@ -74,7 +74,7 @@ public:
         printf("upload %s expect=%d error=%d\n", method.utf8().data(), expectContinue, m_error);
     }
 private:
-    void curlReceivedCookies(Vector<String>&&, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
+    void curlReceivedCookies(Vector<String>&&, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&& completion) final { completion(); }
     void curlReceivedInformationalResponse(ResourceResponse&& response) final { if (response.httpStatusCode() == 100) ++m_interim; }
     void curlSentData(uint64_t uploaded, uint64_t total) final { m_uploaded = uploaded; m_uploadTotal = total; }

@@ -59,7 +59,7 @@ using DocumentURL = URL;
 
 class NetworkLoadChecker : public RefCountedAndCanMakeWeakPtr<NetworkLoadChecker> {
     WTF_MAKE_TZONE_ALLOCATED(NetworkLoadChecker);
-    friend class LegacyExtensionNetwork; // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest decides a request inside checkRequest.
+    friend class LegacyExtensionNetwork; // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest decides a request inside checkRequest and checkRedirection.
 public:
     enum class LoadType : bool { MainFrame, Other };
 

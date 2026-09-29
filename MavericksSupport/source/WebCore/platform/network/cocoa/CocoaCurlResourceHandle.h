@@ -65,7 +65,7 @@ private:
     void challenge(const ProtectionSpace&, const Credential&, unsigned, const ResourceError&, CocoaCurlAuthenticationCompletion&&);
     void finish(const ResourceError&);
     void fail(int, const String&);
-    void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
+    void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final;
     void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;

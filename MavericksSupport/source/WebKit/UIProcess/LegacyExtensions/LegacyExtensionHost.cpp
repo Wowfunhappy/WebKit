@@ -959,6 +959,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         request->setDouble("callId"_s, static_cast<double>(routerCallID));
         request->setString("code"_s, details->getString("code"_s));
         request->setString("runAt"_s, details->getString("runAt"_s));
+        request->setBoolean("matchAboutBlank"_s, details->getBoolean("matchAboutBlank"_s).value_or(false));
         if (method == "tabs.executeScript"_s)
             request->setString("t"_s, "exec"_s);
         else {
@@ -1032,8 +1033,7 @@ void LegacyExtensionHost::routeInterest(HostContext& context, JSON::Object& mess
     if (events) {
         for (auto& [name, value] : *events) {
             RefPtr object = value->asObject();
-            RefPtr blockingFilters = object ? object->getArray("blockingFilters"_s) : nullptr;
-            interests.add(name, blockingFilters ? blockingFilters->toJSONString() : emptyString());
+            interests.add(name, object ? object->toJSONString() : "{}"_s);
         }
     }
     bool networkInterestsChanged = false;
@@ -1325,16 +1325,25 @@ void LegacyExtensionHost::finishWebRequestCallIfComplete(uint64_t token)
 void LegacyExtensionHost::updateNetworkListeners()
 {
     Vector<String> observed;
+    Vector<String> options;
     auto blocking = JSON::Object::create();
     for (auto& context : m_hostContexts.values()) {
-        for (auto& [name, blockingFilters] : context->interests) {
+        for (auto& [name, interest] : context->interests) {
             if (!name.startsWith("webRequest."_s))
                 continue;
             auto eventName = name.substring(11);
             if (!observed.contains(eventName))
                 observed.append(eventName);
-            RefPtr filtersValue = JSON::Value::parseJSON(blockingFilters);
-            RefPtr filters = filtersValue ? filtersValue->asArray() : nullptr;
+            RefPtr interestValue = JSON::Value::parseJSON(interest);
+            RefPtr interestObject = interestValue ? interestValue->asObject() : nullptr;
+            if (!interestObject)
+                continue;
+            for (auto option : { "requestBody"_s, "extraHeaders"_s }) {
+                auto qualifiedOption = makeString(eventName, ':', option);
+                if (interestObject->getBoolean(option).value_or(false) && !options.contains(qualifiedOption))
+                    options.append(WTF::move(qualifiedOption));
+            }
+            RefPtr filters = interestObject->getArray("blockingFilters"_s);
             if (!filters)
                 continue;
             RefPtr listeners = blocking->getArray(eventName);
@@ -1352,9 +1361,10 @@ void LegacyExtensionHost::updateNetworkListeners()
         }
     }
     auto blockingListeners = blocking->toJSONString();
-    if (observed == m_observedNetworkEvents && blockingListeners == m_blockingNetworkListeners)
+    if (observed == m_observedNetworkEvents && options == m_networkListenerOptions && blockingListeners == m_blockingNetworkListeners)
         return;
     m_observedNetworkEvents = WTF::move(observed);
+    m_networkListenerOptions = WTF::move(options);
     m_blockingNetworkListeners = WTF::move(blockingListeners);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         sendNetworkListeners(networkProcess);
@@ -1362,7 +1372,7 @@ void LegacyExtensionHost::updateNetworkListeners()
 
 void LegacyExtensionHost::sendNetworkListeners(NetworkProcessProxy& networkProcess)
 {
-    networkProcess.send(Messages::LegacyExtensionNetwork::SetListeners(m_observedNetworkEvents, m_blockingNetworkListeners), 0);
+    networkProcess.send(Messages::LegacyExtensionNetwork::SetListeners(m_observedNetworkEvents, m_networkListenerOptions, m_blockingNetworkListeners), 0);
 }
 
 void LegacyExtensionNetworkProxy::dispatchBlockingEvent(String&& eventName, String&& details, CompletionHandler<void(String&&)>&& completionHandler)

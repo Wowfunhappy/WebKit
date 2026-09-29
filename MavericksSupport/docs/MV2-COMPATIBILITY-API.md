@@ -4,6 +4,8 @@ This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `bro
 
 The engine provides only what needs the engine. Anything an extension can build from `safari.*` or the web platform, such as `runtime.getURL`, `storage`, `tabs.query`, `tabs.create`, and menus, is left to the extension's own platform layer (the uBlock Origin port's `browser-safari.js`, for example, builds these on top).
 
+Not provided: `webRequest.onAuthRequired`, the `ip` field of `webRequest` details, and the `documentId`, `documentLifecycle`, and `frameType` fields Chrome added after MV2.
+
 Sources:
 
 | Part | Path |
@@ -152,27 +154,27 @@ Sends a one-shot message to the extension's contexts in a tab: to one frame when
 
 Opens a port to the extension's contexts in a tab, with the same frame selection as `tabs.sendMessage`. With no `frameId`, one port reaches every frame.
 
-### `tabs.executeScript(tabId, { code | file, frameId, allFrames, runAt })` → `Promise<any[]>`
+### `tabs.executeScript(tabId, { code | file, frameId, allFrames, matchAboutBlank, runAt })` → `Promise<any[]>`
 
 Runs code in the extension's content-script world of the target frames: `frameId` (default `0`), or every frame when `allFrames` is `true`.
 
 - `file` is a path within the extension, resolved from the extension's root. Its text is fetched by the calling page and run as code.
 - The code runs through indirect `eval`, so the result is the value of its last expression statement.
 - `runAt` is `"document_start"`, `"document_end"`, or `"document_idle"` (default). `document_end` waits for `DOMContentLoaded`; `document_idle` waits for `DOMContentLoaded` and then one more task.
+- Documents at `about:blank` or `about:srcdoc` are targets only when `matchAboutBlank` is `true`. With `allFrames`, they are skipped; a call whose only target is one rejects with `Cannot access contents of url "about:blank".`
 - The Promise resolves with an array holding one result per frame that ran the code. A result that cannot be serialized to JSON becomes `null`.
 - Frames that could not run the code are left out of the array. The call rejects only when no frame ran the code, with the first error: the code's exception message, `"No tab with this id."`, `"No frame with this id."`, `"The extension has no access to this frame."`, or `"Cannot access the contents of an extension page."` (the frame shows an extension page).
 - The extension must have content scripts, because the code runs in the world Safari creates for them. A frame whose content-script world has no window object yet gets one created for the injection.
-- `matchAboutBlank` is accepted and ignored.
 
-### `tabs.insertCSS(tabId, { code | file, frameId, allFrames, runAt, cssOrigin })` → `Promise<void>`
+### `tabs.insertCSS(tabId, { code | file, frameId, allFrames, matchAboutBlank, runAt, cssOrigin })` → `Promise<void>`
 
-Adds a style sheet to the target frames' current documents, with the frame selection, `runAt`, and failure rules of `executeScript`.
+Adds a style sheet to the target frames' current documents, with the frame selection, `matchAboutBlank`, `runAt`, and failure rules of `executeScript`.
 
 - The sheet belongs to one document only and does not appear in `document.styleSheets`.
 - `cssOrigin` is `"author"` (default) or `"user"`.
 - A `file` sheet's URL is the file's own `safari-extension://` URL, so relative `url(...)` references inside it resolve against the file. A `code` sheet gets a unique URL of its own, as upstream's injected sheets do, and does not resolve relative references against the page.
 
-### `tabs.removeCSS(tabId, { code | file, frameId, allFrames, runAt, cssOrigin })` → `Promise<void>`
+### `tabs.removeCSS(tabId, { code | file, frameId, allFrames, matchAboutBlank, runAt, cssOrigin })` → `Promise<void>`
 
 Removes every sheet this extension inserted into the target documents whose source text equals the given `code` (or the given file's text).
 
@@ -210,7 +212,7 @@ Both describe the frames the tab currently shows. Frames kept in the back/forwar
 
 ## `browser.webRequest` (host contexts only)
 
-Interception happens in the network process, at the same points WebKit applies its own content rules. Every request and redirect is checked, including pings, beacons, and CSP reports, as are responses from both the network and the disk cache, and WebSocket handshakes. Only `http`, `https`, `ws`, `wss`, and `safari-extension` URLs are visible. An extension sees requests for its own `safari-extension://` resources and never another extension's.
+Interception happens in the network process, at the same points WebKit applies its own content rules. Every request and redirect is checked, including pings, beacons, and CSP reports, as are redirect responses, responses from both the network and the disk cache, and WebSocket handshakes. Only `http`, `https`, `ws`, `wss`, and `safari-extension` URLs are visible. An extension sees requests for its own `safari-extension://` resources and never another extension's.
 
 ### Listeners and filters
 
@@ -222,7 +224,12 @@ browser.webRequest.onBeforeRequest.addListener(listener, filter, extraInfoSpec);
 - `filter.types`: resource types (below).
 - `filter.tabId`: a tab ID.
 - `filter.windowId` is ignored.
-- `extraInfoSpec`: `"blocking"` makes the listener's return value (or the fulfillment value of a returned Promise) the listener's verdict. `"requestHeaders"` and `"responseHeaders"` are unnecessary: header arrays are always present where the event has them.
+- `extraInfoSpec`:
+  - `"blocking"` makes the listener's return value (or the fulfillment value of a returned Promise) the listener's verdict.
+  - `"requestHeaders"` gives the listener `requestHeaders` (`onBeforeSendHeaders`, `onSendHeaders`).
+  - `"responseHeaders"` gives the listener `responseHeaders` (`onHeadersReceived`, `onResponseStarted`, `onBeforeRedirect`, `onCompleted`).
+  - `"requestBody"` gives the listener `requestBody` (`onBeforeRequest`).
+  - `"extraHeaders"` gives the listener, and lets its verdict change, the headers Chrome withholds without it: the `Accept-Language`, `Accept-Encoding`, `Referer`, `Cookie`, and `Origin` request headers and the `Set-Cookie` response header. A verdict from a listener without it leaves those headers as they were.
 
 Each blocking listener's filter is evaluated in the network process, so a load no blocking filter matches never waits on the extension. Listeners without `"blocking"` are notified asynchronously and their return values are ignored.
 
@@ -230,14 +237,25 @@ Each blocking listener's filter is evaluated in the network process, so a load n
 
 | Event | Can block | Fields beyond the common ones |
 | --- | --- | --- |
-| `onBeforeRequest` | yes: `cancel`, `redirectUrl`, `requestHeaders` | none |
-| `onBeforeSendHeaders` | not dispatched | |
+| `onBeforeRequest` | yes: `cancel`, `redirectUrl` | `requestBody` |
+| `onBeforeSendHeaders` | yes: `cancel`, `requestHeaders` | `requestHeaders` |
 | `onSendHeaders` | no | `requestHeaders` |
-| `onHeadersReceived` | yes: `cancel`, `responseHeaders` | `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
+| `onHeadersReceived` | yes: `cancel`, `redirectUrl`, `responseHeaders` | `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
 | `onResponseStarted` | no | `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
-| `onBeforeRedirect` | no | `redirectUrl` (`url` is the URL redirected from) |
-| `onCompleted` | no | `statusCode`, `fromCache` |
-| `onErrorOccurred` | no | `error` |
+| `onBeforeRedirect` | no | `redirectUrl`, `statusCode`, `statusLine`, `responseHeaders`, `fromCache` (`url` is the URL redirected from) |
+| `onCompleted` | no | `statusCode`, `statusLine`, `responseHeaders`, `fromCache` |
+| `onErrorOccurred` | no | `error`, `fromCache` |
+
+A load's events come in Chrome's order: `onBeforeRequest`, `onBeforeSendHeaders`, `onSendHeaders`, then `onHeadersReceived` for each response. A redirect response is followed by `onBeforeRedirect` and the redirected request's `onBeforeRequest`; a final response is followed by `onResponseStarted` and `onCompleted` (or `onErrorOccurred`). A redirect an extension makes reports `onBeforeRedirect` with a synthetic response and no `onHeadersReceived` of its own: `307 Internal Redirect` for one made in `onBeforeRequest`, `302 Found` for one made in `onHeadersReceived`.
+
+`requestHeaders` are the headers the request is sent with. For `"extraHeaders"` listeners they include the fields the network layer adds to a request that has none of its own: the `Cookie` header it generates, and its `Accept-Language` and `Accept-Encoding`. A verdict that changes one of these sends the new value; one that removes it sends no such field. Removing `Accept-Encoding` still decodes a response the server compresses anyway. Stored-credential `Authorization` headers are added later and are not shown, as in Chrome.
+
+A `Cookie` header an `onBeforeSendHeaders` verdict changes or removes is the one sent for that exchange only: each redirect generates its own. The `Set-Cookie` headers of a response are stored after its `onHeadersReceived` verdicts, so a verdict that removes or changes them stores the result, and a cancelled response stores none. A redirect's cookies are stored before the redirect is followed, so the redirected request carries them. Responses to authentication challenges store their cookies at once.
+
+`requestBody` is present when the request has a body:
+
+- `formData`: for a `POST` whose body is `application/x-www-form-urlencoded` or `multipart/form-data`, an object mapping each field name to an array of its values. A file field's value is its filename.
+- `raw`: for any other body, or a form body that does not parse, an array of `{ bytes: ArrayBuffer }` and `{ file: path }` elements.
 
 Common fields: `requestId`, `url`, `method`, `type`, `timeStamp`, `tabId` (`-1` for a load that belongs to no tab, such as one from a WebKit 1 extension view), `frameId`, `parentFrameId`, and, for subresources, `documentUrl` and `initiator` (the requesting origin).
 
@@ -256,10 +274,16 @@ A successful cache revalidation (a `304` for a cached entry) reports the cached 
 | Verdict | Effect |
 | --- | --- |
 | `{ cancel: true }` in `onBeforeRequest` | A subresource fails with `net::ERR_BLOCKED_BY_CLIENT`. A main-frame navigation stops without an error page. A WebSocket fails and closes with code `1006`. |
-| `{ redirectUrl }` in `onBeforeRequest` | A main-frame navigation follows a synthetic redirect to the new URL, so the address and history show it. A subresource loads from the new URL in place. `data:` URLs are allowed. An invalid URL is ignored. |
-| `{ requestHeaders }` in `onBeforeRequest` | Replaces the request's header fields. |
-| `{ cancel: true }` in `onHeadersReceived` | The load fails with `net::ERR_BLOCKED_BY_CLIENT`. |
-| `{ responseHeaders }` in `onHeadersReceived` | Replaces the response's header fields, including for cached responses. |
+| `{ redirectUrl }` in `onBeforeRequest` | A main-frame navigation follows a `307 Internal Redirect` to the new URL, keeping its method and body, so the address and history show it. Any other request loads the new URL in place, as WebKit's content rules redirect one, after `onBeforeRedirect` and the new URL's own `onBeforeRequest`. An invalid URL is ignored. After 20 such redirects the load fails. |
+| `{ cancel: true }` in `onBeforeSendHeaders` | As `cancel` in `onBeforeRequest`. |
+| `{ requestHeaders }` in `onBeforeSendHeaders` | Replaces the request's header fields. |
+| `{ cancel: true }` in `onHeadersReceived` | As `cancel` in `onBeforeRequest`: the load fails with `net::ERR_BLOCKED_BY_CLIENT`, and a main-frame navigation stops without an error page. |
+| `{ redirectUrl }` in `onHeadersReceived` | The response becomes a `302 Found` to the new URL, as Chrome rewrites it: the redirected request starts over at `onBeforeRequest`, a `POST` becoming a `GET`. A response from the cache, or one the cache revalidated, redirects the same way, without the revalidation's conditional headers. For a redirect response, the redirect goes to the new URL instead, and a request that leaves the redirect's origin loses its `Authorization`, `Origin`, and `Cookie` headers. |
+| `{ responseHeaders }` in `onHeadersReceived` | Replaces the response's header fields, including for cached responses, before any `redirectUrl` of the same verdict applies. For a redirect response, a changed `Location` header moves the redirect to the new location. |
+
+A redirect an extension makes may go to any scheme, as Chrome allows: a navigation can be sent to one of the extension's own pages. WebKit fails a subresource's redirect to a `data:` URL, so a subresource sent to `data:` loads it in place, after `onBeforeRedirect`. A main-frame navigation to a `data:` URL is refused, as WebKit refuses every top-level `data:` document the page did not load itself.
+
+Fields that do not apply to the event are ignored: `requestHeaders` outside `onBeforeSendHeaders`, `responseHeaders` outside `onHeadersReceived`, and `redirectUrl` outside `onBeforeRequest` and `onHeadersReceived`.
 
 When several listeners answer, whether in one extension or across extensions, they merge as Chrome merges them: any cancel wins, the first `redirectUrl` wins, and a later header array replaces an earlier one. Within an extension, listeners run in registration order and each later listener sees the headers an earlier one set.
 
@@ -267,7 +291,7 @@ A listener that throws is logged and skipped. A context that goes away while a l
 
 ### `webRequest.handlerBehaviorChanged()` → `Promise<void>`
 
-Empties the in-memory caches of the Safari process and of every web content process, so resources held there reach `webRequest` again. `MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES` is `20`; the limit is not enforced.
+Empties the in-memory caches of the Safari process and of every web content process, so resources held there reach `webRequest` again. `MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES` is `20`. Calls beyond it still empty the caches, as Chrome's do.
 
 ## Clipboard (host contexts only)
 

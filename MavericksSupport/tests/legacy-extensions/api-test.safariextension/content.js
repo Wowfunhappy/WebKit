@@ -37,6 +37,11 @@ if (typeof browser !== 'object') {
         port.postMessage({ what: 'cssfile' });
         port.postMessage({ what: 'exec' });
         port.postMessage({ what: 'frames' });
+        document.addEventListener('DOMContentLoaded', () => {
+            const blank = document.getElementById('blank-frame');
+            if (blank)
+                port.postMessage({ what: 'aboutblank', blankFrameId: browser.runtime.getFrameId(blank) });
+        });
         browser.runtime.sendMessage({ one: 'shot' }).then(response => note('extSendMessage', response));
     }
 

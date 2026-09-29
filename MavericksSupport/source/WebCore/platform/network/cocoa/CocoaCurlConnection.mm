@@ -185,12 +185,12 @@ std::shared_ptr<CocoaCurlTLSState> CocoaCurlConnection::copyTLSState()
     return state;
 }
 // the cookie owner runs on its client queue; its continuation remains on the transport worker.
-void CocoaCurlConnection::curlReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void CocoaCurlConnection::curlReceivedCookies(Vector<String>&& fields, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     ASSERT(!m_cookieContinuation);
     m_cookieContinuation = WTF::move(completion);
     auto cookies = fields.map([](const String& field) { return field.isolatedCopy(); });
-    dispatchToClient([connection = Ref { *this }, cookies = WTF::move(cookies), remoteAddress = remoteAddress.isolatedCopy(), canonicalName = canonicalName.isolatedCopy()]() mutable {
+    dispatchToClient([connection = Ref { *this }, cookies = WTF::move(cookies), statusCode, remoteAddress = remoteAddress.isolatedCopy(), canonicalName = canonicalName.isolatedCopy()]() mutable {
         if (connection->m_cancelled)
             return;
         RefPtr client = connection->m_client;
@@ -198,7 +198,7 @@ void CocoaCurlConnection::curlReceivedCookies(Vector<String>&& fields, const Str
             connection->cancel();
             return;
         }
-        client->curlReceivedCookies(WTF::move(cookies), remoteAddress, canonicalName, [connection](std::optional<String>&& cookie) {
+        client->curlReceivedCookies(WTF::move(cookies), statusCode, remoteAddress, canonicalName, [connection](std::optional<String>&& cookie) {
             connection->m_pool->runLoop().dispatch([connection, cookie = cookie ? std::optional { cookie->isolatedCopy() } : std::nullopt]() mutable {
                 if (connection->m_cookieContinuation)
                     std::exchange(connection->m_cookieContinuation, nullptr)(WTF::move(cookie));

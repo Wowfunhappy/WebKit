@@ -1560,6 +1560,9 @@ static bool NODELETE shouldTryToMatchRegistrationOnRedirection(const FetchOption
 void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest, bool isAllowedToAskUserForCredentials, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
 {
     LOADER_RELEASE_LOG("continueWillSendRequest: (isAllowedToAskUserForCredentials=%d)", isAllowedToAskUserForCredentials);
+    // MAVERICKS_BACKPORT: a Safari 7 extension's 307 Internal Redirect keeps its body, which the web process's answer does not
+    // carry, and a redirect an extension makes may go to any scheme, as Chrome's webRequest lets it.
+    bool isExtensionRedirect = LegacyExtensionNetwork::singleton().continueWillSendRequest(*this, newRequest);
 
     // If there is a match in the network cache, we need to reuse the original cache policy and partition.
     // This must happen before any branch below that may store a redirect in the disk cache, otherwise a
@@ -1619,7 +1622,8 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
 
     if (m_networkLoadChecker) {
         // FIXME: We should be doing this check when receiving the redirection and not allow about protocol as per fetch spec.
-        if (!newRequest.url().protocolIsInHTTPFamily() && !newRequest.url().protocolIsAbout() && m_redirectCount) {
+        // if (!newRequest.url().protocolIsInHTTPFamily() && !newRequest.url().protocolIsAbout() && m_redirectCount) {
+        if (!newRequest.url().protocolIsInHTTPFamily() && !newRequest.url().protocolIsAbout() && m_redirectCount && !isExtensionRedirect) { // MAVERICKS_BACKPORT: see isExtensionRedirect above.
             LOADER_RELEASE_LOG_ERROR("continueWillSendRequest: Failing load because it redirected to a scheme that is not HTTP(S)");
             didFailLoading(ResourceError { String { }, 0, newRequest.url(), "Redirection to URL with a scheme that is not HTTP(S)"_s, ResourceError::Type::AccessControl });
             return completionHandler({ });

@@ -196,7 +196,7 @@ void CocoaCurlResourceHandle::beginTransfer()
     m_connection->start();
 }
 // commit each wire field before the next authentication request.
-void CocoaCurlResourceHandle::curlReceivedCookies(Vector<String>&& fields, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void CocoaCurlResourceHandle::curlReceivedCookies(Vector<String>&& fields, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     if (m_cancelled || !m_handle) {
         completion(std::nullopt);

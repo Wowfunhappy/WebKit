@@ -47,7 +47,7 @@ private:
         options.allowedServerTrust = allowedServerTrust;
         m_transfer = WebCore::CocoaCurlConnection::create(pool.get(), *this, WTF::move(options));
     }
-    void curlReceivedCookies(Vector<String>&&, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
+    void curlReceivedCookies(Vector<String>&&, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
     void curlReceivedResponse(WebCore::CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion) final
     {
         if (!WebCore::MIMETypeRegistry::isSupportedJSONMIMEType(response.response.mimeType()))

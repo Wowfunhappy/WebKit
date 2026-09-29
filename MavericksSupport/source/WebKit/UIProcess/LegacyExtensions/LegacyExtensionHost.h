@@ -95,7 +95,8 @@ private:
         Markable<WebCore::ScriptExecutionContextIdentifier> documentID;
         // The document's Document::originIdentifierForPasteboard, as its web content process reports it.
         String pasteboardOriginIdentifier;
-        // Each event a listener is registered for, with the JSON filters of its blocking listeners.
+        // Each event a listener is registered for, with its JSON interest: the filters of its blocking
+        // listeners, and the extraInfoSpec options (requestBody, extraHeaders) a listener asks for.
         HashMap<String, String> interests;
     };
 
@@ -187,6 +188,7 @@ private:
     WeakHashMap<WebBackForwardListItem, String> m_historyItemTransitions;
     uint64_t m_nextIdentifier { 1 };
     Vector<String> m_observedNetworkEvents;
+    Vector<String> m_networkListenerOptions;
     String m_blockingNetworkListeners;
     LegacyExtensionNetworkProxy m_networkProxy;
 };

@@ -57,6 +57,17 @@ static String cocoaCurlAcceptLanguage(const String& preferred)
     return makeString(makeStringByJoining(subtags, "-"_s), ","_s, subtags.first(), ";q=0.9"_s);
 }
 
+String cocoaCurlDefaultAcceptLanguage()
+{
+    auto preferredLanguage = adoptCF(_CFNetworkCopyPreferredLanguageCode());
+    return cocoaCurlAcceptLanguage(String(preferredLanguage.get()));
+}
+
+String cocoaCurlDefaultAcceptEncoding()
+{
+    return COCOA_CURL_ACCEPT_ENCODING ""_s;
+}
+
 Ref<CocoaCurlUploadBody> CocoaCurlUploadBody::create(FormData& data, BlobRegistryImpl* registry)
 {
     ASSERT(isMainThread());
@@ -591,7 +602,11 @@ bool CocoaCurlTransfer::setup()
     for (auto& field : request.httpHeaderFields()) {
         if (!isValidHTTPToken(field.key) || !isValidCocoaCurlRequestHeaderValue(field.value))
             return false;
-        if (equalLettersIgnoringASCIICase(field.key, "cookie"_s) && !field.value.isEmpty())
+        // CURLOPT_COOKIE below sends the Cookie field.
+        if (equalLettersIgnoringASCIICase(field.key, "cookie"_s))
+            continue;
+        // An empty Accept-Language or Accept-Encoding field sends none, in place of the transport's own.
+        if (field.value.isEmpty() && (equalLettersIgnoringASCIICase(field.key, "accept-language"_s) || equalLettersIgnoringASCIICase(field.key, "accept-encoding"_s)))
             continue;
         // Safari 7's framework, which it injects into the WebProcess, sets DNT from the Privacy
         // checkbox that drives this port's advanced privacy protections; the browser this WebKit
@@ -608,8 +623,7 @@ bool CocoaCurlTransfer::setup()
     if (!request.hasHTTPHeaderField(HTTPHeaderName::ContentType) && !appendHeader(CString("Content-Type:")))
         return false;
     if (!request.hasHTTPHeaderField(HTTPHeaderName::AcceptLanguage)) {
-        auto preferredLanguage = adoptCF(_CFNetworkCopyPreferredLanguageCode());
-        String language = cocoaCurlAcceptLanguage(String(preferredLanguage.get()));
+        String language = cocoaCurlDefaultAcceptLanguage();
         if (!language.isEmpty() && !appendHeader(makeString("Accept-Language: "_s, language).utf8()))
             return false;
     }
@@ -620,7 +634,10 @@ bool CocoaCurlTransfer::setup()
         return false;
     // Carried in the request's own header list, so it reaches the wire last, in the position
     // a browser puts it.
-    if (!request.hasHTTPHeaderField(HTTPHeaderName::AcceptEncoding) && !appendHeader(CString("Accept-Encoding: " COCOA_CURL_ACCEPT_ENCODING)))
+    if (!request.hasHTTPHeaderField(HTTPHeaderName::AcceptEncoding)) {
+        if (!appendHeader(CString("Accept-Encoding: " COCOA_CURL_ACCEPT_ENCODING)))
+            return false;
+    } else if (request.httpHeaderField(HTTPHeaderName::AcceptEncoding).isEmpty() && !appendHeader(CString("Accept-Encoding:")))
         return false;
 #define CURL_SET(option, value) do { if (curl_easy_setopt(m_easy, option, value) != CURLE_OK) return false; } while (false)
     CURL_SET(CURLOPT_URL, connectionURL().string().utf8().data());
@@ -655,7 +672,8 @@ bool CocoaCurlTransfer::setup()
     CURL_SET(CURLOPT_SSLVERSION, cocoaCurlMinimumTLSVersion(m_options.minimumTLSProtocol));
     CURL_SET(CURLOPT_ERRORBUFFER, m_errorBuffer.data());
     // A NULL CURLOPT_COOKIE is the only value for which curl sends no Cookie field at all; an
-    // empty string produces an empty one. Its value is octets, as every other field's is.
+    // empty string produces an empty one, so an empty field sends none. Its value is octets, as every
+    // other field's is.
     auto cookieField = request.httpHeaderField(HTTPHeaderName::Cookie);
     CURL_SET(CURLOPT_COOKIE, cookieField.isEmpty() ? nullptr : cookieField.latin1().data());
     CURL_SET(CURLOPT_HTTPHEADER, m_headers);
@@ -993,7 +1011,7 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
     // The resolver name and remote address belong to the connection carrying this response.
     char* primaryIP = nullptr;
     curl_easy_getinfo(m_easy, CURLINFO_PRIMARY_IP, &primaryIP);
-    m_scheduler->runLoop().dispatch([transfer = Ref { *this }, cookies = std::exchange(m_setCookies, { }), remoteAddress = primaryIP ? String::fromUTF8(primaryIP) : String(), canonicalName = m_response.canonicalName.isolatedCopy()]() mutable {
+    m_scheduler->runLoop().dispatch([transfer = Ref { *this }, cookies = std::exchange(m_setCookies, { }), statusCode = m_status, remoteAddress = primaryIP ? String::fromUTF8(primaryIP) : String(), canonicalName = m_response.canonicalName.isolatedCopy()]() mutable {
         RefPtr client = transfer->m_running ? transfer->m_client : nullptr;
         if (!client) {
             --transfer->m_clientInteractions;
@@ -1001,7 +1019,7 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
                 transfer->cancel();
             return;
         }
-        client->curlReceivedCookies(WTF::move(cookies), remoteAddress, canonicalName, [transfer](std::optional<String>&& cookie) {
+        client->curlReceivedCookies(WTF::move(cookies), statusCode, remoteAddress, canonicalName, [transfer](std::optional<String>&& cookie) {
             --transfer->m_clientInteractions;
             if (!transfer->m_running)
                 return;

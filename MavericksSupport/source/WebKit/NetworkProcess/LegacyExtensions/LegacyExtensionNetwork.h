@@ -2,9 +2,10 @@
 //
 // The UI process's router tells every network process which webRequest events extensions listen to and
 // the filter of each blocking listener. A load a blocking listener's filter matches waits on the event at
-// the same points WebKit applies its own content rules: NetworkLoadChecker::checkRequest (onBeforeRequest,
-// for every request and redirect, pings included), the response (onHeadersReceived, network or cache),
-// and a WebSocket's creation.
+// the same points WebKit applies its own content rules: NetworkLoadChecker::checkRequest (onBeforeRequest
+// and onBeforeSendHeaders, for every request and redirect, pings included), checkRedirection and the
+// response (onHeadersReceived, for a redirect and for a network or cache response), and a WebSocket's
+// creation.
 
 #pragma once
 
@@ -21,6 +22,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/WeakHashSet.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -31,6 +33,7 @@ struct ClientOrigin;
 namespace WebKit {
 
 class NetworkConnectionToWebProcess;
+class NetworkDataTaskCurlCocoa;
 class NetworkProcess;
 
 namespace NetworkCache {
@@ -52,6 +55,7 @@ public:
     // response resumes by re-entering the same function, which that load's resume entry lets through; a
     // WebSocket's continuation creates its channel.
     bool interceptRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
+    bool interceptRedirection(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ResourceRequest& redirectRequest, WebCore::ResourceResponse& redirectResponse, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::RedirectionValidationHandler&);
     bool interceptResponse(NetworkResourceLoader&, WebCore::ResourceResponse&, PrivateRelayed, ResponseCompletionHandler&);
     bool interceptCachedResponse(NetworkResourceLoader&, std::unique_ptr<NetworkCache::Entry>&);
     bool interceptWebSocket(NetworkConnectionToWebProcess&, const WebCore::ResourceRequest&, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, const WebCore::ClientOrigin&, Function<void()>&& createChannel);
@@ -59,7 +63,21 @@ public:
     // wait, and its other channel messages have nothing to act on.
     bool didReceivePendingWebSocketMessage(NetworkConnectionToWebProcess&, IPC::Decoder&);
 
+    // Whether a listener's onHeadersReceived can strip a response's Set-Cookie fields, which the network
+    // task then holds until the verdict.
+    bool holdsReceivedCookies() const { return hasOption("onHeadersReceived"_s, "extraHeaders"_s); }
+
+    bool continueWillSendRequest(NetworkResourceLoader&, WebCore::ResourceRequest&);
+
     void loaderDidFail(NetworkResourceLoader&, const WebCore::ResourceError&);
+
+    // A field the network layer adds to a request without one, as the request carries it and as an
+    // "extraHeaders" listener sees it.
+    struct GeneratedField {
+        WebCore::HTTPHeaderName name;
+        String carried;
+        String shown;
+    };
     void loaderDidFinish(NetworkResourceLoader&, NetworkResourceLoader::LoadResult);
 
 private:
@@ -73,7 +91,18 @@ private:
         std::optional<double> tabID;
     };
 
-    void setListeners(Vector<String>&& observedEvents, String&& blockingListeners);
+    void setListeners(Vector<String>&& observedEvents, Vector<String>&& listenerOptions, String&& blockingListeners);
+    bool hasOption(ASCIILiteral eventName, ASCIILiteral option) const { return m_listenerOptions.contains(makeString(eventName, ':', option)); }
+    RefPtr<NetworkDataTaskCurlCocoa> curlTask(NetworkResourceLoader&);
+    String cookieHeader(NetworkLoadChecker&, const WebCore::ResourceRequest&);
+
+    bool interceptBeforeRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
+    bool interceptRequestHeaders(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
+    WebCore::ResourceError cancellationError(NetworkLoadChecker&, const WebCore::ResourceRequest&);
+    WebCore::ResourceError cancellationError(NetworkResourceLoader&, const WebCore::ResourceRequest&);
+    void redirect(NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);
+    bool loadsInPlace(NetworkResourceLoader&, const URL&);
+    void redirectInPlace(NetworkLoadChecker&, NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);
 
     bool observes(ASCIILiteral eventName) const { return m_observedEvents.contains(String { eventName }); }
     bool hasBlockingListener(ASCIILiteral eventName) const { return m_blockingListeners.contains(String { eventName }); }
@@ -89,10 +118,24 @@ private:
 
     WeakPtr<NetworkProcess> m_networkProcess;
     HashSet<String> m_observedEvents;
+    // The extraInfoSpec options some listener of an event asks for, as "<event>:<option>".
+    HashSet<String> m_listenerOptions;
     HashMap<String, Vector<BlockingListener>> m_blockingListeners;
     WeakHashMap<NetworkLoadChecker, uint64_t> m_checkerRequestIdentifiers;
     uint64_t m_nextRequestIdentifier { 1 };
     WeakHashSet<NetworkLoadChecker> m_resumingRequests;
+    WeakHashSet<NetworkLoadChecker> m_resumingRedirections;
+    WeakHashSet<NetworkLoadChecker> m_extensionRedirects;
+    WeakHashMap<NetworkLoadChecker, unsigned> m_internalRedirectCounts;
+    WeakHashMap<NetworkLoadChecker, String> m_editedCookies;
+    WeakHashMap<NetworkLoadChecker, URL> m_extensionRedirectTargets;
+    struct InternalRedirectBody {
+        URL url;
+        String method;
+        RefPtr<WebCore::FormData> body;
+    };
+    WeakHashMap<NetworkLoadChecker, InternalRedirectBody> m_internalRedirectBodies;
+    WeakHashMap<NetworkLoadChecker, std::unique_ptr<WebCore::ResourceResponse>> m_redirectResponses;
     WeakHashSet<NetworkResourceLoader> m_resumingResponses;
     WeakHashSet<NetworkResourceLoader> m_resumingCacheEntries;
     WeakHashSet<NetworkResourceLoader> m_loadsBlockedByExtensions;

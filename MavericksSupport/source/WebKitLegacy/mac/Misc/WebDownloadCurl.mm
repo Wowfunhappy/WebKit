@@ -108,7 +108,7 @@ private:
     void redirect();
     void prepareDestination();
     bool write(std::span<const uint8_t>);
-    void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
+    void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final { }
     void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;
@@ -388,7 +388,7 @@ void WebDownloadCurlClient::beginTransfer()
 }
 
 // a download keeps the same per-response native cookie policy as a document load.
-void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     if (m_finished || !m_storage) {
         completion(std::nullopt);

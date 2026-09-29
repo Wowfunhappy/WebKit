@@ -42,7 +42,8 @@ const withOptionalCallback = (args, run) => {
     return undefined;
 };
 
-const eventInterestNames = new Set();
+const hasExtraInfo = ({ extraInfoSpec }, name) => Array.isArray(extraInfoSpec) && extraInfoSpec.includes(name);
+
 let interestUpdateScheduled = false;
 const scheduleInterestUpdate = () => {
     if (interestUpdateScheduled)
@@ -54,13 +55,18 @@ const scheduleInterestUpdate = () => {
         for (const [name, event] of trackedEvents) {
             if (!event.hasListeners())
                 continue;
-            const blockingFilters = event._listeners.filter(entry => Array.isArray(entry.extraInfoSpec) && entry.extraInfoSpec.includes("blocking")).map(({ filter }) => {
+            const blockingFilters = event._listeners.filter(entry => hasExtraInfo(entry, "blocking")).map(({ filter }) => {
                 if (!filter || typeof filter !== "object")
                     return {};
                 const { urls, types, tabId } = filter;
                 return { urls: Array.isArray(urls) ? urls : undefined, types: Array.isArray(types) ? types : undefined, tabId: typeof tabId === "number" ? tabId : undefined };
             });
-            events[name] = blockingFilters.length ? { blockingFilters } : {};
+            const interest = blockingFilters.length ? { blockingFilters } : {};
+            for (const option of ["requestBody", "extraHeaders"]) {
+                if (event._listeners.some(entry => hasExtraInfo(entry, option)))
+                    interest[option] = true;
+            }
+            events[name] = interest;
         }
         send({ t: "interest", events });
     });
@@ -261,17 +267,51 @@ const filterMatches = (filter, details) => {
     return patterns.some(pattern => pattern.test(url));
 };
 
+// Details a listener receives only when its extraInfoSpec asks for them.
+const optionalDetails = ["requestBody", "requestHeaders", "responseHeaders"];
+
+// Headers a listener sees, and can change, only with "extraHeaders", as in Chrome. A verdict from another
+// listener keeps them as they are.
+const extraHeaderNames = {
+    requestHeaders: new Set(["accept-language", "accept-encoding", "referer", "cookie", "origin"]),
+    responseHeaders: new Set(["set-cookie"]),
+};
+const isExtraHeader = (kind, { name }) => extraHeaderNames[kind].has(String(name).toLowerCase());
+
+// requestBody's raw bytes arrive in base64.
+const decodeRequestBody = details => {
+    const raw = details.requestBody && details.requestBody.raw;
+    if (!Array.isArray(raw))
+        return;
+    for (const element of raw) {
+        if (typeof element.bytes === "string")
+            element.bytes = Uint8Array.from(atob(element.bytes), character => character.charCodeAt(0)).buffer;
+    }
+};
+
 // webRequest listeners run in registration order; their blocking responses merge as Chrome merges
 // the responses of one extension: any cancel wins, the first redirect wins, header rewrites stack.
 const dispatchWebRequestEvent = async (event, details) => {
+    decodeRequestBody(details);
     const response = {};
-    for (const { callback, filter, extraInfoSpec } of event._listeners.slice()) {
+    for (const entry of event._listeners.slice()) {
+        const { callback, filter } = entry;
         if (!filterMatches(filter, details))
             continue;
-        const blocking = Array.isArray(extraInfoSpec) && extraInfoSpec.includes("blocking");
+        const blocking = hasExtraInfo(entry, "blocking");
+        const listenerDetails = Object.assign({}, details);
+        for (const name of optionalDetails) {
+            if (!hasExtraInfo(entry, name))
+                delete listenerDetails[name];
+        }
+        const extraHeaders = hasExtraInfo(entry, "extraHeaders");
+        for (const kind of Object.keys(extraHeaderNames)) {
+            if (!extraHeaders && Array.isArray(listenerDetails[kind]))
+                listenerDetails[kind] = listenerDetails[kind].filter(header => !isExtraHeader(kind, header));
+        }
         let result;
         try {
-            result = callback(Object.assign({}, details));
+            result = callback(listenerDetails);
             if (blocking && result && typeof result.then === "function")
                 result = await result;
         } catch (error) {
@@ -284,13 +324,12 @@ const dispatchWebRequestEvent = async (event, details) => {
             response.cancel = true;
         if (typeof result.redirectUrl === "string" && response.redirectUrl === undefined)
             response.redirectUrl = result.redirectUrl;
-        if (Array.isArray(result.requestHeaders)) {
-            response.requestHeaders = result.requestHeaders;
-            details.requestHeaders = result.requestHeaders;
-        }
-        if (Array.isArray(result.responseHeaders)) {
-            response.responseHeaders = result.responseHeaders;
-            details.responseHeaders = result.responseHeaders;
+        for (const kind of Object.keys(extraHeaderNames)) {
+            if (!Array.isArray(result[kind]))
+                continue;
+            const headers = extraHeaders || !Array.isArray(details[kind]) ? result[kind] : result[kind].filter(header => !isExtraHeader(kind, header)).concat(details[kind].filter(header => isExtraHeader(kind, header)));
+            response[kind] = headers;
+            details[kind] = headers;
         }
     }
     return response;
@@ -327,7 +366,16 @@ if (!isHost) {
         setTimeout(callback, 0);
     };
 
-    const didReceiveExecuteScript = ({ callId, code, runAt }) => runWhen(runAt || "document_idle", () => {
+    // about:blank and about:srcdoc documents, whatever their query and fragment, are reached only with
+    // matchAboutBlank.
+    const isAboutBlankOrSrcdoc = () => {
+        const url = new URL(document.URL);
+        return url.protocol === "about:" && (url.pathname === "blank" || url.pathname === "srcdoc");
+    };
+    const isReachable = matchAboutBlank => matchAboutBlank || !isAboutBlankOrSrcdoc();
+    const unreachable = callId => send({ t: "result", callId, error: `Cannot access contents of url "${document.URL}".` });
+
+    const didReceiveExecuteScript = ({ callId, code, runAt, matchAboutBlank }) => isReachable(matchAboutBlank) ? runWhen(runAt || "document_idle", () => {
         let result;
         try {
             result = (0, eval)(code);
@@ -340,16 +388,16 @@ if (!isHost) {
         } catch {
             send({ t: "result", callId, result: null });
         }
-    });
+    }) : unreachable(callId);
 
     // A file's style sheet is based at the file; code's, as upstream's, has a URL of its own.
-    const didReceiveStyleSheet = ({ callId, op, code, origin, url, runAt }) => runWhen(runAt || "document_idle", () => {
+    const didReceiveStyleSheet = ({ callId, op, code, origin, url, runAt, matchAboutBlank }) => isReachable(matchAboutBlank) ? runWhen(runAt || "document_idle", () => {
         if (op === "insert")
             native.insertCSS(code, origin === "author", url || "");
         else
             native.removeCSS(code);
         send({ t: "result", callId });
-    });
+    }) : unreachable(callId);
 
     browser.dom = {
         openOrClosedShadowRoot(element) {

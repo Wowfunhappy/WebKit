@@ -65,10 +65,21 @@ public:
     void cancelWithResumeData(CompletionHandler<void(std::span<const uint8_t>)>&&) final;
     void setTimingAllowFailedFlag() final { m_metrics.failsTAOCheck = true; }
 
+    // The Cookie field an exchange of a request generates: none while cookies are blocked for it. The
+    // task's own answers what its next exchange sends, which its cookie-blocking latch also governs.
+    static String cookieHeader(NetworkSession&, const WebCore::ResourceRequest&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, WebCore::StoredCredentialsPolicy, bool cookieBlockingLatched = false);
+    String cookieHeader(const WebCore::ResourceRequest&) const;
+
+    // The Set-Cookie fields of a response held for Safari 7 extensions' onHeadersReceived. Storing them
+    // stores the fields given in their place; discarding them stores none.
+    const Vector<String>* heldCookies() const { return m_heldCookies ? &m_heldCookies->fields : nullptr; }
+    void storeHeldCookies(std::optional<Vector<String>>&& = std::nullopt);
+    void discardHeldCookies() { m_heldCookies = std::nullopt; }
+
 private:
     NetworkDataTaskCurlCocoa(NetworkSession&, NetworkDataTaskClient&, const NetworkLoadParameters&);
     // native cookie policy runs before internal curl authentication exchanges.
-    void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
+    void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(WebCore::CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(WebCore::ResourceResponse&&) final;
     void curlReceivedData(const WebCore::SharedBuffer&, CompletionHandler<void()>&&) final;
@@ -138,7 +149,13 @@ private:
     Vector<uint8_t> m_sniffPrefix;
     bool m_isMainResource { false };
     bool m_cookieBlockingLatched { false };
-    bool m_generatedCookieHeader { false };
+    String m_generatedCookieHeader;
+    struct HeldCookies {
+        Vector<String> fields;
+        String remoteAddress;
+        WebCore::RegistrableDomain resolvedCNAMEDomain;
+    };
+    std::optional<HeldCookies> m_heldCookies;
     bool m_isDownloadSink { false };
     bool m_allowOverwriteDownload { false };
     bool m_authResponseApproved { false };

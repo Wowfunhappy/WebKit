@@ -27,7 +27,7 @@
 #include "NetworkLoadChecker.h"
 
 #include "Download.h"
-#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: checkRequest below.
+#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: checkRedirection and checkRequest below.
 #include "Logging.h"
 #include "NetworkCORSPreflightChecker.h"
 #include "NetworkOriginAccessPatterns.h"
@@ -131,6 +131,9 @@ static inline NetworkLoadChecker::RedirectionRequestOrError redirectionError(con
 void NetworkLoadChecker::checkRedirection(ResourceRequest&& request, ResourceRequest&& redirectRequest, ResourceResponse&& redirectResponse, ContentSecurityPolicyClient* client, RedirectionValidationHandler&& handler)
 {
     ASSERT(!isChecking());
+
+    if (LegacyExtensionNetwork::singleton().interceptRedirection(*this, request, redirectRequest, redirectResponse, client, handler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onHeadersReceived for a redirect.
+        return;
 
     auto error = validateResponse(request, redirectResponse);
     if (!error.isNull()) {
@@ -316,7 +319,7 @@ auto NetworkLoadChecker::accessControlErrorForValidationHandler(String&& message
 
 void NetworkLoadChecker::checkRequest(ResourceRequest&& request, ContentSecurityPolicyClient* client, ValidationHandler&& handler)
 {
-    if (LegacyExtensionNetwork::singleton().interceptRequest(*this, request, client, handler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onBeforeRequest.
+    if (LegacyExtensionNetwork::singleton().interceptRequest(*this, request, client, handler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onBeforeRequest and onBeforeSendHeaders.
         return;
 
     ResourceRequest originalRequest = request;

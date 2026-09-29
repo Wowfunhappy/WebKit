@@ -32,7 +32,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
     def end_headers(self):
-        self.send_header('Cache-Control', 'no-store')
+        if not getattr(self, 'cacheable', False):
+            self.send_header('Cache-Control', 'no-store')
         super().end_headers()
 
     def reply(self, body, content_type='text/plain', status=200, headers=()):
@@ -55,7 +56,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             with LOCK:
                 LOG.clear()
             return self.reply('ok')
-        record({'method': 'GET', 'path': path, 'referer': self.headers.get('Referer', '')})
+        record({'method': 'GET', 'path': path, 'referer': self.headers.get('Referer', ''), 'ifNoneMatch': self.headers.get('If-None-Match', ''),
+                'authorization': self.headers.get('Authorization'), 'cookie': self.headers.get('Cookie'),
+                'acceptLanguage': self.headers.get('Accept-Language'), 'acceptEncoding': self.headers.get('Accept-Encoding')})
         if path.startswith('/report'):
             return self.reply('ok')
         # The general pasteboard as a process outside the browser sees it, and a copy made there.
@@ -86,14 +89,56 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             with open(os.path.join(ROOT, 'pages', 'csp.html'), 'rb') as f:
                 body = f.read()
             return self.reply(body, 'text/html', headers=[('Content-Security-Policy', "script-src 'self'; style-src 'self'")])
+        # A response the disk cache keeps, and one it revalidates.
+        if path.startswith('/cacheable'):
+            self.cacheable = True
+            return self.reply('{"cached":true}', 'application/json', headers=[('Cache-Control', 'max-age=600')])
+        if path.startswith('/revalidate'):
+            self.cacheable = True
+            if self.headers.get('If-None-Match') == '"v1"':
+                self.send_response(304)
+                self.send_header('ETag', '"v1"')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                return
+            return self.reply('{"revalidated":true}', 'application/json', headers=[('ETag', '"v1"'), ('Cache-Control', 'no-cache')])
+        if path.startswith('/clear-cookies'):
+            return self.reply('ok', headers=[('Set-Cookie', 'keep=; Path=/; Max-Age=0'), ('Set-Cookie', 'strip=; Path=/; Max-Age=0'), ('Set-Cookie', 'hop=; Path=/; Max-Age=0')])
+        # Same-origin redirects: one the extension retargets, one whose first hop loses its Cookie, one that sets a cookie.
+        if path.startswith('/auth-hop'):
+            return self.reply('', status=302, headers=[('Location', '/res/auth-original.json')])
+        if path.startswith('/moved-script'):
+            return self.reply('', status=302, headers=[('Location', '/res/moved-original.js')])
+        if path.startswith('/cookie-hop'):
+            return self.reply('', status=302, headers=[('Location', '/echo-headers?hop2')])
+        if path.startswith('/set-cookie-hop'):
+            return self.reply('', status=302, headers=[('Location', '/echo-headers?after-set-cookie'), ('Set-Cookie', 'hop=1; Path=/')])
+        if path.startswith('/to-extension-page') or path.startswith('/to-data'):
+            return self.reply('<!doctype html><title>not redirected</title>', 'text/html')
+        if path.startswith('/set-cookies'):
+            return self.reply('ok', headers=[('Set-Cookie', 'keep=1; Path=/'), ('Set-Cookie', 'strip=1; Path=/')])
+        # A redirect whose response the extension rewrites or cancels.
+        if path.startswith('/moved-'):
+            return self.reply('', status=302, headers=[('Location', '/res/redirect-original.json')])
+        if path.startswith('/echo-headers'):
+            return self.reply(json.dumps({k.lower(): v for k, v in self.headers.items()}), 'application/json')
         if path.startswith('/sse'):
             return self.reply('data: hello\n\n', 'text/event-stream')
         return super().do_GET()
+
+    def do_OPTIONS(self):
+        record({'method': 'OPTIONS', 'path': self.path, 'authorization': self.headers.get('Authorization')})
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Headers', 'Authorization')
+        self.end_headers()
 
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length).decode('utf-8', 'replace')
         record({'method': 'POST', 'path': self.path, 'body': body})
+        if self.path.startswith('/main-post-target'):
+            return self.reply('<!doctype html><title>posted</title><p id="posted">' + body + '</p>', 'text/html')
         self.reply('ok')
 
 
@@ -115,9 +160,11 @@ class WebSocketHandler(socketserver.BaseRequestHandler):
         time.sleep(1)
 
 
+# The coverage page opens dozens of connections at once, past socketserver's default backlog of 5.
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    request_queue_size = 128
 
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):

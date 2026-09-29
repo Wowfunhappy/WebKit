@@ -5,6 +5,8 @@
 
 #import "config.h"
 #import "NetworkDataTaskCurlCocoa.h"
+
+#import "LegacyExtensionNetwork.h"
 #import "DownloadProxyMessages.h"
 
 // curl owns HTTP framing; Cocoa retains its native values, session and policy APIs.
@@ -143,12 +145,37 @@ NetworkDataTaskCurlCocoa::~NetworkDataTaskCurlCocoa()
 
 
 
+static bool storageBlocksCookies(NetworkSession& session, const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID)
+{
+    auto* storage = session.networkStorageSession();
+    return storage && storage->shouldBlockCookies(request, frameID, pageID, session.networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID), IsKnownCrossSiteTracker::No);
+}
+
+static String cookieHeaderValue(NetworkSession& session, const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID)
+{
+    auto* storage = session.networkStorageSession();
+    if (!storage)
+        return { };
+    return storage->cookieRequestHeaderFieldValue(request.firstPartyForCookies(), cookieRequestSameSiteInfo(request), request.url(), frameID, pageID, request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, session.networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID), IsKnownCrossSiteTracker::No).first;
+}
+
+String NetworkDataTaskCurlCocoa::cookieHeader(NetworkSession& session, const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID, StoredCredentialsPolicy storedCredentialsPolicy, bool cookieBlockingLatched)
+{
+    if (!request.allowCookies() || storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless || cookieBlockingLatched || storageBlocksCookies(session, request, frameID, pageID, webPageProxyID))
+        return { };
+    return cookieHeaderValue(session, request, frameID, pageID, webPageProxyID);
+}
+
+String NetworkDataTaskCurlCocoa::cookieHeader(const ResourceRequest& request) const
+{
+    return cookieHeader(*m_session, request, m_frameID, m_pageID, m_webPageProxyID, m_storedCredentialsPolicy, m_cookieBlockingLatched);
+}
+
 bool NetworkDataTaskCurlCocoa::cookiesBlocked()
 {
     if (!m_request.allowCookies() || m_storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless)
         return true;
-    if (auto* storage = m_session->networkStorageSession())
-        m_cookieBlockingLatched |= storage->shouldBlockCookies(m_request, m_frameID, m_pageID, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No);
+    m_cookieBlockingLatched |= storageBlocksCookies(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID);
     return m_cookieBlockingLatched;
 }
 
@@ -156,15 +183,14 @@ void NetworkDataTaskCurlCocoa::setup()
 {
     // each new HTTP exchange observes current credential/privacy pool ownership, including a credential deletion during an earlier hop.
     m_scheduler = downcast<NetworkSessionCocoa>(*m_session).curlNetworkScheduler(m_webPageProxyID, m_request, m_storedCredentialsPolicy, m_isNavigatingToAppBoundDomain);
-    if (std::exchange(m_generatedCookieHeader, false))
+    // A Cookie field this task generated is generated again for each exchange; one the request carries
+    // otherwise, as a Safari 7 extension's onBeforeSendHeaders sets it, is sent as it is.
+    if (auto generated = std::exchange(m_generatedCookieHeader, String()); !generated.isNull() && m_request.httpHeaderField(HTTPHeaderName::Cookie) == generated)
         m_request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
     if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        if (auto* storage = m_session->networkStorageSession()) {
-            auto cookie = storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), m_frameID, m_pageID, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No).first;
-            if (!cookie.isEmpty()) {
-                m_request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
-                m_generatedCookieHeader = true;
-            }
+        if (auto cookie = cookieHeaderValue(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID); !cookie.isEmpty()) {
+            m_request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
+            m_generatedCookieHeader = cookie;
         }
     }
     auto wrapper = downcast<NetworkSessionCocoa>(*m_session).sessionWrapperForTask(m_webPageProxyID, m_request, m_storedCredentialsPolicy, m_isNavigatingToAppBoundDomain);
@@ -326,7 +352,7 @@ bool NetworkDataTaskCurlCocoa::shouldCapCookieExpiryForThirdPartyCloaking(const 
 }
 
 // enforce native cookie and tracking policy at every final header section, including authentication.
-void NetworkDataTaskCurlCocoa::curlReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void NetworkDataTaskCurlCocoa::curlReceivedCookies(Vector<String>&& fields, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     auto* storage = m_session->networkStorageSession();
     if (m_state != State::Running || !storage || cookiesBlocked()) {
@@ -334,7 +360,24 @@ void NetworkDataTaskCurlCocoa::curlReceivedCookies(Vector<String>&& fields, cons
         return;
     }
     auto cnameDomain = canonicalName.isEmpty() ? RegistrableDomain { } : NetworkTaskCocoa::lastCNAMEDomain(canonicalName);
+    // A response Safari 7 extensions' onHeadersReceived may strip Set-Cookie from keeps its cookies until
+    // the verdict, or until the task continues without one. Authentication exchanges never reach it.
+    if (statusCode != 401 && statusCode != 407 && LegacyExtensionNetwork::singleton().holdsReceivedCookies()) {
+        m_heldCookies = HeldCookies { WTF::move(fields), remoteAddress, WTF::move(cnameDomain) };
+        completion(std::nullopt);
+        return;
+    }
     storeReceivedCookies(WTF::move(fields), remoteAddress, cnameDomain, WTF::move(completion));
+}
+
+void NetworkDataTaskCurlCocoa::storeHeldCookies(std::optional<Vector<String>>&& fields)
+{
+    auto held = std::exchange(m_heldCookies, std::nullopt);
+    if (!held || !m_session->networkStorageSession() || cookiesBlocked())
+        return;
+    if (fields)
+        held->fields = WTF::move(*fields);
+    storeReceivedCookies(WTF::move(held->fields), held->remoteAddress, held->resolvedCNAMEDomain, [](auto&&) { });
 }
 
 void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&& completion)
@@ -351,12 +394,11 @@ void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, con
             cookie = Cookie { NetworkStorageSession::capExpiryOfPersistentCookie(cookie->createNSHTTPCookie().get(), 24_h * 7).get() };
         storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
     }
-    if (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie) && !m_generatedCookieHeader) {
+    if (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie) && m_generatedCookieHeader.isNull()) {
         completion(std::nullopt);
         return;
     }
-    auto value = storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), m_frameID, m_pageID, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No).first;
-    completion(WTF::move(value));
+    completion(cookieHeaderValue(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID));
 }
 
 
@@ -457,6 +499,7 @@ void NetworkDataTaskCurlCocoa::redirect()
         client->willPerformHTTPRedirection(ResourceResponse(m_response), WTF::move(request), [protectedThis = Ref { *this }](ResourceRequest&& approved) {
             if (protectedThis->m_state != State::Running)
                 return;
+            protectedThis->storeHeldCookies();
             // A redirect answered with no request completes with the redirect response itself, as the
             // NSURLSession delegate's nil answer does (NetworkSessionCocoa's willPerformHTTPRedirection).
             // CFNetwork delivers that response later, from its own queue, so a loader that refused the
@@ -747,6 +790,7 @@ void NetworkDataTaskCurlCocoa::decidePolicy(PolicyAction policy)
     ASSERT(RunLoop::isMain());
     if (m_state != State::Running)
         return;
+    storeHeldCookies();
     m_waitingForPolicy = false;
     if (policy == PolicyAction::Ignore) {
         cancel();
@@ -928,7 +972,7 @@ Vector<uint8_t> NetworkDataTaskCurlCocoa::downloadResumeData() const
         return { };
     auto values = adoptNS([@{
         @"NSURLSessionResumeInfoVersion": @1,
-        @"WebKitRequest": cocoaDownloadRequestInformation(m_request, m_generatedCookieHeader).get(),
+        @"WebKitRequest": cocoaDownloadRequestInformation(m_request, !m_generatedCookieHeader.isNull()).get(),
         @"WebKitStorageSessionIdentifier": @(m_session->sessionID().toUInt64()),
         // private/credential-free/stateless resume retains its original policy.
         @"WebKitStoredCredentialsPolicy": m_storedCredentialsPolicy == StoredCredentialsPolicy::Use ? @"use" : m_storedCredentialsPolicy == StoredCredentialsPolicy::DoNotUse ? @"do-not-use" : @"ephemeral-stateless",
@@ -962,6 +1006,7 @@ void NetworkDataTaskCurlCocoa::finish(int errorCode, const String& description, 
     Ref protectedThis { *this };
     if (m_state == State::Completed)
         return;
+    storeHeldCookies();
     m_state = State::Completed;
     detachTransfer();
     // report durable file-write failures before completing a download.

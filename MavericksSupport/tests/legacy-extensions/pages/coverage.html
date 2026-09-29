@@ -22,6 +22,8 @@
 <img id="img-allowed" src="/res/allowed-image.png">
 <iframe id="frame-blocked" src="/res/blocked-frame.html"></iframe>
 <iframe id="frame-allowed" src="/res/allowed-frame.html"></iframe>
+<iframe id="blank-frame"></iframe>
+<iframe id="blank-fragment-frame" src="about:blank#fragment"></iframe>
 <script src="/res/blocked-script.js"></script>
 <script src="/res/allowed-script.js"></script>
 <script src="/res/redirect-script.js"></script>
@@ -43,6 +45,22 @@ settle('xhr-blocked', xhr('/res/blocked-xhr.json'));
 settle('xhr-allowed', xhr('/res/allowed-xhr.json'));
 settle('fetch-blocked', fetch('/res/blocked-fetch.json').then(r => 'loaded:' + r.status));
 settle('fetch-allowed', fetch('/res/allowed-fetch.json').then(r => 'loaded:' + r.status));
+settle('send-headers', fetch('/echo-headers', { headers: { 'X-Remove-Me': 'yes' } }).then(r => r.json()).then(h => ({ added: h['x-legacy-extension-request'], removed: !('x-remove-me' in h) })));
+settle('send-headers-cancelled', fetch('/res/stopped-send-headers.json').then(r => 'loaded:' + r.status));
+settle('moved-cancel', fetch('/moved-cancel').then(r => 'loaded:' + r.status));
+settle('moved-location', fetch('/moved-location').then(r => new URL(r.url).pathname));
+settle('headers-redirect', fetch('/res/headers-redirect.json').then(r => new URL(r.url).pathname));
+settle('cache-redirect', fetch('/cacheable.json').then(() => fetch('/cacheable.json')).then(r => new URL(r.url).pathname));
+settle('reval-redirect', fetch('/revalidate.json').then(() => fetch('/revalidate.json')).then(r => new URL(r.url).pathname));
+settle('post-redirect', (() => { const form = new FormData(); form.append('field', 'x'); form.append('upload', new Blob(['file content'], { type: 'text/plain' }), 'file.txt'); return fetch('/post-redirect', { method: 'POST', body: form }).then(r => new URL(r.url).pathname + ':' + r.status); })());
+settle('cookies', fetch('/clear-cookies').then(() => fetch('/set-cookies')).then(() => fetch('/echo-headers?see')).then(r => r.json()).then(seen => Promise.all([fetch('/echo-headers?strip').then(r => r.json()), fetch('/echo-headers?modify').then(r => r.json()), fetch('/cookie-hop').then(r => r.json()), fetch('/set-cookie-hop').then(r => r.json())]).then(([stripped, modified, hop2, afterSetCookie]) => ({ seen: seen.cookie || '', acceptLanguage: seen['accept-language'], acceptEncoding: seen['accept-encoding'], stripped: stripped.cookie || '', modified: modified.cookie || '', hop2: hop2.cookie || '', afterSetCookie: afterSetCookie.cookie || '' }))));
+settle('accept-headers', Promise.all([fetch('/echo-headers?language').then(r => r.json()), fetch('/echo-headers?no-encoding').then(r => r.json())]).then(([language, encoding]) => ({ language: language['accept-language'], encoding: encoding['accept-encoding'] === undefined ? 'none' : encoding['accept-encoding'] })));
+settle('auth-retarget', Promise.all([fetch('/auth-hop', { headers: { Authorization: 'Bearer page-secret' } }).then(r => 'loaded:' + r.status, e => 'error:' + e.message), fetch('/auth-hop-same', { headers: { Authorization: 'Bearer page-secret' } }).then(r => r.json()).then(h => h.authorization || 'none')]));
+settle('redirect-data-script', new Promise(resolve => { const script = document.createElement('script'); script.src = '/moved-script'; script.onload = () => resolve(window.__redirectData === true ? 'data' : 'not-data'); script.onerror = () => resolve('error'); document.head.appendChild(script); }));
+settle('headers-data-script', new Promise(resolve => { const script = document.createElement('script'); script.src = '/res/hdr-data-script.js'; script.onload = () => resolve(window.__headersData === true ? 'data' : 'not-data'); script.onerror = () => resolve('error'); document.head.appendChild(script); }));
+settle('post-urlencoded', fetch('/post-urlencoded', { method: 'POST', body: new URLSearchParams({ a: '1', b: 'two words' }) }).then(r => 'loaded:' + r.status));
+settle('post-multipart', (() => { const form = new FormData(); form.append('field', 'välue'); form.append('upload', new Blob(['file content'], { type: 'text/plain' }), 'file.txt'); return fetch('/post-multipart', { method: 'POST', body: form }).then(r => 'loaded:' + r.status); })());
+settle('post-raw', fetch('/post-raw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"raw":true}' }).then(r => 'loaded:' + r.status));
 settle('headers-blocked', fetch('/res/blocked-by-headers.json').then(r => 'loaded:' + r.status));
 settle('websocket-blocked', new Promise(resolve => {
     // Closed while the extension decides: the handshake never reaches the server.
