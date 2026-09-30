@@ -1,5 +1,6 @@
-// The Web Clip plug-in view: the clipped page (an out-of-process WKWebView scrolled inside a clip
-// view), the theme drawn around it, the flip ("i") button, and the edit-mode controls.
+// The Web Clip view: the clipped page (an out-of-process WKWebView scrolled inside a clip view),
+// the theme drawn around it, the flip ("i") button, and the edit-mode controls. It is the content
+// of the page window.
 
 #import "WCThemes.h"
 
@@ -7,9 +8,26 @@
 @class WebView;
 @class WebClipper;
 
+@class WCClipperView;
+
+// The plug-in's view in the widget window. The clip is in the page window over it; this view draws
+// what the page window last showed.
+@interface WCPlaceholderView : NSView
+@property (nonatomic, weak) WCClipperView *clipperView;
+@property (nonatomic, strong) NSImage *image;
+@end
+
 @interface WCClipperView : WCRolloverTrackingView
 
 - (instancetype)initWithFrame:(NSRect)frame dashboardWebView:(WebView *)dashboardWebView;
+
+- (WCPlaceholderView *)placeholderView;
+- (void)placeholderDidChange;
+- (void)widgetWindowDidReceiveMouseDown;
+- (BOOL)showsPageWindow;
+- (void)webPlugInDestroy;
+- (void)widgetDidStartMoving;
+- (void)widgetDidStopMoving;
 
 - (WebClipper *)controller;
 - (WebScriptObject *)widgetScriptObject;

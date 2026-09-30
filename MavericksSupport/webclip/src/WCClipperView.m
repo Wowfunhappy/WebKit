@@ -1,4 +1,5 @@
 #import "WCClipperView.h"
+#import <dlfcn.h>
 
 #import <QuartzCore/QuartzCore.h>
 
@@ -43,7 +44,27 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 
 @interface WCClipperView () <WKNavigationDelegate, WKUIDelegate>
 - (void)pageDidPostMessage:(NSDictionary *)message;
+- (void)pageWindowWillSendEvent:(NSEvent *)event;
+- (void)pageWindowDidSendEvent:(NSEvent *)event;
 @end
+
+// The event AppKit delivers when the key focus passes between processes.
+static const NSEventType WCProcessNotificationEventType = 21;
+
+// CoreGraphics: places a window among the windows of its level, whoever owns the others.
+extern int CGSMainConnectionID(void);
+extern CGError CGSOrderWindow(int connection, int window, int place, int relativeToWindow);
+extern CGError CGSSetWindowListAlpha(int connection, const int *windows, int count, float alpha, float duration);
+
+// DashboardClient: the Dock lets a widget in Dashboard's layer put a window of its own on screen
+// from the moment Dashboard starts to show its widgets until the moment it starts to take them
+// away.
+typedef kern_return_t (*WCDockCanShowMenuFunction)(mach_port_t serverPort, int *canShowMenu);
+
+// The Dock keeps a widget dragged out of Dashboard on the desktop, in a window at this level below
+// Dashboard's own windows. Dashboard covers such a widget and never animates it, and nothing tells
+// its process when Dashboard comes and goes.
+static const NSInteger WCDesktopWidgetWindowLevel = 98;
 
 @implementation WCScriptMessageProxy
 
@@ -55,11 +76,134 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 
 @end
 
+// The page window holds the clip: the page, the controls over it and a theme that draws with it.
+// It is DashboardClient's own window, placed over the plug-in's view in the widget window.
+@interface WCPageWindow : NSPanel
+@end
+
+// AppKit: orders a window, and looks for the next key window among the application's windows
+// when asked to.
+@interface NSWindow (WCAppKitSPI)
+- (void)_doOrderWindow:(NSWindowOrderingMode)place relativeTo:(NSInteger)otherWindow findKey:(BOOL)findKey forCounter:(BOOL)forCounter force:(BOOL)force isModal:(BOOL)isModal;
+@end
+
+@implementation WCPageWindow
+
+- (BOOL)canBecomeKeyWindow
+{
+    return YES;
+}
+
+- (void)sendEvent:(NSEvent *)event
+{
+    WCClipperView *clipperView = [self contentView];
+    [clipperView pageWindowWillSendEvent:event];
+    [super sendEvent:event];
+    [clipperView pageWindowDidSendEvent:event];
+}
+
+@end
+
+// The page window lies over the theme's window, and the overlay shows the theme over the page.
+@interface WCThemeOverlayView : NSView
+@property (nonatomic, weak) WCTheme *theme;
+- (void)drawTheme;
+@end
+
+@implementation WCThemeOverlayView
+
+- (NSView *)hitTest:(NSPoint)point
+{
+    return nil;
+}
+
+- (void)drawRect:(NSRect)rect
+{
+    [self drawTheme];
+}
+
+// Draws the theme as it lies over the overlay, in the overlay's coordinates.
+- (void)drawTheme
+{
+    WCTheme *theme = _theme;
+    NSWindow *themeWindow = [theme window];
+    if (!themeWindow || ![self window])
+        return;
+    NSRect frame = [[self window] convertRectToScreen:[self convertRect:[self bounds] toView:nil]];
+    NSRect themeFrame = [themeWindow convertRectToScreen:[theme convertRect:[theme bounds] toView:nil]];
+    // The theme draws into a bitmap of its own, which takes the offset between the two windows.
+    NSRect bounds = [self bounds];
+    NSBitmapImageRep *bitmap = [self bitmapImageRepForCachingDisplayInRect:bounds];
+    [bitmap setSize:bounds.size];
+    memset([bitmap bitmapData], 0, [bitmap bytesPerRow] * [bitmap pixelsHigh]);
+    NSGraphicsContext *context = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
+    CGContextTranslateCTM([context graphicsPort], NSMinX(themeFrame) - NSMinX(frame), NSMinY(themeFrame) - NSMinY(frame));
+    [theme drawIncludingPageAreaIntoContext:context];
+    [bitmap drawInRect:bounds fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1 respectFlipped:YES hints:nil];
+}
+
+@end
+
+@implementation WCPlaceholderView
+
+- (void)setImage:(NSImage *)image
+{
+    _image = image;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)rect
+{
+    if (![_clipperView showsPageWindow])
+        [_image drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+}
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    [_clipperView placeholderDidChange];
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+    [_clipperView widgetWindowDidReceiveMouseDown];
+    [super mouseDown:event];
+}
+
+- (void)setFrameSize:(NSSize)size
+{
+    [super setFrameSize:size];
+    [_clipperView placeholderDidChange];
+}
+
+- (void)setFrameOrigin:(NSPoint)origin
+{
+    [super setFrameOrigin:origin];
+    [_clipperView placeholderDidChange];
+}
+
+- (void)viewDidHide
+{
+    [super viewDidHide];
+    [_clipperView placeholderDidChange];
+}
+
+- (void)viewDidUnhide
+{
+    [super viewDidUnhide];
+    [_clipperView placeholderDidChange];
+}
+
+- (void)webPlugInDestroy
+{
+    [_clipperView webPlugInDestroy];
+}
+
+@end
+
 static NSImage *flipperImage;
 
-// The Dashboard's WebHTMLView draws its descendants itself, which leaves every view beneath it
-// without a layer unless it asks for one; the clipped page is remote layers, so each view in the
-// plug-in is layer-backed explicitly.
+// The clipped page is remote layers, so the views of the page window are layer-backed.
 static void addLayerBackedSubview(NSView *parent, NSView *view)
 {
     [view setWantsLayer:YES];
@@ -75,16 +219,21 @@ static NSRect rectFromPageRect(id value)
 }
 
 @implementation WCClipperView {
+    WCPlaceholderView *_placeholder;
+    WCPageWindow *_pageWindow;
+    BOOL _hasScreenshot;
+    BOOL _isWidgetMoving;
+    BOOL _dockAllowsPageWindow;
     NSClipView *_clipView;
     WebClipper *_controller;
     WCTheme *_currentTheme;
     WCErrorView *_errorView;
     NSButton *_flipButton;
     NSImageView *_flipperImageView;
+    WCThemeOverlayView *_themeOverlay;
     WCDoneButton *_lockCameraButton;
     NSTimer *_progressTimer;
     NSView *_resizer;
-    NSImageView *_screenshotView;
     NSImageView *_pageSnapshotView;
     WCSnapper *_snapper;
     NSTextField *_statusTextField;
@@ -178,28 +327,317 @@ static NSRect rectFromPageRect(id value)
     [_currentTheme setEventRegion:region];
 }
 
-// A screenshot of the widget stands in for it, beneath the plug-in's other views, over white
-// where the clip is.
+- (WCPlaceholderView *)placeholderView
+{
+    return _placeholder;
+}
+
+- (NSRect)placeholderFrameOnScreen
+{
+    return [[_placeholder window] convertRectToScreen:[_placeholder convertRect:[_placeholder bounds] toView:nil]];
+}
+
+// The page window shows while Dashboard shows the widget's front, still and live.
+- (BOOL)showsPageWindow
+{
+    return [_placeholder window] && ![_placeholder isHiddenOrHasHiddenAncestor] && _hasBeenShown && !_isHidden
+        && _dockAllowsPageWindow && !_hasScreenshot && !_isWidgetMoving && ![self isBacksideShowing];
+}
+
+- (void)updatePageWindow
+{
+    BOOL shows = [self showsPageWindow];
+    if (shows != [_pageWindow isVisible])
+        [_placeholder setNeedsDisplay:YES];
+    if (!shows) {
+        [self orderPageWindowOut];
+        return;
+    }
+    NSRect frame = [self placeholderFrameOnScreen];
+    if (!NSEqualRects(frame, [_pageWindow frame]))
+        [_pageWindow setFrame:frame display:YES];
+    [self updateThemeOverlay];
+    // The page window is the front one of the widget's windows.
+    if (![_pageWindow isVisible])
+        [_pageWindow orderFront:nil];
+    int connection = CGSMainConnectionID();
+    int pageWindowNumber = (int)[_pageWindow windowNumber];
+    CGSOrderWindow(connection, pageWindowNumber, NSWindowAbove, (int)[[_placeholder window] windowNumber]);
+    NSWindow *themeWindow = [_currentTheme drawsInAttachedWindow] ? [_currentTheme window] : nil;
+    if ([themeWindow windowNumber] > 0)
+        CGSOrderWindow(connection, pageWindowNumber, NSWindowAbove, (int)[themeWindow windowNumber]);
+    if ([[_placeholder window] isKeyWindow])
+        [self makePageWindowKey];
+}
+
+// The key window goes back to the widget's own window, which the Dock orders.
+- (void)orderPageWindowOut
+{
+    if ([_pageWindow isKeyWindow])
+        [[_placeholder window] makeKeyWindow];
+    if ([_pageWindow isVisible])
+        [_pageWindow _doOrderWindow:NSWindowOut relativeTo:0 findKey:NO forCounter:NO force:NO isModal:NO];
+    int pageWindowNumber = (int)[_pageWindow windowNumber];
+    CGSSetWindowListAlpha(CGSMainConnectionID(), &pageWindowNumber, 1, 1, 0);
+}
+
+- (void)updateThemeOverlay
+{
+    BOOL drawsInAttachedWindow = [_currentTheme drawsInAttachedWindow];
+    [_themeOverlay setTheme:drawsInAttachedWindow ? _currentTheme : nil];
+    [_currentTheme setOverlay:drawsInAttachedWindow ? _themeOverlay : nil];
+    [_currentTheme setClickTarget:self];
+    [_currentTheme setClickAction:@selector(widgetWindowDidReceiveMouseDown)];
+    [_themeOverlay setHidden:!drawsInAttachedWindow || [_clipView isHidden]];
+    [_themeOverlay setFrame:[_clipView frame]];
+    [_themeOverlay setNeedsDisplay:YES];
+    NSRect pageArea = NSZeroRect;
+    if (drawsInAttachedWindow && [_currentTheme window] && [self window]) {
+        NSRect onScreen = [[self window] convertRectToScreen:[self convertRect:[_clipView frame] toView:nil]];
+        pageArea = [_currentTheme convertRect:[[_currentTheme window] convertRectFromScreen:onScreen] fromView:nil];
+    }
+    [_currentTheme setPageArea:pageArea];
+}
+
+- (void)placeholderDidChange
+{
+    if ([_placeholder window] && !_pageWindow) {
+        // Dashboard's clients stay in the background, and their windows are panels that take the key
+        // focus with the key window.
+        _pageWindow = [[WCPageWindow alloc] initWithContentRect:[self placeholderFrameOnScreen] styleMask:NSBorderlessWindowMask | NSNonactivatingPanelMask backing:NSBackingStoreBuffered defer:NO];
+        [_pageWindow setFloatingPanel:NO];
+        [_pageWindow setHidesOnDeactivate:NO];
+        [_pageWindow setReleasedWhenClosed:NO];
+        [_pageWindow setOpaque:NO];
+        [_pageWindow setBackgroundColor:[NSColor clearColor]];
+        [_pageWindow setHasShadow:NO];
+        [_pageWindow setLevel:[[_placeholder window] level]];
+        [_pageWindow setContentView:self];
+        // The window is one layer tree, frame view included.
+        [[self superview] setWantsLayer:YES];
+        [WCClipperView observeDashboardForWidgetWindow:[_placeholder window]];
+        [clipperViews addObject:self];
+        [WCClipperView askDock];
+    }
+    [self updatePageWindow];
+}
+
+// The widget window shows the clip while the page window is out: while Dashboard shows and hides
+// its widgets, and while the widget moves. The page renders the stand-in when it has finished
+// loading and when it has painted, when the pointer leaves it and when it gives up the key window.
+- (void)updateStandIn
+{
+    WKWebView *webView = _webView;
+    NSRect pageRect = NSIntersectionRect([_clipView bounds], [webView frame]);
+    if (!webView || [webView isHidden] || NSIsEmptyRect(pageRect) || _hasScreenshot)
+        return;
+    WKSnapshotConfiguration *configuration = [[WKSnapshotConfiguration alloc] init];
+    configuration.rect = [webView convertRect:pageRect fromView:_voidView];
+    NSRect frame = [self convertRect:pageRect fromView:_voidView];
+    NSSize size = [self bounds].size;
+    [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *error) {
+        if (!image || webView != _webView || _hasScreenshot)
+            return;
+        NSImage *standIn = [[NSImage alloc] initWithSize:size];
+        [standIn lockFocus];
+        [image drawInRect:frame fromRect:NSZeroRect operation:NSCompositeCopy fraction:1];
+        // The theme draws over the stand-in as it draws over the page.
+        if ([_currentTheme superview] == self)
+            [_currentTheme displayRectIgnoringOpacity:[_currentTheme bounds] inContext:[NSGraphicsContext currentContext]];
+        else if (![_themeOverlay isHidden]) {
+            NSAffineTransform *transform = [NSAffineTransform transform];
+            [transform translateXBy:NSMinX([_themeOverlay frame]) yBy:NSMinY([_themeOverlay frame])];
+            [transform concat];
+            [_themeOverlay drawTheme];
+        }
+        [standIn unlockFocus];
+        [_placeholder setImage:standIn];
+    }];
+}
+
+- (id<WCDashboardWidget>)dashboardWidget
+{
+    return [(id<WCDashboardWebView>)[[self controller] dashboardWebView] widget];
+}
+
+- (BOOL)dockAllowsPageWindow
+{
+    if ([[_placeholder window] level] == WCDesktopWidgetWindowLevel)
+        return YES;
+    static WCDockCanShowMenuFunction canShowMenuFunction;
+    if (!canShowMenuFunction)
+        canShowMenuFunction = (WCDockCanShowMenuFunction)dlsym(RTLD_DEFAULT, "_DBCanIShowMenu");
+    int canShowMenu = 0;
+    if (canShowMenuFunction([[self dashboardWidget] serverPort], &canShowMenu))
+        return NO;
+    return canShowMenu;
+}
+
+// The Dock changes its mind as Dashboard starts to show its widgets and to take them away. The
+// plug-in asks it when the key focus passes between processes, when a widget's window takes or
+// resigns the key window, and when Dashboard reports a widget shown or hidden. Every page window
+// that leaves has its stand-in on screen before the first of them is ordered out.
+static NSHashTable *clipperViews;
+
++ (void)observeDashboardForWidgetWindow:(NSWindow *)widgetWindow
+{
+    if (clipperViews)
+        return;
+    clipperViews = [NSHashTable weakObjectsHashTable];
+    Class widgetWindowClass = [widgetWindow class];
+    void (^keyWindowDidChange)(NSNotification *) = ^(NSNotification *notification) {
+        if ([[notification object] isKindOfClass:widgetWindowClass])
+            [WCClipperView askDock];
+    };
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    [center addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:nil usingBlock:keyWindowDidChange];
+    [center addObserverForName:NSWindowDidResignKeyNotification object:nil queue:nil usingBlock:keyWindowDidChange];
+    // The Dock stacks a widget's windows afresh as the widget takes the key focus.
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskFromType(WCProcessNotificationEventType) handler:^NSEvent *(NSEvent *event) {
+        [WCClipperView askDock];
+        for (WCClipperView *view in [clipperViews allObjects])
+            [view updatePageWindow];
+        return event;
+    }];
+}
+
++ (void)askDock
+{
+    static BOOL isAsking;
+    if (isAsking)
+        return;
+    isAsking = YES;
+    NSMutableArray *changedViews = nil;
+    NSMutableData *leavingWindows = [NSMutableData dataWithLength:[clipperViews count] * sizeof(int)];
+    int leavingCount = 0;
+    for (WCClipperView *view in [clipperViews allObjects]) {
+        if (!view->_pageWindow || [view dockAllowsPageWindow] == view->_dockAllowsPageWindow)
+            continue;
+        if (!changedViews)
+            changedViews = [NSMutableArray array];
+        [changedViews addObject:view];
+        if (view->_dockAllowsPageWindow) {
+            [view showStandIn];
+            if ([view->_pageWindow isVisible])
+                ((int *)[leavingWindows mutableBytes])[leavingCount++] = (int)[view->_pageWindow windowNumber];
+        } else
+            view->_dockAllowsPageWindow = YES;
+    }
+    // Every call on the window server waits for Dashboard's animation: one call takes all the
+    // leaving windows off screen, and each is ordered out behind it.
+    if (leavingCount)
+        CGSSetWindowListAlpha(CGSMainConnectionID(), [leavingWindows bytes], leavingCount, 0, 0);
+    for (WCClipperView *view in changedViews)
+        [view updatePageWindow];
+    isAsking = NO;
+}
+
+- (void)showStandIn
+{
+    _dockAllowsPageWindow = NO;
+    if (![_pageWindow isVisible])
+        return;
+    [self updateStandIn];
+    [_placeholder display];
+}
+
+// The page window holds the key window for its widget, which keeps its focus meanwhile.
+- (void)makePageWindowKey
+{
+    id<WCDashboardWidget> widget = [self dashboardWidget];
+    BOOL isFocused = [widget isFocused];
+    [_pageWindow makeKeyWindow];
+    if (isFocused && ![widget isFocused])
+        [widget hasKeyFocus:YES updateWindowState:NO];
+}
+
+// The widget window passes these events to its widget, and the Dock brings a widget to the front
+// when a click lands in the widget's own windows.
+- (void)pageWindowWillSendEvent:(NSEvent *)event
+{
+    id<WCDashboardWidget> widget = [self dashboardWidget];
+    switch ([event type]) {
+    case NSLeftMouseDown:
+    case NSRightMouseDown:
+    case NSOtherMouseDown:
+        [widget receivedMouseOrKeyDown];
+        [widget bringToFront];
+        // A widget acts on the click that brings it to the front.
+        if (![_pageWindow isKeyWindow])
+            [self makePageWindowKey];
+        break;
+    case NSMouseEntered:
+    case NSKeyDown:
+        [widget receivedMouseOrKeyDown];
+        break;
+    default:
+        break;
+    }
+}
+
+// The Dock has brought the widget's windows to the front.
+- (void)pageWindowDidSendEvent:(NSEvent *)event
+{
+    NSEventType type = [event type];
+    if (type == NSLeftMouseDown || type == NSRightMouseDown || type == NSOtherMouseDown)
+        [self updatePageWindow];
+}
+
+// A widget that gives up its focus resigns its window and clears the application's key window.
+- (void)widgetWindowDidResignKey:(NSNotification *)notification
+{
+    if ([notification object] == [_placeholder window] && [_pageWindow isKeyWindow] && ![[self dashboardWidget] isFocused])
+        [_pageWindow resignKeyWindow];
+    if ([notification object] == _pageWindow)
+        [self updateStandIn];
+}
+
+// The Dock brings a widget's windows to the front when a click lands in them.
+- (void)widgetWindowDidReceiveMouseDown
+{
+    [self updatePageWindow];
+}
+
+- (void)widgetWindowDidMove:(NSNotification *)notification
+{
+    if ([notification object] == [_placeholder window])
+        [self updatePageWindow];
+}
+
+// The Dock orders the widget's windows when the widget takes the key window.
+- (void)windowDidBecomeKey:(NSNotification *)notification
+{
+    if ([notification object] == [_placeholder window])
+        [self updatePageWindow];
+}
+
+- (void)widgetDidStartMoving
+{
+    _isWidgetMoving = YES;
+    [self updatePageWindow];
+}
+
+- (void)widgetDidStopMoving
+{
+    _isWidgetMoving = NO;
+    [self updatePageWindow];
+}
+
+// A screenshot of the widget stands in for it in the widget window, over white where the clip is.
 - (void)setScreenshot:(NSImage *)screenshot
 {
-    [_screenshotView removeFromSuperview];
-    _screenshotView = nil;
-    if (!screenshot)
-        return;
-    NSSize size = [screenshot size];
-    NSRect clipFrame = [_clipView frame];
-    NSImage *image = [[NSImage alloc] initWithSize:size];
-    [image lockFocus];
-    [[NSColor whiteColor] set];
-    NSRectFillUsingOperation(clipFrame, NSCompositeCopy);
-    [screenshot drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
-    [image unlockFocus];
-    _screenshotView = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height)];
-    [_screenshotView setImageScaling:NSImageScaleNone];
-    [_screenshotView setImageAlignment:NSImageAlignBottomLeft];
-    [_screenshotView setImage:image];
-    [_screenshotView setWantsLayer:YES];
-    [self addSubview:_screenshotView positioned:NSWindowBelow relativeTo:nil];
+    _hasScreenshot = screenshot != nil;
+    if (screenshot) {
+        NSImage *image = [[NSImage alloc] initWithSize:[screenshot size]];
+        [image lockFocus];
+        [[NSColor whiteColor] set];
+        NSRectFillUsingOperation([_clipView frame], NSCompositeCopy);
+        [screenshot drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+        [image unlockFocus];
+        [_placeholder setImage:image];
+    } else
+        [self updateStandIn];
+    [self updatePageWindow];
 }
 
 - (void)setTransitionInProgress
@@ -211,9 +649,10 @@ static NSRect rectFromPageRect(id value)
 {
     BOOL hidden = YES;
     if ([[self controller] hasSettings] && !_isLoading && !_loadError && !_isEditingCameraPosition)
-        hidden = _screenshotView || _pageSnapshotView;
+        hidden = _hasScreenshot || _pageSnapshotView;
     [_flipButton setHidden:hidden];
     [_flipperImageView setHidden:hidden];
+    [_themeOverlay setNeedsDisplay:YES];
 }
 
 - (void)clearScreenshot
@@ -492,7 +931,12 @@ static NSRect rectFromPageRect(id value)
     BOOL orderAttachedWindow = !oldTheme && [_currentTheme drawsInAttachedWindow];
     [_currentTheme setDoneButton:_lockCameraButton];
     [_currentTheme setDashboardWebView:[[self controller] dashboardWebView]];
-    addLayerBackedSubview(_currentTheme, _flipperImageView);
+    // A theme's attached window holds no page, and its views draw into the window.
+    if ([_currentTheme drawsInAttachedWindow]) {
+        [_flipperImageView setWantsLayer:NO];
+        [_currentTheme addSubview:_flipperImageView];
+    } else
+        addLayerBackedSubview(_currentTheme, _flipperImageView);
     [_resizer setFrameSize:[_currentTheme resizerFrameSize]];
     if (![_currentTheme drawsInAttachedWindow]) {
         [_currentTheme setFrameSize:[self frame].size];
@@ -504,6 +948,7 @@ static NSRect rectFromPageRect(id value)
         [_currentTheme display];
     }
     [self updateContentMask];
+    [self updatePageWindow];
 }
 
 - (void)themeFrameDidChange:(NSNotification *)notification
@@ -514,10 +959,11 @@ static NSRect rectFromPageRect(id value)
 - (NSImage *)themeSnapshot
 {
     NSRect frame = [_currentTheme frame];
-    [_currentTheme setNeedsDisplay:YES];
     NSImage *image = [[NSImage alloc] initWithSize:frame.size];
     NSBitmapImageRep *representation = [_currentTheme bitmapImageRepForCachingDisplayInRect:frame];
-    [_currentTheme cacheDisplayInRect:frame toBitmapImageRep:representation];
+    [representation setSize:frame.size];
+    memset([representation bitmapData], 0, [representation bytesPerRow] * [representation pixelsHigh]);
+    [_currentTheme drawIncludingPageAreaIntoContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:representation]];
     [image addRepresentation:representation];
     return image;
 }
@@ -721,6 +1167,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [self setIsEditingCameraPosition:NO];
     [[self controller] setThumbnailAndFlipToBack:[self thumbnail]];
     _didFlipToFront = NO;
+    [self updatePageWindow];
 }
 
 - (NSRect)clipViewBounds
@@ -862,14 +1309,10 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     if (![self window])
         return;
     if (!_hasBeenMovedToWindow) {
-        // The widget window is one layer tree, frame view included, so the plug-in has no
-        // window-server surface of its own. Dashboard's page is transparent through a clear
-        // background color, which as layers would still be declared opaque; it draws no
-        // background instead.
-        [[controller dashboardWebView] setDrawsBackground:NO];
-        [[[[self window] contentView] superview] setWantsLayer:YES];
         [self setUpContents];
         [controller readSettings];
+        // Dashboard tells the widget's page when the user starts and stops dragging the widget.
+        [[self windowScriptObject] evaluateWebScript:@"widget.ondragstart = function () { webClip.widgetDidStartMoving(); }; widget.ondragend = function () { webClip.widgetDidStopMoving(); };"];
     }
     [self updateDashboardControlRegions];
     [self updateEventRegion];
@@ -950,6 +1393,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 - (void)createWebViewWithSize:(NSSize)size
 {
     _webView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height) configuration:[self webViewConfiguration]];
+    [_webView _setObservedRenderingProgressEvents:_WKRenderingProgressEventFirstPaintWithSignificantArea | _WKRenderingProgressEventFirstMeaningfulPaint];
     [_webView setUIDelegate:self];
     [_webView setNavigationDelegate:self];
     [_webView _setClipsToVisibleRect:YES];
@@ -1054,6 +1498,8 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [_voidView setWantsLayer:YES];
     [_voidView addSubview:_webView];
     addLayerBackedSubview(self, _clipView);
+    _themeOverlay = [[WCThemeOverlayView alloc] initWithFrame:[_clipView frame]];
+    addLayerBackedSubview(self, _themeOverlay);
     addLayerBackedSubview(self, _flipButton);
     addLayerBackedSubview(self, _lockCameraButton);
     addLayerBackedSubview(self, _resizer);
@@ -1071,7 +1517,12 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 {
     self = [super initWithFrame:frame];
     [self setWantsLayer:YES];
+    _placeholder = [[WCPlaceholderView alloc] initWithFrame:frame];
+    [_placeholder setClipperView:self];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateCursor) name:NSMouseMovedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(widgetWindowDidMove:) name:NSWindowDidMoveNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(windowDidBecomeKey:) name:NSWindowDidBecomeKeyNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(widgetWindowDidResignKey:) name:NSWindowDidResignKeyNotification object:nil];
     _controller = [[dashboardWebView windowScriptObject] valueForKey:@"webClip"];
     [self setPostsFrameChangedNotifications:YES];
     [self setPostsBoundsChangedNotifications:YES];
@@ -1114,6 +1565,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     NSColor *color = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:opacity];
     [_flipperImageView setImage:[[[self class] flipperImage] wc_tintedImageWithColor:color]];
     [_flipperImageView display];
+    [_themeOverlay display];
 }
 
 - (void)updateFlipper
@@ -1125,6 +1577,9 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 {
     NSColor *color = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:entered ? 0.001 : 0.5];
     [_flipperImageView setImage:[[[self class] flipperImage] wc_tintedImageWithColor:color]];
+    [_themeOverlay setNeedsDisplay:YES];
+    if (!entered)
+        [self updateStandIn];
     [[self windowScriptObject] callWebScriptMethod:entered ? @"iFadeIn" : @"iFadeOut" withArguments:[NSArray array]];
 }
 
@@ -1247,7 +1702,8 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [self updateFlipper];
     [_clipView setHidden:NO];
     [_currentTheme display];
-    [self setNeedsDisplay:YES];
+    [_placeholder setNeedsDisplay:YES];
+    [self updatePageWindow];
 }
 
 - (NSSize)adjustedFrameSizeFromOldClipSize:(NSSize)oldClipSize toSize:(NSSize)newClipSize
@@ -1292,6 +1748,8 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 {
     _isHidden = NO;
     _hasBeenShown = YES;
+    [WCClipperView askDock];
+    [self updatePageWindow];
     if (_disableAutoRefresh || [[self controller] playAudioOutOfDashboard])
         return;
     if (!_webView) {
@@ -1332,6 +1790,8 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 - (void)didHideWidget
 {
     _isHidden = YES;
+    [WCClipperView askDock];
+    [self updatePageWindow];
     if (_disableAutoRefresh || [[self controller] playAudioOutOfDashboard] || _isEditingCameraPosition || [self isShowingLoadingText] || [self isBacksideShowing] || _loadError)
         return;
     WKWebView *webView = _webView;
@@ -1355,9 +1815,11 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
 {
     if (!toFront) {
         _didFlipToFront = NO;
+        [self updatePageWindow];
         return;
     }
     _didFlipToFront = YES;
+    [self updatePageWindow];
     [_currentTheme setHidden:NO];
     [self updateEventRegion];
     [self updateTrackingRect];
@@ -1391,6 +1853,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     _isLoading = YES;
     [_webView loadRequest:request];
     _didFlipToFront = YES;
+    [self updatePageWindow];
 }
 
 - (int)currentThemeID
@@ -1405,6 +1868,10 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [_webView setUIDelegate:nil];
     [_webView setNavigationDelegate:nil];
     [_webView _close];
+    [self orderPageWindowOut];
+    [_pageWindow setContentView:nil];
+    [_pageWindow close];
+    _pageWindow = nil;
     [[self controller] setWebClipperView:nil];
     [_currentTheme setDashboardWebView:nil];
 }
@@ -1464,6 +1931,12 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [self layoutPageViewport];
 }
 
+- (void)_webView:(WKWebView *)webView renderingProgressDidChange:(_WKRenderingProgressEvents)progressEvents
+{
+    if (webView == _webView)
+        [self updateStandIn];
+}
+
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     _isLoading = NO;
@@ -1471,6 +1944,7 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [self stopProgressTimer];
     [_webView _setTextZoomFactor:[[self controller] textSizeMultiplier]];
     [self clearScreenshotIfNeeded];
+    [self updateStandIn];
 
     // A signature places the clip once, on the page that finished loading; the rect that leaves
     // is the clip from then on.
@@ -1518,12 +1992,13 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     NSURLRequest *request = [navigationAction request];
     if ([[[request URL] scheme] isEqualToString:@"opensafari"]) {
         decisionHandler(WKNavigationActionPolicyCancel);
-        [[self window] accessibilityPerformAction:@"AXCloseWidget"];
+        [[_placeholder window] accessibilityPerformAction:@"AXCloseWidget"];
         [[self windowScriptObject] callWebScriptMethod:@"openSafari" withArguments:nil];
         return;
     }
     WKNavigationType type = [navigationAction navigationType];
-    if (type == WKNavigationTypeReload || type == WKNavigationTypeOther) {
+    // A form the page's script submits is part of the page loading.
+    if (type == WKNavigationTypeReload || type == WKNavigationTypeOther || (type == WKNavigationTypeFormSubmitted && ![navigationAction _isUserInitiated])) {
         decisionHandler(WKNavigationActionPolicyAllow);
         return;
     }

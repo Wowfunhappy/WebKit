@@ -1,10 +1,5 @@
 #import "WCThemes.h"
 
-// The widget's own WebView (a WebKit 1 WebView extended by DashboardClient).
-@protocol WCDashboardWebView <NSObject>
-- (id<WCDashboardWidget>)widget;
-@end
-
 @interface WCTheme ()
 - (void)_setEditModeBorderOpacity:(float)opacity;
 @end
@@ -27,7 +22,9 @@
 
 #pragma mark - WCTheme
 
-@implementation WCTheme
+@implementation WCTheme {
+    BOOL _drawsPageArea;
+}
 
 + (int)borderLeft
 {
@@ -88,6 +85,30 @@
     if ([self drawsInAttachedWindow])
         [_attachedWindow display];
     [super display];
+    [_overlay display];
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    [_clickTarget performSelector:_clickAction];
+#pragma clang diagnostic pop
+    [super mouseDown:event];
+}
+
+- (void)setNeedsDisplayInRect:(NSRect)rect
+{
+    [super setNeedsDisplayInRect:rect];
+    [_overlay setNeedsDisplay:YES];
+}
+
+- (void)setPageArea:(NSRect)pageArea
+{
+    if (NSEqualRects(pageArea, _pageArea))
+        return;
+    _pageArea = pageArea;
+    [self display];
 }
 
 // The inner bezel rect inset by the edit border's thickness on every side.
@@ -246,6 +267,15 @@
 {
     if (_drawsInnerBezel)
         [self drawInnerBezelInRect:rect];
+    if (!_drawsPageArea)
+        NSRectFillUsingOperation(NSIntersectionRect(_pageArea, rect), NSCompositeClear);
+}
+
+- (void)drawIncludingPageAreaIntoContext:(NSGraphicsContext *)context
+{
+    _drawsPageArea = YES;
+    [self displayRectIgnoringOpacity:[self bounds] inContext:context];
+    _drawsPageArea = NO;
 }
 
 - (void)orderAttachedWindow:(NSWindowOrderingMode)place relativeTo:(int)relativeTo delayed:(BOOL)delayed
@@ -585,8 +615,7 @@ static NSImage *glassBottomMiddle;
 - (void)drawRect:(NSRect)rect
 {
     [self drawThemeInRect:rect];
-    if (_drawsInnerBezel)
-        [self drawInnerBezelInRect:rect];
+    [super drawRect:rect];
 }
 
 - (NSSize)minSize

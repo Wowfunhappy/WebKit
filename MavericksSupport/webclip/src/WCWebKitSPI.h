@@ -24,7 +24,17 @@ extern void WKRelease(const void *);
 - (void)_addUserStyleSheet:(_WKUserStyleSheet *)userStyleSheet;
 @end
 
+@interface WKNavigationAction (WCWebKitSPI)
+@property (nonatomic, readonly, getter=_isUserInitiated) BOOL _userInitiated;
+@end
+
+typedef NS_OPTIONS(NSUInteger, _WKRenderingProgressEvents) {
+    _WKRenderingProgressEventFirstPaintWithSignificantArea = 1 << 2,
+    _WKRenderingProgressEventFirstMeaningfulPaint = 1 << 8,
+};
+
 @interface WKWebView (WCWebKitSPI)
+@property (nonatomic, setter=_setObservedRenderingProgressEvents:) _WKRenderingProgressEvents _observedRenderingProgressEvents;
 @property (nonatomic, setter=_setClipsToVisibleRect:) BOOL _clipsToVisibleRect;
 @property (nonatomic, setter=_setViewportSizeForCSSViewportUnits:) CGSize _viewportSizeForCSSViewportUnits;
 @property (nonatomic, setter=_setTextZoomFactor:) double _textZoomFactor;

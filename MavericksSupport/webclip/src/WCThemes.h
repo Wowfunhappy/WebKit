@@ -18,6 +18,16 @@ typedef NS_ENUM(int, WCThemeID) {
 - (void)releaseAttachedWindow:(NSWindow *)window;
 - (void)orderAttachedWindow:(NSWindow *)window place:(NSWindowOrderingMode)place relativeTo:(int)relativeTo delayed:(BOOL)delayed;
 - (void)setEventRegionWithRects:(const NSRect *)rects count:(int)count;
+- (mach_port_t)serverPort;
+- (void)bringToFront;
+- (void)receivedMouseOrKeyDown;
+- (BOOL)isFocused;
+- (void)hasKeyFocus:(BOOL)hasKeyFocus updateWindowState:(BOOL)updateWindowState;
+@end
+
+// The widget's own WebView (a WebKit 1 WebView extended by DashboardClient).
+@protocol WCDashboardWebView <NSObject>
+- (id<WCDashboardWidget>)widget;
 @end
 
 // Looks up a key in the plug-in bundle's Localizable.strings.
@@ -98,6 +108,15 @@ NSString *WCLocalizedString(const char *key);
 + (int)borderRight;
 + (int)borderTop;
 + (int)borderBottom;
+// A view that shows the theme where the clip's own window covers the theme's. The theme's own
+// window leaves that area, in the theme's coordinates, to it.
+@property (nonatomic, weak) NSView *overlay;
+@property (nonatomic) NSRect pageArea;
+// Draws the page area too, for the overlay and the stand-in.
+- (void)drawIncludingPageAreaIntoContext:(NSGraphicsContext *)context;
+// Hears of a click in the theme's window, which the Dock has brought to the front with its widget.
+@property (nonatomic, weak) id clickTarget;
+@property (nonatomic) SEL clickAction;
 - (void)setDashboardWebView:(id)dashboardWebView;
 - (void)setDoneButton:(WCDoneButton *)doneButton;
 - (void)buttonStateChanged;
