@@ -29,5 +29,5 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(WebKit, LocalAuthentication);
 
-// MAVERICKS_BACKPORT: LocalAuthentication LAContext postdates macOS 10.9 (framework arrived in 10.10) — soft-link optionally so it resolves to nil instead of failing at load
+// MAVERICKS_BACKPORT: LocalAuthentication is absent from 10.9. _OPTIONAL resolves LAContext to nil, where the non-optional getter would RELEASE_ASSERT in LocalAuthenticationLibrary() on first use; LocalService::isAvailable() then answers false.
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, LocalAuthentication, LAContext);

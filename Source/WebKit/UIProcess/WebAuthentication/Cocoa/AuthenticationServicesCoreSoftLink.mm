@@ -36,7 +36,7 @@ SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizati
 
 #if HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI)
 
-// MAVERICKS_BACKPORT: these AuthenticationServicesCore classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+// MAVERICKS_BACKPORT: AuthenticationServicesCore is absent from 10.9. _OPTIONAL resolves these classes to nil, where the non-optional getter would RELEASE_ASSERT in AuthenticationServicesCoreLibrary() on first use. isAuthenticationServicesCoreFrameworkAvailable() is false, so WebAuthenticatorCoordinatorProxy rejects requests before this request flow, and the availability queries answer false.
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAgentProxy);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAppleIDCredential);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAuthorizationPresentationContext);
@@ -44,7 +44,7 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAutho
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAuthorizationRemotePresenter);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCCredentialRequestContext);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCWebAuthenticationExtensionsClientInputs);
-// MAVERICKS_BACKPORT: these AuthenticationServicesCore public-key-credential classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+// MAVERICKS_BACKPORT: AuthenticationServicesCore is absent from 10.9; _OPTIONAL resolves these classes to nil instead of the non-optional getter's RELEASE_ASSERT.
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialAssertion);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialLoginChoice);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialRegistration);

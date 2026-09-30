@@ -229,6 +229,18 @@ http/wpt/webauthn/public-key-credential-get-success-ccid.https.html [ Skip ]
 http/wpt/webauthn/public-key-credential-create-success-nfc.https.html [ Skip ]
 http/wpt/webauthn/public-key-credential-get-success-nfc.https.html [ Skip ]
 
+# The platform authenticator runs only in tests on this port: AuthenticatorManager drops it because
+# LocalService::isAvailable() needs LocalAuthentication, which 10.9 does not have, and these tests
+# replace that check with a mock. Under the mock, LocalAuthenticator (LocalAuthenticator.mm:410) stops
+# at SecAccessControlCreateWithFlags, since 10.9 has no access-control objects. Tests of code the port
+# never runs are skipped (maintainer decision).
+http/wpt/webauthn/public-key-credential-create-failure-local-silent.https.html [ Skip ]
+http/wpt/webauthn/public-key-credential-create-failure-local.https.html [ Skip ]
+http/wpt/webauthn/public-key-credential-create-success-local.https.html [ Skip ]
+http/wpt/webauthn/public-key-credential-get-failure-local-silent.https.html [ Skip ]
+http/wpt/webauthn/public-key-credential-get-failure-local.https.html [ Skip ]
+http/wpt/webauthn/public-key-credential-get-success-local.https.html [ Skip ]
+
 # No HEVC encoder exists on this port by any path: 10.9's VideoToolbox registers none
 # (VTCopyVideoEncoderList gives ProRes, H.263, H.264, JPEG and raw, and applemedia registers vtdec,
 # vtdec_hw, vtenc_h264 and vtenc_prores), and the GStreamer plugin set carries none either -- its whole
