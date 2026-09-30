@@ -259,6 +259,16 @@ probe_trust_serialize() {
         "$T/trust_serialize"
 }
 
+probe_trust_state_lifetime() {
+    "$CLANG" $MODERN $INC -Wno-deprecated-declarations -o "$T/trust_state_lifetime" "$TBEHAV/Security-trust-state-lifetime.c" $PROBE_LIBS &&
+        MallocScribble=1 "$T/trust_state_lifetime"
+}
+
+probe_key_public_half() {
+    "$CLANG" $MODERN $INC -o "$T/key_public_half" "$TBEHAV/Security-key-public-half.c" $PROBE_LIBS &&
+        "$T/key_public_half"
+}
+
 probe_rsa_pss_verify() {
     "$CLANG" $MODERN $INC -I"$REPO/MavericksSupport/deps/build/include" -o "$T/rsa_pss_verify" \
         "$TBEHAV/Security-rsa-pss-verify.c" $PROBE_LIBS &&
@@ -846,6 +856,8 @@ run_probe color_popover_top_bar "$@"
 run_probe dispatch_activate "$@"
 run_probe sectask_identity "$@"
 run_probe trust_serialize "$@"
+run_probe trust_state_lifetime "$@"
+run_probe key_public_half "$@"
 run_probe ec_public_point "$@"
 run_probe rsa_pss_verify "$@"
 run_probe gcrypt_ec_public_point "$@"

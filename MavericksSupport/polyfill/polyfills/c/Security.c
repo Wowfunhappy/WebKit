@@ -186,8 +186,7 @@ enum {
 
 static CFStringRef mav_securityConstant(const char *name, void **cache)
 {
-    CFStringRef *storage = (CFStringRef *)wk_polyfill_system_symbol("Security", name, cache);
-    return storage ? *storage : NULL;
+    return *(CFStringRef *)wk_polyfill_system_symbol("Security", name, cache);
 }
 
 // The digest each X.509 signature-algorithm OID signs with. Dotted form, as SecCertificateCopyValues
@@ -239,9 +238,6 @@ static CFStringRef mav_copySignatureAlgorithmOID(CFDictionaryRef values, CFStrin
     static void *labelKeyCache, *valueKeyCache;
     CFStringRef labelKey = mav_securityConstant("kSecPropertyKeyLabel", &labelKeyCache);
     CFStringRef valueKey = mav_securityConstant("kSecPropertyKeyValue", &valueKeyCache);
-    if (!values || !signatureAlgorithmKey || !labelKey || !valueKey)
-        return NULL;
-
     CFDictionaryRef property = (CFDictionaryRef)CFDictionaryGetValue(values, signatureAlgorithmKey);
     if (!property || CFGetTypeID(property) != CFDictionaryGetTypeID())
         return NULL;
@@ -267,7 +263,7 @@ WK_POLYFILL_ABSENT("Security", int, SecCertificateGetSignatureHashAlgorithm, (Se
 {
     static void *signatureAlgorithmKeyCache;
     CFStringRef signatureAlgorithmKey = mav_securityConstant("kSecOIDX509V1SignatureAlgorithm", &signatureAlgorithmKeyCache);
-    if (!certificate || !signatureAlgorithmKey || !WK_SYSTEM(SecCertificateCopyValues))
+    if (!certificate)
         return MavSecSignatureHashAlgorithmUnknown;
 
     CFStringRef keys[] = { signatureAlgorithmKey };
@@ -304,7 +300,7 @@ static CFDateRef mav_copyCertificateValidityDate(SecCertificateRef certificate, 
     static void *valueKeyCache;
     CFStringRef oid = mav_securityConstant(oidName, oidCache);
     CFStringRef valueKey = mav_securityConstant("kSecPropertyKeyValue", &valueKeyCache);
-    if (!certificate || !oid || !valueKey || !WK_SYSTEM(SecCertificateCopyValues))
+    if (!certificate)
         return NULL;
 
     CFStringRef keys[] = { oid };
@@ -544,13 +540,14 @@ WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef t
 // + custom anchors + network-fetch + verify time on an unevaluated trust leave it
 // kSecTrustResultInvalid and cost 0.0000s).
 //
-// User exceptions are NOT carried, because 10.9 cannot report them. SecTrustCopyExceptions is not a
-// getter for exceptions somebody set -- it mints a blanket "accept whatever this chain currently
-// reports" blob for any trust, including one that just failed, and there is no getter for what was
-// actually set. Carrying its output would hand the receiver a verdict instead of the sender's state:
-// measured on a self-signed chain, the sender evaluates kSecTrustResultRecoverableTrustFailure, and a
-// receiver given that blob reports kSecTrustResultProceed. Since nothing in this tree sets exceptions
-// on a trust that crosses IPC, omitting them is what the platform can honestly report.
+// What the sender gave the setters 10.9 cannot read back -- options, parameters, anchors-only,
+// an OCSP response, exceptions -- travels as the setters' own record (mav_recordTrustSetting), and
+// the receiver gives it to the same setters. SecTrustCopyExceptions is not a getter for exceptions
+// somebody set: it mints a blanket "accept whatever this chain currently reports" blob for any trust,
+// including one that just failed (measured on a self-signed chain: the sender evaluates
+// kSecTrustResultRecoverableTrustFailure, and a receiver given that blob reports
+// kSecTrustResultProceed). A keychain list has no property-list form, so a trust given one is not
+// serialized.
 //
 // The policies decide the question the receiver asks, so they travel by what they are made of rather
 // than by the dictionary that describes them: SecPolicyCopyProperties reports a name and an OID and
@@ -570,6 +567,8 @@ static CFStringRef const kMavTrustPolicies = CFSTR("policies");
 static CFStringRef const kMavTrustAnchors = CFSTR("anchors");
 static CFStringRef const kMavTrustNetworkFetchAllowed = CFSTR("networkFetchAllowed");
 static CFStringRef const kMavTrustVerifyDate = CFSTR("verifyDate");
+static CFStringRef const kMavTrustSettings = CFSTR("settings");
+static CFStringRef const kMavTrustUnreadableSetting = CFSTR("unreadable");
 static CFStringRef const kMavPolicyOID = CFSTR("oid");
 static CFStringRef const kMavPolicyServerName = CFSTR("serverName");
 static CFStringRef const kMavPolicyFlags = CFSTR("flags");
@@ -614,45 +613,6 @@ static CFArrayRef mav_certificateArrayFromData(CFArrayRef datas)
         CFRelease(certificate);
     }
     return certificates;
-}
-
-// The certificates a trust was created with. 10.9's SecTrust accessors report the evaluated chain --
-// SecTrustGetCertificateCount runs the evaluation to produce it, and a three-certificate input comes
-// back as the one certificate the evaluator kept -- and SecTrustCopyInputCertificates does not exist
-// here. Security's Trust object keeps the caller's array in a CFArray field at this offset from the
-// SecTrustRef, measured on 10.9.5 (malloc_size 352) as the only certificate array present before an
-// evaluation and unchanged by one. Reading it costs no evaluation. The field is checked before it is
-// believed: it must be a heap CFArray of SecCertificates whose first element is the trust's leaf --
-// SecTrustGetCertificateAtIndex(trust, 0) answers without evaluating, evaluated or not -- and anything
-// else is NULL.
-enum { kMavTrustInputCertificatesOffset = 0x98 };
-
-CFArrayRef wk_trustInputCertificates(SecTrustRef trust)
-{
-    if (malloc_size(trust) < kMavTrustInputCertificatesOffset + sizeof(CFArrayRef))
-        return NULL;
-    CFArrayRef certificates = *(CFArrayRef *)((const char *)trust + kMavTrustInputCertificatesOffset);
-    if (!certificates || ((uintptr_t)certificates & (sizeof(void *) - 1)) || !malloc_size(certificates)
-        || CFGetTypeID(certificates) != CFArrayGetTypeID())
-        return NULL;
-    CFIndex count = CFArrayGetCount(certificates);
-    if (count < 1)
-        return NULL;
-    for (CFIndex i = 0; i < count; ++i) {
-        const void *certificate = CFArrayGetValueAtIndex(certificates, i);
-        if (!certificate || !malloc_size(certificate) || CFGetTypeID(certificate) != SecCertificateGetTypeID())
-            return NULL;
-    }
-
-    SecCertificateRef leaf = SecTrustGetCertificateAtIndex(trust, 0);
-    CFDataRef leafDER = leaf ? SecCertificateCopyData(leaf) : NULL;
-    CFDataRef firstDER = SecCertificateCopyData((SecCertificateRef)CFArrayGetValueAtIndex(certificates, 0));
-    bool sameLeaf = leafDER && firstDER && CFEqual(leafDER, firstDER);
-    if (leafDER)
-        CFRelease(leafDER);
-    if (firstDER)
-        CFRelease(firstDER);
-    return sameLeaf ? certificates : NULL;
 }
 
 // A policy, as the OID that names it and the options it carries. SecPolicyGetValue hands back the
@@ -779,7 +739,7 @@ static SecPolicyRef mav_createPolicyFromDescription(CFDictionaryRef description)
 // that changes an input of the evaluation discards it (SecTrustSetNeedsEvaluation).
 //
 // 10.9's Trust keeps its own evaluation where only Security can read it, so the evaluation is kept
-// beside the trust as an associated dictionary: recorded when SecTrustEvaluate or SecTrustEvaluateAsync
+// with the trust's state as a dictionary: recorded when SecTrustEvaluate or SecTrustEvaluateAsync
 // produces a result, installed by SecTrustDeserialize, and answered from by the accessors below. An
 // accessor that reports what only 10.9's own evaluation holds (CSSM evidence, properties, exceptions)
 // first has 10.9 evaluate when its Trust holds no result, and keeps that evaluation, as Security's
@@ -791,13 +751,101 @@ static CFStringRef const kMavTrustChain = CFSTR("chain");
 static CFStringRef const kMavTrustResultNotBefore = CFSTR("resultNotBefore");
 static CFStringRef const kMavTrustResultNotAfter = CFSTR("resultNotAfter");
 
+// 10.9's Security objects count their own references and free themselves without the Objective-C
+// runtime's teardown, so an association on a SecTrustRef outlives the trust and is read back by the next
+// trust allocated at its address. A trust's state is associated instead with the policies array the
+// trust holds: the polyfill hands the trust an array of its own, 10.9 keeps that exact array (and treats
+// an empty one as no policies), and the CFArray takes its associations with it when the trust releases
+// it. Both functions are called with the trust's lock held and return the array +0.
+static CFArrayRef mav_trustStateHolderLocked(SecTrustRef trust, bool create);
+static CFArrayRef mav_installTrustStateHolderLocked(SecTrustRef trust, CFArrayRef policies, CFArrayRef previous);
+
 // Association keys are selectors so that every image's copy of this file agrees on them.
+static const void *mav_trustStateHolderKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = sel_registerName("wk_trustStateHolder");
+    return key;
+}
+
+static const void *mav_trustStateOwnerKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = sel_registerName("wk_trustStateOwner");
+    return key;
+}
+
 static const void *mav_trustEvaluationKey(void)
 {
     static const void *key;
     if (!key)
         key = sel_registerName("wk_trustEvaluation");
     return key;
+}
+
+// What the setters that Security cannot read back were given, keyed by setter name, or marked
+// unreadable for a value with no property-list form (a keychain list).
+static const void *mav_trustSettingsKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = sel_registerName("wk_trustSettings");
+    return key;
+}
+
+static void mav_recordTrustSetting(SecTrustRef trust, CFStringRef name, CFTypeRef value)
+{
+    if (!trust)
+        return;
+    objc_sync_enter((id)trust);
+    CFArrayRef holder = mav_trustStateHolderLocked(trust, true);
+    CFMutableDictionaryRef settings = holder ? (CFMutableDictionaryRef)objc_getAssociatedObject((id)holder, mav_trustSettingsKey()) : NULL;
+    if (holder && !settings) {
+        settings = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        objc_setAssociatedObject((id)holder, mav_trustSettingsKey(), (id)settings, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFRelease(settings);
+    }
+    if (settings && value)
+        CFDictionarySetValue(settings, name, value);
+    else if (settings)
+        CFDictionarySetValue(settings, kMavTrustUnreadableSetting, kCFBooleanTrue);
+    objc_sync_exit((id)trust);
+}
+
+// Gives a receiver's trust what the sender's setters were given. An empty data stands for NULL.
+static CFTypeRef mav_settingValue(CFDictionaryRef settings, CFStringRef name, CFTypeID type)
+{
+    CFTypeRef value = CFDictionaryGetValue(settings, name);
+    return value && CFGetTypeID(value) == type ? value : NULL;
+}
+
+static CFDataRef mav_settingData(CFDictionaryRef settings, CFStringRef name, bool *present)
+{
+    CFDataRef data = (CFDataRef)mav_settingValue(settings, name, CFDataGetTypeID());
+    *present = data != NULL;
+    return data && CFDataGetLength(data) ? data : NULL;
+}
+
+static void mav_applyTrustSettings(SecTrustRef trust, CFDictionaryRef settings)
+{
+    CFNumberRef number;
+    int64_t value;
+    bool present;
+    if ((number = (CFNumberRef)mav_settingValue(settings, CFSTR("options"), CFNumberGetTypeID())) && CFNumberGetValue(number, kCFNumberSInt64Type, &value))
+        SecTrustSetOptions(trust, (SecTrustOptionFlags)value);
+    if ((number = (CFNumberRef)mav_settingValue(settings, CFSTR("action"), CFNumberGetTypeID())) && CFNumberGetValue(number, kCFNumberSInt64Type, &value))
+        SecTrustSetParameters(trust, (CSSM_TP_ACTION)value, mav_settingData(settings, CFSTR("actionData"), &present));
+    CFBooleanRef anchorsOnly = (CFBooleanRef)mav_settingValue(settings, CFSTR("anchorCertificatesOnly"), CFBooleanGetTypeID());
+    if (anchorsOnly)
+        SecTrustSetAnchorCertificatesOnly(trust, CFBooleanGetValue(anchorsOnly));
+    CFDataRef response = mav_settingData(settings, CFSTR("ocspResponse"), &present);
+    if (present)
+        SecTrustSetOCSPResponse(trust, response);
+    CFDataRef exceptions = mav_settingData(settings, CFSTR("exceptions"), &present);
+    if (present)
+        SecTrustSetExceptions(trust, exceptions);
 }
 
 // Evaluations the trust no longer answers from. SecTrustGetCertificateAtIndex hands out certificates
@@ -820,20 +868,20 @@ static double mav_numberValue(CFDictionaryRef dictionary, CFStringRef key)
     return value;
 }
 
-// Called with the trust's lock held.
-static void mav_retireTrustEvaluationLocked(SecTrustRef trust)
+// Called with the trust's lock held, on the array carrying its state.
+static void mav_retireTrustEvaluationLocked(CFArrayRef holder)
 {
-    CFDictionaryRef current = (CFDictionaryRef)objc_getAssociatedObject((id)trust, mav_trustEvaluationKey());
+    CFDictionaryRef current = (CFDictionaryRef)objc_getAssociatedObject((id)holder, mav_trustEvaluationKey());
     if (!current)
         return;
-    CFMutableArrayRef retired = (CFMutableArrayRef)objc_getAssociatedObject((id)trust, mav_retiredTrustEvaluationsKey());
+    CFMutableArrayRef retired = (CFMutableArrayRef)objc_getAssociatedObject((id)holder, mav_retiredTrustEvaluationsKey());
     if (!retired) {
         retired = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
-        objc_setAssociatedObject((id)trust, mav_retiredTrustEvaluationsKey(), (id)retired, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject((id)holder, mav_retiredTrustEvaluationsKey(), (id)retired, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         CFRelease(retired);
     }
     CFArrayAppendValue(retired, current);
-    objc_setAssociatedObject((id)trust, mav_trustEvaluationKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject((id)holder, mav_trustEvaluationKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // Installs a new evaluation beside the trust, releasing every earlier one; with NULL, stops answering
@@ -843,11 +891,12 @@ static void mav_setTrustEvaluation(SecTrustRef trust, CFDictionaryRef evaluation
     if (!trust)
         return;
     objc_sync_enter((id)trust);
-    if (evaluation) {
-        objc_setAssociatedObject((id)trust, mav_retiredTrustEvaluationsKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject((id)trust, mav_trustEvaluationKey(), (id)evaluation, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    } else
-        mav_retireTrustEvaluationLocked(trust);
+    CFArrayRef holder = mav_trustStateHolderLocked(trust, evaluation != NULL);
+    if (holder && evaluation) {
+        objc_setAssociatedObject((id)holder, mav_retiredTrustEvaluationsKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject((id)holder, mav_trustEvaluationKey(), (id)evaluation, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else if (holder)
+        mav_retireTrustEvaluationLocked(holder);
     objc_sync_exit((id)trust);
 }
 
@@ -861,13 +910,14 @@ static CFDictionaryRef mav_copyTrustEvaluation(SecTrustRef trust)
     if (!verifyTime)
         verifyTime = now;
     objc_sync_enter((id)trust);
-    CFDictionaryRef evaluation = (CFDictionaryRef)objc_getAssociatedObject((id)trust, mav_trustEvaluationKey());
+    CFArrayRef holder = mav_trustStateHolderLocked(trust, false);
+    CFDictionaryRef evaluation = holder ? (CFDictionaryRef)objc_getAssociatedObject((id)holder, mav_trustEvaluationKey()) : NULL;
     if (evaluation) {
         bool divorcedFromNow = verifyTime > now + kMavTrustTimeLeeway || verifyTime < now - kMavTrustTimeLeeway;
         if (divorcedFromNow || (now > mav_numberValue(evaluation, kMavTrustResultNotBefore) && now < mav_numberValue(evaluation, kMavTrustResultNotAfter)))
             CFRetain(evaluation);
         else {
-            mav_retireTrustEvaluationLocked(trust);
+            mav_retireTrustEvaluationLocked(holder);
             evaluation = NULL;
         }
     }
@@ -952,6 +1002,46 @@ WK_POLYFILL_REPLACES("Security", SecCertificateRef, SecTrustGetCertificateAtInde
     return certificate;
 }
 
+// The certificates a trust was created with. 10.9's SecTrust accessors report the evaluated chain --
+// SecTrustGetCertificateCount runs the evaluation to produce it, and a three-certificate input comes
+// back as the one certificate the evaluator kept -- and SecTrustCopyInputCertificates does not exist
+// here. Security's Trust object keeps the caller's array in a CFArray field at this offset from the
+// SecTrustRef, measured on 10.9.5 (malloc_size 352) as the only certificate array present before an
+// evaluation; an evaluation leaves it in place, except that an EV candidate's replaces it with an array
+// of the same certificates. Reading it costs no evaluation. The field is checked before it is believed:
+// it must be a heap CFArray of SecCertificates whose first element is the trust's leaf -- 10.9's
+// SecTrustGetCertificateAtIndex(trust, 0) answers without evaluating, evaluated or not -- and anything
+// else is NULL.
+enum { kMavTrustInputCertificatesOffset = 0x98 };
+
+CFArrayRef wk_trustInputCertificates(SecTrustRef trust)
+{
+    if (malloc_size(trust) < kMavTrustInputCertificatesOffset + sizeof(CFArrayRef))
+        return NULL;
+    CFArrayRef certificates = *(CFArrayRef *)((const char *)trust + kMavTrustInputCertificatesOffset);
+    if (!certificates || ((uintptr_t)certificates & (sizeof(void *) - 1)) || !malloc_size(certificates)
+        || CFGetTypeID(certificates) != CFArrayGetTypeID())
+        return NULL;
+    CFIndex count = CFArrayGetCount(certificates);
+    if (count < 1)
+        return NULL;
+    for (CFIndex i = 0; i < count; ++i) {
+        const void *certificate = CFArrayGetValueAtIndex(certificates, i);
+        if (!certificate || !malloc_size(certificate) || CFGetTypeID(certificate) != SecCertificateGetTypeID())
+            return NULL;
+    }
+
+    SecCertificateRef leaf = WK_ORIGINAL(SecTrustGetCertificateAtIndex)(trust, 0);
+    CFDataRef leafDER = leaf ? SecCertificateCopyData(leaf) : NULL;
+    CFDataRef firstDER = SecCertificateCopyData((SecCertificateRef)CFArrayGetValueAtIndex(certificates, 0));
+    bool sameLeaf = leafDER && firstDER && CFEqual(leafDER, firstDER);
+    if (leafDER)
+        CFRelease(leafDER);
+    if (firstDER)
+        CFRelease(firstDER);
+    return sameLeaf ? certificates : NULL;
+}
+
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustGetTrustResult, (SecTrustRef trust, SecTrustResultType *result))
 {
     CFDictionaryRef evaluation = result ? mav_copyTrustEvaluation(trust) : NULL;
@@ -962,8 +1052,239 @@ WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustGetTrustResult, (SecTrustRef 
     return errSecSuccess;
 }
 
-// Keeps what 10.9 just evaluated beside the trust.
-static void mav_recordTrustEvaluation(SecTrustRef trust, SecTrustResultType result)
+// Security checks revocation through OCSP alone (trustd's SecRVCFetchNext, SecRevocationServer.c,
+// fetches OCSP responses and nothing else) and, for a trust that carries no revocation policy, without
+// the network: SecPathBuilderCheckRevocation answers from stapled responses and the response cache,
+// and fetches only when the chain is EV, a revocation policy asks for it, a cached response has gone
+// stale or a CA revocation addition applies. 10.9 checks such a trust as the revocation preferences
+// say, which by default downloads and verifies every revocation list and OCSP response a certificate
+// names, on the caller's thread. 10.9 evaluates the trust with a revocation policy beside the caller's
+// policies (mav_evaluateNativelyLocked), made by mav_createRevocationPolicy:
+//
+// - For a chain whose leaf claims no EV policy, an OCSP policy in the form 10.9's trust policy reads,
+//   CSSMOID_APPLE_TP_REVOCATION_OCSP with CSSM_APPLE_TP_OCSP_OPTIONS asking for no network: ocspd
+//   answers from its response cache and no revocation list is fetched. (SecPolicyCreateRevocation's
+//   flags are not that form: Trust::convertRevocationPolicy replaces the policy with an OCSP policy that
+//   fetches and a CRL policy that does not, whatever the flags said.)
+// - For an EV candidate -- a leaf carrying a certificate-policy OID that EVRoots.plist lists, the test
+//   Trust::evaluate makes through allowedEVRootsForLeafCertificate -- SecPolicyCreateRevocation itself.
+//   Security fetches OCSP for an EV chain, and 10.9 converts this policy into exactly that (OCSP fetch,
+//   no revocation list); an EV candidate evaluated with any other policy set gets the preference
+//   revocation policies forced onto it, revocation-list downloads included.
+
+// cssmapplePriv.h: the option block of a CSSMOID_APPLE_TP_REVOCATION_OCSP policy.
+enum { CSSM_APPLE_TP_OCSP_OPTS_VERSION = 0 };
+enum { CSSM_TP_ACTION_OCSP_DISABLE_NET = 0x00000004 };
+typedef struct {
+    uint32 Version;
+    uint32 Flags;
+    CSSM_DATA_PTR LocalResponder;
+    CSSM_DATA_PTR LocalResponderCert;
+} CSSM_APPLE_TP_OCSP_OPTIONS;
+
+static SecPolicyRef mav_createTrustPolicy(const CSSM_OID *oid, const void *options, size_t length)
+{
+    SecPolicySearchRef search = NULL;
+    if (SecPolicySearchCreate(CSSM_CERT_X_509v3, oid, NULL, &search) != errSecSuccess || !search)
+        return NULL;
+    SecPolicyRef policy = NULL;
+    OSStatus status = SecPolicySearchCopyNext(search, &policy);
+    CFRelease(search);
+    if (status != errSecSuccess || !policy)
+        return NULL;
+    CSSM_DATA value = { length, (uint8 *)options };
+    if (SecPolicySetValue(policy, &value) != errSecSuccess) {
+        CFRelease(policy);
+        return NULL;
+    }
+    return policy;
+}
+
+static CFDictionaryRef mav_evRoots(void)
+{
+    static CFDictionaryRef roots;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        CFURLRef url = CFURLCreateWithFileSystemPath(NULL, CFSTR("/System/Library/Keychains/EVRoots.plist"), kCFURLPOSIXPathStyle, false);
+        CFReadStreamRef stream = CFReadStreamCreateWithFile(NULL, url);
+        CFReadStreamOpen(stream);
+        roots = (CFDictionaryRef)CFPropertyListCreateWithStream(NULL, stream, 0, kCFPropertyListImmutable, NULL, NULL);
+        CFReadStreamClose(stream);
+        CFRelease(stream);
+        CFRelease(url);
+    });
+    return roots;
+}
+
+// Whether the leaf claims a certificate-policy OID that EVRoots.plist lists.
+static bool mav_leafClaimsEVPolicy(SecTrustRef trust)
+{
+    static void *oidCache;
+    static void *valueKeyCache;
+    static void *labelKeyCache;
+    CFDictionaryRef roots = mav_evRoots();
+    CFArrayRef certificates = wk_trustInputCertificates(trust);
+    CFStringRef oid = mav_securityConstant("kSecOIDCertificatePolicies", &oidCache);
+    CFStringRef valueKey = mav_securityConstant("kSecPropertyKeyValue", &valueKeyCache);
+    CFStringRef labelKey = mav_securityConstant("kSecPropertyKeyLabel", &labelKeyCache);
+    if (!certificates || !CFArrayGetCount(certificates))
+        return false;
+    SecCertificateRef leaf = (SecCertificateRef)CFArrayGetValueAtIndex(certificates, 0);
+    CFStringRef keys[] = { oid };
+    CFArrayRef requested = CFArrayCreate(NULL, (const void **)keys, 1, &kCFTypeArrayCallBacks);
+    CFDictionaryRef values = requested ? SecCertificateCopyValues(leaf, requested, NULL) : NULL;
+    if (requested)
+        CFRelease(requested);
+    if (!values)
+        return false;
+    bool claims = false;
+    CFTypeRef section = CFDictionaryGetValue(values, oid);
+    CFTypeRef properties = section && CFGetTypeID(section) == CFDictionaryGetTypeID() ? CFDictionaryGetValue((CFDictionaryRef)section, valueKey) : NULL;
+    CFIndex count = properties && CFGetTypeID(properties) == CFArrayGetTypeID() ? CFArrayGetCount((CFArrayRef)properties) : 0;
+    for (CFIndex i = 0; i < count && !claims; ++i) {
+        CFTypeRef property = CFArrayGetValueAtIndex((CFArrayRef)properties, i);
+        if (CFGetTypeID(property) != CFDictionaryGetTypeID())
+            continue;
+        CFTypeRef label = CFDictionaryGetValue((CFDictionaryRef)property, labelKey);
+        CFTypeRef value = CFDictionaryGetValue((CFDictionaryRef)property, valueKey);
+        claims = label && value && CFGetTypeID(label) == CFStringGetTypeID() && CFGetTypeID(value) == CFStringGetTypeID()
+            && CFStringHasPrefix((CFStringRef)label, CFSTR("Policy Identifier")) && CFDictionaryContainsKey(roots, value);
+    }
+    CFRelease(values);
+    return claims;
+}
+
+static SecPolicyRef mav_createRevocationPolicy(SecTrustRef trust)
+{
+    if (mav_leafClaimsEVPolicy(trust))
+        return SecPolicyCreateRevocation(kSecRevocationOCSPMethod);
+    static const CSSM_APPLE_TP_OCSP_OPTIONS options = { CSSM_APPLE_TP_OCSP_OPTS_VERSION, CSSM_TP_ACTION_OCSP_DISABLE_NET, NULL, NULL };
+    return mav_createTrustPolicy(&CSSMOID_APPLE_TP_REVOCATION_OCSP, &options, sizeof(options));
+}
+
+static bool mav_isRevocationPolicy(SecPolicyRef policy)
+{
+    CSSM_OID oid;
+    memset(&oid, 0, sizeof(oid));
+    if (SecPolicyGetOID(policy, &oid) != errSecSuccess || !oid.Data || !oid.Length)
+        return false;
+    return mav_oidEquals(&oid, &CSSMOID_APPLE_TP_REVOCATION) || mav_oidEquals(&oid, &CSSMOID_APPLE_TP_REVOCATION_CRL)
+        || mav_oidEquals(&oid, &CSSMOID_APPLE_TP_REVOCATION_OCSP);
+}
+
+static OSStatus mav_evaluateNativelyLocked(SecTrustRef trust, SecTrustResultType *result);
+
+// The array carrying a trust's state stays with the trust; the caller gets its own copy.
+WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustCopyPolicies, (SecTrustRef trust, CFArrayRef *policies))
+{
+    if (!trust)
+        return WK_ORIGINAL(SecTrustCopyPolicies)(trust, policies);
+    objc_sync_enter((id)trust);
+    OSStatus status = WK_ORIGINAL(SecTrustCopyPolicies)(trust, policies);
+    if (status == errSecSuccess && policies && *policies && objc_getAssociatedObject((id)*policies, mav_trustStateHolderKey())) {
+        CFMutableArrayRef callers = CFArrayCreateMutableCopy(NULL, 0, *policies);
+        CFRelease(*policies);
+        *policies = callers;
+    }
+    objc_sync_exit((id)trust);
+    return status;
+}
+
+static CFMutableDictionaryRef mav_copyTrustInputState(SecTrustRef trust);
+
+// Security dates every evaluation with a validity window (SecPathBuilderReportTrustValidityPeriod)
+// and answers from the result while the window lasts (SecTrustIsTrustResultValid): within it, the
+// result is the answer for that input. 10.9 evaluates on the caller's thread and a hundred times
+// slower, so an accepted evaluation is kept here for every trust that presents the same input, keyed
+// by the digest of that input, until its window lapses or the user's trust settings change.
+static pthread_mutex_t mav_trustEvaluationsLock = PTHREAD_MUTEX_INITIALIZER;
+static CFMutableDictionaryRef mav_trustEvaluations;
+
+static OSStatus mav_trustSettingsChanged(SecKeychainEvent event, SecKeychainCallbackInfo *info, void *context)
+{
+    (void)event; (void)info; (void)context;
+    pthread_mutex_lock(&mav_trustEvaluationsLock);
+    if (mav_trustEvaluations)
+        CFDictionaryRemoveAllValues(mav_trustEvaluations);
+    pthread_mutex_unlock(&mav_trustEvaluationsLock);
+    return errSecSuccess;
+}
+
+static CFDataRef mav_copyTrustInputDigest(SecTrustRef trust)
+{
+    CFMutableDictionaryRef state = mav_copyTrustInputState(trust);
+    if (!state)
+        return NULL;
+    CFDataRef plist = CFPropertyListCreateData(NULL, state, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+    CFRelease(state);
+    if (!plist)
+        return NULL;
+    uint8_t digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(CFDataGetBytePtr(plist), (CC_LONG)CFDataGetLength(plist), digest);
+    CFRelease(plist);
+    return CFDataCreate(NULL, digest, sizeof(digest));
+}
+
+static bool mav_trustEvaluationIsValid(CFDictionaryRef evaluation, CFAbsoluteTime now)
+{
+    return now > mav_numberValue(evaluation, kMavTrustResultNotBefore) && now < mav_numberValue(evaluation, kMavTrustResultNotAfter);
+}
+
+// The valid evaluation kept for this input, installed beside the trust, or false.
+static bool mav_installKeptTrustEvaluation(SecTrustRef trust, CFDataRef digest)
+{
+    if (!digest)
+        return false;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    CFDictionaryRef evaluation = NULL;
+    pthread_mutex_lock(&mav_trustEvaluationsLock);
+    if (mav_trustEvaluations) {
+        evaluation = (CFDictionaryRef)CFDictionaryGetValue(mav_trustEvaluations, digest);
+        if (evaluation && !mav_trustEvaluationIsValid(evaluation, now)) {
+            CFDictionaryRemoveValue(mav_trustEvaluations, digest);
+            evaluation = NULL;
+        }
+        if (evaluation)
+            CFRetain(evaluation);
+    }
+    pthread_mutex_unlock(&mav_trustEvaluationsLock);
+    if (!evaluation)
+        return false;
+    mav_setTrustEvaluation(trust, evaluation);
+    CFRelease(evaluation);
+    return true;
+}
+
+// Keyed by the digest of the input as it was before the evaluation: 10.9's evaluation rewrites the
+// input certificates of an EV candidate.
+static void mav_keepTrustEvaluation(CFDataRef digest, CFDictionaryRef evaluation)
+{
+    if (!digest)
+        return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    pthread_mutex_lock(&mav_trustEvaluationsLock);
+    if (!mav_trustEvaluations) {
+        mav_trustEvaluations = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        SecKeychainAddCallback(mav_trustSettingsChanged, kSecTrustSettingsChangedEventMask, NULL);
+    }
+    if (!CFDictionaryContainsKey(mav_trustEvaluations, digest)) {
+        CFIndex count = CFDictionaryGetCount(mav_trustEvaluations);
+        const void **keys = malloc(count * sizeof(void *));
+        const void **values = malloc(count * sizeof(void *));
+        CFDictionaryGetKeysAndValues(mav_trustEvaluations, keys, values);
+        for (CFIndex i = 0; i < count; ++i) {
+            if (!mav_trustEvaluationIsValid((CFDictionaryRef)values[i], now))
+                CFDictionaryRemoveValue(mav_trustEvaluations, keys[i]);
+        }
+        free(keys);
+        free(values);
+    }
+    CFDictionarySetValue(mav_trustEvaluations, digest, evaluation);
+    pthread_mutex_unlock(&mav_trustEvaluationsLock);
+}
+
+// Keeps what 10.9 just evaluated beside the trust, and for every trust with the same input.
+static void mav_recordTrustEvaluation(SecTrustRef trust, CFDataRef digest, SecTrustResultType result)
 {
     if (!trust || result == kSecTrustResultInvalid)
         return;
@@ -983,56 +1304,80 @@ static void mav_recordTrustEvaluation(SecTrustRef trust, SecTrustResultType resu
     CFDictionaryRef evaluation = mav_createTrustEvaluation(result, chain, evaluatedAt, 0, 0);
     CFRelease(chain);
     mav_setTrustEvaluation(trust, evaluation);
+    if (result == kSecTrustResultProceed || result == kSecTrustResultUnspecified)
+        mav_keepTrustEvaluation(digest, evaluation);
     CFRelease(evaluation);
+}
+
+// The trust's lock is held from the lookup through 10.9's evaluation and its recording, so no other
+// caller changes the trust's policies while 10.9 reads them; 10.9 serializes evaluations of one trust
+// the same way.
+static OSStatus mav_evaluateTrust(SecTrustRef trust, SecTrustResultType *result)
+{
+    objc_sync_enter((id)trust);
+    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
+    CFDataRef digest = NULL;
+    if (!evaluation) {
+        digest = mav_copyTrustInputDigest(trust);
+        if (mav_installKeptTrustEvaluation(trust, digest))
+            evaluation = mav_copyTrustEvaluation(trust);
+    }
+    OSStatus status = errSecSuccess;
+    if (evaluation) {
+        *result = mav_trustEvaluationResult(evaluation);
+        CFRelease(evaluation);
+    } else {
+        status = mav_evaluateNativelyLocked(trust, result);
+        if (status == errSecSuccess)
+            mav_recordTrustEvaluation(trust, digest, *result);
+    }
+    if (digest)
+        CFRelease(digest);
+    objc_sync_exit((id)trust);
+    return status;
 }
 
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustEvaluate, (SecTrustRef trust, SecTrustResultType *result))
 {
-    if (!result)
+    if (!trust || !result)
         return WK_ORIGINAL(SecTrustEvaluate)(trust, result);
-    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
-    if (evaluation) {
-        *result = mav_trustEvaluationResult(evaluation);
-        CFRelease(evaluation);
-        return errSecSuccess;
-    }
-    OSStatus status = WK_ORIGINAL(SecTrustEvaluate)(trust, result);
-    if (status == errSecSuccess)
-        mav_recordTrustEvaluation(trust, *result);
-    return status;
+    return mav_evaluateTrust(trust, result);
 }
 
+// Security evaluates on the caller's queue and hands the callback kSecTrustResultInvalid when the
+// evaluation fails.
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustEvaluateAsync, (SecTrustRef trust, dispatch_queue_t queue, SecTrustCallback result))
 {
     if (!trust || !queue || !result)
         return WK_ORIGINAL(SecTrustEvaluateAsync)(trust, queue, result);
-    CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
-    if (evaluation) {
-        SecTrustResultType evaluated = mav_trustEvaluationResult(evaluation);
-        CFRelease(evaluation);
-        CFRetain(trust);
-        dispatch_async(queue, ^{
-            result(trust, evaluated);
-            CFRelease(trust);
-        });
-        return errSecSuccess;
-    }
-    return WK_ORIGINAL(SecTrustEvaluateAsync)(trust, queue, ^(SecTrustRef evaluatedTrust, SecTrustResultType evaluated) {
-        mav_recordTrustEvaluation(evaluatedTrust, evaluated);
-        result(evaluatedTrust, evaluated);
+    CFRetain(trust);
+    dispatch_async(queue, ^{
+        SecTrustResultType evaluated = kSecTrustResultInvalid;
+        if (mav_evaluateTrust(trust, &evaluated) != errSecSuccess)
+            evaluated = kSecTrustResultInvalid;
+        result(trust, evaluated);
+        CFRelease(trust);
     });
+    return errSecSuccess;
 }
 
 // Security's readers of evaluation state evaluate first when the trust holds no result
 // (SecTrustEvaluateIfNecessary); 10.9's report whatever its Trust holds.
 static void mav_evaluateNativelyIfNecessary(SecTrustRef trust)
 {
-    SecTrustResultType native = kSecTrustResultInvalid;
-    if (!trust || WK_ORIGINAL(SecTrustGetTrustResult)(trust, &native) != errSecSuccess || native != kSecTrustResultInvalid)
+    if (!trust)
         return;
-    SecTrustResultType evaluated = kSecTrustResultInvalid;
-    if (WK_ORIGINAL(SecTrustEvaluate)(trust, &evaluated) == errSecSuccess)
-        mav_recordTrustEvaluation(trust, evaluated);
+    objc_sync_enter((id)trust);
+    SecTrustResultType native = kSecTrustResultInvalid;
+    if (WK_ORIGINAL(SecTrustGetTrustResult)(trust, &native) == errSecSuccess && native == kSecTrustResultInvalid) {
+        CFDataRef digest = mav_copyTrustInputDigest(trust);
+        SecTrustResultType evaluated = kSecTrustResultInvalid;
+        if (mav_evaluateNativelyLocked(trust, &evaluated) == errSecSuccess)
+            mav_recordTrustEvaluation(trust, digest, evaluated);
+        if (digest)
+            CFRelease(digest);
+    }
+    objc_sync_exit((id)trust);
 }
 
 // What only 10.9's own evaluation holds.
@@ -1081,19 +1426,150 @@ WK_POLYFILL_REPLACES("Security", CFDataRef, SecTrustCopyExceptions, (SecTrustRef
 // Every input of an evaluation: setting one discards the evaluation beside the trust.
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetPolicies, (SecTrustRef trust, CFTypeRef policies))
 {
-    mav_setTrustEvaluation(trust, NULL);
-    return WK_ORIGINAL(SecTrustSetPolicies)(trust, policies);
+    if (!trust)
+        return WK_ORIGINAL(SecTrustSetPolicies)(trust, policies);
+    objc_sync_enter((id)trust);
+    CFArrayRef previous = mav_trustStateHolderLocked(trust, false);
+    if (!previous) {
+        objc_sync_exit((id)trust);
+        return WK_ORIGINAL(SecTrustSetPolicies)(trust, policies);
+    }
+    mav_retireTrustEvaluationLocked(previous);
+    // 10.9 takes a single policy in place of an array of one.
+    CFArrayRef callers = NULL;
+    if (policies && CFGetTypeID(policies) == CFArrayGetTypeID())
+        callers = (CFArrayRef)CFRetain(policies);
+    else if (policies)
+        callers = CFArrayCreate(NULL, &policies, 1, &kCFTypeArrayCallBacks);
+    OSStatus status = mav_installTrustStateHolderLocked(trust, callers, previous) ? errSecSuccess
+        : WK_ORIGINAL(SecTrustSetPolicies)(trust, policies);
+    if (callers)
+        CFRelease(callers);
+    objc_sync_exit((id)trust);
+    return status;
+}
+
+// Records the trust a holder answers for, and the input certificates that trust holds.
+static void mav_setTrustStateOwnerLocked(CFArrayRef holder, SecTrustRef trust, CFArrayRef certificates)
+{
+    int64_t address = (int64_t)(intptr_t)trust;
+    CFNumberRef owner = CFNumberCreate(NULL, kCFNumberSInt64Type, &address);
+    objc_setAssociatedObject((id)holder, mav_trustStateOwnerKey(), (id)owner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFRelease(owner);
+    objc_setAssociatedObject((id)holder, mav_trustStateHolderKey(), (id)certificates, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+// 10.9's own SecTrustCopyPolicies hands the holder out, and whoever receives it can give it to another
+// trust, which then holds it as well. A holder answers only for the trust it records, while that trust
+// holds the input certificates it records; the holder retains those, so their address is not reused.
+static bool mav_isTrustStateHolderOf(CFArrayRef policies, SecTrustRef trust, CFArrayRef certificates)
+{
+    CFNumberRef owner = (CFNumberRef)objc_getAssociatedObject((id)policies, mav_trustStateOwnerKey());
+    int64_t address = 0;
+    return objc_getAssociatedObject((id)policies, mav_trustStateHolderKey()) == (id)certificates
+        && owner && CFNumberGetValue(owner, kCFNumberSInt64Type, &address) && address == (int64_t)(intptr_t)trust;
+}
+
+static CFArrayRef mav_installTrustStateHolderLocked(SecTrustRef trust, CFArrayRef policies, CFArrayRef previous)
+{
+    CFArrayRef certificates = wk_trustInputCertificates(trust);
+    if (!certificates)
+        return NULL;
+    CFIndex count = policies ? CFArrayGetCount(policies) : 0;
+    const void **values = count ? malloc((size_t)count * sizeof(void *)) : NULL;
+    if (count && !values)
+        return NULL;
+    if (count)
+        CFArrayGetValues(policies, CFRangeMake(0, count), values);
+    CFArrayRef holder = CFArrayCreate(NULL, values, count, &kCFTypeArrayCallBacks);
+    free(values);
+    if (!holder)
+        return NULL;
+    mav_setTrustStateOwnerLocked(holder, trust, certificates);
+    if (previous) {
+        const void *keys[] = { mav_trustEvaluationKey(), mav_retiredTrustEvaluationsKey(), mav_trustSettingsKey() };
+        for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i)
+            objc_setAssociatedObject((id)holder, keys[i], objc_getAssociatedObject((id)previous, keys[i]), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    OSStatus status = WK_ORIGINAL(SecTrustSetPolicies)(trust, holder);
+    CFRelease(holder);
+    return status == errSecSuccess ? holder : NULL;
+}
+
+// A trust whose input certificates cannot be read -- 10.9 creates one from an empty array -- has no
+// identity a holder can check, and carries no state.
+static CFArrayRef mav_trustStateHolderLocked(SecTrustRef trust, bool create)
+{
+    CFArrayRef certificates = wk_trustInputCertificates(trust);
+    if (!certificates)
+        return NULL;
+    CFArrayRef policies = NULL;
+    if (WK_ORIGINAL(SecTrustCopyPolicies)(trust, &policies) != errSecSuccess)
+        policies = NULL;
+    if (policies && mav_isTrustStateHolderOf(policies, trust, certificates)) {
+        CFRelease(policies);
+        return policies;
+    }
+    CFArrayRef holder = create ? mav_installTrustStateHolderLocked(trust, policies, NULL) : NULL;
+    if (policies)
+        CFRelease(policies);
+    return holder;
+}
+
+// 10.9 evaluates with the revocation policy beside the caller's policies, and the trust holds the
+// caller's again as soon as it returns: 10.9's Trust::policies keeps the evaluation's result across a
+// change of policies, and what SecTrustCopyPolicies reports outside WebKit stays what the caller set.
+static OSStatus mav_evaluateNativelyLocked(SecTrustRef trust, SecTrustResultType *result)
+{
+    CFArrayRef holder = mav_trustStateHolderLocked(trust, true);
+    if (!holder)
+        return WK_ORIGINAL(SecTrustEvaluate)(trust, result);
+    CFRetain(holder);
+    bool hasRevocationPolicy = false;
+    CFIndex count = CFArrayGetCount(holder);
+    for (CFIndex i = 0; i < count && !hasRevocationPolicy; ++i)
+        hasRevocationPolicy = mav_isRevocationPolicy((SecPolicyRef)CFArrayGetValueAtIndex(holder, i));
+    SecPolicyRef revocation = hasRevocationPolicy ? NULL : mav_createRevocationPolicy(trust);
+    bool withRevocationPolicy = false;
+    if (revocation) {
+        CFMutableArrayRef evaluated = CFArrayCreateMutableCopy(NULL, count + 1, holder);
+        CFArrayAppendValue(evaluated, revocation);
+        withRevocationPolicy = WK_ORIGINAL(SecTrustSetPolicies)(trust, evaluated) == errSecSuccess;
+        CFRelease(evaluated);
+        CFRelease(revocation);
+    }
+    OSStatus status = WK_ORIGINAL(SecTrustEvaluate)(trust, result);
+    if (withRevocationPolicy)
+        WK_ORIGINAL(SecTrustSetPolicies)(trust, holder);
+    // An EV candidate's evaluation replaces the trust's input certificates.
+    CFArrayRef certificates = wk_trustInputCertificates(trust);
+    if (certificates)
+        mav_setTrustStateOwnerLocked(holder, trust, certificates);
+    CFRelease(holder);
+    return status;
 }
 
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetOptions, (SecTrustRef trust, SecTrustOptionFlags options))
 {
     mav_setTrustEvaluation(trust, NULL);
+    int64_t value = options;
+    CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt64Type, &value);
+    mav_recordTrustSetting(trust, CFSTR("options"), number);
+    CFRelease(number);
     return WK_ORIGINAL(SecTrustSetOptions)(trust, options);
 }
 
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetParameters, (SecTrustRef trust, CSSM_TP_ACTION action, CFDataRef actionData))
 {
     mav_setTrustEvaluation(trust, NULL);
+    int64_t value = action;
+    CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt64Type, &value);
+    mav_recordTrustSetting(trust, CFSTR("action"), number);
+    CFRelease(number);
+    CFDataRef noActionData = actionData ? NULL : CFDataCreate(NULL, NULL, 0);
+    mav_recordTrustSetting(trust, CFSTR("actionData"), actionData ? (CFTypeRef)actionData : (CFTypeRef)noActionData);
+    if (noActionData)
+        CFRelease(noActionData);
     return WK_ORIGINAL(SecTrustSetParameters)(trust, action, actionData);
 }
 
@@ -1106,12 +1582,14 @@ WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetAnchorCertificates, (SecTr
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetAnchorCertificatesOnly, (SecTrustRef trust, Boolean anchorCertificatesOnly))
 {
     mav_setTrustEvaluation(trust, NULL);
+    mav_recordTrustSetting(trust, CFSTR("anchorCertificatesOnly"), anchorCertificatesOnly ? kCFBooleanTrue : kCFBooleanFalse);
     return WK_ORIGINAL(SecTrustSetAnchorCertificatesOnly)(trust, anchorCertificatesOnly);
 }
 
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetKeychains, (SecTrustRef trust, CFTypeRef keychainOrArray))
 {
     mav_setTrustEvaluation(trust, NULL);
+    mav_recordTrustSetting(trust, CFSTR("keychains"), NULL);
     return WK_ORIGINAL(SecTrustSetKeychains)(trust, keychainOrArray);
 }
 
@@ -1130,35 +1608,35 @@ WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetNetworkFetchAllowed, (SecT
 WK_POLYFILL_REPLACES("Security", OSStatus, SecTrustSetOCSPResponse, (SecTrustRef trust, CFTypeRef responseData))
 {
     mav_setTrustEvaluation(trust, NULL);
+    CFDataRef none = responseData ? NULL : CFDataCreate(NULL, NULL, 0);
+    mav_recordTrustSetting(trust, CFSTR("ocspResponse"), responseData ? responseData : (CFTypeRef)none);
+    if (none)
+        CFRelease(none);
     return WK_ORIGINAL(SecTrustSetOCSPResponse)(trust, responseData);
 }
 
 WK_POLYFILL_REPLACES("Security", bool, SecTrustSetExceptions, (SecTrustRef trust, CFDataRef exceptions))
 {
     mav_setTrustEvaluation(trust, NULL);
+    CFDataRef none = exceptions ? NULL : CFDataCreate(NULL, NULL, 0);
+    mav_recordTrustSetting(trust, CFSTR("exceptions"), exceptions ? (CFTypeRef)exceptions : (CFTypeRef)none);
+    if (none)
+        CFRelease(none);
     return WK_ORIGINAL(SecTrustSetExceptions)(trust, exceptions);
 }
 
 #pragma clang diagnostic pop
 
-WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust, CFErrorRef *error))
+// Every input of a trust's evaluation that Security reads back, as a property list: certificates,
+// policies, custom anchors, the network-fetch setting, the verify date, and what the setters below
+// were given. NULL for a trust with an input that cannot be read back whole.
+static CFMutableDictionaryRef mav_copyTrustInputState(SecTrustRef trust)
 {
-    if (error)
-        *error = NULL;
-    if (!trust) {
-        mav_reportOSStatus(error, errSecParam);
-        return NULL;
-    }
-
-    // The sender's own certificates, read without an evaluation. A blob is written only from state the
-    // receiver can put back whole; anything short of that fails here rather than deserializing as a
-    // different trust.
+    // The sender's own certificates, read without an evaluation.
     CFArrayRef certificateDatas = mav_certificateDataArray(wk_trustInputCertificates(trust));
-    if (!certificateDatas) {
-        mav_reportOSStatus(error, errSecParam);
+    if (!certificateDatas)
         return NULL;
-    }
-    CFMutableDictionaryRef state = CFDictionaryCreateMutable(NULL, 7, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFMutableDictionaryRef state = CFDictionaryCreateMutable(NULL, 8, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFDictionarySetValue(state, kMavTrustCertificates, certificateDatas);
     CFRelease(certificateDatas);
 
@@ -1174,7 +1652,6 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
         if (policies)
             CFRelease(policies);
         CFRelease(state);
-        mav_reportOSStatus(error, errSecParam);
         return NULL;
     }
     CFIndex policyCount = CFArrayGetCount(policies);
@@ -1185,7 +1662,6 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
             CFRelease(described);
             CFRelease(policies);
             CFRelease(state);
-            mav_reportOSStatus(error, errSecParam);
             return NULL;
         }
         CFArrayAppendValue(described, one);
@@ -1201,7 +1677,6 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
         CFRelease(anchors);
         if (!anchorDatas) {
             CFRelease(state);
-            mav_reportOSStatus(error, errSecParam);
             return NULL;
         }
         CFDictionarySetValue(state, kMavTrustAnchors, anchorDatas);
@@ -1217,6 +1692,38 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
         CFNumberRef date = CFNumberCreate(NULL, kCFNumberDoubleType, &verifyTime);
         CFDictionarySetValue(state, kMavTrustVerifyDate, date);
         CFRelease(date);
+    }
+
+    objc_sync_enter((id)trust);
+    CFArrayRef holder = mav_trustStateHolderLocked(trust, false);
+    CFDictionaryRef settings = holder ? (CFDictionaryRef)objc_getAssociatedObject((id)holder, mav_trustSettingsKey()) : NULL;
+    if (settings) {
+        if (CFDictionaryGetValue(settings, kMavTrustUnreadableSetting)) {
+            objc_sync_exit((id)trust);
+            CFRelease(state);
+            return NULL;
+        }
+        CFDictionarySetValue(state, kMavTrustSettings, settings);
+    }
+    objc_sync_exit((id)trust);
+    return state;
+}
+
+WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust, CFErrorRef *error))
+{
+    if (error)
+        *error = NULL;
+    if (!trust) {
+        mav_reportOSStatus(error, errSecParam);
+        return NULL;
+    }
+
+    // A blob is written only from state the receiver can put back whole; anything short of that fails
+    // here rather than deserializing as a different trust.
+    CFMutableDictionaryRef state = mav_copyTrustInputState(trust);
+    if (!state) {
+        mav_reportOSStatus(error, errSecParam);
+        return NULL;
     }
 
     CFDictionaryRef evaluation = mav_copyTrustEvaluation(trust);
@@ -1321,6 +1828,10 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         }
     }
 
+    CFDictionaryRef settings = (CFDictionaryRef)CFDictionaryGetValue(state, kMavTrustSettings);
+    if (settings && CFGetTypeID(settings) == CFDictionaryGetTypeID())
+        mav_applyTrustSettings(trust, settings);
+
     // Installed last: every setter above discards an evaluation.
     CFArrayRef chain = mav_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kMavTrustChain));
     CFNumberRef resultNumber = (CFNumberRef)CFDictionaryGetValue(state, kMavTrustResult);
@@ -1385,11 +1896,10 @@ WK_POLYFILL_ABSENT("Security", CFArrayRef, SecTrustCopyCertificateChain, (SecTru
 // Security — trust evaluation
 // ---------------------------------------------------------------------------------------------------
 
-// 10.9's SecTrustEvaluate and SecPolicyCreateRevocation work, so WebKit calls them directly.
-// Verified on-host: SecPolicyCreateRevocation returns a real policy, and SecTrustEvaluate on a trust
-// built with both an SSL and a revocation policy returns errSecSuccess without faulting in
-// compareRevocationPolicies. The trust CFNetwork hands WebKit carries an SSL policy built with the
-// server's hostname, and evaluating it unmodified is what checks that hostname.
+// 10.9's SecTrustEvaluate checks the chain, the hostname the SSL policy carries and revocation;
+// the replacements above add the revocation policy it evaluates with and keep its results.
+// SecPolicyCreateRevocation returns a real policy, and a trust built with both an SSL and a revocation
+// policy evaluates without faulting in compareRevocationPolicies.
 
 // SecTrustEvaluateWithError (10.14+) is the error-reporting spelling of SecTrustEvaluate: it reports
 // success for the two "trusted" result types and otherwise builds a CFError describing why. Built on
@@ -1482,16 +1992,13 @@ WK_POLYFILL_ABSENT("Security", OSStatus, SecTrustEvaluateAsyncWithError,
 // ---------------------------------------------------------------------------------------------------
 
 // SecCertificateCopyKey (10.14+) is the renamed SecCertificateCopyPublicKey: same job -- hand back the
-// certificate's public key as a +1 SecKeyRef -- with the status folded into the return value. 10.9
-// exports the older spelling (nm-verified), so this is implementable rather than a stub, and it is
-// implemented even though nothing in this tree calls it: a polyfill has to be right for any caller,
-// and returning NULL for a key 10.9 can produce would be a fake answer the moment a rebase adds one.
-// Reached by name because Security is not linked into every image that force-loads this archive.
+// certificate's public key as a +1 SecKeyRef -- with the status folded into the return value. Reached by
+// name because Security is not linked into every image that force-loads this archive.
 WK_SYSTEM_FN("Security", OSStatus, SecCertificateCopyPublicKey, (SecCertificateRef, SecKeyRef *));
 
 WK_POLYFILL_ABSENT("Security", SecKeyRef, SecCertificateCopyKey, (SecCertificateRef certificate))
 {
-    if (!certificate || !WK_SYSTEM(SecCertificateCopyPublicKey))
+    if (!certificate)
         return NULL;
     SecKeyRef key = NULL;
     if (WK_SYSTEM(SecCertificateCopyPublicKey)(certificate, &key) != errSecSuccess)
@@ -1507,6 +2014,7 @@ WK_SYSTEM_FN("Security", OSStatus, SecKeyDecrypt, (SecKeyRef, uint32_t, const ui
 WK_SYSTEM_FN("Security", OSStatus, SecKeyGeneratePair, (CFDictionaryRef, SecKeyRef *, SecKeyRef *));
 WK_SYSTEM_FN("Security", size_t, SecKeyGetBlockSize, (SecKeyRef));
 WK_SYSTEM_FN("Security", OSStatus, SecKeyGetCSSMKey, (SecKeyRef, const CSSM_KEY **));
+WK_SYSTEM_FN("Security", SecKeyRef, SecKeyCreatePublicFromPrivate, (SecKeyRef));
 WK_SYSTEM_FN("Security", OSStatus, SecItemExport, (CFTypeRef, SecExternalFormat, SecItemImportExportFlags,
     const SecItemImportExportKeyParameters *, CFDataRef *));
 WK_SYSTEM_FN("Security", OSStatus, SecItemImport, (CFDataRef, CFStringRef, SecExternalFormat *,
@@ -1696,11 +2204,7 @@ static CFDataRef mav_secKeyTransform(SecKeyRef key, CFStringRef algorithm, CFDat
 {
     uint32_t padding = 0;
     mav_digest digest = MAV_DIGEST_NONE;
-    if (!key || !input || !operation || !mav_secPaddingForAlgorithm(algorithm, &padding, &digest)) {
-        mav_reportUnimplemented(error);
-        return NULL;
-    }
-    if (!WK_SYSTEM(SecKeyGetBlockSize)) {
+    if (!key || !input || !mav_secPaddingForAlgorithm(algorithm, &padding, &digest)) {
         mav_reportUnimplemented(error);
         return NULL;
     }
@@ -1754,68 +2258,6 @@ static CFDataRef mav_secKeyTransform(SecKeyRef key, CFStringRef algorithm, CFDat
     return result;
 }
 
-// SecKeyCopyExternalRepresentation's contract is the bare representation of a public key: PKCS#1
-// RSAPublicKey for RSA, the ANSI X9.63 uncompressed point 04||X||Y for EC. SecItemExport's shape
-// follows the key's CSSM blob format rather than its algorithm, so it is not one shape to strip:
-// measured on this OS, a certificate-derived RSA key (KeyHeader.Format PKCS1) exports the bare
-// PKCS#1 already, while a generated RSA key (format NONE) and every EC key export a
-// SubjectPublicKeyInfo -- SEQUENCE { AlgorithmIdentifier, BIT STRING } -- whose BIT STRING carries
-// the bare form. These two put that wrapper on and take it off so both directions meet the system's
-// contract whichever shape the export chose.
-//
-// Minimal DER: a definite-length tag whose length is short-form (< 0x80) or long-form (0x8n followed
-// by n length bytes). Nothing here parses beyond the two nested headers it has to step over.
-static bool mav_derReadHeader(const uint8_t *bytes, size_t length, size_t *offset, uint8_t *tag, size_t *contentLength)
-{
-    size_t at = *offset;
-    // Every bound is a subtraction from the remaining length: a long-form size is attacker-shaped and
-    // an addition would wrap past it.
-    if (at > length || length - at < 2)
-        return false;
-    *tag = bytes[at++];
-    size_t size = bytes[at++];
-    if (size & 0x80) {
-        size_t count = size & 0x7f;
-        if (!count || count > sizeof(size_t) || count > length - at)
-            return false;
-        size = 0;
-        for (size_t i = 0; i < count; ++i)
-            size = (size << 8) | bytes[at++];
-    }
-    if (size > length - at)
-        return false;
-    *contentLength = size;
-    *offset = at;
-    return true;
-}
-
-// The BIT STRING contents of a SubjectPublicKeyInfo, minus its unused-bits octet.
-static CFDataRef mav_copySubjectPublicKeyBits(CFDataRef spki)
-{
-    const uint8_t *bytes = CFDataGetBytePtr(spki);
-    size_t length = (size_t)CFDataGetLength(spki);
-    size_t offset = 0, size = 0;
-    uint8_t tag = 0;
-
-    if (!mav_derReadHeader(bytes, length, &offset, &tag, &size) || tag != 0x30)
-        return NULL;
-    size_t end = offset + size;
-
-    // What the outer SEQUENCE opens with tells the two shapes apart with no overlap.
-    if (!mav_derReadHeader(bytes, end, &offset, &tag, &size))
-        return NULL;
-    // PKCS#1 RSAPublicKey -- SEQUENCE { INTEGER, INTEGER } -- is already the bare representation.
-    if (tag == 0x02)
-        return CFDataCreateCopy(kCFAllocatorDefault, spki);
-    if (tag != 0x30)
-        return NULL;
-    offset += size; // step over the AlgorithmIdentifier
-    if (!mav_derReadHeader(bytes, end, &offset, &tag, &size) || tag != 0x03 || !size)
-        return NULL;
-    // The first content octet of a BIT STRING counts its unused trailing bits; a key has none.
-    return CFDataCreate(kCFAllocatorDefault, bytes + offset + 1, (CFIndex)(size - 1));
-}
-
 // DER requires the shortest length encoding that fits: one byte below 128, then 0x81 and a byte, then
 // 0x82 and two. A 4096-bit RSA SubjectPublicKeyInfo needs the last of those.
 static size_t mav_derHeaderLength(size_t contentLength)
@@ -1846,6 +2288,110 @@ static bool mav_derAppendHeader(CFMutableDataRef data, uint8_t tag, size_t conte
     header[2] = (uint8_t)(contentLength >> 8);
     header[3] = (uint8_t)contentLength;
     CFDataAppendBytes(data, header, 4);
+    return true;
+}
+
+// SecKeyCopyExternalRepresentation's contract is a key's bare representation: PKCS#1 RSAPublicKey or
+// RSAPrivateKey for RSA; for EC the ANSI X9.63 uncompressed point 04||X||Y, followed for a private key by
+// the scalar K at the same width. SecItemExport's shape follows the key's CSSM blob format rather than
+// its algorithm: measured on this OS, a certificate-derived RSA public key (KeyHeader.Format PKCS1)
+// exports bare PKCS#1, every other public key a SubjectPublicKeyInfo whose BIT STRING carries the bare
+// form, an RSA private key its PKCS#1 RSAPrivateKey and an EC private key a SEC1 ECPrivateKey, whose
+// publicKey field carries the point. The key's bare representation and its public half's are both read
+// from that.
+typedef struct {
+    bool isEC;
+    CFDataRef bare;
+    CFDataRef publicBare;
+} MavKeyExport;
+
+static void mav_releaseKeyExport(MavKeyExport *key)
+{
+    if (key->bare)
+        CFRelease(key->bare);
+    if (key->publicBare)
+        CFRelease(key->publicBare);
+}
+
+static CFDataRef mav_createDataFromCBS(const CBS *cbs)
+{
+    return CFDataCreate(kCFAllocatorDefault, CBS_data(cbs), (CFIndex)CBS_len(cbs));
+}
+
+static bool mav_readKeyExport(CFDataRef exported, MavKeyExport *key)
+{
+    static const uint8_t idECPublicKey[] = { 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
+    memset(key, 0, sizeof(*key));
+    CBS der, sequence;
+    CBS_init(&der, CFDataGetBytePtr(exported), (size_t)CFDataGetLength(exported));
+    if (!CBS_get_asn1(&der, &sequence, CBS_ASN1_SEQUENCE) || CBS_len(&der))
+        return false;
+
+    // SubjectPublicKeyInfo ::= SEQUENCE { algorithm AlgorithmIdentifier, subjectPublicKey BIT STRING }
+    if (CBS_peek_asn1_tag(&sequence, CBS_ASN1_SEQUENCE)) {
+        CBS algorithm, oid, bits;
+        uint8_t unusedBits;
+        if (!CBS_get_asn1(&sequence, &algorithm, CBS_ASN1_SEQUENCE) || !CBS_get_asn1(&algorithm, &oid, CBS_ASN1_OBJECT)
+            || !CBS_get_asn1(&sequence, &bits, CBS_ASN1_BITSTRING) || !CBS_get_u8(&bits, &unusedBits) || unusedBits)
+            return false;
+        key->isEC = CBS_mem_equal(&oid, idECPublicKey, sizeof(idECPublicKey));
+        key->bare = mav_createDataFromCBS(&bits);
+        key->publicBare = key->bare ? (CFDataRef)CFRetain(key->bare) : NULL;
+        return key->bare != NULL;
+    }
+
+    CBS first;
+    if (!CBS_get_asn1(&sequence, &first, CBS_ASN1_INTEGER))
+        return false;
+
+    // ECPrivateKey ::= SEQUENCE { version INTEGER (1), privateKey OCTET STRING,
+    //                             parameters [0] namedCurve OID OPTIONAL, publicKey [1] BIT STRING OPTIONAL }
+    if (CBS_peek_asn1_tag(&sequence, CBS_ASN1_OCTETSTRING)) {
+        CBS scalar, publicKey, point;
+        uint8_t unusedBits;
+        if (!CBS_get_asn1(&sequence, &scalar, CBS_ASN1_OCTETSTRING)
+            || !CBS_get_optional_asn1(&sequence, NULL, NULL, CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0)
+            || !CBS_get_asn1(&sequence, &publicKey, CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 1)
+            || !CBS_get_asn1(&publicKey, &point, CBS_ASN1_BITSTRING) || !CBS_get_u8(&point, &unusedBits) || unusedBits
+            || CBS_len(&point) < 3 || !(CBS_len(&point) & 1) || CBS_data(&point)[0] != 0x04)
+            return false;
+        size_t fieldLength = (CBS_len(&point) - 1) / 2;
+        if (CBS_len(&scalar) > fieldLength)
+            return false;
+        CFMutableDataRef bare = CFDataCreateMutable(kCFAllocatorDefault, 0);
+        if (!bare)
+            return false;
+        CFDataAppendBytes(bare, CBS_data(&point), (CFIndex)CBS_len(&point));
+        CFDataIncreaseLength(bare, (CFIndex)(fieldLength - CBS_len(&scalar))); // zero-filled
+        CFDataAppendBytes(bare, CBS_data(&scalar), (CFIndex)CBS_len(&scalar));
+        key->isEC = true;
+        key->bare = bare;
+        key->publicBare = mav_createDataFromCBS(&point);
+        return key->publicBare != NULL;
+    }
+
+    // RSAPublicKey ::= SEQUENCE { modulus, publicExponent }
+    // RSAPrivateKey ::= SEQUENCE { version, modulus, publicExponent, privateExponent, ... }
+    CBS second, third;
+    if (!CBS_get_asn1_element(&sequence, &second, CBS_ASN1_INTEGER))
+        return false;
+    key->bare = CFDataCreateCopy(kCFAllocatorDefault, exported);
+    if (!key->bare)
+        return false;
+    if (!CBS_len(&sequence)) {
+        key->publicBare = (CFDataRef)CFRetain(key->bare);
+        return true;
+    }
+    if (!CBS_get_asn1_element(&sequence, &third, CBS_ASN1_INTEGER))
+        return false;
+    CFMutableDataRef publicBare = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    if (!publicBare)
+        return false;
+    key->publicBare = publicBare;
+    if (!mav_derAppendHeader(publicBare, 0x30, CBS_len(&second) + CBS_len(&third)))
+        return false;
+    CFDataAppendBytes(publicBare, CBS_data(&second), (CFIndex)CBS_len(&second));
+    CFDataAppendBytes(publicBare, CBS_data(&third), (CFIndex)CBS_len(&third));
     return true;
 }
 
@@ -1955,12 +2501,11 @@ static CFDataRef mav_copyECSubjectPublicKeyInfo(CFDataRef point)
 // A private EC key's bare representation is the X9.63 concatenation 04||X||Y||K -- the uncompressed
 // point followed by the private scalar, all three at the curve's field width, so the total length
 // gives that width as (length - 1) / 3. SecItemImport reads a SEC1 ECPrivateKey instead, so the
-// concatenation is rewritten into one; the point is handed back separately for the caller to keep as
-// the key's public half.
+// concatenation is rewritten into one, carrying the point as its publicKey.
 //
 //   ECPrivateKey ::= SEQUENCE { version INTEGER (1), privateKey OCTET STRING,
 //                               parameters [0] namedCurve OID, publicKey [1] BIT STRING }
-static CFDataRef mav_copyECPrivateKey(CFDataRef x963, CFDataRef *publicPoint)
+static CFDataRef mav_copyECPrivateKey(CFDataRef x963)
 {
     size_t length = (size_t)CFDataGetLength(x963);
     if (length < 4 || (length - 1) % 3)
@@ -2011,22 +2556,15 @@ static CFDataRef mav_copyECPrivateKey(CFDataRef x963, CFDataRef *publicPoint)
     const uint8_t unusedBits = 0x00;
     CFDataAppendBytes(der, &unusedBits, 1);
     CFDataAppendBytes(der, bytes, (CFIndex)pointLength);
-
-    if (publicPoint)
-        *publicPoint = CFDataCreate(kCFAllocatorDefault, bytes, (CFIndex)pointLength);
     return der;
 }
 
-// The public half of an EC key the caller supplied a point for, imported so SecKeyCopyPublicKey can
-// hand it back.
-static SecKeyRef mav_createECPublicKey(CFDataRef point)
+// The public key a bare representation names, imported from its SubjectPublicKeyInfo.
+static SecKeyRef mav_createPublicKey(CFDataRef publicBare, bool isEC)
 {
-    CFDataRef spki = mav_copyECSubjectPublicKeyInfo(point);
-    if (!spki || !WK_SYSTEM(SecItemImport)) {
-        if (spki)
-            CFRelease(spki);
+    CFDataRef spki = isEC ? mav_copyECSubjectPublicKeyInfo(publicBare) : mav_copyRSASubjectPublicKeyInfo(publicBare);
+    if (!spki)
         return NULL;
-    }
     SecExternalFormat format = kSecFormatOpenSSL;
     SecExternalItemType itemType = kSecItemTypePublicKey;
     SecItemImportExportKeyParameters params;
@@ -2046,42 +2584,27 @@ static SecKeyRef mav_createECPublicKey(CFDataRef point)
     return key;
 }
 
-// A private key carries its public half as an association, which SecKeyCopyPublicKey reads back. The
-// association is torn down with the private key, so there is no registry to outlive it.
-static const void *mav_publicKeyAssociationKey(void)
-{
-    // The SEL is the one address every image's copy of this archive agrees on.
-    static const void *key;
-    if (!key)
-        key = (const void *)sel_registerName("wk_secKeyPublicHalf");
-    return key;
-}
-
-static void mav_setPublicKeyHalf(SecKeyRef privateKey, SecKeyRef publicKey)
-{
-    objc_setAssociatedObject((id)(void *)privateKey, mav_publicKeyAssociationKey(),
-        (id)publicKey, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
 WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCopyExternalRepresentation, (SecKeyRef key, CFErrorRef *error))
 {
-    if (!key || !WK_SYSTEM(SecItemExport)) {
+    if (!key) {
         mav_reportUnimplemented(error);
         return NULL;
     }
     CFDataRef exported = NULL;
     OSStatus status = WK_SYSTEM(SecItemExport)(key, kSecFormatOpenSSL, 0, NULL, &exported);
     if (status != errSecSuccess) {
-        // A keychain-less private key cannot be exported without a passphrase, which this API has no
-        // way to carry; that is the status the caller is told.
+        // A sensitive or non-extractable key does not export; that is the status the caller is told.
         if (exported)
             CFRelease(exported);
         mav_reportOSStatus(error, status);
         return NULL;
     }
 
-    CFDataRef bare = mav_copySubjectPublicKeyBits(exported);
+    MavKeyExport parsed;
+    bool read = mav_readKeyExport(exported, &parsed);
     CFRelease(exported);
+    CFDataRef bare = read ? (CFDataRef)CFRetain(parsed.bare) : NULL;
+    mav_releaseKeyExport(&parsed);
     if (!bare)
         mav_reportOSStatus(error, errSecDecode);
     return bare;
@@ -2089,7 +2612,7 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCopyExternalRepresentation, (Sec
 
 WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyData, CFDictionaryRef attributes, CFErrorRef *error))
 {
-    if (!keyData || !attributes || !WK_SYSTEM(SecItemImport)) {
+    if (!keyData || !attributes) {
         mav_reportUnimplemented(error);
         return NULL;
     }
@@ -2107,9 +2630,8 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
     // SecKeyCopyExternalRepresentation strips off. A PKCS#1 RSAPrivateKey is already that shape.
     CFStringRef keyType = (CFStringRef)CFDictionaryGetValue(attributes, kSecAttrKeyType);
     CFDataRef wrapped = NULL;
-    CFDataRef publicPoint = NULL;
     if (mav_isECKeyType(keyType))
-        wrapped = itemType == kSecItemTypePrivateKey ? mav_copyECPrivateKey(keyData, &publicPoint)
+        wrapped = itemType == kSecItemTypePrivateKey ? mav_copyECPrivateKey(keyData)
                                                      : mav_copyECSubjectPublicKeyInfo(keyData);
     else if (itemType == kSecItemTypePublicKey)
         wrapped = mav_copyRSASubjectPublicKeyInfo(keyData);
@@ -2118,17 +2640,23 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
     SecItemImportExportKeyParameters params;
     memset(&params, 0, sizeof(params));
     params.version = SEC_KEY_IMPORT_EXPORT_PARAMS_VERSION;
+    // A key made from data hands its representation back through SecKeyCopyExternalRepresentation.
+    // SecItemImport marks an imported private key sensitive unless told which attributes it has, and 10.9
+    // does not export a sensitive key.
+    const void *extractable[] = { kSecAttrIsExtractable };
+    CFArrayRef keyAttributes = CFArrayCreate(NULL, extractable, 1, &kCFTypeArrayCallBacks);
+    params.keyAttributes = keyAttributes;
 
     CFArrayRef items = NULL;
     OSStatus status = WK_SYSTEM(SecItemImport)(wrapped ? wrapped : keyData, NULL, &format, &itemType,
         0, &params, NULL, &items);
+    if (keyAttributes)
+        CFRelease(keyAttributes);
     if (wrapped)
         CFRelease(wrapped);
     if (status != errSecSuccess || !items || !CFArrayGetCount(items)) {
         if (items)
             CFRelease(items);
-        if (publicPoint)
-            CFRelease(publicPoint);
         mav_reportOSStatus(error, status == errSecSuccess ? errSecDecode : status);
         return NULL;
     }
@@ -2136,15 +2664,6 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
     CFTypeRef item = CFArrayGetValueAtIndex(items, 0);
     SecKeyRef key = (item && CFGetTypeID(item) == SecKeyGetTypeID()) ? (SecKeyRef)CFRetain(item) : NULL;
     CFRelease(items);
-    if (key && publicPoint) {
-        SecKeyRef publicKey = mav_createECPublicKey(publicPoint);
-        if (publicKey) {
-            mav_setPublicKeyHalf(key, publicKey);
-            CFRelease(publicKey);
-        }
-    }
-    if (publicPoint)
-        CFRelease(publicPoint);
     if (!key)
         mav_reportOSStatus(error, errSecDecode);
     return key;
@@ -2152,7 +2671,7 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
 
 WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateRandomKey, (CFDictionaryRef parameters, CFErrorRef *error))
 {
-    if (!parameters || !WK_SYSTEM(SecKeyGeneratePair)) {
+    if (!parameters) {
         mav_reportUnimplemented(error);
         return NULL;
     }
@@ -2167,11 +2686,8 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateRandomKey, (CFDictionaryRe
         mav_reportOSStatus(error, status == errSecSuccess ? errSecInternalError : status);
         return NULL;
     }
-    // SecKeyCopyPublicKey is the caller's next call; the pair's public half is what it wants.
-    if (publicKey) {
-        mav_setPublicKeyHalf(privateKey, publicKey);
+    if (publicKey)
         CFRelease(publicKey);
-    }
     return privateKey; // +1, as the modern constructor returns
 }
 
@@ -2307,17 +2823,26 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateDecryptedData, (SecKeyRef 
     return mav_secKeyTransform(key, algorithm, ciphertext, WK_SYSTEM(SecKeyDecrypt), error);
 }
 
-// The public half a key was created with: the other half of a generated pair, or the point an imported
-// EC private key carried. 10.9 stores a SecKey as CSSM_KEYBLOB_REFERENCE and exports no accessor
-// between the halves of a pair, so a key that arrived with neither has none to hand back.
+// Security reads a key's public half off the key itself (SecKeyCopyPublicBytes, then
+// SecKeyCreateFromPublicData). 10.9's SecKeyCopyPublicBytes reads only a public key's export, so the
+// public half is read off the key's own export, which for a private key carries it. A key that does not
+// export has 10.9's SecKeyCreatePublicFromPrivate find its other half in a keychain.
 WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCopyPublicKey, (SecKeyRef key))
 {
     if (!key)
         return NULL;
-    SecKeyRef publicKey = (SecKeyRef)objc_getAssociatedObject((id)(void *)key, mav_publicKeyAssociationKey());
-    if (!publicKey || CFGetTypeID(publicKey) != SecKeyGetTypeID())
-        return NULL;
-    return (SecKeyRef)CFRetain(publicKey);
+    CFDataRef exported = NULL;
+    if (WK_SYSTEM(SecItemExport)(key, kSecFormatOpenSSL, 0, NULL, &exported) != errSecSuccess || !exported) {
+        if (exported)
+            CFRelease(exported);
+        return WK_SYSTEM(SecKeyCreatePublicFromPrivate)(key);
+    }
+    MavKeyExport parsed;
+    bool read = mav_readKeyExport(exported, &parsed);
+    CFRelease(exported);
+    SecKeyRef publicKey = read ? mav_createPublicKey(parsed.publicBare, parsed.isEC) : NULL;
+    mav_releaseKeyExport(&parsed);
+    return publicKey;
 }
 
 // 10.9 keeps a key's real shape in its CSSM header, which SecKeyGetCSSMKey vends: the logical size in
@@ -2326,8 +2851,7 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCopyPublicKey, (SecKeyRef key))
 WK_POLYFILL_ABSENT("Security", CFDictionaryRef, SecKeyCopyAttributes, (SecKeyRef key))
 {
     const CSSM_KEY *cssmKey = NULL;
-    if (!key || !WK_SYSTEM(SecKeyGetCSSMKey)
-        || WK_SYSTEM(SecKeyGetCSSMKey)(key, &cssmKey) != errSecSuccess || !cssmKey)
+    if (!key || WK_SYSTEM(SecKeyGetCSSMKey)(key, &cssmKey) != errSecSuccess || !cssmKey)
         return NULL;
 
     CFMutableDictionaryRef attributes = CFDictionaryCreateMutable(kCFAllocatorDefault, 3,
