@@ -3,8 +3,8 @@
 // is routinely allocated where a released one lived; the new trust must evaluate for itself. The pair used
 // here is a system anchor evaluated as itself (accepted) and the same certificate evaluated for a host it
 // does not name (refused), alternated so each refused trust is created right after an accepted one is
-// released. The revocation policy the polyfill evaluates with never shows in the policies 10.9's own
-// SecTrustCopyPolicies reports; an array 10.9 hands out and a caller gives to another trust does not
+// released. SecTrustCopyPolicies reports the caller's policies, never the array the polyfill keeps the
+// trust's state on; an array 10.9 hands out and a caller gives to another trust does not
 // answer for that trust; and evaluations racing setters on one trust leave every array alive.
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
@@ -184,8 +184,8 @@ int main(void)
     snprintf(what, sizeof what, "each of those evaluated for itself and was refused (%d/%d)", refusedAtReusedAddress, reused);
     check(refusedAtReusedAddress == reused, what);
 
-    // SecTrustCopyPolicies hands back the caller's policies, never the polyfill's revocation policy, and
-    // a copy that stays the caller's after the trust changes.
+    // SecTrustCopyPolicies hands back the caller's policies, as a copy that stays the caller's after the
+    // trust changes.
     SecTrustRef trust = NULL;
     SecTrustCreateWithCertificates(certificates, wrongHost, &trust);
     SecTrustResultType result;
@@ -228,7 +228,7 @@ int main(void)
         "after an evaluation 10.9's own SecTrustCopyPolicies reports exactly the caller's policy");
     SecTrustResultType native = kSecTrustResultInvalid;
     stockGetTrustResult(refused, &native);
-    check(native == result, "10.9's own evaluation result survives the policies being handed back");
+    check(native == result, "10.9's own evaluation result survives the state array installed before it");
     OSStatus code = 0;
     SecTrustGetCssmResultCode(refused, &code);
     SecTrustResultType nativeAfter = kSecTrustResultInvalid;

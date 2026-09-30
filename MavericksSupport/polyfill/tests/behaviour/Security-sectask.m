@@ -55,8 +55,7 @@ static NSString *signingIdentifierForPid(pid_t pid)
 int main(void)
 {
     @autoreleasepool {
-        // The polyfill recovers the pid a SecTaskRef names by calibrating against synthetic tokens.
-        // If that ever stops working every check below fails, which is the point.
+        // The polyfill reads the pid a SecTaskRef names out of the task; every check below depends on it.
         NSString *launchd = signingIdentifierForPid(1);
         printf("  pid 1 -> %s\n", launchd ? [launchd UTF8String] : "(NULL)");
         check(launchd != nil, "SecTaskCopySigningIdentifier returns an identifier, not NULL");
