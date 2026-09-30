@@ -258,7 +258,7 @@ static void get_sleep_offset(void)
   if (!first_offset && offset < 0) first_offset = offset;
   sleep_info_raw = si;
 
-  if (offset - first_offset > sleep_offset + minsleepadj) {
+  if (offset - first_offset > (int64_t) sleep_offset + minsleepadj) {
     sleep_offset = offset - first_offset;
     sleep_info = si;
   }

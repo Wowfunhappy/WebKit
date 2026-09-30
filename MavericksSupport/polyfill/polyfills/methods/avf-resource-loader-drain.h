@@ -8,10 +8,12 @@
 //
 // The request objects are real subclasses of the three AVAssetResourceLoading* classes, created at
 // runtime because this layer does not link AVFoundation, and instantiated with class_createInstance so
-// no AVFoundation initializer runs. A delegate's isKindOfClass: and every accessor the protocol
-// exposes therefore answer as they would for AVFoundation's own requests. -finishLoading and
-// -finishLoadingWithError: signal a semaphore, so a delegate that answers on another thread is served
-// as well as one that answers inline.
+// no AVFoundation initializer runs; their -dealloc is NSObject's for the same reason. A delegate's
+// isKindOfClass: and every accessor the protocol exposes therefore answer as they would for
+// AVFoundation's own requests. -finishLoading and -finishLoadingWithError: signal a semaphore, so a
+// delegate that answers on another thread is served as well as one that answers inline.
+//
+// AVFoundation.m, which includes this, is compiled without ARC.
 
 #ifndef WK_AVF_RESOURCE_LOADER_DRAIN_H
 #define WK_AVF_RESOURCE_LOADER_DRAIN_H
@@ -21,6 +23,7 @@
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
 #import <objc/message.h>
+#import <objc/objc-sync.h>
 #import <objc/runtime.h>
 
 // One drain's state, shared by the three synthetic request objects that carry it.
@@ -40,6 +43,17 @@
 @end
 
 @implementation WKAVFDrain
+- (void)dealloc
+{
+    [_url release];
+    [_received release];
+    [_contentType release];
+    [_error release];
+    [_infoRequest release];
+    [_dataRequest release];
+    [_done release];
+    [super dealloc];
+}
 @end
 
 static const void * const wkAVFDrainKey = &wkAVFDrainKey;
@@ -59,6 +73,8 @@ static WKAVFDrain *wkAVFDrainOf(id request)
 {
     if (_path)
         [[NSFileManager defaultManager] removeItemAtPath:_path error:nil];
+    [_path release];
+    [super dealloc];
 }
 @end
 
@@ -76,19 +92,23 @@ static NSString *wkAVFContentTypeAsUTI(NSString *type)
     return CFBridgingRelease(identifier);
 }
 
+// Every image that carries this layer reaches here, so the class is looked up by name, and made under
+// a lock on the superclass, which all of them share.
 static Class wkAVFSubclass(const char *superclassName, const char *name, void (^addMethods)(Class))
 {
-    Class existing = objc_getClass(name);
-    if (existing)
-        return existing;
     Class superclass = objc_getClass(superclassName);
-    if (!superclass)
-        return Nil;
-    Class subclass = objc_allocateClassPair(superclass, name, 0);
-    if (!subclass)
-        return objc_getClass(name);
-    addMethods(subclass);
-    objc_registerClassPair(subclass);
+    objc_sync_enter(superclass);
+    Class subclass = objc_getClass(name);
+    if (!subclass) {
+        subclass = objc_allocateClassPair(superclass, name, 0);
+        class_addMethod(subclass, @selector(dealloc), imp_implementationWithBlock(^(id self) {
+            struct objc_super object = { self, [NSObject class] };
+            ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&object, @selector(dealloc));
+        }), "v@:");
+        addMethods(subclass);
+        objc_registerClassPair(subclass);
+    }
+    objc_sync_exit(superclass);
     return subclass;
 }
 
@@ -161,24 +181,28 @@ static Class wkAVFLoadingRequestClass(void)
 // One round trip through the delegate. Answers the drain it filled, or nil.
 static WKAVFDrain *wkAVFAsk(AVAssetResourceLoader *resourceLoader, id delegate, NSURL *url, BOOL wantsInfo, long long offset, long long length)
 {
-    Class loadingRequestClass = wkAVFLoadingRequestClass();
-    Class dataRequestClass = wkAVFDataRequestClass();
-    Class infoRequestClass = wkAVFInfoRequestClass();
-    if (!loadingRequestClass || !dataRequestClass || !infoRequestClass)
-        return nil;
+    static Class loadingRequestClass;
+    static Class dataRequestClass;
+    static Class infoRequestClass;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        loadingRequestClass = wkAVFLoadingRequestClass();
+        dataRequestClass = wkAVFDataRequestClass();
+        infoRequestClass = wkAVFInfoRequestClass();
+    });
 
-    WKAVFDrain *drain = [[WKAVFDrain alloc] init];
+    WKAVFDrain *drain = [[[WKAVFDrain alloc] init] autorelease];
     drain.url = url;
     drain.received = [NSMutableData data];
     drain.requestedOffset = offset;
     drain.requestedLength = length;
-    drain.done = dispatch_semaphore_create(0);
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    drain.done = done;
+    dispatch_release(done);
 
-    id loadingRequest = class_createInstance(loadingRequestClass, 0);
-    id dataRequest = class_createInstance(dataRequestClass, 0);
-    id infoRequest = wantsInfo ? class_createInstance(infoRequestClass, 0) : nil;
-    if (!loadingRequest || !dataRequest || (wantsInfo && !infoRequest))
-        return nil;
+    id loadingRequest = [class_createInstance(loadingRequestClass, 0) autorelease];
+    id dataRequest = [class_createInstance(dataRequestClass, 0) autorelease];
+    id infoRequest = wantsInfo ? [class_createInstance(infoRequestClass, 0) autorelease] : nil;
 
     drain.dataRequest = dataRequest;
     drain.infoRequest = infoRequest;
@@ -199,6 +223,9 @@ static WKAVFDrain *wkAVFAsk(AVAssetResourceLoader *resourceLoader, id delegate, 
 
     // AVFoundation waits for the delegate to finish the request it was handed; so does this.
     dispatch_semaphore_wait(drain.done, DISPATCH_TIME_FOREVER);
+    // The requests hold the drain, and the drain held them for the delegate's answer.
+    drain.infoRequest = nil;
+    drain.dataRequest = nil;
     if (drain.error)
         return nil;
     return drain;
@@ -228,12 +255,17 @@ static NSString *wkAVFDrainAssetToFile(AVAsset *asset)
     [whole appendData:head.received];
     const long long chunk = 1 << 20;
     while ((long long)whole.length < head.contentLength) {
-        long long remaining = head.contentLength - (long long)whole.length;
-        WKAVFDrain *next = wkAVFAsk(resourceLoader, delegate, url, NO, (long long)whole.length,
-            remaining < chunk ? remaining : chunk);
-        if (!next || !next.received.length)
+        BOOL answered;
+        @autoreleasepool {
+            long long remaining = head.contentLength - (long long)whole.length;
+            WKAVFDrain *next = wkAVFAsk(resourceLoader, delegate, url, NO, (long long)whole.length,
+                remaining < chunk ? remaining : chunk);
+            answered = next && next.received.length;
+            if (answered)
+                [whole appendData:next.received];
+        }
+        if (!answered)
             return nil;
-        [whole appendData:next.received];
     }
 
     NSString *extension = nil;
@@ -273,10 +305,10 @@ static AVURLAsset *wkAVFLocalAssetFor(AVAsset *asset)
     NSString *path = wkAVFDrainAssetToFile(asset);
     if (!path)
         return nil;
-    WKAVFTemporaryFile *file = [[WKAVFTemporaryFile alloc] init];
+    WKAVFTemporaryFile *file = [[[WKAVFTemporaryFile alloc] init] autorelease];
     file.path = path;
     NSDictionary *options = objc_getAssociatedObject(asset, wkAVFAssetOptionsKey);
-    local = [[AVURLAsset alloc] initWithURL:[NSURL fileURLWithPath:path] options:options];
+    local = [[[AVURLAsset alloc] initWithURL:[NSURL fileURLWithPath:path] options:options] autorelease];
     objc_setAssociatedObject(local, wkAVFTemporaryFileKey, file, OBJC_ASSOCIATION_RETAIN);
     objc_setAssociatedObject(asset, wkAVFLocalAssetKey, local, OBJC_ASSOCIATION_RETAIN);
     return local;

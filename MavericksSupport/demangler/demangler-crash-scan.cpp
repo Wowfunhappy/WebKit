@@ -184,7 +184,8 @@ int main(int argc, char **argv)
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0)
             dup2(devnull, 2);
-        free((void *)0x6f43626557283c74); // interposer must _exit(42) here
+        void *volatile wild = (void *)0x6f43626557283c74;
+        free(wild); // interposer must _exit(42) here
         _exit(1); // free returned: wild-free detection is NOT live
     }
     if (argc == 2 && !strcmp(argv[1], "--selftest-overrun")) {

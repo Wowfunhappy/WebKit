@@ -125,7 +125,7 @@ static OSStatus wkVTPixelBufferDeepCopy(CVPixelBufferRef source, CVPixelBufferRe
 
 WK_POLYFILL_REPLACES("VideoToolbox", OSStatus, VTPixelBufferConformerCopyConformedPixelBuffer, (VTPixelBufferConformerRef conformer, CVPixelBufferRef sourceBuffer, Boolean ensureModifiable, CVPixelBufferRef *conformedBufferOut))
 {
-    OSStatus status = ((WKVTConformerCopyThreeArg)WK_ORIGINAL(VTPixelBufferConformerCopyConformedPixelBuffer))(conformer, sourceBuffer, conformedBufferOut);
+    OSStatus status = ((WKVTConformerCopyThreeArg)(void *)WK_ORIGINAL(VTPixelBufferConformerCopyConformedPixelBuffer))(conformer, sourceBuffer, conformedBufferOut);
     if (status != noErr || !ensureModifiable || !conformedBufferOut || *conformedBufferOut != sourceBuffer)
         return status;
 

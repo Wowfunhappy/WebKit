@@ -6,6 +6,8 @@
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
+#import <libkern/OSAtomic.h>
+#import <objc/runtime.h>
 #import <stdio.h>
 
 static int failures;
@@ -18,6 +20,34 @@ static void check(const char *what, long got, long want)
         printf("  %-52s expected %ld\n", "", want);
         ++failures;
     }
+}
+
+// Counts the request objects the delegate is handed that are still alive: each carries one of these.
+static volatile int32_t sentinelsAlive;
+static volatile int32_t sentinelsAttached;
+static BOOL attachesSentinels;
+static const void * const sentinelKey = &sentinelKey;
+
+@interface WKSentinel : NSObject
+@end
+
+@implementation WKSentinel
+- (void)dealloc
+{
+    OSAtomicDecrement32(&sentinelsAlive);
+    [super dealloc];
+}
+@end
+
+static void attachSentinel(id object)
+{
+    if (!attachesSentinels || !object)
+        return;
+    WKSentinel *sentinel = [[WKSentinel alloc] init];
+    OSAtomicIncrement32(&sentinelsAlive);
+    OSAtomicIncrement32(&sentinelsAttached);
+    objc_setAssociatedObject(object, sentinelKey, sentinel, OBJC_ASSOCIATION_RETAIN);
+    [sentinel release];
 }
 
 // Answers on its own thread, after the delegate call has already returned.
@@ -38,6 +68,9 @@ static void check(const char *what, long got, long want)
 }
 - (BOOL)resourceLoader:(AVAssetResourceLoader *)loader shouldWaitForLoadingOfRequestedResource:(AVAssetResourceLoadingRequest *)request
 {
+    attachSentinel(request);
+    attachSentinel(request.dataRequest);
+    attachSentinel(request.contentInformationRequest);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40ull * NSEC_PER_MSEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         if (request.contentInformationRequest) {
             request.contentInformationRequest.contentType = _type;
@@ -107,7 +140,20 @@ static long framesReadThrough(AVURLAsset *asset)
         frames += CMSampleBufferGetNumSamples(sampleBuffer);
         CFRelease(sampleBuffer);
     }
+    [output release];
+    [reader release];
     return frames;
+}
+
+// The files the drain has written and not yet removed.
+static long drainedFiles(void)
+{
+    long count = 0;
+    for (NSString *name in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:NSTemporaryDirectory() error:nil]) {
+        if ([name hasPrefix:@"wkavf-"])
+            ++count;
+    }
+    return count;
 }
 
 int main(void)
@@ -130,6 +176,26 @@ int main(void)
         // A delegate with nothing to give: no tracks, and nothing raised.
         check("declining delegate answers no tracks",
             framesReadThrough(assetServedBy([[WKDecliningLoader alloc] init])), -1);
+
+        // Once the asset and its reader are gone, so is the file the drain wrote for them.
+        long before = drainedFiles();
+        long frames;
+        attachesSentinels = YES;
+        @autoreleasepool {
+            WKAsyncLoader *loader = [[WKAsyncLoader alloc] initWithData:wav type:@"audio/wave"];
+            AVURLAsset *asset = assetServedBy(loader);
+            frames = framesReadThrough(asset);
+            [asset release];
+            [loader release];
+        }
+        attachesSentinels = NO;
+        check("a released asset reads", frames, 44100);
+        check("and leaves no drained file behind", drainedFiles() - before, 0);
+        // The delegate's blocks let go of their requests once they have answered.
+        for (int i = 0; i < 40 && sentinelsAlive; ++i)
+            usleep(50000);
+        check("the delegate was handed request objects", sentinelsAttached > 0, 1);
+        check("and every one of them is freed", sentinelsAlive, 0);
 
         // A local asset is untouched by any of this.
         AVURLAsset *localAsset = [[AVURLAsset alloc] initWithURL:
