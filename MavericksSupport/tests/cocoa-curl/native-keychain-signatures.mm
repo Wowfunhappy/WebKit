@@ -1,4 +1,4 @@
-// Verify native SecIdentity signatures independently, including modified-input rejection.
+// Verify native SecIdentity signatures with BoringSSL, including modified-input rejection.
 #include "config.h"
 #include <WebCore/CocoaCurlConnection.h>
 #include <WebCore/ResourceError.h>
@@ -12,17 +12,15 @@
 #include <openssl/rsa.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
-extern "C" OSStatus SecCertificateCopyPublicKey(SecCertificateRef, SecKeyRef*);
 using namespace WebCore;
 static unsigned failures;
 static void signatureTests(SecIdentityRef identity)
 {
-    SecKeyRef rawPrivate = nullptr, rawPublic = nullptr;
+    SecKeyRef rawPrivate = nullptr;
     SecCertificateRef rawCertificate = nullptr;
     RELEASE_ASSERT(!SecIdentityCopyPrivateKey(identity, &rawPrivate));
     RELEASE_ASSERT(!SecIdentityCopyCertificate(identity, &rawCertificate));
-    RELEASE_ASSERT(!SecCertificateCopyPublicKey(rawCertificate, &rawPublic));
-    auto privateKey = adoptCF(rawPrivate), publicKey = adoptCF(rawPublic);
+    auto privateKey = adoptCF(rawPrivate);
     auto certificate = adoptCF(rawCertificate);
     auto encoded = adoptCF(SecCertificateCopyData(certificate.get()));
     const uint8_t* next = CFDataGetBytePtr(encoded.get());
@@ -48,16 +46,19 @@ static void signatureTests(SecIdentityRef identity)
         CFErrorRef rawError = nullptr;
         auto signature = adoptCF(SecKeyCreateSignature(privateKey.get(), native, data.get(), &rawError));
         auto error = adoptCF(rawError);
-        bool independent = signature && (rsa
-            ? RSA_verify(EVP_MD_type(md), digest, length, CFDataGetBytePtr(signature.get()), CFDataGetLength(signature.get()), EVP_PKEY_get0_RSA(key))
-            : ECDSA_verify(0, digest, length, CFDataGetBytePtr(signature.get()), CFDataGetLength(signature.get()), EVP_PKEY_get0_EC_KEY(key)));
-        bool nativeVerified = signature && SecKeyVerifySignature(publicKey.get(), native, data.get(), signature.get(), nullptr);
-        auto changed = adoptCF(CFDataCreateMutableCopy(nullptr, 0, data.get()));
-        CFDataGetMutableBytePtr(changed.get())[0] ^= 1;
-        bool rejectsChange = signature && !SecKeyVerifySignature(publicKey.get(), native, changed.get(), signature.get(), nullptr);
-        bool passed = independent && nativeVerified && rejectsChange;
+        auto verifies = [&](const uint8_t* signedDigest) {
+            return rsa
+                ? RSA_verify(EVP_MD_type(md), signedDigest, length, CFDataGetBytePtr(signature.get()), CFDataGetLength(signature.get()), EVP_PKEY_get0_RSA(key))
+                : ECDSA_verify(0, signedDigest, length, CFDataGetBytePtr(signature.get()), CFDataGetLength(signature.get()), EVP_PKEY_get0_EC_KEY(key));
+        };
+        bool independent = signature && verifies(digest);
+        uint8_t changed[EVP_MAX_MD_SIZE];
+        memcpy(changed, digest, length);
+        changed[0] ^= 1;
+        bool rejectsChange = signature && !verifies(changed);
+        bool passed = independent && rejectsChange;
         failures += !passed;
-        printf("%s SHA%u signature: independent=%d native=%d tamper=%d bytes=%ld %s\n", rsa ? "RSA PKCS1" : "ECDSA", length * 8, independent, nativeVerified, rejectsChange, signature ? CFDataGetLength(signature.get()) : 0, passed ? "PASS" : "FAIL");
+        printf("%s SHA%u signature: independent=%d tamper=%d bytes=%ld %s\n", rsa ? "RSA PKCS1" : "ECDSA", length * 8, independent, rejectsChange, signature ? CFDataGetLength(signature.get()) : 0, passed ? "PASS" : "FAIL");
         if (error) CFShow(error.get());
     }
 }

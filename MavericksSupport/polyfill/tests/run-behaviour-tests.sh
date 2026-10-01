@@ -265,14 +265,8 @@ probe_trust_state_lifetime() {
 }
 
 probe_key_public_half() {
-    "$CLANG" $MODERN $INC -o "$T/key_public_half" "$TBEHAV/Security-key-public-half.c" $PROBE_LIBS &&
+    "$CLANG" $MODERN $INC -I"$REPO/MavericksSupport/deps/build/include" -o "$T/key_public_half" "$TBEHAV/Security-key-public-half.c" $PROBE_LIBS &&
         "$T/key_public_half"
-}
-
-probe_rsa_pss_verify() {
-    "$CLANG" $MODERN $INC -I"$REPO/MavericksSupport/deps/build/include" -o "$T/rsa_pss_verify" \
-        "$TBEHAV/Security-rsa-pss-verify.c" $PROBE_LIBS &&
-        "$T/rsa_pss_verify"
 }
 
 probe_ec_public_point() {
@@ -859,7 +853,6 @@ run_probe trust_serialize "$@"
 run_probe trust_state_lifetime "$@"
 run_probe key_public_half "$@"
 run_probe ec_public_point "$@"
-run_probe rsa_pss_verify "$@"
 run_probe gcrypt_ec_public_point "$@"
 run_probe timebase "$@"
 run_probe color_timebase "$@"

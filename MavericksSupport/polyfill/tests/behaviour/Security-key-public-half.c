@@ -1,10 +1,17 @@
 // SecKeyCopyPublicKey and SecKeyCopyExternalRepresentation (polyfills/c/Security.c) for the keys WebKit's
 // WebAuthn code makes: SecKeyCreateRandomKey pairs and SecKeyCreateWithData private keys, EC and RSA.
-// The public half must be the key's own, which a signature by the private key and a verification by the
-// public half proves; a private key's representation must round-trip through SecKeyCreateWithData. Keys
+// The public half must be the key's own, which a signature by the private key and a BoringSSL verification
+// against the public half's representation proves; a private key's representation must round-trip
+// through SecKeyCreateWithData. Keys
 // are made and released in a loop so that each new key lands where an earlier one lived.
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+#include <openssl/bytestring.h>
+#include <openssl/ec_key.h>
+#include <openssl/ecdsa.h>
+#include <openssl/nid.h>
+#include <openssl/rsa.h>
+#include <openssl/sha.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -42,7 +49,8 @@ static SecKeyRef privateKeyWithData(CFDataRef data, bool isEC)
     return key;
 }
 
-// Whether `publicKey` verifies what `privateKey` signs.
+// Whether `publicKey`'s representation verifies, in BoringSSL, what `privateKey` signs: an EC key signs the
+// SHA-256 of the message (ECDSA, X9.62), an RSA key signs the message as a SHA-256 digest (PKCS#1 v1.5).
 static bool halvesMatch(SecKeyRef privateKey, SecKeyRef publicKey, bool isEC)
 {
     static const uint8_t digest[32] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
@@ -50,7 +58,25 @@ static bool halvesMatch(SecKeyRef privateKey, SecKeyRef publicKey, bool isEC)
     SecKeyAlgorithm algorithm = isEC ? kSecKeyAlgorithmECDSASignatureMessageX962SHA256 : kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256;
     CFDataRef message = CFDataCreate(NULL, digest, sizeof(digest));
     CFDataRef signature = SecKeyCreateSignature(privateKey, algorithm, message, NULL);
-    bool verified = signature && SecKeyVerifySignature(publicKey, algorithm, message, signature, NULL);
+    CFDataRef publicBytes = SecKeyCopyExternalRepresentation(publicKey, NULL);
+    bool verified = false;
+    if (signature && publicBytes && isEC) {
+        EC_KEY *key = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+        const uint8_t *point = CFDataGetBytePtr(publicBytes);
+        uint8_t hashed[SHA256_DIGEST_LENGTH];
+        SHA256(digest, sizeof(digest), hashed);
+        verified = key && EC_KEY_oct2key(key, point, (size_t)CFDataGetLength(publicBytes), NULL)
+            && ECDSA_verify(0, hashed, sizeof(hashed), CFDataGetBytePtr(signature), (size_t)CFDataGetLength(signature), key) == 1;
+        EC_KEY_free(key);
+    } else if (signature && publicBytes) {
+        CBS cbs;
+        CBS_init(&cbs, CFDataGetBytePtr(publicBytes), (size_t)CFDataGetLength(publicBytes));
+        RSA *key = RSA_parse_public_key(&cbs);
+        verified = key && RSA_verify(NID_sha256, digest, sizeof(digest), CFDataGetBytePtr(signature), (size_t)CFDataGetLength(signature), key) == 1;
+        RSA_free(key);
+    }
+    if (publicBytes)
+        CFRelease(publicBytes);
     if (signature)
         CFRelease(signature);
     CFRelease(message);
