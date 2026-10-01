@@ -46,7 +46,6 @@ NSString *WCLocalizedString(const char *key);
 
 @interface NSView (WCExtras)
 - (void)wc_drawLeftImage:(NSImage *)left middleImage:(NSImage *)middle rightImage:(NSImage *)right inRect:(NSRect)rect dirtRect:(NSRect)dirtyRect operation:(NSCompositingOperation)operation middlePinning:(int)middlePinning;
-- (NSRect)wc_convertRect:(NSRect)rect toView:(NSView *)view;
 @end
 
 @class WCRolloverTrackingView;

@@ -73,26 +73,6 @@ NSString *WCLocalizedString(const char *key)
 
 @implementation NSView (WCExtras)
 
-- (NSRect)wc_convertRect:(NSRect)rect toView:(NSView *)view
-{
-    if (!view)
-        return [self convertRect:rect toView:nil];
-
-    NSWindow *window = [self window];
-    if (!window)
-        return [self convertRect:rect toView:view];
-
-    NSWindow *viewWindow = [view window];
-    if (!viewWindow)
-        return [self convertRect:rect toView:view];
-
-    // Cross-window conversion goes through screen coordinates.
-    NSRect converted = [self convertRect:rect toView:nil];
-    converted.origin = [window convertBaseToScreen:converted.origin];
-    converted.origin = [viewWindow convertScreenToBase:converted.origin];
-    return [view convertRect:converted fromView:nil];
-}
-
 // Draws a three-part horizontal strip: left and right caps at their natural widths, and the middle image
 // stretched between them. middlePinning 0 pins the middle to the strip's top at its natural height, 1 pins
 // it to the strip's bottom at its natural height, and any other value fills the strip's full height.

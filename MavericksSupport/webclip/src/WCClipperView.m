@@ -46,6 +46,7 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 - (void)pageDidPostMessage:(NSDictionary *)message;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
 - (void)pageWindowDidSendEvent:(NSEvent *)event;
+- (NSPoint)themeWindowOrigin;
 @end
 
 // The event AppKit delivers when the key focus passes between processes.
@@ -104,7 +105,8 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 
 @end
 
-// The page window lies over the theme's window, and the overlay shows the theme over the page.
+// The page window lies over the theme's window, and the overlay shows the theme over the page. The
+// overlay is a subview of the clipper view.
 @interface WCThemeOverlayView : NSView
 @property (nonatomic, weak) WCTheme *theme;
 - (void)drawTheme;
@@ -126,11 +128,11 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 - (void)drawTheme
 {
     WCTheme *theme = _theme;
-    NSWindow *themeWindow = [theme window];
-    if (!themeWindow || ![self window])
+    if (![theme window] || ![self window])
         return;
     NSRect frame = [[self window] convertRectToScreen:[self convertRect:[self bounds] toView:nil]];
-    NSRect themeFrame = [themeWindow convertRectToScreen:[theme convertRect:[theme bounds] toView:nil]];
+    NSPoint origin = [(WCClipperView *)[self superview] themeWindowOrigin];
+    NSRect themeFrame = NSOffsetRect([theme convertRect:[theme bounds] toView:nil], origin.x, origin.y);
     // The theme draws into a bitmap of its own, which takes the offset between the two windows.
     NSRect bounds = [self bounds];
     NSBitmapImageRep *bitmap = [self bitmapImageRepForCachingDisplayInRect:bounds];
@@ -332,6 +334,14 @@ static NSRect rectFromPageRect(id value)
     return _placeholder;
 }
 
+// DashboardClient keeps a theme's attached window on the widget's window, frame for frame. When the Dock
+// moves the widget, DashboardClient updates the widget window's frame in this process and leaves the
+// attached window's, so the attached window lies on screen at the widget window's origin.
+- (NSPoint)themeWindowOrigin
+{
+    return [[_placeholder window] frame].origin;
+}
+
 - (NSRect)placeholderFrameOnScreen
 {
     return [[_placeholder window] convertRectToScreen:[_placeholder convertRect:[_placeholder bounds] toView:nil]];
@@ -394,7 +404,8 @@ static NSRect rectFromPageRect(id value)
     NSRect pageArea = NSZeroRect;
     if (drawsInAttachedWindow && [_currentTheme window] && [self window]) {
         NSRect onScreen = [[self window] convertRectToScreen:[self convertRect:[_clipView frame] toView:nil]];
-        pageArea = [_currentTheme convertRect:[[_currentTheme window] convertRectFromScreen:onScreen] fromView:nil];
+        NSPoint origin = [self themeWindowOrigin];
+        pageArea = [_currentTheme convertRect:NSOffsetRect(onScreen, -origin.x, -origin.y) fromView:nil];
     }
     [_currentTheme setPageArea:pageArea];
 }
@@ -773,7 +784,13 @@ static NSHashTable *clipperViews;
 - (NSRect)convertDOMRectToDashboardControlRegion:(NSRect)rect
 {
     NSRect region = [self convertRect:rect fromView:_clipView];
-    NSRect themeRegion = [_currentTheme wc_convertRect:[_currentTheme controlRegion] toView:self];
+    NSRect themeRegion;
+    if ([_currentTheme drawsInAttachedWindow] && [_currentTheme window] && [self window]) {
+        NSPoint origin = [self themeWindowOrigin];
+        NSRect onScreen = NSOffsetRect([_currentTheme convertRect:[_currentTheme controlRegion] toView:nil], origin.x, origin.y);
+        themeRegion = [self convertRect:[[self window] convertRectFromScreen:onScreen] fromView:nil];
+    } else
+        themeRegion = [self convertRect:[_currentTheme controlRegion] fromView:_currentTheme];
     return NSIntersectionRect(region, themeRegion);
 }
 
@@ -968,13 +985,12 @@ static NSHashTable *clipperViews;
     return image;
 }
 
-// Copies a window-coordinate region of the window's current on-screen contents, including the
-// composited layers the clipped page is drawn with.
-static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination)
+// Copies a screen region of the window's current on-screen contents, including the composited layers
+// the clipped page is drawn with.
+static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destination)
 {
     if (!window)
         return;
-    NSRect screenRect = [window convertRectToScreen:region];
     CGFloat primaryHeight = NSMaxY([[[NSScreen screens] objectAtIndex:0] frame]);
     CGRect captureRect = CGRectMake(screenRect.origin.x, primaryHeight - NSMaxY(screenRect), screenRect.size.width, screenRect.size.height);
     CGImageRef image = CGWindowListCreateImage(captureRect, kCGWindowListOptionIncludingWindow, (CGWindowID)[window windowNumber], kCGWindowImageBoundsIgnoreFraming);
@@ -991,10 +1007,11 @@ static void copyWindowRegion(NSWindow *window, NSRect region, NSRect destination
     [image lockFocus];
     NSGraphicsContext *context = [NSGraphicsContext currentContext];
     [context setCompositingOperation:NSCompositeCopy];
-    copyWindowRegion([self window], region, destination);
+    copyWindowRegion([self window], [[self window] convertRectToScreen:region], destination);
     if (includeTheme) {
         [context setCompositingOperation:NSCompositeSourceOver];
-        copyWindowRegion([_currentTheme window], region, destination);
+        NSPoint origin = [self themeWindowOrigin];
+        copyWindowRegion([_currentTheme window], NSOffsetRect(region, origin.x, origin.y), destination);
     }
     [image unlockFocus];
     return image;
