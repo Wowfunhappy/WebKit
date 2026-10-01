@@ -45,7 +45,6 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 @interface WCClipperView () <WKNavigationDelegate, WKUIDelegate>
 - (void)pageDidPostMessage:(NSDictionary *)message;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
-- (void)pageWindowDidSendEvent:(NSEvent *)event;
 - (NSPoint)themeWindowOrigin;
 @end
 
@@ -78,14 +77,21 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 @end
 
 // The page window holds the clip: the page, the controls over it and a theme that draws with it.
-// It is DashboardClient's own window, placed over the plug-in's view in the widget window.
+// It is DashboardClient's own window, placed over the part of the plug-in's view that lies inside
+// the widget window. The clipper view keeps the plug-in view's full size within it.
 @interface WCPageWindow : NSPanel
+@property (nonatomic, weak) WCClipperView *clipperView;
 @end
 
 // AppKit: orders a window, and looks for the next key window among the application's windows
 // when asked to.
 @interface NSWindow (WCAppKitSPI)
 - (void)_doOrderWindow:(NSWindowOrderingMode)place relativeTo:(NSInteger)otherWindow findKey:(BOOL)findKey forCounter:(BOOL)forCounter force:(BOOL)force isModal:(BOOL)isModal;
+@end
+
+// AppKit: the same event, located in another window.
+@interface NSEvent (WCAppKitSPI)
+- (NSEvent *)_eventRelativeToWindow:(NSWindow *)window;
 @end
 
 @implementation WCPageWindow
@@ -97,10 +103,8 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 
 - (void)sendEvent:(NSEvent *)event
 {
-    WCClipperView *clipperView = [self contentView];
-    [clipperView pageWindowWillSendEvent:event];
+    [_clipperView pageWindowWillSendEvent:event];
     [super sendEvent:event];
-    [clipperView pageWindowDidSendEvent:event];
 }
 
 @end
@@ -168,8 +172,38 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 
 - (void)mouseDown:(NSEvent *)event
 {
-    [_clipperView widgetWindowDidReceiveMouseDown];
-    [super mouseDown:event];
+    if (![_clipperView widgetWindowDidReceiveEvent:event])
+        [super mouseDown:event];
+}
+
+- (void)mouseDragged:(NSEvent *)event
+{
+    if (![_clipperView widgetWindowDidReceiveEvent:event])
+        [super mouseDragged:event];
+}
+
+- (void)mouseUp:(NSEvent *)event
+{
+    if (![_clipperView widgetWindowDidReceiveEvent:event])
+        [super mouseUp:event];
+}
+
+- (void)rightMouseDown:(NSEvent *)event
+{
+    if (![_clipperView widgetWindowDidReceiveEvent:event])
+        [super rightMouseDown:event];
+}
+
+- (void)rightMouseUp:(NSEvent *)event
+{
+    if (![_clipperView widgetWindowDidReceiveEvent:event])
+        [super rightMouseUp:event];
+}
+
+- (void)scrollWheel:(NSEvent *)event
+{
+    if (![_clipperView widgetWindowDidReceiveEvent:event])
+        [super scrollWheel:event];
 }
 
 - (void)setFrameSize:(NSSize)size
@@ -347,6 +381,19 @@ static NSRect rectFromPageRect(id value)
     return [[_placeholder window] convertRectToScreen:[_placeholder convertRect:[_placeholder bounds] toView:nil]];
 }
 
+// The plug-in's view can overhang the widget window, which clips it, and the page window shows the
+// same part of the clip.
+- (void)placePageWindow
+{
+    NSRect placeholderFrame = [self placeholderFrameOnScreen];
+    NSRect frame = NSIntersectionRect(placeholderFrame, [[_placeholder window] frame]);
+    if (!NSEqualRects(frame, [_pageWindow frame]))
+        [_pageWindow setFrame:frame display:YES];
+    NSRect clipperFrame = NSOffsetRect(placeholderFrame, -NSMinX(frame), -NSMinY(frame));
+    if (!NSEqualRects(clipperFrame, [self frame]))
+        [self setFrame:clipperFrame];
+}
+
 // The page window shows while Dashboard shows the widget's front, still and live.
 - (BOOL)showsPageWindow
 {
@@ -363,9 +410,7 @@ static NSRect rectFromPageRect(id value)
         [self orderPageWindowOut];
         return;
     }
-    NSRect frame = [self placeholderFrameOnScreen];
-    if (!NSEqualRects(frame, [_pageWindow frame]))
-        [_pageWindow setFrame:frame display:YES];
+    [self placePageWindow];
     [self updateThemeOverlay];
     // The page window is the front one of the widget's windows.
     if (![_pageWindow isVisible])
@@ -422,10 +467,16 @@ static NSRect rectFromPageRect(id value)
         [_pageWindow setOpaque:NO];
         [_pageWindow setBackgroundColor:[NSColor clearColor]];
         [_pageWindow setHasShadow:NO];
+        // Clicks and scrolling over the widget reach the widget window, where the Dock drags the
+        // widget from points outside its control regions and delivers the rest to the widget.
+        [_pageWindow setIgnoresMouseEvents:YES];
         [_pageWindow setLevel:[[_placeholder window] level]];
-        [_pageWindow setContentView:self];
+        [_pageWindow setContentView:[[NSView alloc] init]];
+        [_pageWindow setClipperView:self];
+        [self placePageWindow];
+        [[_pageWindow contentView] addSubview:self];
         // The window is one layer tree, frame view included.
-        [[self superview] setWantsLayer:YES];
+        [[[_pageWindow contentView] superview] setWantsLayer:YES];
         [WCClipperView observeDashboardForWidgetWindow:[_placeholder window]];
         [clipperViews addObject:self];
         [WCClipperView askDock];
@@ -562,36 +613,28 @@ static NSHashTable *clipperViews;
         [widget hasKeyFocus:YES updateWindowState:NO];
 }
 
-// The widget window passes these events to its widget, and the Dock brings a widget to the front
-// when a click lands in the widget's own windows.
+// The widget window passes these events to its widget.
 - (void)pageWindowWillSendEvent:(NSEvent *)event
 {
-    id<WCDashboardWidget> widget = [self dashboardWidget];
-    switch ([event type]) {
-    case NSLeftMouseDown:
-    case NSRightMouseDown:
-    case NSOtherMouseDown:
-        [widget receivedMouseOrKeyDown];
-        [widget bringToFront];
-        // A widget acts on the click that brings it to the front.
-        if (![_pageWindow isKeyWindow])
-            [self makePageWindowKey];
-        break;
-    case NSMouseEntered:
-    case NSKeyDown:
-        [widget receivedMouseOrKeyDown];
-        break;
-    default:
-        break;
-    }
+    NSEventType type = [event type];
+    if (type == NSMouseEntered || type == NSKeyDown)
+        [[self dashboardWidget] receivedMouseOrKeyDown];
 }
 
-// The Dock has brought the widget's windows to the front.
-- (void)pageWindowDidSendEvent:(NSEvent *)event
+// The page window lies over the placeholder and takes the clicks and scrolling the Dock delivers to it.
+- (BOOL)widgetWindowDidReceiveEvent:(NSEvent *)event
 {
     NSEventType type = [event type];
-    if (type == NSLeftMouseDown || type == NSRightMouseDown || type == NSOtherMouseDown)
-        [self updatePageWindow];
+    BOOL isMouseDown = type == NSLeftMouseDown || type == NSRightMouseDown || type == NSOtherMouseDown;
+    if (isMouseDown)
+        [self widgetWindowDidReceiveMouseDown];
+    if (![_pageWindow isVisible])
+        return NO;
+    // A widget acts on the click that brings it to the front.
+    if (isMouseDown && ![_pageWindow isKeyWindow])
+        [self makePageWindowKey];
+    [_pageWindow sendEvent:[event _eventRelativeToWindow:_pageWindow]];
+    return YES;
 }
 
 // A widget that gives up its focus resigns its window and clears the application's key window.
@@ -1007,7 +1050,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     [image lockFocus];
     NSGraphicsContext *context = [NSGraphicsContext currentContext];
     [context setCompositingOperation:NSCompositeCopy];
-    copyWindowRegion([self window], [[self window] convertRectToScreen:region], destination);
+    copyWindowRegion([self window], [[self window] convertRectToScreen:[self convertRect:region toView:nil]], destination);
     if (includeTheme) {
         [context setCompositingOperation:NSCompositeSourceOver];
         NSPoint origin = [self themeWindowOrigin];
@@ -1604,7 +1647,8 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 {
     [[NSRunLoop currentRunLoop] limitDateForMode:NSEventTrackingRunLoopMode];
     while (true) {
-        NSEvent *event = [NSApp nextEventMatchingMask:NSLeftMouseDownMask | NSLeftMouseUpMask | NSMouseMovedMask | NSLeftMouseDraggedMask untilDate:[NSDate distantFuture] inMode:NSEventTrackingRunLoopMode dequeue:YES];
+        // The Dock delivers the drag to the widget window.
+        NSEvent *event = [[NSApp nextEventMatchingMask:NSLeftMouseDownMask | NSLeftMouseUpMask | NSMouseMovedMask | NSLeftMouseDraggedMask untilDate:[NSDate distantFuture] inMode:NSEventTrackingRunLoopMode dequeue:YES] _eventRelativeToWindow:[self window]];
         NSEventType type = [event type];
         if (type == NSLeftMouseUp)
             break;

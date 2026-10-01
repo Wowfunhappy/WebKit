@@ -23,7 +23,7 @@
 
 - (WCPlaceholderView *)placeholderView;
 - (void)placeholderDidChange;
-- (void)widgetWindowDidReceiveMouseDown;
+- (BOOL)widgetWindowDidReceiveEvent:(NSEvent *)event;
 - (BOOL)showsPageWindow;
 - (void)webPlugInDestroy;
 - (void)widgetDidStartMoving;
