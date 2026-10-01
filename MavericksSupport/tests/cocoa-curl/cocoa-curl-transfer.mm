@@ -45,7 +45,7 @@ public:
         CocoaCurlTransferOptions options(result.minimumTLS);
         options.request = ResourceRequest(URL { url });
         options.request.setTimeoutInterval(10);
-        Ref scheduler = CocoaCurlScheduler::create();
+        Ref scheduler = CocoaCurlScheduler::create(CocoaCurlSessionCache::create());
         probe->m_transfer = CocoaCurlTransfer::create(scheduler, probe, WTF::move(options));
         probe->m_transfer->start();
     }

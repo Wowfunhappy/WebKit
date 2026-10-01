@@ -107,6 +107,8 @@ struct CocoaCurlTransferOptions {
     RetainPtr<CFDictionaryRef> proxySettings;
     RetainPtr<CFArrayRef> acceptedCertificateChain;
     RetainPtr<SecTrustRef> allowedServerTrust;
+    // The loader includes the response's certificate info (NetworkLoadParameters::needsCertificateInfo).
+    bool needsCertificateInfo { false };
     String boundInterface;
     // Transfers in different network partitions never share a connection (Fetch's network partition key).
     String connectionPartition;
@@ -172,6 +174,7 @@ private:
     void activity();
     void timeout();
     void publishResponse();
+    bool evaluateResponseTrust();
     void deliverData();
     void resumeTransfer();
     void updateTLS();

@@ -49,6 +49,8 @@ struct CocoaCurlTLSState {
     bool evaluated { false };
     bool verificationRequested { false };
     bool accepted { false };
+    // The native evaluation accepted the peer without an exception, in this handshake or in the one its session resumes.
+    bool trusted { false };
     bool identityRequested { false };
     bool identityAnswered { false };
 };
@@ -66,5 +68,7 @@ private:
     std::unique_ptr<Impl> m_impl;
 };
 
+// An SSL-policy trust over |chain| for |url|'s host, not yet evaluated.
+RetainPtr<SecTrustRef> cocoaCurlCreateNativeTrust(const URL&, CFArrayRef chain);
 WEBCORE_EXPORT RetainPtr<NSURLProtectionSpace> cocoaCurlTLSProtectionSpace(const URL&, int scheme, CFArrayRef distinguishedNames, SecTrustRef);
 } // namespace WebCore

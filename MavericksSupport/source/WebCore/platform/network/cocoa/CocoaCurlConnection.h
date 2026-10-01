@@ -7,6 +7,7 @@
 // session-owned worker pools bridge curl I/O to main-thread browser policy or a synchronous loader queue.
 #include "CocoaCurlTransfer.h"
 #include <wtf/Function.h>
+#include <wtf/ListHashSet.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
@@ -27,8 +28,15 @@ private:
     using SchedulerKey = std::pair<String, bool>;
     CocoaCurlConnectionPool();
     void removeScheduler(const SchedulerKey&, CocoaCurlScheduler&);
+    void evictIdleSessionCaches();
     Ref<RunLoop> m_worker;
     HashMap<SchedulerKey, Ref<CocoaCurlScheduler>> m_schedulers; // Only accessed on m_worker.
+    // A scheduler leaves m_schedulers once its partition is idle; its TLS sessions stay here for the next
+    // one. The pool keeps four partitions' caches (curl sizes each for 256 peers in build_deps.sh), and
+    // gives up the least recently active idle partition's first.
+    static constexpr unsigned retainedSessionCaches = 4;
+    HashMap<SchedulerKey, Ref<CocoaCurlSessionCache>> m_sessionCaches; // Only accessed on m_worker.
+    ListHashSet<SchedulerKey> m_sessionCacheRecency; // Least recently active first. Only accessed on m_worker.
     bool m_invalidated { false }; // Only accessed on m_worker.
 };
 

@@ -29,13 +29,26 @@ struct CocoaCurlScheduler::Socket {
     }
 };
 
-Ref<CocoaCurlScheduler> CocoaCurlScheduler::create(EmptyHandler&& emptyHandler)
+CocoaCurlSessionCache::CocoaCurlSessionCache()
+    : m_share(curl_share_init())
 {
-    return adoptRef(*new CocoaCurlScheduler(WTF::move(emptyHandler)));
+    // Only the pool's worker uses the share, so it needs no lock callbacks.
+    curl_share_setopt(m_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
 }
 
-CocoaCurlScheduler::CocoaCurlScheduler(EmptyHandler&& emptyHandler)
+CocoaCurlSessionCache::~CocoaCurlSessionCache()
+{
+    curl_share_cleanup(m_share);
+}
+
+Ref<CocoaCurlScheduler> CocoaCurlScheduler::create(Ref<CocoaCurlSessionCache>&& sessionCache, EmptyHandler&& emptyHandler)
+{
+    return adoptRef(*new CocoaCurlScheduler(WTF::move(sessionCache), WTF::move(emptyHandler)));
+}
+
+CocoaCurlScheduler::CocoaCurlScheduler(Ref<CocoaCurlSessionCache>&& sessionCache, EmptyHandler&& emptyHandler)
     : m_runLoop(RunLoop::currentSingleton())
+    , m_sessionCache(WTF::move(sessionCache))
     , m_timer(m_runLoop.get(), "CocoaCurlScheduler timer"_s, this, &CocoaCurlScheduler::timeout)
     , m_emptyHandler(WTF::move(emptyHandler))
 {

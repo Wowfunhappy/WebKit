@@ -23,8 +23,9 @@ CocoaCurlConnectionPool::CocoaCurlConnectionPool()
 CocoaCurlConnectionPool::~CocoaCurlConnectionPool()
 {
     // The worker releases the remaining schedulers before stopping its run loop.
-    m_worker->dispatch([schedulers = WTF::move(m_schedulers), worker = m_worker]() mutable {
+    m_worker->dispatch([schedulers = WTF::move(m_schedulers), sessionCaches = WTF::move(m_sessionCaches), recency = WTF::move(m_sessionCacheRecency), worker = m_worker]() mutable {
         schedulers.clear();
+        sessionCaches.clear();
         worker->stop();
     });
 }
@@ -32,22 +33,43 @@ CocoaCurlScheduler& CocoaCurlConnectionPool::scheduler(const String& partition, 
 {
     ASSERT(m_worker->isCurrent());
     SchedulerKey key { partition.isNull() ? emptyString() : partition, loader == Loader::Synchronous };
-    return m_schedulers.ensure(key, [this, key = SchedulerKey { key.first.isolatedCopy(), key.second }] {
-        Ref scheduler = CocoaCurlScheduler::create([weakThis = ThreadSafeWeakPtr { *this }, key = SchedulerKey { key.first.isolatedCopy(), key.second }](CocoaCurlScheduler& scheduler) {
+    auto result = m_schedulers.ensure(key, [this, key = SchedulerKey { key.first.isolatedCopy(), key.second }] {
+        Ref sessionCache = m_sessionCaches.ensure(key, [] { return CocoaCurlSessionCache::create(); }).iterator->value;
+        Ref scheduler = CocoaCurlScheduler::create(WTF::move(sessionCache), [weakThis = ThreadSafeWeakPtr { *this }, key = SchedulerKey { key.first.isolatedCopy(), key.second }](CocoaCurlScheduler& scheduler) {
             if (RefPtr pool = weakThis.get())
                 pool->removeScheduler(key, scheduler);
         });
         if (m_invalidated)
             scheduler->invalidate();
         return scheduler;
-    }).iterator->value;
+    });
+    if (result.isNewEntry) {
+        m_sessionCacheRecency.appendOrMoveToLast(key);
+        evictIdleSessionCaches();
+    }
+    return result.iterator->value;
 }
 void CocoaCurlConnectionPool::removeScheduler(const SchedulerKey& key, CocoaCurlScheduler& scheduler)
 {
     ASSERT(m_worker->isCurrent());
     auto iterator = m_schedulers.find(key);
-    if (iterator != m_schedulers.end() && iterator->value.ptr() == &scheduler)
-        m_schedulers.remove(iterator);
+    if (iterator == m_schedulers.end() || iterator->value.ptr() != &scheduler)
+        return;
+    m_schedulers.remove(iterator);
+    m_sessionCacheRecency.appendOrMoveToLast(key);
+    evictIdleSessionCaches();
+}
+void CocoaCurlConnectionPool::evictIdleSessionCaches()
+{
+    ASSERT(m_worker->isCurrent());
+    for (auto iterator = m_sessionCacheRecency.begin(); m_sessionCaches.size() > retainedSessionCaches && iterator != m_sessionCacheRecency.end();) {
+        auto key = *iterator;
+        ++iterator;
+        if (m_schedulers.contains(key))
+            continue;
+        m_sessionCaches.remove(key);
+        m_sessionCacheRecency.remove(key);
+    }
 }
 void CocoaCurlConnectionPool::invalidate()
 {
@@ -180,6 +202,7 @@ std::shared_ptr<CocoaCurlTLSState> CocoaCurlConnection::copyTLSState()
     state->peerChain = original->peerChain;
     state->evaluated = original->evaluated;
     state->accepted = original->accepted;
+    state->trusted = original->trusted;
     state->negotiatedProtocol = original->negotiatedProtocol;
     state->negotiatedCipher = original->negotiatedCipher;
     return state;

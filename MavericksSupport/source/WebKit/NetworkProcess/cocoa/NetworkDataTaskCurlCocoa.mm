@@ -93,6 +93,7 @@ NetworkDataTaskCurlCocoa::NetworkDataTaskCurlCocoa(NetworkSession& session, Netw
     , m_shouldPreconnect(parameters.shouldPreconnectOnly != PreconnectOnly::No)
     , m_shouldSniff(parameters.contentSniffingPolicy == ContentSniffingPolicy::SniffContent)
     , m_isMainResource(parameters.mainResourceNavigationDataForAnyFrame.has_value())
+    , m_needsCertificateInfo(parameters.needsCertificateInfo)
 {
     m_isNavigatingToAppBoundDomain = parameters.isNavigatingToAppBoundDomain;
     if (parameters.downloadResume) {
@@ -207,6 +208,7 @@ void NetworkDataTaskCurlCocoa::setup()
     // is HSTS-known; the exception stays scoped to that exact host and chain.
     if (auto allowed = m_session->networkProcess().allowedHTTPSCertificateForHost(connectionURL().host().toString()))
         options.allowedServerTrust = allowed->trust();
+    options.needsCertificateInfo = m_needsCertificateInfo;
     options.boundInterface = downcast<NetworkSessionCocoa>(*m_session).boundInterfaceIdentifier();
     options.connectionPartition = Site { m_request.firstPartyForCookies() }.toString();
     options.user = m_authUser;
@@ -406,11 +408,8 @@ void NetworkDataTaskCurlCocoa::continueAfterHeaders()
 {
     if (m_state != State::Running)
         return;
-    if (m_serverTrust && m_storedCredentialsPolicy != StoredCredentialsPolicy::EphemeralStateless) {
-        SecTrustResultType trustResult = kSecTrustResultInvalid;
-        if (SecTrustGetTrustResult(m_serverTrust.get(), &trustResult) == errSecSuccess && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
-            downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().receiveHeader(connectionURL(), m_response.httpHeaderField("Strict-Transport-Security"_s));
-    }
+    if (m_tlsState && m_tlsState->trusted && m_storedCredentialsPolicy != StoredCredentialsPolicy::EphemeralStateless)
+        downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().receiveHeader(connectionURL(), m_response.httpHeaderField("Strict-Transport-Security"_s));
     if (m_response.isRedirection() && !m_response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
         redirect();
         return;

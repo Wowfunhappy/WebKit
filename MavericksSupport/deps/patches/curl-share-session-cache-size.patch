@@ -1,0 +1,23 @@
+--- a/lib/curl_share.c
++++ b/lib/curl_share.c
+@@ -32,6 +32,11 @@
+ #include "hsts.h"
+ #include "url.h"
+ 
++/* A share's TLS session cache is sized as multi.c sizes a multi handle's. */
++#ifndef CURL_TLS_SESSION_SIZE
++#define CURL_TLS_SESSION_SIZE 25
++#endif
++
+ static void share_destroy(struct Curl_share *share)
+ {
+   if(!share)
+@@ -253,7 +258,7 @@
+          * itself, a high session count will impact startup time. Also, the
+          * scache is not optimized for several hundreds of peers.
+          * Keep it at a reasonable level. */
+-        if(Curl_ssl_scache_create(25, 2, &share->ssl_scache))
++        if(Curl_ssl_scache_create(CURL_TLS_SESSION_SIZE, 2, &share->ssl_scache))
+           res = CURLSHE_NOMEM;
+       }
+ #else

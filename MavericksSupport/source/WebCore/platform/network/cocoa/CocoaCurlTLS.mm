@@ -61,7 +61,8 @@ std::shared_ptr<CocoaCurlTLSState> CocoaCurlTLSState::fromSSL(SSL* ssl)
     auto* state = static_cast<std::shared_ptr<CocoaCurlTLSState>*>(SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), tlsStateIndex()));
     return state ? *state : nullptr;
 }
-static RetainPtr<CFArrayRef> peerCertificates(X509_STORE_CTX* store)
+// BoringSSL's peer chain holds the leaf first, as the server sent it.
+static RetainPtr<CFArrayRef> peerCertificates(STACK_OF(X509)* chain)
 {
     auto result = adoptCF(CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks));
     auto append = [&](X509* certificate) {
@@ -79,11 +80,10 @@ static RetainPtr<CFArrayRef> peerCertificates(X509_STORE_CTX* store)
         CFArrayAppendValue(result.get(), native.get());
         return true;
     };
-    auto* leaf = X509_STORE_CTX_get0_cert(store);
+    auto* leaf = chain && sk_X509_num(chain) ? sk_X509_value(chain, 0) : nullptr;
     if (!leaf || !append(leaf))
         return nullptr;
-    auto* chain = X509_STORE_CTX_get0_untrusted(store);
-    for (size_t i = 0; chain && i < sk_X509_num(chain); ++i) {
+    for (size_t i = 1; i < sk_X509_num(chain); ++i) {
         auto* certificate = sk_X509_value(chain, i);
         if (X509_cmp(leaf, certificate) && !append(certificate))
             return nullptr;
@@ -104,24 +104,52 @@ static bool certificateArraysMatch(CFArrayRef a, CFArrayRef b)
     return true;
 }
 
+RetainPtr<SecTrustRef> cocoaCurlCreateNativeTrust(const URL& url, CFArrayRef chain)
+{
+    // NSURL supplies the native host representation (in particular, IPv6 without URL brackets).
+    auto policy = adoptCF(SecPolicyCreateSSL(true, (__bridge CFStringRef)url.createNSURL().get().host));
+    SecTrustRef trust = nullptr;
+    if (!chain || !policy || SecTrustCreateWithCertificates(chain, policy.get(), &trust))
+        return nullptr;
+    return adoptCF(trust);
+}
+
 static bool evaluateNativeTrust(CocoaCurlTLSState& state, X509_STORE_CTX* store)
 {
-    state.peerChain = peerCertificates(store);
-    // NSURL supplies the native host representation (in particular, IPv6 without URL brackets).
-    auto policy = adoptCF(SecPolicyCreateSSL(true, (__bridge CFStringRef)state.url.createNSURL().get().host));
-    SecTrustRef trust = nullptr;
-    if (!state.peerChain || !policy || SecTrustCreateWithCertificates(state.peerChain.get(), policy.get(), &trust))
+    state.peerChain = peerCertificates(X509_STORE_CTX_get0_untrusted(store));
+    state.trust = cocoaCurlCreateNativeTrust(state.url, state.peerChain.get());
+    if (!state.trust)
         return state.acceptAnyCertificate;
-    state.trust = adoptCF(trust);
     if (state.acceptAnyCertificate)
         return true;
     SecTrustResultType result = kSecTrustResultInvalid;
-    OSStatus status = SecTrustEvaluate(trust, &result);
-    if (!status && (result == kSecTrustResultProceed || result == kSecTrustResultUnspecified))
+    OSStatus status = SecTrustEvaluate(state.trust.get(), &result);
+    state.trusted = !status && (result == kSecTrustResultProceed || result == kSecTrustResultUnspecified);
+    if (state.trusted)
         return true;
     if (certificateArraysMatch(state.peerChain.get(), state.acceptedChain.get()))
         return true;
-    return state.allowedTrust && certificatesMatch(state.allowedTrust.get(), trust);
+    return state.allowedTrust && certificatesMatch(state.allowedTrust.get(), state.trust.get());
+}
+
+// curl resumes a cached session without verifying its peer again, so only a session whose native
+// evaluation accepted the peer by itself enters the cache. This connection's SSL_CTX is its own.
+static void cacheSessionOnlyIfTrusted(SSL* ssl, const CocoaCurlTLSState& state)
+{
+    if (!state.trusted)
+        SSL_CTX_set_session_cache_mode(SSL_get_SSL_CTX(ssl), SSL_SESS_CACHE_OFF);
+}
+
+// A resumed handshake runs no verification: its peer is the one the session's original handshake
+// authenticated, and the native trust is built from the chain that session stores.
+static void adoptResumedSession(CocoaCurlTLSState& state, const SSL* ssl)
+{
+    state.negotiatedProtocol = SSL_version(ssl);
+    state.negotiatedCipher = SSL_CIPHER_get_protocol_id(SSL_get_current_cipher(ssl));
+    state.peerChain = peerCertificates(SSL_get_peer_full_cert_chain(ssl));
+    state.trust = cocoaCurlCreateNativeTrust(state.url, state.peerChain.get());
+    state.trusted = state.trust && SSL_get_verify_result(ssl) == X509_V_OK;
+    state.accepted = state.trusted;
 }
 
 static int verificationStateIndex()
@@ -189,8 +217,10 @@ std::unique_ptr<CocoaCurlTLSVerification> CocoaCurlTLSVerification::create(SSL* 
 }
 void CocoaCurlTLSVerification::evaluate()
 {
-    if (X509_verify_cert(m_impl->context) != 1)
+    if (X509_verify_cert(m_impl->context) != 1) {
         m_impl->result.accepted = false;
+        m_impl->result.trusted = false;
+    }
 }
 void CocoaCurlTLSVerification::apply(CocoaCurlTLSState& state)
 {
@@ -198,6 +228,7 @@ void CocoaCurlTLSVerification::apply(CocoaCurlTLSState& state)
     state.negotiatedCipher = m_impl->result.negotiatedCipher;
     state.trust = WTF::move(m_impl->result.trust);
     state.peerChain = WTF::move(m_impl->result.peerChain);
+    state.trusted = m_impl->result.trusted;
     state.accepted = m_impl->result.accepted;
 }
 static ssl_verify_result_t verifyAsynchronously(SSL* ssl, uint8_t* alert)
@@ -207,8 +238,12 @@ static ssl_verify_result_t verifyAsynchronously(SSL* ssl, uint8_t* alert)
         *alert = SSL_AD_INTERNAL_ERROR;
         return ssl_verify_invalid;
     }
-    if (state->evaluated)
-        return state->accepted ? ssl_verify_ok : ssl_verify_invalid;
+    if (state->evaluated) {
+        if (!state->accepted)
+            return ssl_verify_invalid;
+        cacheSessionOnlyIfTrusted(ssl, *state);
+        return ssl_verify_ok;
+    }
     if (!std::exchange(state->verificationRequested, true)) {
         auto verification = CocoaCurlTLSVerification::create(ssl, *state);
         if (!verification || !state->requestVerification || !state->requestVerification(WTF::move(verification))) {
@@ -340,13 +375,14 @@ CURLcode CocoaCurlTLSState::install(SSL_CTX* ssl, const std::shared_ptr<CocoaCur
     retained.release();
     SSL_CTX_set_verify(ssl, SSL_VERIFY_PEER, verifyCallback);
     SSL_CTX_set_custom_verify(ssl, SSL_VERIFY_PEER, verifyAsynchronously);
-    SSL_CTX_set_reverify_on_resume(ssl, 1);
     SSL_CTX_set_cert_cb(ssl, clientCertificateCallback, nullptr);
     state->previousInfoCallback = SSL_CTX_get_info_callback(ssl);
     SSL_CTX_set_info_callback(ssl, [](const SSL* connection, int event, int value) {
         if (auto state = CocoaCurlTLSState::fromSSL(const_cast<SSL*>(connection))) {
             if ((event & SSL_CB_READ_ALERT) == SSL_CB_READ_ALERT)
                 state->receivedAlert = value & 0xff;
+            if (event == SSL_CB_HANDSHAKE_DONE && SSL_session_reused(connection))
+                adoptResumedSession(*state, connection);
             if (state->previousInfoCallback)
                 state->previousInfoCallback(connection, event, value);
         }
@@ -377,7 +413,6 @@ CURLcode CocoaCurlTLSState::installSynchronously(SSL_CTX* ssl, const std::shared
         return CURLE_OUT_OF_MEMORY;
     retained.release();
     SSL_CTX_set_verify(ssl, SSL_VERIFY_PEER, synchronousVerifyCallback);
-    SSL_CTX_set_reverify_on_resume(ssl, 1);
     return CURLE_OK;
 }
 

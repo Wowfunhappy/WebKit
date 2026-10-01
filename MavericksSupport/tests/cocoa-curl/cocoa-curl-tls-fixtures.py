@@ -9,6 +9,8 @@
   cocoa-curl-tls-fixtures.py serve <dir> --port N [--client-auth] [--tls 1.1|1.2|1.3] [--chain trusted]
       HTTPS server on 127.0.0.1:N presenting server.pem, or the root-signed leaf with --chain trusted;
       HTTP requests answer "mTLS" (4 bytes); /websocket upgrades and sends the same text in a frame.
+      X-TLS-Session-Reused says whether the connection resumed a TLS session; a ?close query closes the
+      connection after the response, and ?hsts adds a Strict-Transport-Security field.
       --client-auth requires a certificate signed by one of the two identities above; --tls pins the version.
   cocoa-curl-tls-fixtures.py framing <dir> --port N
       HTTPS server on the root-signed leaf that answers each path below with raw bytes and then closes
@@ -85,7 +87,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
             return
         body = b'mTLS'
-        self.send_response(200); self.send_header('Content-Type', 'text/plain'); self.send_header('Content-Length', str(len(body))); self.end_headers()
+        query = self.path.partition('?')[2].split('&')
+        self.send_response(200); self.send_header('Content-Type', 'text/plain'); self.send_header('Content-Length', str(len(body)))
+        self.send_header('X-TLS-Session-Reused', '1' if self.connection.session_reused else '0')
+        if 'hsts' in query:
+            self.send_header('Strict-Transport-Security', 'max-age=600')
+        if 'close' in query:
+            self.send_header('Connection', 'close'); self.close_connection = True
+        self.end_headers()
         self.wfile.write(body)
     def log_message(self, format, *args):
         sys.stdout.write('%s %s\n' % (self.address_string(), format % args)); sys.stdout.flush()

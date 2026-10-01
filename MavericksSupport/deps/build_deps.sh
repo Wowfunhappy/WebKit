@@ -1072,6 +1072,9 @@ echo "==== libcurl 8.22.0 ===="
 # order, the connection window that follows, and one header per cookie pair -- carries the
 # values a browser sends. The ClientHello it travels on is WebCore's, shaped through the
 # SSL_CTX callback.
+# Each network partition keeps its TLS sessions in a curl share sized for the peers one partition's pages
+# reach: up to about 160 for a news front page with its ad exchanges. WebCore's CocoaCurlConnectionPool
+# retains four such caches, 1024 peers in all, the size of Chromium's client session cache.
 d=$(get https://curl.se/download/curl-8.22.0.tar.gz curl) || exit 1
 if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-reusable-preconnect.patch" \
@@ -1098,8 +1101,10 @@ if prepare "$d"; then
         && patch -p1 < "$HERE/patches/curl-idle-connection-expiry.patch" ) || exit 1
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-primary-canonical-name.patch" \
         && patch -p1 < "$HERE/patches/curl-primary-canonical-name.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-share-session-cache-size.patch" \
+        && patch -p1 < "$HERE/patches/curl-share-session-cache-size.patch" ) || exit 1
     ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" PKG_CONFIG=/usr/bin/false \
-        CPPFLAGS="-I$STAGE/include" \
+        CPPFLAGS="-I$STAGE/include -DCURL_TLS_SESSION_SIZE=256" \
         LDFLAGS="-L$STAGE/lib $LDFLAGS -L$TC/lib -Wl,-rpath,$STAGE/lib -Wl,-rpath,$TC/lib -Wl,-headerpad_max_install_names -F$SDK/System/Library/PrivateFrameworks" \
         LIBS="-lc++ -lc++abi -framework Heimdal" ./configure --prefix="$STAGE" --bindir="$STAGE/libexec" \
         --enable-shared --disable-static \

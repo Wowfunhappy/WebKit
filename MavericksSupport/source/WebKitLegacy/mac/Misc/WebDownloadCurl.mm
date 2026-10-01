@@ -415,8 +415,7 @@ void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& res
     m_response = WTF::move(response);
     invalidateCocoaCurlCacheAfterResponse(m_storage.get(), m_request, m_response.response);
     auto tls = m_transfer ? m_transfer->tlsState() : nullptr;
-    SecTrustResultType trustResult = kSecTrustResultInvalid;
-    if (m_storage && tls && tls->trust && SecTrustGetTrustResult(tls->trust.get(), &trustResult) == errSecSuccess && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
+    if (m_storage && tls && tls->trusted)
         m_storage->httpStrictTransportSecurityStore().receiveHeader(connectionURL(), m_response.response.httpHeaderField("Strict-Transport-Security"_s));
     m_responseCompletion = WTF::move(completion);
     // A 304 to a revalidation delivers the stored response it confirms, and the stored body once the

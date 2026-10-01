@@ -174,6 +174,8 @@ void CocoaCurlResourceHandle::beginTransfer()
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body);
     options.acceptedCertificateChain = m_acceptedChain;
+    // DocumentLoader's main resource includes its certificate info (CertificateInfoPolicy::IncludeCertificateInfo).
+    options.needsCertificateInfo = m_handle->firstRequest().requester() == ResourceRequestRequester::Main;
     options.connectionPartition = Site { m_request.firstPartyForCookies() }.toString();
     options.user = m_user;
     options.password = m_password;
@@ -229,8 +231,7 @@ void CocoaCurlResourceHandle::curlReceivedResponse(CocoaCurlTransferResponse&& r
     m_response = WTF::move(response);
     invalidateCocoaCurlCacheAfterResponse(m_storage.get(), m_request, m_response.response);
     auto tls = m_connection->tlsState();
-    SecTrustResultType trustResult = kSecTrustResultInvalid;
-    if (m_storage && tls && tls->trust && SecTrustGetTrustResult(tls->trust.get(), &trustResult) == errSecSuccess && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
+    if (m_storage && tls && tls->trusted)
         m_storage->httpStrictTransportSecurityStore().receiveHeader(connectionURL(), m_response.response.httpHeaderField("Strict-Transport-Security"_s));
     m_responseTimestamp = WallTime::now();
     auto status = m_response.response.httpStatusCode();

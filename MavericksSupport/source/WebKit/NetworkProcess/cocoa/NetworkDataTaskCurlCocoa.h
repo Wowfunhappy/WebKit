@@ -148,6 +148,7 @@ private:
     bool m_noSniff { false };
     Vector<uint8_t> m_sniffPrefix;
     bool m_isMainResource { false };
+    bool m_needsCertificateInfo { false };
     bool m_cookieBlockingLatched { false };
     String m_generatedCookieHeader;
     struct HeldCookies {

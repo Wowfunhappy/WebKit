@@ -667,6 +667,7 @@ bool CocoaCurlTransfer::setup()
     CURL_SET(CURLOPT_SSL_VERIFYHOST, 0L);
     CURL_SET(CURLOPT_CAINFO, nullptr);
     CURL_SET(CURLOPT_CAPATH, nullptr);
+    CURL_SET(CURLOPT_SHARE, m_scheduler->sessionCache());
     CURL_SET(CURLOPT_SSL_CTX_FUNCTION, sslContextCallback);
     CURL_SET(CURLOPT_SSL_CTX_DATA, this);
     CURL_SET(CURLOPT_SSLVERSION, cocoaCurlMinimumTLSVersion(m_options.minimumTLSProtocol));
@@ -1140,9 +1141,41 @@ size_t CocoaCurlTransfer::data(std::span<const char> bytes)
     return CURL_WRITEFUNC_PAUSE;
 }
 
+// ResourceResponse::platformCertificateInfo's rule: a load that includes certificate info gets a trust
+// with a result, and an empty certificate info when the evaluation rejects it. A resumed session's trust
+// has no result; the native evaluation runs on the trust queue, once for the connection.
+bool CocoaCurlTransfer::evaluateResponseTrust()
+{
+    auto& info = m_response.response.certificateInfo();
+    if (!m_options.needsCertificateInfo || !info || !info->trust() || !m_tls)
+        return false;
+    SecTrustResultType result = kSecTrustResultInvalid;
+    if (SecTrustGetTrustResult(info->trust().get(), &result) != errSecSuccess || result != kSecTrustResultInvalid)
+        return false;
+    ++m_clientInteractions;
+    m_timer.stop();
+    cocoaCurlTrustEvaluationQueue().postTask([transfer = Ref { *this }, unevaluated = info->trust(), trust = cocoaCurlCreateNativeTrust(m_tls->url, m_tls->peerChain.get())]() mutable {
+        SecTrustResultType result = kSecTrustResultInvalid;
+        bool trusted = trust && !SecTrustEvaluate(trust.get(), &result) && (result == kSecTrustResultProceed || result == kSecTrustResultUnspecified);
+        Ref worker { transfer->m_scheduler->runLoop() };
+        worker->dispatch([transfer = WTF::move(transfer), unevaluated = WTF::move(unevaluated), trust = WTF::move(trust), trusted]() mutable {
+            --transfer->m_clientInteractions;
+            if (!transfer->m_running)
+                return;
+            if (trust && transfer->m_tls && transfer->m_tls->trust == unevaluated)
+                transfer->m_tls->trust = trust;
+            transfer->m_response.response.setCertificateInfo(trusted ? CertificateInfo(WTF::move(trust)) : CertificateInfo());
+            transfer->publishResponse();
+        });
+    });
+    return true;
+}
+
 void CocoaCurlTransfer::publishResponse()
 {
     if (m_publishedResponse || !m_running)
+        return;
+    if (evaluateResponseTrust())
         return;
     m_publishedResponse = true;
     RefPtr client = m_client;
