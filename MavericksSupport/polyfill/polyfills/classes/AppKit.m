@@ -3,10 +3,152 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <objc/runtime.h>
 #include <math.h>
 
-WK_PRIV_CLASS(NSFilePromiseReceiver) @interface NSFilePromiseReceiver : NSObject @end
-@implementation NSFilePromiseReceiver @end
+// NSFilePromiseReceiver (10.12+): the receiving side of a file promise on the drag pasteboard, done the
+// way 10.9's -[NSDraggingInfo namesOfPromisedFilesDroppedAtDestination:] does it: set the pasteboard's
+// paste location, then read the promise. Each promised item carries its file's UTI as
+// kPasteboardTypeFilePromiseContent; that UTI is the receiver's file type. A legacy promiser
+// (-dragPromisedFilesOfTypes:...) names all of its files at once through NSPromiseContentsPboardType,
+// so the first receiver to call in a legacy drag receives them all. Any other
+// item yields one file through kPasteboardTypeFileURLPromise; receivers of the same type are
+// interchangeable, so each takes the next of that drag's items of its type that no receiver has taken.
+// The reader runs on the given queue inside a coordinated read of each file.
+static char wkClaimedPromiseItemsKey;
+// The value of AppKit's private _NSPromiseContentsPboardType: reading it calls in a legacy promise.
+static NSString * const wkPromiseContentsPasteboardType = @"NSPromiseContentsPboardType";
+
+WK_PRIV_CLASS(NSFilePromiseReceiver) @interface NSFilePromiseReceiver : NSObject <NSPasteboardReading>
+{
+    NSArray *_wkFileTypes;
+    NSArray *_wkFileNames;
+    BOOL _wkIsLegacyPromise;
+}
++ (NSArray *)readableDraggedTypes;
+- (NSArray *)fileTypes;
+- (NSArray *)fileNames;
+- (void)receivePromisedFilesAtDestination:(NSURL *)destinationDir options:(NSDictionary *)options operationQueue:(NSOperationQueue *)operationQueue reader:(void (^)(NSURL *fileURL, NSError *errorOrNil))reader;
+@end
+@implementation NSFilePromiseReceiver
++ (NSArray *)readableDraggedTypes
+{
+    return @[ NSFilesPromisePboardType, (NSString *)kPasteboardTypeFileURLPromise ];
+}
++ (NSArray *)readableTypesForPasteboard:(NSPasteboard *)pasteboard
+{
+    (void)pasteboard;
+    return @[ (NSString *)kPasteboardTypeFilePromiseContent ];
+}
++ (NSPasteboardReadingOptions)readingOptionsForType:(NSString *)type pasteboard:(NSPasteboard *)pasteboard
+{
+    (void)type;
+    (void)pasteboard;
+    return NSPasteboardReadingAsString;
+}
+- (id)initWithPasteboardPropertyList:(id)propertyList ofType:(NSString *)type
+{
+    (void)type;
+    if (!(self = [super init]))
+        return nil;
+    // The drag pasteboard lists NSFilesPromisePboardType and NSPromiseContentsPboardType for any promise;
+    // only a legacy promiser's own item declares NSFilesPromisePboardType.
+    CFStringRef legacyItemType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassNSPboardType, (CFStringRef)NSFilesPromisePboardType, kUTTypeData);
+    for (NSPasteboardItem *item in [NSPasteboard pasteboardWithName:NSDragPboard].pasteboardItems)
+        _wkIsLegacyPromise = _wkIsLegacyPromise || [item.types containsObject:(NSString *)legacyItemType];
+    if (legacyItemType)
+        CFRelease(legacyItemType);
+    _wkFileTypes = [([propertyList isKindOfClass:[NSString class]] ? @[ propertyList ] : @[ ]) copy];
+    _wkFileNames = [@[ ] retain];
+    return self;
+}
+- (void)dealloc
+{
+    [_wkFileTypes release];
+    [_wkFileNames release];
+    [super dealloc];
+}
+- (NSArray *)fileTypes { return _wkFileTypes; }
+- (NSArray *)fileNames { return _wkFileNames; }
+
+// The items of the drag pasteboard's current contents that a receiver has already called in.
+static NSMutableIndexSet *wkClaimedPromiseItems(NSPasteboard *pasteboard)
+{
+    NSDictionary *claims = objc_getAssociatedObject(pasteboard, &wkClaimedPromiseItemsKey);
+    NSNumber *changeCount = @(pasteboard.changeCount);
+    if (![claims[@"changeCount"] isEqual:changeCount]) {
+        claims = @{ @"changeCount": changeCount, @"items": [NSMutableIndexSet indexSet] };
+        objc_setAssociatedObject(pasteboard, &wkClaimedPromiseItemsKey, claims, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return claims[@"items"];
+}
+
+- (void)receivePromisedFilesAtDestination:(NSURL *)destinationDir options:(NSDictionary *)options operationQueue:(NSOperationQueue *)operationQueue reader:(void (^)(NSURL *fileURL, NSError *errorOrNil))reader
+{
+    (void)options;
+    NSPasteboard *dragPasteboard = [NSPasteboard pasteboardWithName:NSDragPboard];
+    PasteboardRef pasteboard = NULL;
+    if (PasteboardCreate((CFStringRef)dragPasteboard.name, &pasteboard) == noErr) {
+        PasteboardSetPasteLocation(pasteboard, (CFURLRef)destinationDir);
+        CFRelease(pasteboard);
+    }
+
+    NSMutableIndexSet *claimedItems = wkClaimedPromiseItems(dragPasteboard);
+    NSMutableArray *fileURLs = [NSMutableArray array];
+    if (_wkIsLegacyPromise) {
+        if (!claimedItems.count) {
+            [claimedItems addIndexesInRange:NSMakeRange(0, MAX(dragPasteboard.pasteboardItems.count, (NSUInteger)1))];
+            for (id name in [dragPasteboard propertyListForType:wkPromiseContentsPasteboardType]) {
+                if ([name isKindOfClass:[NSString class]])
+                    [fileURLs addObject:[destinationDir URLByAppendingPathComponent:name]];
+            }
+        }
+    } else {
+        NSString *fileType = _wkFileTypes.firstObject;
+        NSArray *items = dragPasteboard.pasteboardItems;
+        for (NSUInteger index = 0; index < items.count; ++index) {
+            NSPasteboardItem *item = items[index];
+            if ([claimedItems containsIndex:index] || ![[item stringForType:(NSString *)kPasteboardTypeFilePromiseContent] isEqualToString:fileType])
+                continue;
+            [claimedItems addIndex:index];
+            NSString *urlString = [item stringForType:(NSString *)kPasteboardTypeFileURLPromise];
+            NSURL *fileURL = urlString ? [NSURL URLWithString:urlString] : nil;
+            [fileURLs addObject:fileURL ?: [NSNull null]];
+            break;
+        }
+    }
+
+    NSMutableArray *fileNames = [NSMutableArray array];
+    for (id fileURL in fileURLs) {
+        if ([fileURL isKindOfClass:[NSURL class]])
+            [fileNames addObject:[fileURL lastPathComponent]];
+    }
+    [_wkFileNames release];
+    _wkFileNames = [fileNames copy];
+
+    void (^readerCopy)(NSURL *, NSError *) = [[reader copy] autorelease];
+    for (id fileURL in fileURLs) {
+        [operationQueue addOperationWithBlock:^{
+            if (![fileURL isKindOfClass:[NSURL class]]) {
+                readerCopy(nil, [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil]);
+                return;
+            }
+            NSFileCoordinator *coordinator = [[[NSFileCoordinator alloc] initWithFilePresenter:nil] autorelease];
+            NSError *coordinationError = nil;
+            __block BOOL didRead = NO;
+            [coordinator coordinateReadingItemAtURL:fileURL options:NSFileCoordinatorReadingWithoutChanges error:&coordinationError byAccessor:^(NSURL *readURL) {
+                didRead = YES;
+                if ([[NSFileManager defaultManager] fileExistsAtPath:readURL.path])
+                    readerCopy(readURL, nil);
+                else
+                    readerCopy(readURL, [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError userInfo:@{ NSURLErrorKey: readURL }]);
+            }];
+            if (!didRead)
+                readerCopy(fileURL, coordinationError ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadUnknownError userInfo:nil]);
+        }];
+    }
+}
+@end
 WK_PRIV_ALIAS(NSFilePromiseReceiver);
 // NSFilePromiseProvider (10.12+): a pasteboard writer that promises a file, built on the pasteboard's
 // file promise (HIServices Pasteboard.h): it writes kPasteboardTypeFilePromiseContent, the file's type,
@@ -110,13 +252,42 @@ WK_PRIV_CLASS(NSFilePromiseProvider) @interface NSFilePromiseProvider : NSObject
         fileURL = [directory URLByAppendingPathComponent:candidate];
     }
 
+    // The file is written inside a coordinated write held until the delegate's completion handler runs,
+    // so the receiver's coordinated read waits for the whole file; a failed write leaves no file behind.
+    // The write is coordinated from its own thread, and the URL is handed over once that write holds the
+    // file: the delegate's queue may be the main queue this callback runs on.
     NSOperationQueue *queue = [_wkDelegate respondsToSelector:@selector(operationQueueForFilePromiseProvider:)] ? [_wkDelegate operationQueueForFilePromiseProvider:self] : [NSOperationQueue mainQueue];
     id<WKFilePromiseProviderDelegate> delegate = _wkDelegate;
-    [queue addOperationWithBlock:^{
-        [delegate filePromiseProvider:self writePromiseToURL:fileURL completionHandler:^(NSError *error) {
-            (void)error;
+    NSFilePromiseProvider *provider = [self retain];
+    dispatch_semaphore_t writeStarted = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
+        __block BOOL didStartWrite = NO;
+        [coordinator coordinateWritingItemAtURL:fileURL options:0 error:NULL byAccessor:^(NSURL *writeURL) {
+            didStartWrite = YES;
+            dispatch_semaphore_signal(writeStarted);
+            dispatch_semaphore_t writeFinished = dispatch_semaphore_create(0);
+            __block NSError *writeError = nil;
+            [queue addOperationWithBlock:^{
+                [delegate filePromiseProvider:provider writePromiseToURL:writeURL completionHandler:^(NSError *error) {
+                    writeError = [error retain];
+                    dispatch_semaphore_signal(writeFinished);
+                }];
+            }];
+            dispatch_semaphore_wait(writeFinished, DISPATCH_TIME_FOREVER);
+            dispatch_release(writeFinished);
+            if (writeError) {
+                [[NSFileManager defaultManager] removeItemAtURL:writeURL error:NULL];
+                [writeError release];
+            }
         }];
-    }];
+        if (!didStartWrite)
+            dispatch_semaphore_signal(writeStarted);
+        [coordinator release];
+        [provider release];
+    });
+    dispatch_semaphore_wait(writeStarted, DISPATCH_TIME_FOREVER);
+    dispatch_release(writeStarted);
     return [fileURL.absoluteString dataUsingEncoding:NSUTF8StringEncoding];
 }
 @end

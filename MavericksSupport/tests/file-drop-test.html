@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>File drop test</title>
+<style>
+body{font-family:-apple-system,sans-serif;margin:0;min-height:100vh;background:#f0f0f0}
+#zone{position:fixed;inset:0;display:none;background:rgba(30,136,229,.25);font-size:32px;align-items:center;justify-content:center;pointer-events:none}
+#log{padding:16px;font-size:15px;white-space:pre-line}
+</style></head><body>
+<div id="zone">DROP TO ATTACH</div>
+<div id="log">Drop files anywhere. ?ignore leaves dragover uncancelled, so the browser handles the drop itself.</div>
+<script>
+var ignore = location.search.indexOf('ignore') >= 0, zone = document.getElementById('zone'), log = document.getElementById('log'), depth = 0;
+function L(m){ log.textContent += '\n' + m; }
+function hasFiles(e){ return Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') >= 0; }
+document.addEventListener('dragenter', function(e){ if (!hasFiles(e)) return; if (!depth++) L('dragenter items=' + Array.prototype.map.call(e.dataTransfer.items, function(i){ return i.kind + ':' + i.type; }).join(',')); zone.style.display = 'flex'; });
+document.addEventListener('dragleave', function(e){ if (!hasFiles(e)) return; if (!--depth) { L('dragleave'); zone.style.display = 'none'; } });
+document.addEventListener('dragover', function(e){ if (!ignore) e.preventDefault(); });
+document.addEventListener('drop', function(e){
+  e.preventDefault(); depth = 0; zone.style.display = 'none';
+  var files = e.dataTransfer.files;
+  L('drop files=' + files.length);
+  Array.prototype.forEach.call(files, function(f){
+    f.text().then(function(t){ L(f.name + ' ' + f.size + ' bytes ' + f.type + ': ' + JSON.stringify(t.slice(0, 40))); }, function(x){ L(f.name + ' read failed: ' + x); });
+  });
+});
+</script></body></html>

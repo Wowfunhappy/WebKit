@@ -89,6 +89,16 @@
 #import "SandboxExtension.h"
 #import <WebCore/DragData.h>
 #import <WebCore/DragActions.h>
+// file drops: the network-process grant, coordinated reads and promised-file MIME types.
+#import "NetworkProcessMessages.h"
+#import "NetworkProcessProxy.h"
+#import "WebsiteDataStore.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <wtf/BlockPtr.h>
+#import <wtf/Box.h>
+#import <wtf/RunLoop.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <WebCore/PlatformEventFactoryMac.h>
 // _NSRecommendedScrollerStyle(), used to pick the mouse-tracking-area options.
 #import <pal/spi/mac/NSScrollerImpSPI.h>
@@ -144,6 +154,8 @@ struct WKViewState {
     // the originating mouse-down event, needed by the classic
     // -[NSView dragImage:...event:...] API to start an HTML5 drag session.
     RetainPtr<NSEvent> lastMouseDownEvent;
+    // mirrors WebViewImpl::m_initialNumberOfValidItemsForDrop.
+    NSInteger initialNumberOfValidItemsForDrop { 0 };
 #endif
     // the unhandled key-down currently being re-dispatched to AppKit
     // (mirrors WebViewImpl::m_keyDownEventBeingResent); performKeyEquivalent:/keyDown:
@@ -1631,27 +1643,196 @@ static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> inf
     return WebCore::DragData(info, client, WebCore::IntPoint(global), wkCoreDragOperationMask(info.draggingSourceOperationMask), wkDragApplicationFlags(view, info), WebCore::anyDragDestinationAction(), page.webPageIDInMainFrameProcess());
 }
 
+// the MIME types of the files a drag promises or carries; -[WKWebView _promisedFileMIMETypes:].
+static Vector<String> wkPromisedFileMIMETypes(NSView *view, id<NSDraggingInfo> info)
+{
+    __block Vector<String> mimeTypes;
+    [info enumerateDraggingItemsWithOptions:0 forView:view classes:@[NSFilePromiseReceiver.class] searchOptions:@{ } usingBlock:^(NSDraggingItem *item, NSInteger, BOOL *) {
+        RetainPtr receiver = dynamic_objc_cast<NSFilePromiseReceiver>(item.item);
+        if (!receiver)
+            return;
+
+        for (NSString *typeIdentifier in [receiver fileTypes]) {
+            RetainPtr type = [UTType typeWithIdentifier:typeIdentifier];
+            if (!type)
+                continue;
+
+            if (RetainPtr mimeType = [type preferredMIMEType])
+                mimeTypes.append({ mimeType.get() });
+        }
+    }];
+
+    if (mimeTypes.isEmpty()) {
+        RetainPtr filenames = dynamic_objc_cast<NSArray>([info.draggingPasteboard propertyListForType:WebCore::legacyFilenamesPasteboardTypeSingleton()]);
+        if (!filenames)
+            return { };
+
+        for (id name in filenames.get()) {
+            RetainPtr pathExtension = [dynamic_objc_cast<NSString>(name) pathExtension];
+            if (![pathExtension length])
+                continue;
+
+            RetainPtr type = [UTType typeWithFilenameExtension:pathExtension.get()];
+            if (!type)
+                continue;
+
+            if (RetainPtr mimeType = [type preferredMIMEType])
+                mimeTypes.append({ mimeType.get() });
+        }
+    }
+
+    return mimeTypes;
+}
+
+// WebViewImpl's performDragWithLegacyFiles: let the network and web processes read the dropped files,
+// then deliver the drop carrying their paths.
+static void wkPerformDragWithLegacyFiles(WebKit::WebPageProxy& page, Box<Vector<String>>&& fileNames, Box<WebCore::DragData>&& dragData, const String& pasteboardName)
+{
+    RefPtr networkProcess = page.websiteDataStore().networkProcessIfExists();
+    if (!networkProcess)
+        return;
+    networkProcess->sendWithAsyncReply(Messages::NetworkProcess::AllowFilesAccessFromWebProcess(page.legacyMainFrameProcess().coreProcessIdentifier(), *fileNames), [page = Ref { page }, fileNames, dragData, pasteboardName]() mutable {
+        if (!page->hasRunningProcess()) {
+            if (RefPtr pageClient = page->pageClient())
+                pageClient->didPerformDragOperation(false);
+            return;
+        }
+
+        WebKit::SandboxExtension::Handle sandboxExtensionHandle;
+        Vector<WebKit::SandboxExtension::Handle> sandboxExtensionForUpload;
+
+        page->createSandboxExtensionsIfNeeded(*fileNames, sandboxExtensionHandle, sandboxExtensionForUpload);
+        dragData->setFileNames(*fileNames);
+        page->performDragOperation(*dragData, pasteboardName, WTF::move(sandboxExtensionHandle), WTF::move(sandboxExtensionForUpload));
+    });
+}
+
+// WebViewImpl's handleLegacyFilesPromisePasteboard.
+static bool wkHandleLegacyFilesPromisePasteboard(id<NSDraggingInfo> draggingInfo, Box<WebCore::DragData>&& dragData, WebKit::WebPageProxy& page, NSView *view)
+{
+    // FIXME: legacyFilesPromisePasteboardTypeSingleton() contains UTIs, not path names. Also, it's not
+    // guaranteed that the count of UTIs equals the count of files, since some clients only write
+    // unique UTIs.
+    RetainPtr files = dynamic_objc_cast<NSArray>([protect(draggingInfo.draggingPasteboard) propertyListForType:WebCore::legacyFilesPromisePasteboardTypeSingleton()]);
+    if (!files)
+        return false;
+
+    RetainPtr dropDestinationPath = FileSystem::createTemporaryDirectory(@"WebKitDropDestination");
+    if (!dropDestinationPath)
+        return false;
+
+    size_t fileCount = files.get().count;
+    auto fileNames = Box<Vector<String>>::create();
+    RetainPtr dropDestination = [NSURL fileURLWithPath:dropDestinationPath.get() isDirectory:YES];
+    String pasteboardName = draggingInfo.draggingPasteboard.name;
+    [draggingInfo enumerateDraggingItemsWithOptions:0 forView:view classes:@[NSFilePromiseReceiver.class] searchOptions:@{ } usingBlock:makeBlockPtr([
+        pasteboardName,
+        dropDestination,
+        fileNames,
+        fileCount,
+        dragData,
+        protectedPage = Ref { page }
+    ](NSDraggingItem *draggingItem, NSInteger idx, BOOL *stop) {
+        RetainPtr queue = adoptNS([NSOperationQueue new]);
+        BlockPtr readerBlock = makeBlockPtr([protectedPage, fileNames, fileCount, dragData, pasteboardName = pasteboardName.isolatedCopy()](NSURL *fileURL, NSError *errorOrNil) mutable {
+            if (errorOrNil)
+                return;
+
+            RunLoop::mainSingleton().dispatch([protectedPage, path = protect(fileURL.path), fileNames, fileCount, dragData, pasteboardName] mutable {
+                fileNames->append(path.get());
+                if (fileNames->size() != fileCount)
+                    return;
+                wkPerformDragWithLegacyFiles(protectedPage, WTF::move(fileNames), WTF::move(dragData), pasteboardName);
+            });
+        });
+        [protect(draggingItem.item) receivePromisedFilesAtDestination:dropDestination.get() options:@{ } operationQueue:queue.get() reader:readerBlock.get()];
+    }).get()];
+
+    return true;
+}
+
+// WebViewImpl's handleLegacyFilesPasteboard.
+static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<WebCore::DragData>&& dragData, WebKit::WebPageProxy& page)
+{
+    RetainPtr files = dynamic_objc_cast<NSArray>([retainPtr(draggingInfo.draggingPasteboard) propertyListForType:WebCore::legacyFilenamesPasteboardTypeSingleton()]);
+    if (!files)
+        return false;
+
+    String pasteboardName = draggingInfo.draggingPasteboard.name;
+
+    RetainPtr originalFileURLs = adoptNS([[NSMutableArray alloc] initWithCapacity:[files count]]);
+    for (NSString *file in files.get())
+        [originalFileURLs addObject:adoptNS([[NSURL alloc] initFileURLWithPath:file]).get()];
+
+    auto task = makeBlockPtr([protectedPage = Ref { page }, originalFileURLs, dragData, pasteboardName = pasteboardName.isolatedCopy()] mutable {
+        ASSERT(!RunLoop::isMain());
+
+        RetainPtr coordinator = adoptNS([[NSFileCoordinator alloc] initWithFilePresenter:nil]);
+
+        NSError *prepareError = nil;
+        [coordinator prepareForReadingItemsAtURLs:originalFileURLs.get() options:0 writingItemsAtURLs:@[] options:0 error:&prepareError byAccessor:[coordinator, originalFileURLs, protectedPage = WTF::move(protectedPage), dragData, pasteboardName](void (^completionHandler)(void)) mutable {
+            auto fileNames = Box<Vector<String>>::create();
+
+            for (NSURL *originalFileURL in originalFileURLs.get()) {
+                NSError *error = nil;
+                [coordinator coordinateReadingItemAtURL:originalFileURL options:NSFileCoordinatorReadingWithoutChanges error:&error byAccessor:[fileNames](NSURL *newURL) {
+                    fileNames->append(newURL.path);
+                }];
+
+                RELEASE_LOG_ERROR_IF(error, DragAndDrop, "Failed to coordinate reading file: %@.", error.localizedDescription);
+            }
+
+            RunLoop::mainSingleton().dispatch([protectedPage = WTF::move(protectedPage), fileNames, dragData, pasteboardName, completionHandler = makeBlockPtr(completionHandler)] mutable {
+                wkPerformDragWithLegacyFiles(protectedPage, WTF::move(fileNames), WTF::move(dragData), pasteboardName);
+                completionHandler();
+            });
+        }];
+
+        RELEASE_LOG_ERROR_IF(prepareError, DragAndDrop, "Failed to prepare for reading files with error: %@.", prepareError.localizedDescription);
+    });
+
+    dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), task.get());
+    return true;
+}
+
 // NSDraggingDestination for WKView — drops route directly into WebPageProxy.
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info
 {
     if (!_wkState || !_wkState->page)
         return NSDragOperationNone;
     auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
+    dragData.setPromisedFileMIMETypes(wkPromisedFileMIMETypes(self, info));
     _wkState->page->resetCurrentDragInformation();
     _wkState->page->dragEntered(dragData, info.draggingPasteboard.name);
+    _wkState->initialNumberOfValidItemsForDrop = info.numberOfValidItemsForDrop;
     return NSDragOperationCopy;
 }
 
-// NSDraggingDestination -draggingUpdated: for WKView — routes into WebPageProxy (drag op resolved in the body).
+// NSDraggingDestination -draggingUpdated: for WKView, mirroring WebViewImpl::draggingUpdated.
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info
 {
     if (!_wkState || !_wkState->page)
         return NSDragOperationNone;
-    auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
-    _wkState->page->dragUpdated(dragData, info.draggingPasteboard.name);
-    // mirror WebViewImpl::draggingUpdated — report the page's current drag
-    // operation, None while the async PerformDragControllerAction reply is still pending.
-    return wkKitDragOperation(_wkState->page->currentDragOperation());
+    auto& page = *_wkState->page;
+    auto dragData = wkDragDataFromInfo(self, info, page);
+    dragData.setPromisedFileMIMETypes(wkPromisedFileMIMETypes(self, info));
+    page.dragUpdated(dragData, info.draggingPasteboard.name);
+
+    NSInteger numberOfValidItemsForDrop = page.currentDragNumberOfFilesToBeAccepted();
+
+    if (!page.currentDragOperation())
+        numberOfValidItemsForDrop = _wkState->initialNumberOfValidItemsForDrop;
+
+    NSDraggingFormation draggingFormation = NSDraggingFormationNone;
+    if (page.currentDragIsOverFileInput() && numberOfValidItemsForDrop > 0)
+        draggingFormation = NSDraggingFormationList;
+
+    if (info.numberOfValidItemsForDrop != numberOfValidItemsForDrop)
+        [info setNumberOfValidItemsForDrop:numberOfValidItemsForDrop];
+    if (info.draggingFormation != draggingFormation)
+        [info setDraggingFormation:draggingFormation];
+
+    return wkKitDragOperation(page.currentDragOperation());
 }
 
 // NSDraggingDestination -draggingExited: for WKView — routes into WebPageProxy.
@@ -1662,6 +1843,8 @@ static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> inf
     auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
     _wkState->page->dragExited(dragData);
     _wkState->page->resetCurrentDragInformation();
+    info.numberOfValidItemsForDrop = _wkState->initialNumberOfValidItemsForDrop;
+    _wkState->initialNumberOfValidItemsForDrop = 0;
 }
 
 // NSDraggingDestination — always accept so AppKit proceeds to performDragOperation.
@@ -1670,13 +1853,27 @@ static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> inf
     return YES;
 }
 
-// NSDraggingDestination drop handler — route the drop into the page proxy.
+// NSDraggingDestination drop handler, mirroring WebViewImpl::performDragOperation.
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)info
 {
     if (!_wkState || !_wkState->page)
         return NO;
-    auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
-    _wkState->page->performDragOperation(dragData, info.draggingPasteboard.name, { }, { });
+    auto& page = *_wkState->page;
+    auto dragData = Box<WebCore::DragData>::create(wkDragDataFromInfo(self, info, page));
+
+    RetainPtr<NSArray> types = info.draggingPasteboard.types;
+
+    // https://bugs.webkit.org/show_bug.cgi?id=307601
+    bool hasWebArchive = [types containsObject:WebKit::PasteboardTypes::WebArchivePboardType];
+    bool hasFilePromises = [types containsObject:WebCore::legacyFilesPromisePasteboardTypeSingleton()];
+    bool isDragFromSelf = dragData->flags().contains(WebCore::DragApplicationFlags::IsSource);
+    if (hasFilePromises && !(hasWebArchive && isDragFromSelf))
+        return wkHandleLegacyFilesPromisePasteboard(info, WTF::move(dragData), page, self);
+
+    if ([types containsObject:WebCore::legacyFilenamesPasteboardTypeSingleton()])
+        return wkHandleLegacyFilesPasteboard(info, WTF::move(dragData), page);
+
+    page.performDragOperation(*dragData, info.draggingPasteboard.name, { }, { });
     return YES;
 }
 

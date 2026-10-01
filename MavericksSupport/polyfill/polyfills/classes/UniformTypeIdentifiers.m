@@ -122,10 +122,12 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 + (instancetype)XML       { return [self xml]; }
 + (instancetype)URL       { return [self url]; }
 + (instancetype)UTF8PlainText { return [self utf8PlainText]; }
+// nil for an identifier the system does not know: neither declared nor dynamic.
 + (nullable instancetype)typeWithIdentifier:(NSString *)ident
 {
     if (!ident) return nil;
-    return [[[self alloc] initWithIdentifier:ident] autorelease];
+    UTType *type = [[[self alloc] initWithIdentifier:ident] autorelease];
+    return type.isDeclared || type.isDynamic ? type : nil;
 }
 + (nullable instancetype)typeWithFilenameExtension:(NSString *)ext
 {
