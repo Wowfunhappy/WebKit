@@ -113,7 +113,9 @@ This is the surface through which Safari drives the browser.
 ### Embedding (Objective-C SPI)
 - **`WKView`** — the `NSView` subclass Safari hosts in its window; the on-screen WebKit2 web view.
 - **`WKBrowsingContextController`** — Objective-C controller wrapping a page's loading/navigation.
-- **`WKWebInspectorProxyObjCAdapter`** — Objective-C shim bridging the inspector proxy to AppKit.
+- **`WKWebInspectorProxyObjCAdapter`** — the Web Inspector window's delegate, which Safari extends with its
+  DevelopMenuSupport category. WebKit2 exports upstream's `WKWebInspectorUIProxyObjCAdapter` under this name
+  too (`cmake/WebKit2-class-aliases.txt`).
 
 > These three classes were **removed from upstream WebKit** and are reimplemented by the backport (the rest
 > of the WK2 surface is the still-living C API).
@@ -245,10 +247,13 @@ page lifecycle. Subgroups:
 
 All **725** symbols must be exported by the backport's frameworks at the install paths above. A missing one
 is fatal: Safari either fails to launch (`dyld: Symbol not found`) or traps when the feature is first used.
+`host-abi/check-abi-gap.sh` holds the same rule for two more contracts, `public-needs-from-<framework>.txt`
+(the 10.9 SDK's public API) and `system-needs-from-<framework>.txt` (every binary on a 10.9 system),
+and counts a symbol as exported when the framework or anything it re-exports defines it, as dyld does.
 
 Most WK2 C-API symbols still exist unchanged in modern WebKit and need no work. What the backport actively
 fills in:
-- the **Objective-C classes** `WKView`, `WKBrowsingContextController`, `WKWebInspectorProxyObjCAdapter` (Safari),
+- the **Objective-C classes** `WKView`, `WKBrowsingContextController` (Safari),
   plus `WKProcessGroup` and `WKBrowsingContextGroup` (Mail / QuickLook) — all removed upstream → reimplemented;
 - some gutted C API such as the `WKPageGroup` user-content functions, parts of `WKBundlePageGroup*`, and
   `WKSerializedScriptValue*` (restored);
@@ -268,3 +273,13 @@ comm -12 safari-imports.txt exports-JavaScriptCore.txt > safari-needs-from-JavaS
 and likewise for `WebKit.framework/Versions/A/WebKit` (24) and `WebKit2.framework/Versions/A/WebKit2` (606). Safari
 imports 2110 symbols in all; the remaining ~1385 come from system frameworks and 0 from WebCore directly.
 `StagedFrameworks/Safari` (a Safari-9 mechanism) is empty and unused by Safari 7.
+
+`public-needs-from-<framework>.txt` holds every symbol the stock framework's re-export closure exported that
+the stock 10.9 public headers (`<stock>/<framework>.framework/Headers`) declare: the classes those headers
+declare with `@interface`, and the C functions and constants whose names appear in them.
+
+`system-needs-from-<framework>.txt` holds every symbol a Mach-O on the port's 10.9 test machine (Apple's
+applications and the third-party ones installed there) binds
+`(from <framework>)` (`nm -m -u`) that the stock framework's re-export closure exported, across every binary
+under `/Applications`, `/System/Library`, `/Library` and `/usr` that links JavaScriptCore, WebKit, WebCore
+or WebKit2, apart from the SDK stubs inside Xcode.app. No binary binds from WebCore directly.

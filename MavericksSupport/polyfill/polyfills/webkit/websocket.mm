@@ -16,9 +16,8 @@
 
 // NSURLSessionWebSocketTask / NSURLSessionWebSocketMessage are macOS 10.15+ and absent on 10.9, and
 // this WebKit has no other WebSocket transport (WebSocketTaskCocoa is the only channel). This file is
-// force-loaded into WebKit.framework (alongside WKWebInspectorProxyObjCAdapter.mm) so its strong class
-// definition satisfies the weak `_OBJC_CLASS_$_NSURLSessionWebSocketMessage` import in
-// WebSocketTaskCocoa.mm. It provides:
+// force-loaded into WebKit.framework so its strong class definition satisfies the weak
+// `_OBJC_CLASS_$_NSURLSessionWebSocketMessage` import in WebSocketTaskCocoa.mm. It provides:
 //   * NSURLSessionWebSocketMessage  — the value object WebSocketTaskCocoa constructs.
 //   * WKWebSocketStream             — an RFC 6455 client over a libcurl connection (carrying the
 //     browser ClientHello of CocoaCurlClientHello.h) that masquerades as the NSURLSessionWebSocketTask

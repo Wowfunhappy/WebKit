@@ -45,7 +45,8 @@ MavericksSupport/
 ├── polyfill/                   the polyfill layer -- see polyfill/README.md
 ├── sandbox/                    the sandbox profiles 10.9's sandbox can compile, and scripts/ (check-sandbox-profiles.sh,
 │                               the build gate; check-sandbox-applied.sh; watch-sandbox-denials.sh)
-├── host-abi/                   the symbols Safari 7 binds from our frameworks + check-abi-gap.sh (build gate)
+├── host-abi/                   the symbols 10.9 binaries bind from our frameworks (Safari 7, the public API, every
+│                               binary on a 10.9 system) + check-abi-gap.sh (build gate)
 ├── sdk/                        patch-sdk.sh: the two edits the build needs in the macOS SDK (run by bootstrap.sh)
 ├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash), run by staging
 ├── toolchain/                  the in-tree compiler + helper build tools, incl. a modern git (vendor/ committed, build/ regenerated)

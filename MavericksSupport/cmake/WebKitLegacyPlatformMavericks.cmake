@@ -28,9 +28,10 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
 
 set(MAVERICKS_WITHHELD_WEBKITLEGACY_COCOA_SOURCES "")
 
-# The restored legacy CSS Dashboard region support.
+# The restored legacy CSS Dashboard region support, and the 10.9 SDK class DOMNotation.
 set(MAVERICKS_ADDED_WEBKITLEGACY_COCOA_SOURCES
     "mac/WebView/WebDashboardRegion.mm @nonARC"
+    "mac/DOM/DOMNotation.mm @nonARC"
 )
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBKITLEGACY_DIR}" WebKitLegacy_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt"

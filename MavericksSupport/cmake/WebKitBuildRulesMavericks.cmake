@@ -143,6 +143,9 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
                 "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
             set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
                 "${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
+            # Stock 10.9 JavaScriptCore re-exports /usr/lib/libobjc.A.dylib, as stock WebCore does (see
+            # WebCorePlatformMavericks.cmake); this carries that load command.
+            target_link_options(${_target} PRIVATE "-Wl,-reexport-lobjc")
         endif ()
         target_link_options(${_target} PRIVATE
             "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a")

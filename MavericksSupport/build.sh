@@ -329,7 +329,7 @@ _ninja_log | grep -E 'error:|file not found|FAILED:' | grep -vE 'warning:' | sed
 # binaries, which exist only once staging has run:
 #   check-absent-references.sh  a reference to a symbol 10.9 lacks binds to 0 and faults on first use
 #   check-sandbox-profiles.sh   a profile 10.9's sandbox cannot compile CRASH()es WebContent at launch
-#   check-abi-gap.sh            every symbol Safari 7 binds from our frameworks must be exported
+#   check-abi-gap.sh            every symbol 10.9 binaries bind from our frameworks must be exported
 #   check-public-headers.sh     every shipped developer header compiles against the staged frameworks
 if [ "$RC" = 0 ]; then
     echo "==================== STAGING ===================="

@@ -33,6 +33,13 @@ macro(_MAVERICKS_FINALIZE_WEBKIT_TARGET _target)
             "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
         set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
             "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
+        # Stock 10.9 named the Web Inspector window's delegate WKWebInspectorProxyObjCAdapter, and Safari 7
+        # attaches its DevelopMenuSupport category to that class symbol; it exports upstream's
+        # WKWebInspectorUIProxyObjCAdapter under the old name too. A response file keeps the `$` in the
+        # symbol names away from the shell.
+        target_link_options(${_target} PRIVATE "-Wl,@${MAVERICKS_SUPPORT}/cmake/WebKit2-class-aliases.txt")
+        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
+            "${MAVERICKS_SUPPORT}/cmake/WebKit2-class-aliases.txt")
     endif ()
     _MAVERICKS_DEFINE_WEBPUSHD()
     _MAVERICKS_DEFINE_WEBCLIP_PLUGIN()

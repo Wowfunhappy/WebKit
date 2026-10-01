@@ -1,0 +1,2 @@
+-alias _OBJC_CLASS_$_WKWebInspectorUIProxyObjCAdapter _OBJC_CLASS_$_WKWebInspectorProxyObjCAdapter
+-alias _OBJC_METACLASS_$_WKWebInspectorUIProxyObjCAdapter _OBJC_METACLASS_$_WKWebInspectorProxyObjCAdapter
