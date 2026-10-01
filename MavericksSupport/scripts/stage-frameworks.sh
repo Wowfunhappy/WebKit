@@ -4,12 +4,12 @@
 # disk. Installing is then a plain copy (MavericksSupport/install.sh).
 #
 # Everything that shapes an artifact happens here: the 10.9 name shift, the bundle resources
-# CMake does not copy, the private C++ runtime / polyfill / GStreamer deploys, the install-name
-# rewrite to absolute /System paths, the demangler guard, the full stock XPC service set, and
-# the stock i386 graft. See scripts/framework-layout.sh for the layout these produce.
+# CMake does not copy, the developer headers (scripts/stage-headers.sh), the private C++ runtime /
+# polyfill / GStreamer deploys, the install-name rewrite to absolute /System paths, the demangler
+# guard, the full stock XPC service set, and the stock i386 graft. See scripts/framework-layout.sh for the layout these produce.
 #
 # Step order is load-bearing, top to bottom:
-#   1 copy + layout + rename    2 resources    3 runtime/polyfill/GStreamer deploys
+#   1 copy + layout + rename    2 resources + headers    3 runtime/polyfill/GStreamer deploys
 #   4 install names    5 demangler guard    6 XPC clones    7 runtime-binding gate    8 i386 graft
 # The graft is LAST because install_name_tool and the demangler guard operate on THIN x86_64
 # binaries: run against a fat file they risk header-padding failures, and they would put the
@@ -351,13 +351,23 @@ stage_framework() {
     # bundle top level, where a framework wants the standard relative form, and once more inside
     # Versions/A/XPCServices, where the installed bundle wants nothing at all. Give the top-level
     # link its relative form and drop every other build-tree link, so the staged bundle stands alone.
+    # A dropped Versions/A/<name> takes the bundle's top-level <name> link to it along (WebCore's
+    # PrivateHeaders and Modules).
     if [ -L "$destBundle/XPCServices" ]; then
         rm -f "$destBundle/XPCServices"
         ln -s "Versions/Current/XPCServices" "$destBundle/XPCServices"
     fi
-    local l
+    local l name
     while IFS= read -r l; do
-        case "$(readlink "$l")" in "$REPO"/*) rm -f "$l";; esac
+        case "$(readlink "$l")" in "$REPO"/*)
+            rm -f "$l"
+            if [ "$(dirname "$l")" = "$destBundle/Versions/A" ]; then
+                name="$(basename "$l")"
+                if [ "$(readlink "$destBundle/$name")" = "Versions/Current/$name" ]; then
+                    rm -f "$destBundle/$name"
+                fi
+            fi;;
+        esac
     done < <(find "$destBundle" -type l)
 }
 # Order matters: WebCore nests inside WebKit.framework, so WebKitLegacy (-> WebKit.framework)
@@ -445,6 +455,9 @@ echo "  staged en.lproj/Localizable.strings"
     "$REPO/Source/WebCore/en.lproj/Localizable.strings" \
     "$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Resources" \
     "$RES"
+
+# The headers and module maps developers build against.
+bash "$HERE/stage-headers.sh"
 
 # ---------------------------------------------------------------------------
 # Step 3: deploy the dylibs that ship inside the bundles. The frameworks' load commands are

@@ -220,6 +220,21 @@ wk_verify_tree() {
     f="$WEBKIT2_BUNDLE/Versions/A/Daemons/webpushd"
     [ -x "$pre$f" ] || { echo "  MISSING Web Push daemon: $pre$f" >&2; bad=1; }
 
+    # The developer headers and module maps (scripts/stage-headers.sh), reached through the
+    # bundles' top-level links as a compiler reaches them.
+    for f in "$JSC_BUNDLE/Headers/JavaScriptCore.h" "$JSC_BUNDLE/Modules/module.modulemap" \
+             "$WEBKIT_BUNDLE/Headers/WebKit.h" "$WEBKIT_BUNDLE/Modules/module.modulemap" \
+             "$WEBKIT2_BUNDLE/Headers/WebKit2.h" "$WEBKIT2_BUNDLE/Modules/module.modulemap"; do
+        [ -f "$pre$f" ] || { echo "  MISSING developer header: $pre$f" >&2; bad=1; }
+    done
+
+    # Every symlink in the bundles resolves.
+    for f in $WK_INSTALL_ROOTS; do
+        while IFS= read -r n; do
+            echo "  DANGLING symlink: $n -> $(readlink "$n")" >&2; bad=1
+        done < <(find "$pre$f" -type l ! -exec test -e {} \; -print 2>/dev/null)
+    done
+
     # Sandbox profiles. AuxiliaryProcess::initializeSandbox() and webpushd's applySandbox() look
     # these up BY NAME under WebKit2.framework's Resources and CRASH()/RELEASE_ASSERT rather than
     # continue when the file is not there, so a missing profile is a child process that dies at

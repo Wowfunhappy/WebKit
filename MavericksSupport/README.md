@@ -34,9 +34,11 @@ MavericksSupport/
 ├── webclip/                    the Dashboard Web Clip widget's plug-in (WebClip.plugin, WebKit 2 page view) and
 │                               WebClip.js.patch for the widget's script; its HTML, images and strings stay Apple's
 ├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
+│                               stage-headers.sh (the developer headers and module maps, through upstream's header rules),
 │                               framework-layout.sh (sourced: the installed layout, shared by stage + install),
 │                               check-absent-references.sh and check-gap-archive-current.sh (build gates),
 │                               check-backport-markers.sh (divergence gate),
+│                               check-public-headers.sh (build gate: every shipped header compiles),
 │                               check-imageio-decode.sh (run by hand: no page bytes reach ImageIO),
 │                               build-log.sh and host-headers.sh (sourced: the one build log, and the 10.9 header probe),
 │                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py
@@ -103,6 +105,24 @@ in applicable TestExpectations; explicitly naming a test does not override those
 Tests whose upstream text baselines contain FAIL lines remain selected. Each exclusion records
 its evidence; port-specific defects require fixes. Accessibility is outside the suite's scope.
 Every executed test must pass.
+
+## Building software against the installed frameworks
+
+The installed frameworks carry the headers and module maps Apple's build emits for this WebKit
+version (`scripts/stage-headers.sh`). The frameworks keep 10.9's names, so the APIs sit where
+10.9 put them:
+
+| Framework | Contents | Import | Link |
+|---|---|---|---|
+| `JavaScriptCore.framework` | the JavaScriptCore API | `<JavaScriptCore/JavaScriptCore.h>` | `-framework JavaScriptCore` |
+| `WebKit.framework` | the legacy API (`WebView`, the DOM classes) | `<WebKit/WebKit.h>` | `-framework WebKit` |
+| `PrivateFrameworks/WebKit2.framework` | the modern API (`WKWebView`, ...) | `<WebKit2/WebKit2.h>` or `@import WebKit2;` | `-F/System/Library/PrivateFrameworks -framework WebKit2` |
+
+Build with a modern SDK and `-mmacosx-version-min=10.9`, and `-F` a directory holding links to
+just these three frameworks: `-F/System/Library/Frameworks` would also put 10.9's own Foundation
+and AppKit headers ahead of the SDK's. The headers keep Apple's availability annotations, so post-10.9 API
+calls warn under `-Wunguarded-availability` and link weakly. The i386 slice of every framework
+is stock 10.9's, whose API is the 10.9 SDK's.
 
 ## `polyfill/build/` contents
 
