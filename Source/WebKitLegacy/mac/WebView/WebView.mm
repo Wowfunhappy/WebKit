@@ -5354,13 +5354,11 @@ IGNORE_WARNINGS_END
     WebCore::initializeMainThreadIfNeeded();
 
 #if USE(GCRYPT)
-    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this port. WK1 in-process
-    // hosts (e.g. Dashboard's DashboardClient rendering web clips) never run the
-    // WebKit2 process init that calls this, so initialize libgcrypt here too —
-    // before any other libgcrypt call — to satisfy its required first-call
-    // (gcry_check_version); otherwise it logs "Libgcrypt warning: missing
-    // initialization - please fix the application".
-    PAL::GCrypt::initialize();
+    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this port. libgcrypt is initialized once
+    // per process, by whichever of this and InitializeWebKit2() runs first; WebKit1-only hosts such as
+    // DashboardClient run only this one.
+    if (!gcry_control(GCRYCTL_INITIALIZATION_FINISHED_P))
+        PAL::GCrypt::initialize();
 #endif
 
     WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();

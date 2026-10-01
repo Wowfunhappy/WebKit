@@ -75,10 +75,11 @@ static void runInitializationCode(void* = nullptr)
     WebCore::populateJITOperations();
 
 #if USE(GCRYPT)
-    // MAVERICKS_BACKPORT: UIProcess calls wrapSerializedCryptoKey through the
-    // libgcrypt path too (see WebPageProxy.cpp / WebProcessProxy.cpp).
-    // gcry_check_version must run before any other libgcrypt call.
-    PAL::GCrypt::initialize();
+    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this port, in the UI process too
+    // (wrapSerializedCryptoKey). libgcrypt is initialized once per process, by whichever of this and
+    // +[WebView initialize] runs first.
+    if (!gcry_control(GCRYCTL_INITIALIZATION_FINISHED_P))
+        PAL::GCrypt::initialize();
 #endif
 
 }

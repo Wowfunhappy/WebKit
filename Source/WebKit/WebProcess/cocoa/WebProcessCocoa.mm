@@ -141,11 +141,6 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
-
-// MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this build; pull in its initialization header.
-#if USE(GCRYPT)
-#include <pal/crypto/gcrypt/Initialization.h>
-#endif
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
@@ -1069,12 +1064,6 @@ RetainPtr<CFDataRef> WebProcess::sourceApplicationAuditData() const
 void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameters& parameters, SandboxInitializationParameters& sandboxParameters)
 {
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-
-#if USE(GCRYPT)
-    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt. Call gcry_check_version
-    // and finish secmem setup before any thread can touch the library.
-    PAL::GCrypt::initialize();
-#endif
 
 #if ENABLE(AUDIO_DECODER_REGISTRATION)
     registerOpusDecoderIfNeeded();
