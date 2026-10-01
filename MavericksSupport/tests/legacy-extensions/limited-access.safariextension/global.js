@@ -4,6 +4,15 @@
 // process keep everything else from this extension: other sites' cookies, and every webRequest event for
 // them. The clipboard is every extension page's.
 const report = (key, value) => fetch(`http://127.0.0.1:8843/report?${key}=${encodeURIComponent(JSON.stringify(value))}`);
+// Runs a clipboard sequence while no other test extension context uses the general pasteboard.
+const withClipboardLock = async sequence => {
+    await fetch('http://127.0.0.1:8843/clipboard-lock');
+    try {
+        return await sequence();
+    } finally {
+        await fetch('http://127.0.0.1:8843/clipboard-unlock');
+    }
+};
 const outcome = promise => promise.then(value => ({ resolved: value }), error => ({ rejected: error.message || error.name }));
 
 // Any event outside the access is a leak; the localhost probe's is the expected one.
@@ -24,7 +33,7 @@ browser.webRequest.onBeforeSendHeaders.addListener(details => {
     const changes = [];
     browser.cookies.onChanged.addListener(change => changes.push(change.cookie.domain));
     const result = {
-        clipboard: await outcome(navigator.clipboard.writeText('limited-access').then(() => navigator.clipboard.readText())),
+        clipboard: await outcome(withClipboardLock(() => navigator.clipboard.writeText('limited-access').then(() => navigator.clipboard.readText()))),
         otherHost: await outcome(browser.cookies.get({ url: 'http://127.0.0.1:8843/', name: 'keep' })),
         securePage: await outcome(browser.cookies.get({ url: 'https://localhost:8843/', name: 'limited' })),
         set: await outcome(browser.cookies.set({ url: 'http://localhost:8843/', name: 'limited', value: '1' }).then(cookie => cookie && cookie.domain)),

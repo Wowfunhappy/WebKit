@@ -316,22 +316,29 @@ safari.application.addEventListener('contextmenu', event => {
 }, false);
 
 // The clipboard, well after any user gesture, as a password manager clears what it copied.
-(async () => {
+// Runs a clipboard sequence while no other test extension context uses the general pasteboard.
+const withClipboardLock = async sequence => {
+    await fetch('http://127.0.0.1:8843/clipboard-lock');
+    try {
+        return await sequence();
+    } finally {
+        await fetch('http://127.0.0.1:8843/clipboard-unlock');
+    }
+};
+
+withClipboardLock(async () => {
     const clipboard = navigator.clipboard;
-    const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
     const result = {
         type: Object.prototype.toString.call(clipboard),
         writeTextLength: clipboard.writeText.length,
     };
     try {
         await fetch(`${SERVER}/report?clipboard-start=${Date.now()}`);
-        await wait(1500);
         const copied = `legacy-extension-clipboard-${Date.now()}`;
         result.write = await clipboard.writeText(copied);
         result.readBack = await clipboard.readText() === copied;
         result.systemPasteboard = await (await fetch(`${SERVER}/pbpaste`)).text() === copied;
 
-        await wait(1000);
         if (await clipboard.readText() === copied)
             await clipboard.writeText('');
         result.clearedUnchanged = await clipboard.readText() === '';
@@ -339,14 +346,30 @@ safari.application.addEventListener('contextmenu', event => {
         await clipboard.writeText(copied);
         const external = `external-${Date.now()}`;
         await fetch(`${SERVER}/pbcopy?${encodeURIComponent(external)}`);
-        await wait(500);
         if (await clipboard.readText() === copied)
             await clipboard.writeText('');
         result.keptExternal = await clipboard.readText() === external;
 
         result.wrongThis = await clipboard.writeText.call({}, 'x').then(() => 'resolved', error => error.name);
+
+        // An image, as a page copies a canvas: the system pasteboard gets WebCore's re-encoded PNG.
+        const canvas = document.createElement('canvas');
+        canvas.width = 3;
+        canvas.height = 2;
+        const context = canvas.getContext('2d');
+        context.fillStyle = 'rgb(255, 0, 0)';
+        context.fillRect(0, 0, 3, 2);
+        const png = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        result.imageWrite = await clipboard.write([ new ClipboardItem({ 'image/png': png, 'text/plain': Promise.resolve('image-alt') }) ]);
+        const pasted = await createImageBitmap(await (await fetch(`${SERVER}/pbpng`)).blob());
+        context.clearRect(0, 0, 3, 2);
+        context.drawImage(pasted, 0, 0);
+        result.imagePasteboard = { width: pasted.width, height: pasted.height, pixel: Array.from(context.getImageData(1, 1, 1, 1).data) };
+        result.imageText = await clipboard.readText();
+        result.writeWrongThis = await clipboard.write.call({}, []).then(() => 'resolved', error => error.name);
+        result.writeNotItems = await clipboard.write([ 'x' ]).then(() => 'resolved', error => error.name);
     } catch (error) {
         result.error = `${error.name}: ${error.message}`;
     }
     report('clipboard', result);
-})();
+});

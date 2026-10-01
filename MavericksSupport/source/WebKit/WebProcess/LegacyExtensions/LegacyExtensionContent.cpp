@@ -13,6 +13,7 @@
 #include <JavaScriptCore/JSLock.h>
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/DocumentInlines.h>
+#include <WebCore/DocumentPage.h>
 #include <WebCore/HTMLFrameOwnerElement.h>
 #include <WebCore/JSDOMWindow.h>
 #include <WebCore/JSElement.h>
@@ -20,7 +21,9 @@
 #include <WebCore/LegacyExtensionStyleSheets.h>
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/MemoryCache.h>
+#include <WebCore/Page.h>
 #include <WebCore/ScriptController.h>
+#include <WebCore/Settings.h>
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/WindowProxy.h>
 #include <wtf/JSONValues.h>
@@ -57,9 +60,9 @@ static JSValueRef contentContextSend(JSContextRef context, JSObjectRef, JSObject
 {
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
     auto message = LegacyExtensions::stringArgument(context, argumentCount, arguments, 0);
-    RefPtr document = native && !message.isNull() ? documentForNative(*native) : nullptr;
+    RefPtr document = !message.isNull() ? documentForNative(*native) : nullptr;
     if (document)
-        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(native->frameID, native->documentIdentifier, document->url(), document->originIdentifierForPasteboard(), native->extensionKey, message), 0);
+        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(native->frameID, native->documentIdentifier, document->url(), native->extensionKey, message), 0);
     return JSValueMakeUndefined(context);
 }
 
@@ -69,7 +72,7 @@ static JSValueRef contentContextSend(JSContextRef context, JSObjectRef, JSObject
 static JSValueRef contentContextInsertCSS(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef*)
 {
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
-    RefPtr document = native ? documentForNative(*native) : nullptr;
+    RefPtr document = documentForNative(*native);
     auto code = LegacyExtensions::stringArgument(context, argumentCount, arguments, 0);
     if (!document || code.isNull())
         return JSValueMakeUndefined(context);
@@ -82,7 +85,7 @@ static JSValueRef contentContextInsertCSS(JSContextRef context, JSObjectRef, JSO
 static JSValueRef contentContextRemoveCSS(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef*)
 {
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
-    RefPtr document = native ? documentForNative(*native) : nullptr;
+    RefPtr document = documentForNative(*native);
     auto code = LegacyExtensions::stringArgument(context, argumentCount, arguments, 0);
     if (document && !code.isNull())
         LegacyExtensionContent::singleton().removeStyleSheets(*document, native->extensionKey, code);
@@ -111,14 +114,35 @@ static JSValueRef contentContextFrameID(JSContextRef context, JSObjectRef, JSObj
     return JSValueMakeNumber(context, webFrame->isMainFrame() ? 0 : static_cast<double>(webFrame->frameID().toUInt64()));
 }
 
+// withClipboardWriteAccess(callback): calls callback with the context's page allowed to write the clipboard,
+// as javaScriptCanAccessClipboard allows a WebExtension's pages, and returns its result. The page's own
+// setting is back in place once the callback returns. A context whose document is gone calls it under the
+// page's own rules.
+static JSValueRef contentContextWithClipboardWriteAccess(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t, const JSValueRef arguments[], JSValueRef* exception)
+{
+    JSObjectRef callback = JSValueToObject(context, arguments[0], nullptr);
+    auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    RefPtr document = documentForNative(*native);
+    RefPtr page = document ? document->page() : nullptr;
+    if (!page)
+        return JSObjectCallAsFunction(context, callback, nullptr, 0, nullptr, exception);
+
+    auto& settings = page->settings();
+    bool pageAllowsClipboardAccess = settings.javaScriptCanAccessClipboard();
+    settings.setJavaScriptCanAccessClipboard(true);
+    JSValueRef result = JSObjectCallAsFunction(context, callback, nullptr, 0, nullptr, exception);
+    settings.setJavaScriptCanAccessClipboard(pageAllowsClipboardAccess);
+    return result;
+}
+
 static void contentContextFinalize(JSObjectRef object)
 {
     delete static_cast<ContentContextNative*>(JSObjectGetPrivate(object));
 }
 
-static JSClassRef contentContextNativeClass()
+static JSClassRef contentContextNativeClass(LegacyExtensions::ContextKind kind)
 {
-    static JSClassRef nativeClass = [] {
+    static JSClassRef contentClass = [] {
         static const JSStaticFunction functions[] = {
             { "send", contentContextSend, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "insertCSS", contentContextInsertCSS, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
@@ -132,7 +156,20 @@ static JSClassRef contentContextNativeClass()
         definition.finalize = contentContextFinalize;
         return JSClassCreate(&definition);
     }();
-    return nativeClass;
+    // An extension page shown in a frame of this process writes the clipboard as its pages do. Its parent
+    // class's finalizer releases the private data.
+    static JSClassRef hostClass = [] {
+        static const JSStaticFunction functions[] = {
+            { "withClipboardWriteAccess", contentContextWithClipboardWriteAccess, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { nullptr, nullptr, 0 },
+        };
+        JSClassDefinition definition = kJSClassDefinitionEmpty;
+        definition.className = "LegacyExtensionNative";
+        definition.parentClass = contentClass;
+        definition.staticFunctions = functions;
+        return JSClassCreate(&definition);
+    }();
+    return kind == LegacyExtensions::ContextKind::Host ? hostClass : contentClass;
 }
 
 static WebCore::JSDOMGlobalObject* existingGlobalObject(WebCore::LocalFrame& frame, WebCore::DOMWrapperWorld& world)
@@ -216,7 +253,7 @@ void LegacyExtensionContent::didClearWindowObjectForFrame(WebFrame& frame, WebCo
         return;
     // The main world of a frame showing an extension page is that page; any other world is a content script.
     auto kind = world.isNormal() ? LegacyExtensions::ContextKind::Host : LegacyExtensions::ContextKind::Content;
-    LegacyExtensions::installAPI(*globalObject, kind, contentContextNativeClass(), new ContentContextNative { frame.frameID(), document->identifier(), extensionKey, world });
+    LegacyExtensions::installAPI(*globalObject, kind, contentContextNativeClass(kind), new ContentContextNative { frame.frameID(), document->identifier(), extensionKey, world });
 }
 
 void LegacyExtensionContent::insertStyleSheet(WebCore::Document& document, const String& extensionKey, WebCore::UserStyleSheet&& styleSheet)
@@ -287,7 +324,6 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
     if (document && document->identifier() != documentID)
         document = nullptr;
     URL documentURL = document ? document->url() : URL { };
-    String pasteboardOriginIdentifier = document ? document->originIdentifierForPasteboard() : String { };
 
     if (type == "exec"_s || type == "css"_s) {
         RefPtr world = contentScriptWorld(extensionKey);
@@ -301,7 +337,7 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
         if (auto callID = object->getDouble("callId"_s))
             reply->setDouble("callId"_s, *callID);
         reply->setString("error"_s, "The extension has no access to this frame."_s);
-        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, pasteboardOriginIdentifier, extensionKey, reply->toJSONString()), 0);
+        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString()), 0);
         return;
     }
 
@@ -315,7 +351,7 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
         reply->setBoolean("none"_s, true);
     } else
         return;
-    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, pasteboardOriginIdentifier, extensionKey, reply->toJSONString()), 0);
+    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString()), 0);
 }
 
 } // namespace WebKit

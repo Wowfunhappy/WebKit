@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>extension frame</title>
+<p>The api-test content script frames one of the extension's pages here.</p>
+<script>
+// Once the extension's frame has written the clipboard, this web page still keeps WebCore's clipboard rules.
+addEventListener('message', event => {
+    if (event.data !== 'frame-clipboard-done')
+        return;
+    const outcomes = [ navigator.clipboard.writeText('web page'), navigator.clipboard.write([ new ClipboardItem({ 'text/plain': 'web page' }) ]) ].map(promise => promise.then(() => 'resolved', error => error.name));
+    Promise.all(outcomes).then(outcomes => fetch(`/report?frame-parent-clipboard=${encodeURIComponent(JSON.stringify(outcomes))}`));
+});
+</script>

@@ -5,6 +5,15 @@ const note = (key, value) => {
     document.documentElement.dataset[key] = typeof value === 'string' ? value : JSON.stringify(value);
 };
 
+// A web page that frames one of the extension's own pages.
+if (location.pathname === '/extension-frame.html' && window === window.top) {
+    document.addEventListener('DOMContentLoaded', () => {
+        const frame = document.createElement('iframe');
+        frame.src = `${safari.extension.baseURI}frame.html`;
+        document.body.appendChild(frame);
+    });
+}
+
 if (typeof browser !== 'object') {
     note('extBrowser', 'missing');
 } else {
@@ -27,7 +36,7 @@ if (typeof browser !== 'object') {
     note('extFrameId', String(browser.runtime.getFrameId(window)));
     // A content script keeps the page's clipboard rules.
     if (window === window.top) {
-        Promise.all([ navigator.clipboard.writeText('content script'), navigator.clipboard.readText() ].map(promise => promise.then(() => 'resolved', error => error.name))).then(
+        Promise.all([ navigator.clipboard.writeText('content script'), navigator.clipboard.readText(), navigator.clipboard.write([ new ClipboardItem({ 'text/plain': 'content script' }) ]) ].map(promise => promise.then(() => 'resolved', error => error.name))).then(
             outcomes => note('extClipboard', outcomes)
         );
     }

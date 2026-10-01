@@ -610,33 +610,37 @@ if (isHost) {
     };
     browser.cookies = cookies;
 
-    // navigator.clipboard's text methods: an extension's page writes and reads the general pasteboard through
-    // the router whenever it asks, as a WebExtension's pages with the clipboard permissions do.
-    const notAllowedError = () => new DOMException("The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.", "NotAllowedError");
-    const clipboardCall = (method, ...args) => callRouter(method, ...args).catch(() => {
-        throw notAllowedError();
-    });
+    // navigator.clipboard: an extension's page writes and reads the general pasteboard whenever it asks, as a
+    // WebExtension's pages with the clipboard permissions do. WebKit 1 extension views allow writes through
+    // their preferences; a page in a web content process writes with its page's clipboard access granted for
+    // the call. Reads go to the router.
     if (typeof Clipboard === "function") {
         const clipboard = navigator.clipboard;
-        const { writeText, readText } = Clipboard.prototype;
+        const { write, writeText, readText } = Clipboard.prototype;
         const clipboardMethods = {
-            writeText(data) {
-                if (this !== clipboard || !arguments.length)
-                    return writeText.apply(this, arguments);
-                let text;
-                try {
-                    text = `${data}`;
-                } catch (error) {
-                    return Promise.reject(error);
-                }
-                return clipboardCall("clipboard.writeText", text);
-            },
             readText() {
                 if (this !== clipboard)
                     return readText.apply(this, arguments);
-                return clipboardCall("clipboard.readText");
+                return callRouter("clipboard.readText").catch(() => {
+                    throw new DOMException("The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.", "NotAllowedError");
+                });
             },
         };
+        if (native.withClipboardWriteAccess) {
+            const withWriteAccess = (method, thisValue, args) => {
+                if (thisValue !== clipboard)
+                    return method.apply(thisValue, args);
+                return native.withClipboardWriteAccess(() => method.apply(thisValue, args));
+            };
+            Object.assign(clipboardMethods, {
+                write(data) {
+                    return withWriteAccess(write, this, arguments);
+                },
+                writeText(data) {
+                    return withWriteAccess(writeText, this, arguments);
+                },
+            });
+        }
         for (const name of Object.keys(clipboardMethods))
             Object.defineProperty(Clipboard.prototype, name, { value: clipboardMethods[name], writable: true, enumerable: true, configurable: true });
     }

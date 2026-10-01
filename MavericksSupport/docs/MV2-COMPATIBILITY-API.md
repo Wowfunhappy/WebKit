@@ -14,7 +14,7 @@ Sources:
 | UI-process router | `MavericksSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionHost.{h,cpp}` |
 | Web-content side | `MavericksSupport/source/WebKit/WebProcess/LegacyExtensions/LegacyExtensionContent.{h,cpp}` |
 | Network side (webRequest) | `MavericksSupport/source/WebKit/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.{h,cpp}` |
-| Clipboard | `MavericksSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm` |
+| Clipboard | writes: `WebLegacyExtensionPageObserver.mm` (WebKit 1 preferences) and `LegacyExtensionContent.cpp` (web content pages); reads: `MavericksSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm` |
 | WebKit 1 page hooks | `MavericksSupport/source/WebKitLegacy/mac/LegacyExtensions/WebLegacyExtensionPageObserver.mm` |
 | Root-relative URLs | `MavericksSupport/source/WTF/wtf/LegacyExtensionURL.{h,cpp}` |
 | Test extension and server | `MavericksSupport/tests/legacy-extensions/` |
@@ -343,15 +343,14 @@ Removes the cookie `cookies.get` would return. Resolves with `null` when there i
 
 ## Clipboard (host contexts only)
 
-In the extension's own pages, `navigator.clipboard.writeText()` and `navigator.clipboard.readText()` work at any time, with no user gesture and no focus required, as they do in a WebExtension's pages with the clipboard permissions.
+In the extension's own pages, `navigator.clipboard.write()`, `navigator.clipboard.writeText()` and `navigator.clipboard.readText()` work at any time, with no user gesture and no focus required, as they do in a WebExtension's pages with the clipboard permissions.
 
-- `writeText(text)` writes plain text to the general pasteboard. In a private browsing page, the pasteboard entry expires as WebKit's ephemeral pasteboard data does.
-- `readText()` reads the pasteboard's plain text. It resolves with `""` when there is no text.
-- A call that fails rejects with a `NotAllowedError` `DOMException`.
+- `write(items)` and `writeText(text)` are WebKit's own: `write()` takes `ClipboardItem`s, including images (`image/png` is decoded and re-encoded, `text/html` sanitized, `text/uri-list` link-decoration filtered). In a private browsing page, their pasteboard entries expire as WebKit's ephemeral pasteboard data does.
+- `readText()` reads the pasteboard's plain text. It resolves with `""` when there is no text, and rejects with a `NotAllowedError` `DOMException` when it fails.
 
 Content scripts keep the page's clipboard rules.
 
-WebKit 1 extension views (global page, popovers, bars) also have WebCore's asynchronous Clipboard API enabled, as WebKit 2 views have by default.
+WebKit 1 extension views (global page, popovers, bars) also have WebCore's asynchronous Clipboard API enabled, as WebKit 2 views have by default, and their `javaScriptCanAccessClipboard` preference on, so `document.execCommand("copy")` and `"cut"` work there without a gesture too.
 
 ## Engine behaviors for extension pages and content scripts
 

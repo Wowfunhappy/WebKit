@@ -17,6 +17,8 @@ import urllib.parse
 ROOT = os.path.dirname(os.path.abspath(__file__))
 LOG = []
 LOCK = threading.Lock()
+# Held by one extension context's clipboard sequence at a time: every test extension shares the general pasteboard.
+CLIPBOARD = threading.Semaphore(1)
 
 
 def record(entry):
@@ -67,6 +69,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/pbcopy?'):
             subprocess.run(['pbcopy'], input=urllib.parse.unquote(path.split('?', 1)[1]).encode(), check=True)
             return self.reply('ok')
+        if path == '/clipboard-lock':
+            CLIPBOARD.acquire()
+            return self.reply('ok')
+        if path == '/clipboard-unlock':
+            CLIPBOARD.release()
+            return self.reply('ok')
+        if path == '/pbpng':
+            data = subprocess.run(['osascript', '-e', 'the clipboard as «class PNGf»'], capture_output=True, text=True).stdout.strip()
+            png = bytes.fromhex(data[len('«data PNGf'):-1]) if data.startswith('«data PNGf') else b''
+            return self.reply(png, 'image/png')
         if path.startswith('/res/'):
             name = path.split('?')[0].rsplit('/', 1)[-1]
             ext = name.rsplit('.', 1)[-1] if '.' in name else ''
