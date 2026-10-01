@@ -105,7 +105,7 @@ TAKEOVER_MARKER="$BUILD/.takeover-waiters/$$"
 mkdir -p "$(dirname "$TAKEOVER_MARKER")" || exit 1
 ps -o lstart= -p $$ > "$TAKEOVER_MARKER" || exit 1
 trap 'rc=$?; rm -f "$TAKEOVER_MARKER"; build_log_report $rc' EXIT
-_waited=0; _tries=0; _stopped=""; _waitedfor=""; TAKEOVER=""
+_waited=0; _tries=0; _stopped=""; _waitedfor=""; _waited_configure=""; TAKEOVER=""
 while :; do
     _stale="$(_stale_builds | sort -un)"
     [ -n "$_stale" ] || break
@@ -114,7 +114,7 @@ while :; do
         _stopped="$(echo $_stale)"
     fi
     if _configuring; then
-        _waitedfor="cmake configure"
+        _waitedfor="cmake configure"; _waited_configure=1
         [ $((_waited % 30)) = 0 ] && echo "###   cmake configure in flight — waiting it out (${_waited}s)"
         sleep 5; _waited=$((_waited + 5)); continue
     fi
@@ -229,6 +229,16 @@ if [ -f "$OPT_HASH_FILE" ] && [ "$_opt_hash" != "$(cat "$OPT_HASH_FILE")" ]; the
     fi
 fi
 [ "$_opt_hash" = "$(cat "$OPT_HASH_FILE" 2>/dev/null)" ] || echo "$_opt_hash" > "$OPT_HASH_FILE"
+
+# A configure this build waited out read its CMake inputs when it started and wrote build.ninja when it
+# finished, so an input edited in between is older than build.ninja and ninja sees nothing to regenerate.
+if [ -n "$_waited_configure" ]; then
+    echo "### configuring again: the configure waited out above may have read inputs edited since"
+    if ! "$CMAKE" $DEV_FLAGS "$BUILD"; then
+        echo "==================== RECONFIGURE FAILED — ABORTING ===================="
+        printf '%s\n' "$(tail -20 "$LOG")"; exit 1
+    fi
+fi
 
 # --- Polyfill archives (not in the ninja graph) ----------------------------------------------
 # The archives are force-loaded through raw -Wl,-force_load flags ninja does not track, so they are
