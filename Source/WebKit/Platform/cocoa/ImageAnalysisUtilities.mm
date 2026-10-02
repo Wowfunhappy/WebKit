@@ -305,9 +305,8 @@ void requestBackgroundRemoval(CGImageRef image, CompletionHandler<void(CGImageRe
         return;
     }
 
-    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
-    // so the divergence stays visible in place. No image bytes are parsed by 10.9's ImageIO on this
-    // port, these included.
+    // MAVERICKS_BACKPORT: upstream's version of the lines below. No image bytes are parsed by 10.9's
+    // ImageIO on this port, these included.
     // auto transcodedImageSource = adoptCF(CGImageSourceCreateWithData((__bridge CFDataRef)tiffData.get(), nullptr));
     // auto transcodedImage = adoptCF(CGImageSourceCreateImageAtIndex(transcodedImageSource.get(), 0, nullptr));
     Ref transcodedBuffer = WebCore::SharedBuffer::create(tiffData.get());

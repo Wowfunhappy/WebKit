@@ -1,4 +1,4 @@
-# Copyright (C) 2026. All rights reserved.
+# Copyright (C) 2026 Wowfunhappy. All rights reserved.
 # SPDX-License-Identifier: BSD-2-Clause
 # typed fields replace an opaque native resume blob on the synchronous download IPC.
 #if PLATFORM(COCOA)

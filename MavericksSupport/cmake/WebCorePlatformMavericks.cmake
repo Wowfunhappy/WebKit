@@ -277,6 +277,10 @@ list(REMOVE_ITEM WebCore_SOURCES
     # names it too, so withholding it from the unified list alone drops its HEADER_FILE_ONLY marking
     # and leaves this list compiling it standalone.
     platform/graphics/cg/ImageDecoderCG.cpp
+
+    # RevealUtilities wraps Reveal.framework's presenting context for the ENABLE(REVEAL) callers, and
+    # REVEAL is off. Same two-listing shape as the pair above.
+    platform/mac/RevealUtilities.mm
 )
 
 # The mock content filter belongs to the WebCore target in WebCore.xcodeproj, and WebKit.framework links
@@ -303,6 +307,8 @@ set(MAVERICKS_WITHHELD_COCOA_SOURCES
     # quietly hand web content back to ImageIO. PlatformMac.cmake's own listing of it is removed from
     # WebCore_SOURCES above; both are needed to keep it out of the build.
     "platform/graphics/cg/ImageDecoderCG.cpp"
+    # RevealUtilities serves the ENABLE(REVEAL) callers only (see the WebCore_SOURCES entry above).
+    "platform/mac/RevealUtilities.mm @nonARC"
     # ScalableImageDecoder.cpp now includes PNGImageDecoder.h and JPEGImageDecoder.h, which pull in
     # <png.h> and <jpeglib.h>; jmorecfg.h defines FAR, boolean, TRUE and FALSE at file scope, so the
     # file compiles alone rather than in a bundle with unrelated Cocoa sources. It is re-added to
@@ -416,6 +422,8 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
     "platform/image-decoders/webp/WEBPImageDecoder.cpp"
     # the DualShock 4's standard mapping, which upstream gets from GameController.framework.
     "platform/gamepad/mac/Dualshock4HIDGamepad.cpp"
+    # DictionaryLookup over Lookup.framework, for ENABLE(REVEAL) off.
+    "editing/mac/DictionaryLookupLegacy.mm @nonARC @no-unify"
 )
 
 # Added to SourcesGStreamer.txt: the CoreGraphics/Cocoa halves of the GStreamer player that upstream's

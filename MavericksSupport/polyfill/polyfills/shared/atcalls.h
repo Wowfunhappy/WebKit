@@ -31,6 +31,12 @@
   * Version 2.0.
   */
 
+ /*
+  * NOTICE: This file was modified in September and October 2026 by Wowfunhappy
+  * for the WebKit port to OS X 10.9 Mavericks. This notice is included in
+  * support of clause 2.2 (b) of the Apple Public License, Version 2.0.
+  */
+
 #ifndef _MAVERICKS_ATCALLS_H_
 #define _MAVERICKS_ATCALLS_H_
 

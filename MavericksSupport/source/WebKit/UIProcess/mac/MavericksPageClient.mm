@@ -1,3 +1,30 @@
+/*
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2026 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Wowfunhappy. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 // MavericksPageClient — PageClient backing WKView on this port.
 //
 // Safari 7 drives WebKit2 through WKView (an NSView), not WKWebView, so WKView creates its
@@ -48,6 +75,7 @@
 @end
 #import <WebCore/CGWindowUtilities.h>
 #import <WebCore/ColorCocoa.h> // colorFromCocoaColor, for accentColor() below.
+#import <WebCore/DictionaryLookup.h>
 #import <WebCore/DictionaryPopupInfo.h>
 // WebCore::ScrollbarStyle, consumed by recommendedScrollbarStyleDidChange.
 #import <WebCore/ScrollTypes.h>
@@ -1557,23 +1585,11 @@ CALayer *MavericksPageClient::textIndicatorInstallationLayer()
 }
 #endif
 #if PLATFORM(COCOA)
-void MavericksPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo& info)
+// WebPageProxy::didPerformDictionaryLookup presents the popup through DictionaryLookup::showPopup. Upstream's
+// page client also has WebViewImpl observe LUNotificationPopoverWillClose, which 10.9's Lookup.framework
+// does not post.
+void MavericksPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo&)
 {
-    // The modern "Look Up" popover uses the Reveal framework, which does not
-    // exist on 10.9 (ENABLE(REVEAL)=0, so WebCore's DictionaryLookup::showPopup is a no-op).
-    // WebViewImpl is also absent on the standalone WKView. Present the classic definition panel
-    // instead via -[NSView showDefinitionForAttributedString:atPoint:] (AppKit, 10.6+) — the same
-    // panel stock Safari 7's Look Up context-menu item presents. info.origin is the text baseline
-    // origin in the view's (flipped) coordinate space.
-    if (!m_view || info.text.isEmpty())
-        return;
-    // Prefer the font-scaled attributed string (carried for this panel — see DictionaryPopupInfo.h)
-    // so the panel's text overlay matches the page text's size and baseline; the plain-text
-    // fallback would render at the default font and misalign.
-    RetainPtr<NSAttributedString> string = info.attributedString.nsAttributedString();
-    if (!string)
-        string = adoptNS([[NSAttributedString alloc] initWithString:info.text.createNSString().get()]);
-    [m_view showDefinitionForAttributedString:string.get() atPoint:NSMakePoint(info.origin.x(), info.origin.y())];
 }
 #endif
 #if HAVE(APP_ACCENT_COLORS)
@@ -1900,15 +1916,18 @@ WebFullScreenManagerProxyClient& MavericksPageClient::fullScreenManagerProxyClie
 #endif
 void MavericksPageClient::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>)
 { }
-// What WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly does that a
-// WKView reaches: the immediate-action controller and the writing-tools popover are WebViewImpl's own,
-// and DictionaryLookup::hidePopup() is notImplemented() on this branch. Upstream routes this through
-// -[WKView _web_dismissContentRelativeChildWindows] so a client can override it; Safari 7 predates
-// that SPI, so the work sits here.
+// What WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly does that a WKView reaches: the
+// immediate-action controller and the writing-tools popover are WebViewImpl's own. Upstream routes this
+// through -[WKView _web_dismissContentRelativeChildWindows] so a client can override it; Safari 7
+// predates that SPI, so the work sits here.
 void MavericksPageClient::dismissContentRelativeChildWindows()
 {
-    if ([[m_view window] isKeyWindow] && PAL::isDataDetectorsFrameworkAvailable())
-        [[PAL::getDDActionsManagerClassSingleton() sharedManager] requestBubbleClosureUnanchorOnFailure:YES];
+    if ([[m_view window] isKeyWindow]) {
+        WebCore::DictionaryLookup::hidePopup();
+
+        if (PAL::isDataDetectorsFrameworkAvailable())
+            [[PAL::getDDActionsManagerClassSingleton() sharedManager] requestBubbleClosureUnanchorOnFailure:YES];
+    }
 
     if (m_page)
         m_page->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::FadeOut);

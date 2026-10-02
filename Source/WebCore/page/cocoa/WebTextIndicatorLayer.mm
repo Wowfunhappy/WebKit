@@ -175,9 +175,8 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         [bounceLayer addSublayer:dropShadowLayer.get()];
         [bounceLayer setValue:dropShadowLayer.get() forKey:dropShadowLayerKey];
 
-        // MAVERICKS_BACKPORT: 537 cast a single shadow, so there is no rim shadow to draw. The
-        // upstream rim-shadow layer is kept commented out; the crossfade animation looks it back up
-        // by key and simply finds nothing.
+        // MAVERICKS_BACKPORT: upstream's rim-shadow layer. 537 casts a single shadow, and the
+        // crossfade animation's lookup of this layer by key finds nothing.
         // RetainPtr<CALayer> rimShadowLayer = adoptNS([[CALayer alloc] init]);
         // [rimShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
         // [rimShadowLayer setFrame:yellowHighlightRect];

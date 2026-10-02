@@ -153,7 +153,7 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
         dataStore.setTrackingPreventionEnabled(preventTracking);
         dataStore.cookieStore().setHTTPCookieAcceptPolicy(acceptPolicy, [] { });
     });
-/* MAVERICKS_BACKPORT: upstream's 4-argument body kept here so upstream merges see the original text; not built on this backport (see above).
+/* MAVERICKS_BACKPORT: upstream's 4-argument body (see above).
 void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy, void* context, WKCookieManagerSetHTTPCookieAcceptPolicyFunction callback)
 {
     if (!cookieManagerRef) {

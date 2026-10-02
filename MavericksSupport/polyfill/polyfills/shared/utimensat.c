@@ -28,6 +28,12 @@
   * Version 2.0.
   */
 
+ /*
+  * NOTICE: This file was modified in September and October 2026 by Wowfunhappy
+  * for the WebKit port to OS X 10.9 Mavericks. This notice is included in
+  * support of clause 2.2 (b) of the Apple Public License, Version 2.0.
+  */
+
 #include "LegacySupport.h"
 
 #include <sys/types.h>

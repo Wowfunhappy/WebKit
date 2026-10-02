@@ -44,9 +44,8 @@
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so
-// the divergence stays visible in place. Its one caller was the NSBitmapImageRep encode inside
-// convertTIFFToPNG, which encodes through WebCore now, so the function has no reader left.
+// MAVERICKS_BACKPORT: upstream's version of the lines below. convertTIFFToPNG, upstream's one
+// caller, encodes through WebCore, so nothing reads the function.
 // #if PLATFORM(MAC)
 // static NSBitmapImageFileType NODELETE bitmapPNGFileType()
 // {
@@ -213,10 +212,10 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 #if PLATFORM(MAC)
 static Ref<SharedBuffer> convertTIFFToPNG(FragmentedSharedBuffer& tiffBuffer)
 {
-    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
-    // so the divergence stays visible in place. -[NSBitmapImageRep initWithData:] parses these bytes
-    // inside ImageIO, and they are pasteboard bytes on their way into a page; this port decodes them
-    // with its own TIFF decoder and encodes the PNG the same way canvas toDataURL does.
+    // MAVERICKS_BACKPORT: upstream's version of the lines below. -[NSBitmapImageRep initWithData:]
+    // parses these bytes inside ImageIO, and they are pasteboard bytes on their way into a page; this
+    // port decodes them with its own TIFF decoder and encodes the PNG the same way canvas toDataURL
+    // does.
     // RetainPtr image = adoptNS([[NSBitmapImageRep alloc] initWithData: tiffBuffer.makeContiguous()->createNSData().get()]);
     // RetainPtr<NSData> pngData = [image representationUsingType:bitmapPNGFileType() properties:@{ }];
     // return SharedBuffer::create(pngData.get());

@@ -109,31 +109,27 @@ static RetainPtr<NSMutableSet>& NODELETE pluginViews()
 
 - (NSView *)plugInViewWithArguments:(NSDictionary *)arguments fromPluginPackage:(WebPluginPackage *)pluginPackage
 {
-    // MAVERICKS_BACKPORT: this was stubbed to `return nil`, so WebKit-ObjC plug-ins never produced a
-    // view (the package loaded but no instance existed). Restore the real view creation by asking
-    // the package's view factory; the view is then added to the document by WebHTMLView, which
-    // runs -webPlugInInitialize (where e.g. WebClip.plugin publishes its `webClip` scripting object).
+    // MAVERICKS_BACKPORT: the package's view factory creates the plug-in view; WebHTMLView adds it to
+    // the document and runs -webPlugInInitialize, where WebClip.plugin publishes its `webClip`
+    // scripting object.
+    // return nil;
     [pluginPackage load];
 
-
     NSView *view = nil;
+
     Class viewFactory = [pluginPackage viewFactory];
     if ([viewFactory respondsToSelector:@selector(plugInViewWithArguments:)]) {
         JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
         view = [viewFactory plugInViewWithArguments:arguments];
-    } else {
-IGNORE_WARNINGS_BEGIN("undeclared-selector")
-        SEL oldSelector = @selector(pluginViewWithArguments:);
-IGNORE_WARNINGS_END
-        if ([viewFactory respondsToSelector:oldSelector]) {
-            JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
-            view = [viewFactory performSelector:oldSelector withObject:arguments];
-        }
+    } else if ([viewFactory respondsToSelector:@selector(pluginViewWithArguments:)]) {
+        JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
+        view = [viewFactory pluginViewWithArguments:arguments];
     }
 
-    if (!view)
+    if (view == nil) {
         return nil;
-
+    }
+    
     auto& views = pluginViews();
     if (!views)
         views = adoptNS([[NSMutableSet alloc] init]);

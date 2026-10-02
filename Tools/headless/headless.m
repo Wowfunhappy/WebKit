@@ -1,4 +1,9 @@
 /*
+ * Copyright (C) 2026 Wowfunhappy. All rights reserved.
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
+/*
  * Headless WK1 smoke test for macOS 10.9 modern WebKit backport.
  * Allocates a WebView, loads a URL, runs the runloop briefly, dumps the DOM.
  * No NSWindow / no AppKit window machinery — just enough to exercise the

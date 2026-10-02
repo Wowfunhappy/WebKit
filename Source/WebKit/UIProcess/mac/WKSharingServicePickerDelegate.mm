@@ -141,9 +141,8 @@
         types.append(NSPasteboardTypeRTFD);
         types.append(WebCore::legacyRTFDPasteboardTypeSingleton());
     } else if (RetainPtr data = dynamic_objc_cast<NSData>(item.get())) {
-        // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than
-        // deleted so the divergence stays visible in place. What is written to the pasteboard is
-        // the original data either way; the decode is the test that it is an image at all.
+        // MAVERICKS_BACKPORT: upstream's version of the lines below. What is written to the
+        // pasteboard is the original data either way; the decode is the test that it is an image.
         // RetainPtr<CGImageSourceRef> source = adoptCF(CGImageSourceCreateWithData(bridge_cast(data.get()), NULL));
         // RetainPtr<CGImageRef> image = adoptCF(CGImageSourceCreateImageAtIndex(source.get(), 0, NULL));
         Ref buffer = WebCore::SharedBuffer::create(data.get());

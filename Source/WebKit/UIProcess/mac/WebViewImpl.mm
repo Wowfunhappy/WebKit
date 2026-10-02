@@ -628,7 +628,8 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 - (void)_dictionaryLookupPopoverWillClose:(NSNotification *)notification
 {
     if (_impl)
-        _impl->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None);
+        // _impl->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None);
+        _impl->page().clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None); // MAVERICKS_BACKPORT: the page owns the text indicator (webkit.org/b/293329), as at this file's other call sites.
 }
 #endif
 

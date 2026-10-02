@@ -1,4 +1,9 @@
 /*
+ * Copyright (C) 2026 Wowfunhappy. All rights reserved.
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
+/*
  * Minimal WK1 browser for macOS 10.9. Uses WebKitLegacy.framework directly.
  */
 #import <Cocoa/Cocoa.h>

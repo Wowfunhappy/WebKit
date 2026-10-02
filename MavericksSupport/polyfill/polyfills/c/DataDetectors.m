@@ -197,12 +197,10 @@ static void wk_installDDSecureCoding(void)
         return;
     @synchronized (cls) {
         Protocol *protocol = objc_getProtocol("NSSecureCoding");
-        if (!protocol)
-            wk_patch_fail("DDActionContext", "Foundation secure-coding protocol is absent");
         if (class_conformsToProtocol(cls, protocol))
             return;
         Method method = class_getInstanceMethod(cls, @selector(initWithCoder:));
-        if (!method || !class_getInstanceMethod(NSDictionary.class, @selector(dd_createResult)))
+        if (!class_getInstanceMethod(NSDictionary.class, @selector(dd_createResult)))
             wk_patch_fail("DDActionContext", "native archive schema is absent");
         for (size_t i = 0; i < sizeof(wk_DDObjectFields) / sizeof(wk_DDObjectFields[0]); ++i)
             wk_DDObjectFields[i].ivar = wk_DDIvar(cls, wk_DDObjectFields[i].ivarName, "@", sizeof(id));
@@ -216,8 +214,7 @@ static void wk_installDDSecureCoding(void)
         // Foundation sends these raw selectors, including for native copyWithZone: results.
         class_replaceMethod(cls, @selector(initWithCoder:), (IMP)wk_DDInitWithCoder, method_getTypeEncoding(method));
         class_replaceMethod(object_getClass(cls), @selector(supportsSecureCoding), (IMP)wk_DDSupportsSecureCoding, "c@:");
-        if (!class_addProtocol(cls, protocol))
-            wk_patch_fail("DDActionContext", "secure-coding protocol registration failed");
+        class_addProtocol(cls, protocol);
     }
 }
 
@@ -234,8 +231,6 @@ static void wk_watchDDImages(void)
 {
     typedef void (*RegisterHandler)(uint32_t, bool, const char *(*)(uint32_t, uint32_t, const struct dyld_image_info *));
     RegisterHandler registerHandler = (RegisterHandler)dlsym(RTLD_DEFAULT, "dyld_register_image_state_change_handler");
-    if (!registerHandler)
-        wk_patch_fail("DDActionContext", "dyld class-initialization notification is absent");
     // State 45 follows Objective-C class registration and precedes image initializers.
     registerHandler(45, false, wk_DDImageInitializing);
     wk_installDDSecureCoding();

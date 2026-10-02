@@ -1,4 +1,4 @@
-/* Copyright (C) 2026. All rights reserved.
+/* Copyright (C) 2026 Wowfunhappy. All rights reserved.
  * SPDX-License-Identifier: BSD-2-Clause
  */
 #import "config.h"

@@ -149,12 +149,10 @@ static void *wk_cadence_image_symbol(void **slot, const char *image, const char 
     if (!address) {
         wk_image loadedImage;
         if (!wk_find_image(image, &loadedImage)) {
-            if (!dlopen(image, RTLD_LAZY | RTLD_LOCAL) || !wk_find_image(image, &loadedImage))
-                wk_patch_fail(symbol, "its image does not load");
+            dlopen(image, RTLD_LAZY | RTLD_LOCAL);
+            wk_find_image(image, &loadedImage);
         }
         address = wk_symbol_in_image(&loadedImage, symbol);
-        if (!address)
-            wk_patch_fail(symbol, "absent from its image");
         __atomic_store_n(slot, address, __ATOMIC_RELAXED);
     }
     return address;
@@ -164,10 +162,7 @@ static void *wk_cadence_symbol(void **slot, const char *image, const char *symbo
 {
     void *address = __atomic_load_n(slot, __ATOMIC_RELAXED);
     if (!address) {
-        void *handle = dlopen(image, RTLD_LAZY | RTLD_LOCAL);
-        address = handle ? dlsym(handle, symbol) : NULL;
-        if (!address)
-            wk_patch_fail(symbol, "absent from its image");
+        address = dlsym(dlopen(image, RTLD_LAZY | RTLD_LOCAL), symbol);
         __atomic_store_n(slot, address, __ATOMIC_RELAXED);
     }
     return address;

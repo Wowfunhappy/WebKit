@@ -52,8 +52,10 @@ list(APPEND WebKitLegacy_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebKitLegacy/WebCoreSupport/SocketStreamHandleImplCurl.cpp
     WebCoreSupport/WebSocketChannel.cpp
 
-    # The legacy WebKeyGenerator (<keygen> support).
-    mac/Misc/WebKeyGenerator.mm
+    # The restored WebKeyGenerator Safari 7 imports downloaded certificates through, and the
+    # WebKitSystemInterface function it calls.
+    mac/WebCoreSupport/WebKeyGenerator.mm
+    ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport/WebKitSystemInterface.mm
     # The restored WebKit1 getUserMedia client.
     ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport/WebUserMediaClient.mm
     # Hands WebKit's UI-process router the WebKit 1 views Safari 7 extension pages live in.
@@ -157,6 +159,10 @@ endif ()
 # full interface rather than the WebKit2 forward-declaration-only WebFeature.h.
 if (EXISTS "${WEBKITLEGACY_DIR}/mac/WebView/WebFeature.h" AND NOT EXISTS "${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKitLegacy/WebFeature.h")
     file(WRITE ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKitLegacy/WebFeature.h "#import \"${WEBKITLEGACY_DIR}/mac/WebView/WebFeature.h\"\n")
+endif ()
+# WebKeyGenerator.mm imports its own header as <WebKitLegacy/WebKeyGenerator.h>.
+if (NOT EXISTS "${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKitLegacy/WebKeyGenerator.h")
+    file(WRITE ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKitLegacy/WebKeyGenerator.h "#import \"${WEBKITLEGACY_DIR}/mac/WebCoreSupport/WebKeyGenerator.h\"\n")
 endif ()
 if (NOT EXISTS ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKit)
     file(CREATE_LINK WebKitLegacy ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKit SYMBOLIC)

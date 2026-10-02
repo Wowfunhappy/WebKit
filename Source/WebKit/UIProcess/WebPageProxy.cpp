@@ -14758,7 +14758,7 @@ void WebPageProxy::didReceiveAuthenticationChallengeProxy(Ref<AuthenticationChal
         return;
     }
     dispatchToClient(authenticationChallenge.get()); // MAVERICKS_BACKPORT
-/* MAVERICKS_BACKPORT: upstream's navigation-client-only dispatch, kept so upstream merges see the original text; not built on this backport (see above).
+/* MAVERICKS_BACKPORT: upstream's navigation-client-only dispatch (see above).
     if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes) {
         m_navigationClient->shouldAllowLegacyTLS(*this, authenticationChallenge.get(), [this, protectedThis = Ref { *this }, authenticationChallenge] (bool shouldAllowLegacyTLS) {
             if (shouldAllowLegacyTLS)

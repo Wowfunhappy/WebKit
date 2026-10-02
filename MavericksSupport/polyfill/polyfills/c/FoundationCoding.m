@@ -786,8 +786,7 @@ static void wk_writeCodingImport(void **slot, void *replacement)
 static void wk_bindCodingCacheImports(void)
 {
     wk_image image;
-    if (!wk_find_image("/Foundation.framework/Versions/C/Foundation", &image))
-        wk_patch_fail("Foundation coding imports", "native Foundation image is absent");
+    wk_find_image("/Foundation.framework/Versions/C/Foundation", &image);
     const struct mach_header_64 *header = (const void *)_dyld_get_image_header(image.index);
     const struct symtab_command *symbols = NULL;
     const struct dysymtab_command *dynamicSymbols = NULL;
@@ -802,8 +801,6 @@ static void wk_bindCodingCacheImports(void)
                 linkedit = image.slide + segment->vmaddr - segment->fileoff;
         }
     }
-    if (!symbols || !dynamicSymbols || !linkedit)
-        wk_patch_fail("Foundation coding imports", "native indirect symbol table is absent");
     const struct nlist_64 *table = (const void *)(linkedit + symbols->symoff);
     const char *strings = (const void *)(linkedit + symbols->stroff);
     const uint32_t *indirect = (const void *)(linkedit + dynamicSymbols->indirectsymoff);
@@ -821,8 +818,6 @@ static void wk_bindCodingCacheImports(void)
             for (uint64_t slot = 0; slot < section->size / sizeof(void *); ++slot) {
                 uint32_t index = indirect[section->reserved1 + slot];
                 if (index & (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) continue;
-                if (index >= symbols->nsyms || table[index].n_un.n_strx >= symbols->strsize)
-                    wk_patch_fail("Foundation coding imports", "native indirect symbol index differs");
                 const char *name = strings + table[index].n_un.n_strx;
                 if (!strcmp(name, "_CFDictionarySetValue")) {
                     wk_writeCodingImport(slots + slot, (void *)wk_foundationCacheSetValue);
@@ -860,9 +855,8 @@ void wk_initializeFoundationCoding(void)
         wk_lastRef = wk_codingIvar(helper, "_lastRef", 4);
         wk_archiveStream = wk_codingIvar(NSKeyedArchiver.class, "_stream", sizeof(void *));
         wk_image foundation, coreFoundation;
-        if (!wk_find_image("/Foundation.framework/Versions/C/Foundation", &foundation)
-            || !wk_find_image("/CoreFoundation.framework/Versions/A/CoreFoundation", &coreFoundation))
-            wk_patch_fail("Foundation coding", "native framework images are absent");
+        wk_find_image("/Foundation.framework/Versions/C/Foundation", &foundation);
+        wk_find_image("/CoreFoundation.framework/Versions/A/CoreFoundation", &coreFoundation);
         wk_nativeDecodeBinary = wk_symbol_in_image(&foundation, "__decodeObjectBinary");
         wk_nativeDecodeXML = wk_symbol_in_image(&foundation, "__decodeObjectXML");
         wk_uidTypeID = wk_symbol_in_image(&coreFoundation, "__CFKeyedArchiverUIDGetTypeID");

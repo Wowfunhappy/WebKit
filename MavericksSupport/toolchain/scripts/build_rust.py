@@ -149,6 +149,13 @@ def main():
             run('bash', unpacked / 'install.sh', '--prefix=' + str(PREFIX), '--disable-ldconfig')
         write_stamp('.components', component_identity)
 
+    # rustc strips with its sysroot's rust-objcopy, which loads @rpath/libLLVM.dylib. The rustc
+    # component installs that library in lib/, which the tool's own rpath does not reach.
+    objcopy = PREFIX / 'lib/rustlib/x86_64-apple-darwin/bin/rust-objcopy'
+    if 'path @loader_path/../../.. ' not in output(OTOOL, '-l', objcopy):
+        run(INSTALL_NAME_TOOL, '-add_rpath', '@loader_path/../../..', objcopy)
+    run(objcopy, '--version')
+
     # The prebuilt std imports half conversions from libSystem. Build the exact
     # compiler-rt implementations with their x86_64 Float16 ABI and public
     # visibility; Clang's own archive deliberately hides these entry points.

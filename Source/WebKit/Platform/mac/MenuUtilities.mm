@@ -50,6 +50,7 @@ SOFT_LINK_CLASS(TelephonyUtilities, TUCall)
 #import <pal/cocoa/RevealSoftLink.h>
 #import <pal/mac/DataDetectorsSoftLink.h>
 
+#if ENABLE(REVEAL) // MAVERICKS_BACKPORT: Reveal's presenter delegate, for the Reveal telephone-number menu below.
 @interface WKEmptyPresenterHighlightDelegate : NSObject <RVPresenterHighlightDelegate>
 
 - (instancetype)initWithRect:(NSRect)rect;
@@ -83,6 +84,7 @@ SOFT_LINK_CLASS(TelephonyUtilities, TUCall)
 }
 
 @end
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(REVEAL) guard above.
 
 #if HAVE(DATA_DETECTORS_MAC_ACTION)
 SPECIALIZE_OBJC_TYPE_TRAITS(DDMacAction, PAL::getDDMacActionClassSingleton());
@@ -135,6 +137,7 @@ NSMenuItem *menuItemForTelephoneNumber(const String& telephoneNumber)
 
 RetainPtr<NSMenu> menuForTelephoneNumber(const String& telephoneNumber, NSView *webView, const WebCore::IntRect& rect)
 {
+#if ENABLE(REVEAL) // MAVERICKS_BACKPORT: with REVEAL off, the menu is DataDetectors', as upstream built it for Macs without Reveal.
     if (!PAL::isRevealFrameworkAvailable() || !PAL::isRevealCoreFrameworkAvailable())
         return nil;
 
@@ -151,6 +154,41 @@ RetainPtr<NSMenu> menuForTelephoneNumber(const String& telephoneNumber, NSView *
     [menu setItemArray:proposedMenuItems.get()];
 
     return menu;
+#else // MAVERICKS_BACKPORT: as above.
+    UNUSED_PARAM(webView);
+    UNUSED_PARAM(rect);
+
+    if (!PAL::isDataDetectorsFrameworkAvailable())
+        return nil;
+
+    RetainPtr<NSMenu> menu = adoptNS([[NSMenu alloc] init]);
+    RetainPtr<NSMutableArray> faceTimeItems = [NSMutableArray array];
+    RetainPtr<NSMenuItem> dialItem;
+
+    auto actionContext = adoptNS([PAL::allocWKDDActionContextInstance() init]);
+    [actionContext setAllowedActionUTIs:@[ @"com.apple.dial", @"com.apple.facetime", @"com.apple.facetimeaudio" ]];
+
+    RetainPtr<NSArray> proposedMenuItems = [[PAL::getDDActionsManagerClassSingleton() sharedManager] menuItemsForValue:telephoneNumber.createNSString().get() type:PAL::get_DataDetectorsCore_DDBinderPhoneNumberKeySingleton() service:nil context:actionContext.get()];
+    for (NSMenuItem *item in proposedMenuItems.get()) {
+        RetainPtr action = actionForMenuItem(item);
+        if ([retainPtr(action.get().actionUTI) hasPrefix:@"com.apple.dial"])
+            dialItem = item;
+        else if ([retainPtr(action.get().actionUTI) hasPrefix:@"com.apple.facetime"])
+            [faceTimeItems addObject:item];
+    }
+
+    if (dialItem)
+        [menu addItem:dialItem.get()];
+
+    if ([faceTimeItems count]) {
+        if ([menu numberOfItems])
+            [menu addItem:[NSMenuItem separatorItem]];
+        for (NSMenuItem *item in faceTimeItems.get())
+            [menu addItem:item];
+    }
+
+    return menu;
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(REVEAL) guard above.
 }
 
 #endif

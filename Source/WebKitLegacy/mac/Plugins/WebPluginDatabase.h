@@ -75,11 +75,9 @@
 - (void)destroyAllPluginInstanceViews;
 @end
 
-// MAVERICKS_BACKPORT: exposed so WebView's per-view database helpers (widget-bundle and
-// app-built-in plug-in scans) can append to the existing paths instead of clobbering them.
-// Declared as a category rather than in the primary interface above: -_plugInPaths is
-// implemented by WebPluginDatabase's own (Internal) category in WebPluginDatabase.mm, and a
-// primary-interface declaration would make that a category overriding its primary class.
+// MAVERICKS_BACKPORT: the paths WebView's per-view database helpers (widget-bundle and
+// app-built-in plug-in scans) append to. -_plugInPaths is implemented in WebPluginDatabase's
+// (Internal) category in WebPluginDatabase.mm, and this category declares it.
 @interface WebPluginDatabase (WebPlugInPaths)
 - (NSArray *)_plugInPaths;
 @end

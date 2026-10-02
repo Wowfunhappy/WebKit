@@ -164,8 +164,7 @@ NSImage* ImageAdapter::nsImage()
     if (m_nsImage)
         return m_nsImage.get();
 
-    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
-    // so the divergence stays visible in place. See the note on nsImageFromNativeImages above.
+    // MAVERICKS_BACKPORT: upstream's version of the lines below. See the note on nsImageFromNativeImages above.
     // CFDataRef data = tiffRepresentation();
     // if (!data)
     //     return nullptr;
@@ -181,8 +180,7 @@ RetainPtr<NSImage> ImageAdapter::snapshotNSImage()
     if (!nativeImage)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
-    // so the divergence stays visible in place. See the note on nsImageFromNativeImages above.
+    // MAVERICKS_BACKPORT: upstream's version of the lines below. See the note on nsImageFromNativeImages above.
     // auto data = tiffRepresentation({ nativeImage.releaseNonNull() });
     // if (!data)
     //     return nullptr;

@@ -6,7 +6,7 @@ is obvious by location:
 - **`vendor/`** — COMMITTED binaries we can't practically rebuild quickly. Today that's
   just clang: `clang-NN` + `lld` (bzip2-compressed), `llvm-ar`, the
   `clang.cfg`/`clang++.cfg` link set, the resource headers, and the private
-  `libc++`/`libc++abi`/`libunwind` dylibs.
+  `libc++`/`libc++abi`/`libunwind` dylibs, and LLVM's `LICENSE.TXT`.
 - **`scripts/`** — COMMITTED source: `build_{cctools,python3,nasm,ninja,cmake,ccache,git}.sh`.
 - **`patches/`** — COMMITTED patches the build scripts apply to the tools they build;
   each patch's header states the defect it fixes.
@@ -45,6 +45,7 @@ The in-tree clang is the bootstrap compiler for the next one:
    - `lib/`: copy `lib/clang/NN/include` (resource headers), the `compiler-rt` archives
      under `lib/clang/NN/lib/darwin`, and the real `libc++.1.0`/`libc++abi.1.0`/`libunwind.1.0`
      dylibs.
+   - `LICENSE.TXT`: `llvm/LICENSE.TXT` from the same `llvm-project` revision.
 
    `vendor/` commits no symlinks: `bootstrap.sh` regenerates the multi-call binary names
    (`clang`/`clang++`/`ld64.lld`/`llvm-ranlib`) and the dylib version chain

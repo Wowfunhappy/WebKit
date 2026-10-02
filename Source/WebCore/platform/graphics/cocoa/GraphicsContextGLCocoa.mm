@@ -151,13 +151,10 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
     // but Metal backend uses EGLDisplay attributes.
     //
     // MAVERICKS_BACKPORT: EGL_POWER_PREFERENCE_ANGLE and EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE are
-    // Metal-backend EGLDisplay attributes (power preference / IOKit GPU registry id for multi-GPU
-    // selection). ANGLE's OpenGL/CGL backend does NOT advertise EGL_ANGLE_power_preference /
-    // EGL_ANGLE_platform_angle_device_id, so passing them made eglGetPlatformDisplay's validation
-    // reject the whole attribute list and return EGL_NO_DISPLAY -> every WebGL context failed to
-    // create (canvas.getContext('webgl') === null; observed power=LowPower being appended). The CGL
-    // backend selects GPUs via CGL virtual screens (DisplayCGL::mSupportsGPUSwitching) instead, so
-    // these display attributes are unnecessary here. Only pass them on the Metal backend.
+    // Metal-backend EGLDisplay attributes. ANGLE's OpenGL (CGL) backend advertises neither
+    // EGL_ANGLE_power_preference nor EGL_ANGLE_platform_angle_device_id, and eglGetPlatformDisplay
+    // rejects an attribute list that carries them; that backend selects GPUs through CGL virtual
+    // screens (DisplayCGL::mSupportsGPUSwitching).
 #if WK_WEBGL_METAL_BACKEND
     auto powerPreference = attrs.powerPreference;
     if (powerPreference == GraphicsContextGLPowerPreference::HighPerformance) {
@@ -170,13 +167,11 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 #if PLATFORM(MAC)
     else if (attrs.windowGPUID) {
         ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_platform_angle_device_id"_span));
-// MAVERICKS_BACKPORT: upstream's GPU-selection block, which picks an adapter by IOKit registry id through EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE. Kept commented, not deleted: that is a Metal-backend ANGLE path, and this port runs ANGLE on CGL where there is one context per display and no adapter to choose.
-//         // If the power preference is default, use the GPU the context window is on.
-//         // If the power preference is low power, and we know which GPU the context window is on,
-//         // most likely the lowest power is the GPU that drives the context window, as that GPU
-//         // is anyway already powered on.
-//         // EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE is the IOKit registry id on EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE.
-// (end MAVERICKS_BACKPORT restored block)
+        // If the power preference is default, use the GPU the context window is on.
+        // If the power preference is low power, and we know which GPU the context window is on,
+        // most likely the lowest power is the GPU that drives the context window, as that GPU
+        // is anyway already powered on.
+        // EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE is the IOKit registry id on EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE.
         displayAttributes.append(EGL_PLATFORM_ANGLE_DEVICE_ID_HIGH_ANGLE);
         displayAttributes.append(static_cast<EGLAttrib>(attrs.windowGPUID >> 32));
         displayAttributes.append(EGL_PLATFORM_ANGLE_DEVICE_ID_LOW_ANGLE);

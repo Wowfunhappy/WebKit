@@ -77,7 +77,7 @@ void WKDownloadCancel(WKDownloadRef download)
     return protect(toImpl(download))->cancel([downloadProxy = Ref { *toImpl(download) }](API::Data*) {
         protect(downloadProxy->client())->legacyDidCancel(downloadProxy.get());
     });
-/* MAVERICKS_BACKPORT: upstream's 3-argument body kept here so upstream merges see the original text; not built on this backport (see above).
+/* MAVERICKS_BACKPORT: upstream's 3-argument body (see above).
 void WKDownloadCancel(WKDownloadRef download, const void* functionContext, WKDownloadCancelCallback callback)
 {
     return protect(toImpl(download))->cancel([functionContext, callback](auto* resumeData) {

@@ -173,17 +173,14 @@ static Boolean wk_propertiesAskForPrivateSession(CFDictionaryRef properties)
 {
     if (!properties)
         return false;
-    CFStringRef key = WK_SYSTEM(_kCFURLStorageSessionIsPrivate);
-    if (!key)
-        wk_patch_fail(kPrivateStorageSession, "CFNetwork does not export _kCFURLStorageSessionIsPrivate");
-    CFTypeRef value = CFDictionaryGetValue(properties, key);
+    CFTypeRef value = CFDictionaryGetValue(properties, WK_SYSTEM(_kCFURLStorageSessionIsPrivate));
     return value && CFGetTypeID(value) == CFBooleanGetTypeID() && CFBooleanGetValue(value);
 }
 
 static CFHTTPCookieStorageRef wk_createLockedInMemoryCookieStorage(CFAllocatorRef allocator)
 {
-    if (!WK_SYSTEM(CFHTTPCookieStorageCreateInMemory) || !WK_SYSTEM(CFHTTPCookieStorageCreateArchive) || !WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive))
-        wk_patch_fail(kPrivateStorageSession, "CFNetwork does not export the in-memory cookie storage entry points");
+    if (!WK_SYSTEM(CFHTTPCookieStorageCreateArchive) || !WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive))
+        wk_patch_fail(kPrivateStorageSession, "CFNetwork does not export the cookie storage archive entry points");
 
     CFHTTPCookieStorageRef empty = WK_SYSTEM(CFHTTPCookieStorageCreateInMemory)(allocator, NULL);
     if (!empty)
@@ -229,18 +226,13 @@ WK_POLYFILL_REPLACES("CFNetwork", CFHTTPCookieStorageRef, _CFURLStorageSessionCo
 // the policy that session recorded.
 // Resolved with dlsym: libpolyfill.a is force-loaded into every WebKit image, including ones that do
 // not link WebCore, so a link-time reference to WebCore would make those images fail to link.
-static const char kKnownHSTSHost[] = "CFNetwork HSTS host query";
-
 typedef bool (*wk_hsts_query)(CFURLRef);
 
 static wk_hsts_query wk_knownHSTSHostQuery(void)
 {
     static wk_hsts_query query;
-    if (!query) {
+    if (!query)
         query = (wk_hsts_query)dlsym(RTLD_DEFAULT, "WebCoreIsKnownHSTSHost");
-        if (!query)
-            wk_patch_fail(kKnownHSTSHost, "WebCore is not loaded in this process");
-    }
     return query;
 }
 
@@ -322,8 +314,7 @@ static wk_add_array_fn wk_archiveAddArray(void)
     static wk_add_array_fn addArray;
     if (!addArray) {
         wk_image image;
-        if (!wk_find_image(kCFNetworkSuffix, &image))
-            wk_patch_fail(kProtectionSpaceCoding, "CFNetwork is not loaded in this process");
+        wk_find_image(kCFNetworkSuffix, &image);
         addArray = (wk_add_array_fn)wk_symbol_in_image(&image, "__ZN19SerializableArchive3addEPK10__CFStringPK9__CFArray");
         if (!addArray)
             wk_patch_fail(kProtectionSpaceCoding, "CFNetwork's symbol table does not name the archive writer this calls");
@@ -451,8 +442,7 @@ bool wk_cookieStorageHasRecordsForURL(CFTypeRef storage, CFURLRef url)
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         wk_image image;
-        if (!wk_find_image(kCFNetworkSuffix, &image))
-            wk_patch_fail("cookie domain index", "CFNetwork image not loaded");
+        wk_find_image(kCFNetworkSuffix, &image);
         hasRecords = wk_symbol_in_image(&image, "__ZN17HTTPCookieStorage23someCookiesAreSetForURLEPK7__CFURL");
         storageTypeID = dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageGetTypeID");
         if (!hasRecords || !storageTypeID)

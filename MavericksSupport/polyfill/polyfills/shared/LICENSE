@@ -10,8 +10,11 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-The polyfill sources and wrapper headers are derived from MacPorts
-macports-legacy-support and retain their original copyright notices.
-Most are under the ISC-style terms above; some files (e.g. the "at" calls
-in atcalls.c and utimensat.c) are under the Apple Public Source License,
-Version 2.0, as noted in those files.
+Files here from macports-legacy-support keep their own notices. Most are
+under the ISC-style terms above, as is include/assert.h, which carries no
+notice of its own. atcalls.c, atcalls.h, utimensat.c and include/unistd.h
+are under the Apple Public Source License, Version 2.0, whose text is in
+APSL-2.0.txt.
+
+Every other file here is this port's own, under the BSD 2-Clause license in
+MavericksSupport/LICENSE.

@@ -24,8 +24,6 @@ static void wk_fixEmbeddedICCCurves(const struct mach_header *header, intptr_t s
     if (!function)
         wk_patch_fail(symbol, "native ICC curve parser is absent");
     id lock = (id)objc_getClass("NSObject");
-    if (!lock)
-        wk_patch_fail(symbol, "process-wide initialization lock is absent");
     objc_sync_enter(lock);
     // cmp eax,'para'; jne curv; mov ax,[r12+offset]; rol ax,8; cmp ax,4; ja invalid.
     static const uint8_t before[] = { 0x3d, 0x61, 0x72, 0x61, 0x70, 0x75, 0x35, 0x66, 0x41, 0x8b, 0x44, 0x24 };

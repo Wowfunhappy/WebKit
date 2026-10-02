@@ -1667,10 +1667,7 @@ static NSView *pluginView(WebFrame *frame, WebPluginPackage *pluginPackage,
 
     [pluginPackage load];
     Class viewFactory = [pluginPackage viewFactory];
-
-    // MAVERICKS_BACKPORT: declare the plug-in view up front; it is created (instead of the
-    // upstream `return nil` stub) below so WebKit-ObjC plug-ins like WebClip.plugin instantiate.
-    NSView *view = nil;
+    
     NSDictionary *arguments = nil;
 
 IGNORE_WARNINGS_BEGIN("undeclared-selector")
@@ -1696,18 +1693,13 @@ IGNORE_WARNINGS_END
         };
         LOG(Plugins, "arguments:\n%@", arguments);
     }
-    // MAVERICKS_BACKPORT: the upstream `(void)arguments;` discard is dropped here because
-    // arguments is now actually consumed by the plug-in view creation below.
+    // (void)arguments; // MAVERICKS_BACKPORT: arguments is consumed below.
 
-    // MAVERICKS_BACKPORT: this was stubbed to `return nil` (so WebKit-ObjC plug-ins never
-    // instantiated). Restore the real view creation: WebPluginController creates the plug-in
-    // view from the package + arguments and (via -addPlugin:) runs -webPlugInInitialize, which
-    // is where e.g. WebClip.plugin's WebClipper publishes its scripting object to JS as the
-    // `webClip` global. Without it the plug-in bundle loaded but no instance existed, so
-    // WebClip.js failed with "Can't find variable: webClip".
-    view = [pluginController plugInViewWithArguments:arguments fromPluginPackage:pluginPackage];
-
-    return view;
+    // MAVERICKS_BACKPORT: WebPluginController creates the plug-in view from the package and
+    // arguments and, through -addPlugin:, runs -webPlugInInitialize, where WebClip.plugin
+    // publishes its `webClip` scripting object.
+    // return nil;
+    return [pluginController plugInViewWithArguments:arguments fromPluginPackage:pluginPackage];
 }
 
 class PluginWidget : public WebCore::PluginViewBase {

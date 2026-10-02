@@ -97,7 +97,7 @@ for history, downloads, preferences, and utilities.
 - **Downloads & authentication** — `WebDownload`, `WebPanelAuthenticationHandler`.
 - **Storage & security** — `WebDatabaseManager` (+ `WebDatabaseDirectoryDefaultsKey`), `WebSecurityOrigin`,
   `WebCache`.
-- **Utilities** — `WebStringTruncator`, `WebURLsWithTitles`, `WebKeyGenerator` (legacy `<keygen>`),
+- **Utilities** — `WebStringTruncator`, `WebURLsWithTitles`, `WebKeyGenerator` (downloaded-certificate import),
   `WebCoreStatistics`, `WebKitStatistics`.
 - **Constants & functions** — `WebActionModifierFlagsKey` / `WebActionNavigationTypeKey` (navigation-action
   dictionary keys), `WebKitErrorDomain`, `WebLocalizedString`, `WebInstallMemoryPressureHandler`,
@@ -206,7 +206,7 @@ dies. Reachability is exactly one path, traced through Safari.framework's disass
 `BrowserBundlePageController.CreateRenderTree` message <- `-[BrowserDocument(DebugExtras) showRenderTree:]`
 / `showRenderLayerTree:` <- `-[DebugUtilities _populateDebugMenu]`, which is gated on
 `IncludeInternalDebugMenuPreferenceKey`. No startup, browsing, AppleScript or accessibility path reaches
-them. MAINTAINER DECISION (Jonathan, 2026-08-27): the shape mismatch stands. The four `Source/` files
+them. MAINTAINER DECISION (2026-08-27): the shape mismatch stands. The four `Source/` files
 holding these stubs are byte-upstream and stay that way — editing them only to carry a note would itself
 be a divergence.
 

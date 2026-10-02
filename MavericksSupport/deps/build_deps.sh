@@ -1931,6 +1931,19 @@ for h in content_decryption_module.h content_decryption_module_export.h content_
   fi
   cp "$f" "$DEST/include/cdm/$h" || exit 1
 done
+# The Chromium license the headers name, from Chromium's source at a pinned tag
+# (scripts/generate-acknowledgements.py reads it here).
+CHROMIUM_LICENSE_TAG=130.0.6723.0
+CHROMIUM_LICENSE_SHA256=368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b
+f="$SRC/chromium-$CHROMIUM_LICENSE_TAG-LICENSE"
+if [ ! -f "$f" ]; then
+  echo "download Chromium LICENSE" >&2
+  fetch "https://chromium.googlesource.com/chromium/src/+/refs/tags/$CHROMIUM_LICENSE_TAG/LICENSE?format=TEXT" "$f.b64" || exit 1
+  /usr/bin/base64 -D -i "$f.b64" -o "$f" || exit 1
+  rm -f "$f.b64"
+fi
+[ "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')" = "$CHROMIUM_LICENSE_SHA256" ] \
+  || { echo "  FATAL: $f does not match the pinned sha256"; exit 1; }
 echo "  cdm interface headers at $CDM_API_REV"
 
 echo "==== Readability ===="
@@ -1970,6 +1983,17 @@ fi
 [ "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')" = "$FIREFOX_READERABLE_SHA256" ] \
   || { echo "  FATAL: $f does not match the pinned sha256"; exit 1; }
 cp "$f" "$DEST/include/readability/FirefoxReaderable.js" || exit 1
+# The MPL 2.0 text Readerable.js is under, from SPDX's license list at a pinned release
+# (scripts/generate-acknowledgements.py reads it here).
+MPL_TEXT_SPDX_RELEASE=v3.24.0
+MPL_TEXT_SHA256=66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172
+f="$SRC/spdx-$MPL_TEXT_SPDX_RELEASE-MPL-2.0.txt"
+if [ ! -f "$f" ]; then
+  echo "download MPL-2.0.txt" >&2
+  fetch "https://raw.githubusercontent.com/spdx/license-list-data/$MPL_TEXT_SPDX_RELEASE/text/MPL-2.0.txt" "$f" || exit 1
+fi
+[ "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')" = "$MPL_TEXT_SHA256" ] \
+  || { echo "  FATAL: $f does not match the pinned sha256"; exit 1; }
 echo "  firefox Readerable.js at $FIREFOX_READERABLE_COMMIT"
 
 echo "==== required artifacts ===="

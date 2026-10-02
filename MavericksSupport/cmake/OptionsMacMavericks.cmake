@@ -79,6 +79,7 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 #   APPLE_PAY_AMS_UI              needs ENABLE(PAYMENT_REQUEST), which follows Apple Pay OFF.
 #   IMAGE_ANALYSIS_ENHANCEMENTS   builds on VisionKit's VKCImageAnalysis (macOS 13+).
 #   LEGACY_PDFKIT_PLUGIN          the inline PDF plugin needs PDFKit SPI 10.9 lacks; PDFs download.
+#   REVEAL                        Reveal.framework is macOS 10.13+; Look Up goes through Lookup.framework.
 #   REMOTE_LAYER_TREE_ON_MAC_     compositing goes through TiledCoreAnimation here, and DOM painting
 #   BY_DEFAULT, GPU_PROCESS_DOM_   stays in the web process with it. Upstream couples these two choices
 #   RENDERING_BY_DEFAULT           through one >= 4-core heuristic (WebViewImpl's drawing-area pick and
@@ -92,6 +93,7 @@ add_compile_definitions(
     ENABLE_APPLE_PAY_AMS_UI=0
     ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS=0
     ENABLE_LEGACY_PDFKIT_PLUGIN=0
+    ENABLE_REVEAL=0
     ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT=0
     ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0
     ENABLE_DNS_SERVER_FOR_TESTING=0
@@ -380,6 +382,9 @@ SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER TRUE)
 # NOT the GLib platform replacements (RunLoopGLib/FileSystemGlib/URLGLib), which would collide with the
 # Cocoa run loop / file system. USE(GLIB) is referenced by exactly one Cocoa-built WTF file otherwise.
 SET_AND_EXPOSE_TO_BUILD(USE_GLIB TRUE)
+# The run loop stays CoreFoundation's: PlatformUse.h's default event-loop choice puts USE(GLIB) first.
+SET_AND_EXPOSE_TO_BUILD(USE_COCOA_EVENT_LOOP 1)
+SET_AND_EXPOSE_TO_BUILD(WTF_DEFAULT_EVENT_LOOP 0)
 SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_GL FALSE)
 # MediaPlayerPrivateGStreamer reads in-band metadata tracks out of the MPEG-TS sections tsdemux
 # posts on the bus, behind USE(GSTREAMER_MPEGTS). deps/build carries libgstmpegts-1.0 and its

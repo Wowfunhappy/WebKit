@@ -1,3 +1,4 @@
 fonts/*
 !fonts/cbdt-source.ttf
+!fonts/OFL.txt
 tools/sanitize-font

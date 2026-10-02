@@ -136,10 +136,9 @@ RetainPtr<NSImage> WebSharingServicePickerClient::imageForCurrentSharingServiceP
 
     RetainPtr<NSData> tiffData = data; // MAVERICKS_BACKPORT: replaced below when confirmData asks.
     if (confirmData) {
-        // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than
-        // deleted so the divergence stays visible in place. These bytes came from the page, and
-        // -[NSImage initWithData:] parses them inside ImageIO; WebCore decodes them and encodes the
-        // TIFF the pasteboard wants, which is the same confirmation and the same conversion.
+        // MAVERICKS_BACKPORT: upstream's version of the lines below. These bytes come from the page,
+        // and -[NSImage initWithData:] parses them inside ImageIO; WebCore decodes them and encodes
+        // the TIFF the pasteboard wants, which is the same confirmation and the same conversion.
         // RetainPtr<NSImage> nsImage = adoptNS([[NSImage alloc] initWithData:data]);
         // if (!nsImage) {
         //     LOG_ERROR("Shared image data cannot create a valid NSImage");
@@ -165,7 +164,7 @@ RetainPtr<NSImage> WebSharingServicePickerClient::imageForCurrentSharingServiceP
             return;
         }
 
-        tiffData = WTF::toNSData(encoded.span());
+        tiffData = WTF::toNSData(encoded.span()); // MAVERICKS_BACKPORT: the TIFF WebCore encoded.
     }
 
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:serviceControlsPasteboardName];

@@ -35,6 +35,11 @@
  *
  * @APPLE_LICENSE_HEADER_END@
  */
+ /*
+  * NOTICE: This file was modified in September and October 2026 by Wowfunhappy
+  * for the WebKit port to OS X 10.9 Mavericks. This notice is included in
+  * support of clause 2.2 (b) of the Apple Public License, Version 2.0.
+  */
 /*-
  * Copyright (c) 1998-1999 Apple Computer, Inc. All Rights Reserved
  * Copyright (c) 1991, 1993, 1994

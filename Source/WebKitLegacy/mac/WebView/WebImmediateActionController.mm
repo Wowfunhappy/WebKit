@@ -539,7 +539,8 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
     popupInfo.origin = NSMakePoint(rangeRect.x(), rangeRect.y() + scaledDescent);
 
     auto attributedString = editingAttributedString(range, { }).nsAttributedString();
-#if ENABLE(LEGACY_PDFKIT_PLUGIN)
+// #if ENABLE(LEGACY_PDFKIT_PLUGIN)
+#if ENABLE(LEGACY_PDFKIT_PLUGIN) || !ENABLE(REVEAL) // MAVERICKS_BACKPORT: Lookup.framework's panel draws the scaled string (see DictionaryPopupInfo.h).
     auto scaledAttributedString = adoptNS([[NSMutableAttributedString alloc] initWithString:[attributedString string]]);
     NSFontManager *fontManager = [NSFontManager sharedFontManager];
 
@@ -553,7 +554,12 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
         [scaledAttributedString addAttributes:scaledAttributes.get() range:attributeRange];
     }];
 
+#if ENABLE(LEGACY_PDFKIT_PLUGIN) // MAVERICKS_BACKPORT: as above.
     popupInfo.platformData.attributedString = WebCore::AttributedString::fromNSAttributedString(scaledAttributedString.get());
+#else // MAVERICKS_BACKPORT: as above.
+    popupInfo.text = [attributedString string];
+    popupInfo.attributedString = WebCore::AttributedString::fromNSAttributedString(scaledAttributedString.get()); // MAVERICKS_BACKPORT: as above.
+#endif // MAVERICKS_BACKPORT: as above.
 #else
     popupInfo.text = [attributedString string];
 #endif

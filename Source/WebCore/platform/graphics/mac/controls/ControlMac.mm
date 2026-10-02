@@ -438,7 +438,7 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
     comboBoxButtonContext.clipRoundedRect(FloatRoundedRect(FloatRect(FloatPoint::zero(), comboBoxButtonSourceRect.size()), CornerRadii(comboBoxButtonCornerRadii)));
     comboBoxButtonContext.translate(-comboBoxButtonSourceRect.x(), -comboBoxButtonSourceRect.y());
     comboBoxButtonContext.drawConsumingImageBuffer(WTF::move(comboBoxImageBuffer), FloatPoint::zero());
-/* MAVERICKS_BACKPORT: upstream crop kept commented so upstream merges see the original text; not built on this 10.9 backport (tuned to the modern combo-box art — see above).
+/* MAVERICKS_BACKPORT: upstream's crop, which fits the modern combo-box art (see above).
     const FloatSize comboBoxButtonSize { 16, 16 };
     const FloatPoint comboBoxButtonInset { 5, 1 };
     constexpr auto comboBoxButtonCornerRadii = 4;

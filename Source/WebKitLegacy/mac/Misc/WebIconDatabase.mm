@@ -137,10 +137,9 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (NSImage *)defaultIconWithSize:(NSSize)size
 {
     static NeverDestroyed<RetainPtr<NSImage>> defaultImage = [] {
-        // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than
-        // deleted so the divergence stays visible in place. defaultIconData is a big-endian TIFF,
-        // and -[NSImage initWithData:] parses it inside ImageIO -- the one image parser nothing in
-        // this port reaches. WebCore decodes it and the adapter wraps the frame.
+        // MAVERICKS_BACKPORT: upstream's version of the lines below. defaultIconData is a big-endian
+        // TIFF, and -[NSImage initWithData:] parses it inside ImageIO -- the one image parser nothing
+        // in this port reaches. WebCore decodes it and the adapter wraps the frame.
         // RetainPtr imageData = adoptNS([[NSData alloc] initWithBytes:defaultIconData length:sizeof(defaultIconData)]);
         // return adoptNS([[NSImage alloc] initWithData:imageData.get()]);
         auto image = WebCore::BitmapImage::create();
