@@ -2183,6 +2183,10 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
         void runBeforeUnloadConfirmPanel(WebKit::WebPageProxy& page, WTF::String&& message, WebKit::WebFrameProxy* frame, FrameInfoData&&, Function<void(bool)>&& completionHandler) final
         {
+            // MAVERICKS_BACKPORT: Safari 7 prints the page's beforeunload string under its own question
+            // ("%@\n\n%@" in Safari::BrowserPageUIClient::runBeforeUnloadConfirmPanel); Safari 26 shows none of it.
+            if (WTF::MacApplication::isSafari())
+                message = emptyString();
             if (m_client.runBeforeUnloadConfirmPanel) {
                 RefPtr<RunBeforeUnloadConfirmPanelResultListener> listener = RunBeforeUnloadConfirmPanelResultListener::create(WTF::move(completionHandler));
                 m_client.runBeforeUnloadConfirmPanel(toAPI(&page), toAPI(message.impl()), toAPI(frame), toAPI(listener.get()), m_client.base.clientInfo);
