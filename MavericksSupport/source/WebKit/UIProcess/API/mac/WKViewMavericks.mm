@@ -696,6 +696,39 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
         return WebCore::cocoaColorOrNil(_wkState->page->underlayColor()).autorelease();
     return nil;
 }
+
+// the drawsBackground / drawsTransparentBackground properties declared in WKView.h, mirroring
+// WebViewImpl::setDrawsBackground / drawsBackground / updateLayer and WKWebView's
+// _setDrawsTransparentBackground:. Safari 7's ReaderController sends -setDrawsTransparentBackground:YES
+// to ReaderWKView so Reader's dimmed backdrop shows around the article.
+- (void)setDrawsBackground:(BOOL)drawsBackground
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    std::optional<WebCore::Color> backgroundColor;
+    if (!drawsBackground)
+        backgroundColor = WebCore::Color(WebCore::Color::transparentBlack);
+    _wkState->page->setBackgroundColor(backgroundColor);
+    self.layer.backgroundColor = CGColorGetConstantColor(drawsBackground ? kCGColorWhite : kCGColorClear);
+}
+
+- (BOOL)drawsBackground
+{
+    if (!_wkState || !_wkState->page)
+        return YES;
+    auto& backgroundColor = _wkState->page->backgroundColor();
+    return !backgroundColor || backgroundColor.value().isVisible();
+}
+
+- (void)setDrawsTransparentBackground:(BOOL)drawsTransparentBackground
+{
+    [self setDrawsBackground:!drawsTransparentBackground];
+}
+
+- (BOOL)drawsTransparentBackground
+{
+    return ![self drawsBackground];
+}
 // the NSTextInputClient surface AppKit sends to BrowserWKView once it is in a
 // window. insertText: + doCommandBySelector: capture commands during interpretKeyEvents: so the
 // keyDown handler can forward them to WebPage as KeypressCommands.
