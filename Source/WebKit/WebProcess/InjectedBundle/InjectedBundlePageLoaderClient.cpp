@@ -39,6 +39,7 @@
 #include "WKSharedAPICast.h"
 #include "WebFrame.h"
 #include "WebPage.h"
+#include <WebCore/SafariReaderMozillaReadability.h> // MAVERICKS_BACKPORT: SafariReaderMozillaReadabilityArticleScope below.
 #include <WebCore/SharedBuffer.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
@@ -134,6 +135,7 @@ void InjectedBundlePageLoaderClient::didFinishLoadForFrame(WebPage& page, WebFra
         return;
 
     WKTypeRef userDataToPass = nullptr;
+    WebCore::SafariReaderMozillaReadabilityArticleScope safariReaderMozillaReadabilityArticleScope; // MAVERICKS_BACKPORT: Safari 7 saves a page to the Reading List when it finishes loading (see the class).
     m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), &userDataToPass, m_client.base.clientInfo);
     userData = adoptRef(toImpl(userDataToPass));
 }

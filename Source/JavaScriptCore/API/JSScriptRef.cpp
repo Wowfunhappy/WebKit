@@ -97,6 +97,16 @@ static bool parseScript(VM& vm, const SourceCode& source, ParserError& error)
         NoLexicallyScopedFeatures, JSParserScriptMode::Classic, SourceParseMode::ProgramMode, error);
 }
 
+// MAVERICKS_BACKPORT: see JSScriptSetSafariReaderFinderEvaluator.
+static JSScriptSafariReaderFinderEvaluator safariReaderFinderEvaluator;
+
+// MAVERICKS_BACKPORT: Safari 7's Reader article finder, the script Safari.framework embeds as
+// readerArticleFinderSource, ends by creating its one finder object.
+static bool isSafariReaderFinderSource(StringView source)
+{
+    return source.endsWith("var ReaderArticleFinderJS=new ReaderArticleFinder(document);"_s);
+}
+
 extern "C" {
 
 JSScriptRef JSScriptCreateReferencingImmortalASCIIText(JSContextGroupRef contextGroup, JSStringRef urlString, int startingLineNumber, const char* source, size_t length, JSStringRef* errorMessage, int* errorLine)
@@ -179,6 +189,10 @@ JSValueRef JSScriptEvaluate(JSContextRef context, JSScriptRef script, JSValueRef
         return nullptr;
     }
 
+    // MAVERICKS_BACKPORT: see JSScriptSetSafariReaderFinderEvaluator.
+    if (safariReaderFinderEvaluator && isSafariReaderFinderSource(script->source()) && safariReaderFinderEvaluator(context, script, exception))
+        return toRef(globalObject, jsUndefined());
+
     WTFBeginSignpost(script, JSScriptRef, "evaluate: %" PRIVATE_LOG_STRING " (%u bytes)", script->debugDescription().ascii().data(), script->source().length());
     auto endSignpost = makeScopeExit([&] {
         WTFEndSignpost(script, JSScriptRef);
@@ -194,6 +208,12 @@ JSValueRef JSScriptEvaluate(JSContextRef context, JSScriptRef script, JSValueRef
     }
     ASSERT(result);
     return toRef(globalObject, result);
+}
+
+// MAVERICKS_BACKPORT: installs the evaluator JSScriptEvaluate hands Safari 7's Reader article finder.
+void JSScriptSetSafariReaderFinderEvaluator(JSScriptSafariReaderFinderEvaluator evaluator)
+{
+    safariReaderFinderEvaluator = evaluator;
 }
 
 }

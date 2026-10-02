@@ -40,6 +40,7 @@
 #import <CoreFoundation/CFURL.h>
 #import <Foundation/NSBundle.h>
 #import <WebCore/PlatformKeyboardEvent.h>
+#import <WebCore/SafariReaderMozillaReadability.h> // MAVERICKS_BACKPORT: InjectedBundle::initialize below.
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <stdio.h>
@@ -115,6 +116,8 @@ bool InjectedBundle::decodeBundleParameters(API::Data* bundleParameterDataPtr)
 
 bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, RefPtr<API::Object>&& initializationUserData)
 {
+    WebCore::installMozillaReadabilityForSafariReader(); // MAVERICKS_BACKPORT: Safari 7's Reader works from Mozilla's Readability (see the function).
+
     if (auto sandboxExtension = std::exchange(m_sandboxExtension, nullptr)) {
         if (!sandboxExtension->consumePermanently()) {
             RELEASE_LOG_ERROR(Process, "InjectedBundle::initialize failed - Could not consume bundle sandbox extension for [%{public}s]", m_path.utf8().data());

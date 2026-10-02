@@ -458,7 +458,37 @@ list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/mediarecorder/MediaRecorderPrivateWriterMP4.cpp
     # Safari 7 extensions' tabs.insertCSS style sheets.
     ${MAVERICKS_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.cpp
+    # The article document Safari 7's Reader article finder runs against.
+    ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.cpp
 )
+# SafariReaderMozillaReadability.cpp evaluates Readability and the script that builds the article
+# document from it as one source.
+add_custom_command(
+    OUTPUT ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderMozillaReadabilityScriptSource.h ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderMozillaReadabilityScript.js
+    DEPENDS ${MAVERICKS_DEPS}/include/readability/Readability.js
+        ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.js
+        ${JavaScriptCore_SCRIPTS_DIR}/xxd.pl
+    COMMAND ${CMAKE_COMMAND} -E cat ${MAVERICKS_DEPS}/include/readability/Readability.js
+        ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.js
+        > ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderMozillaReadabilityScript.js
+    COMMAND ${PERL_EXECUTABLE} ${JavaScriptCore_SCRIPTS_DIR}/xxd.pl SafariReaderMozillaReadabilityScriptSource ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderMozillaReadabilityScript.js ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderMozillaReadabilityScriptSource.h
+    VERBATIM)
+# Firefox's Reader View availability test, which SafariReaderMozillaReadability.cpp evaluates by itself
+# at every Reader availability check: Readability-readerable.js and Firefox's Readerable.js, joined as
+# Firefox joins them, with the Gecko globals Readerable.js reads between them.
+add_custom_command(
+    OUTPUT ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderFirefoxReaderableScriptSource.h ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderFirefoxReaderableScript.js
+    DEPENDS ${MAVERICKS_DEPS}/include/readability/ReadabilityReaderable.js
+        ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderFirefoxReaderable.js
+        ${MAVERICKS_DEPS}/include/readability/FirefoxReaderable.js
+        ${JavaScriptCore_SCRIPTS_DIR}/xxd.pl
+    COMMAND ${CMAKE_COMMAND} -E cat ${MAVERICKS_DEPS}/include/readability/ReadabilityReaderable.js
+        ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderFirefoxReaderable.js
+        ${MAVERICKS_DEPS}/include/readability/FirefoxReaderable.js
+        > ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderFirefoxReaderableScript.js
+    COMMAND ${PERL_EXECUTABLE} ${JavaScriptCore_SCRIPTS_DIR}/xxd.pl SafariReaderFirefoxReaderableScriptSource ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderFirefoxReaderableScript.js ${WebCore_DERIVED_SOURCES_DIR}/SafariReaderFirefoxReaderableScriptSource.h
+    VERBATIM)
+WEBKIT_ADD_SOURCE_DEPENDENCIES(${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.cpp "${WebCore_DERIVED_SOURCES_DIR}/SafariReaderMozillaReadabilityScriptSource.h;${WebCore_DERIVED_SOURCES_DIR}/SafariReaderFirefoxReaderableScriptSource.h")
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa"
     "${MAVERICKS_SUPPORT}/source/WebCore/platform/mediarecorder"
@@ -468,6 +498,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerMavericks.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
     ${MAVERICKS_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.h
     # The classic inspector frontend's bridge script, which both ports inject.
     ${MAVERICKS_SUPPORT}/source/WebCore/inspector/InspectorFrontendClassicBridge.h
 )

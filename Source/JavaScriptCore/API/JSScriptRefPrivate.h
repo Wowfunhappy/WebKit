@@ -91,6 +91,12 @@ JS_EXPORT void JSScriptRelease(JSScriptRef script);
  */
 JS_EXPORT JSValueRef JSScriptEvaluate(JSContextRef ctx, JSScriptRef script, JSValueRef thisValue, JSValueRef* exception);
 
+/* MAVERICKS_BACKPORT: Safari 7's Reader evaluates its article finder script through JSScriptEvaluate.
+   The evaluator installed here is handed that one script; it returns true when it has evaluated the
+   script itself, and false to have JSScriptEvaluate evaluate it in ctx. */
+typedef bool (*JSScriptSafariReaderFinderEvaluator)(JSContextRef ctx, JSScriptRef script, JSValueRef* exception);
+JS_EXPORT void JSScriptSetSafariReaderFinderEvaluator(JSScriptSafariReaderFinderEvaluator evaluator);
+
 
 #ifdef __cplusplus
 }

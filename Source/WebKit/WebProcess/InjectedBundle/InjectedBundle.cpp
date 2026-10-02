@@ -70,6 +70,7 @@
 #include <WebCore/PageGroup.h>
 #include <WebCore/PrintContext.h>
 #include <WebCore/SWContextManager.h>
+#include <WebCore/SafariReaderMozillaReadability.h> // MAVERICKS_BACKPORT: SafariReaderMozillaReadabilityArticleScope below.
 #include <WebCore/ScriptController.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityPolicy.h>
@@ -267,6 +268,7 @@ void InjectedBundle::didReceiveMessage(const String& messageName, RefPtr<API::Ob
 
 void InjectedBundle::didReceiveMessageToPage(WebPage& page, const String& messageName, RefPtr<API::Object>&& messageBody)
 {
+    WebCore::SafariReaderMozillaReadabilityArticleScope safariReaderMozillaReadabilityArticleScope; // MAVERICKS_BACKPORT: Safari 7 shows a page in Reader while handling a message (see the class).
     m_client->didReceiveMessageToPage(Ref { *this }, page, messageName, WTF::move(messageBody));
 }
 

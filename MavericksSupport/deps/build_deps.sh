@@ -1933,6 +1933,45 @@ for h in content_decryption_module.h content_decryption_module_export.h content_
 done
 echo "  cdm interface headers at $CDM_API_REV"
 
+echo "==== Readability ===="
+# Mozilla's article extractor (Firefox Reader View), JavaScript that WebKit embeds: the document
+# Safari 7's Reader article finder runs against is built from what it extracts
+# (MavericksSupport/source/WebKit/WebProcess/InjectedBundle/SafariReaderMozillaReadability.cpp).
+# The npm release, pinned by its published sha512.
+READABILITY_VERSION=0.6.0
+READABILITY_SHA512=8ee1b9556878a808afcd301e333bd8f71b3d1d8e6b01caf613823bb624920a8911162ed7219080bbdd999124ec223d4e3dc78289f2f77297ed78fde90d3f7f41
+f="$SRC/readability-$READABILITY_VERSION.tgz"
+if [ ! -f "$f" ]; then
+  echo "download readability-$READABILITY_VERSION.tgz" >&2
+  fetch "https://registry.npmjs.org/@mozilla/readability/-/readability-$READABILITY_VERSION.tgz" "$f" || exit 1
+fi
+[ "$(/usr/bin/shasum -a 512 "$f" | awk '{ print $1 }')" = "$READABILITY_SHA512" ] \
+  || { echo "  FATAL: $f does not match the pinned sha512"; exit 1; }
+rm -rf "$DEST/include/readability" "$SRC/readability-$READABILITY_VERSION"
+mkdir -p "$DEST/include/readability" "$SRC/readability-$READABILITY_VERSION"
+tar -xzf "$f" -C "$SRC/readability-$READABILITY_VERSION" || exit 1
+cp "$SRC/readability-$READABILITY_VERSION/package/Readability.js" "$DEST/include/readability/Readability.js" || exit 1
+cp "$SRC/readability-$READABILITY_VERSION/package/Readability-readerable.js" "$DEST/include/readability/ReadabilityReaderable.js" || exit 1
+cp "$SRC/readability-$READABILITY_VERSION/package/LICENSE.md" "$DEST/include/readability/LICENSE.md" || exit 1
+echo "  readability $READABILITY_VERSION"
+
+echo "==== Firefox Readerable ===="
+# Firefox's Reader View availability test: the Readerable object that, in Firefox, decides with
+# Readability's isProbablyReaderable whether a page gets the Reader View button (no button for a
+# site's front page or for the hosts it lists). WebKit embeds it beside Readability. A single
+# script from Mozilla's Firefox repository, pinned to the commit that last changed it.
+FIREFOX_READERABLE_COMMIT=6be5ec2fff811284b3ed164cf7ae944a26341869
+FIREFOX_READERABLE_SHA256=06f2a6d8a81bcf238f8154479182aad28e3ae46d93d9fcecadad15c91da3f13d
+f="$SRC/firefox-Readerable-$FIREFOX_READERABLE_COMMIT.js"
+if [ ! -f "$f" ]; then
+  echo "download Readerable.js" >&2
+  fetch "https://raw.githubusercontent.com/mozilla-firefox/firefox/$FIREFOX_READERABLE_COMMIT/toolkit/components/reader/Readerable.js" "$f" || exit 1
+fi
+[ "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')" = "$FIREFOX_READERABLE_SHA256" ] \
+  || { echo "  FATAL: $f does not match the pinned sha256"; exit 1; }
+cp "$f" "$DEST/include/readability/FirefoxReaderable.js" || exit 1
+echo "  firefox Readerable.js at $FIREFOX_READERABLE_COMMIT"
+
 echo "==== required artifacts ===="
 # Every media-critical artifact must exist by name; a silent dropout (plugin skipped,
 # majored name missing) fails here even if everything else builds.
@@ -1942,6 +1981,10 @@ require_glob() {
 }
 # The Chromium CDM interface WebCore's Widevine key system is written against.
 require_glob "$DEST/include/cdm/content_decryption_module.h"
+# The article extractor behind Safari 7's Reader.
+require_glob "$DEST/include/readability/Readability.js"
+require_glob "$DEST/include/readability/ReadabilityReaderable.js"
+require_glob "$DEST/include/readability/FirefoxReaderable.js"
 require_glob "$DEST/lib/libssl.dylib"
 require_glob "$DEST/lib/libcrypto.dylib"
 require_glob "$DEST/lib/libpsl.5.dylib"

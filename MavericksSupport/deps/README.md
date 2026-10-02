@@ -15,6 +15,9 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
   FFmpeg + gst-libav, libvpx, dav1d, OpenSSL (HLS AES-128 keys),
   gst-plugins-rs 0.15.2 closed-caption parsers/converters —
   plus `bin/gst-inspect-1.0` and `bin/gst-launch-1.0` for on-box debugging;
+- `include/readability`, Mozilla's Readability 0.6.0 (the npm release) and Firefox's
+  `Readerable.js` (pinned to a commit of Mozilla's Firefox repository), JavaScript that WebKit
+  embeds behind Safari 7's Reader;
 - `include/cdm`, the Chromium Content Decryption Module interface (pinned to one revision of
   Chromium's own repository) that WebCore's `CDMWidevine.cpp` hosts. Headers only: the module
   is Google's Widevine CDM, which is not redistributable and which WebCore downloads and installs
