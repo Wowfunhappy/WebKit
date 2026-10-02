@@ -24,14 +24,14 @@ done
 for order in webkit-first client-first; do
     for scope in local global; do
         "$WORK/host" "$order" "$scope" "$WORK/client.dylib" \
-            "$WEBKIT_BUNDLE/Versions/A/WebKit" "$GST_DEPLOY/gstreamer-1.0/libgstlibav.dylib"
+            "$WEBKIT_BUNDLE/Versions/A/WebKit" "$GST_LIBS/gstreamer-1.0/libgstlibav.dylib"
     done
 done
 # Private runtime identities and imports are absolute. This applies to every dylib and plugin
 # in the runtime directories, including libraries that WebCore only loads on demand.
 wk_check_private_library_bindings() {
     local pre="$1" dir bin commands bad=0
-    for dir in "$PRIVLIBCXX" "$PRIVLIB"; do
+    for dir in "$JSC_LIBS" "$WEBCORE_LIBS"; do
         [ -d "$pre$dir" ] || continue
         while IFS= read -r bin; do
             if ! commands="$("$OTOOL" -arch x86_64 -l "$bin")"; then
@@ -59,10 +59,10 @@ wk_check_private_library_bindings ""
 
 # Exercise the manual audit with malformed copies of a private library.
 STAGE="$WORK/staged"
-LIB="$STAGE$GST_DEPLOY/libcrypto.dylib"
+LIB="$STAGE$JSC_LIBS/libcrypto.dylib"
 mkdir -p "$(dirname "$LIB")"
 cp "$WORK/libcrypto.dylib" "$LIB"
-"$INSTALL_NAME_TOOL" -id "$GST_DEPLOY/libcrypto.dylib" "$LIB"
+"$INSTALL_NAME_TOOL" -id "$JSC_LIBS/libcrypto.dylib" "$LIB"
 wk_check_private_library_bindings "$STAGE"
 expect_rejection() {
     if wk_check_private_library_bindings "$STAGE" > "$WORK/gate.log" 2>&1; then
@@ -73,7 +73,7 @@ expect_rejection() {
 }
 "$INSTALL_NAME_TOOL" -id @rpath/libcrypto.dylib "$LIB"
 expect_rejection 'a shared install name'
-"$INSTALL_NAME_TOOL" -id "$GST_DEPLOY/libcrypto.dylib" "$LIB"
+"$INSTALL_NAME_TOOL" -id "$JSC_LIBS/libcrypto.dylib" "$LIB"
 "$INSTALL_NAME_TOOL" -change /usr/lib/libSystem.B.dylib @rpath/libSystem.B.dylib "$LIB"
 expect_rejection 'a relative dependency'
 "$INSTALL_NAME_TOOL" -change @rpath/libSystem.B.dylib /usr/lib/libSystem.B.dylib "$LIB"

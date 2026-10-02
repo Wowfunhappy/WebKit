@@ -33,9 +33,12 @@ checking, on this host, that every strong undefined symbol resolves and that no 
 binds NULL beyond the documented allow-list. No compat or reexport shim dylibs are involved:
 the post-10.9 libc gap is closed at link time by a gap archive built from this project's own
 polyfill sources and force-loaded into each binary. The dylibs are
-self-contained (own `@rpath` + `LC_RPATH @loader_path/../lib`, C++17 runtime alongside), so
-`scripts/stage-frameworks.sh` deploys `build/lib` into WebCore.framework as-is, minus the
-static libraries, with no repointing, shimming, or overlay step.
+self-contained (own `@rpath` + `LC_RPATH @loader_path/../lib`, C++17 runtime alongside).
+`scripts/stage-frameworks.sh` deploys each library into the Frameworks directory of the lowest
+framework that loads it (`wk_runtime_library_homes` in `scripts/framework-layout.sh`: GLib,
+libpsl and libcrypto in JavaScriptCore.framework; curl, libxml2 and the decoders in
+WebCore.framework; GStreamer and its plugins' dependencies in WebCore.framework's
+`gstreamer/lib`) and gives every one an absolute in-bundle install name.
 
 The script keeps output and workspace in two gitignored directories:
 

@@ -2,8 +2,8 @@
 // registry has no Opus ('opus' answers kAudioFormatUnsupportedDataFormatError), while the modern
 // AudioToolbox contract WebCore's AudioSampleBufferConverter encodes WebM audio through includes an
 // Opus encoder behind the same calls. These replacements serve that contract for Opus-destination
-// encode converters, backed by the libopus the private runtime already ships
-// (WebCore.framework/Versions/A/Frameworks/gstreamer/lib/libopus.0.dylib); every other converter,
+// encode converters, backed by the libopus WebCore ships beside itself
+// (WebCore.framework/Versions/A/Frameworks/libopus.0.dylib); every other converter,
 // format and property query is the system's answer untouched.
 //
 // The Opus converter accepts any LPCM source (interleaved or not, any rate the system's own
@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// libopus, resolved lazily from the private runtime. Declarations mirror opus.h/opus_defines.h
+// libopus, resolved lazily from WebCore's Frameworks directory. Declarations mirror opus.h/opus_defines.h
 // (vendored at Source/ThirdParty/libwebrtc/Source/third_party/opus/src/include).
 typedef struct OpusEncoder OpusEncoder;
 enum {
@@ -48,23 +48,21 @@ static bool wkOpusLoad(void)
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        // The private GStreamer runtime lives beside the image this code is linked into
-        // (WebCore.framework/Versions/A/Frameworks/gstreamer/lib); the runtime's dylibs reference each
-        // other by @loader_path install names, so the path is derived from this image's own location.
+        // WebCore, whose AudioSampleBufferConverter is the client, ships libopus in its Frameworks
+        // directory (WebCore.framework/Versions/A/Frameworks); the path is derived from this image's
+        // own location, the same in the installed product and the build tree.
         void *lib = NULL;
         Dl_info info;
         if (dladdr((const void *)&wkOpusLoad, &info) && info.dli_fname) {
             char path[1024];
             const char *slash = strrchr(info.dli_fname, '/');
             size_t dirLength = slash ? (size_t)(slash - info.dli_fname) + 1 : 0;
-            if (dirLength && dirLength + sizeof("Frameworks/gstreamer/lib/libopus.0.dylib") <= sizeof(path)) {
+            if (dirLength && dirLength + sizeof("Frameworks/libopus.0.dylib") <= sizeof(path)) {
                 memcpy(path, info.dli_fname, dirLength);
-                strcpy(path + dirLength, "Frameworks/gstreamer/lib/libopus.0.dylib");
+                strcpy(path + dirLength, "Frameworks/libopus.0.dylib");
                 lib = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
             }
         }
-        if (!lib)
-            lib = dlopen("libopus.0.dylib", RTLD_LAZY | RTLD_LOCAL);
         if (!lib) {
             syslog(LOG_ERR, "[wk_polyfill] AudioConverter opus: dlopen libopus failed: %s", dlerror());
             return;

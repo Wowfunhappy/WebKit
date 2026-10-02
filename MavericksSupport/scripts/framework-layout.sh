@@ -56,11 +56,19 @@ WEBCLIP_WIDGET_SCRIPT="/Library/Widgets/Web Clip.wdgt/WebClip.js"
 # accessors (different UnwindCursor layout) and crashes mid-unwind, so every @rpath/libunwind
 # reference is bound to the system unwinder instead (its exports cover all symbols we import:
 # _Unwind_Resume plus libc++abi's eight classic _Unwind_* entry points).
-PRIVLIBCXX=$JSC_BUNDLE/Versions/A/Frameworks
 SYSTEM_UNWINDER=/usr/lib/system/libunwind.dylib
-# GStreamer (#90) ships inside WebCore's own Frameworks dir.
-PRIVLIB=$WEBCORE_BUNDLE/Versions/A/Frameworks
-GST_DEPLOY=$PRIVLIB/gstreamer/lib
+# The private libraries live in the Frameworks directory of the lowest framework that loads them, so
+# no framework reaches into a bundle stacked on it. The vendored third-party runtime
+# (deps/build_deps.sh) is split the same way by wk_runtime_library_homes below.
+#   JSC_LIBS      the C++ runtime, the polyfill classes, and what JavaScriptCore loads (GLib, libpsl,
+#                 libcrypto) with their dependencies
+#   WEBCORE_LIBS  libwebrtc, and what WebCore, WebKit and WebKit2 load beyond JSC_LIBS: curl with its
+#                 TLS and HTTP/2 libraries, libxml2/libxslt, the FFmpeg decoders, dav1d, libopus
+#   GST_LIBS      GStreamer (#90): its own libraries, its plugins (gstreamer-1.0/), and the libraries
+#                 only those load
+JSC_LIBS=$JSC_BUNDLE/Versions/A/Frameworks
+WEBCORE_LIBS=$WEBCORE_BUNDLE/Versions/A/Frameworks
+GST_LIBS=$WEBCORE_LIBS/gstreamer/lib
 XPCSERVICES=$WEBKIT2_BUNDLE/Versions/A/XPCServices
 
 # Canonical stock backup (flat *.framework dirs), captured once by
@@ -105,12 +113,11 @@ OTOOL="$CCTOOLS/otool"
 LIPO="$CCTOOLS/lipo"
 
 # ---------------------------------------------------------------------------
-# The single-runtime rule over one tree: every C++ runtime load names the PRIVLIBCXX pair by its
+# The single-runtime rule over one tree: every C++ runtime load names the JSC_LIBS pair by its
 # absolute in-bundle path, that pair is the only libc++/libc++abi in the tree, every unwinder load
-# names $SYSTEM_UNWINDER, and no unwinder is vendored. The stager runs it on the thin binaries (its
-# step 7) and wk_verify_tree runs it again on the finished tree. $1 = path prefix, as for
-# wk_verify_tree. Prints one VIOLATION line per offender and returns 1 when there is any.
-# Requires $OTOOL.
+# names $SYSTEM_UNWINDER, and no unwinder is vendored. wk_verify_tree runs it on a finished tree.
+# $1 = path prefix, as for wk_verify_tree. Prints one VIOLATION line per offender and returns 1 when
+# there is any. Requires $OTOOL.
 wk_check_runtime_bindings() {
     local pre="$1"
     local bad=0 root bin loads viol
@@ -118,7 +125,7 @@ wk_check_runtime_bindings() {
         [ -d "$pre$root" ] || continue
         while read -r bin; do
             [ -n "$bin" ] || continue
-            # The x86_64 slice is the one this build produces. The stock i386 slice step 8 grafts into
+            # The x86_64 slice is the one this build produces. The stock i386 slice stage-frameworks.sh grafts into
             # the four framework binaries drives 10.9's own /usr/lib/libc++.1.dylib and its own
             # unwinder, which is right for it.
             # otool exits 0 and prints "<path>: is not an object file" for a file it cannot parse; a
@@ -126,7 +133,7 @@ wk_check_runtime_bindings() {
             if ! loads="$("$OTOOL" -arch x86_64 -L "$bin")" || [ "$(echo "$loads" | awk 'NR==1 && /:$/ {print "ok"}')" != ok ]; then
                 echo "  VIOLATION: $bin: could not read its x86_64 load commands" >&2; bad=1; continue
             fi
-            viol="$(echo "$loads" | awk -v bin="$bin" -v cxx="$PRIVLIBCXX" -v unw="$SYSTEM_UNWINDER" '
+            viol="$(echo "$loads" | awk -v bin="$bin" -v cxx="$JSC_LIBS" -v unw="$SYSTEM_UNWINDER" '
                 NR > 1 {
                     n = split($1, part, "/"); leaf = part[n]
                     if (leaf ~ /^libc\+\+/) {
@@ -143,12 +150,97 @@ wk_check_runtime_bindings() {
                 libunwind*)
                     echo "  VIOLATION: vendored unwinder in the tree: $bin" >&2; bad=1;;
                 *)
-                    [ "$(dirname "$bin")" = "$pre$PRIVLIBCXX" ] || {
-                        echo "  VIOLATION: C++ runtime copy outside $PRIVLIBCXX: $bin" >&2; bad=1; };;
+                    [ "$(dirname "$bin")" = "$pre$JSC_LIBS" ] || {
+                        echo "  VIOLATION: C++ runtime copy outside $JSC_LIBS: $bin" >&2; bad=1; };;
             esac
         done < <(find "$pre$root" \( -name 'libc++*.dylib' -o -name 'libunwind*.dylib' \) 2>/dev/null)
     done
     return $bad
+}
+
+# ---------------------------------------------------------------------------
+# The home of each library of the vendored runtime. deps/build_deps.sh installs it as one flat prefix
+# whose libraries name each other @rpath/<install-name leaf>; each one ships in the Frameworks
+# directory of the lowest framework that loads it (see JSC_LIBS above):
+#   jsc        everything JavaScriptCore's binaries load, transitively
+#   webcore    everything else the WebCore, WebKit and WebKit2 bundles and libwebrtc load, transitively,
+#              short of GStreamer's own libgst* libraries; and libopus, which the polyfill layer's
+#              AudioToolbox Opus encoder opens beside WebCore (AudioToolboxOpus.c)
+#   gstreamer  the libgst* libraries those load and everything the plugins load, transitively
+# A library nothing loads does not ship. $1 = the build's lib dir (the linked frameworks and
+# libwebrtc.dylib), $2 = the prefix's lib dir. Prints "<home> <leaf> <file>" per library, where
+# <file> is the prefix's copy. Requires $OTOOL.
+wk_runtime_library_homes() {
+    local libdir="$1" src="$2" work f leaf home queue fw
+    work="$(mktemp -d "${TMPDIR:-/tmp}/wk-runtime-homes.XXXXXX")" || return 1
+
+    # The @rpath dependency leaves of one Mach-O.
+    _wk_rpath_leaves() {
+        "$OTOOL" -L "$1" | awk 'NR > 1 && $1 ~ /^@rpath\// { sub(/^@rpath\//, "", $1); print $1 }'
+    }
+    # The Mach-Os of one built framework, short of its Versions/A/Frameworks dir (the build tree's
+    # copy of this runtime).
+    _wk_framework_machos() {
+        local bundle="$libdir/$1.framework" f
+        while IFS= read -r f; do
+            case "$f" in "$bundle/Versions/A/Frameworks/"*) continue;; esac
+            case "$(file -b "$f")" in *Mach-O*) echo "$f";; esac
+        done < <(find "$bundle" -type f -perm +111)
+    }
+    # Claim each unclaimed library in the queue, and what it loads, for one home. The webcore walk
+    # stops at a libgst* library and hands it to the gstreamer walk.
+    _wk_claim() {
+        local home="$1" leaf; shift
+        set -- $*
+        while [ $# -gt 0 ]; do
+            leaf="$1"; shift
+            [ -f "$work/file.$leaf" ] && [ ! -f "$work/home.$leaf" ] || continue
+            case "$home:$leaf" in webcore:libgst*) echo "$leaf" >> "$work/gst-roots"; continue;; esac
+            echo "$home" > "$work/home.$leaf"
+            set -- "$@" $(cat "$work/deps.$leaf")
+        done
+    }
+
+    # The prefix's libraries, by install-name leaf. Its dev-name symlinks are aliases of these, and
+    # its C++ runtime pair is the toolchain's, which ships once in JSC_LIBS from the toolchain itself.
+    for f in "$src"/*.dylib; do
+        [ -f "$f" ] && [ ! -L "$f" ] || continue
+        leaf="$("$OTOOL" -D "$f" | awk 'NR == 2')"; leaf="${leaf##*/}"
+        case "$leaf" in libc++.1.dylib|libc++abi.1.dylib) continue;; esac
+        echo "$f" > "$work/file.$leaf"
+        _wk_rpath_leaves "$f" > "$work/deps.$leaf"
+    done
+
+    queue=""
+    for f in $(_wk_framework_machos JavaScriptCore); do queue="$queue $(_wk_rpath_leaves "$f")"; done
+    _wk_claim jsc $queue
+
+    queue="libopus.0.dylib $(_wk_rpath_leaves "$libdir/libwebrtc.dylib")"
+    for fw in WebKitLegacy WebCore WebKit; do
+        for f in $(_wk_framework_machos $fw); do queue="$queue $(_wk_rpath_leaves "$f")"; done
+    done
+    _wk_claim webcore $queue
+
+    queue="$(cat "$work/gst-roots" 2>/dev/null)"
+    for f in "$src"/gstreamer-1.0/*.dylib; do queue="$queue $(_wk_rpath_leaves "$f")"; done
+    _wk_claim gstreamer $queue
+
+    for f in "$work"/home.*; do
+        [ -f "$f" ] || continue
+        leaf="${f#$work/home.}"
+        echo "$(cat "$f") $leaf $(cat "$work/file.$leaf")"
+    done
+    rm -rf "$work"
+    unset -f _wk_rpath_leaves _wk_framework_machos _wk_claim
+}
+
+# The installed directory of a home wk_runtime_library_homes prints.
+wk_runtime_home_dir() {
+    case "$1" in
+        jsc)       echo "$JSC_LIBS";;
+        webcore)   echo "$WEBCORE_LIBS";;
+        gstreamer) echo "$GST_LIBS";;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -191,19 +283,19 @@ wk_verify_tree() {
         || { echo "  UNPATCHED Web Clip widget script: $pre$WEBCLIP_WIDGET_SCRIPT" >&2; bad=1; }
 
     # The private C++ runtime and the polyfill ObjC classes every WebKit binary loads.
-    for f in "$PRIVLIBCXX/libc++.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" \
-             "$PRIVLIBCXX/libpolyfill_classes.dylib"; do
+    for f in "$JSC_LIBS/libc++.1.dylib" "$JSC_LIBS/libc++abi.1.dylib" \
+             "$JSC_LIBS/libpolyfill_classes.dylib"; do
         [ -f "$pre$f" ] || { echo "  MISSING in-bundle dylib: $pre$f" >&2; bad=1; }
     done
 
     # libwebrtc: WebCore and WebKit2 both carry a hard LC_LOAD_DYLIB on it, so a tree without it is
     # a tree where no WebKit app reaches its entry point.
-    [ -f "$pre$PRIVLIB/libwebrtc.dylib" ] || {
-        echo "  MISSING libwebrtc: $pre$PRIVLIB/libwebrtc.dylib" >&2; bad=1; }
+    [ -f "$pre$WEBCORE_LIBS/libwebrtc.dylib" ] || {
+        echo "  MISSING libwebrtc: $pre$WEBCORE_LIBS/libwebrtc.dylib" >&2; bad=1; }
 
     # GStreamer, the sole media engine.
-    [ -f "$pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" ] || {
-        echo "  MISSING GStreamer runtime: $pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" >&2; bad=1; }
+    [ -f "$pre$GST_LIBS/libgstreamer-1.0.0.dylib" ] || {
+        echo "  MISSING GStreamer runtime: $pre$GST_LIBS/libgstreamer-1.0.0.dylib" >&2; bad=1; }
 
     # The three base services and every identity-renamed variant clients resolve through launchd.
     for svc in $WK_XPC_SERVICES; do
@@ -276,7 +368,7 @@ com.apple.WebKit.webpushd.relocatable.mac.sb"
         echo "  WRONG WebKit2 bundle identifier ('$wk2_identifier', want com.apple.WebKit2): $wk2_plist" >&2
         echo "  (the XPC service entry-point lookup depends on it; see XPCServiceMain.mm)" >&2; bad=1; }
 
-    # Single-runtime rule (see the PRIVLIBCXX comment above): a second C++ runtime or a second
+    # Single-runtime rule (see the JSC_LIBS comment above): a second C++ runtime or a second
     # unwinder anywhere in the tree means a rewrite was missed. Fail loudly rather than ship a
     # process that mixes two _Unwind_* implementations or two libc++ ABIs.
     wk_check_runtime_bindings "$pre" || bad=1

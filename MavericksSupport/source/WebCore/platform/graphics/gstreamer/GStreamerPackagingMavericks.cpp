@@ -7,38 +7,7 @@
 #include <wtf/FileSystem.h>
 #include <wtf/text/WTFString.h>
 
-#if PLATFORM(COCOA)
-#include <dlfcn.h>
-#endif
-
 namespace WebCore {
-
-// This port ships GStreamer's plugins inside WebCore.framework, while libgstreamer
-// carries the plugin directory of the tree it was compiled in -- a path under the building user's home.
-// A sandboxed WebContent process is denied that path, so every plugin fails to load and elements as
-// basic as appsink and autoaudiosink are "not found". Point GStreamer at the plugins that ship beside
-// the WebCore being run, which the process can always reach. Runs before gst_init(), which is when the
-// plugin path is read.
-void configureGStreamerPluginPath()
-{
-#if PLATFORM(COCOA)
-    if (g_getenv("GST_PLUGIN_SYSTEM_PATH"))
-        return;
-
-    Dl_info info;
-    if (!dladdr(reinterpret_cast<const void*>(&configureGStreamerPluginPath), &info) || !info.dli_fname)
-        return;
-
-    // .../WebCore.framework/Versions/A/WebCore -> .../Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0
-    auto versionDirectory = FileSystem::parentPath(String::fromUTF8(info.dli_fname));
-    auto pluginDirectory = FileSystem::pathByAppendingComponents(versionDirectory,
-        std::array<StringView, 4> { "Frameworks"_s, "gstreamer"_s, "lib"_s, "gstreamer-1.0"_s });
-    if (!FileSystem::fileExists(pluginDirectory))
-        return;
-
-    g_setenv("GST_PLUGIN_SYSTEM_PATH", pluginDirectory.utf8().data(), FALSE);
-#endif
-}
 
 // GStreamer caches its plugin scan in $XDG_CACHE_HOME/gstreamer-1.0, which on this platform is
 // ~/.cache/gstreamer-1.0 -- inside the home directory, which a sandboxed WebContent process cannot

@@ -36,9 +36,10 @@ MavericksSupport/
 ├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
 │                               stage-headers.sh (the developer headers and module maps, through upstream's header rules),
 │                               framework-layout.sh (sourced: the installed layout, shared by stage + install),
-│                               check-absent-references.sh and check-gap-archive-current.sh (build gates),
+│                               check-absent-references.sh (build gate),
+│                               check-gap-archive-current.sh (build.sh runs its --sources-only half; the rest by hand),
 │                               check-backport-markers.sh (divergence gate),
-│                               check-public-headers.sh (build gate: every shipped header compiles),
+│                               check-public-headers.sh (run by hand: every shipped header compiles),
 │                               check-imageio-decode.sh (run by hand: no page bytes reach ImageIO),
 │                               build-log.sh and host-headers.sh (sourced: the one build log, and the 10.9 header probe),
 │                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py

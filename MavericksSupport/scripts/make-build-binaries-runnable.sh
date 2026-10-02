@@ -27,10 +27,14 @@ BINDIR="$ROOT/WebKitBuild/Release/bin"
 POLYBUILD="$ROOT/MavericksSupport/polyfill/build"
 WKTR_DIR="$ROOT/Tools/WebKitTestRunner"
 TC="${MAVERICKS_CLANG:-$ROOT/MavericksSupport/toolchain/build/clang}"
-# The GStreamer plugins build.sh mirrors from the dependency build; WebContent loads them through
-# GST_PLUGIN_SYSTEM_PATH. They reference only real 10.9 frameworks, so they take the C++ runtime and
-# unwinder rewrites and not the framework redirect.
-GST_PLUGINS="$LIBDIR/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
+# build.sh mirrors the dependency build's runtime into the built frameworks, and its gstreamer/lib
+# holds or links every library of it. Binaries resolve the runtime there rather than in the dependency
+# build, so libgstreamer finds its plugins beside itself (gstreamer-1.0) the way the installed one does.
+# The plugins reference only real 10.9 frameworks, so they take the C++ runtime and unwinder rewrites
+# and not the framework redirect.
+DEPS_LIB="$ROOT/MavericksSupport/deps/build/lib"
+RUNTIME_MIRROR="$LIBDIR/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
+GST_PLUGINS="$RUNTIME_MIRROR/gstreamer-1.0"
 # framework-layout.sh: SYSTEM_UNWINDER, and the cctools (CCTOOLS) it sources.
 . "$ROOT/MavericksSupport/scripts/framework-layout.sh"
 INT="$CCTOOLS/install_name_tool"
@@ -40,6 +44,7 @@ INT="$CCTOOLS/install_name_tool"
 canon() { (cd "$1" 2>/dev/null && pwd -P) || echo "$1"; }
 TC_REAL="$(canon "$TC")"
 LIBDIR_REAL="$(canon "$LIBDIR")"
+DEPS_LIB_REAL="$(canon "$DEPS_LIB")"
 
 # install_name_tool over a file this script rewrites. A failure is the Mach-O being unwritable or
 # out of load-command padding, and the file would keep the load commands it was built with.
@@ -198,7 +203,8 @@ repoint_all() { # bin substr new
 }
 
 # Rewrite one Mach-O's LC_RPATHs so @rpath/libc++.1.dylib and @rpath/libc++abi.1.dylib resolve at
-# $LIBDIR: the toolchain's entries are deleted, and for a binary that loads the runtime that way
+# $LIBDIR and the vendored runtime at $RUNTIME_MIRROR: the toolchain's entries are deleted, an entry
+# for the dependency build becomes $RUNTIME_MIRROR, and for a binary that loads the runtime that way
 # $LIBDIR is added when absent and any other absolute entry that offers a C++ runtime ahead of it is
 # moved behind it (dyld searches a binary's own LC_RPATHs in order, before those of the images that
 # loaded it).
@@ -211,6 +217,9 @@ fix_rpaths() { # bin
         real="$(canon "$rp")"
         case "$real" in
             "$TC_REAL"/*)   int_or_die -delete_rpath "$rp" "$bin";;
+            "$DEPS_LIB_REAL")
+                            int_or_die -delete_rpath "$rp" "$bin"
+                            grep -qxF "$RUNTIME_MIRROR" <<< "$(lc_rpaths "$cmds")" || int_or_die -add_rpath "$RUNTIME_MIRROR" "$bin";;
             "$LIBDIR_REAL") have_libdir=1;;
             *)              [ "$have_libdir" = 1 ] && continue
                             if [ -e "$real/libc++.1.dylib" ] || [ -e "$real/libc++abi.1.dylib" ]; then

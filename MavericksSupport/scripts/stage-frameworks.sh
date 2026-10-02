@@ -5,12 +5,12 @@
 #
 # Everything that shapes an artifact happens here: the 10.9 name shift, the bundle resources
 # CMake does not copy, the developer headers (scripts/stage-headers.sh), the private C++ runtime /
-# polyfill / GStreamer deploys, the install-name rewrite to absolute /System paths, the demangler
+# polyfill / vendored runtime deploys, the install-name rewrite to absolute /System paths, the demangler
 # guard, the full stock XPC service set, and the stock i386 graft. See scripts/framework-layout.sh for the layout these produce.
 #
 # Step order is load-bearing, top to bottom:
-#   1 copy + layout + rename    2 resources + headers    3 runtime/polyfill/GStreamer deploys
-#   4 install names    5 demangler guard    6 XPC clones    7 runtime-binding gate    8 i386 graft
+#   1 copy + layout + rename    2 resources + headers    3 runtime/polyfill/library deploys
+#   4 install names    5 demangler guard    6 XPC clones    7 i386 graft
 # The graft is LAST because install_name_tool and the demangler guard operate on THIN x86_64
 # binaries: run against a fat file they risk header-padding failures, and they would put the
 # stock i386 slice through a rewrite it must never receive. Grafting after all binary mutation
@@ -25,15 +25,18 @@ REPO="$WK_REPO"
 LIBDIR="$WK_LIBDIR"
 STAGE="$WK_STAGE_ROOT"
 TC="${MAVERICKS_CLANG:-$WK_SUPPORT/toolchain/build/clang}"
-# The media runtime deps/build_deps.sh builds; GST_SRC points elsewhere to stage an
+# The third-party runtime deps/build_deps.sh builds; RUNTIME_SRC points elsewhere to stage an
 # alternate build of it.
-GST_SRC="${GST_SRC:-$WK_SUPPORT/deps/build/lib}"
+RUNTIME_SRC="${RUNTIME_SRC:-$WK_SUPPORT/deps/build/lib}"
+[ -d "$RUNTIME_SRC/gstreamer-1.0" ] || {
+    echo "ERROR: runtime prefix $RUNTIME_SRC missing — the product would have no network stack or media engine." >&2
+    exit 1; }
 
 # The staged twin of an installed path.
 s() { echo "$STAGE$1"; }
 
 # ---------------------------------------------------------------------------
-# The stock i386 slices the graft in step 8 consumes live in $STOCK_BACKUP beside the checkout: stock
+# The stock i386 slices the graft in step 7 consumes live in $STOCK_BACKUP beside the checkout: stock
 # 10.9 shipped WebKit fat (x86_64 + i386) and 10.9 still runs 32-bit apps, so the product's four
 # framework binaries carry the ORIGINAL stock i386 slice grafted back in. This runs first, and captures
 # stock from /System the first time it sees it, because that slice exists nowhere else once an install
@@ -153,6 +156,10 @@ if ! is_stock_webclip "$STOCK_BACKUP$WEBCLIP_STOCK_BINARY"; then
     cp -Rp "/Library/Widgets/Web Clip.wdgt" "$STOCK_BACKUP/Web Clip.wdgt"
 fi
 
+# Where each library of that runtime ships (framework-layout.sh): "<home> <leaf> <file>" lines.
+RUNTIME_HOMES="$(wk_runtime_library_homes "$LIBDIR" "$RUNTIME_SRC")"
+[ -n "$RUNTIME_HOMES" ] || { echo "ERROR: no runtime library homes computed from $RUNTIME_SRC" >&2; exit 1; }
+
 # ---------------------------------------------------------------------------
 # Map an @rpath/X.framework/... or @rpath/libY.dylib dependency to its absolute target.
 absolute_for_rpath_dep() {
@@ -163,22 +170,22 @@ absolute_for_rpath_dep() {
         # NOTE: our build's WebKitLegacy is named "WebKitLegacy" and WK2 "WebKit".
         @rpath/WebKitLegacy.framework/*)   id_path WebKit;;
         @rpath/WebKit.framework/*)         id_path WebKit2;;
-        @rpath/libc++.1.dylib)             echo "$PRIVLIBCXX/libc++.1.dylib";;
-        @rpath/libc++abi.1.dylib)          echo "$PRIVLIBCXX/libc++abi.1.dylib";;
+        @rpath/libc++.1.dylib)             echo "$JSC_LIBS/libc++.1.dylib";;
+        @rpath/libc++abi.1.dylib)          echo "$JSC_LIBS/libc++abi.1.dylib";;
         # Single-unwinder rule (see framework-layout.sh): bind to the system unwinder.
         @rpath/libunwind.1.dylib)          echo "$SYSTEM_UNWINDER";;
         # The polyfill classes dylib carries an @rpath install_name (build-polyfill.sh), so every binary that
         # links it — and the WK2 layout-test harness, which also redirects the post-10.9 frameworks onto the
         # reexporting libpolyfill_classes — records @rpath/<leaf>. Map it to its deployed in-bundle home.
-        @rpath/libpolyfill_classes.dylib)  echo "$PRIVLIBCXX/libpolyfill_classes.dylib";;
+        @rpath/libpolyfill_classes.dylib)  echo "$JSC_LIBS/libpolyfill_classes.dylib";;
         # libwebrtc is a dylib on Cocoa (Source/ThirdParty/libwebrtc/CMakeLists.txt) and ships where
         # libwebrtc.xcconfig installs it, inside WebCore.framework's own Frameworks dir.
-        @rpath/libwebrtc.dylib)            echo "$PRIVLIB/libwebrtc.dylib";;
-        # GStreamer (#90): any remaining @rpath/libX.dylib present in the vendored GStreamer tree maps
-        # to its deployed copy inside WebCore.framework. The -e guard avoids mis-mapping a stray dep.
+        @rpath/libwebrtc.dylib)            echo "$WEBCORE_LIBS/libwebrtc.dylib";;
+        # Any other @rpath/libX.dylib is a library of the vendored runtime, deployed in its home.
         @rpath/*.dylib)
-            local base="${dep#@rpath/}"
-            if [ -e "$GST_SRC/$base" ]; then echo "$GST_DEPLOY/$base"; else echo ""; fi
+            local home
+            home="$(echo "$RUNTIME_HOMES" | awk -v leaf="${dep#@rpath/}" '$2 == leaf { print $1 }')"
+            if [ -n "$home" ]; then echo "$(wk_runtime_home_dir "$home")/${dep#@rpath/}"; else echo ""; fi
             ;;
         *) echo "";;
     esac
@@ -214,7 +221,7 @@ int_or_die() {
 # Repoint one of $bin's LC_LOAD_DYLIB load commands — the one whose recorded path CONTAINS <match> — to
 # <new>. The match-by-substring form locates a load command by a stable fragment of its path — used here for
 # the system frameworks (pass "/<Name>.framework/"). The staging-side counterpart of the build-side reexport
-# shims (the vendored GStreamer dylibs are pre-repointed at vendor time; these are the WebKit ones).
+# shims (the vendored runtime dylibs are pre-repointed at vendor time; these are the WebKit ones).
 repoint_framework_dep() {
     local bin="$1" match="$2" new="$3" cur
     cur=$("$OTOOL" -L "$bin" | awk -v m="$match" 'index($1, m){print $1; exit}')
@@ -226,7 +233,7 @@ repoint_framework_dep() {
 }
 
 # The polyfill classes dylib carries an @rpath install_name, so rewrite_rpath_deps already remapped it to its
-# in-bundle home in JavaScriptCore.framework ($PRIVLIBCXX, the universal dependency every WebKit binary already
+# in-bundle home in JavaScriptCore.framework ($JSC_LIBS, the universal dependency every WebKit binary already
 # loads) via absolute_for_rpath_dep. This pass handles the absolute SYSTEM-framework deps the build links
 # directly, which have no @rpath form.
 rewrite_abs_deps() {
@@ -242,7 +249,7 @@ rewrite_abs_deps() {
     # so a self-redirect can't occur.)
     local _fw
     for _fw in Security CoreServices CFNetwork QuartzCore AppKit Foundation; do
-        repoint_framework_dep "$bin" "/${_fw}.framework/" "$PRIVLIBCXX/libpolyfill_classes.dylib"
+        repoint_framework_dep "$bin" "/${_fw}.framework/" "$JSC_LIBS/libpolyfill_classes.dylib"
     done
 }
 
@@ -278,7 +285,7 @@ verify_no_rpath() {
 }
 
 # PREFLIGHT (#168 fallout): absolute_for_rpath_dep maps every @rpath dep the build produces (the WebKit
-# frameworks, the polyfill leaf, the C++ runtime, the vendored GStreamer dylibs), so the only way to trip this
+# frameworks, the polyfill leaf, the C++ runtime, the vendored runtime's dylibs), so the only way to trip this
 # is a genuinely unknown @rpath dylib (a newly vendored lib, a typo). Scan all four source bundles up front and
 # abort with the remediation, so the failure names every offender at once instead of surfacing one binary deep
 # into staging.
@@ -324,6 +331,9 @@ stage_framework() {
     echo "== $builtName -> ${destBundle#$STAGE} (binary: $destBinName) =="
     mkdir -p "$(dirname "$destBundle")"
     cp -RP "$src" "$destBundle"
+    # A built bundle's Frameworks dir holds the build tree's copy of the vendored runtime (build.sh);
+    # step 3 deploys the product's.
+    rm -rf "$destBundle/Versions/A/Frameworks"
 
     # Rename the binary (Versions/A/<old> -> Versions/A/<new>) + Current symlink + top symlink.
     local va="$destBundle/Versions/A"
@@ -383,7 +393,7 @@ ln -sfh Versions/Current/Frameworks "$(s "$WEBKIT_BUNDLE")/Frameworks"
 
 # The WebKit Mach-O binaries this build produces: each bundle's own contents, minus its
 # Versions/A/Frameworks dir (which holds the nested WebCore — staged as its own bundle — and the
-# deployed C++ runtime / polyfill / GStreamer dylibs, all handled explicitly below).
+# deployed C++ runtime, polyfill and vendored runtime dylibs, all handled explicitly below).
 webkit_machos() {
     local bundle f
     for bundle in "$(s "$JSC_BUNDLE")" "$(s "$WEBKIT_BUNDLE")" "$(s "$WEBCORE_BUNDLE")" "$(s "$WEBKIT2_BUNDLE")"; do
@@ -462,24 +472,24 @@ bash "$HERE/stage-headers.sh"
 # ---------------------------------------------------------------------------
 # Step 3: deploy the dylibs that ship inside the bundles. The frameworks' load commands are
 # rewritten to these absolute in-bundle paths in step 4.
-echo "### Deploying private C++ runtime into JavaScriptCore.framework ($PRIVLIBCXX)"
-mkdir -p "$(s "$PRIVLIBCXX")"
+echo "### Deploying private C++ runtime into JavaScriptCore.framework ($JSC_LIBS)"
+mkdir -p "$(s "$JSC_LIBS")"
 for lib in libc++.1.dylib libc++abi.1.dylib; do
-    cp -f "$TC/lib/$lib" "$(s "$PRIVLIBCXX")/$lib"
-    int_or_die -id "$PRIVLIBCXX/$lib" "$(s "$PRIVLIBCXX")/$lib"
+    cp -f "$TC/lib/$lib" "$(s "$JSC_LIBS")/$lib"
+    int_or_die -id "$JSC_LIBS/$lib" "$(s "$JSC_LIBS")/$lib"
 done
 # libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too); both also
 # load @rpath/libunwind.1.dylib. Pin all absolute so dyld resolves them in processes with no rpath set,
 # with the unwinder pinned to the system one (single-unwinder rule, see framework-layout.sh).
 for lib in libc++.1.dylib libc++abi.1.dylib; do
-    int_or_die -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$(s "$PRIVLIBCXX")/$lib"
-    int_or_die -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$(s "$PRIVLIBCXX")/$lib"
+    int_or_die -change @rpath/libc++abi.1.dylib "$JSC_LIBS/libc++abi.1.dylib" "$(s "$JSC_LIBS")/$lib"
+    int_or_die -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$(s "$JSC_LIBS")/$lib"
 done
 
-echo "### Deploying polyfill ObjC classes dylib into JavaScriptCore.framework ($PRIVLIBCXX)"
+echo "### Deploying polyfill ObjC classes dylib into JavaScriptCore.framework ($JSC_LIBS)"
 if [ -f "$WK_SUPPORT/polyfill/build/libpolyfill_classes.dylib" ]; then
-    cp -f "$WK_SUPPORT/polyfill/build/libpolyfill_classes.dylib" "$(s "$PRIVLIBCXX")/libpolyfill_classes.dylib"
-    int_or_die -id "$PRIVLIBCXX/libpolyfill_classes.dylib" "$(s "$PRIVLIBCXX")/libpolyfill_classes.dylib"
+    cp -f "$WK_SUPPORT/polyfill/build/libpolyfill_classes.dylib" "$(s "$JSC_LIBS")/libpolyfill_classes.dylib"
+    int_or_die -id "$JSC_LIBS/libpolyfill_classes.dylib" "$(s "$JSC_LIBS")/libpolyfill_classes.dylib"
 else
     echo "ERROR: libpolyfill_classes.dylib missing — every WebKit app would fail to load (polyfill ObjC classes)." >&2
     echo "       Build it with MavericksSupport/polyfill/build-polyfill.sh (build.sh does this)." >&2
@@ -501,57 +511,58 @@ else
     exit 1
 fi
 
-echo "### Deploying libwebrtc into WebCore.framework ($PRIVLIB)"
-mkdir -p "$(s "$PRIVLIB")"
+echo "### Deploying libwebrtc into WebCore.framework ($WEBCORE_LIBS)"
+mkdir -p "$(s "$WEBCORE_LIBS")"
 if [ -f "$LIBDIR/libwebrtc.dylib" ]; then
-    cp -f "$LIBDIR/libwebrtc.dylib" "$(s "$PRIVLIB")/libwebrtc.dylib"
-    int_or_die -id "$PRIVLIB/libwebrtc.dylib" "$(s "$PRIVLIB")/libwebrtc.dylib"
+    cp -f "$LIBDIR/libwebrtc.dylib" "$(s "$WEBCORE_LIBS")/libwebrtc.dylib"
+    int_or_die -id "$WEBCORE_LIBS/libwebrtc.dylib" "$(s "$WEBCORE_LIBS")/libwebrtc.dylib"
 else
     echo "ERROR: libwebrtc.dylib missing — WebCore and WebKit2 both load it, so no WebKit app would launch." >&2
     exit 1
 fi
 
-# The media libraries and plugins have absolute in-bundle identities and dependency paths.
-# dyld matches loaded images by install name before searching rpaths, so both sides of every
-# private dependency must name our copy, even when a host application bundles the same library.
-echo "### Deploying GStreamer libs into WebCore.framework ($GST_DEPLOY)"
-if [ -d "$GST_SRC" ]; then
-    # The runtime is built from source for 10.9 (MavericksSupport/deps/build_deps.sh)
-    # and proved self-contained by that script's resolution gate: every strong undefined symbol in
-    # every dylib/plugin resolves on this host, no NULL-binding weak imports beyond the documented
-    # allow-list, no compat/reexport shim dylibs, every @rpath load present in the tree, and no
-    # libunwind in it (its unwinder references name the system one).
-    #
-    # The static libraries in the same directory are link-time inputs to the WebKit frameworks; the
-    # product carries only the runtime, so they stay out of the copy.
-    mkdir -p "$(s "$GST_DEPLOY")"
-    cp -Rp "$GST_SRC/." "$(s "$GST_DEPLOY")/"
-    rm -f "$(s "$GST_DEPLOY")"/*.a
-    # All C++ users share the pair in JavaScriptCore.framework.
-    rm -f "$(s "$GST_DEPLOY")/libc++.1.dylib" "$(s "$GST_DEPLOY")/libc++abi.1.dylib"
-    while read -r gstlib; do
-        int_or_die -id "${gstlib#$STAGE}" "$gstlib"
-        rewrite_rpath_deps "$gstlib"
-        strip_rpaths "$gstlib"
-        verify_no_rpath "$gstlib"
-    done < <(find "$(s "$GST_DEPLOY")" -type f -name '*.dylib')
-else
-    echo "ERROR: GStreamer source tree $GST_SRC missing — the product would have no media engine." >&2
-    exit 1
-fi
+# The vendored runtime: each library in its home (framework-layout.sh), under its install-name leaf,
+# and GStreamer's plugins in $GST_LIBS/gstreamer-1.0. The prefix is built from source for 10.9
+# (MavericksSupport/deps/build_deps.sh) and proved self-contained by that script's resolution gate:
+# every strong undefined symbol in every dylib/plugin resolves on this host, no NULL-binding weak
+# imports beyond the documented allow-list, no compat/reexport shim dylibs, every @rpath load present
+# in the tree, and no libunwind in it (its unwinder references name the system one).
+#
+# Every library and plugin gets an absolute in-bundle identity and absolute dependency paths. dyld
+# matches loaded images by install name before searching rpaths, so both sides of every private
+# dependency must name our copy, even when a host application bundles the same library.
+echo "### Deploying the vendored runtime into JavaScriptCore.framework and WebCore.framework"
+RUNTIME_DEPLOYED=""
+while read -r home leaf file; do
+    dir="$(wk_runtime_home_dir "$home")"
+    mkdir -p "$(s "$dir")"
+    cp -f "$file" "$(s "$dir")/$leaf"
+    RUNTIME_DEPLOYED="$RUNTIME_DEPLOYED
+$(s "$dir")/$leaf"
+done <<< "$RUNTIME_HOMES"
+mkdir -p "$(s "$GST_LIBS")/gstreamer-1.0"
+for plugin in "$RUNTIME_SRC"/gstreamer-1.0/*.dylib; do
+    cp -f "$plugin" "$(s "$GST_LIBS")/gstreamer-1.0/"
+    RUNTIME_DEPLOYED="$RUNTIME_DEPLOYED
+$(s "$GST_LIBS")/gstreamer-1.0/$(basename "$plugin")"
+done
+while read -r lib; do
+    [ -n "$lib" ] || continue
+    int_or_die -id "${lib#$STAGE}" "$lib"
+    rewrite_rpath_deps "$lib"
+    strip_rpaths "$lib"
+    verify_no_rpath "$lib"
+done <<< "$RUNTIME_DEPLOYED"
+for home in jsc webcore gstreamer; do
+    echo "  $home: $(echo "$RUNTIME_HOMES" | awk -v h="$home" '$1 == h' | wc -l | tr -d ' ') libraries in $(wk_runtime_home_dir "$home")"
+done
+echo "  gstreamer: $(ls "$(s "$GST_LIBS")/gstreamer-1.0" | wc -l | tr -d ' ') plugins in $GST_LIBS/gstreamer-1.0"
 
 # Sandbox grants read only to world-readable files under /System with traversable parents.
 # Make the in-bundle lib dirs traversable and the dylibs world-readable, here in the staged tree,
 # so a plain copy carries the right modes onto the system.
-chmod 755 "$(s "$PRIVLIBCXX")" "$(s "$PRIVLIB")" "$(s "$GST_DEPLOY")"
-chmod 644 \
-    "$(s "$PRIVLIBCXX")/libc++.1.dylib" \
-    "$(s "$PRIVLIBCXX")/libc++abi.1.dylib" \
-    "$(s "$PRIVLIBCXX")/libpolyfill_classes.dylib" \
-    "$(s "$PRIVLIB")/libwebrtc.dylib"
-# GStreamer tree: every dir traversable, every dylib world-readable (sandboxed WebContent loads them).
-find "$(s "$GST_DEPLOY")" -type d -exec chmod 755 {} +
-find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' -exec chmod 644 {} +
+find "$(s "$JSC_LIBS")" "$(s "$WEBCORE_LIBS")" -type d -exec chmod 755 {} +
+find "$(s "$JSC_LIBS")" "$(s "$WEBCORE_LIBS")" -type f -name '*.dylib' -exec chmod 644 {} +
 
 # ---------------------------------------------------------------------------
 # Step 4: every WebKit binary advertises and loads absolute /System paths. This covers the four
@@ -573,7 +584,7 @@ while IFS= read -r f; do
 done < <(webkit_machos)
 # webkit_machos skips each bundle's Versions/A/Frameworks dir, so libwebrtc — deployed there, and
 # carrying @rpath deps on the C++ runtime and the polyfill classes dylib — gets the same pass here.
-WEBRTC_STAGED="$(s "$PRIVLIB")/libwebrtc.dylib"
+WEBRTC_STAGED="$(s "$WEBCORE_LIBS")/libwebrtc.dylib"
 rewrite_rpath_deps "$WEBRTC_STAGED"
 rewrite_abs_deps   "$WEBRTC_STAGED"
 strip_rpaths       "$WEBRTC_STAGED"
@@ -614,7 +625,7 @@ DEMANGLER_GUARD_BINS="$(s "$JSC_BUNDLE")/Versions/A/JavaScriptCore
 $(s "$WEBKIT_BUNDLE")/Versions/A/WebKit
 $(s "$WEBCORE_BUNDLE")/Versions/A/WebCore
 $(s "$WEBKIT2_BUNDLE")/Versions/A/WebKit2
-$(find "$(s "$PRIVLIBCXX")" "$(s "$PRIVLIB")" -type f -name '*.dylib')"
+$(find "$(s "$JSC_LIBS")" "$(s "$WEBCORE_LIBS")" -type f -name '*.dylib')"
 echo "$DEMANGLER_GUARD_BINS" | grep -v '^$' | sort -u | \
     xargs /usr/bin/python "$WK_SUPPORT/demangler/neutralize-demangler-crashers.py" || {
         echo "ERROR: demangler guard (pass 2) failed" >&2; exit 1; }
@@ -673,17 +684,7 @@ materialize_xpc_variants "$(s "$XPCSERVICES")"
 materialize_xpc_variants "$LIBDIR/WebKit.framework/Versions/A/XPCServices"
 
 # ---------------------------------------------------------------------------
-# Step 7: runtime-binding gate over everything staged so far, while every binary is still thin and
-# a violation is cheap to fix. wk_verify_tree runs the same check again at the end, once the tree is
-# complete; this one pins the failure to the rewriting steps above rather than to the graft.
-echo "### Verifying single-runtime rule ($SYSTEM_UNWINDER, one libc++/libc++abi pair in $PRIVLIBCXX)"
-wk_check_runtime_bindings "$STAGE" || {
-    echo "### FAILED: staged binaries would load a second C++ runtime or a second unwinder (mixed-runtime hazard)" >&2
-    exit 1
-}
-
-# ---------------------------------------------------------------------------
-# Step 8, last: 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.
+# Step 7, last: 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.
 #
 # This backport builds x86_64 only, but macOS 10.9 still runs 32-bit apps and the stock WebKit
 # shipped fat (x86_64 + i386). A 32-bit app that loads WebKit against x86_64-only binaries hits

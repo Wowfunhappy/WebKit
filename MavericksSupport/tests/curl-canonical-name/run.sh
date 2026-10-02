@@ -3,7 +3,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 source "$ROOT/MavericksSupport/scripts/framework-layout.sh"
-INSTALLED_LIB="$WEBCORE_BUNDLE/Versions/A/Frameworks/gstreamer/lib"
+INSTALLED_LIB="$WEBCORE_LIBS"
 TEST_LIB="${1:-$INSTALLED_LIB}"
 WORK=$(mktemp -d /tmp/webkit-curl-cname.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT

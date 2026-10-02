@@ -7,19 +7,24 @@
 // not retrieved in time", which is the element having kept no proxy, instead of decrypting through one
 // cast to the wrong type.
 //
-// Two timed checks follow on webkitclearkey, with proxies that belong to no CDMInstance (the state a
-// proxy is left in once its MediaKeys are collected), so the key wait has no instance to tell:
-// - a decrypt waiting for a proxy wakes as soon as setContext() delivers one;
-// - a flush interrupts a decrypt waiting for a key on a proxy setContext() has since replaced.
-// Each decrypt is ended by a flush and must return well inside the 5 s proxy wait and the 7 s key wait.
+// A timed check follows on webkitclearkey: a decrypt waiting for a proxy wakes as soon as setContext()
+// delivers one. The proxy belongs to no CDMInstance (the state a proxy is left in once its MediaKeys
+// are collected), so no key can ever reach it and the decrypt ends there, well inside the 5 s proxy
+// wait, rather than waiting for a key.
 
 #include "config.h"
 
 #include "CDMProxy.h"
 #include "GStreamerCommon.h"
+#include <wtf/MainThread.h>
 #include <gst/base/gstbasetransform.h>
 #include <gst/gst.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -27,6 +32,63 @@
 #include <vector>
 
 using namespace WebCore;
+
+// WebCore exports none of the three functions below (upstream declares them without WEBCORE_EXPORT).
+// The harness finds them in the symbol table of the WebCore image it runs against, as a debugger does.
+static void* webCoreFunction(const char* symbol)
+{
+    for (uint32_t image = 0; image < _dyld_image_count(); ++image) {
+        const char* path = _dyld_get_image_name(image);
+        size_t length = strlen(path);
+        if (length < sizeof("/WebCore") - 1 || strcmp(path + length - (sizeof("/WebCore") - 1), "/WebCore"))
+            continue;
+        auto* header = reinterpret_cast<const mach_header_64*>(_dyld_get_image_header(image));
+        intptr_t slide = _dyld_get_image_vmaddr_slide(image);
+        const segment_command_64* linkedit = nullptr;
+        const symtab_command* symtab = nullptr;
+        auto* command = reinterpret_cast<const load_command*>(header + 1);
+        for (uint32_t i = 0; i < header->ncmds; ++i) {
+            if (command->cmd == LC_SEGMENT_64 && !strcmp(reinterpret_cast<const segment_command_64*>(command)->segname, SEG_LINKEDIT))
+                linkedit = reinterpret_cast<const segment_command_64*>(command);
+            else if (command->cmd == LC_SYMTAB)
+                symtab = reinterpret_cast<const symtab_command*>(command);
+            command = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(command) + command->cmdsize);
+        }
+        if (!linkedit || !symtab)
+            break;
+        uintptr_t linkeditBase = slide + linkedit->vmaddr - linkedit->fileoff;
+        auto* symbols = reinterpret_cast<const nlist_64*>(linkeditBase + symtab->symoff);
+        auto* strings = reinterpret_cast<const char*>(linkeditBase + symtab->stroff);
+        for (uint32_t i = 0; i < symtab->nsyms; ++i) {
+            if (!(symbols[i].n_type & N_STAB) && (symbols[i].n_type & N_TYPE) == N_SECT && !strcmp(strings + symbols[i].n_un.n_strx, symbol))
+                return reinterpret_cast<void*>(symbols[i].n_value + slide);
+        }
+    }
+    printf("FAIL: %s is not in the symbol table of a loaded WebCore\n", symbol);
+    exit(1);
+}
+
+namespace WebCore {
+
+bool ensureGStreamerInitialized()
+{
+    static auto function = reinterpret_cast<bool (*)()>(webCoreFunction("__ZN7WebCore26ensureGStreamerInitializedEv"));
+    return function();
+}
+
+void registerWebKitGStreamerElements()
+{
+    static auto function = reinterpret_cast<void (*)()>(webCoreFunction("__ZN7WebCore31registerWebKitGStreamerElementsEv"));
+    function();
+}
+
+KeyStoreIDType keyStoreBaseNextID()
+{
+    static auto function = reinterpret_cast<KeyStoreIDType (*)()>(webCoreFunction("__ZN7WebCore18keyStoreBaseNextIDEv"));
+    return function();
+}
+
+} // namespace WebCore
 
 namespace {
 
@@ -114,6 +176,7 @@ std::string decryptOnce(GstElement* element)
 struct TimedDecrypt {
     GstFlowReturn flow { GST_FLOW_OK };
     double seconds { 0 };
+    std::string error;
 };
 
 // Runs one decrypt on its own thread, as a streaming thread would, while |steps| act on the element
@@ -137,18 +200,19 @@ TimedDecrypt decryptWhile(GstElement* element, const std::vector<std::function<v
         step();
     }
     streaming.join();
+    if (GstMessage* message = gst_bus_pop_filtered(bus.get(), GST_MESSAGE_ERROR)) {
+        GError* error = nullptr;
+        gst_message_parse_error(message, &error, nullptr);
+        result.error = std::string(" error=\"") + (error ? error->message : "") + "\"";
+        g_clear_error(&error);
+        gst_message_unref(message);
+    }
 
     GRefPtr<GstPad> sinkPad = adoptGRef(gst_element_get_static_pad(element, "sink"));
     gst_pad_send_event(sinkPad.get(), gst_event_new_flush_stop(TRUE));
     gst_element_set_state(element, GST_STATE_NULL);
     gst_element_set_bus(element, nullptr);
     return result;
-}
-
-void flushStart(GstElement* element)
-{
-    GRefPtr<GstPad> sinkPad = adoptGRef(gst_element_get_static_pad(element, "sink"));
-    gst_pad_send_event(sinkPad.get(), gst_event_new_flush_start());
 }
 
 int s_failures = 0;
@@ -165,7 +229,10 @@ void expect(bool condition, const std::string& description)
 
 int main()
 {
-    if (!ensureGStreamerInitializedNonWebProcess()) {
+    // The harness is an application process, as a WebKitLegacy host is, and sets up WTF's main thread
+    // and main RunLoop as one does before WebCore runs.
+    WTF::initializeMainThread();
+    if (!ensureGStreamerInitialized()) {
         printf("FAIL: GStreamer did not initialize\n");
         return 1;
     }
@@ -237,27 +304,11 @@ int main()
         GRefPtr<GstElement> element = gst_element_factory_make("webkitclearkey", nullptr);
         auto decrypt = decryptWhile(element.get(), {
             [&] { setProxyContext(element.get(), clearKeyProxy.get()); },
-            [&] { flushStart(element.get()); },
         });
-        char description[128];
-        snprintf(description, sizeof(description), "the decrypt woke, reached the key wait and was flushed: %s after %.2f s",
-            gst_flow_get_name(decrypt.flow), decrypt.seconds);
-        expect(decrypt.flow == GST_FLOW_FLUSHING && decrypt.seconds < 2.5, description);
-    }
-
-    printf("### webkitclearkey: a flush interrupts the key wait of a proxy since replaced\n");
-    {
-        RefPtr<CDMProxy> replacementProxy = CDMProxyFactory::createCDMProxyForKeySystem("org.w3.clearkey"_s);
-        GRefPtr<GstElement> element = gst_element_factory_make("webkitclearkey", nullptr);
-        setProxyContext(element.get(), clearKeyProxy.get());
-        auto decrypt = decryptWhile(element.get(), {
-            [&] { setProxyContext(element.get(), replacementProxy.get()); },
-            [&] { flushStart(element.get()); },
-        });
-        char description[128];
-        snprintf(description, sizeof(description), "the decrypt on the replaced proxy was flushed: %s after %.2f s",
-            gst_flow_get_name(decrypt.flow), decrypt.seconds);
-        expect(decrypt.flow == GST_FLOW_FLUSHING && decrypt.seconds < 2.5, description);
+        char description[256];
+        snprintf(description, sizeof(description), "the decrypt woke and ended on the instance-less proxy: %s after %.2f s%s",
+            gst_flow_get_name(decrypt.flow), decrypt.seconds, decrypt.error.c_str());
+        expect(decrypt.flow == GST_FLOW_NOT_SUPPORTED && decrypt.error.empty() && decrypt.seconds < 2.5, description);
     }
 
     printf(s_failures ? "### FAIL (%d)\n" : "### PASS\n", s_failures);

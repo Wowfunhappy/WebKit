@@ -41,7 +41,7 @@
 #include <fnmatch.h>
 #include <mutex>
 #include <wtf/FileSystem.h>
-// MAVERICKS_BACKPORT: where this port keeps its plugins and its registry, and the main-run-loop GLib context.
+// MAVERICKS_BACKPORT: where this port keeps its plugin registry, and the main-run-loop GLib context.
 #include "GLibMainContextMavericks.h"
 #include "GStreamerPackagingMavericks.h"
 #include <wtf/HashMap.h>
@@ -471,11 +471,9 @@ bool ensureGStreamerInitializedNonWebProcess()
 #if OS(ANDROID)
         gst_registry_fork_set_enabled(FALSE);
 #endif
-        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it, scan
-        // in-process, and name the plugin directory that ships with this WebCore; all three must be set
-        // before gst_init() reads them.
+        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it and scan
+        // in-process; both must be set before gst_init() reads them.
         configureGStreamerCacheLocation();
-        configureGStreamerPluginPath();
         attachGLibMainContextToMainRunLoop(); // MAVERICKS_BACKPORT: serves the default GMainContext's sources, such as bus watches.
 
         GUniqueOutPtr<GError> error;
@@ -508,11 +506,9 @@ bool ensureGStreamerInitialized()
 #if OS(ANDROID)
         gst_registry_fork_set_enabled(FALSE);
 #endif
-        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it, scan
-        // in-process, and name the plugin directory that ships with this WebCore; all three must be set
-        // before gst_init() reads them.
+        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it and scan
+        // in-process; both must be set before gst_init() reads them.
         configureGStreamerCacheLocation();
-        configureGStreamerPluginPath();
         attachGLibMainContextToMainRunLoop(); // MAVERICKS_BACKPORT: serves the default GMainContext's sources, such as bus watches.
 
         // USE_PLAYBIN3 is dangerous for us because its potential sneaky effect

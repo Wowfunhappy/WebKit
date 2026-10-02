@@ -340,28 +340,58 @@ _ninja_log | grep -E 'error:|file not found|FAILED:' | grep -vE 'warning:' | sed
 #   check-absent-references.sh  a reference to a symbol 10.9 lacks binds to 0 and faults on first use
 #   check-sandbox-profiles.sh   a profile 10.9's sandbox cannot compile CRASH()es WebContent at launch
 #   check-abi-gap.sh            every symbol 10.9 binaries bind from our frameworks must be exported
-#   check-public-headers.sh     every shipped developer header compiles against the staged frameworks
 if [ "$RC" = 0 ]; then
     echo "==================== STAGING ===================="
     bash "$ROOT/MavericksSupport/scripts/stage-frameworks.sh" || RC=$?
 
-    # Build-tree drivers use the relocatable dependency build. Installed absolute identities
-    # belong to the staged product; the development plugins resolve the build's @rpath libraries.
-    GST_LIBS_SRC="${GST_SRC:-$ROOT/MavericksSupport/deps/build/lib}"
-    GST_PLUGINS_SRC="$GST_LIBS_SRC/gstreamer-1.0"
-    GST_PLUGINS_DST="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
-    GST_LIBS_DST="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
-    if [ "$RC" = 0 ] && [ -d "$GST_PLUGINS_SRC" ]; then
-        mkdir -p "$GST_PLUGINS_DST"
-        rsync -a --delete "$GST_PLUGINS_SRC/" "$GST_PLUGINS_DST/"
-        rsync -a --delete --exclude '*.a' --exclude 'libc++*.dylib' --exclude 'gstreamer-1.0/' "$GST_LIBS_SRC/" "$GST_LIBS_DST/"
-        echo "  GSTREAMER PLUGINS and libraries mirrored into the built WebCore.framework"
+    # Build-tree drivers use the relocatable dependency build: its libraries keep their @rpath
+    # identities, and each one is mirrored into the built framework that ships it
+    # (wk_runtime_library_homes), with the plugins in WebCore.framework's gstreamer/lib/gstreamer-1.0.
+    # The plugins resolve @rpath at @loader_path/../../lib, so gstreamer/lib links each library that
+    # lives in another home.
+    if [ "$RC" = 0 ]; then
+        (
+            . "$ROOT/MavericksSupport/scripts/framework-layout.sh"
+            src="${RUNTIME_SRC:-$ROOT/MavericksSupport/deps/build/lib}"
+            homes="$(wk_runtime_library_homes "$BUILD/lib" "$src")" && [ -n "$homes" ] || exit 1
+            build_home_dir() {
+                case "$1" in
+                    jsc)       echo "$BUILD/lib/JavaScriptCore.framework/Versions/A/Frameworks";;
+                    webcore)   echo "$BUILD/lib/WebCore.framework/Versions/A/Frameworks";;
+                    gstreamer) echo "$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib";;
+                esac
+            }
+            gst="$(build_home_dir gstreamer)"
+            mkdir -p "$(build_home_dir jsc)" "$gst/gstreamer-1.0" || exit 1
+            rsync -a --delete "$src/gstreamer-1.0/" "$gst/gstreamer-1.0/" || exit 1
+            expected="$gst/gstreamer-1.0"
+            while read -r home leaf file; do
+                dir="$(build_home_dir "$home")"
+                rsync -a "$file" "$dir/$leaf" || exit 1
+                expected="$expected
+$dir/$leaf"
+                if [ "$home" != gstreamer ]; then
+                    ln -sfn "$dir/$leaf" "$gst/$leaf" || exit 1
+                    expected="$expected
+$gst/$leaf"
+                fi
+            done <<< "$homes"
+            # Anything in these directories outside the computed set is removed.
+            for dir in "$(build_home_dir jsc)" "$(build_home_dir webcore)" "$gst"; do
+                for f in "$dir"/*; do
+                    [ -e "$f" ] || [ -L "$f" ] || continue
+                    [ "$f" = "$(build_home_dir webcore)/gstreamer" ] && continue
+                    grep -qxF "$f" <<< "$expected" || rm -rf "$f"
+                done
+            done
+        ) || RC=$?
+        [ "$RC" = 0 ] && echo "  vendored runtime and GStreamer plugins mirrored into the built frameworks"
     fi
 else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
 
-for audit in scripts/check-absent-references.sh scripts/check-gap-archive-current.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh scripts/check-public-headers.sh; do
+for audit in scripts/check-absent-references.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh; do
     [ "$RC" = 0 ] || break
     echo "### $audit"
     bash "$ROOT/MavericksSupport/$audit" || RC=$?

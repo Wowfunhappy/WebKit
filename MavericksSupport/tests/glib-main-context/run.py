@@ -32,7 +32,7 @@ def run_logged(command, log, **kwargs):
     if result.returncode:
         sys.exit("GLib main context test build failed; see /tmp/wk_build.log")
 
-runtime = "/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
+runtime = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks"
 with open("/tmp/wk_build.log", "a") as log:
     objects = []
     for source, extra in ((Path(__file__).with_name("main.mm"), ["-x", "objective-c++", "-fobjc-arc"]), (Path(entry["file"]), [])):

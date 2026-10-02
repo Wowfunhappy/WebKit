@@ -19,12 +19,14 @@ installed)
     WEBCORE=/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore
     JSC=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/JavaScriptCore
     GSTLIB=/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/gstreamer/lib
+    GLIBLIB=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
     CXXLIB=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
     ;;
 build)
     WEBCORE="$BUILD/lib/WebCore.framework/Versions/A/WebCore"
     JSC="$BUILD/lib/JavaScriptCore.framework/Versions/A/JavaScriptCore"
-    GSTLIB="$REPO/MavericksSupport/deps/build/lib"
+    GSTLIB="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
+    GLIBLIB="$GSTLIB"
     CXXLIB="$REPO/MavericksSupport/toolchain/build/clang/lib"
     ;;
 *)
@@ -34,17 +36,22 @@ esac
 [ -f "$WEBCORE" ] || { echo "no $WEBCORE"; exit 1; }
 
 echo "### building the harness against $WEBCORE"
-python3 - "$REPO" "$WORK" "$WEBCORE" "$JSC" "$GSTLIB" "$CXXLIB" <<'PY' > "$WORK/build.sh"
+python3 - "$REPO" "$WORK" "$WEBCORE" "$JSC" "$GSTLIB" "$GLIBLIB" "$CXXLIB" <<'PY' > "$WORK/build.sh"
 import json, shlex, subprocess, sys
-repo, work, webcore, jsc, gstlib, cxxlib = sys.argv[1:7]
+repo, work, webcore, jsc, gstlib, gliblib, cxxlib = sys.argv[1:8]
 entry = next(e for e in json.load(open(repo + "/WebKitBuild/Release/compile_commands.json")) if e["file"].endswith("/WebKitWidevineDecryptorGStreamer.cpp"))
 arguments, flags, skip = shlex.split(entry["command"]), [], 0
-for argument in arguments:
+for index, argument in enumerate(arguments):
     if skip:
         skip -= 1
         continue
     if argument in ("-o", "-MF", "-MT"):
         skip = 1
+        continue
+    # WebCore's precompiled header expects its inline functions from WebCore's own objects, which keep
+    # them hidden; the harness compiles them itself.
+    if argument == "-Xclang" and arguments[index + 1] in ("-include", "-include-pch"):
+        skip = 3
         continue
     if argument in ("-c", "-MD") or argument.endswith(".cpp"):
         continue
@@ -52,7 +59,7 @@ for argument in arguments:
 link = [flags[0]] + [f for f in flags if f.startswith("-mmacosx-version-min")][:1]
 sysroot = flags.index("-isysroot")
 link += flags[sysroot:sysroot + 2]
-rpaths = ["-Wl,-rpath," + gstlib, "-Wl,-rpath," + cxxlib]
+rpaths = ["-Wl,-rpath," + gstlib, "-Wl,-rpath," + gliblib, "-Wl,-rpath," + cxxlib]
 for line in subprocess.run(["otool", "-l", webcore], capture_output=True, text=True).stdout.splitlines():
     line = line.strip()
     if line.startswith("path ") and "(offset" in line:
@@ -62,7 +69,7 @@ print("cd " + shlex.quote(repo + "/WebKitBuild/Release"))
 print(" ".join(shlex.quote(f) for f in flags) + " -c " + shlex.quote(repo + "/MavericksSupport/tests/cdm-proxy-key-system/main.cpp") + " -o " + shlex.quote(work + "/main.o"))
 print(" ".join(shlex.quote(f) for f in link) + " -nostdlib++ -Wl,-client_name,TestWebCore -o " + shlex.quote(work + "/cdmproxy") + " " + shlex.quote(work + "/main.o")
       + " " + " ".join(shlex.quote(p) for p in [webcore, jsc, gstlib + "/libgstreamer-1.0.0.dylib", gstlib + "/libgstbase-1.0.0.dylib",
-                                                gstlib + "/libglib-2.0.0.dylib", gstlib + "/libgobject-2.0.0.dylib",
+                                                gliblib + "/libglib-2.0.0.dylib", gliblib + "/libgobject-2.0.0.dylib",
                                                 cxxlib + "/libc++.1.dylib", cxxlib + "/libc++abi.1.dylib"])
       + " " + " ".join(rpaths))
 PY
