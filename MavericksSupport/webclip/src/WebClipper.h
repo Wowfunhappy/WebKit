@@ -21,6 +21,7 @@
 + (NSView *)plugInViewWithArguments:(NSDictionary *)arguments;
 
 @property (nonatomic, strong) WebPreferences *webPreferences;
+@property (nonatomic, strong) NSDictionary *clipSignature;
 @property (nonatomic) NSRect clipRect;
 @property (nonatomic) NSSize pageSize;
 // Safari's viewport, the part of it its scroll bars left to the page, and where Safari had scrolled the

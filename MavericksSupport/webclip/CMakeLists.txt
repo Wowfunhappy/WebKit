@@ -20,6 +20,10 @@ set_target_properties(WebClipPlugin PROPERTIES
 target_compile_options(WebClipPlugin PRIVATE -fobjc-arc -Wno-deprecated-declarations -Wno-unguarded-availability-new)
 add_dependencies(WebClipPlugin WebKit WebKitLegacy)
 target_link_options(WebClipPlugin PRIVATE "$<TARGET_FILE:WebKit>" "$<TARGET_FILE:WebKitLegacy>" "SHELL:-framework Cocoa" "SHELL:-framework QuartzCore")
-add_custom_command(TARGET WebClipPlugin POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/src/WCPageAgent.js" "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
+# The page script is a build output of its own, so that a change to it alone reaches the plug-in.
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/src/WCPageAgent.js" "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/WCPageAgent.js"
     VERBATIM)
+add_custom_target(WebClipPageAgent DEPENDS "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js")
+add_dependencies(WebClipPlugin WebClipPageAgent)

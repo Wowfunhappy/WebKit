@@ -10,23 +10,7 @@
      widget.setPreferenceForKey(webClip.standardFont(), createkey("StandardFont"));
      widget.setPreferenceForKey(webClip.standardFontSize(), createkey("StandardFontSize"));
      widget.setPreferenceForKey(webClip.textSizeMultiplier(), createkey("TextSizeMultiplier"));
-@@ -169,15 +172,12 @@
-     // The follow parameters may be null.
-     var customTextEncodingName = webClip.customTextEncodingName();
-     var cookies = webClip.cookiesAsString();
--    var signature = webClip.signatureAsString();
-     var stylesheet = webClip.userStyleSheetPath();
- 
-     if (customTextEncodingName)
-       widget.setPreferenceForKey(customTextEncodingName, createkey("CustomTextEncoding"));
-     if (cookies)
-       widget.setPreferenceForKey(cookies, createkey("CookieProperties"));
--    if (signature)
--      widget.setPreferenceForKey(signature, createkey("ClipSignature"));
-     if (stylesheet)
-       widget.setPreferenceForKey(stylesheet, createkey("UserStyleSheetPath"));
- }
-@@ -194,6 +194,9 @@
+@@ -194,6 +197,9 @@
      widget.setPreferenceForKey(null, createkey("FixedWidthFontSize"));
      widget.setPreferenceForKey(null, createkey("MinimumFontSize"));
      widget.setPreferenceForKey(null, createkey("PageSize"));
@@ -36,7 +20,7 @@
      widget.setPreferenceForKey(null, createkey("PlayAudioOutOfDashboard"));
      widget.setPreferenceForKey(null, createkey("StandardFont"));
      widget.setPreferenceForKey(null, createkey("StandardFontSize"));
-@@ -480,7 +483,15 @@
+@@ -480,7 +486,15 @@
          widget.resizeAndMoveTo(window.screenX + backXOffset, window.screenY + backYOffset, backsideWidth, backsideHeight);
      }
      
