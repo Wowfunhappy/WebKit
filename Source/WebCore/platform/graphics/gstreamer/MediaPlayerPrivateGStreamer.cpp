@@ -521,7 +521,11 @@ void MediaPlayerPrivateGStreamer::play()
         if (player) {
             if (isSeamlessSeekingEnabled() && !m_initialSegmentSeekDone) {
                 GST_DEBUG_OBJECT(pipeline(), "Scheduling initial SEGMENT seek");
-                doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true, true);
+                // MAVERICKS_BACKPORT: a non-flushing seek plays everything already queued before it, so the
+                // initial one replays the start of the first pass. doSeek() flushes, then resumes in
+                // segment mode, as the loop seek does.
+                // doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true, true);
+                doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true);
                 m_initialSegmentSeekDone = true;
             } else
                 updateDownloadBufferingFlag();
