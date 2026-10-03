@@ -24,6 +24,14 @@ extern void WKRelease(const void *);
 - (void)_addUserStyleSheet:(_WKUserStyleSheet *)userStyleSheet;
 @end
 
+@interface _WKProcessPoolConfiguration : NSObject <NSCopying>
+@property (nonatomic, copy) NSURL *injectedBundleURL;
+@end
+
+@interface WKProcessPool (WCWebKitSPI)
+- (instancetype)_initWithConfiguration:(_WKProcessPoolConfiguration *)configuration __attribute__((objc_method_family(init)));
+@end
+
 @interface WKNavigationAction (WCWebKitSPI)
 @property (nonatomic, readonly, getter=_isUserInitiated) BOOL _userInitiated;
 @end

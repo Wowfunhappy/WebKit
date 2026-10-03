@@ -27,3 +27,31 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
     VERBATIM)
 add_custom_target(WebClipPageAgent DEPENDS "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js")
 add_dependencies(WebClipPlugin WebClipPageAgent)
+
+# The plug-in's injected bundle runs in each clip's web content process and calls into WebCore, so it
+# compiles with the definitions and options the frameworks' sources share and against their headers.
+get_directory_property(_webclip_bundle_definitions DIRECTORY "${CMAKE_SOURCE_DIR}" COMPILE_DEFINITIONS)
+get_directory_property(_webclip_bundle_options DIRECTORY "${CMAKE_SOURCE_DIR}" COMPILE_OPTIONS)
+add_library(WebClipPageBundle MODULE bundle/WCPageBundle.cpp)
+set_target_properties(WebClipPageBundle PROPERTIES
+    BUNDLE TRUE
+    BUNDLE_EXTENSION bundle
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/bundle/Info.plist"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/WebClipPlugin")
+target_compile_definitions(WebClipPageBundle PRIVATE ${_webclip_bundle_definitions})
+target_compile_options(WebClipPageBundle PRIVATE ${_webclip_bundle_options})
+target_include_directories(WebClipPageBundle PRIVATE
+    "${CMAKE_BINARY_DIR}"
+    "${bmalloc_FRAMEWORK_HEADERS_DIR}"
+    "${WTF_FRAMEWORK_HEADERS_DIR}"
+    "${JavaScriptCore_FRAMEWORK_HEADERS_DIR}"
+    "${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}"
+    "${PAL_FRAMEWORK_HEADERS_DIR}"
+    "${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}"
+    "${WebKit_FRAMEWORK_HEADERS_DIR}"
+    "${WebKit_PRIVATE_FRAMEWORK_HEADERS_DIR}"
+    ${ICU_INCLUDE_DIRS})
+target_include_directories(WebClipPageBundle SYSTEM PRIVATE ${GSTREAMER_INCLUDE_DIRS})
+add_dependencies(WebClipPageBundle WebKit)
+target_link_options(WebClipPageBundle PRIVATE "$<TARGET_FILE:JavaScriptCore>" "$<TARGET_FILE:WebCore>" "$<TARGET_FILE:WebKit>")
+add_dependencies(WebClipPlugin WebClipPageBundle)

@@ -23,7 +23,6 @@
     const kClipSignatureBorderOffsetLeftKey = 'ClipSignatureBorderOffsetLeft';
     const kClipSignatureBorderOffsetRightKey = 'ClipSignatureBorderOffsetRight';
     const kClipSignatureOriginalBorderRectKey = 'ClipSignatureOriginalBorderRect';
-    const kClipSignatureIndexInDocumentKey = 'ClipSignatureIndexInDocument';
     // The score the signed element earns against its own signature.
     const kClipSignatureScoreKey = 'ClipSignatureScore';
 
@@ -225,7 +224,7 @@
         return makeRect(values[0], values[1], values[2], values[3]);
     }
 
-    // -[NSNumber floatValue] and -[NSNumber unsignedIntValue] on property-list numbers.
+    // -[NSNumber floatValue] on property-list numbers.
 
     function isPropertyListNumber(value)
     {
@@ -235,14 +234,6 @@
     function floatValue(value)
     {
         return f32(Number(value));
-    }
-
-    function unsignedIntValue(value)
-    {
-        const number = Math.trunc(Number(value));
-        if (!Number.isFinite(number) || Math.abs(number) >= 2 ** 63)
-            return 0;
-        return Number(BigInt.asUintN(32, BigInt(number)));
     }
 
     function isDictionary(value)
@@ -415,7 +406,6 @@
             boxedSiblings: null,
             borderOffset: { top: 0, bottom: 0, left: 0, right: 0 },
             originalBorderRect: kZeroRect,
-            indexInDocument: 0,
         };
         const element = dictionary[kClipSignatureElementKey];
         if (isDictionary(element))
@@ -444,9 +434,6 @@
         const originalBorderRect = dictionary[kClipSignatureOriginalBorderRectKey];
         if (typeof originalBorderRect === 'string')
             signature.originalBorderRect = rectFromString(originalBorderRect);
-        const indexInDocument = dictionary[kClipSignatureIndexInDocumentKey];
-        if (isPropertyListNumber(indexInDocument))
-            signature.indexInDocument = unsignedIntValue(indexInDocument);
         return signature;
     }
 
@@ -584,16 +571,21 @@
         forEachNode(document, node => scoreNodeAgainstSignature(finder, node, signature));
     }
 
-    // -[DOMBorderFinder borderRectForSignature:], with the score of the match. The rect is null where
-    // the stock finder returns NSZeroRect or raises.
-    function matchSignature(signature)
+    // -[DOMBorderFinder borderRectForSignature:] for every element that earns the best score: their rects,
+    // adjusted by the signature's border offset, and the score.
+    function bestMatches(signature)
     {
         const finder = createBorderFinder();
         findBorderElementForSignature(finder, signature);
-        const found = finder.foundBorderElements;
-        if (!found.length || signature.indexInDocument >= found.length)
-            return { rect: null, score: 0 };
-        return { rect: publicRect(adjustRectByBorderOffset(finder.boundingBox(found[signature.indexInDocument]), signature.borderOffset)), score: finder.highestScore };
+        return {
+            rects: finder.foundBorderElements.map(element => adjustRectByBorderOffset(finder.boundingBox(element), signature.borderOffset)),
+            score: finder.highestScore,
+        };
+    }
+
+    function hasOrigin(rect, origin)
+    {
+        return rect.x === origin.x && rect.y === origin.y;
     }
 
     function publicRect(rect)
@@ -691,21 +683,16 @@
         dictionary[kClipSignatureBorderOffsetRightKey] = f32((rect.x + rect.width) - (box.x + box.width));
         dictionary[kClipSignatureOriginalBorderRectKey] = stringFromRect(rect);
 
-        // -[DOMBorderFinder _indexOfBorderElementInSignature:].
+        // The score the element earns against its own signature, unless another element earns more.
         const scoring = createBorderFinder();
         findBorderElementForSignature(scoring, signatureFromDictionary(dictionary));
-        const index = scoring.foundBorderElements.indexOf(element);
-        dictionary[kClipSignatureIndexInDocumentKey] = index < 0 ? 0xffffffff : index;
-        if (index >= 0)
+        if (scoring.foundBorderElements.includes(element))
             dictionary[kClipSignatureScoreKey] = scoring.highestScore;
         return dictionary;
     }
 
-    // The page settles after its load: script builds and rebuilds parts of the document. The element a
-    // signature describes is present once some element earns the score the signed element earned: the
-    // same element, children and siblings, where it was and as large. That is checked as the document
-    // changes. An element the page has moved or changed earns less, and at the deadline the best match
-    // stands.
+    // Runs test as the document changes, at most once a frame, until it has a result; at the deadline,
+    // test's result stands.
     function whenDocumentChanges(test, deadline)
     {
         return new Promise(resolve => {
@@ -741,16 +728,24 @@
         });
     }
 
-    // The rect of the element that matches the signature, once one earns the signed element's score.
+    // The rect of the element a signature describes. The page settles after its load: script builds and
+    // rebuilds parts of the document. The element is present once an element earning the signed
+    // element's score lies where it was. At the deadline, an element the page has moved is the one when
+    // it alone earns the best score; alike elements sharing it leave the signature without an element,
+    // and the clip where it is.
     function placeBySignature(argument)
     {
         const signature = signatureFromDictionary(argument.signature);
         const score = argument.signature[kClipSignatureScoreKey];
+        const original = signature.originalBorderRect;
         return whenDocumentChanges(atDeadline => {
-            const match = matchSignature(signature);
-            if (!atDeadline && !(match.rect && match.score >= score))
+            const matches = bestMatches(signature);
+            const inPlace = matches.rects.find(rect => hasOrigin(rect, original));
+            if (inPlace && (atDeadline || matches.score >= score))
+                return { rect: publicRect(inPlace) };
+            if (!atDeadline)
                 return null;
-            return { rect: match.rect };
+            return { rect: matches.rects.length === 1 ? publicRect(matches.rects[0]) : null };
         }, argument.deadline);
     }
 
@@ -768,11 +763,8 @@
         const safariSignature = argument.signature ? signatureFromDictionary(argument.signature) : null;
         const rect = makeRect(argument.rect.x, argument.rect.y, argument.rect.width, argument.rect.height);
         return whenDocumentChanges(atDeadline => {
-            if (!atDeadline && safariSignature) {
-                const matched = matchSignature(safariSignature).rect;
-                if (!matched || matched.x !== rect.x || matched.y !== rect.y)
-                    return null;
-            }
+            if (!atDeadline && safariSignature && !bestMatches(safariSignature).rects.some(match => hasOrigin(match, rect)))
+                return null;
             return { signature: signatureForRect(rect) };
         }, argument.deadline);
     }

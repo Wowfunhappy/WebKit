@@ -399,14 +399,19 @@ static NSImage *pressedDoneButtonImage;
     BOOL _isBlack;
 }
 
+- (NSColor *)color
+{
+    return _isBlack ? [NSColor blackColor] : [NSColor whiteColor];
+}
+
 - (void)drawRect:(NSRect)rect
 {
-    [_isBlack ? [NSColor blackColor] : [NSColor whiteColor] set];
+    [[self color] set];
     NSRectFill(rect);
 }
 
-// The void is the clip view's 20000-point document; as a layer it is a background color rather
-// than a bitmap of that size.
+// The void is the clip view's document, as large as the page; as a layer it is a background color
+// rather than a bitmap of that size.
 - (BOOL)wantsUpdateLayer
 {
     return YES;
@@ -414,7 +419,7 @@ static NSImage *pressedDoneButtonImage;
 
 - (void)updateLayer
 {
-    self.layer.backgroundColor = _isBlack ? CGColorGetConstantColor(kCGColorBlack) : CGColorGetConstantColor(kCGColorWhite);
+    self.layer.backgroundColor = [[self color] CGColor];
 }
 
 - (void)setIsBlack:(BOOL)isBlack

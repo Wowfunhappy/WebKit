@@ -492,33 +492,73 @@ static NSRect rectFromPageRect(id value)
 // The widget window shows the clip while the page window is out: while Dashboard shows and hides
 // its widgets, and while the widget moves. The page renders the stand-in when it has finished
 // loading and when it has painted, when the pointer leaves it and when it gives up the key window.
+static NSImage *imageOfView(NSView *view, NSRect rect)
+{
+    NSBitmapImageRep *bitmap = [view bitmapImageRepForCachingDisplayInRect:rect];
+    [view cacheDisplayInRect:rect toBitmapImageRep:bitmap];
+    NSImage *image = [[NSImage alloc] initWithSize:rect.size];
+    [image addRepresentation:bitmap];
+    return image;
+}
+
+// The stand-in is what the page window shows: the clip view's content where the content mask keeps
+// it, the status text, and the theme over them. The clip view's content is the cover while it shows,
+// and otherwise the void with the page's snapshot over it in the given rect.
+- (void)setStandInWithPageSnapshot:(NSImage *)snapshot inRect:(NSRect)snapshotRect
+{
+    NSRect clipFrame = [_clipView frame];
+    NSRect clipRect = NSMakeRect(0, 0, NSWidth(clipFrame), NSHeight(clipFrame));
+    NSImage *content = [[NSImage alloc] initWithSize:clipRect.size];
+    [content lockFocus];
+    [[([_pageCover isHidden] ? _voidView : _pageCover) color] set];
+    NSRectFill(clipRect);
+    [snapshot drawInRect:snapshotRect fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+    CGImageRef mask = (__bridge CGImageRef)[[[_clipView layer] mask] contents];
+    if (mask) {
+        CGContextRef context = [[NSGraphicsContext currentContext] graphicsPort];
+        CGContextSetBlendMode(context, kCGBlendModeDestinationIn);
+        CGContextDrawImage(context, NSRectToCGRect(clipRect), mask);
+    }
+    [content unlockFocus];
+
+    NSImage *standIn = [[NSImage alloc] initWithSize:[self bounds].size];
+    [standIn lockFocus];
+    [content drawInRect:clipFrame fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+    if (![_statusTextField isHidden])
+        [imageOfView(_statusTextField, [_statusTextField bounds]) drawInRect:[_statusTextField frame] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+    if ([_currentTheme superview] == self)
+        [_currentTheme displayRectIgnoringOpacity:[_currentTheme bounds] inContext:[NSGraphicsContext currentContext]];
+    else if (![_themeOverlay isHidden]) {
+        NSAffineTransform *transform = [NSAffineTransform transform];
+        [transform translateXBy:NSMinX([_themeOverlay frame]) yBy:NSMinY([_themeOverlay frame])];
+        [transform concat];
+        [_themeOverlay drawTheme];
+    }
+    [standIn unlockFocus];
+    [_placeholder setImage:standIn];
+}
+
 - (void)updateStandIn
 {
     WKWebView *webView = _webView;
+    if (!webView || _hasScreenshot || NSIsEmptyRect([_clipView bounds]))
+        return;
+    if (![_pageCover isHidden]) {
+        [self setStandInWithPageSnapshot:nil inRect:NSZeroRect];
+        return;
+    }
     NSRect pageRect = NSIntersectionRect([_clipView bounds], [webView frame]);
-    if (!webView || ![_pageCover isHidden] || NSIsEmptyRect(pageRect) || _hasScreenshot)
+    if (NSIsEmptyRect(pageRect))
         return;
     WKSnapshotConfiguration *configuration = [[WKSnapshotConfiguration alloc] init];
     configuration.rect = [webView convertRect:pageRect fromView:_voidView];
+    NSRect clipFrame = [_clipView frame];
     NSRect frame = [self convertRect:pageRect fromView:_voidView];
-    NSSize size = [self bounds].size;
+    NSRect snapshotRect = NSOffsetRect(frame, -NSMinX(clipFrame), -NSMinY(clipFrame));
     [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *error) {
-        if (!image || webView != _webView || _hasScreenshot)
+        if (!image || webView != _webView || _hasScreenshot || ![_pageCover isHidden])
             return;
-        NSImage *standIn = [[NSImage alloc] initWithSize:size];
-        [standIn lockFocus];
-        [image drawInRect:frame fromRect:NSZeroRect operation:NSCompositeCopy fraction:1];
-        // The theme draws over the stand-in as it draws over the page.
-        if ([_currentTheme superview] == self)
-            [_currentTheme displayRectIgnoringOpacity:[_currentTheme bounds] inContext:[NSGraphicsContext currentContext]];
-        else if (![_themeOverlay isHidden]) {
-            NSAffineTransform *transform = [NSAffineTransform transform];
-            [transform translateXBy:NSMinX([_themeOverlay frame]) yBy:NSMinY([_themeOverlay frame])];
-            [transform concat];
-            [_themeOverlay drawTheme];
-        }
-        [standIn unlockFocus];
-        [_placeholder setImage:standIn];
+        [self setStandInWithPageSnapshot:image inRect:snapshotRect];
     }];
 }
 
@@ -638,9 +678,6 @@ static NSHashTable *clipperViews;
     // A widget acts on the click that brings it to the front.
     if (isMouseDown && ![_pageWindow isKeyWindow])
         [self makePageWindowKey];
-    // The page stays where the user scrolls it.
-    if (type == NSScrollWheel)
-        [self cancelPageScrollTarget];
     [_pageWindow sendEvent:[event _eventRelativeToWindow:_pageWindow]];
     return YES;
 }
@@ -675,6 +712,7 @@ static NSHashTable *clipperViews;
 
 - (void)widgetDidStartMoving
 {
+    [self updateStandIn];
     _isWidgetMoving = YES;
     [self updatePageWindow];
 }
@@ -1152,6 +1190,9 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     [_pageCover setHidden:NO];
     [_statusTextField setStringValue:text];
     [self updateStatusTextViewFrame:updateOrigin];
+    // The stand-in follows the text while it is on screen.
+    if (_isWidgetMoving || !_dockAllowsPageWindow)
+        [self updateStandIn];
 }
 
 - (void)setStatusText:(NSString *)text
@@ -1329,9 +1370,9 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     }];
 }
 
-// After a load, the page builds the element the clip shows; the clip follows it once some element
-// earns the score the signed element earned, or the best match at the deadline. A clip just made
-// from Safari shows the selection, and is signed once the element Safari signed lies there.
+// After a load, the page builds the element the clip shows; the clip stays once the element is back
+// where it was, and otherwise follows the page agent's match at the deadline. A clip just made from
+// Safari shows the selection, and is signed once the element Safari signed lies there.
 static const double WCSignatureDeadlineMilliseconds = 10000;
 
 - (void)followSignature
@@ -1469,10 +1510,23 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         [self updateFrame];
 }
 
+// The clips' web content processes load the plug-in's injected bundle.
+static WKProcessPool *clipProcessPool(void)
+{
+    static WKProcessPool *processPool;
+    if (!processPool) {
+        _WKProcessPoolConfiguration *configuration = [[_WKProcessPoolConfiguration alloc] init];
+        configuration.injectedBundleURL = [[NSBundle bundleForClass:[WCClipperView class]] URLForResource:@"WebClipPageBundle" withExtension:@"bundle"];
+        processPool = [[WKProcessPool alloc] _initWithConfiguration:configuration];
+    }
+    return processPool;
+}
+
 - (WKWebViewConfiguration *)webViewConfiguration
 {
     WebClipper *controller = [self controller];
     WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
+    configuration.processPool = clipProcessPool();
     configuration.applicationNameForUserAgent = [WebClipper userAgent];
 
     WKPreferences *preferences = configuration.preferences;
@@ -1494,8 +1548,10 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     proxy.view = self;
     [userContentController addScriptMessageHandler:proxy contentWorld:_pageWorld name:@"webClip"];
 
-    // The main frame shows no scroll bars; the web view takes the size Safari's left to the page.
-    [userContentController _addUserStyleSheet:[[_WKUserStyleSheet alloc] initWithSource:@":root { scrollbar-width: none !important; }" forMainFrameOnly:YES]];
+    // The main frame shows no scroll bars; the web view takes the size Safari's left to the page. The clip
+    // is a rect of the document, as stock's document-sized WebView showed it, so the main frame's scroll
+    // position does not anchor to content.
+    [userContentController _addUserStyleSheet:[[_WKUserStyleSheet alloc] initWithSource:@":root { scrollbar-width: none !important; overflow-anchor: none !important; }" forMainFrameOnly:YES]];
 
     NSString *userStyleSheetPath = [controller userStyleSheetPath];
     if (userStyleSheetPath) {
@@ -1578,16 +1634,6 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     NSSize viewport = [_webView frame].size;
     NSSize clipSize = [_clipView bounds].size;
     return NSMakePoint(MAX(0, MIN(origin.x, viewport.width - clipSize.width)), MAX(0, MIN(origin.y, viewport.height - clipSize.height)));
-}
-
-// The clip keeps the content it shows, and from then on lies where that content is in the viewport.
-- (void)cancelPageScrollTarget
-{
-    if (!_hasPageScrollTarget)
-        return;
-    _clipViewportOrigin = [self viewportOriginInViewport:NSMakePoint(_clipViewportOrigin.x + _pageScrollTarget.x - _pageScroll.x, _clipViewportOrigin.y + _pageScrollTarget.y - _pageScroll.y)];
-    _hasPageScrollTarget = NO;
-    [self placeWebViewAtPageScroll:_pageScroll];
 }
 
 static NSPoint pageScrollFromResult(id result)

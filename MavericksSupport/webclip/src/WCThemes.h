@@ -82,6 +82,7 @@ NSString *WCLocalizedString(const char *key);
 
 @interface WCVoidView : NSView
 - (void)setIsBlack:(BOOL)isBlack;
+@property (nonatomic, readonly) NSColor *color;
 @end
 
 @interface WCTheme : NSView {

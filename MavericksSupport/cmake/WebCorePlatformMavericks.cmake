@@ -50,7 +50,7 @@ macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
     set_property(TARGET ${_target} PROPERTY LINK_OPTIONS "${_mavericks_webcore_link_options}")
     set_target_properties(${_target} PROPERTIES
         LINKER_LANGUAGE CXX
-        LINK_FLAGS "-fuse-ld=lld -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle -allowable_client TestWebCore -allowable_client TestWebKit -allowable_client TestWebKitAPI -allowable_client TestWebKitLegacy")
+        LINK_FLAGS "-fuse-ld=lld -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle -allowable_client TestWebCore -allowable_client TestWebKit -allowable_client TestWebKitAPI -allowable_client TestWebKitLegacy -allowable_client WebClipPageBundle")
     _MAVERICKS_LINK_LIBWEBRTC(${_target})
 
     if (EXISTS "${WEBCORE_DIR}/platform/audio/resources/Composite.wav")

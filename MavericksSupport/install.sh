@@ -133,13 +133,17 @@ force_64bit_web_clip_widget() {
 }
 force_64bit_web_clip_widget
 
-# The Web Clip widget's plug-in executable, its page script and the patched widget script are this
-# port's (staged under the widget's path); the widget's HTML, images and localized strings stay Apple's.
+# The Web Clip widget's plug-in executable, its page script, its injected bundle and the patched widget
+# script are this port's (staged under the widget's path); the widget's HTML, images and localized
+# strings stay Apple's.
 echo "### Installing the Web Clip plug-in"
 cp -p "$WK_STAGE_ROOT$WEBCLIP_BINARY" "$WEBCLIP_BINARY"
 cp -p "$WK_STAGE_ROOT$WEBCLIP_PAGE_AGENT" "$WEBCLIP_PAGE_AGENT"
+rm -rf "$WEBCLIP_PAGE_BUNDLE"
+cp -Rp "$WK_STAGE_ROOT$WEBCLIP_PAGE_BUNDLE" "$WEBCLIP_PAGE_BUNDLE"
 cp -p "$WK_STAGE_ROOT$WEBCLIP_WIDGET_SCRIPT" "$WEBCLIP_WIDGET_SCRIPT"
 chown root:admin "$WEBCLIP_BINARY" "$WEBCLIP_PAGE_AGENT" "$WEBCLIP_WIDGET_SCRIPT"
+chown -R root:admin "$WEBCLIP_PAGE_BUNDLE"
 echo "  installed."
 
 # ---------------------------------------------------------------------------

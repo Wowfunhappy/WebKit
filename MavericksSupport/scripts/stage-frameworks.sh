@@ -591,17 +591,25 @@ strip_rpaths       "$WEBRTC_STAGED"
 verify_no_rpath    "$WEBRTC_STAGED"
 echo "  rewritten: $(webkit_machos | wc -l | tr -d ' ') Mach-O binaries carry absolute paths and no LC_RPATH"
 
-# The Web Clip plug-in goes through the same rewriting, from the build's WebClipPlugin directory into
-# its place inside the widget; the widget's script is Apple's with WebClip.js.patch applied.
+# The Web Clip plug-in and its injected bundle go through the same rewriting, from the build's
+# WebClipPlugin directory into their place inside the widget; the widget's script is Apple's with
+# WebClip.js.patch applied.
 echo "### Staging the Web Clip plug-in"
 mkdir -p "$(s "$WEBCLIP_PLUGIN")/MacOS" "$(s "$WEBCLIP_PLUGIN")/Resources"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WebClip" "$(s "$WEBCLIP_BINARY")"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WCPageAgent.js" "$(s "$WEBCLIP_PAGE_AGENT")"
+rm -rf "$(s "$WEBCLIP_PAGE_BUNDLE")"
+cp -R "$(dirname "$LIBDIR")/WebClipPlugin/WebClipPageBundle.bundle" "$(s "$WEBCLIP_PAGE_BUNDLE")"
 patch -s -o "$(s "$WEBCLIP_WIDGET_SCRIPT")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.js" "$REPO/MavericksSupport/webclip/WebClip.js.patch"
 rewrite_rpath_deps "$(s "$WEBCLIP_BINARY")"
 rewrite_abs_deps   "$(s "$WEBCLIP_BINARY")"
 strip_rpaths       "$(s "$WEBCLIP_BINARY")"
 verify_no_rpath    "$(s "$WEBCLIP_BINARY")"
+WEBCLIP_PAGE_BUNDLE_BINARY="$(s "$WEBCLIP_PAGE_BUNDLE")/Contents/MacOS/WebClipPageBundle"
+rewrite_rpath_deps "$WEBCLIP_PAGE_BUNDLE_BINARY"
+rewrite_abs_deps   "$WEBCLIP_PAGE_BUNDLE_BINARY"
+strip_rpaths       "$WEBCLIP_PAGE_BUNDLE_BINARY"
+verify_no_rpath    "$WEBCLIP_PAGE_BUNDLE_BINARY"
 
 # ---------------------------------------------------------------------------
 # Step 5: the demangler guard. The 10.9 libc++abi __cxa_demangle heap-corrupts on some modern-C++
