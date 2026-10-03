@@ -292,7 +292,6 @@ static NSRect rectFromPageRect(id value)
     BOOL _loadError;
     BOOL _hasBeenShown;
     BOOL _transitionInProgress;
-    NSRect _clipRectAfterTransition;
     NSPoint _pageScroll;
     NSPoint _pageScrollTarget;
     BOOL _hasPageScrollTarget;
@@ -779,11 +778,13 @@ static NSHashTable *clipperViews;
     return [_currentTheme minSize];
 }
 
+// A clip is at most 20000 points on a side, as in stock.
+static const CGFloat WCMaximumClipperLength = 20000;
+
 - (NSSize)constrainedSizeFromSize:(NSSize)size
 {
-    NSSize voidSize = [_voidView bounds].size;
     NSSize minimum = [self minClipperSize];
-    return NSMakeSize(MAX(minimum.width, MIN(size.width, voidSize.width)), MAX(minimum.height, MIN(size.height, voidSize.height)));
+    return NSMakeSize(MAX(minimum.width, MIN(size.width, WCMaximumClipperLength)), MAX(minimum.height, MIN(size.height, WCMaximumClipperLength)));
 }
 
 - (void)setConstrainedClipperSize:(NSSize)size
@@ -1130,7 +1131,6 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
         return;
     _isEditingCameraPosition = editing;
     if (editing) {
-        _clipRectAfterTransition = NSZeroRect;
         [self callPageFunction:@"snapNodes" argument:nil completionHandler:^(id nodes) {
             if (_isEditingCameraPosition && [nodes isKindOfClass:[NSArray class]])
                 _snapper = [[WCSnapper alloc] initWithNodes:nodes];
@@ -1143,20 +1143,11 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     [self layoutPageViewport];
 }
 
-// The cover hides the page from the user while it loads, and leaves it visible to WebKit, which renders
-// it as Safari renders a tab in a visible window.
-- (void)coverPage
-{
-    [_pageCover setFrame:[_voidView bounds]];
-    [_voidView addSubview:_pageCover positioned:NSWindowAbove relativeTo:_webView];
-    [_pageCover setHidden:NO];
-}
-
 - (void)setStatusText:(NSString *)text updateOrigin:(BOOL)updateOrigin
 {
     [_voidView setIsBlack:NO];
     [_pageCover setIsBlack:NO];
-    [self coverPage];
+    [_pageCover setHidden:NO];
     [_statusTextField setStringValue:text];
     [self updateStatusTextViewFrame:updateOrigin];
 }
@@ -1279,47 +1270,6 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     [_webView loadRequest:request];
 }
 
-- (NSSize)convertDOMBorderSizeToWindowSize:(NSSize)size
-{
-    int insetLeft = [_currentTheme clipInsetLeft];
-    int insetBottom = [_currentTheme clipInsetBottom];
-    double width = (double)(insetLeft + insetLeft) + size.width;
-    int insetTop = [_currentTheme clipInsetTop];
-    return NSMakeSize(width, (double)(insetTop + insetBottom) + size.height);
-}
-
-// Moves the clip to the rect the page found for its signature, and sizes the widget to it. The page
-// scrolls the rect to where the clip lies in the viewport, as far as it scrolls. The widget's window is
-// the front's size only while the front shows: during a flip the rect waits for the flip to complete,
-// and behind the back side the clipper element alone takes the size, which is the size the widget flips
-// to the front with.
-- (void)adjustClipToRect:(NSRect)rect
-{
-    if (NSEqualRects(rect, NSZeroRect))
-        return;
-    if (_transitionInProgress) {
-        _clipRectAfterTransition = rect;
-        return;
-    }
-    NSRect bounds = [_clipView bounds];
-    if (fabs(rect.origin.x - bounds.origin.x) >= 0.5 || fabs(rect.origin.y - bounds.origin.y) >= 0.5) {
-        NSPoint target = NSMakePoint(MAX(0, rect.origin.x - _clipViewportOrigin.x), MAX(0, rect.origin.y - _clipViewportOrigin.y));
-        _clipViewportOrigin = NSMakePoint(rect.origin.x - target.x, rect.origin.y - target.y);
-        [self scrollPageTo:target];
-    }
-    NSSize widgetSize = [self frame].size;
-    if (fabs(rect.size.width - bounds.size.width) >= 0.5 || fabs(rect.size.height - bounds.size.height) >= 0.5) {
-        widgetSize = [self convertDOMBorderSizeToWindowSize:rect.size];
-        if ([self isBacksideShowing]) {
-            widgetSize = [self constrainedSizeFromSize:widgetSize];
-            [self setClipperSize:widgetSize];
-            [_clipView setFrame:[self clipViewFrame]];
-        } else
-            [self setWidgetWindowSize:widgetSize keepClipperCentered:NO];
-    }
-    [self recordClipRectWithWidgetSize:widgetSize];
-}
-
 // The saved ClipRect is where the clip is: its origin in the page and the widget's size. The saved
 // PageScroll is where the page is scrolled to show it.
 - (void)recordClipRectWithWidgetSize:(NSSize)widgetSize
@@ -1333,9 +1283,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 {
     [self setIsEditingCameraPosition:NO];
     [self recordClipRectWithWidgetSize:[self frame].size];
-    WebClipper *controller = [self controller];
-    [controller setClipSignature:nil];
-    [controller exitEditingCameraPosition];
+    [[self controller] exitEditingCameraPosition];
 }
 
 - (void)showControls:(id)sender
@@ -1494,12 +1442,24 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 // the part of the viewport Safari showed. The web view is the viewport, placed in the void at the page's
 // scroll offset, and the clip view's bounds follow it: whatever scrolls the page, the clip reaching where
 // Safari had it or the page anchoring its content as content above loads, moves the clip with the viewport.
+// The void is the clip view's document: it reaches past the page, the web view and the clip.
+- (void)sizeVoidToContainClipAt:(NSPoint)clipOrigin
+{
+    NSRect webViewFrame = _webView ? [_webView frame] : NSZeroRect;
+    NSSize clipSize = [_clipView bounds].size;
+    NSSize size = NSMakeSize(MAX(MAX(_documentSize.width, NSMaxX(webViewFrame)), clipOrigin.x + clipSize.width),
+        MAX(MAX(_documentSize.height, NSMaxY(webViewFrame)), clipOrigin.y + clipSize.height));
+    if (!NSEqualSizes([_voidView frame].size, size))
+        [_voidView setFrameSize:size];
+}
+
 - (void)placeWebViewAtPageScroll:(NSPoint)scroll
 {
     _pageScroll = scroll;
     if (!NSEqualPoints([_webView frame].origin, scroll))
         [_webView setFrameOrigin:scroll];
     NSPoint clipOrigin = NSMakePoint(_clipViewportOrigin.x + scroll.x, _clipViewportOrigin.y + scroll.y);
+    [self sizeVoidToContainClipAt:clipOrigin];
     if (!NSEqualPoints([_clipView bounds].origin, clipOrigin)) {
         [_clipView scrollToPoint:clipOrigin];
         [self updateDashboardControlRegions];
@@ -1531,6 +1491,7 @@ static NSPoint pageScrollFromResult(id result)
     NSSize size = NSMakeSize(MAX(visibleContentSize.width, clipSize.width), MAX(visibleContentSize.height, clipSize.height));
     if (!NSEqualSizes([_webView frame].size, size))
         [_webView setFrameSize:size];
+    [self sizeVoidToContainClipAt:[_clipView bounds].origin];
     // Viewport units resolve against Safari's viewport, scroll bars included.
     NSSize viewport = [[self controller] viewportSize];
     if (viewport.width > 0 && viewport.height > 0 && !NSEqualSizes(NSSizeFromCGSize([_webView _viewportSizeForCSSViewportUnits]), viewport))
@@ -1589,8 +1550,11 @@ static NSPoint pageScrollFromResult(id result)
     [_statusTextField setFont:[NSFont fontWithName:@"Helvetica Neue Light" size:18]];
     [_statusTextField setHidden:YES];
 
-    _voidView = [[WCVoidView alloc] initWithFrame:NSMakeRect(0, 0, 20000, 20000)];
+    _voidView = [[WCVoidView alloc] initWithFrame:NSZeroRect];
+    // The cover lies over the web view in the void. It hides the page from the user while it loads, and
+    // leaves it visible to WebKit, which renders it as Safari renders a tab in a visible window.
     _pageCover = [[WCVoidView alloc] initWithFrame:[_voidView bounds]];
+    [_pageCover setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [_pageCover setHidden:YES];
     _clipView = [[NSClipView alloc] initWithFrame:[self clipViewFrame]];
     [_clipView setCopiesOnScroll:NO];
@@ -1620,6 +1584,7 @@ static NSPoint pageScrollFromResult(id result)
     [[self window] setAcceptsMouseMovedEvents:YES];
     [_voidView setWantsLayer:YES];
     [_voidView addSubview:_webView];
+    [_voidView addSubview:_pageCover];
     addLayerBackedSubview(self, _clipView);
     _themeOverlay = [[WCThemeOverlayView alloc] initWithFrame:[_clipView frame]];
     addLayerBackedSubview(self, _themeOverlay);
@@ -1807,12 +1772,6 @@ static NSPoint pageScrollFromResult(id result)
 - (void)notifyTransitionIsComplete
 {
     _transitionInProgress = NO;
-    if (!NSEqualRects(_clipRectAfterTransition, NSZeroRect)) {
-        NSRect rect = _clipRectAfterTransition;
-        _clipRectAfterTransition = NSZeroRect;
-        if (!_isEditingCameraPosition)
-            [self adjustClipToRect:rect];
-    }
     [self updateEventRegion];
     if (!_didFlipToFront)
         return;
@@ -1877,9 +1836,9 @@ static NSPoint pageScrollFromResult(id result)
         return;
     if (!_webView) {
         [self createWebViewWithSize:[[self controller] visibleContentSize]];
-        [_voidView addSubview:_webView];
+        [_voidView addSubview:_webView positioned:NSWindowBelow relativeTo:_pageCover];
         [_pageCover setIsBlack:YES];
-        [self coverPage];
+        [_pageCover setHidden:NO];
         [self sizeWebView];
     }
     if (_hasBeenShown && !_isLoading && _didFlipToFront && !_isEditingCameraPosition)
@@ -1952,14 +1911,13 @@ static NSPoint pageScrollFromResult(id result)
     [_lockCameraButton updateTrackingRect];
 }
 
-- (void)loadURLString:(NSString *)URLString clipRect:(NSRect)clipRect clipSignature:(NSDictionary *)clipSignature pageSize:(NSSize)pageSize displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget
+- (void)loadURLString:(NSString *)URLString clipRect:(NSRect)clipRect pageSize:(NSSize)pageSize displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget
 {
     _documentSize = pageSize;
     NSPoint pageScroll = [[self controller] pageScroll];
     _clipViewportOrigin = NSMakePoint(clipRect.origin.x - pageScroll.x, clipRect.origin.y - pageScroll.y);
     [self placeWebViewAtPageScroll:NSZeroPoint];
     [self scrollPageTo:pageScroll];
-    [[self controller] setClipSignature:clipSignature];
     if (resizeWidget)
         [self setWidgetWindowSize:clipRect.size keepClipperCentered:YES];
     else {
@@ -2078,25 +2036,6 @@ static NSPoint pageScrollFromResult(id result)
     [_webView _setTextZoomFactor:[[self controller] textSizeMultiplier]];
     [self clearScreenshotIfNeeded];
     [self updateStandIn];
-    [self placeClipBySignature];
-}
-
-// A signature places the clip once, on the page that finished loading; the rect that leaves is the
-// clip from then on.
-- (void)placeClipBySignature
-{
-    WebClipper *controller = [self controller];
-    NSDictionary *signature = [controller clipSignature];
-    if (!signature)
-        return;
-    WKWebView *webView = _webView;
-    [self callPageFunction:@"rectForSignature" argument:signature completionHandler:^(id rect) {
-        if (webView != _webView || _isEditingCameraPosition)
-            return;
-        [self adjustClipToRect:rectFromPageRect(rect)];
-        [controller setClipSignature:nil];
-        [controller savePreferencesToDisk];
-    }];
 }
 
 - (void)failedNavigationWithError:(NSError *)error

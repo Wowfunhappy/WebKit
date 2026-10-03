@@ -30,7 +30,6 @@
     float _textSizeMultiplier;
     BOOL _playAudioOutOfDashboard;
     BOOL _hasSettings;
-    NSDictionary *_clipSignature;
     WCClipperView *_webClipperView;
     WebView *_dashboardWebView;
     WebPreferences *_webPreferences;
@@ -42,7 +41,6 @@
 @synthesize viewportSize = _viewportSize;
 @synthesize visibleContentSize = _visibleContentSize;
 @synthesize pageScroll = _pageScroll;
-@synthesize clipSignature = _clipSignature;
 
 + (NSString *)bundleIdentifier
 {
@@ -162,14 +160,14 @@
     [[self windowScriptObject] callWebScriptMethod:@"savePreferences" withArguments:[NSArray array]];
 }
 
-- (void)loadURLString:(NSString *)URLString pageSize:(NSSize)pageSize clipRect:(NSRect)clipRect clipSignature:(NSDictionary *)clipSignature cookieProperties:(NSArray *)cookieProperties displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget
+- (void)loadURLString:(NSString *)URLString pageSize:(NSSize)pageSize clipRect:(NSRect)clipRect cookieProperties:(NSArray *)cookieProperties displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget
 {
     [self setClipRect:clipRect];
     [self setPageSize:pageSize];
     [self setURLString:URLString];
     if (cookieProperties)
         [self setCookies:[self cookiesFromCookiesProperties:cookieProperties]];
-    [_webClipperView loadURLString:URLString clipRect:clipRect clipSignature:clipSignature pageSize:pageSize displayLoadingText:displayLoadingText resizeWidget:resizeWidget];
+    [_webClipperView loadURLString:URLString clipRect:clipRect pageSize:pageSize displayLoadingText:displayLoadingText resizeWidget:resizeWidget];
     [self savePreferencesToDisk];
 }
 
@@ -315,14 +313,11 @@
     [self setVisibleContentSize:NSSizeFromString([settings _web_stringForKey:@"VisibleContentSize"])];
     [self setPageScroll:NSPointFromString([settings _web_stringForKey:@"PageScroll"])];
 
-    id signature = [settings objectForKey:@"ClipSignature"];
-    NSDictionary *clipSignature = [signature isKindOfClass:[NSDictionary class]] ? signature : nil;
-
     [self setPlayAudioOutOfDashboard:[[settings _web_numberForKey:@"PlayAudioOutOfDashboard"] boolValue]];
     NSArray *cookieProperties = [settings objectForKey:@"CookieProperties"];
     [_webClipperView setTheme:[[settings _web_numberForKey:@"Theme"] intValue]];
 
-    [self loadURLString:URLString pageSize:pageSize clipRect:clipRect clipSignature:clipSignature cookieProperties:cookieProperties displayLoadingText:displayLoadingText resizeWidget:resizeWidget];
+    [self loadURLString:URLString pageSize:pageSize clipRect:clipRect cookieProperties:cookieProperties displayLoadingText:displayLoadingText resizeWidget:resizeWidget];
 }
 
 - (void)switchToThemeAtIndex:(NSNumber *)index
@@ -415,7 +410,6 @@
         || selector == @selector(playAudioOutOfDashboard)
         || selector == @selector(setPlayAudioOutOfDashboard:)
         || selector == @selector(setTransitionInProgress)
-        || selector == @selector(signatureAsString)
         || selector == @selector(standardFont)
         || selector == @selector(standardFontSize)
         || selector == @selector(switchToThemeAtIndex:)
@@ -517,11 +511,6 @@ static NSString *xmlPropertyListString(id propertyList)
 - (NSString *)cookiesAsString
 {
     return xmlPropertyListString([self cookiePropertiesFromCookies:_cookies]);
-}
-
-- (NSString *)signatureAsString
-{
-    return _clipSignature ? xmlPropertyListString(_clipSignature) : nil;
 }
 
 - (void)setURLString:(NSString *)URLString
@@ -635,12 +624,6 @@ static id propertyListFromXMLString(NSString *string)
         if (list)
             [settings setObject:list forKey:@"CookieProperties"];
     }
-    id clipSignature = [self _dashboardPreferenceForKey:@"ClipSignature"];
-    if ([clipSignature isKindOfClass:[NSString class]]) {
-        id signature = propertyListFromXMLString(clipSignature);
-        if (signature)
-            [settings setObject:signature forKey:@"ClipSignature"];
-    }
 
     [self loadFromSettings:settings displayLoadingText:YES resizeWidget:YES];
     return YES;
@@ -735,10 +718,6 @@ static void requestPageStateOfSafariTab(NSString *URLString, void (^completionHa
         [settings setObject:[pageState objectForKey:@"ViewportSize"] forKey:@"ViewportSize"];
         [settings setObject:[pageState objectForKey:@"VisibleContentSize"] forKey:@"VisibleContentSize"];
         [settings setObject:[pageState objectForKey:@"PageScroll"] forKey:@"PageScroll"];
-        NSMutableDictionary *signature = [settings objectForKey:@"ClipSignature"];
-        NSString *originalBorderRect = [signature isKindOfClass:[NSMutableDictionary class]] ? [signature _web_stringForKey:@"ClipSignatureOriginalBorderRect"] : nil;
-        if (originalBorderRect)
-            [signature setObject:NSStringFromRect(NSOffsetRect(NSRectFromString(originalBorderRect), offset.x, offset.y)) forKey:@"ClipSignatureOriginalBorderRect"];
 
         NSRect clipRect = NSOffsetRect(NSRectFromString(clipRectString), offset.x, offset.y);
         Class themeClass = [WebClipper defaultThemeClass];
