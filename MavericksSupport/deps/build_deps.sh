@@ -1403,6 +1403,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" ) \
       || { echo "gst-plugins-good qtdemux decode-time interleave patch failed to apply"; exit 1; }
+    # qtdemux: in push mode, seek a fragmented file to the start of a fragment it has parsed. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-fragmented-seek.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-fragmented-seek.patch" ) \
+      || { echo "gst-plugins-good qtdemux push-mode fragmented-seek patch failed to apply"; exit 1; }
     # flvdemux: the same for a push-mode segment seek. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" ) \

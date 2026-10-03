@@ -26,7 +26,7 @@ High AutoLevel profiles.
 The `display_p3_profile` behavior probe verifies that primary colors and translucent pixels
 retain their values when drawn from an embedded Display P3 profile into the named native space.
 
-`media-segment-loop.sh` checks repeated MP4 and FLV segment playback through a file-backed
+`media-segment-loop.sh` checks repeated MP4, fragmented MP4 and FLV segment playback through a file-backed
 HTTP push source, including TIME completion, seek sequence numbers, released seek events,
 and complete audio/video tails at each loop boundary, with the application pausing the
 pipeline while queue2 reports buffering.

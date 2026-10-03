@@ -20,8 +20,13 @@ FIXTURE="$ROOT/LayoutTests/media/content/test.mp4"
 "$DEPS/bin/gst-launch-1.0" -q filesrc location="$FIXTURE" ! qtdemux name=d \
     d.video_0 ! queue ! h264parse ! flvmux name=m streamable=false ! filesink location="$WORK/test.flv" \
     d.audio_0 ! queue ! aacparse ! m.
+"$DEPS/bin/gst-launch-1.0" -q filesrc location="$FIXTURE" ! qtdemux name=d \
+    d.video_0 ! queue ! h264parse ! mp4mux name=m fragment-duration=500 ! filesink location="$WORK/test-fragmented.mp4" \
+    d.audio_0 ! queue ! aacparse ! m.
 check() { perl -e 'alarm 45; exec @ARGV' "$WORK/check" "$@"; }
 check "file://$FIXTURE" 3
 check "http://127.0.0.1$FIXTURE" 3
 check "http://127.0.0.1$FIXTURE" 6.0272
 check "http://127.0.0.1$WORK/test.flv" 3
+check "http://127.0.0.1$WORK/test-fragmented.mp4" 3
+check "http://127.0.0.1$WORK/test-fragmented.mp4" 6

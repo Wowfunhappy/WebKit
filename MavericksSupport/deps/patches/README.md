@@ -215,6 +215,15 @@ With an upstream delivering timed fragments (TIME segments, as adaptive demuxers
 
 Everything held is sent at upstream EOS (before a segment-done or EOS goes out), before a new TIME segment, at stream-start, at a real discont and before a second `moov`, and dropped by `gst_qtdemux_reset`; `gst_qtdemux_sync_streams` sends no EOS to a stream with held samples. Each released sample's flow is combined as it is pushed. What is held is at most the fragment being demuxed. Measured on the same fixtures: 0 audio gaps in all four unpaced cases (8 s and 12 s, both layouts) and in the paced live playlist.
 
+## gst-plugins-good-qtdemux-push-mode-fragmented-seek.patch
+
+**Target:** `gst-plugins-good-1.28.5`, `gst/isomp4/qtdemux.c`, `gst/isomp4/qtdemux.h`, applied after `gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch`
+**Applied to:** libgstisomp4 (qtdemux)
+
+In push mode a fragmented file has a sample table only for the fragment being demuxed: `qtdemux_parse_moof` drops the previous fragment's samples, and the `mfra` index that pull mode seeks with lies at the end of the file, where a push-mode demuxer has not read it. `gst_qtdemux_handle_src_event` therefore refuses every TIME seek on a fragmented file whose upstream works in BYTES ("ignoring seek in push mode in current state", gstreamer#2801), and a progressive fMP4 `<video loop>` stops at its end: the loop seek fails. CNN's homepage loops are such files (`moov` with `mvex`, then `moof`/`mdat` pairs, no `sidx`).
+
+The demuxer records the start time (the earliest sample decode time across its `traf`s) and `moof` offset of each fragment it parses in push mode from a BYTES upstream. Once a fragment is recorded, a TIME seek is accepted in any demuxer state (a fragmented file spends its time between fragments, outside `QTDEMUX_STATE_MOVIE`) and goes to the last recorded fragment that starts at or before the target, or the first one: `gst_qtdemux_do_push_seek` sends the BYTES seek to that `moof`, with the flags the seek carried (the segment-seek patch's TIME `SEGMENT_START` included). The BYTES segment that answers it is taken in any state; the demuxer drops the sample tables and resumes parsing at the box boundary, as it does after a flush with a TIME upstream. The TIME segment starts at the target, so an accurate seek clips the fragment's earlier samples. `tests/media-segment-loop.sh` loops a fragmented file through the push source; without this patch its first segment seek is refused. A seek past the last parsed fragment lands in that fragment and plays on from there. A hard reset clears the index.
+
 ## gst-plugins-good-flvdemux-push-mode-segment-seek.patch
 
 **Target:** `gst-plugins-good-1.28.5`, `gst/flv/gstflvdemux.c`
