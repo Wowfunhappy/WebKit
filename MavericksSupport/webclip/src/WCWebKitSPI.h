@@ -33,7 +33,14 @@ typedef NS_OPTIONS(NSUInteger, _WKRenderingProgressEvents) {
     _WKRenderingProgressEventFirstMeaningfulPaint = 1 << 8,
 };
 
+@protocol _WKFullscreenDelegate <NSObject>
+@optional
+- (void)_webViewWillEnterFullscreen:(NSView *)webView;
+- (void)_webViewWillExitFullscreen:(NSView *)webView;
+@end
+
 @interface WKWebView (WCWebKitSPI)
+@property (nonatomic, setter=_setFullscreenDelegate:) id <_WKFullscreenDelegate> _fullscreenDelegate;
 @property (nonatomic, setter=_setObservedRenderingProgressEvents:) _WKRenderingProgressEvents _observedRenderingProgressEvents;
 @property (nonatomic, setter=_setClipsToVisibleRect:) BOOL _clipsToVisibleRect;
 @property (nonatomic, setter=_setViewportSizeForCSSViewportUnits:) CGSize _viewportSizeForCSSViewportUnits;

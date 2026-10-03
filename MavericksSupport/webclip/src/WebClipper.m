@@ -24,6 +24,9 @@
     NSArray *_cookies;
     NSString *_URLString;
     NSSize _pageSize;
+    NSSize _viewportSize;
+    NSSize _visibleContentSize;
+    NSPoint _pageScroll;
     float _textSizeMultiplier;
     BOOL _playAudioOutOfDashboard;
     BOOL _hasSettings;
@@ -36,6 +39,9 @@
 
 @synthesize clipRect = _clipRect;
 @synthesize pageSize = _pageSize;
+@synthesize viewportSize = _viewportSize;
+@synthesize visibleContentSize = _visibleContentSize;
+@synthesize pageScroll = _pageScroll;
 @synthesize clipSignature = _clipSignature;
 
 + (NSString *)bundleIdentifier
@@ -305,6 +311,10 @@
     if (clipRectString)
         clipRect = NSRectFromString(clipRectString);
 
+    [self setViewportSize:NSSizeFromString([settings _web_stringForKey:@"ViewportSize"])];
+    [self setVisibleContentSize:NSSizeFromString([settings _web_stringForKey:@"VisibleContentSize"])];
+    [self setPageScroll:NSPointFromString([settings _web_stringForKey:@"PageScroll"])];
+
     id signature = [settings objectForKey:@"ClipSignature"];
     NSDictionary *clipSignature = [signature isKindOfClass:[NSDictionary class]] ? signature : nil;
 
@@ -333,6 +343,9 @@
         URLString, @"URL",
         NSStringFromSize(NSMakeSize(366, 254)), @"PageSize",
         NSStringFromRect(NSMakeRect(0, 0, 366, 254)), @"ClipRect",
+        NSStringFromSize(NSMakeSize(366, 254)), @"ViewportSize",
+        NSStringFromSize(NSMakeSize(366, 254)), @"VisibleContentSize",
+        NSStringFromPoint(NSZeroPoint), @"PageScroll",
         [NSNumber numberWithInt:0], @"Theme",
         nil];
     [self loadFromSettings:settings displayLoadingText:NO resizeWidget:NO];
@@ -396,6 +409,9 @@
         || selector == @selector(minimumFontSize)
         || selector == @selector(notifyTransitionIsComplete)
         || selector == @selector(pageSizeString)
+        || selector == @selector(viewportSizeString)
+        || selector == @selector(visibleContentSizeString)
+        || selector == @selector(pageScrollString)
         || selector == @selector(playAudioOutOfDashboard)
         || selector == @selector(setPlayAudioOutOfDashboard:)
         || selector == @selector(setTransitionInProgress)
@@ -528,6 +544,21 @@ static NSString *xmlPropertyListString(id propertyList)
     return NSStringFromSize([self pageSize]);
 }
 
+- (NSString *)viewportSizeString
+{
+    return NSStringFromSize([self viewportSize]);
+}
+
+- (NSString *)visibleContentSizeString
+{
+    return NSStringFromSize([self visibleContentSize]);
+}
+
+- (NSString *)pageScrollString
+{
+    return NSStringFromPoint([self pageScroll]);
+}
+
 - (void)exitEditingCameraPosition
 {
     [[self windowScriptObject] callWebScriptMethod:@"exitPanAndCrop" withArguments:nil];
@@ -567,10 +598,12 @@ static id propertyListFromXMLString(NSString *string)
             return NO;
         [settings setObject:value forKey:key];
     }
-    id pageSize = [self _dashboardPreferenceForKey:@"PageSize"];
-    if (![pageSize isKindOfClass:[NSString class]])
-        return NO;
-    [settings setObject:pageSize forKey:@"PageSize"];
+    for (NSString *key in @[ @"PageSize", @"ViewportSize", @"VisibleContentSize", @"PageScroll" ]) {
+        id value = [self _dashboardPreferenceForKey:key];
+        if (![value isKindOfClass:[NSString class]])
+            return NO;
+        [settings setObject:value forKey:key];
+    }
     id playAudio = [self _dashboardPreferenceForKey:@"PlayAudioOutOfDashboard"];
     if (![playAudio isKindOfClass:[NSNumber class]])
         return NO;
@@ -613,6 +646,67 @@ static id propertyListFromXMLString(NSString *string)
     return YES;
 }
 
+// Safari places the clip relative to the scroll offset document.body reports, which is zero for a
+// standards-mode page, so its rectangles are in the viewport's coordinates there. The tab that made the
+// clip still shows the page as it was clipped, and reports its scroll offset and the viewport it was laid
+// out in. Safari answers the event once the page runs the script, so the event waits off the main thread.
+static NSString * const WCSafariPageStateScript = @"JSON.stringify([scrollX, scrollY, document.body ? document.body.scrollLeft : 0, document.body ? document.body.scrollTop : 0, innerWidth, innerHeight, document.documentElement.clientWidth, document.documentElement.clientHeight, location.href])";
+
+static NSAppleEventDescriptor *safariFrontTabSpecifier(void)
+{
+    NSAppleEventDescriptor *window = [NSAppleEventDescriptor recordDescriptor];
+    [window setDescriptor:[NSAppleEventDescriptor descriptorWithTypeCode:'cwin'] forKeyword:keyAEDesiredClass];
+    [window setDescriptor:[NSAppleEventDescriptor descriptorWithEnumCode:formAbsolutePosition] forKeyword:keyAEKeyForm];
+    [window setDescriptor:[NSAppleEventDescriptor descriptorWithInt32:1] forKeyword:keyAEKeyData];
+    [window setDescriptor:[NSAppleEventDescriptor nullDescriptor] forKeyword:keyAEContainer];
+    NSAppleEventDescriptor *tab = [NSAppleEventDescriptor recordDescriptor];
+    [tab setDescriptor:[NSAppleEventDescriptor descriptorWithTypeCode:cProperty] forKeyword:keyAEDesiredClass];
+    [tab setDescriptor:[NSAppleEventDescriptor descriptorWithEnumCode:formPropertyID] forKeyword:keyAEKeyForm];
+    [tab setDescriptor:[NSAppleEventDescriptor descriptorWithTypeCode:'cTab'] forKeyword:keyAEKeyData];
+    [tab setDescriptor:[window coerceToDescriptorType:typeObjectSpecifier] forKeyword:keyAEContainer];
+    return [tab coerceToDescriptorType:typeObjectSpecifier];
+}
+
+static void requestPageStateOfSafariTab(NSString *URLString, void (^completionHandler)(NSDictionary *pageState))
+{
+    NSData *safari = [@"com.apple.Safari" dataUsingEncoding:NSUTF8StringEncoding];
+    NSAppleEventDescriptor *target = [NSAppleEventDescriptor descriptorWithDescriptorType:typeApplicationBundleID data:safari];
+    NSAppleEventDescriptor *event = [NSAppleEventDescriptor appleEventWithEventClass:'sfri' eventID:'dojs' targetDescriptor:target returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
+    [event setParamDescriptor:[NSAppleEventDescriptor descriptorWithString:WCSafariPageStateScript] forKeyword:keyDirectObject];
+    [event setParamDescriptor:safariFrontTabSpecifier() forKeyword:'dcnm'];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        AppleEvent replyEvent;
+        OSStatus status = AESendMessage([event aeDesc], &replyEvent, kAEWaitReply | kAENeverInteract, kAEDefaultTimeout);
+        NSString *result = nil;
+        if (status == noErr) {
+            NSAppleEventDescriptor *reply = [[NSAppleEventDescriptor alloc] initWithAEDescNoCopy:&replyEvent];
+            result = [[reply paramDescriptorForKeyword:keyDirectObject] stringValue];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSArray *values = result ? [NSJSONSerialization JSONObjectWithData:[result dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
+            if (![values isKindOfClass:[NSArray class]] || [values count] != 9) {
+                NSLog(@"Web Clip: Safari did not report the clipped page (%d)", (int)status);
+                completionHandler(nil);
+                return;
+            }
+            NSString *pageURLString = [values objectAtIndex:8];
+            if (![[[NSURL URLWithString:pageURLString] absoluteString] isEqualToString:[[NSURL URLWithString:URLString] absoluteString]]) {
+                NSLog(@"Web Clip: Safari's tab shows %@, not the clipped %@", pageURLString, URLString);
+                completionHandler(nil);
+                return;
+            }
+            double scrollX = [[values objectAtIndex:0] doubleValue];
+            double scrollY = [[values objectAtIndex:1] doubleValue];
+            completionHandler(@{
+                @"Offset": [NSValue valueWithPoint:NSMakePoint(scrollX - [[values objectAtIndex:2] doubleValue], scrollY - [[values objectAtIndex:3] doubleValue])],
+                @"ViewportSize": NSStringFromSize(NSMakeSize([[values objectAtIndex:4] doubleValue], [[values objectAtIndex:5] doubleValue])),
+                @"VisibleContentSize": NSStringFromSize(NSMakeSize([[values objectAtIndex:6] doubleValue], [[values objectAtIndex:7] doubleValue])),
+                @"PageScroll": NSStringFromPoint(NSMakePoint(scrollX, scrollY)),
+            });
+        });
+    });
+}
+
 // Safari passes the clip's settings as a property list serialized into the Parameters string.
 - (BOOL)readSettingsFromSafari:(id)startupRequest
 {
@@ -628,12 +722,31 @@ static id propertyListFromXMLString(NSString *string)
     NSString *clipRectString = [settings _web_stringForKey:@"ClipRect"];
     if (!clipRectString)
         return NO;
-    NSRect clipRect = NSRectFromString(clipRectString);
-    Class themeClass = [WebClipper defaultThemeClass];
-    clipRect.size.height += [themeClass borderTop] + [themeClass borderBottom];
-    clipRect.size.width += [themeClass borderLeft] + [themeClass borderRight];
-    [settings setObject:NSStringFromRect(clipRect) forKey:@"ClipRect"];
-    [self loadFromSettings:settings displayLoadingText:YES resizeWidget:YES];
+    [_webClipperView displayLoadingText];
+    requestPageStateOfSafariTab([settings _web_stringForKey:@"URL"], ^(NSDictionary *pageState) {
+        if (!_webClipperView)
+            return;
+        if (!pageState) {
+            _hasSettings = NO;
+            [self loadWelcome];
+            return;
+        }
+        NSPoint offset = [[pageState objectForKey:@"Offset"] pointValue];
+        [settings setObject:[pageState objectForKey:@"ViewportSize"] forKey:@"ViewportSize"];
+        [settings setObject:[pageState objectForKey:@"VisibleContentSize"] forKey:@"VisibleContentSize"];
+        [settings setObject:[pageState objectForKey:@"PageScroll"] forKey:@"PageScroll"];
+        NSMutableDictionary *signature = [settings objectForKey:@"ClipSignature"];
+        NSString *originalBorderRect = [signature isKindOfClass:[NSMutableDictionary class]] ? [signature _web_stringForKey:@"ClipSignatureOriginalBorderRect"] : nil;
+        if (originalBorderRect)
+            [signature setObject:NSStringFromRect(NSOffsetRect(NSRectFromString(originalBorderRect), offset.x, offset.y)) forKey:@"ClipSignatureOriginalBorderRect"];
+
+        NSRect clipRect = NSOffsetRect(NSRectFromString(clipRectString), offset.x, offset.y);
+        Class themeClass = [WebClipper defaultThemeClass];
+        clipRect.size.height += [themeClass borderTop] + [themeClass borderBottom];
+        clipRect.size.width += [themeClass borderLeft] + [themeClass borderRight];
+        [settings setObject:NSStringFromRect(clipRect) forKey:@"ClipRect"];
+        [self loadFromSettings:settings displayLoadingText:YES resizeWidget:YES];
+    });
     return YES;
 }
 

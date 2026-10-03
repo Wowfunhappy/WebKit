@@ -637,9 +637,11 @@
         return rects;
     }
 
-    // The plug-in places the web view at the page's vertical scroll offset, so it hears of every
-    // scroll and of every change to the document's height.
+    // The plug-in places the web view at the page's scroll offset, so it hears of every scroll and of
+    // every change to the document's size.
+    let reportedScrollX = window.scrollX;
     let reportedScrollY = window.scrollY;
+    let reportedDocumentWidth = 0;
     let reportedDocumentHeight = 0;
 
     function postToPlugIn(message)
@@ -649,37 +651,48 @@
 
     function reportScroll()
     {
-        if (window.scrollY === reportedScrollY)
+        if (window.scrollX === reportedScrollX && window.scrollY === reportedScrollY)
             return;
+        reportedScrollX = window.scrollX;
         reportedScrollY = window.scrollY;
-        postToPlugIn({ type: 'scroll', y: reportedScrollY });
+        postToPlugIn({ type: 'scroll', x: reportedScrollX, y: reportedScrollY });
     }
 
-    function reportDocumentHeight()
+    function reportDocumentSize()
     {
+        const width = document.documentElement.scrollWidth;
         const height = document.documentElement.scrollHeight;
-        if (height === reportedDocumentHeight)
+        if (width === reportedDocumentWidth && height === reportedDocumentHeight)
             return;
+        reportedDocumentWidth = width;
         reportedDocumentHeight = height;
-        postToPlugIn({ type: 'documentHeight', height });
+        postToPlugIn({ type: 'documentSize', width, height });
     }
 
-    function scrollToY(y)
+    function scrollToPoint(point)
     {
-        window.scrollTo(window.scrollX, y);
+        window.scrollTo(point.x, point.y);
+        reportedScrollX = window.scrollX;
         reportedScrollY = window.scrollY;
-        return reportedScrollY;
+        return { x: reportedScrollX, y: reportedScrollY };
     }
 
+    // The document grows with the body when the root element keeps the viewport's height.
     window.addEventListener('scroll', reportScroll, { passive: true });
-    const documentResizeObserver = new ResizeObserver(reportDocumentHeight);
-    if (document.documentElement)
+    const documentResizeObserver = new ResizeObserver(reportDocumentSize);
+    function observeDocumentSize()
+    {
         documentResizeObserver.observe(document.documentElement);
+        if (document.body)
+            documentResizeObserver.observe(document.body);
+    }
+    if (document.body)
+        observeDocumentSize();
     else
-        document.addEventListener('DOMContentLoaded', () => documentResizeObserver.observe(document.documentElement), { once: true });
+        document.addEventListener('DOMContentLoaded', observeDocumentSize, { once: true });
 
     const api = Object.freeze({
-        scrollToY,
+        scrollToPoint,
         rectForSignature,
         snapNodes,
         draggableRects,

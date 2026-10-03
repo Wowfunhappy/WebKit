@@ -32,6 +32,7 @@
 - (WebClipper *)controller;
 - (WebScriptObject *)widgetScriptObject;
 
+- (void)displayLoadingText;
 - (void)loadURLString:(NSString *)URLString clipRect:(NSRect)clipRect clipSignature:(NSDictionary *)clipSignature pageSize:(NSSize)pageSize displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget;
 - (void)setTheme:(int)themeID;
 - (void)switchToThemeAtIndex:(unsigned)index;

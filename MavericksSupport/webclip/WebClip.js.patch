@@ -1,6 +1,26 @@
 --- WebClip.js
 +++ WebClip.js
-@@ -480,7 +480,15 @@
+@@ -160,6 +160,9 @@
+     widget.setPreferenceForKey(webClip.fixedWidthFontSize(), createkey("FixedWidthFontSize"));
+     widget.setPreferenceForKey(webClip.minimumFontSize(), createkey("MinimumFontSize"));
+     widget.setPreferenceForKey(webClip.pageSizeString(), createkey("PageSize"));
++    widget.setPreferenceForKey(webClip.viewportSizeString(), createkey("ViewportSize"));
++    widget.setPreferenceForKey(webClip.visibleContentSizeString(), createkey("VisibleContentSize"));
++    widget.setPreferenceForKey(webClip.pageScrollString(), createkey("PageScroll"));
+     widget.setPreferenceForKey(webClip.standardFont(), createkey("StandardFont"));
+     widget.setPreferenceForKey(webClip.standardFontSize(), createkey("StandardFontSize"));
+     widget.setPreferenceForKey(webClip.textSizeMultiplier(), createkey("TextSizeMultiplier"));
+@@ -194,6 +197,9 @@
+     widget.setPreferenceForKey(null, createkey("FixedWidthFontSize"));
+     widget.setPreferenceForKey(null, createkey("MinimumFontSize"));
+     widget.setPreferenceForKey(null, createkey("PageSize"));
++    widget.setPreferenceForKey(null, createkey("ViewportSize"));
++    widget.setPreferenceForKey(null, createkey("VisibleContentSize"));
++    widget.setPreferenceForKey(null, createkey("PageScroll"));
+     widget.setPreferenceForKey(null, createkey("PlayAudioOutOfDashboard"));
+     widget.setPreferenceForKey(null, createkey("StandardFont"));
+     widget.setPreferenceForKey(null, createkey("StandardFontSize"));
+@@ -480,7 +486,15 @@
          widget.resizeAndMoveTo(window.screenX + backXOffset, window.screenY + backYOffset, backsideWidth, backsideHeight);
      }
      
