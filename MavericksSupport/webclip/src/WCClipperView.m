@@ -1339,7 +1339,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     WKWebView *webView = _webView;
     NSURL *url = [request URL];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSDictionary *storage = WCSafariLocalStorageForSite(url);
+        NSDictionary *storage = WCTakeSafariStorageForSite(url);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (webView != _webView)
                 return;
