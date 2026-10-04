@@ -4,6 +4,11 @@
 // so the user cannot scroll the clip's page. The bundle gives each page's main frame the scrolling mode
 // of a scrolling="no" frame, which every view the frame creates takes on: the user cannot scroll it,
 // and the plug-in still scrolls it to show the clip.
+//
+// The plug-in scrolls each page it loads to the clip's recorded place at commit, before the page is
+// built, so the main frame's scroll position does not anchor to content until the plug-in says the
+// clip has its place in the page; from then on it does, and keeps the clip's content in view when the
+// page changes above it.
 
 #include "cmakeconfig.h"
 
@@ -13,19 +18,84 @@
 #include <pal/ExportMacros.h>
 #include <wtf/text/WTFString.h>
 
+#include <WebCore/DocumentView.h>
 #include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
+#include <WebCore/ScrollAnchoringSuppressionHandle.h>
 #include <WebKit/WKBundle.h>
 #include <WebKit/WKBundleFrame.h>
 #include <WebKit/WKBundleInitialize.h>
 #include <WebKit/WKBundlePage.h>
+#include <WebKit/WKBundlePageLoaderClient.h>
+#include <WebKit/WKString.h>
+#include <wtf/HashMap.h>
+#include <wtf/NeverDestroyed.h>
+#include <memory>
+#include <utility>
+
+struct ClipPage {
+    ~ClipPage() { anchorPageScroll(); }
+
+    void anchorPageScroll()
+    {
+        WebCore::endScrollAnchoringSuppression(std::exchange(anchoringSuppression, nullptr));
+    }
+
+    RefPtr<WebCore::LocalFrame> mainFrame;
+    WebCore::ScrollAnchoringSuppressionScope* anchoringSuppression { nullptr };
+};
+
+static HashMap<WKBundlePageRef, std::unique_ptr<ClipPage>>& clipPages()
+{
+    static NeverDestroyed<HashMap<WKBundlePageRef, std::unique_ptr<ClipPage>>> pages;
+    return pages;
+}
+
+static void didCommitLoadForFrame(WKBundlePageRef page, WKBundleFrameRef frame, WKTypeRef*, const void*)
+{
+    if (!WKBundleFrameIsMainFrame(frame))
+        return;
+    auto* clipPage = clipPages().get(page);
+    if (!clipPage)
+        return;
+    clipPage->anchorPageScroll();
+    if (RefPtr view = clipPage->mainFrame->view())
+        clipPage->anchoringSuppression = WebCore::beginScrollAnchoringSuppression(*view);
+}
 
 static void didCreatePage(WKBundleRef, WKBundlePageRef page, const void*)
 {
     WKBundleFrameRef mainFrame = WKBundlePageGetMainFrame(page);
     if (!mainFrame)
         return;
-    if (RefPtr frame = WebCore::LocalFrame::fromJSContext(WKBundleFrameGetJavaScriptContext(mainFrame)))
-        frame->setScrollingMode(WebCore::ScrollbarMode::AlwaysOff);
+    RefPtr frame = WebCore::LocalFrame::fromJSContext(WKBundleFrameGetJavaScriptContext(mainFrame));
+    if (!frame)
+        return;
+    frame->setScrollingMode(WebCore::ScrollbarMode::AlwaysOff);
+    auto clipPage = std::make_unique<ClipPage>();
+    clipPage->mainFrame = WTF::move(frame);
+    clipPages().set(page, WTF::move(clipPage));
+
+    static WKBundlePageLoaderClientV0 loaderClient = [] {
+        WKBundlePageLoaderClientV0 client { };
+        client.base.version = 0;
+        client.didCommitLoadForFrame = didCommitLoadForFrame;
+        return client;
+    }();
+    WKBundlePageSetPageLoaderClient(page, &loaderClient.base);
+}
+
+static void willDestroyPage(WKBundleRef, WKBundlePageRef page, const void*)
+{
+    clipPages().remove(page);
+}
+
+static void didReceiveMessageToPage(WKBundleRef, WKBundlePageRef page, WKStringRef name, WKTypeRef, const void*)
+{
+    if (!WKStringIsEqualToUTF8CString(name, "AnchorPageScroll"))
+        return;
+    if (auto* clipPage = clipPages().get(page))
+        clipPage->anchorPageScroll();
 }
 
 extern "C" WK_EXPORT void WKBundleInitialize(WKBundleRef bundle, WKTypeRef)
@@ -33,10 +103,10 @@ extern "C" WK_EXPORT void WKBundleInitialize(WKBundleRef bundle, WKTypeRef)
     static WKBundleClientV1 client = {
         { 1, nullptr },
         didCreatePage,
+        willDestroyPage,
         nullptr,
         nullptr,
-        nullptr,
-        nullptr,
+        didReceiveMessageToPage,
     };
     WKBundleSetClient(bundle, &client.base);
 }

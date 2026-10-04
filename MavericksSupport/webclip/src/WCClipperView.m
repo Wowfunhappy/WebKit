@@ -1370,6 +1370,19 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     }];
 }
 
+// The clip has its place in the loaded page. The injected bundle, which keeps the main frame's scroll
+// position from anchoring to content from each commit, lets it anchor until the next load; that keeps
+// the clip's content in view when the page changes above it. The clip's recorded place stays the one
+// placement gave it.
+- (void)anchorPageScroll
+{
+    if (!_webView || _isLoading)
+        return;
+    WKStringRef name = WKStringCreateWithCFString(CFSTR("AnchorPageScroll"));
+    WKPagePostMessageToInjectedBundle([_webView _pageRefForTransitionToWKWebView], name, NULL);
+    WKRelease(name);
+}
+
 // After a load, the page builds the element the clip shows; the clip stays once the element is back
 // where it was, and otherwise follows the page agent's match at the deadline. A clip just made from
 // Safari shows the selection, and is signed once the element Safari signed lies there.
@@ -1385,6 +1398,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
             if (webView != _webView || _isEditingCameraPosition || ![result isKindOfClass:[NSDictionary class]])
                 return;
             [self adjustClipToRect:rectFromPageRect(result[@"rect"])];
+            [self anchorPageScroll];
         }];
         return;
     }
@@ -1396,6 +1410,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
             return;
         [controller setClipSignature:newSignature];
         [controller savePreferencesToDisk];
+        [self anchorPageScroll];
     }];
 }
 
@@ -1548,10 +1563,8 @@ static WKProcessPool *clipProcessPool(void)
     proxy.view = self;
     [userContentController addScriptMessageHandler:proxy contentWorld:_pageWorld name:@"webClip"];
 
-    // The main frame shows no scroll bars; the web view takes the size Safari's left to the page. The clip
-    // is a rect of the document, as stock's document-sized WebView showed it, so the main frame's scroll
-    // position does not anchor to content.
-    [userContentController _addUserStyleSheet:[[_WKUserStyleSheet alloc] initWithSource:@":root { scrollbar-width: none !important; overflow-anchor: none !important; }" forMainFrameOnly:YES]];
+    // The main frame shows no scroll bars; the web view takes the size Safari's left to the page.
+    [userContentController _addUserStyleSheet:[[_WKUserStyleSheet alloc] initWithSource:@":root { scrollbar-width: none !important; }" forMainFrameOnly:YES]];
 
     NSString *userStyleSheetPath = [controller userStyleSheetPath];
     if (userStyleSheetPath) {

@@ -468,6 +468,8 @@ list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.cpp
     # The article document Safari 7's Reader article finder runs against.
     ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.cpp
+    # Scroll anchoring suppression the Web Clip plug-in's injected bundle holds.
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/ScrollAnchoringSuppressionHandle.cpp
 )
 # SafariReaderMozillaReadability.cpp evaluates Readability and the script that builds the article
 # document from it as one source.
@@ -507,6 +509,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
     ${MAVERICKS_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.h
     ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/ScrollAnchoringSuppressionHandle.h
     # The classic inspector frontend's bridge script, which both ports inject.
     ${MAVERICKS_SUPPORT}/source/WebCore/inspector/InspectorFrontendClassicBridge.h
 )

@@ -7,6 +7,7 @@ typedef const struct OpaqueWKString *WKStringRef;
 extern void WKPageSetCustomTextEncodingName(WKPageRef, WKStringRef);
 extern WKStringRef WKStringCreateWithCFString(CFStringRef);
 extern void WKRelease(const void *);
+extern void WKPagePostMessageToInjectedBundle(WKPageRef, WKStringRef, const void *messageBody);
 
 @interface WKPreferences (WCWebKitSPI)
 @property (nonatomic, setter=_setStandardFontFamily:) NSString *_standardFontFamily;
