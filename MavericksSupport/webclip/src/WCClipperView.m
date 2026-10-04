@@ -284,7 +284,7 @@ static NSRect rectFromPageRect(id value)
     WCVoidView *_voidView;
     WCVoidView *_pageCover;
     WKWebView *_webView;
-    WKContentWorld *_pageWorld;
+    WKContentWorld *_clipWorld;
     WKUserScript *_agentScript;
     NSPoint _mouseDownPoint;
     NSSize _mouseDownWindowSize;
@@ -1380,7 +1380,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     if (!json)
         return;
     NSString *source = [NSString stringWithFormat:@"(function (storage) { const items = storage[location.origin]; if (!items) return; try { for (const key of Object.keys(items)) { if (localStorage.getItem(key) !== items[key]) localStorage.setItem(key, items[key]); } } catch (e) { } })(%@);", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
-    [userContentController addUserScript:[[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_pageWorld]];
+    [userContentController addUserScript:[[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_clipWorld]];
 }
 
 - (void)reload:(id)sender
@@ -1486,8 +1486,11 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 
 - (void)followClipElement
 {
-    if (!_isEditingCameraPosition)
-        [self callPageFunction:@"followClipElement" argument:[self clipPageRect] completionHandler:^(id) { }];
+    if (_isEditingCameraPosition)
+        return;
+    NSMutableDictionary *argument = [[self clipPageRect] mutableCopy];
+    argument[@"viewportOrigin"] = [self clipViewportOriginArgument];
+    [self callPageFunction:@"followClipElement" argument:argument completionHandler:^(id) { }];
 }
 
 // The clip has its place in the loaded page. The injected bundle, which keeps the main frame's scroll
@@ -1514,7 +1517,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     NSDictionary *signature = [controller clipSignature];
     WKWebView *webView = _webView;
     if ([signature objectForKey:@"ClipSignatureScore"]) {
-        [self callPageFunction:@"placeBySignature" argument:@{ @"signature": signature, @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
+        [self callPageFunction:@"placeBySignature" argument:@{ @"signature": signature, @"viewportOrigin": [self clipViewportOriginArgument], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
             if (webView != _webView)
                 return;
             if (!_isEditingCameraPosition && [result isKindOfClass:[NSDictionary class]])
@@ -1523,7 +1526,8 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         }];
         return;
     }
-    [self callPageFunction:@"signRectWhenPresent" argument:@{ @"signature": signature ?: [NSNull null], @"rect": [self clipPageRect], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
+    NSArray *boxScrolls = [controller safariBoxScrolls];
+    [self callPageFunction:@"signRectWhenPresent" argument:@{ @"signature": signature ?: [NSNull null], @"rect": [self clipPageRect], @"boxScrolls": boxScrolls ?: [NSNull null], @"viewportOrigin": [self clipViewportOriginArgument], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
         if (webView != _webView)
             return;
         id newSignature = [result isKindOfClass:[NSDictionary class]] ? result[@"signature"] : nil;
@@ -1685,17 +1689,14 @@ static WKProcessPool *clipProcessPool(void)
     preferences.elementFullscreenEnabled = YES;
 
     WKUserContentController *userContentController = configuration.userContentController;
-    _pageWorld = [WKContentWorld worldWithName:@"WebClip"];
+    _clipWorld = [WKContentWorld worldWithName:@"WebClip"];
     NSString *agentPath = [[NSBundle bundleForClass:[WCClipperView class]] pathForResource:@"WCPageAgent" ofType:@"js"];
     NSString *agentSource = [NSString stringWithContentsOfFile:agentPath encoding:NSUTF8StringEncoding error:nil];
-    _agentScript = [[WKUserScript alloc] initWithSource:agentSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_pageWorld];
+    _agentScript = [[WKUserScript alloc] initWithSource:agentSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_clipWorld];
     [userContentController addUserScript:_agentScript];
     WCScriptMessageProxy *proxy = [[WCScriptMessageProxy alloc] init];
     proxy.view = self;
-    [userContentController addScriptMessageHandler:proxy contentWorld:_pageWorld name:@"webClip"];
-
-    // The main frame shows no scroll bars; the web view takes the size Safari's left to the page.
-    [userContentController _addUserStyleSheet:[[_WKUserStyleSheet alloc] initWithSource:@":root { scrollbar-width: none !important; }" forMainFrameOnly:YES]];
+    [userContentController addScriptMessageHandler:proxy contentWorld:_clipWorld name:@"webClip"];
 
     NSString *userStyleSheetPath = [controller userStyleSheetPath];
     if (userStyleSheetPath) {
@@ -1765,6 +1766,12 @@ static WKProcessPool *clipProcessPool(void)
 {
     NSPoint anchor = _hasPageScrollTarget ? _pageScrollTarget : _pageScroll;
     return NSMakePoint(_clipViewportOrigin.x + anchor.x, _clipViewportOrigin.y + anchor.y);
+}
+
+// Where the clip lies in the viewport, for the page agent.
+- (NSDictionary *)clipViewportOriginArgument
+{
+    return @{ @"x": @(_clipViewportOrigin.x), @"y": @(_clipViewportOrigin.y) };
 }
 
 - (NSDictionary *)clipPageRect
@@ -2400,12 +2407,12 @@ static NSData *pixelsOfImage(NSImage *image, NSSize *pixelSize)
 
 - (void)callPageFunction:(NSString *)name argument:(id)argument completionHandler:(void (^)(id result))completionHandler
 {
-    if (!_webView || !_pageWorld) {
+    if (!_webView || !_clipWorld) {
         completionHandler(nil);
         return;
     }
     NSString *body = [NSString stringWithFormat:@"return window.__webClip ? window.__webClip.%@(argument) : null;", name];
-    [_webView callAsyncJavaScript:body arguments:@{ @"argument": argument ?: [NSNull null] } inFrame:nil inContentWorld:_pageWorld completionHandler:^(id result, NSError *error) {
+    [_webView callAsyncJavaScript:body arguments:@{ @"argument": argument ?: [NSNull null] } inFrame:nil inContentWorld:_clipWorld completionHandler:^(id result, NSError *error) {
         completionHandler(error || [result isKindOfClass:[NSNull class]] ? nil : result);
     }];
 }

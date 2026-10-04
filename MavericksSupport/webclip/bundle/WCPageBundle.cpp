@@ -27,6 +27,7 @@
 #include <WebKit/WKBundleInitialize.h>
 #include <WebKit/WKBundlePage.h>
 #include <WebKit/WKBundlePageLoaderClient.h>
+#include <WebKit/WKBundleScriptWorld.h>
 #include <WebKit/WKString.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -51,6 +52,16 @@ static HashMap<WKBundlePageRef, std::unique_ptr<ClipPage>>& clipPages()
     return pages;
 }
 
+// The bundle reaches the main frame through a script world of its own, never the page's: a wrapper the
+// page's world got early would stay with the window WebKit hands on to the first page loaded, and one
+// made for the frame's initial empty document lacks the interfaces of a secure context, such as
+// SubtleCrypto and CryptoKey.
+static WKBundleScriptWorldRef bundleWorld()
+{
+    static WKBundleScriptWorldRef world = WKBundleScriptWorldCreateWorld();
+    return world;
+}
+
 static void didCommitLoadForFrame(WKBundlePageRef page, WKBundleFrameRef frame, WKTypeRef*, const void*)
 {
     if (!WKBundleFrameIsMainFrame(frame))
@@ -58,6 +69,13 @@ static void didCommitLoadForFrame(WKBundlePageRef page, WKBundleFrameRef frame, 
     auto* clipPage = clipPages().get(page);
     if (!clipPage)
         return;
+    if (!clipPage->mainFrame) {
+        RefPtr mainFrame = WebCore::LocalFrame::fromJSContext(WKBundleFrameGetJavaScriptContextForWorld(frame, bundleWorld()));
+        if (!mainFrame)
+            return;
+        mainFrame->setScrollingMode(WebCore::ScrollbarMode::AlwaysOff);
+        clipPage->mainFrame = WTF::move(mainFrame);
+    }
     clipPage->anchorPageScroll();
     if (RefPtr view = clipPage->mainFrame->view())
         clipPage->anchoringSuppression = WebCore::beginScrollAnchoringSuppression(*view);
@@ -65,16 +83,7 @@ static void didCommitLoadForFrame(WKBundlePageRef page, WKBundleFrameRef frame, 
 
 static void didCreatePage(WKBundleRef, WKBundlePageRef page, const void*)
 {
-    WKBundleFrameRef mainFrame = WKBundlePageGetMainFrame(page);
-    if (!mainFrame)
-        return;
-    RefPtr frame = WebCore::LocalFrame::fromJSContext(WKBundleFrameGetJavaScriptContext(mainFrame));
-    if (!frame)
-        return;
-    frame->setScrollingMode(WebCore::ScrollbarMode::AlwaysOff);
-    auto clipPage = std::make_unique<ClipPage>();
-    clipPage->mainFrame = WTF::move(frame);
-    clipPages().set(page, WTF::move(clipPage));
+    clipPages().set(page, std::make_unique<ClipPage>());
 
     static WKBundlePageLoaderClientV0 loaderClient = [] {
         WKBundlePageLoaderClientV0 client { };

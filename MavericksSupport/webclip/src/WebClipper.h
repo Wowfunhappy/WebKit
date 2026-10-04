@@ -29,6 +29,9 @@
 @property (nonatomic) NSSize viewportSize;
 @property (nonatomic) NSSize visibleContentSize;
 @property (nonatomic) NSPoint pageScroll;
+// For a clip just made from Safari, how far Safari had scrolled each box under the middle of the
+// selection that scrolls vertically, outermost first.
+@property (nonatomic, copy) NSArray<NSNumber *> *safariBoxScrolls;
 
 - (NSView *)view;
 - (WebView *)dashboardWebView;

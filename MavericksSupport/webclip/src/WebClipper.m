@@ -27,6 +27,7 @@
     NSSize _viewportSize;
     NSSize _visibleContentSize;
     NSPoint _pageScroll;
+    NSArray<NSNumber *> *_safariBoxScrolls;
     float _textSizeMultiplier;
     BOOL _playAudioOutOfDashboard;
     BOOL _hasSettings;
@@ -42,6 +43,7 @@
 @synthesize viewportSize = _viewportSize;
 @synthesize visibleContentSize = _visibleContentSize;
 @synthesize pageScroll = _pageScroll;
+@synthesize safariBoxScrolls = _safariBoxScrolls;
 @synthesize clipSignature = _clipSignature;
 
 + (NSString *)bundleIdentifier
@@ -314,6 +316,8 @@
     [self setViewportSize:NSSizeFromString([settings _web_stringForKey:@"ViewportSize"])];
     [self setVisibleContentSize:NSSizeFromString([settings _web_stringForKey:@"VisibleContentSize"])];
     [self setPageScroll:NSPointFromString([settings _web_stringForKey:@"PageScroll"])];
+    id safariBoxScrolls = [settings objectForKey:@"SafariBoxScrolls"];
+    [self setSafariBoxScrolls:[safariBoxScrolls isKindOfClass:[NSArray class]] ? safariBoxScrolls : nil];
 
     id signature = [settings objectForKey:@"ClipSignature"];
     NSDictionary *clipSignature = [signature isKindOfClass:[NSDictionary class]] ? signature : nil;
@@ -649,8 +653,23 @@ static id propertyListFromXMLString(NSString *string)
 // Safari places the clip relative to the scroll offset document.body reports, which is zero for a
 // standards-mode page, so its rectangles are in the viewport's coordinates there. The tab that made the
 // clip still shows the page as it was clipped, and reports its scroll offset and the viewport it was laid
-// out in. Safari answers the event once the page runs the script, so the event waits off the main thread.
-static NSString * const WCSafariPageStateScript = @"JSON.stringify([scrollX, scrollY, document.body ? document.body.scrollLeft : 0, document.body ? document.body.scrollTop : 0, innerWidth, innerHeight, document.documentElement.clientWidth, document.documentElement.clientHeight, location.href])";
+// out in, and how far it has scrolled each box that scrolls vertically under the middle of the selection:
+// the boxes holding the topmost element there that lies in any, below whatever overlays the selection.
+// Safari runs the script in the page's own world, the only one its scripting reaches; the script is one
+// expression that only reads. Safari answers the event once the page runs the script, so the event waits
+// off the main thread.
+static NSString * const WCSafariPageStateScriptFormat = @"(function (x, y) {"
+    "var body = document.body;"
+    "var boxScrolls = [];"
+    "var stack = document.elementsFromPoint(x + (body ? body.scrollLeft : 0) - scrollX, y + (body ? body.scrollTop : 0) - scrollY);"
+    "for (var i = 0; i < stack.length && !boxScrolls.length; ++i) {"
+        "for (var element = stack[i].parentElement; element && element !== body && element !== document.documentElement; element = element.parentElement) {"
+            "if (element.scrollHeight > element.clientHeight && /^(auto|scroll)$/.test(getComputedStyle(element).overflowY))"
+                "boxScrolls.unshift(element.scrollTop);"
+        "}"
+    "}"
+    "return JSON.stringify([scrollX, scrollY, body ? body.scrollLeft : 0, body ? body.scrollTop : 0, innerWidth, innerHeight, document.documentElement.clientWidth, document.documentElement.clientHeight, location.href, boxScrolls]);"
+"})(%f, %f)";
 
 static NSAppleEventDescriptor *safariFrontTabSpecifier(void)
 {
@@ -667,12 +686,13 @@ static NSAppleEventDescriptor *safariFrontTabSpecifier(void)
     return [tab coerceToDescriptorType:typeObjectSpecifier];
 }
 
-static void requestPageStateOfSafariTab(NSString *URLString, void (^completionHandler)(NSDictionary *pageState))
+static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, void (^completionHandler)(NSDictionary *pageState))
 {
+    NSString *script = [NSString stringWithFormat:WCSafariPageStateScriptFormat, NSMidX(clipRect), NSMidY(clipRect)];
     NSData *safari = [@"com.apple.Safari" dataUsingEncoding:NSUTF8StringEncoding];
     NSAppleEventDescriptor *target = [NSAppleEventDescriptor descriptorWithDescriptorType:typeApplicationBundleID data:safari];
     NSAppleEventDescriptor *event = [NSAppleEventDescriptor appleEventWithEventClass:'sfri' eventID:'dojs' targetDescriptor:target returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
-    [event setParamDescriptor:[NSAppleEventDescriptor descriptorWithString:WCSafariPageStateScript] forKeyword:keyDirectObject];
+    [event setParamDescriptor:[NSAppleEventDescriptor descriptorWithString:script] forKeyword:keyDirectObject];
     [event setParamDescriptor:safariFrontTabSpecifier() forKeyword:'dcnm'];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         AppleEvent replyEvent;
@@ -684,7 +704,7 @@ static void requestPageStateOfSafariTab(NSString *URLString, void (^completionHa
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             NSArray *values = result ? [NSJSONSerialization JSONObjectWithData:[result dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
-            if (![values isKindOfClass:[NSArray class]] || [values count] != 9) {
+            if (![values isKindOfClass:[NSArray class]] || [values count] != 10 || ![[values objectAtIndex:9] isKindOfClass:[NSArray class]]) {
                 NSLog(@"Web Clip: Safari did not report the clipped page (%d)", (int)status);
                 completionHandler(nil);
                 return;
@@ -702,6 +722,7 @@ static void requestPageStateOfSafariTab(NSString *URLString, void (^completionHa
                 @"ViewportSize": NSStringFromSize(NSMakeSize([[values objectAtIndex:4] doubleValue], [[values objectAtIndex:5] doubleValue])),
                 @"VisibleContentSize": NSStringFromSize(NSMakeSize([[values objectAtIndex:6] doubleValue], [[values objectAtIndex:7] doubleValue])),
                 @"PageScroll": NSStringFromPoint(NSMakePoint(scrollX, scrollY)),
+                @"SafariBoxScrolls": [values objectAtIndex:9],
             });
         });
     });
@@ -723,7 +744,7 @@ static void requestPageStateOfSafariTab(NSString *URLString, void (^completionHa
     if (!clipRectString)
         return NO;
     [_webClipperView displayLoadingText];
-    requestPageStateOfSafariTab([settings _web_stringForKey:@"URL"], ^(NSDictionary *pageState) {
+    requestPageStateOfSafariTab([settings _web_stringForKey:@"URL"], NSRectFromString(clipRectString), ^(NSDictionary *pageState) {
         if (!_webClipperView)
             return;
         if (!pageState) {
@@ -735,6 +756,7 @@ static void requestPageStateOfSafariTab(NSString *URLString, void (^completionHa
         [settings setObject:[pageState objectForKey:@"ViewportSize"] forKey:@"ViewportSize"];
         [settings setObject:[pageState objectForKey:@"VisibleContentSize"] forKey:@"VisibleContentSize"];
         [settings setObject:[pageState objectForKey:@"PageScroll"] forKey:@"PageScroll"];
+        [settings setObject:[pageState objectForKey:@"SafariBoxScrolls"] forKey:@"SafariBoxScrolls"];
         NSMutableDictionary *signature = [settings objectForKey:@"ClipSignature"];
         NSString *originalBorderRect = [signature isKindOfClass:[NSMutableDictionary class]] ? [signature _web_stringForKey:@"ClipSignatureOriginalBorderRect"] : nil;
         if (originalBorderRect)
