@@ -1128,15 +1128,6 @@
         clipFollower = null;
     }
 
-    // Whether a video or audio element whose box meets the rect is playing; an audio element has no box,
-    // and plays for the whole page.
-    function isPlayingMediaInRect(argument)
-    {
-        const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
-        const boundingBox = createMeasurer();
-        return Array.prototype.some.call(document.querySelectorAll('video, audio'), media => !media.paused && !media.ended && (media.localName === 'audio' || !isZeroRect(intersectRects(boundingBox(media), rect))));
-    }
-
     // Resolves once no image whose box meets the rect is still loading, or at the deadline. Pages load
     // images after their load event, and script puts images in place of placeholders, so this is
     // checked as images load and as the document changes.
@@ -1279,7 +1270,6 @@
         signRect,
         signRectWhenPresent,
         whenImagesInRectLoad,
-        isPlayingMediaInRect,
         followClipElement,
         stopFollowingClipElement,
         snapNodes,
