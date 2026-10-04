@@ -34,3 +34,11 @@
 ;; the two capabilities the socket path exercises.
 (allow network-bind (local udp))
 (allow network-inbound (local udp))
+
+;; The shared cookie jar's directory. cookied keeps the jar in ~/Library/Cookies and replaces the jar
+;; file there when any process changes it; the cookie-change polyfill watches the directory so this
+;; process hears changes other processes make. Upstream's current profile grants this process its
+;; HTTP storage directory, ~/Library/HTTPStorages, where modern macOS keeps cookies; the watch opens
+;; only the directory itself.
+(allow file-read*
+    (home-literal "/Library/Cookies"))

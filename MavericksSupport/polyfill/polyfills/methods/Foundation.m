@@ -275,6 +275,33 @@ static void wk_cookieSubscriptionStorageChanged(CFHTTPCookieStorageRef storage, 
     }
 }
 
+// The observers above hear the changes made through a storage's handles in this process. Another process
+// changes the shared jar through cookied, which this process takes in when it next reads the jar and
+// which reaches the disk at once: cookied replaces the jar file in its directory. A change to that
+// directory refreshes every observing subscription.
+static NSHashTable *wk_observingCookieSubscriptions;
+static dispatch_source_t wk_sharedCookieJarDirectorySource;
+
+static void wk_watchSharedCookieJarDirectory(void)
+{
+    if (wk_sharedCookieJarDirectorySource)
+        return;
+    NSString *library = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    int directory = library ? open([library stringByAppendingPathComponent:@"Cookies"].fileSystemRepresentation, O_EVTONLY) : -1;
+    if (directory < 0)
+        return;
+    wk_sharedCookieJarDirectorySource = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, directory, DISPATCH_VNODE_WRITE, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(wk_sharedCookieJarDirectorySource, ^{
+        for (WKCookieChangeSubscription *subscription in wk_observingCookieSubscriptions.allObjects) {
+            CFHTTPCookieStorageRef storage = subscription->_observedStorage;
+            if (storage)
+                wk_cookieSubscriptionStorageChanged(storage, subscription);
+        }
+    });
+    dispatch_source_set_cancel_handler(wk_sharedCookieJarDirectorySource, ^{ close(directory); });
+    dispatch_resume(wk_sharedCookieJarDirectorySource);
+}
+
 @implementation WKCookieChangeSubscription
 - (BOOL)isSubscribed
 {
@@ -303,8 +330,10 @@ static void wk_cookieSubscriptionStorageChanged(CFHTTPCookieStorageRef storage, 
 - (void)updateObservationOfStorage:(CFHTTPCookieStorageRef)storage rebaseline:(BOOL)rebaseline
 {
     if (![self isSubscribed]) {
-        if (_observedStorage)
+        if (_observedStorage) {
             CFHTTPCookieStorageRemoveObserver(_observedStorage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
+            dispatch_async(dispatch_get_main_queue(), ^{ [wk_observingCookieSubscriptions removeObject:self]; });
+        }
         _observedStorage = NULL;
         [_visible release];
         _visible = nil;
@@ -317,6 +346,12 @@ static void wk_cookieSubscriptionStorageChanged(CFHTTPCookieStorageRef storage, 
     if (!_observedStorage) {
         _observedStorage = storage;
         CFHTTPCookieStorageAddObserver(storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!wk_observingCookieSubscriptions)
+                wk_observingCookieSubscriptions = [[NSHashTable weakObjectsHashTable] retain];
+            [wk_observingCookieSubscriptions addObject:self];
+            wk_watchSharedCookieJarDirectory();
+        });
     }
 }
 - (void)deliverAdded:(NSArray *)added removed:(NSArray *)removed

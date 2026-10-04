@@ -423,6 +423,16 @@ probe_cookie_notifications() {
         "$T/cookie_notifications"
 }
 
+probe_cookie_foreign_changes() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/cookie_foreign_changes" "$TBEHAV/CFNetwork-cookie-foreign-changes.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/cookie_foreign_changes"
+}
+
 probe_shared_cookie_jar() {
     prepare_method_objects Foundation &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/shared_cookie_jar" "$TBEHAV/CFNetwork-shared-cookie-jar.m" \
@@ -910,6 +920,7 @@ run_probe encode_cadence "$@"
 run_probe encode_low_latency "$@"
 run_probe public_suffix "$@"
 run_probe cookie_notifications "$@"
+run_probe cookie_foreign_changes "$@"
 run_probe display_p3_profile "$@"
 run_probe pq_profile "$@"
 run_probe hdr_gainmap "$@"
