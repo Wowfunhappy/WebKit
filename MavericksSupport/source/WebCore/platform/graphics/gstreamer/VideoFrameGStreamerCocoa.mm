@@ -236,7 +236,10 @@ void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
     case ImageOrientation::Orientation::OriginLeftTop: rotation = VideoFrame::Rotation::Left; break;
     default: break;
     }
-    auto displayFrame = VideoFrameCV::create(frame->presentationTime(), mirrored, rotation, WTF::move(pixelBuffer));
+    // LocalSampleBufferDisplayLayer takes presentation times on the host clock (MonotonicTime), as
+    // capture and WebRTC frames carry them; GstBaseSink has already clock-scheduled this frame, so it
+    // presents now. AVSampleBufferDisplayLayer schedules its layout commits at the sample's time.
+    auto displayFrame = VideoFrameCV::create(MediaTime::createWithDouble(MonotonicTime::now().secondsSinceEpoch().value()), mirrored, rotation, WTF::move(pixelBuffer));
     m_sampleBufferDisplayLayer->enqueueVideoFrame(displayFrame);
 }
 
