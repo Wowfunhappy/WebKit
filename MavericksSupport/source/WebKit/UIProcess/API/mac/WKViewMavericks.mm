@@ -216,6 +216,8 @@ struct WKViewState {
     // the view's visible rect so the tiled drawing area only backs visible content. iBooks'
     // BKWKViewTiling sends -setShouldClipToVisibleRect:YES right after creating the view.
     bool shouldClipToVisibleRect { false };
+    // a window-and-view-frames push is scheduled (WebViewImpl::m_didScheduleWindowAndViewFrameUpdate).
+    bool didScheduleWindowAndViewFrameUpdate { false };
 };
 
 // consume the pending -setFrame:andScrollBy: delta on a geometry push, mirroring
@@ -375,6 +377,8 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidChangeOcclusionStateNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidMoveNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidResizeNotification object:nil];
     [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
     // give the WebContent pid's remote-UI registration back before the view
     // that owned it goes away (the matching half of the registration made when its token arrived).
@@ -986,11 +990,34 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         return;
     WebCore::AXObjectCache::enableAccessibility();
 
-    if (!_wkState || !_wkState->page)
+    [self _wk_updateWindowAndViewFrames];
+}
+
+// the page's window frame (its screenX/screenY/outerWidth/outerHeight) and this view's
+// accessibility position follow the window, as WebViewImpl::updateWindowAndViewFrames sends them:
+// one push per run-loop turn, from window moves and resizes, gstate renewal, moving to a window and
+// accessibility starting.
+- (void)_wk_updateWindowAndViewFrames
+{
+    if (!_wkState || !_wkState->page || _wkState->didScheduleWindowAndViewFrameUpdate)
         return;
-    NSRect viewFrameInWindowCoordinates = [self convertRect:[self frame] toView:nil];
-    NSPoint accessibilityPosition = [[self accessibilityAttributeValue:NSAccessibilityPositionAttribute] pointValue];
-    _wkState->page->windowAndViewFramesChanged(WebCore::FloatRect(viewFrameInWindowCoordinates), WebCore::FloatPoint(accessibilityPosition));
+    _wkState->didScheduleWindowAndViewFrameUpdate = true;
+    RunLoop::mainSingleton().dispatch([view = RetainPtr { self }] {
+        WKViewState* state = view.get()->_wkState;
+        if (!state || !state->page)
+            return;
+        state->didScheduleWindowAndViewFrameUpdate = false;
+        NSPoint accessibilityPosition = NSZeroPoint;
+        if (WebCore::AXObjectCache::accessibilityEnabled())
+            accessibilityPosition = [[view accessibilityAttributeValue:NSAccessibilityPositionAttribute] pointValue];
+        state->page->windowAndViewFramesChanged(WebCore::FloatRect(), WebCore::FloatPoint(accessibilityPosition));
+    });
+}
+
+- (void)_wk_windowDidMoveOrResize:(NSNotification *)notification
+{
+    UNUSED_PARAM(notification);
+    [self _wk_updateWindowAndViewFrames];
 }
 
 - (id)accessibilityAttributeValue:(NSString *)attribute
@@ -1249,8 +1276,10 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // this signal is what re-clips the exposed rect once the window reaches full size.
 - (void)renewGState
 {
-    if ([self window])
+    if ([self window]) {
         [self _updateViewExposedRect];
+        [self _wk_updateWindowAndViewFrames];
+    }
     [super renewGState];
 }
 
@@ -1317,6 +1346,14 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     [backingCenter removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
     [backingCenter removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
     [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeKeyState:) name:NSWindowDidBecomeKeyNotification object:nil];
+    // window moves and resizes, which WebViewImpl observes for updateWindowAndViewFrames.
+    [backingCenter removeObserver:self name:NSWindowDidMoveNotification object:nil];
+    [backingCenter removeObserver:self name:NSWindowDidResizeNotification object:nil];
+    if (NSWindow *window = [self window]) {
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidMoveOrResize:) name:NSWindowDidMoveNotification object:window];
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidMoveOrResize:) name:NSWindowDidResizeNotification object:window];
+        [self _wk_updateWindowAndViewFrames];
+    }
     [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeKeyState:) name:NSWindowDidResignKeyNotification object:nil];
 
     // recompute IsVisible when the active Space changes, mirroring upstream

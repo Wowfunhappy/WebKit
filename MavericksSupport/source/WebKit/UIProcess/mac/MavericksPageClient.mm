@@ -63,6 +63,7 @@
 // navigator.share()'s picker (see showShareSheet).
 #import "PickerDismissalReason.h"
 #import "WKViewPrivate.h"
+#import <WebCore/PlatformScreen.h>
 #import <WebCore/ShareData.h>
 #import <WebKit/WKShareSheet.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
@@ -960,12 +961,12 @@ void MavericksPageClient::viewDidChangeBackingProperties()
 
 WebCore::FloatRect MavericksPageClient::convertToDeviceSpace(const WebCore::FloatRect& rect)
 {
-    return rect;
+    return WebCore::toDeviceSpace(rect, [m_view window]);
 }
 
 WebCore::FloatRect MavericksPageClient::convertToUserSpace(const WebCore::FloatRect& rect)
 {
-    return rect;
+    return WebCore::toUserSpace(rect, [m_view window]);
 }
 
 WebCore::IntPoint MavericksPageClient::screenToRootView(const WebCore::IntPoint& point)
