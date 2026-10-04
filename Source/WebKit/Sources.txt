@@ -1028,6 +1028,8 @@ ServiceWorkerDownloadTaskMessageReceiver.cpp
 WebBroadcastChannelRegistryMessageReceiver.cpp
 WebFrameMessageReceiver.cpp
 WebFrameProxyMessageReceiver.cpp @cost:10
+// MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
+WebFrameProxyFromNetworkProcessMessageReceiver.cpp @cost:10
 WebLockRegistryProxyMessageReceiver.cpp @cost:10
 WebPermissionControllerMessageReceiver.cpp
 WebPermissionControllerProxyMessageReceiver.cpp @cost:10

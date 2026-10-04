@@ -39,6 +39,7 @@
 #include "RemoteWorkerType.h"
 #include "SharedBufferReference.h"
 #include "SharedPreferencesForWebProcess.h"
+#include "WebFrameProxyFromNetworkProcessMessages.h" // MAVERICKS_BACKPORT: upstream 319948@main (webkit.org/b/322485).
 #include "WebProcess.h"
 #include "WebProcessMessages.h"
 #include "WebResourceLoaderMessages.h"
@@ -348,14 +349,8 @@ void WebSWServerConnection::startFetch(ServiceWorkerFetchTask& task, SWServerWor
         }
 
         RefPtr server = protectedThis->server();
-        if (!server) {
-            // MAVERICKS_BACKPORT: behavior fix (task #6) — without cannotHandle() the loader
-            // waits forever (subresource fetches have no timeout). Fall back to network like
-            // every sibling failure path in this lambda.
-            task->cannotHandle();
+        if (!server)
             return;
-        // MAVERICKS_BACKPORT: closes the !server cannotHandle() network-fallback branch above (task #6).
-        }
 
         RefPtr worker = server->workerByID(*task->serviceWorkerIdentifier());
         if (!worker || worker->hasTimedOutAnyFetchTasks()) {
@@ -857,6 +852,32 @@ void WebSWServerConnection::fetchTaskTimedOut(ServiceWorkerIdentifier serviceWor
 
     worker->setHasTimedOutAnyFetchTasks();
     worker->terminate();
+}
+
+// MAVERICKS_BACKPORT: upstream 319948@main (webkit.org/b/322485).
+void WebSWServerConnection::fetchTaskReceivedMainResourceResponse(std::optional<ServiceWorkerIdentifier> serviceWorkerIdentifier, const ResourceResponse& response, FrameIdentifier frameID)
+{
+    RefPtr networkProcess = this->networkProcess();
+    if (!networkProcess)
+        return;
+
+    auto sendCertificateInfo = [&](const CertificateInfo& certificateInfo) {
+        protect(networkProcess->parentProcessConnection())->send(Messages::WebFrameProxyFromNetworkProcess::ReceivedMainResourceResponseWithCertificateInfo(response.url().hostAndPort(), certificateInfo), frameID);
+    };
+
+    if (serviceWorkerIdentifier) {
+        if (RefPtr server = this->server()) {
+            if (RefPtr worker = server->workerByID(*serviceWorkerIdentifier)) {
+                if (const auto& certificateInfo = worker->certificateInfo(); !certificateInfo.isEmpty()) {
+                    sendCertificateInfo(certificateInfo);
+                    return;
+                }
+            }
+        }
+    }
+
+    if (const auto& certificateInfo = response.certificateInfo(); certificateInfo && !certificateInfo->isEmpty())
+        sendCertificateInfo(*certificateInfo);
 }
 
 void WebSWServerConnection::enableNavigationPreload(WebCore::ServiceWorkerRegistrationIdentifier registrationIdentifier, ExceptionOrVoidCallback&& callback)

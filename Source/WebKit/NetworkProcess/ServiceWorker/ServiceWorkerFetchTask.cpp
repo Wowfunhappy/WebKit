@@ -317,6 +317,12 @@ void ServiceWorkerFetchTask::processResponse(ResourceResponse&& response, bool n
         return;
     }
 
+    // MAVERICKS_BACKPORT: upstream 319948@main (webkit.org/b/322485).
+    if (loader->isMainResource()) {
+        if (RefPtr swServerConnection = m_swServerConnection.get())
+            swServerConnection->fetchTaskReceivedMainResourceResponse(m_serviceWorkerIdentifier, response, loader->frameID());
+    }
+
     if (shouldSetSource == ShouldSetSource::Yes)
         response.setSource(ResourceResponse::Source::ServiceWorker);
     loader->sendDidReceiveResponseWithPotentialProcessSwap(response, PrivateRelayed::No, needsContinueDidReceiveResponseMessage);
@@ -530,18 +536,6 @@ void ServiceWorkerFetchTask::preloadResponseIsReady()
         ASSERT(m_preloader);
         if (!m_preloader->response().isSuccessful()) {
             cancelPreloadIfNecessary();
-            // MAVERICKS_BACKPORT: behavior fix (task #6, nytimes load stall). When the service
-            // worker has ALREADY declined this fetch (didNotHandle routed here through
-            // loadResponseFromPreloader, which set m_isLoadingFromPreloader), bailing out
-            // orphans the load forever: the preloader is cancelled, no service-worker response
-            // is coming, and subresource fetches have no timeout timer. Complete the
-            // didNotHandle fallback instead — restart as a direct network load, exactly as
-            // didNotHandle() does when there is no preloader. The plain-return remains correct
-            // for the pre-decline race case (the fetch handler may still produce a response).
-            if (m_isLoadingFromPreloader && !m_isDone) {
-                m_isDone = true;
-                protect(m_loader)->serviceWorkerDidNotHandle(this);
-            }
             return;
         }
 

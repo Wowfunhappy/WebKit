@@ -67,6 +67,7 @@
 #include "ViewSnapshotStore.h"
 #include "WebCompiledContentRuleList.h"
 #include "WebFrameProxy.h"
+#include "WebFrameProxyFromNetworkProcessMessages.h" // MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
 #include "WebNotificationManagerProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
@@ -521,6 +522,19 @@ void NetworkProcessProxy::didClose(IPC::Connection& connection)
 
     // This will cause us to be deleted.
     networkProcessDidTerminate(ProcessTerminationReason::Crash);
+}
+
+// MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess messages go to the frame named by the destination ID.
+bool NetworkProcessProxy::dispatchMessage(IPC::Connection& connection, IPC::Decoder& decoder)
+{
+    if (AuxiliaryProcessProxy::dispatchMessage(connection, decoder))
+        return true;
+    if (decoder.messageReceiverName() == Messages::WebFrameProxyFromNetworkProcess::messageReceiverName()) {
+        if (RefPtr frame = FrameIdentifier::isValidIdentifier(decoder.destinationID()) ? WebFrameProxy::webFrame(FrameIdentifier(decoder.destinationID())) : nullptr)
+            frame->didReceiveMessageWithReceiverName(connection, decoder);
+        return true;
+    }
+    return false;
 }
 
 void NetworkProcessProxy::didReceiveInvalidMessage(IPC::Connection& connection, IPC::MessageName messageName, const Vector<uint32_t>&)
@@ -1968,11 +1982,14 @@ void NetworkProcessProxy::navigateServiceWorkerClient(WebCore::FrameIdentifier f
     callback({ }, { });
 }
 
+// MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess replaces this receiver.
+/*
 void NetworkProcessProxy::receivedMainResourceResponseWithCertificateInfo(WebCore::FrameIdentifier frameID, String&& hostAndPort, WebCore::CertificateInfo&& certificateInfo)
 {
     if (RefPtr frame = WebFrameProxy::webFrame(frameID))
         frame->receivedMainResourceResponseWithCertificateInfo(WTF::move(hostAndPort), WTF::move(certificateInfo));
 }
+*/ // MAVERICKS_BACKPORT: closes the commented-out receiver above.
 
 void NetworkProcessProxy::applicationDidEnterBackground()
 {

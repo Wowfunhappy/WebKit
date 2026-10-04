@@ -304,6 +304,7 @@ set(WebKit_MESSAGES_IN_FILES
     UIProcess/VisitedLinkStore
     UIProcess/WebBackForwardList
     UIProcess/WebFrameProxy
+    UIProcess/WebFrameProxyFromNetworkProcess # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
     UIProcess/WebFullScreenManagerProxy
     UIProcess/WebGeolocationManagerProxy
     UIProcess/WebLockRegistryProxy

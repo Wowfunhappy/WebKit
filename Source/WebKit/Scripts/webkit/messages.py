@@ -933,7 +933,8 @@ def handler_function(receiver, message):
         return '%s::%s' % (receiver.name, 'url' + message.name[3:])
     if message.name.startswith('GPU'):
         return '%s::%s' % (receiver.name, 'gpu' + message.name[3:])
-    return '%s::%s' % (receiver.name, message.name[0].lower() + message.name[1:])
+    # return '%s::%s' % (receiver.name, message.name[0].lower() + message.name[1:])
+    return '%s::%s' % (receiver.receiver_name if receiver.receiver_name else receiver.name, message.name[0].lower() + message.name[1:])  # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273)
 
 def generate_enabled_by(receiver, enabled_by, enabled_by_conjunction):
     conjunction = ' %s ' % (enabled_by_conjunction or '&&')
@@ -1853,7 +1854,12 @@ def generate_message_handler(receiver):
     if receiver.condition:
         result.append('#if %s\n' % receiver.condition)
 
-    if_swift_enabled(receiver, result, lambda x: x.append('#include "%s.h" // NOLINT\n' % 'Shared/WebKit-Swift'), lambda x: x.append('#include "%s.h"\n\n' % receiver.name))
+    # if_swift_enabled(receiver, result, lambda x: x.append('#include "%s.h" // NOLINT\n' % 'Shared/WebKit-Swift'), lambda x: x.append('#include "%s.h"\n\n' % receiver.name))
+    # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): a ReceiverName receiver includes its target class's header.
+    if receiver.receiver_name:
+        result.append('#include "%s.h"\n\n' % receiver.receiver_name)
+    else:
+        if_swift_enabled(receiver, result, lambda x: x.append('#include "%s.h" // NOLINT\n' % 'Shared/WebKit-Swift'), lambda x: x.append('#include "%s.h"\n\n' % receiver.name))
     result += generate_header_includes_from_conditions(header_conditions)
     result.append('\n')
 
@@ -1906,7 +1912,11 @@ def generate_message_handler(receiver):
             result.append('    decoder.markInvalid();\n')
         result.append('}\n')
     else:
-        if receiver.has_attribute(NOT_USING_IPC_CONNECTION_ATTRIBUTE):
+        # if receiver.has_attribute(NOT_USING_IPC_CONNECTION_ATTRIBUTE):
+        # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): a ReceiverName receiver dispatches into its target class.
+        if receiver.receiver_name:
+            result.append('void %s::didReceiveMessageWithReceiverName(IPC::Connection& connection, IPC::Decoder& decoder)\n' % receiver.receiver_name)
+        elif receiver.has_attribute(NOT_USING_IPC_CONNECTION_ATTRIBUTE):
             append_with_potentially_swiftified_classname(receiver, result, 'void %s::didReceiveMessageWithReplyHandler(IPC::Decoder& decoder, Function<void(UniqueRef<IPC::Encoder>&&)>&& replyHandler)\n')
         else:
             append_with_potentially_swiftified_classname(receiver, result, 'void %s::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)\n')
