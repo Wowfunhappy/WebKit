@@ -46,6 +46,7 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 @interface WCClipperView () <WKNavigationDelegate, WKUIDelegate, _WKFullscreenDelegate>
 - (void)pageDidPostMessage:(NSDictionary *)message;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
+- (BOOL)performKeyEquivalentLeftByPage:(NSEvent *)event;
 - (NSPoint)themeWindowOrigin;
 @end
 
@@ -106,6 +107,12 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 {
     [_clipperView pageWindowWillSendEvent:event];
     [super sendEvent:event];
+}
+
+// The page has the first chance at a key equivalent; the ones it leaves are the widget's.
+- (BOOL)performKeyEquivalent:(NSEvent *)event
+{
+    return [super performKeyEquivalent:event] || [_clipperView performKeyEquivalentLeftByPage:event];
 }
 
 @end
@@ -683,6 +690,21 @@ static NSHashTable *clipperViews;
     NSEventType type = [event type];
     if (type == NSMouseEntered || type == NSKeyDown)
         [[self dashboardWidget] receivedMouseOrKeyDown];
+}
+
+// The key equivalents Dashboard's widget view answers in a widget: Command-C, -X, -V and -A edit the
+// page, and Command-R reloads the widget.
+- (BOOL)performKeyEquivalentLeftByPage:(NSEvent *)event
+{
+    if (!([event modifierFlags] & NSCommandKeyMask))
+        return NO;
+    NSString *key = [event charactersIgnoringModifiers];
+    if ([key isEqualToString:@"r"]) {
+        [[self dashboardWidget] doReload];
+        return YES;
+    }
+    SEL action = [key isEqualToString:@"c"] ? @selector(copy:) : [key isEqualToString:@"x"] ? @selector(cut:) : [key isEqualToString:@"v"] ? @selector(paste:) : [key isEqualToString:@"a"] ? @selector(selectAll:) : NULL;
+    return action && [NSApp sendAction:action to:nil from:self];
 }
 
 // The page window lies over the placeholder and takes the clicks and scrolling the Dock delivers to it.
@@ -1594,6 +1616,10 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         return;
     if (!_hasBeenMovedToWindow) {
         [self setUpContents];
+        // Dashboard reports a show only as it opens: a widget made or reloaded while it shows its
+        // widgets is shown already.
+        if ([self dockAllowsPageWindow])
+            _hasBeenShown = YES;
         [controller readSettings];
         // Dashboard tells the widget's page when the user starts and stops dragging the widget.
         [[self windowScriptObject] evaluateWebScript:@"widget.ondragstart = function () { webClip.widgetDidStartMoving(); }; widget.ondragend = function () { webClip.widgetDidStopMoving(); };"];

@@ -23,6 +23,7 @@ typedef NS_ENUM(int, WCThemeID) {
 - (void)receivedMouseOrKeyDown;
 - (BOOL)isFocused;
 - (void)hasKeyFocus:(BOOL)hasKeyFocus updateWindowState:(BOOL)updateWindowState;
+- (void)doReload;
 @end
 
 // The widget's own WebView (a WebKit 1 WebView extended by DashboardClient).
