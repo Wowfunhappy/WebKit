@@ -281,6 +281,8 @@ static NSRect rectFromPageRect(id value)
     NSSize _mouseDownWindowSize;
     NSRect _mouseDownClipViewBounds;
     BOOL _shouldClearScreenshotOnRentry;
+    // The loaded page shows the clip: it has its place and the images in it have loaded.
+    BOOL _clipHasContent;
     BOOL _isHidden;
     BOOL _didFlipToFront;
     BOOL _disableAutoRefresh;
@@ -485,6 +487,13 @@ static NSRect rectFromPageRect(id value)
         [WCClipperView observeDashboardForWidgetWindow:[_placeholder window]];
         [clipperViews addObject:self];
         [WCClipperView askDock];
+    }
+    // While the page window stays shown, a new placeholder frame moves and sizes it; it stays where it
+    // is among the widget's windows.
+    if ([_pageWindow isVisible] && [self showsPageWindow]) {
+        [self placePageWindow];
+        [self updateThemeOverlay];
+        return;
     }
     [self updatePageWindow];
 }
@@ -771,7 +780,7 @@ static NSHashTable *clipperViews;
         return;
     }
     if (_shouldClearScreenshotOnRentry) {
-        if (!_isLoading) {
+        if (!_isLoading && _clipHasContent) {
             [self clearScreenshot];
             _shouldClearScreenshotOnRentry = NO;
         }
@@ -1337,7 +1346,10 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
         NSRect bounds = [_clipView bounds];
         if (fabs(rect.origin.x - bounds.origin.x) >= 0.5 || fabs(rect.origin.y - bounds.origin.y) >= 0.5) {
             _clipViewportOrigin = [self viewportOriginInViewport:_clipViewportOrigin];
-            NSPoint target = NSMakePoint(MAX(0, rect.origin.x - _clipViewportOrigin.x), MAX(0, rect.origin.y - _clipViewportOrigin.y));
+            // The page's width is its layout's and does not grow as it loads, unlike its height: a
+            // horizontal scroll the page cannot reach moves the clip within the viewport instead.
+            CGFloat maximumScrollX = MAX(0, _documentSize.width - [_webView frame].size.width);
+            NSPoint target = NSMakePoint(MAX(0, MIN(rect.origin.x - _clipViewportOrigin.x, maximumScrollX)), MAX(0, rect.origin.y - _clipViewportOrigin.y));
             _clipViewportOrigin = NSMakePoint(rect.origin.x - target.x, rect.origin.y - target.y);
             [self scrollPageTo:target];
         }
@@ -1370,6 +1382,20 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     }];
 }
 
+// The clip has its place in the loaded page: its scroll anchors to content from now on, and a screenshot
+// the clip shows from before a hide gives way once the images in the clip have loaded.
+- (void)clipDidSettle
+{
+    [self anchorPageScroll];
+    WKWebView *webView = _webView;
+    [self callPageFunction:@"whenImagesInRectLoad" argument:@{ @"rect": [self clipPageRect], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id) {
+        if (webView != _webView)
+            return;
+        _clipHasContent = YES;
+        [self clearScreenshotIfNeeded];
+    }];
+}
+
 // The clip has its place in the loaded page. The injected bundle, which keeps the main frame's scroll
 // position from anchoring to content from each commit, lets it anchor until the next load; that keeps
 // the clip's content in view when the page changes above it. The clip's recorded place stays the one
@@ -1395,22 +1421,23 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     WKWebView *webView = _webView;
     if ([signature objectForKey:@"ClipSignatureScore"]) {
         [self callPageFunction:@"placeBySignature" argument:@{ @"signature": signature, @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
-            if (webView != _webView || _isEditingCameraPosition || ![result isKindOfClass:[NSDictionary class]])
+            if (webView != _webView)
                 return;
-            [self adjustClipToRect:rectFromPageRect(result[@"rect"])];
-            [self anchorPageScroll];
+            if (!_isEditingCameraPosition && [result isKindOfClass:[NSDictionary class]])
+                [self adjustClipToRect:rectFromPageRect(result[@"rect"])];
+            [self clipDidSettle];
         }];
         return;
     }
     [self callPageFunction:@"signRectWhenPresent" argument:@{ @"signature": signature ?: [NSNull null], @"rect": [self clipPageRect], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
-        if (webView != _webView || _isEditingCameraPosition || ![result isKindOfClass:[NSDictionary class]])
+        if (webView != _webView)
             return;
-        id newSignature = result[@"signature"];
-        if (![newSignature isKindOfClass:[NSDictionary class]])
-            return;
-        [controller setClipSignature:newSignature];
-        [controller savePreferencesToDisk];
-        [self anchorPageScroll];
+        id newSignature = [result isKindOfClass:[NSDictionary class]] ? result[@"signature"] : nil;
+        if (!_isEditingCameraPosition && [newSignature isKindOfClass:[NSDictionary class]]) {
+            [controller setClipSignature:newSignature];
+            [controller savePreferencesToDisk];
+        }
+        [self clipDidSettle];
     }];
 }
 
@@ -1478,6 +1505,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     addLayerBackedSubview(self, _errorView);
     _loadError = YES;
     _isLoading = NO;
+    _clipHasContent = YES;
     [self clearScreenshotIfNeeded];
     [self dismissLoadingText];
 }
@@ -1886,11 +1914,8 @@ static NSPoint pageScrollFromResult(id result)
     NSPoint location = [_clipView convertPoint:[event locationInWindow] fromView:nil];
     float y = roundf((float)(bounds.origin.y - (location.y - _mouseDownPoint.y)));
     float x = roundf((float)(bounds.origin.x - (location.x - _mouseDownPoint.x)));
-    NSPoint constrained = [_clipView constrainScrollPoint:NSMakePoint(x, y)];
-    NSSize minimum = [_currentTheme minSize];
-    float maxX = _documentSize.width - minimum.width;
-    float maxY = _documentSize.height - minimum.height;
-    NSPoint proposed = NSMakePoint(MIN(constrained.x, (double)maxX), MIN(constrained.y, (double)maxY));
+    // The clip stays within the page, as stock's clip view kept it within its page-sized document.
+    NSPoint proposed = NSMakePoint(MAX(0, MIN(x, _documentSize.width - bounds.size.width)), MAX(0, MIN(y, _documentSize.height - bounds.size.height)));
     NSPoint snapped = _snapper ? [_snapper snappedPointFromPoint:proposed proposedCropRect:bounds] : proposed;
     [self scrollClipViewToPoint:snapped];
     [self repositionOverlayButtons];
@@ -2194,6 +2219,7 @@ static NSPoint pageScrollFromResult(id result)
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation
 {
     _isLoading = YES;
+    _clipHasContent = NO;
     [self clearScreenshotIfNeeded];
 }
 

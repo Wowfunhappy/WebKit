@@ -769,6 +769,53 @@
         }, argument.deadline);
     }
 
+    // Resolves once no image whose box meets the rect is still loading, or at the deadline. Pages load
+    // images after their load event, and script puts images in place of placeholders, so this is
+    // checked as images load and as the document changes.
+    function whenImagesInRectLoad(argument)
+    {
+        const rect = makeRect(argument.rect.x, argument.rect.y, argument.rect.width, argument.rect.height);
+        const isLoading = () => {
+            const boundingBox = createMeasurer();
+            return Array.prototype.some.call(document.images, image => !image.complete && !isZeroRect(intersectRects(boundingBox(image), rect)));
+        };
+        return new Promise(resolve => {
+            let scheduled = false;
+            let observer = null;
+            let timer = 0;
+            function finish()
+            {
+                observer.disconnect();
+                document.removeEventListener('load', schedule, true);
+                document.removeEventListener('error', schedule, true);
+                clearTimeout(timer);
+                resolve(true);
+            }
+            function check()
+            {
+                scheduled = false;
+                if (!isLoading())
+                    finish();
+            }
+            function schedule()
+            {
+                if (scheduled)
+                    return;
+                scheduled = true;
+                requestAnimationFrame(check);
+            }
+            if (!isLoading()) {
+                resolve(true);
+                return;
+            }
+            observer = new MutationObserver(schedule);
+            observer.observe(document, { childList: true, subtree: true, attributes: true });
+            document.addEventListener('load', schedule, true);
+            document.addEventListener('error', schedule, true);
+            timer = setTimeout(finish, argument.deadline);
+        });
+    }
+
     // Snapper.
 
     function snapNodes()
@@ -863,6 +910,7 @@
         placeBySignature,
         signRect,
         signRectWhenPresent,
+        whenImagesInRectLoad,
         snapNodes,
         draggableRects,
     });

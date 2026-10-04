@@ -103,12 +103,14 @@
     [_overlay setNeedsDisplay:YES];
 }
 
+// The theme and its overlay draw the new area in their windows' next display.
 - (void)setPageArea:(NSRect)pageArea
 {
     if (NSEqualRects(pageArea, _pageArea))
         return;
     _pageArea = pageArea;
-    [self display];
+    [self setNeedsDisplay:YES];
+    [_overlay setNeedsDisplay:YES];
 }
 
 // The inner bezel rect inset by the edit border's thickness on every side.
