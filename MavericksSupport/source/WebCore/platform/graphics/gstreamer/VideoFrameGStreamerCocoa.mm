@@ -204,6 +204,24 @@ PlatformLayer* MediaPlayerPrivateGStreamer::platformLayer() const
     return m_videoLayerManager->videoInlineLayer();
 }
 
+// A hidden page's player enqueues no frames, as MediaPlayerPrivateMediaStreamAVFObjC enqueues none:
+// Mavericks' display layer holds every frame it is given until it is displayed. The layer is flushed
+// as the page's visibility changes, and shows the current frame again once the page is visible.
+void MediaPlayerPrivateGStreamer::setPageIsVisible(bool visible)
+{
+    m_pageIsVisible = visible;
+    {
+        Locker locker { m_videoLayerLock };
+        if (m_videoLayerPageIsVisible == visible)
+            return;
+        m_videoLayerPageIsVisible = visible;
+        if (m_sampleBufferDisplayLayer)
+            m_sampleBufferDisplayLayer->flush();
+    }
+    if (visible)
+        pushSampleToVideoLayer(true);
+}
+
 void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
 {
     Locker layerLocker { m_videoLayerLock };
@@ -220,6 +238,8 @@ void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
         if (!isDuplicateSample)
             ++m_sampleCount;
     }
+    if (!m_videoLayerPageIsVisible)
+        return;
     Ref<VideoFrame> frame = VideoFrameGStreamer::createWrappedSample(sample);
     RetainPtr pixelBuffer = frame->pixelBuffer();
     if (!pixelBuffer)

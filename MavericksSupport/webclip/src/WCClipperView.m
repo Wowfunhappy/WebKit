@@ -1629,6 +1629,11 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         if ([self dockAllowsPageWindow])
             _hasBeenShown = YES;
         [controller readSettings];
+        // A widget set up while Dashboard is away starts as a hidden one.
+        if (!_hasBeenShown) {
+            _isHidden = YES;
+            [self suspendMediaWhileHidden];
+        }
         // Dashboard tells the widget's page when the user starts and stops dragging the widget.
         [[self windowScriptObject] evaluateWebScript:@"widget.ondragstart = function () { webClip.widgetDidStartMoving(); }; widget.ondragend = function () { webClip.widgetDidStopMoving(); };"];
     }
@@ -2257,10 +2262,7 @@ static const CGFloat WCReloadSpinnerSize = 22;
         return;
     WKWebView *webView = _webView;
     BOOL playsAudio = [webView _isPlayingAudio];
-    if (![[self controller] playAudioOutOfDashboard] && !_mediaSuspendedWhileHidden) {
-        _mediaSuspendedWhileHidden = YES;
-        [webView setAllMediaPlaybackSuspended:YES completionHandler:nil];
-    }
+    [self suspendMediaWhileHidden];
     if (playsAudio || _isEditingCameraPosition)
         return;
     _reloadsAtShow = YES;
@@ -2272,6 +2274,14 @@ static const CGFloat WCReloadSpinnerSize = 22;
             _shouldClearScreenshotOnRentry = YES;
         }
     }];
+}
+
+- (void)suspendMediaWhileHidden
+{
+    if (!_webView || _mediaSuspendedWhileHidden || [[self controller] playAudioOutOfDashboard])
+        return;
+    _mediaSuspendedWhileHidden = YES;
+    [_webView setAllMediaPlaybackSuspended:YES completionHandler:nil];
 }
 
 // The page renders the part of the clip it covers.

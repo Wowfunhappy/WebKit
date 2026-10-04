@@ -172,7 +172,11 @@ public:
     void setMuted(bool) final;
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
+#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: the Cocoa presenter shows no frames while the page is hidden.
+    void setPageIsVisible(bool) final;
+#else
     void setPageIsVisible(bool visible) final { m_pageIsVisible = visible; }
+#endif // MAVERICKS_BACKPORT: closes the PLATFORM(COCOA) branch above.
     void setViewportVisibility(ViewportVisibility) final;
     void setPresentationSize(const IntSize&) final;
     MediaTime duration() const override;
@@ -680,6 +684,7 @@ private:
     std::unique_ptr<VideoLayerManager> m_videoLayerManager;
     RetainPtr<WebRootSampleBufferBoundsChangeListener> m_videoLayerBoundsObserver;
     bool m_shouldMaintainAspectRatio { true }; // MAVERICKS_BACKPORT: see setShouldMaintainAspectRatio().
+    bool m_videoLayerPageIsVisible { false }; // MAVERICKS_BACKPORT: see setPageIsVisible(); guarded by m_videoLayerLock.
 #endif
 
     // These attributes can ONLY be changed from updateBufferingStatus() in order to keep the
