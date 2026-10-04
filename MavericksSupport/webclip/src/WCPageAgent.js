@@ -548,12 +548,17 @@
             finder.foundBorderElements.push(element);
     }
 
-    function scoreNodeAgainstSignature(finder, node, signature)
+    // The score scoreOfBoxedElement gives an element of the signed element's kind: its tag, id and class.
+    const kSameKindScore = 4;
+
+    function scoreNodeAgainstSignature(finder, node, signature, sameKind)
     {
         if (!isHTMLElement(node))
             return;
         const signatureElement = signature.boxedElement;
         if (!signatureElement || !stringsEqual(node.tagName, signatureElement.tagName))
+            return;
+        if (sameKind && scoreOfBoxedElement(finder.boxedElement(node), signatureElement) !== kSameKindScore)
             return;
         if (!sizeIsReasonable(finder.boundingBox(node)))
             return;
@@ -566,19 +571,34 @@
         setScoreForElement(finder, node, score);
     }
 
-    function findBorderElementForSignature(finder, signature)
+    function findBorderElementForSignature(finder, signature, sameKind)
     {
-        forEachNode(document, node => scoreNodeAgainstSignature(finder, node, signature));
+        forEachNode(document, node => scoreNodeAgainstSignature(finder, node, signature, sameKind));
     }
 
     // -[DOMBorderFinder borderRectForSignature:] for every element that earns the best score: their rects,
-    // adjusted by the signature's border offset, and the score.
-    function bestMatches(signature)
+    // adjusted by the signature's border offset, and the score. Alike elements, the parts a page repeats,
+    // can share the best score; the likeliest of them is the one whose parent best matches the signed
+    // element's parent, and of those, the one nearest where the signed element was. With sameKind, only
+    // elements of the signed element's kind are scored.
+    function bestMatches(signature, sameKind)
     {
         const finder = createBorderFinder();
-        findBorderElementForSignature(finder, signature);
+        findBorderElementForSignature(finder, signature, sameKind);
+        const elements = finder.foundBorderElements;
+        const rectOf = element => adjustRectByBorderOffset(finder.boundingBox(element), signature.borderOffset);
+        const parentScore = element => signature.boxedParent && isHTMLElement(element.parentNode) ? scoreOfBoxedElement(finder.boxedElement(element.parentNode), signature.boxedParent) : 0;
+        const original = signature.originalBorderRect;
+        const distance = rect => Math.hypot(rect.x - original.x, rect.y - original.y);
+        let likeliest = null;
+        for (const element of elements) {
+            const candidate = { rect: rectOf(element), parentScore: parentScore(element) };
+            if (!likeliest || candidate.parentScore > likeliest.parentScore || (candidate.parentScore === likeliest.parentScore && distance(candidate.rect) < distance(likeliest.rect)))
+                likeliest = candidate;
+        }
         return {
-            rects: finder.foundBorderElements.map(element => adjustRectByBorderOffset(finder.boundingBox(element), signature.borderOffset)),
+            rects: elements.map(rectOf),
+            likeliest: likeliest ? likeliest.rect : null,
             score: finder.highestScore,
         };
     }
@@ -730,9 +750,8 @@
 
     // The rect of the element a signature describes. The page settles after its load: script builds and
     // rebuilds parts of the document. The element is present once an element earning the signed
-    // element's score lies where it was. At the deadline, an element the page has moved is the one when
-    // it alone earns the best score; alike elements sharing it leave the signature without an element,
-    // and the clip where it is.
+    // element's score lies where it was. At the deadline, the page has moved it, and it is the likeliest
+    // of the elements of its kind.
     function placeBySignature(argument)
     {
         const signature = signatureFromDictionary(argument.signature);
@@ -745,7 +764,8 @@
                 return { rect: publicRect(inPlace) };
             if (!atDeadline)
                 return null;
-            return { rect: matches.rects.length === 1 ? publicRect(matches.rects[0]) : null };
+            const likeliest = bestMatches(signature, true).likeliest;
+            return { rect: likeliest ? publicRect(likeliest) : null };
         }, argument.deadline);
     }
 
@@ -757,16 +777,144 @@
 
     // A signature for the clip's rect in the page once the element Safari signed lies there. Both
     // origins are whole pixels: element boxes are enclosing integer rects here and in Safari, whose
-    // border offsets and scroll offset are whole pixels too.
+    // border offsets and scroll offset are whole pixels too. The page lays out apart from Safari's: its
+    // ads, experiments and extensions differ. At the deadline, the element Safari signed is the likeliest
+    // of the elements of its kind, wherever it lies, and the clip moves to it.
     function signRectWhenPresent(argument)
     {
         const safariSignature = argument.signature ? signatureFromDictionary(argument.signature) : null;
         const rect = makeRect(argument.rect.x, argument.rect.y, argument.rect.width, argument.rect.height);
         return whenDocumentChanges(atDeadline => {
-            if (!atDeadline && safariSignature && !bestMatches(safariSignature).rects.some(match => hasOrigin(match, rect)))
+            const matches = safariSignature ? bestMatches(safariSignature) : null;
+            if (!matches || matches.rects.some(match => hasOrigin(match, rect)))
+                return { signature: signatureForRect(rect) };
+            if (!atDeadline)
                 return null;
+            const likeliest = bestMatches(safariSignature, true).likeliest;
+            if (likeliest)
+                return { rect: publicRect(likeliest), signature: signatureForRect(likeliest) };
             return { signature: signatureForRect(rect) };
         }, argument.deadline);
+    }
+
+    // After the load, script goes on changing the page: it puts content above the clip's element,
+    // renders the element again, and resizes what holds it. The clip follows the element's place in
+    // the layout, which transforms and animations of its box leave alone, as it moves; the element is
+    // found again among the elements of its kind when script replaces it, and the clip stays where it is
+    // while there is none. The place is measured at most once a frame,
+    // and a missing element is looked for at most once a second.
+    let clipFollower = null;
+    const kClipElementSearchInterval = 1000;
+
+    // The element's offset in the document's layout, through its offset parents.
+    function layoutOffset(element)
+    {
+        let x = 0;
+        let y = 0;
+        for (let ancestor = element; ancestor; ancestor = ancestor.offsetParent) {
+            x += ancestor.offsetLeft;
+            y += ancestor.offsetTop;
+        }
+        return { x, y };
+    }
+
+    function followClipElement(argument)
+    {
+        stopFollowingClipElement();
+        const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
+        const signature = signatureForRect(rect);
+        if (!signature)
+            return false;
+        const parsedSignature = signatureFromDictionary(signature);
+        const follower = {
+            element: null,
+            // The clip's place and the element's layout offset when the clip took that place.
+            basePlace: null,
+            baseOffset: null,
+            place: { x: rect.x, y: rect.y },
+            scheduled: false,
+            nextSearch: 0,
+            searchTimer: 0,
+        };
+        function takeElement(element, place)
+        {
+            follower.element = element;
+            follower.basePlace = place;
+            follower.baseOffset = element ? layoutOffset(element) : null;
+        }
+        function placeOfElement()
+        {
+            const element = follower.element;
+            if (element && element.isConnected) {
+                if (!element.getClientRects().length)
+                    return null;
+                const offset = layoutOffset(element);
+                return { x: follower.basePlace.x + offset.x - follower.baseOffset.x, y: follower.basePlace.y + offset.y - follower.baseOffset.y };
+            }
+            follower.element = null;
+            const now = performance.now();
+            if (now < follower.nextSearch) {
+                if (!follower.searchTimer)
+                    follower.searchTimer = setTimeout(() => { follower.searchTimer = 0; schedule(); }, follower.nextSearch - now);
+                return null;
+            }
+            follower.nextSearch = now + kClipElementSearchInterval;
+            const likeliest = bestMatches(parsedSignature, true).likeliest;
+            if (!likeliest)
+                return null;
+            const place = { x: likeliest.x, y: likeliest.y };
+            takeElement(findBorderElementForRect(createBorderFinder(), likeliest), place);
+            return place;
+        }
+        function check()
+        {
+            follower.scheduled = false;
+            if (clipFollower !== follower)
+                return;
+            const place = placeOfElement();
+            if (!place || (place.x === follower.place.x && place.y === follower.place.y))
+                return;
+            follower.place = place;
+            postToPlugIn({ type: 'clipElementMoved', x: place.x, y: place.y });
+        }
+        function schedule()
+        {
+            if (follower.scheduled)
+                return;
+            follower.scheduled = true;
+            requestAnimationFrame(check);
+        }
+        takeElement(findBorderElementForRect(createBorderFinder(), rect), { x: rect.x, y: rect.y });
+        const mutationObserver = new MutationObserver(schedule);
+        mutationObserver.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+        const resizeObserver = new ResizeObserver(schedule);
+        resizeObserver.observe(document.documentElement);
+        window.addEventListener('resize', schedule);
+        follower.stop = () => {
+            mutationObserver.disconnect();
+            resizeObserver.disconnect();
+            window.removeEventListener('resize', schedule);
+            clearTimeout(follower.searchTimer);
+        };
+        clipFollower = follower;
+        return true;
+    }
+
+    function stopFollowingClipElement()
+    {
+        if (!clipFollower)
+            return;
+        clipFollower.stop();
+        clipFollower = null;
+    }
+
+    // Whether a video or audio element whose box meets the rect is playing; an audio element has no box,
+    // and plays for the whole page.
+    function isPlayingMediaInRect(argument)
+    {
+        const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
+        const boundingBox = createMeasurer();
+        return Array.prototype.some.call(document.querySelectorAll('video, audio'), media => !media.paused && !media.ended && (media.localName === 'audio' || !isZeroRect(intersectRects(boundingBox(media), rect))));
     }
 
     // Resolves once no image whose box meets the rect is still loading, or at the deadline. Pages load
@@ -911,6 +1059,9 @@
         signRect,
         signRectWhenPresent,
         whenImagesInRectLoad,
+        isPlayingMediaInRect,
+        followClipElement,
+        stopFollowingClipElement,
         snapNodes,
         draggableRects,
     });

@@ -54,6 +54,7 @@ typedef NS_OPTIONS(NSUInteger, _WKRenderingProgressEvents) {
 @property (nonatomic, setter=_setClipsToVisibleRect:) BOOL _clipsToVisibleRect;
 @property (nonatomic, setter=_setViewportSizeForCSSViewportUnits:) CGSize _viewportSizeForCSSViewportUnits;
 @property (nonatomic, setter=_setTextZoomFactor:) double _textZoomFactor;
+@property (nonatomic, readonly, getter=_isPlayingAudio) BOOL _playingAudio;
 - (WKPageRef)_pageRefForTransitionToWKWebView;
 - (void)_close;
 @end

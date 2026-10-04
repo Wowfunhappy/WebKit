@@ -283,6 +283,14 @@ static NSRect rectFromPageRect(id value)
     BOOL _shouldClearScreenshotOnRentry;
     // The loaded page shows the clip: it has its place and the images in it have loaded.
     BOOL _clipHasContent;
+    // The watch of the clip while Dashboard shows it: when it began and the clip's pixels then.
+    CFAbsoluteTime _watchStart;
+    NSData *_watchPixels;
+    NSSize _watchPixelSize;
+    // How long the clip has been watched, over this page's loads, since it last changed.
+    NSTimeInterval _clipUnchangedTime;
+    // The page's media is suspended while Dashboard is hidden.
+    BOOL _mediaSuspendedWhileHidden;
     BOOL _isHidden;
     BOOL _didFlipToFront;
     BOOL _disableAutoRefresh;
@@ -1177,6 +1185,10 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 {
     if (_isEditingCameraPosition == editing)
         return;
+    if (editing) {
+        [self finishWatchingClip:^(NSImage *, NSRect) { }];
+        [self callPageFunction:@"stopFollowingClipElement" argument:nil completionHandler:^(id) { }];
+    }
     _isEditingCameraPosition = editing;
     if (editing) {
         _clipRectAfterTransition = NSZeroRect;
@@ -1184,8 +1196,10 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
             if (_isEditingCameraPosition && [nodes isKindOfClass:[NSArray class]])
                 _snapper = [[WCSnapper alloc] initWithNodes:nodes];
         }];
-    } else
+    } else {
         _snapper = nil;
+        [self beginWatchingClip];
+    }
     [self updateOverlayButtons];
     [_currentTheme display];
     [self updateFrame];
@@ -1344,15 +1358,8 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     }
     if (!NSEqualRects(rect, NSZeroRect)) {
         NSRect bounds = [_clipView bounds];
-        if (fabs(rect.origin.x - bounds.origin.x) >= 0.5 || fabs(rect.origin.y - bounds.origin.y) >= 0.5) {
-            _clipViewportOrigin = [self viewportOriginInViewport:_clipViewportOrigin];
-            // The page's width is its layout's and does not grow as it loads, unlike its height: a
-            // horizontal scroll the page cannot reach moves the clip within the viewport instead.
-            CGFloat maximumScrollX = MAX(0, _documentSize.width - [_webView frame].size.width);
-            NSPoint target = NSMakePoint(MAX(0, MIN(rect.origin.x - _clipViewportOrigin.x, maximumScrollX)), MAX(0, rect.origin.y - _clipViewportOrigin.y));
-            _clipViewportOrigin = NSMakePoint(rect.origin.x - target.x, rect.origin.y - target.y);
-            [self scrollPageTo:target];
-        }
+        if (fabs(rect.origin.x - bounds.origin.x) >= 0.5 || fabs(rect.origin.y - bounds.origin.y) >= 0.5)
+            [self scrollClipToPagePoint:rect.origin];
         NSSize widgetSize = [self frame].size;
         if (fabs(rect.size.width - bounds.size.width) >= 0.5 || fabs(rect.size.height - bounds.size.height) >= 0.5) {
             widgetSize = [self convertDOMBorderSizeToWindowSize:rect.size];
@@ -1366,6 +1373,18 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
         [self recordClipRectWithWidgetSize:widgetSize];
     }
     [self signClip];
+}
+
+// The page scrolls to bring the point to the clip's place in the viewport. The page's width is its
+// layout's and does not grow as it loads, unlike its height: a horizontal scroll the page cannot reach
+// moves the clip within the viewport instead.
+- (void)scrollClipToPagePoint:(NSPoint)point
+{
+    _clipViewportOrigin = [self viewportOriginInViewport:_clipViewportOrigin];
+    CGFloat maximumScrollX = MAX(0, _documentSize.width - [_webView frame].size.width);
+    NSPoint target = NSMakePoint(MAX(0, MIN(point.x - _clipViewportOrigin.x, maximumScrollX)), MAX(0, point.y - _clipViewportOrigin.y));
+    _clipViewportOrigin = NSMakePoint(point.x - target.x, point.y - target.y);
+    [self scrollPageTo:target];
 }
 
 // The signature describes the element the clip shows, so that the next load finds the element
@@ -1382,18 +1401,27 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     }];
 }
 
-// The clip has its place in the loaded page: its scroll anchors to content from now on, and a screenshot
-// the clip shows from before a hide gives way once the images in the clip have loaded.
+// The clip has its place in the loaded page: its scroll anchors to content and the clip follows its
+// element from now on, and a screenshot the clip shows from before a hide gives way once the images in
+// the clip have loaded.
 - (void)clipDidSettle
 {
     [self anchorPageScroll];
+    [self followClipElement];
     WKWebView *webView = _webView;
     [self callPageFunction:@"whenImagesInRectLoad" argument:@{ @"rect": [self clipPageRect], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id) {
         if (webView != _webView)
             return;
         _clipHasContent = YES;
         [self clearScreenshotIfNeeded];
+        [self beginWatchingClip];
     }];
+}
+
+- (void)followClipElement
+{
+    if (!_isEditingCameraPosition)
+        [self callPageFunction:@"followClipElement" argument:[self clipPageRect] completionHandler:^(id) { }];
 }
 
 // The clip has its place in the loaded page. The injected bundle, which keeps the main frame's scroll
@@ -1433,6 +1461,8 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         if (webView != _webView)
             return;
         id newSignature = [result isKindOfClass:[NSDictionary class]] ? result[@"signature"] : nil;
+        if (!_isEditingCameraPosition && [result isKindOfClass:[NSDictionary class]] && [result[@"rect"] isKindOfClass:[NSDictionary class]])
+            [self adjustClipToRect:rectFromPageRect(result[@"rect"])];
         if (!_isEditingCameraPosition && [newSignature isKindOfClass:[NSDictionary class]]) {
             [controller setClipSignature:newSignature];
             [controller savePreferencesToDisk];
@@ -1455,6 +1485,8 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     [self setIsEditingCameraPosition:NO];
     [self recordClipRectWithWidgetSize:[self frame].size];
     [self signClip];
+    if (_clipHasContent)
+        [self followClipElement];
     [[self controller] exitEditingCameraPosition];
 }
 
@@ -2034,24 +2066,32 @@ static NSPoint pageScrollFromResult(id result)
     [self setIsEditingCameraPosition:YES];
 }
 
+// A static page reloads, behind the snapshot its hide left, to show what the page holds now; any other
+// page has kept running and shows as it is.
 - (void)didShowWidget
 {
     _isHidden = NO;
     _hasBeenShown = YES;
     [WCClipperView askDock];
     [self updatePageWindow];
-    if (_disableAutoRefresh || [[self controller] playAudioOutOfDashboard])
+    if (_disableAutoRefresh)
         return;
-    if (!_webView) {
+    if (_mediaSuspendedWhileHidden) {
+        _mediaSuspendedWhileHidden = NO;
+        [_webView setAllMediaPlaybackSuspended:NO completionHandler:nil];
+    }
+    BOOL wasClosed = !_webView;
+    if (wasClosed) {
         [self createWebViewWithSize:[[self controller] visibleContentSize]];
         [_voidView addSubview:_webView positioned:NSWindowBelow relativeTo:_pageCover];
         [_pageCover setIsBlack:YES];
         [_pageCover setHidden:NO];
         [self sizeWebView];
     }
-    if (_hasBeenShown && !_isLoading && _didFlipToFront && !_isEditingCameraPosition)
+    if (!_isLoading && _didFlipToFront && !_isEditingCameraPosition && (wasClosed || _loadError || [self pageIsStatic]))
         [self reload:nil];
     [self clearScreenshotIfNeeded];
+    [self beginWatchingClip];
 }
 
 - (void)closeWebView
@@ -2064,6 +2104,7 @@ static NSPoint pageScrollFromResult(id result)
     [_webView removeFromSuperview];
     _webView = nil;
     _isLoading = NO;
+    _mediaSuspendedWhileHidden = NO;
 }
 
 // The clip's last pixels stand in for the page from a hide, which closes the web view, to the end
@@ -2079,28 +2120,133 @@ static NSPoint pageScrollFromResult(id result)
     [self updateFlipperVisibility];
 }
 
-// The page renders the clip's pixels, and the web view closes once it has.
+// A static page leaves its clip's pixels in its place and, unless it may play audio outside Dashboard,
+// closes. Any other page keeps running, its media suspended unless it may play audio outside Dashboard.
 - (void)didHideWidget
 {
     _isHidden = YES;
     [WCClipperView askDock];
     [self updatePageWindow];
-    if (_disableAutoRefresh || [[self controller] playAudioOutOfDashboard] || _isEditingCameraPosition || [self isShowingLoadingText] || [self isBacksideShowing] || _loadError)
+    if (_disableAutoRefresh || !_webView)
         return;
     WKWebView *webView = _webView;
+    [self finishWatchingClip:^(NSImage *image, NSRect pageRect) {
+        if (webView != _webView || !_isHidden)
+            return;
+        BOOL playsAudioOutOfDashboard = [[self controller] playAudioOutOfDashboard];
+        if (![self pageIsStatic] || _isEditingCameraPosition || [self isShowingLoadingText] || [self isBacksideShowing] || _loadError) {
+            if (!playsAudioOutOfDashboard && !_mediaSuspendedWhileHidden) {
+                _mediaSuspendedWhileHidden = YES;
+                [webView setAllMediaPlaybackSuspended:YES completionHandler:nil];
+            }
+            return;
+        }
+        if (image && [_pageCover isHidden]) {
+            [self showPageSnapshot:image inRect:pageRect];
+            _shouldClearScreenshotOnRentry = YES;
+        }
+        if (!playsAudioOutOfDashboard)
+            [self closeWebView];
+    }];
+}
+
+#pragma mark - Watching the clip
+
+// A page is static once its clip has been watched for this long without changing.
+static const NSTimeInterval WCStaticClipInterval = 30;
+
+- (BOOL)pageIsStatic
+{
+    return _clipUnchangedTime >= WCStaticClipInterval;
+}
+
+static NSData *pixelsOfImage(NSImage *image, NSSize *pixelSize)
+{
+    CGImageRef cgImage = [image CGImageForProposedRect:NULL context:nil hints:nil];
+    if (!cgImage)
+        return nil;
+    size_t width = CGImageGetWidth(cgImage);
+    size_t height = CGImageGetHeight(cgImage);
+    NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate([pixels mutableBytes], width, height, 8, width * 4, colorSpace, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(colorSpace);
+    if (!context)
+        return nil;
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgImage);
+    CGContextRelease(context);
+    *pixelSize = NSMakeSize(width, height);
+    return pixels;
+}
+
+// The page renders the part of the clip it covers.
+- (void)snapshotClip:(void (^)(NSImage *image, NSRect pageRect))completionHandler
+{
+    WKWebView *webView = _webView;
     NSRect pageRect = NSIntersectionRect([_clipView bounds], [webView frame]);
-    if (!webView || ![_pageCover isHidden] || NSIsEmptyRect(pageRect)) {
-        [self closeWebView];
+    if (!webView || NSIsEmptyRect(pageRect)) {
+        completionHandler(nil, pageRect);
         return;
     }
     WKSnapshotConfiguration *configuration = [[WKSnapshotConfiguration alloc] init];
     configuration.rect = [webView convertRect:pageRect fromView:_voidView];
     [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *error) {
-        if (webView != _webView || !_isHidden)
+        completionHandler(image, pageRect);
+    }];
+}
+
+// The clip is watched while Dashboard shows its front with the loaded page in place, and the page is not
+// being edited.
+- (void)beginWatchingClip
+{
+    if (_watchStart || _isHidden || !_didFlipToFront || _isEditingCameraPosition || !_clipHasContent || _isLoading || _loadError || !_webView)
+        return;
+    _watchStart = CFAbsoluteTimeGetCurrent();
+    CFAbsoluteTime watchStart = _watchStart;
+    [self snapshotClip:^(NSImage *image, NSRect pageRect) {
+        if (_watchStart != watchStart)
             return;
-        if (image)
-            [self showPageSnapshot:image inRect:pageRect];
-        [self closeWebView];
+        NSSize pixelSize = NSZeroSize;
+        _watchPixels = image ? pixelsOfImage(image, &pixelSize) : nil;
+        _watchPixelSize = pixelSize;
+        if (!_watchPixels)
+            _watchStart = 0;
+    }];
+}
+
+- (void)cancelWatchingClip
+{
+    _watchStart = 0;
+    _watchPixels = nil;
+}
+
+// The watch ends with the clip's pixels now. Media playing in the clip, or audio in the page, is a change;
+// so are pixels unlike the watch's first, unless the clip's size changed in between.
+- (void)finishWatchingClip:(void (^)(NSImage *image, NSRect pageRect))completionHandler
+{
+    CFAbsoluteTime watchStart = _watchPixels ? _watchStart : 0;
+    NSData *watchPixels = _watchPixels;
+    NSSize watchPixelSize = _watchPixelSize;
+    [self cancelWatchingClip];
+    WKWebView *webView = _webView;
+    [self snapshotClip:^(NSImage *image, NSRect pageRect) {
+        if (!watchStart || webView != _webView) {
+            completionHandler(image, pageRect);
+            return;
+        }
+        NSTimeInterval watched = CFAbsoluteTimeGetCurrent() - watchStart;
+        BOOL playsAudio = [webView _isPlayingAudio];
+        [self callPageFunction:@"isPlayingMediaInRect" argument:[self clipPageRect] completionHandler:^(id playsMedia) {
+            if (webView == _webView) {
+                NSSize pixelSize = NSZeroSize;
+                NSData *pixels = image ? pixelsOfImage(image, &pixelSize) : nil;
+                if (playsAudio || [playsMedia boolValue] || (pixels && NSEqualSizes(pixelSize, watchPixelSize) && ![pixels isEqualToData:watchPixels]))
+                    _clipUnchangedTime = 0;
+                else if (pixels && NSEqualSizes(pixelSize, watchPixelSize))
+                    _clipUnchangedTime += watched;
+            }
+            completionHandler(image, pageRect);
+        }];
     }];
 }
 
@@ -2108,10 +2254,12 @@ static NSPoint pageScrollFromResult(id result)
 {
     if (!toFront) {
         _didFlipToFront = NO;
+        [self finishWatchingClip:^(NSImage *, NSRect) { }];
         [self updatePageWindow];
         return;
     }
     _didFlipToFront = YES;
+    [self beginWatchingClip];
     [self updatePageWindow];
     [_currentTheme setHidden:NO];
     [self updateEventRegion];
@@ -2211,6 +2359,12 @@ static NSPoint pageScrollFromResult(id result)
     } else if ([type isEqual:@"documentSize"]) {
         _documentSize = NSMakeSize([message[@"width"] doubleValue], [message[@"height"] doubleValue]);
         [self layoutPageViewport];
+    } else if ([type isEqual:@"clipElementMoved"]) {
+        // The clip follows its element as anchoring does: the saved place stays the one placement gave it.
+        NSPoint place = NSMakePoint([message[@"x"] doubleValue], [message[@"y"] doubleValue]);
+        NSPoint origin = [self clipPageOrigin];
+        if (!_isEditingCameraPosition && (fabs(place.x - origin.x) >= 0.5 || fabs(place.y - origin.y) >= 0.5))
+            [self scrollClipToPagePoint:place];
     }
 }
 
@@ -2220,6 +2374,7 @@ static NSPoint pageScrollFromResult(id result)
 {
     _isLoading = YES;
     _clipHasContent = NO;
+    [self cancelWatchingClip];
     [self clearScreenshotIfNeeded];
 }
 
