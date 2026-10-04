@@ -7,6 +7,7 @@ set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "
 add_library(WebClipPlugin MODULE
     src/WCClipperView.m
     src/WCExtras.m
+    src/WCSafariStorage.mm
     src/WCSnapper.m
     src/WCTheme.m
     src/WCThemesMore.m
@@ -19,7 +20,7 @@ set_target_properties(WebClipPlugin PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/WebClipPlugin")
 target_compile_options(WebClipPlugin PRIVATE -fobjc-arc -Wno-deprecated-declarations -Wno-unguarded-availability-new)
 add_dependencies(WebClipPlugin WebKit WebKitLegacy)
-target_link_options(WebClipPlugin PRIVATE "$<TARGET_FILE:WebKit>" "$<TARGET_FILE:WebKitLegacy>" "SHELL:-framework Cocoa" "SHELL:-framework QuartzCore")
+target_link_options(WebClipPlugin PRIVATE "$<TARGET_FILE:JavaScriptCore>" "$<TARGET_FILE:WebCore>" "$<TARGET_FILE:WebKit>" "$<TARGET_FILE:WebKitLegacy>" "SHELL:-framework Cocoa" "SHELL:-framework QuartzCore" -lsqlite3)
 # The page script is a build output of its own, so that a change to it alone reaches the plug-in.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/src/WCPageAgent.js" "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
@@ -52,6 +53,34 @@ target_include_directories(WebClipPageBundle PRIVATE
     "${WebKit_PRIVATE_FRAMEWORK_HEADERS_DIR}"
     ${ICU_INCLUDE_DIRS})
 target_include_directories(WebClipPageBundle SYSTEM PRIVATE ${GSTREAMER_INCLUDE_DIRS})
+
+# The plug-in's reader of Safari's website data uses WebCore's storage functions, so it compiles as the
+# injected bundle does.
+set(_webclip_webcore_include_directories
+    "${CMAKE_BINARY_DIR}"
+    "${bmalloc_FRAMEWORK_HEADERS_DIR}"
+    "${WTF_FRAMEWORK_HEADERS_DIR}"
+    "${JavaScriptCore_FRAMEWORK_HEADERS_DIR}"
+    "${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}"
+    "${PAL_FRAMEWORK_HEADERS_DIR}"
+    "${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}"
+    ${ICU_INCLUDE_DIRS}
+    ${GSTREAMER_INCLUDE_DIRS})
+# A source file's options take no SHELL: groups, so each group's words go in on their own; a group the
+# frameworks keep from Swift sources applies to this Objective-C++ source.
+set(_webclip_webcore_options -fno-objc-arc)
+foreach (_option IN LISTS _webclip_bundle_options)
+    if (_option MATCHES "^\\$<\\$<NOT:\\$<COMPILE_LANGUAGE:Swift>>:SHELL:(.*)>$" OR _option MATCHES "^SHELL:(.*)$")
+        separate_arguments(_words UNIX_COMMAND "${CMAKE_MATCH_1}")
+        list(APPEND _webclip_webcore_options ${_words})
+    else ()
+        list(APPEND _webclip_webcore_options "${_option}")
+    endif ()
+endforeach ()
+set_source_files_properties(src/WCSafariStorage.mm PROPERTIES
+    COMPILE_DEFINITIONS "${_webclip_bundle_definitions}"
+    COMPILE_OPTIONS "${_webclip_webcore_options}"
+    INCLUDE_DIRECTORIES "${_webclip_webcore_include_directories}")
 add_dependencies(WebClipPageBundle WebKit)
 target_link_options(WebClipPageBundle PRIVATE "$<TARGET_FILE:JavaScriptCore>" "$<TARGET_FILE:WebCore>" "$<TARGET_FILE:WebKit>")
 add_dependencies(WebClipPlugin WebClipPageBundle)

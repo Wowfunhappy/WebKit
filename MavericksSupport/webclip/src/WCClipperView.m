@@ -5,6 +5,7 @@
 
 #import "WCSnapper.h"
 #import "WebClipper.h"
+#import "WCSafariStorage.h"
 #import "WCWebKitSPI.h"
 
 // AppKit posts this for every mouse-moved event it dispatches.
@@ -277,6 +278,7 @@ static NSRect rectFromPageRect(id value)
     WCVoidView *_pageCover;
     WKWebView *_webView;
     WKContentWorld *_pageWorld;
+    WKUserScript *_agentScript;
     NSPoint _mouseDownPoint;
     NSSize _mouseDownWindowSize;
     NSRect _mouseDownClipViewBounds;
@@ -1329,11 +1331,41 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     return NSMakePoint(bounds.origin.x - [_currentTheme clipInsetLeft], bounds.origin.y - [_currentTheme clipInsetBottom]);
 }
 
+// Safari hands a new clip its cookies; the page's state in Safari's local storage reaches each load of
+// the clip before the page's own scripts run, and the values Safari holds replace the clip's. Safari's
+// store is read off the main thread, and the load starts once it has been.
+- (void)loadRequestWithSafariStorage:(NSURLRequest *)request
+{
+    WKWebView *webView = _webView;
+    NSURL *url = [request URL];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSDictionary *storage = WCSafariLocalStorageForSite(url);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (webView != _webView)
+                return;
+            [self installUserScriptsWithSafariStorage:storage];
+            [webView loadRequest:request];
+        });
+    });
+}
+
+- (void)installUserScriptsWithSafariStorage:(NSDictionary *)storage
+{
+    WKUserContentController *userContentController = [[_webView configuration] userContentController];
+    [userContentController removeAllUserScripts];
+    [userContentController addUserScript:_agentScript];
+    NSData *json = [storage count] ? [NSJSONSerialization dataWithJSONObject:storage options:0 error:nil] : nil;
+    if (!json)
+        return;
+    NSString *source = [NSString stringWithFormat:@"(function (storage) { const items = storage[location.origin]; if (!items) return; try { for (const key of Object.keys(items)) { if (localStorage.getItem(key) !== items[key]) localStorage.setItem(key, items[key]); } } catch (e) { } })(%@);", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
+    [userContentController addUserScript:[[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_pageWorld]];
+}
+
 - (void)reload:(id)sender
 {
     NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL _web_URLWithUserTypedString:[[self controller] URLString]] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:31536000];
     _isLoading = _webView != nil;
-    [_webView loadRequest:request];
+    [self loadRequestWithSafariStorage:request];
 }
 
 - (NSSize)convertDOMBorderSizeToWindowSize:(NSSize)size
@@ -1373,6 +1405,18 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
         [self recordClipRectWithWidgetSize:widgetSize];
     }
     [self signClip];
+}
+
+// The page's scroll that shows the saved clip at its place in Safari's viewport. The web view grows
+// down to hold a selection that runs past the bottom of Safari's visible area.
+- (NSPoint)savedPageScroll
+{
+    NSRect clipRect = [[self controller] clipRect];
+    NSPoint pageScroll = [[self controller] pageScroll];
+    NSPoint origin = [self viewportOriginInViewport:NSMakePoint(clipRect.origin.x - pageScroll.x, 0)];
+    _clipViewportOrigin = NSMakePoint(origin.x, MAX(0, clipRect.origin.y - pageScroll.y));
+    [self sizeWebView];
+    return NSMakePoint(clipRect.origin.x - _clipViewportOrigin.x, clipRect.origin.y - _clipViewportOrigin.y);
 }
 
 // The page scrolls to bring the point to the clip's place in the viewport. The page's width is its
@@ -1618,7 +1662,8 @@ static WKProcessPool *clipProcessPool(void)
     _pageWorld = [WKContentWorld worldWithName:@"WebClip"];
     NSString *agentPath = [[NSBundle bundleForClass:[WCClipperView class]] pathForResource:@"WCPageAgent" ofType:@"js"];
     NSString *agentSource = [NSString stringWithContentsOfFile:agentPath encoding:NSUTF8StringEncoding error:nil];
-    [userContentController addUserScript:[[WKUserScript alloc] initWithSource:agentSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_pageWorld]];
+    _agentScript = [[WKUserScript alloc] initWithSource:agentSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_pageWorld];
+    [userContentController addUserScript:_agentScript];
     WCScriptMessageProxy *proxy = [[WCScriptMessageProxy alloc] init];
     proxy.view = self;
     [userContentController addScriptMessageHandler:proxy contentWorld:_pageWorld name:@"webClip"];
@@ -1653,6 +1698,8 @@ static WKProcessPool *clipProcessPool(void)
     [_webView setNavigationDelegate:self];
     [_webView _setFullscreenDelegate:self];
     [_webView _setClipsToVisibleRect:YES];
+    // The web view sets its own insets: the page window has no title bar or toolbar over it.
+    [_webView _setAutomaticallyAdjustsContentInsets:NO];
     [self applyCustomTextEncodingName];
 }
 
@@ -1729,9 +1776,14 @@ static NSPoint pageScrollFromResult(id result)
 {
     NSSize visibleContentSize = [[self controller] visibleContentSize];
     NSSize clipSize = [_clipView bounds].size;
-    NSSize size = NSMakeSize(MAX(visibleContentSize.width, clipSize.width), MAX(visibleContentSize.height, clipSize.height));
+    NSSize size = NSMakeSize(MAX(visibleContentSize.width, clipSize.width), MAX(visibleContentSize.height, _clipViewportOrigin.y + clipSize.height));
     if (!NSEqualSizes([_webView frame].size, size))
         [_webView setFrameSize:size];
+    // The rows the web view shows past Safari's visible area lie under its bottom inset: the page's
+    // viewport stays the one Safari gave it.
+    CGFloat bottomInset = MAX(0, size.height - visibleContentSize.height);
+    if ([_webView _obscuredContentInsets].bottom != bottomInset)
+        [_webView _setObscuredContentInsets:NSEdgeInsetsMake(0, 0, bottomInset, 0) immediate:YES];
     [self sizeVoidToContainClipAt:[_clipView bounds].origin];
     // Viewport units resolve against Safari's viewport, scroll bars included.
     NSSize viewport = [[self controller] viewportSize];
@@ -2270,10 +2322,6 @@ static NSData *pixelsOfImage(NSImage *image, NSSize *pixelSize)
 - (void)loadURLString:(NSString *)URLString clipRect:(NSRect)clipRect clipSignature:(NSDictionary *)clipSignature pageSize:(NSSize)pageSize displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget
 {
     _documentSize = pageSize;
-    NSPoint pageScroll = [[self controller] pageScroll];
-    _clipViewportOrigin = NSMakePoint(clipRect.origin.x - pageScroll.x, clipRect.origin.y - pageScroll.y);
-    [self placeWebViewAtPageScroll:NSZeroPoint];
-    [self scrollPageTo:pageScroll];
     [[self controller] setClipSignature:clipSignature];
     if (resizeWidget)
         [self setWidgetWindowSize:clipRect.size keepClipperCentered:YES];
@@ -2281,6 +2329,8 @@ static NSData *pixelsOfImage(NSImage *image, NSSize *pixelSize)
         [self setConstrainedClipperSize:clipRect.size];
         [_clipView setFrame:[self clipViewFrame]];
     }
+    [self placeWebViewAtPageScroll:NSZeroPoint];
+    [self scrollPageTo:[self savedPageScroll]];
     if (displayLoadingText)
         [self displayLoadingText];
     if ([self isBacksideShowing]) {
@@ -2294,7 +2344,7 @@ static NSData *pixelsOfImage(NSImage *image, NSSize *pixelSize)
     }
     NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL _web_URLWithUserTypedString:URLString] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:31536000];
     _isLoading = YES;
-    [_webView loadRequest:request];
+    [self loadRequestWithSafariStorage:request];
     _didFlipToFront = YES;
     [self updatePageWindow];
 }
@@ -2383,7 +2433,7 @@ static NSData *pixelsOfImage(NSImage *image, NSSize *pixelSize)
     _loadError = NO;
     [self dismissError];
     [self placeWebViewAtPageScroll:NSZeroPoint];
-    [self scrollPageTo:[[self controller] pageScroll]];
+    [self scrollPageTo:[self savedPageScroll]];
 }
 
 - (void)_webView:(WKWebView *)webView renderingProgressDidChange:(_WKRenderingProgressEvents)progressEvents
