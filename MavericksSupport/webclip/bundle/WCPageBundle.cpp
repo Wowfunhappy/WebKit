@@ -5,10 +5,10 @@
 // of a scrolling="no" frame, which every view the frame creates takes on: the user cannot scroll it,
 // and the plug-in still scrolls it to show the clip.
 //
-// The plug-in scrolls each page it loads to the clip's recorded place at commit, before the page is
-// built, so the main frame's scroll position does not anchor to content until the plug-in says the
-// clip has its place in the page; from then on it does, and keeps the clip's content in view when the
-// page changes above it.
+// The plug-in scrolls each page it loads to the clip's recorded place once the page has loaded and then
+// places the clip in it, so from each commit the main frame's scroll position does not anchor to content
+// until the plug-in says the clip has its place in the page; from then on it does, and keeps the clip's
+// content in view when the page changes above it.
 
 #include "cmakeconfig.h"
 

@@ -57,6 +57,7 @@ typedef NS_OPTIONS(NSUInteger, _WKRenderingProgressEvents) {
 @property (nonatomic, setter=_setAutomaticallyAdjustsContentInsets:) BOOL _automaticallyAdjustsContentInsets;
 - (void)_setObscuredContentInsets:(NSEdgeInsets)insets immediate:(BOOL)immediate;
 @property (nonatomic, setter=_setTextZoomFactor:) double _textZoomFactor;
+- (void)_doAfterNextPresentationUpdate:(void (^)(void))updateBlock;
 @property (nonatomic, readonly, getter=_isPlayingAudio) BOOL _playingAudio;
 - (WKPageRef)_pageRefForTransitionToWKWebView;
 - (void)_close;

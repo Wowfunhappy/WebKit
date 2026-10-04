@@ -645,17 +645,15 @@
     }
 
     // Pages scroll their content in boxes of their own as well as in the document, and a page loads with
-    // those boxes at their start. An element's rect lands at the clip's place in the viewport once the
-    // document scrolls as far as it can toward it and the boxes the element lies in scroll the rest:
-    // the rect it then has, and those boxes' scroll offsets.
-    function revealPlan(element, rect, viewportOrigin)
+    // those boxes at their start. The boxes an element lies in scroll, nearest first and each as far as it
+    // can, to bring the element's rect to a y in the document. The plan holds the boxes' scroll offsets,
+    // the rect the element then has, and the place it has once the boxes are scrolled as far as they need
+    // to be together, which boxes still too short reach as the page grows.
+    function revealPlan(element, rect, targetY)
     {
-        if (!viewportOrigin || !element)
-            return { element, rect, scrolls: [] };
-        const scrollingElement = document.scrollingElement || document.documentElement;
-        const maximumScrollY = Math.max(0, scrollingElement.scrollHeight - window.innerHeight);
-        const documentScrollY = Math.min(Math.max(0, rect.y - viewportOrigin.y), maximumScrollY);
-        let remaining = rect.y - documentScrollY - viewportOrigin.y;
+        const current = scrollOffsets(element);
+        const intendedScroll = { x: current.x, y: Math.max(0, current.y + rect.y - targetY) };
+        let remaining = intendedScroll.y - current.y;
         let y = rect.y;
         const scrolls = [];
         for (const scroller of scrollingAncestors(element)) {
@@ -669,7 +667,13 @@
             remaining -= moved;
             y -= moved;
         }
-        return { element, rect: makeRect(rect.x, y, rect.width, rect.height), scrolls };
+        return {
+            element,
+            scrolls,
+            rect: makeRect(rect.x, y, rect.width, rect.height),
+            place: makeRect(rect.x, rect.y - (intendedScroll.y - current.y), rect.width, rect.height),
+            intendedScroll,
+        };
     }
 
     // How far the boxes an element scrolls within are scrolled, together.
@@ -684,21 +688,32 @@
         return { x, y };
     }
 
-    // The element's rect with the boxes it scrolls within scrolled as far as Safari had them, given
-    // outermost first, and those boxes' scroll offsets.
+    // The plan that scrolls the boxes an element lies in as far as Safari had them, given outermost first.
     function safariScrollPlan(element, rect, boxScrolls, ancestorsOf = createScrollingAncestorsMeasurer())
     {
         const scrollers = ancestorsOf(element).slice().reverse();
         const scrolls = [];
+        const current = { x: 0, y: 0 };
+        const intendedScroll = { x: 0, y: 0 };
         let y = rect.y;
         scrollers.forEach((scroller, index) => {
-            if (index >= boxScrolls.length)
-                return;
-            const scrollTop = Math.min(Math.max(0, boxScrolls[index]), scroller.scrollHeight - scroller.clientHeight);
-            scrolls.push({ scroller, scrollTop });
+            current.x += scroller.scrollLeft;
+            current.y += scroller.scrollTop;
+            intendedScroll.x += scroller.scrollLeft;
+            const safariScrollTop = index < boxScrolls.length ? Math.max(0, boxScrolls[index]) : scroller.scrollTop;
+            intendedScroll.y += safariScrollTop;
+            const scrollTop = Math.min(safariScrollTop, scroller.scrollHeight - scroller.clientHeight);
+            if (scrollTop !== scroller.scrollTop)
+                scrolls.push({ scroller, scrollTop });
             y -= scrollTop - scroller.scrollTop;
         });
-        return { element, rect: makeRect(rect.x, y, rect.width, rect.height), scrolls };
+        return {
+            element,
+            scrolls,
+            rect: makeRect(rect.x, y, rect.width, rect.height),
+            place: makeRect(rect.x, rect.y - (intendedScroll.y - current.y), rect.width, rect.height),
+            intendedScroll,
+        };
     }
 
     // Where the element's rect lies with the boxes it scrolls within scrolled as they were when the
@@ -707,7 +722,7 @@
     function signedPlace(element, rect, signature, ancestorsOf = createScrollingAncestorsMeasurer())
     {
         if (signature.boxScrolls)
-            return safariScrollPlan(element, rect, signature.boxScrolls, ancestorsOf).rect;
+            return safariScrollPlan(element, rect, signature.boxScrolls, ancestorsOf).place;
         const scroll = scrollOffsets(element, ancestorsOf);
         return makeRect(rect.x + scroll.x - signature.scrollOffset.x, rect.y + scroll.y - signature.scrollOffset.y, rect.width, rect.height);
     }
@@ -720,16 +735,32 @@
         return Math.abs(place.x - original.x) < 0.5 && Math.abs(place.y - original.y) < 0.5;
     }
 
-    // The element placement put at the clip's place, as it then lay, which the follower starts from: by
-    // the time it starts, the page may have scrolled the boxes the element lies in again.
-    let lastPlacement = null;
-
-    function applyReveal(plan)
+    function applyScrolls(plan)
     {
         for (const { scroller, scrollTop } of plan.scrolls)
             scroller.scrollTop = scrollTop;
-        lastPlacement = plan.element ? { element: plan.element, rect: plan.rect, offset: layoutOffset(plan.element), scroll: scrollOffsets(plan.element), signature: signatureForElement(plan.element, plan.rect) } : null;
-        return plan.rect;
+    }
+
+    // The element placement put at the clip's place, with its layout offset and the scroll of the boxes
+    // it lies in that the place needs, which signing and the follower start from: by then the boxes may
+    // not have reached that scroll yet, or the page may have scrolled them again.
+    let lastPlacement = null;
+
+    function placeElement(plan)
+    {
+        applyScrolls(plan);
+        lastPlacement = { element: plan.element, place: plan.place, offset: layoutOffset(plan.element), scroll: plan.intendedScroll };
+    }
+
+    // The plan as far as the boxes can scroll now, for an element that takes the place it can reach.
+    function reachedPlan(plan)
+    {
+        return Object.assign({}, plan, { place: plan.rect, intendedScroll: { x: plan.intendedScroll.x, y: plan.intendedScroll.y - (plan.rect.y - plan.place.y) } });
+    }
+
+    function placementAt(rect)
+    {
+        return lastPlacement && lastPlacement.element.isConnected && hasOrigin(lastPlacement.place, rect) ? lastPlacement : null;
     }
 
     function hasOrigin(rect, origin)
@@ -814,11 +845,14 @@
         return signatureForElement(findBorderElementForRect(createBorderFinder(), rect), rect);
     }
 
-    function signatureForElement(element, rect)
+    // The element's signature at the rect, with the boxes it lies in scrolled as far as the scroll says.
+    function signatureForElement(element, rect, scroll = element ? scrollOffsets(element) : null)
     {
         if (!element)
             return null;
-        const box = createMeasurer()(element);
+        const current = scrollOffsets(element);
+        const measured = createMeasurer()(element);
+        const box = makeRect(measured.x - (scroll.x - current.x), measured.y - (scroll.y - current.y), measured.width, measured.height);
         const dictionary = {};
         dictionary[kClipSignatureElementKey] = dictionaryFromBoxedElement(boxedElementFromDOMElement(element));
         if (isHTMLElement(element.parentNode))
@@ -834,7 +868,6 @@
         dictionary[kClipSignatureBorderOffsetLeftKey] = f32(box.x - rect.x);
         dictionary[kClipSignatureBorderOffsetRightKey] = f32((rect.x + rect.width) - (box.x + box.width));
         dictionary[kClipSignatureOriginalBorderRectKey] = stringFromRect(rect);
-        const scroll = scrollOffsets(element);
         if (scroll.x || scroll.y) {
             dictionary[kClipSignatureScrollOffsetXKey] = f32(scroll.x);
             dictionary[kClipSignatureScrollOffsetYKey] = f32(scroll.y);
@@ -893,25 +926,32 @@
     {
         const signature = signatureFromDictionary(argument.signature);
         const score = argument.signature[kClipSignatureScoreKey];
-        const viewportOrigin = argument.viewportOrigin;
+        const clipRect = makeRect(argument.rect.x, argument.rect.y, argument.rect.width, argument.rect.height);
         return whenDocumentChanges(atDeadline => {
             const matches = bestMatches(signature);
             const index = matches.elements.findIndex((element, i) => liesAtSignedPlace(element, matches.rects[i], signature));
-            if (index >= 0 && (atDeadline || matches.score >= score))
-                return { rect: publicRect(applyReveal(revealPlan(matches.elements[index], matches.rects[index], viewportOrigin))) };
+            if (index >= 0 && (atDeadline || matches.score >= score)) {
+                const plan = revealPlan(matches.elements[index], matches.rects[index], signature.originalBorderRect.y);
+                placeElement(plan);
+                return { rect: publicRect(plan.place) };
+            }
             if (!atDeadline)
                 return null;
             const kind = bestMatches(signature, true);
             if (!kind.likeliestElement)
                 return { rect: null };
-            return { rect: publicRect(applyReveal(revealPlan(kind.likeliestElement, kind.likeliest, viewportOrigin))) };
+            const plan = reachedPlan(revealPlan(kind.likeliestElement, kind.likeliest, clipRect.y));
+            placeElement(plan);
+            return { rect: publicRect(plan.place) };
         }, argument.deadline);
     }
 
     // A signature for the clip's rect in the page.
-    function signRect(rect)
+    function signRect(argument)
     {
-        return signatureForRect(makeRect(rect.x, rect.y, rect.width, rect.height));
+        const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
+        const placement = placementAt(rect);
+        return placement ? signatureForElement(placement.element, rect, placement.scroll) : signatureForRect(rect);
     }
 
     // A signature for the clip's rect in the page once the element Safari signed lies there. Both
@@ -923,7 +963,6 @@
     {
         const safariSignature = argument.signature ? signatureFromDictionary(argument.signature) : null;
         const rect = makeRect(argument.rect.x, argument.rect.y, argument.rect.width, argument.rect.height);
-        const viewportOrigin = argument.viewportOrigin;
         const boxScrolls = Array.isArray(argument.boxScrolls) ? argument.boxScrolls : [];
         if (safariSignature)
             safariSignature.boxScrolls = boxScrolls;
@@ -931,17 +970,18 @@
             const matches = safariSignature ? bestMatches(safariSignature) : null;
             if (!matches)
                 return { signature: signatureForRect(rect) };
-            const inPlace = matches.elements.map((element, index) => safariScrollPlan(element, matches.rects[index], boxScrolls)).find(plan => hasOrigin(plan.rect, rect));
+            const inPlace = matches.elements.map((element, index) => safariScrollPlan(element, matches.rects[index], boxScrolls)).find(plan => hasOrigin(plan.place, rect));
             if (inPlace) {
-                applyReveal(inPlace);
-                return { signature: signatureForRect(rect) };
+                placeElement(inPlace);
+                return { signature: signatureForElement(inPlace.element, rect, inPlace.intendedScroll) };
             }
             if (!atDeadline)
                 return null;
             const kind = bestMatches(safariSignature, true);
             if (kind.likeliestElement) {
-                const revealed = applyReveal(revealPlan(kind.likeliestElement, kind.likeliest, viewportOrigin));
-                return { rect: publicRect(revealed), signature: signatureForRect(revealed) };
+                const plan = reachedPlan(revealPlan(kind.likeliestElement, kind.likeliest, rect.y));
+                placeElement(plan);
+                return { rect: publicRect(plan.place), signature: signatureForElement(plan.element, plan.place, plan.intendedScroll) };
             }
             return { signature: signatureForRect(rect) };
         }, argument.deadline);
@@ -973,16 +1013,15 @@
     {
         stopFollowingClipElement();
         const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
-        const placement = lastPlacement && lastPlacement.element.isConnected && hasOrigin(lastPlacement.rect, rect) ? lastPlacement : null;
-        const signature = placement ? placement.signature : signatureForRect(rect);
+        const placement = placementAt(rect);
+        const signature = placement ? signatureForElement(placement.element, rect, placement.scroll) : signatureForRect(rect);
         if (!signature)
             return false;
         const parsedSignature = signatureFromDictionary(signature);
         const follower = {
             element: null,
-            viewportOrigin: argument.viewportOrigin,
-            // The clip's place, and the element's layout offset and the scroll of the boxes it lies in,
-            // when the clip took that place.
+            // The clip's place, the element's layout offset there, and the scroll of the boxes it lies in
+            // that the place needs.
             basePlace: null,
             baseOffset: null,
             baseScroll: null,
@@ -996,11 +1035,11 @@
         {
             follower.element = element;
             follower.basePlace = place;
-            follower.baseOffset = offset || (element ? layoutOffset(element) : null);
-            follower.baseScroll = scroll || (element ? scrollOffsets(element) : null);
+            follower.baseOffset = offset;
+            follower.baseScroll = scroll;
         }
-        // The element's place now, with the boxes it lies in scrolled to bring it to the clip's place in
-        // the viewport as far as the document's scroll cannot.
+        // The element's place now: where its layout puts it with the boxes it lies in scrolled as far as
+        // the place needs, and as far as they can scroll toward that.
         function placeOfElement()
         {
             const element = follower.element;
@@ -1010,9 +1049,10 @@
                 const offset = layoutOffset(element);
                 const scroll = scrollOffsets(element);
                 const x = follower.basePlace.x + offset.x - follower.baseOffset.x - (scroll.x - follower.baseScroll.x);
-                const y = follower.basePlace.y + offset.y - follower.baseOffset.y - (scroll.y - follower.baseScroll.y);
-                const placed = applyReveal(revealPlan(element, makeRect(x, y, rect.width, rect.height), follower.viewportOrigin));
-                return { x: placed.x, y: placed.y };
+                const targetY = follower.basePlace.y + offset.y - follower.baseOffset.y;
+                const plan = revealPlan(element, makeRect(x, targetY - (scroll.y - follower.baseScroll.y), rect.width, rect.height), targetY);
+                applyScrolls(plan);
+                return { x: plan.rect.x, y: plan.rect.y };
             }
             follower.element = null;
             const now = performance.now();
@@ -1025,9 +1065,10 @@
             const kind = bestMatches(parsedSignature, true);
             if (!kind.likeliestElement)
                 return null;
-            const placed = applyReveal(revealPlan(kind.likeliestElement, kind.likeliest, follower.viewportOrigin));
-            takeElement(kind.likeliestElement, { x: placed.x, y: placed.y });
-            return { x: placed.x, y: placed.y };
+            const plan = reachedPlan(revealPlan(kind.likeliestElement, kind.likeliest, follower.place.y));
+            applyScrolls(plan);
+            takeElement(plan.element, { x: plan.place.x, y: plan.place.y }, layoutOffset(plan.element), plan.intendedScroll);
+            return { x: plan.place.x, y: plan.place.y };
         }
         function check()
         {
@@ -1055,8 +1096,10 @@
         }
         if (placement)
             takeElement(placement.element, { x: rect.x, y: rect.y }, placement.offset, placement.scroll);
-        else
-            takeElement(findBorderElementForRect(createBorderFinder(), rect), { x: rect.x, y: rect.y });
+        else {
+            const element = findBorderElementForRect(createBorderFinder(), rect);
+            takeElement(element, { x: rect.x, y: rect.y }, element ? layoutOffset(element) : null, element ? scrollOffsets(element) : null);
+        }
         const mutationObserver = new MutationObserver(schedule);
         mutationObserver.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
         const resizeObserver = new ResizeObserver(schedule);

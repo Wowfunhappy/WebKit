@@ -430,11 +430,14 @@ static NSRect rectFromPageRect(id value)
     BOOL shows = [self showsPageWindow];
     if (shows != [_pageWindow isVisible])
         [_placeholder setNeedsDisplay:YES];
+    // The clip takes the placeholder's size whether or not its window shows: the clip's place is
+    // recorded with the widget's size.
+    if (_pageWindow && [_placeholder window])
+        [self placePageWindow];
     if (!shows) {
         [self orderPageWindowOut];
         return;
     }
-    [self placePageWindow];
     [self updateThemeOverlay];
     // The page window is the front one of the widget's windows.
     if (![_pageWindow isVisible])
@@ -1488,9 +1491,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 {
     if (_isEditingCameraPosition)
         return;
-    NSMutableDictionary *argument = [[self clipPageRect] mutableCopy];
-    argument[@"viewportOrigin"] = [self clipViewportOriginArgument];
-    [self callPageFunction:@"followClipElement" argument:argument completionHandler:^(id) { }];
+    [self callPageFunction:@"followClipElement" argument:[self clipPageRect] completionHandler:^(id) { }];
 }
 
 // The clip has its place in the loaded page. The injected bundle, which keeps the main frame's scroll
@@ -1517,7 +1518,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     NSDictionary *signature = [controller clipSignature];
     WKWebView *webView = _webView;
     if ([signature objectForKey:@"ClipSignatureScore"]) {
-        [self callPageFunction:@"placeBySignature" argument:@{ @"signature": signature, @"viewportOrigin": [self clipViewportOriginArgument], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
+        [self callPageFunction:@"placeBySignature" argument:@{ @"signature": signature, @"rect": [self clipPageRect], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
             if (webView != _webView)
                 return;
             if (!_isEditingCameraPosition && [result isKindOfClass:[NSDictionary class]])
@@ -1527,7 +1528,7 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         return;
     }
     NSArray *boxScrolls = [controller safariBoxScrolls];
-    [self callPageFunction:@"signRectWhenPresent" argument:@{ @"signature": signature ?: [NSNull null], @"rect": [self clipPageRect], @"boxScrolls": boxScrolls ?: [NSNull null], @"viewportOrigin": [self clipViewportOriginArgument], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
+    [self callPageFunction:@"signRectWhenPresent" argument:@{ @"signature": signature ?: [NSNull null], @"rect": [self clipPageRect], @"boxScrolls": boxScrolls ?: [NSNull null], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
         if (webView != _webView)
             return;
         id newSignature = [result isKindOfClass:[NSDictionary class]] ? result[@"signature"] : nil;
@@ -1768,12 +1769,6 @@ static WKProcessPool *clipProcessPool(void)
     return NSMakePoint(_clipViewportOrigin.x + anchor.x, _clipViewportOrigin.y + anchor.y);
 }
 
-// Where the clip lies in the viewport, for the page agent.
-- (NSDictionary *)clipViewportOriginArgument
-{
-    return @{ @"x": @(_clipViewportOrigin.x), @"y": @(_clipViewportOrigin.y) };
-}
-
 - (NSDictionary *)clipPageRect
 {
     NSPoint origin = [self clipPageOrigin];
@@ -1796,8 +1791,10 @@ static NSPoint pageScrollFromResult(id result)
     return NSMakePoint([result[@"x"] doubleValue], [result[@"y"] doubleValue]);
 }
 
-// The page scrolls to the target as far as it can while it loads. Once loaded, it stays where it can scroll
-// to, and the clip moves within the viewport by what the page could not scroll, onto the same content.
+// The page scrolls to the target once it has loaded, as a page Safari reloads goes back to where it was
+// scrolled: pages that set themselves up by where they are scrolled while they load see the scroll a
+// reload gives them. The page then stays where it can scroll to, and the clip moves within the viewport
+// by what the page could not scroll, onto the same content.
 - (void)scrollPageTo:(NSPoint)target
 {
     _pageScrollTarget = NSMakePoint(MAX(0, target.x), MAX(0, target.y));
@@ -1826,21 +1823,31 @@ static NSPoint pageScrollFromResult(id result)
 
 - (void)layoutPageViewport
 {
-    if (!_webView)
+    [self layoutPageViewportWithCompletionHandler:nil];
+}
+
+- (void)layoutPageViewportWithCompletionHandler:(void (^)(void))completionHandler
+{
+    if (!_webView) {
+        if (completionHandler)
+            completionHandler();
         return;
+    }
     [self sizeWebView];
-    if (!_hasPageScrollTarget)
-        return;
-    if (NSEqualPoints(_pageScroll, _pageScrollTarget)) {
-        _hasPageScrollTarget = NO;
+    if (!_hasPageScrollTarget || _isLoading || NSEqualPoints(_pageScroll, _pageScrollTarget)) {
+        if (_hasPageScrollTarget && !_isLoading)
+            _hasPageScrollTarget = NO;
+        if (completionHandler)
+            completionHandler();
         return;
     }
     NSPoint target = _pageScrollTarget;
     [self callPageFunction:@"scrollToPoint" argument:@{ @"x": @(target.x), @"y": @(target.y) } completionHandler:^(id result) {
         NSPoint actual = pageScrollFromResult(result);
-        if (isnan(actual.x))
-            return;
-        [self placeWebViewAtPageScroll:actual];
+        if (!isnan(actual.x))
+            [self placeWebViewAtPageScroll:actual];
+        if (completionHandler)
+            completionHandler();
     }];
 }
 
@@ -2478,12 +2485,19 @@ static NSData *pixelsOfImage(NSImage *image, NSSize *pixelSize)
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     _isLoading = NO;
-    [self dismissLoadingText];
     [self stopProgressTimer];
-    [self layoutPageViewport];
     [_webView _setTextZoomFactor:[[self controller] textSizeMultiplier]];
-    [self clearScreenshotIfNeeded];
-    [self updateStandIn];
+    // The loading text gives way once the page shows scrolled to the clip.
+    WKWebView *loadedWebView = _webView;
+    [self layoutPageViewportWithCompletionHandler:^{
+        [loadedWebView _doAfterNextPresentationUpdate:^{
+            if (loadedWebView != _webView || _isLoading)
+                return;
+            [self dismissLoadingText];
+            [self clearScreenshotIfNeeded];
+            [self updateStandIn];
+        }];
+    }];
     [self followSignature];
 }
 
