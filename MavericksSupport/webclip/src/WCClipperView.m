@@ -43,8 +43,9 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 @property (nonatomic, weak) WCClipperView *view;
 @end
 
-@interface WCClipperView () <WKNavigationDelegate, WKUIDelegate, _WKFullscreenDelegate>
+@interface WCClipperView () <WKNavigationDelegate, WKUIDelegate>
 - (void)pageDidPostMessage:(NSDictionary *)message;
+- (WKWebView *)currentWebView;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
 - (BOOL)performKeyEquivalentLeftByPage:(NSEvent *)event;
 - (NSPoint)themeWindowOrigin;
@@ -72,7 +73,7 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
 {
-    if ([message.body isKindOfClass:[NSDictionary class]])
+    if ([message.body isKindOfClass:[NSDictionary class]] && message.webView == [self.view currentWebView])
         [self.view pageDidPostMessage:message.body];
 }
 
@@ -166,11 +167,10 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
     [self setNeedsDisplay:YES];
 }
 
-// The widget window always holds the clip's stand-in, under the page window while that shows: the Dock
-// gives a widget the clicks that land on its window's opaque pixels.
 - (void)drawRect:(NSRect)rect
 {
-    [_image drawInRect:[self bounds] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+    if (![_clipperView showsPageWindow])
+        [_image drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
 }
 
 - (void)viewDidMoveToWindow
@@ -279,9 +279,11 @@ static NSRect rectFromPageRect(id value)
     WCDoneButton *_lockCameraButton;
     NSTimer *_progressTimer;
     NSView *_resizer;
-    NSImageView *_pageSnapshotView;
-    // Where the snapshot lies in the clip view.
-    NSPoint _pageSnapshotOffset;
+    WKWebView *_previousPageView;
+    // Where the previous page lies in the clip view.
+    NSPoint _previousPageOffset;
+    CFAbsoluteTime _clipSettledTime;
+    CFAbsoluteTime _clipElementStillSince;
     WCSnapper *_snapper;
     NSTextField *_statusTextField;
     WCVoidView *_voidView;
@@ -429,6 +431,8 @@ static NSRect rectFromPageRect(id value)
 - (void)updatePageWindow
 {
     BOOL shows = [self showsPageWindow];
+    if (shows != [_pageWindow isVisible])
+        [_placeholder setNeedsDisplay:YES];
     // The clip takes the placeholder's size whether or not its window shows: the clip's place is
     // recorded with the widget's size.
     if (_pageWindow && [_placeholder window])
@@ -437,9 +441,6 @@ static NSRect rectFromPageRect(id value)
         [self orderPageWindowOut];
         return;
     }
-    // The widget window takes the clicks on the clip from the first time the page window shows.
-    if (![_placeholder image] && !NSIsEmptyRect([_clipView bounds]))
-        [self setStandInWithPageSnapshot:nil inRect:NSZeroRect];
     [self updateThemeOverlay];
     // The page window is the front one of the widget's windows.
     if (![_pageWindow isVisible])
@@ -520,10 +521,9 @@ static NSRect rectFromPageRect(id value)
     [self updatePageWindow];
 }
 
-// The widget window holds the clip's stand-in, which shows while the page window is out: while
-// Dashboard shows and hides its widgets, and while the widget moves. The page renders the stand-in
-// when it has finished loading and when it has painted, when the pointer leaves it and when it gives
-// up the key window.
+// The widget window shows the clip while the page window is out: while Dashboard shows and hides
+// its widgets, and while the widget moves. The page renders the stand-in when it has finished
+// loading and when it has painted, when the pointer leaves it and when it gives up the key window.
 static NSImage *imageOfView(NSView *view, NSRect rect)
 {
     NSBitmapImageRep *bitmap = [view bitmapImageRepForCachingDisplayInRect:rect];
@@ -796,7 +796,7 @@ static NSHashTable *clipperViews;
 {
     BOOL hidden = YES;
     if ([[self controller] hasSettings] && !_isLoading && !_loadError && !_isEditingCameraPosition)
-        hidden = _hasScreenshot || _pageSnapshotView;
+        hidden = _hasScreenshot || _previousPageView;
     [_flipButton setHidden:hidden];
     [_flipperImageView setHidden:hidden];
     [_themeOverlay setNeedsDisplay:YES];
@@ -805,8 +805,7 @@ static NSHashTable *clipperViews;
 - (void)clearScreenshot
 {
     [self setScreenshot:nil];
-    [_pageSnapshotView removeFromSuperview];
-    _pageSnapshotView = nil;
+    [self closePreviousPage];
     [_reloadSpinner removeFromSuperview];
     _reloadSpinner = nil;
     [_clipView setHidden:NO];
@@ -821,10 +820,14 @@ static NSHashTable *clipperViews;
     }
     if (_shouldClearScreenshotOnRentry) {
         if (!_isLoading && _clipHasContent && !_reloadsAtFront) {
+            if (_previousPageView) {
+                [self showReloadedPageWhenSetUp];
+                return;
+            }
             [self clearScreenshot];
             _shouldClearScreenshotOnRentry = NO;
-        } else if (_hasScreenshot && _pageSnapshotView && !_transitionInProgress) {
-            // The page's snapshot, in the page window, stands in until the reload ends.
+        } else if (_hasScreenshot && _previousPageView && !_transitionInProgress) {
+            // The previous page, in the page window, stands in until the reload ends.
             [self setScreenshot:nil];
         }
         return;
@@ -1282,10 +1285,10 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 }
 
 // The content mask lives in the clip layer's bounds, which follow the clip view's as it scrolls, and
-// the page's snapshot keeps its place in the clip view.
+// the previous page keeps its place in the clip view.
 - (void)clipViewBoundsDidChange:(NSNotification *)notification
 {
-    [self placePageSnapshot];
+    [self placePreviousPage];
     CALayer *mask = [[_clipView layer] mask];
     if (!mask)
         return;
@@ -1478,10 +1481,12 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 }
 
 // The clip has its place in the loaded page: its scroll anchors to content and the clip follows its
-// element from now on, and a screenshot the clip shows from before a hide gives way once the images in
+// element from now on, and what stands in for the page from before a hide gives way once the images in
 // the clip have loaded.
 - (void)clipDidSettle
 {
+    _clipSettledTime = CFAbsoluteTimeGetCurrent();
+    _clipElementStillSince = _clipSettledTime;
     [self anchorPageScroll];
     [self followClipElement];
     WKWebView *webView = _webView;
@@ -1545,6 +1550,33 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
             [controller savePreferencesToDisk];
         }
         [self clipDidSettle];
+    }];
+}
+
+// A reloaded page takes the previous page's place once it is set up at the clip's place: the clip's
+// element has held still for a moment, or the placement deadline has passed since the clip settled, and
+// then its scroll has landed and it has presented what it shows there.
+static const CFTimeInterval WCReloadedPageStillInterval = 1;
+
+- (void)showReloadedPageWhenSetUp
+{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showReloadedPageWhenSetUp) object:nil];
+    if (!_previousPageView || _isHidden || _isLoading || !_shouldClearScreenshotOnRentry)
+        return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    CFTimeInterval wait = MIN(WCReloadedPageStillInterval - (now - _clipElementStillSince), WCSignatureDeadlineMilliseconds / 1000 - (now - _clipSettledTime));
+    if (wait > 0) {
+        [self performSelector:@selector(showReloadedPageWhenSetUp) withObject:nil afterDelay:wait];
+        return;
+    }
+    WKWebView *webView = _webView;
+    [self layoutPageViewportWithCompletionHandler:^{
+        [webView _doAfterNextPresentationUpdate:^{
+            if (webView != _webView || !_previousPageView || _isHidden || _isLoading || !_shouldClearScreenshotOnRentry)
+                return;
+            [self clearScreenshot];
+            _shouldClearScreenshotOnRentry = NO;
+        }];
     }];
 }
 
@@ -1697,8 +1729,6 @@ static WKProcessPool *clipProcessPool(void)
     preferences._defaultFixedPitchFontSize = [controller fixedWidthFontSize];
     preferences.minimumFontSize = [controller minimumFontSize];
     preferences._defaultTextEncodingName = [controller defaultTextEncodingName];
-    // Pages see the element fullscreen API Safari offers them.
-    preferences.elementFullscreenEnabled = YES;
 
     WKUserContentController *userContentController = configuration.userContentController;
     _clipWorld = [WKContentWorld worldWithName:@"WebClip"];
@@ -1735,7 +1765,6 @@ static WKProcessPool *clipProcessPool(void)
     [_webView _setObservedRenderingProgressEvents:_WKRenderingProgressEventFirstPaintWithSignificantArea | _WKRenderingProgressEventFirstMeaningfulPaint];
     [_webView setUIDelegate:self];
     [_webView setNavigationDelegate:self];
-    [_webView _setFullscreenDelegate:self];
     [_webView _setClipsToVisibleRect:YES];
     // The web view sets its own insets: the page window has no title bar or toolbar over it.
     [_webView _setAutomaticallyAdjustsContentInsets:NO];
@@ -1968,6 +1997,9 @@ static NSPoint pageScrollFromResult(id result)
 - (NSView *)hitTest:(NSPoint)point
 {
     NSView *hit = [super hitTest:point];
+    // The previous page only shows while its reload runs under it.
+    if (_previousPageView && [hit isDescendantOf:_previousPageView])
+        hit = _clipView;
     NSPoint mouse = [self mouseLocationInView];
     BOOL editing = _isEditingCameraPosition;
     if (hit == _currentTheme) {
@@ -2169,8 +2201,8 @@ static NSPoint pageScrollFromResult(id result)
     [self setIsEditingCameraPosition:YES];
 }
 
-// A page that left a snapshot at the hide loads again behind it, to show what it holds now; a page that
-// was playing audio shows as it is.
+// A page that was not playing audio at the hide loads again behind itself, to show what it holds now; a
+// page that was playing audio shows as it is.
 - (void)didShowWidget
 {
     _isHidden = NO;
@@ -2185,7 +2217,7 @@ static NSPoint pageScrollFromResult(id result)
     }
     if ((_reloadsAtShow || _loadError) && !_isLoading && !_isEditingCameraPosition) {
         if (_didFlipToFront)
-            [self reloadBehindSnapshot];
+            [self reloadBehindPage];
         else
             _reloadsAtFront = YES;
     }
@@ -2193,15 +2225,51 @@ static NSPoint pageScrollFromResult(id result)
     [self clearScreenshotIfNeeded];
 }
 
-- (void)reloadBehindSnapshot
+// The page loads again in a new web view under the one the clip shows, which stays as it is, live, until
+// the reloaded page is set up at the clip's place: then the new page takes over.
+- (void)reloadBehindPage
 {
     _reloadsAtFront = NO;
+    WKWebView *previous = _webView;
+    if (previous && !_previousPageView && !_loadError && [_pageCover isHidden]) {
+        [self callPageFunction:@"stopFollowingClipElement" argument:nil completionHandler:^(id) { }];
+        [previous setNavigationDelegate:nil];
+        [previous setUIDelegate:nil];
+        NSPoint clipOrigin = [_clipView bounds].origin;
+        _previousPageOffset = NSMakePoint(NSMinX([previous frame]) - clipOrigin.x, NSMinY([previous frame]) - clipOrigin.y);
+        _previousPageView = previous;
+        [self createWebViewWithSize:[previous frame].size];
+        [_voidView addSubview:_webView positioned:NSWindowBelow relativeTo:previous];
+        [self sizeWebView];
+        _shouldClearScreenshotOnRentry = YES;
+        [self updateFlipperVisibility];
+    }
     [self reload:nil];
-    if (_pageSnapshotView)
+    if (_previousPageView)
         [self showReloadSpinner];
 }
 
-// A small spinner in the clip's bottom left corner says the snapshot over the clip is reloading.
+- (void)placePreviousPage
+{
+    NSPoint clipOrigin = [_clipView bounds].origin;
+    [_previousPageView setFrameOrigin:NSMakePoint(clipOrigin.x + _previousPageOffset.x, clipOrigin.y + _previousPageOffset.y)];
+}
+
+- (void)closePreviousPage
+{
+    WKWebView *previous = _previousPageView;
+    _previousPageView = nil;
+    [previous stopLoading:nil];
+    [previous _close];
+    [previous removeFromSuperview];
+}
+
+- (WKWebView *)currentWebView
+{
+    return _webView;
+}
+
+// A small spinner in the clip's bottom left corner says the page in the clip is reloading.
 static const CGFloat WCReloadSpinnerInset = 12;
 static const CGFloat WCReloadSpinnerSize = 22;
 
@@ -2232,30 +2300,9 @@ static const CGFloat WCReloadSpinnerSize = 22;
     [_reloadSpinner setFrameOrigin:NSMakePoint(NSMinX(clipFrame) + WCReloadSpinnerInset, NSMinY(clipFrame) + WCReloadSpinnerInset)];
 }
 
-// The clip's last pixels stand in for the page from a hide to the end of the load the next show starts.
-// They keep their place in the clip view, under the same theme and content mask, wherever the clip
-// view shows the page meanwhile.
-- (void)showPageSnapshot:(NSImage *)image inRect:(NSRect)rect
-{
-    [_pageSnapshotView removeFromSuperview];
-    NSPoint clipOrigin = [_clipView bounds].origin;
-    _pageSnapshotOffset = NSMakePoint(NSMinX(rect) - clipOrigin.x, NSMinY(rect) - clipOrigin.y);
-    _pageSnapshotView = [[NSImageView alloc] initWithFrame:rect];
-    [_pageSnapshotView setImageScaling:NSImageScaleAxesIndependently];
-    [_pageSnapshotView setImage:image];
-    addLayerBackedSubview(_voidView, _pageSnapshotView);
-    [self updateFlipperVisibility];
-}
-
-- (void)placePageSnapshot
-{
-    NSPoint clipOrigin = [_clipView bounds].origin;
-    [_pageSnapshotView setFrameOrigin:NSMakePoint(clipOrigin.x + _pageSnapshotOffset.x, clipOrigin.y + _pageSnapshotOffset.y)];
-}
-
 // Dashboard going away is a tab going to the background: the page keeps running, its media suspended
-// unless it may play audio outside Dashboard. A page that is not playing audio leaves its clip's pixels
-// to stand in for it, and loads again at the next show.
+// unless it may play audio outside Dashboard. A page that is not playing audio loads again at the next
+// show.
 - (void)didHideWidget
 {
     _isHidden = YES;
@@ -2263,20 +2310,11 @@ static const CGFloat WCReloadSpinnerSize = 22;
     [self updatePageWindow];
     if (_disableAutoRefresh || !_webView)
         return;
-    WKWebView *webView = _webView;
-    BOOL playsAudio = [webView _isPlayingAudio];
+    BOOL playsAudio = [_webView _isPlayingAudio];
     [self suspendMediaWhileHidden];
     if (playsAudio || _isEditingCameraPosition)
         return;
     _reloadsAtShow = YES;
-    [self snapshotClip:^(NSImage *image, NSRect pageRect) {
-        if (webView != _webView || !_isHidden || !_reloadsAtShow)
-            return;
-        if (image && [_pageCover isHidden] && !_loadError) {
-            [self showPageSnapshot:image inRect:pageRect];
-            _shouldClearScreenshotOnRentry = YES;
-        }
-    }];
 }
 
 - (void)suspendMediaWhileHidden
@@ -2285,22 +2323,6 @@ static const CGFloat WCReloadSpinnerSize = 22;
         return;
     _mediaSuspendedWhileHidden = YES;
     [_webView setAllMediaPlaybackSuspended:YES completionHandler:nil];
-}
-
-// The page renders the part of the clip it covers.
-- (void)snapshotClip:(void (^)(NSImage *image, NSRect pageRect))completionHandler
-{
-    WKWebView *webView = _webView;
-    NSRect pageRect = NSIntersectionRect([_clipView bounds], [webView frame]);
-    if (!webView || NSIsEmptyRect(pageRect)) {
-        completionHandler(nil, pageRect);
-        return;
-    }
-    WKSnapshotConfiguration *configuration = [[WKSnapshotConfiguration alloc] init];
-    configuration.rect = [webView convertRect:pageRect fromView:_voidView];
-    [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *error) {
-        completionHandler(image, pageRect);
-    }];
 }
 
 - (void)didFlipWidget:(BOOL)toFront
@@ -2312,7 +2334,7 @@ static const CGFloat WCReloadSpinnerSize = 22;
     }
     _didFlipToFront = YES;
     if (_reloadsAtFront && !_isHidden)
-        [self reloadBehindSnapshot];
+        [self reloadBehindPage];
     [self updatePageWindow];
     [_currentTheme setHidden:NO];
     [self updateEventRegion];
@@ -2346,8 +2368,10 @@ static const CGFloat WCReloadSpinnerSize = 22;
     NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL _web_URLWithUserTypedString:URLString] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:31536000];
     _isLoading = YES;
     [self loadRequestWithSafariStorage:request];
+    // The widget shows its front from here: Dashboard takes the clicks the front's region holds.
     _didFlipToFront = YES;
     [self updatePageWindow];
+    [self updateEventRegion];
 }
 
 - (int)currentThemeID
@@ -2357,11 +2381,12 @@ static const CGFloat WCReloadSpinnerSize = 22;
 
 - (void)webPlugInDestroy
 {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showReloadedPageWhenSetUp) object:nil];
+    [self closePreviousPage];
     [_webView stopLoading:nil];
     [[_webView configuration].userContentController removeAllScriptMessageHandlers];
     [_webView setUIDelegate:nil];
     [_webView setNavigationDelegate:nil];
-    [_webView _setFullscreenDelegate:nil];
     [_webView _close];
     [self orderPageWindowOut];
     [_pageWindow setContentView:nil];
@@ -2412,6 +2437,7 @@ static const CGFloat WCReloadSpinnerSize = 22;
         [self layoutPageViewport];
     } else if ([type isEqual:@"clipElementMoved"]) {
         // The clip follows its element as anchoring does: the saved place stays the one placement gave it.
+        _clipElementStillSince = CFAbsoluteTimeGetCurrent();
         NSPoint place = NSMakePoint([message[@"x"] doubleValue], [message[@"y"] doubleValue]);
         NSPoint origin = [self clipPageOrigin];
         if (!_isEditingCameraPosition && (fabs(place.x - origin.x) >= 0.5 || fabs(place.y - origin.y) >= 0.5))
@@ -2509,23 +2535,6 @@ static const CGFloat WCReloadSpinnerSize = 22;
     } else if (type != WKNavigationTypeLinkActivated)
         return;
     [[self windowScriptObject] callWebScriptMethod:@"openURL" withArguments:[NSArray arrayWithObjects:[[request URL] absoluteString], nil]];
-}
-
-#pragma mark - _WKFullscreenDelegate
-
-// Dashboard's windows lie above every application window, so the page's full screen window takes a level
-// above the widget's.
-- (void)_webViewWillEnterFullscreen:(NSView *)webView
-{
-    [[webView window] setLevel:[[_placeholder window] level] + 1];
-}
-
-// The full screen window gives the key focus back to the page window before it leaves: ordered out as
-// the key window, it would hand the focus on through the widget's windows, which the Dock owns.
-- (void)_webViewWillExitFullscreen:(NSView *)webView
-{
-    if ([_pageWindow isVisible])
-        [self makePageWindowKey];
 }
 
 #pragma mark - WKUIDelegate
