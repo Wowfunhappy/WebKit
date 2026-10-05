@@ -43,10 +43,32 @@
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/MainThread.h>
-#import <wtf/cocoa/SpanCocoa.h> // MAVERICKS_BACKPORT: for the gzip decoder's input span.
+#import <wtf/SetForScope.h> // MAVERICKS_BACKPORT: for m_deliveringResponse.
+#import <wtf/ThreadSafeRefCounted.h> // MAVERICKS_BACKPORT: for ConnectionCallback.
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 using namespace WebCore;
+
+// MAVERICKS_BACKPORT: one callback of a connection scheduled on the main run loop. Its work runs in place,
+// so the answer is in hand when the completion handler runs before the callback returns; a completion
+// handler that runs later, after work held behind a pending completion or a deferral, answers late.
+class ConnectionCallback : public ThreadSafeRefCounted<ConnectionCallback> {
+public:
+    static Ref<ConnectionCallback> create(bool runsInPlace) { return adoptRef(*new ConnectionCallback(runsInPlace)); }
+    bool runsInPlace() const { return m_runsInPlace; }
+    bool isLate() const { return m_runsInPlace && m_returned; }
+    void setReturned() { m_returned = true; }
+    void setAnswered() { m_answered = true; }
+    bool wasAnswered() const { return m_answered; }
+private:
+    explicit ConnectionCallback(bool runsInPlace)
+        : m_runsInPlace(runsInPlace)
+    {
+    }
+    const bool m_runsInPlace;
+    bool m_returned { false };
+    bool m_answered { false };
+};
 
 static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<SchedulePairHashSet>& pairs)
 {
@@ -63,6 +85,26 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 @implementation WebCoreResourceHandleAsOperationQueueDelegate
 
 - (void)callFunctionOnMainThread:(Function<void()>&&)function
+{
+    // MAVERICKS_BACKPORT: while a response or redirect waits for its completion handler, or the handle
+    // defers loading, the main thread holds the connection's later work, in order.
+    function = [protectedSelf = retainPtr(self), function = WTF::move(function)] mutable {
+        if (protectedSelf->m_waitingForCompletion || protectedSelf->m_defersLoading || !protectedSelf->m_heldWork.isEmpty()) {
+            protectedSelf->m_heldWork.append(WTF::move(function));
+            return;
+        }
+        function();
+    };
+
+    // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread; its work runs in place.
+    if (m_callbacksOnMainThread && !m_messageQueue && isMainThread())
+        return function();
+
+    [self dispatchFunctionOnMainThread:WTF::move(function)];
+}
+
+// MAVERICKS_BACKPORT: upstream's -callFunctionOnMainThread: dispatch, which held work's drain also takes.
+- (void)dispatchFunctionOnMainThread:(Function<void()>&&)function
 {
     // Sync xhr uses the message queue.
     if (m_messageQueue)
@@ -87,6 +129,54 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
         CFRunLoopWakeUp(pair->runLoop()); // MAVERICKS_BACKPORT: wake the loop whose delegate block was just queued.
     }
+}
+
+// MAVERICKS_BACKPORT: the main-run-loop connection state; see callFunctionOnMainThread:.
+- (void)setCallbacksOnMainThread
+{
+    m_callbacksOnMainThread = true;
+}
+
+- (void)setDefersLoading:(BOOL)defers connection:(NSURLConnection *)connection
+{
+    m_defersLoading = defers;
+    [connection setDefersCallbacks:defers || m_deferredForCompletion];
+    [self scheduleHeldWork];
+}
+
+- (BOOL)isDeliveringResponse
+{
+    return m_deliveringResponse;
+}
+
+// Held work runs from its own run loop callout, as the connection's callbacks do.
+- (void)scheduleHeldWork
+{
+    if (m_waitingForCompletion || m_defersLoading || m_heldWork.isEmpty() || m_heldWorkScheduled)
+        return;
+    m_heldWorkScheduled = true;
+    [self dispatchFunctionOnMainThread:[protectedSelf = retainPtr(self)] {
+        protectedSelf->m_heldWorkScheduled = false;
+        while (!protectedSelf->m_waitingForCompletion && !protectedSelf->m_defersLoading && !protectedSelf->m_heldWork.isEmpty())
+            protectedSelf->m_heldWork.takeFirst()();
+    }];
+}
+
+// The connection stops calling back while a completion handler is outstanding past its callback.
+- (void)deferConnectionForCompletion:(NSURLConnection *)connection
+{
+    if (!m_waitingForCompletion || m_deferredForCompletion)
+        return;
+    m_deferredForCompletion = true;
+    [connection setDefersCallbacks:YES];
+}
+
+- (void)continueAfterCompletion:(NSURLConnection *)connection
+{
+    m_waitingForCompletion = false;
+    if (std::exchange(m_deferredForCompletion, false))
+        [connection setDefersCallbacks:m_defersLoading];
+    [self scheduleHeldWork];
 }
 
 - (id)initWithHandle:(WebCore::ResourceHandle*)handle messageQueue:(RefPtr<WebCore::SynchronousLoaderMessageQueue>&&)messageQueue
@@ -116,6 +206,9 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
     m_cachedResponseResult = nullptr;
     m_boolResult = NO;
     m_semaphore.signal(); // OK to signal even if we are not waiting.
+    // MAVERICKS_BACKPORT: held work has no handle left to reach.
+    m_waitingForCompletion = false;
+    m_heldWork.clear();
 }
 
 - (void)dealloc
@@ -125,7 +218,7 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 
 - (NSURLRequest *)connection:(NSURLConnection *)connection willSendRequest:(NSURLRequest *)newRequest redirectResponse:(NSURLResponse *)redirectResponse
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     redirectResponse = synthesizeRedirectResponseIfNecessary([connection currentRequest], newRequest, redirectResponse);
@@ -142,10 +235,16 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 #endif
 
     auto protectedSelf = retainPtr(self);
-    auto work = [protectedSelf, newRequest = retainPtr(newRequest), redirectResponse = retainPtr(redirectResponse)] mutable {
+    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // auto work = [protectedSelf, newRequest = retainPtr(newRequest), redirectResponse = retainPtr(redirectResponse)] mutable {
+    Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
+    auto work = [protectedSelf, newRequest = retainPtr(newRequest), redirectResponse = retainPtr(redirectResponse), connection = retainPtr(connection), callback] mutable {
         if (!protectedSelf->m_handle) {
             protectedSelf->m_requestResult = nullptr;
-            protectedSelf->m_semaphore.signal();
+            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            if (!callback->runsInPlace())
+                protectedSelf->m_semaphore.signal();
+            callback->setAnswered(); // MAVERICKS_BACKPORT: see ConnectionCallback.
             return;
         }
 
@@ -165,14 +264,46 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 
         protectedSelf->m_handle->incrementRedirectCount();
 
-        protect(protectedSelf->m_handle.get())->willSendRequest(WTF::move(redirectRequest), WTF::move(response), [protectedSelf = WTF::move(protectedSelf)](ResourceRequest&& request) {
+        protectedSelf->m_waitingForCompletion = true; // MAVERICKS_BACKPORT: see callFunctionOnMainThread:.
+        // MAVERICKS_BACKPORT: the completion handler continues the connection; see below.
+        // protect(protectedSelf->m_handle.get())->willSendRequest(WTF::move(redirectRequest), WTF::move(response), [protectedSelf = WTF::move(protectedSelf)](ResourceRequest&& request) {
+        protect(protectedSelf->m_handle.get())->willSendRequest(WTF::move(redirectRequest), WTF::move(response), [protectedSelf = WTF::move(protectedSelf), connection = WTF::move(connection), callback](ResourceRequest&& request) {
+            // MAVERICKS_BACKPORT: the curl transport owns HTTP; leaving this connection detaches its delegate. A
+            // late answer finds that the callback gave CFNetwork nil: an approved request continues on a new
+            // connection, and a nil answer lets the connection deliver the redirect response.
+            protectedSelf->m_waitingForCompletion = false;
+            RefPtr handle = protectedSelf->m_handle.get();
+            if (handle && !request.isNull() && request.url().protocolIsInHTTPFamily()) {
+                callback->setAnswered();
+                handle->continueRedirectOnCocoaCurl(WTF::move(request), RefPtr { protectedSelf->m_messageQueue });
+                return;
+            }
+            if (callback->isLate()) {
+                if (handle && !request.isNull())
+                    handle->continueRedirectOnNewConnection(WTF::move(request));
+                else
+                    [protectedSelf continueAfterCompletion:connection.get()];
+                return;
+            }
+            callback->setAnswered();
             protectedSelf->m_requestResult = request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
-            protectedSelf->m_semaphore.signal();
+            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            if (!callback->runsInPlace())
+                protectedSelf->m_semaphore.signal();
         });
     };
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    m_semaphore.wait();
+    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // m_semaphore.wait();
+    if (callback->runsInPlace()) {
+        callback->setReturned();
+        if (!callback->wasAnswered()) {
+            [self deferConnectionForCompletion:connection];
+            return nil;
+        }
+    } else
+        m_semaphore.wait();
 
     Locker locker { m_lock };
     if (!m_handle)
@@ -191,7 +322,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)connection:(NSURLConnection *)connection didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveAuthenticationChallenge:%p", m_handle.get(), connection, challenge);
@@ -199,6 +330,13 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     auto work = [protectedSelf = retainPtr(self), challenge = retainPtr(challenge)] mutable {
         if (!protectedSelf->m_handle) {
             [[challenge sender] cancelAuthenticationChallenge:challenge.get()];
+            return;
+        }
+        // MAVERICKS_BACKPORT: connection:canAuthenticateAgainstProtectionSpace: answered YES before the client
+        // could, and the client's answer arrived with the held work ahead of this challenge. A NO gets what
+        // 10.9 CFNetwork does for a protection space its delegate declines: it continues without a credential.
+        if (std::exchange(protectedSelf->m_protectionSpaceUnanswered, false) && !std::exchange(protectedSelf->m_lateProtectionSpaceAnswer, NO)) {
+            [[challenge sender] continueWithoutCredentialForAuthenticationChallenge:challenge.get()];
             return;
         }
         protect(protectedSelf->m_handle.get())->didReceiveAuthenticationChallenge(core(challenge.get()));
@@ -211,26 +349,52 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (BOOL)connection:(NSURLConnection *)connection canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace *)protectionSpace
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p canAuthenticateAgainstProtectionSpace:%@://%@:%zd realm:%@ method:%@ %@%@", m_handle.get(), connection, [protectionSpace protocol], [protectionSpace host], [protectionSpace port], [protectionSpace realm], [protectionSpace authenticationMethod], [protectionSpace isProxy] ? @"proxy:" : @"", [protectionSpace isProxy] ? [protectionSpace proxyType] : @"");
 
     auto protectedSelf = retainPtr(self);
-    auto work = [protectedSelf, protectionSpace = retainPtr(protectionSpace)] mutable {
+    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // auto work = [protectedSelf, protectionSpace = retainPtr(protectionSpace)] mutable {
+    Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
+    auto work = [protectedSelf, protectionSpace = retainPtr(protectionSpace), callback] mutable {
         if (!protectedSelf->m_handle) {
             protectedSelf->m_boolResult = NO;
-            protectedSelf->m_semaphore.signal();
+            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            if (!callback->runsInPlace())
+                protectedSelf->m_semaphore.signal();
+            callback->setAnswered(); // MAVERICKS_BACKPORT: see ConnectionCallback.
             return;
         }
-        protect(protectedSelf->m_handle.get())->canAuthenticateAgainstProtectionSpace(ProtectionSpace(protectionSpace.get()), [protectedSelf = WTF::move(protectedSelf)](bool result) mutable {
+        // MAVERICKS_BACKPORT: see ConnectionCallback; the challenge takes a late answer.
+        // protect(protectedSelf->m_handle.get())->canAuthenticateAgainstProtectionSpace(ProtectionSpace(protectionSpace.get()), [protectedSelf = WTF::move(protectedSelf)](bool result) mutable {
+        //     protectedSelf->m_boolResult = result;
+        //     protectedSelf->m_semaphore.signal();
+        // });
+        protect(protectedSelf->m_handle.get())->canAuthenticateAgainstProtectionSpace(ProtectionSpace(protectionSpace.get()), [protectedSelf = WTF::move(protectedSelf), callback](bool result) mutable {
+            if (callback->isLate()) {
+                protectedSelf->m_lateProtectionSpaceAnswer = result;
+                return;
+            }
+            callback->setAnswered();
             protectedSelf->m_boolResult = result;
-            protectedSelf->m_semaphore.signal();
+            if (!callback->runsInPlace()) // MAVERICKS_BACKPORT: only a blocked callback waits.
+                protectedSelf->m_semaphore.signal();
         });
     };
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    m_semaphore.wait();
+    // MAVERICKS_BACKPORT: see ConnectionCallback; held work answers YES and leaves the client's answer to the challenge.
+    // m_semaphore.wait();
+    if (callback->runsInPlace()) {
+        callback->setReturned();
+        if (!callback->wasAnswered()) {
+            m_protectionSpaceUnanswered = true;
+            return YES;
+        }
+    } else
+        m_semaphore.wait();
 
     Locker locker { m_lock };
     if (!m_handle)
@@ -247,15 +411,20 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)r
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveResponse:%p (HTTP status %zd, reported MIMEType '%s')", m_handle.get(), connection, r, [r respondsToSelector:@selector(statusCode)] ? [(id)r statusCode] : 0, [[r MIMEType] UTF8String]);
 
     auto protectedSelf = retainPtr(self);
-    auto work = [protectedSelf, r = retainPtr(r), connection = retainPtr(connection)] mutable {
+    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // auto work = [protectedSelf, r = retainPtr(r), connection = retainPtr(connection)] mutable {
+    Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
+    auto work = [protectedSelf, r = retainPtr(r), connection = retainPtr(connection), callback] mutable {
         RefPtr handle = protectedSelf->m_handle.get();
         if (!handle || !handle->client()) {
-            protectedSelf->m_semaphore.signal();
+            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            if (!callback->runsInPlace())
+                protectedSelf->m_semaphore.signal();
             return;
         }
 
@@ -272,27 +441,38 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         ResourceResponse resourceResponse(r.get());
         handle->checkTAO(resourceResponse);
 
-        // MAVERICKS_BACKPORT: ContentEncodingSniffingPolicy::Disable asks CFNetwork for a decoded body
-        // whatever the response looks like, through a request property 10.9 CFNetwork does not
-        // implement (see applySniffingPoliciesIfNeeded in ResourceHandleMac.mm), so inflate the bodies
-        // it withholds here instead.
-        if (handle->contentEncodingSniffingPolicy() == ContentEncodingSniffingPolicy::Disable
-            && CFNetworkSuppressedGzipDecoder::responseBodyIsStillGzipped(resourceResponse))
-            protectedSelf->m_gzipDecoder = makeUnique<CFNetworkSuppressedGzipDecoder>();
-
         auto metrics = copyTimingData(connection.get(), *handle);
         resourceResponse.setSource(ResourceResponse::Source::Network);
         resourceResponse.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics> { metrics });
 
         handle->setNetworkLoadMetrics(WTF::move(metrics));
 
-        handle->didReceiveResponse(WTF::move(resourceResponse), [protectedSelf = WTF::move(protectedSelf)] {
+        protectedSelf->m_waitingForCompletion = true; // MAVERICKS_BACKPORT: see callFunctionOnMainThread:.
+        // MAVERICKS_BACKPORT: a callback that ran in place continues the connection when the completion
+        // handler runs; see ConnectionCallback and -isDeliveringResponse.
+        // handle->didReceiveResponse(WTF::move(resourceResponse), [protectedSelf = WTF::move(protectedSelf)] {
+        //     protectedSelf->m_semaphore.signal();
+        // });
+        SetForScope delivering { protectedSelf->m_deliveringResponse, callback->runsInPlace() && !callback->isLate() };
+        handle->didReceiveResponse(WTF::move(resourceResponse), [protectedSelf, connection, callback] {
+            if (callback->runsInPlace()) {
+                [protectedSelf continueAfterCompletion:connection.get()];
+                return;
+            }
+            protectedSelf->m_waitingForCompletion = false;
             protectedSelf->m_semaphore.signal();
         });
-    };
+        if (callback->runsInPlace())
+            [protectedSelf deferConnectionForCompletion:connection.get()];
+    }; // MAVERICKS_BACKPORT: closes the response work above.
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    m_semaphore.wait();
+    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // m_semaphore.wait();
+    if (callback->runsInPlace())
+        callback->setReturned();
+    else
+        m_semaphore.wait();
 
     // Make sure we get destroyed on the main thread.
     [self callFunctionOnMainThread:[protectedSelf = WTF::move(protectedSelf)] { }];
@@ -300,7 +480,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data lengthReceived:(long long)lengthReceived
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
     UNUSED_PARAM(lengthReceived);
 
@@ -316,16 +496,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=19793
         // -1 means we do not provide any data about transfer size to inspector so it would use
         // Content-Length headers or content size to show transfer size.
-
-        // MAVERICKS_BACKPORT: decode the gzip body CFNetwork withheld (see connection:didReceiveResponse:);
-        // connectionDidFinishLoading: fails the load if the decode did not complete.
-        if (protectedSelf->m_gzipDecoder) {
-            auto decoded = protectedSelf->m_gzipDecoder->decode(span(data.get()));
-            if (decoded && !decoded->isEmpty())
-                protectedSelf->m_handle->client()->didReceiveData(protect(protectedSelf->m_handle.get()), SharedBuffer::create(WTF::move(*decoded)), -1);
-            return;
-        }
-
         protectedSelf->m_handle->client()->didReceiveData(protect(protectedSelf->m_handle.get()), SharedBuffer::create(data.get()), -1);
     };
 
@@ -334,7 +504,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didSendBodyData:(NSInteger)bytesWritten totalBytesWritten:(NSInteger)totalBytesWritten totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
     UNUSED_PARAM(bytesWritten);
 
@@ -351,7 +521,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connectionDidFinishLoading:%p", m_handle.get(), connection);
@@ -359,24 +529,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     auto work = [protectedSelf = retainPtr(self), connection = retainPtr(connection), timingData = retainPtr([connection _timingData])] mutable {
         if (!protectedSelf->m_handle || !protectedSelf->m_handle->client())
             return;
-
-        // MAVERICKS_BACKPORT: a gzip decode error, or a body that ended partway through a member,
-        // fails the load rather than surfacing truncated.
-        if (protectedSelf->m_gzipDecoder && (protectedSelf->m_gzipDecoder->failed() || protectedSelf->m_gzipDecoder->isTruncated())) {
-            // The error names the URL whose body failed, as CFNetwork's own errors do.
-            RetainPtr userInfo = adoptNS([[NSMutableDictionary alloc] init]);
-            if (RetainPtr url = [[connection currentRequest] URL]) {
-                [userInfo setObject:url.get() forKey:NSURLErrorFailingURLErrorKey];
-                [userInfo setObject:[url absoluteString] forKey:NSURLErrorFailingURLStringErrorKey];
-            }
-            auto error = adoptNS([[NSError alloc] initWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData userInfo:userInfo.get()]);
-            protectedSelf->m_handle->client()->didFail(protectedSelf->m_handle.get(), ResourceError(error.get()));
-            if (protectedSelf->m_messageQueue) {
-                protectedSelf->m_messageQueue->kill();
-                protectedSelf->m_messageQueue = nullptr;
-            }
-            return;
-        }
 
         if (auto metrics = protectedSelf->m_handle->networkLoadMetrics()) {
             if (double responseEndTime = [[timingData objectForKey:@"_kCFNTimingDataResponseEnd"] doubleValue])
@@ -405,7 +557,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p didFailWithError:%@", m_handle.get(), connection, error);
@@ -427,37 +579,50 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse *)cachedResponse
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p willCacheResponse:%p", m_handle.get(), connection, cachedResponse);
 
-    // MAVERICKS_BACKPORT: 10.9's shared NSURLCache keys entries on the URL alone and treats a 206 as
-    // the whole representation of that URL, so once one byte-range response is stored it is handed
-    // back for every later request to the same URL — other ranges AND plain GETs. A cache that cannot
-    // match partial content must not answer from a stored 206 at all, so the partial response is not
-    // offered to the cache here. Only WebKitLegacy reaches this delegate; the WK2 network process
-    // keeps its own cache.
-    if ([cachedResponse.response isKindOfClass:[NSHTTPURLResponse class]]
-        && [(NSHTTPURLResponse *)cachedResponse.response statusCode] == 206)
-        return nil;
-
     auto protectedSelf = retainPtr(self);
-    auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse)] mutable {
+    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse)] mutable {
+    Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
+    auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse), callback] mutable {
         if (!protectedSelf->m_handle || !protectedSelf->m_handle->client()) {
             protectedSelf->m_cachedResponseResult = nullptr;
-            protectedSelf->m_semaphore.signal();
+            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            if (!callback->runsInPlace())
+                protectedSelf->m_semaphore.signal();
+            callback->setAnswered(); // MAVERICKS_BACKPORT: see ConnectionCallback.
             return;
         }
 
-        protectedSelf->m_handle->client()->willCacheResponseAsync(protect(protectedSelf->m_handle.get()), cachedResponse.get(), [protectedSelf = WTF::move(protectedSelf)](NSCachedURLResponse * response) mutable {
+        // MAVERICKS_BACKPORT: see ConnectionCallback.
+        // protectedSelf->m_handle->client()->willCacheResponseAsync(protect(protectedSelf->m_handle.get()), cachedResponse.get(), [protectedSelf = WTF::move(protectedSelf)](NSCachedURLResponse * response) mutable {
+        //     protectedSelf->m_cachedResponseResult = response;
+        //     protectedSelf->m_semaphore.signal();
+        // });
+        protectedSelf->m_handle->client()->willCacheResponseAsync(protect(protectedSelf->m_handle.get()), cachedResponse.get(), [protectedSelf = WTF::move(protectedSelf), callback](NSCachedURLResponse * response) mutable {
+            if (callback->isLate())
+                return;
+            callback->setAnswered();
             protectedSelf->m_cachedResponseResult = response;
-            protectedSelf->m_semaphore.signal();
+            if (!callback->runsInPlace()) // MAVERICKS_BACKPORT: only a blocked callback waits.
+                protectedSelf->m_semaphore.signal();
         });
     };
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    m_semaphore.wait();
+    // MAVERICKS_BACKPORT: see ConnectionCallback. Held work answers nil: 10.9's NSURLCache stores HTTP
+    // responses only, and HTTP loads run on curl, so no response reaching this connection is ever stored.
+    // m_semaphore.wait();
+    if (callback->runsInPlace()) {
+        callback->setReturned();
+        if (!callback->wasAnswered())
+            return nil;
+    } else
+        m_semaphore.wait();
 
     Locker locker { m_lock };
     if (!m_handle)
@@ -478,7 +643,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (BOOL)connectionShouldUseCredentialStorage:(NSURLConnection *)connection
 {
-    ASSERT(!isMainThread());
+    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
     return NO;
 }

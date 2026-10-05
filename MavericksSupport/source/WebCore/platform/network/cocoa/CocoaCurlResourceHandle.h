@@ -37,7 +37,8 @@ class WEBCORE_EXPORT CocoaCurlResourceHandle final : public RefCountedAndCanMake
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(CocoaCurlResourceHandle, WEBCORE_EXPORT);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CocoaCurlResourceHandle);
 public:
-    static Ref<CocoaCurlResourceHandle> create(ResourceHandle&, NetworkStorageSession&, SynchronousLoaderMessageQueue* = nullptr);
+    // A redirected request replaces the handle's first request when a native protocol redirected to HTTP.
+    static Ref<CocoaCurlResourceHandle> create(ResourceHandle&, NetworkStorageSession&, SynchronousLoaderMessageQueue* = nullptr, std::optional<ResourceRequest>&& redirectedRequest = std::nullopt);
     ~CocoaCurlResourceHandle();
     void ref() const final { RefCountedAndCanMakeWeakPtr::ref(); }
     void deref() const final { RefCountedAndCanMakeWeakPtr::deref(); }
@@ -52,7 +53,7 @@ public:
     void setDefersLoading(bool);
     std::optional<CocoaCurlDownloadTransfer> takeDownload();
 private:
-    CocoaCurlResourceHandle(ResourceHandle&, NetworkStorageSession&, bool allowStoredCredentials, SynchronousLoaderMessageQueue*);
+    CocoaCurlResourceHandle(ResourceHandle&, NetworkStorageSession&, bool allowStoredCredentials, SynchronousLoaderMessageQueue*, std::optional<ResourceRequest>&&);
     void beginTransfer();
     void detachTransfer();
     void continueTransfer();

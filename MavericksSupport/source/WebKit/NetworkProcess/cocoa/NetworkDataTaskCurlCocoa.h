@@ -42,6 +42,8 @@ class NetworkDataTaskCurlCocoa final : public NetworkDataTask, public WebCore::C
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NetworkDataTaskCurlCocoa);
 public:
     static bool canHandle(NetworkSession&, const NetworkLoadParameters&);
+    // A redirect between a URL curl carries and one a registered custom protocol carries needs a new task.
+    static bool redirectChangesTask(NetworkSession&, const NetworkLoadParameters&, const WebCore::ResourceRequest&);
     static Ref<NetworkDataTask> create(NetworkSession&, NetworkDataTaskClient&, const NetworkLoadParameters&);
     ~NetworkDataTaskCurlCocoa();
     void ref() const final { NetworkDataTask::ref(); }

@@ -312,6 +312,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
+    // MAVERICKS_BACKPORT: a policy answered after the connection's response callback returned makes the
+    // request again, as for a load with no loader; see ResourceHandle::connectionCanBecomeDownload.
+    if (!handle->connectionCanBecomeDownload()) {
+        handle->cancel();
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        RetainPtr webDownload = adoptNS([[WebDownload alloc] initWithRequest:protect(request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody)).get() delegate:[webView.get() downloadDelegate]]);
+ALLOW_DEPRECATED_DECLARATIONS_END
+        webDownload.autorelease();
+        return;
+    }
+
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [WebDownload _downloadWithLoadingConnection:handle->connection() request:protect(request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody)).get() response:protect(response.nsURLResponse()).get() delegate:[webView.get() downloadDelegate] proxy:nil];
 ALLOW_DEPRECATED_DECLARATIONS_END

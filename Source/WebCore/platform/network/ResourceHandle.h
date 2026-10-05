@@ -116,6 +116,12 @@ public:
     WEBCORE_EXPORT NSURLConnection *NODELETE connection() const;
     // MAVERICKS_BACKPORT: a paused HTTP transaction can become a download without another request.
     WEBCORE_EXPORT CocoaCurlResourceHandle* cocoaCurlHandle() const;
+    // MAVERICKS_BACKPORT: an approved redirect continues on curl for HTTP, or on a new native connection
+    // when the connection's callback returned before the approval.
+    void continueRedirectOnCocoaCurl(ResourceRequest&&, RefPtr<SynchronousLoaderMessageQueue>&&);
+    void continueRedirectOnNewConnection(ResourceRequest&&);
+    // MAVERICKS_BACKPORT: 10.9 NSURLDownload takes a connection over only inside its response callback.
+    WEBCORE_EXPORT bool connectionCanBecomeDownload() const;
     id makeDelegate(bool, RefPtr<SynchronousLoaderMessageQueue>&&);
     id delegate();
     void releaseDelegate();
@@ -198,7 +204,9 @@ private:
 #endif
 
 #if PLATFORM(MAC)
-    void createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy, SchedulingBehavior);
+    // MAVERICKS_BACKPORT: see continueRedirectOnNewConnection.
+    // void createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy, SchedulingBehavior);
+    void createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy, SchedulingBehavior, ResourceRequest* redirectedRequest = nullptr);
 #endif
 
 #if PLATFORM(IOS_FAMILY)

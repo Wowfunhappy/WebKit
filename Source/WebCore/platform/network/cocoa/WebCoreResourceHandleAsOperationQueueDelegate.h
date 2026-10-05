@@ -23,10 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: for m_gzipDecoder below.
-#import "CFNetworkSuppressedGzipDecoder.h"
 #import <dispatch/dispatch.h>
 #import <wtf/Box.h>
+#import <wtf/Deque.h> // MAVERICKS_BACKPORT: for m_heldWork below.
 #import <wtf/Function.h>
 #import <wtf/Lock.h>
 #import <wtf/MessageQueue.h>
@@ -53,14 +52,29 @@ class SynchronousLoaderMessageQueue;
     RetainPtr<NSCachedURLResponse> m_cachedResponseResult;
     std::optional<SchedulePairHashSet> m_scheduledPairs;
     BOOL m_boolResult;
-    // MAVERICKS_BACKPORT: non-null while decoding a gzip body 10.9 CFNetwork withheld; see
-    // connection:didReceiveResponse:.
-    std::unique_ptr<WebCore::CFNetworkSuppressedGzipDecoder> m_gzipDecoder;
+    // MAVERICKS_BACKPORT: main-thread state of a connection scheduled on the main run loop, whose
+    // callbacks run their work in place; see callFunctionOnMainThread:.
+    bool m_callbacksOnMainThread;
+    bool m_waitingForCompletion;
+    bool m_defersLoading;
+    bool m_deferredForCompletion;
+    bool m_deliveringResponse;
+    bool m_protectionSpaceUnanswered;
+    BOOL m_lateProtectionSpaceAnswer;
+    bool m_heldWorkScheduled;
+    Deque<Function<void()>> m_heldWork;
 }
 
 - (void)detachHandle;
 // MAVERICKS_BACKPORT: curl shares the upstream custom-run-loop/message-queue dispatcher.
 - (void)callFunctionOnMainThread:(Function<void()>&&)function;
+// MAVERICKS_BACKPORT: the connection is scheduled on the main run loop; see callFunctionOnMainThread:.
+- (void)setCallbacksOnMainThread;
+// MAVERICKS_BACKPORT: ResourceHandle's defers state, applied to the connection and to the held work.
+- (void)setDefersLoading:(BOOL)defers connection:(NSURLConnection *)connection;
+// MAVERICKS_BACKPORT: whether the connection is inside connection:didReceiveResponse:, the only point
+// where 10.9 NSURLDownload can take it over.
+- (BOOL)isDeliveringResponse;
 - (id)initWithHandle:(WebCore::ResourceHandle*)handle messageQueue:(RefPtr<WebCore::SynchronousLoaderMessageQueue>&&)messageQueue;
 @end
 

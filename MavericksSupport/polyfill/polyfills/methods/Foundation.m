@@ -1114,6 +1114,33 @@ WK_POLYFILL_ADD_METHODS(NSURLConnection)
 - (NSDictionary *)_timingData { return nil; }
 @end
 
+// 10.9 CFNetwork implements no timing-data option for a connection, and a connection created with a
+// kCFURLConnectionURLConnectionProperties dictionary, even an empty one, cannot become an NSURLDownload:
+// URLDownload::initialize refuses it, so -_initWithLoadingConnection:... returns nil. The option 10.9
+// lacks is dropped, and the dictionary with it once nothing is left, as a connection that ignores the
+// option behaves.
+@interface NSURLConnection (WKPolyfill10_9ConnectionPropertiesSPI)
+- (id)_initWithRequest:(NSURLRequest *)request delegate:(id)delegate usesCache:(BOOL)usesCacheFlag maxContentLength:(long long)maxContentLength startImmediately:(BOOL)startImmediately connectionProperties:(NSDictionary *)connectionProperties;
+@end
+
+WK_POLYFILL_REPLACE_METHODS(NSURLConnection)
+- (id)_initWithRequest:(NSURLRequest *)request delegate:(id)delegate usesCache:(BOOL)usesCacheFlag maxContentLength:(long long)maxContentLength startImmediately:(BOOL)startImmediately connectionProperties:(NSDictionary *)connectionProperties
+{
+    NSDictionary *urlConnectionProperties = connectionProperties[@"kCFURLConnectionURLConnectionProperties"];
+    if (urlConnectionProperties[@"_kCFURLConnectionPropertyTimingDataOptions"]) {
+        NSMutableDictionary *remaining = [[urlConnectionProperties mutableCopy] autorelease];
+        [remaining removeObjectForKey:@"_kCFURLConnectionPropertyTimingDataOptions"];
+        NSMutableDictionary *properties = [[connectionProperties mutableCopy] autorelease];
+        if (remaining.count)
+            properties[@"kCFURLConnectionURLConnectionProperties"] = remaining;
+        else
+            [properties removeObjectForKey:@"kCFURLConnectionURLConnectionProperties"];
+        connectionProperties = properties;
+    }
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id, BOOL, long long, BOOL, NSDictionary *), request, delegate, usesCacheFlag, maxContentLength, startImmediately, connectionProperties);
+}
+@end
+
 // ---------------------------------------------------------------------------------------------------
 // NSURL -_lp_simplifiedDisplayString (LinkPresentation, 10.15+). LinkPresentation is absent on 10.9, so
 // createDragImageForLink (DragImageCocoa) would send an unrecognized selector to NSURL. Return the host

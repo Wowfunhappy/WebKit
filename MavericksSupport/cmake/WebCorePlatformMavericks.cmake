@@ -454,11 +454,6 @@ MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES 
 list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/cocoa/MavericksBackportWebCoreGlue.mm
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerMavericks.mm
-    # Decodes the gzip bodies 10.9 CFNetwork withholds; see the file for the rule it reproduces.
-    # WebCoreResourceHandleAsOperationQueueDelegate.h reaches its header by bare name and WebKit's
-    # network process as <WebCore/CFNetworkSuppressedGzipDecoder.h>, so the directory goes on the
-    # include path and the header into the private framework headers.
-    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.cpp
     # MediaRecorder's MP4 container writer, which packages the frames MediaRecorderPrivateEncoder
     # compresses. MediaRecorderPrivateWriter.cpp reaches its header by bare name, so the directory
     # goes on the include path below. Its own translation unit: it includes FFmpeg's headers, whose
@@ -506,7 +501,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerMavericks.h
-    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
     ${MAVERICKS_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.h
     ${MAVERICKS_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/ScrollAnchoringSuppressionHandle.h

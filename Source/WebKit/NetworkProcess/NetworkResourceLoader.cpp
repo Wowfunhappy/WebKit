@@ -104,6 +104,7 @@
 #endif
 
 #if PLATFORM(COCOA)
+#include "NetworkDataTaskCurlCocoa.h" // MAVERICKS_BACKPORT: for redirectChangesTask.
 #include "PathsBlockedForSandboxExtensions.h"
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
@@ -1647,6 +1648,15 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
     }
 
     if (m_networkLoad) {
+#if PLATFORM(COCOA)
+        // MAVERICKS_BACKPORT: HTTP(S) and registered custom protocols run on different tasks (NetworkDataTask::create);
+        // a redirect between them continues on a new load, as one that changes the credentials policy does.
+        if (CheckedPtr session = protect(connectionToWebProcess())->networkSession(); session && !newRequest.isNull() && NetworkDataTaskCurlCocoa::redirectChangesTask(*session, m_networkLoad->parameters(), newRequest)) {
+            protect(m_networkLoad)->updateRequestAfterRedirection(newRequest);
+            restartNetworkLoad(WTF::move(newRequest), WTF::move(completionHandler));
+            return;
+        }
+#endif // MAVERICKS_BACKPORT: closes the transport check above.
         LOADER_RELEASE_LOG("continueWillSendRequest: Telling NetworkLoad to proceed with the redirect");
 
         if (shouldSendResourceLoadMessages() && !newRequest.isNull())

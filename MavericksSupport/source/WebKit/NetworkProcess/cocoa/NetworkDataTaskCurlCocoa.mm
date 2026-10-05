@@ -69,13 +69,23 @@ using namespace WebCore;
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkDataTaskCurlCocoa);
 
 
-bool NetworkDataTaskCurlCocoa::canHandle(NetworkSession& session, const NetworkLoadParameters& parameters)
+static bool canHandleURL(NetworkSession& session, const URL& url)
 {
 #if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    if (auto* manager = session.networkProcess().supplement<LegacyCustomProtocolManager>(); manager && manager->supportsScheme(parameters.request.url().protocol().toString()))
+    if (auto* manager = session.networkProcess().supplement<LegacyCustomProtocolManager>(); manager && manager->supportsScheme(url.protocol().toString()))
         return false;
 #endif
-    return parameters.request.url().protocolIsInHTTPFamily();
+    return url.protocolIsInHTTPFamily();
+}
+
+bool NetworkDataTaskCurlCocoa::canHandle(NetworkSession& session, const NetworkLoadParameters& parameters)
+{
+    return canHandleURL(session, parameters.request.url());
+}
+
+bool NetworkDataTaskCurlCocoa::redirectChangesTask(NetworkSession& session, const NetworkLoadParameters& parameters, const ResourceRequest& request)
+{
+    return canHandleURL(session, parameters.request.url()) != canHandleURL(session, request.url());
 }
 
 Ref<NetworkDataTask> NetworkDataTaskCurlCocoa::create(NetworkSession& session, NetworkDataTaskClient& client, const NetworkLoadParameters& parameters)

@@ -476,8 +476,9 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
     // 306, 309, 310, 350 and 399 as well as the five statuses Fetch calls redirects. A response with any
     // other status is the load's result, and 305 "Use Proxy" points the load at a server-named proxy.
     // Answering nil hands that response back with its own status, URL and body, which is what this
-    // delegate sees on a system whose CFNetwork proposes only redirect statuses.
-    if (!WebCore::isHttpRedirectStatus(response.statusCode)) {
+    // delegate sees on a system whose CFNetwork proposes only redirect statuses. A response that is not
+    // HTTP carries no status: it is a hop an NSURLProtocol asked for itself.
+    if ([response isKindOfClass:NSHTTPURLResponse.class] && !WebCore::isHttpRedirectStatus(response.statusCode)) {
         completionHandler(nil);
         return;
     }

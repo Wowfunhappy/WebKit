@@ -2,9 +2,8 @@
 # Serves gzip-encoded bodies whose URL extension, Content-Type and Content-Disposition span the
 # conditions 10.9 CFNetwork keys its gzip-decode suppression on, and drives fetch()/XHR over the
 # matrix from the page it serves at /. Every body carries TWO gzip layers, so exactly one layer must
-# come off whoever removes it -- CFNetwork or WebCore::CFNetworkSuppressedGzipDecoder -- and every
-# case must arrive at 56 bytes. The page writes ALL OK or FAIL into document.title and logs the same
-# line to the console, so wk1host can score it too.
+# come off in the network stack, and every case must arrive at 56 bytes. The page writes ALL OK or
+# FAIL into document.title and logs the same line to the console, so wk1host can score it too.
 #
 #     python3 MavericksSupport/tests/gzip-suppression/server.py     # then open http://127.0.0.1:8101/
 import gzip, io, json

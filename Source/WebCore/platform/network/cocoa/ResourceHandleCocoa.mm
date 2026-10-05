@@ -81,6 +81,20 @@ static NSOperationQueue *operationQueueForAsyncClients()
     return queue.get().get();
 }
 
+// MAVERICKS_BACKPORT: an asynchronous connection calls back on the main run loop, in the modes its
+// context is scheduled in (WebView schedules the common modes), and its delegate runs the callbacks'
+// work in place. A connection with no such mode takes the main run loop's default mode when it starts.
+static void scheduleOnContextRunLoops(NSURLConnection *connection, WebCoreResourceHandleAsOperationQueueDelegate *delegate, NetworkingContext& context)
+{
+    [delegate setCallbacksOnMainThread];
+    if (auto* pairs = context.scheduledRunLoopPairs()) {
+        for (auto& pair : *pairs) {
+            if (pair->runLoop() == CFRunLoopGetMain())
+                [connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:(__bridge NSString *)pair->mode()];
+        }
+    }
+}
+
 ResourceHandleInternal::~ResourceHandleInternal() = default;
 
 ResourceHandle::~ResourceHandle()
@@ -131,40 +145,61 @@ NSURLRequest *ResourceHandle::applySniffingPoliciesIfNeeded(NSURLRequest *reques
 }
 
 #if !PLATFORM(IOS_FAMILY)
-void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, SchedulingBehavior schedulingBehavior)
+// MAVERICKS_BACKPORT: see continueRedirectOnNewConnection.
+// void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, SchedulingBehavior schedulingBehavior)
+void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, SchedulingBehavior schedulingBehavior, ResourceRequest* redirectedRequest)
 #else
 void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, SchedulingBehavior schedulingBehavior, NSDictionary *connectionProperties)
 #endif
 {
+    // MAVERICKS_BACKPORT: a redirect that continues on a new connection supplies its own request.
+#if !PLATFORM(IOS_FAMILY)
+    auto& request = redirectedRequest ? *redirectedRequest : firstRequest();
+#else
+    auto& request = firstRequest();
+#endif
+
     // Credentials for ftp can only be passed in URL, the connection:didReceiveAuthenticationChallenge: delegate call won't be made.
-    if ((!d->m_user.isEmpty() || !d->m_password.isEmpty()) && !firstRequest().url().protocolIsInHTTPFamily()) {
-        URL urlWithCredentials(firstRequest().url());
+    // MAVERICKS_BACKPORT: request in place of firstRequest(), above.
+    // if ((!d->m_user.isEmpty() || !d->m_password.isEmpty()) && !firstRequest().url().protocolIsInHTTPFamily()) {
+    //     URL urlWithCredentials(firstRequest().url());
+    if ((!d->m_user.isEmpty() || !d->m_password.isEmpty()) && !request.url().protocolIsInHTTPFamily()) {
+        URL urlWithCredentials(request.url());
         urlWithCredentials.setUser(d->m_user);
         urlWithCredentials.setPassword(d->m_password);
-        firstRequest().setURL(WTF::move(urlWithCredentials));
+        // firstRequest().setURL(WTF::move(urlWithCredentials)); // MAVERICKS_BACKPORT: request, above.
+        request.setURL(WTF::move(urlWithCredentials));
     }
 
-    if (shouldUseCredentialStorage && firstRequest().url().protocolIsInHTTPFamily()) {
+    // MAVERICKS_BACKPORT: request in place of firstRequest(), above.
+    // if (shouldUseCredentialStorage && firstRequest().url().protocolIsInHTTPFamily()) {
+    if (shouldUseCredentialStorage && request.url().protocolIsInHTTPFamily()) {
         if (d->m_user.isEmpty() && d->m_password.isEmpty()) {
             // <rdar://problem/7174050> - For URLs that match the paths of those previously challenged for HTTP Basic authentication,
             // try and reuse the credential preemptively, as allowed by RFC 2617.
             if (auto* networkStorageSession = protect(d->m_context)->storageSession())
-                d->m_initialCredential = networkStorageSession->credentialStorage().get(firstRequest().cachePartition(), firstRequest().url());
+                // d->m_initialCredential = networkStorageSession->credentialStorage().get(firstRequest().cachePartition(), firstRequest().url()); // MAVERICKS_BACKPORT: request, above.
+                d->m_initialCredential = networkStorageSession->credentialStorage().get(request.cachePartition(), request.url());
         } else {
             // If there is already a protection space known for the URL, update stored credentials before sending a request.
             // This makes it possible to implement logout by sending an XMLHttpRequest with known incorrect credentials, and aborting it immediately
             // (so that an authentication dialog doesn't pop up).
             if (auto* networkStorageSession = protect(d->m_context)->storageSession())
-                networkStorageSession->credentialStorage().set(firstRequest().cachePartition(), Credential(d->m_user, d->m_password, CredentialPersistence::None), firstRequest().url());
+                // networkStorageSession->credentialStorage().set(firstRequest().cachePartition(), Credential(d->m_user, d->m_password, CredentialPersistence::None), firstRequest().url()); // MAVERICKS_BACKPORT: request, above.
+                networkStorageSession->credentialStorage().set(request.cachePartition(), Credential(d->m_user, d->m_password, CredentialPersistence::None), request.url());
         }
     }
 
-    if (!d->m_initialCredential.isEmpty() && !firstRequest().hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
+    // MAVERICKS_BACKPORT: request in place of firstRequest(), above.
+    // if (!d->m_initialCredential.isEmpty() && !firstRequest().hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
+    if (!d->m_initialCredential.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
         // FIXME: Support Digest authentication, and Proxy-Authorization.
-        applyBasicAuthorizationHeader(firstRequest(), d->m_initialCredential);
+        // applyBasicAuthorizationHeader(firstRequest(), d->m_initialCredential); // MAVERICKS_BACKPORT: request, above.
+        applyBasicAuthorizationHeader(request, d->m_initialCredential);
     }
 
-    RetainPtr nsRequest = firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
+    // RetainPtr nsRequest = firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody); // MAVERICKS_BACKPORT: request, above.
+    RetainPtr nsRequest = request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
     nsRequest = applySniffingPoliciesIfNeeded(nsRequest.get(), shouldContentSniff, contentEncodingSniffingPolicy);
 
     if (d->m_storageSession)
@@ -244,6 +279,7 @@ bool ResourceHandle::start()
         firstRequest().setStorageSession(d->m_storageSession.get());
         d->m_cocoaCurlHandle = CocoaCurlResourceHandle::create(*this, *storage);
         d->m_cocoaCurlHandle->start();
+        d->m_startTime = MonotonicTime::now();
         return true;
     }
 
@@ -280,15 +316,20 @@ bool ResourceHandle::start()
         (NSDictionary *)client()->connectionProperties(this).get());
 #endif
 
-    [connection() setDelegateQueue:operationQueueForAsyncClients()];
+    // MAVERICKS_BACKPORT: see scheduleOnContextRunLoops.
+    // [connection() setDelegateQueue:operationQueueForAsyncClients()];
+    scheduleOnContextRunLoops(connection(), d->m_delegate.get(), *context);
     [connection() start];
     d->m_startTime = MonotonicTime::now();
 
     LOG(Network, "Handle %p starting connection %p for %@", this, connection(), firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody));
 
     if (d->m_connection) {
+        // MAVERICKS_BACKPORT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
+        // if (d->m_defersLoading)
+        //     connection().defersCallbacks = YES;
         if (d->m_defersLoading)
-            connection().defersCallbacks = YES;
+            [d->m_delegate.get() setDefersLoading:YES connection:connection()]; // MAVERICKS_BACKPORT: see above.
 
         return true;
     }
@@ -321,14 +362,19 @@ void ResourceHandle::platformSetDefersLoading(bool defers)
         d->m_cocoaCurlHandle->setDefersLoading(defers);
         return;
     }
+    // MAVERICKS_BACKPORT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
+    // if (d->m_connection)
+    //     [d->m_connection setDefersCallbacks:defers];
     if (d->m_connection)
-        [d->m_connection setDefersCallbacks:defers];
+        [d->m_delegate.get() setDefersLoading:defers connection:d->m_connection.get()]; // MAVERICKS_BACKPORT: see above.
 }
 
 void ResourceHandle::schedule(SchedulePair& pair)
 {
     NSRunLoop *runLoop = pair.nsRunLoop();
-    if (!runLoop)
+    // MAVERICKS_BACKPORT: see scheduleOnContextRunLoops.
+    // if (!runLoop)
+    if (runLoop != [NSRunLoop mainRunLoop])
         return;
     [d->m_connection.get() scheduleInRunLoop:runLoop forMode:(__bridge NSString *)pair.mode()];
 }
@@ -370,6 +416,42 @@ void ResourceHandle::releaseDelegate()
 CocoaCurlResourceHandle* ResourceHandle::cocoaCurlHandle() const
 {
     return d->m_cocoaCurlHandle.get();
+}
+
+// MAVERICKS_BACKPORT: see the declaration.
+void ResourceHandle::continueRedirectOnCocoaCurl(ResourceRequest&& request, RefPtr<SynchronousLoaderMessageQueue>&& queue)
+{
+    [d->m_connection.get() cancel];
+    releaseDelegate();
+    d->m_connection = nil;
+    auto* storage = protect(d->m_context)->storageSession();
+    if (!storage) {
+        scheduleFailure(BlockedFailure);
+        return;
+    }
+    d->m_storageSession = storage->platformSession();
+    request.setStorageSession(d->m_storageSession.get());
+    d->m_cocoaCurlHandle = CocoaCurlResourceHandle::create(*this, *storage, queue.get(), WTF::move(request));
+    d->m_cocoaCurlHandle->start();
+}
+
+void ResourceHandle::continueRedirectOnNewConnection(ResourceRequest&& request)
+{
+    RefPtr context = d->m_context;
+    [d->m_connection.get() cancel];
+    releaseDelegate();
+    d->m_connection = nil;
+    bool shouldUseCredentialStorage = !client() || client()->shouldUseCredentialStorage(this);
+    createNSURLConnection(makeDelegate(shouldUseCredentialStorage, nullptr), shouldUseCredentialStorage, d->m_shouldContentSniff || context->localFileContentSniffingEnabled(), d->m_contentEncodingSniffingPolicy, SchedulingBehavior::Asynchronous, &request);
+    scheduleOnContextRunLoops(connection(), d->m_delegate.get(), *context);
+    [connection() start];
+    if (d->m_defersLoading)
+        [d->m_delegate.get() setDefersLoading:YES connection:connection()];
+}
+
+bool ResourceHandle::connectionCanBecomeDownload() const
+{
+    return [d->m_delegate.get() isDeliveringResponse];
 }
 
 NSURLConnection *ResourceHandle::connection() const

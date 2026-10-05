@@ -40,17 +40,18 @@
 // the legacy loader owns redirect/cookie/authentication policy; its native connection never owns HTTP wire bytes.
 namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CocoaCurlResourceHandle);
-Ref<CocoaCurlResourceHandle> CocoaCurlResourceHandle::create(ResourceHandle& handle, NetworkStorageSession& storage, SynchronousLoaderMessageQueue* queue)
+Ref<CocoaCurlResourceHandle> CocoaCurlResourceHandle::create(ResourceHandle& handle, NetworkStorageSession& storage, SynchronousLoaderMessageQueue* queue, std::optional<ResourceRequest>&& redirectedRequest)
 {
-    return adoptRef(*new CocoaCurlResourceHandle(handle, storage, handle.client() && handle.client()->shouldUseCredentialStorage(&handle), queue));
+    return adoptRef(*new CocoaCurlResourceHandle(handle, storage, handle.client() && handle.client()->shouldUseCredentialStorage(&handle), queue, WTF::move(redirectedRequest)));
 }
-CocoaCurlResourceHandle::CocoaCurlResourceHandle(ResourceHandle& handle, NetworkStorageSession& storage, bool allowStoredCredentials, SynchronousLoaderMessageQueue* queue)
+CocoaCurlResourceHandle::CocoaCurlResourceHandle(ResourceHandle& handle, NetworkStorageSession& storage, bool allowStoredCredentials, SynchronousLoaderMessageQueue* queue, std::optional<ResourceRequest>&& redirectedRequest)
     : m_handle(&handle)
     , m_pool(storage.cocoaCurlConnectionPool(allowStoredCredentials))
     , m_storage(storage)
     , m_queue(queue)
     , m_dispatcher(adoptNS([[WebCoreResourceHandleAsOperationQueueDelegate alloc] initWithHandle:&handle messageQueue:RefPtr { queue }]))
-    , m_request(handle.firstRequest())
+    , m_request(redirectedRequest ? WTF::move(*redirectedRequest) : handle.firstRequest())
+    , m_redirects(handle.redirectCount())
     , m_deferred(handle.d->m_defersLoading)
     , m_allowCredentials(allowStoredCredentials)
 {
@@ -73,7 +74,6 @@ CocoaCurlResourceHandle::~CocoaCurlResourceHandle()
 }
 void CocoaCurlResourceHandle::start()
 {
-    m_handle->d->m_startTime = MonotonicTime::now();
     auto start = [loader = Ref { *this }] { loader->beginTransfer(); };
     [m_dispatcher callFunctionOnMainThread:WTF::move(start)];
 }
