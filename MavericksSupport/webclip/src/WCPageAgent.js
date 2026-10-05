@@ -741,15 +741,16 @@
             scroller.scrollTop = scrollTop;
     }
 
-    // The element placement put at the clip's place, with its layout offset and the scroll of the boxes
-    // it lies in that the place needs, which signing and the follower start from: by then the boxes may
-    // not have reached that scroll yet, or the page may have scrolled them again.
+    // The element placement put at the clip's place, with its box, its layout offset and the scroll of
+    // the boxes it lies in that the place needs, which signing and the follower start from: by then the
+    // page may have moved the element, the boxes may not have reached that scroll yet, or the page may
+    // have scrolled them again.
     let lastPlacement = null;
 
     function placeElement(plan)
     {
         applyScrolls(plan);
-        lastPlacement = { element: plan.element, place: plan.place, offset: layoutOffset(plan.element), scroll: plan.intendedScroll };
+        lastPlacement = { element: plan.element, place: plan.place, box: boxAtScroll(plan.element, plan.intendedScroll), offset: layoutOffset(plan.element), scroll: plan.intendedScroll };
     }
 
     // The plan as far as the boxes can scroll now, for an element that takes the place it can reach.
@@ -845,14 +846,20 @@
         return signatureForElement(findBorderElementForRect(createBorderFinder(), rect), rect);
     }
 
-    // The element's signature at the rect, with the boxes it lies in scrolled as far as the scroll says.
-    function signatureForElement(element, rect, scroll = element ? scrollOffsets(element) : null)
+    // The element's box with the boxes it lies in scrolled as far as the scroll says.
+    function boxAtScroll(element, scroll)
+    {
+        const current = scrollOffsets(element);
+        const measured = createMeasurer()(element);
+        return makeRect(measured.x - (scroll.x - current.x), measured.y - (scroll.y - current.y), measured.width, measured.height);
+    }
+
+    // The element's signature at the rect, where the element had the box with the boxes it lies in
+    // scrolled as far as the scroll says.
+    function signatureForElement(element, rect, scroll = element ? scrollOffsets(element) : null, box = element ? boxAtScroll(element, scroll) : null)
     {
         if (!element)
             return null;
-        const current = scrollOffsets(element);
-        const measured = createMeasurer()(element);
-        const box = makeRect(measured.x - (scroll.x - current.x), measured.y - (scroll.y - current.y), measured.width, measured.height);
         const dictionary = {};
         dictionary[kClipSignatureElementKey] = dictionaryFromBoxedElement(boxedElementFromDOMElement(element));
         if (isHTMLElement(element.parentNode))
@@ -951,7 +958,7 @@
     {
         const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
         const placement = placementAt(rect);
-        return placement ? signatureForElement(placement.element, rect, placement.scroll) : signatureForRect(rect);
+        return placement ? signatureForElement(placement.element, rect, placement.scroll, placement.box) : signatureForRect(rect);
     }
 
     // A signature for the clip's rect in the page once the element Safari signed lies there. Both
@@ -973,7 +980,7 @@
             const inPlace = matches.elements.map((element, index) => safariScrollPlan(element, matches.rects[index], boxScrolls)).find(plan => hasOrigin(plan.place, rect));
             if (inPlace) {
                 placeElement(inPlace);
-                return { signature: signatureForElement(inPlace.element, rect, inPlace.intendedScroll) };
+                return { signature: signatureForElement(inPlace.element, rect, inPlace.intendedScroll, lastPlacement.box) };
             }
             if (!atDeadline)
                 return null;
@@ -981,7 +988,7 @@
             if (kind.likeliestElement) {
                 const plan = reachedPlan(revealPlan(kind.likeliestElement, kind.likeliest, rect.y));
                 placeElement(plan);
-                return { rect: publicRect(plan.place), signature: signatureForElement(plan.element, plan.place, plan.intendedScroll) };
+                return { rect: publicRect(plan.place), signature: signatureForElement(plan.element, plan.place, plan.intendedScroll, lastPlacement.box) };
             }
             return { signature: signatureForRect(rect) };
         }, argument.deadline);
@@ -1014,7 +1021,7 @@
         stopFollowingClipElement();
         const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
         const placement = placementAt(rect);
-        const signature = placement ? signatureForElement(placement.element, rect, placement.scroll) : signatureForRect(rect);
+        const signature = placement ? signatureForElement(placement.element, rect, placement.scroll, placement.box) : signatureForRect(rect);
         if (!signature)
             return false;
         const parsedSignature = signatureFromDictionary(signature);
