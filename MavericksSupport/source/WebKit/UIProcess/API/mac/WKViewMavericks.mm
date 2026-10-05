@@ -314,6 +314,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     _wkState->pageClient = createMavericksPageClient(self);
     _wkState->page = processPool.get().createWebPage(*_wkState->pageClient, WTF::move(configuration));
     setMavericksPageClientPage(*_wkState->pageClient, _wkState->page.get());
+    [self _wk_updateIntrinsicDeviceScaleFactor];
 
     // bring up the WebPage now that the page proxy + client are wired.
     auto& pageConfiguration = _wkState->page->configuration();
@@ -1487,10 +1488,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     if (!_wkState || !_wkState->page)
         return;
     NSWindow *window = [self window];
-    CGFloat scale = window ? [window backingScaleFactor] : [[NSScreen mainScreen] backingScaleFactor];
-    if (scale <= 0)
-        scale = 1;
-    _wkState->page->setIntrinsicDeviceScaleFactor(scale);
+    _wkState->page->setIntrinsicDeviceScaleFactor(window ? [window backingScaleFactor] : [[NSScreen mainScreen] backingScaleFactor]);
 }
 
 // the window changed backing scale (e.g. moved to a Retina display) — re-propagate it.

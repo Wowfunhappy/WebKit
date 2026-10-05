@@ -26,6 +26,7 @@ function mozillaReadabilityArticleHTMLForSafariReader()
 
     var extracted = articleDocument.createElement("div");
     extracted.innerHTML = article.content;
+    resolveSourceSizes(extracted);
     var container = flattenedArticle(extracted, articleDocument);
     // Safari's finder takes no element shorter than 295px for an article, however short the article.
     container.style.minHeight = "300px";
@@ -34,7 +35,8 @@ function mozillaReadabilityArticleHTMLForSafariReader()
     return "<!DOCTYPE html>" + articleDocument.documentElement.outerHTML;
 }
 
-// The article document loads no images; its images take the size each renders at on the page.
+// The article document loads no images; its images take the size each renders at on the page, and
+// that width as their source size for srcset.
 // copy is a fresh clone of page, so their images correspond in order.
 function copyRenderedImageSizes(page, copy)
 {
@@ -43,9 +45,98 @@ function copyRenderedImageSizes(page, copy)
     for (var i = 0; i < images.length && i < copiedImages.length; ++i) {
         if (!images[i].width || !images[i].height)
             continue;
-        copiedImages[i].setAttribute("width", images[i].width);
-        copiedImages[i].setAttribute("height", images[i].height);
+        var image = copiedImages[i];
+        image.setAttribute("width", images[i].width);
+        image.setAttribute("height", images[i].height);
+        var sourceSize = images[i].width + "px";
+        image.setAttribute("sizes", sourceSize);
+        if (image.parentElement && image.parentElement.tagName === "PICTURE") {
+            for (var source = image.parentElement.firstElementChild; source && source !== image; source = source.nextElementSibling) {
+                if (source.tagName === "SOURCE" && source.hasAttribute("sizes"))
+                    source.setAttribute("sizes", sourceSize);
+            }
+        }
     }
+}
+
+// Safari's Reader view has no size yet when the article enters it, so a source size relative to the
+// viewport would resolve to 0 there. Every source size in the article is resolved here against the
+// page's viewport, which the Reader view takes the place of.
+function resolveSourceSizes(root)
+{
+    var images = root.getElementsByTagName("img");
+    for (var i = 0; i < images.length; ++i) {
+        var image = images[i];
+        if (image.hasAttribute("srcset") || (image.parentElement && image.parentElement.tagName === "PICTURE"))
+            image.setAttribute("sizes", sourceSizeOnPage(image.getAttribute("sizes")));
+    }
+    var sources = root.querySelectorAll("picture > source[sizes]");
+    for (var i = 0; i < sources.length; ++i)
+        sources[i].setAttribute("sizes", sourceSizeOnPage(sources[i].getAttribute("sizes")));
+}
+
+// The source size a sizes attribute selects on the page, as a length free of viewport units.
+function sourceSizeOnPage(sizes)
+{
+    var entries = [];
+    var depth = 0;
+    var start = 0;
+    sizes = sizes || "";
+    for (var i = 0; i < sizes.length; ++i) {
+        if (sizes[i] === "(")
+            ++depth;
+        else if (sizes[i] === ")")
+            --depth;
+        else if (sizes[i] === "," && !depth) {
+            entries.push(sizes.slice(start, i));
+            start = i + 1;
+        }
+    }
+    entries.push(sizes.slice(start));
+
+    for (var i = 0; i < entries.length; ++i) {
+        var entry = entries[i].trim();
+        var lengthStart = entry.length;
+        if (entry[lengthStart - 1] === ")") {
+            for (depth = 0; lengthStart > 0; ) {
+                var character = entry[--lengthStart];
+                if (character === ")")
+                    ++depth;
+                else if (character === "(" && !--depth)
+                    break;
+            }
+            while (lengthStart > 0 && /[\w-]/.test(entry[lengthStart - 1]))
+                --lengthStart;
+        } else {
+            while (lengthStart > 0 && !/[\s)]/.test(entry[lengthStart - 1]))
+                --lengthStart;
+        }
+        var condition = entry.slice(0, lengthStart).trim();
+        var length = lengthWithoutViewportUnits(entry.slice(lengthStart).trim());
+        if (!length || /^auto$/i.test(length) || length.indexOf("%") !== -1 || !CSS.supports("width", length))
+            continue;
+        // Parenthesized, a media query list parses as the <media-condition> a sizes entry carries.
+        if (condition && !window.matchMedia("(" + condition + ")").matches)
+            continue;
+        return length;
+    }
+    return window.innerWidth + "px";
+}
+
+function lengthWithoutViewportUnits(length)
+{
+    var vertical = /^(vertical|sideways)/.test(getComputedStyle(document.documentElement).writingMode);
+    var units = {
+        vw: window.innerWidth,
+        vh: window.innerHeight,
+        vi: vertical ? window.innerHeight : window.innerWidth,
+        vb: vertical ? window.innerWidth : window.innerHeight,
+        vmin: Math.min(window.innerWidth, window.innerHeight),
+        vmax: Math.max(window.innerWidth, window.innerHeight),
+    };
+    return length.replace(/(\d*\.?\d+(?:e[+-]?\d+)?)[sld]?(vw|vh|vi|vb|vmin|vmax)\b/gi, function(match, value, unit) {
+        return (parseFloat(value) * units[unit.toLowerCase()] / 100) + "px";
+    });
 }
 
 // Readability keeps the article's own wrappers. The container this returns holds the article's
