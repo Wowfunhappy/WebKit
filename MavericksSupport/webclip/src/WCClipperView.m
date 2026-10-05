@@ -1387,7 +1387,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 - (void)installUserScriptsWithSafariStorage:(NSDictionary *)storage
 {
     WKUserContentController *userContentController = [[_webView configuration] userContentController];
-    [userContentController removeAllUserScripts];
+    [userContentController _removeAllUserScriptsAssociatedWithContentWorld:_clipWorld];
     [userContentController addUserScript:_agentScript];
     NSData *json = [storage count] ? [NSJSONSerialization dataWithJSONObject:storage options:0 error:nil] : nil;
     if (!json)
@@ -1711,7 +1711,8 @@ static const CFTimeInterval WCReloadedPageStillInterval = 1;
         [self updateFrame];
 }
 
-// The clips' web content processes load the plug-in's injected bundle.
+// The clips' web content processes load the plug-in's injected bundle. Clips are Safari tabs to the
+// extensions Safari runs.
 static WKProcessPool *clipProcessPool(void)
 {
     static WKProcessPool *processPool;
@@ -1719,6 +1720,7 @@ static WKProcessPool *clipProcessPool(void)
         _WKProcessPoolConfiguration *configuration = [[_WKProcessPoolConfiguration alloc] init];
         configuration.injectedBundleURL = [[NSBundle bundleForClass:[WCClipperView class]] URLForResource:@"WebClipPageBundle" withExtension:@"bundle"];
         processPool = [[WKProcessPool alloc] _initWithConfiguration:configuration];
+        [processPool _enableSafariExtensions];
     }
     return processPool;
 }

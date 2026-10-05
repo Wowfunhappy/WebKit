@@ -125,7 +125,8 @@ void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
 // the content goes into the user content controller the page group's pages
 // share, so each script is registered once per page group. Each script's
 // safari-extension:// URL tells LegacyExtensionContent which extension the
-// script world belongs to.
+// script world belongs to, and LegacyExtensionContent reports each change of
+// the extensions' content to the UI process.
 // Also restored: the OriginAccessWhitelist spellings (renamed AllowList
 // upstream) Safari calls for extension cross-origin access.
 
@@ -158,8 +159,8 @@ void WKBundleAddUserScript(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBun
         WebKit::toUserScriptInjectionTime(injectionTime),
         WebKit::toUserContentInjectedFrames(injectedFrames)
     };
-    WebKit::LegacyExtensionContent::singleton().didAddUserContent(WebKit::toImpl(scriptWorldRef)->coreWorld(), userScript.url());
     WebKit::toImpl(pageGroupRef)->userContentController().addUserScript(*WebKit::toImpl(scriptWorldRef), WTF::move(userScript));
+    WebKit::LegacyExtensionContent::singleton().bundleUserContentDidChange();
 }
 
 void WKBundleAddUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKStringRef sourceRef, WKURLRef urlRef, WKArrayRef allowListRef, WKArrayRef blockListRef, WKUserContentInjectedFrames injectedFrames)
@@ -173,38 +174,38 @@ void WKBundleAddUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, W
         blockList ? blockList->toStringVector() : Vector<String>(),
         WebKit::toUserContentInjectedFrames(injectedFrames)
     };
-    WebKit::LegacyExtensionContent::singleton().didAddUserContent(WebKit::toImpl(scriptWorldRef)->coreWorld(), userStyleSheet.url());
     WebKit::toImpl(pageGroupRef)->userContentController().addUserStyleSheet(*WebKit::toImpl(scriptWorldRef), WTF::move(userStyleSheet));
+    WebKit::LegacyExtensionContent::singleton().bundleUserContentDidChange();
 }
 
 void WKBundleRemoveUserScript(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKURLRef urlRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserScriptWithURL(*WebKit::toImpl(scriptWorldRef), URL { WebKit::toWTFString(urlRef) });
-    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
+    WebKit::LegacyExtensionContent::singleton().bundleUserContentDidChange(); // MAVERICKS_BACKPORT: reports Safari 7 extensions' bundle content to the UI process.
 }
 
 void WKBundleRemoveUserScripts(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserScripts(*WebKit::toImpl(scriptWorldRef));
-    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
+    WebKit::LegacyExtensionContent::singleton().bundleUserContentDidChange(); // MAVERICKS_BACKPORT: reports Safari 7 extensions' bundle content to the UI process.
 }
 
 void WKBundleRemoveUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKURLRef urlRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserStyleSheetWithURL(*WebKit::toImpl(scriptWorldRef), URL { WebKit::toWTFString(urlRef) });
-    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
+    WebKit::LegacyExtensionContent::singleton().bundleUserContentDidChange(); // MAVERICKS_BACKPORT: reports Safari 7 extensions' bundle content to the UI process.
 }
 
 void WKBundleRemoveUserStyleSheets(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeUserStyleSheets(*WebKit::toImpl(scriptWorldRef));
-    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
+    WebKit::LegacyExtensionContent::singleton().bundleUserContentDidChange(); // MAVERICKS_BACKPORT: reports Safari 7 extensions' bundle content to the UI process.
 }
 
 void WKBundleRemoveAllUserContent(WKBundleRef, WKBundlePageGroupRef pageGroupRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserContent();
-    WebKit::LegacyExtensionContent::singleton().didRemoveUserContent(); // MAVERICKS_BACKPORT: a Safari 7 extension's withdrawn world.
+    WebKit::LegacyExtensionContent::singleton().bundleUserContentDidChange(); // MAVERICKS_BACKPORT: reports Safari 7 extensions' bundle content to the UI process.
 }
 
 void WKBundleAddOriginAccessWhitelistEntry(WKBundleRef bundleRef, WKStringRef sourceOrigin, WKStringRef destinationProtocol, WKStringRef destinationHost, bool allowDestinationSubdomains)

@@ -23,6 +23,7 @@ extern void WKPagePostMessageToInjectedBundle(WKPageRef, WKStringRef, const void
 
 @interface WKUserContentController (WCWebKitSPI)
 - (void)_addUserStyleSheet:(_WKUserStyleSheet *)userStyleSheet;
+- (void)_removeAllUserScriptsAssociatedWithContentWorld:(WKContentWorld *)contentWorld;
 @end
 
 @interface _WKProcessPoolConfiguration : NSObject <NSCopying>
@@ -31,6 +32,7 @@ extern void WKPagePostMessageToInjectedBundle(WKPageRef, WKStringRef, const void
 
 @interface WKProcessPool (WCWebKitSPI)
 - (instancetype)_initWithConfiguration:(_WKProcessPoolConfiguration *)configuration __attribute__((objc_method_family(init)));
+- (void)_enableSafariExtensions;
 @end
 
 @interface WKNavigationAction (WCWebKitSPI)

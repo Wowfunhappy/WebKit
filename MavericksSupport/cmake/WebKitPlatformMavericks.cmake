@@ -129,9 +129,10 @@ list(APPEND WebKit_SOURCES
 )
 
 # The `browser` namespace WebKit gives Safari 7 legacy extensions: LegacyExtensionAPI.js, the UI-process
-# router (LegacyExtensionHost), and its web-content (LegacyExtensionContent) and network-process
-# (LegacyExtensionNetwork) ends. Their message receivers are generated from DerivedSources copies of the
-# .messages.in files, which the generator finds by bare name.
+# router (LegacyExtensionHost), its web-content (LegacyExtensionContent) and network-process
+# (LegacyExtensionNetwork) ends, and the channel that lets other apps' web views act as Safari tabs. Their
+# message receivers are generated from DerivedSources copies of the .messages.in files, which the generator
+# finds by bare name.
 set(MAVERICKS_LEGACY_EXTENSIONS "${MAVERICKS_SUPPORT}/source/WebKit")
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions"
@@ -145,9 +146,12 @@ list(APPEND WebKit_SOURCES
     ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionJavaScript.cpp
     ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionScheme.cpp
     ${MAVERICKS_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebsiteAccess.cpp
+    ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/API/Cocoa/WKProcessPoolLegacyExtensions.mm
+    ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionChannel.mm
     ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm
     ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionInfoPlist.mm
     ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHost.cpp
+    ${MAVERICKS_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionResources.mm
     ${MAVERICKS_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
     ${MAVERICKS_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp
 )

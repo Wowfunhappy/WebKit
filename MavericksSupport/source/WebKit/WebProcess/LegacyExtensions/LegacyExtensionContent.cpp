@@ -24,10 +24,13 @@
 #include <WebCore/Page.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/Settings.h>
+#include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/WindowProxy.h>
+#include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RunLoop.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebKit {
@@ -190,53 +193,100 @@ void LegacyExtensionContent::initialize(WebProcess& process)
     process.addMessageReceiver(Messages::LegacyExtensionContent::messageReceiverName(), *this);
 }
 
-void LegacyExtensionContent::didAddUserContent(WebCore::DOMWrapperWorld& world, const URL& url)
+static String extensionKeyForURL(const URL& url)
 {
-    if (world.isNormal() || !url.protocolIs(extensionScheme))
-        return;
-    auto extensionKey = url.host().toString();
-    if (extensionKey.isEmpty())
-        return;
-    // Content scripts reach closed shadow roots through browser.dom.openOrClosedShadowRoot.
-    world.setClosedShadowRootIsExposedForExtensions();
-    m_contentScriptWorlds.set(world, extensionKey);
+    if (!url.protocolIs(extensionScheme))
+        return { };
+    return url.host().toString();
 }
 
-void LegacyExtensionContent::didRemoveUserContent()
+// The extension a content-script world belongs to: the one whose safari-extension:// URLs the world's
+// user content has. A world Safari withdrew holds none.
+static String extensionKeyOfContentWorld(WebCore::DOMWrapperWorld& world)
 {
-    Vector<Ref<WebCore::DOMWrapperWorld>> withdrawnWorlds;
-    for (auto&& entry : m_contentScriptWorlds) {
-        RefPtr bundleWorld = InjectedBundleScriptWorld::get(entry.key);
-        if (!bundleWorld || !WebUserContentController::anyHoldsUserContent(*bundleWorld))
-            withdrawnWorlds.append(entry.key);
-    }
-    for (auto& world : withdrawnWorlds)
-        m_contentScriptWorlds.remove(world);
+    RefPtr bundleWorld = world.isNormal() ? nullptr : InjectedBundleScriptWorld::get(world);
+    if (!bundleWorld)
+        return { };
+    String extensionKey;
+    WebUserContentController::forEachUserContentOfAllControllers([&](auto& candidate, auto* script, auto* styleSheet) {
+        if (extensionKey.isEmpty() && &candidate == bundleWorld.get())
+            extensionKey = extensionKeyForURL(script ? script->url() : styleSheet->url());
+    });
+    return extensionKey;
+}
+
+void LegacyExtensionContent::bundleUserContentDidChange()
+{
+    if (std::exchange(m_bundleUserContentReportIsScheduled, true))
+        return;
+    RunLoop::mainSingleton().dispatch([this] {
+        m_bundleUserContentReportIsScheduled = false;
+        reportBundleUserContent();
+    });
+}
+
+// Each extension's content scripts and style sheets, in the order the bundle added them, as
+// [{ key, kind: "script" | "sheet", source, url, allow, block, start, top, author }].
+void LegacyExtensionContent::reportBundleUserContent()
+{
+    auto content = JSON::Array::create();
+    HashSet<String> reportedURLs;
+    WebUserContentController::forEachUserContentOfAllControllers([&](auto&, auto* script, auto* styleSheet) {
+        auto& url = script ? script->url() : styleSheet->url();
+        auto extensionKey = extensionKeyForURL(url);
+        if (extensionKey.isEmpty() || !reportedURLs.add(makeString(script ? 's' : 'c', url.string())).isNewEntry)
+            return;
+        auto stringArray = [](const Vector<String>& strings) {
+            auto array = JSON::Array::create();
+            for (auto& string : strings)
+                array->pushString(string);
+            return array;
+        };
+        auto item = JSON::Object::create();
+        item->setString("key"_s, extensionKey);
+        item->setString("kind"_s, script ? "script"_s : "sheet"_s);
+        item->setString("source"_s, script ? script->source() : styleSheet->source());
+        item->setString("url"_s, url.string());
+        item->setArray("allow"_s, stringArray(script ? script->allowlist() : styleSheet->allowlist()));
+        item->setArray("block"_s, stringArray(script ? script->blocklist() : styleSheet->blocklist()));
+        item->setBoolean("top"_s, (script ? script->injectedFrames() : styleSheet->injectedFrames()) == WebCore::UserContentInjectedFrames::InjectInTopFrameOnly);
+        if (script)
+            item->setBoolean("start"_s, script->injectionTime() == WebCore::UserScriptInjectionTime::DocumentStart);
+        else
+            item->setBoolean("author"_s, styleSheet->level() == WebCore::UserStyleLevel::Author);
+        content->pushObject(WTF::move(item));
+    });
+    auto contentJSON = content->toJSONString();
+    if (contentJSON == m_reportedBundleUserContent)
+        return;
+    m_reportedBundleUserContent = contentJSON;
+    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::DidChangeBundleContent(contentJSON), 0);
 }
 
 bool LegacyExtensionContent::isContextWorldLive(WebCore::DOMWrapperWorld& world) const
 {
-    return world.isNormal() || m_contentScriptWorlds.contains(world);
+    return world.isNormal() || !extensionKeyOfContentWorld(world).isEmpty();
 }
 
 WebCore::DOMWrapperWorld* LegacyExtensionContent::contentScriptWorld(const String& extensionKey) const
 {
-    for (auto& entry : m_contentScriptWorlds) {
-        if (entry.value == extensionKey)
-            return &entry.key;
-    }
-    return nullptr;
+    WebCore::DOMWrapperWorld* world = nullptr;
+    WebUserContentController::forEachUserContentOfAllControllers([&](auto& candidate, auto* script, auto* styleSheet) {
+        if (!world && extensionKeyForURL(script ? script->url() : styleSheet->url()) == extensionKey)
+            world = &candidate.coreWorld();
+    });
+    return world;
 }
 
 String LegacyExtensionContent::extensionKeyForWorld(WebFrame& frame, WebCore::DOMWrapperWorld& world) const
 {
     if (!world.isNormal())
-        return m_contentScriptWorlds.get(world);
+        return extensionKeyOfContentWorld(world);
     RefPtr coreFrame = frame.coreLocalFrame();
     RefPtr document = coreFrame ? coreFrame->document() : nullptr;
-    if (!document || !document->url().protocolIs(extensionScheme))
+    if (!document)
         return { };
-    return document->url().host().toString();
+    return extensionKeyForURL(document->url());
 }
 
 void LegacyExtensionContent::didClearWindowObjectForFrame(WebFrame& frame, WebCore::DOMWrapperWorld& world)
@@ -253,6 +303,9 @@ void LegacyExtensionContent::didClearWindowObjectForFrame(WebFrame& frame, WebCo
         return;
     // The main world of a frame showing an extension page is that page; any other world is a content script.
     auto kind = world.isNormal() ? LegacyExtensions::ContextKind::Host : LegacyExtensions::ContextKind::Content;
+    // Content scripts reach closed shadow roots through browser.dom.openOrClosedShadowRoot.
+    if (kind == LegacyExtensions::ContextKind::Content)
+        world.setClosedShadowRootIsExposedForExtensions();
     LegacyExtensions::installAPI(*globalObject, kind, contentContextNativeClass(kind), new ContentContextNative { frame.frameID(), document->identifier(), extensionKey, world });
 }
 

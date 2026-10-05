@@ -55,7 +55,7 @@ public:
     // MAVERICKS_BACKPORT: restored from upstream e05340a^ — reaches the controller a page group
     // already shares with its pages, for the legacy bundle user-content C API (Safari 7 extensions).
     static Ref<WebUserContentController> getOrCreate(UserContentControllerIdentifier);
-    static bool anyHoldsUserContent(InjectedBundleScriptWorld&); // MAVERICKS_BACKPORT: whether a Safari 7 extension's world still has user content in this process.
+    static void forEachUserContentOfAllControllers(NOESCAPE const Function<void(InjectedBundleScriptWorld&, const WebCore::UserScript*, const WebCore::UserStyleSheet*)>&); // MAVERICKS_BACKPORT: the content Safari 7 extensions' worlds hold in this process.
     virtual ~WebUserContentController();
 
     void ref() const final { WebCore::UserContentProvider::ref(); }
