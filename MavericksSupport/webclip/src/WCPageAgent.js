@@ -564,6 +564,11 @@
     // The score scoreOfBoxedElement gives an element of the signed element's kind: its tag, id and class.
     const kSameKindScore = 4;
 
+    function isOfSignedKind(element, signature)
+    {
+        return !!signature.boxedElement && scoreOfBoxedElement(boxedElementFromDOMElement(element), signature.boxedElement) === kSameKindScore;
+    }
+
     function scoreNodeAgainstSignature(finder, node, signature, sameKind)
     {
         if (!isHTMLElement(node))
@@ -615,6 +620,7 @@
             rects: elements.map(rectOf),
             likeliest: likeliest ? likeliest.rect : null,
             likeliestElement: likeliest ? likeliest.element : null,
+            likeliestPlace: likeliest ? likeliest.place : null,
             score: finder.highestScore,
         };
     }
@@ -928,9 +934,13 @@
     // The rect of the element a signature describes. The page settles after its load: script builds and
     // rebuilds parts of the document. The element is present once an element earning the signed
     // element's score lies where it was. At the deadline, the page has moved it, and it is the likeliest
-    // of the elements of its kind.
+    // of the elements of its kind. The result says whether the element is identified: it lies where it
+    // was, or, with the scores for where each lies taken out, it earns what the signed element earned. A
+    // likelier element of its kind that matches less is only where the clip shows until the signed
+    // element lies where it was (seekSignedElement).
     function placeBySignature(argument)
     {
+        stopSeekingSignedElement();
         const signature = signatureFromDictionary(argument.signature);
         const score = argument.signature[kClipSignatureScoreKey];
         const clipRect = makeRect(argument.rect.x, argument.rect.y, argument.rect.width, argument.rect.height);
@@ -940,7 +950,7 @@
             if (index >= 0 && (atDeadline || matches.score >= score)) {
                 const plan = revealPlan(matches.elements[index], matches.rects[index], signature.originalBorderRect.y);
                 placeElement(plan);
-                return { rect: publicRect(plan.place) };
+                return { rect: publicRect(plan.place), identified: true };
             }
             if (!atDeadline)
                 return null;
@@ -949,7 +959,11 @@
                 return { rect: null };
             const plan = reachedPlan(revealPlan(kind.likeliestElement, kind.likeliest, clipRect.y));
             placeElement(plan);
-            return { rect: publicRect(plan.place) };
+            const original = signature.originalBorderRect;
+            const identified = kind.score - scoreRectAgainstRect(kind.likeliestPlace, original) >= score - scoreRectAgainstRect(original, original);
+            if (!identified)
+                seekSignedElement(signature);
+            return { rect: publicRect(plan.place), identified };
         }, argument.deadline);
     }
 
@@ -961,11 +975,13 @@
         return placement ? signatureForElement(placement.element, rect, placement.scroll, placement.box) : signatureForRect(rect);
     }
 
-    // A signature for the clip's rect in the page once the element Safari signed lies there. Both
-    // origins are whole pixels: element boxes are enclosing integer rects here and in Safari, whose
-    // border offsets and scroll offset are whole pixels too. The page lays out apart from Safari's: its
-    // ads, experiments and extensions differ. At the deadline, the element Safari signed is the likeliest
-    // of the elements of its kind, wherever it lies, and the clip moves to it.
+    // A signature for the clip's rect in the page once the element Safari signed lies there: an element
+    // of its kind, its tag, id and class, that matches it best. Both origins are whole pixels: element
+    // boxes are enclosing integer rects here and in Safari, whose border offsets and scroll offset are
+    // whole pixels too. The page lays out apart from Safari's: its ads, experiments and extensions
+    // differ. At the deadline, the best match where Safari's element was is the element; else the
+    // element Safari signed is the likeliest of the elements of its kind, wherever it lies, and the clip
+    // moves to it.
     function signRectWhenPresent(argument)
     {
         const safariSignature = argument.signature ? signatureFromDictionary(argument.signature) : null;
@@ -977,7 +993,7 @@
             const matches = safariSignature ? bestMatches(safariSignature) : null;
             if (!matches)
                 return { signature: signatureForRect(rect) };
-            const inPlace = matches.elements.map((element, index) => safariScrollPlan(element, matches.rects[index], boxScrolls)).find(plan => hasOrigin(plan.place, rect));
+            const inPlace = matches.elements.map((element, index) => safariScrollPlan(element, matches.rects[index], boxScrolls)).find(plan => hasOrigin(plan.place, rect) && (atDeadline || isOfSignedKind(plan.element, safariSignature)));
             if (inPlace) {
                 placeElement(inPlace);
                 return { signature: signatureForElement(inPlace.element, rect, inPlace.intendedScroll, lastPlacement.box) };
@@ -1018,7 +1034,7 @@
 
     function followClipElement(argument)
     {
-        stopFollowingClipElement();
+        stopClipFollower();
         const rect = makeRect(argument.x, argument.y, argument.width, argument.height);
         const placement = placementAt(rect);
         const signature = placement ? signatureForElement(placement.element, rect, placement.scroll, placement.box) : signatureForRect(rect);
@@ -1127,12 +1143,57 @@
         return true;
     }
 
-    function stopFollowingClipElement()
+    function stopClipFollower()
     {
         if (!clipFollower)
             return;
         clipFollower.stop();
         clipFollower = null;
+    }
+
+    function stopFollowingClipElement()
+    {
+        stopSeekingSignedElement();
+        stopClipFollower();
+    }
+
+    // A clip placed on a likelier element of its kind goes on looking for the signed element as the page
+    // changes, at most once a second; once a best match lies where the signed element was, as at
+    // placement's deadline, the clip moves to it.
+    let signedElementSeeker = null;
+
+    function seekSignedElement(signature)
+    {
+        stopSeekingSignedElement();
+        const seeker = { observer: null, timer: 0, nextCheck: 0 };
+        function check()
+        {
+            seeker.timer = 0;
+            seeker.nextCheck = performance.now() + kClipElementSearchInterval;
+            const matches = bestMatches(signature);
+            const index = matches.elements.findIndex((element, i) => liesAtSignedPlace(element, matches.rects[i], signature));
+            if (index < 0)
+                return;
+            stopSeekingSignedElement();
+            const plan = revealPlan(matches.elements[index], matches.rects[index], signature.originalBorderRect.y);
+            placeElement(plan);
+            postToPlugIn({ type: 'clipElementIdentified', rect: publicRect(plan.place) });
+        }
+        seeker.observer = new MutationObserver(() => {
+            if (!seeker.timer)
+                seeker.timer = setTimeout(check, Math.max(0, seeker.nextCheck - performance.now()));
+        });
+        seeker.observer.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+        signedElementSeeker = seeker;
+    }
+
+    function stopSeekingSignedElement()
+    {
+        if (!signedElementSeeker)
+            return;
+        signedElementSeeker.observer.disconnect();
+        clearTimeout(signedElementSeeker.timer);
+        signedElementSeeker = null;
     }
 
     // Resolves once no image whose box meets the rect is still loading, or at the deadline. Pages load

@@ -1392,7 +1392,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     NSData *json = [storage count] ? [NSJSONSerialization dataWithJSONObject:storage options:0 error:nil] : nil;
     if (!json)
         return;
-    NSString *source = [NSString stringWithFormat:@"(function (storage) { const items = storage[location.origin]; if (!items) return; try { for (const key of Object.keys(items)) { if (localStorage.getItem(key) !== items[key]) localStorage.setItem(key, items[key]); } } catch (e) { } })(%@);", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
+    NSString *source = [NSString stringWithFormat:@"(function (storage) { const items = storage[location.origin]; if (!items) return; for (const key of Object.keys(items)) { if (localStorage.getItem(key) !== items[key]) localStorage.setItem(key, items[key]); } })(%@);", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
     [userContentController addUserScript:[[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES inContentWorld:_clipWorld]];
 }
 
@@ -1464,6 +1464,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     NSPoint target = NSMakePoint(MAX(0, MIN(point.x - _clipViewportOrigin.x, maximumScrollX)), MAX(0, point.y - _clipViewportOrigin.y));
     _clipViewportOrigin = NSMakePoint(point.x - target.x, point.y - target.y);
     [self scrollPageTo:target];
+    [self placeWebViewAtPageScroll:_pageScroll];
 }
 
 // The signature describes the element the clip shows, so that the next load finds the element
@@ -1519,8 +1520,10 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 }
 
 // After a load, the page builds the element the clip shows; the clip stays once the element is back
-// where it was, and otherwise follows the page agent's match at the deadline. A clip just made from
-// Safari shows the selection, and is signed once the element Safari signed lies there.
+// where it was, and otherwise follows the page agent's match at the deadline. The clip's place and
+// signature change only for a match that identifies the element: a likelier element of its kind is where
+// the clip shows until the signed element lies where it was (clipElementIdentified). A clip just made
+// from Safari shows the selection, and is signed once the element Safari signed lies there.
 static const double WCSignatureDeadlineMilliseconds = 10000;
 
 - (void)followSignature
@@ -1532,8 +1535,13 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         [self callPageFunction:@"placeBySignature" argument:@{ @"signature": signature, @"rect": [self clipPageRect], @"deadline": @(WCSignatureDeadlineMilliseconds) } completionHandler:^(id result) {
             if (webView != _webView)
                 return;
-            if (!_isEditingCameraPosition && [result isKindOfClass:[NSDictionary class]])
-                [self adjustClipToRect:rectFromPageRect(result[@"rect"])];
+            if (!_isEditingCameraPosition && [result isKindOfClass:[NSDictionary class]]) {
+                NSRect rect = rectFromPageRect(result[@"rect"]);
+                if ([result[@"identified"] boolValue])
+                    [self adjustClipToRect:rect];
+                else if (!NSEqualRects(rect, NSZeroRect))
+                    [self scrollClipToPagePoint:rect.origin];
+            }
             [self clipDidSettle];
         }];
         return;
@@ -2442,6 +2450,13 @@ static const CGFloat WCReloadSpinnerSize = 22;
         NSPoint origin = [self clipPageOrigin];
         if (!_isEditingCameraPosition && (fabs(place.x - origin.x) >= 0.5 || fabs(place.y - origin.y) >= 0.5))
             [self scrollClipToPagePoint:place];
+    } else if ([type isEqual:@"clipElementIdentified"]) {
+        // The signed element lies where it was again, after placement showed a likelier element of its kind.
+        _clipElementStillSince = CFAbsoluteTimeGetCurrent();
+        if (!_isEditingCameraPosition) {
+            [self adjustClipToRect:rectFromPageRect(message[@"rect"])];
+            [self followClipElement];
+        }
     }
 }
 
