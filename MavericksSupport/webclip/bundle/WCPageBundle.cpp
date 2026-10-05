@@ -9,6 +9,8 @@
 // places the clip in it, so from each commit the main frame's scroll position does not anchor to content
 // until the plug-in says the clip has its place in the page; from then on it does, and keeps the clip's
 // content in view when the page changes above it.
+//
+// The bundle also gives the clip's pages the clip's copy of Safari's extensions (WCPageExtensions.h).
 
 #include "cmakeconfig.h"
 
@@ -22,6 +24,7 @@
 #include <WebCore/LocalFrame.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/ScrollAnchoringSuppressionHandle.h>
+#include "WCPageExtensions.h"
 #include <WebKit/WKBundle.h>
 #include <WebKit/WKBundleFrame.h>
 #include <WebKit/WKBundleInitialize.h>
@@ -81,6 +84,16 @@ static void didCommitLoadForFrame(WKBundlePageRef page, WKBundleFrameRef frame, 
         clipPage->anchoringSuppression = WebCore::beginScrollAnchoringSuppression(*view);
 }
 
+static void didClearWindowObjectForFrame(WKBundlePageRef page, WKBundleFrameRef frame, WKBundleScriptWorldRef world, const void*)
+{
+    WebClip::extensionsDidClearWindowObjectForFrame(page, frame, world);
+}
+
+static void didRemoveFrameFromHierarchy(WKBundlePageRef, WKBundleFrameRef frame, WKTypeRef*, const void*)
+{
+    WebClip::extensionsDidRemoveFrameFromHierarchy(frame);
+}
+
 static void didCreatePage(WKBundleRef, WKBundlePageRef page, const void*)
 {
     clipPages().set(page, std::make_unique<ClipPage>());
@@ -89,6 +102,8 @@ static void didCreatePage(WKBundleRef, WKBundlePageRef page, const void*)
         WKBundlePageLoaderClientV0 client { };
         client.base.version = 0;
         client.didCommitLoadForFrame = didCommitLoadForFrame;
+        client.didClearWindowObjectForFrame = didClearWindowObjectForFrame;
+        client.didRemoveFrameFromHierarchy = didRemoveFrameFromHierarchy;
         return client;
     }();
     WKBundlePageSetPageLoaderClient(page, &loaderClient.base);
@@ -96,11 +111,14 @@ static void didCreatePage(WKBundleRef, WKBundlePageRef page, const void*)
 
 static void willDestroyPage(WKBundleRef, WKBundlePageRef page, const void*)
 {
+    WebClip::extensionsWillDestroyPage(page);
     clipPages().remove(page);
 }
 
-static void didReceiveMessageToPage(WKBundleRef, WKBundlePageRef page, WKStringRef name, WKTypeRef, const void*)
+static void didReceiveMessageToPage(WKBundleRef, WKBundlePageRef page, WKStringRef name, WKTypeRef body, const void*)
 {
+    if (WebClip::extensionsDidReceiveMessageToPage(page, name, body))
+        return;
     if (!WKStringIsEqualToUTF8CString(name, "AnchorPageScroll"))
         return;
     if (auto* clipPage = clipPages().get(page))
@@ -118,4 +136,5 @@ extern "C" WK_EXPORT void WKBundleInitialize(WKBundleRef bundle, WKTypeRef)
         didReceiveMessageToPage,
     };
     WKBundleSetClient(bundle, &client.base);
+    WebClip::initializeExtensions(bundle);
 }

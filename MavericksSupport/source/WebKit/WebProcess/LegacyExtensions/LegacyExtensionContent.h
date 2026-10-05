@@ -4,7 +4,8 @@
 //
 // Safari 7's injected bundle registers each extension's content scripts in a script world of its own
 // through WKBundleAddUserScript; the scripts' safari-extension:// URLs name the extension a world belongs to.
-// The UI process gives other web views the same content in content worlds of their own.
+// Another client gives its web views an extension's content in a content world of the extension's own, with
+// the same URLs.
 
 #pragma once
 
@@ -37,8 +38,6 @@ public:
 
     void initialize(WebProcess&);
 
-    // Safari's bundle changed its extensions' content: the UI process learns what it now is, as JSON.
-    void bundleUserContentDidChange();
     // Safari withdraws an extension's world when it disables or reloads the extension: once no user
     // content controller holds user content in a content-script world, its contexts are inert.
     bool isContextWorldLive(WebCore::DOMWrapperWorld&) const;
@@ -64,10 +63,6 @@ private:
     String extensionKeyForWorld(WebFrame&, WebCore::DOMWrapperWorld&) const;
     void replyWithoutContext(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, const String& extensionKey, const String& message);
 
-    void reportBundleUserContent();
-
-    bool m_bundleUserContentReportIsScheduled { false };
-    String m_reportedBundleUserContent { "[]"_s };
     WeakHashMap<WebCore::Document, Vector<InjectedStyleSheet>, WebCore::WeakPtrImplWithEventTargetData> m_injectedStyleSheets;
 };
 

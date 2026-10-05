@@ -1,12 +1,16 @@
 # The Web Clip Dashboard widget's plug-in. It hosts each clip in a WKWebView and is a client of the
 # frameworks, not part of them: it compiles against the SDK's headers alone, so this directory drops
 # every include path, definition and option it inherits from Source/WebKit. The staging script places
-# the binary and its page script inside the installed widget's plug-in bundle.
+# the binary and its page scripts inside the installed widget's plug-in bundle.
 set_directory_properties(PROPERTIES INCLUDE_DIRECTORIES "" COMPILE_DEFINITIONS "" COMPILE_OPTIONS "")
 
 add_library(WebClipPlugin MODULE
     src/WCClipperView.m
+    src/WCExtensionDatabases.mm
     src/WCExtras.m
+    src/WCExtensionRuntime.m
+    src/WCSafariContentLists.mm
+    src/WCSafariExtensions.m
     src/WCSafariStorage.mm
     src/WCSnapper.m
     src/WCTheme.m
@@ -20,20 +24,24 @@ set_target_properties(WebClipPlugin PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/WebClipPlugin")
 target_compile_options(WebClipPlugin PRIVATE -fobjc-arc -Wno-deprecated-declarations -Wno-unguarded-availability-new)
 add_dependencies(WebClipPlugin WebKit WebKitLegacy)
-target_link_options(WebClipPlugin PRIVATE "$<TARGET_FILE:JavaScriptCore>" "$<TARGET_FILE:WebCore>" "$<TARGET_FILE:WebKit>" "$<TARGET_FILE:WebKitLegacy>" "SHELL:-framework Cocoa" "SHELL:-framework QuartzCore" -lsqlite3)
-# The page script is a build output of its own, so that a change to it alone reaches the plug-in.
+target_link_options(WebClipPlugin PRIVATE "$<TARGET_FILE:JavaScriptCore>" "$<TARGET_FILE:WebCore>" "$<TARGET_FILE:WebKit>" "$<TARGET_FILE:WebKitLegacy>" "SHELL:-framework Cocoa" "SHELL:-framework QuartzCore" "SHELL:-framework Security" -lsqlite3 -lxar)
+# The page scripts are build outputs of their own, so that a change to one alone reaches the plug-in.
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/src/WCPageAgent.js" "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/WCPageAgent.js"
     VERBATIM)
-add_custom_target(WebClipPageAgent DEPENDS "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js")
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/WebClipPlugin/WCSafariExtensionPage.js"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/src/WCSafariExtensionPage.js" "${CMAKE_BINARY_DIR}/WebClipPlugin/WCSafariExtensionPage.js"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/WCSafariExtensionPage.js"
+    VERBATIM)
+add_custom_target(WebClipPageAgent DEPENDS "${CMAKE_BINARY_DIR}/WebClipPlugin/WCPageAgent.js" "${CMAKE_BINARY_DIR}/WebClipPlugin/WCSafariExtensionPage.js")
 add_dependencies(WebClipPlugin WebClipPageAgent)
 
 # The plug-in's injected bundle runs in each clip's web content process and calls into WebCore, so it
 # compiles with the definitions and options the frameworks' sources share and against their headers.
 get_directory_property(_webclip_bundle_definitions DIRECTORY "${CMAKE_SOURCE_DIR}" COMPILE_DEFINITIONS)
 get_directory_property(_webclip_bundle_options DIRECTORY "${CMAKE_SOURCE_DIR}" COMPILE_OPTIONS)
-add_library(WebClipPageBundle MODULE bundle/WCPageBundle.cpp)
+add_library(WebClipPageBundle MODULE bundle/WCPageBundle.cpp bundle/WCPageExtensions.cpp)
 set_target_properties(WebClipPageBundle PROPERTIES
     BUNDLE TRUE
     BUNDLE_EXTENSION bundle
@@ -54,8 +62,9 @@ target_include_directories(WebClipPageBundle PRIVATE
     ${ICU_INCLUDE_DIRS})
 target_include_directories(WebClipPageBundle SYSTEM PRIVATE ${GSTREAMER_INCLUDE_DIRS})
 
-# The plug-in's reader of Safari's website data uses WebCore's storage functions, so it compiles as the
-# injected bundle does.
+# The plug-in's reader of Safari's website data uses WebCore's storage functions, its copier of Safari
+# extensions' Web SQL databases WebCore's database tracker, and its reader of their content lists WebCore's
+# URL patterns, so they compile as the injected bundle does.
 set(_webclip_webcore_include_directories
     "${CMAKE_BINARY_DIR}"
     "${bmalloc_FRAMEWORK_HEADERS_DIR}"
@@ -77,7 +86,7 @@ foreach (_option IN LISTS _webclip_bundle_options)
         list(APPEND _webclip_webcore_options "${_option}")
     endif ()
 endforeach ()
-set_source_files_properties(src/WCSafariStorage.mm PROPERTIES
+set_source_files_properties(src/WCExtensionDatabases.mm src/WCSafariStorage.mm src/WCSafariContentLists.mm PROPERTIES
     COMPILE_DEFINITIONS "${_webclip_bundle_definitions}"
     COMPILE_OPTIONS "${_webclip_webcore_options}"
     INCLUDE_DIRECTORIES "${_webclip_webcore_include_directories}")

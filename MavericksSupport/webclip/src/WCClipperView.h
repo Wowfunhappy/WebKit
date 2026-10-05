@@ -26,6 +26,8 @@
 - (BOOL)widgetWindowDidReceiveEvent:(NSEvent *)event;
 - (BOOL)showsPageWindow;
 - (void)webPlugInDestroy;
+// The clip's extensions stop, as the clip goes away.
+- (void)stopExtensions;
 - (void)widgetDidStartMoving;
 - (void)widgetDidStopMoving;
 

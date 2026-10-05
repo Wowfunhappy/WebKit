@@ -38,6 +38,7 @@ WK_INSTALL_ROOTS="$JSC_BUNDLE $WEBKIT_BUNDLE $WEBKIT2_BUNDLE"
 WEBCLIP_PLUGIN="/Library/Widgets/Web Clip.wdgt/WebClip.plugin/Contents"
 WEBCLIP_BINARY="$WEBCLIP_PLUGIN/MacOS/WebClip"
 WEBCLIP_PAGE_AGENT="$WEBCLIP_PLUGIN/Resources/WCPageAgent.js"
+WEBCLIP_EXTENSION_PAGE_SCRIPT="$WEBCLIP_PLUGIN/Resources/WCSafariExtensionPage.js"
 WEBCLIP_PAGE_BUNDLE="$WEBCLIP_PLUGIN/Resources/WebClipPageBundle.bundle"
 WEBCLIP_WIDGET_SCRIPT="/Library/Widgets/Web Clip.wdgt/WebClip.js"
 
@@ -280,6 +281,7 @@ wk_verify_tree() {
         esac
     fi
     [ -f "$pre$WEBCLIP_PAGE_AGENT" ] || { echo "  MISSING Web Clip page script: $pre$WEBCLIP_PAGE_AGENT" >&2; bad=1; }
+    [ -f "$pre$WEBCLIP_EXTENSION_PAGE_SCRIPT" ] || { echo "  MISSING Web Clip extension page script: $pre$WEBCLIP_EXTENSION_PAGE_SCRIPT" >&2; bad=1; }
     grep -q "if (!webClip.dashboardAnimatesFlips())" "$pre$WEBCLIP_WIDGET_SCRIPT" 2>/dev/null \
         || { echo "  UNPATCHED Web Clip widget script: $pre$WEBCLIP_WIDGET_SCRIPT" >&2; bad=1; }
 

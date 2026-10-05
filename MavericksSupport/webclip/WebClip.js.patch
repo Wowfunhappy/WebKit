@@ -10,7 +10,17 @@
      widget.setPreferenceForKey(webClip.standardFont(), createkey("StandardFont"));
      widget.setPreferenceForKey(webClip.standardFontSize(), createkey("StandardFontSize"));
      widget.setPreferenceForKey(webClip.textSizeMultiplier(), createkey("TextSizeMultiplier"));
-@@ -194,6 +197,9 @@
+@@ -184,6 +187,9 @@
+ 
+ function onremove()
+ {
++    // The clip's data goes with it: its copy of Safari's extensions.
++    webClip.removeClipData();
++
+     // Remove instance preferences when removed from Dashboard.
+     widget.setPreferenceForKey(null, createkey("ClipRect"));
+     widget.setPreferenceForKey(null, createkey("ClipSignature"));   
+@@ -194,6 +200,9 @@
      widget.setPreferenceForKey(null, createkey("FixedWidthFontSize"));
      widget.setPreferenceForKey(null, createkey("MinimumFontSize"));
      widget.setPreferenceForKey(null, createkey("PageSize"));
@@ -20,7 +30,7 @@
      widget.setPreferenceForKey(null, createkey("PlayAudioOutOfDashboard"));
      widget.setPreferenceForKey(null, createkey("StandardFont"));
      widget.setPreferenceForKey(null, createkey("StandardFontSize"));
-@@ -480,7 +486,15 @@
+@@ -480,7 +489,15 @@
          widget.resizeAndMoveTo(window.screenX + backXOffset, window.screenY + backYOffset, backsideWidth, backsideHeight);
      }
      

@@ -5,8 +5,7 @@
 // the same points WebKit applies its own content rules: NetworkLoadChecker::checkRequest (onBeforeRequest
 // and onBeforeSendHeaders, for every request and redirect, pings included), checkRedirection and the
 // response (onHeadersReceived, for a redirect and for a network or cache response), and a WebSocket's
-// creation. An event's details name the web content process a load comes from (webProcess), which the
-// router reads and removes.
+// creation.
 
 #pragma once
 

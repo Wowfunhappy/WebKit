@@ -34,13 +34,24 @@ static std::optional<FileSystem::Salt> readSalt(const String& storeDirectory)
     return salt;
 }
 
-static NSDictionary<NSString *, NSString *> *itemsInDatabase(const String& path)
+// Opens one of Safari's databases to read it. 10.9's SQLite reads a database in write-ahead-log mode only
+// through a connection that can make the database's shared-memory file, which a database Safari has closed
+// lacks; the connection only reads.
+static sqlite3 *openSafariDatabase(const String& path)
 {
     sqlite3 *database = nullptr;
-    if (sqlite3_open_v2(path.utf8().data(), &database, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+    if (sqlite3_open_v2(path.utf8().data(), &database, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) {
         sqlite3_close(database);
-        return nil;
+        return nullptr;
     }
+    return database;
+}
+
+static NSDictionary<NSString *, NSString *> *itemsInDatabase(const String& path)
+{
+    sqlite3 *database = openSafariDatabase(path);
+    if (!database)
+        return nil;
     NSMutableDictionary *items = [NSMutableDictionary dictionary];
     sqlite3_stmt *statement = nullptr;
     if (sqlite3_prepare_v2(database, "SELECT key, value FROM ItemTable", -1, &statement, nullptr) == SQLITE_OK) {
@@ -71,11 +82,10 @@ static String originDirectory(const String& storeDirectory, const FileSystem::Sa
 // The live database at the path, copied whole to a new file at the other path.
 static bool copyDatabase(const String& sourcePath, const String& destinationPath)
 {
-    sqlite3 *source = nullptr;
+    sqlite3 *source = openSafariDatabase(sourcePath);
     sqlite3 *destination = nullptr;
     bool copied = false;
-    if (sqlite3_open_v2(sourcePath.utf8().data(), &source, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK
-        && sqlite3_open_v2(destinationPath.utf8().data(), &destination, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) == SQLITE_OK) {
+    if (source && sqlite3_open_v2(destinationPath.utf8().data(), &destination, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) == SQLITE_OK) {
         if (sqlite3_backup *backup = sqlite3_backup_init(destination, "main", source, "main")) {
             copied = sqlite3_backup_step(backup, -1) == SQLITE_DONE;
             copied = sqlite3_backup_finish(backup) == SQLITE_OK && copied;
@@ -122,6 +132,11 @@ static void importIndexedDatabases(const String& safariOriginDirectory, const St
         if (!copied || rename(staging.utf8().data(), destination.utf8().data()))
             FileSystem::deleteNonEmptyDirectory(staging);
     }
+}
+
+BOOL WCCopySQLiteDatabase(NSString *sourcePath, NSString *destinationPath)
+{
+    return copyDatabase(sourcePath, destinationPath);
 }
 
 NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *WCTakeSafariStorageForSite(NSURL *nsURL)

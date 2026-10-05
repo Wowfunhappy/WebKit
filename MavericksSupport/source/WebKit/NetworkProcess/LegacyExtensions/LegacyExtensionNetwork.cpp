@@ -590,7 +590,6 @@ Ref<JSON::Object> LegacyExtensionNetwork::requestDetails(NetworkLoadChecker& che
     details->setDouble("tabId"_s, checker.m_webPageProxyID ? static_cast<double>(checker.m_webPageProxyID->toUInt64()) : 0);
     if (loader) {
         auto& parameters = loader->parameters();
-        details->setDouble("webProcess"_s, static_cast<double>(loader->connectionToWebProcess().webProcessIdentifier().toUInt64()));
         details->setDouble("frameId"_s, static_cast<double>(parameters.webFrameID.toUInt64()));
         details->setDouble("parentFrameId"_s, parameters.parentFrameID ? static_cast<double>(parameters.parentFrameID->toUInt64()) : 0);
         if (auto documentURL = documentURLForLoad(parameters, type); !documentURL.isEmpty())
@@ -613,7 +612,6 @@ Ref<JSON::Object> LegacyExtensionNetwork::loaderDetails(NetworkResourceLoader& l
     details->setString("type"_s, resourceType(request, parameters.options.destination, loader.isMainFrameLoad()));
     details->setDouble("timeStamp"_s, timeStamp());
     details->setDouble("tabId"_s, static_cast<double>(parameters.webPageProxyID.toUInt64()));
-    details->setDouble("webProcess"_s, static_cast<double>(loader.connectionToWebProcess().webProcessIdentifier().toUInt64()));
     details->setDouble("frameId"_s, static_cast<double>(parameters.webFrameID.toUInt64()));
     details->setDouble("parentFrameId"_s, parameters.parentFrameID ? static_cast<double>(parameters.parentFrameID->toUInt64()) : 0);
     if (!loader.isMainFrameLoad()) {
@@ -1115,7 +1113,6 @@ bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& c
     details->setString("type"_s, "websocket"_s);
     details->setDouble("timeStamp"_s, timeStamp());
     details->setDouble("tabId"_s, static_cast<double>(webPageProxyID.toUInt64()));
-    details->setDouble("webProcess"_s, static_cast<double>(connection.webProcessIdentifier().toUInt64()));
     details->setDouble("frameId"_s, frameID ? static_cast<double>(frameID->toUInt64()) : 0);
     details->setDouble("parentFrameId"_s, 0);
     details->setString("initiator"_s, clientOrigin.clientOrigin.toString());

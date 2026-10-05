@@ -5,6 +5,7 @@
 
 #import "WCSnapper.h"
 #import "WebClipper.h"
+#import "WCExtensionRuntime.h"
 #import "WCSafariStorage.h"
 #import "WCWebKitSPI.h"
 
@@ -264,6 +265,8 @@ static NSRect rectFromPageRect(id value)
 }
 
 @implementation WCClipperView {
+    // The clip's copy of Safari's extensions at work, once the clip has a copy.
+    WCExtensionRuntime *_extensionRuntime;
     WCPlaceholderView *_placeholder;
     WCPageWindow *_pageWindow;
     BOOL _hasScreenshot;
@@ -1711,8 +1714,8 @@ static const CFTimeInterval WCReloadedPageStillInterval = 1;
         [self updateFrame];
 }
 
-// The clips' web content processes load the plug-in's injected bundle. Clips are Safari tabs to the
-// extensions Safari runs.
+// The clips' web content processes load the plug-in's injected bundle. A clip is a Safari tab to its copy
+// of Safari's extensions, which the pool's extension runtime runs.
 static WKProcessPool *clipProcessPool(void)
 {
     static WKProcessPool *processPool;
@@ -1720,7 +1723,7 @@ static WKProcessPool *clipProcessPool(void)
         _WKProcessPoolConfiguration *configuration = [[_WKProcessPoolConfiguration alloc] init];
         configuration.injectedBundleURL = [[NSBundle bundleForClass:[WCClipperView class]] URLForResource:@"WebClipPageBundle" withExtension:@"bundle"];
         processPool = [[WKProcessPool alloc] _initWithConfiguration:configuration];
-        [processPool _enableSafariExtensions];
+        [WCExtensionRuntime serveProcessPool:processPool];
     }
     return processPool;
 }
@@ -1772,6 +1775,7 @@ static WKProcessPool *clipProcessPool(void)
 - (void)createWebViewWithSize:(NSSize)size
 {
     _webView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height) configuration:[self webViewConfiguration]];
+    [_extensionRuntime addWebView:_webView];
     [_webView _setObservedRenderingProgressEvents:_WKRenderingProgressEventFirstPaintWithSignificantArea | _WKRenderingProgressEventFirstMeaningfulPaint];
     [_webView setUIDelegate:self];
     [_webView setNavigationDelegate:self];
@@ -2354,6 +2358,12 @@ static const CGFloat WCReloadSpinnerSize = 22;
 
 - (void)loadURLString:(NSString *)URLString clipRect:(NSRect)clipRect clipSignature:(NSDictionary *)clipSignature pageSize:(NSSize)pageSize displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget
 {
+    // The clip's copy of Safari's extensions runs from the clip's first load.
+    NSString *extensionsDirectory = [[self controller] safariExtensionsDirectory];
+    if (!_extensionRuntime && extensionsDirectory && [[NSFileManager defaultManager] fileExistsAtPath:extensionsDirectory]) {
+        _extensionRuntime = [WCExtensionRuntime runtimeOfClip:[[self controller] clipIdentifier] directory:extensionsDirectory];
+        [_extensionRuntime addWebView:_webView];
+    }
     _documentSize = pageSize;
     [[self controller] setClipSignature:clipSignature];
     if (resizeWidget)
@@ -2389,8 +2399,15 @@ static const CGFloat WCReloadSpinnerSize = 22;
     return [_currentTheme themeID];
 }
 
+- (void)stopExtensions
+{
+    [_extensionRuntime invalidate];
+    _extensionRuntime = nil;
+}
+
 - (void)webPlugInDestroy
 {
+    [self stopExtensions];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showReloadedPageWhenSetUp) object:nil];
     [self closePreviousPage];
     [_webView stopLoading:nil];
@@ -2487,6 +2504,7 @@ static const CGFloat WCReloadSpinnerSize = 22;
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
+    [_extensionRuntime webViewDidNavigate:webView];
     _isLoading = NO;
     [self stopProgressTimer];
     [_webView _setTextZoomFactor:[[self controller] textSizeMultiplier]];
@@ -2542,7 +2560,8 @@ static const CGFloat WCReloadSpinnerSize = 22;
     WKNavigationType type = [navigationAction navigationType];
     // A form the page's script submits is part of the page loading.
     if (type == WKNavigationTypeReload || type == WKNavigationTypeOther || (type == WKNavigationTypeFormSubmitted && ![navigationAction _isUserInitiated])) {
-        decisionHandler(WKNavigationActionPolicyAllow);
+        BOOL proceeds = ![[navigationAction targetFrame] isMainFrame] || !_extensionRuntime || [_extensionRuntime webView:webView shouldNavigateToURL:[request URL]];
+        decisionHandler(proceeds ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
         return;
     }
     decisionHandler(WKNavigationActionPolicyCancel);

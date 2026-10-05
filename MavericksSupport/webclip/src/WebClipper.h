@@ -41,6 +41,8 @@
 - (WebScriptObject *)windowScriptObject;
 
 - (BOOL)hasSettings;
+- (NSString *)clipIdentifier;
+- (NSString *)safariExtensionsDirectory;
 - (void)readSettings;
 - (void)savePreferencesToDisk;
 - (void)exitEditingCameraPosition;

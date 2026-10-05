@@ -7,3 +7,9 @@
 extern "C"
 #endif
 NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *WCTakeSafariStorageForSite(NSURL *);
+
+// A consistent copy of the live SQLite database at the source path, in a new file at the destination path.
+#ifdef __cplusplus
+extern "C"
+#endif
+BOOL WCCopySQLiteDatabase(NSString *sourcePath, NSString *destinationPath);

@@ -27,10 +27,8 @@
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/WindowProxy.h>
-#include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/RunLoop.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebKit {
@@ -213,54 +211,6 @@ static String extensionKeyOfContentWorld(WebCore::DOMWrapperWorld& world)
             extensionKey = extensionKeyForURL(script ? script->url() : styleSheet->url());
     });
     return extensionKey;
-}
-
-void LegacyExtensionContent::bundleUserContentDidChange()
-{
-    if (std::exchange(m_bundleUserContentReportIsScheduled, true))
-        return;
-    RunLoop::mainSingleton().dispatch([this] {
-        m_bundleUserContentReportIsScheduled = false;
-        reportBundleUserContent();
-    });
-}
-
-// Each extension's content scripts and style sheets, in the order the bundle added them, as
-// [{ key, kind: "script" | "sheet", source, url, allow, block, start, top, author }].
-void LegacyExtensionContent::reportBundleUserContent()
-{
-    auto content = JSON::Array::create();
-    HashSet<String> reportedURLs;
-    WebUserContentController::forEachUserContentOfAllControllers([&](auto&, auto* script, auto* styleSheet) {
-        auto& url = script ? script->url() : styleSheet->url();
-        auto extensionKey = extensionKeyForURL(url);
-        if (extensionKey.isEmpty() || !reportedURLs.add(makeString(script ? 's' : 'c', url.string())).isNewEntry)
-            return;
-        auto stringArray = [](const Vector<String>& strings) {
-            auto array = JSON::Array::create();
-            for (auto& string : strings)
-                array->pushString(string);
-            return array;
-        };
-        auto item = JSON::Object::create();
-        item->setString("key"_s, extensionKey);
-        item->setString("kind"_s, script ? "script"_s : "sheet"_s);
-        item->setString("source"_s, script ? script->source() : styleSheet->source());
-        item->setString("url"_s, url.string());
-        item->setArray("allow"_s, stringArray(script ? script->allowlist() : styleSheet->allowlist()));
-        item->setArray("block"_s, stringArray(script ? script->blocklist() : styleSheet->blocklist()));
-        item->setBoolean("top"_s, (script ? script->injectedFrames() : styleSheet->injectedFrames()) == WebCore::UserContentInjectedFrames::InjectInTopFrameOnly);
-        if (script)
-            item->setBoolean("start"_s, script->injectionTime() == WebCore::UserScriptInjectionTime::DocumentStart);
-        else
-            item->setBoolean("author"_s, styleSheet->level() == WebCore::UserStyleLevel::Author);
-        content->pushObject(WTF::move(item));
-    });
-    auto contentJSON = content->toJSONString();
-    if (contentJSON == m_reportedBundleUserContent)
-        return;
-    m_reportedBundleUserContent = contentJSON;
-    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::DidChangeBundleContent(contentJSON), 0);
 }
 
 bool LegacyExtensionContent::isContextWorldLive(WebCore::DOMWrapperWorld& world) const

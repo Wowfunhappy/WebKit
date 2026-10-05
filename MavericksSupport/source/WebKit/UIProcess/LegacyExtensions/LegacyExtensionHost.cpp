@@ -1,24 +1,18 @@
 #include "config.h"
 #include "LegacyExtensionHost.h"
 
-#include "APIContentWorld.h"
-#include "APIUserScript.h"
-#include "APIUserStyleSheet.h"
-#include "LegacyExtensionChannel.h"
 #include "LegacyExtensionClipboard.h"
 #include "LegacyExtensionContentMessages.h"
 #include "LegacyExtensionErrors.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionInfoPlist.h"
 #include "LegacyExtensionJavaScript.h"
-#include "LegacyExtensionResources.h"
 #include "LegacyExtensionScheme.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
 #include "APIHTTPCookieStore.h"
 #include "APINavigation.h"
 #include "FrameTreeNodeData.h"
-#include "InjectUserScriptImmediately.h"
 #include "NetworkProcessProxy.h"
 #include "PageLoadState.h"
 #include "WebBackForwardList.h"
@@ -28,7 +22,6 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
-#include "WebUserContentControllerProxy.h"
 #include "WebsiteDataStore.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSGlobalObject.h>
@@ -40,7 +33,6 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/WallTime.h>
-#include <wtf/text/Base64.h>
 #include <wtf/text/MakeString.h>
 #include <cmath>
 
@@ -182,8 +174,9 @@ static std::optional<WebCore::FrameIdentifier> frameIdentifier(double value)
     return WebCore::FrameIdentifier { *rawValue };
 }
 
-static RefPtr<WebPageProxy> pageForIdentifier(std::optional<uint64_t> rawValue)
+static RefPtr<WebPageProxy> pageForTabID(std::optional<double> tabID)
 {
+    auto rawValue = tabID ? integerIdentifier(*tabID) : std::nullopt;
     if (!rawValue || !WebPageProxyIdentifier::isValidIdentifier(*rawValue))
         return nullptr;
     RefPtr page = WebProcessProxy::webPage(WebPageProxyIdentifier { *rawValue });
@@ -192,34 +185,9 @@ static RefPtr<WebPageProxy> pageForIdentifier(std::optional<uint64_t> rawValue)
     return page;
 }
 
-static constexpr uint64_t satelliteTabIDBase = 1ull << 32;
-
-RefPtr<WebPageProxy> LegacyExtensionHost::pageForTabID(std::optional<double> tabID) const
+static double tabIDForPage(const WebPageProxy& page)
 {
-    auto rawValue = tabID ? integerIdentifier(*tabID) : std::nullopt;
-    if (!rawValue)
-        return nullptr;
-    bool isSatelliteTab = *rawValue >= satelliteTabIDBase;
-    if (isSatelliteTab && (!m_satelliteNumber || *rawValue / satelliteTabIDBase != m_satelliteNumber))
-        return nullptr;
-    RefPtr page = pageForIdentifier(*rawValue % satelliteTabIDBase);
-    if (!page || isSatellitePage(*page) != isSatelliteTab)
-        return nullptr;
-    return page;
-}
-
-double LegacyExtensionHost::tabIDForPage(const WebPageProxy& page) const
-{
-    auto identifier = page.identifier().toUInt64();
-    if (isSatellitePage(page))
-        identifier += m_satelliteNumber * satelliteTabIDBase;
-    return static_cast<double>(identifier);
-}
-
-uint64_t LegacyExtensionHost::satelliteForTabID(std::optional<double> tabID)
-{
-    auto rawValue = tabID ? integerIdentifier(*tabID) : std::nullopt;
-    return rawValue ? *rawValue / satelliteTabIDBase : 0;
+    return static_cast<double>(page.identifier().toUInt64());
 }
 
 // The WebExtensions frame ID: 0 for a tab's main frame.
@@ -517,7 +485,6 @@ void LegacyExtensionHost::didClearWindowObject(const void* frame, JSC::JSGlobalO
     m_hostContextByFrame.add(frame, context->identifier);
     loadWebsiteAccess(context->extensionKey, context->url);
     m_hostContexts.add(context->identifier, WTF::move(context));
-    startHub();
 }
 
 void LegacyExtensionHost::frameWillBeDestroyed(const void* frame)
@@ -575,18 +542,6 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
     if (!protect(frame->process())->hasConnection(connection))
         return;
     m_documents.set(documentID, std::pair { frameID, documentURL });
-    if (m_satelliteNumber && isSatellitePage(*frame->page())) {
-        auto post = JSON::Object::create();
-        post->setString("t"_s, "post"_s);
-        post->setDouble("token"_s, static_cast<double>(tokenForDocument(frameID, documentID)));
-        post->setString("key"_s, extensionKey);
-        post->setString("message"_s, message);
-        post->setObject("sender"_s, senderDescription(Endpoint { nullptr, frameID, documentID }));
-        post->setString("url"_s, documentURL.string());
-        post->setBoolean("extensionPage"_s, extensionKeyForURL(documentURL) == extensionKey);
-        LegacyExtensions::sendToHub(post.get());
-        return;
-    }
     if (RefPtr context = extensionPageContext(*frame, documentID, documentURL, extensionKey)) {
         route(Endpoint { context, std::nullopt, std::nullopt }, extensionKey, message);
         return;
@@ -653,9 +608,6 @@ void LegacyExtensionHost::framesDidGoAway(const Vector<WebCore::FrameIdentifier>
     });
     documentsDidGoAway([&](auto frameID, auto) {
         return frameIDs.contains(frameID);
-    });
-    satelliteDocumentsDidGoAway([&](auto& document) {
-        return frameIDs.contains(*document.frameID);
     });
     for (auto frameID : frameIDs) {
         if (auto identifier = m_hostContextByRemoteFrame.take(frameID)) {
@@ -804,20 +756,6 @@ bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extens
 {
     Markable<WebCore::FrameIdentifier> frameID = endpoint.frameID;
     Markable<WebCore::ScriptExecutionContextIdentifier> documentID = endpoint.documentID;
-    auto satellite = endpoint.host ? endpoint.host->satellite : endpoint.satellite;
-    if (satellite) {
-        if (endpoint.host && !m_hostContexts.contains(endpoint.host->identifier))
-            return false;
-        if (!LegacyExtensions::satellites().contains(satellite))
-            return false;
-        auto delivery = JSON::Object::create();
-        delivery->setString("t"_s, "deliver"_s);
-        delivery->setDouble("token"_s, static_cast<double>(endpoint.host ? endpoint.host->remoteToken : endpoint.remoteToken));
-        delivery->setString("key"_s, extensionKey);
-        delivery->setString("message"_s, message);
-        LegacyExtensions::sendToSatellite(satellite, delivery.get());
-        return true;
-    }
     if (RefPtr context = endpoint.host) {
         if (!m_hostContexts.contains(context->identifier))
             return false;
@@ -839,12 +777,6 @@ bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extens
 
 Ref<JSON::Object> LegacyExtensionHost::senderDescription(const Endpoint& endpoint) const
 {
-    if (auto satellite = endpoint.host ? endpoint.host->satellite : endpoint.satellite) {
-        auto iterator = m_remoteSenders.find({ satellite, endpoint.host ? endpoint.host->remoteToken : endpoint.remoteToken });
-        if (iterator != m_remoteSenders.end())
-            return iterator->value.copyRef();
-        return JSON::Object::create();
-    }
     auto sender = JSON::Object::create();
     Markable<WebCore::FrameIdentifier> frameID = endpoint.frameID;
     if (RefPtr context = endpoint.host) {
@@ -905,8 +837,12 @@ void LegacyExtensionHost::routeConnect(const Endpoint& from, const String& exten
         }
     };
 
-    if (from.host && message.getDouble("tabId"_s))
-        return endpointsForTab(message.getDouble("tabId"_s), message.getDouble("frameId"_s), extensionKey, WTF::move(didFindReceivers));
+    if (from.host && message.getDouble("tabId"_s)) {
+        RefPtr page = pageForTabID(message.getDouble("tabId"_s));
+        if (!page)
+            return didFindReceivers({ });
+        return tabEndpoints(*page, message.getDouble("frameId"_s), extensionKey, WTF::move(didFindReceivers));
+    }
     didFindReceivers(hostContextsListeningTo(extensionKey, "runtime.onConnect"_s, from));
 }
 
@@ -986,8 +922,12 @@ void LegacyExtensionHost::routeOneShotMessage(const Endpoint& from, const String
             deliver(receiver, extensionKey, forwardedMessage);
     };
 
-    if (from.host && message.getDouble("tabId"_s))
-        return endpointsForTab(message.getDouble("tabId"_s), message.getDouble("frameId"_s), extensionKey, WTF::move(didFindReceivers));
+    if (from.host && message.getDouble("tabId"_s)) {
+        RefPtr page = pageForTabID(message.getDouble("tabId"_s));
+        if (!page)
+            return didFindReceivers({ });
+        return tabEndpoints(*page, message.getDouble("frameId"_s), extensionKey, WTF::move(didFindReceivers));
+    }
     didFindReceivers(hostContextsListeningTo(extensionKey, "runtime.onMessage"_s, from));
 }
 
@@ -1078,10 +1018,6 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         WebCore::MemoryCache::singleton().evictResources();
         for (Ref pool : WebProcessPool::allProcessPools())
             pool->sendToAllProcesses(Messages::LegacyExtensionContent::EvictMemoryCache());
-        auto evict = JSON::Object::create();
-        evict->setString("t"_s, "evict"_s);
-        for (auto satellite : LegacyExtensions::satellites())
-            LegacyExtensions::sendToSatellite(satellite, evict.get());
         resultToHostContext(context, callID, nullptr);
         return;
     }
@@ -1164,40 +1100,89 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
-    // A satellite's tabs answer for themselves; tabs.remove closes each tab where it is.
+    if (method == "tabs.get"_s) {
+        RefPtr page = pageForTabID(numberArgument(0));
+        resultToHostContext(context, callID, page ? RefPtr<JSON::Value> { tabDescription(*page) } : RefPtr<JSON::Value> { JSON::Value::null() });
+        return;
+    }
+
     if (method == "tabs.remove"_s) {
         if (RefPtr tabIDs = argument(0) ? argument(0)->asArray() : nullptr) {
             for (auto& tabID : *tabIDs) {
-                if (auto satellite = satelliteForTabID(tabID->asDouble())) {
-                    auto remove = JSON::Object::create();
-                    remove->setString("t"_s, "call"_s);
-                    remove->setString("method"_s, method);
-                    auto removeArguments = JSON::Array::create();
-                    auto removedTabIDs = JSON::Array::create();
-                    removedTabIDs->pushValue(tabID.copyRef());
-                    removeArguments->pushArray(WTF::move(removedTabIDs));
-                    remove->setArray("args"_s, WTF::move(removeArguments));
-                    LegacyExtensions::sendToSatellite(satellite, remove.get());
-                }
+                if (RefPtr page = pageForTabID(tabID->asDouble()))
+                    page->closePage();
             }
         }
+        resultToHostContext(context, callID, nullptr);
+        return;
     }
-    if (method == "tabs.get"_s || method == "tabs.remove"_s || method == "tabs.reload"_s || method == "tabs.update"_s || method == "webNavigation.getFrame"_s || method == "webNavigation.getAllFrames"_s) {
-        RefPtr details = method.startsWith("webNavigation."_s) ? objectArgument(0) : nullptr;
-        auto tabID = details ? details->getDouble("tabId"_s) : numberArgument(0);
-        if (auto satellite = method != "tabs.remove"_s ? satelliteForTabID(tabID) : 0)
-            return forwardTabCall(satellite, context, callID, method, WTF::move(arguments));
-        performTabCall(method, WTF::move(arguments), [this, context = Ref { context }, callID](RefPtr<JSON::Value>&& result, String&& error) {
-            if (m_hostContexts.contains(context->identifier))
-                resultToHostContext(context, callID, WTF::move(result), error);
+
+    if (method == "tabs.reload"_s) {
+        if (RefPtr page = pageForTabID(numberArgument(0))) {
+            OptionSet<WebCore::ReloadOption> options;
+            RefPtr properties = objectArgument(1);
+            if (properties && properties->getBoolean("bypassCache"_s).value_or(false))
+                options.add(WebCore::ReloadOption::FromOrigin);
+            page->reload(options);
+        }
+        resultToHostContext(context, callID, nullptr);
+        return;
+    }
+
+    if (method == "tabs.update"_s) {
+        RefPtr page = pageForTabID(numberArgument(0));
+        if (!page) {
+            resultToHostContext(context, callID, nullptr, "No tab with this id."_s);
+            return;
+        }
+        RefPtr properties = objectArgument(1);
+        if (properties) {
+            auto url = properties->getString("url"_s);
+            if (!url.isEmpty())
+                page->loadRequest(WebCore::ResourceRequest { URL { url } });
+        }
+        resultToHostContext(context, callID, tabDescription(*page).ptr());
+        return;
+    }
+
+    if (method == "webNavigation.getFrame"_s || method == "webNavigation.getAllFrames"_s) {
+        RefPtr details = objectArgument(0);
+        RefPtr page = details ? pageForTabID(details->getDouble("tabId"_s)) : nullptr;
+        if (!page) {
+            resultToHostContext(context, callID, JSON::Value::null());
+            return;
+        }
+        bool allFrames = method == "webNavigation.getAllFrames"_s;
+        auto wantedFrameId = details->getDouble("frameId"_s).value_or(0);
+        page->getAllFrames([this, context = Ref { context }, callID, allFrames, wantedFrameId](std::optional<FrameTreeNodeData>&& tree) {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            auto frames = JSON::Array::create();
+            RefPtr<JSON::Object> wantedFrame;
+            if (tree) {
+                forEachFrameInTree(*tree, -1, [&](auto& info, double parentFrameId) {
+                    double frameId = info.isMainFrame ? 0 : static_cast<double>(info.frameID.toUInt64());
+                    auto description = JSON::Object::create();
+                    description->setBoolean("errorOccurred"_s, info.errorOccurred);
+                    description->setString("url"_s, info.request.url().string());
+                    description->setDouble("frameId"_s, frameId);
+                    description->setDouble("parentFrameId"_s, parentFrameId);
+                    if (frameId == wantedFrameId)
+                        wantedFrame = description.copyRef();
+                    frames->pushObject(WTF::move(description));
+                });
+            }
+            if (allFrames)
+                return resultToHostContext(context, callID, frames.ptr());
+            resultToHostContext(context, callID, wantedFrame ? RefPtr<JSON::Value> { wantedFrame } : RefPtr<JSON::Value> { JSON::Value::null() });
         });
         return;
     }
 
     if (method == "tabs.executeScript"_s || method == "tabs.insertCSS"_s || method == "tabs.removeCSS"_s) {
-        auto tabID = numberArgument(0);
+        RefPtr page = pageForTabID(numberArgument(0));
         RefPtr details = objectArgument(1);
-        if ((!pageForTabID(tabID) && !satelliteForTabID(tabID)) || !details) {
+        if (!page || !details) {
             resultToHostContext(context, callID, nullptr, "No tab with this id."_s);
             return;
         }
@@ -1219,7 +1204,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
                 request->setString("url"_s, fileURL.string());
         }
         auto targetFrameId = allFrames ? std::nullopt : std::optional<double> { details->getDouble("frameId"_s).value_or(0) };
-        endpointsForTab(tabID, targetFrameId, context.extensionKey, [this, context = Ref { context }, callID, method, routerCallID, requestMessage = request->toJSONString()](Vector<Endpoint>&& targets) {
+        tabEndpoints(*page, targetFrameId, context.extensionKey, [this, context = Ref { context }, callID, method, routerCallID, requestMessage = request->toJSONString()](Vector<Endpoint>&& targets) {
             if (!m_hostContexts.contains(context->identifier))
                 return;
             if (targets.isEmpty())
@@ -1232,104 +1217,6 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
     }
 
     resultToHostContext(context, callID, nullptr, makeString("Unsupported method "_s, method));
-}
-
-// The tab methods a tab's own process answers: tabs.get, remove, reload and update, and webNavigation.getFrame
-// and getAllFrames.
-void LegacyExtensionHost::performTabCall(const String& method, RefPtr<JSON::Array>&& arguments, CompletionHandler<void(RefPtr<JSON::Value>&&, String&&)>&& completionHandler)
-{
-    auto argument = [&](size_t index) -> RefPtr<JSON::Value> {
-        if (!arguments || index >= arguments->length())
-            return nullptr;
-        return arguments->get(index).ptr();
-    };
-    auto numberArgument = [&](size_t index) -> std::optional<double> {
-        RefPtr value = argument(index);
-        return value ? value->asDouble() : std::nullopt;
-    };
-    auto objectArgument = [&](size_t index) -> RefPtr<JSON::Object> {
-        RefPtr value = argument(index);
-        return value ? value->asObject() : nullptr;
-    };
-
-    if (method == "tabs.get"_s) {
-        RefPtr page = pageForTabID(numberArgument(0));
-        completionHandler(page ? RefPtr<JSON::Value> { tabDescription(*page) } : RefPtr<JSON::Value> { JSON::Value::null() }, { });
-        return;
-    }
-
-    if (method == "tabs.remove"_s) {
-        if (RefPtr tabIDs = argument(0) ? argument(0)->asArray() : nullptr) {
-            for (auto& tabID : *tabIDs) {
-                if (RefPtr page = pageForTabID(tabID->asDouble()))
-                    page->closePage();
-            }
-        }
-        completionHandler(nullptr, { });
-        return;
-    }
-
-    if (method == "tabs.reload"_s) {
-        if (RefPtr page = pageForTabID(numberArgument(0))) {
-            OptionSet<WebCore::ReloadOption> options;
-            RefPtr properties = objectArgument(1);
-            if (properties && properties->getBoolean("bypassCache"_s).value_or(false))
-                options.add(WebCore::ReloadOption::FromOrigin);
-            page->reload(options);
-        }
-        completionHandler(nullptr, { });
-        return;
-    }
-
-    if (method == "tabs.update"_s) {
-        RefPtr page = pageForTabID(numberArgument(0));
-        if (!page) {
-            completionHandler(nullptr, "No tab with this id."_s);
-            return;
-        }
-        RefPtr properties = objectArgument(1);
-        if (properties) {
-            auto url = properties->getString("url"_s);
-            if (!url.isEmpty())
-                page->loadRequest(WebCore::ResourceRequest { URL { url } });
-        }
-        completionHandler(tabDescription(*page).ptr(), { });
-        return;
-    }
-
-    if (method == "webNavigation.getFrame"_s || method == "webNavigation.getAllFrames"_s) {
-        RefPtr details = objectArgument(0);
-        RefPtr page = details ? pageForTabID(details->getDouble("tabId"_s)) : nullptr;
-        if (!page) {
-            completionHandler(JSON::Value::null(), { });
-            return;
-        }
-        bool allFrames = method == "webNavigation.getAllFrames"_s;
-        auto wantedFrameId = details->getDouble("frameId"_s).value_or(0);
-        page->getAllFrames([completionHandler = WTF::move(completionHandler), allFrames, wantedFrameId](std::optional<FrameTreeNodeData>&& tree) mutable {
-            auto frames = JSON::Array::create();
-            RefPtr<JSON::Object> wantedFrame;
-            if (tree) {
-                forEachFrameInTree(*tree, -1, [&](auto& info, double parentFrameId) {
-                    double frameId = info.isMainFrame ? 0 : static_cast<double>(info.frameID.toUInt64());
-                    auto description = JSON::Object::create();
-                    description->setBoolean("errorOccurred"_s, info.errorOccurred);
-                    description->setString("url"_s, info.request.url().string());
-                    description->setDouble("frameId"_s, frameId);
-                    description->setDouble("parentFrameId"_s, parentFrameId);
-                    if (frameId == wantedFrameId)
-                        wantedFrame = description.copyRef();
-                    frames->pushObject(WTF::move(description));
-                });
-            }
-            if (allFrames)
-                return completionHandler(frames.ptr(), { });
-            completionHandler(wantedFrame ? RefPtr<JSON::Value> { wantedFrame } : RefPtr<JSON::Value> { JSON::Value::null() }, { });
-        });
-        return;
-    }
-
-    completionHandler(nullptr, makeString("Unsupported method "_s, method));
 }
 
 void LegacyExtensionHost::routeCallResult(const Endpoint& from, JSON::Object& message)
@@ -1499,39 +1386,22 @@ void LegacyExtensionHost::dispatchEvent(const String& eventName, Ref<JSON::Array
         deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message);
 }
 
-// An event about a satellite's tab goes to the hub.
-void LegacyExtensionHost::dispatchTabEvent(WebPageProxy& page, const String& eventName, Ref<JSON::Array>&& arguments)
-{
-    if (!isSatellitePage(page))
-        return dispatchEvent(eventName, WTF::move(arguments));
-    if (!m_satelliteNumber)
-        return;
-    auto event = JSON::Object::create();
-    event->setString("t"_s, "event"_s);
-    event->setString("name"_s, eventName);
-    event->setArray("args"_s, WTF::move(arguments));
-    LegacyExtensions::sendToHub(event.get());
-}
-
 void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
 {
     auto observer = LegacyExtensionTabObserver::create(page, [](WebPageProxy& page, Ref<JSON::Object>&& changeInfo) {
         auto& host = LegacyExtensionHost::singleton();
         auto arguments = JSON::Array::create();
-        arguments->pushDouble(host.tabIDForPage(page));
+        arguments->pushDouble(tabIDForPage(page));
         arguments->pushObject(WTF::move(changeInfo));
         arguments->pushObject(host.tabDescription(page));
-        host.dispatchTabEvent(page, "tabs.onUpdated"_s, WTF::move(arguments));
+        host.dispatchEvent("tabs.onUpdated"_s, WTF::move(arguments));
     });
     page.pageLoadState().addObserver(observer.get());
     tabObservers().set(page.identifier(), WTF::move(observer));
 
-    if (isSatellitePage(page) && !m_contentControllers.contains(page.userContentController()))
-        installContent(page.userContentController());
-
     auto arguments = JSON::Array::create();
     arguments->pushObject(tabDescription(page));
-    dispatchTabEvent(page, "tabs.onCreated"_s, WTF::move(arguments));
+    dispatchEvent("tabs.onCreated"_s, WTF::move(arguments));
     if (!m_cookieObservers.isEmpty())
         updateCookieObservers();
 }
@@ -1555,13 +1425,13 @@ void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
     auto arguments = JSON::Array::create();
     arguments->pushDouble(tabIDForPage(page));
     arguments->pushObject(WTF::move(removeInfo));
-    dispatchTabEvent(page, "tabs.onRemoved"_s, WTF::move(arguments));
+    dispatchEvent("tabs.onRemoved"_s, WTF::move(arguments));
 }
 
 static Ref<JSON::Object> navigationDetails(WebPageProxy& page, WebFrameProxy& frame, const URL& url)
 {
     auto details = JSON::Object::create();
-    details->setDouble("tabId"_s, LegacyExtensionHost::singleton().tabIDForPage(page));
+    details->setDouble("tabId"_s, tabIDForPage(page));
     details->setDouble("frameId"_s, frameIDForFrame(frame));
     details->setDouble("parentFrameId"_s, parentFrameIDForFrame(frame));
     details->setString("url"_s, url.string());
@@ -1584,9 +1454,6 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
     });
     documentsDidGoAway([&](auto frameID, auto candidate) {
         return frameID == frame.frameID() && candidate != documentID;
-    });
-    satelliteDocumentsDidGoAway([&](auto& document) {
-        return *document.frameID == frame.frameID() && document.documentID != documentID;
     });
     if (auto identifier = m_hostContextByRemoteFrame.get(frame.frameID())) {
         RefPtr context = m_hostContexts.get(identifier);
@@ -1635,21 +1502,21 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
 
     auto arguments = JSON::Array::create();
     arguments->pushObject(WTF::move(details));
-    dispatchTabEvent(page, "webNavigation.onCommitted"_s, WTF::move(arguments));
+    dispatchEvent("webNavigation.onCommitted"_s, WTF::move(arguments));
 }
 
 void LegacyExtensionHost::didStartProvisionalLoad(WebPageProxy& page, WebFrameProxy& frame, const URL& url)
 {
     auto arguments = JSON::Array::create();
     arguments->pushObject(navigationDetails(page, frame, url));
-    dispatchTabEvent(page, "webNavigation.onBeforeNavigate"_s, WTF::move(arguments));
+    dispatchEvent("webNavigation.onBeforeNavigate"_s, WTF::move(arguments));
 }
 
 void LegacyExtensionHost::didFinishLoad(WebPageProxy& page, WebFrameProxy& frame)
 {
     auto arguments = JSON::Array::create();
     arguments->pushObject(navigationDetails(page, frame, frame.url()));
-    dispatchTabEvent(page, "webNavigation.onCompleted"_s, WTF::move(arguments));
+    dispatchEvent("webNavigation.onCompleted"_s, WTF::move(arguments));
 }
 
 // A frame's navigation that fails before it commits, or a committed document's load that fails.
@@ -1659,14 +1526,14 @@ void LegacyExtensionHost::didFailLoad(WebPageProxy& page, WebFrameProxy& frame, 
     details->setString("error"_s, LegacyExtensions::networkErrorName(error));
     auto arguments = JSON::Array::create();
     arguments->pushObject(WTF::move(details));
-    dispatchTabEvent(page, "webNavigation.onErrorOccurred"_s, WTF::move(arguments));
+    dispatchEvent("webNavigation.onErrorOccurred"_s, WTF::move(arguments));
 }
 
 void LegacyExtensionHost::didFinishDocumentLoad(WebPageProxy& page, WebFrameProxy& frame)
 {
     auto arguments = JSON::Array::create();
     arguments->pushObject(navigationDetails(page, frame, frame.url()));
-    dispatchTabEvent(page, "webNavigation.onDOMContentLoaded"_s, WTF::move(arguments));
+    dispatchEvent("webNavigation.onDOMContentLoaded"_s, WTF::move(arguments));
 }
 
 void LegacyExtensionHost::didCreateNavigationTarget(WebPageProxy& sourcePage, WebCore::FrameIdentifier sourceFrameID, WebPageProxy& newPage, const URL& url)
@@ -1681,7 +1548,7 @@ void LegacyExtensionHost::didCreateNavigationTarget(WebPageProxy& sourcePage, We
     details->setDouble("timeStamp"_s, timeStamp());
     auto arguments = JSON::Array::create();
     arguments->pushObject(WTF::move(details));
-    dispatchTabEvent(newPage, "webNavigation.onCreatedNavigationTarget"_s, WTF::move(arguments));
+    dispatchEvent("webNavigation.onCreatedNavigationTarget"_s, WTF::move(arguments));
 }
 
 // webRequest.
@@ -1689,8 +1556,7 @@ void LegacyExtensionHost::didCreateNavigationTarget(WebPageProxy& sourcePage, We
 static void normalizeWebRequestDetails(JSON::Object& details)
 {
     auto tabID = details.getDouble("tabId"_s);
-    RefPtr page = pageForIdentifier(tabID ? integerIdentifier(*tabID) : std::nullopt);
-    details.setDouble("tabId"_s, page ? LegacyExtensionHost::singleton().tabIDForPage(*page) : -1);
+    details.setDouble("tabId"_s, pageForTabID(tabID) ? *tabID : -1);
 
     auto rawFrameID = details.getDouble("frameId"_s).value_or(0);
     auto rawParentFrameID = details.getDouble("parentFrameId"_s).value_or(0);
@@ -1715,33 +1581,8 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, const
             completionHandler("{}"_s);
         return;
     }
-    auto webProcessIdentifier = integerIdentifier(details->getDouble("webProcess"_s).value_or(0));
-    details->remove("webProcess"_s);
     normalizeWebRequestDetails(*details);
 
-    // A satellite's web requests, those of its pools' web content processes, go to the hub's listeners.
-    if (m_satelliteNumber) {
-        RefPtr process = webProcessIdentifier && WebCore::ProcessIdentifier::isValidIdentifier(*webProcessIdentifier) ? WebProcessProxy::processForIdentifier(WebCore::ProcessIdentifier { *webProcessIdentifier }) : nullptr;
-        RefPtr page = pageForTabID(details->getDouble("tabId"_s));
-        if (process ? m_satellitePools.contains(process->processPool()) : page && isSatellitePage(*page)) {
-            auto request = JSON::Object::create();
-            request->setString("t"_s, "webRequest"_s);
-            request->setString("name"_s, eventName);
-            request->setObject("details"_s, details.releaseNonNull());
-            if (completionHandler) {
-                auto identifier = m_nextIdentifier++;
-                m_satelliteWebRequests.add(identifier, WTF::move(completionHandler));
-                request->setDouble("id"_s, static_cast<double>(identifier));
-            }
-            LegacyExtensions::sendToHub(request.get());
-            return;
-        }
-    }
-    dispatchWebRequestDetails(eventName, details.releaseNonNull(), WTF::move(completionHandler));
-}
-
-void LegacyExtensionHost::dispatchWebRequestDetails(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&& completionHandler)
-{
     auto qualifiedName = makeString("webRequest."_s, eventName);
     // An extension's own resources are visible only to that extension; a web request, only to the extensions
     // whose website access covers it.
@@ -1769,7 +1610,7 @@ void LegacyExtensionHost::dispatchWebRequestDetails(const String& eventName, Ref
     event->setString("t"_s, "event"_s);
     event->setString("name"_s, qualifiedName);
     auto arguments = JSON::Array::create();
-    arguments->pushObject(WTF::move(details));
+    arguments->pushObject(details.releaseNonNull());
     event->setArray("args"_s, WTF::move(arguments));
 
     if (!completionHandler) {
@@ -1881,702 +1722,11 @@ void LegacyExtensionHost::updateNetworkListeners()
     m_blockingNetworkListeners = WTF::move(blockingListeners);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         sendNetworkListeners(networkProcess);
-    updateWelcomeMessages();
-    auto listeners = networkListenersMessage();
-    for (auto satellite : LegacyExtensions::satellites())
-        LegacyExtensions::sendToSatellite(satellite, listeners.get());
 }
 
 void LegacyExtensionHost::sendNetworkListeners(NetworkProcessProxy& networkProcess)
 {
     networkProcess.send(Messages::LegacyExtensionNetwork::SetListeners(m_observedNetworkEvents, m_networkListenerOptions, m_blockingNetworkListeners), 0);
-}
-
-// The contexts an extension has in a tab's frames, here or in a satellite.
-void LegacyExtensionHost::endpointsForTab(std::optional<double> tabID, std::optional<double> frameId, const String& extensionKey, CompletionHandler<void(Vector<Endpoint>&&)>&& completionHandler)
-{
-    if (RefPtr page = pageForTabID(tabID))
-        return tabEndpoints(*page, frameId, extensionKey, WTF::move(completionHandler));
-    auto satellite = satelliteForTabID(tabID);
-    if (!satellite || !LegacyExtensions::satellites().contains(satellite))
-        return completionHandler({ });
-    auto requestID = m_nextIdentifier++;
-    m_remoteEndpointsRequests.add(requestID, RemoteEndpointsRequest { satellite, extensionKey, WTF::move(completionHandler) });
-    auto request = JSON::Object::create();
-    request->setString("t"_s, "endpoints"_s);
-    request->setDouble("requestId"_s, static_cast<double>(requestID));
-    request->setDouble("tabId"_s, *tabID);
-    if (frameId)
-        request->setDouble("frameId"_s, *frameId);
-    request->setString("key"_s, extensionKey);
-    LegacyExtensions::sendToSatellite(satellite, request.get());
-}
-
-// The hub.
-
-void LegacyExtensionHost::startHub()
-{
-    LegacyExtensions::startHub([](uint64_t satellite, Ref<JSON::Object>&& message) {
-        LegacyExtensionHost::singleton().receiveFromSatellite(satellite, message.get());
-    }, [](uint64_t satellite) {
-        LegacyExtensionHost::singleton().satelliteDidGoAway(satellite);
-    });
-    updateWelcomeMessages();
-}
-
-// Each of Safari's web content processes reports what its pages get, and an extension's page adds content to
-// them one by one: the bundle's content is all the live processes report, in the order the oldest reports it.
-void LegacyExtensionHost::didChangeBundleContent(IPC::Connection& connection, String&& content)
-{
-    auto value = JSON::Value::parseJSON(content);
-    RefPtr items = value ? value->asArray() : nullptr;
-    if (!items)
-        return;
-    m_bundleContentByProcess.set(WebProcessProxy::fromConnection(connection)->coreProcessIdentifier(), items.releaseNonNull());
-    m_bundleContentByProcess.removeIf([](auto& entry) {
-        return !WebProcessProxy::processForIdentifier(entry.key);
-    });
-    auto processes = copyToVector(m_bundleContentByProcess.keys());
-    std::ranges::sort(processes, [](auto a, auto b) {
-        return a.toUInt64() < b.toUInt64();
-    });
-    auto merged = JSON::Array::create();
-    HashSet<String> mergedItems;
-    for (auto process : processes) {
-        for (auto& itemValue : m_bundleContentByProcess.find(process)->value.get()) {
-            RefPtr item = itemValue->asObject();
-            if (item && mergedItems.add(makeString(item->getString("kind"_s), ' ', item->getString("url"_s))).isNewEntry)
-                merged->pushValue(itemValue.copyRef());
-        }
-    }
-    auto mergedContent = merged->toJSONString();
-    if (mergedContent == m_bundleContent)
-        return;
-    m_bundleContent = WTF::move(mergedContent);
-    startHub();
-    auto message = JSON::Object::create();
-    message->setString("t"_s, "content"_s);
-    message->setString("content"_s, m_bundleContent);
-    for (auto satellite : LegacyExtensions::satellites())
-        LegacyExtensions::sendToSatellite(satellite, message.get());
-}
-
-Ref<JSON::Object> LegacyExtensionHost::networkListenersMessage() const
-{
-    auto message = JSON::Object::create();
-    message->setString("t"_s, "listeners"_s);
-    auto observed = JSON::Array::create();
-    for (auto& eventName : m_observedNetworkEvents)
-        observed->pushString(eventName);
-    message->setArray("observed"_s, WTF::move(observed));
-    auto options = JSON::Array::create();
-    for (auto& option : m_networkListenerOptions)
-        options->pushString(option);
-    message->setArray("options"_s, WTF::move(options));
-    message->setString("blocking"_s, m_blockingNetworkListeners);
-    return message;
-}
-
-// A satellite starts with the bundle's content and the network listeners, which the channel holds for its
-// welcome before any satellite is sent their changes.
-void LegacyExtensionHost::updateWelcomeMessages()
-{
-    auto content = JSON::Object::create();
-    content->setString("t"_s, "content"_s);
-    content->setString("content"_s, m_bundleContent.isNull() ? "[]"_s : m_bundleContent);
-    LegacyExtensions::setWelcomeMessages({ WTF::move(content), networkListenersMessage() });
-}
-
-// An extension page in a satellite's frame: a host context for one document, which the satellite's token names.
-RefPtr<LegacyExtensionHost::HostContext> LegacyExtensionHost::remoteExtensionPageContext(uint64_t satellite, uint64_t token, const String& extensionKey, const URL& documentURL)
-{
-    if (extensionKeyForURL(documentURL) != extensionKey)
-        return nullptr;
-    if (RefPtr context = m_hostContexts.get(m_hostContextByRemoteToken.get({ satellite, token }))) {
-        context->url = documentURL;
-        return context;
-    }
-    Ref context = HostContext::create();
-    context->identifier = m_nextIdentifier++;
-    context->extensionKey = extensionKey;
-    context->url = documentURL;
-    context->satellite = satellite;
-    context->remoteToken = token;
-    m_hostContextByRemoteToken.set({ satellite, token }, context->identifier);
-    loadWebsiteAccess(context->extensionKey, context->url);
-    m_hostContexts.add(context->identifier, context.copyRef());
-    return context;
-}
-
-void LegacyExtensionHost::forwardTabCall(uint64_t satellite, HostContext& context, double callID, const String& method, RefPtr<JSON::Array>&& arguments)
-{
-    if (!LegacyExtensions::satellites().contains(satellite))
-        return resultToHostContext(context, callID, method == "tabs.get"_s || method.startsWith("webNavigation."_s) ? RefPtr<JSON::Value> { JSON::Value::null() } : nullptr, method == "tabs.update"_s ? "No tab with this id."_s : String());
-    auto remoteCallID = m_nextIdentifier++;
-    m_remoteCalls.add(remoteCallID, RemoteCall { &context, callID, satellite });
-    auto call = JSON::Object::create();
-    call->setString("t"_s, "call"_s);
-    call->setDouble("callId"_s, static_cast<double>(remoteCallID));
-    call->setString("method"_s, method);
-    call->setArray("args"_s, arguments ? arguments.releaseNonNull() : JSON::Array::create());
-    LegacyExtensions::sendToSatellite(satellite, call.get());
-}
-
-void LegacyExtensionHost::receiveFromSatellite(uint64_t satellite, JSON::Object& message)
-{
-    auto type = message.getString("t"_s);
-    auto token = integerIdentifier(message.getDouble("token"_s).value_or(0)).value_or(0);
-
-    if (type == "post"_s) {
-        auto extensionKey = message.getString("key"_s);
-        auto body = message.getString("message"_s);
-        if (!token || extensionKey.isEmpty() || body.isNull())
-            return;
-        RefPtr sender = message.getObject("sender"_s);
-        m_remoteSenders.set({ satellite, token }, sender ? sender.releaseNonNull() : JSON::Object::create());
-        if (message.getBoolean("extensionPage"_s).value_or(false)) {
-            if (RefPtr context = remoteExtensionPageContext(satellite, token, extensionKey, URL { message.getString("url"_s) }))
-                return route(Endpoint { WTF::move(context) }, extensionKey, body);
-        }
-        return route(Endpoint { nullptr, std::nullopt, std::nullopt, satellite, token }, extensionKey, body);
-    }
-
-    if (type == "gone"_s) {
-        RefPtr tokens = message.getArray("tokens"_s);
-        if (!tokens)
-            return;
-        HashSet<uint64_t> goneTokens;
-        for (auto& value : *tokens) {
-            if (auto goneToken = integerIdentifier(value->asDouble().value_or(0)))
-                goneTokens.add(*goneToken);
-        }
-        endpointsDidGoAway([&](auto& endpoint) {
-            return endpoint.satellite == satellite && goneTokens.contains(endpoint.remoteToken);
-        });
-        for (auto goneToken : goneTokens) {
-            m_remoteSenders.remove({ satellite, goneToken });
-            if (auto identifier = m_hostContextByRemoteToken.take({ satellite, goneToken })) {
-                if (auto context = m_hostContexts.take(identifier))
-                    hostContextDidGoAway(*context);
-            }
-        }
-        return;
-    }
-
-    if (type == "event"_s) {
-        auto name = message.getString("name"_s);
-        RefPtr arguments = message.getArray("args"_s);
-        if (!name.isEmpty() && arguments)
-            dispatchEvent(name, arguments.releaseNonNull());
-        return;
-    }
-
-    if (type == "webRequest"_s) {
-        auto name = message.getString("name"_s);
-        RefPtr details = message.getObject("details"_s);
-        if (name.isEmpty() || !details)
-            return;
-        auto requestID = message.getDouble("id"_s);
-        if (!requestID)
-            return dispatchWebRequestDetails(name, details.releaseNonNull(), { });
-        dispatchWebRequestDetails(name, details.releaseNonNull(), [satellite, requestID = *requestID](String&& response) {
-            auto verdict = JSON::Object::create();
-            verdict->setString("t"_s, "webRequestVerdict"_s);
-            verdict->setDouble("id"_s, requestID);
-            verdict->setString("response"_s, response);
-            LegacyExtensions::sendToSatellite(satellite, verdict.get());
-        });
-        return;
-    }
-
-    if (type == "callResult"_s) {
-        auto callID = integerIdentifier(message.getDouble("callId"_s).value_or(0));
-        auto iterator = callID ? m_remoteCalls.find(*callID) : m_remoteCalls.end();
-        if (iterator == m_remoteCalls.end() || iterator->value.satellite != satellite)
-            return;
-        auto call = m_remoteCalls.take(iterator);
-        if (!call.caller || !m_hostContexts.contains(call.caller->identifier))
-            return;
-        RefPtr result = message.getValue("result"_s);
-        resultToHostContext(*call.caller, call.callerCallID, WTF::move(result), message.getString("error"_s));
-        return;
-    }
-
-    if (type == "endpoints"_s) {
-        auto requestID = integerIdentifier(message.getDouble("requestId"_s).value_or(0));
-        auto iterator = requestID ? m_remoteEndpointsRequests.find(*requestID) : m_remoteEndpointsRequests.end();
-        if (iterator == m_remoteEndpointsRequests.end() || iterator->value.satellite != satellite)
-            return;
-        auto request = m_remoteEndpointsRequests.take(iterator);
-        Vector<Endpoint> endpoints;
-        if (RefPtr descriptions = message.getArray("endpoints"_s)) {
-            for (auto& value : *descriptions) {
-                RefPtr description = value->asObject();
-                auto endpointToken = description ? integerIdentifier(description->getDouble("token"_s).value_or(0)) : std::nullopt;
-                if (!endpointToken)
-                    continue;
-                if (RefPtr sender = description->getObject("sender"_s))
-                    m_remoteSenders.set({ satellite, *endpointToken }, sender.releaseNonNull());
-                if (description->getBoolean("extensionPage"_s).value_or(false)) {
-                    if (RefPtr context = remoteExtensionPageContext(satellite, *endpointToken, request.extensionKey, URL { description->getString("url"_s) })) {
-                        endpoints.append(Endpoint { WTF::move(context) });
-                        continue;
-                    }
-                }
-                endpoints.append(Endpoint { nullptr, std::nullopt, std::nullopt, satellite, *endpointToken });
-            }
-        }
-        request.completionHandler(WTF::move(endpoints));
-        return;
-    }
-
-    if (type == "fetch"_s) {
-        URL url { message.getString("url"_s) };
-        auto fetchID = message.getDouble("id"_s).value_or(0);
-        if (!url.protocolIs(extensionScheme))
-            return LegacyExtensions::sendToSatellite(satellite, LegacyExtensions::fetchedMessage(fetchID, std::nullopt, { }).get());
-        LegacyExtensions::loadExtensionResource(url, [satellite, fetchID](std::optional<Vector<uint8_t>>&& data, String&& mimeType) {
-            LegacyExtensions::sendToSatellite(satellite, LegacyExtensions::fetchedMessage(fetchID, WTF::move(data), WTF::move(mimeType)).get());
-        });
-        return;
-    }
-}
-
-void LegacyExtensionHost::satelliteDidGoAway(uint64_t satellite)
-{
-    endpointsDidGoAway([&](auto& endpoint) {
-        return endpoint.satellite == satellite;
-    });
-    m_remoteSenders.removeIf([&](auto& entry) {
-        return entry.key.first == satellite;
-    });
-    Vector<uint64_t> contextIdentifiers;
-    m_hostContextByRemoteToken.removeIf([&](auto& entry) {
-        if (entry.key.first != satellite)
-            return false;
-        contextIdentifiers.append(entry.value);
-        return true;
-    });
-    for (auto identifier : contextIdentifiers) {
-        if (auto context = m_hostContexts.take(identifier))
-            hostContextDidGoAway(*context);
-    }
-    Vector<RemoteEndpointsRequest> requests;
-    m_remoteEndpointsRequests.removeIf([&](auto& entry) {
-        if (entry.value.satellite != satellite)
-            return false;
-        requests.append(WTF::move(entry.value));
-        return true;
-    });
-    for (auto& request : requests)
-        request.completionHandler({ });
-    Vector<RemoteCall> calls;
-    m_remoteCalls.removeIf([&](auto& entry) {
-        if (entry.value.satellite != satellite)
-            return false;
-        calls.append(WTF::move(entry.value));
-        return true;
-    });
-    for (auto& call : calls) {
-        if (call.caller && m_hostContexts.contains(call.caller->identifier))
-            resultToHostContext(*call.caller, call.callerCallID, nullptr, "No tab with this id."_s);
-    }
-}
-
-// A satellite.
-
-void LegacyExtensionHost::setUsesSafariExtensions(WebProcessPool& pool)
-{
-    m_satellitePools.add(pool);
-    LegacyExtensions::serveExtensionResources([](const URL& url, CompletionHandler<void(std::optional<Vector<uint8_t>>&&, String&&)>&& completionHandler) {
-        LegacyExtensionHost::singleton().fetchFromHub(url, WTF::move(completionHandler));
-    });
-    WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(extensionScheme);
-    LegacyExtensions::startSatellite([](uint64_t satelliteNumber) {
-        LegacyExtensionHost::singleton().connectedToHub(satelliteNumber);
-    }, [](Ref<JSON::Object>&& message) {
-        LegacyExtensionHost::singleton().receiveFromHub(message.get());
-    }, [] {
-        LegacyExtensionHost::singleton().hubDidGoAway();
-    });
-}
-
-bool LegacyExtensionHost::isSatellitePage(const WebPageProxy& page) const
-{
-    return m_satellitePools.contains(page.configuration().processPool());
-}
-
-void LegacyExtensionHost::connectedToHub(uint64_t satelliteNumber)
-{
-    m_satelliteNumber = satelliteNumber;
-    for (auto identifier : tabObservers().keys()) {
-        RefPtr page = WebProcessProxy::webPage(identifier);
-        if (!page || page->isClosed() || !isSatellitePage(*page))
-            continue;
-        auto arguments = JSON::Array::create();
-        arguments->pushObject(tabDescription(*page));
-        dispatchTabEvent(*page, "tabs.onCreated"_s, WTF::move(arguments));
-    }
-}
-
-void LegacyExtensionHost::hubDidGoAway()
-{
-    m_satelliteNumber = 0;
-    auto noContent = JSON::Array::create();
-    setHubContent(noContent.get());
-    m_satelliteDocuments.clear();
-    m_satelliteTokens.clear();
-    auto webRequests = std::exchange(m_satelliteWebRequests, { });
-    for (auto& completionHandler : webRequests.values())
-        completionHandler("{}"_s);
-    auto fetches = std::exchange(m_satelliteFetches, { });
-    for (auto& completionHandler : fetches.values())
-        completionHandler(std::nullopt, { });
-    m_observedNetworkEvents = { };
-    m_networkListenerOptions = { };
-    m_blockingNetworkListeners = { };
-    for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
-        sendNetworkListeners(networkProcess);
-}
-
-uint64_t LegacyExtensionHost::tokenForDocument(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID)
-{
-    return m_satelliteTokens.ensure({ frameID, documentID }, [&] {
-        auto token = m_nextIdentifier++;
-        m_satelliteDocuments.add(token, SatelliteDocument { frameID, documentID });
-        return token;
-    }).iterator->value;
-}
-
-void LegacyExtensionHost::satelliteDocumentsDidGoAway(NOESCAPE const Function<bool(const SatelliteDocument&)>& isGone)
-{
-    if (m_satelliteDocuments.isEmpty())
-        return;
-    auto tokens = JSON::Array::create();
-    m_satelliteDocuments.removeIf([&](auto& entry) {
-        if (!isGone(entry.value))
-            return false;
-        m_satelliteTokens.remove({ *entry.value.frameID, *entry.value.documentID });
-        tokens->pushDouble(static_cast<double>(entry.key));
-        return true;
-    });
-    if (!tokens->length() || !m_satelliteNumber)
-        return;
-    auto message = JSON::Object::create();
-    message->setString("t"_s, "gone"_s);
-    message->setArray("tokens"_s, WTF::move(tokens));
-    LegacyExtensions::sendToHub(message.get());
-}
-
-// The contexts an extension has in one of this satellite's tabs, for the hub.
-void LegacyExtensionHost::satelliteEndpoints(double requestID, std::optional<double> tabID, std::optional<double> frameId, const String& extensionKey)
-{
-    auto reply = [requestID](Ref<JSON::Array>&& endpoints) {
-        auto message = JSON::Object::create();
-        message->setString("t"_s, "endpoints"_s);
-        message->setDouble("requestId"_s, requestID);
-        message->setArray("endpoints"_s, WTF::move(endpoints));
-        LegacyExtensions::sendToHub(message.get());
-    };
-    RefPtr page = pageForTabID(tabID);
-    RefPtr targetFrame = page && frameId ? frameForTab(*page, *frameId) : nullptr;
-    if (!page || (frameId && !targetFrame))
-        return reply(JSON::Array::create());
-    page->getAllFrames([this, reply = WTF::move(reply), extensionKey, targetFrameID = targetFrame ? std::optional { targetFrame->frameID() } : std::nullopt](std::optional<FrameTreeNodeData>&& tree) mutable {
-        auto endpoints = JSON::Array::create();
-        if (tree) {
-            forEachFrameInTree(*tree, -1, [&](auto& info, double) {
-                if ((targetFrameID && info.frameID != *targetFrameID) || !info.documentID)
-                    return;
-                RefPtr frame = WebFrameProxy::webFrame(info.frameID);
-                if (!frame)
-                    return;
-                auto url = documentURL(*frame, info.documentID);
-                auto endpoint = JSON::Object::create();
-                endpoint->setDouble("token"_s, static_cast<double>(tokenForDocument(info.frameID, *info.documentID)));
-                endpoint->setBoolean("extensionPage"_s, extensionKeyForURL(url) == extensionKey);
-                endpoint->setString("url"_s, url.string());
-                endpoint->setObject("sender"_s, senderDescription(Endpoint { nullptr, info.frameID, info.documentID }));
-                endpoints->pushObject(WTF::move(endpoint));
-            });
-        }
-        reply(WTF::move(endpoints));
-    });
-}
-
-void LegacyExtensionHost::receiveFromHub(JSON::Object& message)
-{
-    auto type = message.getString("t"_s);
-
-    if (type == "deliver"_s) {
-        auto token = integerIdentifier(message.getDouble("token"_s).value_or(0));
-        auto iterator = token ? m_satelliteDocuments.find(*token) : m_satelliteDocuments.end();
-        if (iterator == m_satelliteDocuments.end())
-            return;
-        auto document = iterator->value;
-        RefPtr frame = WebFrameProxy::webFrame(*document.frameID);
-        if (!frame || !frame->page())
-            return;
-        protect(frame->process())->send(Messages::LegacyExtensionContent::Deliver(*document.frameID, *document.documentID, message.getString("key"_s), message.getString("message"_s)), 0);
-        return;
-    }
-
-    if (type == "content"_s) {
-        auto value = JSON::Value::parseJSON(message.getString("content"_s));
-        RefPtr content = value ? value->asArray() : nullptr;
-        if (content)
-            setHubContent(*content);
-        return;
-    }
-
-    if (type == "listeners"_s)
-        return setHubNetworkListeners(message);
-
-    if (type == "call"_s) {
-        auto callID = message.getDouble("callId"_s).value_or(0);
-        performTabCall(message.getString("method"_s), message.getArray("args"_s), [callID](RefPtr<JSON::Value>&& result, String&& error) {
-            if (!callID)
-                return;
-            auto reply = JSON::Object::create();
-            reply->setString("t"_s, "callResult"_s);
-            reply->setDouble("callId"_s, callID);
-            if (!error.isNull())
-                reply->setString("error"_s, error);
-            else if (result)
-                reply->setValue("result"_s, result.releaseNonNull());
-            LegacyExtensions::sendToHub(reply.get());
-        });
-        return;
-    }
-
-    if (type == "endpoints"_s)
-        return satelliteEndpoints(message.getDouble("requestId"_s).value_or(0), message.getDouble("tabId"_s), message.getDouble("frameId"_s), message.getString("key"_s));
-
-    if (type == "webRequestVerdict"_s) {
-        auto requestID = integerIdentifier(message.getDouble("id"_s).value_or(0));
-        if (!requestID)
-            return;
-        if (auto completionHandler = m_satelliteWebRequests.take(*requestID))
-            completionHandler(message.getString("response"_s));
-        return;
-    }
-
-    if (type == "evict"_s) {
-        WebCore::MemoryCache::singleton().evictResources();
-        for (Ref pool : WebProcessPool::allProcessPools())
-            pool->sendToAllProcesses(Messages::LegacyExtensionContent::EvictMemoryCache());
-        return;
-    }
-
-    if (type == "fetched"_s) {
-        auto fetchID = integerIdentifier(message.getDouble("id"_s).value_or(0));
-        if (!fetchID)
-            return;
-        auto completionHandler = m_satelliteFetches.take(*fetchID);
-        if (!completionHandler)
-            return;
-        auto data = message.getString("data"_s);
-        completionHandler(data.isNull() ? std::nullopt : base64Decode(data), message.getString("mimeType"_s));
-        return;
-    }
-}
-
-void LegacyExtensionHost::fetchFromHub(const URL& url, CompletionHandler<void(std::optional<Vector<uint8_t>>&&, String&&)>&& completionHandler)
-{
-    if (!m_satelliteNumber)
-        return completionHandler(std::nullopt, { });
-    auto fetchID = m_nextIdentifier++;
-    m_satelliteFetches.add(fetchID, WTF::move(completionHandler));
-    auto message = JSON::Object::create();
-    message->setString("t"_s, "fetch"_s);
-    message->setDouble("id"_s, static_cast<double>(fetchID));
-    message->setString("url"_s, url.string());
-    LegacyExtensions::sendToHub(message.get());
-}
-
-// Safari's bundle content in each satellite page's user content controller, in a content world per extension.
-// As in Safari, a change adds and removes single scripts and style sheets, which leaves an extension's world,
-// and its contexts in loaded pages, alive; an extension whose content cannot change that way, in order, gets
-// all of it again.
-void LegacyExtensionHost::setHubContent(JSON::Array& content)
-{
-    struct NewItem {
-        String identity;
-        String extensionKey;
-        Ref<JSON::Object> item;
-    };
-    Vector<NewItem> newItems;
-    for (auto& value : content) {
-        RefPtr item = value->asObject();
-        if (!item)
-            continue;
-        auto extensionKey = extensionKeyForURL(URL { item->getString("url"_s) });
-        if (extensionKey.isEmpty() || extensionKey != item->getString("key"_s))
-            continue;
-        newItems.append({ item->toJSONString(), WTF::move(extensionKey), item.releaseNonNull() });
-    }
-
-    HashSet<String> extensionKeys;
-    for (auto& installed : m_hubContent)
-        extensionKeys.add(installed.extensionKey);
-    for (auto& newItem : newItems)
-        extensionKeys.add(newItem.extensionKey);
-
-    HashSet<String> newIdentities;
-    for (auto& newItem : newItems)
-        newIdentities.add(newItem.identity);
-    HashSet<String> reinstalledExtensions;
-    for (auto& extensionKey : extensionKeys) {
-        Vector<String> installedIdentities;
-        for (auto& installed : m_hubContent) {
-            if (installed.extensionKey == extensionKey)
-                installedIdentities.append(installed.identity);
-        }
-        // What stays keeps its order, and what is added follows it.
-        Vector<String> keptInNewOrder;
-        bool addedBeforeKept = false;
-        bool sawAdded = false;
-        for (auto& newItem : newItems) {
-            if (newItem.extensionKey != extensionKey)
-                continue;
-            if (installedIdentities.contains(newItem.identity)) {
-                addedBeforeKept |= sawAdded;
-                keptInNewOrder.append(newItem.identity);
-            } else
-                sawAdded = true;
-        }
-        Vector<String> keptInInstalledOrder;
-        for (auto& identity : installedIdentities) {
-            if (newIdentities.contains(identity))
-                keptInInstalledOrder.append(identity);
-        }
-        if (addedBeforeKept || keptInInstalledOrder != keptInNewOrder)
-            reinstalledExtensions.add(extensionKey);
-    }
-
-    auto isKept = [&](const HubContentItem& installed) {
-        return newIdentities.contains(installed.identity) && !reinstalledExtensions.contains(installed.extensionKey);
-    };
-    for (auto& installed : m_hubContent) {
-        if (isKept(installed))
-            continue;
-        for (Ref controller : m_contentControllers) {
-            if (installed.script)
-                controller->removeUserScript(*installed.script);
-            else
-                controller->removeUserStyleSheet(*installed.styleSheet);
-        }
-    }
-
-    auto strings = [](JSON::Object& item, const String& name) {
-        Vector<String> strings;
-        if (RefPtr array = item.getArray(name)) {
-            for (auto& value : *array) {
-                if (auto string = value->asString(); !string.isNull())
-                    strings.append(WTF::move(string));
-            }
-        }
-        return strings;
-    };
-    HashMap<String, HubContentItem> keptItems;
-    for (auto& installed : m_hubContent) {
-        if (isKept(installed))
-            keptItems.add(installed.identity, installed);
-    }
-    Vector<HubContentItem> installedContent;
-    Vector<HubContentItem> addedItems;
-    for (auto& newItem : newItems) {
-        if (auto kept = keptItems.take(newItem.identity); kept.script || kept.styleSheet) {
-            installedContent.append(WTF::move(kept));
-            continue;
-        }
-        Ref world = m_hubContentWorlds.ensure(newItem.extensionKey, [&] {
-            return API::ContentWorld::sharedWorldWithName(makeString("safari-extension:"_s, newItem.extensionKey));
-        }).iterator->value;
-        auto& item = newItem.item.get();
-        URL url { item.getString("url"_s) };
-        auto injectedFrames = item.getBoolean("top"_s).value_or(false) ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames;
-        HubContentItem added { newItem.identity, newItem.extensionKey, nullptr, nullptr };
-        if (item.getString("kind"_s) == "script"_s) {
-            auto injectionTime = item.getBoolean("start"_s).value_or(true) ? WebCore::UserScriptInjectionTime::DocumentStart : WebCore::UserScriptInjectionTime::DocumentEnd;
-            added.script = API::UserScript::create(WebCore::UserScript { item.getString("source"_s), WTF::move(url), strings(item, "allow"_s), strings(item, "block"_s), injectionTime, injectedFrames }, world);
-        } else {
-            auto level = item.getBoolean("author"_s).value_or(false) ? WebCore::UserStyleLevel::Author : WebCore::UserStyleLevel::User;
-            added.styleSheet = API::UserStyleSheet::create(WebCore::UserStyleSheet { item.getString("source"_s), url, strings(item, "allow"_s), strings(item, "block"_s), injectedFrames, WebCore::UserContentMatchParentFrame::Never, level }, world);
-        }
-        addedItems.append(added);
-        installedContent.append(WTF::move(added));
-    }
-    m_hubContent = WTF::move(installedContent);
-    m_hubContentWorlds.removeIf([&](auto& entry) {
-        return !m_hubContent.containsIf([&](auto& installed) {
-            return installed.extensionKey == entry.key;
-        });
-    });
-
-    for (Ref controller : m_contentControllers) {
-        for (auto& added : addedItems)
-            addContent(controller, added);
-    }
-}
-
-void LegacyExtensionHost::addContent(WebUserContentControllerProxy& controller, const HubContentItem& item)
-{
-    if (item.script)
-        controller.addUserScript(*item.script, InjectUserScriptImmediately::No);
-    else
-        controller.addUserStyleSheet(*item.styleSheet);
-}
-
-void LegacyExtensionHost::installContent(WebUserContentControllerProxy& controller)
-{
-    m_contentControllers.add(controller);
-    for (auto& item : m_hubContent)
-        addContent(controller, item);
-}
-
-// The hub's listeners, of which the blocking ones for this satellite's tabs and for any tab apply here.
-void LegacyExtensionHost::setHubNetworkListeners(JSON::Object& message)
-{
-    auto strings = [&](const String& name) {
-        Vector<String> strings;
-        if (RefPtr array = message.getArray(name)) {
-            for (auto& value : *array) {
-                if (auto string = value->asString(); !string.isNull())
-                    strings.append(WTF::move(string));
-            }
-        }
-        return strings;
-    };
-    auto blocking = JSON::Object::create();
-    auto value = JSON::Value::parseJSON(message.getString("blocking"_s));
-    if (RefPtr hubBlocking = value ? value->asObject() : nullptr) {
-        for (auto& [eventName, listenersValue] : *hubBlocking) {
-            RefPtr listeners = listenersValue->asArray();
-            if (!listeners)
-                continue;
-            auto applicable = JSON::Array::create();
-            for (auto& listenerValue : *listeners) {
-                RefPtr listener = listenerValue->asObject();
-                if (!listener)
-                    continue;
-                if (auto tabID = listener->getDouble("tabId"_s); tabID && *tabID != -1) {
-                    RefPtr page = pageForTabID(tabID);
-                    if (!page)
-                        continue;
-                    listener->setDouble("tabId"_s, static_cast<double>(page->identifier().toUInt64()));
-                }
-                applicable->pushObject(listener.releaseNonNull());
-            }
-            if (applicable->length())
-                blocking->setArray(eventName, WTF::move(applicable));
-        }
-    }
-    m_observedNetworkEvents = strings("observed"_s);
-    m_networkListenerOptions = strings("options"_s);
-    m_blockingNetworkListeners = blocking->toJSONString();
-    for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
-        sendNetworkListeners(networkProcess);
 }
 
 void LegacyExtensionNetworkProxy::dispatchBlockingEvent(String&& eventName, String&& details, CompletionHandler<void(String&&)>&& completionHandler)

@@ -1,6 +1,7 @@
 #import "WebClipper.h"
 
 #import "WCClipperView.h"
+#import "WCSafariExtensions.h"
 #import "WCThemes.h"
 #import <WebKit/WebKit.h>
 
@@ -417,6 +418,7 @@
         || selector == @selector(visibleContentSizeString)
         || selector == @selector(pageScrollString)
         || selector == @selector(playAudioOutOfDashboard)
+        || selector == @selector(removeClipData)
         || selector == @selector(setPlayAudioOutOfDashboard:)
         || selector == @selector(setTransitionInProgress)
         || selector == @selector(signatureAsString)
@@ -744,7 +746,18 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
     if (!clipRectString)
         return NO;
     [_webClipperView displayLoadingText];
+    // The clip copies Safari's extensions while Safari reports the page, and loads once it has both.
+    dispatch_group_t copyingExtensions = dispatch_group_create();
+    NSString *extensionsDirectory = [self safariExtensionsDirectory];
+    if (extensionsDirectory) {
+        NSString *clipIdentifier = [self clipIdentifier];
+        dispatch_group_async(copyingExtensions, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            if (!WCCopySafariExtensions(extensionsDirectory, clipIdentifier))
+                NSLog(@"Web Clip: Safari's extensions could not be copied for the clip");
+        });
+    }
     requestPageStateOfSafariTab([settings _web_stringForKey:@"URL"], NSRectFromString(clipRectString), ^(NSDictionary *pageState) {
+      dispatch_group_notify(copyingExtensions, dispatch_get_main_queue(), ^{
         if (!_webClipperView)
             return;
         if (!pageState) {
@@ -768,8 +781,38 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
         clipRect.size.width += [themeClass borderLeft] + [themeClass borderRight];
         [settings setObject:NSStringFromRect(clipRect) forKey:@"ClipRect"];
         [self loadFromSettings:settings displayLoadingText:YES resizeWidget:YES];
+      });
     });
     return YES;
+}
+
+// The widget's identifier for the clip, which names its preferences.
+- (NSString *)clipIdentifier
+{
+    id identifier = [[self windowScriptObject] evaluateWebScript:@"widget.identifier"];
+    return [identifier isKindOfClass:[NSString class]] && [identifier length] ? identifier : nil;
+}
+
+// The clip's own copy of Safari's extensions (WCSafariExtensions.h), in the clip's folder of the plug-in's
+// application support.
+- (NSString *)safariExtensionsDirectory
+{
+    NSString *identifier = [self clipIdentifier];
+    if (!identifier)
+        return nil;
+    return [NSString pathWithComponents:@[ NSHomeDirectory(), @"Library", @"Application Support", [WebClipper bundleIdentifier], identifier, @"Safari Extensions" ]];
+}
+
+// The widget removes a clip from Dashboard: its extensions stop, and the clip's folder goes with it, and its
+// copy's databases.
+- (void)removeClipData
+{
+    [_webClipperView stopExtensions];
+    NSString *extensionsDirectory = [self safariExtensionsDirectory];
+    if (!extensionsDirectory)
+        return;
+    WCRemoveSafariExtensions(extensionsDirectory, [self clipIdentifier]);
+    [[NSFileManager defaultManager] removeItemAtPath:[extensionsDirectory stringByDeletingLastPathComponent] error:nil];
 }
 
 - (void)readSettings
