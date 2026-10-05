@@ -166,10 +166,11 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
     [self setNeedsDisplay:YES];
 }
 
+// The widget window always holds the clip's stand-in, under the page window while that shows: the Dock
+// gives a widget the clicks that land on its window's opaque pixels.
 - (void)drawRect:(NSRect)rect
 {
-    if (![_clipperView showsPageWindow])
-        [_image drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+    [_image drawInRect:[self bounds] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
 }
 
 - (void)viewDidMoveToWindow
@@ -428,8 +429,6 @@ static NSRect rectFromPageRect(id value)
 - (void)updatePageWindow
 {
     BOOL shows = [self showsPageWindow];
-    if (shows != [_pageWindow isVisible])
-        [_placeholder setNeedsDisplay:YES];
     // The clip takes the placeholder's size whether or not its window shows: the clip's place is
     // recorded with the widget's size.
     if (_pageWindow && [_placeholder window])
@@ -438,6 +437,9 @@ static NSRect rectFromPageRect(id value)
         [self orderPageWindowOut];
         return;
     }
+    // The widget window takes the clicks on the clip from the first time the page window shows.
+    if (![_placeholder image] && !NSIsEmptyRect([_clipView bounds]))
+        [self setStandInWithPageSnapshot:nil inRect:NSZeroRect];
     [self updateThemeOverlay];
     // The page window is the front one of the widget's windows.
     if (![_pageWindow isVisible])
@@ -518,9 +520,10 @@ static NSRect rectFromPageRect(id value)
     [self updatePageWindow];
 }
 
-// The widget window shows the clip while the page window is out: while Dashboard shows and hides
-// its widgets, and while the widget moves. The page renders the stand-in when it has finished
-// loading and when it has painted, when the pointer leaves it and when it gives up the key window.
+// The widget window holds the clip's stand-in, which shows while the page window is out: while
+// Dashboard shows and hides its widgets, and while the widget moves. The page renders the stand-in
+// when it has finished loading and when it has painted, when the pointer leaves it and when it gives
+// up the key window.
 static NSImage *imageOfView(NSView *view, NSRect rect)
 {
     NSBitmapImageRep *bitmap = [view bitmapImageRepForCachingDisplayInRect:rect];
