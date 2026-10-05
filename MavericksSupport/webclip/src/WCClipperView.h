@@ -28,8 +28,6 @@
 - (void)webPlugInDestroy;
 // The clip's extensions stop, as the clip goes away.
 - (void)stopExtensions;
-- (void)widgetDidStartMoving;
-- (void)widgetDidStopMoving;
 
 - (WebClipper *)controller;
 - (WebScriptObject *)widgetScriptObject;

@@ -382,16 +382,6 @@
     return YES;
 }
 
-- (void)widgetDidStartMoving
-{
-    [_webClipperView widgetDidStartMoving];
-}
-
-- (void)widgetDidStopMoving
-{
-    [_webClipperView widgetDidStopMoving];
-}
-
 - (void)fadeButtonWithOpacity:(float)opacity
 {
     [_webClipperView fadeButtonWithOpacity:opacity];
@@ -428,9 +418,7 @@
         || selector == @selector(textSizeMultiplier)
         || selector == @selector(themeID)
         || selector == @selector(URLString)
-        || selector == @selector(userStyleSheetPath)
-        || selector == @selector(widgetDidStartMoving)
-        || selector == @selector(widgetDidStopMoving));
+        || selector == @selector(userStyleSheetPath));
 }
 
 + (BOOL)isKeyExcludedFromWebScript:(const char *)name

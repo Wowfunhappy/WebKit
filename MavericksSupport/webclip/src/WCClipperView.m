@@ -45,6 +45,8 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 @end
 
 @interface WCClipperView () <WKNavigationDelegate, WKUIDelegate>
+- (void)widgetWindowDidMoveOnScreen;
+- (void)widgetWindowDidReorder;
 - (void)pageDidPostMessage:(NSDictionary *)message;
 - (WKWebView *)currentWebView;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
@@ -58,7 +60,16 @@ static const NSEventType WCProcessNotificationEventType = 21;
 // CoreGraphics: places a window among the windows of its level, whoever owns the others.
 extern int CGSMainConnectionID(void);
 extern CGError CGSOrderWindow(int connection, int window, int place, int relativeToWindow);
-extern CGError CGSSetWindowListAlpha(int connection, const int *windows, int count, float alpha, float duration);
+extern CGError CGSOrderWindowList(int connection, const int *windows, const int *places, const int *relativeToWindows, int count);
+extern CGError CGSGetWindowBounds(int connection, int window, CGRect *bounds);
+// The window server's notifications that a window has moved and that its place among the windows has changed,
+// whoever moved or ordered it, for the windows a connection asks about; each request replaces the connection's
+// list.
+typedef void (*WCWindowServerNotifyProc)(uint32_t type, void *data, uint32_t length, void *context, int connection);
+extern CGError CGSRegisterConnectionNotifyProc(int connection, WCWindowServerNotifyProc proc, uint32_t type, void *context);
+extern CGError CGSRequestNotificationsForWindows(int connection, const uint32_t *windows, int count);
+static const uint32_t WCWindowServerWindowDidMoveNotification = 806;
+static const uint32_t WCWindowServerWindowDidReorderNotification = 808;
 
 // DashboardClient: the Dock lets a widget in Dashboard's layer put a window of its own on screen
 // from the moment Dashboard starts to show its widgets until the moment it starts to take them
@@ -115,6 +126,12 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
     return [super performKeyEquivalent:event] || [_clipperView performKeyEquivalentLeftByPage:event];
+}
+
+// The window lies over the widget's window wherever the Dock puts the widget, under the menu bar too.
+- (NSRect)constrainFrameRect:(NSRect)frameRect toScreen:(NSScreen *)screen
+{
+    return frameRect;
 }
 
 @end
@@ -270,7 +287,6 @@ static NSRect rectFromPageRect(id value)
     WCPlaceholderView *_placeholder;
     WCPageWindow *_pageWindow;
     BOOL _hasScreenshot;
-    BOOL _isWidgetMoving;
     BOOL _dockAllowsPageWindow;
     NSClipView *_clipView;
     WebClipper *_controller;
@@ -398,17 +414,27 @@ static NSRect rectFromPageRect(id value)
     return _placeholder;
 }
 
-// DashboardClient keeps a theme's attached window on the widget's window, frame for frame. When the Dock
-// moves the widget, DashboardClient updates the widget window's frame in this process and leaves the
-// attached window's, so the attached window lies on screen at the widget window's origin.
+// Where a window lies on the screen. The Dock moves a widget's windows itself: DashboardClient updates the
+// widget window's frame in this process only once a move ends, and never the theme's attached window's; the
+// window server knows each window's place throughout.
+static NSRect windowServerFrame(NSWindow *window)
+{
+    CGRect bounds;
+    CGSGetWindowBounds(CGSMainConnectionID(), (int)[window windowNumber], &bounds);
+    // The window server's coordinates run down from the top of the first screen.
+    CGFloat firstScreenHeight = NSHeight([[[NSScreen screens] firstObject] frame]);
+    return NSMakeRect(bounds.origin.x, firstScreenHeight - CGRectGetMaxY(bounds), bounds.size.width, bounds.size.height);
+}
+
 - (NSPoint)themeWindowOrigin
 {
-    return [[_placeholder window] frame].origin;
+    return windowServerFrame([_currentTheme window]).origin;
 }
 
 - (NSRect)placeholderFrameOnScreen
 {
-    return [[_placeholder window] convertRectToScreen:[_placeholder convertRect:[_placeholder bounds] toView:nil]];
+    NSRect widgetWindowFrame = windowServerFrame([_placeholder window]);
+    return NSOffsetRect([_placeholder convertRect:[_placeholder bounds] toView:nil], NSMinX(widgetWindowFrame), NSMinY(widgetWindowFrame));
 }
 
 // The plug-in's view can overhang the widget window, which clips it, and the page window shows the
@@ -416,7 +442,7 @@ static NSRect rectFromPageRect(id value)
 - (void)placePageWindow
 {
     NSRect placeholderFrame = [self placeholderFrameOnScreen];
-    NSRect frame = NSIntersectionRect(placeholderFrame, [[_placeholder window] frame]);
+    NSRect frame = NSIntersectionRect(placeholderFrame, windowServerFrame([_placeholder window]));
     if (!NSEqualRects(frame, [_pageWindow frame]))
         [_pageWindow setFrame:frame display:YES];
     NSRect clipperFrame = NSOffsetRect(placeholderFrame, -NSMinX(frame), -NSMinY(frame));
@@ -428,7 +454,7 @@ static NSRect rectFromPageRect(id value)
 - (BOOL)showsPageWindow
 {
     return [_placeholder window] && ![_placeholder isHiddenOrHasHiddenAncestor] && _hasBeenShown && !_isHidden
-        && _dockAllowsPageWindow && !_hasScreenshot && !_isWidgetMoving && ![self isBacksideShowing];
+        && _dockAllowsPageWindow && !_hasScreenshot && ![self isBacksideShowing];
 }
 
 - (void)updatePageWindow
@@ -445,17 +471,28 @@ static NSRect rectFromPageRect(id value)
         return;
     }
     [self updateThemeOverlay];
-    // The page window is the front one of the widget's windows.
     if (![_pageWindow isVisible])
         [_pageWindow orderFront:nil];
+    [self orderPageWindowFront];
+    if ([[_placeholder window] isKeyWindow])
+        [self makePageWindowKey];
+}
+
+- (NSWindow *)attachedThemeWindow
+{
+    NSWindow *themeWindow = [_currentTheme drawsInAttachedWindow] ? [_currentTheme window] : nil;
+    return [themeWindow windowNumber] > 0 ? themeWindow : nil;
+}
+
+// The page window is the front one of the widget's windows.
+- (void)orderPageWindowFront
+{
     int connection = CGSMainConnectionID();
     int pageWindowNumber = (int)[_pageWindow windowNumber];
     CGSOrderWindow(connection, pageWindowNumber, NSWindowAbove, (int)[[_placeholder window] windowNumber]);
-    NSWindow *themeWindow = [_currentTheme drawsInAttachedWindow] ? [_currentTheme window] : nil;
-    if ([themeWindow windowNumber] > 0)
+    NSWindow *themeWindow = [self attachedThemeWindow];
+    if (themeWindow)
         CGSOrderWindow(connection, pageWindowNumber, NSWindowAbove, (int)[themeWindow windowNumber]);
-    if ([[_placeholder window] isKeyWindow])
-        [self makePageWindowKey];
 }
 
 // The key window goes back to the widget's own window, which the Dock orders.
@@ -465,8 +502,6 @@ static NSRect rectFromPageRect(id value)
         [[_placeholder window] makeKeyWindow];
     if ([_pageWindow isVisible])
         [_pageWindow _doOrderWindow:NSWindowOut relativeTo:0 findKey:NO forCounter:NO force:NO isModal:NO];
-    int pageWindowNumber = (int)[_pageWindow windowNumber];
-    CGSSetWindowListAlpha(CGSMainConnectionID(), &pageWindowNumber, 1, 1, 0);
 }
 
 - (void)updateThemeOverlay
@@ -512,6 +547,7 @@ static NSRect rectFromPageRect(id value)
         [[[_pageWindow contentView] superview] setWantsLayer:YES];
         [WCClipperView observeDashboardForWidgetWindow:[_placeholder window]];
         [clipperViews addObject:self];
+        [WCClipperView requestWidgetWindowNotifications];
         [WCClipperView askDock];
     }
     // While the page window stays shown, a new placeholder frame moves and sizes it; it stays where it
@@ -524,9 +560,9 @@ static NSRect rectFromPageRect(id value)
     [self updatePageWindow];
 }
 
-// The widget window shows the clip while the page window is out: while Dashboard shows and hides
-// its widgets, and while the widget moves. The page renders the stand-in when it has finished
-// loading and when it has painted, when the pointer leaves it and when it gives up the key window.
+// The widget window shows the clip while the page window is out, while Dashboard shows and hides its
+// widgets. The page renders the stand-in when it has finished loading and when it has painted, when the
+// pointer leaves it and when it gives up the key window.
 static NSImage *imageOfView(NSView *view, NSRect rect)
 {
     NSBitmapImageRep *bitmap = [view bitmapImageRepForCachingDisplayInRect:rect];
@@ -665,10 +701,12 @@ static NSHashTable *clipperViews;
         } else
             view->_dockAllowsPageWindow = YES;
     }
-    // Every call on the window server waits for Dashboard's animation: one call takes all the
-    // leaving windows off screen, and each is ordered out behind it.
-    if (leavingCount)
-        CGSSetWindowListAlpha(CGSMainConnectionID(), [leavingWindows bytes], leavingCount, 0, 0);
+    // Every call on the window server waits for Dashboard's animation: one call orders all the leaving
+    // windows out, and AppKit's order-out of each follows it.
+    if (leavingCount) {
+        NSMutableData *outs = [NSMutableData dataWithLength:leavingCount * sizeof(int)];
+        CGSOrderWindowList(CGSMainConnectionID(), [leavingWindows bytes], [outs bytes], [outs bytes], leavingCount);
+    }
     for (WCClipperView *view in changedViews)
         [view updatePageWindow];
     isAsking = NO;
@@ -760,17 +798,58 @@ static NSHashTable *clipperViews;
         [self updatePageWindow];
 }
 
-- (void)widgetDidStartMoving
+// The page window moves with the widget window, as the Dock drags or places the widget, and stays in front
+// of the widget's windows, which the Dock brings to the front at a press: the window server reports each move
+// and each reordering of the widgets' windows.
+static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, int)
 {
-    [self updateStandIn];
-    _isWidgetMoving = YES;
-    [self updatePageWindow];
+    uint32_t window = *(uint32_t *)data;
+    for (WCClipperView *view in [clipperViews allObjects]) {
+        if ((uint32_t)[[view->_placeholder window] windowNumber] != window)
+            continue;
+        if (type == WCWindowServerWindowDidMoveNotification)
+            [view widgetWindowDidMoveOnScreen];
+        else
+            [view widgetWindowDidReorder];
+    }
 }
 
-- (void)widgetDidStopMoving
++ (void)requestWidgetWindowNotifications
 {
-    _isWidgetMoving = NO;
-    [self updatePageWindow];
+    int connection = CGSMainConnectionID();
+    static BOOL registered;
+    if (!registered) {
+        registered = YES;
+        CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidMoveNotification, NULL);
+        CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidReorderNotification, NULL);
+    }
+    NSMutableData *windows = [NSMutableData data];
+    for (WCClipperView *view in [clipperViews allObjects]) {
+        uint32_t window = (uint32_t)[[view->_placeholder window] windowNumber];
+        if (window)
+            [windows appendBytes:&window length:sizeof(window)];
+    }
+    CGSRequestNotificationsForWindows(connection, [windows bytes], (int)([windows length] / sizeof(uint32_t)));
+}
+
+- (void)widgetWindowDidMoveOnScreen
+{
+    if (![_pageWindow isVisible] || ![self showsPageWindow])
+        return;
+    [self placePageWindow];
+    [self updateThemeOverlay];
+}
+
+// The Dock brings the widget's windows to the front at a press; the page window goes back in front of them.
+- (void)widgetWindowDidReorder
+{
+    if (![_pageWindow isVisible] || ![self showsPageWindow])
+        return;
+    NSArray *windowsAbove = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenAboveWindow, (CGWindowID)[_pageWindow windowNumber]));
+    NSArray *numbersAbove = [windowsAbove valueForKey:(__bridge NSString *)kCGWindowNumber];
+    NSWindow *themeWindow = [self attachedThemeWindow];
+    if ([numbersAbove containsObject:@([[_placeholder window] windowNumber])] || (themeWindow && [numbersAbove containsObject:@([themeWindow windowNumber])]))
+        [self orderPageWindowFront];
 }
 
 // A screenshot of the widget stands in for it in the widget window, over white where the clip is.
@@ -1252,7 +1331,7 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     [_statusTextField setStringValue:text];
     [self updateStatusTextViewFrame:updateOrigin];
     // The stand-in follows the text while it is on screen.
-    if (_isWidgetMoving || !_dockAllowsPageWindow)
+    if (!_dockAllowsPageWindow)
         [self updateStandIn];
 }
 
@@ -1680,8 +1759,6 @@ static const CFTimeInterval WCReloadedPageStillInterval = 1;
             _isHidden = YES;
             [self suspendMediaWhileHidden];
         }
-        // Dashboard tells the widget's page when the user starts and stops dragging the widget.
-        [[self windowScriptObject] evaluateWebScript:@"widget.ondragstart = function () { webClip.widgetDidStartMoving(); }; widget.ondragend = function () { webClip.widgetDidStopMoving(); };"];
     }
     [self updateDashboardControlRegions];
     [self updateEventRegion];
@@ -2408,6 +2485,8 @@ static const CGFloat WCReloadSpinnerSize = 22;
 - (void)webPlugInDestroy
 {
     [self stopExtensions];
+    [clipperViews removeObject:self];
+    [WCClipperView requestWidgetWindowNotifications];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showReloadedPageWhenSetUp) object:nil];
     [self closePreviousPage];
     [_webView stopLoading:nil];
