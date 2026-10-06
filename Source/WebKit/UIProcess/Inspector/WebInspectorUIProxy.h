@@ -53,7 +53,7 @@
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 
-OBJC_CLASS NSButton; // MAVERICKS_BACKPORT: the native dock buttons held below.
+OBJC_CLASS NSButton; // AQUAWEBKIT: the native dock buttons held below.
 OBJC_CLASS NSString;
 OBJC_CLASS NSURL;
 OBJC_CLASS NSView;
@@ -353,7 +353,7 @@ private:
 #if PLATFORM(MAC)
     RetainPtr<WKInspectorViewController> m_inspectorViewController;
     RetainPtr<NSWindow> m_inspectorWindow;
-    // MAVERICKS_BACKPORT: the detached window's native dock controls, which are how the frontend this
+    // AQUAWEBKIT: the detached window's native dock controls, which are how the frontend this
     // port ships is re-docked -- its own dock control is hidden while undocked.
     RetainPtr<NSButton> m_dockBottomButton;
     RetainPtr<NSButton> m_dockRightButton;

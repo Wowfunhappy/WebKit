@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT (#137): see WKTypeRefWrapper.h. Faithful restoration of the legacy WebKit2
+// AQUAWEBKIT (#137): see WKTypeRefWrapper.h. Faithful restoration of the legacy WebKit2
 // WKTypeRefWrapper ObjC class so Apple Mail's MailUIWebBundle (which references it) can load.
 // The wrapper retains the WKTypeRef for its lifetime (WKRetain/WKRelease), matching the original.
 

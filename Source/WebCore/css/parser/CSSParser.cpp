@@ -1633,7 +1633,7 @@ void CSSParser::consumeBlockContent(CSSParserTokenRange range, StyleRuleType rul
         const auto initialRange = range;
 
         auto consumeNestedRuleOrInvalidSyntax = [&] {
-            // MAVERICKS_BACKPORT: hand the observer the comments that precede this nested rule before
+            // AQUAWEBKIT: hand the observer the comments that precede this nested rule before
             // its own block starts skipping them; see the note in the AtKeywordToken case below.
             if (useObserver)
                 observerWrapper->yieldCommentsBefore(range);
@@ -1686,7 +1686,7 @@ void CSSParser::consumeBlockContent(CSSParserTokenRange range, StyleRuleType rul
             break;
         }
         case AtKeywordToken: {
-            // MAVERICKS_BACKPORT: a comment is yielded to the observer only just before a declaration
+            // AQUAWEBKIT: a comment is yielded to the observer only just before a declaration
             // or at the end of the block, so one sitting before a nested rule was never yielded here —
             // and then the nested block's own skipCommentsBefore() walked the comment index past it,
             // so it was never yielded at all. The Web Inspector reads exactly these observations to

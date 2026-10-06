@@ -197,8 +197,8 @@ Ref<GenericPromise> VideoMediaSampleRenderer::changeRenderer(WebSampleBufferVide
         return GenericPromise::createAndResolve();
     });
 }
-#else // MAVERICKS_BACKPORT: !HAVE(AVSAMPLEBUFFERVIDEORENDERER) twin of changeRenderer, below.
-// MAVERICKS_BACKPORT: upstream declares changeRenderer only under HAVE(AVSAMPLEBUFFERVIDEORENDERER) but calls
+#else // AQUAWEBKIT: !HAVE(AVSAMPLEBUFFERVIDEORENDERER) twin of changeRenderer, below.
+// AQUAWEBKIT: upstream declares changeRenderer only under HAVE(AVSAMPLEBUFFERVIDEORENDERER) but calls
 // it unguarded from AudioVideoRendererAVFObjC::stageVideoRenderer, so that translation unit cannot build in
 // the !HAVE configuration the rest of this class still supports (see the #else branches in renderer() and
 // rendererOrDisplayLayer()). This is the same function with the AVSampleBufferVideoRenderer handles removed:

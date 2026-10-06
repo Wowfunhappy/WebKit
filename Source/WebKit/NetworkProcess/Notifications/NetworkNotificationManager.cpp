@@ -34,7 +34,7 @@
 #include "MessageSenderInlines.h"
 #include "NetworkConnectionToWebProcess.h"
 #include "NetworkProcess.h"
-// MAVERICKS_BACKPORT: for the WebPushMessagesBecameAvailable relay to the UI process below.
+// AQUAWEBKIT: for the WebPushMessagesBecameAvailable relay to the UI process below.
 #include "NetworkProcessProxyMessages.h"
 #include "NetworkSession.h"
 #include "PushClientConnectionMessages.h"
@@ -50,20 +50,20 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkNotificationManager);
 
-// MAVERICKS_BACKPORT: both signatures take the session ID; the constructor's push-messages-available handler names it when relaying to the UI process.
+// AQUAWEBKIT: both signatures take the session ID; the constructor's push-messages-available handler names it when relaying to the UI process.
 Ref<NetworkNotificationManager> NetworkNotificationManager::create(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
 {
     return adoptRef(*new NetworkNotificationManager(sessionID, webPushMachServiceName, WTF::move(configuration), networkProcess));
 }
 
-// MAVERICKS_BACKPORT: takes the session ID; see create() above.
+// AQUAWEBKIT: takes the session ID; see create() above.
 NetworkNotificationManager::NetworkNotificationManager(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
     : m_networkProcess(networkProcess)
 {
     if (!webPushMachServiceName.isEmpty()) {
         Ref connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
 #if USE(MOZILLA_PUSH_SERVICE)
-        // MAVERICKS_BACKPORT: when webpushd announces pending push messages, tell the UI
+        // AQUAWEBKIT: when webpushd announces pending push messages, tell the UI
         // process to drain them; Safari 7 never drives the modern pull SPI itself. The
         // NetworkProcess reference is safe to retain here: the manager already holds one
         // for its whole lifetime (m_networkProcess), and the process object lives until
@@ -94,7 +94,7 @@ void NetworkNotificationManager::setPushAndNotificationsEnabledForOrigin(const S
 
 void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(const std::optional<WebPushMessage>&)>&& completionHandler)
 {
-    // MAVERICKS_BACKPORT: a session without a daemon connection (no configured mach
+    // AQUAWEBKIT: a session without a daemon connection (no configured mach
     // service name) has no pending messages; upstream dereferences unconditionally and
     // crashes.
     RefPtr connection = m_connection;
@@ -108,13 +108,13 @@ void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(co
         completionHandler(WTF::move(message));
     };
 
-    // MAVERICKS_BACKPORT: sends through the local RefPtr null-checked above, not protect(m_connection).
+    // AQUAWEBKIT: sends through the local RefPtr null-checked above, not protect(m_connection).
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(const Vector<WebPushMessage>&)>&& completionHandler)
 {
-    // MAVERICKS_BACKPORT: same missing null check as getPendingPushMessage above.
+    // AQUAWEBKIT: same missing null check as getPendingPushMessage above.
     RefPtr connection = m_connection;
     if (!connection) {
         completionHandler({ });
@@ -126,7 +126,7 @@ void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(c
         completionHandler(WTF::move(messages));
     };
 
-    // MAVERICKS_BACKPORT: sends through the local RefPtr null-checked above, as the singular one does.
+    // AQUAWEBKIT: sends through the local RefPtr null-checked above, as the singular one does.
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
 }
 

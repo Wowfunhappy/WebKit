@@ -103,7 +103,7 @@ static PAS_ALWAYS_INLINE pas_thread_local_cache* pas_thread_local_cache_try_get_
 static inline pas_thread_local_cache* pas_thread_local_cache_try_get(void)
 {
     pas_thread_local_cache* cache = pas_thread_local_cache_try_get_impl();
-// MAVERICKS_BACKPORT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h).
+// AQUAWEBKIT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h).
 // #if !PAS_OS(DARWIN)
 #if !PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP
     if (((uintptr_t)cache) == PAS_THREAD_LOCAL_CACHE_DESTROYED)
@@ -114,13 +114,13 @@ static inline pas_thread_local_cache* pas_thread_local_cache_try_get(void)
 
 static inline bool pas_thread_local_cache_can_set(void)
 {
-// MAVERICKS_BACKPORT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h). The
+// AQUAWEBKIT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h). The
 // MallocStackLogging term is Darwin's however exiting is detected, and it is what keeps allocations
 // off the un-logged thread-local-cache fast path.
 // #if PAS_OS(DARWIN)
 #if PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP
     return !pthread_self_is_exiting_np() && !pas_msl_is_enabled();
-#elif PAS_OS(DARWIN) // MAVERICKS_BACKPORT: Darwin without the SPI — upstream's sentinel test for exiting, still with Darwin's MSL term.
+#elif PAS_OS(DARWIN) // AQUAWEBKIT: Darwin without the SPI — upstream's sentinel test for exiting, still with Darwin's MSL term.
     return ((uintptr_t)pas_thread_local_cache_try_get_impl()) != PAS_THREAD_LOCAL_CACHE_DESTROYED
         && !pas_msl_is_enabled();
 #else

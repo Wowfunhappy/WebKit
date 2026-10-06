@@ -33,7 +33,7 @@
 extern "C" {
 #endif
 
-// MAVERICKS_BACKPORT: a WKObjCTypeWrapperRef is an ObjCObjectGraph; MailUIWebBundle unwraps load user data with it.
+// AQUAWEBKIT: a WKObjCTypeWrapperRef is an ObjCObjectGraph; MailUIWebBundle unwraps load user data with it.
 WK_EXPORT WKTypeID WKObjCTypeWrapperGetTypeID();
 
 WK_EXPORT id WKObjCTypeWrapperGetObject(WKObjCTypeWrapperRef wrapper);

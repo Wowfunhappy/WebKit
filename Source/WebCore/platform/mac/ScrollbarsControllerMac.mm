@@ -225,7 +225,7 @@ using WebCore::LogOverlayScrollbars;
     if (!self)
         return nil;
 
-    // MAVERICKS_BACKPORT: the timer is created in -startAnimation instead. Creating it once here breaks
+    // AQUAWEBKIT: the timer is created in -startAnimation instead. Creating it once here breaks
     // every animation after the first: -setCurrentProgress: invalidates it on completion, and the delegate
     // reuses this object for every UI-state/expansion transition, where re-adding the invalidated timer to
     // the run loop is a no-op (github #67, legacy scrollbars latch in/out of their hover state).
@@ -251,7 +251,7 @@ using WebCore::LogOverlayScrollbars;
 
     LOG_WITH_STREAM(OverlayScrollbars, stream << "-[WebScrollbarPartAnimation " << self << "startAnimation] for " << _featureToAnimate);
 
-    // MAVERICKS_BACKPORT: create a fresh timer on every start (see -initWithScrollbar:). The previous
+    // AQUAWEBKIT: create a fresh timer on every start (see -initWithScrollbar:). The previous
     // animation's timer is invalidated — either by -setCurrentProgress: on completion or by -stopAnimation —
     // and an invalidated NSTimer can never be rescheduled, so reusing it leaves the animation inert (github #67).
     [_timer invalidate];

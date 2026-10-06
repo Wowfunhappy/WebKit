@@ -35,7 +35,7 @@
 #include "DataListButtonElement.h"
 #include "DeprecatedGlobalSettings.h"
 #include "Document.h"
-#include "DocumentQuirks.h" // MAVERICKS_BACKPORT: Document::quirks() for the control minimum-size quirk.
+#include "DocumentQuirks.h" // AQUAWEBKIT: Document::quirks() for the control minimum-size quirk.
 #include "FileList.h"
 #include "FloatConversion.h"
 #include "FloatRoundedRect.h"
@@ -406,14 +406,14 @@ StyleAppearance RenderTheme::autoAppearanceForElement(Style::ComputedStyle& styl
     if (RefPtr input = dynamicDowncast<HTMLInputElement>(element)) {
         if (input->isTextButton()) {
 #if PLATFORM(MAC)
-            // MAVERICKS_BACKPORT: 10.9 draws horizontal submit/reset/button inputs as Aqua push
+            // AQUAWEBKIT: 10.9 draws horizontal submit/reset/button inputs as Aqua push
             // buttons -- the bezel owns the border and the control size dictates the font
             // (RenderThemeMac::adjustButtonStyle) -- while <button> keeps author styling under
             // the plain Button appearance. The push-button bezel is horizontal only, so a
             // vertical input button takes the Button appearance.
             if (style.writingMode().isHorizontal())
                 return StyleAppearance::PushButton;
-#endif // MAVERICKS_BACKPORT
+#endif // AQUAWEBKIT
             return StyleAppearance::Button;
         }
 
@@ -1507,7 +1507,7 @@ void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle
         }
     }
 
-    // MAVERICKS_BACKPORT: see Quirks::shouldThemeMinimumControlSizeReplaceAuthorMinimumSize().
+    // AQUAWEBKIT: see Quirks::shouldThemeMinimumControlSizeReplaceAuthorMinimumSize().
     if (element && element->document().quirks().shouldThemeMinimumControlSizeReplaceAuthorMinimumSize()) {
         style.setMinWidth(Style::MinimumSize(minimumControlSize.width()));
         style.setMinHeight(Style::MinimumSize(minimumControlSize.height()));

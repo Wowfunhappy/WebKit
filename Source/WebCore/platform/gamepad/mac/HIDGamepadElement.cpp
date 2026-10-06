@@ -30,7 +30,7 @@
 #if ENABLE(GAMEPAD) && PLATFORM(MAC)
 
 #include <IOKit/hid/IOHIDElement.h>
-#include <IOKit/hid/IOHIDValue.h> // MAVERICKS_BACKPORT: reads the hatswitch's logical value in hatswitchDegrees().
+#include <IOKit/hid/IOHIDValue.h> // AQUAWEBKIT: reads the hatswitch's logical value in hatswitchDegrees().
 
 namespace WebCore {
 
@@ -82,7 +82,7 @@ double HIDGamepadAxis::normalizedValue()
 
 #pragma mark HIDGamepadHatswitch
 
-// MAVERICKS_BACKPORT: a hatswitch expresses its direction as the logical value, counting clockwise
+// AQUAWEBKIT: a hatswitch expresses its direction as the logical value, counting clockwise
 // from north; the physical range restates that in degrees only when the descriptor declares one.
 static CFIndex hatswitchDegrees(IOHIDValueRef value, IOHIDElementRef element)
 {
@@ -107,7 +107,7 @@ HIDInputType HIDGamepadHatswitch::gamepadValueChanged(IOHIDValueRef value)
         m_buttonValues[i].setValue(0.0);
 
     // switch (physicalValue()) {
-    switch (hatswitchDegrees(value, rawElement())) { // MAVERICKS_BACKPORT: see hatswitchDegrees() above.
+    switch (hatswitchDegrees(value, rawElement())) { // AQUAWEBKIT: see hatswitchDegrees() above.
     case 0:
         m_buttonValues[0].setValue(1.0);
         break;

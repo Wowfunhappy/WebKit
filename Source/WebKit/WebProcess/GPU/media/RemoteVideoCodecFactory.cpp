@@ -118,15 +118,15 @@ RemoteVideoCodecFactory::RemoteVideoCodecFactory(WebProcess& process)
     ASSERT(isMainRunLoop());
     // We make sure to create libWebRTCCodecs() as it might be called from multiple threads.
     process.libWebRTCCodecs();
-    // MAVERICKS_BACKPORT: this port's GPU process carries no platform codecs
-    // (ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in MavericksSupport/cmake/OptionsMacMavericks.cmake),
+    // AQUAWEBKIT: this port's GPU process carries no platform codecs
+    // (ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake),
     // which is the same answer WebRTCPlatformCodecsInGPUProcessEnabled gives the WebRTC factories
     // through LibWebRTCCodecs::setCallbacks. With no creator installed, VideoDecoder::create and
     // VideoEncoder::create take their local path, in the process that has the codecs.
 #if !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)
     WebCore::VideoDecoder::setCreatorCallback(RemoteVideoCodecFactory::createDecoder);
     WebCore::VideoEncoder::setCreatorCallback(RemoteVideoCodecFactory::createEncoder);
-#endif // MAVERICKS_BACKPORT: closes the GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS guard above.
+#endif // AQUAWEBKIT: closes the GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS guard above.
 }
 
 RemoteVideoCodecFactory::~RemoteVideoCodecFactory() = default;

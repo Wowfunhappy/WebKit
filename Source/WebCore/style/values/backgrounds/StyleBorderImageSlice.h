@@ -44,7 +44,7 @@ struct BorderImageSlice {
 
     Edges values { Value::Percentage { 100 } };
     std::optional<CSS::Keyword::Fill> fill { };
-    bool legacyWebkitBorderImage { false }; // MAVERICKS_BACKPORT: retain legacy shorthand provenance in computed style.
+    bool legacyWebkitBorderImage { false }; // AQUAWEBKIT: retain legacy shorthand provenance in computed style.
 
     BorderImageSlice(Edges values, std::optional<CSS::Keyword::Fill> fill = { })
         : values { WTF::move(values) }

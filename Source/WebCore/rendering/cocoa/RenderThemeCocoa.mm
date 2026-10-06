@@ -1269,7 +1269,7 @@ static const String& macOSFullscreenMediaControlsStyleSheet()
 Vector<String, 2> RenderThemeCocoa::mediaControlsStyleSheets(const HTMLMediaElement& mediaElement)
 {
 #if __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
-    // MAVERICKS_BACKPORT (#68): Safari 7 / Mavericks shipped the classic Aqua HTML5 media controls
+    // AQUAWEBKIT (#68): Safari 7 / Mavericks shipped the classic Aqua HTML5 media controls
     // (mediaControlsApple.css/.js), not the flat modern-media-controls WebKit adopted later. Those
     // controls are styled by a DOCUMENT-scope user-agent stylesheet (added in Style::UserAgentStyle for
     // <video>/<audio>) because the classic sheet uses shadow-crossing `video::-internal-media-controls-*`
@@ -1298,13 +1298,13 @@ Vector<String, 2> RenderThemeCocoa::mediaControlsStyleSheets(const HTMLMediaElem
 #endif
 
     return mediaControlsStyleSheets;
-#endif // MAVERICKS_BACKPORT (#68): closes the deployment-target gate that serves the classic controls.
+#endif // AQUAWEBKIT (#68): closes the deployment-target gate that serves the classic controls.
 }
 
 Vector<String, 2> RenderThemeCocoa::mediaControlsScripts()
 {
 #if __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
-    // MAVERICKS_BACKPORT (#68): the classic Safari 7 controls script carries its own localizedStrings
+    // AQUAWEBKIT (#68): the classic Safari 7 controls script carries its own localizedStrings
     // table, so unlike the modern controls it needs no separate localized-strings script. See
     // mediaControlsStyleSheets() above for the deployment-target rationale.
     if (m_mediaControlsScript.isEmpty())
@@ -1325,7 +1325,7 @@ Vector<String, 2> RenderThemeCocoa::mediaControlsScripts()
         m_mediaControlsLocalizedStringsScript,
         m_mediaControlsScript,
     };
-#endif // MAVERICKS_BACKPORT (#68): closes the deployment-target gate that serves the classic controls.
+#endif // AQUAWEBKIT (#68): closes the deployment-target gate that serves the classic controls.
 }
 
 RefPtr<FragmentedSharedBuffer> RenderThemeCocoa::mediaControlsImageDataForIconNameAndType(const String& iconName, const String& iconType)

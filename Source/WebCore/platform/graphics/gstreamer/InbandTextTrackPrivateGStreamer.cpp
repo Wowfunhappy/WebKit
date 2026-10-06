@@ -28,7 +28,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "InbandTextTrackPrivateGStreamer.h"
-#include "GStreamerHLSTrack.h" // MAVERICKS_BACKPORT: HLS rendition metadata.
+#include "GStreamerHLSTrack.h" // AQUAWEBKIT: HLS rendition metadata.
 
 #include <wtf/Lock.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -67,7 +67,7 @@ InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index,
     m_kind = doCapsHaveType(caps.get(), "closedcaption/"_s) ? Kind::Captions : Kind::Subtitles;
 }
 
-// MAVERICKS_BACKPORT: HLS characteristics and default-rendition flags use the port adapter.
+// AQUAWEBKIT: HLS characteristics and default-rendition flags use the port adapter.
 InbandTextTrackPrivate::Kind InbandTextTrackPrivateGStreamer::kind() const
 {
     return hlsTextTrackKind(m_data->m_stream, pad(), m_kind);

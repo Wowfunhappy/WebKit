@@ -127,7 +127,7 @@ RefPtr<CSSValue> consumeWebkitBoxShadow(CSSParserTokenRange&, CSS::PropertyParse
 RefPtr<CSSValue> consumeWebkitBoxReflect(CSSParserTokenRange&, CSS::PropertyParserState&);
 
 #if ENABLE(DASHBOARD_SUPPORT)
-// MAVERICKS_BACKPORT: legacy Dashboard widget control regions (-apple-dashboard-region).
+// AQUAWEBKIT: legacy Dashboard widget control regions (-apple-dashboard-region).
 RefPtr<CSSValue> consumeWebkitDashboardRegion(CSSParserTokenRange&, CSS::PropertyParserState&);
 #endif
 

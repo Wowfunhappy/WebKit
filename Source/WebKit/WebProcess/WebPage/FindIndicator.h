@@ -26,7 +26,7 @@
 #pragma once
 
 #include "WebPage.h"
-#include <WebCore/IntPoint.h> // MAVERICKS_BACKPORT: for m_scrollPositionWhenShown.
+#include <WebCore/IntPoint.h> // AQUAWEBKIT: for m_scrollPositionWhenShown.
 #include <WebCore/IntRect.h>
 #include <wtf/TZoneMalloc.h>
 #if PLATFORM(IOS_FAMILY)
@@ -51,7 +51,7 @@ public:
     constexpr virtual bool shouldHideOnScroll() const { return true; }
     bool isShowing() const { return m_isShowingFindIndicator; }
     WebCore::IntRect rect() const { return m_findIndicatorRect; }
-    // MAVERICKS_BACKPORT: the scroll position the indicator was snapshotted at, so FindController
+    // AQUAWEBKIT: the scroll position the indicator was snapshotted at, so FindController
     // can tell a real scroll (537 hides the indicator) from the page reflowing underneath it
     // (re-snapshot instead of losing the highlight). See FindController::drawRect.
     WebCore::IntPoint scrollPositionWhenShown() const { return m_scrollPositionWhenShown; }
@@ -60,7 +60,7 @@ protected:
     // the find indicator isn't showing, but it will never be false when it is showing.
     bool m_isShowingFindIndicator { false };
     WebCore::IntRect m_findIndicatorRect;
-    WebCore::IntPoint m_scrollPositionWhenShown; // MAVERICKS_BACKPORT: see scrollPositionWhenShown().
+    WebCore::IntPoint m_scrollPositionWhenShown; // AQUAWEBKIT: see scrollPositionWhenShown().
     const WeakPtr<WebPage> m_webPage;
 };
 

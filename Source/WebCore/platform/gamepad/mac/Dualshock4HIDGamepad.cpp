@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see Dualshock4HIDGamepad.h for why the HID path handles this device here.
+// AQUAWEBKIT: see Dualshock4HIDGamepad.h for why the HID path handles this device here.
 
 #include "config.h"
 #include "Dualshock4HIDGamepad.h"

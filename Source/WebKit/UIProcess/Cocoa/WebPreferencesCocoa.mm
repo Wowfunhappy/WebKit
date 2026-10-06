@@ -29,7 +29,7 @@
 #import "WebPreferencesKeys.h"
 #import <WebCore/RealtimeMediaSourceCenter.h>
 #import <wtf/text/MakeString.h>
-#import <wtf/RuntimeApplicationChecks.h> // MAVERICKS_BACKPORT: identify Safari when registering browser defaults.
+#import <wtf/RuntimeApplicationChecks.h> // AQUAWEBKIT: identify Safari when registering browser defaults.
 
 #if ENABLE(MEDIA_STREAM)
 #include "UserMediaPermissionRequestManagerProxy.h"
@@ -140,7 +140,7 @@ static void setDebugUInt32ValueIfInUserDefaults(const String& identifier, const 
 void WebPreferences::platformInitializeStore()
 {
     @autoreleasepool {
-        // MAVERICKS_BACKPORT: Safari receives the settings modern Safari sets through API Safari 7's
+        // AQUAWEBKIT: Safari receives the settings modern Safari sets through API Safari 7's
         // WKPreferences surface cannot express, as overridable defaults: HTTPS-first, and web content
         // limited to the fonts the system provides.
         if (WTF::MacApplication::isSafari()) {
@@ -148,11 +148,11 @@ void WebPreferences::platformInitializeStore()
             registerDefaultBoolValueForKey(WebPreferencesKey::shouldAllowUserInstalledFontsKey(), false);
         }
 
-        // MAVERICKS_BACKPORT: the legacy WKPreferences surface has no requestIdleCallback key, so the store
+        // AQUAWEBKIT: the legacy WKPreferences surface has no requestIdleCallback key, so the store
         // takes it on here as an initial value a client can still override.
         m_store.setBoolValueForKey(WebPreferencesKey::requestIdleCallbackEnabledKey(), true);
 
-        // MAVERICKS_BACKPORT: EnhancedSecurity heuristics are off in this product: they would move every
+        // AQUAWEBKIT: EnhancedSecurity heuristics are off in this product: they would move every
         // plain-http, non-loopback main-frame navigation into a separate WebContent.EnhancedSecurity
         // process. Seeded before the FOR_EACH_DEFAULT_OVERRIDABLE loop below, so an NSUserDefaults override
         // still wins; the paths that request the variant service by name still launch it.

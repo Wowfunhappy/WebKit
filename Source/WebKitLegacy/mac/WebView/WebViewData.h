@@ -124,7 +124,7 @@ class WebSelectionServiceController;
     RefPtr<WebCore::Page> page;
     RefPtr<WebViewGroup> group;
 
-    // MAVERICKS_BACKPORT: backing store for WebView's -observationInfo/-setObservationInfo:
+    // AQUAWEBKIT: backing store for WebView's -observationInfo/-setObservationInfo:
     // (NSKeyValueObservingCustomization). The legacy Safari-7-era WebView provided these; Xcode
     // 6.2's DVTFoundation KVO-dealloc setup asserts the WebView class overrides observationInfo
     // and aborts at launch when it doesn't (Xcode links WebKit for its documentation web views).
@@ -225,7 +225,7 @@ class WebSelectionServiceController;
     BOOL becomingFirstResponderFromOutside;
     BOOL usesPageCache;
 
-    // MAVERICKS_BACKPORT: the five WebDashboardBehavior flags 10.9's DashboardClient declares on a
+    // AQUAWEBKIT: the five WebDashboardBehavior flags 10.9's DashboardClient declares on a
     // widget's WebView, kept so -[WebView _dashboardBehavior:] answers what the host set.
     BOOL dashboardBehaviorAlwaysSendMouseEventsToAllWindows;
     BOOL dashboardBehaviorAlwaysSendActiveNullEventsToPlugIns;

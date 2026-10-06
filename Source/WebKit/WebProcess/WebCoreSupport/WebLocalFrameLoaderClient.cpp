@@ -37,7 +37,7 @@
 #include "IPCTestingAPI.h"
 #include "InjectedBundle.h"
 #include "InjectedBundleDOMWindowExtension.h"
-#include "LegacyExtensionContent.h" // MAVERICKS_BACKPORT: dispatchDidClearWindowObjectInWorld below.
+#include "LegacyExtensionContent.h" // AQUAWEBKIT: dispatchDidClearWindowObjectInWorld below.
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "NavigationActionData.h"
@@ -62,7 +62,7 @@
 #include "WebLoaderStrategy.h"
 #include "WebNavigationDataStore.h"
 #include "WebPage.h"
-// MAVERICKS_BACKPORT: restored injected-bundle policy client / navigation action (upstream 9eeab8d, 8ee28eb).
+// AQUAWEBKIT: restored injected-bundle policy client / navigation action (upstream 9eeab8d, 8ee28eb).
 #include "InjectedBundleNavigationAction.h"
 #include "InjectedBundlePagePolicyClient.h"
 #include "WebPageGroupProxy.h"
@@ -543,7 +543,7 @@ void WebLocalFrameLoaderClient::didSameDocumentNavigationForFrameViaJS(SameDocum
         { }, /* request */
         { }, /* invalidURLString */
         std::nullopt, /* requester */
-        // MAVERICKS_BACKPORT: a same-document JS navigation does not run the injected-bundle policy
+        // AQUAWEBKIT: a same-document JS navigation does not run the injected-bundle policy
         // client, so there is no bundle userData to carry (the page's own userData travels as the
         // separate UserData argument below). Listed rather than left off so the field we appended to
         // NavigationActionData is accounted for at every site.
@@ -698,7 +698,7 @@ void WebLocalFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureC
 
     // Notify the UIProcess.
     // webPage->send(Messages::WebPageProxy::DidCommitLoadForFrame(frame->frameID(), frame->info(), documentLoader->request(), documentLoader->navigationID(), documentLoader->response().mimeType(), m_frameHasCustomContentProvider, m_localFrame->loader().loadType(), usedLegacyTLS, wasPrivateRelayed, documentLoader->response().proxyName(), documentLoader->response().source(), m_localFrame->document()->isPluginDocument(), *hasInsecureContent, documentLoader->mouseEventPolicy(), *coreLocalFrame->frameDocumentSecurityPolicy(), cspOriginsThatUpgradeInsecureNavigations, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()), m_localFrame->loader().loadingFromCachedPage() ? RestoredFromBackForwardCache::Yes : RestoredFromBackForwardCache::No, WTF::move(redirectReplaceFrameState)));
-    // MAVERICKS_BACKPORT: upstream 318982@main (webkit.org/b/321456).
+    // AQUAWEBKIT: upstream 318982@main (webkit.org/b/321456).
     webPage->send(Messages::WebPageProxy::DidCommitLoadForFrame(frame->frameID(), frame->info(), documentLoader->request(), documentLoader->navigationID(), documentLoader->response().mimeType(), m_frameHasCustomContentProvider, m_localFrame->loader().loadType(), !certificateInfo.isEmpty(), usedLegacyTLS, wasPrivateRelayed, documentLoader->response().proxyName(), documentLoader->response().source(), m_localFrame->document()->isPluginDocument(), *hasInsecureContent, documentLoader->mouseEventPolicy(), *coreLocalFrame->frameDocumentSecurityPolicy(), cspOriginsThatUpgradeInsecureNavigations, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()), m_localFrame->loader().loadingFromCachedPage() ? RestoredFromBackForwardCache::Yes : RestoredFromBackForwardCache::No, WTF::move(redirectReplaceFrameState)));
     webPage->didCommitLoad(m_frame.ptr());
 }
@@ -999,7 +999,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
         return;
     }
 
-    // MAVERICKS_BACKPORT: ask the injected bundle's policy client, restored alongside
+    // AQUAWEBKIT: ask the injected bundle's policy client, restored alongside
     // InjectedBundlePagePolicyClient (upstream 9eeab8d). Safari 7's client
     // (BrowserBundlePagePolicyClient::decidePolicyForResponse) stores a WKBoolean holding
     // WKBundlePageCanShowMIMEType() as the userData its UI-process handler reads, and returns
@@ -1025,13 +1025,13 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     bool isShowingInitialAboutBlank = m_localFrame->loader().stateMachine().isDisplayingInitialEmptyDocument();
     auto activeDocumentCOOPValue = m_localFrame->document() ? protect(m_localFrame->document())->crossOriginOpenerPolicy().value : CrossOriginOpenerPolicyValue::SameOrigin;
 
-    // MAVERICKS_BACKPORT: ships the injected-bundle policy client's userData with the response policy request.
+    // AQUAWEBKIT: ships the injected-bundle policy client's userData with the response policy request.
     webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForResponse(frame->info(), navigationID, response, request, canShowResponse, downloadAttribute, isShowingInitialAboutBlank, activeDocumentCOOPValue, UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()))), [frame, listenerID] (PolicyDecision&& policyDecision) {
         frame->didReceivePolicyDecision(listenerID, WTF::move(policyDecision));
     });
 }
 
-// MAVERICKS_BACKPORT: asks the restored injected-bundle policy client first (537 semantics), and
+// AQUAWEBKIT: asks the restored injected-bundle policy client first (537 semantics), and
 // ships its userData with the new-window policy request.
 void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const NavigationAction& navigationAction, const ResourceRequest& request, FormState* formState, const String& frameName, std::optional<WebCore::HitTestResult>&& hitTestResult, FramePolicyFunction&& function)
 {
@@ -1041,7 +1041,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         return;
     }
 
-    // MAVERICKS_BACKPORT: ask the injected bundle's policy client (restored, upstream 9eeab8d) as the
+    // AQUAWEBKIT: ask the injected bundle's policy client (restored, upstream 9eeab8d) as the
     // navigation-action path does; Safari 7's UI-process new-window handler reads the userData it returns.
     RefPtr<API::Object> bundleUserData;
     {
@@ -1099,12 +1099,12 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         request,
         request.url().isValid() ? String() : request.url().string(), /* invalidURLString */
         std::nullopt, /* requester */
-        // MAVERICKS_BACKPORT: assigned just below from the injected bundle's userData; listed here
+        // AQUAWEBKIT: assigned just below from the injected bundle's userData; listed here
         // so the field we appended to NavigationActionData is accounted for at every site.
         { }, /* bundlePolicyUserData */
     };
 
-    // MAVERICKS_BACKPORT: ship the injected bundle's userData with the action (same channel the
+    // AQUAWEBKIT: ship the injected bundle's userData with the action (same channel the
     // navigation-action path uses).
     if (bundleUserData)
         navigationActionData.bundlePolicyUserData = UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()));
@@ -1186,11 +1186,11 @@ void WebLocalFrameLoaderClient::cancelPolicyCheck()
     m_frame->invalidatePolicyListeners();
 }
 
-// MAVERICKS_BACKPORT: restored notification of the injected bundle's policy client (upstream
+// AQUAWEBKIT: restored notification of the injected bundle's policy client (upstream
 // 9eeab8d removed the client and left this body empty).
 void WebLocalFrameLoaderClient::dispatchUnableToImplementPolicy(const ResourceError& error)
 {
-    // MAVERICKS_BACKPORT: real body (upstream: empty stub).
+    // AQUAWEBKIT: real body (upstream: empty stub).
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
@@ -1994,7 +1994,7 @@ void WebLocalFrameLoaderClient::dispatchDidClearWindowObjectInWorld(DOMWrapperWo
 
     webPage->injectedBundleLoaderClient().didClearWindowObjectForFrame(*webPage, m_frame, world);
 
-    LegacyExtensionContent::singleton().didClearWindowObjectForFrame(m_frame, world); // MAVERICKS_BACKPORT: Safari 7 extensions' browser namespace.
+    LegacyExtensionContent::singleton().didClearWindowObjectForFrame(m_frame, world); // AQUAWEBKIT: Safari 7 extensions' browser namespace.
 
     RefPtr automationSessionProxy = WebProcess::singleton().automationSessionProxy();
     if (automationSessionProxy && world.isNormal())

@@ -31,7 +31,7 @@
 #include "WebPageProxy.h"
 #include "WebPreferencesKeys.h"
 #include "WebProcessPool.h"
-#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: the per-client Private Browsing session (#55).
+#include "WebsiteDataStore.h" // AQUAWEBKIT: the per-client Private Browsing session (#55).
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/LibWebRTCProvider.h>
 #include <WebCore/StorageBlockingPolicy.h>
@@ -154,7 +154,7 @@ void WebPreferences::update()
         page->preferencesDidChange();
 }
 
-// MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle. Each page is moved between the default
+// AQUAWEBKIT: Safari 7's global Private Browsing toggle. Each page is moved between the default
 // store and this client's ephemeral one and reloaded, which is what makes the toggle take effect on pages
 // already open (the user's complaint in #55 was that toggling it left them logged in everywhere).
 void WebPreferences::setPrivateBrowsingEnabled(bool enabled)
@@ -177,7 +177,7 @@ void WebPreferences::setPrivateBrowsingEnabled(bool enabled)
     }
 }
 
-// MAVERICKS_BACKPORT: the ephemeral session this client's private-browsing pages share, created on first
+// AQUAWEBKIT: the ephemeral session this client's private-browsing pages share, created on first
 // use and never written to disk (#55).
 WebsiteDataStore& WebPreferences::privateBrowsingDataStore()
 {
@@ -192,7 +192,7 @@ WebsiteDataStore& WebPreferences::privateBrowsingDataStore()
     return *m_privateBrowsingDataStore;
 }
 
-// MAVERICKS_BACKPORT: names the session a page could already be on -- the live one, or one being vacated
+// AQUAWEBKIT: names the session a page could already be on -- the live one, or one being vacated
 // after Private Browsing was turned off -- without bringing either into existence (#55).
 WebsiteDataStore* WebPreferences::privateBrowsingDataStoreIfExists() const
 {

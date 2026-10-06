@@ -43,7 +43,7 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/ParsingUtilities.h>
 
-// MAVERICKS_BACKPORT: GStreamer supplies I420A storage and copies for its frames.
+// AQUAWEBKIT: GStreamer supplies I420A storage and copies for its frames.
 #if USE(GSTREAMER)
 #include "VideoFrameGStreamer.h"
 #endif
@@ -234,7 +234,7 @@ RefPtr<VideoFrame> VideoFrame::createI420(std::span<const uint8_t> buffer, size_
 
 RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> buffer, size_t width, size_t height, const ComputedPlaneLayout& layoutY, const ComputedPlaneLayout& layoutU, const ComputedPlaneLayout& layoutV, const ComputedPlaneLayout& layoutA, PlatformVideoColorSpace&& colorSpace)
 {
-// MAVERICKS_BACKPORT: I420A uses GStreamer's four-plane A420 storage on Cocoa.
+// AQUAWEBKIT: I420A uses GStreamer's four-plane A420 storage on Cocoa.
 // #if USE(LIBWEBRTC)
 #if USE(GSTREAMER)
     return VideoFrameGStreamer::createI420A(buffer, width, height, layoutY, layoutU, layoutV, layoutA, WTF::move(colorSpace));
@@ -445,7 +445,7 @@ static Vector<PlaneLayout> copyI420OrI420A(std::span<uint8_t> span, const Comput
 
 void VideoFrame::copyTo(std::span<uint8_t> span, VideoPixelFormat format, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
 {
-    // MAVERICKS_BACKPORT: GStreamer frames copy from their native plane storage.
+    // AQUAWEBKIT: GStreamer frames copy from their native plane storage.
 #if USE(GSTREAMER)
     if (auto* frame = dynamicDowncast<VideoFrameGStreamer>(*this)) {
         frame->copyTo(span, format, WTF::move(computedPlaneLayout), WTF::move(callback));
@@ -556,7 +556,7 @@ RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuf
         return nullptr;
     }
 
-    // MAVERICKS_BACKPORT: supply the producer's explicit RGB profile before the common
+    // AQUAWEBKIT: supply the producer's explicit RGB profile before the common
     // metadata helper preserves it or replaces it with an explicit colorimetry override.
     CVBufferSetAttachment(cvPixelBuffer.get(), kCVImageBufferCGColorSpaceKey, pixelBuffer->format().colorSpace.platformColorSpace(), kCVAttachmentMode_ShouldPropagate);
 

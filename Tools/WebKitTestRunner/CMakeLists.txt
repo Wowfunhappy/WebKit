@@ -87,7 +87,7 @@ set(TestRunnerInjectedBundle_PRIVATE_INCLUDE_DIRECTORIES
     ${WebKitTestRunner_DERIVED_SOURCES_DIR}/InjectedBundle
     ${WebKitTestRunner_DIR}
     ${WebKitTestRunner_DIR}/InjectedBundle
-    # MAVERICKS_BACKPORT: the injected-bundle mac/ sources quote-include cocoa/ headers (AccessibilityCommonCocoa.h)
+    # AQUAWEBKIT: the injected-bundle mac/ sources quote-include cocoa/ headers (AccessibilityCommonCocoa.h)
     # and the shared cocoa/ headers (CrashReporterInfo.h), which the Mac CMake path did not put on the bundle's
     # include path (Apple builds this via Xcode). Add both so the bundle compiles.
     ${WebKitTestRunner_DIR}/InjectedBundle/cocoa
@@ -155,7 +155,7 @@ if (APPLE)
     )
 endif ()
 
-# MAVERICKS_BACKPORT: the SHARED injected bundle absorbs the WTF (and bmalloc) OBJECT libraries directly, which
+# AQUAWEBKIT: the SHARED injected bundle absorbs the WTF (and bmalloc) OBJECT libraries directly, which
 # REDEFINES the WTF/JSC process-singleton g_config (the __DATA,__wtf_config record holding the JSC structure-heap
 # base, gigacage limits, etc.) -- a SECOND, never-initialized copy alongside the one in the JavaScriptCore
 # framework the bundle also links. The bundle's inline JSC binding code (creating window.internals) then reads a
@@ -174,7 +174,7 @@ if (TARGET TestRunnerInjectedBundle)
     set_target_properties(TestRunnerInjectedBundle PROPERTIES LINK_LIBRARIES "${_ib_link_libs_filtered}")
 endif ()
 
-# MAVERICKS_BACKPORT: WebKitTestRunner is a WebKit2 tool but also needs the WebKit1 (WebKitLegacy) <WebKit/...>
+# AQUAWEBKIT: WebKitTestRunner is a WebKit2 tool but also needs the WebKit1 (WebKitLegacy) <WebKit/...>
 # umbrella on its include path, because the WebKit2 <WebKit/WebKit.h> umbrella pulls in <WebKit/WebKitLegacy.h>
 # -> <WebKit/DOM.h>, which only exist in the WebKitLegacy headers root (added in PlatformMac.cmake). That root
 # also contains a WebKit1 <WebKit/WebKit.h> (the legacy umbrella, no WKWebView), which would shadow the WebKit2

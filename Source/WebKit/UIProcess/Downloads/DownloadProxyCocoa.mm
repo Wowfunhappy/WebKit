@@ -25,19 +25,19 @@
 
 #import "config.h"
 #import "DownloadProxy.h"
-// MAVERICKS_BACKPORT: native cancellation releases the same typed proxy registration as asynchronous cancellation.
+// AQUAWEBKIT: native cancellation releases the same typed proxy registration as asynchronous cancellation.
 #import "DownloadProxyMap.h"
 
-// MAVERICKS_BACKPORT: API::Data is used directly by legacyResumeDataForNSURLDownload() below.
+// AQUAWEBKIT: API::Data is used directly by legacyResumeDataForNSURLDownload() below.
 #import "APIData.h"
 #import "APIDownloadClient.h"
 #import "NetworkProcessMessages.h"
 #import "NetworkProcessProxy.h"
-#import "CocoaDownloadResumeData.h" // MAVERICKS_BACKPORT: rebuild the native API representation from a typed IPC result.
+#import "CocoaDownloadResumeData.h" // AQUAWEBKIT: rebuild the native API representation from a typed IPC result.
 #import "WebsiteDataStore.h"
 
 #import <wtf/cocoa/SpanCocoa.h>
-// MAVERICKS_BACKPORT: dynamic_objc_cast<> for the resume-data translation below.
+// AQUAWEBKIT: dynamic_objc_cast<> for the resume-data translation below.
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
@@ -47,13 +47,13 @@
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: preserve NSURLDownload's synchronous cancellation contract without running the UI run loop.
+// AQUAWEBKIT: preserve NSURLDownload's synchronous cancellation contract without running the UI run loop.
 void DownloadProxy::didResumeWithResponse(const WebCore::ResourceResponse& response, uint64_t offset)
 {
     protect(client())->didResumeWithResponse(*this, response, offset);
 }
 
-// MAVERICKS_BACKPORT: close the remote download before exposing native resume information.
+// AQUAWEBKIT: close the remote download before exposing native resume information.
 RefPtr<API::Data> DownloadProxy::cancelForLegacyResume()
 {
     Ref protectedThis { *this };
@@ -64,7 +64,7 @@ RefPtr<API::Data> DownloadProxy::cancelForLegacyResume()
     if (!result.succeeded())
         return nullptr;
     auto [data] = result.takeReply();
-    // MAVERICKS_BACKPORT: the optional typed reply owns nullable API data at the legacy boundary.
+    // AQUAWEBKIT: the optional typed reply owns nullable API data at the legacy boundary.
     m_legacyResumeData = data ? RefPtr<API::Data>(API::Data::create(data->serializedData().span())) : nullptr;
     auto legacy = legacyResumeDataForNSURLDownload();
     if (RefPtr map = m_downloadProxyMap.get())
@@ -133,7 +133,7 @@ Vector<uint8_t> DownloadProxy::activityAccessToken()
 
 #endif
 
-// MAVERICKS_BACKPORT: WebKitNetworkProcessResumeData retains the curl request and its NetworkProcess owner.
+// AQUAWEBKIT: WebKitNetworkProcessResumeData retains the curl request and its NetworkProcess owner.
 // Safari 7 passes this dictionary to WebKitLegacy's -[WebDownload _initWithResumeInformation:delegate:path:].
 // The URL, byte count and validators use the NSURLDownload keys consumed by that API; its destination
 // comes from Safari's path argument. The NetworkProcess session owns the cookies and transport state.
@@ -153,7 +153,7 @@ RefPtr<API::Data> DownloadProxy::legacyResumeDataForNSURLDownload() const
         return nullptr;
 
     RetainPtr downloadInfo = adoptNS([[NSMutableDictionary alloc] init]);
-    // MAVERICKS_BACKPORT: resume through the original NetworkProcess session and its cookie storage.
+    // AQUAWEBKIT: resume through the original NetworkProcess session and its cookie storage.
     [downloadInfo setObject:toNSData(resumeData->span()).get() forKey:@"WebKitNetworkProcessResumeData"];
     [downloadInfo setObject:url.get() forKey:@"NSURLDownloadURL"];
     [downloadInfo setObject:bytesReceived.get() forKey:@"NSURLDownloadBytesReceived"];
@@ -162,7 +162,7 @@ RefPtr<API::Data> DownloadProxy::legacyResumeDataForNSURLDownload() const
     if (RetainPtr modificationDate = dynamic_objc_cast<NSString>([sessionInfo objectForKey:@"NSURLSessionResumeServerDownloadDate"]))
         [downloadInfo setObject:modificationDate.get() forKey:@"NSURLDownloadServerModificationDate"];
 
-    // MAVERICKS_BACKPORT: the curl resume contract retains the originating jar and request's SameSite context.
+    // AQUAWEBKIT: the curl resume contract retains the originating jar and request's SameSite context.
     for (NSString* key in @[@"WebKitRequest", @"WebKitStorageSessionIdentifier", @"WebKitStoredCredentialsPolicy", @"WebKitFirstPartyForCookies", @"WebKitIsTopSite", @"WebKitSameSiteDisposition"]) {
         if (id value = [sessionInfo objectForKey:key])
             [downloadInfo setObject:value forKey:key];

@@ -2167,7 +2167,7 @@ CommandResult<void> WebAutomationSession::setVirtualAuthenticatorUserVerified(co
     SYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(NotImplemented, "This method is not yet implemented."_s);
 }
 
-// MAVERICKS_BACKPORT: see the header -- these overrides are provided for all of PLATFORM(MAC) to match
+// AQUAWEBKIT: see the header -- these overrides are provided for all of PLATFORM(MAC) to match
 // the Automation backend dispatcher, but only do real work when the WebExtensions-in-WebDriver API is
 // compiled in; otherwise they answer NotImplemented (WK_WEB_EXTENSIONS is off for the Safari 7 port).
 #if PLATFORM(MAC)
@@ -2204,7 +2204,7 @@ void WebAutomationSession::unloadWebExtension(const String& identifier, CommandC
         callback({ });
     });
 }
-#else // MAVERICKS_BACKPORT: WK_WEB_EXTENSIONS(_IN_WEBDRIVER) compiled out -- provide NotImplemented stubs.
+#else // AQUAWEBKIT: WK_WEB_EXTENSIONS(_IN_WEBDRIVER) compiled out -- provide NotImplemented stubs.
 void WebAutomationSession::loadWebExtension(const Inspector::Protocol::Automation::WebExtensionResourceOptions, const String&, CommandCallback<String>&& callback)
 {
     ASYNC_FAIL_WITH_PREDEFINED_ERROR(NotImplemented);

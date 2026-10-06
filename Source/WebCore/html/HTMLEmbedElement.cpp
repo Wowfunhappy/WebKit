@@ -134,7 +134,7 @@ void HTMLEmbedElement::attributeChanged(const QualifiedName& name, const AtomStr
         break;
     }
 
-    // MAVERICKS_BACKPORT: behavior fix (#38 Web Clips). Reconstruct renderers (which reloads the
+    // AQUAWEBKIT: behavior fix (#38 Web Clips). Reconstruct renderers (which reloads the
     // plug-in widget) only when an attribute that determines which plug-in to load changes value.
     // Dashboard's WebClip plug-in stamps the widget's <embed> on every layout with an unchanged
     // `style="-apple-dashboard-region:none"` and a `width` that oscillates by 1px in reaction to

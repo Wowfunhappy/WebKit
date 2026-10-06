@@ -74,7 +74,7 @@ public:
     String propertyValueForEpubCasedIDLAttribute(const AtomString&);
     ExceptionOr<void> setPropertyValueForEpubCasedIDLAttribute(const AtomString&, const String&);
 
-    // MAVERICKS_BACKPORT: shared implementation for the lowercase-first Apple-cased IDL attribute
+    // AQUAWEBKIT: shared implementation for the lowercase-first Apple-cased IDL attribute
     // (e.g. element.style.appleDashboardRegion for -apple-dashboard-region). Stock WebKit exposed
     // this lowercase accessor; macOS 10.9 Dashboard widgets set their control regions through it
     // (AppleScrollbar.js: scrollbar.style.appleDashboardRegion = "dashboard-region(control rectangle)").

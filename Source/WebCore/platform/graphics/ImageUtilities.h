@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <WebCore/ImageOrientation.h> // MAVERICKS_BACKPORT: for imagePropertiesForOrientation below.
+#include <WebCore/ImageOrientation.h> // AQUAWEBKIT: for imagePropertiesForOrientation below.
 #include <WebCore/IntSize.h>
 #include <WebCore/PlatformImage.h>
 #include <optional>
@@ -34,7 +34,7 @@
 #if USE(CG)
 #include <CoreFoundation/CoreFoundation.h>
 #include <span>
-#include <wtf/RetainPtr.h> // MAVERICKS_BACKPORT: imagePropertiesForOrientation returns one.
+#include <wtf/RetainPtr.h> // AQUAWEBKIT: imagePropertiesForOrientation returns one.
 #include <wtf/WorkQueue.h>
 #endif
 
@@ -86,13 +86,13 @@ WEBCORE_EXPORT void createBitmapsFromImageData(std::span<const uint8_t> data, st
 WEBCORE_EXPORT RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&&);
 WEBCORE_EXPORT void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize>, CompletionHandler<void(RefPtr<ShareableBitmap>&&)>&&);
 
-// MAVERICKS_BACKPORT: the image properties that carry an ImageOrientation into a file a
+// AQUAWEBKIT: the image properties that carry an ImageOrientation into a file a
 // CGImageDestination writes. This port decodes in WebCore, so the orientation an image source used
 // to hand straight to CGImageDestinationAddImageFromSource now comes from the decoder and is
 // written with CGImageDestinationAddImage. Null when there is nothing to record.
 WEBCORE_EXPORT RetainPtr<CFDictionaryRef> imagePropertiesForOrientation(ImageOrientation);
 // Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
-WEBCORE_EXPORT Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt); // MAVERICKS_BACKPORT: WebKitLegacy encodes decoded images for the sharing pasteboard.
+WEBCORE_EXPORT Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt); // AQUAWEBKIT: WebKitLegacy encodes decoded images for the sharing pasteboard.
 WEBCORE_EXPORT String encodeDataURL(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
 WEBCORE_EXPORT uint8_t NODELETE verifyImageBufferIsBigEnough(std::span<const uint8_t> buffer);
 RetainPtr<CFStringRef> utiFromImageBufferMIMEType(const String& mimeType);

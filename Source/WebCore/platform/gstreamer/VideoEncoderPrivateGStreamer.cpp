@@ -148,7 +148,7 @@ enum EncoderId {
     SvtAv1,
     QualcommH264,
     QualcommH265,
-    // MAVERICKS_BACKPORT: this platform's H.264 encoder. Upstream's GStreamer ports have no
+    // AQUAWEBKIT: this platform's H.264 encoder. Upstream's GStreamer ports have no
     // VideoToolbox, so its table lists none, and videoEncoderSetCodec finds nothing for avc1 here.
     VideoToolboxH264,
 };
@@ -739,7 +739,7 @@ static void webkit_video_encoder_class_init(WebKitVideoEncoderClass* klass)
                 break;
             };
         });
-    // MAVERICKS_BACKPORT: x264enc and openh264enc are absent from this port's plugin set; vtenc_h264 is
+    // AQUAWEBKIT: x264enc and openh264enc are absent from this port's plugin set; vtenc_h264 is
     // the H.264 encoder it has, so register it the way the others are. The encoded caps end the bin, where
     // h264parse negotiates the requested profile with vtenc. Registration is skipped automatically when the
     // factory is absent, so this is inert on a build without applemedia.
@@ -769,7 +769,7 @@ static void webkit_video_encoder_class_init(WebKitVideoEncoderClass* klass)
                 g_object_set(encoder, "realtime", FALSE, "allow-frame-reordering", FALSE, nullptr);
                 break;
             };
-        }); // MAVERICKS_BACKPORT: closes the VideoToolbox H.264 encoder registration above.
+        }); // AQUAWEBKIT: closes the VideoToolbox H.264 encoder registration above.
     Encoders::registerEncoder(OpenH264, "openh264enc"_s, "h264parse"_s, "video/x-h264"_s,
         "video/x-h264,alignment=au,stream-format=avc"_s,
         [](WebKitVideoEncoder* self) {

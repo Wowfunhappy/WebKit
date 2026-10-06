@@ -57,7 +57,7 @@ class ImageDecoder : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Imag
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(ImageDecoder, WEBCORE_EXPORT);
 public:
     // static RefPtr<ImageDecoder> create(FragmentedSharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption);
-    WEBCORE_EXPORT static RefPtr<ImageDecoder> create(FragmentedSharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption); // MAVERICKS_BACKPORT: WebKitLegacy decodes shared image data in WebCore.
+    WEBCORE_EXPORT static RefPtr<ImageDecoder> create(FragmentedSharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption); // AQUAWEBKIT: WebKitLegacy decodes shared image data in WebCore.
     WEBCORE_EXPORT virtual ~ImageDecoder();
 
     using FrameInfo = ImageDecoderFrameInfo;

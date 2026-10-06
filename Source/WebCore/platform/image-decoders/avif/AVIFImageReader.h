@@ -37,25 +37,25 @@ class ScalableImageDecoderFrame;
 class AVIFImageReader {
     WTF_MAKE_TZONE_ALLOCATED(AVIFImageReader);
 public:
-    // MAVERICKS_BACKPORT: the reader is a unique_ptr member of the decoder that constructs it, so it
+    // AQUAWEBKIT: the reader is a unique_ptr member of the decoder that constructs it, so it
     // cannot outlive its owner and the back-pointer does not own, as JPEGImageReader and
     // PNGImageReader hold theirs.
     AVIFImageReader(AVIFImageDecoder*);
-/* MAVERICKS_BACKPORT: upstream's declaration.
+/* AQUAWEBKIT: upstream's declaration.
     AVIFImageReader(RefPtr<AVIFImageDecoder>&&);
-MAVERICKS_BACKPORT */
+AQUAWEBKIT */
     ~AVIFImageReader();
 
     bool parseHeader(const SharedBuffer&, bool allDataReceived);
     void decodeFrame(size_t index, ScalableImageDecoderFrame&, const SharedBuffer&);
     size_t imageCount() const;
-    std::optional<Seconds> frameDurationAtIndex(size_t) const; // MAVERICKS_BACKPORT: a frame's duration without decoding it.
+    std::optional<Seconds> frameDurationAtIndex(size_t) const; // AQUAWEBKIT: a frame's duration without decoding it.
 
 private:
-    AVIFImageDecoder* m_decoder; // MAVERICKS_BACKPORT: non-owning; see the constructor above.
-/* MAVERICKS_BACKPORT: upstream's member.
+    AVIFImageDecoder* m_decoder; // AQUAWEBKIT: non-owning; see the constructor above.
+/* AQUAWEBKIT: upstream's member.
     RefPtr<WebCore::AVIFImageDecoder> m_decoder;
-MAVERICKS_BACKPORT */
+AQUAWEBKIT */
     AVIFUniquePtr<avifDecoder> m_avifDecoder;
 
     bool m_dataParsed { false };

@@ -137,7 +137,7 @@ CFDataRef ImageAdapter::tiffRepresentation()
 }
 
 #if USE(APPKIT)
-// MAVERICKS_BACKPORT: an NSImage over the frames themselves. Both functions below used to encode a
+// AQUAWEBKIT: an NSImage over the frames themselves. Both functions below used to encode a
 // TIFF and hand it back to -[NSImage initWithData:], which parses it inside ImageIO -- the one
 // parser this port keeps page image bytes away from. A representation built from the decoded frame
 // carries the same pixels and skips the round trip entirely.
@@ -164,7 +164,7 @@ NSImage* ImageAdapter::nsImage()
     if (m_nsImage)
         return m_nsImage.get();
 
-    // MAVERICKS_BACKPORT: upstream's version of the lines below. See the note on nsImageFromNativeImages above.
+    // AQUAWEBKIT: upstream's version of the lines below. See the note on nsImageFromNativeImages above.
     // CFDataRef data = tiffRepresentation();
     // if (!data)
     //     return nullptr;
@@ -180,7 +180,7 @@ RetainPtr<NSImage> ImageAdapter::snapshotNSImage()
     if (!nativeImage)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: upstream's version of the lines below. See the note on nsImageFromNativeImages above.
+    // AQUAWEBKIT: upstream's version of the lines below. See the note on nsImageFromNativeImages above.
     // auto data = tiffRepresentation({ nativeImage.releaseNonNull() });
     // if (!data)
     //     return nullptr;

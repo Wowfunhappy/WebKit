@@ -33,7 +33,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/URL.h>
 
-// MAVERICKS_BACKPORT: libsystem_networkextension is 10.10+ (absent on 10.9); load it optionally so the
+// AQUAWEBKIT: libsystem_networkextension is 10.10+ (absent on 10.9); load it optionally so the
 // loader returns nullptr instead of RELEASE_ASSERTing. All uses below are SOFT_LINK_OPTIONAL, which
 // nullptr-check, so NetworkIssueReporter cleanly reports disabled on 10.9.
 SOFT_LINK_SYSTEM_LIBRARY_OPTIONAL(libsystem_networkextension)

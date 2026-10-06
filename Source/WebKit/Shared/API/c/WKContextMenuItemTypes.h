@@ -117,7 +117,7 @@ enum {
     kWKContextMenuItemTagMediaPlayPause,
     kWKContextMenuItemTagMediaMute,
     kWKContextMenuItemTagDictationAlternative,
-    // MAVERICKS_BACKPORT: these four moved to the end of the enum (see below). They were inserted here
+    // AQUAWEBKIT: these four moved to the end of the enum (see below). They were inserted here
     // upstream (267760@main), which shifted every following tag up by four — including
     // kWKContextMenuItemTagToggleVideoFullscreen, which Safari 7 was built against as 87 and looks up by
     // that literal value (BrowserPageContextMenuClient::getContextMenuFromProposedMenu transfers tag
@@ -148,7 +148,7 @@ enum {
     kWKContextMenuItemCaptionDisplayStyleSubmenu,
     kWKContextMenuItemTagConvertToTraditionalChinese,
     kWKContextMenuItemTagConvertToSimplifiedChinese,
-    // MAVERICKS_BACKPORT: the animation tags, relocated from their upstream position after
+    // AQUAWEBKIT: the animation tags, relocated from their upstream position after
     // kWKContextMenuItemTagDictationAlternative so the tags Safari 7 knows keep their 537.78 values.
     kWKContextMenuItemTagPlayAllAnimations,
     kWKContextMenuItemTagPauseAllAnimations,

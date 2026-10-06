@@ -49,7 +49,7 @@ std::optional<VideoPixelFormat> convertVideoFramePixelFormat(uint32_t format, bo
         return shouldDiscardAlpha ? VideoPixelFormat::BGRX : VideoPixelFormat::BGRA;
     if (format == kCVPixelFormatType_32ARGB)
         return shouldDiscardAlpha ? VideoPixelFormat::RGBX : VideoPixelFormat::RGBA;
-// MAVERICKS_BACKPORT: Cocoa and GStreamer frame storage both supply pixel formats.
+// AQUAWEBKIT: Cocoa and GStreamer frame storage both supply pixel formats.
 // #elif USE(GSTREAMER)
 #endif
 #if USE(GSTREAMER)

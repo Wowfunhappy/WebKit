@@ -31,7 +31,7 @@ list(APPEND TestWebCore_SOURCES
     Helpers/cocoa/UtilitiesCocoa.mm
 )
 
-# MAVERICKS_BACKPORT: TestWebKit names only WebKit as a framework, and on this port that one does not
+# AQUAWEBKIT: TestWebKit names only WebKit as a framework, and on this port that one does not
 # carry the WTF, JavaScriptCore, PAL or WebCore forwarded headers -- so config.h's <wtf/Platform.h> and
 # the export-macro headers beside it are unreachable. TestWebCore and TestWebKitLegacy each name every
 # framework whose headers they include; do the same here.
@@ -488,5 +488,5 @@ foreach (_test_target TestWTF TestJavaScriptCore TestWebCore TestWebKitLegacy Te
     endif ()
 endforeach ()
 
-# MAVERICKS_BACKPORT: platform regression tests and Mavericks networking fixtures.
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/TestWebKitAPIPlatformMavericks.cmake)
+# AQUAWEBKIT: the port's platform regression tests and networking fixtures.
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/TestWebKitAPIPlatformAquaWebKit.cmake)

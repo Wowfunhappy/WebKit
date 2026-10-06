@@ -442,7 +442,7 @@ void ThreadedScrollingTree::willStartRenderingUpdate()
     bool hasActivity = hasRecentActivity();
 
     {
-        // MAVERICKS_BACKPORT: the gate below skips the synchronization when the scrolling thread has been
+        // AQUAWEBKIT: the gate below skips the synchronization when the scrolling thread has been
         // idle, which holds only while the scrolling thread owns the layers: a wheel event it handles
         // unsynchronized is one it will place the layers for itself. On a tree whose nodes have synchronous
         // scrolling reasons canUpdateLayersOnScrollingThread() bars it from the layers, the main thread
@@ -452,7 +452,7 @@ void ThreadedScrollingTree::willStartRenderingUpdate()
         // if (!hasRecentActivity())
         //     return;
         //
-        // MAVERICKS_BACKPORT: publish the update before parking the scrolling thread.
+        // AQUAWEBKIT: publish the update before parking the scrolling thread.
         // waitForRenderingUpdateCompletionOrTimeout() waits for SynchronizationState::Idle, which is also
         // the state of an update that has not started, and Condition::waitUntil evaluates its predicate
         // before blocking, so a tree left idle by displayDidRefreshOnScrollingThread() satisfies it the
@@ -476,7 +476,7 @@ void ThreadedScrollingTree::willStartRenderingUpdate()
     });
     semaphore.wait();
 
-    // MAVERICKS_BACKPORT: m_state is published above, before the scrolling thread parks.
+    // AQUAWEBKIT: m_state is published above, before the scrolling thread parks.
     // Locker locker { m_treeLock };
     // m_state = SynchronizationState::InRenderingUpdate;
 }
@@ -508,7 +508,7 @@ void ThreadedScrollingTree::waitForRenderingUpdateCompletionOrTimeout()
 
     auto currentTime = MonotonicTime::now();
     auto estimatedNextDisplayRefreshTime = std::max(m_lastDisplayDidRefreshTime + frameDuration(), currentTime);
-    // MAVERICKS_BACKPORT: the deadline is a share of the frame, and the half below is the share the scrolling
+    // AQUAWEBKIT: the deadline is a share of the frame, and the half below is the share the scrolling
     // thread needs to take the layers over from a main thread that is running late -- that hand-off is the
     // only thing the expiry does, and the branch below already guards it with canUpdateLayersOnScrollingThread().
     // With no hand-off to make, nothing is owed to the rest of the frame and expiring only lets the tree scroll

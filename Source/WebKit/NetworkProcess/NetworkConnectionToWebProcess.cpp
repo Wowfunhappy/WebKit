@@ -27,7 +27,7 @@
 #include "NetworkConnectionToWebProcess.h"
 
 #include "BlobDataFileReferenceWithSandboxExtension.h"
-#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: dispatchMessage and createSocketChannel below.
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: dispatchMessage and createSocketChannel below.
 #include "LogInitialization.h"
 #include "Logging.h"
 #include "NetworkBroadcastChannelRegistry.h"
@@ -156,7 +156,7 @@ NetworkConnectionToWebProcess::NetworkConnectionToWebProcess(NetworkProcess& net
     , m_schemeRegistry(NetworkSchemeRegistry::create())
     , m_originAccessPatterns(makeUniqueRef<NetworkOriginAccessPatterns>())
     , m_sharedPreferencesForWebProcess(parameters.sharedPreferencesForWebProcess)
-    , m_allowsInjectedBundleOriginAccessAllowListIPC(parameters.allowsInjectedBundleOriginAccessAllowListIPC) // MAVERICKS_BACKPORT: UI-derived native-bundle capability.
+    , m_allowsInjectedBundleOriginAccessAllowListIPC(parameters.allowsInjectedBundleOriginAccessAllowListIPC) // AQUAWEBKIT: UI-derived native-bundle capability.
 #if ENABLE(IPC_TESTING_API)
     , m_ipcTester(IPCTester::create())
 #endif
@@ -305,7 +305,7 @@ bool NetworkConnectionToWebProcess::dispatchMessage(IPC::Connection& connection,
         }
 
         MESSAGE_CHECK_WITH_RETURN_VALUE(AtomicObjectIdentifier<WebSocketIdentifierType>::isValidIdentifier(decoder.destinationID()), false);
-        if (LegacyExtensionNetwork::singleton().didReceivePendingWebSocketMessage(*this, decoder)) // MAVERICKS_BACKPORT: a WebSocket waiting on Safari 7 extensions' webRequest.
+        if (LegacyExtensionNetwork::singleton().didReceivePendingWebSocketMessage(*this, decoder)) // AQUAWEBKIT: a WebSocket waiting on Safari 7 extensions' webRequest.
             return true;
         if (RefPtr channel = m_networkSocketChannels.get(AtomicObjectIdentifier<WebSocketIdentifierType>(decoder.destinationID())))
             channel->didReceiveMessage(connection, decoder);
@@ -555,7 +555,7 @@ void NetworkConnectionToWebProcess::createSocketChannel(const ResourceRequest& r
         return;
     }
 
-    // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onBeforeRequest decides a WebSocket before its channel exists.
+    // AQUAWEBKIT: Safari 7 extensions' webRequest.onBeforeRequest decides a WebSocket before its channel exists.
     if (LegacyExtensionNetwork::singleton().interceptWebSocket(*this, request, identifier, webPageProxyID, frameID, clientOrigin, [this, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker] {
         if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))
             m_networkSocketChannels.add(identifier, channel.releaseNonNull());
@@ -698,7 +698,7 @@ void NetworkConnectionToWebProcess::terminateForInvalidLoaderResumeClaim()
 
 void NetworkConnectionToWebProcess::performSynchronousLoad(NetworkResourceLoadParameters&& loadParameters, CompletionHandler<void(const ResourceError&, const ResourceResponse, Vector<uint8_t>&&)>&& reply)
 {
-    // MAVERICKS_BACKPORT: answer this the way every sibling handler answers the same verdict. The property
+    // AQUAWEBKIT: answer this the way every sibling handler answers the same verdict. The property
     // the verdict carries is Terminate: a WebProcess claiming a first party it never navigated to.
     // Disallow is the benign half -- allowsFirstPartyForCookies returns it for a host-less first party,
     // which every page has while it sits on its initial about:blank document, and scheduleResourceLoad,
@@ -1585,7 +1585,7 @@ void NetworkConnectionToWebProcess::requestStorageAccessUnderOpener(WebCore::Reg
     }
 }
 
-// MAVERICKS_BACKPORT: native injected bundles retain their origin-access API authority.
+// AQUAWEBKIT: native injected bundles retain their origin-access API authority.
 bool NetworkConnectionToWebProcess::allowsOriginAccessAllowListIPC(IPC::Decoder&) const
 {
     return m_allowsInjectedBundleOriginAccessAllowListIPC || m_sharedPreferencesForWebProcess.allowTestOnlyOriginAccessAllowListIPC;

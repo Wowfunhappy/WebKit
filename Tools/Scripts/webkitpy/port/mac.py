@@ -74,13 +74,13 @@ class MacPort(DarwinPort):
 
     def _path_to_apache(self):
         if self._version == 'mavericks':
-            return self.path_from_webkit_base('MavericksSupport', 'deps', 'build', 'bin', 'httpd')
+            return self.path_from_webkit_base('AquaWebKitSupport', 'deps', 'build', 'bin', 'httpd')
         return super(MacPort, self)._path_to_apache()
 
     # FIXME: This is a work-around for Rosetta, remove once <https://bugs.webkit.org/show_bug.cgi?id=213761> is resolved
     def expectations_dict(self, device_type=None):
         result = super(MacPort, self).expectations_dict(device_type=device_type)
-        # MAVERICKS_BACKPORT: platform/mac-wk1/TestExpectations opens with a block skipping every top-level
+        # AQUAWEBKIT: platform/mac-wk1/TestExpectations opens with a block skipping every top-level
         # suite, because Apple's bots do not run DumpRenderTree on Mac. This port does, so its WebKit1 port
         # reads that file with the block's lines blanked; every later line, and its line number, is kept.
         if self._version == 'mavericks' and self.is_webkitlegacy():

@@ -62,7 +62,7 @@ private:
 #if ENABLE(MODEL_ELEMENT)
     Ref<WebCore::PlatformCALayer> createPlatformCALayer(Ref<WebCore::Model>, WebCore::PlatformCALayerClient* owner) override;
 #endif
-// MAVERICKS_BACKPORT: this overload is part of the video-layer hosting chain, which ends at
+// AQUAWEBKIT: this overload is part of the video-layer hosting chain, which ends at
 // WebPage::videoPresentationManager() — the video-presentation stack this port does not build
 // (ENABLE(VIDEO_PRESENTATION_MODE) is off; 10.9 lacks the AVKit presentation SPI). Upstream
 // ships HAVE(AVKIT) only alongside that stack, so both conditions are written out here.

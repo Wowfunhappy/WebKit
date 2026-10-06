@@ -2123,7 +2123,7 @@ TEST(IPCSerialization, NSURLCredentialAttributesToID)
     credentialData.attributes = Vector<Attributes> { { WebKit::CoreIPCString(@"key"), WebKit::CoreIPCString(@"value") } };
 
     // WebKit::CoreIPCNSURLCredential wrapper(WTF::move(credentialData));
-    WebKit::CoreIPCNSURLCredential wrapper(WTF::move(credentialData), std::nullopt); // MAVERICKS_BACKPORT: this password credential carries no keychain capability.
+    WebKit::CoreIPCNSURLCredential wrapper(WTF::move(credentialData), std::nullopt); // AQUAWEBKIT: this password credential carries no keychain capability.
     RetainPtr reconstructed = dynamic_objc_cast<NSURLCredential>(wrapper.toID().get());
     RetainPtr attributes = dynamic_objc_cast<NSDictionary>([[reconstructed _webKitPropertyListData] objectForKey:@"attributes"]);
     EXPECT_TRUE([[attributes objectForKey:@"key"] isEqual:@"value"]);
@@ -2131,7 +2131,7 @@ TEST(IPCSerialization, NSURLCredentialAttributesToID)
 
 #endif // HAVE(WK_SECURE_CODING_NSURLCREDENTIAL)
 
-#if USE(PASSKIT) // MAVERICKS_BACKPORT: PassKit payment fixtures.
+#if USE(PASSKIT) // AQUAWEBKIT: PassKit payment fixtures.
 @interface PKPaymentMerchantSession ()
 - (instancetype)initWithMerchantIdentifier:(NSString *)merchantIdentifier
                  merchantSessionIdentifier:(NSString *)merchantSessionIdentifier
@@ -2171,7 +2171,7 @@ TEST(IPCSerialization, NSURLCredentialAttributesToID)
                                   signature:(NSData *)signature;
 #endif
 @end
-#endif // MAVERICKS_BACKPORT: PassKit payment fixtures.
+#endif // AQUAWEBKIT: PassKit payment fixtures.
 
 TEST(IPCSerialization, DataDetectors)
 {
@@ -2191,7 +2191,7 @@ TEST(IPCSerialization, DataDetectors)
     runTestNS({ actionContext.get() });
 }
 
-#if USE(PASSKIT) // MAVERICKS_BACKPORT: PassKit secure-coding round trips.
+#if USE(PASSKIT) // AQUAWEBKIT: PassKit secure-coding round trips.
 TEST(IPCSerialization, SecureCoding)
 {
     // PKPaymentMerchantSession
@@ -2333,7 +2333,7 @@ TEST(IPCSerialization, SecureCoding)
     runTestNS({ payment.get() });
 }
 
-#endif // MAVERICKS_BACKPORT: PassKit secure-coding round trips.
+#endif // AQUAWEBKIT: PassKit secure-coding round trips.
 
 #if USE(PASSKIT) && HAVE(WK_SECURE_CODING_PKSHIPPINGMETHOD)
 TEST(IPCSerialization, PKShippingMethod)

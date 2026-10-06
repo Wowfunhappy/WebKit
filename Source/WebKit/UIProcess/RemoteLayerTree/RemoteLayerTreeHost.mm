@@ -24,7 +24,7 @@
  */
 
 #import "config.h"
-#import <WebCore/WebBackdropLayerMavericks.h> // MAVERICKS_BACKPORT: backend-owned native backdrop surfaces.
+#import <WebCore/WebBackdropLayerAquaWebKit.h> // AQUAWEBKIT: backend-owned native backdrop surfaces.
 #import "RemoteLayerTreeHost.h"
 
 #import "AuxiliaryProcessProxy.h"
@@ -301,7 +301,7 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
         }
     }
 
-// MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
+// AQUAWEBKIT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
 // stack, which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the
 // AVKit presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
@@ -460,7 +460,7 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
 
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
         // return makeWithLayer(adoptNS([[CABackdropLayer alloc] init]));
-        return makeWithLayer(adoptNS([[WebBackdropLayerMavericks alloc] init])); // MAVERICKS_BACKPORT: preserves native CALayer API semantics.
+        return makeWithLayer(adoptNS([[WebBackdropLayerAquaWebKit alloc] init])); // AQUAWEBKIT: preserves native CALayer API semantics.
 
 #if HAVE(CORE_MATERIAL)
     case PlatformCALayer::LayerType::LayerTypeMaterialLayer:
@@ -481,7 +481,7 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
         if (m_isDebugLayerTreeHost)
             return RemoteLayerTreeNode::createWithPlainLayer(*properties.layerID);
 
-// MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
+// AQUAWEBKIT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
 // stack, which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the
 // AVKit presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
 // A video layer therefore takes the plain remote-hosting path below, as any other custom layer does.

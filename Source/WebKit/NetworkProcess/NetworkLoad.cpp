@@ -28,7 +28,7 @@
 
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationManager.h"
-#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: didReceiveChallenge below.
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: didReceiveChallenge below.
 #include "MessageSenderInlines.h"
 #include "NetworkDataTaskBlob.h"
 #include "NetworkLoadClient.h"
@@ -232,7 +232,7 @@ void NetworkLoad::didReceiveChallenge(AuthenticationChallenge&& challenge, Negot
         return;
     }
 
-    if (LegacyExtensionNetwork::singleton().interceptAuthenticationChallenge(*this, challenge, negotiatedLegacyTLS, completionHandler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onAuthRequired.
+    if (LegacyExtensionNetwork::singleton().interceptAuthenticationChallenge(*this, challenge, negotiatedLegacyTLS, completionHandler)) // AQUAWEBKIT: Safari 7 extensions' webRequest.onAuthRequired.
         return;
 
     client->didReceiveChallenge(challenge);
@@ -263,7 +263,7 @@ void NetworkLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLega
     ASSERT(RunLoop::isMain());
 
     if (m_task && m_task->isDownload()) {
-        // MAVERICKS_BACKPORT: resume's destination is supplied and authorized by the download API.
+        // AQUAWEBKIT: resume's destination is supplied and authorized by the download API.
         if (m_parameters.downloadResume) {
             completionHandler(PolicyAction::Download);
             return;

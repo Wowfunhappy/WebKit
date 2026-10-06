@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 
 #import "config.h"
 #import "ObjCObjectGraph.h"
@@ -116,7 +116,7 @@ enum class ObjCType : uint8_t {
 
 namespace WTF {
 
-// MAVERICKS_BACKPORT: WTF validates decoded enums through an explicit isValidEnum specialization.
+// AQUAWEBKIT: WTF validates decoded enums through an explicit isValidEnum specialization.
 template<> bool isValidEnum<WebKit::ObjCType>(std::underlying_type_t<WebKit::ObjCType> value)
 {
     switch (static_cast<WebKit::ObjCType>(value)) {
@@ -168,7 +168,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 void ObjCObjectGraph::encode(IPC::Encoder& encoder, id object)
 {
     if (!object) {
-        // MAVERICKS_BACKPORT: encoded at ObjCType's own width, which is what decode() reads.
+        // AQUAWEBKIT: encoded at ObjCType's own width, which is what decode() reads.
         // encoder << static_cast<uint32_t>(ObjCType::Null);
         encoder << ObjCType::Null;
         return;
@@ -194,13 +194,13 @@ void ObjCObjectGraph::encode(IPC::Encoder& encoder, id object)
     }
 
     case ObjCType::NSData: {
-        // MAVERICKS_BACKPORT: the RetainPtr coder is the one decode() below reads with.
+        // AQUAWEBKIT: the RetainPtr coder is the one decode() below reads with.
         encoder << RetainPtr { static_cast<NSData *>(object) };
         return;
     }
 
     case ObjCType::NSDate: {
-        // MAVERICKS_BACKPORT: the RetainPtr coder is the one decode() below reads with.
+        // AQUAWEBKIT: the RetainPtr coder is the one decode() below reads with.
         encoder << RetainPtr { static_cast<NSDate *>(object) };
         return;
     }
@@ -217,19 +217,19 @@ void ObjCObjectGraph::encode(IPC::Encoder& encoder, id object)
     }
 
     case ObjCType::NSNumber: {
-        // MAVERICKS_BACKPORT: the RetainPtr coder is the one decode() below reads with.
+        // AQUAWEBKIT: the RetainPtr coder is the one decode() below reads with.
         encoder << RetainPtr { static_cast<NSNumber *>(object) };
         return;
     }
 
     case ObjCType::NSString: {
-        // MAVERICKS_BACKPORT: the RetainPtr coder is the one decode() below reads with.
+        // AQUAWEBKIT: the RetainPtr coder is the one decode() below reads with.
         encoder << RetainPtr { static_cast<NSString *>(object) };
         return;
     }
 
     case ObjCType::WKBrowsingContextHandle: {
-        // MAVERICKS_BACKPORT: the handle holds its page proxy ID as a Markable and its web page ID as a raw uint64_t.
+        // AQUAWEBKIT: the handle holds its page proxy ID as a Markable and its web page ID as a raw uint64_t.
         encoder << *static_cast<WKBrowsingContextHandle *>(object).pageProxyID;
         encoder << ObjectIdentifier<WebCore::PageIdentifierType>(static_cast<WKBrowsingContextHandle *>(object).webPageID);
         return;
@@ -237,7 +237,7 @@ void ObjCObjectGraph::encode(IPC::Encoder& encoder, id object)
 
     case ObjCType::WKTypeRefWrapper: {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        // MAVERICKS_BACKPORT: the wrapped API object travels through UserData's generated coder.
+        // AQUAWEBKIT: the wrapped API object travels through UserData's generated coder.
         encoder << UserData(RefPtr { toImpl(static_cast<WKTypeRefWrapper *>(object).object) });
 ALLOW_DEPRECATED_DECLARATIONS_END
         return;
@@ -249,7 +249,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
 {
-    // MAVERICKS_BACKPORT: IPC::Decoder decodes into std::optional.
+    // AQUAWEBKIT: IPC::Decoder decodes into std::optional.
     auto type = decoder.decode<ObjCType>();
     if (!type)
         return false;
@@ -261,7 +261,7 @@ bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
     }
 
     case ObjCType::NSArray: {
-        // MAVERICKS_BACKPORT: IPC::Decoder decodes into std::optional.
+        // AQUAWEBKIT: IPC::Decoder decodes into std::optional.
         auto size = decoder.decode<uint64_t>();
         if (!size)
             return false;
@@ -297,7 +297,7 @@ bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
     }
 
     case ObjCType::NSDictionary: {
-        // MAVERICKS_BACKPORT: IPC::Decoder decodes into std::optional.
+        // AQUAWEBKIT: IPC::Decoder decodes into std::optional.
         auto size = decoder.decode<uint64_t>();
         if (!size)
             return false;
@@ -356,7 +356,7 @@ bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
     }
 
     case ObjCType::WKTypeRefWrapper: {
-        // MAVERICKS_BACKPORT: the wrapped API object travels through UserData's generated coder.
+        // AQUAWEBKIT: the wrapped API object travels through UserData's generated coder.
         auto userData = decoder.decode<UserData>();
         if (!userData)
             return false;

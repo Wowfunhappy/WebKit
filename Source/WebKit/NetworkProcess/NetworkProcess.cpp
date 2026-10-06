@@ -40,7 +40,7 @@
 #if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
 #include "LegacyCustomProtocolManager.h"
 #endif
-#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: the constructor below.
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: the constructor below.
 #include "LoadedWebArchive.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcess.h"
@@ -202,7 +202,7 @@ NetworkProcess::NetworkProcess(AuxiliaryProcessInitializationParameters&& parame
 #if PLATFORM(COCOA) && ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
     LegacyCustomProtocolManager::networkProcessCreated(*this);
 #endif
-    LegacyExtensionNetwork::singleton().initialize(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.
+    LegacyExtensionNetwork::singleton().initialize(*this); // AQUAWEBKIT: Safari 7 extensions' webRequest.
 
     NetworkStateNotifier::singleton().addListener([weakThis = WeakPtr { *this }](bool isOnLine) {
         if (!weakThis)
@@ -2457,7 +2457,7 @@ void NetworkProcess::resumeDownload(PAL::SessionID sessionID, DownloadID downloa
 }
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: cancellation is ordered on the same thread as the download writer, before returning its resume dictionary.
+// AQUAWEBKIT: cancellation is ordered on the same thread as the download writer, before returning its resume dictionary.
 void NetworkProcess::cancelDownloadForLegacyResume(DownloadID downloadID, CompletionHandler<void(std::optional<CocoaDownloadResumeData>&&)>&& completionHandler)
 {
     cancelDownload(downloadID, [completionHandler = WTF::move(completionHandler)](std::span<const uint8_t> data) mutable {

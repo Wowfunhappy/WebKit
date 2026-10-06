@@ -36,7 +36,7 @@
 #include "CSSBorderRadius.h"
 #include "CSSBoxShadowPropertyValue.h"
 #include "CSSCalcTree+Parser.h"
-// MAVERICKS_BACKPORT: include CSSDashboardRegionValue.h — DASHBOARD_SUPPORT is enabled on 10.9 for the -webkit-dashboard-region parser below.
+// AQUAWEBKIT: include CSSDashboardRegionValue.h — DASHBOARD_SUPPORT is enabled on 10.9 for the -webkit-dashboard-region parser below.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #endif
@@ -271,7 +271,7 @@ std::optional<CSS::BorderImageSlice> consumeUnresolvedBorderImageSlice(CSSParser
     return CSS::BorderImageSlice {
         .values = completeQuadFromArray<CSS::BorderImageSlice::Edges>(WTF::move(values)),
         .fill = fill,
-        .legacyWebkitBorderImage = overridesSlice == BorderImageSliceOverride::AlwaysFill, // MAVERICKS_BACKPORT: explicit fill in standard CSS has standard border widths.
+        .legacyWebkitBorderImage = overridesSlice == BorderImageSliceOverride::AlwaysFill, // AQUAWEBKIT: explicit fill in standard CSS has standard border widths.
     };
 }
 
@@ -666,7 +666,7 @@ RefPtr<CSSValue> consumeWebkitBoxReflect(CSSParserTokenRange& range, CSS::Proper
 
 #if ENABLE(DASHBOARD_SUPPORT)
 
-// MARK: - Dashboard region (non-standard, MAVERICKS_BACKPORT)
+// MARK: - Dashboard region (non-standard, AQUAWEBKIT)
 
 // <'-webkit-dashboard-region'> = none | <dashboard-region>+
 //   <dashboard-region> = dashboard-region( <label-ident> [,]? circle | rectangle [,]? [ <length> | auto ]{4}? )

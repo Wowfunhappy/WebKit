@@ -314,14 +314,14 @@ void ControlMac::drawCellFocusRingInternal(GraphicsContext& context, const Float
     drawCellFocusRingInView(context, rect, cell, view.get());
 }
 
-// MAVERICKS_BACKPORT: defined in GraphicsContextCocoa.mm -- runs the drawing against a bitmap-backed
+// AQUAWEBKIT: defined in GraphicsContextCocoa.mm -- runs the drawing against a bitmap-backed
 // stand-in for the destination, because this OS's CoreGraphics drops a CGStyle from CoreAnimation's
 // asynchronous drawing context.
 void wkDrawInBitmapBackedContext(CGContextRef, void (^)(CGContextRef));
 
 void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell)
 {
-    // MAVERICKS_BACKPORT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
+    // AQUAWEBKIT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
     wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef scratch) {
     GraphicsContextCG scratchContext(scratch);
     RetainPtr cgContext = scratchContext.platformContext();
@@ -343,9 +343,9 @@ void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& re
     CGContextSetStyle(cgContext.get(), cgStyle.get());
 
     CGContextBeginTransparencyLayerWithRect(cgContext.get(), rect, nullptr);
-    drawCellFocusRingInternal(scratchContext, rect, deviceScaleFactor, style, cell); // MAVERICKS_BACKPORT: the cell mask draws into the stand-in opened above.
+    drawCellFocusRingInternal(scratchContext, rect, deviceScaleFactor, style, cell); // AQUAWEBKIT: the cell mask draws into the stand-in opened above.
     CGContextEndTransparencyLayer(cgContext.get());
-    }); // MAVERICKS_BACKPORT: closes the bitmap-backed drawing block opened above.
+    }); // AQUAWEBKIT: closes the bitmap-backed drawing block opened above.
 }
 
 void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell, bool drawCell)
@@ -395,7 +395,7 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
 
     const FloatSize comboBoxSize { 40, 19 };
 
-    // MAVERICKS_BACKPORT: this OS's CoreUI draws kCUIWidgetButtonComboBox as the WHOLE combo box — text
+    // AQUAWEBKIT: this OS's CoreUI draws kCUIWidgetButtonComboBox as the WHOLE combo box — text
     // well on the left, a 19x19 arrow button (borders included, down-triangle centered on it) filling the
     // right end of the 40x19 art — where the modern art upstream's crop constants describe keeps a 16x16
     // button at inset (5,1) of the mirrored image. Cropping the modern region out of the 10.9 art
@@ -431,14 +431,14 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
 
     auto& comboBoxButtonContext = comboBoxButtonImageBuffer->context();
 
-    // MAVERICKS_BACKPORT: map the 19x19 source button onto the 12x12 slot and draw the art upright — the
+    // AQUAWEBKIT: map the 19x19 source button onto the 12x12 slot and draw the art upright — the
     // modern path's OriginBottomRight orientation and (5,1) inset describe the modern art's mirrored
     // layout, not this one's (see the constants above).
     comboBoxButtonContext.scale(desiredComboBoxButtonSize.width() / comboBoxButtonSourceRect.width());
     comboBoxButtonContext.clipRoundedRect(FloatRoundedRect(FloatRect(FloatPoint::zero(), comboBoxButtonSourceRect.size()), CornerRadii(comboBoxButtonCornerRadii)));
     comboBoxButtonContext.translate(-comboBoxButtonSourceRect.x(), -comboBoxButtonSourceRect.y());
     comboBoxButtonContext.drawConsumingImageBuffer(WTF::move(comboBoxImageBuffer), FloatPoint::zero());
-/* MAVERICKS_BACKPORT: upstream's crop, which fits the modern combo-box art (see above).
+/* AQUAWEBKIT: upstream's crop, which fits the modern combo-box art (see above).
     const FloatSize comboBoxButtonSize { 16, 16 };
     const FloatPoint comboBoxButtonInset { 5, 1 };
     constexpr auto comboBoxButtonCornerRadii = 4;
@@ -446,7 +446,7 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
     comboBoxButtonContext.clipRoundedRect(FloatRoundedRect(FloatRect(FloatPoint::zero(), comboBoxButtonSize), CornerRadii(comboBoxButtonCornerRadii)));
     comboBoxButtonContext.translate(comboBoxButtonInset.scaled(-1));
     comboBoxButtonContext.drawConsumingImageBuffer(WTF::move(comboBoxImageBuffer), FloatPoint::zero(), ImagePaintingOptions { ImageOrientation::Orientation::OriginBottomRight });
-MAVERICKS_BACKPORT */
+AQUAWEBKIT */
 
     auto isVerticalWritingMode = style.states.contains(ControlStyle::State::VerticalWritingMode);
 

@@ -81,7 +81,7 @@ static NSOperationQueue *operationQueueForAsyncClients()
     return queue.get().get();
 }
 
-// MAVERICKS_BACKPORT: an asynchronous connection calls back on the main run loop, in the modes its
+// AQUAWEBKIT: an asynchronous connection calls back on the main run loop, in the modes its
 // context is scheduled in (WebView schedules the common modes), and its delegate runs the callbacks'
 // work in place. A connection with no such mode takes the main run loop's default mode when it starts.
 static void scheduleOnContextRunLoops(NSURLConnection *connection, WebCoreResourceHandleAsOperationQueueDelegate *delegate, NetworkingContext& context)
@@ -99,7 +99,7 @@ ResourceHandleInternal::~ResourceHandleInternal() = default;
 
 ResourceHandle::~ResourceHandle()
 {
-    // MAVERICKS_BACKPORT: clear the policy client before queued curl callbacks can observe destruction.
+    // AQUAWEBKIT: clear the policy client before queued curl callbacks can observe destruction.
     if (d->m_cocoaCurlHandle)
         d->m_cocoaCurlHandle->detach();
     releaseDelegate();
@@ -145,14 +145,14 @@ NSURLRequest *ResourceHandle::applySniffingPoliciesIfNeeded(NSURLRequest *reques
 }
 
 #if !PLATFORM(IOS_FAMILY)
-// MAVERICKS_BACKPORT: see continueRedirectOnNewConnection.
+// AQUAWEBKIT: see continueRedirectOnNewConnection.
 // void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, SchedulingBehavior schedulingBehavior)
 void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, SchedulingBehavior schedulingBehavior, ResourceRequest* redirectedRequest)
 #else
 void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy contentEncodingSniffingPolicy, SchedulingBehavior schedulingBehavior, NSDictionary *connectionProperties)
 #endif
 {
-    // MAVERICKS_BACKPORT: a redirect that continues on a new connection supplies its own request.
+    // AQUAWEBKIT: a redirect that continues on a new connection supplies its own request.
 #if !PLATFORM(IOS_FAMILY)
     auto& request = redirectedRequest ? *redirectedRequest : firstRequest();
 #else
@@ -160,45 +160,45 @@ void ResourceHandle::createNSURLConnection(id delegate, bool shouldUseCredential
 #endif
 
     // Credentials for ftp can only be passed in URL, the connection:didReceiveAuthenticationChallenge: delegate call won't be made.
-    // MAVERICKS_BACKPORT: request in place of firstRequest(), above.
+    // AQUAWEBKIT: request in place of firstRequest(), above.
     // if ((!d->m_user.isEmpty() || !d->m_password.isEmpty()) && !firstRequest().url().protocolIsInHTTPFamily()) {
     //     URL urlWithCredentials(firstRequest().url());
     if ((!d->m_user.isEmpty() || !d->m_password.isEmpty()) && !request.url().protocolIsInHTTPFamily()) {
         URL urlWithCredentials(request.url());
         urlWithCredentials.setUser(d->m_user);
         urlWithCredentials.setPassword(d->m_password);
-        // firstRequest().setURL(WTF::move(urlWithCredentials)); // MAVERICKS_BACKPORT: request, above.
+        // firstRequest().setURL(WTF::move(urlWithCredentials)); // AQUAWEBKIT: request, above.
         request.setURL(WTF::move(urlWithCredentials));
     }
 
-    // MAVERICKS_BACKPORT: request in place of firstRequest(), above.
+    // AQUAWEBKIT: request in place of firstRequest(), above.
     // if (shouldUseCredentialStorage && firstRequest().url().protocolIsInHTTPFamily()) {
     if (shouldUseCredentialStorage && request.url().protocolIsInHTTPFamily()) {
         if (d->m_user.isEmpty() && d->m_password.isEmpty()) {
             // <rdar://problem/7174050> - For URLs that match the paths of those previously challenged for HTTP Basic authentication,
             // try and reuse the credential preemptively, as allowed by RFC 2617.
             if (auto* networkStorageSession = protect(d->m_context)->storageSession())
-                // d->m_initialCredential = networkStorageSession->credentialStorage().get(firstRequest().cachePartition(), firstRequest().url()); // MAVERICKS_BACKPORT: request, above.
+                // d->m_initialCredential = networkStorageSession->credentialStorage().get(firstRequest().cachePartition(), firstRequest().url()); // AQUAWEBKIT: request, above.
                 d->m_initialCredential = networkStorageSession->credentialStorage().get(request.cachePartition(), request.url());
         } else {
             // If there is already a protection space known for the URL, update stored credentials before sending a request.
             // This makes it possible to implement logout by sending an XMLHttpRequest with known incorrect credentials, and aborting it immediately
             // (so that an authentication dialog doesn't pop up).
             if (auto* networkStorageSession = protect(d->m_context)->storageSession())
-                // networkStorageSession->credentialStorage().set(firstRequest().cachePartition(), Credential(d->m_user, d->m_password, CredentialPersistence::None), firstRequest().url()); // MAVERICKS_BACKPORT: request, above.
+                // networkStorageSession->credentialStorage().set(firstRequest().cachePartition(), Credential(d->m_user, d->m_password, CredentialPersistence::None), firstRequest().url()); // AQUAWEBKIT: request, above.
                 networkStorageSession->credentialStorage().set(request.cachePartition(), Credential(d->m_user, d->m_password, CredentialPersistence::None), request.url());
         }
     }
 
-    // MAVERICKS_BACKPORT: request in place of firstRequest(), above.
+    // AQUAWEBKIT: request in place of firstRequest(), above.
     // if (!d->m_initialCredential.isEmpty() && !firstRequest().hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
     if (!d->m_initialCredential.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
         // FIXME: Support Digest authentication, and Proxy-Authorization.
-        // applyBasicAuthorizationHeader(firstRequest(), d->m_initialCredential); // MAVERICKS_BACKPORT: request, above.
+        // applyBasicAuthorizationHeader(firstRequest(), d->m_initialCredential); // AQUAWEBKIT: request, above.
         applyBasicAuthorizationHeader(request, d->m_initialCredential);
     }
 
-    // RetainPtr nsRequest = firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody); // MAVERICKS_BACKPORT: request, above.
+    // RetainPtr nsRequest = firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody); // AQUAWEBKIT: request, above.
     RetainPtr nsRequest = request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
     nsRequest = applySniffingPoliciesIfNeeded(nsRequest.get(), shouldContentSniff, contentEncodingSniffingPolicy);
 
@@ -266,11 +266,11 @@ bool ResourceHandle::start()
     if (!context)
         return false;
 
-    // MAVERICKS_BACKPORT: the page/context validity gate applies before selecting either native protocol or HTTP transport.
+    // AQUAWEBKIT: the page/context validity gate applies before selecting either native protocol or HTTP transport.
     if (!context->isValid())
         return false;
 
-    // MAVERICKS_BACKPORT: every legacy HTTP request uses the storage session's curl worker pool.
+    // AQUAWEBKIT: every legacy HTTP request uses the storage session's curl worker pool.
     if (firstRequest().url().protocolIsInHTTPFamily()) {
         auto* storage = context->storageSession();
         if (!storage)
@@ -287,7 +287,7 @@ bool ResourceHandle::start()
 
     // If NetworkingContext is invalid then we are no longer attached to a Page,
     // this must be an attempted load from an unload event handler, so let's just block it.
-    // MAVERICKS_BACKPORT: checked before the HTTP/native transport selection above.
+    // AQUAWEBKIT: checked before the HTTP/native transport selection above.
     // if (!context->isValid())
     //     return false;
 
@@ -316,7 +316,7 @@ bool ResourceHandle::start()
         (NSDictionary *)client()->connectionProperties(this).get());
 #endif
 
-    // MAVERICKS_BACKPORT: see scheduleOnContextRunLoops.
+    // AQUAWEBKIT: see scheduleOnContextRunLoops.
     // [connection() setDelegateQueue:operationQueueForAsyncClients()];
     scheduleOnContextRunLoops(connection(), d->m_delegate.get(), *context);
     [connection() start];
@@ -325,11 +325,11 @@ bool ResourceHandle::start()
     LOG(Network, "Handle %p starting connection %p for %@", this, connection(), firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody));
 
     if (d->m_connection) {
-        // MAVERICKS_BACKPORT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
+        // AQUAWEBKIT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
         // if (d->m_defersLoading)
         //     connection().defersCallbacks = YES;
         if (d->m_defersLoading)
-            [d->m_delegate.get() setDefersLoading:YES connection:connection()]; // MAVERICKS_BACKPORT: see above.
+            [d->m_delegate.get() setDefersLoading:YES connection:connection()]; // AQUAWEBKIT: see above.
 
         return true;
     }
@@ -341,7 +341,7 @@ bool ResourceHandle::start()
 
 void ResourceHandle::cancel()
 {
-    // MAVERICKS_BACKPORT: cancel the HTTP worker without invoking NSURLConnection.
+    // AQUAWEBKIT: cancel the HTTP worker without invoking NSURLConnection.
     if (d->m_cocoaCurlHandle) {
         d->m_cocoaCurlHandle->cancel();
         return;
@@ -357,22 +357,22 @@ void ResourceHandle::cancel()
 
 void ResourceHandle::platformSetDefersLoading(bool defers)
 {
-    // MAVERICKS_BACKPORT: retain the legacy deferral contract on the curl transaction.
+    // AQUAWEBKIT: retain the legacy deferral contract on the curl transaction.
     if (d->m_cocoaCurlHandle) {
         d->m_cocoaCurlHandle->setDefersLoading(defers);
         return;
     }
-    // MAVERICKS_BACKPORT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
+    // AQUAWEBKIT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
     // if (d->m_connection)
     //     [d->m_connection setDefersCallbacks:defers];
     if (d->m_connection)
-        [d->m_delegate.get() setDefersLoading:defers connection:d->m_connection.get()]; // MAVERICKS_BACKPORT: see above.
+        [d->m_delegate.get() setDefersLoading:defers connection:d->m_connection.get()]; // AQUAWEBKIT: see above.
 }
 
 void ResourceHandle::schedule(SchedulePair& pair)
 {
     NSRunLoop *runLoop = pair.nsRunLoop();
-    // MAVERICKS_BACKPORT: see scheduleOnContextRunLoops.
+    // AQUAWEBKIT: see scheduleOnContextRunLoops.
     // if (!runLoop)
     if (runLoop != [NSRunLoop mainRunLoop])
         return;
@@ -412,13 +412,13 @@ void ResourceHandle::releaseDelegate()
     d->m_delegate = nil;
 }
 
-// MAVERICKS_BACKPORT: expose only the curl policy adapter for HTTP download adoption.
+// AQUAWEBKIT: expose only the curl policy adapter for HTTP download adoption.
 CocoaCurlResourceHandle* ResourceHandle::cocoaCurlHandle() const
 {
     return d->m_cocoaCurlHandle.get();
 }
 
-// MAVERICKS_BACKPORT: see the declaration.
+// AQUAWEBKIT: see the declaration.
 void ResourceHandle::continueRedirectOnCocoaCurl(ResourceRequest&& request, RefPtr<SynchronousLoaderMessageQueue>&& queue)
 {
     [d->m_connection.get() cancel];
@@ -484,7 +484,7 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
         return;
     }
 
-    // MAVERICKS_BACKPORT: the synchronous caller processes only its loader queue, while curl performs I/O on its worker.
+    // AQUAWEBKIT: the synchronous caller processes only its loader queue, while curl performs I/O on its worker.
     if (request.url().protocolIsInHTTPFamily()) {
         auto* storage = context->storageSession();
         handle->d->m_cocoaCurlHandle = CocoaCurlResourceHandle::create(*handle, *storage, &client.messageQueue());

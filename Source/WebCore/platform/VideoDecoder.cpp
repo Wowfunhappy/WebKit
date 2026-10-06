@@ -108,7 +108,7 @@ void VideoDecoder::createLocalDecoder(const String& codecName, const Config& con
         return;
     }
 #endif
-#endif // MAVERICKS_BACKPORT: closes the USE(LIBWEBRTC) && PLATFORM(COCOA) block, which upstream
+#endif // AQUAWEBKIT: closes the USE(LIBWEBRTC) && PLATFORM(COCOA) block, which upstream
 // continues as `#elif USE(GSTREAMER)`. That either/or does not describe this port: it is
 // PLATFORM(COCOA) with USE(LIBWEBRTC), and GStreamer is its media engine. Ending the block here lets
 // a codec the arm above does not claim reach the GStreamer decoder below, which is also the only
@@ -120,7 +120,7 @@ void VideoDecoder::createLocalDecoder(const String& codecName, const Config& con
     return;
 #endif
 
-#if !(USE(LIBWEBRTC) && PLATFORM(COCOA)) && !USE(GSTREAMER) // MAVERICKS_BACKPORT: upstream spells this arm `#else`.
+#if !(USE(LIBWEBRTC) && PLATFORM(COCOA)) && !USE(GSTREAMER) // AQUAWEBKIT: upstream spells this arm `#else`.
     UNUSED_PARAM(codecName);
     UNUSED_PARAM(config);
     UNUSED_PARAM(outputCallback);

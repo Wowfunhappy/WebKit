@@ -78,7 +78,7 @@ NSBezelStyle ButtonMac::bezelStyle(const FloatRect& rect, const ControlStyle& st
     if (m_owningPart.get()->type() == StyleAppearance::SquareButton)
         return NSBezelStyleShadowlessSquare;
 
-    // MAVERICKS_BACKPORT: limit against the height the rounded (Aqua gel) bezel is actually DRAWN at, not
+    // AQUAWEBKIT: limit against the height the rounded (Aqua gel) bezel is actually DRAWN at, not
     // cellSize(). Upstream's rule is "use the flat bezel once the frame is taller than the rounded bezel
     // can occupy" and it approximates that height with cellSize(); on 10.9 the gel does not stretch, so
     // the two differ. -drawBezelWithFrame: paints a fixed-height pill centred in whatever frame it gets:

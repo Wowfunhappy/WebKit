@@ -93,7 +93,7 @@ const TestFeatures& TestOptions::defaults()
             { "MediaDevicesEnabled", true },
             { "MediaPreloadingEnabled", true },
             { "MediaRecorderEnabled", true },
-            // MAVERICKS_BACKPORT: Match WebKitTestRunner's deterministic capture devices.
+            // AQUAWEBKIT: Match WebKitTestRunner's deterministic capture devices.
             { "MockCaptureDevicesEnabled", true },
             { "MockScrollbarsEnabled", true },
             { "NeedsStorageAccessFromFileURLsQuirk", false },

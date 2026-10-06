@@ -43,7 +43,7 @@
 #include "SpeechRecognitionServer.h"
 #include "UserContentControllerIdentifier.h"
 #include "VisibleWebPageCounter.h"
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 #include "WebConnectionToWebProcess.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebPermissionControllerProxy.h"
@@ -130,7 +130,7 @@ class AudioSessionRoutingArbitratorProxy;
 class FrameState;
 class JavaScriptEvaluationResult;
 class ModelProcessProxy;
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 class ObjCObjectGraph;
 class ProvisionalPageProxy;
 class RemotePageProxy;
@@ -219,7 +219,7 @@ public:
 
     void initializeWebProcess(WebProcessCreationParameters&&);
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     WebConnection* webConnection() const { return m_webConnection.get(); }
     RefPtr<WebConnection> protectedWebConnection() const { return m_webConnection; }
 
@@ -384,7 +384,7 @@ public:
     RefPtr<API::Object> transformHandlesToObjects(API::Object*);
     static RefPtr<API::Object> transformObjectsToHandles(API::Object*);
 
-    // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+    // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
     RefPtr<ObjCObjectGraph> transformHandlesToObjects(ObjCObjectGraph&);
     static RefPtr<ObjCObjectGraph> transformObjectsToHandles(ObjCObjectGraph&);
@@ -745,7 +745,7 @@ private:
     void processDidTerminateOrFailedToLaunch(ProcessTerminationReason);
 
     // IPC::Connection::Client
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     friend class WebConnectionToWebProcess;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
@@ -843,7 +843,7 @@ private:
 
     const UniqueRef<BackgroundProcessResponsivenessTimer> m_backgroundResponsivenessTimer;
     
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     RefPtr<WebConnectionToWebProcess> m_webConnection;
     WeakOrStrongPtr<WebProcessPool> m_processPool; // Pre-warmed and cached processes do not hold a strong reference to their pool.
 

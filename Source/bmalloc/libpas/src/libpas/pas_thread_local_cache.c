@@ -160,7 +160,7 @@ static void destructor(void* arg)
     if (pas_process_is_shutting_down())
         return;
 
-// MAVERICKS_BACKPORT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h).
+// AQUAWEBKIT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h).
 // #if !PAS_OS(DARWIN)
 #if !PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP
     /* If pthread_self_is_exiting_np does not exist, we set PAS_THREAD_LOCAL_CACHE_DESTROYED in the TLS so that

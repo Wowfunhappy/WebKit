@@ -38,10 +38,10 @@
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessPool.h"
-#import <pal/spi/cf/CFNetworkSPI.h> // MAVERICKS_BACKPORT: Safari 7 HSTS host query.
+#import <pal/spi/cf/CFNetworkSPI.h> // AQUAWEBKIT: Safari 7 HSTS host query.
 #import <wtf/MainThread.h>
 
-// MAVERICKS_BACKPORT: Safari 7 asks this C API whether a host is a known HSTS host; the polyfill's
+// AQUAWEBKIT: Safari 7 asks this C API whether a host is a known HSTS host; the polyfill's
 // _CFNetworkIsKnownHSTSHostWithSession answers from the port's HSTS store.
 bool WKPageIsURLKnownHSTSHost(WKPageRef, WKURLRef urlRef)
 {

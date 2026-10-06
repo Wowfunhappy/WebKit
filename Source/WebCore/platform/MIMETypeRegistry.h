@@ -88,7 +88,7 @@ public:
 
     // Check to see if a MIME type is a text media playlist type, such as an m3u8.
     // static bool isTextMediaPlaylistMIMEType(const String& mimeType);
-    WEBCORE_EXPORT static bool isTextMediaPlaylistMIMEType(const String& mimeType); // MAVERICKS_BACKPORT: WebKit navigation policy checks GStreamer playlist responses.
+    WEBCORE_EXPORT static bool isTextMediaPlaylistMIMEType(const String& mimeType); // AQUAWEBKIT: WebKit navigation policy checks GStreamer playlist responses.
 
     // Check to see if a non-image MIME type is suitable for being loaded as a
     // document in a frame. Does not include supported JavaScript and JSON MIME types.

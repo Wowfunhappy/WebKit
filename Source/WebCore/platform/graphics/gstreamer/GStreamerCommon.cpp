@@ -41,9 +41,9 @@
 #include <fnmatch.h>
 #include <mutex>
 #include <wtf/FileSystem.h>
-// MAVERICKS_BACKPORT: where this port keeps its plugin registry, and the main-run-loop GLib context.
-#include "GLibMainContextMavericks.h"
-#include "GStreamerPackagingMavericks.h"
+// AQUAWEBKIT: where this port keeps its plugin registry, and the main-run-loop GLib context.
+#include "GLibMainContextAquaWebKit.h"
+#include "GStreamerPackagingAquaWebKit.h"
 #include <wtf/HashMap.h>
 #include <wtf/MallocSpan.h>
 #include <wtf/MediaTime.h>
@@ -86,7 +86,7 @@
 #include "WebKitFliteSourceGStreamer.h"
 #endif
 
-// MAVERICKS_BACKPORT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h),
+// AQUAWEBKIT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h),
 // the Widevine decryptor (see WebKitWidevineDecryptorGStreamer.h) and the Widevine video decoder
 // (see WebKitWidevineVideoDecoderGStreamer.h).
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -471,10 +471,10 @@ bool ensureGStreamerInitializedNonWebProcess()
 #if OS(ANDROID)
         gst_registry_fork_set_enabled(FALSE);
 #endif
-        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it and scan
+        // AQUAWEBKIT: site the plugin registry where a sandboxed process can write it and scan
         // in-process; both must be set before gst_init() reads them.
         configureGStreamerCacheLocation();
-        attachGLibMainContextToMainRunLoop(); // MAVERICKS_BACKPORT: serves the default GMainContext's sources, such as bus watches.
+        attachGLibMainContextToMainRunLoop(); // AQUAWEBKIT: serves the default GMainContext's sources, such as bus watches.
 
         GUniqueOutPtr<GError> error;
         isGStreamerInitialized = gst_init_check(nullptr, nullptr, &error.outPtr());
@@ -489,7 +489,7 @@ bool ensureGStreamerInitialized()
 {
     // WARNING: Please note this function can be called from any thread, for instance when creating
     // a WebCodec element from a JS Worker.
-    // MAVERICKS_BACKPORT: widened from upstream's RELEASE_ASSERT(isInWebProcess()). Upstream's
+    // AQUAWEBKIT: widened from upstream's RELEASE_ASSERT(isInWebProcess()). Upstream's
     // invariant is that GStreamer initializes only in the WebProcess, which holds for ports whose
     // only in-process renderer is the WebProcess. WebKitLegacy hosts render in-process too
     // (Dictionary's panel, Mail's inline attachments, Dashboard web clips); !processType() is a
@@ -506,10 +506,10 @@ bool ensureGStreamerInitialized()
 #if OS(ANDROID)
         gst_registry_fork_set_enabled(FALSE);
 #endif
-        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it and scan
+        // AQUAWEBKIT: site the plugin registry where a sandboxed process can write it and scan
         // in-process; both must be set before gst_init() reads them.
         configureGStreamerCacheLocation();
-        attachGLibMainContextToMainRunLoop(); // MAVERICKS_BACKPORT: serves the default GMainContext's sources, such as bus watches.
+        attachGLibMainContextToMainRunLoop(); // AQUAWEBKIT: serves the default GMainContext's sources, such as bus watches.
 
         // USE_PLAYBIN3 is dangerous for us because its potential sneaky effect
         // is to register the playbin3 element under the playbin namespace. We
@@ -585,14 +585,14 @@ void registerWebKitGStreamerElements()
         //   is an alternative outside of WebKit.
         // - Use GST_RANK_NONE for elements explicitely created by WebKit (no auto-plugging).
 
-// MAVERICKS_BACKPORT: the ClearKey decryptor, restored from upstream before 4694d7d.
+// AQUAWEBKIT: the ClearKey decryptor, restored from upstream before 4694d7d.
 #if ENABLE(ENCRYPTED_MEDIA)
         gst_element_register(nullptr, "webkitclearkey", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_CK_DECRYPT);
-        // MAVERICKS_BACKPORT: the Widevine decryptor. Which of the two decryptors serves a stream
+        // AQUAWEBKIT: the Widevine decryptor. Which of the two decryptors serves a stream
         // is decided by the active key system in MediaPlayerPrivateGStreamer's autoplug-select
         // handler, not by rank, so one with no CDM behind it is never plugged.
         gst_element_register(nullptr, "webkitwidevine", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_WV_DECRYPT);
-        // MAVERICKS_BACKPORT: encrypted H.264 and VP9, which the CDM decodes itself. Its sink
+        // AQUAWEBKIT: encrypted H.264 and VP9, which the CDM decodes itself. Its sink
         // caps are the media types the decryptor beside it leaves out, so the two never contend
         // for a stream.
         gst_element_register(nullptr, "webkitwidevinevideodec", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_WV_VIDEO_DECODE);
@@ -849,7 +849,7 @@ GstClockTime toGstClockTime(const Seconds& seconds)
     return toGstClockTime(MediaTime::createWithDouble(seconds.seconds()));
 }
 
-// MAVERICKS_BACKPORT(upstreamable): see GStreamerCommon.h.
+// AQUAWEBKIT(upstreamable): see GStreamerCommon.h.
 GstClockTime toValidGstClockTime(const MediaTime& mediaTime)
 {
     if (mediaTime < MediaTime::zeroTime())
@@ -862,7 +862,7 @@ MediaTime fromGstClockTime(GstClockTime time)
     if (!GST_CLOCK_TIME_IS_VALID(time))
         return WTF::MediaTime::invalidTime();
 
-    // MAVERICKS_BACKPORT: rounds to the nearest microsecond, the rounding SourceBuffer applies to a timestampOffset
+    // AQUAWEBKIT: rounds to the nearest microsecond, the rounding SourceBuffer applies to a timestampOffset
     // (TrackBuffer's roundTowardsTimeScaleWithRoundingMargin), so a frame aligned to a microsecond time lands on it.
     // return WTF::MediaTime(GST_TIME_AS_USECONDS(time), G_USEC_PER_SEC);
     return WTF::MediaTime(static_cast<int64_t>(time), GST_SECOND).toTimeScale(G_USEC_PER_SEC);

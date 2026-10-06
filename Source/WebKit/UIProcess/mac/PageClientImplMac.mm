@@ -412,7 +412,7 @@ void PageClientImpl::registerInsertionUndoGrouping()
     registerInsertionUndoGroupingWithUndoManager(retainPtr([m_view.get() undoManager]).get());
 }
 
-// MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
+// AQUAWEBKIT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
 #if ENABLE(PDF_HUD)
 void PageClientImpl::createPDFHUD(PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, const WebCore::IntRect& rect)
 {
@@ -438,7 +438,7 @@ void PageClientImpl::showPDFHUD(PDFPluginIdentifier identifier)
 {
     protect(m_impl)->showPDFHUD(identifier);
 }
-#endif // MAVERICKS_BACKPORT: inline PDF HUD methods.
+#endif // AQUAWEBKIT: inline PDF HUD methods.
 
 void PageClientImpl::clearAllEditCommands()
 {
@@ -751,7 +751,7 @@ void PageClientImpl::showCorrectionPanel(AlternativeTextType type, const FloatRe
 #if USE(AUTOCORRECTION_PANEL)
     if (!isActiveViewVisible() || !isViewInWindow())
         return;
-    // MAVERICKS_BACKPORT: the panel takes the page (see CorrectionPanel.h).
+    // AQUAWEBKIT: the panel takes the page (see CorrectionPanel.h).
     m_correctionPanel.show(m_view.get().get(), protect(m_impl)->page(), type, boundingBoxOfReplacedString, replacedString, replacementString, alternativeReplacementStrings);
 #endif
 }
@@ -790,7 +790,7 @@ static inline NSCorrectionResponse NODELETE toCorrectionResponse(AutocorrectionR
 void PageClientImpl::recordAutocorrectionResponse(AutocorrectionResponse response, const String& replacedString, const String& replacementString)
 {
     CheckedRef impl = *m_impl;
-    // MAVERICKS_BACKPORT: the panel takes the page (see CorrectionPanel.h).
+    // AQUAWEBKIT: the panel takes the page (see CorrectionPanel.h).
     CorrectionPanel::recordAutocorrectionResponse(impl->page(), impl->spellCheckerDocumentTag(), toCorrectionResponse(response), replacedString, replacementString);
 }
 

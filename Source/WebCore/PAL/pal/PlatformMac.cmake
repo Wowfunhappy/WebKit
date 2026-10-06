@@ -44,5 +44,5 @@ list(APPEND PAL_UNIFIED_SOURCE_LIST_FILES
     "SourcesMac.txt"
 )
 
-# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/PALPlatformMavericks.cmake.
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/PALPlatformMavericks.cmake)
+# AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/PALPlatformAquaWebKit.cmake.
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/PALPlatformAquaWebKit.cmake)

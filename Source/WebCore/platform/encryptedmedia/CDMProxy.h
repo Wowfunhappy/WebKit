@@ -247,7 +247,7 @@ public:
 
     virtual ~CDMProxy() = default;
 
-    // MAVERICKS_BACKPORT: a decryptor element receives its CDMProxy as an untyped GstContext pointer
+    // AQUAWEBKIT: a decryptor element receives its CDMProxy as an untyped GstContext pointer
     // and casts it to its own proxy type. This port builds two CENC decryptors (ClearKey and
     // Widevine) behind that one context, so each checks the key system here before casting.
     const String& keySystem() const LIFETIME_BOUND { return m_keySystem; }
@@ -258,7 +258,7 @@ public:
     void abortWaitingForKey() const;
 
 protected:
-    // MAVERICKS_BACKPORT: a proxy names its key system (see keySystem() above); one that names none
+    // AQUAWEBKIT: a proxy names its key system (see keySystem() above); one that names none
     // has an empty key system, which no decryptor accepts.
     CDMProxy() = default;
     explicit CDMProxy(const String& keySystem)
@@ -272,16 +272,16 @@ protected:
     std::optional<Ref<KeyHandle>> tryWaitForKeyHandle(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
     std::optional<Ref<KeyHandle>> getOrWaitForKeyHandle(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
     std::optional<KeyHandleValueVariant> getOrWaitForKeyValue(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
-    // MAVERICKS_BACKPORT: key-wait notifications and teardown share the instance lock.
+    // AQUAWEBKIT: key-wait notifications and teardown share the instance lock.
     void startedWaitingForKey() const WTF_REQUIRES_LOCK(m_instanceLock);
     void stoppedWaitingForKey() const WTF_REQUIRES_LOCK(m_instanceLock);
     const CDMInstanceProxy* instance() const;
 
 private:
-    const String m_keySystem; // MAVERICKS_BACKPORT: see keySystem() above.
+    const String m_keySystem; // AQUAWEBKIT: see keySystem() above.
 
     mutable Lock m_instanceLock;
-    // MAVERICKS_BACKPORT: teardown cancels key waits and drains their instance notifications.
+    // AQUAWEBKIT: teardown cancels key waits and drains their instance notifications.
     std::atomic<bool> m_instanceIsDetaching { false };
     mutable unsigned m_pendingKeyWaits WTF_GUARDED_BY_LOCK(m_instanceLock) { 0 };
     mutable Condition m_instanceCondition;

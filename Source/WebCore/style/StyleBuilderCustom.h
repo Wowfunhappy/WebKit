@@ -30,7 +30,7 @@
 #include "AnchorPositionEvaluator.h"
 #include "CSSCounterStyleRegistry.h"
 #include "CSSCounterStyleRule.h"
-// MAVERICKS_BACKPORT: Dashboard-region value/style headers for the DASHBOARD_SUPPORT -apple-dashboard-region builders below.
+// AQUAWEBKIT: Dashboard-region value/style headers for the DASHBOARD_SUPPORT -apple-dashboard-region builders below.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #include "StyleDashboardRegion.h"
@@ -237,7 +237,7 @@ public:
 #endif
     static void applyValueWebkitTextZoom(BuilderState&, CSSValue&);
 #if ENABLE(DASHBOARD_SUPPORT)
-    static void applyInitialWebkitDashboardRegion(BuilderState&); // MAVERICKS_BACKPORT
+    static void applyInitialWebkitDashboardRegion(BuilderState&); // AQUAWEBKIT
     static void applyInheritWebkitDashboardRegion(BuilderState&);
     static void applyValueWebkitDashboardRegion(BuilderState&, CSSValue&);
 #endif
@@ -552,7 +552,7 @@ inline void BuilderCustom::applyValueWebkitTextZoom(BuilderState& builderState, 
 
 #if ENABLE(DASHBOARD_SUPPORT)
 
-// MAVERICKS_BACKPORT: legacy -apple-dashboard-region control regions. The style keeps each region's label,
+// AQUAWEBKIT: legacy -apple-dashboard-region control regions. The style keeps each region's label,
 // geometry type and four offsets; the rect itself is computed against the border box at collection time.
 inline void BuilderCustom::applyInitialWebkitDashboardRegion(BuilderState& builderState)
 {

@@ -44,7 +44,7 @@ bool WKDictionarySetItem(WKMutableDictionaryRef dictionaryRef, WKStringRef keyRe
     return protect(WebKit::toImpl(dictionaryRef))->set(protect(WebKit::toImpl(keyRef))->string(), WebKit::toImpl(itemRef));
 }
 
-// MAVERICKS_BACKPORT: removed upstream, still used by Safari 7 to build message
+// AQUAWEBKIT: removed upstream, still used by Safari 7 to build message
 // dictionaries (e.g. extension messaging). Adds only if the key is absent,
 // matching the original semantics.
 extern "C" WK_EXPORT bool WKDictionaryAddItem(WKMutableDictionaryRef, WKStringRef, WKTypeRef);

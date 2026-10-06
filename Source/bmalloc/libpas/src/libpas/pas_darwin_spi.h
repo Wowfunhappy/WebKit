@@ -44,7 +44,7 @@ PAS_END_EXTERN_C;
 
 #endif /* PAS_OS(DARWIN) */
 
-/* MAVERICKS_BACKPORT: pthread_self_is_exiting_np is a 10.15 SPI, so a macOS deployment target older
+/* AQUAWEBKIT: pthread_self_is_exiting_np is a 10.15 SPI, so a macOS deployment target older
    than that has no such symbol to call however the SDK declares it. libpas already carries a second,
    SPI-free way to answer the same question -- the PAS_THREAD_LOCAL_CACHE_DESTROYED sentinel written
    back into the TLS slot by the destructor -- which pas_fast_tls.h's own Darwin branch is built to

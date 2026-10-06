@@ -20,7 +20,7 @@ RTCVideoFrame *ToObjCVideoFrame(const VideoFrame &frame) {
       [[RTCVideoFrame alloc] initWithBuffer:ToObjCVideoFrameBuffer(frame.video_frame_buffer())
                                    rotation:RTCVideoRotation(frame.rotation())
                                 timeStampNs:frame.timestamp_us() * webrtc::kNumNanosecsPerMicrosec];
-  // MAVERICKS_BACKPORT: RTCVideoFrame.timeStamp carries the RTP clock in the in-process encoder path.
+  // AQUAWEBKIT: RTCVideoFrame.timeStamp carries the RTP clock in the in-process encoder path.
   // videoFrame.timeStamp = frame.timestamp_us();
   videoFrame.timeStamp = frame.rtp_timestamp();
 

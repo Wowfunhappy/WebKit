@@ -67,13 +67,13 @@ void WebSocketExtensionParser::skipSpaces()
 bool WebSocketExtensionParser::consumeToken()
 {
     skipSpaces();
-    // MAVERICKS_BACKPORT: the token is consumed from m_data itself, which is what advances the cursor past it.
+    // AQUAWEBKIT: the token is consumed from m_data itself, which is what advances the cursor past it.
     // auto start = m_data;
     size_t tokenLength = 0;
     while (tokenLength < m_data.size() && isASCIIPrintable(m_data[tokenLength]) && !isSeparator(m_data[tokenLength]))
         ++tokenLength;
     if (tokenLength) {
-        // MAVERICKS_BACKPORT: see above.
+        // AQUAWEBKIT: see above.
         // m_currentToken = String(consumeSpan(start, tokenLength));
         m_currentToken = String(consumeSpan(m_data, tokenLength));
         return true;

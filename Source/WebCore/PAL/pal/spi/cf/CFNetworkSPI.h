@@ -386,12 +386,12 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @property (nullable, readwrite, retain) NSURL *_siteForCookies;
 @property (readwrite) BOOL _isTopLevelNavigation;
 #endif
-// MAVERICKS_BACKPORT: declared unconditionally. This port sets ENABLE(SERVER_PRECONNECT) to 0, but
+// AQUAWEBKIT: declared unconditionally. This port sets ENABLE(SERVER_PRECONNECT) to 0, but
 // NetworkSessionCocoa reads task._preconnect outside any SERVER_PRECONNECT guard (the legacy-TLS challenge
 // check), so the declaration has to exist even where the feature does not. The getter is polyfilled to
 // answer NO, which is the true state of a process that never creates a preconnect task.
 @property (nonatomic, assign) BOOL _preconnect;
-// (end MAVERICKS_BACKPORT: _preconnect declared outside the SERVER_PRECONNECT guard)
+// (end AQUAWEBKIT: _preconnect declared outside the SERVER_PRECONNECT guard)
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
 @property (readwrite, assign) int64_t _bytesPerSecondLimit;
 #endif
@@ -519,7 +519,7 @@ void _CFURLRequestSetProtocolProperty(CFURLRequestRef, CFStringRef, CFTypeRef);
 void CFURLRequestSetRequestPriority(CFURLRequestRef, CFURLRequestPriority);
 void CFURLRequestSetShouldPipelineHTTP(CFURLRequestRef, Boolean, Boolean);
 void _CFURLRequestSetStorageSession(CFMutableURLRequestRef, CFURLStorageSessionRef);
-// MAVERICKS_BACKPORT: the cookie storage a request is served from, which on 10.9 is what carries a
+// AQUAWEBKIT: the cookie storage a request is served from, which on 10.9 is what carries a
 // session's jar onto the hops CFNetwork follows after it. See NetworkSessionCocoa.mm's redirect delegate.
 void CFURLRequestSetHTTPCookieStorage(CFMutableURLRequestRef, CFHTTPCookieStorageRef);
 CFStringRef CFURLResponseCopySuggestedFilename(CFURLResponseRef);

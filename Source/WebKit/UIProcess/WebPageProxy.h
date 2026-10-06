@@ -28,7 +28,7 @@
 // Including more headers here slows down build times a lot.
 // Use forward declarations and WebPageProxyInternals.h instead.
 #include "APIObject.h"
-#include "DrawingAreaInfo.h" // MAVERICKS_BACKPORT: LayerHostingMode (m_layerHostingMode)
+#include "DrawingAreaInfo.h" // AQUAWEBKIT: LayerHostingMode (m_layerHostingMode)
 #include "MessageReceiver.h"
 #include "TextExtractionAssertionScope.h"
 #include <WebCore/UserGestureTokenIdentifier.h>
@@ -518,7 +518,7 @@ class LayerTreeContext;
 class ListDataObserver;
 class MediaCapability;
 class MediaKeySystemPermissionRequestManagerProxy;
-class MediaKeySystemPermissionRequestProxy; // MAVERICKS_BACKPORT: allowMediaKeySystemRequestWithWidevineCdm below.
+class MediaKeySystemPermissionRequestProxy; // AQUAWEBKIT: allowMediaKeySystemRequestWithWidevineCdm below.
 class MediaSessionCoordinatorProxyPrivate;
 class MediaUsageManager;
 class NativeWebGestureEvent;
@@ -759,8 +759,8 @@ public:
     static Ref<WebPageProxy> create(PageClient&, WebProcessProxy&, Ref<API::PageConfiguration>&&);
     virtual ~WebPageProxy();
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: the configuration createNewPage() prepared for the page its legacy (V0/V1
-    // WKPageUIClient) client is constructing; consumed by the C-ref WKView initializer (WKViewMavericks.mm).
+    // AQUAWEBKIT: the configuration createNewPage() prepared for the page its legacy (V0/V1
+    // WKPageUIClient) client is constructing; consumed by the C-ref WKView initializer (WKViewAquaWebKit.mm).
     static RefPtr<API::PageConfiguration> takeConfigurationOfPageBeingOpened();
 #endif
 
@@ -792,7 +792,7 @@ public:
     DrawingAreaProxy* NODELETE provisionalDrawingArea() const;
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
-    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h).
+    // AQUAWEBKIT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h).
     LayerHostingMode layerHostingMode() const { return m_layerHostingMode; }
 #endif
 
@@ -1000,9 +1000,9 @@ public:
     void loadAlternateHTML(Ref<WebCore::DataSegment>&&, const String& encoding, const URL& baseURL, const URL& unreachableURL, RefPtr<API::WebsitePolicies>);
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize>, size_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
-    // MAVERICKS_BACKPORT: fetch image bytes through the web process, for the favicon store (#112).
+    // AQUAWEBKIT: fetch image bytes through the web process, for the favicon store (#112).
     void loadImageData(WebCore::ResourceRequest&&, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
-    // MAVERICKS_BACKPORT: the URL of the request that STARTED the committed main-frame load, before any
+    // AQUAWEBKIT: the URL of the request that STARTED the committed main-frame load, before any
     // redirect — the UI-process copy of the DocumentLoader::originalRequest() that the pre-deletion
     // IconController::commitToDatabase read through FrameLoader::initialRequest(). The favicon store
     // maps a page's icon under this URL as well as the committed one (#112).
@@ -1020,7 +1020,7 @@ public:
     void stopLoading();
     RefPtr<API::Navigation> reload(OptionSet<WebCore::ReloadOption>);
 
-    // MAVERICKS_BACKPORT: invoked by WebPreferences when Safari 7's global Private Browsing toggle flips;
+    // AQUAWEBKIT: invoked by WebPreferences when Safari 7's global Private Browsing toggle flips;
     // reloads so the navigation-policy path moves the page onto/off that client's ephemeral store (#55).
     void privateBrowsingEnabledDidChange();
 
@@ -1995,7 +1995,7 @@ public:
     void savePDFToFileInDownloadsFolder(String&& suggestedFilename, URL&& originatingURL, std::span<const uint8_t>);
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: the QuickTime Player hand-off decidePolicyForResponseShared makes for an HLS playlist.
+    // AQUAWEBKIT: the QuickTime Player hand-off decidePolicyForResponseShared makes for an HLS playlist.
     bool openMediaPlaylistInQuickTimePlayer(const URL&);
 #endif
 
@@ -2366,7 +2366,7 @@ public:
 
     ProvisionalPageProxy* provisionalPageProxy() const { return m_provisionalPage.get(); }
     // void commitProvisionalPage(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
-    // MAVERICKS_BACKPORT: upstream 318982@main (webkit.org/b/321456).
+    // AQUAWEBKIT: upstream 318982@main (webkit.org/b/321456).
     void commitProvisionalPage(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, bool hasCertificateInfo, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
     void destroyProvisionalPage();
 
@@ -2380,7 +2380,7 @@ public:
     void didChangeProvisionalURLForFrameShared(Ref<WebProcessProxy>&&, WebCore::FrameIdentifier, std::optional<WebCore::NavigationIdentifier>, URL&&);
     void decidePolicyForNavigationActionAsync(IPC::Connection&, NavigationActionData&&, CompletionHandler<void(PolicyDecision&&)>&&);
     void decidePolicyForNavigationActionSync(IPC::Connection&, NavigationActionData&&, CompletionHandler<void(PolicyDecision&&)>&&);
-    // MAVERICKS_BACKPORT: bundlePolicyUserData parameter added (injected-bundle policy client userData).
+    // AQUAWEBKIT: bundlePolicyUserData parameter added (injected-bundle policy client userData).
     void decidePolicyForResponseShared(Ref<WebProcessProxy>&&, WebCore::PageIdentifier, FrameInfoData&&, std::optional<WebCore::NavigationIdentifier>, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&&);
     void startURLSchemeTaskShared(IPC::Connection&, Ref<WebProcessProxy>&&, WebCore::PageIdentifier, URLSchemeTaskParameters&&);
     void loadDataWithNavigationShared(Ref<WebProcessProxy>&&, WebCore::PageIdentifier, API::Navigation&, Ref<WebCore::SharedBuffer>&&, const String& MIMEType, const String& encoding, const String& baseURL, API::Object* userData, WebCore::ShouldTreatAsContinuingLoad, std::optional<NavigatingToAppBoundDomain>, RefPtr<API::WebsitePolicies>&&, WebCore::ShouldOpenExternalURLsPolicy, WebCore::SessionHistoryVisibility);
@@ -2749,7 +2749,7 @@ public:
     void disconnectFramesFromPage();
 
     // void didCommitLoadForFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, bool usedLegacyTLS, bool wasPrivateRelayed, String&& proxyName, const WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
-    // MAVERICKS_BACKPORT: upstream 318982@main (webkit.org/b/321456).
+    // AQUAWEBKIT: upstream 318982@main (webkit.org/b/321456).
     void didCommitLoadForFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, bool hasCertificateInfo, bool usedLegacyTLS, bool wasPrivateRelayed, String&& proxyName, const WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
 
     void didCreateSleepDisabler(IPC::Connection&, WebCore::SleepDisablerIdentifier, const String& reason, bool display);
@@ -3168,9 +3168,9 @@ private:
     void decidePolicyForNavigationAction(Ref<WebProcessProxy>&&, WebFrameProxy&, NavigationActionData&&, CompletionHandler<void(PolicyDecision&&)>&&);
     RefPtr<FrameState> frameStateForBackForwardChildFrame(WebFrameProxy&, WebCore::BackForwardItemIdentifier);
     void decidePolicyForNewWindowAction(IPC::Connection&, NavigationActionData&&, const String& frameName, CompletionHandler<void(PolicyDecision&&)>&&);
-    // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it).
+    // AQUAWEBKIT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it).
     void unableToImplementPolicy(IPC::Connection&, WebCore::FrameIdentifier, const WebCore::ResourceError&, const UserData&);
-    // MAVERICKS_BACKPORT: bundlePolicyUserData parameter added (injected-bundle policy client userData).
+    // AQUAWEBKIT: bundlePolicyUserData parameter added (injected-bundle policy client userData).
     void decidePolicyForResponse(IPC::Connection&, FrameInfoData&&, std::optional<WebCore::NavigationIdentifier>, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&&);
     void beginSafeBrowsingCheck(const URL&, API::Navigation&, bool forMainFrameNavigation);
     void showBrowsingWarning(RefPtr<WebKit::BrowsingWarning>&&);
@@ -3202,9 +3202,9 @@ private:
     void runJavaScriptConfirm(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, String&&, CompletionHandler<void(bool)>&&);
     void runJavaScriptPrompt(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, String&&, String&&, CompletionHandler<void(const String&)>&&);
     void setStatusText(const String&);
-    // MAVERICKS_BACKPORT: gains IPC::Connection& + UserData to carry the injected-bundle hovered-URL for #58.
+    // AQUAWEBKIT: gains IPC::Connection& + UserData to carry the injected-bundle hovered-URL for #58.
     void mouseDidMoveOverElement(IPC::Connection&, WebHitTestResultData&&, OptionSet<WebEventModifier>, const UserData&);
-    // MAVERICKS_BACKPORT: shared delivery for both the IPC hover path (with injected-bundle userData) and the
+    // AQUAWEBKIT: shared delivery for both the IPC hover path (with injected-bundle userData) and the
     // async hit-test path (dispatchMouseDidMoveOverElementAsynchronously, which has no userData) (#58).
     void dispatchMouseDidMoveOverElement(WebHitTestResultData&&, OptionSet<WebEventModifier>, API::Object* userData);
 
@@ -3261,7 +3261,7 @@ private:
 #if ENABLE(ENCRYPTED_MEDIA)
     MediaKeySystemPermissionRequestManagerProxy& mediaKeySystemPermissionRequestManager() LIFETIME_BOUND;
 #if PLATFORM(MAC) && USE(GSTREAMER)
-    // MAVERICKS_BACKPORT: installs Google's Widevine CDM if this host has yet to, tells the web
+    // AQUAWEBKIT: installs Google's Widevine CDM if this host has yet to, tells the web
     // process where it is, and answers the page's request with what that produced.
     void allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemPermissionRequestProxy>&&);
 #endif
@@ -3806,7 +3806,7 @@ private:
     RefPtr<PageLoadStateObserverBase> m_pageLoadStateObserver;
 
     const UniqueRef<WebNavigationState> m_navigationState;
-    // MAVERICKS_BACKPORT: see committedInitialRequestURL(); set at each main-frame commit (#112).
+    // AQUAWEBKIT: see committedInitialRequestURL(); set at each main-frame commit (#112).
     WTF::URL m_committedInitialRequestURL;
     String m_failingProvisionalLoadURL;
     bool m_allowsLoadingAlternateHTMLForFailingProvisionalLoadURL { true };
@@ -3833,7 +3833,7 @@ private:
 
     RefPtr<DrawingAreaProxy> m_drawingArea;
 #if ENABLE(TILED_CA_DRAWING_AREA)
-    // MAVERICKS_BACKPORT: see layerHostingMode(); recomputed in viewDidEnterWindow().
+    // AQUAWEBKIT: see layerHostingMode(); recomputed in viewDidEnterWindow().
     LayerHostingMode m_layerHostingMode { LayerHostingMode::InWindowServer };
 #endif
 #if PLATFORM(COCOA)

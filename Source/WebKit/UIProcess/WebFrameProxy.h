@@ -52,7 +52,7 @@
 #endif
 
 namespace API {
-// MAVERICKS_BACKPORT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
+// AQUAWEBKIT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
 class CertificateInfo;
 class Data;
 class Navigation;
@@ -186,15 +186,15 @@ public:
     WebCore::SecurityOriginData documentSecurityOriginData() const;
 
     const WebCore::CertificateInfo& certificateInfo() const LIFETIME_BOUND { return m_certificateInfo; }
-    WebCore::CertificateInfo provisionalCertificateInfoFromNetworkProcess(const URL&) const; // MAVERICKS_BACKPORT: upstream 319946@main (webkit.org/b/321395).
-    // MAVERICKS_BACKPORT: WKFrameGetCertificateInfo has Get (borrowed) semantics — Safari 7
+    WebCore::CertificateInfo provisionalCertificateInfoFromNetworkProcess(const URL&) const; // AQUAWEBKIT: upstream 319946@main (webkit.org/b/321395).
+    // AQUAWEBKIT: WKFrameGetCertificateInfo has Get (borrowed) semantics — Safari 7
     // never releases the returned object — so the frame owns the API wrapper (#103).
     API::CertificateInfo& apiCertificateInfo();
 
     // void commitCertificateInfo(const URL&);
-    void commitCertificateInfo(const URL&, bool hasCertificateInfo); // MAVERICKS_BACKPORT: upstream 318982@main (webkit.org/b/321456).
+    void commitCertificateInfo(const URL&, bool hasCertificateInfo); // AQUAWEBKIT: upstream 318982@main (webkit.org/b/321456).
     void receivedMainResourceResponseWithCertificateInfo(String&&, WebCore::CertificateInfo&&);
-    void setCertificateInfoForProcessSwapOnNavigationResponse(const URL&, WebCore::CertificateInfo&&); // MAVERICKS_BACKPORT: upstream 319946@main (webkit.org/b/321395).
+    void setCertificateInfoForProcessSwapOnNavigationResponse(const URL&, WebCore::CertificateInfo&&); // AQUAWEBKIT: upstream 319946@main (webkit.org/b/321395).
 
     bool canProvideSource() const;
 
@@ -243,7 +243,7 @@ public:
     void prepareForProvisionalLoadInProcess(WebProcessProxy&, API::Navigation&, BrowsingContextGroup&, std::optional<WebCore::SecurityOriginData>, CompletionHandler<void(std::optional<WebCore::PageIdentifier>)>&&);
 
     // void commitProvisionalFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
-    // MAVERICKS_BACKPORT: upstream 318982@main (webkit.org/b/321456).
+    // AQUAWEBKIT: upstream 318982@main (webkit.org/b/321456).
     void commitProvisionalFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, bool hasCertificateInfo, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
 
     void getFrameTree(CompletionHandler<void(std::optional<FrameTreeNodeData>&&)>&&);
@@ -333,7 +333,7 @@ public:
     void takeSnapshotOfNode(WebCore::JSHandleIdentifier, CompletionHandler<void(std::optional<WebCore::ShareableBitmapHandle>&&)>&&);
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
-    void didReceiveMessageWithReceiverName(IPC::Connection&, IPC::Decoder&); // MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
+    void didReceiveMessageWithReceiverName(IPC::Connection&, IPC::Decoder&); // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
     static void sendCancelReply(IPC::Connection&, IPC::Decoder&);
     template<typename M, typename C> void sendWithAsyncReply(M&&, C&&);
     template<typename M> void send(M&&);
@@ -359,7 +359,7 @@ private:
     WebFrameProxy(WebPageProxy&, FrameProcess&, WebCore::FrameIdentifier, WebCore::SandboxFlags, WebCore::ReferrerPolicy, WebCore::ScrollbarMode, WebFrameProxy*, WebFrameProxy*, IsMainFrame, std::optional<URL>&&);
 
     std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
-    // void waitForCertificateInfoFromNetworkProcess(const String& hostAndPort); // MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273); 319946@main (webkit.org/b/321395) provides provisionalCertificateInfoFromNetworkProcess.
+    // void waitForCertificateInfoFromNetworkProcess(const String& hostAndPort); // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273); 319946@main (webkit.org/b/321395) provides provisionalCertificateInfoFromNetworkProcess.
 
     std::optional<WebCore::PageIdentifier> NODELETE pageIdentifier() const;
 
@@ -386,7 +386,7 @@ private:
     String m_frameName;
     bool m_containsPluginDocument { false };
     WebCore::CertificateInfo m_certificateInfo;
-    // MAVERICKS_BACKPORT: lazily-built C API wrapper for m_certificateInfo, reset on each commit (#103).
+    // AQUAWEBKIT: lazily-built C API wrapper for m_certificateInfo, reset on each commit (#103).
     RefPtr<API::CertificateInfo> m_apiCertificateInfo;
     HashMap<String, WebCore::CertificateInfo> m_hostAndPortToCertificateInfo;
     RefPtr<WebFramePolicyListenerProxy> m_activeListener;

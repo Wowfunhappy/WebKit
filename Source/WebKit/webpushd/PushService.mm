@@ -28,7 +28,7 @@
 
 #import "ApplePushServiceConnection.h"
 #import "MockPushServiceConnection.h"
-// MAVERICKS_BACKPORT: this port's push transport; see the create() below.
+// AQUAWEBKIT: this port's push transport; see the create() below.
 #import "MozillaPushServiceConnection.h"
 #import "Logging.h"
 #import "WebPushDaemonConstants.h"
@@ -39,7 +39,7 @@
 #import <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CallbackAggregator.h>
-// MAVERICKS_BACKPORT: for the parentPath() that sites the Mozilla connection's state below.
+// AQUAWEBKIT: for the parentPath() that sites the Mozilla connection's state below.
 #import <wtf/FileSystem.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RunLoop.h>
@@ -136,14 +136,14 @@ void PushService::create(const String& incomingPushServiceName, const String& da
     auto transaction = adoptOSObject(os_transaction_create("com.apple.webkit.webpushd.push-service-init"));
 
 #if USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: 10.9's apsd cannot mint web-push URL tokens, so this port's
+    // AQUAWEBKIT: 10.9's apsd cannot mint web-push URL tokens, so this port's
     // transport is the Mozilla autopush service; see MozillaPushServiceConnection.h. The
     // connection keeps its uaid and channel map next to the push database.
     UNUSED_PARAM(incomingPushServiceName);
     Ref<PushServiceConnection> connection = MozillaPushServiceConnection::create(FileSystem::parentPath(databasePath));
 #else
     // Create the connection ASAP so that we bootstrap_check_in to the service in a timely manner.
-    // MAVERICKS_BACKPORT: spelled Ref<PushServiceConnection> rather than auto, so both arms of the
+    // AQUAWEBKIT: spelled Ref<PushServiceConnection> rather than auto, so both arms of the
     // #if yield the same type for the code below.
     Ref<PushServiceConnection> connection = ApplePushServiceConnection::create(incomingPushServiceName);
 #endif
@@ -205,7 +205,7 @@ PushService::PushService(Ref<PushServiceConnection>&& pushServiceConnection, Ref
             protectedThis->didReceivePublicToken(WTF::move(token));
     });
 
-    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
     connection->startListeningForPushMessages([weakThis = WeakPtr { *this }](NSString *topic, NSDictionary *userInfo, PushServiceConnection::PushMessageReceipt receipt) mutable {
         if (RefPtr protectedThis = weakThis.get())
             protectedThis->didReceivePushMessage(topic, userInfo, receipt);
@@ -948,7 +948,7 @@ void PushService::didReceivePublicToken(Vector<uint8_t>&& token)
     });
 }
 
-// MAVERICKS_BACKPORT: reports the fate of a message to the push service.
+// AQUAWEBKIT: reports the fate of a message to the push service.
 void PushService::acknowledgePushMessage(PushServiceConnection::PushMessageReceipt receipt, PushServiceConnection::PushMessageDisposition disposition)
 {
     if (receipt != PushServiceConnection::noPushMessageReceipt)
@@ -961,9 +961,9 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
 
     auto messageResult = makeRawPushMessage(topic, userInfo);
     if (!messageResult)
-        return acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::NotDelivered); // MAVERICKS_BACKPORT: a message that will not parse can never be delivered; release the service's copy instead of replaying it forever.
+        return acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::NotDelivered); // AQUAWEBKIT: a message that will not parse can never be delivered; release the service's copy instead of replaying it forever.
 
-    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
     m_database->getRecordByTopic(topic, [weakThis = WeakPtr { *this }, message = WTF::move(*messageResult), receipt, completionHandler = WTF::move(completionHandler), transaction = WTF::move(transaction)](auto&& recordResult) mutable {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
@@ -971,7 +971,7 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
 
         if (!recordResult) {
             RELEASE_LOG_ERROR(Push, "Dropping incoming push sent to unknown topic: %{sensitive}s", message.topic.utf8().data());
-            // MAVERICKS_BACKPORT: no record owns this topic, so nothing can deliver it.
+            // AQUAWEBKIT: no record owns this topic, so nothing can deliver it.
             protectedThis->acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::NotDelivered);
             completionHandler();
             return;
@@ -979,7 +979,7 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
         auto record = WTF::move(*recordResult);
 
         if (message.encoding == ContentEncoding::Empty) {
-            // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+            // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
             protectedThis->m_incomingPushMessageHandler(record.subscriptionSetIdentifier, WebKit::WebPushMessage { { }, record.subscriptionSetIdentifier.pushPartition, URL { record.scope }, { } }, receipt);
             completionHandler();
             return;
@@ -998,7 +998,7 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
 
         if (!decryptedPayload) {
             RELEASE_LOG_ERROR(Push, "Dropping incoming push due to decryption error for topic %{sensitive}s", message.topic.utf8().data());
-            // MAVERICKS_BACKPORT: a payload that will not decrypt will not decrypt on redelivery either.
+            // AQUAWEBKIT: a payload that will not decrypt will not decrypt on redelivery either.
             protectedThis->acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::DecryptionError);
             completionHandler();
             return;
@@ -1006,7 +1006,7 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
 
         RELEASE_LOG(Push, "Decoded incoming push message for %{public}s %{sensitive}s", record.subscriptionSetIdentifier.debugDescription().utf8().data(), record.scope.utf8().data());
 
-        // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+        // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
         protectedThis->m_incomingPushMessageHandler(record.subscriptionSetIdentifier, WebKit::WebPushMessage { WTF::move(*decryptedPayload), record.subscriptionSetIdentifier.pushPartition, URL { record.scope }, { } }, receipt);
         completionHandler();
     });

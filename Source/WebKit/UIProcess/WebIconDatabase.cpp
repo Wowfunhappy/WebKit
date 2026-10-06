@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: Revival of the WK2 icon store that Safari 7 needs (#49). Upstream deleted the
+// AQUAWEBKIT: Revival of the WK2 icon store that Safari 7 needs (#49). Upstream deleted the
 // store when it removed the WK2 IconDatabase; this keeps enough state for the legacy C API to answer
 // favicon queries, backed by the same on-disk WebpageIcons.db (legacy schema, still used by the GTK
 // port's IconDatabase) so History keeps its icons across relaunches (#112).
@@ -42,7 +42,7 @@
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: the legacy WebpageIcons.db schema version, and the lifetimes the GTK port's
+// AQUAWEBKIT: the legacy WebpageIcons.db schema version, and the lifetimes the GTK port's
 // IconDatabase applies to this same schema: an icon unused for 30 days is pruned at open, and one
 // held for 4 days is refetched on next use so a site that replaces its favicon is not stale forever.
 static constexpr int currentDatabaseVersion = 6;
@@ -54,7 +54,7 @@ static int64_t nowStamp()
     return static_cast<int64_t>(std::floor(WallTime::now().secondsSinceEpoch().seconds()));
 }
 
-// MAVERICKS_BACKPORT: precedence of a stored icon (#112). An icon the site declared and this OS decoded
+// AQUAWEBKIT: precedence of a stored icon (#112). An icon the site declared and this OS decoded
 // outranks a rasterized stand-in, which outranks a guessed /favicon.ico nobody declared; an icon never
 // displaces one of higher rank, and equal rank replaces, so a site can refresh its own icon.
 static unsigned iconOriginRank(WebIconDatabase::IconOrigin origin)
@@ -316,7 +316,7 @@ bool WebIconDatabase::touchDatabaseIconRecord(const String& iconURL, int64_t sta
 
 bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String& iconURL, Ref<API::Data>&& data, IconOrigin origin, Persistence persistence)
 {
-    // MAVERICKS_BACKPORT: admit only bytes this build can decode (github #76). There is ONE icon slot
+    // AQUAWEBKIT: admit only bytes this build can decode (github #76). There is ONE icon slot
     // per page here, so undecodable bytes are not merely useless — accepting them REPLACES a decodable
     // icon and leaves Safari drawing the generic globe. Which formats those are is not guessed from a
     // MIME type or a file extension: the test is the decode itself, through the same path the C API
@@ -329,7 +329,7 @@ bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String&
 
 bool WebIconDatabase::reuseStoredIconForPageURL(const String& pageURL, const String& iconURL, Persistence persistence, std::optional<IconOrigin> mappingRank)
 {
-    // MAVERICKS_BACKPORT: these bytes are already in the store and already known to decode, so this
+    // AQUAWEBKIT: these bytes are already in the store and already known to decode, so this
     // needs neither the admission test nor another rasterization — only the precedence rule (#49).
     auto stored = m_iconURLToData.get(iconURL);
     if (!stored.data)
@@ -397,7 +397,7 @@ bool WebIconDatabase::hasNativelyDecodedIconForPageURL(const String& pageURL) co
     if (pageURL.isEmpty())
         return false;
 
-    // MAVERICKS_BACKPORT: the rank of the PAGE'S claim — deliberately not of what is held for any
+    // AQUAWEBKIT: the rank of the PAGE'S claim — deliberately not of what is held for any
     // particular icon URL, so a site that changes its SVG (or cache-busts its URL) can still replace
     // its own rasterized icon (#49), and a guessed mapping to natively decoded bytes still yields to
     // the icon the page itself declares (#112).
@@ -450,7 +450,7 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
     // but a commit-time guess reusing bytes a declared offer stored claims them only as a guess.
     auto rank = mappingRank.value_or(icon.origin);
 
-    // MAVERICKS_BACKPORT: a write never displaces a claim the page holds at higher rank — a rasterized
+    // AQUAWEBKIT: a write never displaces a claim the page holds at higher rank — a rasterized
     // stand-in must not displace an icon that decoded natively (a page declaring both an SVG and a
     // bitmap favicon, as github.com does, has a real icon already, and which one the single slot holds
     // must not depend on which load finished first: that order-dependence was github #76), and a
@@ -520,7 +520,7 @@ void WebIconDatabase::removeAllIcons()
     m_pageURLToIconURL.clear();
     m_iconURLToData.clear();
     m_unusableIconURLs.clear();
-    // MAVERICKS_BACKPORT: an icon being rasterized in the web process right now was requested against
+    // AQUAWEBKIT: an icon being rasterized in the web process right now was requested against
     // the state just cleared; the bump tells its completion handler not to store the result (#49).
     ++m_generation;
 

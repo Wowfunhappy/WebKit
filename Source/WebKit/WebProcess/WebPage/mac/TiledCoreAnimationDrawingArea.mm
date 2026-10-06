@@ -584,7 +584,7 @@ void TiledCoreAnimationDrawingArea::updateLayerHostingContext()
         m_layerHostingContext = nullptr;
     }
 
-    // MAVERICKS_BACKPORT: WebKit-537 parity — create the hosted context in the flavor the page's
+    // AQUAWEBKIT: WebKit-537 parity — create the hosted context in the flavor the page's
     // window can display: WindowServer-hosted windows (every normal window) display
     // CGS-connection contexts; windows that composite their layer tree in-process (iBooks'
     // reader window) display only contexts created against the UI process's CARemoteLayerServer
@@ -605,7 +605,7 @@ void TiledCoreAnimationDrawingArea::updateLayerHostingContext()
         m_layerHostingContext->setColorSpace(colorSpace.get());
 }
 
-// MAVERICKS_BACKPORT: WebKit-537 parity — the UI process reports that the page's window changed
+// AQUAWEBKIT: WebKit-537 parity — the UI process reports that the page's window changed
 // which hosted-context flavor it can display; recreate the context and hand the replacement
 // context ID back (the page client re-mints its CALayerHost from it).
 void TiledCoreAnimationDrawingArea::setLayerHostingMode(LayerHostingMode layerHostingMode)

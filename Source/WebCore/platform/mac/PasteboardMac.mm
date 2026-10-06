@@ -32,7 +32,7 @@
 #import "DragData.h"
 #import "Image.h"
 #import "ImageAdapter.h"
-// MAVERICKS_BACKPORT: bufferConvertedToPasteboardType below decodes with WebCore's ImageDecoder and
+// AQUAWEBKIT: bufferConvertedToPasteboardType below decodes with WebCore's ImageDecoder and
 // writes the decoder's orientation into the file it encodes.
 #import "ImageDecoder.h"
 #import "ImageUtilities.h"
@@ -854,7 +854,7 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
     if (pasteboardBuffer.type == String(UTTypeTIFF.identifier))
         return pasteboardBuffer.data;
 
-    // MAVERICKS_BACKPORT: WebCore's ImageDecoder decodes the page's image bytes; the TIFF destination
+    // AQUAWEBKIT: WebCore's ImageDecoder decodes the page's image bytes; the TIFF destination
     // encodes the decoded image and parses nothing.
     // auto sourceData = Ref { *pasteboardBuffer.data }->createCFData();
     // auto sourceType = pasteboardBuffer.type.createCFString();
@@ -871,12 +871,12 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
     if (!decoder)
         return nullptr;
 
-    decoder->setData(sourceBuffer.get(), true); // MAVERICKS_BACKPORT: the decoder gets all of the page's bytes at once.
+    decoder->setData(sourceBuffer.get(), true); // AQUAWEBKIT: the decoder gets all of the page's bytes at once.
     auto primaryIndex = decoder->primaryFrameIndex();
     RetainPtr sourceImage = decoder->createFrameImageAtIndex(primaryIndex);
     if (!sourceImage)
         return nullptr;
-    // MAVERICKS_BACKPORT: the decoder's orientation, as properties of the encoded image.
+    // AQUAWEBKIT: the decoder's orientation, as properties of the encoded image.
     auto sourceProperties = imagePropertiesForOrientation(decoder->frameOrientationAtIndex(primaryIndex));
 
     auto data = adoptCF(CFDataCreateMutable(0, 0));
@@ -884,7 +884,7 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
     if (!destination)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: the TIFF holds WebCore's decoded image with its orientation.
+    // AQUAWEBKIT: the TIFF holds WebCore's decoded image with its orientation.
     // CGImageDestinationAddImageFromSource(destination.get(), source.get(), 0, NULL);
     CGImageDestinationAddImage(destination.get(), sourceImage.get(), sourceProperties.get());
     if (!CGImageDestinationFinalize(destination.get()))

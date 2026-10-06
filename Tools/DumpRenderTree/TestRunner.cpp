@@ -1032,7 +1032,7 @@ static JSValueRef setPrivateBrowsingEnabledCallback(JSContextRef context, JSObje
     return JSValueMakeUndefined(context);
 }
 
-// MAVERICKS_BACKPORT: WebKitTestRunner's setUserMediaPermission, supplied for DumpRenderTree so the
+// AQUAWEBKIT: WebKitTestRunner's setUserMediaPermission, supplied for DumpRenderTree so the
 // suites this port runs on WebKit1 can grant getUserMedia.
 static JSValueRef setUserMediaPermissionCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {

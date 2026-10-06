@@ -50,7 +50,7 @@ SOFT_LINK_CLASS(TelephonyUtilities, TUCall)
 #import <pal/cocoa/RevealSoftLink.h>
 #import <pal/mac/DataDetectorsSoftLink.h>
 
-#if ENABLE(REVEAL) // MAVERICKS_BACKPORT: Reveal's presenter delegate, for the Reveal telephone-number menu below.
+#if ENABLE(REVEAL) // AQUAWEBKIT: Reveal's presenter delegate, for the Reveal telephone-number menu below.
 @interface WKEmptyPresenterHighlightDelegate : NSObject <RVPresenterHighlightDelegate>
 
 - (instancetype)initWithRect:(NSRect)rect;
@@ -84,7 +84,7 @@ SOFT_LINK_CLASS(TelephonyUtilities, TUCall)
 }
 
 @end
-#endif // MAVERICKS_BACKPORT: closes the ENABLE(REVEAL) guard above.
+#endif // AQUAWEBKIT: closes the ENABLE(REVEAL) guard above.
 
 #if HAVE(DATA_DETECTORS_MAC_ACTION)
 SPECIALIZE_OBJC_TYPE_TRAITS(DDMacAction, PAL::getDDMacActionClassSingleton());
@@ -137,7 +137,7 @@ NSMenuItem *menuItemForTelephoneNumber(const String& telephoneNumber)
 
 RetainPtr<NSMenu> menuForTelephoneNumber(const String& telephoneNumber, NSView *webView, const WebCore::IntRect& rect)
 {
-#if ENABLE(REVEAL) // MAVERICKS_BACKPORT: with REVEAL off, the menu is DataDetectors', as upstream built it for Macs without Reveal.
+#if ENABLE(REVEAL) // AQUAWEBKIT: with REVEAL off, the menu is DataDetectors', as upstream built it for Macs without Reveal.
     if (!PAL::isRevealFrameworkAvailable() || !PAL::isRevealCoreFrameworkAvailable())
         return nil;
 
@@ -154,7 +154,7 @@ RetainPtr<NSMenu> menuForTelephoneNumber(const String& telephoneNumber, NSView *
     [menu setItemArray:proposedMenuItems.get()];
 
     return menu;
-#else // MAVERICKS_BACKPORT: as above.
+#else // AQUAWEBKIT: as above.
     UNUSED_PARAM(webView);
     UNUSED_PARAM(rect);
 
@@ -188,7 +188,7 @@ RetainPtr<NSMenu> menuForTelephoneNumber(const String& telephoneNumber, NSView *
     }
 
     return menu;
-#endif // MAVERICKS_BACKPORT: closes the ENABLE(REVEAL) guard above.
+#endif // AQUAWEBKIT: closes the ENABLE(REVEAL) guard above.
 }
 
 #endif

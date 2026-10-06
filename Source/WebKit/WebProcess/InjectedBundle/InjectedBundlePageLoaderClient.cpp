@@ -33,13 +33,13 @@
 #include "APIURLRequest.h"
 #include "InjectedBundleDOMWindowExtension.h"
 #include "InjectedBundleScriptWorld.h"
-#include "Safari7StandardWorldBindings.h" // MAVERICKS_BACKPORT: globalObjectIsAvailableForFrame below.
+#include "Safari7StandardWorldBindings.h" // AQUAWEBKIT: globalObjectIsAvailableForFrame below.
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
 #include "WKSharedAPICast.h"
 #include "WebFrame.h"
 #include "WebPage.h"
-#include <WebCore/SafariReaderMozillaReadability.h> // MAVERICKS_BACKPORT: SafariReaderMozillaReadabilityArticleScope below.
+#include <WebCore/SafariReaderMozillaReadability.h> // AQUAWEBKIT: SafariReaderMozillaReadabilityArticleScope below.
 #include <WebCore/SharedBuffer.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
@@ -135,7 +135,7 @@ void InjectedBundlePageLoaderClient::didFinishLoadForFrame(WebPage& page, WebFra
         return;
 
     WKTypeRef userDataToPass = nullptr;
-    WebCore::SafariReaderMozillaReadabilityArticleScope safariReaderMozillaReadabilityArticleScope; // MAVERICKS_BACKPORT: Safari 7 saves a page to the Reading List when it finishes loading (see the class).
+    WebCore::SafariReaderMozillaReadabilityArticleScope safariReaderMozillaReadabilityArticleScope; // AQUAWEBKIT: Safari 7 saves a page to the Reading List when it finishes loading (see the class).
     m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), &userDataToPass, m_client.base.clientInfo);
     userData = adoptRef(toImpl(userDataToPass));
 }
@@ -265,7 +265,7 @@ void InjectedBundlePageLoaderClient::globalObjectIsAvailableForFrame(WebPage& pa
 
     RefPtr<InjectedBundleScriptWorld> injectedWorld = InjectedBundleScriptWorld::getOrCreate(world);
     m_client.globalObjectIsAvailableForFrame(toAPI(&page), toAPI(&frame), toAPI(injectedWorld.get()), m_client.base.clientInfo);
-    removeSafari7StandardWorldBindings(frame, world); // MAVERICKS_BACKPORT: removes the page-visible bindings Safari 7's bundle just defined, which Safari 26 lacks.
+    removeSafari7StandardWorldBindings(frame, world); // AQUAWEBKIT: removes the page-visible bindings Safari 7's bundle just defined, which Safari 26 lacks.
 }
 
 void InjectedBundlePageLoaderClient::serviceWorkerGlobalObjectIsAvailableForFrame(WebPage& page, WebFrame& frame, DOMWrapperWorld& world)

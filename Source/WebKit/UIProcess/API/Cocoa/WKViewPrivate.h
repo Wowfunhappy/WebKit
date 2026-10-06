@@ -32,7 +32,7 @@
 
 @class _WKLinkIconParameters;
 
-// MAVERICKS_BACKPORT: WKContentAnchor is the Safari-7-era content-anchor enum for the
+// AQUAWEBKIT: WKContentAnchor is the Safari-7-era content-anchor enum for the
 // -[WKView contentAnchor] SPI, restored verbatim from the Safari-537-era WKViewPrivate.h.
 // The values are ABI with Safari.framework, which was compiled against them.
 typedef enum {
@@ -48,7 +48,7 @@ typedef enum {
 
 @property (readonly) WKPageRef pageRef;
 
-// MAVERICKS_BACKPORT: Safari-7-era SPI restored from the Safari-537-era WKViewPrivate.h —
+// AQUAWEBKIT: Safari-7-era SPI restored from the Safari-537-era WKViewPrivate.h —
 // the corner painted content stays anchored to while an async resize is in flight.
 // Safari 7 sets this unguarded around window/toolbar resize animations.
 @property WKContentAnchor contentAnchor;
@@ -70,13 +70,13 @@ typedef enum {
 - (void)enableFrameSizeUpdates;
 - (BOOL)frameSizeUpdatesDisabled;
 
-// MAVERICKS_BACKPORT: Safari-7-era async drawing-area size-update SPI, restored from the
+// AQUAWEBKIT: Safari-7-era async drawing-area size-update SPI, restored from the
 // Safari-537-era WKViewPrivate.h. Safari 7 calls both unguarded around fullscreen and
 // banner resizes.
 - (void)forceAsyncDrawingAreaSizeUpdate:(NSSize)size;
 - (void)waitForAsyncDrawingAreaSizeUpdate;
 
-// MAVERICKS_BACKPORT: automatic-substitution SPI Safari 7 sends to its WKView unguarded
+// AQUAWEBKIT: automatic-substitution SPI Safari 7 sends to its WKView unguarded
 // (Edit > Substitutions state and preferences plumbing). Upstream keeps these on
 // WebViewImpl; this tree's standalone WKView implements them directly.
 - (BOOL)isAutomaticQuoteSubstitutionEnabled;

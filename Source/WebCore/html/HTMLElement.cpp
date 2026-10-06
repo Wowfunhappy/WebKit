@@ -509,7 +509,7 @@ ExceptionOr<void> HTMLElement::setInnerText(String&& text)
         return { };
     }
 
-    // MAVERICKS_BACKPORT: a <textarea>'s value is derived only from its child *text* — child <br>
+    // AQUAWEBKIT: a <textarea>'s value is derived only from its child *text* — child <br>
     // elements contribute nothing — so the generic innerText algorithm below, which converts each
     // newline into a <br> element, silently strips every newline from textarea.value. Safari 7
     // preserved them; restore that by setting the text directly (as the text-control inner-text

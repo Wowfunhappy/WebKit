@@ -39,7 +39,7 @@ struct BorderImageSlice {
 
     Edges values;
     std::optional<CSS::Keyword::Fill> fill;
-    bool legacyWebkitBorderImage { false }; // MAVERICKS_BACKPORT: provenance of the legacy shorthand.
+    bool legacyWebkitBorderImage { false }; // AQUAWEBKIT: provenance of the legacy shorthand.
 
     bool operator==(const BorderImageSlice&) const = default;
 };

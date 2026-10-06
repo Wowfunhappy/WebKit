@@ -47,7 +47,7 @@ public:
     GCGLDisplay platformDisplay() const;
     GCGLConfig platformConfig() const;
 
-    // MAVERICKS_BACKPORT: upstream drawing-buffer target selection for CGL.
+    // AQUAWEBKIT: upstream drawing-buffer target selection for CGL.
     GCGLenum drawingBufferTextureTarget();
     std::tuple<GCGLenum, GCGLenum> drawingBufferTextureBindingPoint();
     static GCGLint NODELETE EGLDrawingBufferTextureTargetForDrawingTarget(GCGLenum drawingTarget);
@@ -445,7 +445,7 @@ protected:
     GCGLuint m_preserveDrawingBufferTexture { 0 };
     // Attaches m_texture when m_preserveDrawingBufferTexture is non-zero.
     GCGLuint m_preserveDrawingBufferFBO { 0 };
-    // MAVERICKS_BACKPORT: cache the EGL configuration's IOSurface texture target.
+    // AQUAWEBKIT: cache the EGL configuration's IOSurface texture target.
     GCGLint m_drawingBufferTextureTarget { -1 };
     GCGLErrorCodeSet m_errors;
     bool m_isForWebGL2 { false };

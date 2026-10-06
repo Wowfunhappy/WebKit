@@ -74,7 +74,7 @@ static bool isDataContextSecure(const Frame& frame)
     return false;
 }
 
-// MAVERICKS_BACKPORT: Mixed content is, by definition, content fetched over an insecure *network*
+// AQUAWEBKIT: Mixed content is, by definition, content fetched over an insecure *network*
 // transport. Locally-served resources are not: file: URLs, and custom schemes serviced in-process
 // by an app's NSURLProtocol (WebKitLegacy) or WKURLSchemeHandler (WebKit) never touch the network,
 // so a network attacker cannot tamper with them and they are not mixed content. Upstream's
@@ -94,7 +94,7 @@ static bool isInsecureNetworkScheme(const URL& url)
 static bool isMixedContent(const Frame& frame, const URL& url)
 {
     if (isDocumentSecure(frame) || (frame.frameURLProtocol() == "data"_s && isDataContextSecure(frame)))
-        // MAVERICKS_BACKPORT: gate on isInsecureNetworkScheme so only http/ws/ftp network subresources count as mixed content; file:/in-process custom schemes never cross the network (see above).
+        // AQUAWEBKIT: gate on isInsecureNetworkScheme so only http/ws/ftp network subresources count as mixed content; file:/in-process custom schemes never cross the network (see above).
         return !SecurityOrigin::isSecure(url) && isInsecureNetworkScheme(url);
 
     return false;

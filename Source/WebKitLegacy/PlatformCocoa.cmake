@@ -30,9 +30,9 @@ if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         SourcesCMakeCocoa.txt
     )
 endif ()
-# MAVERICKS_BACKPORT: include legacy Dashboard support in the unified source list.
-set(MAVERICKS_WEBKITLEGACY_PHASE LISTS)
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)
+# AQUAWEBKIT: include legacy Dashboard support in the unified source list.
+set(AQUAWEBKIT_WEBKITLEGACY_PHASE LISTS)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebKitLegacyPlatformAquaWebKit.cmake)
 
 WEBKIT_COMPUTE_SOURCES(WebKitLegacy)
 

@@ -74,7 +74,7 @@ static void* lib##Library(bool = false) \
     return dylib; \
 }
 
-// MAVERICKS_BACKPORT: optional system-library loader with upstream's soft-link call signature.
+// AQUAWEBKIT: optional system-library loader with upstream's soft-link call signature.
 #define SOFT_LINK_SYSTEM_LIBRARY_OPTIONAL(lib) \
 static void* lib##Library(bool = false) \
 { \

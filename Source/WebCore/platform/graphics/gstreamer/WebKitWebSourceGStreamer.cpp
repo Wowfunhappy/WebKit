@@ -106,7 +106,7 @@ struct WebKitWebSrcPrivate {
         // signal handler in MediaPlayerPrivateGStreamer.
         RefPtr<WebCore::PlatformMediaResourceLoader> loader;
 
-        // MAVERICKS_BACKPORT: the player an element obtaining its loader through that GstContext query reports its
+        // AQUAWEBKIT: the player an element obtaining its loader through that GstContext query reports its
         // responses to, see MediaPlayerPrivateGStreamer::adaptiveDemuxSourceReceivedResponse().
         ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamer> responseObserver;
 
@@ -387,7 +387,7 @@ static void webKitWebSrcSetContext(GstElement* element, GstContext* context)
         const GValue* value = gst_structure_get_value(gst_context_get_structure(context), "loader");
         DataMutexLocker members { priv->dataMutex };
         members->loader = reinterpret_cast<WebCore::PlatformMediaResourceLoader*>(g_value_get_pointer(value));
-        // MAVERICKS_BACKPORT: the context owns the weak observer before any source receives it.
+        // AQUAWEBKIT: the context owns the weak observer before any source receives it.
         if (const GValue* playerValue = gst_structure_get_value(gst_context_get_structure(context), "player")) {
             auto* bytes = static_cast<GBytes*>(g_value_get_boxed(playerValue));
             members->responseObserver = *static_cast<const ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamer>*>(g_bytes_get_data(bytes, nullptr));
@@ -724,7 +724,7 @@ static void webKitWebSrcMakeRequest(WebKitWebSrc* src, DataMutexLocker<WebKitWeb
         } else {
             GST_ERROR_OBJECT(protector.get(), "Failed to setup streaming client to handle R%u", requestNumber);
             members->loader = nullptr;
-            // MAVERICKS_BACKPORT: a resource the loader refuses to create ends the stream, the way a
+            // AQUAWEBKIT: a resource the loader refuses to create ends the stream, the way a
             // resource that fails after it exists does (see loadFailed and the HTTP status paths in
             // responseReceived). Without it the streaming thread waits in create() for headers that
             // no longer have anything to deliver them.
@@ -893,7 +893,7 @@ static gboolean webKitWebSrcUnLockStop(GstBaseSrc* baseSrc)
 
 static bool urlHasSupportedProtocol(const URL& url)
 {
-    // MAVERICKS_BACKPORT: accept "cid" (Content-ID) here too so set_uri does not reject Apple Mail's
+    // AQUAWEBKIT: accept "cid" (Content-ID) here too so set_uri does not reject Apple Mail's
     // inline audio/video attachment URLs — see webKitWebSrcGetProtocols above. (#69)
     return url.isValid() && (url.protocolIsInHTTPFamily() || url.protocolIsBlob() || url.protocolIs("cid"_s));
 }
@@ -907,7 +907,7 @@ static GstURIType webKitWebSrcUriGetType(GType)
 
 const gchar* const* webKitWebSrcGetProtocols(GType)
 {
-    // MAVERICKS_BACKPORT: advertise the "cid" (Content-ID, RFC 2392) scheme in addition to the
+    // AQUAWEBKIT: advertise the "cid" (Content-ID, RFC 2392) scheme in addition to the
     // upstream http/https/blob set. On this port GStreamer is the sole media engine, and Apple Mail
     // renders inline audio/video attachments as <video>/<audio src="cid:...">. WebKitWebSrc fetches
     // through WebCore's CachedResourceLoader (see CachedResourceStreamingClient), the same loader that
@@ -1055,7 +1055,7 @@ void CachedResourceStreamingClient::responseReceived(PlatformMediaResource&, con
 
     members->didPassAccessControlCheck = members->resource->didPassAccessControlCheck();
     members->origins.add(SecurityOrigin::create(response.url()));
-    if (RefPtr observer = members->responseObserver.get()) // MAVERICKS_BACKPORT: see responseObserver.
+    if (RefPtr observer = members->responseObserver.get()) // AQUAWEBKIT: see responseObserver.
         observer->adaptiveDemuxSourceReceivedResponse(SecurityOrigin::create(response.url()), members->didPassAccessControlCheck);
 
     auto responseURI = response.url().string().utf8();
@@ -1063,7 +1063,7 @@ void CachedResourceStreamingClient::responseReceived(PlatformMediaResource&, con
         members->redirectedURI = WTF::move(responseURI);
 
     // length will be zero (unknown) if no Content-Length is provided or the response is compressed with Content-Encoding.
-    // MAVERICKS_BACKPORT: a Cocoa ResourceResponse reports an unknown length as -1 (NSURLResponseUnknownLength), which
+    // AQUAWEBKIT: a Cocoa ResourceResponse reports an unknown length as -1 (NSURLResponseUnknownLength), which
     // the uint64_t conversion turns into a 2^64-1 byte, seekable resource; only a positive length is a length here.
     // uint64_t length = !response.httpHeaderFields().contains(HTTPHeaderName::ContentEncoding) ? response.expectedContentLength() : 0;
     uint64_t length = !response.httpHeaderFields().contains(HTTPHeaderName::ContentEncoding) && response.expectedContentLength() > 0 ? response.expectedContentLength() : 0;
@@ -1166,7 +1166,7 @@ void CachedResourceStreamingClient::redirectReceived(PlatformMediaResource&, Res
     }
     DataMutexLocker members { src->priv->dataMutex };
     members->origins.add(SecurityOrigin::create(response.url()));
-    if (RefPtr observer = members->responseObserver.get()) // MAVERICKS_BACKPORT: see responseObserver.
+    if (RefPtr observer = members->responseObserver.get()) // AQUAWEBKIT: see responseObserver.
         observer->adaptiveDemuxSourceReceivedResponse(SecurityOrigin::create(response.url()), std::nullopt);
     completionHandler(WTF::move(request));
 }

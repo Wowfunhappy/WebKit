@@ -36,7 +36,7 @@
 #include <wtf/RetainPtr.h>
 #include <wtf/StreamBuffer.h>
 
-// typedef struct __CFHTTPMessage* CFHTTPMessageRef; // MAVERICKS_BACKPORT: see the note in the private section below.
+// typedef struct __CFHTTPMessage* CFHTTPMessageRef; // AQUAWEBKIT: see the note in the private section below.
 
 namespace WebCore {
 
@@ -44,7 +44,7 @@ class Credential;
 class StorageSessionProvider;
 class ProtectionSpace;
 class SocketStreamHandleClient;
-class SocketStreamCurlTransport; // MAVERICKS_BACKPORT: see the note in the private section below.
+class SocketStreamCurlTransport; // AQUAWEBKIT: see the note in the private section below.
 
 class SocketStreamHandleImpl : public SocketStreamHandle {
 public:
@@ -63,10 +63,10 @@ private:
     bool sendPendingData();
 
     SocketStreamHandleImpl(const URL&, SocketStreamHandleClient&, PAL::SessionID, const String& credentialPartition, SourceApplicationAuditToken&&, const StorageSessionProvider*, bool shouldAcceptInsecureCertificates);
-    // MAVERICKS_BACKPORT: this port's socket streams run on libcurl and BoringSSL, the stack the rest
+    // AQUAWEBKIT: this port's socket streams run on libcurl and BoringSSL, the stack the rest
     // of its network layer uses, so what a WebSocket handshake presents is the browser's ClientHello.
     // SocketStreamCurlTransport owns the connection, its proxy route and its native trust evaluation;
-    // MavericksSupport/source/WebKitLegacy/WebCoreSupport/SocketStreamHandleImplCurl.cpp implements
+    // AquaWebKitSupport/source/WebKitLegacy/WebCoreSupport/SocketStreamHandleImplCurl.cpp implements
     // both. CFStream's pair, its PAC source and its CONNECT credentials are commented out below.
     /*
     void createStreams();
@@ -78,7 +78,7 @@ private:
     RetainPtr<CFRunLoopSourceRef> m_pacRunLoopSource;
     static void pacExecutionCallback(void* client, CFArrayRef proxyList, CFErrorRef);
     static CFStringRef NODELETE copyPACExecutionDescription(void*);
-    */ // MAVERICKS_BACKPORT: closes the CFStream declarations commented out above.
+    */ // AQUAWEBKIT: closes the CFStream declarations commented out above.
 
     void connect();
     void transportDidOpen();
@@ -89,7 +89,7 @@ private:
     bool shouldUseSSL() const { return m_url.protocolIs("wss"_s); }
     unsigned short port() const;
 
-    /* // MAVERICKS_BACKPORT: opens the CFStream declarations this port replaces, kept for merges.
+    /* // AQUAWEBKIT: opens the CFStream declarations this port replaces, kept for merges.
     void addCONNECTCredentials(CFHTTPMessageRef response);
 
     static void* NODELETE retainSocketStreamHandle(void*);
@@ -116,10 +116,10 @@ private:
     bool m_shouldAcceptInsecureCertificates;
     RetainPtr<CFReadStreamRef> m_readStream;
     RetainPtr<CFWriteStreamRef> m_writeStream;
-    */ // MAVERICKS_BACKPORT: closes the CFStream declarations commented out above.
+    */ // AQUAWEBKIT: closes the CFStream declarations commented out above.
 
-    bool m_shouldAcceptInsecureCertificates; // MAVERICKS_BACKPORT: also declared in the block above, which this port replaces.
-    RefPtr<SocketStreamCurlTransport> m_transport; // MAVERICKS_BACKPORT: owns the connection; see the note above.
+    bool m_shouldAcceptInsecureCertificates; // AQUAWEBKIT: also declared in the block above, which this port replaces.
+    RefPtr<SocketStreamCurlTransport> m_transport; // AQUAWEBKIT: owns the connection; see the note above.
 
     RetainPtr<CFURLRef> m_httpsURL; // ws(s): replaced with https:
     String m_credentialPartition;

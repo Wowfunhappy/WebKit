@@ -62,7 +62,7 @@
 #define USE_CA 1
 #endif
 
-// MAVERICKS_BACKPORT: WebCore's CoreImage filter appliers use the typed CIFilterBuiltins API (macOS 10.15+).
+// AQUAWEBKIT: WebCore's CoreImage filter appliers use the typed CIFilterBuiltins API (macOS 10.15+).
 // Gate USE(CORE_IMAGE) on the deployment target so a 10.9 build falls back to the software filter
 // appliers (CoreImage itself exists on 10.9, but only as the old QuartzCore-based API).
 #if PLATFORM(COCOA) && !defined(USE_CORE_IMAGE) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101500)
@@ -102,7 +102,7 @@
 #define USE_APPKIT 1
 #endif
 
-// MAVERICKS_BACKPORT: PassKit 10.12+
+// AQUAWEBKIT: PassKit 10.12+
 // #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
 // #define USE_PASSKIT 1
 // #endif
@@ -344,7 +344,7 @@
 #endif
 
 // #if PLATFORM(MAC)
-#if !defined(USE_NSPRESENTATIONSTATE) && (PLATFORM(MAC)) // MAVERICKS_BACKPORT: guarded like its neighbours, so OptionsMacMavericks.cmake can state this port's value.
+#if !defined(USE_NSPRESENTATIONSTATE) && (PLATFORM(MAC)) // AQUAWEBKIT: guarded like its neighbours, so OptionsMacAquaWebKit.cmake can state this port's value.
 #define USE_NSPRESENTATIONSTATE 1
 #endif
 
@@ -380,7 +380,7 @@
 #endif
 
 // #if PLATFORM(COCOA)
-#if !defined(USE_SANDBOX_VERSION_3) && (PLATFORM(COCOA)) // MAVERICKS_BACKPORT: guarded like its neighbours, so OptionsMacMavericks.cmake can state this port's value.
+#if !defined(USE_SANDBOX_VERSION_3) && (PLATFORM(COCOA)) // AQUAWEBKIT: guarded like its neighbours, so OptionsMacAquaWebKit.cmake can state this port's value.
 #define USE_SANDBOX_VERSION_3 1
 #endif
 

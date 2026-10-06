@@ -23,7 +23,7 @@
 
 #include "GStreamerCommon.h"
 #include "GStreamerElementHarness.h"
-#include "GStreamerImageDecoderStream.h" // MAVERICKS_BACKPORT: cumulative-buffer adapter for the streaming demuxer.
+#include "GStreamerImageDecoderStream.h" // AQUAWEBKIT: cumulative-buffer adapter for the streaming demuxer.
 #include "ImageDecoder.h"
 #include "MIMETypeRegistry.h"
 #include "SampleMap.h"
@@ -77,7 +77,7 @@ public:
     void tearDown();
 
 private:
-    // MAVERICKS_BACKPORT: End-of-input drains the streaming decoder once all network data has arrived.
+    // AQUAWEBKIT: End-of-input drains the streaming decoder once all network data has arrived.
     // void pushEncodedData(const FragmentedSharedBuffer&);
     void pushEncodedData(const FragmentedSharedBuffer&, bool allDataReceived = false);
     GStreamerImageDecoderStream m_encodedStream;

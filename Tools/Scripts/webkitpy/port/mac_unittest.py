@@ -59,7 +59,7 @@ class MacTest(darwin_testcase.DarwinTest):
     def test_mavericks_apache(self):
         for driver in ('DumpRenderTree', 'WebKitTestRunner'):
             port = self.make_port(port_name='mac-mavericks', options=MockOptions(driver_names=[driver]))
-            self.assertEqual(port._path_to_apache(), '/mock-checkout/MavericksSupport/deps/build/bin/httpd')
+            self.assertEqual(port._path_to_apache(), '/mock-checkout/AquaWebKitSupport/deps/build/bin/httpd')
 
     def test_mavericks_wk1_expectations_drop_opening_skip_block(self):
         opening = '# Skip all tests on Mac wk1\nfast [ Skip ]\nhttp [ Skip ]\n'

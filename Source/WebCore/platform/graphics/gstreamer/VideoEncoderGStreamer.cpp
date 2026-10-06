@@ -28,7 +28,7 @@
 #include "GUniquePtrGStreamer.h"
 #include "VideoEncoderPrivateGStreamer.h"
 #include "VideoFrameGStreamer.h"
-// MAVERICKS_BACKPORT: Asynchronous encoder outputs retain their input frame's WebCodecs timing.
+// AQUAWEBKIT: Asynchronous encoder outputs retain their input frame's WebCodecs timing.
 #include "VideoFrameMetadataGStreamer.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -70,7 +70,7 @@ public:
     void setRates(uint64_t bitRate, double frameRate);
     void setBitRateAllocation(RefPtr<WebKitVideoEncoderBitRateAllocation>&&, double frameRate);
     void applyRates();
-    // MAVERICKS_BACKPORT: A flush answers whether the encoder drained.
+    // AQUAWEBKIT: A flush answers whether the encoder drained.
     // void flush();
     bool flush();
     void close() { m_isClosed = true; }
@@ -85,13 +85,13 @@ private:
     VideoEncoder::DescriptionCallback m_descriptionCallback;
     VideoEncoder::OutputCallback m_outputCallback;
     RefPtr<WebKitVideoEncoderBitRateAllocation> m_bitrateAllocation;
-    // MAVERICKS_BACKPORT: Each GstBuffer carries its own WebCodecs timestamp and duration.
+    // AQUAWEBKIT: Each GstBuffer carries its own WebCodecs timestamp and duration.
     // int64_t m_timestamp { 0 };
     // std::optional<uint64_t> m_duration;
     bool m_isClosed { false };
     bool m_isInitialized { false };
     RefPtr<GStreamerElementHarness> m_harness;
-    // MAVERICKS_BACKPORT: The encoder's bus records an error it posts, and the next flush reports it.
+    // AQUAWEBKIT: The encoder's bus records an error it posts, and the next flush reports it.
     GRefPtr<GstBus> m_bus;
     std::atomic<bool> m_errorPosted { false };
     GUniquePtr<GstVideoConverter> m_colorConvert;
@@ -121,7 +121,7 @@ Expected<Ref<GStreamerVideoEncoder>, String> GStreamerVideoEncoder::create(const
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_video_encoder_debug, "webkitvideoencoder", 0, "WebKit WebCodecs Video Encoder");
     });
-    // MAVERICKS_BACKPORT: paired the way GStreamerWebRTCProvider::initializeVideoEncodingCapabilities()
+    // AQUAWEBKIT: paired the way GStreamerWebRTCProvider::initializeVideoEncodingCapabilities()
     // pairs it. Registering the encoder element runs its class_init, which resolves every encoder
     // factory out of the registry; reached before gst_init, all of them answer absent and the table
     // stays empty for the life of the process.
@@ -168,7 +168,7 @@ Ref<VideoEncoder::EncodePromise> GStreamerVideoEncoder::encode(RawFrame&& frame,
 Ref<GenericPromise> GStreamerVideoEncoder::flush()
 {
     return invokeAsync(gstEncoderWorkQueue(), [encoder = m_internalEncoder] {
-        // MAVERICKS_BACKPORT: A failed drain rejects the flush.
+        // AQUAWEBKIT: A failed drain rejects the flush.
         // encoder->flush();
         if (!encoder->flush())
             return GenericPromise::createAndReject();
@@ -294,14 +294,14 @@ GStreamerInternalVideoEncoder::GStreamerInternalVideoEncoder(const VideoEncoder:
         GST_TRACE_OBJECT(m_harness->element(), "Notifying encoded%s frame", isKeyFrame ? " key" : "");
         GstMappedBuffer encodedImage(outputBuffer, GST_MAP_READ);
 
-        // MAVERICKS_BACKPORT: VideoToolbox emits frames asynchronously, with the metadata of each corresponding input.
+        // AQUAWEBKIT: VideoToolbox emits frames asynchronously, with the metadata of each corresponding input.
         // VideoEncoder::EncodedFrame encodedFrame { encodedImage.createVector(), isKeyFrame, m_timestamp, m_duration, temporalIndex };
         auto [timestamp, duration] = webkitGstBufferGetWebCodecsTiming(outputBuffer);
         VideoEncoder::EncodedFrame encodedFrame { encodedImage.createVector(), isKeyFrame, timestamp, duration, temporalIndex };
         m_outputCallback({ WTF::move(encodedFrame) });
     });
 
-    // MAVERICKS_BACKPORT: Late encoder output is delivered on the existing encoder work queue.
+    // AQUAWEBKIT: Late encoder output is delivered on the existing encoder work queue.
     m_harness->outputStreams().first()->setOutputAvailableCallback([weakThis = ThreadSafeWeakPtr { *this }] {
         gstEncoderWorkQueue().dispatch([weakThis] {
             if (auto encoder = weakThis.get())
@@ -309,7 +309,7 @@ GStreamerInternalVideoEncoder::GStreamerInternalVideoEncoder(const VideoEncoder:
         });
     });
 
-    // MAVERICKS_BACKPORT: Encoder errors, including those posted while a flush drains, arrive on the bus.
+    // AQUAWEBKIT: Encoder errors, including those posted while a flush drains, arrive on the bus.
     m_bus = adoptGRef(gst_bus_new());
     gst_bus_set_sync_handler(m_bus.get(), [](GstBus*, GstMessage* message, gpointer userData) {
         if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR) {
@@ -329,7 +329,7 @@ GStreamerInternalVideoEncoder::~GStreamerInternalVideoEncoder()
     if (!m_harness)
         return;
 
-    // MAVERICKS_BACKPORT: The bus handler is detached before the harness releases its encoder.
+    // AQUAWEBKIT: The bus handler is detached before the harness releases its encoder.
     gst_bus_set_sync_handler(m_bus.get(), nullptr, nullptr, nullptr);
     gst_element_set_bus(m_harness->element(), nullptr);
 
@@ -357,7 +357,7 @@ bool GStreamerInternalVideoEncoder::encode(VideoEncoder::RawFrame&& rawFrame, bo
         return true;
     }
 
-    // MAVERICKS_BACKPORT: WebCodecs timing is attached to the input sample below.
+    // AQUAWEBKIT: WebCodecs timing is attached to the input sample below.
     // m_timestamp = rawFrame.timestamp;
     // m_duration = rawFrame.duration;
 
@@ -366,7 +366,7 @@ bool GStreamerInternalVideoEncoder::encode(VideoEncoder::RawFrame&& rawFrame, bo
         m_harness->pushEvent(gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, FALSE, 1));
     }
 
-    // MAVERICKS_BACKPORT: CoreVideo-backed WebCodecs frames are wrapped as GStreamer samples with their rotation and mirroring.
+    // AQUAWEBKIT: CoreVideo-backed WebCodecs frames are wrapped as GStreamer samples with their rotation and mirroring.
     // auto& gstVideoFrame = downcast<VideoFrameGStreamer>(rawFrame.frame.get());
     // GRefPtr sample = gstVideoFrame.sample();
     RefPtr<VideoFrameGStreamer> wrappedFrame;
@@ -384,9 +384,9 @@ bool GStreamerInternalVideoEncoder::encode(VideoEncoder::RawFrame&& rawFrame, bo
         wrappedFrame = VideoFrameGStreamer::createWrappedSample(convertedSample, WTF::move(options));
     }
     auto& gstVideoFrame = wrappedFrame ? *wrappedFrame : downcast<VideoFrameGStreamer>(rawFrame.frame.get());
-    GRefPtr sample = gstVideoFrame.sample(); // MAVERICKS_BACKPORT: closes the CoreVideo wrapping above.
+    GRefPtr sample = gstVideoFrame.sample(); // AQUAWEBKIT: closes the CoreVideo wrapping above.
 
-    // MAVERICKS_BACKPORT: Video metadata preserves signed timestamps and optional durations through conversion, encoding and parsing.
+    // AQUAWEBKIT: Video metadata preserves signed timestamps and optional durations through conversion, encoding and parsing.
     sample = adoptGRef(gst_sample_make_writable(sample.leakRef()));
     auto timedBuffer = webkitGstBufferSetWebCodecsTiming(GRefPtr(gst_sample_get_buffer(sample.get())), rawFrame.timestamp, rawFrame.duration);
     gst_sample_set_buffer(sample.get(), timedBuffer.get());
@@ -454,12 +454,12 @@ void GStreamerInternalVideoEncoder::applyRates()
     setBitRateAllocation(WTF::move(bitRateAllocation), m_config.frameRate);
 }
 
-// MAVERICKS_BACKPORT: A flush answers whether the encoder drained without posting an error.
+// AQUAWEBKIT: A flush answers whether the encoder drained without posting an error.
 // void GStreamerInternalVideoEncoder::flush()
 bool GStreamerInternalVideoEncoder::flush()
 {
     m_harness->flush();
-    return !m_errorPosted.exchange(false); // MAVERICKS_BACKPORT: closes the flush result above.
+    return !m_errorPosted.exchange(false); // AQUAWEBKIT: closes the flush result above.
 }
 
 #undef GST_CAT_DEFAULT

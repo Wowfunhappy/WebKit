@@ -147,7 +147,7 @@ enum class SDKAlignedBehavior {
     IgnorePageLocationDuringHardPocketEligibilityCheck,
     AdjustColorExtensionsForHorizontalBannerViewOverlays,
     NetworkProcessInheritsNetworkAccessFromUIProcess,
-    // MAVERICKS_BACKPORT: -webkit-box-pack start/end follow box-direction, and overflowing children are packed.
+    // AQUAWEBKIT: -webkit-box-pack start/end follow box-direction, and overflowing children are packed.
     BoxPackAccountsForBoxDirection,
 
     NumberOfBehaviors

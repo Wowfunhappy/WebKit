@@ -27,7 +27,7 @@
 #include "config.h"
 #include <wtf/URL.h>
 
-#include "LegacyExtensionURL.h" // MAVERICKS_BACKPORT: URL(const URL&, const String&, const URLTextEncoding*) below.
+#include "LegacyExtensionURL.h" // AQUAWEBKIT: URL(const URL&, const String&, const URLTextEncoding*) below.
 #include <stdio.h>
 #include <unicode/uidna.h>
 #include <wtf/HashMap.h>
@@ -64,7 +64,7 @@ void URL::invalidate()
 
 URL::URL(const URL& base, const String& relative, const URLTextEncoding* encoding)
 {
-    // MAVERICKS_BACKPORT: a Safari 7 extension document's root-relative references resolve under its per-launch root.
+    // AQUAWEBKIT: a Safari 7 extension document's root-relative references resolve under its per-launch root.
     if (auto url = resolveLegacyExtensionRootRelativeURL(base, relative, encoding)) {
         *this = WTF::move(*url);
         return;

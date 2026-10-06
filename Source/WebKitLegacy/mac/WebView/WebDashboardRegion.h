@@ -14,7 +14,7 @@
  * AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
  */
 
-// MAVERICKS_BACKPORT: restored value object for the legacy Dashboard control-region SPI removed upstream
+// AQUAWEBKIT: restored value object for the legacy Dashboard control-region SPI removed upstream
 // in e4325475 ("Remove Legacy Dashboard Support"). macOS 10.9's DashboardClient reads dashboardRegionType /
 // dashboardRegionRect / dashboardRegionClip from the objects in -[WebView _dashboardRegions].
 

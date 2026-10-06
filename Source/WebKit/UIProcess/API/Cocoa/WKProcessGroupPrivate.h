@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see WKProcessGroup.h.
+// AQUAWEBKIT: see WKProcessGroup.h.
 
 #import <WebKit/WKProcessGroup.h>
 

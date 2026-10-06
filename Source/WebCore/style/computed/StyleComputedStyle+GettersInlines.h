@@ -154,7 +154,7 @@ template<BoxSide side> struct UsedBorderWidthsAccessor {
     {
         using namespace CSS::Literals;
 
-        // MAVERICKS_BACKPORT: Messages' legacy border images retain their specified border widths.
+        // AQUAWEBKIT: Messages' legacy border images retain their specified border widths.
         bool isLegacyWebkitBorderImage = !data.borderImage->borderImage.borderImageSource.isNone()
             && data.borderImage->borderImage.borderImageSlice.legacyWebkitBorderImage;
         // if (!data.edges[side].hasVisibleStyle())

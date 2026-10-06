@@ -44,7 +44,7 @@ namespace WebPushD {
 class PushServiceConnection : public RefCountedAndCanMakeWeakPtr<PushServiceConnection> {
     WTF_MAKE_TZONE_ALLOCATED(PushServiceConnection);
 public:
-    // MAVERICKS_BACKPORT: apsd owns the acknowledgement of everything it delivers, so on
+    // AQUAWEBKIT: apsd owns the acknowledgement of everything it delivers, so on
     // that transport all of this is inert. The Mozilla transport instead keeps a message
     // in the push service's own store until this client acknowledges it, which makes the
     // acknowledgement the point where responsibility for the message transfers. A receipt
@@ -90,7 +90,7 @@ public:
     virtual void setPublicTokenForTesting(Vector<uint8_t>&&);
 
     void startListeningForPushMessages(IncomingPushMessageHandler&&);
-    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
     void didReceivePushMessage(NSString *topic, NSDictionary *userInfo, PushMessageReceipt = noPushMessageReceipt);
 
 protected:
@@ -100,7 +100,7 @@ private:
     Function<void(Vector<uint8_t>&&)> m_publicTokenChangeHandler;
     Vector<uint8_t> m_pendingPublicToken;
     IncomingPushMessageHandler m_incomingPushMessageHandler;
-    // MAVERICKS_BACKPORT: a push held for a handler that is not listening yet keeps its receipt.
+    // AQUAWEBKIT: a push held for a handler that is not listening yet keeps its receipt.
     struct PendingPush {
         RetainPtr<NSString> topic;
         RetainPtr<NSDictionary> userInfo;

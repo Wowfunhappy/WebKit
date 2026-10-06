@@ -64,7 +64,7 @@ public:
         AuthenticationDecisionListener,
         CaptionUserPreferencesTestingModeToken,
         CertificateInfo,
-        // MAVERICKS_BACKPORT: WebConnection, the bundle<->app channel behind WKConnection.
+        // AQUAWEBKIT: WebConnection, the bundle<->app channel behind WKConnection.
         Connection,
         ContextMenuItem,
         Credential,
@@ -74,13 +74,13 @@ public:
         FrameHandle,
         Image,
         PageHandle,
-        PageGroupHandle, // MAVERICKS_BACKPORT: page-group carrier in UserData for Safari 7.
+        PageGroupHandle, // AQUAWEBKIT: page-group carrier in UserData for Safari 7.
         ProtectionSpace,
         RenderLayer,
         RenderObject,
         ResourceLoadInfo,
         SecurityOrigin,
-        SerializedScriptValue, // MAVERICKS_BACKPORT: WKSerializedScriptValue, Safari 7's extension-message and "do JavaScript" carrier.
+        SerializedScriptValue, // AQUAWEBKIT: WKSerializedScriptValue, Safari 7's extension-message and "do JavaScript" carrier.
         SessionState,
         String,
         TargetedElementInfo,
@@ -232,19 +232,19 @@ public:
         BundleDOMWindowExtension,
         BundleFrame,
         BundleHitTestResult,
-        // MAVERICKS_BACKPORT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
+        // AQUAWEBKIT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
         BundleNavigationAction,
         BundleNodeHandle,
         BundlePage,
         BundlePageBanner,
-        BundlePageGroup, // MAVERICKS_BACKPORT: legacy WKBundlePageGroupRef support for Safari 7.
+        BundlePageGroup, // AQUAWEBKIT: legacy WKBundlePageGroupRef support for Safari 7.
         BundlePageOverlay,
         BundleRangeHandle,
         BundleScriptWorld,
 
         // Platform specific
         EditCommandProxy,
-        // MAVERICKS_BACKPORT: WebKit::ObjCObjectGraph (Shared/mac/ObjCObjectGraph.h).
+        // AQUAWEBKIT: WebKit::ObjCObjectGraph (Shared/mac/ObjCObjectGraph.h).
         ObjCObjectGraph,
         View,
 #if USE(SOUP)

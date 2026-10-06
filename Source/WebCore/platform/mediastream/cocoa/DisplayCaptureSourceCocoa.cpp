@@ -52,7 +52,7 @@
 #if HAVE(SCREEN_CAPTURE_KIT)
 #include "ScreenCaptureKitCaptureSource.h"
 #else
-// MAVERICKS_BACKPORT: the CGDisplayStream screen capturer serving the non-ScreenCaptureKit branch below.
+// AQUAWEBKIT: the CGDisplayStream screen capturer serving the non-ScreenCaptureKit branch below.
 #include "ScreenDisplayCapturerMac.h"
 #include <wtf/text/StringToIntegerConversion.h>
 #endif
@@ -72,7 +72,7 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& devi
 #if HAVE(SCREEN_CAPTURE_KIT)
         [[fallthrough]];
 #else
-// MAVERICKS_BACKPORT: without ScreenCaptureKit, screen devices are served by the CGDisplayStream
+// AQUAWEBKIT: without ScreenCaptureKit, screen devices are served by the CGDisplayStream
 // capturer (ScreenDisplayCapturerMac).
 //      UNUSED_PARAM(hashSalts);
 //      UNUSED_PARAM(constraints);
@@ -90,7 +90,7 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& devi
                 return makeUniqueRefWithoutRefCountedCheck<ScreenDisplayCapturerMac>(source, displayID);
             }, device, WTF::move(hashSalts), constraints, pageIdentifier);
         }
-#endif // MAVERICKS_BACKPORT: closes the non-ScreenCaptureKit screen branch above.
+#endif // AQUAWEBKIT: closes the non-ScreenCaptureKit screen branch above.
     case CaptureDevice::DeviceType::Window:
 #if HAVE(SCREEN_CAPTURE_KIT)
         if (ScreenCaptureKitCaptureSource::isAvailable()) {

@@ -42,7 +42,7 @@
 
     [Conditional=WEB_RTC, CallWith=CurrentGlobalObject] undefined gatherRTCLogs(RTCLogsCallback? callback);
 
-    // MAVERICKS_BACKPORT: the Database agent's CommandLineAPI hook, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the Database agent's CommandLineAPI hook, restored for the Safari 7 Web Inspector.
     DOMString databaseId(Database database);
     DOMString storageId(Storage storage);
 };

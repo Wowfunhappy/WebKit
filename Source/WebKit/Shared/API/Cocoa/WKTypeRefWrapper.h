@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT (#137): the legacy WebKit2 ObjC wrapper that lets a WKTypeRef (C-SPI object)
+// AQUAWEBKIT (#137): the legacy WebKit2 ObjC wrapper that lets a WKTypeRef (C-SPI object)
 // travel through an Objective-C container (e.g. injected-bundle userData / userInfo dictionaries).
 // Removed upstream with the rest of the WKWebProcessPlugIn ObjC SPI; restored here because Apple
 // Mail's WebContent injected bundle (MailUIWebBundle) links against it. Without the class the bundle

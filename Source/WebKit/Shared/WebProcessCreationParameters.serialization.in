@@ -33,7 +33,7 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
 
     WebKit::UserData initializationUserData;
 
-    # MAVERICKS_BACKPORT: restored accelerated-compositing mach port serialization for Safari 7 layer hosting (field absent at base); the WebProcess uses it to set up its compositing connection.
+    # AQUAWEBKIT: restored accelerated-compositing mach port serialization for Safari 7 layer hosting (field absent at base); the WebProcess uses it to set up its compositing connection.
 #if PLATFORM(COCOA)
     WTF::MachSendRight acceleratedCompositingPort;
 #endif
@@ -55,7 +55,7 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
     Vector<String> urlSchemesRegisteredAsAlwaysRevalidated;
     Vector<String> urlSchemesRegisteredAsCachePartitioned;
     Vector<String> urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest;
-    # MAVERICKS_BACKPORT: restored legacy custom-protocol scheme list (LegacyCustomProtocolManager / WebProcess registerURLSchemeAsCustom) used by the backport's custom-scheme network routing; field absent at base.
+    # AQUAWEBKIT: restored legacy custom-protocol scheme list (LegacyCustomProtocolManager / WebProcess registerURLSchemeAsCustom) used by the backport's custom-scheme network routing; field absent at base.
     Vector<String> urlSchemesRegisteredForCustomProtocols;
 
 #if ENABLE(WK_WEB_EXTENSIONS)

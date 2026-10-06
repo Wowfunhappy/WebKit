@@ -139,11 +139,11 @@ public:
     void waitingForKeyChanged();
 #endif
 
-// MAVERICKS_BACKPORT: LEGACY only. keyNeeded forwards to MediaPlayer::keyNeeded, which exists only under
+// AQUAWEBKIT: LEGACY only. keyNeeded forwards to MediaPlayer::keyNeeded, which exists only under
 // ENABLE(LEGACY_ENCRYPTED_MEDIA), as does its sole caller
 // (SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataForTrackID). Upstream's
 // ENABLE(ENCRYPTED_MEDIA) half compiles only because its Cocoa ports build both features together; this
-// port has modern EME on and legacy EME off (OptionsMacMavericks.cmake explains why).
+// port has modern EME on and legacy EME off (OptionsMacAquaWebKit.cmake explains why).
 // #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     void keyNeeded(const SharedBuffer&);
@@ -310,7 +310,7 @@ private:
 #endif
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-    // MAVERICKS_BACKPORT: base VideoFullscreenInterface declares this only under VIDEO_PRESENTATION_MODE (off here).
+    // AQUAWEBKIT: base VideoFullscreenInterface declares this only under VIDEO_PRESENTATION_MODE (off here).
     void isInFullscreenOrPictureInPictureChanged(bool) final;
 #endif
 

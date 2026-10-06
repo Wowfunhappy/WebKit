@@ -31,7 +31,7 @@
 #include "FloatRect.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
-// MAVERICKS_BACKPORT: upstream's version of the line below. This port has no ImageDecoderCG -- web
+// AQUAWEBKIT: upstream's version of the line below. This port has no ImageDecoderCG -- web
 // content is never handed to 10.9's ImageIO -- so the decoders below are reached through
 // ImageDecoder::create.
 // #include "ImageDecoderCG.h"
@@ -42,7 +42,7 @@
 #include "PixelBuffer.h"
 #include "SVGImage.h"
 #include "SVGImageForContainer.h"
-#include "SharedBuffer.h" // MAVERICKS_BACKPORT: transcodeImage below reads the source file's bytes.
+#include "SharedBuffer.h" // AQUAWEBKIT: transcodeImage below reads the source file's bytes.
 #include "UTIRegistry.h"
 #include "UTIUtilities.h"
 #include <CoreFoundation/CoreFoundation.h>
@@ -69,7 +69,7 @@ WorkQueue& sharedImageTranscodingQueueSingleton()
     return queue.get();
 }
 
-// MAVERICKS_BACKPORT: a ScalableImageDecoder names its format by filename extension; ImageDecoderCG
+// AQUAWEBKIT: a ScalableImageDecoder names its format by filename extension; ImageDecoderCG
 // names it by the UTI ImageIO reads off the container. The table maps the extensions this build's
 // decoders answer with to the UTIs UTIRegistry.mm names for the same formats, WebP and AVIF among
 // them, which 10.9's UTI database predates.
@@ -102,7 +102,7 @@ static String utiFromImageDecoder(const ImageDecoder& decoder)
     return mimeType.isEmpty() ? nullString() : UTIFromMIMEType(mimeType);
 }
 
-// MAVERICKS_BACKPORT: see ImageUtilities.h. kCGImagePropertyOrientation is the EXIF value, and
+// AQUAWEBKIT: see ImageUtilities.h. kCGImagePropertyOrientation is the EXIF value, and
 // ImageOrientation converts to exactly that.
 RetainPtr<CFDictionaryRef> imagePropertiesForOrientation(ImageOrientation orientation)
 {
@@ -119,7 +119,7 @@ RetainPtr<CFDictionaryRef> imagePropertiesForOrientation(ImageOrientation orient
     return adoptCF(CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
 }
 
-// MAVERICKS_BACKPORT: the whole-file decode the three functions below share. `allDataReceived` is
+// AQUAWEBKIT: the whole-file decode the three functions below share. `allDataReceived` is
 // true because the bytes are all here.
 static RefPtr<ImageDecoder> decodeAllOf(FragmentedSharedBuffer& buffer, const String& mimeType = String())
 {
@@ -134,7 +134,7 @@ static RefPtr<ImageDecoder> decodeAllOf(FragmentedSharedBuffer& buffer, const St
 
 static String transcodeImage(const String& path, const String& destinationUTI, const String& destinationExtension)
 {
-    // MAVERICKS_BACKPORT: upstream's version of the lines below. The source file is decoded in
+    // AQUAWEBKIT: upstream's version of the lines below. The source file is decoded in
     // WebCore; the destination is ImageIO's, which encodes a decoded image and parses nothing.
     // auto sourceURL = adoptCF(CFURLCreateWithFileSystemPath(kCFAllocatorDefault, path.createCFString().get(), kCFURLPOSIXPathStyle, false));
     // auto source = adoptCF(CGImageSourceCreateWithURL(sourceURL.get(), nullptr));
@@ -148,15 +148,15 @@ static String transcodeImage(const String& path, const String& destinationUTI, c
     if (!sourceBuffer)
         return nullString();
 
-    RefPtr sourceDecoder = decodeAllOf(*sourceBuffer, MIMETypeRegistry::mimeTypeForPath(path)); // MAVERICKS_BACKPORT
+    RefPtr sourceDecoder = decodeAllOf(*sourceBuffer, MIMETypeRegistry::mimeTypeForPath(path)); // AQUAWEBKIT
     if (!sourceDecoder)
         return nullString();
 
-    auto sourceUTI = utiFromImageDecoder(*sourceDecoder); // MAVERICKS_BACKPORT: the source format, from the table above.
+    auto sourceUTI = utiFromImageDecoder(*sourceDecoder); // AQUAWEBKIT: the source format, from the table above.
     if (!sourceUTI || sourceUTI == destinationUTI)
         return nullString();
 
-    // MAVERICKS_BACKPORT: the image the destination below encodes, from WebCore's decoder, and the
+    // AQUAWEBKIT: the image the destination below encodes, from WebCore's decoder, and the
     // orientation CGImageDestinationAddImageFromSource carries across with it.
     auto primaryIndex = sourceDecoder->primaryFrameIndex();
     RetainPtr sourceImage = sourceDecoder->createFrameImageAtIndex(primaryIndex);
@@ -190,7 +190,7 @@ static String transcodeImage(const String& path, const String& destinationUTI, c
     auto consumer = adoptCF(CGDataConsumerCreate(&destinationFileHandle, &callbacks));
     auto destination = adoptCF(CGImageDestinationCreateWithDataConsumer(consumer.get(), destinationUTI.createCFString().get(), 1, nullptr));
 
-    // MAVERICKS_BACKPORT: upstream's version of the line below; the image comes from WebCore's decoder.
+    // AQUAWEBKIT: upstream's version of the line below; the image comes from WebCore's decoder.
     // CGImageDestinationAddImageFromSource(destination.get(), source.get(), 0, nullptr);
     CGImageDestinationAddImage(destination.get(), sourceImage.get(), sourceProperties.get());
 
@@ -269,7 +269,7 @@ String descriptionString(ImageDecodingError error)
 Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailableSizesFromImageData(std::span<const uint8_t> data)
 {
     Ref buffer = SharedBuffer::create(data);
-    // MAVERICKS_BACKPORT: upstream's version of the lines below. A ScalableImageDecoder exists only
+    // AQUAWEBKIT: upstream's version of the lines below. A ScalableImageDecoder exists only
     // for bytes that match one of the decoders this build carries, which is the question
     // isSupportedImageType puts to ImageIO's list.
     // Ref imageDecoder = ImageDecoderCG::create(buffer.get(), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
@@ -284,7 +284,7 @@ Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailable
     if (!imageDecoder)
         return makeUnexpected(ImageDecodingError::BadData);
 
-    auto uti = utiFromImageDecoder(*imageDecoder); // MAVERICKS_BACKPORT
+    auto uti = utiFromImageDecoder(*imageDecoder); // AQUAWEBKIT
     if (!uti)
         return makeUnexpected(ImageDecodingError::UnsupportedType);
 
@@ -332,7 +332,7 @@ Expected<Vector<std::pair<String, float>>, ImageDecodingError> imageMetadataFrom
 static RefPtr<NativeImage> tryCreateNativeImageFromBitmapImageData(std::span<const uint8_t> data, std::optional<FloatSize> preferredSize)
 {
     Ref buffer = SharedBuffer::create(data);
-    // MAVERICKS_BACKPORT: upstream's version of the lines below; same substitution as utiAndAvailableSizesFromImageData.
+    // AQUAWEBKIT: upstream's version of the lines below; same substitution as utiAndAvailableSizesFromImageData.
     // Ref imageDecoder = ImageDecoderCG::create(buffer.get(), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
     // imageDecoder->setData(buffer.get(), true);
     // if (imageDecoder->encodedDataStatus() == EncodedDataStatus::Error)

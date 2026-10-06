@@ -57,7 +57,7 @@
 #endif
 #import "WebView.h"
 #import "WebViewInternal.h"
-// MAVERICKS_BACKPORT: for the capture-state hand-off in isPlayingMediaDidChange().
+// AQUAWEBKIT: for the capture-state hand-off in isPlayingMediaDidChange().
 #import "WebUserMediaClient.h"
 #import <Foundation/Foundation.h>
 #import <JavaScriptCore/ConsoleTypes.h>
@@ -1089,7 +1089,7 @@ void WebChromeClient::showPlaybackTargetPicker(WebCore::PlaybackTargetClientCont
 }
 
 #if ENABLE(MEDIA_STREAM)
-// MAVERICKS_BACKPORT: the capture-state signal the WebKit1 user-media client reprompts on; see
+// AQUAWEBKIT: the capture-state signal the WebKit1 user-media client reprompts on; see
 // WebUserMediaClient::captureStateChanged().
 void WebChromeClient::isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags state)
 {
@@ -1203,7 +1203,7 @@ void WebChromeClient::didFinishContentChangeObserving(WebCore::LocalFrame& frame
 #endif
 
 #if ENABLE(DASHBOARD_SUPPORT)
-// MAVERICKS_BACKPORT: forward the document's -apple-dashboard-region control regions to DashboardClient.
+// AQUAWEBKIT: forward the document's -apple-dashboard-region control regions to DashboardClient.
 void WebChromeClient::annotatedRegionsChanged()
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
@@ -1211,7 +1211,7 @@ void WebChromeClient::annotatedRegionsChanged()
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
-// MAVERICKS_BACKPORT: a WebView whose UI delegate answers -webView:dashboardRegionsChanged: is a Dashboard
+// AQUAWEBKIT: a WebView whose UI delegate answers -webView:dashboardRegionsChanged: is a Dashboard
 // widget host.
 bool WebChromeClient::isDashboardWidgetClient() const
 {

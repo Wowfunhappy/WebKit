@@ -25,7 +25,7 @@
 
 #import <dispatch/dispatch.h>
 #import <wtf/Box.h>
-#import <wtf/Deque.h> // MAVERICKS_BACKPORT: for m_heldWork below.
+#import <wtf/Deque.h> // AQUAWEBKIT: for m_heldWork below.
 #import <wtf/Function.h>
 #import <wtf/Lock.h>
 #import <wtf/MessageQueue.h>
@@ -52,7 +52,7 @@ class SynchronousLoaderMessageQueue;
     RetainPtr<NSCachedURLResponse> m_cachedResponseResult;
     std::optional<SchedulePairHashSet> m_scheduledPairs;
     BOOL m_boolResult;
-    // MAVERICKS_BACKPORT: main-thread state of a connection scheduled on the main run loop, whose
+    // AQUAWEBKIT: main-thread state of a connection scheduled on the main run loop, whose
     // callbacks run their work in place; see callFunctionOnMainThread:.
     bool m_callbacksOnMainThread;
     bool m_waitingForCompletion;
@@ -66,13 +66,13 @@ class SynchronousLoaderMessageQueue;
 }
 
 - (void)detachHandle;
-// MAVERICKS_BACKPORT: curl shares the upstream custom-run-loop/message-queue dispatcher.
+// AQUAWEBKIT: curl shares the upstream custom-run-loop/message-queue dispatcher.
 - (void)callFunctionOnMainThread:(Function<void()>&&)function;
-// MAVERICKS_BACKPORT: the connection is scheduled on the main run loop; see callFunctionOnMainThread:.
+// AQUAWEBKIT: the connection is scheduled on the main run loop; see callFunctionOnMainThread:.
 - (void)setCallbacksOnMainThread;
-// MAVERICKS_BACKPORT: ResourceHandle's defers state, applied to the connection and to the held work.
+// AQUAWEBKIT: ResourceHandle's defers state, applied to the connection and to the held work.
 - (void)setDefersLoading:(BOOL)defers connection:(NSURLConnection *)connection;
-// MAVERICKS_BACKPORT: whether the connection is inside connection:didReceiveResponse:, the only point
+// AQUAWEBKIT: whether the connection is inside connection:didReceiveResponse:, the only point
 // where 10.9 NSURLDownload can take it over.
 - (BOOL)isDeliveringResponse;
 - (id)initWithHandle:(WebCore::ResourceHandle*)handle messageQueue:(RefPtr<WebCore::SynchronousLoaderMessageQueue>&&)messageQueue;

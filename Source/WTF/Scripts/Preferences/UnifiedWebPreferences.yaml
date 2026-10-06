@@ -1815,8 +1815,8 @@ CaptureVideoInGPUProcessEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      # MAVERICKS_BACKPORT: video capture runs in the web process here, which holds the camera grant;
-      # see ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      # AQUAWEBKIT: video capture runs in the web process here, which holds the camera grant;
+      # see ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake.
       "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
       default: false
 
@@ -2751,7 +2751,7 @@ EncryptedMediaAPIEnabled:
   condition: ENABLE(ENCRYPTED_MEDIA)
   defaultValue:
     WebKitLegacy:
-      # MAVERICKS_BACKPORT: status is "embedder", and WebKitLegacy's embedders here predate the
+      # AQUAWEBKIT: status is "embedder", and WebKitLegacy's embedders here predate the
       # property that would turn it on, so this column carries the decision. EME runs in-process
       # on the GStreamer CDMs this port builds for both ports.
       default: true
@@ -3377,11 +3377,11 @@ GStreamerEnabled:
   getter: isGStreamerEnabled
   webcoreBinding: DeprecatedGlobalSettings
   condition: USE(GSTREAMER)
-  # MAVERICKS_BACKPORT: WebKitLegacy restores its GStreamer engine through the generated preference update, including after mock-media tests.
+  # AQUAWEBKIT: WebKitLegacy restores its GStreamer engine through the generated preference update, including after mock-media tests.
   # exposed: [ WebKit ]
   exposed: [ WebKit, WebKitLegacy ]
   defaultValue:
-    # MAVERICKS_BACKPORT: the normal WebKitLegacy playback backend is enabled by default.
+    # AQUAWEBKIT: the normal WebKitLegacy playback backend is enabled by default.
     WebKitLegacy:
       default: true
     WebKit:
@@ -5321,7 +5321,7 @@ MediaDevicesEnabled:
   condition: ENABLE(MEDIA_STREAM)
   defaultValue:
     WebKitLegacy:
-      # MAVERICKS_BACKPORT: on for WebKit1, which has a getUserMedia client again (WebUserMediaClient).
+      # AQUAWEBKIT: on for WebKit1, which has a getUserMedia client again (WebUserMediaClient).
       # This port's WebKit1 embedders predate the property that would turn it on, so the column carries
       # the decision.
       default: true
@@ -6657,7 +6657,7 @@ PushAPIEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: status is "embedder", and this port's embedder (stock
+      # AQUAWEBKIT: status is "embedder", and this port's embedder (stock
       # Safari 7) predates the SPI that would turn it on. The WK2 default carries the
       # decision instead: Web Push is served end-to-end via webpushd's Mozilla autopush
       # transport (see Source/WebKit/webpushd/MozillaPushServiceConnection.h).
@@ -6864,7 +6864,7 @@ RequestVideoFrameCallbackEnabled:
   defaultValue:
     WebKitLegacy:
       "PLATFORM(COCOA) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)" : true
-      # MAVERICKS_BACKPORT: WebKitLegacy uses the GStreamer video-frame callback implementation.
+      # AQUAWEBKIT: WebKitLegacy uses the GStreamer video-frame callback implementation.
       "USE(GSTREAMER)": true
       default: false
     WebKit:
@@ -7112,7 +7112,7 @@ ScreenCaptureEnabled:
   humanReadableDescription: "Enable ScreenCapture"
   defaultValue:
     WebKitLegacy:
-      # MAVERICKS_BACKPORT: on for WebKit1, matching the WebKit column here, now that WebKit1 has a
+      # AQUAWEBKIT: on for WebKit1, matching the WebKit column here, now that WebKit1 has a
       # getUserMedia client again (WebUserMediaClient) and prompts for screen capture through it.
       default: true
     WebKit:
@@ -8239,23 +8239,23 @@ SuppressesIncrementalRendering:
 SwitchControlEnabled:
   type: bool
   # status: stable
-  status: embedder # MAVERICKS_BACKPORT: Native checkbox styling is a port preference.
+  status: embedder # AQUAWEBKIT: Native checkbox styling is a port preference.
   category: html
   humanReadableName: "HTML switch control"
   humanReadableDescription: "Enable HTML switch control"
-  # MAVERICKS_BACKPORT: off, so `<input type=checkbox switch>` stays a checkbox and
+  # AQUAWEBKIT: off, so `<input type=checkbox switch>` stays a checkbox and
   # `'switch' in HTMLInputElement.prototype` reports false. The maintainer's decision for this port:
   # a 10.9 desktop draws checkboxes, and a page that feature-detects the switch gets the checkbox
   # rendering it would choose for itself rather than a control drawn to look like a later system's.
   defaultValue:
     WebKitLegacy:
-      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
+      # "PLATFORM(COCOA)": true   # AQUAWEBKIT: see the decision above.
       default: false
     WebKit:
-      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
+      # "PLATFORM(COCOA)": true   # AQUAWEBKIT: see the decision above.
       default: false
     WebCore:
-      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
+      # "PLATFORM(COCOA)": true   # AQUAWEBKIT: see the decision above.
       default: false
 
 # FIXME: There is no custom binding implemented for WebKitLegacy.
@@ -8899,7 +8899,7 @@ UseGPUProcessForDisplayCapture:
   humanReadableName: "GPU Process: Screen and Window capture"
   humanReadableDescription: "Display capture in GPU Process"
   webcoreBinding: none
-  # MAVERICKS_BACKPORT: without ScreenCaptureKit, DisplayCaptureSourceCocoa captures a Mac display through
+  # AQUAWEBKIT: without ScreenCaptureKit, DisplayCaptureSourceCocoa captures a Mac display through
   # the CGDisplayStream capturer (ScreenDisplayCapturerMac), which the GPU process hosts like any other
   # display source.
   # condition: HAVE(SCREEN_CAPTURE_KIT)
@@ -9534,14 +9534,14 @@ WebCodecsAV1Enabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: AV1 is off in this port by maintainer decision, and the decision belongs
+      # AQUAWEBKIT: AV1 is off in this port by maintainer decision, and the decision belongs
       # here rather than in a codec-name test inside VideoDecoder/VideoEncoder::create -- with it off,
       # WebCodecs reports av01 unsupported at the DOM layer instead of accepting a config and refusing
       # it a layer down. Media element playback is unaffected; it decodes AV1 through GStreamer.
       # "USE(GSTREAMER)": true
       default: false
     WebCore:
-      # MAVERICKS_BACKPORT: off here too; see the WebKit column above.
+      # AQUAWEBKIT: off here too; see the WebKit column above.
       # "USE(GSTREAMER)": true
       default: false
   disableInLockdownMode: true
@@ -9793,13 +9793,13 @@ WebRTCAV1CodecEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: off, as for WebCodecsAV1Enabled. WebRTC here uses the Cocoa codec
+      # AQUAWEBKIT: off, as for WebCodecsAV1Enabled. WebRTC here uses the Cocoa codec
       # factories, which decode AV1 only through LibWebRTCCodecs; LibWebRTCCodecs::setHasAV1HardwareDecoder
       # turns this on where an AV1 hardware decoder exists.
       # "USE(GSTREAMER)": true
       default: false
     WebCore:
-      # MAVERICKS_BACKPORT: off here too; see the WebKit column above.
+      # AQUAWEBKIT: off here too; see the WebKit column above.
       # "USE(GSTREAMER)": true
       default: false
 
@@ -9879,7 +9879,7 @@ WebRTCH265CodecEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: only where VideoToolbox has an HEVC codec (see HAVE(VIDEOTOOLBOX_HEVC)).
+      # AQUAWEBKIT: only where VideoToolbox has an HEVC codec (see HAVE(VIDEOTOOLBOX_HEVC)).
       "PLATFORM(COCOA) && HAVE(VIDEOTOOLBOX_HEVC)": true
       default: false
     WebCore:
@@ -9942,8 +9942,8 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: the WebRTC platform codecs run in the web process here; see
-      # ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      # AQUAWEBKIT: the WebRTC platform codecs run in the web process here; see
+      # ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake.
       "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
       default: false
     WebCore:

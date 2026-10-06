@@ -82,7 +82,7 @@
 #include <WebCore/StyleWebKitLineClamp.h>
 #include <WebCore/StyleWillChange.h>
 #include <WebCore/StyleZoom.h>
-// MAVERICKS_BACKPORT: StyleDashboardRegions.h for the DASHBOARD_SUPPORT dashboardRegions member below.
+// AQUAWEBKIT: StyleDashboardRegions.h for the DASHBOARD_SUPPORT dashboardRegions member below.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include <WebCore/StyleDashboardRegions.h>
 #endif
@@ -153,7 +153,7 @@ public:
     WebkitBoxReflect boxReflect;
 
 #if ENABLE(DASHBOARD_SUPPORT)
-    DashboardRegions dashboardRegions; // MAVERICKS_BACKPORT
+    DashboardRegions dashboardRegions; // AQUAWEBKIT
 #endif
 
     PageSize pageSize;

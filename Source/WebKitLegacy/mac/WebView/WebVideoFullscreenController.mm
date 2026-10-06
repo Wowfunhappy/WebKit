@@ -25,7 +25,7 @@
 
 #import "WebVideoFullscreenController.h"
 
-// MAVERICKS_BACKPORT: this WK1 AVKit fullscreen controller unconditionally calls
+// AQUAWEBKIT: this WK1 AVKit fullscreen controller unconditionally calls
 // PlaybackSessionInterfaceAVKitLegacy::create(), whose class (and PlaybackSessionModel) only exist under
 // ENABLE(VIDEO_PRESENTATION_MODE) on Mac (off on this port). Every consumer of the controller is already
 // ENABLE(VIDEO_PRESENTATION_MODE)-guarded (WebView.mm's _enterVideoFullscreenForVideoElement; WebViewData.h

@@ -101,7 +101,7 @@ std::unique_ptr<VideoDecoder> ObjCVideoDecoderFactory::Create(
     const SdpVideoFormat &format) {
   NSString *codecName = [NSString stringWithUTF8String:format.name.c_str()];
   for (RTCVideoCodecInfo *codecInfo in decoder_factory_.supportedCodecs) {
-    // MAVERICKS_BACKPORT: a negotiated codec carries the remote description's spelling of the media
+    // AQUAWEBKIT: a negotiated codec carries the remote description's spelling of the media
     // subtype (pc/codec_vendor.cc NegotiateCodecs takes `theirs->name`), which SDP allows in any case.
     // WebKit maps a format to a codec case-insensitively where it takes that mapping:
     // LibWebRTCCodecs.cpp's createVideoDecoder compares with equalIgnoringASCIICase. That entry point

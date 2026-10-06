@@ -1766,13 +1766,13 @@ HashSet<Ref<WebProcessPool>> WebsiteDataStore::ensureProcessPools() const
     return processPools;
 }
 
-// MAVERICKS_BACKPORT: the !PLATFORM(COCOA) gate is gone. Upstream dropped the Cocoa half of this
+// AQUAWEBKIT: the !PLATFORM(COCOA) gate is gone. Upstream dropped the Cocoa half of this
 // mechanism, but Safari 7's invalid-certificate sheet is built on it — see
 // WKContextAllowSpecificHTTPSCertificateForHost — so this port implements the Cocoa half
 // (NetworkProcessCocoa.mm and NetworkSessionCocoa) and the sender is shared with the other ports.
 void WebsiteDataStore::allowSpecificHTTPSCertificateForHost(const WebCore::CertificateInfo& certificate, const String& host)
 {
-    protect(networkProcess())->send(Messages::NetworkProcess::AllowSpecificHTTPSCertificateForHost(sessionID(), certificate, host), 0); // MAVERICKS_BACKPORT: Safari 7's invalid-certificate sheet, see above.
+    protect(networkProcess())->send(Messages::NetworkProcess::AllowSpecificHTTPSCertificateForHost(sessionID(), certificate, host), 0); // AQUAWEBKIT: Safari 7's invalid-certificate sheet, see above.
 }
 
 void WebsiteDataStore::allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo& certificate)
@@ -2674,16 +2674,16 @@ void WebsiteDataStore::didDestroyServiceWorkerNotification(const WTF::UUID& noti
 
 void WebsiteDataStore::openWindowFromServiceWorker(const String& urlString, const WebCore::SecurityOriginData& serviceWorkerOrigin, CompletionHandler<void(std::optional<WebCore::PageIdentifier>)>&& callback)
 {
-    // MAVERICKS_BACKPORT: the URL is captured as well, so the no-page path below can still open it
+    // AQUAWEBKIT: the URL is captured as well, so the no-page path below can still open it
     // through the host application. Upstream needs only the callback.
 #if USE(MOZILLA_PUSH_SERVICE)
     auto innerCallback = [callback = WTF::move(callback), urlString] (WebPageProxy* newPage) mutable {
 #else
     auto innerCallback = [callback = WTF::move(callback)] (WebPageProxy* newPage) mutable {
-#endif // MAVERICKS_BACKPORT: closes the USE(MOZILLA_PUSH_SERVICE) split above.
+#endif // AQUAWEBKIT: closes the USE(MOZILLA_PUSH_SERVICE) split above.
         if (!newPage) {
 #if USE(MOZILLA_PUSH_SERVICE)
-            // MAVERICKS_BACKPORT: the data-store client that would create a page here is
+            // AQUAWEBKIT: the data-store client that would create a page here is
             // modern SPI Safari 7 never implements, which leaves clients.openWindow —
             // the standard notificationclick response — doing nothing. Route the URL
             // through the host app's ordinary URL handling instead. The promise still
@@ -2918,7 +2918,7 @@ void WebsiteDataStore::processPushMessage(WebPushMessage&& pushMessage, Completi
 }
 
 #if USE(MOZILLA_PUSH_SERVICE)
-// MAVERICKS_BACKPORT: WebKit-driven twin of the modern host's
+// AQUAWEBKIT: WebKit-driven twin of the modern host's
 // -[WKWebsiteDataStore _handleNextPushMessageWithCompletionHandler:] drain loop, run
 // whenever webpushd signals pending messages or a session starts. Uses the plural
 // GetPendingPushMessages fetch: the singular one arms the daemon's 30-second

@@ -25,7 +25,7 @@
 
 #pragma once
 
-// MAVERICKS_BACKPORT: the port's forwarding header selects Cocoa's certificate representation.
+// AQUAWEBKIT: the port's forwarding header selects Cocoa's certificate representation.
 // #include "CertificateInfo.h"
 #include <WebCore/CertificateInfo.h>
 #include "NetworkLoadMetrics.h"

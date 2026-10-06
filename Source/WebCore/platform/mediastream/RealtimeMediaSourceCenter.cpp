@@ -46,7 +46,7 @@
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: Cocoa capture devices use the native device-change debounce with either media backend.
+// AQUAWEBKIT: Cocoa capture devices use the native device-change debounce with either media backend.
 // #if !USE(GSTREAMER)
 #if !USE(GSTREAMER) || PLATFORM(COCOA)
 static const Seconds deviceChangeDebounceTimerInterval { 200_ms };
@@ -192,7 +192,7 @@ void RealtimeMediaSourceCenter::captureDevicesChanged()
 {
     ASSERT(isMainThread());
 
-// MAVERICKS_BACKPORT: Cocoa's capture factories use the debounced notification below.
+// AQUAWEBKIT: Cocoa's capture factories use the debounced notification below.
 // #if USE(GSTREAMER)
 #if USE(GSTREAMER) && !PLATFORM(COCOA)
     triggerDevicesChangedObservers();

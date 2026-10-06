@@ -37,7 +37,7 @@ WKTypeID WKBundleScriptWorldGetTypeID()
 
 WKBundleScriptWorldRef WKBundleScriptWorldCreateWorld()
 {
-    // MAVERICKS_BACKPORT: Safari 7's injected bundle creates the isolated worlds for its
+    // AQUAWEBKIT: Safari 7's injected bundle creates the isolated worlds for its
     // user-level scripts (the Reader article finder, extension content scripts) through this
     // API, so type them User — like the GLib port's WebKitScriptWorld — which exposes the
     // [EnabledForWorld=isUser] window.getMatchedCSSRules() that ReaderArticleFinderJS calls

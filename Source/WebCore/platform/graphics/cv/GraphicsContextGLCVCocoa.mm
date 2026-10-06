@@ -74,7 +74,7 @@ static constexpr auto s_yuvVertexShaderTexture2D {
     "}"_s
 };
 
-// MAVERICKS_BACKPORT: upstream rectangle-texture shader for CGL video planes.
+// AQUAWEBKIT: upstream rectangle-texture shader for CGL video planes.
 static constexpr auto s_yuvVertexShaderTextureRectangle {
     "attribute vec2 a_position;"
     "uniform vec2 u_yTextureSize;"
@@ -116,7 +116,7 @@ constexpr auto s_yuvFragmentShaderTexture2D {
     "}"_s
 };
 
-// MAVERICKS_BACKPORT: upstream rectangle-texture shader for CGL video planes.
+// AQUAWEBKIT: upstream rectangle-texture shader for CGL video planes.
 static constexpr auto s_yuvFragmentShaderTextureRectangle {
     "precision mediump float;"
     "uniform sampler2DRect u_yTexture;"
@@ -497,7 +497,7 @@ GraphicsContextGLCVCocoa::GraphicsContextGLCVCocoa(GraphicsContextGLCocoa& owner
         EGL_DestroyContext(display, context);
     });
 
-    // MAVERICKS_BACKPORT: upstream CGL video-plane extension selection.
+    // AQUAWEBKIT: upstream CGL video-plane extension selection.
     const bool useTexture2D = m_owner->drawingBufferTextureTarget() == GL_TEXTURE_2D;
 
 #if PLATFORM(MAC)
@@ -518,7 +518,7 @@ GraphicsContextGLCVCocoa::GraphicsContextGLCVCocoa(GraphicsContextGLCocoa& owner
         GL_DeleteProgram(yuvProgram);
     });
     // These are written so strlen might be compile-time.
-    // MAVERICKS_BACKPORT: select upstream shaders matching the CGL video texture target.
+    // AQUAWEBKIT: select upstream shaders matching the CGL video texture target.
     // GLint vsLength = s_yuvVertexShaderTexture2D.length();
     // GLint fsLength = s_yuvFragmentShaderTexture2D.length();
     // const char* vertexShaderSource = s_yuvVertexShaderTexture2D;
@@ -705,7 +705,7 @@ bool GraphicsContextGLCVCocoa::copyVideoSampleToTexture(const VideoFrameCV& vide
     auto uvPlaneWidth = IOSurfaceGetWidthOfPlane(surface.get(), 1);
     auto uvPlaneHeight = IOSurfaceGetHeightOfPlane(surface.get(), 1);
 
-    // MAVERICKS_BACKPORT: upstream target selection for CGL video-plane IOSurfaces.
+    // AQUAWEBKIT: upstream target selection for CGL video-plane IOSurfaces.
     GLenum videoTextureTarget = m_owner->drawingBufferTextureTarget();
 
     GLuint uvTexture = 0;
@@ -714,7 +714,7 @@ bool GraphicsContextGLCVCocoa::copyVideoSampleToTexture(const VideoFrameCV& vide
         GL_DeleteTextures(1, &uvTexture);
     });
     GL_ActiveTexture(GL_TEXTURE1);
-    // MAVERICKS_BACKPORT: bind the video plane with its CGL IOSurface target.
+    // AQUAWEBKIT: bind the video plane with its CGL IOSurface target.
     // GL_BindTexture(GL_TEXTURE_2D, uvTexture);
     // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -739,7 +739,7 @@ bool GraphicsContextGLCVCocoa::copyVideoSampleToTexture(const VideoFrameCV& vide
         GL_DeleteTextures(1, &yTexture);
     });
     GL_ActiveTexture(GL_TEXTURE0);
-    // MAVERICKS_BACKPORT: bind the video plane with its CGL IOSurface target.
+    // AQUAWEBKIT: bind the video plane with its CGL IOSurface target.
     // GL_BindTexture(GL_TEXTURE_2D, yTexture);
     // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     // GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

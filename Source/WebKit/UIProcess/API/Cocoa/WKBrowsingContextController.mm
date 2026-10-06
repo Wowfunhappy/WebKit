@@ -24,16 +24,16 @@
  */
 
 #import "config.h"
-// MAVERICKS_BACKPORT: the legacy controller (see WKBrowsingContextController.h), which implements its Internal SPI.
+// AQUAWEBKIT: the legacy controller (see WKBrowsingContextController.h), which implements its Internal SPI.
 // #import "WKBrowsingContextController.h"
 #import "WKBrowsingContextControllerInternal.h"
 
-// MAVERICKS_BACKPORT: imports of the legacy controller.
+// AQUAWEBKIT: imports of the legacy controller.
 #import "APIData.h"
 #import "APINavigation.h"
 #import "ObjCObjectGraph.h"
 #import "PageLoadStateObserver.h"
-// MAVERICKS_BACKPORT: imports of the legacy controller.
+// AQUAWEBKIT: imports of the legacy controller.
 #import "RemoteObjectRegistry.h"
 #import "RemoteObjectRegistryMessages.h"
 #import "WKAPICast.h"
@@ -60,7 +60,7 @@
 #import "WebFrameProxy.h"
 #import "WebPageProxy.h"
 #import "WebProcessPool.h"
-// MAVERICKS_BACKPORT: imports of the legacy controller.
+// AQUAWEBKIT: imports of the legacy controller.
 #import "WebProtectionSpace.h"
 #import "_WKRemoteObjectRegistryInternal.h"
 #import <WebCore/Pagination.h>
@@ -74,7 +74,7 @@
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
-// MAVERICKS_BACKPORT: the policy action keys (WKBrowsingContextPolicyDelegate.h).
+// AQUAWEBKIT: the policy action keys (WKBrowsingContextPolicyDelegate.h).
 NSString * const WKActionIsMainFrameKey = @"WKActionIsMainFrameKey";
 NSString * const WKActionNavigationTypeKey = @"WKActionNavigationTypeKey";
 NSString * const WKActionMouseButtonKey = @"WKActionMouseButtonKey";
@@ -86,11 +86,11 @@ NSString * const WKActionFrameNameKey = @"WKActionFrameNameKey";
 NSString * const WKActionOriginatingFrameURLKey = @"WKActionOriginatingFrameURLKey";
 NSString * const WKActionCanShowMIMETypeKey = @"WKActionCanShowMIMETypeKey";
 
-// MAVERICKS_BACKPORT: the legacy controller's state and its page -> controller map.
+// AQUAWEBKIT: the legacy controller's state and its page -> controller map.
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 @implementation WKBrowsingContextController {
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-    // MAVERICKS_BACKPORT: PageLoadStateObserver is ref-counted.
+    // AQUAWEBKIT: PageLoadStateObserver is ref-counted.
     const RefPtr<WebKit::WebPageProxy> _page;
     RefPtr<WebKit::PageLoadStateObserver> _pageLoadStateObserver;
 
@@ -114,7 +114,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     ASSERT(browsingContextControllerMap().get(*_page) == self);
     browsingContextControllerMap().remove(*_page);
 
-    // MAVERICKS_BACKPORT: see setUpPageLoaderClient.
+    // AQUAWEBKIT: see setUpPageLoaderClient.
     WKPageSetPageLoaderClient(toAPI(_page.get()), nullptr);
 
     _page->pageLoadState().removeObserver(*_pageLoadStateObserver);
@@ -149,7 +149,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 }
 
-// MAVERICKS_BACKPORT: the legacy controller's loading, introspection and delegate API.
+// AQUAWEBKIT: the legacy controller's loading, introspection and delegate API.
 - (void)loadRequest:(NSURLRequest *)request
 {
     [self loadRequest:request userData:nil];
@@ -157,7 +157,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)loadRequest:(NSURLRequest *)request userData:(id)userData
 {
-    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -176,7 +176,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (![URL isFileURL] || (allowedDirectory && ![allowedDirectory isFileURL]))
         [NSException raise:NSInvalidArgumentException format:@"Attempted to load a non-file URL"];
 
-    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -192,7 +192,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)loadHTMLString:(NSString *)HTMLString baseURL:(NSURL *)baseURL userData:(id)userData
 {
-    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -215,7 +215,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)loadData:(NSData *)data MIMEType:(NSString *)MIMEType textEncodingName:(NSString *)encodingName baseURL:(NSURL *)baseURL userData:(id)userData
 {
-    // MAVERICKS_BACKPORT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -368,7 +368,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _page->setPageZoomFactor(pageZoom);
 }
 
-// MAVERICKS_BACKPORT: the 537 loader-client delegate model this system's clients (QuickLook's Web2.qldisplay,
+// AQUAWEBKIT: the 537 loader-client delegate model this system's clients (QuickLook's Web2.qldisplay,
 // MailUI, iBooks' BKAssetEpub) were built against: a page loader client installed when the controller is
 // created, reporting main-frame loads with the pre-2013 failure selectors. Web2 and BKAssetEpub install page
 // loader clients of their own, and on 537 whichever was installed last received the callbacks.
@@ -635,7 +635,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _pageLoadStateObserver = WebKit::PageLoadStateObserver::create(self);
     _page->pageLoadState().addObserver(*_pageLoadStateObserver);
 
-    // MAVERICKS_BACKPORT: see setUpPageLoaderClient.
+    // AQUAWEBKIT: see setUpPageLoaderClient.
     setUpPageLoaderClient(self, *_page);
 
     ASSERT(!browsingContextControllerMap().contains(*_page));
@@ -651,7 +651,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 @end
 
-// MAVERICKS_BACKPORT: the legacy controller's Private SPI (pagination for iBooks, handle for ObjCObjectGraph).
+// AQUAWEBKIT: the legacy controller's Private SPI (pagination for iBooks, handle for ObjCObjectGraph).
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 @implementation WKBrowsingContextController (Private)
@@ -776,4 +776,4 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 }
 
 @end
-ALLOW_DEPRECATED_DECLARATIONS_END // MAVERICKS_BACKPORT: closes the Private category block opened above.
+ALLOW_DEPRECATED_DECLARATIONS_END // AQUAWEBKIT: closes the Private category block opened above.

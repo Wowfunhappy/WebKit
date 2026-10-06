@@ -32,7 +32,7 @@
 #import <wtf/NeverDestroyed.h>
 #import <wtf/TZoneMallocInlines.h>
 
-// MAVERICKS_BACKPORT: for the per-origin media-keys salt made below.
+// AQUAWEBKIT: for the per-origin media-keys salt made below.
 #import <WebCore/Document.h>
 #import <WebCore/SecurityOrigin.h>
 #import <wtf/CryptographicallyRandomNumber.h>
@@ -41,7 +41,7 @@
 #import <wtf/text/StringBuilder.h>
 
 #if PLATFORM(MAC) && USE(GSTREAMER)
-// MAVERICKS_BACKPORT: com.widevine.alpha runs on Google's own CDM, installed at runtime below.
+// AQUAWEBKIT: com.widevine.alpha runs on Google's own CDM, installed at runtime below.
 #import <WebCore/WidevineCdmInstaller.h>
 #import <WebCore/WidevineCdmLocation.h>
 #endif
@@ -54,7 +54,7 @@ WebMediaKeySystemClient& WebMediaKeySystemClient::singleton()
     return client;
 }
 
-// MAVERICKS_BACKPORT: the salt WebKit derives from the website data store, which WebKitLegacy does
+// AQUAWEBKIT: the salt WebKit derives from the website data store, which WebKitLegacy does
 // not have. An origin that keeps media-keys records keeps its salt in that same directory, so
 // clearing the origin's media-keys data clears the identity the CDM built on it; an origin with
 // nowhere to keep them -- an ephemeral session -- gets one that lasts as long as this process.
@@ -103,7 +103,7 @@ void WebMediaKeySystemClient::requestMediaKeySystem(WebCore::MediaKeySystemReque
     auto salt = mediaKeysHashSalt(request);
 
 #if PLATFORM(MAC) && USE(GSTREAMER)
-    // MAVERICKS_BACKPORT: Google's CDM is not redistributable, so it is installed at runtime the
+    // AQUAWEBKIT: Google's CDM is not redistributable, so it is installed at runtime the
     // first time a page needs it. This is where the page's request waits for it: WidevineCdm
     // answers requestMediaKeySystemAccess() from the module path, so the module has to be in
     // place before the request is allowed. WebKitLegacy loads it in this same process, so naming
@@ -122,7 +122,7 @@ void WebMediaKeySystemClient::requestMediaKeySystem(WebCore::MediaKeySystemReque
     }
 #endif
 
-    // MAVERICKS_BACKPORT: the salt travels with the grant, so a CDM has a per-origin identity to
+    // AQUAWEBKIT: the salt travels with the grant, so a CDM has a per-origin identity to
     // key its own storage with.
     request.allow(WTF::move(salt));
 

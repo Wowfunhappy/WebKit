@@ -71,7 +71,7 @@ WebNotificationManagerProxy::WebNotificationManagerProxy(WebProcessPool* process
 
 WebNotificationManagerProxy::~WebNotificationManagerProxy() = default;
 
-// MAVERICKS_BACKPORT: takes ShouldNotifyProviderOfManager; see the header for why the notification
+// AQUAWEBKIT: takes ShouldNotifyProviderOfManager; see the header for why the notification
 // is conditional here.
 void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationProvider>&& provider, ShouldNotifyProviderOfManager shouldNotifyProviderOfManager)
 {
@@ -81,7 +81,7 @@ void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationP
     }
 
     m_provider = WTF::move(provider);
-    // MAVERICKS_BACKPORT: conditional; see the header. Upstream notifies unconditionally.
+    // AQUAWEBKIT: conditional; see the header. Upstream notifies unconditionally.
     if (shouldNotifyProviderOfManager == ShouldNotifyProviderOfManager::Yes)
         m_provider->addNotificationManager(*this);
 }
@@ -98,7 +98,7 @@ HashMap<String, bool> WebNotificationManagerProxy::notificationPermissions()
     return m_provider->notificationPermissions();
 }
 
-// MAVERICKS_BACKPORT: the client's own published policy for one origin, asked of the provider now
+// AQUAWEBKIT: the client's own published policy for one origin, asked of the provider now
 // rather than read from anything WebKit kept: the client is the store, and its answer changes while a
 // process lives.
 std::optional<bool> WebNotificationManagerProxy::providerPermissionForOrigin(const String& originString)
@@ -194,7 +194,7 @@ void WebNotificationManagerProxy::providerDidShowNotification(WebNotificationIde
     auto it = m_globalNotificationMap.find(globalNotificationID);
     if (it == m_globalNotificationMap.end()) {
 #if USE(MOZILLA_PUSH_SERVICE)
-        // MAVERICKS_BACKPORT: Safari 7 reports provider events on the pool manager it got
+        // AQUAWEBKIT: Safari 7 reports provider events on the pool manager it got
         // from WKContextGetNotificationManager, but persistent (service worker)
         // notifications live in the singleton's maps. Notification identifiers are
         // process-unique (Identified<>), so forwarding a miss cannot collide.
@@ -202,7 +202,7 @@ void WebNotificationManagerProxy::providerDidShowNotification(WebNotificationIde
             serviceWorkerManagerSingleton().providerDidShowNotification(globalNotificationID);
 #endif
         return;
-    } // MAVERICKS_BACKPORT: closes the brace opened for the singleton forwarding above.
+    } // AQUAWEBKIT: closes the brace opened for the singleton forwarding above.
 
     RefPtr notification = m_notifications.get(it->value);
     if (!notification) {
@@ -243,12 +243,12 @@ void WebNotificationManagerProxy::providerDidClickNotification(WebNotificationId
     auto it = m_globalNotificationMap.find(globalNotificationID);
     if (it == m_globalNotificationMap.end()) {
 #if USE(MOZILLA_PUSH_SERVICE)
-        // MAVERICKS_BACKPORT: see providerDidShowNotification.
+        // AQUAWEBKIT: see providerDidShowNotification.
         if (this != &serviceWorkerManagerSingleton())
             serviceWorkerManagerSingleton().providerDidClickNotification(globalNotificationID);
 #endif
         return;
-    } // MAVERICKS_BACKPORT: closes the brace opened for the singleton forwarding above.
+    } // AQUAWEBKIT: closes the brace opened for the singleton forwarding above.
 
     providerDidClickNotification(it->value);
 }
@@ -261,7 +261,7 @@ void WebNotificationManagerProxy::providerDidClickNotification(const WTF::UUID& 
 void WebNotificationManagerProxy::providerDidCloseNotifications(API::Array* globalNotificationIDs)
 {
 #if USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: see providerDidShowNotification. Identifiers this manager does
+    // AQUAWEBKIT: see providerDidShowNotification. Identifiers this manager does
     // not own fall out of the loop below harmlessly, so the whole array is forwarded.
     if (this != &serviceWorkerManagerSingleton())
         serviceWorkerManagerSingleton().providerDidCloseNotifications(globalNotificationIDs);

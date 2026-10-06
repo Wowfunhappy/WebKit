@@ -325,7 +325,7 @@ id<WKUIDelegatePrivate> UIDelegate::UIClient::uiDelegatePrivate()
 }
 
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
-// MAVERICKS_BACKPORT: trailing userData param synced to the API::UIClient signature (#58); Cocoa doesn't use it.
+// AQUAWEBKIT: trailing userData param synced to the API::UIClient signature (#58); Cocoa doesn't use it.
 void UIDelegate::UIClient::mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers, API::Object*)
 {
     RefPtr uiDelegate = m_uiDelegate.get();
@@ -544,7 +544,7 @@ void UIDelegate::UIClient::requestStorageAccessConfirm(WebPageProxy& webPageProx
         }
     }
 
-    // MAVERICKS_BACKPORT: the quirk-first order below now lives in one place, presentStorageAccessAlert,
+    // AQUAWEBKIT: the quirk-first order below now lives in one place, presentStorageAccessAlert,
     // so the legacy C UI client reaches the same sheet in the same order; the alert takes the page
     // rather than a WKWebView so a page hosted in a WKView reaches it at all.
     // if (organizationStorageAccessPromptQuirk) {
@@ -568,12 +568,12 @@ void UIDelegate::UIClient::requestStorageAccessConfirm(WebPageProxy& webPageProx
     // #endif
     //     return;
     // }
-    if (organizationStorageAccessPromptQuirk || additionalLoginDomain || !uiDelegate->m_delegateMethods.webViewRequestStorageAccessPanelUnderFirstPartyCompletionHandler) { // MAVERICKS_BACKPORT: one call in place of the three above.
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) // MAVERICKS_BACKPORT: ditto.
-        presentStorageAccessAlert(webPageProxy, requestingDomain, currentDomain, WTF::move(organizationStorageAccessPromptQuirk), WTF::move(completionHandler)); // MAVERICKS_BACKPORT: ditto.
-#endif // MAVERICKS_BACKPORT: closes the guard around the call above.
-        return; // MAVERICKS_BACKPORT: ditto.
-    } // MAVERICKS_BACKPORT: ditto.
+    if (organizationStorageAccessPromptQuirk || additionalLoginDomain || !uiDelegate->m_delegateMethods.webViewRequestStorageAccessPanelUnderFirstPartyCompletionHandler) { // AQUAWEBKIT: one call in place of the three above.
+#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) // AQUAWEBKIT: ditto.
+        presentStorageAccessAlert(webPageProxy, requestingDomain, currentDomain, WTF::move(organizationStorageAccessPromptQuirk), WTF::move(completionHandler)); // AQUAWEBKIT: ditto.
+#endif // AQUAWEBKIT: closes the guard around the call above.
+        return; // AQUAWEBKIT: ditto.
+    } // AQUAWEBKIT: ditto.
 
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(_webView:requestStorageAccessPanelForDomain:underCurrentDomain:completionHandler:));
     [delegate _webView:uiDelegate->m_webView.get().get() requestStorageAccessPanelForDomain:requestingDomain.string().createNSString().get() underCurrentDomain:currentDomain.string().createNSString().get() completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)] (BOOL result) mutable {

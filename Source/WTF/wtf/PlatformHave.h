@@ -376,7 +376,7 @@
 #define HAVE_THREAD_TIME_CONSTRAINTS 1
 #endif
 
-#if !defined(HAVE_AVASSETREADER) && PLATFORM(COCOA) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_AVASSETREADER) && PLATFORM(COCOA) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_AVASSETREADER 1
 #endif
 
@@ -442,20 +442,20 @@
 #define HAVE_MEMMEM 1
 #endif
 
-// MAVERICKS_BACKPORT: AVContentKeySession (and its report-group / will-output-be-obscured relatives) is macOS 10.12.4+;
+// AQUAWEBKIT: AVContentKeySession (and its report-group / will-output-be-obscured relatives) is macOS 10.12.4+;
 // gate on the deployment target so a 10.9 build does not import the absent AVContentKeySession header.
 #if (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION) || PLATFORM(APPLETV)) \
     && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)
 #define HAVE_AVCONTENTKEYSESSION 1
 #endif
 
-// MAVERICKS_BACKPORT: AVContentKeyReportGroup is 10.12+; gate the Mac case off on 10.9.
+// AQUAWEBKIT: AVContentKeyReportGroup is 10.12+; gate the Mac case off on 10.9.
 #if !PLATFORM(IOS_FAMILY_SIMULATOR) \
     && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)
 #define HAVE_AVCONTENTKEYREPORTGROUP 1
 #endif
 
-// MAVERICKS_BACKPORT: AVContentKeySession willOutputBeObscured is 10.12+; gate the Mac case off on 10.9.
+// AQUAWEBKIT: AVContentKeySession willOutputBeObscured is 10.12+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) \
     || ((PLATFORM(IOS) || PLATFORM(VISION)) && !PLATFORM(IOS_FAMILY_SIMULATOR)) \
     || PLATFORM(MACCATALYST)) \
@@ -463,7 +463,7 @@
 #define HAVE_AVCONTENTKEYSESSIONWILLOUTPUTBEOBSCURED 1
 #endif
 
-// MAVERICKS_BACKPORT: SecKeyProxy is macOS 10.13+; gate the Mac case off on 10.9.
+// AQUAWEBKIT: SecKeyProxy is macOS 10.13+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #define HAVE_SEC_KEY_PROXY 1
 #endif
@@ -609,12 +609,12 @@
 #endif
 
 // #if PLATFORM(MAC)
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 // MAVERICKS_BACKPORT: MultiGamepadProvider needs GameController's ControllerClassForService, absent on 10.9.
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 // AQUAWEBKIT: MultiGamepadProvider needs GameController's ControllerClassForService, absent on 10.9.
 #define HAVE_MULTIGAMEPADPROVIDER_SUPPORT 1
 #endif
 
 // #if PLATFORM(MAC)
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000 // MAVERICKS_BACKPORT: 10.9's GameController.framework is the MFi-only 2013 build, with no GCInput* element names and no GCPhysicalInputProfile; a HID gamepad reaches WebKit only through HIDGamepadProvider.
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000 // AQUAWEBKIT: 10.9's GameController.framework is the MFi-only 2013 build, with no GCInput* element names and no GCPhysicalInputProfile; a HID gamepad reaches WebKit only through HIDGamepadProvider.
 #define HAVE_WIDE_GAMECONTROLLER_SUPPORT 1
 #endif
 
@@ -646,7 +646,7 @@
 #define HAVE_MAC_JIT_RESTRICTIONS 1
 #endif
 
-// MAVERICKS_BACKPORT: AVAudioRoutingArbiter is 11.0+ and 10.9's AVFoundation does not export it
+// AQUAWEBKIT: AVAudioRoutingArbiter is 11.0+ and 10.9's AVFoundation does not export it
 // (nm-verified). Reporting the platform truth here selects the !HAVE(AVAUDIO_ROUTING_ARBITER) branch
 // of AudioSessionRoutingArbitratorProxy.cpp, which upstream ships for exactly this case: it builds a
 // valid object and answers RoutingArbitrationError::Failed, so callers take their own no-arbitration
@@ -659,7 +659,7 @@
 #define HAVE_MEDIA_USAGE_FRAMEWORK 1
 #endif
 
-// MAVERICKS_BACKPORT: PassKit.framework (and thus Apple Pay) did not exist on macOS before 10.12. Gate on the deployment
+// AQUAWEBKIT: PassKit.framework (and thus Apple Pay) did not exist on macOS before 10.12. Gate on the deployment
 // target so a 10.9 build doesn't enable the PassKit-dependent Apple Pay sub-features (which would
 // otherwise compile Apple Pay bindings that reference the disabled base Apple Pay types).
 #if (PLATFORM(IOS) || PLATFORM(VISION) || (PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)))
@@ -690,7 +690,7 @@
 #endif
 
 // #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
-#if !defined(HAVE_PASSKIT_APPLE_PAY_LATER_AVAILABILITY) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_PASSKIT_APPLE_PAY_LATER_AVAILABILITY) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PASSKIT_APPLE_PAY_LATER_AVAILABILITY 1
 #endif
 
@@ -715,7 +715,7 @@
 #endif
 
 #if PLATFORM(COCOA)
-#if !defined(HAVE_LSDATABASECONTEXT) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_LSDATABASECONTEXT) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_LSDATABASECONTEXT 1
 #endif
 #define HAVE_CGS_FIX_FOR_RADAR_97530095 0
@@ -775,7 +775,7 @@
 #endif
 
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-#if !defined(HAVE_CONTACTSUI) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_CONTACTSUI) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_CONTACTSUI 1
 #endif
 #define HAVE_CONTACTS 1
@@ -789,7 +789,7 @@
 #define HAVE_DDSCANNER_QOS_CONFIGURATION 1
 #endif
 
-// MAVERICKS_BACKPORT: Speech.framework requires macOS 10.15.
+// AQUAWEBKIT: Speech.framework requires macOS 10.15.
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) \
     && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500)
 #define HAVE_SPEECHRECOGNIZER 1
@@ -889,16 +889,16 @@
     || PLATFORM(IOS_FAMILY)
 #define HAVE_CFNETWORK_NSURLSESSION_HSTS_WITH_UNTRUSTED_ROOT 1
 // #define HAVE_NSURLSESSION_TASK_DELEGATE 1
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 || PLATFORM(IOS_FAMILY) // MAVERICKS_BACKPORT: 10.9's runtime has no -[NSURLSessionTask setDelegate:], on the concrete __NSCFLocalDataTask as well as NSURLSessionTask.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 || PLATFORM(IOS_FAMILY) // AQUAWEBKIT: 10.9's runtime has no -[NSURLSessionTask setDelegate:], on the concrete __NSCFLocalDataTask as well as NSURLSessionTask.
 #define HAVE_NSURLSESSION_TASK_DELEGATE 1
-#endif // MAVERICKS_BACKPORT: closes the deployment-target guard above.
+#endif // AQUAWEBKIT: closes the deployment-target guard above.
 #define HAVE_IMAGE_RESTRICTED_DECODING 1
 #define HAVE_XPC_CONNECTION_COPY_INVALIDATION_REASON 1
 #endif
 
 #if ((PLATFORM(IOS) || PLATFORM(VISION)) && !PLATFORM(IOS_SIMULATOR)) \
     || PLATFORM(MACCATALYST) \
-    || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000) // MAVERICKS_BACKPORT: AssetViewer / ASVInlinePreview is macOS 12+.
+    || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000) // AQUAWEBKIT: AssetViewer / ASVInlinePreview is macOS 12+.
 #define HAVE_ASV_INLINE_PREVIEW 1
 #endif
 
@@ -975,7 +975,7 @@
 #define HAVE_SYSTEM_STATUS 1
 #endif
 
-// MAVERICKS_BACKPORT: AVSampleBufferVideoOutput is macOS 14+ / iOS 17+; gate the Mac case off on 10.9.
+// AQUAWEBKIT: AVSampleBufferVideoOutput is macOS 14+ / iOS 17+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \
     || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 170000) \
     || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 170000) \
@@ -1020,7 +1020,7 @@
 #endif
 
 #if PLATFORM(COCOA)
-#if !defined(HAVE_WEBGPU_IMPLEMENTATION) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_WEBGPU_IMPLEMENTATION) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_WEBGPU_IMPLEMENTATION 1
 #endif
 // FIXME: PlatformHave.h should not depend or defined ENABLE macros.
@@ -1029,7 +1029,7 @@
 #endif
 #endif
 
-#if !defined(HAVE_SHAPE_DETECTION_API_IMPLEMENTATION) && PLATFORM(COCOA) && !PLATFORM(WATCHOS) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_SHAPE_DETECTION_API_IMPLEMENTATION) && PLATFORM(COCOA) && !PLATFORM(WATCHOS) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_SHAPE_DETECTION_API_IMPLEMENTATION 1
 #endif
 
@@ -1041,27 +1041,27 @@
 #define HAVE_UNIFIED_SPEECHSYNTHESIS_FIX_FOR_81465164 1
 #endif
 
-// MAVERICKS_BACKPORT: VideoToolbox gained HEVC encode and decode in macOS 10.13; below it there is no HEVC
+// AQUAWEBKIT: VideoToolbox gained HEVC encode and decode in macOS 10.13; below it there is no HEVC
 // codec at all, so WebRTC must not advertise H.265 (UnifiedWebPreferences.yaml's WebRTCH265CodecEnabled).
 #if PLATFORM(COCOA) && (!PLATFORM(MAC) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101300)
 #define HAVE_VIDEOTOOLBOX_HEVC 1
 #endif
 
-// MAVERICKS_BACKPORT: the segment-emitting AVAssetWriter (-initWithFileType:error:, AVAssetWriterDelegate,
+// AQUAWEBKIT: the segment-emitting AVAssetWriter (-initWithFileType:error:, AVAssetWriterDelegate,
 // -setPreferredOutputSegmentInterval:) is macOS 11+. Below it MediaRecorder packages MP4 with the
-// fragmented-MP4 writer in MavericksSupport/source/WebCore/platform/mediarecorder.
+// fragmented-MP4 writer in AquaWebKitSupport/source/WebCore/platform/mediarecorder.
 #if PLATFORM(COCOA) && (!PLATFORM(MAC) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 110000)
 #define HAVE_AVASSETWRITER_DELEGATE 1
 #endif
 
-// MAVERICKS_BACKPORT: Network.framework (nw_connection, nw_path_monitor, nw_parameters) is macOS 10.14+. Below it
+// AQUAWEBKIT: Network.framework (nw_connection, nw_path_monitor, nw_parameters) is macOS 10.14+. Below it
 // the Network process's WebRTC sockets and interface monitor take the same path the non-Cocoa ports use:
 // libwebrtc's BasicPacketSocketFactory and the ifaddrs-based NetworkRTCMonitor.
 #if PLATFORM(COCOA) && (!PLATFORM(MAC) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101400)
 #define HAVE_NETWORK_FRAMEWORK 1
 #endif
 
-// MAVERICKS_BACKPORT: ScreenCaptureKit is macOS 12.3+; gate it off on older deployment targets (10.9 has no SCKit).
+// AQUAWEBKIT: ScreenCaptureKit is macOS 12.3+; gate it off on older deployment targets (10.9 has no SCKit).
 #if PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 120300)
 #define HAVE_SCREEN_CAPTURE_KIT 1
 #endif
@@ -1102,7 +1102,7 @@
 #define HAVE_DDRESULT_DISABLE_URL_SCHEME_CHECKING 1
 #endif
 
-#if !defined(HAVE_SYSTEM_CONTENT_LS_DATABASE) && (PLATFORM(MAC)  || PLATFORM(IOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_SYSTEM_CONTENT_LS_DATABASE) && (PLATFORM(MAC)  || PLATFORM(IOS) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_SYSTEM_CONTENT_LS_DATABASE 1
 #endif
 
@@ -1121,7 +1121,7 @@
 #endif
 
 // #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
-#if !defined(HAVE_VOICEACTIVITYDETECTION) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_VOICEACTIVITYDETECTION) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_VOICEACTIVITYDETECTION 1
 #endif
 
@@ -1133,7 +1133,7 @@
 #define HAVE_APPLE_PUSH_SERVICE_URL_TOKEN_SUPPORT 1
 #endif
 
-// MAVERICKS_BACKPORT: HAVE(AVIF) says the platform's CGImageSource decodes AVIF, which it only does
+// AQUAWEBKIT: HAVE(AVIF) says the platform's CGImageSource decodes AVIF, which it only does
 // from macOS 11, so it stays off at a 10.9 deploy target. AVIF itself is decoded and advertised
 // through USE(AVIF) and the vendored libavif, which is what the image Accept header and the MIME
 // registry read (`HAVE(AVIF) || USE(AVIF)`); what this flag still governs here is the AV1 entry in
@@ -1189,16 +1189,16 @@
 #define HAVE_UI_WINDOW_SCENE_LIVE_RESIZE_API_143004359 1
 #endif
 
-// MAVERICKS_BACKPORT: Continuity Camera is macOS 14+; gate the Mac case off on 10.9.
+// AQUAWEBKIT: Continuity Camera is macOS 14+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #define HAVE_CONTINUITY_CAMERA 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 */
-#if !defined(HAVE_VPIO_DUCKING_LEVEL_API) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_VPIO_DUCKING_LEVEL_API) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_VPIO_DUCKING_LEVEL_API 1
 #endif
 
@@ -1225,12 +1225,12 @@
 #endif
 #endif
 
-#if !defined(HAVE_TRANSLATION_UI_SERVICES) && (PLATFORM(IOS) || PLATFORM(VISION) || PLATFORM(MAC)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_TRANSLATION_UI_SERVICES) && (PLATFORM(IOS) || PLATFORM(VISION) || PLATFORM(MAC)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_TRANSLATION_UI_SERVICES 1
 #endif
 
 // #if PLATFORM(COCOA)
-#if !defined(HAVE_MACH_BOOTSTRAP_EXTENSION) && (PLATFORM(COCOA)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_MACH_BOOTSTRAP_EXTENSION) && (PLATFORM(COCOA)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_MACH_BOOTSTRAP_EXTENSION 1
 #endif
 
@@ -1252,12 +1252,12 @@
 
 #if PLATFORM(COCOA)
 // #if __has_include(<Network/proxy_config.h>)
-#if HAVE(NETWORK_FRAMEWORK) && __has_include(<Network/proxy_config.h>) // MAVERICKS_BACKPORT: proxy objects require the runtime Network framework.
+#if HAVE(NETWORK_FRAMEWORK) && __has_include(<Network/proxy_config.h>) // AQUAWEBKIT: proxy objects require the runtime Network framework.
 #define HAVE_NW_PROXY_CONFIG 1
 #endif
 #endif
 
-// MAVERICKS_BACKPORT: the _hostOverride path uses nw_endpoint_create_host_with_numeric_port
+// AQUAWEBKIT: the _hostOverride path uses nw_endpoint_create_host_with_numeric_port
 // (Network.framework, macOS 10.14+), absent at runtime on 10.9. Gate on __MAC_OS_X_VERSION_MIN_REQUIRED
 // (the deployment target) rather than the SDK so this is off on 10.9.
 #if (PLATFORM(COCOA) && !PLATFORM(WATCHOS)) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400)
@@ -1273,18 +1273,18 @@
 #endif
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(IOS) || PLATFORM(MACCATALYST) \
     || PLATFORM(VISION)
 */
-#if !defined(HAVE_SECURE_ACTION_CONTEXT) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_SECURE_ACTION_CONTEXT) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 // Only used inside ENABLE(DATA_DETECTION)
 #define HAVE_SECURE_ACTION_CONTEXT 1
 #endif
 
 // #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
-#if !defined(HAVE_WK_SECURE_CODING_DATA_DETECTORS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_WK_SECURE_CODING_DATA_DETECTORS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 // Only used inside ENABLE(DATA_DETECTION)
 #define HAVE_WK_SECURE_CODING_DATA_DETECTORS 1
 #endif
@@ -1355,34 +1355,34 @@
 #endif
 
 #if PLATFORM(COCOA)
-#if !defined(HAVE_CFNETWORK_SEPARATE_CREDENTIAL_STORAGE) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_CFNETWORK_SEPARATE_CREDENTIAL_STORAGE) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_CFNETWORK_SEPARATE_CREDENTIAL_STORAGE 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_STRICT_DECODABLE_CNCONTACT) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_STRICT_DECODABLE_CNCONTACT) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_STRICT_DECODABLE_CNCONTACT 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_STRICT_DECODABLE_PKCONTACT) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_STRICT_DECODABLE_PKCONTACT) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_STRICT_DECODABLE_PKCONTACT 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
+#endif // AQUAWEBKIT: closes the guard above.
 #define HAVE_GB_18030_2022 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(MACCATALYST) \
     || PLATFORM(IOS) || PLATFORM(WATCHOS) || PLATFORM(VISION)
 */
-#if !defined(HAVE_AVAUDIOSESSION_SMARTROUTING) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(WATCHOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_AVAUDIOSESSION_SMARTROUTING) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(WATCHOS) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_AVAUDIOSESSION_SMARTROUTING 1
 #endif
 
 // #if PLATFORM(MAC) || PLATFORM(IOS)
-#if !defined(HAVE_AVAUDIOAPPLICATION) && (PLATFORM(MAC) || PLATFORM(IOS)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_AVAUDIOAPPLICATION) && (PLATFORM(MAC) || PLATFORM(IOS)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_AVAUDIOAPPLICATION 1
 #endif
 
 // #if PLATFORM(MAC)
-#if !defined(HAVE_NSCOLOR_FILL_COLOR_HIERARCHY) && (PLATFORM(MAC)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_NSCOLOR_FILL_COLOR_HIERARCHY) && (PLATFORM(MAC)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_NSCOLOR_FILL_COLOR_HIERARCHY 1
 #endif
 
@@ -1396,17 +1396,17 @@
 #endif
 
 // #if PLATFORM(MAC)
-#if !defined(HAVE_APPLE_CAMERA_USER_CLIENT) && (PLATFORM(MAC)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_APPLE_CAMERA_USER_CLIENT) && (PLATFORM(MAC)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_APPLE_CAMERA_USER_CLIENT 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(IOS) \
     || PLATFORM(MACCATALYST) \
     || PLATFORM(VISION)
 */
-#if !defined(HAVE_MACH_RANGE_CREATE) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_MACH_RANGE_CREATE) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_MACH_RANGE_CREATE 1
 #endif
 
@@ -1444,14 +1444,14 @@
 #define HAVE_SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(MACCATALYST) \
     || PLATFORM(IOS) \
     || PLATFORM(APPLETV) \
     || PLATFORM(WATCHOS)
 */
-#if !defined(HAVE_JPEGXL) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(APPLETV) || PLATFORM(WATCHOS)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_JPEGXL) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(APPLETV) || PLATFORM(WATCHOS)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_JPEGXL 1
 #endif
 
@@ -1464,7 +1464,7 @@
 #endif
 
 // #if PLATFORM(MAC)
-#if !defined(HAVE_NSWINDOW_SNAPSHOT_READINESS_HANDLER) && (PLATFORM(MAC)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_NSWINDOW_SNAPSHOT_READINESS_HANDLER) && (PLATFORM(MAC)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_NSWINDOW_SNAPSHOT_READINESS_HANDLER 1
 #endif
 
@@ -1474,13 +1474,13 @@
 #define HAVE_UI_USER_INTERFACE_IDIOM_VISION 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(MACCATALYST) || PLATFORM(IOS) \
     || PLATFORM(APPLETV) \
     || PLATFORM(WATCHOS)
 */
-#if !defined(HAVE_AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(APPLETV) || PLATFORM(WATCHOS)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(APPLETV) || PLATFORM(WATCHOS)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION 1
 #endif
 
@@ -1492,7 +1492,7 @@
 #define HAVE_IDLE_SLEEP_STATE 1
 #endif
 
-// MAVERICKS_BACKPORT: the port supplies the deployment target capability in CMake.
+// AQUAWEBKIT: the port supplies the deployment target capability in CMake.
 // #if PLATFORM(COCOA)
 #if !defined(HAVE_CGSTYLE_COLORMATRIX_BLUR) && PLATFORM(COCOA)
 #define HAVE_CGSTYLE_COLORMATRIX_BLUR 1
@@ -1524,19 +1524,19 @@
 #define HAVE_WEB_AUTHN_PUBLIC_KEY_CREDENTIAL_MANAGER 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION)
 */
-#if !defined(HAVE_AUDIOFORMATPROPERTY_VARIABLEPACKET_SUPPORTED) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_AUDIOFORMATPROPERTY_VARIABLEPACKET_SUPPORTED) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_AUDIOFORMATPROPERTY_VARIABLEPACKET_SUPPORTED 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION)
 */
-#if !defined(HAVE_AVASSETWRITER_WITH_OPUS_SUPPORTED) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_AVASSETWRITER_WITH_OPUS_SUPPORTED) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_AVASSETWRITER_WITH_OPUS_SUPPORTED 1
 #endif
 
@@ -1547,7 +1547,7 @@
 #endif
 
 // #if PLATFORM(COCOA)
-#if !defined(HAVE_CORE_CRYPTO_SIGNATURES_INT_RETURN_VALUE) && (PLATFORM(COCOA)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_CORE_CRYPTO_SIGNATURES_INT_RETURN_VALUE) && (PLATFORM(COCOA)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_CORE_CRYPTO_SIGNATURES_INT_RETURN_VALUE 1
 #endif
 
@@ -1560,11 +1560,11 @@
 #endif
 
 #if !defined(HAVE_CORE_TELEPHONY) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) \
-    || (PLATFORM(VISION) && __has_include(<CoreTelephony/CoreTelephony.h>))) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+    || (PLATFORM(VISION) && __has_include(<CoreTelephony/CoreTelephony.h>))) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_CORE_TELEPHONY 1
 #endif
 
-// MAVERICKS_BACKPORT: CMake supplies the deployment target capability.
+// AQUAWEBKIT: CMake supplies the deployment target capability.
 // #if PLATFORM(COCOA)
 #if !defined(HAVE_CORE_MATERIAL) && PLATFORM(COCOA)
 #define HAVE_CORE_MATERIAL 1
@@ -1575,7 +1575,7 @@
 #endif
 
 // #if PLATFORM(COCOA)
-#if !defined(HAVE_NSURL_ENCODING_INVALID_CHARACTERS) && (PLATFORM(COCOA)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_NSURL_ENCODING_INVALID_CHARACTERS) && (PLATFORM(COCOA)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_NSURL_ENCODING_INVALID_CHARACTERS 1
 #endif
 
@@ -1649,9 +1649,9 @@
 
 // See enablement check in SystemMalloc.h.
 #if COMPILER(CLANG) && PLATFORM(COCOA)
-#if !defined(HAVE_TYPE_AWARE_MALLOC) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_TYPE_AWARE_MALLOC) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_TYPE_AWARE_MALLOC 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
+#endif // AQUAWEBKIT: closes the guard above.
 #define WTF_TYPE_AWARE_MALLOC_FUNCTION(function, index) _MALLOC_TYPED(function, index)
 #else
 #define WTF_TYPE_AWARE_MALLOC_FUNCTION(function, index)
@@ -1749,33 +1749,33 @@
     || PLATFORM(IOS) || PLATFORM(MACCATALYST) \
     || PLATFORM(VISION) \
     || PLATFORM(APPLETV)
-#if !defined(HAVE_PDFDOCUMENT_ANNOTATIONS_FOR_FIELD_NAME) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_PDFDOCUMENT_ANNOTATIONS_FOR_FIELD_NAME) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFDOCUMENT_ANNOTATIONS_FOR_FIELD_NAME 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_PDFDOCUMENT_ENABLE_DATA_DETECTORS) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_PDFDOCUMENT_ENABLE_DATA_DETECTORS) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFDOCUMENT_ENABLE_DATA_DETECTORS 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_PDFDOCUMENT_RESET_FORM_FIELDS) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_PDFDOCUMENT_RESET_FORM_FIELDS) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFDOCUMENT_RESET_FORM_FIELDS 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_PDFDOCUMENT_SELECTION_WITH_GRANULARITY) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_PDFDOCUMENT_SELECTION_WITH_GRANULARITY) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFDOCUMENT_SELECTION_WITH_GRANULARITY 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_PDFKIT_WITH_NEXT_ACTIONS) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_PDFKIT_WITH_NEXT_ACTIONS) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFKIT_WITH_NEXT_ACTIONS 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_PDFPAGE_AREA_OF_INTEREST_AT_POINT) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_PDFPAGE_AREA_OF_INTEREST_AT_POINT) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFPAGE_AREA_OF_INTEREST_AT_POINT 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_PDFPAGE_DATA_DETECTOR_RESULTS) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_PDFPAGE_DATA_DETECTOR_RESULTS) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFPAGE_DATA_DETECTOR_RESULTS 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-#if !defined(HAVE_PDFSELECTION_ENUMERATE_RECTS_AND_TRANSFORMS) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#endif // AQUAWEBKIT: closes the guard above.
+#if !defined(HAVE_PDFSELECTION_ENUMERATE_RECTS_AND_TRANSFORMS) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PDFSELECTION_ENUMERATE_RECTS_AND_TRANSFORMS 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
+#endif // AQUAWEBKIT: closes the guard above.
 #endif
 
-// MAVERICKS_BACKPORT: the port supplies the deployment target capability in CMake.
+// AQUAWEBKIT: the port supplies the deployment target capability in CMake.
 // #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #if !defined(HAVE_SUPPORT_HDR_DISPLAY) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION))
 #define HAVE_SUPPORT_HDR_DISPLAY 1
@@ -1804,12 +1804,12 @@
 #define HAVE_NS_EMOJI_IMAGE_STRIKE_PROVENANCE 1
 #endif
 
-/* MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(IOS) \
     || PLATFORM(VISION)
 */
-#if !defined(HAVE_PKPAYMENTREQUEST_USERAGENT) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if !defined(HAVE_PKPAYMENTREQUEST_USERAGENT) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_PKPAYMENTREQUEST_USERAGENT 1
 #endif
 

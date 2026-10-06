@@ -64,7 +64,7 @@ public:
     virtual void decideDestinationWithSuggestedFilename(WebKit::DownloadProxy&, const WebCore::ResourceResponse&, const WTF::String&, CompletionHandler<void(WebKit::AllowOverwrite, WTF::String)>&& completionHandler) { completionHandler(WebKit::AllowOverwrite::No, { }); }
     virtual void didCreateDestination(WebKit::DownloadProxy&, const WTF::String&) { }
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: a native resumed download has a response/offset callback without asking for a second destination.
+    // AQUAWEBKIT: a native resumed download has a response/offset callback without asking for a second destination.
     virtual void didResumeWithResponse(WebKit::DownloadProxy&, const WebCore::ResourceResponse&, uint64_t) { }
 #endif
     virtual void didFinish(WebKit::DownloadProxy&) { }

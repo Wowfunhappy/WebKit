@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see WebConnectionToWebProcess.h.
+// AQUAWEBKIT: see WebConnectionToWebProcess.h.
 
 #include "config.h"
 #include "WebConnectionToWebProcess.h"
@@ -70,7 +70,7 @@ bool WebConnectionToWebProcess::hasValidConnection() const
 
 IPC::Connection* WebConnectionToWebProcess::messageSenderConnection() const
 {
-    // MAVERICKS_BACKPORT: AuxiliaryProcessProxy::connection() returns a reference now; a process whose
+    // AQUAWEBKIT: AuxiliaryProcessProxy::connection() returns a reference now; a process whose
     // connection is gone sends nothing, as the pointer accessor this was written against did.
     return m_process->hasConnection() ? &m_process->connection() : nullptr;
 }

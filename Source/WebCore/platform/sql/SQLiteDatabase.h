@@ -90,7 +90,7 @@ public:
     WEBCORE_EXPORT void interrupt();
 
     // int64_t lastInsertRowID();
-    WEBCORE_EXPORT int64_t lastInsertRowID(); // MAVERICKS_BACKPORT: Safari 7 icon storage calls this across the framework boundary.
+    WEBCORE_EXPORT int64_t lastInsertRowID(); // AQUAWEBKIT: Safari 7 icon storage calls this across the framework boundary.
 
     // This function returns the number of rows modified, inserted or deleted by the most recently completed INSERT, UPDATE or DELETE statement.
     WEBCORE_EXPORT int lastChanges();

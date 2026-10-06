@@ -29,7 +29,7 @@
 
 #import "Helpers/cocoa/NetworkConnection.h"
 // #import <swift/bridging>
-#import <wtf/SwiftBridging.h> // MAVERICKS_BACKPORT: WTF supplies the Swift annotations for toolchains without Swift headers.
+#import <wtf/SwiftBridging.h> // AQUAWEBKIT: WTF supplies the Swift annotations for toolchains without Swift headers.
 #import <wtf/CanMakeWeakPtr.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/Forward.h>

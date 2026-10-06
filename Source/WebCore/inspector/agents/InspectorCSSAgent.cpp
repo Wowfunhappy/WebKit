@@ -55,7 +55,7 @@
 #include "HTMLSlotElement.h"
 #include "HTMLStyleElement.h"
 #include "InspectorDOMAgent.h"
-// MAVERICKS_BACKPORT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
 #include "InspectorCSSOMWrappers.h"
 #include "InspectorHistory.h"
 #include "InspectorIdentifierRegistry.h"
@@ -93,7 +93,7 @@ using namespace Inspector;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorCSSAgent);
 
-// MAVERICKS_BACKPORT: upstream's CSS selector profiler (removed with bug 127039), restored for the Safari 7
+// AQUAWEBKIT: upstream's CSS selector profiler (removed with bug 127039), restored for the Safari 7
 // Web Inspector's CSS Selector Profiles. It times each rule the rule collector matches and keys the time by
 // the rule; buildObjectForSelectorProfile() names each rule by its selector, URL and line when the profile
 // stops, as the CSSOM wrappers and parsed source that name a rule are not built during style resolution.
@@ -155,7 +155,7 @@ void InspectorCSSAgent::didCreateFrontendAndBackend()
 void InspectorCSSAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
     std::ignore = disable();
-    // MAVERICKS_BACKPORT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
     m_currentSelectorProfile = nullptr;
 }
 
@@ -1237,7 +1237,7 @@ RefPtr<Inspector::Protocol::CSS::CSSRule> InspectorCSSAgent::buildObjectForRule(
     return buildObjectForRule(cssomWrapper);
 }
 
-// MAVERICKS_BACKPORT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
 Inspector::Protocol::ErrorStringOr<void> InspectorCSSAgent::startSelectorProfiler()
 {
     m_currentSelectorProfile = makeUnique<SelectorProfile>();

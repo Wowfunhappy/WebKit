@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the bundle<->app channel behind WKConnection, which Apple Mail (MailUIWebBundle) and
+// AQUAWEBKIT: the bundle<->app channel behind WKConnection, which Apple Mail (MailUIWebBundle) and
 // iBooks use to talk to their WebContent injected bundles.
 
 #ifndef WebConnection_h
@@ -43,7 +43,7 @@ class WebConnection : public API::ObjectImpl<API::Object::Type::Connection>, pub
 public:
     virtual ~WebConnection();
 
-    // MAVERICKS_BACKPORT: IPC::MessageReceiver is ref-counted through its owner.
+    // AQUAWEBKIT: IPC::MessageReceiver is ref-counted through its owner.
     void ref() const final { API::ObjectImpl<API::Object::Type::Connection>::ref(); }
     void deref() const final { API::ObjectImpl<API::Object::Type::Connection>::deref(); }
 
@@ -71,7 +71,7 @@ protected:
 
 } // namespace WebKit
 
-// MAVERICKS_BACKPORT: toImpl() downcasts through these traits.
+// AQUAWEBKIT: toImpl() downcasts through these traits.
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebConnection)
 static bool isType(const API::Object& object) { return object.type() == API::Object::Type::Connection; }
 SPECIALIZE_TYPE_TRAITS_END()

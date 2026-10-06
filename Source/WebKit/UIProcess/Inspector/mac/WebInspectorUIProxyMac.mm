@@ -37,7 +37,7 @@
 #import "WKAPICast.h"
 #import "WKInspectorPrivateMac.h"
 #import "WKInspectorViewController.h"
-#import "WKInspectorWKWebView.h" // MAVERICKS_BACKPORT: names the bundle the dock button images come from.
+#import "WKInspectorWKWebView.h" // AQUAWEBKIT: names the bundle the dock button images come from.
 #import "WKObject.h"
 #import "WKViewInternal.h"
 #import "WKWebViewInternal.h"
@@ -54,7 +54,7 @@
 #import <WebCore/Color.h>
 #import <WebCore/InspectorFrontendClientLocal.h>
 #import <WebCore/LocalizedStrings.h>
-#import <mach-o/dyld.h> // MAVERICKS_BACKPORT: NSVersionOfLinkTimeLibrary, for the dock-to-right client check.
+#import <mach-o/dyld.h> // AQUAWEBKIT: NSVersionOfLinkTimeLibrary, for the dock-to-right client check.
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CompletionHandler.h>
@@ -71,7 +71,7 @@ static const Seconds webViewCloseTimeout { 1_min };
 
 static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserverContext;
 
-// MAVERICKS_BACKPORT: adding a view to the window's frame view without AppKit's "unknown subview"
+// AQUAWEBKIT: adding a view to the window's frame view without AppKit's "unknown subview"
 // warning, where that entry point exists (see platformCreateFrontendWindow).
 @interface NSView (AppKitDetails)
 - (void)_addKnownSubview:(NSView *)subview;
@@ -119,7 +119,7 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
     _inspectorProxy = nullptr;
 }
 
-// MAVERICKS_BACKPORT: the actions behind the detached window's native dock buttons.
+// AQUAWEBKIT: the actions behind the detached window's native dock buttons.
 - (IBAction)attachRight:(id)sender
 {
     if (RefPtr proxy = _inspectorProxy.get())
@@ -512,7 +512,7 @@ RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
     return inspectorPage;
 }
 
-// MAVERICKS_BACKPORT: the frontend this port ships hides its own dock control while the inspector is
+// AQUAWEBKIT: the frontend this port ships hides its own dock control while the inspector is
 // undocked and expects the window to carry the dock controls, as WebKit's did through 792f511. A dock
 // button is a standard full screen button wearing a dock image, so it picks up that button's cell
 // behaviour and sits where the window's own full screen button would.
@@ -552,7 +552,7 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
     inspectorView.get().frame = [contentView bounds];
     [contentView addSubview:inspectorView.get()];
 
-    // MAVERICKS_BACKPORT: build the window's dock controls (see createDockButton above).
+    // AQUAWEBKIT: build the window's dock controls (see createDockButton above).
     // The spacing between the dock buttons.
     static const CGFloat dockButtonSpacing = WKInspectorWindowDockButtonMargin * 2;
 
@@ -743,7 +743,7 @@ bool WebInspectorUIProxy::platformCanAttach(bool webProcessCanAttach)
 
 void WebInspectorUIProxy::platformAttachAvailabilityChanged(bool available)
 {
-    // MAVERICKS_BACKPORT: the window's dock buttons show exactly while the inspector can attach.
+    // AQUAWEBKIT: the window's dock buttons show exactly while the inspector can attach.
     m_dockBottomButton.get().hidden = !available;
     m_dockRightButton.get().hidden = !available;
 }

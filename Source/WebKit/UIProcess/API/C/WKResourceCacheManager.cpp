@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WKResourceCacheManager.h"
 
-// MAVERICKS_BACKPORT: real bodies for the legacy resource-cache manager (the base ships
+// AQUAWEBKIT: real bodies for the legacy resource-cache manager (the base ships
 // return-0/no-op stubs). Safari 7's Privacy pane drives it through
 // TrackingDataController::populateWebsiteTrackingData and waits on the callback, so a body
 // that never calls back leaves the pane's website list unpopulated forever. The manager
@@ -40,7 +40,7 @@
 #include "WebsiteDataStore.h"
 #include <wtf/WallTime.h>
 
-// MAVERICKS_BACKPORT: WKResourceCachesToClearInMemoryOnly keeps the disk cache.
+// AQUAWEBKIT: WKResourceCachesToClearInMemoryOnly keeps the disk cache.
 static OptionSet<WebKit::WebsiteDataType> wk109CacheTypes(WKResourceCachesToClear cachesToClear)
 {
     if (cachesToClear == WKResourceCachesToClearInMemoryOnly)
@@ -48,7 +48,7 @@ static OptionSet<WebKit::WebsiteDataType> wk109CacheTypes(WKResourceCachesToClea
     return { WebKit::WebsiteDataType::MemoryCache, WebKit::WebsiteDataType::DiskCache };
 }
 
-// MAVERICKS_BACKPORT: the manager handle is a WKWebsiteDataStoreRef (see WKContextGetResourceCacheManager).
+// AQUAWEBKIT: the manager handle is a WKWebsiteDataStoreRef (see WKContextGetResourceCacheManager).
 static WebKit::WebsiteDataStore& wk109StoreForManager(WKResourceCacheManagerRef manager)
 {
     return *WebKit::toImpl(reinterpret_cast<WKWebsiteDataStoreRef>(manager));
@@ -56,10 +56,10 @@ static WebKit::WebsiteDataStore& wk109StoreForManager(WKResourceCacheManagerRef 
 
 WKTypeID WKResourceCacheManagerGetTypeID()
 {
-    return WebKit::toAPI(WebKit::WebsiteDataStore::APIType); // MAVERICKS_BACKPORT: real type (base returns 0).
+    return WebKit::toAPI(WebKit::WebsiteDataStore::APIType); // AQUAWEBKIT: real type (base returns 0).
 }
 
-// MAVERICKS_BACKPORT: real body (base is an empty stub that never calls back).
+// AQUAWEBKIT: real body (base is an empty stub that never calls back).
 void WKResourceCacheManagerGetCacheOrigins(WKResourceCacheManagerRef manager, void* context, WKResourceCacheManagerGetCacheOriginsFunction callback)
 {
     if (!callback)
@@ -74,7 +74,7 @@ void WKResourceCacheManagerGetCacheOrigins(WKResourceCacheManagerRef manager, vo
     });
 }
 
-// MAVERICKS_BACKPORT: real body (base is an empty stub).
+// AQUAWEBKIT: real body (base is an empty stub).
 void WKResourceCacheManagerClearCacheForOrigin(WKResourceCacheManagerRef manager, WKSecurityOriginRef originRef, WKResourceCachesToClear cachesToClear)
 {
     auto types = wk109CacheTypes(cachesToClear);
@@ -84,7 +84,7 @@ void WKResourceCacheManagerClearCacheForOrigin(WKResourceCacheManagerRef manager
     wk109StoreForManager(manager).removeData(types, { record }, [] { });
 }
 
-// MAVERICKS_BACKPORT: real body (base is an empty stub).
+// AQUAWEBKIT: real body (base is an empty stub).
 void WKResourceCacheManagerClearCacheForAllOrigins(WKResourceCacheManagerRef manager, WKResourceCachesToClear cachesToClear)
 {
     wk109StoreForManager(manager).removeData(wk109CacheTypes(cachesToClear), WallTime::fromRawSeconds(0), [] { });

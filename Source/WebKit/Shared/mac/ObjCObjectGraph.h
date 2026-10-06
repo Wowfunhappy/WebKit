@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the Objective-C object graph that WKConnection bodies, WKProcessGroup bundle initialization data
+// AQUAWEBKIT: the Objective-C object graph that WKConnection bodies, WKProcessGroup bundle initialization data
 // and WKBrowsingContextController load userData travel as (Apple Mail, iBooks).
 
 #pragma once

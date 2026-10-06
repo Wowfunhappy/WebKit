@@ -37,7 +37,7 @@ use constant FileNamePrefix => "JS";
 use Carp qw<longmess>;
 use Data::Dumper;
 use Hasher;
-# MAVERICKS_BACKPORT: build glue — the build-host Perl's List::Util predates 1.26
+# AQUAWEBKIT: build glue — the build-host Perl's List::Util predates 1.26
 # (which first added uniq), so provide an inline uniq instead of importing it.
 sub uniq { my %seen; grep { !$seen{$_}++ } @_ }
 

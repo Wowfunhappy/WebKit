@@ -114,7 +114,7 @@ private:
     unsigned markMatches(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, unsigned cueMatchCount);
     unsigned getMatchCount(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, unsigned cueMatchCount);
     void NODELETE updateMatchIndex(unsigned matchCount, OptionSet<FindOptions>);
-    // MAVERICKS_BACKPORT: distinguish scrolling from reflow when positioning the find indicator.
+    // AQUAWEBKIT: distinguish scrolling from reflow when positioning the find indicator.
     void didScrollAffectingFindIndicatorPosition(bool viewDidScroll);
 
     RefPtr<WebCore::LocalFrame> frameWithSelection(WebCore::Page*);

@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see WKProcessGroup.h.
+// AQUAWEBKIT: see WKProcessGroup.h.
 
 #import "config.h"
 #import "WKProcessGroupPrivate.h"
@@ -205,7 +205,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto configuration = API::ProcessPoolConfiguration::create();
     configuration->setInjectedBundlePath(bundleURL ? String(bundleURL.path) : String());
-    // MAVERICKS_BACKPORT: the 537 process model these hosts were built against: one shared web process, and
+    // AQUAWEBKIT: the 537 process model these hosts were built against: one shared web process, and
     // navigation keeps the page's WebPage (see WKContextCreate).
     configuration->setProcessSwapsOnNavigation(false);
     configuration->setUsesSingleWebProcess(true);
@@ -227,7 +227,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto configuration = API::ProcessPoolConfiguration::create();
     configuration->setInjectedBundlePath(bundleURL ? String(bundleURL.path) : String());
-    // MAVERICKS_BACKPORT: the 537 process model these hosts were built against: one shared web process, and
+    // AQUAWEBKIT: the 537 process model these hosts were built against: one shared web process, and
     // navigation keeps the page's WebPage (see WKContextCreate).
     configuration->setProcessSwapsOnNavigation(false);
     configuration->setUsesSingleWebProcess(true);
@@ -241,7 +241,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return self;
 }
 
-// MAVERICKS_BACKPORT: the pool can outlive the group (a WKView retains it), and these clients hold an unretained self.
+// AQUAWEBKIT: the pool can outlive the group (a WKView retains it), and these clients hold an unretained self.
 - (void)dealloc
 {
     WKContextRef contextRef = toAPI(_processPool.get());
@@ -263,7 +263,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // If the client can observe when the connection to the WebProcess injected bundle is established, then
     // delaying the launch of the WebProcess until something is loaded in the web view may not be safe.
     // As a result, we disable the feature by default and let the client opt-in via WKWebViewConfiguration.
-    // MAVERICKS_BACKPORT: WebProcessPool has no launch-delay default; WKView launches its page's process at creation.
+    // AQUAWEBKIT: WebProcessPool has no launch-delay default; WKView launches its page's process at creation.
     // if ([delegate respondsToSelector:@selector(processGroup:didCreateConnectionToWebProcessPlugIn:)])
     //     _processPool->setDelaysWebProcessLaunchDefaultValue(false);
 }

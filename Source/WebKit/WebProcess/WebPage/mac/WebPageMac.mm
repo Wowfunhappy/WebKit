@@ -86,7 +86,7 @@
 #import <WebCore/ImageOverlay.h>
 #import <WebCore/ImmediateActionStage.h>
 #import <WebCore/KeyboardEvent.h>
-// MAVERICKS_BACKPORT: with -fno-modules these inline/template defs aren't transitively included here;
+// AQUAWEBKIT: with -fno-modules these inline/template defs aren't transitively included here;
 // add them for LocalFrame::document()/selection() and IPC send<> (immediate action / acceptsFirstMouse).
 #import "MessageSenderInlines.h"
 #import <WebCore/LocalFrame.h>
@@ -141,9 +141,9 @@ void WebPage::platformInitializeAccessibility(ShouldInitializeNSAccessibility sh
     // for accessibility initialization. Normally this has already been received, but in rare cases
     // (e.g. process restart after network process termination) there can be a race where CreateWebPage
     // arrives before the database XPC message is processed.
-#if HAVE(LSDATABASECONTEXT) // MAVERICKS_BACKPORT: the database arrives only with LSDatabaseContext, as in WebProcess::networkProcessConnection().
+#if HAVE(LSDATABASECONTEXT) // AQUAWEBKIT: the database arrives only with LSDatabaseContext, as in WebProcess::networkProcessConnection().
     LaunchServicesDatabaseManager::singleton().waitForDatabaseUpdate();
-#endif // MAVERICKS_BACKPORT: closes the LSDatabaseContext guard above.
+#endif // AQUAWEBKIT: closes the LSDatabaseContext guard above.
 
     // Need to initialize accessibility for VoiceOver to work when the WebContent process is using NSRunLoop.
     // Currently, it is also needed to allocate and initialize an NSApplication object.
@@ -1046,14 +1046,14 @@ bool WebPage::shouldAvoidComputingPostLayoutDataForEditorState() const
         return false;
     }
 
-    // MAVERICKS_BACKPORT: gate the touch-bar editing-controls check on HAVE(TOUCH_BAR); the touch bar
+    // AQUAWEBKIT: gate the touch-bar editing-controls check on HAVE(TOUCH_BAR); the touch bar
     // doesn't exist on 10.9 and m_requiresUserActionForEditingControlsManager is touch-bar-only state.
 #if HAVE(TOUCH_BAR)
     if (!m_requiresUserActionForEditingControlsManager || !m_userInteractionsSincePageTransition.isEmpty()) {
         // Text editing controls on the touch bar depend on having post-layout editor state data.
         return false;
     }
-    // MAVERICKS_BACKPORT: close the HAVE(TOUCH_BAR) guard around the touch-bar editing-controls check.
+    // AQUAWEBKIT: close the HAVE(TOUCH_BAR) guard around the touch-bar editing-controls check.
 #endif
 
     if (m_hasEverDisplayedContextMenu) {

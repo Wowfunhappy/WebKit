@@ -23,8 +23,8 @@
  */
 
 /*
- * MAVERICKS_BACKPORT (#68): Classic Safari 7 / Mavericks HTML5 media-controls stylesheet, restored
- * from upstream WebKit d55388c. Changes from the upstream original are tagged MAVERICKS_BACKPORT and
+ * AQUAWEBKIT (#68): Classic Safari 7 / Mavericks HTML5 media-controls stylesheet, restored
+ * from upstream WebKit d55388c. Changes from the upstream original are tagged AQUAWEBKIT and
  * track seven things that changed after 2013: (1) the per-part pseudo-elements were renamed from the
  * classic `-webkit-media-controls-*` to `-internal-media-controls-*` — modern WebKit caps the number
  * of `-webkit-` pseudo-elements and directs UA-stylesheet-only ones to the `-internal-` prefix (the
@@ -48,7 +48,7 @@ audio {
     height: 25px;
 }
 
-/* MAVERICKS_BACKPORT (#68): the pseudo-class that selects a standalone media document is spelled
+/* AQUAWEBKIT (#68): the pseudo-class that selects a standalone media document is spelled
    `:-internal-media-document` here. Source/WebCore/css/html.css carries the body rule below. */
 /* body:-webkit-full-page-media {
     background-color: rgb(38, 38, 38);
@@ -81,7 +81,7 @@ video:-internal-media-document::-internal-media-controls-panel.no-video {
     -webkit-flex-direction: column;
 }
 
-/* MAVERICKS_BACKPORT (#137): the text-track container and the cue display tree are styled by
+/* AQUAWEBKIT (#137): the text-track container and the cue display tree are styled by
    Modules/modern-media-controls/controls/text-tracks.css, which Style::UserAgentStyle adds beside this
    sheet. It carries the container's `container-type: size` -- the query container that the cue box's
    cqh/cqw geometry (VTTCueBox::applyCSSProperties) and its cqmin font size
@@ -93,7 +93,7 @@ audio::-webkit-media-text-track-container {
     -webkit-flex: 1 1 auto;
 } */
 
-/* MAVERICKS_BACKPORT (#137): the cue boxes are position: absolute and their top/left arrive in cqh/cqw
+/* AQUAWEBKIT (#137): the cue boxes are position: absolute and their top/left arrive in cqh/cqw
    measured against this container, so it has to be their containing block. Upstream establishes that
    with `.media-controls-container > * { position: absolute }` in
    modern-media-controls/controls/media-controls.css; text-tracks.css leaves it to that rule, and
@@ -155,7 +155,7 @@ audio::-internal-media-controls-panel button {
     border: 0;
     height: 16px;
     width: 16px;
-    /* MAVERICKS_BACKPORT (#68): these are fixed-size icon buttons; without an explicit flex-shrink:0 the
+    /* AQUAWEBKIT (#68): these are fixed-size icon buttons; without an explicit flex-shrink:0 the
        modern flexbox shrinks them to nothing in a narrow (default 200px) <audio> panel, so the rewind and
        play glyphs vanished. Keeping them rigid lets the flexible timeline absorb the width instead. */
     -webkit-flex-shrink: 0;
@@ -199,7 +199,7 @@ audio::-internal-media-controls-panel .mute-box {
     width: 22px;
     height: 22px;
     margin-right: 2px;
-    -webkit-flex-shrink: 0; /* MAVERICKS_BACKPORT (#68): keep the volume/mute box rigid (see buttons above) */
+    -webkit-flex-shrink: 0; /* AQUAWEBKIT (#68): keep the volume/mute box rigid (see buttons above) */
 
     position: relative;
     display: -webkit-flex;
@@ -258,7 +258,7 @@ audio::-internal-media-controls-panel .volume-box:active {
     width: 114px;
 }
 
-/* MAVERICKS_BACKPORT (#68): the classic controls build both sliders from an <input type=range>, so
+/* AQUAWEBKIT (#68): the classic controls build both sliders from an <input type=range>, so
    Source/WebCore/css/html.css's generic range rules compete with these part rules. Upstream scored a
    pseudo-element at class level, which tied `input[type="range"]` and let the later sheet -- this one --
    win; CSSSelector.cpp now scores it at element level (Match::PseudoElement -> ClassC), so the attribute
@@ -271,7 +271,7 @@ video::-internal-media-controls-panel .volume-box input[type="range"] {
     box-sizing: border-box;
     height: 10px;
     width: 80px;
-    /* MAVERICKS_BACKPORT (#68): let the volume slider shrink below its 80px basis. In fullscreen the
+    /* AQUAWEBKIT (#68): let the volume slider shrink below its 80px basis. In fullscreen the
        volume box is a 90px flex row of min-button + slider + max-button; the modern <input type=range>'s
        intrinsic min-width otherwise keeps the slider at 80px so the row overflows the box (and, being
        justify-content:flex-end, spills off the panel's left edge). Same fix as the timeline. */
@@ -292,7 +292,7 @@ video::-internal-media-controls-panel .volume-box input[type="range"] {
 
 video::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb,
 audio::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb {
-    /* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+    /* AQUAWEBKIT (#68): see the volume slider rule above for the selector shape. */
     -webkit-appearance: none;
     width: 8px;
     height: 8px;
@@ -310,7 +310,7 @@ audio::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-s
     );
     box-shadow: inset -1px 0 0 rgba(255, 255, 255, .5), 0 1px rgba(255, 255, 255, .14);
 }
-/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+/* AQUAWEBKIT (#68): see the volume slider rule above for the selector shape. */
 video::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb::-webkit-slider-thumb:active,
 video::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb:active::-webkit-slider-thumb,
 audio::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb::-webkit-slider-thumb:active,
@@ -339,7 +339,7 @@ audio::-internal-media-controls-toggle-closed-captions-button {
 
 video::-internal-media-controls-closed-captions-container,
 audio::-internal-media-controls-closed-captions-container {
-    -webkit-appearance: none; /* MAVERICKS_BACKPORT (#68): media-closed-captions-container appearance removed upstream */
+    -webkit-appearance: none; /* AQUAWEBKIT (#68): media-closed-captions-container appearance removed upstream */
     position: absolute;
     display: block;
     right: 38px;
@@ -459,7 +459,7 @@ audio::-internal-media-controls-status-display {
     text-decoration: none;
     text-align: center;
 
-    /* MAVERICKS_BACKPORT (#140): the panel lays out as a modern flexbox, which reads `flex-grow`; the
+    /* AQUAWEBKIT (#140): the panel lays out as a modern flexbox, which reads `flex-grow`; the
        2009 deprecated-box property below has no effect there. Growth and side margins are the values
        stock Safari 7 gives this part. */
     /* -webkit-box-flex: 1; */
@@ -467,7 +467,7 @@ audio::-internal-media-controls-status-display {
     margin-left: 10px;
     margin-right: 10px;
 }
-/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape; min-height/min-width:0
+/* AQUAWEBKIT (#68): see the volume slider rule above for the selector shape; min-height/min-width:0
    stop the modern range's intrinsic min-size from keeping the seek bar taller than its 9px track (which
    overflowed the column-flex .thumbnail-track and rendered low) or wider than a narrow <audio> panel. */
 video::-internal-media-controls-timeline-container input[type="range"],
@@ -483,7 +483,7 @@ audio::-internal-media-controls-timeline-container input[type="range"] {
     background-color: rgb(74, 74, 74);
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, .68), 0 1px rgba(255, 255, 255, .08);
 }
-/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+/* AQUAWEBKIT (#68): see the volume slider rule above for the selector shape. */
 video::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb,
 audio::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
@@ -504,7 +504,7 @@ audio::-internal-media-controls-timeline-container input[type="range"]::-webkit-
         color-stop(1, rgba(144, 144, 144, 1))
     );
 }
-/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+/* AQUAWEBKIT (#68): see the volume slider rule above for the selector shape. */
 video::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb:active,
 video::-internal-media-controls-timeline-container input[type="range"]:active::-webkit-slider-thumb,
 audio::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb:active,
@@ -553,7 +553,7 @@ audio::-internal-media-controls-timeline-container {
     -webkit-flex: 1 1 0;
     position: relative;
     padding: 0;
-    /* MAVERICKS_BACKPORT (#68): flex min-width:auto propagates the modern <input type=range>'s intrinsic
+    /* AQUAWEBKIT (#68): flex min-width:auto propagates the modern <input type=range>'s intrinsic
        min-width up the whole nested flex chain (container > thumbnail-track > timeline), so every level
        needs min-width:0 or the seek bar can't shrink and a narrow <audio> panel overflows. */
     min-width: 0;
@@ -568,7 +568,7 @@ audio::-internal-media-controls-panel .thumbnail-track {
     display: -webkit-flex;
     -webkit-align-items: stretch;
     -webkit-flex-direction: column;
-    min-width: 0; /* MAVERICKS_BACKPORT (#68): see the timeline-container rule */
+    min-width: 0; /* AQUAWEBKIT (#68): see the timeline-container rule */
 }
 
 video::-internal-media-controls-panel .thumbnail,
@@ -638,7 +638,7 @@ video:-webkit-full-screen::-internal-media-controls-panel {
     transition: opacity 0.3s linear !important;
 }
 
-/* MAVERICKS_BACKPORT (#68): pseudo-class renamed to internal spelling upstream */
+/* AQUAWEBKIT (#68): pseudo-class renamed to internal spelling upstream */
 video:-internal-animating-fullscreen-transition::-internal-media-controls-panel {
     opacity: 0 ! important;
     transition: opacity 0 ! important;
@@ -658,7 +658,7 @@ video:-webkit-full-screen::-internal-media-controls-panel .volume-box {
     border: none;
 }
 
-/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape; the full-screen
+/* AQUAWEBKIT (#68): see the volume slider rule above for the selector shape; the full-screen
    pseudo-class on top of the same tail keeps this override ahead of the base rule. */
 video:-webkit-full-screen::-internal-media-controls-panel .volume-box input[type="range"] {
     height: 6px;
@@ -670,7 +670,7 @@ video:-webkit-full-screen::-internal-media-controls-panel .volume-box input[type
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, .68), 0 1px rgba(255, 255, 255, .08);
 }
 
-/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+/* AQUAWEBKIT (#68): see the volume slider rule above for the selector shape. */
 video:-webkit-full-screen::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb {
     width: 10px;
     height: 10px;
@@ -763,7 +763,7 @@ video:-webkit-full-screen::-internal-media-controls-closed-captions-container {
     max-height: calc(100% - 124px); /* bottom + 10px */
 }
 
-/* MAVERICKS_BACKPORT (#137): text-tracks.css carries these rules; see the note beside the container
+/* AQUAWEBKIT (#137): text-tracks.css carries these rules; see the note beside the container
    rule near the top of this file. */
 /* video::-webkit-media-text-track-container {
     position: relative;

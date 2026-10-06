@@ -28,7 +28,7 @@
 [
     ExportMacro=WEBCORE_EXPORT,
     Exposed=(Window,Worker),
-    // MAVERICKS_BACKPORT: expose the pre-rename global name too (github #98). This interface was called
+    // AQUAWEBKIT: expose the pre-rename global name too (github #98). This interface was called
     // ClientRect when Safari 7 shipped, and Safari's own AutoFill script does
     // `ClientRect.prototype.isZeroRect = function () {...}` -- extending the prototype of whatever
     // getBoundingClientRect() returns. With the name gone that line throws ReferenceError, and because

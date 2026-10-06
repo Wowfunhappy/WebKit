@@ -29,6 +29,6 @@
 #import <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, NaturalLanguage, PAL_EXPORT)
-// MAVERICKS_BACKPORT: NaturalLanguage is absent on 10.9; resolve its classes optionally.
+// AQUAWEBKIT: NaturalLanguage is absent on 10.9; resolve its classes optionally.
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, NaturalLanguage, NLTokenizer, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, NaturalLanguage, NLEmbedding, PAL_EXPORT)

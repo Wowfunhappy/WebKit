@@ -83,7 +83,7 @@ private:
     void mainFrameContentSizeChanged(WebCore::FrameIdentifier, const WebCore::IntSize&) override;
 
     void setViewExposedRect(std::optional<WebCore::FloatRect>) override;
-    // MAVERICKS_BACKPORT: WebKit-537 parity (see the implementation comment).
+    // AQUAWEBKIT: WebKit-537 parity (see the implementation comment).
     void setLayerHostingMode(LayerHostingMode) override;
     std::optional<WebCore::FloatRect> viewExposedRect() const override { return m_viewExposedRect; }
 

@@ -40,14 +40,14 @@
 #include "WKNumber.h"
 #include "WKRetainPtr.h"
 #include "WKString.h"
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 #include "WebConnection.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageGroupProxy.h"
-#include "WebUserContentController.h" // MAVERICKS_BACKPORT: page-group user content C API below.
+#include "WebUserContentController.h" // AQUAWEBKIT: page-group user content C API below.
 #include <WebCore/DatabaseTracker.h>
-// MAVERICKS_BACKPORT: UserScript/UserStyleSheet types for the restored legacy page-group user-content C API (below).
+// AQUAWEBKIT: UserScript/UserStyleSheet types for the restored legacy page-group user-content C API (below).
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/MemoryRelease.h>
@@ -82,7 +82,7 @@ void WKBundlePostSynchronousMessage(WKBundleRef bundleRef, WKStringRef messageNa
         *returnRetainedDataRef = WebKit::toAPILeakingRef(WTF::move(returnData));
 }
 
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 WKConnectionRef WKBundleGetApplicationConnection(WKBundleRef bundleRef)
 {
     return toAPI(WebKit::toImpl(bundleRef)->webConnectionToUIProcess());
@@ -118,7 +118,7 @@ void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
     protect(WebKit::toImpl(bundleRef))->resetOriginAccessAllowLists();
 }
 
-// MAVERICKS_BACKPORT: legacy page-group user content C API, used by Safari 7's
+// AQUAWEBKIT: legacy page-group user content C API, used by Safari 7's
 // injected bundle to install extension content scripts and style sheets.
 // Restored from upstream e05340a^ (InjectedBundle::addUserScript and friends):
 // the content goes into the user content controller the page group's pages

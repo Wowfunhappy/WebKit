@@ -26,19 +26,19 @@
 #include "config.h"
 #include "WKSerializedScriptValue.h"
 
-// MAVERICKS_BACKPORT: Safari 7 uses this API for extension messaging and "do JavaScript" results;
+// AQUAWEBKIT: Safari 7 uses this API for extension messaging and "do JavaScript" results;
 // these are upstream's implementations from before bug 277594 deprecated it (upstream returns 0/null).
 #include "APISerializedScriptValue.h"
 #include "WKSharedAPICast.h"
 
-// MAVERICKS_BACKPORT: upstream's type id (see above).
+// AQUAWEBKIT: upstream's type id (see above).
 WKTypeID WKSerializedScriptValueGetTypeID()
 {
     // return 0;
     return WebKit::toAPI(API::SerializedScriptValue::APIType);
 }
 
-// MAVERICKS_BACKPORT: upstream's serializer (see above).
+// AQUAWEBKIT: upstream's serializer (see above).
 WKSerializedScriptValueRef WKSerializedScriptValueCreate(JSContextRef context, JSValueRef value, JSValueRef* exception)
 {
     // return nullptr;
@@ -46,7 +46,7 @@ WKSerializedScriptValueRef WKSerializedScriptValueCreate(JSContextRef context, J
     return WebKit::toAPI(serializedValue.leakRef());
 }
 
-// MAVERICKS_BACKPORT: upstream's deserializer (see above).
+// AQUAWEBKIT: upstream's deserializer (see above).
 JSValueRef WKSerializedScriptValueDeserialize(WKSerializedScriptValueRef scriptValueRef, JSContextRef contextRef, JSValueRef* exception)
 {
     // return nullptr;

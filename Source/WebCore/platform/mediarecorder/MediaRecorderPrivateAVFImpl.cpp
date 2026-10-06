@@ -66,11 +66,11 @@ bool MediaRecorderPrivateAVFImpl::isTypeSupported(Document& document, ContentTyp
 #if ENABLE(WEB_RTC)
                 && !((codec.startsWith("hev1."_s) || codec.startsWith("hvc1."_s)) && document.settings().webRTCH265CodecEnabled())
 #endif
-// MAVERICKS_BACKPORT: the MP4 writer this port builds muxes Opus, so the container takes it
+// AQUAWEBKIT: the MP4 writer this port builds muxes Opus, so the container takes it
 // whatever AVAssetWriter accepts.
 // #if HAVE(AVASSETWRITER_WITH_OPUS_SUPPORTED)
                 && codec != "opus"_s
-// #endif // MAVERICKS_BACKPORT: closes the commented-out guard above.
+// #endif // AQUAWEBKIT: closes the commented-out guard above.
                 && codec != "pcm"_s && codec != "alac"_s
                 && !startsWithLettersIgnoringASCIICase(codec, "mp4a"_s))
                 return false;

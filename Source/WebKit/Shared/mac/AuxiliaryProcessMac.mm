@@ -675,7 +675,7 @@ static void populateSandboxInitializationParameters(SandboxInitializationParamet
         exitProcess(EX_NOPERM);
     }
 #if USE(GLIB)
-    // MAVERICKS_BACKPORT: GLib-based libraries keep per-user runtime files in $XDG_RUNTIME_DIR, which the
+    // AQUAWEBKIT: GLib-based libraries keep per-user runtime files in $XDG_RUNTIME_DIR, which the
     // GLib ports' sandbox launcher sets for each sandboxed child. ORC, GStreamer's code generator, maps its
     // code from a file there and tries $HOME first when it is unset. This process' private temporary
     // directory is the counterpart its profile grants.

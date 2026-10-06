@@ -317,7 +317,7 @@ void ServiceWorkerFetchTask::processResponse(ResourceResponse&& response, bool n
         return;
     }
 
-    // MAVERICKS_BACKPORT: upstream 319948@main (webkit.org/b/322485).
+    // AQUAWEBKIT: upstream 319948@main (webkit.org/b/322485).
     if (loader->isMainResource()) {
         if (RefPtr swServerConnection = m_swServerConnection.get())
             swServerConnection->fetchTaskReceivedMainResourceResponse(m_serviceWorkerIdentifier, response, loader->frameID());

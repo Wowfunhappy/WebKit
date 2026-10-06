@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WebFrameProxy.h"
 
-// MAVERICKS_BACKPORT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
+// AQUAWEBKIT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
 #include "APICertificateInfo.h"
 #include "APINavigation.h"
 #include "APIUIClient.h"
@@ -52,7 +52,7 @@
 #include "WebBackForwardListFrameItem.h"
 #include "WebFrameMessages.h"
 #include "WebFramePolicyListenerProxy.h"
-#include "WebFrameProxyFromNetworkProcessMessages.h" // MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
+#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
 #include "WebNavigationState.h"
 #include "WebPageInspectorController.h"
 #include "WebPageMessages.h"
@@ -375,7 +375,7 @@ void WebFrameProxy::didCommitLoad(const String& contentType, bool containsPlugin
         broadcastFrameTreeSyncData(calculateFrameTreeSyncData());
 }
 
-// MAVERICKS_BACKPORT: restored for WKFrameGetCertificateInfo's Get (borrowed) semantics —
+// AQUAWEBKIT: restored for WKFrameGetCertificateInfo's Get (borrowed) semantics —
 // Safari 7 reads this on every commit to drive the address-bar lock (#103).
 API::CertificateInfo& WebFrameProxy::apiCertificateInfo()
 {
@@ -636,7 +636,7 @@ void WebFrameProxy::prepareForProvisionalLoadInProcess(WebProcessProxy& process,
 }
 
 // void WebFrameProxy::commitProvisionalFrame(IPC::Connection& connection, FrameIdentifier frameID, FrameInfoData&& frameInfo, ResourceRequest&& request, std::optional<WebCore::NavigationIdentifier> navigationID, String&& mimeType, bool frameHasCustomContentProvider, FrameLoadType frameLoadType, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource source, bool containsPluginDocument, HasInsecureContent hasInsecureContent, MouseEventPolicy mouseEventPolicy, DocumentSecurityPolicy&& documentSecurityPolicy, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData& userData, RestoredFromBackForwardCache restoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState)
-// MAVERICKS_BACKPORT: upstream 318982@main (webkit.org/b/321456).
+// AQUAWEBKIT: upstream 318982@main (webkit.org/b/321456).
 void WebFrameProxy::commitProvisionalFrame(IPC::Connection& connection, FrameIdentifier frameID, FrameInfoData&& frameInfo, ResourceRequest&& request, std::optional<WebCore::NavigationIdentifier> navigationID, String&& mimeType, bool frameHasCustomContentProvider, FrameLoadType frameLoadType, bool hasCertificateInfo, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource source, bool containsPluginDocument, HasInsecureContent hasInsecureContent, MouseEventPolicy mouseEventPolicy, DocumentSecurityPolicy&& documentSecurityPolicy, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData& userData, RestoredFromBackForwardCache restoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState)
 {
     ASSERT(m_page);
@@ -655,7 +655,7 @@ void WebFrameProxy::commitProvisionalFrame(IPC::Connection& connection, FrameIde
     }
 
     // protect(page())->didCommitLoadForFrame(connection, frameID, WTF::move(frameInfo), WTF::move(request), navigationID, WTF::move(mimeType), frameHasCustomContentProvider, frameLoadType, usedLegacyTLS, privateRelayed, WTF::move(proxyName), source, containsPluginDocument, hasInsecureContent, mouseEventPolicy, WTF::move(documentSecurityPolicy), WTF::move(cspOriginsThatUpgradeInsecureNavigations), userData, restoredFromBackForwardCache, WTF::move(redirectReplaceFrameState));
-    // MAVERICKS_BACKPORT: upstream 318982@main (webkit.org/b/321456).
+    // AQUAWEBKIT: upstream 318982@main (webkit.org/b/321456).
     protect(page())->didCommitLoadForFrame(connection, frameID, WTF::move(frameInfo), WTF::move(request), navigationID, WTF::move(mimeType), frameHasCustomContentProvider, frameLoadType, hasCertificateInfo, usedLegacyTLS, privateRelayed, WTF::move(proxyName), source, containsPluginDocument, hasInsecureContent, mouseEventPolicy, WTF::move(documentSecurityPolicy), WTF::move(cspOriginsThatUpgradeInsecureNavigations), userData, restoredFromBackForwardCache, WTF::move(redirectReplaceFrameState));
 }
 
@@ -1277,7 +1277,7 @@ void WebFrameProxy::updateDocumentSecurityOrigin(WebFrameProxy* creator, ForInit
     m_documentSecurityOrigin = SecurityOrigin::create(url());
 }
 
-// MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273), 318495@main (webkit.org/b/320765), 318982@main and 319946@main: the certificate comes from the network process.
+// AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273), 318495@main (webkit.org/b/320765), 318982@main and 319946@main: the certificate comes from the network process.
 /*
 void WebFrameProxy::waitForCertificateInfoFromNetworkProcess(const String& hostAndPort)
 {
@@ -1356,7 +1356,7 @@ WebCore::CertificateInfo WebFrameProxy::provisionalCertificateInfoFromNetworkPro
 void WebFrameProxy::commitCertificateInfo(const URL& url, bool hasCertificateInfo)
 {
     m_certificateInfo = hasCertificateInfo ? provisionalCertificateInfoFromNetworkProcess(url) : CertificateInfo();
-    m_apiCertificateInfo = nullptr; // MAVERICKS_BACKPORT: refresh the borrowed legacy C API wrapper at certificate commit.
+    m_apiCertificateInfo = nullptr; // AQUAWEBKIT: refresh the borrowed legacy C API wrapper at certificate commit.
 }
 
 void WebFrameProxy::receivedMainResourceResponseWithCertificateInfo(String&& hostAndPort, WebCore::CertificateInfo&& certificateInfo)
@@ -1368,7 +1368,7 @@ void WebFrameProxy::receivedMainResourceResponseWithCertificateInfo(String&& hos
         m_hostAndPortToCertificateInfo.set(WTF::move(hostAndPort), WTF::move(certificateInfo));
 }
 
-// MAVERICKS_BACKPORT: upstream 319946@main (webkit.org/b/321395).
+// AQUAWEBKIT: upstream 319946@main (webkit.org/b/321395).
 void WebFrameProxy::setCertificateInfoForProcessSwapOnNavigationResponse(const URL& url, WebCore::CertificateInfo&& certificateInfo)
 {
     ASSERT(isMainFrame());

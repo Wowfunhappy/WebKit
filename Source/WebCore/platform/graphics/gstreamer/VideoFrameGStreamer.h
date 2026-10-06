@@ -34,7 +34,7 @@
 
 typedef struct _GstSample GstSample;
 
-// MAVERICKS_BACKPORT: for the locked CVPixelBuffer cache pixelBuffer() builds (see below).
+// AQUAWEBKIT: for the locked CVPixelBuffer cache pixelBuffer() builds (see below).
 #if PLATFORM(COCOA)
 #include <wtf/Lock.h>
 #include <wtf/RetainPtr.h>
@@ -43,9 +43,9 @@ typedef struct _GstSample GstSample;
 namespace WebCore {
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: CoreVideo frames supply GstSamples to the GStreamer encoder.
+// AQUAWEBKIT: CoreVideo frames supply GstSamples to the GStreamer encoder.
 GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef, const MediaTime&, const PlatformVideoColorSpace&);
-#endif // MAVERICKS_BACKPORT: closes the CoreVideo bridge declaration above.
+#endif // AQUAWEBKIT: closes the CoreVideo bridge declaration above.
 
 class PixelBuffer;
 class IntSize;
@@ -82,7 +82,7 @@ public:
 
     static RefPtr<VideoFrameGStreamer> createFromPixelBuffer(Ref<PixelBuffer>&&, const IntSize& destinationSize, double frameRate, const CreateOptions&, PlatformVideoColorSpace&& = { });
 
-    // MAVERICKS_BACKPORT: GStreamer plane storage backs raw I420A frames and byte copies on Cocoa.
+    // AQUAWEBKIT: GStreamer plane storage backs raw I420A frames and byte copies on Cocoa.
     static RefPtr<VideoFrame> createI420A(std::span<const uint8_t>, size_t width, size_t height, const ComputedPlaneLayout&, const ComputedPlaneLayout&, const ComputedPlaneLayout&, const ComputedPlaneLayout&, PlatformVideoColorSpace&&);
     void copyTo(std::span<uint8_t>, VideoPixelFormat, Vector<ComputedPlaneLayout>&&, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&&);
 
@@ -134,7 +134,7 @@ private:
 
     bool isGStreamer() const final { return true; }
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: Cocoa image creation and IPC consume the frame's pixels and colour metadata through CoreVideo.
+    // AQUAWEBKIT: Cocoa image creation and IPC consume the frame's pixels and colour metadata through CoreVideo.
     CVPixelBufferRef pixelBuffer() const final;
     // Worker and rendering threads share the cached pixel buffer.
     mutable Lock m_cvPixelBufferLock;

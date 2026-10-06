@@ -14,7 +14,7 @@
  * EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
  */
 
-// MAVERICKS_BACKPORT: see CSSDashboardRegionValue.h.
+// AQUAWEBKIT: see CSSDashboardRegionValue.h.
 
 #include "config.h"
 #include "CSSDashboardRegionValue.h"

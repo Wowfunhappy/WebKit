@@ -41,7 +41,7 @@
 #if PLATFORM(COCOA)
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/darwin/NetworkOSObject.h>
-// MAVERICKS_BACKPORT: m_resolverConfig below is an OSObjectPtr<nw_resolver_config_t> member, so the
+// AQUAWEBKIT: m_resolverConfig below is an OSObjectPtr<nw_resolver_config_t> member, so the
 // OSObjectPtr template definition must be complete here. Under -fno-modules it is not transitively pulled
 // in by the SPI headers above (Apple's modular build gets it for free), so include it explicitly.
 #include <wtf/OSObjectPtr.h>
@@ -295,7 +295,7 @@ public:
     bool isPrinting() const { return m_isPrinting; }
     void setIsPrinting(bool isPrinting) { m_isPrinting = isPrinting; }
 
-    // MAVERICKS_BACKPORT: the webaudio and fast/mediastream suites this port runs on WebKit1 grant
+    // AQUAWEBKIT: the webaudio and fast/mediastream suites this port runs on WebKit1 grant
     // getUserMedia through testRunner.setUserMediaPermission(); WebKitTestRunner has it and
     // DumpRenderTree does not. UIDelegate answers WebKit1's user-media policy delegates from this.
     bool isUserMediaPermissionAllowed() const { return m_userMediaPermissionAllowed; }
@@ -477,7 +477,7 @@ private:
     bool m_rejectsProtectionSpaceAndContinueForAuthenticationChallenges { false };
     bool m_handlesAuthenticationChallenges { false };
     bool m_isPrinting { false };
-    // MAVERICKS_BACKPORT: WebKitTestRunner allows media requests unless a test denies them.
+    // AQUAWEBKIT: WebKitTestRunner allows media requests unless a test denies them.
     bool m_userMediaPermissionAllowed { true };
     bool m_useDeferredFrameLoading { false };
     bool m_shouldPaintBrokenImage { true };

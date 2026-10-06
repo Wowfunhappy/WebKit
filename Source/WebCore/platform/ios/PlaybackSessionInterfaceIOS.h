@@ -26,7 +26,7 @@
 #pragma once
 
 #include <wtf/Platform.h>
-// MAVERICKS_BACKPORT: this AVKit playback-session interface derives from / uses PlaybackSessionModel(Client),
+// AQUAWEBKIT: this AVKit playback-session interface derives from / uses PlaybackSessionModel(Client),
 // which PlaybackSessionModel.h gates on PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 // — off on this Mac/VPM-off port. Narrow the header guard to match, so the (excluded) .mm's header and any
 // transitive includer resolve to empty here instead of an incomplete-base-class error. Every real consumer

@@ -54,7 +54,7 @@ WKURLRequestRef WKDownloadCopyRequest(WKDownloadRef download)
     return toAPILeakingRef(API::URLRequest::create(toImpl(download)->request()));
 }
 
-// MAVERICKS_BACKPORT: the ONE-argument form Safari 7 links against (github #94). Upstream grew a
+// AQUAWEBKIT: the ONE-argument form Safari 7 links against (github #94). Upstream grew a
 // (functionContext, callback) pair on this function in 2020 (bug 217747); Safari 7 predates that and
 // calls it with a single argument — `Safari::WK::Download::cancel()` tail-jumps to it with only rdi
 // set — so the modern signature read whatever happened to be in rsi/rdx and called it as a function
@@ -77,14 +77,14 @@ void WKDownloadCancel(WKDownloadRef download)
     return protect(toImpl(download))->cancel([downloadProxy = Ref { *toImpl(download) }](API::Data*) {
         protect(downloadProxy->client())->legacyDidCancel(downloadProxy.get());
     });
-/* MAVERICKS_BACKPORT: upstream's 3-argument body (see above).
+/* AQUAWEBKIT: upstream's 3-argument body (see above).
 void WKDownloadCancel(WKDownloadRef download, const void* functionContext, WKDownloadCancelCallback callback)
 {
     return protect(toImpl(download))->cancel([functionContext, callback](auto* resumeData) {
         if (callback)
             callback(toAPI(resumeData), functionContext);
     });
-MAVERICKS_BACKPORT */
+AQUAWEBKIT */
 }
 
 WKPageRef WKDownloadGetOriginatingPage(WKDownloadRef download)

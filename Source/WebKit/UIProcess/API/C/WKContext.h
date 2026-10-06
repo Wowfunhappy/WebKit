@@ -27,7 +27,7 @@
 #define WKContext_h
 
 #include <WebKit/WKBase.h>
-// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+// AQUAWEBKIT: see WKContextConnectionClient.h.
 #include <WebKit/WKContextConnectionClient.h>
 #include <WebKit/WKContextDownloadClient.h>
 #include <WebKit/WKContextHistoryClient.h>
@@ -164,7 +164,7 @@ WK_EXPORT void WKContextSetClient(WKContextRef context, const WKContextClientBas
 WK_EXPORT void WKContextSetInjectedBundleClient(WKContextRef context, const WKContextInjectedBundleClientBase* client);
 WK_EXPORT void WKContextSetHistoryClient(WKContextRef context, const WKContextHistoryClientBase* client);
 WK_EXPORT void WKContextSetDownloadClient(WKContextRef context, const WKContextDownloadClientBase* client) WK_C_API_DEPRECATED_WITH_REPLACEMENT(WKDownload);
-// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+// AQUAWEBKIT: see WKContextConnectionClient.h.
 WK_EXPORT void WKContextSetConnectionClient(WKContextRef context, const WKContextConnectionClientBase* client);
 
 WK_EXPORT void WKContextSetInitializationUserDataForInjectedBundle(WKContextRef context, WKTypeRef userData);

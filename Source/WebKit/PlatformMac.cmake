@@ -69,7 +69,7 @@ set(GPUProcess_SOURCES Shared/EntryPointUtilities/Cocoa/AuxiliaryProcessMain.cpp
 set(WebProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
 set(NetworkProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
 
-if (SWIFT_REQUIRED) # MAVERICKS_BACKPORT: Swift build settings follow the selected implementation.
+if (SWIFT_REQUIRED) # AQUAWEBKIT: Swift build settings follow the selected implementation.
 # WebBackForwardList.swift and friends need the full C++ WebKit_Internal module
 # (WebPageProxy, SessionState, WebBackForwardListSwiftUtilities, ...) so use the
 # source-tree map directly. The earlier ObjC-only stripped map is insufficient
@@ -141,7 +141,7 @@ foreach (_line IN LISTS _wk_avail_lines)
     target_compile_options(WebKit PRIVATE "$<$<COMPILE_LANGUAGE:Swift>:SHELL:${_line}>")
 endforeach ()
 
-endif () # MAVERICKS_BACKPORT: Swift build settings.
+endif () # AQUAWEBKIT: Swift build settings.
 
 add_custom_command(
     OUTPUT ${_log_messages_generated}
@@ -346,7 +346,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKInspectorPrivateForTesting.h
     UIProcess/API/Cocoa/_WKInspectorWindow.h
     UIProcess/API/Cocoa/_WKInternalDebugFeature.h
-    # MAVERICKS_BACKPORT: forwarded like its neighbours -- TestWKWebView.mm imports <WebKit/_WKJSHandle.h>.
+    # AQUAWEBKIT: forwarded like its neighbours -- TestWKWebView.mm imports <WebKit/_WKJSHandle.h>.
     UIProcess/API/Cocoa/_WKJSHandle.h
     UIProcess/API/Cocoa/_WKLayoutMode.h
     UIProcess/API/Cocoa/_WKLinkIconParameters.h
@@ -454,7 +454,7 @@ target_link_options(WebKit PRIVATE
 )
 add_dependencies(WebKit WebInspectorUIFramework)
 
-if (SWIFT_REQUIRED) # MAVERICKS_BACKPORT: stage modules only for Swift builds.
+if (SWIFT_REQUIRED) # AQUAWEBKIT: stage modules only for Swift builds.
 # Stage WebKit's Swift module + module maps into the framework's Modules dir
 
 file(MAKE_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework")
@@ -527,7 +527,7 @@ add_custom_target(WebKit_StageModules ALL DEPENDS
 
 add_dependencies(WebKit_StageModules WebKit)
 
-endif () # MAVERICKS_BACKPORT: Swift module staging.
+endif () # AQUAWEBKIT: Swift module staging.
 
 set(WebKit_OUTPUT_NAME WebKit)
 
@@ -598,20 +598,20 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     WEBKIT_WEBCONTENT_VARIANT(CaptivePortal)
 
     set(WebKit_RESOURCES_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Resources)
-    # MAVERICKS_BACKPORT: the profiles come from MavericksSupport/sandbox/ rather than the .sb.in
+    # AQUAWEBKIT: the profiles come from AquaWebKitSupport/sandbox/ rather than the .sb.in
     # files beside the process sources. 10.9's sandbox compiler has a smaller operation vocabulary
     # than the profiles modern WebKit ships, which it rejects outright ("unbound variable: nvram*"),
     # so this port applies the last upstream profiles written for this OS instead. The rules and
-    # output names are otherwise upstream's; MavericksSupport/sandbox/README.md has the provenance.
+    # output names are otherwise upstream's; AquaWebKitSupport/sandbox/README.md has the provenance.
     #
-    # MAVERICKS_BACKPORT: -mmacosx-version-min=10.9 on every rule below. These profiles select rules
+    # AQUAWEBKIT: -mmacosx-version-min=10.9 on every rule below. These profiles select rules
     # on __MAC_OS_X_VERSION_MIN_REQUIRED, and this command runs a bare `clang` off PATH rather than
     # the toolchain compiler -- so without the flag the deployment target comes from whichever clang
     # is found. A 10.10+ answer silently emits `xattr-regex` in place of `xattr`, which 10.9's
     # sandbox cannot compile, and initializeSandbox() CRASH()es on a profile it cannot apply.
-    # MAVERICKS_BACKPORT: each recovered profile is `cat`ed together with its .additions.sb before
+    # AQUAWEBKIT: each recovered profile is `cat`ed together with its .additions.sb before
     # preprocessing. The recovered halves stay byte-identical to upstream at aab061ff1301 (checked by
-    # MavericksSupport/sandbox/scripts/check-sandbox-profiles.sh), so what this port adds is readable
+    # AquaWebKitSupport/sandbox/scripts/check-sandbox-profiles.sh), so what this port adds is readable
     # in one place rather than interleaved into upstream policy. Sandbox rules are evaluated in
     # order with later ones winning, so appending is the same as writing them at the profile's end.
     set(_sb_extra_includes "")
@@ -634,53 +634,53 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
         endforeach ()
     endif ()
 
-    # MAVERICKS_BACKPORT: WebProcess::initializeSandbox names com.apple.WebProcess.x86.sb on x86_64
+    # AQUAWEBKIT: WebProcess::initializeSandbox names com.apple.WebProcess.x86.sb on x86_64
     # and com.apple.WebProcess.sb on arm64; this port's one WebContent profile is the x86_64 one, so
     # the same product is staged under both names.
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.x86.sb COMMAND
-        cat ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb
+        cat ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb
         COMMAND ${CMAKE_COMMAND} -E copy ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.x86.sb
-        # MAVERICKS_BACKPORT: DEPENDS so edits to the .sb.in source retrigger this rule.
-        DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb
+        # AQUAWEBKIT: DEPENDS so edits to the .sb.in source retrigger this rule.
+        DEPENDS ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.x86.sb)
 
-    # MAVERICKS_BACKPORT: concatenate this port's additions onto the upstream profile, and
+    # AQUAWEBKIT: concatenate this port's additions onto the upstream profile, and
     # preprocess for 10.9 so the ENABLE()/HAVE() gates resolve to this deployment target.
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb COMMAND
-        cat ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb
-        DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb
+        cat ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb
+        DEPENDS ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb)
 
     if (ENABLE_GPU_PROCESS)
-        # MAVERICKS_BACKPORT: build MavericksSupport's profile. Upstream's own GPUProcess/mac
+        # AQUAWEBKIT: build AquaWebKitSupport's profile. Upstream's own GPUProcess/mac
         # profile does not compile here -- 10.9's sandbox compiler stops at `unbound variable:
         # nvram*` -- and initializeSandbox() CRASH()es on a profile it cannot apply. See
-        # MavericksSupport/sandbox/README.md.
+        # AquaWebKitSupport/sandbox/README.md.
         add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
-            # MAVERICKS_BACKPORT: source the profile from MavericksSupport (see the note above).
-            COMMAND grep -o "^[^;]*" ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
-            DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in
+            # AQUAWEBKIT: source the profile from AquaWebKitSupport (see the note above).
+            COMMAND grep -o "^[^;]*" ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+            DEPENDS ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in
             VERBATIM)
         list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb)
     endif ()
     if (ENABLE_WEB_PUSH_NOTIFICATIONS)
-        # MAVERICKS_BACKPORT: emit the RELOCATABLE profile name. ENABLE_RELOCATABLE_WEBPUSHD is set
+        # AQUAWEBKIT: emit the RELOCATABLE profile name. ENABLE_RELOCATABLE_WEBPUSHD is set
         # for this port, so applySandbox() in WebPushDaemonMain.mm looks for
         # com.apple.WebKit.webpushd.relocatable.mac.sb; the plain .mac.sb name upstream's CMake
         # emits is the one that build never asks for.
         add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb COMMAND
-            grep -o "^[^;]*" ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb
-            DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in
+            grep -o "^[^;]*" ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} ${_sb_extra_includes} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb
+            DEPENDS ${AQUAWEBKIT_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in
             VERBATIM)
-        # MAVERICKS_BACKPORT: ship the relocatable profile emitted above.
+        # AQUAWEBKIT: ship the relocatable profile emitted above.
         list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb)
     endif ()
     add_custom_target(WebKitSandboxProfiles ALL DEPENDS ${WebKit_SB_FILES})
     add_dependencies(WebKit WebKitSandboxProfiles)
 
-    # MAVERICKS_BACKPORT: the images for the inspector window's native dock buttons, which the frontend
+    # AQUAWEBKIT: the images for the inspector window's native dock buttons, which the frontend
     # this port ships needs to re-dock (see WebInspectorUIProxy::platformCreateFrontendWindow). Upstream
     # shipped them from its Xcode project; this is that copy step for the CMake build.
     foreach (_dock_image DockBottomLegacy DockRightLegacy)
@@ -706,5 +706,5 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     add_dependencies(WebKit WebKitTextExtractionFilterModel)
 endfunction()
 
-# MAVERICKS_BACKPORT: configure the port platform backends and polyfills.
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitPlatformMavericks.cmake)
+# AQUAWEBKIT: configure the port platform backends and polyfills.
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebKitPlatformAquaWebKit.cmake)

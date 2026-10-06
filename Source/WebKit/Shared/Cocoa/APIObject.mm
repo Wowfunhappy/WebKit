@@ -28,7 +28,7 @@
 
 #import "WKBackForwardListInternal.h"
 #import "WKBackForwardListItemInternal.h"
-// MAVERICKS_BACKPORT: WKBrowsingContextGroup wraps WebPageGroup and WKConnection wraps WebConnection.
+// AQUAWEBKIT: WKBrowsingContextGroup wraps WebPageGroup and WKConnection wraps WebConnection.
 #import "WKBrowsingContextGroupInternal.h"
 #import "WKConnectionInternal.h"
 #import "WKContentRuleListInternal.h"
@@ -214,14 +214,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [WKWebProcessPlugInBrowserContextController alloc];
         break;
 
-    // MAVERICKS_BACKPORT: see WKBrowsingContextGroup.h.
+    // AQUAWEBKIT: see WKBrowsingContextGroup.h.
     case Type::PageGroup:
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [WKBrowsingContextGroup alloc];
 ALLOW_DEPRECATED_DECLARATIONS_END
         break;
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     case Type::Connection:
         // While not actually a WKObject instance, WKConnection uses allocateWKObject to allocate extra space
         // instead of using ObjectStorage because the wrapped C++ object is a subclass of WebConnection.

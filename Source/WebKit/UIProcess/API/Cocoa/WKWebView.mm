@@ -1339,7 +1339,7 @@ static bool validateArgument(id argument)
     });
 
 #if ENABLE(FULLSCREEN_API)
-    // MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only
+    // AQUAWEBKIT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only
     // (off on this port); upstream reaches it under FULLSCREEN_API because their Mac ships VPM on.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
@@ -1347,7 +1347,7 @@ static bool validateArgument(id argument)
             model.requestCloseAllMediaPresentations(false, [callbackAggregator] { });
         });
     }
-#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
+#endif // AQUAWEBKIT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
 
     if (RefPtr fullScreenManager = _page->fullScreenManager(); fullScreenManager && fullScreenManager->isFullScreen())
         fullScreenManager->closeWithCallback([callbackAggregator] { });
@@ -4774,7 +4774,7 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (BOOL)_canEnterFullscreen
 {
-    // MAVERICKS_BACKPORT: WebPageProxy::canEnterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
+    // AQUAWEBKIT: WebPageProxy::canEnterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     return _page->canEnterFullscreen();
 #else
@@ -4912,11 +4912,11 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (void)_enterFullscreen
 {
-    // MAVERICKS_BACKPORT: WebPageProxy::enterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
+    // AQUAWEBKIT: WebPageProxy::enterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr page = _page)
         page->enterFullscreen();
-#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on enterFullscreen() (see above).
+#endif // AQUAWEBKIT: close the VIDEO_PRESENTATION_MODE guard on enterFullscreen() (see above).
 }
 
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
@@ -5762,14 +5762,14 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 {
 #if ENABLE(FULLSCREEN_API)
     bool hasOpenMediaPresentations = false;
-    // MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off
+    // AQUAWEBKIT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off
     // here); with it absent there are no open video presentations, so hasOpenMediaPresentations stays false.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         hasOpenMediaPresentations = videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModePictureInPicture)
             || videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard);
     }
-#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
+#endif // AQUAWEBKIT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
 
     if (!hasOpenMediaPresentations) {
         RefPtr fullScreenManager = _page->fullScreenManager();
@@ -6896,14 +6896,14 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
-    // MAVERICKS_BACKPORT: WebPageProxy::playPredominantOrNowPlayingMediaSession() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
+    // AQUAWEBKIT: WebPageProxy::playPredominantOrNowPlayingMediaSession() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     _page->playPredominantOrNowPlayingMediaSession([completionHandler = makeBlockPtr(completionHandler)](bool success) {
         completionHandler(static_cast<BOOL>(success));
     });
 #else
     completionHandler(NO);
-#endif // MAVERICKS_BACKPORT: closes the ENABLE(VIDEO_PRESENTATION_MODE) guard above.
+#endif // AQUAWEBKIT: closes the ENABLE(VIDEO_PRESENTATION_MODE) guard above.
 }
 
 - (void)_pauseNowPlayingMediaSession:(void(^)(BOOL))completionHandler
@@ -6911,14 +6911,14 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
-    // MAVERICKS_BACKPORT: WebPageProxy::pauseNowPlayingMediaSession() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
+    // AQUAWEBKIT: WebPageProxy::pauseNowPlayingMediaSession() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     _page->pauseNowPlayingMediaSession([completionHandler = makeBlockPtr(completionHandler)](bool success) {
         completionHandler(static_cast<BOOL>(success));
     });
 #else
     completionHandler(NO);
-#endif // MAVERICKS_BACKPORT: closes the ENABLE(VIDEO_PRESENTATION_MODE) guard above.
+#endif // AQUAWEBKIT: closes the ENABLE(VIDEO_PRESENTATION_MODE) guard above.
 }
 
 - (void)_simulateClickOverFirstMatchingTextInViewportWithUserInteraction:(NSString *)targetText completionHandler:(void(^)(BOOL))completionHandler

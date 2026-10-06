@@ -30,7 +30,7 @@
 #include "ANGLEHeaders.h"
 #include "ANGLEUtilities.h"
 #include "Logging.h"
-// MAVERICKS_BACKPORT: Metal (10.11+) is unavailable on 10.9; this build uses ANGLE's OpenGL/CGL
+// AQUAWEBKIT: Metal (10.11+) is unavailable on 10.9; this build uses ANGLE's OpenGL/CGL
 // backend. The deployment target, not the SDK, decides whether Metal exists at RUNTIME, so this
 // MUST key on MIN_REQUIRED (=1090 here), NOT MAX_ALLOWED. Under the 26.1 SDK MAX_ALLOWED is huge
 // and always-true, which would wrongly select the Metal backend and weak-link to NULL on 10.9.
@@ -42,7 +42,7 @@
 #if WK_ANGLE_METAL
 #include <Metal/Metal.h>
 #include <pal/spi/cocoa/MetalSPI.h>
-// MAVERICKS_BACKPORT: Metal headers compiled in only when WK_ANGLE_METAL (Metal is 10.11+, absent on 10.9).
+// AQUAWEBKIT: Metal headers compiled in only when WK_ANGLE_METAL (Metal is 10.11+, absent on 10.9).
 #endif
 #include <wtf/SoftLinking.h>
 #include <wtf/StdLibExtras.h>
@@ -135,7 +135,7 @@ void destroyPbufferAndDetachIOSurface(EGLDisplay display, void* handle)
 }
 
 #if !WK_ANGLE_METAL
-// MAVERICKS_BACKPORT: Metal-only helpers are stubbed (callers compiled out with the OpenGL/CGL backend).
+// AQUAWEBKIT: Metal-only helpers are stubbed (callers compiled out with the OpenGL/CGL backend).
 RetainPtr<id<MTLRasterizationRateMap>> newRasterizationRateMap(GCGLDisplay, IntSize, IntSize, IntSize, std::span<const float>, std::span<const float>, std::span<const float>)
 {
     return nullptr;
@@ -233,7 +233,7 @@ RetainPtr<id<MTLSharedEvent>> newSharedEvent(GCGLDisplay display)
 
     return adoptNS([mtlDevice newSharedEvent]);
 }
-// MAVERICKS_BACKPORT: closes the WK_ANGLE_METAL split selecting Metal vs. the no-op stubs (Metal is 10.11+).
+// AQUAWEBKIT: closes the WK_ANGLE_METAL split selecting Metal vs. the no-op stubs (Metal is 10.11+).
 #endif // WK_ANGLE_METAL
 
 }

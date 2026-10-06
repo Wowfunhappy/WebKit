@@ -89,7 +89,7 @@ namespace WebCore {
         void clear();
 
         std::unique_ptr<JPEGImageReader> m_reader;
-#if USE(CG) // MAVERICKS_BACKPORT: profiled CMYK stays four-component through destination-space drawing.
+#if USE(CG) // AQUAWEBKIT: profiled CMYK stays four-component through destination-space drawing.
         PlatformImagePtr createNativeImage(const ScalableImageDecoderFrame&) const override;
         RetainPtr<CGColorSpaceRef> m_embeddedCMYKColorSpace;
         unsigned m_cmykDecodedRows { 0 };

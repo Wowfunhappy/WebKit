@@ -45,7 +45,7 @@ void NetworkConnectionToWebProcess::updateActivePages(String&& overrideDisplayNa
 {
     // Setting and getting the display name of another process requires a private entitlement.
     RELEASE_LOG(Process, "NetworkConnectionToWebProcess::updateActivePages");
-// #if USE(APPLE_INTERNAL_SDK) // MAVERICKS_BACKPORT: compiled without the internal SDK; pal/spi/cocoa/LaunchServicesSPI.h declares this SPI, 10.9 sets another process's display name without an entitlement, and the polyfill layer supplies _LSCopyLSASNForAuditToken.
+// #if USE(APPLE_INTERNAL_SDK) // AQUAWEBKIT: compiled without the internal SDK; pal/spi/cocoa/LaunchServicesSPI.h declares this SPI, 10.9 sets another process's display name without an entitlement, and the polyfill layer supplies _LSCopyLSASNForAuditToken.
     auto asn = adoptCF(_LSCopyLSASNForAuditToken(kLSDefaultSessionID, auditToken.auditToken()));
     if (!asn) {
 #if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
@@ -71,17 +71,17 @@ void NetworkConnectionToWebProcess::updateActivePages(String&& overrideDisplayNa
 //     UNUSED_PARAM(overrideDisplayName);
 //     UNUSED_PARAM(activePagesOrigins);
 //     UNUSED_PARAM(auditToken);
-// #endif // MAVERICKS_BACKPORT: closes the USE(APPLE_INTERNAL_SDK) split above.
+// #endif // AQUAWEBKIT: closes the USE(APPLE_INTERNAL_SDK) split above.
 }
 
 void NetworkConnectionToWebProcess::getProcessDisplayName(CoreIPCAuditToken&& auditToken, CompletionHandler<void(const String&)>&& completionHandler)
 {
-// #if USE(APPLE_INTERNAL_SDK) // MAVERICKS_BACKPORT: same as updateActivePages above; the polyfill layer supplies _LSCopyLSASNForAuditToken.
+// #if USE(APPLE_INTERNAL_SDK) // AQUAWEBKIT: same as updateActivePages above; the polyfill layer supplies _LSCopyLSASNForAuditToken.
     auto asn = adoptCF(_LSCopyLSASNForAuditToken(kLSDefaultSessionID, auditToken.auditToken()));
     return completionHandler(adoptCF((CFStringRef)_LSCopyApplicationInformationItem(kLSDefaultSessionID, asn.get(), _kLSDisplayNameKey)).get());
 // #else
 //     completionHandler({ });
-// #endif // MAVERICKS_BACKPORT: closes the USE(APPLE_INTERNAL_SDK) split above.
+// #endif // AQUAWEBKIT: closes the USE(APPLE_INTERNAL_SDK) split above.
 }
 
 #if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)

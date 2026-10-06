@@ -28,11 +28,11 @@
 #include "GStreamerRegistryScanner.h"
 #include "PlatformDisplay.h"
 #include "VideoFrameGStreamer.h"
-// MAVERICKS_BACKPORT: encoder and decoder share the per-frame WebCodecs timing transport.
+// AQUAWEBKIT: encoder and decoder share the per-frame WebCodecs timing transport.
 #include "VideoFrameMetadataGStreamer.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WorkQueue.h>
-// MAVERICKS_BACKPORT: Decoder bus errors own their parsed GError until its message is copied.
+// AQUAWEBKIT: Decoder bus errors own their parsed GError until its message is copied.
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/MakeString.h>
 
@@ -57,7 +57,7 @@ static WorkQueue& gstDecoderWorkQueue()
     return queue.get();
 }
 
-// MAVERICKS_BACKPORT: Decoder destruction runs on the main thread, outside VideoToolbox's output task and bus callbacks.
+// AQUAWEBKIT: Decoder destruction runs on the main thread, outside VideoToolbox's output task and bus callbacks.
 // class GStreamerInternalVideoDecoder : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerInternalVideoDecoder> {
 class GStreamerInternalVideoDecoder : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerInternalVideoDecoder, WTF::DestructionThread::Main> {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(GStreamerInternalVideoDecoder);
@@ -69,7 +69,7 @@ public:
     }
     ~GStreamerInternalVideoDecoder()
     {
-        // MAVERICKS_BACKPORT: The bus handler is detached before the harness releases its decoder.
+        // AQUAWEBKIT: The bus handler is detached before the harness releases its decoder.
         if (m_bus) {
             gst_bus_set_sync_handler(m_bus.get(), nullptr, nullptr, nullptr);
             gst_element_set_bus(harnessedElement(), nullptr);
@@ -95,10 +95,10 @@ private:
     VideoDecoder::OutputCallback m_outputCallback;
 
     RefPtr<GStreamerElementHarness> m_harness;
-    // MAVERICKS_BACKPORT: Asynchronous decoder errors use GStreamer's bus delivery.
+    // AQUAWEBKIT: Asynchronous decoder errors use GStreamer's bus delivery.
     GRefPtr<GstBus> m_bus;
     FloatSize m_presentationSize;
-    // MAVERICKS_BACKPORT: input timing belongs to each encoded buffer and follows decoder reordering.
+    // AQUAWEBKIT: input timing belongs to each encoded buffer and follows decoder reordering.
     // int64_t m_timestamp;
     // std::optional<uint64_t> m_duration;
     bool m_isClosed { false };
@@ -200,15 +200,15 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
 
     auto* factory = gst_element_get_factory(element.get());
     ASCIILiteral parser;
-    // MAVERICKS_BACKPORT: Conditional parsers are selected against the complete configured caps.
+    // AQUAWEBKIT: Conditional parsers are selected against the complete configured caps.
     ASCIILiteral optionalParser;
     if (codecName.startsWith("avc1"_s)) {
-        // MAVERICKS_BACKPORT: H.264 without an AVC configuration record carries in-band Annex B parameter sets; vtdec accepts these through h264parse.
+        // AQUAWEBKIT: H.264 without an AVC configuration record carries in-band Annex B parameter sets; vtdec accepts these through h264parse.
         // m_inputCaps = adoptGRef(gst_caps_new_simple("video/x-h264", "stream-format", G_TYPE_STRING, "avc", "alignment", G_TYPE_STRING, "au", nullptr));
         m_inputCaps = adoptGRef(gst_caps_new_simple("video/x-h264", "stream-format", G_TYPE_STRING, config.description.isEmpty() ? "byte-stream" : "avc", "alignment", G_TYPE_STRING, "au", nullptr));
         if (auto codecData = wrapSpanData(config.description))
             gst_caps_set_simple(m_inputCaps.get(), "codec_data", GST_TYPE_BUFFER, codecData.get(), nullptr);
-        // MAVERICKS_BACKPORT: The H.264 compatibility check includes the configured dimensions below.
+        // AQUAWEBKIT: The H.264 compatibility check includes the configured dimensions below.
         // if (!gst_element_factory_can_sink_all_caps(factory, m_inputCaps.get()))
         //     parser = "h264parse"_s;
         optionalParser = "h264parse"_s;
@@ -223,7 +223,7 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
         m_inputCaps = adoptGRef(gst_caps_new_simple("video/x-h265", "stream-format", G_TYPE_STRING, "hvc1", "alignment", G_TYPE_STRING, "au", nullptr));
         if (auto codecData = wrapSpanData(config.description))
             gst_caps_set_simple(m_inputCaps.get(), "codec_data", GST_TYPE_BUFFER, codecData.get(), nullptr);
-        // MAVERICKS_BACKPORT: The HEVC compatibility check includes the configured dimensions below.
+        // AQUAWEBKIT: The HEVC compatibility check includes the configured dimensions below.
         // if (!gst_element_factory_can_sink_all_caps(factory, m_inputCaps.get()))
         //     parser = "h265parse"_s;
         optionalParser = "h265parse"_s;
@@ -231,7 +231,7 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
         m_inputCaps = adoptGRef(gst_caps_new_simple("video/x-h265", "stream-format", G_TYPE_STRING, "hev1", "alignment", G_TYPE_STRING, "au", nullptr));
         if (auto codecData = wrapSpanData(config.description))
             gst_caps_set_simple(m_inputCaps.get(), "codec_data", GST_TYPE_BUFFER, codecData.get(), nullptr);
-        // MAVERICKS_BACKPORT: The HEVC compatibility check includes the configured dimensions below.
+        // AQUAWEBKIT: The HEVC compatibility check includes the configured dimensions below.
         // if (!gst_element_factory_can_sink_all_caps(factory, m_inputCaps.get()))
         //     parser = "h265parse"_s;
         optionalParser = "h265parse"_s;
@@ -243,7 +243,7 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
     if (config.width && config.height)
         gst_caps_set_simple(m_inputCaps.get(), "width", G_TYPE_INT, config.width, "height", G_TYPE_INT, config.height, nullptr);
 
-    // MAVERICKS_BACKPORT: Parser compatibility uses the complete configured caps.
+    // AQUAWEBKIT: Parser compatibility uses the complete configured caps.
     if (!optionalParser.isEmpty() && !gst_element_factory_can_sink_all_caps(factory, m_inputCaps.get()))
         parser = optionalParser;
 
@@ -291,7 +291,7 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
             m_presentationSize = getVideoResolutionFromCaps(stream.outputCaps().get()).value_or(FloatSize { 0, 0 });
 
         auto outputBuffer = gst_sample_get_buffer(outputSample.get());
-        // MAVERICKS_BACKPORT: parser-generated timestamps do not identify WebCodecs input chunks.
+        // AQUAWEBKIT: parser-generated timestamps do not identify WebCodecs input chunks.
         // auto duration = m_duration.value_or(GST_BUFFER_DURATION(outputBuffer));
         // auto timestamp = static_cast<int64_t>(GST_BUFFER_PTS(outputBuffer));
         // if (timestamp == -1)
@@ -301,11 +301,11 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
         if (!m_videoInfo)
             m_videoInfo = VideoFrameGStreamer::infoFromCaps(GRefPtr(gst_sample_get_caps(outputSample.get())));
 
-        // MAVERICKS_BACKPORT: duration retains the input chunk's optional value.
+        // AQUAWEBKIT: duration retains the input chunk's optional value.
         // GST_TRACE_OBJECT(m_harness->element(), "Handling decoded frame with PTS: %" GST_TIME_FORMAT " and duration: %" GST_TIME_FORMAT, GST_TIME_ARGS(timestamp), GST_TIME_ARGS(duration));
         GST_TRACE_OBJECT(m_harness->element(), "Handling decoded frame with PTS: %" GST_TIME_FORMAT " and duration: %" GST_TIME_FORMAT, GST_TIME_ARGS(timestamp), GST_TIME_ARGS(duration.value_or(GST_CLOCK_TIME_NONE)));
         VideoFrameGStreamer::CreateOptions options(IntSize(m_presentationSize), { *m_videoInfo });
-        // MAVERICKS_BACKPORT: WebCodecs input timing uses signed microseconds.
+        // AQUAWEBKIT: WebCodecs input timing uses signed microseconds.
         // options.presentationTime = fromGstClockTime(timestamp);
         options.presentationTime = MediaTime(timestamp, 1000000);
         options.contentHint = VideoFrameContentHint::WebCodecs;
@@ -314,7 +314,7 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
     }, std::nullopt, WTF::move(allowedSinkCaps));
 
     const auto& stream = m_harness->outputStreams().first();
-    // MAVERICKS_BACKPORT: Late decoder output is delivered on the existing decoder work queue.
+    // AQUAWEBKIT: Late decoder output is delivered on the existing decoder work queue.
     stream->setOutputAvailableCallback([weakThis = ThreadSafeWeakPtr { *this }] {
         gstDecoderWorkQueue().dispatch([weakThis] {
             if (auto decoder = weakThis.get())
@@ -322,7 +322,7 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
         });
     });
 
-    // MAVERICKS_BACKPORT: Synchronous bus delivery posts genuine decoder errors before an EOS drain completes.
+    // AQUAWEBKIT: Synchronous bus delivery posts genuine decoder errors before an EOS drain completes.
     m_bus = adoptGRef(gst_bus_new());
     gst_bus_set_sync_handler(m_bus.get(), [](GstBus*, GstMessage* message, gpointer userData) {
         if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR) {
@@ -361,7 +361,7 @@ Ref<VideoDecoder::DecodePromise> GStreamerInternalVideoDecoder::decode(std::span
     if (!buffer)
         return VideoDecoder::DecodePromise::createAndReject("Empty frame"_s);
 
-    // MAVERICKS_BACKPORT: GStreamer copies this frame's timing through parser and decoder buffer transforms.
+    // AQUAWEBKIT: GStreamer copies this frame's timing through parser and decoder buffer transforms.
     // m_timestamp = timestamp;
     // m_duration = duration;
     buffer = webkitGstBufferSetWebCodecsTiming(WTF::move(buffer), timestamp, duration);

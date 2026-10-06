@@ -55,7 +55,7 @@ typedef struct OpaqueWKDictionary* WKMutableDictionaryRef;
 
 typedef const struct OpaqueWKBoolean* WKBooleanRef;
 typedef const struct OpaqueWKCertificateInfo* WKCertificateInfoRef;
-// MAVERICKS_BACKPORT: the WKConnection bundle<->app channel (WKConnectionRef.h).
+// AQUAWEBKIT: the WKConnection bundle<->app channel (WKConnectionRef.h).
 typedef const struct OpaqueWKConnection* WKConnectionRef;
 typedef const struct OpaqueWKContextMenuItem* WKContextMenuItemRef;
 typedef const struct OpaqueWKData* WKDataRef;

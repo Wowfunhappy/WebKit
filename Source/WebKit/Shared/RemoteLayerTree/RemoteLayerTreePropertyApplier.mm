@@ -549,7 +549,7 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     }
 #endif
 
-// MAVERICKS_BACKPORT: WebAVPlayerLayer is a piece of the video-presentation stack — its
+// AQUAWEBKIT: WebAVPlayerLayer is a piece of the video-presentation stack — its
 // implementation drives WebCore::VideoPresentationModel — and this port builds none of that stack:
 // ENABLE(VIDEO_PRESENTATION_MODE) is off because 10.9 lacks the AVKit presentation SPI behind
 // VideoPresentationInterfaceMac. Upstream ships HAVE(AVKIT) only alongside that stack, so its

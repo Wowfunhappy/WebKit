@@ -45,7 +45,7 @@
 #include "FormDataReference.h"
 #include "FrameInfoData.h"
 #include "ITPThirdPartyData.h"
-#include "LegacyExtensionHost.h" // MAVERICKS_BACKPORT: the constructor below.
+#include "LegacyExtensionHost.h" // AQUAWEBKIT: the constructor below.
 #include "LegacyGlobalSettings.h"
 #include "LoadedWebArchive.h"
 #include "Logging.h"
@@ -67,7 +67,7 @@
 #include "ViewSnapshotStore.h"
 #include "WebCompiledContentRuleList.h"
 #include "WebFrameProxy.h"
-#include "WebFrameProxyFromNetworkProcessMessages.h" // MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
+#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
 #include "WebNotificationManagerProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
@@ -280,7 +280,7 @@ NetworkProcessProxy::NetworkProcessProxy()
 
     connect();
     sendCreationParametersToNewProcess();
-    LegacyExtensionHost::singleton().networkProcessCreated(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.
+    LegacyExtensionHost::singleton().networkProcessCreated(*this); // AQUAWEBKIT: Safari 7 extensions' webRequest.
     updateProcessAssertion();
     networkProcessesSet().add(*this);
 #if PLATFORM(IOS_FAMILY)
@@ -337,7 +337,7 @@ void NetworkProcessProxy::getNetworkProcessConnection(WebProcessProxy& webProces
     parameters.ignoreInvalidMessageForTesting = webProcessProxy.ignoreInvalidMessageForTesting();
 #endif
     parameters.sharedPreferencesForWebProcess = *webProcessProxy.sharedPreferencesForWebProcess();
-    // MAVERICKS_BACKPORT: the embedder authorizes native bundle APIs through its process-pool configuration.
+    // AQUAWEBKIT: the embedder authorizes native bundle APIs through its process-pool configuration.
     parameters.allowsInjectedBundleOriginAccessAllowListIPC = !webProcessProxy.processPool().injectedBundlePath().isEmpty();
     for (Ref page : webProcessProxy.mainPages()) {
         parameters.allowedWebPageProxyIdentifiers.append(page->identifier());
@@ -524,7 +524,7 @@ void NetworkProcessProxy::didClose(IPC::Connection& connection)
     networkProcessDidTerminate(ProcessTerminationReason::Crash);
 }
 
-// MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess messages go to the frame named by the destination ID.
+// AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess messages go to the frame named by the destination ID.
 bool NetworkProcessProxy::dispatchMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
     if (AuxiliaryProcessProxy::dispatchMessage(connection, decoder))
@@ -1866,7 +1866,7 @@ void NetworkProcessProxy::getPendingPushMessages(PAL::SessionID sessionID, Compl
 }
 
 #if USE(MOZILLA_PUSH_SERVICE)
-// MAVERICKS_BACKPORT: the network process relays webpushd's pending-push signal here;
+// AQUAWEBKIT: the network process relays webpushd's pending-push signal here;
 // see WebsiteDataStore::pumpPendingWebPushMessages.
 void NetworkProcessProxy::webPushMessagesBecameAvailable(PAL::SessionID sessionID)
 {
@@ -1982,14 +1982,14 @@ void NetworkProcessProxy::navigateServiceWorkerClient(WebCore::FrameIdentifier f
     callback({ }, { });
 }
 
-// MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess replaces this receiver.
+// AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess replaces this receiver.
 /*
 void NetworkProcessProxy::receivedMainResourceResponseWithCertificateInfo(WebCore::FrameIdentifier frameID, String&& hostAndPort, WebCore::CertificateInfo&& certificateInfo)
 {
     if (RefPtr frame = WebFrameProxy::webFrame(frameID))
         frame->receivedMainResourceResponseWithCertificateInfo(WTF::move(hostAndPort), WTF::move(certificateInfo));
 }
-*/ // MAVERICKS_BACKPORT: closes the commented-out receiver above.
+*/ // AQUAWEBKIT: closes the commented-out receiver above.
 
 void NetworkProcessProxy::applicationDidEnterBackground()
 {

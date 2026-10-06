@@ -22,13 +22,13 @@
 
 #include "GRefPtrGStreamer.h"
 #include <wtf/Forward.h>
-#include <wtf/Lock.h> // MAVERICKS_BACKPORT: shared conversion and output-pool lookup serialization.
+#include <wtf/Lock.h> // AQUAWEBKIT: shared conversion and output-pool lookup serialization.
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
-// MAVERICKS_BACKPORT: the Cocoa converter owns its IOSurface output pools.
+// AQUAWEBKIT: the Cocoa converter owns its IOSurface output pools.
 #if PLATFORM(COCOA)
 #include "IntSize.h"
 #include <wtf/HashMap.h>
@@ -42,7 +42,7 @@ namespace WebCore {
 
 #if PLATFORM(COCOA)
 struct PlatformVideoColorSpace;
-#endif // MAVERICKS_BACKPORT: Cocoa pixel-buffer colour metadata.
+#endif // AQUAWEBKIT: Cocoa pixel-buffer colour metadata.
 
 
 class GStreamerVideoFrameConverter final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerVideoFrameConverter> {
@@ -51,7 +51,7 @@ class GStreamerVideoFrameConverter final : public ThreadSafeRefCountedAndCanMake
 
 public:
     // static GStreamerVideoFrameConverter& singleton();
-    WEBCORE_EXPORT static GStreamerVideoFrameConverter& singleton(); // MAVERICKS_BACKPORT: TestWebCore exercises the Cocoa pixel-buffer conversion path.
+    WEBCORE_EXPORT static GStreamerVideoFrameConverter& singleton(); // AQUAWEBKIT: TestWebCore exercises the Cocoa pixel-buffer conversion path.
 
     // Do nothing since this is a singleton object.
     void ref() const { }
@@ -60,13 +60,13 @@ public:
     [[nodiscard]] GRefPtr<GstSample> convert(const GRefPtr<GstSample>&, const GRefPtr<GstCaps>&);
 
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: packed RGB and planar YUV samples back Cocoa rendering and IPC.
+    // AQUAWEBKIT: packed RGB and planar YUV samples back Cocoa rendering and IPC.
     RetainPtr<CVPixelBufferRef> pixelBufferFromSample(const GRefPtr<GstSample>&, PlatformVideoColorSpace);
 #endif
 
 private:
     GStreamerVideoFrameConverter();
-    Lock m_lock; // MAVERICKS_BACKPORT: conversion pipelines are shared by streaming and canvas callers.
+    Lock m_lock; // AQUAWEBKIT: conversion pipelines are shared by streaming and canvas callers.
 
     class Pipeline {
         WTF_MAKE_TZONE_ALLOCATED(Pipeline);
@@ -99,7 +99,7 @@ private:
 #endif
 
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: frames reuse an IOSurface pool per size and pixel format; a pool unused for the
+    // AQUAWEBKIT: frames reuse an IOSurface pool per size and pixel format; a pool unused for the
     // pipeline release interval is dropped on the next lookup.
     struct CVPixelBufferPoolEntry {
         RetainPtr<CVPixelBufferPoolRef> pool;

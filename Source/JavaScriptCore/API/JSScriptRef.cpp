@@ -97,10 +97,10 @@ static bool parseScript(VM& vm, const SourceCode& source, ParserError& error)
         NoLexicallyScopedFeatures, JSParserScriptMode::Classic, SourceParseMode::ProgramMode, error);
 }
 
-// MAVERICKS_BACKPORT: see JSScriptSetSafariReaderFinderEvaluator.
+// AQUAWEBKIT: see JSScriptSetSafariReaderFinderEvaluator.
 static JSScriptSafariReaderFinderEvaluator safariReaderFinderEvaluator;
 
-// MAVERICKS_BACKPORT: Safari 7's Reader article finder, the script Safari.framework embeds as
+// AQUAWEBKIT: Safari 7's Reader article finder, the script Safari.framework embeds as
 // readerArticleFinderSource, ends by creating its one finder object.
 static bool isSafariReaderFinderSource(StringView source)
 {
@@ -189,7 +189,7 @@ JSValueRef JSScriptEvaluate(JSContextRef context, JSScriptRef script, JSValueRef
         return nullptr;
     }
 
-    // MAVERICKS_BACKPORT: see JSScriptSetSafariReaderFinderEvaluator.
+    // AQUAWEBKIT: see JSScriptSetSafariReaderFinderEvaluator.
     if (safariReaderFinderEvaluator && isSafariReaderFinderSource(script->source()) && safariReaderFinderEvaluator(context, script, exception))
         return toRef(globalObject, jsUndefined());
 
@@ -210,7 +210,7 @@ JSValueRef JSScriptEvaluate(JSContextRef context, JSScriptRef script, JSValueRef
     return toRef(globalObject, result);
 }
 
-// MAVERICKS_BACKPORT: installs the evaluator JSScriptEvaluate hands Safari 7's Reader article finder.
+// AQUAWEBKIT: installs the evaluator JSScriptEvaluate hands Safari 7's Reader article finder.
 void JSScriptSetSafariReaderFinderEvaluator(JSScriptSafariReaderFinderEvaluator evaluator)
 {
     safariReaderFinderEvaluator = evaluator;

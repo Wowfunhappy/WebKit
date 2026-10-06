@@ -222,7 +222,7 @@ bool Quirks::shouldIgnoreInvalidSignal() const
     return needsQuirks();
 }
 
-// MAVERICKS_BACKPORT: Safari 7's Reader script (ReaderJS, compiled into the Safari binary and thus
+// AQUAWEBKIT: Safari 7's Reader script (ReaderJS, compiled into the Safari binary and thus
 // unfixable) drives all programmatic reader scrolling — keyboard scrolling, scroll restoration,
 // ReaderWebProcessController::setScrollTop — through document.body.scrollTop. It was written for
 // the pre-CSSOM-View engine where that aliased the document scroll in standards mode; today the
@@ -238,7 +238,7 @@ bool Quirks::shouldAliasBodyScrollToDocumentScroll() const
     return m_document && m_document->url().protocolIs("safari-reader"_s);
 }
 
-// MAVERICKS_BACKPORT: Safari 7's ReaderJS (compiled into the Safari binary and thus unfixable)
+// AQUAWEBKIT: Safari 7's ReaderJS (compiled into the Safari binary and thus unfixable)
 // tells its own smoothScroll-driven scroll events apart from user scrolls with a guard flag
 // (scrollEventIsSmoothScroll) that it sets around each body.scrollTop assignment and clears on a
 // zero-delay setTimeout; any scroll event seen with the flag clear aborts the animation
@@ -256,7 +256,7 @@ bool Quirks::shouldDispatchPendingScrollEventsEagerly() const
     return m_document && m_document->url().protocolIs("safari-reader"_s);
 }
 
-// MAVERICKS_BACKPORT: Safari 7's bundled pages (the Extensions preferences pane and Extension Builder,
+// AQUAWEBKIT: Safari 7's bundled pages (the Extensions preferences pane and Extension Builder,
 // WebKit1 views in Safari's own process loading file: URLs from its Resources directory) style buttons,
 // checkboxes and radios with author min-width rules written for an engine whose theme minimum replaced
 // the author's (r282440 made it only enlarge it). RenderTheme consults this to restore that sizing.

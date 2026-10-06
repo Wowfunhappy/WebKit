@@ -330,7 +330,7 @@ public:
         @NO, WebKitResourceLoadStatisticsEnabledPreferenceKey,
         @NO, WebKitDebugInAppBrowserPrivacyEnabledPreferenceKey,
 
-// MAVERICKS_BACKPORT: both Encrypted Media APIs keep their per-origin records here, reached
+// AQUAWEBKIT: both Encrypted Media APIs keep their per-origin records here, reached
 // through Document::mediaKeysStorageDirectory.
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
         @"~/Library/WebKit/MediaKeys", WebKitMediaKeysStorageDirectoryKey,
@@ -3325,7 +3325,7 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
 }
 #endif // PLATFORM(IOS_FAMILY)
 
-// MAVERICKS_BACKPORT: restore -paginateDuringLayoutEnabled, removed upstream in 2f0fefe "Remove unused
+// AQUAWEBKIT: restore -paginateDuringLayoutEnabled, removed upstream in 2f0fefe "Remove unused
 // PaginateDuringLayoutEnabled flag". Safari 7's one-time WebKit1 preference migration
 // (Safari::Application::migrateWebKit1PreferencesIfNecessary) reads it on a fresh user account and
 // throws an unrecognized-selector exception without it. The flag has no engine effect; NO matches the
@@ -3339,7 +3339,7 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
 {
 }
 
-// MAVERICKS_BACKPORT: restore the QTKit preference accessors, removed upstream in c7ad1a5 "Remove unused
+// AQUAWEBKIT: restore the QTKit preference accessors, removed upstream in c7ad1a5 "Remove unused
 // QTKit preference". Safari 7 pushes its hidden QTKit defaults toggle into WebPreferences through an
 // unguarded -setQTKitEnabled: call. QTKit does not exist in this engine, so NO matches the deprecated
 // WKPreferencesGetQTKitEnabled C stub upstream kept.
@@ -3352,7 +3352,7 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
 {
 }
 
-// MAVERICKS_BACKPORT: restore the region-based-columns preference accessors (removed upstream when the
+// AQUAWEBKIT: restore the region-based-columns preference accessors (removed upstream when the
 // new multicolumn implementation became the only one). Safari 7 pushes its hidden defaults toggle into
 // WebPreferences through an unguarded -setRegionBasedColumnsEnabled: call. The engine always uses the
 // new multicolumn layout, so the getter answers YES.

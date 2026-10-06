@@ -34,13 +34,13 @@
 #import <wtf/RetainPtr.h>
 
 OBJC_CLASS NSArray;
-// MAVERICKS_BACKPORT: blockCookies takes a request, see NetworkTaskCocoa::blockCookies.
+// AQUAWEBKIT: blockCookies takes a request, see NetworkTaskCocoa::blockCookies.
 OBJC_CLASS NSMutableURLRequest;
 OBJC_CLASS NSString;
 OBJC_CLASS NSURLSessionTask;
 
 namespace WebCore {
-class IPAddress; // MAVERICKS_BACKPORT: named by the public cloaking helpers below.
+class IPAddress; // AQUAWEBKIT: named by the public cloaking helpers below.
 class RegistrableDomain;
 enum class ThirdPartyCookieBlockingDecision : uint8_t;
 }
@@ -49,9 +49,9 @@ namespace WebKit {
 
 class NetworkTaskCocoa {
 public:
-    // MAVERICKS_BACKPORT: public and static, so the curl data task applies the same quirk on its redirects.
+    // AQUAWEBKIT: public and static, so the curl data task applies the same quirk on its redirects.
     static bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL);
-    // MAVERICKS_BACKPORT: public and static, so the curl data task decides a cloaked cookie's expiry cap with these.
+    // AQUAWEBKIT: public and static, so the curl data task decides a cloaked cookie's expiry cap with these.
     static WebCore::RegistrableDomain lastCNAMEDomain(String);
     static bool shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty);
     static bool needsThirdPartyIPAddressQuirk(const URL& requestURL, const String& firstPartyRegistrableDomainName);
@@ -77,23 +77,23 @@ protected:
     bool shouldApplyCookiePolicyForThirdPartyCloaking() const;
     enum class IsRedirect : bool { No, Yes };
     void setCookieTransform(const WebCore::ResourceRequest&, IsRedirect);
-    // MAVERICKS_BACKPORT: these take the request that is about to be sent, because 10.9 can only
+    // AQUAWEBKIT: these take the request that is about to be sent, because 10.9 can only
     // withhold cookies per REQUEST and not per task, see the definitions. Two request forms because the
     // two call sites hold different ones: the task's initial NSURLRequest, and the ResourceRequest a
     // redirect continues with.
     void blockCookies(NSMutableURLRequest *);
     void blockCookies(WebCore::ResourceRequest&);
     void unblockCookies(WebCore::ResourceRequest&);
-    void blockCookies(); // MAVERICKS_BACKPORT: upstream's form, for the tasks that can take a jar of their own (WebSocket tasks).
+    void blockCookies(); // AQUAWEBKIT: upstream's form, for the tasks that can take a jar of their own (WebSocket tasks).
     void unblockCookies();
     static void updateTaskWithFirstPartyForSameSiteCookies(NSURLSessionTask*, const WebCore::ResourceRequest&);
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     void updateTaskWithStoragePartitionIdentifier(const WebCore::ResourceRequest&);
 #endif
-    // MAVERICKS_BACKPORT: declared public and static above.
+    // AQUAWEBKIT: declared public and static above.
     // bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const;
     static NSString *lastRemoteIPAddress(NSURLSessionTask *);
-    // static WebCore::RegistrableDomain lastCNAMEDomain(String); // MAVERICKS_BACKPORT: declared public above.
+    // static WebCore::RegistrableDomain lastCNAMEDomain(String); // AQUAWEBKIT: declared public above.
     WebCore::ThirdPartyCookieBlockingDecision requestThirdPartyCookieBlockingDecision(const WebCore::ResourceRequest&) const;
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     bool isOptInCookiePartitioningEnabled() const;
@@ -110,7 +110,7 @@ private:
 
     WeakPtr<NetworkSession> m_networkSession;
     bool m_hasBeenSetToUseStatelessCookieStorage { false };
-    // MAVERICKS_BACKPORT: whether the block was made by putting the task on its own jar (blockCookies())
+    // AQUAWEBKIT: whether the block was made by putting the task on its own jar (blockCookies())
     // rather than on the request, which is what unblockCookies(ResourceRequest&) undoes it by.
     bool m_hasBeenPutOnItsOwnCookieStorage { false };
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)

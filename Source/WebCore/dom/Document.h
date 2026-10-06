@@ -292,7 +292,7 @@ class DocumentImmersive;
 #endif
 
 #if ENABLE(DASHBOARD_SUPPORT)
-struct AnnotatedRegionValue; // MAVERICKS_BACKPORT
+struct AnnotatedRegionValue; // AQUAWEBKIT
 #endif
 struct ApplicationManifest;
 struct AriaNotifyOptions;
@@ -1123,7 +1123,7 @@ public:
         FocusIn = 1 << 11,
         FocusOut = 1 << 12,
         CSSAnimation = 1 << 13,
-        // MAVERICKS_BACKPORT: ListenerType for the restored cancelable beforeload event
+        // AQUAWEBKIT: ListenerType for the restored cancelable beforeload event
         // (Safari 7 extension content blocking, #62; deleted upstream in bug 234804).
         BeforeLoad = 1 << 14,
     };
@@ -1415,7 +1415,7 @@ public:
     void updateAccessibilityObjectRegions();
     void updateEventRegions();
 
-    // MAVERICKS_BACKPORT: the AnnotationsAction argument and the two entry points below it carry the
+    // AQUAWEBKIT: the AnnotationsAction argument and the two entry points below it carry the
     // Dashboard half of these region bottlenecks.
     enum class AnnotationsAction : bool { Invalidate, Update };
     void NODELETE invalidateRenderingDependentRegions(AnnotationsAction = AnnotationsAction::Invalidate);
@@ -1424,7 +1424,7 @@ public:
     void invalidateEventRegionsForFrame(HTMLFrameOwnerElement&);
 
 #if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: legacy Dashboard widget -apple-dashboard-region control regions.
+    // AQUAWEBKIT: legacy Dashboard widget -apple-dashboard-region control regions.
     void setHasAnnotatedRegions(bool f) { m_hasAnnotatedRegions = f; }
     bool hasAnnotatedRegions() const { return m_hasAnnotatedRegions; }
     void setAnnotatedRegionsDirty(bool f = true) { m_annotatedRegionsDirty = f; }
@@ -1859,7 +1859,7 @@ public:
     ConstantPropertyMap& constantProperties() const;
 
     // void orientationChanged(IntDegrees orientation);
-    WEBCORE_EXPORT void orientationChanged(IntDegrees orientation); // MAVERICKS_BACKPORT: WebKit forwards media-capture orientation into WebCore.
+    WEBCORE_EXPORT void orientationChanged(IntDegrees orientation); // AQUAWEBKIT: WebKit forwards media-capture orientation into WebCore.
     OrientationNotifier& orientationNotifier();
 
     WEBCORE_EXPORT const AtomString& NODELETE bgColor() const;
@@ -2077,7 +2077,7 @@ public:
     void updateContentRelevancyForScrollIfNeeded(const Element& scrollAnchor);
 
     // String mediaKeysStorageDirectory();
-    WEBCORE_EXPORT String mediaKeysStorageDirectory(); // MAVERICKS_BACKPORT: WebKitLegacy stores per-origin media-key salts.
+    WEBCORE_EXPORT String mediaKeysStorageDirectory(); // AQUAWEBKIT: WebKitLegacy stores per-origin media-key salts.
 
     void invalidateDOMCookieCache();
 
@@ -2869,7 +2869,7 @@ private:
     RefPtr<FrameMemoryMonitor> m_frameMemoryMonitor;
 
 #if ENABLE(DASHBOARD_SUPPORT)
-    Vector<AnnotatedRegionValue> m_annotatedRegions; // MAVERICKS_BACKPORT
+    Vector<AnnotatedRegionValue> m_annotatedRegions; // AQUAWEBKIT
     bool m_hasAnnotatedRegions { false };
     bool m_annotatedRegionsDirty { false };
 #endif

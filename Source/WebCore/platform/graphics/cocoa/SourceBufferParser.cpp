@@ -31,7 +31,7 @@
 #include "ContentType.h"
 #include "MediaSourceConfiguration.h"
 #include "SharedBuffer.h"
-// MAVERICKS_BACKPORT: SourceBufferParserAVFObjC is not built -- it is implemented on
+// AQUAWEBKIT: SourceBufferParserAVFObjC is not built -- it is implemented on
 // AVStreamDataParser, which 10.9 does not have. See the two call sites below.
 // #include "SourceBufferParserAVFObjC.h"
 #include "SourceBufferParserWebM.h"
@@ -47,7 +47,7 @@ MediaPlayerEnums::SupportsType SourceBufferParser::isContentTypeSupported(const 
     MediaPlayerEnums::SupportsType supports = SourceBufferParserWebM::isContentTypeSupported(type);
     if (supports == MediaPlayerEnums::SupportsType::IsSupported)
         return supports;
-    // MAVERICKS_BACKPORT: AVStreamDataParser is absent on 10.9; playback and MSE use GStreamer.
+    // AQUAWEBKIT: AVStreamDataParser is absent on 10.9; playback and MSE use GStreamer.
     // return std::max(supports, SourceBufferParserAVFObjC::isContentTypeSupported(type));
     return supports;
 }
@@ -57,7 +57,7 @@ RefPtr<SourceBufferParser> SourceBufferParser::create(const ContentType& type, c
     if (SourceBufferParserWebM::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
         return SourceBufferParserWebM::create();
 
-    // MAVERICKS_BACKPORT: AVStreamDataParser is absent on 10.9; Web Audio uses the WebM parser above.
+    // AQUAWEBKIT: AVStreamDataParser is absent on 10.9; Web Audio uses the WebM parser above.
     // if (SourceBufferParserAVFObjC::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
     //     return adoptRef(new SourceBufferParserAVFObjC(type, configuration));
     UNUSED_PARAM(configuration);

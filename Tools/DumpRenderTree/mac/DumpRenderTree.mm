@@ -750,7 +750,7 @@ RetainPtr<WebView> createWebViewAndOffscreenWindow()
     // Put it at -10000, -10000 in "flipped coordinates", since WebCore and the DOM use flipped coordinates.
     NSScreen *firstScreen = [[NSScreen screens] firstObject];
     NSRect windowRect = (showWebView) ? NSOffsetRect(rect, 100, 100) : NSOffsetRect(rect, -10000, [firstScreen frame].size.height - rect.size.height + 10000);
-    // MAVERICKS_BACKPORT: the window this creates is owned until it is closed, and the mainWindow global
+    // AQUAWEBKIT: the window this creates is owned until it is closed, and the mainWindow global
     // names only the main one. Assigning every window here made each window.open() drop the sole
     // reference to the previous popup's window; nothing else on 10.9 retains an off-screen borderless
     // window, so it was deallocated along with its contentView -- and with it the popup's WebView and
@@ -771,7 +771,7 @@ RetainPtr<WebView> createWebViewAndOffscreenWindow()
     [window setAutodisplay:NO];
 
     [(DumpRenderTreeWindow *)window.get() startListeningForAcceleratedCompositingChanges];
-    // MAVERICKS_BACKPORT: the window owns itself from here until -close, per the note above.
+    // AQUAWEBKIT: the window owns itself from here until -close, per the note above.
     (void)window.leakRef();
 #else
     auto drtWindow = adoptNS([[DumpRenderTreeWindow alloc] initWithLayer:[webBrowserView layer]]);
@@ -856,7 +856,7 @@ static void createGlobalWebViewAndOffscreenWindow()
     destroyGlobalWebViewAndOffscreenWindow();
     globalWebView() = createWebViewAndOffscreenWindow();
     mainFrame = [globalWebView() mainFrame];
-    // MAVERICKS_BACKPORT: the one window this global is for, set where the main WebView is made rather
+    // AQUAWEBKIT: the one window this global is for, set where the main WebView is made rather
     // than by every window.open() (see createWebViewAndOffscreenWindow).
     mainWindow = [globalWebView() window];
 }

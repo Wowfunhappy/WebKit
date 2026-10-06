@@ -1084,7 +1084,7 @@ void HistoryController::pushState(RefPtr<SerializedScriptValue>&& stateObject, c
 
     bool shouldRestoreScrollPosition = currentItem->shouldRestoreScrollPosition();
 
-    // MAVERICKS_BACKPORT: the loader client supplies a WK1 root tree or a WK2 navigating-frame subtree.
+    // AQUAWEBKIT: the loader client supplies a WK1 root tree or a WK2 navigating-frame subtree.
     // Ref topItem = frame->loader().history().createItemTree(page->historyItemClient(), frame, false, BackForwardItemIdentifier::generate());
     RefPtr itemTree = protect(frame->loader().client())->createHistoryItemTree(false, BackForwardItemIdentifier::generate());
     if (!itemTree)

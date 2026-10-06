@@ -1664,7 +1664,7 @@ static NSControlStateValue NODELETE kit(TriState state)
         } else if (wasInPrintingMode)
             [self _web_clearPrintingModeRecursive];
 
-        // MAVERICKS_BACKPORT: 10.9 AppKit drives window display through this method, and layout
+        // AQUAWEBKIT: 10.9 AppKit drives window display through this method, and layout
         // can be invalidated after -viewWillDraw has already run: 10.9's Auto Layout machinery
         // (NSISEngine) sends -setNeedsLayout: to this view while it updates the window's
         // constraints mid-display. WebCore refuses to paint with a pending layout (it bails out
@@ -3582,7 +3582,7 @@ static RetainPtr<NSMenuItem> createShareMenuItem(const WebCore::HitTestResult& h
     }
 
     if (auto* image = hitTestResult.image()) {
-        // MAVERICKS_BACKPORT: upstream's version of the lines below. -[NSImage initWithData:] parses
+        // AQUAWEBKIT: upstream's version of the lines below. -[NSImage initWithData:] parses
         // the page's image bytes inside ImageIO; the adapter's NSImage is built from the frames
         // WebCore has already decoded, which is what WebContextMenuProxyMac's share sheet gets too.
         // if (RefPtr<const WebCore::FragmentedSharedBuffer> buffer = image->data())
@@ -3604,7 +3604,7 @@ static RetainPtr<NSMenuItem> createShareMenuItem(const WebCore::HitTestResult& h
 
 static RetainPtr<NSMutableArray> createMenuItems(const WebCore::HitTestResult& hitTestResult, const Vector<WebCore::ContextMenuItem>& items)
 {
-    // MAVERICKS_BACKPORT: was
+    // AQUAWEBKIT: was
     // return createNSArray(items, [&] (auto& item) {
     //     return createMenuItem(hitTestResult, item);
     // });
@@ -3875,7 +3875,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
         if (frame->document() && frame->document()->backForwardCacheState() != WebCore::Document::NotInBackForwardCache)
             return;
         if (auto* view = frame->view())
-        // MAVERICKS_BACKPORT: 10.9's Auto Layout machinery (NSISEngine tryAddingDirectly:)
+        // AQUAWEBKIT: 10.9's Auto Layout machinery (NSISEngine tryAddingDirectly:)
         // sends -setNeedsLayout:YES to views it adds constraints for, and WebHTMLView
         // overrides that NSView selector with the WebKit-document meaning. In a
         // constraint-based window (Mail compose), setNeedsLayoutAfterViewConfigurationChange()
@@ -3886,7 +3886,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
         // Safari 7 on this OS: only mark the render tree as needing layout (still honoring the
         // disable-setNeedsLayout deferral window); the next display pass runs the layout in
         // -viewWillDraw.
-            // MAVERICKS_BACKPORT: mark layout without arming a timer; a scheduled relayout re-enters 10.9's constraint machinery and wedges display (see note above).
+            // AQUAWEBKIT: mark layout without arming a timer; a scheduled relayout re-enters 10.9's constraint machinery and wedges display (see note above).
             view->setNeedsLayoutWithoutScheduling();
     }
 }
@@ -4162,7 +4162,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     RetainPtr<WebHTMLView> hitHTMLView = dynamic_objc_cast<WebHTMLView>(hitView);
 
 #if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: DashboardClient declares a widget's WebView AlwaysAcceptsFirstMouse, which
+    // AQUAWEBKIT: DashboardClient declares a widget's WebView AlwaysAcceptsFirstMouse, which
     // means every click in the widget belongs to the content. The default rule below accepts only
     // selection, drag and scrollbar hits, so a click elsewhere is refused, DashboardClient never sees
     // the mouse-down consumed, and it moves the widget instead.

@@ -204,7 +204,7 @@ uintptr_t StreamClientConnection::generateSignpostIdentifier()
 
 void StreamClientConnection::emitSendSignpost(MessageName messageName)
 {
-    // MAVERICKS_BACKPORT: ReceiverName::LogStream doesn't exist; drop the check.
+    // AQUAWEBKIT: ReceiverName::LogStream doesn't exist; drop the check.
     if (signpostsEnabled()) [[unlikely]]
         WTFEmitSignpost(generateSignpostIdentifier(), StreamClientConnection, "send: %" PUBLIC_LOG_STRING, description(messageName).characters());
 }

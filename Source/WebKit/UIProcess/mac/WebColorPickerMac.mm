@@ -165,7 +165,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color, const WebCo
     if (RetainPtr owner = dynamic_objc_cast<NSPopoverColorWell>([NSColorWell _exclusiveColorPanelOwner]))
         [owner deactivate];
 
-    // MAVERICKS_BACKPORT: NSColorPopoverController is a private AppKit class — its OBJC_CLASS_$ symbol is
+    // AQUAWEBKIT: NSColorPopoverController is a private AppKit class — its OBJC_CLASS_$ symbol is
     // not exported for linking, so a checked_objc_cast<> (which references [NSColorPopoverController class])
     // forces us to ship a stub class that then duplicates/shadows the real AppKit class at runtime
     // ("implemented in both AppKit and JavaScriptCore"). The popover's contentViewController is an
@@ -200,7 +200,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color, const WebCo
     [popover showRelativeToRect:self.bounds ofView:self preferredEdge:NSMinYEdge];
 }
 
-// MAVERICKS_BACKPORT: -[NSColorWell activate:] ends in [NSApp orderFrontColorPanel:] unless the well
+// AQUAWEBKIT: -[NSColorWell activate:] ends in [NSApp orderFrontColorPanel:] unless the well
 // answers NO to -_shouldOrderFront, and 10.9's NSPopoverColorWell does not override it, so the shared
 // Colors panel opened on top of the popover. The panel belongs to the popover's "Show Colors…" button,
 // which orders it front itself (-[NSColorPopoverController _showColorPanel:]) before activating this well.

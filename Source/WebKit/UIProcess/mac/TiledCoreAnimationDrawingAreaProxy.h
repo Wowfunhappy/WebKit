@@ -54,7 +54,7 @@ private:
     void deviceScaleFactorDidChange(CompletionHandler<void()>&&) override;
     void sizeDidChange() override;
     void colorSpaceDidChange() override;
-    // MAVERICKS_BACKPORT: forward the window's new hosted-context flavor to the web process (537 parity).
+    // AQUAWEBKIT: forward the window's new hosted-context flavor to the web process (537 parity).
     void layerHostingModeDidChange() override;
     void minimumSizeForAutoLayoutDidChange() override;
     void sizeToContentAutoSizeMaximumSizeDidChange() override;
@@ -67,7 +67,7 @@ private:
     void commitTransientZoom(double scale, WebCore::FloatPoint originInLayerForPageScale) override;
 
     void waitForDidUpdateActivityState(ActivityStateChangeID) override;
-    // MAVERICKS_BACKPORT: bounded wait for the in-flight UpdateGeometry reply (see DrawingAreaProxy.h);
+    // AQUAWEBKIT: bounded wait for the in-flight UpdateGeometry reply (see DrawingAreaProxy.h);
     // backs the restored Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate: / -waitForAsyncDrawingAreaSizeUpdate.
     void waitForDidUpdateGeometry(Seconds) override;
     void dispatchPresentationCallbacksAfterFlushingLayers(IPC::Connection&, Vector<IPC::AsyncReplyID>&&) final;
@@ -87,7 +87,7 @@ private:
     // Whether we're waiting for a DidUpdateGeometry message from the web process.
     bool m_isWaitingForDidUpdateGeometry { false };
 
-    // MAVERICKS_BACKPORT: async-reply ID of the in-flight UpdateGeometry, so
+    // AQUAWEBKIT: async-reply ID of the in-flight UpdateGeometry, so
     // waitForDidUpdateGeometry can block on exactly that reply.
     std::optional<IPC::AsyncReplyID> m_pendingUpdateGeometryReplyID;
 

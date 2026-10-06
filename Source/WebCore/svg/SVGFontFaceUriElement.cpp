@@ -61,7 +61,7 @@ Ref<CSSFontFaceSrcResourceValue> SVGFontFaceUriElement::createSrcValue() const
 {
     auto location = CSS::completeURL(getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr), protect(document())).value_or(CSS::URL::none());
     auto& format = attributeWithoutSynchronization(formatAttr);
-    // MAVERICKS_BACKPORT: External SVG fonts and explicit font formats do not require OpenType SVG color glyph support.
+    // AQUAWEBKIT: External SVG fonts and explicit font formats do not require OpenType SVG color glyph support.
     // return CSSFontFaceSrcResourceValue::create(WTF::move(location), format.isEmpty() ? "svg"_s : format.string(), { FontTechnology::ColorSvg });
     return CSSFontFaceSrcResourceValue::create(WTF::move(location), format.isEmpty() ? "svg"_s : format.string(), { });
 }

@@ -82,7 +82,7 @@ public:
     void registerObserver(HTTPCookieStoreObserver&);
     void unregisterObserver(HTTPCookieStoreObserver&);
 
-    // MAVERICKS_BACKPORT: Safari's legacy C client is an owned observer of this same store.
+    // AQUAWEBKIT: Safari's legacy C client is an owned observer of this same store.
     void setLegacyCookieChangeCallback(Function<void(HTTPCookieStore&)>&&);
     void startObservingLegacyCookieChanges();
     void stopObservingLegacyCookieChanges();
@@ -93,7 +93,7 @@ public:
 
     bool isOptInCookiePartitioningEnabled() const;
 
-    // MAVERICKS_BACKPORT: since-date cookie deletion belongs to WebsiteDataStore::removeData rather than to
+    // AQUAWEBKIT: since-date cookie deletion belongs to WebsiteDataStore::removeData rather than to
     // the cookie store; WKCookieManagerDeleteAllCookiesModifiedAfterDate reaches it from here. Defined out
     // of line: WebsiteDataStore is only forward-declared in this header, and WeakPtr::get() needs it whole.
     WebKit::WebsiteDataStore* owningDataStore() const;
@@ -116,7 +116,7 @@ private:
     PAL::SessionID m_sessionID;
     WeakPtr<WebKit::WebsiteDataStore> m_owningDataStore;
     WeakHashSet<HTTPCookieStoreObserver> m_observers;
-    // MAVERICKS_BACKPORT: registration and client lifetime are separate in the legacy C contract.
+    // AQUAWEBKIT: registration and client lifetime are separate in the legacy C contract.
     RefPtr<HTTPCookieStoreObserver> m_legacyObserver;
     bool m_isObservingLegacyCookieChanges { false };
 };

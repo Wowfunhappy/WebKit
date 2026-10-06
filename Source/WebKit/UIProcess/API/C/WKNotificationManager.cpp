@@ -45,7 +45,7 @@ void WKNotificationManagerSetProvider(WKNotificationManagerRef managerRef, const
     protect(toImpl(managerRef))->setProvider(makeUnique<WebNotificationProvider>(wkProvider));
 
 #if USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: service-worker (persistent) notifications display through
+    // AQUAWEBKIT: service-worker (persistent) notifications display through
     // WebNotificationManagerProxy::serviceWorkerManagerSingleton(), which modern hosts
     // configure via WKNotificationManagerGetSharedServiceWorkerNotificationManager.
     // Safari 7 predates that call and only ever configures the pool manager, leaving the

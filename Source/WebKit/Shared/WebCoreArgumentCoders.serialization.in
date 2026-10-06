@@ -520,7 +520,7 @@ struct WebCore::DictionaryPopupInfo {
 #else
     String text;
 #if PLATFORM(COCOA) && !ENABLE(REVEAL)
-    # MAVERICKS_BACKPORT: DictionaryPopupInfo's attributedString.
+    # AQUAWEBKIT: DictionaryPopupInfo's attributedString.
     WebCore::AttributedString attributedString;
 #endif
 #endif

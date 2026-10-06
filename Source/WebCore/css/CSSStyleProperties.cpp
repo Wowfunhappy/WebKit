@@ -301,7 +301,7 @@ ExceptionOr<void> CSSStyleProperties::setPropertyValueForEpubCasedIDLAttribute(c
     return setPropertyInternal(propertyID, value, IsImportant::No);
 }
 
-// MAVERICKS_BACKPORT: lowercase-first Apple-cased IDL attribute (e.g. element.style.appleDashboardRegion).
+// AQUAWEBKIT: lowercase-first Apple-cased IDL attribute (e.g. element.style.appleDashboardRegion).
 // Like the Webkit/Epub cases, the camel-cased attribute maps back to its dashed CSS property name.
 String CSSStyleProperties::propertyValueForAppleCasedIDLAttribute(const AtomString& attribute)
 {

@@ -2189,7 +2189,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (id)_mediaPlaybackControlsView
 {
-// MAVERICKS_BACKPORT: the playback-controls view requires its manager, matching WebViewImpl.
+// AQUAWEBKIT: the playback-controls view requires its manager, matching WebViewImpl.
 // #if HAVE(TOUCH_BAR)
 #if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
     return _impl->clientWantsMediaPlaybackControlsView() ? _impl->mediaPlaybackControlsView() : nil;

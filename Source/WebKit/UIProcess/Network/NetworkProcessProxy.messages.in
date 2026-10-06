@@ -101,7 +101,7 @@ messages -> NetworkProcessProxy WantsDispatchMessage {
     OpenWindowFromServiceWorker(PAL::SessionID sessionID, String urlString, WebCore::SecurityOriginData serviceWorkerOrigin) -> (std::optional<WebCore::PageIdentifier> newPage)
     NavigateServiceWorkerClient(WebCore::FrameIdentifier frameIdentifier, WebCore::ScriptExecutionContextIdentifier documentIdentifier, URL url) -> (std::optional<WebCore::PageIdentifier> page, std::optional<WebCore::FrameIdentifier> frame)
 
-    # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess carries this message.
+    # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess carries this message.
     # ReceivedMainResourceResponseWithCertificateInfo(WebCore::FrameIdentifier frameID, String hostAndPort, WebCore::CertificateInfo certificateInfo) CanDispatchOutOfOrder
 
     ReportConsoleMessage(PAL::SessionID sessionID, URL scriptURL, WebCore::SecurityOriginData serviceWorkerOrigin, enum:uint8_t JSC::MessageSource messageSource, enum:uint8_t JSC::MessageLevel messageLevel, String message, uint64_t requestIdentifier)
@@ -121,7 +121,7 @@ messages -> NetworkProcessProxy WantsDispatchMessage {
     ReportNetworkIssue(WebKit::WebPageProxyIdentifier webPageProxyIdentifier, URL requestURL)
 #endif
 
-# MAVERICKS_BACKPORT: the NetworkProcess -> UI process announcement that webpushd is holding push
+# AQUAWEBKIT: the NetworkProcess -> UI process announcement that webpushd is holding push
 # messages for this session; see NetworkProcessProxy::webPushMessagesBecameAvailable.
 #if USE(MOZILLA_PUSH_SERVICE)
     WebPushMessagesBecameAvailable(PAL::SessionID sessionID)

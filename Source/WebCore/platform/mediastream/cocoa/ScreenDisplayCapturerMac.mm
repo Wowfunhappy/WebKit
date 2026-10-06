@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: upstream's CGDisplayStream-backed screen capturer, serving
+// AQUAWEBKIT: upstream's CGDisplayStream-backed screen capturer, serving
 // DisplayCaptureSourceCocoa on systems without ScreenCaptureKit (macOS < 12.3).
 
 #include "config.h"
@@ -150,7 +150,7 @@ bool ScreenDisplayCapturerMac::createDisplayStream(float frameRate)
             });
         };
 
-        // MAVERICKS_BACKPORT: 10.9's CGDisplayStream accepts the biplanar YUV format
+        // AQUAWEBKIT: 10.9's CGDisplayStream accepts the biplanar YUV format
         // preferedPixelBufferFormat() names, then delivers frames whose planes it never writes (measured:
         // every frame all-zero for '420v' and '420f', every frame written for 'BGRA'). BGRA is the format
         // it fills; emitFrame runs each surface through ImageTransferSessionVT into

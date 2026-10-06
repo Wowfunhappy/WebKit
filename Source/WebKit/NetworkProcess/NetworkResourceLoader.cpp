@@ -29,7 +29,7 @@
 #include "ArgumentCoders.h"
 #include "EarlyHintsResourceLoader.h"
 #include "FormDataReference.h"
-#include "LegacyExtensionNetwork.h" // MAVERICKS_BACKPORT: the Safari 7 extension webRequest hooks below.
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: the Safari 7 extension webRequest hooks below.
 #include "LoadedWebArchive.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
@@ -51,7 +51,7 @@
 #include "ServiceWorkerFetchTask.h"
 #include "SharedBufferReference.h"
 #include "WebErrors.h"
-#include "WebFrameProxyFromNetworkProcessMessages.h" // MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
+#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
 #include "WebLoaderStrategy.h"
 #include "WebPageMessages.h"
 #include "WebResourceLoaderMessages.h"
@@ -104,7 +104,7 @@
 #endif
 
 #if PLATFORM(COCOA)
-#include "NetworkDataTaskCurlCocoa.h" // MAVERICKS_BACKPORT: for redirectChangesTask.
+#include "NetworkDataTaskCurlCocoa.h" // AQUAWEBKIT: for redirectChangesTask.
 #include "PathsBlockedForSandboxExtensions.h"
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
@@ -609,7 +609,7 @@ void NetworkResourceLoader::cleanup(LoadResult result)
         break;
     }
 
-    LegacyExtensionNetwork::singleton().loaderDidFinish(*this, result); // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onCompleted and onErrorOccurred.
+    LegacyExtensionNetwork::singleton().loaderDidFinish(*this, result); // AQUAWEBKIT: Safari 7 extensions' webRequest.onCompleted and onErrorOccurred.
 
     Ref connection = m_connection;
     connection->stopTrackingResourceLoad(coreIdentifier(), code);
@@ -933,7 +933,7 @@ void NetworkResourceLoader::didReceiveInformationalResponse(ResourceResponse&& r
 
 void NetworkResourceLoader::didReceiveResponse(ResourceResponse&& receivedResponse, PrivateRelayed privateRelayed, ResponseCompletionHandler&& completionHandler)
 {
-    if (LegacyExtensionNetwork::singleton().interceptResponse(*this, receivedResponse, privateRelayed, completionHandler)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onHeadersReceived.
+    if (LegacyExtensionNetwork::singleton().interceptResponse(*this, receivedResponse, privateRelayed, completionHandler)) // AQUAWEBKIT: Safari 7 extensions' webRequest.onHeadersReceived.
         return;
 
     LOADER_RELEASE_LOG("didReceiveResponse: (httpStatusCode=%d, MIMEType=%" PUBLIC_LOG_STRING ", expectedContentLength=%lld, hasCachedEntryForValidation=%d, hasNetworkLoadChecker=%d)", receivedResponse.httpStatusCode(), receivedResponse.mimeType().utf8().data(), receivedResponse.expectedContentLength(), !!m_cacheEntryForValidation, !!m_networkLoadChecker);
@@ -1289,7 +1289,7 @@ void NetworkResourceLoader::didFailLoading(const ResourceError& error)
         protect(connection->networkProcess().parentProcessConnection())->send(Messages::NetworkProcessProxy::DidBlockLoadToKnownTracker(webPageProxyID(), WTF::move(effectiveBlockedURL)), 0);
     }
 #endif
-    LegacyExtensionNetwork::singleton().loaderDidFail(*this, error); // MAVERICKS_BACKPORT: the error Safari 7 extensions' webRequest.onErrorOccurred reports.
+    LegacyExtensionNetwork::singleton().loaderDidFail(*this, error); // AQUAWEBKIT: the error Safari 7 extensions' webRequest.onErrorOccurred reports.
     cleanup(LoadResult::Failure);
 }
 
@@ -1562,7 +1562,7 @@ static bool NODELETE shouldTryToMatchRegistrationOnRedirection(const FetchOption
 void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest, bool isAllowedToAskUserForCredentials, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
 {
     LOADER_RELEASE_LOG("continueWillSendRequest: (isAllowedToAskUserForCredentials=%d)", isAllowedToAskUserForCredentials);
-    // MAVERICKS_BACKPORT: a Safari 7 extension's 307 Internal Redirect keeps its body, which the web process's answer does not
+    // AQUAWEBKIT: a Safari 7 extension's 307 Internal Redirect keeps its body, which the web process's answer does not
     // carry, and a redirect an extension makes may go to any scheme, as Chrome's webRequest lets it.
     bool isExtensionRedirect = LegacyExtensionNetwork::singleton().continueWillSendRequest(*this, newRequest);
 
@@ -1625,7 +1625,7 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
     if (m_networkLoadChecker) {
         // FIXME: We should be doing this check when receiving the redirection and not allow about protocol as per fetch spec.
         // if (!newRequest.url().protocolIsInHTTPFamily() && !newRequest.url().protocolIsAbout() && m_redirectCount) {
-        if (!newRequest.url().protocolIsInHTTPFamily() && !newRequest.url().protocolIsAbout() && m_redirectCount && !isExtensionRedirect) { // MAVERICKS_BACKPORT: see isExtensionRedirect above.
+        if (!newRequest.url().protocolIsInHTTPFamily() && !newRequest.url().protocolIsAbout() && m_redirectCount && !isExtensionRedirect) { // AQUAWEBKIT: see isExtensionRedirect above.
             LOADER_RELEASE_LOG_ERROR("continueWillSendRequest: Failing load because it redirected to a scheme that is not HTTP(S)");
             didFailLoading(ResourceError { String { }, 0, newRequest.url(), "Redirection to URL with a scheme that is not HTTP(S)"_s, ResourceError::Type::AccessControl });
             return completionHandler({ });
@@ -1649,14 +1649,14 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
 
     if (m_networkLoad) {
 #if PLATFORM(COCOA)
-        // MAVERICKS_BACKPORT: HTTP(S) and registered custom protocols run on different tasks (NetworkDataTask::create);
+        // AQUAWEBKIT: HTTP(S) and registered custom protocols run on different tasks (NetworkDataTask::create);
         // a redirect between them continues on a new load, as one that changes the credentials policy does.
         if (CheckedPtr session = protect(connectionToWebProcess())->networkSession(); session && !newRequest.isNull() && NetworkDataTaskCurlCocoa::redirectChangesTask(*session, m_networkLoad->parameters(), newRequest)) {
             protect(m_networkLoad)->updateRequestAfterRedirection(newRequest);
             restartNetworkLoad(WTF::move(newRequest), WTF::move(completionHandler));
             return;
         }
-#endif // MAVERICKS_BACKPORT: closes the transport check above.
+#endif // AQUAWEBKIT: closes the transport check above.
         LOADER_RELEASE_LOG("continueWillSendRequest: Telling NetworkLoad to proceed with the redirect");
 
         if (shouldSendResourceLoadMessages() && !newRequest.isNull())
@@ -1768,7 +1768,7 @@ void NetworkResourceLoader::didReceiveMainResourceResponse(const WebCore::Resour
         speculativeLoadManager->registerMainResourceLoadResponse(globalFrameID(), originalRequest(), response);
     if (auto& certificateInfo = response.certificateInfo(); certificateInfo && !certificateInfo->isEmpty())
         // connectionToWebProcess().networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::ReceivedMainResourceResponseWithCertificateInfo(frameID(), response.url().hostAndPort(), *certificateInfo), 0);
-        // MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273).
+        // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
         connectionToWebProcess().networkProcess().parentProcessConnection()->send(Messages::WebFrameProxyFromNetworkProcess::ReceivedMainResourceResponseWithCertificateInfo(response.url().hostAndPort(), *certificateInfo), frameID());
 }
 
@@ -1781,7 +1781,7 @@ void NetworkResourceLoader::initializeReportingEndpoints(const ResourceResponse&
 
 void NetworkResourceLoader::didRetrieveCacheEntry(std::unique_ptr<NetworkCache::Entry> entry)
 {
-    if (LegacyExtensionNetwork::singleton().interceptCachedResponse(*this, entry)) // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest.onHeadersReceived.
+    if (LegacyExtensionNetwork::singleton().interceptCachedResponse(*this, entry)) // AQUAWEBKIT: Safari 7 extensions' webRequest.onHeadersReceived.
         return;
 
     LOADER_RELEASE_LOG("didRetrieveCacheEntry:");

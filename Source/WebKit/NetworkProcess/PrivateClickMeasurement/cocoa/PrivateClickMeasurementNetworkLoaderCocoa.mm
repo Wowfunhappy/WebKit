@@ -27,7 +27,7 @@
 #import "PrivateClickMeasurementNetworkLoader.h"
 
 #import "NetworkDataTaskCocoa.h"
-#import "PrivateClickMeasurementCurlLoadTask.h" // MAVERICKS_BACKPORT: the request goes out over the Cocoa curl transport.
+#import "PrivateClickMeasurementCurlLoadTask.h" // AQUAWEBKIT: the request goes out over the Cocoa curl transport.
 #import <WebCore/HTTPHeaderValues.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/UserAgent.h>
@@ -42,7 +42,7 @@ static RetainPtr<SecTrustRef>& NODELETE allowedLocalTestServerTrust()
     return serverTrust.get();
 }
 
-// MAVERICKS_BACKPORT: the NSURLSession delegate and session below are unused; startCurlLoadTask sends the request.
+// AQUAWEBKIT: the NSURLSession delegate and session below are unused; startCurlLoadTask sends the request.
 #if 0
 static bool trustsServerForLocalTests(NSURLAuthenticationChallenge *challenge)
 {
@@ -80,11 +80,11 @@ static bool trustsServerForLocalTests(NSURLAuthenticationChallenge *challenge)
 
 @end
 
-#endif // MAVERICKS_BACKPORT: closes the NSURLSession delegate above.
+#endif // AQUAWEBKIT: closes the NSURLSession delegate above.
 
 namespace WebKit::PCM {
 
-#if 0 // MAVERICKS_BACKPORT: the task map and session below are startCurlLoadTask's.
+#if 0 // AQUAWEBKIT: the task map and session below are startCurlLoadTask's.
 enum class LoadTaskIdentifierType { };
 using LoadTaskIdentifier = ObjectIdentifier<LoadTaskIdentifierType>;
 static HashMap<LoadTaskIdentifier, RetainPtr<NSURLSessionDataTask>>& NODELETE taskMap()
@@ -119,7 +119,7 @@ static NSURLSession *statelessSessionWithoutRedirectsSingleton(const Application
     return session.get().get();
 }
 
-#endif // MAVERICKS_BACKPORT: closes the task map and session above.
+#endif // AQUAWEBKIT: closes the task map and session above.
 
 void NetworkLoader::allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo& certificateInfo)
 {
@@ -139,10 +139,10 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
     RetainPtr crossSiteMainDocument = [NSURLComponents componentsWithURL:request.get().URL resolvingAgainstBaseURL:NO];
     crossSiteMainDocument.get().host = [NSString stringWithFormat:@"not-%@", crossSiteMainDocument.get().host];
     [request setMainDocumentURL:crossSiteMainDocument.get().URL];
-    // MAVERICKS_BACKPORT: NSURLRequest attribution uses the App Privacy Report capability gate.
+    // AQUAWEBKIT: NSURLRequest attribution uses the App Privacy Report capability gate.
 #if ENABLE(APP_PRIVACY_REPORT)
     [request setAttribution:NSURLRequestAttributionUser];
-#endif // MAVERICKS_BACKPORT: closes the App Privacy Report capability gate.
+#endif // AQUAWEBKIT: closes the App Privacy Report capability gate.
 
     if (jsonPayload) {
         request.get().HTTPMethod = @"POST";
@@ -153,7 +153,7 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
 
     setPCMDataCarriedOnRequest(pcmDataCarried, request.get());
 
-    // MAVERICKS_BACKPORT: startCurlLoadTask sends the request in place of the NSURLSession task.
+    // AQUAWEBKIT: startCurlLoadTask sends the request in place of the NSURLSession task.
 #if 0
     auto identifier = LoadTaskIdentifier::generate();
     RetainPtr task = [statelessSessionWithoutRedirectsSingleton(applicationBundleIdentifier) dataTaskWithRequest:request.get() completionHandler:makeBlockPtr([callback = WTF::move(callback), identifier](NSData *data, NSURLResponse *response, NSError *error) mutable {
@@ -166,8 +166,8 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
     }).get()];
     [task resume];
     taskMap().add(identifier, task.get());
-#endif // MAVERICKS_BACKPORT: closes the NSURLSession task above.
-    startCurlLoadTask(request.get(), allowedLocalTestServerTrust(), WTF::move(callback)); // MAVERICKS_BACKPORT: see the #if 0 above.
+#endif // AQUAWEBKIT: closes the NSURLSession task above.
+    startCurlLoadTask(request.get(), allowedLocalTestServerTrust(), WTF::move(callback)); // AQUAWEBKIT: see the #if 0 above.
 }
 
 } // namespace WebKit::PCM

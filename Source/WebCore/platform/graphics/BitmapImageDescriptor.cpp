@@ -122,7 +122,7 @@ IntSize BitmapImageDescriptor::sourceSize(ImageOrientation orientation) const
 {
     IntSize size;
 
-// MAVERICKS_BACKPORT: Mac ScalableImageDecoder exposes metadata before decoded frames, matching ImageDecoder.cpp.
+// AQUAWEBKIT: Mac ScalableImageDecoder exposes metadata before decoded frames, matching ImageDecoder.cpp.
 // #if !USE(CG)
 #if !USE(CG) || PLATFORM(MAC)
     // It's possible that we have decoded the metadata, but not frame contents yet. In that case ImageDecoder claims to

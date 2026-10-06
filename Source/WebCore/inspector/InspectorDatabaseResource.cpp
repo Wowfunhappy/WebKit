@@ -28,7 +28,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: part of upstream's Database agent (removed with bug 286634), restored with it.
+// AQUAWEBKIT: part of upstream's Database agent (removed with bug 286634), restored with it.
 
 #include "config.h"
 #include "InspectorDatabaseResource.h"

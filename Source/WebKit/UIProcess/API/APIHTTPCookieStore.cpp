@@ -34,7 +34,7 @@
 #include <WebCore/Cookie.h>
 #include <WebCore/HTTPCookieAcceptPolicy.h>
 #include <wtf/CallbackAggregator.h>
-// MAVERICKS_BACKPORT: the legacy observer uses the same typed allocation and callback ownership as native API observers.
+// AQUAWEBKIT: the legacy observer uses the same typed allocation and callback ownership as native API observers.
 #include <wtf/Function.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/CrossThreadCopier.h>
@@ -55,11 +55,11 @@ HTTPCookieStore::HTTPCookieStore(WebKit::WebsiteDataStore& websiteDataStore)
 
 HTTPCookieStore::~HTTPCookieStore()
 {
-    stopObservingLegacyCookieChanges(); // MAVERICKS_BACKPORT: release the store-owned legacy registration before destruction.
+    stopObservingLegacyCookieChanges(); // AQUAWEBKIT: release the store-owned legacy registration before destruction.
     ASSERT(m_observers.isEmptyIgnoringNullReferences());
 }
 
-// MAVERICKS_BACKPORT: reaches WebsiteDataStore::removeData for the since-date deletion the legacy
+// AQUAWEBKIT: reaches WebsiteDataStore::removeData for the since-date deletion the legacy
 // WKCookieManager C SPI exposes (see the declaration in APIHTTPCookieStore.h).
 WebKit::WebsiteDataStore* HTTPCookieStore::owningDataStore() const
 {
@@ -227,7 +227,7 @@ void HTTPCookieStore::registerObserver(HTTPCookieStoreObserver& observer)
         networkProcess->send(Messages::WebCookieManager::StartObservingCookieChanges(m_sessionID), 0);
 }
 
-// MAVERICKS_BACKPORT: implement the old C client's Start/Stop contract through the existing observer pipeline.
+// AQUAWEBKIT: implement the old C client's Start/Stop contract through the existing observer pipeline.
 class LegacyCookieStoreObserver final : public HTTPCookieStoreObserver {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(LegacyCookieStoreObserver);
 public:

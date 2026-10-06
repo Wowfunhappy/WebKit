@@ -33,7 +33,7 @@
 #include "WebCompiledContentRuleList.h"
 #include "WebPageProxy.h"
 #include "WebPreferences.h"
-#include "WebUserContentControllerProxy.h" // MAVERICKS_BACKPORT: page-group user content controller
+#include "WebUserContentControllerProxy.h" // AQUAWEBKIT: page-group user content controller
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -54,14 +54,14 @@ Ref<WebPageGroup> WebPageGroup::create(const String& identifier)
     return adoptRef(*new WebPageGroup(identifier));
 }
 
-// MAVERICKS_BACKPORT: resolve a page group received as an API::PageGroupHandle
+// AQUAWEBKIT: resolve a page group received as an API::PageGroupHandle
 // from the WebContent process (WebProcessProxy::transformHandlesToObjects).
 RefPtr<WebPageGroup> WebPageGroup::get(PageGroupIdentifier pageGroupID)
 {
     return webPageGroupMap().get(pageGroupID);
 }
 
-// MAVERICKS_BACKPORT: takes the group's user content controller identifier, which travels
+// AQUAWEBKIT: takes the group's user content controller identifier, which travels
 // to the WebContent process for the legacy bundle user-content C API (Safari 7 extensions).
 static WebPageGroupData pageGroupData(const String& identifier, UserContentControllerIdentifier userContentControllerIdentifier)
 {
@@ -84,14 +84,14 @@ static WebPageGroupData pageGroupData(const String& identifier, UserContentContr
     return {
         WTF::move(validIdentifier),
         pageGroupID,
-        userContentControllerIdentifier // MAVERICKS_BACKPORT: see above.
+        userContentControllerIdentifier // AQUAWEBKIT: see above.
     };
 }
 
 // FIXME: Why does the WebPreferences object here use ".WebKit2" instead of "WebKit2." which all the other constructors use.
 // If it turns out that it's wrong, we can change it to to "WebKit2." and get rid of the globalDebugKeyPrefix from WebPreferences.
 WebPageGroup::WebPageGroup(const String& identifier)
-    // MAVERICKS_BACKPORT: give the page group its own user content controller (see header),
+    // AQUAWEBKIT: give the page group its own user content controller (see header),
     // and record its identifier in the data the WebContent process receives.
     : m_userContentController(WebUserContentControllerProxy::create())
     , m_data(pageGroupData(identifier, m_userContentController->identifier()))

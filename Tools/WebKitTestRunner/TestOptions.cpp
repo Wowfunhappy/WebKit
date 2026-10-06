@@ -31,7 +31,7 @@
 
 namespace WTR {
 
-// MAVERICKS_BACKPORT: audio capture stays in the web process here. This port's media engine is GStreamer
+// AQUAWEBKIT: audio capture stays in the web process here. This port's media engine is GStreamer
 // in the web process, so UseGPUProcessForMediaEnabled is off, and
 // RemoteAudioMediaStreamTrackRendererInternalUnitManager's messages are gated on it -- routing audio
 // capture to the GPU process makes the web process send CreateUnit to a receiver that refuses it, and the
@@ -64,7 +64,7 @@ static constexpr bool fullGPUProcessEnabledValue = false;
 #endif
 #endif
 
-// MAVERICKS_BACKPORT: this port renders the DOM in the web process but serves WebGL from the GPU process, so
+// AQUAWEBKIT: this port renders the DOM in the web process but serves WebGL from the GPU process, so
 // the WebGL value is the one UseGPUProcessForWebGLEnabled defaults to rather than the DOM rendering value.
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && !PLATFORM(WIN)
 #if ENABLE(GPU_PROCESS_BY_DEFAULT) && ENABLE(GPU_PROCESS_WEBGL_BY_DEFAULT)
@@ -185,7 +185,7 @@ const TestFeatures& TestOptions::defaults()
 #endif
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && !PLATFORM(WIN)
             // { "UseGPUProcessForWebGLEnabled", fullGPUProcessEnabledValue },
-            { "UseGPUProcessForWebGLEnabled", gpuProcessWebGLEnabledValue }, // MAVERICKS_BACKPORT: see gpuProcessWebGLEnabledValue.
+            { "UseGPUProcessForWebGLEnabled", gpuProcessWebGLEnabledValue }, // AQUAWEBKIT: see gpuProcessWebGLEnabledValue.
 #endif
         };
         features.stringWebPreferenceFeatures = {

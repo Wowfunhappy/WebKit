@@ -23,7 +23,7 @@
  * SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the revived legacy WK2 icon database's WebProcessPool half (#49, #112). Upstream
+// AQUAWEBKIT: the revived legacy WK2 icon database's WebProcessPool half (#49, #112). Upstream
 // deleted the icon database along with the C SPI Safari 7 drives it through; this is the port's
 // implementation, kept out of WebProcessPool.cpp so that file carries only the call sites.
 
@@ -44,7 +44,7 @@ namespace WebKit {
 
 using namespace WebCore;
 
-// MAVERICKS_BACKPORT: hand a favicon's bytes to the revived WebIconDatabase (#49).
+// AQUAWEBKIT: hand a favicon's bytes to the revived WebIconDatabase (#49).
 //
 // The store refuses bytes it cannot decode, which for a favicon that downloaded fine means they are in
 // a format no image decoder reads. That is above all SVG, which is a document rather than a bitmap
@@ -64,7 +64,7 @@ using namespace WebCore;
 // once these bytes have been rendered the store can answer from what it holds.
 static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& initialRequestPageURL, const String& iconURL, Ref<API::Data>&& iconData, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin)
 {
-    // MAVERICKS_BACKPORT: bytes landing move the page's claim, so the URL its load started from
+    // AQUAWEBKIT: bytes landing move the page's claim, so the URL its load started from
     // follows; see WebProcessPool::carryIconToInitialRequestURL (#112).
     auto carryToInitialRequestURL = [&iconDatabase, &pageURL, &initialRequestPageURL, persistence] {
         iconDatabase.carryIconForPageURL(pageURL, initialRequestPageURL, persistence);
@@ -105,7 +105,7 @@ static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr
     });
 }
 
-// MAVERICKS_BACKPORT: fetch a favicon this client has taken responsibility for (#112).
+// AQUAWEBKIT: fetch a favicon this client has taken responsibility for (#112).
 //
 // The store answers first, and usually can: every page of a site declares the same icon URL, so no
 // request is made for a site whose icon is already held, nor for one already known to serve no icon.
@@ -122,7 +122,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
     if (pageURL.isEmpty() || iconURL.isEmpty())
         return;
 
-    // MAVERICKS_BACKPORT: the page's claim moves here when the icon it declares displaces the
+    // AQUAWEBKIT: the page's claim moves here when the icon it declares displaces the
     // commit-time guess, and the URL its load started from follows; see
     // WebProcessPool::carryIconToInitialRequestURL (#112).
     auto initialRequestPageURL = page.committedInitialRequestURL().string();
@@ -166,7 +166,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
         if (!iconData || iconData->isEmpty())
             return;
 
-        // MAVERICKS_BACKPORT: upstream's IconLoader::notifyFinished refuses a PDF outright, and this OS's
+        // AQUAWEBKIT: upstream's IconLoader::notifyFinished refuses a PDF outright, and this OS's
         // ImageIO decodes PDF, so decoding alone would admit an icon upstream declines.
         static constexpr std::array<uint8_t, 4> pdfMagicNumber { '%', 'P', 'D', 'F' };
         if (iconData->startsWith(pdfMagicNumber)) {
@@ -178,7 +178,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
     });
 }
 
-// MAVERICKS_BACKPORT: per-page icon-loading client for Safari 7's C-API pages. When WebCore finds a
+// AQUAWEBKIT: per-page icon-loading client for Safari 7's C-API pages. When WebCore finds a
 // favicon it asks for a load decision; this client declines the load and fetches the icon itself, then
 // hands the bytes to the revived WebIconDatabase, which notifies Safari via the legacy C client (#49).
 class PageIconLoadingClient final : public API::IconLoadingClient {
@@ -192,7 +192,7 @@ public:
 
     void getLoadDecisionForIcon(const WebCore::LinkIcon& icon, CompletionHandler<void(CompletionHandler<void(API::Data*)>&&)>&& completionHandler) override
     {
-        // MAVERICKS_BACKPORT: never let WebCore load the icon (#112). It loads a declared icon as a
+        // AQUAWEBKIT: never let WebCore load the icon (#112). It loads a declared icon as a
         // subresource of the page's own document, so leaving the page cancels it — and the load only
         // starts once parsing has finished, so an ordinary click gets there first. That loss is
         // permanent for the page: the store is written only while a page is loading, so its history
@@ -207,7 +207,7 @@ public:
         if (!icon.url.protocolIsInHTTPFamily())
             return;
 
-        // MAVERICKS_BACKPORT: take site favicons only (github #76). This is client policy, not the
+        // AQUAWEBKIT: take site favicons only (github #76). This is client policy, not the
         // fix for the icon-clobbering that made favicons revert to the generic globe — the store itself
         // now refuses bytes it cannot decode, so deleting this filter cannot bring that back. Safari 7
         // asks this store for the small site icon (IconController's 16x16/32x32 requests), and an
@@ -232,13 +232,13 @@ private:
 };
 
 
-// MAVERICKS_BACKPORT: WebProcessPool::createWebPage attaches this; the class itself stays in this file.
+// AQUAWEBKIT: WebProcessPool::createWebPage attaches this; the class itself stays in this file.
 std::unique_ptr<API::IconLoadingClient> createPageIconLoadingClient(WebPageProxy& page, WebIconDatabase& iconDatabase)
 {
     return makeUnique<PageIconLoadingClient>(page, iconDatabase);
 }
 
-// MAVERICKS_BACKPORT: lazily create the revived per-pool icon database Safari 7 asks for (#49).
+// AQUAWEBKIT: lazily create the revived per-pool icon database Safari 7 asks for (#49).
 WebIconDatabase& WebProcessPool::iconDatabase()
 {
     if (!m_iconDatabase)
@@ -246,7 +246,7 @@ WebIconDatabase& WebProcessPool::iconDatabase()
     return *m_iconDatabase;
 }
 
-// MAVERICKS_BACKPORT: Safari 7 enables favicons by setting the icon-database path; treat a
+// AQUAWEBKIT: Safari 7 enables favicons by setting the icon-database path; treat a
 // non-empty path as "enabled" and materialize the database so createWebPage attaches a real
 // icon-loading client (#49). The path itself — ~/Library/Safari/WebpageIcons.db, the same file the
 // pre-deletion icon database kept — backs the store on disk so History keeps its icons across
@@ -258,7 +258,7 @@ void WebProcessPool::setIconDatabasePath(const String& path)
         iconDatabase().setDatabasePath(path);
 }
 
-// MAVERICKS_BACKPORT: fetch the origin's /favicon.ico the moment a main-frame load commits (#112).
+// AQUAWEBKIT: fetch the origin's /favicon.ico the moment a main-frame load commits (#112).
 // A page states its icons in its head, but a reader can leave before the head has even arrived — the
 // commit is the earliest moment the page URL exists, and this fetch survives the departure like every
 // fetch here does. The guess is stored at Guessed rank, so an icon the page actually declares, offered
@@ -291,7 +291,7 @@ void WebProcessPool::fetchGuessedIconForPage(WebPageProxy& page, const URL& url)
     fetchIconForPage(iconDatabase, page, pageURL, URL { url, "/favicon.ico"_s }.string(), persistence, WebIconDatabase::IconOrigin::Guessed);
 }
 
-// MAVERICKS_BACKPORT: an icon belongs to the URL its load STARTED from as well as to the committed
+// AQUAWEBKIT: an icon belongs to the URL its load STARTED from as well as to the committed
 // one, as the pre-deletion IconController::commitToDatabase kept it — a load that began at
 // http://example.com/ and redirected to https://example.com/ is reachable under both. Safari reads
 // that second URL: -[AcceptedSiteDataCell drawWithFrame:inView:], which draws each site in
@@ -309,7 +309,7 @@ void WebProcessPool::carryIconToInitialRequestURL(WebPageProxy& page, const URL&
     Ref { *m_iconDatabase }->carryIconForPageURL(url.string(), page.committedInitialRequestURL().string(), persistence);
 }
 
-// MAVERICKS_BACKPORT: carry a document's icon claim across a same-document navigation (#112). A
+// AQUAWEBKIT: carry a document's icon claim across a same-document navigation (#112). A
 // pushState-driven site navigates without ever committing a load — github.com's every click — so the
 // new URL's history entry has no other way to an icon: the declared-icon offer and the /favicon.ico
 // guess both hang off loads. The document itself is unchanged, and so is its icon; the store's

@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: restored. Upstream deleted API::CertificateInfo along with the
+// AQUAWEBKIT: restored. Upstream deleted API::CertificateInfo along with the
 // deprecated WKCertificateInfo C API, but Safari 7 links and calls that API on every
 // page commit to drive the address-bar lock and the Show Certificate sheet (#103).
 // The wrapper carries the modern SecTrust-backed WebCore::CertificateInfo and, on

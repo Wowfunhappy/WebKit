@@ -14,7 +14,7 @@
  * AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
  */
 
-// MAVERICKS_BACKPORT: see WebDashboardRegion.h.
+// AQUAWEBKIT: see WebDashboardRegion.h.
 
 #import "WebDashboardRegion.h"
 

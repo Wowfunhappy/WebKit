@@ -246,5 +246,5 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 # in PlatformHave.h. https://bugs.webkit.org/show_bug.cgi?id=312061
 set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE_PAY_NEW_BUTTON_TYPES HAVE_CORE_MATERIAL HAVE_MATERIAL_HOSTING")
 
-# MAVERICKS_BACKPORT: configure the Mavericks platform backends.
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebCorePlatformMavericks.cmake)
+# AQUAWEBKIT: configure the AquaWebKit platform backends.
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebCorePlatformAquaWebKit.cmake)

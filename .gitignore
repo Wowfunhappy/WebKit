@@ -97,7 +97,7 @@ CLAUDE.md
 *.profraw
 *.pas_stats.jsonl
 
-# In-source CMake/Ninja build artifacts (Mavericks 10.9 backport builds in-tree)
+# In-source CMake/Ninja build artifacts (AquaWebKit builds in-tree)
 /CMakeCache.txt
 /CPackConfig.cmake
 /CPackSourceConfig.cmake
@@ -148,9 +148,9 @@ Source/WebCore/PAL/pal/PALSwift-Generated.h
 *.10_9_stub
 *.minimal
 
-# WebKit1 test hosts: built by MavericksSupport/tests/wk1host/build.sh,
-# MavericksSupport/tests/secure-context-window-reuse/run.sh and
-# MavericksSupport/tests/samesite/build.sh
-MavericksSupport/tests/wk1host/build/
-MavericksSupport/tests/secure-context-window-reuse/build/
-MavericksSupport/tests/samesite/build/
+# WebKit1 test hosts: built by AquaWebKitSupport/tests/wk1host/build.sh,
+# AquaWebKitSupport/tests/secure-context-window-reuse/run.sh and
+# AquaWebKitSupport/tests/samesite/build.sh
+AquaWebKitSupport/tests/wk1host/build/
+AquaWebKitSupport/tests/secure-context-window-reuse/build/
+AquaWebKitSupport/tests/samesite/build/

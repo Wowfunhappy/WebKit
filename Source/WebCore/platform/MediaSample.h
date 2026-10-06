@@ -55,7 +55,7 @@ public:
 #if PLATFORM(COCOA)
         , RetainPtr<CMSampleBufferRef>
 #endif
-// MAVERICKS_BACKPORT: PLATFORM(COCOA) and USE(GSTREAMER) are both on (GStreamer media backend on a Cocoa
+// AQUAWEBKIT: PLATFORM(COCOA) and USE(GSTREAMER) are both on (GStreamer media backend on a Cocoa
 // host). Upstream's #elif made these mutually exclusive; split so the Variant carries BOTH the CM and Gst
 // alternatives and the MSE/GStreamer code can reach gstSample().
 #if USE(GSTREAMER)
@@ -70,7 +70,7 @@ public:
 
 #if PLATFORM(COCOA)
     CMSampleBufferRef cmSampleBuffer() const { return std::get<RetainPtr<CMSampleBufferRef>>(m_sample).get(); }
-    // MAVERICKS_BACKPORT: COCOA and GSTREAMER are both on; split the upstream #elif so
+    // AQUAWEBKIT: COCOA and GSTREAMER are both on; split the upstream #elif so
     // gstSample() is also available alongside cmSampleBuffer().
 #endif
 #if USE(GSTREAMER)

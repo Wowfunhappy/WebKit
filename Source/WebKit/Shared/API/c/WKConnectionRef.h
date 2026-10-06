@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: C API for the WKConnection bundle<->app channel (see WebConnection.h).
+// AQUAWEBKIT: C API for the WKConnection bundle<->app channel (see WebConnection.h).
 
 #ifndef WKConnectionRef_h
 #define WKConnectionRef_h

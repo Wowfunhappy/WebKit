@@ -32,7 +32,7 @@
 #include "WebsiteDataStore.h"
 
 #if USE(MOZILLA_PUSH_SERVICE)
-#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // MAVERICKS_BACKPORT: Safari takes the push daemon default below.
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // AQUAWEBKIT: Safari takes the push daemon default below.
 #endif
 
 namespace WebKit {
@@ -69,7 +69,7 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(IsPersistent isPers
 #endif
 
 #if USE(MOZILLA_PUSH_SERVICE)
-        // MAVERICKS_BACKPORT: a client names its push daemon through the _WKWebsiteDataStoreConfiguration
+        // AQUAWEBKIT: a client names its push daemon through the _WKWebsiteDataStoreConfiguration
         // SPI, which Safari 7 predates, so Safari's persistent stores take the relocatable-webpushd service
         // name, this port's daemon deployment flavor (see ENABLE_RELOCATABLE_WEBPUSHD in OptionsMac.cmake).
         if (WTF::MacApplication::isSafari())
@@ -94,7 +94,7 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(const WTF::UUID& id
     , m_pcmMachServiceName("com.apple.webkit.adattributiond.service"_s)
 #endif
 #if USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: same default as the primary constructor above.
+    // AQUAWEBKIT: same default as the primary constructor above.
     , m_webPushMachServiceName(WTF::MacApplication::isSafari() ? String { "com.apple.webkit.webpushd.relocatable.service"_s } : String { })
 #endif
 {

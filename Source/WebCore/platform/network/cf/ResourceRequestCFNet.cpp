@@ -59,7 +59,7 @@ void ResourceRequest::updateFromDelegatePreservingOldProperties(const ResourceRe
     auto oldAppInitiatedValue = isAppInitiated();
     auto oldPrivacyProxyFailClosedForUnreachableNonMainHosts = privacyProxyFailClosedForUnreachableNonMainHosts();
     auto oldUseAdvancedPrivacyProtections = useAdvancedPrivacyProtections();
-    // MAVERICKS_BACKPORT: this one records what the loader itself did to the request -- HTTPS-first
+    // AQUAWEBKIT: this one records what the loader itself did to the request -- HTTPS-first
     // rewrote its scheme -- rather than anything the delegate owns, and FrameLoader reads it back when
     // the upgraded load fails to decide whether to fall back to http. Safari 7's injected bundle
     // answers willSendRequestForFrame for every resource with a request of its own, so without this
@@ -78,7 +78,7 @@ void ResourceRequest::updateFromDelegatePreservingOldProperties(const ResourceRe
     setIsAppInitiated(oldAppInitiatedValue);
     setPrivacyProxyFailClosedForUnreachableNonMainHosts(oldPrivacyProxyFailClosedForUnreachableNonMainHosts);
     setUseAdvancedPrivacyProtections(oldUseAdvancedPrivacyProtections);
-    setWasSchemeOptimisticallyUpgraded(oldWasSchemeOptimisticallyUpgraded); // MAVERICKS_BACKPORT: see above.
+    setWasSchemeOptimisticallyUpgraded(oldWasSchemeOptimisticallyUpgraded); // AQUAWEBKIT: see above.
 }
 
 bool ResourceRequest::httpPipeliningEnabled()

@@ -28,7 +28,7 @@
 #import <WebCore/MediaKeySystemClient.h>
 #import <wtf/TZoneMalloc.h>
 
-// MAVERICKS_BACKPORT: for the per-origin media-keys salt this client keeps.
+// AQUAWEBKIT: for the per-origin media-keys salt this client keeps.
 #import <wtf/HashMap.h>
 #import <wtf/text/StringHash.h>
 #import <wtf/text/WTFString.h>
@@ -49,7 +49,7 @@ private:
     void requestMediaKeySystem(WebCore::MediaKeySystemRequest&) override;
     void cancelMediaKeySystemRequest(WebCore::MediaKeySystemRequest&) override { }
 
-    // MAVERICKS_BACKPORT: the salt a CDM derives its own per-origin, per-device storage identity
+    // AQUAWEBKIT: the salt a CDM derives its own per-origin, per-device storage identity
     // from. WebKit keeps it in the website data store (DeviceIdHashSaltStorage); this holds the
     // ones belonging to origins that have nowhere on disk to keep them.
     String mediaKeysHashSalt(WebCore::MediaKeySystemRequest&);

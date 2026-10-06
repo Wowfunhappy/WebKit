@@ -39,7 +39,7 @@ namespace WebKit {
 class WebPage;
 
 class UserMediaPermissionRequestManager : public WebCore::MediaCanStartListener
-// MAVERICKS_BACKPORT: USE(GSTREAMER) stands in for "device changes are watched in the web process", which is
+// AQUAWEBKIT: USE(GSTREAMER) stands in for "device changes are watched in the web process", which is
 // untrue here -- this port enumerates through the UI process like every Cocoa port, and the UI process
 // is what watches the capture centre and sends CaptureDevicesChanged.
 // #if USE(GSTREAMER)
@@ -70,7 +70,7 @@ public:
     void captureDevicesChanged();
 
 private:
-// MAVERICKS_BACKPORT: same term as the base-class gate above.
+// AQUAWEBKIT: same term as the base-class gate above.
 // #if USE(GSTREAMER)
 #if USE(GSTREAMER) && !PLATFORM(COCOA)
     // WebCore::RealtimeMediaSourceCenterObserver
@@ -91,7 +91,7 @@ private:
     HashMap<WebCore::UserMediaClient::DeviceChangeObserverToken, Function<void()>> m_deviceChangeObserverMap;
     bool m_monitoringDeviceChange { false };
 
-// MAVERICKS_BACKPORT: same term as the base-class gate above.
+// AQUAWEBKIT: same term as the base-class gate above.
 // #if USE(GSTREAMER)
 #if USE(GSTREAMER) && !PLATFORM(COCOA)
     enum class ShouldNotify : bool { No, Yes };

@@ -584,7 +584,7 @@ static uintptr_t generateSignpostIdentifier()
 Error Connection::sendMessage(UniqueRef<Encoder>&& encoder, OptionSet<SendOption> sendOptions, std::optional<Thread::QOS> qos)
 {
 #if ENABLE(CORE_IPC_SIGNPOSTS)
-    // MAVERICKS_BACKPORT: ReceiverName::LogStream is not generated in our message set, so the
+    // AQUAWEBKIT: ReceiverName::LogStream is not generated in our message set, so the
     // upstream "don't signpost log-message IPCs" check (receiverName() != LogStream) does not compile.
     // LogStream IPC isn't enabled here, so dropping the exclusion is behaviorally equivalent.
     if (signpostsEnabled()) [[unlikely]]

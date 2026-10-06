@@ -36,7 +36,7 @@
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: the three things this panel read off a WebViewImpl -- spellCheckerDocumentTag(),
+// AQUAWEBKIT: the three things this panel read off a WebViewImpl -- spellCheckerDocumentTag(),
 // page().sessionID() and handleAcceptedAlternativeText() -- are each a one-line forward to the page, so
 // it takes the page itself and any PageClient with one can drive it (upstream's class WebViewImpl;).
 class WebPageProxy;
@@ -45,14 +45,14 @@ class CorrectionPanel {
 public:
     CorrectionPanel();
     ~CorrectionPanel();
-    void show(NSView *, WebPageProxy&, WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
+    void show(NSView *, WebPageProxy&, WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings);  // AQUAWEBKIT: takes the page (see the class comment).
     String dismiss(WebCore::ReasonForDismissingAlternativeText);
-    static void recordAutocorrectionResponse(WebPageProxy&, NSInteger spellCheckerDocumentTag, NSCorrectionResponse, const String& replacedString, const String& replacementString);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
+    static void recordAutocorrectionResponse(WebPageProxy&, NSInteger spellCheckerDocumentTag, NSCorrectionResponse, const String& replacedString, const String& replacementString);  // AQUAWEBKIT: takes the page (see the class comment).
 
 private:
     bool isShowing() const { return !!m_view; }
     String dismissInternal(WebCore::ReasonForDismissingAlternativeText, bool dismissingExternally);
-    void handleAcceptedReplacement(WebPageProxy&, NSString* acceptedReplacement, NSString* replaced, NSString* proposedReplacement, NSCorrectionIndicatorType);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
+    void handleAcceptedReplacement(WebPageProxy&, NSString* acceptedReplacement, NSString* replaced, NSString* proposedReplacement, NSCorrectionIndicatorType);  // AQUAWEBKIT: takes the page (see the class comment).
 
     bool m_wasDismissedExternally;
     WebCore::ReasonForDismissingAlternativeText m_reasonForDismissing;

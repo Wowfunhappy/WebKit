@@ -34,7 +34,7 @@
 #include "NetworkSessionCreationParameters.h"
 #include "NotificationPermissionRequestManager.h"
 #include "UserData.h"
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 #include "WebConnectionToUIProcess.h"
 #include "WebFrame.h"
 #include "WebFrameNetworkingContext.h"
@@ -70,7 +70,7 @@
 #include <WebCore/PageGroup.h>
 #include <WebCore/PrintContext.h>
 #include <WebCore/SWContextManager.h>
-#include <WebCore/SafariReaderMozillaReadability.h> // MAVERICKS_BACKPORT: SafariReaderMozillaReadabilityArticleScope below.
+#include <WebCore/SafariReaderMozillaReadability.h> // AQUAWEBKIT: SafariReaderMozillaReadabilityArticleScope below.
 #include <WebCore/ScriptController.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityPolicy.h>
@@ -139,7 +139,7 @@ void InjectedBundle::postSynchronousMessage(const String& messageName, API::Obje
         returnData = nullptr;
 }
 
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 WebConnection* InjectedBundle::webConnectionToUIProcess() const
 {
     return WebProcess::singleton().webConnectionToUIProcess();
@@ -268,7 +268,7 @@ void InjectedBundle::didReceiveMessage(const String& messageName, RefPtr<API::Ob
 
 void InjectedBundle::didReceiveMessageToPage(WebPage& page, const String& messageName, RefPtr<API::Object>&& messageBody)
 {
-    WebCore::SafariReaderMozillaReadabilityArticleScope safariReaderMozillaReadabilityArticleScope; // MAVERICKS_BACKPORT: Safari 7 shows a page in Reader while handling a message (see the class).
+    WebCore::SafariReaderMozillaReadabilityArticleScope safariReaderMozillaReadabilityArticleScope; // AQUAWEBKIT: Safari 7 shows a page in Reader while handling a message (see the class).
     m_client->didReceiveMessageToPage(Ref { *this }, page, messageName, WTF::move(messageBody));
 }
 

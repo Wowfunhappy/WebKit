@@ -54,7 +54,7 @@ void Connection::newConnectionWasInitialized() const
 }
 
 #if USE(MOZILLA_PUSH_SERVICE)
-// MAVERICKS_BACKPORT: see WebPushDaemonConstants.h — the daemon signals pending push
+// AQUAWEBKIT: see WebPushDaemonConstants.h — the daemon signals pending push
 // messages on this connection because Safari 7 cannot be woken through the modern
 // x-webkit-app-launch / push SPI path.
 void Connection::setPushMessagesAvailableHandler(Function<void()>&& handler)

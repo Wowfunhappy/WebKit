@@ -188,7 +188,7 @@ public:
     WEBCORE_EXPORT void addHTTPHeaderFieldIfNotPresent(HTTPHeaderName, const String&);
     void removeHTTPHeaderField(const String& name);
     // void removeHTTPHeaderField(HTTPHeaderName);
-    WEBCORE_EXPORT void removeHTTPHeaderField(HTTPHeaderName); // MAVERICKS_BACKPORT: WebKitLegacy curl downloads update request headers across redirects and authentication.
+    WEBCORE_EXPORT void removeHTTPHeaderField(HTTPHeaderName); // AQUAWEBKIT: WebKitLegacy curl downloads update request headers across redirects and authentication.
 
     WEBCORE_EXPORT bool hasHTTPHeaderField(HTTPHeaderName) const;
 

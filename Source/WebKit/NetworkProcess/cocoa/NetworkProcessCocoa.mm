@@ -204,7 +204,7 @@ std::optional<audit_token_t> NetworkProcess::sourceApplicationAuditToken() const
 
 HashSet<String> NetworkProcess::hostNamesWithHSTSCache(PAL::SessionID sessionID) const
 {
-    // MAVERICKS_BACKPORT: query the store that actually applies HSTS to curl requests.
+    // AQUAWEBKIT: query the store that actually applies HSTS to curl requests.
 /*
     HashSet<String> hostNames;
     if (CheckedPtr networkSession = downcast<NetworkSessionCocoa>(this->networkSession(sessionID))) {
@@ -212,7 +212,7 @@ HashSet<String> NetworkProcess::hostNamesWithHSTSCache(PAL::SessionID sessionID)
             hostNames.add(host);
     }
     return hostNames;
-*/ // MAVERICKS_BACKPORT: browser-owned HSTS store below.
+*/ // AQUAWEBKIT: browser-owned HSTS store below.
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(networkSession(sessionID)))
         return session->httpStrictTransportSecurityStore().hosts();
     return { };
@@ -222,7 +222,7 @@ void NetworkProcess::deleteHSTSCacheForHostNames(PAL::SessionID sessionID, const
 {
     if (CheckedPtr networkSession = downcast<NetworkSessionCocoa>(this->networkSession(sessionID))) {
         for (auto& hostName : hostNames)
-            // MAVERICKS_BACKPORT: remove browser-owned dynamic HSTS along with website data.
+            // AQUAWEBKIT: remove browser-owned dynamic HSTS along with website data.
             // [protect(networkSession->hstsStorage()).get() resetHSTSForHost:hostName.createNSString().get()];
             networkSession->httpStrictTransportSecurityStore().removeHost(hostName);
     }
@@ -230,7 +230,7 @@ void NetworkProcess::deleteHSTSCacheForHostNames(PAL::SessionID sessionID, const
 
 void NetworkProcess::clearHSTSCache(PAL::SessionID sessionID, WallTime modifiedSince)
 {
-    // MAVERICKS_BACKPORT: modification-time deletion applies to WebCore's dynamic store.
+    // AQUAWEBKIT: modification-time deletion applies to WebCore's dynamic store.
 /*
     NSTimeInterval timeInterval = modifiedSince.secondsSinceEpoch().seconds();
     RetainPtr date = [NSDate dateWithTimeIntervalSince1970:timeInterval];
@@ -241,7 +241,7 @@ void NetworkProcess::clearHSTSCache(PAL::SessionID sessionID, WallTime modifiedS
         session->httpStrictTransportSecurityStore().removeModifiedSince(modifiedSince);
 }
 
-// MAVERICKS_BACKPORT: the Cocoa half upstream dropped when it stopped implementing per-host
+// AQUAWEBKIT: the Cocoa half upstream dropped when it stopped implementing per-host
 // certificate exceptions; the other ports still route the same message. Safari 7's
 // invalid-certificate sheet drives this — see WKContextAllowSpecificHTTPSCertificateForHost.
 //
@@ -307,7 +307,7 @@ void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&&
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
-    // MAVERICKS_BACKPORT: this port's HSTS policies are its own store rather than CFNetwork's
+    // AQUAWEBKIT: this port's HSTS policies are its own store rather than CFNetwork's
     // _NSHSTSStorage, and a serial queue writes them, so the flush that carries the session's cookies to
     // disk before the process suspends carries its policies too. The store answers on the main thread
     // once its queue has drained, which keeps the queue's wait for the directory's cross-process lock
@@ -318,10 +318,10 @@ void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHa
 
     CheckedPtr networkStorageSession = storageSession(sessionID);
     if (!networkStorageSession)
-        return; // MAVERICKS_BACKPORT: the aggregator above answers the caller once the parts that did run have.
+        return; // AQUAWEBKIT: the aggregator above answers the caller once the parts that did run have.
 
     RetainPtr cookieStorage = networkStorageSession->nsCookieStorage();
-    saveCookies(cookieStorage.get(), [aggregator] { }); // MAVERICKS_BACKPORT: one part of the flush above.
+    saveCookies(cookieStorage.get(), [aggregator] { }); // AQUAWEBKIT: one part of the flush above.
 }
 
 const String& NetworkProcess::uiProcessBundleIdentifier() const

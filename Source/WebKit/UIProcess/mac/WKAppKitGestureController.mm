@@ -458,7 +458,7 @@ static NSString *gestureLogDescription(NSGestureRecognizer *gesture)
         return;
     }
 
-#if ENABLE(PDF_HUD) // MAVERICKS_BACKPORT: inline PDF HUD gesture forwarding.
+#if ENABLE(PDF_HUD) // AQUAWEBKIT: inline PDF HUD gesture forwarding.
     // Clicks aren't delivered to NSButton's built-in click gesture
     // recognizer when a parent view's GR recognizes first, so we
     // forward the click manually.
@@ -472,7 +472,7 @@ static NSString *gestureLogDescription(NSGestureRecognizer *gesture)
         }
     }
 
-#endif // MAVERICKS_BACKPORT: inline PDF HUD gesture forwarding.
+#endif // AQUAWEBKIT: inline PDF HUD gesture forwarding.
 
     switch (gesture.state) {
     case NSGestureRecognizerStateBegan:

@@ -191,7 +191,7 @@ class DefaultStorageSessionProvider : public WebCore::StorageSessionProvider {
 {
     [WebView _makeAllWebViewsPerformSelector:@selector(_clearCredentials)];
     NetworkStorageSessionMap::defaultStorageSession().credentialStorage().clearCredentials();
-    // MAVERICKS_BACKPORT: the default session may own downloads without an attached WebView.
+    // AQUAWEBKIT: the default session may own downloads without an attached WebView.
     NetworkStorageSessionMap::defaultStorageSession().clearCocoaCurlCredentialState();
 }
 

@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: WebKit1 (DumpRenderTree) expectations for the macOS 10.9 backport.
+# AQUAWEBKIT: WebKit1 (DumpRenderTree) expectations for the macOS 10.9 backport.
 #
 # Exclusions name an applicable upstream record, a verified capability gap, or a maintainer
 # scope decision. Accepted FAIL lines in text baselines do not exclude a test.

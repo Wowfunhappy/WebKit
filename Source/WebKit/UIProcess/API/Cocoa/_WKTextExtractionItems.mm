@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: Objective-C implementation of the WKTextExtractionItem family.
+// AQUAWEBKIT: Objective-C implementation of the WKTextExtractionItem family.
 //
 // Upstream implements these classes in UIProcess/API/Cocoa/_WKTextExtraction.swift, using
 // `@objc @implementation extension`, which requires Swift 6; Swift cannot target this port's

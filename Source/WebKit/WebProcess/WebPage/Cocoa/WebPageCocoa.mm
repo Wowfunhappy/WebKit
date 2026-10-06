@@ -155,7 +155,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cf/VectorCF.h>
 #import <wtf/cocoa/SpanCocoa.h>
-// MAVERICKS_BACKPORT: makeVector/createNSArray helpers from VectorCocoa.h are needed by the 10.9 code paths in this file.
+// AQUAWEBKIT: makeVector/createNSArray helpers from VectorCocoa.h are needed by the 10.9 code paths in this file.
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
 #import <wtf/text/StringToIntegerConversion.h>
@@ -423,7 +423,7 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(LocalFrame& frame, cons
 #else
     dictionaryPopupInfo.text = [scaledAttributedString string];
 #if !ENABLE(REVEAL)
-    // MAVERICKS_BACKPORT: the string Lookup.framework's panel draws (see DictionaryPopupInfo.h).
+    // AQUAWEBKIT: the string Lookup.framework's panel draws (see DictionaryPopupInfo.h).
     dictionaryPopupInfo.attributedString = WebCore::AttributedString::fromNSAttributedString(scaledAttributedString);
 #endif
 #endif
@@ -474,11 +474,11 @@ void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& re
 void WebPage::addDictationAlternative(const String& text, DictationContext context, CompletionHandler<void(bool)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
-    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
+    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!frame) {
         completion(false);
         return;
-    } // MAVERICKS_BACKPORT: braced early-out (added completion call above).
+    } // AQUAWEBKIT: braced early-out (added completion call above).
 
     RefPtr document = frame->document();
     if (!document) {
@@ -516,11 +516,11 @@ void WebPage::addDictationAlternative(const String& text, DictationContext conte
 void WebPage::dictationAlternativesAtSelection(CompletionHandler<void(Vector<DictationContext>&&)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
-    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
+    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!frame) {
         completion({ });
         return;
-    } // MAVERICKS_BACKPORT: braced early-out (added completion call above).
+    } // AQUAWEBKIT: braced early-out (added completion call above).
 
     RefPtr document = frame->document();
     if (!document) {
@@ -1833,7 +1833,7 @@ void WebPage::drawToPDF(const std::optional<FloatRect>& rect, bool allowTranspar
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
+    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
         return completionHandler(nullptr);
 
     Ref frameView = *localMainFrame->view();
@@ -1841,7 +1841,7 @@ void WebPage::drawToPDF(const std::optional<FloatRect>& rect, bool allowTranspar
 
     RefPtr buffer = ImageBuffer::create(snapshotRect.size(), RenderingMode::PDFDocument, RenderingPurpose::Snapshot, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
-    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
+    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
         return completionHandler(nullptr);
 
     drawMainFrameToPDF(*localMainFrame, buffer->context(), snapshotRect, allowTransparentBackground);
@@ -2178,7 +2178,7 @@ void WebPage::characterIndexForPointAsync(const WebCore::IntPoint& point, Comple
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-    // MAVERICKS_BACKPORT: always invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
+    // AQUAWEBKIT: always invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
         return completionHandler({ });
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent,  HitTestRequest::Type::AllowChildFrameContent };
     auto result = localMainFrame->eventHandler().hitTestResultAtPoint(point, hitType);

@@ -115,7 +115,7 @@ public:
 
     bool supportsLargeFormControls() const final;
 
-    // MAVERICKS_BACKPORT (#40): restore the Aqua push-button style adjustment upstream dropped.
+    // AQUAWEBKIT (#40): restore the Aqua push-button style adjustment upstream dropped.
     void adjustButtonStyle(Style::ComputedStyle&, const Element*) const final;
 
     void adjustMenuListStyle(Style::ComputedStyle&, const Element*) const final;

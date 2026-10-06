@@ -110,7 +110,7 @@ enum class StyleColorOptions : uint8_t;
 typedef const void* WrappedImagePtr;
 
 #if ENABLE(DASHBOARD_SUPPORT)
-// MAVERICKS_BACKPORT: an absolute-coordinate control region collected from -apple-dashboard-region styles
+// AQUAWEBKIT: an absolute-coordinate control region collected from -apple-dashboard-region styles
 // and reported to DashboardClient via -webView:dashboardRegionsChanged:.
 struct AnnotatedRegionValue {
     bool operator==(const AnnotatedRegionValue& o) const
@@ -862,7 +862,7 @@ public:
     IntRect absoluteBoundingBoxRectIgnoringTransforms() const { return absoluteBoundingBoxRect(false); }
 
 #if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: collect -apple-dashboard-region control regions in absolute coordinates.
+    // AQUAWEBKIT: collect -apple-dashboard-region control regions in absolute coordinates.
     virtual void addAnnotatedRegions(Vector<AnnotatedRegionValue>&);
     void collectAnnotatedRegions(Vector<AnnotatedRegionValue>&);
 #endif

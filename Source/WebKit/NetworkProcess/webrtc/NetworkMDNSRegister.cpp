@@ -35,7 +35,7 @@
 
 #if OS(DARWIN)
 #include <wtf/darwin/DispatchExtras.h>
-// MAVERICKS_BACKPORT: with -fno-modules (upstream's Apple build uses Clang modules), <arpa/inet.h>
+// AQUAWEBKIT: with -fno-modules (upstream's Apple build uses Clang modules), <arpa/inet.h>
 // isn't pulled in transitively here; include it explicitly for inet_addr / in_addr_t below.
 #include <arpa/inet.h>
 #endif
@@ -54,7 +54,7 @@ NetworkMDNSRegister::PendingRegistrationRequest::PendingRegistrationRequest(Ref<
 {
 }
 
-// MAVERICKS_BACKPORT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
+// AQUAWEBKIT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
 // layer but provides no GLib NetworkMDNSRegister, so the default ctor/dtor must still be built (the
 // real Cocoa registerMDNSName impl uses DNSServiceRegisterRecord, available on 10.9).
 #if !USE(GLIB) || PLATFORM(COCOA)
@@ -64,7 +64,7 @@ NetworkMDNSRegister::NetworkMDNSRegister(NetworkConnectionToWebProcess& connecti
 }
 #endif
 
-// MAVERICKS_BACKPORT: also compile the default dtor on Cocoa (USE(GLIB) is forced on but no GLib impl exists here).
+// AQUAWEBKIT: also compile the default dtor on Cocoa (USE(GLIB) is forced on but no GLib impl exists here).
 #if !USE(GLIB) || PLATFORM(COCOA)
 NetworkMDNSRegister::~NetworkMDNSRegister() = default;
 #endif

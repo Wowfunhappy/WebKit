@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: upstream's CGDisplayStream-backed screen capturer, serving
+// AQUAWEBKIT: upstream's CGDisplayStream-backed screen capturer, serving
 // DisplayCaptureSourceCocoa on systems without ScreenCaptureKit (macOS < 12.3).
 
 #pragma once

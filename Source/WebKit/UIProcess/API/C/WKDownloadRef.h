@@ -41,7 +41,7 @@ WK_EXPORT WKTypeID WKDownloadGetTypeID();
 
 WK_EXPORT WKURLRequestRef WKDownloadCopyRequest(WKDownloadRef download);
 
-// MAVERICKS_BACKPORT: Safari 7's ABI for this function takes only the download (see WKDownloadRef.cpp).
+// AQUAWEBKIT: Safari 7's ABI for this function takes only the download (see WKDownloadRef.cpp).
 WK_EXPORT void WKDownloadCancel(WKDownloadRef download);
 WK_EXPORT WKPageRef WKDownloadGetOriginatingPage(WKDownloadRef download);
 WK_EXPORT bool WKDownloadGetWasUserInitiated(WKDownloadRef download);

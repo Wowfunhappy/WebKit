@@ -138,7 +138,7 @@ std::optional<CryptoKeyPair> CryptoKeyEC::platformGeneratePair(CryptoAlgorithmId
     return CryptoKeyPair { WTF::move(publicKey), WTF::move(privateKey) };
 }
 
-// MAVERICKS_BACKPORT: libgcrypt's ECDH multiplies by the peer's q without validating it, so raw and JWK
+// AQUAWEBKIT: libgcrypt's ECDH multiplies by the peer's q without validating it, so raw and JWK
 // public keys are held to the on-curve check the SPKI and PKCS#8 imports apply.
 static bool publicKeyPointIsOnCurve(gcry_sexp_t publicKey)
 {
@@ -165,7 +165,7 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::platformImportRaw(CryptoAlgorithmIdentifier ide
         PAL::GCrypt::logError(error);
         return nullptr;
     }
-    if (!publicKeyPointIsOnCurve(platformKey)) // MAVERICKS_BACKPORT: see publicKeyPointIsOnCurve.
+    if (!publicKeyPointIsOnCurve(platformKey)) // AQUAWEBKIT: see publicKeyPointIsOnCurve.
         return nullptr;
 
     return create(identifier, curve, CryptoKeyType::Public, PlatformECKeyContainer(platformKey.release()), extractable, usages);
@@ -191,7 +191,7 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::platformImportJWKPublic(CryptoAlgorithmIdentifi
         PAL::GCrypt::logError(error);
         return nullptr;
     }
-    if (!publicKeyPointIsOnCurve(platformKey)) // MAVERICKS_BACKPORT: see publicKeyPointIsOnCurve.
+    if (!publicKeyPointIsOnCurve(platformKey)) // AQUAWEBKIT: see publicKeyPointIsOnCurve.
         return nullptr;
 
     return create(identifier, curve, CryptoKeyType::Public, PlatformECKeyContainer(platformKey.release()), extractable, usages);

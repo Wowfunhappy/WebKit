@@ -180,7 +180,7 @@ static bool canUseFastRenderer(std::span<const UniChar> buffer)
     return [cacheDirectory stringByAppendingPathComponent:bundleIdentifier];
 }
 
-// MAVERICKS_BACKPORT: provides the _webkit_fixedCarbonPOSIXPath SPI the base lacks, restored for the 10.9 build.
+// AQUAWEBKIT: provides the _webkit_fixedCarbonPOSIXPath SPI the base lacks, restored for the 10.9 build.
 // Safari 7-era compatibility: this NSString SPI was removed from modern WebKit, but Safari still
 // calls it (e.g. when resolving an extension's on-disk bundle path). Without it the call raises
 // NSInvalidArgumentException ("unrecognized selector"). A Carbon-style POSIX path can carry a

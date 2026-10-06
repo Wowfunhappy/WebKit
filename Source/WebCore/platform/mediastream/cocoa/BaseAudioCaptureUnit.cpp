@@ -243,7 +243,7 @@ void BaseAudioCaptureUnit::stopProducingData()
 {
     ASSERT(isMainThread());
     ASSERT(m_producingCount);
-    // MAVERICKS_BACKPORT: producer ownership changes before deferred AudioUnit work can overlap another start.
+    // AQUAWEBKIT: producer ownership changes before deferred AudioUnit work can overlap another start.
     if (m_producingCount && --m_producingCount)
         return;
 #if PLATFORM(MAC)
@@ -260,7 +260,7 @@ void BaseAudioCaptureUnit::stopProducingData()
 
 void BaseAudioCaptureUnit::continueStopProducingData()
 {
-    // MAVERICKS_BACKPORT: stopProducingData counts releases; a new producer can own the unit by this callback.
+    // AQUAWEBKIT: stopProducingData counts releases; a new producer can own the unit by this callback.
     // if (m_producingCount && --m_producingCount)
     if (m_producingCount)
         return;

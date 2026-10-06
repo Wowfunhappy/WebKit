@@ -1018,7 +1018,7 @@ logical
 visual
 
 //
-// MAVERICKS_BACKPORT: CSS_PROP__WEBKIT_BORDER_FIT (non-standard, for 10.9 Messages.app speech bubbles)
+// AQUAWEBKIT: CSS_PROP__WEBKIT_BORDER_FIT (non-standard, for 10.9 Messages.app speech bubbles)
 //
 lines
 
@@ -1354,7 +1354,7 @@ repeating-conic-gradient
 filter
 -webkit-filter
 paint
-// MAVERICKS_BACKPORT: legacy Dashboard widget control-region function name.
+// AQUAWEBKIT: legacy Dashboard widget control-region function name.
 dashboard-region
 
 // image-set's MIME type

@@ -89,7 +89,7 @@ class NetworkResourceLoader final
     , public WebCore::ReportingClient {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(NetworkResourceLoader);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NetworkResourceLoader);
-    friend class LegacyExtensionNetwork; // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest decides or redirects a response before it is used.
+    friend class LegacyExtensionNetwork; // AQUAWEBKIT: Safari 7 extensions' webRequest decides or redirects a response before it is used.
 public:
     USING_CAN_MAKE_WEAKPTR(NetworkLoadClient);
 

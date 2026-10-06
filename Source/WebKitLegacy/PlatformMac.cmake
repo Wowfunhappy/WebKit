@@ -462,12 +462,12 @@ if (USE_HEADER_MAPS)
     )
 endif ()
 
-# MAVERICKS_BACKPORT: add the legacy host integration sources.
-set(MAVERICKS_WEBKITLEGACY_PHASE SOURCES)
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)
+# AQUAWEBKIT: add the legacy host integration sources.
+set(AQUAWEBKIT_WEBKITLEGACY_PHASE SOURCES)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebKitLegacyPlatformAquaWebKit.cmake)
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
 
-# MAVERICKS_BACKPORT: configure the legacy framework and polyfills.
-set(MAVERICKS_WEBKITLEGACY_PHASE POST)
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)
+# AQUAWEBKIT: configure the legacy framework and polyfills.
+set(AQUAWEBKIT_WEBKITLEGACY_PHASE POST)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebKitLegacyPlatformAquaWebKit.cmake)

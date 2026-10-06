@@ -84,7 +84,7 @@ void TiledCoreAnimationDrawingAreaProxy::colorSpaceDidChange()
         send(Messages::DrawingArea::SetColorSpace(page->colorSpace()));
 }
 
-// MAVERICKS_BACKPORT: WebKit-537 parity — tell the web process to recreate its hosted context in
+// AQUAWEBKIT: WebKit-537 parity — tell the web process to recreate its hosted context in
 // the flavor the page's current window can display (see LayerHostingMode in DrawingAreaInfo.h).
 void TiledCoreAnimationDrawingAreaProxy::layerHostingModeDidChange()
 {
@@ -143,7 +143,7 @@ void TiledCoreAnimationDrawingAreaProxy::didUpdateGeometry()
     ASSERT(m_isWaitingForDidUpdateGeometry);
 
     m_isWaitingForDidUpdateGeometry = false;
-    // MAVERICKS_BACKPORT: the in-flight UpdateGeometry has been answered; there is no reply for waitForDidUpdateGeometry to block on.
+    // AQUAWEBKIT: the in-flight UpdateGeometry has been answered; there is no reply for waitForDidUpdateGeometry to block on.
     m_pendingUpdateGeometryReplyID = std::nullopt;
 
     RefPtr page = this->page();
@@ -169,7 +169,7 @@ void TiledCoreAnimationDrawingAreaProxy::waitForDidUpdateActivityState(ActivityS
     protect(webProcessProxy().connection())->waitForAndDispatchImmediately<Messages::WebPageProxy::DidUpdateActivityState>(page->webPageIDInMainFrameProcess(), activityStateUpdateTimeout, IPC::WaitForOption::InterruptWaitingIfSyncMessageArrives);
 }
 
-// MAVERICKS_BACKPORT: bounded synchronous wait for the in-flight UpdateGeometry reply, backing the
+// AQUAWEBKIT: bounded synchronous wait for the in-flight UpdateGeometry reply, backing the
 // restored Safari-7 WKView SPI: -forceAsyncDrawingAreaSizeUpdate: polls with a zero timeout so an
 // already-answered update dispatches (and a queued resize goes out immediately), and
 // -waitForAsyncDrawingAreaSizeUpdate blocks until the web process has laid out at the new size.
@@ -240,7 +240,7 @@ void TiledCoreAnimationDrawingAreaProxy::sendUpdateGeometry()
     ASSERT(!m_isWaitingForDidUpdateGeometry);
 
     willSendUpdateGeometry();
-    // MAVERICKS_BACKPORT: the async-reply ID is recorded so waitForDidUpdateGeometry can block on the in-flight update.
+    // AQUAWEBKIT: the async-reply ID is recorded so waitForDidUpdateGeometry can block on the in-flight update.
     m_pendingUpdateGeometryReplyID = sendWithAsyncReply(Messages::DrawingArea::UpdateGeometry(size(), true /* flushSynchronously */, createFence()), [weakThis = WeakPtr { *this }] {
         if (!weakThis)
             return;

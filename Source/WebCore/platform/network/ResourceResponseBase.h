@@ -120,7 +120,7 @@ public:
     WEBCORE_EXPORT void sanitizeHTTPHeaderFields(SanitizationType);
 
     // String httpHeaderField(StringView name) const;
-    WEBCORE_EXPORT String httpHeaderField(StringView name) const; // MAVERICKS_BACKPORT: curl downloads read authentication and HSTS response headers.
+    WEBCORE_EXPORT String httpHeaderField(StringView name) const; // AQUAWEBKIT: curl downloads read authentication and HSTS response headers.
     WEBCORE_EXPORT String httpHeaderField(HTTPHeaderName) const;
     WEBCORE_EXPORT void setHTTPHeaderField(const String& name, const String& value);
     WEBCORE_EXPORT void setUncommonHTTPHeaderField(const String& name, const String& value);

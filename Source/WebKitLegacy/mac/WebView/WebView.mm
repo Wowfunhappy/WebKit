@@ -118,7 +118,7 @@
 #import "WebTextCompletionController.h"
 #import "WebTextIterator.h"
 #import "WebUIDelegatePrivate.h"
-// MAVERICKS_BACKPORT: the WebKit1 getUserMedia client, restored (upstream a5c8561 removed WK1 MediaStream support).
+// AQUAWEBKIT: the WebKit1 getUserMedia client, restored (upstream a5c8561 removed WK1 MediaStream support).
 #import "WebUserMediaClient.h"
 #import "WebValidationMessageClient.h"
 #import "WebViewGroup.h"
@@ -154,7 +154,7 @@
 #import <WebCore/DisplayRefreshMonitorManager.h>
 #import <WebCore/Document.h>
 #if ENABLE(DASHBOARD_SUPPORT)
-#import "WebDashboardRegion.h" // MAVERICKS_BACKPORT
+#import "WebDashboardRegion.h" // AQUAWEBKIT
 #import <WebCore/RenderObject.h>
 #import <WebCore/StyleDashboardRegion.h>
 #endif
@@ -206,7 +206,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/LogInitialization.h>
 #import <WebCore/MIMETypeRegistry.h>
-// MAVERICKS_BACKPORT: MainThreadSharedTimer for addRunLoopMode(), which fires WebCore's shared timer in app-pumped private run-loop modes.
+// AQUAWEBKIT: MainThreadSharedTimer for addRunLoopMode(), which fires WebCore's shared timer in app-pumped private run-loop modes.
 #import <WebCore/MainThreadSharedTimer.h>
 #import <WebCore/MemoryCache.h>
 #import <WebCore/MemoryRelease.h>
@@ -281,7 +281,7 @@
 #import <pal/spi/mac/NSResponderSPI.h>
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
 
-// MAVERICKS_BACKPORT: WebCrypto runs on libgcrypt (USE_GCRYPT); pull in its initializer for PAL::GCrypt::initialize().
+// AQUAWEBKIT: WebCrypto runs on libgcrypt (USE_GCRYPT); pull in its initializer for PAL::GCrypt::initialize().
 #if USE(GCRYPT)
 #import <pal/crypto/gcrypt/Initialization.h>
 #endif
@@ -1324,7 +1324,7 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 @implementation WebView (WebPrivate)
 
-// MAVERICKS_BACKPORT: the legacy WebDashboard SPI removed upstream in "Remove Legacy Dashboard
+// AQUAWEBKIT: the legacy WebDashboard SPI removed upstream in "Remove Legacy Dashboard
 // Support" (255204). macOS 10.9's DashboardClient — which renders Dashboard widgets, including Safari
 // Web Clips via the WebClip.plugin WebKit-ObjC plug-in — declares the widget's WebView legacy through
 // it during setup. Read off DashboardClient.framework's call sites, it sends AlwaysSendMouseEvents,
@@ -1380,7 +1380,7 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 #if ENABLE(DASHBOARD_SUPPORT)
 
-// MAVERICKS_BACKPORT: the scroller/control auto-region helpers below were removed upstream (2d364c6 "Remove
+// AQUAWEBKIT: the scroller/control auto-region helpers below were removed upstream (2d364c6 "Remove
 // Dashboard support"). -_dashboardRegions augments the document's CSS -apple-dashboard-region set with a
 // "control" region for every native scroller (NSScroller) and every WebCore scrollbar (e.g. a <textarea> or
 // overflow scrollbar). DashboardClient reads -_dashboardRegions to decide which areas of a widget are
@@ -1471,7 +1471,7 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 - (NSDictionary *)_dashboardRegions
 {
 #if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: report the document's -apple-dashboard-region control regions so DashboardClient
+    // AQUAWEBKIT: report the document's -apple-dashboard-region control regions so DashboardClient
     // knows which areas are interactive controls (vs. drag handles).
     auto* coreFrame = [self _mainCoreFrame];
     if (!coreFrame || !coreFrame->document())
@@ -1505,7 +1505,7 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
         [webRegion release];
     }
 
-    // MAVERICKS_BACKPORT: augment with auto-generated scroller/control regions (native scrollbars) so widgets
+    // AQUAWEBKIT: augment with auto-generated scroller/control regions (native scrollbars) so widgets
     // that declare no -apple-dashboard-region in CSS still report their scrollbars as control regions. Matches
     // stock 9537.78 (see -_addScrollerDashboardRegions: above).
     [self _addScrollerDashboardRegions:webRegions];
@@ -1516,7 +1516,7 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 #endif
 }
 
-// MAVERICKS_BACKPORT: Safari's Top Sites view uses BrowserContentViewController which
+// AQUAWEBKIT: Safari's Top Sites view uses BrowserContentViewController which
 // renders caption labels via CaptionLayer::display(). CaptionLayer calls
 // `+[WebView _shouldUseFontSmoothing]` to pick a smoothing flag. Upstream
 // WebKit (modern) dropped this class method since the global is configured
@@ -1529,7 +1529,7 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
     return YES;
 }
 
-// MAVERICKS_BACKPORT: Safari's BrowserContentViewController may also set the
+// AQUAWEBKIT: Safari's BrowserContentViewController may also set the
 // smoothing pref before drawing. Provide the setter as a no-op so the call
 // doesn't raise an unrecognized-selector exception.
 + (void)_setShouldUseFontSmoothing:(BOOL)smoothing
@@ -1779,13 +1779,13 @@ static void WebKitInitializeGamepadProviderIfNecessary()
     WebCore::provideMediaKeySystemTo(*_private->page.get(), WebMediaKeySystemClient::singleton());
 #endif
 #if ENABLE(MEDIA_STREAM)
-    // MAVERICKS_BACKPORT: give WebKit1 a getUserMedia client again; see WebUserMediaClient.h.
+    // AQUAWEBKIT: give WebKit1 a getUserMedia client again; see WebUserMediaClient.h.
     WebCore::provideUserMediaTo(_private->page.get(), WebUserMediaClient::create(self));
 #endif
 
     _private->inspectorController = LegacyWebPageInspectorController::create(*_private->page);
 #if ENABLE(REMOTE_INSPECTOR)
-    // MAVERICKS_BACKPORT: do NOT wire the in-process legacy WebView into the system RemoteInspector.
+    // AQUAWEBKIT: do NOT wire the in-process legacy WebView into the system RemoteInspector.
     // Safari browses with WKWebView (multi-process); a WebKitLegacy WebView is only instantiated
     // for auxiliary chrome (e.g. the Preferences window NIB unarchives one via initWithCoder:).
     // Remote inspection of such a WebView goes through the webinspectord XPC service, which is
@@ -2667,7 +2667,7 @@ static bool fastDocumentTeardownEnabled()
     if (!_private || _private->closed)
         return;
 
-    // MAVERICKS_BACKPORT: on Mac the legacy WebView is intentionally NOT registered as a RemoteInspector
+    // AQUAWEBKIT: on Mac the legacy WebView is intentionally NOT registered as a RemoteInspector
     // debuggable (see _commonInitializationWithFrameName — webinspectord is absent on 10.9, so
     // creating/registering one faults), so _private->inspectorDebuggable is null here. Guard the
     // teardown: closing such a WebView (e.g. Safari disabling an extension, which closes its WK1
@@ -2917,13 +2917,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)allowsRemoteInspection
 {
-    // MAVERICKS_BACKPORT: inspectorDebuggable is null on Mac (see -[WebView _close]); report not-inspectable.
+    // AQUAWEBKIT: inspectorDebuggable is null on Mac (see -[WebView _close]); report not-inspectable.
     return _private->inspectorDebuggable ? _private->inspectorDebuggable->inspectable() : NO;
 }
 
 - (void)setAllowsRemoteInspection:(BOOL)allow
 {
-    // MAVERICKS_BACKPORT: inspectorDebuggable is null on Mac (see -[WebView _close]); nothing to configure.
+    // AQUAWEBKIT: inspectorDebuggable is null on Mac (see -[WebView _close]); nothing to configure.
     if (_private->inspectorDebuggable)
         _private->inspectorDebuggable->setInspectable(allow);
 }
@@ -3182,7 +3182,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // This parses the user stylesheet synchronously so anything that may affect it should be done first.
     if ([preferences userStyleSheetEnabled]) {
         NSString* location = [[preferences userStyleSheetLocation] _web_originalDataAsString];
-        // MAVERICKS_BACKPORT: DashboardClient names its widget stylesheet by this sentinel, which WebKit
+        // AQUAWEBKIT: DashboardClient names its widget stylesheet by this sentinel, which WebKit
         // resolves to the file. That sheet is what gives every native control in a widget its
         // -apple-dashboard-region, so without the translation no widget reports a control region.
         if ([location isEqualToString:@"apple-dashboard://stylesheet"])
@@ -3197,7 +3197,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     WebCore::DeprecatedGlobalSettings::setNetworkInterfaceName([preferences networkInterfaceName]);
 #endif
 
-// MAVERICKS_BACKPORT: the modern Encrypted Media API's CDMs keep their per-origin records under
+// AQUAWEBKIT: the modern Encrypted Media API's CDMs keep their per-origin records under
 // this directory too, reaching it through Document::mediaKeysStorageDirectory.
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
     _private->page->setMediaKeysStorageDirectory([preferences mediaKeysStorageDirectory]);
@@ -4497,7 +4497,7 @@ IGNORE_WARNINGS_END
     WebCore::SecurityPolicy::resetOriginAccessAllowlists();
 }
 
-// MAVERICKS_BACKPORT: restore the old "Whitelist" origin-access SPI names Safari 7 still calls.
+// AQUAWEBKIT: restore the old "Whitelist" origin-access SPI names Safari 7 still calls.
 // Safari 7-era compatibility: these SPI were renamed "Whitelist" -> "AllowList" in modern
 // WebKit. Safari's Extension::configureCrossOriginWhiteList still calls the old "Whitelist"
 // selectors when enabling an extension; without them the call raises NSInvalidArgumentException
@@ -4527,7 +4527,7 @@ IGNORE_WARNINGS_END
     if (![window isVisible])
         return false;
 
-    // MAVERICKS_BACKPORT: consult the ancestors' hidden state but not this view's own isHidden.
+    // AQUAWEBKIT: consult the ancestors' hidden state but not this view's own isHidden.
     // Safari-7-era hosts toggle the WebView's own hidden flag as a transient UI mechanism —
     // DashboardClient's WebClip plugin hides its WebView behind a loading overlay on every widget
     // boot — on the 537.x contract that view-hides were not pushed into page visibility (537.x
@@ -4847,12 +4847,12 @@ IGNORE_WARNINGS_END
 
 - (void)_setIsVisible:(BOOL)isVisible
 {
-    // MAVERICKS_BACKPORT: track the prior visibility so we can force a render on the hidden->visible edge (block below).
+    // AQUAWEBKIT: track the prior visibility so we can force a render on the hidden->visible edge (block below).
     if (_private->page) {
         bool wasVisible = _private->page->isVisible();
         _private->page->setIsVisible(isVisible);
 
-        // MAVERICKS_BACKPORT: WK1 has no implicit repaint on becoming visible; force one so offscreen-loaded WebViews aren't blank.
+        // AQUAWEBKIT: WK1 has no implicit repaint on becoming visible; force one so offscreen-loaded WebViews aren't blank.
         // When a Legacy WebKit page transitions to visible, force a fresh rendering update.
         // Unlike WebKit2 (whose drawing area re-displays the page when it becomes visible),
         // WK1 has no implicit repaint here: WebCore's Page::setIsVisibleInternal(true) only
@@ -4868,7 +4868,7 @@ IGNORE_WARNINGS_END
             // update so a WebView created at its final size while hidden re-lays-out. This made
             // Top Sites thumbnails render. (A forceLayout here to also fix the embedded-WebView
             // 0x0-document-view case — Extensions pane / Extension Builder / popovers — crashes
-            // Safari whether sync or deferred; see webkit-mavericks-extensions memory.)
+            // Safari whether sync or deferred; see aquawebkit-extensions memory.)
             //
             // Deliberately no _setNeedsOneShotDrawingSynchronization: here. That flag belongs to
             // WebCore, which raises it only when content actually moves between the window and a
@@ -5354,7 +5354,7 @@ IGNORE_WARNINGS_END
     WebCore::initializeMainThreadIfNeeded();
 
 #if USE(GCRYPT)
-    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this port. libgcrypt is initialized once
+    // AQUAWEBKIT: WebCrypto is backed by libgcrypt on this port. libgcrypt is initialized once
     // per process, by whichever of this and InitializeWebKit2() runs first; WebKit1-only hosts such as
     // DashboardClient run only this one.
     if (!gcry_control(GCRYCTL_INITIALIZATION_FINISHED_P))
@@ -5496,7 +5496,7 @@ IGNORE_WARNINGS_END
     return [[self class] _canShowMIMEType:MIMEType allowingPlugins:NO];
 }
 
-// MAVERICKS_BACKPORT: these were stubbed to nil upstream (the WebView-level WebKit-ObjC
+// AQUAWEBKIT: these were stubbed to nil upstream (the WebView-level WebKit-ObjC
 // plug-in lookup fell out of use). Safari Web Clips need them: WebClip.html's <embed
 // type="application/x-apple-webclip-plug-in"> reaches objectContentType() ->
 // _pluginForMIMEType:; with the stub returning nil the embed never became a plug-in
@@ -5551,7 +5551,7 @@ IGNORE_WARNINGS_END
     return db;
 }
 
-// MAVERICKS_BACKPORT: lazily scan the HOST APP's own built-in PlugIns directory
+// AQUAWEBKIT: lazily scan the HOST APP's own built-in PlugIns directory
 // (-[NSBundle builtInPlugInsPath], e.g. Mail.app/Contents/PlugIns) for a WebKit-ObjC
 // WebPlugin. Mail's file-attachment cells are <object type="application/x-apple-msg-attachment">
 // handled by Mail's bundled MailWebPlugIn.webplugin; without a handler objectContentType()
@@ -5585,7 +5585,7 @@ IGNORE_WARNINGS_END
     return db;
 }
 
-// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/app-built-in/widget-bundle databases so Web Clips find WebClip.plugin and Mail attachments find MailWebPlugIn.
+// AQUAWEBKIT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/app-built-in/widget-bundle databases so Web Clips find WebClip.plugin and Mail attachments find MailWebPlugIn.
 - (WebBasePluginPackage *)_pluginForMIMEType:(NSString *)MIMEType
 {
     if (_private->pluginDatabase) {
@@ -5607,7 +5607,7 @@ IGNORE_WARNINGS_END
 
 - (WebBasePluginPackage *)_pluginForExtension:(NSString *)extension
 {
-// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
+// AQUAWEBKIT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
     if (_private->pluginDatabase) {
         if (WebBasePluginPackage *pluginPackage = [_private->pluginDatabase pluginForExtension:extension])
             return pluginPackage;
@@ -7729,7 +7729,7 @@ static WebFrameView *containingFrameView(NSView *view)
 
 @end
 
-// MAVERICKS_BACKPORT: also fire WebCore's shared timer in a private run-loop mode an app pumps to
+// AQUAWEBKIT: also fire WebCore's shared timer in a private run-loop mode an app pumps to
 // advance a load. WebCore::Timer fires from MainThreadSharedTimer's CFRunLoopTimer, registered only
 // in kCFRunLoopCommonModes; the load-completion path (FrameLoader's checkCompleted, the HTML parser
 // scheduler) runs on those timers, so it never progresses while an app spins a non-common mode
@@ -7758,10 +7758,10 @@ static void registerSharedTimerRunLoopMode(NSRunLoop *runLoop, NSString *mode)
 
 - (void)scheduleInRunLoop:(NSRunLoop *)runLoop forMode:(NSString *)mode
 {
-    // MAVERICKS_BACKPORT: brace the schedule body so the run-loop mode is also registered with WebCore's shared timer below.
+    // AQUAWEBKIT: brace the schedule body so the run-loop mode is also registered with WebCore's shared timer below.
     if (runLoop && mode) {
         core(self)->addSchedulePair(SchedulePair::create(runLoop, (CFStringRef)mode));
-        // MAVERICKS_BACKPORT: also fire WebCore's shared timer in this app-registered mode (see registerSharedTimerRunLoopMode).
+        // AQUAWEBKIT: also fire WebCore's shared timer in this app-registered mode (see registerSharedTimerRunLoopMode).
         registerSharedTimerRunLoopMode(runLoop, mode);
     }
 }
@@ -8317,7 +8317,7 @@ static NSAppleEventDescriptor* aeDescFromJSValue(JSC::JSGlobalObject* lexicalGlo
     [super removeObserver:anObserver forKeyPath:keyPath];
 }
 
-// MAVERICKS_BACKPORT: NSKeyValueObservingCustomization — store the KVO observation info in an ivar
+// AQUAWEBKIT: NSKeyValueObservingCustomization — store the KVO observation info in an ivar
 // rather than the global KVO side table. The legacy Safari-7-era WebView provided this override;
 // Xcode 6.2's DVTFoundation KVO-dealloc-assertion setup requires the WebView class to override
 // observationInfo and aborts at launch when it does not (Xcode links WebKit for its help/doc web
@@ -9263,7 +9263,7 @@ FORWARD(toggleUnderline)
         return;
 
     networkingContext->storageSession()->credentialStorage().clearCredentials();
-    // MAVERICKS_BACKPORT: discard reusable authentication state alongside cached credentials.
+    // AQUAWEBKIT: discard reusable authentication state alongside cached credentials.
     networkingContext->storageSession()->clearCocoaCurlCredentialState();
 }
 

@@ -29,7 +29,7 @@
 #import "APIArray.h"
 #import "APIData.h"
 #import "Logging.h"
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 #import "ObjCObjectGraph.h"
 #import "WKBrowsingContextHandle.h"
 #import "WKBundleAPICast.h"
@@ -40,7 +40,7 @@
 #import <CoreFoundation/CFURL.h>
 #import <Foundation/NSBundle.h>
 #import <WebCore/PlatformKeyboardEvent.h>
-#import <WebCore/SafariReaderMozillaReadability.h> // MAVERICKS_BACKPORT: InjectedBundle::initialize below.
+#import <WebCore/SafariReaderMozillaReadability.h> // AQUAWEBKIT: InjectedBundle::initialize below.
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <stdio.h>
@@ -116,7 +116,7 @@ bool InjectedBundle::decodeBundleParameters(API::Data* bundleParameterDataPtr)
 
 bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, RefPtr<API::Object>&& initializationUserData)
 {
-    WebCore::installMozillaReadabilityForSafariReader(); // MAVERICKS_BACKPORT: Safari 7's Reader works from Mozilla's Readability (see the function).
+    WebCore::installMozillaReadabilityForSafariReader(); // AQUAWEBKIT: Safari 7's Reader works from Mozilla's Readability (see the function).
 
     if (auto sandboxExtension = std::exchange(m_sandboxExtension, nullptr)) {
         if (!sandboxExtension->consumePermanently()) {
@@ -207,7 +207,7 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
         return false;
     }
 
-    // MAVERICKS_BACKPORT: the plug-in is initialized with the ObjCObjectGraph its embedder's
+    // AQUAWEBKIT: the plug-in is initialized with the ObjCObjectGraph its embedder's
     // WKProcessGroup delegate returned (iBooks' book configuration; see ObjCObjectGraph.h).
     // if ([instance respondsToSelector:@selector(webProcessPlugIn:initializeWithObject:)])
     //     [instance webProcessPlugIn:plugInController.get() initializeWithObject:nil];

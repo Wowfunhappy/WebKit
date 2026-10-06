@@ -1396,7 +1396,7 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
                 return;
             if (--protectedThis->m_requestCount)
                 return;
-            // MAVERICKS_BACKPORT: for a document that has already completed, also run
+            // AQUAWEBKIT: for a document that has already completed, also run
             // checkLoadComplete() here. checkCompleted() early-returns on m_isComplete before its
             // trailing checkLoadComplete(), so a completed document whose last outstanding request
             // piggybacks on another document's in-flight CachedResource (this whenLoaded callback is
@@ -1407,7 +1407,7 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
             // when it does complete, after its load event.
             if (RefPtr frame = protectedThis->frame()) {
                 frame->loader().checkCompleted();
-                // MAVERICKS_BACKPORT: (see the comment above this block)
+                // AQUAWEBKIT: (see the comment above this block)
                 if (frame->loader().isComplete())
                     frame->loader().checkLoadComplete();
             }

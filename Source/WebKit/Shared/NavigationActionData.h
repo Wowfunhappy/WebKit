@@ -26,7 +26,7 @@
 #pragma once
 
 #include "FrameInfoData.h"
-// MAVERICKS_BACKPORT (#60): UserData carries the bundlePolicyUserData field added below.
+// AQUAWEBKIT (#60): UserData carries the bundlePolicyUserData field added below.
 #include "UserData.h"
 #include "WebHitTestResultData.h"
 #include "WebMouseEvent.h"
@@ -96,7 +96,7 @@ struct NavigationActionData {
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
 
-    // MAVERICKS_BACKPORT (#60): userData the restored injected-bundle policy client
+    // AQUAWEBKIT (#60): userData the restored injected-bundle policy client
     // (InjectedBundlePagePolicyClient) produces for this navigation -- for Safari 7, a WKDictionary
     // holding the "CanHandleRequest" Boolean and "OriginatingFrame" Frame keys built by
     // BrowserBundlePagePolicyClient::userDataForAction. Its UI-process WKPagePolicyClient callback

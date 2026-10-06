@@ -297,7 +297,7 @@ uint64_t ContinuousApproximateTime::toMachContinuousApproximateTime() const
 
 MonotonicTime MonotonicTime::now()
 {
-// MAVERICKS_BACKPORT: USE(GLIB) is globally on for GStreamer; the monotonic clock stays on the
+// AQUAWEBKIT: USE(GLIB) is globally on for GStreamer; the monotonic clock stays on the
 // Darwin backend. g_get_monotonic_time() reports whole microseconds, where fromMachAbsoluteTime()
 // keeps nanoseconds.
 #if USE(GLIB) && !OS(DARWIN)

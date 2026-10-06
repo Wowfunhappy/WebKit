@@ -141,7 +141,7 @@ class LibWebRTCCodecs;
 class LibWebRTCNetwork;
 class ModelProcessConnection;
 class ModelProcessModelPlayerManager;
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 class ObjCObjectGraph;
 class RemoteCDMFactory;
 class RemoteImageDecoderAVFManager;
@@ -156,7 +156,7 @@ class WebBroadcastChannelRegistry;
 class WebCacheStorageProvider;
 class WebCompiledContentRuleListData;
 class WebCookieJar;
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 class WebConnectionToUIProcess;
 class WebFileSystemStorageConnection;
 class WebFrame;
@@ -214,7 +214,7 @@ public:
     static WebProcess& singleton();
     static constexpr WTF::AuxiliaryProcessType processType = WTF::AuxiliaryProcessType::WebContent;
 
-    // MAVERICKS_BACKPORT: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
+    // AQUAWEBKIT: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
     // static WebPage::canHandleRequest accepts them (see WebProcess::registerURLSchemeForCustomProtocol).
     bool isURLSchemeRegisteredForCustomProtocol(const String&) const;
 
@@ -251,7 +251,7 @@ public:
     void ref() const final { }
     void deref() const final { }
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     WebConnectionToUIProcess* webConnectionToUIProcess() const { return m_webConnection.get(); }
 
     WebPage* webPage(WebCore::PageIdentifier) const;
@@ -381,7 +381,7 @@ public:
     const String& uiProcessBundleIdentifier() const LIFETIME_BOUND { return m_uiProcessBundleIdentifier; }
 
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the UI process's CARemoteLayerServer port (WebKit-537
+    // AQUAWEBKIT: the UI process's CARemoteLayerServer port (WebKit-537
     // acceleratedCompositingPort arrangement); LayerHostingContext::createForPort creates hosted
     // CAContexts against it for pages in windows that composite their layer tree in-process
     // (LayerHostingMode::InProcess). MACH_PORT_NULL when not supplied.
@@ -409,7 +409,7 @@ public:
     RefPtr<API::Object> transformHandlesToObjects(API::Object*);
     static RefPtr<API::Object> transformObjectsToHandles(API::Object*);
 
-    // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+    // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
     RefPtr<ObjCObjectGraph> transformHandlesToObjects(ObjCObjectGraph&);
     static RefPtr<ObjCObjectGraph> transformObjectsToHandles(ObjCObjectGraph&);
@@ -459,7 +459,7 @@ public:
 #if PLATFORM(MAC)
     void openDirectoryCacheInvalidated(SandboxExtension::Handle&&, SandboxExtension::Handle&&);
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
-    // MAVERICKS_BACKPORT: where the UIProcess installed Google's Widevine CDM (see WebCore's
+    // AQUAWEBKIT: where the UIProcess installed Google's Widevine CDM (see WebCore's
     // WidevineCdmInstaller.h), and the extension that lets this process read it.
     void setWidevineCdmModule(const String& path, SandboxExtension::Handle&&);
 #endif
@@ -629,7 +629,7 @@ private:
     void registerURLSchemeAsCachePartitioned(const String&) const;
     void registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String&) const;
 
-    // MAVERICKS_BACKPORT: schemes registered by the app for NetworkProcess custom-protocol handling
+    // AQUAWEBKIT: schemes registered by the app for NetworkProcess custom-protocol handling
     // (e.g. safari-reader://). Tracked so WebPage::canHandleRequest accepts them (the public query
     // isURLSchemeRegisteredForCustomProtocol is declared in the public section above).
     void registerURLSchemeForCustomProtocol(const String&);
@@ -754,7 +754,7 @@ private:
     void platformInitializeProcess(const AuxiliaryProcessInitializationParameters&);
 
     // IPC::Connection::Client
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     friend class WebConnectionToUIProcess;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     void didClose(IPC::Connection&) final;
@@ -822,7 +822,7 @@ private:
 
     bool NODELETE isProcessBeingCachedForPerformance();
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     RefPtr<WebConnectionToUIProcess> m_webConnection;
 
     HashMap<WebCore::PageIdentifier, Ref<WebPage>> m_pageMap;
@@ -860,7 +860,7 @@ private:
 
     String m_uiProcessBundleIdentifier;
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: see compositingRenderServerPort().
+    // AQUAWEBKIT: see compositingRenderServerPort().
     WTF::MachSendRight m_compositingRenderServerPort;
 #endif
     RefPtr<NetworkProcessConnection> m_networkProcessConnection;
@@ -904,7 +904,7 @@ private:
     HashSet<String> m_dnsPrefetchedHosts;
     PAL::HysteresisActivity m_dnsPrefetchHystereris;
 
-    // MAVERICKS_BACKPORT: app-registered custom-protocol schemes (case-insensitive, like URL schemes).
+    // AQUAWEBKIT: app-registered custom-protocol schemes (case-insensitive, like URL schemes).
     HashSet<String, ASCIICaseInsensitiveHash> m_urlSchemesRegisteredForCustomProtocols;
 
     RefPtr<WebAutomationSessionProxy> m_automationSessionProxy;

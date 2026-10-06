@@ -77,7 +77,7 @@ VideoTrackPrivateGStreamer::VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPl
 void VideoTrackPrivateGStreamer::capsChanged(TrackID streamId, GRefPtr<GstCaps>&& caps)
 {
     ASSERT(isMainThread());
-    // MAVERICKS_BACKPORT: the decoder probe's codec stands in for caps that name no codec, such as a playbin pad's raw
+    // AQUAWEBKIT: the decoder probe's codec stands in for caps that name no codec, such as a playbin pad's raw
     // caps. It is the first codec that decoder saw, so caps naming a codec are the newer description.
     bool capsNameCodec = caps && !GMallocString::unsafeAdoptFromUTF8(gst_codec_utils_caps_get_mime_codec(caps.get())).isEmpty();
     updateConfigurationFromCaps(WTF::move(caps));
@@ -85,7 +85,7 @@ void VideoTrackPrivateGStreamer::capsChanged(TrackID streamId, GRefPtr<GstCaps>&
     RefPtr player = m_data->m_player.get();
     if (!player)
         return;
-    if (capsNameCodec) // MAVERICKS_BACKPORT: see capsNameCodec above.
+    if (capsNameCodec) // AQUAWEBKIT: see capsNameCodec above.
         return;
 
     auto codec = player->codecForStreamId(streamId);
@@ -155,7 +155,7 @@ void VideoTrackPrivateGStreamer::updateConfigurationFromCaps(GRefPtr<GstCaps>&& 
 #endif
 
     int pixelAspectRatioNumerator, pixelAspectRatioDenominator, stride;
-    // MAVERICKS_BACKPORT(upstreamable): getVideoSizeAndFormatFromCaps() writes frameRate only when the
+    // AQUAWEBKIT(upstreamable): getVideoSizeAndFormatFromCaps() writes frameRate only when the
     // caps carry a non-zero framerate numerator, and the value lands in VideoTrackConfiguration
     // unconditionally, so it starts at PlatformVideoTrackConfiguration's own "unknown" value.
     // double frameRate;

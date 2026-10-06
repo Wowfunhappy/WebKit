@@ -35,7 +35,7 @@ enum class DrawingAreaType : bool {
     RemoteLayerTree,
 };
 
-// MAVERICKS_BACKPORT: restored from WebKit-537 (upstream removed layer hosting modes when Mac
+// AQUAWEBKIT: restored from WebKit-537 (upstream removed layer hosting modes when Mac
 // compositing went RemoteLayerTree-only). On 10.9 a hosted CAContext is displayable only when
 // its flavor matches how the host window composites its layer tree: windows that host layers in
 // the WindowServer (every normal window) display CGS-connection contexts, while windows that

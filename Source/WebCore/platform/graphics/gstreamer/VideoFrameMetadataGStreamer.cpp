@@ -33,7 +33,7 @@ using namespace WebCore;
 
 struct VideoFrameMetadataPrivate {
     std::optional<VideoFrameTimeMetadata> videoSampleMetadata;
-    // MAVERICKS_BACKPORT: Original WebCodecs timing includes signed timestamps and an explicitly absent duration.
+    // AQUAWEBKIT: Original WebCodecs timing includes signed timestamps and an explicitly absent duration.
     std::optional<std::pair<int64_t, std::optional<uint64_t>>> webCodecsTiming;
     VideoFrame::Rotation rotation { VideoFrame::Rotation::None };
     bool isMirrored { false };
@@ -101,7 +101,7 @@ const GstMetaInfo* videoFrameMetadataGetInfo()
                 auto frameMeta = VIDEO_FRAME_METADATA_CAST(meta);
                 auto copyMeta = VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(buffer, videoFrameMetadataGetInfo(), nullptr));
                 copyMeta->priv->videoSampleMetadata = frameMeta->priv->videoSampleMetadata;
-                // MAVERICKS_BACKPORT: Encoding and parsing copy the timing of the corresponding input frame.
+                // AQUAWEBKIT: Encoding and parsing copy the timing of the corresponding input frame.
                 copyMeta->priv->webCodecsTiming = frameMeta->priv->webCodecsTiming;
                 copyMeta->priv->rotation = frameMeta->priv->rotation;
                 copyMeta->priv->isMirrored = frameMeta->priv->isMirrored;
@@ -152,7 +152,7 @@ GRefPtr<GstBuffer> webkitGstBufferSetVideoFrameMetadata(GRefPtr<GstBuffer>&& buf
     return modifiedBuffer;
 }
 
-// MAVERICKS_BACKPORT: The existing video metadata transport preserves per-frame timing across asynchronous encoding.
+// AQUAWEBKIT: The existing video metadata transport preserves per-frame timing across asynchronous encoding.
 GRefPtr<GstBuffer> webkitGstBufferSetWebCodecsTiming(GRefPtr<GstBuffer>&& buffer, int64_t timestamp, std::optional<uint64_t> duration)
 {
     auto writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));

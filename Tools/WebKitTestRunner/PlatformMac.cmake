@@ -73,7 +73,7 @@ set(_wtr_mac_include_dirs
     ${ICU_INCLUDE_DIRS}
     ${WEBCORE_DIR}/testing/cocoa
     ${WEBKITLEGACY_DIR}
-    # MAVERICKS_BACKPORT: the <WebKit/WebKit.h> (WK2) umbrella pulls in <WebKit/WebKitLegacy.h>, which includes
+    # AQUAWEBKIT: the <WebKit/WebKit.h> (WK2) umbrella pulls in <WebKit/WebKitLegacy.h>, which includes
     # the WebKit1 DOM umbrella <WebKit/DOM.h>. Those resolve via the WebKit->WebKitLegacy headers symlink in
     # ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}, so put that forwarded-headers root on the path (WebKitTestRunner
     # does not link WebKitLegacy, so it isn't added automatically).
@@ -88,7 +88,7 @@ set(_wtr_mac_include_dirs
     ${WebKitTestRunner_SHARED_DIR}/cocoa
     ${WebKitTestRunner_SHARED_DIR}/mac
     ${WebKitTestRunner_SHARED_DIR}/spi
-    # MAVERICKS_BACKPORT: the testing helpers (UIScriptControllerCocoa.mm, WKTextExtractionTestingHelpers.mm)
+    # AQUAWEBKIT: the testing helpers (UIScriptControllerCocoa.mm, WKTextExtractionTestingHelpers.mm)
     # import a WebKit-internal Cocoa API header by name (#import "_WKTextExtractionInternal.h"), which Apple's
     # Xcode build resolves via the WebKit project header search path. The cmake port forwards the public/private
     # Cocoa API headers but not the *Internal.h ones, so add the source dir last (after the WebKit2 forwarded
@@ -134,7 +134,7 @@ list(APPEND TestRunnerInjectedBundle_LIBRARIES
     WebCoreTestSupport
     WebKit
 )
-# MAVERICKS_BACKPORT: append as a STRING, not a list. CMAKE_SHARED_LINKER_FLAGS is a space-separated string;
+# AQUAWEBKIT: append as a STRING, not a list. CMAKE_SHARED_LINKER_FLAGS is a space-separated string;
 # the backport already puts -fuse-ld=lld in it, so the upstream `set(VAR ${VAR} "-framework Cocoa")` form
 # produced a ';'-joined list ("-fuse-ld=lld;-framework Cocoa"), which the shell split (-framework: not found).
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -framework Cocoa")
@@ -166,10 +166,10 @@ list(APPEND WebKitTestRunner_SOURCES
     ${WebKitTestRunner_SHARED_DIR}/cocoa/ModifierKeys.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/PlatformViewHelpers.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/PoseAsClass.mm
-    # MAVERICKS_BACKPORT: WebKitTestRunnerPasteboard.mm calls +[NSPasteboard _modernPasteboardType:],
+    # AQUAWEBKIT: WebKitTestRunnerPasteboard.mm calls +[NSPasteboard _modernPasteboardType:],
     # which this shared source defines.
     ${WebKitTestRunner_SHARED_DIR}/mac/NSPasteboardAdditions.mm
-    # MAVERICKS_BACKPORT: shared cocoa sources defining InstanceMethodSwizzler, ModifierKeys and
+    # AQUAWEBKIT: shared cocoa sources defining InstanceMethodSwizzler, ModifierKeys and
     # LayoutTestSpellChecker, referenced by EventSenderProxy/TestController but missing from the Mac list.
     ${WebKitTestRunner_SHARED_DIR}/cocoa/InstanceMethodSwizzler.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/ModifierKeys.mm

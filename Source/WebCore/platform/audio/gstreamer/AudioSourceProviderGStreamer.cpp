@@ -312,7 +312,7 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
         GRefPtr teeSrcPad = adoptGRef(gst_pad_get_peer(queueSinkPad.get()));
 
         ASP_DEBUG("Cleaning up audio deinterleave chain");
-        // MAVERICKS_BACKPORT: the tee pad is released before the branch leaves PLAYING. A buffer the
+        // AQUAWEBKIT: the tee pad is released before the branch leaves PLAYING. A buffer the
         // tee pushes into a deactivated queue returns GST_FLOW_FLUSHING, which the tee propagates and
         // which pauses the playbin audio queue's task for good.
         gst_element_release_request_pad(audioTee.get(), teeSrcPad.get());
@@ -323,7 +323,7 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
         gstElementLockAndSetState(deInterleave.get(), GST_STATE_NULL);
         gst_element_unlink_many(audioTee.get(), audioQueue.get(), audioConvert.get(), audioResample.get(), capsFilter.get(), deInterleave.get(), nullptr);
         gst_bin_remove_many(GST_BIN_CAST(m_audioSinkBin.get()), audioQueue.get(), audioConvert.get(), audioResample.get(), capsFilter.get(), deInterleave.get(), nullptr);
-        // gst_element_release_request_pad(audioTee.get(), teeSrcPad.get()); // MAVERICKS_BACKPORT: released above.
+        // gst_element_release_request_pad(audioTee.get(), teeSrcPad.get()); // AQUAWEBKIT: released above.
     }
 
     if (m_client) {
@@ -351,7 +351,7 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
         // audioresample ! capsfilter ! deinterleave. Later
         // on each deinterleaved planar audio channel will be routed to an
         // appsink for data extraction and processing.
-        // gst_element_link_pads_full(audioTee.get(), "src_%u", audioQueue, "sink", GST_PAD_LINK_CHECK_NOTHING); // MAVERICKS_BACKPORT: linked below, once the branch is active.
+        // gst_element_link_pads_full(audioTee.get(), "src_%u", audioQueue, "sink", GST_PAD_LINK_CHECK_NOTHING); // AQUAWEBKIT: linked below, once the branch is active.
         gst_element_link_pads_full(audioQueue, "src", audioConvert, "sink", GST_PAD_LINK_CHECK_NOTHING);
         gst_element_link_pads_full(audioConvert, "src", audioResample, "sink", GST_PAD_LINK_CHECK_NOTHING);
         gst_element_link_pads_full(audioResample, "src", capsFilter, "sink", GST_PAD_LINK_CHECK_NOTHING);
@@ -363,7 +363,7 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
         gst_element_sync_state_with_parent(capsFilter);
         gst_element_sync_state_with_parent(deInterleave);
 
-        // MAVERICKS_BACKPORT: the tee feeds the branch only once every element in it is active; a
+        // AQUAWEBKIT: the tee feeds the branch only once every element in it is active; a
         // buffer pushed into the still-inactive queue returns GST_FLOW_FLUSHING, which the tee
         // propagates and which pauses the playbin audio queue's task for good.
         gst_element_link_pads_full(audioTee.get(), "src_%u", audioQueue, "sink", GST_PAD_LINK_CHECK_NOTHING);
@@ -411,7 +411,7 @@ void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)
     // should process buffers as fast as possible.
     g_object_set(sink, "async", FALSE, "sync", FALSE, nullptr);
 
-    // MAVERICKS_BACKPORT: the pipeline posts EOS once every sink in it, these appsinks and the platform
+    // AQUAWEBKIT: the pipeline posts EOS once every sink in it, these appsinks and the platform
     // audio sink included, has consumed EOS. An EOS posted per unsynchronized appsink reaches the player
     // once per channel and before the platform sinks render the tail.
     /*
@@ -424,7 +424,7 @@ void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)
         if (pipeline && pipeline->bus)
             gst_bus_post(pipeline->bus, gst_message_new_eos(GST_OBJECT(appsink)));
     }), sink);
-    */ // MAVERICKS_BACKPORT: closes the appsink EOS forward above.
+    */ // AQUAWEBKIT: closes the appsink EOS forward above.
 
     GRefPtr caps = adoptGRef(gst_caps_new_simple("audio/x-raw",
         "channels", G_TYPE_INT, 1, "format", G_TYPE_STRING, GST_AUDIO_NE(F32), "layout", G_TYPE_STRING, "interleaved", nullptr));

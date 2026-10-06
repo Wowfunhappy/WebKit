@@ -115,7 +115,7 @@ static std::optional<IPAddress> extractIPAddress(const struct sockaddr* address)
     return std::nullopt;
 }
 
-#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw_resolver path.
+#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw_resolver path.
 static constexpr auto timeoutForDNSResolution = 60_s;
 
 void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<CompletionHandlerWrapper>&& completionHandler)
@@ -183,7 +183,7 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
 
     ++m_prefetchedHostnameCountForTesting;
 }
-#else // MAVERICKS_BACKPORT: Network.framework is absent below 10.14; the lookup goes through dns_sd (DNSServiceGetAddrInfo).
+#else // AQUAWEBKIT: Network.framework is absent below 10.14; the lookup goes through dns_sd (DNSServiceGetAddrInfo).
 class DNSAddressAccumulator : public RefCounted<DNSAddressAccumulator> {
 public:
     static Ref<DNSAddressAccumulator> create(Ref<DNSResolveQueueCFNet::CompletionHandlerWrapper>&& completionHandler) { return adoptRef(*new DNSAddressAccumulator(WTF::move(completionHandler))); }
@@ -256,7 +256,7 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
     result = DNSServiceSetDispatchQueue(service, mainDispatchQueueSingleton());
     ASSERT_UNUSED(result, result == kDNSServiceErr_NoError);
 }
-#endif // MAVERICKS_BACKPORT: closes the HAVE(NETWORK_FRAMEWORK) resolver selection above.
+#endif // AQUAWEBKIT: closes the HAVE(NETWORK_FRAMEWORK) resolver selection above.
 
 void DNSResolveQueueCFNet::platformResolve(const String& hostname)
 {

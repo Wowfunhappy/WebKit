@@ -41,13 +41,13 @@
 #import <CoreMedia/CoreMedia.h>
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-// MAVERICKS_BACKPORT: iconForImageFile below decodes in WebCore, not in ImageIO, and applies the
+// AQUAWEBKIT: iconForImageFile below decodes in WebCore, not in ImageIO, and applies the
 // orientation itself where kCGImageSourceCreateThumbnailWithTransform used to.
 #import <WebCore/FloatSize.h>
 #import <WebCore/ImageDecoder.h>
 #import <WebCore/ImageOrientation.h>
 #import <WebCore/PlatformImage.h>
-#import <WebCore/SharedBuffer.h> // MAVERICKS_BACKPORT: for that decode.
+#import <WebCore/SharedBuffer.h> // AQUAWEBKIT: for that decode.
 #import <wtf/MathExtras.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
@@ -132,12 +132,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 }
 
-// MAVERICKS_BACKPORT: only the ImageIO path below reads this key, and that path is not taken on
+// AQUAWEBKIT: only the ImageIO path below reads this key, and that path is not taken on
 // this port; the guard keeps the declaration where upstream has it without leaving it unused.
 #if !PLATFORM(MAC)
 const CFStringRef kCGImageSourceEnableRestrictedDecoding = CFSTR("kCGImageSourceEnableRestrictedDecoding");
 #else
-// MAVERICKS_BACKPORT: kCGImageSourceCreateThumbnailWithTransform baked the file's orientation into
+// AQUAWEBKIT: kCGImageSourceCreateThumbnailWithTransform baked the file's orientation into
 // the thumbnail ImageIO returned. A decoded frame carries its orientation beside the pixels instead,
 // so it is baked here, by the sequence createDragImageFromImage uses (DragImageCocoa.mm): flip into
 // ImageOrientation's top-left space, apply, flip back for the draw.
@@ -170,13 +170,13 @@ static RetainPtr<CGImageRef> imageWithOrientationApplied(CGImageRef image, WebCo
     RetainPtr<CGImageRef> rotated = adoptCF(CGBitmapContextCreateImage(context.get()));
     return rotated ? rotated : RetainPtr<CGImageRef> { image };
 }
-#endif // MAVERICKS_BACKPORT: closes the split above.
+#endif // AQUAWEBKIT: closes the split above.
 
 RetainPtr<CocoaImage> iconForImageFile(NSURL *file)
 {
     ASSERT_ARG(file, [file isFileURL]);
 
-// MAVERICKS_BACKPORT: the file is one the page's <input type=file> asked for, and this port decodes
+// AQUAWEBKIT: the file is one the page's <input type=file> asked for, and this port decodes
 // image bytes in WebCore rather than in 10.9's ImageIO. There is no thumbnail-sized decode to ask
 // for, so the frame is decoded whole and thumbnailSizedImageForImage below scales it, as it already
 // does for the thumbnail ImageIO returns.
@@ -199,7 +199,7 @@ RetainPtr<CocoaImage> iconForImageFile(NSURL *file)
     };
     RetainPtr<CGImageSource> imageSource = adoptCF(CGImageSourceCreateWithURL((CFURLRef)file, 0));
     RetainPtr<CGImageRef> thumbnail = adoptCF(CGImageSourceCreateThumbnailAtIndex(imageSource.get(), 0, (CFDictionaryRef)options));
-#endif // MAVERICKS_BACKPORT: closes the split above.
+#endif // AQUAWEBKIT: closes the split above.
     if (!thumbnail) {
         LOG_ERROR("Error creating thumbnail image for image: %@", file);
         return fallbackIconForFile(file);

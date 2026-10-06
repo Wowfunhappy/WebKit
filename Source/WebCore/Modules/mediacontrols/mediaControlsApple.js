@@ -1,9 +1,9 @@
 // Classic Safari 7 / Mavericks HTML5 media controls.
 //
-// MAVERICKS_BACKPORT (#68): restored verbatim from upstream WebKit d55388c (the mediaControlsApple.js
+// AQUAWEBKIT (#68): restored verbatim from upstream WebKit d55388c (the mediaControlsApple.js
 // that shipped in Safari 7.0.x) so embedded <audio>/<video> without site-provided controls render the
 // era-correct Aqua UI instead of the flat modern-media-controls WebKit adopted later. The only changes
-// from the upstream original are tagged MAVERICKS_BACKPORT inline and adapt the 2013 code to modern
+// from the upstream original are tagged AQUAWEBKIT inline and adapt the 2013 code to modern
 // WebKit: the shadow-part content attribute was renamed `pseudo` -> `useragentpart`; the per-part
 // pseudo-elements were renamed `-webkit-media-controls-*` -> `-internal-media-controls-*` (modern
 // WebKit directs UA-only pseudo-elements to the `-internal-` prefix; the root `-webkit-media-controls`
@@ -14,7 +14,7 @@
 function createControls(root, video, host)
 {
     var controller = new Controller(root, video, host);
-    // MAVERICKS_BACKPORT (#68): retain the controller on the host so HTMLMediaElement can push
+    // AQUAWEBKIT (#68): retain the controller on the host so HTMLMediaElement can push
     // page-scale / UI-direction updates onto it (modern controller-retention path).
     host.controller = controller;
     return controller;
@@ -142,7 +142,7 @@ Controller.prototype = {
         'Error': 'Error',
         'Exit Full Screen': 'Exit Full Screen',
         'Fast Forward': 'Fast Forward',
-        // MAVERICKS_BACKPORT (#140): mediaElementLiveBroadcastStateText(), the status the shipped
+        // AQUAWEBKIT (#140): mediaElementLiveBroadcastStateText(), the status the shipped
         // controls showed for a live stream (LocalizedStrings.cpp:849).
         'Live Broadcast': 'Live Broadcast',
         'Loading': 'Loading',
@@ -347,7 +347,7 @@ Controller.prototype = {
         timeline.setAttribute('aria-label', this.UIString('Duration'));
         timeline.style.backgroundImage = '-webkit-canvas(timeline-' + this.timelineID + ')';
         timeline.type = 'range';
-        // MAVERICKS_BACKPORT: 'input', not 'change' (github #75). These controls date from a WebCore
+        // AQUAWEBKIT: 'input', not 'change' (github #75). These controls date from a WebCore
         // whose range input dispatched change events continuously while the thumb was dragged, which is
         // what handleTimelineChange's fastSeek and handleTimelineMouseUp's "precise seek when we lift
         // the mouse" are built around. Today HTMLInputElement::setValueFromRenderer dispatches only
@@ -404,7 +404,7 @@ Controller.prototype = {
         volume.min = 0;
         volume.max = 1;
         volume.step = .01;
-        // MAVERICKS_BACKPORT: 'input', not 'change' (github #75) - see the timeline slider above; with
+        // AQUAWEBKIT: 'input', not 'change' (github #75) - see the timeline slider above; with
         // 'change' the volume did not move until the drag was released.
         this.listenFor(volume, 'input', this.handleVolumeSliderChange);
 
@@ -503,7 +503,7 @@ Controller.prototype = {
 
     handleLoadStart: function(event)
     {
-        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // AQUAWEBKIT (#140): route the event's string through updateStatusDisplay so text
         // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
         // this.controls.statusDisplay.innerText = this.UIString('Loading');
         this.updateStatusDisplay(this.UIString('Loading'));
@@ -512,7 +512,7 @@ Controller.prototype = {
 
     handleError: function(event)
     {
-        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // AQUAWEBKIT (#140): route the event's string through updateStatusDisplay so text
         // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
         // this.controls.statusDisplay.innerText = this.UIString('Error');
         this.updateStatusDisplay(this.UIString('Error'));
@@ -520,7 +520,7 @@ Controller.prototype = {
 
     handleAbort: function(event)
     {
-        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // AQUAWEBKIT (#140): route the event's string through updateStatusDisplay so text
         // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
         // this.controls.statusDisplay.innerText = this.UIString('Aborted');
         this.updateStatusDisplay(this.UIString('Aborted'));
@@ -528,7 +528,7 @@ Controller.prototype = {
 
     handleSuspend: function(event)
     {
-        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // AQUAWEBKIT (#140): route the event's string through updateStatusDisplay so text
         // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
         // this.controls.statusDisplay.innerText = this.UIString('Suspended');
         this.updateStatusDisplay(this.UIString('Suspended'));
@@ -536,7 +536,7 @@ Controller.prototype = {
 
     handleStalled: function(event)
     {
-        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // AQUAWEBKIT (#140): route the event's string through updateStatusDisplay so text
         // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
         // this.controls.statusDisplay.innerText = this.UIString('Stalled');
         this.updateStatusDisplay(this.UIString('Stalled'));
@@ -545,7 +545,7 @@ Controller.prototype = {
 
     handleWaiting: function(event)
     {
-        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // AQUAWEBKIT (#140): route the event's string through updateStatusDisplay so text
         // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
         // this.controls.statusDisplay.innerText = this.UIString('Waiting');
         this.updateStatusDisplay(this.UIString('Waiting'));
@@ -569,7 +569,7 @@ Controller.prototype = {
     handleDurationChange: function(event)
     {
         this.updateDuration();
-        // MAVERICKS_BACKPORT (#140): duration is an input to the status state (live stream), and
+        // AQUAWEBKIT (#140): duration is an input to the status state (live stream), and
         // reset() computed both in one pass; a durationchange need not carry a readystatechange.
         this.updateStatusDisplay();
         this.updateTime();
@@ -915,7 +915,7 @@ Controller.prototype = {
     {
         this.controls.timeline.min = 0;
         this.controls.timeline.max = this.video.duration;
-        // MAVERICKS_BACKPORT (#140): MediaControlsApple::reset(), the C++ controls Safari 7 shipped,
+        // AQUAWEBKIT (#140): MediaControlsApple::reset(), the C++ controls Safari 7 shipped,
         // shows the timeline container on a finite duration and hides it otherwise, so before metadata
         // arrives (duration NaN) and on a live stream (Infinity) the status display owns the panel's
         // flexible middle. The JS controller this port serves in their place has no equivalent.
@@ -1033,7 +1033,7 @@ Controller.prototype = {
         this.updateStatusDisplay();
     },
 
-    // MAVERICKS_BACKPORT (#140): MediaControlStatusDisplayElement::update() derived the status from
+    // AQUAWEBKIT (#140): MediaControlStatusDisplayElement::update() derived the status from
     // current media state and set the element's text and visibility together, so the panel could never
     // hold a visible empty status display. Here the text comes from media events alone while visibility
     // came from readyState, so a controller built after the event -- or for an element that fires none,
@@ -1054,7 +1054,7 @@ Controller.prototype = {
         this.setStatusHidden(!status);
     },
 
-    // MAVERICKS_BACKPORT (#140): MediaControlsApple's isLiveStream() is movieLoadType() == LiveStream,
+    // AQUAWEBKIT (#140): MediaControlsApple's isLiveStream() is movieLoadType() == LiveStream,
     // which MediaPlayerPrivateAVFoundation derives from std::isinf(duration()).
     isLiveStream: function()
     {
@@ -1094,7 +1094,7 @@ Controller.prototype = {
         this.controls.thumbnail.classList.add(this.ClassNames.hidden);
     },
 
-    // MAVERICKS_BACKPORT (#68): HTMLMediaElement.webkitHasClosedCaptions was removed upstream; derive
+    // AQUAWEBKIT (#68): HTMLMediaElement.webkitHasClosedCaptions was removed upstream; derive
     // caption availability from the text track list the way the modern controls do.
     hasClosedCaptions: function()
     {
@@ -1114,7 +1114,7 @@ Controller.prototype = {
             this.controls.captionButton.classList.add(this.ClassNames.hidden);
     },
 
-    // MAVERICKS_BACKPORT (#68): show the fullscreen button only where the Element Fullscreen API
+    // AQUAWEBKIT (#68): show the fullscreen button only where the Element Fullscreen API
     // (video.webkitRequestFullscreen) is available to the page. video.webkitSupportsFullscreen
     // reflects Page::isDocumentFullscreenEnabled(), the gate the request path itself checks, and it
     // is the condition MediaControlsApple::reset() showed the button on.

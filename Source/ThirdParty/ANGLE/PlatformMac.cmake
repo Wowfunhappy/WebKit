@@ -12,7 +12,7 @@ list(APPEND ANGLEGLESv2_LIBRARIES
     ${QUARTZ_LIBRARY}
 )
 
-# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/ANGLEPlatformMavericks.cmake, which
+# AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/ANGLEPlatformAquaWebKit.cmake, which
 # carries every change this port makes to ANGLE's build configuration.
-set(MAVERICKS_ANGLE_PHASE POST)
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/ANGLEPlatformMavericks.cmake)
+set(AQUAWEBKIT_ANGLE_PHASE POST)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/ANGLEPlatformAquaWebKit.cmake)

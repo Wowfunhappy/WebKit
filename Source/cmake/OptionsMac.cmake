@@ -136,9 +136,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WRITING_TOOLS PRIVATE ON)
 # rdar://177360289
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_BACK_FORWARD_LIST_SWIFT PRIVATE ON)
 
-# MAVERICKS_BACKPORT: the port's feature values -- see MavericksSupport/cmake/OptionsMacMavericks.cmake.
-set(MAVERICKS_OPTIONS_PHASE OPTIONS)
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/OptionsMacMavericks.cmake)
+# AQUAWEBKIT: the port's feature values -- see AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake.
+set(AQUAWEBKIT_OPTIONS_PHASE OPTIONS)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake)
 
 WEBKIT_OPTION_END()
 
@@ -230,6 +230,6 @@ endif ()
 
 set(MiniBrowser_DERIVED_SOURCES_DIR "${CMAKE_BINARY_DIR}/DerivedSources/MiniBrowser")
 
-# MAVERICKS_BACKPORT: the port toolchain, dependencies and platform backends.
-set(MAVERICKS_OPTIONS_PHASE POST)
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/OptionsMacMavericks.cmake)
+# AQUAWEBKIT: the port toolchain, dependencies and platform backends.
+set(AQUAWEBKIT_OPTIONS_PHASE POST)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake)

@@ -119,8 +119,8 @@
 
 #if PLATFORM(MAC)
 #include "LocalDefaultSystemAppearance.h"
-#include "GraphicsLayerCA.h" // MAVERICKS_BACKPORT: identify the native compositor's sampling boundaries.
-#include "PlatformCALayerCocoa.h" // MAVERICKS_BACKPORT: the legacy compositor has explicit CSS sorting boundaries.
+#include "GraphicsLayerCA.h" // AQUAWEBKIT: identify the native compositor's sampling boundaries.
+#include "PlatformCALayerCocoa.h" // AQUAWEBKIT: the legacy compositor has explicit CSS sorting boundaries.
 #endif
 
 #if ENABLE(THREADED_ANIMATIONS)
@@ -630,14 +630,14 @@ void RenderLayerBacking::createPrimaryGraphicsLayer()
         layerName = makeString(StringView(layerName).left(maxLayerNameLength), "..."_s);
     m_graphicsLayer = createGraphicsLayer(layerName, m_isFrameLayerWithTiledBacking ? GraphicsLayer::Type::PageTiledBacking : GraphicsLayer::Type::Normal);
 
-    // MAVERICKS_BACKPORT: explicit native CSS sorting boundaries also flatten children above page tiles.
+    // AQUAWEBKIT: explicit native CSS sorting boundaries also flatten children above page tiles.
     bool needsTileFlatteningLayer = m_isFrameLayerWithTiledBacking;
 #if PLATFORM(MAC)
     if (auto* layer = dynamicDowncast<GraphicsLayerCA>(m_graphicsLayer.get()); layer && is<PlatformCALayerCocoa>(*layer->platformCALayer()) && PlatformCALayerCocoa::needsExplicitDepthSorting())
         needsTileFlatteningLayer = false;
-#endif // MAVERICKS_BACKPORT: native Cocoa tile containment.
+#endif // AQUAWEBKIT: native Cocoa tile containment.
     // if (m_isFrameLayerWithTiledBacking) {
-    if (needsTileFlatteningLayer) { // MAVERICKS_BACKPORT: keep the page background in the children's sampling surface.
+    if (needsTileFlatteningLayer) { // AQUAWEBKIT: keep the page background in the children's sampling surface.
         m_childContainmentLayer = createGraphicsLayer("Page TiledBacking containment"_s);
         m_graphicsLayer->addChild(*m_childContainmentLayer);
     }
@@ -917,11 +917,11 @@ void RenderLayerBacking::updateBackdropFiltersGeometry()
 bool RenderLayerBacking::updateBackdropRoot()
 {
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: 10.9 backgroundFilters sample only up to the nearest CALayer that is not a CATransformLayer,
+    // AQUAWEBKIT: 10.9 backgroundFilters sample only up to the nearest CALayer that is not a CATransformLayer,
     // so this layer passes sampling through when it lies below the backdrop root's outermost layer.
     if (auto* layer = dynamicDowncast<GraphicsLayerCA>(m_graphicsLayer.get()))
         layer->setPassesBackdropSampling(m_owningLayer.hasBackdropFilterDescendantsWithoutRoot() && (!m_owningLayer.isBackdropRoot() || m_contentsContainmentLayer));
-#endif // MAVERICKS_BACKPORT: closes the backdrop sampling block above.
+#endif // AQUAWEBKIT: closes the backdrop sampling block above.
 
     // Don't try to make the RenderView's layer a backdrop root if it's going to
     // paint into the window since it won't work (WebKitLegacy only).
@@ -1929,7 +1929,7 @@ void RenderLayerBacking::updateAfterDescendants()
         // For non-root layers, background is always painted by the primary graphics layer.
         ASSERT(!m_backgroundLayer);
         m_graphicsLayer->setContentsOpaque(!m_hasSubpixelRounding && m_owningLayer.backgroundIsKnownToBeOpaqueInRect(compositedBounds()));
-        // MAVERICKS_BACKPORT: scrolled contents draw over the scroller's opaque solid background, which
+        // AQUAWEBKIT: scrolled contents draw over the scroller's opaque solid background, which
         // their layer carries so 10.9 smooths the text drawn there over it (PlatformCALayer::drawLayerContents).
         if (m_scrolledContentsLayer) {
             auto backgroundColor = rendererBackgroundColor();
@@ -4026,10 +4026,10 @@ bool RenderLayerBacking::paintsIntoWindow() const
 
     if (m_owningLayer.isRenderViewLayer()) {
 #if PLATFORM(MAC)
-        // MAVERICKS_BACKPORT: native backgroundFilters sample composited page pixels in WebKit1.
+        // AQUAWEBKIT: native backgroundFilters sample composited page pixels in WebKit1.
         if (m_owningLayer.hasBackdropFilterDescendantsWithoutRoot() && PlatformCALayerCocoa::needsExplicitDepthSorting())
             return false;
-#endif // MAVERICKS_BACKPORT: window painting cannot supply a layer's background filters.
+#endif // AQUAWEBKIT: window painting cannot supply a layer's background filters.
 #if PLATFORM(IOS_FAMILY) || USE(COORDINATED_GRAPHICS)
         if (compositor().inForcedCompositingMode())
             return false;

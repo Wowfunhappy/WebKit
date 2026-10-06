@@ -14,7 +14,7 @@
  * IMPLIED WARRANTIES ARE DISCLAIMED.
  */
 
-// MAVERICKS_BACKPORT: computed-style storage for the legacy -apple-dashboard-region property
+// AQUAWEBKIT: computed-style storage for the legacy -apple-dashboard-region property
 // (control regions used by 10.9 Dashboard widgets). Removed upstream in 2d364c6.
 
 #pragma once

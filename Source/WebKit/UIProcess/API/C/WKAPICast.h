@@ -123,7 +123,7 @@ WK_ADD_API_MAPPING(WKBackForwardListRef, WebBackForwardListWrapper)
 WK_ADD_API_MAPPING(WKBundleHitTestResultMediaType, BundleHitTestResultMediaType)
 WK_ADD_API_MAPPING(WKCaptionUserPreferencesTestingModeTokenRef, API::CaptionUserPreferencesTestingModeToken)
 WK_ADD_API_MAPPING(WKColorPickerResultListenerRef, WebColorPickerResultListenerProxy)
-// MAVERICKS_BACKPORT: the legacy WKCookieManager C SPI Safari 7 drives is backed by API::HTTPCookieStore.
+// AQUAWEBKIT: the legacy WKCookieManager C SPI Safari 7 drives is backed by API::HTTPCookieStore.
 // Only the API-to-impl direction is specialized: WKHTTPCookieStoreRef below already owns
 // ImplTypeInfo<API::HTTPCookieStore>, and one impl type can name only one API type.
 template<> struct APITypeInfo<WKCookieManagerRef> { using ImplType = API::HTTPCookieStore; };

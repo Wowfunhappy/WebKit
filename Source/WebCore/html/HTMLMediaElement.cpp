@@ -1891,7 +1891,7 @@ void HTMLMediaElement::selectMediaResource()
             }
 
             auto absoluteURL = element.document().encodingParseURL(srcValue);
-            // MAVERICKS_BACKPORT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
+            // AQUAWEBKIT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
             if (!element.isSafeToLoadURL(absoluteURL, InvalidURLAction::Complain) || !element.dispatchBeforeLoadEvent(absoluteURL.string())) {
                 element.mediaLoadingFailed(MediaPlayer::NetworkState::FormatError);
                 return;
@@ -2010,7 +2010,7 @@ void HTMLMediaElement::loadResource(const URL& initialURL, const ContentType& in
     }
 
     URL url = initialURL;
-    // MAVERICKS_BACKPORT: which arm applies follows the media engine. The branch below asks the
+    // AQUAWEBKIT: which arm applies follows the media engine. The branch below asks the
     // resource-load delegate about file: URLs only, for the AVFoundation engine that asks its own
     // loader about the rest; the GStreamer engine this port builds puts every URL to the delegate,
     // which is what gives a load the delegate refuses the outcome it has on the other GStreamer
@@ -5841,7 +5841,7 @@ URL HTMLMediaElement::selectNextSourceChild(ContentType* contentType, InvalidURL
 
         // 4. If urlString was not obtained successfully, then end the synchronous section,
         // and jump down to the failed with elements step below.
-        // MAVERICKS_BACKPORT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
+        // AQUAWEBKIT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
         if (!isSafeToLoadURL(mediaURL, actionIfInvalid) || !dispatchBeforeLoadEvent(mediaURL.string()))
             goto CheckAgain;
 
@@ -9246,7 +9246,7 @@ bool HTMLMediaElement::computeCanProduceAudio() const
     // For GStreamer ports the semantics of IsPlayingAudio slightly differ from Apple ports. The
     // webkit_web_view_is_playing_audio() API is expected to return true if a page is producing
     // audio even though it might be muted.
-// MAVERICKS_BACKPORT: USE(GSTREAMER) names the media engine here, not the GTK/WPE API; this port
+// AQUAWEBKIT: USE(GSTREAMER) names the media engine here, not the GTK/WPE API; this port
 // answers Apple's IsPlayingAudio, whose audio-session category and now-playing state a muted element
 // must not claim.
 // #if !USE(GSTREAMER)

@@ -41,14 +41,14 @@ namespace Style {
 
 auto ToCSS<BorderImageSlice>::operator()(const BorderImageSlice& value, const Style::ComputedStyle& style) -> CSS::BorderImageSlice
 {
-    // MAVERICKS_BACKPORT: carry legacy provenance through CSS value conversion.
+    // AQUAWEBKIT: carry legacy provenance through CSS value conversion.
     // return { toCSS(value.values, style), value.fill };
     return { toCSS(value.values, style), value.fill, value.legacyWebkitBorderImage };
 }
 
 auto ToStyle<CSS::BorderImageSlice>::operator()(const CSS::BorderImageSlice& value, const BuilderState& state) -> BorderImageSlice
 {
-    // MAVERICKS_BACKPORT: carry legacy provenance into computed style.
+    // AQUAWEBKIT: carry legacy provenance into computed style.
     // return { toStyle(value.values, state), value.fill };
     BorderImageSlice result { toStyle(value.values, state), value.fill };
     result.legacyWebkitBorderImage = value.legacyWebkitBorderImage;
@@ -73,7 +73,7 @@ auto CSSValueCreation<BorderImageSlice>::operator()(CSSValuePool&, const Style::
 
 auto Blending<BorderImageSlice>::canBlend(const BorderImageSlice& a, const BorderImageSlice& b) -> bool
 {
-    // MAVERICKS_BACKPORT: provenance changes discretely with the slice value.
+    // AQUAWEBKIT: provenance changes discretely with the slice value.
     // if (a.fill != b.fill)
     if (a.fill != b.fill || a.legacyWebkitBorderImage != b.legacyWebkitBorderImage)
         return false;
@@ -99,7 +99,7 @@ auto Blending<BorderImageSlice>::blend(const BorderImageSlice& a, const BorderIm
         return context.progress ? b : a;
     }
 
-    // MAVERICKS_BACKPORT: interpolation preserves the common legacy provenance.
+    // AQUAWEBKIT: interpolation preserves the common legacy provenance.
     // return BorderImageSlice {
     auto result = BorderImageSlice {
         Style::blend(a.values.top(),     b.values.top(), context),
@@ -108,7 +108,7 @@ auto Blending<BorderImageSlice>::blend(const BorderImageSlice& a, const BorderIm
         Style::blend(a.values.left(),    b.values.left(), context),
         (!context.progress || !context.isDiscrete ? a : b).fill,
     };
-    result.legacyWebkitBorderImage = a.legacyWebkitBorderImage; // MAVERICKS_BACKPORT: canBlend requires matching provenance.
+    result.legacyWebkitBorderImage = a.legacyWebkitBorderImage; // AQUAWEBKIT: canBlend requires matching provenance.
     return result;
 }
 

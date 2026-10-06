@@ -34,7 +34,7 @@
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 
-namespace WebKit { class WebsiteDataStore; } // MAVERICKS_BACKPORT: the per-client Private Browsing session (#55).
+namespace WebKit { class WebsiteDataStore; } // AQUAWEBKIT: the per-client Private Browsing session (#55).
 
 #define DECLARE_PREFERENCE_GETTER_AND_SETTERS(KeyUpper, KeyLower, TypeName, Type, DefaultValue, HumanReadableName, HumanReadableDescription) \
     void set##KeyUpper(const Type& value); \
@@ -67,7 +67,7 @@ public:
     void addPage(WebPageProxy&);
     void removePage(WebPageProxy&);
 
-    // MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle (WKPreferencesSet/GetPrivateBrowsingEnabled).
+    // AQUAWEBKIT: Safari 7's global Private Browsing toggle (WKPreferencesSet/GetPrivateBrowsingEnabled).
     // Upstream removed the runtime preference in favor of per-page ephemeral data stores, so back it with a real
     // flag here and drive each page onto a shared ephemeral WebsiteDataStore. (#55)
     void setPrivateBrowsingEnabled(bool);
@@ -166,8 +166,8 @@ private:
     WebPreferencesStore m_store;
 
     WeakHashSet<WebPageProxy> m_pages;
-    bool m_privateBrowsingEnabled { false }; // MAVERICKS_BACKPORT: see setPrivateBrowsingEnabled (#55).
-    // MAVERICKS_BACKPORT: see privateBrowsingDataStore (#55). The RefPtr owns the session while Private
+    bool m_privateBrowsingEnabled { false }; // AQUAWEBKIT: see setPrivateBrowsingEnabled (#55).
+    // AQUAWEBKIT: see privateBrowsingDataStore (#55). The RefPtr owns the session while Private
     // Browsing is on; leaving drops it there and then, and the WeakPtr keeps naming it only for as long as
     // pages are still being moved off, so the session dies with the last of them rather than lingering.
     RefPtr<WebsiteDataStore> m_privateBrowsingDataStore;

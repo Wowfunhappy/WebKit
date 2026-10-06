@@ -213,14 +213,14 @@ private:
 
     void registerInsertionUndoGrouping() override;
 
-    // MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
+    // AQUAWEBKIT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
 #if ENABLE(PDF_HUD)
     void createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&) override;
     void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&) override;
     void removePDFHUD(PDFPluginIdentifier) override;
     void removeAllPDFHUDs() override;
     void showPDFHUD(PDFPluginIdentifier) final;
-#endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) gate (PDFs download on 10.9)
+#endif // AQUAWEBKIT: ENABLE(PDF_HUD) gate (PDFs download on 10.9)
 
 #if ENABLE(FULLSCREEN_API)
     WebFullScreenManagerProxyClient& NODELETE fullScreenManagerProxyClient() final;

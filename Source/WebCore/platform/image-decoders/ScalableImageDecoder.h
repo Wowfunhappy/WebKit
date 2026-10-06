@@ -39,7 +39,7 @@
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
-#if USE(CG) // MAVERICKS_BACKPORT: native images retain their embedded RGB profile for destination-space conversion.
+#if USE(CG) // AQUAWEBKIT: native images retain their embedded RGB profile for destination-space conversion.
 #include <CoreGraphics/CGColorSpace.h>
 #include <wtf/RetainPtr.h>
 #endif
@@ -182,11 +182,11 @@ public:
     std::optional<IntPoint> hotSpot() const override { return std::nullopt; }
 
 protected:
-    // MAVERICKS_BACKPORT: the duration a frame's container header declares, before the frame is
+    // AQUAWEBKIT: the duration a frame's container header declares, before the frame is
     // decoded; see frameDurationAtIndex().
     virtual std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const WTF_REQUIRES_LOCK(m_lock) { return std::nullopt; }
 
-#if USE(CG) // MAVERICKS_BACKPORT: format decoders preserve source samples through native image creation.
+#if USE(CG) // AQUAWEBKIT: format decoders preserve source samples through native image creation.
     virtual PlatformImagePtr createNativeImage(const ScalableImageDecoderFrame&) const;
     void setEmbeddedRGBColorProfile(std::span<const uint8_t>);
     RetainPtr<CGColorSpaceRef> m_embeddedRGBColorSpace;

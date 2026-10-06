@@ -44,11 +44,11 @@ using namespace WebCore;
 // CAIRO_FORMAT_RGB24 used to render the video buffers is little/big endian dependant.
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
 #if PLATFORM(COCOA) && !USE(COORDINATED_GRAPHICS)
-// MAVERICKS_BACKPORT: the Cocoa presenter accepts planar YUV and packed RGB in IOSurface buffers.
+// AQUAWEBKIT: the Cocoa presenter accepts planar YUV and packed RGB in IOSurface buffers.
 #define GST_CAPS_FORMAT "{ NV12, I420, BGRA }"
 #else
 #define GST_CAPS_FORMAT "{ BGRx, BGRA }"
-#endif // MAVERICKS_BACKPORT: Cocoa sink format.
+#endif // AQUAWEBKIT: Cocoa sink format.
 #else
 #define GST_CAPS_FORMAT "{ xRGB, ARGB }"
 #endif

@@ -27,7 +27,7 @@
 #include "SharedBuffer.h"
 #include <wtf/TZoneMallocInlines.h>
 
-// MAVERICKS_BACKPORT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
+// AQUAWEBKIT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
 // decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
 // same byte-signature dispatch as the ports that have no CGImageSource at all.
 #if !PLATFORM(COCOA) || PLATFORM(MAC)
@@ -37,17 +37,17 @@
 #include "JPEGImageDecoder.h"
 #include "PNGImageDecoder.h"
 #include "WEBPImageDecoder.h"
-#endif // MAVERICKS_BACKPORT: closes the widened guard above.
-// MAVERICKS_BACKPORT: TIFF has no upstream ScalableImageDecoder. macOS hands images between
-// applications as TIFF, so this port carries one (MavericksSupport/source, on libtiff).
+#endif // AQUAWEBKIT: closes the widened guard above.
+// AQUAWEBKIT: TIFF has no upstream ScalableImageDecoder. macOS hands images between
+// applications as TIFF, so this port carries one (AquaWebKitSupport/source, on libtiff).
 #if USE(TIFF)
 #include "TIFFImageDecoder.h"
-#endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
-// MAVERICKS_BACKPORT: HEIF has no upstream ScalableImageDecoder; upstream Cocoa decodes it in
-// ImageIO. This port carries one (MavericksSupport/source, on libheif).
+#endif // AQUAWEBKIT: closes the USE(TIFF) guard above.
+// AQUAWEBKIT: HEIF has no upstream ScalableImageDecoder; upstream Cocoa decodes it in
+// ImageIO. This port carries one (AquaWebKitSupport/source, on libheif).
 #if USE(HEIF)
 #include "HEIFImageDecoder.h"
-#endif // MAVERICKS_BACKPORT: closes the USE(HEIF) guard above.
+#endif // AQUAWEBKIT: closes the USE(HEIF) guard above.
 #if USE(AVIF)
 #include "AVIFImageDecoder.h"
 #endif
@@ -60,10 +60,10 @@
 #include <ImageIO/ImageIO.h>
 #endif
 
-// MAVERICKS_BACKPORT: the Lockdown Mode check in ScalableImageDecoder::create below.
+// AQUAWEBKIT: the Lockdown Mode check in ScalableImageDecoder::create below.
 #if PLATFORM(MAC) && ENABLE(LOCKDOWN_MODE_API)
 #include <pal/cocoa/LockdownModeCocoa.h>
-#endif // MAVERICKS_BACKPORT: closes the Lockdown Mode include guard above.
+#endif // AQUAWEBKIT: closes the Lockdown Mode include guard above.
 
 #include <algorithm>
 #include <cmath>
@@ -80,7 +80,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ScalableImageDecoder);
 
 namespace {
 
-// MAVERICKS_BACKPORT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
+// AQUAWEBKIT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
 // decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
 // same byte-signature dispatch as the ports that have no CGImageSource at all.
 #if !PLATFORM(COCOA) || PLATFORM(MAC)
@@ -118,9 +118,9 @@ static bool matchesWebPSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "RIFF"_span) && spanHasPrefix(contents.subspan(8), "WEBPVP"_span);
 }
-#endif // MAVERICKS_BACKPORT: closes the widened guard above.
+#endif // AQUAWEBKIT: closes the widened guard above.
 
-// MAVERICKS_BACKPORT: the TIFF header is a byte-order mark followed by the version -- 42 for a
+// AQUAWEBKIT: the TIFF header is a byte-order mark followed by the version -- 42 for a
 // classic TIFF, 43 for a BigTIFF -- in that byte order.
 #if USE(TIFF)
 static bool matchesTIFFSignature(std::span<const uint8_t> contents)
@@ -130,12 +130,12 @@ static bool matchesTIFFSignature(std::span<const uint8_t> contents)
         || spanHasPrefix(contents, unsafeMakeSpan("\x49\x49\x2B\x00", 4))
         || spanHasPrefix(contents, unsafeMakeSpan("\x4D\x4D\x00\x2B", 4));
 }
-#endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
+#endif // AQUAWEBKIT: closes the USE(TIFF) guard above.
 
 #if USE(AVIF)
 static bool matchesAVIFSignature(std::span<const uint8_t> contents, FragmentedSharedBuffer& data)
 {
-// MAVERICKS_BACKPORT: the CG flavour of this check asks ImageIO to name the data's UTI, and 10.9's
+// AQUAWEBKIT: the CG flavour of this check asks ImageIO to name the data's UTI, and 10.9's
 // ImageIO predates AVIF -- decodeUTI can never answer public.avif/avis, so the decoder below would
 // never run. Use upstream's non-CG byte signature instead, like the WebP dispatch above.
 #if USE(CG) && !PLATFORM(MAC)
@@ -177,7 +177,7 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
     std::span contentsSpan { contents };
 
-// MAVERICKS_BACKPORT: Lockdown Mode limits images to the formats UTIRegistry's
+// AQUAWEBKIT: Lockdown Mode limits images to the formats UTIRegistry's
 // lockdownSupportedImageTypes() lists -- WebP, JPEG, PNG and GIF. Upstream Cocoa enforces that list
 // in ImageDecoderCG::encodedDataStatus() through isSupportedImageType(); the decoders this port
 // builds are the ones below, so the same list is enforced where they are chosen.
@@ -186,9 +186,9 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
         && !matchesWebPSignature(contentsSpan) && !matchesJPEGSignature(contentsSpan)
         && !matchesPNGSignature(contentsSpan) && !matchesGIFSignature(contentsSpan))
         return nullptr;
-#endif // MAVERICKS_BACKPORT: closes the Lockdown Mode check above.
+#endif // AQUAWEBKIT: closes the Lockdown Mode check above.
 
-// MAVERICKS_BACKPORT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
+// AQUAWEBKIT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
 // decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
 // same byte-signature dispatch as the ports that have no CGImageSource at all.
 #if !PLATFORM(COCOA) || PLATFORM(MAC)
@@ -209,21 +209,21 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
     if (matchesWebPSignature(contentsSpan))
         return WEBPImageDecoder::create(alphaOption, gammaAndColorProfileOption);
-#endif // MAVERICKS_BACKPORT: closes the widened guard above.
+#endif // AQUAWEBKIT: closes the widened guard above.
 
-// MAVERICKS_BACKPORT: this port's TIFF decoder; see the include above.
+// AQUAWEBKIT: this port's TIFF decoder; see the include above.
 #if USE(TIFF)
     if (matchesTIFFSignature(contentsSpan))
         return TIFFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
-#endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
+#endif // AQUAWEBKIT: closes the USE(TIFF) guard above.
 
-// MAVERICKS_BACKPORT: this port's HEIF decoder; see the include above. Ahead of the AVIF check,
+// AQUAWEBKIT: this port's HEIF decoder; see the include above. Ahead of the AVIF check,
 // which matches any ISO base media file; HEIFImageDecoder answers only for HEIF brands without an
 // AVIF one.
 #if USE(HEIF)
     if (HEIFImageDecoder::matchesSignature(data))
         return HEIFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
-#endif // MAVERICKS_BACKPORT: closes the USE(HEIF) guard above.
+#endif // AQUAWEBKIT: closes the USE(HEIF) guard above.
 
 #if USE(AVIF)
     if (matchesAVIFSignature(contentsSpan, data))
@@ -266,7 +266,7 @@ bool ScalableImageDecoder::frameHasAlphaAtIndex(size_t index) const
 Seconds ScalableImageDecoder::frameDurationAtIndex(size_t index) const
 {
     Locker locker { m_lock };
-    // MAVERICKS_BACKPORT: a frame that is not decoded yet answers with the duration its container
+    // AQUAWEBKIT: a frame that is not decoded yet answers with the duration its container
     // header declares, as ImageDecoderCG answers from ImageIO's frame properties. ImageFrameAnimator
     // reads the current frame's duration before BitmapImageSource decodes that frame.
     std::optional<Seconds> declaredDuration;
@@ -276,21 +276,21 @@ Seconds ScalableImageDecoder::frameDurationAtIndex(size_t index) const
         declaredDuration = frameDurationFromHeaderAtIndex(index);
     if (!declaredDuration)
         return 0_s;
-/* MAVERICKS_BACKPORT: upstream answers 0_s for every frame that is not decoded yet.
+/* AQUAWEBKIT: upstream answers 0_s for every frame that is not decoded yet.
     if (index >= m_frameBufferCache.size())
         return 0_s;
 
     auto& frame = m_frameBufferCache[index];
     if (!frame.isComplete())
         return 0_s;
-MAVERICKS_BACKPORT */
+AQUAWEBKIT */
 
     // Many annoying ads specify a 0 duration to make an image flash as quickly as possible.
     // We follow Firefox's behavior and use a duration of 100 ms for any frames that specify
     // a duration of <= 10 ms. See <rdar://problem/7689300> and <http://webkit.org/b/36082>
     // for more information.
     // Seconds duration = frame.duration();
-    Seconds duration = *declaredDuration; // MAVERICKS_BACKPORT: the decoded or header-declared duration found above.
+    Seconds duration = *declaredDuration; // AQUAWEBKIT: the decoded or header-declared duration found above.
     if (duration < 11_ms)
         return 100_ms;
     return duration;
@@ -309,14 +309,14 @@ PlatformImagePtr ScalableImageDecoder::createFrameImageAtIndex(size_t index, Sub
 
     // Return the buffer contents as a native image. For some ports, the data
     // is already in a native container, and this just increments its refcount.
-#if USE(CG) // MAVERICKS_BACKPORT: match ImageDecoderCG by retaining the source profile until the image is drawn.
+#if USE(CG) // AQUAWEBKIT: match ImageDecoderCG by retaining the source profile until the image is drawn.
     return createNativeImage(*buffer);
 #else
     return buffer->backingStore()->image();
-#endif // MAVERICKS_BACKPORT: closes native image construction.
+#endif // AQUAWEBKIT: closes native image construction.
 }
 
-#if USE(CG) // MAVERICKS_BACKPORT: RGB profiles describe the decoder's unconverted RGB backing-store samples.
+#if USE(CG) // AQUAWEBKIT: RGB profiles describe the decoder's unconverted RGB backing-store samples.
 PlatformImagePtr ScalableImageDecoder::createNativeImage(const ScalableImageDecoderFrame& frame) const
 {
     auto image = frame.backingStore()->image();
@@ -334,6 +334,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (colorSpace && CGColorSpaceGetModel(colorSpace.get()) == kCGColorSpaceModelRGB)
         m_embeddedRGBColorSpace = std::move(colorSpace);
 }
-#endif // MAVERICKS_BACKPORT: closes native RGB profile retention.
+#endif // AQUAWEBKIT: closes native RGB profile retention.
 
 }

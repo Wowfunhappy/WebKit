@@ -122,7 +122,7 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     m_livePlatformLayers.add(layerID, &layer);
 }
 
-// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
+// AQUAWEBKIT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
 // this port); narrow this AVKit-gated video-layer-hosting block to also require it.
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
 void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, PlatformCALayer::LayerType type, WebCore::HTMLVideoElement& videoElement)
@@ -159,7 +159,7 @@ void RemoteLayerTreeContext::layerWillLeaveContext(PlatformCALayerRemote& layer)
 {
     auto layerID = layer.layerID();
 
-// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
+// AQUAWEBKIT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
 // this port); narrow this AVKit-gated video-layer-hosting block to also require it.
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     auto videoLayerIter = m_videoLayers.find(layerID);

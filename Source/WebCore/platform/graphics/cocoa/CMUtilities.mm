@@ -721,7 +721,7 @@ void attachColorSpaceToPixelBuffer(const PlatformVideoColorSpace& colorSpace, CV
     if (!pixelBuffer)
         return;
 
-    // MAVERICKS_BACKPORT: a producer's explicit profile remains authoritative without
+    // AQUAWEBKIT: a producer's explicit profile remains authoritative without
     // a colorimetry override. Full-range metadata alone does not replace that profile.
     bool hasColorimetryOverride = colorSpace.primaries || colorSpace.transfer || colorSpace.matrix;
     if (hasColorimetryOverride)
@@ -738,7 +738,7 @@ void attachColorSpaceToPixelBuffer(const PlatformVideoColorSpace& colorSpace, CV
     if (colorSpace.matrix)
         CVBufferSetAttachment(pixelBuffer, kCVImageBufferYCbCrMatrixKey, convertToCMYCbCRMatrix(*colorSpace.matrix), kCVAttachmentMode_ShouldPropagate);
 
-    // MAVERICKS_BACKPORT: 10.9's RGB-to-YCbCr transfer requires a CG profile.
+    // AQUAWEBKIT: 10.9's RGB-to-YCbCr transfer requires a CG profile.
     // CoreVideo resolves raw ARGB/BGRA buffers' final color tags to that profile.
     auto pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
     if ((pixelFormat == kCVPixelFormatType_32ARGB || pixelFormat == kCVPixelFormatType_32BGRA)

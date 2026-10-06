@@ -88,7 +88,7 @@ namespace WebCore {
     private:
         PNGImageDecoder(AlphaOption, GammaAndColorProfileOption);
         void tryDecodeSize(bool allDataReceived) override { decode(true, 0, allDataReceived); }
-        std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const final WTF_REQUIRES_LOCK(m_lock); // MAVERICKS_BACKPORT: the delay in the frame's fcTL chunk.
+        std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const final WTF_REQUIRES_LOCK(m_lock); // AQUAWEBKIT: the delay in the frame's fcTL chunk.
 
         // Decodes the image.  If |onlySize| is true, stops decoding after
         // calculating the image size.  If decoding fails but there is no more

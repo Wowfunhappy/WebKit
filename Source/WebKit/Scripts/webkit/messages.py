@@ -934,7 +934,7 @@ def handler_function(receiver, message):
     if message.name.startswith('GPU'):
         return '%s::%s' % (receiver.name, 'gpu' + message.name[3:])
     # return '%s::%s' % (receiver.name, message.name[0].lower() + message.name[1:])
-    return '%s::%s' % (receiver.receiver_name if receiver.receiver_name else receiver.name, message.name[0].lower() + message.name[1:])  # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273)
+    return '%s::%s' % (receiver.receiver_name if receiver.receiver_name else receiver.name, message.name[0].lower() + message.name[1:])  # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273)
 
 def generate_enabled_by(receiver, enabled_by, enabled_by_conjunction):
     conjunction = ' %s ' % (enabled_by_conjunction or '&&')
@@ -1555,7 +1555,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebKit::DragEventForwardingData': ['"DragEventForwardingData.h"'],
         'WebKit::DragOperationResult': ['"DragEventForwardingData.h"'],
         'WebKit::DrawingAreaIdentifier': ['"DrawingAreaInfo.h"'],
-        'WebKit::LayerHostingMode': ['"DrawingAreaInfo.h"'],  # MAVERICKS_BACKPORT: 537-parity layer hosting mode lives in DrawingAreaInfo.h
+        'WebKit::LayerHostingMode': ['"DrawingAreaInfo.h"'],  # AQUAWEBKIT: 537-parity layer hosting mode lives in DrawingAreaInfo.h
         'WebKit::FindDecorationStyle': ['"WebFindOptions.h"'],
         'WebKit::FindOptions': ['"WebFindOptions.h"'],
         'WebKit::FrameState': ['"SessionState.h"'],
@@ -1855,7 +1855,7 @@ def generate_message_handler(receiver):
         result.append('#if %s\n' % receiver.condition)
 
     # if_swift_enabled(receiver, result, lambda x: x.append('#include "%s.h" // NOLINT\n' % 'Shared/WebKit-Swift'), lambda x: x.append('#include "%s.h"\n\n' % receiver.name))
-    # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): a ReceiverName receiver includes its target class's header.
+    # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): a ReceiverName receiver includes its target class's header.
     if receiver.receiver_name:
         result.append('#include "%s.h"\n\n' % receiver.receiver_name)
     else:
@@ -1913,7 +1913,7 @@ def generate_message_handler(receiver):
         result.append('}\n')
     else:
         # if receiver.has_attribute(NOT_USING_IPC_CONNECTION_ATTRIBUTE):
-        # MAVERICKS_BACKPORT: upstream 317090@main (webkit.org/b/319273): a ReceiverName receiver dispatches into its target class.
+        # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): a ReceiverName receiver dispatches into its target class.
         if receiver.receiver_name:
             result.append('void %s::didReceiveMessageWithReceiverName(IPC::Connection& connection, IPC::Decoder& decoder)\n' % receiver.receiver_name)
         elif receiver.has_attribute(NOT_USING_IPC_CONNECTION_ATTRIBUTE):

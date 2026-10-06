@@ -279,7 +279,7 @@ typedef enum {
 
 @interface WebView (WebPrivate)
 
-// MAVERICKS_BACKPORT: legacy Dashboard control regions, consumed by DashboardClient via
+// AQUAWEBKIT: legacy Dashboard control regions, consumed by DashboardClient via
 // -webView:dashboardRegionsChanged: and read internally by WebChromeClient. The behavior flags below
 // are the ones DashboardClient declares on a widget's WebView during setup; WebHTMLView reads
 // AlwaysAcceptsFirstMouse through -_dashboardBehavior:.
@@ -769,7 +769,7 @@ Could be worth adding to the API.
 // Removes all allow list entries created with _addOriginAccessAllowListEntryWithSourceOrigin.
 + (void)_resetOriginAccessAllowLists;
 
-// MAVERICKS_BACKPORT: Safari 7-era compatibility aliases (the SPI was renamed "Whitelist" -> "AllowList"). Safari's
+// AQUAWEBKIT: Safari 7-era compatibility aliases (the SPI was renamed "Whitelist" -> "AllowList"). Safari's
 // extension-enable path still calls these names; forward to the AllowList implementations.
 + (void)_addOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
 + (void)_removeOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;

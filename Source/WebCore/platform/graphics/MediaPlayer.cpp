@@ -326,7 +326,7 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 
 #if USE(AVFOUNDATION)
     if (DeprecatedGlobalSettings::isAVFoundationEnabled()) {
-    // MAVERICKS_BACKPORT: GStreamer serves playback and MSE; AVFoundation serves MediaStream.
+    // AQUAWEBKIT: GStreamer serves playback and MSE; AVFoundation serves MediaStream.
 #if !USE(GSTREAMER)
         MediaPlayerPrivateAVFoundationObjC::registerMediaEngine(addMediaEngine);
 #if ENABLE(MEDIA_SOURCE)
@@ -336,7 +336,7 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
         MediaPlayerPrivateWebM::registerMediaEngine(addMediaEngine);
 #endif
 
-#endif // MAVERICKS_BACKPORT: closes the !USE(GSTREAMER) guard around the playback engines.
+#endif // AQUAWEBKIT: closes the !USE(GSTREAMER) guard around the playback engines.
 
 #if ENABLE(MEDIA_STREAM)
         MediaPlayerPrivateMediaStreamAVFObjC::registerMediaEngine(addMediaEngine);

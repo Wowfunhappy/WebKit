@@ -34,7 +34,7 @@
 
 #if PLATFORM(COCOA)
 #include "WebProcess.h"
-#include <WebCore/CMUtilities.h> // MAVERICKS_BACKPORT: attachColorSpaceToPixelBuffer, below.
+#include <WebCore/CMUtilities.h> // AQUAWEBKIT: attachColorSpaceToPixelBuffer, below.
 #include <WebCore/CVUtilities.h>
 #include <WebCore/RealtimeIncomingVideoSourceCocoa.h>
 #include <WebCore/VideoFrameCV.h>
@@ -138,7 +138,7 @@ CVPixelBufferRef RemoteVideoFrameProxy::pixelBuffer() const
             if (sendResult.succeeded())
                 std::tie(m_pixelBuffer) = sendResult.takeReply();
         }
-        // MAVERICKS_BACKPORT: media plays in this process, so its canvas, ImageBitmap and display-layer
+        // AQUAWEBKIT: media plays in this process, so its canvas, ImageBitmap and display-layer
         // conversions read this buffer. A shared-memory copy carries none of the GPU frame's colour
         // attachments; the frame's colour space is carried here.
         if (m_pixelBuffer)

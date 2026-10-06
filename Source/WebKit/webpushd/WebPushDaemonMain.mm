@@ -39,7 +39,7 @@
 #import <Foundation/Foundation.h>
 #import <WebCore/LogInitialization.h>
 #import <WebCore/SQLiteFileSystem.h>
-// MAVERICKS_BACKPORT: upstream's redundant <WebKit/Logging.h> import is dropped here — this file
+// AQUAWEBKIT: upstream's redundant <WebKit/Logging.h> import is dropped here — this file
 // compiles into the framework itself in the CMake build, where the framework-style header does not
 // resolve, and the quoted "Logging.h" import above already provides it.
 #import <getopt.h>

@@ -36,7 +36,7 @@
 #include "ProcessThrottler.h"
 #include "VisitedLinkStore.h"
 #include "WebContextClient.h"
-// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+// AQUAWEBKIT: see WKContextConnectionClient.h.
 #include "WebContextConnectionClient.h"
 #include "WebPreferencesStore.h"
 #include "WebProcessProxy.h"
@@ -125,7 +125,7 @@ class WebAutomationSession;
 class WebBackForwardCache;
 class WebCompiledContentRuleList;
 class WebContextSupplement;
-class WebIconDatabase; // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
+class WebIconDatabase; // AQUAWEBKIT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 class WebPageGroup;
 class WebPageProxy;
 class WebProcessCache;
@@ -210,7 +210,7 @@ public:
 
     void initializeClient(const WKContextClientBase*);
     void setInjectedBundleClient(std::unique_ptr<API::InjectedBundleClient>&&);
-    // MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+    // AQUAWEBKIT: see WKContextConnectionClient.h.
     void initializeConnectionClient(const WKContextConnectionClientBase*);
     void setHistoryClient(std::unique_ptr<API::LegacyContextHistoryClient>&&);
     void setLegacyDownloadClient(RefPtr<API::DownloadClient>&&);
@@ -299,18 +299,18 @@ public:
 
     VisitedLinkStore& visitedLinkStore() { return m_visitedLinkStore.get(); }
 
-    // MAVERICKS_BACKPORT: revived legacy WK2 icon database that Safari 7 drives through the C API (#49).
+    // AQUAWEBKIT: revived legacy WK2 icon database that Safari 7 drives through the C API (#49).
     WebIconDatabase& iconDatabase();
     void setIconDatabasePath(const WTF::String&);
-    // MAVERICKS_BACKPORT: called at every main-frame commit — fetches the origin's /favicon.ico as a
+    // AQUAWEBKIT: called at every main-frame commit — fetches the origin's /favicon.ico as a
     // low-rank guess so a page abandoned before its head arrives still gets a history icon (#112).
     // The page URL is passed in because at the call site the commit is still inside a PageLoadState
     // transaction: pageLoadState().url() holds the PREVIOUS page until that transaction closes.
     void fetchGuessedIconForPage(WebPageProxy&, const WTF::URL& pageURL);
-    // MAVERICKS_BACKPORT: give the committed page's icon to the URL its load started from, as the
+    // AQUAWEBKIT: give the committed page's icon to the URL its load started from, as the
     // pre-deletion IconController::commitToDatabase did with its second row (#112).
     void carryIconToInitialRequestURL(WebPageProxy&, const WTF::URL& pageURL);
-    // MAVERICKS_BACKPORT: called at every main-frame same-document navigation — a pushState-driven
+    // AQUAWEBKIT: called at every main-frame same-document navigation — a pushState-driven
     // site (every click on github.com) makes history entries for URLs no load ever commits, so
     // neither the declared-icon offer nor the commit-time guess above can reach them. The document is
     // unchanged, so its icon claim under the URL it navigated from carries to the URL it now shows
@@ -822,7 +822,7 @@ private:
     std::unique_ptr<API::InjectedBundleClient> m_injectedBundleClient;
 
     WebContextClient m_client;
-    // MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+    // AQUAWEBKIT: see WKContextConnectionClient.h.
     WebContextConnectionClient m_connectionClient;
     std::unique_ptr<API::AutomationClient> m_automationClient;
     RefPtr<API::DownloadClient> m_legacyDownloadClient;
@@ -833,7 +833,7 @@ private:
     const Ref<VisitedLinkStore> m_visitedLinkStore;
     bool m_visitedLinksPopulated { false };
 
-    // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49).
+    // AQUAWEBKIT: revived legacy WK2 icon database for Safari 7 favicons (#49).
     RefPtr<WebIconDatabase> m_iconDatabase;
     bool m_iconDatabaseEnabled { false };
 

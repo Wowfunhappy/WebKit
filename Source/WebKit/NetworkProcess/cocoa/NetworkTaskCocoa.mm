@@ -58,7 +58,7 @@ NetworkTaskCocoa::NetworkTaskCocoa(NetworkSession& session)
 }
 
 // static bool shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty)
-bool NetworkTaskCocoa::shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty) // MAVERICKS_BACKPORT: a public static member; see the header.
+bool NetworkTaskCocoa::shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty) // AQUAWEBKIT: a public static member; see the header.
 {
     auto matchingLength = remote.matchingNetMaskLength(firstParty);
     if (remote.isIPv4())
@@ -97,7 +97,7 @@ WebCore::RegistrableDomain NetworkTaskCocoa::lastCNAMEDomain(String cname)
     return WebCore::RegistrableDomain::uncheckedCreateFromHost(cname);
 }
 
-// MAVERICKS_BACKPORT: setCookieTransformForFirstPartyRequest's quirk, a public static member for the curl data task.
+// AQUAWEBKIT: setCookieTransformForFirstPartyRequest's quirk, a public static member for the curl data task.
 bool NetworkTaskCocoa::needsThirdPartyIPAddressQuirk(const URL& requestURL, const String& firstPartyRegistrableDomainName)
 {
     // We only apply this quirk if we're already on Google or youtube.com;
@@ -133,7 +133,7 @@ static RetainPtr<NSArray<NSHTTPCookie *>> cookiesBySettingPartition(NSArray<NSHT
 #endif
 
 // FIXME: Temporary fix for <rdar://60089022> and <rdar://100500464> until content can be updated.
-// bool NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const // MAVERICKS_BACKPORT: static; see the header.
+// bool NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const // AQUAWEBKIT: static; see the header.
 bool NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL)
 {
     using RegistrableDomain = WebCore::RegistrableDomain;
@@ -248,7 +248,7 @@ void NetworkTaskCocoa::setCookieTransformForFirstPartyRequest(const WebCore::Res
             if (!remoteAddress)
                 return cookiesSetInResponse;
 
-            // MAVERICKS_BACKPORT: NetworkTaskCocoa::needsThirdPartyIPAddressQuirk, a public static member, answers below.
+            // AQUAWEBKIT: NetworkTaskCocoa::needsThirdPartyIPAddressQuirk, a public static member, answers below.
             /*
             auto needsThirdPartyIPAddressQuirk = [] (const URL& requestURL, const String& firstPartyRegistrableDomainName) {
                 // We only apply this quirk if we're already on Google or youtube.com;
@@ -261,7 +261,7 @@ void NetworkTaskCocoa::setCookieTransformForFirstPartyRequest(const WebCore::Res
                 return (firstPartyRegistrableDomainName.startsWith("google."_s) || firstPartyRegistrableDomainName == "youtube.com"_s)
                     && hostName == makeString("consent."_s, firstPartyRegistrableDomainName);
             };
-            */ // MAVERICKS_BACKPORT: closes the commented-out upstream lambda above.
+            */ // AQUAWEBKIT: closes the commented-out upstream lambda above.
 
             if (shouldCapCookieExpiryForThirdPartyIPAddress(*remoteAddress, *firstPartyAddress) && !needsThirdPartyIPAddressQuirk(requestURL, firstPartyRegistrableDomainName)) {
                 RetainPtr cappedCookies = cookiesByCappingExpiry(cookiesSetInResponse, ageCapForCNAMECloakedCookies);
@@ -305,7 +305,7 @@ void NetworkTaskCocoa::setCookieTransform(const WebCore::ResourceRequest& reques
     setCookieTransformForFirstPartyRequest(request);
 }
 
-// MAVERICKS_BACKPORT: upstream swaps the TASK onto a stateless cookie jar with
+// AQUAWEBKIT: upstream swaps the TASK onto a stateless cookie jar with
 // -[NSURLSessionTask _setExplicitCookieStorage:]. On 10.9 a task cannot be re-pointed at a jar once it
 // exists -- measured: attaching a jar to the CF request behind -currentRequest, behind the
 // _originalRequest/_currentRequest ivars, or re-running -_onqueue_strippedMutableRequest all leave the
@@ -329,12 +329,12 @@ void NetworkTaskCocoa::blockCookies(NSMutableURLRequest *request)
     if (m_hasBeenSetToUseStatelessCookieStorage)
         return;
 
-    // MAVERICKS_BACKPORT: the request, per the note above.
+    // AQUAWEBKIT: the request, per the note above.
     request.HTTPShouldHandleCookies = NO;
     m_hasBeenSetToUseStatelessCookieStorage = true;
 }
 
-// MAVERICKS_BACKPORT: the ResourceRequest form, for the redirect call site that holds one.
+// AQUAWEBKIT: the ResourceRequest form, for the redirect call site that holds one.
 void NetworkTaskCocoa::blockCookies(WebCore::ResourceRequest& request)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
@@ -353,14 +353,14 @@ void NetworkTaskCocoa::unblockCookies(WebCore::ResourceRequest& request)
     if (!m_hasBeenSetToUseStatelessCookieStorage)
         return;
 
-    // MAVERICKS_BACKPORT: a task that took the stateless jar is let back onto the session's the way it
+    // AQUAWEBKIT: a task that took the stateless jar is let back onto the session's the way it
     // was put on it; the request carries the answer for every task that was blocked on its request.
     if (m_hasBeenPutOnItsOwnCookieStorage) {
         unblockCookies();
         return;
     }
 
-    // MAVERICKS_BACKPORT: the request, per the note above blockCookies.
+    // AQUAWEBKIT: the request, per the note above blockCookies.
     request.setAllowCookies(true);
     m_hasBeenSetToUseStatelessCookieStorage = false;
 }
@@ -374,7 +374,7 @@ void NetworkTaskCocoa::blockCookies()
 
     [protect(task()) _setExplicitCookieStorage:RetainPtr { statelessCookieStorage() }.get()._cookieStorage];
     m_hasBeenSetToUseStatelessCookieStorage = true;
-    m_hasBeenPutOnItsOwnCookieStorage = true; // MAVERICKS_BACKPORT: which mechanism blocked, for unblockCookies(ResourceRequest&).
+    m_hasBeenPutOnItsOwnCookieStorage = true; // AQUAWEBKIT: which mechanism blocked, for unblockCookies(ResourceRequest&).
 }
 
 void NetworkTaskCocoa::unblockCookies()
@@ -387,7 +387,7 @@ void NetworkTaskCocoa::unblockCookies()
     if (CheckedPtr storageSession = protect(m_networkSession)->networkStorageSession()) {
         [protect(task()) _setExplicitCookieStorage:[storageSession->nsCookieStorage() _cookieStorage]];
         m_hasBeenSetToUseStatelessCookieStorage = false;
-        m_hasBeenPutOnItsOwnCookieStorage = false; // MAVERICKS_BACKPORT: as above.
+        m_hasBeenPutOnItsOwnCookieStorage = false; // AQUAWEBKIT: as above.
     }
 }
 
@@ -448,13 +448,13 @@ void NetworkTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&& re
     if (!m_hasBeenSetToUseStatelessCookieStorage) {
         auto thirdPartyCookieBlockingDecision = requestThirdPartyCookieBlockingDecision(request);
         if (NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision))
-            blockCookies(request); // MAVERICKS_BACKPORT: the continuing request, per the note above.
+            blockCookies(request); // AQUAWEBKIT: the continuing request, per the note above.
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
         else if (isOptInCookiePartitioningEnabled())
             shouldAllowOnlyPartitionedCookies(request);
 #endif
     } else if (storedCredentialsPolicy() != WebCore::StoredCredentialsPolicy::EphemeralStateless && needsFirstPartyCookieBlockingLatchModeQuirk(request.firstPartyForCookies(), request.url(), redirectResponse.url()))
-        // MAVERICKS_BACKPORT: as above -- the un-blocking also lands on the continuing request.
+        // AQUAWEBKIT: as above -- the un-blocking also lands on the continuing request.
         unblockCookies(request);
 #if !RELEASE_LOG_DISABLED
     if (protect(m_networkSession)->shouldLogCookieInformation())

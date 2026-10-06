@@ -43,7 +43,7 @@
 #include "ElementTextDirection.h"
 #include "HTMLElement.h"
 #include "HTMLSlotElement.h"
-// MAVERICKS_BACKPORT: the CSS selector profiler's hooks, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the CSS selector profiler's hooks, restored for the Safari 7 Web Inspector.
 #include "InspectorInstrumentation.h"
 #include "SVGElement.h"
 #include "SelectorCheckerTestFunctions.h"
@@ -673,12 +673,12 @@ void ElementRuleCollector::collectMatchingRulesForListSlow(const RuleSet::RuleDa
         auto addRuleIfMatches = [&] (const ScopingRootWithDistance* scopingRootWithDistance = nullptr) {
             unsigned specificity;
             auto distance = scopingRootWithDistance ? scopingRootWithDistance->distance : std::numeric_limits<unsigned>::max();
-            // MAVERICKS_BACKPORT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored
+            // AQUAWEBKIT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored
             // for the Safari 7 Web Inspector, bracket each rule this collector tries to match.
             /*
             if (ruleMatches(ruleData, specificity, matchRequest.styleScopeOrdinal, scopingRootWithDistance))
                 addMatchedRule(ruleData, specificity, distance, matchRequest);
-            */ // MAVERICKS_BACKPORT: closes the upstream match above; the profiler-bracketed match follows.
+            */ // AQUAWEBKIT: closes the upstream match above; the profiler-bracketed match follows.
             InspectorInstrumentation::willMatchRule(element().document());
             bool matched = ruleMatches(ruleData, specificity, matchRequest.styleScopeOrdinal, scopingRootWithDistance);
             if (matched)

@@ -40,7 +40,7 @@ class InjectedBundleBackForwardListItem;
 class InjectedBundleCSSStyleDeclarationHandle;
 class InjectedBundleDOMWindowExtension;
 class InjectedBundleHitTestResult;
-// MAVERICKS_BACKPORT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
+// AQUAWEBKIT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
 class InjectedBundleNavigationAction;
 class InjectedBundleNodeHandle;
 class InjectedBundleRangeHandle;
@@ -58,11 +58,11 @@ WK_ADD_API_MAPPING(WKBundleCSSStyleDeclarationRef, InjectedBundleCSSStyleDeclara
 WK_ADD_API_MAPPING(WKBundleDOMWindowExtensionRef, InjectedBundleDOMWindowExtension)
 WK_ADD_API_MAPPING(WKBundleFrameRef, WebFrame)
 WK_ADD_API_MAPPING(WKBundleHitTestResultRef, InjectedBundleHitTestResult)
-// MAVERICKS_BACKPORT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
+// AQUAWEBKIT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
 WK_ADD_API_MAPPING(WKBundleNavigationActionRef, InjectedBundleNavigationAction)
 WK_ADD_API_MAPPING(WKBundleNodeHandleRef, InjectedBundleNodeHandle)
 WK_ADD_API_MAPPING(WKBundlePageBannerRef, PageBanner)
-// MAVERICKS_BACKPORT: restores the WKBundlePageGroupRef<->WebPageGroupProxy mapping the base lacks, so the resurrected WKBundlePageGroup* injected-bundle C SPI (page-group/user-script support) can cast its handles.
+// AQUAWEBKIT: restores the WKBundlePageGroupRef<->WebPageGroupProxy mapping the base lacks, so the resurrected WKBundlePageGroup* injected-bundle C SPI (page-group/user-script support) can cast its handles.
 WK_ADD_API_MAPPING(WKBundlePageGroupRef, WebPageGroupProxy)
 WK_ADD_API_MAPPING(WKBundlePageOverlayRef, WebPageOverlay)
 WK_ADD_API_MAPPING(WKBundlePageRef, WebPage)

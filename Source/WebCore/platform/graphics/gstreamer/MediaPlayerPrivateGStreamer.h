@@ -42,7 +42,7 @@
 #include <glib.h>
 #include <gst/gst.h>
 #include <gst/pbutils/install-plugins.h>
-#include <wtf/Deque.h> // MAVERICKS_BACKPORT: the queued loop passes, see queueLoopPass().
+#include <wtf/Deque.h> // AQUAWEBKIT: the queued loop passes, see queueLoopPass().
 #include <wtf/Atomics.h>
 #include <wtf/Condition.h>
 #include <wtf/DataMutex.h>
@@ -52,7 +52,7 @@
 #include <wtf/NativePromise.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
-// MAVERICKS_BACKPORT: Cocoa presents through the shared sample-buffer layer and video manager.
+// AQUAWEBKIT: Cocoa presents through the shared sample-buffer layer and video manager.
 #if PLATFORM(COCOA)
 #include "SampleBufferDisplayLayer.h"
 #include "VideoLayerManager.h"
@@ -88,7 +88,7 @@ typedef struct _GstMpegtsSection GstMpegtsSection;
 typedef struct _GstStreamVolume GstStreamVolume;
 typedef struct _GstVideoInfo GstVideoInfo;
 
-OBJC_CLASS WebRootSampleBufferBoundsChangeListener; // MAVERICKS_BACKPORT: shared Cocoa bounds observer.
+OBJC_CLASS WebRootSampleBufferBoundsChangeListener; // AQUAWEBKIT: shared Cocoa bounds observer.
 
 namespace WebCore {
 
@@ -110,7 +110,7 @@ class AudioSourceProviderGStreamer;
 
 class AudioTrackPrivateGStreamer;
 class InbandMetadataTextTrackPrivateGStreamer;
-class HLSTimedMetadataGStreamer; // MAVERICKS_BACKPORT: see handleHLSID3Sample().
+class HLSTimedMetadataGStreamer; // AQUAWEBKIT: see handleHLSID3Sample().
 class InbandTextTrackPrivateGStreamer;
 class VideoTrackPrivateGStreamer;
 
@@ -122,7 +122,7 @@ void registerWebKitGStreamerElements();
 class MediaPlayerPrivateGStreamer
     : public MediaPlayerPrivateInterface
     , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaPlayerPrivateGStreamer, WTF::DestructionThread::Main>
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: sample-buffer rendering failure callbacks.
+#if PLATFORM(COCOA) // AQUAWEBKIT: sample-buffer rendering failure callbacks.
     , public SampleBufferDisplayLayerClient
 #endif
 #if !RELEASE_LOG_DISABLED
@@ -172,11 +172,11 @@ public:
     void setMuted(bool) final;
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: the Cocoa presenter shows no frames while the page is hidden.
+#if PLATFORM(COCOA) // AQUAWEBKIT: the Cocoa presenter shows no frames while the page is hidden.
     void setPageIsVisible(bool) final;
 #else
     void setPageIsVisible(bool visible) final { m_pageIsVisible = visible; }
-#endif // MAVERICKS_BACKPORT: closes the PLATFORM(COCOA) branch above.
+#endif // AQUAWEBKIT: closes the PLATFORM(COCOA) branch above.
     void setViewportVisibility(ViewportVisibility) final;
     void setPresentationSize(const IntSize&) final;
     MediaTime duration() const override;
@@ -210,7 +210,7 @@ public:
     PlatformLayer* NODELETE platformLayer() const override;
     bool supportsAcceleratedRendering() const override { return true; }
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the upstream Cocoa manager hosts the sample-buffer display layer.
+    // AQUAWEBKIT: the upstream Cocoa manager hosts the sample-buffer display layer.
     PlatformLayer* platformLayer() const override;
     bool supportsAcceleratedRendering() const override { return true; }
 #if ENABLE(VIDEO_PRESENTATION_MODE)
@@ -252,13 +252,13 @@ public:
 #endif
 
     // void handleTextSample(GRefPtr<GstSample>&&, TrackID streamId);
-    void handleTextSample(GRefPtr<GstSample>&&, std::optional<TrackID> streamId, const String& gstStreamId); // MAVERICKS_BACKPORT: the string names the track when it has no numeric id, see TextSinkGStreamer.cpp.
+    void handleTextSample(GRefPtr<GstSample>&&, std::optional<TrackID> streamId, const String& gstStreamId); // AQUAWEBKIT: the string names the track when it has no numeric id, see TextSinkGStreamer.cpp.
 #if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
-    // MAVERICKS_BACKPORT: an ID3 tag of an HLS stream's timed metadata, see HLSTimedMetadataGStreamer.
+    // AQUAWEBKIT: an ID3 tag of an HLS stream's timed metadata, see HLSTimedMetadataGStreamer.
     void handleHLSID3Sample(GRefPtr<GstSample>&&);
-#endif // MAVERICKS_BACKPORT: closes the declaration above.
+#endif // AQUAWEBKIT: closes the declaration above.
 
-    // MAVERICKS_BACKPORT: the responses of the WebKitWebSrc elements an adaptive demuxer creates for playlists,
+    // AQUAWEBKIT: the responses of the WebKitWebSrc elements an adaptive demuxer creates for playlists,
     // segments and keys, which count toward isCrossOrigin() and didPassCORSAccessCheck() alongside the source's own.
     void adaptiveDemuxSourceReceivedResponse(Ref<SecurityOrigin>&&, std::optional<bool> didPassAccessControlCheck);
 
@@ -292,7 +292,7 @@ public:
         return m_quirkStates.get(owner);
     }
 
-    // MAVERICKS_BACKPORT: Adaptive manifest state takes precedence over HTTP byte-length heuristics.
+    // AQUAWEBKIT: Adaptive manifest state takes precedence over HTTP byte-length heuristics.
     // void setLiveStream(bool isLiveStream) { m_isLiveStream = isLiveStream; }
     void setLiveStream(bool isLiveStream) const;
 
@@ -359,14 +359,14 @@ protected:
 #if USE(COORDINATED_GRAPHICS)
     void pushTextureToCompositor(bool isDuplicateSample);
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: GstBaseSink schedules frames; Cocoa owns display and layer hosting.
+    // AQUAWEBKIT: GstBaseSink schedules frames; Cocoa owns display and layer hosting.
     void initializeVideoLayer();
     void createSampleBufferDisplayLayer();
     void destroyVideoLayer();
     void pushSampleToVideoLayer(bool isDuplicateSample);
     void sampleBufferDisplayLayerStatusDidFail() final;
-    void setShouldMaintainAspectRatio(bool) final; // MAVERICKS_BACKPORT: the presenter's video gravity, as in MediaPlayerPrivateMediaStreamAVFObjC.
-    void updateVideoFrameCounters(uint64_t, uint64_t) final; // MAVERICKS_BACKPORT: receive Cocoa display-layer playback metrics.
+    void setShouldMaintainAspectRatio(bool) final; // AQUAWEBKIT: the presenter's video gravity, as in MediaPlayerPrivateMediaStreamAVFObjC.
+    void updateVideoFrameCounters(uint64_t, uint64_t) final; // AQUAWEBKIT: receive Cocoa display-layer playback metrics.
 #endif
 
     GstElement* videoSink() const { return m_videoSink.get(); }
@@ -428,7 +428,7 @@ protected:
     bool isSeamlessSeekingEnabled() const;
     bool m_isSegmentSeekAllowed { true };
 
-    // MAVERICKS_BACKPORT: the next passes of a seamless loop, see queueLoopPass().
+    // AQUAWEBKIT: the next passes of a seamless loop, see queueLoopPass().
     bool queueLoopPass();
     void discardQueuedLoopPass();
     void loopPassStartedRendering(uint64_t generation);
@@ -446,7 +446,7 @@ protected:
     std::atomic<uint64_t> m_loopPassGeneration { 0 };
     bool m_isCompletingLoopPass { false };
     GRefPtr<GstElement> m_platformAudioSink;
-    // MAVERICKS_BACKPORT: end of the seamless loop declarations above.
+    // AQUAWEBKIT: end of the seamless loop declarations above.
 
     // Must reflect whether the last successfull call to gst_element_set_state() was for PLAYING.
     bool m_isPipelinePlaying = false;
@@ -526,8 +526,8 @@ protected:
     TrackIDHashMap<RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
 #endif
 #if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
-    std::unique_ptr<HLSTimedMetadataGStreamer> m_hlsTimedMetadata; // MAVERICKS_BACKPORT: see handleHLSID3Sample().
-#endif // MAVERICKS_BACKPORT: closes the member above.
+    std::unique_ptr<HLSTimedMetadataGStreamer> m_hlsTimedMetadata; // AQUAWEBKIT: see handleHLSID3Sample().
+#endif // AQUAWEBKIT: closes the member above.
 
     String errorMessage() const override { return m_errorMessage; }
 
@@ -678,13 +678,13 @@ private:
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<CoordinatedPlatformLayerBufferProxy> m_contentsBufferProxy;
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the MediaStream Cocoa presenter and its bounds observer.
+    // AQUAWEBKIT: the MediaStream Cocoa presenter and its bounds observer.
     Lock m_videoLayerLock;
     RefPtr<SampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
     std::unique_ptr<VideoLayerManager> m_videoLayerManager;
     RetainPtr<WebRootSampleBufferBoundsChangeListener> m_videoLayerBoundsObserver;
-    bool m_shouldMaintainAspectRatio { true }; // MAVERICKS_BACKPORT: see setShouldMaintainAspectRatio().
-    bool m_videoLayerPageIsVisible { false }; // MAVERICKS_BACKPORT: see setPageIsVisible(); guarded by m_videoLayerLock.
+    bool m_shouldMaintainAspectRatio { true }; // AQUAWEBKIT: see setShouldMaintainAspectRatio().
+    bool m_videoLayerPageIsVisible { false }; // AQUAWEBKIT: see setPageIsVisible(); guarded by m_videoLayerLock.
 #endif
 
     // These attributes can ONLY be changed from updateBufferingStatus() in order to keep the
@@ -694,8 +694,8 @@ private:
     int m_previousBufferingPercentage { 0 };
     int m_bufferingPercentage { 0 };
 
-    bool m_isBufferingChangeDelayed { false }; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
-    bool m_isBufferingActedOn { false }; // MAVERICKS_BACKPORT: as above.
+    bool m_isBufferingChangeDelayed { false }; // AQUAWEBKIT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
+    bool m_isBufferingActedOn { false }; // AQUAWEBKIT: as above.
 
     bool m_hasWebKitWebSrcSentEOS { false };
     mutable unsigned long long m_totalBytes { 0 };
@@ -790,7 +790,7 @@ private:
 
     Ref<PlatformMediaResourceLoader> m_loader;
 
-    // MAVERICKS_BACKPORT: see adaptiveDemuxSourceReceivedResponse().
+    // AQUAWEBKIT: see adaptiveDemuxSourceReceivedResponse().
     mutable Lock m_adaptiveDemuxSourceResponsesLock;
     HashSet<RefPtr<SecurityOrigin>> m_adaptiveDemuxSourceOrigins WTF_GUARDED_BY_LOCK(m_adaptiveDemuxSourceResponsesLock);
     bool m_didAdaptiveDemuxSourceFailAccessControlCheck WTF_GUARDED_BY_LOCK(m_adaptiveDemuxSourceResponsesLock) { false };

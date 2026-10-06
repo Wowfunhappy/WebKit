@@ -28,7 +28,7 @@
 
 #include "APIFrameHandle.h"
 #include "APIPageConfiguration.h"
-// MAVERICKS_BACKPORT: page groups travel as handles (Safari 7); needs the PageGroupHandle API type.
+// AQUAWEBKIT: page groups travel as handles (Safari 7); needs the PageGroupHandle API type.
 #include "APIPageGroupHandle.h"
 #include "APIPageHandle.h"
 #include "APIUIClient.h"
@@ -38,7 +38,7 @@
 #include "GPUProcessConnectionParameters.h"
 #include "GoToBackForwardItemParameters.h"
 #include "JavaScriptEvaluationResult.h"
-#include "LegacyExtensionHost.h" // MAVERICKS_BACKPORT: the Safari 7 extension hooks below.
+#include "LegacyExtensionHost.h" // AQUAWEBKIT: the Safari 7 extension hooks below.
 #include "LoadParameters.h"
 #include "Logging.h"
 #include "ModelProcessConnectionParameters.h"
@@ -130,7 +130,7 @@
 #include <wtf/text/WTFString.h>
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 #include "ObjCObjectGraph.h"
 #include "RemoteObjectRegistry.h"
 #include "RemoteObjectRegistryMessages.h"
@@ -360,7 +360,7 @@ WebProcessProxy::WebProcessProxy(WebProcessPool& processPool, WebsiteDataStore* 
         registerNotifyObservers();
     }
 #endif
-    LegacyExtensionHost::singleton().webProcessCreated(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' content contexts.
+    LegacyExtensionHost::singleton().webProcessCreated(*this); // AQUAWEBKIT: Safari 7 extensions' content contexts.
 }
 
 #if !PLATFORM(IOS_FAMILY)
@@ -406,7 +406,7 @@ WebProcessProxy::~WebProcessProxy()
     for (auto& callback : isResponsiveCallbacks)
         callback(false);
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     if (RefPtr webConnection = m_webConnection)
         webConnection->invalidate();
 
@@ -775,7 +775,7 @@ void WebProcessProxy::shutDown()
 
     shutDownProcess();
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     if (RefPtr webConnection = std::exchange(m_webConnection, nullptr))
         webConnection->invalidate();
 
@@ -861,7 +861,7 @@ Ref<WebPageProxy> WebProcessProxy::createWebPage(PageClient& pageClient, Ref<API
     Ref webPage = WebPageProxy::create(pageClient, *this, WTF::move(pageConfiguration));
 
     addExistingWebPage(webPage.get(), BeginsUsingDataStore::Yes);
-    LegacyExtensionHost::singleton().pageWasCreated(webPage); // MAVERICKS_BACKPORT: Safari 7 extensions' tabs events.
+    LegacyExtensionHost::singleton().pageWasCreated(webPage); // AQUAWEBKIT: Safari 7 extensions' tabs events.
 
     return webPage;
 }
@@ -1474,7 +1474,7 @@ void WebProcessProxy::processDidTerminateOrFailedToLaunch(ProcessTerminationReas
 
     liveProcessesLRU().remove(*this);
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     if (RefPtr webConnection = this->webConnection())
         webConnection->didClose();
 
@@ -1626,7 +1626,7 @@ void WebProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connect
         protect(websiteDataStore->networkProcess())->sendXPCEndpointToProcess(*this);
 #endif
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     RELEASE_ASSERT(!m_webConnection);
     m_webConnection = WebConnectionToWebProcess::create(this);
 
@@ -1996,11 +1996,11 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
-            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
+            // AQUAWEBKIT: page groups travel as handles (Safari 7).
             case API::Object::Type::PageGroupHandle:
                 return true;
 
-            // MAVERICKS_BACKPORT: WKConnection bodies and legacy bundle user data (see ObjCObjectGraph.h).
+            // AQUAWEBKIT: WKConnection bodies and legacy bundle user data (see ObjCObjectGraph.h).
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
                 return true;
@@ -2023,11 +2023,11 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
                 ASSERT(downcast<API::PageHandle>(object).isAutoconverting());
                 return protect(process())->webPage(downcast<API::PageHandle>(object).pageProxyID());
 
-            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7); resolve back to the WebPageGroup.
+            // AQUAWEBKIT: page groups travel as handles (Safari 7); resolve back to the WebPageGroup.
             case API::Object::Type::PageGroupHandle:
                 return WebPageGroup::get(downcast<API::PageGroupHandle>(object).pageGroupData().pageGroupID);
 
-            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+            // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
                 return protect(process())->transformHandlesToObjects(downcast<ObjCObjectGraph>(object));
@@ -2055,7 +2055,7 @@ RefPtr<API::Object> WebProcessProxy::transformObjectsToHandles(API::Object* obje
             case API::Object::Type::Frame:
             case API::Object::Type::Page:
             case API::Object::Type::PageGroup:
-            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+            // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
 #endif
@@ -2075,14 +2075,14 @@ RefPtr<API::Object> WebProcessProxy::transformObjectsToHandles(API::Object* obje
             case API::Object::Type::Page:
                 return API::PageHandle::createAutoconverting(downcast<WebPageProxy>(object).identifier(), downcast<WebPageProxy>(object).webPageIDInMainFrameProcess());
 
-            // MAVERICKS_BACKPORT: Safari 7 puts its WKPageGroup in the bundle
+            // AQUAWEBKIT: Safari 7 puts its WKPageGroup in the bundle
             // initialization user data; carry it as a PageGroupHandle (the
             // API::Object encoder has no case for the raw UI-type object and
             // would corrupt the stream).
             case API::Object::Type::PageGroup:
                 return API::PageGroupHandle::create(WebKit::WebPageGroupData { downcast<WebPageGroup>(object).data() });
 
-            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+            // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
                 return transformObjectsToHandles(downcast<ObjCObjectGraph>(object));
@@ -3065,7 +3065,7 @@ void WebProcessProxy::markProcessAsRecentlyUsed()
     liveProcessesLRU().moveToLastIfPresent(*this);
 }
 
-// MAVERICKS_BACKPORT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
+// AQUAWEBKIT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
 // layer but does NOT provide the GLib WebProcessProxy override, so the Cocoa PAL::systemBeep() impl
 // must still be built (PAL::systemBeep works on macOS).
 #if !USE(GLIB) || PLATFORM(COCOA)

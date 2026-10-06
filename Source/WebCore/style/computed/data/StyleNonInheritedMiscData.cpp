@@ -67,7 +67,7 @@ NonInheritedMiscData::NonInheritedMiscData()
     , userDrag(static_cast<unsigned>(ComputedStyle::initialUserDrag()))
     , objectFit(static_cast<unsigned>(ComputedStyle::initialObjectFit()))
     , resize(static_cast<unsigned>(ComputedStyle::initialResize()))
-    , borderFit(static_cast<unsigned>(ComputedStyle::initialBorderFit())) // MAVERICKS_BACKPORT
+    , borderFit(static_cast<unsigned>(ComputedStyle::initialBorderFit())) // AQUAWEBKIT
 {
 }
 
@@ -109,7 +109,7 @@ NonInheritedMiscData::NonInheritedMiscData(const NonInheritedMiscData& o)
     , userDrag(o.userDrag)
     , objectFit(o.objectFit)
     , resize(o.resize)
-    , borderFit(o.borderFit) // MAVERICKS_BACKPORT
+    , borderFit(o.borderFit) // AQUAWEBKIT
 {
 }
 
@@ -158,7 +158,7 @@ bool NonInheritedMiscData::operator==(const NonInheritedMiscData& o) const
         && userDrag == o.userDrag
         && objectFit == o.objectFit
         && resize == o.resize
-        && borderFit == o.borderFit; // MAVERICKS_BACKPORT
+        && borderFit == o.borderFit; // AQUAWEBKIT
 }
 
 bool NonInheritedMiscData::hasFilters() const
@@ -218,7 +218,7 @@ void NonInheritedMiscData::dumpDifferences(TextStream& ts, const NonInheritedMis
     LOG_IF_DIFFERENT_WITH_CAST(UserDrag, objectFit);
     LOG_IF_DIFFERENT_WITH_CAST(ObjectFit, textOverflow);
     LOG_IF_DIFFERENT_WITH_CAST(Resize, resize);
-    LOG_IF_DIFFERENT_WITH_CAST(BorderFit, borderFit); // MAVERICKS_BACKPORT
+    LOG_IF_DIFFERENT_WITH_CAST(BorderFit, borderFit); // AQUAWEBKIT
 }
 #endif // !LOG_DISABLED
 

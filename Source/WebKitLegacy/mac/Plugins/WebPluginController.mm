@@ -109,7 +109,7 @@ static RetainPtr<NSMutableSet>& NODELETE pluginViews()
 
 - (NSView *)plugInViewWithArguments:(NSDictionary *)arguments fromPluginPackage:(WebPluginPackage *)pluginPackage
 {
-    // MAVERICKS_BACKPORT: the package's view factory creates the plug-in view; WebHTMLView adds it to
+    // AQUAWEBKIT: the package's view factory creates the plug-in view; WebHTMLView adds it to
     // the document and runs -webPlugInInitialize, where WebClip.plugin publishes its `webClip`
     // scripting object.
     // return nil;

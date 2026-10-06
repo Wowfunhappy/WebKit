@@ -33,7 +33,7 @@ messages -> DownloadProxy {
     DidReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten, uint64_t totalBytesExpectedToWrite)
     DidCreateDestination(String path)
 #if PLATFORM(COCOA)
-    # MAVERICKS_BACKPORT: the native resume callback precedes progress and destination callbacks.
+    # AQUAWEBKIT: the native resume callback precedes progress and destination callbacks.
     DidResumeWithResponse(WebCore::ResourceResponse response, uint64_t offset)
 #endif
     DidFinish()

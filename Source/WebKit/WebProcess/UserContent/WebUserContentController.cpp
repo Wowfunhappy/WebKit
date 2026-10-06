@@ -99,7 +99,7 @@ Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentC
 {
     auto identifier = parameters.identifier;
     auto& userContentControllerPtr = userContentControllers().add(identifier, nullptr).iterator->value;
-    // MAVERICKS_BACKPORT: a page group creates the controller for its identifier as soon as the
+    // AQUAWEBKIT: a page group creates the controller for its identifier as soon as the
     // injected bundle asks for it (WebPageGroupProxy::userContentController), which on Safari 7
     // happens during WKBundleInitialize, before the group's first page exists. Seed it here
     // whether or not it already exists: every entry below is keyed on its own identifier, so
@@ -120,7 +120,7 @@ Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentC
     return userContentController;
 }
 
-// MAVERICKS_BACKPORT: restored from upstream e05340a^ (see header).
+// AQUAWEBKIT: restored from upstream e05340a^ (see header).
 Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentControllerIdentifier identifier)
 {
     auto& userContentControllerPtr = userContentControllers().add(identifier, nullptr).iterator->value;
@@ -681,7 +681,7 @@ void WebUserContentController::removeUserStyleSheets(InjectedBundleScriptWorld& 
     invalidateInjectedStyleSheetCacheInAllFramesInAllPages();
 }
 
-// MAVERICKS_BACKPORT: each user script and style sheet every user content controller of this process
+// AQUAWEBKIT: each user script and style sheet every user content controller of this process
 // holds, with its world, which LegacyExtensionContent reads for Safari 7 extensions' content.
 void WebUserContentController::forEachUserContentOfAllControllers(NOESCAPE const Function<void(InjectedBundleScriptWorld&, const WebCore::UserScript*, const WebCore::UserStyleSheet*)>& function)
 {

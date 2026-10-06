@@ -1,4 +1,4 @@
-if (NOT DEFINED SWIFT_REQUIRED) # MAVERICKS_BACKPORT: the toolchain selects C++ platform backends.
+if (NOT DEFINED SWIFT_REQUIRED) # AQUAWEBKIT: the toolchain selects C++ platform backends.
     set(SWIFT_REQUIRED ON)
 endif ()
 
@@ -165,7 +165,7 @@ add_link_options(-Wl,-dead_strip_dylibs)
 
 # Linked globally because PAL has Swift sources that get force-loaded into WebCore,
 # and WebCore does not link JavaScriptCore directly on all platforms.
-if (SWIFT_REQUIRED) # MAVERICKS_BACKPORT: link the Swift runtime only for Swift sources.
+if (SWIFT_REQUIRED) # AQUAWEBKIT: link the Swift runtime only for Swift sources.
     find_library(SWIFTCORE_LIBRARY swiftCore HINTS ${CMAKE_OSX_SYSROOT}/usr/lib/swift REQUIRED)
     link_libraries(${SWIFTCORE_LIBRARY})
 endif ()

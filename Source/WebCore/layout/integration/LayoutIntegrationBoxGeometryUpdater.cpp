@@ -27,7 +27,7 @@
 #include "config.h"
 #include "LayoutIntegrationBoxGeometryUpdater.h"
 
-// MAVERICKS_BACKPORT: Chrome/ChromeClient for the isDashboardWidgetClient() check that gates legacy inline-block baseline alignment.
+// AQUAWEBKIT: Chrome/ChromeClient for the isDashboardWidgetClient() check that gates legacy inline-block baseline alignment.
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "FontCascadeInlines.h"
@@ -39,7 +39,7 @@
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
 #include "MultiRepresentationHEICMetrics.h"
 #endif
-// MAVERICKS_BACKPORT: Page for document().page()->chrome() in the Dashboard-only inline-block baseline path.
+// AQUAWEBKIT: Page for document().page()->chrome() in the Dashboard-only inline-block baseline path.
 #include "Page.h"
 #include "RenderAttachment.h"
 #include "RenderBlockFlowInlines.h"
@@ -574,7 +574,7 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
     if (CheckedPtr blockFlow = dynamicDowncast<RenderBlockFlow>(renderBox)) {
         bool useMarginBoxAsBaseline = shouldUseMarginBoxAsBaseline(*blockFlow) || blockFlow->style().overflowY() != Overflow::Visible;
 #if ENABLE(DASHBOARD_SUPPORT)
-        // MAVERICKS_BACKPORT: CSS2.1 (and modern WebKit) take an inline-block's baseline from its bottom margin
+        // AQUAWEBKIT: CSS2.1 (and modern WebKit) take an inline-block's baseline from its bottom margin
         // edge when its overflow is not visible; stock 10.9 instead used the baseline of the inline-block's last
         // line box (its text baseline). Restore that legacy text-baseline alignment for a Dashboard widget host
         // ONLY (Safari/WK2 keeps the modern behavior) so e.g. the Stocks widget's detail labels line up with

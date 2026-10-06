@@ -30,7 +30,7 @@
 #include <gst/base/gstbasetransform.h>
 #include <gst/gst.h>
 #include <wtf/RefPtr.h>
-#include <wtf/ScopedLambda.h> // MAVERICKS_BACKPORT: see webKitMediaCommonEncryptionDecryptTakeDecryptingProxy().
+#include <wtf/ScopedLambda.h> // AQUAWEBKIT: see webKitMediaCommonEncryptionDecryptTakeDecryptingProxy().
 #include <wtf/WeakPtr.h>
 
 G_BEGIN_DECLS
@@ -71,7 +71,7 @@ G_END_DECLS
 // area.
 WeakPtr<WebCore::CDMProxyDecryptionClient> webKitMediaCommonEncryptionDecryptGetCDMProxyDecryptionClient(WebKitMediaCommonEncryptionDecrypt*);
 
-// MAVERICKS_BACKPORT: a decryptor's decrypt() takes its copy of the proxy inside |takeProxy|, which runs
+// AQUAWEBKIT: a decryptor's decrypt() takes its copy of the proxy inside |takeProxy|, which runs
 // under this element's lock and records the proxy it answers as the one a flush or a stop aborts.
 void webKitMediaCommonEncryptionDecryptTakeDecryptingProxy(WebKitMediaCommonEncryptionDecrypt*, const ScopedLambda<RefPtr<WebCore::CDMProxy>()>& takeProxy);
 

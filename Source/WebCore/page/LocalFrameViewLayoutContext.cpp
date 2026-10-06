@@ -639,7 +639,7 @@ void LocalFrameViewLayoutContext::setNeedsLayoutAfterViewConfigurationChange()
     }
 }
 
-// MAVERICKS_BACKPORT: see the header comment — deferral-honoring mark without scheduleLayout(),
+// AQUAWEBKIT: see the header comment — deferral-honoring mark without scheduleLayout(),
 // for Legacy WebKit's -[WebHTMLView setNeedsLayout:].
 void LocalFrameViewLayoutContext::setNeedsLayoutWithoutScheduling()
 {

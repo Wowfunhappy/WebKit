@@ -34,7 +34,7 @@
 #include "CDMRestrictions.h"
 #include "CDMSessionType.h"
 #if USE(GSTREAMER)
-#include "CDMWidevine.h" // MAVERICKS_BACKPORT: registered by platformRegisterFactories below.
+#include "CDMWidevine.h" // AQUAWEBKIT: registered by platformRegisterFactories below.
 #endif
 #include "ISOProtectionSystemSpecificHeaderBox.h"
 #include "ISOSchemeInformationBox.h"
@@ -279,7 +279,7 @@ void CDMFactory::platformRegisterFactories(Vector<WeakRef<CDMFactory>>& factorie
     factories.append(CDMFactoryClearKey::singleton());
     factories.append(CDMFactoryFairPlayStreaming::singleton());
 #if USE(GSTREAMER)
-    // MAVERICKS_BACKPORT: this is the port's only definition of platformRegisterFactories (see the
+    // AQUAWEBKIT: this is the port's only definition of platformRegisterFactories (see the
     // note in CDMFactoryGStreamer.cpp), so com.widevine.alpha is registered here. The factory
     // reports no support until the UIProcess has installed the CDM (WidevineCdmLocation.h).
     factories.append(CDMFactoryWidevine::singleton());

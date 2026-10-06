@@ -24,7 +24,7 @@
 
 #include "AudioSampleFormat.h"
 #include "GStreamerCommon.h"
-// MAVERICKS_BACKPORT: this TU forms GUniquePtr<GstAudioInfo>, whose WTF::GPtrDeleter
+// AQUAWEBKIT: this TU forms GUniquePtr<GstAudioInfo>, whose WTF::GPtrDeleter
 // specialization lives here.
 #include "GUniquePtrGStreamer.h"
 #include "MediaSampleGStreamer.h"
@@ -76,7 +76,7 @@ Ref<PlatformRawAudioData> PlatformRawAudioData::create(Ref<MediaSample>&& sample
 
 RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(std::span<const uint8_t> sourceData, AudioSampleFormat format, float sampleRate, int64_t timestamp, size_t numberOfFrames, size_t numberOfChannels)
 {
-    // MAVERICKS_BACKPORT: this port builds the GStreamer WebCodecs audio backend, so `new AudioData()`
+    // AQUAWEBKIT: this port builds the GStreamer WebCodecs audio backend, so `new AudioData()`
     // can be the first GStreamer call a WebContent process makes; gst_audio_info_to_caps() below reads
     // GST_TYPE_BITMASK, which gst_init defines.
     ensureGStreamerInitialized();

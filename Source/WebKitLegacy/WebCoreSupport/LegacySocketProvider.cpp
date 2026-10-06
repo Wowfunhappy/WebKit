@@ -25,7 +25,7 @@
 
 #import "LegacySocketProvider.h"
 
-// MAVERICKS_BACKPORT: this target supplies the legacy WebSocket channel and socket backend.
+// AQUAWEBKIT: this target supplies the legacy WebSocket channel and socket backend.
 // #ifdef BUILDING_WITH_CMAKE
 #if defined(BUILDING_WITH_CMAKE) && !defined(WEBKIT_LEGACY_WEBSOCKET_CHANNEL)
 // WebSocketChannel.cpp (in Sources.txt, not loaded by CMake) depends on SocketStreamHandle.

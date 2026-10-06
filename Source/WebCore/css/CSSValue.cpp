@@ -50,7 +50,7 @@
 #include "CSSCursorImageValue.h"
 #include "CSSCustomIdentValue.h"
 #include "CSSCustomPropertyValue.h"
-// MAVERICKS_BACKPORT: include CSSDashboardRegionValue.h — DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard region CSS values.
+// AQUAWEBKIT: include CSSDashboardRegionValue.h — DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard region CSS values.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #endif
@@ -167,7 +167,7 @@ template<typename Visitor> constexpr decltype(auto) CSSValue::visitDerived(Visit
     case CustomProperty:
         return std::invoke(std::forward<Visitor>(visitor), uncheckedDowncast<CSSCustomPropertyValue>(*this));
 #if ENABLE(DASHBOARD_SUPPORT)
-    case DashboardRegion: // MAVERICKS_BACKPORT
+    case DashboardRegion: // AQUAWEBKIT
         return std::invoke(std::forward<Visitor>(visitor), uncheckedDowncast<CSSDashboardRegionValue>(*this));
 #endif
     case DynamicRangeLimit:

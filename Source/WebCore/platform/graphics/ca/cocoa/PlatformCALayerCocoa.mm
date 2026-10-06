@@ -48,7 +48,7 @@
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/SoftLinking.h>
 #import "WebLayer.h"
-#import <WebCore/WebBackdropLayerMavericks.h> // MAVERICKS_BACKPORT: WebKit-owned native background-filter surfaces.
+#import <WebCore/WebBackdropLayerAquaWebKit.h> // AQUAWEBKIT: WebKit-owned native background-filter surfaces.
 #import "WebSystemBackdropLayer.h"
 #import "WebTiledBackingLayer.h"
 #import <AVFoundation/AVPlayer.h>
@@ -57,7 +57,7 @@
 #import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/BlockPtr.h>
-#import <wtf/HashSet.h> // MAVERICKS_BACKPORT: identify owned boundaries during replica insertion.
+#import <wtf/HashSet.h> // AQUAWEBKIT: identify owned boundaries during replica insertion.
 #import <wtf/Lock.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/RetainPtr.h>
@@ -245,7 +245,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         break;
     case LayerType::LayerTypeBackdropLayer:
         // layerClass = [CABackdropLayer class];
-        layerClass = [WebBackdropLayerMavericks class]; // MAVERICKS_BACKPORT: native CALayer behavior with a backend-owned role.
+        layerClass = [WebBackdropLayerAquaWebKit class]; // AQUAWEBKIT: native CALayer behavior with a backend-owned role.
         break;
 #if HAVE(CORE_MATERIAL)
     case LayerType::LayerTypeMaterialLayer:
@@ -295,7 +295,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
     isBackdropLayer |= layerType == LayerType::LayerTypeMaterialLayer;
 #endif
     // if (isBackdropLayer)
-    if (isBackdropLayer && ![m_layer isKindOfClass:WebBackdropLayerMavericks.class]) // MAVERICKS_BACKPORT: WindowServer mode belongs to system backdrop layers.
+    if (isBackdropLayer && ![m_layer isKindOfClass:WebBackdropLayerAquaWebKit.class]) // AQUAWEBKIT: WindowServer mode belongs to system backdrop layers.
         [(CABackdropLayer *)m_layer.get() setWindowServerAware:NO];
 #endif
 
@@ -309,7 +309,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(PlatformLayer* layer, PlatformCALayer
     commonInit();
 }
 
-// MAVERICKS_BACKPORT: 10.9 transform-only layers share their ordinary ancestor's sorting context.
+// AQUAWEBKIT: 10.9 transform-only layers share their ordinary ancestor's sorting context.
 bool PlatformCALayerCocoa::needsExplicitDepthSorting()
 {
     static bool result = ![CALayer instancesRespondToSelector:@selector(setUsesWebKitBehavior:)];
@@ -380,14 +380,14 @@ Ref<PlatformCALayer> PlatformCALayerCocoa::clone(PlatformCALayerClient* owner) c
         break;
     };
     auto newLayer = PlatformCALayerCocoa::create(type, owner);
-    newLayer->m_isBackdropHostingLayer = m_isBackdropHostingLayer; // MAVERICKS_BACKPORT: replicas preserve backdrop sampling boundaries.
+    newLayer->m_isBackdropHostingLayer = m_isBackdropHostingLayer; // AQUAWEBKIT: replicas preserve backdrop sampling boundaries.
     
     newLayer->setPosition(position());
     newLayer->setBounds(bounds());
     newLayer->setAnchorPoint(anchorPoint());
     newLayer->setTransform(transform());
     newLayer->setSublayerTransform(sublayerTransform());
-    // MAVERICKS_BACKPORT: replicas carry the same CSS child perspective.
+    // AQUAWEBKIT: replicas carry the same CSS child perspective.
     if (m_hasCSSChildrenTransform)
         newLayer->setChildrenTransformForDepthSorting(m_depthSortingTransform);
     newLayer->setContents(contents());
@@ -500,10 +500,10 @@ void PlatformCALayerCocoa::removeFromSuperlayer()
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
-// MAVERICKS_BACKPORT: native sorting layers flatten each child context into CSS painter order.
+// AQUAWEBKIT: native sorting layers flatten each child context into CSS painter order.
 void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerList& list)
 {
-    // MAVERICKS_BACKPORT: backdrop hosts must share the containing render surface.
+    // AQUAWEBKIT: backdrop hosts must share the containing render surface.
     auto is3DContext = [](auto& child) {
         return child->layerType() == LayerType::LayerTypeTransformLayer
             && !downcast<PlatformCALayerCocoa>(child.get())->m_isBackdropHostingLayer;
@@ -518,7 +518,7 @@ void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerLis
     for (size_t i = 0; i < list.size(); ++i) {
         auto& boundary = m_depthSortingLayers[i];
         // if (distributePerspective || list[i]->layerType() == LayerType::LayerTypeTransformLayer) {
-        if (distributePerspective || is3DContext(list[i])) { // MAVERICKS_BACKPORT: only CSS 3D contexts introduce sorting boundaries.
+        if (distributePerspective || is3DContext(list[i])) { // AQUAWEBKIT: only CSS 3D contexts introduce sorting boundaries.
             if (!boundary) {
                 boundary = create(LayerType::LayerTypeLayer, nullptr);
                 [boundary->m_layer setSortsSublayers:YES];
@@ -531,7 +531,7 @@ void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerLis
             physicalChildren.append(list[i]);
         }
     }
-    if (m_layerType != LayerType::LayerTypeTransformLayer) // MAVERICKS_BACKPORT: a transform layer sorts in its ancestor's context.
+    if (m_layerType != LayerType::LayerTypeTransformLayer) // AQUAWEBKIT: a transform layer sorts in its ancestor's context.
         [m_layer setSortsSublayers:NO];
     [m_layer setSublayerTransform:has3DContext ? TransformationMatrix() : m_depthSortingTransform];
     updateDepthSortingGeometry();
@@ -540,7 +540,7 @@ void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerLis
     }).get()];
 }
 
-// MAVERICKS_BACKPORT: structural replica insertion operates on the CSS children of owned boundaries.
+// AQUAWEBKIT: structural replica insertion operates on the CSS children of owned boundaries.
 PlatformCALayerList PlatformCALayerCocoa::sublayersForCSS() const
 {
     HashSet<PlatformCALayer*> boundaries;
@@ -558,7 +558,7 @@ PlatformCALayerList PlatformCALayerCocoa::sublayersForCSS() const
     return children;
 }
 
-// MAVERICKS_BACKPORT: perspective acts inside each context, before native depth sorting.
+// AQUAWEBKIT: perspective acts inside each context, before native depth sorting.
 void PlatformCALayerCocoa::setChildrenTransformForDepthSorting(const TransformationMatrix& transform)
 {
     m_hasCSSChildrenTransform = true;
@@ -568,7 +568,7 @@ void PlatformCALayerCocoa::setChildrenTransformForDepthSorting(const Transformat
     updateDepthSortingGeometry();
 }
 
-// MAVERICKS_BACKPORT: GraphicsLayer geometry is committed together with the context geometry.
+// AQUAWEBKIT: GraphicsLayer geometry is committed together with the context geometry.
 void PlatformCALayerCocoa::updateDepthSortingGeometry()
 {
     if (!m_depthSortingLayers.containsIf([](auto& boundary) { return !!boundary; }))
@@ -589,7 +589,7 @@ void PlatformCALayerCocoa::updateDepthSortingGeometry()
 
 void PlatformCALayerCocoa::setSublayers(const PlatformCALayerList& list)
 {
-    m_depthSortingLayers.clear(); // MAVERICKS_BACKPORT: ordinary tree replacement releases owned context layers.
+    m_depthSortingLayers.clear(); // AQUAWEBKIT: ordinary tree replacement releases owned context layers.
     // Short circuiting here avoids the allocation of the array below.
     if (!list.size()) {
         removeAllSublayers();
@@ -620,7 +620,7 @@ PlatformCALayerList PlatformCALayerCocoa::sublayersForLogging() const
 
 void PlatformCALayerCocoa::removeAllSublayers()
 {
-    m_depthSortingLayers.clear(); // MAVERICKS_BACKPORT: release explicit child contexts with their tree.
+    m_depthSortingLayers.clear(); // AQUAWEBKIT: release explicit child contexts with their tree.
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setSublayers:nil];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -652,7 +652,7 @@ void PlatformCALayerCocoa::replaceSublayer(PlatformCALayer& reference, PlatformC
 
 void PlatformCALayerCocoa::adoptSublayers(PlatformCALayer& source)
 {
-    // MAVERICKS_BACKPORT: layer-type changes transfer ownership of the real sorting boundaries.
+    // AQUAWEBKIT: layer-type changes transfer ownership of the real sorting boundaries.
     auto& cocoaSource = downcast<PlatformCALayerCocoa>(source);
     m_depthSortingLayers = WTF::move(cocoaSource.m_depthSortingLayers);
     m_depthSortingTransform = cocoaSource.m_depthSortingTransform;
@@ -731,7 +731,7 @@ void PlatformCALayerCocoa::setBounds(const FloatRect& value)
         updateCustomAppearance(m_customAppearance);
 
     END_BLOCK_OBJC_EXCEPTIONS
-    updateDepthSortingGeometry(); // MAVERICKS_BACKPORT: child contexts use the committed parent coordinate space.
+    updateDepthSortingGeometry(); // AQUAWEBKIT: child contexts use the committed parent coordinate space.
 }
 
 FloatPoint3D PlatformCALayerCocoa::position() const
@@ -762,7 +762,7 @@ void PlatformCALayerCocoa::setAnchorPoint(const FloatPoint3D& value)
     [m_layer setAnchorPoint:CGPointMake(value.x(), value.y())];
     [m_layer setAnchorPointZ:value.z()];
     END_BLOCK_OBJC_EXCEPTIONS
-    updateDepthSortingGeometry(); // MAVERICKS_BACKPORT: child contexts use the committed parent coordinate space.
+    updateDepthSortingGeometry(); // AQUAWEBKIT: child contexts use the committed parent coordinate space.
 }
 
 TransformationMatrix PlatformCALayerCocoa::transform() const
@@ -1033,7 +1033,7 @@ void PlatformCALayerCocoa::setFilters(const FilterOperations& filters)
 void PlatformCALayerCocoa::copyFiltersFrom(const PlatformCALayer& sourceLayer)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    // MAVERICKS_BACKPORT: backdrop replicas copy the native background-filter property.
+    // AQUAWEBKIT: backdrop replicas copy the native background-filter property.
     if (layerType() == LayerType::LayerTypeBackdropLayer)
         [m_layer setBackgroundFilters:[sourceLayer.platformLayer() backgroundFilters]];
     else
@@ -1426,7 +1426,7 @@ void PlatformCALayer::drawLayerContents(GraphicsContext& graphicsContext, WebCor
 #endif
         }
 
-        // MAVERICKS_BACKPORT: on 10.9 CoreGraphics still performs subpixel (LCD) font smoothing, so
+        // AQUAWEBKIT: on 10.9 CoreGraphics still performs subpixel (LCD) font smoothing, so
         // text drawn into a non-opaque layer bakes color fringes against transparency and they
         // composite as visible color artifacts. Turn smoothing off for non-opaque layers, exactly
         // as Safari-7-era WebKit does here (PlatformCALayerMac.mm drawLayerContents) — measured

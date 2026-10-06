@@ -263,7 +263,7 @@ bool HTMLLinkElement::shouldLoadLink()
 {
     if (!isConnected())
         return false;
-    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
     // event lets Safari 7 extensions block link subresources (uBlock network blocking).
     Ref<Document> originalDocument = document();
     if (!dispatchBeforeLoadEvent(getNonEmptyURLAttribute(hrefAttr).string()))

@@ -43,18 +43,18 @@
 #include <wtf/MainThread.h>
 #include <wtf/text/WTFString.h>
 
-#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 #include "NetworkRTCTCPSocketCocoa.h"
 #include "NetworkRTCUDPSocketCocoa.h"
 #include "NetworkSessionCocoa.h"
-#else // HAVE(NETWORK_FRAMEWORK) -- MAVERICKS_BACKPORT: see HAVE(NETWORK_FRAMEWORK).
+#else // HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/api/environment/environment_factory.h>
 #include <webrtc/rtc_base/async_packet_socket.h>
-#include <webrtc/rtc_base/ssl_certificate.h> // MAVERICKS_BACKPORT: SSLCertificateVerifier for the system-trust verifier below.
+#include <webrtc/rtc_base/ssl_certificate.h> // AQUAWEBKIT: SSLCertificateVerifier for the system-trust verifier below.
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: system trust evaluation for TURN-over-TLS sockets, and the route lookup behind getInterfaceName.
+#if PLATFORM(COCOA) // AQUAWEBKIT: system trust evaluation for TURN-over-TLS sockets, and the route lookup behind getInterfaceName.
 #include <Security/Security.h>
 #include <cstring>
 #include <ifaddrs.h>
@@ -67,8 +67,8 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/RetainPtr.h>
 #include <wtf/WorkQueue.h>
 #include <wtf/text/CString.h>
-#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA).
-#endif // !HAVE(NETWORK_FRAMEWORK) -- MAVERICKS_BACKPORT: see HAVE(NETWORK_FRAMEWORK).
+#endif // AQUAWEBKIT: closes PLATFORM(COCOA).
+#endif // !HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 
 namespace WebKit {
 using namespace WebCore;
@@ -81,16 +81,16 @@ NetworkRTCProvider::NetworkRTCProvider(NetworkConnectionToWebProcess& connection
     , m_ipcConnection(connection.connection())
     , m_rtcMonitor(*this)
     , m_sharedPreferences(connection.sharedPreferencesForWebProcessValue())
-#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     , m_sourceApplicationAuditToken(connection.networkProcess().sourceApplicationAuditToken())
 #else
     , m_packetSocketFactory(makeUniqueRefWithoutFastMallocCheck<webrtc::BasicPacketSocketFactory>(rtcNetworkThread().socketserver()))
 #endif
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: upstream initializes this under PLATFORM(COCOA); the narrowed guard above had dropped it.
+#if PLATFORM(COCOA) // AQUAWEBKIT: upstream initializes this under PLATFORM(COCOA); the narrowed guard above had dropped it.
     , m_rtcNetworkThreadQueue(WorkQueue::create("NetworkRTCProvider Queue"_s, WorkQueue::QOS::UserInitiated))
-#endif // MAVERICKS_BACKPORT: closes the queue initializer above.
+#endif // AQUAWEBKIT: closes the queue initializer above.
 {
-#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(connection.networkSession()))
         m_applicationBundleIdentifier = session->sourceApplicationBundleIdentifier().utf8();
 #endif
@@ -124,7 +124,7 @@ void NetworkRTCProvider::close()
         for (auto& socket : sockets)
             socket.second->close();
         ASSERT(m_sockets.empty());
-#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
         m_attributedBundleIdentifiers.clear();
 #endif
     });
@@ -264,7 +264,7 @@ void NetworkRTCProvider::stopResolver(LibWebRTCResolverIdentifier identifier)
     WebCore::stopResolveDNS(identifier.toUInt64());
 }
 
-#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 bool NetworkRTCProvider::webRTCInterfaceMonitoringViaNWEnabled() const
 {
     auto* connection = m_connection.get();
@@ -349,7 +349,7 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
     assertIsCurrent(m_rtcNetworkThreadQueue);
 }
 
-#else // HAVE(NETWORK_FRAMEWORK) -- MAVERICKS_BACKPORT: see HAVE(NETWORK_FRAMEWORK).
+#else // HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 webrtc::Thread& NetworkRTCProvider::rtcNetworkThread()
 {
     static NeverDestroyed<std::unique_ptr<webrtc::Thread>> networkThread = [] {
@@ -372,7 +372,7 @@ void NetworkRTCProvider::createUDPSocket(LibWebRTCSocketIdentifier identifier, c
 }
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: libwebrtc's OpenSSLAdapter validates a TLS server chain against its embedded root
+// AQUAWEBKIT: libwebrtc's OpenSSLAdapter validates a TLS server chain against its embedded root
 // list and consults this verifier when that fails. Evaluating the chain with SecTrust adds the system and
 // user Keychain trust settings, so a certificate the user trusts in Keychain Access is accepted for
 // TURN-over-TLS the way it is for every other TLS connection. Hostname matching stays with OpenSSLAdapter.
@@ -407,7 +407,7 @@ static webrtc::SSLCertificateVerifier& systemTrustCertificateVerifier()
     static NeverDestroyed<SystemTrustCertificateVerifier> verifier;
     return verifier.get();
 }
-#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA).
+#endif // AQUAWEBKIT: closes PLATFORM(COCOA).
 
 void NetworkRTCProvider::createClientTCPSocket(LibWebRTCSocketIdentifier identifier, const RTCNetwork::SocketAddress& localAddress, const RTCNetwork::SocketAddress& remoteAddress, String&& userAgent, int options, WebPageProxyIdentifier pageIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&& domain)
 {
@@ -435,9 +435,9 @@ void NetworkRTCProvider::createClientTCPSocket(LibWebRTCSocketIdentifier identif
 
             webrtc::PacketSocketTcpOptions tcpOptions;
             tcpOptions.opts = options;
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: see SystemTrustCertificateVerifier.
+#if PLATFORM(COCOA) // AQUAWEBKIT: see SystemTrustCertificateVerifier.
             tcpOptions.tls_cert_verifier = &systemTrustCertificateVerifier();
-#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA).
+#endif // AQUAWEBKIT: closes PLATFORM(COCOA).
             std::unique_ptr<webrtc::AsyncPacketSocket> socket(m_packetSocketFactory->CreateClientTcpSocket(webrtc::CreateEnvironment(), localAddress, remoteAddress, tcpOptions));
             createSocket(identifier, WTF::move(socket), Socket::Type::ClientTCP, m_ipcConnection.copyRef());
         });
@@ -445,7 +445,7 @@ void NetworkRTCProvider::createClientTCPSocket(LibWebRTCSocketIdentifier identif
 }
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: the interface a load of this URL uses. The Network.framework branch reads it
+// AQUAWEBKIT: the interface a load of this URL uses. The Network.framework branch reads it
 // from an nw_connection to the URL's host and port -- NetworkRTCTCPSocketCocoa::getInterfaceName takes
 // nw_path_copy_interface's name at nw_connection_state_preparing and cancels, so it is the route
 // lookup rather than a connection -- and Network.framework is 10.14+. connect() on a SOCK_DGRAM socket
@@ -503,7 +503,7 @@ static String interfaceNameForRouteToHost(const CString& host, const CString& po
     return name;
 }
 
-// MAVERICKS_BACKPORT: getaddrinfo blocks, so the lookup above runs on its own queue and the reply
+// AQUAWEBKIT: getaddrinfo blocks, so the lookup above runs on its own queue and the reply
 // settles there, the way the Network.framework branch settles its promise on tcpSocketQueueSingleton().
 static WorkQueue& routeLookupQueueSingleton()
 {
@@ -513,7 +513,7 @@ static WorkQueue& routeLookupQueueSingleton()
 
 void NetworkRTCProvider::getInterfaceName(URL&& url, WebPageProxyIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&&, CompletionHandler<void(String&&)>&& completionHandler)
 {
-    // MAVERICKS_BACKPORT: upstream's Network.framework branch refuses a non-HTTP-family URL before it
+    // AQUAWEBKIT: upstream's Network.framework branch refuses a non-HTTP-family URL before it
     // looks anything up, so this one does too rather than naming an interface upstream answers null for.
     if (!url.protocolIsInHTTPFamily()) {
         completionHandler({ });
@@ -527,7 +527,7 @@ void NetworkRTCProvider::getInterfaceName(URL&& url, WebPageProxyIdentifier, RTC
     }
 
     auto port = String::number(url.port().value_or(url.protocolIs("https"_s) ? 443 : 80)).utf8();
-    // MAVERICKS_BACKPORT: the answer settles on m_rtcNetworkThreadQueue, where upstream settles it. The
+    // AQUAWEBKIT: the answer settles on m_rtcNetworkThreadQueue, where upstream settles it. The
     // queue is read here, on the calling thread, the way upstream's whenSettled() reads it -- the lookup
     // below blocks for as long as the resolver takes, and this provider can be destroyed meanwhile.
     routeLookupQueueSingleton().dispatch([queue = Ref { m_rtcNetworkThreadQueue }, host = WTF::move(host), port = WTF::move(port), completionHandler = WTF::move(completionHandler)]() mutable {
@@ -535,9 +535,9 @@ void NetworkRTCProvider::getInterfaceName(URL&& url, WebPageProxyIdentifier, RTC
         queue->dispatch([interfaceName = WTF::move(interfaceName).isolatedCopy(), completionHandler = WTF::move(completionHandler)]() mutable {
             completionHandler(WTF::move(interfaceName));
         });
-    }); // MAVERICKS_BACKPORT: closes the route lookup above.
+    }); // AQUAWEBKIT: closes the route lookup above.
 }
-#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA), matching the guard on the GetInterfaceName message.
+#endif // AQUAWEBKIT: closes PLATFORM(COCOA), matching the guard on the GetInterfaceName message.
 
 void NetworkRTCProvider::createSocket(LibWebRTCSocketIdentifier identifier, std::unique_ptr<webrtc::AsyncPacketSocket>&& socket, Socket::Type type, Ref<IPC::Connection>&& connection)
 {
@@ -559,7 +559,7 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
 {
     ASSERT(rtcNetworkThread().IsCurrent());
 }
-#endif // !HAVE(NETWORK_FRAMEWORK) -- MAVERICKS_BACKPORT: see HAVE(NETWORK_FRAMEWORK).
+#endif // !HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 
 void NetworkRTCProvider::signalSocketIsClosed(LibWebRTCSocketIdentifier identifier)
 {

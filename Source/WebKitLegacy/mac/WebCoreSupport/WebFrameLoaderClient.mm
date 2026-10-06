@@ -57,7 +57,7 @@
 #import "WebKitLogging.h"
 #import "WebKitNSStringExtras.h"
 #import "WebKitVersionChecks.h"
-#import "WebLegacyExtensionPageObserver.h" // MAVERICKS_BACKPORT: the Safari 7 extension-page hooks below.
+#import "WebLegacyExtensionPageObserver.h" // AQUAWEBKIT: the Safari 7 extension-page hooks below.
 #import "WebNSURLExtras.h"
 #import "WebNavigationData.h"
 #import "WebPanelAuthenticationHandler.h"
@@ -270,7 +270,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 void WebFrameLoaderClient::detachedFromParent2()
 {
-    WebLegacyExtensionPageObserverFrameWillBeDestroyed(m_webFrame.get()); // MAVERICKS_BACKPORT: ends the frame's Safari 7 extension-page routing.
+    WebLegacyExtensionPageObserverFrameWillBeDestroyed(m_webFrame.get()); // AQUAWEBKIT: ends the frame's Safari 7 extension-page routing.
 
     //remove any NetScape plugins that are children of this frame because they are about to be detached
     RetainPtr webView = getWebView(m_webFrame.get());
@@ -305,14 +305,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto* handle = mainResourceLoader->handle();
 
-    // MAVERICKS_BACKPORT: transfer the existing curl response, including its upload and native session ownership.
+    // AQUAWEBKIT: transfer the existing curl response, including its upload and native session ownership.
     if (auto* curlHandle = handle->cocoaCurlHandle()) {
         RetainPtr download = adoptNS([[WebDownload alloc] _initWithCurlResourceHandle:*curlHandle delegate:[webView.get() downloadDelegate]]);
         download.autorelease();
         return;
     }
 
-    // MAVERICKS_BACKPORT: a policy answered after the connection's response callback returned makes the
+    // AQUAWEBKIT: a policy answered after the connection's response callback returned makes the
     // request again, as for a load with no loader; see ResourceHandle::connectionCanBecomeDownload.
     if (!handle->connectionCanBecomeDownload()) {
         handle->cancel();
@@ -1704,9 +1704,9 @@ IGNORE_WARNINGS_END
         };
         LOG(Plugins, "arguments:\n%@", arguments);
     }
-    // (void)arguments; // MAVERICKS_BACKPORT: arguments is consumed below.
+    // (void)arguments; // AQUAWEBKIT: arguments is consumed below.
 
-    // MAVERICKS_BACKPORT: WebPluginController creates the plug-in view from the package and
+    // AQUAWEBKIT: WebPluginController creates the plug-in view from the package and
     // arguments and, through -addPlugin:, runs -webPlugInInitialize, where WebClip.plugin
     // publishes its `webClip` scripting object.
     // return nil;
@@ -1727,10 +1727,10 @@ private:
     }
 };
 
-// MAVERICKS_BACKPORT: takes the plug-in package, which upstream's signature ignores.
+// AQUAWEBKIT: takes the plug-in package, which upstream's signature ignores.
 static bool shouldBlockPlugin(WebBasePluginPackage *pluginPackage)
 {
-    // MAVERICKS_BACKPORT: the WebKit-ObjC "application" plug-ins the user agent supplies run —
+    // AQUAWEBKIT: the WebKit-ObjC "application" plug-ins the user agent supplies run —
     // WebClip.plugin, which renders Safari Web Clips. Every other package, NPAPI included, is blocked.
     return ![pluginPackage isKindOfClass:[WebPluginPackage class]];
 }
@@ -1869,7 +1869,7 @@ AtomString WebFrameLoaderClient::overrideMediaType() const
 
 void WebFrameLoaderClient::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld& world)
 {
-    if (world.isNormal()) // MAVERICKS_BACKPORT: gives Safari 7 extension pages, which Safari hosts in WebKit 1, their browser namespace.
+    if (world.isNormal()) // AQUAWEBKIT: gives Safari 7 extension pages, which Safari hosts in WebKit 1, their browser namespace.
         WebLegacyExtensionPageObserverDidClearWindowObject(m_webFrame.get());
 
     RetainPtr webView = getWebView(m_webFrame.get());

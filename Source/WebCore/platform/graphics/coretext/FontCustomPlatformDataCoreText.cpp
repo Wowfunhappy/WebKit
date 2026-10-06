@@ -187,7 +187,7 @@ bool FontCustomPlatformData::supportsTechnology(const FontTechnology& tech)
     switch (tech) {
     case FontTechnology::ColorColrv0:
     case FontTechnology::ColorSbix:
-    // MAVERICKS_BACKPORT: CoreText on 10.9 has no OpenType-SVG glyph renderer.
+    // AQUAWEBKIT: CoreText on 10.9 has no OpenType-SVG glyph renderer.
     // case FontTechnology::ColorSvg:
     case FontTechnology::FeaturesAat:
     case FontTechnology::FeaturesOpentype:

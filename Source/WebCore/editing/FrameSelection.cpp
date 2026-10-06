@@ -2470,10 +2470,10 @@ void FrameSelection::updateCaretVisibility(ShouldUpdateAppearance doAppearanceUp
     CaretBase::setCaretVisibility(visibility);
 #endif
 
-    // MAVERICKS_BACKPORT: brace this branch so it can also schedule a rendering update below (WebKitLegacy caret un-suppress on window reactivation needs it).
+    // AQUAWEBKIT: brace this branch so it can also schedule a rendering update below (WebKitLegacy caret un-suppress on window reactivation needs it).
     if (doAppearanceUpdate == ShouldUpdateAppearance::Yes) {
         m_pendingSelectionUpdate = true;
-        // MAVERICKS_BACKPORT: m_pendingSelectionUpdate is serviced only inside Page::updateRendering,
+        // AQUAWEBKIT: m_pendingSelectionUpdate is serviced only inside Page::updateRendering,
         // and the focus/activation path that reaches here dirties no style or layout, so nothing else
         // schedules that update. WebKit2 gets one anyway (its drawing area triggers a rendering update
         // on every activity-state change), but in WebKitLegacy a caret un-suppressed on window

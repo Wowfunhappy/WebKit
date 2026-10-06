@@ -75,7 +75,7 @@
 - (void)destroyAllPluginInstanceViews;
 @end
 
-// MAVERICKS_BACKPORT: the paths WebView's per-view database helpers (widget-bundle and
+// AQUAWEBKIT: the paths WebView's per-view database helpers (widget-bundle and
 // app-built-in plug-in scans) append to. -_plugInPaths is implemented in WebPluginDatabase's
 // (Internal) category in WebPluginDatabase.mm, and this category declares it.
 @interface WebPluginDatabase (WebPlugInPaths)

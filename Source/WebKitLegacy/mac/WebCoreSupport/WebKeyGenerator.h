@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: Safari 7 imports downloaded certificates through this class.
+// AQUAWEBKIT: Safari 7 imports downloaded certificates through this class.
 
 typedef enum {
     WebCertificateParseResultSucceeded  = 0,

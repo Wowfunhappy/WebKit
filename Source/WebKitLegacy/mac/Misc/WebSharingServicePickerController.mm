@@ -36,14 +36,14 @@
 #import <WebCore/FocusController.h>
 #import <WebCore/FrameDestructionObserverInlines.h>
 #import <WebCore/FrameSelection.h>
-// MAVERICKS_BACKPORT: didShareImageData below decodes and re-encodes in WebCore, not in ImageIO.
+// AQUAWEBKIT: didShareImageData below decodes and re-encodes in WebCore, not in ImageIO.
 #import <WebCore/ImageDecoder.h>
 #import <WebCore/ImageUtilities.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/LocalFrameInlines.h>
 #import <WebCore/NodeDocument.h>
 #import <WebCore/Page.h>
-#import <wtf/cocoa/SpanCocoa.h> // MAVERICKS_BACKPORT: WTF::toNSData for the encoded TIFF below.
+#import <wtf/cocoa/SpanCocoa.h> // AQUAWEBKIT: WTF::toNSData for the encoded TIFF below.
 
 static NSString *serviceControlsPasteboardName = @"WebKitServiceControlsPasteboard";
 
@@ -134,9 +134,9 @@ RetainPtr<NSImage> WebSharingServicePickerClient::imageForCurrentSharingServiceP
     if (!page)
         return;
 
-    RetainPtr<NSData> tiffData = data; // MAVERICKS_BACKPORT: replaced below when confirmData asks.
+    RetainPtr<NSData> tiffData = data; // AQUAWEBKIT: replaced below when confirmData asks.
     if (confirmData) {
-        // MAVERICKS_BACKPORT: upstream's version of the lines below. These bytes come from the page,
+        // AQUAWEBKIT: upstream's version of the lines below. These bytes come from the page,
         // and -[NSImage initWithData:] parses them inside ImageIO; WebCore decodes them and encodes
         // the TIFF the pasteboard wants, which is the same confirmation and the same conversion.
         // RetainPtr<NSImage> nsImage = adoptNS([[NSImage alloc] initWithData:data]);
@@ -158,18 +158,18 @@ RetainPtr<NSImage> WebSharingServicePickerClient::imageForCurrentSharingServiceP
             return;
         }
 
-        auto encoded = WebCore::encodeData(platformImage.get(), "image/tiff"_s); // MAVERICKS_BACKPORT
+        auto encoded = WebCore::encodeData(platformImage.get(), "image/tiff"_s); // AQUAWEBKIT
         if (encoded.isEmpty()) {
             LOG_ERROR("Shared image data cannot create a valid NSImage");
             return;
         }
 
-        tiffData = WTF::toNSData(encoded.span()); // MAVERICKS_BACKPORT: the TIFF WebCore encoded.
+        tiffData = WTF::toNSData(encoded.span()); // AQUAWEBKIT: the TIFF WebCore encoded.
     }
 
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:serviceControlsPasteboardName];
     [pasteboard declareTypes:@[ NSPasteboardTypeTIFF ] owner:nil];
-    [pasteboard setData:tiffData.get() forType:NSPasteboardTypeTIFF]; // MAVERICKS_BACKPORT
+    [pasteboard setData:tiffData.get() forType:NSPasteboardTypeTIFF]; // AQUAWEBKIT
 
     if (RefPtr node = page->contextMenuController().context().hitTestResult().innerNode()) {
         if (RefPtr frame = node->document().frame())

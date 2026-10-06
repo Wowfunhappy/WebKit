@@ -81,7 +81,7 @@ void applyProcessCreationParameters(AuxiliaryProcessCreationParameters&& paramet
 
 } // namespace SecureCoding
 
-// MAVERICKS_BACKPORT: Data Detectors needs the generic secure coder independently of NSURLRequest.
+// AQUAWEBKIT: Data Detectors needs the generic secure coder independently of NSURLRequest.
 // #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCSecureCoding);
@@ -93,7 +93,7 @@ bool conformsToWebKitSecureCoding(id object)
         && [object respondsToSelector:@selector(_initWithWebKitPropertyListData:)];
 }
 
-// MAVERICKS_BACKPORT: Data Detectors needs the generic secure coder independently of NSURLRequest.
+// AQUAWEBKIT: Data Detectors needs the generic secure coder independently of NSURLRequest.
 // #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
 [[noreturn]] static void crashWithClassName(Class objectClass)
@@ -117,7 +117,7 @@ CoreIPCSecureCoding::CoreIPCSecureCoding(id object)
     if (exemptClassNames->contains(NSStringFromClass([object class])))
         return;
 
-    // MAVERICKS_BACKPORT: Qualify the secure coder helper in unified Objective-C++ translation units.
+    // AQUAWEBKIT: Qualify the secure coder helper in unified Objective-C++ translation units.
     // crashWithClassName([object class]);
     WebKit::crashWithClassName([object class]);
 }

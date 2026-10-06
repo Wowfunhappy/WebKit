@@ -709,7 +709,7 @@ void UserMediaPermissionRequestManagerProxy::processUserMediaPermissionRequest()
     });
 }
 
-// MAVERICKS_BACKPORT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
+// AQUAWEBKIT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
 // layer but uses the Cocoa media stack, so the RealtimeMediaSourceCenter-based impl must still be built
 // (no GLib UserMediaPermissionRequestManagerProxy override is in the Mac source lists).
 #if !USE(GLIB) || PLATFORM(COCOA)
@@ -965,7 +965,7 @@ bool UserMediaPermissionRequestManagerProxy::wasGrantedVideoAccess(FrameIdentifi
     return m_grantedVideoFrames.contains(frameID);
 }
 
-// MAVERICKS_BACKPORT: also compile on Cocoa (USE(GLIB) is forced on for the GStreamer helper layer but
+// AQUAWEBKIT: also compile on Cocoa (USE(GLIB) is forced on for the GStreamer helper layer but
 // the Cocoa media stack is used; no GLib override is in the Mac source lists).
 #if !USE(GLIB) || PLATFORM(COCOA)
 void UserMediaPermissionRequestManagerProxy::platformGetMediaStreamDevices(bool revealIdsAndLabels, CompletionHandler<void(Vector<CaptureDeviceWithCapabilities>&&)>&& completionHandler)

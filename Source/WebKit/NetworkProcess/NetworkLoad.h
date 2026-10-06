@@ -45,7 +45,7 @@ class NetworkProcess;
 
 class NetworkLoad final : public RefCounted<NetworkLoad>, public NetworkDataTaskClient {
     WTF_MAKE_TZONE_ALLOCATED(NetworkLoad);
-    friend class LegacyExtensionNetwork; // MAVERICKS_BACKPORT: Safari 7 extensions' webRequest reaches a load's task for its held Set-Cookie fields.
+    friend class LegacyExtensionNetwork; // AQUAWEBKIT: Safari 7 extensions' webRequest reaches a load's task for its held Set-Cookie fields.
 public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }

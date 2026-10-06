@@ -108,7 +108,7 @@ bool hasRequestedCrossWebsiteTrackingPermission()
     return hasRequestedCrossWebsiteTrackingPermission;
 }
 
-// MAVERICKS_BACKPORT: an application that is neither a full web browser nor asks the user for
+// AQUAWEBKIT: an application that is neither a full web browser nor asks the user for
 // cross-website tracking permission reaches no TCC record of that choice on 10.9, because there is no
 // such record: the account states it as the cookie jar's accept policy -- Safari 7's Privacy > "Block
 // cookies and other website data" radio, which every process's default jar comes over carrying and
@@ -137,7 +137,7 @@ static bool determineTrackingPreventionStateInternal(bool appWasLinkedOnOrAfter,
 
     if (!isFullWebBrowser && !hasRequestedCrossWebsiteTrackingPermission())
 //      return true;
-        return accountRestrictsCrossSiteTraffic(); // MAVERICKS_BACKPORT: see the helper above.
+        return accountRestrictsCrossSiteTraffic(); // AQUAWEBKIT: see the helper above.
 
 #if USE(ITP_TCC_CHECK)
     TCCAccessPreflightResult result = TCCAccessPreflight(get_TCC_kTCCServiceWebKitIntelligentTrackingPreventionSingleton(), nullptr);

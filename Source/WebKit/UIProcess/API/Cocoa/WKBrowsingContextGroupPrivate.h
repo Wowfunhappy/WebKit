@@ -29,7 +29,7 @@
 
 // FIXME: Remove this header once rdar://112426343 is resolved.
 
-// MAVERICKS_BACKPORT: see WKBrowsingContextGroup.h.
+// AQUAWEBKIT: see WKBrowsingContextGroup.h.
 @interface WKBrowsingContextGroup (Private)
 
 @property(readonly) WKPageGroupRef _pageGroupRef;

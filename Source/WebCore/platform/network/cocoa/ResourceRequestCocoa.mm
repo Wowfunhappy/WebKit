@@ -172,14 +172,14 @@ void ResourceRequest::doUpdateResourceRequest()
 {
     m_requestData.m_url = [m_nsRequest URL];
 
-    // MAVERICKS_BACKPORT: NSURLRequest has no no-store enum; the protocol property preserves it through delegate copies.
+    // AQUAWEBKIT: NSURLRequest has no no-store enum; the protocol property preserves it through delegate copies.
     // if (m_requestData.m_cachePolicy == ResourceRequestCachePolicy::UseProtocolCachePolicy)
     if (m_requestData.m_cachePolicy == ResourceRequestCachePolicy::UseProtocolCachePolicy) {
         m_requestData.m_cachePolicy = fromPlatformRequestCachePolicy([m_nsRequest cachePolicy]);
         if (m_requestData.m_cachePolicy == ResourceRequestCachePolicy::ReloadIgnoringCacheData
             && [[NSURLProtocol propertyForKey:@"WebKitDoNotUseAnyCache" inRequest:m_nsRequest.get()] boolValue])
             m_requestData.m_cachePolicy = ResourceRequestCachePolicy::DoNotUseAnyCache;
-    } // MAVERICKS_BACKPORT: closes the native cache-policy decode above.
+    } // AQUAWEBKIT: closes the native cache-policy decode above.
     m_requestData.m_timeoutInterval = [m_nsRequest timeoutInterval];
     m_requestData.m_firstPartyForCookies = [m_nsRequest mainDocumentURL];
 
@@ -197,7 +197,7 @@ void ResourceRequest::doUpdateResourceRequest()
 
     m_requestData.m_httpHeaderFields.clear();
     [retainPtr([m_nsRequest allHTTPHeaderFields]) enumerateKeysAndObjectsUsingBlock: ^(NSString *name, NSString *value, BOOL *) {
-        // MAVERICKS_BACKPORT: decode the UTF-8 bytes exposed as Latin-1 by the native Last-Event-ID field.
+        // AQUAWEBKIT: decode the UTF-8 bytes exposed as Latin-1 by the native Last-Event-ID field.
         // m_requestData.m_httpHeaderFields.set(name, value);
         String headerValue { value };
         if (equalLettersIgnoringASCIICase(String { name }, "last-event-id"_s) && headerValue.containsOnlyLatin1()) {
@@ -301,7 +301,7 @@ void ResourceRequest::doUpdatePlatformRequest()
     }
 
     [nsRequest setCachePolicy:toPlatformRequestCachePolicy(cachePolicy())];
-    // MAVERICKS_BACKPORT: encode the distinction between fetch no-store and reload in native request metadata.
+    // AQUAWEBKIT: encode the distinction between fetch no-store and reload in native request metadata.
     [NSURLProtocol setProperty:@(cachePolicy() == ResourceRequestCachePolicy::DoNotUseAnyCache) forKey:@"WebKitDoNotUseAnyCache" inRequest:nsRequest.get()];
     _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], kCFURLRequestAllowAllPOSTCaching, kCFBooleanTrue);
 

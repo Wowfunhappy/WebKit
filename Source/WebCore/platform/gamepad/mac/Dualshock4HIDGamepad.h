@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: upstream gives the DualShock 4 its standard mapping through
+// AQUAWEBKIT: upstream gives the DualShock 4 its standard mapping through
 // GameControllerGamepadProvider, which lists Dualshock4_1/Dualshock4_2 in
 // willHandleVendorAndProduct(). 10.9's GameController.framework is the 2013 MFi-only
 // build and never enumerates a HID gamepad, so the device reaches HIDGamepadProvider.

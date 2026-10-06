@@ -14,7 +14,7 @@
  * EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
  */
 
-// MAVERICKS_BACKPORT: legacy Dashboard control regions hold numeric or auto offsets.
+// AQUAWEBKIT: legacy Dashboard control regions hold numeric or auto offsets.
 
 #pragma once
 

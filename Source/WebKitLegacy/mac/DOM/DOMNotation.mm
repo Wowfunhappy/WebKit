@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see DOMNotation.h.
+// AQUAWEBKIT: see DOMNotation.h.
 
 #import "DOMNotation.h"
 

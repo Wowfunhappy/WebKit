@@ -78,7 +78,7 @@ PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, Netwo
         m_networkLoad->setSuggestedFilename(suggestedName);
     };
 
-    // MAVERICKS_BACKPORT: Safari's legacy resume API already owns its download entry.
+    // AQUAWEBKIT: Safari's legacy resume API already owns its download entry.
     // send(Messages::DownloadProxy::DidStart(m_networkLoad->currentRequest(), suggestedName));
     if (!m_networkLoad->parameters().downloadResume || m_networkLoad->parameters().downloadResume->callDidStart)
         send(Messages::DownloadProxy::DidStart(m_networkLoad->currentRequest(), suggestedName));

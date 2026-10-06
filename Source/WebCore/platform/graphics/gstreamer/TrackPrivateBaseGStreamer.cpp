@@ -28,7 +28,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "TrackPrivateBaseGStreamer.h"
-#include "GStreamerHLSTrack.h" // MAVERICKS_BACKPORT: HLS rendition metadata.
+#include "GStreamerHLSTrack.h" // AQUAWEBKIT: HLS rendition metadata.
 
 #include "GStreamerCommon.h"
 #include "TrackPrivateBase.h"
@@ -41,13 +41,13 @@
 GST_DEBUG_CATEGORY_EXTERN(webkit_media_player_debug);
 #define GST_CAT_DEFAULT webkit_media_player_debug
 
-// MAVERICKS_BACKPORT: explicit include for WTF_MAKE_TZONE_ALLOCATED_IMPL below; under this build's
+// AQUAWEBKIT: explicit include for WTF_MAKE_TZONE_ALLOCATED_IMPL below; under this build's
 // non-unified/no-modules config it is not pulled in transitively.
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: TrackDataHolder declares WTF_MAKE_TZONE_ALLOCATED in its header; this is its
+// AQUAWEBKIT: TrackDataHolder declares WTF_MAKE_TZONE_ALLOCATED in its header; this is its
 // out-of-line half, defining s_heapRef and operatorNewSlow under USE(TZONE_MALLOC).
 WTF_MAKE_TZONE_ALLOCATED_IMPL(TrackDataHolder);
 
@@ -93,7 +93,7 @@ static std::optional<String> getTag(GstTagList* tags, ASCIILiteral tagName)
 
 static std::optional<String> getLanguageCode(GstTagList* tags)
 {
-    // MAVERICKS_BACKPORT: preserve manifest BCP 47 language tags through the HLS adapter.
+    // AQUAWEBKIT: preserve manifest BCP 47 language tags through the HLS adapter.
     /*
     auto language = getTag(tags, ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
     if (!language)
@@ -102,7 +102,7 @@ static std::optional<String> getLanguageCode(GstTagList* tags)
     auto convertedLanguage = CStringView::unsafeFromUTF8(gst_tag_get_language_code_iso_639_1(language->utf8().data()));
     GST_DEBUG("Converted track's language code to %s.", convertedLanguage.utf8());
     return String(convertedLanguage.span());
-    */ // MAVERICKS_BACKPORT: HLS language adapter.
+    */ // AQUAWEBKIT: HLS language adapter.
     return hlsTrackLanguage(tags);
 }
 
@@ -346,7 +346,7 @@ void TrackDataHolder::tagsChanged()
                 GstTagList* tagsFromEvent = nullptr;
                 gst_event_parse_tag(tagEvent.get(), &tagsFromEvent);
                 tags = adoptGRef(gst_tag_list_copy(tagsFromEvent));
-                // MAVERICKS_BACKPORT: preserve rendition tags using either supported language field when later global tags arrive.
+                // AQUAWEBKIT: preserve rendition tags using either supported language field when later global tags arrive.
                 // auto language = getTag(tags.get(), ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
                 auto language = getLanguageCode(tags.get());
                 if (language)
@@ -357,7 +357,7 @@ void TrackDataHolder::tagsChanged()
     } else if (m_stream)
         tags = adoptGRef(gst_stream_get_tags(m_stream.get()));
 
-    // MAVERICKS_BACKPORT: stream-start metadata precedes pad tag events for HLS renditions.
+    // AQUAWEBKIT: stream-start metadata precedes pad tag events for HLS renditions.
     if (!tags)
         tags = hlsTrackTags(m_bestUpstreamPad);
 
@@ -421,12 +421,12 @@ void TrackDataHolder::streamIdChanged()
 
     String gstStreamId = byteCast<Latin1Character>(unsafeSpan(gst_pad_get_stream_id(m_pad.get())));
     auto streamId = parseStreamId(gstStreamId);
-    // MAVERICKS_BACKPORT: the string names a text track's samples when it carries no numeric part (see
+    // AQUAWEBKIT: the string names a text track's samples when it carries no numeric part (see
     // TextSinkGStreamer.cpp), so it is recorded whether or not it parses.
     if (!streamId) {
         m_gstStreamId = gstStreamId;
         return;
-    } // MAVERICKS_BACKPORT: closes the block above.
+    } // AQUAWEBKIT: closes the block above.
 
     ASSERT(isMainThread());
     m_gstStreamId = gstStreamId;
@@ -523,7 +523,7 @@ void TrackDataHolder::installUpdateConfigurationHandlers()
 bool TrackDataHolder::updateTrackIDFromTags(const GRefPtr<GstTagList>& tags)
 {
     ASSERT(isMainThread());
-    // MAVERICKS_BACKPORT: a track constructed with an ID keeps it. MediaSourcePrivateGStreamer::registerTrack()
+    // AQUAWEBKIT: a track constructed with an ID keeps it. MediaSourcePrivateGStreamer::registerTrack()
     // derived that ID from this same container track ID, made it unique across SourceBuffers, and keys the
     // SourceBuffer's tracks and samples on it.
     if (!m_shouldUsePadStreamId)

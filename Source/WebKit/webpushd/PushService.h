@@ -55,7 +55,7 @@ public:
     friend class SubscribeRequest;
     friend class UnsubscribeRequest;
 
-    // MAVERICKS_BACKPORT: the receipt rides along so the daemon can acknowledge a message
+    // AQUAWEBKIT: the receipt rides along so the daemon can acknowledge a message
     // to the push service once a client has taken it; see PushServiceConnection.
     using IncomingPushMessageHandler = Function<void(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&, PushServiceConnection::PushMessageReceipt)>;
 
@@ -90,7 +90,7 @@ public:
     void setPublicTokenForTesting(Vector<uint8_t>&&);
     void didReceivePublicToken(Vector<uint8_t>&&);
     void didReceivePushMessage(NSString *topic, NSDictionary *userInfo, PushServiceConnection::PushMessageReceipt = PushServiceConnection::noPushMessageReceipt, CompletionHandler<void()>&& = [] { });
-    // MAVERICKS_BACKPORT: lets the daemon report the fate of a message it was handed.
+    // AQUAWEBKIT: lets the daemon report the fate of a message it was handed.
     void acknowledgePushMessage(PushServiceConnection::PushMessageReceipt, PushServiceConnection::PushMessageDisposition);
 
 #if PLATFORM(IOS)

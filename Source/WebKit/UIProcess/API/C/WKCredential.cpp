@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WKCredential.h"
 
-// MAVERICKS_BACKPORT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
+// AQUAWEBKIT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
 #include "APICertificateInfo.h"
 #include "APIString.h"
 #include "WebCredential.h"
@@ -46,7 +46,7 @@ WKCredentialRef WKCredentialCreate(WKStringRef username, WKStringRef password, W
 
 WKCredentialRef WKCredentialCreateWithCertificateInfo(WKCertificateInfoRef certificateInfo)
 {
-    // MAVERICKS_BACKPORT: upstream gutted this to null. Safari 7 wraps the client-certificate
+    // AQUAWEBKIT: upstream gutted this to null. Safari 7 wraps the client-certificate
     // panel's chosen identity in a WKCertificateInfo and answers the auth challenge with this
     // credential (#103).
     // return nullptr;
@@ -54,7 +54,7 @@ WKCredentialRef WKCredentialCreateWithCertificateInfo(WKCertificateInfoRef certi
     return toAPILeakingRef(WebCredential::create(credentialWithCertificateInfo(toImpl(certificateInfo))));
 #else
     return nullptr;
-#endif // MAVERICKS_BACKPORT: end of restored WKCredentialCreateWithCertificateInfo (#103)
+#endif // AQUAWEBKIT: end of restored WKCredentialCreateWithCertificateInfo (#103)
 }
 
 WKStringRef WKCredentialCopyUser(WKCredentialRef credentialRef)

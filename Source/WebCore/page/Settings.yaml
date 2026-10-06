@@ -478,7 +478,7 @@ UserStyleSheetLocation:
     WebCore:
       default: '{ }'
 
-# MAVERICKS_BACKPORT: restored with the rest of legacy Dashboard support. The host declares a
+# AQUAWEBKIT: restored with the rest of legacy Dashboard support. The host declares a
 # widget surface through -[WebView _setDashboardBehavior:WebDashboardBehaviorUseBackwardCompatibilityMode to:].
 UsesDashboardBackwardCompatibilityMode:
   type: bool

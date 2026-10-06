@@ -75,7 +75,7 @@ public:
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
     virtual DrawingAreaType type() const = 0;
-    // MAVERICKS_BACKPORT: the page's window changed which hosted-context flavor it can display
+    // AQUAWEBKIT: the page's window changed which hosted-context flavor it can display
     // (WebKit-537 parity); TiledCoreAnimationDrawingAreaProxy forwards the new mode to the web
     // process.
     virtual void layerHostingModeDidChange() { }
@@ -119,7 +119,7 @@ public:
 
     virtual void waitForDidUpdateActivityState(ActivityStateChangeID) { }
 
-    // MAVERICKS_BACKPORT: bounded synchronous wait for the reply to an in-flight UpdateGeometry,
+    // AQUAWEBKIT: bounded synchronous wait for the reply to an in-flight UpdateGeometry,
     // if any (a zero timeout is a poll that dispatches an already-arrived reply). Backs the
     // restored Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate: / -waitForAsyncDrawingAreaSizeUpdate;
     // this is the modern equivalent of the Safari-537-era DrawingAreaProxy::waitForPossibleGeometryUpdate.

@@ -128,7 +128,7 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
         auto identityHarness = GStreamerElementHarness::create(GRefPtr<GstElement>(gst_element_factory_make("identity", nullptr)), [](auto&, const auto&) { });
         GST_DEBUG_OBJECT(pad.get(), "Caps on parser source pad: %" GST_PTR_FORMAT, caps.get());
         if (!caps || !doCapsHaveType(caps.get(), "video"_s)) {
-            // MAVERICKS_BACKPORT: An audio pad can arrive before a video decoder exists.
+            // AQUAWEBKIT: An audio pad can arrive before a video decoder exists.
             // GST_WARNING_OBJECT(m_decoderHarness->element(), "Ignoring non-video track");
             GST_WARNING_OBJECT(m_parserHarness->element(), "Ignoring non-video track");
             return identityHarness;
@@ -148,7 +148,7 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
 
         GRefPtr<GstElement> element = gst_element_factory_create(lookupResult.factory.get(), nullptr);
         configureVideoDecoderForHarnessing(element);
-        // MAVERICKS_BACKPORT: name the memory this decoder can read, the way GStreamerInternalVideoDecoder
+        // AQUAWEBKIT: name the memory this decoder can read, the way GStreamerInternalVideoDecoder
         // already does for the same element class (VideoDecoderGStreamer.cpp). Left unconstrained, vtdec --
         // the factory the registry scanner prefers for H.264 here -- negotiates the
         // video/x-raw(memory:GLMemory) its src template lists first and then produces nothing, because
@@ -163,7 +163,7 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
         // });
         m_decoderHarness = GStreamerElementHarness::create(WTF::move(element), [this](auto&, auto&& outputSample) {
             storeDecodedSample(WTF::move(outputSample));
-        }, std::nullopt, WTF::move(allowedSinkCaps)); // MAVERICKS_BACKPORT: closes the allowed-caps request described above.
+        }, std::nullopt, WTF::move(allowedSinkCaps)); // AQUAWEBKIT: closes the allowed-caps request described above.
         return m_decoderHarness;
     });
 
@@ -182,7 +182,7 @@ void ImageDecoderGStreamer::tearDown()
     m_parserHarness = nullptr;
 }
 
-// MAVERICKS_BACKPORT: the two image types this decoder answers for beside the video ones.
+// AQUAWEBKIT: the two image types this decoder answers for beside the video ones.
 #if HAVE(HEIF_IMAGE_SEQUENCE)
 static bool isHEIFImageSequenceType(const String& type)
 {
@@ -193,13 +193,13 @@ static bool isHEIFImageSequenceType(const String&)
 {
     return false;
 }
-#endif // MAVERICKS_BACKPORT: closes the HEIF image sequence helper above.
+#endif // AQUAWEBKIT: closes the HEIF image sequence helper above.
 
 bool ImageDecoderGStreamer::supportsContainerType(const String& type)
 {
     // Ideally this decoder should operate only from the WebProcess (or from the GPUProcess) which
     // should be the only process where GStreamer has been runtime initialized.
-    // MAVERICKS_BACKPORT: widened the same way ensureGStreamerInitialized() is (GStreamerCommon.cpp),
+    // AQUAWEBKIT: widened the same way ensureGStreamerInitialized() is (GStreamerCommon.cpp),
     // because WebKitLegacy hosts render in-process: !processType() is a non-auxiliary application
     // process, where GStreamer is initialized and this decoder is the one that decodes a video loaded
     // as an image. The NetworkProcess and the GPU process are still refused.
@@ -207,7 +207,7 @@ bool ImageDecoderGStreamer::supportsContainerType(const String& type)
     if (!isInWebProcess() && processType())
         return false;
 
-    // MAVERICKS_BACKPORT: this decoder also carries the ISO/IEC 23008-12 image sequence types, whose
+    // AQUAWEBKIT: this decoder also carries the ISO/IEC 23008-12 image sequence types, whose
     // samples are HEVC in an ISO-BMFF file. See HAVE(HEIF_IMAGE_SEQUENCE).
     // if (!type.startsWith("video/"_s))
     if (!type.startsWith("video/"_s) && !isHEIFImageSequenceType(type))
@@ -221,14 +221,14 @@ bool ImageDecoderGStreamer::canDecodeType(const String& mimeType)
     if (mimeType.isEmpty())
         return false;
 
-    // MAVERICKS_BACKPORT: widened as supportsContainerType above.
+    // AQUAWEBKIT: widened as supportsContainerType above.
     // if (!mimeType.startsWith("video/"_s))
     if (!mimeType.startsWith("video/"_s) && !isHEIFImageSequenceType(mimeType))
         return false;
 
     // Ideally this decoder should operate only from the WebProcess (or from the GPUProcess) which
     // should be the only process where GStreamer has been runtime initialized.
-    // MAVERICKS_BACKPORT: widened to the in-process renderers too; see supportsContainerType above.
+    // AQUAWEBKIT: widened to the in-process renderers too; see supportsContainerType above.
     // if (!isInWebProcess())
     if (!isInWebProcess() && processType())
         return false;
@@ -290,14 +290,14 @@ PlatformImagePtr ImageDecoderGStreamer::createFrameImageAtIndex(size_t index, Su
     return nullptr;
 }
 
-// MAVERICKS_BACKPORT: Forward the ImageDecoder end-of-input contract to the streaming adapter.
+// AQUAWEBKIT: Forward the ImageDecoder end-of-input contract to the streaming adapter.
 // void ImageDecoderGStreamer::setData(const FragmentedSharedBuffer& data, bool)
 // {
 //     pushEncodedData(data);
 // }
 void ImageDecoderGStreamer::setData(const FragmentedSharedBuffer& data, bool allDataReceived)
 {
-    pushEncodedData(data, allDataReceived); // MAVERICKS_BACKPORT: preserve the end-of-input flag.
+    pushEncodedData(data, allDataReceived); // AQUAWEBKIT: preserve the end-of-input flag.
 }
 
 void ImageDecoderGStreamer::clearFrameBufferCache(size_t index)
@@ -333,7 +333,7 @@ void ImageDecoderGStreamer::storeDecodedSample(GRefPtr<GstSample>&& sample)
     m_sampleData.addSample(ImageDecoderGStreamerSample::create(WTF::move(sample), *m_size));
 }
 
-/* MAVERICKS_BACKPORT: GStreamerImageDecoderStream appends only new bytes and drains at network EOF.
+/* AQUAWEBKIT: GStreamerImageDecoderStream appends only new bytes and drains at network EOF.
 void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& sharedBuffer)
 {
     auto data = sharedBuffer.makeContiguous();
@@ -383,7 +383,7 @@ void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& shared
 
     m_decoderHarness->reset();
 }
-*/ // MAVERICKS_BACKPORT: streaming input implementation is in GStreamerImageDecoderStream.
+*/ // AQUAWEBKIT: streaming input implementation is in GStreamerImageDecoderStream.
 void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& data, bool allDataReceived)
 {
     auto status = m_encodedStream.append(data, allDataReceived, *m_parserHarness, m_decoderHarness);

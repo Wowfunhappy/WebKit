@@ -29,7 +29,7 @@
 #include "AuxiliaryProcess.h"
 #include "CacheModel.h"
 #if PLATFORM(COCOA)
-#include "CocoaDownloadResumeData.h" // MAVERICKS_BACKPORT: typed synchronous native-download resume reply.
+#include "CocoaDownloadResumeData.h" // AQUAWEBKIT: typed synchronous native-download resume reply.
 #endif
 #include "DataTaskIdentifier.h"
 #include "DownloadID.h"
@@ -43,7 +43,7 @@
 #include "WebResourceLoadStatisticsStore.h"
 #include "WebsiteData.h"
 #include <JavaScriptCore/ConsoleTypes.h>
-#include <WebCore/CertificateInfo.h> // MAVERICKS_BACKPORT: m_allowedHTTPSCertificateHosts stores these by value
+#include <WebCore/CertificateInfo.h> // AQUAWEBKIT: m_allowedHTTPSCertificateHosts stores these by value
 #include <WebCore/ClientOrigin.h>
 #include <WebCore/CrossSiteNavigationDataTransfer.h>
 #include <WebCore/DiagnosticLoggingClient.h>
@@ -511,7 +511,7 @@ public:
     void NODELETE setDefaultRequestTimeoutInterval(double);
 
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the certificate a user accepted for a host (see
+    // AQUAWEBKIT: the certificate a user accepted for a host (see
     // allowSpecificHTTPSCertificateForHost), kept on the process rather than on one session. One
     // network process serves every data store, and the window whose sheet the user accepted need not
     // be the one that reloads — a private window has its own store, recreated on each off-to-on
@@ -580,7 +580,7 @@ private:
     void resumeDownload(PAL::SessionID, DownloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtensionHandle&&, CallDownloadDidStart, std::span<const uint8_t> activityAccessToken);
     void cancelDownload(DownloadID, CompletionHandler<void(std::span<const uint8_t>)>&&);
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: synchronous native cancellation preserves the exact durable resume offset.
+    // AQUAWEBKIT: synchronous native cancellation preserves the exact durable resume offset.
     void cancelDownloadForLegacyResume(DownloadID, CompletionHandler<void(std::optional<CocoaDownloadResumeData>&&)>&&);
 #endif
 #if PLATFORM(COCOA)
@@ -597,7 +597,7 @@ private:
 
     void setCacheModel(CacheModel);
     void setCacheModelSynchronouslyForTesting(CacheModel, CompletionHandler<void()>&&);
-    // MAVERICKS_BACKPORT: unconditional; NetworkProcessCocoa.mm implements the Cocoa half.
+    // AQUAWEBKIT: unconditional; NetworkProcessCocoa.mm implements the Cocoa half.
     void allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo&, const String& host);
     void allowTLSCertificateChainForLocalPCMTesting(PAL::SessionID, const WebCore::CertificateInfo&);
     void flushCookies(PAL::SessionID, CompletionHandler<void()>&&);
@@ -711,7 +711,7 @@ private:
     HashMap<WebCore::PageIdentifier, Vector<WebCore::UserContentURLPattern>> m_extensionCORSDisablingPatterns;
     HashSet<Ref<NetworkStorageManager>> m_closingStorageManagers;
 #if PLATFORM(COCOA)
-    HashMap<String, WebCore::CertificateInfo> m_allowedHTTPSCertificateHosts; // MAVERICKS_BACKPORT: see allowedHTTPSCertificateForHost
+    HashMap<String, WebCore::CertificateInfo> m_allowedHTTPSCertificateHosts; // AQUAWEBKIT: see allowedHTTPSCertificateForHost
 #endif
     HashSet<String> m_localhostAliasesForTesting;
     HashSet<WebPageProxyIdentifier> m_pagesWithRelaxedThirdPartyCookieBlocking;

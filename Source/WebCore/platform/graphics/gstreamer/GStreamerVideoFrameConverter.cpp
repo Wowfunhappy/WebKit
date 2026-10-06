@@ -156,7 +156,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
 #if USE(GSTREAMER_GL)
     auto* features = gst_caps_get_features(caps, 0);
     if (features && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_DMABUF)) {
-        // MAVERICKS_BACKPORT: conversion is serialized; resource-release timers run on the main loop.
+        // AQUAWEBKIT: conversion is serialized; resource-release timers run on the main loop.
         /*
         if (!m_dmabufMemoryPipeline) {
             m_dmabufMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::DMABufMemory);
@@ -164,7 +164,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
             m_releaseUnusedDMABufMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
         }
         m_releaseUnusedDMABufMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
-        */ // MAVERICKS_BACKPORT: serialized pipeline and main-loop timer ownership.
+        */ // AQUAWEBKIT: serialized pipeline and main-loop timer ownership.
         if (!m_dmabufMemoryPipeline)
             m_dmabufMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::DMABufMemory);
         RunLoop::mainSingleton().dispatch([this] {
@@ -179,7 +179,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
     }
 
     if (features && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_GL_MEMORY)) {
-        // MAVERICKS_BACKPORT: conversion is serialized; resource-release timers run on the main loop.
+        // AQUAWEBKIT: conversion is serialized; resource-release timers run on the main loop.
         /*
         if (!m_glMemoryPipeline) {
             m_glMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::GLMemory);
@@ -187,7 +187,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
             m_releaseUnusedGLMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
         }
         m_releaseUnusedGLMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
-        */ // MAVERICKS_BACKPORT: serialized pipeline and main-loop timer ownership.
+        */ // AQUAWEBKIT: serialized pipeline and main-loop timer ownership.
         if (!m_glMemoryPipeline)
             m_glMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::GLMemory);
         RunLoop::mainSingleton().dispatch([this] {
@@ -204,7 +204,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
     UNUSED_PARAM(caps);
 #endif
 
-    // MAVERICKS_BACKPORT: conversion is serialized; resource-release timers run on the main loop.
+    // AQUAWEBKIT: conversion is serialized; resource-release timers run on the main loop.
     /*
     if (!m_systemMemoryPipeline) {
         m_systemMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::SystemMemory);
@@ -212,7 +212,7 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
         m_releaseUnusedSystemMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
     }
     m_releaseUnusedSystemMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
-    */ // MAVERICKS_BACKPORT: serialized pipeline and main-loop timer ownership.
+    */ // AQUAWEBKIT: serialized pipeline and main-loop timer ownership.
     if (!m_systemMemoryPipeline)
         m_systemMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::SystemMemory);
     RunLoop::mainSingleton().dispatch([this] {
@@ -232,7 +232,7 @@ GRefPtr<GstSample> GStreamerVideoFrameConverter::convert(const GRefPtr<GstSample
     if (gst_caps_is_equal(inputCaps, destinationCaps.get()))
         return GRefPtr(sample);
 
-    Locker locker { m_lock }; // MAVERICKS_BACKPORT: streaming and canvas callers share conversion pipelines.
+    Locker locker { m_lock }; // AQUAWEBKIT: streaming and canvas callers share conversion pipelines.
     auto outputSample = ensurePipeline(inputCaps).run(sample, destinationCaps.get());
     if (!outputSample)
         return nullptr;
@@ -266,7 +266,7 @@ IGNORE_WARNINGS_END
 
 void GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired()
 {
-    Locker locker { m_lock }; // MAVERICKS_BACKPORT: serialize retirement with conversion.
+    Locker locker { m_lock }; // AQUAWEBKIT: serialize retirement with conversion.
     m_systemMemoryPipeline = nullptr;
     m_releaseUnusedSystemMemoryPipelineTimer = nullptr;
 }
@@ -274,14 +274,14 @@ void GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired()
 #if USE(GSTREAMER_GL)
 void GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired()
 {
-    Locker locker { m_lock }; // MAVERICKS_BACKPORT: serialize retirement with conversion.
+    Locker locker { m_lock }; // AQUAWEBKIT: serialize retirement with conversion.
     m_glMemoryPipeline = nullptr;
     m_releaseUnusedGLMemoryPipelineTimer = nullptr;
 }
 
 void GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired()
 {
-    Locker locker { m_lock }; // MAVERICKS_BACKPORT: serialize retirement with conversion.
+    Locker locker { m_lock }; // AQUAWEBKIT: serialize retirement with conversion.
     m_dmabufMemoryPipeline = nullptr;
     m_releaseUnusedDMABufMemoryPipelineTimer = nullptr;
 }

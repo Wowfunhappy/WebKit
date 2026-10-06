@@ -372,7 +372,7 @@ void SWServer::removeRegistration(ServiceWorkerRegistrationIdentifier registrati
         if (!SecurityOrigin::isLocalHostOrLoopbackIPAddress(registration->key().topOrigin().host()))
             m_uniqueRegistrationCount--;
 
-        // MAVERICKS_BACKPORT: registration removal clears its queued context data across COEP connection groups.
+        // AQUAWEBKIT: registration removal clears its queued context data across COEP connection groups.
         auto domain = Site { registration->key().topOrigin() }.domain();
         m_pendingContextDatas.removeIf([&](auto& pending) {
             if (pending.key.first != domain)

@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the web-process end of the WebConnection (see WebConnection.h).
+// AQUAWEBKIT: the web-process end of the WebConnection (see WebConnection.h).
 
 #pragma once
 

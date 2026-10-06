@@ -169,7 +169,7 @@
            ([responder isKindOfClass:[NSView class]] && [(NSView *)responder isDescendantOf:self])));
 }
 
-// MAVERICKS_BACKPORT: 10.9's Messages calls this.
+// AQUAWEBKIT: 10.9's Messages calls this.
 - (NSRect)_web_convertRect:(NSRect)aRect toView:(NSView *)aView
 {
     // Converting to this view's window; let -convertRect:toView: handle it

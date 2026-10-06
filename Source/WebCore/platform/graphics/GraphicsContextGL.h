@@ -732,7 +732,7 @@ public:
     // WebGL-specific.
     static constexpr GCGLenum MAX_CLIENT_WAIT_TIMEOUT_WEBGL = 0x9247;
 
-    // MAVERICKS_BACKPORT: upstream desktop-GL constants for CGL IOSurface attachments.
+    // AQUAWEBKIT: upstream desktop-GL constants for CGL IOSurface attachments.
     static constexpr GCGLenum TEXTURE_RECTANGLE_ARB = 0x84F5;
     static constexpr GCGLenum TEXTURE_BINDING_RECTANGLE_ARB = 0x84F6;
 
@@ -1671,7 +1671,7 @@ public:
     virtual GCGLint max3DTextureSize() = 0;
     virtual GCGLint maxArrayTextureLayers() = 0;
 
-    // MAVERICKS_BACKPORT: upstream texture-target dispatch for CGL IOSurfaces.
+    // AQUAWEBKIT: upstream texture-target dispatch for CGL IOSurfaces.
     WEBCORE_EXPORT virtual std::tuple<GCGLenum, GCGLenum> externalImageTextureBindingPoint();
 
     virtual void reshape(int width, int height) = 0;

@@ -84,7 +84,7 @@
 #include <WebCore/DocumentWindow.h>
 #include <WebCore/Editor.h>
 #include <WebCore/ElementChildIteratorInlines.h>
-// MAVERICKS_BACKPORT: descendantsOfType() for containsAnyFormElements/Controls (github #98).
+// AQUAWEBKIT: descendantsOfType() for containsAnyFormElements/Controls (github #98).
 #include <WebCore/TypedElementDescendantIteratorInlines.h>
 #include <WebCore/ElementInlines.h>
 #include <WebCore/ElementTargetingController.h>
@@ -1124,7 +1124,7 @@ bool WebFrame::containsAnyFormElements() const
         return false;
 
     auto* document = localFrame->document();
-    // MAVERICKS_BACKPORT: DESCENDANTS, not children (github #98). childrenOfType(Document) iterates the
+    // AQUAWEBKIT: DESCENDANTS, not children (github #98). childrenOfType(Document) iterates the
     // document node's direct children -- the doctype and <html> -- so a <form>, which the parser always
     // puts inside <body>, was never found and this returned false for every page. That killed AutoFill
     // outright: Safari's -[WBSFormMetadataController recursivelyCollectMetadataInFrame:...] calls
@@ -1145,7 +1145,7 @@ bool WebFrame::containsAnyFormControls() const
     if (!document)
         return false;
 
-    // MAVERICKS_BACKPORT: DESCENDANTS, not children (github #98) - same defect as
+    // AQUAWEBKIT: DESCENDANTS, not children (github #98) - same defect as
     // containsAnyFormElements above; the document node's only element child is <html>, so no control
     // was ever reachable and this returned false for every page.
     // for (auto& child : childrenOfType<Element>(*document)) {

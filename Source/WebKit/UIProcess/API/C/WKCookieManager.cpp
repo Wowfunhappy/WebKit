@@ -27,43 +27,43 @@
 #include "WKCookieManager.h"
 
 #include "APIArray.h"
-// MAVERICKS_BACKPORT: copy and validate the versioned legacy callback structure using the standard C API client machinery.
+// AQUAWEBKIT: copy and validate the versioned legacy callback structure using the standard C API client machinery.
 #include "APIClient.h"
-// MAVERICKS_BACKPORT: the restored bodies below run on API::HTTPCookieStore.
+// AQUAWEBKIT: the restored bodies below run on API::HTTPCookieStore.
 #include "APIHTTPCookieStore.h"
 #include "APIString.h"
 #include "WKAPICast.h"
-#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: since-date deletion runs on WebsiteDataStore::removeData.
-#include <WebCore/Cookie.h> // MAVERICKS_BACKPORT: the restored hostname collection walks WebCore::Cookie.
+#include "WebsiteDataStore.h" // AQUAWEBKIT: since-date deletion runs on WebsiteDataStore::removeData.
+#include <WebCore/Cookie.h> // AQUAWEBKIT: the restored hostname collection walks WebCore::Cookie.
 #include <wtf/HashSet.h>
-#include <wtf/WallTime.h> // MAVERICKS_BACKPORT: closes the since-date include set above.
+#include <wtf/WallTime.h> // AQUAWEBKIT: closes the since-date include set above.
 
 using namespace WebKit;
 
-// MAVERICKS_BACKPORT: Safari 7 registers the version-zero cookie-change callback.
+// AQUAWEBKIT: Safari 7 registers the version-zero cookie-change callback.
 namespace API {
 template<> struct ClientTraits<WKCookieManagerClientBase> {
     using Versions = std::tuple<WKCookieManagerClientV0>;
 };
 }
 
-// MAVERICKS_BACKPORT: Safari 7's cookie manager C API operates on API::HTTPCookieStore.
+// AQUAWEBKIT: Safari 7's cookie manager C API operates on API::HTTPCookieStore.
 // Its Privacy pane uses these methods to list and remove cookies and observe storage changes.
-WKTypeID WKCookieManagerGetTypeID() // MAVERICKS_BACKPORT: a WKCookieManagerRef is an API::HTTPCookieStore.
+WKTypeID WKCookieManagerGetTypeID() // AQUAWEBKIT: a WKCookieManagerRef is an API::HTTPCookieStore.
 {
     return WebKit::toAPI(API::HTTPCookieStore::APIType);
 }
 
-// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
-// MAVERICKS_BACKPORT: the client registration belongs to the cookie store.
+// AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// AQUAWEBKIT: the client registration belongs to the cookie store.
 /*
 void WKCookieManagerSetClient(WKCookieManagerRef, const WKCookieManagerClientBase*)
 {
 }
-*/ // MAVERICKS_BACKPORT: store-owned client registration.
+*/ // AQUAWEBKIT: store-owned client registration.
 void WKCookieManagerSetClient(WKCookieManagerRef cookieManagerRef, const WKCookieManagerClientBase* client)
 {
-    // MAVERICKS_BACKPORT: the callback belongs to this cookie store and survives the caller's stack client.
+    // AQUAWEBKIT: the callback belongs to this cookie store and survives the caller's stack client.
     if (!cookieManagerRef)
         return;
     API::Client<WKCookieManagerClientBase> copiedClient;
@@ -80,7 +80,7 @@ void WKCookieManagerSetClient(WKCookieManagerRef cookieManagerRef, const WKCooki
     });
 }
 
-// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetCookieHostnamesFunction callback)
 {
     if (!cookieManagerRef || !callback)
@@ -96,7 +96,7 @@ void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef cookieManagerRef,
     });
 }
 
-// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef cookieManagerRef, WKStringRef hostname)
 {
     if (!cookieManagerRef)
@@ -104,7 +104,7 @@ void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef cookieManagerRef
     protect(WebKit::toImpl(cookieManagerRef))->deleteCookiesForHostnames({ WebKit::toWTFString(hostname) }, [] { });
 }
 
-// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManagerRef)
 {
     if (!cookieManagerRef)
@@ -112,7 +112,7 @@ void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManagerRef)
     protect(WebKit::toImpl(cookieManagerRef))->deleteAllCookies([] { });
 }
 
-// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieManagerRef, double date)
 {
     if (!cookieManagerRef)
@@ -125,7 +125,7 @@ void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieM
     dataStore->removeData(WebKit::WebsiteDataType::Cookies, WallTime::fromRawSeconds(date), [] { });
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID),
+// AQUAWEBKIT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID),
 // with Safari 7's 2-argument ABI. -[Safari::WK::CookieManager setHTTPCookieAcceptPolicy:] tail-jumps
 // here having set only %rdi and %esi, so the context and callback upstream added in the 4-argument form
 // are whatever the caller left in %rdx and %rcx: a non-null garbage %rcx gets called as the completion
@@ -136,7 +136,7 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
 {
     if (!cookieManagerRef)
         return;
-    // MAVERICKS_BACKPORT: Safari 7 has one cookie manager for the whole browser -- the Privacy pane's
+    // AQUAWEBKIT: Safari 7 has one cookie manager for the whole browser -- the Privacy pane's
     // "Block cookies and other website data" radio -- so the policy it sets is the policy of every
     // session it has. A session created afterwards inherits it through createPrivateStorageSession,
     // which reads the process's cookie jar; one that already exists is reached here.
@@ -153,7 +153,7 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
         dataStore.setTrackingPreventionEnabled(preventTracking);
         dataStore.cookieStore().setHTTPCookieAcceptPolicy(acceptPolicy, [] { });
     });
-/* MAVERICKS_BACKPORT: upstream's 4-argument body (see above).
+/* AQUAWEBKIT: upstream's 4-argument body (see above).
 void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy, void* context, WKCookieManagerSetHTTPCookieAcceptPolicyFunction callback)
 {
     if (!cookieManagerRef) {
@@ -165,10 +165,10 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
         if (callback)
             callback(nullptr, context);
     });
-MAVERICKS_BACKPORT */
+AQUAWEBKIT */
 }
 
-// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetHTTPCookieAcceptPolicyFunction callback)
 {
     if (!cookieManagerRef || !callback)
@@ -178,8 +178,8 @@ void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
     });
 }
 
-// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
-// MAVERICKS_BACKPORT: Start/Stop control the cookie store observer registration.
+// AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// AQUAWEBKIT: Start/Stop control the cookie store observer registration.
 /*
 void WKCookieManagerStartObservingCookieChanges(WKCookieManagerRef)
 {
@@ -188,7 +188,7 @@ void WKCookieManagerStartObservingCookieChanges(WKCookieManagerRef)
 void WKCookieManagerStopObservingCookieChanges(WKCookieManagerRef)
 {
 }
-*/ // MAVERICKS_BACKPORT: cookie store observer registration.
+*/ // AQUAWEBKIT: cookie store observer registration.
 void WKCookieManagerStartObservingCookieChanges(WKCookieManagerRef cookieManagerRef)
 {
     if (cookieManagerRef)

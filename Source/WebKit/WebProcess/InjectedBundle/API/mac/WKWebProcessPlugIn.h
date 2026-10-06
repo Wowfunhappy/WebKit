@@ -28,7 +28,7 @@
 #import <Foundation/Foundation.h>
 #import <WebKit/WKBase.h>
 
-// MAVERICKS_BACKPORT: see WKConnection.h.
+// AQUAWEBKIT: see WKConnection.h.
 @class WKConnection;
 @class WKWebProcessPlugInController;
 @class WKWebProcessPlugInBrowserContextController;
@@ -45,7 +45,7 @@ WK_CLASS_AVAILABLE(macos(10.10), ios(8.0))
 @interface WKWebProcessPlugInController : NSObject
 - (void)extendClassesForParameterCoder:(NSArray *)classes WK_API_AVAILABLE(macos(10.14), ios(12.0));
 
-// MAVERICKS_BACKPORT: see WKConnection.h.
+// AQUAWEBKIT: see WKConnection.h.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 @property (readonly) WKConnection *connection;

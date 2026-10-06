@@ -32,13 +32,13 @@
 #import "CoreIPCAuditToken.h"
 #import "DefaultWebBrowserChecks.h"
 #import "Logging.h"
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 #import "ObjCObjectGraph.h"
 #import "SandboxUtilities.h"
 #import "SharedBufferReference.h"
 #import "WKAPICast.h"
 #import "WKBrowsingContextHandleInternal.h"
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 #import "WKBrowsingContextControllerInternal.h"
 #import "WKMouseDeviceObserver.h"
 #import "WKStylusDeviceObserver.h"
@@ -114,7 +114,7 @@ const MemoryCompactLookupOnlyRobinHoodHashSet<String>& WebProcessProxy::platform
     return platformPathsWithAssumedReadAccess;
 }
 
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 RefPtr<ObjCObjectGraph> WebProcessProxy::transformHandlesToObjects(ObjCObjectGraph& objectGraph)
 {
     struct Transformer final : ObjCObjectGraph::Transformer {

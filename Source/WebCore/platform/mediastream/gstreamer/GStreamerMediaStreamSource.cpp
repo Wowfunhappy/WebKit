@@ -455,7 +455,7 @@ public:
         IntSize captureSize(videoFrameSize.width(), videoFrameSize.height());
 
 #if PLATFORM(COCOA)
-        // MAVERICKS_BACKPORT: Cocoa capture and incoming WebRTC frames can have CoreVideo backing instead of a GstSample.
+        // AQUAWEBKIT: Cocoa capture and incoming WebRTC frames can have CoreVideo backing instead of a GstSample.
         RefPtr<VideoFrameGStreamer> wrappedFrame;
         if (!videoFrame.isGStreamer()) {
             auto convertedSample = gstSampleFromCVPixelBuffer(videoFrame.pixelBuffer(), videoFrame.presentationTime(), videoFrame.colorSpace());
@@ -472,7 +472,7 @@ public:
         auto* gstVideoFrame = wrappedFrame ? wrappedFrame.get() : downcast<VideoFrameGStreamer>(&videoFrame);
 #else
         auto gstVideoFrame = static_cast<VideoFrameGStreamer*>(&videoFrame);
-#endif // MAVERICKS_BACKPORT: closes the CoreVideo media-stream frame conversion above.
+#endif // AQUAWEBKIT: closes the CoreVideo media-stream frame conversion above.
         GRefPtr<GstSample> sample = gstVideoFrame->sample();
 
         // Video encoders require a multiple of two frame size. At least x264enc does anyway.
@@ -523,7 +523,7 @@ public:
         pushBlackFrame(GST_BUFFER_PTS(gst_sample_get_buffer(sample.get())));
     }
 
-    // MAVERICKS_BACKPORT: the parameters are named for the WebAudioBufferList branch below.
+    // AQUAWEBKIT: the parameters are named for the WebAudioBufferList branch below.
     void audioSamplesAvailable(const MediaTime& presentationTime, const PlatformAudioData& audioData, const AudioStreamDescription& description, size_t sampleCount) final
     {
         if (!m_parent || !m_isObserving)
@@ -537,13 +537,13 @@ public:
 
         GRefPtr<GstSample> sample;
 #if PLATFORM(COCOA)
-        // MAVERICKS_BACKPORT: the Cocoa capture units this build uses deliver a WebAudioBufferList.
+        // AQUAWEBKIT: the Cocoa capture units this build uses deliver a WebAudioBufferList.
         if (audioData.kind() == PlatformAudioData::Kind::WebAudioBufferList) {
             sample = gstSampleFromWebAudioBufferList(audioData, description, sampleCount, presentationTime, m_webAudioBufferListCaps);
             if (!sample)
                 return;
         } else
-#endif // MAVERICKS_BACKPORT: closes the WebAudioBufferList branch above.
+#endif // AQUAWEBKIT: closes the WebAudioBufferList branch above.
         sample = static_cast<const GStreamerAudioData&>(audioData).getSample();
         if (m_track->enabled()) {
             pushSample(sample, "Pushing audio sample from enabled track"_s);
@@ -554,10 +554,10 @@ public:
     }
 
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the caps the WebAudioBufferList branch above converts into, kept across
+    // AQUAWEBKIT: the caps the WebAudioBufferList branch above converts into, kept across
     // callbacks; see GStreamerAudioData.h.
     WebAudioBufferListCaps m_webAudioBufferListCaps;
-#endif // MAVERICKS_BACKPORT: closes the converter's cached caps above.
+#endif // AQUAWEBKIT: closes the converter's cached caps above.
 
     Lock* eosLocker() { return &m_eosLock; }
     void notifyEOS()

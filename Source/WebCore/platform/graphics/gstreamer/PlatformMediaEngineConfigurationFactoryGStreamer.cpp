@@ -30,14 +30,14 @@
 
 #if USE(GSTREAMER)
 
-// MAVERICKS_BACKPORT: the VP9 decoder setting is answered from the configuration's codec list.
+// AQUAWEBKIT: the VP9 decoder setting is answered from the configuration's codec list.
 #include "ContentType.h"
 #include "GStreamerRegistryScanner.h"
 #include "PlatformMediaCapabilitiesDecodingInfo.h"
 #include "PlatformMediaCapabilitiesEncodingInfo.h"
 #include "PlatformMediaDecodingConfiguration.h"
 #include "PlatformMediaEncodingConfiguration.h"
-#include <algorithm> // MAVERICKS_BACKPORT: scans that codec list.
+#include <algorithm> // AQUAWEBKIT: scans that codec list.
 #include <wtf/Function.h>
 
 #if ENABLE(MEDIA_SOURCE)
@@ -46,7 +46,7 @@
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: the codec spellings GStreamerRegistryScanner registers for video/x-vp9.
+// AQUAWEBKIT: the codec spellings GStreamerRegistryScanner registers for video/x-vp9.
 static bool isVP9Codec(const String& codec)
 {
     return codec.startsWith("vp09"_s) || codec.startsWith("vp9"_s) || codec.startsWith("x-vp9"_s);
@@ -54,7 +54,7 @@ static bool isVP9Codec(const String& codec)
 
 void createMediaPlayerDecodingConfigurationGStreamer(PlatformMediaDecodingConfiguration&& configuration, Function<void(PlatformMediaCapabilitiesDecodingInfo&&)>&& callback)
 {
-    // MAVERICKS_BACKPORT: a configuration naming VP9 is unsupported while the VP9 decoder setting is
+    // AQUAWEBKIT: a configuration naming VP9 is unsupported while the VP9 decoder setting is
     // off, the rule PlatformMediaEngineConfigurationFactoryCocoa.cpp applies to the same configuration.
     if (!configuration.canExposeVP9 && configuration.video) {
         auto codecs = ContentType(configuration.video->contentType).codecs();

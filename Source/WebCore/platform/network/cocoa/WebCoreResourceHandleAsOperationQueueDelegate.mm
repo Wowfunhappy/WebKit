@@ -43,13 +43,13 @@
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/MainThread.h>
-#import <wtf/SetForScope.h> // MAVERICKS_BACKPORT: for m_deliveringResponse.
-#import <wtf/ThreadSafeRefCounted.h> // MAVERICKS_BACKPORT: for ConnectionCallback.
+#import <wtf/SetForScope.h> // AQUAWEBKIT: for m_deliveringResponse.
+#import <wtf/ThreadSafeRefCounted.h> // AQUAWEBKIT: for ConnectionCallback.
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 using namespace WebCore;
 
-// MAVERICKS_BACKPORT: one callback of a connection scheduled on the main run loop. Its work runs in place,
+// AQUAWEBKIT: one callback of a connection scheduled on the main run loop. Its work runs in place,
 // so the answer is in hand when the completion handler runs before the callback returns; a completion
 // handler that runs later, after work held behind a pending completion or a deferral, answers late.
 class ConnectionCallback : public ThreadSafeRefCounted<ConnectionCallback> {
@@ -86,7 +86,7 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 
 - (void)callFunctionOnMainThread:(Function<void()>&&)function
 {
-    // MAVERICKS_BACKPORT: while a response or redirect waits for its completion handler, or the handle
+    // AQUAWEBKIT: while a response or redirect waits for its completion handler, or the handle
     // defers loading, the main thread holds the connection's later work, in order.
     function = [protectedSelf = retainPtr(self), function = WTF::move(function)] mutable {
         if (protectedSelf->m_waitingForCompletion || protectedSelf->m_defersLoading || !protectedSelf->m_heldWork.isEmpty()) {
@@ -96,14 +96,14 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         function();
     };
 
-    // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread; its work runs in place.
+    // AQUAWEBKIT: a connection on the main run loop calls back on the main thread; its work runs in place.
     if (m_callbacksOnMainThread && !m_messageQueue && isMainThread())
         return function();
 
     [self dispatchFunctionOnMainThread:WTF::move(function)];
 }
 
-// MAVERICKS_BACKPORT: upstream's -callFunctionOnMainThread: dispatch, which held work's drain also takes.
+// AQUAWEBKIT: upstream's -callFunctionOnMainThread: dispatch, which held work's drain also takes.
 - (void)dispatchFunctionOnMainThread:(Function<void()>&&)function
 {
     // Sync xhr uses the message queue.
@@ -122,16 +122,16 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         function();
         function = nullptr;
     });
-    // MAVERICKS_BACKPORT: enqueueing a block does not wake its run loop; curl's worker must also signal the custom delegate loop.
+    // AQUAWEBKIT: enqueueing a block does not wake its run loop; curl's worker must also signal the custom delegate loop.
     // for (auto& pair : *m_scheduledPairs)
     //     CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
     for (auto& pair : *m_scheduledPairs) {
         CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
-        CFRunLoopWakeUp(pair->runLoop()); // MAVERICKS_BACKPORT: wake the loop whose delegate block was just queued.
+        CFRunLoopWakeUp(pair->runLoop()); // AQUAWEBKIT: wake the loop whose delegate block was just queued.
     }
 }
 
-// MAVERICKS_BACKPORT: the main-run-loop connection state; see callFunctionOnMainThread:.
+// AQUAWEBKIT: the main-run-loop connection state; see callFunctionOnMainThread:.
 - (void)setCallbacksOnMainThread
 {
     m_callbacksOnMainThread = true;
@@ -206,7 +206,7 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
     m_cachedResponseResult = nullptr;
     m_boolResult = NO;
     m_semaphore.signal(); // OK to signal even if we are not waiting.
-    // MAVERICKS_BACKPORT: held work has no handle left to reach.
+    // AQUAWEBKIT: held work has no handle left to reach.
     m_waitingForCompletion = false;
     m_heldWork.clear();
 }
@@ -218,7 +218,7 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 
 - (NSURLRequest *)connection:(NSURLConnection *)connection willSendRequest:(NSURLRequest *)newRequest redirectResponse:(NSURLResponse *)redirectResponse
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     redirectResponse = synthesizeRedirectResponseIfNecessary([connection currentRequest], newRequest, redirectResponse);
@@ -235,16 +235,16 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 #endif
 
     auto protectedSelf = retainPtr(self);
-    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // AQUAWEBKIT: see ConnectionCallback.
     // auto work = [protectedSelf, newRequest = retainPtr(newRequest), redirectResponse = retainPtr(redirectResponse)] mutable {
     Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
     auto work = [protectedSelf, newRequest = retainPtr(newRequest), redirectResponse = retainPtr(redirectResponse), connection = retainPtr(connection), callback] mutable {
         if (!protectedSelf->m_handle) {
             protectedSelf->m_requestResult = nullptr;
-            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            // protectedSelf->m_semaphore.signal(); // AQUAWEBKIT: only a blocked callback waits.
             if (!callback->runsInPlace())
                 protectedSelf->m_semaphore.signal();
-            callback->setAnswered(); // MAVERICKS_BACKPORT: see ConnectionCallback.
+            callback->setAnswered(); // AQUAWEBKIT: see ConnectionCallback.
             return;
         }
 
@@ -264,11 +264,11 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 
         protectedSelf->m_handle->incrementRedirectCount();
 
-        protectedSelf->m_waitingForCompletion = true; // MAVERICKS_BACKPORT: see callFunctionOnMainThread:.
-        // MAVERICKS_BACKPORT: the completion handler continues the connection; see below.
+        protectedSelf->m_waitingForCompletion = true; // AQUAWEBKIT: see callFunctionOnMainThread:.
+        // AQUAWEBKIT: the completion handler continues the connection; see below.
         // protect(protectedSelf->m_handle.get())->willSendRequest(WTF::move(redirectRequest), WTF::move(response), [protectedSelf = WTF::move(protectedSelf)](ResourceRequest&& request) {
         protect(protectedSelf->m_handle.get())->willSendRequest(WTF::move(redirectRequest), WTF::move(response), [protectedSelf = WTF::move(protectedSelf), connection = WTF::move(connection), callback](ResourceRequest&& request) {
-            // MAVERICKS_BACKPORT: the curl transport owns HTTP; leaving this connection detaches its delegate. A
+            // AQUAWEBKIT: the curl transport owns HTTP; leaving this connection detaches its delegate. A
             // late answer finds that the callback gave CFNetwork nil: an approved request continues on a new
             // connection, and a nil answer lets the connection deliver the redirect response.
             protectedSelf->m_waitingForCompletion = false;
@@ -287,14 +287,14 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
             }
             callback->setAnswered();
             protectedSelf->m_requestResult = request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
-            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            // protectedSelf->m_semaphore.signal(); // AQUAWEBKIT: only a blocked callback waits.
             if (!callback->runsInPlace())
                 protectedSelf->m_semaphore.signal();
         });
     };
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // AQUAWEBKIT: see ConnectionCallback.
     // m_semaphore.wait();
     if (callback->runsInPlace()) {
         callback->setReturned();
@@ -322,7 +322,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)connection:(NSURLConnection *)connection didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveAuthenticationChallenge:%p", m_handle.get(), connection, challenge);
@@ -332,7 +332,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
             [[challenge sender] cancelAuthenticationChallenge:challenge.get()];
             return;
         }
-        // MAVERICKS_BACKPORT: connection:canAuthenticateAgainstProtectionSpace: answered YES before the client
+        // AQUAWEBKIT: connection:canAuthenticateAgainstProtectionSpace: answered YES before the client
         // could, and the client's answer arrived with the held work ahead of this challenge. A NO gets what
         // 10.9 CFNetwork does for a protection space its delegate declines: it continues without a credential.
         if (std::exchange(protectedSelf->m_protectionSpaceUnanswered, false) && !std::exchange(protectedSelf->m_lateProtectionSpaceAnswer, NO)) {
@@ -349,25 +349,25 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (BOOL)connection:(NSURLConnection *)connection canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace *)protectionSpace
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p canAuthenticateAgainstProtectionSpace:%@://%@:%zd realm:%@ method:%@ %@%@", m_handle.get(), connection, [protectionSpace protocol], [protectionSpace host], [protectionSpace port], [protectionSpace realm], [protectionSpace authenticationMethod], [protectionSpace isProxy] ? @"proxy:" : @"", [protectionSpace isProxy] ? [protectionSpace proxyType] : @"");
 
     auto protectedSelf = retainPtr(self);
-    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // AQUAWEBKIT: see ConnectionCallback.
     // auto work = [protectedSelf, protectionSpace = retainPtr(protectionSpace)] mutable {
     Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
     auto work = [protectedSelf, protectionSpace = retainPtr(protectionSpace), callback] mutable {
         if (!protectedSelf->m_handle) {
             protectedSelf->m_boolResult = NO;
-            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            // protectedSelf->m_semaphore.signal(); // AQUAWEBKIT: only a blocked callback waits.
             if (!callback->runsInPlace())
                 protectedSelf->m_semaphore.signal();
-            callback->setAnswered(); // MAVERICKS_BACKPORT: see ConnectionCallback.
+            callback->setAnswered(); // AQUAWEBKIT: see ConnectionCallback.
             return;
         }
-        // MAVERICKS_BACKPORT: see ConnectionCallback; the challenge takes a late answer.
+        // AQUAWEBKIT: see ConnectionCallback; the challenge takes a late answer.
         // protect(protectedSelf->m_handle.get())->canAuthenticateAgainstProtectionSpace(ProtectionSpace(protectionSpace.get()), [protectedSelf = WTF::move(protectedSelf)](bool result) mutable {
         //     protectedSelf->m_boolResult = result;
         //     protectedSelf->m_semaphore.signal();
@@ -379,13 +379,13 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
             }
             callback->setAnswered();
             protectedSelf->m_boolResult = result;
-            if (!callback->runsInPlace()) // MAVERICKS_BACKPORT: only a blocked callback waits.
+            if (!callback->runsInPlace()) // AQUAWEBKIT: only a blocked callback waits.
                 protectedSelf->m_semaphore.signal();
         });
     };
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    // MAVERICKS_BACKPORT: see ConnectionCallback; held work answers YES and leaves the client's answer to the challenge.
+    // AQUAWEBKIT: see ConnectionCallback; held work answers YES and leaves the client's answer to the challenge.
     // m_semaphore.wait();
     if (callback->runsInPlace()) {
         callback->setReturned();
@@ -411,18 +411,18 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)r
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveResponse:%p (HTTP status %zd, reported MIMEType '%s')", m_handle.get(), connection, r, [r respondsToSelector:@selector(statusCode)] ? [(id)r statusCode] : 0, [[r MIMEType] UTF8String]);
 
     auto protectedSelf = retainPtr(self);
-    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // AQUAWEBKIT: see ConnectionCallback.
     // auto work = [protectedSelf, r = retainPtr(r), connection = retainPtr(connection)] mutable {
     Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
     auto work = [protectedSelf, r = retainPtr(r), connection = retainPtr(connection), callback] mutable {
         RefPtr handle = protectedSelf->m_handle.get();
         if (!handle || !handle->client()) {
-            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            // protectedSelf->m_semaphore.signal(); // AQUAWEBKIT: only a blocked callback waits.
             if (!callback->runsInPlace())
                 protectedSelf->m_semaphore.signal();
             return;
@@ -447,8 +447,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
         handle->setNetworkLoadMetrics(WTF::move(metrics));
 
-        protectedSelf->m_waitingForCompletion = true; // MAVERICKS_BACKPORT: see callFunctionOnMainThread:.
-        // MAVERICKS_BACKPORT: a callback that ran in place continues the connection when the completion
+        protectedSelf->m_waitingForCompletion = true; // AQUAWEBKIT: see callFunctionOnMainThread:.
+        // AQUAWEBKIT: a callback that ran in place continues the connection when the completion
         // handler runs; see ConnectionCallback and -isDeliveringResponse.
         // handle->didReceiveResponse(WTF::move(resourceResponse), [protectedSelf = WTF::move(protectedSelf)] {
         //     protectedSelf->m_semaphore.signal();
@@ -464,10 +464,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         });
         if (callback->runsInPlace())
             [protectedSelf deferConnectionForCompletion:connection.get()];
-    }; // MAVERICKS_BACKPORT: closes the response work above.
+    }; // AQUAWEBKIT: closes the response work above.
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // AQUAWEBKIT: see ConnectionCallback.
     // m_semaphore.wait();
     if (callback->runsInPlace())
         callback->setReturned();
@@ -480,7 +480,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data lengthReceived:(long long)lengthReceived
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
     UNUSED_PARAM(lengthReceived);
 
@@ -504,7 +504,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didSendBodyData:(NSInteger)bytesWritten totalBytesWritten:(NSInteger)totalBytesWritten totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
     UNUSED_PARAM(bytesWritten);
 
@@ -521,7 +521,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connectionDidFinishLoading:%p", m_handle.get(), connection);
@@ -557,7 +557,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p didFailWithError:%@", m_handle.get(), connection, error);
@@ -579,26 +579,26 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse *)cachedResponse
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p willCacheResponse:%p", m_handle.get(), connection, cachedResponse);
 
     auto protectedSelf = retainPtr(self);
-    // MAVERICKS_BACKPORT: see ConnectionCallback.
+    // AQUAWEBKIT: see ConnectionCallback.
     // auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse)] mutable {
     Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
     auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse), callback] mutable {
         if (!protectedSelf->m_handle || !protectedSelf->m_handle->client()) {
             protectedSelf->m_cachedResponseResult = nullptr;
-            // protectedSelf->m_semaphore.signal(); // MAVERICKS_BACKPORT: only a blocked callback waits.
+            // protectedSelf->m_semaphore.signal(); // AQUAWEBKIT: only a blocked callback waits.
             if (!callback->runsInPlace())
                 protectedSelf->m_semaphore.signal();
-            callback->setAnswered(); // MAVERICKS_BACKPORT: see ConnectionCallback.
+            callback->setAnswered(); // AQUAWEBKIT: see ConnectionCallback.
             return;
         }
 
-        // MAVERICKS_BACKPORT: see ConnectionCallback.
+        // AQUAWEBKIT: see ConnectionCallback.
         // protectedSelf->m_handle->client()->willCacheResponseAsync(protect(protectedSelf->m_handle.get()), cachedResponse.get(), [protectedSelf = WTF::move(protectedSelf)](NSCachedURLResponse * response) mutable {
         //     protectedSelf->m_cachedResponseResult = response;
         //     protectedSelf->m_semaphore.signal();
@@ -608,13 +608,13 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
                 return;
             callback->setAnswered();
             protectedSelf->m_cachedResponseResult = response;
-            if (!callback->runsInPlace()) // MAVERICKS_BACKPORT: only a blocked callback waits.
+            if (!callback->runsInPlace()) // AQUAWEBKIT: only a blocked callback waits.
                 protectedSelf->m_semaphore.signal();
         });
     };
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    // MAVERICKS_BACKPORT: see ConnectionCallback. Held work answers nil: 10.9's NSURLCache stores HTTP
+    // AQUAWEBKIT: see ConnectionCallback. Held work answers nil: 10.9's NSURLCache stores HTTP
     // responses only, and HTTP loads run on curl, so no response reaching this connection is ever stored.
     // m_semaphore.wait();
     if (callback->runsInPlace()) {
@@ -643,7 +643,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (BOOL)connectionShouldUseCredentialStorage:(NSURLConnection *)connection
 {
-    // ASSERT(!isMainThread()); // MAVERICKS_BACKPORT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
     UNUSED_PARAM(connection);
     return NO;
 }

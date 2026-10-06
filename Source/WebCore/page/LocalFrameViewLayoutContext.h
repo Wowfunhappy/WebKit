@@ -86,7 +86,7 @@ public:
     // whose dependencies are poorly defined. This call triggers such updates.
     void setNeedsLayoutAfterViewConfigurationChange();
 
-    // MAVERICKS_BACKPORT: mark-only variant for Legacy WebKit's -[WebHTMLView setNeedsLayout:].
+    // AQUAWEBKIT: mark-only variant for Legacy WebKit's -[WebHTMLView setNeedsLayout:].
     // It honors the disable-setNeedsLayout deferral window like the call above but does NOT
     // schedule a layout timer; the layout runs in the next display pass (-viewWillDraw), matching
     // the FrameView::setNeedsLayout() semantics of the WebKit that shipped with Safari 7. On 10.9,

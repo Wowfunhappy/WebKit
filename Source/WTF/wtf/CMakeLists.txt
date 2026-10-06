@@ -837,9 +837,9 @@ WEBKIT_FRAMEWORK_DECLARE(WTF)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 WEBKIT_ADD_TARGET_UNSAFE_BUFFER_WARNINGS(WTF)
 
-# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/WTFPlatformMavericks.cmake, which
+# AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/WTFPlatformAquaWebKit.cmake, which
 # edits WTF_PUBLIC_HEADERS for the copy below.
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WTFPlatformMavericks.cmake)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WTFPlatformAquaWebKit.cmake)
 
 WEBKIT_COPY_FILES(WTF_CopyHeaders
     PRUNE_STALE

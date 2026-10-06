@@ -4,7 +4,7 @@ if (ENABLE_MINIBROWSER AND ENABLE_WEBKIT)
     add_subdirectory(MiniBrowser/mac)
 endif ()
 
-# MAVERICKS_BACKPORT: standalone WebKitTestRunner build; ENABLE_LAYOUT_TESTS builds both drivers in Tools/CMakeLists.txt.
+# AQUAWEBKIT: standalone WebKitTestRunner build; ENABLE_LAYOUT_TESTS builds both drivers in Tools/CMakeLists.txt.
 option(ENABLE_WEBKIT_TEST_RUNNER "Build WebKitTestRunner for layout tests" ON)
 if (ENABLE_WEBKIT_TEST_RUNNER AND ENABLE_WEBKIT AND NOT ENABLE_LAYOUT_TESTS)
     add_subdirectory(ImageDiff)

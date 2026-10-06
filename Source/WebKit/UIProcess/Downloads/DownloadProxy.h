@@ -80,12 +80,12 @@ public:
     const WebCore::ResourceRequest& request() const LIFETIME_BOUND { return m_request; }
     API::Data* legacyResumeData() const { return m_legacyResumeData.get(); }
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the same resume data in the CFURLDownload format Safari 7's resume path
+    // AQUAWEBKIT: the same resume data in the CFURLDownload format Safari 7's resume path
     // consumes; see DownloadProxyCocoa.mm for why the WK2 blob cannot be handed over as-is.
     RefPtr<API::Data> legacyResumeDataForNSURLDownload() const;
-    // MAVERICKS_BACKPORT: native WebDownload cancellation must synchronously close the remote file writer.
+    // AQUAWEBKIT: native WebDownload cancellation must synchronously close the remote file writer.
     RefPtr<API::Data> cancelForLegacyResume();
-    // MAVERICKS_BACKPORT: preserve the native resume response and byte offset before progress callbacks.
+    // AQUAWEBKIT: preserve the native resume response and byte offset before progress callbacks.
     void didResumeWithResponse(const WebCore::ResourceResponse&, uint64_t);
 #endif
 
@@ -162,7 +162,7 @@ private:
 
     RefPtr<API::Data> m_legacyResumeData;
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: cached translation of m_legacyResumeData, so the +0 "Get" C API can hand out a
+    // AQUAWEBKIT: cached translation of m_legacyResumeData, so the +0 "Get" C API can hand out a
     // pointer that stays alive as long as this DownloadProxy.
     mutable RefPtr<API::Data> m_legacyResumeDataForNSURLDownload;
 #endif

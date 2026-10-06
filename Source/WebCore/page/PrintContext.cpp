@@ -265,7 +265,7 @@ void PrintContext::spoolPage(GraphicsContext& ctx, int pageNumber, float width)
 
     RELEASE_ASSERT(pageNumber < static_cast<int>(m_pageRects.size()));
 
-    // MAVERICKS_BACKPORT(upstreamable): flush pending layout first, as this file's other
+    // AQUAWEBKIT(upstreamable): flush pending layout first, as this file's other
     // layout-consuming entry points do. Script can leave a relayout pending between the
     // begin-printing and spool messages (Document::updateLayoutIfDimensionsOutOfDate defers its
     // relayout), and LocalFrameView::paintContents does not paint while layout is pending, which
@@ -294,7 +294,7 @@ void PrintContext::spoolRect(GraphicsContext& ctx, const IntRect& rect)
     if (!frame->view())
         return;
 
-    // MAVERICKS_BACKPORT(upstreamable): flush pending layout first, as this file's other
+    // AQUAWEBKIT(upstreamable): flush pending layout first, as this file's other
     // layout-consuming entry points do. Script can leave a relayout pending between the
     // begin-printing and spool messages (Document::updateLayoutIfDimensionsOutOfDate defers its
     // relayout), and LocalFrameView::paintContents does not paint while layout is pending, which

@@ -17,7 +17,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// MAVERICKS_BACKPORT: CoreGraphics implementation of the ImageGStreamer seam; upstream ships only
+// AQUAWEBKIT: CoreGraphics implementation of the ImageGStreamer seam; upstream ships only
 // ImageGStreamerSkia.cpp. A decoded sample becomes a CGImage through VideoFrame::copyNativeImage(), the
 // conversion every Cocoa VideoFrame takes: VideoToolbox converts the frame's CVPixelBuffer to BGRA and
 // the image carries the colour space of that buffer's colour attachments.

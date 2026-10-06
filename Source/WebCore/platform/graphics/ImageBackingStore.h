@@ -56,7 +56,7 @@ public:
     }
 
     PlatformImagePtr image() const;
-#if USE(CG) // MAVERICKS_BACKPORT: native images can retain a decoder's four-component color model.
+#if USE(CG) // AQUAWEBKIT: native images can retain a decoder's four-component color model.
     PlatformImagePtr image(CGColorSpaceRef, CGBitmapInfo, const CGFloat* decode) const;
 #endif
 

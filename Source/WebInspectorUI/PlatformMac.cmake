@@ -1,7 +1,7 @@
 # NSBundle expects .lproj directories directly under Resources, not nested in Localizations.
 set(WebInspectorUI_LOCALIZED_STRINGS_DIR "${WebInspectorUI_RESOURCES_DIR}/WebInspectorUI/en.lproj")
 
-# MAVERICKS_BACKPORT: test harnesses resolve frameworks from the library output directory.
+# AQUAWEBKIT: test harnesses resolve frameworks from the library output directory.
 # set(WebInspectorUI_FRAMEWORK_DIR "${CMAKE_BINARY_DIR}/WebInspectorUI.framework")
 set(WebInspectorUI_FRAMEWORK_DIR "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebInspectorUI.framework")
 set(WebInspectorUI_FRAMEWORK_RESOURCES_DIR "${WebInspectorUI_FRAMEWORK_DIR}/Versions/A/Resources")

@@ -52,7 +52,7 @@ WK_EXPORT void WKPageAccessibilityClearIsolatedTree(WKPageRef page);
 #endif // __OBJC__
 
 #if !TARGET_OS_IPHONE
-// MAVERICKS_BACKPORT: Safari 7 queries the application HSTS policy through this C API.
+// AQUAWEBKIT: Safari 7 queries the application HSTS policy through this C API.
 WK_EXPORT bool WKPageIsURLKnownHSTSHost(WKPageRef page, WKURLRef url);
 
 WK_EXPORT bool WKPageIsPlayingVideoInPictureInPicture(WKPageRef page);

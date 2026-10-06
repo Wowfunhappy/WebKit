@@ -1326,7 +1326,7 @@ void LocalFrameView::didLayout(SingleThreadWeakPtr<RenderElement> layoutRoot, bo
 #endif
 
     m_frame->invalidateContentEventRegionsIfNeeded(LocalFrame::InvalidateContentEventRegionsReason::Layout);
-    document->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // MAVERICKS_BACKPORT: the post-layout path recollects the Dashboard regions.
+    document->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // AQUAWEBKIT: the post-layout path recollects the Dashboard regions.
 
     updateCanBlitOnScrollRecursively();
 
@@ -4302,7 +4302,7 @@ void LocalFrameView::setNeedsLayoutAfterViewConfigurationChange()
     layoutContext().setNeedsLayoutAfterViewConfigurationChange();
 }
 
-// MAVERICKS_BACKPORT: mark-only, deferral-honoring layout request for Legacy WebKit (WebHTMLView); forwards to LocalFrameViewLayoutContext::setNeedsLayoutWithoutScheduling().
+// AQUAWEBKIT: mark-only, deferral-honoring layout request for Legacy WebKit (WebHTMLView); forwards to LocalFrameViewLayoutContext::setNeedsLayoutWithoutScheduling().
 void LocalFrameView::setNeedsLayoutWithoutScheduling()
 {
     layoutContext().setNeedsLayoutWithoutScheduling();
@@ -5820,7 +5820,7 @@ void LocalFrameView::didPaintContents(GraphicsContext& context, const IntRect& d
         firePaintRelatedMilestonesIfNeeded();
     }
 
-    // MAVERICKS_BACKPORT: Dashboard regions may have changed with the visibility or z-index of an element.
+    // AQUAWEBKIT: Dashboard regions may have changed with the visibility or z-index of an element.
     if (RefPtr document = m_frame->document())
         document->updateZOrderDependentRegions();
 }

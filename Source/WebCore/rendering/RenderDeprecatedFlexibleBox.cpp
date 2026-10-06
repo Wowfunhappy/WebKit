@@ -47,7 +47,7 @@
 #include <wtf/unicode/CharacterNames.h>
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: SDKAlignedBehavior::BoxPackAccountsForBoxDirection, read in layoutHorizontalBox().
+// AQUAWEBKIT: SDKAlignedBehavior::BoxPackAccountsForBoxDirection, read in layoutHorizontalBox().
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
@@ -701,7 +701,7 @@ void RenderDeprecatedFlexibleBox::layoutHorizontalBox(RelayoutChildren relayoutC
         isEffectiveLTR = !isEffectiveLTR;
 
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: hosts without BoxPackAccountsForBoxDirection pick the pack side from the
+    // AQUAWEBKIT: hosts without BoxPackAccountsForBoxDirection pick the pack side from the
     // writing direction alone, and only positive free space moves children.
     bool boxPackAccountsForBoxDirection = WTF::linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::BoxPackAccountsForBoxDirection);
     if (!boxPackAccountsForBoxDirection)
@@ -755,7 +755,7 @@ void RenderDeprecatedFlexibleBox::layoutHorizontalBox(RelayoutChildren relayoutC
             offset += remainingSpace;
 #if PLATFORM(COCOA)
         if (!boxPackAccountsForBoxDirection && remainingSpace <= 0)
-            offset = 0; // MAVERICKS_BACKPORT: see boxPackAccountsForBoxDirection above.
+            offset = 0; // AQUAWEBKIT: see boxPackAccountsForBoxDirection above.
 #endif
         offsetChildren(offset);
     }

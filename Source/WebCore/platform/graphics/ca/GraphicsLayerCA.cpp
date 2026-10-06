@@ -437,7 +437,7 @@ void GraphicsLayerCA::initialize(Type layerType)
     }
 
     m_layer = createPlatformCALayer(platformLayerType, this);
-    // MAVERICKS_BACKPORT: viewport anchors carry coordinates, not independent CSS 3D contexts.
+    // AQUAWEBKIT: viewport anchors carry coordinates, not independent CSS 3D contexts.
     if (layerType == Type::Structural && is<PlatformCALayerCocoa>(*m_layer))
         downcast<PlatformCALayerCocoa>(*m_layer).setIsBackdropHostingLayer(true);
 
@@ -675,7 +675,7 @@ void GraphicsLayerCA::setTransform(const TransformationMatrix& t)
 
     GraphicsLayer::setTransform(t);
     noteLayerPropertyChanged(TransformChanged);
-    if (type() == Type::Structural) // MAVERICKS_BACKPORT: see passesBackdropSampling().
+    if (type() == Type::Structural) // AQUAWEBKIT: see passesBackdropSampling().
         noteChildrenBackdropSamplingContextChanged();
 }
 
@@ -686,7 +686,7 @@ void GraphicsLayerCA::setChildrenTransform(const TransformationMatrix& t)
 
     GraphicsLayer::setChildrenTransform(t);
     noteLayerPropertyChanged(ChildrenTransformChanged);
-    // MAVERICKS_BACKPORT: perspective changes can add or remove native context boundaries, including replicas.
+    // AQUAWEBKIT: perspective changes can add or remove native context boundaries, including replicas.
     if (is<PlatformCALayerCocoa>(*primaryLayer()) && PlatformCALayerCocoa::needsExplicitDepthSorting())
         noteSublayersChanged();
 }
@@ -744,7 +744,7 @@ void GraphicsLayerCA::setPreserves3D(bool preserves3D)
 
     GraphicsLayer::setPreserves3D(preserves3D);
     noteLayerPropertyChanged(Preserves3DChanged);
-    noteChildrenBackdropSamplingContextChanged(); // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+    noteChildrenBackdropSamplingContextChanged(); // AQUAWEBKIT: see StructuralLayerForBackdropSampling.
 }
 
 void GraphicsLayerCA::setMasksToBounds(bool masksToBounds)
@@ -980,7 +980,7 @@ void GraphicsLayerCA::setIsBackdropRoot(bool isBackdropRoot)
     noteLayerPropertyChanged(BackdropRootChanged);
 }
 
-// MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+// AQUAWEBKIT: see StructuralLayerForBackdropSampling.
 void GraphicsLayerCA::setPassesBackdropSampling(bool passesBackdropSampling)
 {
     if (passesBackdropSampling == m_passesBackdropSampling)
@@ -2206,7 +2206,7 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
 
     // Need to handle Preserves3DChanged first, because it affects which layers subsequent properties are applied to
     LayerChangeFlags structuralLayerUpdateReasons = Preserves3DChanged | ReplicatedLayerChanged | BackdropFiltersChanged;
-    // MAVERICKS_BACKPORT: native background sampling requires a host without group effects.
+    // AQUAWEBKIT: native background sampling requires a host without group effects.
     if (is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()) {
         structuralLayerUpdateReasons |= BackdropRootChanged;
         if (needsBackdrop() || m_passesBackdropSampling)
@@ -2310,7 +2310,7 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     if (m_uncommittedChanges & AnimationChanged)
         updateAnimations();
 
-    // MAVERICKS_BACKPORT: follows opacity, its animations, and the host and backdrop layers they apply to.
+    // AQUAWEBKIT: follows opacity, its animations, and the host and backdrop layers they apply to.
     if ((m_uncommittedChanges & (structuralLayerUpdateReasons | OpacityChanged | AnimationChanged | BackdropFiltersRectChanged)) || backdropNeedsCoverage() != m_backdropHasCoverage)
         updateBackdropCoverage();
 
@@ -2421,7 +2421,7 @@ void GraphicsLayerCA::updateNames()
     case StructuralLayerForBackdrop:
         protect(m_structuralLayer)->setName(makeString("backdrop hosting: "_s, name));
         break;
-    case StructuralLayerForBackdropSampling: // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+    case StructuralLayerForBackdropSampling: // AQUAWEBKIT: see StructuralLayerForBackdropSampling.
         protect(m_structuralLayer)->setName(makeString("backdrop sampling: "_s, name));
         break;
 #if HAVE(MATERIAL_HOSTING)
@@ -2435,15 +2435,15 @@ void GraphicsLayerCA::updateNames()
     protect(m_layer)->setName(name);
 }
 
-// MAVERICKS_BACKPORT: only the Cocoa legacy renderer needs explicit CSS sorting boundaries.
+// AQUAWEBKIT: only the Cocoa legacy renderer needs explicit CSS sorting boundaries.
 static bool needsDepthSortingBoundaries(PlatformCALayer& layer)
 {
     return is<PlatformCALayerCocoa>(layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
         // && layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer;
-        && (layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer || downcast<PlatformCALayerCocoa>(layer).isBackdropHostingLayer()); // MAVERICKS_BACKPORT: coordinate-only hosts still isolate their children's CSS 3D contexts.
+        && (layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer || downcast<PlatformCALayerCocoa>(layer).isBackdropHostingLayer()); // AQUAWEBKIT: coordinate-only hosts still isolate their children's CSS 3D contexts.
 }
 
-// MAVERICKS_BACKPORT: the actual platform tree carries context ownership and native animations.
+// AQUAWEBKIT: the actual platform tree carries context ownership and native animations.
 static void setSublayersForCSS(PlatformCALayer& layer, const PlatformCALayerList& children)
 {
     if (needsDepthSortingBoundaries(layer))
@@ -2452,7 +2452,7 @@ static void setSublayersForCSS(PlatformCALayer& layer, const PlatformCALayerList
         layer.setSublayers(children);
 }
 
-// MAVERICKS_BACKPORT: preserve replica siblings while rebuilding their native sorting boundaries.
+// AQUAWEBKIT: preserve replica siblings while rebuilding their native sorting boundaries.
 static void prependSublayerForCSS(PlatformCALayer& parent, PlatformCALayer& child)
 {
     if (!needsDepthSortingBoundaries(parent)) {
@@ -2532,7 +2532,7 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
         appendContentsLayer(clippingChildren);
         if (clippingLayerHostsChildren)
             buildChildLayerList(clippingChildren);
-        // contentsClippingLayer->setSublayers(clippingChildren); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        // contentsClippingLayer->setSublayers(clippingChildren); // AQUAWEBKIT: explicit native child sorting contexts.
         setSublayersForCSS(*contentsClippingLayer, clippingChildren);
     }
 
@@ -2543,14 +2543,14 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
         if (structuralLayerHostsChildren)
             buildChildLayerList(layerList);
 
-        // structuralLayer->setSublayers(layerList); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        // structuralLayer->setSublayers(layerList); // AQUAWEBKIT: explicit native child sorting contexts.
         setSublayersForCSS(*structuralLayer, layerList);
     }
 
     if (!clippingLayerHostsChildren && !structuralLayerHostsChildren)
         buildChildLayerList(primaryLayerChildren);
 
-    // layer->setSublayers(primaryLayerChildren); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+    // layer->setSublayers(primaryLayerChildren); // AQUAWEBKIT: explicit native child sorting contexts.
     setSublayersForCSS(*layer, primaryLayerChildren);
 }
 
@@ -2645,7 +2645,7 @@ void GraphicsLayerCA::updateTransform()
 
 void GraphicsLayerCA::updateChildrenTransform()
 {
-    // protect(primaryLayer())->setSublayerTransform(childrenTransform()); // MAVERICKS_BACKPORT: place perspective inside native sorting contexts.
+    // protect(primaryLayer())->setSublayerTransform(childrenTransform()); // AQUAWEBKIT: place perspective inside native sorting contexts.
     auto applyChildrenTransform = [&](PlatformCALayer& layer) {
         if (needsDepthSortingBoundaries(layer))
             downcast<PlatformCALayerCocoa>(layer).setChildrenTransformForDepthSorting(childrenTransform());
@@ -2656,7 +2656,7 @@ void GraphicsLayerCA::updateChildrenTransform()
 
     if (LayerMap* layerCloneMap = primaryLayerClones()) {
         for (auto& layer : layerCloneMap->values())
-            // layer->setSublayerTransform(childrenTransform()); // MAVERICKS_BACKPORT: replicas use the same context placement.
+            // layer->setSublayerTransform(childrenTransform()); // AQUAWEBKIT: replicas use the same context placement.
             applyChildrenTransform(layer.get());
     }
 }
@@ -2848,7 +2848,7 @@ void GraphicsLayerCA::updateBackdropFiltersRect()
     auto backdropRectRelativeToBackdropLayer = m_backdropFiltersRect;
     backdropRectRelativeToBackdropLayer.setLocation({ });
     // updateClippingStrategy(*backdropLayer, m_backdropClippingLayer, backdropRectRelativeToBackdropLayer);
-    updateClippingStrategy(*backdropLayer, m_backdropClippingLayer, backdropRectRelativeToBackdropLayer, m_backdropHasCoverage); // MAVERICKS_BACKPORT: the mask carries coverage.
+    updateClippingStrategy(*backdropLayer, m_backdropClippingLayer, backdropRectRelativeToBackdropLayer, m_backdropHasCoverage); // AQUAWEBKIT: the mask carries coverage.
 
     if (m_layerClones) {
         for (auto& clone : m_layerClones->backdropLayerClones) {
@@ -2861,7 +2861,7 @@ void GraphicsLayerCA::updateBackdropFiltersRect()
 
             bool hadBackdropClippingLayer = backdropClippingLayerClone;
             // updateClippingStrategy(backdropCloneLayer, backdropClippingLayerClone, backdropRectRelativeToBackdropLayer);
-            updateClippingStrategy(backdropCloneLayer, backdropClippingLayerClone, backdropRectRelativeToBackdropLayer, m_backdropHasCoverage); // MAVERICKS_BACKPORT: the mask carries coverage.
+            updateClippingStrategy(backdropCloneLayer, backdropClippingLayerClone, backdropRectRelativeToBackdropLayer, m_backdropHasCoverage); // AQUAWEBKIT: the mask carries coverage.
 
             if (!backdropClippingLayerClone)
                 m_layerClones->backdropClippingLayerClones.remove(cloneID);
@@ -2876,7 +2876,7 @@ void GraphicsLayerCA::updateBackdropRoot()
     protect(m_layer)->setIsBackdropRoot(isBackdropRoot());
 }
 
-// MAVERICKS_BACKPORT: the host does not flatten its children into this layer's plane. The flattening layer above
+// AQUAWEBKIT: the host does not flatten its children into this layer's plane. The flattening layer above
 // gives the same result when every transform from it down to the host is 2D and none of those layers is a 3D
 // context. Group effects, clips and backface culling need a CALayer, which bounds the sampling.
 bool GraphicsLayerCA::passesBackdropSampling() const
@@ -2902,7 +2902,7 @@ bool GraphicsLayerCA::passesBackdropSampling() const
     return true;
 }
 
-// MAVERICKS_BACKPORT: children's backdrop sampling hosts depend on this layer's 3D context and children transform.
+// AQUAWEBKIT: children's backdrop sampling hosts depend on this layer's 3D context and children transform.
 void GraphicsLayerCA::noteChildrenBackdropSamplingContextChanged()
 {
     for (Ref child : children()) {
@@ -2914,7 +2914,7 @@ void GraphicsLayerCA::noteChildrenBackdropSamplingContextChanged()
     }
 }
 
-// MAVERICKS_BACKPORT: backgroundFilters output ignores layer opacity, but is scaled by its layer's mask. Under a
+// AQUAWEBKIT: backgroundFilters output ignores layer opacity, but is scaled by its layer's mask. Under a
 // transform host, the backdrop's shape mask takes the layer's opacity and opacity animations.
 bool GraphicsLayerCA::backdropNeedsCoverage() const
 {
@@ -2925,7 +2925,7 @@ bool GraphicsLayerCA::backdropNeedsCoverage() const
         }));
 }
 
-// MAVERICKS_BACKPORT: the backdrop shape masks of this layer and its clones.
+// AQUAWEBKIT: the backdrop shape masks of this layer and its clones.
 Vector<Ref<PlatformCALayer>> GraphicsLayerCA::backdropCoverageLayers() const
 {
     Vector<Ref<PlatformCALayer>> layers;
@@ -2938,7 +2938,7 @@ Vector<Ref<PlatformCALayer>> GraphicsLayerCA::backdropCoverageLayers() const
     return layers;
 }
 
-// MAVERICKS_BACKPORT: the shape masks mirror the host's opacity and opacity animations.
+// AQUAWEBKIT: the shape masks mirror the host's opacity and opacity animations.
 void GraphicsLayerCA::updateBackdropCoverage()
 {
     bool needsCoverage = backdropNeedsCoverage();
@@ -3091,7 +3091,7 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         return structuralLayerChanged;
     }
 
-    // MAVERICKS_BACKPORT: CATransformLayer lets backgroundFilters sample the parent's surface. It passes its
+    // AQUAWEBKIT: CATransformLayer lets backgroundFilters sample the parent's surface. It passes its
     // opacity to each sublayer, and the backdrop's shape mask carries that opacity (updateBackdropCoverage()).
     RefPtr oldStructuralLayer = m_structuralLayer;
     bool backdropHostingLayer = purpose == StructuralLayerForBackdropSampling
@@ -3101,7 +3101,7 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
             && !m_animations.containsIf([](auto& animation) {
                 return !animation.m_pendingRemoval && animation.m_property == AnimatedProperty::Filter;
             }));
-    // MAVERICKS_BACKPORT: each host role starts with its own native sorting and perspective state.
+    // AQUAWEBKIT: each host role starts with its own native sorting and perspective state.
     if (auto* cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get()); cocoaLayer && cocoaLayer->isBackdropHostingLayer() != backdropHostingLayer)
         m_structuralLayer = nullptr;
 #if HAVE(MATERIAL_HOSTING)
@@ -3114,10 +3114,10 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
             structuralLayerChanged = true;
         }
     // } else if (purpose == StructuralLayerForPreserves3D) {
-    } else if (purpose == StructuralLayerForPreserves3D || backdropHostingLayer) { // MAVERICKS_BACKPORT: transparent backdrop hosting.
+    } else if (purpose == StructuralLayerForPreserves3D || backdropHostingLayer) { // AQUAWEBKIT: transparent backdrop hosting.
 #else
     // if (purpose == StructuralLayerForPreserves3D) {
-    if (purpose == StructuralLayerForPreserves3D || backdropHostingLayer) { // MAVERICKS_BACKPORT: transparent backdrop hosting.
+    if (purpose == StructuralLayerForPreserves3D || backdropHostingLayer) { // AQUAWEBKIT: transparent backdrop hosting.
 #endif
         if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer)
             m_structuralLayer = nullptr;
@@ -3126,7 +3126,7 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
             m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeTransformLayer, this);
             structuralLayerChanged = true;
         }
-        // MAVERICKS_BACKPORT: identify coordinate-only hosts for native background sampling.
+        // AQUAWEBKIT: identify coordinate-only hosts for native background sampling.
         if (auto* cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get()); cocoaLayer && cocoaLayer->isBackdropHostingLayer() != backdropHostingLayer) {
             cocoaLayer->setIsBackdropHostingLayer(backdropHostingLayer);
             structuralLayerChanged = true;
@@ -3144,13 +3144,13 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
     if (!structuralLayerChanged)
         return false;
     
-    // MAVERICKS_BACKPORT: replicas and running animations follow changes to the native host type.
+    // AQUAWEBKIT: replicas and running animations follow changes to the native host type.
     if (m_layerClones) {
         clearClones(m_layerClones->structuralLayerClones);
         m_layerClones->structuralLayerClones.clear();
-    } // MAVERICKS_BACKPORT: replicas are recreated with the new host's native type and role.
+    } // AQUAWEBKIT: replicas are recreated with the new host's native type and role.
     if (oldStructuralLayer && oldStructuralLayer != m_structuralLayer)
-        addUncommittedChanges(AnimationChanged); // MAVERICKS_BACKPORT: updateAnimations() puts every live animation on the new host.
+        addUncommittedChanges(AnimationChanged); // AQUAWEBKIT: updateAnimations() puts every live animation on the new host.
 
     addUncommittedChanges(structuralLayerChangeFlags);
 
@@ -3197,7 +3197,7 @@ GraphicsLayerCA::StructuralLayerPurpose GraphicsLayerCA::structuralLayerPurpose(
     if (needsBackdrop())
         return StructuralLayerForBackdrop;
 
-    if (passesBackdropSampling()) // MAVERICKS_BACKPORT: see StructuralLayerForBackdropSampling.
+    if (passesBackdropSampling()) // AQUAWEBKIT: see StructuralLayerForBackdropSampling.
         return StructuralLayerForBackdropSampling;
 
     return NoStructuralLayer;
@@ -3414,7 +3414,7 @@ void GraphicsLayerCA::updateContentsColorLayer()
 // The clipping strategy depends on whether the rounded rect has equal corner radii.
 // roundedRect is in the coordinate space of clippingLayer.
 // void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect)
-void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect, bool forceShapeMask) // MAVERICKS_BACKPORT: see updateBackdropCoverage().
+void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect, bool forceShapeMask) // AQUAWEBKIT: see updateBackdropCoverage().
 {
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     if (m_isSeparated && roundedRect.radii().hasEvenCorners() && clippingLayer.bounds() == roundedRect.rect()) {
@@ -3425,7 +3425,7 @@ void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, Ref
 #endif
 
     // if (roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) {
-    if (!forceShapeMask && roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) { // MAVERICKS_BACKPORT: see updateBackdropCoverage().
+    if (!forceShapeMask && roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) { // AQUAWEBKIT: see updateBackdropCoverage().
         clippingLayer.setMaskLayer(nullptr);
         if (shapeMaskLayer) {
             shapeMaskLayer->setOwner(nullptr);
@@ -3582,10 +3582,10 @@ void GraphicsLayerCA::updateReplicatedLayers()
         return;
 
     if (RefPtr structuralLayer = m_structuralLayer)
-        // structuralLayer->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: reflected 3D roots need their native sorting boundary.
+        // structuralLayer->insertSublayer(*replicaRoot, 0); // AQUAWEBKIT: reflected 3D roots need their native sorting boundary.
         prependSublayerForCSS(*structuralLayer, *replicaRoot);
     else
-        // protect(m_layer)->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: reflected 3D roots need their native sorting boundary.
+        // protect(m_layer)->insertSublayer(*replicaRoot, 0); // AQUAWEBKIT: reflected 3D roots need their native sorting boundary.
         prependSublayerForCSS(*m_layer, *replicaRoot);
 }
 
@@ -3848,7 +3848,7 @@ void GraphicsLayerCA::updateAnimations()
                 }
             }
 
-            // MAVERICKS_BACKPORT: 10.9 Core Animation concatenates each additive transform animation onto
+            // AQUAWEBKIT: 10.9 Core Animation concatenates each additive transform animation onto
             // the right of the value accumulated so far, so a group's array runs in transform-list order:
             // its first element is the first operation of the list. The array built above is in the
             // reverse of that order, with any base value for a delayed animation last. Reversed, it
@@ -3858,7 +3858,7 @@ void GraphicsLayerCA::updateAnimations()
             addAnimationGroup(property, caAnimations);
         };
 
-        // MAVERICKS_BACKPORT: each additive transform animation concatenates onto the right of the value
+        // AQUAWEBKIT: each additive transform animation concatenates onto the right of the value
         // accumulated so far, so add order is transform-list order: translate, then rotate, then scale,
         // then the transform property. The non-additive identity base group added above is not a
         // transform-list operation — it is the reset the additive groups accumulate onto, and stays first.
@@ -3866,12 +3866,12 @@ void GraphicsLayerCA::updateAnimations()
         addAnimationsForProperty(rotateAnimations, AnimatedProperty::Rotate);
         addAnimationsForProperty(scaleAnimations, AnimatedProperty::Scale);
         addAnimationsForProperty(transformAnimations, AnimatedProperty::Transform);
-/* MAVERICKS_BACKPORT: upstream's order.
+/* AQUAWEBKIT: upstream's order.
         addAnimationsForProperty(transformAnimations, AnimatedProperty::Transform);
         addAnimationsForProperty(scaleAnimations, AnimatedProperty::Scale);
         addAnimationsForProperty(rotateAnimations, AnimatedProperty::Rotate);
         addAnimationsForProperty(translateAnimations, AnimatedProperty::Translate);
-MAVERICKS_BACKPORT */
+AQUAWEBKIT */
     }
 }
 
@@ -3938,7 +3938,7 @@ bool GraphicsLayerCA::removeCAAnimationFromLayer(LayerPropertyAnimation& animati
 
     String animationID = animation.animationIdentifier();
 
-    // MAVERICKS_BACKPORT: backdrop shape masks hold copies of the opacity animations, including when the host was just replaced.
+    // AQUAWEBKIT: backdrop shape masks hold copies of the opacity animations, including when the host was just replaced.
     if (m_backdropHasCoverage && animation.m_property == AnimatedProperty::Opacity) {
         for (auto& coverageLayer : backdropCoverageLayers())
             coverageLayer->removeAnimationForKey(animationID);
@@ -4067,7 +4067,7 @@ bool GraphicsLayerCA::appendToUncommittedAnimations(const GraphicsLayerKeyframeV
         return false;
 
     m_animations.append(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, timeOffset));
-    // MAVERICKS_BACKPORT: interpolating between 2D transform functions yields 2D transforms. Core Animation decomposes
+    // AQUAWEBKIT: interpolating between 2D transform functions yields 2D transforms. Core Animation decomposes
     // matrix keyframes in 3D, where a mirrored keyframe (negative determinant) can interpolate through a 3D rotation.
     for (size_t i = 0; i < valueList.size(); ++i) {
         TransformationMatrix keyframeTransform;
@@ -4160,7 +4160,7 @@ bool GraphicsLayerCA::appendToUncommittedAnimations(const GraphicsLayerKeyframeV
     bool valuesOK;
     RefPtr<PlatformCAAnimation> caAnimation;
     // auto keyPath = PlatformCAAnimation::makeKeyPath(AnimatedProperty::Filter, filterOp, animationIndex);
-    auto keyPath = PlatformCAAnimation::makeKeyPath(valueList.property(), filterOp, animationIndex); // MAVERICKS_BACKPORT: distinguish native foreground and backdrop animation targets.
+    auto keyPath = PlatformCAAnimation::makeKeyPath(valueList.property(), filterOp, animationIndex); // AQUAWEBKIT: distinguish native foreground and backdrop animation targets.
 
     if (isKeyframe(valueList)) {
         caAnimation = createKeyframeAnimation(animation, keyPath, false, keyframesShouldUseAnimationWideTimingFunction);
@@ -5308,12 +5308,12 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
             return nullptr;
 
         if (structuralLayer) {
-            // structuralLayer->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: replica roots participate in CSS sorting contexts.
+            // structuralLayer->insertSublayer(*replicaRoot, 0); // AQUAWEBKIT: replica roots participate in CSS sorting contexts.
             prependSublayerForCSS(*structuralLayer, *replicaRoot);
             return structuralLayer;
         }
         
-        // primaryLayer->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: replica roots participate in CSS sorting contexts.
+        // primaryLayer->insertSublayer(*replicaRoot, 0); // AQUAWEBKIT: replica roots participate in CSS sorting contexts.
         prependSublayerForCSS(*primaryLayer, *replicaRoot);
         return primaryLayer;
     }
@@ -5380,7 +5380,7 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
     
     RefPtr<PlatformCALayer> result;
     if (structuralLayer) {
-        // structuralLayer->setSublayers(clonalSublayers); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        // structuralLayer->setSublayers(clonalSublayers); // AQUAWEBKIT: explicit native child sorting contexts.
         setSublayersForCSS(*structuralLayer, clonalSublayers);
 
         if (contentsClippingLayer || contentsLayer) {
@@ -5392,7 +5392,7 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
 
         result = structuralLayer;
     } else {
-        // primaryLayer->setSublayers(clonalSublayers); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        // primaryLayer->setSublayers(clonalSublayers); // AQUAWEBKIT: explicit native child sorting contexts.
         setSublayersForCSS(*primaryLayer, clonalSublayers);
         result = primaryLayer;
     }
@@ -5477,7 +5477,7 @@ void GraphicsLayerCA::noteSublayersChanged(ScheduleFlushOrNot scheduleFlush)
 {
     noteLayerPropertyChanged(ChildrenChanged, scheduleFlush);
     propagateLayerChangeToReplicas(scheduleFlush);
-    // MAVERICKS_BACKPORT: a child list or children transform change outside a commit re-evaluates the children's hosts.
+    // AQUAWEBKIT: a child list or children transform change outside a commit re-evaluates the children's hosts.
     if (scheduleFlush == ScheduleFlush)
         noteChildrenBackdropSamplingContextChanged();
 }

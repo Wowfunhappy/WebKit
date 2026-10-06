@@ -2,7 +2,7 @@
 # exclusively needed in only one subdirectory of Source (e.g. only needed by
 # WebCore), then put it there instead.
 
-include("${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitBuildRulesMavericks.cmake") # MAVERICKS_BACKPORT: build rules owned by the port.
+include("${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebKitBuildRulesAquaWebKit.cmake") # AQUAWEBKIT: build rules owned by the port.
 
 set(SWIFT_FATAL_DIAGNOSTIC_FLAGS "-Werror ExistentialAny -Werror StrictMemorySafety -Werror ForeignReferenceType -Werror NoUseUnstructuredThrowingTask -Werror NoUsage")
 
@@ -90,7 +90,7 @@ macro(WEBKIT_COMPUTE_SOURCES _framework)
                 # OBJECT library so the OBJCXX precompiled header agrees on -fobjc-arc.
                 list(APPEND ${_framework}_ARC_SOURCES ${_file})
             else ()
-                _MAVERICKS_SET_ARC_IF_NEEDED("${_file}") # MAVERICKS_BACKPORT: apply the port's ARC source policy.
+                _AQUAWEBKIT_SET_ARC_IF_NEEDED("${_file}") # AQUAWEBKIT: apply the port's ARC source policy.
                 list(APPEND ${_framework}_SOURCES ${_file})
             endif ()
         endforeach ()
@@ -390,7 +390,7 @@ macro(_WEBKIT_TARGET_SETUP _target _logical_name)
         target_compile_options(${_target} PRIVATE ${${_logical_name}_COMPILE_OPTIONS})
     endif ()
 
-    _MAVERICKS_APPLY_TARGET_POLICY(${_target}) # MAVERICKS_BACKPORT: apply the port's per-target link policy.
+    _AQUAWEBKIT_APPLY_TARGET_POLICY(${_target}) # AQUAWEBKIT: apply the port's per-target link policy.
     if (${_logical_name}_LIBRARIES)
         target_link_libraries(${_target} PUBLIC ${${_logical_name}_LIBRARIES})
     endif ()
@@ -606,9 +606,9 @@ macro(WEBKIT_FRAMEWORK _target)
     _WEBKIT_FRAMEWORK_LINK_FRAMEWORK(${_target})
     _WEBKIT_TARGET(${_target})
     _WEBKIT_TARGET_ANALYZE(${_target})
-    _WEBKIT_FORCE_LOAD_POLYFILL(${_target}) # MAVERICKS_BACKPORT: force-load the port's symbol polyfills.
+    _WEBKIT_FORCE_LOAD_POLYFILL(${_target}) # AQUAWEBKIT: force-load the port's symbol polyfills.
 
-    _WEBKIT_FORCE_LOAD_WK_MARKER(${_target}) # MAVERICKS_BACKPORT: scope selector rewriting to WebKit images.
+    _WEBKIT_FORCE_LOAD_WK_MARKER(${_target}) # AQUAWEBKIT: scope selector rewriting to WebKit images.
 
     # Apply PGO compile flags only to library targets (not executables) to avoid duplicate symbol errors
     # Link flags are applied globally via CMAKE_SHARED_LINKER_FLAGS for LTO compatibility
@@ -631,7 +631,7 @@ macro(WEBKIT_FRAMEWORK _target)
 
     if (APPLE AND NOT PORT STREQUAL "GTK" AND NOT ${${_target}_LIBRARY_TYPE} MATCHES STATIC)
         set_target_properties(${_target} PROPERTIES FRAMEWORK TRUE)
-        _MAVERICKS_SET_FRAMEWORK_IDENTIFIER(${_target}) # MAVERICKS_BACKPORT: apply the port's framework bundle identifier.
+        _AQUAWEBKIT_SET_FRAMEWORK_IDENTIFIER(${_target}) # AQUAWEBKIT: apply the port's framework bundle identifier.
         install(TARGETS ${_target} FRAMEWORK DESTINATION ${LIB_INSTALL_DIR})
     endif ()
 

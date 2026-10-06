@@ -945,7 +945,7 @@
 // Without the added parens `&& (...) || PLATFORM(MAC)` parses as `(!defined(X) && (...)) || PLATFORM(MAC)`,
 // so on Mac the macro is redefined to 1 whatever cmakeconfig.h set — the one value here that a
 // command-line definition cannot preempt.
-// MAVERICKS_BACKPORT: the parens on the continuation line below scope the OR (see above).
+// AQUAWEBKIT: the parens on the continuation line below scope the OR (see above).
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
     && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
     || PLATFORM(MAC))

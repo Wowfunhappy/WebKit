@@ -324,7 +324,7 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
 - (instancetype)initWithView:(NSView *)view impl:(WebKit::WebViewImpl&)impl;
 - (void)startObserving:(NSWindow *)window;
 - (void)stopObserving;
-- (void)stopObservingWindow:(NSWindow *)outgoingWindow; // MAVERICKS_BACKPORT: see the implementation.
+- (void)stopObservingWindow:(NSWindow *)outgoingWindow; // AQUAWEBKIT: see the implementation.
 - (void)enableObservingFontPanel;
 - (void)startObservingFontPanel;
 - (void)startObservingLookupDismissalIfNeeded;
@@ -427,7 +427,7 @@ static void* keyValueObservingContext = &keyValueObservingContext;
     [self stopObservingWindow:nil];
 }
 
-// MAVERICKS_BACKPORT: 10.9's -[NSWindow dealloc] sends -viewWillMoveToWindow:nil down the content view tree
+// AQUAWEBKIT: 10.9's -[NSWindow dealloc] sends -viewWillMoveToWindow:nil down the content view tree
 // while the window is deallocating, when a weak reference to it already loads as nil; the outgoing window
 // AppKit still reports for the view at that point is what the observers are removed from.
 - (void)stopObservingWindow:(NSWindow *)outgoingWindow
@@ -442,7 +442,7 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 
     RetainPtr<NSWindow> window = std::exchange(_window, nil).get();
     if (!window)
-        window = outgoingWindow; // MAVERICKS_BACKPORT: the deallocating window, see above.
+        window = outgoingWindow; // AQUAWEBKIT: the deallocating window, see above.
     if (!window)
         return;
 
@@ -629,7 +629,7 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 {
     if (_impl)
         // _impl->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None);
-        _impl->page().clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None); // MAVERICKS_BACKPORT: the page owns the text indicator (webkit.org/b/293329), as at this file's other call sites.
+        _impl->page().clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None); // AQUAWEBKIT: the page owns the text indicator (webkit.org/b/293329), as at this file's other call sites.
 }
 #endif
 
@@ -1797,7 +1797,7 @@ void WebViewImpl::viewDidEndLiveResize()
     [m_layoutStrategy didEndLiveResize];
 }
 
-// MAVERICKS_BACKPORT: WKPDFHUDView requires the inline PDF plugin.
+// AQUAWEBKIT: WKPDFHUDView requires the inline PDF plugin.
 #if ENABLE(PDF_HUD)
 void WebViewImpl::createPDFHUD(PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, const WebCore::IntRect& rect)
 {
@@ -1858,7 +1858,7 @@ bool WebViewImpl::isPointOnPDFHUD(WebCore::FloatPoint locationInView)
 {
     return !!hitTestPDFHUD(locationInView);
 }
-#endif // MAVERICKS_BACKPORT: inline PDF HUD methods.
+#endif // AQUAWEBKIT: inline PDF HUD methods.
 
 bool WebViewImpl::isViewVisible(NSView *view)
 {
@@ -2460,7 +2460,7 @@ void WebViewImpl::viewWillMoveToWindowImpl(NSWindow *window)
     clearAllEditCommands();
 
     if (!m_isPreparingToUnparentView) {
-        if (!window) // MAVERICKS_BACKPORT: see -[WKWindowVisibilityObserver stopObservingWindow:].
+        if (!window) // AQUAWEBKIT: see -[WKWindowVisibilityObserver stopObservingWindow:].
             [m_windowVisibilityObserver stopObservingWindow:currentWindow.get()];
         [m_windowVisibilityObserver startObserving:window];
     }
@@ -6867,17 +6867,17 @@ void WebViewImpl::mouseMoved(NSEvent *event)
     if (m_ignoresNonWheelEvents || m_ignoresMouseMoveEvents)
         return;
 
-#if ENABLE(PDF_HUD) // MAVERICKS_BACKPORT: inline PDF HUD events.
+#if ENABLE(PDF_HUD) // AQUAWEBKIT: inline PDF HUD events.
     for (auto& hud : _pdfHUDViews.values())
         [hud mouseMoved:event];
-#endif // MAVERICKS_BACKPORT: inline PDF HUD events.
+#endif // AQUAWEBKIT: inline PDF HUD events.
 
     RetainPtr view = m_view.get();
     WebCore::FloatPoint locationInView { [view convertPoint:[event locationInWindow] fromView:nil] };
-#if ENABLE(PDF_HUD) // MAVERICKS_BACKPORT: inline PDF HUD hit testing.
+#if ENABLE(PDF_HUD) // AQUAWEBKIT: inline PDF HUD hit testing.
     if (isPointOnPDFHUD(locationInView))
         return;
-#endif // MAVERICKS_BACKPORT: inline PDF HUD hit testing.
+#endif // AQUAWEBKIT: inline PDF HUD hit testing.
 
     // When a view is first responder, it gets mouse moved events even when the mouse is outside its visible rect.
     if (view == [view window].firstResponder && !NSPointInRect(locationInView, [view visibleRect]))

@@ -968,7 +968,7 @@ static Style::PreferredSizePair radioSize(const Style::PreferredSizePair& zoomed
 static const std::span<const IntSize, 4> NODELETE buttonSizes()
 {
     static constexpr std::array sizes = {
-        IntSize { 0, 21 }, // MAVERICKS_BACKPORT: the Aqua push-button bezel heights this OS draws (regular/small/mini); the large tier is unreachable here.
+        IntSize { 0, 21 }, // AQUAWEBKIT: the Aqua push-button bezel heights this OS draws (regular/small/mini); the large tier is unreachable here.
         IntSize { 0, 18 },
         IntSize { 0, 15 },
         IntSize { 0, 28 },
@@ -1323,7 +1323,7 @@ static std::span<const IntSize, 4> NODELETE menuListButtonSizes()
     return sizes;
 }
 
-// MAVERICKS_BACKPORT (#40): the Aqua push-button style adjustment. A button drawn with the native
+// AQUAWEBKIT (#40): the Aqua push-button style adjustment. A button drawn with the native
 // bezel is sized by the bezel, not by the author's font: the CSS font picks a control size, and the
 // control size then supplies the font, the vertical size and the padding, with the border reset
 // because the bezel draws it. Upstream stopped doing this for buttons (menu lists and search fields
@@ -1952,7 +1952,7 @@ static void paintAttachmentIconPlaceholder(const RenderAttachment& attachment, G
 {
     auto [placeholderImage, imageScale] = createAttachmentPlaceholderImage(protect(attachment.document())->deviceScaleFactor(), layout);
 
-    // MAVERICKS_BACKPORT: the "arrow.down.circle" SF Symbol does not exist on 10.9, so
+    // AQUAWEBKIT: the "arrow.down.circle" SF Symbol does not exist on 10.9, so
     // createAttachmentPlaceholderImage yields a null image; skip the placeholder glyph rather than
     // dereferencing it (the attachment still renders, just without the download-progress icon).
     if (!placeholderImage)

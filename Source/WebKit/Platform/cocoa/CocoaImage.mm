@@ -28,8 +28,8 @@
 
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#import <WebCore/ImageDecoder.h> // MAVERICKS_BACKPORT: image bytes decode in WebCore.
-#import <WebCore/SharedBuffer.h> // MAVERICKS_BACKPORT: image bytes decode in WebCore.
+#import <WebCore/ImageDecoder.h> // AQUAWEBKIT: image bytes decode in WebCore.
+#import <WebCore/SharedBuffer.h> // AQUAWEBKIT: image bytes decode in WebCore.
 #import <WebCore/UTIRegistry.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
@@ -72,7 +72,7 @@ RetainPtr<CocoaImage> createCocoaImageRestrictedToSupportedTypes(NSData *data, d
     if (!data.length)
         return nil;
 
-    // MAVERICKS_BACKPORT: the bytes decode in WebCore, whose decoders cover exactly the supported image types.
+    // AQUAWEBKIT: the bytes decode in WebCore, whose decoders cover exactly the supported image types.
     // RetainPtr imageSource = adoptCF(CGImageSourceCreateWithData((__bridge CFDataRef)data, nullptr));
     // if (!imageSource)
     //     return nil;
@@ -86,8 +86,8 @@ RetainPtr<CocoaImage> createCocoaImageRestrictedToSupportedTypes(NSData *data, d
     RefPtr decoder = WebCore::ImageDecoder::create(buffer, String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
     if (!decoder)
         return nil;
-    decoder->setData(buffer, true); // MAVERICKS_BACKPORT: the whole image is in hand.
-    RetainPtr image = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex()); // MAVERICKS_BACKPORT: the decoder's primary frame.
+    decoder->setData(buffer, true); // AQUAWEBKIT: the whole image is in hand.
+    RetainPtr image = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex()); // AQUAWEBKIT: the decoder's primary frame.
     if (!image)
         return nil;
 

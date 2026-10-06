@@ -80,7 +80,7 @@ private:
 
 } // namespace WebKit
 
-// MAVERICKS_BACKPORT: the type-traits specialization every API::Object subclass now carries; the 2022
+// AQUAWEBKIT: the type-traits specialization every API::Object subclass now carries; the 2022
 // original predates the requirement, and toImpl()/downcast<> static_assert without it.
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::InjectedBundleNavigationAction)
 static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundleNavigationAction; }

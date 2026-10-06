@@ -27,7 +27,7 @@
 #import "CoreIPCNSURLCredential.h"
 
 #import <pal/spi/cf/CFNetworkSPI.h>
-// MAVERICKS_BACKPORT: the owning keychain file comes from Security.
+// AQUAWEBKIT: the owning keychain file comes from Security.
 #import <Security/SecKeychain.h>
 #include <limits.h>
 
@@ -48,7 +48,7 @@ namespace WebKit {
 #if HAVE(WK_SECURE_CODING_NSURLCREDENTIAL)
 CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
 {
-    // MAVERICKS_BACKPORT: pass the selected key's persistent item reference and public certificate DER.
+    // AQUAWEBKIT: pass the selected key's persistent item reference and public certificate DER.
     // Mavericks' SecItem identity queries depend on the search list; the native item reference
     // identifies the owning keychain directly, including keys that cannot be exported.
     if (auto identity = credential.identity) {
@@ -56,7 +56,7 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
         if (SecIdentityCopyPrivateKey(identity, &privateKey) == errSecSuccess) {
             auto key = adoptCF(privateKey);
             m_data.privateKeyReference.emplace(reinterpret_cast<SecKeychainItemRef>(key.get()));
-            // MAVERICKS_BACKPORT: persistent references identify the key but do not authorize
+            // AQUAWEBKIT: persistent references identify the key but do not authorize
             // a sandboxed recipient to read a file-backed keychain's CSSM metadata.
             SecKeychainRef rawKeychain = nullptr;
             if (SecKeychainItemCopyKeychain(reinterpret_cast<SecKeychainItemRef>(key.get()), &rawKeychain) == errSecSuccess) {
@@ -146,7 +146,7 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
     if ([useKeychain isKindOfClass:NSNumber.class])
         m_data.useKeychain = [useKeychain boolValue];
 
-    // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+    // AQUAWEBKIT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
     // SecTrustRef secTrust = static_cast<SecTrustRef>(dict[@"trust"]);
     SecTrustRef secTrust = (__bridge SecTrustRef)dict[@"trust"];
     if (secTrust && CFGetTypeID(secTrust) == SecTrustGetTypeID())
@@ -209,11 +209,11 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
     }
 }
 
-// MAVERICKS_BACKPORT: decode the credential and the file capability together.
+// AQUAWEBKIT: decode the credential and the file capability together.
 /*
 CoreIPCNSURLCredential::CoreIPCNSURLCredential(CoreIPCNSURLCredentialData&& data)
     : m_data(WTF::move(data)) { }
-*/ // MAVERICKS_BACKPORT: retain the upstream constructor beside capability-aware decoding.
+*/ // AQUAWEBKIT: retain the upstream constructor beside capability-aware decoding.
 CoreIPCNSURLCredential::CoreIPCNSURLCredential(CoreIPCNSURLCredentialData&& data, std::optional<SandboxExtension::Handle>&& keychainAccess)
     : m_data(WTF::move(data))
     , m_keychainAccess(WTF::move(keychainAccess)) { }
@@ -278,7 +278,7 @@ RetainPtr<id> CoreIPCNSURLCredential::toID() const
         RetainPtr<SecTrustRef> trust = m_data.trust.createSecTrust();
         if (trust) {
             [dict setObject:@(kURLCredentialServerTrust) forKey:@"type"];
-            // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+            // AQUAWEBKIT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
             // [dict setObject:(id)trust.get() forKey:@"trust"];
             [dict setObject:(__bridge id)trust.get() forKey:@"trust"];
         }
@@ -299,16 +299,16 @@ RetainPtr<id> CoreIPCNSURLCredential::toID() const
             [dict setObject:flags.get() forKey:@"flags"];
         }
         break;
-    // MAVERICKS_BACKPORT: reconstruct the selected keychain identity directly, including non-exportable keys.
+    // AQUAWEBKIT: reconstruct the selected keychain identity directly, including non-exportable keys.
     /*
     case CoreIPCNSURLCredentialType::ClientCertificate:
         [dict setObject:@(kURLCredentialClientCertificate) forKey:@"type"];
         break;
-    */ // MAVERICKS_BACKPORT: the keychain-backed client identity is reconstructed below.
+    */ // AQUAWEBKIT: the keychain-backed client identity is reconstructed below.
     case CoreIPCNSURLCredentialType::ClientCertificate: {
         if (!m_data.privateKeyReference || m_data.certificates.isEmpty())
             return nullptr;
-        // MAVERICKS_BACKPORT: Security keys can outlive this transient IPC wrapper in
+        // AQUAWEBKIT: Security keys can outlive this transient IPC wrapper in
         // credential storage and TLS signing jobs. The selected-file grant lasts for
         // the receiving process, while native key ACLs continue to authorize signing.
         if (m_keychainAccess) {
@@ -324,7 +324,7 @@ RetainPtr<id> CoreIPCNSURLCredential::toID() const
         auto leaf = m_data.certificates[0].createSecCertificate();
         if (!leaf)
             return nullptr;
-        // MAVERICKS_BACKPORT: SecIdentityCreate pairs the leaf with the key its persistent reference resolved to.
+        // AQUAWEBKIT: SecIdentityCreate pairs the leaf with the key its persistent reference resolved to.
         auto identity = adoptCF(SecIdentityCreate(nullptr, leaf.get(), reinterpret_cast<SecKeyRef>(key.get())));
         if (!identity)
             return nullptr;

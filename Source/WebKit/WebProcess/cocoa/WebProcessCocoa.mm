@@ -36,7 +36,7 @@
 #import "Logging.h"
 #import "NetworkConnectionToWebProcessMessages.h"
 #import "NetworkProcessConnection.h"
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 #import "ObjCObjectGraph.h"
 #import "ProcessAssertion.h"
 #import "SandboxExtension.h"
@@ -105,7 +105,7 @@
 #import <algorithm>
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
-#import <WebCore/WidevineCdmLocation.h> // MAVERICKS_BACKPORT: setWidevineCdmModule below.
+#import <WebCore/WidevineCdmLocation.h> // AQUAWEBKIT: setWidevineCdmModule below.
 #endif
 
 #import <dispatch/dispatch.h>
@@ -395,7 +395,7 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
 {
-    // MAVERICKS_BACKPORT: keep the UI process's CARemoteLayerServer port for LayerHostingContext
+    // AQUAWEBKIT: keep the UI process's CARemoteLayerServer port for LayerHostingContext
     // (see compositingRenderServerPort() in the header).
     m_compositingRenderServerPort = WTF::move(parameters.acceleratedCompositingPort);
 
@@ -996,7 +996,7 @@ void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationP
     WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: upstream denies the WebContent process its WindowServer connection here
+    // AQUAWEBKIT: upstream denies the WebContent process its WindowServer connection here
     // (CGSSetDenyWindowServerConnections(true), with a RELEASE_ASSERT on success). This port draws
     // through TiledCoreAnimation in WebContent, which requires that connection, so the call is
     // omitted. Everything else in this block is upstream.
@@ -1220,7 +1220,7 @@ void WebProcess::updateCPUMonitorState(CPUMonitorUpdateReason reason)
 #endif
 }
 
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 RefPtr<ObjCObjectGraph> WebProcess::transformHandlesToObjects(ObjCObjectGraph& objectGraph)
 {
     struct Transformer final : ObjCObjectGraph::Transformer {
@@ -1715,7 +1715,7 @@ void WebProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& handle
 }
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
-// MAVERICKS_BACKPORT: the extension is held for the life of the process because the CDM stays
+// AQUAWEBKIT: the extension is held for the life of the process because the CDM stays
 // mapped once a page has loaded it.
 void WebProcess::setWidevineCdmModule(const String& path, SandboxExtension::Handle&& handle)
 {

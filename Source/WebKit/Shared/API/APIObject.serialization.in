@@ -21,7 +21,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 header: "APIObject.h"
-# MAVERICKS_BACKPORT: WKConnection bodies and legacy bundle user data cross IPC as ObjCObjectGraphs.
+# AQUAWEBKIT: WKConnection bodies and legacy bundle user data cross IPC as ObjCObjectGraphs.
 #if PLATFORM(COCOA)
 header: "ObjCObjectGraph.h"
 #endif
@@ -36,11 +36,11 @@ header: "ObjCObjectGraph.h"
     API::FrameHandle
     WebKit::WebImage
     API::PageHandle
-    # MAVERICKS_BACKPORT: Safari 7 puts its WKPageGroup in the injected-bundle initialization UserData.
+    # AQUAWEBKIT: Safari 7 puts its WKPageGroup in the injected-bundle initialization UserData.
     API::PageGroupHandle
     API::Point
     API::Rect
-    # MAVERICKS_BACKPORT: WKSerializedScriptValue values cross IPC inside UserData (Safari 7 extension messages).
+    # AQUAWEBKIT: WKSerializedScriptValue values cross IPC inside UserData (Safari 7 extension messages).
     API::SerializedScriptValue
     API::Size
     API::String
@@ -50,7 +50,7 @@ header: "ObjCObjectGraph.h"
     API::UInt64
     API::Int64
     API::UserContentURLPattern
-# MAVERICKS_BACKPORT: see the header line above.
+# AQUAWEBKIT: see the header line above.
 #if PLATFORM(COCOA)
     WebKit::ObjCObjectGraph
 #endif

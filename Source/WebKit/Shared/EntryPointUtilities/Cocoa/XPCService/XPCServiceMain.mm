@@ -33,7 +33,7 @@
 #import "XPCServiceEntryPoint.h"
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
-// MAVERICKS_BACKPORT: dup2 and STDOUT_FILENO/STDERR_FILENO below; this build compiles with
+// AQUAWEBKIT: dup2 and STDOUT_FILENO/STDERR_FILENO below; this build compiles with
 // -fno-modules, so unistd.h does not arrive transitively through any Darwin header.
 #import <unistd.h>
 #import <mach/mach.h>
@@ -43,7 +43,7 @@
 #import <sys/sysctl.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/Language.h>
-// MAVERICKS_BACKPORT: WorkQueue is referenced by the 10.9 bootstrap dispatch path below.
+// AQUAWEBKIT: WorkQueue is referenced by the 10.9 bootstrap dispatch path below.
 #import <wtf/WorkQueue.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RetainPtr.h>
@@ -177,7 +177,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: 'message-name' is not present in the XPC dictionary");
             return;
         }
-        // MAVERICKS_BACKPORT: the importance boost sent ahead of the bootstrap; see ProcessLauncherCocoa.mm.
+        // AQUAWEBKIT: the importance boost sent ahead of the bootstrap; see ProcessLauncherCocoa.mm.
         if (messageName == "pre-bootstrap"_s) {
             setPriorityBoostMessage(OSObjectPtr<xpc_object_t> { event });
             return;
@@ -205,7 +205,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             register_for_dlsym_callbacks();
 #endif
 
-// MAVERICKS_BACKPORT: also applied on Mac — the 10.9 launcher forwards TZ through this
+// AQUAWEBKIT: also applied on Mac — the 10.9 launcher forwards TZ through this
 // channel because 10.9 launchd spawns the services with a clean environment.
 #if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
             if (RetainPtr containerEnvironmentVariables = xpc_dictionary_get_value(event, "ContainerEnvironmentVariables")) {
@@ -249,7 +249,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 return;
             }
 
-            // MAVERICKS_BACKPORT: Safari 7 loads modern WebKit from the private WebKit2 framework.
+            // AQUAWEBKIT: Safari 7 loads modern WebKit from the private WebKit2 framework.
             RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit2"));
             if (!webKitBundle) {
                 RetainPtr webKitFrameworkURL = adoptCF(CFURLCreateWithFileSystemPath(nullptr, CFSTR("/System/Library/PrivateFrameworks/WebKit2.framework"), kCFURLPOSIXPathStyle, true));

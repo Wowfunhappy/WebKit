@@ -1600,7 +1600,7 @@ static FunctionType constructFragmentsInternal(const CSSSelector& rootSelector, 
             case CSSSelector::PseudoElement::SpellingError:
             case CSSSelector::PseudoElement::TargetText:
             case CSSSelector::PseudoElement::ViewTransition:
-                // MAVERICKS_BACKPORT (#68): these virtual pseudo-elements keep upstream's handling verbatim.
+                // AQUAWEBKIT (#68): these virtual pseudo-elements keep upstream's handling verbatim.
                 // They carry their own copy of it because the UserAgentPart cases below take one extra step.
                 if (fragment->pseudoElementSelector)
                     return FunctionType::CannotCompile;
@@ -1610,7 +1610,7 @@ static FunctionType constructFragmentsInternal(const CSSSelector& rootSelector, 
             case CSSSelector::PseudoElement::UserAgentPartLegacyAlias:
                 if (fragment->pseudoElementSelector)
                     return FunctionType::CannotCompile;
-                // MAVERICKS_BACKPORT (#68): a UserAgentPart pseudo-element is backed by a REAL element in a
+                // AQUAWEBKIT (#68): a UserAgentPart pseudo-element is backed by a REAL element in a
                 // user-agent shadow tree, so — unlike the virtual pseudo-elements above (::selection,
                 // ::spelling-error, …) — it can legitimately have descendants reached by a following
                 // combinator, e.g. the restored classic media controls' shadow-crossing selector

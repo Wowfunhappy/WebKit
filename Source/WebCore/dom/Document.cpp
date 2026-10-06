@@ -935,7 +935,7 @@ void Document::removedLastRef()
 #endif
         m_associatedFormControls.clear();
         m_pendingRenderTreeUpdate = { };
-        // MAVERICKS_BACKPORT: cached querySelectorAll results hold Refs to this document's elements, which count
+        // AQUAWEBKIT: cached querySelectorAll results hold Refs to this document's elements, which count
         // toward m_referencingNodeCount; clear them with the retaining pointers above.
         clearQuerySelectorAllResults();
 
@@ -4367,7 +4367,7 @@ void Document::implicitClose()
             svgExtensions->dispatchLoadEventToOutermostSVGElements();
     }
 
-    // MAVERICKS_BACKPORT: a WebKit-ObjC plug-in publishes its scripting object when its widget is
+    // AQUAWEBKIT: a WebKit-ObjC plug-in publishes its scripting object when its widget is
     // created, and widget creation is an embedded-object update that runs from a zero-delay timer
     // after layout, while the load event is dispatched from here -- so a load handler that reaches
     // for the plug-in does not find it. On a surface the host has declared backward-compatible
@@ -4380,7 +4380,7 @@ void Document::implicitClose()
         if (RefPtr view = this->view())
             view->flushAnyPendingPostLayoutTasks();
     }
-#endif // MAVERICKS_BACKPORT: closes the ENABLE(DASHBOARD_SUPPORT) guard above.
+#endif // AQUAWEBKIT: closes the ENABLE(DASHBOARD_SUPPORT) guard above.
 
     dispatchWindowLoadEvent();
     dispatchPageshowEvent(PageshowEventPersistence::NotPersisted);
@@ -5955,7 +5955,7 @@ void Document::addPendingScrollEventTarget(ContainerNode& originalTarget, Scroll
 
     targets.append({ target.get(), eventType });
 
-    // MAVERICKS_BACKPORT: Safari's reader page needs scroll events dispatched with the legacy
+    // AQUAWEBKIT: Safari's reader page needs scroll events dispatched with the legacy
     // engine's timing (a zero-delay task queued at scroll time) or ReaderJS aborts its own
     // smooth-scroll animation — see Quirks::shouldDispatchPendingScrollEventsEagerly. The task
     // runs runScrollSteps, which consumes the pending-target list, so the rendering-update
@@ -6587,10 +6587,10 @@ void Document::invalidateEventListenerRegions()
         protect(documentElement())->invalidateStyle();
 }
 
-void Document::invalidateRenderingDependentRegions(AnnotationsAction annotationsAction) // MAVERICKS_BACKPORT: the argument drives the Dashboard branch below.
+void Document::invalidateRenderingDependentRegions(AnnotationsAction annotationsAction) // AQUAWEBKIT: the argument drives the Dashboard branch below.
 {
 #if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: a caller on a post-layout or post-scroll path asks for Update, which recollects the
+    // AQUAWEBKIT: a caller on a post-layout or post-scroll path asks for Update, which recollects the
     // Dashboard regions and reports any change; the rest only mark them dirty.
     if (annotationsAction == AnnotationsAction::Update)
         updateAnnotatedRegions();
@@ -6614,7 +6614,7 @@ void Document::invalidateRenderingDependentRegions(AnnotationsAction annotations
 #endif
 }
 
-// MAVERICKS_BACKPORT: the scrollbar and z-order region bottlenecks, both Dashboard-only.
+// AQUAWEBKIT: the scrollbar and z-order region bottlenecks, both Dashboard-only.
 void Document::invalidateScrollbarDependentRegions()
 {
 #if ENABLE(DASHBOARD_SUPPORT)
@@ -6631,7 +6631,7 @@ void Document::updateZOrderDependentRegions()
 #endif
 }
 
-// MAVERICKS_BACKPORT: Dashboard annotated-region bookkeeping, built because DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard widgets.
+// AQUAWEBKIT: Dashboard annotated-region bookkeeping, built because DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard widgets.
 #if ENABLE(DASHBOARD_SUPPORT)
 
 void Document::setAnnotatedRegions(const Vector<AnnotatedRegionValue>& regions)
@@ -7357,7 +7357,7 @@ void Document::addListenerTypeIfNeeded(const AtomString& eventType)
     case EventType::focusout:
         addListenerType(ListenerType::FocusOut);
         break;
-    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
     // event drives Safari 7 extension content-blocking (uBlock network blocking).
     case EventType::beforeload:
         addListenerType(ListenerType::BeforeLoad);

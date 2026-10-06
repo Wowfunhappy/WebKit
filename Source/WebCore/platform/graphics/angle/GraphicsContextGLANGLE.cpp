@@ -207,7 +207,7 @@ bool GraphicsContextGLANGLE::initialize()
         GL_Enable(GraphicsContextGL::PRIMITIVE_RESTART_FIXED_INDEX);
 
     // Create the texture that will be used for the framebuffer.
-    // MAVERICKS_BACKPORT: initialize the texture with the EGL configuration's target.
+    // AQUAWEBKIT: initialize the texture with the EGL configuration's target.
     // GLenum textureTarget = GL_TEXTURE_2D;
     GLenum textureTarget = drawingBufferTextureTarget();
 
@@ -323,7 +323,7 @@ bool GraphicsContextGLANGLE::platformInitialize()
     return true;
 }
 
-// MAVERICKS_BACKPORT: upstream target selection supports CGL rectangle textures.
+// AQUAWEBKIT: upstream target selection supports CGL rectangle textures.
 GCGLenum GraphicsContextGLANGLE::drawingBufferTextureTarget()
 {
     auto [textureTarget, _] = externalImageTextureBindingPoint();
@@ -331,13 +331,13 @@ GCGLenum GraphicsContextGLANGLE::drawingBufferTextureTarget()
     return textureTarget;
 }
 
-// MAVERICKS_BACKPORT: upstream CGL texture-target mapping.
+// AQUAWEBKIT: upstream CGL texture-target mapping.
 std::tuple<GCGLenum, GCGLenum> GraphicsContextGLANGLE::drawingBufferTextureBindingPoint()
 {
     return externalImageTextureBindingPoint();
 }
 
-// MAVERICKS_BACKPORT: upstream CGL texture-target mapping.
+// AQUAWEBKIT: upstream CGL texture-target mapping.
 GCGLint GraphicsContextGLANGLE::EGLDrawingBufferTextureTargetForDrawingTarget(GCGLenum drawingTarget)
 {
     switch (drawingTarget) {
@@ -504,12 +504,12 @@ bool GraphicsContextGLANGLE::reshapeFBOs(const IntSize& size)
         GL_BindTexture(GL_TEXTURE_2D, texture2DBinding);
         // Attach m_texture to m_preserveDrawingBufferFBO for later blitting.
         GL_BindFramebuffer(GL_FRAMEBUFFER, m_preserveDrawingBufferFBO);
-        // MAVERICKS_BACKPORT: attach the drawing buffer using its CGL-compatible target.
+        // AQUAWEBKIT: attach the drawing buffer using its CGL-compatible target.
         // GL_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
         GL_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, drawingBufferTextureTarget(), m_texture, 0);
         GL_BindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     } else
-        // MAVERICKS_BACKPORT: attach the drawing buffer using its CGL-compatible target.
+        // AQUAWEBKIT: attach the drawing buffer using its CGL-compatible target.
         // GL_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
         GL_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, drawingBufferTextureTarget(), m_texture, 0);
 

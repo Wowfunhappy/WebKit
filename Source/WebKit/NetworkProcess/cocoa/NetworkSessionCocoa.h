@@ -39,9 +39,9 @@ OBJC_CLASS NSURLCredentialStorage;
 #include "DownloadID.h"
 #include "NetworkDataTaskCocoa.h"
 #include "NetworkSession.h"
-// MAVERICKS_BACKPORT: the transport pool is shared with Cocoa legacy loaders.
+// AQUAWEBKIT: the transport pool is shared with Cocoa legacy loaders.
 #include <WebCore/CocoaCurlConnection.h>
-// MAVERICKS_BACKPORT: HSTS remains a browser policy with native-session persistence boundaries.
+// AQUAWEBKIT: HSTS remains a browser policy with native-session persistence boundaries.
 #include <WebCore/HTTPStrictTransportSecurityStore.h>
 #include "WebPageNetworkParameters.h"
 #include "WebPageProxyIdentifier.h"
@@ -59,7 +59,7 @@ enum class AdvancedPrivacyProtections : uint16_t;
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: curl has its own session-owned transport registry, separate from native IDs.
+// AQUAWEBKIT: curl has its own session-owned transport registry, separate from native IDs.
 using CurlNetworkScheduler = WebCore::CocoaCurlConnectionPool;
 
 enum class NegotiatedLegacyTLS : bool;
@@ -70,7 +70,7 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeChe
     WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(SessionWrapper);
     WTF_STRUCT_OVERRIDE_DELETE_FOR_CHECKED_PTR(SessionWrapper);
 
-    // MAVERICKS_BACKPORT: construct the owning curl pointer where its complete type is visible.
+    // AQUAWEBKIT: construct the owning curl pointer where its complete type is visible.
     // SessionWrapper() = default;
     SessionWrapper();
     ~SessionWrapper();
@@ -79,11 +79,11 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeChe
 
     void recreateSessionWithUpdatedProxyConfigurations(NetworkSessionCocoa&);
 
-    // MAVERICKS_BACKPORT: curl owns its typed task registry within the same credential/privacy partition.
+    // AQUAWEBKIT: curl owns its typed task registry within the same credential/privacy partition.
     RefPtr<CurlNetworkScheduler> curlScheduler;
     RetainPtr<NSURLSession> session;
     RetainPtr<WKNetworkSessionDelegate> delegate;
-    // MAVERICKS_BACKPORT: 10.9's NSURLSessionTask.taskIdentifier is 0-based (the first task in a session is
+    // AQUAWEBKIT: 10.9's NSURLSessionTask.taskIdentifier is 0-based (the first task in a session is
     // identifier 0), but WTF::HashMap's default integer traits reserve 0 as the empty-slot sentinel and
     // UINT64_MAX as the deleted sentinel — so an identifier-0 task cannot be stored. Upstream relies on
     // modern taskIdentifier starting at 1. Use zero-key-permitting traits (empty=UINT64_MAX, deleted=
@@ -101,12 +101,12 @@ struct IsolatedSession {
 public:
     IsolatedSession()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
-        // MAVERICKS_BACKPORT: see sessionWithoutCredentialStorage below.
+        // AQUAWEBKIT: see sessionWithoutCredentialStorage below.
         , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
     { }
 
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
-    // MAVERICKS_BACKPORT: the DoNotUse counterpart, see SessionSet::sessionWithoutCredentialStorage.
+    // AQUAWEBKIT: the DoNotUse counterpart, see SessionSet::sessionWithoutCredentialStorage.
     UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
     WallTime lastUsed;
 };
@@ -119,7 +119,7 @@ public:
     }
 
     SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
-    // MAVERICKS_BACKPORT: a StoredCredentialsPolicy::DoNotUse task needs a session of its own, see
+    // AQUAWEBKIT: a StoredCredentialsPolicy::DoNotUse task needs a session of its own, see
     // sessionWrapperForTask.
     SessionWrapper& initializeSessionWithoutCredentialStorageIfNeeded(NetworkSessionCocoa&);
 
@@ -130,7 +130,7 @@ public:
 
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
     UniqueRef<SessionWrapper> ephemeralStatelessSession;
-    // MAVERICKS_BACKPORT: same configuration as sessionWithCredentialStorage but with no
+    // AQUAWEBKIT: same configuration as sessionWithCredentialStorage but with no
     // URLCredentialStorage, created on first use.
     UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
 
@@ -139,7 +139,7 @@ private:
     SessionSet()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
         , ephemeralStatelessSession(makeUniqueRef<SessionWrapper>())
-        // MAVERICKS_BACKPORT: see sessionWithoutCredentialStorage above.
+        // AQUAWEBKIT: see sessionWithoutCredentialStorage above.
         , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
     { }
 };
@@ -153,7 +153,7 @@ public:
     NetworkSessionCocoa(NetworkProcess&, const NetworkSessionCreationParameters&);
     ~NetworkSessionCocoa();
 
-    // MAVERICKS_BACKPORT: the Cocoa session continues to own cookies, credentials, and native tasks.
+    // AQUAWEBKIT: the Cocoa session continues to own cookies, credentials, and native tasks.
     Ref<CurlNetworkScheduler> curlNetworkScheduler(std::optional<WebPageProxyIdentifier>, const WebCore::ResourceRequest&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>);
 
     SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(std::optional<WebPageProxyIdentifier>, NavigatingToAppBoundDomain);
@@ -171,7 +171,7 @@ public:
 
     void continueDidReceiveChallenge(SessionWrapper&, const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, NetworkDataTaskCocoa::TaskIdentifier, RefPtr<NetworkDataTaskCocoa>, CompletionHandler<void(WebKit::AuthenticationChallengeDisposition, const WebCore::Credential&)>&&);
 
-    // MAVERICKS_BACKPORT: part of restoring WKContextAllowSpecificHTTPSCertificateForHost, which
+    // AQUAWEBKIT: part of restoring WKContextAllowSpecificHTTPSCertificateForHost, which
     // upstream dropped and Safari 7's invalid-certificate sheet needs. True when this challenge
     // presents exactly the certificate the user accepted for its host (the certificates live on the
     // network process); any other chain still goes to the client.
@@ -199,7 +199,7 @@ public:
     bool preventsSystemHTTPProxyAuthentication() const { return m_preventsSystemHTTPProxyAuthentication; }
 
     _NSHSTSStorage *hstsStorage() const;
-    // MAVERICKS_BACKPORT: curl and the website-data APIs share this browser-owned dynamic store.
+    // AQUAWEBKIT: curl and the website-data APIs share this browser-owned dynamic store.
     WebCore::HTTPStrictTransportSecurityStore& httpStrictTransportSecurityStore() { return *m_httpStrictTransportSecurityStore; }
 
     NSURLCredentialStorage *nsCredentialStorage() const;
@@ -207,7 +207,7 @@ public:
     void removeNetworkWebsiteData(std::optional<WallTime>, std::optional<HashSet<WebCore::RegistrableDomain>>&&, CompletionHandler<void()>&&) override;
 
     void removeDataTask(DataTaskIdentifier);
-    // MAVERICKS_BACKPORT: blob and HTTP API tasks share removeDataTask.
+    // AQUAWEBKIT: blob and HTTP API tasks share removeDataTask.
     // void removeBlobDataTask(DataTaskIdentifier);
 
 #if HAVE(NW_PROXY_CONFIG)
@@ -223,7 +223,7 @@ public:
     bool isLegacyTLSAllowed() const { return m_isLegacyTLSAllowed; }
 
 private:
-    // MAVERICKS_BACKPORT: ephemeral sessions retain this state only in memory.
+    // AQUAWEBKIT: ephemeral sessions retain this state only in memory.
     std::unique_ptr<WebCore::HTTPStrictTransportSecurityStore> m_httpStrictTransportSecurityStore;
     void invalidateAndCancel() override;
     HashSet<WebCore::SecurityOriginData> originsWithCredentials() final;
@@ -288,7 +288,7 @@ private:
     Markable<WTF::UUID> m_donatedEphemeralImpressionSessionID;
 #endif
 
-    // MAVERICKS_BACKPORT: every API data task uses NetworkDataTask's transport and client contract.
+    // AQUAWEBKIT: every API data task uses NetworkDataTask's transport and client contract.
     // class BlobDataTaskClient;
     // HashMap<DataTaskIdentifier, Ref<BlobDataTaskClient>> m_blobDataTasksForAPI;
     // HashMap<DataTaskIdentifier, RetainPtr<NSURLSessionDataTask>> m_dataTasksForAPI;

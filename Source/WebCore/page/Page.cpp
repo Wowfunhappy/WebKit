@@ -2536,7 +2536,7 @@ void Page::finalizeRenderingUpdate(OptionSet<FinalizeRenderingUpdateFlags> flags
         finalizeRenderingUpdateForRootFrame(Ref { rootFrame.get() }, flags);
 
 #if ENABLE(ASYNC_SCROLLING)
-    // MAVERICKS_BACKPORT: pairs with the willStartRenderingUpdate() updateRendering() makes for the page.
+    // AQUAWEBKIT: pairs with the willStartRenderingUpdate() updateRendering() makes for the page.
     // finalizeRenderingUpdateForRootFrame() reaches it only for a root frame that still has a view, and a
     // scrolling tree left published as in-rendering-update parks the scrolling thread -- one thread for the
     // whole process -- for the full timeout on every later update.
@@ -2569,7 +2569,7 @@ void Page::finalizeRenderingUpdateForRootFrame(LocalFrame& rootFrame, OptionSet<
         if (flags.contains(FinalizeRenderingUpdateFlags::ApplyScrollingTreeLayerPositions))
             scrollingCoordinator->applyScrollingTreeLayerPositions();
 
-        // MAVERICKS_BACKPORT: completion is delivered once for the page in finalizeRenderingUpdate().
+        // AQUAWEBKIT: completion is delivered once for the page in finalizeRenderingUpdate().
         // scrollingCoordinator->didCompleteRenderingUpdate();
     }
 #else

@@ -38,7 +38,7 @@
 #import "PixelBuffer.h"
 #import "ProcessIdentity.h"
 #import <CoreGraphics/CGBitmapContext.h>
-// MAVERICKS_BACKPORT: Metal (and ANGLE's Metal backend) require 10.11+. The 10.9 deployment target
+// AQUAWEBKIT: Metal (and ANGLE's Metal backend) require 10.11+. The 10.9 deployment target
 // — not the SDK — decides whether Metal exists at RUNTIME, so this MUST key on MIN_REQUIRED (=1090
 // here), NOT MAX_ALLOWED. Under the 26.1 SDK MAX_ALLOWED is huge and always-true, which would wrongly
 // select the Metal WebGL backend (absent on 10.9 -> weak-links to NULL -> WebGL dead). With MIN this
@@ -84,7 +84,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 // For WK1, this variable is accessed from multiple threads but always sequentially.
 static GraphicsContextGLANGLE* currentContext;
 
-// MAVERICKS_BACKPORT: the ANGLE Metal feature-name tables and the platformSupportsMetal() Metal-device gate are Metal-backend only; compiled out on 10.9 (ANGLE OpenGL/CGL backend, WK_WEBGL_METAL_BACKEND==0).
+// AQUAWEBKIT: the ANGLE Metal feature-name tables and the platformSupportsMetal() Metal-device gate are Metal-backend only; compiled out on 10.9 (ANGLE OpenGL/CGL backend, WK_WEBGL_METAL_BACKEND==0).
 #if WK_WEBGL_METAL_BACKEND
 static const char* const enabledANGLEMetalFeatures[] = {
     "ensureLoopForwardProgress",
@@ -114,7 +114,7 @@ static bool platformSupportsMetal()
     return true;
 }
 #else
-// MAVERICKS_BACKPORT: ANGLE uses its OpenGL (CGL) backend; there is no Metal device gate.
+// AQUAWEBKIT: ANGLE uses its OpenGL (CGL) backend; there is no Metal device gate.
 static bool platformSupportsMetal()
 {
     return true;
@@ -140,17 +140,17 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 
     Vector<EGLAttrib> displayAttributes;
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
-    // MAVERICKS_BACKPORT: select ANGLE's OpenGL (CGL) backend on 10.9; the Metal backend type below is compiled out (Metal requires 10.11+).
+    // AQUAWEBKIT: select ANGLE's OpenGL (CGL) backend on 10.9; the Metal backend type below is compiled out (Metal requires 10.11+).
 #if WK_WEBGL_METAL_BACKEND
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE);
 #else
-    // MAVERICKS_BACKPORT: ANGLE's OpenGL (CGL) backend.
+    // AQUAWEBKIT: ANGLE's OpenGL (CGL) backend.
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE);
 #endif
     // These properties are defined for EGL_ANGLE_power_preference as EGLContext attributes,
     // but Metal backend uses EGLDisplay attributes.
     //
-    // MAVERICKS_BACKPORT: EGL_POWER_PREFERENCE_ANGLE and EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE are
+    // AQUAWEBKIT: EGL_POWER_PREFERENCE_ANGLE and EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE are
     // Metal-backend EGLDisplay attributes. ANGLE's OpenGL (CGL) backend advertises neither
     // EGL_ANGLE_power_preference nor EGL_ANGLE_platform_angle_device_id, and eglGetPlatformDisplay
     // rejects an attribute list that carries them; that backend selects GPUs through CGL virtual
@@ -178,16 +178,16 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
         displayAttributes.append(static_cast<EGLAttrib>(attrs.windowGPUID));
     }
 #endif
-// MAVERICKS_BACKPORT: close of the power-preference / device-id block, which is Metal-backend only and compiled out on 10.9 (OpenGL/CGL backend).
+// AQUAWEBKIT: close of the power-preference / device-id block, which is Metal-backend only and compiled out on 10.9 (OpenGL/CGL backend).
 #endif // WK_WEBGL_METAL_BACKEND
-// MAVERICKS_BACKPORT: ANGLE Metal feature-control overrides only apply to the Metal backend; compiled out on 10.9 (OpenGL/CGL backend).
+// AQUAWEBKIT: ANGLE Metal feature-control overrides only apply to the Metal backend; compiled out on 10.9 (OpenGL/CGL backend).
 #if WK_WEBGL_METAL_BACKEND
     ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_feature_control"_span));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_DISABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(disabledANGLEMetalFeatures));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_ENABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEMetalFeatures));
-// MAVERICKS_BACKPORT: end of the Metal-only feature-override block.
+// AQUAWEBKIT: end of the Metal-only feature-override block.
 #endif
     displayAttributes.append(EGL_NONE);
 
@@ -234,7 +234,7 @@ IOSurface* GraphicsContextGLCocoa::displayBufferSurface()
     return displayBuffer().surface();
 }
 
-// MAVERICKS_BACKPORT: upstream EGL configuration query supports rectangle IOSurfaces.
+// AQUAWEBKIT: upstream EGL configuration query supports rectangle IOSurfaces.
 std::tuple<GCGLenum, GCGLenum> GraphicsContextGLCocoa::externalImageTextureBindingPoint()
 {
     if (m_drawingBufferTextureTarget == -1)
@@ -310,7 +310,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
     eglContextAttributes.append(EGL_CONTEXT_BIND_GENERATES_RESOURCE_CHROMIUM);
     eglContextAttributes.append(EGL_FALSE);
 
-// MAVERICKS_BACKPORT: the Metal context-ownership-identity attribute is Metal-backend only, so also gate this block on WK_WEBGL_METAL_BACKEND (compiled out on 10.9 / OpenGL backend).
+// AQUAWEBKIT: the Metal context-ownership-identity attribute is Metal-backend only, so also gate this block on WK_WEBGL_METAL_BACKEND (compiled out on 10.9 / OpenGL backend).
 #if HAVE(TASK_IDENTITY_TOKEN) && WK_WEBGL_METAL_BACKEND
     auto displayExtensions = unsafeSpan(EGL_QueryString(m_displayObj, EGL_EXTENSIONS));
     bool supportsOwnershipIdentity = WTF::contains(displayExtensions, "EGL_ANGLE_metal_create_context_ownership_identity"_span);
@@ -327,7 +327,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
         LOG(WebGL, "EGLContext Initialization failed.");
         return false;
     }
-    // MAVERICKS_BACKPORT: the Metal shared-event listener/event are only set up for the Metal backend, which is compiled out on 10.9 (OpenGL/CGL backend).
+    // AQUAWEBKIT: the Metal shared-event listener/event are only set up for the Metal backend, which is compiled out on 10.9 (OpenGL/CGL backend).
 #if WK_WEBGL_METAL_BACKEND
     m_finishedMetalSharedEventListener = adoptNS([[MTLSharedEventListener alloc] init]);
     if (!m_finishedMetalSharedEventListener) {
@@ -339,7 +339,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
         ASSERT_NOT_REACHED();
         return false;
     }
-// MAVERICKS_BACKPORT: end of the Metal shared-event setup compiled out on 10.9 (OpenGL/CGL backend has no Metal shared event).
+// AQUAWEBKIT: end of the Metal shared-event setup compiled out on 10.9 (OpenGL/CGL backend has no Metal shared event).
 #endif
     return true;
 }
@@ -350,7 +350,7 @@ bool GraphicsContextGLCocoa::platformInitializeExtensions()
     // For creating the EGL surface from an IOSurface.
     if (!enableExtensionsImpl({ "GL_EXT_texture_format_BGRA8888"_s }))
         return false;
-    // MAVERICKS_BACKPORT: CGL IOSurface attachments require ANGLE's rectangle-texture extension.
+    // AQUAWEBKIT: CGL IOSurface attachments require ANGLE's rectangle-texture extension.
     if (m_drawingBufferTextureTarget == -1)
         EGL_GetConfigAttrib(platformDisplay(), platformConfig(), EGL_BIND_TO_TEXTURE_TARGET_ANGLE, &m_drawingBufferTextureTarget);
     if (m_drawingBufferTextureTarget == EGL_TEXTURE_RECTANGLE_ANGLE) {
@@ -407,7 +407,7 @@ GraphicsContextGLANGLE::~GraphicsContextGLANGLE()
         EGL_DestroyContext(m_displayObj, m_contextObj);
     }
     ASSERT(currentContext != this);
-    m_drawingBufferTextureTarget = -1; // MAVERICKS_BACKPORT: reset the cached EGL target with the context.
+    m_drawingBufferTextureTarget = -1; // AQUAWEBKIT: reset the cached EGL target with the context.
 }
 
 bool GraphicsContextGLANGLE::makeContextCurrent()
@@ -500,7 +500,7 @@ bool GraphicsContextGLCocoa::bindNextDrawingBuffer()
             EGL_WIDTH, size.width(),
             EGL_HEIGHT, size.height(),
             EGL_IOSURFACE_PLANE_ANGLE, 0,
-            // MAVERICKS_BACKPORT: use the CGL configuration's IOSurface texture target.
+            // AQUAWEBKIT: use the CGL configuration's IOSurface texture target.
             // EGL_TEXTURE_TARGET, EGL_TEXTURE_2D,
             EGL_TEXTURE_TARGET, EGLDrawingBufferTextureTargetForDrawingTarget(drawingBufferTextureTarget()),
             EGL_TEXTURE_INTERNAL_FORMAT_ANGLE, usingAlpha ? GL_BGRA_EXT : GL_RGB,
@@ -516,7 +516,7 @@ bool GraphicsContextGLCocoa::bindNextDrawingBuffer()
         buffer = IOSurfacePbuffer { WTF::move(surface), pbuffer };
     }
 
-    // MAVERICKS_BACKPORT: upstream CGL binding and restoration for the IOSurface texture.
+    // AQUAWEBKIT: upstream CGL binding and restoration for the IOSurface texture.
     // ScopedRestoreTextureBinding restoreBinding(TEXTURE_BINDING_2D, TEXTURE_2D);
     // GL_BindTexture(TEXTURE_2D, m_texture);
     auto [textureTarget, textureBinding] = drawingBufferTextureBindingPoint();
@@ -551,7 +551,7 @@ bool GraphicsContextGLANGLE::makeCurrent(GCGLDisplay display, GCGLContext contex
 
 void* GraphicsContextGLCocoa::createPbufferAndAttachIOSurface(GCGLenum target, PbufferAttachmentUsage usage, GCGLenum internalFormat, GCGLsizei width, GCGLsizei height, GCGLenum type, IOSurfaceRef surface, GCGLuint plane)
 {
-    // MAVERICKS_BACKPORT: validate against the EGL configuration's texture target.
+    // AQUAWEBKIT: validate against the EGL configuration's texture target.
     // if (target != GraphicsContextGL::TEXTURE_2D) {
     if (target != GraphicsContextGLANGLE::drawingBufferTextureTarget()) {
         LOG(WebGL, "Unknown texture target %d.", static_cast<int>(target));
@@ -703,11 +703,11 @@ void GraphicsContextGLCocoa::framebufferResolveRenderbuffer(GCGLenum target, GCG
 
 RetainPtr<id> GraphicsContextGLCocoa::newSharedEventWithMachPort(mach_port_t sharedEventSendRight)
 {
-    // MAVERICKS_BACKPORT: Metal shared events are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
+    // AQUAWEBKIT: Metal shared events are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
 #if WK_WEBGL_METAL_BACKEND
     return WebCore::newSharedEventWithMachPort(m_displayObj, sharedEventSendRight);
 #else
-    // MAVERICKS_BACKPORT: Metal shared events are unavailable with the OpenGL (CGL) backend.
+    // AQUAWEBKIT: Metal shared events are unavailable with the OpenGL (CGL) backend.
     UNUSED_PARAM(sharedEventSendRight);
     return nullptr;
 #endif
@@ -715,7 +715,7 @@ RetainPtr<id> GraphicsContextGLCocoa::newSharedEventWithMachPort(mach_port_t sha
 
 GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&& syncEvent)
 {
-    // MAVERICKS_BACKPORT: cross-process Metal shared-event sync is unused with the in-process OpenGL (CGL) backend; the #else branch below returns an empty sync on 10.9.
+    // AQUAWEBKIT: cross-process Metal shared-event sync is unused with the in-process OpenGL (CGL) backend; the #else branch below returns an empty sync on 10.9.
 #if WK_WEBGL_METAL_BACKEND
     auto [syncEventHandle, signalValue] = WTF::move(syncEvent);
     auto sharedEvent = newSharedEventWithMachPort(syncEventHandle.sendRight());
@@ -733,7 +733,7 @@ GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&&
     m_eglSyncs.add(newName, eglSync);
     return newName;
 #else
-    // MAVERICKS_BACKPORT: cross-process Metal shared-event sync is unused with the in-process OpenGL backend.
+    // AQUAWEBKIT: cross-process Metal shared-event sync is unused with the in-process OpenGL backend.
     UNUSED_PARAM(syncEvent);
     return { };
 #endif
@@ -770,7 +770,7 @@ bool GraphicsContextGLCocoa::enableRequiredWebXRExtensionsImpl()
 
 void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint64_t signalValue)
 {
-    // MAVERICKS_BACKPORT: Metal shared-event EGL syncs are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
+    // AQUAWEBKIT: Metal shared-event EGL syncs are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
 #if WK_WEBGL_METAL_BACKEND
     static_assert(sizeof(EGLAttrib) == sizeof(void*), "EGLAttrib not pointer-sized!");
     auto signalValueLo = static_cast<EGLAttrib>(signalValue);
@@ -786,7 +786,7 @@ void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint
     };
     return EGL_CreateSync(display, EGL_SYNC_METAL_SHARED_EVENT_ANGLE, syncAttributes);
 #else
-    // MAVERICKS_BACKPORT: no Metal shared-event EGL sync with the OpenGL (CGL) backend.
+    // AQUAWEBKIT: no Metal shared-event EGL sync with the OpenGL (CGL) backend.
     UNUSED_PARAM(sharedEvent);
     UNUSED_PARAM(signalValue);
     return nullptr;
@@ -843,7 +843,7 @@ RefPtr<PixelBuffer> GraphicsContextGLCocoa::readCompositedResults()
     // out of an IOSurface in such a way that drawing the NativeImage would be guaranteed leave
     // the IOSurface be unrefenced after the draw call finishes.
     ScopedTexture texture;
-    // MAVERICKS_BACKPORT: upstream CGL binding and restoration for the IOSurface texture.
+    // AQUAWEBKIT: upstream CGL binding and restoration for the IOSurface texture.
     // ScopedRestoreTextureBinding restoreBinding(TEXTURE_BINDING_2D, TEXTURE_2D);
     // GL_BindTexture(TEXTURE_2D, texture);
     auto [textureTarget, textureBinding] = drawingBufferTextureBindingPoint();
@@ -851,12 +851,12 @@ RefPtr<PixelBuffer> GraphicsContextGLCocoa::readCompositedResults()
     GL_BindTexture(textureTarget, texture);
     if (!EGL_BindTexImage(m_displayObj, buffer.pbuffer(), EGL_BACK_BUFFER))
         return nullptr;
-    // MAVERICKS_BACKPORT: read back the CGL IOSurface through its rectangle texture.
+    // AQUAWEBKIT: read back the CGL IOSurface through its rectangle texture.
     // GL_TexParameteri(TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     GL_TexParameteri(textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     ScopedFramebuffer fbo;
     ScopedRestoreReadFramebufferBinding fboBinding(m_isForWebGL2, m_state.boundReadFBO, fbo);
-    // MAVERICKS_BACKPORT: read back the CGL IOSurface through its rectangle texture.
+    // AQUAWEBKIT: read back the CGL IOSurface through its rectangle texture.
     // GL_FramebufferTexture2D(fboBinding.framebufferTarget(), GL_COLOR_ATTACHMENT0, TEXTURE_2D, texture, 0);
     GL_FramebufferTexture2D(fboBinding.framebufferTarget(), GL_COLOR_ATTACHMENT0, textureTarget, texture, 0);
     ASSERT(GL_CheckFramebufferStatus(fboBinding.framebufferTarget()) == GL_FRAMEBUFFER_COMPLETE);
@@ -957,7 +957,7 @@ RefPtr<NativeImage> GraphicsContextGLCocoa::copyNativeImageYFlipped(SurfaceBuffe
 
 void GraphicsContextGLCocoa::insertFinishedSignalOrInvoke(Function<void()> signal)
 {
-    // MAVERICKS_BACKPORT: the Metal shared-event completion path is compiled out on 10.9; the #else branch below uses GL_Finish + synchronous signal with the in-process OpenGL (CGL) backend.
+    // AQUAWEBKIT: the Metal shared-event completion path is compiled out on 10.9; the #else branch below uses GL_Finish + synchronous signal with the in-process OpenGL (CGL) backend.
 #if WK_WEBGL_METAL_BACKEND
     static std::atomic<uint64_t> nextSignalValue;
     uint64_t signalValue = ++nextSignalValue;
@@ -976,7 +976,7 @@ void GraphicsContextGLCocoa::insertFinishedSignalOrInvoke(Function<void()> signa
     bool result = EGL_DestroySync(platformDisplay(), eglSync);
     ASSERT_UNUSED(result, result);
 #else
-    // MAVERICKS_BACKPORT: with the in-process OpenGL (CGL) backend there is no cross-process GPU
+    // AQUAWEBKIT: with the in-process OpenGL (CGL) backend there is no cross-process GPU
     // completion event; flush+finish to ensure rendering is done, then signal synchronously.
     GL_Finish();
     signal();

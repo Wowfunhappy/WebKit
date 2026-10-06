@@ -55,7 +55,7 @@ Class kitClass(WebCore::Event* impl)
     case WebCore::EventInterfaceType::WheelEvent:
         return [DOMWheelEvent class];
     default:
-        // MAVERICKS_BACKPORT: MouseEvent/KeyboardEvent subclasses that report their own
+        // AQUAWEBKIT: MouseEvent/KeyboardEvent subclasses that report their own
         // interfaceType (DragEvent, PointerEvent, …) have no legacy ObjC wrapper of their own and
         // otherwise fall through to the base DOMUIEvent. Map them to the nearest wrapper that
         // exposes their accessors — as stock WebKit did by keying off isMouseEvent()/key state —

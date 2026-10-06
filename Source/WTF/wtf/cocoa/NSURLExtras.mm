@@ -239,7 +239,7 @@ NSURL *URLWithUserTypedStringDeprecated(NSString *string)
     return result;
 }
 
-// MAVERICKS_BACKPORT: restore the base-URL-honoring variant removed in 1516dd5 "[CF] Reduce duplication
+// AQUAWEBKIT: restore the base-URL-honoring variant removed in 1516dd5 "[CF] Reduce duplication
 // and unneeded buffer allocations and copying in URL code". Upstream dropped base support because its
 // callers all passed nil, but Safari 7's -[NSURL _web_URLWithUserTypedString:relativeToURL:] caller
 // (the title-bar path pop-up menu) resolves path strings against a non-nil base.

@@ -28,7 +28,7 @@
 
 #if PLATFORM(MAC)
 
-const CGFloat WKInspectorWindowDockButtonMargin = 3; // MAVERICKS_BACKPORT: declared in _WKInspectorWindowInternal.h.
+const CGFloat WKInspectorWindowDockButtonMargin = 3; // AQUAWEBKIT: declared in _WKInspectorWindowInternal.h.
 
 @interface NSWindow (AppKitDetails)
 - (NSCursor *)_cursorForResizeDirection:(NSInteger)direction;
@@ -37,7 +37,7 @@ const CGFloat WKInspectorWindowDockButtonMargin = 3; // MAVERICKS_BACKPORT: decl
 
 @implementation _WKInspectorWindow
 
-// MAVERICKS_BACKPORT: the two overrides below keep the native dock controls legible, and run only on
+// AQUAWEBKIT: the two overrides below keep the native dock controls legible, and run only on
 // a window that has them.
 - (NSCursor *)_cursorForResizeDirection:(NSInteger)direction
 {

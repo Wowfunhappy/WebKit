@@ -30,7 +30,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "AudioTrackPrivateGStreamer.h"
-#include "AdaptiveStreamGStreamer.h" // MAVERICKS_BACKPORT: legacy adaptive-demux duration semantics.
+#include "AdaptiveStreamGStreamer.h" // AQUAWEBKIT: legacy adaptive-demux duration semantics.
 #include "GStreamerAudioMixer.h"
 #include "GStreamerCaptureDeviceManager.h"
 #include "GStreamerCommon.h"
@@ -51,9 +51,9 @@
 #include "SecurityOrigin.h"
 #include "TextCombinerGStreamer.h"
 #include "TextSinkGStreamer.h"
-#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE) // MAVERICKS_BACKPORT: see handleHLSID3Sample().
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE) // AQUAWEBKIT: see handleHLSID3Sample().
 #include "HLSTimedMetadataGStreamer.h"
-#endif // MAVERICKS_BACKPORT: closes the include above.
+#endif // AQUAWEBKIT: closes the include above.
 #include "TimeRanges.h"
 #include "VideoFrameMetadataGStreamer.h"
 #include "VideoSinkGStreamer.h"
@@ -209,7 +209,7 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer& player)
 #if USE(COORDINATED_GRAPHICS)
     m_contentsBufferProxy = CoordinatedPlatformLayerBufferProxy::create();
 #elif PLATFORM(COCOA)
-    initializeVideoLayer(); // MAVERICKS_BACKPORT: initialize the shared Cocoa presenter on the main thread.
+    initializeVideoLayer(); // AQUAWEBKIT: initialize the shared Cocoa presenter on the main thread.
 #endif
 
     ensureGStreamerInitialized();
@@ -219,7 +219,7 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer& player)
 MediaPlayerPrivateGStreamer::~MediaPlayerPrivateGStreamer()
 {
     tearDown(true);
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: stop observing bounds after streaming callbacks finish.
+#if PLATFORM(COCOA) // AQUAWEBKIT: stop observing bounds after streaming callbacks finish.
     destroyVideoLayer();
 #endif
 }
@@ -289,7 +289,7 @@ void MediaPlayerPrivateGStreamer::tearDown(bool clearMediaPlayer)
         m_source = nullptr;
         m_videoSink = nullptr;
         m_audioSink = nullptr;
-        m_platformAudioSink = nullptr; // MAVERICKS_BACKPORT: see createAudioSink().
+        m_platformAudioSink = nullptr; // AQUAWEBKIT: see createAudioSink().
         m_textSink = nullptr;
         m_pipeline = nullptr;
     }
@@ -417,7 +417,7 @@ void MediaPlayerPrivateGStreamer::load(const String& urlString)
     m_isSeeking = false;
     m_isSeekPending = false;
     m_seekTarget = { };
-    discardQueuedLoopPass(); // MAVERICKS_BACKPORT: see queueLoopPass().
+    discardQueuedLoopPass(); // AQUAWEBKIT: see queueLoopPass().
 
 #if ENABLE(ENCRYPTED_MEDIA)
     if (m_cdmContext)
@@ -521,7 +521,7 @@ void MediaPlayerPrivateGStreamer::play()
         if (player) {
             if (isSeamlessSeekingEnabled() && !m_initialSegmentSeekDone) {
                 GST_DEBUG_OBJECT(pipeline(), "Scheduling initial SEGMENT seek");
-                // MAVERICKS_BACKPORT: a non-flushing seek plays everything already queued before it, so the
+                // AQUAWEBKIT: a non-flushing seek plays everything already queued before it, so the
                 // initial one replays the start of the first pass. doSeek() flushes, then resumes in
                 // segment mode, as the loop seek does.
                 // doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true, true);
@@ -638,7 +638,7 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
         flag = GST_SEEK_FLAG_FLUSH;
     }
     auto seekFlags = static_cast<GstSeekFlags>(flag | GST_SEEK_FLAG_ACCURATE);
-    if (flag == GST_SEEK_FLAG_FLUSH) // MAVERICKS_BACKPORT: a flush discards the queued loop pass, see queueLoopPass().
+    if (flag == GST_SEEK_FLAG_FLUSH) // AQUAWEBKIT: a flush discards the queued loop pass, see queueLoopPass().
         discardQueuedLoopPass();
 
     // Seeking towards the end is not well supported in oggdemux, sometimes it receives EOS
@@ -793,7 +793,7 @@ bool MediaPlayerPrivateGStreamer::prepareSeek(const SeekTarget& target)
     m_isSeeking = true;
     m_seekTarget = target;
 
-    // MAVERICKS_BACKPORT: the element's loop seek from didEnd() when a queued loop pass starts
+    // AQUAWEBKIT: the element's loop seek from didEnd() when a queued loop pass starts
     // rendering; that pass already plays from the start, see queueLoopPass().
     if (m_isCompletingLoopPass && target.time == MediaTime::zeroTime()) {
         m_hasLoopPassStartedRendering = false;
@@ -1093,7 +1093,7 @@ unsigned long long MediaPlayerPrivateGStreamer::totalBytes() const
     if (gst_element_query_duration(m_source.get(), fmt, &length)) {
         GST_INFO_OBJECT(pipeline(), "totalBytes %" G_GINT64_FORMAT, length);
         m_totalBytes = static_cast<unsigned long long>(length);
-        // MAVERICKS_BACKPORT: Segment byte lengths do not determine the duration of an adaptive stream.
+        // AQUAWEBKIT: Segment byte lengths do not determine the duration of an adaptive stream.
         // m_isLiveStream = !length;
         setLiveStream(!length);
         return m_totalBytes;
@@ -1129,7 +1129,7 @@ unsigned long long MediaPlayerPrivateGStreamer::totalBytes() const
 
     GST_INFO_OBJECT(pipeline(), "totalBytes %" G_GINT64_FORMAT, length);
     m_totalBytes = static_cast<unsigned long long>(length);
-    // MAVERICKS_BACKPORT: Segment byte lengths do not determine the duration of an adaptive stream.
+    // AQUAWEBKIT: Segment byte lengths do not determine the duration of an adaptive stream.
     // m_isLiveStream = !length;
     setLiveStream(!length);
     return m_totalBytes;
@@ -1137,7 +1137,7 @@ unsigned long long MediaPlayerPrivateGStreamer::totalBytes() const
 
 std::optional<bool> MediaPlayerPrivateGStreamer::isCrossOrigin(const SecurityOrigin& origin) const
 {
-    /* MAVERICKS_BACKPORT: the responses of an adaptive demuxer's sources count too, see adaptiveDemuxSourceReceivedResponse().
+    /* AQUAWEBKIT: the responses of an adaptive demuxer's sources count too, see adaptiveDemuxSourceReceivedResponse().
     if (WEBKIT_IS_WEB_SRC(m_source.get()))
         return webKitSrcIsCrossOrigin(WEBKIT_WEB_SRC(m_source.get()), origin);
     return false;
@@ -1152,7 +1152,7 @@ std::optional<bool> MediaPlayerPrivateGStreamer::isCrossOrigin(const SecurityOri
     return false;
 }
 
-// MAVERICKS_BACKPORT: see the declaration.
+// AQUAWEBKIT: see the declaration.
 void MediaPlayerPrivateGStreamer::adaptiveDemuxSourceReceivedResponse(Ref<SecurityOrigin>&& origin, std::optional<bool> didPassAccessControlCheck)
 {
     ASSERT(isMainThread());
@@ -1201,11 +1201,11 @@ void MediaPlayerPrivateGStreamer::sourceSetup(GstElement* sourceElement)
     GST_DEBUG_OBJECT(pipeline(), "Source element set-up for %s", GST_ELEMENT_NAME(sourceElement));
 
     m_source = sourceElement;
-    { // MAVERICKS_BACKPORT: responses belong to the source they were fetched for, see adaptiveDemuxSourceReceivedResponse().
-        Locker locker { m_adaptiveDemuxSourceResponsesLock }; // MAVERICKS_BACKPORT: as above.
-        m_adaptiveDemuxSourceOrigins.clear(); // MAVERICKS_BACKPORT: as above.
-        m_didAdaptiveDemuxSourceFailAccessControlCheck = false; // MAVERICKS_BACKPORT: as above.
-    } // MAVERICKS_BACKPORT: closes the lock scope above.
+    { // AQUAWEBKIT: responses belong to the source they were fetched for, see adaptiveDemuxSourceReceivedResponse().
+        Locker locker { m_adaptiveDemuxSourceResponsesLock }; // AQUAWEBKIT: as above.
+        m_adaptiveDemuxSourceOrigins.clear(); // AQUAWEBKIT: as above.
+        m_didAdaptiveDemuxSourceFailAccessControlCheck = false; // AQUAWEBKIT: as above.
+    } // AQUAWEBKIT: closes the lock scope above.
 
     if (WEBKIT_IS_WEB_SRC(m_source.get())) {
         auto* source = WEBKIT_WEB_SRC_CAST(m_source.get());
@@ -1501,23 +1501,23 @@ void MediaPlayerPrivateGStreamer::elementIdChanged(const String& elementId) cons
 }
 
 // void MediaPlayerPrivateGStreamer::handleTextSample(GRefPtr<GstSample>&& sample, TrackID streamId)
-// MAVERICKS_BACKPORT: the stream-id string names the track when it has no numeric id, see TextSinkGStreamer.cpp.
+// AQUAWEBKIT: the stream-id string names the track when it has no numeric id, see TextSinkGStreamer.cpp.
 void MediaPlayerPrivateGStreamer::handleTextSample(GRefPtr<GstSample>&& sample, std::optional<TrackID> streamId, const String& gstStreamId)
 {
     for (auto& track : m_textTracks.values()) {
         // if (track->streamId() == streamId) {
-        if (streamId ? track->streamId() == *streamId : track->gstStreamId() == gstStreamId) { // MAVERICKS_BACKPORT: see the signature above.
+        if (streamId ? track->streamId() == *streamId : track->gstStreamId() == gstStreamId) { // AQUAWEBKIT: see the signature above.
             track->handleSample(WTF::move(sample));
             return;
         }
     }
 
     // GST_WARNING_OBJECT(m_pipeline.get(), "Got sample with unknown stream ID %" PRIu64 ".", streamId);
-    GST_WARNING_OBJECT(m_pipeline.get(), "Got sample with unknown stream ID %s.", gstStreamId.utf8().data()); // MAVERICKS_BACKPORT: see the signature above.
+    GST_WARNING_OBJECT(m_pipeline.get(), "Got sample with unknown stream ID %s.", gstStreamId.utf8().data()); // AQUAWEBKIT: see the signature above.
 }
 
 #if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
-// MAVERICKS_BACKPORT: see the declaration.
+// AQUAWEBKIT: see the declaration.
 void MediaPlayerPrivateGStreamer::handleHLSID3Sample(GRefPtr<GstSample>&& sample)
 {
     RefPtr player = m_player.get();
@@ -1527,9 +1527,9 @@ void MediaPlayerPrivateGStreamer::handleHLSID3Sample(GRefPtr<GstSample>&& sample
         m_hlsTimedMetadata = makeUnique<HLSTimedMetadataGStreamer>();
     m_hlsTimedMetadata->handleID3Sample(sample.get(), *player, m_textTracks.size(), m_isSeeking);
 }
-#endif // MAVERICKS_BACKPORT: closes the definition above.
+#endif // AQUAWEBKIT: closes the definition above.
 
-// MAVERICKS_BACKPORT: Legacy adaptive demuxers describe live duration independently of manifest and segment sizes.
+// AQUAWEBKIT: Legacy adaptive demuxers describe live duration independently of manifest and segment sizes.
 void MediaPlayerPrivateGStreamer::setLiveStream(bool isLiveStream) const
 {
     m_isLiveStream = legacyAdaptiveStreamIsLive(m_pipeline.get()).value_or(isLiveStream);
@@ -1551,7 +1551,7 @@ MediaTime MediaPlayerPrivateGStreamer::platformDuration() const
     if (GST_STATE(m_pipeline.get()) < GST_STATE_PAUSED)
         return MediaTime::invalidTime();
 
-    // MAVERICKS_BACKPORT: A loaded adaptive manifest supplies authoritative live/VOD state.
+    // AQUAWEBKIT: A loaded adaptive manifest supplies authoritative live/VOD state.
     if (auto isLive = legacyAdaptiveStreamIsLive(m_pipeline.get()))
         m_isLiveStream = *isLive;
     int64_t duration = 0;
@@ -1737,7 +1737,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
     if (!audioSink)
         return nullptr;
 
-    m_platformAudioSink = audioSink; // MAVERICKS_BACKPORT: the rendering audio sink, see queueLoopPass().
+    m_platformAudioSink = audioSink; // AQUAWEBKIT: the rendering audio sink, see queueLoopPass().
 #if ENABLE(WEB_AUDIO)
     GstElement* audioSinkBin = gst_bin_new("audio-sink");
     ensureAudioSourceProvider();
@@ -1763,7 +1763,7 @@ GstClockTime MediaPlayerPrivateGStreamer::gstreamerPositionFromSinks() const
     // Asking directly to the sinks and choosing the highest value is faster than asking to the pipeline.
     GST_TRACE_OBJECT(pipeline(), "Querying position to audio sink (if any).");
     GRefPtr<GstQuery> query = adoptGRef(gst_query_new_position(GST_FORMAT_TIME));
-    // MAVERICKS_BACKPORT: the audio bin also holds the WebAudio provider's unsynchronized appsinks,
+    // AQUAWEBKIT: the audio bin also holds the WebAudio provider's unsynchronized appsinks,
     // which run ahead of what is rendered; the platform sink is the one that renders.
     // if (m_audioSink && gst_element_query(m_audioSink.get(), query.get())) {
     if (m_platformAudioSink && gst_element_query(m_platformAudioSink.get(), query.get())) {
@@ -1803,7 +1803,7 @@ MediaTime MediaPlayerPrivateGStreamer::playbackPosition() const
         return m_seekTarget.time;
     }
 
-    if (m_hasLoopPassStartedRendering) // MAVERICKS_BACKPORT: the previous pass has ended, see queueLoopPass().
+    if (m_hasLoopPassStartedRendering) // AQUAWEBKIT: the previous pass has ended, see queueLoopPass().
         return duration();
 
     if (m_isEndReached) {
@@ -2071,7 +2071,7 @@ bool MediaPlayerPrivateGStreamer::handleNeedContextMessage(GstMessage* message)
         GRefPtr context = adoptGRef(gst_context_new(WEBKIT_WEB_SRC_RESOURCE_LOADER_CONTEXT_TYPE_NAME.characters(), FALSE));
         GstStructure* contextStructure = gst_context_writable_structure(context.get());
 
-        // MAVERICKS_BACKPORT: the context owns a weak response observer, including across context copies.
+        // AQUAWEBKIT: the context owns a weak response observer, including across context copies.
         auto* observer = new ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> { *this };
         auto observerData = adoptGRef(g_bytes_new_with_free_func(observer, sizeof(*observer), [](gpointer data) {
             delete static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(data);
@@ -2470,7 +2470,7 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
         } else
 #endif
 #if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
-        // MAVERICKS_BACKPORT: HLS timed metadata, see HLSTimedMetadataGStreamer::handleDateRanges().
+        // AQUAWEBKIT: HLS timed metadata, see HLSTimedMetadataGStreamer::handleDateRanges().
         if (gst_structure_has_name(structure, "hls-date-ranges")) {
             if (RefPtr player = m_player.get()) {
                 if (!m_hlsTimedMetadata)
@@ -2478,7 +2478,7 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
                 m_hlsTimedMetadata->handleDateRanges(structure, *player, m_textTracks.size(), m_isSeeking);
             }
         } else
-#endif // MAVERICKS_BACKPORT: closes the date ranges branch above.
+#endif // AQUAWEBKIT: closes the date ranges branch above.
         if (gst_structure_has_name(structure, "http-headers")) {
             GST_DEBUG_OBJECT(pipeline(), "Processing HTTP headers: %" GST_PTR_FORMAT, structure);
             if (auto uri = gstStructureGetString(structure, "uri"_s)) {
@@ -2513,11 +2513,11 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
                 } else
                     contentLength = *contentLengthFromResponse;
                 if (!isRangeRequest) {
-                    /* MAVERICKS_BACKPORT: Adaptive manifest state takes precedence over HTTP response size.
+                    /* AQUAWEBKIT: Adaptive manifest state takes precedence over HTTP response size.
                     m_isLiveStream = !contentLength;
                     if (*m_isLiveStream && WEBKIT_IS_WEB_SRC(m_source.get()) && webKitSrcIsSeekable(WEBKIT_WEB_SRC_CAST(m_source.get())))
                         m_isLiveStream = false;
-                    */ // MAVERICKS_BACKPORT: use the adaptive manifest state when available.
+                    */ // AQUAWEBKIT: use the adaptive manifest state when available.
                     setLiveStream(!contentLength && !(WEBKIT_IS_WEB_SRC(m_source.get()) && webKitSrcIsSeekable(WEBKIT_WEB_SRC_CAST(m_source.get()))));
                     GST_INFO_OBJECT(pipeline(), "%s stream detected", m_isLiveStream.value_or(false) ? "Live" : "Non-live");
                     updateDownloadBufferingFlag();
@@ -2622,7 +2622,7 @@ void MediaPlayerPrivateGStreamer::updateMaxTimeLoaded(double percentage)
 void MediaPlayerPrivateGStreamer::updateBufferingStatus(GstBufferingMode mode, double percentage, bool resetHistory, bool shouldUpdateStates)
 {
     // m_wasBuffering = m_isBuffering;
-    m_wasBuffering = m_isBufferingChangeDelayed ? m_isBufferingActedOn : m_isBuffering; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
+    m_wasBuffering = m_isBufferingChangeDelayed ? m_isBufferingActedOn : m_isBuffering; // AQUAWEBKIT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
     m_previousBufferingPercentage = m_bufferingPercentage;
 
 #ifndef GST_DISABLE_GST_DEBUG
@@ -2682,8 +2682,8 @@ void MediaPlayerPrivateGStreamer::updateBufferingStatus(GstBufferingMode mode, d
     // keeping m_isBuffering to false, delay it, and when the buffering percentage reaches the high watermark it's ignored
     // because of m_isBuffering being false because of the delay.
     if (resetHistory) {
-        m_isBufferingChangeDelayed = false; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
-        m_isBufferingActedOn = m_isBuffering; // MAVERICKS_BACKPORT: as above.
+        m_isBufferingChangeDelayed = false; // AQUAWEBKIT: see the GST_STATE_CHANGE_ASYNC case of updateStates().
+        m_isBufferingActedOn = m_isBuffering; // AQUAWEBKIT: as above.
         m_wasBuffering = m_isBuffering;
         m_previousBufferingPercentage = m_bufferingPercentage;
     }
@@ -2797,14 +2797,14 @@ void MediaPlayerPrivateGStreamer::processTableOfContentsEntry(GstTocEntry* entry
 }
 
 #if ENABLE(ENCRYPTED_MEDIA)
-// MAVERICKS_BACKPORT: the elements whose sink caps do not on their own say which key system they
+// AQUAWEBKIT: the elements whose sink caps do not on their own say which key system they
 // serve, so an autoplug handler has to ask the CDM (see configureParsebin).
 static bool isKeySystemBoundDecryptor(StringView factoryName)
 {
     return factoryName == "webkitclearkey"_s || factoryName == "webkitwidevine"_s || factoryName == "webkitwidevinevideodec"_s;
 }
 
-// MAVERICKS_BACKPORT: pairs those elements with the key system in play (see configureParsebin).
+// AQUAWEBKIT: pairs those elements with the key system in play (see configureParsebin).
 static bool keySystemBoundDecryptorMatches(StringView factoryName, const String& keySystem)
 {
     bool isWidevineElement = factoryName == "webkitwidevine"_s || factoryName == "webkitwidevinevideodec"_s;
@@ -2832,7 +2832,7 @@ void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
                 return skipAutoPlug;
 
 #if ENABLE(ENCRYPTED_MEDIA)
-            // MAVERICKS_BACKPORT: this port builds two CENC decryptors and a Widevine video
+            // AQUAWEBKIT: this port builds two CENC decryptors and a Widevine video
             // decoder. A cenc stream whose caps name no protection system, and every WebM
             // structure the three of them publish, intersect all of their sink templates, so caps
             // alone cannot say which belongs on a stream. The CDM the page created does, and this
@@ -2895,7 +2895,7 @@ void MediaPlayerPrivateGStreamer::configureUriDecodebin2(GstElement* element)
     }), this);
 
 #if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
-    // MAVERICKS_BACKPORT: HLS timed metadata, see HLSTimedMetadataGStreamer::linkID3Pad().
+    // AQUAWEBKIT: HLS timed metadata, see HLSTimedMetadataGStreamer::linkID3Pad().
     g_signal_connect_data(element, "pad-added", G_CALLBACK(+[](GstElement*, GstPad* pad, gpointer userData) {
         RefPtr player = static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(userData)->get();
         if (!player || !player->pipeline())
@@ -2904,10 +2904,10 @@ void MediaPlayerPrivateGStreamer::configureUriDecodebin2(GstElement* element)
     }), new ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> { *this }, [](gpointer data, GClosure*) {
         delete static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(data);
     }, static_cast<GConnectFlags>(0));
-#endif // MAVERICKS_BACKPORT: closes the timed metadata hook above.
+#endif // AQUAWEBKIT: closes the timed metadata hook above.
 
 #if ENABLE(ENCRYPTED_MEDIA)
-    // MAVERICKS_BACKPORT: decodebin2 chooses among this port's two CENC decryptors and its
+    // AQUAWEBKIT: decodebin2 chooses among this port's two CENC decryptors and its
     // Widevine video decoder the same way parsebin does, so it needs the same key-system filter.
     // autoplug-select chains to the next handler while one answers "try", so this sits alongside
     // the Thunder parser filter below.
@@ -3045,7 +3045,7 @@ void MediaPlayerPrivateGStreamer::configureDownloadBuffer(GstElement* element)
     if (mediaDiskCachePath.isEmpty())
         mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_build_filename(G_DIR_SEPARATOR_S, "var", "tmp", nullptr));
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: upstream buffers progressive media to /var/tmp, which is a shared,
+    // AQUAWEBKIT: upstream buffers progressive media to /var/tmp, which is a shared,
     // world-writable directory no sandboxed Cocoa process may write -- so every download-buffer
     // file was denied and on-disk buffering silently did not happen. g_get_tmp_dir() reads TMPDIR,
     // which populateSandboxInitializationParameters() has already pointed at this process' own
@@ -3169,8 +3169,8 @@ void MediaPlayerPrivateGStreamer::updateStates()
     case GST_STATE_CHANGE_SUCCESS: {
         GST_DEBUG_OBJECT(pipeline(), "State: %s, pending: %s", gst_state_get_name(m_currentState), gst_state_get_name(pending));
 
-        if (std::exchange(m_isBufferingChangeDelayed, false)) // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case.
-            m_wasBuffering = m_isBufferingActedOn; // MAVERICKS_BACKPORT: as above.
+        if (std::exchange(m_isBufferingChangeDelayed, false)) // AQUAWEBKIT: see the GST_STATE_CHANGE_ASYNC case.
+            m_wasBuffering = m_isBufferingActedOn; // AQUAWEBKIT: as above.
 
         // Do nothing if on EOS and state changed to READY to avoid recreating the player
         // on HTMLMediaElement and properly generate the video 'ended' event.
@@ -3276,7 +3276,7 @@ void MediaPlayerPrivateGStreamer::updateStates()
             shouldUpdatePlaybackState = true;
         }
 
-        m_isBufferingActedOn = m_isBuffering; // MAVERICKS_BACKPORT: see the GST_STATE_CHANGE_ASYNC case.
+        m_isBufferingActedOn = m_isBuffering; // AQUAWEBKIT: see the GST_STATE_CHANGE_ASYNC case.
         break;
     }
     case GST_STATE_CHANGE_ASYNC:
@@ -3290,7 +3290,7 @@ void MediaPlayerPrivateGStreamer::updateStates()
             m_networkState = MediaPlayer::NetworkState::Loading;
         }
 
-        /* MAVERICKS_BACKPORT: see the delay below.
+        /* AQUAWEBKIT: see the delay below.
         // Delay the m_isBuffering change by returning it to its previous value. Without this, the false --> true change
         // would go unnoticed by the code that should trigger a pause.
         if (m_wasBuffering != m_isBuffering && !m_isPaused && m_playbackRate) {
@@ -3299,7 +3299,7 @@ void MediaPlayerPrivateGStreamer::updateStates()
             m_bufferingPercentage = m_previousBufferingPercentage;
         }
         */
-        // MAVERICKS_BACKPORT: an m_isBuffering change since the last completed state change is delayed:
+        // AQUAWEBKIT: an m_isBuffering change since the last completed state change is delayed:
         // m_wasBuffering keeps the value that change acted on, whatever further buffering messages arrive,
         // until a state change completes and acts on the net change.
         if (m_isBufferingActedOn != m_isBuffering && !m_isPaused && m_playbackRate) {
@@ -3498,7 +3498,7 @@ void MediaPlayerPrivateGStreamer::recalculateDurationIfNeeded() const
         if (RefPtr player = m_player.get())
             player->durationChanged();
     };
-    // MAVERICKS_BACKPORT: an infinite duration is finalized to the position only once the stream has ended.
+    // AQUAWEBKIT: an infinite duration is finalized to the position only once the stream has ended.
     // if (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now)) {
     if ((m_isEndReached && !currentDuration.isFinite()) || (currentDuration.isValid() && currentDuration < now)) {
         cacheNewDuration(now);
@@ -3821,8 +3821,8 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
             if (!mediaPlayer || !mediaPlayer->isLooping())
                 return;
             GST_DEBUG_OBJECT(player->pipeline(), "Handling segment-done message");
-            if (player->queueLoopPass()) // MAVERICKS_BACKPORT: see queueLoopPass().
-                return; // MAVERICKS_BACKPORT: as above.
+            if (player->queueLoopPass()) // AQUAWEBKIT: see queueLoopPass().
+                return; // AQUAWEBKIT: as above.
             player->didEnd();
         });
     }), this);
@@ -4009,11 +4009,11 @@ void MediaPlayerPrivateGStreamer::configureVideoDecoder(GstElement* decoder)
 
 bool MediaPlayerPrivateGStreamer::didPassCORSAccessCheck() const
 {
-    if (WEBKIT_IS_WEB_SRC(m_source.get())) { // MAVERICKS_BACKPORT: braces for the lock below.
+    if (WEBKIT_IS_WEB_SRC(m_source.get())) { // AQUAWEBKIT: braces for the lock below.
         // return webKitSrcPassedCORSAccessCheck(WEBKIT_WEB_SRC_CAST(m_source.get()));
-        Locker locker { m_adaptiveDemuxSourceResponsesLock }; // MAVERICKS_BACKPORT: see adaptiveDemuxSourceReceivedResponse().
-        return webKitSrcPassedCORSAccessCheck(WEBKIT_WEB_SRC_CAST(m_source.get())) && !m_didAdaptiveDemuxSourceFailAccessControlCheck; // MAVERICKS_BACKPORT: as above.
-    } // MAVERICKS_BACKPORT: closes the braces above.
+        Locker locker { m_adaptiveDemuxSourceResponsesLock }; // AQUAWEBKIT: see adaptiveDemuxSourceReceivedResponse().
+        return webKitSrcPassedCORSAccessCheck(WEBKIT_WEB_SRC_CAST(m_source.get())) && !m_didAdaptiveDemuxSourceFailAccessControlCheck; // AQUAWEBKIT: as above.
+    } // AQUAWEBKIT: closes the braces above.
     return false;
 }
 
@@ -4281,7 +4281,7 @@ bool MediaPlayerPrivateGStreamer::isSeamlessSeekingEnabled() const
     return player->isLooping() && m_isSegmentSeekAllowed;
 }
 
-// MAVERICKS_BACKPORT: seamless looping. A segment-done means the demuxer has delivered the last
+// AQUAWEBKIT: seamless looping. A segment-done means the demuxer has delivered the last
 // sample of a pass, while the sinks still hold what is queued behind it. Each segment-done queues the
 // next pass at once with a non-flushing segment seek, GStreamer's seamless looping protocol, and a
 // pass ends for the media element when the next pass's segment event has reached every rendering
@@ -4404,7 +4404,7 @@ void MediaPlayerPrivateGStreamer::loopPassStartedRendering(uint64_t generation)
     m_isCompletingLoopPass = false;
     m_hasLoopPassStartedRendering = false;
 }
-// MAVERICKS_BACKPORT: end of the seamless looping helpers above.
+// AQUAWEBKIT: end of the seamless looping helpers above.
 
 void MediaPlayerPrivateGStreamer::triggerRepaint(GRefPtr<GstSample>&& sample)
 {
@@ -4476,14 +4476,14 @@ void MediaPlayerPrivateGStreamer::triggerRepaint(GRefPtr<GstSample>&& sample)
 #if USE(COORDINATED_GRAPHICS)
     pushTextureToCompositor(isDuplicateSample);
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: Cocoa enqueues clock-scheduled samples on the streaming thread.
+    // AQUAWEBKIT: Cocoa enqueues clock-scheduled samples on the streaming thread.
     pushSampleToVideoLayer(isDuplicateSample);
 #endif
 }
 
 void MediaPlayerPrivateGStreamer::cancelRepaint(bool destroying)
 {
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: flush and enqueue share the layer's serial processing queue.
+#if PLATFORM(COCOA) // AQUAWEBKIT: flush and enqueue share the layer's serial processing queue.
     {
         Locker locker { m_videoLayerLock };
         if (m_sampleBufferDisplayLayer)
@@ -4539,7 +4539,7 @@ void MediaPlayerPrivateGStreamer::flushCurrentBuffer()
 
 void MediaPlayerPrivateGStreamer::setViewportVisibility(ViewportVisibility visibility)
 {
-    // MAVERICKS_BACKPORT: a video shown fullscreen or in picture-in-picture is visible, as in
+    // AQUAWEBKIT: a video shown fullscreen or in picture-in-picture is visible, as in
     // MediaPlayerPrivateMediaStreamAVFObjC::setViewportVisibility().
     // bool isVisible = visibility == ViewportVisibility::VisibleInViewport;
     bool isVisible = visibility != ViewportVisibility::NotVisible && visibility != ViewportVisibility::IntersectingViewport;
@@ -4635,12 +4635,12 @@ void MediaPlayerPrivateGStreamer::paint(GraphicsContext& context, const FloatRec
     context.drawVideoFrame(frame, rect, m_videoSourceOrientation, false);
 }
 
-#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa derives the painting colour space from the current CoreVideo buffer.
+#if !PLATFORM(COCOA) // AQUAWEBKIT: Cocoa derives the painting colour space from the current CoreVideo buffer.
 DestinationColorSpace MediaPlayerPrivateGStreamer::colorSpace()
 {
     return DestinationColorSpace::SRGB();
 }
-#endif // MAVERICKS_BACKPORT: Cocoa implements colorSpace() in VideoFrameGStreamerCocoa.mm.
+#endif // AQUAWEBKIT: Cocoa implements colorSpace() in VideoFrameGStreamerCocoa.mm.
 
 RefPtr<VideoFrame> MediaPlayerPrivateGStreamer::videoFrameForCurrentTime()
 {
@@ -4663,7 +4663,7 @@ RefPtr<VideoFrame> MediaPlayerPrivateGStreamer::videoFrameForCurrentTime()
 
 bool MediaPlayerPrivateGStreamer::setVideoSourceOrientation(ImageOrientation orientation)
 {
-    Locker locker { m_sampleMutex }; // MAVERICKS_BACKPORT: the Cocoa streaming presenter reads orientation with the sample.
+    Locker locker { m_sampleMutex }; // AQUAWEBKIT: the Cocoa streaming presenter reads orientation with the sample.
     if (m_videoSourceOrientation == orientation)
         return false;
 

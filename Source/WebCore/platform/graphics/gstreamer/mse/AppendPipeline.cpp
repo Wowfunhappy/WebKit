@@ -121,7 +121,7 @@ void AppendPipeline::setupDemuxing()
     const String& type = m_sourceBufferPrivate.type().containerType();
     GST_DEBUG_OBJECT(pipeline(), "SourceBuffer containerType: %s", type.utf8().data());
 
-    // MAVERICKS_BACKPORT: an "aac" container type is the unmuxed ADTS byte stream, not an ISO-BMFF
+    // AQUAWEBKIT: an "aac" container type is the unmuxed ADTS byte stream, not an ISO-BMFF
     // one -- WebCore groups it with audio/mpeg in MediaSource::contentTypeShouldGenerateTimestamps().
     // The typefind branch below frames it with aacparse.
     // if (type.endsWith("mp4"_s) || type.endsWith("aac"_s)) {
@@ -133,7 +133,7 @@ void AppendPipeline::setupDemuxing()
     } else if (type.endsWith("webm"_s)) {
         m_demux = makeGStreamerElement("matroskademux"_s);
         m_typefind = makeGStreamerElement("identity"_s);
-    } else if (type == "audio/mpeg"_s || type.endsWith("aac"_s)) { // MAVERICKS_BACKPORT: an "aac" container type is an unmuxed ADTS byte stream; see above.
+    } else if (type == "audio/mpeg"_s || type.endsWith("aac"_s)) { // AQUAWEBKIT: an "aac" container type is an unmuxed ADTS byte stream; see above.
         // Will be instantiated later based on typefind results.
         m_demux = nullptr;
         m_typefind = makeGStreamerElement("typefind"_s);
@@ -154,7 +154,7 @@ void AppendPipeline::setupDemuxing()
                 demuxerElementName = "identity"_s;
 
             if (demuxerElementName.isNull()) {
-                // MAVERICKS_BACKPORT: more than one container type enters this branch, so the error
+                // AQUAWEBKIT: more than one container type enters this branch, so the error
                 // names the byte stream it frames rather than one of those types.
                 GST_ELEMENT_ERROR(appendPipeline->pipeline(), STREAM, WRONG_TYPE,
                     ("Unsupported caps for an unmuxed audio byte stream: %s",
@@ -185,7 +185,7 @@ void AppendPipeline::setupDemuxing()
         GST_INFO_OBJECT(pipeline(), "Created typefind: %s", gst_element_get_name(m_typefind.get()));
 
     // m_demux might be null at this point if there's a typefind pending to identify the proper demuxer to be used
-    // (see the unmuxed audio byte stream case right above -- MAVERICKS_BACKPORT: more than one
+    // (see the unmuxed audio byte stream case right above -- AQUAWEBKIT: more than one
     // container type enters it).
     if (m_demux) {
         configureOptionalDemuxerFromAnyThread();
@@ -240,7 +240,7 @@ void AppendPipeline::configureOptionalDemuxerFromAnyThread()
                 if (!areEncryptedCaps(caps))
                     return GST_PAD_PROBE_OK;
 
-                // MAVERICKS_BACKPORT: taking the pipeline apart is the main thread's work, and it
+                // AQUAWEBKIT: taking the pipeline apart is the main thread's work, and it
                 // is reached through the task queue like every other structural change here. This
                 // probe holds the pad's stream lock; the main thread deactivates pads holding the
                 // pipeline's state lock and then takes that same stream lock, so the two are
@@ -396,7 +396,7 @@ GstPadProbeReturn AppendPipeline::appsrcEndOfAppendCheckerProbe(GstPadProbeInfo*
 
 void AppendPipeline::removeParserForDemuxerPad(const GRefPtr<GstPad>& pad)
 {
-    ASSERT(isMainThread()); // MAVERICKS_BACKPORT: it reaches the pipeline and m_tracks.
+    ASSERT(isMainThread()); // AQUAWEBKIT: it reaches the pipeline and m_tracks.
     GRefPtr peer = adoptGRef(gst_pad_get_peer(pad.get()));
     if (!peer)
         return;
@@ -442,7 +442,7 @@ void AppendPipeline::handleNeedContextSyncMessage(GstMessage* message)
         return;
 
     GRefPtr pad = GST_PAD_CAST(m_demux->srcpads->data);
-    // MAVERICKS_BACKPORT: a sync-message handler runs on the thread that posted the message, and
+    // AQUAWEBKIT: a sync-message handler runs on the thread that posted the message, and
     // the pipeline and m_tracks this reaches are the main thread's.
     if (isMainThread()) {
         removeParserForDemuxerPad(pad);

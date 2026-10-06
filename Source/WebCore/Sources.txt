@@ -1913,7 +1913,7 @@ inspector/InspectorAuditResourcesObject.cpp
 inspector/InspectorCanvas.cpp
 inspector/InspectorCanvasArguments.cpp
 inspector/InspectorCanvasCallTracer.cpp
-inspector/InspectorDatabaseResource.cpp // MAVERICKS_BACKPORT: the Database agent, restored for the Safari 7 Web Inspector.
+inspector/InspectorDatabaseResource.cpp // AQUAWEBKIT: the Database agent, restored for the Safari 7 Web Inspector.
 inspector/InspectorFrontendAPIDispatcher.cpp
 inspector/InspectorFrontendClientLocal.cpp
 inspector/InspectorFrontendHost.cpp
@@ -1948,7 +1948,7 @@ inspector/agents/InspectorCanvasAgent.cpp
 inspector/agents/InspectorDOMAgent.cpp @header:RenderStyleGetters
 inspector/agents/InspectorDOMDebuggerAgent.cpp
 inspector/agents/InspectorDOMStorageAgent.cpp
-inspector/agents/InspectorDatabaseAgent.cpp // MAVERICKS_BACKPORT: the Database agent, restored for the Safari 7 Web Inspector.
+inspector/agents/InspectorDatabaseAgent.cpp // AQUAWEBKIT: the Database agent, restored for the Safari 7 Web Inspector.
 inspector/agents/InspectorIndexedDBAgent.cpp
 inspector/agents/InspectorLayerTreeAgent.cpp @header:RenderStyleGetters
 inspector/agents/InspectorMemoryAgent.cpp

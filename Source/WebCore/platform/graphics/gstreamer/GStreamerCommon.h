@@ -114,7 +114,7 @@ inline GstClockTime toGstClockTime(const WTF::MediaTime& mediaTime)
     return static_cast<GstClockTime>(toGstUnsigned64Time(mediaTime));
 }
 
-// MAVERICKS_BACKPORT(upstreamable): GstBuffer timestamps are unsigned, so a negative MediaTime is
+// AQUAWEBKIT(upstreamable): GstBuffer timestamps are unsigned, so a negative MediaTime is
 // unrepresentable — toGstClockTime()'s int64→uint64 cast would wrap it to an astronomical value
 // that poisons downstream queue-level and position arithmetic. Use this when stamping GstBuffers
 // from client-controlled timelines that can be negative (MSE timestampOffset, WebCodecs

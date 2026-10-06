@@ -116,7 +116,7 @@ void AVIFImageDecoder::tryDecodeSize(bool allDataReceived)
     m_repetitionCount = m_frameCount > 1 ? RepetitionCountInfinite : RepetitionCountNone;
 }
 
-// MAVERICKS_BACKPORT: see AVIFImageReader::frameDurationAtIndex().
+// AQUAWEBKIT: see AVIFImageReader::frameDurationAtIndex().
 std::optional<Seconds> AVIFImageDecoder::frameDurationFromHeaderAtIndex(size_t index) const
 {
     if (!m_reader || index >= m_frameCount)

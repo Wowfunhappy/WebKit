@@ -27,7 +27,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: upstream's Database agent (removed with bug 286634), restored for the Safari 7
+// AQUAWEBKIT: upstream's Database agent (removed with bug 286634), restored for the Safari 7
 // Web Inspector, whose Resources sidebar lists and queries a page's WebSQL databases through this domain.
 
 #pragma once

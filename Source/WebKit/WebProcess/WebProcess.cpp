@@ -27,13 +27,13 @@
 #include "WebProcess.h"
 
 #include "APIFrameHandle.h"
-#include "APIPageGroupHandle.h" // MAVERICKS_BACKPORT: page-group handles travel through the legacy C API (Safari 7)
+#include "APIPageGroupHandle.h" // AQUAWEBKIT: page-group handles travel through the legacy C API (Safari 7)
 #include "APIPageHandle.h"
 #include "AudioMediaStreamTrackRendererInternalUnitManager.h"
 #include "AuxiliaryProcessMessages.h"
 #include "EventDispatcher.h"
 #include "InjectedBundle.h"
-#include "LegacyExtensionContent.h" // MAVERICKS_BACKPORT: the constructor below.
+#include "LegacyExtensionContent.h" // AQUAWEBKIT: the constructor below.
 #include "LibWebRTCNetwork.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
@@ -59,7 +59,7 @@
 #include "WebBroadcastChannelRegistry.h"
 #include "WebCacheStorageProvider.h"
 #include "WebChromeClient.h"
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 #include "WebConnectionToUIProcess.h"
 #include "WebCookieJar.h"
 #include "WebFileSystemStorageConnection.h"
@@ -180,7 +180,7 @@
 #include "UserMediaCaptureManager.h"
 #endif
 
-// MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
 #include "ObjCObjectGraph.h"
 #endif
@@ -421,7 +421,7 @@ WebProcess::WebProcess()
 
     WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
     WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
-    LegacyExtensionContent::singleton().initialize(*this); // MAVERICKS_BACKPORT: Safari 7 extensions' browser namespace.
+    LegacyExtensionContent::singleton().initialize(*this); // AQUAWEBKIT: Safari 7 extensions' browser namespace.
 }
 
 WebProcess::~WebProcess()
@@ -481,7 +481,7 @@ void WebProcess::initializeConnection(IPC::Connection* connection)
     for (auto& supplement : m_supplements.values())
         supplement->initializeConnection(connection);
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     m_webConnection = WebConnectionToUIProcess::create(this);
 }
 
@@ -626,7 +626,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
 #if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
     protect(remoteMediaPlayerManager())->initialize(parameters);
 #endif
-// MAVERICKS_BACKPORT: Web Audio renders in the GPU process here (WebMediaStrategy::createAudioDestination), so the audio session is the GPU process's, through upstream's RemoteAudioSession; setUseGPUProcessForMedia installs it only with the media players.
+// AQUAWEBKIT: Web Audio renders in the GPU process here (WebMediaStrategy::createAudioDestination), so the audio session is the GPU process's, through upstream's RemoteAudioSession; setUseGPUProcessForMedia installs it only with the media players.
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION) && PLATFORM(COCOA) && USE(GSTREAMER)
     AudioSession::setSharedSession(RemoteAudioSession::create(*this));
 #endif
@@ -689,7 +689,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     for (auto& scheme : parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest)
         registerURLSchemeAsCanDisplayOnlyIfCanRequest(scheme);
 
-    // MAVERICKS_BACKPORT: track app-registered custom-protocol schemes (e.g. safari-reader://) so
+    // AQUAWEBKIT: track app-registered custom-protocol schemes (e.g. safari-reader://) so
     // canHandleRequest accepts them — they're served by the NetworkProcess's LegacyCustomProtocolManager.
     for (auto& scheme : parameters.urlSchemesRegisteredForCustomProtocols)
         registerURLSchemeForCustomProtocol(scheme);
@@ -982,7 +982,7 @@ void WebProcess::registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String& url
     LegacySchemeRegistry::registerAsCanDisplayOnlyIfCanRequest(urlScheme);
 }
 
-// MAVERICKS_BACKPORT: app-registered custom-protocol schemes (e.g. safari-reader://) are served by the
+// AQUAWEBKIT: app-registered custom-protocol schemes (e.g. safari-reader://) are served by the
 // NetworkProcess via LegacyCustomProtocolManager, but the WebProcess's WebPage::canHandleRequest only
 // consults NSURLConnection — which doesn't know about them — so WebCore's PolicyChecker would ignore
 // the navigation as "cannot show URL" before it ever reached the network. Track the schemes here so
@@ -1153,7 +1153,7 @@ void WebProcess::terminate()
     MemoryCache::singleton().setDisabled(true);
 #endif
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     m_webConnection->invalidate();
     m_webConnection = nullptr;
 
@@ -2112,12 +2112,12 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
-            // MAVERICKS_BACKPORT: resolve page-group handles (Safari 7 bundle
+            // AQUAWEBKIT: resolve page-group handles (Safari 7 bundle
             // initialization user data) to this process's WebPageGroupProxy.
             case API::Object::Type::PageGroupHandle:
                 return true;
 
-            // MAVERICKS_BACKPORT: WKConnection bodies and legacy bundle user data (see ObjCObjectGraph.h).
+            // AQUAWEBKIT: WKConnection bodies and legacy bundle user data (see ObjCObjectGraph.h).
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
                 return true;
@@ -2138,11 +2138,11 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             case API::Object::Type::PageHandle:
                 return WebProcess::singleton().webPage(downcast<const API::PageHandle>(object).webPageID());
 
-            // MAVERICKS_BACKPORT: resolve page-group handles to this process's WebPageGroupProxy (Safari 7).
+            // AQUAWEBKIT: resolve page-group handles to this process's WebPageGroupProxy (Safari 7).
             case API::Object::Type::PageGroupHandle:
                 return &WebProcess::singleton().webPageGroup(WebPageGroupData { downcast<const API::PageGroupHandle>(object).pageGroupData() });
 
-            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+            // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
                 return WebProcess::singleton().transformHandlesToObjects(downcast<ObjCObjectGraph>(object));
@@ -2165,9 +2165,9 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             switch (object.type()) {
             case API::Object::Type::BundleFrame:
             case API::Object::Type::BundlePage:
-            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
+            // AQUAWEBKIT: page groups travel as handles (Safari 7).
             case API::Object::Type::BundlePageGroup:
-            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+            // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
 #endif
@@ -2187,11 +2187,11 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             case API::Object::Type::BundlePage:
                 return API::PageHandle::createAutoconverting(downcast<const WebPage>(object).webPageProxyIdentifier(), downcast<const WebPage>(object).identifier());
 
-            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
+            // AQUAWEBKIT: page groups travel as handles (Safari 7).
             case API::Object::Type::BundlePageGroup:
                 return API::PageGroupHandle::create(WebPageGroupData { downcast<const WebPageGroupProxy>(object).data() });
 
-            // MAVERICKS_BACKPORT: see ObjCObjectGraph.h.
+            // AQUAWEBKIT: see ObjCObjectGraph.h.
 #if PLATFORM(COCOA)
             case API::Object::Type::ObjCObjectGraph:
                 return transformObjectsToHandles(downcast<ObjCObjectGraph>(object));

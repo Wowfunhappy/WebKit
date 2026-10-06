@@ -377,7 +377,7 @@ void PNGImageDecoder::headerAvailable()
     if (colorType == PNG_COLOR_TYPE_GRAY || colorType == PNG_COLOR_TYPE_GRAY_ALPHA)
         png_set_gray_to_rgb(png);
 
-#if USE(CG) // MAVERICKS_BACKPORT: an embedded RGB profile controls transfer and gamut conversion, including subsequent APNG frames.
+#if USE(CG) // AQUAWEBKIT: an embedded RGB profile controls transfer and gamut conversion, including subsequent APNG frames.
     if (!m_ignoreGammaAndColorProfile) {
         char* title;
         unsigned char* profile;
@@ -399,12 +399,12 @@ void PNGImageDecoder::headerAvailable()
         m_gamma = static_cast<int>(gamma * 100000);
     } else
         png_set_gamma(png, cDefaultGamma, cInverseGamma);
-#if USE(CG) // MAVERICKS_BACKPORT: closes the unprofiled PNG gamma path.
+#if USE(CG) // AQUAWEBKIT: closes the unprofiled PNG gamma path.
     }
 #endif
 
 // #if USE(LCMS)
-#if USE(LCMS) && !USE(CG) // MAVERICKS_BACKPORT: CoreGraphics consumes the original RGB profile and premultiplied samples.
+#if USE(LCMS) && !USE(CG) // AQUAWEBKIT: CoreGraphics consumes the original RGB profile and premultiplied samples.
     if (!m_ignoreGammaAndColorProfile) {
         char* iccProfileTitle;
         unsigned char* iccProfileData;
@@ -732,7 +732,7 @@ void PNGImageDecoder::frameHeader()
     png_read_update_info(m_png, m_info);
 }
 
-// MAVERICKS_BACKPORT: the n-th fcTL chunk in the stream controls frame n, and carries its delay
+// AQUAWEBKIT: the n-th fcTL chunk in the stream controls frame n, and carries its delay
 // in the same encoding readChunks() reads.
 std::optional<Seconds> PNGImageDecoder::frameDurationFromHeaderAtIndex(size_t index) const
 {

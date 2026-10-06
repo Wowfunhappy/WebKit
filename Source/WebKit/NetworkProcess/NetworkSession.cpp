@@ -182,7 +182,7 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
     , m_storageManager(createNetworkStorageManager(networkProcess, parameters))
     , m_mockPushSubscriptionOriginsForTesting(parameters.mockPushSubscriptionOriginsForTesting)
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
-    // MAVERICKS_BACKPORT: the session ID is passed in because this port's manager names the session
+    // AQUAWEBKIT: the session ID is passed in because this port's manager names the session
     // when it relays "push messages became available" to the UI process (see its constructor and the
     // announce below) -- Safari 7 has no x-webkit-app-launch pump to identify the session for it.
     , m_notificationManager(NetworkNotificationManager::create(parameters.sessionID, parameters.sessionID.isEphemeral() ? String { } : parameters.webPushMachServiceName, configurationWithHostAuditToken(networkProcess, parameters.webPushDaemonConnectionConfiguration), networkProcess))
@@ -239,7 +239,7 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
     };
 
 #if USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: webpushd stores pushes that arrive while no client is running
+    // AQUAWEBKIT: webpushd stores pushes that arrive while no client is running
     // (including any the Mozilla service replayed from its offline queue). Announce at
     // session bring-up so the UI process drains them; this also gives the daemon a
     // standing connection to signal later pushes on. Modern hosts instead pump via

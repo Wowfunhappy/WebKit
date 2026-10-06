@@ -27,7 +27,7 @@
 #import "WKWebProcessPlugInInternal.h"
 
 #import "APIArray.h"
-// MAVERICKS_BACKPORT: see WKConnection.h.
+// AQUAWEBKIT: see WKConnection.h.
 #import "WKConnectionInternal.h"
 #import "WKBundle.h"
 #import "WKBundleAPICast.h"
@@ -98,7 +98,7 @@ static void setUpBundleClient(WKWebProcessPlugInController *plugInController, We
     return protect(*_bundle)->bundleParameters();
 }
 
-// MAVERICKS_BACKPORT: see WKConnection.h.
+// AQUAWEBKIT: see WKConnection.h.
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 - (WKConnection *)connection
 {

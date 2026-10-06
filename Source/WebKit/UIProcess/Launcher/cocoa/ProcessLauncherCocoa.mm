@@ -330,7 +330,7 @@ void ProcessLauncher::tryFinishLaunchingProcess(ASCIILiteral name, Function<void
     _CFBundleSetupXPCBootstrap(initializationMessage.get());
     xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
 
-    // MAVERICKS_BACKPORT: native NSRunLoop services launch as adaptive tasks on 10.9. The upstream
+    // AQUAWEBKIT: native NSRunLoop services launch as adaptive tasks on 10.9. The upstream
     // pre-bootstrap message (255198@main) supplies their importance boost; XPCServiceEventHandler
     // retains it for the service lifetime. WebContent uses the native App process configuration.
     {
@@ -404,7 +404,7 @@ void ProcessLauncher::tryFinishLaunchingProcess(ASCIILiteral name, Function<void
 #endif
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: modern macOS forwards the host application's environment to the XPC
+    // AQUAWEBKIT: modern macOS forwards the host application's environment to the XPC
     // services it spawns; 10.9 launchd hands them a clean environment instead. Bridge that for a
     // curated allowlist over libxpc's ContainerEnvironmentVariables channel, which the service
     // applies via setenv at check-in (before CoreAnimation / CFNetwork / Foundation initialize,
@@ -440,7 +440,7 @@ void ProcessLauncher::tryFinishLaunchingProcess(ASCIILiteral name, Function<void
         "CFNETWORK_DIAGNOSTICS",           // CFNetwork request/response logging
         "CFNETWORK_DIAGNOSTICS_LOG_FILE",  // redirect that logging to a file (avoids flooding syslog)
         "CFNETWORK_DIAGNOSTICS_NO_SYSLOG", // and drop the syslog copy
-        "WK_POLYFILL_REPORT",              // dump this port's polyfill table (MavericksSupport/polyfill)
+        "WK_POLYFILL_REPORT",              // dump this port's polyfill table (AquaWebKitSupport/polyfill)
         "GST_DEBUG",                       // GStreamer debug categories/levels (media pipelines run in WebContent)
         "GST_DEBUG_FILE",                  // redirect that logging to a file (%p expands to the pid)
         "GST_DEBUG_NO_COLOR",              // strip ANSI color from the log file

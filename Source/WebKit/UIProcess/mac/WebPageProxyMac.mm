@@ -37,7 +37,7 @@
 #import "InsertTextOptions.h"
 #import "Logging.h"
 #import "MenuUtilities.h"
-#import "MediaKeySystemPermissionRequestProxy.h" // MAVERICKS_BACKPORT: allowMediaKeySystemRequestWithWidevineCdm below.
+#import "MediaKeySystemPermissionRequestProxy.h" // AQUAWEBKIT: allowMediaKeySystemRequestWithWidevineCdm below.
 #import "MessageSenderInlines.h"
 #import "NativeWebKeyboardEvent.h"
 #import "NativeWebWheelEvent.h"
@@ -49,7 +49,7 @@
 #import "PlatformWritingToolsUtilities.h"
 #import "RemoteLayerTreeHost.h"
 #import "RemoteLayerTreeNode.h"
-#import "SandboxExtension.h" // MAVERICKS_BACKPORT: the extension for the installed Widevine CDM, made below.
+#import "SandboxExtension.h" // AQUAWEBKIT: the extension for the installed Widevine CDM, made below.
 #import "TextChecker.h"
 #import "WKQuickLookPreviewController.h"
 #import "WKSharingServicePickerDelegate.h"
@@ -58,7 +58,7 @@
 #import "WebPageProxyInternals.h"
 #import "WebPageProxyMessages.h"
 #import "WebPreferencesKeys.h"
-#import "WebProcessMessages.h" // MAVERICKS_BACKPORT: SetWidevineCdmModule, sent below.
+#import "WebProcessMessages.h" // AQUAWEBKIT: SetWidevineCdmModule, sent below.
 #import "WebProcessProxy.h"
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/AttributedString.h>
@@ -76,7 +76,7 @@
 #import <WebCore/UniversalAccessZoom.h>
 #import <WebCore/UserAgent.h>
 #import <WebCore/ValidationBubble.h>
-#import <WebCore/WidevineCdmInstaller.h> // MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM.
+#import <WebCore/WidevineCdmInstaller.h> // AQUAWEBKIT: the runtime installation of Google's Widevine CDM.
 #import <mach-o/dyld.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -603,7 +603,7 @@ int WebPageProxy::footerBannerHeight() const
     return 0;
 }
 
-// MAVERICKS_BACKPORT: PDF-save-and-open path is ENABLE(PDF_PLUGIN)-only (PDFs download on 10.9).
+// AQUAWEBKIT: PDF-save-and-open path is ENABLE(PDF_PLUGIN)-only (PDFs download on 10.9).
 #if ENABLE(PDF_PLUGIN)
 static NSString *temporaryPDFDirectoryPath()
 {
@@ -694,7 +694,7 @@ void WebPageProxy::savePDFToTemporaryFolderAndOpenWithNativeApplication(const St
         [[NSWorkspace sharedWorkspace] openURL:pdfFileURL.createNSURL().get()];
     });
 }
-// MAVERICKS_BACKPORT: close the PDF_PLUGIN guard around the save-and-open path (PDFs download on 10.9).
+// AQUAWEBKIT: close the PDF_PLUGIN guard around the save-and-open path (PDFs download on 10.9).
 #endif // ENABLE(PDF_PLUGIN)
 
 #if ENABLE(PDF_PLUGIN)
@@ -1208,7 +1208,7 @@ void WebPageProxy::platformUnlockPointer()
 
 #endif
 
-// MAVERICKS_BACKPORT: the QuickTime Player hand-off for an HLS playlist, called from
+// AQUAWEBKIT: the QuickTime Player hand-off for an HLS playlist, called from
 // decidePolicyForResponseShared. LaunchServices delivers the URL as the GetURL Apple event
 // QuickTime Player's Internet suite handles, and answers whether the hand-off was made.
 bool WebPageProxy::openMediaPlaylistInQuickTimePlayer(const URL& url)
@@ -1220,7 +1220,7 @@ bool WebPageProxy::openMediaPlaylistInQuickTimePlayer(const URL& url)
 }
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
-// MAVERICKS_BACKPORT: the page asked for com.widevine.alpha and the client allowed it. Google's
+// AQUAWEBKIT: the page asked for com.widevine.alpha and the client allowed it. Google's
 // CDM is not redistributable, so it is installed at runtime the first time a page needs it; the
 // web process is told where it landed before the request is allowed, because what answers
 // requestMediaKeySystemAccess() next is whether that process can load it.

@@ -1195,7 +1195,7 @@ void RenderListBox::setHasScrollbar(ScrollbarOrientation orientation)
     m_scrollbar = createScrollbar(orientation);
     protect(m_scrollbar)->styleChanged();
 
-    document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
+    document().invalidateScrollbarDependentRegions(); // AQUAWEBKIT
 }
 
 float RenderListBox::deviceScaleFactor() const

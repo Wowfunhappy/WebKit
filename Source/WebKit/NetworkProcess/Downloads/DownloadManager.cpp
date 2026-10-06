@@ -96,7 +96,7 @@ void DownloadManager::downloadDestinationDecided(DownloadID downloadID, Ref<Netw
     m_downloadsAfterDestinationDecided.set(downloadID, WTF::move(networkDataTask));
 }
 
-// MAVERICKS_BACKPORT: Cocoa resume is implemented with NetworkLoad in DownloadCocoa.mm.
+// AQUAWEBKIT: Cocoa resume is implemented with NetworkLoad in DownloadCocoa.mm.
 #if !PLATFORM(COCOA)
 void DownloadManager::resumeDownload(PAL::SessionID sessionID, DownloadID downloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&& sandboxExtensionHandle, CallDownloadDidStart callDownloadDidStart, std::span<const uint8_t> activityAccessToken)
 {
@@ -119,7 +119,7 @@ void DownloadManager::resumeDownload(PAL::SessionID sessionID, DownloadID downlo
 #endif
 }
 
-#endif // MAVERICKS_BACKPORT: Cocoa resume data identifies its curl transport owner.
+#endif // AQUAWEBKIT: Cocoa resume data identifies its curl transport owner.
 
 void DownloadManager::cancelDownload(DownloadID downloadID, CompletionHandler<void(std::span<const uint8_t>)>&& completionHandler)
 {

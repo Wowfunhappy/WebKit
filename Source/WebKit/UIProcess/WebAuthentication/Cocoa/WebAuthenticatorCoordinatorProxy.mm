@@ -1260,7 +1260,7 @@ void WebAuthenticatorCoordinatorProxy::performRequestLegacy(RetainPtr<ASCCredent
     }
     m_proxy = adoptNS([allocASCAgentProxyInstance() init]);
 
-    // MAVERICKS_BACKPORT: ASCAgentProxy comes from AuthenticationServices, which is soft-linked and
+    // AQUAWEBKIT: ASCAgentProxy comes from AuthenticationServices, which is soft-linked and
     // absent on 10.9, so allocASCAgentProxyInstance() returns nil — there is no authorization agent to
     // service a passkey request. Every path below messages m_proxy and relies on its completion block to
     // invoke handler; messaging nil silently drops the handler and hangs the navigator.credentials

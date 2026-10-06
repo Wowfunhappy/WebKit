@@ -233,7 +233,7 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     ASSERT(message);
     ASSERT(!m_pendingOutgoingMachMessage);
     // Send the message.
-    // MAVERICKS_BACKPORT: MACH_SEND_NOTIFY with a MACH_PORT_NULL notify port returns
+    // AQUAWEBKIT: MACH_SEND_NOTIFY with a MACH_PORT_NULL notify port returns
     // MACH_SEND_INVALID_NOTIFY (0x1000000A) on 10.9 for messages with port descriptors
     // (e.g. layer-tree IPC carrying IOSurface mach send rights); on modern kernels the
     // flag is ignored when the notify port is null, so dropping it here matches upstream
@@ -249,7 +249,7 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     case MACH_SEND_TIMED_OUT:
         // We timed out, stash away the message for later.
         m_pendingOutgoingMachMessage = WTF::move(message);
-        // MAVERICKS_BACKPORT: 10.9's libdispatch loses DISPATCH_MACH_SEND_POSSIBLE events from
+        // AQUAWEBKIT: 10.9's libdispatch loses DISPATCH_MACH_SEND_POSSIBLE events from
         // m_sendSource (manager-thread portset race), which strands m_pendingOutgoingMachMessage —
         // and every message queued behind it — forever once the destination queue fills (proven
         // live 2026-07-17: NetworkProcess held 151 undelivered messages, including a sync reply
@@ -677,7 +677,7 @@ void Connection::receiveSourceEventHandler()
         connectionDidClose();
         return;
 
-    // MAVERICKS_BACKPORT: kernel send-possible notification requested in sendMessage's
+    // AQUAWEBKIT: kernel send-possible notification requested in sendMessage's
     // MACH_SEND_TIMED_OUT path (10.9 libdispatch drops DISPATCH_MACH_SEND_POSSIBLE events).
     // We are on m_connectionQueue here — the same serialization the m_sendSource handler
     // uses — so resuming the send path directly is safe; resumeSendSource is idempotent.

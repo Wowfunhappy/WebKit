@@ -118,7 +118,7 @@ int pluginDatabaseClientCount = 0;
     shouldUpdateWhileOffscreen = YES;
 
 #if !PLATFORM(IOS_FAMILY)
-    // MAVERICKS_BACKPORT: off by default. On 10.9 a new window's occlusionState visible bit lags
+    // AQUAWEBKIT: off by default. On 10.9 a new window's occlusionState visible bit lags
     // its ordering-on-screen and the correcting NSWindowDidChangeOcclusionStateNotification does
     // not reliably post (measured on real hardware; the WK2-side visibility fix excludes the
     // occlusion signal for the same reason). A WebView whose visibility is computed during that

@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the WKConnectionRef client behind WKConnection (see WebConnection.h).
+// AQUAWEBKIT: the WKConnectionRef client behind WKConnection (see WebConnection.h).
 
 #ifndef WebConnectionClient_h
 #define WebConnectionClient_h

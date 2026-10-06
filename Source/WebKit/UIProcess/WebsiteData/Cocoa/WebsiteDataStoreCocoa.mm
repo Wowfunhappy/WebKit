@@ -24,7 +24,7 @@
  */
 
 #import "config.h"
-// MAVERICKS_BACKPORT: shared default and legacy HSTS directory policy.
+// AQUAWEBKIT: shared default and legacy HSTS directory policy.
 #import <WebCore/HTTPStrictTransportSecurityStore.h>
 #import "WebsiteDataStore.h"
 
@@ -46,7 +46,7 @@
 #import <WebCore/RegistrableDomain.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
 #import <WebCore/SecurityOriginData.h>
-// MAVERICKS_BACKPORT: for the NSWorkspace open in openURLThroughHostApplication below, and the
+// AQUAWEBKIT: for the NSWorkspace open in openURLThroughHostApplication below, and the
 // launchd job submission in registerWebPushDaemonWithLaunchd.
 #if USE(MOZILLA_PUSH_SERVICE)
 #import <AppKit/AppKit.h>
@@ -150,7 +150,7 @@ WebCore::ThirdPartyCookieBlockingMode WebsiteDataStore::thirdPartyCookieBlocking
     return *m_thirdPartyCookieBlockingMode;
 }
 
-// MAVERICKS_BACKPORT: the launchd job for the webpushd this framework carries, submitted to the
+// AQUAWEBKIT: the launchd job for the webpushd this framework carries, submitted to the
 // login session's launchd, which starts the daemon when the network process looks its Mach service
 // up and reaps it once it holds no transaction. The job is upstream's
 // webpushd/com.apple.webkit.webpushd.relocatable.mac.plist with ${INSTALL_PATH} resolved against the
@@ -215,7 +215,7 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
 
-    // MAVERICKS_BACKPORT: the job has to exist before the network session this call is filling
+    // AQUAWEBKIT: the job has to exist before the network session this call is filling
     // parameters for looks the daemon's Mach service up.
 #if USE(MOZILLA_PUSH_SERVICE)
     if (!parameters.networkSessionParameters.webPushMachServiceName.isEmpty())
@@ -521,7 +521,7 @@ String WebsiteDataStore::defaultAlternativeServicesDirectory(const String& baseD
     return cacheDirectoryFileSystemRepresentation("AlternativeServices"_s, { }, ShouldCreateDirectory::No);
 }
 
-// MAVERICKS_BACKPORT: share the upstream directory policy with legacy HTTP loads in WebCore.
+// AQUAWEBKIT: share the upstream directory policy with legacy HTTP loads in WebCore.
 /*
 String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory)
 {
@@ -530,7 +530,7 @@ String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory
 
     return cacheDirectoryFileSystemRepresentation("HSTS"_s);
 }
-*/ // MAVERICKS_BACKPORT: retain the upstream body and use its common implementation below.
+*/ // AQUAWEBKIT: retain the upstream body and use its common implementation below.
 String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory)
 {
     return WebCore::HTTPStrictTransportSecurityStore::defaultStorageDirectory(baseDirectory);
@@ -1213,7 +1213,7 @@ void WebsiteDataStore::removeAllEnhancedSecuritySites(CompletionHandler<void()>&
     enhancedSecuritySitesHolder().deleteAllSites(WTF::move(completionHandler));
 }
 
-// MAVERICKS_BACKPORT: the clients.openWindow fallback declared in WebsiteDataStore.h -- hand the URL
+// AQUAWEBKIT: the clients.openWindow fallback declared in WebsiteDataStore.h -- hand the URL
 // to the host app's ordinary URL handling, since Safari 7 implements no data-store client that could
 // create a page. HTTP(S) only: a service worker must not be able to launch arbitrary URL schemes.
 #if USE(MOZILLA_PUSH_SERVICE)

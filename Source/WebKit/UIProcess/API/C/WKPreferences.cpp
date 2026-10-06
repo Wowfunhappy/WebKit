@@ -33,7 +33,7 @@
 #include <WebCore/Settings.h>
 #include <wtf/RefPtr.h>
 #if PLATFORM(COCOA)
-#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // MAVERICKS_BACKPORT: isSafari() gate in WKPreferencesSetPrivateBrowsingEnabled (#55/#122).
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // AQUAWEBKIT: isSafari() gate in WKPreferencesSetPrivateBrowsingEnabled (#55/#122).
 #endif
 
 using namespace WebKit;
@@ -1869,10 +1869,10 @@ bool WKPreferencesGetStorageAccessAPIEnabled(WKPreferencesRef)
     return true;
 }
 
-// MAVERICKS_BACKPORT: params are named (the upstream stub ignored them) because the toggle now wires through to a real preference flag (#55).
+// AQUAWEBKIT: params are named (the upstream stub ignored them) because the toggle now wires through to a real preference flag (#55).
 void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
-    // MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle. Backed by a real flag that drives each
+    // AQUAWEBKIT: Safari 7's global Private Browsing toggle. Backed by a real flag that drives each
     // page onto a shared ephemeral WebsiteDataStore (#55). Honored for the frozen Safari host ONLY —
     // every other C-API embedder keeps upstream's behavior of ignoring the call. QuickLook's
     // Web2.qldisplay sets this on every web preview, and an ephemeral store there puts previews on an
@@ -1884,7 +1884,7 @@ void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, boo
     protect(toImpl(preferencesRef))->setPrivateBrowsingEnabled(enabled);
 }
 
-// MAVERICKS_BACKPORT: named param + real return value (the upstream stub returned false); reports Safari 7's Private Browsing flag (#55).
+// AQUAWEBKIT: named param + real return value (the upstream stub returned false); reports Safari 7's Private Browsing flag (#55).
 bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef)
 {
     return toImpl(preferencesRef)->privateBrowsingEnabled();
@@ -2115,7 +2115,7 @@ bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
     return true;
 }
 
-// MAVERICKS_BACKPORT: empty implementations of the InspectorUsesWebKitUserInterface preference
+// AQUAWEBKIT: empty implementations of the InspectorUsesWebKitUserInterface preference
 // accessors, removed in modern WebKit but still referenced by Safari 7, restored so it links on 10.9.
 // Legacy stub: removed from modern WebKit but still referenced by Safari 7.
 void WKPreferencesSetInspectorUsesWebKitUserInterface(WKPreferencesRef, bool)

@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WKFrame.h"
 
-// MAVERICKS_BACKPORT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
+// AQUAWEBKIT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
 #include "APICertificateInfo.h"
 #include "APIData.h"
 #include "APIFrameHandle.h"
@@ -99,7 +99,7 @@ WKPageRef WKFrameGetPage(WKFrameRef frameRef)
 
 WKCertificateInfoRef WKFrameGetCertificateInfo(WKFrameRef frameRef)
 {
-    // MAVERICKS_BACKPORT: upstream gutted this to null, which keeps Safari 7's address-bar
+    // AQUAWEBKIT: upstream gutted this to null, which keeps Safari 7's address-bar
     // lock permanently dark (#103). Get semantics: the WebFrameProxy owns the wrapper.
     // return nullptr;
     return toAPI(&protect(toImpl(frameRef))->apiCertificateInfo());

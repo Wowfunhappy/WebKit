@@ -3166,7 +3166,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
         backingObject->performDismissActionIgnoringResult();
     else if (AXObjectCache::clientIsInTestMode() && [action isEqualToString:@"AXLogTrees"])
         [self _accessibilityPrintTrees];
-#if ENABLE(WRITING_TOOLS) // MAVERICKS_BACKPORT: match the action-list and ChromeClient feature guards.
+#if ENABLE(WRITING_TOOLS) // AQUAWEBKIT: match the action-list and ChromeClient feature guards.
     else if ([action isEqualToString:NSAccessibilityShowWritingToolsAction]) {
         Accessibility::performFunctionOnMainThread([protectedSelf = retainPtr(self)] {
             RefPtr<AXCoreObject> backingObject = protectedSelf.get().updateObjectBackingStore;
@@ -3174,7 +3174,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
                 page->chrome().client().showWritingToolsAffordance();
         });
     }
-#endif // MAVERICKS_BACKPORT: Writing Tools accessibility action.
+#endif // AQUAWEBKIT: Writing Tools accessibility action.
 }
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 

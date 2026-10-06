@@ -930,13 +930,13 @@ void WebPageProxy::addActivityStateUpdateCompletionHandler(CompletionHandler<voi
 void WebPageProxy::createTextFragmentDirectiveFromSelection(CompletionHandler<void(URL&&)>&& completionHandler)
 {
     if (!hasRunningProcess()) {
-        // MAVERICKS_BACKPORT(upstreamable): upstream returns here without invoking the handler, so it
+        // AQUAWEBKIT(upstreamable): upstream returns here without invoking the handler, so it
         // is destroyed uncalled -- ~CompletionHandler asserts "Completion handler should always be
         // called", and in release the caller's continuation simply never runs. getTextFragmentRanges()
         // immediately below is upstream's own example of the correct shape.
         completionHandler({ });
         return;
-    } // MAVERICKS_BACKPORT(upstreamable): brace added with the completionHandler call above.
+    } // AQUAWEBKIT(upstreamable): brace added with the completionHandler call above.
 
     protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::CreateTextFragmentDirectiveFromSelection(), WTF::move(completionHandler), webPageIDInMainFrameProcess());
 }
@@ -1824,7 +1824,7 @@ void WebPageProxy::setTextIndicator(RefPtr<WebCore::TextIndicator>&& textIndicat
 
     [installationLayer addSublayer:m_textIndicatorLayer.get()];
 
-    // MAVERICKS_BACKPORT: -present must run for every transition, including None.
+    // AQUAWEBKIT: -present must run for every transition, including None.
     // -updateWithFrame:…updatingIndicator:NO sets each bounce layer's opacity to 0 and only -present
     // puts it back to 1, so skipping it here left a TextIndicatorPresentationTransition::None
     // indicator built, installed and permanently invisible. None means "no entrance animation", not

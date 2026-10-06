@@ -181,7 +181,7 @@ public:
 #if USE(GLIB_EVENT_LOOP)
         WTF_EXPORT_PRIVATE void setPriority(int);
 #else
-        // MAVERICKS_BACKPORT: timer priority is a GLib-event-loop scheduling hint with no equivalent on
+        // AQUAWEBKIT: timer priority is a GLib-event-loop scheduling hint with no equivalent on
         // the CF run loop this port uses; accept and ignore it so GStreamer (which calls setPriority)
         // builds unchanged.
         void setPriority(int) { }
@@ -305,7 +305,7 @@ public:
 
     WTF_EXPORT_PRIVATE String listActiveTimersForLogging() const;
 
-    // MAVERICKS_BACKPORT: the main run loop's GLib context pump dispatches the queued functions between
+    // AQUAWEBKIT: the main run loop's GLib context pump dispatches the queued functions between
     // two iterations of the context, the order GLib's dispatcher source gives the GLib ports, and holds
     // the outer cycle after its drain when a function asked for the rest of a cycle to wait for the run
     // loop's observers.
@@ -318,7 +318,7 @@ private:
 
     RunLoop();
 
-    // void performWork(); // MAVERICKS_BACKPORT: public above, the main run loop's GLib context pump calls it.
+    // void performWork(); // AQUAWEBKIT: public above, the main run loop's GLib context pump calls it.
 
     void registerTimer(TimerBase&);
     void unregisterTimer(TimerBase&);
@@ -341,7 +341,7 @@ private:
 
     bool m_isFunctionDispatchSuspended { false };
     bool m_hasSuspendedFunctions { false };
-    bool m_wasFunctionDispatchSuspended { false }; // MAVERICKS_BACKPORT: see wasFunctionDispatchSuspended().
+    bool m_wasFunctionDispatchSuspended { false }; // AQUAWEBKIT: see wasFunctionDispatchSuspended().
 
 #if USE(WINDOWS_EVENT_LOOP)
     static LRESULT CALLBACK RunLoopWndProc(HWND, UINT, WPARAM, LPARAM);

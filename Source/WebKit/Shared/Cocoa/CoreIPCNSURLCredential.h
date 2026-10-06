@@ -28,10 +28,10 @@
 #include "CoreIPCDate.h"
 #include "CoreIPCNumber.h"
 #include "CoreIPCSecTrust.h"
-#include "CoreIPCSecKeychainItem.h" // MAVERICKS_BACKPORT: use the constrained native keychain IPC type.
-#include "CoreIPCSecCertificate.h" // MAVERICKS_BACKPORT: carry the selected public certificate chain.
+#include "CoreIPCSecKeychainItem.h" // AQUAWEBKIT: use the constrained native keychain IPC type.
+#include "CoreIPCSecCertificate.h" // AQUAWEBKIT: carry the selected public certificate chain.
 #include "CoreIPCString.h"
-// MAVERICKS_BACKPORT: a selected file-backed identity carries access to its owning keychain.
+// AQUAWEBKIT: a selected file-backed identity carries access to its owning keychain.
 #include "SandboxExtension.h"
 
 #include <wtf/ArgumentCoder.h>
@@ -72,7 +72,7 @@ struct CoreIPCNSURLCredentialData {
     std::optional<CoreIPCString> identifier;
     std::optional<bool> useKeychain;
     CoreIPCSecTrust trust;
-    // MAVERICKS_BACKPORT: persistent identity reference plus the selected certificate chain; private keys stay in Security.
+    // AQUAWEBKIT: persistent identity reference plus the selected certificate chain; private keys stay in Security.
     std::optional<CoreIPCSecKeychainItem> privateKeyReference;
     Vector<CoreIPCSecCertificate> certificates;
     std::optional<CoreIPCString> service;
@@ -87,17 +87,17 @@ class CoreIPCNSURLCredential {
     WTF_MAKE_TZONE_ALLOCATED(CoreIPCNSURLCredential);
 public:
     CoreIPCNSURLCredential(NSURLCredential *);
-    // MAVERICKS_BACKPORT: transfer the selected keychain capability with the native credential.
+    // AQUAWEBKIT: transfer the selected keychain capability with the native credential.
     // CoreIPCNSURLCredential(CoreIPCNSURLCredentialData&&);
     CoreIPCNSURLCredential(CoreIPCNSURLCredentialData&&, std::optional<SandboxExtension::Handle>&&);
 
     RetainPtr<id> toID() const;
-    // MAVERICKS_BACKPORT: encoding copies a capability; it does not consume this credential's copy.
+    // AQUAWEBKIT: encoding copies a capability; it does not consume this credential's copy.
     std::optional<SandboxExtension::Handle> keychainAccess() const { return m_keychainAccess; }
 private:
     friend struct IPC::ArgumentCoder<CoreIPCNSURLCredential>;
     CoreIPCNSURLCredentialData m_data;
-    std::optional<SandboxExtension::Handle> m_keychainAccess; // MAVERICKS_BACKPORT: only the selected keychain file, never a containing directory.
+    std::optional<SandboxExtension::Handle> m_keychainAccess; // AQUAWEBKIT: only the selected keychain file, never a containing directory.
 };
 
 #endif

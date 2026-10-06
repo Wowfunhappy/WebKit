@@ -87,7 +87,7 @@ public:
 
     void startMockPushService();
     void startPushService(const String& incomingPushServiceName, const String& pushDatabasePath, const String& webClipCachePath);
-    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
     void handleIncomingPush(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&, PushServiceConnection::PushMessageReceipt = PushServiceConnection::noPushMessageReceipt);
 
 #if PLATFORM(IOS)
@@ -135,7 +135,7 @@ private:
     void setPushService(RefPtr<PushService>&&);
     void runAfterStartingPushService(Function<void()>&&);
 
-    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
     void handleIncomingPushImpl(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&, PushServiceConnection::PushMessageReceipt);
     void ensureIncomingPushTransaction();
     void releaseIncomingPushTransaction();
@@ -162,7 +162,7 @@ private:
     struct PendingPushMessage {
         WebCore::PushSubscriptionSetIdentifier identifier;
         WebKit::WebPushMessage message;
-        // MAVERICKS_BACKPORT: acknowledged to the push service once a client takes this
+        // AQUAWEBKIT: acknowledged to the push service once a client takes this
         // message, which is what lets the service hold its own copy until then.
         PushServiceConnection::PushMessageReceipt receipt { PushServiceConnection::noPushMessageReceipt };
     };

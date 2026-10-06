@@ -91,7 +91,7 @@ public:
     void notifyWhenDecodingErrorOccurred(Function<void(NSError *)>&&);
     void notifyWhenVideoRendererRequiresFlushToResumeDecoding(Function<void()>&&);
 
-    // MAVERICKS_BACKPORT: declared unconditionally — AudioVideoRendererAVFObjC::stageVideoRenderer calls this
+    // AQUAWEBKIT: declared unconditionally — AudioVideoRendererAVFObjC::stageVideoRenderer calls this
     // unguarded, and VideoMediaSampleRenderer.mm now defines it for !HAVE(AVSAMPLEBUFFERVIDEORENDERER) too.
     Ref<GenericPromise> changeRenderer(WebSampleBufferVideoRendering *);
 

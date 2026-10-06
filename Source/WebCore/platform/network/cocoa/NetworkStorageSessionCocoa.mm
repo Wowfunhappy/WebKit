@@ -25,7 +25,7 @@
 
 #import "config.h"
 #import "NetworkStorageSession.h"
-// MAVERICKS_BACKPORT: native-session lifetime owns legacy curl connections and HSTS policy.
+// AQUAWEBKIT: native-session lifetime owns legacy curl connections and HSTS policy.
 #import "CocoaCurlConnection.h"
 #import "HTTPStrictTransportSecurityStore.h"
 
@@ -58,7 +58,7 @@
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: lazily create the legacy pool within this jar's privacy boundary.
+// AQUAWEBKIT: lazily create the legacy pool within this jar's privacy boundary.
 CocoaCurlConnectionPool& NetworkStorageSession::cocoaCurlConnectionPool(bool allowStoredCredentials)
 {
     ASSERT(isMainThread());
@@ -68,7 +68,7 @@ CocoaCurlConnectionPool& NetworkStorageSession::cocoaCurlConnectionPool(bool all
     return *pool;
 }
 
-// MAVERICKS_BACKPORT: in-flight transfers keep their pool; future exchanges cannot reuse its authentication or TLS sessions.
+// AQUAWEBKIT: in-flight transfers keep their pool; future exchanges cannot reuse its authentication or TLS sessions.
 void NetworkStorageSession::clearCocoaCurlCredentialState()
 {
     ASSERT(isMainThread());
@@ -76,7 +76,7 @@ void NetworkStorageSession::clearCocoaCurlCredentialState()
     m_cocoaCurlCredentiallessConnectionPool = nullptr;
 }
 
-// MAVERICKS_BACKPORT: private sessions own memory-only HSTS; persistent legacy loads share the application's store.
+// AQUAWEBKIT: private sessions own memory-only HSTS; persistent legacy loads share the application's store.
 HTTPStrictTransportSecurityStore& NetworkStorageSession::httpStrictTransportSecurityStore()
 {
     if (!m_httpStrictTransportSecurityStore)
@@ -86,7 +86,7 @@ HTTPStrictTransportSecurityStore& NetworkStorageSession::httpStrictTransportSecu
 
 NetworkStorageSession::~NetworkStorageSession()
 {
-    // MAVERICKS_BACKPORT: invalidate outstanding legacy transfers before discarding their jar.
+    // AQUAWEBKIT: invalidate outstanding legacy transfers before discarding their jar.
     if (m_cocoaCurlConnectionPool)
         m_cocoaCurlConnectionPool->invalidate();
     if (m_cocoaCurlCredentiallessConnectionPool)

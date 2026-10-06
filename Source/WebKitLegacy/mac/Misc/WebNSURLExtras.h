@@ -35,7 +35,7 @@
 // Deprecated, as it ignores URL parsing errors.
 // Please use the _webkit_URLWithUserTypedString instead.
 + (NSURL *)_web_URLWithUserTypedString:(NSString *)string;
-// MAVERICKS_BACKPORT: restored upstream-removed SPI variants Safari 7 still calls.
+// AQUAWEBKIT: restored upstream-removed SPI variants Safari 7 still calls.
 + (NSURL *)_web_URLWithUserTypedString:(NSString *)string relativeToURL:(NSURL *)url;
 + (NSURL *)_web_URLWithData:(NSData *)data;
 

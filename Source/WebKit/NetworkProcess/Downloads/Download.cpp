@@ -116,7 +116,7 @@ void Download::cancel(CompletionHandler<void(std::span<const uint8_t>)>&& comple
     };
 
     if (m_download) {
-        // MAVERICKS_BACKPORT: cancellation waits for the transport's partial-file resume state.
+        // AQUAWEBKIT: cancellation waits for the transport's partial-file resume state.
         // m_download->cancel();
         // completionHandlerWrapper({ });
         m_download->cancelWithResumeData(WTF::move(completionHandlerWrapper));

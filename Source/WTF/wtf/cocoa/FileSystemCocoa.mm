@@ -29,7 +29,7 @@
 #import "config.h"
 #import <wtf/FileSystem.h>
 
-// MAVERICKS_BACKPORT: _NSGetExecutablePath() for currentExecutableName() (gst_init argv[0]).
+// AQUAWEBKIT: _NSGetExecutablePath() for currentExecutableName() (gst_init argv[0]).
 #import <mach-o/dyld.h>
 #import <sys/resource.h>
 #import <wtf/FileHandle.h>
@@ -321,7 +321,7 @@ NSString *systemDirectoryPath()
     return path.get().get();
 }
 
-// MAVERICKS_BACKPORT: currentExecutableName() is only defined by the glib port upstream, but the
+// AQUAWEBKIT: currentExecutableName() is only defined by the glib port upstream, but the
 // Cocoa+GStreamer hybrid's gst_init() path (extractGStreamerOptionsFromCommandLine) needs it for
 // argv[0]. Derive it from the running executable's Mach-O path, falling back to getprogname().
 CString currentExecutableName()

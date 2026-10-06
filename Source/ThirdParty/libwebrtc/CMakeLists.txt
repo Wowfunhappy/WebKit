@@ -1,10 +1,10 @@
 
 set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# MAVERICKS_BACKPORT: single seam. libwebrtc's CMake here is the GTK/WPE one; Cocoa builds this
+# AQUAWEBKIT: single seam. libwebrtc's CMake here is the GTK/WPE one; Cocoa builds this
 # library from libwebrtc.xcodeproj. Every change this port makes to it is a macro defined in the
 # file below, so the rest of this file stays byte-upstream.
-include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake)
+include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/LibWebRTCPlatformAquaWebKit.cmake)
 set(libwebrtc_DERIVED_SOURCES_DIR "${CMAKE_BINARY_DIR}/libwebrtc/DerivedSources")
 file(MAKE_DIRECTORY ${libwebrtc_DERIVED_SOURCES_DIR})
 
@@ -2290,9 +2290,9 @@ else ()
     endif ()
 endif ()
 
-# MAVERICKS_BACKPORT: production sources and the shared Cocoa runtime are selected by the port overlay.
+# AQUAWEBKIT: production sources and the shared Cocoa runtime are selected by the port overlay.
 # add_library(webrtc STATIC ${webrtc_SOURCES})
-MAVERICKS_LIBWEBRTC_ADD_TARGET()
+AQUAWEBKIT_LIBWEBRTC_ADD_TARGET()
 
 target_compile_options(webrtc PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:-std=c++2b>"
@@ -2310,7 +2310,7 @@ target_compile_definitions(webrtc PRIVATE __cpp_lib_bind_front=0)
 
 set_target_properties(webrtc PROPERTIES CXX_VISIBILITY_PRESET hidden)
 set_target_properties(webrtc PROPERTIES C_VISIBILITY_PRESET hidden)
-MAVERICKS_LIBWEBRTC_FINALIZE_TARGET() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
+AQUAWEBKIT_LIBWEBRTC_FINALIZE_TARGET() # AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/LibWebRTCPlatformAquaWebKit.cmake.
 
 target_compile_definitions(webrtc PRIVATE
   DYNAMIC_ANNOTATIONS_ENABLED=1
@@ -2447,19 +2447,19 @@ if (APPLE)
         list(APPEND webrtc_INCLUDE_DIRECTORIES PRIVATE "${_dav1d_fwd}")
     endif ()
     # target_link_libraries(webrtc opus vpx yuv libsrtp)
-    target_link_libraries(webrtc PRIVATE opus vpx yuv libsrtp) # MAVERICKS_BACKPORT: match the polyfill target link signature.
+    target_link_libraries(webrtc PRIVATE opus vpx yuv libsrtp) # AQUAWEBKIT: match the polyfill target link signature.
     if (ENABLE_AV1)
         # target_link_libraries(webrtc aom dav1d)
-        target_link_libraries(webrtc PRIVATE aom dav1d) # MAVERICKS_BACKPORT: match the polyfill target link signature.
+        target_link_libraries(webrtc PRIVATE aom dav1d) # AQUAWEBKIT: match the polyfill target link signature.
     endif ()
 else ()
     # target_link_libraries(webrtc ${LIBEVENT_LIBRARY})
-    target_link_libraries(webrtc PRIVATE ${LIBEVENT_LIBRARY}) # MAVERICKS_BACKPORT: match the polyfill target link signature.
+    target_link_libraries(webrtc PRIVATE ${LIBEVENT_LIBRARY}) # AQUAWEBKIT: match the polyfill target link signature.
     # target_link_libraries(webrtc ${LIBOPUS_LIBRARY})
-    target_link_libraries(webrtc PRIVATE ${LIBOPUS_LIBRARY}) # MAVERICKS_BACKPORT: match the polyfill target link signature.
+    target_link_libraries(webrtc PRIVATE ${LIBOPUS_LIBRARY}) # AQUAWEBKIT: match the polyfill target link signature.
 endif ()
 
-MAVERICKS_LIBWEBRTC_INCLUDE_DIRECTORIES() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
+AQUAWEBKIT_LIBWEBRTC_INCLUDE_DIRECTORIES() # AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/LibWebRTCPlatformAquaWebKit.cmake.
 target_include_directories(webrtc ${webrtc_INCLUDE_DIRECTORIES})
 WEBKIT_ADD_PREFIX_HEADER(webrtc WebRTCPrefix.h PREFIX_LANGUAGES CXX)
 WEBKIT_ADD_PREFIX_HEADER(webrtc WebRTCObjCPrefix.h PREFIX_LANGUAGES OBJCXX)
@@ -2727,7 +2727,7 @@ if (APPLE)
       )
     endif ()
 
-    MAVERICKS_LIBWEBRTC_OPUS_SOURCES() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
+    AQUAWEBKIT_LIBWEBRTC_OPUS_SOURCES() # AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/LibWebRTCPlatformAquaWebKit.cmake.
     add_library(opus STATIC ${opus_SOURCES})
 
     target_include_directories(opus PRIVATE
@@ -3333,7 +3333,7 @@ else ()
 endif ()
 
 if (WTF_CPU_X86_64)
-    MAVERICKS_LIBWEBRTC_VPX_SOURCES() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
+    AQUAWEBKIT_LIBWEBRTC_VPX_SOURCES() # AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/LibWebRTCPlatformAquaWebKit.cmake.
     add_library(vpx OBJECT ${vpx_SOURCES} ${vpx_ASSEMBLY_SOURCES})
     target_compile_options(vpx PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2>)
     target_compile_options(vpx PRIVATE $<$<COMPILE_LANGUAGE:C>:-mavx2>)

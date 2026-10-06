@@ -39,7 +39,7 @@ constexpr uint64_t protocolVersionValue = 6;
 constexpr auto protocolEncodedMessageKey = "encoded message"_s;
 
 #if USE(MOZILLA_PUSH_SERVICE)
-// MAVERICKS_BACKPORT: an unsolicited daemon->client event announcing that pending push
+// AQUAWEBKIT: an unsolicited daemon->client event announcing that pending push
 // messages await pickup. Safari 7 predates the x-webkit-app-launch wake URL and the
 // _handleNextPushMessageWithCompletionHandler SPI, so the daemon signals the network
 // process's standing connection instead, and the UI process drains via

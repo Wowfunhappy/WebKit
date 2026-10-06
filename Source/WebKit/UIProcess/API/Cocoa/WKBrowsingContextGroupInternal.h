@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see WKBrowsingContextGroup.h.
+// AQUAWEBKIT: see WKBrowsingContextGroup.h.
 
 #import <WebKit/WKBrowsingContextGroup.h>
 

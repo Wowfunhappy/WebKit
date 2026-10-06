@@ -27,7 +27,7 @@
 
 #import <WebKitLegacy/WebKeyGenerator.h>
 
-#import <WebKitSystemInterface.h> // MAVERICKS_BACKPORT: MavericksSupport's, holding the one WebKitSystemInterface function below.
+#import <WebKitSystemInterface.h> // AQUAWEBKIT: AquaWebKitSupport's, holding the one WebKitSystemInterface function below.
 #import <wtf/Assertions.h>
 
 @implementation WebKeyGenerator

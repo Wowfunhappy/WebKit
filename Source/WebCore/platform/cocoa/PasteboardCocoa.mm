@@ -26,7 +26,7 @@
 #import "config.h"
 #import "Pasteboard.h"
 
-// MAVERICKS_BACKPORT: convertTIFFToPNG below decodes and encodes in WebCore, not in ImageIO.
+// AQUAWEBKIT: convertTIFFToPNG below decodes and encodes in WebCore, not in ImageIO.
 #import "ImageDecoder.h"
 #import "ImageUtilities.h"
 #import "LegacyNSPasteboardTypes.h"
@@ -44,7 +44,7 @@
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: upstream's version of the lines below. convertTIFFToPNG, upstream's one
+// AQUAWEBKIT: upstream's version of the lines below. convertTIFFToPNG, upstream's one
 // caller, encodes through WebCore, so nothing reads the function.
 // #if PLATFORM(MAC)
 // static NSBitmapImageFileType NODELETE bitmapPNGFileType()
@@ -212,7 +212,7 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 #if PLATFORM(MAC)
 static Ref<SharedBuffer> convertTIFFToPNG(FragmentedSharedBuffer& tiffBuffer)
 {
-    // MAVERICKS_BACKPORT: upstream's version of the lines below. -[NSBitmapImageRep initWithData:]
+    // AQUAWEBKIT: upstream's version of the lines below. -[NSBitmapImageRep initWithData:]
     // parses these bytes inside ImageIO, and they are pasteboard bytes on their way into a page; this
     // port decodes them with its own TIFF decoder and encodes the PNG the same way canvas toDataURL
     // does.

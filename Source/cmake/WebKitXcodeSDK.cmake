@@ -138,7 +138,7 @@ endfunction()
 # tools from the SDK.
 # ----------------------------------------------------------------------------
 
-# MAVERICKS_BACKPORT: the explicit toolchain supplies the compiler and external SDK.
+# AQUAWEBKIT: the explicit toolchain supplies the compiler and external SDK.
 if (CMAKE_TOOLCHAIN_FILE MATCHES "mac10[.]9-toolchain[.]cmake$")
     return()
 endif ()

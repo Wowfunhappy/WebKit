@@ -27,7 +27,7 @@
 #include "WKContextPrivate.h"
 
 #include "APIArray.h"
-#include "APICertificateInfo.h" // MAVERICKS_BACKPORT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
+#include "APICertificateInfo.h" // AQUAWEBKIT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include "APIClient.h"
 #include "APIDownloadClient.h"
 #include "APILegacyContextHistoryClient.h"
@@ -38,7 +38,7 @@
 #include "DownloadProxy.h"
 #include "GPUProcessProxy.h"
 #include "LegacyGlobalSettings.h"
-// MAVERICKS_BACKPORT: WKContextGetCookieManager hands back the data store's cookie store.
+// AQUAWEBKIT: WKContextGetCookieManager hands back the data store's cookie store.
 #include "APIHTTPCookieStore.h"
 #include "WKAPICast.h"
 #include "WKArray.h"
@@ -48,10 +48,10 @@
 #include "WKWebsiteDataStoreRef.h"
 #include "WebContextInjectedBundleClient.h"
 #include "WebFrameProxy.h"
-#include "WebIconDatabase.h" // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
+#include "WebIconDatabase.h" // AQUAWEBKIT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
-#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
+#include "WebsiteDataStore.h" // AQUAWEBKIT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include <WebCore/GamepadProvider.h>
 #include <wtf/Borrow.h>
 #include <wtf/RefPtr.h>
@@ -79,7 +79,7 @@ WKTypeID WKContextGetTypeID()
 WKContextRef WKContextCreate()
 {
     auto configuration = API::ProcessPoolConfiguration::create();
-    // MAVERICKS_BACKPORT: legacy C API clients key per-page state to one WKBundlePageRef for the life of a
+    // AQUAWEBKIT: legacy C API clients key per-page state to one WKBundlePageRef for the life of a
     // WKPage, so navigation in these contexts keeps the page's WebPage rather than swapping processes. Their
     // process model is the shared secondary process until WKContextSetProcessModel asks for multiple.
     configuration->setProcessSwapsOnNavigation(false);
@@ -91,7 +91,7 @@ WKContextRef WKContextCreateWithInjectedBundlePath(WKStringRef pathRef)
 {
     auto configuration = API::ProcessPoolConfiguration::create();
     configuration->setInjectedBundlePath(WebKit::toWTFString(pathRef));
-    // MAVERICKS_BACKPORT: navigation keeps the page's WebPage, in the shared secondary process; see WKContextCreate.
+    // AQUAWEBKIT: navigation keeps the page's WebPage, in the shared secondary process; see WKContextCreate.
     configuration->setProcessSwapsOnNavigation(false);
     configuration->setUsesSingleWebProcess(true);
 
@@ -270,7 +270,7 @@ void WKContextSetDownloadClient(WKContextRef context, const WKContextDownloadCli
     protect(WebKit::toImpl(context))->setLegacyDownloadClient(adoptRef(*new LegacyDownloadClient(wkClient, context)));
 }
 
-// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+// AQUAWEBKIT: see WKContextConnectionClient.h.
 void WKContextSetConnectionClient(WKContextRef contextRef, const WKContextConnectionClientBase* wkClient)
 {
     WebKit::toImpl(contextRef)->initializeConnectionClient(wkClient);
@@ -427,7 +427,7 @@ WKGeolocationManagerRef WKContextGetGeolocationManager(WKContextRef contextRef)
     return WebKit::toAPI(protect(protect(WebKit::toImpl(contextRef))->supplement<WebKit::WebGeolocationManagerProxy>()).get());
 }
 
-// MAVERICKS_BACKPORT: hand Safari 7 the revived per-pool icon database (#49).
+// AQUAWEBKIT: hand Safari 7 the revived per-pool icon database (#49).
 WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef contextRef)
 {
     return WebKit::toAPI(&WebKit::toImpl(contextRef)->iconDatabase());
@@ -448,7 +448,7 @@ WKResourceCacheManagerRef WKContextGetResourceCacheManager(WKContextRef context)
     return reinterpret_cast<WKResourceCacheManagerRef>(WKWebsiteDataStoreGetDefaultDataStore());
 }
 
-// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base. Safari 7's TrackingDataController
+// AQUAWEBKIT: restored legacy WK2 C API symbol absent at base. Safari 7's TrackingDataController
 // and its Privacy pane drive cookies through this manager; hand back the data store's cookie store, which
 // is what the modern WKHTTPCookieStore API wraps too (see WKCookieManager.cpp).
 WKCookieManagerRef WKContextGetCookieManager(WKContextRef contextRef)
@@ -460,7 +460,7 @@ WKCookieManagerRef WKContextGetCookieManager(WKContextRef contextRef)
     return reinterpret_cast<WKCookieManagerRef>(WebKit::toAPI(&WebKit::WebsiteDataStore::defaultDataStore().cookieStore()));
 }
 
-// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 7's
+// AQUAWEBKIT: restored legacy WK2 C API symbol absent at base; Safari 7's
 // AppController applicationDidFinishLaunching: queries this. Modern WebKit dropped
 // per-context process suppression in favour of per-page activity throttling —
 // return false (suppression off).
@@ -469,7 +469,7 @@ bool WKContextGetProcessSuppressionEnabled(WKContextRef)
     return false;
 }
 
-// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 7
+// AQUAWEBKIT: restored legacy WK2 C API symbol absent at base; Safari 7
 // toggles this around windowed/background tabs. Modern WebKit ignores it.
 void WKContextSetProcessSuppressionEnabled(WKContextRef, bool)
 {
@@ -485,14 +485,14 @@ void WKContextStopMemorySampler(WKContextRef contextRef)
     protect(WebKit::toImpl(contextRef))->stopMemorySampler();
 }
 
-// MAVERICKS_BACKPORT: enabling the icon database is what makes the pool attach a real
+// AQUAWEBKIT: enabling the icon database is what makes the pool attach a real
 // icon-loading client to its pages, so favicons actually load for Safari 7 (#49).
 void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
 {
-    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef)); // MAVERICKS_BACKPORT: real body (was an empty stub upstream) enabling Safari 7 favicons (#49)
+    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef)); // AQUAWEBKIT: real body (was an empty stub upstream) enabling Safari 7 favicons (#49)
 }
 
-// MAVERICKS_BACKPORT: real body (upstream left this empty when it dropped the Cocoa half of the
+// AQUAWEBKIT: real body (upstream left this empty when it dropped the Cocoa half of the
 // mechanism). This is the whole of Safari 7's "Continue" button on the invalid-certificate sheet:
 // Safari calls it with the certificate the user accepted and then reloads. With an empty body the
 // reload gets the same challenge and the sheet reappears forever, which is what happens for every
@@ -504,7 +504,7 @@ void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
 // arrives.
 void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef certificateRef, WKStringRef hostRef)
 {
-    // MAVERICKS_BACKPORT: real body (upstream ignores every argument) — see the note above.
+    // AQUAWEBKIT: real body (upstream ignores every argument) — see the note above.
     RefPtr certificateInfo = WebKit::toImpl(certificateRef);
     if (!certificateInfo)
         return;

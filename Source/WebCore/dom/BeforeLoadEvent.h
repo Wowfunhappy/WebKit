@@ -24,7 +24,7 @@
  *
  */
 
-// MAVERICKS_BACKPORT: restored-lost-upstream file (deleted upstream in "Delete most
+// AQUAWEBKIT: restored-lost-upstream file (deleted upstream in "Delete most
 // code for beforeload event", bug 234804). Safari 7 extension content blocking
 // (safari.self.tab.canLoad) is driven by the cancelable beforeload event (#62).
 

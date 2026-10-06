@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see WebConnectionClient.h.
+// AQUAWEBKIT: see WebConnectionClient.h.
 
 #include "config.h"
 #include "WebConnectionClient.h"

@@ -36,24 +36,24 @@
 #import "WKOpenPanelParameters.h"
 #import "WKProcessPoolInternal.h"
 #import "WKWebViewInternal.h"
-// MAVERICKS_BACKPORT: _pageConfiguration access for the setDrawsBackground(false) divergence below (#52).
+// AQUAWEBKIT: _pageConfiguration access for the setDrawsBackground(false) divergence below (#52).
 #import "WKWebViewConfigurationInternal.h"
 #import "WKWebsiteDataStoreInternal.h"
 #import "WebInspectorUIProxy.h"
 #import "WebInspectorUtilities.h"
 #import "WebPageProxy.h"
-// MAVERICKS_BACKPORT: API::PageConfiguration definition for the setDrawsBackground(false) divergence below (#52).
+// AQUAWEBKIT: API::PageConfiguration definition for the setDrawsBackground(false) divergence below (#52).
 #import "APIPageConfiguration.h"
 #import "WebsiteDataStore.h"
 #import "_WKInspectorConfigurationInternal.h"
-// MAVERICKS_BACKPORT: classic-frontend bridge header — provides classicInspectorFrontendBridgeScriptUTF8() used by _mavericksClassicFrontendBridgeScript below.
+// AQUAWEBKIT: classic-frontend bridge header — provides classicInspectorFrontendBridgeScriptUTF8() used by _aquaWebKitClassicFrontendBridgeScript below.
 #import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebKit/WKFrameInfo.h>
 #import <WebKit/WKNavigationAction.h>
 #import <WebKit/WKNavigationDelegate.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKUIDelegatePrivate.h>
-// MAVERICKS_BACKPORT: for the classic-frontend bridge user script (see _mavericksClassicFrontendBridgeScript).
+// AQUAWEBKIT: for the classic-frontend bridge user script (see _aquaWebKitClassicFrontendBridgeScript).
 #import <WebKit/WKUserContentController.h>
 #import <WebKit/WKUserScript.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
@@ -71,8 +71,8 @@ static NSString * const safeAreaInsetsKVOKey = @"safeAreaInsets";
 static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 
 @interface WKInspectorViewController () <WKUIDelegate, WKNavigationDelegate, WKInspectorWKWebViewDelegate>
-// MAVERICKS_BACKPORT: classic-frontend bridge user script (see the definition below).
-+ (NSString *)_mavericksClassicFrontendBridgeScript;
+// AQUAWEBKIT: classic-frontend bridge user script (see the definition below).
++ (NSString *)_aquaWebKitClassicFrontendBridgeScript;
 @end
 
 @implementation WKInspectorViewController {
@@ -150,12 +150,12 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 - (WKWebViewConfiguration *)webViewConfiguration
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    // MAVERICKS_BACKPORT: the two divergences below belong to the classic frontend
+    // AQUAWEBKIT: the two divergences below belong to the classic frontend
     // (WebCore::inspectorFrontendIsClassic names the bundle inspector-resource:// serves from); a
     // frontend built from this tree matches the backend and takes neither.
     bool usesClassicFrontend = WebCore::inspectorFrontendIsClassic();
 
-    // MAVERICKS_BACKPORT (#52): the frontend page draws no background, so the injected unified-
+    // AQUAWEBKIT (#52): the frontend page draws no background, so the injected unified-
     // toolbar CSS's rounded top corners are genuinely transparent and the NSThemeFrame's own
     // rounded titlebar corners show through — the web view covers the whole window (frame-view
     // hosting in WebInspectorUIProxy::platformCreateFrontendWindow) and would otherwise paint
@@ -171,7 +171,7 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     [inspectorSchemeHandler setAllowedURLSchemesForCSP:allowedURLSchemes.get()];
     [configuration setURLSchemeHandler:inspectorSchemeHandler.get() forURLScheme:WKInspectorResourceScheme];
 
-    // MAVERICKS_BACKPORT: this backport deliberately ships the system stock (Safari 8-era)
+    // AQUAWEBKIT: this backport deliberately ships the system stock (Safari 8-era)
     // WebInspectorUI frontend — its Aqua toolbar and pill tab icons are the native Mavericks
     // look — served through the upstream inspector-resource:// scheme handler from the
     // com.apple.WebInspectorUI bundle. The classic frontend predates today's
@@ -182,7 +182,7 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     // installed at window-object-clear, before document-start user scripts run.
     if (usesClassicFrontend) {
         [[configuration userContentController] addUserScript:adoptNS([[WKUserScript alloc]
-            initWithSource:[WKInspectorViewController _mavericksClassicFrontendBridgeScript]
+            initWithSource:[WKInspectorViewController _aquaWebKitClassicFrontendBridgeScript]
             injectionTime:WKUserScriptInjectionTimeAtDocumentStart
             forMainFrameOnly:YES]).get()];
     }
@@ -268,10 +268,10 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     return [NSURL URLWithString:adoptNS([[NSString alloc] initWithFormat:@"%@:///%@", WKInspectorResourceScheme, resource]).get()].URLByStandardizingPath;
 }
 
-// MAVERICKS_BACKPORT (#52/#66/#69): the classic-frontend bridge user script, injected as a WKUserScript
+// AQUAWEBKIT (#52/#66/#69): the classic-frontend bridge user script, injected as a WKUserScript
 // from webViewConfiguration; WebKitLegacy injects the same string. The script and its mechanism are
-// documented in MavericksSupport/source/WebCore/inspector/InspectorFrontendClassicBridge.h.
-+ (NSString *)_mavericksClassicFrontendBridgeScript
+// documented in AquaWebKitSupport/source/WebCore/inspector/InspectorFrontendClassicBridge.h.
++ (NSString *)_aquaWebKitClassicFrontendBridgeScript
 {
     return [NSString stringWithUTF8String:WebCore::classicInspectorFrontendBridgeScriptUTF8()];
 }

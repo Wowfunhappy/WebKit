@@ -29,13 +29,13 @@ list(APPEND DumpRenderTree_INCLUDE_DIRECTORIES
     ${DumpRenderTree_DIR}/TestNetscapePlugIn
     ${WEBCORE_DIR}/testing/cocoa
     ${WEBKITLEGACY_DIR}
-    # MAVERICKS_BACKPORT: DumpRenderTree.mm pulls in WebHTMLViewForTestingMac.h (a WebKitLegacy testing SPI
+    # AQUAWEBKIT: DumpRenderTree.mm pulls in WebHTMLViewForTestingMac.h (a WebKitLegacy testing SPI
     # that lives with the WebView sources, not in the forwarded public headers) via a quoted include.
     ${WEBKITLEGACY_DIR}/mac/WebView
     ${WebKitTestRunner_SHARED_DIR}/cocoa
     ${WebKitTestRunner_SHARED_DIR}/mac
     ${WebKitTestRunner_SHARED_DIR}/spi
-    # MAVERICKS_BACKPORT: DumpRenderTree.mm also uses one WebKit2 C-API header (<WebKit/WKURLRequest.h>).
+    # AQUAWEBKIT: DumpRenderTree.mm also uses one WebKit2 C-API header (<WebKit/WKURLRequest.h>).
     # Add the WebKit (WK2) forwarding-headers root LAST so the WebKit1 umbrella above keeps priority for the
     # header names the two frameworks share, while WK2-only headers still resolve.
     ${WebKit_FRAMEWORK_HEADERS_DIR}
@@ -90,7 +90,7 @@ list(APPEND DumpRenderTree_ObjCpp_SOURCES
     mac/WorkQueueItemMac.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/ClassMethodSwizzler.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/LayoutTestSpellChecker.mm
-    # MAVERICKS_BACKPORT: these shared TestRunnerShared sources are compiled per-consumer (the
+    # AQUAWEBKIT: these shared TestRunnerShared sources are compiled per-consumer (the
     # TestRunnerShared object library only carries the cross-platform sources); DumpRenderTree references
     # their symbols (poseAsClass, InstanceMethodSwizzler, ModifierKeys, +_modernPasteboardType:) but did
     # not list them.
@@ -106,7 +106,7 @@ set(DumpRenderTree_SOURCES
     ${DumpRenderTree_ObjCpp_SOURCES}
 )
 
-# MAVERICKS_BACKPORT: Objective-C sources share the target's C standard with its prefix header.
+# AQUAWEBKIT: Objective-C sources share the target's C standard with its prefix header.
 # foreach (_file ${DumpRenderTree_ObjC_SOURCES})
 #     set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-std=c99")
 # endforeach ()
@@ -133,7 +133,7 @@ foreach (_file ${DumpRenderTree_RESOURCES})
     endif ()
 endforeach ()
 
-# MAVERICKS_BACKPORT: LayoutTestHelper is an Xcode-only target upstream, but run-webkit-tests launches it
+# AQUAWEBKIT: LayoutTestHelper is an Xcode-only target upstream, but run-webkit-tests launches it
 # (start_helper) to pin the display color profile before a test run, so the CMake harness needs it too. It
 # uses only 10.9-available frameworks (AppKit/ApplicationServices/IOKit/ColorSync).
 set(LayoutTestHelper_SOURCES ${DumpRenderTree_DIR}/mac/LayoutTestHelper.m)

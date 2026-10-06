@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the legacy WebKit2 WKProcessGroup (52fa87c^). QuickLook's Web2.qldisplay hosts its WKView in one, and
+// AQUAWEBKIT: the legacy WebKit2 WKProcessGroup (52fa87c^). QuickLook's Web2.qldisplay hosts its WKView in one, and
 // Apple Mail and iBooks reach their injected bundles through its delegate.
 
 #import <WebKit/WKFoundation.h>

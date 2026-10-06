@@ -36,7 +36,7 @@ namespace WebKit {
 
 struct NetworkProcessConnectionParameters {
     SharedPreferencesForWebProcess sharedPreferencesForWebProcess;
-    // MAVERICKS_BACKPORT: UI authorization for the native injected-bundle origin access API.
+    // AQUAWEBKIT: UI authorization for the native injected-bundle origin access API.
     bool allowsInjectedBundleOriginAccessAllowListIPC { false };
 #if ENABLE(IPC_TESTING_API)
     bool ignoreInvalidMessageForTesting { false };

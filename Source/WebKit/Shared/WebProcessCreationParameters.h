@@ -92,7 +92,7 @@ struct WebProcessCreationParameters {
     UserData initializationUserData;
 
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the UI process's CARemoteLayerServer port (the WebKit-537
+    // AQUAWEBKIT: the UI process's CARemoteLayerServer port (the WebKit-537
     // acceleratedCompositingPort arrangement). Hosted CAContexts created against it are the only
     // flavor displayable in windows that composite their layer tree in-process
     // ([NSWindow _hostsLayersInWindowServer] == NO; iBooks' reader window). See
@@ -117,7 +117,7 @@ struct WebProcessCreationParameters {
     Vector<String> urlSchemesRegisteredAsAlwaysRevalidated;
     Vector<String> urlSchemesRegisteredAsCachePartitioned;
     Vector<String> urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest;
-    // MAVERICKS_BACKPORT: schemes registered via +[WKBrowsingContextController registerSchemeForCustomProtocol:]
+    // AQUAWEBKIT: schemes registered via +[WKBrowsingContextController registerSchemeForCustomProtocol:]
     // (e.g. Safari's safari-reader://). The WebProcess needs to know them so WebPage::canHandleRequest
     // returns true; otherwise WebCore's PolicyChecker ignores the navigation as "cannot show URL" before
     // the request ever reaches the NetworkProcess that actually serves the custom protocol.

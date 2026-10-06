@@ -81,9 +81,9 @@ namespace WebCore {
 class CookieChangeObserver;
 class CookiesEnabledStateObserver;
 class NetworkStorageSession;
-// MAVERICKS_BACKPORT: legacy Cocoa transport pools share their native storage session lifetime.
+// AQUAWEBKIT: legacy Cocoa transport pools share their native storage session lifetime.
 class CocoaCurlConnectionPool;
-// MAVERICKS_BACKPORT: legacy HSTS state shares the jar's private/default lifetime.
+// AQUAWEBKIT: legacy HSTS state shares the jar's private/default lifetime.
 class HTTPStrictTransportSecurityStore;
 }
 
@@ -158,10 +158,10 @@ public:
 
     PAL::SessionID sessionID() const { return m_sessionID; }
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: native jar and stored-credential policy jointly own each legacy curl pool.
+    // AQUAWEBKIT: native jar and stored-credential policy jointly own each legacy curl pool.
     WEBCORE_EXPORT CocoaCurlConnectionPool& cocoaCurlConnectionPool(bool allowStoredCredentials = true);
-    WEBCORE_EXPORT void clearCocoaCurlCredentialState(); // MAVERICKS_BACKPORT: clearing cached credentials closes authenticated sockets and discards TLS sessions.
-    // MAVERICKS_BACKPORT: browser-owned HSTS policy for ResourceHandle and WebDownload.
+    WEBCORE_EXPORT void clearCocoaCurlCredentialState(); // AQUAWEBKIT: clearing cached credentials closes authenticated sockets and discards TLS sessions.
+    // AQUAWEBKIT: browser-owned HSTS policy for ResourceHandle and WebDownload.
     WEBCORE_EXPORT HTTPStrictTransportSecurityStore& httpStrictTransportSecurityStore();
 #endif
     CredentialStorage& credentialStorage() LIFETIME_BOUND { return m_credentialStorage; }
@@ -324,11 +324,11 @@ public:
 
 private:
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: close legacy HTTP connections when their storage session closes.
+    // AQUAWEBKIT: close legacy HTTP connections when their storage session closes.
     RefPtr<CocoaCurlConnectionPool> m_cocoaCurlConnectionPool;
-    // MAVERICKS_BACKPORT: credential-free loads cannot reuse client-certificate or connection-bound authentication from credential-using loads.
+    // AQUAWEBKIT: credential-free loads cannot reuse client-certificate or connection-bound authentication from credential-using loads.
     RefPtr<CocoaCurlConnectionPool> m_cocoaCurlCredentiallessConnectionPool;
-    // MAVERICKS_BACKPORT: private jars never persist HSTS policy to the default profile.
+    // AQUAWEBKIT: private jars never persist HSTS policy to the default profile.
     std::unique_ptr<HTTPStrictTransportSecurityStore> m_httpStrictTransportSecurityStore;
 #endif
 #if PLATFORM(COCOA)

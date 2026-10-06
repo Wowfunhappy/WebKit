@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: DOMNotation, a public class of the 10.9 SDK. Like DOMEntity, it has no WebCore
+// AQUAWEBKIT: DOMNotation, a public class of the 10.9 SDK. Like DOMEntity, it has no WebCore
 // node behind it: applications built against that SDK bind the class, and every property answers nil.
 
 #import <WebKitLegacy/DOMNode.h>

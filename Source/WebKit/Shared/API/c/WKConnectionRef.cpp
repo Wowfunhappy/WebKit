@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: see WKConnectionRef.h.
+// AQUAWEBKIT: see WKConnectionRef.h.
 
 #include "config.h"
 #include "WKConnectionRef.h"

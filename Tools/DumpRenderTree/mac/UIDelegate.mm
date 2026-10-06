@@ -332,7 +332,7 @@ static NSString *addLeadingSpaceStripTrailingSpaces(NSString *string)
     return TRUE;
 }
 
-// MAVERICKS_BACKPORT: WebUserMediaClient asks this delegate before it presents its consent sheet, so
+// AQUAWEBKIT: WebUserMediaClient asks this delegate before it presents its consent sheet, so
 // DumpRenderTree answers it from testRunner.setUserMediaPermission() and the mediastream and Web Audio
 // suites this port runs on WebKit1 can obtain a stream. WebKitTestRunner answers the equivalent
 // WKPageUIClient callback.

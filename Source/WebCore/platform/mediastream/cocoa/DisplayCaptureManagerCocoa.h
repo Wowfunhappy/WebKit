@@ -42,7 +42,7 @@ private:
 
     const Vector<CaptureDevice>& captureDevices() final;
 #if !HAVE(SCREEN_CAPTURE_KIT)
-    // MAVERICKS_BACKPORT: without ScreenCaptureKit there is no picker to supply the device, so
+    // AQUAWEBKIT: without ScreenCaptureKit there is no picker to supply the device, so
     // display requests enumerate up front (the consent sheet grants the first eligible screen).
     bool requiresCaptureDevicesEnumeration() const final { return true; }
 #endif

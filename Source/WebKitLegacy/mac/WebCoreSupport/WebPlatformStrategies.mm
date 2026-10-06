@@ -34,7 +34,7 @@
 #import <WebCore/Color.h>
 #import <WebCore/LocalFrame.h>
 #if ENABLE(VIDEO)
-// MAVERICKS_BACKPORT: publishing WK1 strategies makes playback media engines eligible.
+// AQUAWEBKIT: publishing WK1 strategies makes playback media engines eligible.
 #import <WebCore/MediaPlayer.h>
 #endif
 #import <WebCore/MediaStrategy.h>
@@ -55,7 +55,7 @@ void WebPlatformStrategies::initializeIfNecessary()
         auto platformStrategies = makeUnique<WebPlatformStrategies>();
         setPlatformStrategies(platformStrategies.get());
 #if ENABLE(VIDEO)
-        // MAVERICKS_BACKPORT: Mavericks' Quartz Composer plug-in can query MIME support
+        // AQUAWEBKIT: Mavericks' Quartz Composer plug-in can query MIME support
         // before the first WebView. Rebuild the cached registry now that playback-only
         // engines, including AVFoundation capture, satisfy hasPlatformStrategies().
         WebCore::MediaPlayer::resetMediaEngines();

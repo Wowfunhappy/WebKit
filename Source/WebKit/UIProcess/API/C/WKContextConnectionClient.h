@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the context client that vends each web process's WebConnection; WKProcessGroup installs it.
+// AQUAWEBKIT: the context client that vends each web process's WebConnection; WKProcessGroup installs it.
 
 #ifndef WKContextConnectionClient_h
 #define WKContextConnectionClient_h

@@ -48,7 +48,7 @@ extern "C" char __llvm_profile_filename[] = "/private/tmp/WebKitPGO/WebKit_%m_pi
 #endif
 #endif
 
-// MAVERICKS_BACKPORT: libgcrypt-backed crypto initialization (CryptoKit path unavailable on 10.9).
+// AQUAWEBKIT: libgcrypt-backed crypto initialization (CryptoKit path unavailable on 10.9).
 #if USE(GCRYPT)
 #include <pal/crypto/gcrypt/Initialization.h>
 #endif
@@ -75,7 +75,7 @@ static void runInitializationCode(void* = nullptr)
     WebCore::populateJITOperations();
 
 #if USE(GCRYPT)
-    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this port, in the UI process too
+    // AQUAWEBKIT: WebCrypto is backed by libgcrypt on this port, in the UI process too
     // (wrapSerializedCryptoKey). libgcrypt is initialized once per process, by whichever of this and
     // +[WebView initialize] runs first.
     if (!gcry_control(GCRYCTL_INITIALIZATION_FINISHED_P))

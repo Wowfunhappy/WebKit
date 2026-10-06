@@ -33,7 +33,7 @@
 #include <wtf/WeakPtr.h>
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: include PAL's NetworkSPI.h instead of <Network/Network.h> directly; 10.9 ships an
+// AQUAWEBKIT: include PAL's NetworkSPI.h instead of <Network/Network.h> directly; 10.9 ships an
 // empty Network.framework, so NetworkSPI.h declares the nw_* object types this header needs.
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/RetainPtr.h>

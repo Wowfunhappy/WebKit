@@ -50,7 +50,7 @@
     return WTF::URLWithUserTypedStringDeprecated(string);
 }
 
-// MAVERICKS_BACKPORT: restore two upstream-removed SPI variants Safari 7 still calls (the title-bar
+// AQUAWEBKIT: restore two upstream-removed SPI variants Safari 7 still calls (the title-bar
 // path pop-up menu passes a non-nil base URL).
 + (NSURL *)_web_URLWithUserTypedString:(NSString *)string relativeToURL:(NSURL *)url
 {

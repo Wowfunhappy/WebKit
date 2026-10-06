@@ -1376,11 +1376,11 @@ void HTMLInputElement::defaultEventHandler(Event& event)
     }
 
     if (m_inputType->shouldSubmitImplicitly(event)) {
-        // MAVERICKS_BACKPORT: this <input type=search> branch opens a block that also dispatches the
+        // AQUAWEBKIT: this <input type=search> branch opens a block that also dispatches the
         // non-standard search event (below), which legacy 10.9 Dashboard widgets depend on.
         if (isSearchField()) {
             addSearchResult();
-            // MAVERICKS_BACKPORT: the non-standard `search` event (fired on Enter for <input type=search>)
+            // AQUAWEBKIT: the non-standard `search` event (fired on Enter for <input type=search>)
             // was removed upstream (webkit.org/b/278309), but legacy Dashboard widgets — the Dictionary
             // widget's onsearch handler runs the lookup — and other 10.9-era content depend on it. Dispatch
             // it here on implicit submission, after keypress, which is the original timing.

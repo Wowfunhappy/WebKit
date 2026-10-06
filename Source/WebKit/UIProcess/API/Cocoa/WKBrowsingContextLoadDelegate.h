@@ -41,7 +41,7 @@ WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKNavigationDelegate", macos(10.10, 10.14.
 - (void)browsingContextControllerDidReceiveServerRedirectForProvisionalLoad:(WKBrowsingContextController *)sender;
 
 /* Sent if the provisional load fails. */
-// MAVERICKS_BACKPORT: pre-2013 spelling. Upstream renamed this and -browsingContextControllerDidFailLoad:withError:
+// AQUAWEBKIT: pre-2013 spelling. Upstream renamed this and -browsingContextControllerDidFailLoad:withError:
 // below in 007598a ("[Cocoa] Give two load delegate methods more conventional names", 2013-12-03) -- AFTER Safari 7
 // and 10.9 shipped, so the older names are the ones this system's clients implement. Verified in the shipping
 // binaries: QuickLookUI's Web2.qldisplay and MailUI both export -browsingContextControllerDidFailProvisionalLoad:withError:
@@ -57,7 +57,7 @@ WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKNavigationDelegate", macos(10.10, 10.14.
 - (void)browsingContextControllerDidFinishLoad:(WKBrowsingContextController *)sender;
 
 /* Sent if the commited load fails. */
-// MAVERICKS_BACKPORT: pre-2013 spelling; see the note on -browsingContextControllerDidFailProvisionalLoad:withError: above.
+// AQUAWEBKIT: pre-2013 spelling; see the note on -browsingContextControllerDidFailProvisionalLoad:withError: above.
 - (void)browsingContextControllerDidFailLoad:(WKBrowsingContextController *)sender withError:(NSError *)error;
 
 - (void)browsingContextControllerDidStartProgress:(WKBrowsingContextController *)sender WK_API_DEPRECATED_WITH_REPLACEMENT("WKWebView.estimatedProgress", macos(10.10, 10.14.4), ios(8.0, 12.2));

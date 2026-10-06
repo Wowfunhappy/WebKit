@@ -26,7 +26,7 @@
 #import "config.h"
 #import "WebProcessPool.h"
 
-#import <QuartzCore/CARemoteLayerServer.h> // MAVERICKS_BACKPORT: acceleratedCompositingPort (see platformInitializeWebProcess)
+#import <QuartzCore/CARemoteLayerServer.h> // AQUAWEBKIT: acceleratedCompositingPort (see platformInitializeWebProcess)
 
 #import "APINavigation.h"
 #import "AccessibilityPreferences.h"
@@ -398,7 +398,7 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
     parameters.mediaMIMETypes = process.mediaMIMETypes();
     parameters.mediaSourceTypesSupported = m_mediaSourceTypesSupported;
 
-    // MAVERICKS_BACKPORT: hand the web process this UI process's CARemoteLayerServer port (the
+    // AQUAWEBKIT: hand the web process this UI process's CARemoteLayerServer port (the
     // WebKit-537 acceleratedCompositingPort arrangement). The web process creates its hosted
     // CAContext against it when the page's window composites layers in-process
     // (LayerHostingMode::InProcess — iBooks' reader window); every other window displays only
@@ -597,7 +597,7 @@ void WebProcessPool::platformInitializeNetworkProcess(NetworkProcessCreationPara
 #endif
 
     parameters.enablePrivateClickMeasurement = ![defaults objectForKey:WebPreferencesKey::privateClickMeasurementEnabledKey().createNSString().get()] || [defaults boolForKey:WebPreferencesKey::privateClickMeasurementEnabledKey().createNSString().get()];
-    // MAVERICKS_BACKPORT: Safari 7 hands an ftp:// URL to LaunchServices, and so to the Finder, from
+    // AQUAWEBKIT: Safari 7 hands an ftp:// URL to LaunchServices, and so to the Finder, from
     // its response policy: 10.9's CFNetwork answers the navigation with a synthesized
     // application/x-ftp-directory response Safari cannot display. Refusing the load in
     // NetworkDataTask's constructor produces no response at all, only WebKit's internal "FTP URLs

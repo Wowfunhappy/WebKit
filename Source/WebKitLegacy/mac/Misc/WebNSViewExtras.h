@@ -80,7 +80,7 @@
 
 - (BOOL)_web_firstResponderIsSelfOrDescendantView;
 
-// MAVERICKS_BACKPORT: 10.9's Messages calls this.
+// AQUAWEBKIT: 10.9's Messages calls this.
 - (NSRect)_web_convertRect:(NSRect)aRect toView:(NSView *)aView;
 
 @end

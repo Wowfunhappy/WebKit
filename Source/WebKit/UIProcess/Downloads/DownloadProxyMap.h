@@ -28,7 +28,7 @@
 #include "DownloadID.h"
 #include "NetworkProcessProxy.h"
 #include <wtf/HashMap.h>
-// MAVERICKS_BACKPORT: pull in the full NetworkProcessProxy definition (the file's own forward declaration is not enough) so the WeakRef<NetworkProcessProxy> m_process member resolves the complete type in this build's include ordering.
+// AQUAWEBKIT: pull in the full NetworkProcessProxy definition (the file's own forward declaration is not enough) so the WeakRef<NetworkProcessProxy> m_process member resolves the complete type in this build's include ordering.
 #include "NetworkProcessProxy.h"
 #include <wtf/Noncopyable.h>
 #include <wtf/RetainPtr.h>

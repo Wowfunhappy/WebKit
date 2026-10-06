@@ -70,7 +70,7 @@ IGNORE_WARNINGS_END
 NS_ASSUME_NONNULL_BEGIN
 @interface AVAudioSession (AVAudioSessionWebKitPrivate)
 - (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
-// MAVERICKS_BACKPORT: the public SDK marks these two API_UNAVAILABLE(macos) even though AVAudioSession
+// AQUAWEBKIT: the public SDK marks these two API_UNAVAILABLE(macos) even though AVAudioSession
 // itself is API_AVAILABLE(macos(10.9)) — it is the MEMBERS that are withheld, not the class. Apple's
 // internal SDK declares them, which is how upstream compiles AudioSessionCocoa.mm (`#if USE(AUDIO_SESSION)
 // && PLATFORM(COCOA)`) for Mac. Declaring them asserts nothing about 10.9 HAVING them: upstream gates both
@@ -298,10 +298,10 @@ NS_ASSUME_NONNULL_END
 
 #if !USE(APPLE_INTERNAL_SDK)
 @class AVVideoPerformanceMetrics;
-@protocol WebAVVideoPerformanceMetrics; // MAVERICKS_BACKPORT: declared in full below; the accessors above return it.
+@protocol WebAVVideoPerformanceMetrics; // AQUAWEBKIT: declared in full below; the accessors above return it.
 NS_ASSUME_NONNULL_BEGIN
 @interface AVPlayerLayer (AVPlayerLayerVideoPerformanceMetrics)
-- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // AQUAWEBKIT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @end
 NS_ASSUME_NONNULL_END
 #endif
@@ -333,7 +333,7 @@ NS_ASSUME_NONNULL_END
 #import <AVFoundation/AVSampleBufferDisplayLayer.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface AVSampleBufferDisplayLayer (VideoPerformanceMetrics)
-- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // AQUAWEBKIT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @end
 NS_ASSUME_NONNULL_END
 #else
@@ -352,7 +352,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)isReadyForMoreMediaData;
 - (void)requestMediaDataWhenReadyOnQueue:(dispatch_queue_t)queue usingBlock:(void (^)(void))block;
 - (void)stopRequestingMediaData;
-- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // AQUAWEBKIT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @end
 NS_ASSUME_NONNULL_END
 #endif // __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
@@ -398,7 +398,7 @@ NS_ASSUME_NONNULL_END
 #import <AVFoundation/AVSampleBufferVideoRenderer.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface AVSampleBufferVideoRenderer (SPI)
-- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // AQUAWEBKIT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @property (nonatomic) BOOL preventsDisplaySleepDuringVideoPlayback;
 @property (nonatomic) BOOL preventsAutomaticBackgroundingDuringVideoPlayback;
 @end
@@ -423,7 +423,7 @@ NS_ASSUME_NONNULL_END
 @end
 #endif // HAVE(BROWSER_ENGINE_SUPPORTING_API)
 
-// MAVERICKS_BACKPORT: the public macOS 26.1 SDK declares these AVVideoPerformanceMetrics frame-count
+// AQUAWEBKIT: the public macOS 26.1 SDK declares these AVVideoPerformanceMetrics frame-count
 // SPI getters API_UNAVAILABLE(macos), but they exist at runtime and WebCore's metrics paths call
 // them on macOS (Apple's internal SDK declares them available, which is why upstream calls them
 // without a guard). Provide a WebKit accessor protocol so call sites can message the getters through
@@ -452,13 +452,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)setEligibleForBTSmartRoutingConsideration:(BOOL)inValue error:(NSError **)outError;
 - (BOOL)setHostProcessAttribution:(NSArray<NSString *>*)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
 - (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
-// MAVERICKS_BACKPORT: AVFAudio declares -setActive:withOptions:error: API_UNAVAILABLE(macos), so
+// AQUAWEBKIT: AVFAudio declares -setActive:withOptions:error: API_UNAVAILABLE(macos), so
 // AudioSessionCocoa.mm -- which upstream builds on Mac from WebCore.xcodeproj, and which this port
 // builds too -- does not compile against the public SDK. This is a MEMBER-level availability gap, not a
 // missing class: AVAudioSession itself is declared for macOS, and PAL reaches it by soft link
 // (getAVAudioSessionClassSingleton), so on 10.9, where the class is genuinely absent, the call site is
 // never reached. Only the declaration is missing, and a runtime polyfill cannot supply a declaration --
-// hence a re-declaration here rather than in MavericksSupport/polyfill.
+// hence a re-declaration here rather than in AquaWebKitSupport/polyfill.
 - (BOOL)setActive:(BOOL)active withOptions:(AVAudioSessionSetActiveOptions)options error:(NSError **)outError;
 @end
 
@@ -512,7 +512,7 @@ NS_ASSUME_NONNULL_BEGIN
 NS_ASSUME_NONNULL_END
 #endif
 
-// MAVERICKS_BACKPORT: the public SDK declares AVCaptureDevice.videoZoomFactor
+// AQUAWEBKIT: the public SDK declares AVCaptureDevice.videoZoomFactor
 // API_UNAVAILABLE(macos) — in the 26.1 SDK, not just an old one — so upstream's unguarded
 // -[AVCaptureDevice setVideoZoomFactor:] in AVVideoCaptureSource::applyFrameRateAndZoomWithPreset
 // does not compile against it. Apple's internal SDK declares it, which is how upstream builds that

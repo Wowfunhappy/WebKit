@@ -100,7 +100,7 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 #endif
 
 #if USE(APPKIT)
-// MAVERICKS_BACKPORT: CoreAnimation's asynchronous drawing hands -drawInContext: a deferred recording
+// AQUAWEBKIT: CoreAnimation's asynchronous drawing hands -drawInContext: a deferred recording
 // context (CGContextGetType answers kCGContextTypeUnknown and CGBitmapContextGetData is null), and this
 // OS's CoreGraphics does not carry a CGStyle through that recording: ordinary drawing and
 // CGContextSetShadowWithColor replay from it, a focus ring is dropped. WK2 tile layers take
@@ -172,7 +172,7 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     focusRingStyle.accumulate = -1;
     auto style = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color).get()));
 
-    // MAVERICKS_BACKPORT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
+    // AQUAWEBKIT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
     wkDrawInBitmapBackedContext(this->platformContext(), ^(CGContextRef platformContext) {
     CGContextStateSaver stateSaver(platformContext);
 
@@ -181,7 +181,7 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     CGContextAddPath(platformContext, path.platformPath());
 
     CGContextFillPath(platformContext);
-    }); // MAVERICKS_BACKPORT: closes the bitmap-backed drawing block opened above.
+    }); // AQUAWEBKIT: closes the bitmap-backed drawing block opened above.
 }
 
 void GraphicsContextCG::drawFocusRing(const Vector<FloatRect>& rects, float outlineWidth, const Color& color, float zoomFactor)

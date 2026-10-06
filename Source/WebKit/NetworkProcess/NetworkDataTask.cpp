@@ -41,7 +41,7 @@
 
 #if PLATFORM(COCOA)
 #include "NetworkDataTaskCocoa.h"
-#include "NetworkDataTaskCurlCocoa.h" // MAVERICKS_BACKPORT: Cocoa HTTP transport.
+#include "NetworkDataTaskCurlCocoa.h" // AQUAWEBKIT: Cocoa HTTP transport.
 #endif
 #if USE(SOUP)
 #include "NetworkDataTaskSoup.h"
@@ -58,7 +58,7 @@ Ref<NetworkDataTask> NetworkDataTask::create(NetworkSession& session, NetworkDat
     ASSERT(!parameters.request.url().protocolIsBlob());
     auto dataTask = [&] {
 #if PLATFORM(COCOA)
-        // MAVERICKS_BACKPORT: HTTP(S) uses curl; Cocoa dispatches local and registered custom protocols.
+        // AQUAWEBKIT: HTTP(S) uses curl; Cocoa dispatches local and registered custom protocols.
         if (NetworkDataTaskCurlCocoa::canHandle(session, parameters))
             return NetworkDataTaskCurlCocoa::create(session, client, parameters);
         return NetworkDataTaskCocoa::create(session, client, parameters);

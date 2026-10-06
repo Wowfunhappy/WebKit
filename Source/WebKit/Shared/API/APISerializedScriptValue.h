@@ -25,14 +25,14 @@
 
 #pragma once
 
-// MAVERICKS_BACKPORT: includes for the WKSerializedScriptValue carrier below.
+// AQUAWEBKIT: includes for the WKSerializedScriptValue carrier below.
 #include "APIObject.h"
 #include <JavaScriptCore/JSRetainPtr.h>
 #include <WebCore/SerializedScriptValue.h>
 
 namespace API {
 
-// MAVERICKS_BACKPORT: Safari 7 carries extension messages and WKPageRunJavaScriptInMainFrame results
+// AQUAWEBKIT: Safari 7 carries extension messages and WKPageRunJavaScriptInMainFrame results
 // as WKSerializedScriptValueRefs. This is upstream's carrier from before bug 277594 deprecated that C
 // API: a WebCore::SerializedScriptValue structured clone, which deserializes into any number of
 // contexts.
@@ -41,7 +41,7 @@ class SerializedScriptValue final : public ObjectImpl<Object::Type::SerializedSc
 public:
     static JSRetainPtr<JSGlobalContextRef> deserializationContext();
 
-    // MAVERICKS_BACKPORT: the carrier's upstream interface (see above).
+    // AQUAWEBKIT: the carrier's upstream interface (see above).
     static Ref<SerializedScriptValue> create(Ref<WebCore::SerializedScriptValue>&& serializedValue)
     {
         return adoptRef(*new SerializedScriptValue(WTF::move(serializedValue)));
@@ -73,5 +73,5 @@ private:
     
 }
 
-// MAVERICKS_BACKPORT: type traits for the WKSerializedScriptValue carrier above.
+// AQUAWEBKIT: type traits for the WKSerializedScriptValue carrier above.
 SPECIALIZE_TYPE_TRAITS_API_OBJECT(SerializedScriptValue);

@@ -27,7 +27,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: upstream's Database agent (removed with bug 286634), restored for the Safari 7
+// AQUAWEBKIT: upstream's Database agent (removed with bug 286634), restored for the Safari 7
 // Web Inspector, whose Resources sidebar lists and queries a page's WebSQL databases through this domain.
 
 #include "config.h"
@@ -278,7 +278,7 @@ Inspector::Protocol::ErrorStringOr<void> InspectorDatabaseAgent::enable()
 
     Ref { m_instrumentingAgents.get() }->setEnabledDatabaseAgent(this);
 
-    // MAVERICKS_BACKPORT: DatabaseTracker lists every database open in the process. The agent reports the ones
+    // AQUAWEBKIT: DatabaseTracker lists every database open in the process. The agent reports the ones
     // whose page routes InspectorInstrumentation::didOpenDatabase to it, the same set its per-page hook reports.
     // for (auto& database : DatabaseTracker::singleton().openDatabases())
     //     didOpenDatabase(database.get());

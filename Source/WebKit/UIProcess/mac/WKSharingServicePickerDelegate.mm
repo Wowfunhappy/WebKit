@@ -33,11 +33,11 @@
 #import "WebContextMenuProxyMac.h"
 #import "WebPageProxy.h"
 #import "_WKAttachmentInternal.h"
-// MAVERICKS_BACKPORT: the shared image's bytes are the page's, and this port decodes those in
+// AQUAWEBKIT: the shared image's bytes are the page's, and this port decodes those in
 // WebCore rather than in 10.9's ImageIO.
 #import <WebCore/ImageDecoder.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
-#import <WebCore/SharedBuffer.h> // MAVERICKS_BACKPORT: for that decode.
+#import <WebCore/SharedBuffer.h> // AQUAWEBKIT: for that decode.
 #import <pal/spi/mac/NSSharingServicePickerSPI.h>
 #import <pal/spi/mac/NSSharingServiceSPI.h>
 #import <wtf/cocoa/SpanCocoa.h>
@@ -141,7 +141,7 @@
         types.append(NSPasteboardTypeRTFD);
         types.append(WebCore::legacyRTFDPasteboardTypeSingleton());
     } else if (RetainPtr data = dynamic_objc_cast<NSData>(item.get())) {
-        // MAVERICKS_BACKPORT: upstream's version of the lines below. What is written to the
+        // AQUAWEBKIT: upstream's version of the lines below. What is written to the
         // pasteboard is the original data either way; the decode is the test that it is an image.
         // RetainPtr<CGImageSourceRef> source = adoptCF(CGImageSourceCreateWithData(bridge_cast(data.get()), NULL));
         // RetainPtr<CGImageRef> image = adoptCF(CGImageSourceCreateImageAtIndex(source.get(), 0, NULL));

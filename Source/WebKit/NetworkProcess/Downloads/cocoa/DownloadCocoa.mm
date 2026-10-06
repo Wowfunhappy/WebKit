@@ -25,12 +25,12 @@
 
 #import "config.h"
 #import "Download.h"
-// MAVERICKS_BACKPORT: resume request, cookie context and credential policy have one validated native/IPC representation.
+// AQUAWEBKIT: resume request, cookie context and credential policy have one validated native/IPC representation.
 #include "CocoaDownloadResumeData.h"
 
 #import "DownloadProxyMessages.h"
 #import "Logging.h"
-// MAVERICKS_BACKPORT: resume enters the existing NetworkLoad client and destination policy.
+// AQUAWEBKIT: resume enters the existing NetworkLoad client and destination policy.
 #import "NetworkLoadParameters.h"
 #import "PendingDownload.h"
 #import "MessageSenderInlines.h"
@@ -42,9 +42,9 @@
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/spi/cocoa/NSProgressSPI.h>
 #import <wtf/BlockPtr.h>
-// MAVERICKS_BACKPORT: failed resume validation releases the consumed destination authorization.
+// AQUAWEBKIT: failed resume validation releases the consumed destination authorization.
 #import <wtf/Scope.h>
-// MAVERICKS_BACKPORT: resume restores validated request headers and transport policy.
+// AQUAWEBKIT: resume restores validated request headers and transport policy.
 #import <WebCore/CocoaDownloadTransport.h>
 #import <wtf/FileSystem.h>
 #import <wtf/cocoa/SpanCocoa.h>
@@ -55,7 +55,7 @@
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: retain upstream NSURLSession implementation beside the curl resume owner.
+// AQUAWEBKIT: retain upstream NSURLSession implementation beside the curl resume owner.
 #if 0
 void Download::resume(std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&& sandboxExtensionHandle, std::span<const uint8_t> activityAccessToken)
 {
@@ -120,9 +120,9 @@ void Download::resume(std::span<const uint8_t> resumeData, const String& path, S
 #endif
 }
     
-#endif // MAVERICKS_BACKPORT: resumed HTTP requests use the same transport as initial requests.
+#endif // AQUAWEBKIT: resumed HTTP requests use the same transport as initial requests.
 
-// MAVERICKS_BACKPORT: NSURLSession's public resume fields remain the Safari API serialization format.
+// AQUAWEBKIT: NSURLSession's public resume fields remain the Safari API serialization format.
 void DownloadManager::resumeDownload(PAL::SessionID sessionID, DownloadID downloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&& sandboxExtensionHandle, CallDownloadDidStart callDownloadDidStart, std::span<const uint8_t> activityAccessToken)
 {
     UNUSED_PARAM(activityAccessToken);
@@ -162,7 +162,7 @@ void DownloadManager::resumeDownload(PAL::SessionID sessionID, DownloadID downlo
         return;
     }
     NetworkLoadParameters parameters;
-    // MAVERICKS_BACKPORT: preserve the original validated request and credential policy across both native resume APIs.
+    // AQUAWEBKIT: preserve the original validated request and credential policy across both native resume APIs.
     parameters.request = WTF::move(information->request);
     parameters.request.setHTTPHeaderField(WebCore::HTTPHeaderName::Range, makeString("bytes="_s, resume.offset, '-'));
     auto validator = !resume.entityTag.isEmpty() && !resume.entityTag.startsWith("W/"_s) ? resume.entityTag : resume.lastModified;

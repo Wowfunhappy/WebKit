@@ -195,7 +195,7 @@ void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CA
 Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CALayer*, CGPoint)> layerEventRegionContainsPoint, std::function<std::optional<ScrollingNodeID>(CALayer*)> scrollingNodeIDForLayer, CALayer* layer, const FloatPoint& point, bool& hasAnyNonInteractiveScrollingLayers)
 {
     Vector<LayerAndPoint, 16> layersAtPoint;
-    // MAVERICKS_BACKPORT: own the transaction this traversal would otherwise orphan.
+    // AQUAWEBKIT: own the transaction this traversal would otherwise orphan.
     // -[CALayer presentationLayer] (read below for animating layers) is the one CALayer accessor that
     // lazily BEGINS an implicit CATransaction. 10.9's CA commits a thread's implicit transaction from an
     // observer it installs on that thread's run loop, so a thread that never runs one never commits:
@@ -229,7 +229,7 @@ Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CA
         }
         return false;
     });
-    // MAVERICKS_BACKPORT: closes the transaction opened above, ending it on this thread rather than
+    // AQUAWEBKIT: closes the transaction opened above, ending it on this thread rather than
     // leaving it for a run-loop observer that a WorkQueue worker never reaches.
     if (ownTransaction)
         [CATransaction commit];

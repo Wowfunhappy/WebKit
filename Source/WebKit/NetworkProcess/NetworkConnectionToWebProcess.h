@@ -303,7 +303,7 @@ private:
     void didClose(IPC::Connection&) override;
     void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) override;
 
-    // MAVERICKS_BACKPORT: test preferences and native-bundle authorization independently permit these APIs.
+    // AQUAWEBKIT: test preferences and native-bundle authorization independently permit these APIs.
     bool allowsOriginAccessAllowListIPC(IPC::Decoder&) const;
 
     // Message handlers.
@@ -576,7 +576,7 @@ private:
     HashSet<BlobURLKey> m_blobURLs;
     HashCountedSet<BlobURLKey> m_blobURLHandles;
     SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
-    // MAVERICKS_BACKPORT: connection authority is independent of mutable web preferences.
+    // AQUAWEBKIT: connection authority is independent of mutable web preferences.
     const bool m_allowsInjectedBundleOriginAccessAllowListIPC;
     HashSet<String> m_allowedFilePaths;
 #if ENABLE(IPC_TESTING_API)

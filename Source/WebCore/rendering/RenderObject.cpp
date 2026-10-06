@@ -3207,7 +3207,7 @@ void printGraphicsLayerTreeForLiveDocuments()
 
 #if ENABLE(DASHBOARD_SUPPORT)
 
-// MAVERICKS_BACKPORT: collect Dashboard regions from border boxes and inline line bounds, applying
+// AQUAWEBKIT: collect Dashboard regions from border boxes and inline line bounds, applying
 // declaration offsets and repaint clipping in the bounds' coordinate container.
 void RenderObject::addAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
 {

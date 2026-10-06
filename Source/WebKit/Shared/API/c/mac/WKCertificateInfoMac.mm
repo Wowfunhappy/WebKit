@@ -26,7 +26,7 @@
 #import "config.h"
 #import "WKCertificateInfoMac.h"
 
-// MAVERICKS_BACKPORT: restored the whole file — upstream gutted every function to return
+// AQUAWEBKIT: restored the whole file — upstream gutted every function to return
 // null when it deleted the deprecated WKCertificateInfo C API. Safari 7 reads the chain
 // off the main frame's certificate info on every commit to drive the address-bar lock and
 // the Show Certificate sheet, and wraps the client-certificate panel's chosen identity in
@@ -123,21 +123,21 @@ WebCore::Credential credentialWithCertificateInfo(API::CertificateInfo* certific
 
 WKCertificateInfoRef WKCertificateInfoCreateWithServerTrust(SecTrustRef serverTrust)
 {
-    // MAVERICKS_BACKPORT: upstream gutted this to null.
+    // AQUAWEBKIT: upstream gutted this to null.
     // return nullptr;
     return WebKit::toAPILeakingRef(API::CertificateInfo::create(WebCore::CertificateInfo(retainPtr(serverTrust))));
 }
 
 WKCertificateInfoRef WKCertificateInfoCreateWithCertficateChain(CFArrayRef certificateChain)
 {
-    // MAVERICKS_BACKPORT: upstream gutted this to null.
+    // AQUAWEBKIT: upstream gutted this to null.
     // return nullptr;
     return WebKit::toAPILeakingRef(API::CertificateInfo::create(certificateChain));
 }
 
 CFArrayRef WKCertificateInfoGetCertificateChain(WKCertificateInfoRef certificateInfoRef)
 {
-    // MAVERICKS_BACKPORT: upstream gutted this to null. Guarded because Safari 7 can hold
+    // AQUAWEBKIT: upstream gutted this to null. Guarded because Safari 7 can hold
     // a null WKCertificateInfoRef from a frame that has not committed.
     // return nullptr;
     if (!certificateInfoRef)
@@ -147,7 +147,7 @@ CFArrayRef WKCertificateInfoGetCertificateChain(WKCertificateInfoRef certificate
 
 SecTrustRef WKCertificateInfoGetServerTrust(WKCertificateInfoRef certificateInfoRef)
 {
-    // MAVERICKS_BACKPORT: upstream gutted this to null.
+    // AQUAWEBKIT: upstream gutted this to null.
     // return nullptr;
     if (!certificateInfoRef)
         return nullptr;

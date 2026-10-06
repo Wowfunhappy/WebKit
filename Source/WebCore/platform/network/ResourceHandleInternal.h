@@ -35,7 +35,7 @@
 
 #if PLATFORM(COCOA)
 #include <wtf/WeakObjCPtr.h>
-// MAVERICKS_BACKPORT: the HTTP policy adapter owns a separate, correctly typed curl connection.
+// AQUAWEBKIT: the HTTP policy adapter owns a separate, correctly typed curl connection.
 #include "CocoaCurlResourceHandle.h"
 
 OBJC_CLASS NSURLAuthenticationChallenge;
@@ -92,7 +92,7 @@ public:
     Credential m_initialCredential;
     
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: HTTP uses the curl adapter; native connections retain non-HTTP protocol support.
+    // AQUAWEBKIT: HTTP uses the curl adapter; native connections retain non-HTTP protocol support.
     RefPtr<CocoaCurlResourceHandle> m_cocoaCurlHandle;
     RetainPtr<NSURLConnection> m_connection;
     RetainPtr<id> m_delegate;

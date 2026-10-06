@@ -432,7 +432,7 @@
 #include "NavigatorMediaSession.h"
 #endif
 
-// MAVERICKS_BACKPORT: PlatformMediaSessionManager::create() answers MediaSessionManagerCocoa on
+// AQUAWEBKIT: PlatformMediaSessionManager::create() answers MediaSessionManagerCocoa on
 // PLATFORM(MAC), so USE(GLIB) alone does not identify the manager on a GStreamer-on-Cocoa port.
 // #if ENABLE(MEDIA_SESSION) && USE(GLIB)
 #if ENABLE(MEDIA_SESSION) && USE(GLIB) && !PLATFORM(COCOA)
@@ -765,7 +765,7 @@ void Internals::resetToConsistentState(Page& page)
     WebCore::setContentSizeCategory(kCTFontContentSizeCategoryL);
 #endif
 
-#if ENABLE(MEDIA_SESSION) && USE(GLIB) && !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa uses MediaSessionManagerCocoa.
+#if ENABLE(MEDIA_SESSION) && USE(GLIB) && !PLATFORM(COCOA) // AQUAWEBKIT: Cocoa uses MediaSessionManagerCocoa.
     if (auto* glibSessionManager = dynamicDowncast<MediaSessionManagerGLib>(sessionManager.get()))
         glibSessionManager->setDBusNotificationsEnabled(false);
 #endif

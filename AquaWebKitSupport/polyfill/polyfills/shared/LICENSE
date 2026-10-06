@@ -1,0 +1,20 @@
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Files here from macports-legacy-support keep their own notices. Most are
+under the ISC-style terms above, as is include/assert.h, which carries no
+notice of its own. atcalls.c, atcalls.h, utimensat.c and include/unistd.h
+are under the Apple Public Source License, Version 2.0, whose text is in
+APSL-2.0.txt.
+
+Every other file here is this port's own, under the BSD 2-Clause license in
+AquaWebKitSupport/LICENSE.

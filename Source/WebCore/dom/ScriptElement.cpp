@@ -380,7 +380,7 @@ bool ScriptElement::requestClassicScript(const String& sourceURL)
     ASSERT(element->isConnected());
     ASSERT(!m_loadableScript);
 
-    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
     // event lets Safari 7 extensions block this script subresource (uBlock network blocking).
     {
         Ref<Document> originalDocument = element->document();
@@ -448,7 +448,7 @@ bool ScriptElement::requestModuleScript(const String& sourceText, const TextPosi
             return false;
         }
 
-        // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+        // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
         // event lets Safari 7 extensions block this module-script subresource (uBlock network blocking).
         {
             Ref<Document> originalDocument = element->document();
@@ -489,7 +489,7 @@ bool ScriptElement::requestModuleScript(const String& sourceText, const TextPosi
 
     ASSERT(document->contentSecurityPolicy());
     // {
-    // MAVERICKS_BACKPORT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
+    // AQUAWEBKIT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
     if (!document->shouldBypassMainWorldContentSecurityPolicy()) {
         CheckedRef contentSecurityPolicy = *document->contentSecurityPolicy();
         if (!contentSecurityPolicy->allowScriptForStrictDynamic(URL(), document->url(), m_startPosition.m_line, element->nonce(), script->parameters().integrity(), sourceCode.source(), m_parserInserted))
@@ -516,7 +516,7 @@ void ScriptElement::executeClassicScript(const ScriptSourceCode& sourceCode)
     Ref element = this->element();
     Ref document = element->document();
     // if (!m_isExternalScript) {
-    // MAVERICKS_BACKPORT: an inline script an isolated world inserts is not subject to the page's Content
+    // AQUAWEBKIT: an inline script an isolated world inserts is not subject to the page's Content
     // Security Policy, as that world's fetches, WebSockets and workers are not; Safari 7 extensions'
     // content scripts inject page-world code this way.
     if (!m_isExternalScript && !document->shouldBypassMainWorldContentSecurityPolicy()) {
@@ -558,7 +558,7 @@ void ScriptElement::registerImportMap(const ScriptSourceCode& sourceCode)
     }
 
     // if (!m_isExternalScript) {
-    // MAVERICKS_BACKPORT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
+    // AQUAWEBKIT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
     if (!m_isExternalScript && !document->shouldBypassMainWorldContentSecurityPolicy()) {
         ASSERT(document->contentSecurityPolicy());
         CheckedRef contentSecurityPolicy = *document->contentSecurityPolicy();
@@ -731,7 +731,7 @@ void ScriptElement::registerSpeculationRules(const ScriptSourceCode& sourceCode)
     }
 
     // if (!m_isExternalScript) {
-    // MAVERICKS_BACKPORT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
+    // AQUAWEBKIT: an isolated world's inline script bypasses the page's policy, as in executeClassicScript().
     if (!m_isExternalScript && !document->shouldBypassMainWorldContentSecurityPolicy()) {
         CheckedPtr contentSecurityPolicy = document->contentSecurityPolicy();
         if (!contentSecurityPolicy)

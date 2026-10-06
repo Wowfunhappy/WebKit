@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the Objective-C face of WebConnection, the bundle<->app channel Apple Mail and iBooks use.
+// AQUAWEBKIT: the Objective-C face of WebConnection, the bundle<->app channel Apple Mail and iBooks use.
 
 #import <WebKit/WKFoundation.h>
 

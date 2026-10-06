@@ -29,7 +29,7 @@
 #if ENABLE(GAMEPAD) && PLATFORM(MAC)
 
 #include "Dualshock3HIDGamepad.h"
-#include "Dualshock4HIDGamepad.h" // MAVERICKS_BACKPORT: the HID path handles the DualShock 4 here; see Dualshock4HIDGamepad.h.
+#include "Dualshock4HIDGamepad.h" // AQUAWEBKIT: the HID path handles the DualShock 4 here; see Dualshock4HIDGamepad.h.
 #include "GenericHIDGamepad.h"
 #include "KnownGamepads.h"
 #include "Logging.h"
@@ -58,7 +58,7 @@ std::unique_ptr<HIDGamepad> HIDGamepad::create(IOHIDDeviceRef rawDevice, unsigne
     case Dualshock3:
         newGamepad = makeUnique<Dualshock3HIDGamepad>(WTF::move(device), index);
         break;
-    // MAVERICKS_BACKPORT: 10.9's GameController.framework cannot claim this device, so the HID path owns its standard mapping.
+    // AQUAWEBKIT: 10.9's GameController.framework cannot claim this device, so the HID path owns its standard mapping.
     case Dualshock4_1:
     case Dualshock4_2:
         newGamepad = makeUnique<Dualshock4HIDGamepad>(WTF::move(device), index);

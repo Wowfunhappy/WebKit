@@ -69,7 +69,7 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 #endif
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
-    // MAVERICKS_BACKPORT: use the explicit CGSConnection variant (more reliable on 10.9 than
+    // AQUAWEBKIT: use the explicit CGSConnection variant (more reliable on 10.9 than
     // +remoteContextWithOptions:, which returns nil there). This is the WindowServer-hosted
     // context flavor (stock 537's WKCAContextMakeRemoteForWindowServer was this exact call) —
     // displayable in every window that hosts its layer tree in the WindowServer. Windows that
@@ -89,7 +89,7 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 }
 
 #if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: restored from WebKit-537 (LayerHostingContext::createForPort /
+// AQUAWEBKIT: restored from WebKit-537 (LayerHostingContext::createForPort /
 // WKCAContextMakeRemoteWithServerPort). See the header comment.
 std::unique_ptr<LayerHostingContext> LayerHostingContext::createForPort(mach_port_t serverPort)
 {

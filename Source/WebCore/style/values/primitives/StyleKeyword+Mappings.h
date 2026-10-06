@@ -1541,7 +1541,7 @@ DEFINE_TO_FROM_CSS_VALUE_ID_FUNCTIONS
 #undef TYPE
 #undef FOR_EACH
 
-// MAVERICKS_BACKPORT: non-standard -webkit-border-fit (10.9 Messages.app speech bubbles).
+// AQUAWEBKIT: non-standard -webkit-border-fit (10.9 Messages.app speech bubbles).
 #define TYPE BorderFit
 #define FOR_EACH(CASE) CASE(Border) CASE(Lines)
 DEFINE_TO_FROM_CSS_VALUE_ID_FUNCTIONS

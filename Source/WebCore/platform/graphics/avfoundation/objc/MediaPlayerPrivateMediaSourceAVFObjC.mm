@@ -1127,7 +1127,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::keyAdded()
 
 #endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
-// MAVERICKS_BACKPORT: LEGACY only, matching the declaration in MediaPlayerPrivateMediaSourceAVFObjC.h.
+// AQUAWEBKIT: LEGACY only, matching the declaration in MediaPlayerPrivateMediaSourceAVFObjC.h.
 // #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 void MediaPlayerPrivateMediaSourceAVFObjC::keyNeeded(const SharedBuffer& initData)
@@ -1300,7 +1300,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::characteristicsFromMediaSourceChanged
 }
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-// MAVERICKS_BACKPORT: these definitions match decls guarded by ENABLE(VIDEO_PRESENTATION_MODE) in the header
+// AQUAWEBKIT: these definitions match decls guarded by ENABLE(VIDEO_PRESENTATION_MODE) in the header
 // (off on this port), and call base AudioVideoRenderer members that only exist under the same guard.
 RetainPtr<PlatformLayer> MediaPlayerPrivateMediaSourceAVFObjC::createVideoFullscreenLayer()
 {
@@ -1316,7 +1316,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setVideoFullscreenFrame(const FloatRe
 {
     m_renderer->setVideoFullscreenFrame(frame);
 }
-#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen-layer defs (see above).
+#endif // AQUAWEBKIT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen-layer defs (see above).
 
 void MediaPlayerPrivateMediaSourceAVFObjC::syncTextTrackBounds()
 {
@@ -1551,7 +1551,7 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::supportsLimitedMatroska() const
 }
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-// MAVERICKS_BACKPORT: guarded to match the header decl and the base AudioVideoRenderer member, both
+// AQUAWEBKIT: guarded to match the header decl and the base AudioVideoRenderer member, both
 // ENABLE(VIDEO_PRESENTATION_MODE)-only (off on this port).
 void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
 {
@@ -1559,7 +1559,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChang
     m_isInFullscreenOrPictureInPicture = isInFullscreenOrPictureInPicture;
     m_renderer->isInFullscreenOrPictureInPictureChanged(isInFullscreenOrPictureInPicture);
 }
-#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on isInFullscreenOrPictureInPictureChanged (see above).
+#endif // AQUAWEBKIT: close the VIDEO_PRESENTATION_MODE guard on isInFullscreenOrPictureInPictureChanged (see above).
 
 WebCore::HostingContext MediaPlayerPrivateMediaSourceAVFObjC::hostingContext() const
 {

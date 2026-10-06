@@ -25,7 +25,7 @@
 
 #import <wtf/Platform.h>
 
-// MAVERICKS_BACKPORT: uses the VPM-gated PlaybackSessionModel; match the model's availability guard so this
+// AQUAWEBKIT: uses the VPM-gated PlaybackSessionModel; match the model's availability guard so this
 // header is empty on this Mac/VPM-off port (see PlaybackSessionInterfaceIOS.h).
 #if (PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))) && HAVE(AVKIT)
 

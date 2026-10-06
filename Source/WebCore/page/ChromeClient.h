@@ -622,10 +622,10 @@ public:
     virtual void didAddFooterLayer(GraphicsLayer&) { }
 
 #if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: the document's -apple-dashboard-region control regions changed; the WebKitLegacy
+    // AQUAWEBKIT: the document's -apple-dashboard-region control regions changed; the WebKitLegacy
     // client forwards them to DashboardClient via -webView:dashboardRegionsChanged:.
     virtual void annotatedRegionsChanged() { }
-    // MAVERICKS_BACKPORT: true only for a legacy Dashboard widget host (a WebKit1 client whose UI delegate
+    // AQUAWEBKIT: true only for a legacy Dashboard widget host (a WebKit1 client whose UI delegate
     // implements -webView:dashboardRegionsChanged:). It gates the widget-only inline-block baseline, which
     // aligns on the legacy text baseline rather than the margin-box edge.
     virtual bool isDashboardWidgetClient() const { return false; }

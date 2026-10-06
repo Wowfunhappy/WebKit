@@ -730,7 +730,7 @@ if (DEVELOPER_MODE AND (APPLE OR HAVE_MALLOC_TRIM))
     target_include_directories(mbmalloc PRIVATE ${bmalloc_PRIVATE_INCLUDE_DIRECTORIES})
     target_link_libraries(mbmalloc Threads::Threads bmalloc)
     if (APPLE)
-        # MAVERICKS_BACKPORT: bmalloc is an OBJECT library, so mbmalloc absorbs ProcessCheck.mm
+        # AQUAWEBKIT: bmalloc is an OBJECT library, so mbmalloc absorbs ProcessCheck.mm
         # (which uses Foundation), and the globally linked libpolyfill.a stubs forward to
         # CoreGraphics/CoreText; link all three so this dylib resolves on the Mac CMake port.
         target_link_libraries(mbmalloc "-framework Foundation" "-framework CoreGraphics" "-framework CoreText")

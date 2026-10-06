@@ -47,7 +47,7 @@
 #include "FrameProcess.h"
 #include "GPUProcessConnectionParameters.h"
 #include "GamepadData.h"
-#include "LegacyExtensionHost.h" // MAVERICKS_BACKPORT: the constructor below.
+#include "LegacyExtensionHost.h" // AQUAWEBKIT: the constructor below.
 #include "LegacyGlobalSettings.h"
 #include "LoadedWebArchive.h"
 #include "Logging.h"
@@ -79,8 +79,8 @@
 #include "WebContextSupplement.h"
 #include "WebFrameProxy.h"
 #include "WebGeolocationManagerProxy.h"
-#include "APIIconLoadingClient.h" // MAVERICKS_BACKPORT: setIconLoadingClient below takes ownership of one, so the type must be whole here.
-#include "WebIconDatabase.h" // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
+#include "APIIconLoadingClient.h" // AQUAWEBKIT: setIconLoadingClient below takes ownership of one, so the type must be whole here.
+#include "WebIconDatabase.h" // AQUAWEBKIT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 #include "WebInspectorUtilities.h"
 #include "WebKit2Initialize.h"
 #include "WebKitServiceNames.h"
@@ -102,7 +102,7 @@
 #include "WebsiteDataStoreParameters.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <WebCore/GamepadProvider.h>
-#include <WebCore/LegacySchemeRegistry.h> // MAVERICKS_BACKPORT: registerGlobalURLSchemeAsHavingCustomProtocolHandlers below.
+#include <WebCore/LegacySchemeRegistry.h> // AQUAWEBKIT: registerGlobalURLSchemeAsHavingCustomProtocolHandlers below.
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotImplemented.h>
@@ -350,7 +350,7 @@ WebProcessPool::WebProcessPool(API::ProcessPoolConfiguration& configuration)
     storageAccessUserAgentStringQuirkController->initializeIfNeeded();
 #endif // ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
 
-    LegacyExtensionHost::singleton(); // MAVERICKS_BACKPORT: observes the WebKit 1 views that host Safari 7 extension pages from here on.
+    LegacyExtensionHost::singleton(); // AQUAWEBKIT: observes the WebKit 1 views that host Safari 7 extension pages from here on.
 }
 
 WebProcessPool::~WebProcessPool()
@@ -409,7 +409,7 @@ void WebProcessPool::setInjectedBundleClient(std::unique_ptr<API::InjectedBundle
         m_injectedBundleClient = WTF::move(client);
 }
 
-// MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+// AQUAWEBKIT: see WKContextConnectionClient.h.
 void WebProcessPool::initializeConnectionClient(const WKContextConnectionClientBase* client)
 {
     m_connectionClient.initialize(client);
@@ -1002,7 +1002,7 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     parameters.overrideLanguages = overrideLanguages();
     LOG_WITH_STREAM(Language, stream << "WebProcessPool is initializing a new web process with overrideLanguages: " << parameters.overrideLanguages);
 
-    // MAVERICKS_BACKPORT: the scheme-registration fields are assembled just before
+    // AQUAWEBKIT: the scheme-registration fields are assembled just before
     // process.initializeWebProcess() below rather than here. Safari 7 registers schemes from inside
     // this function: WebNotificationProvider::notificationPermissions() calls out to
     // Safari::UserNotificationController, which lazily constructs Safari::ExtensionsController, whose
@@ -1075,7 +1075,7 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     if (websiteDataStore)
         parameters.websiteDataStoreParameters = webProcessDataStoreParameters(process, *websiteDataStore);
 
-    // MAVERICKS_BACKPORT: assembled here, after every embedder callout above, so schemes an embedder
+    // AQUAWEBKIT: assembled here, after every embedder callout above, so schemes an embedder
     // registers re-entrantly during this function reach the process. See the note at the top.
     parameters.urlSchemesRegisteredAsSecure = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsSecure());
     parameters.urlSchemesRegisteredAsBypassingContentSecurityPolicy = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsBypassingContentSecurityPolicy());
@@ -1091,7 +1091,7 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     parameters.urlSchemesRegisteredAsAlwaysRevalidated = copyToVector(m_schemesToRegisterAsAlwaysRevalidated);
     parameters.urlSchemesRegisteredAsCachePartitioned = copyToVector(m_schemesToRegisterAsCachePartitioned);
     parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest = copyToVector(m_schemesToRegisterAsCanDisplayOnlyIfCanRequest);
-    // MAVERICKS_BACKPORT: tell new WebProcesses about app-registered custom-protocol schemes (e.g. safari-reader://)
+    // AQUAWEBKIT: tell new WebProcesses about app-registered custom-protocol schemes (e.g. safari-reader://)
     // so WebPage::canHandleRequest accepts them; see WebProcess::registerURLSchemeForCustomProtocol.
     parameters.urlSchemesRegisteredForCustomProtocols = WebProcessPool::urlSchemesWithCustomProtocolHandlers();
 
@@ -1206,7 +1206,7 @@ void WebProcessPool::processDidFinishLaunching(WebProcessProxy& process)
     if (m_configuration->ignoreSynchronousMessagingTimeoutsForTesting())
         process.connection().ignoreTimeoutsForTesting();
 
-    // MAVERICKS_BACKPORT: see WKContextConnectionClient.h.
+    // AQUAWEBKIT: see WKContextConnectionClient.h.
     m_connectionClient.didCreateConnection(this, process.protectedWebConnection().get());
 
 #if ENABLE(EXTENSION_CAPABILITIES)
@@ -1325,7 +1325,7 @@ Ref<WebProcessProxy> WebProcessPool::processForSite(WebsiteDataStore& websiteDat
     }
 
     if (usesSingleWebProcess()) {
-        // MAVERICKS_BACKPORT: always match the data store, not only for non-default target stores.
+        // AQUAWEBKIT: always match the data store, not only for non-default target stores.
         // A WebProcess hosts exactly one session (WebProcessProxy asserts it, and in-process paths
         // like BroadcastChannel's postMessageLocally rely on it); without this, a default-store page
         // created after an ephemeral one reuses the ephemeral process and folds two sessions together.
@@ -1440,7 +1440,7 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
     }
 #endif
 
-    // MAVERICKS_BACKPORT: attach a real icon-loading client so favicons load for Safari 7's C-API pages (#49).
+    // AQUAWEBKIT: attach a real icon-loading client so favicons load for Safari 7's C-API pages (#49).
     if (m_iconDatabaseEnabled && m_iconDatabase)
         page->setIconLoadingClient(createPageIconLoadingClient(page.get(), *m_iconDatabase));
 
@@ -1694,10 +1694,10 @@ void WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(const
     globalURLSchemesWithCustomProtocolHandlers().add(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->registerSchemeForLegacyCustomProtocol(urlScheme);
-    // MAVERICKS_BACKPORT: the UI process's own WebKit 1 views load the scheme through the same custom protocol,
+    // AQUAWEBKIT: the UI process's own WebKit 1 views load the scheme through the same custom protocol,
     // so it is handled there as each web process handles it (WebPage's urlSchemesWithLegacyCustomProtocolHandlers).
     WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(urlScheme);
-    // MAVERICKS_BACKPORT: also tell already-running WebProcesses, so WebPage::canHandleRequest accepts
+    // AQUAWEBKIT: also tell already-running WebProcesses, so WebPage::canHandleRequest accepts
     // the scheme and WebCore's PolicyChecker lets the navigation through to the NetworkProcess.
     for (Ref processPool : allProcessPools())
         processPool->sendToAllProcesses(Messages::WebProcess::RegisterURLSchemeForCustomProtocol(urlScheme));
@@ -1712,7 +1712,7 @@ void WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(con
     globalURLSchemesWithCustomProtocolHandlers().remove(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->unregisterSchemeForLegacyCustomProtocol(urlScheme);
-    // MAVERICKS_BACKPORT: also tell already-running WebProcesses (mirror of the register path above).
+    // AQUAWEBKIT: also tell already-running WebProcesses (mirror of the register path above).
     for (Ref processPool : allProcessPools())
         processPool->sendToAllProcesses(Messages::WebProcess::UnregisterURLSchemeForCustomProtocol(urlScheme));
 }
@@ -2319,7 +2319,7 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
         return processForSite(dataStore, isolatedProcessType, targetSite, mainFrameSite, { }, lockdownMode, enhancedSecurity, pageConfiguration, WebCore::ProcessSwapDisposition::None);
     };
 
-    // MAVERICKS_BACKPORT: single-WebProcess mode must still honor a session change. A WebProcess
+    // AQUAWEBKIT: single-WebProcess mode must still honor a session change. A WebProcess
     // hosts exactly one session (WebProcessProxy::addExistingWebPage asserts it; in-process paths
     // like BroadcastChannel's postMessageLocally rely on it), so a navigation whose target
     // WebsiteDataStore differs from the source process's (e.g. a swap into an ephemeral session)
@@ -2509,7 +2509,7 @@ void WebProcessPool::addMockMediaDevice(const MockMediaDevice& device)
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::addDevice(device);
     sendToAllProcesses(Messages::WebProcess::AddMockMediaDevice { device });
-// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// AQUAWEBKIT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
 // untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
 // capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
 // #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
@@ -2524,7 +2524,7 @@ void WebProcessPool::clearMockMediaDevices()
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::setDevices({ });
     sendToAllProcesses(Messages::WebProcess::ClearMockMediaDevices { });
-// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// AQUAWEBKIT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
 // untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
 // capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
 // #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
@@ -2539,7 +2539,7 @@ void WebProcessPool::removeMockMediaDevice(const String& persistentId)
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::removeDevice(persistentId);
     sendToAllProcesses(Messages::WebProcess::RemoveMockMediaDevice { persistentId });
-// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// AQUAWEBKIT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
 // untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
 // capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
 // #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
@@ -2555,7 +2555,7 @@ void WebProcessPool::setMockMediaDeviceIsEphemeral(const String& persistentId, b
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::setDeviceIsEphemeral(persistentId, isEphemeral);
     sendToAllProcesses(Messages::WebProcess::SetMockMediaDeviceIsEphemeral { persistentId, isEphemeral });
-// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// AQUAWEBKIT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
 // untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
 // capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
 // #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
@@ -2570,7 +2570,7 @@ void WebProcessPool::resetMockMediaDevices()
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::resetDevices();
     sendToAllProcesses(Messages::WebProcess::ResetMockMediaDevices { });
-// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// AQUAWEBKIT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
 // untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
 // capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
 // #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)

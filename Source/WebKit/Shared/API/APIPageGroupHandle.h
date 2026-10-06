@@ -24,7 +24,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: the handle a page group crosses the UI<->WebContent boundary as, inside
+// AQUAWEBKIT: the handle a page group crosses the UI<->WebContent boundary as, inside
 // UserData. Safari 7 places its browsing WKPageGroup in the injected-bundle initialization user
 // data and in bundle messages; WebProcessProxy::transformObjectsToHandles turns the WebPageGroup
 // into this handle before encoding, and WebProcess::transformHandlesToObjects resolves it to the

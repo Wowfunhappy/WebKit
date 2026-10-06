@@ -185,7 +185,7 @@ void BidiBrowserAgent::removeUserContext(const String& userContextID, CommandCal
     m_userContextsPendingDeletion.set(userContextID, makeUnique<BidiUserContextDeletionRecord>(WTF::move(userContext), pageCount, WTF::move(callback)));
 }
 
-// MAVERICKS_BACKPORT: gate on the ports that actually compile the GLib implementation rather than on
+// AQUAWEBKIT: gate on the ports that actually compile the GLib implementation rather than on
 // USE(GLIB). The override lives in glib/BidiBrowserAgentGlib.cpp, which only SourcesGTK.txt and
 // SourcesWPE.txt build, so upstream uses USE(GLIB) as shorthand for "GTK or WPE". This port is Cocoa but
 // still USE(GLIB) -- GStreamer pulls glib in (see OptionsMac.cmake) -- so the shorthand misfires: the
@@ -198,7 +198,7 @@ std::unique_ptr<BidiUserContext> BidiBrowserAgent::platformCreateUserContext(Str
     error = "User context creation is not implemented for this platform yet."_s;
     return nullptr;
 }
-#endif // MAVERICKS_BACKPORT: close the GTK/WPE gate (see above).
+#endif // AQUAWEBKIT: close the GTK/WPE gate (see above).
 
 } // namespace WebKit
 

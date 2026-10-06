@@ -68,7 +68,7 @@ typedef void* PlatformBundle;
 #endif
 
 class InjectedBundleScriptWorld;
-// MAVERICKS_BACKPORT: see WebConnection.h.
+// AQUAWEBKIT: see WebConnection.h.
 class WebConnection;
 class WebFrame;
 class WebPage;
@@ -92,7 +92,7 @@ public:
     void postSynchronousMessage(const String&, API::Object*, RefPtr<API::Object>& returnData);
     void NODELETE setServiceWorkerProxyCreationCallback(void (*)(uint64_t));
 
-    // MAVERICKS_BACKPORT: see WebConnection.h.
+    // AQUAWEBKIT: see WebConnection.h.
     WebConnection* webConnectionToUIProcess() const;
 
     // TestRunner only SPI

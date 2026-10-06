@@ -84,7 +84,7 @@ static OptionSet<CSS::ColorType> allowedColorTypes(ScriptExecutionContext* scrip
     return { CSS::ColorType::Absolute, CSS::ColorType::Current };
 }
 
-// MAVERICKS_BACKPORT: WebKit 537, which the 10.9 clients target, parses a canvas color string as the value
+// AQUAWEBKIT: WebKit 537, which the 10.9 clients target, parses a canvas color string as the value
 // of a `color:` declaration, so a trailing `;` is the declaration terminator rather than a syntax error.
 // Mail formats the attachment selection color it assigns to fillStyle as "rgb(%3.0f, %3.0f, %3.0f);".
 static String colorStringWithoutDeclarationTerminators(const String& colorString)
@@ -103,7 +103,7 @@ static String colorStringWithoutDeclarationTerminators(const String& colorString
     return end == colorString.length() ? colorString : colorString.left(end);
 }
 
-// MAVERICKS_BACKPORT: see colorStringWithoutDeclarationTerminators above.
+// AQUAWEBKIT: see colorStringWithoutDeclarationTerminators above.
 Color parseColor(const String& rawColorString, CanvasBase& canvasBase)
 {
     auto colorString = colorStringWithoutDeclarationTerminators(rawColorString);
@@ -134,7 +134,7 @@ Color parseColor(const String& rawColorString, CanvasBase& canvasBase)
     return parseColorRawGeneral(colorString, cssParserContext, *scriptExecutionContext, options, state);
 }
 
-// MAVERICKS_BACKPORT: see colorStringWithoutDeclarationTerminators above.
+// AQUAWEBKIT: see colorStringWithoutDeclarationTerminators above.
 Color parseColor(const String& rawColorString, ScriptExecutionContext& scriptExecutionContext)
 {
     auto colorString = colorStringWithoutDeclarationTerminators(rawColorString);

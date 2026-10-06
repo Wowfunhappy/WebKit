@@ -384,12 +384,12 @@ public:
 
             m_decoder->setOrientation(readImageOrientation(info()));
 #if USE(LCMS)
-            // MAVERICKS_BACKPORT: CG represents embedded CMYK profiles without an intermediate RGB conversion.
+            // AQUAWEBKIT: CG represents embedded CMYK profiles without an intermediate RGB conversion.
 #if USE(CG)
             if (!m_decoder->ignoresGammaAndColorProfile())
 #else
             if (!m_decoder->ignoresGammaAndColorProfile() && m_info.out_color_space == rgbOutputColorSpace())
-#endif // MAVERICKS_BACKPORT: closes the native color-model profile selection.
+#endif // AQUAWEBKIT: closes the native color-model profile selection.
                 m_decoder->setICCProfile(readICCProfile(&m_info));
 #endif
 
@@ -670,14 +670,14 @@ bool JPEGImageDecoder::outputScanlines()
         // The buffer is transparent outside the decoded area while the image is
         // loading. The completed image will be marked fully opaque in jpegComplete().
         buffer.setHasAlpha(true);
-#if USE(CG) // MAVERICKS_BACKPORT: row coverage starts with an empty CMYK backing store.
+#if USE(CG) // AQUAWEBKIT: row coverage starts with an empty CMYK backing store.
         m_cmykDecodedRows = 0;
 #endif
     }
 
     jpeg_decompress_struct* info = m_reader->info();
 
-#if USE(CG) // MAVERICKS_BACKPORT: the native CMYK image consumes libjpeg's component bytes directly.
+#if USE(CG) // AQUAWEBKIT: the native CMYK image consumes libjpeg's component bytes directly.
     if (m_embeddedCMYKColorSpace) {
         ASSERT(info->out_color_space == JCS_CMYK);
         while (info->output_scanline < info->output_height) {
@@ -760,7 +760,7 @@ void JPEGImageDecoder::setICCProfile(RefPtr<SharedBuffer>&& buffer)
     if (!buffer)
         return;
 
-#if USE(CG) // MAVERICKS_BACKPORT: native images carry their source RGB or CMYK color space.
+#if USE(CG) // AQUAWEBKIT: native images carry their source RGB or CMYK color space.
     if (m_reader->info()->out_color_space == JCS_CMYK) {
         auto data = adoptCF(CFDataCreate(kCFAllocatorDefault, buffer->span().data(), buffer->size()));
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -781,11 +781,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto srgbProfile = LCMSProfilePtr(cmsCreate_sRGBProfile());
     m_iccTransform = LCMSTransformPtr(cmsCreateTransform(iccProfile.get(), TYPE_BGRA_8, srgbProfile.get(), TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, 0));
-#endif // MAVERICKS_BACKPORT: closes native color-profile retention.
+#endif // AQUAWEBKIT: closes native color-profile retention.
 }
 #endif
 
-#if USE(CG) // MAVERICKS_BACKPORT: native CMYK images retain their profile and decoded-row coverage.
+#if USE(CG) // AQUAWEBKIT: native CMYK images retain their profile and decoded-row coverage.
 PlatformImagePtr JPEGImageDecoder::createNativeImage(const ScalableImageDecoderFrame& frame) const
 {
     if (!m_embeddedCMYKColorSpace)
@@ -807,6 +807,6 @@ PlatformImagePtr JPEGImageDecoder::createNativeImage(const ScalableImageDecoderF
         return nullptr;
     return adoptCF(CGImageCreateWithMask(image.get(), mask.get()));
 }
-#endif // MAVERICKS_BACKPORT: closes native CMYK image construction.
+#endif // AQUAWEBKIT: closes native CMYK image construction.
 
 }

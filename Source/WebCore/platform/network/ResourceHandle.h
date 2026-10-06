@@ -72,7 +72,7 @@ class ProtectionSpace;
 class ResourceError;
 class ResourceHandleClient;
 class ResourceHandleInternal;
-// MAVERICKS_BACKPORT: expose native curl transfer adoption to the legacy download client.
+// AQUAWEBKIT: expose native curl transfer adoption to the legacy download client.
 class CocoaCurlResourceHandle;
 class NetworkLoadMetrics;
 class ResourceRequest;
@@ -114,13 +114,13 @@ public:
 
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT NSURLConnection *NODELETE connection() const;
-    // MAVERICKS_BACKPORT: a paused HTTP transaction can become a download without another request.
+    // AQUAWEBKIT: a paused HTTP transaction can become a download without another request.
     WEBCORE_EXPORT CocoaCurlResourceHandle* cocoaCurlHandle() const;
-    // MAVERICKS_BACKPORT: an approved redirect continues on curl for HTTP, or on a new native connection
+    // AQUAWEBKIT: an approved redirect continues on curl for HTTP, or on a new native connection
     // when the connection's callback returned before the approval.
     void continueRedirectOnCocoaCurl(ResourceRequest&&, RefPtr<SynchronousLoaderMessageQueue>&&);
     void continueRedirectOnNewConnection(ResourceRequest&&);
-    // MAVERICKS_BACKPORT: 10.9 NSURLDownload takes a connection over only inside its response callback.
+    // AQUAWEBKIT: 10.9 NSURLDownload takes a connection over only inside its response callback.
     WEBCORE_EXPORT bool connectionCanBecomeDownload() const;
     id makeDelegate(bool, RefPtr<SynchronousLoaderMessageQueue>&&);
     id delegate();
@@ -204,7 +204,7 @@ private:
 #endif
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: see continueRedirectOnNewConnection.
+    // AQUAWEBKIT: see continueRedirectOnNewConnection.
     // void createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy, SchedulingBehavior);
     void createNSURLConnection(id delegate, bool shouldUseCredentialStorage, bool shouldContentSniff, ContentEncodingSniffingPolicy, SchedulingBehavior, ResourceRequest* redirectedRequest = nullptr);
 #endif
@@ -217,7 +217,7 @@ private:
     NSURLRequest *applySniffingPoliciesIfNeeded(NSURLRequest *, bool shouldContentSniff, ContentEncodingSniffingPolicy);
 #endif
 
-    // MAVERICKS_BACKPORT: the Cocoa curl policy adapter owns the legacy HTTP handle state.
+    // AQUAWEBKIT: the Cocoa curl policy adapter owns the legacy HTTP handle state.
     friend class CocoaCurlResourceHandle;
     friend class ResourceHandleInternal;
     std::unique_ptr<ResourceHandleInternal> d;

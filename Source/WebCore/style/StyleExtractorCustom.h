@@ -33,7 +33,7 @@
 
 #include "ColorSerialization.h"
 #include "ContainerNodeInlines.h"
-// MAVERICKS_BACKPORT: computed -apple-dashboard-region value (Dashboard support restored).
+// AQUAWEBKIT: computed -apple-dashboard-region value (Dashboard support restored).
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #endif
@@ -94,7 +94,7 @@ public:
     static Ref<CSSValue> extractFloat(ExtractorState&);
     static Ref<CSSValue> extractContent(ExtractorState&);
 #if ENABLE(DASHBOARD_SUPPORT)
-    static Ref<CSSValue> extractWebkitDashboardRegion(ExtractorState&); // MAVERICKS_BACKPORT
+    static Ref<CSSValue> extractWebkitDashboardRegion(ExtractorState&); // AQUAWEBKIT
 #endif
     static Ref<CSSValue> extractLetterSpacing(ExtractorState&);
     static Ref<CSSValue> extractWordSpacing(ExtractorState&);
@@ -196,7 +196,7 @@ public:
     static void extractFloatSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractContentSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
 #if ENABLE(DASHBOARD_SUPPORT)
-    static void extractWebkitDashboardRegionSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&); // MAVERICKS_BACKPORT
+    static void extractWebkitDashboardRegionSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&); // AQUAWEBKIT
 #endif
     static void extractLetterSpacingSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractWordSpacingSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
@@ -1999,7 +1999,7 @@ inline void ExtractorCustom::extractContentSerialization(ExtractorState& state, 
 }
 
 #if ENABLE(DASHBOARD_SUPPORT)
-// MAVERICKS_BACKPORT: computed Dashboard regions serialize their resolved pixel offsets.
+// AQUAWEBKIT: computed Dashboard regions serialize their resolved pixel offsets.
 inline Ref<CSSValue> ExtractorCustom::extractWebkitDashboardRegion(ExtractorState& state)
 {
     auto& regions = state.style.dashboardRegions().list;

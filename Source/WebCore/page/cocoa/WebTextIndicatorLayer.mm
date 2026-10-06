@@ -47,7 +47,7 @@ constexpr CGFloat borderWidth = 0;
 constexpr CGFloat cornerRadius = 3;
 constexpr CGFloat dropShadowOffsetX [[maybe_unused]] = 0;
 constexpr CGFloat dropShadowOffsetY [[maybe_unused]] = 1;
-constexpr CGFloat lightBorderThickness = 1; // MAVERICKS_BACKPORT: 537 lightBorderThickness
+constexpr CGFloat lightBorderThickness = 1; // AQUAWEBKIT: 537 lightBorderThickness
 constexpr CGFloat findIndicatorShadowBlurRadius = 3; // 537 shadowBlurRadius
 constexpr CGFloat findIndicatorShadowAlpha = 204 / 255.; // 537 shadowAlpha
 
@@ -119,12 +119,12 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
 
     RetainPtr<CGColorRef> highlightColor;
     auto rimShadowColor = adoptCF(CGColorCreateGenericGray(0, 0.35));
-    // MAVERICKS_BACKPORT: 537's shadow — opaque-ish black rather than upstream's 0.2 gray.
+    // AQUAWEBKIT: 537's shadow — opaque-ish black rather than upstream's 0.2 gray.
     // auto dropShadowColor = adoptCF(CGColorCreateGenericGray(0, 0.2));
     auto dropShadowColor = adoptCF(CGColorCreateGenericGray(0, findIndicatorShadowAlpha));
     auto borderColor = adoptCF(CGColorCreateSRGB(0.96, 0.9, 0, 1));
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: 537's highlight gradient (242,239,0) -> (237,204,0). The flat
+    // AQUAWEBKIT: 537's highlight gradient (242,239,0) -> (237,204,0). The flat
     // findHighlightColor below is the modern (10.13+) fill.
     auto highlightGradientTopColor = adoptCF(CGColorCreateSRGB(242 / 255., 239 / 255., 0, 1));
     auto highlightGradientBottomColor = adoptCF(CGColorCreateSRGB(237 / 255., 204 / 255., 0, 1));
@@ -164,7 +164,7 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         RetainPtr<CALayer> dropShadowLayer = adoptNS([[CALayer alloc] init]);
         [dropShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
         [dropShadowLayer setShadowColor:dropShadowColor.get()];
-        // MAVERICKS_BACKPORT: 537's blur radius (3) rather than upstream's WebCore::dropShadowBlurRadius (2).
+        // AQUAWEBKIT: 537's blur radius (3) rather than upstream's WebCore::dropShadowBlurRadius (2).
         // 537 drew the shadow with CGContextSetShadow, whose blur radius spans about twice a
         // CALayer shadowRadius, so halve it to land on the same spread.
         [dropShadowLayer setShadowRadius:findIndicatorShadowBlurRadius / 2];
@@ -175,7 +175,7 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         [bounceLayer addSublayer:dropShadowLayer.get()];
         [bounceLayer setValue:dropShadowLayer.get() forKey:dropShadowLayerKey];
 
-        // MAVERICKS_BACKPORT: upstream's rim-shadow layer. 537 casts a single shadow, and the
+        // AQUAWEBKIT: upstream's rim-shadow layer. 537 casts a single shadow, and the
         // crossfade animation's lookup of this layer by key finds nothing.
         // RetainPtr<CALayer> rimShadowLayer = adoptNS([[CALayer alloc] init]);
         // [rimShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
@@ -189,7 +189,7 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         // [bounceLayer addSublayer:rimShadowLayer.get()];
         // [bounceLayer setValue:rimShadowLayer.get() forKey:rimShadowLayerKey];
 
-        // MAVERICKS_BACKPORT: 537 filled the outer rounded rect with the light border colour and
+        // AQUAWEBKIT: 537 filled the outer rounded rect with the light border colour and
         // then filled the 1px-inset inner rect with a vertical gradient. Reproduce that as a
         // gradient layer masked to the shrink-wrapped path, plus a stroke of the same path on top:
         // the stroke is masked too, so only its inner half — one point — survives, which is the

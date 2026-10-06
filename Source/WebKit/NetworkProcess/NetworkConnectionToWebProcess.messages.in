@@ -95,13 +95,13 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     [EnabledBy=StorageAccessAPIEnabled] StorageAccessQuirkForTopFrameDomain(URL topFrameURL) -> (Vector<WebCore::RegistrableDomain> domains)
     [EnabledBy=StorageAccessAPIEnabled] RequestStorageAccessUnderOpener(WebCore::RegistrableDomain domainInNeedOfStorageAccess, WebCore::PageIdentifier openerPageID, WebCore::RegistrableDomain openerDomain)
 
-    // MAVERICKS_BACKPORT: validate test or UI-authorized native-bundle capability before decoding.
+    // AQUAWEBKIT: validate test or UI-authorized native-bundle capability before decoding.
     # [EnabledBy=AllowTestOnlyOriginAccessAllowListIPC] AddOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
     [ExceptionForEnabledBy, Validator=allowsOriginAccessAllowListIPC] AddOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
-    // MAVERICKS_BACKPORT: validate test or UI-authorized native-bundle capability before decoding.
+    // AQUAWEBKIT: validate test or UI-authorized native-bundle capability before decoding.
     # [EnabledBy=AllowTestOnlyOriginAccessAllowListIPC] RemoveOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
     [ExceptionForEnabledBy, Validator=allowsOriginAccessAllowListIPC] RemoveOriginAccessAllowListEntry(String sourceOrigin, String destinationProtocol, String destinationHost, bool allowDestinationSubdomains);
-    // MAVERICKS_BACKPORT: validate test or UI-authorized native-bundle capability before decoding.
+    // AQUAWEBKIT: validate test or UI-authorized native-bundle capability before decoding.
     # [EnabledBy=AllowTestOnlyOriginAccessAllowListIPC] ResetOriginAccessAllowLists();
     [ExceptionForEnabledBy, Validator=allowsOriginAccessAllowListIPC] ResetOriginAccessAllowLists();
 

@@ -29,7 +29,7 @@
 #include "WebContextSupplement.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/NotificationClient.h>
-#include <optional> // MAVERICKS_BACKPORT: for providerPermissionForOrigin's return type.
+#include <optional> // AQUAWEBKIT: for providerPermissionForOrigin's return type.
 #include <pal/SessionID.h>
 #include <wtf/HashMap.h>
 #include <wtf/UUID.h>
@@ -66,7 +66,7 @@ public:
 
     virtual ~WebNotificationManagerProxy();
 
-    // MAVERICKS_BACKPORT: ShouldNotifyProviderOfManager::No installs a provider without
+    // AQUAWEBKIT: ShouldNotifyProviderOfManager::No installs a provider without
     // the addNotificationManager callback. The Safari 7 provider mirrored onto the
     // service worker singleton (WKNotificationManagerSetProvider) must stay invisible to
     // the client, which reports each notification event to every manager it knows —
@@ -74,7 +74,7 @@ public:
     enum class ShouldNotifyProviderOfManager : bool { No, Yes };
     void setProvider(std::unique_ptr<API::NotificationProvider>&&, ShouldNotifyProviderOfManager = ShouldNotifyProviderOfManager::Yes);
     HashMap<String, bool> notificationPermissions();
-    // MAVERICKS_BACKPORT: the client's published answer for one origin, asked of the provider at the
+    // AQUAWEBKIT: the client's published answer for one origin, asked of the provider at the
     // moment of the question. Safari 7's WKPageUIClient predates the queryPermission callback, so the
     // shims in WKPageSetPageUIClient read this instead.
     std::optional<bool> providerPermissionForOrigin(const String& originString);

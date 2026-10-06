@@ -32,7 +32,7 @@
 
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/Image.h>
-// MAVERICKS_BACKPORT: defaultIconWithSize below decodes in WebCore, not in ImageIO.
+// AQUAWEBKIT: defaultIconWithSize below decodes in WebCore, not in ImageIO.
 #import <WebCore/BitmapImage.h>
 #import <WebCore/ImageAdapter.h>
 #import <WebCore/SharedBuffer.h>
@@ -137,7 +137,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (NSImage *)defaultIconWithSize:(NSSize)size
 {
     static NeverDestroyed<RetainPtr<NSImage>> defaultImage = [] {
-        // MAVERICKS_BACKPORT: upstream's version of the lines below. defaultIconData is a big-endian
+        // AQUAWEBKIT: upstream's version of the lines below. defaultIconData is a big-endian
         // TIFF, and -[NSImage initWithData:] parses it inside ImageIO -- the one image parser nothing
         // in this port reaches. WebCore decodes it and the adapter wraps the frame.
         // RetainPtr imageData = adoptNS([[NSData alloc] initWithBytes:defaultIconData length:sizeof(defaultIconData)]);

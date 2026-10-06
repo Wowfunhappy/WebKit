@@ -400,7 +400,7 @@ void RenderLayerScrollableArea::scrollTo(const ScrollPosition& position)
         }
 
         // Update regions, scrolling may change the clip of a particular region.
-        protect(renderer.document())->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // MAVERICKS_BACKPORT: a scroll changes a Dashboard region's clip, so this path recollects them.
+        protect(renderer.document())->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // AQUAWEBKIT: a scroll changes a Dashboard region's clip, so this path recollects them.
         DebugPageOverlays::didLayout(protect(renderer.frame()));
     }
 
@@ -950,7 +950,7 @@ void RenderLayerScrollableArea::setHasHorizontalScrollbar(bool hasScrollbar)
     if (m_vBar)
         m_vBar->styleChanged();
 
-    m_layer.renderer().document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
+    m_layer.renderer().document().invalidateScrollbarDependentRegions(); // AQUAWEBKIT
 }
 
 void RenderLayerScrollableArea::setHasVerticalScrollbar(bool hasScrollbar)
@@ -978,7 +978,7 @@ void RenderLayerScrollableArea::setHasVerticalScrollbar(bool hasScrollbar)
     if (m_vBar)
         m_vBar->styleChanged();
 
-    m_layer.renderer().document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
+    m_layer.renderer().document().invalidateScrollbarDependentRegions(); // AQUAWEBKIT
 }
 
 ScrollableArea* RenderLayerScrollableArea::enclosingScrollableArea() const

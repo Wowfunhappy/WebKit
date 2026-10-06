@@ -33,7 +33,7 @@
 #include <wtf/RetainPtr.h>
 OBJC_CLASS NSDictionary;
 #elif PLATFORM(COCOA) && !ENABLE(REVEAL)
-// MAVERICKS_BACKPORT: the attributed string below.
+// AQUAWEBKIT: the attributed string below.
 #include <WebCore/AttributedString.h>
 #endif
 
@@ -54,7 +54,7 @@ struct DictionaryPopupInfo {
 #else
     String text;
 #if PLATFORM(COCOA) && !ENABLE(REVEAL)
-    // MAVERICKS_BACKPORT: the looked-up range's font-scaled attributed string. Lookup.framework's
+    // AQUAWEBKIT: the looked-up range's font-scaled attributed string. Lookup.framework's
     // definition panel (DictionaryLookupLegacy.mm) draws it over the page text.
     AttributedString attributedString;
 #endif

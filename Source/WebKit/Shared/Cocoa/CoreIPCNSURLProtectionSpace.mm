@@ -75,7 +75,7 @@ CoreIPCNSURLProtectionSpace::CoreIPCNSURLProtectionSpace(NSURLProtectionSpace *p
 
     id trust = dict[@"trust"];
     if (trust && CFGetTypeID((CFTypeRef)trust) == SecTrustGetTypeID())
-        // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+        // AQUAWEBKIT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
         // m_data.trust = { CoreIPCSecTrust((SecTrustRef)trust) };
         m_data.trust = { CoreIPCSecTrust((__bridge SecTrustRef)trust) };
 
@@ -119,7 +119,7 @@ RetainPtr<id> CoreIPCNSURLProtectionSpace::toID() const
 
     if (m_data.trust) {
         if (RetainPtr trust = m_data.trust->createSecTrust())
-            // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+            // AQUAWEBKIT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
             // [dict setObject:(id)trust.get() forKey:@"trust"];
             [dict setObject:(__bridge id)trust.get() forKey:@"trust"];
     }

@@ -92,7 +92,7 @@ public:
     bool isCustomIdentValue() const { return m_classType == ClassType::CustomIdent; }
     bool isCustomPropertyValue() const { return m_classType == ClassType::CustomProperty; }
 #if ENABLE(DASHBOARD_SUPPORT)
-    bool isDashboardRegionValue() const { return m_classType == ClassType::DashboardRegion; } // MAVERICKS_BACKPORT
+    bool isDashboardRegionValue() const { return m_classType == ClassType::DashboardRegion; } // AQUAWEBKIT
 #endif
     bool isDynamicRangeLimitValue() const { return m_classType == ClassType::DynamicRangeLimit; }
     bool isEasingFunctionValue() const { return m_classType == ClassType::EasingFunction; }
@@ -235,7 +235,7 @@ protected:
         CustomIdent,
         CustomProperty,
 #if ENABLE(DASHBOARD_SUPPORT)
-        DashboardRegion, // MAVERICKS_BACKPORT
+        DashboardRegion, // AQUAWEBKIT
 #endif
         DynamicRangeLimit,
         EasingFunction,

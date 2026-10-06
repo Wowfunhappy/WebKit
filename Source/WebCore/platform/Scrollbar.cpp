@@ -517,7 +517,7 @@ bool Scrollbar::supportsUpdateOnSecondaryThread() const
     // It's unfortunate that this needs to be done with an ifdef. Ideally there would be a way to feature-detect
     // the necessary support within AppKit.
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: on 10.9, NSScrollerImp cannot render into an externally provided CALayer
+    // AQUAWEBKIT: on 10.9, NSScrollerImp cannot render into an externally provided CALayer
     // ([NSScrollerImp setLayer:] never draws — the scrolling-tree-owned scrollbar layer stays empty,
     // observed as an invisible scrollbar once async frame scrolling is enabled). Report no
     // secondary-thread update support so scrollbar painting and imp management stay on the main
