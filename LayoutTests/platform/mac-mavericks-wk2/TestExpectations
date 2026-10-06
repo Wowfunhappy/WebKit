@@ -428,13 +428,15 @@ webkit.org/b/306474 imported/w3c/web-platform-tests/fetch/range/sw-416.https.win
 imported/w3c/web-platform-tests/html/cross-origin-opener-policy/resource-popup.https.html [ Skip ]
 
 # PDFs download instead of rendering inline: Source/WebKit/WebProcess/Plugins/PDF is stubbed and
-# PDFKIT_PLUGIN is off, by maintainer decision. Each of these waits on a PDF document that never loads.
+# PDFKIT_PLUGIN is off, by maintainer decision. Each of these waits on a PDF document that never loads, or
+# reads a PDF plugin that is never created.
 accessibility/mac/basic-embed-pdf-accessibility.html [ Skip ]
 accessibility/mac/iframe-pdf.html [ Skip ]
 accessibility/mac/scrolling-in-pdf-crash.html [ Skip ]
 http/tests/pdf/linearized-pdf-in-display-none-iframe.html [ Skip ]
 http/tests/pdf/linearized-pdf-in-iframe.html [ Skip ]
 http/tests/pdf/page-in-window-update-with-linearized-pdf-in-display-none-iframe.html [ Skip ]
+platform/mac-wk2/plugins/pdf-plugin-initial-scroll-position.html [ Skip ]
 
 # Upstream GTK/WPE archived results record intermittent timeouts.
 # https://results.webkit.org/api/results/layout-tests/media/video-webm-seek-singlekeyframe.html?platform=GTK&platform=WPE&recent=false&limit=500

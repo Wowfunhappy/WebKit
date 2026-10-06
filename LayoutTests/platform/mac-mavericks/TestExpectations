@@ -7,6 +7,10 @@
 # platform/glib records this media-cache timeout on the shared GStreamer backend.
 webkit.org/b/257624 http/tests/security/video-cross-origin-caching.html [ Skip ]
 
+# Apple's port records this constant failure on Sequoia: the Hebrew text breaks after the hyphen. This port's ICU 78.3
+# breaks there too (UAX #14 LB21a, HL (HY | HH) × [^HL]).
+webkit.org/b/294043 platform/mac/fast/text/line-break-locale.html [ Skip ]
+
 # platform/glib:5103-5107 skips these four ("Does not work on glib platforms", upstream da2cbcc). The
 # cross-site HLS segments are fetched through WebKit's loader without the cookie their playlist set,
 # which tracking prevention blocks for a localhost resource under a 127.0.0.1 page, so no media loads.
@@ -320,6 +324,26 @@ webkit.org/b/242145 media/mediacapabilities/mediacapabilities-allowed-containers
 media/media-allowed-codecs.html [ Skip ]
 media/media-allowed-containers.html [ Skip ]
 
+# These assert the AVFoundation engine's media policy; this port's engine is GStreamer. Its registry scanner
+# answers VP9 for any "vp09*" codec string (GStreamerRegistryScanner.cpp:569) where the AVFoundation engine
+# parses the VP9 parameters, it answers decodingInfo from its decoder registry without VideoToolbox's
+# software-VP9 profile, bit-depth, chroma and power policy, and it rejects HDR metadata only under
+# WPE_PLATFORM. Its MSE player reports the video size from the init segment (platform/glib's
+# media-source-resize baseline), so the resize the decompression-session fixture awaits after the first
+# media segment never comes.
+platform/mac/media/media-source/is-type-supported-vp9-codec-check.html [ Skip ]
+platform/mac/media/mediacapabilities/vp9-decodingInfo-sw.html [ Skip ]
+platform/mac/media/mediacapabilities/hevc-decodingInfo-hdr.html [ Skip ]
+platform/mac/media/media-source/videoplaybackquality-decompressionsession.html [ Skip ]
+
+# FairPlay Streaming ("com.apple.fps") runs on AVContentKeySession and AVStreamDataParser, which 10.9's
+# AVFoundation does not have, so requestMediaKeySystemAccess rejects the key system.
+platform/mac/media/encrypted-media/fps-createMediaKeys.html [ Skip ]
+platform/mac/media/encrypted-media/fps-createSession.html [ Skip ]
+platform/mac/media/encrypted-media/fps-encrypted-event.html [ Skip ]
+platform/mac/media/encrypted-media/fps-generateRequest.html [ Skip ]
+platform/mac/media/encrypted-media/fps-requestMediaKeySystemAccess.html [ Skip ]
+
 # Two independent want-of-platform-support failures, both on the GStreamer MSE backend.
 # (1) SourceBuffer.changeType is [EnabledBySetting=SourceBufferChangeTypeEnabled] (SourceBuffer.idl),
 # and UnifiedWebPreferences.yaml defaults that setting false under USE(GSTREAMER) for WebKit and
@@ -504,6 +528,14 @@ imported/w3c/web-platform-tests/css/css-text/text-justify/text-justify-and-trail
 imported/w3c/web-platform-tests/css/css-text/text-justify/text-justify-and-trailing-spaces-002.html [ Skip ]
 # The fallback for U+FFFC is ArialMT's inked box glyph, which moves the emphasis mark over combined text by 0.5em.
 imported/w3c/web-platform-tests/css/css-writing-modes/text-combine-upright-decorations-001.html [ Skip ]
+# CoreText's Hebrew fallback from Times, Courier and Helvetica is Lucida Grande, whose Hebrew advances differ.
+platform/mac/fast/text/international/bidi-fallback-font-weight.html [ Skip ]
+# Geeza Pro's Arabic runs are one point wider.
+platform/mac/fast/text/international/Geeza-Pro-vertical-metrics-adjustment.html [ Skip ]
+# CTFontGetAscent and CTFontGetDescent carry CoreText's rounding error: Garuda at 16px answers 20.544041 and
+# 9.456019 (its 1284 and 591 units give 20.544 and 9.456), so each text box overhangs the 30px line by
+# 0.00003px at both ends and the dump's enclosing rectangle reads 32px tall.
+platform/mac/fast/text/webfont-after-tiny-monospace-text.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: glyph display-list dumps.
 fast/text/glyph-display-lists/glyph-display-list-sharing-colr.html [ Skip ]
@@ -530,6 +562,8 @@ fast/text/font-weights.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: tests assuming fonts 10.9 does not ship (PingFang, SF, an italic or
 # language-specific system font).
+# The reference draws SF's password bullet U+F79A, which the system font here lacks; WebKit draws U+2022 instead.
+platform/mac/fast/text/text-security-disc-bullet-pua-mac.html [ Skip ]
 fast/text/postscript-bold.html [ Skip ]
 fast/text/variations/optical-sizing-trak-2.html [ Skip ]
 fast/text/font-weights-zh.html [ Skip ]
@@ -546,6 +580,8 @@ fast/text/international/unicode-bidi-plaintext-in-textarea.html [ Skip ]
 # The control font is .LucidaGrandeUI; SF is absent.
 fast/text/international/bidi-menulist.html [ Skip ]
 fast/text/international/pop-up-button-text-alignment-and-direction.html [ Skip ]
+fast/forms/datalist/datalist-searchinput-appearance.html [ Skip ]
+fast/forms/datalist/datalist-textinput-appearance.html [ Skip ]
 fast/text/drawBidiText.html [ Skip ]
 fast/text/updateNewFont.html [ Skip ]
 # The ja system text style resolves to .LucidaGrandeUI; SF and Hiragino Sans are absent.

@@ -1411,9 +1411,21 @@ imported/w3c/web-platform-tests/webrtc/RTCDataChannel-GC.html [ Skip ]
 # (platform/glib/TestExpectations:5232), and platform/gtk's baseline holds this port's failure.
 webkit.org/b/306474 imported/w3c/web-platform-tests/fetch/range/sw-416.https.window.html [ Skip ]
 
+# Upstream records the two extra EVENT(canplaythrough) lines (platform/mac-wk2/TestExpectations). The
+# GStreamer MSE player this port runs holds readyState below HaveCurrentData until preroll
+# (MediaPlayerPrivateGStreamerMSE::setReadyState), so the test takes its canplaythrough wait each pass.
+webkit.org/b/212091 platform/mac/media/media-source/media-source-change-source.html [ Skip ]
+
 # Maintainer scope decisions: internal display-list dumps and OT-SVG removal.
 # The SVG table is dropped, so the two display lists are identical.
 fast/text/glyph-display-lists/glyph-display-list-svg-unshared.html [ Skip ]
+
+# Maintainer scope decision: tests driving the upstream Web Inspector frontend through inspector-test.js
+# (upstream skips inspector/ for WebKit1). Once a frame target appears, that frontend enables Network on the
+# multiplexing target (NetworkManager.initializeTarget), which WebKit2 serves with ProxyingNetworkAgent;
+# LegacyWebPageInspectorController's multiplexing dispatcher has only Target and Browser, so those
+# commands fail with "'Network' domain was not found".
+platform/mac/media/video-blob-request-contains-range-header.html [ Skip ]
 
 # AsyncOverflowScrollingEnabled is exposed only to WebKit2; WebKitLegacy keeps it disabled.
 # This test requires the composited overflow-scrolling layers created by that preference.
