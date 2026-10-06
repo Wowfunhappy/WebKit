@@ -212,4 +212,15 @@ WK_POLYFILL_ADD_METHODS(PDFAnnotation)
 }
 @end
 
+// ---------------------------------------------------------------------------------------------------
+// -[PDFView documentScrollView]: the scroll view PDFKit builds inside a PDFView to host its pages.
+// 10.9's PDFView builds it at init (a PDFViewScrollView around -documentView), so it is the document
+// view's enclosing scroll view. WebKitLegacy's WebPDFView observes that scroll view's clip view.
+WK_POLYFILL_ADD_METHODS(PDFView)
+- (NSScrollView *)documentScrollView
+{
+    return [[self documentView] enclosingScrollView];
+}
+@end
+
 #pragma clang diagnostic pop
