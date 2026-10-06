@@ -47,6 +47,7 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 @interface WCClipperView () <WKNavigationDelegate, WKUIDelegate>
 - (void)widgetWindowDidMoveOnScreen;
 - (void)widgetWindowDidReorder;
+- (void)windowDidOrderIn:(uint32_t)window;
 - (void)pageDidPostMessage:(NSDictionary *)message;
 - (WKWebView *)currentWebView;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
@@ -62,6 +63,8 @@ extern int CGSMainConnectionID(void);
 extern CGError CGSOrderWindow(int connection, int window, int place, int relativeToWindow);
 extern CGError CGSOrderWindowList(int connection, const int *windows, const int *places, const int *relativeToWindows, int count);
 extern CGError CGSGetWindowBounds(int connection, int window, CGRect *bounds);
+extern CGError CGSGetWindowOwner(int connection, int window, int *ownerConnection);
+extern CGError CGSConnectionGetPID(int connection, pid_t *pid);
 // The window server's notifications that a window has moved and that its place among the windows has changed,
 // whoever moved or ordered it, for the windows a connection asks about; each request replaces the connection's
 // list.
@@ -70,6 +73,22 @@ extern CGError CGSRegisterConnectionNotifyProc(int connection, WCWindowServerNot
 extern CGError CGSRequestNotificationsForWindows(int connection, const uint32_t *windows, int count);
 static const uint32_t WCWindowServerWindowDidMoveNotification = 806;
 static const uint32_t WCWindowServerWindowDidReorderNotification = 808;
+// The window server reports each new window to every connection that asks about windows, and a watched window's
+// first ordering onto the screen and its end.
+static const uint32_t WCWindowServerWindowDidAppearNotification = 811;
+static const uint32_t WCWindowServerWindowDidOrderInNotification = 815;
+static const uint32_t WCWindowServerWindowDidCloseNotification = 804;
+
+// The process that owns a window: the Dock's close boxes and its widget windows belong to different
+// connections of the Dock.
+static pid_t ownerOfWindow(uint32_t window)
+{
+    int owner = 0;
+    pid_t pid = 0;
+    CGSGetWindowOwner(CGSMainConnectionID(), (int)window, &owner);
+    CGSConnectionGetPID(owner, &pid);
+    return pid;
+}
 
 // DashboardClient: the Dock lets a widget in Dashboard's layer put a window of its own on screen
 // from the moment Dashboard starts to show its widgets until the moment it starts to take them
@@ -287,6 +306,7 @@ static NSRect rectFromPageRect(id value)
     WCPlaceholderView *_placeholder;
     WCPageWindow *_pageWindow;
     BOOL _hasScreenshot;
+    pid_t _widgetWindowOwner;
     BOOL _dockAllowsPageWindow;
     NSClipView *_clipView;
     WebClipper *_controller;
@@ -471,20 +491,28 @@ static NSRect windowServerFrame(NSWindow *window)
         return;
     }
     [self updateThemeOverlay];
+    // The page window comes on screen at its place among the widget's windows.
+    NSDisableScreenUpdates();
     if (![_pageWindow isVisible])
         [_pageWindow orderFront:nil];
     [self orderPageWindowFront];
+    NSEnableScreenUpdates();
     if ([[_placeholder window] isKeyWindow])
         [self makePageWindowKey];
 }
 
+// The theme's attached window, while the Dock has it on screen with the widget's front.
 - (NSWindow *)attachedThemeWindow
 {
     NSWindow *themeWindow = [_currentTheme drawsInAttachedWindow] ? [_currentTheme window] : nil;
-    return [themeWindow windowNumber] > 0 ? themeWindow : nil;
+    if ([themeWindow windowNumber] <= 0)
+        return nil;
+    NSArray *info = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, (CGWindowID)[themeWindow windowNumber]));
+    return [[[info firstObject] objectForKey:(__bridge NSString *)kCGWindowIsOnscreen] boolValue] ? themeWindow : nil;
 }
 
-// The page window is the front one of the widget's windows.
+// The page window lies directly above the widget window and the theme's window, which leaves the widget's close box
+// in front of it.
 - (void)orderPageWindowFront
 {
     int connection = CGSMainConnectionID();
@@ -546,6 +574,7 @@ static NSRect windowServerFrame(NSWindow *window)
         // The window is one layer tree, frame view included.
         [[[_pageWindow contentView] superview] setWantsLayer:YES];
         [WCClipperView observeDashboardForWidgetWindow:[_placeholder window]];
+        _widgetWindowOwner = ownerOfWindow((uint32_t)[[_placeholder window] windowNumber]);
         [clipperViews addObject:self];
         [WCClipperView requestWidgetWindowNotifications];
         [WCClipperView askDock];
@@ -798,18 +827,54 @@ static NSHashTable *clipperViews;
         [self updatePageWindow];
 }
 
+// The Dock puts a widget's close box, in a window of its own, right above the widget window as it shows the close
+// boxes, so a new window of the Dock's is watched until it first comes on screen or goes away.
+static NSMutableSet<NSNumber *> *newWindows;
+
+static void newWindowDidOrderIn(uint32_t window)
+{
+    [newWindows removeObject:@(window)];
+    [WCClipperView requestWidgetWindowNotifications];
+    for (WCClipperView *view in [clipperViews allObjects])
+        [view windowDidOrderIn:window];
+}
+
 // The page window moves with the widget window, as the Dock drags or places the widget, and stays in front
-// of the widget's windows, which the Dock brings to the front at a press: the window server reports each move
-// and each reordering of the widgets' windows.
+// of the widget's windows, which the Dock brings to the front at a press, behind only the widget's close box:
+// the window server reports each move and each reordering of the widgets' windows, and the Dock's new windows.
 static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, int)
 {
     uint32_t window = *(uint32_t *)data;
+    if (type == WCWindowServerWindowDidAppearNotification) {
+        pid_t owner = ownerOfWindow(window);
+        for (WCClipperView *view in [clipperViews allObjects]) {
+            if (owner == view->_widgetWindowOwner) {
+                [newWindows addObject:@(window)];
+                [WCClipperView requestWidgetWindowNotifications];
+                // A window can come on screen before the window server watches it.
+                NSArray *info = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, window));
+                if ([[[info firstObject] objectForKey:(__bridge NSString *)kCGWindowIsOnscreen] boolValue])
+                    newWindowDidOrderIn(window);
+                break;
+            }
+        }
+        return;
+    }
+    if ([newWindows containsObject:@(window)]) {
+        if (type == WCWindowServerWindowDidOrderInNotification)
+            newWindowDidOrderIn(window);
+        else if (type == WCWindowServerWindowDidCloseNotification) {
+            [newWindows removeObject:@(window)];
+            [WCClipperView requestWidgetWindowNotifications];
+        }
+        return;
+    }
     for (WCClipperView *view in [clipperViews allObjects]) {
         if ((uint32_t)[[view->_placeholder window] windowNumber] != window)
             continue;
         if (type == WCWindowServerWindowDidMoveNotification)
             [view widgetWindowDidMoveOnScreen];
-        else
+        else if (type == WCWindowServerWindowDidReorderNotification)
             [view widgetWindowDidReorder];
     }
 }
@@ -822,8 +887,16 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
         registered = YES;
         CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidMoveNotification, NULL);
         CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidReorderNotification, NULL);
+        CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidAppearNotification, NULL);
+        CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidOrderInNotification, NULL);
+        CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidCloseNotification, NULL);
+        newWindows = [NSMutableSet set];
     }
     NSMutableData *windows = [NSMutableData data];
+    for (NSNumber *window in newWindows) {
+        uint32_t number = [window unsignedIntValue];
+        [windows appendBytes:&number length:sizeof(number)];
+    }
     for (WCClipperView *view in [clipperViews allObjects]) {
         uint32_t window = (uint32_t)[[view->_placeholder window] windowNumber];
         if (window)
@@ -838,6 +911,21 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
         return;
     [self placePageWindow];
     [self updateThemeOverlay];
+}
+
+// The widget's close box stays in front of the clip: the page window and the theme's attached window go below it.
+- (void)windowDidOrderIn:(uint32_t)window
+{
+    // A theme's attached window, the Dock's too, comes on screen right above the widget window.
+    if (window == (uint32_t)[[_currentTheme window] windowNumber])
+        return;
+    NSArray *windowsAbove = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenAboveWindow, (CGWindowID)[[_placeholder window] windowNumber]));
+    if ([[[windowsAbove lastObject] objectForKey:(__bridge NSString *)kCGWindowNumber] unsignedIntValue] != window)
+        return;
+    if ([self attachedThemeWindow])
+        [_currentTheme orderAttachedWindow:NSWindowBelow relativeTo:(int)window delayed:NO];
+    if ([_pageWindow isVisible])
+        CGSOrderWindow(CGSMainConnectionID(), (int)[_pageWindow windowNumber], NSWindowBelow, (int)window);
 }
 
 // The Dock brings the widget's windows to the front at a press; the page window goes back in front of them.
