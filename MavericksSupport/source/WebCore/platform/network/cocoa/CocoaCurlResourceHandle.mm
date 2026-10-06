@@ -168,6 +168,7 @@ void CocoaCurlResourceHandle::beginTransfer()
     }
     CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
+    options.contentEncodingSniffingPolicy = m_handle->contentEncodingSniffingPolicy();
     options.connectionURL = m_connectionURL;
     if (m_cachedEntry)
         addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());

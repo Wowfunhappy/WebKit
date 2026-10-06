@@ -290,20 +290,6 @@ target_link_options(WebKit PRIVATE -F${CMAKE_LIBRARY_OUTPUT_DIRECTORY} "LINKER:-
 #
 target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal")
 
-    # the modern "_WebKit" RunLoopType is unknown to 10.9's libxpc, which then falls
-    # back to dispatch_main() — that parks the main thread, so the main GCD queue is drained by a
-    # worker whose idle->active wakeup latency is ~166ms (~6Hz), throttling timers/rAF/page loads.
-    # "NSRunLoop" makes xpc_main run a real run loop on the main thread, which drains the main queue
-    # with immediate (dispatch-port) wakeups — fixing the throttle at its source instead of papering
-    # over it with a display-link heartbeat.
-
-
-
-
-# brotli decoder for NetworkDataTaskCocoa's response decoding — modern CFNetwork
-# advertises and decodes "br" transparently; 10.9 CFNetwork passes br bodies through raw, so the
-# NetworkProcess decodes them itself (same vendored static brotli WebCore's WOFF2 decoder uses).
-
 # --------------------------------------------------------------------------
 # Entries withheld from upstream's lists.
 # --------------------------------------------------------------------------
@@ -353,11 +339,6 @@ list(APPEND WebKit_SOURCES
     # under ENABLE(CONTENT_FILTERING) (WebProcess/WebProcess.cpp), which registers the process as the
     # client WebCore's MockContentFilterManager notifies when a test changes the mock settings.
     WebProcess/Network/WebMockContentFilterManager.cpp
-)
-
-list(APPEND WebKit_LIBRARIES
-    "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
-    "${MAVERICKS_DEPS}/lib/libbrotlicommon.a"
 )
 
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES

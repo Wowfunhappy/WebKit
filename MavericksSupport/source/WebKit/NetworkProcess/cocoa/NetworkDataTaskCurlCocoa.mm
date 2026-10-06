@@ -102,6 +102,7 @@ NetworkDataTaskCurlCocoa::NetworkDataTaskCurlCocoa(NetworkSession& session, Netw
     , m_requiredCookiesVersion(parameters.requiredCookiesVersion)
     , m_shouldPreconnect(parameters.shouldPreconnectOnly != PreconnectOnly::No)
     , m_shouldSniff(parameters.contentSniffingPolicy == ContentSniffingPolicy::SniffContent)
+    , m_contentEncodingSniffingPolicy(parameters.contentEncodingSniffingPolicy)
     , m_isMainResource(parameters.mainResourceNavigationDataForAnyFrame.has_value())
     , m_needsCertificateInfo(parameters.needsCertificateInfo)
 {
@@ -208,6 +209,7 @@ void NetworkDataTaskCurlCocoa::setup()
     RetainPtr<NSURLSessionConfiguration> configuration = wrapper->session.get().configuration;
     CocoaCurlTransferOptions options(configuration.get().TLSMinimumSupportedProtocolVersion);
     options.request = m_request;
+    options.contentEncodingSniffingPolicy = m_contentEncodingSniffingPolicy;
     options.connectionURL = m_connectionURL;
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body, &m_session->blobRegistry());

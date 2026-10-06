@@ -25,6 +25,7 @@
  */
 #include "config.h"
 #include "CocoaCurlTransfer.h"
+#include "CocoaCurlContentDecoder.h"
 #include "CocoaCurlClientHello.h"
 #include "CocoaCurlProxyResolver.h"
 #include "BlobRegistryImpl.h"
@@ -681,8 +682,8 @@ bool CocoaCurlTransfer::setup()
     // WebCore applies the default-port restriction and document sandbox to HTTP/0.9 responses.
     CURL_SET(CURLOPT_HTTP09_ALLOWED, 1L);
     CURL_SET(CURLOPT_SUPPRESS_CONNECT_HEADERS, 0L);
-    CURL_SET(CURLOPT_ACCEPT_ENCODING, COCOA_CURL_ACCEPT_ENCODING);
-    CURL_SET(CURLOPT_HTTP_CONTENT_DECODING, m_options.decodeContent ? 1L : 0L);
+    // The transfer decodes the body itself, by CFNetwork's rules (CocoaCurlContentDecoder).
+    CURL_SET(CURLOPT_HTTP_CONTENT_DECODING, 0L);
     CURL_SET(CURLOPT_SSL_VERIFYPEER, 1L);
     // SecPolicyCreateSSL validates the host and applies native trust decisions.
     CURL_SET(CURLOPT_SSL_VERIFYHOST, 0L);
@@ -980,9 +981,6 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
     }
     curl_off_t length = -1;
     curl_easy_getinfo(m_easy, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
-    auto contentEncoding = m_responseHeaders.get(HTTPHeaderName::ContentEncoding);
-    if (m_options.decodeContent && !contentEncoding.isEmpty() && !equalLettersIgnoringASCIICase(contentEncoding, "identity"_s))
-        length = -1;
     if (m_status == 101)
         length = 0;
     ResourceResponse response(URL { m_options.request.url() }, String(), length, String());
@@ -1008,6 +1006,9 @@ CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
         });
         return HeaderSection::Consumed;
     }
+    m_decoder = m_status == 101 ? nullptr : CocoaCurlContentDecoder::create(response, m_options.contentEncodingSniffingPolicy);
+    if (m_decoder)
+        response.setExpectedContentLength(-1);
     m_response.response = WTF::move(response);
     m_response.contentType = m_contentType;
     char* canonicalName = nullptr;
@@ -1126,9 +1127,9 @@ size_t CocoaCurlTransfer::data(std::span<const char> bytes)
     activity();
     if (m_status == 101)
         return bytes.size();
-    // libcurl coalesces decoded output in its pause buffer. A
-    // replay can include both the delivered prefix and previously unseen bytes.
-    // Keep the prefix until this complete callback buffer can be acknowledged.
+    // libcurl coalesces received bytes in its pause buffer. A replay can include both the delivered
+    // prefix and previously unseen bytes. Keep the prefix until this complete callback buffer can be
+    // acknowledged.
     if (bytes.size() <= m_deliveredDataBytes) {
         m_deliveredDataBytes -= bytes.size();
         return bytes.size();
@@ -1147,7 +1148,21 @@ size_t CocoaCurlTransfer::data(std::span<const char> bytes)
         if (finalizeHeaders() == HeaderSection::Rejected)
             return CURL_WRITEFUNC_ERROR;
     }
-    m_data = SharedBuffer::create(asBytes(bytes.subspan(m_deliveredDataBytes)));
+    auto received = asBytes(bytes.subspan(m_deliveredDataBytes));
+    if (m_decoder) {
+        m_decoder->append(received);
+        if (!takeDecodedData()) {
+            m_decodeFailed = true;
+            return CURL_WRITEFUNC_ERROR;
+        }
+        // Input that completes no output yet is taken without a client round trip.
+        if (!m_data) {
+            m_deliveredDataBytes = 0;
+            return bytes.size();
+        }
+    } else
+        m_data = SharedBuffer::create(received);
+    m_dataReceivedBytes = received.size();
     ++m_clientInteractions;
     m_timer.stop();
     m_scheduler->runLoop().dispatch([transfer = Ref { *this }] {
@@ -1233,7 +1248,7 @@ void CocoaCurlTransfer::deliverData()
     Ref data = m_data.releaseNonNull();
     m_metrics.responseBodyDecodedSize += data->size();
     ++m_clientInteractions;
-    client->curlReceivedData(data.get(), [transfer = Ref { *this }, size = data->size()] {
+    client->curlReceivedData(data.get(), [transfer = Ref { *this }, size = std::exchange(m_dataReceivedBytes, 0)] {
         --transfer->m_clientInteractions;
         if (!transfer->m_running)
             return;
@@ -1242,11 +1257,27 @@ void CocoaCurlTransfer::deliverData()
     });
 }
 
+// The decoder's next output, at most one libcurl write's worth; libcurl's buffer is acknowledged only
+// once every byte decoded from it is delivered.
+bool CocoaCurlTransfer::takeDecodedData()
+{
+    auto decoded = m_decoder->read(CURL_MAX_WRITE_SIZE);
+    if (!decoded)
+        return false;
+    if (!decoded->isEmpty())
+        m_data = SharedBuffer::create(WTF::move(*decoded));
+    return true;
+}
+
 void CocoaCurlTransfer::resumeTransfer()
 {
     if (!m_running || m_deferred || m_clientInteractions)
         return;
     activity();
+    if (!m_data && m_decoder && !takeDecodedData()) {
+        finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
+        return;
+    }
     if (m_data) {
         deliverData();
         return;
@@ -1442,6 +1473,11 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
     }
     if (!m_invalidResponse.isEmpty()) {
         finish(NSURLErrorCannotParseResponse, m_invalidResponse);
+        return;
+    }
+    // CFNetwork fails a body it cannot decode, or one that ends partway through its coding.
+    if (m_decodeFailed || (result == CURLE_OK && m_decoder && !m_decoder->isComplete() && !m_clientInteractions && !m_deferred && !m_data)) {
+        finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
         return;
     }
     // A close-delimited message ends its header section at the connection close, which libcurl

@@ -1038,7 +1038,8 @@ fi
 ( cd "$d" && make -j2 && make install ) || exit 1
 
 echo "==== zstd 1.5.7 ===="
-# Zstandard is one of the content encodings a modern browser accepts, so curl decodes it.
+# Zstandard is one of the content encodings a modern browser accepts; curl advertises it and the
+# Cocoa curl transfer decodes it.
 # The library-only build needs neither the command-line tools nor its worker threads,
 # which serve compression this build never performs.
 d=$(get https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz zstd) || exit 1
@@ -1756,6 +1757,7 @@ cp -p "$STAGE/include/gcrypt.h"      "$DEST/include/"
 cp -p "$STAGE/include/libtasn1.h"    "$DEST/include/"
 cp -p "$STAGE/include/libpsl.h"      "$DEST/include/"
 cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
+cp -p "$STAGE/include/zstd.h" "$STAGE/include/zstd_errors.h" "$DEST/include/"
 cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -p "$STAGE/include/opentype-sanitiser.h" "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
@@ -2018,6 +2020,7 @@ require_glob "$DEST/lib/libcrypto.dylib"
 require_glob "$DEST/lib/libpsl.5.dylib"
 require_glob "$DEST/lib/libzstd.1.dylib"
 require_glob "$DEST/lib/libzstd.dylib"
+require_glob "$DEST/include/zstd.h"
 require_glob "$DEST/lib/libnghttp2.14.dylib"
 require_glob "$DEST/lib/libnghttp2.dylib"
 require_glob "$DEST/lib/libcurl.4.dylib"

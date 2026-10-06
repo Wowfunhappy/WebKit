@@ -10,6 +10,7 @@
 #include "CocoaCurlTLS.h"
 #include <WebCore/FormData.h>
 #include <WebCore/NetworkLoadMetrics.h>
+#include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 #include <wtf/AbstractRefCounted.h>
@@ -23,6 +24,7 @@
 OBJC_CLASS NSCachedURLResponse;
 
 namespace WebCore {
+class CocoaCurlContentDecoder;
 class CocoaCurlProxyResolver;
 class NetworkStorageSession;
 class ResourceError;
@@ -121,7 +123,8 @@ struct CocoaCurlTransferOptions {
     long authentication { CURLAUTH_NONE };
     long proxyAuthentication { CURLAUTH_NONE };
     bool preconnect { false };
-    bool decodeContent { true };
+    // Under the default policy a gzip archive arrives encoded, as CFNetwork delivers it.
+    ContentEncodingSniffingPolicy contentEncodingSniffingPolicy { ContentEncodingSniffingPolicy::Default };
 };
 
 struct CocoaCurlTransferResponse {
@@ -176,6 +179,7 @@ private:
     void publishResponse();
     bool evaluateResponseTrust();
     void deliverData();
+    bool takeDecodedData();
     void resumeTransfer();
     void updateTLS();
     void updateMetrics();
@@ -232,8 +236,13 @@ private:
     // Client interactions overlap: a trust evaluation, an identity request and a signature can all be
     // outstanding at once, and the transfer resumes when the last of them retires.
     unsigned m_clientInteractions { 0 };
-    // decoded output may grow while paused; acknowledge only bytes the client received.
+    // The response body's decoding, once the final header section names its codings.
+    std::unique_ptr<CocoaCurlContentDecoder> m_decoder;
+    // Received body bytes stay in libcurl's pause buffer until the client takes their output; a replay
+    // presents the delivered prefix again. Both counts are of received bytes.
     size_t m_deliveredDataBytes { 0 };
+    size_t m_dataReceivedBytes { 0 };
+    bool m_decodeFailed { false };
     bool m_acknowledgeHeader { false };
     bool m_deferred { false };
 };

@@ -146,6 +146,7 @@ private:
     int m_proxyPort { 0 };
     bool m_shouldPreconnect { false };
     bool m_shouldSniff { false };
+    WebCore::ContentEncodingSniffingPolicy m_contentEncodingSniffingPolicy { WebCore::ContentEncodingSniffingPolicy::Default };
     bool m_responseNeedsSniff { false };
     bool m_noSniff { false };
     Vector<uint8_t> m_sniffPrefix;
