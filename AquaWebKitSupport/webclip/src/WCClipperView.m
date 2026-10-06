@@ -1204,6 +1204,28 @@ static const CGFloat WCMaximumClipperLength = 20000;
     return image;
 }
 
+// Copies a screen region of the window's current on-screen contents, including the composited layers
+// the clipped page is drawn with.
+static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destination)
+{
+    CGFloat primaryHeight = NSMaxY([[[NSScreen screens] objectAtIndex:0] frame]);
+    CGRect captureRect = CGRectMake(screenRect.origin.x, primaryHeight - NSMaxY(screenRect), screenRect.size.width, screenRect.size.height);
+    CGImageRef image = CGWindowListCreateImage(captureRect, kCGWindowListOptionIncludingWindow, (CGWindowID)[window windowNumber], kCGWindowImageBoundsIgnoreFraming);
+    CGContextDrawImage((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort], NSRectToCGRect(destination), image);
+    CGImageRelease(image);
+}
+
+- (NSImage *)clipViewImage
+{
+    NSRect region = [self clipViewFrame];
+    NSImage *image = [[NSImage alloc] initWithSize:region.size];
+    [image lockFocus];
+    [[NSGraphicsContext currentContext] setCompositingOperation:NSCompositeCopy];
+    copyWindowRegion([self window], [[self window] convertRectToScreen:[self convertRect:region toView:nil]], NSMakeRect(0, 0, region.size.width, region.size.height));
+    [image unlockFocus];
+    return image;
+}
+
 - (NSPoint)mouseLocationInView
 {
     return [self convertPoint:[[self window] convertScreenToBase:[NSEvent mouseLocation]] fromView:nil];
@@ -1342,8 +1364,9 @@ static const CGFloat WCMaximumClipperLength = 20000;
     _progressTimer = nil;
 }
 
-- (NSImage *)thumbnailOfImage:(NSImage *)image
+- (NSImage *)thumbnail
 {
+    NSImage *image = [self clipViewImage];
     NSSize size = [image size];
     if (size.width / size.height >= 1.0) {
         [image setSize:NSMakeSize((float)size.height, size.height)];
@@ -1361,17 +1384,12 @@ static const CGFloat WCMaximumClipperLength = 20000;
     return thumbnail;
 }
 
-// The back shows the clip's content in its theme previews.
 - (void)flipToBack
 {
     [self setIsEditingCameraPosition:NO];
-    [self clipViewContent:^(NSImage *content) {
-        if (!_didFlipToFront)
-            return;
-        [[self controller] setThumbnailAndFlipToBack:[self thumbnailOfImage:content ?: [self clipViewContentWithPageSnapshot:nil inRect:NSZeroRect]]];
-        _didFlipToFront = NO;
-        [self updatePageWindow];
-    }];
+    [[self controller] setThumbnailAndFlipToBack:[self thumbnail]];
+    _didFlipToFront = NO;
+    [self updatePageWindow];
 }
 
 - (NSRect)clipViewBounds
