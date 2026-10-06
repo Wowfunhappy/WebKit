@@ -386,12 +386,9 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @property (nullable, readwrite, retain) NSURL *_siteForCookies;
 @property (readwrite) BOOL _isTopLevelNavigation;
 #endif
-// AQUAWEBKIT: declared unconditionally. This port sets ENABLE(SERVER_PRECONNECT) to 0, but
-// NetworkSessionCocoa reads task._preconnect outside any SERVER_PRECONNECT guard (the legacy-TLS challenge
-// check), so the declaration has to exist even where the feature does not. The getter is polyfilled to
-// answer NO, which is the true state of a process that never creates a preconnect task.
+#if ENABLE(SERVER_PRECONNECT)
 @property (nonatomic, assign) BOOL _preconnect;
-// (end AQUAWEBKIT: _preconnect declared outside the SERVER_PRECONNECT guard)
+#endif
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
 @property (readwrite, assign) int64_t _bytesPerSecondLimit;
 #endif

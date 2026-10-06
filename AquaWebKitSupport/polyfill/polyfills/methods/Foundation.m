@@ -1581,21 +1581,17 @@ WK_POLYFILL_ADD_METHODS(NSLocale)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// +[NSURLProtocol _protocolClassForRequest:skipAppSSO:] (10.10+ SPI). WebCoreNSURLExtras sends it
-// unconditionally to decide whether a request is claimed by a registered NSURLProtocol before it takes
-// the App SSO path; on 10.9 the selector does not exist and the send throws. App SSO (the Kerberos/AAA
-// extension point the flag names) does not exist on 10.9 at all, so no protocol class can be the App SSO
-// one: Nil is the whole answer, and WebCoreNSURLExtras falls back to the standard URL-loading path.
-//
-// Named directly: NSURLProtocol is a class this build's SDK and the 10.9 runtime agree on (both home
-// _OBJC_CLASS_$_NSURLProtocol in Foundation — checked in MacOSX26.1.sdk's Foundation.tbd and in
-// 10.9.5's Foundation export table), so there is no moved-framework classref to avoid.
+// +[NSURLProtocol _protocolClassForRequest:skipAppSSO:] (macOS 11+ SPI): the protocol class that would
+// handle the request, passing over the App SSO protocol when asked to. 10.9 has no App SSO protocol, so
+// the answer is 10.9's own +_protocolClassForRequest:.
+@interface NSURLProtocol (WKPolyfill10_9SPI)
++ (Class)_protocolClassForRequest:(NSURLRequest *)request;
+@end
 WK_POLYFILL_ADD_METHODS(NSURLProtocol)
 + (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO
 {
-    (void)request;
     (void)skipAppSSO;
-    return Nil;
+    return [self _protocolClassForRequest:request];
 }
 @end
 
@@ -2945,13 +2941,14 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 // (NetworkSessionCocoa::sessionWrapperForTask), which is where 10.9 does honour it, and by the time
 // this is called the task is already on that session and there is nothing left for it to do.
 - (void)_adoptEffectiveConfiguration:(id)configuration { (void)configuration; }
-// -_preconnect records what it is told and nothing more. With
-// ENABLE(SERVER_PRECONNECT) off for this port (PlatformEnableCocoa.h) WebKit never creates a preconnect
-// task, so there is no transfer to suppress here; the getter exists because NetworkSessionCocoa reads it
-// outside any SERVER_PRECONNECT guard, and NO is the true answer on a system that has no preconnect.
+// -_preconnect: a task that only opens its connection and never sends its request. 10.9's
+// URL loading cannot open a connection without sending the request, so a task marked for preconnect is
+// cancelled: it sends nothing, and its delegate hears NSURLErrorCancelled.
 - (void)set_preconnect:(BOOL)preconnect
 {
     objc_setAssociatedObject(self, wk_taskIsPreconnectKey, preconnect ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (preconnect)
+        [(NSURLSessionTask *)self cancel];
 }
 - (BOOL)_preconnect
 {
@@ -3474,11 +3471,12 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSURLSession, "NSURLSession", "__NSCFURLSession")
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] (10.11+ CFNetwork SPI) reports that CFNetwork's
-// dynamic-HSTS store rewrote this request's http:// to https://. 10.9's CFNetwork has no HSTS store and
-// never upgrades a scheme, so no request on this OS was ever HSTS-upgraded. Lets
-// WebCoreURLResponse.mm's synthesizeRedirectResponseIfNecessary call it unguarded (upstream's other
-// call sites carry their own respondsToSelector: guard, which now answers through this body too).
+// -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] reports the mark CFNetwork puts on a request it
+// rewrote from http:// to https:// for a dynamic-HSTS host. 10.9's CFNetwork applies dynamic HSTS while
+// canonicalizing a request (HTTPProtocol::_createMutableCanonicalRequest) and marks nothing: the result
+// is a copy carrying the https URL. A connection delegate sees that upgrade as its first
+// willSendRequest:, with no redirect response and the connection's currentRequest still http://. No
+// request on 10.9 carries the mark.
 WK_POLYFILL_ADD_METHODS(NSURLRequest)
 - (BOOL)_schemeWasUpgradedDueToDynamicHSTS { return NO; }
 @end

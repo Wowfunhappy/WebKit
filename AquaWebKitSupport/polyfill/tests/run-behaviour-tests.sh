@@ -407,6 +407,16 @@ probe_suggested_filename() {
         "$T/suggested_filename"
 }
 
+probe_protocol_class() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/protocol_class" "$TBEHAV/Foundation-protocol-class.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/protocol_class"
+}
+
 probe_backup_exclusion() {
     prepare_method_objects Foundation &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/backup_exclusion" "$TBEHAV/Foundation-backup-exclusion.m" \
@@ -889,6 +899,7 @@ run_probe rsabssa "$@"
 run_probe item_provider "$@"
 run_probe samesite "$@"
 run_probe suggested_filename "$@"
+run_probe protocol_class "$@"
 run_probe backup_exclusion "$@"
 run_probe shared_cookie_jar "$@"
 run_probe cookie_change_churn "$@"
