@@ -275,7 +275,7 @@ static void *wkResolveAVCapturePhotoOutput(void)
         Class stillImageOutput = NSClassFromString(@"AVCaptureStillImageOutput");
         if (!stillImageOutput)
             return;     // AVFoundation is not in this process, so nothing can be asking for a capture
-        Class cls = objc_allocateClassPair(stillImageOutput, "WKMavPolyfillPriv_AVCapturePhotoOutput", 0);
+        Class cls = objc_allocateClassPair(stillImageOutput, "WKPolyfillPriv_AVCapturePhotoOutput", 0);
         if (!cls)
             return;
         // class_addMethod's prototype takes IMP, so the method implementation reaches it through the

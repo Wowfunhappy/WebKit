@@ -24,7 +24,7 @@
 // root class with no superclass. Declare a minimal @interface naming the correct superclass first, so
 // the class gets real ObjC metadata.
 //
-// Each stub is registered in the ObjC runtime under a PRIVATE name (WKMavPolyfillPriv_<Name>) via
+// Each stub is registered in the ObjC runtime under a PRIVATE name (WKPolyfillPriv_<Name>) via
 // objc_runtime_name, and the real system symbol _OBJC_CLASS_$_<Name> is exported as an ALIAS to it
 // (WK_PRIV_CLASS / WK_PRIV_ALIAS below). WebKit's compiled classrefs bind to the aliased symbol, so
 // [<Name> ...] still resolves to the stub -- but objc_getClass("<Name>") / NSClassFromString(@"<Name>") /
@@ -49,11 +49,11 @@
 
 // Place before an @interface to register the class under a private runtime name (the @interface name
 // stays usable in code, so self-references like [UTType class] still compile).
-#define WK_PRIV_CLASS(name) __attribute__((objc_runtime_name("WKMavPolyfillPriv_" #name)))
+#define WK_PRIV_CLASS(name) __attribute__((objc_runtime_name("WKPolyfillPriv_" #name)))
 // Place after the matching @implementation to export the real _OBJC_CLASS_$_<name> (and metaclass)
 // symbol as an alias of the privately-named class, so WebKit's classrefs bind to the stub.
 #define WK_PRIV_ALIAS(name) __asm__( \
-    ".globl _OBJC_CLASS_$_" #name "\n\t.set _OBJC_CLASS_$_" #name ", _OBJC_CLASS_$_WKMavPolyfillPriv_" #name "\n\t" \
-    ".globl _OBJC_METACLASS_$_" #name "\n\t.set _OBJC_METACLASS_$_" #name ", _OBJC_METACLASS_$_WKMavPolyfillPriv_" #name)
+    ".globl _OBJC_CLASS_$_" #name "\n\t.set _OBJC_CLASS_$_" #name ", _OBJC_CLASS_$_WKPolyfillPriv_" #name "\n\t" \
+    ".globl _OBJC_METACLASS_$_" #name "\n\t.set _OBJC_METACLASS_$_" #name ", _OBJC_METACLASS_$_WKPolyfillPriv_" #name)
 
 #endif // WK_PRIV_CLASS_H

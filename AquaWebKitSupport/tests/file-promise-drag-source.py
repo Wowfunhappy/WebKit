@@ -93,7 +93,7 @@ class LegacyView(SourceView):
 
 class ProviderView(SourceView):
     def mouseDragged_(self, event):
-        providerClass = objc.lookUpClass('WKMavPolyfillPriv_NSFilePromiseProvider')
+        providerClass = objc.lookUpClass('WKPolyfillPriv_NSFilePromiseProvider')
         items = []
         for name, extension, uti, contents in NAMES:
             provider = providerClass.alloc().initWithFileType_delegate_(uti, self.delegate)

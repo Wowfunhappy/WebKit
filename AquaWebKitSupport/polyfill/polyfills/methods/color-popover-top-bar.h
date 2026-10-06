@@ -27,7 +27,7 @@
 
 static const char wkColorTopBarKey;
 static const char wkColorTopBarBaseHeightKey;
-static const char wkColorTopBarClassName[] = "WKMavPolyfillColorSuggestionMatrix";
+static const char wkColorTopBarClassName[] = "WKPolyfillColorSuggestionMatrix";
 
 @protocol WKColorSwatchMatrix <NSObject>
 - (NSSize)swatchSize;

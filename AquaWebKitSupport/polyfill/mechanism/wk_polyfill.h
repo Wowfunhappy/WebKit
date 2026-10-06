@@ -238,10 +238,10 @@ struct wk_polyfill_class_entry {
 // function entry this one has to be found by scanning loaded images (see
 // lookupPolyfillClass). Keeping them in separate sections keeps that scan off the hot registry.
 #define WK_POLYFILL_CLASS(PROVIDER, NAME)                                     \
-    extern char OBJC_CLASS_$_WKMavPolyfillPriv_##NAME;                        \
+    extern char OBJC_CLASS_$_WKPolyfillPriv_##NAME;                        \
     __attribute__((used, section("__DATA,__wk_clsmap")))                      \
     static struct wk_polyfill_class_entry wk_pf_class_##NAME =                \
-        { #NAME, PROVIDER, &OBJC_CLASS_$_WKMavPolyfillPriv_##NAME, NULL };    \
+        { #NAME, PROVIDER, &OBJC_CLASS_$_WKPolyfillPriv_##NAME, NULL };    \
     struct wk_pf_swallow_semicolon_class_##NAME
 
 // A stub that cannot be written as an @implementation because its superclass lives in a framework

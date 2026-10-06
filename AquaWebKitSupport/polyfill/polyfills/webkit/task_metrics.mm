@@ -96,12 +96,12 @@ static void wkNoteResponse(NSURLSessionTaskTransactionMetrics *transaction, NSUR
     wkRecordResponse(transaction, response);
 }
 
-@interface WKMavURLSessionMetricsRelay : NSObject
+@interface WKPolyfillURLSessionMetricsRelay : NSObject
 - (instancetype)initWithDelegate:(id)delegate;
 @property (nonatomic, readonly) id wkRelayedDelegate;
 @end
 
-@implementation WKMavURLSessionMetricsRelay {
+@implementation WKPolyfillURLSessionMetricsRelay {
     id _delegate;
 }
 
@@ -191,7 +191,7 @@ static void wkNoteResponse(NSURLSessionTaskTransactionMetrics *transaction, NSUR
 WK_POLYFILL_REPLACE_METHODS_ON(NSURLSession, "__NSCFURLSession")
 + (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)configuration delegate:(id<NSURLSessionDelegate>)delegate delegateQueue:(NSOperationQueue *)queue
 {
-    id relay = delegate ? [[WKMavURLSessionMetricsRelay alloc] initWithDelegate:delegate] : nil;
+    id relay = delegate ? [[WKPolyfillURLSessionMetricsRelay alloc] initWithDelegate:delegate] : nil;
     return WK_ORIGINAL_METHOD(NSURLSession *, (NSURLSessionConfiguration *, id, NSOperationQueue *), configuration, relay, queue);
 }
 
@@ -199,8 +199,8 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSURLSession, "__NSCFURLSession")
 - (id<NSURLSessionDelegate>)delegate
 {
     id delegate = WK_ORIGINAL_METHOD(id, ());
-    if ([delegate isKindOfClass:[WKMavURLSessionMetricsRelay class]])
-        return [(WKMavURLSessionMetricsRelay *)delegate wkRelayedDelegate];
+    if ([delegate isKindOfClass:[WKPolyfillURLSessionMetricsRelay class]])
+        return [(WKPolyfillURLSessionMetricsRelay *)delegate wkRelayedDelegate];
     return delegate;
 }
 @end

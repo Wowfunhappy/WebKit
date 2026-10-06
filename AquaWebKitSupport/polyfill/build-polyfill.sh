@@ -75,7 +75,7 @@ done
 
 echo "### compiling polyfills/classes (one shared definition each)"
 # Exported: other images bind to these classes through the reexport-and-repoint in
-# scripts/stage-frameworks.sh, and hiding would drop the WKMavPolyfillPriv_* aliases from the export table.
+# scripts/stage-frameworks.sh, and hiding would drop the WKPolyfillPriv_* aliases from the export table.
 # -Werror: against the 10.9 headers a post-10.9 API is not declared at all, so -Wunguarded-availability
 # has nothing to fire on and the diagnostic that does catch a send to an absent selector -- "may not
 # respond to" -- carries no flag of its own. Promoting the whole set is what makes it stop the build;

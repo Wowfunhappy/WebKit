@@ -342,12 +342,12 @@ enum {
     WK_CS_OPS_BLOB = 10,
 };
 
-enum { kMavSecTaskPidOffset = 16 };
+enum { kWKSecTaskPidOffset = 16 };
 
 static pid_t wk_pidForSecTask(SecTaskRef task)
 {
     uint32_t pid;
-    memcpy(&pid, (const unsigned char *)task + kMavSecTaskPidOffset, sizeof(pid));
+    memcpy(&pid, (const unsigned char *)task + kWKSecTaskPidOffset, sizeof(pid));
     return (pid_t)pid;
 }
 
@@ -496,16 +496,16 @@ WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef t
 // chain, the result, and the window trustd dates that result with (see "a trust's evaluation, carried
 // with it" below). A receiver whose evaluation is absent or has lapsed re-evaluates, and the policies,
 // anchors and date are what make that re-evaluation answer the sender's question.
-static CFStringRef const kMavTrustCertificates = CFSTR("certificates");
-static CFStringRef const kMavTrustPolicies = CFSTR("policies");
-static CFStringRef const kMavTrustAnchors = CFSTR("anchors");
-static CFStringRef const kMavTrustNetworkFetchAllowed = CFSTR("networkFetchAllowed");
-static CFStringRef const kMavTrustVerifyDate = CFSTR("verifyDate");
-static CFStringRef const kMavTrustSettings = CFSTR("settings");
-static CFStringRef const kMavTrustUnreadableSetting = CFSTR("unreadable");
-static CFStringRef const kMavPolicyOID = CFSTR("oid");
-static CFStringRef const kMavPolicyServerName = CFSTR("serverName");
-static CFStringRef const kMavPolicyFlags = CFSTR("flags");
+static CFStringRef const kWKTrustCertificates = CFSTR("certificates");
+static CFStringRef const kWKTrustPolicies = CFSTR("policies");
+static CFStringRef const kWKTrustAnchors = CFSTR("anchors");
+static CFStringRef const kWKTrustNetworkFetchAllowed = CFSTR("networkFetchAllowed");
+static CFStringRef const kWKTrustVerifyDate = CFSTR("verifyDate");
+static CFStringRef const kWKTrustSettings = CFSTR("settings");
+static CFStringRef const kWKTrustUnreadableSetting = CFSTR("unreadable");
+static CFStringRef const kWKPolicyOID = CFSTR("oid");
+static CFStringRef const kWKPolicyServerName = CFSTR("serverName");
+static CFStringRef const kWKPolicyFlags = CFSTR("flags");
 
 // DER for each certificate in an array of SecCertificateRef, and the reverse. An element that cannot
 // be converted fails the whole array: the receiver gets every certificate the sender had, or none.
@@ -584,7 +584,7 @@ static CFDictionaryRef wk_copyPolicyDescription(SecPolicyRef policy)
     if (!description)
         return NULL;
     CFDataRef oidData = CFDataCreate(NULL, oid.Data, (CFIndex)oid.Length);
-    CFDictionarySetValue(description, kMavPolicyOID, oidData);
+    CFDictionarySetValue(description, kWKPolicyOID, oidData);
     CFRelease(oidData);
     if (!isSSL)
         return description;
@@ -610,12 +610,12 @@ static CFDictionaryRef wk_copyPolicyDescription(SecPolicyRef policy)
             return NULL;
         }
         CFDataRef name = CFDataCreate(NULL, (const uint8_t *)options->ServerName, (CFIndex)options->ServerNameLen);
-        CFDictionarySetValue(description, kMavPolicyServerName, name);
+        CFDictionarySetValue(description, kWKPolicyServerName, name);
         CFRelease(name);
     }
     int32_t flags = (int32_t)options->Flags;
     CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &flags);
-    CFDictionarySetValue(description, kMavPolicyFlags, number);
+    CFDictionarySetValue(description, kWKPolicyFlags, number);
     CFRelease(number);
     return description;
 }
@@ -624,7 +624,7 @@ static CFDictionaryRef wk_copyPolicyDescription(SecPolicyRef policy)
 // server name back with its terminator included.
 static SecPolicyRef wk_createPolicyFromDescription(CFDictionaryRef description)
 {
-    CFDataRef oidData = (CFDataRef)CFDictionaryGetValue(description, kMavPolicyOID);
+    CFDataRef oidData = (CFDataRef)CFDictionaryGetValue(description, kWKPolicyOID);
     if (!oidData || CFGetTypeID(oidData) != CFDataGetTypeID())
         return NULL;
     CSSM_OID oid;
@@ -636,13 +636,13 @@ static SecPolicyRef wk_createPolicyFromDescription(CFDictionaryRef description)
     if (!wk_oidEquals(&oid, &CSSMOID_APPLE_TP_SSL))
         return NULL;
 
-    CFNumberRef number = (CFNumberRef)CFDictionaryGetValue(description, kMavPolicyFlags);
+    CFNumberRef number = (CFNumberRef)CFDictionaryGetValue(description, kWKPolicyFlags);
     if (!number || CFGetTypeID(number) != CFNumberGetTypeID())
         return NULL;
     int32_t flags = 0;
     CFNumberGetValue(number, kCFNumberSInt32Type, &flags);
 
-    CFDataRef nameData = (CFDataRef)CFDictionaryGetValue(description, kMavPolicyServerName);
+    CFDataRef nameData = (CFDataRef)CFDictionaryGetValue(description, kWKPolicyServerName);
     CFStringRef name = NULL;
     if (nameData) {
         if (CFGetTypeID(nameData) != CFDataGetTypeID())
@@ -679,11 +679,11 @@ static SecPolicyRef wk_createPolicyFromDescription(CFDictionaryRef description)
 // first has 10.9 evaluate when its Trust holds no result, and keeps that evaluation, as Security's
 // readers evaluate if necessary. 10.9's SecTrustGetVerifyTime answers 0 for a trust with no
 // verification date; Security answers the current time.
-enum { kMavTrustTimeLeeway = 4500 };
-static CFStringRef const kMavTrustResult = CFSTR("result");
-static CFStringRef const kMavTrustChain = CFSTR("chain");
-static CFStringRef const kMavTrustResultNotBefore = CFSTR("resultNotBefore");
-static CFStringRef const kMavTrustResultNotAfter = CFSTR("resultNotAfter");
+enum { kWKTrustTimeLeeway = 4500 };
+static CFStringRef const kWKTrustResult = CFSTR("result");
+static CFStringRef const kWKTrustChain = CFSTR("chain");
+static CFStringRef const kWKTrustResultNotBefore = CFSTR("resultNotBefore");
+static CFStringRef const kWKTrustResultNotAfter = CFSTR("resultNotAfter");
 
 // 10.9's Security objects count their own references and free themselves without the Objective-C
 // runtime's teardown, so an association on a SecTrustRef outlives the trust and is read back by the next
@@ -744,7 +744,7 @@ static void wk_recordTrustSetting(SecTrustRef trust, CFStringRef name, CFTypeRef
     if (settings && value)
         CFDictionarySetValue(settings, name, value);
     else if (settings)
-        CFDictionarySetValue(settings, kMavTrustUnreadableSetting, kCFBooleanTrue);
+        CFDictionarySetValue(settings, kWKTrustUnreadableSetting, kCFBooleanTrue);
     objc_sync_exit((id)trust);
 }
 
@@ -847,8 +847,8 @@ static CFDictionaryRef wk_copyTrustEvaluation(SecTrustRef trust)
     CFArrayRef holder = wk_trustStateHolderLocked(trust, false);
     CFDictionaryRef evaluation = holder ? (CFDictionaryRef)objc_getAssociatedObject((id)holder, wk_trustEvaluationKey()) : NULL;
     if (evaluation) {
-        bool divorcedFromNow = verifyTime > now + kMavTrustTimeLeeway || verifyTime < now - kMavTrustTimeLeeway;
-        if (divorcedFromNow || (now > wk_numberValue(evaluation, kMavTrustResultNotBefore) && now < wk_numberValue(evaluation, kMavTrustResultNotAfter)))
+        bool divorcedFromNow = verifyTime > now + kWKTrustTimeLeeway || verifyTime < now - kWKTrustTimeLeeway;
+        if (divorcedFromNow || (now > wk_numberValue(evaluation, kWKTrustResultNotBefore) && now < wk_numberValue(evaluation, kWKTrustResultNotAfter)))
             CFRetain(evaluation);
         else {
             wk_retireTrustEvaluationLocked(holder);
@@ -861,12 +861,12 @@ static CFDictionaryRef wk_copyTrustEvaluation(SecTrustRef trust)
 
 static SecTrustResultType wk_trustEvaluationResult(CFDictionaryRef evaluation)
 {
-    return (SecTrustResultType)wk_numberValue(evaluation, kMavTrustResult);
+    return (SecTrustResultType)wk_numberValue(evaluation, kWKTrustResult);
 }
 
 static CFArrayRef wk_trustEvaluationChain(CFDictionaryRef evaluation)
 {
-    return (CFArrayRef)CFDictionaryGetValue(evaluation, kMavTrustChain);
+    return (CFArrayRef)CFDictionaryGetValue(evaluation, kWKTrustChain);
 }
 
 // An evaluation for this chain and result, dated as trustd dates one produced at `evaluatedAt`.
@@ -875,8 +875,8 @@ static CFDictionaryRef wk_createTrustEvaluation(SecTrustResultType result, CFArr
     if (!notBefore && !notAfter) {
         static void *notBeforeOIDCache;
         static void *notAfterOIDCache;
-        notBefore = evaluatedAt - kMavTrustTimeLeeway;
-        notAfter = evaluatedAt + kMavTrustTimeLeeway;
+        notBefore = evaluatedAt - kWKTrustTimeLeeway;
+        notAfter = evaluatedAt + kWKTrustTimeLeeway;
         CFIndex count = CFArrayGetCount(chain);
         for (CFIndex i = 0; i < count; ++i) {
             SecCertificateRef certificate = (SecCertificateRef)CFArrayGetValueAtIndex(chain, i);
@@ -901,7 +901,7 @@ static CFDictionaryRef wk_createTrustEvaluation(SecTrustResultType result, CFArr
     CFNumberRef notBeforeNumber = CFNumberCreate(NULL, kCFNumberDoubleType, &notBefore);
     CFNumberRef notAfterNumber = CFNumberCreate(NULL, kCFNumberDoubleType, &notAfter);
     CFArrayRef chainCopy = CFArrayCreateCopy(NULL, chain);
-    const void *keys[] = { kMavTrustResult, kMavTrustChain, kMavTrustResultNotBefore, kMavTrustResultNotAfter };
+    const void *keys[] = { kWKTrustResult, kWKTrustChain, kWKTrustResultNotBefore, kWKTrustResultNotAfter };
     const void *values[] = { resultNumber, chainCopy, notBeforeNumber, notAfterNumber };
     CFDictionaryRef evaluation = CFDictionaryCreate(NULL, keys, values, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFRelease(resultNumber);
@@ -948,11 +948,11 @@ WK_POLYFILL_REPLACES("Security", SecCertificateRef, SecTrustGetCertificateAtInde
 // believed only when non-empty, all SecCertificates, and led by the trust's leaf -- 10.9's
 // SecTrustGetCertificateAtIndex(trust, 0) answers without evaluating, evaluated or not -- and is NULL
 // otherwise.
-enum { kMavTrustInputCertificatesOffset = 0x98 };
+enum { kWKTrustInputCertificatesOffset = 0x98 };
 
 CFArrayRef wk_trustInputCertificates(SecTrustRef trust)
 {
-    CFArrayRef certificates = *(CFArrayRef *)((const char *)trust + kMavTrustInputCertificatesOffset);
+    CFArrayRef certificates = *(CFArrayRef *)((const char *)trust + kWKTrustInputCertificatesOffset);
     if (!certificates)
         return NULL;
     CFIndex count = CFArrayGetCount(certificates);
@@ -1327,7 +1327,7 @@ static CFMutableDictionaryRef wk_copyTrustInputState(SecTrustRef trust)
     if (!certificateDatas)
         return NULL;
     CFMutableDictionaryRef state = CFDictionaryCreateMutable(NULL, 8, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(state, kMavTrustCertificates, certificateDatas);
+    CFDictionarySetValue(state, kWKTrustCertificates, certificateDatas);
     CFRelease(certificateDatas);
 
     // A policy travels as its OID and the option block it carries, which is what it is made of.
@@ -1357,7 +1357,7 @@ static CFMutableDictionaryRef wk_copyTrustInputState(SecTrustRef trust)
         CFArrayAppendValue(described, one);
         CFRelease(one);
     }
-    CFDictionarySetValue(state, kMavTrustPolicies, described);
+    CFDictionarySetValue(state, kWKTrustPolicies, described);
     CFRelease(described);
     CFRelease(policies);
 
@@ -1369,18 +1369,18 @@ static CFMutableDictionaryRef wk_copyTrustInputState(SecTrustRef trust)
             CFRelease(state);
             return NULL;
         }
-        CFDictionarySetValue(state, kMavTrustAnchors, anchorDatas);
+        CFDictionarySetValue(state, kWKTrustAnchors, anchorDatas);
         CFRelease(anchorDatas);
     }
 
     Boolean networkFetchAllowed = false;
     if (SecTrustGetNetworkFetchAllowed(trust, &networkFetchAllowed) == errSecSuccess)
-        CFDictionarySetValue(state, kMavTrustNetworkFetchAllowed, networkFetchAllowed ? kCFBooleanTrue : kCFBooleanFalse);
+        CFDictionarySetValue(state, kWKTrustNetworkFetchAllowed, networkFetchAllowed ? kCFBooleanTrue : kCFBooleanFalse);
 
     CFAbsoluteTime verifyTime = SecTrustGetVerifyTime(trust);
     if (verifyTime) {
         CFNumberRef date = CFNumberCreate(NULL, kCFNumberDoubleType, &verifyTime);
-        CFDictionarySetValue(state, kMavTrustVerifyDate, date);
+        CFDictionarySetValue(state, kWKTrustVerifyDate, date);
         CFRelease(date);
     }
 
@@ -1388,12 +1388,12 @@ static CFMutableDictionaryRef wk_copyTrustInputState(SecTrustRef trust)
     CFArrayRef holder = wk_trustStateHolderLocked(trust, false);
     CFDictionaryRef settings = holder ? (CFDictionaryRef)objc_getAssociatedObject((id)holder, wk_trustSettingsKey()) : NULL;
     if (settings) {
-        if (CFDictionaryGetValue(settings, kMavTrustUnreadableSetting)) {
+        if (CFDictionaryGetValue(settings, kWKTrustUnreadableSetting)) {
             objc_sync_exit((id)trust);
             CFRelease(state);
             return NULL;
         }
-        CFDictionarySetValue(state, kMavTrustSettings, settings);
+        CFDictionarySetValue(state, kWKTrustSettings, settings);
     }
     objc_sync_exit((id)trust);
     return state;
@@ -1420,10 +1420,10 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
     if (evaluation) {
         CFArrayRef chainDatas = wk_certificateDataArray(wk_trustEvaluationChain(evaluation));
         if (chainDatas) {
-            CFDictionarySetValue(state, kMavTrustChain, chainDatas);
-            CFDictionarySetValue(state, kMavTrustResult, CFDictionaryGetValue(evaluation, kMavTrustResult));
-            CFDictionarySetValue(state, kMavTrustResultNotBefore, CFDictionaryGetValue(evaluation, kMavTrustResultNotBefore));
-            CFDictionarySetValue(state, kMavTrustResultNotAfter, CFDictionaryGetValue(evaluation, kMavTrustResultNotAfter));
+            CFDictionarySetValue(state, kWKTrustChain, chainDatas);
+            CFDictionarySetValue(state, kWKTrustResult, CFDictionaryGetValue(evaluation, kWKTrustResult));
+            CFDictionarySetValue(state, kWKTrustResultNotBefore, CFDictionaryGetValue(evaluation, kWKTrustResultNotBefore));
+            CFDictionarySetValue(state, kWKTrustResultNotAfter, CFDictionaryGetValue(evaluation, kWKTrustResultNotAfter));
             CFRelease(chainDatas);
         }
         CFRelease(evaluation);
@@ -1452,7 +1452,7 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         return NULL;
     }
 
-    CFArrayRef certificates = wk_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kMavTrustCertificates));
+    CFArrayRef certificates = wk_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kWKTrustCertificates));
     if (!certificates || !CFArrayGetCount(certificates)) {
         if (certificates)
             CFRelease(certificates);
@@ -1461,7 +1461,7 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         return NULL;
     }
 
-    CFArrayRef policyProperties = (CFArrayRef)CFDictionaryGetValue(state, kMavTrustPolicies);
+    CFArrayRef policyProperties = (CFArrayRef)CFDictionaryGetValue(state, kWKTrustPolicies);
     CFMutableArrayRef policies = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
     if (policyProperties && CFGetTypeID(policyProperties) == CFArrayGetTypeID()) {
         CFIndex policyCount = CFArrayGetCount(policyProperties);
@@ -1491,7 +1491,7 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         return NULL;
     }
 
-    CFArrayRef anchorDatas = (CFArrayRef)CFDictionaryGetValue(state, kMavTrustAnchors);
+    CFArrayRef anchorDatas = (CFArrayRef)CFDictionaryGetValue(state, kWKTrustAnchors);
     if (anchorDatas) {
         CFArrayRef anchors = wk_certificateArrayFromData(anchorDatas);
         if (!anchors) {
@@ -1504,11 +1504,11 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         CFRelease(anchors);
     }
 
-    CFBooleanRef networkFetchAllowed = (CFBooleanRef)CFDictionaryGetValue(state, kMavTrustNetworkFetchAllowed);
+    CFBooleanRef networkFetchAllowed = (CFBooleanRef)CFDictionaryGetValue(state, kWKTrustNetworkFetchAllowed);
     if (networkFetchAllowed && CFGetTypeID(networkFetchAllowed) == CFBooleanGetTypeID())
         SecTrustSetNetworkFetchAllowed(trust, CFBooleanGetValue(networkFetchAllowed));
 
-    CFNumberRef verifyDate = (CFNumberRef)CFDictionaryGetValue(state, kMavTrustVerifyDate);
+    CFNumberRef verifyDate = (CFNumberRef)CFDictionaryGetValue(state, kWKTrustVerifyDate);
     if (verifyDate && CFGetTypeID(verifyDate) == CFNumberGetTypeID()) {
         double when = 0;
         if (CFNumberGetValue(verifyDate, kCFNumberDoubleType, &when)) {
@@ -1518,15 +1518,15 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         }
     }
 
-    CFDictionaryRef settings = (CFDictionaryRef)CFDictionaryGetValue(state, kMavTrustSettings);
+    CFDictionaryRef settings = (CFDictionaryRef)CFDictionaryGetValue(state, kWKTrustSettings);
     if (settings && CFGetTypeID(settings) == CFDictionaryGetTypeID())
         wk_applyTrustSettings(trust, settings);
 
     // Installed last: every setter above discards an evaluation.
-    CFArrayRef chain = wk_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kMavTrustChain));
-    CFNumberRef resultNumber = (CFNumberRef)CFDictionaryGetValue(state, kMavTrustResult);
-    double notBefore = wk_numberValue(state, kMavTrustResultNotBefore);
-    double notAfter = wk_numberValue(state, kMavTrustResultNotAfter);
+    CFArrayRef chain = wk_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kWKTrustChain));
+    CFNumberRef resultNumber = (CFNumberRef)CFDictionaryGetValue(state, kWKTrustResult);
+    double notBefore = wk_numberValue(state, kWKTrustResultNotBefore);
+    double notAfter = wk_numberValue(state, kWKTrustResultNotAfter);
     int32_t resultValue = 0;
     if (chain && CFArrayGetCount(chain) && resultNumber && CFGetTypeID(resultNumber) == CFNumberGetTypeID()
         && CFNumberGetValue(resultNumber, kCFNumberSInt32Type, &resultValue) && resultValue > kSecTrustResultInvalid

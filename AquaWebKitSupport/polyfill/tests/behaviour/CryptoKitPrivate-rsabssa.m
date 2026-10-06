@@ -288,7 +288,7 @@ int main(void)
         check(blinderClass != Nil, "objc_getClass finds RSABSSATokenBlinder, as PAL's soft link asks for it");
         check(objc_getClass("RSABSSATokenWaitingActivation") && objc_getClass("RSABSSATokenReady"),
             "and the two token classes");
-        check(blinderClass && !strcmp(class_getName(blinderClass), "WKMavPolyfillPriv_RSABSSATokenBlinder"),
+        check(blinderClass && !strcmp(class_getName(blinderClass), "WKPolyfillPriv_RSABSSATokenBlinder"),
             "the class is registered under the private name");
         if (!blinderClass) {
             printf("CryptoKitPrivate-rsabssa: %d failure(s)\n", failures);

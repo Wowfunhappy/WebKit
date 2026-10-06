@@ -83,7 +83,7 @@ int main(void)
 
         // The private runtime name is what keeps the stub out of a host app's way: only the registry
         // above and WebKit's own classref alias reach it.
-        check(objc_getClass("WKMavPolyfillPriv_AXCustomContent") != Nil,
+        check(objc_getClass("WKPolyfillPriv_AXCustomContent") != Nil,
             "the stub is registered under the private name");
 
         printf("Accessibility-absent-framework: %d failure(s)\n", failures);
