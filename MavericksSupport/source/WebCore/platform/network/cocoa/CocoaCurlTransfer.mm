@@ -1274,7 +1274,7 @@ void CocoaCurlTransfer::resumeTransfer()
     if (!m_running || m_deferred || m_clientInteractions)
         return;
     activity();
-    if (!m_data && m_decoder && !takeDecodedData()) {
+    if (!m_data && m_decoder && !m_decodeFailed && !takeDecodedData()) {
         finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
         return;
     }
@@ -1475,11 +1475,6 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
         finish(NSURLErrorCannotParseResponse, m_invalidResponse);
         return;
     }
-    // CFNetwork fails a body it cannot decode, or one that ends partway through its coding.
-    if (m_decodeFailed || (result == CURLE_OK && m_decoder && !m_decoder->isComplete() && !m_clientInteractions && !m_deferred && !m_data)) {
-        finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
-        return;
-    }
     // A close-delimited message ends its header section at the connection close, which libcurl
     // reports by delivering no blank line at all.
     if (result == CURLE_OK && !m_finalHeaders && !m_publishedResponse && m_status >= 0) {
@@ -1496,6 +1491,11 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
         ++m_clientInteractions;
         m_timer.stop();
         m_scheduler->runLoop().dispatch([transfer = Ref { *this }] { --transfer->m_clientInteractions; transfer->publishResponse(); });
+        return;
+    }
+    // A body that cannot be decoded, or that ends partway through its coding, fails after its response.
+    if (m_decodeFailed || (result == CURLE_OK && m_decoder && !m_decoder->isComplete() && !m_clientInteractions && !m_deferred && !m_data)) {
+        finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
         return;
     }
     if (result == CURLE_OK) {
