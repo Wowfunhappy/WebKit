@@ -757,6 +757,9 @@ static void setCursor(NSWindow *self, SEL cmd, NSPoint point)
 - (void)_recursiveDisplayAllDirtyWithLockFocus:(BOOL)needsLockFocus visRect:(NSRect)visRect;
 #if PLATFORM(MAC)
 - (void)_recursive:(BOOL)recursive displayRectIgnoringOpacity:(NSRect)displayRect inContext:(NSGraphicsContext *)graphicsContext stopAtLayerBackedViews:(BOOL)stopAtLayerBackedViews;
+// AQUAWEBKIT: 10.9 AppKit's spellings of the two display recursions overridden below.
+- (void)_recursive:(BOOL)recurse displayRectIgnoringOpacity:(NSRect)displayRect inContext:(NSGraphicsContext *)context topView:(BOOL)topView;
+- (void)_recursive:(BOOL)recurseX displayRectIgnoringOpacity:(NSRect)displayRect inGraphicsContext:(NSGraphicsContext *)graphicsContext CGContext:(CGContextRef)ctx topView:(BOOL)isTopView shouldChangeFontReferenceColor:(BOOL)shouldChangeFontReferenceColor;
 #endif
 - (void)_setDrawsOwnDescendants:(BOOL)drawsOwnDescendants;
 #if PLATFORM(IOS_FAMILY)
@@ -1688,6 +1691,30 @@ static NSControlStateValue NODELETE kit(TriState state)
     [self _setAsideSubviews];
     [super _recursive:recursive displayRectIgnoringOpacity:displayRect inContext:graphicsContext stopAtLayerBackedViews:stopAtLayerBackedViews];
     [self _restoreSubviews];
+}
+
+// AQUAWEBKIT: upstream's overrides of 10.9 AppKit's -displayRectIgnoringOpacity:inContext: recursion, which
+// sets the subviews aside the same way; WebCore paints the subframes itself.
+- (void)_recursive:(BOOL)recurse displayRectIgnoringOpacity:(NSRect)displayRect inContext:(NSGraphicsContext *)context topView:(BOOL)topView
+{
+    [self _setAsideSubviews];
+    [super _recursive:recurse displayRectIgnoringOpacity:displayRect inContext:context topView:topView];
+    [self _restoreSubviews];
+}
+
+- (void)_recursive:(BOOL)recurseX displayRectIgnoringOpacity:(NSRect)displayRect inGraphicsContext:(NSGraphicsContext *)graphicsContext CGContext:(CGContextRef)ctx topView:(BOOL)isTopView shouldChangeFontReferenceColor:(BOOL)shouldChangeFontReferenceColor
+{
+    BOOL didSetAsideSubviews = NO;
+
+    if (!_private->subviewsSetAside) {
+        [self _setAsideSubviews];
+        didSetAsideSubviews = YES;
+    }
+
+    [super _recursive:recurseX displayRectIgnoringOpacity:displayRect inGraphicsContext:graphicsContext CGContext:ctx topView:isTopView shouldChangeFontReferenceColor:shouldChangeFontReferenceColor];
+
+    if (didSetAsideSubviews)
+        [self _restoreSubviews];
 }
 
 static BOOL isQuickLookEvent(NSEvent *event)
