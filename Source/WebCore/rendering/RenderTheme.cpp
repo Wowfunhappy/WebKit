@@ -35,6 +35,7 @@
 #include "DataListButtonElement.h"
 #include "DeprecatedGlobalSettings.h"
 #include "Document.h"
+#include "DocumentQuirks.h" // MAVERICKS_BACKPORT: Document::quirks() for the control minimum-size quirk.
 #include "FileList.h"
 #include "FloatConversion.h"
 #include "FloatRoundedRect.h"
@@ -1504,6 +1505,12 @@ void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle
         } else if (percentageOverrideMinHeight->isPositive()) {
             style.setMinHeight(Style::MinimumSize(minimumControlSize.height()));
         }
+    }
+
+    // MAVERICKS_BACKPORT: see Quirks::shouldThemeMinimumControlSizeReplaceAuthorMinimumSize().
+    if (element && element->document().quirks().shouldThemeMinimumControlSizeReplaceAuthorMinimumSize()) {
+        style.setMinWidth(Style::MinimumSize(minimumControlSize.width()));
+        style.setMinHeight(Style::MinimumSize(minimumControlSize.height()));
     }
 
     // Font

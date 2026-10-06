@@ -256,6 +256,23 @@ bool Quirks::shouldDispatchPendingScrollEventsEagerly() const
     return m_document && m_document->url().protocolIs("safari-reader"_s);
 }
 
+// MAVERICKS_BACKPORT: Safari 7's bundled pages (the Extensions preferences pane and Extension Builder,
+// WebKit1 views in Safari's own process loading file: URLs from its Resources directory) style buttons,
+// checkboxes and radios with author min-width rules written for an engine whose theme minimum replaced
+// the author's (r282440 made it only enlarge it). RenderTheme consults this to restore that sizing.
+bool Quirks::shouldThemeMinimumControlSizeReplaceAuthorMinimumSize() const
+{
+#if PLATFORM(MAC)
+    if (!m_document || !m_document->url().protocolIsFile() || !WTF::MacApplication::isSafari())
+        return false;
+
+    static NeverDestroyed<String> resourcesDirectoryURLString = URL(adoptCF(CFURLCopyAbsoluteURL(adoptCF(CFBundleCopyResourcesDirectoryURL(CFBundleGetMainBundle())).get())).get()).string();
+    return m_document->url().string().startsWith(resourcesDirectoryURLString.get());
+#else
+    return false;
+#endif
+}
+
 bool Quirks::shouldDisableBlobFileAccessEnforcement()
 {
     return shouldDisableBlobFileAccessEnforcementInternal();

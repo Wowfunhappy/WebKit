@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Author</key><string>WebKit</string>
+	<key>Builder Version</key><string>9537.78.2</string>
+	<key>CFBundleDisplayName</key><string>Legacy Extension Settings Controls</string>
+	<key>CFBundleIdentifier</key><string>org.webkit.legacy-extension-settings-controls</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundleShortVersionString</key><string>1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>Description</key><string>Radio-button and check-box settings in the Extensions preferences pane.</string>
+	<key>DeveloperIdentifier</key><string>WDAOQFIKHZ</string>
+	<key>ExtensionInfoDictionaryVersion</key><string>1.0</string>
+</dict>
+</plist>

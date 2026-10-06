@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>DefaultValue</key><string>stay</string>
+		<key>Key</key><string>target</string>
+		<key>Title</key><string>Duplicate my current tab into</string>
+		<key>Titles</key>
+		<array>
+			<string>a new tab and stay in old tab</string>
+			<string>a new tab and switch to it</string>
+			<string>a new window</string>
+		</array>
+		<key>Type</key><string>RadioButtons</string>
+		<key>Values</key>
+		<array>
+			<string>stay</string>
+			<string>switch</string>
+			<string>window</string>
+		</array>
+	</dict>
+	<dict>
+		<key>DefaultValue</key><string>right</string>
+		<key>Key</key><string>placement</string>
+		<key>Title</key><string>Place my new tab</string>
+		<key>Titles</key>
+		<array>
+			<string>to the right of the old tab</string>
+			<string>to the left of the old tab</string>
+		</array>
+		<key>Type</key><string>RadioButtons</string>
+		<key>Values</key>
+		<array>
+			<string>right</string>
+			<string>left</string>
+		</array>
+	</dict>
+	<dict>
+		<key>DefaultValue</key><false/>
+		<key>Key</key><string>contextMenu</string>
+		<key>Title</key><string>Also show command in context menu</string>
+		<key>Type</key><string>CheckBox</string>
+	</dict>
+</array>
+</plist>

@@ -80,6 +80,8 @@ public:
     // MAVERICKS_BACKPORT: safari-reader: documents dispatch pending scroll events from a zero-delay
     // event-loop task instead of waiting for the rendering update (ReaderJS smooth-scroll compat).
     bool shouldDispatchPendingScrollEventsEagerly() const;
+    // MAVERICKS_BACKPORT: Safari's bundled pages size form controls with the theme minimum replacing author min-width.
+    bool shouldThemeMinimumControlSizeReplaceAuthorMinimumSize() const;
     bool needsAnchorToBeMouseFocusable() const;
     bool needsFormControlToBeMouseFocusable() const;
     bool needsAutoplayPlayPauseEvents() const;

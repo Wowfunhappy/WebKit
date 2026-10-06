@@ -55,13 +55,7 @@
 #import "LocalFrameView.h"
 #import "LocalizedStrings.h"
 #import "Logging.h"
-// MAVERICKS_BACKPORT: extra includes for 10.9 control-theming helpers (Page, RenderProgress, UserAgentParts, BlockObjCExceptions).
-#import "Page.h"
 #import "PaintInfo.h"
-// MAVERICKS_BACKPORT: extra includes for 10.9 control-theming helpers (RenderProgress, UserAgentParts, BlockObjCExceptions).
-#import "RenderProgress.h"
-#import "UserAgentParts.h"
-#import <wtf/BlockObjCExceptions.h>
 #import "PathOperation.h"
 #import "PathUtilities.h"
 #import "RenderAttachment.h"
