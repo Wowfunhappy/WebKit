@@ -976,6 +976,9 @@ http/tests/security/anchor-download-octet-stream-no-extension.html [ Skip ]
 # check, and DumpRenderTree has none of them, so the test throws before it reaches what it tests. The methods
 # are defined in Tools/WebKitTestRunner (TestRunner.idl, EventSendingController.idl, TestController.cpp) and
 # absent from Tools/DumpRenderTree and Tools/TestRunnerShared.
+# dontForceRepaint
+fast/events/wheel/wheel-event-on-svg-with-stroked-lines.html [ Skip ]
+fast/events/wheel/wheel-event-on-svg-with-stroked-lines-with-layer-based-svg-engine.html [ Skip ]
 # setStatisticsShouldDowngradeReferrer
 http/tests/navigation/ping-attribute/anchor-cross-origin.html [ Skip ]
 http/tests/navigation/ping-attribute/area-cross-origin.html [ Skip ]
@@ -1430,6 +1433,19 @@ platform/mac/media/video-blob-request-contains-range-header.html [ Skip ]
 # AsyncOverflowScrollingEnabled is exposed only to WebKit2; WebKitLegacy keeps it disabled.
 # This test requires the composited overflow-scrolling layers created by that preference.
 compositing/overflow/textarea-scroll-touch.html [ Skip ]
+
+# Upstream's WebKit1 expectations, until it stopped running WebKit1 tests (58c630a), recorded these: the two
+# cross-frame drag tests as [ Failure ], the subframe mousemove test as a WebKit1/WebKit2 mousemove difference,
+# and the passive-region test as requiring async scrolling.
+webkit.org/b/262691 fast/events/cancel-mousedown-and-drag-from-frame-to-other-frame.html [ Skip ]
+webkit.org/b/262691 fast/events/cancel-mousedown-and-drag-to-frame.html [ Skip ]
+fast/events/ghostly-mousemoves-in-subframe.html [ Skip ]
+fast/events/wheel/wheel-event-in-passive-region-non-cancelable.html [ Skip ]
+
+# Upstream WebKit1 bug: a key the focused subframe leaves unhandled goes up the responder chain to the parent
+# frame's WebHTMLView, which dispatches it again. Upstream skipped the test under this bug until f9f2609, after
+# WebKit1 had stopped running it.
+webkit.org/b/18057 fast/events/key-events-in-frame.html [ Skip ]
 
 # WebKitLegacy keeps frame/overflow scrolling on the main thread. These dumps require
 # the scrolling, sticky and subframe compositing layers used by WebKit2.

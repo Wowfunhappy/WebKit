@@ -482,6 +482,7 @@ media/media-source/media-source-resize.html [ Skip ]
 # SiteIsolation selects the remote layer tree, whose scrolling thread requires modern CATransaction APIs.
 http/tests/site-isolation/ [ Skip ]
 http/wpt/site-isolation/ [ Skip ]
+fast/events/site-isolation/ [ Skip ]
 fast/loader/site-isolation/form-state-restore-with-frames.html [ Skip ]
 http/tests/contentextensions/cross-origin-content-rules.html [ Skip ]
 http/tests/gamepad/initial-gamepads-skips-empty-slot.html [ Skip ]

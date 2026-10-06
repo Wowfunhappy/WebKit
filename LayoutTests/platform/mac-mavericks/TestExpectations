@@ -305,6 +305,7 @@ media/track/video-track-configuration.html [ Skip ]
 media/encrypted-media/encrypted-media-constants.html [ Skip ]
 media/encrypted-media/encrypted-media-is-type-supported.html [ Skip ]
 media/encrypted-media/encrypted-media-session-lifetime.html [ Skip ]
+fast/events/webkit-media-key-events-constructor.html [ Skip ]
 webkit.org/b/189345 http/tests/media/clearkey/collect-webkit-media-session.html [ Skip ]
 
 # ClearKey on the GStreamer CDM is flaky upstream: platform/glib/TestExpectations:3440 records [ Crash Failure Pass ].
