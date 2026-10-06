@@ -25,7 +25,6 @@ EXTRA_BINS="$*"
 LIBDIR="$ROOT/WebKitBuild/Release/lib"
 BINDIR="$ROOT/WebKitBuild/Release/bin"
 POLYBUILD="$ROOT/AquaWebKitSupport/polyfill/build"
-WKTR_DIR="$ROOT/Tools/WebKitTestRunner"
 TC="${AQUAWEBKIT_CLANG:-$ROOT/AquaWebKitSupport/toolchain/build/clang}"
 # build.sh mirrors the dependency build's runtime into the built frameworks, and its gstreamer/lib
 # holds or links every library of it. Binaries resolve the runtime there rather than in the dependency
@@ -106,54 +105,21 @@ if [ -f "$LIBDIR/WebKit.framework/Versions/A/WebKit" ]; then
     link_framework_alias WebKit "$LIBDIR/WebKit.framework/Versions/A/WebKit2"
 fi
 
-# WebKitTestRunner's WebKit2 injected bundle: the cmake build emits it as a plain dylib (lib/libTestRunnerInjected
-# Bundle.dylib), but -[NSBundle initWithPath:] in the WebContent process needs a real .bundle wrapper, at the path
-# TestController::initializeInjectedBundlePath builds next to the executable. The bundle itself lives in lib/,
-# beside WebKit.framework, and bin/ holds a link to it. Its Contents/Resources carries the layout-test fonts, and
-# every WebKit process's sandbox reads only under WEBKIT2_FRAMEWORK_DIR (the directory holding WebKit.framework,
-# AuxiliaryProcessMac.mm): the GPU process opens the font file a serialized font names
-# (FontPlatformDataCoreText.cpp findFontDescriptor), which resolves through the link into lib/. Upstream's build
-# puts the test runner, its bundle and the frameworks in one directory, which is the same containment. The rewrite
-# pass below covers the bundle's binary like every other Mach-O under lib/.
-IB_SRC="$LIBDIR/libTestRunnerInjectedBundle.dylib"
-if [ -f "$IB_SRC" ]; then
-    IB_BUNDLE="$LIBDIR/WebKitTestRunnerInjectedBundle.bundle"
+# WebKitTestRunner's WebKit2 injected bundle: CMake builds it as a CFBundle, with the layout-test fonts in
+# Contents/Resources, at lib/WebKitTestRunnerInjectedBundle.bundle. TestController::initializeInjectedBundlePath
+# looks for it next to the executable, so bin/ holds a link to it. The bundle stays in lib/ beside WebKit.framework
+# because every WebKit process's sandbox reads only under WEBKIT2_FRAMEWORK_DIR (the directory holding
+# WebKit.framework, AuxiliaryProcessMac.mm): the GPU process opens the font file a serialized font names
+# (FontPlatformDataCoreText.cpp findFontDescriptor), which resolves through the link into lib/. Apple's Xcode
+# build puts the test runner, its bundle and the frameworks in one directory, which is the same containment.
+# The rewrite pass below covers the bundle's binary like every other Mach-O under lib/.
+IB_BUNDLE="$LIBDIR/WebKitTestRunnerInjectedBundle.bundle"
+if [ -f "$BINDIR/WebKitTestRunner" ]; then
     IB_LINK="$BINDIR/WebKitTestRunnerInjectedBundle.bundle"
     IB_LINK_TARGET="../lib/WebKitTestRunnerInjectedBundle.bundle"
-    IB_EXE="$IB_BUNDLE/Contents/MacOS/WebKitTestRunnerInjectedBundle"
-    if [ ! -f "$IB_EXE" ] || [ "$IB_SRC" -nt "$IB_EXE" ]; then
-        mkdir -p "$IB_BUNDLE/Contents/MacOS"
-        if ! cp -f "$IB_SRC" "$IB_EXE"; then
-            echo "ERROR: could not assemble $IB_EXE from $IB_SRC" >&2
-            exit 1
-        fi
-        int_or_die -id "WebKitTestRunnerInjectedBundle" "$IB_EXE"
-        # The injected bundle activates the layout-test fonts from its own Contents/Resources
-        # (ActivateFontsCocoa.mm: -[NSBundle bundleForClass:] resourceURL). Apple's Xcode build copies the
-        # WebKitTestRunner font set there; mirror that so CTFontManagerRegisterFontsForURLs succeeds (otherwise
-        # activateFonts() calls exit(1) and the WebContent process dies before running any test).
-        mkdir -p "$IB_BUNDLE/Contents/Resources"
-        if ! cp -f "$WKTR_DIR/fonts/"* "$IB_BUNDLE/Contents/Resources/" ||
-           ! cp -f "$WKTR_DIR/FontWithFeatures.otf" "$WKTR_DIR/FontWithFeatures.ttf" \
-                   "$IB_BUNDLE/Contents/Resources/"; then
-            echo "ERROR: could not stage the layout-test fonts into $IB_BUNDLE/Contents/Resources" >&2
-            exit 1
-        fi
-        if [ ! -f "$IB_BUNDLE/Contents/Info.plist" ]; then
-            cat > "$IB_BUNDLE/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleDevelopmentRegion</key><string>English</string>
-  <key>CFBundleExecutable</key><string>WebKitTestRunnerInjectedBundle</string>
-  <key>CFBundleIdentifier</key><string>com.apple.WebKitTestRunnerInjectedBundle</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundlePackageType</key><string>BNDL</string>
-  <key>CFBundleVersion</key><string>1</string>
-</dict></plist>
-PLIST
-        fi
-        echo "  assembled WebKitTestRunnerInjectedBundle.bundle"
+    if [ ! -f "$IB_BUNDLE/Contents/MacOS/WebKitTestRunnerInjectedBundle" ]; then
+        echo "ERROR: $IB_BUNDLE is missing; the TestRunnerInjectedBundle target has not been built" >&2
+        exit 1
     fi
     if [ ! -L "$IB_LINK" ] || [ "$(readlink "$IB_LINK")" != "$IB_LINK_TARGET" ]; then
         if [ -e "$IB_LINK" ] && [ ! -L "$IB_LINK" ]; then

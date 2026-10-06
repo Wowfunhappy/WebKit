@@ -88,7 +88,7 @@ set(TestRunnerInjectedBundle_PRIVATE_INCLUDE_DIRECTORIES
     ${WebKitTestRunner_DIR}
     ${WebKitTestRunner_DIR}/InjectedBundle
     # AQUAWEBKIT: the injected-bundle mac/ sources quote-include cocoa/ headers (AccessibilityCommonCocoa.h)
-    # and the shared cocoa/ headers (CrashReporterInfo.h), which the Mac CMake path did not put on the bundle's
+    # and the shared cocoa/ headers (CrashReporterInfo.h), which the Mac CMake path does not put on the bundle's
     # include path (Apple builds this via Xcode). Add both so the bundle compiles.
     ${WebKitTestRunner_DIR}/InjectedBundle/cocoa
     ${WebKitTestRunner_DIR}/cocoa
@@ -155,7 +155,7 @@ if (APPLE)
     )
 endif ()
 
-# AQUAWEBKIT: the SHARED injected bundle absorbs the WTF (and bmalloc) OBJECT libraries directly, which
+# AQUAWEBKIT: the injected bundle (a MODULE on Apple platforms) absorbs the WTF (and bmalloc) OBJECT libraries directly, which
 # REDEFINES the WTF/JSC process-singleton g_config (the __DATA,__wtf_config record holding the JSC structure-heap
 # base, gigacage limits, etc.) -- a SECOND, never-initialized copy alongside the one in the JavaScriptCore
 # framework the bundle also links. The bundle's inline JSC binding code (creating window.internals) then reads a
