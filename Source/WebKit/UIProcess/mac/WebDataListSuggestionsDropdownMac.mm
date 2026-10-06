@@ -218,19 +218,10 @@ void WebDataListSuggestionsDropdownMac::close()
 }
 
 #if !HAVE(NSVIEW_IMPLICIT_LAYOUT_PASS)
-// AQUAWEBKIT: this class is written to the 10.10+ contract where marking a view needsLayout
-// guarantees -layout before the next draw, because AppKit runs pending layout passes as part of every
-// window's display cycle. 10.9 runs that pass only for a window whose autolayout engine is engaged
-// (measured on 10.9.5: needsLayout + display runs -layout with a constraint present and never without
-// one), so -setValue:label: and -setShouldShowBottomDivider: below would mark the view and nothing would
-// ever act on it -- the text fields stay at their initial zero frames and the dropdown shows empty rows.
-//
-// -viewWillDraw is where 10.9 itself puts "just before this view and its subviews draw": AppKit sends it
-// top-down during the display cycle, so running the pending pass here is synchronous with drawing and
-// coalesced to one pass per cycle, which is what the modern contract amounts to. Deliberately NOT an
-// asynchronous kick: dispatch_async would deliver the pass in a later run-loop turn, possibly after the
-// draw it is supposed to precede, once per call of an idempotent marker, and would retain the receiver
-// past its owner.
+// AQUAWEBKIT: -setValue:label: and -setShouldShowBottomDivider: mark the view needsLayout and rely on
+// AppKit running -layout before the next draw. 10.9 runs pending layout during display only in a window
+// whose autolayout engine is engaged (measured on 10.9.5), so the pass runs here: AppKit sends
+// -viewWillDraw top-down during the display cycle, once per cycle, before the view draws.
 - (void)viewWillDraw
 {
     [self layoutSubtreeIfNeeded];
@@ -396,11 +387,6 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
     _scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[_enclosingWindow contentView].bounds]);
     [_scrollView setHasVerticalScroller:YES];
-    // AQUAWEBKIT: with legacy scrollers — the norm on this OS, where a mouse is attached — a
-    // non-autohiding scroller draws its full-height track down the dropdown even when every suggestion
-    // fits (#115). Overlay scrollers, upstream's default environment, auto-hide on their own, which is
-    // why upstream never needs to say this.
-    [_scrollView setAutohidesScrollers:YES];
     [_scrollView setVerticalScrollElasticity:NSScrollElasticityAllowed];
     [_scrollView setHorizontalScrollElasticity:NSScrollElasticityNone];
     [_scrollView setDocumentView:_table.get()];
