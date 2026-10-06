@@ -191,8 +191,12 @@ probe_touch_bar() {
 }
 
 probe_scrollview_insets() {
-    "$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/scrollview_insets" "$TBEHAV/AppKit-scrollview-insets.m" \
-        -framework AppKit -framework Foundation -lobjc &&
+    prepare_method_objects AppKit &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/scrollview_insets" "$TBEHAV/AppKit-scrollview-insets.m" \
+            "$OBJ/methods/AppKit.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
         "$T/scrollview_insets"
 }
 

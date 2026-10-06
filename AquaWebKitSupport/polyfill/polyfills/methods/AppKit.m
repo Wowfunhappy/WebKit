@@ -469,32 +469,20 @@ WK_POLYFILL_REPLACE_METHODS(NSScreen)
 // ---------------------------------------------------------------------------------------------------
 // NSScrollView content insets (10.10+): -contentInsets / -setContentInsets: and
 // -setAutomaticallyAdjustsContentInsets:. WebKit1's WebDynamicScrollBarsView is an NSScrollView subclass,
-// and ScrollViewMac.mm both reads and writes these on it — FrameView::obscuredContentInsets(WebCoreOrPlatformInset)
-// round-trips WebCore's own inset back out through platformContentInsets()/platformSetContentInsets().
-// 10.9's NSScrollView has none of them: an unpolyfilled -contentInsets send is an unrecognized-selector
-// throw that WebCore's BEGIN/END_BLOCK_OBJC_EXCEPTIONS discards, leaving platformVisibleContentRect /
-// platformSetScrollPosition to bail out mid-computation in Mail's WebKit1 view.
+// and ScrollViewMac.mm both reads and writes these on it: Page::setObscuredContentInsets reaches
+// platformSetContentInsets(), and platformVisibleContentRect / platformSetScrollPosition subtract the
+// insets from AppKit's scroll positions and visible rect, which include the obscured margins. The datalist
+// suggestions dropdown (WebDataListSuggestionsDropdownMac) insets its table's scroll view by its vertical
+// padding.
 //
-// The getter returns exactly what the setter stored (zero by default), so WebCore's value round-trips the
-// way the real property does — and the stored value is APPLIED, not just parroted back: the datalist
-// suggestions dropdown (WebDataListSuggestionsDropdownMac) insets its scroll view (4,0,4,0) for the
-// dropdown's vertical padding, which only exists on screen if the emulation lays it out (#115).
-// Application works by re-classing the scroll view (at first non-zero set) into a dynamic subclass whose
-// -tile — the one AppKit layout pass that places the clip view, rerun on every resize and scroller
-// change — insets the clip view's frame by the stored insets after the standard layout. That padding is
-// constant at every scroll position, where AppKit's real insets are margins beyond the content revealed
-// fully only at the scroll extremes; for the few points of padding WebKit asks for, the difference is
-// invisible. Only WebKit's own selrefs are rewritten to these methods, so only WebKit-configured
-// scroll views ever get re-classed. The WK1 web scroll view stores zero on this port (no
-// titlebar-overlapping full-size content view, no translucent overlay toolbar over web content), and a
-// zero inset leaves -tile's layout untouched.
+// The getter returns what the setter stored (zero by default), and the stored value is applied with
+// AppKit's semantics by scrollview-inset-tile.h, one static definition shared with its proof,
+// tests/behaviour/AppKit-scrollview-insets.m. Only WebKit's own selrefs are rewritten to these methods,
+// so only WebKit-configured scroll views carry insets; for every other scroll view the -tile below is
+// AppKit's own followed by a zero-inset return.
 // -setAutomaticallyAdjustsContentInsets: gates AppKit's automatic titlebar-overlap adjustment, which 10.9's
 // scroll view never performs; the insets above are honored explicitly regardless, so accepting and ignoring
 // the flag is faithful.
-//
-// The application mechanism — the dynamic -tile-overriding subclass, and its KVO-coexistence contract —
-// lives in scrollview-inset-tile.h, one static definition shared with its proof,
-// tests/behaviour/AppKit-scrollview-insets.m, so the probe exercises the very code these methods run.
 #import "scrollview-inset-tile.h"
 
 WK_POLYFILL_ADD_METHODS(NSScrollView)
@@ -507,6 +495,19 @@ WK_POLYFILL_ADD_METHODS(NSScrollView)
     wkScrollViewSetContentInsets(self, contentInsets);
 }
 - (void)setAutomaticallyAdjustsContentInsets:(BOOL)automaticallyAdjustsContentInsets { (void)automaticallyAdjustsContentInsets; }
+@end
+
+// -[NSScrollView tile] as WebKit sends it, including a WebKit subclass's [super tile]: the stored insets
+// are applied right after AppKit's tiling, before the subclass's own layout reads the siblings, unless the
+// call through is scrollview-inset-tile.h's dynamic subclass, which applies them itself.
+WK_POLYFILL_REPLACE_METHODS(NSScrollView)
+- (void)tile
+{
+    struct wk_original original = wk_original_of(self, _cmd);
+    ((void (*)(id, SEL))original.imp)(self, original.sel);
+    if (original.imp != (IMP)wkInsetScrollViewTile)
+        wkScrollViewApplyStoredContentInsets(self);
+}
 @end
 
 // ---------------------------------------------------------------------------------------------------
