@@ -4302,12 +4302,6 @@ void LocalFrameView::setNeedsLayoutAfterViewConfigurationChange()
     layoutContext().setNeedsLayoutAfterViewConfigurationChange();
 }
 
-// AQUAWEBKIT: mark-only, deferral-honoring layout request for Legacy WebKit (WebHTMLView); forwards to LocalFrameViewLayoutContext::setNeedsLayoutWithoutScheduling().
-void LocalFrameView::setNeedsLayoutWithoutScheduling()
-{
-    layoutContext().setNeedsLayoutWithoutScheduling();
-}
-
 void LocalFrameView::setNeedsCompositingConfigurationUpdate()
 {
     CheckedPtr renderView = this->renderView();

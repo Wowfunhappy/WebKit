@@ -135,9 +135,6 @@ public:
 
     WEBCORE_EXPORT bool needsLayout() const;
     WEBCORE_EXPORT void setNeedsLayoutAfterViewConfigurationChange();
-    // AQUAWEBKIT: mark-only, deferral-honoring variant for Legacy WebKit; see
-    // LocalFrameViewLayoutContext::setNeedsLayoutWithoutScheduling().
-    WEBCORE_EXPORT void setNeedsLayoutWithoutScheduling();
 
     void setNeedsCompositingConfigurationUpdate();
     void setNeedsCompositingGeometryUpdate();

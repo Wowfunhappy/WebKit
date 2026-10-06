@@ -588,14 +588,11 @@ static Ivar wkSubviewsIvar(void)
 }
 - (NSMutableArray *)_subviewsIvar
 {
-    Ivar ivar = wkSubviewsIvar();
-    return ivar ? object_getIvar(self, ivar) : nil;
+    return object_getIvar(self, wkSubviewsIvar());
 }
 - (void)_setSubviewsIvar:(NSMutableArray *)subviews
 {
-    Ivar ivar = wkSubviewsIvar();
-    if (ivar)
-        object_setIvar(self, ivar, subviews);
+    object_setIvar(self, wkSubviewsIvar(), subviews);
 }
 @end
 
