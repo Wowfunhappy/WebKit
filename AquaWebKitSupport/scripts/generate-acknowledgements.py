@@ -273,7 +273,7 @@ def rust_sections():
 def main():
     output = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, 'WebKitBuild', 'Release', 'Acknowledgements.txt')
     shared = os.path.join(SUPPORT, 'polyfill', 'polyfills', 'shared')
-    sections = [('AquaWebKit', [('AquaWebKitSupport/LICENSE', read(os.path.join(SUPPORT, 'LICENSE')))]),
+    sections = [('Aqua WebKit', [('AquaWebKitSupport/LICENSE', read(os.path.join(SUPPORT, 'LICENSE')))]),
                 ('Polyfill layer (MacPorts legacy support)', [('LICENSE', read(os.path.join(shared, 'LICENSE'))),
                                                               ('APSL-2.0.txt', read(os.path.join(shared, 'APSL-2.0.txt')))])]
     sections += webkit_sections()

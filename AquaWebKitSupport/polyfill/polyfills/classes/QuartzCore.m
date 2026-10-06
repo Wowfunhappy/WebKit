@@ -1,4 +1,4 @@
-// Core Animation classes supplied by the AquaWebKit compatibility layer.
+// Core Animation classes supplied by the Aqua WebKit compatibility layer.
 #import "wk_priv_class.h"
 #import <Foundation/Foundation.h>
 

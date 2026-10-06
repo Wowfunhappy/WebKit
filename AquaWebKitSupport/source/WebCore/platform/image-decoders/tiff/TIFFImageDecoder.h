@@ -1,4 +1,4 @@
-// TIFF decoding for AquaWebKit, on libtiff.
+// TIFF decoding for Aqua WebKit, on libtiff.
 //
 // WebCore has decoders for every image format it draws except this one, because the ports that
 // carry the ScalableImageDecoder set have never supported TIFF. This build needs it: it hands no

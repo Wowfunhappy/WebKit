@@ -1,4 +1,4 @@
-# AquaWebKit
+# Aqua WebKit
 
 ## The project
 

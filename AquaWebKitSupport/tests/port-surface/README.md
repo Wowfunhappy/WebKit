@@ -1,6 +1,6 @@
 # Port-surface test suite
 
-This suite exercises AquaWebKit's platform integration. `layout-tests.txt`
+This suite exercises Aqua WebKit's platform integration. `layout-tests.txt`
 selects layout suites; `api-tests.txt` selects API binaries and filters.
 Accessibility is excluded.
 

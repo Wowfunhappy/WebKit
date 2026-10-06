@@ -1,4 +1,4 @@
-// HEIC/HEIF still-image decoding for AquaWebKit, on libheif.
+// HEIC/HEIF still-image decoding for Aqua WebKit, on libheif.
 //
 // Upstream Cocoa ports decode HEIF through ImageIO, which this build never hands image bytes to, and
 // the ScalableImageDecoder ports carry no HEIF decoder at all. libheif parses the container and

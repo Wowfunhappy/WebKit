@@ -828,7 +828,7 @@ imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-compress
 imported/w3c/web-platform-tests/css/css-fonts/generic-family-keywords-002.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-fonts/generic-family-keywords-003.html [ Skip ]
 
-# Mongolian shaping is excluded from the AquaWebKit merge validation scope.
+# Mongolian shaping is excluded from the Aqua WebKit merge validation scope.
 imported/w3c/web-platform-tests/css/css-fonts/mvs-shaping.html [ Skip ]
 
 # Mavericks lacks the complete native AVVideoPerformanceMetrics API.

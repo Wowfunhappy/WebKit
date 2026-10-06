@@ -97,7 +97,7 @@ CLAUDE.md
 *.profraw
 *.pas_stats.jsonl
 
-# In-source CMake/Ninja build artifacts (AquaWebKit builds in-tree)
+# In-source CMake/Ninja build artifacts (Aqua WebKit builds in-tree)
 /CMakeCache.txt
 /CPackConfig.cmake
 /CPackSourceConfig.cmake

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build AquaWebKit: polyfill archives, ninja (configuring first if the build dir is
+# Build Aqua WebKit: polyfill archives, ninja (configuring first if the build dir is
 # new), staging into WebKitBuild/Release/staged, then the post-build audits. Everything logs to
 # /tmp/wk_build.log. "REBUILD DONE (rc=0)" is printed once, at the very end, and is the signal that the
 # staged product is complete and installable (sudo bash AquaWebKitSupport/install.sh).

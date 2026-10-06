@@ -1,6 +1,6 @@
 # AquaWebKitSupport documentation
 
-Prose about AquaWebKit (modern WebKit as the system WebKit for Safari 7 on macOS 10.9).
+Prose about Aqua WebKit (modern WebKit as the system WebKit for Safari 7 on macOS 10.9).
 Everything else under `AquaWebKitSupport/` is build glue: scripts, the polyfill source, the toolchain,
 vendored deps, and each of those directories carries its own README for its own usage.
 

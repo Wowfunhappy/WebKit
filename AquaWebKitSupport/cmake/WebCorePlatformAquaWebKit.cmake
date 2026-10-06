@@ -11,7 +11,7 @@
 # variables here all take effect. WebCore_NON_SVG_IDL_FILES is the exception: :2094 has already
 # folded it into WebCore_IDL_FILES, which is the list an IDL has to be added to from here.
 
-# The AquaWebKit staging pipeline assembles unsigned bundles and rewrites their Mach-O load commands.
+# The Aqua WebKit staging pipeline assembles unsigned bundles and rewrites their Mach-O load commands.
 set(WebCore_POST_BUILD_COMMAND "")
 
 # WebCoreCALayerExtras.mm reaches DynamicContentScalingTypes.h by its bare name, which the Xcode Mac

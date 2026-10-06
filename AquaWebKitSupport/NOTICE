@@ -1,6 +1,6 @@
-AquaWebKit -- Acknowledgements
+Aqua WebKit -- Acknowledgements
 
-This product is AquaWebKit, WebKit built for OS X 10.9 from the mavericks-backport
+This product is Aqua WebKit, WebKit built for OS X 10.9 from the mavericks-backport
 branch of https://github.com/Wowfunhappy/WebKit, together with the third-party
 libraries whose licenses follow. That repository holds the source of WebKit, of this
 port's AquaWebKitSupport directory, and of the build scripts.

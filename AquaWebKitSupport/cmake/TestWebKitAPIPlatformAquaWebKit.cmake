@@ -1,4 +1,4 @@
-# AquaWebKit regression tests and the Network.framework test-server implementation.
+# Aqua WebKit regression tests and the Network.framework test-server implementation.
 
 # JavaScriptCore exports the shared WTF runtime; these clients need only its headers.
 foreach (_aquaWebKitAPITarget TestWebCore TestWebKit TestWebKitLegacy)

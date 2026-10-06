@@ -2,7 +2,7 @@
 #
 # check-backport-markers.sh
 #
-# Audits AquaWebKit for source divergences from the upstream
+# Audits Aqua WebKit for source divergences from the upstream
 # base commit that violate the divergence rules:
 #
 #   1. Every hunk that differs from upstream carries an `AQUAWEBKIT`

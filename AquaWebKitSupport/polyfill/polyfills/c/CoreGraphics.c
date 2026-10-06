@@ -1039,7 +1039,7 @@ static void wk_build_displayP3PQ(void)
         uint8_t *tag = bytes + cursor;
         uint32_t size;
         if (i < 2)
-            size = wk_iccWriteMLUC(tag, i ? "AquaWebKit" : "Display P3 PQ");
+            size = wk_iccWriteMLUC(tag, i ? "Aqua WebKit" : "Display P3 PQ");
         else if (i < 7) {
             size = 20;
             memcpy(tag, "XYZ ", 4);

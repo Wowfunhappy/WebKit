@@ -1,4 +1,4 @@
-# Target and source rules owned by AquaWebKit, called from Source/cmake/WebKitMacros.cmake
+# Target and source rules owned by Aqua WebKit, called from Source/cmake/WebKitMacros.cmake
 # so that file's own macros stay byte-upstream.
 
 # generate-unified-source-bundles.rb names every ObjC++ bundle -ARC.mm (and the opted-out ones

@@ -1,4 +1,4 @@
-# Source selection and shared-library integration for the AquaWebKit libwebrtc build.
+# Source selection and shared-library integration for the Aqua WebKit libwebrtc build.
 
 macro(AQUAWEBKIT_LIBWEBRTC_ADD_TARGET)
     # Keep production sources, Cocoa capture and the checked-in Apple assembly.
