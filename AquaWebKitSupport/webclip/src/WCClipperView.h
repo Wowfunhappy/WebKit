@@ -32,7 +32,7 @@
 - (WebClipper *)controller;
 - (WebScriptObject *)widgetScriptObject;
 
-- (void)displayLoadingText;
+- (void)showLoadingClipWithTheme:(int)themeID size:(NSSize)size;
 - (void)loadURLString:(NSString *)URLString clipRect:(NSRect)clipRect clipSignature:(NSDictionary *)clipSignature pageSize:(NSSize)pageSize displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget;
 - (void)setTheme:(int)themeID;
 - (void)switchToThemeAtIndex:(unsigned)index;
@@ -44,7 +44,6 @@
 - (void)notifyTransitionIsComplete;
 - (void)setTransitionInProgress;
 - (void)fadeButtonWithOpacity:(float)opacity;
-- (void)prepareWidgetForSnapshot;
 
 - (NSRect)convertDOMRectToDashboardControlRegion:(NSRect)rect;
 - (void)pageDraggableRects:(void (^)(NSArray *documentRects))completionHandler;

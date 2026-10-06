@@ -717,9 +717,9 @@ static NSImage *sTornResize;
     return NSMakeSize(160.0, 100.0);
 }
 
-- (BOOL)drawsInAttachedWindow
+- (BOOL)drawsInPlugInView
 {
-    return NO;
+    return YES;
 }
 
 - (int)doneButtonInsetY

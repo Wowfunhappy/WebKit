@@ -14,9 +14,6 @@ typedef NS_ENUM(int, WCThemeID) {
 
 // The widget-side object DashboardClient hands out as -[DBCWebView widget].
 @protocol WCDashboardWidget <NSObject>
-- (NSWindow *)createAttachedWindow:(NSRect)frame options:(unsigned int)options;
-- (void)releaseAttachedWindow:(NSWindow *)window;
-- (void)orderAttachedWindow:(NSWindow *)window place:(NSWindowOrderingMode)place relativeTo:(int)relativeTo delayed:(BOOL)delayed;
 - (void)setEventRegionWithRects:(const NSRect *)rects count:(int)count;
 - (mach_port_t)serverPort;
 - (void)bringToFront;
@@ -88,7 +85,6 @@ NSString *WCLocalizedString(const char *key);
 
 @interface WCTheme : NSView {
 @protected
-    __unsafe_unretained NSWindow *_attachedWindow;
     __unsafe_unretained WCDoneButton *_doneButton;
     BOOL _drawsInnerBezel;
     float _editModeBorderOpacity;
@@ -109,15 +105,6 @@ NSString *WCLocalizedString(const char *key);
 + (int)borderRight;
 + (int)borderTop;
 + (int)borderBottom;
-// A view that shows the theme where the clip's own window covers the theme's. The theme's own
-// window leaves that area, in the theme's coordinates, to it.
-@property (nonatomic, weak) NSView *overlay;
-@property (nonatomic) NSRect pageArea;
-// Draws the page area too, for the overlay and the stand-in.
-- (void)drawIncludingPageAreaIntoContext:(NSGraphicsContext *)context;
-// Hears of a click in the theme's window, which the Dock has brought to the front with its widget.
-@property (nonatomic, weak) id clickTarget;
-@property (nonatomic) SEL clickAction;
 - (void)setDashboardWebView:(id)dashboardWebView;
 - (void)setDoneButton:(WCDoneButton *)doneButton;
 - (void)buttonStateChanged;
@@ -136,9 +123,9 @@ NSString *WCLocalizedString(const char *key);
 - (void)deallocBezelImages;
 - (NSImage *)doneButtonImage;
 - (NSImage *)resizerImage;
-- (void)orderAttachedWindow:(NSWindowOrderingMode)place relativeTo:(int)relativeTo delayed:(BOOL)delayed;
-- (void)releaseAttachedWindow;
-- (BOOL)drawsInAttachedWindow;
+// Stock drew this theme in the plug-in's view, over the page in one backing store and at the view's
+// size. It drew the others in a window of their own the size of the widget's window, over the page.
+- (BOOL)drawsInPlugInView;
 - (void)setEventRegion:(NSRect)rect;
 - (NSRect)controlRegion;
 - (NSRect)displacementRect;

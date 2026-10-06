@@ -52,7 +52,6 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 - (WKWebView *)currentWebView;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
 - (BOOL)performKeyEquivalentLeftByPage:(NSEvent *)event;
-- (NSPoint)themeWindowOrigin;
 @end
 
 // The event AppKit delivers when the key focus passes between processes.
@@ -151,47 +150,6 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 - (NSRect)constrainFrameRect:(NSRect)frameRect toScreen:(NSScreen *)screen
 {
     return frameRect;
-}
-
-@end
-
-// The page window lies over the theme's window, and the overlay shows the theme over the page. The
-// overlay is a subview of the clipper view.
-@interface WCThemeOverlayView : NSView
-@property (nonatomic, weak) WCTheme *theme;
-- (void)drawTheme;
-@end
-
-@implementation WCThemeOverlayView
-
-- (NSView *)hitTest:(NSPoint)point
-{
-    return nil;
-}
-
-- (void)drawRect:(NSRect)rect
-{
-    [self drawTheme];
-}
-
-// Draws the theme as it lies over the overlay, in the overlay's coordinates.
-- (void)drawTheme
-{
-    WCTheme *theme = _theme;
-    if (![theme window] || ![self window])
-        return;
-    NSRect frame = [[self window] convertRectToScreen:[self convertRect:[self bounds] toView:nil]];
-    NSPoint origin = [(WCClipperView *)[self superview] themeWindowOrigin];
-    NSRect themeFrame = NSOffsetRect([theme convertRect:[theme bounds] toView:nil], origin.x, origin.y);
-    // The theme draws into a bitmap of its own, which takes the offset between the two windows.
-    NSRect bounds = [self bounds];
-    NSBitmapImageRep *bitmap = [self bitmapImageRepForCachingDisplayInRect:bounds];
-    [bitmap setSize:bounds.size];
-    memset([bitmap bitmapData], 0, [bitmap bytesPerRow] * [bitmap pixelsHigh]);
-    NSGraphicsContext *context = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
-    CGContextTranslateCTM([context graphicsPort], NSMinX(themeFrame) - NSMinX(frame), NSMinY(themeFrame) - NSMinY(frame));
-    [theme drawIncludingPageAreaIntoContext:context];
-    [bitmap drawInRect:bounds fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1 respectFlipped:YES hints:nil];
 }
 
 @end
@@ -314,15 +272,12 @@ static NSRect rectFromPageRect(id value)
     WCErrorView *_errorView;
     NSButton *_flipButton;
     NSImageView *_flipperImageView;
-    WCThemeOverlayView *_themeOverlay;
     WCDoneButton *_lockCameraButton;
     NSTimer *_progressTimer;
     NSView *_resizer;
     WKWebView *_previousPageView;
     // Where the previous page lies in the clip view.
     NSPoint _previousPageOffset;
-    CFAbsoluteTime _clipSettledTime;
-    CFAbsoluteTime _clipElementStillSince;
     WCSnapper *_snapper;
     NSTextField *_statusTextField;
     WCVoidView *_voidView;
@@ -434,9 +389,8 @@ static NSRect rectFromPageRect(id value)
     return _placeholder;
 }
 
-// Where a window lies on the screen. The Dock moves a widget's windows itself: DashboardClient updates the
-// widget window's frame in this process only once a move ends, and never the theme's attached window's; the
-// window server knows each window's place throughout.
+// Where a window lies on the screen. The Dock moves a widget's window itself: DashboardClient updates its
+// frame in this process only once a move ends; the window server knows its place throughout.
 static NSRect windowServerFrame(NSWindow *window)
 {
     CGRect bounds;
@@ -444,11 +398,6 @@ static NSRect windowServerFrame(NSWindow *window)
     // The window server's coordinates run down from the top of the first screen.
     CGFloat firstScreenHeight = NSHeight([[[NSScreen screens] firstObject] frame]);
     return NSMakeRect(bounds.origin.x, firstScreenHeight - CGRectGetMaxY(bounds), bounds.size.width, bounds.size.height);
-}
-
-- (NSPoint)themeWindowOrigin
-{
-    return windowServerFrame([_currentTheme window]).origin;
 }
 
 - (NSRect)placeholderFrameOnScreen
@@ -468,6 +417,19 @@ static NSRect windowServerFrame(NSWindow *window)
     NSRect clipperFrame = NSOffsetRect(placeholderFrame, -NSMinX(frame), -NSMinY(frame));
     if (!NSEqualRects(clipperFrame, [self frame]))
         [self setFrame:clipperFrame];
+    [self placeTheme];
+}
+
+// A theme stock drew in a window of its own takes the size of the widget's window, which the
+// plug-in's view can overhang.
+- (void)placeTheme
+{
+    NSRect frame = [self bounds];
+    NSView *contentView = [[self window] contentView];
+    if (![_currentTheme drawsInPlugInView] && contentView)
+        frame = NSIntersectionRect(frame, [self convertRect:[contentView bounds] fromView:contentView]);
+    if (!NSEqualRects(frame, [_currentTheme frame]))
+        [_currentTheme setFrame:frame];
 }
 
 // The page window shows while Dashboard shows the widget's front, still and live.
@@ -490,7 +452,6 @@ static NSRect windowServerFrame(NSWindow *window)
         [self orderPageWindowOut];
         return;
     }
-    [self updateThemeOverlay];
     // The page window comes on screen at its place among the widget's windows.
     NSDisableScreenUpdates();
     if (![_pageWindow isVisible])
@@ -501,26 +462,10 @@ static NSRect windowServerFrame(NSWindow *window)
         [self makePageWindowKey];
 }
 
-// The theme's attached window, while the Dock has it on screen with the widget's front.
-- (NSWindow *)attachedThemeWindow
-{
-    NSWindow *themeWindow = [_currentTheme drawsInAttachedWindow] ? [_currentTheme window] : nil;
-    if ([themeWindow windowNumber] <= 0)
-        return nil;
-    NSArray *info = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, (CGWindowID)[themeWindow windowNumber]));
-    return [[[info firstObject] objectForKey:(__bridge NSString *)kCGWindowIsOnscreen] boolValue] ? themeWindow : nil;
-}
-
-// The page window lies directly above the widget window and the theme's window, which leaves the widget's close box
-// in front of it.
+// The page window lies directly above the widget window, which leaves the widget's close box in front of it.
 - (void)orderPageWindowFront
 {
-    int connection = CGSMainConnectionID();
-    int pageWindowNumber = (int)[_pageWindow windowNumber];
-    CGSOrderWindow(connection, pageWindowNumber, NSWindowAbove, (int)[[_placeholder window] windowNumber]);
-    NSWindow *themeWindow = [self attachedThemeWindow];
-    if (themeWindow)
-        CGSOrderWindow(connection, pageWindowNumber, NSWindowAbove, (int)[themeWindow windowNumber]);
+    CGSOrderWindow(CGSMainConnectionID(), (int)[_pageWindow windowNumber], NSWindowAbove, (int)[[_placeholder window] windowNumber]);
 }
 
 // The key window goes back to the widget's own window, which the Dock orders.
@@ -530,25 +475,6 @@ static NSRect windowServerFrame(NSWindow *window)
         [[_placeholder window] makeKeyWindow];
     if ([_pageWindow isVisible])
         [_pageWindow _doOrderWindow:NSWindowOut relativeTo:0 findKey:NO forCounter:NO force:NO isModal:NO];
-}
-
-- (void)updateThemeOverlay
-{
-    BOOL drawsInAttachedWindow = [_currentTheme drawsInAttachedWindow];
-    [_themeOverlay setTheme:drawsInAttachedWindow ? _currentTheme : nil];
-    [_currentTheme setOverlay:drawsInAttachedWindow ? _themeOverlay : nil];
-    [_currentTheme setClickTarget:self];
-    [_currentTheme setClickAction:@selector(widgetWindowDidReceiveMouseDown)];
-    [_themeOverlay setHidden:!drawsInAttachedWindow || [_clipView isHidden]];
-    [_themeOverlay setFrame:[_clipView frame]];
-    [_themeOverlay setNeedsDisplay:YES];
-    NSRect pageArea = NSZeroRect;
-    if (drawsInAttachedWindow && [_currentTheme window] && [self window]) {
-        NSRect onScreen = [[self window] convertRectToScreen:[self convertRect:[_clipView frame] toView:nil]];
-        NSPoint origin = [self themeWindowOrigin];
-        pageArea = [_currentTheme convertRect:NSOffsetRect(onScreen, -origin.x, -origin.y) fromView:nil];
-    }
-    [_currentTheme setPageArea:pageArea];
 }
 
 - (void)placeholderDidChange
@@ -583,7 +509,6 @@ static NSRect windowServerFrame(NSWindow *window)
     // is among the widget's windows.
     if ([_pageWindow isVisible] && [self showsPageWindow]) {
         [self placePageWindow];
-        [self updateThemeOverlay];
         return;
     }
     [self updatePageWindow];
@@ -601,10 +526,9 @@ static NSImage *imageOfView(NSView *view, NSRect rect)
     return image;
 }
 
-// The stand-in is what the page window shows: the clip view's content where the content mask keeps
-// it, the status text, and the theme over them. The clip view's content is the cover while it shows,
-// and otherwise the void with the page's snapshot over it in the given rect.
-- (void)setStandInWithPageSnapshot:(NSImage *)snapshot inRect:(NSRect)snapshotRect
+// The clip view's content where the content mask keeps it: the cover while it shows, and otherwise the
+// void with the page's snapshot over it in the given rect.
+- (NSImage *)clipViewContentWithPageSnapshot:(NSImage *)snapshot inRect:(NSRect)snapshotRect
 {
     NSRect clipFrame = [_clipView frame];
     NSRect clipRect = NSMakeRect(0, 0, NSWidth(clipFrame), NSHeight(clipFrame));
@@ -620,45 +544,64 @@ static NSImage *imageOfView(NSView *view, NSRect rect)
         CGContextDrawImage(context, NSRectToCGRect(clipRect), mask);
     }
     [content unlockFocus];
-
-    NSImage *standIn = [[NSImage alloc] initWithSize:[self bounds].size];
-    [standIn lockFocus];
-    [content drawInRect:clipFrame fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
-    if (![_statusTextField isHidden])
-        [imageOfView(_statusTextField, [_statusTextField bounds]) drawInRect:[_statusTextField frame] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
-    if ([_currentTheme superview] == self)
-        [_currentTheme displayRectIgnoringOpacity:[_currentTheme bounds] inContext:[NSGraphicsContext currentContext]];
-    else if (![_themeOverlay isHidden]) {
-        NSAffineTransform *transform = [NSAffineTransform transform];
-        [transform translateXBy:NSMinX([_themeOverlay frame]) yBy:NSMinY([_themeOverlay frame])];
-        [transform concat];
-        [_themeOverlay drawTheme];
-    }
-    [standIn unlockFocus];
-    [_placeholder setImage:standIn];
+    return content;
 }
 
-- (void)updateStandIn
+// The page the clip shows: the previous page while a reload runs under it.
+- (WKWebView *)shownWebView
 {
-    WKWebView *webView = _webView;
-    if (!webView || _hasScreenshot || NSIsEmptyRect([_clipView bounds]))
+    return _previousPageView ?: _webView;
+}
+
+// Hands over the clip view's content, from a snapshot of the page the clip shows unless the cover shows,
+// or nil when the page cannot be snapshotted or what the clip shows changes meanwhile.
+- (void)clipViewContent:(void (^)(NSImage *content))completionHandler
+{
+    WKWebView *webView = [self shownWebView];
+    if (!webView || NSIsEmptyRect([_clipView bounds])) {
+        completionHandler(nil);
         return;
+    }
     if (![_pageCover isHidden]) {
-        [self setStandInWithPageSnapshot:nil inRect:NSZeroRect];
+        completionHandler([self clipViewContentWithPageSnapshot:nil inRect:NSZeroRect]);
         return;
     }
     NSRect pageRect = NSIntersectionRect([_clipView bounds], [webView frame]);
-    if (NSIsEmptyRect(pageRect))
+    if (NSIsEmptyRect(pageRect)) {
+        completionHandler(nil);
         return;
+    }
     WKSnapshotConfiguration *configuration = [[WKSnapshotConfiguration alloc] init];
     configuration.rect = [webView convertRect:pageRect fromView:_voidView];
     NSRect clipFrame = [_clipView frame];
     NSRect frame = [self convertRect:pageRect fromView:_voidView];
     NSRect snapshotRect = NSOffsetRect(frame, -NSMinX(clipFrame), -NSMinY(clipFrame));
     [webView takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *error) {
-        if (!image || webView != _webView || _hasScreenshot || ![_pageCover isHidden])
+        if (!image || webView != [self shownWebView] || ![_pageCover isHidden]) {
+            completionHandler(nil);
             return;
-        [self setStandInWithPageSnapshot:image inRect:snapshotRect];
+        }
+        completionHandler([self clipViewContentWithPageSnapshot:image inRect:snapshotRect]);
+    }];
+}
+
+// The stand-in is what the page window shows: the clip view's content, the status text, and the theme
+// over them, which draws in a layer of its own.
+- (void)updateStandIn
+{
+    if (_hasScreenshot)
+        return;
+    [self clipViewContent:^(NSImage *content) {
+        if (!content || _hasScreenshot)
+            return;
+        NSImage *standIn = [[NSImage alloc] initWithSize:[self bounds].size];
+        [standIn lockFocus];
+        [content drawInRect:[_clipView frame] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+        if (![_statusTextField isHidden])
+            [imageOfView(_statusTextField, [_statusTextField bounds]) drawInRect:[_statusTextField frame] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+        [[self themeSnapshot] drawInRect:[_currentTheme frame] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+        [standIn unlockFocus];
+        [_placeholder setImage:standIn];
     }];
 }
 
@@ -910,20 +853,14 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
     if (![_pageWindow isVisible] || ![self showsPageWindow])
         return;
     [self placePageWindow];
-    [self updateThemeOverlay];
 }
 
-// The widget's close box stays in front of the clip: the page window and the theme's attached window go below it.
+// The widget's close box stays in front of the clip: the page window goes below it.
 - (void)windowDidOrderIn:(uint32_t)window
 {
-    // A theme's attached window, the Dock's too, comes on screen right above the widget window.
-    if (window == (uint32_t)[[_currentTheme window] windowNumber])
-        return;
     NSArray *windowsAbove = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenAboveWindow, (CGWindowID)[[_placeholder window] windowNumber]));
     if ([[[windowsAbove lastObject] objectForKey:(__bridge NSString *)kCGWindowNumber] unsignedIntValue] != window)
         return;
-    if ([self attachedThemeWindow])
-        [_currentTheme orderAttachedWindow:NSWindowBelow relativeTo:(int)window delayed:NO];
     if ([_pageWindow isVisible])
         CGSOrderWindow(CGSMainConnectionID(), (int)[_pageWindow windowNumber], NSWindowBelow, (int)window);
 }
@@ -934,9 +871,7 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
     if (![_pageWindow isVisible] || ![self showsPageWindow])
         return;
     NSArray *windowsAbove = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenAboveWindow, (CGWindowID)[_pageWindow windowNumber]));
-    NSArray *numbersAbove = [windowsAbove valueForKey:(__bridge NSString *)kCGWindowNumber];
-    NSWindow *themeWindow = [self attachedThemeWindow];
-    if ([numbersAbove containsObject:@([[_placeholder window] windowNumber])] || (themeWindow && [numbersAbove containsObject:@([themeWindow windowNumber])]))
+    if ([[windowsAbove valueForKey:(__bridge NSString *)kCGWindowNumber] containsObject:@([[_placeholder window] windowNumber])])
         [self orderPageWindowFront];
 }
 
@@ -969,7 +904,6 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
         hidden = _hasScreenshot || _previousPageView;
     [_flipButton setHidden:hidden];
     [_flipperImageView setHidden:hidden];
-    [_themeOverlay setNeedsDisplay:YES];
 }
 
 - (void)clearScreenshot
@@ -1100,13 +1034,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
 - (NSRect)convertDOMRectToDashboardControlRegion:(NSRect)rect
 {
     NSRect region = [self convertRect:rect fromView:_clipView];
-    NSRect themeRegion;
-    if ([_currentTheme drawsInAttachedWindow] && [_currentTheme window] && [self window]) {
-        NSPoint origin = [self themeWindowOrigin];
-        NSRect onScreen = NSOffsetRect([_currentTheme convertRect:[_currentTheme controlRegion] toView:nil], origin.x, origin.y);
-        themeRegion = [self convertRect:[[self window] convertRectFromScreen:onScreen] fromView:nil];
-    } else
-        themeRegion = [self convertRect:[_currentTheme controlRegion] fromView:_currentTheme];
+    NSRect themeRegion = [self convertRect:[_currentTheme controlRegion] fromView:_currentTheme];
     return NSIntersectionRect(region, themeRegion);
 }
 
@@ -1173,7 +1101,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
     CALayer *clipLayer = [_clipView layer];
     if (!clipLayer)
         return;
-    if (!_currentTheme || [_currentTheme superview] != self) {
+    if (![_currentTheme drawsInPlugInView]) {
         clipLayer.mask = nil;
         return;
     }
@@ -1213,6 +1141,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
 - (void)updateFrame
 {
     [_clipView setFrame:[self clipViewFrame]];
+    [self placeTheme];
     [self repositionOverlayButtons];
     [self updateEventRegion];
     [self updateContentMask];
@@ -1226,10 +1155,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
         if ([oldTheme themeID] == themeID)
             return;
     }
-    if ([_currentTheme drawsInAttachedWindow])
-        [_currentTheme releaseAttachedWindow];
-    else
-        [_currentTheme removeFromSuperview];
+    [_currentTheme removeFromSuperview];
 
     Class themeClass;
     switch (themeID) {
@@ -1255,41 +1181,15 @@ static const CGFloat WCMaximumClipperLength = 20000;
         themeClass = [WebClipper defaultThemeClass];
         break;
     }
-    if (oldTheme)
-        [[NSNotificationCenter defaultCenter] removeObserver:self name:NSViewFrameDidChangeNotification object:oldTheme];
     _currentTheme = [[themeClass alloc] init];
-    // The overlay buttons are placed by converting between the widget window and the theme's
-    // attached window, so they follow the theme whenever Dashboard resizes that window.
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(themeFrameDidChange:) name:NSViewFrameDidChangeNotification object:_currentTheme];
-
-    BOOL orderAttachedWindow = !oldTheme && [_currentTheme drawsInAttachedWindow];
     [_currentTheme setDoneButton:_lockCameraButton];
     [_currentTheme setDashboardWebView:[[self controller] dashboardWebView]];
-    // A theme's attached window holds no page, and its views draw into the window.
-    if ([_currentTheme drawsInAttachedWindow]) {
-        [_flipperImageView setWantsLayer:NO];
-        [_currentTheme addSubview:_flipperImageView];
-    } else
-        addLayerBackedSubview(_currentTheme, _flipperImageView);
+    addLayerBackedSubview(_currentTheme, _flipperImageView);
     [_resizer setFrameSize:[_currentTheme resizerFrameSize]];
-    if (![_currentTheme drawsInAttachedWindow]) {
-        [_currentTheme setFrameSize:[self frame].size];
-        addLayerBackedSubview(self, _currentTheme);
-    }
-    if (orderAttachedWindow) {
-        [self updateFrame];
-        [_currentTheme orderAttachedWindow:NSWindowAbove relativeTo:0 delayed:YES];
-        [_currentTheme display];
-    }
+    addLayerBackedSubview(self, _currentTheme);
+    [self placeTheme];
     [self updateContentMask];
     [self updatePageWindow];
-}
-
-// The overlay shows the theme at its present size.
-- (void)themeFrameDidChange:(NSNotification *)notification
-{
-    [self repositionOverlayButtons];
-    [_themeOverlay setNeedsDisplay:YES];
 }
 
 - (NSImage *)themeSnapshot
@@ -1299,51 +1199,9 @@ static const CGFloat WCMaximumClipperLength = 20000;
     NSBitmapImageRep *representation = [_currentTheme bitmapImageRepForCachingDisplayInRect:frame];
     [representation setSize:frame.size];
     memset([representation bitmapData], 0, [representation bytesPerRow] * [representation pixelsHigh]);
-    [_currentTheme drawIncludingPageAreaIntoContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:representation]];
+    [_currentTheme displayRectIgnoringOpacity:[_currentTheme bounds] inContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:representation]];
     [image addRepresentation:representation];
     return image;
-}
-
-// Copies a screen region of the window's current on-screen contents, including the composited layers
-// the clipped page is drawn with.
-static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destination)
-{
-    if (!window)
-        return;
-    CGFloat primaryHeight = NSMaxY([[[NSScreen screens] objectAtIndex:0] frame]);
-    CGRect captureRect = CGRectMake(screenRect.origin.x, primaryHeight - NSMaxY(screenRect), screenRect.size.width, screenRect.size.height);
-    CGImageRef image = CGWindowListCreateImage(captureRect, kCGWindowListOptionIncludingWindow, (CGWindowID)[window windowNumber], kCGWindowImageBoundsIgnoreFraming);
-    if (!image)
-        return;
-    CGContextDrawImage((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort], NSRectToCGRect(destination), image);
-    CGImageRelease(image);
-}
-
-- (NSImage *)snapshotOfRegion:(NSRect)region includeTheme:(BOOL)includeTheme
-{
-    NSRect destination = NSMakeRect(0, 0, region.size.width, region.size.height);
-    NSImage *image = [[NSImage alloc] initWithSize:region.size];
-    [image lockFocus];
-    NSGraphicsContext *context = [NSGraphicsContext currentContext];
-    [context setCompositingOperation:NSCompositeCopy];
-    copyWindowRegion([self window], [[self window] convertRectToScreen:[self convertRect:region toView:nil]], destination);
-    if (includeTheme) {
-        [context setCompositingOperation:NSCompositeSourceOver];
-        NSPoint origin = [self themeWindowOrigin];
-        copyWindowRegion([_currentTheme window], NSOffsetRect(region, origin.x, origin.y), destination);
-    }
-    [image unlockFocus];
-    return image;
-}
-
-- (NSImage *)clipViewImage
-{
-    return [self snapshotOfRegion:[self clipViewFrame] includeTheme:NO];
-}
-
-- (NSImage *)snapshotIncludingTheme:(BOOL)includeTheme
-{
-    return [self snapshotOfRegion:[_currentTheme frame] includeTheme:includeTheme];
 }
 
 - (NSPoint)mouseLocationInView
@@ -1441,6 +1299,16 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     [_voidView setIsBlack:YES];
 }
 
+// A clip made from Safari shows in its theme and at its size, loading, while Safari reports the page.
+- (void)showLoadingClipWithTheme:(int)themeID size:(NSSize)size
+{
+    [self setTheme:themeID];
+    [self setWidgetWindowSize:size keepClipperCentered:YES];
+    _isLoading = YES;
+    [self updateFlipperVisibility];
+    [self displayLoadingText];
+}
+
 - (void)displayLoadingText
 {
     [self stopProgressTimer];
@@ -1474,22 +1342,8 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     _progressTimer = nil;
 }
 
-- (void)prepareWidgetForSnapshot
+- (NSImage *)thumbnailOfImage:(NSImage *)image
 {
-    if (![_currentTheme drawsInAttachedWindow])
-        return;
-    [self setScreenshot:[self snapshotIncludingTheme:YES]];
-    [_currentTheme orderAttachedWindow:NSWindowOut relativeTo:0 delayed:YES];
-    [self stopProgressTimer];
-    [_clipView setHidden:YES];
-    [_statusTextField setHidden:YES];
-    [self updateFlipperVisibility];
-    [self display];
-}
-
-- (NSImage *)thumbnail
-{
-    NSImage *image = [self clipViewImage];
     NSSize size = [image size];
     if (size.width / size.height >= 1.0) {
         [image setSize:NSMakeSize((float)size.height, size.height)];
@@ -1507,12 +1361,17 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
     return thumbnail;
 }
 
+// The back shows the clip's content in its theme previews.
 - (void)flipToBack
 {
     [self setIsEditingCameraPosition:NO];
-    [[self controller] setThumbnailAndFlipToBack:[self thumbnail]];
-    _didFlipToFront = NO;
-    [self updatePageWindow];
+    [self clipViewContent:^(NSImage *content) {
+        if (!_didFlipToFront)
+            return;
+        [[self controller] setThumbnailAndFlipToBack:[self thumbnailOfImage:content ?: [self clipViewContentWithPageSnapshot:nil inRect:NSZeroRect]]];
+        _didFlipToFront = NO;
+        [self updatePageWindow];
+    }];
 }
 
 - (NSRect)clipViewBounds
@@ -1656,8 +1515,6 @@ static void copyWindowRegion(NSWindow *window, NSRect screenRect, NSRect destina
 // the clip have loaded.
 - (void)clipDidSettle
 {
-    _clipSettledTime = CFAbsoluteTimeGetCurrent();
-    _clipElementStillSince = _clipSettledTime;
     [self anchorPageScroll];
     [self followClipElement];
     WKWebView *webView = _webView;
@@ -1731,22 +1588,12 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     }];
 }
 
-// A reloaded page takes the previous page's place once it is set up at the clip's place: the clip's
-// element has held still for a moment, or the placement deadline has passed since the clip settled, and
-// then its scroll has landed and it has presented what it shows there.
-static const CFTimeInterval WCReloadedPageStillInterval = 1;
-
+// A reloaded page takes the previous page's place once it is set up at the clip's place: the clip has
+// settled and the images in it have loaded, its scroll has landed and it has presented what it shows there.
 - (void)showReloadedPageWhenSetUp
 {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showReloadedPageWhenSetUp) object:nil];
     if (!_previousPageView || _isHidden || _isLoading || !_shouldClearScreenshotOnRentry)
         return;
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    CFTimeInterval wait = MIN(WCReloadedPageStillInterval - (now - _clipElementStillSince), WCSignatureDeadlineMilliseconds / 1000 - (now - _clipSettledTime));
-    if (wait > 0) {
-        [self performSelector:@selector(showReloadedPageWhenSetUp) withObject:nil afterDelay:wait];
-        return;
-    }
     WKWebView *webView = _webView;
     [self layoutPageViewportWithCompletionHandler:^{
         [webView _doAfterNextPresentationUpdate:^{
@@ -2134,8 +1981,6 @@ static NSPoint pageScrollFromResult(id result)
     [_voidView addSubview:_webView];
     [_voidView addSubview:_pageCover];
     addLayerBackedSubview(self, _clipView);
-    _themeOverlay = [[WCThemeOverlayView alloc] initWithFrame:[_clipView frame]];
-    addLayerBackedSubview(self, _themeOverlay);
     addLayerBackedSubview(self, _flipButton);
     addLayerBackedSubview(self, _lockCameraButton);
     addLayerBackedSubview(self, _resizer);
@@ -2163,6 +2008,8 @@ static NSPoint pageScrollFromResult(id result)
     [self setPostsFrameChangedNotifications:YES];
     [self setPostsBoundsChangedNotifications:YES];
     _disableAutoRefresh = [[NSUserDefaults standardUserDefaults] boolForKey:@"DisableWebClipRefresh"];
+    // The widget shows its front until it flips.
+    _didFlipToFront = YES;
     return self;
 }
 
@@ -2176,6 +2023,10 @@ static NSPoint pageScrollFromResult(id result)
 - (NSView *)hitTest:(NSPoint)point
 {
     NSView *hit = [super hitTest:point];
+    // A theme stock drew in a window of its own lay over the page without taking its clicks; its frame
+    // takes them for the clip.
+    if ([hit isDescendantOf:_currentTheme] && ![_currentTheme drawsInPlugInView])
+        hit = [_clipView hitTest:[self convertPoint:point fromView:[self superview]]] ?: self;
     // The previous page only shows while its reload runs under it.
     if (_previousPageView && [hit isDescendantOf:_previousPageView])
         hit = _clipView;
@@ -2204,7 +2055,6 @@ static NSPoint pageScrollFromResult(id result)
     NSColor *color = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:opacity];
     [_flipperImageView setImage:[[[self class] flipperImage] wc_tintedImageWithColor:color]];
     [_flipperImageView display];
-    [_themeOverlay display];
 }
 
 - (void)updateFlipper
@@ -2216,7 +2066,6 @@ static NSPoint pageScrollFromResult(id result)
 {
     NSColor *color = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:entered ? 0.001 : 0.5];
     [_flipperImageView setImage:[[[self class] flipperImage] wc_tintedImageWithColor:color]];
-    [_themeOverlay setNeedsDisplay:YES];
     if (!entered)
         [self updateStandIn];
     [[self windowScriptObject] callWebScriptMethod:entered ? @"iFadeIn" : @"iFadeOut" withArguments:[NSArray array]];
@@ -2329,10 +2178,7 @@ static NSPoint pageScrollFromResult(id result)
     [self updateEventRegion];
     if (!_didFlipToFront)
         return;
-    if ([_currentTheme drawsInAttachedWindow]) {
-        [_currentTheme orderAttachedWindow:NSWindowAbove relativeTo:0 delayed:YES];
-        [self clearScreenshotIfNeeded];
-    }
+    [self clearScreenshotIfNeeded];
     [self repositionOverlayButtons];
     [self updateCursor];
     [self updateFlipper];
@@ -2356,7 +2202,6 @@ static NSPoint pageScrollFromResult(id result)
     [self setTheme:index];
     [_clipView setFrame:[self clipViewFrame]];
     NSSize newClipSize = [_clipView frame].size;
-    NSSize themeSize = [_currentTheme bounds].size;
     NSSize minimum = [_currentTheme minSize];
     NSSize frameSize = [self adjustedFrameSizeFromOldClipSize:oldClipSize toSize:newClipSize];
     [self setClipperSize:frameSize];
@@ -2364,12 +2209,7 @@ static NSPoint pageScrollFromResult(id result)
         frameSize = NSMakeSize(MAX(minimum.width, frameSize.width), MAX(minimum.height, frameSize.height));
         [self setClipperSize:frameSize];
     }
-    if ([_currentTheme drawsInAttachedWindow]) {
-        [_currentTheme setFrameSize:frameSize];
-        [self setScreenshot:[self themeSnapshot]];
-        [_currentTheme setFrameSize:themeSize];
-    } else
-        [self clearScreenshot];
+    [self clearScreenshot];
     [_currentTheme display];
     [self updateContentMask];
 }
@@ -2553,10 +2393,7 @@ static const CGFloat WCReloadSpinnerSize = 22;
     NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL _web_URLWithUserTypedString:URLString] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:31536000];
     _isLoading = YES;
     [self loadRequestWithSafariStorage:request];
-    // The widget shows its front from here: Dashboard takes the clicks the front's region holds.
     _didFlipToFront = YES;
-    [self updatePageWindow];
-    [self updateEventRegion];
 }
 
 - (int)currentThemeID
@@ -2575,7 +2412,6 @@ static const CGFloat WCReloadSpinnerSize = 22;
     [self stopExtensions];
     [clipperViews removeObject:self];
     [WCClipperView requestWidgetWindowNotifications];
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showReloadedPageWhenSetUp) object:nil];
     [self closePreviousPage];
     [_webView stopLoading:nil];
     [[_webView configuration].userContentController removeAllScriptMessageHandlers];
@@ -2631,14 +2467,12 @@ static const CGFloat WCReloadSpinnerSize = 22;
         [self layoutPageViewport];
     } else if ([type isEqual:@"clipElementMoved"]) {
         // The clip follows its element as anchoring does: the saved place stays the one placement gave it.
-        _clipElementStillSince = CFAbsoluteTimeGetCurrent();
         NSPoint place = NSMakePoint([message[@"x"] doubleValue], [message[@"y"] doubleValue]);
         NSPoint origin = [self clipPageOrigin];
         if (!_isEditingCameraPosition && (fabs(place.x - origin.x) >= 0.5 || fabs(place.y - origin.y) >= 0.5))
             [self scrollClipToPagePoint:place];
     } else if ([type isEqual:@"clipElementIdentified"]) {
         // The signed element lies where it was again, after placement showed a likelier element of its kind.
-        _clipElementStillSince = CFAbsoluteTimeGetCurrent();
         if (!_isEditingCameraPosition) {
             [self adjustClipToRect:rectFromPageRect(message[@"rect"])];
             [self followClipElement];

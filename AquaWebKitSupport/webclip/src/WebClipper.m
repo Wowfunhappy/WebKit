@@ -340,7 +340,8 @@
     [_webClipperView editCameraPosition];
 }
 
-- (void)loadWelcome
+// The welcome page shows at its own size, to which a clip that was waiting for Safari resizes the widget.
+- (void)loadWelcomeResizingWidget:(BOOL)resizeWidget
 {
     NSString *welcomePath = [[NSBundle bundleForClass:[self class]] pathForResource:@"welcome" ofType:@"html"];
     NSString *URLString = [[NSURL fileURLWithPath:welcomePath] _web_originalDataAsString];
@@ -353,7 +354,7 @@
         NSStringFromPoint(NSZeroPoint), @"PageScroll",
         [NSNumber numberWithInt:0], @"Theme",
         nil];
-    [self loadFromSettings:settings displayLoadingText:NO resizeWidget:NO];
+    [self loadFromSettings:settings displayLoadingText:NO resizeWidget:resizeWidget];
 }
 
 - (void)notifyTransitionIsComplete
@@ -448,7 +449,6 @@
     [tornEdgeThumbnail lockFocus];
     [tornEdge drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeDestinationIn fraction:1];
     [tornEdgeThumbnail unlockFocus];
-    [_webClipperView prepareWidgetForSnapshot];
     [[self windowScriptObject] callWebScriptMethod:@"setThumbnailAndFlipToBack" withArguments:[NSArray arrayWithObjects:thumbnailData, [[tornEdgeThumbnail TIFFRepresentation] base64EncodedStringWithOptions:0], nil]];
 }
 
@@ -726,14 +726,18 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
     NSMutableDictionary *settings = [NSPropertyListSerialization propertyListFromData:parameters mutabilityOption:NSPropertyListMutableContainers format:NULL errorDescription:&errorDescription];
     if (errorDescription) {
         NSLog(@"%@", errorDescription);
-        [self loadWelcome];
+        [self loadWelcomeResizingWidget:NO];
         return NO;
     }
 
     NSString *clipRectString = [settings _web_stringForKey:@"ClipRect"];
     if (!clipRectString)
         return NO;
-    [_webClipperView displayLoadingText];
+    NSRect clipRect = NSRectFromString(clipRectString);
+    Class themeClass = [WebClipper defaultThemeClass];
+    clipRect.size.height += [themeClass borderTop] + [themeClass borderBottom];
+    clipRect.size.width += [themeClass borderLeft] + [themeClass borderRight];
+    [_webClipperView showLoadingClipWithTheme:[[settings _web_numberForKey:@"Theme"] intValue] size:clipRect.size];
     // The clip copies Safari's extensions while Safari reports the page, and loads once it has both.
     dispatch_group_t copyingExtensions = dispatch_group_create();
     NSString *extensionsDirectory = [self safariExtensionsDirectory];
@@ -750,7 +754,7 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
             return;
         if (!pageState) {
             _hasSettings = NO;
-            [self loadWelcome];
+            [self loadWelcomeResizingWidget:YES];
             return;
         }
         NSPoint offset = [[pageState objectForKey:@"Offset"] pointValue];
@@ -763,11 +767,7 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
         if (originalBorderRect)
             [signature setObject:NSStringFromRect(NSOffsetRect(NSRectFromString(originalBorderRect), offset.x, offset.y)) forKey:@"ClipSignatureOriginalBorderRect"];
 
-        NSRect clipRect = NSOffsetRect(NSRectFromString(clipRectString), offset.x, offset.y);
-        Class themeClass = [WebClipper defaultThemeClass];
-        clipRect.size.height += [themeClass borderTop] + [themeClass borderBottom];
-        clipRect.size.width += [themeClass borderLeft] + [themeClass borderRight];
-        [settings setObject:NSStringFromRect(clipRect) forKey:@"ClipRect"];
+        [settings setObject:NSStringFromRect(NSOffsetRect(clipRect, offset.x, offset.y)) forKey:@"ClipRect"];
         [self loadFromSettings:settings displayLoadingText:YES resizeWidget:YES];
       });
     });
@@ -814,7 +814,7 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
     }
     _hasSettings = [self readSettingsFromDashboard];
     if (!_hasSettings)
-        [self loadWelcome];
+        [self loadWelcomeResizingWidget:NO];
 }
 
 - (void)draggableControlRegions:(void (^)(NSArray *rects))completionHandler

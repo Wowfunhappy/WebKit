@@ -22,9 +22,7 @@
 
 #pragma mark - WCTheme
 
-@implementation WCTheme {
-    BOOL _drawsPageArea;
-}
+@implementation WCTheme
 
 + (int)borderLeft
 {
@@ -61,56 +59,13 @@
 
 - (void)setDashboardWebView:(id)dashboardWebView
 {
-    if (!dashboardWebView) {
-        _widgetObject = nil;
-        _attachedWindow = nil;
-        return;
-    }
-
     _widgetObject = [(id<WCDashboardWebView>)dashboardWebView widget];
-    if (![self drawsInAttachedWindow])
-        return;
-    _attachedWindow = [(id<WCDashboardWidget>)_widgetObject createAttachedWindow:NSZeroRect options:1];
-    [_attachedWindow setContentView:self];
 }
 
 - (void)setDoneButton:(WCDoneButton *)doneButton
 {
     _doneButton = doneButton;
     [doneButton setDelegate:self];
-}
-
-- (void)display
-{
-    if ([self drawsInAttachedWindow])
-        [_attachedWindow display];
-    [super display];
-    [_overlay display];
-}
-
-- (void)mouseDown:(NSEvent *)event
-{
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-    [_clickTarget performSelector:_clickAction];
-#pragma clang diagnostic pop
-    [super mouseDown:event];
-}
-
-- (void)setNeedsDisplayInRect:(NSRect)rect
-{
-    [super setNeedsDisplayInRect:rect];
-    [_overlay setNeedsDisplay:YES];
-}
-
-// The theme and its overlay draw the new area in their windows' next display.
-- (void)setPageArea:(NSRect)pageArea
-{
-    if (NSEqualRects(pageArea, _pageArea))
-        return;
-    _pageArea = pageArea;
-    [self setNeedsDisplay:YES];
-    [_overlay setNeedsDisplay:YES];
 }
 
 // The inner bezel rect inset by the edit border's thickness on every side.
@@ -269,34 +224,11 @@
 {
     if (_drawsInnerBezel)
         [self drawInnerBezelInRect:rect];
-    if (!_drawsPageArea)
-        NSRectFillUsingOperation(NSIntersectionRect(_pageArea, rect), NSCompositeClear);
 }
 
-- (void)drawIncludingPageAreaIntoContext:(NSGraphicsContext *)context
+- (BOOL)drawsInPlugInView
 {
-    _drawsPageArea = YES;
-    [self displayRectIgnoringOpacity:[self bounds] inContext:context];
-    _drawsPageArea = NO;
-}
-
-- (void)orderAttachedWindow:(NSWindowOrderingMode)place relativeTo:(int)relativeTo delayed:(BOOL)delayed
-{
-    [(id<WCDashboardWidget>)_widgetObject orderAttachedWindow:_attachedWindow place:place relativeTo:relativeTo delayed:delayed];
-}
-
-// The widget owns the attached window and its window-server window until it is released.
-- (void)releaseAttachedWindow
-{
-    NSWindow *window = _attachedWindow;
-    _attachedWindow = nil;
-    [window setContentView:nil];
-    [(id<WCDashboardWidget>)_widgetObject releaseAttachedWindow:window];
-}
-
-- (BOOL)drawsInAttachedWindow
-{
-    return YES;
+    return NO;
 }
 
 - (void)setEventRegion:(NSRect)rect
