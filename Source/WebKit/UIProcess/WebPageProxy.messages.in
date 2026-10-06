@@ -129,8 +129,8 @@ messages -> WebPageProxy {
     [EnabledBy=InputTypeDateEnabled || InputTypeDateTimeLocalEnabled || InputTypeMonthEnabled || InputTypeTimeEnabled || InputTypeWeekEnabled] EndDateTimePicker();
 
     # Policy messages
-    # AQUAWEBKIT: bundlePolicyUserData carries the injected-bundle policy client's userData (restored with InjectedBundlePagePolicyClient).
-    DecidePolicyForResponse(struct WebKit::FrameInfoData frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, WebCore::ResourceResponse response, WebCore::ResourceRequest request, bool canShowMIMEType, String downloadAttribute, bool isShowingInitialAboutBlank, enum:uint8_t WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, WebKit::UserData bundlePolicyUserData) -> (struct WebKit::PolicyDecision PolicyDecision)
+    # AQUAWEBKIT: bundlePolicyUserData carries the injected-bundle policy client's userData (restored with InjectedBundlePagePolicyClient); bundlePolicyDecidedUse says that client answered Use.
+    DecidePolicyForResponse(struct WebKit::FrameInfoData frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, WebCore::ResourceResponse response, WebCore::ResourceRequest request, bool canShowMIMEType, String downloadAttribute, bool isShowingInitialAboutBlank, enum:uint8_t WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, WebKit::UserData bundlePolicyUserData, bool bundlePolicyDecidedUse) -> (struct WebKit::PolicyDecision PolicyDecision)
     # AQUAWEBKIT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it); drives the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
     UnableToImplementPolicy(WebCore::FrameIdentifier frameID, WebCore::ResourceError error, WebKit::UserData userData)
     DecidePolicyForNavigationActionAsync(struct WebKit::NavigationActionData data) -> (struct WebKit::PolicyDecision PolicyDecision)

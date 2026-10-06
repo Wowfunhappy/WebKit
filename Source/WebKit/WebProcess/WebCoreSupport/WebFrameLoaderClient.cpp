@@ -219,15 +219,15 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
 
     // AQUAWEBKIT: ask the injected bundle's policy client, restored alongside
     // InjectedBundlePagePolicyClient (upstream 9eeab8d). Safari 7's client returns the userData its
-    // UI-process handler reads, and returns WKBundlePagePolicyActionUse when it wants the decision
-    // short-circuited in the WebProcess (BrowserBundlePagePolicyClient::canShortCircuitPolicyDecisionForAction).
-    // Upstream RELEASE_ASSERTed PassThrough here because by then no client could answer anything else.
+    // UI-process handler reads, and returns WKBundlePagePolicyActionUse when the navigation is decided
+    // without its UI-process handler (BrowserBundlePagePolicyClient::canShortCircuitPolicyDecisionForAction,
+    // and Safari's snapshot pages for their own loads). That decision still goes to the UIProcess, which
+    // carries it out as it does any Use: choosing the process and allowing it the navigation's cookies.
     {
         RefPtr<API::Object> bundleUserData;
         Ref<InjectedBundleNavigationAction> action = InjectedBundleNavigationAction::create(m_frame.ptr(), navigationAction, formState);
         WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForNavigationAction(webPage.get(), m_frame.ptr(), action.ptr(), request, bundleUserData);
-        if (policy == WKBundlePagePolicyActionUse)
-            return function(PolicyAction::Use);
+        navigationActionData->bundlePolicyDecidedUse = policy == WKBundlePagePolicyActionUse;
         if (bundleUserData)
             navigationActionData->bundlePolicyUserData = UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()));
     }

@@ -9652,6 +9652,7 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     // AQUAWEBKIT (#60): capture the injected-bundle policy userData (serialized handles) before
     // navigationActionData is consumed; rehydrated and handed to the legacy policy client below.
     RefPtr<API::Object> bundlePolicyUserDataObject = navigationActionData.bundlePolicyUserData.objectForSerialization();
+    bool bundlePolicyDecidedUse = navigationActionData.bundlePolicyDecidedUse; // AQUAWEBKIT: read where the policy client is asked below.
 
     WEBPAGEPROXY_RELEASE_LOG(Loading, "decidePolicyForNavigationAction: frameID=%" PRIu64 ", isMainFrame=%d, navigationID=%" PRIu64, frame.frameID().toUInt64(), frame.isMainFrame(), navigationID ? navigationID->toUInt64() : 0);
 
@@ -10048,7 +10049,9 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     if (!sessionID().isEphemeral())
         logFrameNavigation(frame, internals().pageLoadState.url(), request, navigationAction->data().redirectResponse.url(), wasPotentiallyInitiatedByUser);
 
-    if (m_policyClient) {
+    if (bundlePolicyDecidedUse) // AQUAWEBKIT: the injected bundle's policy client already answered Use (see NavigationActionData).
+        listener->use();
+    else if (m_policyClient) { // AQUAWEBKIT: `else` joins the injected-bundle answer above.
         // AQUAWEBKIT (#60): rehydrate the userData object the restored injected-bundle
         // policy client attached in the WebProcess. Safari's legacy
         // V0/V1 WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction) casts
@@ -10195,9 +10198,11 @@ void WebPageProxy::decidePolicyForNewWindowAction(IPC::Connection& connection, N
         receivedPolicyDecision(policyAction, nullptr, std::nullopt, WTF::move(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, std::nullopt, WTF::move(completionHandler));
     }, ShouldExpectSafeBrowsingResult::No, ShouldExpectAppBoundDomainResult::No, ShouldWaitForInitialLinkDecorationFilteringData::No, ShouldWaitForSiteHasStorageCheck::No, ShouldWaitForEnhancedSecurityLinkCheck::No);
 
-    if (m_policyClient) {
-        // AQUAWEBKIT: hand the API policy client the injected bundle's userData.
-        RefPtr<API::Object> bundleUserDataObject = process->transformHandlesToObjects(protect(navigationActionData.bundlePolicyUserData.object()).get());
+    if (navigationAction->data().bundlePolicyDecidedUse) // AQUAWEBKIT: the injected bundle's policy client already answered Use.
+        listener->use();
+    else if (m_policyClient) { // AQUAWEBKIT: `else` joins the injected-bundle answer above.
+        // AQUAWEBKIT: hand the API policy client the injected bundle's userData, which navigationAction holds.
+        RefPtr<API::Object> bundleUserDataObject = process->transformHandlesToObjects(protect(navigationAction->data().bundlePolicyUserData.object()).get());
         m_policyClient->decidePolicyForNewWindowAction(*this, *frame, navigationAction.get(), request, frameName, WTF::move(listener), bundleUserDataObject.get());
     }
     else
@@ -10205,13 +10210,13 @@ void WebPageProxy::decidePolicyForNewWindowAction(IPC::Connection& connection, N
 }
 
 // AQUAWEBKIT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
-void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
+void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, bool bundlePolicyDecidedUse, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameInfo.frameID);
     if (!frame)
         return completionHandler({ });
     // AQUAWEBKIT: forwards bundlePolicyUserData.
-    decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, bundlePolicyUserData, WTF::move(completionHandler));
+    decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, bundlePolicyUserData, bundlePolicyDecidedUse, WTF::move(completionHandler));
 }
 
 // AQUAWEBKIT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed the
@@ -10231,7 +10236,7 @@ void WebPageProxy::unableToImplementPolicy(IPC::Connection& connection, WebCore:
 }
 
 // AQUAWEBKIT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
-void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
+void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, bool bundlePolicyDecidedUse, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr protectedPageClient { pageClient() };
 
@@ -10431,7 +10436,9 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
         });
     }
 
-    if (m_policyClient) {
+    if (bundlePolicyDecidedUse) // AQUAWEBKIT: the injected bundle's policy client already answered Use.
+        listener->use();
+    else if (m_policyClient) { // AQUAWEBKIT: `else` joins the injected-bundle answer above.
         // AQUAWEBKIT: hand the API policy client the injected bundle's userData.
         RefPtr<API::Object> bundleUserDataObject = process->transformHandlesToObjects(protect(bundlePolicyUserData.object()).get());
         m_policyClient->decidePolicyForResponse(*this, *frame, response, request, canShowMIMEType, WTF::move(listener), bundleUserDataObject.get());

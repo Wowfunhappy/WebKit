@@ -104,6 +104,10 @@ struct NavigationActionData {
     // drive the policy listener.
     UserData bundlePolicyUserData;
 
+    // AQUAWEBKIT: the injected bundle's policy client answered Use, so the UIProcess carries the navigation
+    // out without asking its own policy client (537 semantics).
+    bool bundlePolicyDecidedUse { false };
+
     // `originalRequest` is sent as nullopt when it equals `request`; resolve it here.
     const WebCore::ResourceRequest& originalRequestOrFallback() const { return originalRequest ? *originalRequest : request; }
 };

@@ -1004,15 +1004,10 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     // (BrowserBundlePagePolicyClient::decidePolicyForResponse) stores a WKBoolean holding
     // WKBundlePageCanShowMIMEType() as the userData its UI-process handler reads, and returns
     // WKBundlePagePolicyActionUse (canShortCircuitPolicyDecisionForResponse) for the responses it
-    // wants committed without a UIProcess round trip -- plain non-attachment http text/html.
+    // commits without its UI-process handler -- plain non-attachment http text/html. The UIProcess
+    // carries that answer out as it does any Use.
     RefPtr<API::Object> bundleUserData;
-    {
-        WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForResponse(webPage.get(), m_frame.ptr(), response, request, bundleUserData);
-        if (policy == WKBundlePagePolicyActionUse) {
-            function(PolicyAction::Use);
-            return;
-        }
-    }
+    bool bundlePolicyDecidedUse = webPage->injectedBundlePolicyClient().decidePolicyForResponse(webPage.get(), m_frame.ptr(), response, request, bundleUserData) == WKBundlePagePolicyActionUse;
 
     bool canShowResponse = webPage->canShowResponse(response);
 
@@ -1026,7 +1021,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     auto activeDocumentCOOPValue = m_localFrame->document() ? protect(m_localFrame->document())->crossOriginOpenerPolicy().value : CrossOriginOpenerPolicyValue::SameOrigin;
 
     // AQUAWEBKIT: ships the injected-bundle policy client's userData with the response policy request.
-    webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForResponse(frame->info(), navigationID, response, request, canShowResponse, downloadAttribute, isShowingInitialAboutBlank, activeDocumentCOOPValue, UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()))), [frame, listenerID] (PolicyDecision&& policyDecision) {
+    webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForResponse(frame->info(), navigationID, response, request, canShowResponse, downloadAttribute, isShowingInitialAboutBlank, activeDocumentCOOPValue, UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get())), bundlePolicyDecidedUse), [frame, listenerID] (PolicyDecision&& policyDecision) {
         frame->didReceivePolicyDecision(listenerID, WTF::move(policyDecision));
     });
 }
@@ -1042,15 +1037,13 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
     }
 
     // AQUAWEBKIT: ask the injected bundle's policy client (restored, upstream 9eeab8d) as the
-    // navigation-action path does; Safari 7's UI-process new-window handler reads the userData it returns.
+    // navigation-action path does; Safari 7's UI-process new-window handler reads the userData it returns,
+    // and the UIProcess carries out a Use answer itself.
     RefPtr<API::Object> bundleUserData;
+    bool bundlePolicyDecidedUse;
     {
         Ref<InjectedBundleNavigationAction> action = InjectedBundleNavigationAction::create(m_frame.ptr(), navigationAction, formState);
-        WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForNewWindowAction(webPage.get(), m_frame.ptr(), action.ptr(), request, frameName, bundleUserData);
-        if (policy == WKBundlePagePolicyActionUse) {
-            function(PolicyAction::Use);
-            return;
-        }
+        bundlePolicyDecidedUse = webPage->injectedBundlePolicyClient().decidePolicyForNewWindowAction(webPage.get(), m_frame.ptr(), action.ptr(), request, frameName, bundleUserData) == WKBundlePagePolicyActionUse;
     }
 
     uint64_t listenerID = m_frame->setUpPolicyListener(WTF::move(function), WebFrame::ForNavigationAction::No);
@@ -1108,6 +1101,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
     // navigation-action path uses).
     if (bundleUserData)
         navigationActionData.bundlePolicyUserData = UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()));
+    navigationActionData.bundlePolicyDecidedUse = bundlePolicyDecidedUse; // AQUAWEBKIT: see the bundle question above.
 
     webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForNewWindowAction(navigationActionData, frameName), [frame = m_frame, listenerID] (PolicyDecision&& policyDecision) {
         frame->didReceivePolicyDecision(listenerID, WTF::move(policyDecision));
