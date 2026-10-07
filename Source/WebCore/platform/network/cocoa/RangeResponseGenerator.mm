@@ -165,7 +165,8 @@ void RangeResponseGenerator::giveResponseToTaskIfBytesInRangeReceived(WebCoreNSU
             byteIndex += bytesFromThisViewToDeliver;
             [task resource:nullptr receivedData:SharedBufferDataView(bufferView, bytesFromThisViewToDeliver).createSharedBuffer()->createNSData()];
         }
-        if (byteIndex >= taskData->end) {
+        // if (byteIndex >= taskData->end) {
+        if (byteIndex > taskData->end) { // AQUAWEBKIT: a range's last byte is delivered before the task finishes (webkit.org/b/323990).
             [task resourceFinished:nullptr metrics:NetworkLoadMetrics { }];
             // This can be called while we are currently iterating data.taskData in giveResponseToTasksWithFinishedRanges,
             // as such we can't remove the task from the hash table yet. Queue a task to process deletion.
@@ -179,6 +180,8 @@ void RangeResponseGenerator::giveResponseToTaskIfBytesInRangeReceived(WebCoreNSU
     switch (taskData->responseState) {
     case RangeResponseGeneratorDataTaskData::ResponseState::NotSynthesizedYet: {
         auto response = synthesizedResponseForRange(data.originalResponse, taskData->begin, taskData->end, expectedContentLength);
+        /* AQUAWEBKIT: the session's answer delivers what the load has received by the time it comes, so the bytes and
+           the end of the load that arrive while the task waits for it reach the task.
         [task resource:nullptr receivedResponse:response completionHandler:[giveBytesToTask = WTF::move(giveBytesToTask), taskData = WeakPtr { *taskData }, task = retainPtr(task)] (WebCore::ShouldContinuePolicyCheck shouldContinue) mutable {
             if (taskData)
                 taskData->responseState = RangeResponseGeneratorDataTaskData::ResponseState::SessionCalledCompletionHandler;
@@ -187,6 +190,20 @@ void RangeResponseGenerator::giveResponseToTaskIfBytesInRangeReceived(WebCoreNSU
             else
                 [task cancel];
         }];
+        */
+        [task resource:nullptr receivedResponse:response completionHandler:[taskData = WeakPtr { *taskData }, task = retainPtr(task), weakGenerator = ThreadSafeWeakPtr { *this }, url = String(retainPtr(task.originalRequest.URL).get().absoluteString)] (WebCore::ShouldContinuePolicyCheck shouldContinue) mutable {
+            if (taskData)
+                taskData->responseState = RangeResponseGeneratorDataTaskData::ResponseState::SessionCalledCompletionHandler;
+            if (shouldContinue != ShouldContinuePolicyCheck::Yes) {
+                [task cancel];
+                return;
+            }
+            RefPtr generator = weakGenerator.get();
+            if (!generator || url.isNull())
+                return;
+            if (auto* data = generator->map().get(url))
+                generator->giveResponseToTaskIfBytesInRangeReceived(task.get(), expectedContentLengthFromData(*data), *data);
+        }]; // AQUAWEBKIT: closes the completion handler above.
         taskData->responseState = RangeResponseGeneratorDataTaskData::ResponseState::WaitingForSession;
         break;
     }

@@ -60,6 +60,7 @@
 #include "VideoTrackPrivateGStreamer.h"
 #include "WebKitAudioSinkGStreamer.h"
 #include "WebKitWebSourceGStreamer.h"
+#include "URLSessionMediaResourceLoaderCocoa.h" // AQUAWEBKIT: see m_loader.
 
 #if ENABLE(MEDIA_STREAM)
 #include "GStreamerMediaStreamSource.h"
@@ -184,7 +185,8 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer& player)
     , m_logIdentifier(player.mediaPlayerLogIdentifier())
 #endif
     , m_startTime(MediaTime::invalidTime())
-    , m_loader(player.mediaResourceLoader())
+    // , m_loader(player.mediaResourceLoader())
+    , m_loader(URLSessionMediaResourceLoader::create(player.mediaResourceLoader())) // AQUAWEBKIT: the sources load through Cocoa's media URL session.
 {
 
 #if !RELEASE_LOG_DISABLED && !defined(GST_DISABLE_GST_DEBUG)
@@ -521,11 +523,7 @@ void MediaPlayerPrivateGStreamer::play()
         if (player) {
             if (isSeamlessSeekingEnabled() && !m_initialSegmentSeekDone) {
                 GST_DEBUG_OBJECT(pipeline(), "Scheduling initial SEGMENT seek");
-                // AQUAWEBKIT: a non-flushing seek plays everything already queued before it, so the
-                // initial one replays the start of the first pass. doSeek() flushes, then resumes in
-                // segment mode, as the loop seek does.
-                // doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true, true);
-                doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true);
+                doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true, true);
                 m_initialSegmentSeekDone = true;
             } else
                 updateDownloadBufferingFlag();

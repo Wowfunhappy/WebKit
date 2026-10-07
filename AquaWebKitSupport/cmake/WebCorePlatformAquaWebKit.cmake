@@ -521,6 +521,7 @@ if (USE_GSTREAMER)
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoFrameGStreamerCocoa.mm
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GLibMainContextAquaWebKit.cpp
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerPackagingAquaWebKit.cpp
+        ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/URLSessionMediaResourceLoaderCocoa.mm
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/audio/gstreamer/GStreamerAudioDataCocoa.mm
     )
 endif ()

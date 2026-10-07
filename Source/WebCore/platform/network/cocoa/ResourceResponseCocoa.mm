@@ -72,8 +72,10 @@ void ResourceResponse::initNSURLResponse() const
 
     // Mime type sniffing doesn't work with a synthesized response.
     [m_nsResponse _setMIMEType:m_mimeType.createNSString().get()];
-    // AQUAWEBKIT: native response values preserve the decoded length supplied by the transport.
-    CFURLResponseSetExpectedContentLength([m_nsResponse _CFURLResponse], m_expectedContentLength);
+    // AQUAWEBKIT: the transport decodes a Content-Encoding body and reports its length as unknown, as CFNetwork
+    // does; the encoded Content-Length the response is built from does not describe that body.
+    if (m_httpHeaderFields.contains(HTTPHeaderName::ContentEncoding))
+        CFURLResponseSetExpectedContentLength([m_nsResponse _CFURLResponse], m_expectedContentLength);
 }
 
 void ResourceResponse::disableLazyInitialization()

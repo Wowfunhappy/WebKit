@@ -895,3 +895,7 @@ imported/w3c/web-platform-tests/css/css-writing-modes/forms/checkbox-switch-inpu
 # records both tests.
 imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-exif-png.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-exif-png-2.html [ Skip ]
+
+# This port's GStreamer loads go through WebCoreNSURLSession, whose RangeResponseGenerator serves seeks on a server
+# that ignores Range.
+http/tests/media/media-seeking-no-ranges-server.html [ Pass ]
