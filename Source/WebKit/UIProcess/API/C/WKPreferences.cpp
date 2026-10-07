@@ -32,9 +32,6 @@
 #include "WebPreferences.h"
 #include <WebCore/Settings.h>
 #include <wtf/RefPtr.h>
-#if PLATFORM(COCOA)
-#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // AQUAWEBKIT: isSafari() gate in WKPreferencesSetPrivateBrowsingEnabled (#55/#122).
-#endif
 
 using namespace WebKit;
 
@@ -1869,14 +1866,13 @@ bool WKPreferencesGetStorageAccessAPIEnabled(WKPreferencesRef)
     return true;
 }
 
-// AQUAWEBKIT: params are named (the upstream stub ignored them) because the toggle now wires through to a real preference flag (#55).
+// AQUAWEBKIT: Safari 7's Private Browsing toggle sets a real preference flag (#55).
+// void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef, bool)
 void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
-    // AQUAWEBKIT: Safari 7's global Private Browsing toggle. Backed by a real flag that drives each
-    // page onto a shared ephemeral WebsiteDataStore (#55). Honored for the frozen Safari host ONLY —
-    // every other C-API embedder keeps upstream's behavior of ignoring the call. QuickLook's
-    // Web2.qldisplay sets this on every web preview, and an ephemeral store there puts previews on an
-    // empty cookie jar, logged out of every site the user is logged into in Safari (#122).
+    // AQUAWEBKIT: the flag puts each page on a shared ephemeral WebsiteDataStore (#55). Only Safari's
+    // call is honored: QuickLook's Web2.qldisplay sets this on every web preview, whose pages share
+    // Safari's cookies (#122).
 #if PLATFORM(COCOA)
     if (!WTF::MacApplication::isSafari())
         return;
@@ -1884,10 +1880,12 @@ void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, boo
     protect(toImpl(preferencesRef))->setPrivateBrowsingEnabled(enabled);
 }
 
-// AQUAWEBKIT: named param + real return value (the upstream stub returned false); reports Safari 7's Private Browsing flag (#55).
+// AQUAWEBKIT: reports Safari 7's Private Browsing flag (#55).
+// bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef)
 bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef)
 {
-    return toImpl(preferencesRef)->privateBrowsingEnabled();
+    // return false;
+    return toImpl(preferencesRef)->privateBrowsingEnabled(); // AQUAWEBKIT: see above.
 }
 
 void WKPreferencesSetIgnoreViewportScalingConstraints(WKPreferencesRef, bool)
@@ -2115,9 +2113,8 @@ bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
     return true;
 }
 
-// AQUAWEBKIT: empty implementations of the InspectorUsesWebKitUserInterface preference
-// accessors, removed in modern WebKit but still referenced by Safari 7, restored so it links on 10.9.
-// Legacy stub: removed from modern WebKit but still referenced by Safari 7.
+// AQUAWEBKIT: InspectorUsesWebKitUserInterface accessors, which Safari 7 links against. The preference
+// has no effect here.
 void WKPreferencesSetInspectorUsesWebKitUserInterface(WKPreferencesRef, bool)
 {
 }

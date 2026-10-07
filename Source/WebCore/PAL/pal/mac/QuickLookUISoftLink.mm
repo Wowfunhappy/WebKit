@@ -31,8 +31,10 @@
 
 SOFT_LINK_FRAMEWORK_IN_UMBRELLA_FOR_SOURCE_WITH_EXPORT(PAL, Quartz, QuickLookUI, PAL_EXPORT)
 
-// AQUAWEBKIT: QuickLookUI QLItem/QLPreviewMenuItem postdate macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+// AQUAWEBKIT: QuickLookUI QLItem/QLPreviewMenuItem postdate macOS 10.9; these classes soft-link optionally and resolve to nil here.
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, QuickLookUI, QLItem, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, QuickLookUI, QLItem, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, QuickLookUI, QLPreviewMenuItem, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, QuickLookUI, QLPreviewMenuItem, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, QuickLookUI, QLPreviewPanel, PAL_EXPORT)
 

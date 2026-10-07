@@ -149,6 +149,8 @@ enum class SDKAlignedBehavior {
     NetworkProcessInheritsNetworkAccessFromUIProcess,
     // AQUAWEBKIT: -webkit-box-pack start/end follow box-direction, and overflowing children are packed.
     BoxPackAccountsForBoxDirection,
+    // AQUAWEBKIT: mixed content in a secure document is upgraded or blocked.
+    BlockOrUpgradeMixedContent,
 
     NumberOfBehaviors
 };

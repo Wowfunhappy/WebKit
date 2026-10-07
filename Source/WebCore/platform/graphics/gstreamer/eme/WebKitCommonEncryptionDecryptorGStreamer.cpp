@@ -453,17 +453,28 @@ static void attachCDMProxy(WebKitMediaCommonEncryptionDecrypt* self, CDMProxy* p
 
 static gboolean installCDMProxyIfNotAvailable(WebKitMediaCommonEncryptionDecrypt* self)
 {
-    // AQUAWEBKIT: a CDM is already attached here, so there is nothing to ask for.
+    // AQUAWEBKIT: upstream's version of the body below.
+    // if (!isCDMProxyAvailable(self)) {
+    //     gboolean result = FALSE;
+    //
+    //     CDMProxy* proxy = getCDMProxyFromGstContext(self);
+    //     if (proxy) {
+    //         attachCDMProxy(self, proxy);
+    //         result = TRUE;
+    //     } else {
+    //         GST_ERROR_OBJECT(self, "Failed to retrieve CDMProxy from context");
+    //         result = FALSE;
+    //     }
+    //     return result;
+    // }
+    //
+    // return TRUE;
     if (isCDMProxyAvailable(self))
         return TRUE;
 
-    // AQUAWEBKIT: an element plugged into a subtree that has since been reset carries no CDM
-    // context -- gst_element_change_state_func drops every non-persistent context on the way down to
-    // NULL -- and nothing pushes one at it again, so it asks. gst_bin_handle_message_func answers out
-    // of an ancestor bin's stored contexts, synchronously on this thread, by calling
-    // gst_element_set_context() here; setContext() below takes the proxy from that and does not chain
-    // to the default handler, so the element stores no context of its own and priv->cdmProxy is what
-    // says whether the request was answered.
+    // AQUAWEBKIT: an element in a subtree reset through NULL has lost its non-persistent contexts, and
+    // nothing pushes the CDM context at it again, so it asks. An ancestor bin answers synchronously on this
+    // thread through setContext(), which sets priv->cdmProxy without storing a context on the element.
     gst_element_post_message(GST_ELEMENT(self), gst_message_new_need_context(GST_OBJECT(self), "drm-cdm-proxy"));
     if (isCDMProxyAvailable(self))
         return TRUE;
@@ -475,7 +486,7 @@ static gboolean installCDMProxyIfNotAvailable(WebKitMediaCommonEncryptionDecrypt
     }
 
     attachCDMProxy(self, proxy);
-    return isCDMProxyAvailable(self); // AQUAWEBKIT: attachCDMProxy() keeps no refused proxy; closes the early-return split above.
+    return isCDMProxyAvailable(self); // AQUAWEBKIT: attachCDMProxy() keeps no refused proxy.
 }
 
 static gboolean sinkEventHandler(GstBaseTransform* trans, GstEvent* event)

@@ -33,9 +33,6 @@
 #import "XPCServiceEntryPoint.h"
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
-// AQUAWEBKIT: dup2 and STDOUT_FILENO/STDERR_FILENO below; this build compiles with
-// -fno-modules, so unistd.h does not arrive transitively through any Darwin header.
-#import <unistd.h>
 #import <mach/mach.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <pal/spi/cocoa/CoreServicesSPI.h>
@@ -43,8 +40,6 @@
 #import <sys/sysctl.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/Language.h>
-// AQUAWEBKIT: WorkQueue is referenced by the 10.9 bootstrap dispatch path below.
-#import <wtf/WorkQueue.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
@@ -207,6 +202,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
 
 // AQUAWEBKIT: also applied on Mac — the 10.9 launcher forwards TZ through this
 // channel because 10.9 launchd spawns the services with a clean environment.
+// #if PLATFORM(IOS_FAMILY)
 #if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
             if (RetainPtr containerEnvironmentVariables = xpc_dictionary_get_value(event, "ContainerEnvironmentVariables")) {
                 xpc_dictionary_apply(containerEnvironmentVariables.get(), ^(const char *key, xpc_object_t value) {
@@ -249,9 +245,11 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 return;
             }
 
+            // RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit"));
             // AQUAWEBKIT: Safari 7 loads modern WebKit from the private WebKit2 framework.
             RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit2"));
             if (!webKitBundle) {
+                // RetainPtr webKitFrameworkURL = adoptCF(CFURLCreateWithFileSystemPath(nullptr, CFSTR("/System/Library/Frameworks/WebKit.framework"), kCFURLPOSIXPathStyle, true));
                 RetainPtr webKitFrameworkURL = adoptCF(CFURLCreateWithFileSystemPath(nullptr, CFSTR("/System/Library/PrivateFrameworks/WebKit2.framework"), kCFURLPOSIXPathStyle, true));
                 webKitBundle = adoptCF(CFBundleCreate(nullptr, webKitFrameworkURL.get()));
             }

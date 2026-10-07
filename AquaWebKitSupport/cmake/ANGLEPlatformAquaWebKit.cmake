@@ -1,31 +1,9 @@
 # Every backport change to ANGLE's build configuration.
 #
-# Source/ThirdParty/ANGLE/CMakeLists.txt and Source/ThirdParty/ANGLE/PlatformMac.cmake are kept
-# BYTE-UPSTREAM and each carries a single include() of this file. See
-# AquaWebKitSupport/cmake/WebCorePlatformAquaWebKit.cmake for the rationale.
-#
-# Two phases, because the backend switches have to be answered before the renderer .cmake files read
-# them and the source/definition/library lists only exist afterwards:
-#   BACKEND  from CMakeLists.txt, between the platform if-chain and include(GLESv2.cmake)/include(GL.cmake).
-#   POST     from the end of PlatformMac.cmake, after upstream has filled the ANGLE_* lists.
-
-if (NOT DEFINED AQUAWEBKIT_ANGLE_PHASE)
-    message(FATAL_ERROR "ANGLEPlatformAquaWebKit.cmake needs AQUAWEBKIT_ANGLE_PHASE set to BACKEND or POST.")
-endif ()
-
-if (AQUAWEBKIT_ANGLE_PHASE STREQUAL "BACKEND")
-
-# ANGLE renders through its CGL OpenGL backend (src/libANGLE/renderer/gl/cgl/*) rather than Metal,
-# which 10.9 does not have: GLES over desktop OpenGL through CGL, presenting into an IOSurface.
-# GL.cmake reads angle_enable_cgl when it composes gl_backend_sources, and GLESv2.cmake reads
-# is_apple for the Apple common sources the CGL backend needs (FunctionsCGL.cpp,
-# apple_platform_utils.mm, system_utils_mac.cpp), so both are set ahead of those two includes.
-if (APPLE)
-    set(is_apple TRUE)
-    set(angle_enable_cgl TRUE)
-endif ()
-
-elseif (AQUAWEBKIT_ANGLE_PHASE STREQUAL "POST")
+# Source/ThirdParty/ANGLE/PlatformMac.cmake ends with a single include() of this file, which runs after
+# upstream has filled the ANGLE_* lists; Source/ThirdParty/ANGLE/CMakeLists.txt is byte-upstream. See
+# AquaWebKitSupport/cmake/WebCorePlatformAquaWebKit.cmake for the rationale. The backend switch GL.cmake
+# reads (angle_enable_cgl) is set in OptionsMacAquaWebKit.cmake.
 
 # CGL uses the desktop-GL renderer and GLSL translator.
 list(REMOVE_ITEM ANGLE_SOURCES ${metal_backend_sources} ${angle_translator_lib_msl_sources})
@@ -35,17 +13,11 @@ list(REMOVE_ITEM ANGLE_DEFINITIONS ANGLE_ENABLE_METAL)
 list(APPEND ANGLE_DEFINITIONS
     ANGLE_ENABLE_OPENGL
     ANGLE_ENABLE_CGL
-    # The CGL backend is DESKTOP OpenGL. Without this the body of
-    # DispatchTableGL::initProcsDesktopGL() (DispatchTableGL_autogen.cpp, guarded by
-    # #if defined(ANGLE_ENABLE_GL_DESKTOP_BACKEND)) compiles away, no desktop GL entry point loads,
-    # and caps generation calls a null genTextures.
+    # The CGL backend is desktop OpenGL; DispatchTableGL::initProcsDesktopGL()
+    # (DispatchTableGL_autogen.cpp) loads its entry points under this definition.
     ANGLE_ENABLE_GL_DESKTOP_BACKEND
 )
 
 find_library(OPENGL_LIBRARY OpenGL)
 list(REMOVE_ITEM ANGLEGLESv2_LIBRARIES ${METAL_LIBRARY})
 list(APPEND ANGLEGLESv2_LIBRARIES ${OPENGL_LIBRARY})
-
-else ()
-    message(FATAL_ERROR "ANGLEPlatformAquaWebKit.cmake: unknown AQUAWEBKIT_ANGLE_PHASE '${AQUAWEBKIT_ANGLE_PHASE}'.")
-endif ()

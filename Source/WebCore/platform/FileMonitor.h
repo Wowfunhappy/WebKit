@@ -34,9 +34,9 @@
 #include <wtf/darwin/DispatchOSObject.h>
 #endif
 
-// AQUAWEBKIT: USE(GLIB) is globally on for the GStreamer media backend, but FileMonitor on
-// Cocoa keeps its dispatch-source (USE(COCOA_EVENT_LOOP)) implementation; gate the GLib include/member
-// out so m_platformMonitor isn't declared twice.
+// AQUAWEBKIT: USE(GLIB) is globally on for the GStreamer media backend; FileMonitor on Cocoa
+// uses its dispatch-source (USE(COCOA_EVENT_LOOP)) implementation and m_platformMonitor.
+// #if USE(GLIB)
 #if USE(GLIB) && !PLATFORM(COCOA)
 #include <gio/gio.h>
 #include <wtf/glib/GRefPtr.h>
@@ -57,6 +57,7 @@ private:
     OSObjectPtr<dispatch_source_t> m_platformMonitor;
 #endif
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB)
 #if USE(GLIB) && !PLATFORM(COCOA)
     static void fileChangedCallback(GFileMonitor*, GFile*, GFile*, GFileMonitorEvent, FileMonitor*);
     void didChange(FileChangeType);

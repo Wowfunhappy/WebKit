@@ -50,16 +50,22 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkNotificationManager);
 
+// Ref<NetworkNotificationManager> NetworkNotificationManager::create(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
 // AQUAWEBKIT: both signatures take the session ID; the constructor's push-messages-available handler names it when relaying to the UI process.
 Ref<NetworkNotificationManager> NetworkNotificationManager::create(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
 {
+    // return adoptRef(*new NetworkNotificationManager(webPushMachServiceName, WTF::move(configuration), networkProcess));
     return adoptRef(*new NetworkNotificationManager(sessionID, webPushMachServiceName, WTF::move(configuration), networkProcess));
 }
 
 // AQUAWEBKIT: takes the session ID; see create() above.
+// NetworkNotificationManager::NetworkNotificationManager(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
 NetworkNotificationManager::NetworkNotificationManager(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
     : m_networkProcess(networkProcess)
 {
+    // AQUAWEBKIT: the connection takes the push-messages-available handler before it is stored.
+    // if (!webPushMachServiceName.isEmpty())
+    //     m_connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
     if (!webPushMachServiceName.isEmpty()) {
         Ref connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
 #if USE(MOZILLA_PUSH_SERVICE)
@@ -95,8 +101,8 @@ void NetworkNotificationManager::setPushAndNotificationsEnabledForOrigin(const S
 void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(const std::optional<WebPushMessage>&)>&& completionHandler)
 {
     // AQUAWEBKIT: a session without a daemon connection (no configured mach
-    // service name) has no pending messages; upstream dereferences unconditionally and
-    // crashes.
+    // service name) has no pending messages; setPushAndNotificationsEnabledForOrigin above checks
+    // the connection the same way.
     RefPtr connection = m_connection;
     if (!connection) {
         completionHandler(std::nullopt);
@@ -108,13 +114,14 @@ void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(co
         completionHandler(WTF::move(message));
     };
 
-    // AQUAWEBKIT: sends through the local RefPtr null-checked above, not protect(m_connection).
+    // AQUAWEBKIT: sends through the local RefPtr null-checked above.
+    // protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(const Vector<WebPushMessage>&)>&& completionHandler)
 {
-    // AQUAWEBKIT: same missing null check as getPendingPushMessage above.
+    // AQUAWEBKIT: no daemon connection, no pending messages, as in getPendingPushMessage above.
     RefPtr connection = m_connection;
     if (!connection) {
         completionHandler({ });
@@ -126,7 +133,8 @@ void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(c
         completionHandler(WTF::move(messages));
     };
 
-    // AQUAWEBKIT: sends through the local RefPtr null-checked above, as the singular one does.
+    // AQUAWEBKIT: sends through the local RefPtr null-checked above.
+    // protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
 }
 

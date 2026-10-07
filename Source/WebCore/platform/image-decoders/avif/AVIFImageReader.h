@@ -40,10 +40,8 @@ public:
     // AQUAWEBKIT: the reader is a unique_ptr member of the decoder that constructs it, so it
     // cannot outlive its owner and the back-pointer does not own, as JPEGImageReader and
     // PNGImageReader hold theirs.
+    // AVIFImageReader(RefPtr<AVIFImageDecoder>&&);
     AVIFImageReader(AVIFImageDecoder*);
-/* AQUAWEBKIT: upstream's declaration.
-    AVIFImageReader(RefPtr<AVIFImageDecoder>&&);
-AQUAWEBKIT */
     ~AVIFImageReader();
 
     bool parseHeader(const SharedBuffer&, bool allDataReceived);
@@ -52,10 +50,8 @@ AQUAWEBKIT */
     std::optional<Seconds> frameDurationAtIndex(size_t) const; // AQUAWEBKIT: a frame's duration without decoding it.
 
 private:
+    // RefPtr<WebCore::AVIFImageDecoder> m_decoder;
     AVIFImageDecoder* m_decoder; // AQUAWEBKIT: non-owning; see the constructor above.
-/* AQUAWEBKIT: upstream's member.
-    RefPtr<WebCore::AVIFImageDecoder> m_decoder;
-AQUAWEBKIT */
     AVIFUniquePtr<avifDecoder> m_avifDecoder;
 
     bool m_dataParsed { false };

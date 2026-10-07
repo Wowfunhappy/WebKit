@@ -34,12 +34,12 @@ namespace WebCore {
 
 String standardUserAgentWithApplicationName(const String& applicationName, const String&, UserAgentType)
 {
-    // AQUAWEBKIT: ignore the host application name (Safari 7 passes
-    // "Safari/9537.86.7.8", which is inconsistent with the Version/ token). Always
-    // emit a clean modern Safari UA so UA-sniffing sites see a coherent pair.
-    // Version/26.0 matches the Safari generation this WebKit trunk snapshot ships in;
-    // sites drop support for older tokens (app.slack.com rejects Version/17.0 with
-    // "This browser is no longer supported").
+    // AQUAWEBKIT: the user agent is the modern Safari one, independent of the host application
+    // name (Safari 7 passes "Safari/9537.86.7.8", which contradicts the Version/ token). Version/26.0 is
+    // the Safari generation this WebKit snapshot ships in.
+    // String appNameSuffix = applicationName.isEmpty() ? emptyString() : makeString(' ', applicationName);
+    //
+    // return makeString("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"_s, appNameSuffix);
     UNUSED_PARAM(applicationName);
     return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"_s;
 }

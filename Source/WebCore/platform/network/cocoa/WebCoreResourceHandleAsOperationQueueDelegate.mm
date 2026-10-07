@@ -43,8 +43,6 @@
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/MainThread.h>
-#import <wtf/SetForScope.h> // AQUAWEBKIT: for m_deliveringResponse.
-#import <wtf/ThreadSafeRefCounted.h> // AQUAWEBKIT: for ConnectionCallback.
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 using namespace WebCore;
@@ -122,13 +120,11 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         function();
         function = nullptr;
     });
-    // AQUAWEBKIT: enqueueing a block does not wake its run loop; curl's worker must also signal the custom delegate loop.
-    // for (auto& pair : *m_scheduledPairs)
-    //     CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
-    for (auto& pair : *m_scheduledPairs) {
+    for (auto& pair : *m_scheduledPairs)
         CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
-        CFRunLoopWakeUp(pair->runLoop()); // AQUAWEBKIT: wake the loop whose delegate block was just queued.
-    }
+    // AQUAWEBKIT: enqueueing a block does not wake its run loop; curl's worker must also signal the custom delegate loop.
+    for (auto& pair : *m_scheduledPairs)
+        CFRunLoopWakeUp(pair->runLoop());
 }
 
 // AQUAWEBKIT: the main-run-loop connection state; see callFunctionOnMainThread:.

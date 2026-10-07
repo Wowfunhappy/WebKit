@@ -37,7 +37,9 @@
 #import "WKAPICast.h"
 #import "WKInspectorPrivateMac.h"
 #import "WKInspectorViewController.h"
-#import "WKInspectorWKWebView.h" // AQUAWEBKIT: names the bundle the dock button images come from.
+// AQUAWEBKIT: the dock buttons: the bundle their images come from, and NSVersionOfLinkTimeLibrary for the dock-to-right client check.
+#import "WKInspectorWKWebView.h"
+#import <mach-o/dyld.h>
 #import "WKObject.h"
 #import "WKViewInternal.h"
 #import "WKWebViewInternal.h"
@@ -54,7 +56,6 @@
 #import <WebCore/Color.h>
 #import <WebCore/InspectorFrontendClientLocal.h>
 #import <WebCore/LocalizedStrings.h>
-#import <mach-o/dyld.h> // AQUAWEBKIT: NSVersionOfLinkTimeLibrary, for the dock-to-right client check.
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CompletionHandler.h>
@@ -513,7 +514,7 @@ RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
 }
 
 // AQUAWEBKIT: the frontend this port ships hides its own dock control while the inspector is
-// undocked and expects the window to carry the dock controls, as WebKit's did through 792f511. A dock
+// undocked and expects the window to carry the dock controls. A dock
 // button is a standard full screen button wearing a dock image, so it picks up that button's cell
 // behaviour and sits where the window's own full screen button would.
 static RetainPtr<NSButton> createDockButton(NSString *imageName)
@@ -744,6 +745,7 @@ bool WebInspectorUIProxy::platformCanAttach(bool webProcessCanAttach)
 void WebInspectorUIProxy::platformAttachAvailabilityChanged(bool available)
 {
     // AQUAWEBKIT: the window's dock buttons show exactly while the inspector can attach.
+    // // Do nothing.
     m_dockBottomButton.get().hidden = !available;
     m_dockRightButton.get().hidden = !available;
 }

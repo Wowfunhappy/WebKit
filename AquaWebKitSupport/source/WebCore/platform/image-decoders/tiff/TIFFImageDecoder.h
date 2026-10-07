@@ -27,6 +27,8 @@ public:
         return adoptRef(*new TIFFImageDecoder(alphaOption, gammaAndColorProfileOption));
     }
 
+    static bool matchesSignature(std::span<const uint8_t>);
+
     String filenameExtension() const override { return "tiff"_s; }
 
     // One frame per TIFF directory, each with its own dimensions: a multi-page TIFF is a page

@@ -723,6 +723,7 @@ void attachColorSpaceToPixelBuffer(const PlatformVideoColorSpace& colorSpace, CV
 
     // AQUAWEBKIT: a producer's explicit profile remains authoritative without
     // a colorimetry override. Full-range metadata alone does not replace that profile.
+    // CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey);
     bool hasColorimetryOverride = colorSpace.primaries || colorSpace.transfer || colorSpace.matrix;
     if (hasColorimetryOverride)
         CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey);

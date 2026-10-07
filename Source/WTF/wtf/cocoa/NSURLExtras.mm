@@ -239,10 +239,9 @@ NSURL *URLWithUserTypedStringDeprecated(NSString *string)
     return result;
 }
 
-// AQUAWEBKIT: restore the base-URL-honoring variant removed in 1516dd5 "[CF] Reduce duplication
-// and unneeded buffer allocations and copying in URL code". Upstream dropped base support because its
-// callers all passed nil, but Safari 7's -[NSURL _web_URLWithUserTypedString:relativeToURL:] caller
-// (the title-bar path pop-up menu) resolves path strings against a non-nil base.
+// AQUAWEBKIT: the base-URL-honoring variant (upstream's before 1516dd5). Safari 7's
+// -[NSURL _web_URLWithUserTypedString:relativeToURL:] caller (the title-bar path pop-up menu) resolves
+// path strings against a non-nil base.
 NSURL *URLWithUserTypedStringDeprecated(NSString *string, NSURL *baseURL)
 {
     if (!string)

@@ -95,13 +95,13 @@ namespace WebCore {
     macro(AuthenticatorAttestationResponse) \
     macro(AuthenticatorResponse) \
     macro(BackgroundFetchEvent) \
-    macro(BeforeLoadEvent) /* AQUAWEBKIT: restored-lost-upstream build glue — registers the BeforeLoadEvent interface name for the resurrected beforeload event (#62 uBlock network blocking). */ \
     macro(BackgroundFetchManager) \
     macro(BackgroundFetchRecord) \
     macro(BackgroundFetchRegistration) \
     macro(BackgroundFetchUpdateUIEvent) \
     macro(BarcodeDetector) \
     macro(BaseAudioContext) \
+    macro(BeforeLoadEvent) /* AQUAWEBKIT: the BeforeLoadEvent interface name (beforeload, #62). */ \
     macro(BiquadFilterNode) \
     macro(BlobEvent) \
     macro(BroadcastChannel) \
@@ -676,7 +676,7 @@ namespace WebCore {
     macro(onbackgroundfetchclick) \
     macro(onbeforematch) \
     macro(oncommand) \
-    macro(onsearch) /* AQUAWEBKIT: onsearch handler atom for the restored search event (<input type=search>). */ \
+    macro(onsearch) /* AQUAWEBKIT: onsearch handler atom for the search event (<input type=search>). */ \
     macro(oncookiechange) \
     macro(ondevicemotion) \
     macro(ondeviceorientation) \

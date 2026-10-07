@@ -33,15 +33,14 @@
 namespace API {
 
 // AQUAWEBKIT: Safari 7 carries extension messages and WKPageRunJavaScriptInMainFrame results
-// as WKSerializedScriptValueRefs. This is upstream's carrier from before bug 277594 deprecated that C
-// API: a WebCore::SerializedScriptValue structured clone, which deserializes into any number of
-// contexts.
+// as WKSerializedScriptValueRefs: a WebCore::SerializedScriptValue structured clone, which
+// deserializes into any number of contexts.
 // struct SerializedScriptValue {
 class SerializedScriptValue final : public ObjectImpl<Object::Type::SerializedScriptValue> {
 public:
     static JSRetainPtr<JSGlobalContextRef> deserializationContext();
 
-    // AQUAWEBKIT: the carrier's upstream interface (see above).
+    // AQUAWEBKIT: the carrier's interface.
     static Ref<SerializedScriptValue> create(Ref<WebCore::SerializedScriptValue>&& serializedValue)
     {
         return adoptRef(*new SerializedScriptValue(WTF::move(serializedValue)));

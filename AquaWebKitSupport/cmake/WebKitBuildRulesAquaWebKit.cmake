@@ -11,18 +11,17 @@ macro(_AQUAWEBKIT_SET_ARC_IF_NEEDED _file)
 endmacro()
 
 # The polyfill ObjC-class stubs dylib, linked into every WebKit framework. The polyfilled classes have
-# absent-on-10.9 SYSTEM names (UTType, NSScrollingPredominantAxisFilter, SecKeyProxy,
-# ...) that the build SDK declares in system frameworks (AppKit/QuartzCore/Foundation/Security/
-# CFNetwork/CoreServices); under the two-level namespace a reference binds to whichever provider the
+# absent-on-10.9 SYSTEM names (UTType, _NSScrollingPredominantAxisFilter, LSBundleProxy,
+# ...) that the build SDK declares in system frameworks (AppKit/QuartzCore/Foundation/
+# CFNetwork/CoreServices/...); under the two-level namespace a reference binds to whichever provider the
 # linker resolves it against. Linking the dylib here covers the classes the linker resolves against IT
 # -- those owned by frameworks it reaches after it -- which then bind to this ONE shared definition (no
 # "Class X is implemented in both ..." warning, no "Symbol not found" crash). It only ever wins for the
 # absent classes it defines; real 10.9 classes (NSColor, NSView, ...) are not in it and still bind to
 # their system framework. Link-line ordering is not controllable enough to beat EVERY system framework,
-# so classes owned by frameworks linked earlier (Security -> SecKeyProxy; CFNetwork ->
-# _NSHTTPAlternativeServices*/_NSHSTSStorage; CoreServices -> LSBundleProxy; QuartzCore in some
-# binaries) are resolved at staging time instead: libpolyfill_classes.dylib reexports those four
-# frameworks and AquaWebKitSupport/scripts/stage-frameworks.sh repoints each binary's dependency on them
+# so classes owned by frameworks linked earlier (CFNetwork -> _NSHTTPAlternativeServices*/_NSHSTSStorage;
+# CoreServices -> LSBundleProxy; QuartzCore in some binaries) are resolved at staging time instead:
+# libpolyfill_classes.dylib reexports those frameworks and AquaWebKitSupport/scripts/stage-frameworks.sh repoints each binary's dependency on them
 # to it (rewrite_abs_deps).
 macro(_AQUAWEBKIT_LINK_POLYFILL_CLASSES _target)
     if (AQUAWEBKIT_SUPPORT)
@@ -100,11 +99,16 @@ macro(_AQUAWEBKIT_APPLY_TARGET_POLICY _target)
 endmacro()
 
 # CMake's default Info.plist leaves CFBundleIdentifier empty; stamp the canonical identifier that
-# CFBundleGetBundleWithIdentifier resolves for WebCore::copyLocalizedString.
+# CFBundleGetBundleWithIdentifier resolves for WebCore::copyLocalizedString. WebKit then takes its
+# framework rules, com.apple.WebKit2 identity included, from _AQUAWEBKIT_FINALIZE_WEBKIT_TARGET
+# (WebKitPlatformAquaWebKit.cmake).
 macro(_AQUAWEBKIT_SET_FRAMEWORK_IDENTIFIER _target)
     if (AQUAWEBKIT_SUPPORT)
         set_target_properties(${_target} PROPERTIES
             MACOSX_FRAMEWORK_IDENTIFIER "com.apple.${_target}")
+    endif ()
+    if ("${_target}" STREQUAL "WebKit")
+        _AQUAWEBKIT_FINALIZE_WEBKIT_TARGET(${_target})
     endif ()
 endmacro()
 
@@ -127,7 +131,9 @@ endmacro()
 #
 # A shipped binary has to link what the archive's members reference, since force_load makes every
 # member part of the image whether or not that image calls it. The frameworks link these already; the
-# executables link almost nothing on their own, so name them here. The list is exactly what
+# executables link almost nothing on their own, so name them here. An OBJECT library (bmalloc, WTF)
+# hands them on to whatever absorbs its objects, which includes mbmalloc, a dylib that links nothing
+# else and pulls archive members in through the plain libpolyfill.a link. The list is exactly what
 # libpolyfill.a leaves undefined: CoreGraphics and CoreText for the graphics gap-fills, Security for
 # the trust-evaluation ones, CoreFoundation for CF types and the ObjC runtime it reexports.
 # libwtf_compat.a is JavaScriptCore's alone: it defines the WTF C++ API of Safari 7's era (currentTime,
@@ -181,7 +187,7 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
             # BoringSSL's point decoding, which the CommonCrypto EC import polyfill validates with.
             "${AQUAWEBKIT_DEPS}/lib/libcrypto.dylib")
         get_target_property(_wkPolyfillTargetType ${_target} TYPE)
-        if (_wkPolyfillTargetType STREQUAL "EXECUTABLE")
+        if (_wkPolyfillTargetType STREQUAL "EXECUTABLE" OR _wkPolyfillTargetType STREQUAL "OBJECT_LIBRARY")
             target_link_libraries(${_target} PRIVATE
                 "-framework CoreFoundation" "-framework CoreGraphics"
                 "-framework CoreText" "-framework Security")

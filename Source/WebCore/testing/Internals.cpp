@@ -765,6 +765,7 @@ void Internals::resetToConsistentState(Page& page)
     WebCore::setContentSizeCategory(kCTFontContentSizeCategoryL);
 #endif
 
+// #if ENABLE(MEDIA_SESSION) && USE(GLIB)
 #if ENABLE(MEDIA_SESSION) && USE(GLIB) && !PLATFORM(COCOA) // AQUAWEBKIT: Cocoa uses MediaSessionManagerCocoa.
     if (auto* glibSessionManager = dynamicDowncast<MediaSessionManagerGLib>(sessionManager.get()))
         glibSessionManager->setDBusNotificationsEnabled(false);

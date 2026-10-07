@@ -87,7 +87,7 @@ public:
     Inspector::CommandResult<Ref<JSON::ArrayOf<String>>> getSupportedSystemFontFamilyNames() override;
     Inspector::CommandResult<void> forcePseudoState(Inspector::Protocol::DOM::NodeId, Ref<JSON::Array>&& forcedPseudoClasses) override;
     Inspector::CommandResult<void> setLayoutContextTypeChangedMode(Inspector::Protocol::CSS::LayoutContextTypeChangedMode) override;
-    // AQUAWEBKIT: the CSS selector profiler's commands, restored for the Safari 7 Web Inspector on page targets.
+    // AQUAWEBKIT: the CSS selector profiler's commands, for the Safari 7 Web Inspector on page targets.
     Inspector::CommandResult<void> startSelectorProfiler() override;
     Inspector::CommandResult<Ref<Inspector::Protocol::CSS::SelectorProfile>> stopSelectorProfiler() override;
 

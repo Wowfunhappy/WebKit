@@ -1397,14 +1397,16 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
             if (--protectedThis->m_requestCount)
                 return;
             // AQUAWEBKIT: for a document that has already completed, also run
-            // checkLoadComplete() here. checkCompleted() early-returns on m_isComplete before its
-            // trailing checkLoadComplete(), so a completed document whose last outstanding request
-            // piggybacks on another document's in-flight CachedResource (this whenLoaded callback is
-            // its only completion notification) never gets a final checkLoadComplete(): its frame
-            // sticks in FrameState::CommittedPage and dispatchDidFinishLoad() is never sent. Dashboard
-            // hits this whenever several widgets load identical file:// subresources at once. A
-            // document that has not completed gets its checkLoadComplete() from checkCompleted()
+            // checkLoadComplete() here. checkCompleted() sets m_isComplete before it dispatches the
+            // load event, so a request made by the load event handler or any later script counts
+            // against a completed document. When that request piggybacks on another document's
+            // in-flight CachedResource, this callback is its only completion notification, and
+            // checkCompleted() early-returns on m_isComplete before its trailing checkLoadComplete():
+            // the frame sticks in FrameState::CommittedPage and dispatchDidFinishLoad() is never
+            // sent. Dashboard hits this whenever several widgets load identical file:// subresources.
+            // A document that has not completed gets its checkLoadComplete() from checkCompleted()
             // when it does complete, after its load event.
+            // if (RefPtr frame = protectedThis->frame())
             if (RefPtr frame = protectedThis->frame()) {
                 frame->loader().checkCompleted();
                 // AQUAWEBKIT: (see the comment above this block)

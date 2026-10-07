@@ -46,7 +46,7 @@ WKCredentialRef WKCredentialCreate(WKStringRef username, WKStringRef password, W
 
 WKCredentialRef WKCredentialCreateWithCertificateInfo(WKCertificateInfoRef certificateInfo)
 {
-    // AQUAWEBKIT: upstream gutted this to null. Safari 7 wraps the client-certificate
+    // AQUAWEBKIT: Safari 7 wraps the client-certificate
     // panel's chosen identity in a WKCertificateInfo and answers the auth challenge with this
     // credential (#103).
     // return nullptr;
@@ -54,7 +54,7 @@ WKCredentialRef WKCredentialCreateWithCertificateInfo(WKCertificateInfoRef certi
     return toAPILeakingRef(WebCredential::create(credentialWithCertificateInfo(toImpl(certificateInfo))));
 #else
     return nullptr;
-#endif // AQUAWEBKIT: end of restored WKCredentialCreateWithCertificateInfo (#103)
+#endif // AQUAWEBKIT: closes the PLATFORM(COCOA) split above (#103).
 }
 
 WKStringRef WKCredentialCopyUser(WKCredentialRef credentialRef)

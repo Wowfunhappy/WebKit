@@ -41,13 +41,9 @@ WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKNavigationDelegate", macos(10.10, 10.14.
 - (void)browsingContextControllerDidReceiveServerRedirectForProvisionalLoad:(WKBrowsingContextController *)sender;
 
 /* Sent if the provisional load fails. */
-// AQUAWEBKIT: pre-2013 spelling. Upstream renamed this and -browsingContextControllerDidFailLoad:withError:
-// below in 007598a ("[Cocoa] Give two load delegate methods more conventional names", 2013-12-03) -- AFTER Safari 7
-// and 10.9 shipped, so the older names are the ones this system's clients implement. Verified in the shipping
-// binaries: QuickLookUI's Web2.qldisplay and MailUI both export -browsingContextControllerDidFailProvisionalLoad:withError:
-// and -browsingContextControllerDidFailLoad:withError:, and neither contains the renamed spelling. Declaring
-// upstream's newer names here would make WKBrowsingContextController.mm's respondsToSelector: checks permanently
-// NO, silently dropping every load failure in QuickLook web previews and Mail's message view.
+// AQUAWEBKIT: the 10.9 spelling of this and -browsingContextControllerDidFailLoad:withError: below, which
+// 10.9's clients (QuickLookUI's Web2.qldisplay, MailUI) implement.
+// - (void)browsingContextController:(WKBrowsingContextController *)sender didFailProvisionalLoadWithError:(NSError *)error;
 - (void)browsingContextControllerDidFailProvisionalLoad:(WKBrowsingContextController *)sender withError:(NSError *)error;
 
 /* Sent when the load gets committed. */
@@ -57,7 +53,8 @@ WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKNavigationDelegate", macos(10.10, 10.14.
 - (void)browsingContextControllerDidFinishLoad:(WKBrowsingContextController *)sender;
 
 /* Sent if the commited load fails. */
-// AQUAWEBKIT: pre-2013 spelling; see the note on -browsingContextControllerDidFailProvisionalLoad:withError: above.
+// AQUAWEBKIT: the 10.9 spelling; see -browsingContextControllerDidFailProvisionalLoad:withError: above.
+// - (void)browsingContextController:(WKBrowsingContextController *)sender didFailLoadWithError:(NSError *)error;
 - (void)browsingContextControllerDidFailLoad:(WKBrowsingContextController *)sender withError:(NSError *)error;
 
 - (void)browsingContextControllerDidStartProgress:(WKBrowsingContextController *)sender WK_API_DEPRECATED_WITH_REPLACEMENT("WKWebView.estimatedProgress", macos(10.10, 10.14.4), ios(8.0, 12.2));

@@ -27,9 +27,6 @@
 #import "CoreIPCNSURLCredential.h"
 
 #import <pal/spi/cf/CFNetworkSPI.h>
-// AQUAWEBKIT: the owning keychain file comes from Security.
-#import <Security/SecKeychain.h>
-#include <limits.h>
 
 @interface NSURLCredential(WKSecureCoding)
 - (NSDictionary *)_webKitPropertyListData;
@@ -146,9 +143,7 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
     if ([useKeychain isKindOfClass:NSNumber.class])
         m_data.useKeychain = [useKeychain boolValue];
 
-    // AQUAWEBKIT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
-    // SecTrustRef secTrust = static_cast<SecTrustRef>(dict[@"trust"]);
-    SecTrustRef secTrust = (__bridge SecTrustRef)dict[@"trust"];
+    SecTrustRef secTrust = static_cast<SecTrustRef>(dict[@"trust"]);
     if (secTrust && CFGetTypeID(secTrust) == SecTrustGetTypeID())
         m_data.trust = CoreIPCSecTrust(secTrust);
 
@@ -278,9 +273,7 @@ RetainPtr<id> CoreIPCNSURLCredential::toID() const
         RetainPtr<SecTrustRef> trust = m_data.trust.createSecTrust();
         if (trust) {
             [dict setObject:@(kURLCredentialServerTrust) forKey:@"type"];
-            // AQUAWEBKIT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
-            // [dict setObject:(id)trust.get() forKey:@"trust"];
-            [dict setObject:(__bridge id)trust.get() forKey:@"trust"];
+            [dict setObject:(id)trust.get() forKey:@"trust"];
         }
         break;
     }

@@ -41,6 +41,7 @@
 #include <wtf/UniqueRef.h>
 #include <wtf/text/WTFString.h>
 
+// #if !PLATFORM(COCOA)
 #if !HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
@@ -118,7 +119,7 @@ public:
 
     void closeSocket(WebCore::LibWebRTCSocketIdentifier);
 
-#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if PLATFORM(COCOA)
     bool NODELETE webRTCInterfaceMonitoringViaNWEnabled() const;
     const std::optional<audit_token_t>& sourceApplicationAuditToken() const LIFETIME_BOUND { return m_sourceApplicationAuditToken; }
     const char* applicationBundleIdentifier() const LIFETIME_BOUND { return m_applicationBundleIdentifier.data(); }
@@ -142,6 +143,7 @@ private:
 
     void addSocket(WebCore::LibWebRTCSocketIdentifier, std::unique_ptr<Socket>&&);
 
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     const String& attributedBundleIdentifierFromPageIdentifier(WebPageProxyIdentifier);
 #else
@@ -170,16 +172,14 @@ private:
     mutable Lock m_sharedPreferencesLock;
     SharedPreferencesForWebProcess m_sharedPreferences WTF_GUARDED_BY_LOCK(m_sharedPreferencesLock);
 
-#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if PLATFORM(COCOA)
     HashMap<WebPageProxyIdentifier, String> m_attributedBundleIdentifiers;
     std::optional<audit_token_t> m_sourceApplicationAuditToken;
     CString m_applicationBundleIdentifier;
-#endif // AQUAWEBKIT: closes the narrowed part of upstream's PLATFORM(COCOA) block; the queue below keeps upstream's guard.
-
-#if PLATFORM(COCOA)
     const Ref<WorkQueue> m_rtcNetworkThreadQueue;
 #endif
 
+// #if !PLATFORM(COCOA)
 #if !HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     UniqueRef<webrtc::BasicPacketSocketFactory> m_packetSocketFactory;
 #endif

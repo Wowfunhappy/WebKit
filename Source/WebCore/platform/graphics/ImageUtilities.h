@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <WebCore/ImageOrientation.h> // AQUAWEBKIT: for imagePropertiesForOrientation below.
 #include <WebCore/IntSize.h>
 #include <WebCore/PlatformImage.h>
 #include <optional>
@@ -34,7 +33,6 @@
 #if USE(CG)
 #include <CoreFoundation/CoreFoundation.h>
 #include <span>
-#include <wtf/RetainPtr.h> // AQUAWEBKIT: imagePropertiesForOrientation returns one.
 #include <wtf/WorkQueue.h>
 #endif
 
@@ -87,9 +85,9 @@ WEBCORE_EXPORT RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<Shareab
 WEBCORE_EXPORT void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize>, CompletionHandler<void(RefPtr<ShareableBitmap>&&)>&&);
 
 // AQUAWEBKIT: the image properties that carry an ImageOrientation into a file a
-// CGImageDestination writes. This port decodes in WebCore, so the orientation an image source used
-// to hand straight to CGImageDestinationAddImageFromSource now comes from the decoder and is
-// written with CGImageDestinationAddImage. Null when there is nothing to record.
+// CGImageDestination writes. This port decodes in WebCore, so the orientation comes from the
+// decoder and is written with CGImageDestinationAddImage. Null when there is nothing to record.
+struct ImageOrientation;
 WEBCORE_EXPORT RetainPtr<CFDictionaryRef> imagePropertiesForOrientation(ImageOrientation);
 // Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
 WEBCORE_EXPORT Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt); // AQUAWEBKIT: WebKitLegacy encodes decoded images for the sharing pasteboard.

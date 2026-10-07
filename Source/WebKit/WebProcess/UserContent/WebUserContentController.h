@@ -52,8 +52,7 @@ enum class InjectUserScriptImmediately : bool;
 class WebUserContentController final : public WebCore::UserContentProvider, public IPC::MessageReceiver {
 public:
     static Ref<WebUserContentController> getOrCreate(UserContentControllerParameters&&);
-    // AQUAWEBKIT: restored from upstream e05340a^ — reaches the controller a page group
-    // already shares with its pages, for the legacy bundle user-content C API (Safari 7 extensions).
+    // AQUAWEBKIT: reaches the controller a page group already shares with its pages, for the legacy bundle user-content C API (Safari 7 extensions).
     static Ref<WebUserContentController> getOrCreate(UserContentControllerIdentifier);
     static void forEachUserContentOfAllControllers(NOESCAPE const Function<void(InjectedBundleScriptWorld&, const WebCore::UserScript*, const WebCore::UserStyleSheet*)>&); // AQUAWEBKIT: the content Safari 7 extensions' worlds hold in this process.
     virtual ~WebUserContentController();

@@ -929,14 +929,9 @@ void WebPageProxy::addActivityStateUpdateCompletionHandler(CompletionHandler<voi
 
 void WebPageProxy::createTextFragmentDirectiveFromSelection(CompletionHandler<void(URL&&)>&& completionHandler)
 {
-    if (!hasRunningProcess()) {
-        // AQUAWEBKIT(upstreamable): upstream returns here without invoking the handler, so it
-        // is destroyed uncalled -- ~CompletionHandler asserts "Completion handler should always be
-        // called", and in release the caller's continuation simply never runs. getTextFragmentRanges()
-        // immediately below is upstream's own example of the correct shape.
-        completionHandler({ });
-        return;
-    } // AQUAWEBKIT(upstreamable): brace added with the completionHandler call above.
+    if (!hasRunningProcess())
+        return completionHandler({ }); // AQUAWEBKIT(upstreamable): the handler must run on this path too, as in getTextFragmentRanges() below.
+        // return;
 
     protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::CreateTextFragmentDirectiveFromSelection(), WTF::move(completionHandler), webPageIDInMainFrameProcess());
 }
@@ -1824,14 +1819,11 @@ void WebPageProxy::setTextIndicator(RefPtr<WebCore::TextIndicator>&& textIndicat
 
     [installationLayer addSublayer:m_textIndicatorLayer.get()];
 
-    // AQUAWEBKIT: -present must run for every transition, including None.
-    // -updateWithFrame:…updatingIndicator:NO sets each bounce layer's opacity to 0 and only -present
-    // puts it back to 1, so skipping it here left a TextIndicatorPresentationTransition::None
-    // indicator built, installed and permanently invisible. None means "no entrance animation", not
-    // "do not show" — with it -present just sets the opacity, adding no animation. This is what a
-    // re-snapshot after the page reflows relies on (#85), and it also unbreaks the other
-    // shouldAnimate=false callers, FindController::redraw and deviceScaleFactorDidChange.
+    // AQUAWEBKIT: -present runs for every transition, including None. -updateWithFrame:…updatingIndicator:NO
+    // sets each bounce layer's opacity to 0 and only -present sets it back to 1; for None it adds no animation.
+    // A re-snapshot after the page reflows (#85), FindController::redraw and deviceScaleFactorDidChange use None.
     // if (m_textIndicator->presentationTransition() != WebCore::TextIndicatorPresentationTransition::None)
+    //     [m_textIndicatorLayer present];
     [m_textIndicatorLayer present];
 
     if ((TextIndicatorLifetime)lifetime == TextIndicatorLifetime::Temporary)

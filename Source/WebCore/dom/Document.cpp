@@ -6587,6 +6587,7 @@ void Document::invalidateEventListenerRegions()
         protect(documentElement())->invalidateStyle();
 }
 
+// void Document::invalidateRenderingDependentRegions()
 void Document::invalidateRenderingDependentRegions(AnnotationsAction annotationsAction) // AQUAWEBKIT: the argument drives the Dashboard branch below.
 {
 #if ENABLE(DASHBOARD_SUPPORT)
@@ -7357,8 +7358,8 @@ void Document::addListenerTypeIfNeeded(const AtomString& eventType)
     case EventType::focusout:
         addListenerType(ListenerType::FocusOut);
         break;
-    // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
-    // event drives Safari 7 extension content-blocking (uBlock network blocking).
+    // AQUAWEBKIT: the cancelable beforeload event drives Safari 7 extension content blocking
+    // (uBlock network blocking, #62).
     case EventType::beforeload:
         addListenerType(ListenerType::BeforeLoad);
         break;

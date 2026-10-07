@@ -67,7 +67,7 @@
 #include "ViewSnapshotStore.h"
 #include "WebCompiledContentRuleList.h"
 #include "WebFrameProxy.h"
-#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
+#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: dispatchMessage below (webkit.org/b/319273).
 #include "WebNotificationManagerProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
@@ -524,7 +524,7 @@ void NetworkProcessProxy::didClose(IPC::Connection& connection)
     networkProcessDidTerminate(ProcessTerminationReason::Crash);
 }
 
-// AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess messages go to the frame named by the destination ID.
+// AQUAWEBKIT: WebFrameProxyFromNetworkProcess messages go to the frame named by the destination ID (webkit.org/b/319273).
 bool NetworkProcessProxy::dispatchMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
     if (AuxiliaryProcessProxy::dispatchMessage(connection, decoder))
@@ -1982,7 +1982,7 @@ void NetworkProcessProxy::navigateServiceWorkerClient(WebCore::FrameIdentifier f
     callback({ }, { });
 }
 
-// AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): WebFrameProxyFromNetworkProcess replaces this receiver.
+// AQUAWEBKIT: WebFrameProxyFromNetworkProcess receives this message (webkit.org/b/319273).
 /*
 void NetworkProcessProxy::receivedMainResourceResponseWithCertificateInfo(WebCore::FrameIdentifier frameID, String&& hostAndPort, WebCore::CertificateInfo&& certificateInfo)
 {

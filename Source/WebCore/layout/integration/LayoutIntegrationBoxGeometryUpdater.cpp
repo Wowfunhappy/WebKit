@@ -575,9 +575,9 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
         bool useMarginBoxAsBaseline = shouldUseMarginBoxAsBaseline(*blockFlow) || blockFlow->style().overflowY() != Overflow::Visible;
 #if ENABLE(DASHBOARD_SUPPORT)
         // AQUAWEBKIT: CSS2.1 (and modern WebKit) take an inline-block's baseline from its bottom margin
-        // edge when its overflow is not visible; stock 10.9 instead used the baseline of the inline-block's last
-        // line box (its text baseline). Restore that legacy text-baseline alignment for a Dashboard widget host
-        // ONLY (Safari/WK2 keeps the modern behavior) so e.g. the Stocks widget's detail labels line up with
+        // edge when its overflow is not visible; stock 10.9 takes the baseline of the inline-block's last
+        // line box (its text baseline). A Dashboard widget host ONLY (Safari/WK2 keeps the modern behavior)
+        // gets that legacy text-baseline alignment, so e.g. the Stocks widget's detail labels line up with
         // their values. A genuinely scrolled or marquee inline-block has no meaningful line baseline and keeps
         // bottom (margin-box) alignment even on 10.9.
         if (useMarginBoxAsBaseline && blockFlow->childrenInline() && blockFlow->hasContentfulInlineOrBlockLine()) {
@@ -591,6 +591,7 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
             }
         }
 #endif
+        // if (shouldUseMarginBoxAsBaseline(*blockFlow) || blockFlow->style().overflowY() != Overflow::Visible)
         if (useMarginBoxAsBaseline)
             return marginBoxBottom;
 

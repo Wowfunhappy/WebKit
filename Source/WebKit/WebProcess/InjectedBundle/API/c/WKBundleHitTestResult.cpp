@@ -51,16 +51,18 @@ WKBundleNodeHandleRef WKBundleHitTestResultCopyURLElementHandle(WKBundleHitTestR
     return toAPILeakingRef(WTF::move(urlElementNodeHandle));
 }
 
-// AQUAWEBKIT: restores the real GetFrame/GetTargetFrame bodies (the base ships return-null stubs); Safari's context-menu code needs a non-null frame, so we return the hit-test result's actual frame/target frame.
+// AQUAWEBKIT: Safari's context-menu code needs the hit-test result's frame and target frame.
+// WKBundleFrameRef WKBundleHitTestResultGetFrame(WKBundleHitTestResultRef)
 WKBundleFrameRef WKBundleHitTestResultGetFrame(WKBundleHitTestResultRef hitTestResultRef)
 {
-    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->frame().get());
+    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->frame().get()); // AQUAWEBKIT: upstream: return nullptr;
 }
 
-// AQUAWEBKIT: restores the real body (base ships a return-null stub); see GetFrame above.
+// AQUAWEBKIT: see GetFrame above.
+// WKBundleFrameRef WKBundleHitTestResultGetTargetFrame(WKBundleHitTestResultRef)
 WKBundleFrameRef WKBundleHitTestResultGetTargetFrame(WKBundleHitTestResultRef hitTestResultRef)
 {
-    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->targetFrame().get());
+    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->targetFrame().get()); // AQUAWEBKIT: upstream: return nullptr;
 }
 
 WKURLRef WKBundleHitTestResultCopyAbsoluteImageURL(WKBundleHitTestResultRef hitTestResultRef)

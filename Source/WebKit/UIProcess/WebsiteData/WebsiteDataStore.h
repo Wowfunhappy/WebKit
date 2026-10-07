@@ -310,8 +310,9 @@ public:
 
     static void NODELETE setCachedProcessSuspensionDelayForTesting(Seconds);
 
-    // AQUAWEBKIT: unconditional; this port implements the Cocoa half upstream dropped.
+// #if !PLATFORM(COCOA) // AQUAWEBKIT: declared on Cocoa too; see the definition in WebsiteDataStore.cpp.
     void allowSpecificHTTPSCertificateForHost(const WebCore::CertificateInfo&, const String& host);
+// #endif // AQUAWEBKIT: closes the !PLATFORM(COCOA) gate commented out above.
     void allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo&);
 
     DeviceIdHashSaltStorage& ensureDeviceIdHashSaltStorage();
@@ -508,7 +509,8 @@ public:
     void pumpPendingWebPushMessages();
     // AQUAWEBKIT: hands a URL to the host app's ordinary URL machinery
     // (NSWorkspace); the clients.openWindow fallback for hosts without the
-    // page-creating data-store client. See openWindowFromServiceWorker.
+    // page-creating data-store client. See openWindowFromServiceWorker. Both are defined in
+    // AquaWebKitSupport/source/WebKit/UIProcess/WebsiteData/Cocoa/WebsiteDataStoreAquaWebKit.mm.
     static void openURLThroughHostApplication(const URL&);
 #endif
 
@@ -705,10 +707,11 @@ private:
 
     HashMap<WebCore::RegistrableDomain, RestrictedOpenerType> m_restrictedOpenerTypesForTesting;
 
-    // AQUAWEBKIT: state for pumpPendingWebPushMessages above -- the messages fetched from
-    // webpushd and still to be processed, whether a drain is in flight, and whether a signal that
-    // arrived mid-drain needs another pass.
+    // AQUAWEBKIT: webpushd's launchd job, and the state for pumpPendingWebPushMessages above -- the
+    // messages fetched from webpushd and still to be processed, whether a drain is in flight, and
+    // whether a signal that arrived mid-drain needs another pass. Defined in WebsiteDataStoreAquaWebKit.mm.
 #if USE(MOZILLA_PUSH_SERVICE)
+    static void registerWebPushDaemonWithLaunchd();
     void processNextQueuedWebPushMessage();
     Deque<WebPushMessage> m_queuedWebPushMessages;
     bool m_pumpingWebPushMessages { false };

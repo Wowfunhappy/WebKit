@@ -380,8 +380,8 @@ bool ScriptElement::requestClassicScript(const String& sourceURL)
     ASSERT(element->isConnected());
     ASSERT(!m_loadableScript);
 
-    // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
-    // event lets Safari 7 extensions block this script subresource (uBlock network blocking).
+    // AQUAWEBKIT: a cancelable beforeload event lets Safari 7 extensions block this script
+    // subresource (#62, uBlock network blocking).
     {
         Ref<Document> originalDocument = element->document();
         if (!element->dispatchBeforeLoadEvent(sourceURL))
@@ -448,8 +448,8 @@ bool ScriptElement::requestModuleScript(const String& sourceText, const TextPosi
             return false;
         }
 
-        // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
-        // event lets Safari 7 extensions block this module-script subresource (uBlock network blocking).
+        // AQUAWEBKIT: a cancelable beforeload event lets Safari 7 extensions block this module-script
+        // subresource (#62, uBlock network blocking).
         {
             Ref<Document> originalDocument = element->document();
             if (!element->dispatchBeforeLoadEvent(sourceURL))

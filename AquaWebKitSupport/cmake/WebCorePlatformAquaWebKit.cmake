@@ -106,6 +106,9 @@ macro(_AQUAWEBKIT_FINALIZE_WEBCORE_TARGET _target)
             "${AQUAWEBKIT_SUPPORT}/polyfill/build/pasteboard-expiration")
     endif ()
 endmacro()
+# Runs once Source/WebCore/CMakeLists.txt has finished, after upstream has set the WebCore target's own
+# link options and properties.
+cmake_language(DEFER CALL _AQUAWEBKIT_FINALIZE_WEBCORE_TARGET WebCore)
 
 # --------------------------------------------------------------------------
 # Standalone backport blocks (targets, definitions, framework lookups, staging).

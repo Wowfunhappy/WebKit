@@ -93,9 +93,8 @@ WKBundleNodeHandleRef WKBundleNodeHandleCopyDocument(WKBundleNodeHandleRef nodeH
 
 WKRect WKBundleNodeHandleGetRenderRect(WKBundleNodeHandleRef nodeHandleRef, bool* isReplaced)
 {
-    // AQUAWEBKIT: implemented (github #98). Safari 7 calls this; upstream gutted it because
-    // nothing in a modern client does. absoluteBoundingRect() is the same InjectedBundleNodeHandle
-    // operation the function was built on, and it reports isReplaced through the out parameter.
+    // AQUAWEBKIT: Safari 7 calls this (github #98). absoluteBoundingRect() is the
+    // InjectedBundleNodeHandle operation it wraps, and it reports isReplaced through the out parameter.
     // ASSERT_NOT_REACHED();
     // return { };
     return WebKit::toAPI(protect(WebKit::toImpl(nodeHandleRef))->absoluteBoundingRect(isReplaced));
@@ -197,15 +196,12 @@ bool WKBundleNodeHandleGetHTMLTextAreaElementLastChangeWasUserEdit(WKBundleNodeH
     return protect(WebKit::toImpl(htmlTextAreaElementHandleRef))->htmlTextAreaElementLastChangeWasUserEdit();
 }
 
-// AQUAWEBKIT: the parameter is named again because the body below uses it (github #98).
+// AQUAWEBKIT: the parameter is named for the body below (github #98).
 // WKBundleNodeHandleRef WKBundleNodeHandleCopyHTMLTableCellElementCellAbove(WKBundleNodeHandleRef)
 WKBundleNodeHandleRef WKBundleNodeHandleCopyHTMLTableCellElementCellAbove(WKBundleNodeHandleRef htmlTableCellElementHandleRef)
 {
-    // AQUAWEBKIT: implemented (github #98). Safari 7's AutoFill walks upwards through table
-    // cells to find the label for a field in a table-laid-out form
-    // (-[BundleAutoFillNode htmlTableCellElementCellAbove]). The underlying
-    // InjectedBundleNodeHandle::htmlTableCellElementCellAbove() is still here; only the C entry point
-    // was gutted.
+    // AQUAWEBKIT: Safari 7's AutoFill walks upwards through table cells to find the label for a
+    // field in a table-laid-out form (-[BundleAutoFillNode htmlTableCellElementCellAbove], github #98).
     // ASSERT_NOT_REACHED();
     // return nullptr;
     RefPtr<WebKit::InjectedBundleNodeHandle> cellAbove = protect(WebKit::toImpl(htmlTableCellElementHandleRef))->htmlTableCellElementCellAbove();
@@ -232,10 +228,9 @@ WKBundleFrameRef WKBundleNodeHandleCopyHTMLIFrameElementContentFrame(WKBundleNod
 
 bool WKBundleNodeHandleGetHTMLInputElementAutofilled(WKBundleNodeHandleRef htmlInputElementHandleRef)
 {
-    // AQUAWEBKIT: implemented (github #98). Safari 7 asks whether a field it is about to fill
-    // is already an AutoFill result (-[BundleAutoFillNode isHTMLInputElementAutofilled]); with a
-    // hardcoded false it cannot tell its own fills from what the user typed. The setter next to this
-    // one was never gutted, so the two disagreed.
+    // AQUAWEBKIT: Safari 7 asks whether a field it is about to fill is already an AutoFill result
+    // (-[BundleAutoFillNode isHTMLInputElementAutofilled], github #98); this reads the state the setter
+    // next to it writes.
     // ASSERT_NOT_REACHED();
     // return false;
     return protect(WebKit::toImpl(htmlInputElementHandleRef))->isHTMLInputElementAutoFilled();

@@ -63,6 +63,7 @@ RefPtr<WebPageGroup> WebPageGroup::get(PageGroupIdentifier pageGroupID)
 
 // AQUAWEBKIT: takes the group's user content controller identifier, which travels
 // to the WebContent process for the legacy bundle user-content C API (Safari 7 extensions).
+// static WebPageGroupData pageGroupData(const String& identifier)
 static WebPageGroupData pageGroupData(const String& identifier, UserContentControllerIdentifier userContentControllerIdentifier)
 {
     static NeverDestroyed<HashMap<String, PageGroupIdentifier>> map;
@@ -83,6 +84,7 @@ static WebPageGroupData pageGroupData(const String& identifier, UserContentContr
 
     return {
         WTF::move(validIdentifier),
+        // pageGroupID
         pageGroupID,
         userContentControllerIdentifier // AQUAWEBKIT: see above.
     };
@@ -93,6 +95,7 @@ static WebPageGroupData pageGroupData(const String& identifier, UserContentContr
 WebPageGroup::WebPageGroup(const String& identifier)
     // AQUAWEBKIT: give the page group its own user content controller (see header),
     // and record its identifier in the data the WebContent process receives.
+    // : m_data(pageGroupData(identifier))
     : m_userContentController(WebUserContentControllerProxy::create())
     , m_data(pageGroupData(identifier, m_userContentController->identifier()))
     , m_preferences(WebPreferences::createWithLegacyDefaults(m_data.identifier, ".WebKit2"_s, "WebKit2."_s))

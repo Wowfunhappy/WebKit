@@ -31,12 +31,18 @@
 #import <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, PAL_EXPORT)
-// AQUAWEBKIT: the Contacts framework (CNContact/CNLabeledValue/CNPhoneNumber/CNPostalAddress/CNMutableContact/CNMutablePostalAddress) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+// AQUAWEBKIT: the Contacts framework (CNContact/CNLabeledValue/CNPhoneNumber/CNPostalAddress/CNMutableContact/CNMutablePostalAddress) is absent on macOS 10.9; these classes soft-link optionally and resolve to nil here.
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNContact, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNContact, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNLabeledValue, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNLabeledValue, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNPhoneNumber, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNPhoneNumber, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNPostalAddress, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNPostalAddress, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNMutableContact, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNMutableContact, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNMutablePostalAddress, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNMutablePostalAddress, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNContactDepartmentNameKey, NSString *, PAL_EXPORT);
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, CNContactFamilyNameKey, NSString *, PAL_EXPORT);

@@ -29,9 +29,9 @@
 #include <WebCore/CryptoKeyPair.h>
 
 #include <wtf/Platform.h>
-// AQUAWEBKIT: build glue for the gcrypt WebCrypto backend (USE_GCRYPT=TRUE,
-// OptionsMac.cmake). When USE(GCRYPT) is set, skip the Darwin cocoa CryptoKit path —
-// gcrypt provides the PlatformECKeyContainer instead. See SourcesCocoa.txt.
+// AQUAWEBKIT: WebCrypto runs on libgcrypt here (USE_GCRYPT, OptionsMacAquaWebKit.cmake), which provides
+// the PlatformECKeyContainer; the Darwin CryptoKit path is for USE(GCRYPT)-less builds.
+// #if OS(DARWIN) && !PLATFORM(GTK)
 #if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include <WebCore/CommonCryptoUtilities.h>
 

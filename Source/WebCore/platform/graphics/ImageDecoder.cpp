@@ -30,6 +30,7 @@
 #include "ScalableImageDecoder.h"
 #include <wtf/TZoneMallocInlines.h>
 
+// #if USE(CG)
 #if USE(CG) && !PLATFORM(MAC) // AQUAWEBKIT: decode web content through ScalableImageDecoder.
 #include "ImageDecoderCG.h"
 #endif
@@ -64,6 +65,7 @@ RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const St
     if (RefPtr imageDecoder = ScalableImageDecoder::create(data, alphaOption, gammaAndColorProfileOption))
         return imageDecoder;
 
+// #if USE(CG)
 #if USE(CG) && !PLATFORM(MAC) // AQUAWEBKIT: decode web content through ScalableImageDecoder.
     if (RefPtr imageDecoder = ImageDecoderCG::create(data, alphaOption, gammaAndColorProfileOption))
         return imageDecoder;
@@ -92,6 +94,7 @@ bool ImageDecoder::supportsMediaType(MediaType type)
     if (ScalableImageDecoder::supportsMediaType(type))
         return true;
 
+// #if USE(CG)
 #if USE(CG) && !PLATFORM(MAC) // AQUAWEBKIT: decode web content through ScalableImageDecoder.
     if (ImageDecoderCG::supportsMediaType(type))
         return true;

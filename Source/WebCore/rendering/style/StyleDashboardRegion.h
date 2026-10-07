@@ -22,7 +22,7 @@
  *
  */
 
-// AQUAWEBKIT: restored with legacy Dashboard control-region support (removed upstream in 2d364c6).
+// AQUAWEBKIT: a legacy Dashboard control region.
 // `dashboard-region(<label> <geometry> <top> <right> <bottom> <left>)` insets the region from the element's
 // border box by the four offsets, which shipping widgets do use (Calculator splits one element into two 43px-
 // apart circles that way). They resolve to fixed pixels at style-build time.

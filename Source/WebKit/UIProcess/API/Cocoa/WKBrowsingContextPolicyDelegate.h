@@ -27,7 +27,7 @@
 
 @class WKBrowsingContextController;
 
-// AQUAWEBKIT: the policy action keys WKBrowsingContextController (4f0294a^) fills in.
+// AQUAWEBKIT: the policy action keys WKBrowsingContextController fills in.
 /* Constants for policy action dictionaries */
 WK_EXTERN NSString * const WKActionIsMainFrameKey;         // NSNumber (BOOL)
 WK_EXTERN NSString * const WKActionMouseButtonKey;         // NSNumber (0 for left button, 1 for middle button, 2 for right button)

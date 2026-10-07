@@ -86,9 +86,6 @@
 #import <WebCore/ImageOverlay.h>
 #import <WebCore/ImmediateActionStage.h>
 #import <WebCore/KeyboardEvent.h>
-// AQUAWEBKIT: with -fno-modules these inline/template defs aren't transitively included here;
-// add them for LocalFrame::document()/selection() and IPC send<> (immediate action / acceptsFirstMouse).
-#import "MessageSenderInlines.h"
 #import <WebCore/LocalFrame.h>
 #import <WebCore/LocalFrameInlines.h>
 #import <WebCore/LocalFrameView.h>
@@ -1046,15 +1043,10 @@ bool WebPage::shouldAvoidComputingPostLayoutDataForEditorState() const
         return false;
     }
 
-    // AQUAWEBKIT: gate the touch-bar editing-controls check on HAVE(TOUCH_BAR); the touch bar
-    // doesn't exist on 10.9 and m_requiresUserActionForEditingControlsManager is touch-bar-only state.
-#if HAVE(TOUCH_BAR)
     if (!m_requiresUserActionForEditingControlsManager || !m_userInteractionsSincePageTransition.isEmpty()) {
         // Text editing controls on the touch bar depend on having post-layout editor state data.
         return false;
     }
-    // AQUAWEBKIT: close the HAVE(TOUCH_BAR) guard around the touch-bar editing-controls check.
-#endif
 
     if (m_hasEverDisplayedContextMenu) {
         // Some context menu items (like Writing Tools) depend on having post-layout editor state data.

@@ -86,7 +86,7 @@
 #include "WebKitFliteSourceGStreamer.h"
 #endif
 
-// AQUAWEBKIT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h),
+// AQUAWEBKIT: the ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h),
 // the Widevine decryptor (see WebKitWidevineDecryptorGStreamer.h) and the Widevine video decoder
 // (see WebKitWidevineVideoDecoderGStreamer.h).
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -489,14 +489,13 @@ bool ensureGStreamerInitialized()
 {
     // WARNING: Please note this function can be called from any thread, for instance when creating
     // a WebCodec element from a JS Worker.
-    // AQUAWEBKIT: widened from upstream's RELEASE_ASSERT(isInWebProcess()). Upstream's
-    // invariant is that GStreamer initializes only in the WebProcess, which holds for ports whose
-    // only in-process renderer is the WebProcess. WebKitLegacy hosts render in-process too
-    // (Dictionary's panel, Mail's inline attachments, Dashboard web clips); !processType() is a
-    // non-auxiliary application process, so the NetworkProcess and the GPU process still trip this.
-    // That is the intended reach: media playback stays in the web process here
-    // (UseGPUProcessForMediaEnabled is false for USE(GSTREAMER)), and the GPU process reconstructs a
-    // frame the web process shares as a VideoFrameCV, never a VideoFrameGStreamer.
+    // AQUAWEBKIT: GStreamer initializes in the WebProcess and in WebKitLegacy hosts, which render
+    // in-process (Dictionary's panel, Mail's inline attachments, Dashboard web clips); !processType()
+    // is a non-auxiliary application process, so the NetworkProcess and the GPU process still trip this.
+    // Media playback stays in the web process (UseGPUProcessForMediaEnabled is false for
+    // USE(GSTREAMER)), and the GPU process reconstructs a frame the web process shares as a
+    // VideoFrameCV, never a VideoFrameGStreamer.
+    // RELEASE_ASSERT(isInWebProcess());
     RELEASE_ASSERT(isInWebProcess() || !processType());
     static std::once_flag onceFlag;
     static bool isGStreamerInitialized;
@@ -585,7 +584,7 @@ void registerWebKitGStreamerElements()
         //   is an alternative outside of WebKit.
         // - Use GST_RANK_NONE for elements explicitely created by WebKit (no auto-plugging).
 
-// AQUAWEBKIT: the ClearKey decryptor, restored from upstream before 4694d7d.
+// AQUAWEBKIT: the ClearKey decryptor.
 #if ENABLE(ENCRYPTED_MEDIA)
         gst_element_register(nullptr, "webkitclearkey", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_CK_DECRYPT);
         // AQUAWEBKIT: the Widevine decryptor. Which of the two decryptors serves a stream

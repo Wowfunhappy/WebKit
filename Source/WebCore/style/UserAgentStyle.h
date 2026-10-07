@@ -62,9 +62,9 @@ public:
     static StyleSheetContents* attachmentStyleSheet;
 #endif
 #if ENABLE(VIDEO) && PLATFORM(MAC)
-    // AQUAWEBKIT (#68): document-scope UA sheet for the classic Safari 7 / Mavericks media controls.
+    // AQUAWEBKIT: document-scope UA sheet for the classic Safari 7 media controls.
     static StyleSheetContents* mediaControlsStyleSheet;
-    // AQUAWEBKIT (#137): document-scope UA sheet for the text-track container and WebVTT cues.
+    // AQUAWEBKIT: document-scope UA sheet for the text-track container and WebVTT cues.
     static StyleSheetContents* mediaTextTracksStyleSheet;
 #endif
 

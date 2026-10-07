@@ -25,8 +25,6 @@
 
 #include "GRefPtrGStreamer.h"
 #include "PlatformAudioData.h"
-// AQUAWEBKIT: MediaTime is the presentation time the CoreAudio bridge below stamps.
-#include <wtf/MediaTime.h>
 
 #include <gst/audio/audio.h>
 

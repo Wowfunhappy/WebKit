@@ -96,7 +96,7 @@ public:
 
     RefPtr<ServiceWorkerFetchTask> createFetchTask(NetworkResourceLoader&, const WebCore::ResourceRequest&);
     void fetchTaskTimedOut(WebCore::ServiceWorkerIdentifier);
-    void fetchTaskReceivedMainResourceResponse(std::optional<WebCore::ServiceWorkerIdentifier>, const WebCore::ResourceResponse&, WebCore::FrameIdentifier); // AQUAWEBKIT: upstream 319948@main (webkit.org/b/322485).
+    void fetchTaskReceivedMainResourceResponse(std::optional<WebCore::ServiceWorkerIdentifier>, const WebCore::ResourceResponse&, WebCore::FrameIdentifier); // AQUAWEBKIT: see the definition (webkit.org/b/322485).
 
     void transferServiceWorkerLoadToNewWebProcess(NetworkResourceLoader&, WebCore::SWServerRegistration&, const WebCore::ResourceRequest&);
     std::optional<WebCore::SWServer::GatheredClientData> gatherClientData(WebCore::ScriptExecutionContextIdentifier);

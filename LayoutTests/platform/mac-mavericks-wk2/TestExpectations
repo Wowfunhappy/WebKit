@@ -515,3 +515,18 @@ fast/text/glyph-display-lists/glyph-display-list-scaled-unshared.html [ Skip ]
 # Maintainer scope decision 2026-09-15: pixel near miss. Green glyphs over the green background composite to 127
 # instead of 128 in 65 pixels.
 imported/w3c/web-platform-tests/css/css-values/ch-unit-004.html [ Skip ]
+
+# These drive the mock capture devices through WebKitTestRunner-only C API (the WKMockMediaDevice calls,
+# WKPageSetMockCaptureDevicesInterrupted, WKPageTriggerMockCaptureConfigurationChange). Upstream keys where those
+# calls go on USE(GSTREAMER), which sends them to the web process, while WebKitTestRunner captures video in the GPU
+# process here. Only tests reach that API, so the tests are skipped (maintainer decision).
+fast/mediastream/camera-unknown-facing-mode.html [ Skip ]
+fast/mediastream/configurationchange-defer-and-abort.html [ Skip ]
+fast/mediastream/default-camera-test.html [ Skip ]
+fast/mediastream/getDisplayMedia-max-constraints4.html [ Skip ]
+fast/mediastream/getDisplayMedia-max-constraints5.html [ Skip ]
+fast/mediastream/media-stream-video-track-interrupted.html [ Skip ]
+fast/mediastream/mediastreamtrack-clone-muted.html [ Skip ]
+fast/mediastream/mediastreamtrack-configurationchange-while-muted.html [ Skip ]
+fast/mediastream/mediastreamtrack-configurationchange.html [ Skip ]
+http/tests/media/media-stream/enumerate-devices-ephemeral-id.html [ Skip ]

@@ -141,8 +141,9 @@ class LibWebRTCCodecs;
 class LibWebRTCNetwork;
 class ModelProcessConnection;
 class ModelProcessModelPlayerManager;
-// AQUAWEBKIT: see ObjCObjectGraph.h.
+// AQUAWEBKIT: see ObjCObjectGraph.h and WebConnection.h.
 class ObjCObjectGraph;
+class WebConnectionToUIProcess;
 class RemoteCDMFactory;
 class RemoteImageDecoderAVFManager;
 class RemoteLegacyCDMFactory;
@@ -156,8 +157,6 @@ class WebBroadcastChannelRegistry;
 class WebCacheStorageProvider;
 class WebCompiledContentRuleListData;
 class WebCookieJar;
-// AQUAWEBKIT: see WebConnection.h.
-class WebConnectionToUIProcess;
 class WebFileSystemStorageConnection;
 class WebFrame;
 class WebGeolocationManager;
@@ -214,10 +213,6 @@ public:
     static WebProcess& singleton();
     static constexpr WTF::AuxiliaryProcessType processType = WTF::AuxiliaryProcessType::WebContent;
 
-    // AQUAWEBKIT: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
-    // static WebPage::canHandleRequest accepts them (see WebProcess::registerURLSchemeForCustomProtocol).
-    bool isURLSchemeRegisteredForCustomProtocol(const String&) const;
-
     template <typename T>
     T* supplement()
     {
@@ -250,9 +245,6 @@ public:
     // This is for objects owned by the WebProcess to forward their refcounting to their owner.
     void ref() const final { }
     void deref() const final { }
-
-    // AQUAWEBKIT: see WebConnection.h.
-    WebConnectionToUIProcess* webConnectionToUIProcess() const { return m_webConnection.get(); }
 
     WebPage* webPage(WebCore::PageIdentifier) const;
     void createWebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -380,14 +372,6 @@ public:
 
     const String& uiProcessBundleIdentifier() const LIFETIME_BOUND { return m_uiProcessBundleIdentifier; }
 
-#if PLATFORM(COCOA)
-    // AQUAWEBKIT: the UI process's CARemoteLayerServer port (WebKit-537
-    // acceleratedCompositingPort arrangement); LayerHostingContext::createForPort creates hosted
-    // CAContexts against it for pages in windows that composite their layer tree in-process
-    // (LayerHostingMode::InProcess). MACH_PORT_NULL when not supplied.
-    const WTF::MachSendRight& compositingRenderServerPort() const LIFETIME_BOUND { return m_compositingRenderServerPort; }
-#endif
-
     void updateActivePages(const String& overrideDisplayName);
     void getActivePagesOriginsForTesting(CompletionHandler<void(Vector<String>&&)>&&);
     void pageActivityStateDidChange(WebCore::PageIdentifier, OptionSet<WebCore::ActivityState> changed);
@@ -413,6 +397,27 @@ public:
 #if PLATFORM(COCOA)
     RefPtr<ObjCObjectGraph> transformHandlesToObjects(ObjCObjectGraph&);
     static RefPtr<ObjCObjectGraph> transformObjectsToHandles(ObjCObjectGraph&);
+#endif
+
+    // AQUAWEBKIT: see WebConnection.h.
+    WebConnectionToUIProcess* webConnectionToUIProcess() const { return m_webConnection.get(); }
+
+    // AQUAWEBKIT: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
+    // static WebPage::canHandleRequest accepts them (see WebProcess::registerURLSchemeForCustomProtocol).
+    bool isURLSchemeRegisteredForCustomProtocol(const String&) const;
+
+#if PLATFORM(COCOA)
+    // AQUAWEBKIT: the UI process's CARemoteLayerServer port (WebKit-537
+    // acceleratedCompositingPort arrangement); LayerHostingContext::createForPort creates hosted
+    // CAContexts against it for pages in windows that composite their layer tree in-process
+    // (LayerHostingMode::InProcess). MACH_PORT_NULL when not supplied.
+    const WTF::MachSendRight& compositingRenderServerPort() const LIFETIME_BOUND { return m_compositingRenderServerPort; }
+#endif
+
+#if PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+    // AQUAWEBKIT: where the UIProcess installed Google's Widevine CDM (see WebCore's
+    // WidevineCdmInstaller.h), and the extension that lets this process read it.
+    void setWidevineCdmModule(const String& path, SandboxExtension::Handle&&);
 #endif
 
 #if ENABLE(SERVICE_CONTROLS)
@@ -458,11 +463,6 @@ public:
 
 #if PLATFORM(MAC)
     void openDirectoryCacheInvalidated(SandboxExtension::Handle&&, SandboxExtension::Handle&&);
-#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
-    // AQUAWEBKIT: where the UIProcess installed Google's Widevine CDM (see WebCore's
-    // WidevineCdmInstaller.h), and the extension that lets this process read it.
-    void setWidevineCdmModule(const String& path, SandboxExtension::Handle&&);
-#endif
 #endif
 
 #if ENABLE(NOTIFY_BLOCKING)
@@ -635,6 +635,9 @@ private:
     void registerURLSchemeForCustomProtocol(const String&);
     void unregisterURLSchemeForCustomProtocol(const String&);
 
+    // AQUAWEBKIT: see WebConnection.h.
+    friend class WebConnectionToUIProcess;
+
 #if ENABLE(WK_WEB_EXTENSIONS)
     void registerURLSchemeAsWebExtension(const String&) const;
 #endif
@@ -754,8 +757,6 @@ private:
     void platformInitializeProcess(const AuxiliaryProcessInitializationParameters&);
 
     // IPC::Connection::Client
-    // AQUAWEBKIT: see WebConnection.h.
-    friend class WebConnectionToUIProcess;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     void didClose(IPC::Connection&) final;
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
@@ -822,9 +823,6 @@ private:
 
     bool NODELETE isProcessBeingCachedForPerformance();
 
-    // AQUAWEBKIT: see WebConnection.h.
-    RefPtr<WebConnectionToUIProcess> m_webConnection;
-
     HashMap<WebCore::PageIdentifier, Ref<WebPage>> m_pageMap;
     HashMap<PageGroupIdentifier, Ref<WebPageGroupProxy>> m_pageGroupMap;
     const RefPtr<InjectedBundle> m_injectedBundle;
@@ -859,10 +857,6 @@ private:
     OptionSet<TextCheckerState> m_textCheckerState;
 
     String m_uiProcessBundleIdentifier;
-#if PLATFORM(COCOA)
-    // AQUAWEBKIT: see compositingRenderServerPort().
-    WTF::MachSendRight m_compositingRenderServerPort;
-#endif
     RefPtr<NetworkProcessConnection> m_networkProcessConnection;
     const UniqueRef<WebLoaderStrategy> m_webLoaderStrategy;
     RefPtr<WebFileSystemStorageConnection> m_fileSystemStorageConnection;
@@ -906,6 +900,14 @@ private:
 
     // AQUAWEBKIT: app-registered custom-protocol schemes (case-insensitive, like URL schemes).
     HashSet<String, ASCIICaseInsensitiveHash> m_urlSchemesRegisteredForCustomProtocols;
+
+    // AQUAWEBKIT: see WebConnection.h.
+    RefPtr<WebConnectionToUIProcess> m_webConnection;
+
+#if PLATFORM(COCOA)
+    // AQUAWEBKIT: see compositingRenderServerPort().
+    WTF::MachSendRight m_compositingRenderServerPort;
+#endif
 
     RefPtr<WebAutomationSessionProxy> m_automationSessionProxy;
 

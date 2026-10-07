@@ -29,9 +29,6 @@
 #import <mutex>
 #import <objc/runtime.h>
 #import <wtf/Ref.h>
-// AQUAWEBKIT(upstreamable): classImplementingDelegateMethod() returns RetainPtr<Class> and
-// this file only ever saw the definition through a unified-source bundle-mate.
-#import <wtf/RetainPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
 namespace WebKit {

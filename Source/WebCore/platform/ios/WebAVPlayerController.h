@@ -25,8 +25,8 @@
 
 #import <wtf/Platform.h>
 
-// AQUAWEBKIT: uses the VPM-gated PlaybackSessionModel; match the model's availability guard so this
-// header is empty on this Mac/VPM-off port (see PlaybackSessionInterfaceIOS.h).
+// AQUAWEBKIT: the guard under which PlaybackSessionModel.h defines PlaybackSessionModel, which this uses.
+// #if PLATFORM(COCOA) && HAVE(AVKIT)
 #if (PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))) && HAVE(AVKIT)
 
 #import <pal/spi/cocoa/AVKitSPI.h>

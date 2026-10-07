@@ -320,7 +320,7 @@ onreset
 onresize
 onscroll
 onscrollend
-# AQUAWEBKIT: onsearch content attribute for the restored search event on <input type=search>.
+# AQUAWEBKIT: onsearch content attribute for the search event on <input type=search>.
 onsearch
 onsecuritypolicyviolation
 onseeked

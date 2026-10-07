@@ -31,7 +31,6 @@
 #include "WebPageProxy.h"
 #include "WebPreferencesKeys.h"
 #include "WebProcessPool.h"
-#include "WebsiteDataStore.h" // AQUAWEBKIT: the per-client Private Browsing session (#55).
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/LibWebRTCProvider.h>
 #include <WebCore/StorageBlockingPolicy.h>
@@ -155,8 +154,8 @@ void WebPreferences::update()
 }
 
 // AQUAWEBKIT: Safari 7's global Private Browsing toggle. Each page is moved between the default
-// store and this client's ephemeral one and reloaded, which is what makes the toggle take effect on pages
-// already open (the user's complaint in #55 was that toggling it left them logged in everywhere).
+// store and this client's ephemeral one and reloaded, which makes the toggle take effect on pages already
+// open (#55).
 void WebPreferences::setPrivateBrowsingEnabled(bool enabled)
 {
     if (m_privateBrowsingEnabled == enabled)
@@ -166,11 +165,10 @@ void WebPreferences::setPrivateBrowsingEnabled(bool enabled)
     for (Ref page : m_pages)
         page->privateBrowsingEnabledDidChange();
 
-    // Leaving Private Browsing gives up ownership of this client's session here rather than letting it
-    // outlive the feature until some later toggle. The reloads above are still in flight, so it is named
-    // weakly until the last page moves off, at which point it dies. Only this client's session is ever
-    // released, so another client's live one is untouched, and entering always starts from nothing because
-    // the previous departure gave this up. The early return above means this runs only on a real change.
+    // Leaving Private Browsing gives up ownership of this client's session here. The reloads above are
+    // still in flight, so it is named weakly until the last page moves off, at which point it dies. Only
+    // this client's session is released, so another client's live one is untouched, and entering always
+    // starts a new session. The early return above means this runs only on a real change.
     if (!enabled) {
         m_retiringPrivateBrowsingDataStore = m_privateBrowsingDataStore.get();
         m_privateBrowsingDataStore = nullptr;

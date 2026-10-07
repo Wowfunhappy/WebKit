@@ -148,11 +148,10 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
 
         GRefPtr<GstElement> element = gst_element_factory_create(lookupResult.factory.get(), nullptr);
         configureVideoDecoderForHarnessing(element);
-        // AQUAWEBKIT: name the memory this decoder can read, the way GStreamerInternalVideoDecoder
-        // already does for the same element class (VideoDecoderGStreamer.cpp). Left unconstrained, vtdec --
-        // the factory the registry scanner prefers for H.264 here -- negotiates the
-        // video/x-raw(memory:GLMemory) its src template lists first and then produces nothing, because
-        // USE(GSTREAMER_GL) is 0 in this port and no GstGLDisplay exists to back it.
+        // AQUAWEBKIT: name the memory this decoder can read, as GStreamerInternalVideoDecoder does for
+        // the same element class (VideoDecoderGStreamer.cpp). vtdec -- the factory the registry scanner
+        // prefers for H.264 here -- lists video/x-raw(memory:GLMemory) first in its src template, and
+        // USE(GSTREAMER_GL) is 0 in this port, so no GstGLDisplay exists to back it.
         auto allowedSinkCaps = adoptGRef(gst_caps_new_empty());
 #if USE(GSTREAMER_GL)
         gst_caps_append(allowedSinkCaps.get(), gst_caps_from_string("video/x-raw(memory:GLMemory)"));
@@ -199,10 +198,10 @@ bool ImageDecoderGStreamer::supportsContainerType(const String& type)
 {
     // Ideally this decoder should operate only from the WebProcess (or from the GPUProcess) which
     // should be the only process where GStreamer has been runtime initialized.
-    // AQUAWEBKIT: widened the same way ensureGStreamerInitialized() is (GStreamerCommon.cpp),
-    // because WebKitLegacy hosts render in-process: !processType() is a non-auxiliary application
-    // process, where GStreamer is initialized and this decoder is the one that decodes a video loaded
-    // as an image. The NetworkProcess and the GPU process are still refused.
+    // AQUAWEBKIT: as in ensureGStreamerInitialized() (GStreamerCommon.cpp), WebKitLegacy hosts
+    // render in-process too: !processType() is a non-auxiliary application process, where GStreamer
+    // is initialized and this decoder is the one that decodes a video loaded as an image. The
+    // NetworkProcess and the GPU process are refused.
     // if (!isInWebProcess())
     if (!isInWebProcess() && processType())
         return false;
@@ -221,14 +220,14 @@ bool ImageDecoderGStreamer::canDecodeType(const String& mimeType)
     if (mimeType.isEmpty())
         return false;
 
-    // AQUAWEBKIT: widened as supportsContainerType above.
+    // AQUAWEBKIT: the image sequence types too, as in supportsContainerType above.
     // if (!mimeType.startsWith("video/"_s))
     if (!mimeType.startsWith("video/"_s) && !isHEIFImageSequenceType(mimeType))
         return false;
 
     // Ideally this decoder should operate only from the WebProcess (or from the GPUProcess) which
     // should be the only process where GStreamer has been runtime initialized.
-    // AQUAWEBKIT: widened to the in-process renderers too; see supportsContainerType above.
+    // AQUAWEBKIT: the in-process renderers too; see supportsContainerType above.
     // if (!isInWebProcess())
     if (!isInWebProcess() && processType())
         return false;

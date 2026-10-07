@@ -404,18 +404,17 @@ StyleAppearance RenderTheme::autoAppearanceForElement(Style::ComputedStyle& styl
     Ref element = *elementPtr;
 
     if (RefPtr input = dynamicDowncast<HTMLInputElement>(element)) {
-        if (input->isTextButton()) {
 #if PLATFORM(MAC)
-            // AQUAWEBKIT: 10.9 draws horizontal submit/reset/button inputs as Aqua push
-            // buttons -- the bezel owns the border and the control size dictates the font
-            // (RenderThemeMac::adjustButtonStyle) -- while <button> keeps author styling under
-            // the plain Button appearance. The push-button bezel is horizontal only, so a
-            // vertical input button takes the Button appearance.
-            if (style.writingMode().isHorizontal())
-                return StyleAppearance::PushButton;
+        // AQUAWEBKIT: 10.9 draws horizontal submit/reset/button inputs as Aqua push
+        // buttons -- the bezel owns the border and the control size dictates the font
+        // (RenderThemeMac::adjustButtonStyle) -- while <button> keeps author styling under
+        // the plain Button appearance. The push-button bezel is horizontal only, so a
+        // vertical input button takes the Button appearance.
+        if (input->isTextButton() && style.writingMode().isHorizontal())
+            return StyleAppearance::PushButton;
 #endif // AQUAWEBKIT
+        if (input->isTextButton())
             return StyleAppearance::Button;
-        }
 
         if (input->isSwitch())
             return StyleAppearance::Switch;

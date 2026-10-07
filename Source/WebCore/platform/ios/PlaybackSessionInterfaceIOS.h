@@ -26,11 +26,8 @@
 #pragma once
 
 #include <wtf/Platform.h>
-// AQUAWEBKIT: this AVKit playback-session interface derives from / uses PlaybackSessionModel(Client),
-// which PlaybackSessionModel.h gates on PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
-// — off on this Mac/VPM-off port. Narrow the header guard to match, so the (excluded) .mm's header and any
-// transitive includer resolve to empty here instead of an incomplete-base-class error. Every real consumer
-// uses these types only under ENABLE(VIDEO_PRESENTATION_MODE).
+// AQUAWEBKIT: the guard under which PlaybackSessionModel.h defines PlaybackSessionModel and its client.
+// #if PLATFORM(COCOA) && HAVE(AVKIT)
 #if (PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))) && HAVE(AVKIT)
 
 #include <WebCore/EventListener.h>

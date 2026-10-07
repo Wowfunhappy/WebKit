@@ -31,18 +31,13 @@
 #include "FloatRect.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
-// AQUAWEBKIT: upstream's version of the line below. This port has no ImageDecoderCG -- web
-// content is never handed to 10.9's ImageIO -- so the decoders below are reached through
-// ImageDecoder::create.
-// #include "ImageDecoderCG.h"
-#include "ImageDecoder.h"
+#include "ImageDecoderCG.h"
 #include "Logging.h"
 #include "MIMETypeRegistry.h"
 #include "NativeImage.h"
 #include "PixelBuffer.h"
 #include "SVGImage.h"
 #include "SVGImageForContainer.h"
-#include "SharedBuffer.h" // AQUAWEBKIT: transcodeImage below reads the source file's bytes.
 #include "UTIRegistry.h"
 #include "UTIUtilities.h"
 #include <CoreFoundation/CoreFoundation.h>

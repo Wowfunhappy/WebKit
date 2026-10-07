@@ -28,8 +28,9 @@
 
 #import "ApplePushServiceConnection.h"
 #import "MockPushServiceConnection.h"
-// AQUAWEBKIT: this port's push transport; see the create() below.
+// AQUAWEBKIT: this port's push transport, and the parentPath() that sites its state; see the create() below.
 #import "MozillaPushServiceConnection.h"
+#import <wtf/FileSystem.h>
 #import "Logging.h"
 #import "WebPushDaemonConstants.h"
 #import <Foundation/Foundation.h>
@@ -39,8 +40,6 @@
 #import <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CallbackAggregator.h>
-// AQUAWEBKIT: for the parentPath() that sites the Mozilla connection's state below.
-#import <wtf/FileSystem.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/TZoneMallocInlines.h>
@@ -143,10 +142,8 @@ void PushService::create(const String& incomingPushServiceName, const String& da
     Ref<PushServiceConnection> connection = MozillaPushServiceConnection::create(FileSystem::parentPath(databasePath));
 #else
     // Create the connection ASAP so that we bootstrap_check_in to the service in a timely manner.
-    // AQUAWEBKIT: spelled Ref<PushServiceConnection> rather than auto, so both arms of the
-    // #if yield the same type for the code below.
-    Ref<PushServiceConnection> connection = ApplePushServiceConnection::create(incomingPushServiceName);
-#endif
+    auto connection = ApplePushServiceConnection::create(incomingPushServiceName);
+#endif // AQUAWEBKIT: closes USE(MOZILLA_PUSH_SERVICE).
 
     performAfterFirstUnlock([databasePath, transaction = WTF::move(transaction), connection = WTF::move(connection), messageHandler = WTF::move(messageHandler), creationHandler = WTF::move(creationHandler)]() mutable {
         PushDatabase::create(databasePath, [transaction, connection = WTF::move(connection), messageHandler = WTF::move(messageHandler), creationHandler = WTF::move(creationHandler)](auto&& databaseResult) mutable {
@@ -206,9 +203,10 @@ PushService::PushService(Ref<PushServiceConnection>&& pushServiceConnection, Ref
     });
 
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // connection->startListeningForPushMessages([weakThis = WeakPtr { *this }](NSString *topic, NSDictionary *userInfo) mutable {
     connection->startListeningForPushMessages([weakThis = WeakPtr { *this }](NSString *topic, NSDictionary *userInfo, PushServiceConnection::PushMessageReceipt receipt) mutable {
         if (RefPtr protectedThis = weakThis.get())
-            protectedThis->didReceivePushMessage(topic, userInfo, receipt);
+            protectedThis->didReceivePushMessage(topic, userInfo, receipt); // AQUAWEBKIT: upstream: protectedThis->didReceivePushMessage(topic, userInfo);
     });
 }
 
@@ -955,15 +953,17 @@ void PushService::acknowledgePushMessage(PushServiceConnection::PushMessageRecei
         m_connection->acknowledgePushMessage(receipt, disposition);
 }
 
+// void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo, CompletionHandler<void()>&& completionHandler)
 void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo, PushServiceConnection::PushMessageReceipt receipt, CompletionHandler<void()>&& completionHandler)
 {
     auto transaction = adoptOSObject(os_transaction_create("com.apple.webkit.webpushd.push-service.incoming-push"));
 
     auto messageResult = makeRawPushMessage(topic, userInfo);
     if (!messageResult)
-        return acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::NotDelivered); // AQUAWEBKIT: a message that will not parse can never be delivered; release the service's copy instead of replaying it forever.
+        return acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::NotDelivered); // AQUAWEBKIT: a message that will not parse can never be delivered; release the service's copy instead of replaying it forever. Upstream: return;
 
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // m_database->getRecordByTopic(topic, [weakThis = WeakPtr { *this }, message = WTF::move(*messageResult), completionHandler = WTF::move(completionHandler), transaction = WTF::move(transaction)](auto&& recordResult) mutable {
     m_database->getRecordByTopic(topic, [weakThis = WeakPtr { *this }, message = WTF::move(*messageResult), receipt, completionHandler = WTF::move(completionHandler), transaction = WTF::move(transaction)](auto&& recordResult) mutable {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
@@ -980,6 +980,7 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
 
         if (message.encoding == ContentEncoding::Empty) {
             // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+            // protectedThis->m_incomingPushMessageHandler(record.subscriptionSetIdentifier, WebKit::WebPushMessage { { }, record.subscriptionSetIdentifier.pushPartition, URL { record.scope }, { } });
             protectedThis->m_incomingPushMessageHandler(record.subscriptionSetIdentifier, WebKit::WebPushMessage { { }, record.subscriptionSetIdentifier.pushPartition, URL { record.scope }, { } }, receipt);
             completionHandler();
             return;
@@ -1007,6 +1008,7 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
         RELEASE_LOG(Push, "Decoded incoming push message for %{public}s %{sensitive}s", record.subscriptionSetIdentifier.debugDescription().utf8().data(), record.scope.utf8().data());
 
         // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+        // protectedThis->m_incomingPushMessageHandler(record.subscriptionSetIdentifier, WebKit::WebPushMessage { WTF::move(*decryptedPayload), record.subscriptionSetIdentifier.pushPartition, URL { record.scope }, { } });
         protectedThis->m_incomingPushMessageHandler(record.subscriptionSetIdentifier, WebKit::WebPushMessage { WTF::move(*decryptedPayload), record.subscriptionSetIdentifier.pushPartition, URL { record.scope }, { } }, receipt);
         completionHandler();
     });

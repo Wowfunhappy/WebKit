@@ -165,8 +165,9 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         [dropShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
         [dropShadowLayer setShadowColor:dropShadowColor.get()];
         // AQUAWEBKIT: 537's blur radius (3) rather than upstream's WebCore::dropShadowBlurRadius (2).
-        // 537 drew the shadow with CGContextSetShadow, whose blur radius spans about twice a
-        // CALayer shadowRadius, so halve it to land on the same spread.
+        // 537 draws the shadow with CGContextSetShadow, whose blur radius spans about twice a
+        // CALayer shadowRadius, so it is halved to land on the same spread.
+        // [dropShadowLayer setShadowRadius:WebCore::dropShadowBlurRadius];
         [dropShadowLayer setShadowRadius:findIndicatorShadowBlurRadius / 2];
         [dropShadowLayer setShadowOffset:CGSizeMake(dropShadowOffsetX, dropShadowOffsetY)];
         [dropShadowLayer setShadowPath:translatedPath.platformPath()];
@@ -189,8 +190,8 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         // [bounceLayer addSublayer:rimShadowLayer.get()];
         // [bounceLayer setValue:rimShadowLayer.get() forKey:rimShadowLayerKey];
 
-        // AQUAWEBKIT: 537 filled the outer rounded rect with the light border colour and
-        // then filled the 1px-inset inner rect with a vertical gradient. Reproduce that as a
+        // AQUAWEBKIT: 537 fills the outer rounded rect with the light border colour and
+        // then fills the 1px-inset inner rect with a vertical gradient. Here that is a
         // gradient layer masked to the shrink-wrapped path, plus a stroke of the same path on top:
         // the stroke is masked too, so only its inner half — one point — survives, which is the
         // light border. The text snapshot is layered over both.

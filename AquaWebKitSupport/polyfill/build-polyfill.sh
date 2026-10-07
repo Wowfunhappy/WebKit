@@ -255,7 +255,7 @@ echo "### libpolyfill_classes.dylib"
     -install_name @rpath/libpolyfill_classes.dylib -compatibility_version 9999.0.0 -current_version 9999.0.0 \
     -licucore -framework CoreFoundation -framework ApplicationServices \
     -Wl,-reexport_framework,Foundation -Wl,-reexport_framework,AppKit -Wl,-reexport_framework,QuartzCore \
-    -Wl,-reexport_framework,CoreServices -Wl,-reexport_framework,Security -Wl,-reexport_framework,CFNetwork \
+    -Wl,-reexport_framework,CoreServices -Wl,-reexport_framework,CFNetwork \
     "$OBJ"/classes/*.o -o "$OUT/libpolyfill_classes.dylib.tmp"
 tmp_stable "$OUT/libpolyfill_classes.dylib"
 

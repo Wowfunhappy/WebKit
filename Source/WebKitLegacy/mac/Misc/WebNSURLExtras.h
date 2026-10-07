@@ -35,9 +35,6 @@
 // Deprecated, as it ignores URL parsing errors.
 // Please use the _webkit_URLWithUserTypedString instead.
 + (NSURL *)_web_URLWithUserTypedString:(NSString *)string;
-// AQUAWEBKIT: restored upstream-removed SPI variants Safari 7 still calls.
-+ (NSURL *)_web_URLWithUserTypedString:(NSString *)string relativeToURL:(NSURL *)url;
-+ (NSURL *)_web_URLWithData:(NSData *)data;
 
 // Return value of nil means error in URL parsing.
 + (NSURL *)_webkit_URLWithUserTypedString:(NSString *)string;

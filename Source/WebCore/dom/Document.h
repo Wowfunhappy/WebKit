@@ -1123,8 +1123,8 @@ public:
         FocusIn = 1 << 11,
         FocusOut = 1 << 12,
         CSSAnimation = 1 << 13,
-        // AQUAWEBKIT: ListenerType for the restored cancelable beforeload event
-        // (Safari 7 extension content blocking, #62; deleted upstream in bug 234804).
+        // AQUAWEBKIT: ListenerType for the cancelable beforeload event
+        // (Safari 7 extension content blocking, #62).
         BeforeLoad = 1 << 14,
     };
 
@@ -1418,6 +1418,7 @@ public:
     // AQUAWEBKIT: the AnnotationsAction argument and the two entry points below it carry the
     // Dashboard half of these region bottlenecks.
     enum class AnnotationsAction : bool { Invalidate, Update };
+    // void NODELETE invalidateRenderingDependentRegions();
     void NODELETE invalidateRenderingDependentRegions(AnnotationsAction = AnnotationsAction::Invalidate);
     void invalidateScrollbarDependentRegions();
     void updateZOrderDependentRegions();

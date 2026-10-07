@@ -80,9 +80,6 @@
 
 - (BOOL)_web_firstResponderIsSelfOrDescendantView;
 
-// AQUAWEBKIT: 10.9's Messages calls this.
-- (NSRect)_web_convertRect:(NSRect)aRect toView:(NSView *)aView;
-
 @end
 
 #if TARGET_OS_IPHONE

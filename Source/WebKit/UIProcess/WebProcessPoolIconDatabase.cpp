@@ -23,9 +23,8 @@
  * SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: the revived legacy WK2 icon database's WebProcessPool half (#49, #112). Upstream
-// deleted the icon database along with the C SPI Safari 7 drives it through; this is the port's
-// implementation, kept out of WebProcessPool.cpp so that file carries only the call sites.
+// AQUAWEBKIT: the WebProcessPool half of the legacy WK2 icon database Safari 7 drives through the
+// C SPI (#49, #112), kept out of WebProcessPool.cpp so that file carries only the call sites.
 
 #include "config.h"
 #include "WebProcessPool.h"
@@ -44,7 +43,7 @@ namespace WebKit {
 
 using namespace WebCore;
 
-// AQUAWEBKIT: hand a favicon's bytes to the revived WebIconDatabase (#49).
+// AQUAWEBKIT: hand a favicon's bytes to the WebIconDatabase (#49).
 //
 // The store refuses bytes it cannot decode, which for a favicon that downloaded fine means they are in
 // a format no image decoder reads. That is above all SVG, which is a document rather than a bitmap
@@ -148,7 +147,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
         return;
 
     // The page points at its icon URL from here on, whether or not the fetch below ever lands — the
-    // pre-deletion IconDatabase committed the mapping before loading, "just in case", and that is
+    // legacy IconDatabase commits the mapping before loading, "just in case", and that is
     // what lets a history entry heal when any later visit stores this URL's bytes (#112).
     iconDatabase.notePendingIconURLForPageURL(pageURL, iconURL, persistence, fetchedOrigin);
     carryToInitialRequestURL();
@@ -180,7 +179,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
 
 // AQUAWEBKIT: per-page icon-loading client for Safari 7's C-API pages. When WebCore finds a
 // favicon it asks for a load decision; this client declines the load and fetches the icon itself, then
-// hands the bytes to the revived WebIconDatabase, which notifies Safari via the legacy C client (#49).
+// hands the bytes to the WebIconDatabase, which notifies Safari via the legacy C client (#49).
 class PageIconLoadingClient final : public API::IconLoadingClient {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(PageIconLoadingClient);
 public:
@@ -199,18 +198,16 @@ public:
         // entry, which outlives the visit, keeps the generic globe with nothing to ever correct it.
         //
         // A favicon is the browser's record of a site rather than content the page is waiting for, so
-        // this client owns the fetch, as browsers that keep favicons out of the page's loader do —
-        // measured here, Firefox accepts an icon five seconds after the user has left the page.
+        // this client owns the fetch, as browsers that keep favicons out of the page's loader do
+        // (Firefox accepts an icon five seconds after the user has left the page).
         // Declining means WebCore starts no load of its own, so the icon is still fetched exactly once.
         completionHandler(nullptr);
 
         if (!icon.url.protocolIsInHTTPFamily())
             return;
 
-        // AQUAWEBKIT: take site favicons only (github #76). This is client policy, not the
-        // fix for the icon-clobbering that made favicons revert to the generic globe — the store itself
-        // now refuses bytes it cannot decode, so deleting this filter cannot bring that back. Safari 7
-        // asks this store for the small site icon (IconController's 16x16/32x32 requests), and an
+        // AQUAWEBKIT: take site favicons only (github #76). This is client policy; the store itself
+        // refuses bytes it cannot decode. Safari 7 asks this store for the small site icon (IconController's 16x16/32x32 requests), and an
         // apple-touch-icon is 180x180 home-screen artwork; upstream likewise leaves the choice to the
         // client, its own default client declining every icon.
         if (icon.type != WebCore::LinkIconType::Favicon)
@@ -238,7 +235,7 @@ std::unique_ptr<API::IconLoadingClient> createPageIconLoadingClient(WebPageProxy
     return makeUnique<PageIconLoadingClient>(page, iconDatabase);
 }
 
-// AQUAWEBKIT: lazily create the revived per-pool icon database Safari 7 asks for (#49).
+// AQUAWEBKIT: lazily create the per-pool icon database Safari 7 asks for (#49).
 WebIconDatabase& WebProcessPool::iconDatabase()
 {
     if (!m_iconDatabase)
@@ -249,7 +246,7 @@ WebIconDatabase& WebProcessPool::iconDatabase()
 // AQUAWEBKIT: Safari 7 enables favicons by setting the icon-database path; treat a
 // non-empty path as "enabled" and materialize the database so createWebPage attaches a real
 // icon-loading client (#49). The path itself — ~/Library/Safari/WebpageIcons.db, the same file the
-// pre-deletion icon database kept — backs the store on disk so History keeps its icons across
+// legacy icon database keeps — backs the store on disk so History keeps its icons across
 // relaunches (#112).
 void WebProcessPool::setIconDatabasePath(const String& path)
 {
@@ -292,7 +289,7 @@ void WebProcessPool::fetchGuessedIconForPage(WebPageProxy& page, const URL& url)
 }
 
 // AQUAWEBKIT: an icon belongs to the URL its load STARTED from as well as to the committed
-// one, as the pre-deletion IconController::commitToDatabase kept it — a load that began at
+// one, as WebKit 537's IconController::commitToDatabase keeps it — a load that began at
 // http://example.com/ and redirected to https://example.com/ is reachable under both. Safari reads
 // that second URL: -[AcceptedSiteDataCell drawWithFrame:inView:], which draws each site in
 // Preferences -> Privacy -> Details..., has only a domain and asks this store for "http://%@/" and then

@@ -33,7 +33,7 @@
 
 #include "ColorSerialization.h"
 #include "ContainerNodeInlines.h"
-// AQUAWEBKIT: computed -apple-dashboard-region value (Dashboard support restored).
+// AQUAWEBKIT: computed -apple-dashboard-region value.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #endif

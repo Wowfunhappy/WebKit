@@ -232,7 +232,7 @@ public:
         BundleDOMWindowExtension,
         BundleFrame,
         BundleHitTestResult,
-        // AQUAWEBKIT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
+        // AQUAWEBKIT: InjectedBundleNavigationAction's type, which Safari 7's bundle uses.
         BundleNavigationAction,
         BundleNodeHandle,
         BundlePage,

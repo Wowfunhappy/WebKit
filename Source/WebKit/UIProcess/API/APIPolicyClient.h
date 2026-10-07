@@ -52,23 +52,26 @@ public:
     virtual ~PolicyClient() { }
 
     // AQUAWEBKIT (#60): the trailing userData carries the injected-bundle policy client's
-    // object (restored with InjectedBundlePagePolicyClient); Safari's legacy V0/V1 WKPagePolicyClient
+    // object (InjectedBundlePagePolicyClient); Safari's legacy V0/V1 WKPagePolicyClient
     // callback requires it to be a non-null WKDictionary before it drives the listener.
+    // virtual void decidePolicyForNavigationAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, Ref<API::NavigationAction>&&, WebKit::WebFrameProxy*, const WebCore::ResourceRequest&, const WebCore::ResourceRequest&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener)
     virtual void decidePolicyForNavigationAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, Ref<API::NavigationAction>&&, WebKit::WebFrameProxy*, const WebCore::ResourceRequest&, const WebCore::ResourceRequest&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */ = nullptr)
     {
         listener->use();
     }
-    // AQUAWEBKIT: userData carries the injected-bundle policy client's object (restored with InjectedBundlePagePolicyClient).
+    // AQUAWEBKIT: userData carries the injected-bundle policy client's object (InjectedBundlePagePolicyClient).
+    // virtual void decidePolicyForNewWindowAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, Ref<API::NavigationAction>&&, const WebCore::ResourceRequest&, const WTF::String&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener)
     virtual void decidePolicyForNewWindowAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, Ref<API::NavigationAction>&&, const WebCore::ResourceRequest&, const WTF::String&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */)
     {
         listener->use();
     }
-    // AQUAWEBKIT: userData carries the injected-bundle policy client's object (restored with InjectedBundlePagePolicyClient).
+    // AQUAWEBKIT: userData carries the injected-bundle policy client's object (InjectedBundlePagePolicyClient).
+    // virtual void decidePolicyForResponse(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool, Ref<WebKit::WebFramePolicyListenerProxy>&& listener)
     virtual void decidePolicyForResponse(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool, Ref<WebKit::WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */)
     {
         listener->use();
     }
-    // AQUAWEBKIT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it).
+    // AQUAWEBKIT: the legacy WKPagePolicyClient callback InjectedBundlePagePolicyClient reaches.
     virtual void unableToImplementPolicy(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, const WebCore::ResourceError&, API::Object*) { }
 };
 

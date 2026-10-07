@@ -509,12 +509,11 @@ ExceptionOr<void> HTMLElement::setInnerText(String&& text)
         return { };
     }
 
-    // AQUAWEBKIT: a <textarea>'s value is derived only from its child *text* — child <br>
-    // elements contribute nothing — so the generic innerText algorithm below, which converts each
-    // newline into a <br> element, silently strips every newline from textarea.value. Safari 7
-    // preserved them; restore that by setting the text directly (as the text-control inner-text
-    // element does just below). Fixes e.g. the Dashboard "Text Area" widget (#37), which restores its
-    // saved multi-line contents with `textarea.innerText = ...`.
+    // AQUAWEBKIT: a <textarea>'s value derives only from its child text, and the generic innerText
+    // algorithm below turns each newline into a <br> element, so a textarea takes the text directly,
+    // as the text-control inner-text element does, and keeps its newlines as Safari 7 does. The
+    // Dashboard "Text Area" widget (#37) restores its saved multi-line contents with `textarea.innerText = ...`.
+    // if (isConnected() && isTextControlInnerTextElement()) {
     if ((isConnected() && isTextControlInnerTextElement()) || is<HTMLTextAreaElement>(*this)) {
         if (!text.contains('\r')) {
             stringReplaceAll(WTF::move(text));

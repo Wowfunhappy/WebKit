@@ -137,7 +137,7 @@ NSMenuItem *menuItemForTelephoneNumber(const String& telephoneNumber)
 
 RetainPtr<NSMenu> menuForTelephoneNumber(const String& telephoneNumber, NSView *webView, const WebCore::IntRect& rect)
 {
-#if ENABLE(REVEAL) // AQUAWEBKIT: with REVEAL off, the menu is DataDetectors', as upstream built it for Macs without Reveal.
+#if ENABLE(REVEAL) // AQUAWEBKIT: with REVEAL off, the menu is DataDetectors'.
     if (!PAL::isRevealFrameworkAvailable() || !PAL::isRevealCoreFrameworkAvailable())
         return nil;
 

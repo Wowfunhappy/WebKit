@@ -23,10 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: restored verbatim from upstream 9eeab8d^ ("Remove InjectedBundlePagePolicyClient",
-// bug 247169, Nov 2022). Safari 7 imports WKBundlePageSetPolicyClient and ships
-// BrowserBundlePagePolicyClient (plus ReaderBundlePagePolicyClient); with this client removed, the
-// userData its handlers read was never produced and its short-circuit decisions were never asked for.
+// AQUAWEBKIT: the injected-bundle page policy client. Safari 7 imports WKBundlePageSetPolicyClient
+// and ships BrowserBundlePagePolicyClient (plus ReaderBundlePagePolicyClient); this client produces the
+// userData its UI-process handlers read and asks it for its short-circuit decisions.
 
 #ifndef InjectedBundlePagePolicyClient_h
 #define InjectedBundlePagePolicyClient_h

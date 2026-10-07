@@ -220,7 +220,7 @@ void WebDataListSuggestionsDropdownMac::close()
 #if !HAVE(NSVIEW_IMPLICIT_LAYOUT_PASS)
 // AQUAWEBKIT: -setValue:label: and -setShouldShowBottomDivider: mark the view needsLayout and rely on
 // AppKit running -layout before the next draw. 10.9 runs pending layout during display only in a window
-// whose autolayout engine is engaged (measured on 10.9.5), so the pass runs here: AppKit sends
+// whose autolayout engine is engaged, so the pass runs here: AppKit sends
 // -viewWillDraw top-down during the display cycle, once per cycle, before the view draws.
 - (void)viewWillDraw
 {

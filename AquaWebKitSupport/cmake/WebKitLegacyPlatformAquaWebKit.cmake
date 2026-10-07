@@ -1,18 +1,16 @@
 # Every backport change to WebKitLegacy's Mac CMake configuration.
 #
-# Source/WebKitLegacy/CMakeLists.txt is kept BYTE-UPSTREAM and Source/WebKitLegacy/PlatformMac.cmake
-# carries only the three include()s of this file. See AquaWebKitSupport/cmake/WebCorePlatformAquaWebKit.cmake
-# for the rationale.
+# Source/WebKitLegacy/CMakeLists.txt is kept BYTE-UPSTREAM; Source/WebKitLegacy/PlatformCocoa.cmake and
+# PlatformMac.cmake carry only the two include()s of this file. See
+# AquaWebKitSupport/cmake/WebCorePlatformAquaWebKit.cmake for the rationale.
 #
-# Three phases, because PlatformMac.cmake computes sources, classifies them, writes forwarding headers
-# and then operates on the target, each from a different point in the file:
+# Two phases:
 #   LISTS    before WEBKIT_COMPUTE_SOURCES, where the unified-source lists are still editable.
-#   SOURCES  after upstream has filled WebKitLegacy_SOURCES and the forwarding-header list, before the
-#            compile-flags loop and the forwarding-header loop read them.
-#   POST     at the end of the file, for the target itself and the framework's Headers directory.
+#   POST     at the end of PlatformMac.cmake, once upstream has filled WebKitLegacy_SOURCES, for the
+#            added sources, the target itself and the framework's Headers directory.
 
 if (NOT DEFINED AQUAWEBKIT_WEBKITLEGACY_PHASE)
-    message(FATAL_ERROR "WebKitLegacyPlatformAquaWebKit.cmake needs AQUAWEBKIT_WEBKITLEGACY_PHASE set to LISTS, SOURCES or POST.")
+    message(FATAL_ERROR "WebKitLegacyPlatformAquaWebKit.cmake needs AQUAWEBKIT_WEBKITLEGACY_PHASE set to LISTS or POST.")
 endif ()
 
 if (AQUAWEBKIT_WEBKITLEGACY_PHASE STREQUAL "LISTS")
@@ -37,7 +35,15 @@ set(AQUAWEBKIT_ADDED_WEBKITLEGACY_COCOA_SOURCES
 AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKITLEGACY_DIR}" WebKitLegacy_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt"
     AQUAWEBKIT_WITHHELD_WEBKITLEGACY_COCOA_SOURCES AQUAWEBKIT_ADDED_WEBKITLEGACY_COCOA_SOURCES)
 
-elseif (AQUAWEBKIT_WEBKITLEGACY_PHASE STREQUAL "SOURCES")
+# WebVideoFullscreenController is the AVKit presentation-mode controller, built on
+# PlaybackSessionInterfaceAVKitLegacy, which exists only under ENABLE(VIDEO_PRESENTATION_MODE); that is
+# off on this port, and element fullscreen serves <video>. Its Mac caller carries the same guard.
+set(AQUAWEBKIT_WITHHELD_WEBKITLEGACY_CMAKE_COCOA_SOURCES "mac/WebView/WebVideoFullscreenController.mm @nonARC")
+set(AQUAWEBKIT_ADDED_WEBKITLEGACY_CMAKE_COCOA_SOURCES "")
+AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKITLEGACY_DIR}" WebKitLegacy_UNIFIED_SOURCE_LIST_FILES "SourcesCMakeCocoa.txt"
+    AQUAWEBKIT_WITHHELD_WEBKITLEGACY_CMAKE_COCOA_SOURCES AQUAWEBKIT_ADDED_WEBKITLEGACY_CMAKE_COCOA_SOURCES)
+
+elseif (AQUAWEBKIT_WEBKITLEGACY_PHASE STREQUAL "POST")
 
 list(APPEND WebKitLegacy_SOURCES
     # Safari's HTTP WebDownload over the shared curl transport; WebDownload.mm reaches its header by
@@ -62,24 +68,18 @@ list(APPEND WebKitLegacy_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebKitLegacy/mac/LegacyExtensions/WebLegacyExtensionPageObserver.mm
 )
 
-elseif (AQUAWEBKIT_WEBKITLEGACY_PHASE STREQUAL "POST")
-
-# The SOURCES phase supplies the complete in-process WebSocket transport.
+# The sources above supply the complete in-process WebSocket transport.
 target_compile_definitions(WebKitLegacy PRIVATE WEBKIT_LEGACY_WEBSOCKET_CHANNEL=1)
 
 # NSURLDownload file-format gzip decoding is separate from HTTP Content-Encoding.
 find_package(ZLIB REQUIRED)
 target_link_libraries(WebKitLegacy PRIVATE ZLIB::ZLIB)
 
-# Plain Objective-C sources compile as -std=gnu17. The classification loop above knows only C99_FILES
-# and CPP_FILES and hands everything else the -ObjC++ branch, which no .m file can take.
+# Plain Objective-C sources compile as -std=gnu17.
 foreach (_aquaWebKitFile ${WebKitLegacy_SOURCES})
     get_filename_component(_aquaWebKitExt "${_aquaWebKitFile}" EXT)
     if (_aquaWebKitExt STREQUAL ".m")
-        list(FIND C99_FILES ${_aquaWebKitFile} _aquaWebKitC99Index)
-        if (_aquaWebKitC99Index EQUAL -1)
-            set_source_files_properties(${_aquaWebKitFile} PROPERTIES COMPILE_FLAGS -std=gnu17)
-        endif ()
+        set_source_files_properties(${_aquaWebKitFile} PROPERTIES COMPILE_FLAGS -std=gnu17)
     endif ()
 endforeach ()
 

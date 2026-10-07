@@ -41,13 +41,11 @@
 #import <CoreMedia/CoreMedia.h>
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-// AQUAWEBKIT: iconForImageFile below decodes in WebCore, not in ImageIO, and applies the
-// orientation itself where kCGImageSourceCreateThumbnailWithTransform used to.
+// AQUAWEBKIT: iconForImageFile below decodes in WebCore and applies the file's orientation itself.
 #import <WebCore/FloatSize.h>
 #import <WebCore/ImageDecoder.h>
 #import <WebCore/ImageOrientation.h>
 #import <WebCore/PlatformImage.h>
-#import <WebCore/SharedBuffer.h> // AQUAWEBKIT: for that decode.
 #import <wtf/MathExtras.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
@@ -137,10 +135,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #if !PLATFORM(MAC)
 const CFStringRef kCGImageSourceEnableRestrictedDecoding = CFSTR("kCGImageSourceEnableRestrictedDecoding");
 #else
-// AQUAWEBKIT: kCGImageSourceCreateThumbnailWithTransform baked the file's orientation into
-// the thumbnail ImageIO returned. A decoded frame carries its orientation beside the pixels instead,
-// so it is baked here, by the sequence createDragImageFromImage uses (DragImageCocoa.mm): flip into
-// ImageOrientation's top-left space, apply, flip back for the draw.
+// AQUAWEBKIT: a decoded frame carries its orientation beside the pixels, so it is applied here, by the
+// sequence createDragImageFromImage uses (DragImageCocoa.mm): flip into ImageOrientation's top-left
+// space, apply, flip back for the draw.
 static RetainPtr<CGImageRef> imageWithOrientationApplied(CGImageRef image, WebCore::ImageOrientation orientation)
 {
     if (!image || orientation == WebCore::ImageOrientation::Orientation::None
@@ -176,10 +173,8 @@ RetainPtr<CocoaImage> iconForImageFile(NSURL *file)
 {
     ASSERT_ARG(file, [file isFileURL]);
 
-// AQUAWEBKIT: the file is one the page's <input type=file> asked for, and this port decodes
-// image bytes in WebCore rather than in 10.9's ImageIO. There is no thumbnail-sized decode to ask
-// for, so the frame is decoded whole and thumbnailSizedImageForImage below scales it, as it already
-// does for the thumbnail ImageIO returns.
+// AQUAWEBKIT: the file is one the page's <input type=file> asked for, and this port decodes page image
+// bytes in WebCore. The frame is decoded whole, and thumbnailSizedImageForImage below scales it.
 #if PLATFORM(MAC)
     RetainPtr<CGImageRef> thumbnail;
     if (RefPtr fileBuffer = WebCore::SharedBuffer::createWithContentsOfFile(String(file.path))) {

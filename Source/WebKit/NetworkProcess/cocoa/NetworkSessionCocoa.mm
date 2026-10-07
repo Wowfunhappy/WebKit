@@ -35,8 +35,6 @@
 #import "Logging.h"
 #import "NetworkDataTaskBlob.h"
 #import "NetworkDataTaskCocoa.h"
-// AQUAWEBKIT: retain the native task translation unit and both shared privacy/PCM helpers.
-#import "NetworkDataTaskCurlCocoa.h"
 #import "NetworkLoad.h"
 #import "NetworkProcess.h"
 #import "NetworkProcessProxyMessages.h"
@@ -48,7 +46,6 @@
 #import "WebSocketTask.h"
 #import <Foundation/NSURLSession.h>
 #import <WebCore/AdvancedPrivacyProtections.h>
-#import <WebCore/CertificateInfo.h> // AQUAWEBKIT: per-host certificate exceptions (WKContextAllowSpecificHTTPSCertificateForHost)
 #import <WebCore/Credential.h>
 #import <WebCore/FormDataStreamCocoa.h>
 #import <WebCore/FrameLoaderTypes.h>
@@ -428,10 +425,10 @@ static void updateIgnoreStrictTransportSecuritySetting(RetainPtr<NSURLRequest>& 
 
 // AQUAWEBKIT: the same request, served from the session's cookie storage. 10.9 attaches that
 // storage to the request a task is created from, and a continuing request built here carries no such
-// attachment -- the hop made from it reads and writes the process's default jar instead. Measured
-// against 10.9's own NSURLSession: a delegate handing the PROPOSED request back keeps the session's
-// jar, and one handing back a freshly built request with the same URL, method, headers, main-document
-// URL and HTTPShouldHandleCookies loses it. The storage travels on the request.
+// attachment, so the hop made from it reads and writes the process's default jar. A delegate handing
+// 10.9's NSURLSession the PROPOSED request back keeps the session's jar; a freshly built request with
+// the same URL, method, headers, main-document URL and HTTPShouldHandleCookies does not. The storage
+// travels on the request.
 static RetainPtr<NSURLRequest> requestOnSessionCookieStorage(NSURLSession *session, NSURLRequest *request)
 {
     if (!request)
@@ -448,10 +445,10 @@ static RetainPtr<NSURLRequest> requestOnSessionCookieStorage(NSURLSession *sessi
 // AQUAWEBKIT: the same request carrying the fragment a redirect inherits. A Location without a
 // fragment of its own takes the fragment of the URL that produced the redirect -- the step
 // ResourceRequestBase::redirectedRequest names as "additional processing like done by CFNetwork layer",
-// and performs itself for the redirects WebKit builds. 10.9's CFNetwork omits it: measured against its
-// own NSURLSession, a task for /r1#foo answered with `Location: /success.html` is proposed
-// /success.html, while a fragment written into the Location header is carried. The response URL is the
-// one that carries the fragment on every hop, which is the URL upstream's rule reads it from.
+// and performs itself for the redirects WebKit builds. 10.9's CFNetwork omits it: a task for /r1#foo
+// answered with `Location: /success.html` is proposed /success.html, while a fragment written into the
+// Location header is carried. The response URL carries the fragment on every hop, and upstream's rule
+// reads it from that URL.
 static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *response, NSURLRequest *request)
 {
     RetainPtr<NSURL> proposedURL = request.URL;
@@ -634,10 +631,10 @@ static inline void processServerTrustEvaluation(NetworkSessionCocoa& session, Se
 
 // AQUAWEBKIT: see the declaration in NetworkSessionCocoa.h. The certificates themselves are
 // kept by the network process (NetworkProcess::allowedHTTPSCertificateForHost), which serves every
-// data store; the match is here because it is about this challenge. Modelled on the one place upstream
-// still answers a server-trust challenge from a stored certificate — PCM's trustsServerForLocalTests
-// in PrivateClickMeasurementNetworkLoaderCocoa.mm — including its use of WebCore::certificatesMatch,
-// so only the exact chain the user accepted is accepted.
+// data store; the match is here because it is about this challenge. It follows PCM's
+// trustsServerForLocalTests in PrivateClickMeasurementNetworkLoaderCocoa.mm, upstream's answer to a
+// server-trust challenge from a stored certificate, including its use of WebCore::certificatesMatch, so
+// only the exact chain the user accepted is accepted.
 bool NetworkSessionCocoa::isAllowedHTTPSCertificateForHost(NSURLAuthenticationChallenge *challenge)
 {
     RetainPtr<NSURLProtectionSpace> protectionSpace = challenge.protectionSpace;
@@ -1086,18 +1083,10 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         return;
 
     auto downloadID = *networkDataTask->pendingDownloadID();
-    // AQUAWEBKIT: re-apply the destination to the task that will actually write it.
-    // setPendingDownloadLocation set _pathToDownloadTaskFile on the DATA task, and 10.9 builds the
-    // download task's output file inside its own initializer
-    // (-[__NSCFLocalDownloadTask initWithTask:suspendedConnection:] -> -setupForNewDownload), so the
-    // property has to be set again on the new object. This line lives here, and not in the polyfill,
-    // because no polyfill shape can reach that moment: the conversion is a send made INSIDE CFNetwork,
-    // and the selref-scope mechanism rewrites __objc_selrefs in WebKit's own images only
-    // (AquaWebKitSupport/polyfill/mechanism/wk_selref_scope.m), so it never sees a system framework's
-    // internal sends. Carrying the destination across the conversion in the polyfill instead would mean
-    // correlating the two task objects out of band and hanging the work off some accessor a client
-    // happens to call -- correct only for callers that call it. See the _pathToDownloadTaskFile polyfill
-    // in AquaWebKitSupport/polyfill/polyfills/methods/Foundation.m.
+    // AQUAWEBKIT: the destination goes on the task that writes it. setPendingDownloadLocation set
+    // _pathToDownloadTaskFile on the data task, and 10.9 creates the download task's output file in its own
+    // initializer (-[__NSCFLocalDownloadTask initWithTask:suspendedConnection:] -> -setupForNewDownload).
+    // That conversion is a send inside CFNetwork, which the selref-scope polyfill mechanism does not see.
     downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();
     Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
@@ -1248,9 +1237,6 @@ void SessionWrapper::recreateSessionWithUpdatedProxyConfigurations(NetworkSessio
     downloadMap.clear();
     webSocketDataTaskMap.clear();
 }
-
-// AQUAWEBKIT: SessionWrapper owns a complete curl scheduler in this translation unit.
-SessionWrapper::SessionWrapper() = default;
 
 SessionWrapper::~SessionWrapper()
 {

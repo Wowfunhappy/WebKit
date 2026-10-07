@@ -53,6 +53,7 @@ typedef RetainPtr<NSDictionary> TargetListing;
 // inspector here must stay on the Cocoa (XPC) transport, exactly like an upstream Cocoa build (which
 // never defines (USE(GLIB) && !PLATFORM(COCOA))). The glib socket transport (SocketConnection.h, GVariant TargetListing) is
 // not built on Cocoa and conflicts with the PLATFORM(COCOA) block. So treat USE(GLIB) as off here.
+// #if USE(GLIB)
 #if (USE(GLIB) && !PLATFORM(COCOA))
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/SocketConnection.h>
@@ -95,6 +96,7 @@ public:
         struct SessionCapabilities {
             bool acceptInsecureCertificates { false };
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB) || USE(INSPECTOR_SOCKET_SERVER)
 #if (USE(GLIB) && !PLATFORM(COCOA)) || USE(INSPECTOR_SOCKET_SERVER)
             Vector<std::pair<String, String>> certificates;
             struct Proxy {
@@ -124,6 +126,7 @@ public:
         virtual void requestAutomationSession(const String& sessionIdentifier, const SessionCapabilities&) = 0;
         virtual void requestedDebuggablesToWakeUp() { };
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(INSPECTOR_SOCKET_SERVER) || USE(GLIB)
 #if USE(INSPECTOR_SOCKET_SERVER) || (USE(GLIB) && !PLATFORM(COCOA))
         virtual void closeAutomationSession() = 0;
 #endif
@@ -133,6 +136,7 @@ public:
     JS_EXPORT_PRIVATE static void NODELETE setNeedMachSandboxExtension(bool needExtension);
 #endif
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB)
 #if (USE(GLIB) && !PLATFORM(COCOA))
     JS_EXPORT_PRIVATE static void setInspectorServerAddress(CString&&);
     JS_EXPORT_PRIVATE static const CString& inspectorServerAddress();
@@ -179,11 +183,13 @@ public:
     void updateTargetListing(TargetID);
 
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB)
 #if (USE(GLIB) && !PLATFORM(COCOA))
     void requestAutomationSession(const char* sessionID, const Client::SessionCapabilities&);
     void automationConnectionDidClose();
 #endif
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB) || USE(INSPECTOR_SOCKET_SERVER)
 #if (USE(GLIB) && !PLATFORM(COCOA)) || USE(INSPECTOR_SOCKET_SERVER)
     void setup(TargetID);
     void sendMessageToTarget(TargetID, const char* message);
@@ -212,6 +218,7 @@ private:
     void updateFromGlobalNotifyState() WTF_REQUIRES_LOCK(m_mutex);
 #endif
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB)
 #if (USE(GLIB) && !PLATFORM(COCOA))
     void setupConnection(Ref<SocketConnection>&&);
     static const SocketConnection::MessageHandlers& messageHandlers();
@@ -278,6 +285,7 @@ private:
     static std::atomic<bool> needMachSandboxExtension;
 #endif
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB)
 #if (USE(GLIB) && !PLATFORM(COCOA))
     static CString s_inspectorServerAddress;
 #endif
@@ -299,6 +307,7 @@ private:
     bool m_pendingMainThreadInitialization WTF_GUARDED_BY_LOCK(m_mutex) { false };
 #endif
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+// #if USE(GLIB)
 #if (USE(GLIB) && !PLATFORM(COCOA))
     RefPtr<SocketConnection> m_socketConnection;
     GRefPtr<GCancellable> m_cancellable;

@@ -74,17 +74,6 @@ static void* lib##Library(bool = false) \
     return dylib; \
 }
 
-// AQUAWEBKIT: optional system-library loader with upstream's soft-link call signature.
-#define SOFT_LINK_SYSTEM_LIBRARY_OPTIONAL(lib) \
-static void* lib##Library(bool = false) \
-{ \
-    static void* dylib = ^{ \
-        void *result = dlopen("/usr/lib/system/" #lib ".dylib", RTLD_NOW); \
-        return result; \
-    }(); \
-    return dylib; \
-}
-
 #define SOFT_LINK_LIBRARY_WITH_PATH(lib, path) \
     static void* lib##Library(bool = false) \
     { \

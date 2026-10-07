@@ -26,8 +26,6 @@
 #pragma once
 
 #include "APIData.h"
-// AQUAWEBKIT: SameDocumentNavigationType is needed by the restored legacy didSameDocumentNavigationForFrame loader-client callback below (upstream dropped both from this client).
-#include "SameDocumentNavigationType.h"
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/LayoutMilestone.h>
 #include <wtf/Forward.h>
@@ -62,9 +60,8 @@ public:
     virtual void didFinishLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) { }
     virtual void didFailLoadWithErrorForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, const WebCore::ResourceError&, API::Object*) { }
     virtual void didFirstVisuallyNonEmptyLayoutForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }
-    // AQUAWEBKIT: legacy first-layout loader-client callback — restored dispatch (the
-    // WebProcess still sends DidFirstLayoutForFrame); iBooks' loader client sequences its
-    // chapter transitions on it.
+    // AQUAWEBKIT: legacy first-layout loader-client callback, dispatched on the WebProcess's
+    // DidFirstLayoutForFrame; iBooks' loader client sequences its chapter transitions on it.
     virtual void didFirstLayoutForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }
     virtual void didReachLayoutMilestone(WebKit::WebPageProxy&, OptionSet<WebCore::LayoutMilestone>) { }
     virtual bool shouldKeepCurrentBackForwardListItemInList(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem&) { return true; }
@@ -79,13 +76,11 @@ public:
     virtual void didStartProgress(WebKit::WebPageProxy&) { }
     virtual void didChangeProgress(WebKit::WebPageProxy&) { }
     virtual void didFinishProgress(WebKit::WebPageProxy&) { }
-    // AQUAWEBKIT: restored legacy authentication callback (github #95). Safari 7 drives
-    // authentication entirely through WKPageSetPageLoaderClient's
-    // canAuthenticateAgainstProtectionSpaceInFrame / didReceiveAuthenticationChallengeInFrame — it
-    // predates WKPageSetPageNavigationClient, which is the only client upstream still routes
-    // challenges to, so every HTTP/HTTPS auth challenge fell through to PerformDefaultHandling and
-    // the user was never prompted. Returns whether the loader client took the challenge, so
-    // WebPageProxy can fall back to the navigation client for embedders that use it.
+    // AQUAWEBKIT: legacy authentication callback (#95). Safari 7 predates WKPageSetPageNavigationClient
+    // and drives authentication entirely through WKPageSetPageLoaderClient's
+    // canAuthenticateAgainstProtectionSpaceInFrame / didReceiveAuthenticationChallengeInFrame. Returns
+    // whether the loader client took the challenge, so WebPageProxy can fall back to the navigation
+    // client for embedders that use it.
     virtual bool didReceiveAuthenticationChallengeInFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::AuthenticationChallengeProxy&) { return false; }
 };
 

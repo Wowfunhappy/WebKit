@@ -24,8 +24,8 @@
  *
  */
 
-// AQUAWEBKIT: restored-lost-upstream file (bug 234804) for Safari 7 extension
-// content blocking (#62); exposed unconditionally (legacy gating setting removed upstream).
+// AQUAWEBKIT: upstream's BeforeLoadEvent (before bug 234804), for Safari 7 extension content
+// blocking (#62); exposed unconditionally.
 [
     Exposed=Window
 ] interface BeforeLoadEvent : Event {

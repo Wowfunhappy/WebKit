@@ -109,10 +109,7 @@ WK_EXPORT void WKContextSetPrimaryWebsiteDataStore(WKContextRef context, WKWebsi
 WK_EXPORT WKArrayRef WKContextCopyLocalhostAliases(WKContextRef context);
 WK_EXPORT void WKContextSetLocalhostAliases(WKContextRef context, WKArrayRef localhostAliases);
 
-// AQUAWEBKIT: declarations for three WKContext C-API symbols removed in modern WebKit,
-// restored so Safari 7 (TrackingDataController and friends) still links on 10.9.
-// Removed in modern WebKit; preserved as a compatibility stub so Safari 7
-// (TrackingDataController and friends) can still link.
+// AQUAWEBKIT: WKContext C API that Safari 7 (TrackingDataController and others) links against.
 WK_EXPORT WKCookieManagerRef WKContextGetCookieManager(WKContextRef context) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKContextGetProcessSuppressionEnabled(WKContextRef context) WK_C_API_DEPRECATED;
 WK_EXPORT void WKContextSetProcessSuppressionEnabled(WKContextRef context, bool enabled) WK_C_API_DEPRECATED;

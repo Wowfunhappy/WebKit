@@ -14,5 +14,4 @@ list(APPEND ANGLEGLESv2_LIBRARIES
 
 # AQUAWEBKIT: single seam -- see AquaWebKitSupport/cmake/ANGLEPlatformAquaWebKit.cmake, which
 # carries every change this port makes to ANGLE's build configuration.
-set(AQUAWEBKIT_ANGLE_PHASE POST)
 include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/ANGLEPlatformAquaWebKit.cmake)

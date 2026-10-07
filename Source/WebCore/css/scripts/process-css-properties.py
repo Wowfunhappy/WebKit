@@ -4686,12 +4686,10 @@ class GenerateCSSStylePropertiesPropertyNames:
                 )
 
                 # AQUAWEBKIT: Non-standard. Special case properties/aliases starting with
-                # -apple- like is done for -webkit-/-epub-, with the lowercase first flag set. Stock
-                # WebKit exposed this lowercase accessor; macOS 10.9 Dashboard widgets rely on it
+                # -apple- like is done for -webkit-/-epub-, with the lowercase first flag set. macOS 10.9
+                # Dashboard widgets set their control regions through this lowercase accessor
                 # (AppleScrollbar.js: scrollbar.style.appleDashboardRegion = "dashboard-region(control rectangle)"
-                # for the scrollbar's control region). Without it the JS assignment is a silent no-op,
-                # the scrollbar never becomes a control region, and dragging it moves the widget
-                # instead of scrolling.
+                # makes the scrollbar a control region, which it scrolls rather than drags the widget).
                 # Example: -apple-dashboard-region -> element.style.appleDashboardRegion
                 self._generate_css_style_declaration_property_names_idl_section(
                     to=writer,

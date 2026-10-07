@@ -667,7 +667,7 @@ Inspector::CommandResult<void> FrameCSSAgent::setLayoutContextTypeChangedMode(In
     return makeUnexpected("Not supported on frame targets"_s);
 }
 
-// AQUAWEBKIT: the CSS selector profiler's commands, restored for the Safari 7 Web Inspector on page targets.
+// AQUAWEBKIT: the CSS selector profiler's commands, for the Safari 7 Web Inspector on page targets.
 Inspector::CommandResult<void> FrameCSSAgent::startSelectorProfiler()
 {
     return makeUnexpected("Not supported on frame targets"_s);

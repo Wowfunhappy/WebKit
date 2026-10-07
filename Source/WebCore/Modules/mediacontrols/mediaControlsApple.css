@@ -23,22 +23,17 @@
  */
 
 /*
- * AQUAWEBKIT (#68): Classic Safari 7 / Mavericks HTML5 media-controls stylesheet, restored
- * from upstream WebKit d55388c. Changes from the upstream original are tagged AQUAWEBKIT and
- * track seven things that changed after 2013: (1) the per-part pseudo-elements were renamed from the
- * classic `-webkit-media-controls-*` to `-internal-media-controls-*` — modern WebKit caps the number
- * of `-webkit-` pseudo-elements and directs UA-stylesheet-only ones to the `-internal-` prefix (the
- * root `::-webkit-media-controls` keeps its existing name); (2) the `:-webkit-full-page-media`
- * pseudo-class is spelled `:-internal-media-document`;
- * (3) the `:-webkit-animating-full-screen-transition` pseudo-class was renamed to the internal
- * `:-internal-animating-fullscreen-transition`; (4) the `media-closed-captions-container`
- * appearance keyword was removed (the container is fully styled in CSS regardless); and (5) the `#`
- * in the glyphs' inline-SVG `url(#gradient)` references is percent-encoded to `url(%23gradient)` — a
- * bare `#` is a URL fragment delimiter, so the modern (spec-conformant) data-URL parser truncated the
- * SVG there and every gradient-filled glyph failed to load (Safari 7 parsed it leniently); and (6) the
- * seek bar gets `min-height: 0` so the modern `<input type=range>` (which gained a
- * `::-webkit-slider-container` shadow wrapper after 2013) does not overflow its 9px column-flex track and
- * render below the panel's vertical centre; and (7) the text-track container and cue rules live in
+ * AQUAWEBKIT (#68): the classic Safari 7 / Mavericks HTML5 media-controls stylesheet, upstream WebKit
+ * d55388c's. Its differences from that revision are tagged AQUAWEBKIT: (1) the per-part pseudo-elements
+ * are `-internal-media-controls-*` for the classic `-webkit-media-controls-*` (WebKit caps the number of
+ * `-webkit-` pseudo-elements and gives UA-stylesheet-only ones the `-internal-` prefix; the root
+ * `::-webkit-media-controls` keeps its name); (2) `:-webkit-full-page-media` is `:-internal-media-document`;
+ * (3) `:-webkit-animating-full-screen-transition` is `:-internal-animating-fullscreen-transition`; (4) the
+ * closed-captions container takes no `media-closed-captions-container` appearance (CSS styles it fully);
+ * (5) the `#` in the glyphs' inline-SVG `url(#gradient)` references is percent-encoded to `url(%23gradient)`,
+ * since the data-URL parser ends the SVG at a bare `#`; (6) the seek bar has `min-height: 0`, so
+ * `<input type=range>` and its `::-webkit-slider-container` shadow wrapper fit the 9px column-flex track
+ * at the panel's vertical centre; and (7) the text-track container and cue rules live in
  * Modules/modern-media-controls/controls/text-tracks.css, which Style::UserAgentStyle adds alongside this
  * sheet.
  */
@@ -339,7 +334,7 @@ audio::-internal-media-controls-toggle-closed-captions-button {
 
 video::-internal-media-controls-closed-captions-container,
 audio::-internal-media-controls-closed-captions-container {
-    -webkit-appearance: none; /* AQUAWEBKIT (#68): media-closed-captions-container appearance removed upstream */
+    -webkit-appearance: none; /* AQUAWEBKIT (#68): see (4) in the header */
     position: absolute;
     display: block;
     right: 38px;
@@ -638,7 +633,7 @@ video:-webkit-full-screen::-internal-media-controls-panel {
     transition: opacity 0.3s linear !important;
 }
 
-/* AQUAWEBKIT (#68): pseudo-class renamed to internal spelling upstream */
+/* AQUAWEBKIT (#68): the internal spelling of the pseudo-class, see (3) in the header */
 video:-internal-animating-fullscreen-transition::-internal-media-controls-panel {
     opacity: 0 ! important;
     transition: opacity 0 ! important;

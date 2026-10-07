@@ -89,7 +89,7 @@ private:
     bool shouldUseSSL() const { return m_url.protocolIs("wss"_s); }
     unsigned short port() const;
 
-    /* // AQUAWEBKIT: opens the CFStream declarations this port replaces, kept for merges.
+    /* // AQUAWEBKIT: opens the CFStream declarations this port replaces.
     void addCONNECTCredentials(CFHTTPMessageRef response);
 
     static void* NODELETE retainSocketStreamHandle(void*);

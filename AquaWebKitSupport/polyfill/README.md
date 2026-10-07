@@ -140,6 +140,11 @@ is compiled into both the polyfill archive and the dependency gap archive. Its u
   by the Foundation policy adapter.
 - The protection-space secure-coding bridge in `CFNetwork.c` (`SerializableArchive::add`), which archives
   the native protection space used by Safari's authentication and certificate APIs.
+- The keyed-coding layer in `c/FoundationCoding.m`, which resolves Foundation's `_decodeObjectBinary` and
+  `_decodeObjectXML` element decoders and CoreFoundation's keyed-archive UID accessors and binary
+  property-list readers (`__CFBinaryPlistGetOffsetForValueFromDictionary3`,
+  `__CFBinaryPlistGetOffsetForValueFromArray2`, `__CFBinaryPlistCreateObject`). Strict secure decoding reads
+  each object reference's `$objects` entry through them before the native decode.
 - The WebCore initializer in `polyfills/methods/Accelerate.m`, which resolves
   `SetvImageVectorAvailable` from vImage and `_get_cpu_capabilities` from libsystem_kernel. It clears
   Darwin's `kHasAVX2_0` bit (`0x20000000`) in vImage's process-local dispatch mask. Mavericks' packed

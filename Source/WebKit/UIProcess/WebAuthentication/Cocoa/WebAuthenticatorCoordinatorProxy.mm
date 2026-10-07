@@ -1260,11 +1260,9 @@ void WebAuthenticatorCoordinatorProxy::performRequestLegacy(RetainPtr<ASCCredent
     }
     m_proxy = adoptNS([allocASCAgentProxyInstance() init]);
 
-    // AQUAWEBKIT: ASCAgentProxy comes from AuthenticationServices, which is soft-linked and
-    // absent on 10.9, so allocASCAgentProxyInstance() returns nil — there is no authorization agent to
-    // service a passkey request. Every path below messages m_proxy and relies on its completion block to
-    // invoke handler; messaging nil silently drops the handler and hangs the navigator.credentials
-    // promise forever. Reject up front so the site cleanly falls back to another sign-in method.
+    // AQUAWEBKIT: AuthenticationServices is absent on 10.9, so allocASCAgentProxyInstance() returns nil.
+    // Every path below completes through m_proxy's completion block; with no agent the request is
+    // rejected here.
     if (!m_proxy) {
         handler({ }, (AuthenticatorAttachment)0, ExceptionData { ExceptionCode::NotAllowedError, "No authenticator available."_s });
         RELEASE_LOG_ERROR(WebAuthn, "No ASCAgentProxy available (AuthenticationServices absent); rejecting request.");

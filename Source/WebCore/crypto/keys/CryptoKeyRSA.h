@@ -28,8 +28,9 @@
 #include "CryptoKey.h"
 #include <wtf/Function.h>
 
-// AQUAWEBKIT: build glue for the gcrypt WebCrypto backend (USE_GCRYPT=TRUE).
-// Skip the cocoa CCRSACryptor PlatformRSAKey path when USE(GCRYPT) is set.
+// AQUAWEBKIT: WebCrypto runs on libgcrypt here (USE_GCRYPT); the CCRSACryptor PlatformRSAKey path is for
+// USE(GCRYPT)-less builds.
+// #if OS(DARWIN) && !PLATFORM(GTK)
 #if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include "CommonCryptoUtilities.h"
 

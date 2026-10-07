@@ -44,7 +44,7 @@ WTF_EXPORT_PRIVATE NSURL *URLWithData(NSData *, NSURL *baseURL);
 WTF_EXPORT_PRIVATE NSData *originalURLData(NSURL *);
 WTF_EXPORT_PRIVATE NSData *dataForURLComponentType(NSURL *, CFURLComponentType);
 WTF_EXPORT_PRIVATE NSURL *URLWithUserTypedStringDeprecated(NSString *);
-// AQUAWEBKIT: base-URL-honoring variant (removed upstream in 1516dd5) for Safari 7's
+// AQUAWEBKIT: the base-URL-honoring variant (upstream's before 1516dd5) for Safari 7's
 // -[NSURL _web_URLWithUserTypedString:relativeToURL:], whose caller passes a non-nil base.
 WTF_EXPORT_PRIVATE NSURL *URLWithUserTypedStringDeprecated(NSString *, NSURL *baseURL);
 

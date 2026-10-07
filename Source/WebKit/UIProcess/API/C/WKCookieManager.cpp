@@ -29,12 +29,12 @@
 #include "APIArray.h"
 // AQUAWEBKIT: copy and validate the versioned legacy callback structure using the standard C API client machinery.
 #include "APIClient.h"
-// AQUAWEBKIT: the restored bodies below run on API::HTTPCookieStore.
+// AQUAWEBKIT: the bodies below run on API::HTTPCookieStore.
 #include "APIHTTPCookieStore.h"
 #include "APIString.h"
 #include "WKAPICast.h"
 #include "WebsiteDataStore.h" // AQUAWEBKIT: since-date deletion runs on WebsiteDataStore::removeData.
-#include <WebCore/Cookie.h> // AQUAWEBKIT: the restored hostname collection walks WebCore::Cookie.
+#include <WebCore/Cookie.h> // AQUAWEBKIT: the hostname collection walks WebCore::Cookie.
 #include <wtf/HashSet.h>
 #include <wtf/WallTime.h> // AQUAWEBKIT: closes the since-date include set above.
 
@@ -49,9 +49,10 @@ template<> struct ClientTraits<WKCookieManagerClientBase> {
 
 // AQUAWEBKIT: Safari 7's cookie manager C API operates on API::HTTPCookieStore.
 // Its Privacy pane uses these methods to list and remove cookies and observe storage changes.
-WKTypeID WKCookieManagerGetTypeID() // AQUAWEBKIT: a WKCookieManagerRef is an API::HTTPCookieStore.
+WKTypeID WKCookieManagerGetTypeID()
 {
-    return WebKit::toAPI(API::HTTPCookieStore::APIType);
+    // return 0;
+    return WebKit::toAPI(API::HTTPCookieStore::APIType); // AQUAWEBKIT: a WKCookieManagerRef is an API::HTTPCookieStore.
 }
 
 // AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
@@ -80,6 +81,7 @@ void WKCookieManagerSetClient(WKCookieManagerRef cookieManagerRef, const WKCooki
     });
 }
 
+// void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef, void*, WKCookieManagerGetCookieHostnamesFunction)
 // AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetCookieHostnamesFunction callback)
 {
@@ -96,6 +98,7 @@ void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef cookieManagerRef,
     });
 }
 
+// void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef, WKStringRef)
 // AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef cookieManagerRef, WKStringRef hostname)
 {
@@ -104,6 +107,7 @@ void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef cookieManagerRef
     protect(WebKit::toImpl(cookieManagerRef))->deleteCookiesForHostnames({ WebKit::toWTFString(hostname) }, [] { });
 }
 
+// void WKCookieManagerDeleteAllCookies(WKCookieManagerRef)
 // AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManagerRef)
 {
@@ -112,6 +116,7 @@ void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManagerRef)
     protect(WebKit::toImpl(cookieManagerRef))->deleteAllCookies([] { });
 }
 
+// void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef, double)
 // AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieManagerRef, double date)
 {
@@ -120,18 +125,15 @@ void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieM
     RefPtr dataStore = protect(WebKit::toImpl(cookieManagerRef))->owningDataStore();
     if (!dataStore)
         return;
-    // Seconds since the Unix epoch: this API's original implementation handed the value straight to
-    // +[NSDate dateWithTimeIntervalSince1970:], which is what WallTime counts from.
+    // Seconds since the Unix epoch, which is what WallTime counts from.
     dataStore->removeData(WebKit::WebsiteDataType::Cookies, WallTime::fromRawSeconds(date), [] { });
 }
 
-// AQUAWEBKIT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID),
-// with Safari 7's 2-argument ABI. -[Safari::WK::CookieManager setHTTPCookieAcceptPolicy:] tail-jumps
-// here having set only %rdi and %esi, so the context and callback upstream added in the 4-argument form
-// are whatever the caller left in %rdx and %rcx: a non-null garbage %rcx gets called as the completion
-// handler, from the reply handler for WebCookieManager::SetHTTPCookieAcceptPolicy. The legacy contract
-// reports nothing back -- Safari drives the preference one way and reads it with
-// WKCookieManagerGetHTTPCookieAcceptPolicy.
+// AQUAWEBKIT: implemented through API::HTTPCookieStore with Safari 7's 2-argument ABI.
+// -[Safari::WK::CookieManager setHTTPCookieAcceptPolicy:] tail-jumps here having set only %rdi and
+// %esi, so the 4-argument form's context and callback are whatever the caller left in %rdx and %rcx.
+// Safari reads the policy back with WKCookieManagerGetHTTPCookieAcceptPolicy.
+// void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef, WKHTTPCookieAcceptPolicy, void*, WKCookieManagerSetHTTPCookieAcceptPolicyFunction)
 void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy)
 {
     if (!cookieManagerRef)
@@ -141,33 +143,19 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
     // session it has. A session created afterwards inherits it through createPrivateStorageSession,
     // which reads the process's cookie jar; one that already exists is reached here.
     //
-    // The same radio is where this client says whether cross-site tracking should be prevented, the
-    // preference Safari 11 moved to its own checkbox and pushes through
-    // -[WKWebsiteDataStore _setResourceLoadStatisticsEnabled:]: accepting from anywhere is the choice
-    // not to restrict cross-site traffic, and without it ThirdPartyCookieBlockingMode::All blocks
-    // every third-party cookie at all three radio positions. A session that has not been told
-    // otherwise answers from the same jar through defaultTrackingPreventionEnabled().
+    // The same radio is where this client says whether cross-site tracking should be prevented (the
+    // preference later Safaris push through -[WKWebsiteDataStore _setResourceLoadStatisticsEnabled:]):
+    // accepting from anywhere is the choice not to restrict cross-site traffic. A session that has not
+    // been told otherwise answers from the same jar through defaultTrackingPreventionEnabled().
     auto acceptPolicy = WebKit::toHTTPCookieAcceptPolicy(policy);
     bool preventTracking = acceptPolicy != WebCore::HTTPCookieAcceptPolicy::AlwaysAccept;
     WebKit::WebsiteDataStore::forEachWebsiteDataStore([acceptPolicy, preventTracking](WebKit::WebsiteDataStore& dataStore) {
         dataStore.setTrackingPreventionEnabled(preventTracking);
         dataStore.cookieStore().setHTTPCookieAcceptPolicy(acceptPolicy, [] { });
     });
-/* AQUAWEBKIT: upstream's 4-argument body (see above).
-void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy, void* context, WKCookieManagerSetHTTPCookieAcceptPolicyFunction callback)
-{
-    if (!cookieManagerRef) {
-        if (callback)
-            callback(nullptr, context);
-        return;
-    }
-    protect(WebKit::toImpl(cookieManagerRef))->setHTTPCookieAcceptPolicy(WebKit::toHTTPCookieAcceptPolicy(policy), [context, callback] {
-        if (callback)
-            callback(nullptr, context);
-    });
-AQUAWEBKIT */
 }
 
+// void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef, void*, WKCookieManagerGetHTTPCookieAcceptPolicyFunction)
 // AQUAWEBKIT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetHTTPCookieAcceptPolicyFunction callback)
 {

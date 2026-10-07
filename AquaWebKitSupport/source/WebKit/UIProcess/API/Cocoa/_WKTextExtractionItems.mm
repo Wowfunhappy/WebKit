@@ -23,18 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: Objective-C implementation of the WKTextExtractionItem family.
-//
-// Upstream implements these classes in UIProcess/API/Cocoa/_WKTextExtraction.swift, using
-// `@objc @implementation extension`, which requires Swift 6; Swift cannot target this port's
-// deployment target, so that file is not built here. Everything the classes need is already
-// declared in Objective-C by _WKTextExtractionInternal.h — they are immutable data holders — so
-// this file is a direct transcription of the Swift file's stored properties and initializers, with
-// no behavioral difference. WKTextExtractionUtilities.mm's WebKit::createItem instantiates them and
-// -[WKWebView _requestTextExtraction:completionHandler:] hands the resulting tree to its caller.
-//
-// When Swift becomes buildable on this port, delete this file (and its SourcesCocoa.txt entry) and
-// build _WKTextExtraction.swift instead.
+// Objective-C implementation of the WKTextExtractionItem family, which upstream writes in Swift
+// (_WKTextExtraction.swift, `@objc @implementation extension`). Swift does not target this port's
+// deployment target. The classes are immutable data holders declared in _WKTextExtractionInternal.h,
+// and this file carries the Swift file's stored properties and initializers.
+// WKTextExtractionUtilities.mm's WebKit::createItem instantiates them.
 
 #import "config.h"
 #import "_WKTextExtractionInternal.h"

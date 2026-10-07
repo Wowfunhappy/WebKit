@@ -24,16 +24,15 @@
  */
 
 #import "config.h"
-// AQUAWEBKIT: the legacy controller (see WKBrowsingContextController.h), which implements its Internal SPI.
-// #import "WKBrowsingContextController.h"
-#import "WKBrowsingContextControllerInternal.h"
+#import "WKBrowsingContextController.h"
 
-// AQUAWEBKIT: imports of the legacy controller.
+#import "PageLoadStateObserver.h"
+#import "WebProcessPool.h"
+// AQUAWEBKIT: the legacy controller (see WKBrowsingContextController.h): its imports, its Internal SPI, and the policy action keys (WKBrowsingContextPolicyDelegate.h).
+#import "WKBrowsingContextControllerInternal.h"
 #import "APIData.h"
 #import "APINavigation.h"
 #import "ObjCObjectGraph.h"
-#import "PageLoadStateObserver.h"
-// AQUAWEBKIT: imports of the legacy controller.
 #import "RemoteObjectRegistry.h"
 #import "RemoteObjectRegistryMessages.h"
 #import "WKAPICast.h"
@@ -59,8 +58,6 @@
 #import "WKViewInternal.h"
 #import "WebFrameProxy.h"
 #import "WebPageProxy.h"
-#import "WebProcessPool.h"
-// AQUAWEBKIT: imports of the legacy controller.
 #import "WebProtectionSpace.h"
 #import "_WKRemoteObjectRegistryInternal.h"
 #import <WebCore/Pagination.h>
@@ -74,7 +71,6 @@
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
-// AQUAWEBKIT: the policy action keys (WKBrowsingContextPolicyDelegate.h).
 NSString * const WKActionIsMainFrameKey = @"WKActionIsMainFrameKey";
 NSString * const WKActionNavigationTypeKey = @"WKActionNavigationTypeKey";
 NSString * const WKActionMouseButtonKey = @"WKActionMouseButtonKey";
@@ -86,9 +82,9 @@ NSString * const WKActionFrameNameKey = @"WKActionFrameNameKey";
 NSString * const WKActionOriginatingFrameURLKey = @"WKActionOriginatingFrameURLKey";
 NSString * const WKActionCanShowMIMETypeKey = @"WKActionCanShowMIMETypeKey";
 
-// AQUAWEBKIT: the legacy controller's state and its page -> controller map.
 ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-@implementation WKBrowsingContextController {
+// @implementation WKBrowsingContextController
+@implementation WKBrowsingContextController { // AQUAWEBKIT: the legacy controller's state; its page -> controller map follows.
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     // AQUAWEBKIT: PageLoadStateObserver is ref-counted.
     const RefPtr<WebKit::WebPageProxy> _page;
@@ -157,7 +153,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)loadRequest:(NSURLRequest *)request userData:(id)userData
 {
-    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph; Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -176,7 +172,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (![URL isFileURL] || (allowedDirectory && ![allowedDirectory isFileURL]))
         [NSException raise:NSInvalidArgumentException format:@"Attempted to load a non-file URL"];
 
-    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph; Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -192,7 +188,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)loadHTMLString:(NSString *)HTMLString baseURL:(NSURL *)baseURL userData:(id)userData
 {
-    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph; Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -215,7 +211,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)loadData:(NSData *)data MIMEType:(NSString *)MIMEType textEncodingName:(NSString *)encodingName baseURL:(NSURL *)baseURL userData:(id)userData
 {
-    // AQUAWEBKIT: userData travels as an ObjCObjectGraph (4112a1e^); Apple Mail passes its document load context
+    // AQUAWEBKIT: userData travels as an ObjCObjectGraph; Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
     if (userData)
@@ -371,7 +367,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 // AQUAWEBKIT: the 537 loader-client delegate model this system's clients (QuickLook's Web2.qldisplay,
 // MailUI, iBooks' BKAssetEpub) were built against: a page loader client installed when the controller is
 // created, reporting main-frame loads with the pre-2013 failure selectors. Web2 and BKAssetEpub install page
-// loader clients of their own, and on 537 whichever was installed last received the callbacks.
+// loader clients of their own, and on 537 whichever is installed last receives the callbacks.
 static void didStartProvisionalLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef userData, const void* clientInfo)
 {
     if (!WKFrameIsMainFrame(frame))

@@ -273,6 +273,8 @@ protected:
     std::optional<Ref<KeyHandle>> getOrWaitForKeyHandle(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
     std::optional<KeyHandleValueVariant> getOrWaitForKeyValue(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
     // AQUAWEBKIT: key-wait notifications and teardown share the instance lock.
+    // void startedWaitingForKey() const;
+    // void stoppedWaitingForKey() const;
     void startedWaitingForKey() const WTF_REQUIRES_LOCK(m_instanceLock);
     void stoppedWaitingForKey() const WTF_REQUIRES_LOCK(m_instanceLock);
     const CDMInstanceProxy* instance() const;

@@ -628,8 +628,7 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 - (void)_dictionaryLookupPopoverWillClose:(NSNotification *)notification
 {
     if (_impl)
-        // _impl->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None);
-        _impl->page().clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None); // AQUAWEBKIT: the page owns the text indicator (webkit.org/b/293329), as at this file's other call sites.
+        _impl->page().clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None); // AQUAWEBKIT: the page owns the text indicator (webkit.org/b/293329), as at this file's other call sites. Upstream: _impl->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::None);
 }
 #endif
 
@@ -2459,6 +2458,7 @@ void WebViewImpl::viewWillMoveToWindowImpl(NSWindow *window)
 
     clearAllEditCommands();
 
+    // if (!m_isPreparingToUnparentView)
     if (!m_isPreparingToUnparentView) {
         if (!window) // AQUAWEBKIT: see -[WKWindowVisibilityObserver stopObservingWindow:].
             [m_windowVisibilityObserver stopObservingWindow:currentWindow.get()];

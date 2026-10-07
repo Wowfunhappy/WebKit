@@ -55,6 +55,7 @@ public:
     enum class PushMessageDisposition : uint8_t { Delivered, DecryptionError, NotDelivered };
     virtual void acknowledgePushMessage(PushMessageReceipt, PushMessageDisposition) { }
 
+    // using IncomingPushMessageHandler = Function<void(NSString *, NSDictionary *)>;
     using IncomingPushMessageHandler = Function<void(NSString *, NSDictionary *, PushMessageReceipt)>;
 
     virtual ~PushServiceConnection() = default;
@@ -91,6 +92,7 @@ public:
 
     void startListeningForPushMessages(IncomingPushMessageHandler&&);
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // void didReceivePushMessage(NSString *topic, NSDictionary *userInfo);
     void didReceivePushMessage(NSString *topic, NSDictionary *userInfo, PushMessageReceipt = noPushMessageReceipt);
 
 protected:
@@ -101,6 +103,7 @@ private:
     Vector<uint8_t> m_pendingPublicToken;
     IncomingPushMessageHandler m_incomingPushMessageHandler;
     // AQUAWEBKIT: a push held for a handler that is not listening yet keeps its receipt.
+    // Deque<std::pair<RetainPtr<NSString>, RetainPtr<NSDictionary>>> m_pendingPushes;
     struct PendingPush {
         RetainPtr<NSString> topic;
         RetainPtr<NSDictionary> userInfo;

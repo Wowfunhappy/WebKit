@@ -1766,14 +1766,15 @@ HashSet<Ref<WebProcessPool>> WebsiteDataStore::ensureProcessPools() const
     return processPools;
 }
 
-// AQUAWEBKIT: the !PLATFORM(COCOA) gate is gone. Upstream dropped the Cocoa half of this
-// mechanism, but Safari 7's invalid-certificate sheet is built on it — see
-// WKContextAllowSpecificHTTPSCertificateForHost — so this port implements the Cocoa half
-// (NetworkProcessCocoa.mm and NetworkSessionCocoa) and the sender is shared with the other ports.
+// AQUAWEBKIT: compiled on Cocoa too: Safari 7's invalid-certificate sheet sends through it
+// (WKContextAllowSpecificHTTPSCertificateForHost), and this port implements the Cocoa receiver
+// (NetworkProcessCocoa.mm, NetworkSessionCocoa).
+// #if !PLATFORM(COCOA)
 void WebsiteDataStore::allowSpecificHTTPSCertificateForHost(const WebCore::CertificateInfo& certificate, const String& host)
 {
-    protect(networkProcess())->send(Messages::NetworkProcess::AllowSpecificHTTPSCertificateForHost(sessionID(), certificate, host), 0); // AQUAWEBKIT: Safari 7's invalid-certificate sheet, see above.
+    protect(networkProcess())->send(Messages::NetworkProcess::AllowSpecificHTTPSCertificateForHost(sessionID(), certificate, host), 0);
 }
+// #endif // AQUAWEBKIT: closes the !PLATFORM(COCOA) gate commented out above.
 
 void WebsiteDataStore::allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo& certificate)
 {
@@ -2675,12 +2676,9 @@ void WebsiteDataStore::didDestroyServiceWorkerNotification(const WTF::UUID& noti
 void WebsiteDataStore::openWindowFromServiceWorker(const String& urlString, const WebCore::SecurityOriginData& serviceWorkerOrigin, CompletionHandler<void(std::optional<WebCore::PageIdentifier>)>&& callback)
 {
     // AQUAWEBKIT: the URL is captured as well, so the no-page path below can still open it
-    // through the host application. Upstream needs only the callback.
-#if USE(MOZILLA_PUSH_SERVICE)
+    // through the host application.
+    // auto innerCallback = [callback = WTF::move(callback)] (WebPageProxy* newPage) mutable {
     auto innerCallback = [callback = WTF::move(callback), urlString] (WebPageProxy* newPage) mutable {
-#else
-    auto innerCallback = [callback = WTF::move(callback)] (WebPageProxy* newPage) mutable {
-#endif // AQUAWEBKIT: closes the USE(MOZILLA_PUSH_SERVICE) split above.
         if (!newPage) {
 #if USE(MOZILLA_PUSH_SERVICE)
             // AQUAWEBKIT: the data-store client that would create a page here is
@@ -2916,50 +2914,6 @@ void WebsiteDataStore::processPushMessage(WebPushMessage&& pushMessage, Completi
     RELEASE_LOG(Push, "Sending push message to network process to handle");
     protect(networkProcess())->processPushMessage(sessionID(), WTF::move(pushMessage), WTF::move(innerHandler));
 }
-
-#if USE(MOZILLA_PUSH_SERVICE)
-// AQUAWEBKIT: WebKit-driven twin of the modern host's
-// -[WKWebsiteDataStore _handleNextPushMessageWithCompletionHandler:] drain loop, run
-// whenever webpushd signals pending messages or a session starts. Uses the plural
-// GetPendingPushMessages fetch: the singular one arms the daemon's 30-second
-// showNotification watchdog, which only the macOS 14+ builtin-notification path can
-// cancel; with UI-process display, silent-push accounting instead happens in
-// NetworkProcess::processPushMessage.
-void WebsiteDataStore::pumpPendingWebPushMessages()
-{
-    if (!isPersistent())
-        return;
-    if (m_pumpingWebPushMessages) {
-        // A signal arrived mid-drain; run once more afterwards so a message that landed
-        // behind the in-flight fetch is not stranded until the next signal.
-        m_repumpWebPushMessages = true;
-        return;
-    }
-    m_pumpingWebPushMessages = true;
-    RELEASE_LOG(Push, "Fetching pending push messages from webpushd");
-    protect(networkProcess())->getPendingPushMessages(sessionID(), [this, protectedThis = Ref { *this }](const Vector<WebPushMessage>& messages) {
-        RELEASE_LOG(Push, "Processing %zu pending push messages", messages.size());
-        for (auto& message : messages)
-            m_queuedWebPushMessages.append(message);
-        processNextQueuedWebPushMessage();
-    });
-}
-
-void WebsiteDataStore::processNextQueuedWebPushMessage()
-{
-    if (m_queuedWebPushMessages.isEmpty()) {
-        m_pumpingWebPushMessages = false;
-        if (std::exchange(m_repumpWebPushMessages, false))
-            pumpPendingWebPushMessages();
-        return;
-    }
-
-    auto message = m_queuedWebPushMessages.takeFirst();
-    processPushMessage(WTF::move(message), [this, protectedThis = Ref { *this }](bool) {
-        processNextQueuedWebPushMessage();
-    });
-}
-#endif // USE(MOZILLA_PUSH_SERVICE)
 
 RestrictedOpenerType WebsiteDataStore::openerTypeForDomain(const WebCore::RegistrableDomain& domain) const
 {

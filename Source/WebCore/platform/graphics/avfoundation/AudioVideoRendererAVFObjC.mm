@@ -1654,16 +1654,8 @@ Ref<GenericPromise> AudioVideoRendererAVFObjC::stageVideoRenderer(WebSampleBuffe
     if (renderer) {
         switch (acceleratedVideoMode()) {
         case AcceleratedVideoMode::Layer:
-            // AQUAWEBKIT: retiring the video renderer is HAVE(AVSAMPLEBUFFERVIDEORENDERER)-only. Without
-            // it AVSampleBufferVideoRenderer does not adopt WebSampleBufferVideoRendering (the conformance in
-            // WebSampleBufferVideoRendering.h carries the same guard), so RetainPtr cannot convert. Guarding is
-            // behaviour-preserving here: m_sampleBufferVideoRenderer is only ever assigned by ensureVideoRenderer(),
-            // which acceleratedVideoMode() reaches solely under ENABLE(LINEAR_MEDIA_PLAYER), so both statements
-            // operate on nil in this configuration.
-#if HAVE(AVSAMPLEBUFFERVIDEORENDERER)
             m_expiringSampleBufferVideoRenderers.append(m_sampleBufferVideoRenderer);
             rendererToExpire = std::exchange(m_sampleBufferVideoRenderer, { });
-#endif // AQUAWEBKIT: close the HAVE(AVSAMPLEBUFFERVIDEORENDERER) guard (see above).
             break;
         case AcceleratedVideoMode::VideoRenderer:
             // We only need to remove the AVSampleBufferDisplayLayer from the synchronizer.

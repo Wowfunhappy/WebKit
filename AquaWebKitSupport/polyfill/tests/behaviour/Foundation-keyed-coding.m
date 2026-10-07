@@ -275,6 +275,13 @@ int main(void)
             check(![NSKeyedUnarchiver unarchivedObjectOfClass:CodingNode.class fromData:archive(scalar, YES) error:&error]
                 && error, "modern typed convenience rejects implicit scalar root");
         }
+        NSDate *date = [NSDate dateWithTimeIntervalSince1970:5];
+        for (NSDictionary *dictionary in @[@{date: @1}, [NSMutableDictionary dictionaryWithObject:@1 forKey:date], @{@"key": date}]) {
+            error = nil;
+            check(![NSKeyedUnarchiver unarchivedObjectOfClasses:[NSSet setWithObjects:NSDictionary.class, NSString.class, NSNumber.class, nil]
+                fromData:archive(dictionary, YES) error:&error] && error.code == NSCoderReadCorruptError,
+                "dictionary with a disallowed key or value reports the decoding error");
+        }
         error = nil;
         OrdinaryCoding *ordinary = [[OrdinaryCoding new] autorelease];
         check(![NSKeyedArchiver archivedDataWithRootObject:ordinary requiringSecureCoding:YES error:&error] && error,

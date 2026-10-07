@@ -107,9 +107,10 @@ void makePagesFreezable(void* base, size_t size)
     };
 
     auto result = attemptVMMapping();
+// #if PLATFORM(IOS_FAMILY_SIMULATOR)
 #if PLATFORM(IOS_FAMILY_SIMULATOR) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101500)
-    // AQUAWEBKIT: VM_FLAGS_PERMANENT is macOS 10.15+; the 10.9 kernel rejects it (the mapping
-    // fails and the RELEASE_ASSERT below traps at startup). Retry without it on 10.9.
+    // AQUAWEBKIT: VM_FLAGS_PERMANENT is macOS 10.15+ and the 10.9 kernel refuses a mapping that asks
+    // for it, so 10.9 takes the simulator's retry without the flag.
     if (result != KERN_SUCCESS) {
         flags &= ~VM_FLAGS_PERMANENT; // See rdar://75747788.
         result = attemptVMMapping();

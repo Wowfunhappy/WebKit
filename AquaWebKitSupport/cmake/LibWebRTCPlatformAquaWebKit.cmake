@@ -2,7 +2,6 @@
 
 macro(AQUAWEBKIT_LIBWEBRTC_ADD_TARGET)
     # Keep production sources, Cocoa capture and the checked-in Apple assembly.
-    string(REPLACE "Source/webrtc/sdk/" "Source/webrtc/webkit_sdk/" webrtc_SOURCES "${webrtc_SOURCES}")
     list(REMOVE_ITEM webrtc_SOURCES Source/webrtc/modules/video_coding/h265_vps_sps_pps_tracker.cc)
     list(FILTER webrtc_SOURCES EXCLUDE REGEX "/audio_device/linux/|/fake_[a-z0-9_]+\\.cc$|_testing(_common)?\\.cc$|_unittest\\.cc$|_test\\.cc$|(^|/)test/|/tools/|/rtc_tools/|/testdata/|/virtual_socket_server\\.cc$|/compute_interpolated_gain_curve\\.cc$|/corruption_detection/evaluation/|/bwe_rtp\\.cc$|/video_loopback_main\\.cc$|/print_hash_of\\.cc$|/gaussian_distribution_gentables\\.cc$|/boringssl/src/tool/|/bazel-example/|/fipstools/|/libyuv/util/|/default_task_queue_factory_win\\.cc$|/rtc_event_log_impl\\.cc$|(^|/)(chacha/chacha-x86_64|cipher/aes128gcmsiv-x86_64|cipher/chacha20_poly1305_x86_64)-")
     list(APPEND webrtc_SOURCES
@@ -28,10 +27,11 @@ macro(AQUAWEBKIT_LIBWEBRTC_ADD_TARGET)
         # block that is dead by the time VideoToolbox reports the encoded frame.
         target_compile_options(webrtc PRIVATE "$<$<COMPILE_LANGUAGE:OBJC,OBJCXX>:-fobjc-arc>")
     endif ()
+    cmake_language(DEFER CALL AQUAWEBKIT_LIBWEBRTC_FINALIZE_TARGETS)
 endmacro()
 
-# Called after libwebrtc/CMakeLists.txt has set the target's own properties, so these win.
-macro(AQUAWEBKIT_LIBWEBRTC_FINALIZE_TARGET)
+# Runs at the end of libwebrtc/CMakeLists.txt, after it has set the targets' own properties, so these win.
+macro(AQUAWEBKIT_LIBWEBRTC_FINALIZE_TARGETS)
     if (APPLE)
         # Cocoa's Xcode project uses default visibility and an explicit export list for WebRTC and WebM.
         set_target_properties(webrtc webm PROPERTIES CXX_VISIBILITY_PRESET default C_VISIBILITY_PRESET default)
@@ -108,21 +108,14 @@ macro(AQUAWEBKIT_LIBWEBRTC_FINALIZE_TARGET)
         # WebKit's own binaries.
         _WEBKIT_FORCE_LOAD_POLYFILL(webrtc)
         _WEBKIT_FORCE_LOAD_WK_MARKER(webrtc)
+
+        # opus's source list carries its demo and dump_modes tools (main()s; dump_modes redefines
+        # opus_select_arch) and the fixed-point SILK sources, which opus's own silk_sources.mk builds only
+        # under FIXED_POINT (this is a float build; they do not type-check against it).
+        get_target_property(_opus_sources opus SOURCES)
+        list(FILTER _opus_sources EXCLUDE REGEX "/dump_modes/|_demo\\.c$|/opus_compare\\.c$|/opus/src/doc/|/silk/fixed/")
+        set_property(TARGET opus PROPERTY SOURCES ${_opus_sources})
     endif ()
-endmacro()
-
-# The SDK include directories libwebrtc/CMakeLists.txt lists still spell the pre-webkit_sdk layout.
-macro(AQUAWEBKIT_LIBWEBRTC_INCLUDE_DIRECTORIES)
-    string(REPLACE "Source/webrtc/sdk/" "Source/webrtc/webkit_sdk/" webrtc_INCLUDE_DIRECTORIES "${webrtc_INCLUDE_DIRECTORIES}")
-endmacro()
-
-macro(AQUAWEBKIT_LIBWEBRTC_OPUS_SOURCES)
-    # The list carries opus's demo and dump_modes tools (main()s; dump_modes redefines
-    # opus_select_arch) and the fixed-point SILK sources, which opus's own silk_sources.mk builds only
-    # under FIXED_POINT (this is a float build; they do not type-check against it). extensions.c
-    # supplies opus_packet_extensions_*, called by the listed opus and webrtc audio code.
-    list(APPEND opus_SOURCES Source/third_party/opus/src/src/extensions.c)
-    list(FILTER opus_SOURCES EXCLUDE REGEX "/dump_modes/|_demo\\.c$|/opus_compare\\.c$|/opus/src/doc/|/silk/fixed/")
 endmacro()
 
 macro(AQUAWEBKIT_LIBWEBRTC_VPX_SOURCES)

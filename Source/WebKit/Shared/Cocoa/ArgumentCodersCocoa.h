@@ -191,17 +191,13 @@ static inline bool isObjectClassAllowed(id object, const AllowedClassHashSet& al
 template<typename T, typename>
 std::optional<RetainPtr<T>> decodeRequiringAllowedClasses(Decoder& decoder)
 {
-// AQUAWEBKIT: Preserve the native secure coder's class assertions for Data Detectors.
-// #if ASSERT_ENABLED && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if ASSERT_ENABLED && (!HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS)))
+#if ASSERT_ENABLED && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
     auto allowedClasses = decoder.allowedClasses();
 #endif
     auto result = decodeObjectDirectlyRequiringAllowedClasses<T>(decoder);
     if (!result)
         return std::nullopt;
-// AQUAWEBKIT: Preserve the native secure coder's class assertions for Data Detectors.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
     ASSERT(!*result || isObjectClassAllowed((*result).get(), allowedClasses));
 #endif
     return { *result };
@@ -213,9 +209,7 @@ std::optional<T> decodeRequiringAllowedClasses(Decoder& decoder)
     auto result = decodeObjectDirectlyRequiringAllowedClasses<T>(decoder);
     if (!result)
         return std::nullopt;
-// AQUAWEBKIT: Preserve the native secure coder's class assertions for Data Detectors.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
     ASSERT(!*result || isObjectClassAllowed((*result).get(), decoder.allowedClasses()));
 #endif
     return { *result };

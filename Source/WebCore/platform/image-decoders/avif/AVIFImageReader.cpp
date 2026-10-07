@@ -37,12 +37,10 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(AVIFImageReader);
 
 // AQUAWEBKIT: non-owning back-pointer; see AVIFImageReader.h.
+// AVIFImageReader::AVIFImageReader(RefPtr<AVIFImageDecoder>&& decoder)
+//     : m_decoder(WTF::move(decoder))
 AVIFImageReader::AVIFImageReader(AVIFImageDecoder* decoder)
     : m_decoder(decoder)
-/* AQUAWEBKIT: upstream's constructor.
-AVIFImageReader::AVIFImageReader(RefPtr<AVIFImageDecoder>&& decoder)
-    : m_decoder(WTF::move(decoder))
-AQUAWEBKIT */
     , m_avifDecoder(avifDecoderCreate())
 {
     // Allow the PixelInformationProperty ('pixi') to be missing in AV1 image
@@ -71,11 +69,9 @@ bool AVIFImageReader::parseHeader(const SharedBuffer& data, bool allDataReceived
     // AQUAWEBKIT: setSize() rejects a size ImageBackingStore cannot hold by calling setFailed(),
     // and AVIFImageDecoder::setFailed() destroys this reader. Report the failure so tryDecodeSize() stops
     // before it reads imageCount() through the pointer it just cleared, as JPEGImageReader does.
+    // m_decoder->setSize(IntSize(firstImage->width, firstImage->height));
     if (!m_decoder->setSize(IntSize(firstImage->width, firstImage->height)))
         return false;
-/* AQUAWEBKIT: upstream's unchecked call.
-    m_decoder->setSize(IntSize(firstImage->width, firstImage->height));
-AQUAWEBKIT */
     return true;
 }
 

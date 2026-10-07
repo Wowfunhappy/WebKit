@@ -589,6 +589,7 @@ void TiledCoreAnimationDrawingArea::updateLayerHostingContext()
     // CGS-connection contexts; windows that composite their layer tree in-process (iBooks'
     // reader window) display only contexts created against the UI process's CARemoteLayerServer
     // port. See LayerHostingMode in DrawingAreaInfo.h.
+    // m_layerHostingContext = LayerHostingContext::create();
     switch (m_webPage->layerHostingMode()) {
     case LayerHostingMode::InProcess:
         m_layerHostingContext = LayerHostingContext::createForPort(WebProcess::singleton().compositingRenderServerPort().sendRight());

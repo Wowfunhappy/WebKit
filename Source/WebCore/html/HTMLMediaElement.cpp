@@ -1892,6 +1892,7 @@ void HTMLMediaElement::selectMediaResource()
 
             auto absoluteURL = element.document().encodingParseURL(srcValue);
             // AQUAWEBKIT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
+            // if (!element.isSafeToLoadURL(absoluteURL, InvalidURLAction::Complain)) {
             if (!element.isSafeToLoadURL(absoluteURL, InvalidURLAction::Complain) || !element.dispatchBeforeLoadEvent(absoluteURL.string())) {
                 element.mediaLoadingFailed(MediaPlayer::NetworkState::FormatError);
                 return;
@@ -5842,6 +5843,7 @@ URL HTMLMediaElement::selectNextSourceChild(ContentType* contentType, InvalidURL
         // 4. If urlString was not obtained successfully, then end the synchronous section,
         // and jump down to the failed with elements step below.
         // AQUAWEBKIT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
+        // if (!isSafeToLoadURL(mediaURL, actionIfInvalid))
         if (!isSafeToLoadURL(mediaURL, actionIfInvalid) || !dispatchBeforeLoadEvent(mediaURL.string()))
             goto CheckAgain;
 

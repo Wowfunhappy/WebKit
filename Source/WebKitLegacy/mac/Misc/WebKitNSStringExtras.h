@@ -51,10 +51,6 @@ extern NSString *WebKitResourceLoadStatisticsDirectoryDefaultsKey;
 
 - (NSString *)_webkit_stringByTrimmingWhitespace;
 
-// AQUAWEBKIT: restores the _webkit_fixedCarbonPOSIXPath SPI declaration the base lacks.
-// Safari 7-era compatibility (removed from modern WebKit; still called by Safari).
-- (NSString *)_webkit_fixedCarbonPOSIXPath;
-
 + (NSString *)_webkit_localCacheDirectoryWithBundleIdentifier:(NSString*)bundleIdentifier;
 
 @end

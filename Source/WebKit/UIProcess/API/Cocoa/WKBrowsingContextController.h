@@ -26,7 +26,7 @@
 #import <Foundation/Foundation.h>
 #import <WebKit/WKBrowsingContextGroup.h>
 #import <WebKit/WKFoundation.h>
-// AQUAWEBKIT: the legacy WKBrowsingContextController API (4f0294a^) that QuickLook, Apple Mail and iBooks drive.
+// AQUAWEBKIT: the legacy WKBrowsingContextController API that QuickLook, Apple Mail and iBooks drive.
 #import <WebKit/WKProcessGroup.h>
 
 @class WKBackForwardList;
@@ -38,6 +38,9 @@
 WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKWebView", macos(10.10, 10.14.4), ios(8.0, 12.2))
 @interface WKBrowsingContextController : NSObject
 
++ (void)registerSchemeForCustomProtocol:(NSString *)scheme WK_API_DEPRECATED_WITH_REPLACEMENT("WKURLSchemeHandler", macos(10.10, 10.14.4), ios(8.0, 12.2));
++ (void)unregisterSchemeForCustomProtocol:(NSString *)scheme WK_API_DEPRECATED_WITH_REPLACEMENT("WKURLSchemeHandler", macos(10.10, 10.14.4), ios(8.0, 12.2));
+
 // AQUAWEBKIT: see the note at the top of this file.
 #pragma mark Delegates
 
@@ -47,10 +50,6 @@ WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKWebView", macos(10.10, 10.14.4), ios(8.0
 
 #pragma mark Loading
 
-+ (void)registerSchemeForCustomProtocol:(NSString *)scheme WK_API_DEPRECATED_WITH_REPLACEMENT("WKURLSchemeHandler", macos(10.10, 10.14.4), ios(8.0, 12.2));
-+ (void)unregisterSchemeForCustomProtocol:(NSString *)scheme WK_API_DEPRECATED_WITH_REPLACEMENT("WKURLSchemeHandler", macos(10.10, 10.14.4), ios(8.0, 12.2));
-
-// AQUAWEBKIT: see the note at the top of this file.
 /* Load a request. This is only valid for requests of non-file: URLs. Passing a
    file: URL will throw an exception. */
 - (void)loadRequest:(NSURLRequest *)request;

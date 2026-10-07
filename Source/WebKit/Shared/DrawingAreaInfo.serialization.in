@@ -26,7 +26,7 @@ using WebKit::ActivityStateChangeID = uint64_t;
 enum class WebKit::DrawingAreaType : bool
 #endif
 
-# AQUAWEBKIT: serialize the restored LayerHostingMode enum (used by WebPageCreationParameters) for Safari 7 layer hosting; absent at base.
+# AQUAWEBKIT: LayerHostingMode (DrawingAreaInfo.h), carried in WebPageCreationParameters.
 #if ENABLE(TILED_CA_DRAWING_AREA)
 enum class WebKit::LayerHostingMode : uint8_t {
     InWindowServer,

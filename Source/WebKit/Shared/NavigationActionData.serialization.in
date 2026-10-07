@@ -62,7 +62,7 @@ struct WebKit::NavigationActionData {
     [EncodeRequestBody] WebCore::ResourceRequest request;
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
-    # AQUAWEBKIT: serialize the injected-bundle policy userData so the WebProcess can carry it to the UIProcess V0 decidePolicyForNavigationAction client (the #60 fix); upstream's gutted injected-bundle SPI left this null.
+    # AQUAWEBKIT: serialize the injected-bundle policy userData so the WebProcess can carry it to the UIProcess V0 decidePolicyForNavigationAction client (#60).
     WebKit::UserData bundlePolicyUserData;
     # AQUAWEBKIT: the injected bundle's policy client answered Use for this navigation.
     bool bundlePolicyDecidedUse;

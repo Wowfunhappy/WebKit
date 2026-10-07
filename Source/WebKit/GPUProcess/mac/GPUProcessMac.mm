@@ -50,11 +50,9 @@ using namespace WebCore;
 
 void GPUProcess::initializeProcess(const AuxiliaryProcessInitializationParameters&)
 {
-    // AQUAWEBKIT: SetApplicationIsDaemon(true) costs the process its window-server session,
-    // which upstream can afford because its GPU process rasterizes and runs WebGL through Metal. This
-    // one runs ANGLE on CGL -- 10.9 has no Metal -- and CGL enumerates renderers through CoreGraphics:
-    // as a daemon, the CGLChoosePixelFormat call in DisplayCGL::initialize returns
-    // kCGLBadConnection and every WebGL context comes back null.
+    // AQUAWEBKIT: the GPU process keeps its window-server session. It runs ANGLE on CGL (10.9
+    // has no Metal), and CGL enumerates renderers through CoreGraphics, which a daemon cannot reach:
+    // DisplayCGL::initialize's CGLChoosePixelFormat needs the connection.
     // setApplicationIsDaemon();
 
 #if HAVE(CSCHECKFIXDISABLE)

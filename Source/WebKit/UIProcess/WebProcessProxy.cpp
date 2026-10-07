@@ -3065,9 +3065,9 @@ void WebProcessProxy::markProcessAsRecentlyUsed()
     liveProcessesLRU().moveToLastIfPresent(*this);
 }
 
-// AQUAWEBKIT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
-// layer but does NOT provide the GLib WebProcessProxy override, so the Cocoa PAL::systemBeep() impl
-// must still be built (PAL::systemBeep works on macOS).
+// AQUAWEBKIT: Cocoa builds this definition; USE(GLIB) is on here for the GStreamer helper layer only,
+// and the GLib systemBeep() definition is not built.
+// #if !USE(GLIB)
 #if !USE(GLIB) || PLATFORM(COCOA)
 void WebProcessProxy::systemBeep()
 {

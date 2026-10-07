@@ -23,16 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: restored verbatim from upstream 8ee28eb^ ("Remove InjectedBundleNavigationAction",
-// bug 247819). Safari 7 imports WKBundleNavigationActionCopyHitTestResult / GetNavigationType /
-// CopyFormElement and calls them from its injected-bundle policy client; the return-0 stubs upstream
-// left behind made that client build an empty userData dictionary.
+// AQUAWEBKIT: the InjectedBundleNavigationAction accessors. Safari 7 imports
+// WKBundleNavigationActionCopyHitTestResult / GetNavigationType / CopyFormElement and calls them from
+// its injected-bundle policy client to build its userData dictionary.
 
 #include "config.h"
 #include "WKBundleNavigationAction.h"
 #include "WKBundleNavigationActionPrivate.h"
 
-// AQUAWEBKIT: includes for the restored real implementations below.
+// AQUAWEBKIT: includes for the implementations below.
 #include "InjectedBundleHitTestResult.h"
 #include "InjectedBundleNavigationAction.h"
 #include "InjectedBundleNodeHandle.h"
@@ -41,47 +40,47 @@
 
 WKTypeID WKBundleNavigationActionGetTypeID()
 {
-    return WebKit::toAPI(WebKit::InjectedBundleNavigationAction::APIType); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return WebKit::toAPI(WebKit::InjectedBundleNavigationAction::APIType); // AQUAWEBKIT: upstream: return 0;
 }
 
 WKFrameNavigationType WKBundleNavigationActionGetNavigationType(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->navigationType()); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->navigationType()); // AQUAWEBKIT: upstream: return 0;
 }
 
 WKEventModifiers WKBundleNavigationActionGetEventModifiers(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->modifiers()); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->modifiers()); // AQUAWEBKIT: upstream: return 0;
 }
 
 WKEventMouseButton WKBundleNavigationActionGetEventMouseButton(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->mouseButton()); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->mouseButton()); // AQUAWEBKIT: upstream: return 0;
 }
 
 WKBundleHitTestResultRef WKBundleNavigationActionCopyHitTestResult(WKBundleNavigationActionRef navigationActionRef)
 {
     RefPtr<WebKit::InjectedBundleHitTestResult> hitTestResult = WebKit::toImpl(navigationActionRef)->hitTestResult();
-    return toAPI(hitTestResult.leakRef()); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return toAPI(hitTestResult.leakRef()); // AQUAWEBKIT: upstream: return 0;
 }
 
 WKBundleNodeHandleRef WKBundleNavigationActionCopyFormElement(WKBundleNavigationActionRef navigationActionRef)
 {
     RefPtr<WebKit::InjectedBundleNodeHandle> formElement = WebKit::toImpl(navigationActionRef)->formElement();
-    return toAPI(formElement.leakRef()); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return toAPI(formElement.leakRef()); // AQUAWEBKIT: upstream: return 0;
 }
 
 bool WKBundleNavigationActionGetShouldOpenExternalURLs(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toImpl(navigationActionRef)->shouldOpenExternalURLs(); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return WebKit::toImpl(navigationActionRef)->shouldOpenExternalURLs(); // AQUAWEBKIT: upstream: return 0;
 }
 
 bool WKBundleNavigationActionGetShouldTryAppLinks(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toImpl(navigationActionRef)->shouldTryAppLinks(); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return WebKit::toImpl(navigationActionRef)->shouldTryAppLinks(); // AQUAWEBKIT: upstream: return 0;
 }
 
 WKStringRef WKBundleNavigationActionCopyDownloadAttribute(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(navigationActionRef)->downloadAttribute()); // AQUAWEBKIT: restored from 8ee28eb^ (upstream returns 0).
+    return WebKit::toCopiedAPI(WebKit::toImpl(navigationActionRef)->downloadAttribute()); // AQUAWEBKIT: upstream: return 0;
 }

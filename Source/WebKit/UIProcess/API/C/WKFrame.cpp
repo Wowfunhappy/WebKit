@@ -99,8 +99,8 @@ WKPageRef WKFrameGetPage(WKFrameRef frameRef)
 
 WKCertificateInfoRef WKFrameGetCertificateInfo(WKFrameRef frameRef)
 {
-    // AQUAWEBKIT: upstream gutted this to null, which keeps Safari 7's address-bar
-    // lock permanently dark (#103). Get semantics: the WebFrameProxy owns the wrapper.
+    // AQUAWEBKIT: Safari 7's address-bar lock reads this (#103). Get semantics: the
+    // WebFrameProxy owns the wrapper.
     // return nullptr;
     return toAPI(&protect(toImpl(frameRef))->apiCertificateInfo());
 }

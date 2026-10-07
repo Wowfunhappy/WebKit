@@ -38,9 +38,9 @@ namespace WebKit {
 
 class WebUserContentController;
 
-// AQUAWEBKIT: API::ObjectImpl base restored (was RefCounted) so the page
-// group can travel through the legacy C API again (WKBundlePageGetPageGroup /
-// WKBundleAddUserScript — Safari 7 extension content-script injection).
+// AQUAWEBKIT: an API::ObjectImpl, so the page group travels through the legacy C API
+// (WKBundlePageGetPageGroup / WKBundleAddUserScript — Safari 7 extension content-script injection).
+// class WebPageGroupProxy : public RefCounted<WebPageGroupProxy> {
 class WebPageGroupProxy : public API::ObjectImpl<API::Object::Type::BundlePageGroup> {
 public:
     static Ref<WebPageGroupProxy> create(WebPageGroupData&&);
@@ -54,7 +54,7 @@ public:
     // Namespace IDs for local storage namespaces are currently equivalent to web page group IDs.
     WebCore::PageGroup* NODELETE corePageGroup() const;
 
-    // AQUAWEBKIT: the controller the group's pages share, restored from upstream e05340a^.
+    // AQUAWEBKIT: the controller the group's pages share.
     // The legacy WKBundleAddUserScript / WKBundleAddUserStyleSheet C API adds Safari 7 extension
     // content scripts and style sheets here.
     WebUserContentController& userContentController();
@@ -69,8 +69,8 @@ private:
 
 } // namespace WebKit
 
-// AQUAWEBKIT: type traits so downcast<WebPageGroupProxy>(API::Object&) works now that the
-// proxy is an API::ObjectImpl again (legacy C API page-group plumbing, Safari 7).
+// AQUAWEBKIT: type traits so downcast<WebPageGroupProxy>(API::Object&) works (legacy C API
+// page-group plumbing, Safari 7).
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageGroupProxy)
 static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundlePageGroup; }
 SPECIALIZE_TYPE_TRAITS_END()

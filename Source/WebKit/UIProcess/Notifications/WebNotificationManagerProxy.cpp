@@ -71,8 +71,8 @@ WebNotificationManagerProxy::WebNotificationManagerProxy(WebProcessPool* process
 
 WebNotificationManagerProxy::~WebNotificationManagerProxy() = default;
 
-// AQUAWEBKIT: takes ShouldNotifyProviderOfManager; see the header for why the notification
-// is conditional here.
+// AQUAWEBKIT: takes ShouldNotifyProviderOfManager; see the header.
+// void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationProvider>&& provider)
 void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationProvider>&& provider, ShouldNotifyProviderOfManager shouldNotifyProviderOfManager)
 {
     if (!provider) {
@@ -81,7 +81,8 @@ void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationP
     }
 
     m_provider = WTF::move(provider);
-    // AQUAWEBKIT: conditional; see the header. Upstream notifies unconditionally.
+    // AQUAWEBKIT: conditional; see the header.
+    // m_provider->addNotificationManager(*this);
     if (shouldNotifyProviderOfManager == ShouldNotifyProviderOfManager::Yes)
         m_provider->addNotificationManager(*this);
 }
@@ -98,9 +99,8 @@ HashMap<String, bool> WebNotificationManagerProxy::notificationPermissions()
     return m_provider->notificationPermissions();
 }
 
-// AQUAWEBKIT: the client's own published policy for one origin, asked of the provider now
-// rather than read from anything WebKit kept: the client is the store, and its answer changes while a
-// process lives.
+// AQUAWEBKIT: the client's published policy for one origin, asked of the provider each time; the client
+// is the store, and its answer changes while a process lives.
 std::optional<bool> WebNotificationManagerProxy::providerPermissionForOrigin(const String& originString)
 {
     auto permissions = m_provider->notificationPermissions();
@@ -192,17 +192,16 @@ void WebNotificationManagerProxy::clearNotifications(WebPageProxy* webPage, cons
 void WebNotificationManagerProxy::providerDidShowNotification(WebNotificationIdentifier globalNotificationID)
 {
     auto it = m_globalNotificationMap.find(globalNotificationID);
-    if (it == m_globalNotificationMap.end()) {
 #if USE(MOZILLA_PUSH_SERVICE)
-        // AQUAWEBKIT: Safari 7 reports provider events on the pool manager it got
-        // from WKContextGetNotificationManager, but persistent (service worker)
-        // notifications live in the singleton's maps. Notification identifiers are
-        // process-unique (Identified<>), so forwarding a miss cannot collide.
-        if (this != &serviceWorkerManagerSingleton())
-            serviceWorkerManagerSingleton().providerDidShowNotification(globalNotificationID);
+    // AQUAWEBKIT: Safari 7 reports provider events on the pool manager it got
+    // from WKContextGetNotificationManager, but persistent (service worker)
+    // notifications live in the singleton's maps. Notification identifiers are
+    // process-unique (Identified<>), so forwarding a miss cannot collide.
+    if (it == m_globalNotificationMap.end() && this != &serviceWorkerManagerSingleton())
+        return serviceWorkerManagerSingleton().providerDidShowNotification(globalNotificationID);
 #endif
+    if (it == m_globalNotificationMap.end())
         return;
-    } // AQUAWEBKIT: closes the brace opened for the singleton forwarding above.
 
     RefPtr notification = m_notifications.get(it->value);
     if (!notification) {
@@ -241,14 +240,13 @@ static void dispatchDidClickNotification(WebNotification* notification)
 void WebNotificationManagerProxy::providerDidClickNotification(WebNotificationIdentifier globalNotificationID)
 {
     auto it = m_globalNotificationMap.find(globalNotificationID);
-    if (it == m_globalNotificationMap.end()) {
 #if USE(MOZILLA_PUSH_SERVICE)
-        // AQUAWEBKIT: see providerDidShowNotification.
-        if (this != &serviceWorkerManagerSingleton())
-            serviceWorkerManagerSingleton().providerDidClickNotification(globalNotificationID);
+    // AQUAWEBKIT: see providerDidShowNotification.
+    if (it == m_globalNotificationMap.end() && this != &serviceWorkerManagerSingleton())
+        return serviceWorkerManagerSingleton().providerDidClickNotification(globalNotificationID);
 #endif
+    if (it == m_globalNotificationMap.end())
         return;
-    } // AQUAWEBKIT: closes the brace opened for the singleton forwarding above.
 
     providerDidClickNotification(it->value);
 }

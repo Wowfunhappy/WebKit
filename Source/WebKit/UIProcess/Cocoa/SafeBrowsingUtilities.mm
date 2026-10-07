@@ -26,8 +26,6 @@
 #if HAVE(SAFE_BROWSING)
 
 #import "config.h"
-// AQUAWEBKIT: explicit RunLoop.h import so RunLoop::mainSingleton() (used below) is declared; it isn't pulled in transitively in this build.
-#import <wtf/RunLoop.h>
 #import "SafeBrowsingUtilities.h"
 
 #import "SafeBrowsingSPI.h"

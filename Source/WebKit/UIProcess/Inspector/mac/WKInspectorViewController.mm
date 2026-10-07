@@ -36,26 +36,23 @@
 #import "WKOpenPanelParameters.h"
 #import "WKProcessPoolInternal.h"
 #import "WKWebViewInternal.h"
-// AQUAWEBKIT: _pageConfiguration access for the setDrawsBackground(false) divergence below (#52).
+// AQUAWEBKIT: the classic-frontend divergences below: _pageConfiguration for setDrawsBackground(false) (#52),
+// classicInspectorFrontendBridgeScriptUTF8() and the WKUserScript that carries it (_aquaWebKitClassicFrontendBridgeScript).
 #import "WKWebViewConfigurationInternal.h"
+#import <WebCore/InspectorFrontendClassicBridge.h>
+#import <WebKit/WKUserContentController.h>
+#import <WebKit/WKUserScript.h>
 #import "WKWebsiteDataStoreInternal.h"
 #import "WebInspectorUIProxy.h"
 #import "WebInspectorUtilities.h"
 #import "WebPageProxy.h"
-// AQUAWEBKIT: API::PageConfiguration definition for the setDrawsBackground(false) divergence below (#52).
-#import "APIPageConfiguration.h"
 #import "WebsiteDataStore.h"
 #import "_WKInspectorConfigurationInternal.h"
-// AQUAWEBKIT: classic-frontend bridge header — provides classicInspectorFrontendBridgeScriptUTF8() used by _aquaWebKitClassicFrontendBridgeScript below.
-#import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebKit/WKFrameInfo.h>
 #import <WebKit/WKNavigationAction.h>
 #import <WebKit/WKNavigationDelegate.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKUIDelegatePrivate.h>
-// AQUAWEBKIT: for the classic-frontend bridge user script (see _aquaWebKitClassicFrontendBridgeScript).
-#import <WebKit/WKUserContentController.h>
-#import <WebKit/WKUserScript.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -157,9 +154,8 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 
     // AQUAWEBKIT (#52): the frontend page draws no background, so the injected unified-
     // toolbar CSS's rounded top corners are genuinely transparent and the NSThemeFrame's own
-    // rounded titlebar corners show through — the web view covers the whole window (frame-view
-    // hosting in WebInspectorUIProxy::platformCreateFrontendWindow) and would otherwise paint
-    // square corners over them. The page content stays opaque (body paints the gradient, #main
+    // rounded titlebar corners show through the web view, which covers the whole window (frame-view
+    // hosting in WebInspectorUIProxy::platformCreateFrontendWindow). The page content stays opaque (body paints the gradient, #main
     // is white). Must be set at configuration time: the page reads drawsBackground once at init.
     if (usesClassicFrontend)
         configuration.get()->_pageConfiguration->setDrawsBackground(false);
@@ -171,7 +167,7 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     [inspectorSchemeHandler setAllowedURLSchemesForCSP:allowedURLSchemes.get()];
     [configuration setURLSchemeHandler:inspectorSchemeHandler.get() forURLScheme:WKInspectorResourceScheme];
 
-    // AQUAWEBKIT: this backport deliberately ships the system stock (Safari 8-era)
+    // AQUAWEBKIT: this port ships the system stock (Safari 8-era)
     // WebInspectorUI frontend — its Aqua toolbar and pill tab icons are the native Mavericks
     // look — served through the upstream inspector-resource:// scheme handler from the
     // com.apple.WebInspectorUI bundle. The classic frontend predates today's

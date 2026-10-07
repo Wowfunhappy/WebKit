@@ -378,9 +378,12 @@ void ImageLoader::didUpdateCachedImage(RelevantMutation relevantMutation, RefPtr
         m_imageComplete = !newImage;
 
         if (newImage) {
+            // AQUAWEBKIT: image beforeload for Safari 7 extension blocking (#62). With a beforeload listener
+            // present, the (cancelable) event is deferred — it runs script, which is unsafe here.
+            // if (!document->isImageDocument())
+            //     dispatchPendingBeforeLoadEvent();
+            // else
             if (!document->isImageDocument()) {
-                // AQUAWEBKIT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
-                // With a beforeload listener present, defer the (cancelable) event — it runs script, which is unsafe here.
                 if (!document->hasListenerType(Document::ListenerType::BeforeLoad))
                     dispatchPendingBeforeLoadEvent();
                 else
@@ -678,7 +681,7 @@ bool ImageLoader::hasPendingActivity() const
 void ImageLoader::dispatchPendingEvent(ImageEventSender* eventSender, const AtomString& eventType)
 {
     ASSERT_UNUSED(eventSender, eventSender == &loadEventSender());
-    // AQUAWEBKIT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
+    // AQUAWEBKIT: image beforeload for Safari 7 extension blocking (#62).
     if (eventType == eventNames().beforeloadEvent)
         dispatchPendingBeforeLoadEvent();
     if (eventType == eventNames().loadEvent)
@@ -696,8 +699,11 @@ void ImageLoader::dispatchPendingBeforeLoadEvent()
     if (!element().document().hasLivingRenderTree())
         return;
     m_hasPendingBeforeLoadEvent = false;
-    // AQUAWEBKIT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
-    // Dispatch the cancelable beforeload event; a canceled event drops the image load entirely.
+    // AQUAWEBKIT: image beforeload for Safari 7 extension blocking (#62). The beforeload event is
+    // cancelable; a canceled event drops the image load entirely.
+    // if (!element().isConnected())
+    //     return;
+    // updateRenderer();
     Ref<Document> originalDocument = element().document();
     if (protect(element())->dispatchBeforeLoadEvent(m_image->url().string())) {
         bool didEventListenerDisconnectThisElement = !element().isConnected() || &element().document() != originalDocument.ptr();
@@ -706,7 +712,7 @@ void ImageLoader::dispatchPendingBeforeLoadEvent()
         updateRenderer();
         return;
     }
-    // AQUAWEBKIT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
+    // AQUAWEBKIT: image beforeload for Safari 7 extension blocking (#62).
     // A canceled beforeload drops the image load: detach the cached image and cancel its load event.
     if (m_image) {
         m_image->removeClient(*this);

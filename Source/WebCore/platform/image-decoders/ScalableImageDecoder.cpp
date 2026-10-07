@@ -28,8 +28,9 @@
 #include <wtf/TZoneMallocInlines.h>
 
 // AQUAWEBKIT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
-// decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
-// same byte-signature dispatch as the ports that have no CGImageSource at all.
+// decodes every image format in WebCore, so the Mac build takes the byte-signature dispatch of the
+// ports that have no CGImageSource.
+// #if !PLATFORM(COCOA)
 #if !PLATFORM(COCOA) || PLATFORM(MAC)
 #include "BMPImageDecoder.h"
 #include "GIFImageDecoder.h"
@@ -81,8 +82,9 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ScalableImageDecoder);
 namespace {
 
 // AQUAWEBKIT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
-// decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
-// same byte-signature dispatch as the ports that have no CGImageSource at all.
+// decodes every image format in WebCore, so the Mac build takes the byte-signature dispatch of the
+// ports that have no CGImageSource.
+// #if !PLATFORM(COCOA)
 #if !PLATFORM(COCOA) || PLATFORM(MAC)
 static bool matchesGIFSignature(std::span<const uint8_t> contents)
 {
@@ -118,26 +120,14 @@ static bool matchesWebPSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "RIFF"_span) && spanHasPrefix(contents.subspan(8), "WEBPVP"_span);
 }
-#endif // AQUAWEBKIT: closes the widened guard above.
-
-// AQUAWEBKIT: the TIFF header is a byte-order mark followed by the version -- 42 for a
-// classic TIFF, 43 for a BigTIFF -- in that byte order.
-#if USE(TIFF)
-static bool matchesTIFFSignature(std::span<const uint8_t> contents)
-{
-    return spanHasPrefix(contents, unsafeMakeSpan("\x49\x49\x2A\x00", 4))
-        || spanHasPrefix(contents, unsafeMakeSpan("\x4D\x4D\x00\x2A", 4))
-        || spanHasPrefix(contents, unsafeMakeSpan("\x49\x49\x2B\x00", 4))
-        || spanHasPrefix(contents, unsafeMakeSpan("\x4D\x4D\x00\x2B", 4));
-}
-#endif // AQUAWEBKIT: closes the USE(TIFF) guard above.
+#endif
 
 #if USE(AVIF)
 static bool matchesAVIFSignature(std::span<const uint8_t> contents, FragmentedSharedBuffer& data)
 {
-// AQUAWEBKIT: the CG flavour of this check asks ImageIO to name the data's UTI, and 10.9's
-// ImageIO predates AVIF -- decodeUTI can never answer public.avif/avis, so the decoder below would
-// never run. Use upstream's non-CG byte signature instead, like the WebP dispatch above.
+// AQUAWEBKIT: the CG flavour of this check asks ImageIO for the data's UTI, and 10.9's
+// ImageIO predates AVIF. The Mac build takes the byte-signature check, as the WebP dispatch above does.
+// #if USE(CG)
 #if USE(CG) && !PLATFORM(MAC)
     UNUSED_PARAM(contents);
     auto sharedBuffer = data.makeContiguous();
@@ -189,8 +179,9 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 #endif // AQUAWEBKIT: closes the Lockdown Mode check above.
 
 // AQUAWEBKIT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
-// decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
-// same byte-signature dispatch as the ports that have no CGImageSource at all.
+// decodes every image format in WebCore, so the Mac build takes the byte-signature dispatch of the
+// ports that have no CGImageSource.
+// #if !PLATFORM(COCOA)
 #if !PLATFORM(COCOA) || PLATFORM(MAC)
     if (matchesGIFSignature(contentsSpan))
         return GIFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
@@ -213,7 +204,7 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
 // AQUAWEBKIT: this port's TIFF decoder; see the include above.
 #if USE(TIFF)
-    if (matchesTIFFSignature(contentsSpan))
+    if (TIFFImageDecoder::matchesSignature(contentsSpan))
         return TIFFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
 #endif // AQUAWEBKIT: closes the USE(TIFF) guard above.
 

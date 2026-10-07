@@ -462,12 +462,8 @@ if (USE_HEADER_MAPS)
     )
 endif ()
 
-# AQUAWEBKIT: add the legacy host integration sources.
-set(AQUAWEBKIT_WEBKITLEGACY_PHASE SOURCES)
-include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebKitLegacyPlatformAquaWebKit.cmake)
-
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
 
-# AQUAWEBKIT: configure the legacy framework and polyfills.
+# AQUAWEBKIT: the legacy host integration sources and the framework's configuration.
 set(AQUAWEBKIT_WEBKITLEGACY_PHASE POST)
 include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/WebKitLegacyPlatformAquaWebKit.cmake)

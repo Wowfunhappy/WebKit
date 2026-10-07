@@ -495,6 +495,11 @@ probe_keyed_coding() {
         $PROBE_LIBS && "$T/keyed_coding"
 }
 
+probe_strict_inline_values() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/strict_inline_values" "$TBEHAV/Foundation-strict-inline-values.m" \
+        $PROBE_LIBS && "$T/strict_inline_values"
+}
+
 probe_url_response_coding() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_response_coding" "$TBEHAV/Foundation-url-response-coding.m" \
         $PROBE_LIBS && "$T/url_response_coding"
@@ -518,6 +523,16 @@ probe_url_request_coding() {
             -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
             $PROBE_LIBS &&
         "$T/url_request_coding"
+}
+
+probe_url_request_attribution() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_request_attribution" "$TBEHAV/Foundation-url-request-attribution.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/url_request_attribution"
 }
 
 probe_url_data_representation() {
@@ -907,8 +922,10 @@ run_probe private_storage_session "$@"
 run_probe session_invalidation "$@"
 run_probe secure_coding "$@"
 run_probe url_request_coding "$@"
+run_probe url_request_attribution "$@"
 run_probe dd_secure_coding "$@"
 run_probe keyed_coding "$@"
+run_probe strict_inline_values "$@"
 run_probe url_response_coding "$@"
 run_probe getentropy "$@"
 run_probe mkostemp "$@"

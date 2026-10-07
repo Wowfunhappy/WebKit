@@ -305,23 +305,16 @@ void NetworkTaskCocoa::setCookieTransform(const WebCore::ResourceRequest& reques
     setCookieTransformForFirstPartyRequest(request);
 }
 
-// AQUAWEBKIT: upstream swaps the TASK onto a stateless cookie jar with
-// -[NSURLSessionTask _setExplicitCookieStorage:]. On 10.9 a task cannot be re-pointed at a jar once it
-// exists -- measured: attaching a jar to the CF request behind -currentRequest, behind the
-// _originalRequest/_currentRequest ivars, or re-running -_onqueue_strippedMutableRequest all leave the
-// wire unchanged, because the connection is built from the request as it stood when the task was
-// created. What 10.9 does honour is the REQUEST, both the one a task is created from and the one a
-// redirect continues with, so blocking is expressed there instead.
+// AQUAWEBKIT: upstream puts the TASK on a stateless cookie jar with
+// -[NSURLSessionTask _setExplicitCookieStorage:]. 10.9 builds a task's connection from the request as it
+// stands when the task is created, so blocking goes on the REQUEST: the one a task is created from and
+// the one a redirect continues with. The request's allowCookies (NSURLRequest's HTTPShouldHandleCookies)
+// has the stateless jar's two effects: no Cookie header on the way out, no Set-Cookie stored on the way
+// back.
 //
-// The request's allowCookies (NSURLRequest's HTTPShouldHandleCookies) rather than an empty jar: it is the
-// same two effects -- no Cookie header on the way out, no Set-Cookie stored on the way back -- and it is
-// all the stateless jar amounts to, since that jar is a throwaway nothing else ever reads and an
-// unblocked load goes back to the session's real jar either way.
-//
-// The m_hasBeenSetToUseStatelessCookieStorage latch keeps upstream's meaning because 10.9 carries the
-// flag through a redirect: measured, a blocked request's second hop also goes out with no Cookie, and the
-// request CFNetwork proposes for that hop reports HTTPShouldHandleCookies == NO, so the ResourceRequest
-// rebuilt from it arrives here already blocked.
+// 10.9 carries that flag through a redirect: the request CFNetwork proposes for the next hop reports
+// HTTPShouldHandleCookies == NO, so the m_hasBeenSetToUseStatelessCookieStorage latch keeps upstream's
+// meaning.
 void NetworkTaskCocoa::blockCookies(NSMutableURLRequest *request)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
@@ -448,14 +441,13 @@ void NetworkTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&& re
     if (!m_hasBeenSetToUseStatelessCookieStorage) {
         auto thirdPartyCookieBlockingDecision = requestThirdPartyCookieBlockingDecision(request);
         if (NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision))
-            blockCookies(request); // AQUAWEBKIT: the continuing request, per the note above.
+            blockCookies(request); // blockCookies(); -- AQUAWEBKIT: the continuing request, per the note above blockCookies.
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
         else if (isOptInCookiePartitioningEnabled())
             shouldAllowOnlyPartitionedCookies(request);
 #endif
     } else if (storedCredentialsPolicy() != WebCore::StoredCredentialsPolicy::EphemeralStateless && needsFirstPartyCookieBlockingLatchModeQuirk(request.firstPartyForCookies(), request.url(), redirectResponse.url()))
-        // AQUAWEBKIT: as above -- the un-blocking also lands on the continuing request.
-        unblockCookies(request);
+        unblockCookies(request); // unblockCookies(); -- AQUAWEBKIT: the un-blocking also lands on the continuing request.
 #if !RELEASE_LOG_DISABLED
     if (protect(m_networkSession)->shouldLogCookieInformation())
         RELEASE_LOG_IF(isAlwaysOnLoggingAllowed(), Network, "%p - NetworkTaskCocoa::willPerformHTTPRedirection::logCookieInformation: pageID=%" PRIu64 ", frameID=%" PRIu64 ", taskID=%lu: %s cookies for redirect URL %s", this, pageID() ? pageID()->toUInt64() : 0, frameID() ? frameID()->toUInt64() : 0, (unsigned long)[task() taskIdentifier], (m_hasBeenSetToUseStatelessCookieStorage ? "Blocking" : "Not blocking"), request.url().string().utf8().data());

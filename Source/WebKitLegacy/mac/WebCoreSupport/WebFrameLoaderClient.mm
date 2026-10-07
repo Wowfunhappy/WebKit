@@ -1728,10 +1728,12 @@ private:
 };
 
 // AQUAWEBKIT: takes the plug-in package, which upstream's signature ignores.
+// static bool shouldBlockPlugin(WebBasePluginPackage *)
 static bool shouldBlockPlugin(WebBasePluginPackage *pluginPackage)
 {
     // AQUAWEBKIT: the WebKit-ObjC "application" plug-ins the user agent supplies run —
     // WebClip.plugin, which renders Safari Web Clips. Every other package, NPAPI included, is blocked.
+    // return true;
     return ![pluginPackage isKindOfClass:[WebPluginPackage class]];
 }
 

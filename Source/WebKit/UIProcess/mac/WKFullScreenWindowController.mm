@@ -59,9 +59,8 @@
 
 // AQUAWEBKIT: the full-screen-space opt-out asked for by github.com/Wowfunhappy/WebKit/issues/48.
 // Default is the space (Lion-style); `defaults write com.apple.Safari AquaWebKitLionStyleFullScreen
-// -bool NO` covers the current space instead. Read once per process: a page must not be able to change
-// presentation style halfway through a session. Consulted by the two hunks in this file that would
-// otherwise enter/exit the space.
+// -bool NO` covers the current space instead. Read once per process, so the presentation style holds for
+// the whole session. Consulted where this file enters, settles into and exits the space.
 namespace WebKit {
 bool aquaWebKitLionStyleFullScreenEnabled()
 {
@@ -245,6 +244,7 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
 #pragma mark Initialization
 // AQUAWEBKIT: takes NSView rather than WKWebView, so the Safari-7 WKView path shares this
 // controller (see the _webView ivar comment in the header).
+// - (instancetype)initWithWindow:(NSWindow *)window webView:(WKWebView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)pageWrapper
 - (instancetype)initWithWindow:(NSWindow *)window webView:(NSView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)pageWrapper
 {
     self = [super initWithWindow:window];
@@ -252,14 +252,11 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
         return nil;
     Ref page = pageWrapper.get();
     [window setDelegate:self];
-    // AQUAWEBKIT: upstream sets NSWindowCollectionBehaviorFullScreenPrimary | ...Stationary here.
-    // Dropped the Stationary bit on 10.9: a Stationary window is one the WindowServer treats as not
-    // participating in its space, so the Lion-style full-screen space is never given a cached snapshot and
-    // Mission Control draws the tile grey (and the page bleeds into the Desktop tile). Measured on 10.9.5
-    // with a colour-grid page: with Stationary NEVER set, the enter/Mission-Control/exit transitions all
-    // render correctly and the space tile shows the page at t=0 and +9s -- i.e. the bit is not needed for
-    // the transition on this OS and is exactly what greys the tile. (The separate opaque/black adjustment in
-    // -finishedEnterFullScreenAnimation: handles the tile going volatile once the page covers the window.)
+    // AQUAWEBKIT: without NSWindowCollectionBehaviorStationary. 10.9's WindowServer treats a Stationary window
+    // as outside its space, so the full-screen space gets no cached snapshot and Mission Control draws its tile
+    // grey. The opaque/black adjustment in -finishedEnterFullScreenAnimation: handles the tile going volatile
+    // once the page covers the window.
+    // [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorStationary)];
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
 
     // Hide the titlebar during the animation to full screen so that only the WKWebView content is visible.
@@ -529,18 +526,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [CATransaction commit];
 
-    // AQUAWEBKIT: full screen normally takes a SPACE of its own, which is what keeps the
-    // browser window (and its other tabs) reachable one space over and makes it impossible for a page
-    // to strand the user — see github.com/Wowfunhappy/WebKit/issues/48. That issue also asks for an
-    // opt-out for people who dislike Lion-style full screen, so
-    // `defaults write com.apple.Safari AquaWebKitLionStyleFullScreen -bool NO` skips the space and
-    // covers the current one instead: the window is already screen-sized and ordered front here, so
-    // "covering" is what has already happened, and all that is left is to hide the menu bar and Dock
-    // and report the transition finished, since no AppKit space animation will run to report it.
+    // AQUAWEBKIT: full screen normally takes a SPACE of its own, which keeps the browser window
+    // (and its other tabs) reachable one space over (github.com/Wowfunhappy/WebKit/issues/48). With
+    // `defaults write com.apple.Safari AquaWebKitLionStyleFullScreen -bool NO` the space is skipped and
+    // the current one covered: the window is already screen-sized and ordered front here, so all that
+    // is left is to hide the menu bar and Dock and report the transition finished, since no AppKit
+    // space animation will run to report it.
     if (!WebKit::aquaWebKitLionStyleFullScreenEnabled()) {
-        // Remember what the HOST had, not what we assume it had: this controller runs inside Safari,
-        // Mail, iBooks and any other embedder, and overwriting their presentation options with Default
-        // on the way out would be inventing a prior state rather than restoring one.
+        // Save the host's own presentation options: this controller runs inside Safari, Mail, iBooks
+        // and any other embedder.
         _aquaWebKitSavedPresentationOptions = [NSApp presentationOptions];
         _aquaWebKitDidHidePresentationOptions = YES;
         [NSApp setPresentationOptions:(NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar)];
@@ -568,17 +562,13 @@ static const float minVideoWidth = 468; // Keep in sync with `--controls-bar-wid
         manager->setAnimatingFullScreen(false);
         page->setSuppressVisibilityUpdates(false);
 
-        // AQUAWEBKIT: once the full-screen window has settled into its own space, tell the
-        // WindowServer the truth about it -- it is opaque, because the page covers it. WebCoreFullScreenWindow
-        // is deliberately opaque=NO with a clear backgroundColor, which upstream needs for the zoom/fade
-        // transition; but left that way inside the space it costs the window its cached WindowServer
-        // snapshot, so Mission Control renders the space live and draws it grey the moment the now-covered
-        // page's tiles go volatile. Measured A/B on 10.9.5 with a colour-grid page: Safari's NATIVE
-        // full-screen space still shows its content at +6s, ours went grey at +4s; with this, ours holds it
-        // to +8s. Only meaningful on the Lion-style path -- the opt-out never enters a space and has no tile,
-        // so applying it there would be pure divergence. Undone by -_aquaWebKitRestoreWindowForExit, which
-        // every route out of the space calls, because the window outlives the session and the next entry's
-        // fade needs it clear again.
+        // AQUAWEBKIT: once the full-screen window has settled into its own space, mark it opaque,
+        // because the page covers it. WebCoreFullScreenWindow is opaque=NO with a clear backgroundColor,
+        // which upstream needs for the zoom/fade transition; inside the space that costs the window its
+        // cached WindowServer snapshot, so Mission Control renders the space live and draws it grey once
+        // the covered page's tiles go volatile. Only the Lion-style path enters a space. Undone by
+        // -_aquaWebKitRestoreWindowForExit, which every route out of the space calls, because the window
+        // outlives the session and the next entry's fade needs it clear again.
         if (WebKit::aquaWebKitLionStyleFullScreenEnabled()) {
             RetainPtr fullScreenWindow = [self window];
             [fullScreenWindow setOpaque:YES];
@@ -602,11 +592,10 @@ static const float minVideoWidth = 468; // Keep in sync with `--controls-bar-wid
         // nothing and is what lets the user reveal the window controls: the space keeps the title bar
         // off screen until the pointer reaches the top edge.
         //
-        // AQUAWEBKIT: with the Lion-style space opted out there is no space to auto-hide it,
-        // so showing the title bar leaves the traffic lights and the full-screen button sitting on top
-        // of the page for as long as the page is full screen (seen on this host). Nothing reveals or
-        // conceals them, so "show" here would not mean what it means above -- keep them hidden, which
-        // is the state the rest of this path already assumes.
+        // AQUAWEBKIT: with the Lion-style space opted out there is no space to auto-hide the title
+        // bar, so it would leave the traffic lights and the full-screen button on top of the page; it
+        // stays hidden, the state the rest of this path already assumes.
+        // self.window.titlebarAlphaValue = 1;
         if (WebKit::aquaWebKitLionStyleFullScreenEnabled())
             self.window.titlebarAlphaValue = 1;
     } else {
@@ -703,8 +692,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // AQUAWEBKIT: give the menu bar and Dock back here. This is the funnel every teardown exit
     // passes through (-close, page close, web-process crash, client destruction), and unlike
     // _continueExitingFullscreenAfterPostingNotificationAndExitImmediately: it has no bail-out on a
-    // missing _manager -- which is exactly the state those routes are in. Doing it here rather than in
-    // -dealloc means the restore is deterministic instead of riding on when the controller is released.
+    // missing _manager, which is the state those routes are in.
     [self _aquaWebKitRestorePresentationOptionsIfNeeded];
 
     if (_fullScreenState == NotInFullScreen)
@@ -888,10 +876,8 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
 // class -- _manager being non-null, _fullScreenState -- is one the teardown routes can fail, and
 // -[WKFullScreenWindowController close] reaches exitFullScreenImmediately at a point where _page is
 // typically already gone, so _continueExitingFullscreenAfterPostingNotificationAndExitImmediately's
-// `if (!manager) return;` would skip the restore entirely. App-global presentation state must not be
-// left hidden behind a bail-out: that strands the user with no menu bar and no Dock for the rest of the
-// session, which is the very thing this feature exists to prevent. Idempotent, so the normal exit path
-// and the teardown paths can all call it.
+// `if (!manager) return;` would skip the restore entirely. Idempotent, so the normal exit path and the
+// teardown paths can all call it.
 - (void)_aquaWebKitRestorePresentationOptionsIfNeeded
 {
     if (!_aquaWebKitDidHidePresentationOptions)
@@ -906,8 +892,8 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
 // the routes that need it most are the ones whose other state (_manager, _fullScreenState, _page) is
 // already gone. It must be idempotent and called from EVERY route that leaves the space, because the
 // window OUTLIVES the session -- AquaWebKitFullScreenManagerProxyClient::ensureController and
-// WebViewImpl::fullScreenWindowController both cache the controller, so a window left opaque black
-// would make the NEXT entry's zoom-from-element play over a black screen.
+// WebViewImpl::fullScreenWindowController both cache the controller, and the next entry's
+// zoom-from-element needs the window clear.
 - (void)_aquaWebKitRestoreWindowForExit
 {
     if (!_aquaWebKitDidAdjustWindowForSpace)

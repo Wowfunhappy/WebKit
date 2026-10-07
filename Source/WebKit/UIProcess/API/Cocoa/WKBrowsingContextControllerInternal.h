@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: the legacy WebKit2 WKBrowsingContextController (4f0294a^), which QuickLook, Apple Mail and iBooks drive.
+// AQUAWEBKIT: the legacy WebKit2 WKBrowsingContextController, which QuickLook, Apple Mail and iBooks drive.
 
 #import "WKBrowsingContextControllerPrivate.h"
 

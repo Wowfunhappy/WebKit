@@ -117,13 +117,9 @@ enum {
     kWKContextMenuItemTagMediaPlayPause,
     kWKContextMenuItemTagMediaMute,
     kWKContextMenuItemTagDictationAlternative,
-    // AQUAWEBKIT: these four moved to the end of the enum (see below). They were inserted here
-    // upstream (267760@main), which shifted every following tag up by four — including
-    // kWKContextMenuItemTagToggleVideoFullscreen, which Safari 7 was built against as 87 and looks up by
-    // that literal value (BrowserPageContextMenuClient::getContextMenuFromProposedMenu transfers tag
-    // 0x57 to build the "Enter Full Screen" row of the <video> context menu). With the tags shifted, 87
-    // means PauseAnimation, the lookup finds nothing, and the item silently disappears from the menu.
-    // This enum is the C API's ABI; new tags belong at its end.
+    // AQUAWEBKIT: these four sit at the end of the enum (see below), so the tags after them keep the
+    // values Safari 7 was built against. Its <video> context menu looks up
+    // kWKContextMenuItemTagToggleVideoFullscreen as the literal 87.
     // kWKContextMenuItemTagPlayAllAnimations,
     // kWKContextMenuItemTagPauseAllAnimations,
     // kWKContextMenuItemTagPlayAnimation,
@@ -148,8 +144,7 @@ enum {
     kWKContextMenuItemCaptionDisplayStyleSubmenu,
     kWKContextMenuItemTagConvertToTraditionalChinese,
     kWKContextMenuItemTagConvertToSimplifiedChinese,
-    // AQUAWEBKIT: the animation tags, relocated from their upstream position after
-    // kWKContextMenuItemTagDictationAlternative so the tags Safari 7 knows keep their 537.78 values.
+    // AQUAWEBKIT: the animation tags, after every tag Safari 7 knows so those keep their 537.78 values.
     kWKContextMenuItemTagPlayAllAnimations,
     kWKContextMenuItemTagPauseAllAnimations,
     kWKContextMenuItemTagPlayAnimation,

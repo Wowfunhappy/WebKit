@@ -31,7 +31,10 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(WebKit, NearField);
 
-// AQUAWEBKIT: the NearField framework (NFTag/NFSession/NFReaderSession) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+// AQUAWEBKIT: the NearField framework is absent on macOS 10.9; the optional soft-link resolves an absent class to nil.
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, NearField, NFTag);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, NearField, NFSession);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, NearField, NFReaderSession);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, NearField, NFTag);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, NearField, NFSession);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, NearField, NFReaderSession);

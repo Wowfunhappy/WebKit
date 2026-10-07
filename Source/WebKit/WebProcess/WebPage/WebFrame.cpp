@@ -1125,12 +1125,10 @@ bool WebFrame::containsAnyFormElements() const
 
     auto* document = localFrame->document();
     // AQUAWEBKIT: DESCENDANTS, not children (github #98). childrenOfType(Document) iterates the
-    // document node's direct children -- the doctype and <html> -- so a <form>, which the parser always
-    // puts inside <body>, was never found and this returned false for every page. That killed AutoFill
-    // outright: Safari's -[WBSFormMetadataController recursivelyCollectMetadataInFrame:...] calls
+    // document node's direct children -- the doctype and <html> -- and the parser always puts a <form>
+    // inside <body>. Safari's -[WBSFormMetadataController recursivelyCollectMetadataInFrame:...] calls
     // -[BundleAutoFillFrame containsAnyFormElements] (WKBundleFrameContainsAnyFormElements) and skips
-    // FrameMetadata::metadataForAllForms when it is false, so no field was ever a fill candidate.
-    // Upstream cannot see this: nothing but this legacy bundle C API calls it.
+    // FrameMetadata::metadataForAllForms when it is false. Only this legacy bundle C API calls it.
     // return document && childrenOfType<HTMLFormElement>(*document).first();
     return document && descendantsOfType<HTMLFormElement>(*document).first();
 }
@@ -1145,9 +1143,8 @@ bool WebFrame::containsAnyFormControls() const
     if (!document)
         return false;
 
-    // AQUAWEBKIT: DESCENDANTS, not children (github #98) - same defect as
-    // containsAnyFormElements above; the document node's only element child is <html>, so no control
-    // was ever reachable and this returned false for every page.
+    // AQUAWEBKIT: DESCENDANTS, not children (github #98), as in containsAnyFormElements above;
+    // the document node's only element child is <html>.
     // for (auto& child : childrenOfType<Element>(*document)) {
     for (auto& child : descendantsOfType<Element>(*document)) {
         if (is<HTMLTextFormControlElement>(child) || is<HTMLSelectElement>(child))

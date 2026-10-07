@@ -125,7 +125,7 @@ class WebAutomationSession;
 class WebBackForwardCache;
 class WebCompiledContentRuleList;
 class WebContextSupplement;
-class WebIconDatabase; // AQUAWEBKIT: revived legacy WK2 icon database for Safari 7 favicons (#49)
+class WebIconDatabase; // AQUAWEBKIT: legacy WK2 icon database for Safari 7 favicons (#49)
 class WebPageGroup;
 class WebPageProxy;
 class WebProcessCache;
@@ -299,7 +299,7 @@ public:
 
     VisitedLinkStore& visitedLinkStore() { return m_visitedLinkStore.get(); }
 
-    // AQUAWEBKIT: revived legacy WK2 icon database that Safari 7 drives through the C API (#49).
+    // AQUAWEBKIT: legacy WK2 icon database that Safari 7 drives through the C API (#49).
     WebIconDatabase& iconDatabase();
     void setIconDatabasePath(const WTF::String&);
     // AQUAWEBKIT: called at every main-frame commit — fetches the origin's /favicon.ico as a
@@ -308,7 +308,7 @@ public:
     // transaction: pageLoadState().url() holds the PREVIOUS page until that transaction closes.
     void fetchGuessedIconForPage(WebPageProxy&, const WTF::URL& pageURL);
     // AQUAWEBKIT: give the committed page's icon to the URL its load started from, as the
-    // pre-deletion IconController::commitToDatabase did with its second row (#112).
+    // WebKit 537's IconController::commitToDatabase does with its second row (#112).
     void carryIconToInitialRequestURL(WebPageProxy&, const WTF::URL& pageURL);
     // AQUAWEBKIT: called at every main-frame same-document navigation — a pushState-driven
     // site (every click on github.com) makes history entries for URLs no load ever commits, so
@@ -833,7 +833,7 @@ private:
     const Ref<VisitedLinkStore> m_visitedLinkStore;
     bool m_visitedLinksPopulated { false };
 
-    // AQUAWEBKIT: revived legacy WK2 icon database for Safari 7 favicons (#49).
+    // AQUAWEBKIT: legacy WK2 icon database for Safari 7 favicons (#49).
     RefPtr<WebIconDatabase> m_iconDatabase;
     bool m_iconDatabaseEnabled { false };
 

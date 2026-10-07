@@ -1326,6 +1326,7 @@ void LocalFrameView::didLayout(SingleThreadWeakPtr<RenderElement> layoutRoot, bo
 #endif
 
     m_frame->invalidateContentEventRegionsIfNeeded(LocalFrame::InvalidateContentEventRegionsReason::Layout);
+    // document->invalidateRenderingDependentRegions();
     document->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // AQUAWEBKIT: the post-layout path recollects the Dashboard regions.
 
     updateCanBlitOnScrollRecursively();

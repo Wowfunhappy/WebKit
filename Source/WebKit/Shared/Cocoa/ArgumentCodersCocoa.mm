@@ -656,18 +656,6 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
 
     @try {
         id result = [unarchiver decodeObjectOfClasses:allowedClassSet.get() forKey:NSKeyedArchiveRootObjectKey];
-        // AQUAWEBKIT: Mavericks implicitly admits scalar classes; enforce the IPC root allowlist.
-        if (result) {
-            bool allowed = false;
-            for (auto& allowedClass : allowedClasses) {
-                if ([result isKindOfClass:allowedClass.get()]) {
-                    allowed = true;
-                    break;
-                }
-            }
-            if (!allowed)
-                return std::nullopt;
-        }
         ASSERT(!result || [result conformsToProtocol:@protocol(NSSecureCoding)]);
         return { result };
     } @catch (NSException *exception) {

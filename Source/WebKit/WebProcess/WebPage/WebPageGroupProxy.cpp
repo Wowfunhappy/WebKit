@@ -43,7 +43,7 @@ Ref<WebPageGroupProxy> WebPageGroupProxy::create(WebPageGroupData&& data)
 WebPageGroupProxy::WebPageGroupProxy(WebPageGroupData&& data)
     : m_data(WTF::move(data))
     , m_pageGroup(WebCore::PageGroup::pageGroup(m_data.identifier))
-    // AQUAWEBKIT: restored from upstream e05340a^ (see header).
+    // AQUAWEBKIT: see header.
     , m_userContentController(WebUserContentController::getOrCreate(m_data.userContentControllerIdentifier))
 {
 }
@@ -55,7 +55,7 @@ WebCore::PageGroup* WebPageGroupProxy::corePageGroup() const
     return m_pageGroup.get();
 }
 
-// AQUAWEBKIT: restored from upstream e05340a^ (see header).
+// AQUAWEBKIT: see header.
 WebUserContentController& WebPageGroupProxy::userContentController()
 {
     return m_userContentController;

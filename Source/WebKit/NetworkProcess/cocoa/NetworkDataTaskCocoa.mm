@@ -291,10 +291,9 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         return;
     }
 
-    // AQUAWEBKIT: cookie blocking is decided here rather than after the task exists, because
-    // 10.9 can only withhold cookies on the request a task is created FROM -- see
-    // NetworkTaskCocoa::blockCookies. The logging below stays where upstream has it, next to the task
-    // identifier it reports.
+    // AQUAWEBKIT: cookie blocking is decided before the task exists, because 10.9 withholds
+    // cookies only on the request a task is created from; see NetworkTaskCocoa::blockCookies. The
+    // logging below sits next to the task identifier it reports.
     if (WebCore::NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision)) {
         RetainPtr<NSMutableURLRequest> requestWithCookiesBlocked = adoptNS([nsRequest.get() mutableCopy]);
         blockCookies(requestWithCookiesBlocked.get());
@@ -350,8 +349,8 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #else
         LOG(NetworkSession, "%lu Blocking cookies for URL %s", (unsigned long)[m_task taskIdentifier], [nsRequest URL].absoluteString.UTF8String);
 #endif
-        // AQUAWEBKIT: blockCookies already ran, above, on the request the task was created
-        // from; what remains here is upstream's logging.
+        // AQUAWEBKIT: blockCookies runs above, on the request the task is created from.
+        // blockCookies();
     }
 
     if (WebCore::ResourceRequest::resourcePrioritiesEnabled())

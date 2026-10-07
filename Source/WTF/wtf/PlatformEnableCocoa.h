@@ -942,10 +942,11 @@
 #define ENABLE_VARIATION_FONTS 1
 #endif
 
-// Without the added parens `&& (...) || PLATFORM(MAC)` parses as `(!defined(X) && (...)) || PLATFORM(MAC)`,
-// so on Mac the macro is redefined to 1 whatever cmakeconfig.h set — the one value here that a
-// command-line definition cannot preempt.
-// AQUAWEBKIT: the parens on the continuation line below scope the OR (see above).
+// #if !defined(ENABLE_VIDEO_PRESENTATION_MODE)
+//     && (PLATFORM(IOS_FAMILY) && HAVE(AVKIT))
+//     || PLATFORM(MAC)
+// AQUAWEBKIT: the parens on the continuation lines scope the OR to the platform test, so the
+// `!defined(ENABLE_VIDEO_PRESENTATION_MODE)` guard covers PLATFORM(MAC) and cmakeconfig.h's value stands.
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
     && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
     || PLATFORM(MAC))

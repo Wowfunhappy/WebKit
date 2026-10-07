@@ -36,11 +36,10 @@ static bool gEnablePlatformMomentumScrollingPrediction = true;
 
 std::unique_ptr<ScrollingMomentumCalculator> ScrollingMomentumCalculator::create(const ScrollExtents& scrollExtents, const FloatPoint& initialOffset, const FloatSize& initialDelta, const FloatSize& initialVelocity)
 {
-    // AQUAWEBKIT: _NSScrollingMomentumCalculator (the engine behind ScrollingMomentumCalculatorMac)
-    // is 10.10+ and absent on 10.9, where messaging the nil platform calculator left CSS scroll-snap with no
-    // momentum physics (it snapped to the origin). Use the cross-platform BasicScrollingMomentumCalculator —
-    // the same cubic-bezier snap physics every non-Mac port and pre-10.10 Mac shipped. The dead Mac calculator
-    // below stays byte-upstream (its ensurePlatformMomentumCalculator() no longer runs).
+    // AQUAWEBKIT: _NSScrollingMomentumCalculator, the engine behind ScrollingMomentumCalculatorMac, is
+    // 10.10+. CSS scroll-snap momentum takes the cross-platform BasicScrollingMomentumCalculator, as every
+    // non-Mac port does.
+    // return makeUnique<ScrollingMomentumCalculatorMac>(scrollExtents, initialOffset, initialDelta, initialVelocity);
     return makeUnique<BasicScrollingMomentumCalculator>(scrollExtents, initialOffset, initialDelta, initialVelocity);
 }
 

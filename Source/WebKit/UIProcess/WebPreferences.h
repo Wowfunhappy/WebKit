@@ -67,9 +67,8 @@ public:
     void addPage(WebPageProxy&);
     void removePage(WebPageProxy&);
 
-    // AQUAWEBKIT: Safari 7's global Private Browsing toggle (WKPreferencesSet/GetPrivateBrowsingEnabled).
-    // Upstream removed the runtime preference in favor of per-page ephemeral data stores, so back it with a real
-    // flag here and drive each page onto a shared ephemeral WebsiteDataStore. (#55)
+    // AQUAWEBKIT: Safari 7's global Private Browsing toggle (WKPreferencesSet/GetPrivateBrowsingEnabled), which
+    // puts each page on a shared ephemeral WebsiteDataStore. (#55)
     void setPrivateBrowsingEnabled(bool);
     bool privateBrowsingEnabled() const { return m_privateBrowsingEnabled; }
     // The ephemeral session every page under these preferences shares while Private Browsing is on. It hangs

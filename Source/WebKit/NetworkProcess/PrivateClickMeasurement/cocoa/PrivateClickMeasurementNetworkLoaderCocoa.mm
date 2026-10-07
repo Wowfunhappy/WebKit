@@ -139,10 +139,7 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
     RetainPtr crossSiteMainDocument = [NSURLComponents componentsWithURL:request.get().URL resolvingAgainstBaseURL:NO];
     crossSiteMainDocument.get().host = [NSString stringWithFormat:@"not-%@", crossSiteMainDocument.get().host];
     [request setMainDocumentURL:crossSiteMainDocument.get().URL];
-    // AQUAWEBKIT: NSURLRequest attribution uses the App Privacy Report capability gate.
-#if ENABLE(APP_PRIVACY_REPORT)
     [request setAttribution:NSURLRequestAttributionUser];
-#endif // AQUAWEBKIT: closes the App Privacy Report capability gate.
 
     if (jsonPayload) {
         request.get().HTTPMethod = @"POST";

@@ -31,9 +31,7 @@
 #include "ContentType.h"
 #include "MediaSourceConfiguration.h"
 #include "SharedBuffer.h"
-// AQUAWEBKIT: SourceBufferParserAVFObjC is not built -- it is implemented on
-// AVStreamDataParser, which 10.9 does not have. See the two call sites below.
-// #include "SourceBufferParserAVFObjC.h"
+#include "SourceBufferParserAVFObjC.h"
 #include "SourceBufferParserWebM.h"
 #include <pal/spi/cocoa/MediaToolboxSPI.h>
 #include <wtf/text/WTFString.h>

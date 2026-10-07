@@ -40,7 +40,7 @@ messages -> GPUConnectionToWebProcess WantsDispatchMessage {
     void SetNowPlayingInfo(struct WebCore::NowPlayingInfo nowPlayingInfo)
 #if USE(AUDIO_SESSION)
 # AQUAWEBKIT: the audio session is the GPU process's wherever Web Audio renders there, which on this port's GStreamer build is without UseGPUProcessForMediaEnabled.
-#    EnabledBy=UseGPUProcessForMediaEnabled && MediaPlaybackEnabled
+    # [EnabledBy=UseGPUProcessForMediaEnabled && MediaPlaybackEnabled] EnsureAudioSession() -> (struct WebKit::RemoteAudioSessionConfiguration configuration) Synchronous
     [EnabledBy=MediaPlaybackEnabled] EnsureAudioSession() -> (struct WebKit::RemoteAudioSessionConfiguration configuration) Synchronous
 #endif
 #if PLATFORM(IOS_FAMILY)

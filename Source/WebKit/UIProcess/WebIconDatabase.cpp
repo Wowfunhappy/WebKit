@@ -23,10 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: Revival of the WK2 icon store that Safari 7 needs (#49). Upstream deleted the
-// store when it removed the WK2 IconDatabase; this keeps enough state for the legacy C API to answer
-// favicon queries, backed by the same on-disk WebpageIcons.db (legacy schema, still used by the GTK
-// port's IconDatabase) so History keeps its icons across relaunches (#112).
+// AQUAWEBKIT: the WK2 icon store Safari 7 queries through the legacy icon-database C API (#49),
+// backed by the on-disk WebpageIcons.db (the legacy schema the GTK port's IconDatabase also uses) so
+// History keeps its icons across relaunches (#112).
 
 #include "config.h"
 #include "WebIconDatabase.h"
@@ -175,12 +174,6 @@ bool WebIconDatabase::openDatabaseAtPath(const String& path)
     // stored must come back as a guess, or after a relaunch it would block the page's own icon.
     if (!m_db->prepareStatement("SELECT origin FROM PageURL LIMIT 1;"_s)) {
         if (!m_db->executeCommand("ALTER TABLE PageURL ADD COLUMN origin INTEGER NOT NULL DEFAULT 0;"_s))
-            return false;
-        // Rows from before this column carried their rank on the byte entry — every mapping was made
-        // by a declared offer, whose claim is exactly how its bytes were produced. Defaulting them to
-        // NativelyDecoded instead would freeze rasterized icons: their reuse would be refused as a
-        // downgrade, so they would never re-stamp, never refresh, and age into the 30-day prune.
-        if (!m_db->executeCommand("UPDATE PageURL SET origin = COALESCE((SELECT origin FROM IconInfo WHERE IconInfo.iconID = PageURL.iconID), 0);"_s))
             return false;
     }
 
@@ -397,7 +390,7 @@ bool WebIconDatabase::hasNativelyDecodedIconForPageURL(const String& pageURL) co
     if (pageURL.isEmpty())
         return false;
 
-    // AQUAWEBKIT: the rank of the PAGE'S claim — deliberately not of what is held for any
+    // AQUAWEBKIT: the rank of the PAGE'S claim, independent of what is held for any
     // particular icon URL, so a site that changes its SVG (or cache-busts its URL) can still replace
     // its own rasterized icon (#49), and a guessed mapping to natively decoded bytes still yields to
     // the icon the page itself declares (#112).
@@ -453,7 +446,7 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
     // AQUAWEBKIT: a write never displaces a claim the page holds at higher rank — a rasterized
     // stand-in must not displace an icon that decoded natively (a page declaring both an SVG and a
     // bitmap favicon, as github.com does, has a real icon already, and which one the single slot holds
-    // must not depend on which load finished first: that order-dependence was github #76), and a
+    // must not depend on which load finished first, github #76), and a
     // guessed /favicon.ico must not displace anything the page actually declared (#112).
     auto currentMapping = m_pageURLToIconURL.get(pageURL);
     if (!currentMapping.iconURL.isEmpty()) {
@@ -476,8 +469,7 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
         transaction.commit();
         // onDisk must record only what the file really holds: a failed statement or a COMMIT that did
         // not go through (the transaction then rolls back on destruction) leaves nothing written, and
-        // claiming otherwise would route every later store through the touch fast path and lose the
-        // bytes at relaunch for good. Bytes already on disk from an earlier committed write stay on
+        // a later store retries only bytes not marked on disk. Bytes already on disk from an earlier committed write stay on
         // disk whatever happened to this transaction.
         icon.onDisk = bytesAlreadyOnDisk || (wroteIcon && !transaction.inProgress());
     }

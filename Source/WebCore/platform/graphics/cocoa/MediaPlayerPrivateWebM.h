@@ -194,8 +194,7 @@ private:
     void acceleratedRenderingStateChanged() final;
 
     // AQUAWEBKIT: guard to match base MediaPlayerPrivateInterface (MediaPlayerPrivate.h), which
-    // declares these only under ENABLE(VIDEO_PRESENTATION_MODE) (off on this port). An unguarded `final`
-    // override of a compiled-out virtual is "only virtual member functions can be marked 'final'".
+    // declares these only under ENABLE(VIDEO_PRESENTATION_MODE) (off on this port).
     // setTextTrackRepresentation/syncTextTrackBounds are unguarded in the base, so they stay unguarded here.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     RetainPtr<PlatformLayer> createVideoFullscreenLayer() final;

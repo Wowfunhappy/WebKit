@@ -26,24 +26,17 @@
 #include "config.h"
 #include "WebFrameLoaderClient.h"
 
-// AQUAWEBKIT (#60): API:: object + UserData includes for reconstructing Safari 7's injected-bundle navigation-action userData dictionary below.
-#include "APIArray.h"
-#include "APIDictionary.h"
-#include "APIFrameHandle.h"
-#include "APINumber.h"
 #include "FormDataReference.h"
 #include "FrameInfoData.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "NavigationActionData.h"
-#include "UserData.h" // AQUAWEBKIT (#60): serializes the rebuilt navigation-action userData so the frame handle rehydrates into a WKFrameRef in the UI process.
 #include "WebFrame.h"
 #include "WebLocalFrameLoaderClient.h"
 #include "WebMouseEvent.h"
 #include "WebPage.h"
-// AQUAWEBKIT: restored injected-bundle policy client / navigation action (upstream 9eeab8d, 8ee28eb).
+// AQUAWEBKIT: the injected-bundle navigation action the policy client below receives.
 #include "InjectedBundleNavigationAction.h"
-#include "InjectedBundlePagePolicyClient.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/FrameLoader.h>
@@ -195,16 +188,14 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
         request,
         request.url().isValid() ? String() : request.url().string(),
         requester,
-        // AQUAWEBKIT: bundlePolicyUserData is filled in by the callers that actually run the
-        // injected-bundle policy client (see dispatchDecidePolicyForNavigationAction below); this
-        // shared builder leaves it empty. Listed rather than left off so the field we appended to
-        // NavigationActionData is accounted for at every site.
+        // AQUAWEBKIT: dispatchDecidePolicyForNavigationAction fills bundlePolicyUserData from the
+        // injected-bundle policy client; this shared builder leaves it empty.
         { }, /* bundlePolicyUserData */
     };
 }
 
-// AQUAWEBKIT: asks the restored injected-bundle policy client first (537 semantics: a
-// bundle decision of Use/Ignore/Download short-circuits here; PassThrough defers to the UI process).
+// AQUAWEBKIT: formState feeds the injected-bundle navigation action built below.
+// void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse, FormState*, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier> navigationID, std::optional<WebCore::HitTestResult>&& hitTestResult, bool hasOpener, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, SandboxFlags sandboxFlags, PolicyDecisionMode policyDecisionMode, FramePolicyFunction&& function)
 void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse, FormState* formState, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier> navigationID, std::optional<WebCore::HitTestResult>&& hitTestResult, bool hasOpener, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, SandboxFlags sandboxFlags, PolicyDecisionMode policyDecisionMode, FramePolicyFunction&& function)
 {
     LOG(Loading, "WebProcess %i - dispatchDecidePolicyForNavigationAction to request url %s", getCurrentProcessID(), request.url().string().utf8().data());
@@ -214,11 +205,9 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         return function(PolicyAction::Ignore);
 
     RefPtr webPage = m_frame->page();
-    if (!webPage)
-        return function(PolicyAction::Ignore);
 
-    // AQUAWEBKIT: ask the injected bundle's policy client, restored alongside
-    // InjectedBundlePagePolicyClient (upstream 9eeab8d). Safari 7's client returns the userData its
+    // AQUAWEBKIT: asks the injected bundle's policy client (InjectedBundlePagePolicyClient).
+    // Safari 7's client returns the userData its
     // UI-process handler reads, and returns WKBundlePagePolicyActionUse when the navigation is decided
     // without its UI-process handler (BrowserBundlePagePolicyClient::canShortCircuitPolicyDecisionForAction,
     // and Safari's snapshot pages for their own loads). That decision still goes to the UIProcess, which

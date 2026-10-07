@@ -57,8 +57,8 @@ void InjectedBundlePageUIClient::didClickAutoFillButton(WebPage& page, InjectedB
     userData = adoptRef(toImpl(userDataToPass));
 }
 
-// AQUAWEBKIT: re-added so Safari 7's WebProcess plug-in can produce the hovered-element userData
-// (link URL) that the UI process forwards to WKPageUIClient for the status bar (#58).
+// AQUAWEBKIT: Safari 7's WebProcess plug-in produces the hovered-element userData (the link URL) here,
+// which the UI process forwards to WKPageUIClient for the status bar (#58).
 void InjectedBundlePageUIClient::mouseDidMoveOverElement(WebPage& page, const HitTestResult& coreHitTestResult, OptionSet<WebEventModifier> modifiers, RefPtr<API::Object>& userData)
 {
     if (!m_client.mouseDidMoveOverElement)

@@ -23,9 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT (#137): see WKTypeRefWrapper.h. Faithful restoration of the legacy WebKit2
-// WKTypeRefWrapper ObjC class so Apple Mail's MailUIWebBundle (which references it) can load.
-// The wrapper retains the WKTypeRef for its lifetime (WKRetain/WKRelease), matching the original.
+// AQUAWEBKIT (#137): see WKTypeRefWrapper.h. The wrapper retains the WKTypeRef for its lifetime.
 
 #import "config.h"
 #import "WKTypeRefWrapper.h"

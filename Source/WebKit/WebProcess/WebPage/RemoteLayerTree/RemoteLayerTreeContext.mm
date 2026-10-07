@@ -122,8 +122,8 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     m_livePlatformLayers.add(layerID, &layer);
 }
 
-// AQUAWEBKIT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
-// this port); narrow this AVKit-gated video-layer-hosting block to also require it.
+// AQUAWEBKIT: WebPage::videoPresentationManager(), used below, exists only under ENABLE(VIDEO_PRESENTATION_MODE).
+// #if HAVE(AVKIT)
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
 void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, PlatformCALayer::LayerType type, WebCore::HTMLVideoElement& videoElement)
 {
@@ -159,8 +159,8 @@ void RemoteLayerTreeContext::layerWillLeaveContext(PlatformCALayerRemote& layer)
 {
     auto layerID = layer.layerID();
 
-// AQUAWEBKIT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
-// this port); narrow this AVKit-gated video-layer-hosting block to also require it.
+// AQUAWEBKIT: WebPage::videoPresentationManager(), used below, exists only under ENABLE(VIDEO_PRESENTATION_MODE).
+// #if HAVE(AVKIT)
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {

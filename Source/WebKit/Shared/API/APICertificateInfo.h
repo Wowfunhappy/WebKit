@@ -23,12 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: restored. Upstream deleted API::CertificateInfo along with the
-// deprecated WKCertificateInfo C API, but Safari 7 links and calls that API on every
-// page commit to drive the address-bar lock and the Show Certificate sheet (#103).
-// The wrapper carries the modern SecTrust-backed WebCore::CertificateInfo and, on
-// Cocoa, owns the derived certificate-chain CFArray because the 2013 C API vends it
-// with Get (borrowed) semantics — Safari 7 never releases what it receives.
+// AQUAWEBKIT: the object behind the WKCertificateInfo C API, which Safari 7 calls on every page
+// commit for the address-bar lock and the Show Certificate sheet. It wraps WebCore::CertificateInfo
+// and, on Cocoa, owns the certificate-chain CFArray the C API vends with Get (borrowed) semantics.
 
 #pragma once
 

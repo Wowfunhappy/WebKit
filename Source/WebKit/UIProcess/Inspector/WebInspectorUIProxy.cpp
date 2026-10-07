@@ -851,13 +851,11 @@ void WebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveD
 void WebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
     if (!protect(protect(inspectedPage())->preferences())->developerExtrasEnabled())
-    // AQUAWEBKIT: invoke the CompletionHandler on the early-return path so it isn't destroyed unrun (asserts).
-        return completionHandler({ });
+        return;
 
     ASSERT(!path.isEmpty());
     if (path.isEmpty())
-        // AQUAWEBKIT: invoke the CompletionHandler on the early-return path so it isn't destroyed unrun (asserts).
-        return completionHandler({ });
+        return;
 
     platformLoad(path, WTF::move(completionHandler));
 }

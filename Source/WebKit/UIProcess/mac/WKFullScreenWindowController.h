@@ -53,6 +53,7 @@ typedef enum FullScreenState : NSInteger FullScreenState;
     // controller too (AquaWebKitPageClient.mm). Every use of this ivar in the implementation is NSView API
     // — window/frame/superview/autoresizingMask/removeFromSuperview/makeFirstResponder: — so this widens
     // what the controller accepts without changing what it does. Cannot be retained, see <rdar://problem/14884666>.
+    // WeakObjCPtr<WKWebView> _webView; // Cannot be retained, see <rdar://problem/14884666>.
     WeakObjCPtr<NSView> _webView;
     WeakPtr<WebKit::WebPageProxy> _page;
     RetainPtr<WKFullScreenPlaceholderView> _webViewPlaceholder;
@@ -89,6 +90,7 @@ typedef enum FullScreenState : NSInteger FullScreenState;
 @property (assign) NSArray *savedConstraints;
 
 // AQUAWEBKIT: takes NSView rather than WKWebView (see the _webView ivar comment).
+// - (instancetype)initWithWindow:(NSWindow *)window webView:(WKWebView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)page;
 - (instancetype)initWithWindow:(NSWindow *)window webView:(NSView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)page;
 
 @property (nonatomic, readonly) WebCoreFullScreenPlaceholderView *webViewPlaceholder;

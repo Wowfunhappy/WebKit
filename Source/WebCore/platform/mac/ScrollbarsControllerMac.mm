@@ -225,10 +225,8 @@ using WebCore::LogOverlayScrollbars;
     if (!self)
         return nil;
 
-    // AQUAWEBKIT: the timer is created in -startAnimation instead. Creating it once here breaks
-    // every animation after the first: -setCurrentProgress: invalidates it on completion, and the delegate
-    // reuses this object for every UI-state/expansion transition, where re-adding the invalidated timer to
-    // the run loop is a no-op (github #67, legacy scrollbars latch in/out of their hover state).
+    const NSTimeInterval timeInterval = 0.01;
+    _timer = adoptNS([[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSinceNow:0] interval:timeInterval target:self selector:@selector(setCurrentProgress:) userInfo:nil repeats:YES]);
     _duration = duration;
     lazyInitialize(_timingFunction, WebCore::CubicBezierTimingFunction::create(WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseInOut));
 
@@ -251,9 +249,9 @@ using WebCore::LogOverlayScrollbars;
 
     LOG_WITH_STREAM(OverlayScrollbars, stream << "-[WebScrollbarPartAnimation " << self << "startAnimation] for " << _featureToAnimate);
 
-    // AQUAWEBKIT: create a fresh timer on every start (see -initWithScrollbar:). The previous
-    // animation's timer is invalidated — either by -setCurrentProgress: on completion or by -stopAnimation —
-    // and an invalidated NSTimer can never be rescheduled, so reusing it leaves the animation inert (github #67).
+    // AQUAWEBKIT: a fresh timer on every start. -setCurrentProgress: invalidates the timer when an
+    // animation completes, as -stopAnimation does, and the delegate reuses this object for every
+    // UI-state/expansion transition; an invalidated NSTimer can never be rescheduled.
     [_timer invalidate];
     const NSTimeInterval timeInterval = 0.01;
     _timer = adoptNS([[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSinceNow:0] interval:timeInterval target:self selector:@selector(setCurrentProgress:) userInfo:nil repeats:YES]);

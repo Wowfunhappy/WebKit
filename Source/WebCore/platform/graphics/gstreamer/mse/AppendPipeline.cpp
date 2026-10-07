@@ -133,6 +133,7 @@ void AppendPipeline::setupDemuxing()
     } else if (type.endsWith("webm"_s)) {
         m_demux = makeGStreamerElement("matroskademux"_s);
         m_typefind = makeGStreamerElement("identity"_s);
+    // } else if (type == "audio/mpeg"_s) {
     } else if (type == "audio/mpeg"_s || type.endsWith("aac"_s)) { // AQUAWEBKIT: an "aac" container type is an unmuxed ADTS byte stream; see above.
         // Will be instantiated later based on typefind results.
         m_demux = nullptr;
@@ -154,10 +155,8 @@ void AppendPipeline::setupDemuxing()
                 demuxerElementName = "identity"_s;
 
             if (demuxerElementName.isNull()) {
-                // AQUAWEBKIT: more than one container type enters this branch, so the error
-                // names the byte stream it frames rather than one of those types.
                 GST_ELEMENT_ERROR(appendPipeline->pipeline(), STREAM, WRONG_TYPE,
-                    ("Unsupported caps for an unmuxed audio byte stream: %s",
+                    ("Unsupported caps for audio/mpeg mimetype: %s",
                     gstStructureGetName(capsStructure).utf8()), (nullptr));
                 return;
             }
@@ -185,8 +184,7 @@ void AppendPipeline::setupDemuxing()
         GST_INFO_OBJECT(pipeline(), "Created typefind: %s", gst_element_get_name(m_typefind.get()));
 
     // m_demux might be null at this point if there's a typefind pending to identify the proper demuxer to be used
-    // (see the unmuxed audio byte stream case right above -- AQUAWEBKIT: more than one
-    // container type enters it).
+    // (see the audio/mpeg case right above).
     if (m_demux) {
         configureOptionalDemuxerFromAnyThread();
         GST_INFO_OBJECT(pipeline(), "Created demuxer: %s", gst_element_get_name(m_demux.get()));
@@ -240,12 +238,10 @@ void AppendPipeline::configureOptionalDemuxerFromAnyThread()
                 if (!areEncryptedCaps(caps))
                     return GST_PAD_PROBE_OK;
 
-                // AQUAWEBKIT: taking the pipeline apart is the main thread's work, and it
-                // is reached through the task queue like every other structural change here. This
-                // probe holds the pad's stream lock; the main thread deactivates pads holding the
-                // pipeline's state lock and then takes that same stream lock, so the two are
-                // ordered state-lock-then-stream-lock everywhere. The queue is what stopParser()
-                // aborts before it changes state, so a teardown releases this thread.
+                // AQUAWEBKIT: taking the pipeline apart is the main thread's work, reached through the
+                // task queue like every other structural change here, which keeps the lock order
+                // state lock, then stream lock. stopParser() aborts the queue before it changes state.
+                // appendPipeline->removeParserForDemuxerPad(GRefPtr(pad));
                 appendPipeline->m_taskQueue.enqueueTaskAndWait<AbortableTaskQueue::Void>([appendPipeline, pad = GRefPtr(pad)]() {
                     appendPipeline->removeParserForDemuxerPad(pad);
                     return AbortableTaskQueue::Void();
@@ -396,7 +392,6 @@ GstPadProbeReturn AppendPipeline::appsrcEndOfAppendCheckerProbe(GstPadProbeInfo*
 
 void AppendPipeline::removeParserForDemuxerPad(const GRefPtr<GstPad>& pad)
 {
-    ASSERT(isMainThread()); // AQUAWEBKIT: it reaches the pipeline and m_tracks.
     GRefPtr peer = adoptGRef(gst_pad_get_peer(pad.get()));
     if (!peer)
         return;
@@ -444,6 +439,7 @@ void AppendPipeline::handleNeedContextSyncMessage(GstMessage* message)
     GRefPtr pad = GST_PAD_CAST(m_demux->srcpads->data);
     // AQUAWEBKIT: a sync-message handler runs on the thread that posted the message, and
     // the pipeline and m_tracks this reaches are the main thread's.
+    // removeParserForDemuxerPad(pad);
     if (isMainThread()) {
         removeParserForDemuxerPad(pad);
         return;

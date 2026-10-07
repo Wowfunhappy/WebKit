@@ -35,6 +35,7 @@ messages -> WebPageProxy {
     RunJavaScriptConfirm(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, String message) -> (bool result) Synchronous
     RunJavaScriptPrompt(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, String message, String defaultValue) -> (String result) Synchronous
     # AQUAWEBKIT: trailing UserData carries the injected-bundle hovered-URL for Safari 7's status bar (#58).
+    # MouseDidMoveOverElement(struct WebKit::WebHitTestResultData hitTestResultData, OptionSet<WebKit::WebEventModifier> modifiers)
     MouseDidMoveOverElement(struct WebKit::WebHitTestResultData hitTestResultData, OptionSet<WebKit::WebEventModifier> modifiers, WebKit::UserData userData)
 
     DidReceiveEventIPC(enum:uint32_t WebKit::WebEventType eventType, bool handled, struct std::optional<WebCore::RemoteUserInputEventData> remoteUserInputEventData)
@@ -129,9 +130,10 @@ messages -> WebPageProxy {
     [EnabledBy=InputTypeDateEnabled || InputTypeDateTimeLocalEnabled || InputTypeMonthEnabled || InputTypeTimeEnabled || InputTypeWeekEnabled] EndDateTimePicker();
 
     # Policy messages
-    # AQUAWEBKIT: bundlePolicyUserData carries the injected-bundle policy client's userData (restored with InjectedBundlePagePolicyClient); bundlePolicyDecidedUse says that client answered Use.
+    # AQUAWEBKIT: bundlePolicyUserData carries the injected-bundle policy client's userData; bundlePolicyDecidedUse says that client answered Use.
+    # DecidePolicyForResponse(struct WebKit::FrameInfoData frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, WebCore::ResourceResponse response, WebCore::ResourceRequest request, bool canShowMIMEType, String downloadAttribute, bool isShowingInitialAboutBlank, enum:uint8_t WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue) -> (struct WebKit::PolicyDecision PolicyDecision)
     DecidePolicyForResponse(struct WebKit::FrameInfoData frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, WebCore::ResourceResponse response, WebCore::ResourceRequest request, bool canShowMIMEType, String downloadAttribute, bool isShowingInitialAboutBlank, enum:uint8_t WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, WebKit::UserData bundlePolicyUserData, bool bundlePolicyDecidedUse) -> (struct WebKit::PolicyDecision PolicyDecision)
-    # AQUAWEBKIT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it); drives the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
+    # AQUAWEBKIT: sent by the WebProcess InjectedBundlePagePolicyClient; drives the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
     UnableToImplementPolicy(WebCore::FrameIdentifier frameID, WebCore::ResourceError error, WebKit::UserData userData)
     DecidePolicyForNavigationActionAsync(struct WebKit::NavigationActionData data) -> (struct WebKit::PolicyDecision PolicyDecision)
     DecidePolicyForNavigationActionSync(struct WebKit::NavigationActionData data) -> (struct WebKit::PolicyDecision PolicyDecision) Synchronous

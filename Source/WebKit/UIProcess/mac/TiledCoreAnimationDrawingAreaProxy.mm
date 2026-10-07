@@ -170,7 +170,7 @@ void TiledCoreAnimationDrawingAreaProxy::waitForDidUpdateActivityState(ActivityS
 }
 
 // AQUAWEBKIT: bounded synchronous wait for the in-flight UpdateGeometry reply, backing the
-// restored Safari-7 WKView SPI: -forceAsyncDrawingAreaSizeUpdate: polls with a zero timeout so an
+// Safari-7 WKView SPI: -forceAsyncDrawingAreaSizeUpdate: polls with a zero timeout so an
 // already-answered update dispatches (and a queued resize goes out immediately), and
 // -waitForAsyncDrawingAreaSizeUpdate blocks until the web process has laid out at the new size.
 // Mirrors waitForDidUpdateActivityState above; UpdateGeometry's reply is declared
@@ -241,6 +241,7 @@ void TiledCoreAnimationDrawingAreaProxy::sendUpdateGeometry()
 
     willSendUpdateGeometry();
     // AQUAWEBKIT: the async-reply ID is recorded so waitForDidUpdateGeometry can block on the in-flight update.
+    // sendWithAsyncReply(Messages::DrawingArea::UpdateGeometry(size(), true /* flushSynchronously */, createFence()), [weakThis = WeakPtr { *this }] {
     m_pendingUpdateGeometryReplyID = sendWithAsyncReply(Messages::DrawingArea::UpdateGeometry(size(), true /* flushSynchronously */, createFence()), [weakThis = WeakPtr { *this }] {
         if (!weakThis)
             return;

@@ -39,7 +39,7 @@
 #include "RemoteWorkerType.h"
 #include "SharedBufferReference.h"
 #include "SharedPreferencesForWebProcess.h"
-#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: upstream 319948@main (webkit.org/b/322485).
+#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: fetchTaskReceivedMainResourceResponse below (webkit.org/b/322485).
 #include "WebProcess.h"
 #include "WebProcessMessages.h"
 #include "WebResourceLoaderMessages.h"
@@ -854,7 +854,7 @@ void WebSWServerConnection::fetchTaskTimedOut(ServiceWorkerIdentifier serviceWor
     worker->terminate();
 }
 
-// AQUAWEBKIT: upstream 319948@main (webkit.org/b/322485).
+// AQUAWEBKIT: the certificate of a main resource a service worker serves: the worker's own, else the response's (webkit.org/b/322485).
 void WebSWServerConnection::fetchTaskReceivedMainResourceResponse(std::optional<ServiceWorkerIdentifier> serviceWorkerIdentifier, const ResourceResponse& response, FrameIdentifier frameID)
 {
     RefPtr networkProcess = this->networkProcess();

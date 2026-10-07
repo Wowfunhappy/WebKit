@@ -1031,14 +1031,11 @@ static NSURL *createUniqueWebDataURL();
 
 @implementation WebFrame (WebPrivate)
 
-// AQUAWEBKIT: restore the legacy null-event SPI removed upstream with
-// ENABLE(NETSCAPE_PLUGIN_API) (232462). macOS 10.9's DashboardClient drives
+// AQUAWEBKIT: the legacy null-event SPI. macOS 10.9's DashboardClient drives
 // widget visibility by pausing/resuming null events for plug-ins across the
-// frame tree; without these selectors the unrecognized-selector exception
-// interrupts widget show/hide and Web Clips render blank. This backport has no
-// Netscape (NPAPI) plug-ins, so there are no null events to pump — the per-frame
-// document view never implements the resume/pause selector, so the guarded call
-// is a faithful no-op. The frame-tree walk is preserved verbatim.
+// frame tree (Web Clips). With no Netscape (NPAPI) plug-ins there are no null
+// events to pump: the per-frame document view does not implement the
+// resume/pause selector, so the guarded call does nothing.
 - (void)_recursive_resumeNullEventsForAllNetscapePlugins
 {
     auto coreFrame = core(self);

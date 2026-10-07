@@ -103,7 +103,7 @@ InjectedBundleNavigationAction::InjectedBundleNavigationAction(WebFrame* frame, 
     , m_shouldOpenExternalURLs(navigationAction.shouldOpenExternalURLsPolicy() == ShouldOpenExternalURLsPolicy::ShouldAllow || navigationAction.shouldOpenExternalURLsPolicy() == ShouldOpenExternalURLsPolicy::ShouldAllowExternalSchemesButNotAppLinks)
     , m_shouldTryAppLinks(navigationAction.shouldOpenExternalURLsPolicy() == ShouldOpenExternalURLsPolicy::ShouldAllow)
 {
-    // AQUAWEBKIT: coreFrame() became coreLocalFrame() and can be null; guard before use.
+    // AQUAWEBKIT: coreLocalFrame() can be null.
     if (auto mouseEventData = navigationAction.mouseEventData(); mouseEventData && frame && frame->coreLocalFrame()) {
         constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
         m_hitTestResult = InjectedBundleHitTestResult::create(frame->coreLocalFrame()->eventHandler().hitTestResultAtPoint(mouseEventData->absoluteLocation, hitType));

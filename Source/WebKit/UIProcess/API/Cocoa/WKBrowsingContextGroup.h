@@ -30,8 +30,8 @@
 
 // FIXME: Remove this header once rdar://112426343 is resolved.
 
-// AQUAWEBKIT: the legacy WKBrowsingContextGroup (5065b21^) that QuickLook's Web2.qldisplay and Apple Mail
-// use, with the 537-era user-content selectors those clients send (a91ec2e^).
+// AQUAWEBKIT: the legacy WKBrowsingContextGroup that QuickLook's Web2.qldisplay and Apple Mail
+// use, with the 537-era user-content selectors those clients send.
 WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKUserContentController and WKPreferences", macos(10.10, 10.14.4), ios(8.0, 12.2))
 @interface WKBrowsingContextGroup : NSObject
 

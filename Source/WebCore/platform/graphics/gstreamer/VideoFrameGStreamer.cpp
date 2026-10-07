@@ -37,17 +37,11 @@
 #include "VideoPixelFormat.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/TypedArrayInlines.h>
-// AQUAWEBKIT: VideoFrame::fromNativeImage has both a Skia and a CG path; only pull Skia on USE(SKIA).
+// AQUAWEBKIT: Skia serves only the !PLATFORM(COCOA) fromNativeImage() below; this build has no Skia.
 #if USE(SKIA)
 #include <skia/core/SkData.h>
 #include <skia/core/SkImage.h>
-#endif
-// AQUAWEBKIT: CoreGraphics + FastMalloc/RetainPtr back the CG fromNativeImage path used on this build.
-#if USE(CG)
-#include <CoreGraphics/CoreGraphics.h>
-#include <wtf/FastMalloc.h>
-#include <wtf/RetainPtr.h>
-#endif
+#endif // AQUAWEBKIT: closes the Skia guard above.
 
 #if USE(GBM)
 #include <drm_fourcc.h>
@@ -61,13 +55,12 @@
 #include <gst/gl/gl.h>
 #endif
 
-// AQUAWEBKIT: SkPixmap is only used by the Skia fromNativeImage path; this build is USE(CG), so guard the include.
+// AQUAWEBKIT: as the Skia includes above.
 #if USE(SKIA)
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkPixmap.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
-// AQUAWEBKIT: end of the USE(SKIA)-only SkPixmap include guard (this build is USE(CG)).
-#endif
+#endif // AQUAWEBKIT: closes the guard above.
 
 GST_DEBUG_CATEGORY(webkit_video_frame_debug);
 GST_DEBUG_CATEGORY_STATIC(GST_CAT_PERFORMANCE);
@@ -156,17 +149,13 @@ VideoFrameGStreamer::Info VideoFrameGStreamer::infoFromCaps(const GRefPtr<GstCap
     return { videoInfo, { } };
 }
 
-// AQUAWEBKIT: VideoFrame::createFromPixelBuffer was defined here upstream:
-//
-//     RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuffer, PlatformVideoColorSpace&& colorSpace)
-//     {
-//         return VideoFrameGStreamer::createFromPixelBuffer(WTF::move(pixelBuffer), { }, 1, { }, WTF::move(colorSpace));
-//     }
-//
-// It has moved below, into the #if !PLATFORM(COCOA) block: on Cocoa the shared VideoFrame:: factories
-// come from VideoFrameCV, so defining them here too is a duplicate symbol. The move is what lets the
-// rest of this file (VideoFrameGStreamer::*, used by the GStreamer media player) stay compiled on Cocoa.
-// AQUAWEBKIT: file-local helpers used by VideoFrameGStreamer::* (outside the COCOA guard); kept compiled.
+// AQUAWEBKIT: on Cocoa VideoFrameCV defines the VideoFrame:: factories. This one is defined in the
+// !PLATFORM(COCOA) block below, after convertSampleToImage(), which VideoFrameGStreamer uses everywhere.
+// RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuffer, PlatformVideoColorSpace&& colorSpace)
+// {
+//     return VideoFrameGStreamer::createFromPixelBuffer(WTF::move(pixelBuffer), { }, 1, { }, WTF::move(colorSpace));
+// }
+
 static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sample, const GstVideoInfo& videoInfo)
 {
 // AQUAWEBKIT: the CoreGraphics ImageGStreamer (ImageGStreamerCG.cpp) takes the decoded sample
@@ -190,25 +179,6 @@ static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sam
     return ImageGStreamer::create(WTF::move(convertedSample));
 #endif // AQUAWEBKIT: closes the Cocoa conversion branch above.
 }
-static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
-{
-    GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
-    // AQUAWEBKIT(upstreamable): WebCodecs timestamps are signed and may be negative;
-    // toValidGstClockTime() avoids the int64→uint64 wrap (see GStreamerCommon.h).
-    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toValidGstClockTime(presentationTime);
-    GST_BUFFER_DURATION(buffer) = toGstClockTime(1_s / frameRate);
-}
-static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
-{
-    auto buffer = gst_sample_get_buffer(sample.get());
-    if (!GST_IS_BUFFER(buffer))
-        return MediaTime::invalidTime();
-
-    if (GST_BUFFER_PTS_IS_VALID(buffer))
-        return fromGstClockTime(GST_BUFFER_PTS(buffer));
-
-    return MediaTime::invalidTime();
-}
 
 #if !PLATFORM(COCOA) // AQUAWEBKIT: Cocoa VideoFrameCV provides the shared VideoFrame:: factories; VideoFrameGStreamer::* (GStreamer media player) stays compiled.
 RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuffer, PlatformVideoColorSpace&& colorSpace)
@@ -224,8 +194,6 @@ RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
     size_t offsets[GST_VIDEO_MAX_PLANES] = { 0, };
     int strides[GST_VIDEO_MAX_PLANES] = { 0, };
 
-    // AQUAWEBKIT: upstream reads the NativeImage's Skia platformImage; this build is USE(CG), so the CG path (#elif USE(CG) below) reads the CGImage into a packed BGRA GstBuffer instead.
-#if USE(SKIA)
     auto platformImage = image.platformImage();
     const auto& imageInfo = platformImage->imageInfo();
     strides[0] = imageInfo.minRowBytes();
@@ -278,48 +246,6 @@ RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
     auto info = VideoFrameGStreamer::infoFromCaps(caps);
     GRefPtr sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
     return VideoFrameGStreamer::create(WTF::move(sample), { { width, height }, WTF::move(info) });
-#elif USE(CG)
-    // AQUAWEBKIT: CoreGraphics path. Read the NativeImage's CGImage into a packed BGRA buffer
-    // (GST_VIDEO_FORMAT_BGRA — what the CG ImageGStreamer seam and the rest of the pipeline expect) and
-    // wrap it in a GstSample. CG bitmap contexts only emit premultiplied alpha; for the opaque frames this
-    // path handles (canvas / decoded video) that matches straight-alpha BGRA.
-    auto platformImage = image.platformImage();
-    if (!platformImage)
-        return nullptr;
-    CGImageRef cgImage = platformImage.get();
-    size_t width = CGImageGetWidth(cgImage);
-    size_t height = CGImageGetHeight(cgImage);
-    if (!width || !height)
-        return nullptr;
-    size_t bytesPerRow = width * 4;
-    size_t dataSize = bytesPerRow * height;
-    auto* pixels = static_cast<uint8_t*>(fastMalloc(dataSize));
-    auto colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
-    auto context = adoptCF(CGBitmapContextCreate(pixels, width, height, 8, bytesPerRow, colorSpace.get(),
-        static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Little)));
-    if (!context) {
-        fastFree(pixels);
-        return nullptr;
-    }
-    CGContextDrawImage(context.get(), CGRectMake(0, 0, width, height), cgImage);
-
-    strides[0] = bytesPerRow;
-    GstVideoFormat format = GST_VIDEO_FORMAT_BGRA;
-    auto buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, pixels, dataSize, 0, dataSize, pixels, [](gpointer userData) {
-        fastFree(userData);
-    }));
-    gst_buffer_add_video_meta_full(buffer.get(), GST_VIDEO_FRAME_FLAG_NONE, format, width, height, 1, offsets, strides);
-
-    auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, gst_video_format_to_string(format), "width", G_TYPE_INT, static_cast<int>(width), "height", G_TYPE_INT, static_cast<int>(height), nullptr));
-    auto info = VideoFrameGStreamer::infoFromCaps(caps);
-    auto sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
-    return VideoFrameGStreamer::create(WTF::move(sample), { { static_cast<int>(width), static_cast<int>(height) }, WTF::move(info) });
-#else
-    UNUSED_PARAM(image);
-    UNUSED_PARAM(offsets);
-    UNUSED_PARAM(strides);
-    return nullptr;
-#endif
 }
 
 #endif // AQUAWEBKIT: Cocoa supplies the native-image and pixel-buffer factories.
@@ -425,7 +351,7 @@ RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t
     // AQUAWEBKIT: The shared factory delegates to GStreamer plane storage.
     return VideoFrameGStreamer::createI420A(span, width, height, planeY, planeU, planeV, planeA, WTF::move(colorSpace));
 }
-#endif // AQUAWEBKIT: The GStreamer I420A backend is available on Cocoa.
+#endif // AQUAWEBKIT: closes the !PLATFORM(COCOA) factories above.
 
 // AQUAWEBKIT: Both platform factories use this GStreamer I420A backend.
 // RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t width, size_t height, const ComputedPlaneLayout& planeY, const ComputedPlaneLayout& planeU, const ComputedPlaneLayout& planeV, const ComputedPlaneLayout& planeA, PlatformVideoColorSpace&& colorSpace)
@@ -454,12 +380,13 @@ RefPtr<VideoFrame> VideoFrameGStreamer::createI420A(std::span<const uint8_t> spa
     return VideoFrameGStreamer::create(WTF::move(sample), { { static_cast<int>(width), static_cast<int>(height) }, { { info } } }, WTF::move(colorSpace));
 }
 
-// AQUAWEBKIT: Timestamp helpers have file scope alongside the platform factories.
-/*
 static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
 {
     GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
-    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toGstClockTime(presentationTime);
+    // AQUAWEBKIT(upstreamable): WebCodecs timestamps are signed and may be negative;
+    // toValidGstClockTime() avoids the int64→uint64 wrap (see GStreamerCommon.h).
+    // GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toGstClockTime(presentationTime);
+    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toValidGstClockTime(presentationTime);
     GST_BUFFER_DURATION(buffer) = toGstClockTime(1_s / frameRate);
 }
 
@@ -474,7 +401,6 @@ static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
 
     return MediaTime::invalidTime();
 }
-*/ // AQUAWEBKIT: Timestamp helper definitions have file scope.
 
 Ref<VideoFrameGStreamer> VideoFrameGStreamer::create(GRefPtr<GstSample>&& sample, const CreateOptions& options, PlatformVideoColorSpace&& colorSpace)
 {
@@ -656,6 +582,7 @@ void VideoFrameGStreamer::setPresentationTime(const MediaTime& presentationTime)
     auto buffer = gst_sample_get_buffer(m_sample.get());
     // AQUAWEBKIT(upstreamable): WebCodecs timestamps are signed and may be negative;
     // toValidGstClockTime() avoids the int64→uint64 wrap (see GStreamerCommon.h).
+    // GST_BUFFER_PTS(buffer) = GST_BUFFER_DTS(buffer) = toGstClockTime(presentationTime);
     GST_BUFFER_PTS(buffer) = GST_BUFFER_DTS(buffer) = toValidGstClockTime(presentationTime);
 }
 
@@ -668,7 +595,6 @@ void VideoFrameGStreamer::setMetadataAndContentHint(std::optional<VideoFrameTime
     gst_sample_set_buffer(m_sample.get(), modifiedBuffer.get());
 }
 
-// AQUAWEBKIT: GStreamer frames expose their plane-copy backend on Cocoa.
 static void copyPlane(std::span<uint8_t>& destination, const std::span<uint8_t>& source, uint64_t sourceStride, const ComputedPlaneLayout& spanPlaneLayout)
 {
     uint64_t sourceOffset = spanPlaneLayout.sourceTop * sourceStride;

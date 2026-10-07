@@ -25,20 +25,17 @@
 
 #import "config.h"
 #import "DownloadProxy.h"
-// AQUAWEBKIT: native cancellation releases the same typed proxy registration as asynchronous cancellation.
+// AQUAWEBKIT: native cancellation releases the same typed proxy registration as asynchronous cancellation,
+// and rebuilds the native API representation from a typed IPC result.
+#import "CocoaDownloadResumeData.h"
 #import "DownloadProxyMap.h"
 
-// AQUAWEBKIT: API::Data is used directly by legacyResumeDataForNSURLDownload() below.
-#import "APIData.h"
 #import "APIDownloadClient.h"
 #import "NetworkProcessMessages.h"
 #import "NetworkProcessProxy.h"
-#import "CocoaDownloadResumeData.h" // AQUAWEBKIT: rebuild the native API representation from a typed IPC result.
 #import "WebsiteDataStore.h"
 
 #import <wtf/cocoa/SpanCocoa.h>
-// AQUAWEBKIT: dynamic_objc_cast<> for the resume-data translation below.
-#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 #if HAVE(MODERN_DOWNLOADPROGRESS)

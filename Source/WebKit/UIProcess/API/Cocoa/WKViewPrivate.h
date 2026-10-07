@@ -32,9 +32,8 @@
 
 @class _WKLinkIconParameters;
 
-// AQUAWEBKIT: WKContentAnchor is the Safari-7-era content-anchor enum for the
-// -[WKView contentAnchor] SPI, restored verbatim from the Safari-537-era WKViewPrivate.h.
-// The values are ABI with Safari.framework, which was compiled against them.
+// AQUAWEBKIT: WKContentAnchor is the Safari-537-era content-anchor enum for the
+// -[WKView contentAnchor] SPI. The values are ABI with Safari.framework.
 typedef enum {
     WKContentAnchorTopLeft,
     WKContentAnchorTopRight,
@@ -47,11 +46,6 @@ typedef enum {
 /* C SPI support. */
 
 @property (readonly) WKPageRef pageRef;
-
-// AQUAWEBKIT: Safari-7-era SPI restored from the Safari-537-era WKViewPrivate.h —
-// the corner painted content stays anchored to while an async resize is in flight.
-// Safari 7 sets this unguarded around window/toolbar resize animations.
-@property WKContentAnchor contentAnchor;
 
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef;
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef relatedToPage:(WKPageRef)relatedPage;
@@ -70,9 +64,13 @@ typedef enum {
 - (void)enableFrameSizeUpdates;
 - (BOOL)frameSizeUpdatesDisabled;
 
-// AQUAWEBKIT: Safari-7-era async drawing-area size-update SPI, restored from the
-// Safari-537-era WKViewPrivate.h. Safari 7 calls both unguarded around fullscreen and
-// banner resizes.
+// AQUAWEBKIT: Safari-537-era SPI: the corner painted content stays anchored to while an async
+// resize is in flight.
+// Safari 7 sets this unguarded around window/toolbar resize animations.
+@property WKContentAnchor contentAnchor;
+
+// AQUAWEBKIT: Safari-537-era async drawing-area size-update SPI. Safari 7 calls both
+// unguarded around fullscreen and banner resizes.
 - (void)forceAsyncDrawingAreaSizeUpdate:(NSSize)size;
 - (void)waitForAsyncDrawingAreaSizeUpdate;
 

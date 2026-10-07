@@ -121,8 +121,8 @@ public:
 
     // AQUAWEBKIT: bounded synchronous wait for the reply to an in-flight UpdateGeometry,
     // if any (a zero timeout is a poll that dispatches an already-arrived reply). Backs the
-    // restored Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate: / -waitForAsyncDrawingAreaSizeUpdate;
-    // this is the modern equivalent of the Safari-537-era DrawingAreaProxy::waitForPossibleGeometryUpdate.
+    // Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate: / -waitForAsyncDrawingAreaSizeUpdate,
+    // the counterpart of the Safari-537-era DrawingAreaProxy::waitForPossibleGeometryUpdate.
     // Overridden by the TiledCoreAnimation drawing area; a no-op elsewhere.
     virtual void waitForDidUpdateGeometry(Seconds) { }
 

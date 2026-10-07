@@ -434,8 +434,7 @@ RefPtr<Page> WebChromeClient::createWindow(LocalFrame& frame, const String& open
         originalRequest.url().isValid() ? String() : originalRequest.url().string(), /* invalidURLString */
         navigationAction.requester(), /* requester */
         // AQUAWEBKIT: bundlePolicyUserData stays empty here -- window.open does not run the
-        // injected-bundle policy client, so there is no bundle userData to carry. Listed rather than
-        // left off so the field we appended to NavigationActionData is accounted for at every site.
+        // injected-bundle policy client, so there is no bundle userData to carry.
         { }, /* bundlePolicyUserData */
     };
 
@@ -984,7 +983,8 @@ void WebChromeClient::mouseDidMoveOverElement(const HitTestResult& hitTestResult
     // Notify the UIProcess.
     WebHitTestResultData webHitTestResultData(hitTestResult, toolTip);
     webHitTestResultData.elementBoundingBox = webHitTestResultData.elementBoundingBox.toRectWithExtentsClippedToNumericLimits();
-    // AQUAWEBKIT: send the injected-bundle userData (hovered link URL) to the UI process via the restored 3-arg MouseDidMoveOverElement message (#58).
+    // AQUAWEBKIT: send the injected-bundle userData (hovered link URL) to the UI process via the 3-arg MouseDidMoveOverElement message (#58).
+    // page->send(Messages::WebPageProxy::MouseDidMoveOverElement(webHitTestResultData, wkModifiers));
     page->send(Messages::WebPageProxy::MouseDidMoveOverElement(webHitTestResultData, wkModifiers, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
 }
 

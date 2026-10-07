@@ -927,8 +927,6 @@ private:
     void performOrDeferImageAnalysisOverlayViewHierarchyTask(std::function<void()>&&);
     void fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
 #endif
-    // AQUAWEBKIT: close the HAVE(TOUCH_BAR) gate here so the scroll/titlebar members below are lifted out of it.
-#endif // HAVE(TOUCH_BAR)
 
     bool pageIsScrolledToTop() const { return m_lastPageScrollOffset.y() <= 0; }
     void pageScrollingHysteresisFired(PAL::HysteresisState);
@@ -940,7 +938,6 @@ private:
 
     void updateCursorOverlapsSelectionAndNotifyIfNeeded();
 
-#if HAVE(TOUCH_BAR) // AQUAWEBKIT: touch-bar members require the framework capability.
     bool m_clientWantsMediaPlaybackControlsView { false };
     bool m_canCreateTouchBars { false };
     bool m_startedListeningToCustomizationEvents { false };

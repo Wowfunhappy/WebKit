@@ -304,7 +304,7 @@ set(WebKit_MESSAGES_IN_FILES
     UIProcess/VisitedLinkStore
     UIProcess/WebBackForwardList
     UIProcess/WebFrameProxy
-    UIProcess/WebFrameProxyFromNetworkProcess # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
+    UIProcess/WebFrameProxyFromNetworkProcess # AQUAWEBKIT: network-process messages addressed to a WebFrameProxy (webkit.org/b/319273).
     UIProcess/WebFullScreenManagerProxy
     UIProcess/WebGeolocationManagerProxy
     UIProcess/WebLockRegistryProxy
@@ -1457,8 +1457,6 @@ WEBKIT_DEFINE_SUBTARGET_WITH_PREFIX(WebKit WebKitShared
     DIRS DerivedSources)
 
 WEBKIT_FRAMEWORK(WebKit)
-_AQUAWEBKIT_FINALIZE_WEBKIT_TARGET(WebKit) # AQUAWEBKIT: apply the port target and polyfill rules.
-
 WEBKIT_ADD_PREFIX_HEADER(WebKit WebKitPrefix.h PREFIX_LANGUAGES CXX OBJCXX)
 
 if (SWIFT_REQUIRED AND "${PORT}" STREQUAL "Mac")

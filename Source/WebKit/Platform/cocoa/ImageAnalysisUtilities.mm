@@ -33,9 +33,6 @@
 #import "TransactionID.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/AttributedString.h>
-// AQUAWEBKIT: requestBackgroundRemoval below decodes in WebCore, not in ImageIO.
-#import <WebCore/ImageDecoder.h>
-#import <WebCore/SharedBuffer.h>
 #import <WebCore/TextRecognitionResult.h>
 #import <pal/spi/cocoa/FeatureFlagsSPI.h>
 #import <wtf/BlockPtr.h>
@@ -305,19 +302,8 @@ void requestBackgroundRemoval(CGImageRef image, CompletionHandler<void(CGImageRe
         return;
     }
 
-    // AQUAWEBKIT: upstream's version of the lines below. No image bytes are parsed by 10.9's
-    // ImageIO on this port, these included.
-    // auto transcodedImageSource = adoptCF(CGImageSourceCreateWithData((__bridge CFDataRef)tiffData.get(), nullptr));
-    // auto transcodedImage = adoptCF(CGImageSourceCreateImageAtIndex(transcodedImageSource.get(), 0, nullptr));
-    Ref transcodedBuffer = WebCore::SharedBuffer::create(tiffData.get());
-    RefPtr transcodedDecoder = WebCore::ImageDecoder::create(transcodedBuffer.get(), String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
-    if (!transcodedDecoder) {
-        completion(nullptr);
-        return;
-    }
-
-    transcodedDecoder->setData(transcodedBuffer.get(), true);
-    RetainPtr transcodedImage = transcodedDecoder->createFrameImageAtIndex(transcodedDecoder->primaryFrameIndex());
+    auto transcodedImageSource = adoptCF(CGImageSourceCreateWithData((__bridge CFDataRef)tiffData.get(), nullptr));
+    auto transcodedImage = adoptCF(CGImageSourceCreateImageAtIndex(transcodedImageSource.get(), 0, nullptr));
     if (!transcodedImage) {
         completion(nullptr);
         return;

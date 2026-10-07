@@ -43,7 +43,6 @@
 #include "WebResourceLoadStatisticsStore.h"
 #include "WebsiteData.h"
 #include <JavaScriptCore/ConsoleTypes.h>
-#include <WebCore/CertificateInfo.h> // AQUAWEBKIT: m_allowedHTTPSCertificateHosts stores these by value
 #include <WebCore/ClientOrigin.h>
 #include <WebCore/CrossSiteNavigationDataTransfer.h>
 #include <WebCore/DiagnosticLoggingClient.h>
@@ -513,11 +512,9 @@ public:
 #if PLATFORM(COCOA)
     // AQUAWEBKIT: the certificate a user accepted for a host (see
     // allowSpecificHTTPSCertificateForHost), kept on the process rather than on one session. One
-    // network process serves every data store, and the window whose sheet the user accepted need not
-    // be the one that reloads — a private window has its own store, recreated on each off-to-on
-    // transition — so a per-session store would lose the exception exactly where it was just granted.
-    // The 2013 mechanism this restores was likewise process-global, and the other ports ignore the
-    // session too (see NetworkProcessCurl.cpp). Read by NetworkSessionCocoa's challenge handling.
+    // network process serves every data store, and the window whose
+    // sheet the user accepted need not be the one that reloads: a private window has its own store,
+    // recreated on each off-to-on transition. Read by NetworkSessionCocoa's challenge handling.
     const WebCore::CertificateInfo* allowedHTTPSCertificateForHost(const String& host) const;
 #endif
 
@@ -597,8 +594,10 @@ private:
 
     void setCacheModel(CacheModel);
     void setCacheModelSynchronouslyForTesting(CacheModel, CompletionHandler<void()>&&);
+// #if !PLATFORM(COCOA)
     // AQUAWEBKIT: unconditional; NetworkProcessCocoa.mm implements the Cocoa half.
     void allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo&, const String& host);
+// #endif
     void allowTLSCertificateChainForLocalPCMTesting(PAL::SessionID, const WebCore::CertificateInfo&);
     void flushCookies(PAL::SessionID, CompletionHandler<void()>&&);
     void flushNetworkProcessIPC(CompletionHandler<void()>&& completionHandler) { completionHandler(); }

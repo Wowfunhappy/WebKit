@@ -37,8 +37,8 @@ use constant FileNamePrefix => "JS";
 use Carp qw<longmess>;
 use Data::Dumper;
 use Hasher;
-# AQUAWEBKIT: build glue — the build-host Perl's List::Util predates 1.26
-# (which first added uniq), so provide an inline uniq instead of importing it.
+# AQUAWEBKIT: the build host's List::Util is 1.25, and uniq is 1.26+; uniq is defined here.
+# use List::Util qw(uniq);
 sub uniq { my %seen; grep { !$seen{$_}++ } @_ }
 
 my $codeGenerator;

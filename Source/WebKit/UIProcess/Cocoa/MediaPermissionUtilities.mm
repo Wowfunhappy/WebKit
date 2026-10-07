@@ -189,26 +189,20 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     }
 #endif
 
+    auto webView = page.cocoaView();
 #if PLATFORM(MAC)
-    // AQUAWEBKIT: the Safari this port targets hosts the page in a WKView, not a WKWebView, so
-    // cocoaView() is nil and upstream's check denies every camera/microphone request before it can be
-    // put to the user. Only the hosting window is actually needed here, and the page knows it whichever
-    // view is in use.
-    RetainPtr<NSWindow> hostWindow = page.platformWindow();
-    if (!hostWindow) {
-        completionHandler(false);
-        return;
-    }
+    // AQUAWEBKIT: Safari 7 hosts the page in a WKView, not a WKWebView, so cocoaView() is nil. The
+    // sheet needs only the hosting window, which the page knows whichever view is in use.
+    RetainPtr host = page.platformWindow();
 #else
-    auto webView = page.cocoaView(); // AQUAWEBKIT: only the non-MAC branch below uses the view.
-    if (!webView) {
+    auto& host = webView; // AQUAWEBKIT: see above.
+#endif
+    // if (!webView) {
+    if (!host) {
         completionHandler(false);
         return;
     }
-    // AQUAWEBKIT: closes the PLATFORM(MAC) hostWindow conditional above.
-#endif
-
-
+    
     RetainPtr alertTitle = alertMessageText(reason, origin);
     if (!alertTitle) {
         completionHandler(false);
@@ -226,8 +220,8 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     button.get().keyEquivalent = @"";
     button = [alert addButtonWithTitle:doNotAllowButtonString.get()];
     button.get().keyEquivalent = @"\E";
-    // AQUAWEBKIT: the sheet is hosted on the page's window; see above.
-    [alert beginSheetModalForWindow:hostWindow.get() completionHandler:[completionBlock](NSModalResponse returnCode) {
+    // [alert beginSheetModalForWindow:retainPtr([webView window]).get() completionHandler:[completionBlock](NSModalResponse returnCode) {
+    [alert beginSheetModalForWindow:host.get() completionHandler:[completionBlock](NSModalResponse returnCode) { // AQUAWEBKIT: the page's window; see above.
         auto shouldAllow = returnCode == NSAlertFirstButtonReturn;
         completionBlock(shouldAllow);
     }];

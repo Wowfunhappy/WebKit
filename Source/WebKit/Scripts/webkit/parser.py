@@ -59,7 +59,7 @@ def parse(file):
     messages = []
     conditions = []
     master_condition = None
-    receiver_name = None  # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273)
+    receiver_name = None  # AQUAWEBKIT: the ReceiverName attribute (webkit.org/b/319273)
     superclass = []
     namespace = "WebKit"
     file_contents = file.readlines()
@@ -81,7 +81,7 @@ def parse(file):
                 if match.group('name') == 'SwiftReceiverBuildEnabledBy':
                     swift_receiver_build_enabled_by = match.group('value')
                     continue
-                # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273): the ReceiverName attribute.
+                # AQUAWEBKIT: the ReceiverName attribute names the class that dispatches this receiver's messages (webkit.org/b/319273).
                 if match.group('name') == 'ReceiverName':
                     receiver_name = match.group('value')
                     continue
@@ -208,7 +208,7 @@ def parse(file):
         raise Exception("ERROR: 'ExceptionForDispatchedTo' cannot be used together with 'DispatchedTo=%s'" % receiver_dispatched_to)
 
     # return model.MessageReceiver(destination, superclass, receiver_attributes, receiver_enabled_by, receiver_enabled_by_exception, receiver_enabled_by_conjunction, receiver_dispatched_from, receiver_dispatched_from_exception, receiver_dispatched_to, receiver_dispatched_to_exception, shared_preferences_needs_connection, messages, combine_condition(master_condition), namespace, wants_send_cancel_reply, swift_receiver, swift_receiver_build_enabled_by)
-    return model.MessageReceiver(destination, superclass, receiver_attributes, receiver_enabled_by, receiver_enabled_by_exception, receiver_enabled_by_conjunction, receiver_dispatched_from, receiver_dispatched_from_exception, receiver_dispatched_to, receiver_dispatched_to_exception, shared_preferences_needs_connection, messages, combine_condition(master_condition), namespace, wants_send_cancel_reply, swift_receiver, swift_receiver_build_enabled_by, receiver_name)  # AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273)
+    return model.MessageReceiver(destination, superclass, receiver_attributes, receiver_enabled_by, receiver_enabled_by_exception, receiver_enabled_by_conjunction, receiver_dispatched_from, receiver_dispatched_from_exception, receiver_dispatched_to, receiver_dispatched_to_exception, shared_preferences_needs_connection, messages, combine_condition(master_condition), namespace, wants_send_cancel_reply, swift_receiver, swift_receiver_build_enabled_by, receiver_name)  # AQUAWEBKIT: the ReceiverName attribute (webkit.org/b/319273)
 
 
 def parse_attributes_string(attributes_string):

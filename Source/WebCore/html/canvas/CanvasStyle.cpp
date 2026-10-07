@@ -104,6 +104,7 @@ static String colorStringWithoutDeclarationTerminators(const String& colorString
 }
 
 // AQUAWEBKIT: see colorStringWithoutDeclarationTerminators above.
+// Color parseColor(const String& colorString, CanvasBase& canvasBase)
 Color parseColor(const String& rawColorString, CanvasBase& canvasBase)
 {
     auto colorString = colorStringWithoutDeclarationTerminators(rawColorString);
@@ -135,9 +136,10 @@ Color parseColor(const String& rawColorString, CanvasBase& canvasBase)
 }
 
 // AQUAWEBKIT: see colorStringWithoutDeclarationTerminators above.
+// Color parseColor(const String& colorString, ScriptExecutionContext& scriptExecutionContext)
 Color parseColor(const String& rawColorString, ScriptExecutionContext& scriptExecutionContext)
 {
-    auto colorString = colorStringWithoutDeclarationTerminators(rawColorString);
+    auto colorString = colorStringWithoutDeclarationTerminators(rawColorString); // AQUAWEBKIT: as above.
 
     // FIXME: Add constructor for CSSParserContext that takes a ScriptExecutionContext to allow preferences to be
     //        checked correctly.

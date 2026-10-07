@@ -35,11 +35,6 @@
 #include <wtf/RunLoop.h>
 #endif
 
-// AQUAWEBKIT: forward-declare CFStringRef for addRunLoopMode() below; the -fno-modules build doesn't auto-import CoreFoundation here.
-#if USE(CF)
-typedef const struct __CFString* CFStringRef;
-#endif
-
 namespace WebCore {
 
 class MainThreadSharedTimer final : public SharedTimer

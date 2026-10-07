@@ -62,9 +62,8 @@
 #include "WebLoaderStrategy.h"
 #include "WebNavigationDataStore.h"
 #include "WebPage.h"
-// AQUAWEBKIT: restored injected-bundle policy client / navigation action (upstream 9eeab8d, 8ee28eb).
+// AQUAWEBKIT: the injected-bundle navigation action the policy client receives.
 #include "InjectedBundleNavigationAction.h"
-#include "InjectedBundlePagePolicyClient.h"
 #include "WebPageGroupProxy.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
@@ -545,8 +544,7 @@ void WebLocalFrameLoaderClient::didSameDocumentNavigationForFrameViaJS(SameDocum
         std::nullopt, /* requester */
         // AQUAWEBKIT: a same-document JS navigation does not run the injected-bundle policy
         // client, so there is no bundle userData to carry (the page's own userData travels as the
-        // separate UserData argument below). Listed rather than left off so the field we appended to
-        // NavigationActionData is accounted for at every site.
+        // separate UserData argument below).
         { }, /* bundlePolicyUserData */
     };
 
@@ -999,8 +997,8 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
         return;
     }
 
-    // AQUAWEBKIT: ask the injected bundle's policy client, restored alongside
-    // InjectedBundlePagePolicyClient (upstream 9eeab8d). Safari 7's client
+    // AQUAWEBKIT: ask the injected bundle's policy client (InjectedBundlePagePolicyClient).
+    // Safari 7's client
     // (BrowserBundlePagePolicyClient::decidePolicyForResponse) stores a WKBoolean holding
     // WKBundlePageCanShowMIMEType() as the userData its UI-process handler reads, and returns
     // WKBundlePagePolicyActionUse (canShortCircuitPolicyDecisionForResponse) for the responses it
@@ -1021,13 +1019,15 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     auto activeDocumentCOOPValue = m_localFrame->document() ? protect(m_localFrame->document())->crossOriginOpenerPolicy().value : CrossOriginOpenerPolicyValue::SameOrigin;
 
     // AQUAWEBKIT: ships the injected-bundle policy client's userData with the response policy request.
+    // webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForResponse(frame->info(), navigationID, response, request, canShowResponse, downloadAttribute, isShowingInitialAboutBlank, activeDocumentCOOPValue), [frame, listenerID] (PolicyDecision&& policyDecision) {
     webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForResponse(frame->info(), navigationID, response, request, canShowResponse, downloadAttribute, isShowingInitialAboutBlank, activeDocumentCOOPValue, UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get())), bundlePolicyDecidedUse), [frame, listenerID] (PolicyDecision&& policyDecision) {
         frame->didReceivePolicyDecision(listenerID, WTF::move(policyDecision));
     });
 }
 
-// AQUAWEBKIT: asks the restored injected-bundle policy client first (537 semantics), and
+// AQUAWEBKIT: asks the injected-bundle policy client first (537 semantics), and
 // ships its userData with the new-window policy request.
+// void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const NavigationAction& navigationAction, const ResourceRequest& request, FormState*, const String& frameName, std::optional<WebCore::HitTestResult>&& hitTestResult, FramePolicyFunction&& function)
 void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const NavigationAction& navigationAction, const ResourceRequest& request, FormState* formState, const String& frameName, std::optional<WebCore::HitTestResult>&& hitTestResult, FramePolicyFunction&& function)
 {
     RefPtr webPage = m_frame->page();
@@ -1036,8 +1036,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         return;
     }
 
-    // AQUAWEBKIT: ask the injected bundle's policy client (restored, upstream 9eeab8d) as the
-    // navigation-action path does; Safari 7's UI-process new-window handler reads the userData it returns,
+    // AQUAWEBKIT: ask the injected bundle's policy client as the navigation-action path does; Safari 7's UI-process new-window handler reads the userData it returns,
     // and the UIProcess carries out a Use answer itself.
     RefPtr<API::Object> bundleUserData;
     bool bundlePolicyDecidedUse;
@@ -1092,8 +1091,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         request,
         request.url().isValid() ? String() : request.url().string(), /* invalidURLString */
         std::nullopt, /* requester */
-        // AQUAWEBKIT: assigned just below from the injected bundle's userData; listed here
-        // so the field we appended to NavigationActionData is accounted for at every site.
+        // AQUAWEBKIT: assigned just below from the injected bundle's userData.
         { }, /* bundlePolicyUserData */
     };
 
@@ -1180,11 +1178,11 @@ void WebLocalFrameLoaderClient::cancelPolicyCheck()
     m_frame->invalidatePolicyListeners();
 }
 
-// AQUAWEBKIT: restored notification of the injected bundle's policy client (upstream
-// 9eeab8d removed the client and left this body empty).
+// AQUAWEBKIT: notifies the injected bundle's policy client and the UI process.
+// void WebLocalFrameLoaderClient::dispatchUnableToImplementPolicy(const ResourceError&)
 void WebLocalFrameLoaderClient::dispatchUnableToImplementPolicy(const ResourceError& error)
 {
-    // AQUAWEBKIT: real body (upstream: empty stub).
+    // AQUAWEBKIT: upstream's body is empty.
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;

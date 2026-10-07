@@ -76,7 +76,7 @@ public:
     bool NODELETE shouldSilenceMediaQueryListChangeEvents() const;
     bool shouldIgnoreInvalidSignal() const;
     // AQUAWEBKIT: safari-reader: documents alias body.scrollTop to the document scroll (ReaderJS compat).
-    bool shouldAliasBodyScrollToDocumentScroll() const;
+    bool shouldAliasBodyScrollToDocumentScroll(const Element&) const;
     // AQUAWEBKIT: safari-reader: documents dispatch pending scroll events from a zero-delay
     // event-loop task instead of waiting for the rendering update (ReaderJS smooth-scroll compat).
     bool shouldDispatchPendingScrollEventsEagerly() const;

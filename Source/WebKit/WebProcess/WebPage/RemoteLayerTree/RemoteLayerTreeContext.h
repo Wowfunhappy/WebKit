@@ -65,7 +65,9 @@ public:
     ~RemoteLayerTreeContext();
 
     void layerDidEnterContext(PlatformCALayerRemote&, WebCore::PlatformCALayer::LayerType);
-#if HAVE(AVKIT)
+// AQUAWEBKIT: the guard of the definition in RemoteLayerTreeContext.mm.
+// #if HAVE(AVKIT)
+#if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     void layerDidEnterContext(PlatformCALayerRemote&, WebCore::PlatformCALayer::LayerType, WebCore::HTMLVideoElement&);
 #endif
     void layerWillLeaveContext(PlatformCALayerRemote&);

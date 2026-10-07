@@ -26,8 +26,7 @@
 #import "config.h"
 #import "WKCertificateInfoMac.h"
 
-// AQUAWEBKIT: restored the whole file — upstream gutted every function to return
-// null when it deleted the deprecated WKCertificateInfo C API. Safari 7 reads the chain
+// AQUAWEBKIT: the WKCertificateInfo C API Safari 7 calls. It reads the chain
 // off the main frame's certificate info on every commit to drive the address-bar lock and
 // the Show Certificate sheet, and wraps the client-certificate panel's chosen identity in
 // a chain-created WKCertificateInfo (#103).
@@ -123,22 +122,21 @@ WebCore::Credential credentialWithCertificateInfo(API::CertificateInfo* certific
 
 WKCertificateInfoRef WKCertificateInfoCreateWithServerTrust(SecTrustRef serverTrust)
 {
-    // AQUAWEBKIT: upstream gutted this to null.
+    // AQUAWEBKIT: wraps the trust in an API::CertificateInfo (see above).
     // return nullptr;
     return WebKit::toAPILeakingRef(API::CertificateInfo::create(WebCore::CertificateInfo(retainPtr(serverTrust))));
 }
 
 WKCertificateInfoRef WKCertificateInfoCreateWithCertficateChain(CFArrayRef certificateChain)
 {
-    // AQUAWEBKIT: upstream gutted this to null.
+    // AQUAWEBKIT: wraps the chain in an API::CertificateInfo (see above).
     // return nullptr;
     return WebKit::toAPILeakingRef(API::CertificateInfo::create(certificateChain));
 }
 
 CFArrayRef WKCertificateInfoGetCertificateChain(WKCertificateInfoRef certificateInfoRef)
 {
-    // AQUAWEBKIT: upstream gutted this to null. Guarded because Safari 7 can hold
-    // a null WKCertificateInfoRef from a frame that has not committed.
+    // AQUAWEBKIT: Safari 7 can hold a null WKCertificateInfoRef from a frame that has not committed.
     // return nullptr;
     if (!certificateInfoRef)
         return nullptr;
@@ -147,7 +145,7 @@ CFArrayRef WKCertificateInfoGetCertificateChain(WKCertificateInfoRef certificate
 
 SecTrustRef WKCertificateInfoGetServerTrust(WKCertificateInfoRef certificateInfoRef)
 {
-    // AQUAWEBKIT: upstream gutted this to null.
+    // AQUAWEBKIT: Safari 7 can hold a null WKCertificateInfoRef (see above).
     // return nullptr;
     if (!certificateInfoRef)
         return nullptr;

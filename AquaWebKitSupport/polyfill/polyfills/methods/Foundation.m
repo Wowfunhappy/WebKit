@@ -1690,7 +1690,6 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionConfiguration", "__NSCFURLSess
 - (void)set_preventsSystemHTTPProxyAuthentication:(BOOL)value { (void)value; }
 - (void)set_requiresSecureHTTPSProxyConnection:(BOOL)value { (void)value; }
 - (void)set_timingDataOptions:(NSUInteger)value { (void)value; }
-- (void)set_skipsStackTraceCapture:(BOOL)value { (void)value; }
 - (id)_sourceApplicationSecondaryIdentifier { return nil; }
 - (BOOL)_allowsHSTSWithUntrustedRootCertificate { return NO; }
 - (void)set_allowsHSTSWithUntrustedRootCertificate:(BOOL)value { (void)value; }
@@ -1769,6 +1768,37 @@ WK_POLYFILL_ADD_METHODS(NSMutableURLRequest)
 // failed closed.
 WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
 - (BOOL)_privacyProxyFailClosedForUnreachableNonMainHosts { return NO; }
+@end
+
+// -[NSURLRequest attribution] / -[NSMutableURLRequest setAttribution:] (12.0+). The value is held as an
+// NSURLProtocol property of the request, which 10.9 carries through -copy, -mutableCopy, CFURLRequest
+// copies and NSCoding archives and never sends to the server. NSURLRequestAttributionDeveloper, the
+// default, is the property's absence.
+static NSString *const wk_requestAttributionKey = @"WKURLRequestAttribution";
+
+// NSURLRequestAttribution is a 12.0+ enum in the SDK; its values are compile-time constants.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+static NSURLRequestAttribution wk_requestAttribution(NSURLRequest *request)
+{
+    id value = [NSURLProtocol propertyForKey:wk_requestAttributionKey inRequest:request];
+    return [value isKindOfClass:[NSNumber class]] ? (NSURLRequestAttribution)[value unsignedIntegerValue] : NSURLRequestAttributionDeveloper;
+}
+
+static void wk_setRequestAttribution(NSMutableURLRequest *request, NSURLRequestAttribution attribution)
+{
+    if (attribution == NSURLRequestAttributionDeveloper)
+        [NSURLProtocol removePropertyForKey:wk_requestAttributionKey inRequest:request];
+    else
+        [NSURLProtocol setProperty:@(attribution) forKey:wk_requestAttributionKey inRequest:request];
+}
+#pragma clang diagnostic pop
+
+WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
+- (NSURLRequestAttribution)attribution { return wk_requestAttribution(self); }
+@end
+WK_POLYFILL_ADD_METHODS(NSMutableURLRequest)
+- (void)setAttribution:(NSURLRequestAttribution)attribution { wk_setRequestAttribution(self, attribution); }
 @end
 
 // NSHTTPCookieStorage.
@@ -2479,6 +2509,7 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
     [dictionary setObject:@(preventsIdleSystemSleep) forKey:@"preventsIdleSystemSleep"];
     [dictionary setObject:@((unsigned char)self.networkServiceType) forKey:@"networkServiceType"];
     [dictionary setObject:@((int)CFURLRequestGetRequestPriority(cfRequest)) forKey:@"requestPriority"];
+    [dictionary setObject:@((unsigned char)wk_requestAttribution(self)) forKey:@"attribution"];
 
     BOOL isHTTP = WK_SYSTEM(_CFURLRequestGetHTTPMessage) && WK_SYSTEM(_CFURLRequestGetHTTPMessage)(cfRequest);
     [dictionary setObject:@(isHTTP) forKey:@"isHTTP"];
@@ -2523,6 +2554,12 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
         else
             [normalized removeObjectForKey:siteForCookiesKey];
         protocolProperties = normalized;
+    }
+    // The attribution travels as the dictionary's own "attribution" entry.
+    if ([protocolProperties objectForKey:wk_requestAttributionKey]) {
+        NSMutableDictionary *withoutAttribution = [[protocolProperties mutableCopy] autorelease];
+        [withoutAttribution removeObjectForKey:wk_requestAttributionKey];
+        protocolProperties = withoutAttribution;
     }
     if (protocolProperties.count)
         [dictionary setObject:[[protocolProperties copy] autorelease] forKey:@"protocolProperties"];
@@ -2609,6 +2646,8 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
         }
         _CFURLRequestSetProtocolProperty(cfRequest, (CFStringRef)key, (CFTypeRef)property);
     }
+    NSNumber *attribution = wk_valueOfClass(dictionary, @"attribution", [NSNumber class]);
+    wk_setRequestAttribution(request, [attribution unsignedCharValue]);
 
     NSNumber *explicitFlags = wk_valueOfClass(dictionary, @"explicitFlags", [NSNumber class]);
     if (explicitFlags)

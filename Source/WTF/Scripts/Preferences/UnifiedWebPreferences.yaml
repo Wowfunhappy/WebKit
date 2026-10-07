@@ -1817,6 +1817,7 @@ CaptureVideoInGPUProcessEnabled:
     WebKit:
       # AQUAWEBKIT: video capture runs in the web process here, which holds the camera grant;
       # see ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake.
+      # "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
       "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
       default: false
 
@@ -2754,6 +2755,7 @@ EncryptedMediaAPIEnabled:
       # AQUAWEBKIT: status is "embedder", and WebKitLegacy's embedders here predate the
       # property that would turn it on, so this column carries the decision. EME runs in-process
       # on the GStreamer CDMs this port builds for both ports.
+      # default: false
       default: true
     WebKit:
       "PLATFORM(GTK) || PLATFORM(WPE)": false
@@ -5321,9 +5323,10 @@ MediaDevicesEnabled:
   condition: ENABLE(MEDIA_STREAM)
   defaultValue:
     WebKitLegacy:
-      # AQUAWEBKIT: on for WebKit1, which has a getUserMedia client again (WebUserMediaClient).
+      # AQUAWEBKIT: on for WebKit1, whose getUserMedia client is WebUserMediaClient.
       # This port's WebKit1 embedders predate the property that would turn it on, so the column carries
       # the decision.
+      # default: false
       default: true
     WebKit:
       "PLATFORM(GTK) || PLATFORM(WPE)": true
@@ -7112,8 +7115,9 @@ ScreenCaptureEnabled:
   humanReadableDescription: "Enable ScreenCapture"
   defaultValue:
     WebKitLegacy:
-      # AQUAWEBKIT: on for WebKit1, matching the WebKit column here, now that WebKit1 has a
-      # getUserMedia client again (WebUserMediaClient) and prompts for screen capture through it.
+      # AQUAWEBKIT: on for WebKit1, matching the WebKit column here; WebKit1's getUserMedia client
+      # (WebUserMediaClient) prompts for screen capture.
+      # default: false
       default: true
     WebKit:
       default: WebKit::defaultShouldEnableScreenCapture()
@@ -9880,6 +9884,7 @@ WebRTCH265CodecEnabled:
       default: false
     WebKit:
       # AQUAWEBKIT: only where VideoToolbox has an HEVC codec (see HAVE(VIDEOTOOLBOX_HEVC)).
+      # "PLATFORM(COCOA)": true
       "PLATFORM(COCOA) && HAVE(VIDEOTOOLBOX_HEVC)": true
       default: false
     WebCore:
@@ -9944,6 +9949,7 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
     WebKit:
       # AQUAWEBKIT: the WebRTC platform codecs run in the web process here; see
       # ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake.
+      # "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
       "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
       default: false
     WebCore:

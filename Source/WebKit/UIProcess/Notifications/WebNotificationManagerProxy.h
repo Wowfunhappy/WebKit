@@ -29,7 +29,6 @@
 #include "WebContextSupplement.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/NotificationClient.h>
-#include <optional> // AQUAWEBKIT: for providerPermissionForOrigin's return type.
 #include <pal/SessionID.h>
 #include <wtf/HashMap.h>
 #include <wtf/UUID.h>
@@ -68,10 +67,10 @@ public:
 
     // AQUAWEBKIT: ShouldNotifyProviderOfManager::No installs a provider without
     // the addNotificationManager callback. The Safari 7 provider mirrored onto the
-    // service worker singleton (WKNotificationManagerSetProvider) must stay invisible to
-    // the client, which reports each notification event to every manager it knows —
-    // announcing the second manager double-dispatches every notification click.
+    // service worker singleton (WKNotificationManagerSetProvider) stays invisible to the
+    // client, which reports each notification event to every manager it knows.
     enum class ShouldNotifyProviderOfManager : bool { No, Yes };
+    // void setProvider(std::unique_ptr<API::NotificationProvider>&&);
     void setProvider(std::unique_ptr<API::NotificationProvider>&&, ShouldNotifyProviderOfManager = ShouldNotifyProviderOfManager::Yes);
     HashMap<String, bool> notificationPermissions();
     // AQUAWEBKIT: the client's published answer for one origin, asked of the provider at the

@@ -15,7 +15,7 @@
  */
 
 // AQUAWEBKIT: computed-style storage for the legacy -apple-dashboard-region property
-// (control regions used by 10.9 Dashboard widgets). Removed upstream in 2d364c6.
+// (control regions used by 10.9 Dashboard widgets).
 
 #pragma once
 

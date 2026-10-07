@@ -121,6 +121,3 @@ find_program(Mig_EXECUTABLE mig REQUIRED)
 # with RTTI on. A .mm then references C++ typeinfos that the -fno-rtti .cpp definitions
 # never emit, and every WebKit process aborts at dyld load on the undefined symbols.
 set(CMAKE_OBJCXX_FLAGS "-fno-rtti" CACHE STRING "" FORCE)
-
-# The port uses upstream C++ backends and the native Objective-C host interface.
-set(SWIFT_REQUIRED OFF)

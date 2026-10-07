@@ -552,8 +552,8 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
 // AQUAWEBKIT: WebAVPlayerLayer is a piece of the video-presentation stack — its
 // implementation drives WebCore::VideoPresentationModel — and this port builds none of that stack:
 // ENABLE(VIDEO_PRESENTATION_MODE) is off because 10.9 lacks the AVKit presentation SPI behind
-// VideoPresentationInterfaceMac. Upstream ships HAVE(AVKIT) only alongside that stack, so its
-// `#if HAVE(AVKIT)` here carries the second condition implicitly; here it has to be written out.
+// VideoPresentationInterfaceMac, so the guard names both conditions.
+// #if HAVE(AVKIT)
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     if (properties.changedProperties & LayerChange::VideoGravityChanged) {
         auto *playerLayer = layer;

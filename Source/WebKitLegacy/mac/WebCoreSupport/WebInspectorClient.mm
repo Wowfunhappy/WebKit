@@ -41,22 +41,22 @@
 #import "WebPolicyDelegate.h"
 #import "WebQuotaManager.h"
 #import "WebSecurityOriginPrivate.h"
-// AQUAWEBKIT: WebScriptWorld standardWorld for the classic-frontend bridge user script injected below (#52/#66/#69).
-#import "WebScriptWorld.h"
 #import "WebUIDelegatePrivate.h"
 #import "WebViewInternal.h"
-// AQUAWEBKIT: WebViewPrivate declares +[WebView _addUserScriptToGroup:...] used to inject the classic-frontend bridge below.
+// AQUAWEBKIT: the classic-frontend bridge user script (#52/#66/#69) and the inspector-resource://
+// scheme below: +[WebView _addUserScriptToGroup:...] injects the bridge in the standard world,
+// LegacySchemeRegistry makes the scheme a real origin, MIMETypeRegistry types the bundle resources
+// the NSURLProtocol serves.
+#import "WebScriptWorld.h"
 #import "WebViewPrivate.h"
+#import <WebCore/InspectorFrontendClassicBridge.h>
+#import <WebCore/LegacySchemeRegistry.h>
+#import <WebCore/MIMETypeRegistry.h>
 #import <JavaScriptCore/InspectorAgentBase.h>
 #import <SecurityInterface/SFCertificatePanel.h>
 #import <SecurityInterface/SFCertificateView.h>
 #import <WebCore/CertificateInfo.h>
-// AQUAWEBKIT: InspectorFrontendClassicBridge provides classicInspectorFrontendBridgeScriptUTF8() (classic-frontend bridge, #52/#66/#69).
-#import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebCore/InspectorFrontendClient.h>
-// AQUAWEBKIT: LegacySchemeRegistry registers inspector-resource:// as a scheme-handler (real) origin; MIMETypeRegistry types the bundle resources served by the NSURLProtocol below (#52).
-#import <WebCore/LegacySchemeRegistry.h>
-#import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/LocalFrame.h>
 #import <WebCore/Page.h>
 #import <WebCore/PageInspectorController.h>
@@ -77,7 +77,7 @@ static const CGFloat initialWindowHeight = 650;
 
 // AQUAWEBKIT: the margin from the top and right of the dock button (same as the full screen
 // button). The frontend this port ships hides its own dock control while the inspector is undocked and
-// expects the window to carry one, as WebKit's did through 792f511.
+// expects the window to carry one.
 static const CGFloat dockButtonMargin = 3;
 
 @interface NSView (AppKitDetails)
@@ -120,9 +120,8 @@ static const CGFloat dockButtonMargin = 3;
 
 @end
 
-// AQUAWEBKIT: this backport deliberately ships the system stock (Safari 8-era)
-// WebInspectorUI frontend for its Aqua toolbar + pill tab look, run against the modern backend. It
-// is served to the undocked WK1 inspector WebView under a real-origin custom scheme (not file://),
+// AQUAWEBKIT: the frontend is the system's stock (Safari 8-era) WebInspectorUI, with its Aqua
+// toolbar + pill tab look, run against the modern backend. It is served to the undocked WK1 inspector WebView under a real-origin custom scheme (not file://),
 // so the frontend's own `default-src 'self'` CSP resolves against a real tuple origin and its
 // scripts/styles load with the shipped policy left untouched — the WebKitLegacy analogue of WK2's
 // inspector-resource:// WKURLSchemeHandler (WKInspectorResourceURLSchemeHandler). WebKitLegacy has
@@ -237,8 +236,7 @@ static void ensureWebInspectorClassicFrontendRegistered()
     BOOL _destroyingInspectorView;
 }
 - (id)initWithInspectedWebView:(WebView *)inspectedWebView isUnderTest:(BOOL)isUnderTest;
-// AQUAWEBKIT: renamed from -inspectorPagePath (NSString file path) to -inspectorPageURL (NSURL) — the classic frontend now loads from the inspector-resource:// scheme, not a bundle file path.
-- (NSURL *)inspectorPageURL;
+- (NSString *)inspectorPagePath;
 - (NSString *)inspectorTestPagePath;
 - (WebView *)frontendWebView;
 - (void)attach;
@@ -388,7 +386,7 @@ void WebInspectorFrontendClient::startWindowDrag()
 
 String WebInspectorFrontendClient::localizedStringsURL() const
 {
-    // AQUAWEBKIT: upstream's body was:
+    // AQUAWEBKIT: upstream's body:
     //     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
     //     if (!bundle)
     //         return String();
@@ -647,7 +645,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     if (!(self = [super initWithWindow:nil]))
         return nil;
 
-    // AQUAWEBKIT: register the inspector-resource:// NSURLProtocol + scheme (once) before the frontend WebView loads (classic-frontend backport).
+    // AQUAWEBKIT: register the inspector-resource:// NSURLProtocol + scheme (once) before the frontend WebView loads.
     ensureWebInspectorClassicFrontendRegistered();
 
     // Keep preferences separate from the rest of the client, making sure we are using expected preference values.
@@ -686,25 +684,17 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     _inspectedWebView = webView;
 
+    NSString *pagePath = isUnderTest ? [self inspectorTestPagePath] : [self inspectorPagePath];
     // AQUAWEBKIT: the document-start bridge user script rides WebInspectorFrontendGroupName,
     // and it adapts the classic frontend alone — a frontend built from this tree matches the backend
     // and the bridge would break its Target protocol. WebCore::inspectorFrontendIsClassic names which
     // one the com.apple.WebInspectorUI bundle holds.
     if (WebCore::inspectorFrontendIsClassic())
         [_frontendWebView setGroupName:WebInspectorFrontendGroupName];
-
-    if (isUnderTest) {
-        NSString *testPagePath = [self inspectorTestPagePath];
-        RELEASE_ASSERT(testPagePath);
-        auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:testPagePath isDirectory:NO]]);
-        [[_frontendWebView mainFrame] loadRequest:request.get()];
-        return self;
-    }
-
-    // AQUAWEBKIT: upstream loads Main.html from the bundle over file://; the classic frontend
-    // comes from the real-origin inspector-resource:// scheme instead (see WebInspectorResourceProtocol
-    // above) so its shipped CSP resolves untouched.
-    auto request = adoptNS([[NSURLRequest alloc] initWithURL:[self inspectorPageURL]]);
+    // AQUAWEBKIT: the frontend page comes from the real-origin inspector-resource:// scheme (see
+    // WebInspectorResourceProtocol above), so its shipped CSP resolves untouched; the test page loads over file://.
+    // auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:pagePath]]);
+    auto request = adoptNS([[NSURLRequest alloc] initWithURL:isUnderTest ? [NSURL fileURLWithPath:pagePath] : [NSURL URLWithString:@"inspector-resource:///Main.html"]]);
     [[_frontendWebView mainFrame] loadRequest:request.get()];
 
     return self;
@@ -712,18 +702,13 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 // MARK: -
 
-// AQUAWEBKIT: this is upstream's -inspectorPagePath, returning an inspector-resource:// URL
-// instead of Main.html's path inside WebInspectorUI.framework, so the classic frontend loads from a
-// real origin rather than file://.
-- (NSURL *)inspectorPageURL
+- (NSString *)inspectorPagePath
 {
-    // AQUAWEBKIT: upstream's body was:
-    //     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-    //     if (!bundle)
-    //         return nil;
-    //
-    //     return [bundle pathForResource:@"Main" ofType:@"html"];
-    return [NSURL URLWithString:@"inspector-resource:///Main.html"];
+    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    if (!bundle)
+        return nil;
+
+    return [bundle pathForResource:@"Main" ofType:@"html"];
 }
 
 - (NSString *)inspectorTestPagePath
@@ -750,6 +735,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView;
     // AQUAWEBKIT: WebInspectorWindow, for the dock button built below.
+    // auto window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
     auto window = adoptNS([[WebInspectorWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
     [window setDelegate:self];
     [window setMinSize:NSMakeSize(minimumWindowWidth, minimumWindowHeight)];
@@ -1085,7 +1071,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return;
     }
 
-    // AQUAWEBKIT: Allow loading of the classic frontend served from the inspector-resource:// scheme (was file:// + -inspectorPagePath).
+    // AQUAWEBKIT: Allow loading of the frontend page served from the inspector-resource:// scheme.
+    // if ([[request URL] isFileURL] && [[[request URL] path] isEqualToString:[self inspectorPagePath]]) {
     if ([[request URL].scheme caseInsensitiveCompare:WebInspectorResourceScheme] == NSOrderedSame && [[[request URL] relativePath] isEqualToString:@"/Main.html"]) {
         [listener use];
         return;

@@ -37,7 +37,6 @@
 #include "PlatformMediaCapabilitiesEncodingInfo.h"
 #include "PlatformMediaDecodingConfiguration.h"
 #include "PlatformMediaEncodingConfiguration.h"
-#include <algorithm> // AQUAWEBKIT: scans that codec list.
 #include <wtf/Function.h>
 
 #if ENABLE(MEDIA_SOURCE)
@@ -46,19 +45,14 @@
 
 namespace WebCore {
 
-// AQUAWEBKIT: the codec spellings GStreamerRegistryScanner registers for video/x-vp9.
-static bool isVP9Codec(const String& codec)
-{
-    return codec.startsWith("vp09"_s) || codec.startsWith("vp9"_s) || codec.startsWith("x-vp9"_s);
-}
-
 void createMediaPlayerDecodingConfigurationGStreamer(PlatformMediaDecodingConfiguration&& configuration, Function<void(PlatformMediaCapabilitiesDecodingInfo&&)>&& callback)
 {
     // AQUAWEBKIT: a configuration naming VP9 is unsupported while the VP9 decoder setting is
     // off, the rule PlatformMediaEngineConfigurationFactoryCocoa.cpp applies to the same configuration.
     if (!configuration.canExposeVP9 && configuration.video) {
         auto codecs = ContentType(configuration.video->contentType).codecs();
-        if (std::ranges::any_of(codecs, isVP9Codec)) {
+        // The codec spellings GStreamerRegistryScanner registers for video/x-vp9.
+        if (codecs.containsIf([](auto& codec) { return codec.startsWith("vp09"_s) || codec.startsWith("vp9"_s) || codec.startsWith("x-vp9"_s); })) {
             callback({{ }, WTF::move(configuration)});
             return;
         }

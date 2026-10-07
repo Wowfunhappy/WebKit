@@ -36,7 +36,13 @@ SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizati
 
 #if HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI)
 
-// AQUAWEBKIT: AuthenticationServicesCore is absent from 10.9. _OPTIONAL resolves these classes to nil, where the non-optional getter would RELEASE_ASSERT in AuthenticationServicesCoreLibrary() on first use. isAuthenticationServicesCoreFrameworkAvailable() is false, so WebAuthenticatorCoordinatorProxy rejects requests before this request flow, and the availability queries answer false.
+// AQUAWEBKIT: AuthenticationServicesCore is absent from 10.9; _OPTIONAL resolves these classes to nil. isAuthenticationServicesCoreFrameworkAvailable() is false, so WebAuthenticatorCoordinatorProxy rejects requests before this request flow, and the availability queries answer false.
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAgentProxy);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAppleIDCredential);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizationPresentationContext);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizationPresenter);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizationRemotePresenter);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCCredentialRequestContext);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAgentProxy);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAppleIDCredential);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAuthorizationPresentationContext);
@@ -44,7 +50,16 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAutho
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAuthorizationRemotePresenter);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCCredentialRequestContext);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCWebAuthenticationExtensionsClientInputs);
-// AQUAWEBKIT: AuthenticationServicesCore is absent from 10.9; _OPTIONAL resolves these classes to nil instead of the non-optional getter's RELEASE_ASSERT.
+// AQUAWEBKIT: AuthenticationServicesCore is absent from 10.9; _OPTIONAL resolves these classes to nil.
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialAssertion);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialLoginChoice);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialRegistration);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialAssertionOptions);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialCreationOptions);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialDescriptor);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialAssertion);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialLoginChoice);
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialRegistration);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialAssertion);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialLoginChoice);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialRegistration);

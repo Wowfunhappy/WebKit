@@ -303,7 +303,8 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
 
 // AQUAWEBKIT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
 // stack, which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the
-// AVKit presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
+// AVKit presentation SPI), so the guard names both conditions.
+// #if HAVE(AVKIT)
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {
@@ -483,8 +484,9 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
 
 // AQUAWEBKIT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
 // stack, which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the
-// AVKit presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
-// A video layer therefore takes the plain remote-hosting path below, as any other custom layer does.
+// AVKit presentation SPI), so the guard names both conditions. A video layer takes the plain
+// remote-hosting path below, as any other custom layer does.
+// #if HAVE(AVKIT)
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
         if (properties.videoElementData) {
             RefPtr page = drawingArea().page();

@@ -46,7 +46,7 @@
 #include <wtf/WorkQueue.h>
 #include <wtf/posix/SocketPOSIX.h>
 
-#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if PLATFORM(COCOA)
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/BlockPtr.h>
 #include <wtf/darwin/DispatchExtras.h>

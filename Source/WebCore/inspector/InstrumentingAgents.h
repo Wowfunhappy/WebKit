@@ -53,7 +53,7 @@ class InspectorCanvasAgent;
 class InspectorDOMAgent;
 class InspectorDOMDebuggerAgent;
 class InspectorDOMStorageAgent;
-// AQUAWEBKIT: the Database agent, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the Database agent, for the Safari 7 Web Inspector.
 class InspectorDatabaseAgent;
 class InspectorLayerTreeAgent;
 class InspectorMemoryAgent;
@@ -88,7 +88,7 @@ class WebHeapAgent;
 #define DEFINE_INSPECTOR_AGENT_DOMDebugger_Page(macro, Getter, Setter) DEFINE_INSPECTOR_AGENT(macro, PageDOMDebuggerAgent, PageDOMDebuggerAgent, Getter, Setter)
 #define DEFINE_INSPECTOR_AGENT_DOMStorage(macro, Getter, Setter) DEFINE_INSPECTOR_AGENT(macro, InspectorDOMStorageAgent, DOMStorageAgent, Getter, Setter)
 #define DEFINE_INSPECTOR_AGENT_DOMStorage_Frame(macro, Getter, Setter) DEFINE_INSPECTOR_AGENT(macro, FrameDOMStorageAgent, FrameDOMStorageAgent, Getter, Setter)
-// AQUAWEBKIT: the Database agent, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the Database agent, for the Safari 7 Web Inspector.
 #define DEFINE_INSPECTOR_AGENT_Database(macro, Getter, Setter) DEFINE_INSPECTOR_AGENT(macro, InspectorDatabaseAgent, DatabaseAgent, Getter, Setter)
 #define DEFINE_INSPECTOR_AGENT_Debugger_Web(macro, Getter, Setter) DEFINE_INSPECTOR_AGENT(macro, WebDebuggerAgent, WebDebuggerAgent, Getter, Setter)
 #define DEFINE_INSPECTOR_AGENT_Debugger_Frame(macro, Getter, Setter) DEFINE_INSPECTOR_AGENT(macro, FrameDebuggerAgent, FrameDebuggerAgent, Getter, Setter)
@@ -142,7 +142,7 @@ class WebHeapAgent;
     DEFINE_ENABLED_INSPECTOR_AGENT(macro, Canvas_Page) \
     DEFINE_ENABLED_INSPECTOR_AGENT(macro, CSS) \
     DEFINE_ENABLED_INSPECTOR_AGENT(macro, CSS_Frame) \
-    /* AQUAWEBKIT: the Database agent, restored for the Safari 7 Web Inspector. */ \
+    /* AQUAWEBKIT: the Database agent, for the Safari 7 Web Inspector. */ \
     DEFINE_ENABLED_INSPECTOR_AGENT(macro, Database) \
     DEFINE_ENABLED_INSPECTOR_AGENT(macro, Debugger_Frame) \
     DEFINE_ENABLED_INSPECTOR_AGENT(macro, Debugger_Page) \

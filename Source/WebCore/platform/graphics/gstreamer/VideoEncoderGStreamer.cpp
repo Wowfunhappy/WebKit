@@ -28,8 +28,6 @@
 #include "GUniquePtrGStreamer.h"
 #include "VideoEncoderPrivateGStreamer.h"
 #include "VideoFrameGStreamer.h"
-// AQUAWEBKIT: Asynchronous encoder outputs retain their input frame's WebCodecs timing.
-#include "VideoFrameMetadataGStreamer.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/ThreadSafeRefCounted.h>

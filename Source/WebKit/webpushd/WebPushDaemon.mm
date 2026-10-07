@@ -186,6 +186,8 @@ void WebPushDaemon::startMockPushService()
 #endif
 
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message) {
+    //     WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message));
     auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt) {
         WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message), receipt);
     };
@@ -201,6 +203,8 @@ void WebPushDaemon::startPushService(const String& incomingPushServiceName, cons
 #endif
 
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message) {
+    //     WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message));
     auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt) {
         WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message), receipt);
     };
@@ -349,8 +353,7 @@ void WebPushDaemon::connectionEventHandler(xpc_object_t request)
 #if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
         // AQUAWEBKIT: a client connecting while messages are already queued (it
         // launched after the daemon received them, or the daemon restarted and the
-        // Mozilla service replayed its store) would otherwise not hear about them until
-        // the next incoming push. Announce on promotion so the client pumps right away.
+        // Mozilla service replayed its store) is told on promotion, so it pumps right away.
         for (auto& pendingPushMessage : m_pendingPushMessages) {
             if (!connectionMatchesPendingPushMessage(*pushConnection, pendingPushMessage.identifier))
                 continue;
@@ -507,6 +510,7 @@ void WebPushDaemon::injectPushMessageForTesting(PushClientConnection& connection
     WEBPUSHDAEMON_RELEASE_LOG(Push, "Injected a test push message for %{public}s at %{public}s with %zu pending messages, payload: %{public}s", message.targetAppCodeSigningIdentifier.utf8().data(), message.registrationURL.string().utf8().data(), m_pendingPushMessages.size(), message.payload.utf8().data());
 
     // AQUAWEBKIT: an injected test message came from no push service, so nothing acknowledges it.
+    // handleIncomingPushImpl(identifier, WTF::move(pushMessage));
     handleIncomingPushImpl(identifier, WTF::move(pushMessage), PushServiceConnection::noPushMessageReceipt);
 
     replySender({ });
@@ -531,6 +535,7 @@ void WebPushDaemon::injectEncryptedPushMessageForTesting(PushClientConnection& c
             return replySender(false);
 
         // AQUAWEBKIT: an injected test message came from no push service, so nothing acknowledges it.
+        // daemon.m_pushService->didReceivePushMessage(retainPtr(obj[@"topic"]).get(), retainPtr(obj[@"userInfo"]).get(), [replySender = WTF::move(replySender)]() mutable {
         daemon.m_pushService->didReceivePushMessage(retainPtr(obj[@"topic"]).get(), retainPtr(obj[@"userInfo"]).get(), PushServiceConnection::noPushMessageReceipt, [replySender = WTF::move(replySender)]() mutable {
             replySender(true);
         });
@@ -538,6 +543,7 @@ void WebPushDaemon::injectEncryptedPushMessageForTesting(PushClientConnection& c
 }
 
 // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+// void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message)
 void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt)
 {
 #if PLATFORM(IOS)
@@ -552,6 +558,7 @@ void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& iden
     RetainPtr notificationCenterBundleIdentifier = platformNotificationCenterBundleIdentifier(identifier.pushPartition);
     RetainPtr center = adoptNS([[m_userNotificationCenterClass.get() alloc] initWithBundleIdentifier:notificationCenterBundleIdentifier.get()]);
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // auto blockPtr = makeBlockPtr([identifier = crossThreadCopy(identifier), message = WTF::move(message)](UNNotificationSettings *settings) mutable {
     auto blockPtr = makeBlockPtr([identifier = crossThreadCopy(identifier), message = WTF::move(message), receipt](UNNotificationSettings *settings) mutable {
         auto status = settings.authorizationStatus;
         if (status != UNAuthorizationStatusAuthorized) {
@@ -560,6 +567,8 @@ void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& iden
         }
 
         // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+        // WorkQueue::mainSingleton().dispatch([identifier = crossThreadCopy(identifier), message = WTF::move(message)] mutable {
+            // WebPushDaemon::singleton().handleIncomingPushImpl(identifier, WTF::move(message));
         WorkQueue::mainSingleton().dispatch([identifier = crossThreadCopy(identifier), message = WTF::move(message), receipt] mutable {
             WebPushDaemon::singleton().handleIncomingPushImpl(identifier, WTF::move(message), receipt);
         });
@@ -567,6 +576,7 @@ void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& iden
     [center getNotificationSettingsWithCompletionHandler:blockPtr.get()];
 #else
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // handleIncomingPushImpl(identifier, WTF::move(message));
     handleIncomingPushImpl(identifier, WTF::move(message), receipt);
 #endif
 }
@@ -586,6 +596,7 @@ static bool supportsBuiltinNotifications(const PushSubscriptionSetIdentifier& id
 #endif // HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
 
 // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+// void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message)
 void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt)
 {
     ensureIncomingPushTransaction();
@@ -614,8 +625,7 @@ void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& 
 
         // AQUAWEBKIT: this message was delivered -- shown -- without ever joining
         // m_pendingPushMessages, so it is acknowledged here rather than at a drain point the
-        // message never reaches. Without this the push service would hold its copy until the
-        // next disconnect and replay something the user has already seen.
+        // message never reaches.
         if (RefPtr pushService = m_pushService)
             pushService->acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::Delivered);
 
@@ -625,6 +635,7 @@ void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& 
 #endif // ENABLE(DECLARATIVE_WEB_PUSH)
 
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // m_pendingPushMessages.append({ identifier, WTF::move(message) });
     m_pendingPushMessages.append({ identifier, WTF::move(message), receipt });
 
     notifyClientPushMessageIsAvailable(identifier);
@@ -635,6 +646,7 @@ void WebPushDaemon::notifyClientPushMessageIsAvailable(const WebCore::PushSubscr
     const auto& bundleIdentifier = subscriptionSetIdentifier.bundleIdentifier;
     RELEASE_LOG(Push, "Launching %{public}s in response to push for %{public}s", bundleIdentifier.utf8().data(), subscriptionSetIdentifier.debugDescription().utf8().data());
 
+// #if PLATFORM(MAC)
 #if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
     // AQUAWEBKIT: Safari 7 has no x-webkit-app-launch URL handler and never calls
     // the modern push SPI, so the upstream wake path below cannot reach it. This port
@@ -857,6 +869,9 @@ void WebPushDaemon::getPendingPushMessages(PushClientConnection& connection, Com
 
     while (!m_pendingPushMessages.isEmpty()) {
         auto pendingPushMessage = m_pendingPushMessages.takeFirst();
+        // if (connectionMatchesPendingPushMessage(connection, pendingPushMessage.identifier))
+            // result.append(WTF::move(pendingPushMessage.message));
+        // else
         // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
         if (!connectionMatchesPendingPushMessage(connection, pendingPushMessage.identifier)) {
             newPendingPushMessages.append(WTF::move(pendingPushMessage));

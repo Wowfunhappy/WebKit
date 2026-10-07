@@ -98,6 +98,7 @@ static void wk_failWithError(id self, SEL selector, NSError *error)
 
 static Ivar wk_genericKey, wk_flags, wk_offsetData, wk_containers, wk_helper, wk_allowedClasses, wk_lastRef, wk_temporaryObjects, wk_archiveStream;
 static Ivar wk_objectReferences, wk_referenceObjects, wk_replacements;
+static Ivar wk_archiveBytes, wk_archiveLength, wk_archiveObjects, wk_binaryObjectCache;
 
 static void *wk_ivarAddress(id object, Ivar ivar) { return (char *)object + ivar_getOffset(ivar); }
 static void *wk_pointerIvar(id object, Ivar ivar)
@@ -301,6 +302,139 @@ static void wk_endDecode(id coder, WKDecodeScope *scope, BOOL failed)
     }
 }
 
+static BOOL wk_strictState(WKCoderState *state, id coder)
+{
+    return state && state->strict && [coder requiresSecureCoding];
+}
+
+static BOOL wk_strictSecureDecoding(id coder)
+{
+    return wk_strictState(wk_coderState(coder, NO), coder);
+}
+
+static CFTypeID (*wk_uidTypeID)(void);
+static uint32_t (*wk_uidValue)(CFTypeRef);
+static bool (*wk_binaryDictionaryValueOffset)(const uint8_t *, uint64_t, uint64_t, const void *, CFTypeRef, uint64_t *, uint64_t *, Boolean, CFMutableDictionaryRef);
+static bool (*wk_binaryArrayValueOffset)(const uint8_t *, uint64_t, uint64_t, const void *, CFIndex, uint64_t *, CFMutableDictionaryRef);
+static bool (*wk_binaryCreateObject)(const uint8_t *, uint64_t, uint64_t, const void *, CFAllocatorRef, CFOptionFlags, CFMutableDictionaryRef, CFPropertyListRef *);
+
+typedef struct {
+    const uint8_t *bytes;
+    uint64_t length;
+    // The binary plist trailer, followed by the current container's offset (+32) and the $objects offset (+40).
+    const uint8_t *offsets;
+    CFMutableDictionaryRef cache;
+} WKBinaryArchive;
+
+static BOOL wk_binaryArchive(id coder, WKBinaryArchive *archive)
+{
+    archive->bytes = wk_pointerIvar(coder, wk_archiveBytes);
+    memcpy(&archive->length, wk_ivarAddress(coder, wk_archiveLength), sizeof(archive->length));
+    archive->offsets = wk_pointerIvar(coder, wk_offsetData);
+    archive->cache = wk_pointerIvar(coder, wk_binaryObjectCache);
+    return archive->bytes && archive->offsets;
+}
+
+// The nonzero object reference that Foundation's __decodeObject reads for key from the current container.
+static BOOL wk_archivedReference(id coder, NSString *key, uint32_t *reference)
+{
+    CFArrayRef containers = wk_pointerIvar(coder, wk_containers);
+    if (containers) {
+        CFIndex depth = CFArrayGetCount(containers);
+        if (!depth)
+            return NO;
+        CFTypeRef container = CFArrayGetValueAtIndex(containers, depth - 1);
+        CFTypeRef value = NULL;
+        if (CFGetTypeID(container) == CFArrayGetTypeID())
+            value = CFArrayGetCount(container) ? CFArrayGetValueAtIndex(container, 0) : NULL;
+        else if (CFGetTypeID(container) == CFDictionaryGetTypeID())
+            value = CFDictionaryGetValue(container, (CFStringRef)key);
+        if (!value || CFGetTypeID(value) != wk_uidTypeID())
+            return NO;
+        *reference = wk_uidValue(value);
+        return *reference != 0;
+    }
+    WKBinaryArchive archive;
+    uint64_t container, offset;
+    if (!wk_binaryArchive(coder, &archive))
+        return NO;
+    memcpy(&container, archive.offsets + 32, sizeof(container));
+    if (!wk_binaryDictionaryValueOffset(archive.bytes, archive.length, container, archive.offsets, (CFStringRef)key, NULL, &offset, false, archive.cache)
+        || offset >= archive.length)
+        return NO;
+    uint8_t marker = archive.bytes[offset];
+    uint64_t size = (marker & 0x0F) + 1, value = 0;
+    if ((marker & 0xF0) != 0x80 || size > archive.length - offset - 1)
+        return NO;
+    for (uint64_t index = 1; index <= size; ++index)
+        value = value << 8 | archive.bytes[offset + index];
+    *reference = (uint32_t)value;
+    return value != 0;
+}
+
+// Foundation returns these $objects entries directly instead of instantiating an archived class.
+static Class wk_inlineValueClass(id coder, uint32_t reference)
+{
+    CFTypeRef value = NULL;
+    BOOL binary = !wk_pointerIvar(coder, wk_containers);
+    if (binary) {
+        WKBinaryArchive archive;
+        uint64_t objects, offset;
+        if (!wk_binaryArchive(coder, &archive))
+            return Nil;
+        memcpy(&objects, archive.offsets + 40, sizeof(objects));
+        if (!wk_binaryArrayValueOffset(archive.bytes, archive.length, objects, archive.offsets, reference, &offset, archive.cache)
+            || offset >= archive.length || (archive.bytes[offset] >> 4) > 6
+            || !wk_binaryCreateObject(archive.bytes, archive.length, offset, archive.offsets, NULL, 0, archive.cache, &value) || !value)
+            return Nil;
+    } else {
+        CFArrayRef objects = wk_pointerIvar(coder, wk_archiveObjects);
+        if (!objects || reference >= (uint64_t)CFArrayGetCount(objects))
+            return Nil;
+        value = CFRetain(CFArrayGetValueAtIndex(objects, reference));
+    }
+    CFTypeID type = CFGetTypeID(value);
+    Class cls = Nil;
+    if (type == CFStringGetTypeID())
+        cls = CFEqual(value, CFSTR("$null")) ? Nil : NSString.class;
+    else if (type == CFNumberGetTypeID() || type == CFBooleanGetTypeID())
+        cls = NSNumber.class;
+    else if (type == CFDataGetTypeID())
+        cls = NSData.class;
+    else if (binary && type == CFDateGetTypeID())
+        cls = NSDate.class;
+    else if (binary && type == CFNullGetTypeID())
+        cls = NSNull.class;
+    CFRelease(value);
+    return cls;
+}
+
+// Strict secure decoding admits an inline property-list value only when its class is itself allowed.
+static void wk_validateInlineValue(id coder, uint32_t reference, NSString *key)
+{
+    Class cls = wk_inlineValueClass(coder, reference);
+    if (cls && ![[coder allowedClasses] containsObject:cls])
+        [NSException raise:NSInvalidUnarchiveOperationException format:@"value for key '%@' was of unexpected class '%@'. Allowed classes are '%@'.",
+            key, cls, [coder allowedClasses]];
+}
+
+static void wk_validateStrictReference(id coder, NSString *key)
+{
+    uint32_t reference;
+    uint32_t flags;
+    memcpy(&flags, wk_ivarAddress(coder, wk_flags), sizeof(flags));
+    // Flag bit 0x2 marks a finished unarchiver.
+    if (key && !(flags & 2u) && wk_archivedReference(coder, key, &reference))
+        wk_validateInlineValue(coder, reference, key);
+}
+
+static NSString *wk_nextGenericKey(id coder)
+{
+    int32_t genericKey;
+    memcpy(&genericKey, wk_ivarAddress(coder, wk_genericKey), sizeof(genericKey));
+    return [NSString stringWithFormat:@"$%d", genericKey];
+}
+
 // Each native decode boundary restores its cursor while propagating a failure. Successful object caches remain native.
 #define WK_DECODE_BODY(call, empty) \
     WKCoderState *state = wk_coderState(self, NO); \
@@ -330,7 +464,6 @@ static void wk_endDecode(id coder, WKDecodeScope *scope, BOOL failed)
     static type wk_##name(id self, SEL selector, NSString *key) { \
         WK_DECODE_BODY(((type (*)(id, SEL, NSString *))wk_original_##name)(self, selector, key), empty); \
     }
-WK_KEY_DECODER(decodeObjectForKey, id, nil)
 WK_KEY_DECODER(decodeBoolForKey, BOOL, NO)
 WK_KEY_DECODER(decodeIntForKey, int, 0)
 WK_KEY_DECODER(decodeInt32ForKey, int32_t, 0)
@@ -344,12 +477,34 @@ WK_KEY_DECODER(decodeSizeForKey, NSSize, NSZeroSize)
 WK_KEY_DECODER(decodeRectForKey, NSRect, NSZeroRect)
 #undef WK_KEY_DECODER
 
+static IMP wk_original_decodeObjectForKey, wk_original_decodeObject;
+static id wk_decodeStrictObjectForKey(id self, SEL selector, NSString *key, WKCoderState *state)
+{
+    // -decodeObjectForKey: reads the key without its leading '$'.
+    if (wk_strictState(state, self))
+        wk_validateStrictReference(self, [key hasPrefix:@"$"] ? [key substringFromIndex:1] : key);
+    return ((id (*)(id, SEL, NSString *))wk_original_decodeObjectForKey)(self, selector, key);
+}
+static id wk_decodeObjectForKey(id self, SEL selector, NSString *key)
+{
+    WK_DECODE_BODY(wk_decodeStrictObjectForKey(self, selector, key, state), nil);
+}
+static id wk_decodeStrictObject(id self, SEL selector, WKCoderState *state)
+{
+    if (wk_strictState(state, self))
+        wk_validateStrictReference(self, wk_nextGenericKey(self));
+    return ((id (*)(id, SEL))wk_original_decodeObject)(self, selector);
+}
+static id wk_decodeObject(id self, SEL selector)
+{
+    WK_DECODE_BODY(wk_decodeStrictObject(self, selector, state), nil);
+}
+
 #define WK_UNKEYED_DECODER(name, type, empty) \
     static IMP wk_original_##name; \
     static type wk_##name(id self, SEL selector) { \
         WK_DECODE_BODY(((type (*)(id, SEL))wk_original_##name)(self, selector), empty); \
     }
-WK_UNKEYED_DECODER(decodeObject, id, nil)
 WK_UNKEYED_DECODER(decodeDataObject, id, nil)
 WK_UNKEYED_DECODER(decodePropertyList, id, nil)
 WK_UNKEYED_DECODER(decodePoint, NSPoint, NSZeroPoint)
@@ -383,8 +538,6 @@ static void *wk_decodeBytesWithReturnedLength(id self, SEL selector, NSUInteger 
 static IMP wk_original_decodeArrayOfObjects, wk_nativePropertyList;
 static id (*wk_nativeDecodeBinary)(id, uint32_t, NSString *);
 static id (*wk_nativeDecodeXML)(id, NSString *);
-static CFTypeID (*wk_uidTypeID)(void);
-static uint32_t (*wk_uidValue)(CFTypeRef);
 
 static id wk_decodeNativeArray(id self, NSString *key)
 {
@@ -399,6 +552,7 @@ static id wk_decodeNativeArray(id self, NSString *key)
     CFMutableArrayRef containers = wk_pointerIvar(self, wk_containers);
     WKDecodePosition position = wk_decodePosition(self);
     BOOL missing = NO;
+    BOOL strict = wk_strictSecureDecoding(self);
     @try {
         if (containers) {
             CFMutableArrayRef pending = CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, (CFArrayRef)references);
@@ -409,11 +563,14 @@ static id wk_decodeNativeArray(id self, NSString *key)
             if (wk_coderError(self))
                 return nil;
             id object;
+            CFTypeRef uid = (CFTypeRef)references[index];
+            BOOL isReference = CFGetTypeID(uid) == wk_uidTypeID();
+            if (strict && isReference && wk_uidValue(uid))
+                wk_validateInlineValue(self, wk_uidValue(uid), containers ? @"" : binaryKey);
             if (containers)
                 object = wk_nativeDecodeXML(self, @"");
             else {
-                CFTypeRef uid = (CFTypeRef)references[index];
-                if (CFGetTypeID(uid) != wk_uidTypeID())
+                if (!isReference)
                     [NSException raise:NSInvalidUnarchiveOperationException format:@"Archive array contains a non-object reference for %@", key];
                 object = wk_nativeDecodeBinary(self, wk_uidValue(uid), binaryKey);
             }
@@ -462,6 +619,9 @@ static void wk_decodeValueOrArray(id self, SEL selector, const char *type, NSUIn
     if (state) wk_beginDecode(self, state, &scope);
     BOOL failed = NO;
     @try {
+        // A keyed unarchiver reads an object value through the next generic key.
+        if (!array && type && *type == '@' && wk_strictState(state, self))
+            wk_validateStrictReference(self, wk_nextGenericKey(self));
         if (array)
             ((void (*)(id, SEL, const char *, NSUInteger, void *))wk_original_decodeArray)(self, selector, type, count, output);
         else
@@ -542,8 +702,7 @@ static IMP wk_original_validateAllowedClass;
 static void wk_validateAllowedClass(id self, SEL selector, Class cls, NSString *key)
 {
     ((void (*)(id, SEL, Class, NSString *))wk_original_validateAllowedClass)(self, selector, cls, key);
-    WKCoderState *state = wk_coderState(self, NO);
-    if (state && state->strict && [self requiresSecureCoding] && ![[self allowedClasses] containsObject:cls])
+    if (wk_strictSecureDecoding(self) && ![[self allowedClasses] containsObject:cls])
         [NSException raise:NSInvalidUnarchiveOperationException format:@"Strict secure decoding rejects class %@ for %@", cls, key];
 }
 static void wk_enableStrictSecureDecodingMode(id self, SEL selector)
@@ -737,6 +896,28 @@ static id wk_URLResponseInitWithCoder(NSURLResponse *self, SEL selector, NSCoder
     return result;
 }
 
+// -[NSDictionary initWithCoder:] reads NS.objects, then NS.keys, and passes both arrays to
+// -initWithObjects:forKeys:. Under NSDecodingFailurePolicySetErrorAndReturn a dictionary whose arrays
+// fail, or differ in length, fails with the coder's error.
+static IMP wk_original_dictionaryInitWithCoder;
+static id wk_dictionaryInitWithCoder(NSDictionary *self, SEL selector, NSCoder *coder)
+{
+    if (![coder isKindOfClass:NSKeyedUnarchiver.class] || [coder decodingFailurePolicy] != NSDecodingFailurePolicySetErrorAndReturn
+        || (object_getClass(coder) != NSKeyedUnarchiver.class && ![coder containsValueForKey:@"NS.objects"]))
+        return ((id (*)(id, SEL, NSCoder *))wk_original_dictionaryInitWithCoder)(self, selector, coder);
+    SEL decodeArray = sel_registerName("_decodeArrayOfObjectsForKey:");
+    NSArray *objects = ((id (*)(id, SEL, NSString *))objc_msgSend)(coder, decodeArray, @"NS.objects");
+    NSArray *keys = ((id (*)(id, SEL, NSString *))objc_msgSend)(coder, decodeArray, @"NS.keys");
+    if (!wk_coderError(coder) && objects.count != keys.count)
+        [coder failWithError:[NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError
+            userInfo:@{NSLocalizedDescriptionKey:@"Archived dictionary keys and objects differ in count"}]];
+    if (wk_coderError(coder)) {
+        [self release];
+        return nil;
+    }
+    return [self initWithObjects:objects forKeys:keys];
+}
+
 static Ivar wk_codingIvar(Class cls, const char *name, NSUInteger expectedSize)
 {
     Ivar ivar = class_getInstanceVariable(cls, name);
@@ -854,6 +1035,10 @@ void wk_initializeFoundationCoding(void)
         wk_allowedClasses = wk_codingIvar(helper, "_allowedClasses", sizeof(id));
         wk_lastRef = wk_codingIvar(helper, "_lastRef", 4);
         wk_archiveStream = wk_codingIvar(NSKeyedArchiver.class, "_stream", sizeof(void *));
+        wk_archiveBytes = wk_codingIvar(coder, "_bytes", sizeof(void *));
+        wk_archiveLength = wk_codingIvar(coder, "_len", sizeof(uint64_t));
+        wk_archiveObjects = wk_codingIvar(coder, "_objects", sizeof(id));
+        wk_binaryObjectCache = wk_codingIvar(coder, "_reserved0", sizeof(void *));
         wk_image foundation, coreFoundation;
         wk_find_image("/Foundation.framework/Versions/C/Foundation", &foundation);
         wk_find_image("/CoreFoundation.framework/Versions/A/CoreFoundation", &coreFoundation);
@@ -861,10 +1046,15 @@ void wk_initializeFoundationCoding(void)
         wk_nativeDecodeXML = wk_symbol_in_image(&foundation, "__decodeObjectXML");
         wk_uidTypeID = wk_symbol_in_image(&coreFoundation, "__CFKeyedArchiverUIDGetTypeID");
         wk_uidValue = wk_symbol_in_image(&coreFoundation, "__CFKeyedArchiverUIDGetValue");
+        wk_binaryDictionaryValueOffset = wk_symbol_in_image(&coreFoundation, "___CFBinaryPlistGetOffsetForValueFromDictionary3");
+        wk_binaryArrayValueOffset = wk_symbol_in_image(&coreFoundation, "___CFBinaryPlistGetOffsetForValueFromArray2");
+        wk_binaryCreateObject = wk_symbol_in_image(&coreFoundation, "___CFBinaryPlistCreateObject");
         Method propertyList = class_getInstanceMethod(coder, sel_registerName("_decodePropertyListForKey:"));
         wk_nativePropertyList = propertyList ? method_getImplementation(propertyList) : NULL;
         if (!wk_nativeDecodeBinary || !wk_nativeDecodeXML || !wk_uidTypeID || !wk_uidValue || !wk_nativePropertyList)
             wk_patch_fail("Foundation coding", "native archive array backend is absent");
+        if (!wk_binaryDictionaryValueOffset || !wk_binaryArrayValueOffset || !wk_binaryCreateObject)
+            wk_patch_fail("Foundation coding", "native binary archive reader is absent");
         wk_bindCodingCacheImports();
 #define WRAP(name, methodName) wk_wrapDecoder(coder, @selector(methodName), (IMP)wk_##name, &wk_original_##name)
         WRAP(decodeArrayOfObjects, _decodeArrayOfObjectsForKey:);
@@ -895,6 +1085,7 @@ void wk_initializeFoundationCoding(void)
         WRAP(validateAllowedClass, validateAllowedClass:forKey:);
 #undef WRAP
         wk_wrapDecoder(NSURLResponse.class, @selector(initWithCoder:), (IMP)wk_URLResponseInitWithCoder, &wk_original_URLResponseInitWithCoder);
+        wk_wrapDecoder(NSDictionary.class, @selector(initWithCoder:), (IMP)wk_dictionaryInitWithCoder, &wk_original_dictionaryInitWithCoder);
 #define ADD(cls, selector, function, types) class_addMethod(cls, sel_registerName(selector), (IMP)function, types)
         ADD(NSCoder.class, "decodingFailurePolicy", wk_getDecodingPolicy, "q@:");
         ADD(NSCoder.class, "error", wk_getDecodingError, "@@:");

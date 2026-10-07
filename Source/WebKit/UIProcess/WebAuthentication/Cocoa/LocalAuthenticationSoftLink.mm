@@ -29,5 +29,6 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(WebKit, LocalAuthentication);
 
-// AQUAWEBKIT: LocalAuthentication is absent from 10.9. _OPTIONAL resolves LAContext to nil, where the non-optional getter would RELEASE_ASSERT in LocalAuthenticationLibrary() on first use; LocalService::isAvailable() then answers false.
+// AQUAWEBKIT: LocalAuthentication is absent from 10.9; _OPTIONAL resolves LAContext to nil, and LocalService::isAvailable() answers false.
+// SOFT_LINK_CLASS_FOR_SOURCE(WebKit, LocalAuthentication, LAContext);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, LocalAuthentication, LAContext);

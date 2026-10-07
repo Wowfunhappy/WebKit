@@ -8,7 +8,8 @@ HTMLEvents interfaceName=Event
 AnimationPlaybackEvent
 BackgroundFetchEvent
 BackgroundFetchUpdateUIEvent
-# AQUAWEBKIT: registers restored BeforeLoadEvent interface (build glue for #62; upstream dropped the trailing interfaceName=Event override along with the type).
+# AQUAWEBKIT: BeforeLoadEvent has its own interface (#62).
+# BeforeLoadEvent interfaceName=Event
 BeforeLoadEvent
 BeforeUnloadEvent
 BufferedChangeEvent conditional=MEDIA_SOURCE

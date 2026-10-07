@@ -35,6 +35,7 @@
 #include <wtf/TypeCasts.h>
 #include <wtf/WeakPtr.h>
 
+// #if USE(GSTREAMER)
 #if USE(GSTREAMER) && !PLATFORM(COCOA) // AQUAWEBKIT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
 #include "GRefPtrGStreamer.h"
 #endif
@@ -100,6 +101,7 @@ private:
         Timer m_captureCanvasTimer;
         std::optional<RealtimeMediaSourceSettings> m_currentSettings;
         WeakPtr<HTMLCanvasElement, WeakPtrImplWithEventTargetData> m_canvas;
+// #if USE(GSTREAMER)
 #if USE(GSTREAMER) && !PLATFORM(COCOA) // AQUAWEBKIT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
         GRefPtr<GstClock> m_clock;
 #endif

@@ -524,6 +524,7 @@ public:
     }
 
     // AQUAWEBKIT: the parameters are named for the WebAudioBufferList branch below.
+    // void audioSamplesAvailable(const MediaTime&, const PlatformAudioData& audioData, const AudioStreamDescription&, size_t) final
     void audioSamplesAvailable(const MediaTime& presentationTime, const PlatformAudioData& audioData, const AudioStreamDescription& description, size_t sampleCount) final
     {
         if (!m_parent || !m_isObserving)
@@ -535,6 +536,9 @@ public:
         if (receivedAudioSampleBeforeVideo())
             return;
 
+        // AQUAWEBKIT: the sample comes from a GStreamerAudioData, or on Cocoa from a WebAudioBufferList.
+        // const auto& data = static_cast<const GStreamerAudioData&>(audioData);
+        // GRefPtr<GstSample> sample = data.getSample();
         GRefPtr<GstSample> sample;
 #if PLATFORM(COCOA)
         // AQUAWEBKIT: the Cocoa capture units this build uses deliver a WebAudioBufferList.

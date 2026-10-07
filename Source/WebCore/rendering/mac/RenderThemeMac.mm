@@ -968,7 +968,11 @@ static Style::PreferredSizePair radioSize(const Style::PreferredSizePair& zoomed
 static const std::span<const IntSize, 4> NODELETE buttonSizes()
 {
     static constexpr std::array sizes = {
-        IntSize { 0, 21 }, // AQUAWEBKIT: the Aqua push-button bezel heights this OS draws (regular/small/mini); the large tier is unreachable here.
+        // AQUAWEBKIT: the Aqua push-button bezel heights this OS draws (regular/small/mini); the large tier is unreachable here.
+        // IntSize { 0, 20 },
+        // IntSize { 0, 16 },
+        // IntSize { 0, 13 },
+        IntSize { 0, 21 },
         IntSize { 0, 18 },
         IntSize { 0, 15 },
         IntSize { 0, 28 },
@@ -1323,20 +1327,15 @@ static std::span<const IntSize, 4> NODELETE menuListButtonSizes()
     return sizes;
 }
 
-// AQUAWEBKIT (#40): the Aqua push-button style adjustment. A button drawn with the native
-// bezel is sized by the bezel, not by the author's font: the CSS font picks a control size, and the
-// control size then supplies the font, the vertical size and the padding, with the border reset
-// because the bezel draws it. Upstream stopped doing this for buttons (menu lists and search fields
-// still do it, just below) and lets the author's font-size through, which is correct modern CSS but
-// not what a Mavericks-era page was laid out against: Safari's own page-load-errors.css gives its
-// "Reload Webpage" button font-size:16px inside a fixed 132px box and relies on the coercion to
-// 13px to make the label fit. Measured against the stock 10.9 WebKit on this host, that page's
-// button is 21px tall with 8px side padding, no border and a 13px system font; without this it is
-// 23px tall with a 2px border and a clipped 16px label.
+// AQUAWEBKIT: the Aqua push-button style adjustment. A button drawn with the native bezel is
+// sized by the bezel: the CSS font picks a control size, and the control size supplies the font, the
+// vertical size and the padding, with the border reset because the bezel draws it, as menu lists and
+// search fields below are. Mavericks-era pages are laid out against it: Safari 7's page-load-errors.css
+// gives its "Reload Webpage" button font-size:16px inside a fixed 132px box and relies on the 13px
+// control font to fit the label.
 //
-// Scoped to the native appearance only, so it reaches exactly the buttons AppKit draws: once an
-// author styles a button enough for isControlStyled() to drop the appearance, its own font, border
-// and padding stand.
+// Only the native appearance takes it: once an author styles a button enough for isControlStyled()
+// to drop the appearance, its own font, border and padding stand.
 void RenderThemeMac::adjustButtonStyle(Style::ComputedStyle& style, const Element* element) const
 {
 #if ENABLE(FORM_CONTROL_REFRESH)
@@ -1953,8 +1952,8 @@ static void paintAttachmentIconPlaceholder(const RenderAttachment& attachment, G
     auto [placeholderImage, imageScale] = createAttachmentPlaceholderImage(protect(attachment.document())->deviceScaleFactor(), layout);
 
     // AQUAWEBKIT: the "arrow.down.circle" SF Symbol does not exist on 10.9, so
-    // createAttachmentPlaceholderImage yields a null image; skip the placeholder glyph rather than
-    // dereferencing it (the attachment still renders, just without the download-progress icon).
+    // createAttachmentPlaceholderImage yields a null image and the attachment draws without the
+    // placeholder glyph.
     if (!placeholderImage)
         return;
 

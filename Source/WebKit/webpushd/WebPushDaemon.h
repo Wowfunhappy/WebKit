@@ -88,6 +88,7 @@ public:
     void startMockPushService();
     void startPushService(const String& incomingPushServiceName, const String& pushDatabasePath, const String& webClipCachePath);
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // void handleIncomingPush(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&);
     void handleIncomingPush(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&, PushServiceConnection::PushMessageReceipt = PushServiceConnection::noPushMessageReceipt);
 
 #if PLATFORM(IOS)
@@ -136,6 +137,7 @@ private:
     void runAfterStartingPushService(Function<void()>&&);
 
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // void handleIncomingPushImpl(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&);
     void handleIncomingPushImpl(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&, PushServiceConnection::PushMessageReceipt);
     void ensureIncomingPushTransaction();
     void releaseIncomingPushTransaction();

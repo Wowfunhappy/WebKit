@@ -18,10 +18,6 @@ elseif (UNIX)
     set(is_linux TRUE)
 endif ()
 
-# AQUAWEBKIT: the port's backend selection, which the renderer .cmake files below read.
-set(AQUAWEBKIT_ANGLE_PHASE BACKEND)
-include(${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/ANGLEPlatformAquaWebKit.cmake)
-
 include(Compiler.cmake)
 include(GLESv2.cmake)
 

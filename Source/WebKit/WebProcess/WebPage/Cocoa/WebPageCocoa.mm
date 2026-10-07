@@ -155,7 +155,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cf/VectorCF.h>
 #import <wtf/cocoa/SpanCocoa.h>
-// AQUAWEBKIT: makeVector/createNSArray helpers from VectorCocoa.h are needed by the 10.9 code paths in this file.
+// AQUAWEBKIT: makeVector(NSData *), for the accessibility remote-token code below; no header this configuration includes brings VectorCocoa.h in.
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
 #import <wtf/text/StringToIntegerConversion.h>
@@ -474,11 +474,8 @@ void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& re
 void WebPage::addDictationAlternative(const String& text, DictationContext context, CompletionHandler<void(bool)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
-    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
-    if (!frame) {
-        completion(false);
+    if (!frame)
         return;
-    } // AQUAWEBKIT: braced early-out (added completion call above).
 
     RefPtr document = frame->document();
     if (!document) {
@@ -516,11 +513,8 @@ void WebPage::addDictationAlternative(const String& text, DictationContext conte
 void WebPage::dictationAlternativesAtSelection(CompletionHandler<void(Vector<DictationContext>&&)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
-    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
-    if (!frame) {
-        completion({ });
+    if (!frame)
         return;
-    } // AQUAWEBKIT: braced early-out (added completion call above).
 
     RefPtr document = frame->document();
     if (!document) {
@@ -1833,16 +1827,14 @@ void WebPage::drawToPDF(const std::optional<FloatRect>& rect, bool allowTranspar
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
-        return completionHandler(nullptr);
+        return;
 
     Ref frameView = *localMainFrame->view();
     auto snapshotRect = IntRect { rect.value_or(FloatRect { { }, frameView->contentsSize() }) };
 
     RefPtr buffer = ImageBuffer::create(snapshotRect.size(), RenderingMode::PDFDocument, RenderingPurpose::Snapshot, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
-    // AQUAWEBKIT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
-        return completionHandler(nullptr);
+        return;
 
     drawMainFrameToPDF(*localMainFrame, buffer->context(), snapshotRect, allowTransparentBackground);
     completionHandler(buffer->sinkIntoPDFDocument());
@@ -2178,8 +2170,7 @@ void WebPage::characterIndexForPointAsync(const WebCore::IntPoint& point, Comple
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-    // AQUAWEBKIT: always invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
-        return completionHandler({ });
+        return;
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent,  HitTestRequest::Type::AllowChildFrameContent };
     auto result = localMainFrame->eventHandler().hitTestResultAtPoint(point, hitType);
     RefPtr frame = result.innerNonSharedNode() ? result.innerNodeFrame() : corePage()->focusController().focusedOrMainFrame();

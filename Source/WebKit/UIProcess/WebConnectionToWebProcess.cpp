@@ -70,8 +70,8 @@ bool WebConnectionToWebProcess::hasValidConnection() const
 
 IPC::Connection* WebConnectionToWebProcess::messageSenderConnection() const
 {
-    // AQUAWEBKIT: AuxiliaryProcessProxy::connection() returns a reference now; a process whose
-    // connection is gone sends nothing, as the pointer accessor this was written against did.
+    // AQUAWEBKIT: AuxiliaryProcessProxy::connection() returns a reference; a process with no
+    // connection has no sender connection.
     return m_process->hasConnection() ? &m_process->connection() : nullptr;
 }
 

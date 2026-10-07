@@ -266,7 +266,10 @@ bool ResourceHandle::start()
     if (!context)
         return false;
 
-    // AQUAWEBKIT: the page/context validity gate applies before selecting either native protocol or HTTP transport.
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+
+    // If NetworkingContext is invalid then we are no longer attached to a Page,
+    // this must be an attempted load from an unload event handler, so let's just block it.
     if (!context->isValid())
         return false;
 
@@ -282,14 +285,6 @@ bool ResourceHandle::start()
         d->m_startTime = MonotonicTime::now();
         return true;
     }
-
-    BEGIN_BLOCK_OBJC_EXCEPTIONS
-
-    // If NetworkingContext is invalid then we are no longer attached to a Page,
-    // this must be an attempted load from an unload event handler, so let's just block it.
-    // AQUAWEBKIT: checked before the HTTP/native transport selection above.
-    // if (!context->isValid())
-    //     return false;
 
     if (auto* networkStorageSession = context->storageSession())
         d->m_storageSession = networkStorageSession->platformSession();
@@ -325,11 +320,9 @@ bool ResourceHandle::start()
     LOG(Network, "Handle %p starting connection %p for %@", this, connection(), firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody));
 
     if (d->m_connection) {
-        // AQUAWEBKIT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
-        // if (d->m_defersLoading)
-        //     connection().defersCallbacks = YES;
         if (d->m_defersLoading)
-            [d->m_delegate.get() setDefersLoading:YES connection:connection()]; // AQUAWEBKIT: see above.
+            // connection().defersCallbacks = YES; // AQUAWEBKIT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
+            [d->m_delegate.get() setDefersLoading:YES connection:connection()];
 
         return true;
     }
@@ -362,11 +355,9 @@ void ResourceHandle::platformSetDefersLoading(bool defers)
         d->m_cocoaCurlHandle->setDefersLoading(defers);
         return;
     }
-    // AQUAWEBKIT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
-    // if (d->m_connection)
-    //     [d->m_connection setDefersCallbacks:defers];
     if (d->m_connection)
-        [d->m_delegate.get() setDefersLoading:defers connection:d->m_connection.get()]; // AQUAWEBKIT: see above.
+        // [d->m_connection setDefersCallbacks:defers]; // AQUAWEBKIT: the delegate holds deferred work as well; see -setDefersLoading:connection:.
+        [d->m_delegate.get() setDefersLoading:defers connection:d->m_connection.get()];
 }
 
 void ResourceHandle::schedule(SchedulePair& pair)

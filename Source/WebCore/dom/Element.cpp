@@ -1743,21 +1743,14 @@ int Element::scrollLeft()
     return 0;
 }
 
-// AQUAWEBKIT: Safari 7's compiled-in ReaderJS scrolls via document.body.scrollTop
-// (pre-CSSOM-View semantics); Quirks::shouldAliasBodyScrollToDocumentScroll() says when the
-// body's vertical scroll API must alias the document scroll. See that method for the details.
-static bool shouldAliasBodyScrollToDocumentScrollForSafariReader(Document& document, const Element& element)
-{
-    return document.bodyOrFrameset() == &element && document.quirks().shouldAliasBodyScrollToDocumentScroll();
-}
-
 int Element::scrollTop()
 {
     Ref document = this->document();
     document->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
-    // AQUAWEBKIT: also alias body.scrollTop to the document scroll for Safari 7 ReaderJS (see shouldAliasBodyScrollToDocumentScrollForSafariReader).
-    if (document->scrollingElement() == this || shouldAliasBodyScrollToDocumentScrollForSafariReader(document, *this)) {
+    // AQUAWEBKIT: also alias body.scrollTop to the document scroll for Safari 7 ReaderJS (see Quirks::shouldAliasBodyScrollToDocumentScroll).
+    // if (document->scrollingElement() == this) {
+    if (document->scrollingElement() == this || document->quirks().shouldAliasBodyScrollToDocumentScroll(*this)) {
         if (RefPtr frame = documentFrameWithNonNullView())
             return adjustContentsScrollPositionOrSizeForZoom(protect(frame->view())->contentsScrollPosition().y(), *frame);
         return 0;
@@ -1808,8 +1801,9 @@ void Element::setScrollTop(int newTop)
     if (options.animated == ScrollIsAnimated::Yes)
         setHasEverHadSmoothScroll(true);
 
-    // AQUAWEBKIT: see shouldAliasBodyScrollToDocumentScrollForSafariReader — ReaderJS scrolls via body.scrollTop.
-    if (document->scrollingElement() == this || shouldAliasBodyScrollToDocumentScrollForSafariReader(document, *this)) {
+    // AQUAWEBKIT: see Quirks::shouldAliasBodyScrollToDocumentScroll — ReaderJS scrolls via body.scrollTop.
+    // if (document->scrollingElement() == this) {
+    if (document->scrollingElement() == this || document->quirks().shouldAliasBodyScrollToDocumentScroll(*this)) {
         if (RefPtr frame = documentFrameWithNonNullView()) {
             IntPoint position(protect(frame->view())->scrollX(), clampTo<int>(newTop * frame->pageZoomFactor() * frame->frameScaleFactor()));
             protect(frame->view())->setScrollPosition(position, options);

@@ -718,7 +718,7 @@ void RenderBlockFlow::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit 
     }
 
     // AQUAWEBKIT: shrink the border-paint box to hug the text for -webkit-border-fit:lines
-    // (10.9 Messages.app speech bubbles). No-op unless border-fit is set, so general layout is unaffected.
+    // (10.9 Messages.app speech bubbles). No-op unless border-fit is set.
     fitBorderToLinesIfNeeded();
 
     auto* state = view().frameView().layoutContext().layoutState();
@@ -3466,10 +3466,9 @@ void RenderBlockFlow::addOverflowFromInlineChildren()
         svgTextLayout()->addOverflowFromInlineChildren();
 }
 
-// AQUAWEBKIT: restored support for the non-standard -webkit-border-fit:lines property,
-// which macOS 10.9 Messages.app relies on (balloons.css) to shrink-wrap each chat speech bubble's
-// border/border-image box to the text lines it contains. Without it the bubble does not hug the
-// text and the balloon border-image collapses. Both methods are no-ops unless border-fit is set.
+// AQUAWEBKIT: the non-standard -webkit-border-fit:lines property, which macOS 10.9 Messages.app's
+// balloons.css uses to shrink-wrap each chat speech bubble's border/border-image box to the text lines it
+// contains. Both methods are no-ops unless border-fit is set.
 void RenderBlockFlow::adjustForBorderFit(LayoutUnit x, LayoutUnit& left, LayoutUnit& right) const
 {
     if (style().usedVisibility() != Visibility::Visible)

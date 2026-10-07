@@ -68,7 +68,7 @@ private:
 
     void waitForDidUpdateActivityState(ActivityStateChangeID) override;
     // AQUAWEBKIT: bounded wait for the in-flight UpdateGeometry reply (see DrawingAreaProxy.h);
-    // backs the restored Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate: / -waitForAsyncDrawingAreaSizeUpdate.
+    // backs the Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate: / -waitForAsyncDrawingAreaSizeUpdate.
     void waitForDidUpdateGeometry(Seconds) override;
     void dispatchPresentationCallbacksAfterFlushingLayers(IPC::Connection&, Vector<IPC::AsyncReplyID>&&) final;
 

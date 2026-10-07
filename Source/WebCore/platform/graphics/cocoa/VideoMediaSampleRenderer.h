@@ -91,9 +91,9 @@ public:
     void notifyWhenDecodingErrorOccurred(Function<void(NSError *)>&&);
     void notifyWhenVideoRendererRequiresFlushToResumeDecoding(Function<void()>&&);
 
-    // AQUAWEBKIT: declared unconditionally — AudioVideoRendererAVFObjC::stageVideoRenderer calls this
-    // unguarded, and VideoMediaSampleRenderer.mm now defines it for !HAVE(AVSAMPLEBUFFERVIDEORENDERER) too.
+#if HAVE(AVSAMPLEBUFFERVIDEORENDERER)
     Ref<GenericPromise> changeRenderer(WebSampleBufferVideoRendering *);
+#endif
 
     void flush();
     void shutdown();

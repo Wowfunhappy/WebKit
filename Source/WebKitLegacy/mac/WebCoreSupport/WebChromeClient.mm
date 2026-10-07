@@ -1088,16 +1088,6 @@ void WebChromeClient::showPlaybackTargetPicker(WebCore::PlaybackTargetClientCont
     [m_webView _showPlaybackTargetPicker:contextId location:location hasVideo:hasVideo];
 }
 
-#if ENABLE(MEDIA_STREAM)
-// AQUAWEBKIT: the capture-state signal the WebKit1 user-media client reprompts on; see
-// WebUserMediaClient::captureStateChanged().
-void WebChromeClient::isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags state)
-{
-    if (RefPtr client = WebUserMediaClient::from([m_webView page].get()))
-        client->captureStateChanged(state);
-}
-#endif
-
 void WebChromeClient::playbackTargetPickerClientStateDidChange(WebCore::PlaybackTargetClientContextIdentifier contextId, WebCore::MediaProducerMediaStateFlags state)
 {
     [m_webView _playbackTargetPickerClientStateDidChange:contextId state:state];
@@ -1199,6 +1189,16 @@ void WebChromeClient::didFinishContentChangeObserving(WebCore::LocalFrame& frame
 #else
     notImplemented();
 #endif
+}
+#endif
+
+#if ENABLE(MEDIA_STREAM)
+// AQUAWEBKIT: the capture-state signal the WebKit1 user-media client reprompts on; see
+// WebUserMediaClient::captureStateChanged().
+void WebChromeClient::isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags state)
+{
+    if (RefPtr client = WebUserMediaClient::from([m_webView page].get()))
+        client->captureStateChanged(state);
 }
 #endif
 

@@ -326,6 +326,7 @@ id<WKUIDelegatePrivate> UIDelegate::UIClient::uiDelegatePrivate()
 
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
 // AQUAWEBKIT: trailing userData param synced to the API::UIClient signature (#58); Cocoa doesn't use it.
+// void UIDelegate::UIClient::mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers)
 void UIDelegate::UIClient::mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers, API::Object*)
 {
     RefPtr uiDelegate = m_uiDelegate.get();
@@ -544,9 +545,8 @@ void UIDelegate::UIClient::requestStorageAccessConfirm(WebPageProxy& webPageProx
         }
     }
 
-    // AQUAWEBKIT: the quirk-first order below now lives in one place, presentStorageAccessAlert,
-    // so the legacy C UI client reaches the same sheet in the same order; the alert takes the page
-    // rather than a WKWebView so a page hosted in a WKView reaches it at all.
+    // AQUAWEBKIT: the quirk-first order below lives in presentStorageAccessAlert, which the legacy C
+    // UI client calls too; the alert takes the page, so a page hosted in a WKView reaches it.
     // if (organizationStorageAccessPromptQuirk) {
     // #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
     //     presentStorageAccessAlertSSOQuirk(uiDelegate->m_webView.get().get(), organizationStorageAccessPromptQuirk->organizationName, organizationStorageAccessPromptQuirk->quirkDomains, WTF::move(completionHandler));

@@ -26,34 +26,30 @@
 #include "config.h"
 #include "WKIconDatabaseCG.h"
 
-// AQUAWEBKIT: APIData for the raw favicon bytes read out of the revived in-memory icon store (#49).
+// AQUAWEBKIT: the in-memory icon store's favicon bytes (#49), decoded by the decoders that draw a page's
+// images (github #76).
 #include "APIData.h"
-#include "WKAPICast.h"
-#include "WKSharedAPICast.h"
-// AQUAWEBKIT: the store, plus WebCore's image decoding — the same decoders that draw a
-// page's images, so a favicon in any format this port renders is a usable icon here too
-// (#49, github #76).
 #include "WebIconDatabase.h"
 #include <WebCore/ImageDecoder.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/RetainPtr.h>
+#include "WKAPICast.h"
+#include "WKSharedAPICast.h"
+#include <WebCore/Image.h>
 
 using namespace WebKit;
 
-// AQUAWEBKIT: every frame a stored favicon decodes to, in file order — shared by the
-// single-image and the array lookup below, and by the store's admission test (#49, github #76).
+// AQUAWEBKIT: every frame a stored favicon decodes to, in file order, for the lookups below and the
+// store's admission test (#49, github #76).
 Vector<RetainPtr<CGImageRef>> WebKit::decodeIconData(API::Data& data)
 {
-    // AQUAWEBKIT: ImageDecoder directly rather than BitmapImage: decoding here must be synchronous (the answer is
-    // the return value), and this is the same decoder selection WebCore uses for page images.
-    // The MIME type is left empty on purpose: the decoders sniff the bytes, and the store keeps no
-    // type — the honest test is whether the bytes decode, not what a server called them.
+    // AQUAWEBKIT: a synchronous ImageDecoder, with WebCore's decoder selection for page images. The store
+    // keeps no MIME type; the decoders sniff the bytes.
     Ref buffer = WebCore::SharedBuffer::create(data.span());
     RefPtr decoder = WebCore::ImageDecoder::create(buffer, String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
     if (!decoder)
         return { };
-    // A decoder is constructed with nothing ingested; the data arrives here. (Missing this rejected
-    // every icon, since the status stays Unknown.)
+    // A decoder is constructed with nothing ingested; the data arrives here.
     decoder->setData(buffer, true);
     if (decoder->encodedDataStatus() != WebCore::EncodedDataStatus::Complete)
         return { };
@@ -71,18 +67,18 @@ Vector<RetainPtr<CGImageRef>> WebKit::decodeIconData(API::Data& data)
 // AQUAWEBKIT: the store lookup both C API entry points below share.
 static Vector<RetainPtr<CGImageRef>> iconFramesForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL)); // AQUAWEBKIT
+    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
     if (!data)
         return { };
     return WebKit::decodeIconData(*data);
 }
 
-// AQUAWEBKIT: decode the favicon bytes held in the revived in-memory icon store into a
-// CGImage for Safari 7, instead of the upstream nullptr stub. Honour the requested size the way the
-// pre-deletion upstream did (BitmapImage::getFirstCGImageRefOfSize, 2013): a .ico carries several
-// sizes, so return the frame whose pixel size matches the request and fall back to the first frame
-// when none does — a caller asking for 16x16 must not silently get a 512x512 image. "TryGet" semantics
-// mean the caller does not own the returned image, so it is autoreleased (#49, github #76).
+// AQUAWEBKIT: the stored favicon frame whose pixel size matches the request, else the first frame.
+// "TryGet" returns an image the caller does not own, so it is autoreleased (#49, #76).
+// CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef, WKURLRef, WKSize)
+// {
+//     return nullptr;
+// }
 CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL, WKSize size)
 {
     auto frames = iconFramesForPageURL(iconDatabaseRef, pageURL); // AQUAWEBKIT
@@ -102,13 +98,12 @@ CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, 
     return (CGImageRef)CFAutorelease(chosen.leakRef());
 }
 
-// AQUAWEBKIT: every image a stored favicon contains (github #76). This is the other half of
-// the C API Safari 7 asks favicons through: Safari::IconController::bestSiteIconForURLString and
-// ::bestFallbackCandidate read the array and pick the representation closest to the size they need
-// (that is what backs a Reading List row's icon, among others), and when it comes back empty they fall
-// straight through to the generic globe. Frame order is the file's own, matching pre-deletion upstream
-// (BitmapImage::getCGImageArray); a .ico commonly carries several sizes, hence an array, and a
-// single-image format yields a one-element one.
+// AQUAWEBKIT: every image a stored favicon contains, in file order (#76). Safari::IconController::bestSiteIconForURLString and ::bestFallbackCandidate
+// pick the representation closest to the size they need from it.
+// CFArrayRef WKIconDatabaseTryCopyCGImageArrayForURL(WKIconDatabaseRef, WKURLRef)
+// {
+//     return nullptr;
+// }
 CFArrayRef WKIconDatabaseTryCopyCGImageArrayForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
     auto frames = iconFramesForPageURL(iconDatabaseRef, pageURL); // AQUAWEBKIT
@@ -121,5 +116,4 @@ CFArrayRef WKIconDatabaseTryCopyCGImageArrayForURL(WKIconDatabaseRef iconDatabas
         CFArrayAppendValue(images.get(), frame.get());
     return images.leakRef(); // AQUAWEBKIT: "TryCopy" is +1, which the caller releases.
 }
-
 

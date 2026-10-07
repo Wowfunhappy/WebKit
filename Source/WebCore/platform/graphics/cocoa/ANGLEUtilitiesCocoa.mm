@@ -30,20 +30,8 @@
 #include "ANGLEHeaders.h"
 #include "ANGLEUtilities.h"
 #include "Logging.h"
-// AQUAWEBKIT: Metal (10.11+) is unavailable on 10.9; this build uses ANGLE's OpenGL/CGL
-// backend. The deployment target, not the SDK, decides whether Metal exists at RUNTIME, so this
-// MUST key on MIN_REQUIRED (=1090 here), NOT MAX_ALLOWED. Under the 26.1 SDK MAX_ALLOWED is huge
-// and always-true, which would wrongly select the Metal backend and weak-link to NULL on 10.9.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
-#define WK_ANGLE_METAL 1
-#else
-#define WK_ANGLE_METAL 0
-#endif
-#if WK_ANGLE_METAL
 #include <Metal/Metal.h>
 #include <pal/spi/cocoa/MetalSPI.h>
-// AQUAWEBKIT: Metal headers compiled in only when WK_ANGLE_METAL (Metal is 10.11+, absent on 10.9).
-#endif
 #include <wtf/SoftLinking.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/darwin/WeakLinking.h>
@@ -134,23 +122,6 @@ void destroyPbufferAndDetachIOSurface(EGLDisplay display, void* handle)
     EGL_DestroySurface(display, handle);
 }
 
-#if !WK_ANGLE_METAL
-// AQUAWEBKIT: Metal-only helpers are stubbed (callers compiled out with the OpenGL/CGL backend).
-RetainPtr<id<MTLRasterizationRateMap>> newRasterizationRateMap(GCGLDisplay, IntSize, IntSize, IntSize, std::span<const float>, std::span<const float>, std::span<const float>)
-{
-    return nullptr;
-}
-
-RetainPtr<id<MTLSharedEvent>> newSharedEventWithMachPort(GCGLDisplay, mach_port_t)
-{
-    return nullptr;
-}
-
-RetainPtr<id<MTLSharedEvent>> newSharedEvent(GCGLDisplay)
-{
-    return nullptr;
-}
-#else
 RetainPtr<id<MTLRasterizationRateMap>> newRasterizationRateMap(GCGLDisplay display, IntSize physicalSizeLeft, IntSize physicalSizeRight, IntSize screenSize, std::span<const float> horizontalSamplesLeft, std::span<const float> verticalSamples, std::span<const float> horizontalSamplesRight)
 {
     EGLDeviceEXT device = EGL_NO_DEVICE_EXT;
@@ -233,8 +204,6 @@ RetainPtr<id<MTLSharedEvent>> newSharedEvent(GCGLDisplay display)
 
     return adoptNS([mtlDevice newSharedEvent]);
 }
-// AQUAWEBKIT: closes the WK_ANGLE_METAL split selecting Metal vs. the no-op stubs (Metal is 10.11+).
-#endif // WK_ANGLE_METAL
 
 }
 

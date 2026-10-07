@@ -726,8 +726,7 @@ static void webKitWebSrcMakeRequest(WebKitWebSrc* src, DataMutexLocker<WebKitWeb
             members->loader = nullptr;
             // AQUAWEBKIT: a resource the loader refuses to create ends the stream, the way a
             // resource that fails after it exists does (see loadFailed and the HTTP status paths in
-            // responseReceived). Without it the streaming thread waits in create() for headers that
-            // no longer have anything to deliver them.
+            // responseReceived), which releases the streaming thread waiting in create() for headers.
             GST_ELEMENT_ERROR(protector.get(), RESOURCE, FAILED, ("R%u: Failed to create a media resource", requestNumber), (nullptr));
             members->doesHaveEOS = true;
             members->responseCondition.notifyOne();
@@ -893,8 +892,8 @@ static gboolean webKitWebSrcUnLockStop(GstBaseSrc* baseSrc)
 
 static bool urlHasSupportedProtocol(const URL& url)
 {
-    // AQUAWEBKIT: accept "cid" (Content-ID) here too so set_uri does not reject Apple Mail's
-    // inline audio/video attachment URLs — see webKitWebSrcGetProtocols above. (#69)
+    // AQUAWEBKIT: "cid" too; see webKitWebSrcGetProtocols() below. (#69)
+    // return url.isValid() && (url.protocolIsInHTTPFamily() || url.protocolIsBlob());
     return url.isValid() && (url.protocolIsInHTTPFamily() || url.protocolIsBlob() || url.protocolIs("cid"_s));
 }
 
@@ -907,11 +906,9 @@ static GstURIType webKitWebSrcUriGetType(GType)
 
 const gchar* const* webKitWebSrcGetProtocols(GType)
 {
-    // AQUAWEBKIT: advertise the "cid" (Content-ID, RFC 2392) scheme in addition to the
-    // upstream http/https/blob set. On this port GStreamer is the sole media engine, and Apple Mail
-    // renders inline audio/video attachments as <video>/<audio src="cid:...">. WebKitWebSrc fetches
-    // through WebCore's CachedResourceLoader (see CachedResourceStreamingClient), the same loader that
-    // already resolves cid: for inline <img>, so playbin can source cid: media the same way. (#69)
+    // AQUAWEBKIT: "cid" (Content-ID, RFC 2392) too. Apple Mail renders inline audio/video attachments as
+    // <video>/<audio src="cid:...">, and CachedResourceLoader, which this source fetches through, resolves cid:. (#69)
+    // static std::array<const char*, 4> protocols { "http", "https", "blob" };
     static std::array<const char*, 5> protocols { "http", "https", "blob", "cid" };
     return protocols.data();
 }

@@ -96,7 +96,7 @@ struct NavigationActionData {
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
 
-    // AQUAWEBKIT (#60): userData the restored injected-bundle policy client
+    // AQUAWEBKIT (#60): userData the injected-bundle policy client
     // (InjectedBundlePagePolicyClient) produces for this navigation -- for Safari 7, a WKDictionary
     // holding the "CanHandleRequest" Boolean and "OriginatingFrame" Frame keys built by
     // BrowserBundlePagePolicyClient::userDataForAction. Its UI-process WKPagePolicyClient callback

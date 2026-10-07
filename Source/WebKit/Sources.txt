@@ -1028,7 +1028,7 @@ ServiceWorkerDownloadTaskMessageReceiver.cpp
 WebBroadcastChannelRegistryMessageReceiver.cpp
 WebFrameMessageReceiver.cpp
 WebFrameProxyMessageReceiver.cpp @cost:10
-// AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
+// AQUAWEBKIT: the WebFrameProxyFromNetworkProcess receiver (webkit.org/b/319273).
 WebFrameProxyFromNetworkProcessMessageReceiver.cpp @cost:10
 WebLockRegistryProxyMessageReceiver.cpp @cost:10
 WebPermissionControllerMessageReceiver.cpp

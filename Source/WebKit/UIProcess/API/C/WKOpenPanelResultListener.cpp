@@ -65,13 +65,11 @@ void WKOpenPanelResultListenerChooseMediaFiles(WKOpenPanelResultListenerRef list
 
 void WKOpenPanelResultListenerChooseFiles(WKOpenPanelResultListenerRef listenerRef, WKArrayRef fileURLsRef, WKArrayRef allowedMimeTypesRef)
 {
-    // AQUAWEBKIT: Safari 7's BrowserPageUIClient was compiled against the
-    // legacy 2-arg WKOpenPanelResultListenerChooseFiles(listenerRef, fileURLs).
-    // The modern 3-arg variant reads whatever stale value happened to be in %rdx
-    // and crashes inside API::Object::unwrap (`[(__bridge id)garbage _apiObject]`)
-    // the moment the user clicks Choose. allowedMimeTypes is informational only
-    // (passed down so iOS-style media-picker can filter) — pass an empty list
-    // and ignore the caller's 3rd argument entirely.
+    // AQUAWEBKIT: Safari 7's BrowserPageUIClient calls the legacy 2-argument
+    // WKOpenPanelResultListenerChooseFiles(listenerRef, fileURLs), so the third argument is
+    // whatever the caller left in %rdx. allowedMimeTypes only filters iOS-style media pickers;
+    // the list passed down is empty.
+    // protect(toImpl(listenerRef))->chooseFiles(filePathsFromFileURLs(*protect(toImpl(fileURLsRef))), protect(toImpl(allowedMimeTypesRef))->toStringVector());
     UNUSED_PARAM(allowedMimeTypesRef);
     protect(toImpl(listenerRef))->chooseFiles(filePathsFromFileURLs(*protect(toImpl(fileURLsRef))), Vector<String> { });
 }

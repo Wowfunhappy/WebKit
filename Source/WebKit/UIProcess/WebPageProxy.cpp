@@ -2538,23 +2538,13 @@ void WebPageProxy::loadDataWithNavigationShared(Ref<WebProcessProxy>&& process, 
     prepareToLoadWebPage(process, loadParameters);
 
     process->markProcessAsRecentlyUsed();
-    // AQUAWEBKIT: register the WebProcess as allowed to access the first-party
-    // cookie set for this data load's baseURL, as upstream's loadAlternateHTML does. Upstream relies on the UIProcess navigation-policy
-    // path (receivedNavigationActionPolicyDecision -> sharedProcessForSite /
-    // processForNavigation) to register it, but a restored injected-bundle policy client
-    // that answers Use short-circuits policy in the WebProcess (537 semantics), so that
-    // path never runs; NetworkProcess then rejects the page's first cookie access with
-    // AllowCookieAccess::Terminate and the WebContent process is killed (Mail's
-    // conversation view, where processes are reused across x-webdoc:// message loads).
-    protect(protect(websiteDataStore())->networkProcess())->addAllowedFirstPartyForCookies(process, WebCore::RegistrableDomain { URL { baseURL } }, LoadedWebArchive::No, [process, protectedThis = Ref { *this }, webPageID, baseURL, loadParameters = WTF::move(loadParameters)] () mutable {
-        process->assumeReadAccessToBaseURL(protectedThis.get(), baseURL, [weakProcess = WeakPtr { process }, webPageID, loadParameters = WTF::move(loadParameters)] () mutable {
-            RefPtr protectedProcess = weakProcess.get();
-            if (!protectedProcess)
-                return;
-            protectedProcess->send(Messages::WebPage::LoadData(WTF::move(loadParameters)), webPageID);
-            protectedProcess->startResponsivenessTimer();
-        }, WebProcessProxy::CreateSandboxExtensionForNetworkingProcess::Yes);
-    });
+    process->assumeReadAccessToBaseURL(*this, baseURL, [weakProcess = WeakPtr { process }, webPageID, loadParameters = WTF::move(loadParameters)] () mutable {
+        RefPtr protectedProcess = weakProcess.get();
+        if (!protectedProcess)
+            return;
+        protectedProcess->send(Messages::WebPage::LoadData(WTF::move(loadParameters)), webPageID);
+        protectedProcess->startResponsivenessTimer();
+    }, WebProcessProxy::CreateSandboxExtensionForNetworkingProcess::Yes);
 }
 
 RefPtr<API::Navigation> WebPageProxy::loadSimulatedRequest(WebCore::ResourceRequest&& simulatedRequest, WebCore::ResourceResponse&& simulatedResponse, Ref<WebCore::SharedBuffer>&& data)
@@ -4634,7 +4624,7 @@ void WebPageProxy::dispatchMouseDidMoveOverElementAsynchronously(const NativeWeb
 {
     sendWithAsyncReply(Messages::WebPage::PerformHitTestForMouseEvent { event }, [this, protectedThis = Ref { *this }] (WebHitTestResultData&& hitTestResult, OptionSet<WebEventModifier> modifiers) {
         if (!isClosed())
-            dispatchMouseDidMoveOverElement(WTF::move(hitTestResult), modifiers, nullptr); // AQUAWEBKIT: split dispatch helper; this async hover path carries no injected-bundle data (#58).
+            dispatchMouseDidMoveOverElement(WTF::move(hitTestResult), modifiers, nullptr); // AQUAWEBKIT: split dispatch helper; this async hover path carries no injected-bundle data (#58). Upstream: mouseDidMoveOverElement(WTF::move(hitTestResult), modifiers);
     });
 }
 
@@ -5637,9 +5627,8 @@ void WebPageProxy::privateBrowsingEnabledDidChange()
 {
     // Reload so the navigation-policy path (receivedNavigationActionPolicyDecision) moves this page onto or off
     // its client's ephemeral store. The swap belongs there because it also forces the process swap the new
-    // session needs: a process stays bound to the session it was launched for, so moving the store without it
-    // leaves the load running against the old one. Without a reload the toggle would only affect future
-    // navigations, leaving the current page on its old session (the "still logged in everywhere" symptom in #55).
+    // session needs: a process stays bound to the session it was launched for. The reload moves the current
+    // page as well as future navigations (#55).
     if (!currentURL().isEmpty())
         reload({ });
 }
@@ -9246,14 +9235,14 @@ void WebPageProxy::didSameDocumentNavigationForFrame(IPC::Connection& connection
     auto transaction = protectedPageLoadState->transaction();
 
     bool isMainFrame = frame->isMainFrame();
-    if (isMainFrame) {
-        // AQUAWEBKIT: this navigation makes a history entry for a URL no load will ever commit,
-        // so the favicon paths that hang off loads cannot reach it — the document's icon claim carries
-        // to the URL it now shows under (#112). pageLoadState().url() still reads the URL navigated
-        // FROM until this transaction's commitChanges below.
+    // AQUAWEBKIT: this navigation makes a history entry for a URL no load will ever commit,
+    // so the favicon paths that hang off loads cannot reach it — the document's icon claim carries
+    // to the URL it now shows under (#112). pageLoadState().url() still reads the URL navigated
+    // FROM until this transaction's commitChanges.
+    if (isMainFrame)
         legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url().string(), url);
+    if (isMainFrame)
         protectedPageLoadState->didSameDocumentNavigation(transaction, url);
-    } // AQUAWEBKIT: closes the brace opened for the favicon carry above (#112).
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())
@@ -9271,11 +9260,12 @@ void WebPageProxy::didSameDocumentNavigationForFrame(IPC::Connection& connection
 
     if (isMainFrame) {
         Ref process = WebProcessProxy::fromConnection(connection);
+        // m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, process->transformHandlesToObjects(protect(userData.object()).get()).get());
         auto apiUserData = process->transformHandlesToObjects(protect(userData.object()).get());
         m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, apiUserData.get());
         // AQUAWEBKIT: Safari registers the legacy loader client (WKPageSetPageLoaderClient),
-        // not a navigation client, so same-document navigations must also reach the loader client (mirrors
-        // didChangeBackForwardList). Without this the address bar never updates on pushState/replaceState.
+        // not a navigation client, so same-document navigations also reach the loader client (mirrors
+        // didChangeBackForwardList); Safari's address bar follows pushState/replaceState through it.
         if (m_loaderClient)
             m_loaderClient->didSameDocumentNavigationForFrame(*this, *frame, navigationType, apiUserData.get());
     }
@@ -9313,12 +9303,12 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
     auto transaction = protectedPageLoadState->transaction();
 
     bool isMainFrame = frame->isMainFrame();
-    if (isMainFrame) {
-        // AQUAWEBKIT: history.pushState/replaceState land here — the same-document favicon
-        // carry above applies identically (#112).
+    // AQUAWEBKIT: history.pushState/replaceState land here — the same-document favicon
+    // carry above applies identically (#112).
+    if (isMainFrame)
         legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url().string(), url);
+    if (isMainFrame)
         protectedPageLoadState->didSameDocumentNavigation(transaction, url);
-    } // AQUAWEBKIT: closes the brace opened for the favicon carry above (#112).
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())
@@ -9334,6 +9324,8 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
         automationSession->fragmentNavigatedForFrame(*frame, navigation ? std::optional(navigation->navigationID()) : std::nullopt);
 #endif
 
+    // if (isMainFrame)
+    //     m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, process->transformHandlesToObjects(protect(userData.object()).get()).get());
     if (isMainFrame) {
         auto apiUserData = process->transformHandlesToObjects(protect(userData.object()).get());
         m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, apiUserData.get());
@@ -9471,15 +9463,13 @@ void WebPageProxy::didReceiveTitleForFrame(IPC::Connection& connection, FrameIde
         }
     }
 
-    // AQUAWEBKIT: keep a copy of the title before it's moved, to forward to the legacy loader client below.
-    String forwardedTitle = title;
     frame->didChangeTitle(WTF::move(title));
 
     protectedPageLoadState->commitChanges();
 
-    // AQUAWEBKIT: forward to legacy loader client (Safari 7 uses this).
+    // AQUAWEBKIT: forward to legacy loader client (Safari 7 uses this); the frame now holds the title.
     if (m_loaderClient)
-        m_loaderClient->didReceiveTitleForFrame(*this, forwardedTitle, *frame, nullptr);
+        m_loaderClient->didReceiveTitleForFrame(*this, frame->title(), *frame, nullptr);
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (frame->isMainFrame())
@@ -9494,11 +9484,12 @@ void WebPageProxy::processDidUpdateThrottleState()
 }
 
 
-// AQUAWEBKIT: frameID/userData params are now named (were anonymous in the upstream empty stub) because the body below dispatches the legacy first-layout signal to the deprecated loader client (iBooks reader-window sequencing).
+// AQUAWEBKIT: the parameters are named for the body below, which dispatches the legacy first-layout signal to the deprecated loader client (iBooks reader-window sequencing).
+// void WebPageProxy::didFirstLayoutForFrame(FrameIdentifier, const UserData& userData)
 void WebPageProxy::didFirstLayoutForFrame(FrameIdentifier frameID, const UserData& userData)
 {
     // AQUAWEBKIT: dispatch the legacy first-layout signal to the deprecated loader
-    // client (this was an empty stub upstream). WKPageSetPageLoaderClient registers for the
+    // client (upstream's body is empty). WKPageSetPageLoaderClient registers for the
     // DidFirstLayout milestone whenever the client sets didFirstLayoutForFrame, and legacy
     // embedders sequence on the callback — iBooks will not swap a freshly loaded chapter's
     // view into its reader window until its loader client hears first layout.
@@ -10049,10 +10040,13 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     if (!sessionID().isEphemeral())
         logFrameNavigation(frame, internals().pageLoadState.url(), request, navigationAction->data().redirectResponse.url(), wasPotentiallyInitiatedByUser);
 
+    // if (m_policyClient)
+    //     m_policyClient->decidePolicyForNavigationAction(*this, &frame, WTF::move(navigationAction), originatingFrame.get(), originalRequest, WTF::move(request), WTF::move(listener));
+    // else {
     if (bundlePolicyDecidedUse) // AQUAWEBKIT: the injected bundle's policy client already answered Use (see NavigationActionData).
         listener->use();
     else if (m_policyClient) { // AQUAWEBKIT: `else` joins the injected-bundle answer above.
-        // AQUAWEBKIT (#60): rehydrate the userData object the restored injected-bundle
+        // AQUAWEBKIT (#60): rehydrate the userData object the injected-bundle
         // policy client attached in the WebProcess. Safari's legacy
         // V0/V1 WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction) casts
         // this to a WKDictionary and bails WITHOUT driving the listener if it is null. Passing the
@@ -10198,6 +10192,8 @@ void WebPageProxy::decidePolicyForNewWindowAction(IPC::Connection& connection, N
         receivedPolicyDecision(policyAction, nullptr, std::nullopt, WTF::move(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, std::nullopt, WTF::move(completionHandler));
     }, ShouldExpectSafeBrowsingResult::No, ShouldExpectAppBoundDomainResult::No, ShouldWaitForInitialLinkDecorationFilteringData::No, ShouldWaitForSiteHasStorageCheck::No, ShouldWaitForEnhancedSecurityLinkCheck::No);
 
+    // if (m_policyClient)
+    //     m_policyClient->decidePolicyForNewWindowAction(*this, *frame, navigationAction.get(), request, frameName, WTF::move(listener));
     if (navigationAction->data().bundlePolicyDecidedUse) // AQUAWEBKIT: the injected bundle's policy client already answered Use.
         listener->use();
     else if (m_policyClient) { // AQUAWEBKIT: `else` joins the injected-bundle answer above.
@@ -10210,17 +10206,19 @@ void WebPageProxy::decidePolicyForNewWindowAction(IPC::Connection& connection, N
 }
 
 // AQUAWEBKIT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
+// void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, bool bundlePolicyDecidedUse, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameInfo.frameID);
     if (!frame)
         return completionHandler({ });
     // AQUAWEBKIT: forwards bundlePolicyUserData.
+    // decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, WTF::move(completionHandler));
     decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, bundlePolicyUserData, bundlePolicyDecidedUse, WTF::move(completionHandler));
 }
 
-// AQUAWEBKIT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed the
-// message); invokes the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
+// AQUAWEBKIT: the WebProcess's InjectedBundlePagePolicyClient reports through this message; it
+// invokes the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
 void WebPageProxy::unableToImplementPolicy(IPC::Connection& connection, WebCore::FrameIdentifier frameID, const WebCore::ResourceError& error, const UserData& userData)
 {
     RefPtr protectedPageClient { pageClient() };
@@ -10236,6 +10234,7 @@ void WebPageProxy::unableToImplementPolicy(IPC::Connection& connection, WebCore:
 }
 
 // AQUAWEBKIT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
+// void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, bool bundlePolicyDecidedUse, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr protectedPageClient { pageClient() };
@@ -10436,6 +10435,9 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
         });
     }
 
+    // if (m_policyClient)
+    //     m_policyClient->decidePolicyForResponse(*this, *frame, response, request, canShowMIMEType, WTF::move(listener));
+    // else
     if (bundlePolicyDecidedUse) // AQUAWEBKIT: the injected bundle's policy client already answered Use.
         listener->use();
     else if (m_policyClient) { // AQUAWEBKIT: `else` joins the injected-bundle answer above.
@@ -10809,6 +10811,7 @@ void WebPageProxy::createNewPage(IPC::Connection& connection, WindowFeatures&& w
         navigationDataForNewProcess = WTF::move(navigationDataForNewProcess),
         shouldOpenExternalURLsPolicy = navigationActionData.shouldOpenExternalURLsPolicy,
         openedBlobURL,
+        // wantsNoOpener = windowFeatures.wantsNoOpener()
         wantsNoOpener = windowFeatures.wantsNoOpener(),
         originatingFrameID = originatingFrame->frameID() // AQUAWEBKIT: Safari 7 extensions' webNavigation.onCreatedNavigationTarget.
     ] (RefPtr<WebPageProxy> newPage) mutable {
@@ -11223,13 +11226,15 @@ void WebPageProxy::mouseDidMoveOverElement(IPC::Connection& connection, WebHitTe
     dispatchMouseDidMoveOverElement(WTF::move(hitTestResultData), modifiers, WebProcessProxy::fromConnection(connection)->transformHandlesToObjects(protect(userData.object()).get()).get());
 }
 
+// void WebPageProxy::mouseDidMoveOverElement(WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers)
 void WebPageProxy::dispatchMouseDidMoveOverElement(WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers, API::Object* userData)
 {
 #if PLATFORM(MAC)
     m_lastMouseMoveHitTestResult = API::HitTestResult::create(hitTestResultData, this);
 #endif
 
-    // AQUAWEBKIT: forward the injected-bundle userData (hovered link URL) to the restored 4-arg WKPageUIClient.mouseDidMoveOverElement for Safari 7's status bar (#58).
+    // AQUAWEBKIT: forward the injected-bundle userData (hovered link URL) to the 4-arg legacy WKPageUIClient.mouseDidMoveOverElement for Safari 7's status bar (#58).
+    // m_uiClient->mouseDidMoveOverElement(*this, hitTestResultData, modifiers);
     m_uiClient->mouseDidMoveOverElement(*this, hitTestResultData, modifiers, userData);
     setToolTip(hitTestResultData.tooltipText);
 }
@@ -11919,7 +11924,7 @@ void WebPageProxy::loadAndDecodeImage(WebCore::ResourceRequest&& request, std::o
 }
 
 // AQUAWEBKIT: the load above without the decode, so the UI process can obtain a site's own
-// image bytes. The revived favicon store needs them rather than a bitmap: it decides whether to admit
+// image bytes. The favicon store needs them rather than a bitmap: it decides whether to admit
 // an icon by decoding it, and rasterizes what this OS cannot read (#49, #112).
 void WebPageProxy::loadImageData(WebCore::ResourceRequest&& request, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
 {
@@ -15385,6 +15390,10 @@ void WebPageProxy::requestMediaKeySystemPermissionForFrame(IPC::Connection& conn
 
         // AQUAWEBKIT: the allowed path forks on the key system below, so the page and the
         // key system travel with the decision.
+        // protectedThis->m_uiClient->decidePolicyForMediaKeySystemPermissionRequest(*protectedThis, origin, keySystem, [request = WTF::move(request)](bool allowed) {
+        //     if (allowed)
+        //         request->allow();
+        //     else
         protectedThis->m_uiClient->decidePolicyForMediaKeySystemPermissionRequest(*protectedThis, origin, keySystem, [weakThis = WTF::move(weakThis), keySystem, request = WTF::move(request)](bool allowed) mutable {
             if (!allowed) {
                 request->deny();
@@ -16397,6 +16406,7 @@ void WebPageProxy::getWebCryptoMasterKey(CompletionHandler<void(std::optional<Ve
     m_websiteDataStore->client().webCryptoMasterKey([completionHandler = WTF::move(completionHandler), protectedThis = Ref { *this }](std::optional<Vector<uint8_t>>&& key) mutable {
         if (key)
             return completionHandler(WTF::move(key));
+        // protectedThis->m_navigationClient->legacyWebCryptoMasterKey(protectedThis, WTF::move(completionHandler)); // AQUAWEBKIT: see below.
         protectedThis->m_navigationClient->legacyWebCryptoMasterKey(protectedThis, [protectedThis, completionHandler = WTF::move(completionHandler)](std::optional<Vector<uint8_t>>&& key) mutable {
             if (key)
                 return completionHandler(WTF::move(key));
@@ -16407,8 +16417,7 @@ void WebPageProxy::getWebCryptoMasterKey(CompletionHandler<void(std::optional<Ve
             // client, fall back to the platform default master key, the same fallback every modern
             // navigation client performs (NavigationState.mm, WKPage.cpp's PageNavigationClient) and
             // WebProcessProxy::getWebCryptoMasterKey performs for pageless contexts. Gated on m_loaderClient
-            // so an embedder whose navigation client deliberately answers without a key keeps upstream
-            // behavior. Lives in-tree because this is WebKit's own C-API surface for the Safari 7 host.
+            // so an embedder whose navigation client answers without a key keeps upstream behavior.
             if (protectedThis->m_loaderClient)
                 return WebCore::getDefaultWebCryptoMasterKey(WTF::move(completionHandler));
             completionHandler(std::nullopt);
@@ -19160,6 +19169,7 @@ INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebProcess::BindAccessibilityFrameW
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::UpdateFrameScrollingMode);
 // AQUAWEBKIT: ZoomPDFOut/ZoomPDFIn messages are #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC); the
 // inline PDF plugin is OFF on this port (PDFs download), so match the message guard here.
+// #if PLATFORM(MAC)
 #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::ZoomPDFOut);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::ZoomPDFIn);
@@ -19218,6 +19228,7 @@ INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::RequestAd
 #endif
 // AQUAWEBKIT: SavePDF/OpenPDFWithPreview messages are #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC);
 // the inline PDF plugin is OFF on this port (PDFs download), so match the message guard here.
+// #if PLATFORM(MAC)
 #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::SavePDF);
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::OpenPDFWithPreview);

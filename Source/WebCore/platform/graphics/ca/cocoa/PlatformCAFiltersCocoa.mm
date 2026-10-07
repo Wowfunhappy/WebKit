@@ -217,6 +217,7 @@ void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOper
     bool isBackdropLayer = is_objc<WebBackdropLayerAquaWebKit>(layer); // AQUAWEBKIT: target the native background-filter surface.
     if (!filters.size()) {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
+        // [layer setFilters:nil];
         if (isBackdropLayer) // AQUAWEBKIT: clearing a backdrop leaves native foreground filters alone.
             [layer setBackgroundFilters:nil];
         else

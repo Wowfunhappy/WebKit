@@ -114,6 +114,7 @@ Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayerHost(WebCore::L
 // WebPage::videoPresentationManager() — the video-presentation stack this port does not build
 // (ENABLE(VIDEO_PRESENTATION_MODE) is off; 10.9 lacks the AVKit presentation SPI). Upstream
 // ships HAVE(AVKIT) only alongside that stack, so both conditions are written out here.
+// #if HAVE(AVKIT)
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
 Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformVideoLayer(WebCore::HTMLVideoElement& videoElement, PlatformCALayerClient* owner)
 {

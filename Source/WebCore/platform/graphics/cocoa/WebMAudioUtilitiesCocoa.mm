@@ -394,8 +394,9 @@ static Vector<uint8_t> cookieFromOpusCookieContents(const OpusCookieContents& co
     };
 
     auto magicCookie = Vector<uint8_t>(sizeof(CoreAudioOpusHeader));
-    // AQUAWEBKIT: this tree's WTF::Vector::data() is private (upstream public);
-    // use the public mutableSpan().data() accessor instead. Same pointer, no behavior change.
+    // AQUAWEBKIT: this branch is built here (HAVE(AUDIOFORMATPROPERTY_VARIABLEPACKET_SUPPORTED) is 0),
+    // and WTF::Vector::data() is private; mutableSpan().data() is the same pointer.
+    // *reinterpret_cast<CoreAudioOpusHeader*>(magicCookie.data()) = header;
     *reinterpret_cast<CoreAudioOpusHeader*>(magicCookie.mutableSpan().data()) = header;
 
     return magicCookie;

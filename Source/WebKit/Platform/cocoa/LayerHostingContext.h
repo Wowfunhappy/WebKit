@@ -75,7 +75,7 @@ public:
     static std::unique_ptr<LayerHostingContext> create(const LayerHostingContextOptions& = { });
 
 #if PLATFORM(MAC)
-    // AQUAWEBKIT: restored from WebKit-537. Creates the hosted context against the UI
+    // AQUAWEBKIT: creates the hosted context against the UI
     // process's CARemoteLayerServer port (WebProcessCreationParameters.acceleratedCompositingPort)
     // — the only context flavor displayable in windows that composite their layer tree in-process
     // (LayerHostingMode::InProcess; iBooks' reader window). Non-owning: the caller keeps the send

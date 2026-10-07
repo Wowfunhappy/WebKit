@@ -241,14 +241,10 @@ void NetworkProcess::clearHSTSCache(PAL::SessionID sessionID, WallTime modifiedS
         session->httpStrictTransportSecurityStore().removeModifiedSince(modifiedSince);
 }
 
-// AQUAWEBKIT: the Cocoa half upstream dropped when it stopped implementing per-host
-// certificate exceptions; the other ports still route the same message. Safari 7's
-// invalid-certificate sheet drives this — see WKContextAllowSpecificHTTPSCertificateForHost.
-//
-// The session the message names is ignored, as it is in NetworkProcessCurl.cpp, because the exception
-// belongs to the process: this one network process serves every data store, and the window whose sheet
-// the user accepted need not be the one that reloads — a private window has its own store, recreated
-// on each off-to-on transition. Keeping it here is also what the 2013 mechanism did.
+// AQUAWEBKIT: the Cocoa half of the per-host certificate exception the other ports also route.
+// Safari 7's invalid-certificate sheet drives this; see WKContextAllowSpecificHTTPSCertificateForHost.
+// The session the message names goes unused, as in NetworkProcessCurl.cpp, because the exception
+// belongs to the process; see allowedHTTPSCertificateForHost in NetworkProcess.h.
 void NetworkProcess::allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo& certificateInfo, const String& host)
 {
     if (host.isEmpty() || !certificateInfo.trust())
@@ -307,20 +303,20 @@ void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&&
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
-    // AQUAWEBKIT: this port's HSTS policies are its own store rather than CFNetwork's
-    // _NSHSTSStorage, and a serial queue writes them, so the flush that carries the session's cookies to
-    // disk before the process suspends carries its policies too. The store answers on the main thread
-    // once its queue has drained, which keeps the queue's wait for the directory's cross-process lock
-    // off this thread.
+    // AQUAWEBKIT: this port's HSTS policies live in its own store, which a serial queue writes, so
+    // the flush that carries the session's cookies to disk before the process suspends carries its
+    // policies too. The store answers on the main thread once its queue has drained, which keeps the
+    // queue's wait for the directory's cross-process lock off this thread.
     auto aggregator = CallbackAggregator::create(WTF::move(completionHandler));
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(networkSession(sessionID)))
         session->httpStrictTransportSecurityStore().flush([aggregator] { });
 
     CheckedPtr networkStorageSession = storageSession(sessionID);
     if (!networkStorageSession)
-        return; // AQUAWEBKIT: the aggregator above answers the caller once the parts that did run have.
+        return; // return completionHandler(); -- AQUAWEBKIT: the aggregator above answers the caller once the parts that did run have.
 
     RetainPtr cookieStorage = networkStorageSession->nsCookieStorage();
+    // saveCookies(cookieStorage.get(), WTF::move(completionHandler));
     saveCookies(cookieStorage.get(), [aggregator] { }); // AQUAWEBKIT: one part of the flush above.
 }
 

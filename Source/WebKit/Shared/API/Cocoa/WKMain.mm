@@ -52,9 +52,7 @@ int WKWebPushDaemonMain(int argc, char** argv)
 
 int WKWebPushToolMain(int argc, char** argv)
 {
-    // AQUAWEBKIT: the !USE(MOZILLA_PUSH_SERVICE) term is what routes this port into the
-    // #else below; see the reason there.
-#if ENABLE(WEB_PUSH_NOTIFICATIONS) && !USE(MOZILLA_PUSH_SERVICE)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
     return WebKit::WebPushToolMain(argc, argv);
 #else
     return -1;

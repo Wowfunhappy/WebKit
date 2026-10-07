@@ -2470,15 +2470,14 @@ void FrameSelection::updateCaretVisibility(ShouldUpdateAppearance doAppearanceUp
     CaretBase::setCaretVisibility(visibility);
 #endif
 
-    // AQUAWEBKIT: brace this branch so it can also schedule a rendering update below (WebKitLegacy caret un-suppress on window reactivation needs it).
+    // AQUAWEBKIT: this branch also schedules a rendering update below.
+    // if (doAppearanceUpdate == ShouldUpdateAppearance::Yes)
     if (doAppearanceUpdate == ShouldUpdateAppearance::Yes) {
         m_pendingSelectionUpdate = true;
-        // AQUAWEBKIT: m_pendingSelectionUpdate is serviced only inside Page::updateRendering,
-        // and the focus/activation path that reaches here dirties no style or layout, so nothing else
-        // schedules that update. WebKit2 gets one anyway (its drawing area triggers a rendering update
-        // on every activity-state change), but in WebKitLegacy a caret un-suppressed on window
-        // reactivation stays invisible until unrelated work schedules an update. Schedule it here,
-        // at the point that defers the work.
+        // AQUAWEBKIT: m_pendingSelectionUpdate is serviced only inside Page::updateRendering, and the
+        // focus/activation path that reaches here dirties no style or layout. WebKit2's drawing area
+        // triggers a rendering update on every activity-state change; WebKitLegacy's does not, so a caret
+        // un-suppressed on window reactivation gets its update here, at the point that defers the work.
         if (RefPtr document = m_document.get()) {
             if (RefPtr page = document->page())
                 page->scheduleRenderingUpdate(RenderingUpdateStep::CaretAnimation);

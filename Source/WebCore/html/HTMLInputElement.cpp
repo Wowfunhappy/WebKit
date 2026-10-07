@@ -1376,14 +1376,13 @@ void HTMLInputElement::defaultEventHandler(Event& event)
     }
 
     if (m_inputType->shouldSubmitImplicitly(event)) {
-        // AQUAWEBKIT: this <input type=search> branch opens a block that also dispatches the
-        // non-standard search event (below), which legacy 10.9 Dashboard widgets depend on.
+        // AQUAWEBKIT: this <input type=search> branch also dispatches the non-standard search event (below).
+        // if (isSearchField())
         if (isSearchField()) {
             addSearchResult();
-            // AQUAWEBKIT: the non-standard `search` event (fired on Enter for <input type=search>)
-            // was removed upstream (webkit.org/b/278309), but legacy Dashboard widgets — the Dictionary
-            // widget's onsearch handler runs the lookup — and other 10.9-era content depend on it. Dispatch
-            // it here on implicit submission, after keypress, which is the original timing.
+            // AQUAWEBKIT: the non-standard `search` event, fired on Enter for <input type=search> on implicit
+            // submission, after keypress. Legacy Dashboard widgets (the Dictionary widget's onsearch handler
+            // runs the lookup) and other 10.9-era content listen for it.
             dispatchEvent(Event::create(eventNames().searchEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
         }
         // Form submission finishes editing, just as loss of focus does.

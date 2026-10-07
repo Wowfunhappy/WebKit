@@ -28,7 +28,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: part of upstream's Database agent (removed with bug 286634), restored with it.
+// AQUAWEBKIT: part of upstream's Database agent, for the Safari 7 Web Inspector.
 
 #pragma once
 

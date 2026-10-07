@@ -26,12 +26,10 @@
 #include "config.h"
 #include "WKKeyValueStorageManager.h"
 
-// AQUAWEBKIT: real bodies for the legacy local-storage manager (the base ships
-// return-0/null/no-op stubs). Safari 7's Privacy pane drives it through
-// TrackingDataController::populateWebsiteTrackingData and waits on the callback, so a body
-// that never calls back leaves the pane's website list unpopulated forever. The manager
+// AQUAWEBKIT: the legacy local-storage manager. Safari 7's Privacy pane drives it through
+// TrackingDataController::populateWebsiteTrackingData and waits on the callback. The manager
 // handle WKContextGetKeyValueStorageManager returns is the default WKWebsiteDataStore, so
-// these route to WebsiteDataStore, which is where local storage lives now.
+// these route to WebsiteDataStore, which holds local storage.
 #include "APIArray.h"
 #include "APIDictionary.h"
 #include "APISecurityOrigin.h"
@@ -50,25 +48,30 @@ static WebKit::WebsiteDataStore& wk109StoreForManager(WKKeyValueStorageManagerRe
 
 WKTypeID WKKeyValueStorageManagerGetTypeID()
 {
-    return WebKit::toAPI(WebKit::WebsiteDataStore::APIType); // AQUAWEBKIT: real type (base returns 0).
+    // return 0;
+    return WebKit::toAPI(WebKit::WebsiteDataStore::APIType); // AQUAWEBKIT: the manager handle's type.
 }
 
 WKStringRef WKKeyValueStorageManagerGetOriginKey()
 {
-    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsOriginKey"_s); // AQUAWEBKIT: real key (base returns null).
+    // return nullptr;
+    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsOriginKey"_s); // AQUAWEBKIT: the legacy details key.
 }
 
 WKStringRef WKKeyValueStorageManagerGetCreationTimeKey()
 {
-    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsCreationTimeKey"_s); // AQUAWEBKIT: real key (base returns null).
+    // return nullptr;
+    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsCreationTimeKey"_s); // AQUAWEBKIT: the legacy details key.
 }
 
 WKStringRef WKKeyValueStorageManagerGetModificationTimeKey()
 {
-    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsModificationTimeKey"_s); // AQUAWEBKIT: real key (base returns null).
+    // return nullptr;
+    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsModificationTimeKey"_s); // AQUAWEBKIT: the legacy details key.
 }
 
-// AQUAWEBKIT: real body (base is an empty stub that never calls back).
+// void WKKeyValueStorageManagerGetKeyValueStorageOrigins(WKKeyValueStorageManagerRef, void*, WKKeyValueStorageManagerGetKeyValueStorageOriginsFunction)
+// AQUAWEBKIT: local-storage origins from WebsiteDataStore.
 void WKKeyValueStorageManagerGetKeyValueStorageOrigins(WKKeyValueStorageManagerRef manager, void* context, WKKeyValueStorageManagerGetKeyValueStorageOriginsFunction callback)
 {
     if (!callback)
@@ -83,7 +86,8 @@ void WKKeyValueStorageManagerGetKeyValueStorageOrigins(WKKeyValueStorageManagerR
     });
 }
 
-// AQUAWEBKIT: real body (base is an empty stub that never calls back).
+// AQUAWEBKIT: per-origin details from WebsiteDataStore.
+// void WKKeyValueStorageManagerGetStorageDetailsByOrigin(WKKeyValueStorageManagerRef, void*, WKKeyValueStorageManagerGetStorageDetailsByOriginFunction)
 void WKKeyValueStorageManagerGetStorageDetailsByOrigin(WKKeyValueStorageManagerRef manager, void* context, WKKeyValueStorageManagerGetStorageDetailsByOriginFunction callback)
 {
     // AQUAWEBKIT: the per-origin creation and modification times the legacy details
@@ -104,7 +108,8 @@ void WKKeyValueStorageManagerGetStorageDetailsByOrigin(WKKeyValueStorageManagerR
     });
 }
 
-// AQUAWEBKIT: real body (base is an empty stub).
+// void WKKeyValueStorageManagerDeleteEntriesForOrigin(WKKeyValueStorageManagerRef, WKSecurityOriginRef)
+// AQUAWEBKIT: removes the origin's local storage from WebsiteDataStore.
 void WKKeyValueStorageManagerDeleteEntriesForOrigin(WKKeyValueStorageManagerRef manager, WKSecurityOriginRef originRef)
 {
     WebKit::WebsiteDataRecord record;
@@ -112,7 +117,8 @@ void WKKeyValueStorageManagerDeleteEntriesForOrigin(WKKeyValueStorageManagerRef 
     wk109StoreForManager(manager).removeData(WebKit::WebsiteDataType::LocalStorage, { record }, [] { });
 }
 
-// AQUAWEBKIT: real body (base is an empty stub).
+// void WKKeyValueStorageManagerDeleteAllEntries(WKKeyValueStorageManagerRef)
+// AQUAWEBKIT: removes all local storage from WebsiteDataStore.
 void WKKeyValueStorageManagerDeleteAllEntries(WKKeyValueStorageManagerRef manager)
 {
     wk109StoreForManager(manager).removeData(WebKit::WebsiteDataType::LocalStorage, WallTime::fromRawSeconds(0), [] { });

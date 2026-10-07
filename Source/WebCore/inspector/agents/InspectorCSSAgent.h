@@ -58,7 +58,7 @@ class EventTarget;
 class Node;
 class NodeList;
 class RenderObject;
-// AQUAWEBKIT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the CSS selector profiler, for the Safari 7 Web Inspector.
 class SelectorProfile;
 class Settings;
 class StyleRule;
@@ -119,8 +119,7 @@ public:
     Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<String>>> getSupportedSystemFontFamilyNames();
     Inspector::Protocol::ErrorStringOr<void> forcePseudoState(Inspector::Protocol::DOM::NodeId, Ref<JSON::Array>&& forcedPseudoClasses);
     Inspector::Protocol::ErrorStringOr<void> setLayoutContextTypeChangedMode(Inspector::Protocol::CSS::LayoutContextTypeChangedMode);
-    // AQUAWEBKIT: upstream's CSS selector profiler (removed with bug 127039), restored for the Safari 7
-    // Web Inspector's CSS Selector Profiles.
+    // AQUAWEBKIT: upstream's CSS selector profiler, for the Safari 7 Web Inspector's CSS Selector Profiles.
     Inspector::Protocol::ErrorStringOr<void> startSelectorProfiler();
     Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::CSS::SelectorProfile>> stopSelectorProfiler();
 
@@ -137,7 +136,7 @@ public:
     void willRemoveEventListener(EventTarget&);
     void didChangeAssignedSlot(Node&);
     void didChangeAssignedNodes(Element& slotElement);
-    // AQUAWEBKIT: the CSS selector profiler's hooks, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the CSS selector profiler's hooks, for the Safari 7 Web Inspector.
     void willMatchRule();
     void didMatchRule(const StyleRule&, bool matched);
 
@@ -190,7 +189,7 @@ private:
     RefPtr<Inspector::Protocol::CSS::CSSRule> buildObjectForRule(CSSStyleRule*);
     Ref<JSON::ArrayOf<Inspector::Protocol::CSS::RuleMatch>> buildArrayForMatchedRuleList(const Vector<Ref<const StyleRule>>&, Style::Resolver&, Element&, std::optional<Style::PseudoElementIdentifier>);
     RefPtr<Inspector::Protocol::CSS::CSSStyle> buildObjectForAttributesStyle(StyledElement&);
-    // AQUAWEBKIT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the CSS selector profiler, for the Safari 7 Web Inspector.
     Ref<Inspector::Protocol::CSS::SelectorProfile> buildObjectForSelectorProfile(const SelectorProfile&);
 
     void nodeHasLayoutFlagsChange(Node&);
@@ -219,7 +218,7 @@ private:
 
     Inspector::Protocol::CSS::LayoutContextTypeChangedMode m_layoutContextTypeChangedMode { Inspector::Protocol::CSS::LayoutContextTypeChangedMode::Observed };
 
-    // AQUAWEBKIT: the CSS selector profiler, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the CSS selector profiler, for the Safari 7 Web Inspector.
     std::unique_ptr<SelectorProfile> m_currentSelectorProfile;
 };
 

@@ -157,8 +157,9 @@ bool NonInheritedMiscData::operator==(const NonInheritedMiscData& o) const
         && textOverflow == o.textOverflow
         && userDrag == o.userDrag
         && objectFit == o.objectFit
+        // && resize == o.resize;
         && resize == o.resize
-        && borderFit == o.borderFit; // AQUAWEBKIT
+        && borderFit == o.borderFit; // AQUAWEBKIT: -webkit-border-fit
 }
 
 bool NonInheritedMiscData::hasFilters() const

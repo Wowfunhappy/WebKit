@@ -154,14 +154,14 @@ public:
     // AQUAWEBKIT: guard the VIDEO_PRESENTATION_MODE overrides to match the base
     // VideoFullscreenInterface (AudioVideoRenderer.h), which declares setVideoFullscreenLayer/Frame,
     // setVideoTarget and isInFullscreenOrPictureInPictureChanged only under ENABLE(VIDEO_PRESENTATION_MODE)
-    // (off on this port). An unguarded `final` override of a compiled-out virtual is "only virtual member
-    // functions can be marked 'final'". setTextTrackRepresentation/syncTextTrackBounds are unguarded in the
-    // base, so they stay unguarded here.
+    // (off on this port). setTextTrackRepresentation/syncTextTrackBounds are unguarded in the base, so
+    // they stay unguarded here.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void setVideoFullscreenLayer(PlatformLayer*, Function<void()>&&) final;
     void setVideoFullscreenFrame(const FloatRect&) final;
-    // AQUAWEBKIT: setTextTrackRepresentation/syncTextTrackBounds are relocated below the guard (they
-    // stay unguarded to match the base); see the note above.
+    // AQUAWEBKIT: declared after the guard below.
+    // void setTextTrackRepresentation(TextTrackRepresentation*) final;
+    // void syncTextTrackBounds() final;
     Ref<GenericPromise> setVideoTarget(const PlatformVideoTarget&) final;
     void isInFullscreenOrPictureInPictureChanged(bool) final;
 #endif // AQUAWEBKIT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen overrides (see above).

@@ -38,16 +38,6 @@
 #import "PixelBuffer.h"
 #import "ProcessIdentity.h"
 #import <CoreGraphics/CGBitmapContext.h>
-// AQUAWEBKIT: Metal (and ANGLE's Metal backend) require 10.11+. The 10.9 deployment target
-// — not the SDK — decides whether Metal exists at RUNTIME, so this MUST key on MIN_REQUIRED (=1090
-// here), NOT MAX_ALLOWED. Under the 26.1 SDK MAX_ALLOWED is huge and always-true, which would wrongly
-// select the Metal WebGL backend (absent on 10.9 -> weak-links to NULL -> WebGL dead). With MIN this
-// evaluates FALSE and we keep ANGLE's OpenGL (CGL) backend, compiling out every Metal code path.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
-#define WK_WEBGL_METAL_BACKEND 1
-#else
-#define WK_WEBGL_METAL_BACKEND 0
-#endif
 #import <Metal/Metal.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/MetalSPI.h>
@@ -84,8 +74,6 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 // For WK1, this variable is accessed from multiple threads but always sequentially.
 static GraphicsContextGLANGLE* currentContext;
 
-// AQUAWEBKIT: the ANGLE Metal feature-name tables and the platformSupportsMetal() Metal-device gate are Metal-backend only; compiled out on 10.9 (ANGLE OpenGL/CGL backend, WK_WEBGL_METAL_BACKEND==0).
-#if WK_WEBGL_METAL_BACKEND
 static const char* const enabledANGLEMetalFeatures[] = {
     "ensureLoopForwardProgress",
     nullptr
@@ -98,6 +86,8 @@ static const char* const disabledANGLEMetalFeatures[] = {
     nullptr
 };
 
+// AQUAWEBKIT: the platformSupportsMetal() Metal-device gate is Metal-backend only; compiled out on 10.9 (ANGLE OpenGL/CGL backend, WK_WEBGL_METAL_BACKEND==0).
+#if WK_WEBGL_METAL_BACKEND
 static bool platformSupportsMetal()
 {
     auto device = adoptNS(MTLCreateSystemDefaultDevice());
@@ -180,15 +170,11 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 #endif
 // AQUAWEBKIT: close of the power-preference / device-id block, which is Metal-backend only and compiled out on 10.9 (OpenGL/CGL backend).
 #endif // WK_WEBGL_METAL_BACKEND
-// AQUAWEBKIT: ANGLE Metal feature-control overrides only apply to the Metal backend; compiled out on 10.9 (OpenGL/CGL backend).
-#if WK_WEBGL_METAL_BACKEND
     ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_feature_control"_span));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_DISABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(disabledANGLEMetalFeatures));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_ENABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEMetalFeatures));
-// AQUAWEBKIT: end of the Metal-only feature-override block.
-#endif
     displayAttributes.append(EGL_NONE);
 
     EGLDisplay display = EGL_GetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void*>(EGL_DEFAULT_DISPLAY), displayAttributes.span().data());
@@ -310,8 +296,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
     eglContextAttributes.append(EGL_CONTEXT_BIND_GENERATES_RESOURCE_CHROMIUM);
     eglContextAttributes.append(EGL_FALSE);
 
-// AQUAWEBKIT: the Metal context-ownership-identity attribute is Metal-backend only, so also gate this block on WK_WEBGL_METAL_BACKEND (compiled out on 10.9 / OpenGL backend).
-#if HAVE(TASK_IDENTITY_TOKEN) && WK_WEBGL_METAL_BACKEND
+#if HAVE(TASK_IDENTITY_TOKEN)
     auto displayExtensions = unsafeSpan(EGL_QueryString(m_displayObj, EGL_EXTENSIONS));
     bool supportsOwnershipIdentity = WTF::contains(displayExtensions, "EGL_ANGLE_metal_create_context_ownership_identity"_span);
     if (m_resourceOwner && supportsOwnershipIdentity) {
@@ -703,20 +688,11 @@ void GraphicsContextGLCocoa::framebufferResolveRenderbuffer(GCGLenum target, GCG
 
 RetainPtr<id> GraphicsContextGLCocoa::newSharedEventWithMachPort(mach_port_t sharedEventSendRight)
 {
-    // AQUAWEBKIT: Metal shared events are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
-#if WK_WEBGL_METAL_BACKEND
     return WebCore::newSharedEventWithMachPort(m_displayObj, sharedEventSendRight);
-#else
-    // AQUAWEBKIT: Metal shared events are unavailable with the OpenGL (CGL) backend.
-    UNUSED_PARAM(sharedEventSendRight);
-    return nullptr;
-#endif
 }
 
 GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&& syncEvent)
 {
-    // AQUAWEBKIT: cross-process Metal shared-event sync is unused with the in-process OpenGL (CGL) backend; the #else branch below returns an empty sync on 10.9.
-#if WK_WEBGL_METAL_BACKEND
     auto [syncEventHandle, signalValue] = WTF::move(syncEvent);
     auto sharedEvent = newSharedEventWithMachPort(syncEventHandle.sendRight());
     if (!sharedEvent) {
@@ -732,11 +708,7 @@ GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&&
     auto newName = ++m_nextExternalSyncName;
     m_eglSyncs.add(newName, eglSync);
     return newName;
-#else
-    // AQUAWEBKIT: cross-process Metal shared-event sync is unused with the in-process OpenGL backend.
-    UNUSED_PARAM(syncEvent);
-    return { };
-#endif
+
 }
 
 bool GraphicsContextGLCocoa::enableRequiredWebXRExtensions()
@@ -770,8 +742,6 @@ bool GraphicsContextGLCocoa::enableRequiredWebXRExtensionsImpl()
 
 void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint64_t signalValue)
 {
-    // AQUAWEBKIT: Metal shared-event EGL syncs are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
-#if WK_WEBGL_METAL_BACKEND
     static_assert(sizeof(EGLAttrib) == sizeof(void*), "EGLAttrib not pointer-sized!");
     auto signalValueLo = static_cast<EGLAttrib>(signalValue);
     auto signalValueHi = static_cast<EGLAttrib>(signalValue >> 32);
@@ -785,12 +755,6 @@ void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint
         EGL_NONE
     };
     return EGL_CreateSync(display, EGL_SYNC_METAL_SHARED_EVENT_ANGLE, syncAttributes);
-#else
-    // AQUAWEBKIT: no Metal shared-event EGL sync with the OpenGL (CGL) backend.
-    UNUSED_PARAM(sharedEvent);
-    UNUSED_PARAM(signalValue);
-    return nullptr;
-#endif
 }
 
 void GraphicsContextGLCocoa::waitUntilWorkScheduled()

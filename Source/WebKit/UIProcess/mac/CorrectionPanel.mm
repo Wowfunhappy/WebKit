@@ -48,6 +48,7 @@ CorrectionPanel::~CorrectionPanel()
     dismissInternal(ReasonForDismissingAlternativeText::Ignored, false);
 }
 
+// void CorrectionPanel::show(NSView *view, WebViewImpl& webViewImpl, AlternativeTextType type, const FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)
 void CorrectionPanel::show(NSView *view, WebPageProxy& page, AlternativeTextType type, const FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)  // AQUAWEBKIT: takes the page (see the class comment).
 {
     dismissInternal(ReasonForDismissingAlternativeText::Ignored, false);
@@ -55,6 +56,7 @@ void CorrectionPanel::show(NSView *view, WebPageProxy& page, AlternativeTextType
     if (!view)
         return;
 
+    // NSInteger spellCheckerDocumentTag = webViewImpl.spellCheckerDocumentTag();
     NSInteger spellCheckerDocumentTag = page.spellDocumentTag(); // AQUAWEBKIT: the page owns the spell-checker document tag.
 
     RetainPtr replacedStringAsNSString = replacedString.createNSString();
@@ -68,12 +70,16 @@ void CorrectionPanel::show(NSView *view, WebPageProxy& page, AlternativeTextType
     if (!alternativeReplacementStrings.isEmpty())
         alternativeStrings = createNSArray(alternativeReplacementStrings);
 
+    // WeakPtr weakWebViewImpl { webViewImpl };
     WeakPtr weakPage { page }; // AQUAWEBKIT: preserve the owner through a weak page reference.
     RetainPtr spellChecker = [NSSpellChecker sharedSpellChecker];
     [spellChecker showCorrectionIndicatorOfType:indicatorType primaryString:replacementStringAsNSString.get() alternativeStrings:alternativeStrings.get() forStringInRect:boundingBoxOfReplacedString view:m_view.get() completionHandler:^(NSString *acceptedString) {
+        // CheckedPtr webViewImpl = weakWebViewImpl.get();
+        // if (!webViewImpl)
         RefPtr page = weakPage.get(); // AQUAWEBKIT: the panel is owned by the page.
         if (!page)
             return;
+        // handleAcceptedReplacement(*webViewImpl, acceptedString, replacedStringAsNSString.get(), replacementStringAsNSString.get(), indicatorType);
         handleAcceptedReplacement(*page, acceptedString, replacedStringAsNSString.get(), replacementStringAsNSString.get(), indicatorType);
     }];
 }
@@ -95,14 +101,17 @@ String CorrectionPanel::dismissInternal(ReasonForDismissingAlternativeText reaso
     return m_resultForDismissal.get();
 }
 
+// void CorrectionPanel::recordAutocorrectionResponse(WebViewImpl& webViewImpl, NSInteger spellCheckerDocumentTag, NSCorrectionResponse response, const String& replacedString, const String& replacementString)
 void CorrectionPanel::recordAutocorrectionResponse(WebPageProxy& page, NSInteger spellCheckerDocumentTag, NSCorrectionResponse response, const String& replacedString, const String& replacementString)  // AQUAWEBKIT: takes the page (see the class comment).
 {
+    // if (webViewImpl.page().sessionID().isEphemeral())
     if (page.sessionID().isEphemeral()) // AQUAWEBKIT: the session comes from the page.
         return;
 
     [[NSSpellChecker sharedSpellChecker] recordResponse:response toCorrection:replacementString.createNSString().get() forWord:replacedString.createNSString().get() language:nil inSpellDocumentWithTag:spellCheckerDocumentTag];
 }
 
+// void CorrectionPanel::handleAcceptedReplacement(WebViewImpl& webViewImpl, NSString* acceptedReplacement, NSString* replaced, NSString* proposedReplacement,  NSCorrectionIndicatorType correctionIndicatorType)
 void CorrectionPanel::handleAcceptedReplacement(WebPageProxy& page, NSString* acceptedReplacement, NSString* replaced, NSString* proposedReplacement,  NSCorrectionIndicatorType correctionIndicatorType)  // AQUAWEBKIT: takes the page (see the class comment).
 {
     if (!m_view)
@@ -111,24 +120,25 @@ void CorrectionPanel::handleAcceptedReplacement(WebPageProxy& page, NSString* ac
     switch (correctionIndicatorType) {
     case NSCorrectionIndicatorTypeDefault:
         if (acceptedReplacement)
-            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);  // AQUAWEBKIT: takes the page (see the class comment).
+            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement); // AQUAWEBKIT: takes the page (see the class comment); upstream: recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);
         else {
             if (!m_wasDismissedExternally || m_reasonForDismissing == ReasonForDismissingAlternativeText::Cancelled)
-                recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseRejected, replaced, proposedReplacement);
+                recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseRejected, replaced, proposedReplacement); // AQUAWEBKIT: upstream: recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseRejected, replaced, proposedReplacement);
             else
-                recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseIgnored, replaced, proposedReplacement);  // AQUAWEBKIT: takes the page (see the class comment).
+                recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseIgnored, replaced, proposedReplacement); // AQUAWEBKIT: takes the page (see the class comment); upstream: recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseIgnored, replaced, proposedReplacement);
         }
         break;
     case NSCorrectionIndicatorTypeReversion:
         if (acceptedReplacement)
-            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseReverted, replaced, acceptedReplacement);  // AQUAWEBKIT: takes the page (see the class comment).
+            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseReverted, replaced, acceptedReplacement); // AQUAWEBKIT: takes the page (see the class comment); upstream: recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseReverted, replaced, acceptedReplacement);
         break;
     case NSCorrectionIndicatorTypeGuesses:
         if (acceptedReplacement)
-            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);  // AQUAWEBKIT: takes the page (see the class comment).
+            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement); // AQUAWEBKIT: takes the page (see the class comment); upstream: recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);
         break;
     }
 
+    // webViewImpl.handleAcceptedAlternativeText(acceptedReplacement);
     page.handleAlternativeTextUIResult(acceptedReplacement); // AQUAWEBKIT: the page receives the accepted alternative text.
     m_spellCheckerDocumentTag = 0;
     m_view = nullptr;

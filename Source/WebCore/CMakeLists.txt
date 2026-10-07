@@ -3288,7 +3288,6 @@ if (APPLE)
         "LINKER:-allowable_client,TestWebKitLegacy"
     )
 endif ()
-_AQUAWEBKIT_FINALIZE_WEBCORE_TARGET(WebCore) # AQUAWEBKIT: apply the port's target and resource rules.
 
 # The -ftree-sra optimization (implicit with -O2) causes crashes when
 # allocating large chunks of memory using bmalloc on Intel 32bit.

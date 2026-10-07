@@ -1952,8 +1952,7 @@ void FrameLoader::loadWithDocumentLoader(DocumentLoader* loader, FrameLoadType t
     if (!isNavigationAllowed())
         return;
 
-    // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload for
-    // subframes (Safari 7 extension blocking). We skip dispatching the beforeload event if
+    // AQUAWEBKIT: cancelable beforeload for subframes (#62, Safari 7 extension blocking). We skip dispatching the beforeload event if
     // we've already committed a real document load because the event would leak subsequent
     // activity by the frame which the parent frame isn't supposed to learn.
     if (RefPtr ownerElement = frame->ownerElement()) {

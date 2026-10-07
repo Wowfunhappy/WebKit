@@ -38,7 +38,7 @@ namespace WebKit {
 
 class WebPreferences;
 class WebPageProxy;
-// AQUAWEBKIT: forward declaration for the restored page-group user content controller.
+// AQUAWEBKIT: forward declaration for the page group's user content controller.
 class WebUserContentControllerProxy;
 
 class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup>, public CanMakeWeakPtr<WebPageGroup> {
@@ -63,12 +63,9 @@ public:
     // bundle-injected user content (data().identifier).
     const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
 
-    // AQUAWEBKIT: restore the page group's user content controller, removed
-    // upstream with the page-group user-content model. The legacy WKPageGroup C SPI
-    // (WKPageGroupAddUserScript / AddUserStyleSheet / RemoveAll*) and Safari 7-era
-    // clients (Mail's MUIWebDocumentViewGroup, QuickLook's Web2.qldisplay) add user
-    // scripts and style sheets here; pages created in the group share this controller
-    // (WKView seeds the page configuration with it) so the content is injected.
+    // AQUAWEBKIT: the page group's user content controller. The WKPageGroup C SPI and Safari 7-era
+    // clients (Mail's MUIWebDocumentViewGroup, QuickLook's Web2.qldisplay) add user scripts and style
+    // sheets here; pages created in the group share it (WKView seeds the page configuration with it).
     WebUserContentControllerProxy& userContentController() { return m_userContentController; }
 
 private:
@@ -77,6 +74,7 @@ private:
     WebPageGroupData m_data;
     // AQUAWEBKIT: drop const so setPreferences() can reseat m_preferences
     // (Safari 7 attaches its own WKPreferences via WKPageGroupSetPreferences).
+    // const Ref<WebPreferences> m_preferences;
     Ref<WebPreferences> m_preferences;
 };
 

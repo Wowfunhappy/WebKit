@@ -1,6 +1,4 @@
-if (NOT DEFINED SWIFT_REQUIRED) # AQUAWEBKIT: the toolchain selects C++ platform backends.
-    set(SWIFT_REQUIRED ON)
-endif ()
+set(SWIFT_REQUIRED ON)
 
 # FIXME: AV1 decoding requires dav1d which uses meson. https://bugs.webkit.org/show_bug.cgi?id=314011
 SET_AND_EXPOSE_TO_BUILD(ENABLE_AV1 OFF)
@@ -165,10 +163,8 @@ add_link_options(-Wl,-dead_strip_dylibs)
 
 # Linked globally because PAL has Swift sources that get force-loaded into WebCore,
 # and WebCore does not link JavaScriptCore directly on all platforms.
-if (SWIFT_REQUIRED) # AQUAWEBKIT: link the Swift runtime only for Swift sources.
-    find_library(SWIFTCORE_LIBRARY swiftCore HINTS ${CMAKE_OSX_SYSROOT}/usr/lib/swift REQUIRED)
-    link_libraries(${SWIFTCORE_LIBRARY})
-endif ()
+find_library(SWIFTCORE_LIBRARY swiftCore HINTS ${CMAKE_OSX_SYSROOT}/usr/lib/swift REQUIRED)
+link_libraries(${SWIFTCORE_LIBRARY})
 
 WEBKIT_XCRUN(_libtool -f libtool)
 if (CMAKE_GENERATOR STREQUAL "Ninja")

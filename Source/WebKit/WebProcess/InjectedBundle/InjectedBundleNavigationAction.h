@@ -80,8 +80,7 @@ private:
 
 } // namespace WebKit
 
-// AQUAWEBKIT: the type-traits specialization every API::Object subclass now carries; the 2022
-// original predates the requirement, and toImpl()/downcast<> static_assert without it.
+// AQUAWEBKIT: the type traits toImpl() and downcast<> require of an API::Object subclass.
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::InjectedBundleNavigationAction)
 static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundleNavigationAction; }
 SPECIALIZE_TYPE_TRAITS_END()

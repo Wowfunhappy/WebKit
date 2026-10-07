@@ -34,9 +34,6 @@
 #include <WebCore/Cookie.h>
 #include <WebCore/HTTPCookieAcceptPolicy.h>
 #include <wtf/CallbackAggregator.h>
-// AQUAWEBKIT: the legacy observer uses the same typed allocation and callback ownership as native API observers.
-#include <wtf/Function.h>
-#include <wtf/TZoneMallocInlines.h>
 #include <wtf/CrossThreadCopier.h>
 
 #if PLATFORM(IOS_FAMILY)

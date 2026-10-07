@@ -28,7 +28,7 @@
 // UserData. Safari 7 places its browsing WKPageGroup in the injected-bundle initialization user
 // data and in bundle messages; WebProcessProxy::transformObjectsToHandles turns the WebPageGroup
 // into this handle before encoding, and WebProcess::transformHandlesToObjects resolves it to the
-// WebPageGroupProxy on decode. The base has no such class.
+// WebPageGroupProxy on decode.
 
 #pragma once
 

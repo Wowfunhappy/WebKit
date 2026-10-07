@@ -22,7 +22,6 @@
 
 #include "GRefPtrGStreamer.h"
 #include <wtf/Forward.h>
-#include <wtf/Lock.h> // AQUAWEBKIT: shared conversion and output-pool lookup serialization.
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
@@ -44,14 +43,12 @@ namespace WebCore {
 struct PlatformVideoColorSpace;
 #endif // AQUAWEBKIT: Cocoa pixel-buffer colour metadata.
 
-
 class GStreamerVideoFrameConverter final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerVideoFrameConverter> {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerVideoFrameConverter);
     friend NeverDestroyed<GStreamerVideoFrameConverter>;
 
 public:
-    // static GStreamerVideoFrameConverter& singleton();
-    WEBCORE_EXPORT static GStreamerVideoFrameConverter& singleton(); // AQUAWEBKIT: TestWebCore exercises the Cocoa pixel-buffer conversion path.
+    static GStreamerVideoFrameConverter& singleton();
 
     // Do nothing since this is a singleton object.
     void ref() const { }

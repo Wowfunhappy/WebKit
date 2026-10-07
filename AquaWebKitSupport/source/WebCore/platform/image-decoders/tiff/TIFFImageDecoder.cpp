@@ -180,6 +180,16 @@ private:
 
 } // anonymous namespace
 
+// A byte-order mark followed by the version -- 42 for a classic TIFF, 43 for a BigTIFF -- in that
+// byte order.
+bool TIFFImageDecoder::matchesSignature(std::span<const uint8_t> contents)
+{
+    return spanHasPrefix(contents, unsafeMakeSpan("\x49\x49\x2A\x00", 4))
+        || spanHasPrefix(contents, unsafeMakeSpan("\x4D\x4D\x00\x2A", 4))
+        || spanHasPrefix(contents, unsafeMakeSpan("\x49\x49\x2B\x00", 4))
+        || spanHasPrefix(contents, unsafeMakeSpan("\x4D\x4D\x00\x2B", 4));
+}
+
 TIFFImageDecoder::TIFFImageDecoder(AlphaOption alphaOption, GammaAndColorProfileOption gammaAndColorProfileOption)
     : ScalableImageDecoder(alphaOption, gammaAndColorProfileOption)
 {

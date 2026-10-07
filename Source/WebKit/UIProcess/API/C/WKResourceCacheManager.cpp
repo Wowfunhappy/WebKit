@@ -26,11 +26,9 @@
 #include "config.h"
 #include "WKResourceCacheManager.h"
 
-// AQUAWEBKIT: real bodies for the legacy resource-cache manager (the base ships
-// return-0/no-op stubs). Safari 7's Privacy pane drives it through
-// TrackingDataController::populateWebsiteTrackingData and waits on the callback, so a body
-// that never calls back leaves the pane's website list unpopulated forever. The manager
-// handle WKContextGetResourceCacheManager returns is the default WKWebsiteDataStore.
+// AQUAWEBKIT: the legacy resource-cache manager. Safari 7's Privacy pane drives it through
+// TrackingDataController::populateWebsiteTrackingData and waits on the callback. The manager handle
+// WKContextGetResourceCacheManager returns is the default WKWebsiteDataStore.
 #include "APIArray.h"
 #include "APIDictionary.h"
 #include "APISecurityOrigin.h"
@@ -56,12 +54,15 @@ static WebKit::WebsiteDataStore& wk109StoreForManager(WKResourceCacheManagerRef 
 
 WKTypeID WKResourceCacheManagerGetTypeID()
 {
-    return WebKit::toAPI(WebKit::WebsiteDataStore::APIType); // AQUAWEBKIT: real type (base returns 0).
+    // return 0;
+    return WebKit::toAPI(WebKit::WebsiteDataStore::APIType); // AQUAWEBKIT: the handle's type; see above.
 }
 
-// AQUAWEBKIT: real body (base is an empty stub that never calls back).
+// AQUAWEBKIT: see above.
+// void WKResourceCacheManagerGetCacheOrigins(WKResourceCacheManagerRef, void*, WKResourceCacheManagerGetCacheOriginsFunction)
 void WKResourceCacheManagerGetCacheOrigins(WKResourceCacheManagerRef manager, void* context, WKResourceCacheManagerGetCacheOriginsFunction callback)
 {
+    // AQUAWEBKIT: the cache origins of the store; see above.
     if (!callback)
         return;
     wk109StoreForManager(manager).fetchData({ WebKit::WebsiteDataType::MemoryCache, WebKit::WebsiteDataType::DiskCache }, { }, [context, callback](Vector<WebKit::WebsiteDataRecord> records) {
@@ -74,9 +75,11 @@ void WKResourceCacheManagerGetCacheOrigins(WKResourceCacheManagerRef manager, vo
     });
 }
 
-// AQUAWEBKIT: real body (base is an empty stub).
+// AQUAWEBKIT: see above.
+// void WKResourceCacheManagerClearCacheForOrigin(WKResourceCacheManagerRef, WKSecurityOriginRef, WKResourceCachesToClear)
 void WKResourceCacheManagerClearCacheForOrigin(WKResourceCacheManagerRef manager, WKSecurityOriginRef originRef, WKResourceCachesToClear cachesToClear)
 {
+    // AQUAWEBKIT: see above.
     auto types = wk109CacheTypes(cachesToClear);
     WebKit::WebsiteDataRecord record;
     for (auto type : types)
@@ -84,8 +87,9 @@ void WKResourceCacheManagerClearCacheForOrigin(WKResourceCacheManagerRef manager
     wk109StoreForManager(manager).removeData(types, { record }, [] { });
 }
 
-// AQUAWEBKIT: real body (base is an empty stub).
+// AQUAWEBKIT: see above.
+// void WKResourceCacheManagerClearCacheForAllOrigins(WKResourceCacheManagerRef, WKResourceCachesToClear)
 void WKResourceCacheManagerClearCacheForAllOrigins(WKResourceCacheManagerRef manager, WKResourceCachesToClear cachesToClear)
 {
-    wk109StoreForManager(manager).removeData(wk109CacheTypes(cachesToClear), WallTime::fromRawSeconds(0), [] { });
+    wk109StoreForManager(manager).removeData(wk109CacheTypes(cachesToClear), WallTime::fromRawSeconds(0), [] { }); // AQUAWEBKIT: see above.
 }

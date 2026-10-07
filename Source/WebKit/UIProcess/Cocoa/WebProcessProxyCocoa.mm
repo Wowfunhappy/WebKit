@@ -34,12 +34,11 @@
 #import "Logging.h"
 // AQUAWEBKIT: see ObjCObjectGraph.h.
 #import "ObjCObjectGraph.h"
+#import "WKBrowsingContextControllerInternal.h"
 #import "SandboxUtilities.h"
 #import "SharedBufferReference.h"
 #import "WKAPICast.h"
 #import "WKBrowsingContextHandleInternal.h"
-// AQUAWEBKIT: see ObjCObjectGraph.h.
-#import "WKBrowsingContextControllerInternal.h"
 #import "WKMouseDeviceObserver.h"
 #import "WKStylusDeviceObserver.h"
 #import "WebPageProxy.h"

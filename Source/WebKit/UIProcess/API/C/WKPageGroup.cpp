@@ -41,24 +41,27 @@
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 
-// AQUAWEBKIT: these were gutted to null upstream, but Safari 7 creates its
-// browsing page group with WKPageGroupCreateWithIdentifier, attaches its
-// WKPreferences to it, and passes the group to WKView — and the injected
-// bundle later scopes extension content scripts by this group's identifier.
+// AQUAWEBKIT: Safari 7 creates its browsing page group with WKPageGroupCreateWithIdentifier, attaches
+// its WKPreferences to it and passes the group to WKView; its injected bundle scopes extension content
+// scripts by the group's identifier.
 
-// AQUAWEBKIT: restored real body (was gutted to return 0 upstream).
+// AQUAWEBKIT: WebPageGroup's type ID.
 WKTypeID WKPageGroupGetTypeID()
 {
+    // return 0;
     return WebKit::toAPI(WebKit::WebPageGroup::APIType);
 }
 
-// AQUAWEBKIT: restored real body (was gutted to return nullptr upstream).
+// AQUAWEBKIT: see the note above.
+// WKPageGroupRef WKPageGroupCreateWithIdentifier(WKStringRef)
 WKPageGroupRef WKPageGroupCreateWithIdentifier(WKStringRef identifierRef)
 {
-    return WebKit::toAPILeakingRef(WebKit::WebPageGroup::create(WebKit::toWTFString(identifierRef)));
+    // return nullptr;
+    return WebKit::toAPILeakingRef(WebKit::WebPageGroup::create(WebKit::toWTFString(identifierRef))); // AQUAWEBKIT: see the note above.
 }
 
-// AQUAWEBKIT: restored real body (was gutted to an empty no-op upstream).
+// AQUAWEBKIT: see the note above.
+// void WKPageGroupSetPreferences(WKPageGroupRef, WKPreferencesRef)
 void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef preferencesRef)
 {
     auto* pageGroup = WebKit::toImpl(pageGroupRef);
@@ -66,10 +69,8 @@ void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef pre
     if (!pageGroup || !preferences)
         return;
     pageGroup->setPreferences(*preferences);
-    // AQUAWEBKIT: a page copies its group's preferences when it is created, and Safari 7 hands the group its
-    // WKPreferences after the WKView exists, so the pages already in this group keep reading the
-    // object the group no longer uses. Hand them the new one, which is what a page group meant when
-    // WebPageProxy::preferences() still read straight through to it.
+    // AQUAWEBKIT: a page copies its group's preferences when it is created, and Safari 7 hands the group
+    // its WKPreferences after the WKView exists, so the group's existing pages take the new object too.
     for (Ref processPool : WebKit::WebProcessPool::allProcessPools()) {
         for (Ref webProcess : processPool->processes()) {
             for (Ref page : webProcess->pages()) {
@@ -80,9 +81,12 @@ void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef pre
     }
 }
 
-// AQUAWEBKIT: restored real body (was gutted to return nullptr upstream).
+// AQUAWEBKIT: see the note above.
+// WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef)
 WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
 {
+    // AQUAWEBKIT: the preferences WKPageGroupSetPreferences attached.
+    // return nullptr;
     auto* pageGroup = WebKit::toImpl(pageGroupRef);
     if (!pageGroup)
         return nullptr;
@@ -91,21 +95,18 @@ WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
 
 WKUserContentControllerRef WKPageGroupGetUserContentController(WKPageGroupRef pageGroupRef)
 {
-// AQUAWEBKIT: restore the page-group user-content C SPI (gutted upstream with
-// the page-group user-content model). The page group owns a WebUserContentControllerProxy
-// (WebPageGroup::userContentController); pages created in the group share it (WKView seeds
-// the page configuration with it), so scripts and style sheets added here are injected.
-// Safari 7-era clients drive this through WKBrowsingContextGroup — e.g. Mail's
-// -[MUIWebDocumentViewGroup _refreshUserStyleSheet]/_refreshUserScripts install the
-// message-view style sheet and scripts. Faithful to the pre-removal implementation.
-    // AQUAWEBKIT: restored real body (was gutted to return nullptr upstream).
+    // AQUAWEBKIT: the page group's WebUserContentControllerProxy, which pages created in the group share
+    // (WKView seeds the page configuration with it). Safari 7-era clients drive it through
+    // WKBrowsingContextGroup, e.g. Mail's -[MUIWebDocumentViewGroup _refreshUserStyleSheet].
+    // return nullptr;
     return WebKit::toAPI(&WebKit::toImpl(pageGroupRef)->userContentController());
 }
 
-// AQUAWEBKIT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+// AQUAWEBKIT: the group's user content controller; see WKPageGroupGetUserContentController.
+// void WKPageGroupAddUserStyleSheet(WKPageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames)
 void WKPageGroupAddUserStyleSheet(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames)
 {
-    // AQUAWEBKIT: restored implementation builds a real API::UserStyleSheet and injects it.
+    // AQUAWEBKIT: see above.
     auto source = WebKit::toWTFString(sourceRef);
     if (source.isEmpty())
         return;
@@ -125,16 +126,18 @@ void WKPageGroupAddUserStyleSheet(WKPageGroupRef pageGroupRef, WKStringRef sourc
     WebKit::toImpl(pageGroupRef)->userContentController().addUserStyleSheet(userStyleSheet.get());
 }
 
-// AQUAWEBKIT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+// AQUAWEBKIT: the group's user content controller; see WKPageGroupGetUserContentController.
+// void WKPageGroupRemoveAllUserStyleSheets(WKPageGroupRef)
 void WKPageGroupRemoveAllUserStyleSheets(WKPageGroupRef pageGroupRef)
 {
-    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserStyleSheets();
+    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserStyleSheets(); // AQUAWEBKIT: see above.
 }
 
-// AQUAWEBKIT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+// AQUAWEBKIT: the group's user content controller; see WKPageGroupGetUserContentController.
+// void WKPageGroupAddUserScript(WKPageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames, _WKUserScriptInjectionTime)
 void WKPageGroupAddUserScript(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames, _WKUserScriptInjectionTime injectionTime)
 {
-    // AQUAWEBKIT: restored implementation builds a real API::UserScript and injects it.
+    // AQUAWEBKIT: see above.
     auto source = WebKit::toWTFString(sourceRef);
     if (source.isEmpty())
         return;
@@ -156,8 +159,9 @@ void WKPageGroupAddUserScript(WKPageGroupRef pageGroupRef, WKStringRef sourceRef
     WebKit::toImpl(pageGroupRef)->userContentController().addUserScript(userScript.get(), WebKit::InjectUserScriptImmediately::No);
 }
 
-// AQUAWEBKIT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+// AQUAWEBKIT: the group's user content controller; see WKPageGroupGetUserContentController.
+// void WKPageGroupRemoveAllUserScripts(WKPageGroupRef)
 void WKPageGroupRemoveAllUserScripts(WKPageGroupRef pageGroupRef)
 {
-    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserScripts();
+    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserScripts(); // AQUAWEBKIT: see above.
 }

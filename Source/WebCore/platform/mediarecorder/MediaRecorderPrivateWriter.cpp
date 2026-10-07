@@ -30,7 +30,7 @@
 
 #include "Logging.h"
 #include "MediaRecorderPrivateWriterAVFObjC.h"
-// AQUAWEBKIT: the MP4 writer below AVAssetWriterDelegate.
+// AQUAWEBKIT: the MP4 writer used when !HAVE(AVASSETWRITER_DELEGATE).
 #include "MediaRecorderPrivateWriterMP4.h"
 #include "MediaRecorderPrivateWriterWebM.h"
 #include "MediaSample.h"
@@ -66,12 +66,12 @@ std::unique_ptr<MediaRecorderPrivateWriter> MediaRecorderPrivateWriter::create(M
 {
     switch (type) {
     case MediaRecorderContainerType::Mp4:
-#if HAVE(AVASSETWRITER_DELEGATE) // AQUAWEBKIT: selects between the two MP4 writers.
-        return MediaRecorderPrivateWriterAVFObjC::create(listener);
-#else // AQUAWEBKIT: AVAssetWriter emits no segments here, so the fragmented-MP4 writer this
-      // port builds packages the encoder's frames instead.
+#if !HAVE(AVASSETWRITER_DELEGATE)
+        // AQUAWEBKIT: AVAssetWriter emits no segments here, so the fragmented-MP4 writer this
+        // port builds packages the encoder's frames instead.
         return MediaRecorderPrivateWriterMP4::create(listener);
 #endif
+        return MediaRecorderPrivateWriterAVFObjC::create(listener);
 #if ENABLE(MEDIA_RECORDER_WEBM)
     case MediaRecorderContainerType::WebM:
         return MediaRecorderPrivateWriterWebM::create(listener);

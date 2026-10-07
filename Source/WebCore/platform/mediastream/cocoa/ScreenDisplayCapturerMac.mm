@@ -150,11 +150,10 @@ bool ScreenDisplayCapturerMac::createDisplayStream(float frameRate)
             });
         };
 
-        // AQUAWEBKIT: 10.9's CGDisplayStream accepts the biplanar YUV format
-        // preferedPixelBufferFormat() names, then delivers frames whose planes it never writes (measured:
-        // every frame all-zero for '420v' and '420f', every frame written for 'BGRA'). BGRA is the format
-        // it fills; emitFrame runs each surface through ImageTransferSessionVT into
-        // preferedPixelBufferFormat() regardless.
+        // AQUAWEBKIT: 10.9's CGDisplayStream accepts the biplanar YUV formats
+        // preferedPixelBufferFormat() names ('420v', '420f') but leaves their planes all-zero; BGRA is the
+        // format it fills. emitFrame converts each surface to preferedPixelBufferFormat() through
+        // ImageTransferSessionVT.
         // m_displayStream = adoptCF(CGDisplayStreamCreateWithDispatchQueue(m_displayID, screenWidth, screenHeight, preferedPixelBufferFormat(), (__bridge CFDictionaryRef)streamOptions, m_captureQueue.get(), frameAvailableBlock));
         m_displayStream = adoptCF(CGDisplayStreamCreateWithDispatchQueue(m_displayID, screenWidth, screenHeight, kCVPixelFormatType_32BGRA, (__bridge CFDictionaryRef)streamOptions, m_captureQueue.get(), frameAvailableBlock));
         if (!m_displayStream) {
@@ -191,9 +190,8 @@ void ScreenDisplayCapturerMac::stop()
     if (m_displayStream)
         CGDisplayStreamStop(m_displayStream.get());
 
-    // 10.9's CGDisplayStream delivers no frames once it has been stopped and started again (measured:
-    // 87 frames, CGDisplayStreamStop, one second on the run loop, CGDisplayStreamStart, 0 frames in four
-    // seconds), so the stopped stream is released here and start() creates a new one.
+    // 10.9's CGDisplayStream delivers no frames once it has been stopped and started again, so the
+    // stopped stream is released here and start() creates a new one.
     m_displayStream = nullptr;
 
     m_isRunning = false;

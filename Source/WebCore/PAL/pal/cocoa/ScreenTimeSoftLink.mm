@@ -34,10 +34,14 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, ScreenTime, PAL_EXPORT)
 
-// AQUAWEBKIT: the ScreenTime framework (STWebpageController/STWebHistory/STScreenTimeConfiguration*) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+// AQUAWEBKIT: the ScreenTime framework (STWebpageController/STWebHistory/STScreenTimeConfiguration*) is absent on macOS 10.9; these classes soft-link optionally and resolve to nil here.
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenTime, STWebpageController, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenTime, STWebpageController, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenTime, STWebHistory, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenTime, STWebHistory, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenTime, STScreenTimeConfiguration, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenTime, STScreenTimeConfiguration, PAL_EXPORT)
+// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenTime, STScreenTimeConfigurationObserver, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenTime, STScreenTimeConfigurationObserver, PAL_EXPORT)
 
 #endif // ENABLE(SCREEN_TIME)

@@ -400,6 +400,7 @@ void RenderLayerScrollableArea::scrollTo(const ScrollPosition& position)
         }
 
         // Update regions, scrolling may change the clip of a particular region.
+        // protect(renderer.document())->invalidateRenderingDependentRegions();
         protect(renderer.document())->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // AQUAWEBKIT: a scroll changes a Dashboard region's clip, so this path recollects them.
         DebugPageOverlays::didLayout(protect(renderer.frame()));
     }

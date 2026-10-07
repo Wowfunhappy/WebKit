@@ -68,8 +68,8 @@ public:
 #endif
 
 // AQUAWEBKIT: USE(GLIB) is on for the GStreamer media backend, but on Cocoa the Icon is
-// NSImage-backed (the PLATFORM(COCOA) API below + m_image member); the GLib GIcon API must stay off,
-// matching an upstream Cocoa build (which never defines USE(GLIB)).
+// NSImage-backed (the PLATFORM(COCOA) API below + m_image member), as in an upstream Cocoa build.
+// #if USE(GLIB)
 #if USE(GLIB) && !PLATFORM(COCOA)
     WEBCORE_EXPORT static RefPtr<Icon> create(GRefPtr<GIcon>&&);
 

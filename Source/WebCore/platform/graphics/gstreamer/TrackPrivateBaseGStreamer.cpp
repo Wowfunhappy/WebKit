@@ -41,8 +41,7 @@
 GST_DEBUG_CATEGORY_EXTERN(webkit_media_player_debug);
 #define GST_CAT_DEFAULT webkit_media_player_debug
 
-// AQUAWEBKIT: explicit include for WTF_MAKE_TZONE_ALLOCATED_IMPL below; under this build's
-// non-unified/no-modules config it is not pulled in transitively.
+// AQUAWEBKIT: for WTF_MAKE_TZONE_ALLOCATED_IMPL(TrackDataHolder) below.
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -423,6 +422,7 @@ void TrackDataHolder::streamIdChanged()
     auto streamId = parseStreamId(gstStreamId);
     // AQUAWEBKIT: the string names a text track's samples when it carries no numeric part (see
     // TextSinkGStreamer.cpp), so it is recorded whether or not it parses.
+    // if (!streamId)
     if (!streamId) {
         m_gstStreamId = gstStreamId;
         return;
@@ -524,7 +524,7 @@ bool TrackDataHolder::updateTrackIDFromTags(const GRefPtr<GstTagList>& tags)
 {
     ASSERT(isMainThread());
     // AQUAWEBKIT: a track constructed with an ID keeps it. MediaSourcePrivateGStreamer::registerTrack()
-    // derived that ID from this same container track ID, made it unique across SourceBuffers, and keys the
+    // derives that ID from this same container track ID, makes it unique across SourceBuffers, and keys the
     // SourceBuffer's tracks and samples on it.
     if (!m_shouldUsePadStreamId)
         return false;

@@ -3045,13 +3045,10 @@ void MediaPlayerPrivateGStreamer::configureDownloadBuffer(GstElement* element)
     if (mediaDiskCachePath.isEmpty())
         mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_build_filename(G_DIR_SEPARATOR_S, "var", "tmp", nullptr));
 #elif PLATFORM(COCOA)
-    // AQUAWEBKIT: upstream buffers progressive media to /var/tmp, which is a shared,
-    // world-writable directory no sandboxed Cocoa process may write -- so every download-buffer
-    // file was denied and on-disk buffering silently did not happen. g_get_tmp_dir() reads TMPDIR,
-    // which populateSandboxInitializationParameters() has already pointed at this process' own
-    // private temporary directory (the one the profile grants), so this is both the writable
-    // location and the correctly-scoped one: media buffered by one process is not visible to
-    // another. Unsandboxed WebKitLegacy hosts get their ordinary per-user TMPDIR.
+    // AQUAWEBKIT: a sandboxed Cocoa process may not write the shared /var/tmp. g_get_tmp_dir()
+    // reads TMPDIR, which populateSandboxInitializationParameters() points at this process' own
+    // private temporary directory, the one its profile grants; unsandboxed WebKitLegacy hosts get
+    // their per-user TMPDIR.
     auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_strdup(g_get_tmp_dir()));
 #else
     auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_build_filename(G_DIR_SEPARATOR_S, "var", "tmp", nullptr));
@@ -4009,6 +4006,7 @@ void MediaPlayerPrivateGStreamer::configureVideoDecoder(GstElement* decoder)
 
 bool MediaPlayerPrivateGStreamer::didPassCORSAccessCheck() const
 {
+    // if (WEBKIT_IS_WEB_SRC(m_source.get()))
     if (WEBKIT_IS_WEB_SRC(m_source.get())) { // AQUAWEBKIT: braces for the lock below.
         // return webKitSrcPassedCORSAccessCheck(WEBKIT_WEB_SRC_CAST(m_source.get()));
         Locker locker { m_adaptiveDemuxSourceResponsesLock }; // AQUAWEBKIT: see adaptiveDemuxSourceReceivedResponse().

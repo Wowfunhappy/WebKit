@@ -51,7 +51,7 @@
 #include "ServiceWorkerFetchTask.h"
 #include "SharedBufferReference.h"
 #include "WebErrors.h"
-#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
+#include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: the frame-addressed certificate message below (webkit.org/b/319273).
 #include "WebLoaderStrategy.h"
 #include "WebPageMessages.h"
 #include "WebResourceLoaderMessages.h"
@@ -1768,7 +1768,7 @@ void NetworkResourceLoader::didReceiveMainResourceResponse(const WebCore::Resour
         speculativeLoadManager->registerMainResourceLoadResponse(globalFrameID(), originalRequest(), response);
     if (auto& certificateInfo = response.certificateInfo(); certificateInfo && !certificateInfo->isEmpty())
         // connectionToWebProcess().networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::ReceivedMainResourceResponseWithCertificateInfo(frameID(), response.url().hostAndPort(), *certificateInfo), 0);
-        // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
+        // AQUAWEBKIT: the certificate goes to the frame's own receiver (webkit.org/b/319273).
         connectionToWebProcess().networkProcess().parentProcessConnection()->send(Messages::WebFrameProxyFromNetworkProcess::ReceivedMainResourceResponseWithCertificateInfo(response.url().hostAndPort(), *certificateInfo), frameID());
 }
 

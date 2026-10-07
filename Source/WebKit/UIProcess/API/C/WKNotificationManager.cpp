@@ -48,16 +48,11 @@ void WKNotificationManagerSetProvider(WKNotificationManagerRef managerRef, const
     // AQUAWEBKIT: service-worker (persistent) notifications display through
     // WebNotificationManagerProxy::serviceWorkerManagerSingleton(), which modern hosts
     // configure via WKNotificationManagerGetSharedServiceWorkerNotificationManager.
-    // Safari 7 predates that call and only ever configures the pool manager, leaving the
-    // singleton with the no-op default provider — showPersistent would display nothing
-    // and, worse, the singleton's empty permission map would resolve every incoming push
-    // to Prompt and unsubscribe the site (NetworkProcessProxy::processPushMessage).
-    // Mirror the host's provider onto the singleton, the same pairing the GTK port sets
-    // up in webkitWebContextConstructed.
-    // Installed without addNotificationManager: the client reports notification events
-    // to every manager it has been introduced to, so introducing this one too would
-    // double-dispatch each event once here and once via the pool manager's
-    // miss-forwarding (providerDidShowNotification et al.).
+    // Safari 7 predates that call and only configures the pool manager, so the host's
+    // provider is mirrored onto the singleton, the same pairing the GTK port sets up in
+    // webkitWebContextConstructed. It is installed without addNotificationManager: the client
+    // reports notification events to every manager it has been introduced to, and the pool
+    // manager's miss-forwarding (providerDidShowNotification et al.) already reaches this one.
     Ref serviceWorkerManager = WebNotificationManagerProxy::serviceWorkerManagerSingleton();
     if (toImpl(managerRef) != serviceWorkerManager.ptr())
         serviceWorkerManager->setProvider(makeUnique<WebNotificationProvider>(wkProvider), WebNotificationManagerProxy::ShouldNotifyProviderOfManager::No);

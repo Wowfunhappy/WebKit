@@ -65,8 +65,4 @@ add_dependencies(TestWebKit TestWebKitAPIInjectedBundle)
 set_target_properties(TestWebKitAPIInjectedBundle TestWebKitAPIWebProcessPlugIn PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY}")
 
-list(APPEND TestWebCore_PRIVATE_INCLUDE_DIRECTORIES
-    ${WEBCORE_DIR}/platform/graphics
-    ${WEBCORE_DIR}/platform/graphics/gstreamer
-)
-list(APPEND TestWebCore_LIBRARIES ${GSTREAMER_LIBRARIES} ${GSTREAMER_VIDEO_LIBRARIES} "-framework CoreVideo")
+list(APPEND TestWebCore_LIBRARIES "-framework CoreVideo")

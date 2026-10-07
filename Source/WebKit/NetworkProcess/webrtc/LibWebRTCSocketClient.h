@@ -25,6 +25,7 @@
 
 #pragma once
 
+// #if !PLATFORM(COCOA)
 #if !HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 
 #if USE(LIBWEBRTC)
@@ -79,4 +80,5 @@ private:
 
 #endif // USE(LIBWEBRTC)
 
+// #endif // !PLATFORM(COCOA)
 #endif // !HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).

@@ -297,10 +297,10 @@ public:
     Inspector::CommandResult<void> generateTestReport(const String& browsingContextHandle, const String& message, const String& group) override;
 
 // AQUAWEBKIT: the generated Automation backend dispatcher declares these two commands as
-// pure-virtual for all of PLATFORM(MAC) (their Automation.json condition), but upstream gates the
-// overrides on ENABLE(WK_WEB_EXTENSIONS_IN_WEBDRIVER) -- which is off here because WK_WEB_EXTENSIONS
-// is compiled out for the classic-.safariextz Safari 7 port. Declaring the overrides on PLATFORM(MAC)
-// keeps WebAutomationSession concrete; the bodies fall back to NotImplemented when the API is absent.
+// pure-virtual for all of PLATFORM(MAC) (their Automation.json condition), and
+// ENABLE(WK_WEB_EXTENSIONS_IN_WEBDRIVER) is off on this classic-.safariextz port, so the overrides
+// are declared on PLATFORM(MAC); the bodies answer NotImplemented when the API is absent.
+// #if ENABLE(WK_WEB_EXTENSIONS_IN_WEBDRIVER)
 #if PLATFORM(MAC)
     void loadWebExtension(const Inspector::Protocol::Automation::WebExtensionResourceOptions, const String& resource, Inspector::CommandCallback<String>&&) override;
     void unloadWebExtension(const String& identifier, Inspector::CommandCallback<void>&&) override;

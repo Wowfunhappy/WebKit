@@ -47,10 +47,7 @@
 #import "_WKCaptionStyleMenuController.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/GraphicsContext.h>
-// AQUAWEBKIT: the share sheet's image is decoded in WebCore, not in ImageIO.
-#import <WebCore/ImageDecoder.h>
 #import <WebCore/IntRect.h>
-#import <WebCore/SharedBuffer.h>
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/ShareableBitmap.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -483,33 +480,6 @@ static void updateMenuItemImage(NSMenuItem *menuItem, const WebCore::ContextMenu
 }
 #endif
 
-// AQUAWEBKIT: an NSImage over pixels WebCore decoded, for createShareMenuItem below.
-// -[NSImage initWithData:] would hand the page's image bytes to ImageIO, which is the one parser
-// this port keeps them away from; AppKit gets a decoded representation instead.
-static RetainPtr<NSImage> nsImageFromImageData(NSData *data)
-{
-    if (!data)
-        return nullptr;
-
-    Ref buffer = WebCore::SharedBuffer::create(data);
-    RefPtr decoder = WebCore::ImageDecoder::create(buffer.get(), String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
-    if (!decoder)
-        return nullptr;
-
-    decoder->setData(buffer.get(), true);
-    RetainPtr platformImage = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex());
-    if (!platformImage)
-        return nullptr;
-
-    RetainPtr representation = adoptNS([[NSBitmapImageRep alloc] initWithCGImage:platformImage.get()]);
-    if (!representation)
-        return nullptr;
-
-    RetainPtr image = adoptNS([[NSImage alloc] initWithSize:[representation size]]);
-    [image addRepresentation:representation.get()];
-    return image;
-}
-
 RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemType type)
 {
     ASSERT(m_context.webHitTestResultData());
@@ -537,9 +507,7 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     if (hitTestData.imageSharedMemory) {
         if (usePlaceholder)
             [items addObject:adoptNS([[NSImage alloc] init]).get()];
-        // AQUAWEBKIT: decode web content through WebCore image decoders.
-        // else if (RetainPtr image = createCocoaImageRestrictedToSupportedTypes(protect(*hitTestData.imageSharedMemory)->toNSData().get())) {
-        else if (RetainPtr image = nsImageFromImageData(protect(*hitTestData.imageSharedMemory)->toNSData().get())) {
+        else if (RetainPtr image = createCocoaImageRestrictedToSupportedTypes(protect(*hitTestData.imageSharedMemory)->toNSData().get())) {
             RetainPtr title = hitTestData.imageText.createNSString();
             if (![title length])
                 title = WEB_UI_NSSTRING(@"Image", "Fallback title for images in the share sheet");
@@ -561,13 +529,11 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     if (!shareMenuItem)
         return nil;
 
-    // AQUAWEBKIT: was `if (usePlaceholder)`. 10.9 presents Share as an inline SUBMENU of services
-    // (Email/Messages/…) — TextEdit's context menu is the reference, and the polyfill that stands in for
-    // the absent 10.10 constructor builds that native form. Flattening it into a placeholder whose action
-    // opens a share POPOVER, as upstream does, throws the submenu away and gives this OS an affordance it
-    // has nowhere else; Jonathan rejected that look outright ("looks bad, match Mavericks"). Keep an item
-    // that already carries its services as a submenu, and let the placeholder path handle the flat items
-    // the real 10.10 API returns.
+    // AQUAWEBKIT: 10.9 presents Share as an inline SUBMENU of services (Email/Messages/…), as
+    // TextEdit's context menu does, and the polyfill for the absent 10.10 constructor builds that native
+    // form. An item that already carries its services as a submenu stays as it is; the placeholder path
+    // handles the flat items the real 10.10 API returns.
+    // if (usePlaceholder) {
     if (usePlaceholder && ![shareMenuItem submenu]) {
         RetainPtr placeholder = adoptNS([[NSMenuItem alloc] initWithTitle:retainPtr([shareMenuItem title]).get() action:@selector(performShare:) keyEquivalent:@""]);
         [placeholder setTarget:[WKMenuTarget sharedMenuTarget]];
@@ -907,11 +873,11 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         if (--itemsRemaining)
             return;
 
-        // AQUAWEBKIT: was `[menu setItemArray:[sparseMenuItems allObjects]]`. A slot the
-        // converter declined stays null here, and the separator WebCore appended to introduce that item
+        // AQUAWEBKIT: a slot the converter declined stays null here, and the separator WebCore appended to introduce that item
         // would outlive it and draw as a blank row. Assemble the items group by group and close each
         // group as it ends: a separator is dropped only when a member of the group it introduced was
         // declined and no member of that group survived.
+        // [menu setItemArray:[sparseMenuItems allObjects]];
         RetainPtr menuItems = adoptNS([[NSMutableArray alloc] initWithCapacity:[sparseMenuItems count]]);
         std::optional<NSUInteger> groupSeparatorIndex;
         bool groupHasItem = false;

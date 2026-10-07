@@ -43,8 +43,6 @@
 #include "ElementTextDirection.h"
 #include "HTMLElement.h"
 #include "HTMLSlotElement.h"
-// AQUAWEBKIT: the CSS selector profiler's hooks, restored for the Safari 7 Web Inspector.
-#include "InspectorInstrumentation.h"
 #include "SVGElement.h"
 #include "SelectorCheckerTestFunctions.h"
 #include "SelectorCompiler.h"
@@ -673,8 +671,8 @@ void ElementRuleCollector::collectMatchingRulesForListSlow(const RuleSet::RuleDa
         auto addRuleIfMatches = [&] (const ScopingRootWithDistance* scopingRootWithDistance = nullptr) {
             unsigned specificity;
             auto distance = scopingRootWithDistance ? scopingRootWithDistance->distance : std::numeric_limits<unsigned>::max();
-            // AQUAWEBKIT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored
-            // for the Safari 7 Web Inspector, bracket each rule this collector tries to match.
+            // AQUAWEBKIT: the CSS selector profiler's hooks, which the Safari 7 Web Inspector uses,
+            // bracket each rule this collector tries to match.
             /*
             if (ruleMatches(ruleData, specificity, matchRequest.styleScopeOrdinal, scopingRootWithDistance))
                 addMatchedRule(ruleData, specificity, distance, matchRequest);

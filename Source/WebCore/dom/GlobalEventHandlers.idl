@@ -90,9 +90,8 @@ interface mixin GlobalEventHandlers {
     attribute EventHandler onscroll;
     [EnabledBySetting=ScrollendEventEnabled] attribute EventHandler onscrollend;
     attribute EventHandler onsecuritypolicyviolation;
-    // AQUAWEBKIT: the non-standard `search` event for <input type=search> was removed upstream
-    // (webkit.org/b/278309), but legacy Dashboard widgets (e.g. the Dictionary widget) and other 10.9-era
-    // content register an `onsearch` handler that must fire on Enter. Restore the handler attribute.
+    // AQUAWEBKIT: the handler attribute of the non-standard `search` event <input type=search> fires on
+    // Enter; legacy Dashboard widgets (e.g. the Dictionary widget) and other 10.9-era content register one.
     [NotEnumerable] attribute EventHandler onsearch;
     attribute EventHandler onseeked;
     attribute EventHandler onseeking;

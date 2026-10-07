@@ -25,8 +25,6 @@
 
 #import "config.h"
 #import "Download.h"
-// AQUAWEBKIT: resume request, cookie context and credential policy have one validated native/IPC representation.
-#include "CocoaDownloadResumeData.h"
 
 #import "DownloadProxyMessages.h"
 #import "Logging.h"
@@ -55,8 +53,6 @@
 
 namespace WebKit {
 
-// AQUAWEBKIT: retain upstream NSURLSession implementation beside the curl resume owner.
-#if 0
 void Download::resume(std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&& sandboxExtensionHandle, std::span<const uint8_t> activityAccessToken)
 {
     m_sandboxExtension = SandboxExtension::create(WTF::move(sandboxExtensionHandle));
@@ -120,8 +116,6 @@ void Download::resume(std::span<const uint8_t> resumeData, const String& path, S
 #endif
 }
     
-#endif // AQUAWEBKIT: resumed HTTP requests use the same transport as initial requests.
-
 // AQUAWEBKIT: NSURLSession's public resume fields remain the Safari API serialization format.
 void DownloadManager::resumeDownload(PAL::SessionID sessionID, DownloadID downloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&& sandboxExtensionHandle, CallDownloadDidStart callDownloadDidStart, std::span<const uint8_t> activityAccessToken)
 {

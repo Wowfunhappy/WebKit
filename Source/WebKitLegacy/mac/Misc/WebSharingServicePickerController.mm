@@ -40,10 +40,10 @@
 #import <WebCore/ImageDecoder.h>
 #import <WebCore/ImageUtilities.h>
 #import <WebCore/SharedBuffer.h>
+#import <wtf/cocoa/SpanCocoa.h>
 #import <WebCore/LocalFrameInlines.h>
 #import <WebCore/NodeDocument.h>
 #import <WebCore/Page.h>
-#import <wtf/cocoa/SpanCocoa.h> // AQUAWEBKIT: WTF::toNSData for the encoded TIFF below.
 
 static NSString *serviceControlsPasteboardName = @"WebKitServiceControlsPasteboard";
 
@@ -134,18 +134,12 @@ RetainPtr<NSImage> WebSharingServicePickerClient::imageForCurrentSharingServiceP
     if (!page)
         return;
 
-    RetainPtr<NSData> tiffData = data; // AQUAWEBKIT: replaced below when confirmData asks.
     if (confirmData) {
-        // AQUAWEBKIT: upstream's version of the lines below. These bytes come from the page,
-        // and -[NSImage initWithData:] parses them inside ImageIO; WebCore decodes them and encodes
-        // the TIFF the pasteboard wants, which is the same confirmation and the same conversion.
+        // AQUAWEBKIT: these bytes come from the page, and -[NSImage initWithData:] parses them
+        // inside ImageIO; WebCore decodes them and encodes the TIFF the pasteboard wants, which is the
+        // same confirmation and the same conversion.
         // RetainPtr<NSImage> nsImage = adoptNS([[NSImage alloc] initWithData:data]);
         // if (!nsImage) {
-        //     LOG_ERROR("Shared image data cannot create a valid NSImage");
-        //     return;
-        // }
-        //
-        // data = [nsImage TIFFRepresentation];
         Ref buffer = WebCore::SharedBuffer::create(data);
         RefPtr decoder = WebCore::ImageDecoder::create(buffer.get(), String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
         RetainPtr<CGImageRef> platformImage;
@@ -158,18 +152,18 @@ RetainPtr<NSImage> WebSharingServicePickerClient::imageForCurrentSharingServiceP
             return;
         }
 
-        auto encoded = WebCore::encodeData(platformImage.get(), "image/tiff"_s); // AQUAWEBKIT
+        // data = [nsImage TIFFRepresentation]; // AQUAWEBKIT: the TIFF WebCore encodes.
+        auto encoded = WebCore::encodeData(platformImage.get(), "image/tiff"_s);
         if (encoded.isEmpty()) {
             LOG_ERROR("Shared image data cannot create a valid NSImage");
             return;
         }
-
-        tiffData = WTF::toNSData(encoded.span()); // AQUAWEBKIT: the TIFF WebCore encoded.
+        data = WTF::toNSData(encoded.span()).autorelease();
     }
 
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:serviceControlsPasteboardName];
     [pasteboard declareTypes:@[ NSPasteboardTypeTIFF ] owner:nil];
-    [pasteboard setData:tiffData.get() forType:NSPasteboardTypeTIFF]; // AQUAWEBKIT
+    [pasteboard setData:data forType:NSPasteboardTypeTIFF];
 
     if (RefPtr node = page->contextMenuController().context().hitTestResult().innerNode()) {
         if (RefPtr frame = node->document().frame())

@@ -47,7 +47,7 @@
 #include "WebPageGroupProxy.h"
 #include "WebUserContentController.h" // AQUAWEBKIT: page-group user content C API below.
 #include <WebCore/DatabaseTracker.h>
-// AQUAWEBKIT: UserScript/UserStyleSheet types for the restored legacy page-group user-content C API (below).
+// AQUAWEBKIT: UserScript/UserStyleSheet types for the legacy page-group user-content C API (below).
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/MemoryRelease.h>
@@ -120,15 +120,13 @@ void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
 
 // AQUAWEBKIT: legacy page-group user content C API, used by Safari 7's
 // injected bundle to install extension content scripts and style sheets.
-// Restored from upstream e05340a^ (InjectedBundle::addUserScript and friends):
-// the content goes into the user content controller the page group's pages
+// The content goes into the user content controller the page group's pages
 // share, so each script is registered once per page group. Each script's
 // safari-extension:// URL tells LegacyExtensionContent which extension the
-// script world belongs to.
-// Also restored: the OriginAccessWhitelist spellings (renamed AllowList
+// script world belongs to. Also the OriginAccessWhitelist spellings (AllowList
 // upstream) Safari calls for extension cross-origin access.
 
-// Signatures match Safari 7's WebKit (confirmed from Safari's call site:
+// Signatures match Safari 7's WebKit (Safari's call site:
 // Safari::WK::Bundle::addUserScript(BundlePageGroup, BundleScriptWorld,
 // String, URL, Array, Array, injectionTime, injectedFrames)) — note the
 // script world parameter, which Safari creates with

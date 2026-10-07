@@ -56,12 +56,11 @@ Class kitClass(WebCore::Event* impl)
         return [DOMWheelEvent class];
     default:
         // AQUAWEBKIT: MouseEvent/KeyboardEvent subclasses that report their own
-        // interfaceType (DragEvent, PointerEvent, …) have no legacy ObjC wrapper of their own and
-        // otherwise fall through to the base DOMUIEvent. Map them to the nearest wrapper that
-        // exposes their accessors — as stock WebKit did by keying off isMouseEvent()/key state —
-        // so reads like -[DOMMouseEvent metaKey] don't reach a base DOMUIEvent and crash with an
-        // unrecognized selector (e.g. Messages reads modifier keys off the events it handles). The
-        // downcast inside the wrapper is valid because the impl IS a MouseEvent/UIEventWithKeyState.
+        // interfaceType (DragEvent, PointerEvent, …) have no legacy ObjC wrapper of their own. They
+        // map to the nearest wrapper that exposes their accessors, keyed off isMouseEvent()/key state
+        // as in stock WebKit, so reads like -[DOMMouseEvent metaKey] (Messages reads modifier keys off
+        // the events it handles) reach a wrapper that implements them. The downcast inside the
+        // wrapper is valid because the impl IS a MouseEvent/UIEventWithKeyState.
         if (impl->isMouseEvent())
             return [DOMMouseEvent class];
         if (impl->isUIEventWithKeyState())

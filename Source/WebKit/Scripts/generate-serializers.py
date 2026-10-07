@@ -1321,6 +1321,7 @@ def generate_one_impl(type, template_argument, serialized_types):
             member = type.members[idx]
             if member.condition is not None:
                 result.append(f'#if {member.condition}')
+            # if idx == 0:
             if trailing_comma:
                 result.append(f'    {member.name},')
             elif idx == 0: # AQUAWEBKIT: every other block keeps upstream's leading-comma form.

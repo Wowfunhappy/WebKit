@@ -69,13 +69,13 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 #endif
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
-    // AQUAWEBKIT: use the explicit CGSConnection variant (more reliable on 10.9 than
-    // +remoteContextWithOptions:, which returns nil there). This is the WindowServer-hosted
-    // context flavor (stock 537's WKCAContextMakeRemoteForWindowServer was this exact call) —
-    // displayable in every window that hosts its layer tree in the WindowServer. Windows that
-    // composite in-process instead (iBooks' reader window) can only display contexts created
-    // by createForPort() below; TiledCoreAnimationDrawingArea picks per the page's
-    // LayerHostingMode.
+    // AQUAWEBKIT: 10.9's +remoteContextWithOptions: returns nil; the CGSConnection context is
+    // WindowServer-hosted, displayable in every window that hosts its layer tree in the WindowServer.
+    // Windows that composite in-process (iBooks' reader window) display only contexts created by
+    // createForPort() below; TiledCoreAnimationDrawingArea picks per the page's LayerHostingMode.
+    // [CAContext setAllowsCGSConnections:NO];
+    // layerHostingContext->m_context = [CAContext remoteContextWithOptions:@{
+    //     kCAContextCIFilterBehavior :  @"ignore",
     layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
         kCAContextCIFilterBehavior : @"ignore",
     }];
@@ -89,8 +89,8 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 }
 
 #if PLATFORM(MAC)
-// AQUAWEBKIT: restored from WebKit-537 (LayerHostingContext::createForPort /
-// WKCAContextMakeRemoteWithServerPort). See the header comment.
+// AQUAWEBKIT: the hosted context on the UI process's CARemoteLayerServer port
+// (WKCAContextMakeRemoteWithServerPort). See the header comment.
 std::unique_ptr<LayerHostingContext> LayerHostingContext::createForPort(mach_port_t serverPort)
 {
     auto layerHostingContext = makeUnique<LayerHostingContext>();

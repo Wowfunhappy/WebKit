@@ -29,7 +29,7 @@
 #include "APIData.h"
 #include "WKAPICast.h"
 #include "WebIconDatabase.h"
-// AQUAWEBKIT: revived icon-database client wrapper used by WKIconDatabaseSetIconDatabaseClient below (#49).
+// AQUAWEBKIT: icon-database client wrapper used by WKIconDatabaseSetIconDatabaseClient below (#49).
 #include "WebIconDatabaseClient.h"
 
 using namespace WebKit;
@@ -39,11 +39,12 @@ WKTypeID WKIconDatabaseGetTypeID()
     return toAPI(WebIconDatabase::APIType);
 }
 
-// AQUAWEBKIT: attach Safari 7's legacy C icon-database client so favicon change
-// notifications are delivered again (#49).
+// AQUAWEBKIT: attach Safari 7's legacy C icon-database client, which receives favicon change
+// notifications (#49).
+// void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef, const WKIconDatabaseClientBase*)
 void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef iconDatabaseRef, const WKIconDatabaseClientBase* client)
 {
-    // AQUAWEBKIT: forward the legacy client to the revived in-memory icon store (upstream stub did nothing) (#49).
+    // AQUAWEBKIT: forward the legacy client to the icon store (#49).
     toImpl(iconDatabaseRef)->setClient(client ? makeUnique<WebIconDatabaseClient>(client) : nullptr);
 }
 
@@ -63,18 +64,22 @@ void WKIconDatabaseSetIconURLForPageURL(WKIconDatabaseRef, WKURLRef, WKURLRef)
 {
 }
 
-// AQUAWEBKIT: answer favicon URL/data queries from the revived in-memory store (#49).
+// WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef, WKURLRef)
+// AQUAWEBKIT: answer favicon URL/data queries from the icon store (#49).
 WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
+    // return nullptr;
     String iconURL = toImpl(iconDatabaseRef)->iconURLForPageURL(toWTFString(pageURL));
     if (iconURL.isEmpty())
         return nullptr;
     return toCopiedURLAPI(iconURL);
 }
 
-// AQUAWEBKIT: return raw favicon bytes from the revived in-memory store instead of the upstream nullptr stub (#49).
+// WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef, WKURLRef)
+// AQUAWEBKIT: return raw favicon bytes from the icon store (#49).
 WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
+    // return nullptr;
     RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
     if (!data)
         return nullptr;
@@ -85,7 +90,8 @@ void WKIconDatabaseEnableDatabaseCleanup(WKIconDatabaseRef)
 {
 }
 
-// AQUAWEBKIT: clear the revived in-memory store (#49).
+// void WKIconDatabaseRemoveAllIcons(WKIconDatabaseRef)
+// AQUAWEBKIT: clear the icon store (#49).
 void WKIconDatabaseRemoveAllIcons(WKIconDatabaseRef iconDatabaseRef)
 {
     toImpl(iconDatabaseRef)->removeAllIcons();
@@ -97,8 +103,9 @@ void WKIconDatabaseCheckIntegrityBeforeOpening(WKIconDatabaseRef)
 
 // AQUAWEBKIT: Safari is done with icons (it calls this at quit); close the on-disk store.
 // Every write is committed as it happens, so there is nothing to flush first (#112).
+// void WKIconDatabaseClose(WKIconDatabaseRef)
 void WKIconDatabaseClose(WKIconDatabaseRef iconDatabaseRef)
 {
-    // AQUAWEBKIT: close the revived on-disk icon store (#112).
+    // AQUAWEBKIT: see above.
     toImpl(iconDatabaseRef)->close();
 }

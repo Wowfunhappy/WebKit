@@ -1283,22 +1283,12 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 
 - (BOOL)_requiresUserActionForEditingControlsManager
 {
-    // AQUAWEBKIT: gate on HAVE(TOUCH_BAR); the Touch Bar / editing-controls-manager config is absent on 10.9, so report the no-action default.
-#if HAVE(TOUCH_BAR)
     return _pageConfiguration->requiresUserActionForEditingControlsManager();
-#else
-    return NO;
-#endif
 }
 
 - (void)_setRequiresUserActionForEditingControlsManager:(BOOL)requiresUserAction
 {
-    // AQUAWEBKIT: gate on HAVE(TOUCH_BAR); the Touch Bar / editing-controls-manager config is absent on 10.9, so the setter is a no-op there.
-#if HAVE(TOUCH_BAR)
     _pageConfiguration->setRequiresUserActionForEditingControlsManager(requiresUserAction);
-#else
-    UNUSED_PARAM(requiresUserAction);
-#endif
 }
 
 - (WKPageGroupRef)_pageGroup

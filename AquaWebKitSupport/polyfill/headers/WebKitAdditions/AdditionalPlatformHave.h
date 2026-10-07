@@ -63,6 +63,22 @@
 // The Shape Detection API implementation is built on Vision.framework, which is 10.13+.
 #define HAVE_SHAPE_DETECTION_API_IMPLEMENTATION 0
 
+// VideoToolbox has HEVC encode and decode from macOS 10.13, so WebRTC does not advertise H.265
+// (UnifiedWebPreferences.yaml's WebRTCH265CodecEnabled). Not an upstream macro — this port introduces it.
+#define HAVE_VIDEOTOOLBOX_HEVC 0
+
+// The segment-emitting AVAssetWriter (-initWithFileType:error:, AVAssetWriterDelegate,
+// -setPreferredOutputSegmentInterval:) is macOS 11+; MediaRecorder packages MP4 with the fragmented-MP4
+// writer in AquaWebKitSupport/source/WebCore/platform/mediarecorder. Not an upstream macro — this port
+// introduces it.
+#define HAVE_AVASSETWRITER_DELEGATE 0
+
+// Network.framework (nw_connection, nw_path_monitor, nw_parameters) is macOS 10.14+. The Network
+// process's WebRTC sockets and interface monitor take the path the non-Cocoa ports use: libwebrtc's
+// BasicPacketSocketFactory and the ifaddrs-based NetworkRTCMonitor. Not an upstream macro — this port
+// introduces it.
+#define HAVE_NETWORK_FRAMEWORK 0
+
 // ISO/IEC 23008-12 image sequences (.heics) decode through this port's GStreamer stack: the file is
 // an ISO-BMFF one whose samples are HEVC, so qtdemux and the HEVC decoder carry it, and
 // ImageDecoderGStreamer is what the image pipeline reaches for them. Not an upstream macro — this
@@ -81,40 +97,24 @@
 #define HAVE_AUDIO_CONVERTER_SERVICE 0
 #define HAVE_AUDIO_DEVICE_PROPERTY_REFERENCE_STREAM_ENABLED 0
 #define HAVE_AUTOCORRECTION_ENHANCEMENTS 0
-#define HAVE_AVASSETWRITER_WITH_OPUS_SUPPORTED 0
 #define HAVE_AVAUDIOAPPLICATION 0
-#define HAVE_AVAUDIOSESSION_SMARTROUTING 0
-#define HAVE_AVSAMPLEBUFFERVIDEORENDERER 0
 #define HAVE_AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION 0
 #define HAVE_CFNETWORK_SEPARATE_CREDENTIAL_STORAGE 0
 #define HAVE_COREGRAPHICS_WITH_PDF_AREA_OF_INTEREST_SUPPORT 0
-#define HAVE_CORE_CRYPTO_SIGNATURES_INT_RETURN_VALUE 0
 #define HAVE_DDSCANNER_QOS_CONFIGURATION 0
 #define HAVE_FAIRPLAYSTREAMING_MTPS_INITDATA 0
 #define HAVE_JPEGXL 0
 #define HAVE_MACH_BOOTSTRAP_EXTENSION 0
 #define HAVE_MACH_EVENTLINK 0
-#define HAVE_MACH_RANGE_CREATE 0
 #define HAVE_NETWORK_RESOLUTION_FAILURE_REPORT 0
 #define HAVE_NSCOLOR_FILL_COLOR_HIERARCHY 0
 #define HAVE_NSRESPONDER_WRITING_TOOLS_SUPPORT 0
-#define HAVE_NSURL_ENCODING_INVALID_CHARACTERS 0
 #define HAVE_NSWINDOW_SNAPSHOT_READINESS_HANDLER 0
 #define HAVE_NS_EMOJI_IMAGE_STRIKE_PROVENANCE 0
 #define HAVE_NS_TEXT_CHECKING_TYPE_MATH_COMPLETION 0
 #define HAVE_NWSETTINGS_UNIFIED_HTTP 0
-#define HAVE_PASSKIT_APPLE_PAY_LATER_AVAILABILITY 0
 #define HAVE_PASSKIT_MERCHANT_CATEGORY_CODE 0
-#define HAVE_PDFDOCUMENT_ANNOTATIONS_FOR_FIELD_NAME 0
-#define HAVE_PDFDOCUMENT_ENABLE_DATA_DETECTORS 0
-#define HAVE_PDFDOCUMENT_RESET_FORM_FIELDS 0
-#define HAVE_PDFDOCUMENT_SELECTION_WITH_GRANULARITY 0
-#define HAVE_PDFKIT_WITH_NEXT_ACTIONS 0
-#define HAVE_PDFPAGE_AREA_OF_INTEREST_AT_POINT 0
-#define HAVE_PDFPAGE_DATA_DETECTOR_RESULTS 0
-#define HAVE_PDFSELECTION_ENUMERATE_RECTS_AND_TRANSFORMS 0
 #define HAVE_PDFSELECTION_HTMLDATA_RTFDATA 0
-#define HAVE_PKPAYMENTREQUEST_USERAGENT 0
 #define HAVE_REDESIGNED_TEXT_CURSOR 0
 #define HAVE_SECURE_ACTION_CONTEXT 0
 #define HAVE_STRICT_DECODABLE_CNCONTACT 0

@@ -82,12 +82,10 @@ WKTypeID WKBundlePageGetTypeID()
     return WebKit::toAPI(WebKit::WebPage::APIType);
 }
 
-// AQUAWEBKIT: removed upstream; Safari 7's injected bundle uses the page
-// group to scope extension content scripts (see WKBundleAddUserScript).
-// WKBundlePageGroupCopyIdentifier is also required by the system Mac App Store
-// injected bundle (StoreJavaScript.framework/StoreWebBundle): store-page JS calls
-// into it, the bundle lazily binds this symbol from WebKit2, and a missing export
-// fails the dyld bind -> the App Store's WebProcess crashes on every store page.
+// AQUAWEBKIT: Safari 7's injected bundle uses the page group to scope extension
+// content scripts (see WKBundleAddUserScript). The system Mac App Store injected
+// bundle (StoreJavaScript.framework/StoreWebBundle) also binds
+// WKBundlePageGroupCopyIdentifier from WebKit2; store-page JS calls into it.
 extern "C" WK_EXPORT WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef);
 extern "C" WK_EXPORT WKTypeID WKBundlePageGroupGetTypeID(void);
 extern "C" WK_EXPORT WKStringRef WKBundlePageGroupCopyIdentifier(WKBundlePageGroupRef);
@@ -143,12 +141,12 @@ void WKBundlePageSetResourceLoadClient(WKBundlePageRef pageRef, WKBundlePageReso
     protect(WebKit::toImpl(pageRef))->setInjectedBundleResourceLoadClient(makeUnique<WebKit::InjectedBundlePageResourceLoadClient>(wkClient));
 }
 
-// AQUAWEBKIT: restored (upstream 9eeab8d gutted this to an empty stub when it removed
-// InjectedBundlePagePolicyClient). Safari 7 installs a policy client here and its UI-process
-// handlers read the userData this client produces.
+// AQUAWEBKIT: Safari 7 installs a policy client here, and its UI-process handlers read the
+// userData this client produces.
+// void WKBundlePageSetPolicyClient(WKBundlePageRef, WKBundlePagePolicyClientBase*)
 void WKBundlePageSetPolicyClient(WKBundlePageRef pageRef, WKBundlePagePolicyClientBase* wkClient)
 {
-    // AQUAWEBKIT: real body (upstream: empty stub).
+    // AQUAWEBKIT: upstream's body is empty.
     WebKit::toImpl(pageRef)->initializeInjectedBundlePolicyClient(wkClient);
 }
 

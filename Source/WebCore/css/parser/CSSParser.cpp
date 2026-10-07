@@ -1686,13 +1686,11 @@ void CSSParser::consumeBlockContent(CSSParserTokenRange range, StyleRuleType rul
             break;
         }
         case AtKeywordToken: {
-            // AQUAWEBKIT: a comment is yielded to the observer only just before a declaration
-            // or at the end of the block, so one sitting before a nested rule was never yielded here —
-            // and then the nested block's own skipCommentsBefore() walked the comment index past it,
-            // so it was never yielded at all. The Web Inspector reads exactly these observations to
-            // recognise a commented-out declaration, so commenting a property out in a rule that has a
-            // nested rule after it made the property vanish from the Styles sidebar instead of showing
-            // as disabled. Yield before consuming the nested rule, while `range` still starts at it.
+            // AQUAWEBKIT: the observer receives a comment just before a declaration or at the end of
+            // the block, and the nested block's own skipCommentsBefore() walks the comment index past
+            // the comments in front of it; so the comments before a nested rule go to the observer here,
+            // while `range` still starts at the rule. The Web Inspector recognises a commented-out
+            // declaration from these observations.
             if (useObserver)
                 observerWrapper->yieldCommentsBefore(range);
 

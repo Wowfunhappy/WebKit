@@ -983,9 +983,8 @@ void WebProcess::registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String& url
 }
 
 // AQUAWEBKIT: app-registered custom-protocol schemes (e.g. safari-reader://) are served by the
-// NetworkProcess via LegacyCustomProtocolManager, but the WebProcess's WebPage::canHandleRequest only
-// consults NSURLConnection — which doesn't know about them — so WebCore's PolicyChecker would ignore
-// the navigation as "cannot show URL" before it ever reached the network. Track the schemes here so
+// NetworkProcess via LegacyCustomProtocolManager, and the WebProcess's WebPage::canHandleRequest
+// consults NSURLConnection, which does not know them; the schemes are tracked here so
 // canHandleRequest returns true for them.
 void WebProcess::registerURLSchemeForCustomProtocol(const String& urlScheme)
 {

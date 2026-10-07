@@ -25,7 +25,7 @@
 
 #pragma once
 
-// AQUAWEBKIT: bridges the revived API::IconDatabaseClient interface to Safari 7's
+// AQUAWEBKIT: bridges the API::IconDatabaseClient interface to Safari 7's
 // legacy WK2 C icon-database client (WKIconDatabaseClientV0/V1), so favicon change
 // notifications reach the browser (#49).
 

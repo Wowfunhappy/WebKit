@@ -28,7 +28,7 @@
 #import <WebKit/WKBase.h>
 #import <WebKit/WKBrowsingContextController.h>
 
-// AQUAWEBKIT: the legacy WKBrowsingContextController SPI (4f0294a^) that iBooks and Apple Mail use.
+// AQUAWEBKIT: the legacy WKBrowsingContextController SPI that iBooks and Apple Mail use.
 typedef NS_ENUM(NSUInteger, WKBrowsingContextPaginationMode) {
     WKPaginationModeUnpaginated,
     WKPaginationModeLeftToRight,

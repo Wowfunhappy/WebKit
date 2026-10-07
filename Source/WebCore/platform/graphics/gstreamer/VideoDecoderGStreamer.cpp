@@ -28,8 +28,6 @@
 #include "GStreamerRegistryScanner.h"
 #include "PlatformDisplay.h"
 #include "VideoFrameGStreamer.h"
-// AQUAWEBKIT: encoder and decoder share the per-frame WebCodecs timing transport.
-#include "VideoFrameMetadataGStreamer.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WorkQueue.h>
 // AQUAWEBKIT: Decoder bus errors own their parsed GError until its message is copied.

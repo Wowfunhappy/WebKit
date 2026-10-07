@@ -34,7 +34,7 @@
 #include "CSSSelector.h"
 #include "CanvasBase.h"
 #include "CanvasRenderingContext.h"
-// AQUAWEBKIT: the Database agent's didOpenDatabase hook, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the Database agent's didOpenDatabase hook, for the Safari 7 Web Inspector.
 #include "Database.h"
 #include "Element.h"
 #include "Event.h"
@@ -103,7 +103,7 @@ class ScriptExecutionContext;
 class SecurityOrigin;
 class ServiceWorkerGlobalScope;
 class ShadowRoot;
-// AQUAWEBKIT: the CSS selector profiler's hooks, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the CSS selector profiler's hooks, for the Safari 7 Web Inspector.
 class StyleRule;
 class FragmentedSharedBuffer;
 class TimerBase;
@@ -154,8 +154,7 @@ public:
     static void willPopShadowRoot(Element& host, ShadowRoot&);
     static void didChangeAssignedSlot(Node&);
     static void didChangeAssignedNodes(Element& slotElement);
-    // AQUAWEBKIT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
-    // Safari 7 Web Inspector.
+    // AQUAWEBKIT: the CSS selector profiler's hooks, for the Safari 7 Web Inspector.
     static void willMatchRule(Document&);
     static void didMatchRule(Document&, const StyleRule&, bool matched);
     static void didChangeCustomElementState(Element&);
@@ -304,7 +303,7 @@ public:
     static void willFireObserverCallback(ScriptExecutionContext&, const String& callbackType);
     static void didFireObserverCallback(ScriptExecutionContext&);
 
-    // AQUAWEBKIT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the Database agent's hook, for the Safari 7 Web Inspector.
     static void didOpenDatabase(Database&);
 
     static void didDispatchDOMStorageEvent(Page&, const String& key, const String& oldValue, const String& newValue, StorageType, const SecurityOrigin&);
@@ -394,8 +393,7 @@ private:
     static void willPopShadowRootImpl(InstrumentingAgents&, Element& host, ShadowRoot&);
     static void didChangeAssignedSlotImpl(InstrumentingAgents&, Node&);
     static void didChangeAssignedNodesImpl(InstrumentingAgents&, Element& slotElement);
-    // AQUAWEBKIT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
-    // Safari 7 Web Inspector.
+    // AQUAWEBKIT: the CSS selector profiler's hooks, for the Safari 7 Web Inspector.
     static void willMatchRuleImpl(InstrumentingAgents&);
     static void didMatchRuleImpl(InstrumentingAgents&, const StyleRule&, bool matched);
     static void didChangeCustomElementStateImpl(InstrumentingAgents&, Element&);
@@ -517,7 +515,7 @@ private:
     static void willFireObserverCallbackImpl(InstrumentingAgents&, const String&);
     static void didFireObserverCallbackImpl(InstrumentingAgents&);
 
-    // AQUAWEBKIT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the Database agent's hook, for the Safari 7 Web Inspector.
     static void didOpenDatabaseImpl(InstrumentingAgents&, Database&);
 
     static void didDispatchDOMStorageEventImpl(InstrumentingAgents&, const String& key, const String& oldValue, const String& newValue, StorageType, const SecurityOrigin&);
@@ -749,8 +747,7 @@ inline void InspectorInstrumentation::didChangeAssignedNodes(Element& slotElemen
         didChangeAssignedNodesImpl(*agents, slotElement);
 }
 
-// AQUAWEBKIT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
-// Safari 7 Web Inspector.
+// AQUAWEBKIT: the CSS selector profiler's hooks, for the Safari 7 Web Inspector.
 inline void InspectorInstrumentation::willMatchRule(Document& document)
 {
     FAST_RETURN_IF_NO_FRONTENDS(void());
@@ -1375,7 +1372,7 @@ inline void InspectorInstrumentation::interceptResponse(const LocalFrame& frame,
     interceptResponseImpl(protect(instrumentingAgents(frame)), response, identifier, WTF::move(handler));
 }
 
-// AQUAWEBKIT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the Database agent's hook, for the Safari 7 Web Inspector.
 inline void InspectorInstrumentation::didOpenDatabase(Database& database)
 {
     FAST_RETURN_IF_NO_FRONTENDS(void());

@@ -353,7 +353,7 @@ public:
 
     void navigateServiceWorkerClient(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, const URL&, CompletionHandler<void(std::optional<WebCore::PageIdentifier>, std::optional<WebCore::FrameIdentifier>)>&&);
 
-    // void receivedMainResourceResponseWithCertificateInfo(WebCore::FrameIdentifier, String&& hostAndPort, WebCore::CertificateInfo&&); // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
+    // void receivedMainResourceResponseWithCertificateInfo(WebCore::FrameIdentifier, String&& hostAndPort, WebCore::CertificateInfo&&); // AQUAWEBKIT: WebFrameProxyFromNetworkProcess receives this (webkit.org/b/319273).
 
     void cookiesDidChange(PAL::SessionID);
 
@@ -399,7 +399,9 @@ private:
     void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
     void didClose(IPC::Connection&) override;
     void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) override;
-    // Note: uses dispatchSyncMessage from superclass. // AQUAWEBKIT: upstream 317090@main (webkit.org/b/319273).
+    // AQUAWEBKIT: dispatchMessage also routes WebFrameProxyFromNetworkProcess messages (webkit.org/b/319273).
+    // // Note: uses dispatchMessage, dispatchSyncMessage from superclass.
+    // Note: uses dispatchSyncMessage from superclass.
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
 
     // ResponsivenessTimer::Client

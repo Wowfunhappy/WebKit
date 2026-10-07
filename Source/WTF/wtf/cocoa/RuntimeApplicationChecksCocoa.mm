@@ -90,6 +90,9 @@ static SDKAlignedBehaviors computeSDKAlignedBehaviors()
     if (linkedBefore(dyld_fall_2015_os_versions, DYLD_IOS_VERSION_9_0, DYLD_MACOSX_VERSION_10_11))
         disableBehavior(SDKAlignedBehavior::PictureInPictureMediaPlayback);
 
+    if (linkedBefore(dyld_fall_2015_os_versions, DYLD_IOS_VERSION_9_0, DYLD_MACOSX_VERSION_10_11))
+        disableBehavior(SDKAlignedBehavior::BlockOrUpgradeMixedContent); // AQUAWEBKIT: NetNewsWire's https articles load rsstylesheet: and rsfavicon: subresources.
+
     if (linkedBefore(dyld_fall_2016_os_versions, DYLD_IOS_VERSION_10_0, DYLD_MACOSX_VERSION_10_12)) {
         disableBehavior(SDKAlignedBehavior::MediaTypesRequiringUserActionForPlayback);
         disableBehavior(SDKAlignedBehavior::RequiresUserGestureToLoadVideo);

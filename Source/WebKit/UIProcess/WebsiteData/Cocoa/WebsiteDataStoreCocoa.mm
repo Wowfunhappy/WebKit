@@ -24,8 +24,6 @@
  */
 
 #import "config.h"
-// AQUAWEBKIT: shared default and legacy HSTS directory policy.
-#import <WebCore/HTTPStrictTransportSecurityStore.h>
 #import "WebsiteDataStore.h"
 
 #import "CookieStorageUtilsCF.h"
@@ -46,12 +44,6 @@
 #import <WebCore/RegistrableDomain.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
 #import <WebCore/SecurityOriginData.h>
-// AQUAWEBKIT: for the NSWorkspace open in openURLThroughHostApplication below, and the
-// launchd job submission in registerWebPushDaemonWithLaunchd.
-#if USE(MOZILLA_PUSH_SERVICE)
-#import <AppKit/AppKit.h>
-#import <ServiceManagement/ServiceManagement.h>
-#endif
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/spi/cocoa/NetworkSPI.h>
 #import <wtf/FileSystem.h>
@@ -150,54 +142,6 @@ WebCore::ThirdPartyCookieBlockingMode WebsiteDataStore::thirdPartyCookieBlocking
     return *m_thirdPartyCookieBlockingMode;
 }
 
-// AQUAWEBKIT: the launchd job for the webpushd this framework carries, submitted to the
-// login session's launchd, which starts the daemon when the network process looks its Mach service
-// up and reaps it once it holds no transaction. The job is upstream's
-// webpushd/com.apple.webkit.webpushd.relocatable.mac.plist with ${INSTALL_PATH} resolved against the
-// loaded framework, minus the incoming-push service apsd owns.
-#if USE(MOZILLA_PUSH_SERVICE)
-static void registerWebPushDaemonWithLaunchd()
-{
-    static NSString * const jobLabel = @"com.apple.webkit.webpushd.relocatable";
-    static NSString * const machServiceName = @"com.apple.webkit.webpushd.relocatable.service";
-
-    RetainPtr executablePath = [[NSBundle bundleForClass:NSClassFromString(@"WKWebView")].executablePath stringByResolvingSymlinksInPath];
-    RetainPtr daemonPath = [[executablePath.get() stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Daemons/webpushd"];
-
-    // A job registered for another copy of the framework would answer this one's Mach lookup with
-    // that copy's daemon, over this one's database, so the label is re-registered unless it already
-    // names the daemon beside this framework.
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    RetainPtr registeredJob = adoptCF(SMJobCopyDictionary(kSMDomainUserLaunchd, (__bridge CFStringRef)jobLabel));
-    if (registeredJob) {
-        RetainPtr registeredArguments = dynamic_objc_cast<NSArray>([(__bridge NSDictionary *)registeredJob.get() objectForKey:@"ProgramArguments"]);
-        if ([[registeredArguments.get() firstObject] isEqual:daemonPath.get()])
-            return;
-        SMJobRemove(kSMDomainUserLaunchd, (__bridge CFStringRef)jobLabel, nullptr, true, nullptr);
-    }
-    ALLOW_DEPRECATED_DECLARATIONS_END
-
-    RetainPtr job = @{
-        @"Label": jobLabel,
-        @"ProgramArguments": @[daemonPath.get(), @"--machServiceName", machServiceName],
-        @"MachServices": @{ machServiceName: @YES },
-        @"ProcessType": @"Adaptive",
-        @"EnableTransactions": @YES,
-        @"StandardErrorPath": @"/dev/null",
-    };
-
-    CFErrorRef error = nullptr;
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    bool submitted = SMJobSubmit(kSMDomainUserLaunchd, (__bridge CFDictionaryRef)job.get(), nullptr, &error);
-    ALLOW_DEPRECATED_DECLARATIONS_END
-    // Push is dead without the daemon, and RELEASE_LOG reaches no log on 10.9, so say so on stderr.
-    if (!submitted)
-        WTFLogAlways("Could not register %s with launchd: CFError %ld", [daemonPath.get() UTF8String], error ? static_cast<long>(CFErrorGetCode(error)) : 0L);
-    if (error)
-        CFRelease(error);
-}
-#endif // USE(MOZILLA_PUSH_SERVICE)
-
 #if PLATFORM(MAC)
 static String libraryRootDirectory()
 {
@@ -215,8 +159,8 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
 
-    // AQUAWEBKIT: the job has to exist before the network session this call is filling
-    // parameters for looks the daemon's Mach service up.
+    // AQUAWEBKIT: webpushd's launchd job (WebsiteDataStoreAquaWebKit.mm) has to exist before the
+    // network session this call is filling parameters for looks the daemon's Mach service up.
 #if USE(MOZILLA_PUSH_SERVICE)
     if (!parameters.networkSessionParameters.webPushMachServiceName.isEmpty())
         registerWebPushDaemonWithLaunchd();
@@ -521,19 +465,12 @@ String WebsiteDataStore::defaultAlternativeServicesDirectory(const String& baseD
     return cacheDirectoryFileSystemRepresentation("AlternativeServices"_s, { }, ShouldCreateDirectory::No);
 }
 
-// AQUAWEBKIT: share the upstream directory policy with legacy HTTP loads in WebCore.
-/*
 String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory)
 {
     if (!baseDirectory.isEmpty())
         return FileSystem::pathByAppendingComponent(baseDirectory, "HSTS"_s);
 
     return cacheDirectoryFileSystemRepresentation("HSTS"_s);
-}
-*/ // AQUAWEBKIT: retain the upstream body and use its common implementation below.
-String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory)
-{
-    return WebCore::HTTPStrictTransportSecurityStore::defaultStorageDirectory(baseDirectory);
 }
 
 String WebsiteDataStore::defaultMediaCacheDirectory(const String& baseDirectory)
@@ -1212,19 +1149,5 @@ void WebsiteDataStore::removeAllEnhancedSecuritySites(CompletionHandler<void()>&
 
     enhancedSecuritySitesHolder().deleteAllSites(WTF::move(completionHandler));
 }
-
-// AQUAWEBKIT: the clients.openWindow fallback declared in WebsiteDataStore.h -- hand the URL
-// to the host app's ordinary URL handling, since Safari 7 implements no data-store client that could
-// create a page. HTTP(S) only: a service worker must not be able to launch arbitrary URL schemes.
-#if USE(MOZILLA_PUSH_SERVICE)
-void WebsiteDataStore::openURLThroughHostApplication(const URL& url)
-{
-    if (!url.protocolIsInHTTPFamily()) {
-        RELEASE_LOG_ERROR(Push, "Refusing to open non-HTTP URL from a service worker");
-        return;
-    }
-    [[NSWorkspace sharedWorkspace] openURL:url.createNSURL().get()];
-}
-#endif // USE(MOZILLA_PUSH_SERVICE)
 
 }

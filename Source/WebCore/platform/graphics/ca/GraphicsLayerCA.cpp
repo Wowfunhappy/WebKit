@@ -2438,9 +2438,9 @@ void GraphicsLayerCA::updateNames()
 // AQUAWEBKIT: only the Cocoa legacy renderer needs explicit CSS sorting boundaries.
 static bool needsDepthSortingBoundaries(PlatformCALayer& layer)
 {
+    // Coordinate-only backdrop hosts still isolate their children's CSS 3D contexts.
     return is<PlatformCALayerCocoa>(layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
-        // && layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer;
-        && (layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer || downcast<PlatformCALayerCocoa>(layer).isBackdropHostingLayer()); // AQUAWEBKIT: coordinate-only hosts still isolate their children's CSS 3D contexts.
+        && (layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer || downcast<PlatformCALayerCocoa>(layer).isBackdropHostingLayer());
 }
 
 // AQUAWEBKIT: the actual platform tree carries context ownership and native animations.

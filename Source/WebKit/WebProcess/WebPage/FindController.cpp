@@ -790,15 +790,17 @@ void FindController::didMoveToPage(PageOverlay&, Page*)
 }
 
 constexpr float shadowOffsetX = 0;
-constexpr float shadowOffsetY = 1; // AQUAWEBKIT: upstream 0
-constexpr float shadowBlurRadius = 2; // AQUAWEBKIT: upstream 1
+// constexpr float shadowOffsetY = 0;
+// constexpr float shadowBlurRadius = 1;
+constexpr float shadowOffsetY = 1; // AQUAWEBKIT: 537's find-overlay shadow.
+constexpr float shadowBlurRadius = 2; // AQUAWEBKIT: 537's find-overlay shadow.
 // constexpr unsigned findIndicatorRadius = 3;
 void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, const IntRect& dirtyRect)
 {
     constexpr int borderWidth = 1;
 
     constexpr auto overlayBackgroundColor = SRGBA<uint8_t> { 26, 26, 26, 64 };
-    // AQUAWEBKIT: 537 shadowed the white frames with opaque black.
+    // AQUAWEBKIT: 537's white frames take an opaque black shadow.
     // constexpr auto shadowColor = Color::black.colorWithAlphaByte(128);
 
     IntRect borderInflatedDirtyRect = dirtyRect;
@@ -808,7 +810,7 @@ void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, co
     // Draw the background.
     graphicsContext.fillRect(dirtyRect, overlayBackgroundColor);
 
-    // AQUAWEBKIT: 537 framed each match rect on its own, with square corners.
+    // AQUAWEBKIT: 537 frames each match rect on its own, with square corners.
     // Vector<Path> whiteFramePaths = PathUtilities::pathsWithShrinkWrappedRects(rects, findIndicatorRadius);
     auto whiteFrameRects = rects.map([](auto& rect) {
         return enclosingIntRect(rect);
@@ -817,16 +819,17 @@ void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, co
     GraphicsContextStateSaver stateSaver(graphicsContext);
 
     // Draw white frames around the holes.
-    // AQUAWEBKIT: 537 filled an inflated white rect per match (the inner part is erased
-    // again when the holes are cleared) rather than stroking a shrink-wrapped path.
+    // AQUAWEBKIT: 537 fills an inflated white rect per match (the inner part is erased
+    // again when the holes are cleared).
     graphicsContext.setDropShadow({ { shadowOffsetX, shadowOffsetY }, shadowBlurRadius, Color::black, ShadowRadiusMode::Default });
     graphicsContext.setFillColor(Color::white);
     for (auto rect : whiteFrameRects) {
         rect.inflate(borderWidth);
         graphicsContext.fillRect(rect);
     }
-    // AQUAWEBKIT: upstream's stroked shrink-wrapped frames, kept for reference.
+    // AQUAWEBKIT: upstream's stroked shrink-wrapped frames.
     // We double the thickness because half of the stroke will be erased when we clear the holes.
+    // graphicsContext.setDropShadow({ { shadowOffsetX, shadowOffsetY }, shadowBlurRadius, shadowColor, ShadowRadiusMode::Default });
     // graphicsContext.setStrokeColor(Color::white);
     // graphicsContext.setStrokeThickness(borderWidth * 2);
     // for (auto& path : whiteFramePaths)
@@ -849,29 +852,35 @@ void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, co
         auto findIndicatorRect = protect(selectedFrame->view())->contentsToRootView(enclosingIntRect(protect(selectedFrame->selection())->selectionBounds(FrameSelection::ClipToVisibleContent::No)));
 
         if (findIndicatorRect != m_findIndicator->rect()) {
-            // AQUAWEBKIT: the indicator only has to go away when the *view* scrolled out from
-            // under it (537's behaviour). When the scroll position is unchanged the page merely
-            // reflowed beneath a settled find — Wikipedia shifts its content a few points right after
-            // the find scrolls — and upstream would drop the highlight for good. Report which
-            // happened so the handler can re-snapshot instead of hiding (#85).
+            // AQUAWEBKIT: the indicator goes away only when the *view* scrolled out from under it
+            // (537's behaviour). When the scroll position is unchanged the page merely reflowed
+            // beneath a settled find (content shifting right after the find scrolls), and the handler
+            // re-snapshots instead of hiding (#85).
             bool viewDidScroll = protect(selectedFrame->view())->scrollPosition() != m_findIndicator->scrollPositionWhenShown();
             // We are underneath painting, so it's not safe to mutate the layer tree synchronously.
+            // callOnMainRunLoop([weakWebPage = WeakPtr { m_webPage }] {
             callOnMainRunLoop([weakWebPage = WeakPtr { m_webPage }, viewDidScroll] { // AQUAWEBKIT: carries viewDidScroll.
                 if (!weakWebPage)
                     return;
-                // AQUAWEBKIT: upstream passes no argument here.
+                // AQUAWEBKIT: carries viewDidScroll.
+                // weakWebPage->findController().didScrollAffectingFindIndicatorPosition();
                 weakWebPage->findController().didScrollAffectingFindIndicatorPosition(viewDidScroll);
             });
         }
     }
 }
 
-// AQUAWEBKIT: upstream signature is didScrollAffectingFindIndicatorPosition().
+// AQUAWEBKIT: takes viewDidScroll (see drawRect).
+// void FindController::didScrollAffectingFindIndicatorPosition()
 void FindController::didScrollAffectingFindIndicatorPosition(bool viewDidScroll)
 {
-    // AQUAWEBKIT: upstream always takes the first branch here. Re-snapshot the indicator at
-    // its new position when the page reflowed under an unmoved viewport, so the current match keeps
-    // its highlight; a genuine scroll still hides it, which is what stock Mavericks did (#85).
+    // AQUAWEBKIT: re-snapshot the indicator at its new position when the page reflowed under an
+    // unmoved viewport, so the current match keeps its highlight; a genuine scroll still hides it,
+    // as stock Mavericks does (#85).
+    // if (m_findIndicator->shouldHideOnScroll())
+    //     m_findIndicator->hide();
+    // else
+    //     m_findIndicator->update(frameWithSelection(protect(m_webPage->corePage())), true, false);
     if (viewDidScroll && m_findIndicator->shouldHideOnScroll())
         m_findIndicator->hide();
     else // AQUAWEBKIT: upstream passes `true` for isShowingOverlay; ask the controller instead.

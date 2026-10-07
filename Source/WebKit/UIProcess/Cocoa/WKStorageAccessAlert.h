@@ -27,10 +27,10 @@
 
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 
-#import <WebCore/OrganizationStorageAccessPromptQuirk.h> // AQUAWEBKIT: carried by the entry point below.
-#import <optional> // AQUAWEBKIT: ditto.
 #import <wtf/CompletionHandler.h>
 
+#import <WebCore/OrganizationStorageAccessPromptQuirk.h> // AQUAWEBKIT: carried by the entry point below.
+#import <optional> // AQUAWEBKIT: ditto.
 // AQUAWEBKIT: the alert is raised for the page rather than for a WKWebView, so that a page
 // hosted in a WKView reaches it too, and so that a plain C++ translation unit can call these.
 // @class WKWebView;
@@ -51,6 +51,9 @@ class WebPageProxy; // AQUAWEBKIT: the alert's host, in place of the WKWebView a
 // delegate reach the same sheet in the same order from one place.
 void presentStorageAccessAlert(WebPageProxy&, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&&, CompletionHandler<void(bool)>&&);
 
+// void presentStorageAccessAlert(WKWebView *, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, CompletionHandler<void(bool)>&&);
+// void presentStorageAccessAlertQuirk(WKWebView *, const WebCore::RegistrableDomain& firstRequestingDomain, const WebCore::RegistrableDomain& secondRequestingDomain, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&&);
+// void presentStorageAccessAlertSSOQuirk(WKWebView *, const String& organizationName, const HashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>>&, CompletionHandler<void(bool)>&&);
 void presentStorageAccessAlert(WebPageProxy&, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, CompletionHandler<void(bool)>&&); // AQUAWEBKIT: takes the page.
 void presentStorageAccessAlertQuirk(WebPageProxy&, const WebCore::RegistrableDomain& firstRequestingDomain, const WebCore::RegistrableDomain& secondRequestingDomain, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&&); // AQUAWEBKIT: takes the page.
 void presentStorageAccessAlertSSOQuirk(WebPageProxy&, const String& organizationName, const HashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>>&, CompletionHandler<void(bool)>&&); // AQUAWEBKIT: takes the page.

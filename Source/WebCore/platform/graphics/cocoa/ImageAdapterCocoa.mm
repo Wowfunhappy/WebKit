@@ -137,10 +137,9 @@ CFDataRef ImageAdapter::tiffRepresentation()
 }
 
 #if USE(APPKIT)
-// AQUAWEBKIT: an NSImage over the frames themselves. Both functions below used to encode a
-// TIFF and hand it back to -[NSImage initWithData:], which parses it inside ImageIO -- the one
-// parser this port keeps page image bytes away from. A representation built from the decoded frame
-// carries the same pixels and skips the round trip entirely.
+// AQUAWEBKIT: an NSImage over the decoded frames themselves. A TIFF handed to -[NSImage initWithData:]
+// is parsed inside ImageIO, the one parser this port keeps page image bytes away from; a representation
+// built from each frame carries the same pixels.
 static RetainPtr<NSImage> nsImageFromNativeImages(const Vector<Ref<NativeImage>>& nativeImages)
 {
     RetainPtr image = adoptNS([[NSImage alloc] initWithSize:NSZeroSize]);

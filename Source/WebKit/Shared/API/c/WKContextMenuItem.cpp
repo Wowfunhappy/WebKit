@@ -45,8 +45,8 @@ WKContextMenuItemRef WKContextMenuItemCreateAsAction(WKContextMenuItemTag tag, W
 {
 #if ENABLE(CONTEXT_MENUS)
     // AQUAWEBKIT: tolerate a null title. Safari 7's BrowserPageContextMenuClient passes a
-    // NULL WKStringRef for some media context-menu items (second right-click on a playing <video>,
-    // e.g. YouTube), which Safari-7-era WebKit accepted; dereferencing it crashed the UI process.
+    // NULL WKStringRef for some media context-menu items (second right-click on a playing <video>).
+    // return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::Action, WebKit::toImpl(tag), protect(WebKit::toImpl(title))->string(), enabled, false)));
     return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::Action, WebKit::toImpl(tag), title ? protect(WebKit::toImpl(title))->string() : WTF::String(), enabled, false)));
 #else
     UNUSED_PARAM(tag);
@@ -60,6 +60,7 @@ WKContextMenuItemRef WKContextMenuItemCreateAsCheckableAction(WKContextMenuItemT
 {
 #if ENABLE(CONTEXT_MENUS)
     // AQUAWEBKIT: tolerate a null title (see WKContextMenuItemCreateAsAction).
+    // return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::CheckableAction, WebKit::toImpl(tag), protect(WebKit::toImpl(title))->string(), enabled, checked)));
     return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::CheckableAction, WebKit::toImpl(tag), title ? protect(WebKit::toImpl(title))->string() : WTF::String(), enabled, checked)));
 #else
     UNUSED_PARAM(tag);
@@ -74,6 +75,7 @@ WKContextMenuItemRef WKContextMenuItemCreateAsSubmenu(WKStringRef title, bool en
 {
 #if ENABLE(CONTEXT_MENUS)
     // AQUAWEBKIT: tolerate a null title (see WKContextMenuItemCreateAsAction).
+    // return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(protect(WebKit::toImpl(title))->string(), enabled, protect(WebKit::toImpl(submenuItems)).get()));
     return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(title ? protect(WebKit::toImpl(title))->string() : WTF::String(), enabled, protect(WebKit::toImpl(submenuItems)).get()));
 #else
     UNUSED_PARAM(title);
@@ -263,11 +265,8 @@ STATIC_ASSERT_EQUALS(80, kWKContextMenuItemTagEnterVideoFullscreen, ContextMenuI
 STATIC_ASSERT_EQUALS(81, kWKContextMenuItemTagMediaPlayPause, ContextMenuItemTagMediaPlayPause);
 STATIC_ASSERT_EQUALS(82, kWKContextMenuItemTagMediaMute, ContextMenuItemTagMediaMute);
 STATIC_ASSERT_EQUALS(83, kWKContextMenuItemTagDictationAlternative, ContextMenuItemTagDictationAlternative);
-// AQUAWEBKIT: the C API's animation tags moved to the end of WKContextMenuItemTypes.h so the
-// tags Safari 7 was built against keep their 537.78 values; WebCore's own enum is untouched, so the two
-// sides no longer share a number for these four. Assert each side against what it must be rather than
-// dropping the check: WebCore's values stay where upstream put them, and the API values must sit past
-// the last tag 537.78 knew about (kWKContextMenuItemTagToggleVideoFullscreen == 87).
+// AQUAWEBKIT: the C API's animation tags sit at the end of WKContextMenuItemTypes.h, past the last tag
+// 537.78 knew (kWKContextMenuItemTagToggleVideoFullscreen == 87); WebCore's keep upstream's values.
 // STATIC_ASSERT_EQUALS(84, kWKContextMenuItemTagPlayAllAnimations, ContextMenuItemTagPlayAllAnimations);
 // STATIC_ASSERT_EQUALS(85, kWKContextMenuItemTagPauseAllAnimations, ContextMenuItemTagPauseAllAnimations);
 // STATIC_ASSERT_EQUALS(86, kWKContextMenuItemTagPlayAnimation, ContextMenuItemTagPlayAnimation);

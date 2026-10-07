@@ -324,6 +324,7 @@ void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& re
     // AQUAWEBKIT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
     wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef scratch) {
     GraphicsContextCG scratchContext(scratch);
+    // RetainPtr cgContext = context.platformContext();
     RetainPtr cgContext = scratchContext.platformContext();
     CGContextStateSaver stateSaver(cgContext.get());
 
@@ -343,6 +344,7 @@ void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& re
     CGContextSetStyle(cgContext.get(), cgStyle.get());
 
     CGContextBeginTransparencyLayerWithRect(cgContext.get(), rect, nullptr);
+    // drawCellFocusRingInternal(context, rect, deviceScaleFactor, style, cell);
     drawCellFocusRingInternal(scratchContext, rect, deviceScaleFactor, style, cell); // AQUAWEBKIT: the cell mask draws into the stand-in opened above.
     CGContextEndTransparencyLayer(cgContext.get());
     }); // AQUAWEBKIT: closes the bitmap-backed drawing block opened above.
@@ -394,13 +396,12 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
     // We can't paint an NSComboBoxCell since they are not height-resizable.
 
     const FloatSize comboBoxSize { 40, 19 };
-
-    // AQUAWEBKIT: this OS's CoreUI draws kCUIWidgetButtonComboBox as the WHOLE combo box — text
-    // well on the left, a 19x19 arrow button (borders included, down-triangle centered on it) filling the
-    // right end of the 40x19 art — where the modern art upstream's crop constants describe keeps a 16x16
-    // button at inset (5,1) of the mirrored image. Cropping the modern region out of the 10.9 art
-    // produces a mis-cropped, 180°-turned arrow (#115); crop the measured 10.9 button region upright
-    // instead, rounded-clipped and scaled into the same 12x12 slot upstream lays out.
+    // AQUAWEBKIT: 10.9's CoreUI draws kCUIWidgetButtonComboBox as the whole combo box, upright, with a
+    // 19x19 arrow button filling the right end of the 40x19 art. That region is cropped, rounded-clipped and
+    // scaled into the same 12x12 slot. (#115)
+    // const FloatSize comboBoxButtonSize { 16, 16 };
+    // const FloatPoint comboBoxButtonInset { 5, 1 };
+    // constexpr auto comboBoxButtonCornerRadii = 4;
     const FloatRect comboBoxButtonSourceRect { 19, 0, 19, 19 };
     constexpr auto comboBoxButtonCornerRadii = 5;
 
@@ -431,17 +432,12 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
 
     auto& comboBoxButtonContext = comboBoxButtonImageBuffer->context();
 
-    // AQUAWEBKIT: map the 19x19 source button onto the 12x12 slot and draw the art upright — the
-    // modern path's OriginBottomRight orientation and (5,1) inset describe the modern art's mirrored
-    // layout, not this one's (see the constants above).
+    // AQUAWEBKIT: the 19x19 source button, upright, onto the 12x12 slot (see the constants above).
     comboBoxButtonContext.scale(desiredComboBoxButtonSize.width() / comboBoxButtonSourceRect.width());
     comboBoxButtonContext.clipRoundedRect(FloatRoundedRect(FloatRect(FloatPoint::zero(), comboBoxButtonSourceRect.size()), CornerRadii(comboBoxButtonCornerRadii)));
     comboBoxButtonContext.translate(-comboBoxButtonSourceRect.x(), -comboBoxButtonSourceRect.y());
     comboBoxButtonContext.drawConsumingImageBuffer(WTF::move(comboBoxImageBuffer), FloatPoint::zero());
-/* AQUAWEBKIT: upstream's crop, which fits the modern combo-box art (see above).
-    const FloatSize comboBoxButtonSize { 16, 16 };
-    const FloatPoint comboBoxButtonInset { 5, 1 };
-    constexpr auto comboBoxButtonCornerRadii = 4;
+/* AQUAWEBKIT: upstream's crop of the modern combo-box art.
     comboBoxButtonContext.scale(desiredComboBoxButtonSize.width() / comboBoxButtonSize.width());
     comboBoxButtonContext.clipRoundedRect(FloatRoundedRect(FloatRect(FloatPoint::zero(), comboBoxButtonSize), CornerRadii(comboBoxButtonCornerRadii)));
     comboBoxButtonContext.translate(comboBoxButtonInset.scaled(-1));

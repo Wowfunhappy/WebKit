@@ -106,6 +106,7 @@ Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentC
     // re-applying the same parameters for a later page in the group adds nothing.
     //     if (userContentControllerPtr)
     //         return *userContentControllerPtr;
+    // Ref userContentController = adoptRef(*new WebUserContentController(identifier));
     Ref userContentController = userContentControllerPtr ? Ref { *userContentControllerPtr } : adoptRef(*new WebUserContentController(identifier));
     userContentControllerPtr = userContentController.get();
 
@@ -120,7 +121,7 @@ Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentC
     return userContentController;
 }
 
-// AQUAWEBKIT: restored from upstream e05340a^ (see header).
+// AQUAWEBKIT: see header.
 Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentControllerIdentifier identifier)
 {
     auto& userContentControllerPtr = userContentControllers().add(identifier, nullptr).iterator->value;

@@ -375,8 +375,8 @@ void WebFrameProxy::didCommitLoad(const String& contentType, bool containsPlugin
         broadcastFrameTreeSyncData(calculateFrameTreeSyncData());
 }
 
-// AQUAWEBKIT: restored for WKFrameGetCertificateInfo's Get (borrowed) semantics —
-// Safari 7 reads this on every commit to drive the address-bar lock (#103).
+// AQUAWEBKIT: backs WKFrameGetCertificateInfo's Get (borrowed) semantics; Safari 7 reads it
+// on every commit to drive the address-bar lock (#103).
 API::CertificateInfo& WebFrameProxy::apiCertificateInfo()
 {
     if (!m_apiCertificateInfo)

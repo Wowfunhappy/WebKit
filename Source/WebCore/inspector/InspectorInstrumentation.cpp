@@ -51,7 +51,7 @@
 #include "InspectorDOMAgent.h"
 #include "InspectorDOMDebuggerAgent.h"
 #include "InspectorDOMStorageAgent.h"
-// AQUAWEBKIT: the Database agent, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the Database agent, for the Safari 7 Web Inspector.
 #include "InspectorDatabaseAgent.h"
 #include "InspectorLayerTreeAgent.h"
 #include "InspectorMemoryAgent.h"
@@ -349,8 +349,7 @@ void InspectorInstrumentation::didChangeAssignedNodesImpl(InstrumentingAgents& i
         cssAgent->didChangeAssignedNodes(slotElement);
 }
 
-// AQUAWEBKIT: the CSS selector profiler's hooks (upstream's, removed with bug 127039), restored for the
-// Safari 7 Web Inspector.
+// AQUAWEBKIT: the CSS selector profiler's hooks, for the Safari 7 Web Inspector.
 void InspectorInstrumentation::willMatchRuleImpl(InstrumentingAgents& instrumentingAgents)
 {
     if (auto* cssAgent = instrumentingAgents.enabledCSSAgent())
@@ -874,7 +873,7 @@ void InspectorInstrumentation::didCommitLoadImpl(InstrumentingAgents& instrument
         if (CheckedPtr cssAgent = instrumentingAgents.enabledCSSAgent())
             cssAgent->reset();
 
-        // AQUAWEBKIT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+        // AQUAWEBKIT: the Database agent's hook, for the Safari 7 Web Inspector.
         if (auto* databaseAgent = instrumentingAgents.enabledDatabaseAgent())
             databaseAgent->didCommitLoad();
 
@@ -1160,7 +1159,7 @@ void InspectorInstrumentation::consoleStopRecordingCanvasImpl(InstrumentingAgent
         canvasAgent->consoleStopRecordingCanvas(context);
 }
 
-// AQUAWEBKIT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the Database agent's hook, for the Safari 7 Web Inspector.
 void InspectorInstrumentation::didOpenDatabaseImpl(InstrumentingAgents& instrumentingAgents, Database& database)
 {
     if (auto* databaseAgent = instrumentingAgents.enabledDatabaseAgent())

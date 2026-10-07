@@ -57,6 +57,9 @@ list(APPEND WTF_SOURCES
     text/cocoa/TextStreamCocoa.mm
     # Resolves a Safari 7 extension document's root-relative references under its per-launch root.
     ${CMAKE_SOURCE_DIR}/AquaWebKitSupport/source/WTF/wtf/LegacyExtensionURL.cpp
+    # FileSystem::currentExecutableName(), which FileSystem.h declares under USE(GLIB) and only the glib
+    # ports define; GStreamer's gst_init() takes it as argv[0].
+    ${CMAKE_SOURCE_DIR}/AquaWebKitSupport/source/WTF/wtf/cocoa/FileSystemAquaWebKit.cpp
 )
 list(APPEND WTF_PRIVATE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/AquaWebKitSupport/source/WTF/wtf")
 

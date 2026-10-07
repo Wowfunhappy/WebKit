@@ -38,7 +38,6 @@
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessPool.h"
-#import <pal/spi/cf/CFNetworkSPI.h> // AQUAWEBKIT: Safari 7 HSTS host query.
 #import <wtf/MainThread.h>
 
 // AQUAWEBKIT: Safari 7 asks this C API whether a host is a known HSTS host; the polyfill's

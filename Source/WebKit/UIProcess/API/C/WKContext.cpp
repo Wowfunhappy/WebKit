@@ -27,7 +27,7 @@
 #include "WKContextPrivate.h"
 
 #include "APIArray.h"
-#include "APICertificateInfo.h" // AQUAWEBKIT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
+#include "APICertificateInfo.h" // AQUAWEBKIT: WKContextAllowSpecificHTTPSCertificateForHost unwraps the certificate.
 #include "APIClient.h"
 #include "APIDownloadClient.h"
 #include "APILegacyContextHistoryClient.h"
@@ -48,10 +48,9 @@
 #include "WKWebsiteDataStoreRef.h"
 #include "WebContextInjectedBundleClient.h"
 #include "WebFrameProxy.h"
-#include "WebIconDatabase.h" // AQUAWEBKIT: revived legacy WK2 icon database for Safari 7 favicons (#49)
+#include "WebIconDatabase.h" // AQUAWEBKIT: the WK2 icon database Safari 7 reads favicons from (#49).
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
-#include "WebsiteDataStore.h" // AQUAWEBKIT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include <WebCore/GamepadProvider.h>
 #include <wtf/Borrow.h>
 #include <wtf/RefPtr.h>
@@ -427,10 +426,12 @@ WKGeolocationManagerRef WKContextGetGeolocationManager(WKContextRef contextRef)
     return WebKit::toAPI(protect(protect(WebKit::toImpl(contextRef))->supplement<WebKit::WebGeolocationManagerProxy>()).get());
 }
 
-// AQUAWEBKIT: hand Safari 7 the revived per-pool icon database (#49).
+// AQUAWEBKIT: the pool's icon database, which Safari 7 reads favicons from (#49).
+// WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef)
 WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef contextRef)
 {
-    return WebKit::toAPI(&WebKit::toImpl(contextRef)->iconDatabase());
+    // return nullptr;
+    return WebKit::toAPI(&WebKit::toImpl(contextRef)->iconDatabase()); // AQUAWEBKIT: see above.
 }
 
 WKKeyValueStorageManagerRef WKContextGetKeyValueStorageManager(WKContextRef context)
@@ -448,9 +449,8 @@ WKResourceCacheManagerRef WKContextGetResourceCacheManager(WKContextRef context)
     return reinterpret_cast<WKResourceCacheManagerRef>(WKWebsiteDataStoreGetDefaultDataStore());
 }
 
-// AQUAWEBKIT: restored legacy WK2 C API symbol absent at base. Safari 7's TrackingDataController
-// and its Privacy pane drive cookies through this manager; hand back the data store's cookie store, which
-// is what the modern WKHTTPCookieStore API wraps too (see WKCookieManager.cpp).
+// AQUAWEBKIT: Safari 7's TrackingDataController and its Privacy pane drive cookies through this manager:
+// the data store's cookie store, which WKHTTPCookieStore wraps too (see WKCookieManager.cpp).
 WKCookieManagerRef WKContextGetCookieManager(WKContextRef contextRef)
 {
     if (!WebKit::toImpl(contextRef))
@@ -460,17 +460,14 @@ WKCookieManagerRef WKContextGetCookieManager(WKContextRef contextRef)
     return reinterpret_cast<WKCookieManagerRef>(WebKit::toAPI(&WebKit::WebsiteDataStore::defaultDataStore().cookieStore()));
 }
 
-// AQUAWEBKIT: restored legacy WK2 C API symbol absent at base; Safari 7's
-// AppController applicationDidFinishLaunching: queries this. Modern WebKit dropped
-// per-context process suppression in favour of per-page activity throttling —
-// return false (suppression off).
+// AQUAWEBKIT: Safari 7's -[AppController applicationDidFinishLaunching:] queries this. Throttling is
+// per page here, so per-context process suppression is off.
 bool WKContextGetProcessSuppressionEnabled(WKContextRef)
 {
     return false;
 }
 
-// AQUAWEBKIT: restored legacy WK2 C API symbol absent at base; Safari 7
-// toggles this around windowed/background tabs. Modern WebKit ignores it.
+// AQUAWEBKIT: Safari 7 toggles this around windowed and background tabs; see above.
 void WKContextSetProcessSuppressionEnabled(WKContextRef, bool)
 {
 }
@@ -485,26 +482,21 @@ void WKContextStopMemorySampler(WKContextRef contextRef)
     protect(WebKit::toImpl(contextRef))->stopMemorySampler();
 }
 
-// AQUAWEBKIT: enabling the icon database is what makes the pool attach a real
-// icon-loading client to its pages, so favicons actually load for Safari 7 (#49).
+// AQUAWEBKIT: with an icon database path the pool gives its pages an icon-loading client, which loads
+// Safari 7's favicons (#49).
+// void WKContextSetIconDatabasePath(WKContextRef, WKStringRef)
 void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
 {
-    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef)); // AQUAWEBKIT: real body (was an empty stub upstream) enabling Safari 7 favicons (#49)
+    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef)); // AQUAWEBKIT: see above.
 }
 
-// AQUAWEBKIT: real body (upstream left this empty when it dropped the Cocoa half of the
-// mechanism). This is the whole of Safari 7's "Continue" button on the invalid-certificate sheet:
-// Safari calls it with the certificate the user accepted and then reloads. With an empty body the
-// reload gets the same challenge and the sheet reappears forever, which is what happens for every
-// invalid certificate when connections are made directly instead of through a proxy. The rest of the
-// mechanism is upstream's and still here — WebsiteDataStore and the NetworkProcess message — and the
-// certificates are kept by the network process itself, which every data store shares, so the store
-// this goes through does not matter: see NetworkProcess::allowSpecificHTTPSCertificateForHost and
-// NetworkProcess::allowedHTTPSCertificateForHost, which NetworkSessionCocoa reads when a challenge
-// arrives.
+// AQUAWEBKIT: Safari 7's "Continue" button on the invalid-certificate sheet calls this with the accepted
+// certificate, then reloads. The network process keeps allowed certificates for every data store (see
+// NetworkProcess::allowSpecificHTTPSCertificateForHost), and NetworkSessionCocoa consults them on a challenge.
+// void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef, WKStringRef)
 void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef certificateRef, WKStringRef hostRef)
 {
-    // AQUAWEBKIT: real body (upstream ignores every argument) — see the note above.
+    // AQUAWEBKIT: see above.
     RefPtr certificateInfo = WebKit::toImpl(certificateRef);
     if (!certificateInfo)
         return;

@@ -41,9 +41,7 @@
 #import "WebPageProxy.h"
 #import "WebScriptMessageHandler.h"
 #import "WebUserContentControllerProxy.h"
-// AQUAWEBKIT: _WKUserContentFilterInternal is not built in this backport; forward-declare the class and drop the internal import to avoid an incomplete-type dependency.
-@class _WKUserContentFilter;
-// #import "_WKUserContentFilterInternal.h"
+#import "_WKUserContentFilterInternal.h"
 #import "_WKUserContentWorldInternal.h"
 #import "_WKUserStyleSheetInternal.h"
 #import <WebCore/SecurityOrigin.h>
@@ -328,8 +326,7 @@ private:
 #pragma clang diagnostic pop
 {
 #if ENABLE(CONTENT_EXTENSIONS)
-    // AQUAWEBKIT: _WKUserContentFilter internals (_contentRuleList) are unavailable since _WKUserContentFilterInternal is not built here; the body is a no-op (callers use _addContentRuleList: directly).
-    UNUSED_PARAM(userContentFilter);
+    protect(*_userContentControllerProxy)->addContentRuleList(Ref { *userContentFilter->_contentRuleList->_contentRuleList });
 #endif
 }
 

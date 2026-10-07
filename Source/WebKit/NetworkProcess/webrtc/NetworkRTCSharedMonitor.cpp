@@ -63,6 +63,7 @@ void NetworkRTCSharedMonitor::addListener(NetworkRTCMonitor& monitor)
     if (!shouldStart)
         return;
 
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     if (monitor.rtcProvider().webRTCInterfaceMonitoringViaNWEnabled()) {
         setupNWPathMonitor();
@@ -85,6 +86,7 @@ void NetworkRTCSharedMonitor::removeListener(NetworkRTCMonitor& monitor)
     if (!shouldStop)
         return;
 
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     if (auto nwMonitor = std::exchange(m_nwMonitor, { }))
         nw_path_monitor_cancel(nwMonitor.get());
@@ -95,6 +97,7 @@ void NetworkRTCSharedMonitor::removeListener(NetworkRTCMonitor& monitor)
 
 webrtc::AdapterType NetworkRTCSharedMonitor::adapterTypeFromInterfaceName(const char* interfaceName) const
 {
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     auto iterator = m_adapterTypes.find(String::fromUTF8(interfaceName));
     if (iterator != m_adapterTypes.end())

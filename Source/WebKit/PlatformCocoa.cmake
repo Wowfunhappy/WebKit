@@ -417,8 +417,7 @@ set(WebKit_FORWARDING_HEADERS_DIRECTORIES
 )
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
-# AQUAWEBKIT: the polyfill supplies AKAuthorizationController; AppSSO is soft-linked.
-# target_link_options(WebKit PRIVATE -framework AuthKit)
+target_link_options(WebKit PRIVATE -framework AuthKit)
 
 
 target_link_options(WebKit PRIVATE

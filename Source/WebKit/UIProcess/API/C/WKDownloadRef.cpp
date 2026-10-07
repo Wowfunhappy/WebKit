@@ -54,24 +54,16 @@ WKURLRequestRef WKDownloadCopyRequest(WKDownloadRef download)
     return toAPILeakingRef(API::URLRequest::create(toImpl(download)->request()));
 }
 
-// AQUAWEBKIT: the ONE-argument form Safari 7 links against (github #94). Upstream grew a
-// (functionContext, callback) pair on this function in 2020 (bug 217747); Safari 7 predates that and
-// calls it with a single argument — `Safari::WK::Download::cancel()` tail-jumps to it with only rdi
-// set — so the modern signature read whatever happened to be in rsi/rdx and called it as a function
-// pointer. That reliably crashed the UI process on every cancelled download, in the reply handler for
-// NetworkProcess::CancelDownload, jumping into a heap address. The legacy contract has no callback:
-// the resume data is left on the download and the client reads it afterwards with
-// WKDownloadGetResumeData, which DownloadProxy::cancel already populates (m_legacyResumeData) before
-// invoking this completion handler.
+// AQUAWEBKIT: the one-argument form Safari 7 links against (#94); `Safari::WK::Download::cancel()`
+// tail-jumps here with only rdi set. The legacy contract has no callback: the client reads the resume
+// data afterwards with WKDownloadGetResumeData, which DownloadProxy::cancel populates
+// (m_legacyResumeData) before invoking this completion handler.
 //
-// It must also report the cancellation to the download client, because that is where the legacy
-// contract delivers it: DownloadProxy::didFail early-returns once m_downloadIsCancelled is set, and the
-// modern C function tells the caller through the callback it grew instead. Safari 7 has no such
-// callback and drives everything off its WKContextDownloadClient, whose didCancel is what marks the
-// entry stopped and then builds its resume information
+// The cancellation reaches the download client, where the legacy contract delivers it:
+// DownloadProxy::didFail returns early once m_downloadIsCancelled is set, and Safari 7's
+// WKContextDownloadClient didCancel marks the entry stopped and builds its resume information
 // (-[DownloadProgressEntry _startPostProcessingIfDone] -> _initializeResumeInformationForDownload ->
-// WKDownloadGetResumeData). Without this the ↻ button never appeared on a stopped download. The other
-// surviving legacy surface does exactly the same thing from the same place -- see -[_WKDownload cancel].
+// WKDownloadGetResumeData). -[_WKDownload cancel] does the same.
 void WKDownloadCancel(WKDownloadRef download)
 {
     return protect(toImpl(download))->cancel([downloadProxy = Ref { *toImpl(download) }](API::Data*) {

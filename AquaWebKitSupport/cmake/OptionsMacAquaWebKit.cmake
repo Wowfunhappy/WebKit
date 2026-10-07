@@ -43,6 +43,10 @@ add_compile_definitions(USE_NSSPELLCHECKER_GRAMMAR_CHECKING_POLICY=0)
 # WebGPU's native backend requires Metal, which this deployment target does not provide.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBGPU PRIVATE OFF)
 
+# WebGL runs on ANGLE's OpenGL (CGL) backend (ANGLEPlatformAquaWebKit.cmake). ANGLE's Metal backend, and
+# the Metal shared events and devices GraphicsContextGLCocoa.mm uses with it, require Metal (10.11+).
+add_compile_definitions(WK_WEBGL_METAL_BACKEND=0)
+
 # the third-party libraries this port links that 10.9 does not supply — ICU,
 # libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, and the whole GStreamer media
 # runtime. AquaWebKitSupport/deps/build_deps.sh builds them all from source with the in-tree
@@ -89,6 +93,8 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 #   DNS_SERVER_FOR_TESTING        its SPI is macOS 10.15+. The _IN_NETWORKING_PROCESS companion is stated
 #                                 too: its own block keys on `defined(ENABLE_DNS_SERVER_FOR_TESTING)`
 #                                 rather than the value, which a `=0` definition satisfies.
+#   NETWORK_ISSUE_REPORTING       its reporter is libsystem_networkextension's ne_tracker_* (10.10+); 10.9
+#                                 ships no /usr/lib/system/libsystem_networkextension.dylib.
 add_compile_definitions(
     ENABLE_APPLE_PAY_AMS_UI=0
     ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS=0
@@ -98,6 +104,7 @@ add_compile_definitions(
     ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0
     ENABLE_DNS_SERVER_FOR_TESTING=0
     ENABLE_DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS=0
+    ENABLE_NETWORK_ISSUE_REPORTING=0
 )
 
 # This port's own flag, not an upstream one. The GPU process here is provisioned for rasterization and
@@ -357,6 +364,23 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 # WebRTC and WebCodecs use the upstream AV1 codecs; their CMake targets build without Swift.
 SET_AND_EXPOSE_TO_BUILD(ENABLE_AV1 ON)
+
+# ANGLE renders through its CGL OpenGL backend (src/libANGLE/renderer/gl/cgl/*) rather than Metal, which
+# 10.9 does not have: GLES over desktop OpenGL through CGL, presenting into an IOSurface. GL.cmake reads
+# angle_enable_cgl when it composes gl_backend_sources, and Source/ThirdParty/ANGLE takes it from this
+# scope; ANGLEPlatformAquaWebKit.cmake swaps the source, definition and library lists to that backend.
+set(angle_enable_cgl TRUE)
+
+# With no Swift-backed feature enabled (ENABLE_BACK_FORWARD_LIST_SWIFT is off above), nothing compiles
+# Swift: SWIFT_REQUIRED keeps the answer WEBKIT_OPTION_END gives, and the Swift runtime OptionsCocoa.cmake
+# links into every target comes off the link line.
+if (NOT ENABLE_SWIFT_DEMO_URI_SCHEME AND NOT ENABLE_BACK_FORWARD_LIST_SWIFT)
+    set(SWIFT_REQUIRED OFF)
+    get_property(_aquaWebKitLinkLibraries DIRECTORY PROPERTY LINK_LIBRARIES)
+    list(REMOVE_ITEM _aquaWebKitLinkLibraries "${SWIFTCORE_LIBRARY}")
+    set_property(DIRECTORY PROPERTY LINK_LIBRARIES "${_aquaWebKitLinkLibraries}")
+    unset(_aquaWebKitLinkLibraries)
+endif ()
 
 
 # WebRTC is libwebrtc (ThirdParty/libwebrtc, gated on USE_LIBWEBRTC in Source/CMakeLists.txt) with

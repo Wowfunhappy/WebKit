@@ -261,10 +261,11 @@ void HTMLLinkElement::attributeChanged(const QualifiedName& name, const AtomStri
 
 bool HTMLLinkElement::shouldLoadLink()
 {
+    // AQUAWEBKIT: a cancelable beforeload event lets Safari 7 extensions block link
+    // subresources (#62, uBlock network blocking).
+    // return isConnected();
     if (!isConnected())
         return false;
-    // AQUAWEBKIT: restored-lost-upstream behavior (#62). Cancelable beforeload
-    // event lets Safari 7 extensions block link subresources (uBlock network blocking).
     Ref<Document> originalDocument = document();
     if (!dispatchBeforeLoadEvent(getNonEmptyURLAttribute(hrefAttr).string()))
         return false;

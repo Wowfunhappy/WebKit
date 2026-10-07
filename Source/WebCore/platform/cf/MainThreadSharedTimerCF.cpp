@@ -27,9 +27,6 @@
 #import "MainThreadSharedTimer.h"
 
 #include <wtf/AutodrainedPool.h>
-// AQUAWEBKIT: isMainThread() and the extra-run-loop-mode vector below (see addRunLoopMode).
-#include <wtf/MainThread.h>
-#include <wtf/Vector.h>
 #include <wtf/cf/NotificationCenterCF.h>
 
 #if PLATFORM(MAC)
@@ -142,7 +139,7 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
 #if PLATFORM(IOS_FAMILY)
         CFRunLoopAddTimer(WebThreadRunLoop(), sharedTimer().get(), kCFRunLoopCommonModes);
 #else
-        // AQUAWEBKIT: addRunLoopMode() below adds this same timer to CFRunLoopGetMain() when
+        // AQUAWEBKIT: addRunLoopMode() above adds this same timer to CFRunLoopGetMain() when
         // a WK1 host registers a private mode, and a CFRunLoopTimer belongs to one run loop, so both
         // sites have to name the same one. Naming the main run loop here says which.
         // CFRunLoopAddTimer(CFRunLoopGetCurrent(), sharedTimer().get(), kCFRunLoopCommonModes);

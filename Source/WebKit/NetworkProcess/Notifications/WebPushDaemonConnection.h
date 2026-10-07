@@ -93,9 +93,8 @@ private:
     void newConnectionWasInitialized() const final;
 #if PLATFORM(COCOA)
     OSObjectPtr<xpc_object_t> dictionaryFromMessage(MessageType, Daemon::EncodedMessage&&) const final { return nullptr; }
-// AQUAWEBKIT: upstream ignores unsolicited daemon events; this port has to read them,
-// because the push-messages-available announcement arrives that way. The #else keeps upstream's
-// empty body for every other configuration.
+// AQUAWEBKIT: the push-messages-available announcement arrives as an unsolicited daemon event,
+// which the Mozilla push service build reads. The #else is upstream's empty body.
 #if USE(MOZILLA_PUSH_SERVICE)
     void connectionReceivedEvent(xpc_object_t) final;
 #else

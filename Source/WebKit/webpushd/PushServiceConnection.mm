@@ -75,6 +75,7 @@ void PushServiceConnection::startListeningForPushMessages(IncomingPushMessageHan
             @autoreleasepool {
                 auto message = m_pendingPushes.takeFirst();
                 // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+                // m_incomingPushMessageHandler(message.first.get(), message.second.get());
                 m_incomingPushMessageHandler(message.topic.get(), message.userInfo.get(), message.receipt);
             }
         }
@@ -82,15 +83,18 @@ void PushServiceConnection::startListeningForPushMessages(IncomingPushMessageHan
 }
 
 // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+// void PushServiceConnection::didReceivePushMessage(NSString *topic, NSDictionary *userInfo)
 void PushServiceConnection::didReceivePushMessage(NSString *topic, NSDictionary *userInfo, PushMessageReceipt receipt)
 {
     if (!m_incomingPushMessageHandler) {
         // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+        // m_pendingPushes.append({ topic, userInfo });
         m_pendingPushes.append({ topic, userInfo, receipt });
         return;
     }
 
     // AQUAWEBKIT: threads the delivery receipt; see PushServiceConnection.
+    // m_incomingPushMessageHandler(topic, userInfo);
     m_incomingPushMessageHandler(topic, userInfo, receipt);
 }
 

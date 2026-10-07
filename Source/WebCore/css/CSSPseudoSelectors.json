@@ -383,7 +383,7 @@
             "user-agent-part": true
         },
         "-internal-media-controls-closed-captions-container": {
-            "comment": "AQUAWEBKIT (#68): the classic Safari 7 / Mavericks media controls (mediaControlsApple.css/.js) style every shadow element through a per-part pseudo-element. Upstream removed these parts when it switched to class-based modern-media-controls; re-add them so the restored Aqua stylesheet parses. They keep the classic structure but use the `-internal-` prefix (the classic sheet used `-webkit-media-controls-*`) because these are UA-stylesheet-only and modern WebKit caps the number of `-webkit-` pseudo-elements.",
+            "comment": "AQUAWEBKIT (#68): the classic Safari 7 / Mavericks media controls (mediaControlsApple.css/.js) style every shadow element through a per-part pseudo-element. These are the parts that sheet uses, spelled with the `-internal-` prefix for the classic `-webkit-media-controls-*` names, because they are UA-stylesheet-only and WebKit caps the number of `-webkit-` pseudo-elements.",
             "status": "non-standard",
             "user-agent-part": true
         },

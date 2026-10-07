@@ -1610,17 +1610,14 @@ static FunctionType constructFragmentsInternal(const CSSSelector& rootSelector, 
             case CSSSelector::PseudoElement::UserAgentPartLegacyAlias:
                 if (fragment->pseudoElementSelector)
                     return FunctionType::CannotCompile;
-                // AQUAWEBKIT (#68): a UserAgentPart pseudo-element is backed by a REAL element in a
-                // user-agent shadow tree, so — unlike the virtual pseudo-elements above (::selection,
-                // ::spelling-error, …) — it can legitimately have descendants reached by a following
-                // combinator, e.g. the restored classic media controls' shadow-crossing selector
-                // `video::-internal-media-controls-panel button`. Both the parser (via the UA-sheet
-                // exemption) and the SelectorChecker interpreter match such a selector. The JIT cannot, and
-                // PseudoElementMatchingBehavior::NeverMatch otherwise reaches the shared
-                // `CannotMatchAnything` path — an always-false stub that, unlike CannotCompile, does not
-                // fall back to the interpreter, which costs every descendant-of-part rule its match
-                // (buttons keep their native appearance, `.hidden`/`.volume-box` never collapse). Send a
-                // non-rightmost UA-part to the interpreter instead; a rightmost one still JIT-compiles.
+                // AQUAWEBKIT (#68): a UserAgentPart pseudo-element is backed by a real element in a
+                // user-agent shadow tree, so, unlike the virtual pseudo-elements above (::selection,
+                // ::spelling-error, ...), it has descendants a following combinator reaches, e.g. the
+                // classic media controls' shadow-crossing selector `video::-internal-media-controls-panel button`.
+                // The parser (via the UA-sheet exemption) and the SelectorChecker interpreter match such a
+                // selector and the JIT does not; NeverMatch leads to the always-false `CannotMatchAnything`
+                // stub, which has no interpreter fallback. A non-rightmost UA-part goes to the interpreter;
+                // a rightmost one JIT-compiles.
                 if (pseudoElementMatchingBehavior == PseudoElementMatchingBehavior::NeverMatch)
                     return FunctionType::CannotCompile;
                 fragment->pseudoElementSelector = selector;

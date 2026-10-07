@@ -35,7 +35,7 @@
 #include "DocumentEventLoop.h"
 #include "DocumentPage.h"
 #include "ExceptionOr.h"
-// AQUAWEBKIT: the Database agent's didOpenDatabase hook, restored for the Safari 7 Web Inspector.
+// AQUAWEBKIT: the Database agent's didOpenDatabase hook, for the Safari 7 Web Inspector.
 #include "InspectorInstrumentation.h"
 #include "Logging.h"
 #include "Page.h"
@@ -217,7 +217,7 @@ ExceptionOr<Ref<Database>> DatabaseManager::openDatabase(Document& document, con
 
     auto databaseContext = this->databaseContext(document);
     databaseContext->setHasOpenDatabases();
-    // AQUAWEBKIT: the Database agent's hook, restored for the Safari 7 Web Inspector.
+    // AQUAWEBKIT: the Database agent's hook, for the Safari 7 Web Inspector.
     InspectorInstrumentation::didOpenDatabase(*database);
 
     if (database->isNew() && creationCallback.get()) {

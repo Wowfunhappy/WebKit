@@ -57,7 +57,6 @@
 #import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/BlockPtr.h>
-#import <wtf/HashSet.h> // AQUAWEBKIT: identify owned boundaries during replica insertion.
 #import <wtf/Lock.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/RetainPtr.h>
@@ -508,17 +507,13 @@ void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerLis
         return child->layerType() == LayerType::LayerTypeTransformLayer
             && !downcast<PlatformCALayerCocoa>(child.get())->m_isBackdropHostingLayer;
     };
-    /* bool has3DContext = list.containsIf([](auto& child) {
-        return child->layerType() == LayerType::LayerTypeTransformLayer;
-    }); */
     bool has3DContext = list.containsIf(is3DContext);
     bool distributePerspective = has3DContext && !m_depthSortingTransform.isIdentity();
     m_depthSortingLayers.resize(list.size());
     PlatformCALayerList physicalChildren;
     for (size_t i = 0; i < list.size(); ++i) {
         auto& boundary = m_depthSortingLayers[i];
-        // if (distributePerspective || list[i]->layerType() == LayerType::LayerTypeTransformLayer) {
-        if (distributePerspective || is3DContext(list[i])) { // AQUAWEBKIT: only CSS 3D contexts introduce sorting boundaries.
+        if (distributePerspective || is3DContext(list[i])) { // Only CSS 3D contexts introduce sorting boundaries.
             if (!boundary) {
                 boundary = create(LayerType::LayerTypeLayer, nullptr);
                 [boundary->m_layer setSortsSublayers:YES];
@@ -1034,6 +1029,7 @@ void PlatformCALayerCocoa::copyFiltersFrom(const PlatformCALayer& sourceLayer)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     // AQUAWEBKIT: backdrop replicas copy the native background-filter property.
+    // [m_layer setFilters:[sourceLayer.platformLayer() filters]];
     if (layerType() == LayerType::LayerTypeBackdropLayer)
         [m_layer setBackgroundFilters:[sourceLayer.platformLayer() backgroundFilters]];
     else
@@ -1429,10 +1425,10 @@ void PlatformCALayer::drawLayerContents(GraphicsContext& graphicsContext, WebCor
         // AQUAWEBKIT: on 10.9 CoreGraphics still performs subpixel (LCD) font smoothing, so
         // text drawn into a non-opaque layer bakes color fringes against transparency and they
         // composite as visible color artifacts. Turn smoothing off for non-opaque layers, exactly
-        // as Safari-7-era WebKit does here (PlatformCALayerMac.mm drawLayerContents) — measured
-        // against the stock frameworks, opaque layers (page tiles, opaque composited elements,
-        // tiled or not) subpixel-smooth and non-opaque ones (e.g. a composited <body> whose
-        // background propagates to the viewport) render grayscale, matching this predicate.
+        // as Safari-7-era WebKit does here (PlatformCALayerMac.mm drawLayerContents): with the stock
+        // frameworks, opaque layers (page tiles, opaque composited elements, tiled or not)
+        // subpixel-smooth and non-opaque ones (e.g. a composited <body> whose background propagates
+        // to the viewport) render grayscale, matching this predicate.
         // A layer whose own opaque background color sits under its contents (an overflow scroller's
         // scrolled contents, see RenderLayerBacking::updateAfterDescendants) paints that color into its backing
         // first, so its text smooths over opaque pixels as page tiles' text does.

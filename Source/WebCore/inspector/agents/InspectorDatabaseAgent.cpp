@@ -27,8 +27,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// AQUAWEBKIT: upstream's Database agent (removed with bug 286634), restored for the Safari 7
-// Web Inspector, whose Resources sidebar lists and queries a page's WebSQL databases through this domain.
+// AQUAWEBKIT: upstream's Database agent, for the Safari 7 Web Inspector, whose Resources sidebar lists and queries a page's WebSQL databases through this domain.
 
 #include "config.h"
 #include "InspectorDatabaseAgent.h"

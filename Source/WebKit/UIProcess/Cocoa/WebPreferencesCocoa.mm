@@ -29,7 +29,6 @@
 #import "WebPreferencesKeys.h"
 #import <WebCore/RealtimeMediaSourceCenter.h>
 #import <wtf/text/MakeString.h>
-#import <wtf/RuntimeApplicationChecks.h> // AQUAWEBKIT: identify Safari when registering browser defaults.
 
 #if ENABLE(MEDIA_STREAM)
 #include "UserMediaPermissionRequestManagerProxy.h"

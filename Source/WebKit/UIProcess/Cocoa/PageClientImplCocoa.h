@@ -183,6 +183,7 @@ public:
 
     // AQUAWEBKIT: not final — AquaWebKitPageClient (the WKView PageClient, which has no
     // WKWebView so m_webView is nil) overrides this to return the WKView's window.
+    // CocoaWindow *platformWindow() const final;
     CocoaWindow *platformWindow() const override;
 
     void processDidUpdateThrottleState() final;

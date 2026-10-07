@@ -43,10 +43,12 @@
 #include <wtf/MainThread.h>
 #include <wtf/text/WTFString.h>
 
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 #include "NetworkRTCTCPSocketCocoa.h"
 #include "NetworkRTCUDPSocketCocoa.h"
 #include "NetworkSessionCocoa.h"
+// #else // PLATFORM(COCOA)
 #else // HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
@@ -68,6 +70,7 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/WorkQueue.h>
 #include <wtf/text/CString.h>
 #endif // AQUAWEBKIT: closes PLATFORM(COCOA).
+// #endif // !PLATFORM(COCOA)
 #endif // !HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 
 namespace WebKit {
@@ -81,15 +84,16 @@ NetworkRTCProvider::NetworkRTCProvider(NetworkConnectionToWebProcess& connection
     , m_ipcConnection(connection.connection())
     , m_rtcMonitor(*this)
     , m_sharedPreferences(connection.sharedPreferencesForWebProcessValue())
-#if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if PLATFORM(COCOA)
     , m_sourceApplicationAuditToken(connection.networkProcess().sourceApplicationAuditToken())
-#else
+    , m_rtcNetworkThreadQueue(WorkQueue::create("NetworkRTCProvider Queue"_s, WorkQueue::QOS::UserInitiated))
+// #else
+#endif // AQUAWEBKIT: Cocoa without Network.framework (10.14+) also takes the libwebrtc socket factory below.
+#if !HAVE(NETWORK_FRAMEWORK)
     , m_packetSocketFactory(makeUniqueRefWithoutFastMallocCheck<webrtc::BasicPacketSocketFactory>(rtcNetworkThread().socketserver()))
 #endif
-#if PLATFORM(COCOA) // AQUAWEBKIT: upstream initializes this under PLATFORM(COCOA); the narrowed guard above had dropped it.
-    , m_rtcNetworkThreadQueue(WorkQueue::create("NetworkRTCProvider Queue"_s, WorkQueue::QOS::UserInitiated))
-#endif // AQUAWEBKIT: closes the queue initializer above.
 {
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(connection.networkSession()))
         m_applicationBundleIdentifier = session->sourceApplicationBundleIdentifier().utf8();
@@ -124,6 +128,7 @@ void NetworkRTCProvider::close()
         for (auto& socket : sockets)
             socket.second->close();
         ASSERT(m_sockets.empty());
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
         m_attributedBundleIdentifiers.clear();
 #endif
@@ -264,6 +269,7 @@ void NetworkRTCProvider::stopResolver(LibWebRTCResolverIdentifier identifier)
     WebCore::stopResolveDNS(identifier.toUInt64());
 }
 
+// #if PLATFORM(COCOA)
 #if HAVE(NETWORK_FRAMEWORK) // AQUAWEBKIT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 bool NetworkRTCProvider::webRTCInterfaceMonitoringViaNWEnabled() const
 {
@@ -349,6 +355,7 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
     assertIsCurrent(m_rtcNetworkThreadQueue);
 }
 
+// #else // PLATFORM(COCOA)
 #else // HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 webrtc::Thread& NetworkRTCProvider::rtcNetworkThread()
 {
@@ -513,8 +520,7 @@ static WorkQueue& routeLookupQueueSingleton()
 
 void NetworkRTCProvider::getInterfaceName(URL&& url, WebPageProxyIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&&, CompletionHandler<void(String&&)>&& completionHandler)
 {
-    // AQUAWEBKIT: upstream's Network.framework branch refuses a non-HTTP-family URL before it
-    // looks anything up, so this one does too rather than naming an interface upstream answers null for.
+    // AQUAWEBKIT: a non-HTTP-family URL gets no interface, as in the Network.framework branch.
     if (!url.protocolIsInHTTPFamily()) {
         completionHandler({ });
         return;
@@ -559,6 +565,7 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
 {
     ASSERT(rtcNetworkThread().IsCurrent());
 }
+// #endif // !PLATFORM(COCOA)
 #endif // !HAVE(NETWORK_FRAMEWORK) -- AQUAWEBKIT: see HAVE(NETWORK_FRAMEWORK).
 
 void NetworkRTCProvider::signalSocketIsClosed(LibWebRTCSocketIdentifier identifier)

@@ -118,9 +118,8 @@ struct WebProcessCreationParameters {
     Vector<String> urlSchemesRegisteredAsCachePartitioned;
     Vector<String> urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest;
     // AQUAWEBKIT: schemes registered via +[WKBrowsingContextController registerSchemeForCustomProtocol:]
-    // (e.g. Safari's safari-reader://). The WebProcess needs to know them so WebPage::canHandleRequest
-    // returns true; otherwise WebCore's PolicyChecker ignores the navigation as "cannot show URL" before
-    // the request ever reaches the NetworkProcess that actually serves the custom protocol.
+    // (e.g. Safari's safari-reader://), which WebPage::canHandleRequest accepts; the NetworkProcess
+    // serves them.
     Vector<String> urlSchemesRegisteredForCustomProtocols;
 
 #if ENABLE(WK_WEB_EXTENSIONS)

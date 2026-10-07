@@ -330,8 +330,8 @@ void ProcessLauncher::tryFinishLaunchingProcess(ASCIILiteral name, Function<void
     _CFBundleSetupXPCBootstrap(initializationMessage.get());
     xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
 
-    // AQUAWEBKIT: native NSRunLoop services launch as adaptive tasks on 10.9. The upstream
-    // pre-bootstrap message (255198@main) supplies their importance boost; XPCServiceEventHandler
+    // AQUAWEBKIT: native NSRunLoop services launch as adaptive tasks on 10.9. A pre-bootstrap
+    // message supplies their importance boost; XPCServiceEventHandler
     // retains it for the service lifetime. WebContent uses the native App process configuration.
     {
         SUPPRESS_RETAINPTR_CTOR_ADOPT auto preBootstrapMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
@@ -404,28 +404,18 @@ void ProcessLauncher::tryFinishLaunchingProcess(ASCIILiteral name, Function<void
 #endif
 
 #if PLATFORM(MAC)
-    // AQUAWEBKIT: modern macOS forwards the host application's environment to the XPC
-    // services it spawns; 10.9 launchd hands them a clean environment instead. Bridge that for a
-    // curated allowlist over libxpc's ContainerEnvironmentVariables channel, which the service
-    // applies via setenv at check-in (before CoreAnimation / CFNetwork / Foundation initialize,
-    // so lazily-read debug vars still take effect).
-    //
-    // TZ is functional: the child renders dates in the host's zone, and the layout-test harness
-    // pins TZ=US/Pacific. The rest are opt-in diagnostics — unset in normal use, so nothing is
-    // forwarded unless someone runs e.g. `launchctl setenv CA_DEBUG_TRANSACTIONS 1` and relaunches
-    // Safari. All were verified present in 10.9's QuartzCore/CFNetwork/Foundation binaries.
-    //
-    // Deliberately NOT forwarded: MallocStackLogging (corrupts this configuration's heap-allocator
-    // bookkeeping) and CA_ASSERT_MAIN_THREAD_TRANSACTIONS (absent from 10.9 QuartzCore). Note the
-    // key may only be set on the bootstrap message once — a second xpc_dictionary_set_value would
-    // clobber the first — so everything goes into a single dict. Extend the list as needed.
+    // AQUAWEBKIT: 10.9 launchd gives XPC services a clean environment. These host variables go over
+    // libxpc's ContainerEnvironmentVariables channel, which the service applies with setenv at check-in,
+    // before CoreAnimation, CFNetwork and Foundation initialize. TZ renders dates in the host's zone (the
+    // layout-test harness pins TZ=US/Pacific); the rest are opt-in diagnostics read by 10.9's QuartzCore,
+    // CFNetwork, Foundation, GStreamer and the polyfill layer. The key is set on the bootstrap message once,
+    // with one dictionary.
     static constexpr const char* const forwardedHostEnvironmentVariables[] = {
         "TZ",                              // time zone — functional, not diagnostic
         "CA_DEBUG_TRANSACTIONS",           // backtrace CATransaction anomalies (uncommitted-on-thread-delete)
         "CA_LOG_IMPLICIT_TRANSACTIONS",    // trace implicit transaction begin/commit
         "CA_PRINT_TREE",                   // dump the CoreAnimation layer tree
-        // CoreAnimation visual-debug tinting — colorizes composited regions to expose overdraw,
-        // non-opaque layers, offscreen passes, and caching/copy behavior. All verified in 10.9 QuartzCore.
+        // CoreAnimation visual-debug tinting of overdraw, non-opaque layers, offscreen passes and caching.
         "CA_COLOR_OPAQUE",
         "CA_COLOR_FLUSH",
         "CA_COLOR_OFFSCREEN",

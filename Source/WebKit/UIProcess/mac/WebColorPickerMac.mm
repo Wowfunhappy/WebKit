@@ -165,12 +165,11 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color, const WebCo
     if (RetainPtr owner = dynamic_objc_cast<NSPopoverColorWell>([NSColorWell _exclusiveColorPanelOwner]))
         [owner deactivate];
 
-    // AQUAWEBKIT: NSColorPopoverController is a private AppKit class — its OBJC_CLASS_$ symbol is
-    // not exported for linking, so a checked_objc_cast<> (which references [NSColorPopoverController class])
-    // forces us to ship a stub class that then duplicates/shadows the real AppKit class at runtime
-    // ("implemented in both AppKit and JavaScriptCore"). The popover's contentViewController is an
-    // NSColorPopoverController by construction (created via NSClassFromString above), so use a plain cast
-    // that emits no link-time class reference.
+    // AQUAWEBKIT: NSColorPopoverController is a private AppKit class whose OBJC_CLASS_$ symbol is
+    // not exported for linking, and checked_objc_cast<> references [NSColorPopoverController class]. The
+    // popover's contentViewController is an NSColorPopoverController by construction (created via
+    // NSClassFromString above), so a plain cast, which emits no link-time class reference, suffices.
+    // RetainPtr controller = checked_objc_cast<NSColorPopoverController>([popover.get() contentViewController]);
     RetainPtr<NSColorPopoverController> controller = (NSColorPopoverController *)[popover.get() contentViewController];
     controller.get().delegate = self;
 
@@ -201,8 +200,8 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color, const WebCo
 }
 
 // AQUAWEBKIT: -[NSColorWell activate:] ends in [NSApp orderFrontColorPanel:] unless the well
-// answers NO to -_shouldOrderFront, and 10.9's NSPopoverColorWell does not override it, so the shared
-// Colors panel opened on top of the popover. The panel belongs to the popover's "Show Colors…" button,
+// answers NO to -_shouldOrderFront, and 10.9's NSPopoverColorWell does not override it. The shared
+// Colors panel belongs to the popover's "Show Colors…" button,
 // which orders it front itself (-[NSColorPopoverController _showColorPanel:]) before activating this well.
 - (BOOL)_shouldOrderFront
 {

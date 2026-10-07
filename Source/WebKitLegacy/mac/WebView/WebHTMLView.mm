@@ -3622,15 +3622,13 @@ static RetainPtr<NSMenuItem> createShareMenuItem(const WebCore::HitTestResult& h
 
 static RetainPtr<NSMutableArray> createMenuItems(const WebCore::HitTestResult& hitTestResult, const Vector<WebCore::ContextMenuItem>& items)
 {
-    // AQUAWEBKIT: was
+    // AQUAWEBKIT: createMenuItem() returns nil for an item the platform declines to build (Share when the
+    // hit test carries nothing shareable), and the separator WebCore appended to introduce it would remain as
+    // a blank row. The items are assembled group by group: a separator is dropped only when a member of the
+    // group it introduces was declined and no member of that group survived.
     // return createNSArray(items, [&] (auto& item) {
     //     return createMenuItem(hitTestResult, item);
     // });
-    // createMenuItem() returns nil for an item the platform declines to build -- Share when the hit test
-    // carries nothing shareable -- and createNSArray() drops the nil while the separator WebCore appended
-    // to introduce that item outlives it, which AppKit draws as a blank row. Assemble the items group by
-    // group and close each group as it ends: a separator is dropped only when a member of the group it
-    // introduced was declined and no member of that group survived.
     RetainPtr menuItems = adoptNS([[NSMutableArray alloc] initWithCapacity:items.size()]);
 
     std::optional<NSUInteger> groupSeparatorIndex;

@@ -32,7 +32,7 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "CDMProxy.h"
-#include "CDMProxyClearKey.h" // AQUAWEBKIT: the restored ClearKey proxy (see CDMProxyClearKey.h).
+#include "CDMProxyClearKey.h" // AQUAWEBKIT: the ClearKey proxy (see CDMProxyClearKey.h).
 #include "CDMProxyWidevine.h" // AQUAWEBKIT: the Widevine proxy (see CDMProxyWidevine.h).
 
 #if ENABLE(THUNDER)
@@ -41,9 +41,8 @@
 
 namespace WebCore {
 
-// AQUAWEBKIT: CDMFactory::platformRegisterFactories comes from the Cocoa build's
-// CDMFairPlayStreaming.cpp here, which registers CDMFactoryClearKey already; a second definition in
-// this file would be a duplicate symbol. Only the CDMProxy side below is GStreamer-specific.
+// AQUAWEBKIT: the Cocoa build's CDMFairPlayStreaming.cpp defines CDMFactory::platformRegisterFactories,
+// which registers CDMFactoryClearKey. Only the CDMProxy side below is GStreamer-specific.
 // void CDMFactory::platformRegisterFactories(Vector<WeakRef<CDMFactory>>& factories)
 // {
 // #if ENABLE(THUNDER)
@@ -60,7 +59,7 @@ Vector<CDMProxyFactory*> CDMProxyFactory::platformRegisterFactories()
     factories.reserveInitialCapacity(1);
     factories.append(&CDMFactoryThunder::singleton());
 #endif
-    // AQUAWEBKIT: restored from upstream before 4694d7d -- this port decrypts ClearKey itself.
+    // AQUAWEBKIT: this port decrypts ClearKey itself.
     factories.append(&CDMProxyFactoryClearKey::singleton());
     // AQUAWEBKIT: com.widevine.alpha, decrypted by Google's Chromium-API CDM.
     factories.append(&CDMProxyFactoryWidevine::singleton());

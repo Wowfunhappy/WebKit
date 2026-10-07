@@ -9581,7 +9581,7 @@
             }
         },
         "-webkit-border-fit": {
-            "comment": "AQUAWEBKIT: non-standard, restored for macOS 10.9 Messages.app, whose balloons.css shrink-wraps chat speech bubbles to their text with -webkit-border-fit:lines.",
+            "comment": "AQUAWEBKIT: non-standard; macOS 10.9 Messages.app's balloons.css shrink-wraps chat speech bubbles to their text with -webkit-border-fit:lines.",
             "animation-type": "not animatable (legacy)",
             "initial": "border",
             "values": [
@@ -9808,7 +9808,7 @@
             }
         },
         "-webkit-dashboard-region": {
-            "comment": "AQUAWEBKIT: legacy Dashboard widget control regions (removed upstream in 2d364c6).",
+            "comment": "AQUAWEBKIT: legacy Dashboard widget control regions (upstream's before 2d364c6).",
             "animation-type": "not animatable (legacy)",
             "initial": "none",
             "codegen-properties": {

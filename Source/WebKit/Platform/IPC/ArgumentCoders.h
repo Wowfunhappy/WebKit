@@ -47,6 +47,7 @@
 #include "ArgumentCodersAndroid.h"
 #endif
 // AQUAWEBKIT: USE(GLIB) is on for GStreamer; the glib IPC coders stay GTK/WPE-only.
+// #if USE(GLIB)
 #if USE(GLIB) && !PLATFORM(COCOA)
 #include "RendererBufferFormat.h"
 #endif

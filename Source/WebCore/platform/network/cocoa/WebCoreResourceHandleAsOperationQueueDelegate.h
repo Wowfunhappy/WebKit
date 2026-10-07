@@ -25,7 +25,6 @@
 
 #import <dispatch/dispatch.h>
 #import <wtf/Box.h>
-#import <wtf/Deque.h> // AQUAWEBKIT: for m_heldWork below.
 #import <wtf/Function.h>
 #import <wtf/Lock.h>
 #import <wtf/MessageQueue.h>

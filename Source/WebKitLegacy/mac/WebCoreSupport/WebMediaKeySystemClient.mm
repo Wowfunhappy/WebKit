@@ -124,6 +124,7 @@ void WebMediaKeySystemClient::requestMediaKeySystem(WebCore::MediaKeySystemReque
 
     // AQUAWEBKIT: the salt travels with the grant, so a CDM has a per-origin identity to
     // key its own storage with.
+    // request.allow({ });
     request.allow(WTF::move(salt));
 
     END_BLOCK_OBJC_EXCEPTIONS

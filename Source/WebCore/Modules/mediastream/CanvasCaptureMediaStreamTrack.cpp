@@ -34,6 +34,7 @@
 #include "WebGLRenderingContextBase.h"
 #include <wtf/TZoneMallocInlines.h>
 
+// #if USE(GSTREAMER)
 #if USE(GSTREAMER) && !PLATFORM(COCOA) // AQUAWEBKIT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
 #include "VideoFrameGStreamer.h"
 #endif
@@ -231,6 +232,7 @@ void CanvasCaptureMediaStreamTrack::Source::captureCanvas()
     VideoFrameTimeMetadata metadata;
     metadata.captureTime = MonotonicTime::now().secondsSinceEpoch();
 
+// #if USE(GSTREAMER)
 #if USE(GSTREAMER) && !PLATFORM(COCOA) // AQUAWEBKIT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
     auto& gstVideoFrame = downcast<VideoFrameGStreamer>(*videoFrame);
     static const double s_fixedFrameRate = 60.0;

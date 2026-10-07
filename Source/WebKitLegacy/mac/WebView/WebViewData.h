@@ -124,12 +124,6 @@ class WebSelectionServiceController;
     RefPtr<WebCore::Page> page;
     RefPtr<WebViewGroup> group;
 
-    // AQUAWEBKIT: backing store for WebView's -observationInfo/-setObservationInfo:
-    // (NSKeyValueObservingCustomization). The legacy Safari-7-era WebView provided these; Xcode
-    // 6.2's DVTFoundation KVO-dealloc setup asserts the WebView class overrides observationInfo
-    // and aborts at launch when it doesn't (Xcode links WebKit for its documentation web views).
-    void* observationInfo;
-
     id UIDelegate;
     RetainPtr<id> UIDelegateForwarder;
     id resourceProgressDelegate;
@@ -232,6 +226,12 @@ class WebSelectionServiceController;
     BOOL dashboardBehaviorAlwaysAcceptsFirstMouse;
     BOOL dashboardBehaviorAllowWheelScrolling;
     BOOL dashboardBehaviorUseBackwardCompatibilityMode;
+
+    // AQUAWEBKIT: backing store for WebView's -observationInfo/-setObservationInfo:
+    // (NSKeyValueObservingCustomization), as in the Safari-7-era WebView. Xcode 6.2's DVTFoundation
+    // KVO-dealloc setup requires the WebView class to override observationInfo (Xcode links WebKit
+    // for its documentation web views).
+    void* observationInfo;
 
 #if !PLATFORM(IOS_FAMILY)
     RetainPtr<NSColor> backgroundColor;

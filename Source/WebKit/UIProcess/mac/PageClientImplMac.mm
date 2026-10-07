@@ -752,6 +752,7 @@ void PageClientImpl::showCorrectionPanel(AlternativeTextType type, const FloatRe
     if (!isActiveViewVisible() || !isViewInWindow())
         return;
     // AQUAWEBKIT: the panel takes the page (see CorrectionPanel.h).
+    // m_correctionPanel.show(m_view.get().get(), *protect(m_impl), type, boundingBoxOfReplacedString, replacedString, replacementString, alternativeReplacementStrings);
     m_correctionPanel.show(m_view.get().get(), protect(m_impl)->page(), type, boundingBoxOfReplacedString, replacedString, replacementString, alternativeReplacementStrings);
 #endif
 }
@@ -791,6 +792,7 @@ void PageClientImpl::recordAutocorrectionResponse(AutocorrectionResponse respons
 {
     CheckedRef impl = *m_impl;
     // AQUAWEBKIT: the panel takes the page (see CorrectionPanel.h).
+    // CorrectionPanel::recordAutocorrectionResponse(impl.get(), impl->spellCheckerDocumentTag(), toCorrectionResponse(response), replacedString, replacementString);
     CorrectionPanel::recordAutocorrectionResponse(impl->page(), impl->spellCheckerDocumentTag(), toCorrectionResponse(response), replacedString, replacementString);
 }
 

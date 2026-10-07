@@ -35,9 +35,6 @@
 #import "WKSharedAPICast.h"
 #import "WKStringCF.h"
 #import "WebProcessPool.h"
-// AQUAWEBKIT: Safari HSTS resets use the same website-data owner as curl.
-#import "WebsiteDataStore.h"
-#import "WebsiteDataType.h"
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 
