@@ -14,7 +14,7 @@ if [ -z "$WK_IBTOOL" ] || ! "$WK_IBTOOL" --version >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "### [1/4] toolchain (clang + cmake/ninja/python3/nasm/ccache)"
+echo "### [1/4] toolchain (clang + the from-source helper tools)"
 "$HERE/toolchain/bootstrap.sh"
 
 echo "### [2/4] SDK patches (symbol re-homes + iOS-only class availability)"

@@ -78,7 +78,7 @@ and install prefix, and that build's own ccache.
    `ibtool` runs before starting the toolchain and dependency builds.
 
 3. **Bootstrap** (once): `bash AquaWebKitSupport/bootstrap.sh` — unpacks the in-tree clang and builds
-   python3/ruby/nasm/ninja/cmake/ccache/git into `toolchain/build/`, applies the SDK patches, builds the
+   cctools/openssl/python3/ruby/nasm/ninja/cmake/ccache/git and GNU sort into `toolchain/build/`, applies the SDK patches, builds the
    third-party libraries into `deps/build/` and the polyfill archives into `polyfill/build/`. Budget
    a couple of hours for a cold run.
 

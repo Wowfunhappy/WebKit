@@ -1,0 +1,17 @@
+# gnulib's renameatu.c includes <string.h> only inside its HAVE_RENAMEAT block, but the
+# RENAME_TRAILING_SLASH_SOURCE_BUG / _DEST_BUG checks in renameatu() call strlen()
+# unconditionally. 10.9 has no renameat() (it arrived in 10.10) and its rename() has both
+# trailing-slash bugs, so configure leaves HAVE_RENAMEAT undefined and defines both bug macros, and
+# clang-22 rejects the implicit declaration of strlen. The patch includes <string.h> with the
+# file's other unconditional headers.
+
+--- a/lib/renameatu.c
++++ b/lib/renameatu.c
+@@ -23,6 +23,7 @@
+ 
+ #include <errno.h>
+ #include <stdio.h>
++#include <string.h>
+ #include <sys/stat.h>
+ #include <unistd.h>
+ 

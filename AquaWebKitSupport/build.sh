@@ -9,9 +9,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && /bin/pwd -P)"
 TC="$ROOT/AquaWebKitSupport/toolchain/build"
 NINJA="$TC/ninja/bin/ninja"
-# OptionsMac.cmake runs Tools/Scripts/generate-cmake-xcode-project at every configure, and that
-# script finds ninja on PATH; the toolchain's is the one every configure here uses.
-export PATH="$TC/ninja/bin:$PATH"
+# Every configure here takes ninja and sort from the toolchain on PATH: OptionsMac.cmake runs
+# Tools/Scripts/generate-cmake-xcode-project, which finds ninja there, and PlatformMac.cmake runs
+# Source/WebKit/Scripts/generate-swift-availability-macros, which needs `sort -V`.
+export PATH="$TC/coreutils/bin:$TC/ninja/bin:$PATH"
 CMAKE="$TC/cmake/bin/cmake"
 CCACHE="${AQUAWEBKIT_CCACHE:-$TC/ccache/bin/ccache}"   # the same resolution as cmake/mac10.9-toolchain.cmake
 BUILD="$ROOT/WebKitBuild/Release"
@@ -19,6 +20,10 @@ BUILD="$ROOT/WebKitBuild/Release"
 # FAILED/dups/undefined counts below read it back. Run this bare and tail the log.
 . "$ROOT/AquaWebKitSupport/scripts/build-log.sh"
 build_log_open
+if [ ! -x "$TC/coreutils/bin/sort" ]; then
+    echo "FATAL: no $TC/coreutils/bin/sort -- run AquaWebKitSupport/toolchain/bootstrap.sh"
+    exit 1
+fi
 
 # install.sh installs the staged tree, which survives a failed build. This stamp is the freshness
 # signal: cleared here, written back only after a successful link, staging and audit run below.

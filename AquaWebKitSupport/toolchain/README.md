@@ -7,7 +7,7 @@ is obvious by location:
   just clang: `clang-NN` + `lld` (bzip2-compressed), `llvm-ar`, the
   `clang.cfg`/`clang++.cfg` link set, the resource headers, and the private
   `libc++`/`libc++abi`/`libunwind` dylibs, and LLVM's `LICENSE.TXT`.
-- **`scripts/`** — COMMITTED source: `build_{cctools,python3,nasm,ninja,cmake,ccache,git}.sh`.
+- **`scripts/`** — COMMITTED source: `build_{cctools,openssl,python3,nasm,ninja,cmake,ccache,git,ruby,coreutils}.sh`.
 - **`patches/`** — COMMITTED patches the build scripts apply to the tools they build;
   each patch's header states the defect it fixes.
 - **`bootstrap.sh`** — assembles `build/` from `vendor/` + `scripts/`.
@@ -18,9 +18,9 @@ The clang `.cfg` files use clang's `<CFGDIR>` token (`-L/-rpath <CFGDIR>/../lib`
 toolchain is relocatable: it finds its own `libc++`/`libc++abi`/`libunwind` wherever it's
 unpacked.
 
-## Updating the helper tools (cctools / cmake / ninja / python3 / nasm / ccache / git)
+## Updating the helper tools (cctools / openssl / cmake / ninja / python3 / nasm / ccache / git / ruby / coreutils)
 
-1. Bump `VERSION` (or `VER`) at the top of the relevant `scripts/build_*.sh`.
+1. Bump `VERSION` (or `VER`, and its `SHA256` where the script pins one) at the top of the relevant `scripts/build_*.sh`.
 2. `rm -rf build/<tool>` and re-run `bootstrap.sh` (or just that script).
 3. `build/` is gitignored, so the only thing to commit is the script change.
 
