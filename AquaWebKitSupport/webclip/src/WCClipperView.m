@@ -48,6 +48,8 @@ static NSString *messageForError(NSError *error, NSString *URLString)
 - (void)widgetWindowDidMoveOnScreen;
 - (void)widgetWindowDidReorder;
 - (void)windowDidOrderIn:(uint32_t)window;
+- (void)closeBoxDidLeave;
+- (void)widgetWindowDidChangeOrderedIn:(BOOL)orderedIn;
 - (void)pageDidPostMessage:(NSDictionary *)message;
 - (WKWebView *)currentWebView;
 - (void)pageWindowWillSendEvent:(NSEvent *)event;
@@ -76,6 +78,7 @@ static const uint32_t WCWindowServerWindowDidReorderNotification = 808;
 // first ordering onto the screen and its end.
 static const uint32_t WCWindowServerWindowDidAppearNotification = 811;
 static const uint32_t WCWindowServerWindowDidOrderInNotification = 815;
+static const uint32_t WCWindowServerWindowDidOrderOutNotification = 816;
 static const uint32_t WCWindowServerWindowDidCloseNotification = 804;
 
 // The process that owns a window: the Dock's close boxes and its widget windows belong to different
@@ -164,7 +167,7 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 
 - (void)drawRect:(NSRect)rect
 {
-    if (![_clipperView showsPageWindow])
+    if (![_clipperView pageWindowShowsClip])
         [_image drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
 }
 
@@ -266,6 +269,11 @@ static NSRect rectFromPageRect(id value)
     BOOL _hasScreenshot;
     pid_t _widgetWindowOwner;
     BOOL _dockAllowsPageWindow;
+    // The widget window is on screen, as the window server reports it: it leaves and returns with Dashboard's space.
+    BOOL _widgetWindowOrderedIn;
+    // The Dock's window for the widget's close box while it shows, and whether the stand-in shows the clip for it.
+    uint32_t _closeBoxWindow;
+    BOOL _standsInForCloseBox;
     NSClipView *_clipView;
     WebClipper *_controller;
     WCTheme *_currentTheme;
@@ -436,18 +444,37 @@ static NSRect windowServerFrame(NSWindow *window)
 - (BOOL)showsPageWindow
 {
     return [_placeholder window] && ![_placeholder isHiddenOrHasHiddenAncestor] && _hasBeenShown && !_isHidden
-        && _dockAllowsPageWindow && !_hasScreenshot && ![self isBacksideShowing];
+        && _dockAllowsPageWindow && _widgetWindowOrderedIn && !_hasScreenshot && ![self isBacksideShowing];
+}
+
+// While the widget's close box shows, the page window stays on screen, keeping the key focus and the page's
+// events, but shows nothing: the stand-in shows the clip in the widget window.
+- (BOOL)pageWindowShowsClip
+{
+    return [self showsPageWindow] && !_standsInForCloseBox;
 }
 
 - (void)updatePageWindow
 {
     BOOL shows = [self showsPageWindow];
-    if (shows != [_pageWindow isVisible])
-        [_placeholder setNeedsDisplay:YES];
+    BOOL showsClip = shows && !_standsInForCloseBox;
+    BOOL showedClip = [_pageWindow isVisible] && [_pageWindow alphaValue] > 0;
     // The clip takes the placeholder's size whether or not its window shows: the clip's place is
     // recorded with the widget's size.
     if (_pageWindow && [_placeholder window])
         [self placePageWindow];
+    if (showsClip != showedClip)
+        [_placeholder setNeedsDisplay:YES];
+    // The stand-in is on screen in the widget window before the clip leaves the page window.
+    if (showedClip && !showsClip) {
+        NSDisableScreenUpdates();
+        [_placeholder display];
+        if (shows)
+            [_pageWindow setAlphaValue:0];
+        else
+            [self orderPageWindowOut];
+        NSEnableScreenUpdates();
+    }
     if (!shows) {
         [self orderPageWindowOut];
         return;
@@ -456,6 +483,7 @@ static NSRect windowServerFrame(NSWindow *window)
     NSDisableScreenUpdates();
     if (![_pageWindow isVisible])
         [_pageWindow orderFront:nil];
+    [_pageWindow setAlphaValue:showsClip ? 1 : 0];
     [self orderPageWindowFront];
     NSEnableScreenUpdates();
     if ([[_placeholder window] isKeyWindow])
@@ -503,6 +531,9 @@ static NSRect windowServerFrame(NSWindow *window)
         _widgetWindowOwner = ownerOfWindow((uint32_t)[[_placeholder window] windowNumber]);
         [clipperViews addObject:self];
         [WCClipperView requestWidgetWindowNotifications];
+        // The window server reports the widget window's orderings from here on.
+        NSArray *info = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, (CGWindowID)[[_placeholder window] windowNumber]));
+        _widgetWindowOrderedIn = [[[info firstObject] objectForKey:(__bridge NSString *)kCGWindowIsOnscreen] boolValue];
         [WCClipperView askDock];
     }
     // While the page window stays shown, a new placeholder frame moves and sizes it; it stays where it
@@ -589,11 +620,21 @@ static NSImage *imageOfView(NSView *view, NSRect rect)
 // over them, which draws in a layer of its own.
 - (void)updateStandIn
 {
-    if (_hasScreenshot)
+    [self updateStandInWithCompletionHandler:^{ }];
+}
+
+// The completion handler runs once the stand-in shows what the clip shows, or once it cannot.
+- (void)updateStandInWithCompletionHandler:(void (^)(void))completionHandler
+{
+    if (_hasScreenshot) {
+        completionHandler();
         return;
+    }
     [self clipViewContent:^(NSImage *content) {
-        if (!content || _hasScreenshot)
+        if (!content || _hasScreenshot) {
+            completionHandler();
             return;
+        }
         NSImage *standIn = [[NSImage alloc] initWithSize:[self bounds].size];
         [standIn lockFocus];
         [content drawInRect:[_clipView frame] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
@@ -602,6 +643,7 @@ static NSImage *imageOfView(NSView *view, NSRect rect)
         [[self themeSnapshot] drawInRect:[_currentTheme frame] fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
         [standIn unlockFocus];
         [_placeholder setImage:standIn];
+        completionHandler();
     }];
 }
 
@@ -803,6 +845,13 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
         }
         return;
     }
+    for (WCClipperView *view in [clipperViews allObjects]) {
+        if (view->_closeBoxWindow != window)
+            continue;
+        if (type == WCWindowServerWindowDidOrderOutNotification || type == WCWindowServerWindowDidCloseNotification)
+            [view closeBoxDidLeave];
+        return;
+    }
     if ([newWindows containsObject:@(window)]) {
         if (type == WCWindowServerWindowDidOrderInNotification)
             newWindowDidOrderIn(window);
@@ -819,6 +868,10 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
             [view widgetWindowDidMoveOnScreen];
         else if (type == WCWindowServerWindowDidReorderNotification)
             [view widgetWindowDidReorder];
+        else if (type == WCWindowServerWindowDidOrderInNotification)
+            [view widgetWindowDidChangeOrderedIn:YES];
+        else if (type == WCWindowServerWindowDidOrderOutNotification || type == WCWindowServerWindowDidCloseNotification)
+            [view widgetWindowDidChangeOrderedIn:NO];
     }
 }
 
@@ -832,6 +885,7 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
         CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidReorderNotification, NULL);
         CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidAppearNotification, NULL);
         CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidOrderInNotification, NULL);
+        CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidOrderOutNotification, NULL);
         CGSRegisterConnectionNotifyProc(connection, widgetWindowDidChange, WCWindowServerWindowDidCloseNotification, NULL);
         newWindows = [NSMutableSet set];
     }
@@ -844,6 +898,8 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
         uint32_t window = (uint32_t)[[view->_placeholder window] windowNumber];
         if (window)
             [windows appendBytes:&window length:sizeof(window)];
+        if (view->_closeBoxWindow)
+            [windows appendBytes:&view->_closeBoxWindow length:sizeof(view->_closeBoxWindow)];
     }
     CGSRequestNotificationsForWindows(connection, [windows bytes], (int)([windows length] / sizeof(uint32_t)));
 }
@@ -855,14 +911,46 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
     [self placePageWindow];
 }
 
-// The widget's close box stays in front of the clip: the page window goes below it.
+// The Dock puts the widget's close box right above the widget window, and the page window goes below it. The box
+// removes the widget by shrinking the widget window into it, so while the box shows, the clip shows in the widget
+// window: the stand-in takes over once it shows the page as it is.
 - (void)windowDidOrderIn:(uint32_t)window
 {
+    if (_closeBoxWindow)
+        return;
     NSArray *windowsAbove = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenAboveWindow, (CGWindowID)[[_placeholder window] windowNumber]));
     if ([[[windowsAbove lastObject] objectForKey:(__bridge NSString *)kCGWindowNumber] unsignedIntValue] != window)
         return;
+    _closeBoxWindow = window;
+    [WCClipperView requestWidgetWindowNotifications];
     if ([_pageWindow isVisible])
         CGSOrderWindow(CGSMainConnectionID(), (int)[_pageWindow windowNumber], NSWindowBelow, (int)window);
+    [self updateStandInWithCompletionHandler:^{
+        if (_closeBoxWindow != window)
+            return;
+        _standsInForCloseBox = YES;
+        [self updatePageWindow];
+    }];
+}
+
+// The box leaves as Dashboard's remove mode or the Option-hover ends.
+- (void)closeBoxDidLeave
+{
+    if (!_closeBoxWindow)
+        return;
+    _closeBoxWindow = 0;
+    _standsInForCloseBox = NO;
+    [WCClipperView requestWidgetWindowNotifications];
+    [self updatePageWindow];
+}
+
+// The page window lies over the widget window only while that window is on screen.
+- (void)widgetWindowDidChangeOrderedIn:(BOOL)orderedIn
+{
+    if (_widgetWindowOrderedIn == orderedIn)
+        return;
+    _widgetWindowOrderedIn = orderedIn;
+    [self updatePageWindow];
 }
 
 // The Dock brings the widget's windows to the front at a press; the page window goes back in front of them.
@@ -2409,6 +2497,8 @@ static const CGFloat WCReloadSpinnerSize = 22;
 
 - (void)webPlugInDestroy
 {
+    // The clip goes away with its windows: the key window and the moves that follow are no longer its.
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self stopExtensions];
     [clipperViews removeObject:self];
     [WCClipperView requestWidgetWindowNotifications];

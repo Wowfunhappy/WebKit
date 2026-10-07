@@ -24,7 +24,7 @@
 - (WCPlaceholderView *)placeholderView;
 - (void)placeholderDidChange;
 - (BOOL)widgetWindowDidReceiveEvent:(NSEvent *)event;
-- (BOOL)showsPageWindow;
+- (BOOL)pageWindowShowsClip;
 - (void)webPlugInDestroy;
 // The clip's extensions stop, as the clip goes away.
 - (void)stopExtensions;
