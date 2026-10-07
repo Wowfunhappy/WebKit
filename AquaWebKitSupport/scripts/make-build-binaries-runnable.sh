@@ -56,7 +56,7 @@ int_or_die() {
 
 # Polyfill dylibs the build links, and the post-10.9 frameworks whose missing symbols libpolyfill_classes supplies.
 POLYFILL_LEAVES="libpolyfill_classes.dylib"
-REDIRECT_FRAMEWORKS="QuartzCore Security CoreServices CFNetwork"
+REDIRECT_FRAMEWORKS="QuartzCore CoreServices CFNetwork"
 POLY="@rpath/libpolyfill_classes.dylib"   # resolved from WebKitBuild/Release/lib via each binary's @rpath
 
 # Stage the polyfills into the build's @rpath dir with an @rpath install id (refresh when the source is newer).

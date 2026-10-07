@@ -64,7 +64,7 @@ BUILT=()
 for t in "${TESTS[@]}"; do
     echo "### cocoa-curl test: $t" >> "$LOG"
     if [ -f "$HERE/$t.c" ]; then
-        if "$TC/clang" -mmacosx-version-min=10.9 -I"$DEPS/include" "$HERE/$t.c" -o "$OUT/$t" \
+        if "$TC/clang" -mmacosx-version-min=10.9 -Wl,-headerpad_max_install_names -I"$DEPS/include" "$HERE/$t.c" -o "$OUT/$t" \
              -L"$DEPS/lib" -lcurl -lssl -lcrypto -Wl,-rpath,"$DEPS/lib" >> "$LOG" 2>&1; then
             echo "  built  $t"; BUILT+=("$OUT/$t")
         else
@@ -84,10 +84,10 @@ for t in "${TESTS[@]}"; do
         fi
     fi
     grep -q '<WebKitLegacy/' "$HERE/$t.mm" && EXTRA_FW="-framework WebKitLegacy"
-    # The build's WebKitLegacy/Headers forward to Source/WebKitLegacy paths, so both roots are named.
-    FLAGS="$FLAGS -F$BUILD/lib $( [ -d "$BUILD/WebKitLegacy/Headers" ] && echo -I$BUILD/WebKitLegacy/Headers -I$ROOT/Source/WebKitLegacy )"
+    # <WebKitLegacy/X.h> resolves through the build's WebKitLegacy framework-header map.
+    FLAGS="$FLAGS -F$BUILD/lib -I$BUILD/Source/WebKitLegacy/WebKitLegacy-framework-headers.hmap"
     if (cd "$BUILD" && eval "\"$TC/clang++\" $FLAGS -c \"$HERE/$t.mm\" -o \"$OUT/$t.o\"" >> "$LOG" 2>&1 \
-        && "$TC/clang++" -mmacosx-version-min=10.9 "$OUT/$t.o" -o "$OUT/$t" \
+        && "$TC/clang++" -mmacosx-version-min=10.9 -Wl,-headerpad_max_install_names "$OUT/$t.o" -o "$OUT/$t" \
              -F"$BUILD/lib" -framework WebCore -framework WebKit -framework JavaScriptCore $EXTRA_FW \
              -framework Foundation -framework AppKit -framework Security -Wl,-client_name,"$CLIENT" \
              -L"$DEPS/lib" -lcurl -lssl -lcrypto -lglib-2.0 -lgobject-2.0 "$POLY/libpolyfill.a" -L"$POLY" -lpolyfill_classes \
