@@ -93,6 +93,45 @@ The drain now waits on `queue_cond` until `output_queue` is empty, a pause is re
 
 Measured deterministically with a throwaway build whose loop sleeps at two points: between the end of one pass and the next (`VTENC_DIAG_LOOP_SLEEP_US`), and between the error branch's stream unlock and `gst_pad_pause_task()` (`VTENC_DIAG_ERR_SLEEP_US`), through a `GStreamerElementHarness`-shaped pipeline. With a 300 ms pass gap and 12 frames then EOS, the unpatched element drained 7, 7 and 6 frames and the patched one 12, 12 and 12. With the harness sink failing on the first frame of the EOS drain and a 1 s gap before the loop pauses itself, a drain that waits on the task state instead of `output_stopped` never returned in 3 of 3 runs, and this one returned in 3 of 3.
 
+## gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch
+
+**Target:** gst-plugins-bad 1.28.5, `ext/fdkaac/gstfdkaacdec.{c,h}`
+
+FDK AAC returns each frame's samples `CStreamInfo.outputDelay` samples after the frame that
+carried them, and fdkaacdec finishes every frame with the decoder's latest output, so its audio
+runs that far behind its timestamps; it also ignores the `GstAudioClippingMeta` qtdemux attaches
+for iTunes gapless priming and padding.
+
+With FDK's defaults the delay is 1685 samples on AAC-LC: 1024 for energy-interpolation
+concealment, which looks one frame ahead, and 661 for the 15 ms PCM limiter. Both hold decoded
+audio back, so where data stops without EOS (an MSE buffered end) that audio never plays and
+playback halts short of the buffered range; `media-source-stalled-holds-sleep-assertion` and
+`media-managedmse-append` fail that way. The decoder uses noise-substitution concealment and no
+limiter, which leaves the codec's own delay: 0 for AAC-LC and USAC, 962 for SBR.
+
+The decoder queues one record per input frame with that frame's clipping, discards `outputDelay`
+samples at each stream start or flush, and hands out each frame's samples, trimmed by its
+clipping, as they come out (`gst_audio_decoder_finish_subframe`), finishing the frame with its
+last ones; the base class times them from that frame's timestamp. So only `outputDelay` samples
+are ever held back, the SBR tail 10.9's AudioToolbox holds too (21.8 ms at 44.1 kHz), and an MSE
+buffered end still reads as a stall: WebKit's GStreamer player treats less than one 23.976 fps
+frame (41.7 ms) left before the buffered end as no future data. Draining takes the delayed
+samples with `AACDEC_FLUSH` until every queued frame has its own. A decode error's output is FDK's
+concealment (`IS_OUTPUT_VALID`), and it is used, since it carries earlier frames' delayed samples.
+The latency is the output delay. GstAudioDecoder drops its queued frames on
+FLUSH_STOP but calls `flush()` only once it has output samples, so the decoder's `sink_event`
+does what `flush()` does on FLUSH_STOP. When the decoder reports a new format without a caps
+change, the earlier frames take the samples already decoded under the old caps; FDK restarts on
+the new configuration, and its first `outputDelay` samples there are neither format's audio (the
+rest matches a fresh decode exactly), so the delay skip begins again. Channels are reordered as
+samples are decoded, so pending samples always carry their own format.
+
+Measured against avdec_aac on the layout-test AAC-LC media: zero lag by cross-correlation and the
+same sample count; `silence.m4a` (iTunSMPB 2112/680) yields its 57624 valid samples. On HE-AAC
+the output is 962 samples earlier than avdec_aac's: FDK removes the SBR decoder delay, which leaves
+the source offset at the encoder's `nDelayCore`, the delay gapless edit lists carry, where 10.9's
+AudioToolbox lands too (ADTS through `afconvert`: 2048 LC, 4095 HE v1, 6143 HE v2).
+
 ## gst-libav-register-libdav1d.patch
 
 **Target:** `gst-libav-1.28.5`, `ext/libav/gstavviddec.c`
@@ -165,6 +204,19 @@ An adaptive demuxer switches variants by exposing a new set of pads, and decodeb
 The patch gives a group of a buffering pipeline that is pending - not its chain's `active_group`, or below a group that is not, as the transport-stream demuxer's group in the next variant's chain is - the buffering-mode limits when `no_more_pads_cb` or `multi_queue_overrun_cb` moves its queue to playing mode, so it takes the same limits as the posting queue: the application's `max-size-*` properties, with the 2 MB / 5 s defaults where those are unset. A pending queue then fills across the drain interval, its first buffering report after the switch is at or above the high watermark, and playback continues; a genuinely starved pipeline still reports low percentages and still pauses. Measured on a paced down-switch of an 8 s-fragment fMP4 HLS stream: one burst of 45 sub-100 reports at the switch, against 60 at the switch and a second burst of 53 when the new group's queue starts buffering without it.
 
 The active group's non-posting queues keep upstream's play-time arm, which in a buffering pipeline places no time or byte limit on them. Those queues sit behind a demuxer that emits a whole segment of one track before the next, and the buffering limits there stop the demuxer's thread at 5 s of the first track before the second track has a buffer: an fMP4 HLS stream with 8 s whole-track runs never prerolls.
+
+## gst-plugins-base-audiodecoder-reset-subframe-samples.patch
+
+**Target:** gst-plugins-base 1.28.5, `gst-libs/gst/audio/gstaudiodecoder.c`
+
+`subframe_samples` counts the samples pushed with `gst_audio_decoder_finish_subframe()` for the
+current input frame, and returns to 0 only when that frame finishes. `gst_audio_decoder_reset()`
+drops the queued frames on a flush but leaves the count, so after a seek that lands between a
+frame's subframes and its finish, the next output skips `send_pending_events()` and the timestamp
+resync: the new SEGMENT goes out after data, unclipped, with stale timestamps. Measured with
+fdkaacdec on HE-AAC, which hands out each frame's samples as subframes: a flushing seek to 5.0 s
+produced output starting at 4.876 s with "Got data flow before segment event". The reset clears
+the count with the frames it belongs to.
 
 ## gst-plugins-base-video-format-2bit-alpha.patch
 

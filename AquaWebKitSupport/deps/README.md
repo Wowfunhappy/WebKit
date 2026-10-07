@@ -12,7 +12,8 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 - libxml2 2.13 (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of
   the crash-prone 10.9 system libxml2 2.9;
 - the complete GStreamer 1.28.5 runtime — glib 2.80.5, gstreamer core/base/good/bad,
-  FFmpeg + gst-libav, libvpx, dav1d, OpenSSL (HLS AES-128 keys),
+  FFmpeg + gst-libav, libvpx, dav1d, FDK AAC 2.0.3 (the AAC and xHE-AAC decoder, under
+  fdkaacdec), OpenSSL (HLS AES-128 keys),
   gst-plugins-rs 0.15.2 closed-caption parsers/converters —
   plus `bin/gst-inspect-1.0` and `bin/gst-launch-1.0` for on-box debugging;
 - `include/readability`, Mozilla's Readability 0.6.0 (the npm release) and Firefox's

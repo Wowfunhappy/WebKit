@@ -66,6 +66,7 @@ SHIPPED = [
     ('libxml2', r'/libxml2-', []),
     ('libxslt', r'/libxslt-', []),
     ('dav1d', r'/dav1d-', []),
+    ('Fraunhofer FDK AAC', r'/mstorsjo/fdk-aac/', []),
     ('libavif', r'/libavif/', []),
     ('GStreamer', r'/gstreamer-', []),
     ('GStreamer Base Plugins', r'/gst-plugins-base-', []),

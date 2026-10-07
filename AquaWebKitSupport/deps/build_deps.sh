@@ -35,7 +35,8 @@
 #   Apache httpd 2.4.68                -> layout-test HTTP/HTTPS, with the toolchain's OpenSSL
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
 #     (+ codecs)                           good/bad, gst-libav on FFmpeg 8.1.3 with
-#                                          dav1d AV1 decode, libvpx VP8/VP9) that
+#                                          dav1d AV1 decode, libvpx VP8/VP9, FDK AAC
+#                                          2.0.3 (static) under fdkaacdec) that
 #                                          MediaPlayerPrivateGStreamer drives; built
 #                                          shared with @rpath install names
 #
@@ -1323,6 +1324,27 @@ fi
 "$NMBIN" "$STAGE/lib/libavif.a" 2>/dev/null | grep "avifCodecCreateDav1d" > /dev/null \
   || { echo "  FATAL: libavif has no dav1d codec (avifCodecCreateDav1d absent); AVIF would decode nothing."; exit 1; }
 
+echo "==== FDK AAC 2.0.3 ===="
+# Fraunhofer's AAC decoder under gst-plugins-bad's fdkaacdec, the runtime's AAC decoder: LC,
+# HE-AAC v1/v2, LD, ELD and MPEG-D USAC (xHE-AAC) with its LPD speech core. Static, so the plugin
+# carries it. The plugin also registers the library's encoder as fdkaacenc.
+u=https://github.com/mstorsjo/fdk-aac/archive/refs/tags/v2.0.3.tar.gz
+if ! built fdkaac install/lib/libfdk-aac.a; then
+    d=$(get "$u" fdkaac) || exit 1
+    ( cd "$d" && mkdir -p out && cd out \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_PROGRAMS=OFF \
+           -DCMAKE_C_VISIBILITY_PRESET=hidden -DCMAKE_CXX_VISIBILITY_PRESET=hidden \
+           -DCMAKE_VISIBILITY_INLINES_HIDDEN=ON \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
+      && "$NINJA" -j2 \
+      && "$NINJA" install ) || exit 1
+    finished fdkaac "$d"
+fi
+
 echo "==== GStreamer $GST_VER (core) ===="
 # -Dc_std=gnu11: GStreamer 1.28's project() sets c_std=gnu11,c11 (a meson fallback list),
 # which add_languages('objc') propagates to objc_std; meson 1.5.2 rejects a list for
@@ -1369,6 +1391,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" ) \
       || { echo "gst-plugins-base decodebin2 pending-group patch failed to apply"; exit 1; }
+    # audiodecoder: a reset forgets the subframe samples of the frames it drops. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" ) \
+      || { echo "gst-plugins-base audiodecoder subframe-reset patch failed to apply"; exit 1; }
     # video-format: 2-bit alpha unpacks to the full 16-bit range. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" ) \
@@ -1522,12 +1548,17 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" ) \
       || { echo "gst-plugins-bad tsdemux rendition-tags patch failed to apply"; exit 1; }
+    # fdkaacdec: hand each frame its own samples past the decoder's output delay, run the decoder
+    # without look-ahead post-processing, and honour GstAudioClippingMeta. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch" ) \
+      || { echo "gst-plugins-bad fdkaacdec output-delay patch failed to apply"; exit 1; }
     # Media HTTP requests use webkitwebsrc; libcurl is a WebCore networking dependency.
     # aes is disabled: WebKit uses HLS demuxers' EVP decryption and has no aesenc/aesdec caller.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled -Dcurl=disabled \
         -Daes=disabled -Dhls=enabled -Dhls-crypto=openssl -Ddash=enabled \
         -Dwebrtc=disabled -Dwebrtcdsp=disabled -Ddtls=disabled -Dsrtp=disabled -Dsctp=disabled \
-        -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
+        -Dapplemedia=enabled -Dfdkaac=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
@@ -2078,7 +2109,7 @@ for p in libgstcoreelements libgstlibav libgstvpx libgstopus libgstapplemedia li
          libgsttypefindfunctions libgstplayback libgstisomp4 libgstmatroska \
          libgstvideoconvertscale libgstaudioconvert libgstaudioresample libgstapp \
          libgstvorbis libgstogg libgstflac libgstwavparse libgstdeinterlace \
-         libgstautodetect libgsthls libgstdash libgstclosedcaption libgstrsclosedcaption; do
+         libgstautodetect libgsthls libgstdash libgstfdkaac libgstclosedcaption libgstrsclosedcaption; do
   require_glob "$DEST/lib/gstreamer-1.0/$p.dylib"
 done
 require_glob "$DEST/bin/gst-inspect-1.0"

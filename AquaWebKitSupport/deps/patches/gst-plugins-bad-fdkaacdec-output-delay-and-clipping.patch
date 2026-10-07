@@ -1,0 +1,420 @@
+# fdkaacdec hands each input frame the samples the decoder reports for it, which arrive
+# CStreamInfo.outputDelay samples after the frame, and honours GstAudioClippingMeta. The decoder
+# runs without the look-ahead post-processes, so the delay is the codec's own (962 for SBR).
+# Draining takes the delayed samples with AACDEC_FLUSH. See patches/README.md.
+--- a/ext/fdkaac/gstfdkaacdec.h	2026-07-08 17:42:39.000000000 -0400
++++ b/ext/fdkaac/gstfdkaacdec.h	2026-10-06 21:57:37.000000000 -0400
+@@ -57,6 +57,14 @@
+ 
+   gboolean need_reorder;
+   GstAudioInfo info;
++
++  /* Decoded interleaved samples, past the decoder's output delay, that are
++   * not yet handed to an input frame. */
++  GByteArray *pending_samples;
++  /* One GstFdkAacDecFrame per input frame not yet finished, oldest first. */
++  GQueue pending_frames;
++  /* Samples of output delay still to discard; -1 until the decoder reports it. */
++  gint delay_to_skip;
+ };
+ 
+ struct _GstFdkAacDecClass {
+--- a/ext/fdkaac/gstfdkaacdec.c	2026-07-08 17:42:39.000000000 -0400
++++ b/ext/fdkaac/gstfdkaacdec.c	2026-10-06 23:24:36.000000000 -0400
+@@ -68,6 +68,22 @@
+     GstBuffer * in_buf);
+ static void gst_fdkaacdec_flush (GstAudioDecoder * dec, gboolean hard);
+ 
++/* An input frame waiting for its samples, which the decoder hands out
++ * stream_info->outputDelay samples after the frame's own. */
++typedef struct
++{
++  /* GstAudioClippingMeta of the input frame, in samples. */
++  guint64 clip_start;
++  guint64 clip_end;
++  /* Samples per channel decoded for the frame: -1 until it is decoded, 0 when
++   * the decoder produced none for it. */
++  gint samples;
++  /* Samples of the frame already handed out. */
++  guint emitted;
++} GstFdkAacDecFrame;
++
++static GstFlowReturn gst_fdkaacdec_drain (GstFdkAacDec * self);
++
+ G_DEFINE_TYPE (GstFdkAacDec, gst_fdkaacdec, GST_TYPE_AUDIO_DECODER);
+ GST_ELEMENT_REGISTER_DEFINE (fdkaacdec, "fdkaacdec", GST_RANK_MARGINAL,
+     GST_TYPE_FDKAACDEC);
+@@ -82,6 +98,10 @@
+   gst_audio_info_init (&self->info);
+   self->sample_rate = 0;
+ 
++  self->pending_samples = g_byte_array_new ();
++  g_queue_init (&self->pending_frames);
++  self->delay_to_skip = -1;
++
+   return TRUE;
+ }
+ 
+@@ -99,6 +119,11 @@
+     aacDecoder_Close (self->dec);
+   self->dec = NULL;
+ 
++  g_queue_clear_full (&self->pending_frames, g_free);
++  if (self->pending_samples)
++    g_byte_array_unref (self->pending_samples);
++  self->pending_samples = NULL;
++
+   return TRUE;
+ }
+ 
+@@ -130,6 +155,8 @@
+     g_assert_not_reached ();
+   }
+ 
++  self->delay_to_skip = -1;
++
+   self->dec = aacDecoder_Open (transport_format, 1);
+   if (!self->dec) {
+     GST_ERROR_OBJECT (self, "Failed to open decoder");
+@@ -179,6 +206,22 @@
+     return FALSE;
+   }
+ 
++  /* Energy-interpolation concealment holds one frame back and the PCM limiter
++   * 15 ms; with either, a stream whose data stops without EOS (an MSE buffered
++   * end) leaves that audio unplayed inside the decoder. Noise substitution
++   * conceals without delay. */
++  err = aacDecoder_SetParam (self->dec, AAC_CONCEAL_METHOD, 1);
++  if (err != AAC_DEC_OK) {
++    GST_ERROR_OBJECT (self, "Failed to set concealment method: %d", err);
++    return FALSE;
++  }
++
++  err = aacDecoder_SetParam (self->dec, AAC_PCM_LIMITER_ENABLE, 0);
++  if (err != AAC_DEC_OK) {
++    GST_ERROR_OBJECT (self, "Failed to disable the PCM limiter: %d", err);
++    return FALSE;
++  }
++
+   /* 64 channels * 2048 samples * 2 bytes per sample */
+   if (!self->decode_buffer) {
+     self->decode_buffer_size = 64 * 2048;
+@@ -555,64 +598,153 @@
+   return TRUE;
+ }
+ 
++/* Appends the decoder's latest output to the pending samples, past whatever
++ * is left of its output delay. */
++static void
++gst_fdkaacdec_queue_output (GstFdkAacDec * self, guint samples)
++{
++  guint bpf = GST_AUDIO_INFO_BPF (&self->info);
++  guint skip = MIN ((guint) self->delay_to_skip, samples);
++
++  self->delay_to_skip -= skip;
++  if (self->need_reorder) {
++    gst_audio_reorder_channels (self->decode_buffer + skip *
++        GST_AUDIO_INFO_CHANNELS (&self->info), (samples - skip) * bpf,
++        GST_AUDIO_INFO_FORMAT (&self->info),
++        GST_AUDIO_INFO_CHANNELS (&self->info), self->positions,
++        self->info.position);
++  }
++  g_byte_array_append (self->pending_samples,
++      (const guint8 *) self->decode_buffer + skip * bpf, (samples - skip) * bpf);
++}
++
++/* Hands out the oldest frames' samples as they come out of the decoder, so
++ * no more than its output delay is held back, and finishes each frame once its
++ * last samples are out. When draining, a frame the decoder holds no more samples for
++ * finishes with what is left. */
++static GstFlowReturn
++gst_fdkaacdec_finish_frames (GstFdkAacDec * self, gboolean draining)
++{
++  GstAudioDecoder *dec = GST_AUDIO_DECODER (self);
++  guint bpf = GST_AUDIO_INFO_BPF (&self->info);
++  GstFdkAacDecFrame *frame;
++  GstFlowReturn ret = GST_FLOW_OK;
++
++  while ((frame = g_queue_peek_head (&self->pending_frames))) {
++    guint available = bpf ? self->pending_samples->len / bpf : 0;
++    guint remaining, take;
++    guint64 from, to;
++    gboolean last;
++    GstBuffer *outbuf = NULL;
++
++    if (frame->samples < 0)
++      break;
++
++    remaining = frame->samples - frame->emitted;
++    take = MIN (remaining, available);
++    last = take == remaining || draining;
++    if (!take && !last)
++      break;
++
++    /* The part of the samples taken that lies between the frame's clipped
++     * head and tail. */
++    from = MAX (frame->emitted, frame->clip_start);
++    to = MIN (frame->emitted + take,
++        frame->samples - MIN (frame->clip_end, (guint64) frame->samples));
++    if (to > from) {
++      outbuf = gst_audio_decoder_allocate_output_buffer (dec,
++          (to - from) * bpf);
++      gst_buffer_fill (outbuf, 0, self->pending_samples->data +
++          (from - frame->emitted) * bpf, (to - from) * bpf);
++    }
++    g_byte_array_remove_range (self->pending_samples, 0, take * bpf);
++    frame->emitted += take;
++
++    if (outbuf) {
++      ret = gst_audio_decoder_finish_subframe (dec, outbuf);
++      if (ret != GST_FLOW_OK)
++        break;
++    }
++    if (!last)
++      break;
++
++    g_free (g_queue_pop_head (&self->pending_frames));
++    ret = gst_audio_decoder_finish_subframe (dec, NULL);
++    if (ret != GST_FLOW_OK)
++      break;
++  }
++
++  return ret;
++}
++
+ static GstFlowReturn
+ gst_fdkaacdec_handle_frame (GstAudioDecoder * dec, GstBuffer * inbuf)
+ {
+   GstFdkAacDec *self = GST_FDKAACDEC (dec);
+   GstFlowReturn ret = GST_FLOW_OK;
+-  GstBuffer *outbuf;
++  GstFdkAacDecFrame *frame;
++  GstAudioClippingMeta *clipping_meta;
+   GstMapInfo imap;
++  guint8 *data;
+   AAC_DECODER_ERROR err;
+   UINT flags = 0;
+   guint size, valid;
+   CStreamInfo *stream_info;
+   gboolean updated = FALSE;
+ 
+-  if (inbuf) {
+-    gst_buffer_ref (inbuf);
+-    gst_buffer_map (inbuf, &imap, GST_MAP_READ);
+-    valid = size = imap.size;
++  if (!inbuf)
++    return gst_fdkaacdec_drain (self);
+ 
+-    err = aacDecoder_Fill (self->dec, (guint8 **) & imap.data, &size, &valid);
+-    if (err != AAC_DEC_OK) {
+-      GST_AUDIO_DECODER_ERROR (self, 1, STREAM, DECODE, (NULL),
+-          ("filling error: %d", err), ret);
+-      goto out;
+-    }
++  frame = g_new0 (GstFdkAacDecFrame, 1);
++  frame->samples = -1;
++  clipping_meta = gst_buffer_get_audio_clipping_meta (inbuf);
++  if (clipping_meta && clipping_meta->format == GST_FORMAT_DEFAULT) {
++    frame->clip_start = clipping_meta->start;
++    frame->clip_end = clipping_meta->end;
++  } else if (clipping_meta) {
++    GST_WARNING_OBJECT (self, "clipping meta in unsupported format %s",
++        gst_format_get_name (clipping_meta->format));
++  }
++  g_queue_push_tail (&self->pending_frames, frame);
++
++  gst_buffer_map (inbuf, &imap, GST_MAP_READ);
++  data = imap.data;
++  valid = size = imap.size;
++  err = aacDecoder_Fill (self->dec, &data, &size, &valid);
++  gst_buffer_unmap (inbuf, &imap);
++  if (err != AAC_DEC_OK) {
++    frame->samples = 0;
++    GST_AUDIO_DECODER_ERROR (self, 1, STREAM, DECODE, (NULL),
++        ("filling error: %d", err), ret);
++    goto finish;
++  }
+ 
+-    if (GST_BUFFER_IS_DISCONT (inbuf)) {
+-      flags |= AACDEC_INTR;
+-    }
+-  } else {
+-    flags |= AACDEC_FLUSH;
++  if (GST_BUFFER_IS_DISCONT (inbuf)) {
++    flags |= AACDEC_INTR;
+   }
+ 
+   err = aacDecoder_DecodeFrame (self->dec, self->decode_buffer,
+       self->decode_buffer_size, flags);
+   if (err == AAC_DEC_TRANSPORT_SYNC_ERROR) {
+-    ret = GST_FLOW_OK;
+-    outbuf = NULL;
++    frame->samples = 0;
+     goto finish;
+-  } else if ((err != AAC_DEC_OK) && (flags & AACDEC_FLUSH)) {
+-    /*
+-     * A flush/drain was requested when set_format got called. When a flush
+-     * gets requested, aacDecoder_DecodeFrame may not return AAC_DEC_OK. Do
+-     * not report a decoding error with GST_AUDIO_DECODER_ERROR for this case.
+-     */
+-    GST_LOG_OBJECT (self, "Decoder flush was requested");
+-    ret = GST_FLOW_OK;
+-    goto out;
+   } else if (err != AAC_DEC_OK) {
+     GST_AUDIO_DECODER_ERROR (self, 1, STREAM, DECODE, (NULL),
+         ("decoding error: %d", err), ret);
+-    goto out;
++    /* A decode error's output is concealment, and carries the delayed
++     * samples of earlier frames. */
++    if (!IS_OUTPUT_VALID (err) || ret != GST_FLOW_OK) {
++      frame->samples = 0;
++      goto finish;
++    }
+   }
+ 
+   stream_info = aacDecoder_GetStreamInfo (self->dec);
+   if (!stream_info) {
++    frame->samples = 0;
+     GST_AUDIO_DECODER_ERROR (self, 1, STREAM, DECODE, (NULL),
+         ("failed to get stream info"), ret);
+-    goto out;
++    goto finish;
+   }
+ 
+   if (stream_info->sampleRate != self->sample_rate) {
+@@ -621,39 +753,83 @@
+   }
+ 
+   if (!gst_fdkaacdec_map_channel_config (self, stream_info, &updated)) {
++    frame->samples = 0;
+     ret = GST_FLOW_NOT_NEGOTIATED;
+     goto out;
+   }
+ 
+-  if (updated && !gst_fdkaacdec_update_info (self)) {
+-    ret = GST_FLOW_NOT_NEGOTIATED;
+-    goto out;
+-  }
++  if (updated) {
++    /* The earlier frames take the samples decoded in the previous format. The
++     * decoder restarts on the new one: what it holds of earlier frames is lost
++     * and its output delay begins again. */
++    ret = gst_fdkaacdec_finish_frames (self, TRUE);
++    self->delay_to_skip = -1;
++    if (ret != GST_FLOW_OK)
++      goto out;
+ 
+-  outbuf =
+-      gst_audio_decoder_allocate_output_buffer (dec,
+-      stream_info->frameSize * GST_AUDIO_INFO_BPF (&self->info));
++    if (!gst_fdkaacdec_update_info (self)) {
++      frame->samples = 0;
++      ret = GST_FLOW_NOT_NEGOTIATED;
++      goto out;
++    }
++  }
+ 
+-  gst_buffer_fill (outbuf, 0, self->decode_buffer,
+-      gst_buffer_get_size (outbuf));
++  if (self->delay_to_skip < 0) {
++    GstClockTime latency;
+ 
+-  if (self->need_reorder) {
+-    gst_audio_buffer_reorder_channels (outbuf,
+-        GST_AUDIO_INFO_FORMAT (&self->info),
+-        GST_AUDIO_INFO_CHANNELS (&self->info),
+-        self->positions, self->info.position);
++    self->delay_to_skip = stream_info->outputDelay;
++    latency = gst_util_uint64_scale_int (stream_info->outputDelay, GST_SECOND,
++        stream_info->sampleRate);
++    gst_audio_decoder_set_latency (dec, latency, latency);
+   }
+ 
++  frame->samples = stream_info->frameSize;
++  gst_fdkaacdec_queue_output (self, stream_info->frameSize);
++
+ finish:
+-  ret = gst_audio_decoder_finish_frame (dec, outbuf, 1);
++  if (ret == GST_FLOW_OK)
++    ret = gst_fdkaacdec_finish_frames (self, FALSE);
+ 
+ out:
++  return ret;
++}
+ 
+-  if (inbuf) {
+-    gst_buffer_unmap (inbuf, &imap);
+-    gst_buffer_unref (inbuf);
++/* Takes the decoder's delayed samples for every pending frame, and finishes
++ * them all. */
++static GstFlowReturn
++gst_fdkaacdec_drain (GstFdkAacDec * self)
++{
++  guint bpf = GST_AUDIO_INFO_BPF (&self->info);
++  guint64 owed = 0;
++  GstFlowReturn ret;
++  GList *l;
++
++  for (l = self->pending_frames.head; l; l = l->next)
++    owed += MAX (((GstFdkAacDecFrame *) l->data)->samples, 0);
++
++  while (self->dec && bpf && owed > self->pending_samples->len / bpf) {
++    AAC_DECODER_ERROR err;
++    CStreamInfo *stream_info;
++
++    err = aacDecoder_DecodeFrame (self->dec, self->decode_buffer,
++        self->decode_buffer_size, AACDEC_FLUSH);
++    if (!IS_OUTPUT_VALID (err))
++      break;
++
++    stream_info = aacDecoder_GetStreamInfo (self->dec);
++    if (!stream_info || stream_info->frameSize <= 0 ||
++        stream_info->numChannels != GST_AUDIO_INFO_CHANNELS (&self->info))
++      break;
++
++    gst_fdkaacdec_queue_output (self, stream_info->frameSize);
+   }
+ 
++  ret = gst_fdkaacdec_finish_frames (self, TRUE);
++
++  g_queue_clear_full (&self->pending_frames, g_free);
++  g_byte_array_set_size (self->pending_samples, 0);
++  self->delay_to_skip = -1;
++
+   return ret;
+ }
+ 
+@@ -670,6 +846,25 @@
+       GST_ERROR_OBJECT (self, "flushing error: %d", err);
+     }
+   }
++
++  g_queue_clear_full (&self->pending_frames, g_free);
++  g_byte_array_set_size (self->pending_samples, 0);
++  self->delay_to_skip = -1;
++}
++
++/* GstAudioDecoder drops its queued input frames on FLUSH_STOP, but calls
++ * flush() only once it has output samples. */
++static gboolean
++gst_fdkaacdec_sink_event (GstAudioDecoder * dec, GstEvent * event)
++{
++  if (GST_EVENT_TYPE (event) == GST_EVENT_FLUSH_STOP) {
++    GST_AUDIO_DECODER_STREAM_LOCK (dec);
++    gst_fdkaacdec_flush (dec, TRUE);
++    GST_AUDIO_DECODER_STREAM_UNLOCK (dec);
++  }
++
++  return GST_AUDIO_DECODER_CLASS (gst_fdkaacdec_parent_class)->sink_event (dec,
++      event);
+ }
+ 
+ static void
+@@ -692,6 +887,7 @@
+   base_class->set_format = GST_DEBUG_FUNCPTR (gst_fdkaacdec_set_format);
+   base_class->handle_frame = GST_DEBUG_FUNCPTR (gst_fdkaacdec_handle_frame);
+   base_class->flush = GST_DEBUG_FUNCPTR (gst_fdkaacdec_flush);
++  base_class->sink_event = GST_DEBUG_FUNCPTR (gst_fdkaacdec_sink_event);
+ 
+   gst_element_class_add_static_pad_template (element_class, &sink_template);
+   gst_element_class_add_static_pad_template (element_class, &src_template);
