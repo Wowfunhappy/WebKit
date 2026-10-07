@@ -51,13 +51,12 @@ class SynchronousLoaderMessageQueue;
     RetainPtr<NSCachedURLResponse> m_cachedResponseResult;
     std::optional<SchedulePairHashSet> m_scheduledPairs;
     BOOL m_boolResult;
-    // AQUAWEBKIT: main-thread state of a connection scheduled on the main run loop, whose
-    // callbacks run their work in place; see callFunctionOnMainThread:.
+    // AQUAWEBKIT: main-thread state of an asynchronous connection, whose callbacks run on the
+    // main thread with their work in place; see callFunctionOnMainThread:.
     bool m_callbacksOnMainThread;
     bool m_waitingForCompletion;
     bool m_defersLoading;
     bool m_deferredForCompletion;
-    bool m_deliveringResponse;
     bool m_protectionSpaceUnanswered;
     BOOL m_lateProtectionSpaceAnswer;
     bool m_heldWorkScheduled;
@@ -67,13 +66,10 @@ class SynchronousLoaderMessageQueue;
 - (void)detachHandle;
 // AQUAWEBKIT: curl shares the upstream custom-run-loop/message-queue dispatcher.
 - (void)callFunctionOnMainThread:(Function<void()>&&)function;
-// AQUAWEBKIT: the connection is scheduled on the main run loop; see callFunctionOnMainThread:.
+// AQUAWEBKIT: the connection's callbacks run on the main thread; see callFunctionOnMainThread:.
 - (void)setCallbacksOnMainThread;
 // AQUAWEBKIT: ResourceHandle's defers state, applied to the connection and to the held work.
 - (void)setDefersLoading:(BOOL)defers connection:(NSURLConnection *)connection;
-// AQUAWEBKIT: whether the connection is inside connection:didReceiveResponse:, the only point
-// where 10.9 NSURLDownload can take it over.
-- (BOOL)isDeliveringResponse;
 - (id)initWithHandle:(WebCore::ResourceHandle*)handle messageQueue:(RefPtr<WebCore::SynchronousLoaderMessageQueue>&&)messageQueue;
 @end
 

@@ -47,7 +47,7 @@
 
 using namespace WebCore;
 
-// AQUAWEBKIT: one callback of a connection scheduled on the main run loop. Its work runs in place,
+// AQUAWEBKIT: one callback of an asynchronous connection, run on the main thread. Its work runs in place,
 // so the answer is in hand when the completion handler runs before the callback returns; a completion
 // handler that runs later, after work held behind a pending completion or a deferral, answers late.
 class ConnectionCallback : public ThreadSafeRefCounted<ConnectionCallback> {
@@ -94,7 +94,7 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         function();
     };
 
-    // AQUAWEBKIT: a connection on the main run loop calls back on the main thread; its work runs in place.
+    // AQUAWEBKIT: an asynchronous connection's callbacks run on the main thread; their work runs in place.
     if (m_callbacksOnMainThread && !m_messageQueue && isMainThread())
         return function();
 
@@ -127,7 +127,24 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         CFRunLoopWakeUp(pair->runLoop());
 }
 
-// AQUAWEBKIT: the main-run-loop connection state; see callFunctionOnMainThread:.
+// AQUAWEBKIT: the connection calls back on WebCore's NSURLConnection thread (ResourceHandleCocoa's
+// scheduleOnCallbackThread). Each callback runs again on the main thread through upstream's dispatcher, and the
+// callback thread waits for the main thread's answer to a callback that returns one.
+- (void)callBackOnMainThread:(Function<void()>&&)callback waitUntilDone:(BOOL)waitUntilDone
+{
+    if (!waitUntilDone) {
+        [self dispatchFunctionOnMainThread:WTF::move(callback)];
+        return;
+    }
+    BinarySemaphore answered;
+    [self dispatchFunctionOnMainThread:[&] {
+        callback();
+        answered.signal();
+    }];
+    answered.wait();
+}
+
+// AQUAWEBKIT: the state of a connection whose callbacks run on the main thread; see callBackOnMainThread:waitUntilDone:.
 - (void)setCallbacksOnMainThread
 {
     m_callbacksOnMainThread = true;
@@ -138,11 +155,6 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
     m_defersLoading = defers;
     [connection setDefersCallbacks:defers || m_deferredForCompletion];
     [self scheduleHeldWork];
-}
-
-- (BOOL)isDeliveringResponse
-{
-    return m_deliveringResponse;
 }
 
 // Held work runs from its own run loop callout, as the connection's callbacks do.
@@ -214,7 +226,7 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
 
 - (NSURLRequest *)connection:(NSURLConnection *)connection willSendRequest:(NSURLRequest *)newRequest redirectResponse:(NSURLResponse *)redirectResponse
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
 
     redirectResponse = synthesizeRedirectResponseIfNecessary([connection currentRequest], newRequest, redirectResponse);
@@ -222,6 +234,15 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
     // See <rdar://problem/5380697>. This is a workaround for a behavior change in CFNetwork where willSendRequest gets called more often.
     if (!redirectResponse)
         return newRequest;
+
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        RetainPtr<NSURLRequest> answer;
+        [self callBackOnMainThread:[&] {
+            answer = [self connection:connection willSendRequest:newRequest redirectResponse:redirectResponse];
+        } waitUntilDone:YES];
+        return answer.autorelease();
+    }
 
 #if !LOG_DISABLED
     if ([redirectResponse isKindOfClass:[NSHTTPURLResponse class]])
@@ -318,7 +339,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)connection:(NSURLConnection *)connection didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        [self callBackOnMainThread:[protectedSelf = retainPtr(self), connection = retainPtr(connection), challenge = retainPtr(challenge)] {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+            [protectedSelf.get() connection:connection.get() didReceiveAuthenticationChallenge:challenge.get()];
+ALLOW_DEPRECATED_DECLARATIONS_END
+        } waitUntilDone:NO];
+        return;
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveAuthenticationChallenge:%p", m_handle.get(), connection, challenge);
@@ -345,7 +375,17 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (BOOL)connection:(NSURLConnection *)connection canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace *)protectionSpace
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        BOOL answer = NO;
+        [self callBackOnMainThread:[&] {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+            answer = [self connection:connection canAuthenticateAgainstProtectionSpace:protectionSpace];
+ALLOW_DEPRECATED_DECLARATIONS_END
+        } waitUntilDone:YES];
+        return answer;
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p canAuthenticateAgainstProtectionSpace:%@://%@:%zd realm:%@ method:%@ %@%@", m_handle.get(), connection, [protectionSpace protocol], [protectionSpace host], [protectionSpace port], [protectionSpace realm], [protectionSpace authenticationMethod], [protectionSpace isProxy] ? @"proxy:" : @"", [protectionSpace isProxy] ? [protectionSpace proxyType] : @"");
@@ -407,7 +447,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)r
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        [self callBackOnMainThread:[&] {
+            [self connection:connection didReceiveResponse:r];
+        } waitUntilDone:YES];
+        return;
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveResponse:%p (HTTP status %zd, reported MIMEType '%s')", m_handle.get(), connection, r, [r respondsToSelector:@selector(statusCode)] ? [(id)r statusCode] : 0, [[r MIMEType] UTF8String]);
 
@@ -445,11 +492,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
         protectedSelf->m_waitingForCompletion = true; // AQUAWEBKIT: see callFunctionOnMainThread:.
         // AQUAWEBKIT: a callback that ran in place continues the connection when the completion
-        // handler runs; see ConnectionCallback and -isDeliveringResponse.
+        // handler runs; see ConnectionCallback.
         // handle->didReceiveResponse(WTF::move(resourceResponse), [protectedSelf = WTF::move(protectedSelf)] {
         //     protectedSelf->m_semaphore.signal();
         // });
-        SetForScope delivering { protectedSelf->m_deliveringResponse, callback->runsInPlace() && !callback->isLate() };
         handle->didReceiveResponse(WTF::move(resourceResponse), [protectedSelf, connection, callback] {
             if (callback->runsInPlace()) {
                 [protectedSelf continueAfterCompletion:connection.get()];
@@ -476,7 +522,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data lengthReceived:(long long)lengthReceived
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        [self callBackOnMainThread:[protectedSelf = retainPtr(self), connection = retainPtr(connection), data = retainPtr(data), lengthReceived] {
+            [protectedSelf.get() connection:connection.get() didReceiveData:data.get() lengthReceived:lengthReceived];
+        } waitUntilDone:NO];
+        return;
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
     UNUSED_PARAM(lengthReceived);
 
@@ -500,7 +553,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didSendBodyData:(NSInteger)bytesWritten totalBytesWritten:(NSInteger)totalBytesWritten totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        [self callBackOnMainThread:[protectedSelf = retainPtr(self), connection = retainPtr(connection), bytesWritten, totalBytesWritten, totalBytesExpectedToWrite] {
+            [protectedSelf.get() connection:connection.get() didSendBodyData:bytesWritten totalBytesWritten:totalBytesWritten totalBytesExpectedToWrite:totalBytesExpectedToWrite];
+        } waitUntilDone:NO];
+        return;
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
     UNUSED_PARAM(bytesWritten);
 
@@ -517,7 +577,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        [self callBackOnMainThread:[protectedSelf = retainPtr(self), connection = retainPtr(connection)] {
+            [protectedSelf.get() connectionDidFinishLoading:connection.get()];
+        } waitUntilDone:NO];
+        return;
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connectionDidFinishLoading:%p", m_handle.get(), connection);
@@ -553,7 +620,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        [self callBackOnMainThread:[protectedSelf = retainPtr(self), connection = retainPtr(connection), error = retainPtr(error)] {
+            [protectedSelf.get() connection:connection.get() didFailWithError:error.get()];
+        } waitUntilDone:NO];
+        return;
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p didFailWithError:%@", m_handle.get(), connection, error);
@@ -575,7 +649,15 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse *)cachedResponse
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    // AQUAWEBKIT: see callBackOnMainThread:waitUntilDone:.
+    if (m_callbacksOnMainThread && !isMainThread()) {
+        RetainPtr<NSCachedURLResponse> answer;
+        [self callBackOnMainThread:[&] {
+            answer = [self connection:connection willCacheResponse:cachedResponse];
+        } waitUntilDone:YES];
+        return answer.autorelease();
+    }
+    // ASSERT(!isMainThread()); // AQUAWEBKIT: the callback runs again on the main thread; see callBackOnMainThread:waitUntilDone:.
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p willCacheResponse:%p", m_handle.get(), connection, cachedResponse);
@@ -639,7 +721,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (BOOL)connectionShouldUseCredentialStorage:(NSURLConnection *)connection
 {
-    // ASSERT(!isMainThread()); // AQUAWEBKIT: a connection on the main run loop calls back on the main thread.
+    ASSERT(!isMainThread());
     UNUSED_PARAM(connection);
     return NO;
 }

@@ -120,8 +120,6 @@ public:
     // when the connection's callback returned before the approval.
     void continueRedirectOnCocoaCurl(ResourceRequest&&, RefPtr<SynchronousLoaderMessageQueue>&&);
     void continueRedirectOnNewConnection(ResourceRequest&&);
-    // AQUAWEBKIT: 10.9 NSURLDownload takes a connection over only inside its response callback.
-    WEBCORE_EXPORT bool connectionCanBecomeDownload() const;
     id makeDelegate(bool, RefPtr<SynchronousLoaderMessageQueue>&&);
     id delegate();
     void releaseDelegate();

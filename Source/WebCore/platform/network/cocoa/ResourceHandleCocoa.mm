@@ -81,18 +81,29 @@ static NSOperationQueue *operationQueueForAsyncClients()
     return queue.get().get();
 }
 
-// AQUAWEBKIT: an asynchronous connection calls back on the main run loop, in the modes its
-// context is scheduled in (WebView schedules the common modes), and its delegate runs the callbacks'
-// work in place. A connection with no such mode takes the main run loop's default mode when it starts.
-static void scheduleOnContextRunLoops(NSURLConnection *connection, WebCoreResourceHandleAsOperationQueueDelegate *delegate, NetworkingContext& context)
+// AQUAWEBKIT: every asynchronous NSURLConnection calls back on one WebCore thread, whose run loop serves
+// nothing else, and its delegate runs each callback again on the main thread through upstream's dispatcher
+// (-callBackOnMainThread:waitUntilDone:). On 10.9, Foundation parks a thread for every delegate-queue
+// callback until the delegate returns.
+static NSRunLoop *connectionCallbackRunLoop()
+{
+    static NeverDestroyed<RetainPtr<NSRunLoop>> runLoop = [] {
+        RetainPtr<NSRunLoop> threadRunLoop;
+        BinarySemaphore semaphore;
+        RunLoop::create("WebCore: NSURLConnection"_s, ThreadType::Network)->dispatch([&] {
+            threadRunLoop = [NSRunLoop currentRunLoop];
+            semaphore.signal();
+        });
+        semaphore.wait();
+        return threadRunLoop;
+    }();
+    return runLoop.get().get();
+}
+
+static void scheduleOnCallbackThread(NSURLConnection *connection, WebCoreResourceHandleAsOperationQueueDelegate *delegate)
 {
     [delegate setCallbacksOnMainThread];
-    if (auto* pairs = context.scheduledRunLoopPairs()) {
-        for (auto& pair : *pairs) {
-            if (pair->runLoop() == CFRunLoopGetMain())
-                [connection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:(__bridge NSString *)pair->mode()];
-        }
-    }
+    [connection scheduleInRunLoop:connectionCallbackRunLoop() forMode:NSDefaultRunLoopMode];
 }
 
 ResourceHandleInternal::~ResourceHandleInternal() = default;
@@ -311,9 +322,9 @@ bool ResourceHandle::start()
         (NSDictionary *)client()->connectionProperties(this).get());
 #endif
 
-    // AQUAWEBKIT: see scheduleOnContextRunLoops.
+    // AQUAWEBKIT: see scheduleOnCallbackThread.
     // [connection() setDelegateQueue:operationQueueForAsyncClients()];
-    scheduleOnContextRunLoops(connection(), d->m_delegate.get(), *context);
+    scheduleOnCallbackThread(connection(), d->m_delegate.get());
     [connection() start];
     d->m_startTime = MonotonicTime::now();
 
@@ -362,12 +373,14 @@ void ResourceHandle::platformSetDefersLoading(bool defers)
 
 void ResourceHandle::schedule(SchedulePair& pair)
 {
+    // AQUAWEBKIT: an asynchronous connection calls back only on its callback thread; see scheduleOnCallbackThread.
+    UNUSED_PARAM(pair);
+    /*
     NSRunLoop *runLoop = pair.nsRunLoop();
-    // AQUAWEBKIT: see scheduleOnContextRunLoops.
-    // if (!runLoop)
-    if (runLoop != [NSRunLoop mainRunLoop])
+    if (!runLoop)
         return;
     [d->m_connection.get() scheduleInRunLoop:runLoop forMode:(__bridge NSString *)pair.mode()];
+    */ // AQUAWEBKIT: closes upstream's scheduling of the connection above.
 }
 
 void ResourceHandle::unschedule(SchedulePair& pair)
@@ -434,15 +447,10 @@ void ResourceHandle::continueRedirectOnNewConnection(ResourceRequest&& request)
     d->m_connection = nil;
     bool shouldUseCredentialStorage = !client() || client()->shouldUseCredentialStorage(this);
     createNSURLConnection(makeDelegate(shouldUseCredentialStorage, nullptr), shouldUseCredentialStorage, d->m_shouldContentSniff || context->localFileContentSniffingEnabled(), d->m_contentEncodingSniffingPolicy, SchedulingBehavior::Asynchronous, &request);
-    scheduleOnContextRunLoops(connection(), d->m_delegate.get(), *context);
+    scheduleOnCallbackThread(connection(), d->m_delegate.get());
     [connection() start];
     if (d->m_defersLoading)
         [d->m_delegate.get() setDefersLoading:YES connection:connection()];
-}
-
-bool ResourceHandle::connectionCanBecomeDownload() const
-{
-    return [d->m_delegate.get() isDeliveringResponse];
 }
 
 NSURLConnection *ResourceHandle::connection() const

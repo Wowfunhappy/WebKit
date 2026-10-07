@@ -312,20 +312,19 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
-    // AQUAWEBKIT: a policy answered after the connection's response callback returned makes the
-    // request again, as for a load with no loader; see ResourceHandle::connectionCanBecomeDownload.
-    if (!handle->connectionCanBecomeDownload()) {
-        handle->cancel();
+    // AQUAWEBKIT: the connection calls back on WebCore's NSURLConnection thread, where a 10.9
+    // NSURLDownload that took it over would ask the download delegate for a destination. The request is
+    // made again, as for a load with no loader.
+    handle->cancel();
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        RetainPtr webDownload = adoptNS([[WebDownload alloc] initWithRequest:protect(request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody)).get() delegate:[webView.get() downloadDelegate]]);
+    RetainPtr webDownload = adoptNS([[WebDownload alloc] initWithRequest:protect(request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody)).get() delegate:[webView.get() downloadDelegate]]);
 ALLOW_DEPRECATED_DECLARATIONS_END
-        webDownload.autorelease();
-        return;
-    }
-
+    webDownload.autorelease();
+/*
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [WebDownload _downloadWithLoadingConnection:handle->connection() request:protect(request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody)).get() response:protect(response.nsURLResponse()).get() delegate:[webView.get() downloadDelegate] proxy:nil];
 ALLOW_DEPRECATED_DECLARATIONS_END
+*/ // AQUAWEBKIT: closes upstream's takeover of the loading connection; see above.
 }
 
 bool WebFrameLoaderClient::dispatchDidLoadResourceFromMemoryCache(WebCore::DocumentLoader* loader, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response, int length)
