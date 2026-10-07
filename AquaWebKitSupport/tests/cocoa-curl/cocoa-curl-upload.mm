@@ -78,7 +78,7 @@ private:
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&& completion) final { completion(); }
     void curlReceivedInformationalResponse(ResourceResponse&& response) final { if (response.httpStatusCode() == 100) ++m_interim; }
     void curlSentData(uint64_t uploaded, uint64_t total) final { m_uploaded = uploaded; m_uploadTotal = total; }
-    void curlReceivedData(const SharedBuffer& bytes, CompletionHandler<void()>&& completion) final { m_body.append(bytes); completion(); }
+    void curlReceivedData(const SharedBuffer& bytes) final { m_body.append(bytes); }
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion) final { completion(nullptr, nullptr); }
     // The platform's own evaluation of the server chain is the answer.
     void curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion) final

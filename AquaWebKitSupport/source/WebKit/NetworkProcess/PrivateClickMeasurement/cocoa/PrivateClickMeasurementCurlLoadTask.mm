@@ -56,10 +56,9 @@ private:
     }
     void curlReceivedInformationalResponse(WebCore::ResourceResponse&&) final { }
     void curlSentData(uint64_t, uint64_t) final { }
-    void curlReceivedData(const WebCore::SharedBuffer& data, CompletionHandler<void()>&& completion) final
+    void curlReceivedData(const WebCore::SharedBuffer& data) final
     {
         m_body.append(data);
-        completion();
     }
     void curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion) final
     {

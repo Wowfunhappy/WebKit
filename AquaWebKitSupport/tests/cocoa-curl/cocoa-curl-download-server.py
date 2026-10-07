@@ -4,6 +4,8 @@ import argparse, base64, gzip, json, pathlib, socket, threading
 BODY = bytes(range(256)) * 8192
 LOCK = threading.Lock()
 PRIVATE_TRANSFERS = {}
+# cocoa-curl-downloads cancels each of these at 64 KiB and resumes it with a Range request.
+RESUMED_PATHS = {'/ignore-range', '/invalid-range', '/changed-etag', '/compressed-range', '/short-range'}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -76,6 +78,11 @@ def main():
                         client.recv(1)
                     else:
                         client.sendall(body)
+                elif path in RESUMED_PATHS and status == '200 OK' and 'range' not in headers:
+                    # The first leg of a resume case delivers a 64 KiB prefix and waits for the cancellation, so
+                    # the resumed request starts at that offset however the transport groups its deliveries.
+                    client.sendall(body[:65536])
+                    client.recv(1)
                 else:
                     client.sendall(body)
         except (BrokenPipeError, ConnectionResetError):

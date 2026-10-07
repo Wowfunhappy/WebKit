@@ -78,9 +78,8 @@ public:
         client->m_adoptedResponse = WTF::move(transfer.response);
         client->m_adoptedCompletion = [client, data = WTF::move(transfer.bufferedData), completion = WTF::move(continuation)]() mutable {
             if (!client->m_finished && !data.isEmpty())
-                client->curlReceivedData(SharedBuffer::create(WTF::move(data)), WTF::move(completion));
-            else
-                completion();
+                client->curlReceivedData(SharedBuffer::create(WTF::move(data)));
+            completion();
         };
         return client;
     }
@@ -111,7 +110,7 @@ private:
     void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final { }
-    void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;
+    void curlReceivedData(const SharedBuffer&) final;
     void curlSentData(uint64_t, uint64_t) final { }
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
     void curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion) final
@@ -347,10 +346,9 @@ void WebDownloadCurlClient::beginTransfer()
         curlReceivedResponse(WTF::move(response), [protectedThis = Ref { *this }, data = retainPtr([cache.entry data])] {
             if (protectedThis->m_finished)
                 return;
-            protectedThis->curlReceivedData(SharedBuffer::create(data.get()), [protectedThis] {
-                if (!protectedThis->m_finished)
-                    protectedThis->curlCompleted({ }, { });
-            });
+            protectedThis->curlReceivedData(SharedBuffer::create(data.get()));
+            if (!protectedThis->m_finished)
+                protectedThis->curlCompleted({ }, { });
         });
         return;
     }
@@ -427,7 +425,8 @@ void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& res
                 completion();
                 return;
             }
-            protectedThis->curlReceivedData(SharedBuffer::create(data.get()), WTF::move(completion));
+            protectedThis->curlReceivedData(SharedBuffer::create(data.get()));
+            completion();
         };
     }
     if (!m_storage) {
@@ -723,11 +722,10 @@ bool WebDownloadCurlClient::write(std::span<const uint8_t> bytes)
     return !m_finished;
 }
 
-void WebDownloadCurlClient::curlReceivedData(const SharedBuffer& buffer, CompletionHandler<void()>&& completion)
+void WebDownloadCurlClient::curlReceivedData(const SharedBuffer& buffer)
 {
     if (!m_inflateInitialized) {
         write(buffer.span());
-        completion();
         return;
     }
     m_inflate.next_in = const_cast<Bytef *>(buffer.span().data());
@@ -756,7 +754,6 @@ void WebDownloadCurlClient::curlReceivedData(const SharedBuffer& buffer, Complet
         if (m_inflateEnded && !m_inflate.avail_in)
             break;
     } while (m_inflate.avail_in || !m_inflate.avail_out);
-    completion();
 }
 
 void WebDownloadCurlClient::curlCompleted(const ResourceError& error, const NetworkLoadMetrics&)

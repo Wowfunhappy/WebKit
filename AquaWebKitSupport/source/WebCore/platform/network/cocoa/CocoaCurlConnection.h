@@ -6,6 +6,7 @@
 
 // session-owned worker pools bridge curl I/O to main-thread browser policy or a synchronous loader queue.
 #include "CocoaCurlTransfer.h"
+#include <wtf/Deque.h>
 #include <wtf/Function.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/ThreadSafeWeakPtr.h>
@@ -53,16 +54,24 @@ public:
     void setClient(CocoaCurlTransferClient&);
     void setPriority(ResourceLoadPriority);
     void setDefersLoading(bool);
+    // A client that cannot take the body yet, because the response it published awaits policy, holds
+    // delivery: the transfer is deferred, and callbacks already on their way wait, in order, until release.
+    void setHoldsDelivery(bool);
     std::shared_ptr<CocoaCurlTLSState> tlsState() const { return m_tls; }
 private:
     CocoaCurlConnection(CocoaCurlConnectionPool&, CocoaCurlTransferClient&, CocoaCurlTransferOptions&&, SynchronousLoaderMessageQueue*, ClientDispatcher&&);
     void dispatchToClient(Function<void()>&&);
+    // A transfer callback for the client, which waits while the client defers loading or holds delivery.
+    void deliverToClient(Function<void()>&&);
+    void runClientCallback(Function<void()>&&);
+    void runHeldCallbacks();
+    void updateTransferDeferral();
     void acknowledge();
     std::shared_ptr<CocoaCurlTLSState> copyTLSState();
     void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final;
-    void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;
+    void curlReceivedData(const SharedBuffer&) final;
     void curlSentData(uint64_t, uint64_t) final;
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
     void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) final;
@@ -76,6 +85,8 @@ private:
     std::shared_ptr<CocoaCurlTLSState> m_tls; // Main-thread snapshot; never the worker's mutable handshake state.
     bool m_cancelled { false }; // Main thread only.
     bool m_deferred { false }; // Main thread only.
+    bool m_holdsDelivery { false }; // Main thread only.
+    Deque<Function<void()>> m_heldCallbacks; // Main thread only.
     RefPtr<CocoaCurlTransfer> m_transfer; // Worker only.
     CompletionHandler<void(std::optional<String>&&)> m_cookieContinuation; // Worker only.
     CompletionHandler<void()> m_continuation; // Worker only; never destroy a transport Ref on the client thread.

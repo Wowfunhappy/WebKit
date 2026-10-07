@@ -57,6 +57,7 @@ private:
     void beginTransfer();
     void detachTransfer();
     void continueTransfer();
+    void holdDelivery();
     void publishResponse();
     void publishCachedResponse(ResourceResponse&&, NSCachedURLResponse *);
     void deliver(std::span<const uint8_t>);
@@ -69,7 +70,7 @@ private:
     void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final;
-    void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;
+    void curlReceivedData(const SharedBuffer&) final;
     void curlSentData(uint64_t, uint64_t) final;
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
     void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) final;
@@ -107,6 +108,8 @@ private:
     bool m_cancelled { false };
     bool m_deferred { false };
     bool m_waitingForPolicy { false };
+    // The connection's delivery is held while a response published after body bytes awaits policy.
+    bool m_holdsDelivery { false };
     bool m_needsSniff { false };
     bool m_noSniff { false };
     bool m_useResponse { false };

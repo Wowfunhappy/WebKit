@@ -43,7 +43,7 @@ private:
     IdentityProbe(SecIdentityRef identity, bool supply) : m_identity(identity), m_supply(supply) { }
     void curlReceivedCookies(Vector<String>&&, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
     void curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion) final { m_status = response.response.httpStatusCode(); completion(); }
-    void curlReceivedData(const SharedBuffer& data, CompletionHandler<void()>&& completion) final { m_body = makeString(m_body, String::fromUTF8(data.span())); completion(); }
+    void curlReceivedData(const SharedBuffer& data) final { m_body = makeString(m_body, String::fromUTF8(data.span())); }
     void curlSentData(uint64_t, uint64_t) final { }
     void curlReceivedInformationalResponse(ResourceResponse&&) final { }
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion) final

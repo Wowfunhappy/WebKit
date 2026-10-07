@@ -821,7 +821,7 @@ void CocoaCurlTransfer::setDefersLoading(bool deferred)
 
 void CocoaCurlTransfer::activity()
 {
-    if (m_running && !m_clientInteractions && !m_deferred && m_timeout > 0_s && std::isfinite(m_timeout.seconds()))
+    if (m_running && !m_clientInteractions && !m_deferred && !m_windowFull && m_timeout > 0_s && std::isfinite(m_timeout.seconds()))
         m_timer.startOneShot(m_timeout);
 }
 
@@ -1127,14 +1127,8 @@ size_t CocoaCurlTransfer::data(std::span<const char> bytes)
     activity();
     if (m_status == 101)
         return bytes.size();
-    // libcurl coalesces received bytes in its pause buffer. A replay can include both the delivered
-    // prefix and previously unseen bytes. Keep the prefix until this complete callback buffer can be
-    // acknowledged.
-    if (bytes.size() <= m_deliveredDataBytes) {
-        m_deliveredDataBytes -= bytes.size();
-        return bytes.size();
-    }
-    if (m_deferred)
+    // A paused write is not taken; libcurl presents the same bytes again once the transfer resumes.
+    if (m_deferred || m_windowFull)
         return CURL_WRITEFUNC_PAUSE;
     // curl delivers a headerless HTTP/0.9 response directly to the body callback.
     // Preserve its version so the loader applies the same policy as native CFNetwork.
@@ -1148,33 +1142,44 @@ size_t CocoaCurlTransfer::data(std::span<const char> bytes)
         if (finalizeHeaders() == HeaderSection::Rejected)
             return CURL_WRITEFUNC_ERROR;
     }
-    auto received = asBytes(bytes.subspan(m_deliveredDataBytes));
-    if (m_decoder) {
-        m_decoder->append(received);
-        if (!takeDecodedData()) {
-            m_decodeFailed = true;
-            return CURL_WRITEFUNC_ERROR;
-        }
-        // Input that completes no output yet is taken without a client round trip.
-        if (!m_data) {
-            m_deliveredDataBytes = 0;
-            return bytes.size();
-        }
-    } else
-        m_data = SharedBuffer::create(received);
-    m_dataReceivedBytes = received.size();
-    ++m_clientInteractions;
-    m_timer.stop();
-    m_scheduler->runLoop().dispatch([transfer = Ref { *this }] {
-        --transfer->m_clientInteractions;
-        if (!transfer->m_running)
-            return;
-        if (!transfer->m_publishedResponse)
-            transfer->publishResponse();
-        else
-            transfer->deliverData();
-    });
-    return CURL_WRITEFUNC_PAUSE;
+    // The body waits for the client to take the response, as upstream's CurlRequest pauses its first
+    // write until completeDidReceiveResponse.
+    if (!m_publishedResponse) {
+        ++m_clientInteractions;
+        m_timer.stop();
+        m_scheduler->runLoop().dispatch([transfer = Ref { *this }] {
+            --transfer->m_clientInteractions;
+            if (transfer->m_running)
+                transfer->publishResponse();
+        });
+        return CURL_WRITEFUNC_PAUSE;
+    }
+    auto received = asBytes(bytes);
+    if (!m_decoder) {
+        deliver(SharedBuffer::create(received));
+        return bytes.size();
+    }
+    m_decoder->append(received);
+    if (!deliverDecodedData()) {
+        m_decodeFailed = true;
+        return CURL_WRITEFUNC_ERROR;
+    }
+    return bytes.size();
+}
+
+// Decoded output goes out until the window fills; the rest stays in the decoder, and libcurl's next write
+// waits for the window to drain.
+bool CocoaCurlTransfer::deliverDecodedData()
+{
+    while (!m_windowFull) {
+        auto decoded = m_decoder->read(CURL_MAX_WRITE_SIZE);
+        if (!decoded)
+            return false;
+        if (decoded->isEmpty())
+            return true;
+        deliver(SharedBuffer::create(WTF::move(*decoded)));
+    }
+    return true;
 }
 
 // ResourceResponse::platformCertificateInfo's rule: a load that includes certificate info gets a trust
@@ -1227,61 +1232,64 @@ void CocoaCurlTransfer::publishResponse()
     curl_easy_getinfo(m_easy, CURLINFO_PROXYAUTH_AVAIL, &m_response.proxyAuthentication);
     client->curlReceivedResponse(CocoaCurlTransferResponse(m_response), [transfer = Ref { *this }] {
         --transfer->m_clientInteractions;
-        if (!transfer->m_running)
-            return;
-        if (transfer->m_data)
-            transfer->deliverData();
-        else
+        if (transfer->m_running)
             transfer->resumeTransfer();
     });
 }
 
-void CocoaCurlTransfer::deliverData()
+// Body data goes to the client in order. While one delivery is with the client, later writes join the next,
+// as 10.9 CFNetwork hands its delegate everything it read since the previous didReceiveData. Delivery leaves
+// libcurl's write callback, so a client may cancel from it.
+void CocoaCurlTransfer::deliver(Ref<SharedBuffer>&& data)
 {
-    if (!m_running || m_deferred || !m_data)
-        return;
-    RefPtr client = m_client;
-    if (!client) {
-        cancel();
-        return;
-    }
-    Ref data = m_data.releaseNonNull();
     m_metrics.responseBodyDecodedSize += data->size();
-    ++m_clientInteractions;
-    client->curlReceivedData(data.get(), [transfer = Ref { *this }, size = std::exchange(m_dataReceivedBytes, 0)] {
-        --transfer->m_clientInteractions;
-        if (!transfer->m_running)
+    m_outstandingBytes += data->size();
+    if (m_outstandingBytes > maximumOutstandingBytes) {
+        m_windowFull = true;
+        m_timer.stop();
+    }
+    m_undeliveredData.append(data.get());
+    if (!m_deliveryInFlight)
+        postDelivery();
+}
+
+void CocoaCurlTransfer::postDelivery()
+{
+    m_deliveryInFlight = true;
+    m_scheduler->runLoop().dispatch([transfer = Ref { *this }, data = m_undeliveredData.takeBufferAsContiguous()] {
+        if (transfer->m_cancelled)
             return;
-        transfer->m_deliveredDataBytes += size;
-        transfer->resumeTransfer();
+        if (RefPtr client = transfer->m_client)
+            client->curlReceivedData(data.get());
     });
 }
 
-// The decoder's next output, at most one libcurl write's worth; libcurl's buffer is acknowledged only
-// once every byte decoded from it is delivered.
-bool CocoaCurlTransfer::takeDecodedData()
+// 10.9 CFNetwork resumes a halted protocol once its client has acknowledged every outstanding byte
+// (URLProtocol::ackOutstandingDataBytes).
+void CocoaCurlTransfer::didConsumeData(size_t size)
 {
-    auto decoded = m_decoder->read(CURL_MAX_WRITE_SIZE);
-    if (!decoded)
-        return false;
-    if (!decoded->isEmpty())
-        m_data = SharedBuffer::create(WTF::move(*decoded));
-    return true;
+    ASSERT(m_scheduler->runLoop().isCurrent());
+    ASSERT(size <= m_outstandingBytes);
+    m_outstandingBytes -= std::min(size, m_outstandingBytes);
+    m_deliveryInFlight = false;
+    if (!m_undeliveredData.isEmpty())
+        postDelivery();
+    if (m_outstandingBytes || !m_windowFull || !m_running)
+        return;
+    m_windowFull = false;
+    if (m_decoder && !m_decodeFailed && !deliverDecodedData()) {
+        m_decodeFailed = true;
+        finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
+        return;
+    }
+    resumeTransfer();
 }
 
 void CocoaCurlTransfer::resumeTransfer()
 {
-    if (!m_running || m_deferred || m_clientInteractions)
+    if (!m_running || m_deferred || m_windowFull || m_clientInteractions)
         return;
     activity();
-    if (!m_data && m_decoder && !m_decodeFailed && !takeDecodedData()) {
-        finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
-        return;
-    }
-    if (m_data) {
-        deliverData();
-        return;
-    }
     if (m_result) {
         curlDidComplete(*m_result);
         return;
@@ -1339,7 +1347,7 @@ bool validateCocoaCurlResumeResponse(const ResourceResponse& response, uint64_t 
         return false;
     auto& range = response.contentRange();
     auto encoding = response.httpHeaderField(HTTPHeaderName::ContentEncoding);
-    if (!range.isValid() || range.firstBytePosition() != offset || (!encoding.isEmpty() && !equalIgnoringASCIICase(encoding, "identity"_s)))
+    if (!range.isValid() || static_cast<uint64_t>(range.firstBytePosition()) != offset || (!encoding.isEmpty() && !equalIgnoringASCIICase(encoding, "identity"_s)))
         return false;
     if (validator.startsWith('"')) {
         auto etag = response.httpHeaderField(HTTPHeaderName::ETag);
@@ -1494,12 +1502,12 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
         return;
     }
     // A body that cannot be decoded, or that ends partway through its coding, fails after its response.
-    if (m_decodeFailed || (result == CURLE_OK && m_decoder && !m_decoder->isComplete() && !m_clientInteractions && !m_deferred && !m_data)) {
+    if (m_decodeFailed || (result == CURLE_OK && m_decoder && !m_decoder->isComplete() && !m_clientInteractions && !m_deferred && !m_windowFull)) {
         finish(NSURLErrorCannotDecodeContentData, "Cannot decode the response body"_s);
         return;
     }
     if (result == CURLE_OK) {
-        if (m_clientInteractions || m_deferred || m_data)
+        if (m_clientInteractions || m_deferred || m_windowFull)
             return;
         finish(m_finalHeaders || m_options.preconnect ? 0 : NSURLErrorBadServerResponse, "Missing HTTP response"_s);
         return;
@@ -1578,7 +1586,6 @@ void CocoaCurlTransfer::finish(int code, const String& message)
     if (m_proxyResolver)
         m_proxyResolver->cancel();
     closeUpload();
-    m_data = nullptr;
     m_metrics.responseEnd = MonotonicTime::now();
     m_metrics.markComplete();
     ResourceError error;
@@ -1610,6 +1617,9 @@ void CocoaCurlTransfer::finish(int code, const String& message)
             userInfo.get()[NSURLErrorFailingURLPeerTrustErrorKey] = (id)m_tls->trust.get();
         error = ResourceError([NSError errorWithDomain:domain code:code userInfo:userInfo.get()]);
     }
+    // The body still waiting behind a delivery goes ahead of the completion.
+    if (!m_cancelled && !m_undeliveredData.isEmpty())
+        postDelivery();
     m_scheduler->runLoop().dispatch([transfer = Ref { *this }, error = WTF::move(error)] {
         if (RefPtr client = transfer->m_client)
             client->curlCompleted(error, transfer->m_metrics);

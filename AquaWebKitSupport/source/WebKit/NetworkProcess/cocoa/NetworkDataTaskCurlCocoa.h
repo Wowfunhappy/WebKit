@@ -84,7 +84,7 @@ private:
     void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(WebCore::CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(WebCore::ResourceResponse&&) final;
-    void curlReceivedData(const WebCore::SharedBuffer&, CompletionHandler<void()>&&) final;
+    void curlReceivedData(const WebCore::SharedBuffer&) final;
     void curlSentData(uint64_t, uint64_t) final;
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
     void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) final;
@@ -107,7 +107,8 @@ private:
     Vector<uint8_t> downloadResumeData() const;
     void publishResponse();
     void decidePolicy(WebCore::PolicyAction);
-    void deliverData();
+    void deliverData(const WebCore::SharedBuffer&);
+    void holdDelivery();
     void didReceiveHeaderFromMultipart(Vector<String>&&) final;
     void didReceiveDataFromMultipart(std::span<const uint8_t>) final;
     void didCompleteFromMultipart() final;
@@ -167,9 +168,10 @@ private:
     RefPtr<CurlNetworkScheduler> m_scheduler;
     std::unique_ptr<WebCore::CurlMultipartHandle> m_multipart;
     bool m_waitingForMultipartPolicy { false };
+    // The connection's delivery is held while a response published after body bytes awaits policy.
+    bool m_holdsDelivery { false };
     WebCore::ResourceResponse m_response;
     String m_responseContentType;
-    RefPtr<const WebCore::SharedBuffer> m_pendingData;
     WebCore::NetworkLoadMetrics m_metrics;
     std::optional<WebCore::ResourceError> m_result;
     RefPtr<WebCore::CocoaCurlConnection> m_transfer;

@@ -13,6 +13,7 @@
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/AbstractRefCounted.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Expected.h>
@@ -28,7 +29,6 @@ class CocoaCurlContentDecoder;
 class CocoaCurlProxyResolver;
 class NetworkStorageSession;
 class ResourceError;
-class SharedBuffer;
 class CocoaCurlTransfer;
 class BlobRegistryImpl;
 
@@ -143,7 +143,7 @@ public:
     virtual void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) = 0;
     virtual void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) = 0;
     virtual void curlReceivedInformationalResponse(ResourceResponse&&) = 0;
-    virtual void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) = 0;
+    virtual void curlReceivedData(const SharedBuffer&) = 0;
     virtual void curlSentData(uint64_t uploaded, uint64_t total) = 0;
     virtual void curlRequestedIdentity(CFArrayRef authorities, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) = 0;
     virtual void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) = 0;
@@ -161,6 +161,8 @@ public:
     void invalidateClient();
     void setPriority(ResourceLoadPriority);
     void setDefersLoading(bool);
+    // The client has taken this many delivered body bytes; see maximumOutstandingBytes.
+    void didConsumeData(size_t);
     std::shared_ptr<CocoaCurlTLSState> tlsState() const { return m_tls; }
     const ResourceRequest& request() const { return m_options.request; }
     const CocoaCurlTransferResponse& response() const { return m_response; }
@@ -178,8 +180,9 @@ private:
     void timeout();
     void publishResponse();
     bool evaluateResponseTrust();
-    void deliverData();
-    bool takeDecodedData();
+    void deliver(Ref<SharedBuffer>&&);
+    void postDelivery();
+    bool deliverDecodedData();
     void resumeTransfer();
     void updateTLS();
     void updateMetrics();
@@ -211,7 +214,6 @@ private:
     CURL* m_easy { nullptr };
     curl_slist* m_headers { nullptr };
     std::array<char, CURL_ERROR_SIZE> m_errorBuffer { };
-    RefPtr<SharedBuffer> m_data;
     HTTPHeaderMap m_responseHeaders;
     String m_contentType;
     Vector<String> m_setCookies;
@@ -238,10 +240,15 @@ private:
     unsigned m_clientInteractions { 0 };
     // The response body's decoding, once the final header section names its codings.
     std::unique_ptr<CocoaCurlContentDecoder> m_decoder;
-    // Received body bytes stay in libcurl's pause buffer until the client takes their output; a replay
-    // presents the delivered prefix again. Both counts are of received bytes.
-    size_t m_deliveredDataBytes { 0 };
-    size_t m_dataReceivedBytes { 0 };
+    // Delivered body bytes the client has not consumed. Past the limit 10.9 CFNetwork's URLProtocol::initialize sets
+    // (1 MiB), the transfer takes no further write until the client has consumed them all, as CFNetwork halts a
+    // protocol that far ahead of its client.
+    static constexpr size_t maximumOutstandingBytes = 1 << 20;
+    size_t m_outstandingBytes { 0 };
+    bool m_windowFull { false };
+    // Decoded body written since the delivery the client has not consumed yet.
+    SharedBufferBuilder m_undeliveredData;
+    bool m_deliveryInFlight { false };
     bool m_decodeFailed { false };
     bool m_acknowledgeHeader { false };
     bool m_deferred { false };

@@ -203,7 +203,7 @@ private:
     }
     void curlReceivedInformationalResponse(ResourceResponse&&) final { }
     void curlSentData(uint64_t, uint64_t) final { }
-    void curlReceivedData(const SharedBuffer& bytes, CompletionHandler<void()>&& completion) final { m_bytes += bytes.size(); completion(); }
+    void curlReceivedData(const SharedBuffer& bytes) final { m_bytes += bytes.size(); }
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion) final { completion(nullptr, nullptr); }
     // The platform's own evaluation of the server chain is the answer.
     void curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion) final

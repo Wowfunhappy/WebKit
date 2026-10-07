@@ -66,7 +66,7 @@ private:
     }
     void curlReceivedInformationalResponse(ResourceResponse&&) final { }
     void curlSentData(uint64_t, uint64_t) final { }
-    void curlReceivedData(const SharedBuffer& bytes, CompletionHandler<void()>&& completion) final
+    void curlReceivedData(const SharedBuffer& bytes) final
     {
         m_result.responseBeforeData &= m_result.responses == 1;
         if (m_result.verifyBody) {
@@ -79,7 +79,7 @@ private:
             }
         }
         m_result.bytes += bytes.size();
-        completion();
+        m_transfer->didConsumeData(bytes.size());
     }
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion) final { completion(nullptr, nullptr); }
     // The platform's own evaluation of the server chain is the answer.
@@ -143,11 +143,10 @@ private:
         m_status = response.response.httpStatusCode();
         completion();
     }
-    void curlReceivedData(const SharedBuffer& data, CompletionHandler<void()>&& completion) final
+    void curlReceivedData(const SharedBuffer& data) final
     {
         ASSERT(isMainThread());
         m_bytes += data.size();
-        completion();
     }
     void curlSentData(uint64_t, uint64_t) final { }
     void curlReceivedInformationalResponse(ResourceResponse&&) final { }

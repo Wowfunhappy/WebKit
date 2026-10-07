@@ -113,7 +113,7 @@ void CocoaCurlConnection::start()
     options.proxyUser = options.proxyUser.isolatedCopy();
     options.proxyPassword = options.proxyPassword.isolatedCopy();
     options.connectionPartition = options.connectionPartition.isolatedCopy();
-    m_pool->runLoop().dispatch([connection = Ref { *this }, options = WTF::move(options), deferred = m_deferred]() mutable {
+    m_pool->runLoop().dispatch([connection = Ref { *this }, options = WTF::move(options), deferred = m_deferred || m_holdsDelivery]() mutable {
         auto& scheduler = connection->m_pool->scheduler(options.connectionPartition, connection->m_messageQueue ? CocoaCurlConnectionPool::Loader::Synchronous : CocoaCurlConnectionPool::Loader::Asynchronous);
         connection->m_transfer = CocoaCurlTransfer::create(scheduler, connection.get(), WTF::move(options));
         connection->m_transfer->setDefersLoading(deferred);
@@ -126,6 +126,7 @@ void CocoaCurlConnection::cancel()
     if (std::exchange(m_cancelled, true))
         return;
     m_options.reset();
+    m_heldCallbacks.clear();
     m_pool->runLoop().dispatch([connection = Ref { *this }] {
         if (connection->m_transfer)
             connection->m_transfer->invalidateClient();
@@ -166,8 +167,25 @@ void CocoaCurlConnection::setPriority(ResourceLoadPriority priority)
 void CocoaCurlConnection::setDefersLoading(bool deferred)
 {
     ASSERT(isMainThread());
-    m_deferred = deferred;
+    if (std::exchange(m_deferred, deferred) == deferred)
+        return;
+    updateTransferDeferral();
+}
+void CocoaCurlConnection::setHoldsDelivery(bool holds)
+{
+    ASSERT(isMainThread());
+    if (std::exchange(m_holdsDelivery, holds) == holds)
+        return;
+    updateTransferDeferral();
+}
+void CocoaCurlConnection::updateTransferDeferral()
+{
+    ASSERT(isMainThread());
+    bool deferred = m_deferred || m_holdsDelivery;
     m_pool->runLoop().dispatch([connection = Ref { *this }, deferred] {
+        // The callbacks the client held run ahead of everything the resumed transfer sends.
+        if (!deferred)
+            connection->dispatchToClient([connection] { connection->runHeldCallbacks(); });
         if (connection->m_transfer)
             connection->m_transfer->setDefersLoading(deferred);
     });
@@ -181,6 +199,29 @@ void CocoaCurlConnection::dispatchToClient(Function<void()>&& callback)
         m_clientDispatcher(WTF::move(callback));
     else
         RunLoop::mainSingleton().dispatch(WTF::move(callback));
+}
+void CocoaCurlConnection::deliverToClient(Function<void()>&& callback)
+{
+    dispatchToClient([connection = Ref { *this }, callback = WTF::move(callback)]() mutable {
+        connection->runClientCallback(WTF::move(callback));
+    });
+}
+void CocoaCurlConnection::runClientCallback(Function<void()>&& callback)
+{
+    ASSERT(isMainThread());
+    if (m_cancelled)
+        return;
+    if (m_deferred || m_holdsDelivery || !m_heldCallbacks.isEmpty()) {
+        m_heldCallbacks.append(WTF::move(callback));
+        return;
+    }
+    callback();
+}
+void CocoaCurlConnection::runHeldCallbacks()
+{
+    ASSERT(isMainThread());
+    while (!m_cancelled && !m_deferred && !m_holdsDelivery && !m_heldCallbacks.isEmpty())
+        m_heldCallbacks.takeFirst()();
 }
 void CocoaCurlConnection::acknowledge()
 {
@@ -213,7 +254,7 @@ void CocoaCurlConnection::curlReceivedCookies(Vector<String>&& fields, int statu
     ASSERT(!m_cookieContinuation);
     m_cookieContinuation = WTF::move(completion);
     auto cookies = fields.map([](const String& field) { return field.isolatedCopy(); });
-    dispatchToClient([connection = Ref { *this }, cookies = WTF::move(cookies), statusCode, remoteAddress = remoteAddress.isolatedCopy(), canonicalName = canonicalName.isolatedCopy()]() mutable {
+    deliverToClient([connection = Ref { *this }, cookies = WTF::move(cookies), statusCode, remoteAddress = remoteAddress.isolatedCopy(), canonicalName = canonicalName.isolatedCopy()]() mutable {
         if (connection->m_cancelled)
             return;
         RefPtr client = connection->m_client;
@@ -234,7 +275,7 @@ void CocoaCurlConnection::curlReceivedResponse(CocoaCurlTransferResponse&& respo
     ASSERT(!m_continuation);
     m_continuation = WTF::move(completion);
     auto data = response.response.crossThreadData();
-    dispatchToClient([connection = Ref { *this }, data = WTF::move(data), contentType = response.contentType.isolatedCopy(), canonicalName = response.canonicalName.isolatedCopy(), proxy = response.proxyHost.isolatedCopy(), port = response.proxyPort, authentication = response.authentication, proxyAuthentication = response.proxyAuthentication, metrics = response.metrics.isolatedCopy(), tls = copyTLSState()]() mutable {
+    deliverToClient([connection = Ref { *this }, data = WTF::move(data), contentType = response.contentType.isolatedCopy(), canonicalName = response.canonicalName.isolatedCopy(), proxy = response.proxyHost.isolatedCopy(), port = response.proxyPort, authentication = response.authentication, proxyAuthentication = response.proxyAuthentication, metrics = response.metrics.isolatedCopy(), tls = copyTLSState()]() mutable {
         if (connection->m_cancelled)
             return;
         connection->m_tls = WTF::move(tls);
@@ -246,29 +287,33 @@ void CocoaCurlConnection::curlReceivedResponse(CocoaCurlTransferResponse&& respo
 }
 void CocoaCurlConnection::curlReceivedInformationalResponse(ResourceResponse&& response)
 {
-    dispatchToClient([connection = Ref { *this }, data = response.crossThreadData()]() mutable {
+    deliverToClient([connection = Ref { *this }, data = response.crossThreadData()]() mutable {
         if (!connection->m_cancelled) {
             if (RefPtr client = connection->m_client)
                 client->curlReceivedInformationalResponse(ResourceResponse::fromCrossThreadData(WTF::move(data)));
         }
     });
 }
-void CocoaCurlConnection::curlReceivedData(const SharedBuffer& data, CompletionHandler<void()>&& completion)
+void CocoaCurlConnection::curlReceivedData(const SharedBuffer& data)
 {
-    ASSERT(!m_continuation);
-    m_continuation = WTF::move(completion);
-    dispatchToClient([connection = Ref { *this }, data = Ref { data }] {
+    deliverToClient([connection = Ref { *this }, data = Ref { data }] {
         if (connection->m_cancelled)
             return;
-        if (RefPtr client = connection->m_client)
-            client->curlReceivedData(data, [connection] { connection->acknowledge(); });
-        else
+        RefPtr client = connection->m_client;
+        if (!client) {
             connection->cancel();
+            return;
+        }
+        client->curlReceivedData(data);
+        connection->m_pool->runLoop().dispatch([connection, size = data->size()] {
+            if (connection->m_transfer)
+                connection->m_transfer->didConsumeData(size);
+        });
     });
 }
 void CocoaCurlConnection::curlSentData(uint64_t sent, uint64_t total)
 {
-    dispatchToClient([connection = Ref { *this }, sent, total] {
+    deliverToClient([connection = Ref { *this }, sent, total] {
         if (!connection->m_cancelled) {
             if (RefPtr client = connection->m_client)
                 client->curlSentData(sent, total);
@@ -279,7 +324,7 @@ void CocoaCurlConnection::curlRequestedIdentity(CFArrayRef authorities, Completi
 {
     ASSERT(!m_identityContinuation);
     m_identityContinuation = WTF::move(completion);
-    dispatchToClient([connection = Ref { *this }, authorities = retainPtr(authorities)] {
+    deliverToClient([connection = Ref { *this }, authorities = retainPtr(authorities)] {
         if (connection->m_cancelled)
             return;
         if (RefPtr client = connection->m_client) {
@@ -298,7 +343,7 @@ void CocoaCurlConnection::curlRequestedServerTrust(CompletionHandler<void(bool)>
     m_trustContinuations.append(WTF::move(completion));
     if (m_trustContinuations.size() > 1)
         return;
-    dispatchToClient([connection = Ref { *this }, tls = copyTLSState()]() mutable {
+    deliverToClient([connection = Ref { *this }, tls = copyTLSState()]() mutable {
         if (connection->m_cancelled)
             return;
         connection->m_tls = WTF::move(tls);
@@ -316,7 +361,7 @@ void CocoaCurlConnection::curlRequestedServerTrust(CompletionHandler<void(bool)>
 void CocoaCurlConnection::curlCompleted(const ResourceError& error, const NetworkLoadMetrics& metrics)
 {
     // NSError is immutable; retain its native trust and diagnostic userInfo while each thread constructs its own lazy ResourceError wrapper.
-    dispatchToClient([connection = Ref { *this }, error = retainPtr(error.nsError()), metrics = metrics.isolatedCopy(), tls = copyTLSState()] {
+    deliverToClient([connection = Ref { *this }, error = retainPtr(error.nsError()), metrics = metrics.isolatedCopy(), tls = copyTLSState()] {
         if (connection->m_cancelled)
             return;
         connection->m_tls = tls;
