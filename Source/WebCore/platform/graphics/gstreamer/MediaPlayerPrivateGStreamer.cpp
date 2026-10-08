@@ -552,6 +552,8 @@ void MediaPlayerPrivateGStreamer::pause()
 #endif
     } else if (result == ChangePipelineStateResult::Failed)
         loadingFailed(MediaPlayer::NetworkState::Empty);
+    else if (result == ChangePipelineStateResult::Rejected) // AQUAWEBKIT: a pause rejected during preroll is applied when the preroll completes, see updateStates().
+        m_isPipelinePlaying = false;
 }
 
 bool MediaPlayerPrivateGStreamer::paused() const
@@ -3245,6 +3247,11 @@ void MediaPlayerPrivateGStreamer::updateStates()
             } else if (shouldPauseForBuffering) {
                 GST_INFO_OBJECT(pipeline(), "[Buffering] Pausing stream for buffering.");
                 m_playbackRatePausedState = PlaybackRatePausedState::BufferingPaused;
+                changePipelineState(GST_STATE_PAUSED);
+            }
+            // AQUAWEBKIT: a pause() rejected during preroll is applied once the preroll completes.
+            if (!m_isPipelinePlaying && m_playbackRatePausedState == PlaybackRatePausedState::ManuallyPaused) {
+                GST_INFO_OBJECT(pipeline(), "Applying the pause requested during preroll.");
                 changePipelineState(GST_STATE_PAUSED);
             }
         } else

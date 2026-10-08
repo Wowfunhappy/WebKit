@@ -412,7 +412,10 @@ void MediaPlayerPrivateGStreamerMSE::propagateReadyStateToPlayer()
 
     // The readyState change may be a result of monitorSourceBuffers() finding that currentTime == duration, which
     // should cause the video to be marked as ended. Let's have the player check that.
-    if (player && currentTime() == duration())
+    // AQUAWEBKIT: the sinks render a final decoded frame whole, so the position can run past the duration before
+    // their EOS; a position at or past the duration ends playback.
+    // if (player && currentTime() == duration())
+    if (player && currentTime() >= duration())
         player->timeChanged();
 }
 
