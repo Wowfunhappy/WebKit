@@ -5211,9 +5211,14 @@ void RenderLayerCompositor::ensureRootLayer()
             updateScrollLayerClipping();
             updateOverflowControlsLayers();
 
-            if (hasCoordinatedScrolling())
+            // if (hasCoordinatedScrolling())
+            //     scheduleRenderingUpdate();
+            if (hasCoordinatedScrolling()) {
+                // AQUAWEBKIT: a newly created scrolled-contents layer starts at the frame's current scroll position;
+                // the scrolling tree's first commit sends no reconciliation that would set it.
+                m_scrolledContentsLayer->setPosition(-m_renderView.frameView().scrollPosition());
                 scheduleRenderingUpdate();
-            else
+            } else // AQUAWEBKIT: closes the coordinated branch above.
                 updateScrollLayerPosition();
         }
     } else {
