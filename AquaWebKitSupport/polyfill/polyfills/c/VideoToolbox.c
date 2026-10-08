@@ -57,13 +57,8 @@ WK_POLYFILL_ABSENT("VideoToolbox", OSStatus, VTGetDefaultColorAttributesWithHint
     return noErr;
 }
 
-// VTPixelBufferConformerCopyConformedPixelBuffer gained its ensureModifiable parameter after 10.9:
-// here the export is (conformer, sourceBuffer, conformedBufferOut), and a caller using the modern
-// four-argument shape lands its Boolean in the out-pointer register, which the implementation
-// rejects with kVTParameterErr. This replacement serves the modern signature over the three-argument
-// export. 10.9 answers a conformant source by retaining and returning that same buffer, so an
-// ensureModifiable request substitutes a fresh deep copy of it.
-// CoreVideo is looked up at runtime: images carrying this archive do not all link it.
+// The 10.9 conformer takes (conformer, sourceBuffer, conformedBufferOut). A conformant source is
+// retained and returned; ensureModifiable requires an independent copy.
 WK_SYSTEM_FN("CoreVideo", CVReturn, CVPixelBufferCreate, (CFAllocatorRef, size_t, size_t, OSType, CFDictionaryRef, CVPixelBufferRef *));
 WK_SYSTEM_FN("CoreVideo", CVReturn, CVPixelBufferLockBaseAddress, (CVPixelBufferRef, uint64_t));
 WK_SYSTEM_FN("CoreVideo", CVReturn, CVPixelBufferUnlockBaseAddress, (CVPixelBufferRef, uint64_t));
@@ -82,6 +77,57 @@ WK_SYSTEM_FN("CoreVideo", void, CVPixelBufferRelease, (CVPixelBufferRef));
 
 typedef struct OpaqueVTPixelBufferConformer *VTPixelBufferConformerRef; // private VideoToolbox type, absent from the public headers
 typedef OSStatus (*WKVTConformerCopyThreeArg)(VTPixelBufferConformerRef, CVPixelBufferRef, CVPixelBufferRef *);
+WK_SYSTEM_FN("VideoToolbox", CFDictionaryRef, VTPixelBufferConformerGetAttributes, (VTPixelBufferConformerRef));
+WK_SYSTEM_FN("CoreVideo", CFDictionaryRef, CVPixelBufferGetAttributes, (CVPixelBufferRef));
+WK_SYSTEM_FN("CoreVideo", CVReturn, CVPixelBufferPoolCreate, (CFAllocatorRef, CFDictionaryRef, CFDictionaryRef, CVPixelBufferPoolRef *));
+WK_SYSTEM_FN("CoreVideo", CVReturn, CVPixelBufferPoolCreatePixelBuffer, (CFAllocatorRef, CVPixelBufferPoolRef, CVPixelBufferRef *));
+static OSStatus wkVTCorrectConformedRGB(CVPixelBufferRef source, CVPixelBufferRef destination);
+
+static CFTypeRef wkVTConformerAttribute(CFDictionaryRef attributes, CFStringRef key)
+{
+    CFTypeRef value = attributes ? CFDictionaryGetValue(attributes, key) : NULL;
+    if (value && CFGetTypeID(value) == CFArrayGetTypeID())
+        value = CFArrayGetCount(value) ? CFArrayGetValueAtIndex(value, 0) : NULL;
+    return value;
+}
+
+// The conformer inherits missing dimensions and IOSurface properties from the source's attributes,
+// then from its dimensions and an empty IOSurface dictionary. Other allocation attributes are kept.
+static OSStatus wkVTAllocateConformedRGB(CFDictionaryRef attributes, CVPixelBufferRef source, CVPixelBufferRef *output)
+{
+    CFMutableDictionaryRef allocation = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes);
+    if (!allocation)
+        return kVTAllocationFailedErr;
+    CFDictionaryRef sourceAttributes = WK_SYSTEM(CVPixelBufferGetAttributes)(source);
+    CFStringRef keys[] = { CFSTR("Width"), CFSTR("Height"), CFSTR("IOSurfaceProperties") };
+    size_t dimensions[] = { WK_SYSTEM(CVPixelBufferGetWidth)(source), WK_SYSTEM(CVPixelBufferGetHeight)(source) };
+    for (size_t i = 0; i < 3; ++i) {
+        CFTypeRef value = wkVTConformerAttribute(attributes, keys[i]);
+        if (!value && sourceAttributes)
+            value = CFDictionaryGetValue(sourceAttributes, keys[i]);
+        if (value)
+            CFRetain(value);
+        else if (i < 2)
+            value = CFNumberCreate(kCFAllocatorDefault, kCFNumberLongType, &dimensions[i]);
+        else
+            value = CFDictionaryCreate(kCFAllocatorDefault, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        if (!value) {
+            CFRelease(allocation);
+            return kVTAllocationFailedErr;
+        }
+        CFDictionarySetValue(allocation, keys[i], value);
+        CFRelease(value);
+    }
+    CFDictionarySetValue(allocation, CFSTR("PixelFormatType"), wkVTConformerAttribute(attributes, CFSTR("PixelFormatType")));
+    CVPixelBufferPoolRef pool = NULL;
+    OSStatus status = WK_SYSTEM(CVPixelBufferPoolCreate)(kCFAllocatorDefault, NULL, allocation, &pool);
+    if (status == noErr) {
+        status = WK_SYSTEM(CVPixelBufferPoolCreatePixelBuffer)(kCFAllocatorDefault, pool, output);
+        CFRelease(pool);
+    }
+    CFRelease(allocation);
+    return status;
+}
 
 static OSStatus wkVTPixelBufferDeepCopy(CVPixelBufferRef source, CVPixelBufferRef *copyOut)
 {
@@ -125,9 +171,42 @@ static OSStatus wkVTPixelBufferDeepCopy(CVPixelBufferRef source, CVPixelBufferRe
 
 WK_POLYFILL_REPLACES("VideoToolbox", OSStatus, VTPixelBufferConformerCopyConformedPixelBuffer, (VTPixelBufferConformerRef conformer, CVPixelBufferRef sourceBuffer, Boolean ensureModifiable, CVPixelBufferRef *conformedBufferOut))
 {
+    if (conformer && sourceBuffer && conformedBufferOut) {
+        OSType sourceFormat = WK_SYSTEM(CVPixelBufferGetPixelFormatType)(sourceBuffer);
+        CFDictionaryRef attributes = WK_SYSTEM(VTPixelBufferConformerGetAttributes)(conformer);
+        CFTypeRef format = attributes ? CFDictionaryGetValue(attributes, CFSTR("PixelFormatType")) : NULL;
+        if (format && CFGetTypeID(format) == CFArrayGetTypeID() && CFArrayGetCount(format) == 1)
+            format = CFArrayGetValueAtIndex(format, 0);
+        OSType destinationFormat = 0;
+        if ((sourceFormat == kCVPixelFormatType_32ARGB || sourceFormat == kCVPixelFormatType_32BGRA)
+            && format && CFGetTypeID(format) == CFNumberGetTypeID()
+            && CFNumberGetValue(format, kCFNumberSInt32Type, &destinationFormat)
+            && destinationFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+            *conformedBufferOut = NULL;
+            OSStatus status = wkVTAllocateConformedRGB(attributes, sourceBuffer, conformedBufferOut);
+            if (status == noErr)
+                status = wkVTCorrectConformedRGB(sourceBuffer, *conformedBufferOut);
+            if (status != noErr && *conformedBufferOut) {
+                WK_SYSTEM(CVPixelBufferRelease)(*conformedBufferOut);
+                *conformedBufferOut = NULL;
+            }
+            return status;
+        }
+    }
     OSStatus status = ((WKVTConformerCopyThreeArg)(void *)WK_ORIGINAL(VTPixelBufferConformerCopyConformedPixelBuffer))(conformer, sourceBuffer, conformedBufferOut);
-    if (status != noErr || !ensureModifiable || !conformedBufferOut || *conformedBufferOut != sourceBuffer)
+    if (status != noErr || !conformedBufferOut || !*conformedBufferOut)
         return status;
+
+    if (*conformedBufferOut != sourceBuffer) {
+        status = wkVTCorrectConformedRGB(sourceBuffer, *conformedBufferOut);
+        if (status != noErr) {
+            WK_SYSTEM(CVPixelBufferRelease)(*conformedBufferOut);
+            *conformedBufferOut = NULL;
+        }
+        return status;
+    }
+    if (!ensureModifiable)
+        return noErr;
 
     CVPixelBufferRef copy = NULL;
     status = wkVTPixelBufferDeepCopy(sourceBuffer, &copy);
@@ -169,17 +248,24 @@ static CFTypeRef wkVTSessionCopyProperty(VTSessionRef session, CFStringRef key, 
     return value;
 }
 
-static void wkConvertRGB32ToBiPlanar(CVPixelBufferRef source, CVPixelBufferRef destination, const int32_t *coefficients, bool fullRange)
+static OSStatus wkConvertRGB32ToBiPlanar(CVPixelBufferRef source, CVPixelBufferRef destination, const int32_t *coefficients, bool fullRange)
 {
-    WK_SYSTEM(CVPixelBufferLockBaseAddress)(source, 1 /* kCVPixelBufferLock_ReadOnly */);
-    WK_SYSTEM(CVPixelBufferLockBaseAddress)(destination, 0);
+    CVReturn status = WK_SYSTEM(CVPixelBufferLockBaseAddress)(source, kCVPixelBufferLock_ReadOnly);
+    if (status != kCVReturnSuccess)
+        return status;
+    status = WK_SYSTEM(CVPixelBufferLockBaseAddress)(destination, 0);
+    if (status != kCVReturnSuccess) {
+        WK_SYSTEM(CVPixelBufferUnlockBaseAddress)(source, kCVPixelBufferLock_ReadOnly);
+        return status;
+    }
     wk_ycbcr_convert_rgb32(WK_SYSTEM(CVPixelBufferGetBaseAddress)(source), WK_SYSTEM(CVPixelBufferGetBytesPerRow)(source),
         WK_SYSTEM(CVPixelBufferGetPixelFormatType)(source) == kCVPixelFormatType_32ARGB,
         WK_SYSTEM(CVPixelBufferGetBaseAddressOfPlane)(destination, 0), WK_SYSTEM(CVPixelBufferGetBytesPerRowOfPlane)(destination, 0),
         WK_SYSTEM(CVPixelBufferGetBaseAddressOfPlane)(destination, 1), WK_SYSTEM(CVPixelBufferGetBytesPerRowOfPlane)(destination, 1),
         WK_SYSTEM(CVPixelBufferGetWidth)(destination), WK_SYSTEM(CVPixelBufferGetHeight)(destination), coefficients, fullRange);
     WK_SYSTEM(CVPixelBufferUnlockBaseAddress)(destination, 0);
-    WK_SYSTEM(CVPixelBufferUnlockBaseAddress)(source, 1);
+    WK_SYSTEM(CVPixelBufferUnlockBaseAddress)(source, kCVPixelBufferLock_ReadOnly);
+    return noErr;
 }
 
 // The source scaled and cropped into 32BGRA at the destination's size by a session carrying the caller's
@@ -192,7 +278,7 @@ static OSStatus wkResampleRGB32(WKVTPixelTransferFunction transfer, VTPixelTrans
     if (status != noErr)
         return status;
     CFStringRef geometryKeys[] = { CFSTR("ScalingMode"), CFSTR("DestinationCleanAperture"), CFSTR("DestinationPixelAspectRatio"), CFSTR("DownsamplingMode") };
-    for (size_t i = 0; i < sizeof(geometryKeys) / sizeof(geometryKeys[0]); ++i) {
+    for (size_t i = 0; session && i < sizeof(geometryKeys) / sizeof(geometryKeys[0]); ++i) {
         CFTypeRef value = NULL;
         if (WK_SYSTEM(VTSessionCopyProperty)(session, geometryKeys[i], kCFAllocatorDefault, &value) == noErr && value) {
             WK_SYSTEM(VTSessionSetProperty)(geometrySession, geometryKeys[i], value);
@@ -248,7 +334,7 @@ WK_POLYFILL_REPLACES("VideoToolbox", OSStatus, VTPixelTransferSessionTransferIma
             || WK_SYSTEM(CVBufferGetAttachment)((CVBufferRef)source, CFSTR("CVCleanAperture"), NULL))
             status = wkResampleRGB32(WK_ORIGINAL(VTPixelTransferSessionTransferImage), session, source, destination, &rgb);
         if (status == noErr) {
-            wkConvertRGB32ToBiPlanar(rgb, destination, coefficients, fullRange);
+            status = wkConvertRGB32ToBiPlanar(rgb, destination, coefficients, fullRange);
             if (rgb != source)
                 WK_SYSTEM(CVPixelBufferRelease)(rgb);
         }
@@ -267,5 +353,34 @@ WK_POLYFILL_REPLACES("VideoToolbox", OSStatus, VTPixelTransferSessionTransferIma
         CFRelease(sessionPrimaries);
     if (sessionTransfer)
         CFRelease(sessionTransfer);
+    return status;
+}
+
+// 420f uses full-range luma and chroma with the matrix named by its attachment.
+static OSStatus wkVTCorrectConformedRGB(CVPixelBufferRef source, CVPixelBufferRef destination)
+{
+    OSType sourceFormat = WK_SYSTEM(CVPixelBufferGetPixelFormatType)(source);
+    if ((sourceFormat != kCVPixelFormatType_32ARGB && sourceFormat != kCVPixelFormatType_32BGRA)
+        || WK_SYSTEM(CVPixelBufferGetPixelFormatType)(destination) != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
+        return noErr;
+
+    CFStringRef matrix = WK_SYSTEM(CVBufferGetAttachment)((CVBufferRef)source, CFSTR("CVImageBufferYCbCrMatrix"), NULL);
+    if (!wk_ycbcr_coefficients(matrix, true))
+        matrix = wk_ycbcr_default_matrix(WK_SYSTEM(CVPixelBufferGetWidth)(destination), WK_SYSTEM(CVPixelBufferGetHeight)(destination));
+    CVPixelBufferRef rgb = source;
+    OSStatus status = noErr;
+    if (WK_SYSTEM(CVPixelBufferGetWidth)(source) != WK_SYSTEM(CVPixelBufferGetWidth)(destination)
+        || WK_SYSTEM(CVPixelBufferGetHeight)(source) != WK_SYSTEM(CVPixelBufferGetHeight)(destination)
+        || WK_SYSTEM(CVBufferGetAttachment)((CVBufferRef)source, CFSTR("CVCleanAperture"), NULL))
+        status = wkResampleRGB32(WK_ORIGINAL(VTPixelTransferSessionTransferImage), NULL, source, destination, &rgb);
+    if (status == noErr) {
+        status = wkConvertRGB32ToBiPlanar(rgb, destination, wk_ycbcr_coefficients(matrix, true), true);
+        if (status == noErr) {
+            WK_SYSTEM(CVBufferPropagateAttachments)((CVBufferRef)rgb, (CVBufferRef)destination);
+            WK_SYSTEM(CVBufferSetAttachment)((CVBufferRef)destination, CFSTR("CVImageBufferYCbCrMatrix"), matrix, kCVAttachmentMode_ShouldPropagate);
+        }
+        if (rgb != source)
+            WK_SYSTEM(CVPixelBufferRelease)(rgb);
+    }
     return status;
 }

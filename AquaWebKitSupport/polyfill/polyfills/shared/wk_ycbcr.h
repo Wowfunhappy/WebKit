@@ -67,8 +67,11 @@ static inline void wk_ycbcr_convert_rgb32(const uint8_t *rgb, size_t rgbStride, 
             }
             int32_t cb = ((128 << 16) * count + k[3] * sumR + k[4] * sumG + k[5] * sumB) / count;
             int32_t cr = ((128 << 16) * count + k[6] * sumR + k[7] * sumG + k[8] * sumB) / count;
-            chroma[(y / 2) * chromaStride + x] = (uint8_t)((cb + 32768) >> 16);
-            chroma[(y / 2) * chromaStride + x + 1] = (uint8_t)((cr + 32768) >> 16);
+            cb = (cb + 32768) >> 16;
+            cr = (cr + 32768) >> 16;
+            // CoreVideo's full-range chroma interval is [1, 255].
+            chroma[(y / 2) * chromaStride + x] = (uint8_t)(cb < 1 ? 1 : cb > 255 ? 255 : cb);
+            chroma[(y / 2) * chromaStride + x + 1] = (uint8_t)(cr < 1 ? 1 : cr > 255 ? 255 : cr);
         }
     }
 }
