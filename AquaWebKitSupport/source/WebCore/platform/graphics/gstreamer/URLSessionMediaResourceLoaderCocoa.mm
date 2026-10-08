@@ -172,10 +172,38 @@ Ref<URLSessionMediaResourceLoader> URLSessionMediaResourceLoader::create(Ref<Pla
     return adoptRef(*new URLSessionMediaResourceLoader(WTF::move(loader)));
 }
 
+// The loader the session holds. The session lets go of its loader on whichever thread releases the session last, its
+// internal queue or a source's streaming thread; this reference carries that release to the main thread, where the
+// media element's loader, a destruction observer of its document, is released.
+class URLSessionLoaderReference final
+    : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<URLSessionLoaderReference, WTF::DestructionThread::Main>
+    , public PlatformMediaResourceLoader {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(URLSessionLoaderReference);
+public:
+    static Ref<URLSessionLoaderReference> create(Ref<PlatformMediaResourceLoader>&& loader) { return adoptRef(*new URLSessionLoaderReference(WTF::move(loader))); }
+
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::controlBlock(); }
+    uint32_t weakRefCount() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::weakRefCount(); }
+
+    void sendH2Ping(const URL& url, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&& completionHandler) final { m_loader->sendH2Ping(url, WTF::move(completionHandler)); }
+    Ref<GuaranteedSerialFunctionDispatcher> targetDispatcher() final { return m_loader->targetDispatcher(); }
+    RefPtr<PlatformMediaResource> requestResource(ResourceRequest&& request, LoadOptions options) final { return m_loader->requestResource(WTF::move(request), options); }
+
+private:
+    explicit URLSessionLoaderReference(Ref<PlatformMediaResourceLoader>&& loader)
+        : m_loader(WTF::move(loader))
+    {
+    }
+
+    const Ref<PlatformMediaResourceLoader> m_loader;
+};
+
 URLSessionMediaResourceLoader::URLSessionMediaResourceLoader(Ref<PlatformMediaResourceLoader>&& loader)
     : m_loader(WTF::move(loader))
     , m_delegate(adoptNS([[WebCoreURLSessionMediaResourceDelegate alloc] init]))
-    , m_session(adoptNS([[WebCoreNSURLSession alloc] initWithResourceLoader:m_loader.get() delegate:m_delegate.get() delegateQueue:[NSOperationQueue mainQueue]]))
+    , m_session(adoptNS([[WebCoreNSURLSession alloc] initWithResourceLoader:URLSessionLoaderReference::create(m_loader.copyRef()).get() delegate:m_delegate.get() delegateQueue:[NSOperationQueue mainQueue]]))
 {
 }
 
