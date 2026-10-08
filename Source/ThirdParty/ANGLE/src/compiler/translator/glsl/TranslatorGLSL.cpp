@@ -24,6 +24,22 @@
 namespace sh
 {
 
+// AQUAWEBKIT: Emit the cube coordinate helper only for shaders that sample a cube map.
+namespace
+{
+class FindCubeMapSampling : public TIntermTraverser
+{
+  public:
+    FindCubeMapSampling() : TIntermTraverser(true, false, false) {}
+    bool visitAggregate(Visit, TIntermAggregate *node) override
+    {
+        found = found || IsCubeMapSampling(node);
+        return !found;
+    }
+    bool found = false;
+};
+}  // namespace
+
 TranslatorGLSL::TranslatorGLSL(sh::GLenum type, ShShaderSpec spec, ShShaderOutput output)
     : TCompiler(type, spec, output)
 {}
@@ -45,6 +61,24 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
     // Write pragmas after extensions because some drivers consider pragmas
     // like non-preprocessor tokens.
     WritePragma(sink, compileOptions, getPragma());
+
+    // AQUAWEBKIT: An adjacent Y magnitude selects X for a tied cube-map major axis.
+    FindCubeMapSampling cubeSampling;
+    if (compileOptions.correctCubeMapMajorAxis &&
+        ShaderOutputTypeToGLSLVersion(getOutputType()) >= GLSL_VERSION_330)
+        root->traverse(&cubeSampling);
+    if (cubeSampling.found)
+    {
+        sink << "vec3 ANGLE_correctCubeMapMajorAxis(vec3 direction) {\n"
+                "    vec3 magnitude = abs(direction);\n"
+                "    if (magnitude.x == magnitude.y && magnitude.x > magnitude.z)\n"
+                "        direction.y = uintBitsToFloat(floatBitsToUint(direction.y) - 1u);\n"
+                "    return direction;\n"
+                "}\n"
+                "vec4 ANGLE_correctCubeMapMajorAxis(vec4 direction) {\n"
+                "    return vec4(ANGLE_correctCubeMapMajorAxis(direction.xyz), direction.w);\n"
+                "}\n";
+    }
 
     // If flattening the global invariant pragma, write invariant declarations for built-in
     // variables. It should be harmless to do this twice in the case that the shader also explicitly

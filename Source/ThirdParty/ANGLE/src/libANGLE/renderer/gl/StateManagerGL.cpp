@@ -981,6 +981,29 @@ void StateManagerGL::updateProgramTextureBindings(const gl::Context *context)
     const gl::ActiveTextureMask &activeTextures    = executable->getActiveSamplersMask();
     const gl::ActiveTextureTypeArray &textureTypes = executable->getActiveSamplerTypes();
 
+    // AQUAWEBKIT: Resolve frontend textures and sampler objects into the program's fixed native slots.
+    if (mFeatures.fixedSamplerTextureUnits.enabled)
+    {
+        const auto &samplers = glState.getSamplers();
+        const auto &textureUnits = executable->getSamplerBoundTextureUnits();
+        for (const gl::SamplerBinding &binding : executable->getSamplerBindings())
+        {
+            for (uint16_t element = 0; element < binding.textureUnitsCount; ++element)
+            {
+                size_t frontendUnit = binding.getTextureUnit(textureUnits, element);
+                size_t nativeUnit = binding.textureUnitsStartIndex + element;
+                const gl::Texture *texture = textures[frontendUnit];
+                const gl::Sampler *sampler = samplers[frontendUnit].get();
+                activeTexture(nativeUnit);
+                bindTexture(binding.textureType,
+                            texture ? GetImplAs<TextureGL>(texture)->getTextureID() : 0);
+                bindSampler(nativeUnit,
+                            sampler ? GetImplAs<SamplerGL>(sampler)->getSamplerID() : 0);
+            }
+        }
+        return;
+    }
+
     for (size_t textureUnitIndex : activeTextures)
     {
         gl::TextureType textureType = textureTypes[textureUnitIndex];
@@ -2854,6 +2877,13 @@ void StateManagerGL::updateEmulatedClipDistanceState(const gl::ProgramExecutable
 
 void StateManagerGL::syncSamplersState(const gl::Context *context)
 {
+    // AQUAWEBKIT: Sampler-object bindings share the fixed native slot mapping with texture bindings.
+    if (mFeatures.fixedSamplerTextureUnits.enabled)
+    {
+        updateProgramTextureBindings(context);
+        return;
+    }
+
     const gl::SamplerBindingVector &samplers = context->getState().getSamplers();
 
     // This could be optimized by using a separate binding dirty bit per sampler.

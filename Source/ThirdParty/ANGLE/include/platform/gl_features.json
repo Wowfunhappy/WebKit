@@ -8,6 +8,34 @@
     ],
     "features": [
         {
+            "name": "fixed_sampler_texture_units",
+            "category": "Workarounds",
+            "description": [
+                "Bind frontend textures and sampler objects to fixed native sampler slots."
+            ]
+        },
+        {
+            "name": "correct_cube_map_major_axis",
+            "category": "Workarounds",
+            "description": [
+                "Resolve X/Y major-axis ties before native cube-map sampling."
+            ]
+        },
+        {
+            "name": "resync_vertex_attrib_array_on_divisor_change",
+            "category": "Workarounds",
+            "description": [
+                "Refresh enabled vertex array state after changing its divisor."
+            ]
+        },
+        {
+            "name": "move_swizzle_after_derivative",
+            "category": "Workarounds",
+            "description": [
+                "Apply swizzles after component-wise derivatives on drivers that ignore input swizzles."
+            ]
+        },
+        {
             "name": "avoid_1_bit_alpha_texture_formats",
             "category": "Workarounds",
             "description": [

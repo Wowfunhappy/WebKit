@@ -15,12 +15,24 @@
 #include "common/mathutil.h"
 #include "compiler/translator/BuiltInFunctionEmulator.h"
 #include "compiler/translator/Compiler.h"
+#include "compiler/translator/glsl/VersionGLSL.h" // AQUAWEBKIT: Cube coordinate bit operations require GLSL 3.30.
 #include "compiler/translator/util.h"
 
 #include <cfloat>
 
 namespace sh
 {
+
+// AQUAWEBKIT: Cube arrays share the native major-axis selection with ordinary cube samplers.
+bool IsCubeMapSampling(TIntermAggregate *node)
+{
+    if (!BuiltInGroup::IsTexture(node->getOp()) || node->getOp() == EOpTextureSize)
+        return false;
+    TBasicType type = node->getSequence()->front()->getAsTyped()->getBasicType();
+    return IsSamplerCube(type) || type == EbtSamplerCubeArray ||
+           type == EbtSamplerCubeArrayShadow || type == EbtISamplerCubeArray ||
+           type == EbtUSamplerCubeArray;
+}
 
 namespace
 {
@@ -989,6 +1001,51 @@ void TOutputGLSLBase::visitFunctionPrototype(TIntermFunctionPrototype *node)
 
 bool TOutputGLSLBase::visitAggregate(Visit visit, TIntermAggregate *node)
 {
+    // AQUAWEBKIT: Component-wise derivatives precede swizzle selection on the 10.9 software renderer.
+    if (mCompileOptions.moveSwizzleAfterDerivative &&
+        (node->getOp() == EOpDFdx || node->getOp() == EOpDFdy || node->getOp() == EOpFwidth))
+    {
+        if (TIntermSwizzle *swizzle = node->getSequence()->front()->getAsSwizzleNode())
+        {
+            // AQUAWEBKIT: GLSL before 4.20 permits component selection only on vectors.
+            if (!swizzle->getOperand()->isScalar())
+            {
+                if (visit == PreVisit)
+                {
+                    objSink() << node->getFunction()->name() << "(";
+                    swizzle->getOperand()->traverse(this);
+                    objSink() << ").";
+                    swizzle->writeOffsetsAsXYZW(&objSink());
+                }
+                return false;
+            }
+        }
+    }
+
+    // AQUAWEBKIT: Evaluate each cube direction once while resolving its native major-axis tie.
+    if (mCompileOptions.correctCubeMapMajorAxis && IsGLSL150OrNewer(mOutput) &&
+        ShaderOutputTypeToGLSLVersion(mOutput) >= GLSL_VERSION_330 && IsCubeMapSampling(node))
+    {
+        if (visit == PreVisit)
+        {
+            objSink() << translateTextureFunction(node->getFunction()->name(), mCompileOptions)
+                      << "(";
+            const TIntermSequence &arguments = *node->getSequence();
+            for (size_t index = 0; index < arguments.size(); ++index)
+            {
+                if (index != 0)
+                    objSink() << ", ";
+                if (index == 1)
+                    objSink() << "ANGLE_correctCubeMapMajorAxis(";
+                arguments[index]->traverse(this);
+                if (index == 1)
+                    objSink() << ")";
+            }
+            objSink() << ")";
+        }
+        return false;
+    }
+
     bool visitChildren = true;
     if (node->getOp() == EOpConstruct)
     {

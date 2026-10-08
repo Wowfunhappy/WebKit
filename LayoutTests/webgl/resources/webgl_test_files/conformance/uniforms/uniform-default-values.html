@@ -206,7 +206,8 @@ var tests = [
 },
 { type: 'samplerCube',
   check:
-    "vec4 v = textureCube(value, vec3(0, 0, 0));" +
+    // A zero direction selects no cube face; ARB_texture_cube_map leaves its result undefined.
+    "vec4 v = textureCube(value, vec3(0, 0, 1));" +
     "return v.x == 1.0 && v.y == 1.0 && v.z == 1.0 && v.w == 1.0",
   valueCheck:
     "return value == 0",

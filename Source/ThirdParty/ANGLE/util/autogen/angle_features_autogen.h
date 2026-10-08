@@ -84,6 +84,7 @@ enum class Feature
     ConvertLowpAndMediumpFloatUniformsTo16Bits,
     CopyIOSurfaceToNonIOSurfaceForReadOptimization,
     CopyTextureToBufferForReadOptimization,
+    CorrectCubeMapMajorAxis, // AQUAWEBKIT: native cube-map major-axis tie selection.
     CorruptProgramBinaryForTesting,
     DebugClDumpCommandStream,
     DecodeEncodeSRGBForGenerateMipmap,
@@ -184,6 +185,7 @@ enum class Feature
     ExposeNonConformantExtensionsAndVersions,
     ExternallySynchronizePipelineCacheAccess,
     FinishDoesNotCauseQueriesToBeAvailable,
+    FixedSamplerTextureUnits, // AQUAWEBKIT: fixed native sampler slot mapping.
     FlushAfterEndingTransformFeedback,
     FlushAfterStreamVertexData,
     FlushBeforeDeleteTextureIfCopiedTo,
@@ -257,6 +259,7 @@ enum class Feature
     LoseContextOnOutOfMemory,
     MapUnspecifiedColorSpaceToPassThrough,
     MergeProgramPipelineCachesToGlobalCache,
+    MoveSwizzleAfterDerivative, // AQUAWEBKIT: component-wise native derivative selection.
     MrtPerfWorkaround,
     MultisampleColorFormatShaderReadWorkaround,
     MultiviewViaViewportArray,
@@ -306,6 +309,7 @@ enum class Feature
     ResetSampleCoverageOnFBOChange,
     ResetTexImage2DBaseLevel,
     ResyncDepthRangeOnClipControl,
+    ResyncVertexAttribArrayOnDivisorChange, // AQUAWEBKIT: native attribute fetch-rate refresh.
     RetainSPIRVDebugInfo,
     RewriteRepeatedAssignToSwizzled,
     RewriteRowMajorMatrices,

@@ -20,6 +20,32 @@ struct FeaturesGL : FeatureSetBase
     FeaturesGL();
     ~FeaturesGL();
 
+    // AQUAWEBKIT: Linked sampler elements use stable native texture slots.
+    FeatureInfo fixedSamplerTextureUnits = {
+        "fixedSamplerTextureUnits",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    // AQUAWEBKIT: 10.9 software-renderer features from gl_features.json.
+    FeatureInfo correctCubeMapMajorAxis = {
+        "correctCubeMapMajorAxis",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo resyncVertexAttribArrayOnDivisorChange = {
+        "resyncVertexAttribArrayOnDivisorChange",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
+    FeatureInfo moveSwizzleAfterDerivative = {
+        "moveSwizzleAfterDerivative",
+        FeatureCategory::OpenGLWorkarounds,
+        &members,
+    };
+
     FeatureInfo avoid1BitAlphaTextureFormats = {
         "avoid1BitAlphaTextureFormats",
         FeatureCategory::OpenGLWorkarounds,

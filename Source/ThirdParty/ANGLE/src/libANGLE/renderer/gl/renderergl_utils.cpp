@@ -2294,6 +2294,18 @@ void InitializeFeatures(const FunctionsGL *functions, angle::FeaturesGL *feature
     bool isMali          = IsARM(vendor);
     bool isHuaweiMaleoon = IsHuaweiMaleoon(functions);
 
+    // AQUAWEBKIT: These native state/compiler workarounds target the 10.9 software renderer.
+    const bool isMavericksSoftwareRenderer =
+        IsApple() && GetMacOSVersion() < OSVersion(10, 10, 0) &&
+        std::string(reinterpret_cast<const char *>(functions->getString(GL_RENDERER))) ==
+            "Apple Software Renderer";
+    ANGLE_FEATURE_CONDITION(features, resyncVertexAttribArrayOnDivisorChange,
+                            isMavericksSoftwareRenderer);
+    ANGLE_FEATURE_CONDITION(features, moveSwizzleAfterDerivative, isMavericksSoftwareRenderer);
+    ANGLE_FEATURE_CONDITION(features, correctCubeMapMajorAxis, isMavericksSoftwareRenderer);
+    // AQUAWEBKIT: Fixed native sampler slots avoid 10.9 software-renderer sampler-uniform churn.
+    ANGLE_FEATURE_CONDITION(features, fixedSamplerTextureUnits, isMavericksSoftwareRenderer);
+
     std::array<int, 3> mesaVersion = {0, 0, 0};
     bool isMesa                    = IsMesa(functions, &mesaVersion);
 
@@ -2700,7 +2712,10 @@ void InitializeFeatures(const FunctionsGL *functions, angle::FeaturesGL *feature
 
     // Mali: http://crbug.com/40063287
     // Nvidia: http://crbug.com/328015191
-    ANGLE_FEATURE_CONDITION(features, scalarizeVecAndMatConstructorArgs, isMali || isNvidia);
+    // AQUAWEBKIT: Scalar constructor operands preserve the 10.9 software renderer's derivatives.
+    // ANGLE_FEATURE_CONDITION(features, scalarizeVecAndMatConstructorArgs, isMali || isNvidia);
+    ANGLE_FEATURE_CONDITION(features, scalarizeVecAndMatConstructorArgs,
+                            isMali || isNvidia || isMavericksSoftwareRenderer);
 
     // http://crbug.com/40066076
     ANGLE_FEATURE_CONDITION(features, ensureNonEmptyBufferIsBoundForDraw, IsApple() || IsAndroid());

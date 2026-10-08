@@ -438,6 +438,12 @@ struct ShCompileOptions
     // Pre-transform explicit cubemap derivatives for Apple GPUs.
     uint64_t preTransformTextureCubeGradDerivatives : 1;
 
+    // AQUAWEBKIT: Apply component selection after native component-wise derivatives.
+    uint64_t moveSwizzleAfterDerivative : 1;
+
+    // AQUAWEBKIT: Resolve cube-map X/Y major-axis ties before native texture sampling.
+    uint64_t correctCubeMapMajorAxis : 1;
+
     // Workaround for a driver bug with the use of the OpSelect SPIR-V instruction.
     uint64_t avoidOpSelectWithMismatchingRelaxedPrecision : 1;
 

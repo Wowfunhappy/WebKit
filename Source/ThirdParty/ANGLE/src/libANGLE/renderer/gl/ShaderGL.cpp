@@ -195,6 +195,18 @@ std::shared_ptr<ShaderTranslateTask> ShaderGL::compile(const gl::Context *contex
         options->preTransformTextureCubeGradDerivatives = true;
     }
 
+    // AQUAWEBKIT: Apple Software Renderer evaluates derivatives before selecting components.
+    if (features.moveSwizzleAfterDerivative.enabled)
+    {
+        options->moveSwizzleAfterDerivative = true;
+    }
+
+    // AQUAWEBKIT: Resolve major-axis ties in native cube-map sampling directions.
+    if (features.correctCubeMapMajorAxis.enabled)
+    {
+        options->correctCubeMapMajorAxis = true;
+    }
+
     if (features.multiviewViaViewportArray.enabled)
     {
         options->initializeBuiltinsForInstancedMultiview = true;

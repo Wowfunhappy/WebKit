@@ -111,6 +111,9 @@ class ProgramExecutableGL : public ProgramExecutableImpl
     std::vector<GLint> mUniformRealLocationMap;
     std::vector<GLuint> mUniformBlockRealLocationMap;
 
+    // AQUAWEBKIT: Native sampler slots follow linked sampler elements; frontend values select textures.
+    bool mUseFixedSamplerTextureUnits = false;
+
     bool mHasAppliedTransformFeedbackVaryings;
 
     GLint mClipDistanceEnabledUniformLocation;

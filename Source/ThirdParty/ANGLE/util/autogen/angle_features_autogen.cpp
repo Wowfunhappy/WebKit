@@ -84,6 +84,7 @@ constexpr PackedEnumMap<Feature, const char *> kFeatureNames = {{
     {Feature::ConvertLowpAndMediumpFloatUniformsTo16Bits, "convertLowpAndMediumpFloatUniformsTo16Bits"},
     {Feature::CopyIOSurfaceToNonIOSurfaceForReadOptimization, "copyIOSurfaceToNonIOSurfaceForReadOptimization"},
     {Feature::CopyTextureToBufferForReadOptimization, "copyTextureToBufferForReadOptimization"},
+    {Feature::CorrectCubeMapMajorAxis, "correctCubeMapMajorAxis"}, // AQUAWEBKIT: cube-map feature override.
     {Feature::CorruptProgramBinaryForTesting, "corruptProgramBinaryForTesting"},
     {Feature::DebugClDumpCommandStream, "debugClDumpCommandStream"},
     {Feature::DecodeEncodeSRGBForGenerateMipmap, "decodeEncodeSRGBForGenerateMipmap"},
@@ -184,6 +185,7 @@ constexpr PackedEnumMap<Feature, const char *> kFeatureNames = {{
     {Feature::ExposeNonConformantExtensionsAndVersions, "exposeNonConformantExtensionsAndVersions"},
     {Feature::ExternallySynchronizePipelineCacheAccess, "externallySynchronizePipelineCacheAccess"},
     {Feature::FinishDoesNotCauseQueriesToBeAvailable, "finishDoesNotCauseQueriesToBeAvailable"},
+    {Feature::FixedSamplerTextureUnits, "fixedSamplerTextureUnits"}, // AQUAWEBKIT: sampler mapping feature override.
     {Feature::FlushAfterEndingTransformFeedback, "flushAfterEndingTransformFeedback"},
     {Feature::FlushAfterStreamVertexData, "flushAfterStreamVertexData"},
     {Feature::FlushBeforeDeleteTextureIfCopiedTo, "flushBeforeDeleteTextureIfCopiedTo"},
@@ -257,6 +259,7 @@ constexpr PackedEnumMap<Feature, const char *> kFeatureNames = {{
     {Feature::LoseContextOnOutOfMemory, "loseContextOnOutOfMemory"},
     {Feature::MapUnspecifiedColorSpaceToPassThrough, "mapUnspecifiedColorSpaceToPassThrough"},
     {Feature::MergeProgramPipelineCachesToGlobalCache, "mergeProgramPipelineCachesToGlobalCache"},
+    {Feature::MoveSwizzleAfterDerivative, "moveSwizzleAfterDerivative"}, // AQUAWEBKIT: derivative feature override.
     {Feature::MrtPerfWorkaround, "mrtPerfWorkaround"},
     {Feature::MultisampleColorFormatShaderReadWorkaround, "multisampleColorFormatShaderReadWorkaround"},
     {Feature::MultiviewViaViewportArray, "multiviewViaViewportArray"},
@@ -306,6 +309,7 @@ constexpr PackedEnumMap<Feature, const char *> kFeatureNames = {{
     {Feature::ResetSampleCoverageOnFBOChange, "resetSampleCoverageOnFBOChange"},
     {Feature::ResetTexImage2DBaseLevel, "resetTexImage2DBaseLevel"},
     {Feature::ResyncDepthRangeOnClipControl, "resyncDepthRangeOnClipControl"},
+    {Feature::ResyncVertexAttribArrayOnDivisorChange, "resyncVertexAttribArrayOnDivisorChange"}, // AQUAWEBKIT: attribute feature override.
     {Feature::RetainSPIRVDebugInfo, "retainSPIRVDebugInfo"},
     {Feature::RewriteRepeatedAssignToSwizzled, "rewriteRepeatedAssignToSwizzled"},
     {Feature::RewriteRowMajorMatrices, "rewriteRowMajorMatrices"},

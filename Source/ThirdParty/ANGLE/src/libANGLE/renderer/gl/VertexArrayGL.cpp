@@ -915,6 +915,15 @@ angle::Result VertexArrayGL::updateBindingDivisor(const gl::Context *context, si
         // Binding.
         ANGLE_GL_TRY(context, functions->vertexAttribDivisor(static_cast<GLuint>(bindingIndex),
                                                              adjustedDivisor));
+        // AQUAWEBKIT: Apple Software Renderer refreshes cached fetch rates on array enable changes.
+        if (GetFeaturesGL(context).resyncVertexAttribArrayOnDivisorChange.enabled &&
+            mNativeState->attributes[bindingIndex].enabled)
+        {
+            ANGLE_GL_TRY(context,
+                         functions->disableVertexAttribArray(static_cast<GLuint>(bindingIndex)));
+            ANGLE_GL_TRY(context,
+                         functions->enableVertexAttribArray(static_cast<GLuint>(bindingIndex)));
+        }
     }
 
     if (adjustedDivisor > 0)

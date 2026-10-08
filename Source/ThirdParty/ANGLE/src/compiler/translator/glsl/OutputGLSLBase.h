@@ -19,6 +19,9 @@ namespace sh
 {
 class TCompiler;
 
+// AQUAWEBKIT: Identify cube sampling calls, including array and shadow samplers, for GLSL emission.
+bool IsCubeMapSampling(TIntermAggregate *node);
+
 class TOutputGLSLBase : public TIntermTraverser
 {
   public:

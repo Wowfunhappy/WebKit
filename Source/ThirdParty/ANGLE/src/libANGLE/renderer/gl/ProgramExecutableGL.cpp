@@ -54,6 +54,9 @@ void ProgramExecutableGL::postLink(const FunctionsGL *functions,
     mFunctions    = functions;
     mStateManager = stateManager;
 
+    // AQUAWEBKIT: Each linked sampler element retains one native texture unit across uniform updates.
+    mUseFixedSamplerTextureUnits = features.fixedSamplerTextureUnits.enabled;
+
     // Query the uniform information
     ASSERT(mUniformRealLocationMap.empty());
     const auto &uniformLocations = mExecutable->getUniformLocations();
@@ -86,6 +89,15 @@ void ProgramExecutableGL::postLink(const FunctionsGL *functions,
 
         GLint realLocation = functions->getUniformLocation(programID, fullName.c_str());
         mUniformRealLocationMap[uniformLocation] = realLocation;
+
+        // AQUAWEBKIT: Native sampler values address fixed slots; ANGLE owns the frontend unit values.
+        if (mUseFixedSamplerTextureUnits && uniform.isSampler() && realLocation != -1)
+        {
+            const gl::SamplerBinding &binding = mExecutable->getSamplerBindings()[
+                mExecutable->getSamplerIndexFromUniformIndex(entry.index)];
+            GLint nativeUnit = binding.textureUnitsStartIndex + entry.arrayIndex;
+            functions->programUniform1iv(programID, realLocation, 1, &nativeUnit);
+        }
     }
 
     if (features.emulateClipDistanceState.enabled && mExecutable->hasClipDistance())
@@ -204,6 +216,13 @@ void ProgramExecutableGL::setUniform4fv(GLint location, GLsizei count, const GLf
 
 void ProgramExecutableGL::setUniform1iv(GLint location, GLsizei count, const GLint *v)
 {
+    // AQUAWEBKIT: ProgramExecutable updates sampler values and texture dirtiness in frontend state.
+    if (mUseFixedSamplerTextureUnits &&
+        mExecutable->isSamplerUniformIndex(mExecutable->getUniformLocations()[location].index))
+    {
+        return;
+    }
+
     if (mFunctions->programUniform1iv != nullptr)
     {
         mFunctions->programUniform1iv(mProgramID, uniLoc(location), count, v);
