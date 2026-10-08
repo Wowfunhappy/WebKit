@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "VideoFrameGStreamer.h"
+#include "VideoFrameGStreamerCocoa.h"
 
 #if USE(GSTREAMER) && PLATFORM(COCOA)
 
@@ -29,6 +30,23 @@
 namespace WebCore {
 
 #if ENABLE(VIDEO)
+std::pair<bool, VideoFrame::Rotation> videoFrameTransformation(ImageOrientation::Orientation orientation)
+{
+    bool mirrored = orientation == ImageOrientation::Orientation::OriginTopRight || orientation == ImageOrientation::Orientation::OriginBottomLeft
+        || orientation == ImageOrientation::Orientation::OriginLeftTop || orientation == ImageOrientation::Orientation::OriginRightBottom;
+    auto rotation = VideoFrame::Rotation::None;
+    switch (orientation) {
+    case ImageOrientation::Orientation::OriginRightTop:
+    case ImageOrientation::Orientation::OriginRightBottom: rotation = VideoFrame::Rotation::Right; break;
+    case ImageOrientation::Orientation::OriginBottomRight:
+    case ImageOrientation::Orientation::OriginBottomLeft: rotation = VideoFrame::Rotation::UpsideDown; break;
+    case ImageOrientation::Orientation::OriginLeftBottom:
+    case ImageOrientation::Orientation::OriginLeftTop: rotation = VideoFrame::Rotation::Left; break;
+    default: break;
+    }
+    return { mirrored, rotation };
+}
+
 DestinationColorSpace MediaPlayerPrivateGStreamer::colorSpace()
 {
     if (RefPtr frame = videoFrameForCurrentTime()) {
@@ -36,6 +54,33 @@ DestinationColorSpace MediaPlayerPrivateGStreamer::colorSpace()
             return DestinationColorSpace { createCGColorSpaceForCVPixelBuffer(buffer.get()) };
     }
     return DestinationColorSpace::SRGB();
+}
+
+RefPtr<VideoFrame> MediaPlayerPrivateGStreamer::uprightVideoFrame(Ref<VideoFrame>&& frame)
+{
+    if (!m_videoFrameRotationSession)
+        m_videoFrameRotationSession = makeUnique<ImageRotationSessionVT>();
+    auto [mirrored, rotation] = videoFrameTransformation(m_videoSourceOrientation.orientation());
+    bool swapsDimensions = m_videoSourceOrientation.usesWidthAsHeight();
+    // Container mirroring precedes rotation; VideoToolbox flips the output axes.
+    ImageRotationSessionVT::RotationProperties properties {
+        .flipX = mirrored && !swapsDimensions,
+        .flipY = mirrored && swapsDimensions,
+        .angle = static_cast<uint16_t>(rotation)
+    };
+    auto pixelBuffer = m_videoFrameRotationSession->rotate(frame, properties, ImageRotationSessionVT::IsCGImageCompatible::Yes);
+    m_rotatedVideoFrameSample = m_sample;
+    m_rotatedVideoFrame = nullptr;
+    if (pixelBuffer)
+        m_rotatedVideoFrame = VideoFrameCV::create(frame->presentationTime(), false, VideoFrame::Rotation::None, WTF::move(pixelBuffer), PlatformVideoColorSpace { frame->colorSpace() });
+    return rotatedVideoFrame();
+}
+
+RefPtr<VideoFrame> MediaPlayerPrivateGStreamer::rotatedVideoFrame()
+{
+    if (!m_rotatedVideoFrame)
+        return nullptr;
+    return VideoFrameCV::create(m_rotatedVideoFrame->presentationTime(), false, VideoFrame::Rotation::None, RetainPtr { m_rotatedVideoFrame->pixelBuffer() }, PlatformVideoColorSpace { m_rotatedVideoFrame->colorSpace() });
 }
 #endif
 
@@ -244,18 +289,7 @@ void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
     RetainPtr pixelBuffer = frame->pixelBuffer();
     if (!pixelBuffer)
         return;
-    bool mirrored = orientation == ImageOrientation::Orientation::OriginTopRight || orientation == ImageOrientation::Orientation::OriginBottomLeft
-        || orientation == ImageOrientation::Orientation::OriginLeftTop || orientation == ImageOrientation::Orientation::OriginRightBottom;
-    auto rotation = VideoFrame::Rotation::None;
-    switch (orientation) {
-    case ImageOrientation::Orientation::OriginRightTop:
-    case ImageOrientation::Orientation::OriginRightBottom: rotation = VideoFrame::Rotation::Right; break;
-    case ImageOrientation::Orientation::OriginBottomRight:
-    case ImageOrientation::Orientation::OriginBottomLeft: rotation = VideoFrame::Rotation::UpsideDown; break;
-    case ImageOrientation::Orientation::OriginLeftBottom:
-    case ImageOrientation::Orientation::OriginLeftTop: rotation = VideoFrame::Rotation::Left; break;
-    default: break;
-    }
+    auto [mirrored, rotation] = videoFrameTransformation(orientation);
     // LocalSampleBufferDisplayLayer takes presentation times on the host clock (MonotonicTime), as
     // capture and WebRTC frames carry them; GstBaseSink has already clock-scheduled this frame, so it
     // presents now. AVSampleBufferDisplayLayer schedules its layout commits at the sample's time.

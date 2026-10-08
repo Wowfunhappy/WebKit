@@ -54,6 +54,7 @@
 #include <wtf/RefCounted.h>
 // AQUAWEBKIT: Cocoa presents through the shared sample-buffer layer and video manager.
 #if PLATFORM(COCOA)
+#include "ImageRotationSessionVT.h" // AQUAWEBKIT: Cocoa normalizes extracted pixels with VideoToolbox.
 #include "SampleBufferDisplayLayer.h"
 #include "VideoLayerManager.h"
 #endif
@@ -504,6 +505,13 @@ protected:
     bool m_isBeingDestroyed WTF_GUARDED_BY_LOCK(m_drawLock) { false };
 
     ImageOrientation m_videoSourceOrientation;
+#if PLATFORM(COCOA) // AQUAWEBKIT: Cocoa retains upright pixels for the current sample.
+    RefPtr<VideoFrame> uprightVideoFrame(Ref<VideoFrame>&&) WTF_REQUIRES_LOCK(m_sampleMutex);
+    RefPtr<VideoFrame> rotatedVideoFrame() WTF_REQUIRES_LOCK(m_sampleMutex);
+    std::unique_ptr<ImageRotationSessionVT> m_videoFrameRotationSession WTF_GUARDED_BY_LOCK(m_sampleMutex);
+    GRefPtr<GstSample> m_rotatedVideoFrameSample WTF_GUARDED_BY_LOCK(m_sampleMutex);
+    RefPtr<VideoFrame> m_rotatedVideoFrame WTF_GUARDED_BY_LOCK(m_sampleMutex);
+#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
     Lock m_cdmAttachmentLock;

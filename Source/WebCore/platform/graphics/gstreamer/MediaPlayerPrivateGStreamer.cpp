@@ -4223,6 +4223,11 @@ void MediaPlayerPrivateGStreamer::updateVideoSizeAndOrientationFromCaps(const Gs
     if (m_videoSourceOrientation.usesWidthAsHeight())
         originalSize = originalSize.transposedSize();
 
+#if PLATFORM(COCOA) // AQUAWEBKIT: quarter-turn orientation exchanges the pixel aspect ratio axes.
+    if (m_videoSourceOrientation.usesWidthAsHeight())
+        std::swap(pixelAspectRatioNumerator, pixelAspectRatioDenominator);
+#endif
+
     auto scopeExit = makeScopeExit([&] {
         if (RefPtr player = m_player.get()) {
             GST_DEBUG_OBJECT(pipeline(), "Notifying sizeChanged event to upper layer");
@@ -4652,16 +4657,40 @@ RefPtr<VideoFrame> MediaPlayerPrivateGStreamer::videoFrameForCurrentTime()
     if (!GST_IS_SAMPLE(m_sample.get()))
         return nullptr;
 
+    // AQUAWEBKIT: Cocoa caches upright pixels per sample at the natural pixel aspect ratio.
+    std::optional<VideoFrameGStreamer::CreateOptions> options;
+#if PLATFORM(COCOA)
+    if (m_videoSourceOrientation != ImageOrientation::Orientation::None && m_rotatedVideoFrameSample == m_sample)
+        return rotatedVideoFrame();
+    options = VideoFrameGStreamer::CreateOptions { IntSize(naturalSize()) };
+    if (m_videoSourceOrientation.usesWidthAsHeight())
+        options->presentationSize = options->presentationSize.transposedSize();
+    auto frame = VideoFrameGStreamer::createWrappedSample(m_sample, options);
+    options->presentationSize = frame->presentationSize();
+    options->presentationTime = frame->presentationTime();
+#else
     auto frame = VideoFrameGStreamer::createWrappedSample(m_sample);
+#endif // AQUAWEBKIT: closes the Cocoa frame options above.
     if (frame->contentHint() != VideoFrameContentHint::Canvas)
+#if PLATFORM(COCOA) // AQUAWEBKIT: Cocoa applies container orientation to extracted pixels.
+        return m_videoSourceOrientation == ImageOrientation::Orientation::None ? RefPtr<VideoFrame> { WTF::move(frame) } : uprightVideoFrame(WTF::move(frame));
+#else
         return frame;
+#endif // AQUAWEBKIT: closes the Cocoa extracted-frame return.
 
     auto convertedSample = frame->downloadSample(GST_VIDEO_FORMAT_BGRA);
     if (!convertedSample)
         return nullptr;
 
     auto size = getVideoResolutionFromCaps(gst_sample_get_caps(m_sample.get())).value_or(FloatSize { 0, 0 });
-    return VideoFrameGStreamer::create(WTF::move(convertedSample), { IntSize(size) });
+    // AQUAWEBKIT: canvas conversion preserves Cocoa presentation dimensions before pixel rotation.
+    // return VideoFrameGStreamer::create(WTF::move(convertedSample), { IntSize(size) });
+    auto convertedFrame = VideoFrameGStreamer::create(WTF::move(convertedSample), options.value_or(VideoFrameGStreamer::CreateOptions { IntSize(size) }));
+#if PLATFORM(COCOA)
+    return m_videoSourceOrientation == ImageOrientation::Orientation::None ? RefPtr<VideoFrame> { WTF::move(convertedFrame) } : uprightVideoFrame(WTF::move(convertedFrame));
+#else
+    return convertedFrame;
+#endif // AQUAWEBKIT: closes the Cocoa canvas-frame return.
 }
 
 bool MediaPlayerPrivateGStreamer::setVideoSourceOrientation(ImageOrientation orientation)
@@ -4671,6 +4700,12 @@ bool MediaPlayerPrivateGStreamer::setVideoSourceOrientation(ImageOrientation ori
         return false;
 
     m_videoSourceOrientation = orientation;
+#if PLATFORM(COCOA) // AQUAWEBKIT: orientation changes invalidate the upright sample cache.
+    m_rotatedVideoFrameSample = nullptr;
+    m_rotatedVideoFrame = nullptr;
+    if (orientation == ImageOrientation::Orientation::None)
+        m_videoFrameRotationSession = nullptr;
+#endif
 #if USE(TEXTURE_MAPPER)
     updateTextureMapperFlags();
 #endif
