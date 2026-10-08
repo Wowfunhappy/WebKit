@@ -148,6 +148,10 @@ probe_accent_color() {
         "$T/accent_color"
 }
 
+probe_scrolling_axis_filter() {
+    /usr/bin/python "$TBEHAV/AppKit-scrolling-axis-filter.py" "$OUT/libpolyfill_classes.dylib"
+}
+
 probe_pasteboard_expiration() {
     prepare_method_objects AppKit &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/pasteboard_expiration" "$TBEHAV/AppKit-pasteboard-expiration.m" \
@@ -886,6 +890,7 @@ probe_audiounit_max_frames() {
 }
 
 run_probe accent_color "$@"
+run_probe scrolling_axis_filter "$@"
 run_probe level_indicator_direction "$@"
 run_probe pasteboard_expiration "$@"
 run_probe share_picker_popover "$@"

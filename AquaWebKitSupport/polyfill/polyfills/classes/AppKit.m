@@ -4,6 +4,7 @@
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <objc/runtime.h>
+#include <float.h>
 #include <math.h>
 
 // NSFilePromiseReceiver (10.12+): the receiving side of a file promise on the drag pasteboard, done the
@@ -296,78 +297,128 @@ WK_PRIV_ALIAS(NSFilePromiseProvider);
 WK_PRIV_CLASS(_NSScrollingMomentumCalculator) @interface _NSScrollingMomentumCalculator : NSObject @end
 @implementation _NSScrollingMomentumCalculator @end
 WK_PRIV_ALIAS(_NSScrollingMomentumCalculator);
-// _NSScrollingPredominantAxisFilter (10.10+ AppKit): the scroll-gesture input filter
-// WheelEventDeltaFilterMac drives on every wheel event. Its contract has two halves, both implemented
-// here for real: (1) axis-lock — when a gesture runs predominantly along one axis, the cross-axis
-// component of the outgoing delta is suppressed, so pages don't drift sideways under vertical
-// scrolling jitter (the filtered delta is what EventHandler actually scrolls by); (2) velocity — a
-// smoothed points-per-second estimate from the delta/timestamp stream, which scroll-snap momentum
-// consumes. The lock is decided once per gesture, from the first few points of accumulated travel: a
-// gesture at least 80% along one axis locks to it, anything more diagonal stays free; -reset (sent at
-// each gesture boundary) starts the next decision fresh.
-WK_PRIV_CLASS(_NSScrollingPredominantAxisFilter) @interface _NSScrollingPredominantAxisFilter : NSObject {
-    double _accumulatedX;
-    double _accumulatedY;
-    NSTimeInterval _lastTimestamp;
-    BOOL _haveTimestamp;
-    NSPoint _velocity;
-    int _axisDecision; // 0 = undecided, 1 = locked horizontal, 2 = locked vertical, -1 = free (diagonal)
+// AppKit 1561.60.100: predominant-axis selection is per sample; the two velocity
+// components use _NS1DVelocityFilter's exponential smoothing and expiry semantics.
+static double wkScrollingVelocity(double velocity, double delta, NSTimeInterval interval)
+{
+    if (delta && signbit(delta) != signbit(velocity))
+        velocity = NAN;
+    if (isnan(velocity))
+        return delta / interval;
+    const double alpha = 0.8;
+    return (1 - alpha) * velocity + alpha * (delta / interval);
 }
+
+WK_PRIV_CLASS(_NSScrollingPredominantAxisFilter) @interface _NSScrollingPredominantAxisFilter : NSObject {
+    NSInteger _predominantAxisMode;
+    NSTimeInterval _lastTimestamp;
+    NSPoint _velocity;
+}
+@property NSInteger predominantAxisMode;
 - (void)filterInputDelta:(NSPoint)delta timestamp:(NSTimeInterval)timestamp outputDelta:(NSPoint *)outDelta velocity:(NSPoint *)outVelocity;
+- (void)filterInputScrollEvent:(NSEvent *)event outputDelta:(NSPoint *)outDelta velocity:(NSPoint *)outVelocity;
 - (void)reset;
+- (BOOL)resetIfOutOfDate:(NSTimeInterval)timestamp;
 @end
 @implementation _NSScrollingPredominantAxisFilter
+@synthesize predominantAxisMode = _predominantAxisMode;
++ (void)initialize
+{
+    NSAssert(self == [_NSScrollingPredominantAxisFilter class], @"_NSScrollingPredominantAxisFilter is not subclass-able! %@", self);
+}
+- (instancetype)init
+{
+    if ((self = [super init])) {
+        _predominantAxisMode = 3;
+        [self reset];
+    }
+    return self;
+}
 - (void)filterInputDelta:(NSPoint)delta timestamp:(NSTimeInterval)timestamp outputDelta:(NSPoint *)outDelta velocity:(NSPoint *)outVelocity
 {
-    _accumulatedX += fabs(delta.x);
-    _accumulatedY += fabs(delta.y);
-
-    // Decide the gesture's lock once ~4pt of travel has been seen — early enough that a stray
-    // first event doesn't choose, late enough that the direction is real.
-    if (!_axisDecision) {
-        double total = _accumulatedX + _accumulatedY;
-        if (total >= 4) {
-            double major = _accumulatedX > _accumulatedY ? _accumulatedX : _accumulatedY;
-            if (major / total >= 0.8)
-                _axisDecision = _accumulatedX > _accumulatedY ? 1 : 2;
-            else
-                _axisDecision = -1;
-        }
+    switch (self.predominantAxisMode) {
+    case 0:
+        break;
+    case 1:
+        delta.y = 0;
+        break;
+    case 2:
+        delta.x = 0;
+        break;
+    case 3:
+    case 4:
+        if (fabs(delta.x) <= fabs(delta.y))
+            delta.x = 0;
+        else
+            delta.y = 0;
+        break;
+    case 5:
+        NSAssert(NO, @"_NSScrollingPredominantAxisModeHysteresis not implemented yet");
+        break;
+    default:
+        NSAssert(NO, @"Unexpected _NSScrollingPredominantAxisModeHysteresis %ld", (long)self.predominantAxisMode);
+        break;
     }
 
-    NSPoint filtered = delta;
-    if (_axisDecision == 1)
-        filtered.y = 0;
-    else if (_axisDecision == 2)
-        filtered.x = 0;
-
-    // Smooth the instantaneous delta/dt into the running estimate; the newest sample dominates so the
-    // velocity tracks the finger, while single-event spikes are damped. A non-advancing or absurd
-    // timestamp step (paused stream) contributes nothing.
-    if (_haveTimestamp) {
-        NSTimeInterval dt = timestamp - _lastTimestamp;
-        if (dt > 0 && dt < 1) {
-            const double alpha = 0.75;
-            _velocity.x = alpha * (filtered.x / dt) + (1 - alpha) * _velocity.x;
-            _velocity.y = alpha * (filtered.y / dt) + (1 - alpha) * _velocity.y;
-        }
+    NSTimeInterval interval = timestamp - _lastTimestamp;
+    if (interval > 0.2)
+        [self reset];
+    else if (interval > 0) {
+        _velocity.x = wkScrollingVelocity(_velocity.x, delta.x, interval);
+        _velocity.y = wkScrollingVelocity(_velocity.y, delta.y, interval);
     }
     _lastTimestamp = timestamp;
-    _haveTimestamp = YES;
 
     if (outDelta)
-        *outDelta = filtered;
+        *outDelta = delta;
     if (outVelocity)
-        *outVelocity = _velocity;
+        *outVelocity = NSMakePoint(isnan(_velocity.x) ? 0 : _velocity.x, isnan(_velocity.y) ? 0 : _velocity.y);
+}
+- (void)filterInputScrollEvent:(NSEvent *)event outputDelta:(NSPoint *)outDelta velocity:(NSPoint *)outVelocity
+{
+    NSAssert(event.type == NSScrollWheel, @"Invalid event %@", event);
+    NSEventPhase phase = event.phase;
+    if (phase == NSEventPhaseNone) {
+        phase = event.momentumPhase;
+        if (phase == NSEventPhaseNone)
+            return;
+    }
+    switch (phase) {
+    case NSEventPhaseBegan:
+    case NSEventPhaseChanged:
+        [self filterInputDelta:NSMakePoint(event.scrollingDeltaX, event.scrollingDeltaY) timestamp:event.timestamp outputDelta:outDelta velocity:outVelocity];
+        return;
+    case NSEventPhaseEnded:
+        [self resetIfOutOfDate:event.timestamp];
+        break;
+    case NSEventPhaseStationary:
+    case NSEventPhaseCancelled:
+        [self reset];
+        break;
+    case NSEventPhaseMayBegin:
+        NSAssert(event.phase == NSEventPhaseMayBegin, @"Unknown phase %ld", (long)phase);
+        [self reset];
+        break;
+    default:
+        NSAssert(NO, @"Unknown phase %ld", (long)phase);
+        return;
+    }
+    if (outDelta)
+        *outDelta = NSZeroPoint;
+    if (outVelocity)
+        *outVelocity = NSMakePoint(isnan(_velocity.x) ? 0 : _velocity.x, isnan(_velocity.y) ? 0 : _velocity.y);
 }
 - (void)reset
 {
-    _accumulatedX = 0;
-    _accumulatedY = 0;
-    _lastTimestamp = 0;
-    _haveTimestamp = NO;
-    _velocity = NSZeroPoint;
-    _axisDecision = 0;
+    _lastTimestamp = DBL_MAX;
+    _velocity = NSMakePoint(NAN, NAN);
+}
+- (BOOL)resetIfOutOfDate:(NSTimeInterval)timestamp
+{
+    if (!(timestamp - _lastTimestamp > 0.2))
+        return NO;
+    [self reset];
+    return YES;
 }
 @end
 WK_PRIV_ALIAS(_NSScrollingPredominantAxisFilter);
