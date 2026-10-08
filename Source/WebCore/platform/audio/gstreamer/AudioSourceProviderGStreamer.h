@@ -73,7 +73,8 @@ private:
     ~AudioSourceProviderGStreamer();
 
     void initialize();
-    void copyGStreamerBuffersToAudioChannel(GstAdapter*, AudioBus&, int, size_t);
+    // void copyGStreamerBuffersToAudioChannel(GstAdapter*, AudioBus&, int, size_t);
+    void copyGStreamerBuffersToAudioChannel(GstAdapter*, AudioBus&, int, size_t framesToCopy, size_t framesToProcess); // AQUAWEBKIT: see m_hasStartedRendering.
 
     void determineSampleRate(const GstCaps*);
 
@@ -91,6 +92,7 @@ private:
     int m_deinterleaveSourcePads { 0 };
     int m_deinterleaveConfiguredSourcePads { 0 };
     HashMap<int, GRefPtr<GstAdapter>> m_adapters WTF_GUARDED_BY_LOCK(m_adapterLock);
+    bool m_hasStartedRendering WTF_GUARDED_BY_LOCK(m_adapterLock) { false }; // AQUAWEBKIT: AudioSourceProviderAVFObjC's m_readCount state; cleared by a flush.
     unsigned long m_deinterleavePadAddedHandlerId { 0 };
     unsigned long m_deinterleavePadRemovedHandlerId { 0 };
     Lock m_adapterLock;

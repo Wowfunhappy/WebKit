@@ -73,6 +73,11 @@ static void onGStreamerDeinterleavePadRemovedCallback(GstElement*, GstPad* pad, 
     provider->handleRemovedDeinterleavePad(pad);
 }
 
+// AQUAWEBKIT: AudioSourceProviderAVFObjC::provideInputInternal's contract, which reads every channel together from one
+// ring buffer. provideInput() takes the frames all channels hold: until rendering has started, and again after each
+// flush, the bus is silent until a full quantum is available; once it has started, a short quantum is handed over and
+// the rest of every channel is silence.
+/*
 void AudioSourceProviderGStreamer::copyGStreamerBuffersToAudioChannel(GstAdapter* adapter, AudioBus& bus, int channelNumber, size_t framesToProcess)
 {
     auto available = gst_adapter_available(adapter);
@@ -92,6 +97,14 @@ void AudioSourceProviderGStreamer::copyGStreamerBuffersToAudioChannel(GstAdapter
         bus.zero();
     }
 }
+*/
+void AudioSourceProviderGStreamer::copyGStreamerBuffersToAudioChannel(GstAdapter* adapter, AudioBus& bus, int channelNumber, size_t framesToCopy, size_t framesToProcess)
+{
+    auto* data = bus.channel(channelNumber)->mutableData();
+    gst_adapter_copy(adapter, data, 0, framesToCopy * sizeof(float));
+    gst_adapter_flush(adapter, framesToCopy * sizeof(float));
+    std::fill(data + framesToCopy, data + framesToProcess, 0.0f);
+} // AQUAWEBKIT: closes the provideInputInternal contract above.
 
 AudioSourceProviderGStreamer::AudioSourceProviderGStreamer()
     : m_notifier(MainThreadNotifier<MainThreadNotification>::create())
@@ -239,13 +252,36 @@ void AudioSourceProviderGStreamer::configureAudioBin(GstElement* audioBin, GstEl
 void AudioSourceProviderGStreamer::provideInput(AudioBus& bus, size_t framesToProcess)
 {
     ASP_TRACE("Fetching buffers from adapters");
-    if (!m_adapterLock.tryLock())
+    // if (!m_adapterLock.tryLock())
+    //     return;
+    if (!m_adapterLock.tryLock()) { // AQUAWEBKIT: the bus is the caller's, and it still holds the previous quantum; see the provideInputInternal contract.
+        bus.zero();
         return;
+    }
 
     Locker locker { AdoptLock, m_adapterLock };
+    // for (const auto& [channelId, adapter] : m_adapters)
+    //     copyGStreamerBuffersToAudioChannel(adapter.get(), bus, channelId - 1, framesToProcess);
+    // AQUAWEBKIT: see the provideInputInternal contract above copyGStreamerBuffersToAudioChannel().
+    if (m_adapters.isEmpty()) {
+        bus.zero();
+        return;
+    }
+
+    size_t framesAvailable = framesToProcess;
+    for (auto& adapter : m_adapters.values())
+        framesAvailable = std::min(framesAvailable, gst_adapter_available(adapter.get()) / sizeof(float));
+    ASP_TRACE("%zu frames available on every channel (%zu frames requested)", framesAvailable, framesToProcess);
+
+    if (!framesAvailable || (!m_hasStartedRendering && framesAvailable < framesToProcess)) {
+        bus.zero();
+        return;
+    }
+
     for (const auto& [channelId, adapter] : m_adapters)
-        copyGStreamerBuffersToAudioChannel(adapter.get(), bus, channelId - 1, framesToProcess);
-}
+        copyGStreamerBuffersToAudioChannel(adapter.get(), bus, channelId - 1, framesAvailable, framesToProcess);
+    m_hasStartedRendering = true;
+} // AQUAWEBKIT: closes the provideInputInternal contract hunk above.
 
 // GstFlowReturn AudioSourceProviderGStreamer::handleSample(GstAppSink* sink, bool isPreroll)
 GstFlowReturn AudioSourceProviderGStreamer::handleSample(GstAppSink* sink) // AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
@@ -451,6 +487,13 @@ void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)
     m_deinterleaveSourcePads++;
     GQuark channelIdQuark = g_quark_from_static_string("channel-id");
     g_object_set_qdata(G_OBJECT(sink), channelIdQuark, GINT_TO_POINTER(m_deinterleaveSourcePads));
+    { // AQUAWEBKIT: every channel has its adapter from the moment its pad exists, so provideInput() counts a channel
+        // that has not received data yet as holding none; see the provideInputInternal contract.
+        Locker locker { m_adapterLock };
+        m_adapters.ensure(m_deinterleaveSourcePads, [] {
+            return adoptGRef(gst_adapter_new());
+        });
+    } // AQUAWEBKIT: closes the adapter creation above.
 
     sinkPad = adoptGRef(gst_element_get_static_pad(sink, "sink"));
     gst_pad_add_probe(sinkPad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_EVENT_FLUSH | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM), [](GstPad*, GstPadProbeInfo* info, gpointer userData) {
@@ -497,6 +540,11 @@ void AudioSourceProviderGStreamer::handleRemovedDeinterleavePad(GstPad* pad)
 
     gst_element_set_state(sink.get(), GST_STATE_NULL);
     gst_element_set_state(queue.get(), GST_STATE_NULL);
+    { // AQUAWEBKIT: a removed channel takes its adapter with it once its sink has stopped delivering samples; see the
+        // adapter creation in handleNewDeinterleavePad().
+        Locker locker { m_adapterLock };
+        m_adapters.remove(GPOINTER_TO_INT(g_object_get_qdata(G_OBJECT(sink.get()), g_quark_from_static_string("channel-id"))));
+    } // AQUAWEBKIT: closes the adapter removal above.
     gst_pad_unlink(srcPad.get(), sinkSinkPad.get());
     gst_pad_unlink(pad, sinkPad);
     gst_bin_remove_many(GST_BIN_CAST(m_audioSinkBin.get()), queue.get(), sink.get(), nullptr);
@@ -529,6 +577,7 @@ void AudioSourceProviderGStreamer::clearAdapters()
     Locker locker { m_adapterLock };
     for (auto& adapter : m_adapters.values())
         gst_adapter_clear(adapter.get());
+    m_hasStartedRendering = false; // AQUAWEBKIT: a flush starts rendering over, see the provideInputInternal contract.
 }
 
 #undef GST_CAT_DEFAULT
