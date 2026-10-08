@@ -930,6 +930,8 @@ angle::Result FramebufferGL::blit(const gl::Context *context,
         ANGLE_TRY(blitter->blitColorBufferWithShader(context, sourceFramebuffer, destFramebuffer,
                                                      sourceArea, destArea, filter,
                                                      !mHasEmulatedAlphaAttachment));
+        // AQUAWEBKIT: shader blits submit work to the renderer's flush accounting.
+        contextGL->markWorkSubmitted();
         blitMask &= ~GL_COLOR_BUFFER_BIT;
     }
 

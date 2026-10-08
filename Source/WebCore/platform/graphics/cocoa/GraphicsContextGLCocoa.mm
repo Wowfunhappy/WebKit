@@ -74,8 +74,14 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 // For WK1, this variable is accessed from multiple threads but always sequentially.
 static GraphicsContextGLANGLE* currentContext;
 
-static const char* const enabledANGLEMetalFeatures[] = {
+// AQUAWEBKIT: CGL uses ANGLE's bounded blit rectangles for 10.9 OpenGL.
+// static const char* const enabledANGLEMetalFeatures[] = {
+static const char* const enabledANGLEFeatures[] = {
+#if WK_WEBGL_METAL_BACKEND
     "ensureLoopForwardProgress",
+#else // AQUAWEBKIT: CGL's blit rectangle adjustment.
+    "adjustSrcDstRegionForBlitFramebuffer",
+#endif
     nullptr
 };
 
@@ -174,7 +180,9 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
     displayAttributes.append(EGL_FEATURE_OVERRIDES_DISABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(disabledANGLEMetalFeatures));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_ENABLED_ANGLE);
-    displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEMetalFeatures));
+    // AQUAWEBKIT: the feature list selects the compiled ANGLE backend's overrides.
+    // displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEMetalFeatures));
+    displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEFeatures));
     displayAttributes.append(EGL_NONE);
 
     EGLDisplay display = EGL_GetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void*>(EGL_DEFAULT_DISPLAY), displayAttributes.span().data());
