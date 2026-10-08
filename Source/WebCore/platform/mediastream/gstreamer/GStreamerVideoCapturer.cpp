@@ -77,10 +77,15 @@ void GStreamerVideoCapturer::handleSample(GRefPtr<GstSample>&& sample)
 
 void GStreamerVideoCapturer::setSinkVideoFrameCallback(SinkVideoFrameCallback&& callback)
 {
+    /* AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
     if (m_sinkVideoFrameCallback.first.newSampleSignalId) {
         g_signal_handler_disconnect(sink(), m_sinkVideoFrameCallback.first.newSampleSignalId);
         g_signal_handler_disconnect(sink(), m_sinkVideoFrameCallback.first.prerollSignalId);
     }
+    */
+    if (m_sinkVideoFrameCallback.first.newSampleSignalId)
+        g_signal_handler_disconnect(sink(), m_sinkVideoFrameCallback.first.newSampleSignalId); // AQUAWEBKIT: closes the preroll handler removal above.
+
     m_sinkVideoFrameCallback.second = WTF::move(callback);
     m_sinkVideoFrameCallback.first.newSampleSignalId = g_signal_connect_swapped(sink(), "new-sample", G_CALLBACK(+[](GStreamerVideoCapturer* capturer, GstElement* sink) -> GstFlowReturn {
         GRefPtr sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
@@ -88,11 +93,13 @@ void GStreamerVideoCapturer::setSinkVideoFrameCallback(SinkVideoFrameCallback&& 
         return GST_FLOW_OK;
     }), this);
 
+    /* AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
     m_sinkVideoFrameCallback.first.prerollSignalId = g_signal_connect_swapped(sink(), "new-preroll", G_CALLBACK(+[](GStreamerVideoCapturer* capturer, GstElement* sink) -> GstFlowReturn {
         GRefPtr sample = adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(sink)));
         capturer->handleSample(WTF::move(sample));
         return GST_FLOW_OK;
     }), this);
+    */ // AQUAWEBKIT: closes the preroll handler removal above.
 }
 
 bool GStreamerVideoCapturer::isCapturingDisplay() const

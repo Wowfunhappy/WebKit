@@ -64,7 +64,8 @@ public:
     void handleNewDeinterleavePad(GstPad*);
     void handleRemovedDeinterleavePad(GstPad*);
 
-    GstFlowReturn handleSample(GstAppSink*, bool isPreroll);
+    // GstFlowReturn handleSample(GstAppSink*, bool isPreroll);
+    GstFlowReturn handleSample(GstAppSink*); // AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
     void clearAdapters();
 
 private:

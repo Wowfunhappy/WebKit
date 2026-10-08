@@ -114,10 +114,12 @@ static void webkitTextSinkConstructed(GObject* object)
         return GST_FLOW_OK;
     }), sink);
 
+    /* AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
     g_signal_connect(priv->appSink.get(), "new-preroll", G_CALLBACK(+[](GstElement* appSink, WebKitTextSink* sink) -> GstFlowReturn {
         webkitTextSinkHandleSample(sink, adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(appSink))));
         return GST_FLOW_OK;
     }), sink);
+    */ // AQUAWEBKIT: closes the preroll handler removal above.
 
     // We want to get cues as quickly as possible so WebKit has time to handle them,
     // and we don't want cues to block when they come in the wrong order.

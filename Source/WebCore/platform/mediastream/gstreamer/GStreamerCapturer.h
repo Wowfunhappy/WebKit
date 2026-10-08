@@ -93,7 +93,7 @@ public:
     void stopDevice(bool disconnectSignals);
 
     struct SinkSignalsHolder {
-        unsigned long prerollSignalId;
+        // unsigned long prerollSignalId; // AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
         unsigned long newSampleSignalId;
     };
 

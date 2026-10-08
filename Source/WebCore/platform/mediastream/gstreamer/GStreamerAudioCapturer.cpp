@@ -61,10 +61,14 @@ void GStreamerAudioCapturer::handleSample(GRefPtr<GstSample>&& sample)
 
 void GStreamerAudioCapturer::setSinkAudioCallback(SinkAudioDataCallback&& callback)
 {
+    /* AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
     if (m_sinkAudioDataCallback.first.newSampleSignalId) {
         g_signal_handler_disconnect(sink(), m_sinkAudioDataCallback.first.newSampleSignalId);
         g_signal_handler_disconnect(sink(), m_sinkAudioDataCallback.first.prerollSignalId);
     }
+    */
+    if (m_sinkAudioDataCallback.first.newSampleSignalId)
+        g_signal_handler_disconnect(sink(), m_sinkAudioDataCallback.first.newSampleSignalId); // AQUAWEBKIT: closes the preroll handler removal above.
 
     m_sinkAudioDataCallback.second = WTF::move(callback);
     m_sinkAudioDataCallback.first.newSampleSignalId = g_signal_connect_swapped(sink(), "new-sample", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
@@ -72,11 +76,13 @@ void GStreamerAudioCapturer::setSinkAudioCallback(SinkAudioDataCallback&& callba
         capturer->handleSample(WTF::move(sample));
         return GST_FLOW_OK;
     }), this);
+    /* AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
     m_sinkAudioDataCallback.first.prerollSignalId = g_signal_connect_swapped(sink(), "new-preroll", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
         GRefPtr sample = adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(sink)));
         capturer->handleSample(WTF::move(sample));
         return GST_FLOW_OK;
     }), this);
+    */ // AQUAWEBKIT: closes the preroll handler removal above.
 }
 
 GstElement* GStreamerAudioCapturer::createConverter()

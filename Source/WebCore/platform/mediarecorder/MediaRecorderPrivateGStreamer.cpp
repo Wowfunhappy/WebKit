@@ -455,10 +455,14 @@ void MediaRecorderPrivateBackend::setSink(GstElement* element)
             GST_DEBUG_OBJECT(backend->m_pipeline.get(), "EOS received on sink");
             static_cast<MediaRecorderPrivateBackend*>(userData)->notifyEOS();
         },
+        /* AQUAWEBKIT: appsinks take samples from new-sample only; a preroll handler hands the first buffer over twice (webkit.org/b/325621).
         [](GstAppSink* sink, gpointer userData) -> GstFlowReturn {
             GRefPtr sample = adoptGRef(gst_app_sink_pull_preroll(sink));
             return static_cast<MediaRecorderPrivateBackend*>(userData)->handleSample(sink, WTF::move(sample));
         },
+        */
+        // preroll
+        nullptr, // AQUAWEBKIT: closes the preroll handler removal above.
         [](GstAppSink* sink, gpointer userData) -> GstFlowReturn {
             GRefPtr sample = adoptGRef(gst_app_sink_pull_sample(sink));
             return static_cast<MediaRecorderPrivateBackend*>(userData)->handleSample(sink, WTF::move(sample));
