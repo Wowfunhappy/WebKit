@@ -108,6 +108,9 @@ struct NavigationActionData {
     // out without asking its own policy client (537 semantics).
     bool bundlePolicyDecidedUse { false };
 
+    // AQUAWEBKIT: a continuing reload carries WebCore's exact reload type across a process swap.
+    std::optional<WebCore::FrameLoadType> reloadFrameLoadType;
+
     // `originalRequest` is sent as nullopt when it equals `request`; resolve it here.
     const WebCore::ResourceRequest& originalRequestOrFallback() const { return originalRequest ? *originalRequest : request; }
 };

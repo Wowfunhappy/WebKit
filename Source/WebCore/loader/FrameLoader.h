@@ -559,6 +559,7 @@ private:
     bool m_isStrictRawResourceValidationPolicyDisabledForTesting { false };
 
     LoadContinuingState m_currentLoadContinuingState { LoadContinuingState::NotContinuing };
+    std::optional<FrameLoadType> m_currentReloadFrameLoadType; // AQUAWEBKIT: reload type scoped to a continuing request's document-loader setup.
 
     bool m_checkingLoadCompleteForDetachment { false };
 

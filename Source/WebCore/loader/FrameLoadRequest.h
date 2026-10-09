@@ -144,6 +144,10 @@ public:
     void setShouldTreatAsContinuingLoad(ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad) { m_shouldTreatAsContinuingLoad = shouldTreatAsContinuingLoad; }
     ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad() const { return m_shouldTreatAsContinuingLoad; }
 
+    // AQUAWEBKIT: process-swapped reloads retain the load type selected by FrameLoader::reload.
+    void setReloadFrameLoadType(std::optional<FrameLoadType> loadType) { m_reloadFrameLoadType = loadType; }
+    std::optional<FrameLoadType> reloadFrameLoadType() const { return m_reloadFrameLoadType; }
+
     const SubstituteData& substituteData() const LIFETIME_BOUND { return m_substituteData; }
     void setSubstituteData(SubstituteData&& data) { m_substituteData = WTF::move(data); }
     bool hasSubstituteData() { return m_substituteData.isValid(); }
@@ -189,6 +193,7 @@ private:
 
     bool m_shouldCheckNewWindowPolicy { false };
     ShouldTreatAsContinuingLoad m_shouldTreatAsContinuingLoad { ShouldTreatAsContinuingLoad::No };
+    std::optional<FrameLoadType> m_reloadFrameLoadType; // AQUAWEBKIT: source reload type for a continuing request.
     ReferrerPolicy m_referrerPolicy { ReferrerPolicy::EmptyString };
     AllowNavigationToInvalidURL m_allowNavigationToInvalidURL { AllowNavigationToInvalidURL::Yes };
     std::optional<OptionSet<AdvancedPrivacyProtections>> m_advancedPrivacyProtections;

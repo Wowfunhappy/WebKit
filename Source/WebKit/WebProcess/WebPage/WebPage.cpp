@@ -2477,6 +2477,8 @@ void WebPage::loadRequest(LoadParameters&& loadParameters)
     FrameLoadRequest frameLoadRequest { *localFrame, WTF::move(loadParameters.request) };
     frameLoadRequest.setShouldOpenExternalURLsPolicy(loadParameters.shouldOpenExternalURLsPolicy);
     frameLoadRequest.setShouldTreatAsContinuingLoad(loadParameters.shouldTreatAsContinuingLoad);
+    // AQUAWEBKIT: resume the source reload through WebCore's typed document-loader path.
+    frameLoadRequest.setReloadFrameLoadType(loadParameters.reloadFrameLoadType);
     frameLoadRequest.setLockHistory(loadParameters.lockHistory);
     frameLoadRequest.setLockBackForwardList(loadParameters.lockBackForwardList);
     frameLoadRequest.setClientRedirectSourceForHistory(WTF::move(loadParameters.clientRedirectSourceForHistory));

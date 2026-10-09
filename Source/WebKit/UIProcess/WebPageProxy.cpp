@@ -2369,6 +2369,9 @@ void WebPageProxy::loadRequestWithNavigationShared(Ref<WebProcessProxy>&& proces
     if (auto& action = navigation.lastNavigationAction()) {
         loadParameters.hadUserGesture = action->userGestureTokenIdentifier.has_value();
         loadParameters.requester = action->requester;
+        // AQUAWEBKIT: a process-swapped reload keeps WebCore's cache and history load type.
+        if (shouldTreatAsContinuingLoad != ShouldTreatAsContinuingLoad::No)
+            loadParameters.reloadFrameLoadType = action->reloadFrameLoadType;
     }
     if (shouldTreatAsContinuingLoad == ShouldTreatAsContinuingLoad::YesAfterNavigationPolicyDecision || shouldTreatAsContinuingLoad == ShouldTreatAsContinuingLoad::YesAfterProvisionalLoadStarted)
         loadParameters.originalRequest = navigation.originalRequest();
@@ -6403,11 +6406,18 @@ void WebPageProxy::continueNavigationInNewProcess(API::Navigation& navigation, W
             return;
         }
 
-        RefPtr currentItem = backForwardList().currentItem();
-        if (currentItem && (navigation->lockBackForwardList() == LockBackForwardList::Yes || navigation->lockHistory() == LockHistory::Yes)) {
+        // AQUAWEBKIT: reloads reattach their current item before WebCore's typed reload updates it.
+        auto reloadFrameLoadType = navigation->lastNavigationAction() ? navigation->lastNavigationAction()->reloadFrameLoadType : std::nullopt;
+        // RefPtr currentItem = backForwardList().currentItem();
+        RefPtr currentItem = navigation->reloadItem() ? navigation->reloadItem() : backForwardList().currentItem();
+        // if (currentItem && (navigation->lockBackForwardList() == LockBackForwardList::Yes || navigation->lockHistory() == LockHistory::Yes)) {
+        if (currentItem && (reloadFrameLoadType || navigation->lockBackForwardList() == LockBackForwardList::Yes || navigation->lockHistory() == LockHistory::Yes)) {
             // If WebCore is supposed to lock the history for this load, then the new process needs to know about the current history item so it can update
             // it instead of creating a new one.
             provisionalPage->send(Messages::WebPage::SetCurrentHistoryItemForReattach(currentItem->copyMainFrameStateWithChildren()));
+            // AQUAWEBKIT: the reloaded item belongs to the destination process, as for a history-locked redirect.
+            if (reloadFrameLoadType)
+                currentItem->setLastProcessIdentifier(provisionalPage->process().coreProcessIdentifier());
         }
 
         // FIXME: Work out timing of responding with the last policy delegate, etc

@@ -66,4 +66,6 @@ struct WebKit::NavigationActionData {
     WebKit::UserData bundlePolicyUserData;
     # AQUAWEBKIT: the injected bundle's policy client answered Use for this navigation.
     bool bundlePolicyDecidedUse;
+    # AQUAWEBKIT: preserve Reload, ReloadFromOrigin, and ReloadExpiredOnly across navigation policy IPC.
+    std::optional<WebCore::FrameLoadType> reloadFrameLoadType;
 };

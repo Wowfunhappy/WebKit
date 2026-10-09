@@ -1850,6 +1850,9 @@ void FrameLoader::load(FrameLoadRequest&& request, std::optional<NavigationReque
 
     SetForScope continuingLoadGuard(m_currentLoadContinuingState, request.shouldTreatAsContinuingLoad() != ShouldTreatAsContinuingLoad::No ? LoadContinuingState::ContinuingWithRequest : LoadContinuingState::NotContinuing);
     SetForScope crossOriginContentRuleListCancellationGuard(m_needsCancellationForContentRuleListCrossOriginRedirect, request.isContentRuleListRedirect());
+    // AQUAWEBKIT: the continuing request's reload type is scoped to document-loader setup.
+    SetForScope reloadFrameLoadTypeGuard(m_currentReloadFrameLoadType, request.reloadFrameLoadType());
+    ASSERT(!request.reloadFrameLoadType() || (isReload(*request.reloadFrameLoadType()) && request.shouldTreatAsContinuingLoad() != ShouldTreatAsContinuingLoad::No));
     load(loader.get(), initiatorOrigin.get());
 }
 
@@ -1906,6 +1909,9 @@ void FrameLoader::load(DocumentLoader& newDocumentLoader, const SecurityOrigin* 
         type = m_loadType;
     else if ((m_loadType == FrameLoadType::RedirectWithLockedBackForwardList || policyChecker().loadType() == FrameLoadType::RedirectWithLockedBackForwardList) && ((!newDocumentLoader.unreachableURL().isEmpty() && newDocumentLoader.substituteData().isValid()) || shouldTreatCurrentLoadAsContinuingLoad()))
         type = FrameLoadType::RedirectWithLockedBackForwardList;
+    // AQUAWEBKIT: a transported reload retains its type after the same-URL and unreachable-URL decisions.
+    else if (auto reloadFrameLoadType = std::exchange(m_currentReloadFrameLoadType, std::nullopt))
+        type = *reloadFrameLoadType;
     else
         type = FrameLoadType::Standard;
 

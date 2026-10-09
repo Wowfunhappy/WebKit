@@ -74,6 +74,8 @@ struct LoadParameters {
 
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy { WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow };
     WebCore::ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad { WebCore::ShouldTreatAsContinuingLoad::No };
+    // AQUAWEBKIT: the destination loader resumes a reload with its source FrameLoadType.
+    std::optional<WebCore::FrameLoadType> reloadFrameLoadType;
     UserData userData;
     WebCore::LockHistory lockHistory { WebCore::LockHistory::No };
     WebCore::LockBackForwardList lockBackForwardList { WebCore::LockBackForwardList::No };

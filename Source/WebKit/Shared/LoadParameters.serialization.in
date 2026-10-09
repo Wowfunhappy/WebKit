@@ -40,6 +40,8 @@ enum class WebCore::LockBackForwardList : bool;
     std::optional<WebKit::FrameInfoData> originatingFrame;
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy;
     WebCore::ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad;
+    # AQUAWEBKIT: carry the source reload type with the continuing request.
+    std::optional<WebCore::FrameLoadType> reloadFrameLoadType;
     WebKit::UserData userData;
     WebCore::LockHistory lockHistory;
     WebCore::LockBackForwardList lockBackForwardList;

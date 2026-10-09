@@ -146,7 +146,16 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
     if (navigationAction.originalRequest() != request)
         originalRequest = navigationAction.originalRequest();
 
-    return NavigationActionData {
+    // AQUAWEBKIT: policyChecker owns the pending load type, including POST reloads reported as FormResubmitted.
+    std::optional<FrameLoadType> reloadFrameLoadType;
+    if (coreLocalFrame && (navigationAction.type() == NavigationType::Reload || navigationAction.type() == NavigationType::FormResubmitted)) {
+        auto loadType = coreLocalFrame->loader().policyChecker().loadType();
+        if (isReload(loadType))
+            reloadFrameLoadType = loadType;
+    }
+
+    // return NavigationActionData {
+    NavigationActionData navigationActionData { // AQUAWEBKIT: the builder sets the reload type by name after construction.
         navigationAction.type(),
         modifiersForNavigationAction(navigationAction),
         mouseButton(navigationAction),
@@ -192,6 +201,8 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
         // injected-bundle policy client; this shared builder leaves it empty.
         { }, /* bundlePolicyUserData */
     };
+    navigationActionData.reloadFrameLoadType = reloadFrameLoadType; // AQUAWEBKIT: preserve the source loader's reload semantics.
+    return navigationActionData;
 }
 
 // AQUAWEBKIT: formState feeds the injected-bundle navigation action built below.
