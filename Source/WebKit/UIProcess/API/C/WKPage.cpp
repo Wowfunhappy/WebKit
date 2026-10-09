@@ -1324,8 +1324,6 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             initialize(client);
             
             // AQUAWEBKIT: Safari 7 sets these legacy loader callbacks through WKPageSetPageLoaderClient.
-            // The ones it depends on are forwarded further down (see the legacy first-layout and
-            // legacy-callback markers).
             // // WKPageSetPageLoaderClient is deprecated. Use WKPageSetPageNavigationClient instead.
             // RELEASE_ASSERT(!m_client.didFinishDocumentLoadForFrame);
             // RELEASE_ASSERT(!m_client.didSameDocumentNavigationForFrame);
@@ -1433,6 +1431,23 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
                 return;
 
             m_client.didLayout(toAPI(&page), toWKLayoutMilestones(milestones), nullptr, m_client.base.clientInfo);
+        }
+
+        // AQUAWEBKIT: Safari 7's loader client supplies the process responsiveness callbacks.
+        void processDidBecomeUnresponsive(WebPageProxy& page) override
+        {
+            if (!m_client.processDidBecomeUnresponsive)
+                return;
+
+            m_client.processDidBecomeUnresponsive(toAPI(&page), m_client.base.clientInfo);
+        }
+
+        void processDidBecomeResponsive(WebPageProxy& page) override
+        {
+            if (!m_client.processDidBecomeResponsive)
+                return;
+
+            m_client.processDidBecomeResponsive(toAPI(&page), m_client.base.clientInfo);
         }
 
         bool processDidCrash(WebPageProxy& page) override

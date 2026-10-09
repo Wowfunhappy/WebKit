@@ -65,6 +65,9 @@ public:
     virtual void didFirstLayoutForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }
     virtual void didReachLayoutMilestone(WebKit::WebPageProxy&, OptionSet<WebCore::LayoutMilestone>) { }
     virtual bool shouldKeepCurrentBackForwardListItemInList(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem&) { return true; }
+    // AQUAWEBKIT: Safari 7 receives process responsiveness through its loader client.
+    virtual void processDidBecomeUnresponsive(WebKit::WebPageProxy&) { }
+    virtual void processDidBecomeResponsive(WebKit::WebPageProxy&) { }
     virtual bool processDidCrash(WebKit::WebPageProxy&) { return false; }
     virtual void didChangeBackForwardList(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem*, Vector<Ref<WebKit::WebBackForwardListItem>>&&) { }
     virtual void didCommitLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) { }

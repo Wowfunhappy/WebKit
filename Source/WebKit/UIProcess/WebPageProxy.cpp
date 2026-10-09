@@ -13781,8 +13781,15 @@ void WebPageProxy::processDidBecomeUnresponsive(WebProcessProxy& process)
     // FIXME: Update updateBackingStoreDiscardableState to account for multiple web processes.
     updateBackingStoreDiscardableState();
 
-    if (wasResponsive)
-        m_navigationClient->processDidBecomeUnresponsive(*this);
+    // AQUAWEBKIT: Safari 7 uses the loader client for process responsiveness notifications.
+    // if (wasResponsive)
+    //     m_navigationClient->processDidBecomeUnresponsive(*this);
+    if (wasResponsive) {
+        if (m_loaderClient)
+            m_loaderClient->processDidBecomeUnresponsive(*this);
+        else
+            m_navigationClient->processDidBecomeUnresponsive(*this);
+    }
 }
 
 void WebPageProxy::processDidBecomeResponsive(WebProcessProxy& process)
@@ -13798,8 +13805,15 @@ void WebPageProxy::processDidBecomeResponsive(WebProcessProxy& process)
     if (hasRunningProcess())
         updateBackingStoreDiscardableState();
 
-    if (isReponsive)
-        m_navigationClient->processDidBecomeResponsive(*this);
+    // AQUAWEBKIT: Safari 7 uses the loader client for process responsiveness notifications.
+    // if (isReponsive)
+    //     m_navigationClient->processDidBecomeResponsive(*this);
+    if (isReponsive) {
+        if (m_loaderClient)
+            m_loaderClient->processDidBecomeResponsive(*this);
+        else
+            m_navigationClient->processDidBecomeResponsive(*this);
+    }
 }
 
 void WebPageProxy::willChangeProcessIsResponsive()
