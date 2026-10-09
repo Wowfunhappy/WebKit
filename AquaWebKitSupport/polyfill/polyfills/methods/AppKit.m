@@ -1474,30 +1474,34 @@ WK_POLYFILL_REPLACE_METHODS(NSLevelIndicatorCell)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSPopover showRelativeToRect:ofView:preferredEdge:] and the anchor window's first responder.
-//
-// 10.9's NSPopover, as part of presenting, runs -[NSWindow _makeParentWindowHaveFirstResponder:] and
-// forces the popover's content view to become the ANCHOR window's first responder. Modern NSPopover
-// leaves the anchor window's responder state untouched — the contract every caller since 10.10 is
-// written against. On 10.9 the forced change makes any focused control in the anchor window resign
-// first responder, which drops that window's key-view focus and delivers a blur to the control. This
-// polyfill restores the anchor window's first responder immediately after the popover is shown, so the
-// modern no-change contract holds for any caller. The restore is synchronous within the same call, and
-// the popover's own content (a label taking no key input, transient/ESC dismissal) does not depend on
-// owning the anchor window's first responder.
-//
-// 10.9 HAS -showRelativeToRect:ofView:preferredEdge:; it shows the popover correctly and additionally
-// steals the anchor window's first responder, which is the behavior this replacement undoes.
+// NSPopover's 10.10 contract preserves source focus when its content view rejects first responder.
+// 10.9's window focus-sharing API gives that presentation an independent first responder; normal
+// sharing resumes for subsequent interaction. See AppKit's 10.10 NSPopover release notes:
+// https://developer.apple.com/library/archive/releasenotes/AppKit/RN-AppKitOlderNotes/
+@interface NSPopover (WKPopoverFocus)
+- (NSWindow *)_makePopoverWindowIfNeeded;
+@end
+@interface NSWindow (WKPopoverFocus)
+- (BOOL)_sharesParentFirstResponder;
+- (void)_setSharesParentFirstResponder:(BOOL)shares;
+@end
+
 WK_POLYFILL_REPLACE_METHODS(NSPopover)
 - (void)showRelativeToRect:(NSRect)positioningRect ofView:(NSView *)positioningView preferredEdge:(NSRectEdge)preferredEdge
 {
-    NSWindow *window = [positioningView window];
-    NSResponder *savedFirstResponder = [window firstResponder];
-
-    WK_ORIGINAL_METHOD(void, (NSRect, NSView *, NSRectEdge), positioningRect, positioningView, preferredEdge);
-
-    if (window && [window firstResponder] != savedFirstResponder)
-        [window makeFirstResponder:savedFirstResponder];
+    NSWindow *popoverWindow = nil;
+    BOOL sharesParentFirstResponder = NO;
+    if (![[[self contentViewController] view] acceptsFirstResponder]) {
+        popoverWindow = [[self _makePopoverWindowIfNeeded] retain];
+        sharesParentFirstResponder = [popoverWindow _sharesParentFirstResponder];
+        [popoverWindow _setSharesParentFirstResponder:NO];
+    }
+    @try {
+        WK_ORIGINAL_METHOD(void, (NSRect, NSView *, NSRectEdge), positioningRect, positioningView, preferredEdge);
+    } @finally {
+        [popoverWindow _setSharesParentFirstResponder:sharesParentFirstResponder];
+        [popoverWindow release];
+    }
 }
 @end
 

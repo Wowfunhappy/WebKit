@@ -174,6 +174,16 @@ probe_share_picker_popover() {
         "$T/share_picker_popover"
 }
 
+probe_popover_focus() {
+    prepare_method_objects AppKit &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/popover_focus" "$TBEHAV/AppKit-popover-focus.m" \
+            "$OBJ/methods/AppKit.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/popover_focus"
+}
+
 probe_level_indicator_direction() {
     prepare_method_objects AppKit &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/level_indicator_direction" "$TBEHAV/AppKit-level-indicator-direction.m" \
@@ -894,6 +904,7 @@ run_probe scrolling_axis_filter "$@"
 run_probe level_indicator_direction "$@"
 run_probe pasteboard_expiration "$@"
 run_probe share_picker_popover "$@"
+run_probe popover_focus "$@"
 run_probe touch_bar "$@"
 run_probe scrollview_insets "$@"
 run_probe color_popover_top_bar "$@"
