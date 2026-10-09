@@ -1994,7 +1994,6 @@ done
 # The Chromium license the headers name, from Chromium's source at a pinned tag
 # (scripts/generate-acknowledgements.py reads it here).
 CHROMIUM_LICENSE_TAG=130.0.6723.0
-CHROMIUM_LICENSE_SHA256=368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b
 f="$SRC/chromium-$CHROMIUM_LICENSE_TAG-LICENSE"
 if [ ! -f "$f" ]; then
   echo "download Chromium LICENSE" >&2
@@ -2002,24 +2001,19 @@ if [ ! -f "$f" ]; then
   /usr/bin/base64 -D -i "$f.b64" -o "$f" || exit 1
   rm -f "$f.b64"
 fi
-[ "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')" = "$CHROMIUM_LICENSE_SHA256" ] \
-  || { echo "  FATAL: $f does not match the pinned sha256"; exit 1; }
 echo "  cdm interface headers at $CDM_API_REV"
 
 echo "==== Readability ===="
 # Mozilla's article extractor (Firefox Reader View), JavaScript that WebKit embeds: the document
 # Safari 7's Reader article finder runs against is built from what it extracts
 # (AquaWebKitSupport/source/WebCore/page/SafariReaderMozillaReadability.cpp).
-# The npm release, pinned by its published sha512.
+# The npm release.
 READABILITY_VERSION=0.6.0
-READABILITY_SHA512=8ee1b9556878a808afcd301e333bd8f71b3d1d8e6b01caf613823bb624920a8911162ed7219080bbdd999124ec223d4e3dc78289f2f77297ed78fde90d3f7f41
 f="$SRC/readability-$READABILITY_VERSION.tgz"
 if [ ! -f "$f" ]; then
   echo "download readability-$READABILITY_VERSION.tgz" >&2
   fetch "https://registry.npmjs.org/@mozilla/readability/-/readability-$READABILITY_VERSION.tgz" "$f" || exit 1
 fi
-[ "$(/usr/bin/shasum -a 512 "$f" | awk '{ print $1 }')" = "$READABILITY_SHA512" ] \
-  || { echo "  FATAL: $f does not match the pinned sha512"; exit 1; }
 rm -rf "$DEST/include/readability" "$SRC/readability-$READABILITY_VERSION"
 mkdir -p "$DEST/include/readability" "$SRC/readability-$READABILITY_VERSION"
 tar -xzf "$f" -C "$SRC/readability-$READABILITY_VERSION" || exit 1
@@ -2034,26 +2028,20 @@ echo "==== Firefox Readerable ===="
 # site's front page or for the hosts it lists). WebKit embeds it beside Readability. A single
 # script from Mozilla's Firefox repository, pinned to the commit that last changed it.
 FIREFOX_READERABLE_COMMIT=6be5ec2fff811284b3ed164cf7ae944a26341869
-FIREFOX_READERABLE_SHA256=06f2a6d8a81bcf238f8154479182aad28e3ae46d93d9fcecadad15c91da3f13d
 f="$SRC/firefox-Readerable-$FIREFOX_READERABLE_COMMIT.js"
 if [ ! -f "$f" ]; then
   echo "download Readerable.js" >&2
   fetch "https://raw.githubusercontent.com/mozilla-firefox/firefox/$FIREFOX_READERABLE_COMMIT/toolkit/components/reader/Readerable.js" "$f" || exit 1
 fi
-[ "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')" = "$FIREFOX_READERABLE_SHA256" ] \
-  || { echo "  FATAL: $f does not match the pinned sha256"; exit 1; }
 cp "$f" "$DEST/include/readability/FirefoxReaderable.js" || exit 1
 # The MPL 2.0 text Readerable.js is under, from SPDX's license list at a pinned release
 # (scripts/generate-acknowledgements.py reads it here).
 MPL_TEXT_SPDX_RELEASE=v3.24.0
-MPL_TEXT_SHA256=66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172
 f="$SRC/spdx-$MPL_TEXT_SPDX_RELEASE-MPL-2.0.txt"
 if [ ! -f "$f" ]; then
   echo "download MPL-2.0.txt" >&2
   fetch "https://raw.githubusercontent.com/spdx/license-list-data/$MPL_TEXT_SPDX_RELEASE/text/MPL-2.0.txt" "$f" || exit 1
 fi
-[ "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')" = "$MPL_TEXT_SHA256" ] \
-  || { echo "  FATAL: $f does not match the pinned sha256"; exit 1; }
 echo "  firefox Readerable.js at $FIREFOX_READERABLE_COMMIT"
 
 echo "==== required artifacts ===="

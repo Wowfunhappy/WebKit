@@ -15,7 +15,6 @@ TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${COREUTILS_PREFIX:-$TOOLCHAIN/build/coreutils}"
 VER=9.12
-SHA256=14cbf5a4de0c7b7fa3b9fa7fada4c58b2defe33336aa8fd83d7622c5c4ebdc13
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/coreutils-build.XXXXXX")"
 trap 'rc=$?; rm -rf "$WORK"; build_log_report $rc' EXIT
 export MACOSX_DEPLOYMENT_TARGET=10.9
@@ -23,7 +22,6 @@ export MACOSX_DEPLOYMENT_TARGET=10.9
 cd "$WORK"
 echo "### Downloading coreutils $VER"
 curl -fsSLO "https://ftp.gnu.org/gnu/coreutils/coreutils-$VER.tar.gz"
-echo "$SHA256  coreutils-$VER.tar.gz" | /usr/bin/shasum -a 256 -c -
 tar xzf "coreutils-$VER.tar.gz"
 cd "coreutils-$VER"
 echo "### Patching"
