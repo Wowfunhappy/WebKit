@@ -28,6 +28,7 @@
 #                                          crash-prone system libxml2 2.9.0
 #   libxslt 1.1.43 (shared)             -> WebCore XSLT, built against the libxml2 above so one
 #                                          process never holds two libxml2 images
+#   SQLite 3.53.4 (shared)              -> WebCore databases and WAL checkpoint/truncation
 #   BoringSSL (in-tree, shared)        -> curl TLS, WebCore SSL APIs and HLS AES-128 keys
 #   libpsl 0.21.5 (shared, ICU)        -> public-suffix rejection in curl's cookie store
 #   zstd 1.5.7 (shared)                 -> the zstd content encoding curl decodes
@@ -1241,6 +1242,27 @@ fi
 ( cd "$d" && make -s -j2 \
   && make -s install ) || exit 1
 
+echo "==== SQLite 3.53.4 ===="
+# WebCore's automatic WAL hook uses SQLITE_CHECKPOINT_TRUNCATE, supported since 3.8.8.
+# The shared library and its headers supply the same SQLite API to every WebKit caller.
+SQLITE_VERSION=3.53.4
+u=https://sqlite.org/2026/sqlite-autoconf-3530400.tar.gz
+f="$SRC/$(basename "$u")"
+[ -f "$f" ] || fetch "$u" "$f" || exit 1
+f="$SRC/sqlite-$SQLITE_VERSION-LICENSE.md"
+[ -f "$f" ] || fetch https://raw.githubusercontent.com/sqlite/sqlite/version-3.53.4/LICENSE.md "$f" || exit 1
+d=$(get "$u" sqlite) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" ./configure --prefix="$STAGE" \
+        --enable-shared --disable-static --enable-threadsafe \
+        --enable-fts3 --enable-fts4 --enable-fts5 --enable-rtree \
+        --disable-readline --disable-static-shell ) || exit 1
+    # Multi-thread mode, as macOS's libsqlite3 is built; configure's threadsafe option only selects 0 or 1.
+    /usr/bin/sed -i '' '/^OPT_FEATURE_FLAGS = /s/-DSQLITE_THREADSAFE=1/-DSQLITE_THREADSAFE=2/' "$d/Makefile" || exit 1
+    prepared "$d"
+fi
+( cd "$d" && make -j2 && make install ) || exit 1
+
 echo "==== libxslt 1.1.43 ===="
 # Built against the libxml2 above, and that is the whole reason it is here. WebCore parses an XSLT
 # stylesheet with libxml2 and hands the document to libxslt, which frees it again through
@@ -1813,6 +1835,7 @@ cp -Rp "$STAGE/include/libxml2"    "$DEST/include/"
 # rather than the SDK's, so the declarations match the dylib deployed beside them.
 cp -Rp "$STAGE/include/libxslt"    "$DEST/include/"
 [ -d "$STAGE/include/libexslt" ] && cp -Rp "$STAGE/include/libexslt" "$DEST/include/"
+cp -p "$STAGE/include/sqlite3.h" "$STAGE/include/sqlite3ext.h" "$DEST/include/"
 for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nghttp2 curl; do
   [ -d "$STAGE/include/$inc" ] && cp -Rp "$STAGE/include/$inc" "$DEST/include/"
 done

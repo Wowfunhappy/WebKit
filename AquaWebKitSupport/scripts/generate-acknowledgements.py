@@ -80,10 +80,12 @@ SHIPPED = [
 # The single files the product contains, by a pattern on their URL, with the name build_deps.sh caches
 # their license text under in deps/work/tarballs.
 SHIPPED_FILES = [
+    ('SQLite', r'/sqlite-autoconf-', 'sqlite-{SQLITE_VERSION}-LICENSE.md'),
     ('Firefox Readerable.js', r'/toolkit/components/reader/Readerable\.js$', 'spdx-{MPL_TEXT_SPDX_RELEASE}-MPL-2.0.txt'),
     ('Chromium CDM interface headers', r'/chromium/cdm/', 'chromium-{CHROMIUM_LICENSE_TAG}-LICENSE'),
 ]
-LICENSE_TEXTS = [r'/spdx/license-list-data/', r'/chromium/src/.*/LICENSE']
+LICENSE_TEXTS = [r'/spdx/license-list-data/', r'/chromium/src/.*/LICENSE',
+                r'/sqlite/sqlite/.*/LICENSE\.md$']
 # Build tools, the layout tests' Apache, the zlib GLib finds on 10.9 instead, and the Meson build
 # files of two subprojects; gst-plugins-rs is among the Rust crates.
 NOT_HERE = [r'/pkgconf-', r'/bison-', r'/httpd-', r'/apr-', r'/zlib-', r'/gst-plugins-rs/', r'wrapdb\.mesonbuild\.com/']

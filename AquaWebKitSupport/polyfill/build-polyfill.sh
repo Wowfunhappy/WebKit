@@ -328,7 +328,6 @@ SYSTEM_LIBS="/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics
 /System/Library/Frameworks/Quartz.framework/Frameworks/PDFKit.framework/PDFKit
 /usr/lib/libSystem.B.dylib
 /usr/lib/libobjc.A.dylib
-/usr/lib/libsqlite3.dylib
 /usr/lib/libz.dylib
 /usr/lib/libsandbox.1.dylib
 /usr/lib/system/libsystem_sandbox.dylib"

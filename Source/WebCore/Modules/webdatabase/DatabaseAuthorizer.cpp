@@ -64,6 +64,16 @@ void DatabaseAuthorizer::addAllowedFunctions()
     // ALTER TABLE helpers
     m_allowedFunctions.add("sqlite_rename_table"_s);
     m_allowedFunctions.add("sqlite_rename_trigger"_s);
+    // AQUAWEBKIT: linked SQLite's ALTER TABLE SQL uses these internal helpers and printf, substr, length, like, glob, and count.
+    m_allowedFunctions.add("printf"_s);
+    m_allowedFunctions.add("sqlite_rename_column"_s);
+    m_allowedFunctions.add("sqlite_rename_test"_s);
+    m_allowedFunctions.add("sqlite_drop_column"_s);
+    m_allowedFunctions.add("sqlite_rename_quotefix"_s);
+    m_allowedFunctions.add("sqlite_drop_constraint"_s);
+    m_allowedFunctions.add("sqlite_fail"_s);
+    m_allowedFunctions.add("sqlite_add_constraint"_s);
+    m_allowedFunctions.add("sqlite_find_constraint"_s);
     // GLOB helpers
     m_allowedFunctions.add("glob"_s);
 
@@ -342,9 +352,12 @@ int DatabaseAuthorizer::allowAnalyze(const String& tableName)
     return denyBasedOnTableName(tableName);
 }
 
-int DatabaseAuthorizer::allowPragma(const String&, const String&)
+// AQUAWEBKIT: the linked SQLite's ALTER TABLE ADD COLUMN validates existing rows through pragma_quick_check.
+// int DatabaseAuthorizer::allowPragma(const String&, const String&)
+int DatabaseAuthorizer::allowPragma(const String& pragmaName, const String&)
 {
-    return m_securityEnabled ? SQLAuthDeny : SQLAuthAllow;
+    // return m_securityEnabled ? SQLAuthDeny : SQLAuthAllow;
+    return m_securityEnabled && !equalIgnoringASCIICase(pragmaName, "quick_check"_s) ? SQLAuthDeny : SQLAuthAllow; // AQUAWEBKIT: quick_check is the only pragma allowed.
 }
 
 int DatabaseAuthorizer::allowAttach(const String&)

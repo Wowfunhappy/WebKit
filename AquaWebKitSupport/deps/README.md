@@ -11,6 +11,9 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
   transforming the ones that carry an ICC profile;
 - libxml2 2.13 (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of
   the crash-prone 10.9 system libxml2 2.9;
+- SQLite 3.53.4 (`lib/libsqlite3.dylib`, `include/sqlite3.h`), which supplies WebCore's
+  automatic WAL truncation and 64-bit blob bindings; `bin/sqlite3` links the shared library
+  and the dependency gate verifies `PRAGMA wal_checkpoint(TRUNCATE)`;
 - the complete GStreamer 1.28.5 runtime — glib 2.80.5, gstreamer core/base/good/bad,
   FFmpeg + gst-libav, libvpx, dav1d, FDK AAC 2.0.3 (the AAC and xHE-AAC decoder, under
   fdkaacdec), OpenSSL (HLS AES-128 keys),

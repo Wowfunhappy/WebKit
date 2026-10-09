@@ -43,7 +43,7 @@
 //
 // The first argument names who owns the symbol on 10.9 — used by the build gate to ask whether 10.9
 // has it there, and to resolve WK_ORIGINAL: a framework name ("CoreText"), an absolute path
-// ("/usr/lib/libsqlite3.dylib"), or NULL to search the whole process (right for libSystem/libc symbols).
+// ("/usr/lib/libz.dylib"), or NULL to search the whole process (right for libSystem/libc symbols).
 //
 // ObjC methods use a different mechanism, since dispatch keys on the selector rather than on a
 // linker symbol — see wk_selref_scope.h.
@@ -90,11 +90,10 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 // Calling a 10.9 function from inside a polyfill body.
 //
 // A plain call would emit an undefined symbol, which every image force-loading this archive then has
-// to satisfy -- even one that never uses the polyfill. That is not hypothetical: force-loading a
-// CoreGraphics/sqlite/vImage polyfill into JavaScriptCore made JSC fail to link on IOMasterPort,
-// sqlite3_bind_blob and vImage*, because JSC has no reason to link IOKit, libsqlite3 or Accelerate.
-// The alternative -- adding those libraries to JSC's link line -- would make the setuid JSC path load
-// three frameworks to satisfy polyfills it never calls.
+// to satisfy -- even one that never uses the polyfill: JavaScriptCore force-loads the archive and links
+// neither IOKit nor Accelerate, so an IOMasterPort or vImage* reference fails its link. Adding those
+// libraries to JSC's link line would make the setuid JSC path load frameworks to satisfy polyfills it
+// never calls.
 //
 // So resolve the target at first use instead, which keeps libpolyfill.a self-contained and lets one
 // archive be force-loaded everywhere:

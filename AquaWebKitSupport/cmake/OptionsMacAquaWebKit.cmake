@@ -47,8 +47,8 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBGPU PRIVATE OFF)
 # the Metal shared events and devices GraphicsContextGLCocoa.mm uses with it, require Metal (10.11+).
 add_compile_definitions(WK_WEBGL_METAL_BACKEND=0)
 
-# the third-party libraries this port links that 10.9 does not supply — ICU,
-# libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, and the whole GStreamer media
+# the modern third-party libraries this port links — ICU,
+# libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, SQLite, and the GStreamer media
 # runtime. AquaWebKitSupport/deps/build_deps.sh builds them all from source with the in-tree
 # toolchain into deps/build/{include,lib,bin}; AquaWebKitSupport/bootstrap.sh runs it. Every
 # reference resolves through AQUAWEBKIT_DEPS, so the artifact tree has exactly one location. Defined in
@@ -419,6 +419,11 @@ SET_AND_EXPOSE_TO_BUILD(USE_COORDINATED_GRAPHICS FALSE)
 # TLS here is BoringSSL on every OS, so the default TLS 1.2 floor upstream enables at a 26.0 deployment target holds on this port too.
 SET_AND_EXPOSE_TO_BUILD(ENABLE_TLS_1_2_DEFAULT_MINIMUM TRUE)
 include("${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/OptionsMacGStreamer.cmake")
+
+# SQLite supplies WebCore's TRUNCATE checkpoints and 64-bit blob bindings from one shared library.
+set_target_properties(SQLite::SQLite3 PROPERTIES
+    IMPORTED_LOCATION "${AQUAWEBKIT_DEPS}/lib/libsqlite3.dylib"
+    INTERFACE_INCLUDE_DIRECTORIES "${AQUAWEBKIT_DEPS}/include")
 
 # The libxml2 2.13 from deps/build (@rpath install name, shipped alongside GStreamer) instead of the
 # SDK tbd, which binds /usr/lib/libxml2.2.dylib — libxml2 2.9.0 on 10.9, whose __xmlRaiseError crashes
