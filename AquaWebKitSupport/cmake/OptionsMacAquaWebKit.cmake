@@ -308,7 +308,8 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PDFKIT_PLUGIN PRIVATE OFF)
 # VideoPresentationInterfaceMac, which needs VIDEO_PRESENTATION_MODE (off; see below).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PICTURE_IN_PICTURE_API PRIVATE OFF)
 
-# GStreamer video uses element fullscreen. Native AVKit presentation sources follow this option.
+# PIP.framework, which VideoPresentationInterfaceMac soft-links for picture-in-picture, does not exist on 10.9, and
+# video fullscreen on this port is element fullscreen. Native AVKit presentation sources follow this option.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VIDEO_PRESENTATION_MODE PRIVATE OFF)
 
 # AVKit playback controls require PlaybackSessionInterfaceMac and its video-presentation backend.
