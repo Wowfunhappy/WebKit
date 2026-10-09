@@ -2347,7 +2347,9 @@ void WebPageProxy::loadRequestWithNavigationShared(Ref<WebProcessProxy>&& proces
     loadParameters.isRequestFromClientOrUserInput = navigation.isRequestFromClientOrUserInput();
     loadParameters.navigationUpgradeToHTTPSBehavior = navigationUpgradeToHTTPSBehavior;
     loadParameters.isHandledByAboutSchemeHandler = m_aboutSchemeHandler->canHandleURL(url);
-    loadParameters.requiredCookiesVersion = websiteDataStore().cookiesVersion();
+    // AQUAWEBKIT: a provisional load uses its destination process's cookie store, including Safari 7's private session.
+    // loadParameters.requiredCookiesVersion = websiteDataStore().cookiesVersion();
+    loadParameters.requiredCookiesVersion = process->websiteDataStore()->cookiesVersion();
     loadParameters.originatingFrame = navigation.lastNavigationAction() ? std::optional(navigation.lastNavigationAction()->originatingFrameInfoData) : std::nullopt;
     if (auto& action = navigation.lastNavigationAction()) {
         loadParameters.hadUserGesture = action->userGestureTokenIdentifier.has_value();
@@ -5625,10 +5627,7 @@ Expected<WebPageProxy::DataStoreUpdateResult, WebCore::ResourceError> WebPagePro
 // AQUAWEBKIT: Safari 7's global Private Browsing toggle reaches each of its pages here (#55).
 void WebPageProxy::privateBrowsingEnabledDidChange()
 {
-    // Reload so the navigation-policy path (receivedNavigationActionPolicyDecision) moves this page onto or off
-    // its client's ephemeral store. The swap belongs there because it also forces the process swap the new
-    // session needs: a process stays bound to the session it was launched for. The reload moves the current
-    // page as well as future navigations (#55).
+    // The reload selects the client's target store in navigation policy and commits it with the new process.
     if (!currentURL().isEmpty())
         reload({ });
 }
@@ -5758,14 +5757,8 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
     }
 #endif
 
-    // AQUAWEBKIT: honor Safari 7's global Private Browsing toggle by moving this navigation onto (or off
-    // of) this client's ephemeral WebsiteDataStore. This mirrors the eager store swap in updateDataStoreForWebArchiveLoad
-    // above (pageEnd the old store -> reassign m_websiteDataStore -> pageBegin the new store) and forces a process
-    // swap the same way (processSwapRequestedByClient = Yes). Only touches the default persistent store and our own
-    // shared private store, so it composes with the web-archive and website-policy store overrides. Note: the local
-    // `websiteDataStore` shadows the websiteDataStore() member accessor, so we operate on the local directly. Only
-    // acts when the navigation will actually proceed (policyAction == Use), matching updateDataStoreForWebArchiveLoad,
-    // so an Ignore/Download decision never swaps the store. (#55)
+    // AQUAWEBKIT: Safari 7's private-browsing preference selects the navigation's target store, as website policies do.
+    // ProvisionalPageProxy owns the target registration until commit transfers it to this page.
     if (policyAction == PolicyAction::Use && m_websiteDataStore.ptr() == websiteDataStore.ptr()) {
         bool wantPrivate = preferences->privateBrowsingEnabled();
         bool onSharedPrivateStore = websiteDataStore.ptr() == preferences->privateBrowsingDataStoreIfExists();
@@ -5775,10 +5768,7 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
         else if (!wantPrivate && onSharedPrivateStore)
             targetStore = &WebsiteDataStore::defaultDataStore();
         if (targetStore) {
-            protect(m_configuration->processPool())->pageEndUsingWebsiteDataStore(*this, websiteDataStore);
-            m_websiteDataStore = *targetStore;
-            websiteDataStore = m_websiteDataStore;
-            protect(m_configuration->processPool())->pageBeginUsingWebsiteDataStore(*this, websiteDataStore);
+            websiteDataStore = *targetStore;
             processSwapRequestedByClient = ProcessSwapRequestedByClient::Yes;
         }
     }
