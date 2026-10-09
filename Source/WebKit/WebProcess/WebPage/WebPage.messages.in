@@ -608,16 +608,28 @@ messages -> WebPage WantsAsyncDispatchMessage {
 
     HasMarkedText() -> (bool hasMarkedText)
     IsMarkedTextRequiredForComposition() -> (bool isMarkedTextRequiredForComposition)
-    GetMarkedRangeAsync() -> (struct WebKit::EditingRange range)
-    GetSelectedRangeAsync() -> (struct WebKit::EditingRange selectedRange, struct WebKit::EditingRange compositionRange)
-    CharacterIndexForPointAsync(WebCore::IntPoint point) -> (uint64_t location)
-    FirstRectForCharacterRangeAsync(struct WebKit::EditingRange range) -> (WebCore::IntRect rect, struct WebKit::EditingRange actualRange)
+    # AQUAWEBKIT: WKView waits for marked-range replies during AppKit text input.
+    # GetMarkedRangeAsync() -> (struct WebKit::EditingRange range)
+    GetMarkedRangeAsync() -> (struct WebKit::EditingRange range) ReplyCanDispatchOutOfOrder
+    # AQUAWEBKIT: WKView waits for selected-range replies during AppKit text input.
+    # GetSelectedRangeAsync() -> (struct WebKit::EditingRange selectedRange, struct WebKit::EditingRange compositionRange)
+    GetSelectedRangeAsync() -> (struct WebKit::EditingRange selectedRange, struct WebKit::EditingRange compositionRange) ReplyCanDispatchOutOfOrder
+    # AQUAWEBKIT: WKView waits for character-index replies during AppKit text input.
+    # CharacterIndexForPointAsync(WebCore::IntPoint point) -> (uint64_t location)
+    CharacterIndexForPointAsync(WebCore::IntPoint point) -> (uint64_t location) ReplyCanDispatchOutOfOrder
+    # AQUAWEBKIT: WKView waits for character-rectangle replies during AppKit text input.
+    # FirstRectForCharacterRangeAsync(struct WebKit::EditingRange range) -> (WebCore::IntRect rect, struct WebKit::EditingRange actualRange)
+    FirstRectForCharacterRangeAsync(struct WebKit::EditingRange range) -> (WebCore::IntRect rect, struct WebKit::EditingRange actualRange) ReplyCanDispatchOutOfOrder
     SetCompositionAsync(String text, Vector<WebCore::CompositionUnderline> underlines, Vector<WebCore::CompositionHighlight> highlights, HashMap<String, Vector<WebCore::CharacterRange>> annotations, struct WebKit::EditingRange selectionRange, struct WebKit::EditingRange replacementRange)
     SetWritingSuggestion(String text, struct WebKit::EditingRange selectionRange)
     ConfirmCompositionAsync()
 #endif
 #if PLATFORM(MAC)
-    AttributedSubstringForCharacterRangeAsync(struct WebKit::EditingRange range) -> (struct WebCore::AttributedString string, struct WebKit::EditingRange range)
+    # AQUAWEBKIT: WKView waits for saved commands to execute before text-input queries.
+    ExecuteKeypressCommands(Vector<WebCore::KeypressCommand> commands) -> (bool handled) ReplyCanDispatchOutOfOrder
+    # AQUAWEBKIT: WKView waits for attributed-substring replies during AppKit text input.
+    # AttributedSubstringForCharacterRangeAsync(struct WebKit::EditingRange range) -> (struct WebCore::AttributedString string, struct WebKit::EditingRange range)
+    AttributedSubstringForCharacterRangeAsync(struct WebKit::EditingRange range) -> (struct WebCore::AttributedString string, struct WebKit::EditingRange range) ReplyCanDispatchOutOfOrder
     RequestAcceptsFirstMouse(int eventNumber, WebKit::WebMouseEvent event) AllowedWhenWaitingForSyncReplyDuringUnboundedIPC
     SetCaretAnimatorType(enum:uint8_t WebCore::CaretAnimatorType caretType)
     SetCaretBlinkingSuspended(bool blinkSuspended)

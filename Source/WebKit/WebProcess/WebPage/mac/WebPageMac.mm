@@ -286,6 +286,12 @@ static LocalFrame* NODELETE frameForEvent(KeyboardEvent* event)
     return downcast<Node>(event->target())->document().frame();
 }
 
+// AQUAWEBKIT: WKView flushes saved commands through the focused frame's editor.
+void WebPage::executeKeypressCommands(const Vector<WebCore::KeypressCommand>& commands, CompletionHandler<void(bool)>&& completionHandler)
+{
+    completionHandler(executeKeypressCommandsInternal(commands, nullptr));
+}
+
 bool WebPage::executeKeypressCommandsInternal(const Vector<WebCore::KeypressCommand>& commands, KeyboardEvent* event)
 {
     RefPtr frame = event ? frameForEvent(event) : m_page->focusController().focusedOrMainFrame();
@@ -329,7 +335,9 @@ bool WebPage::executeKeypressCommandsInternal(const Vector<WebCore::KeypressComm
             if (command.isSupported()) {
                 bool commandExecutedByEditor = command.execute(event);
                 eventWasHandled |= commandExecutedByEditor;
-                if (!commandExecutedByEditor) {
+                // AQUAWEBKIT: Non-editing keydown behavior requires the caller's keyboard event.
+                // if (!commandExecutedByEditor) {
+                if (!commandExecutedByEditor && event) {
                     bool performedNonEditingBehavior = event->underlyingPlatformEvent()->type() == PlatformEvent::Type::RawKeyDown && performNonEditingBehaviorForSelector(commands[i].commandName, event);
                     eventWasHandled |= performedNonEditingBehavior;
                 }

@@ -1398,6 +1398,7 @@ public:
 #endif // PLATFORM(COCOA)
 
 #if PLATFORM(MAC)
+    void executeKeypressCommands(const Vector<WebCore::KeypressCommand>&, CompletionHandler<void(bool)>&&); // AQUAWEBKIT: WKView waits for saved keypress commands to execute.
     void setCaretAnimatorType(WebCore::CaretAnimatorType);
     void setCaretBlinkingSuspended(bool);
     void attributedSubstringForCharacterRangeAsync(const EditingRange&, CompletionHandler<void(const WebCore::AttributedString&, const EditingRange&)>&&);

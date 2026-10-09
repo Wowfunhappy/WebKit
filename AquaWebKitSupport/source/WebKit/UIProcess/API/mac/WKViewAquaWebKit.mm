@@ -28,11 +28,10 @@
 // The 10.9 WKView implementation.
 //
 // WKView is Safari 7's WebKit2 view. Upstream's UIProcess/API/mac/WKView.mm is a thin shell over
-// WebViewImpl, which this port cannot use: WebViewImpl drives text input through the ASYNCHRONOUS
-// NSTextInputClient protocol (10.11+) and WebKit's text-input IPC is async-only, while 10.9's AppKit
-// speaks the SYNCHRONOUS protocol -- bridging the two by spinning the run loop reenters AppKit and
-// corrupts input (verified on device; see [[aquawebkit-wkview-textinput]]). So WKView is
-// reimplemented here against WebPageProxy directly, with AquaWebKitPageClient as its PageClient.
+// WebViewImpl, which drives text input through the asynchronous NSTextInputClient protocol (10.11+).
+// 10.9's AppKit speaks the synchronous protocol; this WKView answers it by waiting, with a bound, on
+// upstream's text-input reply messages. It is implemented against WebPageProxy directly, with
+// AquaWebKitPageClient as its PageClient.
 //
 // This lives in its own file so that UIProcess/API/mac/WKView.mm stays BYTE-UPSTREAM: a whole-file
 // reimplementation written over the upstream file would be a ~900-line divergence that every upstream
@@ -59,6 +58,7 @@
 #import "WKAPICast.h"
 #import "WebPageGroup.h"
 #import "WebPageProxy.h"
+#import "WebPageMessages.h"
 #import "WebPreferences.h"
 #import "WebPreferencesKeys.h"
 #import "WebProcessPool.h"
@@ -92,12 +92,15 @@
 #import <WebCore/FloatRect.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
+#import <pal/spi/mac/NSTextInputContextSPI.h>
 // needed so the WKView NSTextInputClient implementation can insert text, drive
 // inline-IME composition, and answer the synchronous text-input queries 10.9 AppKit makes (#63).
 #import "EditingRange.h"
 #import "EditorState.h"
 #import "InsertTextOptions.h"
+#import <WebCore/AttributedString.h>
 #import <WebCore/CompositionUnderline.h>
+#import <wtf/SetForScope.h>
 #import <wtf/text/MakeString.h>
 // WebCoreFullScreenWindow backs the restored -createFullScreenWindow SPI.
 #import <WebCore/WebCoreFullScreenWindow.h>
@@ -154,13 +157,32 @@ NSView *aquaWebKitPageClientFullScreenPlaceholderView(PageClient&);
 #endif
 }
 
-// per-WKView instance state. Upstream keeps view state in WKViewData/
-// WebViewImpl; this port owns the WebPageProxy and its PageClient here and threads them through the
-// input/geometry paths below. The RefPtr keeps the page alive for the view's lifetime; the
-// unique_ptr owns the page client.
+struct WKViewInterpretKeyEventsParameters {
+    Vector<WebCore::KeypressCommand>& commands;
+    bool consumedByIM;
+    bool eventInterpretationHadSideEffects { false };
+};
+
+template<typename Message, typename ReplyHandler>
+static bool waitForTextInputReply(WebPageProxy& page, Message&& message, ReplyHandler&& replyHandler)
+{
+    if (!page.hasRunningProcess())
+        return false;
+    Ref process = page.legacyMainFrameProcess();
+    if (!process->hasConnection())
+        return false;
+    Ref connection = process->connection();
+    auto replyID = process->sendWithAsyncReply(WTF::move(message), std::forward<ReplyHandler>(replyHandler), page.webPageIDInMainFrameProcess());
+    if (!replyID)
+        return false;
+    return connection->waitForAsyncReplyAndDispatchImmediately<Message>(*replyID, 1_s) == IPC::Error::NoError;
+}
+
+// Per-view ownership and AppKit event-interpretation state.
 struct WKViewState {
     RefPtr<WebKit::WebPageProxy> page;
     std::unique_ptr<WebKit::PageClient> pageClient;
+    WKViewInterpretKeyEventsParameters* interpretKeyEventsParameters { nullptr };
     // pinch-to-zoom / smart-magnify / swipe-navigation state, mirroring
     // WebViewImpl's m_allowsMagnification, m_allowsBackForwardNavigationGestures and
     // m_gestureController. The controller is created lazily, exactly as
@@ -268,7 +290,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 // private helper backing the clip-to-visible-rect SPI (see -setShouldClipToVisibleRect:).
 - (void)_updateViewExposedRect;
 // runs AppKit's key-binding translation for one event (see the definition).
-- (void)_aquaWebKitCollectKeypressCommands:(NSEvent *)event into:(WTF::Vector<WebCore::KeypressCommand>&)commands;
+- (BOOL)_aquaWebKitCollectKeypressCommands:(NSEvent *)event into:(WTF::Vector<WebCore::KeypressCommand>&)commands;
 @end
 
 @implementation WKView
@@ -761,144 +783,259 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 {
     return ![self drawsBackground];
 }
-// the NSTextInputClient surface AppKit sends to BrowserWKView once it is in a
-// window. insertText: + doCommandBySelector: capture commands during interpretKeyEvents: so the
-// keyDown handler can forward them to WebPage as KeypressCommands.
-static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = nullptr;
-- (NSArray *)validAttributesForMarkedText { return @[]; }
-// the NSTextInputClient queries.
-// 10.9 AppKit uses the SYNCHRONOUS NSTextInputClient protocol (the async -...:completionHandler:
-// variants WKWebView/WebViewImpl use are 10.11+), and the WebProcess text-input IPC is async-only.
-// Bridging the round-trip queries by spinning the run loop reenters AppKit's event handling and
-// corrupts input, so the IME-critical answers are served
-// synchronously from the live editor state (which the WebProcess already pushes on every selection /
-// composition change), and the queries that genuinely require a synchronous round-trip fall back to
-// the same values upstream's synchronous WebViewImpl path returns (WebViewImpl.mm:6011-6045).
+- (NSArray *)validAttributesForMarkedText
+{
+    return @[
+        NSUnderlineStyleAttributeName,
+        NSUnderlineColorAttributeName,
+        NSMarkedClauseSegmentAttributeName,
+        NSTextAlternativesAttributeName,
+        NSTextInsertionUndoableAttributeName,
+        NSBackgroundColorAttributeName,
+        NSForegroundColorAttributeName,
+    ];
+}
+
+- (NSTextInputContext *)inputContext
+{
+    if (!_wkState || !_wkState->page || !_wkState->page->editorState().isContentEditable)
+        return nil;
+    return [super inputContext];
+}
+
+- (void)_aquaWebKitExecuteSavedKeypressCommands
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    auto* parameters = _wkState->interpretKeyEventsParameters;
+    if (!parameters || parameters->commands.isEmpty())
+        return;
+
+    // Drain before sending so a query reentered by a responder cannot replay commands.
+    auto commands = std::exchange(parameters->commands, { });
+    Ref page = *_wkState->page;
+    auto handled = Box<bool>::create(false);
+    if (waitForTextInputReply(page.get(), Messages::WebPage::ExecuteKeypressCommands(commands), [handled](bool result) {
+        *handled = result;
+    }))
+        parameters->eventInterpretationHadSideEffects |= *handled;
+}
+
 - (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange
 {
-    // Reconversion substring needs a synchronous round-trip the async-only IPC can't answer without
-    // reentrancy; upstream's synchronous path returns nil here too.
+    [self _aquaWebKitExecuteSavedKeypressCommands];
     if (actualRange)
-        *actualRange = NSMakeRange(NSNotFound, 0);
-    return nil;
+        *actualRange = EditingRange();
+    if (!_wkState || !_wkState->page)
+        return nil;
+    auto& state = _wkState->page->editorState();
+    if (!state.isContentEditable || state.isInPasswordField)
+        return nil;
+
+    struct Result {
+        RetainPtr<NSAttributedString> string;
+        EditingRange actualRange;
+    };
+    auto result = Box<Result>::create();
+    if (!waitForTextInputReply(*_wkState->page, Messages::WebPage::AttributedSubstringForCharacterRangeAsync(EditingRange { range }), [result](const WebCore::AttributedString& string, const EditingRange& actualRange) {
+        result->string = string.nsAttributedString();
+        result->actualRange = actualRange;
+    }))
+        return nil;
+    if (actualRange)
+        *actualRange = result->actualRange;
+    return result->string.autorelease();
 }
-// WKView NSTextInputClient queries (github #63). 10.9 AppKit calls these
-// synchronously, but WebKit2's editor IPC is async-only; -characterIndexForPoint: needs a
-// synchronous hit-test it cannot answer without reentrancy, so — as upstream's synchronous path —
-// it returns NSNotFound, while -firstRectForCharacterRange: below positions the IME candidate
-// window from the editor state's last-reported caret rect instead.
+
 - (NSUInteger)characterIndexForPoint:(NSPoint)point
 {
-    // Needs a synchronous hit-test the async-only IPC can't answer without reentrancy; upstream's
-    // synchronous path returns NSNotFound.
-    return NSNotFound;
+    [self _aquaWebKitExecuteSavedKeypressCommands];
+    if (!_wkState || !_wkState->page)
+        return 0;
+    if (NSWindow *window = [self window])
+        point = [window convertPointFromScreen:point];
+    point = [self convertPoint:point fromView:nil];
+    auto result = Box<uint64_t>::create(0);
+    if (!waitForTextInputReply(*_wkState->page, Messages::WebPage::CharacterIndexForPointAsync(WebCore::IntPoint(point)), [result](uint64_t location) {
+        *result = location;
+    }))
+        return 0;
+    return *result == notFound ? NSNotFound : *result;
 }
+
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange
 {
+    RetainPtr protectedSelf = self;
+    [self _aquaWebKitExecuteSavedKeypressCommands];
+    // Match NSTextView's treatment of overflowed ranges (webkit.org/b/4682).
+    if ((range.location + range.length < range.location) && (range.location + range.length != 0))
+        range.length = 0;
+    if (range.location == NSNotFound) {
+        if (actualRange)
+            *actualRange = range;
+        return NSZeroRect;
+    }
     if (actualRange)
-        *actualRange = range;
-    if (!(_wkState && _wkState->page))
+        *actualRange = EditingRange();
+    if (!_wkState || !_wkState->page)
         return NSZeroRect;
-    const WebKit::EditorState& state = _wkState->page->editorState();
-    if (!state.hasVisualData())
+
+    struct Result {
+        WebCore::IntRect rect;
+        EditingRange actualRange;
+    };
+    auto result = Box<Result>::create();
+    if (!waitForTextInputReply(*_wkState->page, Messages::WebPage::FirstRectForCharacterRangeAsync(EditingRange { range }), [result](const WebCore::IntRect& rect, const EditingRange& actualRange) {
+        result->rect = rect;
+        result->actualRange = actualRange;
+    }))
         return NSZeroRect;
-    // Position the IME candidate window at the caret — the live layout rect the WebProcess last
-    // reported for the selection/composition start (the marked-text-specific caret rects are iOS-only).
-    WebCore::IntRect caretRect = state.visualData->caretRectAtStart;
-    NSRect rectInView = NSMakeRect(caretRect.x(), caretRect.y(), caretRect.width(), caretRect.height());
+    if (actualRange)
+        *actualRange = result->actualRange;
+    NSRect rectInView = result->rect;
     NSRect rectInWindow = [self convertRect:rectInView toView:nil];
-    if (NSWindow *window = [self window])
-        return [window convertRectToScreen:rectInWindow];
-    return rectInView;
+    return [[self window] convertRectToScreen:rectInWindow];
 }
-// WKView NSTextInputClient -hasMarkedText (github #63) — served from the editor state.
+
 - (BOOL)hasMarkedText
 {
-    // The composition state is carried synchronously in the editor state, so no round-trip is needed.
-    return _wkState && _wkState->page && _wkState->page->editorState().hasComposition;
+    if (!_wkState || !_wkState->page)
+        return NO;
+    if (_wkState->interpretKeyEventsParameters) {
+        BOOL result = _wkState->page->editorState().hasComposition;
+        if (result) {
+            [self _aquaWebKitExecuteSavedKeypressCommands];
+            result = [self markedRange].location != NSNotFound;
+        }
+        return result;
+    }
+    return [self markedRange].location != NSNotFound;
 }
-// WKView NSTextInputClient deprecated single-argument -insertText: (github #63).
+
 - (void)insertText:(id)string
 {
-    // forward the deprecated single-argument NSTextInput -insertText: (which some
-    // legacy callers still use) to the NSTextInputClient two-argument form.
     [self insertText:string replacementRange:NSMakeRange(NSNotFound, 0)];
 }
-// WKView NSTextInputClient -insertText:replacementRange: (github #63) — the real text-insertion path.
+
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange
 {
-    // capture inserted text as a KeypressCommand during interpretKeyEvents so keyDown can forward it to WebPage.
+    if (!_wkState || !_wkState->page)
+        return;
     NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [(NSAttributedString *)string string] : (NSString *)string;
     if (!s)
         return;
-    if (tlsCollectingCommands) {
-        WebCore::KeypressCommand command("insertText:"_s, String(s));
-        tlsCollectingCommands->append(command);
-        // Register the collected selector so WebPageProxy::executeSavedCommandBySelector's
-        // MESSAGE_CHECK(isValidKeypressCommandName) accepts the WebContent reply for it,
-        // mirroring WebViewImpl's WKWebView path.
-        if (_wkState && _wkState->page)
-            _wkState->page->registerKeypressCommandName(command.commandName);
+    auto* parameters = _wkState->interpretKeyEventsParameters;
+    if (parameters)
+        parameters->consumedByIM = false;
+    if (parameters && !_wkState->page->editorState().hasComposition) {
+        WebCore::KeypressCommand command("insertText:"_s, String(s), { }, { }, { }, EditingRange { replacementRange }.toCharacterRange());
+        parameters->commands.append(command);
+        _wkState->page->registerKeypressCommandName(command.commandName);
         return;
     }
-    // insertText: sent OUTSIDE interpretKeyEvents — the Character Viewer / emoji
-    // picker, an input method confirming a candidate, dictation, etc. (github #63). There is no
-    // keyDown to forward it through, so insert it now (mirroring the non-keypress branch of
-    // WebViewImpl::insertText).
-    if (_wkState && _wkState->page) {
-        // Same NSBackTabCharacter->NSTabCharacter normalization WebViewImpl::insertText applies.
-        String eventText = makeStringByReplacingAll(String(s), NSBackTabCharacter, NSTabCharacter);
-        _wkState->page->insertTextAsync(eventText, replacementRange, InsertTextOptions { });
-    }
+    String eventText = makeStringByReplacingAll(String(s), NSBackTabCharacter, NSTabCharacter);
+    _wkState->page->insertTextAsync(eventText, replacementRange, InsertTextOptions { });
+    if (parameters)
+        parameters->eventInterpretationHadSideEffects = true;
 }
-// WKView NSTextInputClient -markedRange (github #63) — see the sync-IPC note in the body.
+
 - (NSRange)markedRange
 {
-    // The absolute character offsets of the marked range require a synchronous round-trip the
-    // async-only IPC can't answer without reentrancy; upstream's synchronous path returns NSNotFound.
-    // hasMarkedText (served from the editor state) still tells the input method a composition exists.
-    return NSMakeRange(NSNotFound, 0);
+    [self _aquaWebKitExecuteSavedKeypressCommands];
+    auto result = Box<EditingRange>::create();
+    if (_wkState && _wkState->page)
+        waitForTextInputReply(*_wkState->page, Messages::WebPage::GetMarkedRangeAsync(), [result](const EditingRange& range) {
+            *result = range;
+        });
+    return *result;
 }
-// WKView NSTextInputClient -selectedRange (github #63) — see the sync-IPC note in the body.
+
 - (NSRange)selectedRange
 {
-    // As markedRange: needs a synchronous round-trip; upstream's synchronous path also returns
-    // NSNotFound (WebViewImpl.mm:6011).
-    return NSMakeRange(NSNotFound, 0);
+    [self _aquaWebKitExecuteSavedKeypressCommands];
+    auto result = Box<EditingRange>::create();
+    if (_wkState && _wkState->page)
+        waitForTextInputReply(*_wkState->page, Messages::WebPage::GetSelectedRangeAsync(), [result](const EditingRange& range, const EditingRange&) {
+            *result = range;
+        });
+    return *result;
 }
-// WKView NSTextInputClient -setMarkedText:selectedRange:replacementRange: (github #63) — drives inline-IME composition.
+
+- (void)_aquaWebKitNotifyInputContextAboutDiscardedComposition
+{
+    // rdar://9359055: discardMarkedText requires an active input context.
+    if (![[self window] isKeyWindow] || self != [[self window] firstResponder])
+        return;
+    [[super inputContext] discardMarkedText];
+}
+
 - (void)setMarkedText:(id)string selectedRange:(NSRange)newSelectedRange replacementRange:(NSRange)replacementRange
 {
     if (!(_wkState && _wkState->page))
         return;
+    [self _aquaWebKitExecuteSavedKeypressCommands];
+    if (auto* parameters = _wkState->interpretKeyEventsParameters) {
+        parameters->eventInterpretationHadSideEffects = true;
+        parameters->consumedByIM = false;
+    }
     BOOL isAttributed = [string isKindOfClass:[NSAttributedString class]];
     NSString *text = isAttributed ? [(NSAttributedString *)string string] : (NSString *)string;
     if (!text)
         text = @"";
-    // Underline the whole composition (WebViewImpl's plain-string default). Per-attribute styling from
-    // the input method is not mirrored — a feature gap, not a correctness issue.
     Vector<WebCore::CompositionUnderline> underlines;
-    underlines.append(WebCore::CompositionUnderline(0, [text length], WebCore::CompositionUnderlineColor::TextColor, WebCore::Color::black, false));
+    // WebViewImpl's compositionUnderlines interpretation of AppKit's marked-text attributes.
+    if (isAttributed) {
+        for (NSUInteger i = 0, length = [text length]; i < length;) {
+            NSRange range;
+            NSDictionary *attributes = [string attributesAtIndex:i longestEffectiveRange:&range inRange:NSMakeRange(i, length - i)];
+            if (NSNumber *style = [attributes objectForKey:NSUnderlineStyleAttributeName]) {
+                WebCore::Color color = WebCore::Color::black;
+                auto colorType = WebCore::CompositionUnderlineColor::TextColor;
+                if (NSColor *underlineColor = [attributes objectForKey:NSUnderlineColorAttributeName]) {
+                    color = WebCore::colorFromCocoaColor(underlineColor);
+                    colorType = WebCore::CompositionUnderlineColor::GivenColor;
+                }
+                underlines.append(WebCore::CompositionUnderline(range.location, NSMaxRange(range), colorType, color, [style intValue] > 1));
+            }
+            i = NSMaxRange(range);
+        }
+    } else
+        underlines.append(WebCore::CompositionUnderline(0, [text length], WebCore::CompositionUnderlineColor::TextColor, WebCore::Color::black, false));
+    if (_wkState->page->editorState().isInPasswordField) {
+        [self _aquaWebKitNotifyInputContextAboutDiscardedComposition];
+        if ([text length] == 1 && [[text decomposedStringWithCanonicalMapping] characterAtIndex:0] < 0x80)
+            _wkState->page->insertTextAsync(String(text), replacementRange, InsertTextOptions { });
+        else
+            NSBeep();
+        return;
+    }
     _wkState->page->setCompositionAsync(String(text), underlines, { }, { }, newSelectedRange, replacementRange);
 }
-// WKView NSTextInputClient -unmarkText (github #63) — confirms the active composition.
+
 - (void)unmarkText
 {
-    if (_wkState && _wkState->page)
-        _wkState->page->confirmCompositionAsync();
+    if (!_wkState || !_wkState->page)
+        return;
+    [self _aquaWebKitExecuteSavedKeypressCommands];
+    if (auto* parameters = _wkState->interpretKeyEventsParameters) {
+        parameters->eventInterpretationHadSideEffects = true;
+        parameters->consumedByIM = false;
+    }
+    _wkState->page->confirmCompositionAsync();
 }
-// WKView NSTextInputClient -doCommandBySelector: (github #63) — collects command selectors during interpretKeyEvents.
+
 - (void)doCommandBySelector:(SEL)selector
 {
-    if (!tlsCollectingCommands)
+    auto* parameters = _wkState ? _wkState->interpretKeyEventsParameters : nullptr;
+    if (parameters)
+        parameters->consumedByIM = false;
+    if (!parameters || _wkState->page->editorState().hasComposition) {
+        [super doCommandBySelector:selector];
         return;
+    }
     WebCore::KeypressCommand command(String::fromLatin1(sel_getName(selector)));
-    tlsCollectingCommands->append(command);
-    // Register the collected selector so WebPageProxy::executeSavedCommandBySelector's
-    // MESSAGE_CHECK(isValidKeypressCommandName) accepts the WebContent reply for it,
-    // mirroring WebViewImpl's WKWebView path.
-    if (_wkState && _wkState->page)
-        _wkState->page->registerKeypressCommandName(command.commandName);
+    parameters->commands.append(command);
+    _wkState->page->registerKeypressCommandName(command.commandName);
 }
 - (BOOL)conformsToProtocol:(Protocol *)protocol
 {
@@ -2048,11 +2185,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // WebViewImpl::keyDown); the page has already seen it, so pass it to super.
     if (_wkState->keyDownEventBeingResent.get() == event) { [super keyDown:event]; return; }
     WTF::Vector<WebCore::KeypressCommand> commands;
-    // Run AppKit's interpretKeyEvents to translate the NSEvent into NSTextInputClient
-    // calls (insertText:/doCommandBySelector:); collect them in a thread-local that
-    // our NSTextInputClient stubs append to.
-    [self _aquaWebKitCollectKeypressCommands:event into:commands];
-    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+    bool handledByInputMethod = [self _aquaWebKitCollectKeypressCommands:event into:commands];
+    WebKit::NativeWebKeyboardEvent webEvent(event, handledByInputMethod, false, commands);
     _wkState->page->handleKeyboardEvent(webEvent);
 }
 
@@ -2064,11 +2198,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 // deleteToBeginningOfLine:, Cmd+Up/Down to moveToBeginningOfDocument:/moveToEndOfDocument:,
 // Cmd+Left/Right to moveToLeftEndOfLine:/moveToRightEndOfLine: and their AndModifySelection:
 // variants, alongside any user binding from ~/Library/KeyBindings/DefaultKeyBinding.dict.
-- (void)_aquaWebKitCollectKeypressCommands:(NSEvent *)event into:(WTF::Vector<WebCore::KeypressCommand>&)commands
+- (BOOL)_aquaWebKitCollectKeypressCommands:(NSEvent *)event into:(WTF::Vector<WebCore::KeypressCommand>&)commands
 {
-    tlsCollectingCommands = &commands;
+    RetainPtr protectedSelf = self;
+    WKViewInterpretKeyEventsParameters parameters { commands, !([event modifierFlags] & NSCommandKeyMask) };
+    SetForScope interpretationScope(_wkState->interpretKeyEventsParameters, &parameters);
     [self interpretKeyEvents:@[event]];
-    tlsCollectingCommands = nullptr;
+    return parameters.consumedByIM || parameters.eventInterpretationHadSideEffects;
 }
 
 - (void)keyUp:(NSEvent *)event
@@ -2130,8 +2266,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // (deleteToBeginningOfLine:) and the Cmd+arrow document/line movers are real key bindings.
         // Upstream's WebViewImpl::performKeyEquivalent likewise goes through interpretKeyEvent.
         WTF::Vector<WebCore::KeypressCommand> commands;
-        [self _aquaWebKitCollectKeypressCommands:event into:commands];
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+        bool handledByInputMethod = [self _aquaWebKitCollectKeypressCommands:event into:commands];
+        WebKit::NativeWebKeyboardEvent webEvent(event, handledByInputMethod, false, commands);
         _wkState->page->handleKeyboardEvent(webEvent);
         return YES;
     }
