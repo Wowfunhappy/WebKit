@@ -1783,6 +1783,15 @@ void WebPageProxy::didAttachToRunningProcess()
 #endif
 }
 
+// AQUAWEBKIT: 199383@main's pre-policy provisional-load cancellation applies only to navigations the UI process knows are cross-document.
+static void cancelProvisionalPageForNewNavigation(RefPtr<ProvisionalPageProxy>& provisionalPageToCancel, std::optional<NavigationIdentifier> navigationID)
+{
+    if (RefPtr provisionalPage = provisionalPageToCancel; provisionalPage && !provisionalPage->didFailProvisionalLoad() && provisionalPage->navigationID() != navigationID) {
+        provisionalPage->cancel();
+        provisionalPageToCancel = nullptr;
+    }
+}
+
 RefPtr<API::Navigation> WebPageProxy::launchProcessForReload()
 {
     WEBPAGEPROXY_RELEASE_LOG(Loading, "launchProcessForReload:");
@@ -1803,6 +1812,8 @@ RefPtr<API::Navigation> WebPageProxy::launchProcessForReload()
     }
 
     Ref navigation = m_navigationState->createReloadNavigation(legacyMainFrameProcess().coreProcessIdentifier(), protect(backForwardList().currentItem()));
+
+    cancelProvisionalPageForNewNavigation(m_provisionalPage, navigation->navigationID()); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
 
     String url = currentURL();
     if (!url.isEmpty()) {
@@ -2267,6 +2278,10 @@ RefPtr<API::Navigation> WebPageProxy::loadRequest(WebCore::ResourceRequest&& req
 
     Ref navigation = m_navigationState->createLoadRequestNavigation(legacyMainFrameProcess().coreProcessIdentifier(), ResourceRequest(request), protect(backForwardList().currentItem()));
 
+    if (!request.url().protocolIsJavaScript()
+        && (!request.url().hasFragmentIdentifier() || (m_mainFrame && !equalIgnoringFragmentIdentifier(m_mainFrame->url(), request.url()))))
+        cancelProvisionalPageForNewNavigation(m_provisionalPage, navigation->navigationID()); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
+
     if (lastNavigationAction)
         navigation->setLastNavigationAction(*lastNavigationAction);
 
@@ -2431,6 +2446,8 @@ RefPtr<API::Navigation> WebPageProxy::loadFile(const String& fileURLString, cons
 
     Ref navigation = m_navigationState->createLoadRequestNavigation(legacyMainFrameProcess().coreProcessIdentifier(), ResourceRequest(URL { fileURL }), protect(backForwardList().currentItem()));
 
+    cancelProvisionalPageForNewNavigation(m_provisionalPage, navigation->navigationID()); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
+
     navigation->markRequestAsFromClientInput();
 
     if (shouldForceForegroundPriorityForClientNavigation())
@@ -2498,6 +2515,9 @@ RefPtr<API::Navigation> WebPageProxy::loadData(Ref<WebCore::SharedBuffer>&& data
         launchProcess(Site(URL(baseURL)), ProcessLaunchReason::InitialProcess);
 
     Ref navigation = m_navigationState->createLoadDataNavigation(legacyMainFrameProcess().coreProcessIdentifier(), makeUnique<API::SubstituteData>(Vector(data->span()), type, encoding, baseURL, userData));
+
+    cancelProvisionalPageForNewNavigation(m_provisionalPage, navigation->navigationID()); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
+
     navigation->markAsFromLoadData();
 
     if (shouldForceForegroundPriorityForClientNavigation())
@@ -2576,6 +2596,8 @@ RefPtr<API::Navigation> WebPageProxy::loadSimulatedRequest(WebCore::ResourceRequ
 
     Ref navigation = m_navigationState->createSimulatedLoadWithDataNavigation(legacyMainFrameProcess().coreProcessIdentifier(), ResourceRequest(simulatedRequest), makeUnique<API::SubstituteData>(Vector(data->span()), ResourceResponse(simulatedResponse), WebCore::SubstituteData::SessionHistoryVisibility::Visible), protect(backForwardList().currentItem()));
 
+    cancelProvisionalPageForNewNavigation(m_provisionalPage, navigation->navigationID()); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
+
     if (shouldForceForegroundPriorityForClientNavigation())
         setClientNavigationActivity(navigation);
 
@@ -2647,6 +2669,8 @@ void WebPageProxy::loadAlternateHTML(Ref<WebCore::DataSegment>&& htmlData, const
 
     if (!hasRunningProcess())
         launchProcess(Site { baseURL }, ProcessLaunchReason::InitialProcess);
+
+    cancelProvisionalPageForNewNavigation(m_provisionalPage, std::nullopt); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
 
     Ref pageLoadState = internals().pageLoadState;
     auto transaction = pageLoadState->transaction();
@@ -2742,6 +2766,8 @@ RefPtr<API::Navigation> WebPageProxy::reload(OptionSet<WebCore::ReloadOption> op
         return launchProcessForReload();
 
     Ref navigation = m_navigationState->createReloadNavigation(legacyMainFrameProcess().coreProcessIdentifier(), protect(backForwardList().currentItem()));
+
+    cancelProvisionalPageForNewNavigation(m_provisionalPage, navigation->navigationID()); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
 
     String url = currentURL();
     if (!url.isEmpty()) {
@@ -2909,6 +2935,10 @@ RefPtr<API::Navigation> WebPageProxy::goToBackForwardItem(WebBackForwardListFram
     }
 
     Ref navigation = m_navigationState->createBackForwardNavigation(process->coreProcessIdentifier(), frameItem, protect(backForwardList().currentItem()), frameLoadType);
+
+    if (RefPtr currentItem = backForwardList().currentItem(); currentItem && item->mainFrameItem().frameState().documentSequenceNumber != currentItem->mainFrameItem().frameState().documentSequenceNumber)
+        cancelProvisionalPageForNewNavigation(m_provisionalPage, navigation->navigationID()); // AQUAWEBKIT: 199383@main cross-document provisional cancellation.
+
     Ref pageLoadState = internals().pageLoadState;
     auto transaction = pageLoadState->transaction();
     pageLoadState->setPendingAPIRequest(transaction, { navigation->navigationID(), URL { item->url() } });
