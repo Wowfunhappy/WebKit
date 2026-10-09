@@ -27,9 +27,11 @@
 #include "WebBackForwardList.h"
 
 #include "APIArray.h"
+#include "APINavigation.h" // AQUAWEBKIT: Provisional navigation's target item.
 #include "BrowsingContextGroup.h"
 #include "LoadedWebArchive.h"
 #include "Logging.h"
+#include "ProvisionalPageProxy.h" // AQUAWEBKIT: Provisional navigation identifier.
 #include "SessionState.h"
 #include "WebBackForwardCache.h"
 #include "WebBackForwardListCounts.h"
@@ -37,6 +39,7 @@
 #include "WebBackForwardListSwiftUtilities.h"
 #include "WebFrameProxy.h"
 #include "WebInspectorUtilities.h"
+#include "WebNavigationState.h" // AQUAWEBKIT: Provisional navigation lookup.
 #include "WebPageProxy.h"
 #include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
@@ -892,9 +895,14 @@ void WebBackForwardList::backForwardGoToItem(BackForwardItemIdentifier itemID, C
     // On process swap, we tell the previous process to ignore the load, which causes it to restore its current back forward item to its previous
     // value. Since the load is really going on in a new provisional process, we want to ignore such requests from the committed process.
     // Any real new load in the committed process would have cleared m_provisionalPage.
+    // AQUAWEBKIT: A same-document or script-initiated traversal in the committed process is applied while a non-back/forward provisional load is pending.
     if (RefPtr webPageProxy = m_page.get()) {
-        if (webPageProxy->hasProvisionalPage())
-            return completionHandler(rawCounts());
+        // if (webPageProxy->hasProvisionalPage())
+        //     return completionHandler(rawCounts());
+        if (RefPtr provisionalPage = webPageProxy->provisionalPageProxy()) {
+            if (RefPtr navigation = webPageProxy->navigationState().navigation(provisionalPage->navigationID()); navigation && navigation->targetItem())
+                return completionHandler(rawCounts());
+        }
     }
 
     backForwardGoToItemShared(itemID, WTF::move(completionHandler));
