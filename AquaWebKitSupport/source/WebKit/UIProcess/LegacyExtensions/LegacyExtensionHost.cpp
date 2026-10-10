@@ -8,6 +8,7 @@
 #include "LegacyExtensionInfoPlist.h"
 #include "LegacyExtensionJavaScript.h"
 #include "LegacyExtensionScheme.h"
+#include "LegacyExtensionViewNetwork.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
 #include "APIHTTPCookieStore.h"
@@ -446,6 +447,7 @@ LegacyExtensionHost::LegacyExtensionHost()
 {
     LegacyExtensions::registerExtensionScheme();
     WebSetLegacyExtensionPageObserver(&pageObserver());
+    WebCore::LegacyLoadInterceptor::setSingleton(&LegacyExtensionViewNetwork::singleton());
 }
 
 void LegacyExtensionHost::webProcessCreated(WebProcessProxy& process)
@@ -1346,7 +1348,9 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
     if (!root.isValid() || m_websiteAccessRoots.get(extensionKey) == root)
         return;
     m_websiteAccessRoots.set(extensionKey, root);
-    m_websiteAccess.remove(extensionKey);
+    // Until the new access is read, the network ends hold the extension's blocking events for the router.
+    if (m_websiteAccess.remove(extensionKey))
+        updateNetworkListeners();
     m_websiteAccessWaiters.ensure(extensionKey, [] { return Vector<Function<void(const LegacyExtensions::WebsiteAccess&)>> { }; });
     LegacyExtensions::loadWebsiteAccess(root, [this, extensionKey, root](LegacyExtensions::WebsiteAccess&& access) {
         if (m_websiteAccessRoots.get(extensionKey) != root)
@@ -1582,25 +1586,35 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, const
         return;
     }
     normalizeWebRequestDetails(*details);
+    dispatchWebRequestEvent(eventName, details.releaseNonNull(), WTF::move(completionHandler));
+}
 
+void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&& completionHandler)
+{
     auto qualifiedName = makeString("webRequest."_s, eventName);
     // An extension's own resources are visible only to that extension; a web request, only to the extensions
-    // whose website access covers it.
+    // whose website access covers it. A context whose extension's website access is still being read hears
+    // the event once it is read.
     URL requestURL { details->getString("url"_s) };
     auto owningExtension = extensionKeyForURL(requestURL);
     Vector<Ref<HostContext>> listeners;
+    Vector<Ref<HostContext>> waitingListeners;
     for (auto& context : m_hostContexts.values()) {
         if (!context->interests.contains(qualifiedName))
             continue;
         if (!owningExtension.isNull()) {
             if (context->extensionKey != owningExtension)
                 continue;
-        } else if (auto iterator = m_websiteAccess.find(context->extensionKey); iterator == m_websiteAccess.end() || !iterator->value.allows(requestURL))
+        } else if (auto iterator = m_websiteAccess.find(context->extensionKey); iterator == m_websiteAccess.end()) {
+            if (m_websiteAccessWaiters.contains(context->extensionKey))
+                waitingListeners.append(context);
+            continue;
+        } else if (!iterator->value.allows(requestURL))
             continue;
         listeners.append(context);
     }
 
-    if (listeners.isEmpty()) {
+    if (listeners.isEmpty() && waitingListeners.isEmpty()) {
         if (completionHandler)
             completionHandler("{}"_s);
         return;
@@ -1610,13 +1624,22 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, const
     event->setString("t"_s, "event"_s);
     event->setString("name"_s, qualifiedName);
     auto arguments = JSON::Array::create();
-    arguments->pushObject(details.releaseNonNull());
+    arguments->pushObject(WTF::move(details));
     event->setArray("args"_s, WTF::move(arguments));
+
+    auto deliverOnceAllowed = [this, requestURL](Ref<HostContext>&& context, const String& message, Function<void(bool)>&& didDeliver) {
+        auto extensionKey = context->extensionKey;
+        withWebsiteAccess(extensionKey, [this, requestURL, context = WTF::move(context), message, didDeliver = WTF::move(didDeliver)](const LegacyExtensions::WebsiteAccess& access) mutable {
+            didDeliver(m_hostContexts.contains(context->identifier) && access.allows(requestURL) && deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message));
+        });
+    };
 
     if (!completionHandler) {
         auto message = event->toJSONString();
         for (auto& context : listeners)
             deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message);
+        for (auto& context : waitingListeners)
+            deliverOnceAllowed(context.copyRef(), message, [](bool) { });
         return;
     }
 
@@ -1626,12 +1649,23 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, const
     WebRequestCall call { { }, JSON::Object::create(), WTF::move(completionHandler) };
     for (auto& context : listeners)
         call.pendingHostContexts.append(context->identifier);
+    for (auto& context : waitingListeners)
+        call.pendingHostContexts.append(context->identifier);
     m_webRequestCalls.add(token, WTF::move(call));
     for (auto& context : listeners) {
         if (!deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message)) {
             if (auto iterator = m_webRequestCalls.find(token); iterator != m_webRequestCalls.end())
                 iterator->value.pendingHostContexts.removeAll(context->identifier);
         }
+    }
+    for (auto& context : waitingListeners) {
+        deliverOnceAllowed(context.copyRef(), message, [this, token, identifier = context->identifier](bool delivered) {
+            if (delivered)
+                return;
+            if (auto iterator = m_webRequestCalls.find(token); iterator != m_webRequestCalls.end())
+                iterator->value.pendingHostContexts.removeAll(identifier);
+            finishWebRequestCallIfComplete(token);
+        });
     }
     finishWebRequestCallIfComplete(token);
 }
@@ -1720,6 +1754,7 @@ void LegacyExtensionHost::updateNetworkListeners()
     m_observedNetworkEvents = WTF::move(observed);
     m_networkListenerOptions = WTF::move(options);
     m_blockingNetworkListeners = WTF::move(blockingListeners);
+    LegacyExtensionViewNetwork::singleton().setListeners(m_observedNetworkEvents, m_networkListenerOptions, m_blockingNetworkListeners);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         sendNetworkListeners(networkProcess);
 }

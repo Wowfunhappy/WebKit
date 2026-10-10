@@ -464,6 +464,8 @@ list(APPEND WebCore_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/mediarecorder/MediaRecorderPrivateWriterMP4.cpp
     # Safari 7 extensions' tabs.insertCSS style sheets.
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.cpp
+    # Safari 7 extensions' webRequest for the loads WebKit 1 makes.
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/loader/LegacyLoadInterceptor.cpp
     # The article document Safari 7's Reader article finder runs against.
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.cpp
     # Scroll anchoring suppression the Web Clip plug-in's injected bundle holds.
@@ -498,6 +500,7 @@ add_custom_command(
     VERBATIM)
 WEBKIT_ADD_SOURCE_DEPENDENCIES(${AQUAWEBKIT_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.cpp "${WebCore_DERIVED_SOURCES_DIR}/SafariReaderMozillaReadabilityScriptSource.h;${WebCore_DERIVED_SOURCES_DIR}/SafariReaderFirefoxReaderableScriptSource.h")
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+    "${AQUAWEBKIT_SUPPORT}/source/WebCore/loader"
     "${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa"
     "${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/mediarecorder"
 )
@@ -505,6 +508,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerAquaWebKit.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/loader/LegacyLoadInterceptor.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/ScrollAnchoringSuppressionHandle.h
     # The classic inspector frontend's bridge script, which both ports inject.

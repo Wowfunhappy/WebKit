@@ -39,6 +39,9 @@
 #include <WebCore/CocoaCurlSocketGate.h>
 #include <WebCore/CocoaCurlTLS.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
+#include "WebSocketChannel.h"
+#include <WebCore/Document.h>
+#include <WebCore/LegacyLoadInterceptor.h>
 #include <WebCore/Logging.h>
 #include <WebCore/SocketStreamError.h>
 #include <WebCore/StorageSessionProvider.h>
@@ -419,6 +422,24 @@ SocketStreamHandleImpl::SocketStreamHandleImpl(const URL& url, SocketStreamHandl
             m_client.didFailSocketStream(*this, SocketStreamError(0, m_url.string(), "WebSocket connection failed because it violates HTTP Strict Transport Security."_s));
         });
         return;
+    }
+
+    // Safari 7 extensions' webRequest decides the handshake first, for the document of the WebSocketChannel,
+    // this handle's only client. A blocked handshake fails as the HSTS check above fails one.
+    if (auto* interceptor = LegacyLoadInterceptor::singleton()) {
+        Ref document = *static_cast<WebSocketChannel&>(m_client).document();
+        auto continueHandshake = [this, protectedThis = Ref { *this }](bool proceed) {
+            if (state() == Closed)
+                return;
+            if (proceed)
+                return connect();
+            callOnMainThread([this, protectedThis] {
+                if (state() != Closed)
+                    m_client.didFailSocketStream(*this, SocketStreamError(0, m_url.string(), "WebSocket connection was blocked by an extension"_s));
+            });
+        };
+        if (interceptor->interceptWebSocket(document, url, WTF::move(continueHandshake)))
+            return;
     }
 
     connect();

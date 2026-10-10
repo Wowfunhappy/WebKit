@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "LegacyExtensionWebsiteAccess.h"
+#include "LegacyExtensionWebRequest.h"
 #include "MessageReceiver.h"
 #include "NetworkLoadChecker.h"
 #include "NetworkLoadClient.h"
@@ -68,7 +68,7 @@ public:
 
     // Whether a listener's onHeadersReceived can strip a response's Set-Cookie fields, which the network
     // task then holds until the verdict.
-    bool holdsReceivedCookies() const { return hasOption("onHeadersReceived"_s, "extraHeaders"_s); }
+    bool holdsReceivedCookies() const { return m_listeners.hasOption(LegacyExtensions::onHeadersReceived, LegacyExtensions::extraHeadersOption); }
 
     bool continueWillSendRequest(NetworkResourceLoader&, WebCore::ResourceRequest&);
 
@@ -76,29 +76,14 @@ public:
 
     void loaderDidFail(NetworkResourceLoader&, const WebCore::ResourceError&);
 
-    // A field the network layer adds to a request without one, as the request carries it and as an
-    // "extraHeaders" listener sees it.
-    struct GeneratedField {
-        WebCore::HTTPHeaderName name;
-        String carried;
-        String shown;
-    };
     void loaderDidFinish(NetworkResourceLoader&, NetworkResourceLoader::LoadResult);
 
 private:
     friend class NeverDestroyed<LegacyExtensionNetwork>;
     LegacyExtensionNetwork() = default;
 
-    struct BlockingListener {
-        String extensionKey;
-        LegacyExtensions::WebsiteAccess access;
-        std::optional<Vector<String>> urlPatterns;
-        std::optional<Vector<String>> types;
-        std::optional<double> tabID;
-    };
-
-    void setListeners(Vector<String>&& observedEvents, Vector<String>&& listenerOptions, String&& blockingListeners);
-    bool hasOption(ASCIILiteral eventName, ASCIILiteral option) const { return m_listenerOptions.contains(makeString(eventName, ':', option)); }
+    void setListeners(Vector<String>&& observedEvents, Vector<String>&& listenerOptions, String&& blockingListeners) { m_listeners.set(WTF::move(observedEvents), WTF::move(listenerOptions), blockingListeners); }
+    bool hasOption(ASCIILiteral eventName, ASCIILiteral option) const { return m_listeners.hasOption(eventName, option); }
     RefPtr<NetworkDataTaskCurlCocoa> curlTask(NetworkResourceLoader&);
     String cookieHeader(NetworkLoadChecker&, const WebCore::ResourceRequest&);
 
@@ -108,9 +93,8 @@ private:
     bool loadsInPlace(NetworkResourceLoader&, const URL&);
     void redirectInPlace(NetworkLoadChecker&, NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);
 
-    bool observes(ASCIILiteral eventName) const { return m_observedEvents.contains(String { eventName }); }
-    bool hasBlockingListener(ASCIILiteral eventName) const { return m_blockingListeners.contains(String { eventName }); }
-    bool blocks(ASCIILiteral eventName, const JSON::Object& details) const;
+    bool observes(ASCIILiteral eventName) const { return m_listeners.observes(eventName); }
+    bool blocks(ASCIILiteral eventName, const JSON::Object& details) const { return m_listeners.blocks(eventName, details); }
 
     void notify(ASCIILiteral eventName, const String& details);
     void dispatch(ASCIILiteral eventName, const String& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&&);
@@ -121,10 +105,7 @@ private:
     Ref<JSON::Object> responseDetails(NetworkResourceLoader&, const WebCore::ResourceResponse&, bool fromCache);
 
     WeakPtr<NetworkProcess> m_networkProcess;
-    HashSet<String> m_observedEvents;
-    // The extraInfoSpec options some listener of an event asks for, as "<event>:<option>".
-    HashSet<String> m_listenerOptions;
-    HashMap<String, Vector<BlockingListener>> m_blockingListeners;
+    LegacyExtensions::WebRequestListeners m_listeners;
     WeakHashMap<NetworkLoadChecker, uint64_t> m_checkerRequestIdentifiers;
     uint64_t m_nextRequestIdentifier { 1 };
     WeakHashSet<NetworkLoadChecker> m_resumingRequests;

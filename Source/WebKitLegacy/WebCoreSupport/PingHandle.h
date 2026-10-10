@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <WebCore/LegacyLoadInterceptor.h> // AQUAWEBKIT: Safari 7 extensions' webRequest, below.
+#include <WebCore/NetworkingContext.h> // AQUAWEBKIT: as above.
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceHandle.h>
 #include <WebCore/ResourceHandleClient.h>
@@ -45,9 +47,11 @@ class PingHandle final : public RefCountedAndCanMakeWeakPtr<PingHandle>, private
     WTF_MAKE_TZONE_ALLOCATED_INLINE(PingHandle);
     WTF_MAKE_NONCOPYABLE(PingHandle);
 public:
-    static void start(WebCore::NetworkingContext* networkingContext, const WebCore::ResourceRequest& request, bool shouldUseCredentialStorage, bool shouldFollowRedirects, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler)
+    // static void start(WebCore::NetworkingContext* networkingContext, const WebCore::ResourceRequest& request, bool shouldUseCredentialStorage, bool shouldFollowRedirects, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler) // AQUAWEBKIT: webRequest, below.
+    static void start(WebCore::NetworkingContext* networkingContext, const WebCore::ResourceRequest& request, bool shouldUseCredentialStorage, bool shouldFollowRedirects, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler, RefPtr<WebCore::LegacyLoadInterceptor::Load>&& webRequest = nullptr)
     {
         Ref handle = adoptRef(*new PingHandle(request, shouldUseCredentialStorage, shouldFollowRedirects));
+        handle->m_webRequest = WTF::move(webRequest); // AQUAWEBKIT: Safari 7 extensions' webRequest for the ping.
         handle->start(networkingContext, [handle, completionHandler = WTF::move(completionHandler)](const WebCore::ResourceError& error, const WebCore::ResourceResponse& response) mutable {
             completionHandler(error, response);
         });
@@ -75,6 +79,26 @@ private:
     void start(WebCore::NetworkingContext* networkingContext, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler)
     {
         m_completionHandler = WTF::move(completionHandler);
+        // AQUAWEBKIT: Safari 7 extensions' webRequest decides the request before createHandle sends it.
+        if (RefPtr webRequest = m_webRequest) {
+            webRequest->willSendRequest(WebCore::ResourceRequest { m_currentRequest }, { }, [this, protectedThis = Ref { *this }, networkingContext = RefPtr { networkingContext }](WebCore::ResourceRequest&& request, WebCore::ResourceError&& error) {
+                if (!m_completionHandler)
+                    return;
+                if (request.isNull())
+                    return pingLoadComplete(error);
+                m_currentRequest = WTF::move(request);
+                createHandle(networkingContext.get());
+            });
+            return;
+        }
+        createHandle(networkingContext);
+    }
+
+    void createHandle(WebCore::NetworkingContext* networkingContext)
+    {
+        // AQUAWEBKIT: closes the webRequest steps above; upstream's start() continues here.
+        if (m_webRequest)
+            m_networkingContext = networkingContext;
         bool defersLoading = false;
         bool shouldContentSniff = false;
         m_handle = WebCore::ResourceHandle::create(networkingContext, m_currentRequest, this, defersLoading, shouldContentSniff, WebCore::ContentEncodingSniffingPolicy::Default, nullptr, false);
@@ -82,10 +106,36 @@ private:
         // If the server never responds, this object will hang around forever.
         // Set a very generous timeout, just in case.
         m_timeoutTimer.startOneShot(60000_s);
+        if (m_webRequest && m_handle) // AQUAWEBKIT: Safari 7 extensions' webRequest holds the response's cookies.
+            m_webRequest->didCreateHandle(*m_handle);
     }
 
-    void willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler) final
+    // void willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler) final // AQUAWEBKIT: webRequest, below.
+    void willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler) final
     {
+        // AQUAWEBKIT: Safari 7 extensions' webRequest decides the redirect and the request it makes, or the
+        // response of a redirect the ping does not follow.
+        if (RefPtr webRequest = m_webRequest; webRequest && !m_shouldFollowRedirects) {
+            m_currentRequest = WTF::move(request);
+            webRequest->didReceiveRedirectResponse(WTF::move(redirectResponse), [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)](WebCore::ResourceError&& error) mutable {
+                completionHandler({ });
+                pingLoadComplete(!error.isNull() ? WTF::move(error) : WebCore::ResourceError { String(), 0, m_currentRequest.url(), "Not allowed to follow redirects"_s, WebCore::ResourceError::Type::AccessControl });
+            });
+            return;
+        }
+        if (RefPtr webRequest = m_webRequest) {
+            webRequest->willSendRequest(WTF::move(request), WTF::move(redirectResponse), [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)](WebCore::ResourceRequest&& request, WebCore::ResourceError&& error) mutable {
+                if (!m_completionHandler)
+                    return completionHandler({ });
+                if (request.isNull()) {
+                    completionHandler({ });
+                    return pingLoadComplete(error);
+                }
+                m_currentRequest = WTF::move(request);
+                completionHandler(WebCore::ResourceRequest { m_currentRequest });
+            });
+            return;
+        }
         m_currentRequest = WTF::move(request);
         if (m_shouldFollowRedirects) {
             completionHandler(WebCore::ResourceRequest { m_currentRequest });
@@ -96,6 +146,20 @@ private:
     }
     void didReceiveResponseAsync(WebCore::ResourceHandle*, WebCore::ResourceResponse&& response, CompletionHandler<void()>&& completionHandler) final
     {
+        // AQUAWEBKIT: Safari 7 extensions' webRequest decides the response before the ping completes with it.
+        if (RefPtr webRequest = m_webRequest) {
+            webRequest->didReceiveResponse(WTF::move(response), [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)](WebCore::ResourceResponse&& response, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceError&& error) mutable {
+                completionHandler();
+                if (redirectRequest.isNull() || !m_completionHandler)
+                    return pingLoadComplete(error, response);
+                m_handle->clearClient();
+                m_handle->cancel();
+                m_handle = nullptr;
+                m_currentRequest = WTF::move(redirectRequest);
+                createHandle(RefPtr { m_networkingContext }.get());
+            });
+            return;
+        }
         completionHandler();
         pingLoadComplete({ }, response);
     }
@@ -114,6 +178,8 @@ private:
 
     void pingLoadComplete(const WebCore::ResourceError& error = { }, const WebCore::ResourceResponse& response = { })
     {
+        if (RefPtr webRequest = m_webRequest; webRequest && m_completionHandler) // AQUAWEBKIT: Safari 7 extensions' webRequest.onCompleted and onErrorOccurred.
+            webRequest->didComplete(error, response);
         if (auto completionHandler = std::exchange(m_completionHandler, nullptr))
             completionHandler(error, response);
     }
@@ -124,4 +190,6 @@ private:
     bool m_shouldUseCredentialStorage;
     bool m_shouldFollowRedirects;
     CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)> m_completionHandler;
+    RefPtr<WebCore::LegacyLoadInterceptor::Load> m_webRequest; // AQUAWEBKIT: Safari 7 extensions' webRequest for the ping.
+    RefPtr<WebCore::NetworkingContext> m_networkingContext; // AQUAWEBKIT: the context a ping webRequest redirects starts its new load in.
 };

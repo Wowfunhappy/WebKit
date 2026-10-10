@@ -46,6 +46,7 @@
 #include "FrameLoader.h"
 #include "HTMLFrameOwnerElement.h"
 #include "InspectorInstrumentation.h"
+#include "LegacyLoadInterceptor.h" // AQUAWEBKIT: Safari 7 extensions' webRequest for WebKit 1 loads, below.
 #include "LegacySchemeRegistry.h"
 #include "LoaderStrategy.h"
 #include "LocalFrame.h"
@@ -262,6 +263,9 @@ void ResourceLoader::start()
         return;
     }
 #endif
+
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && interceptor->interceptStart(*this)) // AQUAWEBKIT: webRequest for a WebKit 1 load.
+        return;
 
     RefPtr subresourceLoader = dynamicDowncast<SubresourceLoader>(*this);
     RefPtr sourceOrigin = subresourceLoader ? subresourceLoader->origin() : nullptr;
@@ -663,6 +667,8 @@ void ResourceLoader::didFail(const ResourceError& error)
 
 void ResourceLoader::cleanupForError(const ResourceError& error)
 {
+    if (auto* interceptor = LegacyLoadInterceptor::singleton()) // AQUAWEBKIT: webRequest for a WebKit 1 load.
+        interceptor->loaderDidFail(*this, error);
     if (m_notifiedLoadComplete)
         return;
     m_notifiedLoadComplete = true;
@@ -764,6 +770,8 @@ bool ResourceLoader::isPortAllowed(const URL& url)
 void ResourceLoader::willSendRequestAsync(ResourceHandle* handle, ResourceRequest&& request, ResourceResponse&& redirectResponse, CompletionHandler<void(ResourceRequest&&)>&& completionHandler)
 {
     RefPtr protectedHandle { handle };
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && interceptor->interceptRedirection(*this, request, redirectResponse, completionHandler)) // AQUAWEBKIT: webRequest for a WebKit 1 load.
+        return;
     willSendRequestInternal(WTF::move(request), redirectResponse, WTF::move(completionHandler));
 }
 
@@ -774,6 +782,8 @@ void ResourceLoader::didSendData(ResourceHandle*, unsigned long long bytesSent, 
 
 void ResourceLoader::didReceiveResponseAsync(ResourceHandle*, ResourceResponse&& response, CompletionHandler<void()>&& completionHandler)
 {
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && interceptor->interceptResponse(*this, response, completionHandler)) // AQUAWEBKIT: webRequest for a WebKit 1 load.
+        return;
     didReceiveResponse(WTF::move(response), WTF::move(completionHandler));
 }
 
@@ -789,6 +799,8 @@ void ResourceLoader::didReceiveBuffer(ResourceHandle*, const FragmentedSharedBuf
 
 void ResourceLoader::didFinishLoading(ResourceHandle*, const NetworkLoadMetrics& metrics)
 {
+    if (auto* interceptor = LegacyLoadInterceptor::singleton()) // AQUAWEBKIT: webRequest for a WebKit 1 load.
+        interceptor->loaderDidFinish(*this);
     didFinishLoading(metrics);
 }
 
@@ -852,6 +864,9 @@ void ResourceLoader::didReceiveAuthenticationChallenge(ResourceHandle* handle, c
     // Protect this in this delegate method since the additional processing can do
     // anything including possibly derefing this; one example of this is Radar 3266216.
     Ref protectedThis { *this };
+
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && interceptor->interceptAuthenticationChallenge(*this, challenge)) // AQUAWEBKIT: webRequest for a WebKit 1 load.
+        return;
 
     if (m_options.storedCredentialsPolicy == StoredCredentialsPolicy::Use) {
         if (isAllowedToAskUserForCredentials() && m_identifier) {

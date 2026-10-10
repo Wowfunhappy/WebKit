@@ -83,6 +83,8 @@ public:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     void dispatchWebRequestEvent(const String& eventName, const String& details, CompletionHandler<void(String&&)>&&);
+    // An event whose details already name the load's tab and frames as the API reports them.
+    void dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&&);
     void dispatchCookieChange(const WebCore::Cookie&, Ref<JSON::Array>&&);
 
     // WebKit 1 host contexts.

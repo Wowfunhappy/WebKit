@@ -201,6 +201,8 @@ protected:
 #endif
 
 private:
+    friend class LegacyLoadInterceptor; // AQUAWEBKIT: Safari 7 extensions' webRequest resumes a WebKit 1 load it holds.
+
     virtual void willCancel(const ResourceError&) = 0;
     virtual void didCancel(LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No) = 0;
 

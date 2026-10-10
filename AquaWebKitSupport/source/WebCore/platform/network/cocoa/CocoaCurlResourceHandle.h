@@ -52,6 +52,11 @@ public:
     void detach();
     void setDefersLoading(bool);
     std::optional<CocoaCurlDownloadTransfer> takeDownload();
+    // A response whose Set-Cookie fields a Safari 7 extension's onHeadersReceived may strip keeps them until
+    // its verdict stores or discards them (LegacyLoadInterceptor). Authentication exchanges never reach it.
+    const Vector<String>* heldCookies() const { return m_heldCookies ? &*m_heldCookies : nullptr; }
+    void storeHeldCookies(std::optional<Vector<String>>&& = std::nullopt);
+    void discardHeldCookies() { m_heldCookies = std::nullopt; }
 private:
     CocoaCurlResourceHandle(ResourceHandle&, NetworkStorageSession&, bool allowStoredCredentials, SynchronousLoaderMessageQueue*, std::optional<ResourceRequest>&&);
     void beginTransfer();
@@ -67,6 +72,7 @@ private:
     void challenge(const ProtectionSpace&, const Credential&, unsigned, const ResourceError&, CocoaCurlAuthenticationCompletion&&);
     void finish(const ResourceError&);
     void fail(int, const String&);
+    void storeCookies(const Vector<String>&);
     void curlReceivedCookies(Vector<String>&&, int statusCode, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final;
@@ -115,6 +121,7 @@ private:
     bool m_useResponse { false };
     bool m_allowCredentials { false };
     bool m_generatedCookie { false };
+    std::optional<Vector<String>> m_heldCookies;
     Vector<uint8_t> m_sniffed;
     std::unique_ptr<CurlMultipartHandle> m_multipart;
     // The shared-cache entry a conditional request is revalidating.

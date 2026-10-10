@@ -17,6 +17,7 @@
 #include "HTTPParsers.h"
 #include "HTTPStatusCodes.h"
 #include "HTTPStrictTransportSecurityStore.h"
+#include "LegacyLoadInterceptor.h"
 #include "CocoaMIMESniffing.h"
 #include "OriginAccessPatterns.h"
 #include "ResourceLoaderOptions.h"
@@ -200,26 +201,42 @@ void CocoaCurlResourceHandle::beginTransfer()
     m_connection->start();
 }
 // commit each wire field before the next authentication request.
-void CocoaCurlResourceHandle::curlReceivedCookies(Vector<String>&& fields, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void CocoaCurlResourceHandle::curlReceivedCookies(Vector<String>&& fields, int statusCode, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     if (m_cancelled || !m_handle) {
         completion(std::nullopt);
         return;
     }
-    if (m_storage && m_request.allowCookies()) {
-        auto sameSite = SameSiteInfo::create(m_request);
-        for (auto& field : fields) {
-            auto cookie = parseHTTPSetCookie(field, m_request.url());
-            if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite))
-                m_storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
-        }
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && statusCode != 401 && statusCode != 407 && interceptor->holdsReceivedCookies(*m_handle)) {
+        m_heldCookies = WTF::move(fields);
+        completion(std::nullopt);
+        return;
     }
+    storeCookies(fields);
     if (!m_storage || !m_request.allowCookies() || (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie) && !m_generatedCookie)) {
         completion(std::nullopt);
         return;
     }
     auto value = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
     completion(WTF::move(value));
+}
+void CocoaCurlResourceHandle::storeCookies(const Vector<String>& fields)
+{
+    if (!m_storage || !m_request.allowCookies())
+        return;
+    auto sameSite = SameSiteInfo::create(m_request);
+    for (auto& field : fields) {
+        auto cookie = parseHTTPSetCookie(field, m_request.url());
+        if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite))
+            m_storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
+    }
+}
+void CocoaCurlResourceHandle::storeHeldCookies(std::optional<Vector<String>>&& fields)
+{
+    auto held = std::exchange(m_heldCookies, std::nullopt);
+    if (!held || m_cancelled)
+        return;
+    storeCookies(fields ? *fields : *held);
 }
 void CocoaCurlResourceHandle::curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion)
 {

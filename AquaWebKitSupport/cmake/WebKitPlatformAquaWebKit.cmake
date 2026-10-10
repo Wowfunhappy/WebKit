@@ -158,7 +158,8 @@ list(APPEND WebKit_SOURCES
 
 # The `browser` namespace WebKit gives Safari 7 legacy extensions: LegacyExtensionAPI.js, the UI-process
 # router (LegacyExtensionHost), and its web-content (LegacyExtensionContent) and network-process
-# (LegacyExtensionNetwork) ends. Their message receivers are generated from DerivedSources copies of the
+# (LegacyExtensionNetwork) ends, with the webRequest of the Safari process's WebKit 1 extension views
+# (LegacyExtensionViewNetwork). Their message receivers are generated from DerivedSources copies of the
 # .messages.in files, which the generator finds by bare name.
 set(AQUAWEBKIT_LEGACY_EXTENSIONS "${AQUAWEBKIT_SUPPORT}/source/WebKit")
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
@@ -172,10 +173,12 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionErrors.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionJavaScript.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionScheme.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebRequest.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebsiteAccess.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionInfoPlist.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHost.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewNetwork.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp
 )

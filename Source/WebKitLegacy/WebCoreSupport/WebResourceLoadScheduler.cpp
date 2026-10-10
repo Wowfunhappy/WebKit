@@ -31,6 +31,7 @@
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/FetchOptions.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/LegacyLoadInterceptor.h> // AQUAWEBKIT: Safari 7 extensions' webRequest, below.
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/NetscapePlugInStreamLoader.h>
 #include <WebCore/NetworkStateNotifier.h>
@@ -114,7 +115,11 @@ void WebResourceLoadScheduler::loadResourceSynchronously(FrameLoader& frameLoade
 {
     auto* document = frameLoader.frame().document();
     auto* sourceOrigin = document ? &document->securityOrigin() : nullptr;
+    auto* interceptor = LegacyLoadInterceptor::singleton(); // AQUAWEBKIT: Safari 7 extensions' webRequest.
+    RefPtr webRequest = interceptor ? interceptor->willLoadSynchronously(frameLoader, request, options) : nullptr; // AQUAWEBKIT: as above.
     ResourceHandle::loadResourceSynchronously(frameLoader.networkingContext(), request, options.credentials == FetchOptions::Credentials::Omit ? StoredCredentialsPolicy::DoNotUse : StoredCredentialsPolicy::Use, sourceOrigin, error, response, data);
+    if (webRequest) // AQUAWEBKIT: as above.
+        webRequest->didComplete(response, error);
 }
 
 void WebResourceLoadScheduler::pageLoadCompleted(Page&)
@@ -400,7 +405,9 @@ bool WebResourceLoadScheduler::HostInformation::limitRequests(ResourceLoadPriori
 void WebResourceLoadScheduler::startPingLoad(LocalFrame& frame, ResourceRequest& request, const HTTPHeaderMap&, const FetchOptions& options, ContentSecurityPolicyImposition, PingLoadCompletionHandler&& completionHandler)
 {
     // PingHandle manages its own lifetime, deleting itself when its purpose has been fulfilled.
-    PingHandle::start(frame.loader().networkingContext(), request, options.credentials != FetchOptions::Credentials::Omit, options.redirect == FetchOptions::Redirect::Follow, WTF::move(completionHandler));
+    // PingHandle::start(frame.loader().networkingContext(), request, options.credentials != FetchOptions::Credentials::Omit, options.redirect == FetchOptions::Redirect::Follow, WTF::move(completionHandler)); // AQUAWEBKIT: webRequest, below.
+    auto* interceptor = LegacyLoadInterceptor::singleton(); // AQUAWEBKIT: Safari 7 extensions' webRequest for the ping.
+    PingHandle::start(frame.loader().networkingContext(), request, options.credentials != FetchOptions::Credentials::Omit, options.redirect == FetchOptions::Redirect::Follow, WTF::move(completionHandler), interceptor ? interceptor->pingLoad(frame, request, options) : nullptr);
 }
 
 bool WebResourceLoadScheduler::isOnLine() const

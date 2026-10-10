@@ -47,32 +47,26 @@ const hasExtraInfo = ({ extraInfoSpec }, name) => Array.isArray(extraInfoSpec) &
 // the argument it passes the callback it receives.
 const isBlocking = entry => hasExtraInfo(entry, "blocking") || hasExtraInfo(entry, "asyncBlocking");
 
-let interestUpdateScheduled = false;
-const scheduleInterestUpdate = () => {
-    if (interestUpdateScheduled)
-        return;
-    interestUpdateScheduled = true;
-    queueMicrotask(() => {
-        interestUpdateScheduled = false;
-        const events = {};
-        for (const [name, event] of trackedEvents) {
-            if (!event.hasListeners())
-                continue;
-            const blockingFilters = event._listeners.filter(isBlocking).map(({ filter }) => {
-                if (!filter || typeof filter !== "object")
-                    return {};
-                const { urls, types, tabId } = filter;
-                return { urls: Array.isArray(urls) ? urls : undefined, types: Array.isArray(types) ? types : undefined, tabId: typeof tabId === "number" ? tabId : undefined };
-            });
-            const interest = blockingFilters.length ? { blockingFilters } : {};
-            for (const option of ["requestBody", "extraHeaders"]) {
-                if (event._listeners.some(entry => hasExtraInfo(entry, option)))
-                    interest[option] = true;
-            }
-            events[name] = interest;
+// The router learns of a listener as it is added, so a request the context makes next reaches it.
+const updateInterest = () => {
+    const events = {};
+    for (const [name, event] of trackedEvents) {
+        if (!event.hasListeners())
+            continue;
+        const blockingFilters = event._listeners.filter(isBlocking).map(({ filter }) => {
+            if (!filter || typeof filter !== "object")
+                return {};
+            const { urls, types, tabId } = filter;
+            return { urls: Array.isArray(urls) ? urls : undefined, types: Array.isArray(types) ? types : undefined, tabId: typeof tabId === "number" ? tabId : undefined };
+        });
+        const interest = blockingFilters.length ? { blockingFilters } : {};
+        for (const option of ["requestBody", "extraHeaders"]) {
+            if (event._listeners.some(entry => hasExtraInfo(entry, option)))
+                interest[option] = true;
         }
-        send({ t: "interest", events });
-    });
+        events[name] = interest;
+    }
+    send({ t: "interest", events });
 };
 
 class Event {
@@ -88,7 +82,7 @@ class Event {
             return;
         this._listeners.push({ callback, filter, extraInfoSpec });
         if (this._name)
-            scheduleInterestUpdate();
+            updateInterest();
     }
 
     removeListener(callback) {
@@ -97,7 +91,7 @@ class Event {
             return;
         this._listeners.splice(index, 1);
         if (this._name)
-            scheduleInterestUpdate();
+            updateInterest();
     }
 
     hasListener(callback) {

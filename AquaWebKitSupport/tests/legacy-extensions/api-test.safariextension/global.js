@@ -13,7 +13,12 @@ Promise.all([import('/mod.js'), import('./mod.js')]).then(
     error => report('module-identity', { error: String(error) })
 );
 
+// The global page's own requests reach its listeners too; its reports are left out of them.
+const isReport = details => details.url.includes('/report?');
+
 browser.webRequest.onBeforeRequest.addListener(details => {
+    if (isReport(details))
+        return;
     report('onBeforeRequest', details);
     if (details.url.includes('/blocked-'))
         return { cancel: true };
@@ -24,6 +29,8 @@ browser.webRequest.onBeforeRequest.addListener(details => {
 }, { urls: ['http://127.0.0.1/*', 'ws://127.0.0.1/*'] }, ['blocking']);
 
 browser.webRequest.onHeadersReceived.addListener(details => {
+    if (isReport(details))
+        return;
     report('onHeadersReceived', { url: details.url, type: details.type, statusCode: details.statusCode });
     if (details.url.includes('/blocked-by-headers'))
         return { cancel: true };
@@ -373,3 +380,50 @@ withClipboardLock(async () => {
     }
     report('clipboard', result);
 });
+
+// The global page's own requests, which WebKit 1 loads in the Safari process: their details; a cancel, a
+// redirect and a response header rewrite; an Origin a converted Chrome extension's server expects, for the
+// page's fetch and its worker's; a synchronous request, a WebSocket and a server redirect.
+const chromeOrigin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+browser.webRequest.onBeforeRequest.addListener(details => {
+    if (details.url.includes('/res/view-'))
+        report(`view-details${new URL(details.url).pathname}`, { tabId: details.tabId, frameId: details.frameId, parentFrameId: details.parentFrameId, type: details.type, initiator: details.initiator, documentUrl: details.documentUrl, requestId: typeof details.requestId });
+    if (details.url.endsWith('/res/view-redirect.json'))
+        return { redirectUrl: 'http://127.0.0.1:8843/res/view-redirected.json' };
+}, { urls: ['http://127.0.0.1/*'] }, ['blocking']);
+browser.webRequest.onBeforeSendHeaders.addListener(details => {
+    if (details.url.includes('/echo-headers?view-origin'))
+        return { requestHeaders: details.requestHeaders.filter(h => h.name.toLowerCase() !== 'origin').concat({ name: 'Origin', value: chromeOrigin }) };
+}, { urls: ['http://127.0.0.1/*'] }, ['blocking', 'requestHeaders', 'extraHeaders']);
+browser.webRequest.onHeadersReceived.addListener(details => {
+    if (details.url.endsWith('/res/view-headers.json'))
+        return { responseHeaders: details.responseHeaders.concat({ name: 'X-View-Modified', value: 'yes' }) };
+}, { urls: ['http://127.0.0.1/*'] }, ['blocking', 'responseHeaders']);
+browser.webRequest.onCompleted.addListener(details => {
+    if (details.url.endsWith('/res/view-allowed.json'))
+        report('view-completed', { statusCode: details.statusCode, tabId: details.tabId });
+}, { urls: ['http://127.0.0.1/*'] });
+
+{
+    const settle = (key, promise) => promise.then(value => report(key, value), error => report(key, { error: String(error) }));
+    settle('view-allowed', fetch(`${SERVER}/res/view-allowed.json`).then(r => 'loaded:' + r.status));
+    settle('view-blocked', fetch(`${SERVER}/res/blocked-view-fetch.json`).then(r => 'loaded:' + r.status));
+    settle('view-redirect', fetch(`${SERVER}/res/view-redirect.json`).then(r => new URL(r.url).pathname));
+    settle('view-headers', fetch(`${SERVER}/res/view-headers.json`).then(r => r.headers.get('X-View-Modified')));
+    settle('view-origin', fetch(`${SERVER}/echo-headers?view-origin`).then(r => r.json()).then(h => h.origin || 'none'));
+    settle('view-worker-origin', new Promise(resolve => {
+        const worker = new Worker('view-worker.js');
+        worker.onmessage = event => resolve(event.data);
+        worker.onerror = event => resolve({ error: event.message });
+    }));
+    settle('view-moved-location', fetch(`${SERVER}/moved-location`).then(r => new URL(r.url).pathname));
+    settle('view-websocket-blocked', new Promise(resolve => {
+        const ws = new WebSocket('ws://127.0.0.1:8844/blocked-ws');
+        ws.onmessage = () => resolve('message');
+        ws.onclose = event => resolve('close:' + event.code);
+    }));
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', `${SERVER}/res/view-sync.json`, false);
+    try { xhr.send(); } catch { }
+    report('view-sync', { status: xhr.status });
+}
