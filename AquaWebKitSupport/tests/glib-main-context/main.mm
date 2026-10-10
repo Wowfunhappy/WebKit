@@ -1,23 +1,50 @@
 // Serves GLib's default context from the main CFRunLoop, as WebContent does, and checks timeouts,
-// idle sources, run-loop fairness, that a backlog drains within one pass of the run loop unless a
-// dispatched callback's RunLoop work holds the cycle, and that RunLoop work queued by a dispatched callback runs before
-// the context's next dispatch while an fd source's backlog drains.
+// idle sources, run-loop fairness, and complete, ordered descriptor and RunLoop delivery across CF turns.
 
 #include "config.h"
 #include "GLibMainContextAquaWebKit.h"
+#include "MainThreadSharedTimer.h"
 
 #import <Foundation/Foundation.h>
 #include <glib-unix.h>
 #include <glib.h>
 #include <atomic>
 #include <cstdio>
+#include <dlfcn.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <wtf/MainThread.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WorkQueue.h>
+#include <wtf/glib/RunLoopSourcePriority.h>
 
 static bool failed;
+static std::atomic<bool> pausePoller, pollerPaused;
+static std::atomic<unsigned> helperPolls, finiteHelperPolls;
+static pthread_mutex_t pollerLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t pollerCondition = PTHREAD_COND_INITIALIZER;
+
+extern "C" gint g_poll(GPollFD* fds, guint count, gint timeout)
+{
+    static auto realPoll = reinterpret_cast<GPollFunc>(dlsym(RTLD_NEXT, "g_poll"));
+    if (!pthread_main_np()) {
+        ++helperPolls;
+        if (timeout != -1)
+            ++finiteHelperPolls;
+    }
+    int result = realPoll(fds, count, timeout);
+    if (!pthread_main_np()) {
+        pthread_mutex_lock(&pollerLock);
+        while (pausePoller) {
+            pollerPaused = true;
+            pthread_cond_wait(&pollerCondition, &pollerLock);
+        }
+        pollerPaused = false;
+        pthread_mutex_unlock(&pollerLock);
+    }
+    return result;
+}
 
 static void check(bool condition, const char* what)
 {
@@ -28,9 +55,16 @@ static void check(bool condition, const char* what)
 
 static void runUntil(bool (^done)(), double seconds)
 {
+    CFRunLoopObserverRef completionObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+        if (done())
+            CFRunLoopStop(CFRunLoopGetMain());
+    });
+    CFRunLoopAddObserver(CFRunLoopGetMain(), completionObserver, kCFRunLoopCommonModes);
     NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:seconds];
     while (!done() && [limit timeIntervalSinceNow] > 0)
         [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:limit];
+    CFRunLoopObserverInvalidate(completionObserver);
+    CFRelease(completionObserver);
 }
 
 static std::atomic<bool> finished;
@@ -44,6 +78,92 @@ static void* watchdog(void*)
     }
     return nullptr;
 }
+
+struct SharedTimerUnderLoad {
+    static SharedTimerUnderLoad* current;
+    bool useWorkQueue, suspend, blockedPoller;
+    bool finished { false };
+    unsigned work { 0 }, workAtShared { 0 }, workAtCF { 0 }, passes { 0 }, passesAtShared { 0 };
+    MonotonicTime start, sharedFired, cfFired;
+
+    void post()
+    {
+        auto step = [] {
+            auto& test = *current;
+            ++test.work;
+            if (test.suspend)
+                RunLoop::mainSingleton().suspendFunctionDispatchForCurrentCycle();
+            if ((!test.sharedFired || !test.cfFired) && MonotonicTime::now() - test.start < 100_ms)
+                test.post();
+            else
+                test.finished = true;
+        };
+        if (useWorkQueue)
+            WorkQueue::mainSingleton().dispatch(WTF::move(step));
+        else
+            RunLoop::mainSingleton().dispatch(WTF::move(step));
+    }
+
+    void run()
+    {
+        current = this;
+        if (blockedPoller) {
+            pausePoller = true;
+            g_main_context_wakeup(g_main_context_default());
+            MonotonicTime deadline = MonotonicTime::now() + 2_s;
+            while (!pollerPaused && MonotonicTime::now() < deadline)
+                usleep(1000);
+        }
+        auto& sharedTimer = WebCore::MainThreadSharedTimer::singleton();
+        sharedTimer.setFiredFunction(nullptr);
+        sharedTimer.setFiredFunction([] {
+            current->sharedFired = MonotonicTime::now();
+            current->workAtShared = current->work;
+            current->passesAtShared = current->passes;
+        });
+        CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+            ++current->passes;
+            if (current->finished && current->sharedFired && current->cfFired)
+                CFRunLoopStop(CFRunLoopGetMain());
+        });
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+        CFRunLoopTimerRef cfTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 1, 0, 0, 0, ^(CFRunLoopTimerRef) {
+            current->cfFired = MonotonicTime::now();
+            current->workAtCF = current->work;
+        });
+        CFRunLoopAddTimer(CFRunLoopGetMain(), cfTimer, kCFRunLoopCommonModes);
+        RunLoop::mainSingleton().dispatch([cfTimer] {
+            current->start = MonotonicTime::now();
+            CFRunLoopTimerSetNextFireDate(cfTimer, CFAbsoluteTimeGetCurrent());
+            WebCore::MainThreadSharedTimer::singleton().setFireInterval(0_s);
+            current->post();
+        });
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 2, false);
+        double sharedLatency = (sharedFired - start).milliseconds();
+        double cfLatency = (cfFired - start).milliseconds();
+        printf("shared timer under %s load%s%s: shared %.3f ms at work %u/pass %u, CF %.3f ms at work %u, %u callbacks total\n",
+            useWorkQueue ? "WorkQueue" : "RunLoop", suspend ? " with suspension" : "", blockedPoller ? " with blocked poller" : "",
+            sharedLatency, workAtShared, passesAtShared, cfLatency, workAtCF, work);
+        check(finished && sharedFired && cfFired && sharedLatency < 10 && cfLatency < 10
+            && workAtShared < work && workAtCF < work && (!blockedPoller || pollerPaused),
+            "zero-delay shared and CF timers fire within 10 ms while dispatch continues");
+        CFRunLoopTimerInvalidate(cfTimer);
+        CFRelease(cfTimer);
+        CFRunLoopObserverInvalidate(observer);
+        CFRelease(observer);
+        sharedTimer.stop();
+        sharedTimer.setFiredFunction(nullptr);
+        if (blockedPoller) {
+            pthread_mutex_lock(&pollerLock);
+            pausePoller = false;
+            pthread_cond_signal(&pollerCondition);
+            pthread_mutex_unlock(&pollerLock);
+        }
+        current = nullptr;
+    }
+};
+
+SharedTimerUnderLoad* SharedTimerUnderLoad::current;
 
 int main()
 {
@@ -67,6 +187,148 @@ int main()
         double latency = (fired - added).milliseconds();
         printf("timeout fired after %.1f ms\n", latency);
         check(latency >= 100 && latency < 160, "a main-thread timeout fires on time on an idle run loop");
+
+        pausePoller = true;
+        g_main_context_wakeup(g_main_context_default());
+        MonotonicTime pauseDeadline = MonotonicTime::now() + 2_s;
+        while (!pollerPaused && MonotonicTime::now() < pauseDeadline)
+            usleep(1000);
+        check(pollerPaused, "the descriptor poller is blocked before timer delivery");
+        static bool timeoutOnMainThread;
+        fired = { };
+        added = MonotonicTime::now();
+        g_timeout_add(100, [](gpointer) -> gboolean {
+            fired = MonotonicTime::now();
+            timeoutOnMainThread = pthread_main_np();
+            return G_SOURCE_REMOVE;
+        }, nullptr);
+        runUntil(^{ return !!fired; }, 2);
+        latency = ((fired ? fired : MonotonicTime::now()) - added).milliseconds();
+        printf("timeout with blocked poller %s after %.1f ms\n", fired ? "fired" : "pending", latency);
+        check(fired && timeoutOnMainThread && pollerPaused && latency >= 100 && latency < 160,
+            "a GLib deadline fires on the main thread while the poller is blocked");
+
+        // DRT's wait-attribute poll posts a new zero-delay timer from each timer callout.
+        struct ZeroDelayPoll {
+            CFRunLoopTimerRef timer { nullptr };
+            unsigned callouts { 0 }, passes { 0 }, passesAtDispatch { 0 };
+            unsigned passLimit { 1000 };
+            unsigned workMicroseconds { 0 };
+            MonotonicTime start, dispatched;
+            bool onMainThread { false };
+
+            void post()
+            {
+                CFRunLoopTimerContext context { };
+                context.info = this;
+                timer = CFRunLoopTimerCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent(), 0, 0, 0, [](CFRunLoopTimerRef timer, void* info) {
+                    auto& poll = *static_cast<ZeroDelayPoll*>(info);
+                    CFRunLoopTimerInvalidate(timer);
+                    CFRelease(timer);
+                    poll.timer = nullptr;
+                    ++poll.callouts;
+                    if (!poll.dispatched && poll.workMicroseconds)
+                        usleep(poll.workMicroseconds);
+                    if (poll.dispatched || (poll.passLimit && poll.passes >= poll.passLimit) || MonotonicTime::now() - poll.start >= 100_ms)
+                        CFRunLoopStop(CFRunLoopGetMain());
+                    else
+                        poll.post();
+                }, &context);
+                CFRunLoopAddTimer(CFRunLoopGetMain(), timer, kCFRunLoopCommonModes);
+            }
+        } zeroDelayPoll;
+        auto* poll = &zeroDelayPoll;
+        CFRunLoopObserverRef zeroDelayObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+            ++poll->passes;
+        });
+        CFRunLoopAddObserver(CFRunLoopGetMain(), zeroDelayObserver, kCFRunLoopCommonModes);
+        zeroDelayPoll.start = MonotonicTime::now();
+        zeroDelayPoll.post();
+        guint zeroDelayIdle = g_idle_add([](gpointer data) -> gboolean {
+            auto& poll = *static_cast<ZeroDelayPoll*>(data);
+            poll.dispatched = MonotonicTime::now();
+            poll.passesAtDispatch = poll.passes;
+            poll.onMainThread = pthread_main_np();
+            return G_SOURCE_REMOVE;
+        }, poll);
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, false);
+        double zeroDelayTime = ((zeroDelayPoll.dispatched ? zeroDelayPoll.dispatched : MonotonicTime::now()) - zeroDelayPoll.start).milliseconds();
+        printf("zero-delay CF poll: %u callouts, %u observer passes, GLib idle %s after %.2f ms at pass %u\n",
+            zeroDelayPoll.callouts, zeroDelayPoll.passes, zeroDelayPoll.dispatched ? "dispatched" : "pending",
+            zeroDelayTime, zeroDelayPoll.passesAtDispatch);
+        check(zeroDelayPoll.dispatched && zeroDelayPoll.onMainThread && zeroDelayPoll.callouts
+            && zeroDelayPoll.passesAtDispatch < 1000 && zeroDelayTime < 100 && pollerPaused,
+            "a GLib idle dispatches within 1000 passes and 100 ms while a zero-delay CF timer keeps reposting");
+        if (!zeroDelayPoll.dispatched)
+            g_source_remove(zeroDelayIdle);
+        if (zeroDelayPoll.timer) {
+            CFRunLoopTimerInvalidate(zeroDelayPoll.timer);
+            CFRelease(zeroDelayPoll.timer);
+        }
+        CFRunLoopObserverInvalidate(zeroDelayObserver);
+        CFRelease(zeroDelayObserver);
+
+        ZeroDelayPoll zeroDelayDeadlinePoll;
+        zeroDelayDeadlinePoll.passLimit = 0;
+        zeroDelayDeadlinePoll.workMicroseconds = 15000;
+        auto* deadlinePoll = &zeroDelayDeadlinePoll;
+        CFRunLoopObserverRef deadlineObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+            ++deadlinePoll->passes;
+        });
+        CFRunLoopAddObserver(CFRunLoopGetMain(), deadlineObserver, kCFRunLoopCommonModes);
+        zeroDelayDeadlinePoll.start = MonotonicTime::now();
+        guint zeroDelayTimeout = g_timeout_add(20, [](gpointer data) -> gboolean {
+            auto& poll = *static_cast<ZeroDelayPoll*>(data);
+            poll.dispatched = MonotonicTime::now();
+            poll.passesAtDispatch = poll.passes;
+            poll.onMainThread = pthread_main_np();
+            return G_SOURCE_REMOVE;
+        }, deadlinePoll);
+        zeroDelayDeadlinePoll.post();
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, false);
+        double zeroDelayTimeoutTime = ((zeroDelayDeadlinePoll.dispatched ? zeroDelayDeadlinePoll.dispatched : MonotonicTime::now()) - zeroDelayDeadlinePoll.start).milliseconds();
+        printf("zero-delay CF poll with 20 ms GLib timeout: %u callouts, %u observer passes, timeout %s after %.3f ms at pass %u\n",
+            zeroDelayDeadlinePoll.callouts, zeroDelayDeadlinePoll.passes, zeroDelayDeadlinePoll.dispatched ? "fired" : "pending",
+            zeroDelayTimeoutTime, zeroDelayDeadlinePoll.passesAtDispatch);
+        check(zeroDelayDeadlinePoll.dispatched && zeroDelayDeadlinePoll.onMainThread && zeroDelayDeadlinePoll.callouts
+            && zeroDelayDeadlinePoll.passesAtDispatch > 1 && zeroDelayTimeoutTime >= 20 && zeroDelayTimeoutTime < 40 && pollerPaused,
+            "a 20 ms GLib timeout fires within 40 ms while a zero-delay CF timer keeps reposting and the helper is blocked");
+        if (!zeroDelayDeadlinePoll.dispatched)
+            g_source_remove(zeroDelayTimeout);
+        if (zeroDelayDeadlinePoll.timer) {
+            CFRunLoopTimerInvalidate(zeroDelayDeadlinePoll.timer);
+            CFRelease(zeroDelayDeadlinePoll.timer);
+        }
+        CFRunLoopObserverInvalidate(deadlineObserver);
+        CFRelease(deadlineObserver);
+
+        WebCore::MainThreadSharedTimer::shouldSetupPowerObserver() = false;
+        auto& sharedTimer = WebCore::MainThreadSharedTimer::singleton();
+        static unsigned sharedTimerFires;
+        static bool sharedTimerOnMainThread;
+        static MonotonicTime sharedTimerRearmed, sharedTimerFired;
+        sharedTimer.setFiredFunction([] {
+            ++sharedTimerFires;
+            sharedTimerOnMainThread = pthread_main_np();
+            sharedTimerFired = MonotonicTime::now();
+        });
+        sharedTimer.setFireInterval(5_s);
+        CFRunLoopTimerRef rearmTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 0.01, 0, 0, 0, ^(CFRunLoopTimerRef) {
+            sharedTimerRearmed = MonotonicTime::now();
+            WebCore::MainThreadSharedTimer::singleton().setFireInterval(100_ms);
+        });
+        CFRunLoopAddTimer(CFRunLoopGetMain(), rearmTimer, kCFRunLoopCommonModes);
+        runUntil(^{ return !!sharedTimerFires; }, 2);
+        latency = (sharedTimerFired - sharedTimerRearmed).milliseconds();
+        printf("shared timer with blocked poller fired %.1f ms after rearming\n", latency);
+        check(sharedTimerFires == 1 && sharedTimerOnMainThread && pollerPaused && latency >= 100 && latency < 160,
+            "the shared timer's earlier deadline fires on the main thread while the poller is blocked");
+        CFRunLoopTimerInvalidate(rearmTimer);
+        CFRelease(rearmTimer);
+        pthread_mutex_lock(&pollerLock);
+        pausePoller = false;
+        pthread_cond_signal(&pollerCondition);
+        pthread_mutex_unlock(&pollerLock);
 
         // Idle sources each added by the previous one, with nothing else waking the run loop.
         static unsigned chained;
@@ -102,23 +364,177 @@ int main()
         printf("repeating idle: %u dispatches, run-loop timer: %u fires in 1 s\n", idles, ticks);
         check(ticks >= 50 && idles >= 50, "a repeating idle source and a run-loop timer both advance");
 
-        // A default-priority descriptor source with a backlog, written from another thread. Each
-        // dispatch queues RunLoop work, which runs before the next dispatch.
+        // WK1 prepares captured WebGL canvases in a before-waiting observer during a continuous CF run.
+        static unsigned readyRounds;
+        static bool observedBetweenReadyRounds;
+        static unsigned readyObserverPasses;
+        CFRunLoopObserverRef readyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 1999999, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+            ++readyObserverPasses;
+            if (readyRounds && readyRounds < 100)
+                observedBetweenReadyRounds = true;
+        });
+        CFRunLoopAddObserver(CFRunLoopGetMain(), readyObserver, kCFRunLoopCommonModes);
+        guint readySource = g_idle_add_full(RunLoopSourcePriority::MainThreadSharedTimer, [](gpointer) -> gboolean {
+            if (++readyRounds == 100)
+                CFRunLoopStop(CFRunLoopGetMain());
+            return G_SOURCE_CONTINUE;
+        }, nullptr, nullptr);
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 2, false);
+        g_source_remove(readySource);
+        CFRunLoopObserverInvalidate(readyObserver);
+        CFRelease(readyObserver);
+        printf("continuous ready GLib: %u rounds, %u before-waiting observer passes, observed between rounds: %s\n",
+            readyRounds, readyObserverPasses, observedBetweenReadyRounds ? "yes" : "no");
+        check(readyRounds == 100 && observedBetweenReadyRounds,
+            "a before-waiting observer runs between continuously ready GLib rounds");
+
+        // Self-reposting RunLoop work shares the main thread with a CF source and a 2 ms timer.
+        static unsigned reposts, repostsAtTimer, repostsAtSource;
+        static MonotonicTime repostStart, repostTimerFired, repostSourceFired;
+        static bool repostFinished;
+        CFRunLoopSourceContext repostSourceContext { };
+        repostSourceContext.perform = [](void*) {
+            repostSourceFired = MonotonicTime::now();
+            repostsAtSource = reposts;
+        };
+        CFRunLoopSourceRef repostSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 1, &repostSourceContext);
+        CFRunLoopAddSource(CFRunLoopGetMain(), repostSource, kCFRunLoopCommonModes);
+        CFRunLoopTimerRef repostTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 1, 0, 0, 0, ^(CFRunLoopTimerRef) {
+            repostTimerFired = MonotonicTime::now();
+            repostsAtTimer = reposts;
+        });
+        CFRunLoopAddTimer(CFRunLoopGetMain(), repostTimer, kCFRunLoopCommonModes);
+        struct Reposter {
+            static void step()
+            {
+                ++reposts;
+                if ((!repostTimerFired || !repostSourceFired) && MonotonicTime::now() - repostStart < 100_ms)
+                    RunLoop::mainSingleton().dispatch(step);
+                else {
+                    repostFinished = true;
+                    CFRunLoopStop(CFRunLoopGetMain());
+                }
+            }
+        };
+        RunLoop::mainSingleton().dispatch([repostSource, repostTimer] {
+            repostStart = MonotonicTime::now();
+            CFRunLoopTimerSetNextFireDate(repostTimer, CFAbsoluteTimeGetCurrent() + 0.002);
+            CFRunLoopSourceSignal(repostSource);
+            Reposter::step();
+        });
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 2, false);
+        double repostTimerLatency = (repostTimerFired - repostStart).milliseconds();
+        double repostSourceLatency = (repostSourceFired - repostStart).milliseconds();
+        printf("self-reposting RunLoop: %u functions, CF timer after %.2f ms, CF source after %.2f ms\n", reposts, repostTimerLatency, repostSourceLatency);
+        check(repostTimerFired && repostTimerLatency >= 2 && repostTimerLatency < 10 && repostsAtTimer && repostsAtTimer < reposts,
+            "a CF timer fires within a few ms while RunLoop work keeps reposting");
+        check(repostSourceFired && repostSourceLatency < 10 && repostsAtSource && repostsAtSource < reposts,
+            "a CF source runs within a few ms while RunLoop work keeps reposting");
+        check(repostFinished && reposts > 1, "self-reposting RunLoop work completes after CF callbacks run");
+        CFRunLoopTimerInvalidate(repostTimer);
+        CFRelease(repostTimer);
+        CFRunLoopSourceInvalidate(repostSource);
+        CFRelease(repostSource);
+
+        for (bool blockedPoller : { false, true }) {
+            for (bool useWorkQueue : { false, true }) {
+                for (bool suspend : { false, true }) {
+                    SharedTimerUnderLoad test { useWorkQueue, suspend, blockedPoller };
+                    test.run();
+                }
+            }
+        }
+
+        // A ready shared timer competes with several generations of main WorkQueue work,
+        // including a generation that suspends the CF cycle. No bus or descriptor source is ready.
+        static unsigned continuations, continuationsAtTimer;
+        static bool priorityTimerFired;
+        sharedTimer.setFiredFunction(nullptr);
+        sharedTimer.setFiredFunction([] {
+            continuationsAtTimer = continuations;
+            priorityTimerFired = true;
+        });
+        WorkQueue::mainSingleton().dispatch([] {
+            WebCore::MainThreadSharedTimer::singleton().setFireInterval(0_s);
+            WorkQueue::mainSingleton().dispatch([] {
+                ++continuations;
+                RunLoop::mainSingleton().suspendFunctionDispatchForCurrentCycle();
+                WorkQueue::mainSingleton().dispatch([] {
+                    ++continuations;
+                    WorkQueue::mainSingleton().dispatch([] {
+                        ++continuations;
+                    });
+                });
+            });
+        });
+        runUntil(^{ return priorityTimerFired && continuations == 3; }, 2);
+        printf("Main WorkQueue continuations at shared timer: %u\n", continuationsAtTimer);
+        check(priorityTimerFired && continuations == 3,
+            "the shared timer and every continuation of a main WorkQueue chain finish across a suspended cycle");
+        sharedTimer.setFiredFunction(nullptr);
+        sharedTimer.setFiredFunction([] {
+            ++sharedTimerFires;
+        });
+
+        // WK1 hosts can run WebCore in a private CFRunLoop mode.
+        CFStringRef privateMode = CFSTR("WebKitGLibContextTestMode");
+        sharedTimer.invalidate();
+        WebCore::MainThreadSharedTimer::addRunLoopMode(privateMode);
+        static bool privateRunLoopWork, privateMainThreadWork, privateGLibWork;
+        RunLoop::mainSingleton().dispatch([] {
+            privateRunLoopWork = true;
+        });
+        callOnMainThread([] {
+            privateMainThreadWork = true;
+        });
+        g_timeout_add(10, [](gpointer) -> gboolean {
+            privateGLibWork = true;
+            return G_SOURCE_REMOVE;
+        }, nullptr);
+        sharedTimerFires = 0;
+        sharedTimer.setFireInterval(10_ms);
+        MonotonicTime privateModeDeadline = MonotonicTime::now() + 2_s;
+        while (!sharedTimerFires && MonotonicTime::now() < privateModeDeadline)
+            CFRunLoopRunInMode(privateMode, 0.1, true);
+        check(sharedTimerFires == 1, "the shared timer fires in a registered WK1 private mode");
+        check(!privateRunLoopWork && !privateMainThreadWork && !privateGLibWork,
+            "a private mode leaves RunLoop, callOnMainThread and GLib work pending");
+        runUntil(^{ return privateRunLoopWork && privateMainThreadWork && privateGLibWork; }, 2);
+        check(privateRunLoopWork && privateMainThreadWork && privateGLibWork,
+            "pending private-mode work runs on return to common modes");
+        check(sharedTimerFires == 1, "a private-mode shared timer does not fire again in common modes");
+
+        CFStringRef secondPrivateMode = CFSTR("WebKitGLibContextSecondTestMode");
+        sharedTimer.setFireInterval(10_ms);
+        WebCore::MainThreadSharedTimer::addRunLoopMode(secondPrivateMode);
+        CFRunLoopRunInMode(secondPrivateMode, 0.05, false);
+        check(sharedTimerFires == 2, "a private mode registered after arming receives the shared timer once");
+        sharedTimer.setFireInterval(10_ms);
+        sharedTimer.stop();
+        CFRunLoopRunInMode(privateMode, 0.05, false);
+        runUntil(^{ return false; }, 0.05);
+        check(sharedTimerFires == 2, "stopping the shared timer cancels both mode paths");
+
+        // Each descriptor dispatch queues RunLoop work; suspension defers one batch in FIFO order.
         int pipeFDs[2];
         pipe(pipeFDs);
-        static unsigned delivered, followed, overtaken;
+        static unsigned delivered, followed, overtaken, unexpectedOvertakes, outOfOrder;
         static void (^deliveryHook)();
         static bool suspendOnDelivery;
         g_unix_fd_add_full(G_PRIORITY_DEFAULT, pipeFDs[0], G_IO_IN, [](gint fd, GIOCondition, gpointer) -> gboolean {
             char byte;
             if (read(fd, &byte, 1) == 1) {
-                if (followed != delivered)
+                if (followed != delivered) {
                     ++overtaken;
+                    if (!suspendOnDelivery || !RunLoop::mainSingleton().wasFunctionDispatchSuspended() || followed + 1 != delivered)
+                        ++unexpectedOvertakes;
+                }
                 ++delivered;
                 if (deliveryHook)
                     deliveryHook();
-                RunLoop::mainSingleton().dispatch([] {
-                    followed = delivered;
+                RunLoop::mainSingleton().dispatch([delivery = delivered] {
+                    if (++followed != delivery)
+                        ++outOfOrder;
                     if (suspendOnDelivery)
                         RunLoop::mainSingleton().suspendFunctionDispatchForCurrentCycle();
                 });
@@ -146,13 +562,10 @@ int main()
         runUntil(^{ return delivered >= 200 && followed == delivered; }, 5);
         double backlogTime = (MonotonicTime::now() - backlogStart).milliseconds();
         printf("200-byte backlog: %u delivered in %.1f ms, %u dispatches ahead of the previous one's RunLoop work, %u run-loop passes between the first and the last delivery\n", delivered, backlogTime, overtaken, passesAtLastDelivery - passesAtFirstDelivery);
-        check(delivered == 200 && backlogTime < 500, "a default-priority backlog drains promptly");
-        check(!overtaken, "RunLoop work queued by a dispatch runs before the next dispatch");
-        check(passesAtLastDelivery == passesAtFirstDelivery, "a backlog drains within one pass of the run loop");
+        check(delivered == 200 && followed == delivered && backlogTime < 500, "a default-priority backlog and all its RunLoop work drain promptly");
+        check(!overtaken && !outOfOrder, "RunLoop work queued by a dispatch runs before the next dispatch in FIFO order");
 
-        // The RunLoop work of each delivery asks the RunLoop to hold the rest of its cycle for the
-        // run loop's observers: the drain still completes within one pass, each delivery's work
-        // still runs before the next delivery, and the pass follows the drain.
+        // Suspended batches resume across CF turns while the descriptor source remains ready.
         static unsigned passesAtFirstSuspendedDelivery, passesAtLastSuspendedDelivery, overtakenBefore;
         overtakenBefore = overtaken;
         suspendOnDelivery = true;
@@ -161,17 +574,65 @@ int main()
                 passesAtFirstSuspendedDelivery = passes;
             passesAtLastSuspendedDelivery = passes;
         };
+        MonotonicTime suspendedBacklogStart = MonotonicTime::now();
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             char backlog[20] = { };
             write(writeFD, backlog, sizeof(backlog));
         });
         runUntil(^{ return delivered >= 220 && followed == delivered; }, 5);
+        double suspendedBacklogTime = (MonotonicTime::now() - suspendedBacklogStart).milliseconds();
         unsigned passesAfterSuspendedDrain = passes;
-        printf("20-byte backlog with suspended cycles: %u delivered, %u dispatches ahead of the previous one's RunLoop work, %u run-loop passes between the first and the last delivery, %u after the drain\n", delivered - 200, overtaken - overtakenBefore, passesAtLastSuspendedDelivery - passesAtFirstSuspendedDelivery, passesAfterSuspendedDrain - passesAtLastSuspendedDelivery);
-        check(delivered == 220 && overtaken == overtakenBefore, "RunLoop work that suspends the cycle still runs before the next dispatch");
-        check(passesAtLastSuspendedDelivery == passesAtFirstSuspendedDelivery, "a backlog whose RunLoop work suspends the cycle drains within one pass of the run loop");
+        printf("20-byte backlog with suspended cycles: %u delivered in %.1f ms, %u deliveries during suspended function dispatch, %u run-loop passes between the first and the last delivery, %u after the drain\n", delivered - 200, suspendedBacklogTime, overtaken - overtakenBefore, passesAtLastSuspendedDelivery - passesAtFirstSuspendedDelivery, passesAfterSuspendedDrain - passesAtLastSuspendedDelivery);
+        check(delivered == 220 && followed == delivered && suspendedBacklogTime < 500 && !outOfOrder,
+            "a suspended-cycle backlog and all its RunLoop work drain promptly in order");
+        check(!unexpectedOvertakes, "only an explicitly suspended round defers RunLoop work past one descriptor delivery");
         check(passesAfterSuspendedDrain > passesAtLastSuspendedDelivery, "the run loop passes after a drain that suspended the cycle");
         CFRunLoopObserverInvalidate(passObserver);
+        CFRelease(passObserver);
+        sharedTimer.invalidate();
+        sharedTimer.setFiredFunction(nullptr);
+
+        // Default-priority GLib traffic keeps arriving while CF prepares rendering and delivers timers.
+        static unsigned busRounds, busObserverPasses, busRoundsAtTimer;
+        static bool busFinished;
+        static MonotonicTime busStart, busTimerFired;
+        CFRunLoopObserverRef busObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 1999999, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+            if (busRounds && !busFinished)
+                ++busObserverPasses;
+        });
+        CFRunLoopAddObserver(CFRunLoopGetMain(), busObserver, kCFRunLoopCommonModes);
+        CFRunLoopTimerRef busTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 5, 0, 0, 0, ^(CFRunLoopTimerRef) {
+            busTimerFired = MonotonicTime::now();
+            busRoundsAtTimer = busRounds;
+        });
+        CFRunLoopAddTimer(CFRunLoopGetMain(), busTimer, kCFRunLoopCommonModes);
+        guint busSource = g_idle_add_full(G_PRIORITY_DEFAULT, [](gpointer data) -> gboolean {
+            if (!busRounds) {
+                busStart = MonotonicTime::now();
+                CFRunLoopTimerSetNextFireDate(static_cast<CFRunLoopTimerRef>(data), CFAbsoluteTimeGetCurrent() + 0.002);
+            }
+            ++busRounds;
+            if (MonotonicTime::now() - busStart < 100_ms)
+                return G_SOURCE_CONTINUE;
+            busFinished = true;
+            return G_SOURCE_REMOVE;
+        }, busTimer, nullptr);
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.2, false);
+        double busTimerLatency = ((busTimerFired ? busTimerFired : MonotonicTime::now()) - busStart).milliseconds();
+        printf("continuous default-priority GLib: %u rounds, %u observers during traffic, CF timer %.2f ms at round %u\n",
+            busRounds, busObserverPasses, busTimerLatency, busRoundsAtTimer);
+        check(busFinished && busObserverPasses && busTimerFired && busTimerLatency >= 2 && busTimerLatency < 10
+            && busRoundsAtTimer && busRoundsAtTimer < busRounds,
+            "CF observers and a 2 ms timer advance during continuous default-priority GLib traffic");
+        if (!busFinished)
+            g_source_remove(busSource);
+        CFRunLoopObserverInvalidate(busObserver);
+        CFRelease(busObserver);
+        CFRunLoopTimerInvalidate(busTimer);
+        CFRelease(busTimer);
+
+        printf("descriptor helper: %u polls, %u with a finite timeout\n", helperPolls.load(), finiteHelperPolls.load());
+        check(helperPolls && !finiteHelperPolls, "the descriptor helper only polls with an infinite timeout");
 
         finished = true;
         printf("%s\n", failed ? "FAIL" : "PASS");

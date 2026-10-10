@@ -1,24 +1,6 @@
-// GLib's external-loop protocol on the main run loop. The main thread owns the default context and
-// iterates it (prepare, query, a non-blocking poll, check, dispatch); while nothing is ready, a
-// helper thread blocks in the poll on the queried descriptors and the queried timeout.
-//
-// A run of the pump is RunLoop work. It iterates the context while a source at or above
-// RunLoopSourcePriority::RunLoopDispatcher is ready, dispatching the RunLoop's queued functions
-// between two iterations: on the GLib ports the RunLoop's dispatcher source sits at that priority,
-// attached before any bus watch, so each GLib iteration runs the functions the previous
-// iteration's callbacks queued before it pops the next message of a bus, and a burst of messages
-// drains within one pass of the main loop. A source below that priority is idle work; its next
-// iteration is queued as a fresh RunLoop dispatch so the run loop's own timers and observers run
-// in between. A function that asks the RunLoop to hold the rest of its cycle for the run loop's
-// observers (a rendering update) holds the functions behind it for one dispatcher call, as on the
-// GLib ports, where the render source runs at its own priority; the pump keeps draining and, once
-// the drain is over, holds the outer cycle so the observers run before the RunLoop's next
-// functions. A descriptor source is ready only while its descriptor is, and drains like a source
-// at the dispatcher's priority.
-//
-// GLib wakes an owned context only for sources attached from other threads, so before the run loop
-// waits or exits the main thread prepares and queries the context again, which picks up sources and
-// timeouts it added itself.
+// The main thread owns GLib's default context and runs one GLib round per timer callout.
+// Ready work and GLib deadlines share one main-thread RunLoop timer; the helper polls descriptors only.
+// Before-waiting and exit observers prepare sources added on the main thread.
 
 #include "config.h"
 #include "GLibMainContextAquaWebKit.h"
@@ -28,7 +10,6 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <atomic>
 #include <cerrno>
-#include <cmath>
 #include <fcntl.h>
 #include <glib.h>
 #include <mutex>
@@ -41,7 +22,6 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
-#include <wtf/glib/RunLoopSourcePriority.h>
 #include <wtf/Threading.h>
 #include <wtf/Vector.h>
 
@@ -110,47 +90,27 @@ private:
             fd.revents = 0;
     }
 
-    void queueIteration()
+    void scheduleIteration(Seconds delay)
     {
-        if (!m_iterationQueued.exchange(true)) {
-            RunLoop::mainSingleton().dispatch([this] {
-                iterate();
-            });
-        }
+        ASSERT(isMainThread());
+        auto fireTime = MonotonicTime::now() + delay;
+        if (m_nextFireTime && *m_nextFireTime <= fireTime)
+            return;
+        m_nextFireTime = fireTime;
+        m_iterationTimer.startOneShot(delay);
     }
 
     void iterate()
     {
         ASSERT(isMainThread());
-        m_iterationQueued = false;
         disarm();
-        auto& runLoop = RunLoop::mainSingleton();
-        bool suspended = false;
-        while (true) {
-            int timeout = prepareAndQuery();
-            pollNow();
-            bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
-            if (dispatched)
-                g_main_context_dispatch(m_context);
-            clearResults();
-            // g_main_context_prepare() reports the priority of the sources ready before polling; it
-            // reports G_MAXINT when only descriptor sources are ready, which the check found.
-            bool idle = dispatched && m_maxPriority != G_MAXINT && m_maxPriority > RunLoopSourcePriority::RunLoopDispatcher;
-            if (!dispatched || idle) {
-                if (suspended)
-                    runLoop.suspendFunctionDispatchForCurrentCycle();
-                arm(dispatched || suspended ? 0 : timeout);
-                return;
-            }
-            // The RunLoop's queued functions run before the next messages. A function that suspends
-            // the rest of the cycle holds the ones behind it for one call; they run in the next.
-            do {
-                runLoop.performWork();
-                if (!runLoop.wasFunctionDispatchSuspended())
-                    break;
-                suspended = true;
-            } while (true);
-        }
+        int timeout = prepareAndQuery();
+        pollNow();
+        bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
+        if (dispatched)
+            g_main_context_dispatch(m_context);
+        clearResults();
+        arm(dispatched ? 0 : timeout);
     }
 
     void prepareBeforeWaitingOrExit()
@@ -179,25 +139,20 @@ private:
 
     void arm(int timeout)
     {
-        if (!timeout) {
-            queueIteration();
-            return;
-        }
+        if (timeout >= 0)
+            scheduleIteration(Seconds::fromMilliseconds(timeout));
 
-        std::optional<MonotonicTime> deadline;
-        if (timeout > 0)
-            deadline = MonotonicTime::now() + Seconds::fromMilliseconds(timeout);
+        if (!timeout)
+            return;
 
         Locker locker { m_lock };
         bool sameSet = m_pollFDs.size() == m_fds.size();
         for (size_t i = 0; sameSet && i < m_fds.size(); ++i)
             sameSet = m_pollFDs[i].fd == m_fds[i].fd && m_pollFDs[i].events == m_fds[i].events;
-        bool sameDeadline = deadline == m_pollDeadline || (deadline && m_pollDeadline && *deadline >= *m_pollDeadline);
-        if (sameSet && sameDeadline && m_pollArmed)
+        if (sameSet && m_pollArmed)
             return;
 
         m_pollFDs = m_fds;
-        m_pollDeadline = deadline;
         m_pollArmed = true;
         ++m_request;
         m_condition.notifyOne();
@@ -210,7 +165,6 @@ private:
         uint64_t signaled = 0;
         while (true) {
             Vector<GPollFD> fds;
-            std::optional<MonotonicTime> deadline;
             uint64_t request;
             {
                 Locker locker { m_lock };
@@ -218,16 +172,12 @@ private:
                     m_condition.wait(m_lock);
                 request = m_request;
                 fds = m_pollFDs;
-                deadline = m_pollDeadline;
             }
 
             fds.append({ m_wakePipe[0], G_IO_IN, 0 });
             int result;
             do {
-                int timeout = -1;
-                if (deadline)
-                    timeout = std::max<int>(0, std::ceil((*deadline - MonotonicTime::now()).milliseconds()));
-                result = g_poll(fds.mutableSpan().data(), fds.size(), timeout);
+                result = g_poll(fds.mutableSpan().data(), fds.size(), -1);
             } while (result < 0 && errno == EINTR);
             if (fds.last().revents) {
                 char buffer[64];
@@ -244,13 +194,23 @@ private:
                 m_pollArmed = false;
             }
             signaled = request;
-            queueIteration();
+            if (!m_wakeQueued.exchange(true)) {
+                RunLoop::mainSingleton().dispatch([this] {
+                    m_wakeQueued = false;
+                    scheduleIteration(0_s);
+                });
+            }
         }
     }
 
     GMainContext* m_context { nullptr };
     RetainPtr<CFRunLoopObserverRef> m_observer;
-    std::atomic<bool> m_iterationQueued { false };
+    std::optional<MonotonicTime> m_nextFireTime;
+    RunLoop::Timer m_iterationTimer { RunLoop::mainSingleton(), "GLib main context"_s, [this] {
+        m_nextFireTime.reset();
+        iterate();
+    } };
+    std::atomic<bool> m_wakeQueued { false };
     int m_wakePipe[2] { -1, -1 };
 
     int m_maxPriority { 0 };
@@ -259,7 +219,6 @@ private:
     Lock m_lock;
     Condition m_condition;
     Vector<GPollFD> m_pollFDs WTF_GUARDED_BY_LOCK(m_lock);
-    std::optional<MonotonicTime> m_pollDeadline WTF_GUARDED_BY_LOCK(m_lock);
     bool m_pollArmed WTF_GUARDED_BY_LOCK(m_lock) { false };
     uint64_t m_request WTF_GUARDED_BY_LOCK(m_lock) { 0 };
 };
