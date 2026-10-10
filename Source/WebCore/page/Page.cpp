@@ -2535,15 +2535,6 @@ void Page::finalizeRenderingUpdate(OptionSet<FinalizeRenderingUpdateFlags> flags
     for (auto& rootFrame : m_rootFrames)
         finalizeRenderingUpdateForRootFrame(Ref { rootFrame.get() }, flags);
 
-#if ENABLE(ASYNC_SCROLLING)
-    // AQUAWEBKIT: pairs with the willStartRenderingUpdate() updateRendering() makes for the page.
-    // finalizeRenderingUpdateForRootFrame() reaches it only for a root frame that still has a view, and a
-    // scrolling tree left published as in-rendering-update parks the scrolling thread -- one thread for the
-    // whole process -- for the full timeout on every later update.
-    if (RefPtr scrollingCoordinator = this->scrollingCoordinator())
-        scrollingCoordinator->didCompleteRenderingUpdate();
-#endif
-
     ASSERT(m_renderingUpdateRemainingSteps.last().isEmpty());
     renderingUpdateCompleted();
 }
@@ -2569,8 +2560,7 @@ void Page::finalizeRenderingUpdateForRootFrame(LocalFrame& rootFrame, OptionSet<
         if (flags.contains(FinalizeRenderingUpdateFlags::ApplyScrollingTreeLayerPositions))
             scrollingCoordinator->applyScrollingTreeLayerPositions();
 
-        // AQUAWEBKIT: completion is delivered once for the page in finalizeRenderingUpdate().
-        // scrollingCoordinator->didCompleteRenderingUpdate();
+        scrollingCoordinator->didCompleteRenderingUpdate();
     }
 #else
     UNUSED_PARAM(flags);

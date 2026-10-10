@@ -439,31 +439,20 @@ void ThreadedScrollingTree::willStartRenderingUpdate()
 
     m_renderingUpdateWasScheduled = false;
 
-    bool hasActivity = hasRecentActivity();
-
+    // AQUAWEBKIT: when the main thread places the layers (!canUpdateLayersOnScrollingThread()) it places them
+    // at the live tree position after painting the one it synchronized, so the scrolling thread holds for
+    // every update, and InRenderingUpdate is published before it parks so the wait cannot see Idle.
+    bool mainThreadPlacesLayers;
     {
-        // AQUAWEBKIT: the gate below skips the synchronization when the scrolling thread has been
-        // idle, which holds only while the scrolling thread owns the layers: a wheel event it handles
-        // unsynchronized is one it will place the layers for itself. On a tree whose nodes have synchronous
-        // scrolling reasons canUpdateLayersOnScrollingThread() bars it from the layers, the main thread
-        // places them from the position it paints, and a wheel event handled during the update leaves the
-        // tree ahead of that frame with nothing to reconcile it, so the synchronization is taken there
-        // whatever the recent activity is.
-        // if (!hasRecentActivity())
-        //     return;
-        //
-        // AQUAWEBKIT: publish the update before parking the scrolling thread.
-        // waitForRenderingUpdateCompletionOrTimeout() waits for SynchronizationState::Idle, which is also
-        // the state of an update that has not started, and Condition::waitUntil evaluates its predicate
-        // before blocking, so a tree left idle by displayDidRefreshOnScrollingThread() satisfies it the
-        // moment the wait begins and the park returns without holding the tree still.
         Locker locker { m_treeLock };
-
-        if (!hasActivity && canUpdateLayersOnScrollingThread())
-            return;
-
-        m_state = SynchronizationState::InRenderingUpdate;
+        mainThreadPlacesLayers = !canUpdateLayersOnScrollingThread();
+        if (mainThreadPlacesLayers)
+            m_state = SynchronizationState::InRenderingUpdate;
     }
+
+    // if (!hasRecentActivity())
+    if (!mainThreadPlacesLayers && !hasRecentActivity()) // AQUAWEBKIT: see above.
+        return;
 
     tracePoint(ScrollingThreadRenderUpdateSyncStart);
 
@@ -476,9 +465,8 @@ void ThreadedScrollingTree::willStartRenderingUpdate()
     });
     semaphore.wait();
 
-    // AQUAWEBKIT: m_state is published above, before the scrolling thread parks.
-    // Locker locker { m_treeLock };
-    // m_state = SynchronizationState::InRenderingUpdate;
+    Locker locker { m_treeLock };
+    m_state = SynchronizationState::InRenderingUpdate;
 }
 
 void ThreadedScrollingTree::hasNodeWithAnimatedScrollChanged(bool hasNodeWithAnimatedScroll)
@@ -508,14 +496,7 @@ void ThreadedScrollingTree::waitForRenderingUpdateCompletionOrTimeout()
 
     auto currentTime = MonotonicTime::now();
     auto estimatedNextDisplayRefreshTime = std::max(m_lastDisplayDidRefreshTime + frameDuration(), currentTime);
-    // AQUAWEBKIT: the deadline is a share of the frame, and the half below is the share the scrolling
-    // thread needs to take the layers over from a main thread that is running late -- that hand-off is the
-    // only thing the expiry does, and the branch below already guards it with canUpdateLayersOnScrollingThread().
-    // With no hand-off to make, nothing is owed to the rest of the frame and expiring only lets the tree scroll
-    // past the position the frame is being painted for, so the whole frame is the update's. The deadline stays
-    // finite because the scrolling thread is one thread for the process and the main thread's next
-    // willStartRenderingUpdate() blocks on a semaphore only this thread can signal: an update that never
-    // publishes its completion would take the process' scrolling with it.
+    // AQUAWEBKIT: with no layer hand-off to make (see the branch below), the hold lasts for the update, bounded by a frame.
     // auto timeoutTime = std::min(currentTime + maxAllowableRenderingUpdateDurationForSynchronization(), estimatedNextDisplayRefreshTime);
     auto timeoutTime = canUpdateLayersOnScrollingThread()
         ? std::min(currentTime + maxAllowableRenderingUpdateDurationForSynchronization(), estimatedNextDisplayRefreshTime)
