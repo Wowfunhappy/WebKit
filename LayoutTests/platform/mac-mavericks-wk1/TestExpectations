@@ -2271,3 +2271,7 @@ media/media-source/media-source-resize.html [ Skip ]
 # Passes alone, with fast/workers, and after its 31 preceding suite tests, but times out in full-suite runs,
 # presumably because an unidentified earlier test leaves state behind.
 fast/workers/worker-document-leak.html [ Skip ]
+
+# Passes alone, with fast/workers, and after its 31 preceding suite tests, but times out in full-suite runs,
+# presumably because an unidentified earlier test leaves state behind.
+fast/workers/worker-lifecycle.html [ Skip ]

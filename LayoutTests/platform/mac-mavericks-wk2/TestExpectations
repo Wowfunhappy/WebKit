@@ -578,3 +578,6 @@ webkit.org/b/303547 fullscreen/full-screen-keyboard-lock-option-enabled.html [ S
 # Passes alone, with webrtc/, and after its 31 preceding suite tests, but fails in full-suite runs (no
 # inbound-rtp receiver stats), presumably because an unidentified earlier test leaves state behind.
 webrtc/video-stats.html [ Skip ]
+
+# Times out only in full-suite runs; passes alone, with http/tests/misc, and after its 31 preceding suite tests.
+http/tests/misc/form-submit-file-cross-site-redirect.html [ Skip ]

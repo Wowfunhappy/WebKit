@@ -1,6 +1,8 @@
-// The main thread owns GLib's default context and runs one GLib round per timer callout.
-// Ready work and GLib deadlines share one main-thread RunLoop timer; the helper polls descriptors only.
-// Before-waiting and exit observers prepare sources added on the main thread.
+// The main thread drains GLib sources at dispatcher priority or above, with RunLoop work between
+// iterations. Suspended work holds the outer cycle after the drain; idle work yields through
+// RunLoop::dispatch. GLib deadlines use one main-thread timer whose fire time only moves earlier.
+// The helper polls descriptors only, with an infinite timeout. Before-waiting and exit observers
+// prepare sources added on the main thread.
 
 #include "config.h"
 #include "GLibMainContextAquaWebKit.h"
@@ -22,6 +24,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
+#include <wtf/glib/RunLoopSourcePriority.h>
 #include <wtf/Threading.h>
 #include <wtf/Vector.h>
 
@@ -90,27 +93,57 @@ private:
             fd.revents = 0;
     }
 
-    void scheduleIteration(Seconds delay)
+    void scheduleDeadline(Seconds delay)
     {
         ASSERT(isMainThread());
         auto fireTime = MonotonicTime::now() + delay;
         if (m_nextFireTime && *m_nextFireTime <= fireTime)
             return;
         m_nextFireTime = fireTime;
-        m_iterationTimer.startOneShot(delay);
+        m_deadlineTimer.startOneShot(delay);
+    }
+
+    void queueIteration()
+    {
+        if (!m_iterationQueued.exchange(true)) {
+            RunLoop::mainSingleton().dispatch([this] {
+                iterate();
+            });
+        }
     }
 
     void iterate()
     {
         ASSERT(isMainThread());
+        m_iterationQueued = false;
         disarm();
-        int timeout = prepareAndQuery();
-        pollNow();
-        bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
-        if (dispatched)
-            g_main_context_dispatch(m_context);
-        clearResults();
-        arm(dispatched ? 0 : timeout);
+        auto& runLoop = RunLoop::mainSingleton();
+        bool suspended = false;
+        while (true) {
+            int timeout = prepareAndQuery();
+            pollNow();
+            bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
+            if (dispatched)
+                g_main_context_dispatch(m_context);
+            clearResults();
+            // g_main_context_prepare() reports the priority of the sources ready before polling; it
+            // reports G_MAXINT when only descriptor sources are ready, which the check found.
+            bool idle = dispatched && m_maxPriority != G_MAXINT && m_maxPriority > RunLoopSourcePriority::RunLoopDispatcher;
+            if (!dispatched || idle) {
+                if (suspended)
+                    runLoop.suspendFunctionDispatchForCurrentCycle();
+                arm(dispatched || suspended ? 0 : timeout);
+                return;
+            }
+            // The RunLoop's queued functions run before the next messages. A function that suspends
+            // the rest of the cycle holds the ones behind it for one call; they run in the next.
+            do {
+                runLoop.performWork();
+                if (!runLoop.wasFunctionDispatchSuspended())
+                    break;
+                suspended = true;
+            } while (true);
+        }
     }
 
     void prepareBeforeWaitingOrExit()
@@ -127,6 +160,8 @@ private:
     // owns the context's descriptors from its first prepare to its last arm().
     void disarm()
     {
+        m_deadlineTimer.stop();
+        m_nextFireTime.reset();
         Locker locker { m_lock };
         if (!m_pollArmed)
             return;
@@ -139,11 +174,13 @@ private:
 
     void arm(int timeout)
     {
-        if (timeout >= 0)
-            scheduleIteration(Seconds::fromMilliseconds(timeout));
-
-        if (!timeout)
+        if (!timeout) {
+            queueIteration();
             return;
+        }
+
+        if (timeout > 0)
+            scheduleDeadline(Seconds::fromMilliseconds(timeout));
 
         Locker locker { m_lock };
         bool sameSet = m_pollFDs.size() == m_fds.size();
@@ -194,23 +231,18 @@ private:
                 m_pollArmed = false;
             }
             signaled = request;
-            if (!m_wakeQueued.exchange(true)) {
-                RunLoop::mainSingleton().dispatch([this] {
-                    m_wakeQueued = false;
-                    scheduleIteration(0_s);
-                });
-            }
+            queueIteration();
         }
     }
 
     GMainContext* m_context { nullptr };
     RetainPtr<CFRunLoopObserverRef> m_observer;
     std::optional<MonotonicTime> m_nextFireTime;
-    RunLoop::Timer m_iterationTimer { RunLoop::mainSingleton(), "GLib main context"_s, [this] {
+    RunLoop::Timer m_deadlineTimer { RunLoop::mainSingleton(), "GLib main context"_s, [this] {
         m_nextFireTime.reset();
-        iterate();
+        queueIteration();
     } };
-    std::atomic<bool> m_wakeQueued { false };
+    std::atomic<bool> m_iterationQueued { false };
     int m_wakePipe[2] { -1, -1 };
 
     int m_maxPriority { 0 };

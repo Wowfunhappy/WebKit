@@ -17,6 +17,8 @@ out = options.output_dir.resolve()
 out.mkdir(parents=True, exist_ok=True)
 entries = json.loads((build / "compile_commands.json").read_text())
 entry = next(item for item in entries if item["file"].endswith("GLibMainContextAquaWebKit.cpp"))
+bridge_source = options.bridge_source.resolve() if options.bridge_source else Path(entry["file"])
+print(f"Bridge source: {bridge_source}", flush=True)
 command = shlex.split(entry["command"])
 args = []
 i = 0
@@ -44,7 +46,7 @@ with open("/tmp/wk_build.log", "a") as log:
     objects = []
     sources = [
         (Path(__file__).with_name("main.mm"), ["-x", "objective-c++", "-fobjc-arc"]),
-        (options.bridge_source.resolve() if options.bridge_source else Path(entry["file"]), []),
+        (bridge_source, []),
         (root / "Source/WebCore/platform/cf/MainThreadSharedTimerCF.cpp", []),
         (root / "Source/WebCore/platform/MainThreadSharedTimer.cpp", []),
         (root / "Source/WebCore/platform/mac/PowerObserverMac.cpp", []),
