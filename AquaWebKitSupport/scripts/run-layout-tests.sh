@@ -18,10 +18,10 @@
 # Usage:  bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk1|--wk2 [run-webkit-tests args] <test paths...>
 #   e.g.  bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk1 storage/domstorage/localstorage/
 #         bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk2 --child-processes=2 fast/dom/ fast/css/
-#         bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk2 --port-surface
+#         bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk2 --child-processes=2
 #
-# --port-surface runs the suite in AquaWebKitSupport/tests/port-surface/layout-tests.txt: the tests
-# whose behaviour crosses into the parts of this port that differ from Apple's.
+# With no test paths it runs this port's whole suite: the tests LayoutTests/platform/mac-mavericks
+# (and -wk1 / -wk2) TestExpectations do not skip.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -119,11 +119,6 @@ for arg in "$@"; do
                 exit 1
             fi
             WORKERS=""; ARGS+=("$arg");;
-        --port-surface)
-            ARGS+=("--test-list=$ROOT/AquaWebKitSupport/tests/port-surface/layout-tests.txt"
-                "--ignore-tests=http/tests/inspector"
-                "--ignore-tests=http/tests/site-isolation/inspector"
-                "--ignore-tests=http/tests/websocket/tests/hybi/inspector");;
         *) ARGS+=("$arg");;
     esac
 done
@@ -205,6 +200,7 @@ export WEBKIT_HTTP_SERVER_CONF_PATH="$ROOT/AquaWebKitSupport/deps/build/httpd.co
 
 # Match the upstream GLib runner: tests must decode muted offscreen video through errors and EOS.
 export WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1
+export __XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS="$WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS"
 
 # The drivers link Quartz, which transitively loads the SYSTEM (installed-backport) WebKit stack. Left
 # alone dyld makes a second image of every framework the build tree also provides -- two JavaScriptCore,
@@ -224,5 +220,6 @@ export __XPC_DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH"
 # flaky is skipped, explicitly selected tests included.
 "$ROOT/AquaWebKitSupport/toolchain/build/python3/bin/python3" "$ROOT/Tools/Scripts/run-webkit-tests" \
     "$PORT_FLAG" --no-build --no-new-test-results --release --root="$ROOT/WebKitBuild/Release/bin" \
+    --additional-env-var="__XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=$__XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS" \
     $WORKERS "$@" --skip-failing-tests --skipped=always --no-retry-failures
 exit $?

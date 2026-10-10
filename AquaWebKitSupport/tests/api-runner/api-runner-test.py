@@ -17,8 +17,13 @@ class APIRunnerTest(unittest.TestCase):
         scripts = self.root / "AquaWebKitSupport/scripts"
         scripts.mkdir(parents=True)
         source = Path(__file__).resolve().parents[2] / "scripts"
-        for name in ("run-api-tests.sh", "parse-api-test-list.awk", "run-api-test-with-timeout.py"):
+        for name in ("run-api-tests.sh", "parse-api-test-list.awk", "run-api-test-with-timeout.py",
+                     "api-test-expectations.py"):
             shutil.copyfile(source / name, scripts / name)
+        libraries = self.root / "Tools/Scripts/libraries"
+        libraries.mkdir(parents=True)
+        (libraries / "webkitexpectationspy").symlink_to(
+            Path(__file__).resolve().parents[3] / "Tools/Scripts/libraries/webkitexpectationspy")
         python = self.root / "AquaWebKitSupport/toolchain/build/python3/bin/python3"
         python.parent.mkdir(parents=True)
         python.symlink_to(sys.executable)
@@ -26,9 +31,11 @@ class APIRunnerTest(unittest.TestCase):
         (scripts / "make-build-binaries-runnable.sh").write_text("#!/bin/bash\nexit 0\n")
         self.binary = self.root / "WebKitBuild/Release/bin/TestFixture"
         self.binary.parent.mkdir(parents=True)
-        expectations = self.root / "AquaWebKitSupport/tests/port-surface/api-tests.txt"
-        expectations.parent.mkdir(parents=True)
-        expectations.write_text("run TestFixture\n")
+        port_expectations = self.root / "TestExpectations/platform/mac-mavericks/apitests"
+        port_expectations.parent.mkdir(parents=True)
+        port_expectations.write_text("TestFixture.Skipped.* [ Skip ]\nTestFixture.Plain.Flaky [ Pass Failure ]\n"
+                                     "TestFixture.Plain.Failing [ Failure ]\n")
+        (self.root / "TestExpectations/apitests").write_text("")
         self.commands = self.root / "commands"
         self.commands.mkdir()
         # Process cleanup belongs to the fixture, not to other host test runs.
@@ -42,7 +49,7 @@ class APIRunnerTest(unittest.TestCase):
         environment = os.environ.copy()
         environment.update(PATH=str(self.commands) + os.pathsep + environment["PATH"],
                            TZ="UTC", WK_API_TEST_TIMEOUT="2", LC_ALL="C")
-        return subprocess.run(["/bin/bash", str(self.runner), "--port-surface", *arguments],
+        return subprocess.run(["/bin/bash", str(self.runner), "TestFixture", *arguments],
                               env=environment, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, universal_newlines=True, timeout=20)
 
@@ -60,6 +67,17 @@ printf '**PASS** %s\\n' "${1#--gtest_filter=}"
         self.assertIn('Ran 3 tests (0 skipped): 3 as expected, 0 unexpected', result.stdout)
         self.assertIn('TestFixture Typed/0.Convert', result.stdout)
         self.assertIn('TestFixture Values/Suite.Works/0', result.stdout)
+
+    def test_skip_wildcard_failing_and_flaky_expectations(self):
+        result = self.run_fixture('''
+if [ "$1" = --gtest_list_tests ]; then
+    printf '%s\\n' 'Plain.' '  First' '  Flaky' '  Failing' 'Skipped.' '  One' '  Two'
+    exit 0
+fi
+printf '**PASS** %s\\n' "${1#--gtest_filter=}"
+''')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('Ran 1 tests (4 skipped): 1 as expected, 0 unexpected', result.stdout)
 
     def test_partial_enumeration_failure_is_fatal(self):
         result = self.run_fixture('''

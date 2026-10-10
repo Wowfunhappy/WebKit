@@ -41,12 +41,20 @@
     </style>
     <script src="../../../resources/ui-helper.js"></script>
     <script>
-        if (window.testRunner)
+        if (window.testRunner) {
             testRunner.dumpAsText();
+            testRunner.waitUntilDone();
+        }
 
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
+            // 271261@main resolves compositing during rendering updates.
+            await UIHelper.renderingUpdate();
+            await UIHelper.renderingUpdate();
+
             if (window.internals)
                 document.getElementById('scrollingTree').innerText = window.internals.scrollingTreeAsText() + "\n";
+            if (window.testRunner)
+                testRunner.notifyDone();
         }, false);
     </script>
 </head>

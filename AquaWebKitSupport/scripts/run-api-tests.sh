@@ -5,31 +5,23 @@
 # The binaries are part of every build.sh run (ENABLE_API_TESTS is a port default in
 # AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake), so a green build has them matched to its frameworks.
 #
-# Usage:  bash AquaWebKitSupport/scripts/run-api-tests.sh <binary> [gtest args...]
-#         bash AquaWebKitSupport/scripts/run-api-tests.sh --port-surface
-#   e.g.  bash AquaWebKitSupport/scripts/run-api-tests.sh TestWebKitAPI --gtest_filter='WKHTTPCookieStore.*'
+# Usage:  bash AquaWebKitSupport/scripts/run-api-tests.sh [<binary> [gtest args...]]
+#   e.g.  bash AquaWebKitSupport/scripts/run-api-tests.sh
+#         bash AquaWebKitSupport/scripts/run-api-tests.sh TestWebKitAPI --gtest_filter='WKHTTPCookieStore.*'
 #         bash AquaWebKitSupport/scripts/run-api-tests.sh TestWTF --gtest_list_tests
 #
-# Expectations live in AquaWebKitSupport/tests/port-surface/api-tests.txt: `run <binary>` names the
-# binaries --port-surface runs in full, and `<binary> <Suite.Test> [ Skip ]` leaves a test out of every
-# run. Every executed test must pass; unexpected failures make the run exit 1.
+# With no binary it runs this port's API test binaries. Expectations are upstream's TestExpectations/apitests
+# and this port's TestExpectations/platform/mac-mavericks/apitests (api-test-expectations.py reads them);
+# tests expected to fail or to be flaky are skipped, every executed test must pass, and none is retried.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BINDIR="$ROOT/WebKitBuild/Release/bin"
-EXPECTATIONS="$ROOT/AquaWebKitSupport/tests/port-surface/api-tests.txt"
+PYTHON="$ROOT/AquaWebKitSupport/toolchain/build/python3/bin/python3"
+# This port's API test binaries, as each upstream port names its own (webkitpy's API_TEST_BINARY_NAMES).
+PORT_API_TEST_BINARIES="TestWTF TestWebCore TestWebKitAPI"
 
-if [ $# -lt 1 ]; then
-    echo "Usage: bash AquaWebKitSupport/scripts/run-api-tests.sh <binary> [gtest args...] | --port-surface" >&2
-    exit 2
-fi
-# `run <binary> [gtest filter]` lines: FILTER_<binary> carries the filter the binary is enumerated with.
-if [ "$1" = "--port-surface" ]; then
-    BINARIES=""
-    while read -r _run binary filter; do
-        BINARIES="$BINARIES $binary"
-        [ -n "$filter" ] && eval "FILTER_$binary=\"--gtest_filter=$filter\""
-    done < <(grep '^run[[:space:]]' "$EXPECTATIONS")
-    shift
+if [ $# -eq 0 ] || [ "${1#-}" != "$1" ]; then
+    BINARIES="$PORT_API_TEST_BINARIES"
 else
     BINARIES="$1"; shift
 fi
@@ -103,12 +95,10 @@ done
 # seconds, the way Tools/Scripts/run-api-tests takes --timeout.
 TEST_TIMEOUT=${WK_API_TEST_TIMEOUT:-180}
 
+EXPECTATION_TABLE=$(mktemp "${TMPDIR:-/tmp}/wk_api_expectations.XXXXXX")
+trap 'reap_test_orphans; rm -f "$EXPECTATION_TABLE"' EXIT INT TERM
 expectation_for() { # binary test -> Skip | Pass
-    local found
-    found=$(awk -v binary="$1" -v test="$2" '
-        $1 == binary && $2 == test && $3 == "[" { result = $4 }
-        END { print result }' "$EXPECTATIONS")
-    echo "${found:-Pass}"
+    awk -F '\t' -v name="$1.$2" '$1 == name { print $2; exit }' "$EXPECTATION_TABLE"
 }
 
 EXPECTED=0
@@ -116,14 +106,17 @@ UNEXPECTED=0
 SKIPPED=0
 UNEXPECTED_NAMES=""
 for BINARY in $BINARIES; do
-    eval "FILTER=\${FILTER_$BINARY-}"
-    if ! TESTS=$("$BINDIR/$BINARY" --gtest_list_tests ${FILTER:+"$FILTER"} "$@" |
+    if ! TESTS=$("$BINDIR/$BINARY" --gtest_list_tests "$@" |
         awk -f "$ROOT/AquaWebKitSupport/scripts/parse-api-test-list.awk"); then
         echo "$BINARY: failed to enumerate tests" >&2
         exit 1
     fi
     if [ -z "$TESTS" ]; then
         echo "$BINARY: no tests matched" >&2
+        exit 1
+    fi
+    if ! printf '%s\n' $TESTS | sed "s/^/$BINARY./" | "$PYTHON" "$ROOT/AquaWebKitSupport/scripts/api-test-expectations.py" > "$EXPECTATION_TABLE"; then
+        echo "$BINARY: failed to read the API test expectations" >&2
         exit 1
     fi
     for TEST in $TESTS; do

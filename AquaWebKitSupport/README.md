@@ -99,17 +99,20 @@ To run layout tests against the build tree (never the installed system), use
 `bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port flag is
 mandatory, and the script's header lists the one-time driver-build prereqs.
 
-The port-surface suite (`tests/port-surface/`) is the set of tests whose behaviour crosses into the
-parts of this port that differ from Apple's: the 10.9 frameworks, the polyfills, the vendored
-dependencies and the process model. `run-layout-tests.sh --wk1|--wk2 --port-surface` runs its
-layout tests (`layout-tests.txt`; expectations in `LayoutTests/platform/mac-mavericks-wk1` and
-`-wk2`), and `run-api-tests.sh --port-surface` its API tests (`api-tests.txt`, which also carries
-their expectations). Selection follows feature relevance, runtime, and maintainer scope decisions,
-uniformly across passing and failing tests. The runner skips documented failures and flakiness
-in applicable TestExpectations; explicitly naming a test does not override those exclusions.
-Tests whose upstream text baselines contain FAIL lines remain selected. Each exclusion records
-its evidence; port-specific defects require fixes. Accessibility is outside the suite's scope.
-Every executed test must pass.
+This port's test suite is what its expectations do not skip, as for every port.
+`run-layout-tests.sh --wk1|--wk2` with no test paths runs the layout suite: the suites whose behaviour
+crosses into the parts of this port that differ from Apple's (the 10.9 frameworks, the polyfills, the
+vendored dependencies and the process model) plus the platform/mac tests. The block at the top of
+`LayoutTests/platform/mac-mavericks/TestExpectations` skips the rest; per-test exclusions live there and
+in `-wk1` / `-wk2`. `run-api-tests.sh` with no binary runs TestWTF, TestWebCore and TestWebKitAPI against
+upstream's `TestExpectations/apitests` and this port's `TestExpectations/platform/mac-mavericks/apitests`.
+Alongside them run `tests/cocoa-curl/run.sh` and `polyfill/tests/run-behaviour-tests.sh`. Do not overlap
+these runs with each other or with a build, and keep Safari closed during cookie tests (it shares the
+system cookie store). Each exclusion records its evidence: an upstream record for the same symptom on the
+backend whose code this port uses, a verified capability gap, or a maintainer scope decision; a
+Mavericks-only failure is a port defect to fix. A `FAIL` line in an upstream text baseline is expected
+output, not a reason to skip. Every executed test must pass; check the summary for zero unexpected
+results and no unrun tests, not just the exit status.
 
 ## Building software against the installed frameworks
 

@@ -24,9 +24,11 @@ function printResults(resultsArray, isTestingMultipart)
 onmessage = (msg) => {
     if (msg.data.isTestingMultipart === "1") {
         resultsMultipart[msg.data.id] = msg.data.referer;
+        framesMultipart[msg.data.id]?.referrerReceived();
         framesMultipart[msg.data.id]?.remove();
     } else {
         results[msg.data.id] = msg.data.referer;
+        frames[msg.data.id]?.referrerReceived();
         frames[msg.data.id]?.remove();
     }
 
@@ -45,6 +47,7 @@ async function runTests(isTestingMultipart)
         let frame = document.createElement("iframe");
         frame.style = "display:none";
         frame.src = sourceOrigin + "security/resources/serve-referrer-policy-and-test.py?value=" + referrerPolicy + "&destinationOrigin=" + currentTest[1] + "&isTestingMultipart=" + (isTestingMultipart ? "1" : "0") + "&id=" + i;
+        let referrerReceived = new Promise(resolve => frame.referrerReceived = resolve);
         document.body.appendChild(frame);
 
         if (isTestingMultipart) {
@@ -53,6 +56,7 @@ async function runTests(isTestingMultipart)
             frames[i] = frame;
         } 
 
-        await new Promise(resolve => frame.onload = resolve);
+        // Each named popup finishes reporting before the multipart cases reuse it.
+        await referrerReceived;
     }
 }

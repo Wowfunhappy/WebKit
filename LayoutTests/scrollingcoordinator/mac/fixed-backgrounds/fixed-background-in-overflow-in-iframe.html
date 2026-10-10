@@ -16,12 +16,16 @@
     <script>
         if (window.testRunner) {
             testRunner.dumpAsText();
-            testRunner.waitUntilDone();            
+            testRunner.waitUntilDone();
         }
 
         window.addEventListener('load', async () => {
             if (!window.internals)
                 return
+
+            // 271261@main resolves compositing during rendering updates.
+            await UIHelper.renderingUpdate();
+            await UIHelper.renderingUpdate();
 
             document.getElementById('scrollingTree').innerText = await UIHelper.getScrollingTree();
             if (window.testRunner)

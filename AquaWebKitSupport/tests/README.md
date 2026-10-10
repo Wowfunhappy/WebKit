@@ -8,9 +8,8 @@ scopes. It also checks the installed private runtime's identities and dependency
 Mail's signature quirk disabled. Attachment objects (including uppercase MIME types) and
 Web Clips must create attached native views; Flash, unknown types and lookalike types must not.
 
-`port-surface/` is not a manual page: it defines the port-surface test suite (the layout tests and
-API tests that exercise this port's own surface), run through `scripts/run-layout-tests.sh
---port-surface` and `scripts/run-api-tests.sh --port-surface`.
+`api-runner/` holds the regression tests for `scripts/run-api-tests.sh`, which use fake build products
+and run directly with the toolchain python: `api-runner-test.py`, `api-timeout-test.py` and `api-test-list.sh`.
 
 `polyfill/tests/run-behaviour-tests.sh font_collections colr_filled_paths` (under
 `AquaWebKitSupport/`) checks both font-collection loading entry points and colored glyph layers
