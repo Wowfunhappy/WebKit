@@ -8,6 +8,7 @@
 #import "HTTPStatusCodes.h"
 #import "NetworkLoadMetrics.h"
 #import "ParsedContentRange.h"
+#import "RangeResponseGenerator.h"
 #import "ResourceError.h"
 #import "ResourceRequest.h"
 #import "ResourceResponse.h"
@@ -226,11 +227,11 @@ RefPtr<PlatformMediaResource> URLSessionMediaResourceLoader::requestResource(Res
 {
     ASSERT(isMainThread());
     // WebCoreNSURLSession answers a range from the copy of a resource whose server ignored the range only when the
-    // range is closed, the form AVFoundation sends. An open range is closed at the resource's length, from a response
-    // that states it or a whole body that completed.
+    // range is closed, the form AVFoundation sends, and the resource fits maximumSynthesizedResourceSize. An open range
+    // is closed at the resource's length, from a response that states it or a whole body that completed.
     if (auto range = parseRange(request.httpHeaderField(HTTPHeaderName::Range), RangeAllowWhitespace::No); range && range->start && !range->end) {
         auto length = m_delegate->_resourceLengths.find(request.url().string());
-        if (length != m_delegate->_resourceLengths.end() && *range->start < length->value)
+        if (length != m_delegate->_resourceLengths.end() && *range->start < length->value && length->value <= maximumSynthesizedResourceSize)
             request.setHTTPHeaderField(HTTPHeaderName::Range, makeString("bytes="_s, *range->start, '-', length->value - 1));
     }
     RetainPtr task = [m_session dataTaskWithRequest:request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody)];

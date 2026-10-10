@@ -27,6 +27,7 @@
 
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/StdLibExtras.h> // AQUAWEBKIT: MB, for maximumSynthesizedResourceSize below.
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/URLHash.h>
 
@@ -37,6 +38,10 @@ namespace WebCore {
 
 class PlatformMediaResource;
 class ResourceResponse;
+
+// AQUAWEBKIT: the largest resource RangeResponseGenerator answers ranges from. A response stating a larger length reaches
+// its task as the server sent it; a response of unstated length fails its load once the body passes this size.
+constexpr size_t maximumSynthesizedResourceSize = 100 * MB;
 
 class RangeResponseGenerator final
     : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RangeResponseGenerator, WTF::DestructionThread::Main> {

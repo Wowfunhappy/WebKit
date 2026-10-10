@@ -30,6 +30,7 @@
 #import "HTTPStatusCodes.h"
 #import "NetworkLoadMetrics.h"
 #import "PlatformMediaResourceLoader.h"
+#import "ResourceError.h" // AQUAWEBKIT: for the size cap's load failure in dataReceived.
 #import "ResourceResponse.h"
 #import "SharedBuffer.h"
 #import "WebCoreNSURLSession.h"
@@ -290,7 +291,8 @@ private:
         return false;
     }
 
-    void dataReceived(PlatformMediaResource&, const SharedBuffer& buffer) final
+    // void dataReceived(PlatformMediaResource&, const SharedBuffer& buffer) final
+    void dataReceived(PlatformMediaResource& resource, const SharedBuffer& buffer) final // AQUAWEBKIT: names the resource for the size cap's loadFailed.
     {
         RefPtr generator = m_generator.get();
         if (!generator)
@@ -298,6 +300,11 @@ private:
         auto* data = generator->map().get(m_urlString);
         if (!data)
             return;
+        // AQUAWEBKIT: a resource whose length the response did not state fails when it outgrows maximumSynthesizedResourceSize.
+        if (data->buffer.size() + buffer.size() > maximumSynthesizedResourceSize) {
+            loadFailed(resource, ResourceError { errorDomainWebKitInternal, 0, URL { m_urlString }, "Media resource is too large to answer ranges from memory"_s });
+            return;
+        }
         data->buffer.append(buffer);
         generator->giveResponseToTasksWithFinishedRanges(*data);
     }
@@ -340,6 +347,8 @@ bool RangeResponseGenerator::willSynthesizeRangeResponses(WebCoreNSURLSessionDat
     if (response.httpStatusCode() != httpStatus200OK)
         return false;
     if (!response.httpHeaderField(HTTPHeaderName::ContentRange).isEmpty())
+        return false;
+    if (response.expectedContentLength() > static_cast<long long>(maximumSynthesizedResourceSize)) // AQUAWEBKIT: maximumSynthesizedResourceSize, in the header.
         return false;
 
     auto range = resolvedRange(String([originalRequest valueForHTTPHeaderField:@"Range"]));
