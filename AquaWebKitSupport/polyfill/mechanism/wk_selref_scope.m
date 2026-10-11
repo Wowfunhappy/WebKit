@@ -43,7 +43,6 @@
 // the public selector simply stays unrewritten or the wk_ method never gets added to its class, and
 // the first send dies with an unrecognized selector at whatever call site happens to run first,
 // arbitrarily far from the load-time cause. Say what happened here instead.
-// Same reasoning, and same shape, as resolveSystemDlsym() in wk_polyfill_runtime.c.
 static void wk_registry_full(const char *what, int cap, const char *capName, const char *dropped)
 {
     fprintf(stderr, "[wk_selref_scope] FATAL: more than %d (%s) %s; \"%s\" cannot be recorded.\n"
@@ -88,12 +87,17 @@ enum { WK_FILTER_BITS = 16384 };
 static unsigned char wk_name_filter[WK_FILTER_BITS / 8];   // keyed on the selector NAME (wk_patch)
 static unsigned char wk_sel_filter[WK_FILTER_BITS / 8];    // keyed on the canonical SEL (wk_alias_class)
 
-static unsigned wk_name_hash(const char *s)
+static unsigned wk_name_hash32(const char *s)
 {
     unsigned h = 5381;   // djb2
     while (*s)
         h = h * 33 ^ (unsigned char)*s++;
-    return h & (WK_FILTER_BITS - 1);
+    return h;
+}
+
+static unsigned wk_name_hash(const char *s)
+{
+    return wk_name_hash32(s) & (WK_FILTER_BITS - 1);
 }
 
 // SELs are canonical pointers (sel_registerName on the writer side, method_getName of a realized
@@ -107,6 +111,31 @@ static unsigned wk_sel_hash(SEL sel)
 
 #define WK_FILTER_SET(f, h)  ((f)[(h) >> 3] |= (unsigned char)(1u << ((h) & 7)))
 #define WK_FILTER_TEST(f, h) ((f)[(h) >> 3] & (1u << ((h) & 7)))
+
+// The registered public names, exactly, for the alias sweep's reading of method lists the runtime has not
+// realized: a name that passes wk_name_filter is looked up here. Written by wk_register_selector and read
+// by the sweep, both under wk_reg_lock.
+enum { WK_NAME_SLOTS = 2 * WK_MAX_SEL };   // power of two
+static const char *wk_name_slots[WK_NAME_SLOTS];
+
+static void wk_note_registered_name(const char *name)
+{
+    unsigned i = wk_name_hash32(name) & (WK_NAME_SLOTS - 1);
+    while (wk_name_slots[i])
+        i = (i + 1) & (WK_NAME_SLOTS - 1);
+    wk_name_slots[i] = name;
+}
+
+static bool wk_is_registered_name(const char *name)
+{
+    unsigned hash = wk_name_hash32(name);
+    if (!WK_FILTER_TEST(wk_name_filter, hash & (WK_FILTER_BITS - 1)))
+        return false;
+    for (unsigned i = hash & (WK_NAME_SLOTS - 1); wk_name_slots[i]; i = (i + 1) & (WK_NAME_SLOTS - 1))
+        if (!strcmp(wk_name_slots[i], name))
+            return true;
+    return false;
+}
 
 // Synchronisation.
 //
@@ -130,7 +159,7 @@ static unsigned wk_sel_hash(SEL sel)
 // wk_polyfill_runtime.c's report() reads). This work runs in every process that loads WebKit, so what
 // it costs is worth being able to see. The patch counters are relaxed atomics because wk_patch runs
 // without the lock; the numbers are diagnostics, not part of any protocol.
-static long wk_stat_classes, wk_stat_methods;
+static long wk_stat_classes, wk_stat_realized, wk_stat_methods;
 static long wk_stat_refs, wk_stat_rewritten;
 
 // Writers additionally take wk_reg_lock, so two concurrent dlopens cannot claim the same slot or race
@@ -168,13 +197,13 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // nothing outside WebKit's rewritten images ever sends. A host app's respondsToSelector: for the public
 // name keeps answering exactly what the class really says.
 //
-// The unit is the class as its own image defines it, which is what the alias is for: `wk_foo` has to
-// find 10.9's real `foo`, and a class's real API ships with the class. A method some THIRD image bolts
-// onto someone else's class by category is outside that, and no per-image enumeration the runtime
-// offers reports it. Audited on 10.9.5 across a 180-image process: of every class implementing one of
-// the registered selectors, exactly two got it from another image -- -[NSString containsString:] via
-// ISSupport and -[NSArray containsString:] via QTKit. NSString carries this layer's own
-// wk_containsString: either way, and nothing sends containsString: to an NSArray.
+// The unit is the class as its own image defines it, with the categories loaded by the time that image
+// is swept: `wk_foo` has to find 10.9's real `foo`, and a class's real API ships with the class. A
+// category an image loaded later bolts onto a class already swept is not covered. Audited on 10.9.5
+// across a 180-image process: of every class implementing one of the registered selectors, exactly two
+// got it from another image -- -[NSString containsString:] via ISSupport and -[NSArray containsString:]
+// via QTKit. NSString carries this layer's own wk_containsString: either way, and nothing sends
+// containsString: to an NSArray.
 //
 // The class's OWN methods (class_copyMethodList), not class_getInstanceMethod: an inherited method is
 // aliased on the class that defines it and subclasses inherit the alias along with it, and — the reason
@@ -422,9 +451,6 @@ static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
     free(methods);
 }
 
-// One image's classes. objc_copyClassNamesForImage answers for that image alone, so the work a dlopen
-// pays for is bounded by what it brought in rather than by every class in the process. objc_getClass
-// realizes the class, which is what makes its method list safe to copy.
 // A WebKit image is one carrying __DATA,__wk_marker — the same test wk_patch uses to decide whose
 // selrefs to rewrite, which is exactly the property wk_alias_class needs: an image whose sends are
 // rewritten is one whose [super …] sends are rewritten.
@@ -434,24 +460,192 @@ static bool wk_is_webkit_image(const struct mach_header *mh)
     return mh && getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__wk_marker", &size) != NULL;
 }
 
-static void wk_alias_image(const char *path, const struct mach_header *mh, int from, int to)
+// The ObjC 2 metadata the compiler emits for a class, a category and a method list, as 10.9's runtime
+// (objc4-551) reads it out of __DATA,__objc_classlist and __objc_catlist. Until the runtime realizes a
+// class, the class's data word points at its read-only class_ro_t; realizing allocates a class_rw_t,
+// sets RW_REALIZED in its flags (a bit the compiler never sets in class_ro_t's), and attaches the
+// methods of every loaded category on the class.
+struct wk_raw_method {
+    const char *name;
+    const char *types;
+    IMP imp;
+};
+
+struct wk_raw_method_list {
+    uint32_t entsizeAndFlags;
+    uint32_t count;
+    struct wk_raw_method first;
+};
+
+struct wk_raw_class_ro {
+    uint32_t flags;
+    uint32_t instanceStart;
+    uint32_t instanceSize;
+    uint32_t reserved;
+    const uint8_t *ivarLayout;
+    const char *name;
+    const struct wk_raw_method_list *baseMethods;
+};
+
+struct wk_raw_class {
+    struct wk_raw_class *isa;
+    struct wk_raw_class *superclass;
+    void *cache;
+    void *vtable;
+    uintptr_t data;
+};
+
+struct wk_raw_category {
+    const char *name;
+    struct wk_raw_class *cls;
+    const struct wk_raw_method_list *instanceMethods;
+    const struct wk_raw_method_list *classMethods;
+};
+
+enum { WK_RW_REALIZED = 1u << 31 };
+
+// The class_ro_t of a class the runtime has not realized; NULL once it has.
+static const struct wk_raw_class_ro *wk_unrealized_ro(const struct wk_raw_class *cls)
 {
-    if (!path || from >= to)
+    uintptr_t data = __atomic_load_n(&cls->data, __ATOMIC_ACQUIRE) & ~(uintptr_t)3;
+    const struct wk_raw_class_ro *ro = (const struct wk_raw_class_ro *)data;
+    return (ro->flags & WK_RW_REALIZED) ? NULL : ro;
+}
+
+// Whether a method list names a registered public selector. Method names are C strings whether or not
+// the runtime has uniqued them yet.
+static bool wk_raw_list_may_register(const struct wk_raw_method_list *list)
+{
+    if (!list)
+        return false;
+    uint32_t entsize = list->entsizeAndFlags & ~3u;
+    const char *entry = (const char *)&list->first;
+    for (uint32_t i = 0; i < list->count; i++, entry += entsize)
+        if (wk_is_registered_name(((const struct wk_raw_method *)entry)->name))
+            return true;
+    return false;
+}
+
+// The classes some loaded category gives a method that names a registered selector, so realizing them
+// would attach it. Recorded when an image is bound, ahead of the dependents_initialized notification of
+// every image in its batch: a category in one image routinely targets a class from an image that batch
+// initializes first. Rebuilt from every loaded image when the registry grows, since an earlier scan
+// tested names against fewer filter bits. Guarded by wk_reg_lock; entries point into images that carry
+// ObjC metadata, which the runtime never unloads.
+static const struct wk_raw_class **wk_category_targets;
+static size_t wk_category_target_capacity;   // power of two, or 0
+static size_t wk_category_target_count;
+
+static size_t wk_category_target_slot(const struct wk_raw_class *cls)
+{
+    uintptr_t p = (uintptr_t)cls;
+    return (size_t)(((p >> 4) ^ (p >> 13)) & (wk_category_target_capacity - 1));
+}
+
+static bool wk_is_category_target(const struct wk_raw_class *cls)
+{
+    if (!wk_category_target_count)
+        return false;
+    for (size_t i = wk_category_target_slot(cls);; i = (i + 1) & (wk_category_target_capacity - 1)) {
+        if (wk_category_targets[i] == cls)
+            return true;
+        if (!wk_category_targets[i])
+            return false;
+    }
+}
+
+static void wk_note_category_target(const struct wk_raw_class *cls)
+{
+    if (wk_is_category_target(cls))
         return;
-    unsigned int n = 0;
-    const char **names = objc_copyClassNamesForImage(path, &n);
-    if (!names)
+    if ((wk_category_target_count + 1) * 2 > wk_category_target_capacity) {
+        const struct wk_raw_class **previous = wk_category_targets;
+        size_t previousCapacity = wk_category_target_capacity;
+        wk_category_target_capacity = previousCapacity ? previousCapacity * 2 : 64;
+        wk_category_targets = calloc(wk_category_target_capacity, sizeof(*wk_category_targets));
+        if (!wk_category_targets)
+            abort();
+        wk_category_target_count = 0;
+        for (size_t i = 0; i < previousCapacity; i++)
+            if (previous[i])
+                wk_note_category_target(previous[i]);
+        free(previous);
+    }
+    size_t i = wk_category_target_slot(cls);
+    while (wk_category_targets[i])
+        i = (i + 1) & (wk_category_target_capacity - 1);
+    wk_category_targets[i] = cls;
+    wk_category_target_count++;
+}
+
+static void wk_note_image_categories(const struct mach_header *mh)
+{
+    unsigned long size = 0;
+    struct wk_raw_category *const *categories = (struct wk_raw_category *const *)
+        getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_catlist", &size);
+    if (!categories)
+        return;
+    for (unsigned long i = 0; i < size / sizeof(*categories); i++) {
+        const struct wk_raw_category *category = categories[i];
+        if (category->cls && (wk_raw_list_may_register(category->instanceMethods)
+                              || wk_raw_list_may_register(category->classMethods)))
+            wk_note_category_target(category->cls);
+    }
+}
+
+static void wk_note_loaded_categories(void)
+{
+    if (wk_category_targets)
+        memset(wk_category_targets, 0, wk_category_target_capacity * sizeof(*wk_category_targets));
+    wk_category_target_count = 0;
+    uint32_t c = _dyld_image_count();
+    for (uint32_t i = 0; i < c; i++)
+        wk_note_image_categories(_dyld_get_image_header(i));
+}
+
+// Whether wk_alias_class could find a registered selector on the class or its metaclass. A class the
+// runtime has realized is asked through its method lists; one it has not is answered from the metadata
+// realizing it would read, so a class nothing here concerns stays unrealized.
+static bool wk_class_may_register(const struct wk_raw_class *cls)
+{
+    const struct wk_raw_class_ro *ro = wk_unrealized_ro(cls);
+    const struct wk_raw_class_ro *metaRO = ro ? wk_unrealized_ro(cls->isa) : NULL;
+    if (!ro || !metaRO)
+        return true;
+    return wk_raw_list_may_register(ro->baseMethods) || wk_raw_list_may_register(metaRO->baseMethods)
+        || wk_is_category_target(cls);
+}
+
+static const char *wk_raw_class_name(const struct wk_raw_class *cls)
+{
+    const struct wk_raw_class_ro *ro = wk_unrealized_ro(cls);
+    return ro ? ro->name : class_getName((Class)cls);
+}
+
+// One image's classes, so the work a dlopen pays for is bounded by what it brought in rather than by
+// every class in the process. objc_getClass realizes the class, which is what makes its method list
+// safe to copy.
+static void wk_alias_image(const struct mach_header *mh, int from, int to)
+{
+    if (!mh || from >= to)
+        return;
+    unsigned long size = 0;
+    struct wk_raw_class *const *classes = (struct wk_raw_class *const *)
+        getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_classlist", &size);
+    if (!classes)
         return;
     bool webKitImage = wk_is_webkit_image(mh);
-    for (unsigned int i = 0; i < n; i++) {
-        Class cls = objc_getClass(names[i]);
+    for (unsigned long i = 0; i < size / sizeof(*classes); i++) {
+        wk_stat_classes++;
+        if (!wk_class_may_register(classes[i]))
+            continue;
+        Class cls = objc_getClass(wk_raw_class_name(classes[i]));
         if (!cls)
             continue;
-        wk_stat_classes++;
+        wk_stat_realized++;
         wk_alias_class(cls, from, to, webKitImage);                  // instance methods
         wk_alias_class(object_getClass(cls), from, to, webKitImage); // class methods, on the metaclass
     }
-    free(names);
 }
 
 // Every image loaded so far, for a range of registry entries. Runs when the REGISTRY grows rather than
@@ -459,9 +653,10 @@ static void wk_alias_image(const char *path, const struct mach_header *mh, int f
 // since. Bounded by the number of images carrying __wk_methods (WebCore and WebKit), not by dlopens.
 static void wk_alias_loaded_images(int from, int to)
 {
+    wk_note_loaded_categories();
     uint32_t c = _dyld_image_count();
     for (uint32_t i = 0; i < c; i++)
-        wk_alias_image(_dyld_get_image_name(i), _dyld_get_image_header(i), from, to);
+        wk_alias_image(_dyld_get_image_header(i), from, to);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -512,6 +707,7 @@ static SEL wk_register_selector(SEL pub)
     wk_priv[slot] = priv;
     // The entry's filter bits, before the entry is reachable (see the prefilter note).
     WK_FILTER_SET(wk_name_filter, wk_name_hash(name));
+    wk_note_registered_name(name);
     WK_FILTER_SET(wk_sel_filter, wk_sel_hash(pub));
     // Publishes the stores above to every reader that acquire-loads wk_count.
     __atomic_store_n(&wk_count, slot + 1, __ATOMIC_RELEASE);
@@ -739,7 +935,7 @@ static void wk_add_image(const struct mach_header *mh, intptr_t slide)
 // dyld_image_state_dependents_initialized is the first state where the runtime has them (798 of 798 for
 // a dlopen'd AddressBook.framework), and it is still ahead of the image's own initializers, so no code
 // from the image has run yet. It is the same state objc itself uses to run +load.
-enum { WK_DYLD_STATE_DEPENDENTS_INITIALIZED = 45 };
+enum { WK_DYLD_STATE_BOUND = 40, WK_DYLD_STATE_DEPENDENTS_INITIALIZED = 45 };
 typedef const char *(*wk_dyld_state_handler)(uint32_t state, uint32_t count,
                                              const struct dyld_image_info *info);
 typedef void (*wk_dyld_register_handler)(uint32_t state, bool batch, wk_dyld_state_handler handler);
@@ -764,38 +960,35 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
     // a REPLACE body on its target before it looks at the target's subclasses.
     wk_install_deferred();
     for (uint32_t i = 0; i < count; i++)
-        wk_alias_image(info[i].imageFilePath, info[i].imageLoadAddress, 0, wk_count);
+        wk_alias_image(info[i].imageLoadAddress, 0, wk_count);
+    pthread_mutex_unlock(&wk_reg_lock);
+    return NULL;
+}
+
+// A batch's categories, noted when dyld has bound it and before any of its images reaches
+// dependents_initialized (see wk_category_targets).
+static const char *wk_batch_bound(uint32_t state, uint32_t count, const struct dyld_image_info *info)
+{
+    (void)state;
+    pthread_mutex_lock(&wk_reg_lock);
+    for (uint32_t i = 0; i < count; i++)
+        wk_note_image_categories(info[i].imageLoadAddress);
     pthread_mutex_unlock(&wk_reg_lock);
     return NULL;
 }
 
 // dyld_register_image_state_change_handler is dyld_priv.h SPI. 10.9's libdyld exports it; the build SDK
 // neither declares nor stubs it, so it is declared above and resolved by name rather than linked.
-//
-// There is no second way to be told that the runtime has finished reading an image, and no degraded
-// mode either: a process that stopped aliasing would keep running until something sent a polyfilled
-// selector to a class from a dlopen'd framework, then die on an unrecognized wk_ selector arbitrarily
-// far from the cause. Say what actually happened, where it happens, and stop.
 static void wk_watch_for_images(void)
 {
     wk_dyld_register_handler reg =
         (wk_dyld_register_handler)dlsym(RTLD_DEFAULT, "dyld_register_image_state_change_handler");
-    if (!reg) {
-        fprintf(stderr, "[wk_selref_scope] FATAL: libdyld does not export "
-                        "dyld_register_image_state_change_handler.\n"
-                        "[wk_selref_scope] It is how this layer learns that the ObjC runtime has read a "
-                        "newly loaded image, which is when a class that has the real implementation of a "
-                        "polyfilled method gets its wk_ entry point. Without it, WebKit's rewritten "
-                        "selectors would reach such a class as an unrecognized selector, far from here. "
-                        "See wk_image_initializing in "
-                        "AquaWebKitSupport/polyfill/mechanism/wk_selref_scope.m.\n");
-        fflush(stderr);
-        abort();
-    }
+    reg(WK_DYLD_STATE_BOUND, true, wk_batch_bound);
     reg(WK_DYLD_STATE_DEPENDENTS_INITIALIZED, false, wk_image_initializing);
 }
 
 // Milliseconds between two mach_absolute_time readings.
+    wk_watch_for_images();
 static double wk_ms(uint64_t from, uint64_t to)
 {
     static mach_timebase_info_data_t timebase;
@@ -809,11 +1002,9 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
     // Registered before the first sweep rather than after it: an image arriving while the sweep runs is
     // aliased by its own notification, and one that arrives before the registry is published is aliased
     // by the sweep, since dyld has it listed by the time the notification can fire. Registering
-    // afterwards would leave a window in which a concurrent dlopen is covered by neither. Nothing is
-    // dispatched for the images already loaded (verified: a single-image handler is not called
-    // retroactively) — the loop below is what covers those.
-    wk_watch_for_images();
-
+    // afterwards would leave a window in which a concurrent dlopen is covered by neither. Registration
+    // dispatches each image whose initializers are running, this one among them; the loop below covers
+    // every other loaded image.
     uint64_t t0 = mach_absolute_time();
     uint32_t c = _dyld_image_count();
     // Registers and installs every block, aliases each newly registered selector across every image
@@ -830,8 +1021,8 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
 
     if (getenv("WK_POLYFILL_REPORT"))
         fprintf(stderr, "[wk_selref_scope] startup %.2f ms (%u images): collect+install+alias+patch %.2f "
-                        "(%d sels, %d blocks deferred, %ld classes, %ld methods, %ld refs, %ld rewritten), "
-                        "add-image refire %.2f\n",
+                        "(%d sels, %d blocks deferred, %ld classes, %ld realized, %ld methods, %ld refs, "
+                        "%ld rewritten), add-image refire %.2f\n",
                 wk_ms(t0, t2), c, wk_ms(t0, t1), wk_count, wk_deferred_count, wk_stat_classes,
-                wk_stat_methods, wk_stat_refs, wk_stat_rewritten, wk_ms(t1, t2));
+                wk_stat_realized, wk_stat_methods, wk_stat_refs, wk_stat_rewritten, wk_ms(t1, t2));
 }
