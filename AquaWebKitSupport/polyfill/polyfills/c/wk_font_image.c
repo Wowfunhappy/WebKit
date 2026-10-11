@@ -36,8 +36,7 @@ static CGColorSpaceRef wk_fontImageColorSpace(const uint8_t *profile, size_t pro
         CFDataRef data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)profile, (CFIndex)profileLength);
         if (data) {
             CFDataRef repaired = wk_iccProfileForColorSync(data);
-            CGColorSpaceRef space = WK_SYSTEM(CGColorSpaceCreateWithICCData)
-                ? WK_SYSTEM(CGColorSpaceCreateWithICCData)(repaired) : NULL;
+            CGColorSpaceRef space = WK_SYSTEM(CGColorSpaceCreateWithICCData)(repaired);
             CFRelease(repaired);
             CFRelease(data);
             if (space) {

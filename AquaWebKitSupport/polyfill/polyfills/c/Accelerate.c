@@ -19,15 +19,11 @@ WK_SYSTEM_FN("Accelerate", vImage_Error, vImageUnpremultiplyData_RGBA8888,
 WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImagePremultiplyData_BGRA8888,
     (const struct vImage_Buffer *src, const struct vImage_Buffer *dst, vImage_Flags flags))
 {
-    if (!WK_SYSTEM(vImagePremultiplyData_RGBA8888))
-        return kvImageInternalError;
     return WK_SYSTEM(vImagePremultiplyData_RGBA8888)(src, dst, flags);
 }
 WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImageUnpremultiplyData_BGRA8888,
     (const struct vImage_Buffer *src, const struct vImage_Buffer *dst, vImage_Flags flags))
 {
-    if (!WK_SYSTEM(vImageUnpremultiplyData_RGBA8888))
-        return kvImageInternalError;
     return WK_SYSTEM(vImageUnpremultiplyData_RGBA8888)(src, dst, flags);
 }
 

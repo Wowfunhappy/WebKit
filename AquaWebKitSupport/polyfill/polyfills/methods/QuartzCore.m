@@ -196,7 +196,7 @@ WK_SYSTEM_FN("QuartzCore", unsigned int, CAGetTransactionCounter, (void));
 
 static unsigned int wk_caTransactionCounter(void)
 {
-    return WK_SYSTEM(CAGetTransactionCounter) ? WK_SYSTEM(CAGetTransactionCounter)() : 0;
+    return WK_SYSTEM(CAGetTransactionCounter)();
 }
 
 // The queues and their observers are per thread (CA transactions are per thread) and the observers are

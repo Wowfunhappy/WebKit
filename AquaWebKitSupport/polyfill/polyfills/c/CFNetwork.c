@@ -88,7 +88,7 @@ WK_POLYFILL_ABSENT("CFNetwork", CFDataRef, CFHTTPCookieStorageCreateIdentifyingD
 {
     if (!storage)
         return NULL;
-    CFArrayRef archive = WK_SYSTEM(CFHTTPCookieStorageCreateArchive) ? WK_SYSTEM(CFHTTPCookieStorageCreateArchive)(allocator, storage) : NULL;
+    CFArrayRef archive = WK_SYSTEM(CFHTTPCookieStorageCreateArchive)(allocator, storage);
     if (!archive)
         return NULL;
     CFDataRef data = CFPropertyListCreateData(allocator, archive, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
@@ -104,7 +104,7 @@ WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateFromIdentifying
     if (!archive)
         return NULL;
     void *storage = NULL;
-    if (WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive) && CFGetTypeID(archive) == CFArrayGetTypeID())
+    if (CFGetTypeID(archive) == CFArrayGetTypeID())
         storage = WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive)(allocator, archive);
     CFRelease(archive);
     return storage;
@@ -179,9 +179,6 @@ static Boolean wk_propertiesAskForPrivateSession(CFDictionaryRef properties)
 
 static CFHTTPCookieStorageRef wk_createLockedInMemoryCookieStorage(CFAllocatorRef allocator)
 {
-    if (!WK_SYSTEM(CFHTTPCookieStorageCreateArchive) || !WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive))
-        wk_patch_fail(kPrivateStorageSession, "CFNetwork does not export the cookie storage archive entry points");
-
     CFHTTPCookieStorageRef empty = WK_SYSTEM(CFHTTPCookieStorageCreateInMemory)(allocator, NULL);
     if (!empty)
         wk_patch_fail(kPrivateStorageSession, "CFNetwork refused an in-memory cookie storage");
@@ -246,8 +243,7 @@ WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageDeleteAllCookies, (CF
 {
     WK_ORIGINAL(CFHTTPCookieStorageDeleteAllCookies)(storage);
     // 10.9's external storage sends delete-all without a reply; sync is the completion barrier.
-    if (WK_SYSTEM(CFHTTPCookieStorageSyncStorageNow))
-        WK_SYSTEM(CFHTTPCookieStorageSyncStorageNow)(storage);
+    WK_SYSTEM(CFHTTPCookieStorageSyncStorageNow)(storage);
     // Resolved with dlsym: the cookie observation lives in the WebCore-only half of the layer.
     static wk_removed_all notify;
     if (!notify)

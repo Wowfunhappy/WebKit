@@ -17,10 +17,7 @@
 //   WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontManagerCreateFontDescriptorFromData,
 //       (CFDataRef data))
 //   {
-//       // always runs; 10.9's version is still reachable
-//       if (WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData))
-//           return WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)(data);
-//       return NULL;
+//       return WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)(data);
 //   }
 //
 //   WK_POLYFILL_CONST("CoreGraphics", CFStringRef, kCGColorSpaceExtendedRange,

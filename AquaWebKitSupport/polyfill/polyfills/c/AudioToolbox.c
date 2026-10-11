@@ -34,24 +34,18 @@ WK_SYSTEM_FN("AudioUnit", OSStatus, AudioOutputUnitStop, (AudioUnit));
 WK_POLYFILL_REPLACES("AudioToolbox", AudioComponent, AudioComponentFindNext,
     (AudioComponent inComponent, const AudioComponentDescription *inDesc))
 {
-    if (!WK_SYSTEM(AudioComponentFindNext))
-        return NULL;
     return WK_SYSTEM(AudioComponentFindNext)(inComponent, inDesc);
 }
 
 WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioComponentInstanceNew,
     (AudioComponent inComponent, AudioComponentInstance *outInstance))
 {
-    if (!WK_SYSTEM(AudioComponentInstanceNew))
-        return kAudioUnitErr_CannotDoInCurrentContext;
     return WK_SYSTEM(AudioComponentInstanceNew)(inComponent, outInstance);
 }
 
 WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioComponentCopyName,
     (AudioComponent inComponent, CFStringRef *outName))
 {
-    if (!WK_SYSTEM(AudioComponentCopyName))
-        return kAudioUnitErr_CannotDoInCurrentContext;
     return WK_SYSTEM(AudioComponentCopyName)(inComponent, outName);
 }
 
@@ -59,8 +53,6 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioUnitGetProperty,
     (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement,
      void *outData, UInt32 *ioDataSize))
 {
-    if (!WK_SYSTEM(AudioUnitGetProperty))
-        return kAudioUnitErr_CannotDoInCurrentContext;
     return WK_SYSTEM(AudioUnitGetProperty)(inUnit, inID, inScope, inElement, outData, ioDataSize);
 }
 
@@ -68,8 +60,6 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioUnitSetProperty,
     (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement,
      const void *inData, UInt32 inDataSize))
 {
-    if (!WK_SYSTEM(AudioUnitSetProperty))
-        return kAudioUnitErr_CannotDoInCurrentContext;
     return WK_SYSTEM(AudioUnitSetProperty)(inUnit, inID, inScope, inElement, inData, inDataSize);
 }
 
@@ -77,21 +67,15 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioUnitRender,
     (AudioUnit inUnit, AudioUnitRenderActionFlags *ioActionFlags, const AudioTimeStamp *inTimeStamp,
      UInt32 inOutputBusNumber, UInt32 inNumberFrames, AudioBufferList *ioData))
 {
-    if (!WK_SYSTEM(AudioUnitRender))
-        return kAudioUnitErr_CannotDoInCurrentContext;
     return WK_SYSTEM(AudioUnitRender)(inUnit, ioActionFlags, inTimeStamp, inOutputBusNumber, inNumberFrames, ioData);
 }
 
 WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioOutputUnitStart, (AudioUnit ci))
 {
-    if (!WK_SYSTEM(AudioOutputUnitStart))
-        return kAudioUnitErr_CannotDoInCurrentContext;
     return WK_SYSTEM(AudioOutputUnitStart)(ci);
 }
 
 WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioOutputUnitStop, (AudioUnit ci))
 {
-    if (!WK_SYSTEM(AudioOutputUnitStop))
-        return kAudioUnitErr_CannotDoInCurrentContext;
     return WK_SYSTEM(AudioOutputUnitStop)(ci);
 }

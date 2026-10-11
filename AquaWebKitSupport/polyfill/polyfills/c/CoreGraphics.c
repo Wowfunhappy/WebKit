@@ -706,8 +706,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDelegateSetCallback,
     }
     if (name > 23)
         return;
-    if (WK_ORIGINAL(CGContextDelegateSetCallback))
-        WK_ORIGINAL(CGContextDelegateSetCallback)(delegate, name, callback);
+    WK_ORIGINAL(CGContextDelegateSetCallback)(delegate, name, callback);
 }
 
 // CGContextSetOwnerIdentity (12+): tags a context's backing store to another process's memory
@@ -1336,9 +1335,6 @@ extern CGRect CGStyleGetDrawBoundingBox(CGStyleRef, CGRect);
 
 static int wk_rendererTextureLimit(const int *attributes)
 {
-    if (!WK_SYSTEM(CGLChoosePixelFormat) || !WK_SYSTEM(CGLCreateContext) || !WK_SYSTEM(CGLGetCurrentContext)
-        || !WK_SYSTEM(CGLSetCurrentContext) || !WK_SYSTEM(CGLDestroyContext) || !WK_SYSTEM(CGLDestroyPixelFormat) || !WK_SYSTEM(glGetIntegerv))
-        return 0;
     void *pixelFormat = NULL;
     int formats = 0;
     if (WK_SYSTEM(CGLChoosePixelFormat)(attributes, &pixelFormat, &formats) || !pixelFormat)
@@ -1436,8 +1432,6 @@ bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef context)
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef context, CGRect rect, CGImageRef image))
 {
-    if (!WK_ORIGINAL(CGContextDrawImage))
-        return;
     if (context && image && wk_drawsThroughCoreAnimationIOSurface(context)) {
         if (!wk_drawOversizedImageInIOSurface(context, rect, image)) {
             CGColorSpaceRef colorSpace = CGContextGetColorSpace(context);
@@ -1467,8 +1461,6 @@ static CGRect wk_clipRectWithinClip(CGContextRef context, CGRect rect)
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextClipToRect, (CGContextRef context, CGRect rect))
 {
-    if (!WK_ORIGINAL(CGContextClipToRect))
-        return;
     if (wk_boundsClipToContext(context))
         rect = wk_clipRectWithinClip(context, rect);
     WK_ORIGINAL(CGContextClipToRect)(context, rect);
@@ -1476,8 +1468,6 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextClipToRect, (CGContextRef co
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextClipToRects, (CGContextRef context, const CGRect *rects, size_t count))
 {
-    if (!WK_ORIGINAL(CGContextClipToRects))
-        return;
     if (!wk_boundsClipToContext(context) || !rects || !count) {
         WK_ORIGINAL(CGContextClipToRects)(context, rects, count);
         return;
@@ -1846,8 +1836,6 @@ static CGImageRef wk_copyImageForIOSurfacePattern(CGContextRef context, CGImageR
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawTiledImage, (CGContextRef context, CGRect rect, CGImageRef image))
 {
-    if (!WK_ORIGINAL(CGContextDrawTiledImage))
-        return;
     CGImageRef drawn = NULL;
     if (context && image) {
         if (wk_drawsThroughCoreAnimationIOSurface(context))
@@ -1886,8 +1874,6 @@ static bool wk_cleanedPattern(CGContextRef context, CGPatternRef pattern, CGPatt
 // patterns set on IOSurface contexts.
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetFillPattern, (CGContextRef context, CGPatternRef pattern, const CGFloat *components))
 {
-    if (!WK_ORIGINAL(CGContextSetFillPattern))
-        return;
     CGPatternRef replacement;
     if (!wk_cleanedPattern(context, pattern, &replacement)) {
         WK_ORIGINAL(CGContextSetFillPattern)(context, pattern, components);
@@ -1900,8 +1886,6 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetFillPattern, (CGContextRe
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetStrokePattern, (CGContextRef context, CGPatternRef pattern, const CGFloat *components))
 {
-    if (!WK_ORIGINAL(CGContextSetStrokePattern))
-        return;
     CGPatternRef replacement;
     if (!wk_cleanedPattern(context, pattern, &replacement)) {
         WK_ORIGINAL(CGContextSetStrokePattern)(context, pattern, components);
@@ -1933,8 +1917,6 @@ static CGColorRef wk_copyCleanedPatternColor(CGContextRef context, CGColorRef co
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetFillColorWithColor, (CGContextRef context, CGColorRef color))
 {
-    if (!WK_ORIGINAL(CGContextSetFillColorWithColor))
-        return;
     bool replaced;
     CGColorRef replacement = wk_copyCleanedPatternColor(context, color, &replaced);
     WK_ORIGINAL(CGContextSetFillColorWithColor)(context, replaced ? replacement : color);
@@ -1944,8 +1926,6 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetFillColorWithColor, (CGCo
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetStrokeColorWithColor, (CGContextRef context, CGColorRef color))
 {
-    if (!WK_ORIGINAL(CGContextSetStrokeColorWithColor))
-        return;
     bool replaced;
     CGColorRef replacement = wk_copyCleanedPatternColor(context, color, &replaced);
     WK_ORIGINAL(CGContextSetStrokeColorWithColor)(context, replaced ? replacement : color);
@@ -1957,8 +1937,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextSetStrokeColorWithColor, (CG
 // screen context's layers cost one type query here and nothing below.
 static bool wk_transparencyLayerTracks(CGContextRef context)
 {
-    return context && WK_SYSTEM(CGContextGetType)
-        && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_PDF;
+    return context && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_PDF;
 }
 
 // The context is retained for as long as an entry exists. Core Graphics requires
@@ -2029,21 +2008,18 @@ bool wk_isInsideTransparencyLayer(CGContextRef context)
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextBeginTransparencyLayer, (CGContextRef context, CFDictionaryRef auxiliaryInfo))
 {
     wk_transparencyLayerBegan(context);
-    if (WK_ORIGINAL(CGContextBeginTransparencyLayer))
-        WK_ORIGINAL(CGContextBeginTransparencyLayer)(context, auxiliaryInfo);
+    WK_ORIGINAL(CGContextBeginTransparencyLayer)(context, auxiliaryInfo);
 }
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextBeginTransparencyLayerWithRect, (CGContextRef context, CGRect rect, CFDictionaryRef auxiliaryInfo))
 {
     wk_transparencyLayerBegan(context);
-    if (WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect))
-        WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect)(context, rect, auxiliaryInfo);
+    WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect)(context, rect, auxiliaryInfo);
 }
 
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextEndTransparencyLayer, (CGContextRef context))
 {
-    if (WK_ORIGINAL(CGContextEndTransparencyLayer))
-        WK_ORIGINAL(CGContextEndTransparencyLayer)(context);
+    WK_ORIGINAL(CGContextEndTransparencyLayer)(context);
     wk_transparencyLayerEnded(context);
 }
 

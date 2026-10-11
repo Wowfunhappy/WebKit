@@ -2539,7 +2539,7 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
     [dictionary setObject:@((int)CFURLRequestGetRequestPriority(cfRequest)) forKey:@"requestPriority"];
     [dictionary setObject:@((unsigned char)wk_requestAttribution(self)) forKey:@"attribution"];
 
-    BOOL isHTTP = WK_SYSTEM(_CFURLRequestGetHTTPMessage) && WK_SYSTEM(_CFURLRequestGetHTTPMessage)(cfRequest);
+    BOOL isHTTP = WK_SYSTEM(_CFURLRequestGetHTTPMessage)(cfRequest) != NULL;
     [dictionary setObject:@(isHTTP) forKey:@"isHTTP"];
     if (isHTTP) {
         NSString *method = self.HTTPMethod;
@@ -2569,7 +2569,7 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
     if ([fallbackEncodings isKindOfClass:[NSArray class]])
         [dictionary setObject:fallbackEncodings forKey:@"contentDispositionEncodingFallbackArray"];
 
-    NSDictionary *protocolProperties = WK_SYSTEM(_CFURLRequestGetProtocolProperties) ? (NSDictionary *)WK_SYSTEM(_CFURLRequestGetProtocolProperties)(cfRequest) : nil;
+    NSDictionary *protocolProperties = (NSDictionary *)WK_SYSTEM(_CFURLRequestGetProtocolProperties)(cfRequest);
     NSString *siteForCookiesKey = @"_kCFHTTPCookiePolicyPropertySiteForCookies";
     id siteForCookies = [protocolProperties objectForKey:siteForCookiesKey];
     if (siteForCookies && ![siteForCookies isKindOfClass:[NSString class]]) {

@@ -18,8 +18,6 @@ WK_POLYFILL_CONST("IOKit", mach_port_t, kIOMainPortDefault, 0);
 WK_SYSTEM_FN("IOKit", kern_return_t, IOMasterPort, (mach_port_t, mach_port_t *));
 WK_POLYFILL_ABSENT("IOKit", kern_return_t, IOMainPort, (mach_port_t bootstrapPort, mach_port_t *mainPort))
 {
-    if (!WK_SYSTEM(IOMasterPort))
-        return KERN_FAILURE;
     return WK_SYSTEM(IOMasterPort)(bootstrapPort, mainPort);
 }
 #pragma clang diagnostic pop

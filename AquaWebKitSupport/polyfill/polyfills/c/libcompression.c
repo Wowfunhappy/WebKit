@@ -128,8 +128,6 @@ WK_POLYFILL_ABSENT("/usr/lib/libcompression.dylib", compression_status, compress
 WK_SYSTEM_FN("/usr/lib/libz.dylib", uLong, crc32, (uLong, const Bytef *, uInt));
 WK_POLYFILL_ABSENT("/usr/lib/libz.dylib", uLong, crc32_z, (uLong crc, const Bytef *buf, size_t len))
 {
-    if (!WK_SYSTEM(crc32))
-        return crc;
     if (!buf)
         return WK_SYSTEM(crc32)(crc, NULL, 0);
     while (len > 0) {

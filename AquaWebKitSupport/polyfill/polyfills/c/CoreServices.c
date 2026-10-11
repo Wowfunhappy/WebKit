@@ -29,7 +29,7 @@ WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDynamic, (CFStringRef inUTI)
 
 WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDeclared, (CFStringRef inUTI))
 {
-    if (!inUTI || !WK_SYSTEM(UTTypeCopyDeclaration))
+    if (!inUTI)
         return false;
     CFDictionaryRef declaration = WK_SYSTEM(UTTypeCopyDeclaration)(inUTI);
     if (!declaration)
@@ -80,11 +80,9 @@ WK_POLYFILL_ABSENT("CoreServices", CFURLRef, LSCopyDefaultApplicationURLForURL,
 
     CFStringRef scheme = inURL ? CFURLCopyScheme(inURL) : NULL;
     if (scheme) {
-        CFStringRef bundleID = WK_SYSTEM(LSCopyDefaultHandlerForURLScheme)
-            ? WK_SYSTEM(LSCopyDefaultHandlerForURLScheme)(scheme) : NULL;
+        CFStringRef bundleID = WK_SYSTEM(LSCopyDefaultHandlerForURLScheme)(scheme);
         if (bundleID) {
-            if (WK_SYSTEM(LSFindApplicationForInfo))
-                status = WK_SYSTEM(LSFindApplicationForInfo)(WKLSUnknownCreator, bundleID, NULL, NULL, &applicationURL);
+            status = WK_SYSTEM(LSFindApplicationForInfo)(WKLSUnknownCreator, bundleID, NULL, NULL, &applicationURL);
             CFRelease(bundleID);
         }
         CFRelease(scheme);
@@ -110,8 +108,6 @@ WK_SYSTEM_FN("CoreServices", const void *, _LSASNCreateWithPid, (CFAllocatorRef,
 WK_POLYFILL_ABSENT("CoreServices", const void *, _LSCopyLSASNForAuditToken, (int sessionID, wk_audit_token_t token))
 {
     (void)sessionID;
-    if (!WK_SYSTEM(audit_token_to_pid) || !WK_SYSTEM(_LSASNCreateWithPid))
-        return NULL;
     pid_t pid = WK_SYSTEM(audit_token_to_pid)(token);
     if (pid <= 0)
         return NULL;

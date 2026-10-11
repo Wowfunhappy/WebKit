@@ -13,8 +13,6 @@
 WK_SYSTEM_FN("CoreVideo", CFDictionaryRef, CVBufferGetAttachments, (CVBufferRef, CVAttachmentMode));
 WK_POLYFILL_ABSENT("CoreVideo", CFDictionaryRef, CVBufferCopyAttachments, (CVBufferRef buffer, CVAttachmentMode mode))
 {
-    if (!WK_SYSTEM(CVBufferGetAttachments))
-        return NULL;
     // A COPY, not a retain: 10.9's CVBufferGetAttachments hands back the buffer's live mutable
     // dictionary (measured — the same pointer mutates under a later CVBufferSetAttachment), and the
     // contract promises a snapshot the caller owns. An absent-or-empty set is the documented NULL.
@@ -235,7 +233,7 @@ static CGColorSpaceRef wk_cv_createLinear(const wk_cv_primaries *primaries)
 WK_POLYFILL_REPLACES("CoreVideo", CGColorSpaceRef, CVImageBufferCreateColorSpaceFromAttachments,
     (CFDictionaryRef attachments))
 {
-    if (!attachments || !WK_SYSTEM(CVImageBufferCreateColorSpaceFromAttachments))
+    if (!attachments)
         return NULL;
 
     CFTypeRef primariesValue = CFDictionaryGetValue(attachments, kCVImageBufferColorPrimariesKey);
@@ -272,8 +270,6 @@ WK_POLYFILL_REPLACES("CoreVideo", CGColorSpaceRef, CVImageBufferCreateColorSpace
         return wk_cv_createLinear(primaries);
 
     if (sRGBTransfer) {
-        if (!WK_SYSTEM(CGColorSpaceCreateWithName))
-            return NULL;
         CGColorSpaceRef sRGB = WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
         if (wk_cv_isString(primariesValue, kCVImageBufferColorPrimaries_ITU_R_709_2) || !sRGB)
             return sRGB;

@@ -143,14 +143,14 @@ WK_POLYFILL_ABSENT("ImageIO", OSStatus, CGImageSourceSetAllowableTypes, (CFArray
 
 WK_POLYFILL_REPLACES("ImageIO", CGImageRef, CGImageSourceCreateImageAtIndex, (CGImageSourceRef source, size_t index, CFDictionaryRef options))
 {
-    if (!WK_ORIGINAL(CGImageSourceCreateImageAtIndex) || !wk_imageSourceIsAllowed(source))
+    if (!wk_imageSourceIsAllowed(source))
         return NULL;
     return WK_ORIGINAL(CGImageSourceCreateImageAtIndex)(source, index, options);
 }
 
 WK_POLYFILL_REPLACES("ImageIO", CGImageRef, CGImageSourceCreateThumbnailAtIndex, (CGImageSourceRef source, size_t index, CFDictionaryRef options))
 {
-    if (!WK_ORIGINAL(CGImageSourceCreateThumbnailAtIndex) || !wk_imageSourceIsAllowed(source))
+    if (!wk_imageSourceIsAllowed(source))
         return NULL;
     return WK_ORIGINAL(CGImageSourceCreateThumbnailAtIndex)(source, index, options);
 }

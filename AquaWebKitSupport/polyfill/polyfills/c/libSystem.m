@@ -656,8 +656,7 @@ WK_POLYFILL_ABSENT(NULL, bool, _dyld_get_shared_cache_uuid, (uuid_t uuid))
 {
     if (!uuid)
         return false;
-    const struct dyld_all_image_infos *infos = WK_SYSTEM(_dyld_get_all_image_infos)
-        ? WK_SYSTEM(_dyld_get_all_image_infos)() : NULL;
+    const struct dyld_all_image_infos *infos = WK_SYSTEM(_dyld_get_all_image_infos)();
     if (infos && infos->version >= 13 && !infos->processDetachedFromSharedRegion) {
         uuid_t zero = { 0 };
         if (memcmp(infos->sharedCacheUUID, zero, sizeof(uuid_t))) {
@@ -873,8 +872,7 @@ WK_POLYFILL_ABSENT(NULL, void, dispatch_set_qos_class_floor, (dispatch_object_t 
 void dispatch_assert_queue(dispatch_queue_t queue) __asm__("_dispatch_assert_queue$V2");
 WK_POLYFILL_REPLACES(NULL, void, dispatch_assert_queue, (dispatch_queue_t queue))
 {
-    if (WK_ORIGINAL(dispatch_assert_queue))
-        WK_ORIGINAL(dispatch_assert_queue)(queue);
+    WK_ORIGINAL(dispatch_assert_queue)(queue);
 }
 
 // dispatch_workloop_create / _create_inactive (10.14). A workloop is a priority-ordered queue;
@@ -917,7 +915,7 @@ WK_POLYFILL_REPLACES(NULL, long, sysconf, (int name))
             return -1;
         return (long)(memorySize / pageSize);
     }
-    return WK_ORIGINAL(sysconf) ? WK_ORIGINAL(sysconf)(name) : -1;
+    return WK_ORIGINAL(sysconf)(name);
 }
 
 #pragma mark - notify
@@ -1228,9 +1226,6 @@ static void *wk_dlopenUmbrellaCandidate(void *(*systemOpen)(const char *, int), 
 
 WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
 {
-    if (!WK_ORIGINAL(dlopen))
-        return NULL;
-
     void *handle = WK_ORIGINAL(dlopen)(path, mode);
     if (handle || !path)
         return handle;
@@ -1265,8 +1260,6 @@ WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
 WK_POLYFILL_REPLACES(NULL, int, dlclose, (void *handle))
 {
     if (wk_polyfill_is_absent_provider_token(handle))
-        return 0;
-    if (!WK_ORIGINAL(dlclose))
         return 0;
     return WK_ORIGINAL(dlclose)(handle);
 }
@@ -1308,9 +1301,6 @@ WK_POLYFILL_ABSENT(NULL, int, sandbox_check_by_audit_token, (wk_audit_token_t to
     // high bits of the same argument and must be preserved when forwarding.
     enum { WK_SANDBOX_FILTER_TYPE_MASK = 0xff };
 
-    // Without either half there is no way to answer; report the error rather than invent a verdict.
-    if (!WK_SYSTEM(audit_token_to_pid) || !WK_SYSTEM(sandbox_check))
-        return -1;
     pid_t pid = WK_SYSTEM(audit_token_to_pid)(token);
     if (pid <= 0)
         return -1;
@@ -1578,14 +1568,14 @@ WK_SYSTEM_FN(NULL, void, dispatch_release, (void *));
 
 WK_POLYFILL_ABSENT(NULL, void *, os_retain, (void *object))
 {
-    if (object && WK_SYSTEM(dispatch_retain))
+    if (object)
         WK_SYSTEM(dispatch_retain)(object);
     return object;
 }
 
 WK_POLYFILL_ABSENT(NULL, void, os_release, (void *object))
 {
-    if (object && WK_SYSTEM(dispatch_release))
+    if (object)
         WK_SYSTEM(dispatch_release)(object);
 }
 
@@ -1656,16 +1646,11 @@ static const char wk_transactionContext;
 static void wk_endTransaction(void *context)
 {
     (void)context;
-    if (WK_SYSTEM(xpc_transaction_end))
-        WK_SYSTEM(xpc_transaction_end)();
+    WK_SYSTEM(xpc_transaction_end)();
 }
 
 WK_POLYFILL_ABSENT(NULL, void *, os_transaction_create, (const char *description))
 {
-    // The finalizer rides on the handle only when the count was actually taken; ending a
-    // transaction nobody began would mark a busy process clean.
-    if (!WK_SYSTEM(xpc_transaction_begin))
-        return NULL;
     dispatch_queue_t transaction = dispatch_queue_create(description ? description : "com.apple.webkit.os-transaction", DISPATCH_QUEUE_SERIAL);
     if (!transaction)
         return NULL;

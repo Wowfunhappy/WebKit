@@ -165,8 +165,6 @@ WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCreateReady,
      const CMSampleTimingInfo *sampleTimingArray, CMItemCount numSampleSizeEntries,
      const size_t *sampleSizeArray, CMSampleBufferRef *sampleBufferOut))
 {
-    if (!WK_SYSTEM(CMSampleBufferCreate))
-        return kCMSampleBufferError_AllocationFailed;
     return WK_SYSTEM(CMSampleBufferCreate)(allocator, dataBuffer, true, NULL, NULL, formatDescription,
                                            numSamples, numSampleTimingEntries, sampleTimingArray,
                                            numSampleSizeEntries, sampleSizeArray, sampleBufferOut);
@@ -188,8 +186,6 @@ WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCallBlockForEachSample,
 {
     if (!handler)
         return kCMSampleBufferError_RequiredParameterMissing;
-    if (!WK_SYSTEM(CMSampleBufferCallForEachSample))
-        return kCMSampleBufferError_AllocationFailed;
     return WK_SYSTEM(CMSampleBufferCallForEachSample)(sampleBuffer, wkCallBlockForEachSampleTrampoline,
                                                       (void *)handler);
 }
@@ -205,8 +201,6 @@ WK_SYSTEM_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_SampleDe
 static CFDataRef wkSampleDescriptionAtom(CMFormatDescriptionRef description, CFStringRef atomName)
 {
     CFStringRef atomsKey = WK_SYSTEM(kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms);
-    if (!WK_SYSTEM(CMFormatDescriptionGetExtension) || !atomsKey)
-        return NULL;
     CFDictionaryRef atoms = (CFDictionaryRef)WK_SYSTEM(CMFormatDescriptionGetExtension)(description,
         atomsKey);
     if (!atoms || CFGetTypeID(atoms) != CFDictionaryGetTypeID())
@@ -522,9 +516,6 @@ WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMVideoFormatDescriptionCreateFromHEVC
     if (!typeCounts[0] || !typeCounts[1] || !typeCounts[2])
         return kCMFormatDescriptionError_InvalidParameter;
     CFStringRef atomsKey = WK_SYSTEM(kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms);
-    if (!WK_SYSTEM(CMVideoFormatDescriptionCreate) || !atomsKey)
-        return kCMFormatDescriptionError_AllocationFailed;
-
     wkHEVCSequenceParameters sequence;
     CFDataRef record = wkCreateHEVCConfigurationRecord(allocator, parameterSetCount, parameterSetPointers,
         parameterSetSizes, NALUnitHeaderLength, typeCounts, &sequence);
@@ -619,8 +610,6 @@ WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCreateReadyWithImageBuff
     (CFAllocatorRef allocator, CVImageBufferRef imageBuffer, CMFormatDescriptionRef formatDescription,
      const CMSampleTimingInfo *sampleTiming, CMSampleBufferRef *sampleBufferOut))
 {
-    if (!WK_SYSTEM(CMSampleBufferCreateForImageBuffer))
-        return kCMSampleBufferError_AllocationFailed;
     return WK_SYSTEM(CMSampleBufferCreateForImageBuffer)(allocator, imageBuffer, true, NULL, NULL,
                                                           formatDescription, sampleTiming, sampleBufferOut);
 }
