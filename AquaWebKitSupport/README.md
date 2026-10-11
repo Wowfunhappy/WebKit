@@ -173,3 +173,27 @@ app. `defaults delete -g JSCOptions` restores the defaults.
 - `libwidevinegap.dylib` — installed beside Google's Widevine module by WebKit at runtime.
 
 See `polyfill/README.md` before adding a polyfill.
+
+## Widevine runtime files
+
+The first Widevine request downloads Mozilla's current stable Firefox complete MAR and the CDM
+offered by Mozilla's GMP update service for that Firefox version and build ID. Release checksums
+authenticate both downloads over HTTPS; the CDM archive also carries Google's CRX3 signature.
+Firefox's helper, launcher, XUL and their VMP signatures are extracted unchanged, alongside its
+license notices and source-release link. These Firefox binaries are read for verification.
+
+`~/Library/WebKit/WidevineCdm/<cdm-version>-<firefox-version>/` holds each complete installation.
+It contains both the official signed CDM and the compatibility-adapted executable copy. The CDM's
+`dladdr` and `proc_pidpath` imports bind to the local gap library, which supplies verification paths
+for the CDM, WebCore and the host executable. `VerifyCdmHost_0` receives all four binary/signature
+pairs before module initialization and owns the supplied file descriptors.
+
+Each process uses its cached installation immediately and checks for updates in the background.
+Firefox and CDM versions follow Mozilla automatically; downloaded updates take effect on the next
+launch. Shared file locks retain installations while UI or CDM processes use them, and unused
+generations are removed after a successful update check.
+
+`tests/widevine-image/run.sh <official-cdm.dylib> <cdm.crx3> <firefox.complete.mar>` checks adaptation,
+archive extraction, rejection of tampered CRX3 data and malformed MAR indexes, and scoped host paths.
+Use [the castLabs VMP lab](https://castlabs.github.io/wv-vmp-lab/) in Safari for the integration check:
+the license response must report `PLATFORM_SOFTWARE_VERIFIED`, and media time must advance.

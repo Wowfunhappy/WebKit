@@ -7,6 +7,7 @@
 #include "config.h"
 #include "WidevineCdmArchive.h"
 #include "WidevineCdmImage.h"
+#include "WidevineFirefoxArchive.h"
 #include <stdio.h>
 #include <string.h>
 #include <wtf/FileSystem.h>
@@ -28,17 +29,36 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    if (!strcmp(argv[1], "firefox")) {
+        auto directory = String::fromUTF8(argv[3]);
+        auto extracted = WebCore::extractWidevineFirefoxFiles(input->span(), directory);
+        if (!extracted) {
+            printf("REFUSED: %s\n", extracted.error().utf8().data());
+            return 1;
+        }
+        printf("extracted Firefox verification files\n");
+        // The index must not point outside the downloaded archive.
+        for (size_t i = 4; i < 8; ++i)
+            (*input)[i] = 0xff;
+        if (WebCore::extractWidevineFirefoxFiles(input->span(), directory)) {
+            printf("FAIL: accepted an out-of-bounds MAR index\n");
+            return 1;
+        }
+        printf("refused an out-of-bounds MAR index\n");
+        return 0;
+    }
+
     if (isArchive) {
         auto module = WebCore::extractWidevineCdmModule(input->span());
         if (!module) {
             printf("REFUSED: %s\n", module.error().utf8().data());
             return 1;
         }
-        if (!FileSystem::overwriteEntireFile(String::fromUTF8(argv[3]), module->span())) {
+        if (!FileSystem::overwriteEntireFile(String::fromUTF8(argv[3]), module->image.span())) {
             printf("cannot write %s\n", argv[3]);
             return 1;
         }
-        printf("extracted %s (%zu bytes)\n", argv[3], module->size());
+        printf("extracted %s (%zu bytes)\n", argv[3], module->image.size());
         return 0;
     }
 

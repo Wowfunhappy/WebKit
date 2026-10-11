@@ -2,7 +2,7 @@
 # Exercises the Mach-O work WebCore does on Google's Widevine module
 # (AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp) against real files on this host.
 #
-#   bash AquaWebKitSupport/tests/widevine-image/run.sh [<a-real-libwidevinecdm.dylib>] [<a-real.crx3>]
+#   bash AquaWebKitSupport/tests/widevine-image/run.sh [<a-real-libwidevinecdm.dylib>] [<a-real.crx3>] [<firefox.complete.mar>]
 #
 # With no argument it builds its own subject: a dylib the modern linker chains the fixups of, which
 # 10.9's dyld refuses outright ("load command 0x80000034 is unknown"). The test converts it, loads
@@ -36,6 +36,9 @@ for i, argument in enumerate(arguments):
     if skip:
         skip -= 1
         continue
+    if argument == "-Xclang" and i + 1 < len(arguments) and arguments[i + 1] in ("-include-pch", "-include"):
+        skip = 3
+        continue
     if argument == "-o":
         skip = 1
         continue
@@ -47,9 +50,10 @@ print("set -e")
 print("cd " + shlex.quote(repo + "/WebKitBuild/Release"))
 print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp") + " -o " + shlex.quote(work + "/image.o"))
 print(compile + " -x objective-c++ -fno-objc-arc -c " + shlex.quote(repo + "/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmArchive.mm") + " -o " + shlex.quote(work + "/archive.o"))
+print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineFirefoxArchive.cpp") + " -o " + shlex.quote(work + "/firefox.o"))
 print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/tests/widevine-image/main.cpp") + " -o " + shlex.quote(work + "/main.o"))
-print(shlex.quote(flags[0]) + " -o " + shlex.quote(work + "/wvimage") + " " + shlex.quote(work + "/image.o") + " " + shlex.quote(work + "/archive.o") + " " + shlex.quote(work + "/main.o")
-      + " -F " + shlex.quote(repo + "/WebKitBuild/Release/lib") + " -framework JavaScriptCore -framework Foundation -framework CoreFoundation -framework Security -lz")
+print(shlex.quote(flags[0]) + " -o " + shlex.quote(work + "/wvimage") + " " + shlex.quote(work + "/image.o") + " " + shlex.quote(work + "/archive.o") + " " + shlex.quote(work + "/firefox.o") + " " + shlex.quote(work + "/main.o")
+      + " -F " + shlex.quote(repo + "/WebKitBuild/Release/lib") + " -framework JavaScriptCore -framework Foundation -framework CoreFoundation -framework Security -lz -larchive")
 PY
 bash "$WORK/build.sh"
 
@@ -117,6 +121,9 @@ int main(int argc, char** argv)
 EOF
     "$TC/bin/clang" --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -o "$WORK/openmodule" "$WORK/openmodule.c"
     "$WORK/openmodule" "$WORK/module/libwidevinecdm.dylib" | sed 's/^/    /'
+    "$TC/bin/clang" --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 \
+        -o "$WORK/host-paths" "$HERE/host-paths.c"
+    "$WORK/host-paths" "$WORK/module/libwidevinecdm.dylib" "$WORK/module/libwidevinegap.dylib"
 fi
 
 if [ $# -ge 2 ]; then
@@ -129,6 +136,11 @@ if [ $# -ge 2 ]; then
         echo "FAIL: a changed byte was accepted"; exit 1
     fi
     sed 's/^/    /' "$WORK/tampered.log"
+fi
+
+if [ $# -ge 3 ]; then
+    echo "### Firefox MAR extraction and malformed index"
+    "$WORK/wvimage" firefox "$3" "$WORK/firefox"
 fi
 
 echo "### PASS"

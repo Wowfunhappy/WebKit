@@ -138,7 +138,9 @@ if (USE_GSTREAMER)
         ${AQUAWEBKIT_WIDEVINE_DIR}/WidevineCdmImage.cpp
         ${AQUAWEBKIT_WIDEVINE_DIR}/WidevineCdmInstaller.mm
         ${AQUAWEBKIT_WIDEVINE_DIR}/WidevineCdmModule.cpp
+        ${AQUAWEBKIT_WIDEVINE_DIR}/WidevineFirefoxArchive.cpp
     )
+    list(APPEND WebCore_LIBRARIES archive)
     # Both ports reach the installer and the module's recorded location as <WebCore/...>.
     list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
         ${AQUAWEBKIT_WIDEVINE_DIR}/WidevineCdmInstaller.h

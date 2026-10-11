@@ -7,9 +7,14 @@
 
 #import "WidevineCdmArchive.h"
 #import "WidevineCdmImage.h"
+#import "WidevineFirefoxArchive.h"
+#import "WidevineHostFiles.h"
 #import <CommonCrypto/CommonDigest.h>
+#import <wtf/ASCIICType.h>
 #import <errno.h>
-#import <signal.h>
+#import <fcntl.h>
+#import <sys/file.h>
+#import <sys/stat.h>
 #import <sys/utsname.h>
 #import <wtf/FileSystem.h>
 #import <wtf/HexNumber.h>
@@ -26,6 +31,31 @@
 #import <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
+
+class WidevineCdmLease {
+public:
+    explicit WidevineCdmLease(int descriptor) : m_descriptor(descriptor) { }
+    ~WidevineCdmLease() { close(m_descriptor); }
+private:
+    int m_descriptor;
+};
+
+static std::shared_ptr<WidevineCdmLease> lockGeneration(const String& directory, int operation)
+{
+    auto path = FileSystem::pathByAppendingComponent(directory, ".lease"_s).utf8();
+    int descriptor = open(path.data(), O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0)
+        return nullptr;
+    auto lease = std::make_shared<WidevineCdmLease>(descriptor);
+    if (flock(descriptor, operation | LOCK_NB))
+        return nullptr;
+    // The name must still identify the inode locked by this process after a concurrent replacement.
+    struct stat held, named;
+    if (fstat(descriptor, &held) || stat(path.data(), &named)
+        || held.st_dev != named.st_dev || held.st_ino != named.st_ino)
+        return nullptr;
+    return lease;
+}
 
 struct ManifestEntry {
     String url;
@@ -95,13 +125,13 @@ static RetainPtr<NSData> fetch(const String& url, NSTimeInterval timeout)
     return body;
 }
 
-static std::optional<ManifestEntry> fetchManifest()
+static std::optional<ManifestEntry> fetchManifest(const String& firefoxVersion, const String& buildID)
 {
     // The service answers per product and version, and these coordinates are Firefox's own: the
     // Widevine CDM reaches Firefox as a Gecko Media Plugin, and this is where it asks for it.
     struct utsname system { };
     uname(&system);
-    auto url = makeString("https://aus5.mozilla.org/update/3/GMP/140.0/20260101000000/Darwin_x86_64-gcc3/en-US/release/Darwin%20"_s,
+    auto url = makeString("https://aus5.mozilla.org/update/3/GMP/"_s, firefoxVersion, "/"_s, buildID, "/Darwin_x86_64-gcc3/en-US/release/Darwin%20"_s,
         String::fromUTF8(system.release), "/default/default/update.xml"_s);
 
     RetainPtr document = fetch(url, 30);
@@ -113,7 +143,8 @@ static std::optional<ManifestEntry> fetchManifest()
     RetainPtr parser = adoptNS([[NSXMLParser alloc] initWithData:document.get()]);
     RetainPtr delegate = adoptNS([[WebCoreWidevineManifestParser alloc] init]);
     [parser setDelegate:delegate.get()];
-    [parser parse];
+    if (![parser parse])
+        return std::nullopt;
 
     auto& entry = delegate->entry;
     if (entry.url.isEmpty() || entry.version.isEmpty() || entry.sha512.isEmpty()) {
@@ -153,43 +184,17 @@ static String gapLibrarySourcePath()
     return FileSystem::pathByAppendingComponent(String { [bundle resourcePath] }, gapLibraryFileName);
 }
 
-static std::optional<WidevineCdmModule> installedModule(const String& root, const String& version)
-{
-    auto directory = FileSystem::pathByAppendingComponent(root, version);
-    auto path = FileSystem::pathByAppendingComponent(directory, moduleFileName);
-    if (!FileSystem::fileExists(path) || !FileSystem::fileExists(FileSystem::pathByAppendingComponent(directory, gapLibraryFileName)))
-        return std::nullopt;
-    return WidevineCdmModule { directory, path, version };
-}
-
-// A staging or replaced directory is named after the process using it, so one whose process is
-// gone belongs to an install that did not finish.
-static bool processIsRunning(StringView pid)
-{
-    auto identifier = parseInteger<int>(pid);
-    if (!identifier || *identifier <= 0)
-        return false;
-    return !kill(*identifier, 0) || errno == EPERM;
-}
-
-// A directory in the installation root is a version of the module only if it is named like one.
-// Anything else there -- a staging directory, something a user dropped in -- is not a version and
-// is neither chosen nor removed.
 static bool isVersionName(const String& name)
 {
-    auto components = name.split('.');
-    if (components.isEmpty())
+    if (name.isEmpty() || name.startsWith('.') || name.endsWith('.') || name.contains(".."_s))
         return false;
-    for (auto& component : components) {
+    for (auto& component : name.split('.')) {
         if (component.isEmpty() || !parseInteger<uint64_t>(component))
             return false;
     }
     return true;
 }
 
-// Versions are dotted numbers, so they are ordered by component rather than by text: 4.10 follows
-// 4.9. An installation normally leaves one behind, and this is what picks among the rest when a
-// cleanup did not finish.
 static bool isNewerVersion(const String& version, const String& than)
 {
     auto components = version.split('.');
@@ -203,118 +208,184 @@ static bool isNewerVersion(const String& version, const String& than)
     return false;
 }
 
+static std::optional<ManifestEntry> fetchFirefoxRelease()
+{
+    auto data = fetch("https://product-details.mozilla.org/1.0/firefox_versions.json"_s, 30);
+    if (!data)
+        return std::nullopt;
+    RetainPtr dictionary = dynamic_objc_cast<NSDictionary>([NSJSONSerialization JSONObjectWithData:data.get() options:0 error:nil]);
+    String version { dynamic_objc_cast<NSString>([dictionary objectForKey:@"LATEST_FIREFOX_VERSION"]) };
+    if (!isVersionName(version))
+        return std::nullopt;
+    auto base = makeString("https://archive.mozilla.org/pub/firefox/releases/"_s, version, "/"_s);
+    auto checksums = fetch(makeString(base, "SHA512SUMS"_s), 30);
+    if (!checksums)
+        return std::nullopt;
+    auto archivePath = makeString("update/mac/en-US/firefox-"_s, version, ".complete.mar"_s);
+    auto text = String::fromUTF8(span(checksums.get()));
+    for (auto& line : text.split('\n')) {
+        if (line.length() == 130 + archivePath.length() && line.substring(128) == makeString("  "_s, archivePath))
+            return ManifestEntry { makeString(base, archivePath), version, line.left(128) };
+    }
+    return std::nullopt;
+}
+
+static String firefoxBuildID(const String& directory)
+{
+    auto info = FileSystem::readEntireFile(FileSystem::pathByAppendingComponent(directory, firefoxApplicationInfo));
+    if (!info)
+        return { };
+    for (auto& line : String::fromUTF8(info->span()).split('\n')) {
+        if (line.startsWith("BuildID="_s)) {
+            auto value = line.substring(8).trim(isASCIIWhitespace);
+            if (value.length() == 14 && parseInteger<uint64_t>(value))
+                return value;
+        }
+    }
+    return { };
+}
+
+static std::optional<WidevineCdmModule> installedModule(const String& root, const String& name)
+{
+    auto versions = name.split('-');
+    if (versions.size() != 2 || !isVersionName(versions[0]) || !isVersionName(versions[1]))
+        return std::nullopt;
+    auto directory = FileSystem::pathByAppendingComponent(root, name);
+    auto lease = lockGeneration(directory, LOCK_SH);
+    if (!lease)
+        return std::nullopt;
+    auto present = [&](ASCIILiteral file) {
+        return FileSystem::fileSize(FileSystem::pathByAppendingComponent(directory, file)).value_or(0) > 0;
+    };
+    for (auto file : { moduleFileName, gapLibraryFileName, widevineOriginalName, widevineSignatureName, firefoxApplicationInfo, firefoxLicense }) {
+        if (!present(file))
+            return std::nullopt;
+    }
+    for (auto& file : firefoxHostFiles) {
+        if (!present(file.image) || !present(file.signature))
+            return std::nullopt;
+    }
+    if (firefoxBuildID(directory).isEmpty())
+        return std::nullopt;
+    return WidevineCdmModule { directory, FileSystem::pathByAppendingComponent(directory, moduleFileName), versions[0], versions[1], WTF::move(lease) };
+}
+
 static std::optional<WidevineCdmModule> newestInstalledModule(const String& root)
 {
     std::optional<WidevineCdmModule> newest;
     for (auto& name : FileSystem::listDirectory(root)) {
-        if (!isVersionName(name))
-            continue;
         auto module = installedModule(root, name);
-        if (module && (!newest || isNewerVersion(module->version, newest->version)))
+        if (module && (!newest || isNewerVersion(module->firefoxVersion, newest->firefoxVersion)
+            || (module->firefoxVersion == newest->firefoxVersion && isNewerVersion(module->version, newest->version))))
             newest = WTF::move(module);
     }
     return newest;
 }
 
-// |versionInUse| is a module this installer has already answered with, which stays where it is
-// however old it becomes: it is opened when a page reaches EME, which can be long after this
-// runs.
-static std::optional<WidevineCdmModule> install(const String& root, const ManifestEntry& manifest, const String& versionInUse)
+static bool copyFirefoxFiles(const String& source, const String& destination)
 {
-    // The version names the directory the module is installed into, and it comes from the update
-    // service's manifest. Only the dotted-number names newestInstalledModule() will pick up again
-    // are installable.
-    if (!isVersionName(manifest.version)) {
-        WTFLogAlways("Widevine: the manifest names no version");
-        return std::nullopt;
+    auto copy = [&](ASCIILiteral file) {
+        auto target = FileSystem::pathByAppendingComponent(destination, file);
+        return FileSystem::makeAllDirectories(FileSystem::parentPath(target))
+            && FileSystem::hardLinkOrCopyFile(FileSystem::pathByAppendingComponent(source, file), target);
+    };
+    for (auto& file : firefoxHostFiles) {
+        if (!copy(file.image) || !copy(file.signature))
+            return false;
     }
+    return copy(firefoxApplicationInfo) && copy(firefoxLicense);
+}
 
-    WTFLogAlways("Widevine: fetching module %s", manifest.version.utf8().data());
-    RetainPtr archive = fetch(manifest.url, 600);
-    if (!archive) {
-        WTFLogAlways("Widevine: the module did not download");
-        return std::nullopt;
-    }
-
-    auto archiveBytes = span(archive.get());
-    if (!matchesDigest(archiveBytes, manifest.sha512)) {
-        WTFLogAlways("Widevine: the module does not match the digest the update service published");
-        return std::nullopt;
-    }
-
-    auto module = extractWidevineCdmModule(archiveBytes);
-    archive = nullptr;
-    if (!module) {
-        WTFLogAlways("Widevine: %s", module.error().utf8().data());
-        return std::nullopt;
-    }
-    auto image = WTF::move(module.value());
-
-    auto prepared = prepareWidevineCdmImage(image, gapLibraryLoadPath, gapLibrarySourcePath());
-    if (!prepared) {
-        WTFLogAlways("Widevine: the module cannot run on this system -- %s", prepared.error().utf8().data());
-        return std::nullopt;
-    }
-
-    auto gapLibrary = FileSystem::readEntireFile(gapLibrarySourcePath());
-    if (!gapLibrary) {
-        WTFLogAlways("Widevine: the gap library is missing from %s", gapLibrarySourcePath().utf8().data());
-        return std::nullopt;
-    }
-
-    // The installation is assembled beside the directory it will occupy and moved into place
-    // whole, so a half-written one is never something a loading process can find.
+static std::optional<WidevineCdmModule> install(const String& root, const ManifestEntry& firefox, const std::optional<WidevineCdmModule>& cached)
+{
     auto staging = makeString(root, "/.staging-"_s, getCurrentProcessID());
     FileSystem::deleteNonEmptyDirectory(staging);
     if (!FileSystem::makeAllDirectories(staging))
         return std::nullopt;
     auto removeStaging = makeScopeExit([&] { FileSystem::deleteNonEmptyDirectory(staging); });
 
-    if (!FileSystem::overwriteEntireFile(FileSystem::pathByAppendingComponent(staging, moduleFileName), image.span())
-        || !FileSystem::overwriteEntireFile(FileSystem::pathByAppendingComponent(staging, gapLibraryFileName), gapLibrary->span())) {
-        WTFLogAlways("Widevine: the module could not be written to %s", staging.utf8().data());
-        return std::nullopt;
-    }
-
-    // What is installed is given up only once its replacement is in place: it moves aside, and
-    // back again if the replacement cannot be moved in, so the version that is opened is
-    // whichever module is complete.
-    auto directory = FileSystem::pathByAppendingComponent(root, manifest.version);
-    auto displaced = makeString(root, "/.replaced-"_s, getCurrentProcessID());
-    FileSystem::deleteNonEmptyDirectory(displaced);
-    bool displacedPrevious = FileSystem::moveFile(directory, displaced);
-    auto removeDisplaced = makeScopeExit([&] {
-        if (displacedPrevious)
-            FileSystem::deleteNonEmptyDirectory(displaced);
-    });
-
-    if (!FileSystem::moveFile(staging, directory)) {
-        WTFLogAlways("Widevine: the module could not be moved into %s", directory.utf8().data());
-        if (displacedPrevious) {
-            // Whether or not the restore takes, this is the only complete copy left, so it is not
-            // deleted on the way out: a restore that failed leaves it under a name a later
-            // process collects once this one is gone.
-            FileSystem::moveFile(displaced, directory);
-            displacedPrevious = false;
+    if (cached && cached->firefoxVersion == firefox.version) {
+        if (!copyFirefoxFiles(cached->directory, staging))
+            return std::nullopt;
+    } else {
+        WTFLogAlways("Widevine: fetching Firefox %s verification files", firefox.version.utf8().data());
+        auto archive = fetch(firefox.url, 600);
+        if (!archive || !matchesDigest(span(archive.get()), firefox.sha512)) {
+            WTFLogAlways("Widevine: Firefox download failed its release checksum");
+            return std::nullopt;
         }
+        auto extracted = extractWidevineFirefoxFiles(span(archive.get()), staging);
+        if (!extracted) {
+            WTFLogAlways("Widevine: %s", extracted.error().utf8().data());
+            return std::nullopt;
+        }
+    }
+    auto buildID = firefoxBuildID(staging);
+    if (buildID.isEmpty())
+        return std::nullopt;
+    auto manifest = fetchManifest(firefox.version, buildID);
+    if (!manifest || !isVersionName(manifest->version))
+        return std::nullopt;
+    auto name = makeString(manifest->version, "-"_s, firefox.version);
+    if (auto existing = installedModule(root, name))
+        return existing;
+
+    WTFLogAlways("Widevine: fetching module %s for Firefox %s", manifest->version.utf8().data(), firefox.version.utf8().data());
+    auto archive = fetch(manifest->url, 600);
+    if (!archive || !matchesDigest(span(archive.get()), manifest->sha512)) {
+        WTFLogAlways("Widevine: CDM download failed its update checksum");
         return std::nullopt;
     }
-
-    // An update takes the versions it replaces with it, along with anything a process that died
-    // mid-install left behind. A staging or replaced directory this process is using is named
-    // after its own pid, and another WebKit process may be using one beside it.
-    auto ownStagingName = makeString(".staging-"_s, getCurrentProcessID());
-    auto ownDisplacedName = makeString(".replaced-"_s, getCurrentProcessID());
-    for (auto& name : FileSystem::listDirectory(root)) {
-        bool isVersion = isVersionName(name) && name != manifest.version && name != versionInUse;
-        bool isAbandoned = (name.startsWith(".staging-"_s) || name.startsWith(".replaced-"_s))
-            && name != ownStagingName && name != ownDisplacedName
-            && !processIsRunning(name.substring(name.reverseFind('-') + 1));
-        if (isVersion || isAbandoned)
-            FileSystem::deleteNonEmptyDirectory(FileSystem::pathByAppendingComponent(root, name));
+    auto module = extractWidevineCdmModule(span(archive.get()));
+    archive = nullptr;
+    if (!module) {
+        WTFLogAlways("Widevine: %s", module.error().utf8().data());
+        return std::nullopt;
     }
-    WTFLogAlways("Widevine: installed module %s", manifest.version.utf8().data());
-    return installedModule(root, manifest.version);
+    auto write = [&](ASCIILiteral file, std::span<const uint8_t> bytes) {
+        return FileSystem::overwriteEntireFile(FileSystem::pathByAppendingComponent(staging, file), bytes);
+    };
+    if (!write(widevineOriginalName, module->image.span()) || !write(widevineSignatureName, module->signature.span()))
+        return std::nullopt;
+    auto prepared = prepareWidevineCdmImage(module->image, gapLibraryLoadPath, gapLibrarySourcePath());
+    if (!prepared) {
+        WTFLogAlways("Widevine: the module cannot run on this system -- %s", prepared.error().utf8().data());
+        return std::nullopt;
+    }
+    auto gapLibrary = FileSystem::readEntireFile(gapLibrarySourcePath());
+    if (!gapLibrary || !write(moduleFileName, module->image.span()) || !write(gapLibraryFileName, gapLibrary->span()))
+        return std::nullopt;
+    auto notice = makeString("Firefox components are provided by Mozilla under the MPL 2.0 and the licenses in Contents/Resources/license.html.\nSource: https://archive.mozilla.org/pub/firefox/releases/"_s,
+        firefox.version, "/source/firefox-"_s, firefox.version, ".source.tar.xz\n"_s).utf8();
+    if (!write("NOTICE.txt"_s, byteCast<uint8_t>(notice.span())) || !write(".lease"_s, { }))
+        return std::nullopt;
+
+    // Immutable generations keep verification paths valid in every process that has received one.
+    auto directory = FileSystem::pathByAppendingComponent(root, name);
+    std::shared_ptr<WidevineCdmLease> replacedLease;
+    if (FileSystem::fileExists(directory)) {
+        replacedLease = lockGeneration(directory, LOCK_EX);
+        if (!replacedLease || !FileSystem::deleteNonEmptyDirectory(directory))
+            return std::nullopt;
+    }
+    if (!FileSystem::moveFile(staging, directory))
+        return std::nullopt;
+    WTFLogAlways("Widevine: installed CDM %s with Firefox %s", manifest->version.utf8().data(), firefox.version.utf8().data());
+    return installedModule(root, name);
+}
+
+static void removeUnusedGenerations(const String& root)
+{
+    // UI processes hold a lease from provisioning through handoff; CDM processes hold theirs
+    // for the lifetime of the module. flock releases a terminated process's leases as well.
+    for (auto& name : FileSystem::listDirectory(root)) {
+        auto versions = name.split('-');
+        if (versions.size() != 2 || !isVersionName(versions[0]) || !isVersionName(versions[1]))
+            continue;
+        auto directory = FileSystem::pathByAppendingComponent(root, name);
+        if (auto lease = lockGeneration(directory, LOCK_EX))
+            FileSystem::deleteNonEmptyDirectory(directory);
+    }
 }
 
 // ------------------------------------------------------------------------------------------
@@ -358,22 +429,31 @@ void WidevineCdmInstaller::provision()
             return;
         }
 
-        // What is installed answers the page, which is what keeps a page that wants Widevine from
-        // waiting on the network at all. Google replaces the module from time to time, so the
-        // update service is then asked once per process and a newer module installed for the next
-        // launch -- the one already answered with is mapped by then.
         auto installed = newestInstalledModule(root);
-        if (installed) {
-            auto version = installed->version;
-            answer(WTF::move(installed));
-            auto manifest = fetchManifest();
-            if (manifest && manifest->version != version)
-                install(root, *manifest, version);
+        if (installed)
+            answer(std::make_optional(*installed));
+        int lockFD = open(FileSystem::pathByAppendingComponent(root, ".install-lock"_s).utf8().data(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+        auto unlock = makeScopeExit([&] { if (lockFD >= 0) close(lockFD); });
+        if (lockFD < 0 || flock(lockFD, LOCK_EX)) {
+            if (!installed)
+                answer(std::nullopt);
             return;
         }
-
-        auto manifest = fetchManifest();
-        answer(manifest ? install(root, *manifest, { }) : std::nullopt);
+        for (auto& name : FileSystem::listDirectory(root)) {
+            if (name.startsWith(".staging-"_s))
+                FileSystem::deleteNonEmptyDirectory(FileSystem::pathByAppendingComponent(root, name));
+        }
+        auto cached = newestInstalledModule(root);
+        if (!installed && cached) {
+            installed = cached;
+            answer(std::make_optional(*installed));
+        }
+        auto firefox = fetchFirefoxRelease();
+        auto updated = firefox ? install(root, *firefox, cached) : std::nullopt;
+        if (updated)
+            removeUnusedGenerations(root);
+        if (!installed)
+            answer(WTF::move(updated));
     });
 }
 

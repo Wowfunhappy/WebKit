@@ -9,6 +9,7 @@
 
 #if PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
+#include <memory>
 #include <optional>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
@@ -18,10 +19,14 @@
 
 namespace WebCore {
 
+class WidevineCdmLease;
+
 struct WidevineCdmModule {
     String directory;
     String path;
     String version;
+    String firefoxVersion;
+    std::shared_ptr<WidevineCdmLease> lease;
 };
 
 class WidevineCdmInstaller {

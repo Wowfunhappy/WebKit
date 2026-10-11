@@ -260,7 +260,7 @@ static std::optional<Vector<uint8_t>> unpack(std::span<const uint8_t> archive, A
     return std::nullopt;
 }
 
-Expected<Vector<uint8_t>, String> extractWidevineCdmModule(std::span<const uint8_t> archive)
+Expected<WidevineCdmFiles, String> extractWidevineCdmModule(std::span<const uint8_t> archive)
 {
     // CRX3: "Cr24", a format version, then the length of a signed header the zip follows.
     auto headerSize = littleEndianAt<uint32_t>(archive, 8);
@@ -276,7 +276,18 @@ Expected<Vector<uint8_t>, String> extractWidevineCdmModule(std::span<const uint8
     auto module = unpack(zip, moduleArchivePath);
     if (!module)
         return makeUnexpected(makeString("the archive holds no "_s, moduleArchivePath));
-    return WTF::move(*module);
+    auto signature = unpack(zip, "_platform_specific/mac_x64/libwidevinecdm.dylib.sig"_s);
+    if (!signature || signature->isEmpty())
+        return makeUnexpected("the archive holds no CDM host-verification signature"_s);
+    return WidevineCdmFiles { WTF::move(*module), WTF::move(*signature) };
+}
+
+Expected<Vector<uint8_t>, String> extractFirefoxLicense(std::span<const uint8_t> omniArchive)
+{
+    auto license = unpack(omniArchive, "chrome/toolkit/content/global/license.html"_s);
+    if (!license || license->isEmpty())
+        return makeUnexpected("Firefox omni.ja lacks its license notices"_s);
+    return WTF::move(*license);
 }
 
 } // namespace WebCore

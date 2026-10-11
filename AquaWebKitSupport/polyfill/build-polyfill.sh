@@ -19,7 +19,7 @@ set -euo pipefail
 . "$REPO/AquaWebKitSupport/scripts/host-headers.sh"
 TGATES="$POLY/tests/gates"
 OBJ="$(mktemp -d "${TMPDIR:-/tmp}/polybuild.XXXXXX")"; trap 'rm -rf "$OBJ"' EXIT
-mkdir -p "$OUT" "$OBJ"/{c,shared,methods,classes,webkit,jsc,cdm,mech}
+mkdir -p "$OUT" "$OBJ"/{c,shared,methods,classes,webkit,jsc,cdm,widevine,mech}
 
 # --- bounded-parallel compile queue ------------------------------------------------------------
 # Each compile writes its own object; cc_wait marks the point where a batch must have finished before
@@ -196,6 +196,9 @@ cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/pthread_qos.o" "$PF/shared/pthread_qos.
 for f in "$PF"/cdm/*.c; do
     cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
 done
+echo "### compiling the Widevine backend's private verification-path adapter"
+cc_queue "$CLANG" -c $CDMCF -o "$OBJ/widevine/WidevineHostPaths.o" \
+    "$REPO/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineHostPaths.c"
 cc_wait
 
 # --- archives ----------------------------------------------------------------------------------
@@ -278,7 +281,7 @@ echo "### libwidevinegap.dylib"
 # Installed beside the downloaded module by WebCore's WidevineCdmInstaller, which is also what points
 # the module at it.
 "$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
-    -install_name @loader_path/libwidevinegap.dylib "$OBJ"/cdm/*.o -o "$OUT/libwidevinegap.dylib.tmp"
+    -install_name @loader_path/libwidevinegap.dylib "$OBJ"/cdm/*.o "$OBJ"/widevine/*.o -o "$OUT/libwidevinegap.dylib.tmp"
 tmp_stable "$OUT/libwidevinegap.dylib"
 
 echo "### pasteboard-expiration"

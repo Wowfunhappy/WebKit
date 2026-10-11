@@ -14,8 +14,13 @@
 
 namespace WebCore {
 
-// The module's bytes, or a sentence naming what the archive is not.
-Expected<Vector<uint8_t>, String> extractWidevineCdmModule(std::span<const uint8_t> archive);
+struct WidevineCdmFiles {
+    Vector<uint8_t> image;
+    Vector<uint8_t> signature;
+};
+
+Expected<WidevineCdmFiles, String> extractWidevineCdmModule(std::span<const uint8_t> archive);
+Expected<Vector<uint8_t>, String> extractFirefoxLicense(std::span<const uint8_t> omniArchive);
 
 } // namespace WebCore
 

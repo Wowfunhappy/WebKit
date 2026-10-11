@@ -6,11 +6,15 @@
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
 #include "WidevineCdmLocation.h"
+#include "WidevineHostFiles.h"
 
 #include <CoreGraphics/CoreGraphics.h>
 #include <IOKit/IOKitLib.h>
+#include <cdm/content_decryption_module_ext.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <pal/crypto/CryptoDigest.h>
+#include <sys/file.h>
 #include <sys/time.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/FileSystem.h>
@@ -20,6 +24,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/text/CString.h>
 
 namespace WebCore {
 
@@ -51,7 +56,10 @@ using CreateCdmInstanceFunction = void* (*)(int cdmInterfaceVersion, const char*
 
 struct CdmModule {
     void* handle { nullptr };
+    int leaseFD { -1 };
     CreateCdmInstanceFunction createInstance { nullptr };
+    std::array<CString, 4> verificationPaths;
+    Vector<cdm::HostFile> hostFiles;
 };
 
 // InitializeCdmModule() is per-module, so the library is loaded and initialized once
@@ -64,6 +72,15 @@ static const CdmModule& cdmModule()
         if (path.isEmpty())
             return module;
 
+        auto directory = FileSystem::parentPath(path);
+        module.leaseFD = open(FileSystem::pathByAppendingComponent(directory, ".lease"_s).utf8().data(), O_RDONLY | O_CLOEXEC);
+        if (module.leaseFD < 0 || flock(module.leaseFD, LOCK_SH | LOCK_NB)) {
+            if (module.leaseFD >= 0)
+                close(module.leaseFD);
+            module.leaseFD = -1;
+            WTFLogAlways("Widevine: cannot retain the installed generation");
+            return module;
+        }
         module.handle = dlopen(path.utf8().data(), RTLD_NOW | RTLD_LOCAL);
         if (!module.handle) {
             WTFLogAlways("Widevine: cannot load %s: %s", path.utf8().data(), dlerror());
@@ -71,8 +88,11 @@ static const CdmModule& cdmModule()
         }
 
         auto initialize = reinterpret_cast<InitializeCdmModuleFunction>(dlsym(module.handle, "InitializeCdmModule_4"));
-        module.createInstance = reinterpret_cast<CreateCdmInstanceFunction>(dlsym(module.handle, "CreateCdmInstance"));
-        if (!initialize || !module.createInstance) {
+        auto createInstance = reinterpret_cast<CreateCdmInstanceFunction>(dlsym(module.handle, "CreateCdmInstance"));
+        auto verify = reinterpret_cast<decltype(&VerifyCdmHost_0)>(dlsym(module.handle, "VerifyCdmHost_0"));
+        using SetHostPaths = int (*)(const char*, const char*, const void*, const void*);
+        auto setHostPaths = reinterpret_cast<SetHostPaths>(dlsym(module.handle, "WidevineSetHostPaths"));
+        if (!initialize || !createInstance || !verify || !setHostPaths) {
             WTFLogAlways("Widevine: %s does not export the CDM module entry points", path.utf8().data());
             dlclose(module.handle);
             module.handle = nullptr;
@@ -80,7 +100,46 @@ static const CdmModule& cdmModule()
             return module;
         }
 
+        std::array<WidevineHostFileNames, 4> names {
+            WidevineHostFileNames { widevineOriginalName, widevineSignatureName },
+            firefoxHostFiles[0], firefoxHostFiles[1], firefoxHostFiles[2]
+        };
+        Vector<int> descriptors;
+        bool transferred = false;
+        auto closeFiles = makeScopeExit([&] {
+            if (transferred)
+                return;
+            for (int descriptor : descriptors) {
+                if (descriptor >= 0)
+                    close(descriptor);
+            }
+        });
+        for (size_t i = 0; i < names.size(); ++i) {
+            module.verificationPaths[i] = FileSystem::pathByAppendingComponent(directory, names[i].image).utf8();
+            auto signature = FileSystem::pathByAppendingComponent(directory, names[i].signature).utf8();
+            int imageFD = open(module.verificationPaths[i].data(), O_RDONLY | O_CLOEXEC);
+            int signatureFD = open(signature.data(), O_RDONLY | O_CLOEXEC);
+            descriptors.append(imageFD);
+            descriptors.append(signatureFD);
+            module.hostFiles.append(cdm::HostFile { module.verificationPaths[i].data(), imageFD, signatureFD });
+            if (imageFD < 0 || signatureFD < 0) {
+                WTFLogAlways("Widevine: cannot open verification files for %s", module.verificationPaths[i].data());
+                return module;
+            }
+        }
+        if (!setHostPaths(module.verificationPaths[0].data(), module.verificationPaths[1].data(),
+                reinterpret_cast<const void*>(initialize), reinterpret_cast<const void*>(&cdmModule))) {
+            WTFLogAlways("Widevine: cannot configure CDM host paths");
+            return module;
+        }
+        transferred = true;
+        if (!verify(module.hostFiles.span().data(), module.hostFiles.size())) {
+            WTFLogAlways("Widevine: host verification could not start");
+            return module;
+        }
+        WTFLogAlways("Widevine: host verification started with %zu signed files", module.hostFiles.size());
         initialize();
+        module.createInstance = createInstance;
         return module;
     }();
     return module;

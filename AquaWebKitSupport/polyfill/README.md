@@ -32,7 +32,11 @@ named after the system framework or library that owns the symbols** (the first a
 | `shared/` | `libpolyfill.a` **and** the vendored non-WebKit builds (`deps/build_deps.sh`, `toolchain/scripts/build_python3.sh`) | Plain C compiled against the host headers, with no `wk_polyfill.h` dependency: the libc gap-fills (`shared/LICENSE`, wrapper headers in `shared/include/`) and this port's own. A registry entry may be added under `#ifdef WK_POLYFILL_REGISTERED`, which only this layer's build defines — that is how `jit.c`'s deliberate `mmap` override shows up in `WK_POLYFILL_REPORT`. Put a polyfill here only when something outside WebKit compiles it. |
 | `webkit/` | `libpolyfill_webkit.a`, force-loaded into **WebKit.framework** only (ARC) | Units whose ObjC classes must register in WebKit alone: `websocket.mm` (NSURLSessionWebSocketTask over CFStream), the stub classes Safari binds out of WebKit. |
 | `jsc/` | `libwtf_compat.a`, force-loaded into **JavaScriptCore** only | The WTF C++ entry points Safari 7 binds by mangled name. |
-| `cdm/` | `libwidevinegap.dylib`, loaded by the Widevine CDM | The libSystem entry points Google's module imports and 10.9 lacks. |
+| `cdm/` | `libwidevinegap.dylib`, loaded by the Widevine CDM | Missing libSystem entry points. |
+
+The CDM library also packages the Widevine backend's private `WidevineHostPaths.c` adapter from
+`source/WebCore/platform/graphics/gstreamer/eme/`. Its scoped path functions supply the CDM's
+verification identities and are compiled separately from the system polyfills.
 
 ## Adding a polyfill
 

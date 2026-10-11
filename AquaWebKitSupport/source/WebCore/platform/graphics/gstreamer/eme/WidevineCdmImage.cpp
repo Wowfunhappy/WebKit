@@ -12,7 +12,7 @@
 //    for __objc_imageinfo in __DATA alone: with the metadata somewhere it does not look, it skips
 //    the image entirely, leaving the selector references pointing at method-name strings, and the
 //    first message send into the module aborts.
-// 3. Imports this host cannot resolve are bound against a gap library instead. One absent,
+// 3. Missing imports and CDM verification path queries bind against the gap library. One absent,
 //    unimported load command is repointed at that library and the remaining absent ones are
 //    aliased onto libSystem: dyld drops a missing library from its ordinal array, which would
 //    renumber every later ordinal the bind opcodes name.
@@ -815,7 +815,7 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
 
     // Every import, asked of the library its own record names, and the ordinals in use.
     HostLibraries hostLibraries;
-    HashSet<String> unresolvable;
+    HashSet<String> redirected;
     HashSet<unsigned> usedOrdinals;
     for (uint32_t i = 0; i < symtab->nsyms; ++i) {
         auto& symbol = symbols[i];
@@ -833,8 +833,8 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
         auto name = symbolName(symbol);
         if (name.isEmpty() || name == "dyld_stub_binder"_s)
             continue;
-        if (!hostLibraries.provides(name, libraries[ordinal - 1].path))
-            unresolvable.add(name);
+        if (name == "_dladdr"_s || name == "_proc_pidpath"_s || !hostLibraries.provides(name, libraries[ordinal - 1].path))
+            redirected.add(name);
     }
 
     auto gapLibrary = FileSystem::readEntireFile(gapLibraryFilePath);
@@ -845,7 +845,7 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
         return makeUnexpected(makeString("the gap library has no x86_64 slice: "_s, gapLibraryFilePath));
     auto provided = definedSymbols(*gapLibrary, *gapSlice);
     Vector<String> uncovered;
-    for (auto& symbol : unresolvable) {
+    for (auto& symbol : redirected) {
         if (!provided.contains(symbol))
             uncovered.append(symbol);
     }
@@ -879,7 +879,7 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
             return makeUnexpected(makeString(libraries[index].path, " is absent on this host and its load command has no room for "_s, libSystemPath));
     }
 
-    // Point every bind of an unresolvable symbol at the gap library, at whatever width the stream
+    // Point every bind of a redirected symbol at the gap library, at whatever width the stream
     // already spends on the ordinal: ld emits the ULEB form for ordinals above 15, and a
     // chained-fixups conversion emits the one-byte immediate form.
     auto retargetStream = [&](uint32_t streamOffset, uint32_t streamSize) -> Expected<void, String> {
@@ -940,7 +940,7 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
 
             bool bindsHere = opcode == BIND_OPCODE_DO_BIND || opcode == BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB
                 || opcode == BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED || opcode == BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB;
-            if (!bindsHere || !unresolvable.contains(symbol))
+            if (!bindsHere || !redirected.contains(symbol))
                 continue;
 
             auto ordinalSlot = image.mutableSpan().subspan(streamOffset + ordinalPosition);
@@ -970,7 +970,7 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
         auto& symbol = mutableSymbols[i];
         if ((symbol.n_type & N_TYPE) != N_UNDF || symbol.n_value)
             continue;
-        if (unresolvable.contains(symbolName(symbol)))
+        if (redirected.contains(symbolName(symbol)))
             SET_LIBRARY_ORDINAL(symbol.n_desc, gapOrdinal);
     }
 
