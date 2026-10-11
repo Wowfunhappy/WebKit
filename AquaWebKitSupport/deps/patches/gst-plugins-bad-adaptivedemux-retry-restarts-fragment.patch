@@ -1,0 +1,20 @@
+--- a/gst-libs/gst/adaptivedemux/gstadaptivedemux.c
++++ b/gst-libs/gst/adaptivedemux/gstadaptivedemux.c
+@@ -3586,6 +3586,8 @@
+             gst_flow_get_name (ret));
+         if (ret == GST_FLOW_OK) {
+           retried_once = TRUE;
++          stream->starting_fragment = TRUE;
++          stream->first_fragment_buffer = TRUE;
+           goto again;
+         }
+       } else if (demux->segment.position > range_stop) {
+@@ -3645,6 +3647,8 @@
+        * care if we get woken up before end time. We can use sleep here since
+        * we're already blocking and just want to wait some time. */
+       g_usleep (100000);        /* a tenth of a second */
++      stream->starting_fragment = TRUE;
++      stream->first_fragment_buffer = TRUE;
+       goto again;
+     }
+   }

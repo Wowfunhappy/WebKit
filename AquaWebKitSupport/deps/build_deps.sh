@@ -1562,12 +1562,20 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" ) \
       || { echo "gst-plugins-bad adaptivedemux manifest-lock patch failed to apply"; exit 1; }
+    # adaptivedemux restarts a retried fragment download from the fragment's start. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-adaptivedemux-retry-restarts-fragment.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-retry-restarts-fragment.patch" ) \
+      || { echo "gst-plugins-bad adaptivedemux retry patch failed to apply"; exit 1; }
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-resync-current-file.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-resync-current-file.patch" ) \
       || { echo "gst-plugins-bad hlsdemux resync-current-file patch failed to apply"; exit 1; }
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-date-ranges.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-date-ranges.patch" ) \
       || { echo "gst-plugins-bad hlsdemux date-ranges patch failed to apply"; exit 1; }
+    # hlsdemux starts decrypting an EXT-X-MAP header's media segment. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-encrypted-map-segment.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-encrypted-map-segment.patch" ) \
+      || { echo "gst-plugins-bad hlsdemux encrypted-map patch failed to apply"; exit 1; }
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" ) \
       || { echo "gst-plugins-bad tsdemux rendition-tags patch failed to apply"; exit 1; }
