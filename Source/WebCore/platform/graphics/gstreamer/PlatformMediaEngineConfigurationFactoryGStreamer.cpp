@@ -74,9 +74,9 @@ void createMediaPlayerDecodingConfigurationGStreamer(PlatformMediaDecodingConfig
     info.powerEfficient = lookupResult.isUsingHardware;
     info.smooth = lookupResult.isSupported;
 
-    // AQUAWEBKIT: AV1 is reported not smooth, at the maintainer's direction, so a site choosing
-    // between codecs prefers a lighter one on the hardware 10.9 runs on.
-    if (configuration.video) {
+    // AQUAWEBKIT: AV1 decoded in software is reported not smooth, at the maintainer's direction, so
+    // a site choosing between codecs prefers a lighter one on the hardware 10.9 runs on.
+    if (configuration.video && !lookupResult.isUsingHardware) {
         auto codecs = ContentType(configuration.video->contentType).codecs();
         // The codec spellings GStreamerRegistryScanner registers for video/x-av1.
         if (codecs.containsIf([](auto& codec) { return codec.startsWith("av01"_s) || codec == "av1"_s || codec == "x-av1"_s; }))
