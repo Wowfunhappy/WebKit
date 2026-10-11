@@ -1465,6 +1465,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-matroska-webm-partitions.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-matroska-webm-partitions.patch" ) \
       || { echo "gst-plugins-good matroska WebM partitions patch failed to apply"; exit 1; }
+    # matroskademux: ask for the protection context a protected track needs. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-matroska-webm-protection-context.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-matroska-webm-protection-context.patch" ) \
+      || { echo "gst-plugins-good matroska protection-context patch failed to apply"; exit 1; }
     # osxaudio: a sink takes the buffer frame size it finds. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" ) \

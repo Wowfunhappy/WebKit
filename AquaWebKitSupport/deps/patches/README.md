@@ -290,6 +290,13 @@ The demuxer posts TIME segment start and completion messages alongside its byte-
 
 A partitioned encrypted block (WebM Encryption, 4.6) carries n partition offsets dividing the frame into n + 1 alternating sections, the first clear. With no partitions the frame is one clear section, as Chromium's `ExtractSubsamples` (`media/formats/webm/webm_crypto_helpers.cc`) reads it; a pair of empty sections stays malformed, as it is there. The protection meta's subsample layout gives a clear section 16 bits, so a longer one is written as leading `{65535, 0}` entries ahead of the entry pairing the remainder with the next encrypted section, and the subsample count is the number of entries written. Google's Widevine AV1 test stream (`wvmedia/2019/cenc/av1/24/webm/llama_av1_480p_400.webm`) has 195 zero-partition blocks.
 
+## gst-plugins-good-matroska-webm-protection-context.patch
+
+**Target:** `gst-plugins-good-1.28.5`, `gst/matroska/matroska-demux.c`
+**Applied to:** libgstmatroska (matroskademux)
+
+When a track's ContentEncodings make it `application/x-webm-enc`, the demuxer requests the `drm-preferred-decryption-system-id` context as qtdemux does in `gst_qtdemux_request_protection_context()`: a context query upstream, then a `need-context` message on the bus, each carrying `track-id`, `available-stream-encryption-systems` (the unspecified system, filtered by available decryptors) and `stream-encryption-events` (the track's queued protection events, which hold its ContentEncKeyIDs). An application learns a WebM stream's initialization data from that request, as it does an MP4 stream's; WebKit's regular playback raises the media element's `encrypted` event from it.
+
 ## gst-plugins-bad-hlsdemux-subtitle-renditions.patch
 
 **Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`, `ext/hls/gsthlsdemux.h`

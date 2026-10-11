@@ -1,0 +1,83 @@
+# matroskademux asks the application for drm-preferred-decryption-system-id when a
+# track turns out to be protected, carrying the track's protection events, as qtdemux
+# does, so an application learns a WebM stream's key IDs before decryption starts.
+
+--- a/gst/matroska/matroska-demux.c
++++ b/gst/matroska/matroska-demux.c
+@@ -727,6 +727,68 @@
+   return ret;
+ }
+ 
++/* A protected track asks the application which protection system it will
++ * decrypt with, carrying the track's protection events, as qtdemux does in
++ * gst_qtdemux_request_protection_context(). WebM names no protection system,
++ * so the track's one system is GST_PROTECTION_UNSPECIFIED_SYSTEM_ID. */
++static void
++gst_matroska_demux_request_protection_context (GstMatroskaDemux * demux,
++    GstMatroskaTrackContext * context)
++{
++  const gchar *system_ids[] = { GST_PROTECTION_UNSPECIFIED_SYSTEM_ID, NULL };
++  gchar **filtered_sys_ids;
++  GValue event_list = G_VALUE_INIT;
++  GstQuery *query;
++  GstContext *ctxt;
++  GstStructure *st;
++  GList *walk;
++
++  if (!context->protection_event_queue.length)
++    return;
++
++  filtered_sys_ids =
++      gst_protection_filter_systems_by_available_decryptors (system_ids);
++
++  g_value_init (&event_list, GST_TYPE_LIST);
++  for (walk = context->protection_event_queue.tail; walk;
++      walk = g_list_previous (walk)) {
++    GValue event_value = G_VALUE_INIT;
++    g_value_init (&event_value, GST_TYPE_EVENT);
++    g_value_set_boxed (&event_value, walk->data);
++    gst_value_list_append_and_take_value (&event_list, &event_value);
++  }
++
++  /* The track has no source pad yet, so only upstream can already hold the
++   * context; otherwise the application is asked on the bus. */
++  query = gst_query_new_context ("drm-preferred-decryption-system-id");
++  st = gst_query_writable_structure (query);
++  gst_structure_set (st, "track-id", G_TYPE_UINT, (guint) context->num,
++      "available-stream-encryption-systems", G_TYPE_STRV, filtered_sys_ids,
++      NULL);
++  gst_structure_set_value (st, "stream-encryption-events", &event_list);
++  if (gst_pad_peer_query (demux->common.sinkpad, query)) {
++    gst_query_parse_context (query, &ctxt);
++    GST_INFO_OBJECT (demux, "found context (%p) in upstream query", ctxt);
++    gst_element_set_context (GST_ELEMENT_CAST (demux), ctxt);
++  } else {
++    GstMessage *msg;
++
++    GST_INFO_OBJECT (demux, "posting need context message");
++    msg = gst_message_new_need_context (GST_OBJECT_CAST (demux),
++        "drm-preferred-decryption-system-id");
++    st = (GstStructure *) gst_message_get_structure (msg);
++    gst_structure_set (st, "track-id", G_TYPE_UINT, (guint) context->num,
++        "available-stream-encryption-systems", G_TYPE_STRV, filtered_sys_ids,
++        NULL);
++    gst_structure_set_value (st, "stream-encryption-events", &event_list);
++    gst_element_post_message (GST_ELEMENT_CAST (demux), msg);
++  }
++
++  g_strfreev (filtered_sys_ids);
++  g_value_unset (&event_list);
++  gst_query_unref (query);
++}
++
+ static GstFlowReturn
+ gst_matroska_demux_parse_stream (GstMatroskaDemux * demux, GstEbmlRead * ebml,
+     GstMatroskaTrackContext ** dest_context)
+@@ -1851,6 +1913,7 @@
+               gst_matroska_track_encryption_cipher_mode_name
+               (enc->enc_cipher_mode), NULL);
+           gst_structure_set_name (s, "application/x-webm-enc");
++          gst_matroska_demux_request_protection_context (demux, context);
+         }
+       }
+     }
