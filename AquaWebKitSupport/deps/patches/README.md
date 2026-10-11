@@ -283,6 +283,13 @@ The demuxer records the start time (the earliest sample decode time across its `
 
 The demuxer posts TIME segment start and completion messages alongside its byte-seekable source's messages, retaining the source's segment flag; the start is posted before the upstream byte seek is pushed, so `GstBin` holds the demuxer's segment open across the source's own start/done pair and reports one completion per seek. It consumes trailing tags through the source's completion event and aligns its segment position as the pull loop does. `GstBin` aggregates both participants before reporting completion. The translated byte seek owns a separate event and carries the original seek's sequence number; the original remains owned by the TIME-seek handler. The normal MP4/FLV regression in `tests/media-segment-loop.sh` verifies complete non-flushing loops.
 
+## gst-plugins-good-matroska-webm-partitions.patch
+
+**Target:** `gst-plugins-good-1.28.5`, `gst/matroska/matroska-read-common.c`
+**Applied to:** libgstmatroska (matroskademux)
+
+A partitioned encrypted block (WebM Encryption, 4.6) carries n partition offsets dividing the frame into n + 1 alternating sections, the first clear. With no partitions the frame is one clear section, as Chromium's `ExtractSubsamples` (`media/formats/webm/webm_crypto_helpers.cc`) reads it; a pair of empty sections stays malformed, as it is there. The protection meta's subsample layout gives a clear section 16 bits, so a longer one is written as leading `{65535, 0}` entries ahead of the entry pairing the remainder with the next encrypted section, and the subsample count is the number of entries written. Google's Widevine AV1 test stream (`wvmedia/2019/cenc/av1/24/webm/llama_av1_480p_400.webm`) has 195 zero-partition blocks.
+
 ## gst-plugins-bad-hlsdemux-subtitle-renditions.patch
 
 **Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`, `ext/hls/gsthlsdemux.h`

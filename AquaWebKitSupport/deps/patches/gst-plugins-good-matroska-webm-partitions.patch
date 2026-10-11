@@ -1,0 +1,121 @@
+# A partitioned WebM encrypted block with no partitions is one clear section, as
+# Chromium's ExtractSubsamples reads it, and a clear section longer than the 16-bit
+# clear field of a subsample entry is carried by leading clear-only entries.
+
+--- a/gst/matroska/matroska-read-common.c
++++ b/gst/matroska/matroska-read-common.c
+@@ -411,7 +411,7 @@
+   guint8 *data;
+   GstBuffer *buf_iv;
+   guint8 *data_iv;
+-  guint8 *subsamples;
++  GstByteWriter writer;
+   guint8 signal_byte;
+   gint i;
+   GstByteReader reader;
+@@ -466,14 +466,13 @@
+ 
+   /* Partitioned in subsample */
+   if (signal_byte & GST_MATROSKA_BLOCK_PARTITIONED) {
+-    guint nb_subsample;
++    guint nb_subsample = 0;
+     guint32 offset = 0;
+     guint32 offset_prev;
+     guint32 encrypted_bytes = 0;
+-    guint16 clear_bytes = 0;
++    guint32 clear_bytes = 0;
+     GstBuffer *buf_sub_sample;
+     guint8 nb_part;
+-    GstByteWriter writer;
+ 
+     /* Read the number of partitions (1 byte) */
+     if (!gst_byte_reader_get_uint8 (&reader, &nb_part)) {
+@@ -481,16 +480,6 @@
+       return FALSE;
+     }
+ 
+-    if (nb_part == 0) {
+-      GST_ERROR ("Partitioned, but the subsample number equal to zero");
+-      return FALSE;
+-    }
+-
+-    nb_subsample = (nb_part + 2) >> 1;
+-
+-    gst_structure_set (info_protect, "subsample_count", G_TYPE_UINT,
+-        nb_subsample, NULL);
+-
+     /* WebM Spec:
+      *
+      * 4.6 Subsample Encrypted Block Format
+@@ -531,11 +520,7 @@
+      * section of the VP Codec ISO Media File Format Binding Specification for more
+      * detail on how subsample encryption is implemented.
+      */
+-    subsamples =
+-        g_malloc (nb_subsample * (sizeof (guint16) + sizeof (guint32)));
+-
+-    gst_byte_writer_init_with_data (&writer, subsamples,
+-        nb_subsample * (sizeof (guint16) + sizeof (guint32)), FALSE);
++    gst_byte_writer_init (&writer);
+ 
+     for (i = 0; i <= nb_part; i++) {
+       offset_prev = offset;
+@@ -554,13 +539,6 @@
+       }
+ 
+       if (i % 2 == 0) {
+-        if ((offset - offset_prev) & 0xFFFF0000) {
+-          GST_ERROR
+-              ("The Clear Partition exceed 64KB in encrypted subsample format");
+-          goto release_err;
+-        }
+-        /* We set the Clear partition size in 16 bits, in order to
+-         * follow the same format of the box PSSH in CENC spec */
+         clear_bytes = offset - offset_prev;
+         if (i == nb_part)
+           encrypted_bytes = 0;
+@@ -573,6 +551,18 @@
+           GST_ERROR ("Found 2 partitions with the same offsets.");
+           goto release_err;
+         }
++        /* The clear size is 16 bits, as in the CENC subsample format, so a
++         * longer clear section is carried by leading entries with no
++         * encrypted bytes. */
++        while (clear_bytes > G_MAXUINT16) {
++          if (!gst_byte_writer_put_uint16_be (&writer, G_MAXUINT16)
++              || !gst_byte_writer_put_uint32_be (&writer, 0)) {
++            GST_ERROR ("Error writing a clear-only subsample");
++            goto release_err;
++          }
++          clear_bytes -= G_MAXUINT16;
++          nb_subsample++;
++        }
+         if (!gst_byte_writer_put_uint16_be (&writer, clear_bytes)) {
+           GST_ERROR ("Error writing the number of clear bytes");
+           goto release_err;
+@@ -581,12 +571,13 @@
+           GST_ERROR ("Error writing the number of encrypted bytes");
+           goto release_err;
+         }
++        nb_subsample++;
+       }
+     }
+ 
+-    buf_sub_sample =
+-        gst_buffer_new_wrapped (subsamples,
+-        nb_subsample * (sizeof (guint16) + sizeof (guint32)));
++    gst_structure_set (info_protect, "subsample_count", G_TYPE_UINT,
++        nb_subsample, NULL);
++    buf_sub_sample = gst_byte_writer_reset_and_get_buffer (&writer);
+     gst_structure_set (info_protect, "subsamples", GST_TYPE_BUFFER,
+         buf_sub_sample, NULL);
+     gst_buffer_unref (buf_sub_sample);
+@@ -600,7 +591,7 @@
+   return TRUE;
+ 
+ release_err:
+-  g_free (subsamples);
++  gst_byte_writer_reset (&writer);
+   return FALSE;
+ }
+ 

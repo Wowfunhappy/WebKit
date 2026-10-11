@@ -1461,6 +1461,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" ) \
       || { echo "gst-plugins-good flvdemux push-mode segment-seek patch failed to apply"; exit 1; }
+    # matroskademux: divide a partitioned encrypted WebM block as Chromium does. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-matroska-webm-partitions.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-matroska-webm-partitions.patch" ) \
+      || { echo "gst-plugins-good matroska WebM partitions patch failed to apply"; exit 1; }
     # osxaudio: a sink takes the buffer frame size it finds. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" ) \
