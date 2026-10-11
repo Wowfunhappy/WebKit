@@ -428,6 +428,8 @@ public:
     // Called to update the scrollbars to accurately reflect the state of the view.
     WEBCORE_EXPORT void updateScrollbars(const ScrollPosition& desiredPosition);
 
+    void commitContentsSizeToPlatformWidget(); // AQUAWEBKIT: see setContentsSize().
+
 protected:
     ScrollView();
 

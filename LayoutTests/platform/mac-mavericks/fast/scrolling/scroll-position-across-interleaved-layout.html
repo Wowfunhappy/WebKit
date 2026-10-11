@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body { container-type: inline-size; margin: 0; }
+#scroller { height: 300px; overflow-y: auto; }
+</style>
+<script src="../../../../resources/js-test.js"></script>
+</head>
+<body>
+<div id="scroller"><div><div style="height: 100000px"></div><div style="height: 50px"></div></div></div>
+<div id="page"><div style="height: 100000px"></div></div>
+<div id="console"></div>
+<script>
+description("Replacing content under a size container while a style outside it changes runs a style-interleaved layout over a render tree that lacks the new renderers. That layout must not clamp scroll positions; a clamp against the completed layout still applies.");
+window.jsTestIsAsync = true;
+
+var scroller = document.getElementById("scroller");
+var page = document.getElementById("page");
+var list = scroller.firstElementChild;
+
+function nextFrame()
+{
+    return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
+function replaceContent(container, height)
+{
+    var replacement = document.createElement("div");
+    replacement.style.height = height + "px";
+    container.replaceChild(replacement, container.firstElementChild);
+    document.documentElement.style.color = document.documentElement.style.color == "red" ? "blue" : "red";
+}
+
+async function runCase(scrollingElement, container, height, forceLayout)
+{
+    scrollingElement.scrollTop = 99000;
+    await nextFrame();
+    replaceContent(container, height);
+    if (forceLayout)
+        document.body.offsetHeight;
+    await nextFrame();
+}
+
+var maximumScrollTop;
+
+(async function() {
+    for (var forceLayout of [false, true]) {
+        debug(forceLayout ? "Forced layout:" : "Rendering update:");
+
+        await runCase(scroller, list, 100000, forceLayout);
+        shouldBe("scroller.scrollTop", "99000");
+
+        await runCase(document.scrollingElement, page, 100000, forceLayout);
+        shouldBe("document.scrollingElement.scrollTop", "99000");
+
+        await runCase(scroller, list, 1000, forceLayout);
+        maximumScrollTop = scroller.scrollHeight - scroller.clientHeight;
+        shouldBe("scroller.scrollTop", "maximumScrollTop");
+        list.firstElementChild.style.height = "100000px";
+
+        await runCase(document.scrollingElement, page, 1000, forceLayout);
+        maximumScrollTop = document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight;
+        shouldBe("document.scrollingElement.scrollTop", "maximumScrollTop");
+        page.firstElementChild.style.height = "100000px";
+    }
+    finishJSTest();
+})();
+</script>
+</body>
+</html>

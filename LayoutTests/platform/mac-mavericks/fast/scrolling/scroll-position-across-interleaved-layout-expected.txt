@@ -1,0 +1,19 @@
+Replacing content under a size container while a style outside it changes runs a style-interleaved layout over a render tree that lacks the new renderers. That layout must not clamp scroll positions; a clamp against the completed layout still applies.
+
+On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE".
+
+
+Rendering update:
+PASS scroller.scrollTop is 99000
+PASS document.scrollingElement.scrollTop is 99000
+PASS scroller.scrollTop is maximumScrollTop
+PASS document.scrollingElement.scrollTop is maximumScrollTop
+Forced layout:
+PASS scroller.scrollTop is 99000
+PASS document.scrollingElement.scrollTop is 99000
+PASS scroller.scrollTop is maximumScrollTop
+PASS document.scrollingElement.scrollTop is maximumScrollTop
+PASS successfullyParsed is true
+
+TEST COMPLETE
+

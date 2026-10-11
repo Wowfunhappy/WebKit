@@ -223,13 +223,16 @@ void LocalFrameViewLayoutContext::applyDeferredScrollClamps()
     applyDeferredBoxScrollClamps();
 }
 
-// AQUAWEBKIT: the clamp of ScrollView::updateScrollbars().
+// AQUAWEBKIT: the clamp of ScrollView::updateScrollbars(), or AppKit's for a view with a platform widget.
 void LocalFrameViewLayoutContext::applyDeferredViewScrollClamp()
 {
     if (!std::exchange(m_viewHasDeferredScrollClamp, false))
         return;
 
     Ref view = this->view();
+    disableSetNeedsLayout();
+    view->commitContentsSizeToPlatformWidget();
+    enableSetNeedsLayout();
     if (view->prohibitsScrolling() || view->isRubberBandInProgress())
         return;
 
