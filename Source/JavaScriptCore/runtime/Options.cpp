@@ -54,7 +54,9 @@
 #endif
 
 #if PLATFORM(COCOA)
+#include <CoreFoundation/CoreFoundation.h> // AQUAWEBKIT (#201): the JSCOptions user default.
 #include <crt_externs.h>
+#include <wtf/RetainPtr.h> // AQUAWEBKIT (#201): the JSCOptions user default.
 #endif
 
 #if ENABLE(JIT_CAGE)
@@ -1115,6 +1117,44 @@ void Options::initializeWithOptionsCustomization(const ScopedLambda<void()>& opt
                     }
                 }
             }
+#if PLATFORM(COCOA)
+            // AQUAWEBKIT (#201): the global user default JSCOptions holds options for every process that runs
+            // JavaScriptCore, as name=value entries separated by white space or commas, e.g.
+            // `defaults write -g JSCOptions "useJIT=false"`. An option a JSC_ variable sets keeps that value.
+            // The entries are set after the variables, so only the recompute at the end of initialization
+            // derives their dependent options.
+            if (auto defaultsOptions = adoptCF(CFPreferencesCopyValue(CFSTR("JSCOptions"), kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)); defaultsOptions && CFGetTypeID(defaultsOptions.get()) == CFStringGetTypeID()) {
+                auto entries = makeStringByReplacingAll(String(static_cast<CFStringRef>(defaultsOptions.get())).simplifyWhiteSpace(isASCIIWhitespace), ',', ' ');
+                // An option's own name for any of its aliases, as setOption() resolves them.
+                auto canonicalName = [](const char* name, size_t length) {
+#define CANONICAL_OPTION_NAME(aliasedName_, unaliasedName_, equivalence_) \
+                    if (strlen(#aliasedName_) == length && !strncasecmp(name, #aliasedName_, length)) \
+                        return CString(#unaliasedName_);
+                    FOR_EACH_JSC_ALIASED_OPTION(CANONICAL_OPTION_NAME)
+#undef CANONICAL_OPTION_NAME
+                    return CString(std::span { name, length });
+                };
+                for (auto& entry : entries.split(' ')) {
+                    auto entryName = entry.left(entry.find('=')).utf8();
+                    auto name = canonicalName(entryName.data(), entryName.length());
+                    bool isSetByVariable = false;
+                    for (char** variable = *_NSGetEnviron(); *variable && !isSetByVariable; ++variable) {
+                        if (strncmp("JSC_", *variable, 4))
+                            continue;
+                        const char* variableName = *variable + 4;
+                        const char* equalSign = strchr(variableName, '=');
+                        auto variableOption = canonicalName(variableName, equalSign ? static_cast<size_t>(equalSign - variableName) : strlen(variableName));
+                        isSetByVariable = variableOption.length() == name.length() && !strncasecmp(variableOption.data(), name.data(), name.length());
+                    }
+                    if (isSetByVariable)
+                        continue;
+                    if (!Options::setOption(entry.utf8().data(), false)) {
+                        dataLog("ERROR: invalid option in the JSCOptions user default: ", entry, "\n");
+                        hasBadOptions = true;
+                    }
+                }
+            }
+#endif
             if (hasBadOptions && Options::validateOptions())
                 CRASH();
 #endif // PLATFORM(COCOA) || OS(LINUX)

@@ -132,6 +132,21 @@ and AppKit headers ahead of the SDK's. The headers keep Apple's availability ann
 calls warn under `-Wunguarded-availability` and link weakly. The i386 slice of every framework
 is stock 10.9's, whose API is the 10.9 SDK's.
 
+## JavaScriptCore options
+
+Every 64-bit process that runs this JavaScriptCore (apps, Safari's web content processes, and
+Safari's extension pages alike) reads the global user default `JSCOptions` once, as JavaScriptCore
+starts. It holds JavaScriptCore options as `name=value` pairs separated by spaces or commas, named
+as the `JSC_` environment variables are without the prefix; those variables override it. To run
+JavaScript without the JIT:
+
+    defaults write -g JSCOptions "useJIT=false"
+
+Lockdown Mode's JavaScript settings are `useJIT=false useGenerationalGC=false useConcurrentGC=false
+useLLIntICs=false useWasm=false useZombieMode=true allowDoubleShape=false alwaysHaveABadTime=true`;
+any of them can be set alone. Processes started afterwards use the new value, so quit and reopen the
+app. `defaults delete -g JSCOptions` restores the defaults.
+
 ## `polyfill/build/` contents
 
 - `libpolyfill.a` — the C functions and data constants: the libc gap-fills plus the
