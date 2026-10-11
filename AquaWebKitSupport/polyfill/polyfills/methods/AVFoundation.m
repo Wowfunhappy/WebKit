@@ -143,8 +143,7 @@ WK_POLYFILL_ADD_METHODS(AVPlayer)
 
 @end
 
-// CALayer's native KVC machinery reads the scoped rendering-state getters for KVO.
-WK_POLYFILL_ADD_LAYER_PROPERTIES_ON(NSObject, "AVSampleBufferDisplayLayer")
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (NSInteger)status
 {
     return [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) status];
@@ -216,6 +215,7 @@ static WKAVFDisplayColor *wkAVFDisplayColorFor(id layer)
             color = [[WKAVFDisplayColor alloc] init];
             objc_setAssociatedObject(layer, wkAVFDisplayColorKey, color, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [color release];
+            wkAVFSetLayerValue(layer, @"status", @0);
         }
         return color;
     }

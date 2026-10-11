@@ -114,11 +114,6 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 @end
 ```
 
-Readonly CALayer properties use `WK_POLYFILL_ADD_LAYER_PROPERTIES_ON`. It registers native property
-metadata whose getter is the scoped selector. CALayer KVC and Foundation KVO read that getter,
-including the initial, old, new, and prior values. State changes bracket a coherent update with
-`willChangeValueForKey:` and `didChangeValueForKey:`.
-
 ### An Objective-C class 10.9 lacks entirely
 
 Add the stub to `classes/<Framework>.m`. A class whose implementation needs a library only WebCore links

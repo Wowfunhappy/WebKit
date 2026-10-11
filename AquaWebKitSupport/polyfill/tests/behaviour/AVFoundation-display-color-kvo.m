@@ -48,6 +48,11 @@
             ++initialError;
     }
     id value = [change objectForKey:NSKeyValueChangeNewKey];
+    // 10.9's layer declares no status, so before its first one KVC has no value for the key.
+    if (!old && isStatus && value == [NSNull null]) {
+        assert(observed.status == AVQueuedSampleBufferRenderingStatusUnknown);
+        return;
+    }
     if ([key isEqualToString:@"status"]) {
         assert([value isKindOfClass:[NSNumber class]]);
         assert([value integerValue] == observed.status);
@@ -80,7 +85,7 @@ int main(void)
         [layer addObserver:observer forKeyPath:@"status" options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld | NSKeyValueObservingOptionPrior context:observer];
         [layer addObserver:observer forKeyPath:@"error" options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld | NSKeyValueObservingOptionPrior context:observer];
         assert(layer.status == AVQueuedSampleBufferRenderingStatusUnknown && !layer.error);
-        assert([[layer valueForKey:@"status"] isEqual:@0]);
+        assert(![layer valueForKey:@"status"]);
         assert(![layer valueForKey:@"error"]);
         assert(observer->initialStatus == 1 && observer->initialError == 1);
         CVPixelBufferRef buffer = NULL;

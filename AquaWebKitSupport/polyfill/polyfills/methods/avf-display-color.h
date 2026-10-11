@@ -100,6 +100,18 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
     }
 }
 
+// 10.9's display layer declares no status or error. Their values for KVC, and so for KVO's change
+// dictionaries, live in the layer's own style dictionary, which CALayer consults for a key it does not define.
+static void wkAVFSetLayerValue(CALayer *layer, NSString *key, id value)
+{
+    NSMutableDictionary *style = [[layer.style mutableCopy] autorelease] ?: [NSMutableDictionary dictionary];
+    if (value)
+        [style setObject:value forKey:key];
+    else
+        [style removeObjectForKey:key];
+    layer.style = style;
+}
+
 - (void)setStatus:(NSInteger)status error:(NSError *)error forLayer:(CALayer *)layer
 {
     BOOL statusChanged;
@@ -118,6 +130,10 @@ static CGColorSpaceRef wkAVFCopyImageColorSpace(CVPixelBufferRef buffer, CMForma
         _error = error;
         _status = status;
     }
+    if (statusChanged)
+        wkAVFSetLayerValue(layer, @"status", @(status));
+    if (errorChanged)
+        wkAVFSetLayerValue(layer, @"error", error);
     if (errorChanged)
         [layer didChangeValueForKey:@"error"];
     if (statusChanged)
