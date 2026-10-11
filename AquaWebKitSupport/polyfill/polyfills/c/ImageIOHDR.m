@@ -1,5 +1,6 @@
 // HDR gain maps use native ColorSync float transforms and Core Image pixel storage/resampling.
 #include "wk_polyfill.h"
+#include "wk_icc.h"
 
 // These entry points and constants are supplied by this polyfill archive.
 #pragma clang diagnostic ignored "-Wunguarded-availability"
@@ -401,9 +402,62 @@ WK_SYSTEM_CONST(WK_COLORSYNC_PATH, CFStringRef, kColorSyncTransformTag);
 WK_SYSTEM_CONST(WK_COLORSYNC_PATH, CFStringRef, kColorSyncTransformDeviceToPCS);
 WK_SYSTEM_CONST(WK_COLORSYNC_PATH, CFStringRef, kColorSyncTransformPCSToDevice);
 
+extern bool wk_isDisplayP3PQSpace(CGColorSpaceRef);
+extern double wk_pqEOTF(double);
+extern double wk_pqOETF(double);
+
+// Display P3 PQ's transfer function, between its code values and linear Display P3 with 1.0 at 80 cd/m^2,
+// applied to the premultiplied RGBA pixels' unpremultiplied colour.
+static void wk_applyPQ(float *pixels, size_t count, bool decode)
+{
+    for (size_t i = 0; i < count; ++i) {
+        float *pixel = pixels + 4 * i;
+        float alpha = pixel[3];
+        if (alpha <= 0)
+            continue;
+        for (unsigned channel = 0; channel < 3; ++channel) {
+            double value = pixel[channel] / alpha;
+            value = decode ? wk_pqEOTF(fmin(fmax(value, 0), 1)) * 125 : wk_pqOETF(fmin(fmax(value / 125, 0), 1));
+            pixel[channel] = (float)(value * alpha);
+        }
+    }
+}
+
+static bool wk_convertColorSyncPixels(CGColorSpaceRef source, CGColorSpaceRef destination, float *pixels, size_t width, size_t height);
+
+// 10.9's ColorSync cannot represent ST 2084 in a profile without error near black, so the Display P3 PQ
+// side of a conversion is evaluated here and ColorSync converts only to or from linear Display P3.
 static bool wk_convertHDRPixels(CGColorSpaceRef source, CGColorSpaceRef destination, float *pixels, size_t width, size_t height)
 {
-    CFDataRef sourceData = CGColorSpaceCopyICCProfile(source), destinationData = CGColorSpaceCopyICCProfile(destination);
+    bool sourcePQ = wk_isDisplayP3PQSpace(source), destinationPQ = wk_isDisplayP3PQSpace(destination);
+    if (!sourcePQ && !destinationPQ)
+        return wk_convertColorSyncPixels(source, destination, pixels, width, height);
+    if (sourcePQ && destinationPQ)
+        return true;
+    CGColorSpaceRef linear = CGColorSpaceCreateWithName(CFSTR("kCGColorSpaceExtendedLinearDisplayP3"));
+    if (!linear)
+        return false;
+    bool success;
+    if (sourcePQ) {
+        wk_applyPQ(pixels, width * height, true);
+        success = wk_convertColorSyncPixels(linear, destination, pixels, width, height);
+    } else {
+        success = wk_convertColorSyncPixels(source, linear, pixels, width, height);
+        if (success)
+            wk_applyPQ(pixels, width * height, false);
+    }
+    CGColorSpaceRelease(linear);
+    return success;
+}
+
+static bool wk_convertColorSyncPixels(CGColorSpaceRef source, CGColorSpaceRef destination, float *pixels, size_t width, size_t height)
+{
+    CFDataRef sourceICC = CGColorSpaceCopyICCProfile(source), destinationICC = CGColorSpaceCopyICCProfile(destination);
+    CFDataRef sourceData = wk_iccProfileForColorSync(sourceICC), destinationData = wk_iccProfileForColorSync(destinationICC);
+    if (sourceICC)
+        CFRelease(sourceICC);
+    if (destinationICC)
+        CFRelease(destinationICC);
     CFTypeRef sourceProfile = sourceData ? WK_SYSTEM(ColorSyncProfileCreate)(sourceData, NULL) : NULL;
     CFTypeRef destinationProfile = destinationData ? WK_SYSTEM(ColorSyncProfileCreate)(destinationData, NULL) : NULL;
     if (sourceData)

@@ -677,6 +677,16 @@ probe_pq_profile() {
         "$T/pq_profile"
 }
 
+probe_icc_matrix_shaper() {
+    "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new -o "$T/icc_matrix_shaper" "$TBEHAV/CoreGraphics-icc-matrix-shaper.c" $PROBE_LIBS &&
+        "$T/icc_matrix_shaper"
+}
+
+probe_named_color_spaces() {
+    "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new -o "$T/named_color_spaces" "$TBEHAV/CoreGraphics-named-spaces.c" $PROBE_LIBS &&
+        "$T/named_color_spaces"
+}
+
 probe_hdr_gainmap() {
     "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new -fno-objc-arc -o "$T/hdr_gainmap" "$TBEHAV/ImageIO-hdr-gainmap.m" $PROBE_LIBS \
         -framework CoreVideo -framework ImageIO &&
@@ -994,6 +1004,8 @@ run_probe cookie_notifications "$@"
 run_probe cookie_foreign_changes "$@"
 run_probe display_p3_profile "$@"
 run_probe pq_profile "$@"
+run_probe icc_matrix_shaper "$@"
+run_probe named_color_spaces "$@"
 run_probe hdr_gainmap "$@"
 run_probe cmyk_row_mask "$@"
 run_probe colr_filled_paths "$@"

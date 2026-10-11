@@ -1,6 +1,7 @@
 // CoreGraphics: entry points and constants modern WebKit references that 10.9's CoreGraphics does not
 // export, or exports with behaviour that has to be replaced.
 #include "wk_polyfill.h"
+#include "wk_icc.h"
 #include "wk_helpers.h"
 #include "wk_coregraphics.h"
 
@@ -49,15 +50,35 @@ WK_POLYFILL_CONST("CoreGraphics", CFStringRef, kCGColorSpaceROMMRGB, CFSTR("kCGC
 // knows what to do with them.
 WK_POLYFILL_CONST("CoreGraphics", CFStringRef, kCGColorSpaceExtendedRec2020, CFSTR("kCGColorSpaceExtendedRec2020"));
 
-// CGColorSpaceGetName (10.12+): CGColorSpaceCopyName IS present on 10.9 and recovers the same name
-// (verified on-host: sRGB -> "kCGColorSpaceSRGB"). Forward to it and autorelease to match
-// CGColorSpaceGetName's +0 "get" ownership.
-WK_SYSTEM_FN("CoreGraphics", CFStringRef, CGColorSpaceCopyName, (CGColorSpaceRef));
+// A space CGColorSpaceCreateWithName synthesizes below is built from ICC data, which 10.9 leaves unnamed;
+// it carries the name it was created under. 10.9's CGColorSpaceCopyName names the spaces 10.9 knows.
+static const void *wk_colorSpaceNameKey(void)
+{
+    return (const void *)sel_registerName("wk_colorSpaceName");
+}
+
+static CFStringRef wk_colorSpaceName(CGColorSpaceRef space)
+{
+    return space ? (CFStringRef)objc_getAssociatedObject((id)space, wk_colorSpaceNameKey()) : NULL;
+}
+
+static CGColorSpaceRef wk_nameColorSpace(CGColorSpaceRef space, CFStringRef name)
+{
+    if (space)
+        objc_setAssociatedObject((id)space, wk_colorSpaceNameKey(), (id)name, OBJC_ASSOCIATION_COPY);
+    return space;
+}
+
+WK_POLYFILL_REPLACES("CoreGraphics", CFStringRef, CGColorSpaceCopyName, (CGColorSpaceRef space))
+{
+    CFStringRef name = wk_colorSpaceName(space);
+    return name ? CFRetain(name) : WK_ORIGINAL(CGColorSpaceCopyName)(space);
+}
+
+// CGColorSpaceGetName (10.12+) is CGColorSpaceCopyName with +0 "get" ownership.
 WK_POLYFILL_ABSENT("CoreGraphics", CFStringRef, CGColorSpaceGetName, (CGColorSpaceRef space))
 {
-    if (!WK_SYSTEM(CGColorSpaceCopyName))
-        return NULL;
-    CFStringRef name = WK_SYSTEM(CGColorSpaceCopyName)(space);
+    CFStringRef name = CGColorSpaceCopyName(space);
     return name ? (CFStringRef)CFAutorelease(name) : NULL;
 }
 
@@ -98,10 +119,17 @@ WK_POLYFILL_REPLACES("CoreGraphics", bool, CGColorSpaceEqualToColorSpace, (CGCol
         && WK_ORIGINAL(CGColorSpaceEqualToColorSpace)(first, second);
 }
 
+// An ICC-based space's property list is its profile data.
 WK_POLYFILL_REPLACES("CoreGraphics", CFPropertyListRef, CGColorSpaceCopyPropertyList, (CGColorSpaceRef space))
 {
-    if (!wk_colorSpaceUsesExtendedRange(space))
-        return WK_ORIGINAL(CGColorSpaceCopyPropertyList)(space);
+    // A named space's property list is its name.
+    CFStringRef name = wk_colorSpaceName(space);
+    if (name)
+        return CFRetain(name);
+    if (!wk_colorSpaceUsesExtendedRange(space)) {
+        CFDataRef original = wk_iccOriginalProfile(space);
+        return original ? CFRetain(original) : WK_ORIGINAL(CGColorSpaceCopyPropertyList)(space);
+    }
     CFDataRef profile = CGColorSpaceCopyICCProfile(space);
     if (!profile)
         return NULL;
@@ -125,6 +153,10 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithProp
             return result;
         }
     }
+    if (propertyList && CFGetTypeID(propertyList) == CFDataGetTypeID())
+        return CGColorSpaceCreateWithICCProfile((CFDataRef)propertyList);
+    if (propertyList && CFGetTypeID(propertyList) == CFStringGetTypeID())
+        return CGColorSpaceCreateWithName((CFStringRef)propertyList);
     return WK_ORIGINAL(CGColorSpaceCreateWithPropertyList)(propertyList);
 }
 
@@ -852,8 +884,6 @@ static bool wk_iccWriteDescription(uint8_t *tag, uint32_t tagSize, const char *t
 // in s15Fixed16) and its description by `description`; NULL when the profile cannot be rewritten.
 static CGColorSpaceRef wk_createICCSpaceFromSRGB(const uint32_t colorants[3][3], const char *description)
 {
-    if (!WK_SYSTEM(CGColorSpaceCreateWithName))
-        return NULL;
     CGColorSpaceRef sRGB = WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
     if (!sRGB)
         return NULL;
@@ -921,82 +951,20 @@ static void wk_iccWriteUInt16(uint8_t *bytes, uint16_t value)
     bytes[1] = value;
 }
 
-static double wk_pqEOTF(double encoded)
+// SMPTE ST 2084, linear 1.0 at 10000 cd/m^2.
+__attribute__((visibility("hidden"))) double wk_pqEOTF(double encoded)
 {
     double p = pow(encoded, 32.0 / 2523.0);
     return pow(fmax(p - 3424.0 / 4096.0, 0.0) / (2413.0 / 128.0 - (2392.0 / 128.0) * p), 16384.0 / 2610.0);
 }
 
-static double wk_pqOETF(double linear)
+__attribute__((visibility("hidden"))) double wk_pqOETF(double linear)
 {
     double p = pow(linear, 2610.0 / 16384.0);
     return pow((3424.0 / 4096.0 + (2413.0 / 128.0) * p) / (1 + (2392.0 / 128.0) * p), 2523.0 / 32.0);
 }
 
-static void wk_iccInverseMatrix(const double m[9], double inverse[9])
-{
-    double cofactors[9] = {
-        m[4]*m[8]-m[5]*m[7], m[2]*m[7]-m[1]*m[8], m[1]*m[5]-m[2]*m[4],
-        m[5]*m[6]-m[3]*m[8], m[0]*m[8]-m[2]*m[6], m[2]*m[3]-m[0]*m[5],
-        m[3]*m[7]-m[4]*m[6], m[1]*m[6]-m[0]*m[7], m[0]*m[4]-m[1]*m[3]
-    };
-    double determinant = m[0]*cofactors[0]+m[1]*cofactors[3]+m[2]*cofactors[6];
-    for (unsigned i = 0; i < 9; ++i)
-        inverse[i] = cofactors[i] / determinant;
-}
-
-enum { wk_pqSamples = 16384, wk_pqCurveSize = 12 + 2 * wk_pqSamples,
-    wk_pqLUTSize = 32 + 36 + 48 + 120 + 68 + 3 * wk_pqCurveSize };
-
-static void wk_iccWritePQLUT(uint8_t *bytes, bool reverse)
-{
-    memcpy(bytes, reverse ? "mBA " : "mAB ", 4);
-    bytes[8] = bytes[9] = 3;
-    const uint32_t offsets[] = { 32, 68, 116, 236, 304 };
-    for (unsigned i = 0; i < 5; ++i)
-        wk_iccWriteUInt32(bytes + 12 + 4 * i, offsets[i]);
-    for (unsigned i = 0; i < 3; ++i)
-        memcpy(bytes + offsets[0] + 12 * i, "curv", 4);
-    double matrix[9], inverse[9];
-    for (unsigned row = 0; row < 3; ++row) {
-        for (unsigned column = 0; column < 3; ++column)
-            matrix[3 * row + column] = (int32_t)wk_displayP3ColorantsD50[column][row] / 65536.0 * 125 / 1.999969482421875;
-    }
-    if (reverse) {
-        for (unsigned i = 0; i < 9; ++i)
-            matrix[i] = round(matrix[i] * 65536) / 65536;
-        wk_iccInverseMatrix(matrix, inverse);
-        for (unsigned i = 0; i < 9; ++i)
-            inverse[i] *= 65536;
-    }
-    for (unsigned i = 0; i < 9; ++i)
-        wk_iccWriteUInt32(bytes + offsets[1] + 4 * i, (uint32_t)(int32_t)lround((reverse ? inverse[i] : matrix[i]) * 65536));
-    // Type four evaluates the power analytically; the sampled first stage stores its eighth root.
-    for (unsigned i = 0; i < 3; ++i) {
-        uint8_t *curve = bytes + offsets[2] + 40 * i;
-        memcpy(curve, "para", 4);
-        wk_iccWriteUInt16(curve + 8, 4);
-        wk_iccWriteUInt32(curve + 12, reverse ? 8192 : 8 * 65536);
-        wk_iccWriteUInt32(curve + 16, reverse ? 1 : 65536);
-    }
-    uint8_t *clut = bytes + offsets[3];
-    clut[0] = clut[1] = clut[2] = 2;
-    clut[16] = 2;
-    for (unsigned vertex = 0; vertex < 8; ++vertex) {
-        for (unsigned channel = 0; channel < 3; ++channel)
-            wk_iccWriteUInt16(clut + 20 + 6 * vertex + 2 * channel, vertex & (1 << (2 - channel)) ? 65535 : 0);
-    }
-    uint8_t *curve = bytes + offsets[4];
-    memcpy(curve, "curv", 4);
-    wk_iccWriteUInt32(curve + 8, wk_pqSamples);
-    for (unsigned i = 0; i < wk_pqSamples; ++i) {
-        double input = (double)i / (wk_pqSamples - 1);
-        double value = reverse ? wk_pqOETF(pow(input, 8)) : pow(wk_pqEOTF(input), .125);
-        wk_iccWriteUInt16(curve + 12 + 2 * i, (uint16_t)lround(value * 65535));
-    }
-    memcpy(curve + wk_pqCurveSize, curve, wk_pqCurveSize);
-    memcpy(curve + 2 * wk_pqCurveSize, curve, wk_pqCurveSize);
-}
+enum { wk_pqSamples = 16384, wk_pqCurveSize = 12 + 2 * wk_pqSamples };
 
 static uint32_t wk_iccWriteMLUC(uint8_t *bytes, const char *text)
 {
@@ -1013,17 +981,19 @@ static uint32_t wk_iccWriteMLUC(uint8_t *bytes, const char *text)
 }
 
 static CGColorSpaceRef wk_displayP3PQ_storage;
-extern void wk_initializeICCParser(void);
 
+// A matrix/TRC profile: the Display P3 colorants scaled so 1.0 is 80 cd/m^2 against ST 2084's 10000, and
+// the transfer function sampled as each channel's TRC. 10.9's ColorSync evaluates no curve of an lut tag
+// below x/16, so a TRC is the closest it comes to ST 2084; WebKit's own HDR conversions evaluate ST 2084
+// exactly (ImageIOHDR.m).
 static void wk_build_displayP3PQ(void)
 {
-    wk_initializeICCParser();
     CGColorSpaceRef base = wk_displayP3_space();
     CFDataRef source = base ? CGColorSpaceCopyICCProfile(base) : NULL;
     if (!source)
         return;
-    enum { tagCount = 10, tableEnd = 132 + 12 * tagCount };
-    size_t capacity = tableEnd + 2 * wk_pqLUTSize + 256;
+    enum { tagCount = 11, tableEnd = 132 + 12 * tagCount };
+    size_t capacity = tableEnd + wk_pqCurveSize + 256;
     CFMutableDataRef profile = CFDataCreateMutable(NULL, 0);
     CFDataSetLength(profile, capacity);
     uint8_t *bytes = CFDataGetMutableBytePtr(profile);
@@ -1033,7 +1003,7 @@ static void wk_build_displayP3PQ(void)
     wk_iccWriteUInt32(bytes + 8, 0x04300000);
     memset(bytes + 84, 0, 16);
     wk_iccWriteUInt32(bytes + 128, tagCount);
-    const char *signatures[] = { "desc", "cprt", "wtpt", "rXYZ", "gXYZ", "bXYZ", "lumi", "cicp", "A2B0", "B2A0" };
+    const char *signatures[] = { "desc", "cprt", "wtpt", "rXYZ", "gXYZ", "bXYZ", "lumi", "cicp", "rTRC", "gTRC", "bTRC" };
     uint32_t cursor = tableEnd;
     for (unsigned i = 0; i < tagCount; ++i) {
         uint8_t *tag = bytes + cursor;
@@ -1060,9 +1030,18 @@ static void wk_build_displayP3PQ(void)
             tag[8] = 12;
             tag[9] = 16;
             tag[11] = 1;
+        } else if (i == 8) {
+            size = wk_pqCurveSize;
+            memcpy(tag, "curv", 4);
+            wk_iccWriteUInt32(tag + 8, wk_pqSamples);
+            for (unsigned sample = 0; sample < wk_pqSamples; ++sample)
+                wk_iccWriteUInt16(tag + 12 + 2 * sample, (uint16_t)lround(wk_pqEOTF((double)sample / (wk_pqSamples - 1)) * 65535));
         } else {
-            size = wk_pqLUTSize;
-            wk_iccWritePQLUT(tag, i == 9);
+            // The three channels share one curve.
+            uint8_t *entry = bytes + 132 + 12 * i;
+            memcpy(entry, signatures[i], 4);
+            memcpy(entry + 4, entry - 12 + 4, 8);
+            continue;
         }
         uint8_t *entry = bytes + 132 + 12 * i;
         memcpy(entry, signatures[i], 4);
@@ -1081,6 +1060,11 @@ static CGColorSpaceRef wk_displayP3PQ_space(void)
     static pthread_once_t once = PTHREAD_ONCE_INIT;
     pthread_once(&once, wk_build_displayP3PQ);
     return wk_displayP3PQ_storage;
+}
+
+__attribute__((visibility("hidden"))) bool wk_isDisplayP3PQSpace(CGColorSpaceRef space)
+{
+    return space && space == wk_displayP3PQ_space();
 }
 
 __attribute__((visibility("hidden"))) unsigned wk_colorSpaceTransferFunction(CGColorSpaceRef space)
@@ -1165,8 +1149,10 @@ WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceIsWideGamutRGB, (CGColorSpa
     CFDataRef data = CGColorSpaceCopyICCProfile(space);
     if (!data)
         return false;
-    CFTypeRef profile = WK_SYSTEM(ColorSyncProfileCreate)(data, NULL);
+    CFDataRef repaired = wk_iccProfileForColorSync(data);
     CFRelease(data);
+    CFTypeRef profile = WK_SYSTEM(ColorSyncProfileCreate)(repaired, NULL);
+    CFRelease(repaired);
     if (!profile)
         return false;
     bool result = WK_SYSTEM(ColorSyncProfileIsWideGamut)(profile);
@@ -1176,9 +1162,6 @@ WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceIsWideGamutRGB, (CGColorSpa
 
 WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef name))
 {
-    if (!WK_SYSTEM(CGColorSpaceCreateWithName))
-        return NULL;
-
     CGColorSpaceRef space = WK_SYSTEM(CGColorSpaceCreateWithName)(name);
     if (space || !name)
         return space;   // 10.9 knew this name (or there is no name): its answer stands
@@ -1190,13 +1173,13 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName
     for (size_t i = 0; i < sizeof(linear) / sizeof(linear[0]); i++) {
         if (CFStringCompare(name, linear[i], 0) == kCFCompareEqualTo) {
             CGColorSpaceRef linearSRGB = wk_linear_sRGB_space();
-            return CFStringHasPrefix(name, CFSTR("kCGColorSpaceExtended")) ? wk_createExtendedColorSpace(linearSRGB) : (linearSRGB ? CGColorSpaceRetain(linearSRGB) : NULL);
+            return wk_nameColorSpace(CFStringHasPrefix(name, CFSTR("kCGColorSpaceExtended")) ? wk_createExtendedColorSpace(linearSRGB) : (linearSRGB ? CGColorSpaceRetain(linearSRGB) : NULL), name);
         }
     }
 
     if (CFStringCompare(name, CFSTR("kCGColorSpaceGenericXYZ"), 0) == kCFCompareEqualTo) {
         CGColorSpaceRef xyz = wk_xyz_D50_space();
-        return xyz ? CGColorSpaceRetain(xyz) : NULL;
+        return wk_nameColorSpace(xyz ? CGColorSpaceRetain(xyz) : NULL, name);
     }
 
     // Wide-gamut spaces retain their primaries, white point and transfer in both storage ranges.
@@ -1214,7 +1197,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName
     for (size_t i = 0; i < sizeof(wideGamut) / sizeof(wideGamut[0]); i++) {
         if (CFStringCompare(name, wideGamut[i].name, 0) == kCFCompareEqualTo) {
             CGColorSpaceRef wide = wideGamut[i].space();
-            return CFStringHasPrefix(name, CFSTR("kCGColorSpaceExtended")) ? wk_createExtendedColorSpace(wide) : (wide ? CGColorSpaceRetain(wide) : NULL);
+            return wk_nameColorSpace(CFStringHasPrefix(name, CFSTR("kCGColorSpaceExtended")) ? wk_createExtendedColorSpace(wide) : (wide ? CGColorSpaceRetain(wide) : NULL), name);
         }
     }
 
@@ -1223,7 +1206,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName
         CGColorSpaceRef extended = wk_createExtendedColorSpace(srgb);
         if (srgb)
             CGColorSpaceRelease(srgb);
-        return extended;
+        return wk_nameColorSpace(extended, name);
     }
 
     return NULL;   // some other unknown name: 10.9's own answer, unchanged
