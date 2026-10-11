@@ -95,7 +95,7 @@ struct WebKitMediaWidevineVideoDecodePrivate {
 static GstStaticPadTemplate srcTemplate = GST_STATIC_PAD_TEMPLATE("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS("video/x-raw, format = (string) { I420, YV12 }"));
+    GST_STATIC_CAPS("video/x-raw, format = (string) { I420, YV12, I420_10LE }"));
 
 #define webkit_media_widevine_video_decode_parent_class parent_class
 WEBKIT_DEFINE_TYPE(WebKitMediaWidevineVideoDecode, webkit_media_widevine_video_decode, GST_TYPE_VIDEO_DECODER)
@@ -157,6 +157,38 @@ static cdm::VideoCodecProfile vp9ProfileFromCaps(const GstStructure* structure)
     if (profile == "3"_s)
         return cdm::kVP9Profile3;
     return cdm::kUnknownVideoCodecProfile;
+}
+
+// The profile an AV1 stream names, as Chromium's parsers read it: the caps' own profile when the
+// parser set one, else the seq_profile of the AV1CodecConfigurationRecord (marker and version in
+// the first byte, seq_profile in the top three bits of the second), and Main when neither says.
+static cdm::VideoCodecProfile av1ProfileFromCaps(const GstStructure* structure)
+{
+    auto profile = gstStructureGetString(structure, "profile"_s);
+    if (profile == "main"_s)
+        return cdm::kAv1ProfileMain;
+    if (profile == "high"_s)
+        return cdm::kAv1ProfileHigh;
+    if (profile == "professional"_s)
+        return cdm::kAv1ProfilePro;
+
+    if (const GValue* codecData = gst_structure_get_value(structure, "codec_data")) {
+        if (auto* buffer = gst_value_get_buffer(codecData)) {
+            GstMappedBuffer mapped(buffer, GST_MAP_READ);
+            auto record = mapped ? mapped.span<uint8_t>() : std::span<const uint8_t> { };
+            if (record.size() >= 2 && record[0] == 0x81) {
+                switch (record[1] >> 5) {
+                case 1:
+                    return cdm::kAv1ProfileHigh;
+                case 2:
+                    return cdm::kAv1ProfilePro;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+    return cdm::kAv1ProfileMain;
 }
 
 // The SPS and PPS the avcC carries, emitted as Annex-B so they can be put in front of a
@@ -362,10 +394,19 @@ static gboolean webKitMediaWidevineVideoDecodeSetFormat(GstVideoDecoder* decoder
         return FALSE;
     }
 
-    if (gst_structure_has_name(structure, "video/x-vp9")) {
+    if (gst_structure_has_name(structure, "video/x-vp8")) {
+        // VP8 has a single profile and carries its own frame headers.
+        priv->codec = cdm::kCodecVp8;
+        priv->profile = cdm::kProfileNotNeeded;
+    } else if (gst_structure_has_name(structure, "video/x-vp9")) {
         // VP9 carries its own frame headers, so the decoder is configured from the caps alone.
         priv->codec = cdm::kCodecVp9;
         priv->profile = vp9ProfileFromCaps(structure);
+    } else if (gst_structure_has_name(structure, "video/x-av1")) {
+        // An AV1 temporal unit carries its sequence header in band, so the decoder is configured
+        // without extra data, as Chromium's MP4 parser configures it.
+        priv->codec = cdm::kCodecAv1;
+        priv->profile = av1ProfileFromCaps(structure);
     } else if (gst_structure_has_name(structure, "video/x-h264")) {
         priv->codec = cdm::kCodecH264;
         if (const GValue* codecData = gst_structure_get_value(structure, "codec_data")) {
@@ -534,6 +575,9 @@ static GstFlowReturn pushDecodedFrame(GstVideoDecoder* decoder, WidevineVideoFra
     case cdm::kI420:
         format = GST_VIDEO_FORMAT_I420;
         break;
+    case cdm::kYUV420P10:
+        format = GST_VIDEO_FORMAT_I420_10LE;
+        break;
     default:
         GST_ELEMENT_ERROR(self, STREAM, DECODE, ("The CDM decoded a frame this element cannot carry"), ("video format %u", static_cast<unsigned>(decoded.Format())));
         return GST_FLOW_NOT_SUPPORTED;
@@ -588,6 +632,8 @@ static GstFlowReturn pushDecodedFrame(GstVideoDecoder* decoder, WidevineVideoFra
     static constexpr std::array<cdm::VideoPlane, 3> i420Planes { cdm::kYPlane, cdm::kUPlane, cdm::kVPlane };
     static constexpr std::array<cdm::VideoPlane, 3> yv12Planes { cdm::kYPlane, cdm::kVPlane, cdm::kUPlane };
     const auto& planes = format == GST_VIDEO_FORMAT_YV12 ? yv12Planes : i420Planes;
+    // A 10-bit sample is stored in the low bits of a little-endian 16-bit word, which is I420_10LE.
+    int bytesPerSample = format == GST_VIDEO_FORMAT_I420_10LE ? 2 : 1;
 
     bool copied = true;
     for (unsigned index = 0; index < 3; ++index) {
@@ -595,18 +641,18 @@ static GstFlowReturn pushDecodedFrame(GstVideoDecoder* decoder, WidevineVideoFra
         unsigned sourceStride = decoded.Stride(planes[index]);
         auto* destination = static_cast<uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&outputFrame, index));
         int destinationStride = GST_VIDEO_FRAME_PLANE_STRIDE(&outputFrame, index);
-        // Both layouts are 4:2:0: a full-size luma plane and two half-size chroma planes.
+        // Every layout is 4:2:0: a full-size luma plane and two half-size chroma planes.
         int rows = index ? (decoded.Size().height + 1) / 2 : decoded.Size().height;
-        int width = index ? (decoded.Size().width + 1) / 2 : decoded.Size().width;
+        int rowBytes = (index ? (decoded.Size().width + 1) / 2 : decoded.Size().width) * bytesPerSample;
 
-        if (source.size() < static_cast<size_t>(sourceStride) * rows || sourceStride < static_cast<unsigned>(width)
-            || destinationStride < width || rows > GST_VIDEO_FRAME_COMP_HEIGHT(&outputFrame, index)) {
+        if (source.size() < static_cast<size_t>(sourceStride) * rows || sourceStride < static_cast<unsigned>(rowBytes)
+            || destinationStride < rowBytes || rows > GST_VIDEO_FRAME_COMP_HEIGHT(&outputFrame, index)) {
             copied = false;
             break;
         }
 
         for (int row = 0; row < rows; ++row)
-            memcpySpan(std::span { destination + static_cast<size_t>(row) * destinationStride, static_cast<size_t>(width) }, source.subspan(static_cast<size_t>(row) * sourceStride, width));
+            memcpySpan(std::span { destination + static_cast<size_t>(row) * destinationStride, static_cast<size_t>(rowBytes) }, source.subspan(static_cast<size_t>(row) * sourceStride, rowBytes));
     }
 
     gst_video_frame_unmap(&outputFrame);
@@ -711,8 +757,8 @@ static GstFlowReturn webKitMediaWidevineVideoDecodeHandleFrame(GstVideoDecoder* 
         boundaries.append(subsampleEnd);
     }
 
-    // A VP9 frame is what its decoder takes; H.264 is length-prefixed and becomes the Annex-B
-    // Chromium's parser produces before the CDM sees it.
+    // A VP8 or VP9 frame and an AV1 temporal unit are what their decoders take; H.264 is
+    // length-prefixed and becomes the Annex-B Chromium's parser produces before the CDM sees it.
     auto bitstream = input.span<uint8_t>();
     auto decoderInput = bitstream;
     Vector<uint8_t> converted;
@@ -927,9 +973,9 @@ static void webkit_media_widevine_video_decode_class_init(WebKitMediaWidevineVid
     gst_element_class_add_pad_template(elementClass, gst_static_pad_template_get(&srcTemplate));
 
     gst_element_class_set_static_metadata(elementClass,
-        "Decrypt and decode H.264 and VP9 encrypted with Widevine Common Encryption",
+        "Decrypt and decode H.264, VP8, VP9 and AV1 encrypted with Widevine Common Encryption",
         "Codec/Decoder/Video",
-        "Decrypts and decodes H.264 and VP9 that has been encrypted using Widevine Common Encryption.",
+        "Decrypts and decodes H.264, VP8, VP9 and AV1 that has been encrypted using Widevine Common Encryption.",
         "Wowfunhappy");
 
     GstVideoDecoderClass* decoderClass = GST_VIDEO_DECODER_CLASS(klass);

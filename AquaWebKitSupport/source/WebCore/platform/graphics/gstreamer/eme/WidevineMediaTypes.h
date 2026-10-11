@@ -10,11 +10,11 @@
 
 namespace WebCore {
 
-// What Google's CDM recognises as a video bitstream and answers kNoKey for rather than decrypt:
-// H.264, by the start code a four-byte AVCC length can read as, and VP9, by the sync code its
-// keyframes carry. Those go to webkitwidevinevideodec, which has the CDM decode them, and are the
-// media types webkitwidevine leaves out of its own caps.
-inline constexpr std::array<ASCIILiteral, 2> s_widevineDecodedMediaTypes = { "video/x-h264"_s, "video/x-vp9"_s };
+// The video codecs the CDM's manifest names in x-cdm-codecs. As in Chromium, encrypted video the
+// CDM can decode is decoded by the CDM: its Decrypt() is not a path for video. These go to
+// webkitwidevinevideodec, which has the CDM decode them, and are the media types webkitwidevine
+// leaves out of its own caps.
+inline constexpr std::array<ASCIILiteral, 4> s_widevineDecodedMediaTypes = { "video/x-h264"_s, "video/x-vp8"_s, "video/x-vp9"_s, "video/x-av1"_s };
 
 inline bool isWidevineDecodedMediaType(ASCIILiteral mediaType)
 {
