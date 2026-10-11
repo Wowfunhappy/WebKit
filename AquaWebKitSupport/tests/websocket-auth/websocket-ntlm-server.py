@@ -5,6 +5,11 @@ from native_gss import Acceptor
 ROOT = pathlib.Path(os.environ['WEBSOCKET_AUTH_WORK'])
 (ROOT/'users.txt').write_text('CURL:curl-test:correct-password\n'); os.environ['NTLM_USER_FILE'] = str(ROOT/'users.txt')
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+# Paths that offer several schemes at once and open for Basic u:p alone.
+OFFERS = {
+    '/multi': [b'Basic realm="r"', b'Digest realm="r", nonce="abc", qop="auth"', b'NTLM', b'Negotiate'],
+    '/basic-digest': [b'Basic realm="a, b", Digest realm="dr", nonce="abc"'],
+}
 ids = itertools.count(1)
 def handle(c, cid):
     context = None; n = 0
@@ -20,6 +25,15 @@ def handle(c, cid):
         lines = head.decode('latin1').split('\r\n')
         h = {l.split(':', 1)[0].strip().lower(): l.split(':', 1)[1].strip() for l in lines[1:] if ':' in l}
         auth = h.get('authorization', '')
+        path = lines[0].split(' ')[1]
+        if path in OFFERS:
+            print('conn %d request %d %s authorization=%s' % (cid, n, path, auth.split(' ')[0] if auth else None), flush=True)
+            if auth == 'Basic ' + base64.b64encode(b'u:p').decode():
+                accept = base64.b64encode(hashlib.sha1((h['sec-websocket-key'] + GUID).encode()).digest()).decode()
+                c.sendall(('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n' % accept).encode() + b'\x81\x05hello')
+                continue
+            c.sendall(b'HTTP/1.1 401 Unauthorized\r\n' + b''.join(b'WWW-Authenticate: ' + offer + b'\r\n' for offer in OFFERS[path]) + b'Content-Length: 0\r\n\r\n')
+            continue
         scheme = 'Negotiate' if ' /negotiate ' in lines[0] else 'NTLM'
         print('conn %d request %d authorization=%s' % (cid, n, auth.split(' ')[0] if auth else None), flush=True)
         if auth.startswith(scheme + ' '):

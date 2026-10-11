@@ -6,6 +6,10 @@
 #   /close-1000  sends a Close frame (1000) in the same write as the handshake response, then closes the connection
 #   /drop-client-close waits for the client's Close frame and drops TCP without echoing it
 #   /echo-client-close echoes the client's Close frame before closing the connection
+#   /no-answer   reads the request and never answers it
+#   /proxy.pac   a PAC file sending proxied.invalid through this server as an HTTP proxy
+#   /stalled.pac a PAC request answered never
+# A request in absolute form (ws://host/path), as a proxy receives it, is served by its path.
 import base64, hashlib, socket, sys, threading, time
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 def receive_frame(c):
@@ -37,6 +41,26 @@ def handle(c):
         buf += d
     lines = buf.split(b'\r\n\r\n', 1)[0].decode('latin1').split('\r\n')
     path = lines[0].split(' ')[1]
+    if path.startswith('ws://'):
+        path = '/' + path.split('/', 3)[3]
+        print('proxied request %s' % path, flush=True)
+    if path == '/proxy.pac':
+        script = b'function FindProxyForURL(url, host) { return host == "proxied.invalid" ? "PROXY 127.0.0.1:18987" : "DIRECT"; }'
+        c.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/x-ns-proxy-autoconfig\r\nContent-Length: %d\r\nConnection: close\r\n\r\n' % len(script) + script)
+        c.close(); return
+    if path == '/stalled.pac':
+        try:
+            c.recv(1)
+        except OSError:
+            pass
+        c.close(); return
+    if path == '/no-answer':
+        print('request %s' % path, flush=True)
+        try:
+            c.recv(1)
+        except OSError:
+            pass
+        c.close(); return
     h = {l.split(':', 1)[0].strip().lower(): l.split(':', 1)[1].strip() for l in lines[1:] if ':' in l}
     accept = base64.b64encode(hashlib.sha1((h['sec-websocket-key'] + GUID).encode()).digest()).decode()
     response = ('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n' % accept).encode()

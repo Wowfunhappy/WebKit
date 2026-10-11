@@ -35,6 +35,7 @@ extern "C" CFTypeRef wk_createProtectionSpace(CFStringRef, int, int, CFStringRef
     NSString *message;
     NSInteger errorCode;
     NSString *method;
+    NSMutableArray<NSString *> *presented; // when set: method@realm of each challenge, every scheme but Basic rejected
 }
 @end
 @implementation Probe
@@ -43,6 +44,14 @@ extern "C" CFTypeRef wk_createProtectionSpace(CFStringRef, int, int, CFStringRef
     ++challenges;
     lastFailureCount = challenge.previousFailureCount;
     method = challenge.protectionSpace.authenticationMethod;
+    if (presented) {
+        [presented addObject:[NSString stringWithFormat:@"%@@%@", [method stringByReplacingOccurrencesOfString:@"NSURLAuthenticationMethod" withString:@""], challenge.protectionSpace.realm]];
+        if (user && [method isEqualToString:NSURLAuthenticationMethodHTTPBasic] && !challenge.previousFailureCount)
+            completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialWithUser:user password:password persistence:NSURLCredentialPersistenceNone]);
+        else
+            completionHandler(NSURLSessionAuthChallengeRejectProtectionSpace, nil);
+        return;
+    }
     if (challenge.previousFailureCount || cancelImmediately) {
         completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
         return;
@@ -63,14 +72,16 @@ extern "C" CFTypeRef wk_createProtectionSpace(CFStringRef, int, int, CFStringRef
     done = YES;
 }
 @end
-static Probe *run(NSString *user, NSString *password, BOOL negotiate, BOOL cancelImmediately = NO)
+static Probe *run(NSString *user, NSString *password, BOOL negotiate, BOOL cancelImmediately = NO, NSString *path = nil)
 {
     Probe *probe = [Probe new];
+    if (path)
+        probe->presented = [NSMutableArray array];
     probe->password = password;
     probe->user = user;
     probe->cancelImmediately = cancelImmediately;
     NSURLSession *session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration] delegate:probe delegateQueue:[NSOperationQueue mainQueue]];
-    NSString *url = negotiate ? @"ws://127.0.0.1:18986/negotiate" : @"ws://127.0.0.1:18986/socket";
+    NSString *url = path ? [@"ws://127.0.0.1:18986" stringByAppendingString:path] : negotiate ? @"ws://127.0.0.1:18986/negotiate" : @"ws://127.0.0.1:18986/socket";
     NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
     WKWebSocketStream *stream = [[NSClassFromString(@"WKWebSocketStream") alloc] initWithRequest:request protocol:nil session:session taskIdentifier:1];
     [stream resume];
@@ -119,6 +130,17 @@ int main(int argc, char **argv)
         Probe *bad = run(@"CURL\\curl-test", @"wrong-password", NO);
         passed = !bad->opened && bad->challenges == 2 && bad->lastFailureCount == 1 && bad->errorCode == NSURLErrorUserCancelledAuthentication;
         printf("NTLM refused credential: opened=%d challenges=%d lastFailureCount=%ld error=%ld %s\n", bad->opened, bad->challenges, (long)bad->lastFailureCount, (long)bad->errorCode, passed ? "PASS" : "FAIL");
+        failures += !passed;
+        // 10.9 NSURLSession's order and realms for these offers, measured against the same responses over http.
+        Probe *all = run(nil, nil, NO, NO, @"/multi");
+        NSString *seen = [all->presented componentsJoinedByString:@","];
+        passed = !all->opened && [seen isEqualToString:@"Negotiate@127.0.0.1,NTLM@127.0.0.1,HTTPDigest@127.0.0.1,Default@127.0.0.1"];
+        printf("four schemes, each rejected: [%s] opened=%d %s\n", seen.UTF8String, all->opened, passed ? "PASS" : "FAIL");
+        failures += !passed;
+        Probe *basic = run(@"u", @"p", NO, NO, @"/basic-digest");
+        seen = [basic->presented componentsJoinedByString:@","];
+        passed = basic->opened && [basic->message isEqualToString:@"hello"] && [seen isEqualToString:@"HTTPDigest@dr,Default@dr"];
+        printf("one field, Digest rejected, Basic answered: [%s] opened=%d %s\n", seen.UTF8String, basic->opened, passed ? "PASS" : "FAIL");
         failures += !passed;
         printf("WebSocket NTLM: FAILED=%u\n", failures);
         return failures ? 1 : 0;
