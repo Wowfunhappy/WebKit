@@ -132,6 +132,17 @@ and AppKit headers ahead of the SDK's. The headers keep Apple's availability ann
 calls warn under `-Wunguarded-availability` and link weakly. The i386 slice of every framework
 is stock 10.9's, whose API is the 10.9 SDK's.
 
+## Playing audio and video files in the tab
+
+A tab downloads an audio or video file it navigates to, whatever the server's `Content-Disposition`
+says; the same file still plays in a frame or an `<embed>`. To play such files in the tab instead:
+
+    defaults write -g WebKitPlayMediaFilesInline -bool true
+
+`-g` covers every app; an app's own domain (`defaults write com.apple.Safari …`) covers that app.
+The next navigation uses the new value. `defaults delete -g WebKitPlayMediaFilesInline` restores
+downloading.
+
 ## JavaScriptCore options
 
 Every 64-bit process that runs this JavaScriptCore (apps, Safari's web content processes, and

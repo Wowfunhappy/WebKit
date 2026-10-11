@@ -20,6 +20,7 @@ class HTTPHeaderMap;
 class ResourceError;
 class ResourceRequest;
 class ResourceResponse;
+enum class IsMainResourceLoad : bool;
 }
 
 namespace WebKit::LegacyExtensions {
@@ -84,8 +85,8 @@ Ref<JSON::Array> headersArray(const WebCore::HTTPHeaderMap&);
 WebCore::HTTPHeaderMap headerMap(JSON::Array&);
 bool isFromCache(const WebCore::ResourceResponse&);
 void addResponseFields(JSON::Object&, const WebCore::ResourceResponse&);
-// The response with its header fields replaced.
-WebCore::ResourceResponse responseWithHeaders(const WebCore::ResourceResponse&, JSON::Array&);
+// The response with its header fields replaced; a changed Content-Type also sets its MIME type and charset.
+WebCore::ResourceResponse responseWithHeaders(const WebCore::ResourceResponse&, JSON::Array&, WebCore::IsMainResourceLoad);
 
 // A redirect an extension makes before the request is sent, as Chrome reports it: 307 Internal Redirect,
 // which keeps the method and body.

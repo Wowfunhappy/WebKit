@@ -20,6 +20,7 @@
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/ClientOrigin.h>
 #include <WebCore/Credential.h>
+#include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/CocoaCookie.h>
 #include <WebCore/CookieJar.h>
 #include <WebCore/HTTPHeaderMap.h>
@@ -473,9 +474,7 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
             URL target;
             if (RefPtr headers = verdict->getArray("responseHeaders"_s)) {
                 auto location = redirectResponse.httpHeaderField(HTTPHeaderName::Location);
-                auto data = redirectResponse.crossThreadData();
-                data.httpHeaderFields = headerMap(*headers);
-                redirectResponse = ResourceResponse::fromCrossThreadData(WTF::move(data));
+                redirectResponse = responseWithHeaders(redirectResponse, *headers, loader && loader->originalRequest().requester() == ResourceRequestRequester::Main ? IsMainResourceLoad::Yes : IsMainResourceLoad::No);
                 if (auto newLocation = redirectResponse.httpHeaderField(HTTPHeaderName::Location); newLocation != location)
                     target = URL { redirectResponse.url(), newLocation };
             }
@@ -548,7 +547,7 @@ bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, Re
             return completionHandler(PolicyAction::Ignore);
         }
         if (RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr) {
-            response = responseWithHeaders(response, *headers);
+            response = responseWithHeaders(response, *headers, loader->originalRequest().requester() == ResourceRequestRequester::Main ? IsMainResourceLoad::Yes : IsMainResourceLoad::No);
         }
         if (URL redirectURL { verdict ? verdict->getString("redirectUrl"_s) : String() }; redirectURL.isValid()) {
             RunLoop::mainSingleton().dispatch([this, weakLoader = WTF::move(weakLoader), response = WTF::move(response), redirectURL = WTF::move(redirectURL)] {
@@ -592,10 +591,8 @@ bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& load
             return;
         }
         if (RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr) {
-            auto data = entry->response().crossThreadData();
-            data.httpHeaderFields = headerMap(*headers);
             RefPtr<FragmentedSharedBuffer> buffer = entry->buffer();
-            entry = protect(loader->m_cache)->makeEntry(loader->originalRequest(), ResourceResponse::fromCrossThreadData(WTF::move(data)), entry->privateRelayed(), WTF::move(buffer));
+            entry = protect(loader->m_cache)->makeEntry(loader->originalRequest(), responseWithHeaders(entry->response(), *headers, loader->originalRequest().requester() == ResourceRequestRequester::Main ? IsMainResourceLoad::Yes : IsMainResourceLoad::No), entry->privateRelayed(), WTF::move(buffer));
         }
         if (URL redirectURL { verdict ? verdict->getString("redirectUrl"_s) : String() }; redirectURL.isValid()) {
             auto request = loader->m_networkLoad ? loader->m_networkLoad->currentRequest() : loader->originalRequest();

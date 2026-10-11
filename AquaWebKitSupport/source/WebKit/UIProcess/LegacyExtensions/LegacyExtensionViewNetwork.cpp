@@ -277,7 +277,8 @@ void LegacyExtensionViewNetwork::headersReceived(Ref<Load>&& load, ResourceRespo
         return completion({ false, WTF::move(response), { } });
     }
 
-    dispatch(onHeadersReceived, WTF::move(details), [response = WTF::move(response), curl = WTF::move(curl), isRedirect, completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+    auto isMainResourceLoad = load->type == "main_frame"_s || load->type == "sub_frame"_s ? IsMainResourceLoad::Yes : IsMainResourceLoad::No;
+    dispatch(onHeadersReceived, WTF::move(details), [response = WTF::move(response), curl = WTF::move(curl), isRedirect, isMainResourceLoad, completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
         if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
             if (curl)
                 curl->discardHeldCookies();
@@ -288,7 +289,7 @@ void LegacyExtensionViewNetwork::headersReceived(Ref<Load>&& load, ResourceRespo
             if (curl && curl->heldCookies())
                 curl->storeHeldCookies(setCookieFields(*headers));
             auto location = response.httpHeaderField(HTTPHeaderName::Location);
-            response = responseWithHeaders(response, *headers);
+            response = responseWithHeaders(response, *headers, isMainResourceLoad);
             if (auto newLocation = response.httpHeaderField(HTTPHeaderName::Location); isRedirect && newLocation != location)
                 target = URL { response.url(), newLocation };
         }

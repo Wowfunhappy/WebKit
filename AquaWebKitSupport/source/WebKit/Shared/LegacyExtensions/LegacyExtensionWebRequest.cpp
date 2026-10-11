@@ -5,11 +5,13 @@
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/CocoaCurlTransfer.h>
 #include <WebCore/FormData.h>
+#include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/HTTPHeaderMap.h>
 #include <WebCore/ParsedContentType.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/WebCoreURLResponse.h>
 #include <wtf/URLParser.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/Base64.h>
@@ -255,11 +257,18 @@ void addResponseFields(JSON::Object& details, const ResourceResponse& response)
     details.setBoolean("fromCache"_s, isFromCache(response));
 }
 
-ResourceResponse responseWithHeaders(const ResourceResponse& response, JSON::Array& headers)
+ResourceResponse responseWithHeaders(const ResourceResponse& response, JSON::Array& headers, IsMainResourceLoad isMainResourceLoad)
 {
     auto data = response.crossThreadData();
     data.httpHeaderFields = headerMap(headers);
-    return ResourceResponse::fromCrossThreadData(WTF::move(data));
+    auto result = ResourceResponse::fromCrossThreadData(WTF::move(data));
+    // A changed or removed Content-Type sets the MIME type and charset as the transport derives them.
+    if (auto contentType = result.httpHeaderField(HTTPHeaderName::ContentType); contentType != response.httpHeaderField(HTTPHeaderName::ContentType)) {
+        setCocoaCurlContentType(result, contentType);
+        bool isNoSniff = equalLettersIgnoringASCIICase(result.httpHeaderField(HTTPHeaderName::XContentTypeOptions), "nosniff"_s);
+        adjustCocoaCurlMIMETypeIfNecessary(result, isMainResourceLoad, isNoSniff ? IsNoSniffSet::Yes : IsNoSniffSet::No);
+    }
+    return result;
 }
 
 ResourceResponse internalRedirectResponse(const URL& from, const URL& to)

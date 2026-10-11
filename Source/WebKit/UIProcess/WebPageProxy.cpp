@@ -10323,10 +10323,12 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
             // Disallows loading model files as the main resource for child frames. If desired in the future, we can remove this line and add required support to enable this behavior.
             if (!frame->isMainFrame() && MIMETypeRegistry::isSupportedModelMIMEType(navigationResponse->response().mimeType()))
                 return true;
-            // AQUAWEBKIT: a main-frame navigation to a raw audio/video resource downloads.
-            // Subframe loads, <object>/<embed> and WKPage/WKBundlePageCanShowMIMEType keep
+            // AQUAWEBKIT: a main-frame navigation to a raw audio/video resource downloads unless the
+            // app's or the global user default WebKitPlayMediaFilesInline is on (#200). Subframe loads,
+            // <object>/<embed> and WKPage/WKBundlePageCanShowMIMEType keep
             // MIMETypeRegistry::canShowMIMEType's answer and still render a MediaDocument.
-            if (policyAction == PolicyAction::Use && frame->isMainFrame() && MIMETypeRegistry::isSupportedMediaMIMEType(navigationResponse->response().mimeType()))
+            if (policyAction == PolicyAction::Use && frame->isMainFrame() && MIMETypeRegistry::isSupportedMediaMIMEType(navigationResponse->response().mimeType())
+                && !CFPreferencesGetAppBooleanValue(CFSTR("WebKitPlayMediaFilesInline"), kCFPreferencesCurrentApplication, nullptr))
                 return true;
             if (policyAction != PolicyAction::Use || process->lockdownMode() != WebProcessProxy::LockdownMode::Enabled)
                 return false;

@@ -299,6 +299,16 @@ When several listeners answer, whether in one extension or across extensions, th
 
 A listener that throws is logged and skipped. A context that goes away while a load waits on it stops being waited on.
 
+### Displaying or downloading a response
+
+A tab downloads a main-frame response it cannot show, such as a PDF or an archive. It also downloads an audio or video file unless the user turns on `WebKitPlayMediaFilesInline` (see `AquaWebKitSupport/README.md`), whatever its headers say. An `onHeadersReceived` verdict for a `main_frame` request changes which other responses download:
+
+- `redirectUrl` set to one of the extension's own pages, as `` `${safari.extension.baseURI}viewer.html?file=${encodeURIComponent(details.url)}` ``, opens the response in a viewer the extension supplies; PDF viewers such as pdf.js work this way. The page reads the file with `fetch(file, { credentials: 'include' })`: Safari 7 lets an extension page read the sites its website access covers without CORS headers, and a tab showing an extension page sends those sites' cookies, as a WebExtension's own pages do. The redirect re-requests the file, so check `details.method` and redirect only `GET`s.
+- `responseHeaders` with another `Content-Type` shows the response as that type, for example `text/plain` for a text file served as `application/octet-stream`.
+- `responseHeaders` with `Content-Disposition: attachment` downloads a response the tab would show. A `filename` parameter names the file.
+
+The test rig's `display-or-download.safariextension` exercises each of these.
+
 ### `webRequest.handlerBehaviorChanged()` → `Promise<void>`
 
 Empties the in-memory caches of the Safari process and of every web content process, so resources held there reach `webRequest` again. `MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES` is `20`. Calls beyond it still empty the caches, as Chrome's do.
@@ -374,4 +384,4 @@ Safari 7's extension resource protocol has limits that apply to every file in th
 
 ## Testing
 
-`AquaWebKitSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844), and `limited-access.safariextension`, whose website access is `localhost` alone. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
+`AquaWebKitSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844), `limited-access.safariextension`, whose website access is `localhost` alone, and `display-or-download.safariextension`, which decides whether the server's `/inline/` responses display or download: open `/inline/login`, then `/inline/doc.pdf` (its viewer shows `window.__result`), `/inline/data.bin` and `/inline/force-download.html`, and the `/plain/` paths of the same names, which no extension changes. `/plain/clip.mp4` and `/plain/server-inline.mp4` (the server's own `Content-Disposition: inline`) download unless `WebKitPlayMediaFilesInline` is on. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
