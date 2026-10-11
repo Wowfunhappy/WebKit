@@ -1326,8 +1326,15 @@ std::optional<ScrollbarUpdateScope> RenderLayerScrollableArea::updateScrollInfoA
         auto scrollOffset = this->scrollOffset();
         if (scrollOffset != minimumScrollOffset()) {
             auto clampedScrollOffset = clampScrollOffset(scrollOffset);
-            if (clampedScrollOffset != scrollOffset)
-                scrollToOffset(clampedScrollOffset);
+            // if (clampedScrollOffset != scrollOffset)
+            //     scrollToOffset(clampedScrollOffset);
+            if (clampedScrollOffset != scrollOffset) {
+                // AQUAWEBKIT: see LocalFrameViewLayoutContext::deferScrollClamp().
+                if (box->document().isInStyleInterleavedLayout())
+                    box->view().frameView().layoutContext().deferScrollClamp(*box);
+                else
+                    scrollToOffset(clampedScrollOffset);
+            }
         }
     }
 
@@ -1358,6 +1365,19 @@ std::optional<ScrollbarUpdateScope> RenderLayerScrollableArea::updateScrollInfoA
     }
 
     return ScrollbarUpdateScope { *this, originalScrollPosition, autoScrollbarChanges, hasHorizontalOverflow ? HasHorizontalOverflow::Yes : HasHorizontalOverflow::No, hasVerticalOverflow ? HasVerticalOverflow::Yes : HasVerticalOverflow::No };
+}
+
+// AQUAWEBKIT: the clamp updateScrollInfoAfterLayout() makes, for a scroll clamp deferred by a style-interleaved layout.
+void RenderLayerScrollableArea::clampScrollOffsetAfterLayout()
+{
+    CheckedPtr box = m_layer.renderBox();
+    if (!box || box->isHTMLMarquee() || isRubberBandInProgress() || isUserScrollInProgress())
+        return;
+
+    auto scrollOffset = this->scrollOffset();
+    auto clampedScrollOffset = clampScrollOffset(scrollOffset);
+    if (clampedScrollOffset != scrollOffset)
+        scrollToOffset(clampedScrollOffset);
 }
 
 void RenderLayerScrollableArea::updateScrollbarSteps()

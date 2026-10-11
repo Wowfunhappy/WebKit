@@ -2936,6 +2936,10 @@ void Document::resolveStyle(ResolveStyleType type)
         if (m_renderView->needsLayout())
             frameView->layoutContext().scheduleLayout();
 
+        // AQUAWEBKIT: see LocalFrameViewLayoutContext::deferScrollClamp().
+        if (!frameView->layoutContext().needsLayout())
+            frameView->layoutContext().applyDeferredScrollClamps();
+
         ++m_styleRecalcCount;
         // FIXME: Assert ASSERT(!needsStyleRecalc()) here. fast/events/media-element-focus-tab.html hits this assertion.
     }
