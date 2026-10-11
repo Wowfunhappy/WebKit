@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>declarativeNetRequest</title>
+<script>
+'use strict';
+// The loads declarative-net-request.safariextension's rules act on; results collect in window.__results.
+const results = window.__results = {};
+const load = (name, url, read = response => 'loaded:' + response.status) => {
+    results[name] = 'pending';
+    return fetch(url).then(read).then(value => { results[name] = value; }, () => { results[name] = 'blocked'; });
+};
+load('static-blocked', '/dnr/static-blocked');
+load('static-off-blocked', '/dnr/static-off-blocked');
+load('dynamic-blocked', '/dnr/dynamic-blocked');
+load('dynamic-blocked-allowed', '/dnr/dynamic-blocked-allowed');
+load('session-blocked', '/dnr/session-blocked');
+load('redirect', '/dnr/send-elsewhere', response => new URL(response.url).pathname);
+load('modify-headers', '/echo-headers?dnr', response => response.json().then(headers => headers['accept-language']));
+// localhost is outside the extension's website access: its block rules act there, its header rules do not.
+load('outside-blocked', 'http://localhost:8843/dnr/outside-blocked');
+load('outside-modify-headers', 'http://localhost:8843/echo-headers?dnr', response => response.json().then(headers => headers['accept-language']));
+load('unmatched', '/dnr/unmatched');
+</script>

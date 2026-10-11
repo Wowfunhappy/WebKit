@@ -150,7 +150,6 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewAquaWebKit.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewToolTip.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/Automation/BidiBrowserAgentAquaWebKit.cpp
-    ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/Automation/WebAutomationSessionAquaWebKit.cpp
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/mac/AquaWebKitPageClient.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/mac/WebPageProxyMacAquaWebKit.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/WebProcess/InjectedBundle/Safari7StandardWorldBindings.cpp
@@ -181,6 +180,10 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewNetwork.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp
+)
+# declarativeNetRequest calls WebKit's WebExtension helpers, whose definitions are ARC's.
+list(APPEND WebKit_ARC_SOURCES
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionDeclarativeNetRequest.mm
 )
 foreach (_aquaWebKitReceiver
     UIProcess/LegacyExtensions/LegacyExtensionHost
@@ -237,6 +240,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/GPUProcess/media/cocoa"
     "${WEBKIT_DIR}/WebProcess/Plugins/PDF/UnifiedPDF"
     "${WEBKIT_DIR}/WebProcess/Extensions/Cocoa"
+    "${WEBKIT_DIR}/WebProcess/Extensions/API/Cocoa"
     "${WEBKIT_DIR}/UIProcess/Extensions/Cocoa"
     "${WEBKIT_DIR}/webpushd/webpushtool"
     "${WEBKIT_DIR}/WebKitSwift/WritingTools"
@@ -418,8 +422,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKWebExtensionTabCreationOptions.h
     # the <WebKit/WebKit.h> umbrella imports these unconditionally, but they were missing
     # from the forward list, so any consumer of the umbrella (e.g. WebKitTestRunner) failed to compile. They
-    # are declaration-only public API headers; forward them so the umbrella resolves. (The WKWebExtension
-    # classes are inert at runtime since ENABLE_WK_WEB_EXTENSIONS=0, but the headers compile fine.)
+    # are declaration-only public API headers; forward them so the umbrella resolves.
     UIProcess/API/Cocoa/WKFormInfo.h
     UIProcess/API/Cocoa/WKWebExtension.h
     UIProcess/API/Cocoa/WKWebExtensionAction.h

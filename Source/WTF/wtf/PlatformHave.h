@@ -1645,7 +1645,7 @@
 #define HAVE_SECTRUST_COPYPROPERTIES 1
 #endif
 
-#if !defined(HAVE_OBJC_CUSTOM_DEALLOC) && PLATFORM(COCOA)
+#if !defined(HAVE_OBJC_CUSTOM_DEALLOC) && PLATFORM(COCOA) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000) // AQUAWEBKIT: 10.9's Objective-C runtime has no _class_setCustomDeallocInitiation.
 #define HAVE_OBJC_CUSTOM_DEALLOC 1
 #endif
 

@@ -1258,7 +1258,8 @@ if prepare "$d"; then
         --enable-fts3 --enable-fts4 --enable-fts5 --enable-rtree \
         --disable-readline --disable-static-shell ) || exit 1
     # Multi-thread mode, as macOS's libsqlite3 is built; configure's threadsafe option only selects 0 or 1.
-    /usr/bin/sed -i '' '/^OPT_FEATURE_FLAGS = /s/-DSQLITE_THREADSAFE=1/-DSQLITE_THREADSAFE=2/' "$d/Makefile" || exit 1
+    # URI filenames, because WebKit opens in-memory databases as "file::memory:" without SQLITE_OPEN_URI.
+    /usr/bin/sed -i '' '/^OPT_FEATURE_FLAGS = /s/-DSQLITE_THREADSAFE=1/-DSQLITE_THREADSAFE=2 -DSQLITE_USE_URI=1/' "$d/Makefile" || exit 1
     prepared "$d"
 fi
 ( cd "$d" && make -j2 && make install ) || exit 1

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Author</key><string>WebKit</string>
+	<key>Builder Version</key><string>9537.78.2</string>
+	<key>CFBundleDisplayName</key><string>Legacy Extension Declarative Net Request</string>
+	<key>CFBundleIdentifier</key><string>org.webkit.legacy-extension-declarative-net-request</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundleShortVersionString</key><string>1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>Chrome</key>
+	<dict>
+		<key>Global Page</key><string>global.html</string>
+		<key>Toolbar Items</key>
+		<array>
+			<dict>
+				<key>Command</key><string>dnr-badge</string>
+				<key>Identifier</key><string>dnr-button</string>
+				<key>Image</key><string>button.png</string>
+				<key>Label</key><string>DNR</string>
+			</dict>
+		</array>
+	</dict>
+	<key>Description</key><string>Exercises declarativeNetRequest against the test server's /dnr/ paths.</string>
+	<key>DeveloperIdentifier</key><string>WDAOQFIKHZ</string>
+	<key>ExtensionInfoDictionaryVersion</key><string>1.0</string>
+	<key>Permissions</key>
+	<dict>
+		<key>Website Access</key>
+		<dict>
+			<key>Allowed Domains</key>
+			<array>
+				<string>127.0.0.1</string>
+			</array>
+			<key>Include Secure Pages</key><true/>
+			<key>Level</key><string>Some</string>
+		</dict>
+	</dict>
+	<key>declarative_net_request</key>
+	<dict>
+		<key>rule_resources</key>
+		<array>
+			<dict>
+				<key>id</key><string>static_on</string>
+				<key>enabled</key><true/>
+				<key>path</key><string>rules/static-on.json</string>
+			</dict>
+			<dict>
+				<key>id</key><string>static_off</string>
+				<key>enabled</key><false/>
+				<key>path</key><string>rules/static-off.json</string>
+			</dict>
+		</array>
+	</dict>
+</dict>
+</plist>

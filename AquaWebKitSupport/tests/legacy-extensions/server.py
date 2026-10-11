@@ -163,6 +163,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if name.endswith('.bin'):
                 return self.reply('shown', 'application/octet-stream')
             return self.reply('<!doctype html><title>shown</title><p id="shown">shown</p>', 'text/html')
+        # declarative-net-request.safariextension's rules act on these.
+        if path.startswith('/dnr/'):
+            return self.reply('{"path":' + json.dumps(path) + '}', 'application/json')
         if path.startswith('/sse'):
             return self.reply('data: hello\n\n', 'text/event-stream')
         return super().do_GET()

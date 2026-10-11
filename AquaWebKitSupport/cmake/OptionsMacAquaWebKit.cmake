@@ -271,12 +271,6 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_NAVIGATOR_STANDALONE PRIVATE ON)
 # WebDriver, for parity with the three WEBDRIVER_*_INTERACTIONS options already restored above.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_BIDI PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS PRIVATE ON)
-# OFF — the one hit from that sweep deliberately left off. WK_WEB_EXTENSIONS is the
-# modern WebExtensions API (WebExtensionController and a large UIProcess surface). Safari 7 predates it
-# and ships its own .safariextz extension model, which this port already supports
-# ([[aquawebkit-extensions]]); enabling a second, unreachable extension system would add a large
-# amount of code no browser on this OS can drive.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WK_WEB_EXTENSIONS PRIVATE OFF)
 
 # ON — WebCodecs, matching what Apple ships (PlatformEnableCocoa.h defaults it
 # to 1 on Mac; the cmake feature default is OFF only because non-Apple ports opt in per-port).

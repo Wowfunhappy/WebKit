@@ -20,6 +20,8 @@ struct WebsiteAccess {
 
     // Whether a web URL is within the access: https and wss only with Include Secure Pages.
     bool allows(const URL&) const;
+    // The access as UserContentURLPattern strings, one per scheme and host.
+    Vector<String> urlPatterns() const;
 
     Ref<JSON::Object> toJSON() const;
     static WebsiteAccess fromJSON(const JSON::Object&);

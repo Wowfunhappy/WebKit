@@ -1,6 +1,8 @@
 #include "config.h"
 #include "LegacyExtensionWebsiteAccess.h"
 
+#include <wtf/text/MakeString.h>
+
 namespace WebKit::LegacyExtensions {
 
 bool WebsiteAccess::allows(const URL& url) const
@@ -24,6 +26,30 @@ bool WebsiteAccess::allows(const URL& url) const
         auto base = StringView(domain).substring(2);
         return host == base || (host.length() > base.length() && host.endsWith(base) && host[host.length() - base.length() - 1] == '.');
     });
+}
+
+Vector<String> WebsiteAccess::urlPatterns() const
+{
+    Vector<String> hosts;
+    switch (level) {
+    case Level::None:
+        return { };
+    case Level::All:
+        hosts.append("*"_s);
+        break;
+    case Level::Some:
+        hosts = domains;
+        break;
+    }
+    Vector<ASCIILiteral> schemes { "http"_s, "ws"_s };
+    if (includesSecurePages)
+        schemes.appendList({ "https"_s, "wss"_s });
+    Vector<String> patterns;
+    for (auto scheme : schemes) {
+        for (auto& host : hosts)
+            patterns.append(makeString(scheme, "://"_s, host, "/*"_s));
+    }
+    return patterns;
 }
 
 Ref<JSON::Object> WebsiteAccess::toJSON() const

@@ -1424,6 +1424,24 @@ WK_POLYFILL_ADD_METHODS(NSAttributedString)
 @end
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSDictionary writeToURL:error:] and -[NSArray writeToURL:error:] (10.13) serialize the collection as an
+// XML property list and write it to the URL, reporting failure through the error. The cluster's concrete
+// classes inherit them.
+static BOOL wk_writePropertyListToURL(id propertyList, NSURL *url, NSError **error)
+{
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:propertyList format:NSPropertyListXMLFormat_v1_0 options:0 error:error];
+    return data && [data writeToURL:url options:NSDataWritingAtomic error:error];
+}
+
+WK_POLYFILL_ADD_METHODS(NSDictionary)
+- (BOOL)writeToURL:(NSURL *)url error:(NSError **)error { return wk_writePropertyListToURL(self, url, error); }
+@end
+
+WK_POLYFILL_ADD_METHODS(NSArray)
+- (BOOL)writeToURL:(NSURL *)url error:(NSError **)error { return wk_writePropertyListToURL(self, url, error); }
+@end
+
+// ---------------------------------------------------------------------------------------------------
 // -[NSString containsString:] (10.10+) via the classic -rangeOfString:.
 WK_POLYFILL_ADD_METHODS(NSString)
 - (BOOL)containsString:(NSString *)str { return [self rangeOfString:str].location != NSNotFound; }

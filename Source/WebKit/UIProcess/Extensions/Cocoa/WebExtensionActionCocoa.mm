@@ -907,6 +907,7 @@ void WebExtensionAction::setPopupPopoverAppearance(Appearance appearance)
     // Set the popover appearance to light when it is unknown. Dark mode support is checked in detectPopoverColorScheme().
     // This maintains the best compatibility for extensions that only support light mode.
 
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000 // AQUAWEBKIT: 10.9's NSPopover has only the NSPopoverAppearance property, whose default is its one light appearance.
     switch (appearance) {
     case Appearance::Default:
     case Appearance::Light:
@@ -921,6 +922,7 @@ void WebExtensionAction::setPopupPopoverAppearance(Appearance appearance)
         m_popupPopover.get().appearance = nil;
         break;
     }
+#endif // AQUAWEBKIT: closes the 10.10 NSPopover appearance guard above.
 }
 
 void WebExtensionAction::detectPopoverColorScheme()

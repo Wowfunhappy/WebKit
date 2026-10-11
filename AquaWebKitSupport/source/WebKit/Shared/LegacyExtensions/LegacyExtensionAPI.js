@@ -211,6 +211,9 @@ const didReceiveOneShotMessage = ({ msgId, msg, sender }) => {
         respond({ none: true });
 };
 
+// Called when a tab's declarativeNetRequest action count changes.
+let actionCountChanged = () => { };
+
 // Router calls.
 
 const pendingCalls = new Map();
@@ -604,6 +607,57 @@ if (isHost) {
     };
     browser.cookies = cookies;
 
+    // declarativeNetRequest: WebKit's, through the router, which validates each call as a WebExtension's.
+    const declarativeNetRequestMethod = name => (...args) => withOptionalCallback(args, options => callRouter(`declarativeNetRequest.${name}`, options));
+    browser.declarativeNetRequest = {
+        updateEnabledRulesets: declarativeNetRequestMethod("updateEnabledRulesets"),
+        getEnabledRulesets: declarativeNetRequestMethod("getEnabledRulesets"),
+        updateDynamicRules: declarativeNetRequestMethod("updateDynamicRules"),
+        getDynamicRules: declarativeNetRequestMethod("getDynamicRules"),
+        updateSessionRules: declarativeNetRequestMethod("updateSessionRules"),
+        getSessionRules: declarativeNetRequestMethod("getSessionRules"),
+        getMatchedRules: declarativeNetRequestMethod("getMatchedRules"),
+        isRegexSupported: declarativeNetRequestMethod("isRegexSupported"),
+        setExtensionActionOptions: declarativeNetRequestMethod("setExtensionActionOptions"),
+        MAX_NUMBER_OF_STATIC_RULESETS: 100,
+        MAX_NUMBER_OF_ENABLED_STATIC_RULESETS: 50,
+        MAX_NUMBER_OF_DYNAMIC_AND_SESSION_RULES: 30000,
+    };
+
+    // The action count a displayActionCountAsBadgeText extension shows: the badge of its toolbar items in the
+    // active browser window, for that window's active tab, which the router finds as the tab shown in the
+    // frontmost window. Safari adds `safari` to the page after this script runs, so it is looked up when a
+    // count changes, and from then on the badges follow Safari's window and tab activations too.
+    let badgesFollowActivation = false;
+    const updateBadges = countChanged => {
+        const application = typeof safari === "object" && safari ? safari.application : undefined;
+        const toolbarItems = typeof safari === "object" && safari && safari.extension ? safari.extension.toolbarItems : undefined;
+        if (!application || !toolbarItems)
+            return;
+        if (!badgesFollowActivation) {
+            badgesFollowActivation = true;
+            application.addEventListener("activate", () => updateBadges(false), true);
+        }
+        // When the extension stops displaying counts, every counted tab's count changes to 0, which clears
+        // the badge; an extension that does not display them keeps its badge to itself.
+        const setBadges = badge => {
+            for (const item of toolbarItems) {
+                if (item.browserWindow === application.activeBrowserWindow)
+                    item.badge = badge;
+            }
+        };
+        callRouter("declarativeNetRequest.activeTabActionCount").then(({ displaying, count }) => {
+            if (!displaying) {
+                if (countChanged)
+                    setBadges(0);
+                return;
+            }
+            if (count !== undefined)
+                setBadges(count);
+        }, () => { });
+    };
+    actionCountChanged = () => updateBadges(true);
+
     // navigator.clipboard: an extension's page writes and reads the general pasteboard whenever it asks, as a
     // WebExtension's pages with the clipboard permissions do. WebKit 1 extension views allow writes through
     // their preferences; a page in a web content process writes with its page's clipboard access granted for
@@ -693,6 +747,10 @@ function receiverTable() {
                 send({ t: "result", callId, error: "Cannot access the contents of an extension page." });
             },
             event({ name, args, token }) {
+                if (name === "declarativeNetRequest.actionCount") {
+                    actionCountChanged();
+                    return;
+                }
                 const event = trackedEvents.get(name);
                 if (name.startsWith("webRequest.")) {
                     const dispatch = event ? dispatchWebRequestEvent(event, args[0]) : Promise.resolve({});

@@ -2397,3 +2397,63 @@ WK_POLYFILL_ABSENT("Security", OSStatus, SSLSetALPNProtocols, (SSLContextRef con
     (void)context; (void)protocols;
     return errSecUnimplemented;
 }
+
+// SecCodeValidateFileResource checks one file's data against the seal the code's signature holds for its
+// path relative to the code's resource root, as the signature seals it. 10.9 returns the sealed resource directory in
+// SecCodeCopySigningInformation's internal information only once it matches the hash the signed code
+// directory holds for it.
+// A seal is the file's SHA-1 as data, or a dictionary with its SHA-1 `hash` and SHA-256 `hash2`, read by the
+// code directory's digest algorithm; a symbolic link's or nested code's seal holds no file digest.
+extern const CFStringRef kSecCodeInfoResourceDirectory;
+
+static bool wk_digestMatches(CFTypeRef expected, CFDataRef data, bool sha256)
+{
+    if (!expected || CFGetTypeID(expected) != CFDataGetTypeID())
+        return false;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CFIndex length = sha256 ? CC_SHA256_DIGEST_LENGTH : CC_SHA1_DIGEST_LENGTH;
+    if (sha256)
+        CC_SHA256(CFDataGetBytePtr(data), (CC_LONG)CFDataGetLength(data), digest);
+    else
+        CC_SHA1(CFDataGetBytePtr(data), (CC_LONG)CFDataGetLength(data), digest);
+    return CFDataGetLength(expected) == length && !memcmp(CFDataGetBytePtr(expected), digest, (size_t)length);
+}
+
+WK_POLYFILL_ABSENT("Security", OSStatus, SecCodeValidateFileResource, (SecStaticCodeRef code, CFStringRef relativePath, CFDataRef fileData, SecCSFlags flags))
+{
+    if (flags)
+        return errSecCSInvalidFlags;
+    if (!code || !relativePath || !fileData)
+        return errSecCSObjectRequired;
+    CFDictionaryRef information = NULL;
+    OSStatus status = SecCodeCopySigningInformation(code, kSecCSInternalInformation | kSecCSSigningInformation, &information);
+    if (status != errSecSuccess)
+        return status;
+    CFDictionaryRef directory = information ? CFDictionaryGetValue(information, kSecCodeInfoResourceDirectory) : NULL;
+    CFDictionaryRef files = NULL;
+    if (directory && CFGetTypeID(directory) == CFDictionaryGetTypeID()) {
+        files = CFDictionaryGetValue(directory, CFSTR("files2"));
+        if (!files)
+            files = CFDictionaryGetValue(directory, CFSTR("files"));
+    }
+    if (!files || CFGetTypeID(files) != CFDictionaryGetTypeID()) {
+        if (information)
+            CFRelease(information);
+        // Validation says why: a resource directory that failed, or none sealed.
+        status = SecStaticCodeCheckValidity(code, kSecCSDoNotValidateExecutable, NULL);
+        return status != errSecSuccess ? status : errSecCSResourcesNotFound;
+    }
+    int digestAlgorithm = kSecCodeSignatureHashSHA1;
+    CFNumberRef algorithm = CFDictionaryGetValue(information, kSecCodeInfoDigestAlgorithm);
+    if (algorithm && CFGetTypeID(algorithm) == CFNumberGetTypeID())
+        CFNumberGetValue(algorithm, kCFNumberIntType, &digestAlgorithm);
+    bool sha256 = digestAlgorithm == kSecCodeSignatureHashSHA256;
+    CFTypeRef seal = CFDictionaryGetValue(files, relativePath);
+    bool matches = false;
+    if (seal && CFGetTypeID(seal) == CFDataGetTypeID())
+        matches = !sha256 && wk_digestMatches(seal, fileData, false);
+    else if (seal && CFGetTypeID(seal) == CFDictionaryGetTypeID())
+        matches = wk_digestMatches(CFDictionaryGetValue(seal, sha256 ? CFSTR("hash2") : CFSTR("hash")), fileData, sha256);
+    CFRelease(information);
+    return matches ? errSecSuccess : errSecCSBadResource;
+}

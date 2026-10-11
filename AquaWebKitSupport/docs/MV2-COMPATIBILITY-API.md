@@ -14,6 +14,7 @@ Sources:
 | UI-process router | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionHost.{h,cpp}` |
 | Web-content side | `AquaWebKitSupport/source/WebKit/WebProcess/LegacyExtensions/LegacyExtensionContent.{h,cpp}` |
 | Network side (webRequest) | `AquaWebKitSupport/source/WebKit/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.{h,cpp}` |
+| declarativeNetRequest | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionDeclarativeNetRequest.{h,mm}`, on WebKit's own implementation in `Source/WebKit/UIProcess/Extensions/` |
 | Clipboard | writes: `WebLegacyExtensionPageObserver.mm` (WebKit 1 preferences) and `LegacyExtensionContent.cpp` (web content pages); reads: `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm` |
 | WebKit 1 page hooks | `AquaWebKitSupport/source/WebKitLegacy/mac/LegacyExtensions/WebLegacyExtensionPageObserver.mm` |
 | Root-relative URLs | `AquaWebKitSupport/source/WTF/wtf/LegacyExtensionURL.{h,cpp}` |
@@ -36,6 +37,7 @@ The API is installed in two kinds of context, and the namespaces available depen
 | `browser.webNavigation` | yes | no |
 | `browser.webRequest` | yes | no |
 | `browser.cookies` | yes | no |
+| `browser.declarativeNetRequest` | yes | no |
 | `navigator.clipboard` without the page's restrictions | yes | no (page rules apply) |
 
 `browser` is a writable, configurable, non-enumerable property of the global object. There is no `chrome` alias.
@@ -313,6 +315,44 @@ The test rig's `display-or-download.safariextension` exercises each of these.
 
 Empties the in-memory caches of the Safari process and of every web content process, so resources held there reach `webRequest` again. `MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES` is `20`. Calls beyond it still empty the caches, as Chrome's do.
 
+## `browser.declarativeNetRequest` (host contexts only)
+
+WebKit's own declarativeNetRequest, the one it gives a WebExtension: rules are validated, stored, and translated to a WebKit content rule list by WebKit's implementation, and the content rule list engine applies them to every load of every tab. The rule format, priorities, limits, and error messages are that implementation's ([Chrome's documentation](https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest) describes the format).
+
+| Member | |
+| --- | --- |
+| `updateDynamicRules({ addRules, removeRuleIds })`, `getDynamicRules({ ruleIds })` | Rules that persist across launches, in `~/Library/WebKit/<app>/WebExtensions/Default/<extension key>/`. |
+| `updateSessionRules({ addRules, removeRuleIds })`, `getSessionRules({ ruleIds })` | Rules that last while the extension is loaded. |
+| `updateEnabledRulesets({ enableRulesetIds, disableRulesetIds })`, `getEnabledRulesets()` | The static rulesets (below) that apply. The choice persists. |
+| `getMatchedRules({ tabId, minTimeStamp })` | `{ rulesMatchedInfo: [{ request: { url }, timeStamp, tabId }] }` for the last five minutes' loads within the extension's website access that matched its rules. |
+| `isRegexSupported({ regex, isCaseSensitive, requireCapturing })` | `{ isSupported }`, with `reason: "syntaxError"` when the content rule list engine cannot compile the expression. |
+| `setExtensionActionOptions({ displayActionCountAsBadgeText, tabUpdate: { tabId, increment } })` | The count of the loads that matched the extension's rules since the tab's page committed, on the badge of the extension's toolbar items (below). |
+| `MAX_NUMBER_OF_STATIC_RULESETS`, `MAX_NUMBER_OF_ENABLED_STATIC_RULESETS`, `MAX_NUMBER_OF_DYNAMIC_AND_SESSION_RULES` | 100, 50, 30000. |
+
+An invalid argument or rule rejects the call's Promise with WebKit's message for it, as `"Invalid call to declarativeNetRequest.updateDynamicRules(). The 'addRules' value is invalid, because an error with rule at index 0: …"`.
+
+**Static rulesets** are declared in Info.plist under the key a WebExtension manifest uses, with its keys:
+
+```xml
+<key>declarative_net_request</key>
+<dict>
+    <key>rule_resources</key>
+    <array>
+        <dict>
+            <key>id</key><string>ruleset_1</string>
+            <key>enabled</key><true/>
+            <key>path</key><string>rules_1.json</string>
+        </dict>
+    </array>
+</dict>
+```
+
+Each `path` names a rules file in the extension, relative to its root. Like every file in a Safari 7 extension, it needs a file extension (see [Packaging notes](#packaging-notes-for-safari-7)).
+
+**Which loads and when.** An extension's rules apply to every tab's loads, including private windows', from when its first page loads (its global page, at Safari's launch) until none of its pages is open, as when Safari disables or reloads it. Its session rules last as long; a page reloading itself keeps them. They do not apply to the loads of the extension's own WebKit 1 views. `block`, `allow`, `allowAllRequests`, and `upgradeScheme` rules act on any URL. `redirect` and `modifyHeaders` rules act only on URLs within the extension's website access, as a WebExtension's need host permissions for them. A `redirect` to an `extensionPath` goes to the extension's file of that path.
+
+**The badge.** With `displayActionCountAsBadgeText`, the badge of the extension's toolbar items in Safari's active browser window (its frontmost) shows the count for that window's active tab, and follows it as windows and tabs are activated, whether or not Safari is the active application. An extension that does not ask for it keeps its badge to itself.
+
 ## `browser.cookies` (host contexts only)
 
 Cookies of the sites the extension's website access covers: the `Website Access` of its `Info.plist` `Permissions`, which Safari 7 also applies to its content scripts. Safari's process reads it when the extension's first page appears, and applies it to the cookies it answers with and acts on, to `onChanged`, and to `webRequest`. `Level` `All` covers every site, `Some` the `Allowed Domains` (a host, or `*.host` for the host and its subdomains), and `None` no site. Secure pages count only with `Include Secure Pages`. A cookie's site is its domain, over `https` for a secure cookie.
@@ -384,4 +424,4 @@ Safari 7's extension resource protocol has limits that apply to every file in th
 
 ## Testing
 
-`AquaWebKitSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844), `limited-access.safariextension`, whose website access is `localhost` alone, and `display-or-download.safariextension`, which decides whether the server's `/inline/` responses display or download: open `/inline/login`, then `/inline/doc.pdf` (its viewer shows `window.__result`), `/inline/data.bin` and `/inline/force-download.html`, and the `/plain/` paths of the same names, which no extension changes. `/plain/clip.mp4` and `/plain/server-inline.mp4` (the server's own `Content-Disposition: inline`) download unless `WebKitPlayMediaFilesInline` is on. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
+`AquaWebKitSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844), `limited-access.safariextension`, whose website access is `localhost` alone, `declarative-net-request.safariextension`, whose rules act on the loads of `pages/dnr.html` (results in `window.__results`; the extension reports its API calls to the server log as `dnr-api`), and `display-or-download.safariextension`, which decides whether the server's `/inline/` responses display or download: open `/inline/login`, then `/inline/doc.pdf` (its viewer shows `window.__result`), `/inline/data.bin` and `/inline/force-download.html`, and the `/plain/` paths of the same names, which no extension changes. `/plain/clip.mp4` and `/plain/server-inline.mp4` (the server's own `Content-Disposition: inline`) download unless `WebKitPlayMediaFilesInline` is on. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.

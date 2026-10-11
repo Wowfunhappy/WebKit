@@ -3,6 +3,7 @@
 
 #include "LegacyExtensionClipboard.h"
 #include "LegacyExtensionContentMessages.h"
+#include "LegacyExtensionDeclarativeNetRequest.h"
 #include "LegacyExtensionErrors.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionInfoPlist.h"
@@ -13,6 +14,9 @@
 #include "LegacyExtensionNetworkProxyMessages.h"
 #include "APIHTTPCookieStore.h"
 #include "APINavigation.h"
+#include "APINavigationClient.h"
+#include "APIPageConfiguration.h"
+#include "APIWebsitePolicies.h"
 #include "FrameTreeNodeData.h"
 #include "NetworkProcessProxy.h"
 #include "PageLoadState.h"
@@ -23,16 +27,20 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include "WebUserContentControllerProxy.h"
 #include "WebsiteDataStore.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/WeakInlines.h>
+#include <WebCore/ContentRuleListResults.h>
 #include <WebCore/Cookie.h>
 #include <WebCore/MemoryCache.h>
 #include <WebCore/ResourceRequest.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
+#include <wtf/Scope.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/MakeString.h>
 #include <cmath>
@@ -465,10 +473,18 @@ void LegacyExtensionHost::networkProcessCreated(NetworkProcessProxy& networkProc
 
 void LegacyExtensionHost::didClearWindowObject(const void* frame, JSC::JSGlobalObject& globalObject, const URL& documentURL)
 {
+    String previousExtensionKey;
     if (auto identifier = m_hostContextByFrame.take(frame)) {
-        if (auto context = m_hostContexts.take(identifier))
-            hostContextDidGoAway(*context);
+        if (auto context = m_hostContexts.take(identifier)) {
+            previousExtensionKey = context->extensionKey;
+            hostContextDidGoAway(*context, ContextIsReplaced::Yes);
+        }
     }
+    // A reloaded page's extension stays loaded.
+    auto unloadPreviousExtensionIfUnused = makeScopeExit([&] {
+        if (!previousExtensionKey.isNull())
+            unloadExtensionIfUnused(previousExtensionKey);
+    });
 
     auto extensionKey = extensionKeyForURL(documentURL);
     if (extensionKey.isEmpty())
@@ -506,7 +522,7 @@ void LegacyExtensionHost::postFromHostContext(uint64_t hostContextIdentifier, co
     route(Endpoint { context, std::nullopt }, context->extensionKey, message);
 }
 
-void LegacyExtensionHost::hostContextDidGoAway(HostContext& context)
+void LegacyExtensionHost::hostContextDidGoAway(HostContext& context, ContextIsReplaced isReplaced)
 {
     bool hadNetworkInterests = false;
     for (auto& name : context.interests.keys()) {
@@ -532,6 +548,19 @@ void LegacyExtensionHost::hostContextDidGoAway(HostContext& context)
         updateNetworkListeners();
     if (!m_cookieObservers.isEmpty())
         updateCookieObservers();
+    if (isReplaced == ContextIsReplaced::No)
+        unloadExtensionIfUnused(context.extensionKey);
+}
+
+// An extension is loaded while any of its pages is: the global page, bars and popovers Safari keeps while it is
+// enabled, and its pages in tabs.
+void LegacyExtensionHost::unloadExtensionIfUnused(const String& extensionKey)
+{
+    for (auto& context : m_hostContexts.values()) {
+        if (context->extensionKey == extensionKey)
+            return;
+    }
+    extensionDidUnload(extensionKey);
 }
 
 // Content contexts.
@@ -565,7 +594,7 @@ RefPtr<LegacyExtensionHost::HostContext> LegacyExtensionHost::extensionPageConte
             }
             m_hostContextByRemoteFrame.remove(frame.frameID());
             m_hostContexts.remove(identifier);
-            hostContextDidGoAway(*context);
+            hostContextDidGoAway(*context, ContextIsReplaced::Yes);
         }
     }
     Ref context = HostContext::create();
@@ -1024,6 +1053,45 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
+    // For the toolbar badges of an extension that displays action counts: `displaying`, whether it does, and
+    // `count`, that of the active tab of the frontmost browser window (Safari 7's activeBrowserWindow), absent
+    // when no window shows a tab.
+    if (method == "declarativeNetRequest.activeTabActionCount"_s) {
+        RefPtr declarativeNetRequest = m_declarativeNetRequests.get(context.extensionKey);
+        Vector<Ref<WebPageProxy>> pages;
+        for (auto identifier : tabObservers().keys()) {
+            if (RefPtr page = WebProcessProxy::webPage(identifier))
+                pages.append(page.releaseNonNull());
+        }
+        RefPtr activeTab = LegacyExtensionDeclarativeNetRequest::activeTabOfFrontmostWindow(pages);
+        auto count = declarativeNetRequest && activeTab ? declarativeNetRequest->actionCountForTab(tabIDForPage(*activeTab)) : std::nullopt;
+        auto answer = JSON::Object::create();
+        answer->setBoolean("displaying"_s, declarativeNetRequest && declarativeNetRequest->displaysActionCount());
+        if (count)
+            answer->setDouble("count"_s, *count);
+        resultToHostContext(context, callID, WTF::move(answer));
+        return;
+    }
+
+    // declarativeNetRequest, once the extension's Info.plist is read.
+    if (method.startsWith("declarativeNetRequest."_s)) {
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, method = method.substring(22), callArgument = argument(0)](const LegacyExtensions::WebsiteAccess&) mutable {
+            RefPtr declarativeNetRequest = m_declarativeNetRequests.get(context->extensionKey);
+            if (!m_hostContexts.contains(context->identifier) || !declarativeNetRequest)
+                return;
+            declarativeNetRequest->performCall(method, WTF::move(callArgument), [](double tabID) {
+                return !!pageForTabID(tabID);
+            }, [this, context, callID](LegacyExtensionDeclarativeNetRequest::CallResult&& result) {
+                if (!m_hostContexts.contains(context->identifier))
+                    return;
+                if (!result)
+                    return resultToHostContext(context, callID, nullptr, result.error());
+                resultToHostContext(context, callID, WTF::move(result.value()));
+            });
+        });
+        return;
+    }
+
     // navigator.clipboard.readText(), for an extension's pages.
     if (method == "clipboard.readText"_s) {
         auto text = LegacyExtensions::readClipboardText();
@@ -1348,19 +1416,97 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
     if (!root.isValid() || m_websiteAccessRoots.get(extensionKey) == root)
         return;
     m_websiteAccessRoots.set(extensionKey, root);
+    if (RefPtr declarativeNetRequest = m_declarativeNetRequests.take(extensionKey))
+        declarativeNetRequest->unload();
     // Until the new access is read, the network ends hold the extension's blocking events for the router.
     if (m_websiteAccess.remove(extensionKey))
         updateNetworkListeners();
     m_websiteAccessWaiters.ensure(extensionKey, [] { return Vector<Function<void(const LegacyExtensions::WebsiteAccess&)>> { }; });
-    LegacyExtensions::loadWebsiteAccess(root, [this, extensionKey, root](LegacyExtensions::WebsiteAccess&& access) {
+    LegacyExtensions::loadInfoPlist(root, [this, extensionKey, root](LegacyExtensions::InfoPlist&& infoPlist) {
         if (m_websiteAccessRoots.get(extensionKey) != root)
             return;
-        m_websiteAccess.set(extensionKey, WTF::move(access));
+        m_websiteAccess.set(extensionKey, WTF::move(infoPlist.websiteAccess));
         auto& loaded = m_websiteAccess.find(extensionKey)->value;
+        loadDeclarativeNetRequest(extensionKey, root, WTF::move(infoPlist.declarativeNetRequest), loaded);
         for (auto& waiter : m_websiteAccessWaiters.take(extensionKey))
             waiter(loaded);
         updateNetworkListeners();
     });
+}
+
+void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
+{
+    m_websiteAccessRoots.remove(extensionKey);
+    m_websiteAccessWaiters.remove(extensionKey);
+    if (m_websiteAccess.remove(extensionKey))
+        updateNetworkListeners();
+    RefPtr declarativeNetRequest = m_declarativeNetRequests.take(extensionKey);
+    if (!declarativeNetRequest)
+        return;
+    declarativeNetRequest->unload();
+    for (auto identifier : tabObservers().keys()) {
+        if (RefPtr page = WebProcessProxy::webPage(identifier))
+            updateContentRuleListActionPatterns(*page);
+    }
+}
+
+// declarativeNetRequest. Each loaded extension's rule list is in every page's user content controller, and
+// its website access is where its redirect and modifyHeaders rules act, as a WebExtension's host permissions
+// are for its declarativeNetRequestWithHostAccess rules.
+
+Vector<Ref<WebUserContentControllerProxy>> LegacyExtensionHost::userContentControllers() const
+{
+    Vector<Ref<WebUserContentControllerProxy>> controllers;
+    for (auto identifier : tabObservers().keys()) {
+        RefPtr page = WebProcessProxy::webPage(identifier);
+        if (!page)
+            continue;
+        Ref controller = page->userContentController();
+        if (!controllers.containsIf([&](auto& other) { return other.ptr() == controller.ptr(); }))
+            controllers.append(WTF::move(controller));
+    }
+    return controllers;
+}
+
+void LegacyExtensionHost::updateContentRuleListActionPatterns(WebPageProxy& page)
+{
+    HashMap<String, Vector<String>> patterns;
+    for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
+        patterns.set(declarativeNetRequest->extensionKey(), declarativeNetRequest->actionPatterns());
+    page.configuration().defaultWebsitePolicies().setActiveContentRuleListActionPatterns(WTF::move(patterns));
+}
+
+void LegacyExtensionHost::loadDeclarativeNetRequest(const String& extensionKey, const URL& root, RefPtr<JSON::Object>&& declarativeNetRequestEntry, const LegacyExtensions::WebsiteAccess& websiteAccess)
+{
+    Ref declarativeNetRequest = LegacyExtensionDeclarativeNetRequest::create(extensionKey, root, WTF::move(declarativeNetRequestEntry), websiteAccess);
+    declarativeNetRequest->setActionCountObserver([this, extensionKey](double tabID, double count) {
+        auto arguments = JSON::Array::create();
+        arguments->pushDouble(tabID);
+        arguments->pushDouble(count);
+        auto event = JSON::Object::create();
+        event->setString("t"_s, "event"_s);
+        event->setString("name"_s, "declarativeNetRequest.actionCount"_s);
+        event->setArray("args"_s, WTF::move(arguments));
+        auto message = event->toJSONString();
+        for (auto& context : m_hostContexts.values()) {
+            if (context->extensionKey == extensionKey && context->frame)
+                deliver(Endpoint { context.ptr(), std::nullopt }, extensionKey, message);
+        }
+    });
+    m_declarativeNetRequests.set(extensionKey, declarativeNetRequest.copyRef());
+    for (auto identifier : tabObservers().keys()) {
+        if (RefPtr page = WebProcessProxy::webPage(identifier))
+            updateContentRuleListActionPatterns(*page);
+    }
+    declarativeNetRequest->load();
+}
+
+void LegacyExtensionHost::contentRuleListNotification(WebPageProxy& page, const URL& url, const WebCore::ContentRuleListResults& results)
+{
+    for (auto& result : results.results) {
+        if (RefPtr declarativeNetRequest = m_declarativeNetRequests.get(result.first))
+            declarativeNetRequest->handleContentRuleListNotificationForTab(tabIDForPage(page), url);
+    }
 }
 
 void LegacyExtensionHost::withWebsiteAccess(const String& extensionKey, Function<void(const LegacyExtensions::WebsiteAccess&)>&& function)
@@ -1390,8 +1536,19 @@ void LegacyExtensionHost::dispatchEvent(const String& eventName, Ref<JSON::Array
         deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message);
 }
 
+// The navigation client of the C API pages Safari 7 creates, which install none: it reports the content rule
+// lists a load matched, as a WebExtension browser's navigation delegate does.
+class LegacyExtensionNavigationClient final : public API::NavigationClient {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(LegacyExtensionNavigationClient);
+    void contentRuleListNotification(WebPageProxy& page, URL&& url, WebCore::ContentRuleListResults&& results) final
+    {
+        LegacyExtensionHost::singleton().contentRuleListNotification(page, url, results);
+    }
+};
+
 void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
 {
+    page.setNavigationClient(makeUniqueRef<LegacyExtensionNavigationClient>());
     auto observer = LegacyExtensionTabObserver::create(page, [](WebPageProxy& page, Ref<JSON::Object>&& changeInfo) {
         auto& host = LegacyExtensionHost::singleton();
         auto arguments = JSON::Array::create();
@@ -1401,7 +1558,15 @@ void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
         host.dispatchEvent("tabs.onUpdated"_s, WTF::move(arguments));
     });
     page.pageLoadState().addObserver(observer.get());
+    bool controllerHasRules = userContentControllers().containsIf([&](auto& controller) {
+        return controller.ptr() == &page.userContentController();
+    });
     tabObservers().set(page.identifier(), WTF::move(observer));
+    updateContentRuleListActionPatterns(page);
+    if (!controllerHasRules) {
+        for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
+            declarativeNetRequest->addDeclarativeNetRequestRules(page.userContentController());
+    }
 
     auto arguments = JSON::Array::create();
     arguments->pushObject(tabDescription(page));
@@ -1414,6 +1579,8 @@ void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
 {
     if (auto observer = tabObservers().take(page.identifier()))
         page.pageLoadState().removeObserver(*observer);
+    for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
+        declarativeNetRequest->tabWasRemoved(tabIDForPage(page));
 
     Vector<WebCore::FrameIdentifier> frameIDs;
     if (RefPtr mainFrame = page.mainFrame()) {
@@ -1446,6 +1613,12 @@ static Ref<JSON::Object> navigationDetails(WebPageProxy& page, WebFrameProxy& fr
 
 void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, API::Navigation* navigation, WebCore::FrameLoadType loadType, const URL& url)
 {
+    // A tab's declarativeNetRequest action count is its current page's.
+    if (frame.isMainFrame()) {
+        for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
+            declarativeNetRequest->resetActionCount(tabIDForPage(page));
+    }
+
     // The frame's subframes, and every context of the frame's other documents, are gone.
     Vector<WebCore::FrameIdentifier> subframeIDs;
     forEachFrame(frame, [&](auto& subframe) {
@@ -1462,9 +1635,14 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
     if (auto identifier = m_hostContextByRemoteFrame.get(frame.frameID())) {
         RefPtr context = m_hostContexts.get(identifier);
         if (context && context->documentID != documentID) {
-            m_hostContextByRemoteFrame.remove(frame.frameID());
-            m_hostContexts.remove(identifier);
-            hostContextDidGoAway(*context);
+            // Another page of the same extension takes over the frame's context, so the extension stays loaded.
+            if (extensionKeyForURL(url) == context->extensionKey)
+                extensionPageContext(frame, documentID, url, context->extensionKey);
+            else {
+                m_hostContextByRemoteFrame.remove(frame.frameID());
+                m_hostContexts.remove(identifier);
+                hostContextDidGoAway(*context);
+            }
         }
     }
 

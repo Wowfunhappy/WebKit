@@ -32,6 +32,7 @@ class JSGlobalObject;
 
 namespace WebCore {
 class ResourceError;
+struct ContentRuleListResults;
 struct Cookie;
 }
 
@@ -42,11 +43,13 @@ class Navigation;
 namespace WebKit {
 
 class LegacyExtensionCookieObserver;
+class LegacyExtensionDeclarativeNetRequest;
 class NetworkProcessProxy;
 class WebBackForwardListItem;
 class WebFrameProxy;
 class WebPageProxy;
 class WebProcessProxy;
+class WebUserContentControllerProxy;
 
 class LegacyExtensionNetworkProxy final : public IPC::MessageReceiver {
 public:
@@ -86,6 +89,11 @@ public:
     // An event whose details already name the load's tab and frames as the API reports them.
     void dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&&);
     void dispatchCookieChange(const WebCore::Cookie&, Ref<JSON::Array>&&);
+
+    // declarativeNetRequest: the controllers of the pages extensions' rules apply to, and the rule lists a
+    // page's load matched.
+    Vector<Ref<WebUserContentControllerProxy>> userContentControllers() const;
+    void contentRuleListNotification(WebPageProxy&, const URL&, const WebCore::ContentRuleListResults&);
 
     // WebKit 1 host contexts.
     void didClearWindowObject(const void* frame, JSC::JSGlobalObject&, const URL& documentURL);
@@ -170,7 +178,10 @@ private:
     Ref<JSON::Object> senderDescription(const Endpoint&) const;
     void endpointDidGoAway(const Endpoint&);
     void endpointsDidGoAway(NOESCAPE const Function<bool(const Endpoint&)>&);
-    void hostContextDidGoAway(HostContext&);
+    // A context its frame's next document replaces leaves the extension loaded.
+    enum class ContextIsReplaced : bool { No, Yes };
+    void hostContextDidGoAway(HostContext&, ContextIsReplaced = ContextIsReplaced::No);
+    void unloadExtensionIfUnused(const String& extensionKey);
     void framesDidGoAway(const Vector<WebCore::FrameIdentifier>&);
     void finishRouterCallIfComplete(uint64_t);
     void finishWebRequestCallIfComplete(uint64_t);
@@ -178,6 +189,9 @@ private:
     void updateNetworkListeners();
     void updateCookieObservers();
     void loadWebsiteAccess(const String& extensionKey, const URL&);
+    void loadDeclarativeNetRequest(const String& extensionKey, const URL& root, RefPtr<JSON::Object>&& declarativeNetRequestEntry, const LegacyExtensions::WebsiteAccess&);
+    void updateContentRuleListActionPatterns(WebPageProxy&);
+    void extensionDidUnload(const String& extensionKey);
     void withWebsiteAccess(const String& extensionKey, Function<void(const LegacyExtensions::WebsiteAccess&)>&&);
     void sendNetworkListeners(NetworkProcessProxy&);
 
@@ -209,6 +223,7 @@ private:
     HashMap<String, LegacyExtensions::WebsiteAccess> m_websiteAccess;
     HashMap<String, URL> m_websiteAccessRoots;
     HashMap<String, Vector<Function<void(const LegacyExtensions::WebsiteAccess&)>>> m_websiteAccessWaiters;
+    HashMap<String, Ref<LegacyExtensionDeclarativeNetRequest>> m_declarativeNetRequests;
 };
 
 } // namespace WebKit
