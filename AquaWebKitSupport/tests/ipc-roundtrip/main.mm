@@ -1,7 +1,8 @@
 #include "config.h"
 #include "ArgumentCodersCocoa.h"
+#include "CoreIPCDDScannerResult.h"
+#include "CoreIPCDDSecureActionContext.h"
 #include "CoreIPCNSURLRequest.h"
-#include "CoreIPCSecureCoding.h"
 #include "Decoder.h"
 #include "Encoder.h"
 #include "GeneratedSerializers.h"
@@ -16,6 +17,7 @@
 #import <AppKit/AppKit.h>
 #include <pal/spi/cocoa/DataDetectorsCoreSPI.h>
 #include <pal/spi/mac/DataDetectorsSPI.h>
+#include <pal/mac/DataDetectorsSoftLink.h>
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
 #include <objc/message.h>
@@ -30,8 +32,23 @@
 - (void)setPreventsIdleSystemSleep:(BOOL)value;
 @end
 
+@interface DDScannerResult (RoundTrip)
+- (NSDictionary *)wk__webKitPropertyListData;
+- (instancetype)wk__initWithWebKitPropertyListData:(NSDictionary *)propertyList;
+@end
+
 @interface DDActionContext (NativeRoundTrip)
 @property BOOL isRightClick;
+@property NSRect aimFrame;
+@property (copy) NSString *eventTitle;
+@property (copy) NSDate *referenceDate;
+@property (copy) NSString *authorUUID;
+@property (copy) NSString *authorName;
+@property (copy) NSString *authorEmailAddress;
+@property (copy) NSURL *URL;
+@property (copy) NSString *matchedString;
+@property (copy) NSString *selectionString;
+- (NSDictionary *)wk__webKitPropertyListData;
 @end
 
 static constexpr auto message = IPC::MessageName::AuthenticationManager_CompleteAuthenticationChallenge;
@@ -97,6 +114,61 @@ template<typename T> static RetainPtr<T> roundTrip(T *object)
     RELEASE_ASSERT(result && *result && decoder->isValid());
     RELEASE_ASSERT([result->get() isKindOfClass:IPC::getClass<T>()]);
     return WTF::move(*result);
+}
+
+template<typename Wrapper> static RetainPtr<id> wrapperRoundTrip(id object)
+{
+    Wrapper wrapped(object);
+    IPC::Encoder encoder(message, 23);
+    encoder << wrapped;
+    auto decoder = IPC::Decoder::create(encoder.span(), encoder.releaseAttachments());
+    RELEASE_ASSERT(decoder && decoder->messageName() == message && decoder->destinationID() == 23);
+    auto decoded = decoder->template decode<Wrapper>();
+    RELEASE_ASSERT(decoded && decoder->isValid());
+    return decoded->toID();
+}
+
+// Every field of the two results' property lists matches, subresults compared the same way; returns the
+// number of results compared.
+static unsigned assertSameResult(DDScannerResult *before, DDScannerResult *after)
+{
+    RELEASE_ASSERT([after isKindOfClass:NSClassFromString(@"DDScannerResult")]);
+    NSDictionary *beforeList = [before wk__webKitPropertyListData];
+    NSDictionary *afterList = [after wk__webKitPropertyListData];
+    RELEASE_ASSERT(beforeList[@"AR"] && beforeList[@"T"] && beforeList.count == afterList.count);
+    for (NSString *key in beforeList) {
+        if (![key isEqualToString:@"SR"])
+            RELEASE_ASSERT([beforeList[key] isEqual:afterList[key]]);
+    }
+    NSArray *beforeSubresults = beforeList[@"SR"];
+    NSArray *afterSubresults = afterList[@"SR"];
+    RELEASE_ASSERT(beforeSubresults.count == afterSubresults.count);
+    unsigned compared = 1;
+    for (NSUInteger i = 0; i < beforeSubresults.count; ++i)
+        compared += assertSameResult(beforeSubresults[i], afterSubresults[i]);
+    return compared;
+}
+
+static void assertSameContext(WKDDActionContext *before, WKDDActionContext *after)
+{
+    RELEASE_ASSERT([after class] == [before class]);
+    NSDictionary *beforeList = [before wk__webKitPropertyListData];
+    NSDictionary *afterList = [after wk__webKitPropertyListData];
+    RELEASE_ASSERT(beforeList.count == afterList.count);
+    for (NSString *key in beforeList) {
+        if (![key isEqualToString:@"allResults"] && ![key isEqualToString:@"mainResult"])
+            RELEASE_ASSERT([beforeList[key] isEqual:afterList[key]]);
+    }
+    NSArray *beforeResults = beforeList[@"allResults"];
+    NSArray *afterResults = afterList[@"allResults"];
+    RELEASE_ASSERT(beforeResults.count == afterResults.count);
+    for (NSUInteger i = 0; i < beforeResults.count; ++i)
+        assertSameResult(beforeResults[i], afterResults[i]);
+    RELEASE_ASSERT(!beforeList[@"mainResult"] == !afterList[@"mainResult"]);
+    if (beforeList[@"mainResult"])
+        assertSameResult(beforeList[@"mainResult"], afterList[@"mainResult"]);
+    RELEASE_ASSERT(NSEqualRects(before.highlightFrame, after.highlightFrame) && NSEqualRects(before.aimFrame, after.aimFrame));
+    RELEASE_ASSERT(before.immediate == after.immediate && before.isRightClick == after.isRightClick);
 }
 
 static RetainPtr<id> objectGraphRoundTrip(id root)
@@ -182,7 +254,7 @@ int main()
         auto getRange = (decltype(&DDResultGetRange))dlsym(core, "DDResultGetRange");
         auto getType = (decltype(&DDResultGetType))dlsym(core, "DDResultGetType");
         RELEASE_ASSERT(createScanner && createQuery && scan && copyResults && getRange && getType);
-        NSString *text = @"Call +1 (408) 555-1234 or visit https://www.apple.com/";
+        NSString *text = @"Meet at 1 Infinite Loop, Cupertino, CA 95014 on Friday, March 6 at 4 PM, call +1 (408) 555-1234 or visit https://www.apple.com/";
         auto scanner = adoptCF(createScanner(DDScannerType1, 0, nullptr));
         auto query = adoptCF(createQuery(nullptr, (__bridge CFStringRef)text, CFRangeMake(0, text.length)));
         RELEASE_ASSERT(scanner && query && scan(scanner.get(), query.get()));
@@ -191,41 +263,49 @@ int main()
         Class scannerClass = NSClassFromString(@"DDScannerResult");
         NSArray *results = [scannerClass resultsFromCoreResults:coreResults.get()];
         RELEASE_ASSERT(results.count);
+        unsigned compared = 0;
         for (DDScannerResult *result in results) {
             auto decoded = roundTrip(result);
             RELEASE_ASSERT(CFEqual(getType(result.coreResult), getType(decoded.get().coreResult)));
             CFRange before = getRange(result.coreResult), after = getRange(decoded.get().coreResult);
             RELEASE_ASSERT(before.location == after.location && before.length == after.length);
+            compared += assertSameResult(result, decoded.get());
+            compared += assertSameResult(result, wrapperRoundTrip<WebKit::CoreIPCDDScannerResult>(result).get());
         }
-        printf("PASS DDScannerResult IPC: %lu native scan results\n", (unsigned long)results.count);
-        IPC::Encoder wrongClassEncoder(message, 19);
-        wrongClassEncoder << retainPtr((DDScannerResult *)results[0]);
-        auto wrongClassDecoder = IPC::Decoder::create(wrongClassEncoder.span(), wrongClassEncoder.releaseAttachments());
-        RELEASE_ASSERT(wrongClassDecoder && wrongClassDecoder->messageName() == message);
-        auto present = wrongClassDecoder->decode<bool>();
-        RELEASE_ASSERT(present && *present);
-        auto rejected = wrongClassDecoder->decodeWithAllowedClasses<DDScannerResult>({ IPC::getClass<WKDDActionContext>() });
-        RELEASE_ASSERT(!rejected || !*rejected);
-        puts("PASS Data Detectors rejects a mismatched root-class allowlist");
-        IPC::Encoder scalarEncoder(message, 19);
-        scalarEncoder << true << std::optional(WebKit::CoreIPCSecureCoding(@42));
-        auto scalarDecoder = IPC::Decoder::create(scalarEncoder.span(), scalarEncoder.releaseAttachments());
-        RELEASE_ASSERT(scalarDecoder && scalarDecoder->messageName() == message);
-        RELEASE_ASSERT(!scalarDecoder->decode<RetainPtr<DDScannerResult>>());
-        puts("PASS Data Detectors rejects an implicitly allowed NSNumber root");
-        auto context = adoptNS([(DDActionContext *)[NSClassFromString(@"DDActionContext") alloc] init]);
+        // A result whose subresults are the scanned ones, built through the property-list initializer.
+        NSDictionary *parentList = @{ @"AR": [NSValue valueWithRange:NSMakeRange(0, text.length)], @"MS": text, @"T": @"Parent", @"SR": results };
+        RetainPtr<DDScannerResult> parent = adoptNS((DDScannerResult *)[[scannerClass alloc] wk__initWithWebKitPropertyListData:parentList]);
+        RELEASE_ASSERT(parent && [[parent.get() wk__webKitPropertyListData][@"SR"] count] == results.count);
+        unsigned nested = assertSameResult(parent.get(), roundTrip(parent.get()).get());
+        nested += assertSameResult(parent.get(), wrapperRoundTrip<WebKit::CoreIPCDDScannerResult>(parent.get()).get());
+        RELEASE_ASSERT(nested == 2 * (1 + results.count));
+        printf("PASS DDScannerResult IPC: %lu native scan results and a result nesting them, %u results compared field by field\n",
+            (unsigned long)results.count, compared + nested);
+        Class nativeContext = NSClassFromString(@"DDActionContext");
+        RELEASE_ASSERT(![nativeContext conformsToProtocol:@protocol(NSSecureCoding)]);
+        RetainPtr<WKDDActionContext> context = adoptNS([PAL::allocWKDDActionContextInstance() init]);
+        RELEASE_ASSERT([context class] == IPC::getClass<WKDDActionContext>() && [context class] != nativeContext);
         [context setHighlightFrame:NSMakeRect(10, 20, 30, 40)];
+        [context setAimFrame:NSMakeRect(1, 2, 3, 4)];
+        [context setEventTitle:@"Lunch"];
+        [context setReferenceDate:[NSDate dateWithTimeIntervalSinceReferenceDate:400000000]];
+        [context setAuthorUUID:@"5D7A3C1E-0000-4000-8000-000000000001:ABPerson"];
+        [context setAuthorName:@"Author Name"];
+        [context setAuthorEmailAddress:@"author@example.test"];
+        [context setURL:[NSURL URLWithString:@"https://context.test/page"]];
+        [context setMatchedString:@"1 Infinite Loop"];
+        [context setSelectionString:@"selection"];
         [context setAllResults:(__bridge NSArray *)coreResults.get()];
         [context setMainResult:(DDResultRef)CFArrayGetValueAtIndex(coreResults.get(), 0)];
         [context setImmediate:YES];
         [context setIsRightClick:YES];
-        auto back = roundTrip(context.get());
-        RELEASE_ASSERT(NSEqualRects(context.get().highlightFrame, back.get().highlightFrame));
-        RELEASE_ASSERT(context.get().immediate == back.get().immediate);
-        RELEASE_ASSERT(context.get().isRightClick == back.get().isRightClick);
-        RELEASE_ASSERT(context.get().allResults.count == back.get().allResults.count);
-        RELEASE_ASSERT(CFEqual(getType(context.get().mainResult), getType(back.get().mainResult)));
-        puts("PASS DDActionContext IPC: frame, mode, results and main result");
+        RELEASE_ASSERT([[context wk__webKitPropertyListData] count] == 14);
+        assertSameContext(context.get(), roundTrip(context.get()).get());
+        assertSameContext(context.get(), wrapperRoundTrip<WebKit::CoreIPCDDSecureActionContext>(context.get()).get());
+        auto copy = adoptNS([context copy]);
+        RELEASE_ASSERT([copy class] == [context class]);
+        assertSameContext((WKDDActionContext *)copy.get(), roundTrip((WKDDActionContext *)copy.get()).get());
+        puts("PASS DDSecureActionContext IPC: all 14 native fields, results and main result, and of a copy");
     }
     for (unsigned attempt = 0; attempt < 2; ++attempt) {
         @autoreleasepool {

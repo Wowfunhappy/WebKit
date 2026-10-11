@@ -78,9 +78,7 @@
 #import <pal/cocoa/WebContentAnalysisSoftLink.h>
 #endif
 
-// AQUAWEBKIT: Data Detectors uses the native secure archiver independently of NSURLRequest's property-list coder.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 
 @interface WKSecureCodingArchivingDelegate : NSObject <NSKeyedArchiverDelegate, NSKeyedUnarchiverDelegate>
 @property (nonatomic, assign) BOOL rewriteMutableArray;
@@ -442,9 +440,7 @@ bool isSerializableValue(id value)
 
 #pragma mark - id <NSSecureCoding>
 
-// AQUAWEBKIT: The generic secure coder also serves the native Data Detectors classes.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 
 template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder, NSObject<NSSecureCoding> *object)
 {

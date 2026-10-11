@@ -157,9 +157,7 @@ public:
     template<typename T, typename = IsObjCObject<T>>
     std::optional<RetainPtr<T>> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses = { getClass<T>() })
     {
-// AQUAWEBKIT: Data Detectors needs the decoder's class allowlist independently of NSURLRequest.
-// #if HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if HAVE(WK_SECURE_CODING_NSURLREQUEST) && (!ENABLE(DATA_DETECTION) || HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if HAVE(WK_SECURE_CODING_NSURLREQUEST)
         UNUSED_PARAM(allowedClasses);
 #else
         m_allowedClasses = allowedClasses;
@@ -170,9 +168,7 @@ public:
     template<typename T, typename = IsNotObjCObject<T>>
     std::optional<T> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses)
     {
-// AQUAWEBKIT: Data Detectors needs the decoder's class allowlist independently of NSURLRequest.
-// #if HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if HAVE(WK_SECURE_CODING_NSURLREQUEST) && (!ENABLE(DATA_DETECTION) || HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if HAVE(WK_SECURE_CODING_NSURLREQUEST)
         UNUSED_PARAM(allowedClasses);
 #else
         m_allowedClasses = allowedClasses;
@@ -180,9 +176,7 @@ public:
         return decode<T>();
     }
 
-// AQUAWEBKIT: Data Detectors needs the decoder's class allowlist independently of NSURLRequest.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
     AllowedClassHashSet& allowedClasses() LIFETIME_BOUND { return m_allowedClasses; }
 #endif // !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 #endif // __OBJC__
@@ -208,9 +202,7 @@ private:
 #if PLATFORM(MAC)
     ImportanceAssertion m_importanceAssertion;
 #endif
-// AQUAWEBKIT: Store allowed classes whenever the native secure coder is available.
-// #if PLATFORM(COCOA) && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if PLATFORM(COCOA) && (!HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS)))
+#if PLATFORM(COCOA) && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
     AllowedClassHashSet m_allowedClasses;
 #endif
 

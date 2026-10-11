@@ -1,10 +1,17 @@
+// DataDetectors: DDSecureActionContext, the NSSecureCoding subclass of DDActionContext that WebKit
+// soft-links (HAVE(SECURE_ACTION_CONTEXT)) and sends across IPC. 10.9's DDActionContext implements only
+// NSCoding, and its secure-coding counterpart does not exist.
+//
+// DataDetectors is not linked into this dylib, so the class is built at first ask over the runtime's
+// DDActionContext (WK_POLYFILL_CLASS_RESOLVED; PAL soft-links the framework before the class). It adds
+// no instance variables: its archive is the native one, written by the inherited -encodeWithCoder:.
+
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
-#include <dlfcn.h>
-#include <mach-o/dyld_images.h>
-#include <pthread.h>
+#include <dispatch/dispatch.h>
 #include <string.h>
-#include "wk_symbols.h"
+#include "wk_priv_class.h"
 
 @interface NSDictionary (WKDDResultCoding)
 - (CFTypeRef)dd_createResult CF_RETURNS_RETAINED;
@@ -82,7 +89,7 @@ static void wk_validateDDResult(id root)
     }
 }
 
-static IMP wk_originalDDInitWithCoder;
+static Class wk_DDActionContext;
 static struct {
     const char *key;
     const char *ivarName;
@@ -113,10 +120,15 @@ static void wk_DDRetainObject(id object, Ivar ivar, id value)
     [old release];
 }
 
+// A coder that does not require secure coding gets DDActionContext's own decoder. A secure one gets the
+// native archive's fields decoded by type, each set the way the native decoder sets it: decoded objects
+// retained, results rebuilt from their dictionaries once the whole result tree is validated.
 static id wk_DDInitWithCoder(id self, SEL selector, NSCoder *coder)
 {
-    if (!coder.requiresSecureCoding)
-        return ((id (*)(id, SEL, NSCoder *))wk_originalDDInitWithCoder)(self, selector, coder);
+    if (!coder.requiresSecureCoding) {
+        struct objc_super superclass = { self, wk_DDActionContext };
+        return ((id (*)(struct objc_super *, SEL, NSCoder *))objc_msgSendSuper)(&superclass, selector, coder);
+    }
     self = [self init];
     if (!self)
         return nil;
@@ -125,7 +137,6 @@ static id wk_DDInitWithCoder(id self, SEL selector, NSCoder *coder)
         NSRect aim = [coder decodeRectForKey:@"aimFrame"];
         wk_DDSetValue(self, wk_DDHighlightFrame, &highlight, sizeof(highlight));
         wk_DDSetValue(self, wk_DDAimFrame, &aim, sizeof(aim));
-        // Native initWithCoder: retains decoded objects; the public property setters copy them.
         for (size_t i = 0; i < sizeof(wk_DDObjectFields) / sizeof(wk_DDObjectFields[0]); ++i) {
             Class cls = objc_getClass(wk_DDObjectFields[i].className);
             id value = [coder decodeObjectOfClass:cls forKey:[NSString stringWithUTF8String:wk_DDObjectFields[i].key]];
@@ -171,6 +182,16 @@ static id wk_DDInitWithCoder(id self, SEL selector, NSCoder *coder)
     }
 }
 
+// DDActionContext's copy is allocated as a DDActionContext; a copy of this class is one of this class.
+static id wk_DDCopyWithZone(id self, SEL selector, NSZone *zone)
+{
+    struct objc_super superclass = { self, wk_DDActionContext };
+    id copy = ((id (*)(struct objc_super *, SEL, NSZone *))objc_msgSendSuper)(&superclass, selector, zone);
+    if (copy && object_getClass(copy) == wk_DDActionContext)
+        object_setClass(copy, [self class]);
+    return copy;
+}
+
 static BOOL wk_DDSupportsSecureCoding(id self, SEL selector)
 {
     (void)self;
@@ -178,71 +199,34 @@ static BOOL wk_DDSupportsSecureCoding(id self, SEL selector)
     return YES;
 }
 
-static Ivar wk_DDIvar(Class cls, const char *name, const char *type, NSUInteger expectedSize)
+WK_POLYFILL_CLASS_RESOLVED("DataDetectors", DDSecureActionContext, wk_resolveDDSecureActionContext);
+static void *wk_resolveDDSecureActionContext(void)
 {
-    Ivar ivar = class_getInstanceVariable(cls, name);
-    if (!ivar || strncmp(ivar_getTypeEncoding(ivar), type, strlen(type)))
-        wk_patch_fail("DDActionContext", "native archive field layout differs");
-    NSUInteger size = 0;
-    NSGetSizeAndAlignment(ivar_getTypeEncoding(ivar), &size, NULL);
-    if (size != expectedSize)
-        wk_patch_fail("DDActionContext", "native archive field size differs");
-    return ivar;
-}
-
-static void wk_installDDSecureCoding(void)
-{
-    Class cls = objc_getClass("DDActionContext");
-    if (!cls)
-        return;
-    @synchronized (cls) {
-        Protocol *protocol = objc_getProtocol("NSSecureCoding");
-        if (class_conformsToProtocol(cls, protocol))
-            return;
-        Method method = class_getInstanceMethod(cls, @selector(initWithCoder:));
-        if (!class_getInstanceMethod(NSDictionary.class, @selector(dd_createResult)))
-            wk_patch_fail("DDActionContext", "native archive schema is absent");
+    static Class secureContext;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class context = objc_getClass("DDActionContext");
         for (size_t i = 0; i < sizeof(wk_DDObjectFields) / sizeof(wk_DDObjectFields[0]); ++i)
-            wk_DDObjectFields[i].ivar = wk_DDIvar(cls, wk_DDObjectFields[i].ivarName, "@", sizeof(id));
-        wk_DDHighlightFrame = wk_DDIvar(cls, "_highlightFrame", "{CGRect=", sizeof(NSRect));
-        wk_DDAimFrame = wk_DDIvar(cls, "_aimFrame", "{CGRect=", sizeof(NSRect));
-        wk_DDImmediate = wk_DDIvar(cls, "_immediate", @encode(BOOL), sizeof(BOOL));
-        wk_DDRightClick = wk_DDIvar(cls, "_isRightClick", @encode(BOOL), sizeof(BOOL));
-        wk_DDAllResults = wk_DDIvar(cls, "_allResults", "@", sizeof(id));
-        wk_DDMainResult = wk_DDIvar(cls, "_mainResult", "^{__DDResult=", sizeof(CFTypeRef));
-        wk_originalDDInitWithCoder = method_getImplementation(method);
-        // Foundation sends these raw selectors, including for native copyWithZone: results.
-        class_replaceMethod(cls, @selector(initWithCoder:), (IMP)wk_DDInitWithCoder, method_getTypeEncoding(method));
-        class_replaceMethod(object_getClass(cls), @selector(supportsSecureCoding), (IMP)wk_DDSupportsSecureCoding, "c@:");
-        class_addProtocol(cls, protocol);
-    }
-}
-
-static const char *wk_DDImageInitializing(uint32_t state, uint32_t count, const struct dyld_image_info *images)
-{
-    (void)state;
-    (void)count;
-    (void)images;
-    wk_installDDSecureCoding();
-    return NULL;
-}
-
-static void wk_watchDDImages(void)
-{
-    typedef void (*RegisterHandler)(uint32_t, bool, const char *(*)(uint32_t, uint32_t, const struct dyld_image_info *));
-    RegisterHandler registerHandler = (RegisterHandler)dlsym(RTLD_DEFAULT, "dyld_register_image_state_change_handler");
-    // State 45 follows Objective-C class registration and precedes image initializers.
-    registerHandler(45, false, wk_DDImageInitializing);
-    wk_installDDSecureCoding();
-}
-
-void wk_initializeDDSecureCoding(void)
-{
-    static pthread_once_t once = PTHREAD_ONCE_INIT;
-    pthread_once(&once, wk_watchDDImages);
-}
-
-__attribute__((constructor)) static void wk_initializeDataDetectorsCompatibility(void)
-{
-    wk_initializeDDSecureCoding();
+            wk_DDObjectFields[i].ivar = class_getInstanceVariable(context, wk_DDObjectFields[i].ivarName);
+        wk_DDHighlightFrame = class_getInstanceVariable(context, "_highlightFrame");
+        wk_DDAimFrame = class_getInstanceVariable(context, "_aimFrame");
+        wk_DDImmediate = class_getInstanceVariable(context, "_immediate");
+        wk_DDRightClick = class_getInstanceVariable(context, "_isRightClick");
+        wk_DDAllResults = class_getInstanceVariable(context, "_allResults");
+        wk_DDMainResult = class_getInstanceVariable(context, "_mainResult");
+        wk_DDActionContext = context;
+        Class cls = objc_allocateClassPair(context, "WKPolyfillPriv_DDSecureActionContext", 0);
+        // class_addMethod's prototype takes IMP, so the method implementations reach it through the
+        // cast the runtime's own headers require; the diagnostic stays armed everywhere else.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
+        class_addMethod(cls, @selector(initWithCoder:), (IMP)wk_DDInitWithCoder, "@@:@");
+        class_addMethod(cls, @selector(copyWithZone:), (IMP)wk_DDCopyWithZone, "@@:^{_NSZone=}");
+        class_addMethod(object_getClass(cls), @selector(supportsSecureCoding), (IMP)wk_DDSupportsSecureCoding, "c@:");
+#pragma clang diagnostic pop
+        class_addProtocol(cls, @protocol(NSSecureCoding));
+        objc_registerClassPair(cls);
+        secureContext = cls;
+    });
+    return secureContext;
 }

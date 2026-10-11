@@ -273,11 +273,7 @@ static void *wkResolveAVCapturePhotoOutput(void)
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         Class stillImageOutput = NSClassFromString(@"AVCaptureStillImageOutput");
-        if (!stillImageOutput)
-            return;     // AVFoundation is not in this process, so nothing can be asking for a capture
         Class cls = objc_allocateClassPair(stillImageOutput, "WKPolyfillPriv_AVCapturePhotoOutput", 0);
-        if (!cls)
-            return;
         // class_addMethod's prototype takes IMP, so the method implementation reaches it through the
         // cast the runtime's own headers require; the diagnostic stays armed everywhere else.
 #pragma clang diagnostic push

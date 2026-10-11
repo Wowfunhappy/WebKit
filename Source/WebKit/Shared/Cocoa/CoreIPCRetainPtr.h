@@ -27,9 +27,7 @@
 
 #include <wtf/RetainPtr.h>
 
-// AQUAWEBKIT: Data Detectors retains the native secure-coding payload wrapper.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 namespace IPC {
 
 template<typename T>

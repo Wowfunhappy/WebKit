@@ -1,9 +1,13 @@
+// DDSecureActionContext (polyfills/classes/DataDetectors.m), found by name the way PAL soft-links it:
+// the framework is opened first, then objc_getClass is answered out of __wk_clsmap. This program links
+// libpolyfill.a for that objc_getClass and libpolyfill_classes.dylib for the class.
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #include <dlfcn.h>
 #include <stdio.h>
 
-extern void wk_initializeDDSecureCoding(void);
+static Class secureContextClass;
+
 @interface NSObject (DDTest)
 - (void)setHighlightFrame:(NSRect)value;
 - (void)setAimFrame:(NSRect)value;
@@ -59,7 +63,7 @@ static NSDictionary *fields(id object)
 @end
 @implementation ArchiveFixture
 + (BOOL)supportsSecureCoding { return YES; }
-- (Class)classForKeyedArchiver { return NSClassFromString(@"DDActionContext"); }
+- (Class)classForKeyedArchiver { return secureContextClass; }
 - (id)initWithCoder:(NSCoder *)coder { (void)coder; return [self init]; }
 - (void)encodeWithCoder:(NSCoder *)coder
 {
@@ -88,7 +92,7 @@ static id roundTrip(id object, BOOL secure)
     [archiver finishEncoding];
     NSKeyedUnarchiver *unarchiver = [[[NSKeyedUnarchiver alloc] initForReadingWithData:data] autorelease];
     unarchiver.requiresSecureCoding = secure;
-    id result = secure ? [unarchiver decodeObjectOfClass:NSClassFromString(@"DDActionContext") forKey:@"root"]
+    id result = secure ? [unarchiver decodeObjectOfClass:secureContextClass forKey:@"root"]
         : [unarchiver decodeObjectForKey:@"root"];
     [unarchiver finishDecoding];
     return result;
@@ -112,11 +116,17 @@ static void reject(NSDictionary *dictionary, const char *name)
 int main(void)
 {
     @autoreleasepool {
-        wk_initializeDDSecureCoding();
         check(dlopen("/System/Library/PrivateFrameworks/DataDetectors.framework/DataDetectors", RTLD_LAZY) != NULL,
-            "load native framework after initializer");
-        Class cls = NSClassFromString(@"DDActionContext");
-        check([cls conformsToProtocol:@protocol(NSSecureCoding)] && [cls supportsSecureCoding], "native class supports secure coding");
+            "load native framework");
+        Class native = NSClassFromString(@"DDActionContext");
+        Class cls = objc_getClass("DDSecureActionContext");
+        secureContextClass = cls;
+        check(cls && class_getSuperclass(cls) == native, "DDSecureActionContext subclasses DDActionContext");
+        check([cls conformsToProtocol:@protocol(NSSecureCoding)] && [cls supportsSecureCoding], "subclass supports secure coding");
+        check(![native conformsToProtocol:@protocol(NSSecureCoding)]
+            && (![native respondsToSelector:@selector(supportsSecureCoding)] || ![native supportsSecureCoding]),
+            "native DDActionContext is left without secure coding");
+        check(!NSClassFromString(@"DDSecureActionContext"), "system name stays free outside WebKit's lookup");
         id context = [[[cls alloc] init] autorelease];
         [context setHighlightFrame:NSMakeRect(1, 2, 30, 40)];
         [context setAimFrame:NSMakeRect(-1, 20, 3, 4)];
@@ -142,10 +152,12 @@ int main(void)
         check(before.count == 14, "exercise all fourteen native archive fields");
         id decoded = roundTrip(context, YES);
         check([fields(decoded) isEqual:before], "all fields and nested results survive secure archive");
-        check([decoded class] == cls, "decoded object retains native class");
+        check([decoded class] == cls, "decoded object is a DDSecureActionContext");
         id copy = [[context copy] autorelease];
-        check([copy class] == cls && [fields(roundTrip(copy, YES)) isEqual:fields(copy)], "native copy remains securely archivable");
-        check([fields(roundTrip(context, NO)) isEqual:before], "ordinary NSCoding preserves native decoder behavior");
+        check([copy class] == cls && [fields(copy) isEqual:before], "copy is a DDSecureActionContext with every field");
+        check([fields(roundTrip(copy, YES)) isEqual:fields(copy)], "copy remains securely archivable");
+        id ordinary = roundTrip(context, NO);
+        check([ordinary class] == cls && [fields(ordinary) isEqual:before], "ordinary NSCoding decodes through the native decoder");
         id empty = roundTrip([[[cls alloc] init] autorelease], YES);
         check(empty && ![empty mainResult] && [empty allResults] && ![empty allResults].count, "nil/default fields decode to native defaults");
         check(decodeFields(@{@"mainResult":@{}}) != nil, "missing result range and type retain native defaults");

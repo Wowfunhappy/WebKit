@@ -1269,18 +1269,14 @@
 #endif
 #endif
 
-/* AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #if PLATFORM(MAC) \
     || PLATFORM(IOS) || PLATFORM(MACCATALYST) \
     || PLATFORM(VISION)
-*/
-#if !defined(HAVE_SECURE_ACTION_CONTEXT) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 // Only used inside ENABLE(DATA_DETECTION)
 #define HAVE_SECURE_ACTION_CONTEXT 1
 #endif
 
-// #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
-#if !defined(HAVE_WK_SECURE_CODING_DATA_DETECTORS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)) // AQUAWEBKIT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 // Only used inside ENABLE(DATA_DETECTION)
 #define HAVE_WK_SECURE_CODING_DATA_DETECTORS 1
 #endif

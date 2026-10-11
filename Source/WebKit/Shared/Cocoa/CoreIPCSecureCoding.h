@@ -51,9 +51,7 @@ void applyProcessCreationParameters(AuxiliaryProcessCreationParameters&&);
 
 #ifdef __OBJC__
 
-// AQUAWEBKIT: Data Detectors needs the generic secure coder independently of NSURLRequest.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 class CoreIPCSecureCoding {
 WTF_MAKE_TZONE_ALLOCATED(CoreIPCSecureCoding);
 public:

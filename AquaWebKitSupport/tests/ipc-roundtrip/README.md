@@ -19,6 +19,8 @@ empty cross-site URL and absent site states through mutable and immutable POST r
 WebCore::FormData and are absent from these fixtures. The direct property-list queries use the
 polyfill's scoped selector; the framework's real IPC coder calls it through its normal selector mapping.
 
-Data Detectors coverage scans native results, round-trips DDScannerResult and DDActionContext,
-and verifies rejection of mismatched DD classes and an implicitly allowed NSNumber root. All decoders validate the asynchronous
-message header and destination ID before reading the payload.
+Data Detectors coverage scans native results, nests them as the subresults of a result built from its property list, and
+round-trips them through CoreIPCDDScannerResult,
+and a DDSecureActionContext carrying every native field (and a copy of one) through CoreIPCDDSecureActionContext, each
+both as the object and as the wrapper, comparing the WebKit property lists field by field. All decoders validate the
+asynchronous message header and destination ID before reading the payload.

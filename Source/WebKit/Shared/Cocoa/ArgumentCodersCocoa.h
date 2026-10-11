@@ -223,9 +223,7 @@ template<typename T> struct ArgumentCoder<T *> {
     }
 };
 
-// AQUAWEBKIT: Data Detectors retains the native secure-coding payload wrapper.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 template<typename T> struct ArgumentCoder<CoreIPCRetainPtr<T>> {
     template<typename U = T>
     static void encode(Encoder& encoder, const CoreIPCRetainPtr<U>& object)

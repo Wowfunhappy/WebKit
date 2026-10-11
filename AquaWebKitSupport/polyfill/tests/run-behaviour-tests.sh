@@ -501,7 +501,7 @@ probe_session_invalidation() {
 
 probe_dd_secure_coding() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dd_secure_coding" "$TBEHAV/DataDetectors-secure-coding.m" \
-        $PROBE_LIBS && "$T/dd_secure_coding"
+        -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS && "$T/dd_secure_coding"
 }
 
 probe_keyed_coding() {

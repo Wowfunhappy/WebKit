@@ -81,9 +81,7 @@ void applyProcessCreationParameters(AuxiliaryProcessCreationParameters&& paramet
 
 } // namespace SecureCoding
 
-// AQUAWEBKIT: Data Detectors needs the generic secure coder independently of NSURLRequest.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCSecureCoding);
 #endif
 
@@ -93,9 +91,7 @@ bool conformsToWebKitSecureCoding(id object)
         && [object respondsToSelector:@selector(_initWithWebKitPropertyListData:)];
 }
 
-// AQUAWEBKIT: Data Detectors needs the generic secure coder independently of NSURLRequest.
-// #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST) || (ENABLE(DATA_DETECTION) && !HAVE(WK_SECURE_CODING_DATA_DETECTORS))
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 [[noreturn]] static void crashWithClassName(Class objectClass)
 {
     WebKit::logAndSetCrashLogMessage("NSSecureCoding path used for unexpected object"_s);
@@ -117,9 +113,7 @@ CoreIPCSecureCoding::CoreIPCSecureCoding(id object)
     if (exemptClassNames->contains(NSStringFromClass([object class])))
         return;
 
-    // AQUAWEBKIT: Qualify the secure coder helper in unified Objective-C++ translation units.
-    // crashWithClassName([object class]);
-    WebKit::crashWithClassName([object class]);
+    crashWithClassName([object class]);
 }
 #endif
 
