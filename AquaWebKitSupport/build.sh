@@ -245,40 +245,14 @@ if [ -n "$_waited_configure" ]; then
     fi
 fi
 
-# --- Polyfill archives (not in the ninja graph) ----------------------------------------------
-# The archives are force-loaded through raw -Wl,-force_load flags ninja does not track, so they are
-# rebuilt here every time and, when an archive's bytes change (llvm-ar is deterministic), the
-# binaries that consume it are removed so ninja relinks them:
-#   libpolyfill.a, libwk_marker.a  -> all four frameworks (WEBKIT_FRAMEWORK in WebKitMacros.cmake)
-#   libpolyfill_methods.a          -> WebCore          libwtf_compat.a -> JavaScriptCore
-#   libpolyfill_webkit.a           -> WebKit
-POLY_OUT="$ROOT/AquaWebKitSupport/polyfill/build"
-poly_hash() { shasum -a 256 "$POLY_OUT/$1" 2>/dev/null | awk '{print $1}'; }
-PRE_ALL="$(poly_hash libpolyfill.a)$(poly_hash libwk_marker.a)"
-PRE_WEBCORE="$(poly_hash libpolyfill_methods.a)"
-PRE_JSC="$(poly_hash libwtf_compat.a)"
-PRE_WEBKIT="$(poly_hash libpolyfill_webkit.a)"
+# --- Polyfill archives -----------------------------------------------------------------------
+# build-polyfill.sh rewrites an archive only when its bytes change; each one is a LINK_DEPENDS of the
+# frameworks that force-load it, so ninja relinks exactly those.
 echo "### building polyfill archives (AquaWebKitSupport/polyfill/build-polyfill.sh)"
 # $LOG already holds this run's cmake configure output, so the failure path below reads only
 # the lines this build appends.
 _polyfrom=$(( $(wc -l < "$LOG") + 1 ))
-if bash "$ROOT/AquaWebKitSupport/polyfill/build-polyfill.sh"; then
-    RELINK=""
-    if [ "$PRE_ALL" != "$(poly_hash libpolyfill.a)$(poly_hash libwk_marker.a)" ]; then
-        RELINK="JavaScriptCore WebCore WebKit WebKitLegacy"
-    else
-        [ "$PRE_WEBCORE" != "$(poly_hash libpolyfill_methods.a)" ] && RELINK="$RELINK WebCore"
-        [ "$PRE_JSC" != "$(poly_hash libwtf_compat.a)" ] && RELINK="$RELINK JavaScriptCore"
-        [ "$PRE_WEBKIT" != "$(poly_hash libpolyfill_webkit.a)" ] && RELINK="$RELINK WebKit"
-    fi
-    if [ -n "$RELINK" ]; then
-        echo "###   polyfill archives changed -> forcing relink:$RELINK"
-        for fw in $RELINK; do rm -f "$BUILD/lib/$fw.framework/Versions/A/$fw"; done
-    else
-        echo "###   polyfill unchanged"
-    fi
-else
-    # A stale archive would link a call site against an old selector map and crash at runtime.
+if ! bash "$ROOT/AquaWebKitSupport/polyfill/build-polyfill.sh"; then
     echo "==================== POLYFILL BUILD FAILED — ABORTING (would link a STALE polyfill) ===================="
     _polyerrors="$(tail -n +$_polyfrom "$LOG" | grep -nE "error:|warning:.*wk_|undefined" | head -20)"
     printf '%s\n' "$_polyerrors"
