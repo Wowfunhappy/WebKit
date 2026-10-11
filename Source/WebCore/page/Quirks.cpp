@@ -2113,6 +2113,17 @@ std::optional<String> Quirks::needsCustomUserAgentOverride(const URL& url, const
         auto baseUA = currentUserAgent.isEmpty() ? standardUserAgentWithApplicationName(applicationNameForUserAgent) : currentUserAgent;
         return makeStringByReplacingAll(baseUA, "like Gecko"_s, "like Gecko, like Chrome/149."_s);
     }
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+    // AQUAWEBKIT: this port's EME implements com.widevine.alpha (Google's Widevine CDM, as Mozilla
+    // distributes it for Firefox), not com.apple.fps. These sites serve Widevine only to a non-Safari user agent.
+    if (domainString == "cbs.com"_s || domainString == "cnn.com"_s || domainString == "disneyplus.com"_s
+        || domainString == "hbomax.com"_s || domainString == "netflix.com"_s || domainString == "pbs.org"_s
+        || domainString == "primevideo.com"_s || host == "therokuchannel.roku.com"_s)
+        return firefoxUserAgent;
+    if (isProbablyRegistrableDomainForBrand(hostDomain, "amazon"_s) && url.path().startsWith("/gp/video/"_s))
+        return firefoxUserAgent;
+#endif // AQUAWEBKIT: closes the Widevine user agent overrides above.
 #else
     UNUSED_PARAM(applicationNameForUserAgent);
     UNUSED_PARAM(currentUserAgent);
