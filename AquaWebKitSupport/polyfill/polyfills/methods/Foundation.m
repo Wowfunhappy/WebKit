@@ -186,7 +186,8 @@ static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id);
 @end
 
 typedef struct OpaqueCFHTTPCookie *CFHTTPCookieRef;
-typedef CFArrayRef (*wk_cookieCopyAll)(CFHTTPCookieStorageRef);
+extern CFArrayRef CFHTTPCookieStorageCopyCookies(CFHTTPCookieStorageRef);
+extern CFStringRef CFHTTPCookieCopyDomain(CFHTTPCookieRef);
 
 @interface NSHTTPCookie (WKCFHTTPCookieBridge)
 + (NSHTTPCookie *)cookieWithCFHTTPCookie:(CFHTTPCookieRef)cookie;
@@ -194,27 +195,24 @@ typedef CFArrayRef (*wk_cookieCopyAll)(CFHTTPCookieStorageRef);
 
 // The cookies stored under any of |cookieDomains|, each Domain field compared as a whole string. The jar is
 // read whole: 10.9's per-domain query, CFHTTPCookieStorageCopyCookiesMatching, is not safe while other
-// threads use the storage. Resolved with dlsym, not declared extern: the function is in 10.9's CFNetwork but
-// not in the 26.1 SDK's stub library, so a link-time reference fails to build even though the call works.
+// threads use the storage. A cookie's Domain is read from the stored cookie, and only a cookie in
+// |cookieDomains| is wrapped.
 static NSMutableArray<NSHTTPCookie *> *wk_cookiesStoredInDomains(CFHTTPCookieStorageRef storage, NSSet<NSString *> *cookieDomains)
 {
-    static wk_cookieCopyAll copyAll;
-    static bool resolved;
-    if (!resolved) {
-        copyAll = (wk_cookieCopyAll)dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCopyCookies");
-        resolved = true;
-    }
     NSMutableArray<NSHTTPCookie *> *result = [NSMutableArray array];
-    if (!storage || !copyAll || !cookieDomains.count)
+    if (!storage || !cookieDomains.count)
         return result;
-    CFArrayRef stored = copyAll(storage);
+    CFArrayRef stored = CFHTTPCookieStorageCopyCookies(storage);
     if (!stored)
         return result;
     for (CFIndex i = 0, count = CFArrayGetCount(stored); i < count; ++i) {
-        NSHTTPCookie *cookie = [NSHTTPCookie cookieWithCFHTTPCookie:(CFHTTPCookieRef)CFArrayGetValueAtIndex(stored, i)];
-        NSString *domain = cookie.domain.lowercaseString;
+        CFHTTPCookieRef storedCookie = (CFHTTPCookieRef)CFArrayGetValueAtIndex(stored, i);
+        CFStringRef storedDomain = CFHTTPCookieCopyDomain(storedCookie);
+        NSString *domain = [(NSString *)storedDomain lowercaseString];
+        if (storedDomain)
+            CFRelease(storedDomain);
         if (domain && [cookieDomains containsObject:domain])
-            [result addObject:cookie];
+            [result addObject:[NSHTTPCookie cookieWithCFHTTPCookie:storedCookie]];
     }
     CFRelease(stored);
     return result;
@@ -261,6 +259,36 @@ typedef void (^WKCookiesRemovedHandler)(NSArray<NSHTTPCookie *> *, NSString *, b
 static NSArray *wk_cookieIndexKey(NSHTTPCookie *cookie)
 {
     return @[cookie.name, cookie.domain.lowercaseString, cookie.path, [cookie _storagePartition] ?: @""];
+}
+
+// An index over wk_cookieIndexKey. An NSArray hashes to its count, which every such key shares, so the
+// index hashes the key's components instead.
+static CFHashCode wk_cookieIndexKeyHash(const void *key)
+{
+    CFHashCode hash = 0;
+    for (id component in (NSArray *)key)
+        hash = hash * 31 + [component hash];
+    return hash;
+}
+
+// A cookie's properties, kept with the cookie: an NSHTTPCookie never changes, and a subscription compares
+// each cookie it holds against the storage on every refresh.
+static NSDictionary *wk_cookieProperties(NSHTTPCookie *cookie)
+{
+    static char key;
+    NSDictionary *properties = objc_getAssociatedObject(cookie, &key);
+    if (!properties) {
+        properties = cookie.properties;
+        objc_setAssociatedObject(cookie, &key, properties, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return properties;
+}
+
+static NSMutableDictionary *wk_cookieIndex(void)
+{
+    CFDictionaryKeyCallBacks keyCallBacks = kCFTypeDictionaryKeyCallBacks;
+    keyCallBacks.hash = wk_cookieIndexKeyHash;
+    return [(NSMutableDictionary *)CFDictionaryCreateMutable(NULL, 0, &keyCallBacks, &kCFTypeDictionaryValueCallBacks) autorelease];
 }
 
 static NSArray<NSHTTPCookie *> *wk_cookiesACandidateWouldOverlay(NSHTTPCookieStorage *, NSHTTPCookie *, NSURL *);
@@ -318,7 +346,7 @@ static void wk_watchSharedCookieJarDirectory(void)
 // The unexpired cookies stored under |cookieDomains|, each Domain string read by an exact match.
 - (NSMutableDictionary *)storage:(CFHTTPCookieStorageRef)storage visibleCookiesInDomains:(NSSet<NSString *> *)cookieDomains
 {
-    NSMutableDictionary *index = [NSMutableDictionary dictionary];
+    NSMutableDictionary *index = wk_cookieIndex();
     NSDate *now = [NSDate date];
     for (NSHTTPCookie *candidate in wk_cookiesStoredInDomains(storage, cookieDomains)) {
         NSDate *expires = candidate.expiresDate;
@@ -390,7 +418,7 @@ static void wk_watchSharedCookieJarDirectory(void)
     for (NSArray *key in current) {
         NSHTTPCookie *now = current[key];
         NSHTTPCookie *old = _visible[key];
-        if (!old || ![now.properties isEqual:old.properties])
+        if (!old || ![wk_cookieProperties(now) isEqual:wk_cookieProperties(old)])
             [added addObject:now];
         // A visible cookie overwritten by HttpOnly leaves the script-visible cookie set.
         if (old && !old.HTTPOnly && now.HTTPOnly)
@@ -434,7 +462,7 @@ static void wk_watchSharedCookieJarDirectory(void)
         }
         NSHTTPCookie *old = _visible[key];
         if (now) {
-            if (!old || ![now.properties isEqual:old.properties])
+            if (!old || ![wk_cookieProperties(now) isEqual:wk_cookieProperties(old)])
                 [added addObject:now];
             if (old && !old.HTTPOnly && now.HTTPOnly)
                 [removed addObject:old];
