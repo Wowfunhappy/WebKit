@@ -80,6 +80,8 @@ public:
     void registerSession(const String& sessionID, CDMInstanceSessionWidevine&);
     void unregisterSession(const String& sessionID);
     void registerCreateInFlight(uint32_t promiseID, CDMInstanceSessionWidevine&);
+    void registerSessionPromise(uint32_t promiseID, CDMInstanceSessionWidevine&);
+    void unregisterSessionPromise(uint32_t promiseID);
 
     // WidevineCdmClient holds a weak reference, which WTF requires to be backed by a
     // countable one; this instance is already reference counted as a CDMInstance.
@@ -101,7 +103,9 @@ private:
     void cdmSessionKeyStatusesChanged(const String& sessionID, Vector<WidevineKeyStatus>&&) final;
     void cdmSessionExpirationChanged(const String& sessionID, double) final;
     void cdmSessionClosed(const String& sessionID) final;
-    void cdmSessionFailed(uint32_t promiseID, const String& sessionID) final;
+    void cdmInitialized(bool success) final;
+    void cdmPromiseResolved(uint32_t promiseID) final;
+    void cdmPromiseRejected(uint32_t promiseID) final;
     void cdmSessionCreated(uint32_t promiseID, const String& sessionID) final;
 
     RefPtr<WidevineCdm> m_cdm;
@@ -112,6 +116,12 @@ private:
     // was issued under. Several can be waiting at once: the CDM settles a create from a host answer
     // a run loop turn later, so a page that opens two sessions in one task has both outstanding.
     HashMap<uint32_t, WeakPtr<CDMInstanceSessionWidevine>> m_createsInFlight;
+    // A session's updates and removals the CDM had not settled when the call returned, by the
+    // promise id each was issued under; the session holds the callback.
+    HashMap<uint32_t, WeakPtr<CDMInstanceSessionWidevine>> m_sessionPromisesInFlight;
+    // The answer to an initialization or a server certificate the CDM settles after the call returned.
+    SuccessCallback m_pendingInitializeCallback;
+    HashMap<uint32_t, SuccessCallback> m_pendingCertificateCallbacks;
 };
 
 class CDMInstanceSessionWidevine final : public CDMInstanceSessionProxy {
@@ -137,6 +147,8 @@ public:
     void didClose();
     // Settles a request left waiting for a message with a failure.
     void failPendingLicenseRequests();
+    // The CDM settled a promise of this session's after the call that issued it returned.
+    void didSettlePromise(uint32_t promiseID, SuccessValue);
     // The CDM named this session after the call that created it returned.
     void didCreateSession(const String& sessionID);
 
@@ -147,6 +159,11 @@ private:
     // CDMProxy can be released once a license lands.
     bool mergeKeyStatuses(const Vector<WidevineKeyStatus>&);
     void forwardRemainingMessages(const Vector<std::pair<cdm::MessageType, Vector<uint8_t>>>&, size_t firstIndex);
+    // Delivers what the CDM reported during a call whose promise does not carry it, as the events
+    // it would have been had the CDM reported it after the call returned.
+    void forwardCallEvents(WidevineCdmCallResult&&);
+    void waitForPromise(CDMInstanceWidevine&, uint32_t promiseID, CompletionHandler<void(SuccessValue)>&&);
+    void failPendingPromises();
 
     String m_sessionID;
     KeyStore m_keyStore;
@@ -155,6 +172,8 @@ private:
     // call was made for from a host answer that completes after the call returns. A request left
     // without a message waits here and is answered by didReceiveMessage.
     Vector<LicenseCallback> m_pendingLicenseCallbacks;
+    // Calls waiting on the CDM's settlement, by the promise id each was issued under.
+    HashMap<uint32_t, CompletionHandler<void(SuccessValue)>> m_pendingPromiseCallbacks;
 };
 
 } // namespace WebCore

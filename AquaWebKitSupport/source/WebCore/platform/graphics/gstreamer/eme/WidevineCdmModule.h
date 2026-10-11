@@ -70,15 +70,17 @@ public:
     virtual void cdmSessionKeyStatusesChanged(const String& sessionID, Vector<WidevineKeyStatus>&&) = 0;
     virtual void cdmSessionExpirationChanged(const String& sessionID, double expirationTime) = 0;
     virtual void cdmSessionClosed(const String& sessionID) = 0;
+    virtual void cdmInitialized(bool success) = 0;
     // The CDM settled the promise for a call that had already returned. The id
     // is the one that call was issued under, which is what names the request being answered.
-    virtual void cdmSessionFailed(uint32_t promiseID, const String& sessionID) = 0;
+    virtual void cdmPromiseResolved(uint32_t promiseID) = 0;
+    virtual void cdmPromiseRejected(uint32_t promiseID) = 0;
     virtual void cdmSessionCreated(uint32_t promiseID, const String& sessionID) = 0;
 };
 
-// What a call produced. The CDM reports a call's own outcome through host callbacks it
-// invokes synchronously, before the call returns, so this is complete when it hands
-// control back.
+// What a call produced: whatever the CDM reported through the host while the call ran. A call
+// whose promise the CDM settles before returning is complete here; one it settles later, from a
+// host answer, is settled through WidevineCdmClient.
 struct WidevineCdmCallResult {
     bool succeeded { false };
     // Whether the CDM settled this call's promise before the call returned. A
@@ -111,7 +113,7 @@ public:
     // The origin's media-keys hash salt, which the storage id the CDM asks for is derived from.
     void setStorageIdSeed(const String&);
 
-    bool initialize(bool allowDistinctiveIdentifier, bool allowPersistentState);
+    WidevineCdmCallResult initialize(bool allowDistinctiveIdentifier, bool allowPersistentState);
 
     WidevineCdmCallResult setServerCertificate(std::span<const uint8_t>);
     WidevineCdmCallResult createSessionAndGenerateRequest(cdm::SessionType, cdm::InitDataType, std::span<const uint8_t> initData);

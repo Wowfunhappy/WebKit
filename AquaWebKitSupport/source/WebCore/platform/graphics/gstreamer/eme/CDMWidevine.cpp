@@ -206,6 +206,16 @@ void CDMInstanceWidevine::registerCreateInFlight(uint32_t promiseID, CDMInstance
     m_createsInFlight.set(promiseID, WeakPtr { session });
 }
 
+void CDMInstanceWidevine::registerSessionPromise(uint32_t promiseID, CDMInstanceSessionWidevine& session)
+{
+    m_sessionPromisesInFlight.set(promiseID, WeakPtr { session });
+}
+
+void CDMInstanceWidevine::unregisterSessionPromise(uint32_t promiseID)
+{
+    m_sessionPromisesInFlight.remove(promiseID);
+}
+
 void CDMInstanceWidevine::cdmSessionMessage(const String& sessionID, cdm::MessageType messageType, Vector<uint8_t>&& message)
 {
     if (auto session = m_sessions.get(sessionID))
@@ -230,14 +240,34 @@ void CDMInstanceWidevine::cdmSessionClosed(const String& sessionID)
         session->didClose();
 }
 
-void CDMInstanceWidevine::cdmSessionFailed(uint32_t promiseID, const String& sessionID)
+void CDMInstanceWidevine::cdmInitialized(bool success)
+{
+    if (auto callback = std::exchange(m_pendingInitializeCallback, { }))
+        callback(success ? SuccessValue::Succeeded : SuccessValue::Failed);
+}
+
+void CDMInstanceWidevine::cdmPromiseResolved(uint32_t promiseID)
+{
+    if (auto callback = m_pendingCertificateCallbacks.take(promiseID)) {
+        callback(SuccessValue::Succeeded);
+        return;
+    }
+    if (RefPtr session = m_sessionPromisesInFlight.take(promiseID).get())
+        session->didSettlePromise(promiseID, CDMInstanceSession::Succeeded);
+}
+
+void CDMInstanceWidevine::cdmPromiseRejected(uint32_t promiseID)
 {
     if (RefPtr creating = m_createsInFlight.take(promiseID).get()) {
         creating->failPendingLicenseRequests();
         return;
     }
-    if (auto session = m_sessions.get(sessionID))
-        session->failPendingLicenseRequests();
+    if (auto callback = m_pendingCertificateCallbacks.take(promiseID)) {
+        callback(SuccessValue::Failed);
+        return;
+    }
+    if (RefPtr session = m_sessionPromisesInFlight.take(promiseID).get())
+        session->didSettlePromise(promiseID, CDMInstanceSession::Failed);
 }
 
 void CDMInstanceWidevine::cdmSessionCreated(uint32_t promiseID, const String& sessionID)
@@ -254,19 +284,22 @@ void CDMInstanceWidevine::initializeWithConfiguration(const CDMKeySystemConfigur
     // A CDM allowed to persist keeps one record of its own, in the origin's media-keys storage
     // directory; one that is not, or one whose origin has no such directory, is told so and keeps
     // nothing. Both play: the CDM asks for storage only when it has been told it may have it.
-    bool succeeded = m_cdm && m_cdm->initialize(allowDistinctiveIdentifiers == AllowDistinctiveIdentifiers::Yes,
+    auto result = m_cdm->initialize(allowDistinctiveIdentifiers == AllowDistinctiveIdentifiers::Yes,
         allowPersistentState == AllowPersistentState::Yes && m_hasStorage);
-    callback(succeeded ? SuccessValue::Succeeded : SuccessValue::Failed);
+    if (!result.settled) {
+        m_pendingInitializeCallback = WTF::move(callback);
+        return;
+    }
+    callback(result.succeeded ? SuccessValue::Succeeded : SuccessValue::Failed);
 }
 
 void CDMInstanceWidevine::setServerCertificate(Ref<SharedBuffer>&& certificate, SuccessCallback&& callback)
 {
-    if (!m_cdm) {
-        callback(SuccessValue::Failed);
+    auto result = m_cdm->setServerCertificate(certificate->makeContiguous()->span());
+    if (!result.settled) {
+        m_pendingCertificateCallbacks.add(result.promiseID, WTF::move(callback));
         return;
     }
-
-    auto result = m_cdm->setServerCertificate(certificate->makeContiguous()->span());
     callback(result.succeeded ? SuccessValue::Succeeded : SuccessValue::Failed);
 }
 
@@ -274,7 +307,7 @@ void CDMInstanceWidevine::setStorageDirectory(const String& directory)
 {
     if (!directory.isEmpty())
         FileSystem::makeAllDirectories(directory);
-    m_hasStorage = m_cdm && m_cdm->setStorageDirectory(directory);
+    m_hasStorage = m_cdm->setStorageDirectory(directory);
 }
 
 const String& CDMInstanceWidevine::keySystem() const
@@ -291,6 +324,7 @@ RefPtr<CDMInstanceSession> CDMInstanceWidevine::createSession()
 CDMInstanceSessionWidevine::~CDMInstanceSessionWidevine()
 {
     failPendingLicenseRequests();
+    failPendingPromises();
     if (m_sessionID.isEmpty())
         return;
     if (auto* parent = parentInstance())
@@ -312,6 +346,41 @@ void CDMInstanceSessionWidevine::failPendingLicenseRequests()
 {
     for (auto& callback : std::exchange(m_pendingLicenseCallbacks, { }))
         callback(SharedBuffer::create(), emptyString(), false, Failed);
+}
+
+void CDMInstanceSessionWidevine::failPendingPromises()
+{
+    auto callbacks = std::exchange(m_pendingPromiseCallbacks, { });
+    auto* parent = parentInstance();
+    for (auto& entry : callbacks) {
+        if (parent)
+            parent->unregisterSessionPromise(entry.key);
+        entry.value(Failed);
+    }
+}
+
+void CDMInstanceSessionWidevine::waitForPromise(CDMInstanceWidevine& parent, uint32_t promiseID, CompletionHandler<void(SuccessValue)>&& callback)
+{
+    m_pendingPromiseCallbacks.add(promiseID, WTF::move(callback));
+    parent.registerSessionPromise(promiseID, *this);
+}
+
+void CDMInstanceSessionWidevine::didSettlePromise(uint32_t promiseID, SuccessValue succeeded)
+{
+    if (auto callback = m_pendingPromiseCallbacks.take(promiseID))
+        callback(succeeded);
+}
+
+void CDMInstanceSessionWidevine::forwardCallEvents(WidevineCdmCallResult&& result)
+{
+    if (result.keyStatuses)
+        didChangeKeyStatuses(WTF::move(*result.keyStatuses));
+    for (auto& message : result.messages)
+        didReceiveMessage(message.first, WTF::move(message.second));
+    if (result.expirationTime)
+        didChangeExpiration(*result.expirationTime);
+    if (result.sessionClosed)
+        didClose();
 }
 
 void CDMInstanceSessionWidevine::didReceiveMessage(cdm::MessageType messageType, Vector<uint8_t>&& message)
@@ -436,8 +505,20 @@ void CDMInstanceSessionWidevine::updateLicense(const String& sessionID, LicenseT
     }
 
     auto result = cdm->updateSession(sessionID.isEmpty() ? m_sessionID : sessionID, response->makeContiguous()->span());
+
+    // A promise the CDM has not settled yet is one it settles from a host answer that completes
+    // after this call. What it reported meanwhile is the session's, not the promise's.
+    if (!result.settled) {
+        waitForPromise(*parent, result.promiseID, [callback = WTF::move(callback)](SuccessValue succeeded) mutable {
+            callback(false, std::nullopt, std::nullopt, std::nullopt, succeeded);
+        });
+        forwardCallEvents(WTF::move(result));
+        return;
+    }
+
     if (!result.succeeded) {
         LOG(EME, "EME - Widevine - license update failed: %s", result.errorMessage.utf8().data());
+        forwardCallEvents(WTF::move(result));
         callback(false, std::nullopt, std::nullopt, std::nullopt, Failed);
         return;
     }
@@ -474,11 +555,16 @@ void CDMInstanceSessionWidevine::closeSession(const String& sessionID, CloseSess
 {
     auto* parent = parentInstance();
     if (auto* cdm = parent ? parent->cdm() : nullptr)
-        cdm->closeSession(sessionID.isEmpty() ? m_sessionID : sessionID);
+        forwardCallEvents(cdm->closeSession(sessionID.isEmpty() ? m_sessionID : sessionID));
 
-    // The CDM has dropped the session, so stop routing its events here.
-    if (parent && !m_sessionID.isEmpty())
-        parent->unregisterSession(m_sessionID);
+    // A closed session's keys no longer decrypt anything, and the CDM has dropped the session, so
+    // its events stop being routed here.
+    if (parent) {
+        parent->unrefAllKeysFrom(m_keyStore);
+        if (!m_sessionID.isEmpty())
+            parent->unregisterSession(m_sessionID);
+    }
+    m_keyStore.clear();
 
     callback();
 }
@@ -492,12 +578,31 @@ void CDMInstanceSessionWidevine::removeSessionData(const String& sessionID, Lice
         return;
     }
 
-    auto result = cdm->removeSession(sessionID.isEmpty() ? m_sessionID : sessionID);
-    auto keyStatuses = m_keyStore.allKeysAs(CDMKeyStatus::Released);
-    parent->unrefAllKeysFrom(m_keyStore);
-    m_keyStore.clear();
+    // The keys are released once the CDM has processed the removal, which it may report after
+    // the call returns.
+    auto finish = [weakThis = WeakPtr { *this }, callback = WTF::move(callback)](SuccessValue succeeded) mutable {
+        RefPtr protectedThis = succeeded == Succeeded ? weakThis.get() : nullptr;
+        if (!protectedThis) {
+            callback({ }, nullptr, Failed);
+            return;
+        }
+        auto keyStatuses = protectedThis->m_keyStore.allKeysAs(CDMKeyStatus::Released);
+        if (auto* parent = protectedThis->parentInstance())
+            parent->unrefAllKeysFrom(protectedThis->m_keyStore);
+        protectedThis->m_keyStore.clear();
+        callback(WTF::move(keyStatuses), nullptr, Succeeded);
+    };
 
-    callback(WTF::move(keyStatuses), nullptr, result.succeeded ? Succeeded : Failed);
+    auto result = cdm->removeSession(sessionID.isEmpty() ? m_sessionID : sessionID);
+    if (!result.settled) {
+        waitForPromise(*parent, result.promiseID, WTF::move(finish));
+        forwardCallEvents(WTF::move(result));
+        return;
+    }
+
+    bool succeeded = result.succeeded;
+    forwardCallEvents(WTF::move(result));
+    finish(succeeded ? Succeeded : Failed);
 }
 
 void CDMInstanceSessionWidevine::storeRecordOfKeyUsage(const String&)
