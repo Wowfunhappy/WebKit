@@ -1,4 +1,4 @@
-// -[NSURLResponse initWithCoder:] under requiresSecureCoding (c/FoundationCoding.m). A response archived
+// -[NSURLResponse initWithCoder:] under requiresSecureCoding (methods/FoundationCoding.m). A response archived
 // by a plain archiver -- its fields in the unkeyed sequence -- decodes with every field, as a plain
 // unarchiver reads it. A field of a class the secure reading does not allow fails the decode, as does a
 // version 7 archive, and a secure archiver's response still decodes.
@@ -7,7 +7,6 @@
 
 #pragma clang diagnostic ignored "-Wunguarded-availability-new"
 #pragma clang diagnostic ignored "-Wunguarded-availability"
-extern void wk_initializeFoundationCoding(void);
 extern CFTypeRef _CFKeyedArchiverUIDCreate(CFAllocatorRef, uint32_t);
 extern uint32_t _CFKeyedArchiverUIDGetValue(CFTypeRef);
 extern CFTypeID _CFKeyedArchiverUIDGetTypeID(void);
@@ -71,7 +70,6 @@ static NSUInteger indexOfObject(NSArray *objects, id value)
 int main(void)
 {
     @autoreleasepool {
-        wk_initializeFoundationCoding();
         NSURL *url = [NSURL URLWithString:@"https://example.test/page.html"];
         NSURLResponse *plainResponse = [[[NSURLResponse alloc] initWithURL:url MIMEType:@"text/html" expectedContentLength:1234 textEncodingName:@"utf-8"] autorelease];
         NSHTTPURLResponse *httpResponse = [[[NSHTTPURLResponse alloc] initWithURL:url statusCode:404 HTTPVersion:@"HTTP/1.1"

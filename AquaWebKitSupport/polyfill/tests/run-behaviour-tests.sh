@@ -29,6 +29,7 @@ ICU_LIBS="$REPO/AquaWebKitSupport/deps/build/lib/libicuuc.a $REPO/AquaWebKitSupp
 
 APPKIT_OBJECT_STATE=unbuilt
 FOUNDATION_OBJECT_STATE=unbuilt
+FOUNDATIONCODING_OBJECT_STATE=unbuilt
 AVFOUNDATION_OBJECT_STATE=unbuilt
 QUARTZCORE_OBJECT_STATE=unbuilt
 CRYPTOKITPRIVATE_OBJECT_STATE=unbuilt
@@ -45,6 +46,10 @@ build_method_object() {
         Foundation)
             state="$FOUNDATION_OBJECT_STATE"
             source="$PF/methods/Foundation.m"
+            ;;
+        FoundationCoding)
+            state="$FOUNDATIONCODING_OBJECT_STATE"
+            source="$PF/methods/FoundationCoding.m"
             ;;
         AVFoundation)
             state="$AVFOUNDATION_OBJECT_STATE"
@@ -73,6 +78,7 @@ build_method_object() {
         case "$unit" in
             AppKit) APPKIT_OBJECT_STATE=built ;;
             Foundation) FOUNDATION_OBJECT_STATE=built ;;
+            FoundationCoding) FOUNDATIONCODING_OBJECT_STATE=built ;;
             AVFoundation) AVFOUNDATION_OBJECT_STATE=built ;;
             QuartzCore) QUARTZCORE_OBJECT_STATE=built ;;
             CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=built ;;
@@ -83,6 +89,7 @@ build_method_object() {
     case "$unit" in
         AppKit) APPKIT_OBJECT_STATE=failed ;;
         Foundation) FOUNDATION_OBJECT_STATE=failed ;;
+        FoundationCoding) FOUNDATIONCODING_OBJECT_STATE=failed ;;
         AVFoundation) AVFOUNDATION_OBJECT_STATE=failed ;;
         QuartzCore) QUARTZCORE_OBJECT_STATE=failed ;;
         CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=failed ;;
@@ -505,18 +512,27 @@ probe_dd_secure_coding() {
 }
 
 probe_keyed_coding() {
-    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/keyed_coding" "$TBEHAV/Foundation-keyed-coding.m" \
-        $PROBE_LIBS && "$T/keyed_coding"
+    prepare_method_objects FoundationCoding &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/keyed_coding" "$TBEHAV/Foundation-keyed-coding.m" \
+            "$OBJ/methods/FoundationCoding.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" $PROBE_LIBS &&
+        "$T/keyed_coding"
 }
 
 probe_strict_inline_values() {
-    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/strict_inline_values" "$TBEHAV/Foundation-strict-inline-values.m" \
-        $PROBE_LIBS && "$T/strict_inline_values"
+    prepare_method_objects FoundationCoding &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/strict_inline_values" "$TBEHAV/Foundation-strict-inline-values.m" \
+            "$OBJ/methods/FoundationCoding.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" $PROBE_LIBS &&
+        "$T/strict_inline_values"
 }
 
 probe_url_response_coding() {
-    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_response_coding" "$TBEHAV/Foundation-url-response-coding.m" \
-        $PROBE_LIBS && "$T/url_response_coding"
+    prepare_method_objects FoundationCoding &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_response_coding" "$TBEHAV/Foundation-url-response-coding.m" \
+            "$OBJ/methods/FoundationCoding.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" $PROBE_LIBS &&
+        "$T/url_response_coding"
 }
 
 probe_secure_coding() {

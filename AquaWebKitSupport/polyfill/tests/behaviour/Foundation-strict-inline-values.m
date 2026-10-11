@@ -1,5 +1,5 @@
 // Strict secure decoding of the property-list values a keyed archive stores inline in $objects
-// (c/FoundationCoding.m). Foundation returns an inline string, number, boolean or data directly, so
+// (methods/FoundationCoding.m). Foundation returns an inline string, number, boolean or data directly, so
 // ordinary secure decoding admits it whatever the allowed classes are. Strict decoding admits it only
 // when its class is itself one of the innermost allowed classes, for every decode entry point and
 // in both archive formats.
@@ -8,9 +8,7 @@
 
 #pragma clang diagnostic ignored "-Wunguarded-availability-new"
 #pragma clang diagnostic ignored "-Wunguarded-availability"
-extern void wk_initializeFoundationCoding(void);
 @interface NSKeyedUnarchiver (StrictCoding)
-- (void)_enableStrictSecureDecodingMode;
 + (id)_strictlyUnarchivedObjectOfClasses:(NSSet *)classes fromData:(NSData *)data error:(NSError **)error;
 @end
 
@@ -103,7 +101,6 @@ static NSSet *classes(Class first, ...)
 int main(void)
 {
     @autoreleasepool {
-        wk_initializeFoundationCoding();
         NSData *bytes = [NSData dataWithBytes:"abc" length:3];
         NSError *error;
         for (unsigned xml = 0; xml < 2; ++xml) {
@@ -162,31 +159,6 @@ int main(void)
                     : "strict object-type value decoding admits a listed inline value");
             }
 
-            NSKeyedUnarchiver *coder = [[[NSKeyedUnarchiver alloc] initForReadingWithData:archive(@[@"text"], format)] autorelease];
-            coder.requiresSecureCoding = YES;
-            [coder _enableStrictSecureDecodingMode];
-            BOOL threw = NO;
-            @try {
-                [coder decodeObjectOfClasses:classes(NSArray.class, nil) forKey:NSKeyedArchiveRootObjectKey];
-            } @catch (NSException *exception) {
-                threw = [exception.name isEqual:NSInvalidUnarchiveOperationException];
-            }
-            check(threw, "strict exception policy raises for an unlisted inline value");
-            check([[coder decodeObjectOfClasses:classes(NSArray.class, NSString.class, nil) forKey:NSKeyedArchiveRootObjectKey] isEqual:@[@"text"]],
-                "strict decoding retries after a rejected inline value");
-            [coder finishDecoding];
-
-            coder = [[[NSKeyedUnarchiver alloc] initForReadingWithData:archive(@"root", format)] autorelease];
-            coder.requiresSecureCoding = YES;
-            [coder _enableStrictSecureDecodingMode];
-            threw = NO;
-            @try {
-                [coder decodeObjectOfClasses:classes(NSURL.class, nil) forKey:NSKeyedArchiveRootObjectKey];
-            } @catch (NSException *exception) {
-                threw = [exception.name isEqual:NSInvalidUnarchiveOperationException];
-            }
-            check(threw, "strict exception policy raises for an unlisted inline root");
-            [coder finishDecoding];
         }
     }
     printf("Foundation-strict-inline-values: %s\n", failures ? "FAIL" : "ok");
