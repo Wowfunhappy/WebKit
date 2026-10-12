@@ -1,0 +1,16 @@
+WEBVTT
+
+REGION
+id:r
+width:40%
+lines:3
+regionanchor:0%,100%
+viewportanchor:5%,90%
+
+1
+00:00:00.000 --> 00:00:01.000 region:r
+In the region.
+
+2
+00:00:01.000 --> 00:00:03.000 line:-2
+Outside the region.

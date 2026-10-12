@@ -229,7 +229,8 @@ void MediaControlTextTrackContainerElement::processActiveVTTCue(VTTCue& cue)
 {
     DEBUG_LOG(LOGIDENTIFIER, "adding and positioning cue: \"", cue.text(), "\", start=", cue.startTime(), ", end=", cue.endTime());
 
-    if (RefPtr region = protect(protect(cue.track())->regions())->getRegionById(cue.regionId())) {
+    // if (RefPtr region = protect(protect(cue.track())->regions())->getRegionById(cue.regionId())) {
+    if (RefPtr region = cue.region()) { // AQUAWEBKIT: the cue's WebVTT cue region (WebVTT 7.2 step 13), the region VTTCue::removeDisplayTree notifies and RenderVTTCue::layout defers to.
         // Let region be the WebVTT region whose region identifier
         // matches the text track cue region identifier of cue.
         Ref regionNode = region->getDisplayTree();

@@ -66,7 +66,8 @@ void RenderVTTCue::layout()
     // any positioning parameters. Also, in this case, the regions themselves
     // have positioning information.
     RefPtr cue = m_cue.get();
-    if (!cue || !cue->regionId().isEmpty())
+    // if (!cue || !cue->regionId().isEmpty())
+    if (!cue || cue->region()) // AQUAWEBKIT: a cue with a WebVTT cue region is laid out inside that region, whatever its identifier.
         return;
 
     LayoutStateMaintainer statePusher(*this, locationOffset(), true);
@@ -210,7 +211,8 @@ RenderVTTCue* RenderVTTCue::overlappingObject() const
 RenderVTTCue* RenderVTTCue::overlappingObjectForRect(const IntRect& rect) const
 {
     for (RenderObject* sibling = previousSibling(); sibling; sibling = sibling->previousSibling()) {
-        auto* previousCue = downcast<RenderVTTCue>(sibling);
+        // auto* previousCue = downcast<RenderVTTCue>(sibling);
+        auto* previousCue = dynamicDowncast<RenderVTTCue>(sibling); // AQUAWEBKIT: region boxes share the caption container with cue boxes; only cues are obstacles.
         if (!previousCue || !previousCue->firstChild())
             continue;
 

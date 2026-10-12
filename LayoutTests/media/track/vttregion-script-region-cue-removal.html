@@ -1,0 +1,59 @@
+<html>
+    <head>
+        <title>Test that cues in script-created regions render in those regions and can become inactive</title>
+        <script src=../../resources/js-test-pre.js></script>
+        <script src=../video-test.js></script>
+        <script src=../media-file.js></script>
+        <script>
+            function contains(outer, inner)
+            {
+                return inner.left >= outer.left - 1 && inner.right <= outer.right + 1 && inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
+            }
+
+            async function checkCueInRegion(time, regionId)
+            {
+                run("video.currentTime = " + time);
+                await waitFor(video, 'seeked');
+                await testExpectedEventually("shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-region] div[useragentpart=cue]')", null, "!=", 1000);
+                cueBox = shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-region] div[useragentpart=cue]');
+                regionBox = cueBox.closest('div[useragentpart=-webkit-media-text-track-region]');
+                testExpected("regionBox.id", regionId);
+                testExpected("cueBox.getBoundingClientRect().width == regionBox.getBoundingClientRect().width", true);
+                testExpected("contains(regionBox.getBoundingClientRect(), cueBox.querySelector('div[useragentpart=-webkit-media-text-track-display-backdrop]').getBoundingClientRect())", true);
+            }
+
+            async function runTest()
+            {
+                video = document.getElementById('video');
+                video.src = findMediaFile('video', '../content/test');
+                await waitFor(video, 'canplay');
+
+                run("track = video.addTextTrack('captions')");
+                run("namedRegion = new VTTRegion()");
+                run("namedRegion.id = 'scripted'");
+                run("namedCue = new VTTCue(0, 1, 'In the named region.')");
+                run("namedCue.region = namedRegion");
+                run("track.addCue(namedCue)");
+                run("unnamedRegion = new VTTRegion()");
+                run("unnamedCue = new VTTCue(2, 3, 'In the unnamed region.')");
+                run("unnamedCue.region = unnamedRegion");
+                run("track.addCue(unnamedCue)");
+                run("track.mode = 'showing'");
+
+                window.internals.ensureUserAgentShadowRoot(video);
+                shadowRoot = window.internals.shadowRoot(video);
+
+                await checkCueInRegion(0.5, 'scripted');
+                await checkCueInRegion(2.5, '');
+
+                run("video.currentTime = 4");
+                await waitFor(video, 'seeked');
+                await testExpectedEventually("shadowRoot.querySelector('div[useragentpart=cue]')", null, "==", 1000);
+                endTest();
+            }
+        </script>
+    </head>
+    <body onload="runTest()">
+        <video id="video" width="320px" height="240px" paused></video>
+    </body>
+</html>

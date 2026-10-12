@@ -1,0 +1,14 @@
+
+EVENT(canplay)
+EVENT(addtrack)
+RUN(video.textTracks[0].mode = 'showing')
+RUN(video.currentTime = 0.5)
+EVENT(seeked)
+EXPECTED (shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-region] div[useragentpart=cue]') != 'null') OK
+RUN(video.currentTime = 2)
+EVENT(seeked)
+EXPECTED (shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-container] > div[useragentpart=cue]') != 'null') OK
+EXPECTED (ordinaryCue.previousElementSibling.getAttribute('useragentpart') == '-webkit-media-text-track-region') OK
+EXPECTED (ordinaryCue.querySelector('div[useragentpart=-webkit-media-text-track-display-backdrop]').getBoundingClientRect().height > 0 == 'true') OK
+END OF TEST
+

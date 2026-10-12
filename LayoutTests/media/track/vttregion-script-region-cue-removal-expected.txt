@@ -1,0 +1,30 @@
+
+EVENT(canplay)
+RUN(track = video.addTextTrack('captions'))
+RUN(namedRegion = new VTTRegion())
+RUN(namedRegion.id = 'scripted')
+RUN(namedCue = new VTTCue(0, 1, 'In the named region.'))
+RUN(namedCue.region = namedRegion)
+RUN(track.addCue(namedCue))
+RUN(unnamedRegion = new VTTRegion())
+RUN(unnamedCue = new VTTCue(2, 3, 'In the unnamed region.'))
+RUN(unnamedCue.region = unnamedRegion)
+RUN(track.addCue(unnamedCue))
+RUN(track.mode = 'showing')
+RUN(video.currentTime = 0.5)
+EVENT(seeked)
+EXPECTED (shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-region] div[useragentpart=cue]') != 'null') OK
+EXPECTED (regionBox.id == 'scripted') OK
+EXPECTED (cueBox.getBoundingClientRect().width == regionBox.getBoundingClientRect().width == 'true') OK
+EXPECTED (contains(regionBox.getBoundingClientRect(), cueBox.querySelector('div[useragentpart=-webkit-media-text-track-display-backdrop]').getBoundingClientRect()) == 'true') OK
+RUN(video.currentTime = 2.5)
+EVENT(seeked)
+EXPECTED (shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-region] div[useragentpart=cue]') != 'null') OK
+EXPECTED (regionBox.id == '') OK
+EXPECTED (cueBox.getBoundingClientRect().width == regionBox.getBoundingClientRect().width == 'true') OK
+EXPECTED (contains(regionBox.getBoundingClientRect(), cueBox.querySelector('div[useragentpart=-webkit-media-text-track-display-backdrop]').getBoundingClientRect()) == 'true') OK
+RUN(video.currentTime = 4)
+EVENT(seeked)
+EXPECTED (shadowRoot.querySelector('div[useragentpart=cue]') == 'null') OK
+END OF TEST
+

@@ -1,0 +1,41 @@
+<html>
+    <head>
+        <title>Test that a cue outside a region lays out after a region box in the caption container</title>
+        <script src=../../resources/js-test-pre.js></script>
+        <script src=../video-test.js></script>
+        <script src=../media-file.js></script>
+        <script>
+            async function runTest()
+            {
+                video = document.getElementById('video');
+                video.src = findMediaFile('video', '../content/test');
+                await waitFor(video, 'canplay');
+                let track = document.createElement('track');
+                track.src = 'captions-webvtt/region-then-ordinary-cue.vtt';
+                video.appendChild(track);
+
+                await waitFor(video.textTracks, 'addtrack');
+                run("video.textTracks[0].mode = 'showing'");
+
+                run("video.currentTime = 0.5");
+                await waitFor(video, 'seeked');
+
+                window.internals.ensureUserAgentShadowRoot(video);
+                shadowRoot = window.internals.shadowRoot(video);
+                await testExpectedEventually("shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-region] div[useragentpart=cue]')", null, "!=", 1000);
+
+                run("video.currentTime = 2");
+                await waitFor(video, 'seeked');
+                await testExpectedEventually("shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-container] > div[useragentpart=cue]')", null, "!=", 1000);
+
+                ordinaryCue = shadowRoot.querySelector('div[useragentpart=-webkit-media-text-track-container] > div[useragentpart=cue]');
+                testExpected("ordinaryCue.previousElementSibling.getAttribute('useragentpart')", "-webkit-media-text-track-region");
+                testExpected("ordinaryCue.querySelector('div[useragentpart=-webkit-media-text-track-display-backdrop]').getBoundingClientRect().height > 0", true);
+                endTest();
+            }
+        </script>
+    </head>
+    <body onload="runTest()">
+        <video id="video" width="320px" height="240px" paused></video>
+    </body>
+</html>
