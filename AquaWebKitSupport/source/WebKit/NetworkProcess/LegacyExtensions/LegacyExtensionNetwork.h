@@ -6,9 +6,14 @@
 // and onBeforeSendHeaders, for every request and redirect, pings included), checkRedirection and the
 // response (onHeadersReceived, for a redirect and for a network or cache response), and a WebSocket's
 // creation.
+//
+// webRequest.filterResponseData attaches StreamFilters to a load: the body its web process would receive goes
+// through them first, from the network or the cache alike. The network cache stores the body as the network
+// sent it.
 
 #pragma once
 
+#include "LegacyExtensionResponseFilter.h"
 #include "LegacyExtensionWebRequest.h"
 #include "MessageReceiver.h"
 #include "NetworkLoadChecker.h"
@@ -17,17 +22,25 @@
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/WebSocketIdentifier.h>
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/NetworkLoadMetrics.h>
+#include <WebCore/ResourceLoaderIdentifier.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
+#include <wtf/Markable.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringHash.h>
 
+namespace IPC {
+class SharedBufferReference;
+}
+
 namespace WebCore {
 class AuthenticationChallenge;
+class FragmentedSharedBuffer;
 class ResourceResponse;
 struct ClientOrigin;
 }
@@ -78,11 +91,64 @@ public:
 
     void loaderDidFinish(NetworkResourceLoader&, NetworkResourceLoader::LoadResult);
 
+    // A chunk of the body, and the body's end, the web process receives; true when the load's StreamFilters
+    // take it instead.
+    bool filterResponseData(NetworkResourceLoader&, const WebCore::FragmentedSharedBuffer&);
+    bool finishFilteredResponse(NetworkResourceLoader&, const WebCore::NetworkLoadMetrics&);
+    bool filtersResponse(NetworkResourceLoader&) const;
+    // True when a load that succeeded keeps its loader until its StreamFilters end the body, which then cleans it
+    // up; a load that fails or is cancelled fails its filters.
+    bool deferCleanup(NetworkResourceLoader&, NetworkResourceLoader::LoadResult);
+    // A synchronous load's reply, which carries its whole body: its StreamFilters take the body and the reply
+    // waits for their output.
+    using SynchronousReply = CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse, Vector<uint8_t>&&)>;
+    SynchronousReply filterSynchronousReply(NetworkConnectionToWebProcess&, WebCore::ResourceLoaderIdentifier, SynchronousReply&&);
+
+    // The privacy API's network.networkPredictionEnabled: DNS prefetching and the preconnections pages ask for.
+    bool allowsNetworkPrediction() const { return m_networkPredictionEnabled; }
+
 private:
     friend class NeverDestroyed<LegacyExtensionNetwork>;
     LegacyExtensionNetwork() = default;
 
     void setListeners(Vector<String>&& observedEvents, Vector<String>&& listenerOptions, String&& blockingListeners) { m_listeners.set(WTF::move(observedEvents), WTF::move(listenerOptions), blockingListeners); }
+
+    void createResponseFilter(uint64_t filterID, uint64_t requestIdentifier, String&& extensionKey, String&& websiteAccess);
+    void writeResponseFilter(uint64_t filterID, IPC::SharedBufferReference&&, uint64_t dispatched);
+    void closeResponseFilter(uint64_t filterID);
+    void disconnectResponseFilter(uint64_t filterID, uint64_t dispatched);
+    void suspendResponseFilter(uint64_t filterID);
+    void resumeResponseFilter(uint64_t filterID);
+    void setPrivacySettings(bool networkPredictionEnabled, bool hyperlinkAuditingEnabled)
+    {
+        m_networkPredictionEnabled = networkPredictionEnabled;
+        m_hyperlinkAuditingEnabled = hyperlinkAuditingEnabled;
+    }
+
+    // The StreamFilters of one load, and what the web process receives once their output ends: the network's
+    // metrics, or the reply of a synchronous load. The loader lives until then; its finished network load goes
+    // away when its cleanup is deferred, leaving the bytes it transferred.
+    struct FilteredResponse : RefCounted<FilteredResponse> {
+        uint64_t requestIdentifier { 0 };
+        Markable<WebCore::ResourceLoaderIdentifier> coreIdentifier;
+        WeakPtr<NetworkResourceLoader> loader;
+        RefPtr<LegacyExtensionResponseFilter> filter;
+        bool inputFinished { false };
+        bool cleanupIsDeferred { false };
+        uint64_t bytesTransferredOverNetwork { 0 };
+        std::optional<WebCore::NetworkLoadMetrics> metrics;
+        String error;
+        SynchronousReply synchronousReply;
+        WebCore::ResourceError synchronousError;
+        WebCore::ResourceResponse synchronousResponse;
+        Vector<uint8_t> synchronousBody;
+    };
+    // The URL a load ended at, which its network load no longer answers once its cleanup is deferred.
+    URL currentURL(NetworkResourceLoader&) const;
+    RefPtr<FilteredResponse> filteredResponse(uint64_t filterID) const;
+    void sendFilterEvent(uint64_t filterID, ASCIILiteral event, RefPtr<WebCore::SharedBuffer>&&, const String& error);
+    void outputFilteredResponse(uint64_t requestIdentifier, RefPtr<WebCore::SharedBuffer>&&);
+    void removeFilteredResponse(FilteredResponse&);
     bool hasOption(ASCIILiteral eventName, ASCIILiteral option) const { return m_listeners.hasOption(eventName, option); }
     RefPtr<NetworkDataTaskCurlCocoa> curlTask(NetworkResourceLoader&);
     String cookieHeader(NetworkLoadChecker&, const WebCore::ResourceRequest&);
@@ -128,6 +194,16 @@ private:
     WeakHashSet<NetworkResourceLoader> m_resumingCacheEntries;
     WeakHashMap<NetworkResourceLoader, String> m_loadErrors;
     WeakHashMap<NetworkConnectionToWebProcess, HashSet<uint64_t>> m_pendingWebSockets;
+    // Keyed by the load's request identifier, and each filter's to its load's.
+    HashMap<uint64_t, Ref<FilteredResponse>> m_filteredResponses;
+    HashMap<uint64_t, uint64_t> m_responseFilterRequests;
+    // The loads the extensions have seen whose web process has received some of the body, which no filter can
+    // attach to any more.
+    WeakHashSet<NetworkResourceLoader> m_loadersWithDeliveredBody;
+    WeakHashMap<NetworkResourceLoader, URL> m_deferredCleanupURLs;
+    bool m_networkPredictionEnabled { true };
+    // The privacy API's websites.hyperlinkAuditingEnabled: the pings of <a ping>.
+    bool m_hyperlinkAuditingEnabled { true };
 };
 
 } // namespace WebKit

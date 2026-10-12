@@ -1,4 +1,6 @@
-# A network process's webRequest events, for the UI process's router to dispatch to Safari 7 extensions.
+# A network process's webRequest events, for the UI process's router to dispatch to Safari 7 extensions, and
+# the events of the StreamFilters extensions attach to its loads: "start", "data" (with its chunk), "stop" and
+# "error" (with its message).
 [
     DispatchedFrom=Networking,
     DispatchedTo=UI,
@@ -7,4 +9,5 @@
 messages -> LegacyExtensionNetworkProxy {
     DispatchBlockingEvent(String eventName, String details) -> (String response)
     DispatchEvent(String eventName, String details)
+    ResponseFilterEvent(uint64_t filterID, String event, IPC::SharedBufferReference data, String error)
 }

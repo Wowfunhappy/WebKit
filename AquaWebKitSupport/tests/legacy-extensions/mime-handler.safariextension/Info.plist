@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Author</key><string>WebKit</string>
+	<key>Builder Version</key><string>9537.78.2</string>
+	<key>CFBundleDisplayName</key><string>Legacy Extension MIME Handler</string>
+	<key>CFBundleIdentifier</key><string>org.webkit.legacy-extension-mime-handler</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundleShortVersionString</key><string>1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>Chrome</key>
+	<dict>
+		<key>Global Page</key><string>global.html</string>
+	</dict>
+	<key>Description</key><string>Shows PDFs in viewer.html through the mimeHandler API.</string>
+	<key>DeveloperIdentifier</key><string>WDAOQFIKHZ</string>
+	<key>ExtensionInfoDictionaryVersion</key><string>1.0</string>
+	<key>Permissions</key>
+	<dict>
+		<key>Website Access</key>
+		<dict>
+			<key>Include Secure Pages</key><true/>
+			<key>Level</key><string>All</string>
+		</dict>
+	</dict>
+	<key>mime_types_handler</key>
+	<dict>
+		<key>application/pdf</key>
+		<dict>
+			<key>handler_url</key><string>viewer.html</string>
+			<key>can_embed</key><true/>
+		</dict>
+		<key>text/csv</key>
+		<dict>
+			<key>handler_url</key><string>viewer.html</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

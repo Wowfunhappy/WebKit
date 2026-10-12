@@ -4,6 +4,8 @@
 #include "LegacyExtensionAPIScriptSource.h"
 #include "Logging.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSArrayBuffer.h>
+#include <JavaScriptCore/JSArrayBufferView.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSLock.h>
@@ -15,6 +17,7 @@
 #include <WebCore/JSDOMGlobalObject.h>
 #include <WebCore/TaskSource.h>
 #include <WebCore/ScriptExecutionContext.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringImpl.h>
 
@@ -81,23 +84,29 @@ bool hasAPI(JSC::JSGlobalObject& globalObject)
     return receiver(globalObject).isCallable();
 }
 
-static void callReceiver(JSC::JSGlobalObject& globalObject, const String& message)
+static void callReceiver(JSC::JSGlobalObject& globalObject, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
-    JSC::JSLockHolder lock(globalObject.vm());
+    auto& vm = globalObject.vm();
+    JSC::JSLockHolder lock(vm);
     auto callable = receiver(globalObject);
     if (!callable.isCallable())
         return;
     JSGlobalContextRef context = toGlobalRef(&globalObject);
-    JSValueRef argument = JSValueMakeString(context, OpaqueJSString::tryCreate(message).get());
+    JSValueRef arguments[] = {
+        JSValueMakeString(context, OpaqueJSString::tryCreate(message).get()),
+        JSValueMakeUndefined(context),
+    };
+    if (RefPtr arrayBuffer = data ? data->tryCreateArrayBuffer() : nullptr)
+        arguments[1] = toRef(&globalObject, JSC::JSArrayBuffer::create(vm, globalObject.arrayBufferStructure(arrayBuffer->sharingMode()), arrayBuffer.releaseNonNull()));
     JSValueRef exception = nullptr;
-    JSObjectCallAsFunction(context, toRef(callable.getObject()), nullptr, 1, &argument, &exception);
+    JSObjectCallAsFunction(context, toRef(callable.getObject()), nullptr, std::size(arguments), arguments, &exception);
     if (exception)
         RELEASE_LOG_ERROR(Extensions, "LegacyExtensionAPI.js receiver threw an exception: %" PUBLIC_LOG_STRING, exceptionDescription(context, exception).utf8().data());
 }
 
 // Each message is a task of the context's event loop, as a posted message is: it runs after whatever
 // script is running, is followed by a microtask checkpoint, and waits while the document is suspended.
-bool deliver(JSC::JSGlobalObject& globalObject, const String& message)
+bool deliver(JSC::JSGlobalObject& globalObject, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
     if (!hasAPI(globalObject))
         return false;
@@ -105,9 +114,9 @@ bool deliver(JSC::JSGlobalObject& globalObject, const String& message)
     RefPtr scriptExecutionContext = domGlobalObject ? domGlobalObject->scriptExecutionContext() : nullptr;
     if (!scriptExecutionContext)
         return false;
-    scriptExecutionContext->eventLoop().queueTask(WebCore::TaskSource::PostedMessageQueue, [globalObject = JSC::Weak<JSC::JSGlobalObject> { &globalObject }, message = message.isolatedCopy()] {
+    scriptExecutionContext->eventLoop().queueTask(WebCore::TaskSource::PostedMessageQueue, [globalObject = JSC::Weak<JSC::JSGlobalObject> { &globalObject }, message = message.isolatedCopy(), data = WTF::move(data)] mutable {
         if (auto* target = globalObject.get())
-            callReceiver(*target, message);
+            callReceiver(*target, message, WTF::move(data));
     });
     return true;
 }
@@ -118,6 +127,21 @@ String stringArgument(JSContextRef context, size_t argumentCount, const JSValueR
         return { };
     RefPtr string = adoptRef(JSValueToStringCopy(context, arguments[index], nullptr));
     return string ? string->string() : String();
+}
+
+RefPtr<WebCore::SharedBuffer> bufferArgument(JSContextRef context, size_t argumentCount, const JSValueRef arguments[], size_t index)
+{
+    if (index >= argumentCount)
+        return nullptr;
+    auto* globalObject = toJS(context);
+    auto& vm = globalObject->vm();
+    JSC::JSLockHolder lock(vm);
+    auto value = toJS(globalObject, arguments[index]);
+    if (auto* view = value.isCell() ? dynamicDowncast<JSC::JSArrayBufferView>(value.asCell()) : nullptr)
+        return WebCore::SharedBuffer::create(view->span());
+    if (RefPtr buffer = JSC::toPossiblySharedArrayBuffer(vm, value))
+        return WebCore::SharedBuffer::create(buffer->span());
+    return nullptr;
 }
 
 } // namespace WebKit::LegacyExtensions

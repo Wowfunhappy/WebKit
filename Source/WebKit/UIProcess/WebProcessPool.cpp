@@ -48,7 +48,7 @@
 #include "FrameProcess.h"
 #include "GPUProcessConnectionParameters.h"
 #include "GamepadData.h"
-#include "LegacyExtensionHost.h" // AQUAWEBKIT: the constructor below.
+#include "LegacyExtensionHost.h" // AQUAWEBKIT: the constructor and initializeNewWebProcess below.
 #include "LegacyGlobalSettings.h"
 #include "LoadedWebArchive.h"
 #include "Logging.h"
@@ -1113,6 +1113,7 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
 #endif
 
     process.initializeWebProcess(WTF::move(parameters));
+    LegacyExtensionHost::singleton().webProcessDidInitialize(process); // AQUAWEBKIT: Safari 7 extensions' mimeHandler viewers.
 
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
     setMediaAccessibilityPreferences(process);

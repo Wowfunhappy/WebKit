@@ -591,6 +591,8 @@ ResourceLoadInfo NetworkResourceLoader::resourceLoadInfo()
 void NetworkResourceLoader::cleanup(LoadResult result)
 {
     ASSERT(RunLoop::isMain());
+    if (LegacyExtensionNetwork::singleton().deferCleanup(*this, result)) // AQUAWEBKIT: a Safari 7 extension's StreamFilters still hold the body.
+        return;
     LOADER_RELEASE_LOG("cleanup: (result=%u)", static_cast<unsigned>(result));
 
     NetworkActivityTracker::CompletionCode code { };
@@ -1238,7 +1240,9 @@ void NetworkResourceLoader::didFinishLoading(const NetworkLoadMetrics& networkLo
             contentFilter->stopFilteringMainResource();
         }
 #endif
-        send(Messages::WebResourceLoader::DidFinishResourceLoad(networkLoadMetrics));
+        // send(Messages::WebResourceLoader::DidFinishResourceLoad(networkLoadMetrics));
+        if (!LegacyExtensionNetwork::singleton().finishFilteredResponse(*this, networkLoadMetrics)) // AQUAWEBKIT: a Safari 7 extension's StreamFilter ends the body it filters.
+            send(Messages::WebResourceLoader::DidFinishResourceLoad(networkLoadMetrics));
     }
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -1515,7 +1519,9 @@ void NetworkResourceLoader::didFinishWithRedirectResponse(WebCore::ResourceReque
 
     if (m_serviceWorkerFetchTask)
         networkLoadMetrics.fetchStart = m_serviceWorkerFetchTask->startTime();
-    send(Messages::WebResourceLoader::DidFinishResourceLoad { networkLoadMetrics });
+    // send(Messages::WebResourceLoader::DidFinishResourceLoad { networkLoadMetrics });
+    if (!LegacyExtensionNetwork::singleton().finishFilteredResponse(*this, networkLoadMetrics)) // AQUAWEBKIT: a Safari 7 extension's StreamFilter ends the body it filters.
+        send(Messages::WebResourceLoader::DidFinishResourceLoad { networkLoadMetrics });
 
     cleanup(LoadResult::Success);
 }
@@ -1854,7 +1860,9 @@ void NetworkResourceLoader::sendResultForCacheEntry(std::unique_ptr<NetworkCache
         }
         metrics.responseBodyBytesReceived = 0;
         metrics.responseBodyDecodedSize = 0;
-        send(Messages::WebResourceLoader::DidFinishResourceLoad(WTF::move(metrics)));
+        // send(Messages::WebResourceLoader::DidFinishResourceLoad(WTF::move(metrics)));
+        if (!LegacyExtensionNetwork::singleton().finishFilteredResponse(*this, metrics)) // AQUAWEBKIT: a Safari 7 extension's StreamFilter ends the body it filters.
+            send(Messages::WebResourceLoader::DidFinishResourceLoad(WTF::move(metrics)));
 
         if (shouldSendResourceLoadMessages())
             connectionToWebProcess().networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::ResourceLoadDidCompleteWithError(webPageProxyID(), resourceLoadInfo(), m_response, { }), 0);
@@ -1867,7 +1875,8 @@ void NetworkResourceLoader::sendResultForCacheEntry(std::unique_ptr<NetworkCache
 #endif
 
 #if ENABLE(SHAREABLE_RESOURCE)
-    if (auto handle = entry->shareableResourceHandle()) {
+    // if (auto handle = entry->shareableResourceHandle()) {
+    if (auto handle = entry->shareableResourceHandle(); handle && !LegacyExtensionNetwork::singleton().filtersResponse(*this)) { // AQUAWEBKIT: a body a Safari 7 extension's StreamFilter reads goes through sendBuffer.
 #if ENABLE(CONTENT_FILTERING)
         if (contentFilter && !contentFilter->continueAfterDataReceived(protect(entry->buffer())->makeContiguous())) {
             contentFilter->continueAfterNotifyFinished(m_parameters.request.url());
@@ -2413,6 +2422,9 @@ void NetworkResourceLoader::sendDidReceiveDataMessage(const FragmentedSharedBuff
 #if ENABLE(CONTENT_EXTENSIONS)
     updateBytesTransferredOverNetwork(bytesTransferredOverNetwork);
 #endif
+
+    if (LegacyExtensionNetwork::singleton().filterResponseData(*this, buffer)) // AQUAWEBKIT: the body goes through a Safari 7 extension's StreamFilters.
+        return;
 
     // Transfer memory footprint of the buffer to the receiving WebProcess. We have to use the
     // default ledger rather than the network ledger here since the latter requires an entitlement.

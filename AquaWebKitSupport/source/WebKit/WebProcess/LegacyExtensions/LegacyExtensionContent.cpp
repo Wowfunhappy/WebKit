@@ -6,7 +6,9 @@
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionJavaScript.h"
 #include "LegacyExtensionScheme.h"
+#include "SharedBufferReference.h"
 #include "WebFrame.h"
+#include "WebPage.h"
 #include "WebProcess.h"
 #include "WebUserContentController.h"
 #include <JavaScriptCore/APICast.h>
@@ -18,7 +20,10 @@
 #include <WebCore/JSDOMWindow.h>
 #include <WebCore/JSElement.h>
 #include <WebCore/JSWindowProxy.h>
+#include <WebCore/DocumentLoader.h>
+#include <WebCore/LegacyExtensionMimeHandlerDocument.h>
 #include <WebCore/LegacyExtensionStyleSheets.h>
+#include <WebCore/SharedBuffer.h>
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/MemoryCache.h>
 #include <WebCore/Page.h>
@@ -63,7 +68,7 @@ static JSValueRef contentContextSend(JSContextRef context, JSObjectRef, JSObject
     auto message = LegacyExtensions::stringArgument(context, argumentCount, arguments, 0);
     RefPtr document = !message.isNull() ? documentForNative(*native) : nullptr;
     if (document)
-        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(native->frameID, native->documentIdentifier, document->url(), native->extensionKey, message), 0);
+        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(native->frameID, native->documentIdentifier, document->url(), native->extensionKey, message, IPC::SharedBufferReference { LegacyExtensions::bufferArgument(context, argumentCount, arguments, 1) }), 0);
     return JSValueMakeUndefined(context);
 }
 
@@ -136,6 +141,115 @@ static JSValueRef contentContextWithClipboardWriteAccess(JSContextRef context, J
     return result;
 }
 
+// A promise a native function returns, which a callback settles.
+struct NativePromise {
+    JSRetainPtr<JSGlobalContextRef> context;
+    JSObjectRef resolve;
+    JSObjectRef reject;
+
+    NativePromise(JSContextRef context, JSObjectRef resolve, JSObjectRef reject)
+        : context(JSContextGetGlobalContext(context)), resolve(resolve), reject(reject)
+    {
+        JSValueProtect(context, resolve);
+        JSValueProtect(context, reject);
+    }
+
+    ~NativePromise()
+    {
+        JSValueUnprotect(context.get(), resolve);
+        JSValueUnprotect(context.get(), reject);
+    }
+
+    void resolveWith(JSValueRef value)
+    {
+        JSObjectCallAsFunction(context.get(), resolve, nullptr, 1, &value, nullptr);
+    }
+
+    void rejectWith(const String& message)
+    {
+        auto string = adopt(JSStringCreateWithUTF8CString(message.utf8().data()));
+        JSValueRef argument = JSValueMakeString(context.get(), string.get());
+        JSValueRef error = JSObjectMakeError(context.get(), 1, &argument, nullptr);
+        JSObjectCallAsFunction(context.get(), reject, nullptr, 1, &error, nullptr);
+    }
+};
+
+// mimeHandler: the document whose handler page is the context's own, the extension's page in a frame.
+static RefPtr<WebCore::LegacyExtensionMimeHandlerDocument> mimeHandlerDocument(const ContentContextNative& native)
+{
+    RefPtr document = documentForNative(native);
+    RefPtr frame = document ? document->frame() : nullptr;
+    RefPtr handlerDocument = frame ? WebCore::LegacyExtensionMimeHandlerDocument::forHandlerFrame(*frame) : nullptr;
+    if (!handlerDocument || handlerDocument->extensionKey() != native.extensionKey)
+        return nullptr;
+    return handlerDocument;
+}
+
+// mimeHandlerStream(): a promise of the stream info getStreamInfo answers with, without its streamUrl, and with
+// the response's body as `body`, a Blob, once the body has arrived.
+static JSValueRef contentContextMimeHandlerStream(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t, const JSValueRef[], JSValueRef* exception)
+{
+    JSObjectRef resolve;
+    JSObjectRef reject;
+    auto promise = JSObjectMakeDeferredPromise(context, &resolve, &reject, exception);
+    if (!promise)
+        return JSValueMakeUndefined(context);
+    auto pending = std::make_unique<NativePromise>(context, resolve, reject);
+    auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    RefPtr handlerDocument = mimeHandlerDocument(*native);
+    RefPtr loader = handlerDocument ? handlerDocument->loader() : nullptr;
+    RefPtr page = handlerDocument ? handlerDocument->page() : nullptr;
+    RefPtr webPage = page ? WebPage::fromCorePage(*page) : nullptr;
+    if (!loader || !webPage) {
+        pending->rejectWith("No stream is attached to this page."_s);
+        return promise;
+    }
+
+    auto info = JSON::Object::create();
+    info->setBoolean("embedded"_s, handlerDocument->isEmbedded());
+    info->setString("mimeType"_s, handlerDocument->mimeType());
+    info->setString("originalUrl"_s, handlerDocument->url().string());
+    auto headers = JSON::Object::create();
+    for (auto& field : loader->response().httpHeaderFields())
+        headers->setString(field.key, field.value);
+    info->setObject("responseHeaders"_s, WTF::move(headers));
+    info->setDouble("tabId"_s, static_cast<double>(webPage->webPageProxyIdentifier().toUInt64()));
+
+    handlerDocument->whenBodyIsComplete([pending = WTF::move(pending), info = info->toJSONString(), native = *native](RefPtr<WebCore::FragmentedSharedBuffer>&& body) mutable {
+        if (!body || !documentForNative(native))
+            return pending->rejectWith("The stream failed."_s);
+        JSContextRef context = pending->context.get();
+        auto json = adopt(JSStringCreateWithUTF8CString(info.utf8().data()));
+        JSObjectRef object = JSValueToObject(context, JSValueMakeFromJSONString(context, json.get()), nullptr);
+        auto* globalObject = dynamicDowncast<WebCore::JSDOMGlobalObject>(toJS(context));
+        if (!object || !globalObject)
+            return pending->rejectWith("The stream failed."_s);
+        RefPtr handlerDocument = mimeHandlerDocument(native);
+        if (!handlerDocument)
+            return pending->rejectWith("The stream failed."_s);
+        // The body, as a Blob of the handler page holding the response's own buffer.
+        JSValueRef blobValue;
+        {
+            JSC::JSLockHolder lock(globalObject->vm());
+            blobValue = toRef(globalObject, handlerDocument->bodyBlob(*globalObject, body.releaseNonNull()));
+        }
+        auto name = adopt(JSStringCreateWithUTF8CString("body"));
+        JSObjectSetProperty(context, object, name.get(), blobValue, kJSPropertyAttributeNone, nullptr);
+        pending->resolveWith(object);
+    });
+    return promise;
+}
+
+// mimeHandlerFallBack(): hands the response to the browser's own handling; false when no stream is attached.
+static JSValueRef contentContextMimeHandlerFallBack(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t, const JSValueRef[], JSValueRef*)
+{
+    auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    RefPtr handlerDocument = mimeHandlerDocument(*native);
+    if (handlerDocument)
+        handlerDocument->fallBackToBrowser();
+    return JSValueMakeBoolean(context, !!handlerDocument);
+}
+
 static void contentContextFinalize(JSObjectRef object)
 {
     delete static_cast<ContentContextNative*>(JSObjectGetPrivate(object));
@@ -157,11 +271,14 @@ static JSClassRef contentContextNativeClass(LegacyExtensions::ContextKind kind)
         definition.finalize = contentContextFinalize;
         return JSClassCreate(&definition);
     }();
-    // An extension page shown in a frame of this process writes the clipboard as its pages do. Its parent
-    // class's finalizer releases the private data.
+    // An extension page shown in a frame of this process writes the clipboard as its pages do, and reads the
+    // stream of the mimeHandler document it is the handler page of. Its parent class's finalizer releases the
+    // private data.
     static JSClassRef hostClass = [] {
         static const JSStaticFunction functions[] = {
             { "withClipboardWriteAccess", contentContextWithClipboardWriteAccess, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "mimeHandlerStream", contentContextMimeHandlerStream, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "mimeHandlerFallBack", contentContextMimeHandlerFallBack, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { nullptr, nullptr, 0 },
         };
         JSClassDefinition definition = kJSClassDefinitionEmpty;
@@ -283,7 +400,22 @@ void LegacyExtensionContent::evictMemoryCache()
     WebCore::MemoryCache::singleton().evictResources();
 }
 
-void LegacyExtensionContent::deliver(WebCore::FrameIdentifier frameID, std::optional<WebCore::ScriptExecutionContextIdentifier> documentID, String&& extensionKey, String&& message)
+void LegacyExtensionContent::setMimeHandlers(String&& handlersJSON)
+{
+    HashMap<String, WebCore::LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash> handlers;
+    auto value = JSON::Value::parseJSON(handlersJSON);
+    if (RefPtr array = value ? value->asArray() : nullptr) {
+        for (auto& entry : *array) {
+            RefPtr handler = entry->asObject();
+            if (!handler)
+                continue;
+            handlers.set(handler->getString("mimeType"_s), WebCore::LegacyExtensionMimeHandler { handler->getString("extensionKey"_s), URL { handler->getString("handlerURL"_s) }, handler->getBoolean("canEmbed"_s).value_or(false) });
+        }
+    }
+    WebCore::LegacyExtensionMimeHandlerDocument::setHandlers(WTF::move(handlers));
+}
+
+void LegacyExtensionContent::deliver(WebCore::FrameIdentifier frameID, std::optional<WebCore::ScriptExecutionContextIdentifier> documentID, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data)
 {
     RefPtr frame = WebFrame::webFrame(frameID);
     RefPtr coreFrame = frame ? frame->coreLocalFrame() : nullptr;
@@ -303,7 +435,7 @@ void LegacyExtensionContent::deliver(WebCore::FrameIdentifier frameID, std::opti
         world = contentScriptWorld(extensionKey);
 
     if (world) {
-        if (auto* globalObject = existingGlobalObject(*coreFrame, *world); globalObject && LegacyExtensions::deliver(*globalObject, message))
+        if (auto* globalObject = existingGlobalObject(*coreFrame, *world); globalObject && LegacyExtensions::deliver(*globalObject, message, data.unsafeBuffer()))
             return;
     }
 
@@ -340,7 +472,7 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
         if (auto callID = object->getDouble("callId"_s))
             reply->setDouble("callId"_s, *callID);
         reply->setString("error"_s, "The extension has no access to this frame."_s);
-        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString()), 0);
+        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString(), { }), 0);
         return;
     }
 
@@ -354,7 +486,7 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
         reply->setBoolean("none"_s, true);
     } else
         return;
-    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString()), 0);
+    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::Post(frameID, documentID, documentURL, extensionKey, reply->toJSONString(), { }), 0);
 }
 
 } // namespace WebKit

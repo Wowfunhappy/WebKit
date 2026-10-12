@@ -715,6 +715,7 @@ void NetworkConnectionToWebProcess::performSynchronousLoad(NetworkResourceLoadPa
     RELEASE_ASSERT(RunLoop::isMain());
     ASSERT(!m_networkResourceLoaders.contains(*identifier));
 
+    reply = LegacyExtensionNetwork::singleton().filterSynchronousReply(*this, *identifier, WTF::move(reply)); // AQUAWEBKIT: a Safari 7 extension's StreamFilters take the body the reply carries.
     auto loader = NetworkResourceLoader::create(WTF::move(loadParameters), *this, WTF::move(reply));
     m_networkResourceLoaders.add(*identifier, loader.copyRef());
     loader->start();
@@ -787,6 +788,8 @@ void NetworkConnectionToWebProcess::browsingContextRemoved(WebPageProxyIdentifie
 
 void NetworkConnectionToWebProcess::prefetchDNS(const String& hostname)
 {
+    if (!LegacyExtensionNetwork::singleton().allowsNetworkPrediction()) // AQUAWEBKIT: a Safari 7 extension's privacy.network.networkPredictionEnabled.
+        return;
     if (CheckedPtr networkSession = this->networkSession(); networkSession && networkSession->canPrefetchDNS())
         WebCore::prefetchDNS(hostname);
 }
@@ -837,7 +840,8 @@ void NetworkConnectionToWebProcess::preconnectTo(PreconnectRequest&& preconnectR
 
 #if ENABLE(SERVER_PRECONNECT)
     CheckedPtr session = networkSession();
-    if (session && session->allowsServerPreconnect()) {
+    // if (session && session->allowsServerPreconnect()) {
+    if (session && session->allowsServerPreconnect() && LegacyExtensionNetwork::singleton().allowsNetworkPrediction()) { // AQUAWEBKIT: a Safari 7 extension's privacy.network.networkPredictionEnabled.
         NetworkLoadParameters parameters;
         parameters.webPageProxyID = preconnectRequest.webPageProxyID;
         parameters.webPageID = preconnectRequest.webPageID;

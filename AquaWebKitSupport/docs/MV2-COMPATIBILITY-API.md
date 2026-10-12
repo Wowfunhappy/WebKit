@@ -1,6 +1,6 @@
 # MV2 compatibility API for Safari 7 extensions
 
-This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `browser` namespace modeled on the WebExtensions (MV2) API. It sits alongside Safari 7's own `safari.extension` / `safari.application` / `safari.self` API, which stays fully available. Use `browser` for what Safari 7 cannot do: messaging addressed by tab and frame, script and style injection on demand, network interception, navigation events, cookies, and the clipboard.
+This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `browser` namespace modeled on the WebExtensions (MV2) API. It sits alongside Safari 7's own `safari.extension` / `safari.application` / `safari.self` API, which stays fully available. Use `browser` for what Safari 7 cannot do: messaging addressed by tab and frame, script and style injection on demand, network interception and response filtering, navigation events, cookies, document viewers, privacy settings, and the clipboard.
 
 The engine provides only what needs the engine. Anything an extension can build from `safari.*` or the web platform, such as `runtime.getURL`, `storage`, `tabs.query`, `tabs.create`, and menus, is left to the extension's own platform layer (the uBlock Origin port's `browser-safari.js`, for example, builds these on top).
 
@@ -13,7 +13,9 @@ Sources:
 | The JavaScript API | `AquaWebKitSupport/source/WebKit/Shared/LegacyExtensions/LegacyExtensionAPI.js` |
 | UI-process router | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionHost.{h,cpp}` |
 | Web-content side | `AquaWebKitSupport/source/WebKit/WebProcess/LegacyExtensions/LegacyExtensionContent.{h,cpp}` |
-| Network side (webRequest) | `AquaWebKitSupport/source/WebKit/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.{h,cpp}` |
+| Network side (webRequest) | `AquaWebKitSupport/source/WebKit/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.{h,cpp}`, with `LegacyExtensionResponseFilter.{h,cpp}` for `filterResponseData` |
+| mimeHandler | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionMimeHandlers.{h,cpp}`, `AquaWebKitSupport/source/WebCore/html/LegacyExtensionMimeHandlerDocument.{h,cpp}` |
+| privacy | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionPrivacy.{h,cpp}` |
 | declarativeNetRequest | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionDeclarativeNetRequest.{h,mm}`, on WebKit's own implementation in `Source/WebKit/UIProcess/Extensions/` |
 | Clipboard | writes: `WebLegacyExtensionPageObserver.mm` (WebKit 1 preferences) and `LegacyExtensionContent.cpp` (web content pages); reads: `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm` |
 | WebKit 1 page hooks | `AquaWebKitSupport/source/WebKitLegacy/mac/LegacyExtensions/WebLegacyExtensionPageObserver.mm` |
@@ -38,6 +40,8 @@ The API is installed in two kinds of context, and the namespaces available depen
 | `browser.webRequest` | yes | no |
 | `browser.cookies` | yes | no |
 | `browser.declarativeNetRequest` | yes | no |
+| `browser.mimeHandler` | yes | no |
+| `browser.privacy` | yes | no |
 | `navigator.clipboard` without the page's restrictions | yes | no (page rules apply) |
 
 `browser` is a writable, configurable, non-enumerable property of the global object. There is no `chrome` alias.
@@ -54,7 +58,7 @@ A context belongs to one document. When its frame shows another document, or whe
 
 Every method that returns a Promise also accepts a trailing callback, as Chrome's do. With a callback, the method returns `undefined`, and a failure calls the callback with no arguments while `browser.runtime.lastError` is set to `{ message }`. `lastError` is defined only while that callback runs.
 
-Every message crossing between contexts is serialized as JSON. Values JSON cannot represent (functions, `undefined` members, cyclic objects, DOM nodes) do not survive the trip.
+Every message crossing between contexts is serialized as JSON. Values JSON cannot represent (functions, `undefined` members, cyclic objects, DOM nodes) do not survive the trip. A StreamFilter's bytes travel as bytes.
 
 Messages, port traffic, and events reach JavaScript as tasks on the receiving context's event loop, never synchronously inside the sender's call. A suspended document (for example, one in the back/forward cache) receives nothing until it resumes.
 
@@ -311,6 +315,29 @@ A tab downloads a main-frame response it cannot show, such as a PDF or an archiv
 
 The test rig's `display-or-download.safariextension` exercises each of these.
 
+### `webRequest.filterResponseData(requestId)` → `StreamFilter`
+
+Firefox's [`StreamFilter`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/webRequest/StreamFilter): the response body of the load whose `requestId` a `webRequest` event reported goes to the filter, and what the filter writes is the body the page receives. The filter is created in the network process before the body reaches the page, which a blocking listener of the load's `onBeforeRequest` or `onHeadersReceived` guarantees. Bodies from the network and from the disk cache are filtered alike; the disk cache stores the body as the network sent it, so a cached response is filtered again each time it loads.
+
+| Member | Behavior |
+| --- | --- |
+| `status` | `"uninitialized"`, `"transferringdata"`, `"finishedtransferringdata"`, `"suspended"`, `"closed"`, `"disconnected"`, or `"failed"` |
+| `error` | the error's message, once `onerror` has fired |
+| `onstart` | the body is about to arrive; from here on `write()` works |
+| `ondata` | `event.data` is the next chunk, an `ArrayBuffer` |
+| `onstop` | the body has all arrived; `write()` still works until `close()` |
+| `onerror` | the filter failed |
+| `write(data)` | adds an `ArrayBuffer` or `Uint8Array` to the body the page receives |
+| `close()` | ends the body the page receives; the rest of the response is discarded |
+| `disconnect()` | the rest of the response, including chunks already sent to the filter but not yet dispatched, reaches the page unfiltered |
+| `suspend()`, `resume()` | hold and release the filter's data events |
+
+The handlers are event handler attributes; `addEventListener` works too. A method called in a status that does not allow it throws `Error("Invalid state")`. The page receives nothing of the body until the filter writes, and the load does not finish until the filter is closed or disconnected. A filter whose extension context goes away disconnects.
+
+Several filters of one load chain, as Firefox chains them: the filter attached last reads the body first, and what it writes is the input of the filter attached before it.
+
+The filter fails with `"Invalid request ID"` when no load of the network process has the `requestId`, when the extension's website access does not cover the load, when a service worker answers the load, or when the page has already received some of its body. A WebKit 1 view's loads, pings, and WebSockets have no body to filter. A load that fails or is cancelled fails its filters with its `net::` error name, and one a service worker turns out to answer fails them with `"The response came from a service worker."`; a page a service worker serves reaches `webRequest` only through the service worker's own requests.
+
 ### `webRequest.handlerBehaviorChanged()` → `Promise<void>`
 
 Empties the in-memory caches of the Safari process and of every web content process, so resources held there reach `webRequest` again. `MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES` is `20`. Calls beyond it still empty the caches, as Chrome's do.
@@ -352,6 +379,42 @@ Each `path` names a rules file in the extension, relative to its root. Like ever
 **Which loads and when.** An extension's rules apply to every tab's loads, including private windows', from when its first page loads (its global page, at Safari's launch) until none of its pages is open, as when Safari disables or reloads it. Its session rules last as long; a page reloading itself keeps them. They do not apply to the loads of the extension's own WebKit 1 views. `block`, `allow`, `allowAllRequests`, and `upgradeScheme` rules act on any URL. `redirect` and `modifyHeaders` rules act only on URLs within the extension's website access, as a WebExtension's need host permissions for them. A `redirect` to an `extensionPath` goes to the extension's file of that path.
 
 **The badge.** With `displayActionCountAsBadgeText`, the badge of the extension's toolbar items in Safari's active browser window (its frontmost) shows the count for that window's active tab, and follows it as windows and tabs are activated, whether or not Safari is the active application. An extension that does not ask for it keeps its badge to itself.
+
+## `browser.mimeHandler` (host contexts only)
+
+[Chrome's document viewers](https://developer.chrome.com/docs/extensions/reference/api/mimeHandler): a document whose response has a type the extension handles shows the extension's handler page in a frame filling it, while the address bar keeps the document's URL. The handler page reads the response through `getStreamInfo()`; the response is loaded once.
+
+The handler is declared in Info.plist under the key a WebExtension manifest uses, with its keys. `handler_url` is a path in the extension; `can_embed` also shows the handler in `<embed>`, `<object>`, and frames, not only top-level documents:
+
+```xml
+<key>mime_types_handler</key>
+<dict>
+    <key>application/pdf</key>
+    <dict>
+        <key>handler_url</key><string>viewer.html</string>
+        <key>can_embed</key><true/>
+    </dict>
+</dict>
+```
+
+`application/pdf` is the only type an extension can handle, as in Chrome; other types are ignored. When several extensions handle a type, the one Safari loaded last, which is the one installed last, shows it. A frame below the top level whose handler does not embed gets the response as it would with no handler. A response with `Content-Disposition: attachment` still downloads.
+
+| Member | |
+| --- | --- |
+| `getStreamInfo()` | `{ embedded, mimeType, originalUrl, responseHeaders, streamUrl, tabId }`, in the handler page, once the whole response has arrived. `responseHeaders` maps each header name to its value. `streamUrl` is a `blob:` URL of the handler page holding the body; read it with `fetch()`. Rejects with `"No stream is attached to this page."` anywhere else, and with `"The stream failed."` when the load failed. |
+| `abortAndFallbackToNativeHandler()` | Removes the handler page and downloads the response, as a navigation of the document's frame to it with a `download` attribute does: through Safari's policy, loading the URL again. |
+| `getMimeHandlerOptions(mimeType)`, `setMimeHandlerOptions(mimeType, { enabled })` | Whether the extension's handler serves the type, `true` by default. The choice persists, in the directory of the extension's `declarativeNetRequest` rules. |
+
+## `browser.privacy` (host contexts only)
+
+ChromeSettings with `get(details)` → `Promise<{ value, levelOfControl }>`, `set({ value, scope })`, `clear({ scope })`, and `onChange`, which reports `{ value, levelOfControl }` as the listening extension sees the setting:
+
+| Setting | `false` turns off |
+| --- | --- |
+| `privacy.network.networkPredictionEnabled` | DNS prefetching (`<link rel="dns-prefetch">` and link hosts) and the preconnections pages ask for with `<link rel="preconnect">` |
+| `privacy.websites.hyperlinkAuditingEnabled` | the pings of `<a ping>`; `navigator.sendBeacon()` is unaffected |
+
+`scope` is `"regular"`, the default, which covers every tab, private windows included; other scopes reject, as in Firefox. A value must be a boolean. A setting's value is that of the extension Safari loaded last among those that set it, and `true` when none did; `levelOfControl` is `"controlled_by_this_extension"`, `"controlled_by_other_extensions"`, or `"controllable_by_this_extension"`. An extension's value persists until it calls `clear()`, and applies while the extension is loaded.
 
 ## `browser.cookies` (host contexts only)
 
@@ -424,4 +487,5 @@ Safari 7's extension resource protocol has limits that apply to every file in th
 
 ## Testing
 
-`AquaWebKitSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844), `limited-access.safariextension`, whose website access is `localhost` alone, `declarative-net-request.safariextension`, whose rules act on the loads of `pages/dnr.html` (results in `window.__results`; the extension reports its API calls to the server log as `dnr-api`), and `display-or-download.safariextension`, which decides whether the server's `/inline/` responses display or download: open `/inline/login`, then `/inline/doc.pdf` (its viewer shows `window.__result`), `/inline/data.bin` and `/inline/force-download.html`, and the `/plain/` paths of the same names, which no extension changes. `/plain/clip.mp4` and `/plain/server-inline.mp4` (the server's own `Content-Disposition: inline`) download unless `WebKitPlayMediaFilesInline` is on. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
+`AquaWebKitSupport/tests/legacy-extensions/` holds `api-test.safariextension`, which exercises every namespace against a local server (`server.py`, ports 8843 and 8844, and 8845, which counts preconnections), `response-filter.safariextension`, which rewrites the server's `/filter/` responses and sets the privacy settings `pages/filter.html` asks for (results in `window.__results`), `mime-handler.safariextension`, whose viewer shows the server's `/mime/` PDFs and reports what it read to the server log (`/mime/embed.html` embeds one; `/mime-options/false` and `/mime-options/true` set its option), `limited-access.safariextension`, whose website access is `localhost` alone, `declarative-net-request.safariextension`, whose rules act on the loads of `pages/dnr.html` (results in `window.__results`; the extension reports its API calls to the server log as `dnr-api`), and `display-or-download.safariextension`, which decides whether the server's `/inline/` responses display or download: open `/inline/login`, then `/inline/doc.pdf` (its viewer shows `window.__result`), `/inline/data.bin` and `/inline/force-download.html`, and the `/plain/` paths of the same names, which no extension changes. `/plain/clip.mp4` and `/plain/server-inline.mp4` (the server's own `Content-Disposition: inline`) download unless `WebKitPlayMediaFilesInline` is on. Build the extensions in Safari's Extension Builder, then open `pages/coverage.html` from the server; results collect in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
+

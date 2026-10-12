@@ -270,6 +270,7 @@
 #include <WebCore/JSDOMExceptionHandling.h>
 #include <WebCore/JSNode.h>
 #include <WebCore/KeyboardEvent.h>
+#include <WebCore/LegacyExtensionMimeHandlerDocument.h> // AQUAWEBKIT: Safari 7 extensions' mimeHandler viewers.
 #include <WebCore/LegacySchemeRegistry.h>
 #include <WebCore/LocalDOMWindow.h>
 #include <WebCore/LocalFrameInlines.h>
@@ -8069,6 +8070,9 @@ bool WebPage::canShowMIMEType(const String& mimeType, NOESCAPE const Function<bo
     if (m_page->settings().pdfJSViewerEnabled() && MIMETypeRegistry::isPDFMIMEType(mimeType))
         return true;
 #endif
+
+    if (LegacyExtensionMimeHandlerDocument::handles(mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
+        return true;
 
     return false;
 }

@@ -8,6 +8,7 @@
 #include "LegacyExtensionNetworkProxyMessages.h"
 #include "LegacyExtensionScheme.h"
 #include "MessageNames.h"
+#include "MessageSenderInlines.h"
 #include "NetworkCache.h"
 #include "NetworkCacheEntry.h"
 #include "NetworkConnectionToWebProcess.h"
@@ -15,7 +16,9 @@
 #include "NetworkLoad.h"
 #include "NetworkProcess.h"
 #include "NetworkResourceLoader.h"
+#include "SharedBufferReference.h"
 #include "WebErrors.h"
+#include "WebResourceLoaderMessages.h"
 #include "WebSocketChannelMessages.h"
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/ClientOrigin.h>
@@ -30,6 +33,7 @@
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/SecurityOrigin.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/ProcessID.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #include <wtf/RunLoop.h>
@@ -147,7 +151,7 @@ Ref<JSON::Object> LegacyExtensionNetwork::loaderDetails(NetworkResourceLoader& l
     auto& request = loader.originalRequest();
     auto details = JSON::Object::create();
     details->setString("requestId"_s, makeString(getCurrentProcessID(), '-', loader.identifier().toUInt64()));
-    details->setString("url"_s, (loader.m_networkLoad ? loader.m_networkLoad->currentRequest() : request).url().string());
+    details->setString("url"_s, currentURL(loader).string());
     details->setString("method"_s, request.httpMethod());
     details->setString("type"_s, resourceType(request, parameters.options.destination, loader.isMainFrameLoad()));
     details->setDouble("timeStamp"_s, timeStamp());
@@ -280,6 +284,12 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
 {
     if (m_resumingRequests.remove(checker))
         return false;
+    // A hyperlink auditing ping, which carries Ping-To, is not sent while the privacy API turns hyperlink auditing
+    // off; beacons and other pings are.
+    if (!m_hyperlinkAuditingEnabled && request.hasHTTPHeaderField(HTTPHeaderName::PingTo)) {
+        handler(cancellationError(request));
+        return true;
+    }
     if (RefPtr loader = checker.m_networkResourceLoader.get())
         m_loaders.add(*loader);
     auto redirectResponse = m_redirectResponses.take(checker);
@@ -702,6 +712,8 @@ bool LegacyExtensionNetwork::interceptAuthenticationChallenge(NetworkLoad& netwo
 
 void LegacyExtensionNetwork::loaderDidFail(NetworkResourceLoader& loader, const ResourceError& error)
 {
+    if (RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64()))
+        response->error = LegacyExtensions::networkErrorName(error);
     if (!observes(onErrorOccurred))
         return;
     m_loadErrors.set(loader, LegacyExtensions::networkErrorName(error));
@@ -724,12 +736,13 @@ bool LegacyExtensionNetwork::didReceivePendingWebSocketMessage(NetworkConnection
 void LegacyExtensionNetwork::loaderDidFinish(NetworkResourceLoader& loader, NetworkResourceLoader::LoadResult result)
 {
     bool succeeded = result == NetworkResourceLoader::LoadResult::Success;
+    m_loadersWithDeliveredBody.remove(loader);
+    auto url = currentURL(loader);
     auto error = m_loadErrors.take(loader);
     auto eventName = succeeded ? onCompleted : onErrorOccurred;
     if (!observes(eventName))
         return;
-    auto& request = loader.m_networkLoad ? loader.m_networkLoad->currentRequest() : loader.originalRequest();
-    if (!isInterceptable(request.url()))
+    if (!isInterceptable(url))
         return;
     auto details = loaderDetails(loader);
     if (succeeded)
@@ -742,6 +755,238 @@ void LegacyExtensionNetwork::loaderDidFinish(NetworkResourceLoader& loader, Netw
             details->setString("error"_s, result == NetworkResourceLoader::LoadResult::Cancel ? "net::ERR_ABORTED"_s : "net::ERR_FAILED"_s);
     }
     notify(eventName, details->toJSONString());
+}
+
+// webRequest.filterResponseData.
+
+RefPtr<LegacyExtensionNetwork::FilteredResponse> LegacyExtensionNetwork::filteredResponse(uint64_t filterID) const
+{
+    auto requestIdentifier = m_responseFilterRequests.get(filterID);
+    return requestIdentifier ? RefPtr { m_filteredResponses.get(requestIdentifier) } : nullptr;
+}
+
+void LegacyExtensionNetwork::sendFilterEvent(uint64_t filterID, ASCIILiteral event, RefPtr<SharedBuffer>&& data, const String& error)
+{
+    if (RefPtr networkProcess = m_networkProcess.get())
+        networkProcess->parentProcessConnection()->send(Messages::LegacyExtensionNetworkProxy::ResponseFilterEvent(filterID, String { event }, IPC::SharedBufferReference { WTF::move(data) }, error), 0);
+}
+
+// A filter attaches to a load the extension can see, before its web process receives any of the body.
+void LegacyExtensionNetwork::createResponseFilter(uint64_t filterID, uint64_t requestIdentifier, String&& extensionKey, String&& websiteAccess)
+{
+    if (!filterID || m_responseFilterRequests.contains(filterID))
+        return;
+    auto reject = [&] {
+        sendFilterEvent(filterID, "error"_s, nullptr, "Invalid request ID"_s);
+    };
+    RefPtr<NetworkResourceLoader> loader;
+    for (auto& candidate : m_loaders) {
+        if (candidate.identifier().toUInt64() == requestIdentifier) {
+            loader = &candidate;
+            break;
+        }
+    }
+    if (!loader || loader->isCrossOriginPrefetch() || loader->m_serviceWorkerFetchTask || m_loadersWithDeliveredBody.contains(*loader))
+        return reject();
+    auto& url = (loader->m_networkLoad ? loader->m_networkLoad->currentRequest() : loader->originalRequest()).url();
+    auto accessValue = JSON::Value::parseJSON(websiteAccess);
+    RefPtr accessObject = accessValue ? accessValue->asObject() : nullptr;
+    if (url.protocolIs("safari-extension"_s) ? url.host() != extensionKey : !accessObject || !WebsiteAccess::fromJSON(*accessObject).allows(url))
+        return reject();
+
+    Ref response = m_filteredResponses.ensure(requestIdentifier, [&] {
+        Ref response = adoptRef(*new FilteredResponse);
+        response->requestIdentifier = requestIdentifier;
+        response->coreIdentifier = loader->coreIdentifier();
+        response->loader = *loader;
+        response->filter = LegacyExtensionResponseFilter::create([this](uint64_t filterID, ASCIILiteral event, RefPtr<SharedBuffer>&& data, const String& error) {
+            sendFilterEvent(filterID, event, WTF::move(data), error);
+        }, [this, requestIdentifier](RefPtr<SharedBuffer>&& data) {
+            outputFilteredResponse(requestIdentifier, WTF::move(data));
+        });
+        return response;
+    }).iterator->value;
+    if (!response->filter->canAttach())
+        return reject();
+    response->filter->attach(filterID);
+    m_responseFilterRequests.set(filterID, requestIdentifier);
+}
+
+// The filters' output: the body the web process receives, then its end, with the network's metrics when the
+// network finished first; a synchronous load's reply carries the whole output. A loader whose cleanup waited on
+// the output is cleaned up after it.
+void LegacyExtensionNetwork::outputFilteredResponse(uint64_t requestIdentifier, RefPtr<SharedBuffer>&& data)
+{
+    RefPtr response = m_filteredResponses.get(requestIdentifier);
+    RefPtr loader = response ? response->loader.get() : nullptr;
+    if (!loader)
+        return;
+    if (response->synchronousReply) {
+        if (data) {
+            response->synchronousBody.append(data->span());
+            return;
+        }
+        std::exchange(response->synchronousReply, nullptr)(response->synchronousError, response->synchronousResponse, std::exchange(response->synchronousBody, { }));
+    } else if (data) {
+        IPC::SharedBufferReference reference { data.releaseNonNull() };
+        reference.transferOwnershipToReceiver(MemoryLedger::Default);
+        RefPtr networkLoad = loader->m_networkLoad;
+        loader->send(Messages::WebResourceLoader::DidReceiveData(WTF::move(reference), networkLoad ? networkLoad->bytesTransferredOverNetwork() : response->bytesTransferredOverNetwork));
+        return;
+    } else {
+        NetworkLoadMetrics metrics;
+        if (response->metrics)
+            metrics = *response->metrics;
+        else
+            metrics.markComplete();
+        loader->send(Messages::WebResourceLoader::DidFinishResourceLoad(metrics));
+    }
+    if (response->cleanupIsDeferred) {
+        removeFilteredResponse(*response);
+        loader->cleanup(NetworkResourceLoader::LoadResult::Success);
+    }
+}
+
+// A synchronous load waiting on its filters' output is answered as a cancelled one is.
+void LegacyExtensionNetwork::removeFilteredResponse(FilteredResponse& response)
+{
+    if (auto reply = std::exchange(response.synchronousReply, nullptr))
+        reply(ResourceError { ResourceError::Type::Cancellation }, response.synchronousResponse, { });
+    for (auto filterID : response.filter->filterIDs())
+        m_responseFilterRequests.remove(filterID);
+    m_filteredResponses.remove(response.requestIdentifier);
+}
+
+bool LegacyExtensionNetwork::deferCleanup(NetworkResourceLoader& loader, NetworkResourceLoader::LoadResult result)
+{
+    RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64());
+    if (!response)
+        return false;
+    if (response->filter->hasFinishedOutput()) {
+        removeFilteredResponse(*response);
+        return false;
+    }
+    // The finished network load goes as cleanup lets it go, so cancelling the loader leaves the load's cache entry.
+    if (result == NetworkResourceLoader::LoadResult::Success && response->inputFinished) {
+        response->cleanupIsDeferred = true;
+        m_deferredCleanupURLs.set(loader, currentURL(loader));
+        if (RefPtr networkLoad = std::exchange(loader.m_networkLoad, nullptr)) {
+            response->bytesTransferredOverNetwork = networkLoad->bytesTransferredOverNetwork();
+            networkLoad->clearClient();
+        }
+        return true;
+    }
+    String error;
+    if (result != NetworkResourceLoader::LoadResult::Success)
+        error = response->error.isNull() ? "net::ERR_ABORTED"_s : response->error;
+    else if (loader.m_serviceWorkerFetchTask)
+        error = "The response came from a service worker."_s;
+    else
+        error = "net::ERR_FAILED"_s;
+    response->filter->fail(error);
+    removeFilteredResponse(*response);
+    return false;
+}
+
+URL LegacyExtensionNetwork::currentURL(NetworkResourceLoader& loader) const
+{
+    if (RefPtr networkLoad = loader.m_networkLoad)
+        return networkLoad->currentRequest().url();
+    if (auto url = m_deferredCleanupURLs.get(loader); !url.isNull())
+        return url;
+    return loader.originalRequest().url();
+}
+
+bool LegacyExtensionNetwork::filterResponseData(NetworkResourceLoader& loader, const FragmentedSharedBuffer& buffer)
+{
+    RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64());
+    if (!response) {
+        if (m_loaders.contains(loader))
+            m_loadersWithDeliveredBody.add(loader);
+        return false;
+    }
+    response->filter->receive(buffer.makeContiguous());
+    return true;
+}
+
+bool LegacyExtensionNetwork::finishFilteredResponse(NetworkResourceLoader& loader, const NetworkLoadMetrics& metrics)
+{
+    RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64());
+    if (!response) {
+        if (m_loaders.contains(loader))
+            m_loadersWithDeliveredBody.add(loader);
+        return false;
+    }
+    if (!response->inputFinished) {
+        response->inputFinished = true;
+        response->metrics = metrics;
+        response->filter->finishInput();
+    }
+    return true;
+}
+
+bool LegacyExtensionNetwork::filtersResponse(NetworkResourceLoader& loader) const
+{
+    return m_filteredResponses.contains(loader.identifier().toUInt64());
+}
+
+auto LegacyExtensionNetwork::filterSynchronousReply(NetworkConnectionToWebProcess& connection, ResourceLoaderIdentifier coreIdentifier, SynchronousReply&& reply) -> SynchronousReply
+{
+    return [this, weakConnection = WeakPtr { connection }, coreIdentifier, reply = WTF::move(reply)](const ResourceError& error, const ResourceResponse response, Vector<uint8_t>&& body) mutable {
+        RefPtr<FilteredResponse> filtered;
+        for (auto& candidate : m_filteredResponses.values()) {
+            RefPtr loader = candidate->loader.get();
+            if (candidate->coreIdentifier && *candidate->coreIdentifier == coreIdentifier && loader && &loader->connectionToWebProcess() == weakConnection.get()) {
+                filtered = candidate.ptr();
+                break;
+            }
+        }
+        if (!filtered || filtered->inputFinished)
+            return reply(error, response, WTF::move(body));
+        filtered->inputFinished = true;
+        if (!error.isNull()) {
+            filtered->error = LegacyExtensions::networkErrorName(error);
+            return reply(error, response, WTF::move(body));
+        }
+        filtered->synchronousReply = WTF::move(reply);
+        filtered->synchronousError = error;
+        filtered->synchronousResponse = response;
+        filtered->filter->receive(SharedBuffer::create(WTF::move(body)));
+        filtered->filter->finishInput();
+    };
+}
+
+void LegacyExtensionNetwork::writeResponseFilter(uint64_t filterID, IPC::SharedBufferReference&& data, uint64_t dispatched)
+{
+    RefPtr response = filteredResponse(filterID);
+    if (!response)
+        return;
+    RefPtr buffer = data.unsafeBuffer();
+    response->filter->write(filterID, buffer ? buffer.releaseNonNull() : SharedBuffer::create(), dispatched);
+}
+
+void LegacyExtensionNetwork::closeResponseFilter(uint64_t filterID)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->close(filterID);
+}
+
+void LegacyExtensionNetwork::disconnectResponseFilter(uint64_t filterID, uint64_t dispatched)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->disconnect(filterID, dispatched);
+}
+
+void LegacyExtensionNetwork::suspendResponseFilter(uint64_t filterID)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->suspend(filterID);
+}
+
+void LegacyExtensionNetwork::resumeResponseFilter(uint64_t filterID)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->resume(filterID);
 }
 
 } // namespace WebKit

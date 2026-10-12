@@ -18,6 +18,10 @@
 #include <wtf/WeakHashMap.h>
 #include <wtf/text/WTFString.h>
 
+namespace IPC {
+class SharedBufferReference;
+}
+
 namespace WebCore {
 class DOMWrapperWorld;
 class Document;
@@ -56,8 +60,9 @@ private:
         WebCore::UserStyleSheet styleSheet;
     };
 
-    void deliver(WebCore::FrameIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier>, String&& extensionKey, String&& message);
+    void deliver(WebCore::FrameIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier>, String&& extensionKey, String&& message, IPC::SharedBufferReference&&);
     void evictMemoryCache();
+    void setMimeHandlers(String&&);
 
     WebCore::DOMWrapperWorld* contentScriptWorld(const String& extensionKey) const;
     String extensionKeyForWorld(WebFrame&, WebCore::DOMWrapperWorld&) const;

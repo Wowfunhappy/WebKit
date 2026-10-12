@@ -6,11 +6,11 @@
 #import "APIData.h"
 #import "CocoaHelpers.h"
 #import "LegacyExtensionHost.h"
+#import "LegacyExtensionInfoPlist.h"
 #import "Logging.h"
 #import "WebExtension.h"
 #import "WebExtensionConstants.h"
 #import "WebExtensionContext.h"
-#import "WebExtensionControllerConfiguration.h"
 #import "WebExtensionDeclarativeNetRequestSQLiteStore.h"
 #import "WebExtensionUtilities.h"
 #import "WebExtensionAPIKeys.h"
@@ -57,7 +57,7 @@ LegacyExtensionDeclarativeNetRequest::~LegacyExtensionDeclarativeNetRequest() = 
 
 String LegacyExtensionDeclarativeNetRequest::storageDirectory() const
 {
-    return FileSystem::pathByAppendingComponent(WebExtensionControllerConfiguration::createDefault()->storageDirectory(), m_extensionKey);
+    return LegacyExtensions::storageDirectory(m_extensionKey);
 }
 
 String LegacyExtensionDeclarativeNetRequest::declarativeNetRequestContentRuleListFilePath() const

@@ -1,7 +1,9 @@
 #import "config.h"
 #import "LegacyExtensionInfoPlist.h"
 
+#import "WebExtensionControllerConfiguration.h"
 #import <Foundation/Foundation.h>
+#import <wtf/FileSystem.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/RunLoop.h>
@@ -33,9 +35,10 @@ static WebsiteAccess websiteAccess(NSDictionary *plist)
     return access;
 }
 
-static RefPtr<JSON::Object> declarativeNetRequest(NSDictionary *plist)
+// An entry with a WebExtension manifest's keys, as the manifest's JSON.
+static RefPtr<JSON::Object> manifestEntry(NSDictionary *plist, NSString *key)
 {
-    NSDictionary *entry = plist[@"declarative_net_request"];
+    NSDictionary *entry = plist[key];
     if (![entry isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:entry])
         return nullptr;
     NSData *json = [NSJSONSerialization dataWithJSONObject:entry options:0 error:nil];
@@ -52,12 +55,18 @@ void loadInfoPlist(const URL& root, CompletionHandler<void(InfoPlist&&)>&& compl
             NSDictionary *plist = data ? [NSPropertyListSerialization propertyListWithData:data.get() options:NSPropertyListImmutable format:nil error:nil] : nil;
             if ([plist isKindOfClass:NSDictionary.class]) {
                 infoPlist.websiteAccess = websiteAccess(plist);
-                infoPlist.declarativeNetRequest = declarativeNetRequest(plist);
+                infoPlist.declarativeNetRequest = manifestEntry(plist, @"declarative_net_request");
+                infoPlist.mimeTypesHandler = manifestEntry(plist, @"mime_types_handler");
             }
             completionHandler(WTF::move(infoPlist));
         });
     }).get()];
     [task resume];
+}
+
+String storageDirectory(const String& extensionKey)
+{
+    return FileSystem::pathByAppendingComponent(WebExtensionControllerConfiguration::createDefault()->storageDirectory(), extensionKey);
 }
 
 } // namespace WebKit::LegacyExtensions

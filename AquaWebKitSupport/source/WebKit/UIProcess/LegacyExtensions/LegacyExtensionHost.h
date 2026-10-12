@@ -30,8 +30,13 @@ namespace JSC {
 class JSGlobalObject;
 }
 
+namespace IPC {
+class SharedBufferReference;
+}
+
 namespace WebCore {
 class ResourceError;
+class SharedBuffer;
 struct ContentRuleListResults;
 struct Cookie;
 }
@@ -61,6 +66,7 @@ public:
 private:
     void dispatchBlockingEvent(String&& eventName, String&& details, CompletionHandler<void(String&&)>&&);
     void dispatchEvent(String&& eventName, String&& details);
+    void responseFilterEvent(uint64_t filterID, String&& event, IPC::SharedBufferReference&&, String&& error);
 };
 
 class LegacyExtensionHost final : public IPC::MessageReceiver {
@@ -71,7 +77,10 @@ public:
     void deref() const final { }
 
     void webProcessCreated(WebProcessProxy&);
+    // A web process's state, sent once it is initialized.
+    void webProcessDidInitialize(WebProcessProxy&);
     void networkProcessCreated(NetworkProcessProxy&);
+    void networkProcessDidTerminate(NetworkProcessProxy&);
 
     void pageWasCreated(WebPageProxy&);
     void pageWillClose(WebPageProxy&);
@@ -89,6 +98,8 @@ public:
     // An event whose details already name the load's tab and frames as the API reports them.
     void dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&&);
     void dispatchCookieChange(const WebCore::Cookie&, Ref<JSON::Array>&&);
+    // An event of a StreamFilter an extension context attached to a network process's load.
+    void dispatchResponseFilterEvent(uint64_t filterID, const String& event, RefPtr<WebCore::SharedBuffer>&&, const String& error);
 
     // declarativeNetRequest: the controllers of the pages extensions' rules apply to, and the rule lists a
     // page's load matched.
@@ -98,7 +109,7 @@ public:
     // WebKit 1 host contexts.
     void didClearWindowObject(const void* frame, JSC::JSGlobalObject&, const URL& documentURL);
     void frameWillBeDestroyed(const void* frame);
-    void postFromHostContext(uint64_t hostContextIdentifier, const String& message);
+    void postFromHostContext(uint64_t hostContextIdentifier, const String& message, RefPtr<WebCore::SharedBuffer>&& data);
 
 private:
     friend class NeverDestroyed<LegacyExtensionHost>;
@@ -159,9 +170,18 @@ private:
         CompletionHandler<void(String&&)> completionHandler;
     };
 
-    void post(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& extensionKey, String&& message);
+    // A StreamFilter: the host context that attached it, which names it `contextFilterID`, the network process
+    // whose load it filters, and how many of its data events the context has dispatched.
+    struct ResponseFilter {
+        uint64_t hostContextIdentifier { 0 };
+        String contextFilterID;
+        WeakPtr<NetworkProcessProxy> networkProcess;
+        uint64_t dispatched { 0 };
+    };
 
-    void route(const Endpoint&, const String& extensionKey, const String& message);
+    void post(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data);
+
+    void route(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr);
     void routeConnect(const Endpoint&, const String& extensionKey, JSON::Object&);
     void routePost(const Endpoint&, const String& message, const String& portID);
     void routeDisconnect(const Endpoint&, const String& portID);
@@ -170,11 +190,13 @@ private:
     void routeCallResult(const Endpoint&, JSON::Object&);
     void routeWebRequestResponse(const HostContext&, JSON::Object&);
     void routeInterest(HostContext&, JSON::Object&);
+    void routeResponseFilter(HostContext&, JSON::Object&, RefPtr<WebCore::SharedBuffer>&&);
+    void removeResponseFilter(uint64_t filterID);
     void performCall(HostContext&, JSON::Object&);
 
     Vector<Endpoint> hostContextsListeningTo(const String& extensionKey, const String& eventName, const Endpoint& except) const;
     void tabEndpoints(WebPageProxy&, std::optional<double> frameId, const String& extensionKey, CompletionHandler<void(Vector<Endpoint>&&)>&&);
-    bool deliver(const Endpoint&, const String& extensionKey, const String& message);
+    bool deliver(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr);
     Ref<JSON::Object> senderDescription(const Endpoint&) const;
     void endpointDidGoAway(const Endpoint&);
     void endpointsDidGoAway(NOESCAPE const Function<bool(const Endpoint&)>&);
@@ -212,6 +234,9 @@ private:
     HashMap<String, OneShotMessage> m_oneShotMessages;
     HashMap<uint64_t, RouterCall> m_routerCalls;
     HashMap<uint64_t, WebRequestCall> m_webRequestCalls;
+    HashMap<uint64_t, ResponseFilter> m_responseFilters;
+    // Each filter by its host context and the context's name for it, as "<context>:<name>".
+    HashMap<String, uint64_t> m_responseFilterIDs;
     // The transition that first committed each main-frame history item, which going back or forward to it reports.
     WeakHashMap<WebBackForwardListItem, String> m_historyItemTransitions;
     uint64_t m_nextIdentifier { 1 };

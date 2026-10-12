@@ -90,6 +90,7 @@
 #include <WebCore/HistoryController.h>
 #include <WebCore/HistoryItem.h>
 #include <WebCore/HitTestResult.h>
+#include <WebCore/LegacyExtensionMimeHandlerDocument.h> // AQUAWEBKIT: Safari 7 extensions' mimeHandler viewers.
 #include <WebCore/LocalFrame.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/MIMETypeRegistry.h>
@@ -1004,6 +1005,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     // WKBundlePagePolicyActionUse (canShortCircuitPolicyDecisionForResponse) for the responses it
     // commits without its UI-process handler -- plain non-attachment http text/html. The UIProcess
     // carries that answer out as it does any Use.
+    LegacyExtensionMimeHandlerDocument::ResponsePolicyScope mimeHandlerScope { m_localFrame.get() }; // AQUAWEBKIT: whether the page shows the type is whether this frame does.
     RefPtr<API::Object> bundleUserData;
     bool bundlePolicyDecidedUse = webPage->injectedBundlePolicyClient().decidePolicyForResponse(webPage.get(), m_frame.ptr(), response, request, bundleUserData) == WKBundlePagePolicyActionUse;
 
@@ -1944,6 +1946,8 @@ ObjectContentType WebLocalFrameLoaderClient::objectContentType(const URL& url, c
             return ObjectContentType::Frame;
     }
 #endif
+    if (LegacyExtensionMimeHandlerDocument::handlesEmbedded(mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
+        return ObjectContentType::Frame;
     if (MIMETypeRegistry::isSupportedImageMIMEType(mimeType))
         return ObjectContentType::Image;
 

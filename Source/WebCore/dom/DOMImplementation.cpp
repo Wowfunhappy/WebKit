@@ -39,6 +39,7 @@
 #include "HTMLTitleElement.h"
 #include "Image.h"
 #include "ImageDocument.h"
+#include "LegacyExtensionMimeHandlerDocument.h" // AQUAWEBKIT: Safari 7 extensions' mimeHandler viewers.
 #include "LocalFrame.h"
 #include "LocalFrameLoaderClient.h"
 #include "MIMETypeRegistry.h"
@@ -171,6 +172,9 @@ Ref<Document> DOMImplementation::createDocument(const String& contentType, Local
         return XMLDocument::createXHTML(frame, settings, url);
     if (equalLettersIgnoringASCIICase(contentType, "text/plain"_s))
         return TextDocument::create(frame, settings, url, documentIdentifier);
+
+    if (RefPtr document = frame ? LegacyExtensionMimeHandlerDocument::createIfHandled(*frame, url, contentType) : nullptr) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer.
+        return document.releaseNonNull();
 
 #if ENABLE(PDFJS)
     if (frame && settings.pdfJSViewerEnabled() && MIMETypeRegistry::isPDFMIMEType(contentType))

@@ -163,12 +163,56 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if name.endswith('.bin'):
                 return self.reply('shown', 'application/octet-stream')
             return self.reply('<!doctype html><title>shown</title><p id="shown">shown</p>', 'text/html')
+        # response-filter.safariextension's StreamFilters rewrite REPLACE-ME in these; /filter/plain/ has no filter.
+        # The streamed ones arrive in several writes, so in several chunks.
+        if path.startswith('/filter/') and not path.startswith('/filter/plain/'):
+            return self.filtered(path.split('?')[0].rsplit('/', 1)[-1])
+        if path.startswith('/filter/plain/'):
+            return self.reply('REPLACE-ME plain', 'text/plain')
+        if path == '/preconnects':
+            return self.reply(json.dumps(PRECONNECTS['count']), 'application/json')
+        # mime-handler.safariextension's viewer shows these PDFs; attachment.pdf downloads.
+        if path.startswith('/mime-options/'):
+            return self.reply('options', 'text/plain')
+        if path.startswith('/mime/'):
+            name = path.split('?')[0].rsplit('/', 1)[-1]
+            if name == 'embed.html':
+                return self.reply('<!doctype html><title>embeds</title>'
+                                  '<embed id="embed" src="doc.pdf" type="application/pdf" width="300" height="200">'
+                                  '<object id="object" data="doc.pdf" type="application/pdf" width="300" height="200"></object>'
+                                  '<iframe id="iframe" src="doc.pdf" width="300" height="200"></iframe>', 'text/html')
+            headers = [('Content-Disposition', 'attachment; filename="attachment.pdf"')] if name == 'attachment.pdf' else [('X-Test', 'mime')]
+            return self.reply(PDF, 'application/pdf', headers=headers)
         # declarative-net-request.safariextension's rules act on these.
         if path.startswith('/dnr/'):
             return self.reply('{"path":' + json.dumps(path) + '}', 'application/json')
         if path.startswith('/sse'):
             return self.reply('data: hello\n\n', 'text/event-stream')
         return super().do_GET()
+
+    def filtered(self, name):
+        if name == 'page.html':
+            return self.reply('<!doctype html><title>filtered</title><p id="text">REPLACE-ME</p>', 'text/html; charset=utf-8')
+        if name in ('cached.txt', 'held.txt'):
+            self.cacheable = True
+            return self.reply('REPLACE-ME ' + name, 'text/plain', headers=[('Cache-Control', 'max-age=600')])
+        if name in ('chunked-count.txt', 'suspend.txt', 'disconnect.txt', 'passthrough.txt', 'slow.txt'):
+            parts = [b'REPLACE-ME first ', b'x' * 70000, b' REPLACE-ME middle ', b'y' * 70000, b' REPLACE-ME last']
+            if name == 'slow.txt':
+                parts = [b'REPLACE-ME %d ' % index + b'z' * 1024 for index in range(40)]
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', str(sum(len(part) for part in parts)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            for part in parts:
+                self.wfile.write(part)
+                self.wfile.flush()
+                time.sleep(0.5 if name == 'slow.txt' else 0.15)
+            return
+        if name == 'empty.txt':
+            return self.reply('', 'text/plain')
+        return self.reply('var text = "REPLACE-ME";', 'text/plain')
 
     def do_OPTIONS(self):
         record({'method': 'OPTIONS', 'path': self.path, 'authorization': self.headers.get('Authorization')})
@@ -216,7 +260,20 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
 
 
+# Counts the connections opened to 8845, which only <link rel=preconnect> opens.
+PRECONNECTS = {'count': 0}
+
+
+class PreconnectHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        with LOCK:
+            PRECONNECTS['count'] += 1
+        time.sleep(1)
+
+
 if __name__ == '__main__':
     ws = ThreadingTCPServer(('127.0.0.1', 8844), WebSocketHandler)
     threading.Thread(target=ws.serve_forever, daemon=True).start()
+    preconnect = ThreadingTCPServer(('127.0.0.1', 8845), PreconnectHandler)
+    threading.Thread(target=preconnect.serve_forever, daemon=True).start()
     ThreadingHTTPServer(('127.0.0.1', 8843), Handler).serve_forever()

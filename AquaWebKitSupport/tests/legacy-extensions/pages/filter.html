@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>filterResponseData and privacy</title>
+<!-- response-filter.safariextension rewrites /filter/ responses and sets the privacy settings asked for here.
+     Results collect in window.__results. Also load http://localhost:8843/filter/page.html in a tab showing a
+     127.0.0.1 page (a filtered navigation to another site), leave /filter/slow.txt mid-load (a cancelled
+     filter, which the extension's filterErrors then lists), and leave /filter/held.txt within five seconds of
+     loading it, after which loading it again comes from the cache (the server's log has one request for it). -->
+<a id="ping" href="#pinged" ping="/ping-record">ping</a>
+<script>
+'use strict';
+const ask = message => new Promise(resolve => {
+    const id = Math.random();
+    addEventListener('message', function listener(event) {
+        if (!event.data || event.data.reply !== id)
+            return;
+        removeEventListener('message', listener);
+        resolve(event.data.result);
+    });
+    postMessage({ toExtension: message, id }, '*');
+});
+const text = path => fetch(path).then(response => response.text());
+const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const summary = string => string.length > 80 ? `${string.slice(0, 40)}…${string.slice(-60)} (${string.length})` : string;
+const log = () => fetch('/log').then(response => response.json());
+
+const pings = async () => (await log()).filter(entry => entry.path === '/ping-record').length;
+const pingWith = async value => {
+    const setting = await ask({ privacy: ['websites', 'hyperlinkAuditingEnabled'], value });
+    const before = await pings();
+    document.getElementById('ping').click();
+    await sleep(800);
+    return { setting, pinged: (await pings()) - before };
+};
+const preconnects = () => fetch('/preconnects').then(response => response.json());
+const preconnectWith = async value => {
+    const setting = await ask({ privacy: ['network', 'networkPredictionEnabled'], value });
+    const before = await preconnects();
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    link.href = `http://127.0.0.1:8845/?${Math.random()}`;
+    document.head.appendChild(link);
+    await sleep(800);
+    return { setting, preconnected: (await preconnects()) - before };
+};
+
+(async () => {
+    const results = {};
+    results.script = await text('/filter/script.txt');
+    results.prefix = await text('/filter/prefix.txt');
+    results.plain = await text('/filter/plain/x.txt');
+    results.count = summary(await text('/filter/chunked-count.txt'));
+    results.suspend = summary(await text('/filter/suspend.txt'));
+    results.disconnect = summary(await text('/filter/disconnect.txt'));
+    results.passthrough = summary(await text('/filter/passthrough.txt'));
+    results.empty = await text('/filter/empty.txt');
+    results.cachedFirst = await text('/filter/cached.txt');
+    results.cachedSecond = await text('/filter/cached.txt');
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', '/filter/sync.txt', false);
+    xhr.send();
+    results.sync = xhr.responseText;
+    results.invalid = await ask({ invalid: true });
+    results.filterErrors = await ask({ filterErrors: true });
+
+    results.pingDefault = await pingWith(undefined);
+    results.pingOff = await pingWith(false);
+    results.pingCleared = await ask({ privacy: ['websites', 'hyperlinkAuditingEnabled'], clear: true });
+    results.pingOn = await pingWith(undefined);
+    results.preconnectDefault = await preconnectWith(undefined);
+    results.preconnectOff = await preconnectWith(false);
+    results.preconnectCleared = await ask({ privacy: ['network', 'networkPredictionEnabled'], clear: true });
+    window.__results = results;
+    document.body.append(JSON.stringify(results));
+})();
+</script>

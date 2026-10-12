@@ -8,6 +8,8 @@
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionInfoPlist.h"
 #include "LegacyExtensionJavaScript.h"
+#include "LegacyExtensionMimeHandlers.h"
+#include "LegacyExtensionPrivacy.h"
 #include "LegacyExtensionScheme.h"
 #include "LegacyExtensionViewNetwork.h"
 #include "LegacyExtensionNetworkMessages.h"
@@ -20,6 +22,7 @@
 #include "FrameTreeNodeData.h"
 #include "NetworkProcessProxy.h"
 #include "PageLoadState.h"
+#include "SharedBufferReference.h"
 #include "WebBackForwardList.h"
 #include "WebBackForwardListItem.h"
 #include "WebFrameProxy.h"
@@ -37,12 +40,14 @@
 #include <WebCore/Cookie.h>
 #include <WebCore/MemoryCache.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/StringToIntegerConversion.h>
 #include <cmath>
 
 namespace WebKit {
@@ -140,7 +145,7 @@ static JSValueRef hostContextSend(JSContextRef context, JSObjectRef, JSObjectRef
     auto* native = static_cast<HostContextNative*>(JSObjectGetPrivate(thisObject));
     auto message = LegacyExtensions::stringArgument(context, argumentCount, arguments, 0);
     if (!message.isNull())
-        LegacyExtensionHost::singleton().postFromHostContext(native->hostContextIdentifier, message);
+        LegacyExtensionHost::singleton().postFromHostContext(native->hostContextIdentifier, message, LegacyExtensions::bufferArgument(context, argumentCount, arguments, 1));
     return JSValueMakeUndefined(context);
 }
 
@@ -456,6 +461,21 @@ LegacyExtensionHost::LegacyExtensionHost()
     LegacyExtensions::registerExtensionScheme();
     WebSetLegacyExtensionPageObserver(&pageObserver());
     WebCore::LegacyLoadInterceptor::setSingleton(&LegacyExtensionViewNetwork::singleton());
+    // privacy's onChange, with each extension's view of the setting.
+    LegacyExtensionPrivacy::singleton().setChangeObserver([this](const String& name) {
+        auto eventName = makeString("privacy."_s, name, ".onChange"_s);
+        for (auto& context : copyToVector(m_hostContexts.values())) {
+            if (!context->interests.contains(eventName))
+                continue;
+            auto arguments = JSON::Array::create();
+            arguments->pushObject(LegacyExtensionPrivacy::singleton().details(context->extensionKey, name));
+            auto event = JSON::Object::create();
+            event->setString("t"_s, "event"_s);
+            event->setString("name"_s, eventName);
+            event->setArray("args"_s, WTF::move(arguments));
+            deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, event->toJSONString());
+        }
+    });
 }
 
 void LegacyExtensionHost::webProcessCreated(WebProcessProxy& process)
@@ -463,10 +483,28 @@ void LegacyExtensionHost::webProcessCreated(WebProcessProxy& process)
     process.addMessageReceiver(Messages::LegacyExtensionHost::messageReceiverName(), *this);
 }
 
+void LegacyExtensionHost::webProcessDidInitialize(WebProcessProxy& process)
+{
+    LegacyExtensionMimeHandlers::singleton().sendHandlers(process);
+}
+
 void LegacyExtensionHost::networkProcessCreated(NetworkProcessProxy& networkProcess)
 {
     networkProcess.addMessageReceiver(Messages::LegacyExtensionNetworkProxy::messageReceiverName(), m_networkProxy);
     sendNetworkListeners(networkProcess);
+    LegacyExtensionPrivacy::singleton().sendSettings(networkProcess);
+}
+
+// The StreamFilters of a network process's loads fail with it.
+void LegacyExtensionHost::networkProcessDidTerminate(NetworkProcessProxy& networkProcess)
+{
+    Vector<uint64_t> filterIDs;
+    for (auto& [filterID, filter] : m_responseFilters) {
+        if (filter.networkProcess.get() == &networkProcess)
+            filterIDs.append(filterID);
+    }
+    for (auto filterID : filterIDs)
+        dispatchResponseFilterEvent(filterID, "error"_s, nullptr, "The network process terminated."_s);
 }
 
 // Host contexts.
@@ -514,12 +552,12 @@ void LegacyExtensionHost::frameWillBeDestroyed(const void* frame)
         hostContextDidGoAway(*context);
 }
 
-void LegacyExtensionHost::postFromHostContext(uint64_t hostContextIdentifier, const String& message)
+void LegacyExtensionHost::postFromHostContext(uint64_t hostContextIdentifier, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
     RefPtr context = m_hostContexts.get(hostContextIdentifier);
     if (!context)
         return;
-    route(Endpoint { context, std::nullopt }, context->extensionKey, message);
+    route(Endpoint { context, std::nullopt }, context->extensionKey, message, WTF::move(data));
 }
 
 void LegacyExtensionHost::hostContextDidGoAway(HostContext& context, ContextIsReplaced isReplaced)
@@ -544,6 +582,18 @@ void LegacyExtensionHost::hostContextDidGoAway(HostContext& context, ContextIsRe
         return entry.value.caller.get() == &context;
     });
 
+    // A filter whose context is gone passes the rest of the body through, as a disconnected one does.
+    Vector<uint64_t> filterIDs;
+    for (auto& [filterID, filter] : m_responseFilters) {
+        if (filter.hostContextIdentifier == context.identifier)
+            filterIDs.append(filterID);
+    }
+    for (auto filterID : filterIDs) {
+        if (RefPtr networkProcess = m_responseFilters.get(filterID).networkProcess.get())
+            networkProcess->send(Messages::LegacyExtensionNetwork::DisconnectResponseFilter(filterID, m_responseFilters.get(filterID).dispatched), 0);
+        removeResponseFilter(filterID);
+    }
+
     if (hadNetworkInterests)
         updateNetworkListeners();
     if (!m_cookieObservers.isEmpty())
@@ -565,7 +615,7 @@ void LegacyExtensionHost::unloadExtensionIfUnused(const String& extensionKey)
 
 // Content contexts.
 
-void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& extensionKey, String&& message)
+void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameID);
     if (!frame || !frame->page())
@@ -574,7 +624,7 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
         return;
     m_documents.set(documentID, std::pair { frameID, documentURL });
     if (RefPtr context = extensionPageContext(*frame, documentID, documentURL, extensionKey)) {
-        route(Endpoint { context, std::nullopt, std::nullopt }, extensionKey, message);
+        route(Endpoint { context, std::nullopt, std::nullopt }, extensionKey, message, data.unsafeBuffer());
         return;
     }
     route(Endpoint { nullptr, frameID, documentID }, extensionKey, message);
@@ -704,7 +754,7 @@ void LegacyExtensionHost::endpointsDidGoAway(NOESCAPE const Function<bool(const 
 
 // Routing.
 
-void LegacyExtensionHost::route(const Endpoint& from, const String& extensionKey, const String& message)
+void LegacyExtensionHost::route(const Endpoint& from, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
     auto value = JSON::Value::parseJSON(message);
     RefPtr object = value ? value->asObject() : nullptr;
@@ -733,6 +783,8 @@ void LegacyExtensionHost::route(const Endpoint& from, const String& extensionKey
         return routeInterest(*from.host, *object);
     if (type == "call"_s)
         return performCall(*from.host, *object);
+    if (type == "filter"_s)
+        return routeResponseFilter(*from.host, *object, WTF::move(data));
 }
 
 Vector<LegacyExtensionHost::Endpoint> LegacyExtensionHost::hostContextsListeningTo(const String& extensionKey, const String& eventName, const Endpoint& except) const
@@ -783,7 +835,7 @@ void LegacyExtensionHost::tabEndpoints(WebPageProxy& page, std::optional<double>
     });
 }
 
-bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extensionKey, const String& message)
+bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
     Markable<WebCore::FrameIdentifier> frameID = endpoint.frameID;
     Markable<WebCore::ScriptExecutionContextIdentifier> documentID = endpoint.documentID;
@@ -794,7 +846,7 @@ bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extens
             auto* globalObject = context->globalObject.get();
             if (!globalObject)
                 return false;
-            return LegacyExtensions::deliver(*globalObject, message);
+            return LegacyExtensions::deliver(*globalObject, message, WTF::move(data));
         }
         frameID = context->frameID;
         documentID = context->documentID;
@@ -802,7 +854,7 @@ bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extens
     RefPtr frame = WebFrameProxy::webFrame(frameID);
     if (!frame || !frame->page())
         return false;
-    protect(frame->process())->send(Messages::LegacyExtensionContent::Deliver(*frameID, documentID ? std::optional { *documentID } : std::nullopt, extensionKey, message), 0);
+    protect(frame->process())->send(Messages::LegacyExtensionContent::Deliver(*frameID, documentID ? std::optional { *documentID } : std::nullopt, extensionKey, message, IPC::SharedBufferReference { WTF::move(data) }), 0);
     return true;
 }
 
@@ -1090,6 +1142,45 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
             });
         });
         return;
+    }
+
+    // mimeHandler's options, by MIME type: getOptions(mimeType) and setOptions(mimeType, { enabled }).
+    if (method == "mimeHandler.getOptions"_s || method == "mimeHandler.setOptions"_s) {
+        RefPtr mimeTypeValue = argument(0);
+        auto mimeType = mimeTypeValue ? mimeTypeValue->asString() : String();
+        if (mimeType.isEmpty())
+            return resultToHostContext(context, callID, nullptr, "A MIME type is required."_s);
+        if (method == "mimeHandler.setOptions"_s) {
+            RefPtr options = objectArgument(1);
+            LegacyExtensionMimeHandlers::singleton().setOptions(context.extensionKey, mimeType, !options || options->getBoolean("enabled"_s).value_or(true));
+            return resultToHostContext(context, callID, nullptr);
+        }
+        resultToHostContext(context, callID, LegacyExtensionMimeHandlers::singleton().options(context.extensionKey, mimeType));
+        return;
+    }
+
+    // privacy's settings: get(name), set(name, value, scope) and clear(name, scope). Only the regular scope is
+    // supported, as in Firefox.
+    if (method == "privacy.get"_s || method == "privacy.set"_s || method == "privacy.clear"_s) {
+        RefPtr nameValue = argument(0);
+        auto name = nameValue ? nameValue->asString() : String();
+        if (!LegacyExtensionPrivacy::isSetting(name))
+            return resultToHostContext(context, callID, nullptr, makeString("Unknown setting "_s, name));
+        if (method == "privacy.get"_s)
+            return resultToHostContext(context, callID, LegacyExtensionPrivacy::singleton().details(context.extensionKey, name));
+        RefPtr scopeValue = argument(method == "privacy.set"_s ? 2 : 1);
+        if (auto scope = scopeValue ? scopeValue->asString() : String(); scope != "regular"_s)
+            return resultToHostContext(context, callID, nullptr, makeString("The scope \""_s, scope, "\" is not supported."_s));
+        if (method == "privacy.clear"_s) {
+            LegacyExtensionPrivacy::singleton().clear(context.extensionKey, name);
+            return resultToHostContext(context, callID, nullptr);
+        }
+        RefPtr value = argument(1);
+        auto boolean = value ? value->asBoolean() : std::nullopt;
+        if (!boolean)
+            return resultToHostContext(context, callID, nullptr, makeString("The value of "_s, name, " must be a boolean."_s));
+        LegacyExtensionPrivacy::singleton().set(context.extensionKey, name, *boolean);
+        return resultToHostContext(context, callID, nullptr);
     }
 
     // navigator.clipboard.readText(), for an extension's pages.
@@ -1428,6 +1519,8 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
         m_websiteAccess.set(extensionKey, WTF::move(infoPlist.websiteAccess));
         auto& loaded = m_websiteAccess.find(extensionKey)->value;
         loadDeclarativeNetRequest(extensionKey, root, WTF::move(infoPlist.declarativeNetRequest), loaded);
+        LegacyExtensionMimeHandlers::singleton().extensionDidLoad(extensionKey, root, WTF::move(infoPlist.mimeTypesHandler));
+        LegacyExtensionPrivacy::singleton().extensionDidLoad(extensionKey);
         for (auto& waiter : m_websiteAccessWaiters.take(extensionKey))
             waiter(loaded);
         updateNetworkListeners();
@@ -1436,6 +1529,8 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
 
 void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
 {
+    LegacyExtensionMimeHandlers::singleton().extensionDidUnload(extensionKey);
+    LegacyExtensionPrivacy::singleton().extensionDidUnload(extensionKey);
     m_websiteAccessRoots.remove(extensionKey);
     m_websiteAccessWaiters.remove(extensionKey);
     if (m_websiteAccess.remove(extensionKey))
@@ -1950,6 +2045,97 @@ void LegacyExtensionNetworkProxy::dispatchBlockingEvent(String&& eventName, Stri
 void LegacyExtensionNetworkProxy::dispatchEvent(String&& eventName, String&& details)
 {
     LegacyExtensionHost::singleton().dispatchWebRequestEvent(eventName, details, { });
+}
+
+void LegacyExtensionNetworkProxy::responseFilterEvent(uint64_t filterID, String&& event, IPC::SharedBufferReference&& data, String&& error)
+{
+    LegacyExtensionHost::singleton().dispatchResponseFilterEvent(filterID, event, data.unsafeBuffer(), error);
+}
+
+// webRequest.filterResponseData. A context names its filters and attaches each to a load by the load's
+// requestId, "<network process pid>-<n>"; loads of no network process, such as pings and WebSockets, have
+// requestIds of another form, and no filter attaches to them.
+
+void LegacyExtensionHost::routeResponseFilter(HostContext& context, JSON::Object& message, RefPtr<WebCore::SharedBuffer>&& data)
+{
+    auto contextFilterID = message.getString("filterId"_s);
+    if (contextFilterID.isEmpty())
+        return;
+    auto key = makeString(context.identifier, ':', contextFilterID);
+    auto operation = message.getString("op"_s);
+
+    if (operation == "create"_s) {
+        if (m_responseFilterIDs.contains(key))
+            return;
+        auto filterID = m_nextIdentifier++;
+        m_responseFilterIDs.set(key, filterID);
+        m_responseFilters.set(filterID, ResponseFilter { context.identifier, contextFilterID, nullptr, 0 });
+        auto requestID = message.getString("requestId"_s);
+        size_t separator = requestID.find('-');
+        auto processID = separator == notFound ? std::nullopt : parseInteger<int>(StringView { requestID }.left(separator));
+        auto requestIdentifier = separator == notFound ? std::nullopt : parseInteger<uint64_t>(StringView { requestID }.substring(separator + 1));
+        RefPtr<NetworkProcessProxy> networkProcess;
+        for (Ref candidate : NetworkProcessProxy::allNetworkProcesses()) {
+            if (processID && candidate->processID() == *processID)
+                networkProcess = WTF::move(candidate);
+        }
+        if (!networkProcess || !requestIdentifier || !*requestIdentifier) {
+            dispatchResponseFilterEvent(filterID, "error"_s, nullptr, "Invalid request ID"_s);
+            return;
+        }
+        auto iterator = m_responseFilters.find(filterID);
+        iterator->value.networkProcess = *networkProcess;
+        auto access = m_websiteAccess.find(context.extensionKey);
+        networkProcess->send(Messages::LegacyExtensionNetwork::CreateResponseFilter(filterID, *requestIdentifier, context.extensionKey, access != m_websiteAccess.end() ? access->value.toJSON()->toJSONString() : String { }), 0);
+        return;
+    }
+
+    auto filterID = m_responseFilterIDs.get(key);
+    auto iterator = m_responseFilters.find(filterID);
+    if (!filterID || iterator == m_responseFilters.end())
+        return;
+    RefPtr networkProcess = iterator->value.networkProcess.get();
+    if (!networkProcess)
+        return;
+    auto dispatched = integerIdentifier(message.getDouble("dispatched"_s).value_or(0)).value_or(0);
+    iterator->value.dispatched = std::max(iterator->value.dispatched, dispatched);
+    if (operation == "write"_s)
+        networkProcess->send(Messages::LegacyExtensionNetwork::WriteResponseFilter(filterID, IPC::SharedBufferReference { WTF::move(data) }, dispatched), 0);
+    else if (operation == "suspend"_s)
+        networkProcess->send(Messages::LegacyExtensionNetwork::SuspendResponseFilter(filterID), 0);
+    else if (operation == "resume"_s)
+        networkProcess->send(Messages::LegacyExtensionNetwork::ResumeResponseFilter(filterID), 0);
+    else if (operation == "close"_s) {
+        networkProcess->send(Messages::LegacyExtensionNetwork::CloseResponseFilter(filterID), 0);
+        removeResponseFilter(filterID);
+    } else if (operation == "disconnect"_s) {
+        networkProcess->send(Messages::LegacyExtensionNetwork::DisconnectResponseFilter(filterID, dispatched), 0);
+        removeResponseFilter(filterID);
+    }
+}
+
+void LegacyExtensionHost::removeResponseFilter(uint64_t filterID)
+{
+    auto filter = m_responseFilters.take(filterID);
+    m_responseFilterIDs.remove(makeString(filter.hostContextIdentifier, ':', filter.contextFilterID));
+}
+
+void LegacyExtensionHost::dispatchResponseFilterEvent(uint64_t filterID, const String& event, RefPtr<WebCore::SharedBuffer>&& data, const String& error)
+{
+    auto iterator = m_responseFilters.find(filterID);
+    if (iterator == m_responseFilters.end())
+        return;
+    RefPtr context = m_hostContexts.get(iterator->value.hostContextIdentifier);
+    auto message = JSON::Object::create();
+    message->setString("t"_s, "filter"_s);
+    message->setString("filterId"_s, iterator->value.contextFilterID);
+    message->setString("ev"_s, event);
+    if (!error.isNull())
+        message->setString("error"_s, error);
+    if (event == "error"_s)
+        removeResponseFilter(filterID);
+    if (context)
+        deliver(Endpoint { context, std::nullopt }, context->extensionKey, message->toJSONString(), WTF::move(data));
 }
 
 } // namespace WebKit

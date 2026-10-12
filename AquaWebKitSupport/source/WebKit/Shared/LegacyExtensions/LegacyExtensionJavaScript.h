@@ -10,6 +10,10 @@ namespace JSC {
 class JSGlobalObject;
 }
 
+namespace WebCore {
+class SharedBuffer;
+}
+
 namespace WebKit::LegacyExtensions {
 
 enum class ContextKind : bool { Host, Content };
@@ -18,13 +22,15 @@ enum class ContextKind : bool { Host, Content };
 // becomes the private data of that object and is released by the class's finalizer.
 bool installAPI(JSC::JSGlobalObject&, ContextKind, JSClassRef nativeClass, void* nativeData);
 
-// Hands one JSON message to the receiver installAPI stored on the global object. Returns false when the
-// global object has none.
-bool deliver(JSC::JSGlobalObject&, const String& message);
+// Hands one JSON message, and the bytes it carries if any, to the receiver installAPI stored on the global
+// object; the receiver gets the bytes as an ArrayBuffer. Returns false when the global object has none.
+bool deliver(JSC::JSGlobalObject&, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr);
 
 bool hasAPI(JSC::JSGlobalObject&);
 
 // The JSON string argument of a native function, or a null String.
 String stringArgument(JSContextRef, size_t argumentCount, const JSValueRef arguments[], size_t index);
+// A copy of the bytes of an ArrayBuffer or ArrayBufferView argument of a native function, or null.
+RefPtr<WebCore::SharedBuffer> bufferArgument(JSContextRef, size_t argumentCount, const JSValueRef arguments[], size_t index);
 
 } // namespace WebKit::LegacyExtensions

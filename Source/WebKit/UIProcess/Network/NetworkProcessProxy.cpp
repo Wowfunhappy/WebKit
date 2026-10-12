@@ -491,6 +491,7 @@ void NetworkProcessProxy::lastPageLoadNetworkActivityCompletionCodeForTesting(PA
 void NetworkProcessProxy::networkProcessDidTerminate(ProcessTerminationReason reason)
 {
     Ref protectedThis { *this };
+    LegacyExtensionHost::singleton().networkProcessDidTerminate(*this); // AQUAWEBKIT: fails the Safari 7 extension StreamFilters of its loads.
 
     if (RefPtr downloadProxyMap = m_downloadProxyMap.get())
         downloadProxyMap->invalidate();

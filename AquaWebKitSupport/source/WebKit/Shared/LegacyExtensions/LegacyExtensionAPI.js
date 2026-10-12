@@ -3,16 +3,19 @@
 //
 // Evaluated once per extension context. `kind` is "host" for the extension's own pages -- the global page
 // and toolbar popovers, which Safari hosts in WebKit 1 views, and pages opened in tabs or frames -- and
-// "content" for content scripts. `native.send(json)` hands one message to the LegacyExtension router;
-// the returned function receives the router's messages, one JSON string at a time. Everything crossing
-// that boundary is JSON, so messages carry exactly what Chrome's extension messaging carries.
+// "content" for content scripts. `native.send(json, bytes)` hands one message to the LegacyExtension
+// router; the returned function receives the router's messages, one JSON string at a time. Messages are JSON,
+// so they carry exactly what Chrome's extension messaging carries; a StreamFilter's message also carries its
+// bytes, an ArrayBuffer or ArrayBufferView going out and an ArrayBuffer coming in.
 
 (function (native, kind) {
 "use strict";
 
 const isHost = kind === "host";
+// The DOM's Event, which StreamFilter dispatches; this script's Event class is the API's event object.
+const DOMEvent = globalThis.Event;
 
-const send = message => native.send(JSON.stringify(message));
+const send = (message, bytes) => native.send(JSON.stringify(message), bytes);
 
 const randomId = () => {
     const words = new Uint32Array(4);
@@ -342,6 +345,151 @@ const dispatchWebRequestEvent = async (event, details) => {
     return response;
 };
 
+// webRequest.filterResponseData's StreamFilter, as Firefox's: the network process sends the filter its response's
+// body, and what the filter writes is the body the page receives. While the filter is suspended, events already
+// on their way wait here. Each message back reports how many data events have been dispatched, so a disconnect
+// lets the network process pass on the chunks the extension never handled.
+const streamFilters = new Map();
+
+class StreamFilter extends EventTarget {
+    #id = randomId();
+    #status = "uninitialized";
+    #error = "";
+    #dispatched = 0;
+    #suspendedEvents = [];
+    #handlers = {};
+
+    constructor(requestId) {
+        super();
+        streamFilters.set(this.#id, (type, bytes, error) => this.#didReceive(type, bytes, error));
+        send({ t: "filter", op: "create", filterId: this.#id, requestId: String(requestId) });
+    }
+
+    get status() {
+        return this.#status;
+    }
+
+    get error() {
+        return this.#error;
+    }
+
+    get onstart() { return this.#handler("start"); }
+    set onstart(handler) { this.#setHandler("start", handler); }
+    get ondata() { return this.#handler("data"); }
+    set ondata(handler) { this.#setHandler("data", handler); }
+    get onstop() { return this.#handler("stop"); }
+    set onstop(handler) { this.#setHandler("stop", handler); }
+    get onerror() { return this.#handler("error"); }
+    set onerror(handler) { this.#setHandler("error", handler); }
+
+    write(data) {
+        if (!(data instanceof ArrayBuffer) && !(data instanceof Uint8Array))
+            throw new TypeError("StreamFilter.write: Argument 1 is not an ArrayBuffer or Uint8Array.");
+        if (!this.#isTransferring())
+            throw new Error("Invalid state");
+        this.#send("write", data);
+    }
+
+    close() {
+        if (this.#status === "closed")
+            return;
+        if (!this.#isTransferring())
+            throw new Error("Invalid state");
+        this.#send("close");
+        this.#end("closed");
+    }
+
+    disconnect() {
+        if (this.#status === "disconnected")
+            return;
+        if (!this.#isTransferring())
+            throw new Error("Invalid state");
+        this.#send("disconnect");
+        this.#end("disconnected");
+    }
+
+    suspend() {
+        if (this.#status === "suspended")
+            return;
+        if (this.#status !== "transferringdata")
+            throw new Error("Invalid state");
+        this.#status = "suspended";
+        this.#send("suspend");
+    }
+
+    resume() {
+        if (this.#status === "transferringdata")
+            return;
+        if (this.#status !== "suspended")
+            throw new Error("Invalid state");
+        this.#status = "transferringdata";
+        this.#send("resume");
+        const events = this.#suspendedEvents;
+        this.#suspendedEvents = [];
+        for (const [type, bytes] of events) {
+            if (this.#status !== "transferringdata")
+                return;
+            this.#dispatch(type, bytes);
+        }
+    }
+
+    // Event handler attributes: the first assignment adds the listener that calls whichever handler is current.
+    #handler(type) {
+        return this.#handlers[type] || null;
+    }
+
+    #setHandler(type, handler) {
+        if (!(type in this.#handlers)) {
+            this.addEventListener(type, event => {
+                const current = this.#handlers[type];
+                if (typeof current === "function")
+                    current.call(this, event);
+            });
+        }
+        this.#handlers[type] = typeof handler === "function" ? handler : null;
+    }
+
+    #send(op, bytes) {
+        send({ t: "filter", op, filterId: this.#id, dispatched: this.#dispatched }, bytes);
+    }
+
+    #end(status) {
+        this.#status = status;
+        this.#suspendedEvents = [];
+        streamFilters.delete(this.#id);
+    }
+
+    #isTransferring() {
+        return this.#status === "transferringdata" || this.#status === "finishedtransferringdata" || this.#status === "suspended";
+    }
+
+    #dispatch(type, bytes) {
+        const event = new DOMEvent(type);
+        if (type === "start")
+            this.#status = "transferringdata";
+        else if (type === "data") {
+            ++this.#dispatched;
+            Object.defineProperty(event, "data", { value: bytes || new ArrayBuffer(0), enumerable: true });
+        } else if (type === "stop")
+            this.#status = "finishedtransferringdata";
+        this.dispatchEvent(event);
+    }
+
+    #didReceive(type, bytes, error) {
+        if (type === "error") {
+            this.#error = String(error);
+            this.#end("failed");
+            this.dispatchEvent(new DOMEvent("error"));
+            return;
+        }
+        if (this.#status === "suspended") {
+            this.#suspendedEvents.push([type, bytes]);
+            return;
+        }
+        this.#dispatch(type, bytes);
+    }
+}
+
 // Namespaces.
 
 const browser = {};
@@ -447,6 +595,9 @@ if (isHost) {
         MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES: 20,
         handlerBehaviorChanged(...args) {
             return withOptionalCallback(args, () => callRouter("webRequest.handlerBehaviorChanged"));
+        },
+        filterResponseData(requestId) {
+            return new StreamFilter(requestId);
         },
     };
     for (const name of webRequestEventNames)
@@ -624,6 +775,60 @@ if (isHost) {
         MAX_NUMBER_OF_DYNAMIC_AND_SESSION_RULES: 30000,
     };
 
+    // privacy: ChromeSettings the router keeps, of which only the regular scope is supported.
+    const chromeSetting = name => ({
+        get(...args) {
+            return withOptionalCallback(args, () => callRouter("privacy.get", name));
+        },
+        set(...args) {
+            return withOptionalCallback(args, (details = {}) => callRouter("privacy.set", name, details.value, details.scope === undefined ? "regular" : String(details.scope)));
+        },
+        clear(...args) {
+            return withOptionalCallback(args, (details = {}) => callRouter("privacy.clear", name, details.scope === undefined ? "regular" : String(details.scope)));
+        },
+        onChange: trackedEvent(`privacy.${name}.onChange`),
+    });
+    browser.privacy = {
+        network: {
+            networkPredictionEnabled: chromeSetting("network.networkPredictionEnabled"),
+        },
+        websites: {
+            hyperlinkAuditingEnabled: chromeSetting("websites.hyperlinkAuditingEnabled"),
+        },
+    };
+
+    // mimeHandler: the handler page a document of a handled type shows reads the document's response. Its
+    // streamUrl is a blob: URL of this page holding the body, which the page reads with fetch().
+    const noStreamError = "No stream is attached to this page.";
+    let streamInfo;
+    browser.mimeHandler = {
+        getStreamInfo(...args) {
+            return withOptionalCallback(args, () => {
+                if (typeof native.mimeHandlerStream !== "function")
+                    return Promise.reject(new Error(noStreamError));
+                if (!streamInfo) {
+                    streamInfo = native.mimeHandlerStream().then(({ body, ...info }) => {
+                        info.streamUrl = URL.createObjectURL(body);
+                        return info;
+                    });
+                }
+                return streamInfo.then(info => Object.assign({}, info));
+            });
+        },
+        abortAndFallbackToNativeHandler(...args) {
+            return withOptionalCallback(args, async () => {
+                if (typeof native.mimeHandlerFallBack !== "function" || !native.mimeHandlerFallBack())
+                    throw new Error(noStreamError);
+            });
+        },
+        getMimeHandlerOptions(...args) {
+            return withOptionalCallback(args, mimeType => callRouter("mimeHandler.getOptions", String(mimeType)));
+        },
+        setMimeHandlerOptions(...args) {
+            return withOptionalCallback(args, (mimeType, options = {}) => callRouter("mimeHandler.setOptions", String(mimeType), { enabled: options.enabled !== false }));
+        },
+    };
+
     // The action count a displayActionCountAsBadgeText extension shows: the badge of its toolbar items in the
     // active browser window, for that window's active tab, which the router finds as the tab shown in the
     // frontmost window. Safari adds `safari` to the page after this script runs, so it is looked up when a
@@ -746,6 +951,11 @@ function receiverTable() {
             css({ callId }) {
                 send({ t: "result", callId, error: "Cannot access the contents of an extension page." });
             },
+            filter({ filterId, ev, error }, bytes) {
+                const didReceive = streamFilters.get(filterId);
+                if (didReceive)
+                    didReceive(ev, bytes, error);
+            },
             event({ name, args, token }) {
                 if (name === "declarativeNetRequest.actionCount") {
                     actionCountChanged();
@@ -768,10 +978,10 @@ function receiverTable() {
 
 Object.defineProperty(globalThis, "browser", { value: browser, writable: true, configurable: true, enumerable: false });
 
-return json => {
+return (json, bytes) => {
     const message = JSON.parse(json);
     const handler = receiverTable()[message.t];
     if (handler)
-        handler(message);
+        handler(message, bytes);
 };
 })
