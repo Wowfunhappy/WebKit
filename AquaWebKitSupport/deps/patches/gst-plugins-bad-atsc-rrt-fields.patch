@@ -1,0 +1,21 @@
+--- a/gst-libs/gst/mpegts/gst-atsc-section.c
++++ b/gst-libs/gst/mpegts/gst-atsc-section.c
+@@ -1600,6 +1600,9 @@
+ 
+   _packetize_atsc_mult_string (rrt->names, &data);
+ 
++  GST_WRITE_UINT8 (data, rrt->dimensions_defined);
++  data += 1;
++
+   for (i = 0; i < rrt->dimensions->len; i++) {
+     GstMpegtsAtscRRTDimension *dim = g_ptr_array_index (rrt->dimensions, i);
+ 
+@@ -1608,7 +1611,7 @@
+         _get_atsc_mult_string_packetized_length (dim->names));
+     data += 1;
+ 
+-    _packetize_atsc_mult_string (rrt->names, &data);
++    _packetize_atsc_mult_string (dim->names, &data);
+ 
+     /* 3 bit reserved / 1 bit graduated_scale / 4 bit values_defined */
+     GST_WRITE_UINT8 (data,

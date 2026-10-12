@@ -629,3 +629,13 @@ codecs. Both muxers use the shared 0x87 stream mapping, private PES header and
 EAC3 descriptors from the ATSC implementation. ATSC keeps its restricted pad
 caps and AC3 descriptor behavior. The media handoff supplies `ac3parse` so
 channel metadata comes from the encoded frames.
+
+## gst-plugins-bad-atsc-rrt-fields.patch
+
+**Target:** gst-plugins-bad 1.28.5, `gst-libs/gst/mpegts/gst-atsc-section.c`.
+
+The RRT serializer writes the dimension count between region names and dimension
+records. Each record serializes its own name, matching the advertised name length
+and total section allocation. `AquaWebKitSupport/tests/atsc-rrt/run.sh` reparses
+serialized bytes and checks empty and populated tables, unequal name lengths,
+multiple dimensions and rating values, descriptors, CRCs, and deterministic output.
