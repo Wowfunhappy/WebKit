@@ -1592,6 +1592,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch" ) \
       || { echo "gst-plugins-bad fdkaacdec output-delay patch failed to apply"; exit 1; }
+    # Both transport muxers share the ATSC EAC3 stream mapping.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsmux-eac3.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsmux-eac3.patch" ) \
+      || { echo "gst-plugins-bad EAC3 mux patch failed to apply"; exit 1; }
     # Media HTTP requests use webkitwebsrc; libcurl is a WebCore networking dependency.
     # aes is disabled: WebKit uses HLS demuxers' EVP decryption and has no aesenc/aesdec caller.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled -Dcurl=disabled \

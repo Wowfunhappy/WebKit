@@ -619,3 +619,13 @@ so it needs no second native caption renderer.
 and checks exact WebVTT text and timing through WebCore's CEA-608 conversion path.
 The existing in-band exposure and CEA608 cue-endtime layout tests cover browser
 integration.
+
+## gst-plugins-bad-mpegtsmux-eac3.patch
+
+**Target:** gst-plugins-bad 1.28.5, `gst/mpegtsmux`.
+
+The generic transport muxer accepts framed EAC3 alongside its other supported
+codecs. Both muxers use the shared 0x87 stream mapping, private PES header and
+EAC3 descriptors from the ATSC implementation. ATSC keeps its restricted pad
+caps and AC3 descriptor behavior. The media handoff supplies `ac3parse` so
+channel metadata comes from the encoded frames.

@@ -1,0 +1,214 @@
+--- a/gst/mpegtsmux/gstmpegtsmux.c
++++ b/gst/mpegtsmux/gstmpegtsmux.c
+@@ -124,6 +124,7 @@
+         "emphasis = (boolean) { FALSE, TRUE }, "
+         "mute = (boolean) { FALSE, TRUE }; "
+         "audio/x-ac3, framed = (boolean) TRUE;"
++        "audio/x-eac3, framed = (boolean) TRUE;"
+         "audio/x-dts, framed = (boolean) TRUE;"
+         "audio/x-opus, "
+         "channels = (int) [1, 255];"
+--- a/gst/mpegtsmux/gstbasetsmux.c
++++ b/gst/mpegtsmux/gstbasetsmux.c
+@@ -619,6 +619,8 @@
+     st = TSMUX_ST_VIDEO_DIRAC;
+   } else if (strcmp (mt, "audio/x-ac3") == 0) {
+     st = TSMUX_ST_PS_AUDIO_AC3;
++  } else if (strcmp (mt, "audio/x-eac3") == 0) {
++    st = TSMUX_ST_PS_AUDIO_EAC3;
+   } else if (strcmp (mt, "audio/x-dts") == 0) {
+     st = TSMUX_ST_PS_AUDIO_DTS;
+   } else if (strcmp (mt, "audio/x-lpcm") == 0) {
+--- a/gst/mpegtsmux/gstatscmux.c
++++ b/gst/mpegtsmux/gstatscmux.c
+@@ -34,7 +34,6 @@
+     gst_atsc_mux_get_type ());
+ 
+ #define parent_class gst_atsc_mux_parent_class
+-#define ATSCMUX_ST_PS_AUDIO_EAC3 0x87
+ 
+ static GstStaticPadTemplate gst_atsc_mux_src_factory =
+ GST_STATIC_PAD_TEMPLATE ("src",
+@@ -65,66 +64,7 @@
+ {
+   GstMpegtsDescriptor *descriptor;
+ 
+-  if (stream->stream_type == ATSCMUX_ST_PS_AUDIO_EAC3) {
+-    guint8 add_info[4];
+-    guint8 *pos;
+-
+-    pos = add_info;
+-
+-    /* audio_stream_descriptor () | ATSC A/52-2018 Annex G
+-     *
+-     * descriptor_tag     8 uimsbf
+-     * descriptor_length  8 uimsbf
+-     * reserved           1 '1'
+-     * bsid_flag          1 bslbf
+-     * mainid_flag        1 bslbf
+-     * asvc_flag          1 bslbf
+-     * mixinfoexists      1 bslbf
+-     * substream1_flag    1 bslbf
+-     * substream2_flag    1 bslbf
+-     * substream3_flag    1 bslbf
+-     * reserved           1 '1'
+-     * full_service_flag  1 bslbf
+-     * audio_service_type 3 uimsbf
+-     * number_of_channels 3 uimsbf
+-     * [...]
+-     */
+-
+-    *pos++ = 0xCC;
+-    *pos++ = 2;
+-
+-    /* 1 bit reserved, all other flags unset */
+-    *pos++ = 0x80;
+-
+-    /* 1 bit reserved,
+-     * 1 bit set for full_service_flag,
+-     * 3 bits hardcoded audio_service_type "Complete Main",
+-     * 3 bits number_of_channels
+-     */
+-    switch (stream->audio_channels) {
+-      case 1:
+-        *pos++ = 0xC0;          /* Mono */
+-        break;
+-      case 2:
+-        *pos++ = 0xC0 | 0x2;    /* 2-channel (stereo) */
+-        break;
+-      case 3:
+-      case 4:
+-      case 5:
+-        *pos++ = 0xC0 | 0x4;    /* Multichannel audio (> 2 channels; <= 3/2 + LFE channels) */
+-        break;
+-      case 6:
+-      default:
+-        *pos++ = 0xC0 | 0x5;    /* Multichannel audio(> 3/2 + LFE channels) */
+-    }
+-
+-    descriptor = gst_mpegts_descriptor_from_registration ("EAC3", add_info, 4);
+-    g_ptr_array_add (pmt_stream->descriptors, descriptor);
+-
+-    descriptor =
+-        gst_mpegts_descriptor_from_custom (GST_MTS_DESC_ATSC_EAC3, add_info, 4);
+-    g_ptr_array_add (pmt_stream->descriptors, descriptor);
+-  } else if (stream->stream_type == TSMUX_ST_PS_AUDIO_AC3) {
++  if (stream->stream_type == TSMUX_ST_PS_AUDIO_AC3) {
+     int wr_size = 0;
+     guint8 *add_info = NULL;
+     guint8 data;
+@@ -296,11 +236,7 @@
+ {
+   TsMuxStream *ret = tsmux_stream_new (new_pid, stream_type, stream_number);
+ 
+-  if (stream_type == ATSCMUX_ST_PS_AUDIO_EAC3) {
+-    ret->id = 0xBD;
+-    ret->pi.flags |= TSMUX_PACKET_FLAG_PES_FULL_HEADER;
+-    ret->gst_stream_type = GST_STREAM_TYPE_AUDIO;
+-  } else if (stream_type == TSMUX_ST_PS_AUDIO_AC3) {
++  if (stream_type == TSMUX_ST_PS_AUDIO_AC3) {
+     ret->id = 0xBD;
+     ret->id_extended = 0;
+     ret->gst_stream_type = GST_STREAM_TYPE_AUDIO;
+@@ -347,7 +283,7 @@
+   guint ret = TSMUX_ST_RESERVED;
+ 
+   if (!g_strcmp0 (media_type, "audio/x-eac3")) {
+-    ret = ATSCMUX_ST_PS_AUDIO_EAC3;
++    ret = TSMUX_ST_PS_AUDIO_EAC3;
+   }
+ 
+   return ret;
+--- a/gst/mpegtsmux/tsmux/tsmuxstream.c
++++ b/gst/mpegtsmux/tsmux/tsmuxstream.c
+@@ -183,6 +183,11 @@
+       stream->id = 0xC0 | stream_number;
+       stream->pi.flags |= TSMUX_PACKET_FLAG_PES_FULL_HEADER;
+       supports_user_specified_stream_number = TRUE;
++      break;
++    case TSMUX_ST_PS_AUDIO_EAC3:
++      stream->id = 0xBD;
++      stream->pi.flags |= TSMUX_PACKET_FLAG_PES_FULL_HEADER;
++      stream->gst_stream_type = GST_STREAM_TYPE_AUDIO;
+       break;
+     case TSMUX_ST_VIDEO_DIRAC:
+     case TSMUX_ST_PS_AUDIO_LPCM:
+@@ -975,6 +980,68 @@
+           gst_mpegts_descriptor_copy (stream->pmt_descriptor));
+     }
+       break;
++    case TSMUX_ST_PS_AUDIO_EAC3:
++    {
++      guint8 add_info[4];
++      guint8 *pos;
++  
++      pos = add_info;
++  
++      /* audio_stream_descriptor () | ATSC A/52-2018 Annex G
++       *
++       * descriptor_tag     8 uimsbf
++       * descriptor_length  8 uimsbf
++       * reserved           1 '1'
++       * bsid_flag          1 bslbf
++       * mainid_flag        1 bslbf
++       * asvc_flag          1 bslbf
++       * mixinfoexists      1 bslbf
++       * substream1_flag    1 bslbf
++       * substream2_flag    1 bslbf
++       * substream3_flag    1 bslbf
++       * reserved           1 '1'
++       * full_service_flag  1 bslbf
++       * audio_service_type 3 uimsbf
++       * number_of_channels 3 uimsbf
++       * [...]
++       */
++  
++      *pos++ = 0xCC;
++      *pos++ = 2;
++  
++      /* 1 bit reserved, all other flags unset */
++      *pos++ = 0x80;
++  
++      /* 1 bit reserved,
++       * 1 bit set for full_service_flag,
++       * 3 bits hardcoded audio_service_type "Complete Main",
++       * 3 bits number_of_channels
++       */
++      switch (stream->audio_channels) {
++        case 1:
++          *pos++ = 0xC0;          /* Mono */
++          break;
++        case 2:
++          *pos++ = 0xC0 | 0x2;    /* 2-channel (stereo) */
++          break;
++        case 3:
++        case 4:
++        case 5:
++          *pos++ = 0xC0 | 0x4;    /* Multichannel audio (> 2 channels; <= 3/2 + LFE channels) */
++          break;
++        case 6:
++        default:
++          *pos++ = 0xC0 | 0x5;    /* Multichannel audio(> 3/2 + LFE channels) */
++      }
++  
++      descriptor = gst_mpegts_descriptor_from_registration ("EAC3", add_info, 4);
++      g_ptr_array_add (pmt_stream->descriptors, descriptor);
++  
++      descriptor =
++          gst_mpegts_descriptor_from_custom (GST_MTS_DESC_ATSC_EAC3, add_info, 4);
++      g_ptr_array_add (pmt_stream->descriptors, descriptor);
++      break;
++    }
+     case TSMUX_ST_PS_AUDIO_AC3:
+     {
+       /* This is only called for DVB, ATSC ignores this case in favour of its
+--- a/gst/mpegtsmux/tsmux/tsmuxstream.h
++++ b/gst/mpegtsmux/tsmux/tsmuxstream.h
+@@ -127,6 +127,7 @@
+ 
+   /* private stream types */
+   TSMUX_ST_PS_AUDIO_AC3               = 0x81,
++  TSMUX_ST_PS_AUDIO_EAC3              = 0x87,
+   TSMUX_ST_PS_AUDIO_DTS               = 0x8a,
+   TSMUX_ST_PS_AUDIO_LPCM              = 0x8b,
+   TSMUX_ST_PS_DVB_SUBPICTURE          = 0x8c,
