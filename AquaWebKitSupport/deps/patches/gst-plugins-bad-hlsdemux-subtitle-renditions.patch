@@ -226,7 +226,16 @@
    gobject_class = (GObjectClass *) klass;
    element_class = (GstElementClass *) klass;
    adaptivedemux_class = (GstAdaptiveDemuxClass *) klass;
-@@ -265,6 +272,7 @@
+@@ -197,6 +204,8 @@
+ 
+   demux->keys = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+   g_mutex_init (&demux->keys_lock);
++
++  demux->internal_time = GST_CLOCK_TIME_NONE;
+ }
+ 
+ static GstStateChangeReturn
+@@ -265,6 +274,7 @@
    gst_buffer_replace (&hls_stream->pending_decrypted_buffer, NULL);
    gst_buffer_replace (&hls_stream->pending_typefind_buffer, NULL);
    gst_buffer_replace (&hls_stream->pending_pcr_buffer, NULL);
@@ -234,7 +243,7 @@
    hls_stream->current_offset = -1;
    gst_hls_demux_stream_decrypt_end (hls_stream);
  }
-@@ -489,7 +497,170 @@
+@@ -489,7 +499,170 @@
    return GST_FLOW_OK;
  }
  
@@ -405,7 +414,7 @@
  create_stream_for_playlist (GstAdaptiveDemux * demux, GstM3U8 * playlist,
      gboolean is_primary_playlist, gboolean selected)
  {
-@@ -500,7 +671,7 @@
+@@ -500,7 +673,7 @@
    if (!selected) {
      /* FIXME: Later, create the stream but mark not-selected */
      GST_LOG_OBJECT (demux, "Ignoring not-selected stream");
@@ -414,7 +423,7 @@
    }
  
    GST_DEBUG_OBJECT (demux,
-@@ -519,6 +690,8 @@
+@@ -519,6 +692,8 @@
  
    hlsdemux_stream->do_typefind = TRUE;
    hlsdemux_stream->reset_pts = TRUE;
@@ -423,7 +432,7 @@
  }
  
  static GstHLSDemuxStream *
-@@ -626,7 +799,14 @@
+@@ -626,7 +801,14 @@
        GList *mlist = playlist->media[i];
        while (mlist != NULL) {
          GstHLSMedia *media = mlist->data;
@@ -439,7 +448,7 @@
              gst_hls_variant_find_matching_media (hlsdemux->previous_variant,
              media);
  
-@@ -637,7 +817,8 @@
+@@ -637,7 +819,8 @@
          if (!g_strcmp0 (media->uri, old_media->uri))
            GST_DEBUG_OBJECT (demux, "Identical stream !");
          if (media->mtype == GST_HLS_MEDIA_TYPE_AUDIO ||
@@ -449,7 +458,7 @@
            hlsstream =
                find_adaptive_stream_for_playlist (demux, old_media->playlist);
            if (!hlsstream)
-@@ -662,7 +843,8 @@
+@@ -662,7 +845,8 @@
    gst_hls_demux_clear_all_pending_data (hlsdemux);
  
    /* 1 output for the main playlist */
@@ -459,7 +468,7 @@
  
    for (i = 0; i < GST_HLS_N_MEDIA_TYPES; ++i) {
      GList *mlist = playlist->media[i];
-@@ -679,9 +861,20 @@
+@@ -679,9 +863,20 @@
        }
        GST_LOG_OBJECT (demux, "media of type %s - %s, uri: %s",
            gst_hls_media_type_get_name (i), media->name, media->uri);
@@ -483,7 +492,7 @@
  
        mlist = mlist->next;
      }
-@@ -962,6 +1155,323 @@
+@@ -962,6 +1157,323 @@
    return GST_HLS_TSREADER_NONE;
  }
  
@@ -807,7 +816,7 @@
  static GstFlowReturn
  gst_hls_demux_handle_buffer (GstAdaptiveDemux * demux,
      GstAdaptiveDemuxStream * stream, GstBuffer * buffer, gboolean at_eos)
-@@ -1019,6 +1529,9 @@
+@@ -1019,6 +1531,9 @@
      hls_stream->stream_type = caps_to_reader (caps);
      gst_hlsdemux_tsreader_set_type (&hls_stream->tsreader,
          hls_stream->stream_type);
@@ -817,7 +826,7 @@
  
      gst_adaptive_demux_stream_set_caps (stream, caps);
  
-@@ -1028,6 +1541,27 @@
+@@ -1028,6 +1543,27 @@
    }
    g_assert (hls_stream->pending_typefind_buffer == NULL);
  
@@ -845,7 +854,7 @@
    // Accumulate this buffer
    if (hls_stream->pending_pcr_buffer) {
      buffer = gst_buffer_append (hls_stream->pending_pcr_buffer, buffer);
-@@ -1042,6 +1576,18 @@
+@@ -1042,6 +1578,18 @@
      return GST_FLOW_OK;
    }
  
@@ -864,7 +873,7 @@
    if (tags) {
      gst_adaptive_demux_stream_set_tags (stream, tags);
      /* run typefind again on the trimmed buffer */
-@@ -1099,6 +1645,13 @@
+@@ -1099,6 +1647,13 @@
          gst_hls_demux_handle_buffer (demux, stream, buf, TRUE);
        }
  
@@ -878,3 +887,11 @@
        if (hls_stream->pending_pcr_buffer) {
          GstBuffer *buf = hls_stream->pending_pcr_buffer;
          hls_stream->pending_pcr_buffer = NULL;
+@@ -1370,6 +1925,7 @@
+   GST_DEBUG_OBJECT (demux, "Streams aware : %d", demux->streams_aware);
+ 
+   gst_hls_demux_clear_all_pending_data (demux);
++  demux->internal_time = GST_CLOCK_TIME_NONE;
+ 
+   if (demux->prog_dt) {
+     gst_date_time_unref (demux->prog_dt);

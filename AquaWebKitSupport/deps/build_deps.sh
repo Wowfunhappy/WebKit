@@ -1584,6 +1584,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-encrypted-map-segment.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-encrypted-map-segment.patch" ) \
       || { echo "gst-plugins-bad hlsdemux encrypted-map patch failed to apply"; exit 1; }
+    # hlsdemux maps an ISOBMFF stream's decode times onto stream time. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-isobmff-presentation-offset.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-isobmff-presentation-offset.patch" ) \
+      || { echo "gst-plugins-bad hlsdemux ISOBMFF presentation-offset patch failed to apply"; exit 1; }
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" ) \
       || { echo "gst-plugins-bad tsdemux rendition-tags patch failed to apply"; exit 1; }
