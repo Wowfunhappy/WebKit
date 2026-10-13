@@ -1,0 +1,23 @@
+--- WebClip.html
++++ WebClip.html
+@@ -28,6 +28,7 @@
+         
+         <div id='back'>
+                 <div id='themeLabel' class='label'></div>
++                <div id='openPage' class='label' onclick='openPage_onclick(this);'></div>
+                 <div id="selector"/>
+                 <table id="themes">
+                   <tr valign=top>
+@@ -51,10 +52,9 @@
+                    </td>
+                   </tr>
+                  <tr valign=top>
+-                   <td class="selection" id ="deckledOption" onDblClick='deckledIcon_onDblClick(this);'  onclick='deckledIcon_onclick(this);'>
++                   <td class="selection" id ="plainOption" onDblClick='plainIcon_onDblClick(this);'  onclick='plainIcon_onclick(this);'>
+                      <div class="thumbnailContainer">
+-                     <div id="deckledIcon" class="icon"></div>
+-                     <img id="deckledThumbnail" class="thumbnail"/>
++                     <img id="plainThumbnail" class="thumbnail"/>
+                      </div>
+                    </td>
+                      <td class="selection" id ="pegboardOption" onDblClick='pegboardIcon_onDblClick(this);'  onclick='pegboardIcon_onclick(this);'>

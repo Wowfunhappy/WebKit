@@ -1,6 +1,53 @@
 --- WebClip.js
 +++ WebClip.js
-@@ -160,6 +160,9 @@
+@@ -16,7 +16,7 @@
+ WebClipGlass: 0,
+ WebClipBlackEdge: 1,
+ WebClipVintageCorners: 2,
+-WebClipDeckled: 3,
++WebClipPlain: 3,
+ WebClipPegboard: 4,
+ WebClipTornEdge: 5
+ }
+@@ -63,9 +63,9 @@
+     donePressed();
+ }
+ 
+-function deckledIcon_onDblClick(element)
++function plainIcon_onDblClick(element)
+ {
+-    deckledIcon_onclick(element);
++    plainIcon_onclick(element);
+     donePressed();
+ }
+ 
+@@ -115,9 +115,14 @@
+     switchTheme(WebClipTheme.WebClipPegboard);
+ }
+ 
+-function deckledIcon_onclick(element)
++function plainIcon_onclick(element)
+ {
+-    switchTheme(WebClipTheme.WebClipDeckled);
++    switchTheme(WebClipTheme.WebClipPlain);
++}
++
++function openPage_onclick(element)
++{
++    widget.openURL(webClip.URLString());
+ }
+ 
+ function vintageIcon_onclick(element)
+@@ -140,7 +145,7 @@
+ function resetThemeSelectionOnBackside()
+ {    
+     document.getElementById("blackEdgeOption").classList.remove("selected");
+-    document.getElementById("deckledOption").classList.remove("selected");
++    document.getElementById("plainOption").classList.remove("selected");
+     document.getElementById("glassOption").classList.remove("selected");
+     document.getElementById("tornEdgeOption").classList.remove("selected");
+     document.getElementById("pegboardOption").classList.remove("selected");
+@@ -160,6 +165,9 @@
      widget.setPreferenceForKey(webClip.fixedWidthFontSize(), createkey("FixedWidthFontSize"));
      widget.setPreferenceForKey(webClip.minimumFontSize(), createkey("MinimumFontSize"));
      widget.setPreferenceForKey(webClip.pageSizeString(), createkey("PageSize"));
@@ -10,7 +57,7 @@
      widget.setPreferenceForKey(webClip.standardFont(), createkey("StandardFont"));
      widget.setPreferenceForKey(webClip.standardFontSize(), createkey("StandardFontSize"));
      widget.setPreferenceForKey(webClip.textSizeMultiplier(), createkey("TextSizeMultiplier"));
-@@ -184,6 +187,9 @@
+@@ -184,6 +192,9 @@
  
  function onremove()
  {
@@ -20,7 +67,7 @@
      // Remove instance preferences when removed from Dashboard.
      widget.setPreferenceForKey(null, createkey("ClipRect"));
      widget.setPreferenceForKey(null, createkey("ClipSignature"));   
-@@ -194,6 +200,9 @@
+@@ -194,6 +205,9 @@
      widget.setPreferenceForKey(null, createkey("FixedWidthFontSize"));
      widget.setPreferenceForKey(null, createkey("MinimumFontSize"));
      widget.setPreferenceForKey(null, createkey("PageSize"));
@@ -30,7 +77,69 @@
      widget.setPreferenceForKey(null, createkey("PlayAudioOutOfDashboard"));
      widget.setPreferenceForKey(null, createkey("StandardFont"));
      widget.setPreferenceForKey(null, createkey("StandardFontSize"));
-@@ -480,7 +489,15 @@
+@@ -219,8 +233,8 @@
+         case WebClipTheme.WebClipPegboard:
+             themeName = getLocalizedString("Pegboard");
+             break;
+-        case WebClipTheme.WebClipDeckled:
+-            themeName = getLocalizedString("Deckled Edge");
++        case WebClipTheme.WebClipPlain:
++            themeName = getLocalizedString("Plain");
+             break;
+         case WebClipTheme.WebClipGlass:
+             themeName = getLocalizedString("Glass");
+@@ -249,8 +263,8 @@
+         case WebClipTheme.WebClipPegboard:
+             themeOption = document.getElementById("pegboardOption");
+             break;
+-        case WebClipTheme.WebClipDeckled:
+-            themeOption = document.getElementById("deckledOption");
++        case WebClipTheme.WebClipPlain:
++            themeOption = document.getElementById("plainOption");
+             break;
+         case WebClipTheme.WebClipGlass:
+             themeOption = document.getElementById("glassOption");
+@@ -277,10 +291,11 @@
+     new AppleGlassButton(document.getElementById('editPosition'), getLocalizedString('Edit'), panAndCropPressed);
+     document.getElementById("audioCheckbox").checked = !webClip.playAudioOutOfDashboard();
+     document.getElementById("audioLabel").innerText = getLocalizedString("Only play audio in Dashboard");
++    document.getElementById("openPage").innerText = getLocalizedString("Open Page");
+     // Need to coalesce loading and display of the thumbnails with the flip  
+     document.getElementById("blackEdgeThumbnail").onload = thumbnailDidLoad;
+     document.getElementById("pegboardThumbnail").onload = thumbnailDidLoad;
+-    document.getElementById("deckledThumbnail").onload = thumbnailDidLoad;
++    document.getElementById("plainThumbnail").onload = thumbnailDidLoad;
+     document.getElementById("glassThumbnail").onload = thumbnailDidLoad;
+     document.getElementById("tornEdgeThumbnail").onload = thumbnailDidLoad;
+     document.getElementById("vintageThumbnail").onload = thumbnailDidLoad;
+@@ -419,7 +434,7 @@
+ {
+     var imageSource = "data:image/tiff;base64," + thumbnail;
+     var blackEdge = document.getElementById("blackEdgeThumbnail");
+-    var deckled = document.getElementById("deckledThumbnail");
++    var plain = document.getElementById("plainThumbnail");
+     var glass = document.getElementById("glassThumbnail");
+     var tornEdge = document.getElementById("tornEdgeThumbnail");
+     var pegboard = document.getElementById("pegboardThumbnail");
+@@ -427,7 +442,7 @@
+     
+     // To ensure onload events for thumbnails, nil-out the images.
+     blackEdge.src = "";
+-    deckled.src = "";
++    plain.src = "";
+     glass.src = "";
+     pegboard.src = "";
+     tornEdge.src = "";
+@@ -435,7 +450,7 @@
+     thumbnailLoadCount = 0;
+ 
+     blackEdge.src = imageSource;
+-    deckled.src = imageSource;
++    plain.src = imageSource;
+     glass.src = imageSource;
+     pegboard.src = imageSource;
+     tornEdge.src = "data:image/tiff;base64," + tornEdgeThumbnail;
+@@ -480,7 +495,15 @@
          widget.resizeAndMoveTo(window.screenX + backXOffset, window.screenY + backYOffset, backsideWidth, backsideHeight);
      }
      

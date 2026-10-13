@@ -592,8 +592,8 @@ verify_no_rpath    "$WEBRTC_STAGED"
 echo "  rewritten: $(webkit_machos | wc -l | tr -d ' ') Mach-O binaries carry absolute paths and no LC_RPATH"
 
 # The Web Clip plug-in and its injected bundle go through the same rewriting, from the build's
-# WebClipPlugin directory into their place inside the widget; the widget's script is Apple's with
-# WebClip.js.patch applied.
+# WebClipPlugin directory into their place inside the widget; the widget's script, page and style sheet
+# are Apple's with WebClip.{js,html,css}.patch applied.
 echo "### Staging the Web Clip plug-in"
 mkdir -p "$(s "$WEBCLIP_PLUGIN")/MacOS" "$(s "$WEBCLIP_PLUGIN")/Resources"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WebClip" "$(s "$WEBCLIP_BINARY")"
@@ -602,6 +602,8 @@ cp "$(dirname "$LIBDIR")/WebClipPlugin/WCSafariExtensionPage.js" "$(s "$WEBCLIP_
 rm -rf "$(s "$WEBCLIP_PAGE_BUNDLE")"
 cp -R "$(dirname "$LIBDIR")/WebClipPlugin/WebClipPageBundle.bundle" "$(s "$WEBCLIP_PAGE_BUNDLE")"
 patch -s -o "$(s "$WEBCLIP_WIDGET_SCRIPT")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.js" "$REPO/AquaWebKitSupport/webclip/WebClip.js.patch"
+patch -s -o "$(s "$WEBCLIP_WIDGET_PAGE")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.html" "$REPO/AquaWebKitSupport/webclip/WebClip.html.patch"
+patch -s -o "$(s "$WEBCLIP_WIDGET_STYLE_SHEET")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.css" "$REPO/AquaWebKitSupport/webclip/WebClip.css.patch"
 rewrite_rpath_deps "$(s "$WEBCLIP_BINARY")"
 rewrite_abs_deps   "$(s "$WEBCLIP_BINARY")"
 strip_rpaths       "$(s "$WEBCLIP_BINARY")"

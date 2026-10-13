@@ -7,7 +7,7 @@ typedef NS_ENUM(int, WCThemeID) {
     WCThemeGlass = 0,
     WCThemeBlackEdge = 1,
     WCThemeVintageCorners = 2,
-    WCThemeDeckled = 3,
+    WCThemePlain = 3,
     WCThemePegboard = 4,
     WCThemeTornEdge = 5,
 };
@@ -126,6 +126,8 @@ NSString *WCLocalizedString(const char *key);
 // Stock drew this theme in the plug-in's view, over the page in one backing store and at the view's
 // size. It drew the others in a window of their own the size of the widget's window, over the page.
 - (BOOL)drawsInPlugInView;
+// The theme's artwork cuts the page's shape: what it clears over the page masks the page out.
+- (BOOL)masksPage;
 - (void)setEventRegion:(NSRect)rect;
 - (NSRect)controlRegion;
 - (NSRect)displacementRect;
@@ -160,8 +162,8 @@ NSString *WCLocalizedString(const char *key);
 @interface WCVintageCornersTheme : WCTheme
 @end
 
-// "Deckled Edge" in the UI.
-@interface WCScallopedTheme : WCTheme
+// The page alone, its corners rounded as Glass's are, with Glass's edit border.
+@interface WCPlainTheme : WCGlassTheme
 @end
 
 @interface WCPegboardTheme : WCTheme

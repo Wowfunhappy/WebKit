@@ -1,0 +1,82 @@
+--- WebClip.css
++++ WebClip.css
+@@ -25,11 +25,6 @@
+     {
+         background-image: url(Images/blackicon.png);
+     }
+-        
+-    #deckledIcon
+-    {
+-        background-image: url(Images/deckledicon.png);
+-    }
+ 
+     #glassIcon
+     {
+@@ -63,11 +58,6 @@
+     {
+         background-image: url(Images/blackicon@2x.png);
+     }
+-    
+-    #deckledIcon
+-    {
+-        background-image: url(Images/deckledicon@2x.png);
+-    }
+ 
+     #glassIcon
+     {
+@@ -158,6 +148,22 @@
+  left:22px;
+ }
+ 
++#openPage
++{
++ top: 16px;
++ left: auto;
++ right: 22px;
++ z-index: 1;
++ opacity: 0.8;
++ cursor: pointer;
++}
++
++#openPage:hover
++{
++ opacity: 1;
++ text-decoration: underline;
++}
++
+ #themes
+ {
+  top: 22px;
+@@ -210,25 +216,14 @@
+  height: 50px;
+ }
+ 
+-#deckledIcon
+-{
+- width: 87px;
+- height: 61px;
+- background-size: 87px 61px;
+-}
+-
+-#deckledOption
+-{
+- padding-left: 2px;
+- padding-bottom: 3px;
+-}
+-
+-#deckledThumbnail
++#plainThumbnail
+ {
+- left: 25px;
+- top: 19px;
+- width: 61px;
+- height: 39px;
++ top: 3px;
++ left: 3px;
++ width: 80px;
++ height: 56px;
++ border-radius: 4px;
++ box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+ }
+ 
+ #glassIcon

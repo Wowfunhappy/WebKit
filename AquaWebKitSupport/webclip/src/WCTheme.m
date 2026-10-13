@@ -231,6 +231,11 @@
     return NO;
 }
 
+- (BOOL)masksPage
+{
+    return [self drawsInPlugInView];
+}
+
 - (void)setEventRegion:(NSRect)rect
 {
     NSRect region = rect;

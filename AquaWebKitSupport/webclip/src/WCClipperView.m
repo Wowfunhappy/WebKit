@@ -304,7 +304,11 @@ static NSRect rectFromPageRect(id value)
     // The page loads again at the next show, and when that show finds the widget's back, at the front.
     BOOL _reloadsAtShow;
     BOOL _reloadsAtFront;
-    NSView *_reloadSpinner;
+    // When the page last started loading, in seconds since the reference date.
+    NSTimeInterval _lastLoadStart;
+    // Edit, pressed while the page reloads under the previous page, takes effect once the reloaded page shows.
+    BOOL _editsWhenReloaded;
+    NSProgressIndicator *_reloadSpinner;
     BOOL _isHidden;
     BOOL _didFlipToFront;
     BOOL _disableAutoRefresh;
@@ -429,15 +433,17 @@ static NSRect windowServerFrame(NSWindow *window)
 }
 
 // A theme stock drew in a window of its own takes the size of the widget's window, which the
-// plug-in's view can overhang.
+// plug-in's view can overhang. The page's mask follows the theme.
 - (void)placeTheme
 {
     NSRect frame = [self bounds];
     NSView *contentView = [[self window] contentView];
     if (![_currentTheme drawsInPlugInView] && contentView)
         frame = NSIntersectionRect(frame, [self convertRect:[contentView bounds] fromView:contentView]);
-    if (!NSEqualRects(frame, [_currentTheme frame]))
-        [_currentTheme setFrame:frame];
+    if (NSEqualRects(frame, [_currentTheme frame]))
+        return;
+    [_currentTheme setFrame:frame];
+    [self updateContentMask];
 }
 
 // The page window shows while Dashboard shows the widget's front, still and live.
@@ -985,23 +991,29 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
     _transitionInProgress = YES;
 }
 
+// The flipper shows over a page the clip shows still or live, also while the page reloads under it.
 - (void)updateFlipperVisibility
 {
     BOOL hidden = YES;
-    if ([[self controller] hasSettings] && !_isLoading && !_loadError && !_isEditingCameraPosition)
-        hidden = _hasScreenshot || _previousPageView;
+    if ([[self controller] hasSettings] && (!_isLoading || _previousPageView) && !_loadError && !_isEditingCameraPosition)
+        hidden = _hasScreenshot;
     [_flipButton setHidden:hidden];
     [_flipperImageView setHidden:hidden];
 }
 
-- (void)clearScreenshot
+- (void)removeScreenshot
 {
     [self setScreenshot:nil];
+    [_clipView setHidden:NO];
+    [self updateFlipperVisibility];
+}
+
+- (void)clearScreenshot
+{
     [self closePreviousPage];
     [_reloadSpinner removeFromSuperview];
     _reloadSpinner = nil;
-    [_clipView setHidden:NO];
-    [self updateFlipperVisibility];
+    [self removeScreenshot];
 }
 
 - (void)clearScreenshotIfNeeded
@@ -1180,27 +1192,55 @@ static const CGFloat WCMaximumClipperLength = 20000;
     return pixels;
 }
 
-// A theme drawn in the widget window (Torn Edge) composites parts of its artwork with
-// NSCompositeCopy, which in a single backing store replaces the page pixels beneath it. The page
-// is its own layer here, so that coverage becomes a mask on the clip view: rendering the theme
-// over black and over white page stand-ins measures how much of the page each pixel keeps.
+// The theme's mask lies on the clip view, and on the error message in its place.
 - (void)updateContentMask
 {
     CALayer *clipLayer = [_clipView layer];
     if (!clipLayer)
         return;
-    if (![_currentTheme drawsInPlugInView]) {
+    CGImageRef maskImage = [self newContentMaskImage];
+    if (maskImage) {
+        CALayer *maskLayer = [CALayer layer];
+        maskLayer.frame = clipLayer.bounds;
+        maskLayer.contents = (__bridge id)maskImage;
+        CGImageRelease(maskImage);
+        clipLayer.mask = maskLayer;
+    } else
         clipLayer.mask = nil;
+    [self maskErrorView];
+}
+
+- (void)maskErrorView
+{
+    CALayer *errorLayer = [_errorView layer];
+    id maskImage = [[[_clipView layer] mask] contents];
+    if (!errorLayer)
+        return;
+    if (!maskImage) {
+        errorLayer.mask = nil;
         return;
     }
+    CALayer *maskLayer = [CALayer layer];
+    maskLayer.frame = errorLayer.bounds;
+    maskLayer.contents = maskImage;
+    errorLayer.mask = maskLayer;
+}
+
+// A theme that masks the page (Torn Edge drawn in the widget window, Plain) composites parts of its
+// artwork with NSCompositeCopy or NSCompositeDestinationIn, which in a single backing store replace the
+// page pixels beneath it. The page is its own layer here, so that coverage becomes a mask on the clip
+// view: rendering the theme over black and over white page stand-ins measures how much of the page each
+// pixel keeps.
+- (CGImageRef)newContentMaskImage CF_RETURNS_RETAINED
+{
+    if (![_currentTheme masksPage])
+        return NULL;
     CGFloat scale = [[self window] backingScaleFactor] ?: 1;
     NSSize size = [_clipView frame].size;
     size_t width = (size_t)ceil(size.width * scale);
     size_t height = (size_t)ceil(size.height * scale);
-    if (!width || !height) {
-        clipLayer.mask = nil;
-        return;
-    }
+    if (!width || !height)
+        return NULL;
     const uint8_t *theme = [[self themePixelsOverPageGray:0 page:NO width:width height:height scale:scale] bytes];
     const uint8_t *overBlack = [[self themePixelsOverPageGray:0 page:YES width:width height:height scale:scale] bytes];
     const uint8_t *overWhite = [[self themePixelsOverPageGray:1 page:YES width:width height:height scale:scale] bytes];
@@ -1219,11 +1259,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
     CGImageRef maskImage = CGImageCreate(width, height, 8, 32, width * 4, colorSpace, (CGBitmapInfo)kCGImageAlphaPremultipliedLast, provider, NULL, false, kCGRenderingIntentDefault);
     CGColorSpaceRelease(colorSpace);
     CGDataProviderRelease(provider);
-    CALayer *maskLayer = [CALayer layer];
-    maskLayer.frame = clipLayer.bounds;
-    maskLayer.contents = (__bridge id)maskImage;
-    CGImageRelease(maskImage);
-    clipLayer.mask = maskLayer;
+    return maskImage;
 }
 
 - (void)updateFrame
@@ -1256,8 +1292,8 @@ static const CGFloat WCMaximumClipperLength = 20000;
     case WCThemeVintageCorners:
         themeClass = [WCVintageCornersTheme class];
         break;
-    case WCThemeDeckled:
-        themeClass = [WCScallopedTheme class];
+    case WCThemePlain:
+        themeClass = [WCPlainTheme class];
         break;
     case WCThemePegboard:
         themeClass = [WCPegboardTheme class];
@@ -1452,6 +1488,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
 // The back shows the clip's content in its theme previews.
 - (void)flipToBack
 {
+    _editsWhenReloaded = NO;
     [self setIsEditingCameraPosition:NO];
     [self clipViewContent:^(NSImage *content) {
         if (!_didFlipToFront)
@@ -1488,6 +1525,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
 // store is read off the main thread, and the load starts once it has been.
 - (void)loadRequestWithSafariStorage:(NSURLRequest *)request
 {
+    _lastLoadStart = [NSDate timeIntervalSinceReferenceDate];
     WKWebView *webView = _webView;
     NSURL *url = [request URL];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -1687,8 +1725,11 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         [webView _doAfterNextPresentationUpdate:^{
             if (webView != _webView || !_previousPageView || _isHidden || _isLoading || !_shouldClearScreenshotOnRentry)
                 return;
+            BOOL edits = _editsWhenReloaded;
             [self clearScreenshot];
             _shouldClearScreenshotOnRentry = NO;
+            if (edits)
+                [self editCameraPosition];
         }];
     }];
 }
@@ -1757,8 +1798,10 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     [_errorView setFrame:frame];
     [_errorView setMessage:messageForError(error, [[self controller] URLString])];
     addLayerBackedSubview(self, _errorView);
+    [self maskErrorView];
     _loadError = YES;
     _isLoading = NO;
+    _editsWhenReloaded = NO;
     _clipHasContent = YES;
     [self clearScreenshotIfNeeded];
     [self dismissLoadingText];
@@ -2297,19 +2340,30 @@ static NSPoint pageScrollFromResult(id result)
         frameSize = NSMakeSize(MAX(minimum.width, frameSize.width), MAX(minimum.height, frameSize.height));
         [self setClipperSize:frameSize];
     }
-    [self clearScreenshot];
+    if (_previousPageView)
+        [self removeScreenshot];
+    else
+        [self clearScreenshot];
     [_currentTheme display];
     [self updateContentMask];
 }
 
 - (void)editCameraPosition
 {
+    if (_previousPageView) {
+        _editsWhenReloaded = YES;
+        return;
+    }
     [self updateCursor];
     [self setIsEditingCameraPosition:YES];
 }
 
-// A page that was not playing audio at the hide loads again behind itself, to show what it holds now; a
-// page that was playing audio shows as it is.
+// A show reloads the page at most this often.
+static const NSTimeInterval WCMinimumAutomaticReloadInterval = 5 * 60;
+
+// A page that was not playing audio at the hide, or that failed to load, loads again behind itself, to show
+// what it holds now, unless it started loading less than WCMinimumAutomaticReloadInterval ago; a page that was
+// playing audio shows as it is.
 - (void)didShowWidget
 {
     _isHidden = NO;
@@ -2322,7 +2376,8 @@ static NSPoint pageScrollFromResult(id result)
         _mediaSuspendedWhileHidden = NO;
         [_webView setAllMediaPlaybackSuspended:NO completionHandler:nil];
     }
-    if ((_reloadsAtShow || _loadError) && !_isLoading && !_isEditingCameraPosition) {
+    BOOL reloadIsDue = [NSDate timeIntervalSinceReferenceDate] - _lastLoadStart >= WCMinimumAutomaticReloadInterval;
+    if ((_reloadsAtShow || _loadError) && reloadIsDue && !_isLoading && !_isEditingCameraPosition) {
         if (_didFlipToFront)
             [self reloadBehindPage];
         else
@@ -2364,6 +2419,7 @@ static NSPoint pageScrollFromResult(id result)
 
 - (void)closePreviousPage
 {
+    _editsWhenReloaded = NO;
     WKWebView *previous = _previousPageView;
     _previousPageView = nil;
     [previous stopLoading:nil];
@@ -2377,28 +2433,22 @@ static NSPoint pageScrollFromResult(id result)
 }
 
 // A small spinner in the clip's bottom left corner says the page in the clip is reloading.
-static const CGFloat WCReloadSpinnerInset = 12;
-static const CGFloat WCReloadSpinnerSize = 22;
+static const CGFloat WCReloadSpinnerInset = 15;
+static const CGFloat WCReloadSpinnerSize = 16;
 
 - (void)showReloadSpinner
 {
     if (_reloadSpinner)
         return;
-    _reloadSpinner = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, WCReloadSpinnerSize, WCReloadSpinnerSize)];
+    _reloadSpinner = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(0, 0, WCReloadSpinnerSize, WCReloadSpinnerSize)];
+    [_reloadSpinner setStyle:NSProgressIndicatorSpinningStyle];
+    [_reloadSpinner setControlSize:NSSmallControlSize];
+    [_reloadSpinner setIndeterminate:YES];
+    [_reloadSpinner setDisplayedWhenStopped:NO];
     [_reloadSpinner setWantsLayer:YES];
-    CGColorRef backdrop = CGColorCreateGenericGray(1, 0.85);
-    [[_reloadSpinner layer] setBackgroundColor:backdrop];
-    CGColorRelease(backdrop);
-    [[_reloadSpinner layer] setCornerRadius:WCReloadSpinnerSize / 2];
-    NSProgressIndicator *indicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(3, 3, WCReloadSpinnerSize - 6, WCReloadSpinnerSize - 6)];
-    [indicator setStyle:NSProgressIndicatorSpinningStyle];
-    [indicator setControlSize:NSSmallControlSize];
-    [indicator setIndeterminate:YES];
-    [indicator setDisplayedWhenStopped:NO];
-    [_reloadSpinner addSubview:indicator];
     [self addSubview:_reloadSpinner positioned:NSWindowAbove relativeTo:_clipView];
     [self placeReloadSpinner];
-    [indicator startAnimation:nil];
+    [_reloadSpinner startAnimation:nil];
 }
 
 - (void)placeReloadSpinner
@@ -2413,6 +2463,7 @@ static const CGFloat WCReloadSpinnerSize = 22;
 - (void)didHideWidget
 {
     _isHidden = YES;
+    _editsWhenReloaded = NO;
     [WCClipperView askDock];
     [self updatePageWindow];
     if (_disableAutoRefresh || !_webView)

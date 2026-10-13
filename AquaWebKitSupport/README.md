@@ -34,7 +34,8 @@ AquaWebKitSupport/
 │                               overlays Source/cmake includes (OptionsMacAquaWebKit, *PlatformAquaWebKit)
 ├── source/                     out-of-tree WebKit source the overlays add to the build (WKViewAquaWebKit.mm, webpushd, …)
 ├── webclip/                    the Dashboard Web Clip widget's plug-in (WebClip.plugin, WebKit 2 page view) and
-│                               WebClip.js.patch for the widget's script; its HTML, images and strings stay Apple's
+│                               WebClip.{js,html,css}.patch for the widget's script, page and style sheet; its
+│                               images and strings stay Apple's
 ├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
 │                               stage-headers.sh (the developer headers and module maps, through upstream's header rules),
 │                               framework-layout.sh (sourced: the installed layout, shared by stage + install),

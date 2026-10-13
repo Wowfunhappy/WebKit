@@ -34,13 +34,16 @@ WEBCORE_BUNDLE=$WEBKIT_BUNDLE/Versions/A/Frameworks/WebCore.framework
 WK_INSTALL_ROOTS="$JSC_BUNDLE $WEBKIT_BUNDLE $WEBKIT2_BUNDLE"
 # The Web Clip widget's plug-in. The port supplies its executable (fat: ours for x86_64, the stock
 # i386 slice for a 32-bit DashboardClient), its page script, its injected bundle, and the widget's
-# script with AquaWebKitSupport/webclip/WebClip.js.patch applied; the rest of the widget is Apple's.
+# script, page and style sheet with AquaWebKitSupport/webclip/WebClip.{js,html,css}.patch applied; the
+# rest of the widget is Apple's.
 WEBCLIP_PLUGIN="/Library/Widgets/Web Clip.wdgt/WebClip.plugin/Contents"
 WEBCLIP_BINARY="$WEBCLIP_PLUGIN/MacOS/WebClip"
 WEBCLIP_PAGE_AGENT="$WEBCLIP_PLUGIN/Resources/WCPageAgent.js"
 WEBCLIP_EXTENSION_PAGE_SCRIPT="$WEBCLIP_PLUGIN/Resources/WCSafariExtensionPage.js"
 WEBCLIP_PAGE_BUNDLE="$WEBCLIP_PLUGIN/Resources/WebClipPageBundle.bundle"
 WEBCLIP_WIDGET_SCRIPT="/Library/Widgets/Web Clip.wdgt/WebClip.js"
+WEBCLIP_WIDGET_PAGE="/Library/Widgets/Web Clip.wdgt/WebClip.html"
+WEBCLIP_WIDGET_STYLE_SHEET="/Library/Widgets/Web Clip.wdgt/WebClip.css"
 
 # #68: the private C++ runtime (libc++/libc++abi from the clang-22 toolchain) and the polyfill
 # ObjC-classes dylib live INSIDE the framework bundles, so the product is fully self-contained —

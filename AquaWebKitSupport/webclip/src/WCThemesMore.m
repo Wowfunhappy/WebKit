@@ -1,382 +1,95 @@
-// The Deckled Edge (scalloped), Pegboard and Torn Edge themes.
+// The Plain, Pegboard and Torn Edge themes.
 
 #import "WCThemes.h"
 
 // AppKit's tiler: fills `rect` (clipped to it) with `image` repeated from `phase`.
 extern void _NSTileImageWithOperation(NSRect rect, NSImage *image, BOOL isFlipped, NSPoint phase, NSCompositingOperation operation, CGFloat fraction);
 
-#pragma mark - Deckled Edge
+#pragma mark - Plain
 
-// One run of edge tiles grown from a corner piece toward the middle of the view.
-// Horizontal runs start at corner.size.width - x (left) or x + corner.origin.x (right), at y (right),
-// or y + corner.origin.y (left). Vertical runs sit at x and start at offset + corner.origin.y + 1 (top)
-// or y + corner.origin.y (bottom).
-typedef struct {
-    __unsafe_unretained NSImage *image;
-    NSRect corner;
-    int element;
-    int x;
-    int y;
-    int offset;
-} WCScallopTile;
+// Glass's outer corner radius.
+static const CGFloat WCPlainCornerRadius = 5;
 
-static NSImage *sScallopedUpperLeftCorner;
-static NSImage *sScallopedUpperRightCorner;
-static NSImage *sScallopedTopRowTile;
-static NSImage *sScallopedLeftEdgeTile;
-static NSImage *sScallopedRightEdgeTile;
-static NSImage *sScallopedBottomLeftCorner;
-static NSImage *sScallopedBottomRightCorner;
-static NSImage *sScallopedBottomRowTile;
-
-@implementation WCScallopedTheme
-
-+ (void)initialize
-{
-    sScallopedUpperLeftCorner = [NSImage wc_flippedPNGNamed:@"scalloped_upperleftcorner"];
-    sScallopedUpperRightCorner = [NSImage wc_flippedPNGNamed:@"scalloped_upperrightcorner"];
-    sScallopedTopRowTile = [NSImage wc_flippedPNGNamed:@"scalloped_toprowtile"];
-    sScallopedLeftEdgeTile = [NSImage wc_flippedPNGNamed:@"scalloped_leftedgetile"];
-    sScallopedRightEdgeTile = [NSImage wc_flippedPNGNamed:@"scalloped_rightedgetile"];
-    sScallopedBottomLeftCorner = [NSImage wc_flippedPNGNamed:@"scalloped_bottomleftcorner"];
-    sScallopedBottomRightCorner = [NSImage wc_flippedPNGNamed:@"scalloped_bottomrightcorner"];
-    sScallopedBottomRowTile = [NSImage wc_flippedPNGNamed:@"scalloped_bottomrowtile"];
-}
+@implementation WCPlainTheme
 
 + (int)borderLeft
 {
-    return 27;
+    return 0;
 }
 
 + (int)borderRight
 {
-    return 27;
+    return 0;
 }
 
 + (int)borderTop
 {
-    return 18;
+    return 0;
 }
 
 + (int)borderBottom
 {
-    return 36;
+    return 0;
 }
 
-- (int)doneButtonInsetY
+- (int)themeID
 {
-    return 7;
+    return WCThemePlain;
 }
 
-- (BOOL)isOpaque
-{
-    return NO;
-}
-
-- (BOOL)isFlipped
+- (BOOL)masksPage
 {
     return YES;
 }
 
 - (int)clipInsetLeft
 {
-    return 27;
-}
-
-- (int)clipInsetBottom
-{
-    return 36;
+    return 0;
 }
 
 - (int)clipInsetTop
 {
-    return 18;
+    return 0;
 }
 
-- (int)resizerInsetX
+- (int)clipInsetBottom
 {
     return 0;
 }
 
-- (int)resizerInsetY
+// The edit border lines the widget's edges.
+- (int)innerBezelInsetX
 {
-    return 15;
+    return 0;
 }
 
-- (int)resizerImageInsetX
+- (int)innerBezelInsetY
 {
-    return -13;
+    return 0;
 }
 
-- (int)resizerImageInsetY
+- (int)innerBezelWidth
 {
-    return -10;
+    return 0;
 }
 
-- (BOOL)isVerticalElement:(int)element
+- (int)innerBezelHeight
 {
-    return (unsigned int)element > 3;
+    return 0;
 }
 
-// Draws the part-tile that closes the gap between the whole tiles and the middle of the view.
-- (void)partialComposite:(NSImage *)image direction:(int)direction fromCorner:(NSRect)corner wholeTileCount:(int)count offset:(int)offset
-{
-    double boundsWidth = [self bounds].size.width;
-    float center;
-    int remaining;
-    if ([self isVerticalElement:direction]) {
-        center = (float)([self bounds].size.height * 0.5);
-        remaining = 0;
-    } else {
-        double halfWidth = [self bounds].size.width * 0.5;
-        double tileWidth = [image size].width;
-        double run = (double)count * [image size].width;
-        center = (float)(tileWidth * -0.5 + halfWidth);
-        remaining = (int)((double)center - run - (double)offset);
-    }
-    float fraction = center - floorf(center);
-
-    NSRect dest = NSZeroRect;
-    NSRect source = NSZeroRect;
-    switch (direction) {
-    case 0: {
-        int x = (int)((double)count * [image size].width + corner.size.width - (double)offset);
-        int width = remaining - 4 - (fraction == 0.0f ? 1 : 0);
-        dest = NSMakeRect((double)x, 4.0, (double)width, [image size].height);
-        source = NSMakeRect(0, 0, (double)width, [image size].height);
-        break;
-    }
-    case 1: {
-        double end = (double)count * [image size].width + corner.size.width - (double)offset;
-        double start = boundsWidth - end;
-        int width = remaining - 5;
-        int x = (int)start - width;
-        dest = NSMakeRect((double)x, 4.0, (double)width, [image size].height);
-        source = NSMakeRect([image size].width - (double)width, 0, (double)width, [image size].height);
-        break;
-    }
-    case 2: {
-        int x = (int)((double)count * [image size].width + corner.size.width - (double)offset);
-        double y = corner.origin.y;
-        double height = [image size].height;
-        int width = remaining + (fraction != 0.0f ? 1 : 0);
-        dest = NSMakeRect((double)x, y + 4.0, (double)width, height);
-        source = NSMakeRect(0, 0, (double)width, [image size].height);
-        break;
-    }
-    case 3: {
-        double end = (double)count * [image size].width + corner.size.width - (double)offset - 2.0;
-        double start = boundsWidth - end;
-        double y = corner.origin.y;
-        double height = [image size].height;
-        int x = (int)start - remaining;
-        dest = NSMakeRect((double)x, y + 4.0 + 1.0, (double)remaining, height);
-        source = NSMakeRect([image size].width - (double)remaining, 0, (double)remaining, [image size].height);
-        break;
-    }
-    case 4: {
-        double run = (double)offset + (double)count * [image size].height;
-        int height = (int)((double)center - run - corner.origin.y);
-        int y = (int)(center - (float)height);
-        dest = NSMakeRect(0, (double)y - corner.origin.y, [image size].width, (double)height);
-        source = NSMakeRect(0, 0, [image size].width, (double)height);
-        break;
-    }
-    case 5: {
-        double run = (double)(offset + 18) + (double)count * [image size].height;
-        double top = (double)center - run + 1.0;
-        double fullHeight = [image size].height + 1.0;
-        int height = (int)top + (fraction != 0.0f ? 1 : 0);
-        int y = (int)(center - 5.0f);
-        if ((double)height == fullHeight)
-            dest = NSMakeRect(0, (double)(y - 2), [image size].width, (double)(height + 2));
-        else
-            dest = NSMakeRect(0, (double)y, [image size].width, (double)height);
-        source = NSMakeRect(0, [image size].height - (double)height, [image size].width, (double)height);
-        break;
-    }
-    case 6: {
-        double top = (double)center - ((double)offset + (double)count * [image size].height);
-        double cornerX = corner.origin.x;
-        double cornerY = corner.origin.y;
-        double width = [image size].width;
-        int height = (int)(top - cornerY);
-        int y = (int)(center - (float)height);
-        dest = NSMakeRect(cornerX + 4.0, (double)y - cornerY, width, (double)height);
-        source = NSMakeRect(0, 0, [image size].width, (double)height);
-        break;
-    }
-    case 7: {
-        double run = (double)(offset + 18) + (double)count * [image size].height;
-        int height = (int)((double)center - run) + (fraction != 0.0f ? 1 : 0);
-        float bottom = center - 5.0f;
-        double fullHeight = [image size].height + 1.0;
-        int y = (int)bottom;
-        double x = corner.origin.x + 4.0;
-        if ((double)height == fullHeight)
-            dest = NSMakeRect(x, (double)(y - 1), [image size].width, (double)(height + 1));
-        else
-            dest = NSMakeRect(x, (double)y, [image size].width, (double)height);
-        source = NSMakeRect(0, [image size].height - (double)height, [image size].width, (double)height);
-        break;
-    }
-    }
-    [image drawInRect:dest fromRect:source operation:NSCompositeSourceOver fraction:1.0];
-}
-
-- (void)drawHorizonalLeftTile:(WCScallopTile)tile dirtyRect:(NSRect)dirtyRect
-{
-    int startX = (int)(tile.corner.size.width - (double)tile.x);
-    int y = (int)((double)tile.y + tile.corner.origin.y);
-    NSImage *image = tile.image;
-    double halfWidth = [self bounds].size.width * 0.5;
-    double left = (double)startX;
-    int count = (int)((halfWidth - left) / [image size].width);
-    if (count > 0) {
-        double top = (double)y;
-        double index = 0.0;
-        for (int n = count; n != 0; n--) {
-            double x = [image size].width * index + left;
-            double width = [image size].width;
-            double height = [image size].height;
-            [image wc_drawInRect:NSMakeRect(x, top, width, height) dirtyRect:dirtyRect];
-            index += 1.0;
-        }
-    }
-    [self partialComposite:image direction:tile.element fromCorner:tile.corner wholeTileCount:count offset:tile.offset];
-}
-
-- (void)drawHorizontalRightTile:(WCScallopTile)tile dirtyRect:(NSRect)dirtyRect
-{
-    int startX = (int)(tile.corner.size.width - (double)tile.x) + (tile.element == 3 ? -1 : 0);
-    NSImage *image = tile.image;
-    double halfWidth = [self bounds].size.width * 0.5;
-    int count = (int)((halfWidth - (double)startX) / [image size].width);
-    if (count > 0) {
-        double right = (double)(int)((double)tile.x + tile.corner.origin.x);
-        for (int n = count; n > 0; n--) {
-            double run = (double)n * [image size].width;
-            double x = right - run;
-            double width = [image size].width;
-            double height = [image size].height;
-            [image wc_drawInRect:NSMakeRect(x, (double)tile.y, width, height) dirtyRect:dirtyRect];
-        }
-    }
-    [self partialComposite:image direction:tile.element fromCorner:tile.corner wholeTileCount:count offset:tile.offset];
-}
-
-- (void)drawVerticalTopTile:(WCScallopTile)tile dirtyRect:(NSRect)dirtyRect
-{
-    NSImage *image = tile.image;
-    NSSize size = [image size];
-    int startY = (int)((double)tile.offset + tile.corner.origin.y + 1.0);
-    int tileHeight = (int)size.height;
-    double halfHeight = [self bounds].size.height * 0.5;
-    double top = (double)startY;
-    int count = (int)(halfHeight - top - 5.0) / tileHeight;
-    if (count > 0) {
-        double index = 0.0;
-        for (int n = count; n != 0; n--) {
-            double y = [image size].height * index + top;
-            double width = [image size].width;
-            double height = [image size].height;
-            [image wc_drawInRect:NSMakeRect((double)tile.x, y, width, height) dirtyRect:dirtyRect];
-            index += 1.0;
-        }
-    }
-    [self partialComposite:image direction:tile.element fromCorner:tile.corner wholeTileCount:count offset:startY];
-}
-
-- (void)drawVerticalBottomTile:(WCScallopTile)tile dirtyRect:(NSRect)dirtyRect
-{
-    NSImage *image = tile.image;
-    NSSize size = [image size];
-    int startY = (int)((double)tile.y + tile.corner.origin.y);
-    int tileHeight = (int)size.height;
-    double limit = (double)(startY + 4);
-    double halfHeight = [self bounds].size.height * 0.5;
-    int count = (int)(limit - halfHeight) / tileHeight;
-    if (count > 0) {
-        double bottom = (double)startY;
-        for (int n = count; n > 0; n--) {
-            double y = bottom - (double)n * [image size].height;
-            double width = [image size].width;
-            double height = [image size].height;
-            [image wc_drawInRect:NSMakeRect((double)tile.x, y, width, height) dirtyRect:dirtyRect];
-        }
-    }
-    [self partialComposite:image direction:tile.element fromCorner:tile.corner wholeTileCount:count offset:tile.y];
-}
-
+// Clears the theme outside the widget's rounded rect, which leaves the page those corners.
 - (void)drawThemeInRect:(NSRect)rect
 {
+    NSRect bounds = [self bounds];
+    NSBezierPath *corners = [NSBezierPath bezierPathWithRect:bounds];
+    [corners appendBezierPath:[NSBezierPath bezierPathWithRoundedRect:bounds xRadius:WCPlainCornerRadius yRadius:WCPlainCornerRadius]];
+    [corners setWindingRule:NSEvenOddWindingRule];
+    [NSGraphicsContext saveGraphicsState];
+    [corners addClip];
     [[NSColor clearColor] set];
     NSRectFillUsingOperation(rect, NSCompositeCopy);
-
-    NSRect bounds = [self bounds];
-    double width = bounds.size.width;
-    double height = bounds.size.height;
-    int rightX = (int)(width - [sScallopedUpperRightCorner size].width);
-    double upperLeftWidth = [sScallopedUpperLeftCorner size].width;
-    double upperRightWidth = [sScallopedUpperRightCorner size].width;
-    NSSize bottomLeftSize = [sScallopedBottomLeftCorner size];
-    NSSize bottomRightSize = [sScallopedBottomRightCorner size];
-    double right = (double)rightX;
-    NSRect upperRightRect = NSMakeRect(right, 5.0, upperRightWidth, [sScallopedUpperRightCorner size].height);
-    NSRect upperLeftRect = NSMakeRect(2.0, 5.0, upperLeftWidth, [sScallopedUpperLeftCorner size].height);
-    double bottomY = height - bottomLeftSize.height;
-    NSRect bottomLeftRect = NSMakeRect(0, 1.0 + bottomY, bottomLeftSize.width, bottomLeftSize.height);
-    NSRect bottomRightRect = NSMakeRect(right, bottomY, bottomRightSize.width, bottomRightSize.height);
-
-    WCScallopTile bottomLeftRow = { sScallopedBottomRowTile, bottomLeftRect, 2, 10, 4, 10 };
-    WCScallopTile topLeftRow = { sScallopedTopRowTile, upperLeftRect, 0, 7, -1, 7 };
-    WCScallopTile topRightRow = { sScallopedTopRowTile, upperRightRect, 1, 7, 4, 7 };
-    WCScallopTile bottomRightRow = { sScallopedBottomRowTile, bottomRightRect, 3, 10, (int)(height - [sScallopedBottomRowTile size].height), 10 };
-    WCScallopTile leftTopColumn = { sScallopedLeftEdgeTile, upperLeftRect, 4, 0, (int)(height - [sScallopedBottomRowTile size].height), 15 };
-    WCScallopTile rightTopColumn = { sScallopedRightEdgeTile, upperRightRect, 6, (int)(width - [sScallopedRightEdgeTile size].width - 4.0), 0, 15 };
-    WCScallopTile leftBottomColumn = { sScallopedLeftEdgeTile, bottomLeftRect, 5, 0, 10, 0 };
-    WCScallopTile rightBottomColumn = { sScallopedRightEdgeTile, bottomRightRect, 7, (int)(width - [sScallopedRightEdgeTile size].width - 4.0), 10, 19 };
-
-    [self drawHorizonalLeftTile:topLeftRow dirtyRect:rect];
-    [self drawHorizontalRightTile:topRightRow dirtyRect:rect];
-    [self drawHorizonalLeftTile:bottomLeftRow dirtyRect:rect];
-    [self drawHorizontalRightTile:bottomRightRow dirtyRect:rect];
-    [self drawVerticalTopTile:leftTopColumn dirtyRect:rect];
-    [self drawVerticalTopTile:rightTopColumn dirtyRect:rect];
-    [self drawVerticalBottomTile:leftBottomColumn dirtyRect:rect];
-    [self drawVerticalBottomTile:rightBottomColumn dirtyRect:rect];
-
-    [sScallopedBottomLeftCorner wc_drawInRect:bottomLeftRect dirtyRect:rect];
-    [sScallopedBottomRightCorner wc_drawInRect:bottomRightRect dirtyRect:rect];
-    [sScallopedUpperLeftCorner wc_drawInRect:upperLeftRect dirtyRect:rect];
-    [sScallopedUpperRightCorner wc_drawInRect:upperRightRect dirtyRect:rect];
-}
-
-- (NSRect)innerBezelRect
-{
-    NSRect bounds = [self bounds];
-    return NSMakeRect(28.0, 24.0, bounds.size.width - 55.0, bounds.size.height - 60.0);
-}
-
-- (void)drawRect:(NSRect)rect
-{
-    [self drawThemeInRect:rect];
-    [super drawRect:rect];
-}
-
-- (int)themeID
-{
-    return WCThemeDeckled;
-}
-
-- (NSRect)controlRegion
-{
-    return [self innerBezelRect];
-}
-
-- (NSSize)minSize
-{
-    return NSMakeSize(163.0, 150.0);
+    [NSGraphicsContext restoreGraphicsState];
 }
 
 @end
