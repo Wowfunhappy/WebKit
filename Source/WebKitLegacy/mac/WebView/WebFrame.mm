@@ -1031,35 +1031,13 @@ static NSURL *createUniqueWebDataURL();
 
 @implementation WebFrame (WebPrivate)
 
-// AQUAWEBKIT: the legacy null-event SPI. macOS 10.9's DashboardClient drives
-// widget visibility by pausing/resuming null events for plug-ins across the
-// frame tree (Web Clips). With no Netscape (NPAPI) plug-ins there are no null
-// events to pump: the per-frame document view does not implement the
-// resume/pause selector, so the guarded call does nothing.
+// AQUAWEBKIT: macOS 10.9's DashboardClient (Web Clips) sends this null-event SPI; with no NPAPI plug-ins there are no null events to pause or resume.
 - (void)_recursive_resumeNullEventsForAllNetscapePlugins
 {
-    auto coreFrame = core(self);
-    for (WebCore::Frame* abstractFrame = coreFrame; abstractFrame; abstractFrame = abstractFrame->tree().traverseNext(coreFrame)) {
-        auto* frame = dynamicDowncast<WebCore::LocalFrame>(abstractFrame);
-        if (!frame)
-            continue;
-        NSView <WebDocumentView> *documentView = [[kit(frame) frameView] documentView];
-        if ([documentView respondsToSelector:@selector(_resumeNullEventsForAllNetscapePlugins)])
-            [documentView performSelector:@selector(_resumeNullEventsForAllNetscapePlugins)];
-    }
 }
 
 - (void)_recursive_pauseNullEventsForAllNetscapePlugins
 {
-    auto coreFrame = core(self);
-    for (WebCore::Frame* abstractFrame = coreFrame; abstractFrame; abstractFrame = abstractFrame->tree().traverseNext(coreFrame)) {
-        auto* frame = dynamicDowncast<WebCore::LocalFrame>(abstractFrame);
-        if (!frame)
-            continue;
-        NSView <WebDocumentView> *documentView = [[kit(frame) frameView] documentView];
-        if ([documentView respondsToSelector:@selector(_pauseNullEventsForAllNetscapePlugins)])
-            [documentView performSelector:@selector(_pauseNullEventsForAllNetscapePlugins)];
-    }
 }
 
 // FIXME: This exists only as a convenience for Safari, consider moving there.

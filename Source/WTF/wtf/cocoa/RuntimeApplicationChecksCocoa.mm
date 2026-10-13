@@ -59,7 +59,8 @@ static bool linkedBefore(dyld_build_version_t version, uint32_t fallbackIOSVersi
 #endif
 }
 
-#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/RuntimeApplicationChecksCocoaAdditions.cpp>)
+// #if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/RuntimeApplicationChecksCocoaAdditions.cpp>)
+#if __has_include(<WebKitAdditions/RuntimeApplicationChecksCocoaAdditions.cpp>) // AQUAWEBKIT: AquaWebKitSupport/polyfill/headers supplies the gates Apple's internal additions hold for these behaviors.
 #import <WebKitAdditions/RuntimeApplicationChecksCocoaAdditions.cpp>
 #else
 static void NODELETE disableAdditionalSDKAlignedBehaviors(SDKAlignedBehaviors&)
