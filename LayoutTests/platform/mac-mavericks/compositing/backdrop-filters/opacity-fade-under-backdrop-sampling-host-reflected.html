@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    .player {
+        position: relative;
+        width: 400px;
+        height: 240px;
+        background: linear-gradient(45deg, red, blue, green, yellow);
+    }
+    .controls {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2;
+        -webkit-box-reflect: below 10px;
+    }
+    .fades {
+        opacity: 0;
+        transition: opacity 0.1s linear;
+    }
+    .player.shown .fades {
+        opacity: 1;
+    }
+    .center {
+        position: absolute;
+        z-index: 1;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+    .scrim {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 40%;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.5));
+    }
+    .button {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background-color: black;
+        -webkit-backdrop-filter: blur(8px);
+    }
+</style>
+<script>
+    if (window.testRunner)
+        testRunner.waitUntilDone();
+
+    function afterTransitions(element, callback)
+    {
+        let remaining = element.querySelectorAll(".fades").length;
+        element.addEventListener("transitionend", () => {
+            if (!--remaining)
+                requestAnimationFrame(() => requestAnimationFrame(callback));
+        });
+    }
+
+    // Fading in creates the controls' backdrop sampling host once the fade-in animation ends; fading out
+    // must leave nothing of the fade-in on screen, in the reflection either.
+    window.addEventListener("load", () => {
+        let player = document.querySelector(".player");
+        afterTransitions(player, () => {
+            afterTransitions(player, () => {
+                if (window.testRunner)
+                    testRunner.notifyDone();
+            });
+            player.classList.remove("shown");
+        });
+        requestAnimationFrame(() => player.classList.add("shown"));
+    });
+</script>
+</head>
+<body>
+    <div class="player">
+        <div class="controls">
+            <div class="fades center"><div class="button"></div></div>
+            <div class="fades scrim"></div>
+        </div>
+    </div>
+</body>
+</html>
