@@ -5,6 +5,7 @@
 #include "LegacyExtensionContentMessages.h"
 #include "LegacyExtensionDeclarativeNetRequest.h"
 #include "LegacyExtensionErrors.h"
+#include "LegacyExtensionHiddenTabs.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionInfoPlist.h"
 #include "LegacyExtensionJavaScript.h"
@@ -1278,6 +1279,58 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
+    // aqua.tabs: tabs hidden from Safari's tab bar. A tab is `{ tabId }`, or `{ window, index }`, its place in
+    // Safari's browserWindows and their tabs. As in Firefox's tabs.hide and tabs.show, a tab that names no
+    // open tab rejects the call.
+    if (method == "aqua.tabs.hide"_s || method == "aqua.tabs.show"_s) {
+        // Every tab is found before any moves, since a move changes the places of the tabs after it.
+        Vector<Ref<WebPageProxy>> pages;
+        if (RefPtr tabs = argument(0) ? argument(0)->asArray() : nullptr) {
+            for (auto& tabValue : *tabs) {
+                RefPtr tab = tabValue->asObject();
+                auto tabID = tab ? tab->getDouble("tabId"_s) : std::nullopt;
+                RefPtr<WebPageProxy> page;
+                if (tabID)
+                    page = pageForTabID(*tabID);
+                else if (tab) {
+                    auto window = tab->getDouble("window"_s);
+                    auto index = tab->getDouble("index"_s);
+                    if (window && index && *window >= 0 && *index >= 0)
+                        page = LegacyExtensionHiddenTabs::pageOfSafariTab(static_cast<size_t>(*window), static_cast<size_t>(*index));
+                }
+                if (!page) {
+                    resultToHostContext(context, callID, nullptr, tabID ? makeString("Invalid tab ID: "_s, *tabID) : "Invalid tab."_s);
+                    return;
+                }
+                pages.append(page.releaseNonNull());
+            }
+        }
+        if (method == "aqua.tabs.show"_s) {
+            auto stillHidden = LegacyExtensionHiddenTabs::singleton().show(pages);
+            if (!stillHidden.isEmpty()) {
+                resultToHostContext(context, callID, nullptr, makeString("Safari could not show tab "_s, stillHidden.first().toUInt64(), ": its window shows all its tabs."_s));
+                return;
+            }
+            resultToHostContext(context, callID, nullptr);
+            return;
+        }
+        auto hiddenTabIDs = JSON::Array::create();
+        for (auto identifier : LegacyExtensionHiddenTabs::singleton().hide(context.extensionKey, pages))
+            hiddenTabIDs->pushDouble(static_cast<double>(identifier.toUInt64()));
+        resultToHostContext(context, callID, WTF::move(hiddenTabIDs));
+        return;
+    }
+
+    if (method == "aqua.tabs.getHidden"_s) {
+        auto hiddenTabs = JSON::Array::create();
+        for (auto identifier : LegacyExtensionHiddenTabs::singleton().hiddenTabs()) {
+            if (RefPtr page = WebProcessProxy::webPage(identifier))
+                hiddenTabs->pushObject(tabDescription(*page));
+        }
+        resultToHostContext(context, callID, WTF::move(hiddenTabs));
+        return;
+    }
+
     if (method == "tabs.reload"_s) {
         if (RefPtr page = pageForTabID(numberArgument(0))) {
             OptionSet<WebCore::ReloadOption> options;
@@ -1529,6 +1582,7 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
 
 void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
 {
+    LegacyExtensionHiddenTabs::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionMimeHandlers::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionPrivacy::singleton().extensionDidUnload(extensionKey);
     m_websiteAccessRoots.remove(extensionKey);
@@ -1672,6 +1726,7 @@ void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
 
 void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
 {
+    LegacyExtensionHiddenTabs::singleton().pageWillClose(page);
     if (auto observer = tabObservers().take(page.identifier()))
         page.pageLoadState().removeObserver(*observer);
     for (auto& declarativeNetRequest : m_declarativeNetRequests.values())

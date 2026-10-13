@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<title>probe</title>
+<script>
+// Opened in a tab by the global page's openProbeTab: its title says whether Safari's extension API gives an
+// extension page in a tab safari.application.
+document.title = "probe:" + (typeof safari === "undefined" ? "no-safari" : safari.application ? "application" : "no-application");
+</script>

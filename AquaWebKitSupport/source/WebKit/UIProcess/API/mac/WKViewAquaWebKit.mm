@@ -51,6 +51,7 @@
 #import <WebKit/WKShareSheet.h>
 
 #import "APIPageConfiguration.h"
+#import "LegacyExtensionHiddenTabs.h"
 #import "NativeWebKeyboardEvent.h"
 #import "NativeWebMouseEvent.h"
 #import "NativeWebWheelEvent.h"
@@ -1428,6 +1429,8 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
     if (!_wkState || !_wkState->page) return;
+
+    WebKit::LegacyExtensionHiddenTabs::singleton().webViewDidMoveToWindow(*_wkState->page, [self window]);
 
     // propagate the window's backing scale to the page so it renders at the
     // display's device pixel ratio (Retina = 2x). The AquaWebKitPageClient/WKView path replaces

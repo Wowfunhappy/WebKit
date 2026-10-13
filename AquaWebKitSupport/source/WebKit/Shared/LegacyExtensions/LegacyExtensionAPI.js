@@ -976,6 +976,40 @@ function receiverTable() {
     return receiverTable.table;
 }
 
+const aqua = {};
+if (isHost) {
+    // A tab is a tab ID, or where Safari's extension API is, a SafariBrowserTab, which the router finds at its
+    // place in safari.application.browserWindows.
+    const tabReference = tab => {
+        if (typeof tab === "number")
+            return { tabId: tab };
+        const application = globalThis.safari && globalThis.safari.application;
+        if (application && tab && typeof tab === "object" && tab.browserWindow) {
+            const window = Array.prototype.indexOf.call(application.browserWindows, tab.browserWindow);
+            const index = window < 0 ? -1 : Array.prototype.indexOf.call(tab.browserWindow.tabs, tab);
+            if (index >= 0)
+                return { window, index };
+        }
+        throw new TypeError("A tab is a tab ID or a SafariBrowserTab of an open window.");
+    };
+    const tabReferences = tabs => (Array.isArray(tabs) ? tabs : [tabs]).map(tabReference);
+    aqua.tabs = {
+        hide(...args) {
+            return withOptionalCallback(args, async tabs => callRouter("aqua.tabs.hide", tabReferences(tabs)));
+        },
+        show(...args) {
+            return withOptionalCallback(args, async tabs => {
+                await callRouter("aqua.tabs.show", tabReferences(tabs));
+            });
+        },
+        getHidden(...args) {
+            return withOptionalCallback(args, async () => callRouter("aqua.tabs.getHidden"));
+        },
+    };
+}
+if (Object.keys(aqua).length)
+    Object.defineProperty(globalThis, "aqua", { value: aqua, writable: true, configurable: true, enumerable: false });
+
 Object.defineProperty(globalThis, "browser", { value: browser, writable: true, configurable: true, enumerable: false });
 
 return (json, bytes) => {
