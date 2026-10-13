@@ -24,30 +24,20 @@
  
      #glassIcon
      {
-@@ -158,6 +148,22 @@
-  left:22px;
+@@ -127,6 +117,12 @@
+  background-size: 90px 61px;
  }
  
-+#openPage
++#visit
 +{
-+ top: 16px;
-+ left: auto;
-+ right: 22px;
-+ z-index: 1;
-+ opacity: 0.8;
-+ cursor: pointer;
++display: inline-block;
++margin-right: 8px;
 +}
 +
-+#openPage:hover
-+{
-+ opacity: 1;
-+ text-decoration: underline;
-+}
-+
- #themes
+ #editPosition
  {
-  top: 22px;
-@@ -210,25 +216,14 @@
+ display: inline-block;
+@@ -210,25 +206,14 @@
   height: 50px;
  }
  

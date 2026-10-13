@@ -10,26 +10,33 @@ extern void _NSTileImageWithOperation(NSRect rect, NSImage *image, BOOL isFlippe
 // Glass's outer corner radius.
 static const CGFloat WCPlainCornerRadius = 5;
 
+// Glass's drop shadow, measured from its artwork: black at half opacity, cast 4.5 points down.
+static const CGFloat WCPlainShadowOffset = 4.5;
+static const CGFloat WCPlainShadowBlur = 6.5;
+static const CGFloat WCPlainShadowOpacity = 0.5;
+
 @implementation WCPlainTheme
 
+// The shadow's extent beyond Glass's outer rim; the right border includes the plug-in view's column
+// the widget window clips.
 + (int)borderLeft
 {
-    return 0;
+    return 7;
 }
 
 + (int)borderRight
 {
-    return 0;
+    return 8;
 }
 
 + (int)borderTop
 {
-    return 0;
+    return 2;
 }
 
 + (int)borderBottom
 {
-    return 0;
+    return 12;
 }
 
 - (int)themeID
@@ -44,51 +51,74 @@ static const CGFloat WCPlainCornerRadius = 5;
 
 - (int)clipInsetLeft
 {
-    return 0;
+    return 7;
 }
 
 - (int)clipInsetTop
 {
-    return 0;
+    return 2;
 }
 
 - (int)clipInsetBottom
 {
-    return 0;
+    return 12;
 }
 
-// The edit border lines the widget's edges.
+// The edit border lines the page's edges.
 - (int)innerBezelInsetX
 {
-    return 0;
+    return 7;
 }
 
 - (int)innerBezelInsetY
 {
-    return 0;
+    return 2;
 }
 
 - (int)innerBezelWidth
 {
-    return 0;
+    return 13;
 }
 
 - (int)innerBezelHeight
 {
-    return 0;
+    return 14;
 }
 
-// Clears the theme outside the widget's rounded rect, which leaves the page those corners.
+// The page's rounded rect in the theme, which the widget window ends one column short of the plug-in view.
+- (NSRect)pageRect
+{
+    NSRect bounds = [self bounds];
+    int left = [self clipInsetLeft];
+    int top = [self clipInsetTop];
+    return NSMakeRect(left, top, NSWidth(bounds) - left - (left - 1), NSHeight(bounds) - top - [self clipInsetBottom]);
+}
+
+// Clears the theme outside the page's rounded rect, which leaves the page those corners, and casts the
+// page's shadow there. The shape casting it lies a theme's width to the left, with the shadow offset
+// back across, so only its shadow lands.
 - (void)drawThemeInRect:(NSRect)rect
 {
     NSRect bounds = [self bounds];
-    NSBezierPath *corners = [NSBezierPath bezierPathWithRect:bounds];
-    [corners appendBezierPath:[NSBezierPath bezierPathWithRoundedRect:bounds xRadius:WCPlainCornerRadius yRadius:WCPlainCornerRadius]];
-    [corners setWindingRule:NSEvenOddWindingRule];
+    NSRect pageRect = [self pageRect];
+    NSBezierPath *outside = [NSBezierPath bezierPathWithRect:bounds];
+    [outside appendBezierPath:[NSBezierPath bezierPathWithRoundedRect:pageRect xRadius:WCPlainCornerRadius yRadius:WCPlainCornerRadius]];
+    [outside setWindingRule:NSEvenOddWindingRule];
     [NSGraphicsContext saveGraphicsState];
-    [corners addClip];
+    [outside addClip];
     [[NSColor clearColor] set];
     NSRectFillUsingOperation(rect, NSCompositeCopy);
+
+    CGContextRef context = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
+    CGFloat away = NSWidth(bounds) + 4 * WCPlainShadowBlur;
+    CGSize deviceAway = CGContextConvertSizeToDeviceSpace(context, CGSizeMake(away, 0));
+    CGSize deviceBlur = CGContextConvertSizeToDeviceSpace(context, CGSizeMake(WCPlainShadowBlur, 0));
+    CGColorRef color = CGColorCreateGenericGray(0, WCPlainShadowOpacity);
+    CGContextSetShadowWithColor(context, CGSizeMake(hypot(deviceAway.width, deviceAway.height), 0), hypot(deviceBlur.width, deviceBlur.height), color);
+    CGColorRelease(color);
+    NSRect casterRect = NSOffsetRect(pageRect, -away, [self isFlipped] ? WCPlainShadowOffset : -WCPlainShadowOffset);
+    [[NSColor blackColor] set];
+    [[NSBezierPath bezierPathWithRoundedRect:casterRect xRadius:WCPlainCornerRadius yRadius:WCPlainCornerRadius] fill];
     [NSGraphicsContext restoreGraphicsState];
 }
 

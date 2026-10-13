@@ -1171,8 +1171,9 @@ static const CGFloat WCMaximumClipperLength = 20000;
     [self updateDashboardControlRegions];
 }
 
-// Renders the theme over the clip view's area, onto a transparent canvas or over opaque page
-// stand-in of the given gray, returning premultiplied RGBA rows top first.
+// Renders the theme's artwork over the clip view's area, onto a transparent canvas or over opaque page
+// stand-in of the given gray, returning premultiplied RGBA rows top first. The theme's subviews and edit
+// border draw over the page without cutting it.
 - (NSMutableData *)themePixelsOverPageGray:(CGFloat)gray page:(BOOL)page width:(size_t)width height:(size_t)height scale:(CGFloat)scale
 {
     NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
@@ -1185,9 +1186,17 @@ static const CGFloat WCMaximumClipperLength = 20000;
         CGContextSetGrayFillColor(context, gray, 1);
         CGContextFillRect(context, CGRectMake(0, 0, clipFrame.size.width, clipFrame.size.height));
     }
-    CGContextTranslateCTM(context, -clipFrame.origin.x, -clipFrame.origin.y);
-    NSGraphicsContext *graphicsContext = [NSGraphicsContext graphicsContextWithGraphicsPort:context flipped:NO];
-    [_currentTheme displayRectIgnoringOpacity:[_currentTheme convertRect:clipFrame fromView:self] inContext:graphicsContext];
+    NSRect themeFrame = [_currentTheme frame];
+    CGContextTranslateCTM(context, NSMinX(themeFrame) - clipFrame.origin.x, NSMinY(themeFrame) - clipFrame.origin.y);
+    BOOL flipped = [_currentTheme isFlipped];
+    if (flipped) {
+        CGContextTranslateCTM(context, 0, NSHeight(themeFrame));
+        CGContextScaleCTM(context, 1, -1);
+    }
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:context flipped:flipped]];
+    [_currentTheme drawThemeInRect:[_currentTheme convertRect:clipFrame fromView:self]];
+    [NSGraphicsContext restoreGraphicsState];
     CGContextRelease(context);
     return pixels;
 }
@@ -1466,21 +1475,18 @@ static const CGFloat WCMaximumClipperLength = 20000;
     _progressTimer = nil;
 }
 
+// The back's previews show the clip's top left corner at 87 x 61: a wide clip's left square, or a tall
+// clip's full width, scaled to 87 wide, its top 61 rows.
 - (NSImage *)thumbnailOfImage:(NSImage *)image
 {
+    static const NSSize thumbnailSize = { 87, 61 };
     NSSize size = [image size];
-    if (size.width / size.height >= 1.0) {
-        [image setSize:NSMakeSize((float)size.height, size.height)];
-        size = [image size];
-    }
-    NSImage *thumbnail = [[NSImage alloc] initWithSize:NSMakeSize(87, 61)];
+    CGFloat sourceWidth = MIN(size.width, size.height);
+    CGFloat sourceHeight = sourceWidth * thumbnailSize.height / thumbnailSize.width;
+    NSImage *thumbnail = [[NSImage alloc] initWithSize:thumbnailSize];
     [thumbnail lockFocus];
     [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationHigh];
-    [image setScalesWhenResized:YES];
-    double scale = (float)(87.0 / size.width);
-    double scaledHeight = size.height * scale;
-    [image setSize:NSMakeSize(size.width * scale, scaledHeight)];
-    [image compositeToPoint:NSZeroPoint fromRect:NSMakeRect(0, scaledHeight + -61.0, 87, 61) operation:NSCompositeCopy];
+    [image drawInRect:NSMakeRect(0, 0, thumbnailSize.width, thumbnailSize.height) fromRect:NSMakeRect(0, size.height - sourceHeight, sourceWidth, sourceHeight) operation:NSCompositeCopy fraction:1];
     [thumbnail unlockFocus];
     return thumbnail;
 }
@@ -2432,8 +2438,8 @@ static const NSTimeInterval WCMinimumAutomaticReloadInterval = 5 * 60;
     return _webView;
 }
 
-// A small spinner in the clip's bottom left corner says the page in the clip is reloading.
-static const CGFloat WCReloadSpinnerInset = 15;
+// A small spinner in the clip's bottom left corner says the page in the clip is reloading. It keeps the
+// flipper's margins, mirrored.
 static const CGFloat WCReloadSpinnerSize = 16;
 
 - (void)showReloadSpinner
@@ -2454,7 +2460,8 @@ static const CGFloat WCReloadSpinnerSize = 16;
 - (void)placeReloadSpinner
 {
     NSRect clipFrame = [self convertRect:[_clipView bounds] fromView:_clipView];
-    [_reloadSpinner setFrameOrigin:NSMakePoint(NSMinX(clipFrame) + WCReloadSpinnerInset, NSMinY(clipFrame) + WCReloadSpinnerInset)];
+    NSRect flipButton = [_flipButton frame];
+    [_reloadSpinner setFrameOrigin:NSMakePoint(NSMinX(clipFrame) + NSMaxX(clipFrame) - NSMaxX(flipButton), NSMinY(flipButton))];
 }
 
 // Dashboard going away is a tab going to the background: the page keeps running, its media suspended

@@ -1,14 +1,6 @@
 --- WebClip.html
 +++ WebClip.html
-@@ -28,6 +28,7 @@
-         
-         <div id='back'>
-                 <div id='themeLabel' class='label'></div>
-+                <div id='openPage' class='label' onclick='openPage_onclick(this);'></div>
-                 <div id="selector"/>
-                 <table id="themes">
-                   <tr valign=top>
-@@ -51,10 +52,9 @@
+@@ -51,10 +51,9 @@
                     </td>
                    </tr>
                   <tr valign=top>
@@ -21,3 +13,11 @@
                       </div>
                     </td>
                       <td class="selection" id ="pegboardOption" onDblClick='pegboardIcon_onDblClick(this);'  onclick='pegboardIcon_onclick(this);'>
+@@ -73,6 +72,7 @@
+                 
+         <div id="audio" class="label"><input type="checkbox" id="audioCheckbox" onclick='audio_onclick(this);'><label for="audioCheckbox" id="audioLabel"/></div>
+         <div id="glassButtons">
++          <div id="visit"></div>
+           <div id="editPosition"></div>
+           <div id="done"></div>
+         </div>

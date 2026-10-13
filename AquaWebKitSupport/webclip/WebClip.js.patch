@@ -32,7 +32,7 @@
 +    switchTheme(WebClipTheme.WebClipPlain);
 +}
 +
-+function openPage_onclick(element)
++function visitPressed()
 +{
 +    widget.openURL(webClip.URLString());
  }
@@ -99,11 +99,13 @@
              break;
          case WebClipTheme.WebClipGlass:
              themeOption = document.getElementById("glassOption");
-@@ -277,10 +291,11 @@
+@@ -275,12 +289,13 @@
+     setSelectedThemeOnBackside(themeOptionForThemeID(selectedThemeID), themeNameForThemeID(selectedThemeID));
+     new AppleGlassButton(document.getElementById('done'), getLocalizedString('Done'), donePressed);
      new AppleGlassButton(document.getElementById('editPosition'), getLocalizedString('Edit'), panAndCropPressed);
++    new AppleGlassButton(document.getElementById('visit'), getLocalizedString('Visit'), visitPressed);
      document.getElementById("audioCheckbox").checked = !webClip.playAudioOutOfDashboard();
      document.getElementById("audioLabel").innerText = getLocalizedString("Only play audio in Dashboard");
-+    document.getElementById("openPage").innerText = getLocalizedString("Open Page");
      // Need to coalesce loading and display of the thumbnails with the flip  
      document.getElementById("blackEdgeThumbnail").onload = thumbnailDidLoad;
      document.getElementById("pegboardThumbnail").onload = thumbnailDidLoad;

@@ -162,7 +162,7 @@ NSString *WCLocalizedString(const char *key);
 @interface WCVintageCornersTheme : WCTheme
 @end
 
-// The page alone, its corners rounded as Glass's are, with Glass's edit border.
+// The page alone, its corners rounded as Glass's are, with Glass's drop shadow and edit border.
 @interface WCPlainTheme : WCGlassTheme
 @end
 
