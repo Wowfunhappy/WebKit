@@ -581,3 +581,21 @@ webrtc/video-stats.html [ Skip ]
 
 # Times out only in full-suite runs; passes alone, with http/tests/misc, and after its 31 preceding suite tests.
 http/tests/misc/form-submit-file-cross-site-redirect.html [ Skip ]
+
+# Inline predictions use NSSpellChecker's automatic inline completion (macOS 14), so HAVE(INLINE_PREDICTIONS) is 0 on
+# this port (AdditionalPlatformHave.h) and UIScriptController::setInlinePrediction inserts nothing.
+editing/input/cocoa/do-not-allow-inline-predictions-if-text-changes.html [ Skip ]
+editing/input/cocoa/writing-suggestions-textarea-multiple-lines.html [ Skip ]
+editing/input/mac/show-inline-prediction-with-adjacent-text.html [ Skip ]
+
+# The fixture types "Tset." and waits for the correction to be applied at the period. On 10.9 a correction shown in
+# the correction panel is accepted at the next word boundary, not at punctuation; TextEdit and Safari both leave
+# "We hve." uncorrected and correct "We hve a".
+editing/input/cocoa/autocorrect-on.html [ Skip ]
+
+# These wait for the grammar correction panel. On 10.9, -[NSSpellChecker showCorrectionIndicatorOfType:...] runs
+# -[NSCorrectionPanel _interceptEvents], a nested event loop on the UI process's main thread that returns at the
+# next user event; WebKitTestRunner sends none, so the test never resumes.
+editing/spelling/grammar-arrow-downstream-into-multiword-phrase.html [ Skip ]
+editing/spelling/grammar-correction-shown-clicking-middle-of-word.html [ Skip ]
+editing/spelling/grammar-correction-shown-clicking-multiword-phrase.html [ Skip ]

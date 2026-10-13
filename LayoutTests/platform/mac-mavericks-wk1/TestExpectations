@@ -999,6 +999,7 @@ http/tests/security/anchor-download-octet-stream-no-extension.html [ Skip ]
 # are defined in Tools/WebKitTestRunner (TestRunner.idl, EventSendingController.idl, TestController.cpp) and
 # absent from Tools/DumpRenderTree and Tools/TestRunnerShared.
 # dontForceRepaint
+editing/selection/first-letter-selection-painting.html [ Skip ]
 fast/events/wheel/wheel-event-on-svg-with-stroked-lines.html [ Skip ]
 fast/events/wheel/wheel-event-on-svg-with-stroked-lines-with-layer-based-svg-engine.html [ Skip ]
 # setStatisticsShouldDowngradeReferrer
@@ -2275,3 +2276,68 @@ fast/workers/worker-document-leak.html [ Skip ]
 # Passes alone, with fast/workers, and after its 31 preceding suite tests, but times out in full-suite runs,
 # presumably because an unidentified earlier test leaves state behind.
 fast/workers/worker-lifecycle.html [ Skip ]
+
+# Upstream's WebKit1 expectations, until it stopped running WebKit1 tests (58c630a), recorded these: DOM paste
+# access requests are not implemented in WebKit1 (the crashing ones call UIScriptController::isShowingMenu, which
+# DumpRenderTree does not implement); the color input is not implemented on Mac WebKit1; testRunner.findString is
+# WebKit2-only; the context-menu API is not exposed on DumpRenderTree; and the bugs named below.
+editing/async-clipboard/clipboard-change-data-while-reading.html [ Skip ]
+editing/async-clipboard/clipboard-do-not-read-text-from-platform-if-text-changes.html [ Skip ]
+editing/async-clipboard/clipboard-read-text-from-platform.html [ Skip ]
+editing/async-clipboard/clipboard-read-text-same-origin.html [ Skip ]
+editing/async-clipboard/sanitize-when-reading-markup.html [ Skip ]
+editing/pasteboard/drag-and-drop-color-input-events.html [ Skip ]
+editing/pasteboard/drag-and-drop-color-input.html [ Skip ]
+editing/text-iterator/find-in-page-in-closed-details.html [ Skip ]
+editing/text-iterator/find-in-page-in-hidden-until-found.html [ Skip ]
+editing/mac/spelling/disable-automatic-spelling-correction-context-menu-item.html [ Skip ]
+webkit.org/b/187230 editing/mac/pasteboard/can-copy-url-without-title.html [ Skip ]
+webkit.org/b/214558 editing/execCommand/typing-should-not-trigger-scrolling-when-selection-is-visible.html [ Skip ]
+webkit.org/b/139862 editing/spelling/grammar-edit-word.html [ Skip ]
+webkit.org/b/206071 editing/spelling/grammar.html [ Skip ]
+webkit.org/b/206071 editing/spelling/markers.html [ Skip ]
+
+# DumpRenderTree's eventSender.contextClick() returns the menu's titles as strings; these read each item's title and
+# children.
+editing/mac/context-menu/text-transformations-menu-actions.html [ Skip ]
+editing/mac/context-menu/text-transformations-menu-items.html [ Skip ]
+
+# These state that they require WebKitTestRunner.
+editing/spelling/grammar-arrow-downstream-into-multiword-phrase.html [ Skip ]
+editing/spelling/grammar-arrow-upstream-into-multiword-phrase.html [ Skip ]
+editing/spelling/grammar-correction-shown-clicking-middle-of-word.html [ Skip ]
+editing/spelling/grammar-correction-shown-clicking-multiword-phrase.html [ Skip ]
+
+# DumpRenderTree builds the dragged file promise with -[NSDraggingItem _initWithItem:], which 10.9's AppKit does not
+# have, so the drop never happens.
+editing/pasteboard/data-transfer-items-drag-drop-file-promise.html [ Skip ]
+editing/pasteboard/data-transfer-items-drop-file-promise.html [ Skip ]
+editing/pasteboard/datatransfer-items-drop-plaintext-file-promise.html [ Skip ]
+editing/pasteboard/datatransfer-types-dropping-text-file-promise.html [ Skip ]
+editing/pasteboard/drag-file-promises-to-editable-element-as-URLs.html [ Skip ]
+editing/pasteboard/drag-file-promises-to-editable-element-as-attachment.html [ Skip ]
+editing/pasteboard/file-input-files-access-promise.html [ Skip ]
+
+# WebKitLegacy's WebEditorClient::isSmartListsEnabled() returns false, so smart lists never form.
+editing/smart-lists [ Skip ]
+
+# DumpRenderTree's pixel dump paints the WebHTMLView into a bitmap context, for which -[WebFrame
+# _paintBehaviorForDestinationContext:] returns PaintBehavior::Snapshotting, and TextBoxPainter::
+# paintPlatformDocumentMarkers paints no document markers in a snapshot. A WebKit1 window draws the dots.
+editing/spelling/spelling-dots-position-2.html [ Skip ]
+editing/spelling/spelling-dots-position-3.html [ Skip ]
+
+# DumpRenderTree runs linked-on-or-after everything, so it gets SuppressKeypressForModifierShortcuts, and EventHandler
+# hands the suppressed Control-O keypress to the editor without the keydown's saved commands
+# (insertNewlineIgnoringFieldEditor:, moveBackward:), which WebKitLegacy runs at keypress. Upstream's WebKit1 testing
+# ended before that behavior was added.
+editing/input/emacs-ctrl-o.html [ Skip ]
+
+# The fix for this test (29903ab) schedules the editor-state update after a back/forward cache restore in
+# WebKit2's WebLocalFrameLoaderClient only.
+editing/secure-input/bfcache-restore-preserves-secure-input.html [ Skip ]
+
+# With the unified text checker, deleting the space between "a" and "meagesga" re-checks the sentence
+# (markMisspellingsAfterTypingToWord), and 10.9's NSSpellChecker reports "ameagesga" although the insertion point
+# is inside it; WebKit2 checks asynchronously, so the fixture's immediate check sees no marker there.
+editing/spelling/editing-word-with-marker-1.html [ Skip ]

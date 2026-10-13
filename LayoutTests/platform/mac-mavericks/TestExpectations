@@ -44,7 +44,6 @@ css3 [ Skip ]
 cssom [ Skip ]
 displaylists [ Skip ]
 dom [ Skip ]
-editing [ Skip ]
 highlight [ Skip ]
 html5lib [ Skip ]
 ietestcenter [ Skip ]
@@ -1384,3 +1383,12 @@ Bug(Chromium1152588) webgl/2.0.y/conformance2/rendering/multisampling-fragment-e
 # Apple Software Renderer evaluates LINEAR texture coordinates at each of its four MSAA sample positions (GL 4.1 §3.3,
 # GLES 2.0 §3.2 permit it); the resolve averages filtered edge texels, against a hard-edged 2D reference.
 webgl/webgl-texture-image-buffer-reuse.html [ Skip ]
+
+# Copy Style writes the font attributes as RTF and Paste Style reads them back. 10.9's RTF writer stores colors in a
+# plain \colortbl, converting sRGB #ffff00 to \red255\green255\blue11, and its reader returns that as a calibrated
+# RGB color, which is #fffb01 in sRGB: the pasted text differs from the reference by up to 4 per channel.
+editing/execCommand/mac/copyFont-pasteFont.html [ Skip ]
+
+# These paste under the dark appearance, which 10.9 does not have (see css-dark-mode above).
+editing/pasteboard/paste-canvas-background-dark-mode.html [ Skip ]
+editing/pasteboard/paste-dark-mode-color-filtered.html [ Skip ]
