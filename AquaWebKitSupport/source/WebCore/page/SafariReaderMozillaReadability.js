@@ -26,6 +26,7 @@ function mozillaReadabilityArticleHTMLForSafariReader()
 
     var extracted = articleDocument.createElement("div");
     extracted.innerHTML = article.content;
+    resolveFragmentLinks(extracted);
     resolveSourceSizes(extracted);
     var container = flattenedArticle(extracted, articleDocument);
     // Safari's finder takes no element shorter than 295px for an article, however short the article.
@@ -35,9 +36,20 @@ function mozillaReadabilityArticleHTMLForSafariReader()
     return "<!DOCTYPE html>" + articleDocument.documentElement.outerHTML;
 }
 
-// The article document loads no images; its images take the size each renders at on the page, and
-// that width as their source size for srcset.
-// copy is a fresh clone of page, so their images correspond in order.
+// Readability leaves a link to a fragment of the page as it is, a link within the document it parses.
+// The article shows in a document of its own, so such a link is resolved against the page's base URL,
+// as Readability resolves every other link.
+function resolveFragmentLinks(root)
+{
+    var links = root.querySelectorAll("a[href^='#']");
+    for (var i = 0; i < links.length; ++i)
+        links[i].setAttribute("href", new URL(links[i].getAttribute("href"), document.baseURI).href);
+}
+
+// The article document loads no images and applies none of the page's style sheets; its images take the
+// size each renders at on the page, and that width as their source size for srcset, and its SVG graphics
+// the size each renders at.
+// copy is a fresh clone of page, so their images and graphics correspond in order.
 function copyRenderedImageSizes(page, copy)
 {
     var images = page.getElementsByTagName("img");
@@ -56,6 +68,24 @@ function copyRenderedImageSizes(page, copy)
                     source.setAttribute("sizes", sourceSize);
             }
         }
+    }
+
+    // An outermost graphic takes its layout width, and its layout height unless its viewBox gives its aspect
+    // ratio, which keeps it when the Reader's column narrows it: a graphic whose preserveAspectRatio aligns
+    // none stretches to its box, so it takes both. A nested graphic is sized in its outer graphic's units.
+    var graphics = page.getElementsByTagName("svg");
+    var copiedGraphics = copy.getElementsByTagName("svg");
+    for (var i = 0; i < graphics.length && i < copiedGraphics.length; ++i) {
+        if (graphics[i].ownerSVGElement || !graphics[i].getClientRects().length)
+            continue;
+        var style = getComputedStyle(graphics[i]);
+        var width = parseFloat(style.width);
+        var height = parseFloat(style.height);
+        if (!width || !height)
+            continue;
+        copiedGraphics[i].setAttribute("width", width);
+        if (!graphics[i].hasAttribute("viewBox") || graphics[i].preserveAspectRatio.baseVal.align === SVGPreserveAspectRatio.SVG_PRESERVEASPECTRATIO_NONE)
+            copiedGraphics[i].setAttribute("height", height);
     }
 }
 
@@ -140,12 +170,21 @@ function lengthWithoutViewportUnits(length)
 }
 
 // Readability keeps the article's own wrappers. The container this returns holds the article's
-// blocks directly: a wrapper that holds blocks gives up its children, and one that holds only
-// inline content becomes a paragraph.
+// blocks directly: a wrapper that holds blocks gives up its children, one that holds only inline
+// content becomes a paragraph, and each run of inline content between blocks becomes a paragraph.
 function flattenedArticle(root, articleDocument)
 {
     const blockTags = /^(P|H[1-6]|FIGURE|BLOCKQUOTE|UL|OL|DL|PRE|TABLE|HR|IMG|PICTURE|VIDEO|AUDIO|IFRAME)$/;
     const wrapperTags = /^(DIV|SECTION|ARTICLE|MAIN|HEADER|FOOTER|ASIDE|NAV|SPAN|FORM|CENTER|FONT)$/;
+    // HTML's phrasing content, with the obsolete phrasing elements HTML renders inline and autonomous custom
+    // elements. The embedded elements among blockTags stand as blocks here.
+    const phrasingNames = new Set(["a", "abbr", "area", "b", "bdi", "bdo", "br", "button", "canvas", "cite", "code", "data", "datalist", "del", "dfn", "em", "embed", "i", "input", "ins", "kbd", "label", "link", "map", "mark", "math", "meta", "meter", "noscript", "object", "output", "q", "ruby", "s", "samp", "script", "select", "slot", "small", "span", "strong", "sub", "sup", "svg", "template", "textarea", "time", "u", "var", "wbr", "acronym", "big", "font", "nobr", "strike", "tt"]);
+    const embeddedSelector = "img, picture, video, audio, iframe, embed, object, svg, math, canvas";
+
+    function isPhrasing(element)
+    {
+        return phrasingNames.has(element.localName) || element.localName.indexOf("-") !== -1;
+    }
 
     function holdsBlocks(element)
     {
@@ -158,8 +197,15 @@ function flattenedArticle(root, articleDocument)
 
     var container = articleDocument.createElement("div");
 
+    function hasContent(node)
+    {
+        return node.textContent.trim().length || (node.nodeType === Node.ELEMENT_NODE && (node.matches(embeddedSelector) || node.querySelector(embeddedSelector)));
+    }
+
     function appendParagraph(nodes)
     {
+        if (!nodes.some(hasContent))
+            return;
         var paragraph = articleDocument.createElement("p");
         nodes.forEach(function(node) { paragraph.appendChild(node); });
         container.appendChild(paragraph);
@@ -167,19 +213,25 @@ function flattenedArticle(root, articleDocument)
 
     function flatten(element)
     {
+        var run = [];
         for (var node = element.firstChild; node; ) {
             var next = node.nextSibling;
-            if (node.nodeType === Node.ELEMENT_NODE && wrapperTags.test(node.tagName)) {
-                if (holdsBlocks(node))
+            var isElement = node.nodeType === Node.ELEMENT_NODE;
+            if (node.nodeType === Node.TEXT_NODE || (isElement && isPhrasing(node) && !holdsBlocks(node)))
+                run.push(node);
+            else if (isElement) {
+                appendParagraph(run);
+                run = [];
+                if (!wrapperTags.test(node.tagName))
+                    container.appendChild(node);
+                else if (holdsBlocks(node))
                     flatten(node);
-                else if (node.textContent.trim().length || node.querySelector("img, picture, video"))
+                else
                     appendParagraph(Array.prototype.slice.call(node.childNodes));
-            } else if (node.nodeType === Node.ELEMENT_NODE)
-                container.appendChild(node);
-            else if (node.nodeType === Node.TEXT_NODE && node.data.trim().length)
-                appendParagraph([node]);
+            }
             node = next;
         }
+        appendParagraph(run);
     }
 
     flatten(root);
