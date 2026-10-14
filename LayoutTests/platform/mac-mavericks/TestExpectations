@@ -73,8 +73,8 @@ wktr [ Skip ]
 
 # The same scope decision covers fast/ and imported/, except the suites for this port's own code: cookies,
 # networking and loading, Web Audio and media capture, media playback, WebRTC, WebCrypto, storage and files,
-# workers, notifications and push, browsing context isolation, canvas and images, text encoding, and text and
-# fonts. Those run; the rest is skipped here.
+# workers, notifications and push, browsing context isolation, canvas and images, scrolling, text encoding, and
+# text and fonts. Those run; the rest is skipped here.
 fast/animation [ Skip ]
 fast/attachment [ Skip ]
 fast/autoresize [ Skip ]
@@ -148,7 +148,6 @@ fast/reporting [ Skip ]
 fast/ruby [ Skip ]
 fast/sandbox [ Skip ]
 fast/screen-orientation [ Skip ]
-fast/scrolling [ Skip ]
 fast/selectors [ Skip ]
 fast/shadow-dom [ Skip ]
 fast/shapes [ Skip ]

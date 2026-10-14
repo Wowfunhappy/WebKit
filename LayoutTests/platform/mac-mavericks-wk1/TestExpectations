@@ -1465,6 +1465,40 @@ webkit.org/b/262691 fast/events/cancel-mousedown-and-drag-to-frame.html [ Skip ]
 fast/events/ghostly-mousemoves-in-subframe.html [ Skip ]
 fast/events/wheel/wheel-event-in-passive-region-non-cancelable.html [ Skip ]
 
+# Upstream's WebKit1 expectations until 58c630a skipped these fast/scrolling tests: the nested-iframe latching
+# test as a WebKit1-only timeout, the after-back tests from when they landed (c39249d), cross-frame scroll chaining
+# that WebKit1 cannot control, ScrollAnimator events for main-frame scrollbars that are native widgets in WebKit1,
+# and the scroll-corner test from when it landed (7a67198).
+webkit.org/b/147683 fast/scrolling/latching/scroll-div-with-nested-nonscrollable-iframe.html [ Skip ]
+fast/scrolling/iframe-scrollable-after-back.html [ Skip ]
+fast/scrolling/overflow-scrollable-after-back.html [ Skip ]
+fast/scrolling/sync-scroll-overscroll-behavior-iframe.html [ Skip ]
+fast/scrolling/scroll-animator-overlay-scrollbars-clicked.html [ Skip ]
+fast/scrolling/scroll-animator-overlay-scrollbars-hovered.html [ Skip ]
+fast/scrolling/scroll-corner-update-on-direction-change.html [ Skip ]
+
+# fast/scrolling tests added after upstream stopped running WebKit1 (58c630a) that exercise what WebKitLegacy
+# leaves to AppKit's native frame scroll views: AppKit rubber-bands the main frame, so DumpRenderTree's
+# callAfterScrollingCompletes (WebCore's wheel-event monitor) fires before the rebound settles;
+# ScrollViewMac::platformSetScrollPosition clamps internals.unconstrainedScrollTo; ScrollView::scrollTo measures
+# its delta against m_scrollPosition, which a native widget never updates; UIHelper.getScrollingTree() returns ''
+# outside WebKit2; and native frame scrollers reserve no stable gutter.
+fast/scrolling/latching/mainframe-stretch-snaps-back-after-hold-over-subscroller.html [ Skip ]
+fast/scrolling/scroll-anchoring/scroll-anchoring-during-rubberband.html [ Skip ]
+fast/scrolling/scroll-anchoring/scroll-anchoring-constraints.html [ Skip ]
+fast/scrolling/scroll-anchoring/scroll-anchoring-on-first-async-commit.html [ Skip ]
+fast/scrolling/scrollbar-gutter-stable-rtl-viewport.html [ Skip ]
+
+# 10.9's -[NSScroller _scrollByDelta:] scales a precise wheel delta by max(0.08, 1 - viewport/document), and a
+# WebKit1 frame's NSScrollView always takes that path because WebDynamicScrollBarsView overrides -scrollWheel:,
+# which rules out responsive scrolling. A half-height iframe scrolls half the distance, as it does with stock
+# WebKit 9537.78.2 on 10.9 (maintainer decision: inherent 10.9 behavior is skipped, not changed).
+fast/scrolling/latching/iframe-latch-small-deltas.html [ Skip ]
+
+# DumpRenderTree resets the mouse to (0,0), the bottom edge of its unflipped WebView, which -[NSView hitTest:]
+# excludes, so EventSender logs each wheel event it cannot target. The fixture's crash check still passes.
+fast/scrolling/scroll-clamp-during-layout-with-pending-async-scroll-crash.html [ Skip ]
+
 # Upstream WebKit1 bug: a key the focused subframe leaves unhandled goes up the responder chain to the parent
 # frame's WebHTMLView, which dispatches it again. Upstream skipped the test under this bug until f9f2609, after
 # WebKit1 had stopped running it.
