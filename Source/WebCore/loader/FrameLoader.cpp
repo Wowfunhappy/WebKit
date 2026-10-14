@@ -3789,8 +3789,10 @@ ResourceLoaderIdentifier FrameLoader::loadResourceSynchronously(const ResourceRe
         initialRequest.setHTTPReferrer(referrer);
     addHTTPOriginIfNeeded(initialRequest, outgoingOrigin());
 
-    if (RefPtr page = m_frame->page())
-        initialRequest.setFirstPartyForCookies(page->mainFrameURL());
+    // AQUAWEBKIT: updateRequestAndAddExtraFields gives the request its document's first party, as it gives
+    // the document's asynchronous loads; an about:blank popup's document carries its opener's.
+    // if (RefPtr page = m_frame->page())
+    //     initialRequest.setFirstPartyForCookies(page->mainFrameURL());
     
     updateRequestAndAddExtraFields(initialRequest, IsMainResource::No);
 

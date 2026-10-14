@@ -698,12 +698,7 @@ void NetworkConnectionToWebProcess::terminateForInvalidLoaderResumeClaim()
 
 void NetworkConnectionToWebProcess::performSynchronousLoad(NetworkResourceLoadParameters&& loadParameters, CompletionHandler<void(const ResourceError&, const ResourceResponse, Vector<uint8_t>&&)>&& reply)
 {
-    // AQUAWEBKIT: Terminate, as scheduleResourceLoad, cookiesForDOM, setCookiesFromDOM and
-    // getRawCookies check it: a WebProcess claiming a first party it never navigated to.
-    // allowsFirstPartyForCookies answers Disallow for a host-less first party, which a page has on its
-    // initial about:blank document, such as a still-blank popup running a synchronous XMLHttpRequest.
-    // MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
-    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) != NetworkProcess::AllowCookieAccess::Terminate);
+    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, loadParameters.webPageProxyID)) {
         RELEASE_LOG_ERROR(Loading, "performSynchronousLoad: dropping load from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return reply({ }, { }, { });
