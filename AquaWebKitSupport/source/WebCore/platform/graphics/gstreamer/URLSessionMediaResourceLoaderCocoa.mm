@@ -223,9 +223,14 @@ Ref<GuaranteedSerialFunctionDispatcher> URLSessionMediaResourceLoader::targetDis
     return m_loader->targetDispatcher();
 }
 
-RefPtr<PlatformMediaResource> URLSessionMediaResourceLoader::requestResource(ResourceRequest&& request, LoadOptions)
+RefPtr<PlatformMediaResource> URLSessionMediaResourceLoader::requestResource(ResourceRequest&& request, LoadOptions options)
 {
     ASSERT(isMainThread());
+    // A response crosses the session as an NSURLResponse, which carries a status only for an HTTP URL (see
+    // ResourceResponse::initNSURLResponse()), and only an HTTP server can ignore a range. Other schemes (blob:, data:)
+    // load through the media element's loader directly.
+    if (!request.url().protocolIsInHTTPFamily())
+        return m_loader->requestResource(WTF::move(request), options);
     // WebCoreNSURLSession answers a range from the copy of a resource whose server ignored the range only when the
     // range is closed, the form AVFoundation sends, and the resource fits maximumSynthesizedResourceSize. An open range
     // is closed at the resource's length, from a response that states it or a whole body that completed.
