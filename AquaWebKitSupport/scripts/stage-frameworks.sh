@@ -499,6 +499,12 @@ while read -r lib; do
     rewrite_rpath_deps "$lib"
     strip_rpaths "$lib"
 done <<< "$RUNTIME_DEPLOYED"
+# GIO's module directory, beside libgio: on macOS GLib loads modules from <libgio's directory>/gio/modules
+# when that directory exists, and from its configured prefix otherwise (get_gio_module_dir). No module
+# ships, so it stays empty.
+GIO_HOME="$(echo "$RUNTIME_HOMES" | awk '$2 == "libgio-2.0.0.dylib" {print $1}')"
+[ -n "$GIO_HOME" ] || { echo "ERROR: libgio-2.0.0.dylib has no runtime home" >&2; exit 1; }
+mkdir -p "$(s "$(wk_runtime_home_dir "$GIO_HOME")")/gio/modules" || exit 1
 for home in jsc webcore gstreamer; do
     echo "  $home: $(echo "$RUNTIME_HOMES" | awk -v h="$home" '$1 == h' | wc -l | tr -d ' ') libraries in $(wk_runtime_home_dir "$home")"
 done

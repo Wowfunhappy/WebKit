@@ -5,10 +5,10 @@
  * works" is not evidence the child processes are sandboxed. sandbox_check() asks the kernel about
  * a live pid, so it cannot be fooled by a profile that was compiled but never applied.
  *
- *   sbstatus <pid> [<pid> ...]
+ *   sbstatus <webcontent|networking|gpu|webpushd> <pid> [<pid> ...]
  *
- * Prints, per pid: whether it is in a sandbox at all, then a few probes that a correctly applied
- * WebKit profile must DENY. Exits nonzero if any pid is unconfined or fails a probe.
+ * Prints, per pid: whether it is in a sandbox at all, then probes that the named process's profile
+ * must DENY. Exits nonzero if any pid is unconfined, cannot be queried, or fails a probe.
  */
 
 #include <stdio.h>
@@ -28,26 +28,57 @@ enum sandbox_filter_type {
 extern const enum sandbox_filter_type SANDBOX_CHECK_NO_REPORT;
 extern int sandbox_check(pid_t, const char *operation, enum sandbox_filter_type, ...);
 
-/* Probes a correctly applied WebContent/Networking/GPU profile denies. Each is outside every path
-   those profiles grant, so a "permitted" answer means the process is not really confined. */
+enum { ALL = 0xf, WEBCONTENT = 1, NETWORKING = 2, GPU = 4, WEBPUSHD = 8 };
+
+/* Each probe names an operation the listed profiles deny. A path beginning with "~" is relative to
+   $HOME. */
 static const struct {
+    unsigned kinds;
     const char *operation;
-    const char *path;
+    enum sandbox_filter_type filter;
+    const char *argument;
 } deniedProbes[] = {
-    { "file-write-data", "/Users" },
-    { "file-read-data", "/private/etc/sudoers" },
-    { "file-write-create", "/private/tmp/webkit-sandbox-probe" },
+    { ALL, "file-write-data", SANDBOX_FILTER_PATH, "/Users" },
+    { ALL, "file-read-data", SANDBOX_FILTER_PATH, "/private/etc/sudoers" },
+    { ALL, "file-write-create", SANDBOX_FILTER_PATH, "/private/tmp/webkit-sandbox-probe" },
+    { ALL, "process-info-listpids", SANDBOX_FILTER_NONE, NULL },
+    { WEBCONTENT | GPU | WEBPUSHD, "file-write-data", SANDBOX_FILTER_PATH, "~/Library/Keychains/login.keychain" },
+    { NETWORKING, "file-write-data", SANDBOX_FILTER_PATH, "/private/var/db/mds/system/mdsObject.db" },
+    { WEBCONTENT | GPU | WEBPUSHD, "file-read-data", SANDBOX_FILTER_PATH, "~/Library/Keychains/login.keychain" },
+    { WEBCONTENT, "mach-lookup", SANDBOX_FILTER_GLOBAL_NAME, "com.apple.SystemConfiguration.SCNetworkReachability" },
+    { WEBCONTENT, "mach-lookup", SANDBOX_FILTER_GLOBAL_NAME, "com.apple.GSSCred" },
+    { WEBCONTENT, "mach-lookup", SANDBOX_FILTER_GLOBAL_NAME, "com.apple.cookied" },
+    { WEBCONTENT, "mach-lookup", SANDBOX_FILTER_GLOBAL_NAME, "com.apple.dock.server" },
+    { WEBCONTENT, "file-write-data", SANDBOX_FILTER_PATH, "~/Library/Preferences/com.apple.mediaaccessibility.public.plist" },
+    { WEBCONTENT | GPU, "file-read-data", SANDBOX_FILTER_PATH, "/Library/QuickTime" },
+    { GPU | WEBPUSHD, "file-read-data", SANDBOX_FILTER_PATH, "/Library/Frameworks" },
+    { WEBPUSHD, "mach-lookup", SANDBOX_FILTER_GLOBAL_NAME, "com.apple.cookied" },
 };
+
+static unsigned kindNamed(const char *name)
+{
+    if (!strcmp(name, "webcontent"))
+        return WEBCONTENT;
+    if (!strcmp(name, "networking"))
+        return NETWORKING;
+    if (!strcmp(name, "gpu"))
+        return GPU;
+    if (!strcmp(name, "webpushd"))
+        return WEBPUSHD;
+    return 0;
+}
 
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
-        fprintf(stderr, "usage: %s <pid> [<pid> ...]\n", argv[0]);
+    unsigned kind = argc > 2 ? kindNamed(argv[1]) : 0;
+    if (!kind) {
+        fprintf(stderr, "usage: %s <webcontent|networking|gpu|webpushd> <pid> [<pid> ...]\n", argv[0]);
         return 2;
     }
 
+    const char *home = getenv("HOME");
     int failures = 0;
-    for (int i = 1; i < argc; ++i) {
+    for (int i = 2; i < argc; ++i) {
         pid_t pid = (pid_t)atoi(argv[i]);
         if (pid <= 0) {
             fprintf(stderr, "not a pid: %s\n", argv[i]);
@@ -68,11 +99,19 @@ int main(int argc, char **argv)
         }
 
         for (size_t p = 0; p < sizeof(deniedProbes) / sizeof(deniedProbes[0]); ++p) {
-            int denied = sandbox_check(pid, deniedProbes[p].operation,
-                SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT, deniedProbes[p].path);
-            printf("    %-18s %-32s %s\n", deniedProbes[p].operation, deniedProbes[p].path,
-                denied ? "denied (expected)" : "PERMITTED -- profile is not confining this");
-            if (!denied)
+            if (!(deniedProbes[p].kinds & kind))
+                continue;
+            char argument[1024] = "";
+            if (deniedProbes[p].argument && deniedProbes[p].argument[0] == '~')
+                snprintf(argument, sizeof(argument), "%s%s", home ? home : "", deniedProbes[p].argument + 1);
+            else if (deniedProbes[p].argument)
+                snprintf(argument, sizeof(argument), "%s", deniedProbes[p].argument);
+            int result = deniedProbes[p].argument
+                ? sandbox_check(pid, deniedProbes[p].operation, deniedProbes[p].filter | SANDBOX_CHECK_NO_REPORT, argument)
+                : sandbox_check(pid, deniedProbes[p].operation, SANDBOX_FILTER_NONE | SANDBOX_CHECK_NO_REPORT);
+            const char *verdict = result > 0 ? "denied (expected)" : result < 0 ? "ERROR -- the check itself failed" : "PERMITTED -- the profile must deny this";
+            printf("    %-22s %-60s %s\n", deniedProbes[p].operation, argument, verdict);
+            if (result <= 0)
                 failures++;
         }
     }

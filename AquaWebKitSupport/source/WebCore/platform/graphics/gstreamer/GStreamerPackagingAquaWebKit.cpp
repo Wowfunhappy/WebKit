@@ -26,6 +26,13 @@ void configureGStreamerCacheLocation()
 #if PLATFORM(COCOA)
     gst_registry_fork_set_enabled(FALSE);
 
+    // ORC, GStreamer's code generator, maps the code it generates from a file in $XDG_RUNTIME_DIR and
+    // tries $HOME when it is unset; the GLib ports' sandbox launcher sets it for each child. This
+    // process's private temporary directory is the counterpart its sandbox grants.
+    std::array<char, PATH_MAX> temporaryDirectory;
+    if (confstr(_CS_DARWIN_USER_TEMP_DIR, temporaryDirectory.data(), temporaryDirectory.size()) > 0)
+        g_setenv("XDG_RUNTIME_DIR", temporaryDirectory.data(), FALSE);
+
     if (g_getenv("GST_REGISTRY"))
         return;
 

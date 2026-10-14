@@ -49,9 +49,10 @@ actually does. Their own header comments name the substitutions.
 
 ## Changing a profile
 
-Every rule these profiles hold beyond the recovered revision exists because a denial proved the
+Every grant these profiles hold beyond the recovered revision exists because a denial proved the
 modern engine needs it. Nothing is granted speculatively: a sandbox that grants what nobody asked
-for is not a sandbox.
+for is not a sandbox. The additions also withdraw base-profile grants that upstream's current
+profiles no longer make.
 
 Two things to know before editing:
 

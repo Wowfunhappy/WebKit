@@ -1,13 +1,14 @@
-; What this port's WebContent process needs beyond the recovered 2015 profile.
+; This port's WebContent process, relative to the recovered 2015 profile.
 ;
 ; The base profile next to this file is byte-identical to upstream at aab061ff1301 and stays that
-; way, so everything this port adds lives here, appended after it by the CMake rule. Sandbox rules
-; are evaluated in order with later ones winning, so these grants sit after the base profile's
+; way, so everything this port changes lives here, appended after it by the CMake rule. Sandbox rules
+; are evaluated in order with later ones winning, so these rules sit after the base profile's
 ; (deny default) exactly as if they had been written at its end.
 ;
-; Every rule below exists because a sandboxd denial showed the modern engine needs it, and each is a
-; capability upstream's current profile grants the process that does the work, in this OS's terms
-; where it checks an operation modern macOS does not.
+; Each grant exists because a sandboxd denial showed the modern engine needs it, and is a capability
+; upstream's current profile grants the process that does the work, in this OS's terms where it
+; checks an operation modern macOS does not. Each deny withdraws an access the base profile allows
+; and upstream's current profile does not.
 
 ;; CoreAnimation's render server. Upstream's current profile allows this unconditionally on macOS
 ;; (com.apple.WebProcess.sb.in, the #else of the BlockIOKitInWebContentSandbox state-flag check);
@@ -15,13 +16,11 @@
 (allow mach-lookup
     (global-name "com.apple.CARenderServer"))
 
-;; The WebProcess' in-memory cookie cache opens a private CFURL storage session, and CFNetwork
-;; backs it with a POSIX shared-memory segment named after the session. The base profile already
-;; grants exactly this for the session names of its day ("FNetwork.defaultStorageSession",
-;; ".PrivateBrowsing-", "WebKit Test-"); WebCookieCacheCocoa.mm now builds the name as
-;; "WebKitInProcessStorage-<pid>", so this is the same grant under the current name.
-(allow ipc-posix-shm-read-data
-    (ipc-posix-name-regex #"^WebKitInProcessStorage-"))
+;; The Launch Services database's change seed, CarbonCore's per-user segment, which check-in
+;; (AuxiliaryProcess::launchServicesCheckIn()) opens; the Networking and GPU profiles grant the same read,
+;; as 10.9's own application profile does.
+(allow ipc-posix-shm-read*
+    (ipc-posix-name-regex #"^/tmp/com\.apple\.csseed\."))
 
 ;; Media capture, camera access. Upstream grants this to whichever process captures — its GPU process,
 ;; gated on the "com.apple.webkit.camera" extension the UI process issues per capture session
@@ -72,3 +71,150 @@
 ;; (com.apple.audio.coreaudiod, com.apple.audio.audiohald) are in the base profile ungated.
 (allow device-microphone)
 
+
+;; ---------------------------------------------------------------------------------------------------
+;; Everything below narrows the base profile to what upstream's current WebContent profile allows
+;; (WebProcess/com.apple.WebProcess.x86.sb.in), in this OS's terms. Each is a later deny over a base
+;; grant; where upstream gates a service on a sandbox extension the UI process issues, an allow
+;; requiring that extension follows the deny.
+
+;; Networking. Loads, WebSockets and WebRTC sockets all run in the Networking process; upstream grants
+;; this process no TCP, UDP, DNS, routing-socket or network-control access.
+(deny network-outbound
+    (remote tcp)
+    (remote udp)
+    (literal "/private/var/run/mDNSResponder")
+    (control-name "com.apple.netsrc")
+    (control-name "com.apple.network.statistics"))
+(deny system-socket
+    (socket-domain AF_ROUTE)
+    (require-all (socket-domain AF_SYSTEM) (socket-protocol 2)))
+(deny mach-lookup
+    (global-name "com.apple.SystemConfiguration.PPPController")
+    (global-name "com.apple.SystemConfiguration.SCNetworkReachability")
+    (global-name "com.apple.networkd")
+    (global-name "com.apple.symptomsd")
+    (global-name "com.apple.usymptomsd"))
+(deny file-read*
+    (literal "/Library/Preferences/com.apple.networkd.plist"))
+
+;; Keychains. Credentials and client certificates are the Networking process's; upstream grants this
+;; process no keychain access.
+(deny file-read* file-write*
+    (home-subpath "/Library/Keychains")
+    (subpath "/Library/Keychains"))
+(deny file-write*
+    (subpath "/private/var/db/mds"))
+
+;; Kerberos and authentication brokers, used by HTTP authentication in the Networking process.
+(deny mach-lookup
+    (global-name "org.h5l.kcm")
+    (global-name "com.apple.GSSCred")
+    (global-name "com.apple.cfnetwork.AuthBrokerAgent"))
+(deny file-read*
+    (home-subpath "/Library/Preferences/com.apple.Kerberos.plist")
+    (home-subpath "/Library/Preferences/com.apple.GSS.plist")
+    (home-subpath "/Library/Preferences/edu.mit.Kerberos")
+    (literal "/Library/Preferences/com.apple.Kerberos.plist")
+    (literal "/Library/Preferences/com.apple.GSS.plist")
+    (literal "/Library/Preferences/edu.mit.Kerberos")
+    (literal "/private/etc/krb5.conf")
+    (subpath "/Library/KerberosPlugins/GSSAPI")
+    (subpath "/Library/KerberosPlugins/KerberosFrameworkPlugins"))
+
+;; Services the base profile names that upstream denies or does not grant. Sleep assertions are taken
+;; by the UI process (WebSleepDisablerClient).
+(deny mach-lookup
+    (global-name "com.apple.DiskArbitration.diskarbitrationd")
+    (global-name "com.apple.FileCoordination")
+    (global-name "com.apple.awdd")
+    (global-name "com.apple.dock.server")
+    (global-name "com.apple.system.opendirectoryd.api")
+    (global-name "com.apple.tccd.system")
+    (global-name "com.apple.PowerManagement.control")
+    (global-name "com.apple.audio.SystemSoundServer-OSX")
+    (global-name "com.apple.pbs.fetch_services")
+    (global-name "com.apple.coremedia.endpoint.xpc")
+    (global-name "com.apple.coremedia.endpointstream.xpc")
+    (global-name "com.apple.coremedia.endpointplaybacksession.xpc")
+    (global-name "com.apple.coremedia.endpointpicker.xpc"))
+
+;; Launch Services and the Remote Web Inspector, through the extensions the UI process issues
+;; (WebProcessPool::platformInitializeWebProcess(), WebProcessPool::initializeNewWebProcess()).
+(deny mach-lookup
+    (global-name "com.apple.coreservices.launchservicesd")
+    (global-name "com.apple.webinspector")
+    (extension "com.apple.app-sandbox.mach"))
+(allow mach-lookup
+    (require-all
+        (extension "com.apple.webkit.extension.mach")
+        (require-any
+            (global-name "com.apple.coreservices.launchservicesd")
+            (global-name "com.apple.webinspector"))))
+
+;; Kernel clients: no HID parameters or power-management root domain, and no display-property writes.
+(deny iokit-open
+    (iokit-user-client-class "IOHIDParamUserClient")
+    (iokit-user-client-class "RootDomainUserClient"))
+(deny iokit-set-properties
+    (iokit-connection "IODisplay"))
+
+;; Caption preferences are written by the UI process (WebProcessProxy::setCaptionDisplayMode()).
+(deny file-write*
+    (home-literal "/Library/Preferences/com.apple.mediaaccessibility.public.plist"))
+
+;; Legacy media and diagnostics paths upstream does not grant.
+(deny file-read*
+    (home-subpath "/Library/Preferences/QuickTime Preferences")
+    (home-literal "/Library/Preferences/com.apple.QTKit.plist")
+    (subpath "/Library/QuickTime")
+    (subpath "/Library/Video/Plug-Ins")
+    (literal "/Library/Application Support/CrashReporter/SubmitDiagInfo.domains"))
+
+;; The shared cookie jar, its daemon, and the cookie storage segments of other sessions. Cookies reach
+;; this process from the Networking process.
+(deny mach-lookup
+    (global-name "com.apple.cookied"))
+(deny ipc-posix-shm-read-data
+    (ipc-posix-name "FNetwork.defaultStorageSession")
+    (ipc-posix-name-regex #"\.PrivateBrowsing-")
+    (ipc-posix-name-regex #"^WebKit Test-"))
+
+;; Distributed notifications, by the exact service names.
+(deny mach-lookup
+    (global-name-regex #"^com.apple.distributed_notifications"))
+(allow mach-lookup
+    (global-name "com.apple.distributed_notifications@1v3")
+    (global-name "com.apple.distributed_notifications@Uv3"))
+
+;; Registrations: upstream's two local names, and no OpenGL Profiler registration.
+(deny mach-register
+    (local-name-regex #"")
+    (global-name-regex #"^_oglprof_attach_<[0-9]+>$"))
+(allow mach-register
+    (local-name "com.apple.axserver")
+    (local-name "com.apple.tsm.portname"))
+
+;; Process information, as upstream's current profile allows it: this process's own.
+(deny process-info*)
+(allow process-info-pidinfo (target self))
+(allow process-info-setcontrol (target self))
+(allow process-info-dirtycontrol (target self))
+(allow process-info-rusage (target self))
+
+;; Unanchored preference patterns in the base profile, ended at the file name.
+(deny file-read*
+    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.")
+    (home-regex #"/Library/Preferences/ByHost/com\.apple\.HIToolbox\.")
+    (home-regex #"/Library/Preferences/ByHost/com\.apple\.networkConnect\."))
+(allow file-read*
+    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.[^/]*\.plist$")
+    (home-regex #"/Library/Preferences/ByHost/com\.apple\.HIToolbox\.[^/]*\.plist$"))
+
+;; Device ioctls, other than the DTrace helper's.
+(deny file-ioctl)
+(allow file-ioctl (literal "/dev/dtracehelper"))
+
+;; The pasteboard is the UI process's; upstream grants this process no pasteboard segments.
+(deny ipc-posix-shm
+    (ipc-posix-name-regex #"^CFPBS:"))

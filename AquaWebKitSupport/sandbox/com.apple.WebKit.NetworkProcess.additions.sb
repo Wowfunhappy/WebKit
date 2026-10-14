@@ -1,9 +1,10 @@
-; What this port's Networking process needs beyond the recovered 2015 profile.
+; This port's Networking process, relative to the recovered 2015 profile.
 ;
 ; Same arrangement and the same rules as com.apple.WebProcess.additions.sb, which carries the full
 ; note: the base profile stays byte-identical to upstream at aab061ff1301, this file is appended
-; after it, every grant traces to an observed denial, and every grant is one upstream's current
-; profile also makes, in this OS's terms where the service differs.
+; after it, every grant traces to an observed denial and is one upstream's current profile also
+; makes, in this OS's terms where the service differs, and every deny withdraws an access the base profile
+; allows and upstream's current profile does not.
 
 ;; Web Push. The Networking process hands push subscriptions and messages to webpushd over this
 ;; service; without it Web Push cannot work at all. webpushd postdates the 2015 profile entirely.
@@ -42,3 +43,46 @@
 ;; only the directory itself.
 (allow file-read*
     (home-literal "/Library/Cookies"))
+
+;; ---------------------------------------------------------------------------------------------------
+;; Everything below narrows the base profile to what upstream's current Networking profile allows
+;; (NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in), in this OS's terms.
+
+;; The Security module database is read-only, as upstream grants it. The user's keychains stay
+;; writable: on this OS a client rewrites the keychain file itself when it changes an item's access
+;; list, as "Always Allow" on a client certificate's key does.
+(deny file-write*
+    (subpath "/private/var/db/mds"))
+
+;; Network statistics, routing sockets and power management, which upstream denies.
+(deny network-outbound
+    (control-name "com.apple.network.statistics"))
+(deny system-socket
+    (socket-domain AF_ROUTE))
+(deny mach-lookup
+    (global-name "com.apple.PowerManagement.control"))
+
+;; Distributed notifications, by the exact service names.
+(deny mach-lookup
+    (global-name-regex #"^com.apple.distributed_notifications"))
+(allow mach-lookup
+    (global-name "com.apple.distributed_notifications@1v3")
+    (global-name "com.apple.distributed_notifications@Uv3"))
+
+;; Registrations: upstream denies this process every local name.
+(deny mach-register
+    (local-name-regex #""))
+
+;; Process information, as upstream's current profile allows it.
+(deny process-info*)
+(allow process-info-dirtycontrol (target self))
+(allow process-info-pidinfo)
+(allow process-info-setcontrol (target self))
+
+;; Unanchored preference patterns in the base profile, ended at the file name.
+(deny file-read*
+    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.")
+    (home-regex #"/Library/Preferences/ByHost/com\.apple\.networkConnect\."))
+(allow file-read*
+    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.[^/]*\.plist$")
+    (home-regex #"/Library/Preferences/ByHost/com\.apple\.networkConnect\.[^/]*\.plist$"))

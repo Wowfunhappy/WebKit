@@ -56,13 +56,12 @@
 
 ;; Read-only preferences and data
 (allow file-read*
-    (subpath "/Library/Frameworks")
     (subpath "/Library/Managed Preferences")
     (regex #"^/private/etc/(hosts|group|passwd)$")
 
     (literal "/Library/Preferences/.GlobalPreferences.plist")
     (home-literal "/Library/Preferences/.GlobalPreferences.plist")
-    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.")
+    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.[^/]*\.plist$")
     (home-literal "/Library/Preferences/com.apple.LaunchServices.plist")
     (home-literal "/Library/Preferences/com.apple.WebFoundation.plist")
     (home-literal "/.CFUserTextEncoding")
@@ -81,11 +80,10 @@
 ;; Various services required by CFNetwork and other frameworks
 (allow mach-lookup
     (global-name "com.apple.SystemConfiguration.configd")
-    (global-name "com.apple.cookied")
-    (global-name "com.apple.cfnetwork.AuthBrokerAgent")
     (global-name "com.apple.system.logger")
     (global-name "com.apple.system.notification_center")
-    (global-name-regex #"^com.apple.distributed_notifications")
+    (global-name "com.apple.distributed_notifications@1v3")
+    (global-name "com.apple.distributed_notifications@Uv3")
     (global-name "com.apple.CoreServices.coreservicesd"))
 
 ;; NOTE: no Launch Services grant, and none is wanted. A push never opens an application on this
@@ -99,31 +97,16 @@
 ;; See Shared/Cocoa/CodeSigning.mm.
 
 ;; Security framework: the push connection is a TLS WebSocket, so the daemon has to evaluate the
-;; push service's certificate chain.
-;;
-;; This is deliberately NOT the Security block the WebContent and Networking profiles carry. Those
-;; are a browser's: read-WRITE on the user's keychains (upstream annotates that one
-;; "FIXME: should be removed when <rdar://problem/10479685> is fixed"), on /private/var/db/mds/system,
-;; and a list of security preference domains. A push daemon evaluating one server's certificate needs
-;; none of that, and upstream's own current webpushd profile grants no keychain access whatsoever.
-;; What is here is read-only and was cut back to what an actual denial demanded: the trust evaluation
-;; reads the CSSM module directory and the system trust settings, and talks to the two Security
-;; daemons. The root certificates themselves live under /System, which system.sb already covers.
+;; push service's certificate chain. That evaluation reads the CSSM module directory and the system
+;; trust settings, and talks to the two Security daemons; the root certificates themselves live under
+;; /System, which system.sb already covers. Upstream's current webpushd profile grants no keychain
+;; access, and neither does this one.
 (allow mach-lookup
     (global-name "com.apple.ocspd")
     (global-name "com.apple.SecurityServer"))
-;; The five security preference domains are the same set the WebContent and Networking profiles grant,
-;; because the trust evaluation that reads them is the same one. A domain whose file does not exist is
-;; not read at all, so a machine that happens to be missing one gives no sign that the rule is load-
-;; bearing; com.apple.security.revocation.plist appears on its own (Keychain Access writes it), and a
-;; denied read of it is a hard failure inside 10.9's in-process evaluation -- the handshake never
-;; completes and the daemon retries forever. Granting the whole set is what keeps that from depending
-;; on which files a given machine happens to have.
-;;
-;; /private/var/db/mds has to be the subtree: granting only mds/messages/se_SecurityMessages and
-;; mds/system/mdsObject.db, the two paths denials name, still fails the handshake. Read-only either way.
-;; /Library/Keychains is deliberately absent -- the handshake completes with zero denials without it,
-;; and a push daemon evaluating one server's chain does not read the user's keychains.
+;; The five security preference domains are the set 10.9's trust evaluation reads; a domain whose
+;; file does not exist is not read at all, and com.apple.security.revocation.plist appears once
+;; Keychain Access writes it. /private/var/db/mds is the subtree the evaluation opens.
 (allow file-read*
     (subpath "/private/var/db/mds")
     (literal "/Library/Preferences/com.apple.security.plist")
@@ -141,8 +124,7 @@
 (system-network)
 (allow network-outbound
     (literal "/private/var/run/mDNSResponder")
-    (remote tcp)
-    (remote udp))
+    (remote tcp))
 
 ;; We might need to create ~/Library/WebKit and ~/Library/WebKit/WebPush on a clean install.
 (allow file-write-create
@@ -159,10 +141,17 @@
     (home-literal "/Library/WebKit/WebPush/MozillaPushService.plist"))
 
 ;; Let SQLite open the parent directory of the database for fsync purposes.
-(allow file-read* (home-subpath "/Library/WebKit/WebPush"))
+(allow file-read-data
+    (require-all (vnode-type DIRECTORY) (home-literal "/Library/WebKit/WebPush")))
 
 (if (defined? 'vnode-type)
     (deny file-write-create (vnode-type SYMLINK)))
 
 ;; Reserve a namespace for additional protected extended attributes.
 (deny file-read-xattr file-write-xattr (xattr #"^com\.apple\.security\.private\."))
+
+;; Process information, as upstream's current profile allows it.
+(deny process-info*)
+(allow process-info-dirtycontrol (target self))
+(allow process-info-pidinfo)
+(allow process-info-setcontrol (target self))

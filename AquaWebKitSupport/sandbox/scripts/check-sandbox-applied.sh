@@ -18,27 +18,19 @@ if ! /usr/bin/clang -o "$WORK/sbstatus" "$HERE/sbstatus.c"; then
     exit 2
 fi
 
-# Find the child processes by EXACT executable name.
-#
-# Not `pgrep -f`: that matches against full command lines, so it also matches this script's own
-# pgrep/subshell — whose command line contains the pattern — and those transient shell processes are
-# of course unsandboxed. The result is a gate that intermittently reports "NOT SANDBOXED" for pids
-# that are its own plumbing and exits nonzero on a perfectly confined system. A gate that fails green
-# is a gate people learn to ignore. (`pgrep -x` is not the answer either: it matches a truncated
-# accounting name and finds none of these.)
-#
-# `ps -Ao pid=,comm=` gives the executable path; comparing its basename exactly cannot match `ps`,
-# `bash` or `grep`, so the script can never see itself.
-pidsForProcess() # $1 = exact executable basename
+# The child processes, by the basename of the executable path `ps -Ao comm=` reports, so the
+# script's own shells and `ps` never match.
+pidsForProcess() # $1 = exact executable basename, also matched with a ".<variant>" suffix
 {
     ps -Ao pid=,comm= | while read -r pid command; do
-        [ "${command##*/}" = "$1" ] && printf '%s ' "$pid"
+        case "${command##*/}" in "$1"|"$1".*) printf '%s ' "$pid";; esac
     done
 }
 
 status=0
 found=0
-for process in com.apple.WebKit.WebContent com.apple.WebKit.Networking com.apple.WebKit.GPU webpushd; do
+for entry in com.apple.WebKit.WebContent:webcontent com.apple.WebKit.Networking:networking com.apple.WebKit.GPU:gpu webpushd:webpushd; do
+    process="${entry%%:*}"
     pids="$(pidsForProcess "$process")"
     if [ -z "$pids" ]; then
         echo "== $process: not running"
@@ -47,7 +39,7 @@ for process in com.apple.WebKit.WebContent com.apple.WebKit.Networking com.apple
     found=1
     echo "== $process"
     # shellcheck disable=SC2086
-    "$WORK/sbstatus" $pids || status=1
+    "$WORK/sbstatus" "${entry##*:}" $pids || status=1
 done
 
 if [ "$found" = 0 ]; then

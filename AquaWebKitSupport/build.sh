@@ -346,6 +346,11 @@ $dir/$leaf"
 $gst/$leaf"
                 fi
             done <<< "$homes"
+            # GIO's module directory, beside libgio (see stage-frameworks.sh).
+            gio="$(build_home_dir "$(awk '$2 == "libgio-2.0.0.dylib" {print $1}' <<< "$homes")")"
+            mkdir -p "$gio/gio/modules" || exit 1
+            expected="$expected
+$gio/gio"
             # Anything in these directories outside the computed set is removed.
             for dir in "$(build_home_dir jsc)" "$(build_home_dir webcore)" "$gst"; do
                 for f in "$dir"/*; do

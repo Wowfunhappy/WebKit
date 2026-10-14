@@ -59,7 +59,6 @@
 
 ;; The frameworks this process loads, including a debug installation outside /System.
 (allow file-read*
-       (subpath "/Library/Frameworks")
        (subpath "/Library/Managed Preferences")
        (subpath (param "WEBKIT2_FRAMEWORK_DIR")))
 
@@ -84,7 +83,7 @@
        (home-subpath "/Library/Fonts")
        (literal "/Library/Preferences/.GlobalPreferences.plist")
        (home-literal "/Library/Preferences/.GlobalPreferences.plist")
-       (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.")
+       (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.[^/]*\.plist$")
        (home-literal "/Library/Preferences/com.apple.ATS.plist")
        (home-literal "/Library/Preferences/com.apple.CoreGraphics.plist")
        (home-literal "/.CFUserTextEncoding"))
@@ -101,15 +100,16 @@
 
 ;; CGL reaches the window server to pick a renderer and to learn the display configuration, and it
 ;; only gets that far once the process has checked in with LaunchServices: on this OS a process that
-;; cannot reach launchservicesd has no window-server session, and CGLChoosePixelFormat then finds no
-;; renderer at all (EGL_Initialize fails EGL_NOT_INITIALIZED out of DisplayCGL). Upstream reaches
-;; launchservicesd through the per-session extension GPUProcessProxy::platformInitializeGPUProcess-
-;; Parameters issues; that extension does not apply here, so the grant is static, as it is in this
-;; port's WebProcess profile.
+;; has not checked in has no window-server session, and CGLChoosePixelFormat then finds no renderer at
+;; all (EGL_Initialize fails EGL_NOT_INITIALIZED out of DisplayCGL). Check-in happens in
+;; GPUProcess::platformInitializeGPUProcess() under the extension GPUProcessProxy issues for it.
 (allow mach-lookup
        (global-name "com.apple.windowserver.active")
-       (global-name "com.apple.coreservices.launchservicesd")
        (global-name "com.apple.window_proxies"))
+(allow mach-lookup
+       (require-all
+           (extension "com.apple.webkit.extension.mach")
+           (global-name "com.apple.coreservices.launchservicesd")))
 
 ;; The Launch Services database's change seed, CarbonCore's per-user segment, which check-in
 ;; (AuxiliaryProcess::launchServicesCheckIn()) opens beside the coreservicesd copy granted below; 10.9's
@@ -135,11 +135,12 @@
        (global-name "com.apple.system.logger")
        (global-name "com.apple.system.notification_center")
        (global-name "com.apple.system.opendirectoryd.membership")
-       (global-name-regex #"^com.apple.distributed_notifications"))
+       (global-name "com.apple.distributed_notifications@1v3")
+       (global-name "com.apple.distributed_notifications@Uv3"))
 
 ;; Web Audio output: RemoteAudioDestinationManager renders the web process's Web Audio graph to the
-;; default output device through CoreAudio. These are the audio rules of this port's WebProcess profile,
-;; where CoreAudio output runs for media playback.
+;; default output device through CoreAudio: its HAL and component plug-ins, the audio device clients,
+;; the IO shared memory, and the HAL daemons.
 (allow file-read*
        (subpath "/Library/Audio/Plug-Ins/HAL")
        (subpath "/Library/Audio/Plug-Ins/Components")
@@ -151,12 +152,28 @@
 (allow ipc-posix-shm-read* ipc-posix-shm-write-data
     (ipc-posix-name-regex #"^AudioIO"))
 (allow mach-lookup
-       (global-name "com.apple.audio.SystemSoundServer-OSX")
        (global-name "com.apple.audio.audiohald")
        (global-name "com.apple.audio.coreaudiod"))
 
-;; Preferences this process reads for itself.
+;; Preferences this process reads for itself. CoreMedia, which the audio output path loads, reads its
+;; preference file directly on this OS; upstream grants the com.apple.coremedia domain.
 (allow user-preference-read
        (preference-domain "kCFPreferencesAnyApplication")
        (preference-domain "com.apple.WebKit"))
+(allow file-read*
+       (home-literal "/Library/Preferences/com.apple.coremedia.plist"))
 
+;; System power notifications (IORegisterForSystemPower), as upstream grants.
+(allow iokit-open
+       (iokit-user-client-class "RootDomainUserClient"))
+
+;; Process information, as upstream's current profile allows it.
+(deny process-info*)
+(allow process-info-dirtycontrol (target self))
+(allow process-info-pidinfo)
+(allow process-info-rusage (target self))
+(allow process-info-setcontrol (target self))
+
+;; No symbolic links, and the protected extended-attribute namespace stays closed.
+(deny file-write-create (vnode-type SYMLINK))
+(deny file-read-xattr file-write-xattr (xattr #"^com\.apple\.security\.private\."))

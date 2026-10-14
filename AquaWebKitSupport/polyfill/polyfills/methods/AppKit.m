@@ -984,6 +984,10 @@ WK_POLYFILL_ADD_METHODS(NSWindow)
 
 @end
 WK_POLYFILL_ADD_METHODS(NSApplication)
+// +_preventDockConnections keeps the process from registering with the Dock. 10.9's
+// -[NSApplication init] registers through -_registerWithDock, which skips only a process named "pbs";
+// its other conditions are AppKit's and HIToolbox's private statics. A sandbox that denies
+// com.apple.dock.server, as the WebContent profile does, is what keeps such a process off the Dock.
 + (void)_preventDockConnections { }
 // +_accessibilityInitialize (10.13+) forces AppKit to stand its accessibility server up EARLY, rather
 // than waiting for the first AX client to connect. WebKit's WebContent process calls it so an AX client
