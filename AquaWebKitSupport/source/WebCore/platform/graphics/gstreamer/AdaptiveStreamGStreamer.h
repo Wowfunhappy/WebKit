@@ -5,7 +5,9 @@
 
 namespace WebCore {
 
-// Legacy GstAdaptiveDemux answers a live stream's duration query with TRUE and -1.
-std::optional<bool> legacyAdaptiveStreamIsLive(GstElement* pipeline);
+// Whether the adaptive demuxer in the pipeline plays a live stream, from its answer to the duration
+// query: adaptivedemux2 answers TRUE with -1 for a live stream and its duration otherwise. Empty without
+// an adaptive demuxer that has answered.
+std::optional<bool> adaptiveStreamIsLive(GstElement* pipeline);
 
 }

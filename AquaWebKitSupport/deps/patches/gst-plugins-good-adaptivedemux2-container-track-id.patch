@@ -1,0 +1,43 @@
+# A track of an adaptive demuxer is fed by many containers: every fragment, every variant it switches
+# to, every rendition. qtdemux tags each stream with the container-specific-track-id its moov gives
+# it, so every HLS rendition, each a separate fMP4 with track_ID 1, reaches the application with the
+# same track ID, and a variant switch can change it mid-stream. A track drops that tag from the tag
+# events it outputs.
+#
+# Applied by build_deps with patch -p1.
+
+--- a/ext/adaptivedemux2/gstadaptivedemux-track.c
++++ b/ext/adaptivedemux2/gstadaptivedemux-track.c
+@@ -659,6 +659,32 @@
+       drop = TRUE;
+       break;
+     }
++    case GST_EVENT_TAG:
++    {
++      GstTagList *tags;
++
++      /* A track is fed by many containers (fragments, variants, renditions),
++       * so the track ID one of them gives its stream doesn't identify the
++       * track */
++      gst_event_parse_tag (event, &tags);
++      if (gst_tag_list_get_tag_size (tags,
++              GST_TAG_CONTAINER_SPECIFIC_TRACK_ID) > 0) {
++        GstEvent *stripped;
++
++        tags = gst_tag_list_copy (tags);
++        gst_tag_list_remove_tag (tags, GST_TAG_CONTAINER_SPECIFIC_TRACK_ID);
++        if (gst_tag_list_is_empty (tags)) {
++          gst_tag_list_unref (tags);
++          drop = TRUE;
++          break;
++        }
++        stripped = gst_event_new_tag (tags);
++        gst_event_set_seqnum (stripped, gst_event_get_seqnum (event));
++        gst_event_unref (event);
++        event = stripped;
++      }
++      break;
++    }
+     default:
+       break;
+   }

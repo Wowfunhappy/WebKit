@@ -9,7 +9,7 @@ over-strict behavior in GStreamer's **own** source — never a workaround that b
 
 ## gst-plugins-bad-vtenc-h264-profile-caps.patch
 
-**Target:** gst-plugins-bad 1.28.5, `sys/applemedia/vtenc.c`
+**Target:** gst-plugins-bad 1.28.7, `sys/applemedia/vtenc.c`
 
 The H.264 source template lists Main, Baseline, constrained Baseline and High, matching vtenc's VideoToolbox profile mappings. The native compression session's supported-value list contains Baseline, Main and High families; constrained Baseline uses the Baseline mapping. High 10, High 4:2:2 and High 4:4:4 are distinct profiles, so prefix matching them to High overstates support. WebKit's registry scanner queries these templates before creating an encoder. Main is first in the list to preserve the unconstrained encoder default.
 
@@ -19,7 +19,7 @@ For constrained-Baseline requests, output caps preserve the native SPS constrain
 
 ## gst-plugins-bad-vtdec-h264-reorder-bound.patch
 
-**Target:** gst-plugins-bad 1.28.5, `sys/applemedia/vtdec.c`
+**Target:** gst-plugins-bad 1.28.7, `sys/applemedia/vtdec.c`
 
 The VideoToolbox adapter's output queue uses the SPS reorder bound, as WebKit's
 Apple `ComputeH264ReorderSizeFromSPS` does. Reference-frame storage and output
@@ -35,7 +35,7 @@ without EOS and presentation ordering for the upstream B-frame fixture.
 
 ## gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtdec.c`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtdec.c`
 **Applied to:** libgstapplemedia (vtdec_hw)
 
 `vtdec_hw` (rank primary+1, above `avdec_h264`) inherits `vtdec`'s sink pad template, which advertises every codec whether or not the machine can hardware-decode it. On a machine with no hardware decoder for the codec (any VM; H.264-only-era Macs asked for HEVC), `VTDecompressionSessionCreate(RequireHardware)` fails with **-8973** (10.9's legacy spelling of `kVTCouldNotFindVideoDecoderErr`).
@@ -46,7 +46,7 @@ The patch gives `vtdec_hw` its own sink template carrying only the codecs a `Req
 
 ## gst-plugins-bad-vtdec-109-sink-template-codecs.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtdec.c`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtdec.c`
 **Applied to:** libgstapplemedia (vtdec, vtdec_hw)
 
 vtdec's static sink template advertises VP9, AV1 and HEVC, and the template is what the registry serves to capability queries — WebKit's `GStreamerRegistryScanner` answers `MediaSource.isTypeSupported`, `canPlayType` and MediaCapabilities from factory templates, never from an instantiated element, and `PlatformMediaEngineConfigurationFactoryGStreamer` reports `powerEfficient` straight from the matched factory's `Hardware` klass.
@@ -57,7 +57,7 @@ With the template claiming what the machine then denies, the scanner reported de
 
 ## gst-plugins-bad-vtenc-hardware-encoder-probe.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtenc.c`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtenc.c`
 **Applied to:** libgstapplemedia (every vtenc element)
 
 `gst_vtenc_register()` registers an element per codec whether or not this machine's VideoToolbox has an encoder for it, and a registered factory is what capability queries are answered from — `GStreamerRegistryScanner` reads encoder support off factory templates, never off an instantiated element, and reports `powerEfficient` from the matched factory's `Hardware` klass. Two codecs the registry claims cannot be backed here:
@@ -71,7 +71,7 @@ H.265 still decodes through `avdec_h265`; `h265parse` and `rtph265pay/depay` are
 
 ## gst-plugins-bad-vtenc-source-colorimetry.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
 **Applied to:** libgstapplemedia (every vtenc element)
 
 `gst_vtenc_set_colorimetry()` tells the compression session what color its frames are in, mapping the negotiated caps onto `kVTCompressionPropertyKey_ColorPrimaries`, `_TransferFunction` and `_YCbCrMatrix`. A session that has been told a color needs the source frame's color too, to know whether a conversion stands between the two — and 10.9's VideoToolbox reads that from the source `CVPixelBuffer`'s own `kCVImageBufferColorPrimariesKey` / `_TransferFunctionKey` / `_YCbCrMatrixKey` attachments. For a property the session declares and the buffer leaves unstated it answers **-12917** (`kVTInsufficientSourceColorDataErr`), in the output callback, for every frame. vtenc tags no source buffer anywhere — `sys/applemedia` calls `CVBufferSetAttachment` in neither the encoder nor its helpers — and encodes on the systems it ships for, so the requirement is 10.9's.
@@ -84,7 +84,7 @@ The single-macroblock limit is separate and belongs to the encoder itself: a fra
 
 ## gst-plugins-bad-vtenc-drain-queued-frames.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
 **Applied to:** libgstapplemedia (every vtenc element)
 
 `gst_vtenc_drain_encoder()` runs `VTCompressionSessionCompleteFrames()`, whose output callbacks queue the remaining frames for the output loop, and then calls `gst_vtenc_pause_output_loop()` under the comment "This will only pause after all frames are out". `gst_pad_pause_task()` stops the `GstTask` before its next iteration, so a frame queued after the loop's last pass stays in `output_queue`: a drain (EOS, caps change) loses it, and a flush leaves it to be pushed after `FLUSH_STOP`, ahead of the next segment. 10.9's H.264 encoder refuses `kVTCompressionPropertyKey_RealTime` and holds about nine frames, all of which `CompleteFrames` delivers just before the pause.
@@ -95,7 +95,7 @@ Measured deterministically with a throwaway build whose loop sleeps at two point
 
 ## gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch
 
-**Target:** gst-plugins-bad 1.28.5, `ext/fdkaac/gstfdkaacdec.{c,h}`
+**Target:** gst-plugins-bad 1.28.7, `ext/fdkaac/gstfdkaacdec.{c,h}`
 
 FDK AAC returns each frame's samples `CStreamInfo.outputDelay` samples after the frame that
 carried them, and fdkaacdec finishes every frame with the decoder's latest output, so its audio
@@ -134,14 +134,14 @@ AudioToolbox lands too (ADTS through `afconvert`: 2048 LC, 4095 HE v1, 6143 HE v
 
 ## gst-libav-register-libdav1d.patch
 
-**Target:** `gst-libav-1.28.5`, `ext/libav/gstavviddec.c`
+**Target:** `gst-libav-1.28.7`, `ext/libav/gstavviddec.c`
 **Applied to:** libgstlibav
 
 gst-libav's decoder registration skips every FFmpeg decoder whose name starts with `lib`, on the stated premise that "we have native gstreamer plugins for all of those libraries anyway". This runtime has no native AV1 decoder for that rule to point at: gst-plugins-bad 1.28 carries no dav1d wrapper (`dav1ddec` lives in gst-plugins-rs, which is not part of this build), its `ext/aom` needs a libaom this build does not vendor, and FFmpeg's native `av1` decoder is hardware-only (gst-libav skips it by name for exactly that reason). The FFmpeg built here links dav1d (`--enable-libdav1d`), so the wrapper codec is present and fully functional software decode. The patch admits `libdav1d` through the external-library skip, registering `avdec_libdav1d` (rank marginal, like the other avdec video decoders) — the runtime's AV1 decoder for `<video>`, MSE and WebCodecs.
 
 ## gst-libav-avviddec-clear-decode-only-on-copied-output.patch
 
-**Target:** `gst-libav-1.28.5`, `ext/libav/gstavviddec.c`
+**Target:** `gst-libav-1.28.7`, `ext/libav/gstavviddec.c`
 **Applied to:** libgstlibav (`avdec_libdav1d`, and any other decoder that allocates its own frames)
 
 `gst_ffmpegviddec_handle_frame()` flags every incoming `GstVideoCodecFrame` `GST_VIDEO_CODEC_FRAME_FLAG_DECODE_ONLY` — "treat frame as void until a buffer is requested for it" — and `gst_ffmpegviddec_get_buffer2()` is the only place that clears it. libavcodec calls `AVCodecContext.get_buffer2` only for decoders that allocate through `ff_get_buffer()`; `ff_libdav1d_decoder` declares no `AV_CODEC_CAP_DR1` and serves dav1d's picture allocator from its own `av_buffer_pool` (`libdav1d_picture_allocator()` in `libavcodec/libdav1d.c`), so for `avdec_libdav1d` the callback never runs. `gst_ffmpegviddec_video_frame()` finds the frame has no direct-rendered buffer and takes its own fallback — `get_output_buffer()` allocates from the decoder's pool and copies the picture in — but the frame still carries the flag, and `gst_video_decoder_finish_frame()` drops it on `!frame->output_buffer || GST_VIDEO_CODEC_FRAME_IS_DECODE_ONLY (frame)`. Every frame is discarded, so the element emits nothing, never prerolls, and errors "No valid frames decoded before end of stream" at EOS. In a page that is a `<video>` spinning forever at `readyState 0` with `networkState 2` and no `error` — every AV1 stream, whatever the container.
@@ -172,7 +172,7 @@ HEVC with an alpha channel is one `hvc1` track whose every sample holds a base-l
 
 ## gst-libav-avviddec-select-first-software-format.patch
 
-**Target:** `gst-libav-1.28.5`, `ext/libav/gstavviddec.c`, `ext/libav/gstavcodecmap.c`
+**Target:** `gst-libav-1.28.7`, `ext/libav/gstavviddec.c`, `ext/libav/gstavcodecmap.c`
 **Applied to:** libgstlibav (every avdec_* video decoder)
 
 libavcodec hands the output pixel format choice to the caller through `AVCodecContext.get_format`, offering the formats it can produce for the stream: hardware-accelerated ones first, software ones last, and when a decoder can produce a richer software format it lists that ahead of the plain one — the hevc decoder offers `yuva420p` before `yuv420p` for a stream carrying an alpha layer and decodes that layer **only if the caller selects the alpha format**. avviddec installs no `get_format`, so the choice falls to `avcodec_default_get_format()`, which returns the *last* software format. The alpha layer is therefore never decoded and the stream comes out as opaque I420 with the background the base layer encodes, and because the element succeeded, a page's `<source>` fallback to a VP9-alpha WebM never engages.
@@ -185,7 +185,7 @@ The A420 frames then take the same path as VP9-with-alpha WebM: gst-libav maps `
 
 ## gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch
 
-**Target:** `gst-plugins-base-1.28.5`, `gst/playback/gsturisourcebin.c`
+**Target:** `gst-plugins-base-1.28.7`, `gst/playback/gsturisourcebin.c`
 **Applied to:** libgstplayback (urisourcebin)
 
 A stream whose media type changes mid-play stops at the change. The case that reaches users is an MSE SourceBuffer handed a clear period and then an encrypted one — what server-side ad insertion produces, and what CBS and Netflix serve. The clear period leaves parsebin holding an `h264parse` chain; the encrypted period arrives as `application/x-cenc`, which that chain cannot take, so the caps event is refused and the next `gst_pad_push` answers **not-negotiated**. WebKit surfaces that as `MEDIA_ERR_DECODE` ("Failed to push buffer") and the video never resumes, while the audio branch — whose decryptor was plugged for the same reason — leaves the pipeline unable to preroll, so a seek across the boundary never completes either.
@@ -194,20 +194,9 @@ decodebin3 already answers this for the parsebin *it* owns: on a caps event its 
 
 The patch gives urisourcebin the same reset, driven from the pad feeding parsebin rather than from parsebin's own sink: the reset deactivates that sink pad, so a probe holding its stream lock would deadlock, which is also why decodebin3 performs the reset from its ghost sink. parsebin answers accept-caps from its current chain (`gst_parse_chain_accept_caps`), and with no chain built yet the query falls through to the pad template and accepts, so the first caps of a stream never trigger a reset.
 
-## gst-plugins-base-decodebin2-prefill-pending-group.patch
-
-**Target:** `gst-plugins-base-1.28.5`, `gst/playback/gstdecodebin2.c`
-**Applied to:** libgstplayback (decodebin)
-
-An adaptive demuxer switches variants by exposing a new set of pads, and decodebin builds them a new group that waits in `next_groups` until the active group drains. Everything the pending group will play sits behind its multiqueue until the switch, but `decodebin_set_queue_size_full` sizes a queue that is not posting buffering messages with the play-time limits - five buffers - so the pending queue holds a handful of buffers when the switch completes and the buffering reset that runs then starts it in buffering mode near zero: a burst of low-percentage buffering messages follows every variant switch, and an application that follows the buffering contract pauses playback on them.
-
-The patch gives a group of a buffering pipeline that is pending - not its chain's `active_group`, or below a group that is not, as the transport-stream demuxer's group in the next variant's chain is - the buffering-mode limits when `no_more_pads_cb` or `multi_queue_overrun_cb` moves its queue to playing mode, so it takes the same limits as the posting queue: the application's `max-size-*` properties, with the 2 MB / 5 s defaults where those are unset. A pending queue then fills across the drain interval, its first buffering report after the switch is at or above the high watermark, and playback continues; a genuinely starved pipeline still reports low percentages and still pauses. Measured on a paced down-switch of an 8 s-fragment fMP4 HLS stream: one burst of 45 sub-100 reports at the switch, against 60 at the switch and a second burst of 53 when the new group's queue starts buffering without it.
-
-The active group's non-posting queues keep upstream's play-time arm, which in a buffering pipeline places no time or byte limit on them. Those queues sit behind a demuxer that emits a whole segment of one track before the next, and the buffering limits there stop the demuxer's thread at 5 s of the first track before the second track has a buffer: an fMP4 HLS stream with 8 s whole-track runs never prerolls.
-
 ## gst-plugins-base-audiodecoder-reset-subframe-samples.patch
 
-**Target:** gst-plugins-base 1.28.5, `gst-libs/gst/audio/gstaudiodecoder.c`
+**Target:** gst-plugins-base 1.28.7, `gst-libs/gst/audio/gstaudiodecoder.c`
 
 `subframe_samples` counts the samples pushed with `gst_audio_decoder_finish_subframe()` for the
 current input frame, and returns to 0 only when that frame finishes. `gst_audio_decoder_reset()`
@@ -220,56 +209,32 @@ the count with the frames it belongs to.
 
 ## gst-plugins-base-video-format-2bit-alpha.patch
 
-**Target:** gst-plugins-base 1.28.5, `gst-libs/gst/video/video-format.c`
+**Target:** gst-plugins-base 1.28.7, `gst-libs/gst/video/video-format.c`
 **Applied to:** libgstvideo (every converter and unpacker)
 
 `unpack_Y410`, `unpack_bgr10a2_le` and `unpack_rgb10a2_le` widen their 2-bit alpha to the 16-bit unpack range with `A = a2 << 14; A |= A >> 10`, the bit replication those functions use for their 10-bit channels. For two bits it fills only the top bits: fully opaque (3) unpacks as 0xC030, which every 8-bit output keeps as 192, so a Y410 frame converted to BGRA composites at 0.75 alpha. The patch scales the two bits across the full range (`a2 * 0x5555`: 0, 0x5555, 0xAAAA, 0xFFFF), as the 10-bit and 12-bit alpha unpacks already do for their maxima. Packing back keeps the top two bits, so a round trip is unchanged.
 
 ## gst-plugins-good-qtdemux-heif-image-sequence.patch
 
-**Target:** `gst-plugins-good-1.28.5`, `gst/isomp4/qtdemux.c`, `gst/isomp4/fourcc.h`
+**Target:** `gst-plugins-good-1.28.7`, `gst/isomp4/qtdemux.c`, `gst/isomp4/fourcc.h`
 **Applied to:** libgstisomp4 (qtdemux)
 
 An ISO/IEC 23008-12 image sequence - the `.heics` an animated HEIC is - is an ISO-BMFF file with an ordinary `moov`/`trak`/`stbl`, a `VideoMediaHeaderBox` in its `minf` and an `hvc1` VisualSampleEntry in its `stsd`. The one thing that is not a video track's is the media handler in `hdlr`, which clause 7 of that standard sets to `pict`. `qtdemux_parse_trak` reads the handler into `stream->subtype`, and every branch that builds a pad, reads the sample table and produces caps tests it against `vide`, so both of WebKit's test sequences (`LayoutTests/fast/images/resources/sticker.heics`, `sea_animation.heics`) end at `gst_qtdemux_post_no_playable_stream_error`: "This file contains no playable streams". Nothing else about the file is unusual - rewriting the four handler bytes to `vide` and leaving the rest untouched decodes all 96 and all 120 frames through `qtdemux ! h265parse ! avdec_h265`.
 
 The patch reads the handler as `vide` when it is `pict` and the file declares the `msf1` brand (major or compatible), which is what says the file is an image sequence rather than a QuickTime file with a still-picture track. Files without that brand keep the handler they have.
 
-## gst-plugins-good-qtdemux-upstream-stream-tags.patch
-
-**Target:** `gst-plugins-good-1.28.5`, `gst/isomp4/qtdemux.c`, `gst/isomp4/qtdemux.h`
-**Applied to:** libgstisomp4 (qtdemux)
-
-qtdemux hands an upstream TAG event to `gst_pad_event_default`, which forwards it to the source pads the element has so far. A demuxer behind an adaptive demuxer receives its stream's tags together with the first fragment, before the `moov` is parsed and any pad exists, so the tags go nowhere: an fMP4 HLS rendition's audio track loses the title and language its `EXT-X-MEDIA` declares.
-
-The patch keeps stream-scoped upstream tags and merges them under each stream's own tags when those are pushed - the merge `GstBaseParse` and `GstAudioDecoder` apply to upstream stream tags - re-sends already pushed tags merged when new upstream tags arrive, and clears them on a new stream-start, as those elements do.
-
-An HLS variant stream in fMP4 can also carry a rendition declared without a URI. hlsdemux sends that rendition's tags in a sticky `hls-rendition-tags` event holding one tag list per stream type (`audio`, `video`, `text`); qtdemux keeps it and merges each list into the tags of its streams of that type (`soun`; `vide`; `text`, `sbtl`, `subp`, `wvtt`), replacing the container's values, and clears it with the upstream tags. hlsdemux sends that event for a rendition with its own fragments as well, so the manifest's title and language win over the container's for every rendition. When the upstream stream-start carries a GstStream, qtdemux puts one on its own stream-start too: this stream's type, caps and flags, its tags under the upstream stream's, and the rendition tags of its type over both.
-
-A `<type>-default` field in that event marks a `DEFAULT` rendition carried inside the container, and this container's stream of that type is announced with `GST_STREAM_FLAG_SELECT`.
-
 ## gst-plugins-good-qtdemux-push-mode-segment-seek.patch
 
-**Target:** `gst-plugins-good-1.28.5`, `gst/isomp4/qtdemux.c`, applied after `gst-plugins-good-qtdemux-upstream-stream-tags.patch`
+**Target:** `gst-plugins-good-1.28.7`, `gst/isomp4/qtdemux.c`, applied after `gst-plugins-good-qtdemux-heif-image-sequence.patch`
 **Applied to:** libgstisomp4 (qtdemux)
 
 A segment seek (`GST_SEEK_FLAG_SEGMENT`) asks the pipeline to post `SEGMENT_DONE` instead of EOS when playback of the requested TIME segment has been delivered; an application loops seamlessly by answering it with a non-flushing segment seek. In pull mode `qtdemux` performs the segment itself: it posts `SEGMENT_START`, and its loop posts a TIME `SEGMENT_DONE` when it has pushed the segment's last sample. In push mode, `gst_qtdemux_do_push_seek` converts the seek into a BYTES seek on its upstream element and passes the flags through unchanged, so the source performs a BYTES segment and posts a BYTES `SEGMENT_DONE` when it has pushed the last byte - which says the download completed, not that the segment's samples reached the demuxer's outputs. `GstBin` aggregates segment messages by poster, and that is the only one it sees. Measured with a byte-seekable `GstPushSrc` (WebKit's source element is one): a looping pipeline gets `SEGMENT_DONE (bytes)` from the source; behind `queue2` a fast response posts it while the start of the file is still playing, and an application restarts the loop from there.
 
 The upstream BYTES seek retains `GST_SEEK_FLAG_SEGMENT`, and its answering segment carries that flag into the demuxer's TIME segment. The demuxer posts a TIME `SEGMENT_START` from its seek handler, before the source starts its byte segment, so `GstBin` holds one segment open across the source's own `SEGMENT_START`/`SEGMENT_DONE` pair and posts a single `SEGMENT_DONE` when the demuxer's arrives (a start posted only when the source's segment event reaches the demuxer came after the source's pair when a short range downloaded before the demuxer ran, and the bin posted two segment-dones per seek). It then translates the source's segment-done event after delivering the samples, sets its position to the segment stop, and posts and forwards TIME completion. At the last sample it consumes trailing bytes through that event instead of returning EOS to the queue; unused adapter bytes are discarded. The source and queue remain available for the next non-flushing seek. `SEGMENT_DONE` marks delivery, not rendering: queued frames continue playing while the next segment is prepared. `tests/media-segment-loop.sh` checks the completion format, position and sequence number, and the final rendered frame across repeated MP4 and FLV loops.
 
-## gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch
-
-**Target:** `gst-plugins-good-1.28.5`, `gst/isomp4/qtdemux.c`, `gst/isomp4/qtdemux.h`, applied after `gst-plugins-good-qtdemux-push-mode-segment-seek.patch`
-**Applied to:** libgstisomp4 (qtdemux)
-
-In pull mode `gst_qtdemux_loop_state_movie` sends the stream whose next sample decodes earliest, so qtdemux's output is interleaved by time whatever the file's storage order. In push mode `gst_qtdemux_process_adapter` sends each sample as its bytes arrive. A fragment may store each stream's samples as one run: legacy `hlsdemux` delivers fMP4 HLS segments that carry all of a segment's video before its audio, in one `moof` with a `traf` per track or in a `moof` per track. decodebin gives the queue behind the demuxer its buffering limits (2 MB / 5 s), so the demuxer's thread stops 5 s into an 8 s video run and the audio sink starves until playback drains the video. Measured with legacy `playbin`, a byte-seekable http push source and 8 s fragments: 5 audio gaps of 2.65 s in 48 s, in both layouts. Multiqueue `use-interleave`, which decodebin3 enables, cannot absorb this on decodebin2: while a queue has received no buffer the interleave grows only to 5 s (`calculate_interleave`), the leading queue fills to it before the other track's first sample, and the pipeline never prerolls (0 audio buffers in every case measured).
-
-With an upstream delivering timed fragments (TIME segments, as adaptive demuxers push) and more than one non-sparse stream with a pad, push-mode fragmented qtdemux holds the samples it takes and sends them in decode-time order. A held sample goes out once no other non-sparse stream can still provide an earlier one in the fragment it was taken from. A track's samples come in decode order and each run continues where the previous one ended, so that is decided by facts the parsed `trun`s state: the other stream's next parsed sample, or the end of the samples parsed for it, is not before the held sample. A `moof` that replaces a stream's sample table leaves `sample_index` at -1 until the stream's first sample is read, which counts as index 0. Upstream's next timed fragment - `first_fragment_buffer` carries the fragment timestamp, which qtdemux records as a new `fragment_start` - completes the previous fragment: a stream whose data in it did not reach a held sample has a gap there, and the sample is sent. Sparse streams (subtitles, captions, timed metadata, as the `moov` marks them) hold nothing back. A demuxed rendition, one track per qtdemux, holds nothing.
-
-Everything held is sent at upstream EOS (before a segment-done or EOS goes out), before a new TIME segment, at stream-start, at a real discont and before a second `moov`, and dropped by `gst_qtdemux_reset`; `gst_qtdemux_sync_streams` sends no EOS to a stream with held samples. Each released sample's flow is combined as it is pushed. What is held is at most the fragment being demuxed. Measured on the same fixtures: 0 audio gaps in all four unpaced cases (8 s and 12 s, both layouts) and in the paced live playlist.
-
 ## gst-plugins-good-qtdemux-push-mode-fragmented-seek.patch
 
-**Target:** `gst-plugins-good-1.28.5`, `gst/isomp4/qtdemux.c`, `gst/isomp4/qtdemux.h`, applied after `gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch`
+**Target:** `gst-plugins-good-1.28.7`, `gst/isomp4/qtdemux.c`, `gst/isomp4/qtdemux.h`, applied after `gst-plugins-good-qtdemux-push-mode-segment-seek.patch`
 **Applied to:** libgstisomp4 (qtdemux)
 
 In push mode a fragmented file has a sample table only for the fragment being demuxed: `qtdemux_parse_moof` drops the previous fragment's samples, and the `mfra` index that pull mode seeks with lies at the end of the file, where a push-mode demuxer has not read it. `gst_qtdemux_handle_src_event` therefore refuses every TIME seek on a fragmented file whose upstream works in BYTES ("ignoring seek in push mode in current state", gstreamer#2801), and a progressive fMP4 `<video loop>` stops at its end: the loop seek fails. CNN's homepage loops are such files (`moov` with `mvex`, then `moof`/`mdat` pairs, no `sidx`).
@@ -278,138 +243,29 @@ The demuxer records the start time (the earliest sample decode time across its `
 
 ## gst-plugins-good-flvdemux-push-mode-segment-seek.patch
 
-**Target:** `gst-plugins-good-1.28.5`, `gst/flv/gstflvdemux.c`
+**Target:** `gst-plugins-good-1.28.7`, `gst/flv/gstflvdemux.c`
 **Applied to:** libgstflv (flvdemux)
 
 The demuxer posts TIME segment start and completion messages alongside its byte-seekable source's messages, retaining the source's segment flag; the start is posted before the upstream byte seek is pushed, so `GstBin` holds the demuxer's segment open across the source's own start/done pair and reports one completion per seek. It consumes trailing tags through the source's completion event and aligns its segment position as the pull loop does. `GstBin` aggregates both participants before reporting completion. The translated byte seek owns a separate event and carries the original seek's sequence number; the original remains owned by the TIME-seek handler. The normal MP4/FLV regression in `tests/media-segment-loop.sh` verifies complete non-flushing loops.
 
 ## gst-plugins-good-matroska-webm-partitions.patch
 
-**Target:** `gst-plugins-good-1.28.5`, `gst/matroska/matroska-read-common.c`
+**Target:** `gst-plugins-good-1.28.7`, `gst/matroska/matroska-read-common.c`
 **Applied to:** libgstmatroska (matroskademux)
 
 A partitioned encrypted block (WebM Encryption, 4.6) carries n partition offsets dividing the frame into n + 1 alternating sections, the first clear. With no partitions the frame is one clear section, as Chromium's `ExtractSubsamples` (`media/formats/webm/webm_crypto_helpers.cc`) reads it; a pair of empty sections stays malformed, as it is there. The protection meta's subsample layout gives a clear section 16 bits, so a longer one is written as leading `{65535, 0}` entries ahead of the entry pairing the remainder with the next encrypted section, and the subsample count is the number of entries written. Google's Widevine AV1 test stream (`wvmedia/2019/cenc/av1/24/webm/llama_av1_480p_400.webm`) has 195 zero-partition blocks.
 
 ## gst-plugins-good-matroska-webm-protection-context.patch
 
-**Target:** `gst-plugins-good-1.28.5`, `gst/matroska/matroska-demux.c`
+**Target:** `gst-plugins-good-1.28.7`, `gst/matroska/matroska-demux.c`
 **Applied to:** libgstmatroska (matroskademux)
 
 When a track's ContentEncodings make it `application/x-webm-enc`, the demuxer requests the `drm-preferred-decryption-system-id` context as qtdemux does in `gst_qtdemux_request_protection_context()`: a context query upstream, then a `need-context` message on the bus, each carrying `track-id`, `available-stream-encryption-systems` (the unspecified system, filtered by available decryptors) and `stream-encryption-events` (the track's queued protection events, which hold its ContentEncKeyIDs). An application learns a WebM stream's initialization data from that request, as it does an MP4 stream's; WebKit's regular playback raises the media element's `encrypted` event from it.
 
-## gst-plugins-bad-hlsdemux-subtitle-renditions.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`, `ext/hls/gsthlsdemux.h`
-**Applied to:** libgsthls (hlsdemux)
-
-`gst_hls_demux_setup_streams` decides which renditions of the selected variant become output streams and answers `VIDEO || AUDIO`; `create_stream_for_playlist` returns immediately for anything else. A master playlist carrying its subtitles in an `EXT-X-MEDIA:TYPE=SUBTITLES` rendition - the ordinary HLS shape - therefore produces no text stream, and a player sees no text track for a stream that has one.
-
-Selecting the rendition is half of it. A WebVTT fragment carries cue times on its own timeline and ties that timeline to the presentation through an `X-TIMESTAMP-MAP` header, so the times mean nothing to a player until they are converted. The successor element does this in `ext/adaptivedemux2/hls/gsthlsdemux-util.c` against a map from internal (MPEG-TS) time to stream time; the patch carries that conversion over and builds the map from the primary stream's first PCR together with the stream time of the fragment it came from, both of which this element already computes. The successor's fallbacks are kept verbatim: a fragment without an `X-TIMESTAMP-MAP` is read as carrying MPEG-TS values, a cue that cannot be converted because no primary fragment has produced a PCR yet keeps its original value, and a cue converting to a negative stream time is clamped to zero.
-
-A rendition's `NAME` and `LANGUAGE` become its stream's title and language tags, and its `DEFAULT` and `TYPE=SUBTITLES` become the select and sparse stream flags. The tags are kept on the adaptive stream and merged into every tag event it sends: the element sends other stream tags on the same pad - the ID3 tags of a packed-audio fragment, the nominal bitrate after a variant switch - and each new stream tag event replaces the previous one downstream, so tags set once are gone by the first fragment.
-
-A rendition's `CHARACTERISTICS` (media characteristic UTIs such as `public.accessibility.describes-video`) go into the same tag lists as the string tag `hls-characteristics`, which the element registers. The rendition's stream announces its tags, type and flags in a GstStream on its stream-start event, so a player reads them when it first sees the stream rather than whenever a tag event arrives. A URI rendition's tags also travel in the typed `hls-rendition-tags` event described next, so a demuxer splitting its fragments applies them over the container's own values - the precedence hlsdemux2 gives a rendition's `LANGUAGE` with `GST_TAG_MERGE_REPLACE`.
-
-A rendition without a URI - the variant's own stream carries it, the usual shape for the default audio of a muxed variant - is dropped by the playlist parser (`gst_m3u8_parse_media` answers NULL for it), although `setup_streams` and the playlist update already skip such a rendition as "a placeholder for a stream contained in another mux". The patch keeps it, with the successor parser's validation (TYPE, GROUP-ID and NAME required). Its tags go out on the variant's stream in a sticky `hls-rendition-tags` event holding one tag list per stream type, because a tag event has no type and the demuxer splitting the variant's stream would otherwise spread a stream tag list over every elementary stream; the tsdemux and qtdemux patches apply each list to their streams of that type, as the successor attaches such a rendition to the variant's track of the matching type.
-
-A whole fragment is converted at once, so a WebVTT stream accumulates its fragment until the end rather than pushing partial buffers. Otherwise a subtitle rendition travels the path the audio renditions already take, and `is_primary_playlist` stays false for it, so bitrate switching keeps following the main playlist.
-
-A rendition without a URI that the playlist marks `DEFAULT=YES` sets `<type>-default` in the `hls-rendition-tags` event, so the demuxer splitting the variant's stream selects its stream of that type. A subtitle rendition with `FORCED=YES` carries the characteristic `public.subtitles.forced-only`, the value of AVFoundation's `AVMediaCharacteristicContainsOnlyForcedSubtitles`. When `setup_streams` reuses the previous variant's streams it skips a rendition without a URI, as stream creation and the playlist update do.
-
-## gst-plugins-bad-mpegtsdemux-rendition-tags.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `gst/mpegtsdemux/tsdemux.c`, `gst/mpegtsdemux/tsdemux.h`
-**Applied to:** libgstmpegtsdemux (tsdemux)
-
-An HLS variant stream can carry a rendition its master playlist declares without a URI: the variant's audio is then that `EXT-X-MEDIA` rendition, with its `NAME` and `LANGUAGE`. hlsdemux sends those in a sticky `hls-rendition-tags` event holding one tag list per stream type, because tsdemux turns an upstream stream tag list into global tags for every elementary stream of the program.
-
-The patch keeps the event and merges the list for each elementary stream's type - audio, video, and subpicture as `text` - into the tags of the streams it creates from then on, replacing the transport stream's own values. The event is cleared with the demuxer's global tags on reset.
-
-Each elementary stream's stream-start also takes `GST_STREAM_FLAG_SELECT` and `GST_STREAM_FLAG_UNSELECT` from the upstream stream-start - qtdemux takes the upstream flags the same way - so the selection made for the stream the transport stream arrives on reaches its streams; a `<type>-default` field in the rendition-tags event selects the elementary stream of that type. The flags go on the event and on the stream's GstStream.
-
-## gst-plugins-bad-hlsdemux-date-ranges.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `ext/hls/m3u8.c`, `ext/hls/m3u8.h`, `ext/hls/gsthlsdemux.c`
-**Applied to:** libgsthls (hlsdemux)
-
-hlsdemux ignores `EXT-X-DATERANGE`, so a player sees none of the timed metadata a media playlist declares with it; hlsdemux2 1.28.5 parses only `CAN-SKIP-DATERANGES` and `RECENTLY-REMOVED-DATERANGES`. The patch parses the tag (RFC 8216bis 4.4.5.1): `ID`, `CLASS`, `START-DATE`, `END-DATE`, `DURATION`, `PLANNED-DURATION`, `END-ON-NEXT` and the `X-` client attributes. `ID` and `START-DATE` are required, and a later tag with the same `ID` replaces the range.
-
-A range's duration is its `DURATION`; otherwise `END-DATE` minus `START-DATE`; otherwise, with `END-ON-NEXT=YES`, the distance to the next range of the same `CLASS`. `PLANNED-DURATION` alone leaves the end unknown. The range starts in stream time at its `START-DATE` relative to the `EXT-X-PROGRAM-DATE-TIME` of the last fragment dated at or before it, plus that fragment's stream position; a playlist without a program date-time starts every range at the beginning of the stream - the mapping AVFoundation applies against the player item's current date.
-
-After each media playlist load or update the element posts an `hls-date-ranges` element message: a `ranges` array of `date-range` structures carrying `id`, `class`, `start` and `duration` (`GST_CLOCK_TIME_NONE` while the end is unknown) in stream time, and the `attributes`.
-
-## gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`
-**Applied to:** libgsthls (hlsdemux)
-
-On a variant switch in a VOD playlist, `gst_hls_demux_update_playlist` carries the stream position over to the new playlist and picks the fragment that contains it. That position is a fragment boundary in the old variant's timeline - the end of the fragment just played - and fragment durations differ between variants by frame rounding (7.992 s against 8.008 s in the same presentation), so whenever the new variant's fragments run longer the boundary lands inside the fragment just played and the switch refetches and decodes it from the start: the data for the position that is actually playing arrives one full fragment fetch late, and the pipeline runs dry at the switch. RFC 8216 §4.3.3.2 rules out matching by Media Sequence Number and directs clients to the relative position on the playlist timeline.
-
-The patch matches the carried-over position to the fragment whose start is nearest, the rule the element's own seek handler applies under `GST_SEEK_FLAG_SNAP_NEAREST`. An exact fragment start, which is what the initial load and every seek carry, resolves as before.
-
-## gst-plugins-bad-hlsdemux-resync-current-file.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`
-**Applied to:** libgsthls (hlsdemux), after the manifest-lock patch
-
-VOD resync assigns the selected list node to `current_file` alongside its sequence and timeline position, matching the seek handler. Playlist load initializes this cached node, and `gst_m3u8_get_next_fragment` reads it directly. All three fields must identify the same fragment, including a null node at the end of the playlist.
-
-`bash AquaWebKitSupport/tests/hls-resync.sh` checks the actual resync implementation with an in-memory playlist: rounded and exact boundaries, nonzero sequence numbers, returning to a cached variant, and the end of the playlist.
-
-## gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `gst-libs/gst/adaptivedemux/gstadaptivedemux.{c,h}`, `gst-libs/gst/uridownloader/gsturidownloader.c`, `ext/hls/gsthlsdemux.{c,h}`
-**Applied to:** libgstadaptivedemux, libgsthls (hlsdemux)
-
-Legacy `adaptivedemux` performs every `GstUriDownloader` fetch -- the media playlist on a variant switch, the periodic live-playlist refresh, alternate-rendition playlists, AES keys, the initial media playlist from `process_manifest` -- with its recursive **manifest lock held**. Everything else that takes that lock then waits behind the network: `gst_adaptive_demux_src_query` (duration, seeking, latency -- issued by decodebin when it plugs a new group), `gst_adaptive_demux_src_event` (the RECONFIGURE playsink sends while it holds its own lock inside `gst_play_sink_do_reconfigure`), seeks, and the PAUSED->READY transition (`gst_uri_downloader_cancel` runs first, but the bin transitions its children sink-first, so a downstream demuxer's pad deactivation blocks on a stream lock held by a thread waiting for the manifest lock long before hlsdemux is reached). `adaptivedemux2`'s demuxers run their downloads in their own loop with no lock held, and do their own networking, which is why WebKit demotes them.
-
-With `souphttpsrc` the wait is a delay. With WebKit's `webkitwebsrc` it is a deadlock: the fetch's request and response are delivered on the WebKit main thread, and that same thread is the one blocked on the pipeline (tearing down, reading `mute`, querying duration, seeking), so the fetch never completes. Sampled cycles on nintendo.com's HLS players: main -> `gst_play_sink_get_mute` -> playsink lock <- multiqueue thread in `do_reconfigure` -> RECONFIGURE -> manifest lock <- queue thread in `finish_fragment -> change_playlist -> update_playlist -> fetch` <- webkitwebsrc parked for a response <- main; and main -> `GST_STATE_NULL` -> tsdemux pad deactivation -> stream lock <- multiqueue thread in `mpegts_base_chain -> pad_added -> decode_group_new -> query` -> manifest lock <- the same fetch.
-
-The patch keeps the base class's existing discipline for the fragment path, which already drops the manifest lock around `gst_adaptive_demux_stream_download_uri` and re-checks the cancelled flags on re-lock, and extends it to the uridownloader fetches of the base class and of hlsdemux, the one adaptive demuxer this port plugs (`GStreamerCommon.cpp` leaves `dashdemux` and `mssdemux` at `GST_RANK_NONE`; their fetch sites keep upstream's locking):
-
-- The lock is a `GRecMutex` and the fetch sites sit at depth 1 or 2 (`_src_event` -> `stream_advance_fragment` re-locks), so the base class tracks the owner's depth in `GST_MANIFEST_LOCK`/`UNLOCK` and exports `gst_adaptive_demux_manifest_unlock_for_download()` / `gst_adaptive_demux_manifest_relock()`. `gst_adaptive_demux_update_manifest_default` (dash/mss) releases around its fetch.
-- hlsdemux routes its fetches through `gst_hls_demux_fetch_uri()`, which takes the calling stream: a stream's task refuses to start a download and drops one that completed once the demuxer stopped running or that stream's `cancelled` flag is set (`prepared_streams` included, since each task checks its own stream); the updates task and the **API-lock holder** (`process_manifest` at sink EOS, which sets those flags) pass no stream and stop only for a shutdown. The pre-fetch refusal stops `update_playlist`'s refetch and `change_playlist`'s failover once a task is told to stop.
-- `gst_adaptive_demux_stop_tasks()` cancels the downloader after setting the cancelled flags and before joining the tasks (the order `PAUSED_TO_READY` uses), and `gst_adaptive_demux_start_tasks()` resets it, so the task a main-thread seek joins is never parked inside a fetch that only the main thread completes. The downloader's cancel is one-shot and cleared when the aborted fetch returns, so `gst_uri_downloader_cancel()` also bumps a generation counter: `gst_hls_demux_fetch_uri()` reads it (`gst_uri_downloader_get_cancel_generation()`) under the manifest lock before it reads the stop condition, and `gst_uri_downloader_fetch_uri_since()` ends the fetch, once it holds `download_lock`, if the generation moved -- so a cancel that lands after the read ends the fetch and one that landed before it set the flags the read sees, and a fetch queued behind the aborted one ends too. A fetch the cancel ended reports `GST_RESOURCE_ERROR_BUSY`, which callers tell apart from a download the network refused.
-- `gst_hls_demux_seek()` records the trick-mode variant switch as `pending_variant`; the download task claims it under the manifest lock (so one task loads it) and applies it in `gst_hls_demux_update_fragment_info()`, where the playlist load runs in task context. Until the load succeeds the current variant is the one the streams were seeked on; a load the cancel ended hands the switch back for the restarted task.
-- Every variant switch loads first and switches after: `gst_hls_demux_load_playlist()` loads a given variant's media playlist and renditions with the lock released, and `change_playlist`, the pending switch and `process_manifest` call `gst_hls_demux_set_current_variant()` only on UPDATED, then `gst_hls_demux_resync_playlist()` positions the loaded playlist on the stream position after the switch has copied it over. A refetched variant playlist is parsed (`gst_hls_demux_parse_variant_playlist()`), the matching variant loaded, and only then committed (`gst_hls_demux_commit_variant_playlist()`). So a reader that takes the manifest lock -- duration and seeking queries, `is_live`, the seek handler -- never sees a current variant whose playlist is not loaded. `update_playlist` (the refresh) returns UPDATED / SKIPPED / FAILED and reports SKIPPED when the current variant changed while its playlist loaded; `change_playlist` posts its statistics only for UPDATED. A refresh that the seek's cancel ended returns FLUSHING, which the updates loop reschedules without counting as a failed update; `stop_manifest_update_task` leaves the downloader alone (a refresh in flight returns on its own; a cancel there would end the other tasks' fetches), the cancels being in `stop_tasks` and `PAUSED_TO_READY`, which stop every consumer.
-- `get_key` holds `keys_lock` only for the cache lookup and the insert (another stream's `start_fragment` takes the manifest lock before `keys_lock`, so holding it across a download that releases the manifest lock would invert the order); it re-checks the cache before inserting. A key fetch the cancel ended makes `start_fragment` return FALSE without posting `DECRYPT_NOKEY`, and `_src_chain` maps that to FLUSHING.
-
-## gst-plugins-bad-adaptivedemux-retry-restarts-fragment.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `gst-libs/gst/adaptivedemux/gstadaptivedemux.c`
-**Applied to:** libgstadaptivedemux, after the manifest-lock patch
-
-`gst_adaptive_demux_stream_download_fragment` marks the start of a fragment (`starting_fragment`, `first_fragment_buffer`) once, before its `again:` label, and the first buffer of the download clears them. Its two retries, the same fragment after a server error and the next fragment of a live stream that fell out of the window, jump back to `again:` and download a fragment from its start with both cleared, so `_src_chain` never calls the subclass's `start_fragment` for it and the first buffer gets no timestamp. hlsdemux sets up AES-128 decryption in `start_fragment`: when an `EXT-X-KEY` cannot be fetched (an `skd://` FairPlay key URI, for one), the failed attempt posts `DECRYPT_NOKEY`, the retry downloads the fragment again, and `gst_hls_demux_data_received` decrypts it with no context, which with the OpenSSL backend is `EVP_DecryptUpdate(NULL, …)`. The Roku Channel's FairPlay HLS crashed the web process this way. A retried download starts again at the fragment's first byte, so the patch marks the fragment start again at both retries and the fragment-start processing runs again for it.
-
-## gst-plugins-bad-hlsdemux-encrypted-map-segment.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`
-**Applied to:** libgsthls (hlsdemux), after the manifest-lock and date-ranges patches
-
-Under an `EXT-X-KEY` with `METHOD=AES-128`, the `EXT-X-MAP` header and each media segment are separately encrypted resources, each a CBC chain from its own start. adaptivedemux downloads a segment's header and the segment itself under one `starting_fragment`, so hlsdemux's `start_fragment` runs once, before the header. `finish_fragment` ends decryption when the header download ends, and the media segment then reaches `gst_hls_demux_data_received` with no decryption started: `EVP_DecryptUpdate(NULL, …)` with the OpenSSL backend. A 12-second fMP4 stream in 2-second segments with an encrypted `EXT-X-MAP` reproduces it under `gst-launch-1.0 playbin` (SIGSEGV), and the same stream unencrypted plays. The patch moves `start_fragment`'s key lookup and `decrypt_start` into `gst_hls_demux_stream_start_decryption()`, which `finish_fragment` also calls when it ends a header download.
-
-## gst-plugins-bad-hlsdemux-isobmff-presentation-offset.patch
-
-**Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`, `ext/hls/gsthlsdemux.h`, `ext/hls/meson.build`
-**Applied to:** libgsthls (hlsdemux), after the encrypted-map patch
-
-qtdemux times a fragmented MP4 fragment from its `tfdt` box and drops the playlist position hlsdemux stamps on the fragment's first buffer (`qtdemux_parse_moof`), while each stream's segment starts at the playlist's stream time. Media whose first decode time is not 0 plays that much late. Apple's packager starts video at 10 s (the newsroom's HLS clips: video `tfdt` 10.000 s, audio 9.956 s, the AAC priming), so a clip showed its first frame 10 s after `play`, `currentTime` ran on from 0 meanwhile, and playback ended 10 s past the duration.
-
-hlsdemux2 maps decode time to stream time (`gst_hlsdemux_handle_content_isobmff`, `gst_hlsdemux_stream_handle_internal_time`, `gst_hls_demux_stream_get_presentation_offset`): the earliest decode time of the variant stream's first movie fragment less that fragment's stream time is the presentation offset, an ISOBMFF rendition takes the variant stream's offset when the variant stream is ISOBMFF too, and the base class shifts each stream's segment by its offset. The legacy base class applies a subclass's `get_presentation_offset` already (dashdemux implements it), so the patch carries that reading and policy over, parsing with `gst-libs/gst/isoff` as dashdemux does. A stream's segment exists before its first byte arrives, so the stream's data is held from its first byte until its offset is known and the segment still waiting to go out with its first buffer is shifted then; `get_presentation_offset` answers 0 for a stream until then, so every segment the base class builds afterwards carries the offset exactly once. The variant stream holds until its first movie fragment (its `EXT-X-MAP` header ends without one) and a rendition until the variant stream has its offset, across the rendition's own fragment boundaries because a short audio fragment can finish before the video's first `moof` arrives; a rendition whose playlist ends first, or whose variant stream is not ISOBMFF, takes its own offset. The variant stream's first movie fragment also maps internal time to stream time for the WebVTT conversion of the subtitle-renditions patch, as an MPEG-TS fragment's first PCR does.
-
-## gstreamer-input-selector-release-lock-for-upstream-events.patch
-
-**Target:** `gstreamer-1.28.5`, `plugins/elements/gstinputselector.c`
-**Applied to:** libgstcoreelements (input-selector, playbin's stream combiner)
-
-`gst_input_selector_event()`, the src-pad handler for upstream events, takes `active_sinkpad_lock` in reader mode and holds it across `gst_pad_push_event()` to the active sink pad. A seek is such an event and its push is synchronous: upstream, the demuxer flushes the pipeline on the same thread, and on legacy `decodebin2` a FLUSH_STOP during a decode-group switch hides the old group -- its exposed pads are removed, playbin's `pad_removed_cb` finds the combiner emptied and sets it to `GST_STATE_NULL`, and `gst_input_selector_reset()` takes `active_sinkpad_lock` as a writer. Same thread, same `GRWLock`, which is not recursive: the seeking thread (WebKit's main thread) deadlocks against itself, with every streaming task idle. Sampled on an ABR HLS stream seeked during a variant switch.
-
-The handler already holds a reference to the pad it pushes to; the patch releases the reader lock before the push, so the lock covers the choice of pad and nothing else.
-
 ## gstreamer-queue2-segment-done-completes-buffering.patch
 
-**Target:** `gstreamer-1.28.5`, `plugins/elements/gstqueue2.c`, `plugins/elements/gstqueue2.h`
-**Applied to:** libgstcoreelements (queue2, uridecodebin's buffering queue)
+**Target:** `gstreamer-1.28.7`, `plugins/elements/gstqueue2.c`, `plugins/elements/gstqueue2.h`
+**Applied to:** libgstcoreelements (queue2, urisourcebin's buffering queue)
 
 A source that performs a segment seek ends the segment with a `SEGMENT_DONE` event instead of EOS, and no data follows until the application seeks again. `multiqueue` records that (`is_segment_done`) and counts the queue as full, as at EOS. `queue2` recognises only EOS (`is_eos`), so after a segment-done event it keeps waiting for data that is not coming: as playback drains it, it reports buffering down to 0%, and an application that pauses for buffering (WebKit's player does) stops the pipeline with the event still queued, so the demuxer never receives it and the segment never completes. Measured in Safari with a looping Range-served MP4: the second pass stopped about a second before the end, at buffering 0%, with no pipeline segment-done.
 
@@ -547,7 +403,7 @@ empty multi handle.
 
 ## gst-plugins-bad-vtdec-drain-queued-frames.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtdec.c`, `sys/applemedia/vtdec.h`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtdec.c`, `sys/applemedia/vtdec.h`
 **Applied to:** libgstapplemedia (`vtdec`, `vtdec_hw`)
 
 The normal drain sets `is_draining` after the native asynchronous-frame wait. Until then, callbacks can supply lower-PTS frames and the output loop retains its reorder window. A flush sets `is_flushing` before the wait because its output is discarded. `tests/video-decoder-reordering.sh` checks all six timestamps from the ordinary WebCodecs H.264 fixture on every run.
@@ -558,7 +414,7 @@ Measured the same way (`VTDEC_DIAG_LOOP_SLEEP_US`, `VTDEC_DIAG_ERR_SLEEP_US`) on
 
 ## gst-plugins-bad-vtenc-encode-errors.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
 **Applied to:** libgstapplemedia (every vtenc element)
 
 A non-recoverable encode status — from `VTCompressionSessionEncodeFrame()` or in the output callback — posts `GST_ELEMENT_ERROR` and drops the frame, but `gst_vtenc_encode_frame()` returns `GST_FLOW_OK` and a drain returns the output loop's status, so a caller that watches flow returns sees every frame accepted and no output. The patch records the failure in `encode_failed`: the failing encode call returns `GST_FLOW_ERROR`, every later frame is dropped with `GST_FLOW_ERROR`, and a drain answers `GST_FLOW_ERROR`. `gst_vtenc_start()` and `gst_vtenc_flush()` clear it, as they reset `downstream_ret`. Recoverable statuses keep their session restart.
@@ -567,7 +423,7 @@ Measured by forcing -12348 (`H264_Baseline_3_0` at 1000x1000) through a `GStream
 
 ## gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch
 
-**Target:** `gst-plugins-good-1.28.5`, `sys/osxaudio/gstosxcoreaudiohal.c`
+**Target:** `gst-plugins-good-1.28.7`, `sys/osxaudio/gstosxcoreaudiohal.c`
 **Applied to:** libgstosxaudio (osxaudiosink)
 
 `gst_core_audio_initialize_impl()` lowers `kAudioDevicePropertyBufferFrameSize` to the ring buffer's own packet — `latency-time` × rate, 441 frames at 44.1 kHz — from every ring buffer acquire, i.e. once per media element per load. That size is handed to every audio unit in the process that drives the same device, and to nothing else (measured on 10.9: a unit rendering 512-frame slices is unmoved by another process setting 441, and by this process setting 441 on a different device). For the output device, WebKit is the one choosing it: `MediaSessionManagerCocoa::updateSessionState()` asks `AudioSession` for `kLowPowerVideoBufferSize` (4096 frames) for audible video, `AudioUtilities::renderQuantumSize` for Web Audio, and a 20 ms power of two while capturing. The sink overrides that per acquire (measured: with the process at 4096, an acquire puts it back to 441), so playback WebKit sized for power runs its audio I/O at ~100 wakeups a second instead of ~11.
@@ -576,9 +432,62 @@ The sink does not need the write: `gst_osx_audio_sink_io_proc()` — "HALOutput 
 
 A source keeps it. `gst_core_audio_initialize()` sizes `recBufferList` from the size it reads back, so a source asks for the packet it wants; its device is an input device, which no other unit in a WebKit process drives.
 
+## gst-plugins-good-adaptivedemux2-uri-source-transfers.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/downloadhelper.c`, `downloadhelper.h`, `gstadaptivedemux.c`, `gstadaptivedemuxelement.c`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`)
+
+adaptivedemux2's download helper fetches `file://` URIs through GFile and everything else through libsoup, which it dlopens; `adaptivedemux2_base_element_init` registers no element when libsoup does not load, and upstream WebKit demotes the elements regardless because their requests would bypass its network stack. This build ships no libsoup. Without it, the helper fetches every other URI with the URI source element that handles it, made by `gst_element_make_from_uri`, which in WebKit is `webkitwebsrc` and loads through the NetworkProcess like every other media request.
+
+Each such transfer links the element's src pad to a pad of its own and gives the element a private bus. The element's `http-headers` event (the structure souphttpsrc sends: status code, redirection URI, request and response headers) sets the request's status, redirect, headers, `Content-Length` and, for a partial response, the `Content-Range` start; a source without one delivers data with status 200. A range goes to the element as a BYTES seek, its stop exclusive. The element's buffers become the request's data, clipped to the range; its EOS or error message ends the transfer. Its context requests are posted through the demuxer, which is in the pipeline, so WebKit hands `webkitwebsrc` its loader. The streaming thread only records the outcome: the helper's own thread stops the element and completes the transfer, as it completes the soup and file transfers, so no transfer is completed while its request lock is held. Header-only requests (dashdemux2's clock sync) are refused, as for `file://`. With no libsoup there is no cookie jar, so `downloadhelper_add_cookie` returns before it parses anything, and the element applies the cookies of the loader it loads through.
+
+## gst-plugins-good-adaptivedemux2-hls-codec-change-new-parser.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/gstadaptivedemux-stream.c`, `gstadaptivedemux-stream.h`, `hls/gsthlsdemux.c`, `hls/gsthlsdemux-stream.c`, `hls/m3u8.c`, `hls/m3u8.h`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`)
+
+hlsdemux2 picks a variant by bitrate alone, so a master playlist offering HEVC and AVC variants (Apple's newsroom clips) switches between codecs, and a rendition change can too. Each stream feeds one parsebin for its lifetime, and the parser that parsebin plugged for the first codec refuses the next: on the newsroom clip's HEVC 720p and AVC 1080p variants, `h265parse` was offered `video/x-h264` at the first switched fragment and the stream stopped with not-negotiated. When the CODECS of the variant or rendition being switched to name other media types than the current one's (MPEG audio also keeping its MPEG-1 or MPEG-2/4 kind), or either names none, the stream's next download goes to a new parsebin: the old one is stopped between downloads, which removes its pads, and the new one's pads link to the stream's tracks as `match_parsebin_to_track` already links a parsebin's replacement pads; decodebin3 replugs the decoder for the track's new caps. Measured with `playbin3` on the newsroom clip, which unpatched hlsdemux2 stops playing at the switch: 1472 of 1477 frames, the longest gap 100 ms.
+
+## gst-plugins-good-adaptivedemux2-hls-date-ranges.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/hls/gsthlsdemux.c`, `hls/m3u8.c`, `hls/m3u8.h`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the codec-change patch
+
+hlsdemux2's playlist parser skips `EXT-X-DATERANGE`, the HLS tag that carries timed metadata outside the media segments (ad markers, chapter and program boundaries). AVFoundation reports each one as a `com.apple.quicktime.HLS` metadata cue, and WebKit's player builds the same cues from an element message. The parser keeps each range by `ID` (a later tag with the same ID replaces it): `CLASS`, `START-DATE`, `END-DATE`, `DURATION`, `END-ON-NEXT` and the `X-` client attributes. After each variant playlist update the demuxer posts an `hls-date-ranges` element message holding them, each placed in stream time through the `EXT-X-PROGRAM-DATE-TIME` of the last segment dated at or before its start. Its duration is `DURATION`, else `END-DATE` minus `START-DATE`, else for `END-ON-NEXT=YES` the distance to the next range of its class.
+
+## gst-plugins-good-adaptivedemux2-hls-rendition-tags.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/hls/gsthlsdemux.c`, `hls/gsthlsdemux.h`, `hls/m3u8.c`, `hls/m3u8.h`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the date-ranges patch
+
+hlsdemux2 tags the track of an `EXT-X-MEDIA` rendition with its `LANGUAGE` and flags a `DEFAULT` one for selection, and drops its `NAME` and `CHARACTERISTICS`. A player labels the track with the name, and derives its kind from the characteristics (`public.accessibility.describes-video` is a description track, `public.accessibility.transcribes-spoken-dialog` captions, and so on), as AVFoundation does for the same playlist. The parser keeps `CHARACTERISTICS`; the track's tags carry the name as `GST_TAG_TITLE` and the characteristics as the string tag `hls-characteristics`, which the element registers.
+
+## gst-plugins-good-adaptivedemux2-hls-track-order.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/hls/gsthlsdemux.c`, `hls/gsthlsdemux.h`, `hls/gsthlsdemux-stream.c`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the rendition-tags patch
+
+A period's stream collection lists its tracks in the order the demuxer creates them. hlsdemux2 creates a rendition's track when it sets up that rendition's stream, but the variant stream's own tracks -- its video, and the rendition it carries without a URI, usually the `DEFAULT` audio -- only once its first fragment has been parsed. A master playlist declaring English (in the variant), French and Spanish audio therefore yields French, Spanish, video, English, and a player presenting the collection's audio tracks in order lists the default rendition last; AVFoundation lists a media selection group's options as the playlist declares them. After adding a rendition stream's track and after creating the variant stream's tracks, the demuxer sorts the period's tracks by the position of their rendition in the master playlist (matching each track's stream id with the one the rendition's track is created with), leaving the tracks of no rendition first in their existing order.
+
+## gst-plugins-good-adaptivedemux2-metadata-tracks.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/gstadaptivedemux.c`, `gstadaptivedemux-private.h`, `gstadaptivedemux-period.c`, `hls/gsthlsdemux-stream.c`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the track-order patch
+
+An MPEG-TS variant can carry timed metadata, ID3 tags in a stream of type 0x15, which hlsdemux2 announces as a metadata track of its stream collection. adaptivedemux2 cannot output it: `gst_adaptive_demux_output_slot_new` has pad templates for video, audio and subtitle tracks only and reaches `g_assert_not_reached` for any other type, so an application selecting the track aborts the process. Its default selection (`gst_adaptive_demux_period_select_default_tracks`) picks one video, audio and text track, where decodebin3 selects one stream of every known type, metadata included, so a TS file played through playbin3 exposes its ID3 stream and the same stream inside HLS does not. The element gets a `metadata_%02u` pad template and output slots for metadata tracks, and its default selection also picks a metadata track.
+
+`gst_hls_demux_stream_create_tracks` gives each track of a variant stream the caps the master playlist's `CODECS` give its stream type. `CODECS` never describes timed metadata, so the metadata track's `GstStream` has no caps and an application cannot tell an ID3 track from other metadata. A metadata track the playlist gives no caps takes the caps of the stream it is demuxed from, which the demuxer's stream collection announces.
+
+## gst-plugins-good-adaptivedemux2-container-track-id.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/gstadaptivedemux-track.c`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the metadata-tracks patch
+
+qtdemux tags each stream with `GST_TAG_CONTAINER_SPECIFIC_TRACK_ID`, the `track_ID` its `moov` gives it, and a player presents that as the track's ID (WebKit's `AudioTrack.id`, as MSE requires for SourceBuffer tracks). A track of an adaptive demuxer is fed by many containers -- every fragment, every variant it switches to, every rendition -- so the tag names none of them: the HLS renditions of a master playlist, each its own fMP4 with `track_ID` 1, all reached the page as track "1", and a variant switch could change a track's ID mid-stream. A track drops the tag from the tag events it outputs, leaving the player to identify the track by the stream it is.
+
 ## gst-plugins-bad-vtdec-completion-order.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtdec.c`, `sys/applemedia/vtdec.h`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtdec.c`, `sys/applemedia/vtdec.h`
 **Applied to:** libgstapplemedia (`vtdec`, `vtdec_hw`)
 
 VideoToolbox uses asynchronous submission, which reports malformed Annex B input as a native decode error on 10.9. Every submission records its `GstVideoCodecFrame` identity in submission order. Callbacks mark completion under the queue mutex; only the completed prefix enters the existing PTS-sorted output queue. Error and dropped-frame callbacks complete their positions too. The submission call holds a reference while checking callback ownership because 10.9 can both invoke the error callback and return an error for the same frame.
@@ -587,14 +496,14 @@ Native completion ordering and bitstream display ordering are separate stages. `
 
 ## gst-plugins-bad-vtdec-h264-sps-colorimetry.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtdec.c`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtdec.c`
 **Applied to:** libgstapplemedia (`vtdec`, `vtdec_hw`)
 
 H.264 SPS VUI colour descriptions populate decoder output colorimetry when input caps leave it unspecified. The mappings and precedence follow h264parse: explicit caps take precedence, and ISO matrix, transfer, primaries and full-range fields describe the compressed samples.
 
 ## gst-plugins-bad-vtenc-h264-output-colorimetry.patch
 
-**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtenc.c`
+**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtenc.c`
 **Applied to:** libgstapplemedia (H.264 encoder output)
 
 The encoder output state describes the SPS VUI written by VideoToolbox, using h264parse's ISO colour mappings. On 10.9, VideoToolbox rejects post-10.9 colour-property values; input colour metadata therefore does not necessarily describe the encoded SPS. Parsing the generated AVC configuration record before publishing output caps gives WebCodecs `decoderConfig.colorSpace` the encoded colour description. The input colour state supplies the values when the SPS contains no mapped description.
@@ -631,7 +540,7 @@ integration.
 
 ## gst-plugins-bad-mpegtsmux-eac3.patch
 
-**Target:** gst-plugins-bad 1.28.5, `gst/mpegtsmux`.
+**Target:** gst-plugins-bad 1.28.7, `gst/mpegtsmux`.
 
 The generic transport muxer accepts framed EAC3 alongside its other supported
 codecs. Both muxers use the shared 0x87 stream mapping, private PES header and
@@ -641,7 +550,7 @@ channel metadata comes from the encoded frames.
 
 ## gst-plugins-bad-atsc-rrt-fields.patch
 
-**Target:** gst-plugins-bad 1.28.5, `gst-libs/gst/mpegts/gst-atsc-section.c`.
+**Target:** gst-plugins-bad 1.28.7, `gst-libs/gst/mpegts/gst-atsc-section.c`.
 
 The RRT serializer writes the dimension count between region names and dimension
 records. Each record serializes its own name, matching the advertised name length

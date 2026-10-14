@@ -3,9 +3,9 @@
 # remains active until every native callback has completed; a flush drain
 # resumes a loop that stopped on an error only after that loop has finished pausing.
 # See patches/README.md.
---- a/sys/applemedia/vtdec.h	2026-09-12 18:36:34.000000000 -0400
-+++ b/sys/applemedia/vtdec.h	2026-09-12 18:36:34.000000000 -0400
-@@ -67,6 +67,9 @@
+--- a/sys/applemedia/vtdec.h
++++ b/sys/applemedia/vtdec.h
+@@ -68,6 +68,9 @@
    gboolean is_flushing;
    gboolean is_draining;
    gboolean pause_task;
@@ -15,9 +15,9 @@
    
    /* protected by the STREAM_LOCK */
    GstFlowReturn downstream_ret;
---- a/sys/applemedia/vtdec.c	2026-09-12 18:36:34.000000000 -0400
-+++ b/sys/applemedia/vtdec.c	2026-09-12 18:36:34.000000000 -0400
-@@ -328,6 +328,7 @@
+--- a/sys/applemedia/vtdec.c
++++ b/sys/applemedia/vtdec.c
+@@ -330,6 +330,7 @@
  
    vtdec->is_flushing = FALSE;
    vtdec->is_draining = FALSE;
@@ -25,7 +25,7 @@
    vtdec->downstream_ret = GST_FLOW_OK;
    g_atomic_int_set (&vtdec->require_reset, FALSE);
    vtdec->reorder_queue = gst_vec_deque_new (0);
-@@ -434,7 +435,7 @@
+@@ -438,7 +439,7 @@
      gboolean is_flushing = vtdec->is_flushing;
  
      frame = gst_vec_deque_pop_head (vtdec->reorder_queue);
@@ -34,7 +34,7 @@
      g_mutex_unlock (&vtdec->queue_mutex);
  
      /* we need to check this in case dpb_size=0 (jpeg for
-@@ -494,6 +495,11 @@
+@@ -498,6 +499,11 @@
      GST_DEBUG_OBJECT (vtdec, "pausing output task because of downstream: %s",
          gst_flow_get_name (ret));
      gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (decoder));
@@ -46,7 +46,7 @@
    }
  }
  
-@@ -511,7 +517,7 @@
+@@ -515,7 +521,7 @@
  {
    g_mutex_lock (&vtdec->queue_mutex);
    vtdec->pause_task = TRUE;
@@ -55,7 +55,7 @@
    g_mutex_unlock (&vtdec->queue_mutex);
  
    gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (vtdec));
-@@ -1811,10 +1817,13 @@
+@@ -1856,12 +1862,15 @@
    }
  
    g_mutex_lock (&vtdec->queue_mutex);
@@ -72,7 +72,9 @@
 -    GST_DEBUG_OBJECT (vtdec, "setting draining flag");
 -    vtdec->is_draining = TRUE;
    }
-@@ -1835,6 +1844,20 @@
+   g_cond_signal (&vtdec->queue_cond);
+   g_mutex_unlock (&vtdec->queue_mutex);
+@@ -1880,6 +1889,20 @@
          (int) vt_status);
    }
  

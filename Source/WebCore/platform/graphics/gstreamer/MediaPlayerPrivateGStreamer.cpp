@@ -30,8 +30,8 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "AudioTrackPrivateGStreamer.h"
-#include "AdaptiveStreamGStreamer.h" // AQUAWEBKIT: legacy adaptive-demux duration semantics.
 #include "GStreamerAudioMixer.h"
+#include "AdaptiveStreamGStreamer.h" // AQUAWEBKIT: see setLiveStream().
 #include "GStreamerCaptureDeviceManager.h"
 #include "GStreamerCommon.h"
 #include "GStreamerQuirks.h"
@@ -236,6 +236,7 @@ void MediaPlayerPrivateGStreamer::tearDown(bool clearMediaPlayer)
 #endif
 
     m_sinkTaskQueue.startAborting();
+    m_streamCollectionTaskQueue.startAborting(); // AQUAWEBKIT: see handleStreamCollectionMessage().
 
     m_audioTracks.clear();
     m_videoTracks.clear();
@@ -523,7 +524,9 @@ void MediaPlayerPrivateGStreamer::play()
         if (player) {
             if (isSeamlessSeekingEnabled() && !m_initialSegmentSeekDone) {
                 GST_DEBUG_OBJECT(pipeline(), "Scheduling initial SEGMENT seek");
-                doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true, true);
+                // AQUAWEBKIT: the seek flushes (see doSeek()), so it never waits for a read and is sent in order with later seeks.
+                // doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true, true);
+                doSeek(SeekTarget { playbackPosition() }, m_playbackRate, false, true);
                 m_initialSegmentSeekDone = true;
             } else
                 updateDownloadBufferingFlag();
@@ -631,7 +634,11 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
         g_object_set(m_downloadBuffer.get(), "high-percent", 0, nullptr);
     }
 
-    auto flag = (player->isLooping() && isSegment) ? GST_SEEK_FLAG_SEGMENT : GST_SEEK_FLAG_FLUSH;
+    // AQUAWEBKIT: every seek flushes, and one of a seamless loop also carries the segment flag (see below). A non-flushing
+    // seek returns once the demuxer's current read does, which in pull mode (a downloadbuffer feeds the demuxer under
+    // playbin3) can wait for data webkitwebsrc receives on the main thread, and a newer seek can overtake it.
+    // auto flag = (player->isLooping() && isSegment) ? GST_SEEK_FLAG_SEGMENT : GST_SEEK_FLAG_FLUSH;
+    auto flag = GST_SEEK_FLAG_FLUSH;
     if (paused() && !m_isEndReached && player->isLooping()) {
         GST_DEBUG_OBJECT(pipeline(), "Segment non-flushing seek attempt not supported on a paused pipeline, enabling flush");
         m_isSegmentSeekAllowed = false;
@@ -640,6 +647,10 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
     auto seekFlags = static_cast<GstSeekFlags>(flag | GST_SEEK_FLAG_ACCURATE);
     if (flag == GST_SEEK_FLAG_FLUSH) // AQUAWEBKIT: a flush discards the queued loop pass, see queueLoopPass().
         discardQueuedLoopPass();
+    // AQUAWEBKIT: a flushing seek of a seamless loop carries the segment flag itself, the protocol GStreamer documents for
+    // looping, instead of being followed by the non-flushing "resume" seek below.
+    if (flag == GST_SEEK_FLAG_FLUSH && isSeamlessSeekingEnabled())
+        seekFlags = static_cast<GstSeekFlags>(seekFlags | GST_SEEK_FLAG_SEGMENT);
 
     // Seeking towards the end is not well supported in oggdemux, sometimes it receives EOS
     // while trying to retrieve a chain and thus disables seeking in push mode.
@@ -699,12 +710,15 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
     }
 
     auto result = gst_element_send_event(m_pipeline.get(), event.leakRef());
+    /* AQUAWEBKIT: see the segment flag of a flushing seek above.
     if (isSegment || !isSeamlessSeekingEnabled() || !result)
         return result;
 
     GST_DEBUG_OBJECT(m_pipeline.get(), "Resuming segment playback");
     seekFlags = static_cast<GstSeekFlags>(GST_SEEK_FLAG_SEGMENT | GST_SEEK_FLAG_ACCURATE);
     return gst_element_send_event(m_pipeline.get(), gst_event_new_seek(rate, GST_FORMAT_TIME, seekFlags, GST_SEEK_TYPE_SET, seekStart, GST_SEEK_TYPE_SET, seekStop));
+    */
+    return result; // AQUAWEBKIT: as above.
 }
 
 Ref<MediaTimePromise> MediaPlayerPrivateGStreamer::seekToTarget(const SeekTarget& inTarget)
@@ -1093,7 +1107,7 @@ unsigned long long MediaPlayerPrivateGStreamer::totalBytes() const
     if (gst_element_query_duration(m_source.get(), fmt, &length)) {
         GST_INFO_OBJECT(pipeline(), "totalBytes %" G_GINT64_FORMAT, length);
         m_totalBytes = static_cast<unsigned long long>(length);
-        // AQUAWEBKIT: Segment byte lengths do not determine the duration of an adaptive stream.
+        // AQUAWEBKIT: see setLiveStream().
         // m_isLiveStream = !length;
         setLiveStream(!length);
         return m_totalBytes;
@@ -1129,10 +1143,17 @@ unsigned long long MediaPlayerPrivateGStreamer::totalBytes() const
 
     GST_INFO_OBJECT(pipeline(), "totalBytes %" G_GINT64_FORMAT, length);
     m_totalBytes = static_cast<unsigned long long>(length);
-    // AQUAWEBKIT: Segment byte lengths do not determine the duration of an adaptive stream.
+    // AQUAWEBKIT: see setLiveStream().
     // m_isLiveStream = !length;
     setLiveStream(!length);
     return m_totalBytes;
+}
+
+// AQUAWEBKIT: an adaptive stream is live by its playlist, which the byte length of the playlist response
+// does not tell; the demuxer's answer takes precedence.
+void MediaPlayerPrivateGStreamer::setLiveStream(bool isLiveStream) const
+{
+    m_isLiveStream = adaptiveStreamIsLive(m_pipeline.get()).value_or(isLiveStream);
 }
 
 std::optional<bool> MediaPlayerPrivateGStreamer::isCrossOrigin(const SecurityOrigin& origin) const
@@ -1253,7 +1274,14 @@ MediaPlayerPrivateGStreamer::ChangePipelineStateResult MediaPlayerPrivateGStream
     GST_DEBUG_OBJECT(pipeline(), "Changing state from %s to %s with %s pending", gst_state_get_name(currentState),
         gst_state_get_name(newState), gst_state_get_name(pending));
 
+    // change = gst_element_set_state(m_pipeline.get(), newState);
+    // AQUAWEBKIT: see handleStreamCollectionMessage().
+    bool deactivatesPads = newState <= GST_STATE_READY;
+    if (deactivatesPads)
+        m_streamCollectionTaskQueue.startAborting();
     change = gst_element_set_state(m_pipeline.get(), newState);
+    if (deactivatesPads) // AQUAWEBKIT: closes the abort above.
+        m_streamCollectionTaskQueue.finishAborting();
     GST_DEBUG_OBJECT(pipeline(), "Changing state returned %s", gst_state_change_return_get_name(change));
 
     GstState pausedOrPlaying = newState == GST_STATE_PLAYING ? GST_STATE_PAUSED : GST_STATE_PLAYING;
@@ -1529,12 +1557,6 @@ void MediaPlayerPrivateGStreamer::handleHLSID3Sample(GRefPtr<GstSample>&& sample
 }
 #endif // AQUAWEBKIT: closes the definition above.
 
-// AQUAWEBKIT: Legacy adaptive demuxers describe live duration independently of manifest and segment sizes.
-void MediaPlayerPrivateGStreamer::setLiveStream(bool isLiveStream) const
-{
-    m_isLiveStream = legacyAdaptiveStreamIsLive(m_pipeline.get()).value_or(isLiveStream);
-}
-
 MediaTime MediaPlayerPrivateGStreamer::platformDuration() const
 {
     if (!m_pipeline)
@@ -1551,8 +1573,8 @@ MediaTime MediaPlayerPrivateGStreamer::platformDuration() const
     if (GST_STATE(m_pipeline.get()) < GST_STATE_PAUSED)
         return MediaTime::invalidTime();
 
-    // AQUAWEBKIT: A loaded adaptive manifest supplies authoritative live/VOD state.
-    if (auto isLive = legacyAdaptiveStreamIsLive(m_pipeline.get()))
+    // AQUAWEBKIT: see setLiveStream().
+    if (auto isLive = adaptiveStreamIsLive(m_pipeline.get()))
         m_isLiveStream = *isLive;
     int64_t duration = 0;
     if (!gst_element_query_duration(m_pipeline.get(), GST_FORMAT_TIME, &duration) || !GST_CLOCK_TIME_IS_VALID(duration)) {
@@ -1910,6 +1932,12 @@ void MediaPlayerPrivateGStreamer::playbin3SendSelectStreamsIfAppropriate()
         streams = g_list_append(streams, g_strdup(track->gstStreamId().utf8().data()));
     }
 
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
+    // AQUAWEBKIT: see m_id3MetadataStreamIds.
+    for (auto& streamId : m_id3MetadataStreamIds)
+        streams = g_list_append(streams, g_strdup(streamId.data()));
+#endif // AQUAWEBKIT: closes the metadata streams above.
+
     if (!streams)
         return;
 
@@ -1939,7 +1967,9 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
     for (auto& track : m_textTracks.values())
         track->setActive(false);
 
-    auto scopeExit = makeScopeExit([oldHasAudio, oldHasVideo, protectedThis = ThreadSafeWeakPtr { *this }, this] {
+    bool hasAudioOrVideoStream = false; // AQUAWEBKIT: see the end of the scope exit below.
+    // auto scopeExit = makeScopeExit([oldHasAudio, oldHasVideo, protectedThis = ThreadSafeWeakPtr { *this }, this] {
+    auto scopeExit = makeScopeExit([oldHasAudio, oldHasVideo, &hasAudioOrVideoStream, protectedThis = ThreadSafeWeakPtr { *this }, this] { // AQUAWEBKIT: as above.
         RefPtr self = protectedThis.get();
         if (!self)
             return;
@@ -1966,8 +1996,32 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
             player->mediaEngineUpdated();
         }
 
+        /* AQUAWEBKIT: see below.
         if (!m_hasAudio && !m_hasVideo)
             didEnd();
+        */
+        // AQUAWEBKIT: a resource whose streams, before it ever reached metadata, include no audio or video is not media
+        // this element plays. decodebin3 leaves a stream of unknown type pending without an error, by design, and the
+        // legacy playbin reports such a resource with a MISSING_PLUGIN error (see handleMessage()). The failure stops the
+        // ready state from advancing at once. Otherwise playback ends when the player no longer has audio or video
+        // (webkit.org/b/254529). Failing or ending runs after the collection handler's task, because the element's
+        // reaction can change the pipeline's state, which aborts that task's wait (see handleStreamCollectionMessage()).
+        bool isUnsupported = !m_hasAudio && !m_hasVideo && !hasAudioOrVideoStream && !isMediaSource() && !isMediaStreamPlayer() && m_readyState < MediaPlayer::ReadyState::HaveMetadata;
+        if (isUnsupported)
+            m_didErrorOccur = true;
+        if (isUnsupported || (!m_hasAudio && !m_hasVideo && (oldHasAudio || oldHasVideo))) {
+            callOnMainThread([protectedThis, isUnsupported] {
+                RefPtr self = protectedThis.get();
+                if (!self)
+                    return;
+                if (isUnsupported) {
+                    self->loadingFailed(MediaPlayer::NetworkState::FormatError, MediaPlayer::ReadyState::HaveNothing, true);
+                    return;
+                }
+                if (!self->m_hasAudio && !self->m_hasVideo)
+                    self->didEnd();
+            });
+        }
     });
 
     if (!m_streamCollection)
@@ -1975,6 +2029,7 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
 
     using TextTrackPrivateGStreamer = InbandTextTrackPrivateGStreamer;
 #define CREATE_OR_SELECT_TRACK(type, Type) G_STMT_START { \
+        TrackID streamId = parsedStreamId.value_or(type##TrackIndex); /* AQUAWEBKIT: see parsedStreamId. */ \
         bool isTrackCached = m_##type##Tracks.contains(streamId);       \
         if (!isTrackCached) { \
             auto track = Type##TrackPrivateGStreamer::create(*this, type##TrackIndex, WTF::move(stream)); \
@@ -1986,7 +2041,8 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
         if (isTrackCached)                                              \
             track->updateConfigurationFromCaps(WTF::move(caps));          \
         auto trackId = track->streamId();                               \
-        if (!type##TrackIndex) { \
+        /* if (!type##TrackIndex) { */ \
+        if (type##TrackIndex == default##Type##TrackIndex) { /* AQUAWEBKIT: see default##Type##TrackIndex. */ \
             m_wanted##Type##StreamId = trackId;                         \
             m_requested##Type##StreamId = trackId;                      \
             track->setActive(true);                                     \
@@ -1999,16 +2055,49 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
     unsigned audioTrackIndex = 0;
     unsigned videoTrackIndex = 0;
     unsigned textTrackIndex = 0;
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
+    m_id3MetadataStreamIds.clear(); // AQUAWEBKIT: see m_id3MetadataStreamIds.
+#endif // AQUAWEBKIT: closes the reset above.
     unsigned length = gst_stream_collection_get_size(m_streamCollection.get());
+    // AQUAWEBKIT: of each type, the track the collection flags GST_STREAM_FLAG_SELECT, an HLS DEFAULT rendition, starts
+    // out selected, as AVFoundation selects it; without one, the first.
+    unsigned defaultAudioTrackIndex = 0, defaultVideoTrackIndex = 0, defaultTextTrackIndex = 0;
+    {
+        unsigned audioIndex = 0, videoIndex = 0, textIndex = 0;
+        bool hasDefaultAudio = false, hasDefaultVideo = false, hasDefaultText = false;
+        for (unsigned i = 0; i < length; i++) {
+            GRefPtr stream = gst_stream_collection_get_stream(m_streamCollection.get(), i);
+            auto type = gst_stream_get_stream_type(stream.get());
+            bool isDefault = gst_stream_get_stream_flags(stream.get()) & GST_STREAM_FLAG_SELECT;
+            auto noteIndex = [isDefault](unsigned& index, bool& hasDefault, unsigned& defaultIndex) {
+                if (isDefault && !hasDefault) {
+                    hasDefault = true;
+                    defaultIndex = index;
+                }
+                index++;
+            };
+            if (type & GST_STREAM_TYPE_AUDIO)
+                noteIndex(audioIndex, hasDefaultAudio, defaultAudioTrackIndex);
+            else if (type & GST_STREAM_TYPE_VIDEO && player && player->isVideoPlayer())
+                noteIndex(videoIndex, hasDefaultVideo, defaultVideoTrackIndex);
+            else if (type & GST_STREAM_TYPE_TEXT)
+                noteIndex(textIndex, hasDefaultText, defaultTextTrackIndex);
+        }
+    } // AQUAWEBKIT: closes the scan above.
     GST_DEBUG_OBJECT(pipeline(), "Received STREAM_COLLECTION message with upstream id \"%s\" from %" GST_PTR_FORMAT " defining the following streams:", gst_stream_collection_get_upstream_id(m_streamCollection.get()), collectionOwner.get());
     for (unsigned i = 0; i < length; i++) {
         GRefPtr stream = gst_stream_collection_get_stream(m_streamCollection.get(), i);
         RELEASE_ASSERT(stream);
-        auto streamId = getStreamIdFromStream(stream).value_or(0);
+        // AQUAWEBKIT: a stream-id without a numeric part (hlsdemux2 names its tracks, "audio-English") keys the track
+        // by its index among the tracks of its type, the ID TrackPrivateBaseGStreamer gives the track itself.
+        // auto streamId = getStreamIdFromStream(stream).value_or(0);
+        auto parsedStreamId = getStreamIdFromStream(stream);
         auto type = gst_stream_get_stream_type(stream.get());
         GRefPtr caps = adoptGRef(gst_stream_get_caps(stream.get()));
+        hasAudioOrVideoStream |= !!(type & (GST_STREAM_TYPE_AUDIO | GST_STREAM_TYPE_VIDEO)); // AQUAWEBKIT: see the end of the scope exit above.
 
-        GST_DEBUG_OBJECT(pipeline(), "#%u %s track with ID %" PRIu64 ": %" GST_PTR_FORMAT, i, gst_stream_type_get_name(type), streamId, stream.get());
+        // GST_DEBUG_OBJECT(pipeline(), "#%u %s track with ID %" PRIu64 ": %" GST_PTR_FORMAT, i, gst_stream_type_get_name(type), streamId, stream.get());
+        GST_DEBUG_OBJECT(pipeline(), "#%u %s track with ID %" PRIu64 ": %" GST_PTR_FORMAT, i, gst_stream_type_get_name(type), parsedStreamId.value_or(0), stream.get()); // AQUAWEBKIT: as above.
 
         if (type & GST_STREAM_TYPE_AUDIO) {
             CREATE_OR_SELECT_TRACK(audio, Audio);
@@ -2017,8 +2106,13 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
             CREATE_OR_SELECT_TRACK(video, Video);
         else if (type & GST_STREAM_TYPE_TEXT)
             CREATE_OR_SELECT_TRACK(text, Text);
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
+        // AQUAWEBKIT: see m_id3MetadataStreamIds.
+        else if (type & GST_STREAM_TYPE_METADATA && caps && !gst_caps_is_empty(caps.get()) && gst_structure_has_name(gst_caps_get_structure(caps.get(), 0), "meta/x-id3"))
+            m_id3MetadataStreamIds.append(CString(gst_stream_get_stream_id(stream.get())));
+#endif // AQUAWEBKIT: closes the metadata branch above.
         else
-            GST_WARNING("Unknown track type found for stream %" PRIu64 "", streamId);
+            GST_WARNING("Unknown track type found for stream %" PRIu64 "", parsedStreamId.value_or(0)); // AQUAWEBKIT: see parsedStreamId.
     }
 #undef CREATE_OR_SELECT_TRACK
 }
@@ -2051,7 +2145,19 @@ void MediaPlayerPrivateGStreamer::handleStreamCollectionMessage(GstMessage* mess
     };
 
     GST_DEBUG_OBJECT(pipeline(), "Updating tracks");
-    callOnMainThreadAndWait(WTF::move(callback));
+    // callOnMainThreadAndWait(WTF::move(callback));
+    // AQUAWEBKIT: regular playback runs on playbin3 (WEBKIT_GST_USE_PLAYBIN3, set by the port's GStreamer environment),
+    // so a collection arrives on the streaming thread of the element posting it, which holds its pad's stream lock while
+    // it waits here. A state change that deactivates pads waits for that lock, so changePipelineState() aborts the wait
+    // first, as upstream's AbortableTaskQueue protocol does for its other main-thread waits.
+    if (isMainThread())
+        callback();
+    else {
+        m_streamCollectionTaskQueue.enqueueTaskAndWait<AbortableTaskQueue::Void>([callback = WTF::move(callback)] {
+            callback();
+            return AbortableTaskQueue::Void();
+        });
+    }
     GST_DEBUG_OBJECT(pipeline(), "Updating tracks DONE");
 }
 
@@ -2469,16 +2575,6 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
             gst_mpegts_section_unref(section);
         } else
 #endif
-#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
-        // AQUAWEBKIT: HLS timed metadata, see HLSTimedMetadataGStreamer::handleDateRanges().
-        if (gst_structure_has_name(structure, "hls-date-ranges")) {
-            if (RefPtr player = m_player.get()) {
-                if (!m_hlsTimedMetadata)
-                    m_hlsTimedMetadata = makeUnique<HLSTimedMetadataGStreamer>();
-                m_hlsTimedMetadata->handleDateRanges(structure, *player, m_textTracks.size(), m_isSeeking);
-            }
-        } else
-#endif // AQUAWEBKIT: closes the date ranges branch above.
         if (gst_structure_has_name(structure, "http-headers")) {
             GST_DEBUG_OBJECT(pipeline(), "Processing HTTP headers: %" GST_PTR_FORMAT, structure);
             if (auto uri = gstStructureGetString(structure, "uri"_s)) {
@@ -2513,11 +2609,11 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
                 } else
                     contentLength = *contentLengthFromResponse;
                 if (!isRangeRequest) {
-                    /* AQUAWEBKIT: Adaptive manifest state takes precedence over HTTP response size.
+                    /* AQUAWEBKIT: see setLiveStream().
                     m_isLiveStream = !contentLength;
                     if (*m_isLiveStream && WEBKIT_IS_WEB_SRC(m_source.get()) && webKitSrcIsSeekable(WEBKIT_WEB_SRC_CAST(m_source.get())))
                         m_isLiveStream = false;
-                    */ // AQUAWEBKIT: use the adaptive manifest state when available.
+                    */ // AQUAWEBKIT: as above.
                     setLiveStream(!contentLength && !(WEBKIT_IS_WEB_SRC(m_source.get()) && webKitSrcIsSeekable(WEBKIT_WEB_SRC_CAST(m_source.get()))));
                     GST_INFO_OBJECT(pipeline(), "%s stream detected", m_isLiveStream.value_or(false) ? "Live" : "Non-live");
                     updateDownloadBufferingFlag();
@@ -2817,6 +2913,11 @@ void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
     g_signal_connect(parsebin, "autoplug-continue", G_CALLBACK(+[](GstElement*, GstPad*, GstCaps* caps, gpointer userData) -> gboolean {
         auto player = reinterpret_cast<MediaPlayerPrivateGStreamer*>(userData);
         player->determineContainerTypeFromCaps(caps);
+        // AQUAWEBKIT: the text sink takes WebVTT as it is (TextSinkGStreamer.cpp), as playsink takes the subtitle
+        // formats playbin3 names to uridecodebin3; parsing it to text/x-raw would discard its STYLE blocks and
+        // cue classes, which webvttenc cannot write back.
+        if (!gst_caps_is_empty(caps) && gst_structure_has_name(gst_caps_get_structure(caps, 0), "application/x-subtitle-vtt"))
+            return FALSE;
         return TRUE;
     }), this);
 
@@ -2894,39 +2995,6 @@ void MediaPlayerPrivateGStreamer::configureUriDecodebin2(GstElement* element)
         return TRUE;
     }), this);
 
-#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
-    // AQUAWEBKIT: HLS timed metadata, see HLSTimedMetadataGStreamer::linkID3Pad().
-    g_signal_connect_data(element, "pad-added", G_CALLBACK(+[](GstElement*, GstPad* pad, gpointer userData) {
-        RefPtr player = static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(userData)->get();
-        if (!player || !player->pipeline())
-            return;
-        HLSTimedMetadataGStreamer::linkID3Pad(player->pipeline(), pad, ThreadSafeWeakPtr { *player });
-    }), new ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> { *this }, [](gpointer data, GClosure*) {
-        delete static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(data);
-    }, static_cast<GConnectFlags>(0));
-#endif // AQUAWEBKIT: closes the timed metadata hook above.
-
-#if ENABLE(ENCRYPTED_MEDIA)
-    // AQUAWEBKIT: decodebin2 chooses among this port's two CENC decryptors and its
-    // Widevine video decoder the same way parsebin does, so it needs the same key-system filter.
-    // autoplug-select chains to the next handler while one answers "try", so this sits alongside
-    // the Thunder parser filter below.
-    g_signal_connect(element, "autoplug-select", G_CALLBACK(+[](GstElement*, GstPad*, GstCaps*, GstElementFactory* factory, MediaPlayerPrivateGStreamer* player) -> unsigned {
-        static auto tryAutoPlug = *gstGetAutoplugSelectResult("try"_s);
-        static auto skipAutoPlug = *gstGetAutoplugSelectResult("skip"_s);
-        auto name = StringView::fromLatin1(gst_plugin_feature_get_name(GST_PLUGIN_FEATURE_CAST(factory)));
-        if (!isKeySystemBoundDecryptor(name))
-            return tryAutoPlug;
-
-        if (!player->isCDMAttached())
-            player->waitForCDMAttachment();
-        RefPtr cdmInstance = player->m_cdmInstance;
-        if (!cdmInstance || !keySystemBoundDecryptorMatches(name, cdmInstance->keySystem()))
-            return skipAutoPlug;
-        return tryAutoPlug;
-    }), this);
-#endif
-
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
     if (CDMFactoryThunder::singleton().supportedKeySystems().isEmpty())
         return;
@@ -2965,6 +3033,23 @@ void MediaPlayerPrivateGStreamer::configureElement(GstElement* element)
     // the webkitthunderparser.
     if (startsWith(name.span(), "uridecodebin"_s) && m_isLegacyPlaybin)
         configureUriDecodebin2(element);
+
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
+    // AQUAWEBKIT: HLS timed metadata, see HLSTimedMetadataGStreamer::linkID3Pad().
+    if (startsWith(name.span(), "uridecodebin"_s)) {
+        g_signal_connect_data(element, "pad-added", G_CALLBACK(+[](GstElement*, GstPad* pad, gpointer userData) {
+            RefPtr player = static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(userData)->get();
+            if (!player || !player->pipeline())
+                return;
+            HLSTimedMetadataGStreamer::linkID3Pad(player->pipeline(), pad, ThreadSafeWeakPtr { *player });
+        }), new ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> { *this }, [](gpointer data, GClosure*) {
+            delete static_cast<ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>*>(data);
+        }, static_cast<GConnectFlags>(0));
+        g_signal_connect(element, "pad-removed", G_CALLBACK(+[](GstElement*, GstPad* pad, gpointer) {
+            HLSTimedMetadataGStreamer::unlinkID3Pad(pad);
+        }), nullptr);
+    }
+#endif // AQUAWEBKIT: closes the timed metadata hook above.
 
     // In case of playbin3 with <video ... preload="auto">, instantiate downloadbuffer element,
     // otherwise the playbin3 would instantiate a queue element instead. When playing blob URIs,
@@ -3813,6 +3898,29 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
     g_signal_connect_swapped(bus.get(), "sync-message::need-context", G_CALLBACK(+[](MediaPlayerPrivateGStreamer* player, GstMessage* message) {
         player->handleNeedContextMessage(message);
     }), this);
+
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
+    // AQUAWEBKIT: HLS timed metadata, see HLSTimedMetadataGStreamer::handleDateRanges(). The demuxer posts a
+    // playlist's date ranges before it fetches the fragments whose ID3 samples reach the main thread through
+    // callOnMainThread; queued the same way, their cues are added first, as AVFoundation reports a playlist's
+    // date ranges before the samples it plays.
+    g_signal_connect_swapped(bus.get(), "sync-message::element", G_CALLBACK(+[](MediaPlayerPrivateGStreamer* player, GstMessage* message) {
+        const auto* structure = gst_message_get_structure(message);
+        if (!structure || !gst_structure_has_name(structure, "hls-date-ranges"))
+            return;
+        callOnMainThread([weakThis = ThreadSafeWeakPtr { *player }, dateRanges = GUniquePtr<GstStructure>(gst_structure_copy(structure))] {
+            RefPtr self = weakThis.get();
+            if (!self)
+                return;
+            RefPtr mediaPlayer = self->m_player.get();
+            if (!mediaPlayer)
+                return;
+            if (!self->m_hlsTimedMetadata)
+                self->m_hlsTimedMetadata = makeUnique<HLSTimedMetadataGStreamer>();
+            self->m_hlsTimedMetadata->handleDateRanges(dateRanges.get(), *mediaPlayer, self->m_textTracks.size(), self->m_isSeeking);
+        });
+    }), this);
+#endif // AQUAWEBKIT: closes the date ranges handler above.
 
     g_signal_connect_swapped(bus.get(), "message::segment-done", G_CALLBACK(+[](MediaPlayerPrivateGStreamer* player, GstMessage*) {
         callOnMainThread([weakThis = ThreadSafeWeakPtr { *player }, player] {

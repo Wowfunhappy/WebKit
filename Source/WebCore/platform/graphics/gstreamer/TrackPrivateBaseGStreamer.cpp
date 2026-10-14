@@ -345,9 +345,7 @@ void TrackDataHolder::tagsChanged()
                 GstTagList* tagsFromEvent = nullptr;
                 gst_event_parse_tag(tagEvent.get(), &tagsFromEvent);
                 tags = adoptGRef(gst_tag_list_copy(tagsFromEvent));
-                // AQUAWEBKIT: preserve rendition tags using either supported language field when later global tags arrive.
-                // auto language = getTag(tags.get(), ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
-                auto language = getLanguageCode(tags.get());
+                auto language = getTag(tags.get(), ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
                 if (language)
                     break;
             }
@@ -355,10 +353,6 @@ void TrackDataHolder::tagsChanged()
         } while (tagEvent);
     } else if (m_stream)
         tags = adoptGRef(gst_stream_get_tags(m_stream.get()));
-
-    // AQUAWEBKIT: stream-start metadata precedes pad tag events for HLS renditions.
-    if (!tags)
-        tags = hlsTrackTags(m_bestUpstreamPad);
 
     if (!tags)
         tags = adoptGRef(gst_tag_list_new_empty());

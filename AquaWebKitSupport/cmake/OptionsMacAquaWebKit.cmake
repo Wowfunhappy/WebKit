@@ -390,7 +390,7 @@ SET_AND_EXPOSE_TO_BUILD(USE_GCRYPT TRUE)
 
 
 # HTML5 <video>/<audio> via the upstream GStreamer media player instead of the
-# custom AVAssetReader pump (AVPlayer is dead on 10.9). GStreamer 1.28.5 comes from deps/build,
+# custom AVAssetReader pump (AVPlayer is dead on 10.9). GStreamer 1.28.7 comes from deps/build,
 # built for 10.9 with no symbol shims. Use the
 # software/appsink path: GL + TextureMapper + CoordinatedGraphics OFF; decoded frames reach CG via
 # ImageGStreamerCG.cpp. OptionsMacGStreamer.cmake defines the GLib::* targets + GSTREAMER_* vars from

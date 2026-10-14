@@ -3,9 +3,9 @@
 
 namespace WebCore {
 
-std::optional<bool> legacyAdaptiveStreamIsLive(GstElement* pipeline)
+std::optional<bool> adaptiveStreamIsLive(GstElement* pipeline)
 {
-    auto adaptiveType = g_type_from_name("GstAdaptiveDemux");
+    auto adaptiveType = g_type_from_name("GstAdaptiveDemux2");
     if (!pipeline || !GST_IS_BIN(pipeline) || !adaptiveType)
         return std::nullopt;
 

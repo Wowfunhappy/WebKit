@@ -54,9 +54,8 @@ public:
 
     // Kind kind() const final { return m_kind; }
     Kind kind() const final; // AQUAWEBKIT: see InbandTextTrackPrivateGStreamer.cpp.
-    // AQUAWEBKIT: a track the container marks as the one to play by default, read from the
-    // stream-start event's flags. The playbin3 path reads the same flags off the GstStream (see
-    // AudioTrackPrivateGStreamer::kind); on the legacy path they arrive on the pad's sticky event.
+    // AQUAWEBKIT: a track the container marks as the one to play by default, read from its GstStream's
+    // flags (see AudioTrackPrivateGStreamer::kind).
     bool isDefault() const final;
     TrackID id() const final;
     std::optional<String> trackUID() const final { return std::nullopt; }

@@ -53,6 +53,19 @@ WEBKIT_DEFINE_TYPE(WebKitTextCombinerPad, webkit_text_combiner_pad, GST_TYPE_GHO
 static gboolean webkitTextCombinerPadEvent(GstPad* pad, GstObject* parent, GstEvent* event)
 {
     switch (GST_EVENT_TYPE(event)) {
+    // AQUAWEBKIT: the pad links its target at its first caps, once, so the events a sparse stream
+    // sends before its first cue reach playsink, which starts playback once each of its pads has
+    // received one.
+    case GST_EVENT_CAPS: {
+        auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
+        if (combinerPad->priv->shouldProcessStickyEvents) {
+            GstCaps* caps;
+            gst_event_parse_caps(event, &caps);
+            combinerPad->priv->shouldProcessStickyEvents = false;
+            webKitTextCombinerHandleCaps(WEBKIT_TEXT_COMBINER(parent), pad, caps);
+        }
+        break;
+    } // AQUAWEBKIT: closes the caps case above.
     case GST_EVENT_TAG: {
         auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
         GstTagList* tags;

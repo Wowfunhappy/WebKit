@@ -1,0 +1,84 @@
+# hlsdemux2 tags a rendition's track with its LANGUAGE only. Its NAME becomes the title tag and its
+# CHARACTERISTICS the string tag "hls-characteristics", which the element registers, so a player
+# can label a track and derive its kind as it does for the same playlist on AVFoundation.
+#
+# Applied by build_deps with patch -p1.
+
+--- a/ext/adaptivedemux2/hls/gsthlsdemux.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux.c
+@@ -183,6 +183,12 @@
+   element_class = (GstElementClass *) klass;
+   adaptivedemux_class = (GstAdaptiveDemuxClass *) klass;
+ 
++  if (!gst_tag_exists (GST_HLS_DEMUX_TAG_CHARACTERISTICS))
++    gst_tag_register (GST_HLS_DEMUX_TAG_CHARACTERISTICS, GST_TAG_FLAG_META,
++        G_TYPE_STRING, "HLS characteristics",
++        "The CHARACTERISTICS of an HLS rendition (comma-separated UTIs)",
++        NULL);
++
+   gobject_class->set_property = gst_hls_demux_set_property;
+   gobject_class->get_property = gst_hls_demux_get_property;
+   gobject_class->finalize = gst_hls_demux_finalize;
+@@ -498,6 +504,20 @@
+           rendition->lang, NULL);
+   }
+ 
++  /* Its NAME and CHARACTERISTICS too, which a player presents as the track's label and kind */
++  if (rendition->name) {
++    if (tags == NULL)
++      tags = gst_tag_list_new_empty ();
++    gst_tag_list_add (tags, GST_TAG_MERGE_REPLACE, GST_TAG_TITLE,
++        rendition->name, NULL);
++  }
++  if (rendition->characteristics) {
++    if (tags == NULL)
++      tags = gst_tag_list_new_empty ();
++    gst_tag_list_add (tags, GST_TAG_MERGE_REPLACE,
++        GST_HLS_DEMUX_TAG_CHARACTERISTICS, rendition->characteristics, NULL);
++  }
++
+   if (stream_type == GST_STREAM_TYPE_TEXT)
+     flags |= GST_STREAM_FLAG_SPARSE;
+ 
+--- a/ext/adaptivedemux2/hls/gsthlsdemux.h
++++ b/ext/adaptivedemux2/hls/gsthlsdemux.h
+@@ -35,6 +35,9 @@
+ 
+ #define GST_TYPE_HLS_DEMUX2 \
+   (gst_hls_demux2_get_type())
++/* The string tag holding an HLS rendition's CHARACTERISTICS */
++#define GST_HLS_DEMUX_TAG_CHARACTERISTICS "hls-characteristics"
++
+ #define GST_HLS_DEMUX(obj) \
+   (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_HLS_DEMUX2,GstHLSDemux))
+ #define GST_HLS_DEMUX_CLASS(klass) \
+--- a/ext/adaptivedemux2/hls/m3u8.c
++++ b/ext/adaptivedemux2/hls/m3u8.c
+@@ -2836,6 +2836,7 @@
+     g_free (media->name);
+     g_free (media->uri);
+     g_free (media->lang);
++    g_free (media->characteristics);
+     g_free (media);
+   }
+ }
+@@ -2916,6 +2917,9 @@
+     } else if (strcmp (a, "LANGUAGE") == 0) {
+       g_free (media->lang);
+       media->lang = gst_m3u8_unquote (v);
++    } else if (strcmp (a, "CHARACTERISTICS") == 0) {
++      g_free (media->characteristics);
++      media->characteristics = gst_m3u8_unquote (v);
+     } else if (strcmp (a, "DEFAULT") == 0) {
+       media->is_default = g_ascii_strcasecmp (v, "yes") == 0;
+     } else if (strcmp (a, "FORCED") == 0) {
+--- a/ext/adaptivedemux2/hls/m3u8.h
++++ b/ext/adaptivedemux2/hls/m3u8.h
+@@ -398,6 +398,7 @@
+   gboolean is_default;
+   gboolean autoselect;
+   gboolean forced;
++  gchar *characteristics;       /* CHARACTERISTICS: the comma-separated UTIs */
+ 
+   gint ref_count;               /* ATOMIC */
+ };

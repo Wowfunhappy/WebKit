@@ -158,13 +158,13 @@ void AudioTrackPrivateGStreamer::updateConfigurationFromCaps(GRefPtr<GstCaps>&& 
 
 AudioTrackPrivate::Kind AudioTrackPrivateGStreamer::kind() const
 {
-    /* AQUAWEBKIT: HLS characteristics and legacy pad flags are interpreted in the port adapter.
+    /* AQUAWEBKIT: the port adapter reads the GstStream's HLS CHARACTERISTICS and its SELECT flag.
     if (m_data->m_stream && gst_stream_get_stream_flags(m_data->m_stream.get()) & GST_STREAM_FLAG_SELECT)
         return AudioTrackPrivate::Kind::Main;
 
     return AudioTrackPrivate::kind();
     */ // AQUAWEBKIT: HLS track adapter.
-    return hlsAudioTrackKind(m_data->m_stream, pad(), AudioTrackPrivate::kind());
+    return hlsAudioTrackKind(m_data->m_stream.get(), AudioTrackPrivate::kind());
 }
 
 void AudioTrackPrivateGStreamer::setEnabled(bool enabled)

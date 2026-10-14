@@ -1,0 +1,129 @@
+# hlsdemux2 announces the tracks of a period in the order it creates them. The variant stream's
+# own tracks -- its video and the renditions it carries without a URI, usually the DEFAULT audio --
+# are created once its first fragment is parsed, after the renditions with their own playlists, so
+# the collection lists the default audio rendition last. The tracks are kept in the order the
+# master playlist declares their renditions, after the tracks of no rendition.
+#
+# Applied by build_deps with patch -p1.
+
+--- a/ext/adaptivedemux2/hls/gsthlsdemux.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux.c
+@@ -473,6 +473,70 @@
+   gst_adaptive_demux2_stream_start (stream);
+ }
+ 
++/* The stream id of the track for a rendition */
++static gchar *
++gst_hls_demux_rendition_stream_id (GstHLSRenditionStream * rendition)
++{
++  GstStreamType stream_type = gst_stream_type_from_hls_type (rendition->mtype);
++
++  if (rendition->name)
++    return g_strdup_printf ("%s-%s", gst_stream_type_get_name (stream_type),
++        rendition->name);
++  if (rendition->lang)
++    return g_strdup_printf ("%s-%s", gst_stream_type_get_name (stream_type),
++        rendition->lang);
++  return g_strdup (gst_stream_type_get_name (stream_type));
++}
++
++/* The position in the master playlist of the rendition a track is for, -1 for
++ * a track of no rendition */
++static gint
++gst_hls_demux_track_rendition_position (GstHLSDemux * demux,
++    GstAdaptiveDemuxTrack * track)
++{
++  GList *tmp;
++  gint position = 0;
++
++  /* track->stream_id is the stream id the track was created with, decorated
++   * by the element as "<upstream stream id>/<stream id>" */
++  for (tmp = demux->master->renditions; tmp; tmp = tmp->next, position++) {
++    gchar *stream_id = gst_hls_demux_rendition_stream_id (tmp->data);
++    gchar *suffix = g_strconcat ("/", stream_id, NULL);
++    gboolean matches = g_str_has_suffix (track->stream_id, suffix);
++
++    g_free (suffix);
++    g_free (stream_id);
++    if (matches)
++      return position;
++  }
++  return -1;
++}
++
++static gint
++compare_track_rendition_positions (gconstpointer a, gconstpointer b,
++    gpointer demux)
++{
++  return gst_hls_demux_track_rendition_position (demux,
++      (GstAdaptiveDemuxTrack *) a) -
++      gst_hls_demux_track_rendition_position (demux,
++      (GstAdaptiveDemuxTrack *) b);
++}
++
++/* Orders the tracks of a period as the master playlist declares their
++ * renditions, after the tracks of no rendition. The variant stream's tracks
++ * are only known once its first fragment is parsed, after the tracks of the
++ * renditions with their own playlists */
++void
++gst_hls_demux_order_period_tracks (GstHLSDemux * demux,
++    GstAdaptiveDemuxPeriod * period)
++{
++  if (period == NULL || demux->master == NULL)
++    return;
++  period->tracks =
++      g_list_sort_with_data (period->tracks, compare_track_rendition_positions,
++      demux);
++}
++
+ GstAdaptiveDemuxTrack *
+ gst_hls_demux_new_track_for_rendition (GstHLSDemux * demux,
+     GstHLSRenditionStream * rendition,
+@@ -482,16 +546,7 @@
+   gchar *stream_id;
+   GstStreamType stream_type = gst_stream_type_from_hls_type (rendition->mtype);
+ 
+-  if (rendition->name)
+-    stream_id =
+-        g_strdup_printf ("%s-%s", gst_stream_type_get_name (stream_type),
+-        rendition->name);
+-  else if (rendition->lang)
+-    stream_id =
+-        g_strdup_printf ("%s-%s", gst_stream_type_get_name (stream_type),
+-        rendition->lang);
+-  else
+-    stream_id = g_strdup (gst_stream_type_get_name (stream_type));
++  stream_id = gst_hls_demux_rendition_stream_id (rendition);
+ 
+   if (rendition->lang) {
+     if (tags == NULL)
+@@ -564,6 +619,7 @@
+ 
+   gst_adaptive_demux2_stream_add_track (stream, track);
+   gst_adaptive_demux_track_unref (track);
++  gst_hls_demux_order_period_tracks (demux, stream->period);
+ 
+   return hlsdemux_stream;
+ }
+--- a/ext/adaptivedemux2/hls/gsthlsdemux.h
++++ b/ext/adaptivedemux2/hls/gsthlsdemux.h
+@@ -119,6 +119,8 @@
+     GstCaps * caps, GstStreamFlags flags, GstTagList * tags);
+ 
+ void gst_hls_demux_start_rendition_streams (GstHLSDemux * hlsdemux);
++void gst_hls_demux_order_period_tracks (GstHLSDemux * demux,
++    GstAdaptiveDemuxPeriod * period);
+ gboolean gst_hls_demux_reset_for_lost_sync (GstHLSDemux * hlsdemux);
+ const GstHLSKey *gst_hls_demux_get_key (GstHLSDemux * demux,
+     const gchar * key_url, const gchar * referer, gboolean allow_cache);
+--- a/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
+@@ -297,6 +297,8 @@
+   if (variant_caps)
+     gst_caps_unref (variant_caps);
+ 
++  gst_hls_demux_order_period_tracks (hlsdemux, stream->period);
++
+   /* Update the stream object with rendition types.
+    * FIXME: rendition_type could be removed */
+   stream->stream_type = hlsdemux_stream->rendition_type;

@@ -24,6 +24,13 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HLSTimedMetadataGStreamer);
 HLSTimedMetadataGStreamer::HLSTimedMetadataGStreamer() = default;
 HLSTimedMetadataGStreamer::~HLSTimedMetadataGStreamer() = default;
 
+// The sink linked to an ID3 metadata pad, held on that pad.
+static GQuark id3SinkQuark()
+{
+    static GQuark quark = g_quark_from_static_string("webkit-hls-id3-sink");
+    return quark;
+}
+
 void HLSTimedMetadataGStreamer::linkID3Pad(GstElement* pipeline, GstPad* pad, ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player)
 {
     auto caps = adoptGRef(gst_pad_get_current_caps(pad));
@@ -54,9 +61,24 @@ void HLSTimedMetadataGStreamer::linkID3Pad(GstElement* pipeline, GstPad* pad, Th
 
     gst_bin_add(GST_BIN_CAST(pipeline), sink);
     gst_element_sync_state_with_parent(sink);
+    g_object_set_qdata_full(G_OBJECT(pad), id3SinkQuark(), gst_object_ref(sink), gst_object_unref);
     auto sinkPad = adoptGRef(gst_element_get_static_pad(sink, "sink"));
     if (gst_pad_link(pad, sinkPad.get()) != GST_PAD_LINK_OK)
         GST_WARNING_OBJECT(pipeline, "Could not link the ID3 metadata pad %" GST_PTR_FORMAT, pad);
+}
+
+void HLSTimedMetadataGStreamer::unlinkID3Pad(GstPad* pad)
+{
+    auto* sink = static_cast<GstElement*>(g_object_steal_qdata(G_OBJECT(pad), id3SinkQuark()));
+    if (!sink)
+        return;
+
+    auto sinkPad = adoptGRef(gst_element_get_static_pad(sink, "sink"));
+    gst_pad_unlink(pad, sinkPad.get());
+    gst_element_set_state(sink, GST_STATE_NULL);
+    if (auto parent = adoptGRef(gst_object_get_parent(GST_OBJECT_CAST(sink))))
+        gst_bin_remove(GST_BIN_CAST(parent.get()), sink);
+    gst_object_unref(sink);
 }
 
 static RetainPtr<NSString> stringFromUTF8(const std::string& string)

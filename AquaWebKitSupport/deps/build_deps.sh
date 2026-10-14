@@ -98,7 +98,7 @@ SDK="${AQUAWEBKIT_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 
 # The media-runtime versions. AquaWebKitSupport/cmake/OptionsMacGStreamer.cmake states the same
 # numbers to WebKit's build as GSTREAMER_VERSION/GLIB_VERSION.
-GST_VER=1.28.5
+GST_VER=1.28.7
 GLIB_VER=2.80.5
 
 # glib's libffi wrap tracks the meson-ports "meson" BRANCH; this pins it to an exact
@@ -1288,12 +1288,6 @@ GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled
 # running pipelines against the shipped runtime.
 d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore) || exit 1
 if prepare "$d"; then
-    # input-selector: active_sinkpad_lock covers the choice of pad for an upstream event,
-    # released before the push; a seek's flush drives this element's own state change on the
-    # pushing thread. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-input-selector-release-lock-for-upstream-events.patch" \
-        && patch -p1 < "$HERE/patches/gstreamer-input-selector-release-lock-for-upstream-events.patch" ) \
-      || { echo "gstreamer input-selector patch failed to apply"; exit 1; }
     # queue2: SEGMENT_DONE ends the data like EOS for buffering, as in multiqueue. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" \
         && patch -p1 < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" ) \
@@ -1320,10 +1314,6 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" ) \
       || { echo "gst-plugins-base urisourcebin parsebin-reset patch failed to apply"; exit 1; }
-    # decodebin: size a pending decode group's queue with the buffering limits. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" ) \
-      || { echo "gst-plugins-base decodebin2 pending-group patch failed to apply"; exit 1; }
     # audiodecoder: a reset forgets the subframe samples of the frames it drops. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" ) \
@@ -1352,17 +1342,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" ) \
       || { echo "gst-plugins-good qtdemux HEIF image sequence patch failed to apply"; exit 1; }
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-upstream-stream-tags.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-upstream-stream-tags.patch" ) \
-      || { echo "gst-plugins-good qtdemux upstream-stream-tags patch failed to apply"; exit 1; }
     # qtdemux: translate push-mode segment completion into TIME. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-segment-seek.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-segment-seek.patch" ) \
       || { echo "gst-plugins-good qtdemux push-mode segment-seek patch failed to apply"; exit 1; }
-    # qtdemux: in push mode, send a fragment's samples in decode-time order across streams. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" ) \
-      || { echo "gst-plugins-good qtdemux decode-time interleave patch failed to apply"; exit 1; }
     # qtdemux: in push mode, seek a fragmented file to the start of a fragment it has parsed. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-fragmented-seek.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-fragmented-seek.patch" ) \
@@ -1383,9 +1366,37 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" ) \
       || { echo "gst-plugins-good osxaudio device-buffer patch failed to apply"; exit 1; }
+    # adaptivedemux2: fetch through URI source elements without libsoup. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-uri-source-transfers.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-uri-source-transfers.patch" ) \
+      || { echo "gst-plugins-good adaptivedemux2 URI source transfers patch failed to apply"; exit 1; }
+    # hlsdemux2: a new parsebin for a stream whose codecs change. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-codec-change-new-parser.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-codec-change-new-parser.patch" ) \
+      || { echo "gst-plugins-good hlsdemux2 codec-change parser patch failed to apply"; exit 1; }
+    # hlsdemux2: post the media playlist's EXT-X-DATERANGE tags. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-date-ranges.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-date-ranges.patch" ) \
+      || { echo "gst-plugins-good hlsdemux2 date-ranges patch failed to apply"; exit 1; }
+    # hlsdemux2: tag a rendition's track with its NAME and CHARACTERISTICS. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-rendition-tags.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-rendition-tags.patch" ) \
+      || { echo "gst-plugins-good hlsdemux2 rendition-tags patch failed to apply"; exit 1; }
+    # hlsdemux2: keep a period's tracks in the master playlist's rendition order. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-track-order.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-track-order.patch" ) \
+      || { echo "gst-plugins-good hlsdemux2 track-order patch failed to apply"; exit 1; }
+    # adaptivedemux2: output and select timed-metadata tracks. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-metadata-tracks.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-metadata-tracks.patch" ) \
+      || { echo "gst-plugins-good adaptivedemux2 metadata-tracks patch failed to apply"; exit 1; }
+    # adaptivedemux2: a track's tags carry no container-specific track ID. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-container-track-id.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-container-track-id.patch" ) \
+      || { echo "gst-plugins-good adaptivedemux2 container-track-id patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
-        -Dorc=enabled -Dadaptivedemux2=disabled ) || exit 1
+        -Dorc=enabled -Dadaptivedemux2=enabled -Dhls-crypto=openssl ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
@@ -1463,44 +1474,6 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-encode-errors.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-encode-errors.patch" ) \
       || { echo "gst-plugins-bad vtenc encode-errors patch failed to apply"; exit 1; }
-    # hlsdemux: create an output stream for a SUBTITLES rendition, convert the cue times of its
-    # WebVTT fragments into stream time, and carry each rendition's name, language and flags.
-    # See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-subtitle-renditions.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-subtitle-renditions.patch" ) \
-      || { echo "gst-plugins-bad hlsdemux subtitle-rendition patch failed to apply"; exit 1; }
-    # hlsdemux: resync a variant switch to the nearest fragment start. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" ) \
-      || { echo "gst-plugins-bad hlsdemux variant-switch patch failed to apply"; exit 1; }
-    # adaptivedemux holds its manifest lock across every uridownloader fetch, so a src
-    # query or event, a seek, or the shutdown state change waits behind a playlist download; with
-    # webkitwebsrc that download completes only on the thread doing the waiting. This releases the
-    # lock around those fetches and re-validates on re-lock. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" ) \
-      || { echo "gst-plugins-bad adaptivedemux manifest-lock patch failed to apply"; exit 1; }
-    # adaptivedemux restarts a retried fragment download from the fragment's start. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-adaptivedemux-retry-restarts-fragment.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-retry-restarts-fragment.patch" ) \
-      || { echo "gst-plugins-bad adaptivedemux retry patch failed to apply"; exit 1; }
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-resync-current-file.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-resync-current-file.patch" ) \
-      || { echo "gst-plugins-bad hlsdemux resync-current-file patch failed to apply"; exit 1; }
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-date-ranges.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-date-ranges.patch" ) \
-      || { echo "gst-plugins-bad hlsdemux date-ranges patch failed to apply"; exit 1; }
-    # hlsdemux starts decrypting an EXT-X-MAP header's media segment. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-encrypted-map-segment.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-encrypted-map-segment.patch" ) \
-      || { echo "gst-plugins-bad hlsdemux encrypted-map patch failed to apply"; exit 1; }
-    # hlsdemux maps an ISOBMFF stream's decode times onto stream time. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-isobmff-presentation-offset.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-isobmff-presentation-offset.patch" ) \
-      || { echo "gst-plugins-bad hlsdemux ISOBMFF presentation-offset patch failed to apply"; exit 1; }
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" ) \
-      || { echo "gst-plugins-bad tsdemux rendition-tags patch failed to apply"; exit 1; }
     # fdkaacdec: hand each frame its own samples past the decoder's output delay, run the decoder
     # without look-ahead post-processing, and honour GstAudioClippingMeta. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch" \
@@ -1514,9 +1487,10 @@ if prepare "$d"; then
         && patch -p1 < "$HERE/patches/gst-plugins-bad-atsc-rrt-fields.patch" ) \
       || { echo "gst-plugins-bad RRT fields patch failed to apply"; exit 1; }
     # Media HTTP requests use webkitwebsrc; libcurl is a WebCore networking dependency.
-    # aes is disabled: WebKit uses HLS demuxers' EVP decryption and has no aesenc/aesdec caller.
+    # aes is disabled: WebKit uses hlsdemux2's EVP decryption and has no aesenc/aesdec caller. hls is
+    # disabled: HLS plays through hlsdemux2 (gst-plugins-good).
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled -Dcurl=disabled \
-        -Daes=disabled -Dhls=enabled -Dhls-crypto=openssl -Ddash=enabled \
+        -Daes=disabled -Dhls=disabled -Ddash=enabled \
         -Dwebrtc=disabled -Dwebrtcdsp=disabled -Ddtls=disabled -Dsrtp=disabled -Dsctp=disabled \
         -Dapplemedia=enabled -Dfdkaac=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
     prepared "$d"

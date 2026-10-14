@@ -26,24 +26,6 @@ std::optional<String> hlsTrackLanguage(GstTagList* tags)
     return converted ? String::fromUTF8(converted) : *language;
 }
 
-GRefPtr<GstStream> hlsDescribingStream(GRefPtr<GstStream> stream, const GRefPtr<GstPad>& pad)
-{
-    if (stream || !pad)
-        return stream;
-    auto event = adoptGRef(gst_pad_get_sticky_event(pad.get(), GST_EVENT_STREAM_START, 0));
-    if (!event)
-        return nullptr;
-    GstStream* announcedStream = nullptr;
-    gst_event_parse_stream(event.get(), &announcedStream);
-    return adoptGRef(announcedStream);
-}
-
-GRefPtr<GstTagList> hlsTrackTags(const GRefPtr<GstPad>& pad)
-{
-    auto stream = hlsDescribingStream(nullptr, pad);
-    return stream ? adoptGRef(gst_stream_get_tags(stream.get())) : nullptr;
-}
-
 static bool streamHasCharacteristic(GstStream* stream, ASCIILiteral characteristic)
 {
     auto tags = adoptGRef(gst_stream_get_tags(stream));
@@ -60,47 +42,36 @@ static bool streamHasCharacteristic(GstStream* stream, ASCIILiteral characterist
 }
 
 // Characteristic precedence follows AVTrackPrivateAVFObjCImpl's audioKind/textKind.
-AudioTrackPrivate::Kind hlsAudioTrackKind(GRefPtr<GstStream> stream, const GRefPtr<GstPad>& pad, AudioTrackPrivate::Kind fallback)
+AudioTrackPrivate::Kind hlsAudioTrackKind(GstStream* stream, AudioTrackPrivate::Kind fallback)
 {
     using Kind = AudioTrackPrivate::Kind;
-    stream = hlsDescribingStream(WTF::move(stream), pad);
     if (!stream)
         return fallback;
-    if (streamHasCharacteristic(stream.get(), "public.auxiliary-content"_s))
+    if (streamHasCharacteristic(stream, "public.auxiliary-content"_s))
         return Kind::Alternative;
-    if (streamHasCharacteristic(stream.get(), "public.accessibility.describes-video"_s))
+    if (streamHasCharacteristic(stream, "public.accessibility.describes-video"_s))
         return Kind::Description;
-    if (streamHasCharacteristic(stream.get(), "public.main-program-content"_s) || gst_stream_get_stream_flags(stream.get()) & GST_STREAM_FLAG_SELECT)
+    if (streamHasCharacteristic(stream, "public.main-program-content"_s) || gst_stream_get_stream_flags(stream) & GST_STREAM_FLAG_SELECT)
         return Kind::Main;
     return fallback;
 }
 
-InbandTextTrackPrivate::Kind hlsTextTrackKind(GRefPtr<GstStream> stream, const GRefPtr<GstPad>& pad, InbandTextTrackPrivate::Kind fallback)
+InbandTextTrackPrivate::Kind hlsTextTrackKind(GstStream* stream, InbandTextTrackPrivate::Kind fallback)
 {
     using Kind = InbandTextTrackPrivate::Kind;
-    if (fallback != Kind::Subtitles)
+    if (fallback != Kind::Subtitles || !stream)
         return fallback;
-    stream = hlsDescribingStream(WTF::move(stream), pad);
-    if (!stream)
-        return fallback;
-    if (streamHasCharacteristic(stream.get(), "public.subtitles.forced-only"_s))
+    if (streamHasCharacteristic(stream, "public.subtitles.forced-only"_s))
         return Kind::Forced;
-    if (streamHasCharacteristic(stream.get(), "public.accessibility.transcribes-spoken-dialog"_s)
-        || streamHasCharacteristic(stream.get(), "public.accessibility.describes-music-and-sound"_s))
+    if (streamHasCharacteristic(stream, "public.accessibility.transcribes-spoken-dialog"_s)
+        || streamHasCharacteristic(stream, "public.accessibility.describes-music-and-sound"_s))
         return Kind::Captions;
     return fallback;
 }
 
-bool hlsTextTrackIsDefault(const GRefPtr<GstPad>& pad)
+bool hlsTextTrackIsDefault(GstStream* stream)
 {
-    if (!pad)
-        return false;
-    auto event = adoptGRef(gst_pad_get_sticky_event(pad.get(), GST_EVENT_STREAM_START, 0));
-    if (!event)
-        return false;
-    GstStreamFlags flags = GST_STREAM_FLAG_NONE;
-    gst_event_parse_stream_flags(event.get(), &flags);
-    return flags & GST_STREAM_FLAG_SELECT;
+    return stream && gst_stream_get_stream_flags(stream) & GST_STREAM_FLAG_SELECT;
 }
 
 } // namespace WebCore

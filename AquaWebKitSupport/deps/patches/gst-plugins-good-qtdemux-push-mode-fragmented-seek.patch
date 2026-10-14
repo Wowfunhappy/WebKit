@@ -1,10 +1,10 @@
 # Push-mode fragmented files seek to the start of a fragment the demuxer
 # has parsed. See patches/README.md.
-# Applied after gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch.
+# Applied after gst-plugins-good-qtdemux-push-mode-segment-seek.patch.
 
 --- a/gst/isomp4/qtdemux.h
 +++ b/gst/isomp4/qtdemux.h
-@@ -287,6 +287,12 @@
+@@ -279,6 +279,12 @@
    gint64 push_seek_start;
    gint64 push_seek_stop;
  
@@ -14,12 +14,12 @@
 +  /* PUSH-BASED fragmented: the BYTE seek sent upstream lands on a [moof] */
 +  gboolean push_fragment_seek;
 +
-   /* PUSH-BASED fragmented, TIME upstream: samples taken from the adapter and
-    * not pushed yet, in decode-time order */
-   GQueue held_samples;
+ #if 0
+   /* gst index support */
+   GstIndex *element_index;
 --- a/gst/isomp4/qtdemux.c
 +++ b/gst/isomp4/qtdemux.c
-@@ -383,6 +383,7 @@
+@@ -380,6 +380,7 @@
  static QtDemuxStream *gst_qtdemux_stream_ref (QtDemuxStream * stream);
  static void gst_qtdemux_stream_unref (QtDemuxStream * stream);
  static void gst_qtdemux_stream_clear (QtDemuxStream * stream);
@@ -27,7 +27,7 @@
  static GstFlowReturn qtdemux_prepare_streams (GstQTDemux * qtdemux);
  static void qtdemux_do_allocation (QtDemuxStream * stream,
      GstQTDemux * qtdemux);
-@@ -475,6 +476,8 @@
+@@ -472,6 +473,8 @@
        ((GDestroyNotify) gst_qtdemux_stream_unref);
    qtdemux->old_streams = g_ptr_array_new_with_free_func
        ((GDestroyNotify) gst_qtdemux_stream_unref);
@@ -36,7 +36,7 @@
  
    GST_OBJECT_FLAG_SET (qtdemux, GST_ELEMENT_FLAG_INDEXABLE);
  
-@@ -492,6 +495,7 @@
+@@ -489,6 +492,7 @@
  
    g_ptr_array_free (qtdemux->active_streams, TRUE);
    g_ptr_array_free (qtdemux->old_streams, TRUE);
@@ -44,7 +44,7 @@
  
    G_OBJECT_CLASS (parent_class)->finalize (object);
  }
-@@ -1397,7 +1401,27 @@
+@@ -1348,7 +1352,27 @@
     * later on */
    /* determining @next here based on SNAP_BEFORE/SNAP_AFTER should
     * mostly just work, but let's not yet boldly go there  ... */
@@ -73,7 +73,7 @@
  
    if (byte_cur == -1)
      goto abort_seek;
-@@ -1408,6 +1432,7 @@
+@@ -1359,6 +1383,7 @@
  
    GST_OBJECT_LOCK (qtdemux);
    qtdemux->seek_offset = byte_cur;
@@ -81,7 +81,7 @@
    if (!(flags & GST_SEEK_FLAG_KEY_UNIT)) {
      qtdemux->push_seek_start = cur;
    } else {
-@@ -1773,9 +1798,9 @@
+@@ -1724,9 +1749,9 @@
        } else if (gst_pad_push_event (qtdemux->sinkpad, gst_event_ref (event))) {
          GST_DEBUG_OBJECT (qtdemux, "Upstream successfully seeked");
          res = TRUE;
@@ -94,7 +94,7 @@
          res = gst_qtdemux_do_push_seek (qtdemux, pad, event);
        } else {
          GST_DEBUG_OBJECT (qtdemux,
-@@ -2152,6 +2177,8 @@
+@@ -2103,6 +2128,8 @@
  
      qtdemux->received_seek = FALSE;
      qtdemux->first_moof_already_parsed = FALSE;
@@ -103,7 +103,7 @@
    }
    qtdemux->offset = 0;
    gst_adapter_clear (qtdemux->adapter);
-@@ -2316,8 +2343,11 @@
+@@ -2266,8 +2293,11 @@
          GST_DEBUG_OBJECT (demux, "Not storing upstream newsegment, "
              "not in time format");
  
@@ -117,7 +117,7 @@
            GST_DEBUG_OBJECT (demux, "still starting, eating event");
            goto exit;
          }
-@@ -2401,6 +2431,19 @@
+@@ -2350,6 +2380,19 @@
              "set values to restart reading from a new atom");
          demux->neededbytes = 16;
          demux->todrop = 0;
@@ -137,7 +137,7 @@
        } else {
          gst_qtdemux_find_sample (demux, offset, TRUE, TRUE, &stream, &idx,
              NULL);
-@@ -4554,6 +4597,7 @@
+@@ -4471,6 +4514,7 @@
    gint64 base_offset, running_offset;
    guint32 frag_num;
    GstClockTime min_dts = GST_CLOCK_TIME_NONE;
@@ -145,7 +145,7 @@
  
    /* NOTE @stream ignored */
  
-@@ -4794,6 +4838,11 @@
+@@ -4711,6 +4755,11 @@
      if (stream->n_samples_moof && stream->duration_moof)
        stream->new_caps = TRUE;
  
@@ -157,7 +157,7 @@
    next:
      /* iterate all siblings */
      traf_node = qtdemux_tree_get_sibling_by_type (traf_node, FOURCC_traf);
-@@ -4845,6 +4894,25 @@
+@@ -4762,6 +4811,25 @@
  
    qtdemux->first_moof_already_parsed = TRUE;
  

@@ -1130,6 +1130,19 @@ imported/w3c/web-platform-tests/html/canvas/element/manual/imagebitmap/imageBitm
 # Upstream Cocoa records this HLS cue test as flaky (Debug); it also passed and timed out here.
 webkit.org/b/258185 http/tests/media/hls/track-in-band-ext-x-date-range-start-time.html [ Skip ]
 
+# The test sets the caption display mode, which reconfigures text tracks from a zero-delay timer, and reads the
+# new HLS subtitle track's mode in its first addtrack handler. playbin3 announces in-band tracks with the stream
+# collection, before metadata, so the track arrives before that timer fires, the reconfiguration it triggers runs
+# after the addtrack event, and the handler sees the mode the default display mode gave; the DEFAULT track is
+# showing once the reconfiguration runs.
+http/tests/media/hls/hls-webvtt-default.html [ Skip ]
+
+# generate-vod.py lists one MPEG-TS file as every segment, so each segment restarts the timestamps without an
+# EXT-X-DISCONTINUITY, which RFC 8216 requires for that. hlsdemux2 places a segment by its timestamps once they
+# disagree with its playlist position (gst_hlsdemux_stream_handle_internal_time), so a seek past the first
+# segment lands in the first one.
+http/tests/media/modern-media-controls/skip-back-support/skip-back-support-button-click.html [ Skip ]
+
 # Native GL gradient quantization: shader blue 0.5 becomes 128, while the reference
 # uploads 127; interpolated red/green also differ by at most one channel level.
 fast/canvas/webgl/canvas-getImageData.html [ Skip ]

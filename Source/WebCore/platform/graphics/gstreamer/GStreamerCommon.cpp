@@ -653,7 +653,10 @@ void registerWebKitGStreamerElements()
         // base class does not abstract away network access. They can't work in a sandboxed
         // media process, so demote their rank in order to prevent decodebin3 from auto-plugging them.
         if (gst_check_version(1, 22, 0)) {
-            std::array<ASCIILiteral, 3> elementNames = { "dashdemux2"_s, "hlsdemux2"_s, "mssdemux2"_s };
+            // AQUAWEBKIT: hlsdemux2 fetches through URI source elements, which is webkitwebsrc here
+            // (gst-plugins-good-adaptivedemux2-uri-source-transfers.patch).
+            // std::array<ASCIILiteral, 3> elementNames = { "dashdemux2"_s, "hlsdemux2"_s, "mssdemux2"_s };
+            std::array<ASCIILiteral, 2> elementNames = { "dashdemux2"_s, "mssdemux2"_s }; // AQUAWEBKIT: as above.
             for (auto& elementName : elementNames) {
                 if (GRefPtr factory = adoptGRef(gst_element_factory_find(elementName)))
                     gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);

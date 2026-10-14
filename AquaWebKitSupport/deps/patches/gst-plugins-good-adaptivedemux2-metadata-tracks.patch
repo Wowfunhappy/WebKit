@@ -1,0 +1,102 @@
+# adaptivedemux2 cannot output a timed-metadata track. Its default selection picks one track of each
+# of video, audio and text, while decodebin3 selects one stream of every known type, metadata
+# included; gst_adaptive_demux_output_slot_new has pad templates for those three types only and asserts
+# on any other, so an application selecting an MPEG-TS variant's ID3 stream aborts. The element gets a
+# metadata_%02u pad template, and its default selection picks a metadata track as decodebin3 does.
+# hlsdemux2 creates a variant's tracks with the caps the master playlist's CODECS give their type,
+# which never describes metadata, so such a track takes the caps of the stream it is demuxed from.
+#
+# Applied by build_deps with patch -p1.
+
+--- a/ext/adaptivedemux2/gstadaptivedemux-period.c
++++ b/ext/adaptivedemux2/gstadaptivedemux-period.c
+@@ -159,6 +159,19 @@
+     }
+   }
+ 
++  /* One of each stream type, as decodebin3 selects by default */
++  if ((track =
++          default_track_for_stream_type_locked (period,
++              GST_STREAM_TYPE_METADATA))) {
++    GST_DEBUG_OBJECT (demux, "Selecting default metadata track %s",
++        track->stream_id);
++    if (!track->selected) {
++      changed = TRUE;
++      track->selected = TRUE;
++      gst_pad_set_active (track->sinkpad, TRUE);
++    }
++  }
++
+   if (changed)
+     g_atomic_int_set (&demux->priv->requested_selection_seqnum,
+         gst_util_seqnum_next ());
+--- a/ext/adaptivedemux2/gstadaptivedemux-private.h
++++ b/ext/adaptivedemux2/gstadaptivedemux-private.h
+@@ -153,7 +153,7 @@
+   GstClockTime base_offset;
+   /* End of fields protected by output_lock */
+ 
+-  gint n_audio_streams, n_video_streams, n_subtitle_streams;
++  gint n_audio_streams, n_video_streams, n_subtitle_streams, n_metadata_streams;
+ 
+   /* Counter used for uniquely identifying periods */
+   gint n_periods;
+--- a/ext/adaptivedemux2/gstadaptivedemux.c
++++ b/ext/adaptivedemux2/gstadaptivedemux.c
+@@ -172,6 +172,12 @@
+     GST_PAD_SOMETIMES,
+     GST_STATIC_CAPS_ANY);
+ 
++static GstStaticPadTemplate gst_adaptive_demux_metadatasrc_template =
++GST_STATIC_PAD_TEMPLATE ("metadata_%02u",
++    GST_PAD_SRC,
++    GST_PAD_SOMETIMES,
++    GST_STATIC_CAPS_ANY);
++
+ /* Private structure for a track being outputted */
+ typedef struct _OutputSlot
+ {
+@@ -586,6 +592,8 @@
+       &gst_adaptive_demux_videosrc_template);
+   gst_element_class_add_static_pad_template (gstelement_class,
+       &gst_adaptive_demux_subtitlesrc_template);
++  gst_element_class_add_static_pad_template (gstelement_class,
++      &gst_adaptive_demux_metadatasrc_template);
+ 
+   gstelement_class->change_state = gst_adaptive_demux_change_state;
+   gstelement_class->query = gst_adaptive_demux_query;
+@@ -842,6 +850,13 @@
+           gst_static_pad_template_get
+           (&gst_adaptive_demux_subtitlesrc_template);
+       break;
++    case GST_STREAM_TYPE_METADATA:
++      name =
++          g_strdup_printf ("metadata_%02u", demux->priv->n_metadata_streams++);
++      tmpl =
++          gst_static_pad_template_get
++          (&gst_adaptive_demux_metadatasrc_template);
++      break;
+     default:
+       g_assert_not_reached ();
+       return NULL;
+@@ -1491,6 +1506,7 @@
+   demux->priv->n_audio_streams = 0;
+   demux->priv->n_video_streams = 0;
+   demux->priv->n_subtitle_streams = 0;
++  demux->priv->n_metadata_streams = 0;
+ 
+   gst_flow_combiner_reset (demux->priv->flowcombiner);
+ }
+--- a/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
+@@ -257,6 +257,10 @@
+ 
+     if (variant_caps)
+       manifest_caps = get_caps_of_stream_type (variant_caps, stream_type);
++    /* CODECS never describes timed metadata: such a track takes the caps
++     * of the stream it is demuxed from */
++    if (manifest_caps == NULL && stream_type == GST_STREAM_TYPE_METADATA)
++      manifest_caps = gst_stream_get_caps (gst_stream);
+     hlsdemux_stream->rendition_type |= stream_type;
+ 
+     if ((uriless_types & stream_type) == 0) {

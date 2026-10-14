@@ -1,6 +1,6 @@
-// The timed metadata of an HLS stream played through the legacy playbin: one text track of kind "metadata" whose in-band
-// dispatch type is "com.apple.streaming", fed by the ID3 tags of MPEG-TS stream type 0x15 and by the EXT-X-DATERANGE tags
-// hlsdemux reports, with the cue values, cue types and cue timing MediaPlayerPrivateAVFoundationObjC gives the same metadata.
+// The timed metadata of an HLS stream: one text track of kind "metadata" whose in-band dispatch type is
+// "com.apple.streaming", fed by the ID3 tags of MPEG-TS stream type 0x15 and by the EXT-X-DATERANGE tags hlsdemux2 reports,
+// with the cue values, cue types and cue timing MediaPlayerPrivateAVFoundationObjC gives the same metadata.
 
 #pragma once
 
@@ -24,9 +24,12 @@ public:
     HLSTimedMetadataGStreamer();
     ~HLSTimedMetadataGStreamer();
 
-    // For each pad uridecodebin exposes, on the thread that exposes it: links an ID3 metadata pad, which playbin leaves
+    // For each pad uridecodebin3 exposes, on the thread that exposes it: links an ID3 metadata pad, which playbin3 leaves
     // unlinked, to a sink that hands the player each tag at its presentation time.
     static void linkID3Pad(GstElement* pipeline, GstPad*, ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&);
+    // For each pad uridecodebin3 removes: releases the sink linkID3Pad linked it to, which would otherwise hold
+    // back the pipeline's EOS.
+    static void unlinkID3Pad(GstPad*);
 
     // On the main thread, as MediaPlayerPrivateAVFoundationObjC::metadataDidArrive handles a timed metadata group.
     void handleID3Sample(GstSample*, MediaPlayer&, unsigned inbandTextTrackCount, bool isSeeking);

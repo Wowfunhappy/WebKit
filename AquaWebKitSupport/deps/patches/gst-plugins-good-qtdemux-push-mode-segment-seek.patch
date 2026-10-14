@@ -2,11 +2,11 @@
 # completion into TIME after delivering the demuxed samples. The demuxer posts
 # its TIME segment-start from the seek handler, before the source's own byte
 # segment starts and ends, so the bin reports one segment-done per seek.
-# Applied after gst-plugins-good-qtdemux-upstream-stream-tags.patch.
+# Applied after gst-plugins-good-qtdemux-heif-image-sequence.patch.
 
 --- a/gst/isomp4/qtdemux.c
 +++ b/gst/isomp4/qtdemux.c
-@@ -1419,6 +1419,18 @@
+@@ -1373,6 +1373,18 @@
    GST_OBJECT_UNLOCK (qtdemux);
  
    qtdemux->segment_seqnum = seqnum;
@@ -25,7 +25,7 @@
    /* BYTE seek event */
    event = gst_event_new_seek (rate, GST_FORMAT_BYTES, flags, cur_type, byte_cur,
        stop_type, stop);
-@@ -2426,6 +2438,11 @@
+@@ -2380,6 +2392,11 @@
        }
        break;
      }
@@ -37,7 +37,7 @@
      case GST_EVENT_EOS:
        /* If we are in push mode, and get an EOS before we've seen any streams,
         * then error out - we have nowhere to send the EOS */
-@@ -2446,6 +2463,32 @@
+@@ -2400,6 +2417,32 @@
            if (gst_qtdemux_process_adapter (demux, TRUE) != GST_FLOW_OK) {
              res = FALSE;
            }
@@ -70,7 +70,7 @@
          }
        }
        break;
-@@ -8971,7 +9014,12 @@
+@@ -8895,7 +8938,12 @@
  eos:
    {
      GST_DEBUG_OBJECT (demux, "no next entry, EOS");

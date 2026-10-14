@@ -1,0 +1,712 @@
+# adaptivedemux2 fetches over libsoup, which it dlopens, and refuses to register its elements
+# when libsoup cannot be loaded. Without libsoup, the download helper fetches each non-file URI
+# with the URI source element that handles it (webkitwebsrc in WebKit), reading what the element
+# pushes: its http-headers event for status, redirect and headers, a BYTES seek for a range, an
+# error message or EOS for the end. The element's context requests go up through the demuxer.
+#
+# Applied by build_deps with patch -p1.
+--- a/ext/adaptivedemux2/downloadhelper.c
++++ b/ext/adaptivedemux2/downloadhelper.c
+@@ -29,6 +29,10 @@
+ 
+ typedef struct DownloadHelperTransfer DownloadHelperTransfer;
+ 
++static void transfer_task_report_progress (GTask * transfer_task);
++static void finish_transfer_task (DownloadHelper * dh, GTask * transfer_task,
++    GError * error);
++
+ struct DownloadHelper
+ {
+   GThread *transfer_thread;
+@@ -50,6 +54,12 @@
+   gchar *referer;
+   gchar *user_agent;
+   SoupCookieJar *cookie_jar;
++
++  /* Without libsoup, the URI source elements of element transfers fetch the
++   * other URIs. Their context requests go up through the owner, and the tasks
++   * whose element still exists are kept here */
++  GstElement *owner;
++  GPtrArray *element_transfers;
+ };
+ 
+ struct DownloadHelperTransfer
+@@ -72,6 +82,20 @@
+     GFile *file;
+   };
+ 
++  /* An element transfer reads what a URI source element pushes into sinkpad */
++  gboolean is_element_transfer;
++  GstElement *src;
++  GstPad *sinkpad;
++  gulong cancelled_id;
++  gboolean headers_received;
++  gboolean element_done;
++  GError *element_error;
++  gint teardown_scheduled;
++  /* The request's properties, set on the source element where it has them */
++  GstStructure *extra_headers;
++  gboolean compress;
++  gchar *user_agent;
++
+   gboolean request_sent;
+ 
+   /* Current read buffer */
+@@ -94,7 +118,10 @@
+     g_cond_clear (&transfer->cond);
+ 
+   g_clear_object (&transfer->cancellable);
+-  g_object_unref (transfer->msg);
++  g_clear_object (&transfer->msg);
++  if (transfer->extra_headers)
++    gst_structure_free (transfer->extra_headers);
++  g_free (transfer->user_agent);
+   g_free (transfer->read_buffer);
+   g_free (transfer);
+ }
+@@ -194,6 +221,478 @@
+   return transfer_task_new_for_transfer (transfer);
+ }
+ 
++static GTask *
++transfer_task_new_element (DownloadHelper * dh, DownloadRequest * request,
++    gboolean blocking)
++{
++  DownloadHelperTransfer *transfer =
++      transfer_new_common (dh, request, blocking);
++  transfer->is_element_transfer = TRUE;
++
++  return transfer_task_new_for_transfer (transfer);
++}
++
++/* Stops and drops the source element of an element transfer. Not called from
++ * the element's streaming thread */
++static void
++element_transfer_release (DownloadHelperTransfer * transfer)
++{
++  GstElement *src = transfer->src;
++
++  if (src == NULL)
++    return;
++  transfer->src = NULL;
++
++  if (transfer->cancelled_id)
++    g_cancellable_disconnect (transfer->cancellable, transfer->cancelled_id);
++  transfer->cancelled_id = 0;
++
++  gst_element_set_state (src, GST_STATE_NULL);
++  gst_pad_set_active (transfer->sinkpad, FALSE);
++  gst_object_unref (src);
++  gst_clear_object (&transfer->sinkpad);
++}
++
++/* Called on the transfer thread: stops the element, completes the transfer, and
++ * drops the element's task reference */
++static gboolean
++element_transfer_teardown_cb (gpointer user_data)
++{
++  GTask *transfer_task = user_data;
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadHelper *dh = transfer->dh;
++  DownloadRequest *request = transfer->request;
++  GError *error;
++
++  element_transfer_release (transfer);
++
++  download_request_lock (request);
++  if (!transfer->element_done) {
++    /* Cancelled before its end */
++    transfer->element_done = TRUE;
++    request->download_end_time = gst_adaptive_demux_clock_get_time (dh->clock);
++  }
++  error = g_steal_pointer (&transfer->element_error);
++  download_request_unlock (request);
++
++  finish_transfer_task (dh, transfer_task, error);
++
++  g_mutex_lock (&dh->transfer_lock);
++  g_ptr_array_remove_fast (dh->element_transfers, transfer_task);
++  g_mutex_unlock (&dh->transfer_lock);
++
++  return G_SOURCE_REMOVE;
++}
++
++static void
++element_transfer_schedule_teardown (GTask * transfer_task)
++{
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  GSource *source;
++
++  if (!g_atomic_int_compare_and_exchange (&transfer->teardown_scheduled, 0, 1))
++    return;
++
++  source = g_idle_source_new ();
++  g_source_set_callback (source, element_transfer_teardown_cb, transfer_task,
++      NULL);
++  g_source_attach (source, transfer->dh->transfer_context);
++  g_source_unref (source);
++}
++
++static void
++element_transfer_cancelled_cb (GCancellable * cancellable, gpointer user_data)
++{
++  element_transfer_schedule_teardown (user_data);
++}
++
++/* Called with the download_request lock held. Ends the transfer as the soup and
++ * file transfers do at the end of their data, or on @error; the transfer thread
++ * completes it */
++static void
++element_transfer_finish_locked (GTask * transfer_task, GError * error)
++{
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadHelper *dh = transfer->dh;
++  DownloadRequest *request = transfer->request;
++  gboolean cancelled = g_cancellable_is_cancelled (transfer->cancellable);
++
++  if (transfer->element_done) {
++    g_clear_error (&error);
++    return;
++  }
++  transfer->element_done = TRUE;
++
++  if (error != NULL)
++    GST_LOG ("request errored: %s. Code %d URI %s", error->message,
++        request->status_code, request->uri);
++
++  if (request->in_use && !cancelled
++      && request->state != DOWNLOAD_REQUEST_STATE_CANCELLED) {
++    if (error == NULL && (SOUP_STATUS_IS_SUCCESSFUL (request->status_code)
++            || SOUP_STATUS_IS_REDIRECTION (request->status_code)))
++      request->state = DOWNLOAD_REQUEST_STATE_COMPLETE;
++    else
++      request->state = DOWNLOAD_REQUEST_STATE_ERROR;
++  }
++  request->download_end_time = gst_adaptive_demux_clock_get_time (dh->clock);
++
++  if (cancelled)
++    g_clear_error (&error);
++  transfer->element_error = error;
++  element_transfer_schedule_teardown (transfer_task);
++}
++
++/* Called with the download_request lock held */
++static void
++element_transfer_headers_received_locked (GTask * transfer_task)
++{
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadRequest *request = transfer->request;
++
++  transfer->headers_received = TRUE;
++  if (request->state == DOWNLOAD_REQUEST_STATE_CANCELLED)
++    return;
++
++  request->state = DOWNLOAD_REQUEST_STATE_HEADERS_RECEIVED;
++  GST_TRACE ("request URI %s range %" G_GINT64_FORMAT " %" G_GINT64_FORMAT
++      " status %u headers: %" GST_PTR_FORMAT, request->uri,
++      request->range_start, request->range_end, request->status_code,
++      request->headers);
++
++  if (SOUP_STATUS_IS_SUCCESSFUL (request->status_code)
++      || SOUP_STATUS_IS_REDIRECTION (request->status_code))
++    transfer_task_report_progress (transfer_task);
++  else
++    element_transfer_finish_locked (transfer_task, NULL);
++}
++
++typedef struct
++{
++  const gchar *name;
++  const GValue *value;
++} HeaderLookup;
++
++static gboolean
++find_header_cb (GQuark field_id, const GValue * value, gpointer user_data)
++{
++  HeaderLookup *lookup = user_data;
++
++  if (g_ascii_strcasecmp (g_quark_to_string (field_id), lookup->name) == 0) {
++    lookup->value = value;
++    return FALSE;
++  }
++  return TRUE;
++}
++
++/* The value of a response header, which a source element puts in its
++ * http-headers structure as a string or, when numeric, an integer */
++static const GValue *
++find_header (const GstStructure * headers, const gchar * name)
++{
++  HeaderLookup lookup = { name, NULL };
++
++  gst_structure_foreach (headers, find_header_cb, &lookup);
++  return lookup.value;
++}
++
++/* The http-headers event an HTTP source element sends before its data, as
++ * souphttpsrc does */
++static void
++element_transfer_http_headers (GTask * transfer_task,
++    const GstStructure * http_headers)
++{
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadRequest *request = transfer->request;
++  const GstStructure *response_headers = NULL;
++  const gchar *redirect_uri;
++  const GValue *value;
++  guint status_code = 0;
++
++  download_request_lock (request);
++  if (transfer->element_done || transfer->headers_received) {
++    download_request_unlock (request);
++    return;
++  }
++
++  gst_structure_get_uint (http_headers, "http-status-code", &status_code);
++  request->status_code = status_code;
++
++  redirect_uri = gst_structure_get_string (http_headers, "redirection-uri");
++  if (redirect_uri != NULL && g_strcmp0 (redirect_uri, request->uri) != 0) {
++    g_free (request->redirect_uri);
++    request->redirect_uri = g_strdup (redirect_uri);
++    request->redirect_permanent = FALSE;
++  }
++
++  if (request->headers)
++    gst_structure_free (request->headers);
++  request->headers = gst_structure_copy (http_headers);
++
++  value = gst_structure_get_value (http_headers, "response-headers");
++  if (value != NULL && GST_VALUE_HOLDS_STRUCTURE (value))
++    response_headers = gst_value_get_structure (value);
++
++  transfer->read_position = 0;
++  if (response_headers != NULL) {
++    if (SOUP_STATUS_IS_SUCCESSFUL (status_code)
++        && (value = find_header (response_headers, "Content-Length"))) {
++      if (G_VALUE_HOLDS_UINT64 (value))
++        request->content_length = g_value_get_uint64 (value);
++      else if (G_VALUE_HOLDS_STRING (value))
++        request->content_length =
++            g_ascii_strtoull (g_value_get_string (value), NULL, 10);
++    }
++    /* A partial content response starts at its Content-Range */
++    if (status_code == SOUP_STATUS_PARTIAL_CONTENT
++        && (value = find_header (response_headers, "Content-Range"))
++        && G_VALUE_HOLDS_STRING (value)
++        && g_str_has_prefix (g_value_get_string (value), "bytes ")) {
++      transfer->read_position =
++          g_ascii_strtoull (g_value_get_string (value) + 6, NULL, 10);
++    }
++  }
++  if (transfer->read_position != request->range_start) {
++    GST_WARNING ("Server did not respect our range request for range %"
++        G_GINT64_FORMAT " to %" G_GINT64_FORMAT " - starting at offset %"
++        G_GUINT64_FORMAT, request->range_start, request->range_end,
++        transfer->read_position);
++  }
++
++  element_transfer_headers_received_locked (transfer_task);
++  download_request_unlock (request);
++}
++
++static GstFlowReturn
++element_transfer_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)
++{
++  GTask *transfer_task = gst_pad_get_element_private (pad);
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadRequest *request = transfer->request;
++  GstClockTime now = gst_adaptive_demux_clock_get_time (transfer->dh->clock);
++  guint64 offset, end;
++
++  download_request_lock (request);
++  if (transfer->element_done
++      || g_cancellable_is_cancelled (transfer->cancellable)) {
++    download_request_unlock (request);
++    gst_buffer_unref (buffer);
++    return GST_FLOW_FLUSHING;
++  }
++
++  /* A source without HTTP headers delivers the data it was asked for */
++  if (!transfer->headers_received) {
++    request->status_code = SOUP_STATUS_OK;
++    element_transfer_headers_received_locked (transfer_task);
++    if (transfer->element_done) {
++      download_request_unlock (request);
++      gst_buffer_unref (buffer);
++      return GST_FLOW_EOS;
++    }
++  }
++
++  offset = transfer->read_position;
++  transfer->read_position += gst_buffer_get_size (buffer);
++  end = transfer->read_position;
++  buffer = gst_buffer_make_writable (buffer);
++  GST_BUFFER_OFFSET (buffer) = offset;
++
++  /* Clip the buffer to within the range */
++  if (request->range_end != -1 && end > (guint64) request->range_end + 1) {
++    if (offset > (guint64) request->range_end)
++      gst_clear_buffer (&buffer);
++    else
++      gst_buffer_resize (buffer, 0, request->range_end + 1 - offset);
++  }
++  if (buffer != NULL && offset < (guint64) request->range_start) {
++    if (end <= (guint64) request->range_start) {
++      gst_clear_buffer (&buffer);
++    } else {
++      gst_buffer_resize (buffer, request->range_start - offset, -1);
++      GST_BUFFER_OFFSET (buffer) = request->range_start;
++    }
++  }
++
++  if (buffer != NULL) {
++    if (request->state != DOWNLOAD_REQUEST_STATE_CANCELLED)
++      request->state = DOWNLOAD_REQUEST_STATE_LOADING;
++
++    if (request->download_start_time == GST_CLOCK_TIME_NONE) {
++      GST_LOG ("Got first data for URI %s", request->uri);
++      request->download_start_time = now;
++    }
++    request->download_newest_data_time = now;
++
++    GST_LOG ("Adding %u bytes to buffer (request URI %s)",
++        (guint) gst_buffer_get_size (buffer), request->uri);
++
++    download_request_add_buffer (request, buffer);
++    transfer_task_report_progress (transfer_task);
++  }
++  download_request_unlock (request);
++
++  return GST_FLOW_OK;
++}
++
++static gboolean
++element_transfer_event (GstPad * pad, GstObject * parent, GstEvent * event)
++{
++  GTask *transfer_task = gst_pad_get_element_private (pad);
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadRequest *request = transfer->request;
++
++  switch (GST_EVENT_TYPE (event)) {
++    case GST_EVENT_CUSTOM_DOWNSTREAM_STICKY:
++      if (gst_event_has_name (event, "http-headers"))
++        element_transfer_http_headers (transfer_task,
++            gst_event_get_structure (event));
++      break;
++    case GST_EVENT_EOS:
++      download_request_lock (request);
++      if (!transfer->headers_received && !transfer->element_done) {
++        request->status_code = SOUP_STATUS_OK;
++        element_transfer_headers_received_locked (transfer_task);
++      }
++      element_transfer_finish_locked (transfer_task, NULL);
++      download_request_unlock (request);
++      break;
++    default:
++      break;
++  }
++
++  gst_event_unref (event);
++  return TRUE;
++}
++
++/* The source element's messages: an error ends the transfer, and a context
++ * request goes up through the owner, which is in the pipeline */
++static GstBusSyncReply
++element_transfer_bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
++{
++  GTask *transfer_task = user_data;
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadRequest *request = transfer->request;
++
++  switch (GST_MESSAGE_TYPE (message)) {
++    case GST_MESSAGE_ERROR:{
++      GError *error = NULL;
++
++      gst_message_parse_error (message, &error, NULL);
++      download_request_lock (request);
++      element_transfer_finish_locked (transfer_task, error);
++      download_request_unlock (request);
++      break;
++    }
++    case GST_MESSAGE_NEED_CONTEXT:
++    case GST_MESSAGE_HAVE_CONTEXT:
++      if (transfer->dh->owner != NULL)
++        gst_element_post_message (transfer->dh->owner,
++            gst_message_ref (message));
++      break;
++    default:
++      break;
++  }
++
++  return GST_BUS_DROP;
++}
++
++/* Called on the transfer thread, without the transfer lock */
++static gboolean
++element_transfer_start_cb (gpointer user_data)
++{
++  GTask *transfer_task = user_data;
++  DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++  DownloadRequest *request = transfer->request;
++  GstElement *src;
++  GObjectClass *src_class;
++  GstPad *srcpad;
++  GstBus *bus;
++  GError *error = NULL;
++
++  if (g_cancellable_is_cancelled (transfer->cancellable)) {
++    element_transfer_schedule_teardown (transfer_task);
++    return G_SOURCE_REMOVE;
++  }
++
++  src = gst_element_make_from_uri (GST_URI_SRC, request->uri, NULL, &error);
++  if (src == NULL)
++    goto failed;
++  gst_object_ref_sink (src);
++
++  /* The request's properties, as GstURIDownloader sets them */
++  src_class = G_OBJECT_GET_CLASS (src);
++  if (g_object_class_find_property (src_class, "compress"))
++    g_object_set (src, "compress", transfer->compress, NULL);
++  if (transfer->extra_headers
++      && g_object_class_find_property (src_class, "extra-headers"))
++    g_object_set (src, "extra-headers", transfer->extra_headers, NULL);
++  if (transfer->user_agent
++      && g_object_class_find_property (src_class, "user-agent"))
++    g_object_set (src, "user-agent", transfer->user_agent, NULL);
++
++  /* Its messages are handled as they are posted: the bus needs no poll */
++  bus = gst_object_ref_sink (g_object_new (GST_TYPE_BUS, "enable-async", FALSE,
++          NULL));
++  gst_bus_set_sync_handler (bus, element_transfer_bus_cb, transfer_task, NULL);
++  gst_element_set_bus (src, bus);
++  gst_object_unref (bus);
++
++  transfer->sinkpad = gst_object_ref_sink (gst_pad_new ("sink", GST_PAD_SINK));
++  gst_pad_set_element_private (transfer->sinkpad, transfer_task);
++  gst_pad_set_chain_function (transfer->sinkpad, element_transfer_chain);
++  gst_pad_set_event_function (transfer->sinkpad, element_transfer_event);
++  gst_pad_set_active (transfer->sinkpad, TRUE);
++
++  srcpad = gst_element_get_static_pad (src, "src");
++  if (srcpad == NULL
++      || gst_pad_link_full (srcpad, transfer->sinkpad,
++          GST_PAD_LINK_CHECK_NOTHING) != GST_PAD_LINK_OK) {
++    g_set_error (&error, GST_CORE_ERROR, GST_CORE_ERROR_PAD,
++        "Could not link the source element for %s", request->uri);
++    gst_clear_object (&srcpad);
++    transfer->src = src;
++    goto failed;
++  }
++  gst_object_unref (srcpad);
++  transfer->src = src;
++
++  if ((transfer->request->range_start != 0 || request->range_end != -1)) {
++    if (gst_element_set_state (src, GST_STATE_READY) == GST_STATE_CHANGE_FAILURE
++        || !gst_element_send_event (src, gst_event_new_seek (1.0,
++                GST_FORMAT_BYTES, GST_SEEK_FLAG_FLUSH, GST_SEEK_TYPE_SET,
++                request->range_start,
++                request->range_end != -1 ? GST_SEEK_TYPE_SET :
++                GST_SEEK_TYPE_NONE,
++                request->range_end != -1 ? request->range_end + 1 : -1))) {
++      g_set_error (&error, GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_SEEK,
++          "Could not request range %" G_GINT64_FORMAT " %" G_GINT64_FORMAT
++          " of %s", request->range_start, request->range_end, request->uri);
++      goto failed;
++    }
++    transfer->read_position = request->range_start;
++  }
++
++  transfer->cancelled_id = g_cancellable_connect (transfer->cancellable,
++      G_CALLBACK (element_transfer_cancelled_cb), transfer_task, NULL);
++
++  if (gst_element_set_state (src, GST_STATE_PLAYING) ==
++      GST_STATE_CHANGE_FAILURE) {
++    g_set_error (&error, GST_CORE_ERROR, GST_CORE_ERROR_STATE_CHANGE,
++        "Could not start the source element for %s", request->uri);
++    goto failed;
++  }
++
++  return G_SOURCE_REMOVE;
++
++failed:
++  GST_WARNING ("Failed to start transfer for URI %s: %s", request->uri,
++      error ? error->message : "");
++  download_request_lock (request);
++  element_transfer_finish_locked (transfer_task, error);
++  download_request_unlock (request);
++  return G_SOURCE_REMOVE;
++}
++
+ static void
+ release_transfer_task_by_ref (GTask ** transfer_task)
+ {
+@@ -808,6 +1307,12 @@
+       g_async_queue_new_full ((GDestroyNotify) g_object_unref);
+   dh->transfer_requests_source = NULL;
+ 
++  dh->element_transfers =
++      g_ptr_array_new_with_free_func ((GDestroyNotify) g_object_unref);
++
++  if (!gst_soup_load_library ())
++    return dh;
++
+   /* libsoup 3.0 (not 2.74 or 3.1) dispatches using a single source attached
+    * when the session is created, so we need to ensure it matches here. */
+   g_main_context_push_thread_default (dh->transfer_context);
+@@ -855,11 +1360,18 @@
+ 
+   g_free (dh->referer);
+   g_free (dh->user_agent);
++  g_ptr_array_unref (dh->element_transfers);
+ 
+   g_free (dh);
+ }
+ 
+ void
++downloadhelper_set_owner (DownloadHelper * dh, GstElement * owner)
++{
++  dh->owner = owner;
++}
++
++void
+ downloadhelper_set_referer (DownloadHelper * dh, const gchar * referer)
+ {
+   g_mutex_lock (&dh->transfer_lock);
+@@ -910,6 +1422,10 @@
+   CookieAddData *data;
+   GSource *source;
+ 
++  /* Without libsoup, the URI source elements apply their own cookies */
++  if (dh->session == NULL)
++    return;
++
+   soup_uri = gst_soup_uri_new (uri);
+   if (soup_uri == NULL) {
+     GST_WARNING ("Couldn't parse cookie origin URI %s, ignoring cookie %s",
+@@ -976,6 +1492,15 @@
+   if (transfer->is_file_transfer) {
+     g_file_read_async (transfer->file, G_PRIORITY_DEFAULT,
+         transfer->cancellable, on_file_ready, transfer_task);
++  } else if (transfer->is_element_transfer) {
++    GSource *source = g_idle_source_new ();
++
++    /* The element's task reference, dropped at its teardown */
++    g_ptr_array_add (dh->element_transfers, g_object_ref (transfer_task));
++    g_source_set_callback (source, element_transfer_start_cb, transfer_task,
++        NULL);
++    g_source_attach (source, dh->transfer_context);
++    g_source_unref (source);
+   } else {
+     _soup_session_send_async (dh->session, transfer->msg, transfer->cancellable,
+         on_request_sent, transfer_task);
+@@ -1044,6 +1569,7 @@
+ {
+   int i;
+   GThread *transfer_thread = NULL;
++  GPtrArray *element_transfers;
+ 
+   GST_DEBUG ("Stopping DownloadHelper loop");
+ 
+@@ -1124,7 +1650,22 @@
+   }
+ 
+   g_array_set_size (dh->active_transfers, 0);
++
++  /* The source elements stop without the lock, which their streaming threads
++   * take */
++  element_transfers = dh->element_transfers;
++  dh->element_transfers =
++      g_ptr_array_new_with_free_func ((GDestroyNotify) g_object_unref);
+   g_mutex_unlock (&dh->transfer_lock);
++
++  for (i = 0; i < element_transfers->len; i++) {
++    GTask *transfer_task = g_ptr_array_index (element_transfers, i);
++    DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++
++    element_transfer_release (transfer);
++    g_clear_error (&transfer->element_error);
++  }
++  g_ptr_array_unref (element_transfers);
+ }
+ 
+ gboolean
+@@ -1160,6 +1701,40 @@
+ 
+     transfer_task = transfer_task_new_file (dh, request, blocking);
+     g_mutex_lock (&dh->transfer_lock);
++  } else if (dh->session == NULL) {
++    if (flags & DOWNLOAD_FLAG_HEADERS_ONLY) {
++      GST_ERROR ("URI source elements do not support header-only requests");
++      download_request_unlock (request);
++      return FALSE;
++    }
++
++    /* As for the soup transfers below */
++    if (request->range_start < 1024)
++      request->range_start = 0;
++    download_request_unlock (request);
++
++    /* If resubmitting a request, clear any stale / unused data */
++    download_request_begin_download (request);
++
++    transfer_task = transfer_task_new_element (dh, request, blocking);
++    g_mutex_lock (&dh->transfer_lock);
++
++    {
++      DownloadHelperTransfer *transfer = g_task_get_task_data (transfer_task);
++      const gchar *request_referer = referer != NULL ? referer : dh->referer;
++
++      transfer->compress = (flags & DOWNLOAD_FLAG_COMPRESS) != 0;
++      if (request_referer != NULL || (flags & DOWNLOAD_FLAG_FORCE_REFRESH)) {
++        transfer->extra_headers = gst_structure_new_empty ("headers");
++        if (request_referer != NULL)
++          gst_structure_set (transfer->extra_headers, "Referer", G_TYPE_STRING,
++              request_referer, NULL);
++        if (flags & DOWNLOAD_FLAG_FORCE_REFRESH)
++          gst_structure_set (transfer->extra_headers, "Cache-Control",
++              G_TYPE_STRING, "max-age=0", NULL);
++      }
++      transfer->user_agent = g_strdup (dh->user_agent);
++    }
+   } else {
+     const gchar *method =
+         (flags & DOWNLOAD_FLAG_HEADERS_ONLY) ? SOUP_METHOD_HEAD :
+--- a/ext/adaptivedemux2/downloadhelper.h
++++ b/ext/adaptivedemux2/downloadhelper.h
+@@ -51,6 +51,7 @@
+ 
+ void downloadhelper_free (DownloadHelper * dh);
+ 
++void downloadhelper_set_owner (DownloadHelper * dh, GstElement * owner);
+ void downloadhelper_set_referer (DownloadHelper * dh, const gchar *referer);
+ void downloadhelper_set_user_agent (DownloadHelper * dh, const gchar *user_agent);
+ void downloadhelper_add_cookie (DownloadHelper * dh, const gchar *uri,
+--- a/ext/adaptivedemux2/gstadaptivedemux.c
++++ b/ext/adaptivedemux2/gstadaptivedemux.c
+@@ -612,6 +612,7 @@
+   demux->realtime_clock = gst_adaptive_demux_clock_new ();
+ 
+   demux->download_helper = downloadhelper_new (demux->realtime_clock);
++  downloadhelper_set_owner (demux->download_helper, GST_ELEMENT_CAST (demux));
+   demux->priv->segment_seqnum = gst_util_seqnum_next ();
+   demux->have_group_id = FALSE;
+   demux->group_id = G_MAXUINT;
+--- a/ext/adaptivedemux2/gstadaptivedemuxelement.c
++++ b/ext/adaptivedemux2/gstadaptivedemuxelement.c
+@@ -37,10 +37,9 @@
+     g_once_init_leave (&res, TRUE);
+   }
+ #ifndef LINK_SOUP
+-  if (!gst_soup_load_library ()) {
+-    GST_WARNING ("Failed to load libsoup library");
+-    return FALSE;
+-  }
++  /* Without libsoup the downloads go through URI source elements */
++  if (!gst_soup_load_library ())
++    GST_INFO ("Failed to load libsoup library");
+ #endif
+   return TRUE;
+ }

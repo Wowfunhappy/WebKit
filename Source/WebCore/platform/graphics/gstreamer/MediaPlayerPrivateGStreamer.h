@@ -293,7 +293,7 @@ public:
         return m_quirkStates.get(owner);
     }
 
-    // AQUAWEBKIT: Adaptive manifest state takes precedence over HTTP byte-length heuristics.
+    // AQUAWEBKIT: see the definition.
     // void setLiveStream(bool isLiveStream) { m_isLiveStream = isLiveStream; }
     void setLiveStream(bool isLiveStream) const;
 
@@ -535,7 +535,10 @@ protected:
 #endif
 #if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
     std::unique_ptr<HLSTimedMetadataGStreamer> m_hlsTimedMetadata; // AQUAWEBKIT: see handleHLSID3Sample().
-#endif // AQUAWEBKIT: closes the member above.
+    // AQUAWEBKIT: the ID3 metadata streams of the stream collection, which every SELECT_STREAMS this player sends
+    // keeps selected alongside its audio, video and text choices, as the demuxer's default selection does.
+    Vector<CString> m_id3MetadataStreamIds;
+#endif // AQUAWEBKIT: closes the members above.
 
     String errorMessage() const override { return m_errorMessage; }
 
@@ -778,6 +781,7 @@ private:
     GRefPtr<GstStreamCollection> m_streamCollection;
 
     AbortableTaskQueue m_sinkTaskQueue;
+    AbortableTaskQueue m_streamCollectionTaskQueue; // AQUAWEBKIT: see handleStreamCollectionMessage().
 
     bool m_didTryToRecoverPlayingState { false };
 

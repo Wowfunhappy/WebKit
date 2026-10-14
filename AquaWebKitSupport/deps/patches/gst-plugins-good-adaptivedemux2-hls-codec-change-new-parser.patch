@@ -1,0 +1,174 @@
+# hlsdemux2 switches between variants, and renditions, by bitrate whatever their codecs, while the
+# stream keeps the parsebin it started with: the parser it plugged for the first codec refuses the
+# next one's caps (an HEVC variant then an AVC one: h265parse is offered video/x-h264, and the
+# stream stops with not-negotiated). When a variant or rendition change names other media types in
+# its CODECS, or a side has none, the stream's next download goes to a new parsebin, whose pads
+# take over the stream's tracks; decodebin3 then replugs the decoder for the new caps.
+#
+# Applied by build_deps with patch -p1.
+--- a/ext/adaptivedemux2/gstadaptivedemux-stream.c
++++ b/ext/adaptivedemux2/gstadaptivedemux-stream.c
+@@ -1139,12 +1139,51 @@
+   }
+ }
+ 
++/**
++ * gst_adaptive_demux2_stream_reset_parser:
++ *
++ * Has the stream's next download go to a new parsebin, as its codecs change:
++ * the parser and demuxer elements the current one plugged take only the codecs
++ * they were plugged for. The new parsebin's pads take over the stream's tracks.
++ */
++void
++gst_adaptive_demux2_stream_reset_parser (GstAdaptiveDemux2Stream * stream)
++{
++  GST_DEBUG_OBJECT (stream, "The next download goes to a new parsebin");
++  stream->reset_parser = TRUE;
++}
++
++/* must be called from the scheduler context, between downloads */
++static void
++gst_adaptive_demux2_stream_remove_parser (GstAdaptiveDemux2Stream * stream)
++{
++  GstElement *parsebin = stream->parsebin;
++
++  GST_LOG_OBJECT (stream, "Removing parsebin");
++
++  /* Its pads go, and with them any a track still has pending */
++  gst_element_set_state (parsebin, GST_STATE_NULL);
++  g_signal_handler_disconnect (parsebin, stream->pad_added_id);
++  g_signal_handler_disconnect (parsebin, stream->pad_removed_id);
++  stream->pad_added_id = stream->pad_removed_id = 0;
++  gst_clear_object (&stream->parsebin_sink);
++  gst_bin_remove (GST_BIN_CAST (stream->demux), parsebin);
++  gst_object_unref (parsebin);
++  stream->parsebin = NULL;
++}
++
+ /* must be called with manifest_lock taken */
+ static gboolean
+ gst_adaptive_demux2_stream_create_parser (GstAdaptiveDemux2Stream * stream)
+ {
+   GstAdaptiveDemux *demux = stream->demux;
+ 
++  if (stream->reset_parser && stream->parsebin != NULL) {
++    gst_adaptive_demux2_stream_remove_parser (stream);
++    stream->send_segment = TRUE;
++  }
++  stream->reset_parser = FALSE;
++
+   if (stream->parsebin == NULL) {
+     GstEvent *event;
+ 
+--- a/ext/adaptivedemux2/gstadaptivedemux-stream.h
++++ b/ext/adaptivedemux2/gstadaptivedemux-stream.h
+@@ -269,6 +269,9 @@
+ 
+   gulong pad_added_id, pad_removed_id;
+ 
++  /* The next download goes to a new parsebin: the stream's codecs change */
++  gboolean reset_parser;
++
+   GstSegment parse_segment;
+ 
+   /* TRUE if the current stream GstSegment should be sent downstream */
+@@ -371,6 +374,8 @@
+ void gst_adaptive_demux2_stream_set_tags (GstAdaptiveDemux2Stream * stream,
+                                          GstTagList * tags);
+ 
++void gst_adaptive_demux2_stream_reset_parser (GstAdaptiveDemux2Stream * stream);
++
+ GstFlowReturn gst_adaptive_demux2_stream_push_buffer (GstAdaptiveDemux2Stream * stream,
+ 						      GstBuffer * buffer);
+ 
+--- a/ext/adaptivedemux2/hls/gsthlsdemux.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux.c
+@@ -1111,6 +1111,12 @@
+ 
+     gboolean changed = (demux->pending_variant != demux->current_variant);
+ 
++    if (changed && demux->main_stream
++        && !gst_hls_caps_have_same_media_types (demux->current_variant->caps,
++            demux->pending_variant->caps))
++      gst_adaptive_demux2_stream_reset_parser (GST_ADAPTIVE_DEMUX2_STREAM_CAST
++          (demux->main_stream));
++
+     gst_hls_variant_stream_unref (demux->current_variant);
+     /* Stealing ref */
+     demux->current_variant = demux->pending_variant;
+--- a/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
+@@ -1425,6 +1425,11 @@
+      * and we should never get a callback for a stale download URI */
+     g_assert (!g_strcmp0 (stream->pending_rendition->uri, new_playlist_uri));
+ 
++    if (!gst_hls_caps_have_same_media_types (stream->current_rendition->caps,
++            stream->pending_rendition->caps))
++      gst_adaptive_demux2_stream_reset_parser (GST_ADAPTIVE_DEMUX2_STREAM_CAST
++          (stream));
++
+     gst_hls_rendition_stream_unref (stream->current_rendition);
+     /* Stealing ref */
+     stream->current_rendition = stream->pending_rendition;
+--- a/ext/adaptivedemux2/hls/m3u8.c
++++ b/ext/adaptivedemux2/hls/m3u8.c
+@@ -3337,6 +3337,46 @@
+   return playlist;
+ }
+ 
++static gboolean
++same_mpeg_audio_kind (const GstStructure * a, const GstStructure * b)
++{
++  gint a_version = 0, b_version = 0;
++
++  if (!gst_structure_has_name (a, "audio/mpeg"))
++    return TRUE;
++  gst_structure_get_int (a, "mpegversion", &a_version);
++  gst_structure_get_int (b, "mpegversion", &b_version);
++  return (a_version == 1) == (b_version == 1);
++}
++
++/* Whether two sets of CODECS caps name the same media types (video/x-h265,
++ * audio/mpeg, ...), MPEG audio of the same kind (MPEG-1 or MPEG-2/4): those the
++ * parsers plugged for one take. Codecs not known are not the same. */
++gboolean
++hls_caps_have_same_media_types (const GstCaps * a, const GstCaps * b)
++{
++  guint i, j;
++
++  if (a == NULL || b == NULL
++      || gst_caps_get_size (a) != gst_caps_get_size (b))
++    return FALSE;
++
++  for (i = 0; i < gst_caps_get_size (a); i++) {
++    const GstStructure *sa = gst_caps_get_structure (a, i);
++    gboolean found = FALSE;
++
++    for (j = 0; !found && j < gst_caps_get_size (b); j++) {
++      const GstStructure *sb = gst_caps_get_structure (b, j);
++
++      found = gst_structure_has_name (sb, gst_structure_get_name (sa))
++          && same_mpeg_audio_kind (sa, sb);
++    }
++    if (!found)
++      return FALSE;
++  }
++  return TRUE;
++}
++
+ GstHLSVariantStream *
+ hls_master_playlist_get_variant_for_bitrate (GstHLSMasterPlaylist *
+     playlist, gboolean iframe_variant, guint bitrate,
+--- a/ext/adaptivedemux2/hls/m3u8.h
++++ b/ext/adaptivedemux2/hls/m3u8.h
+@@ -494,6 +494,10 @@
+ GstHLSMasterPlaylist * hls_master_playlist_new_from_data (gchar       * data,
+ 							  const gchar * base_uri);
+ 
++#define gst_hls_caps_have_same_media_types hls_caps_have_same_media_types
++gboolean               hls_caps_have_same_media_types (const GstCaps * a,
++                                                       const GstCaps * b);
++
+ #define gst_hls_master_playlist_get_variant_for_bitrate hls_master_playlist_get_variant_for_bitrate
+ GstHLSVariantStream *  hls_master_playlist_get_variant_for_bitrate (GstHLSMasterPlaylist * playlist,
+ 								    gboolean  iframe_variant,

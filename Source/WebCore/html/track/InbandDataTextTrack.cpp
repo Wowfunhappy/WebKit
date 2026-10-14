@@ -123,7 +123,11 @@ void InbandDataTextTrack::updateDataCue(const MediaTime& start, const MediaTime&
     cue->setStartTime(start);
     cue->setEndTime(end);
 
-    cue->didChange();
+    // AQUAWEBKIT: the cue list is sorted by start and end time, and the setters' own reorder requests are nested
+    // inside this change, so this one carries it. A media engine whose metadata carries no duration (GStreamer's
+    // ID3 samples) completes every cue here.
+    // cue->didChange();
+    cue->didChange(true);
 }
 
 void InbandDataTextTrack::removeDataCue(const MediaTime&, const MediaTime&, SerializedPlatformDataCue& platformValue)
