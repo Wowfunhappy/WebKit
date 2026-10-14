@@ -35,9 +35,15 @@
 #include "WebIconDatabase.h"
 #include "WebPageProxy.h"
 #include <WebCore/LinkIcon.h>
+#include <WebCore/RegistrableDomain.h>
 #include <WebCore/SharedBuffer.h>
+#include <wtf/HashMap.h>
+#include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
+#include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 
@@ -104,18 +110,26 @@ static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr
     });
 }
 
+// The completions waiting on each favicon fetch, by session, page and icon URL. A page's commit-time
+// guess and its own icon offer often name the same /favicon.ico moments apart, and the second waits on
+// the first fetch.
+static HashMap<String, Vector<CompletionHandler<void(RefPtr<SharedBuffer>&&)>>>& iconFetchesInFlight()
+{
+    ASSERT(isMainRunLoop());
+    static NeverDestroyed<HashMap<String, Vector<CompletionHandler<void(RefPtr<SharedBuffer>&&)>>>> fetches;
+    return fetches;
+}
+
 // AQUAWEBKIT: fetch a favicon this client has taken responsibility for (#112).
 //
 // The store answers first, and usually can: every page of a site declares the same icon URL, so no
 // request is made for a site whose icon is already held, nor for one already known to serve no icon.
 //
 // The fetch goes out while the page is still current and through the network process, so nothing about
-// the page's own loading can cancel it — which is the whole point of doing it here. What it gives up
-// against the document-owned load it replaces is that load's response handling: an icon URL answering
-// with a non-2xx status returns its error page as bytes here (upstream's own UI-process image load,
-// LoadAndDecodeImage, has the same reply and the same gap), so an error page is rejected by failing to
-// decode rather than by its status, and this remembers the URL so that costs one fetch per site. The
-// one check that cannot be left to decoding is carried over below.
+// the page's own loading can cancel it — which is the whole point of doing it here. It is made as
+// WebCore's IconLoader makes it: in the page's site context, without stored credentials, and never
+// asking the user for any. An icon URL whose answer is empty or does not decode is remembered
+// as serving no icon, so it costs one fetch per site.
 static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, const String& pageURL, const String& iconURL, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin = WebIconDatabase::IconOrigin::NativelyDecoded)
 {
     if (pageURL.isEmpty() || iconURL.isEmpty())
@@ -152,18 +166,18 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
     iconDatabase.notePendingIconURLForPageURL(pageURL, iconURL, persistence, fetchedOrigin);
     carryToInitialRequestURL();
 
-    // Bytes past this are not a site icon but a decoder waiting to be handed something enormous; the
-    // network process stops the load there rather than buffering it for us.
-    constexpr size_t maximumIconBytes = 8 * MB;
-
     auto generation = iconDatabase.generation();
-    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, initialRequestPageURL, iconURL, generation, persistence, fetchedOrigin](RefPtr<WebCore::SharedBuffer>&& iconData) {
+    auto completion = [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, initialRequestPageURL, iconURL, generation, persistence, fetchedOrigin](RefPtr<SharedBuffer>&& iconData) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing came back at all: a network error, or a load the network process refused. Say nothing
         // about the icon URL itself — the next page of the site may well get it.
-        if (!iconData || iconData->isEmpty())
+        if (!iconData)
             return;
+        if (iconData->isEmpty()) {
+            iconDatabase->noteUnusableIconURL(iconURL);
+            return;
+        }
 
         // AQUAWEBKIT: upstream's IconLoader::notifyFinished refuses a PDF outright, and this OS's
         // ImageIO decodes PDF, so decoding alone would admit an icon upstream declines.
@@ -174,6 +188,26 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
         }
 
         storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, initialRequestPageURL, iconURL, API::Data::create(iconData->span()), persistence, fetchedOrigin);
+    };
+
+    auto key = makeString(page.sessionID().toUInt64(), ' ', pageURL, ' ', iconURL);
+    auto& waiting = iconFetchesInFlight().ensure(key, [] { return Vector<CompletionHandler<void(RefPtr<SharedBuffer>&&)>> { }; }).iterator->value;
+    waiting.append(WTF::move(completion));
+    if (waiting.size() > 1)
+        return;
+
+    URL iconRequestURL { iconURL };
+    URL firstParty { pageURL };
+    ResourceRequest request { URL { iconRequestURL } };
+    // A document without a site (about:blank, file:) has no first party for cookies.
+    if (RegistrableDomain firstPartyDomain { firstParty }; !firstPartyDomain.isEmpty()) {
+        request.setFirstPartyForCookies(firstParty);
+        request.setIsSameSite(RegistrableDomain { iconRequestURL } == firstPartyDomain);
+    }
+    request.setIsTopSite(false);
+    page.loadImageData(WTF::move(request), [key = WTF::move(key)](RefPtr<SharedBuffer>&& iconData) {
+        for (auto& completion : iconFetchesInFlight().take(key))
+            completion(RefPtr { iconData });
     });
 }
 

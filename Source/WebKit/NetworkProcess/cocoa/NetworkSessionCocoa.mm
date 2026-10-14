@@ -2129,6 +2129,7 @@ void NetworkSessionCocoa::loadImageForDecoding(WebCore::ResourceRequest&& reques
             , m_sessionID(networkSession.sessionID())
             , m_pageID(pageID)
             , m_maximumBytesFromNetwork(maximumBytesFromNetwork)
+            , m_clientCredentialPolicy(loadParameters.clientCredentialPolicy) // AQUAWEBKIT: see didReceiveChallenge.
             , m_dataTask(NetworkDataTask::create(networkSession, *this, loadParameters))
             , m_completionHandler(WTF::move(completionHandler))
         {
@@ -2138,6 +2139,15 @@ void NetworkSessionCocoa::loadImageForDecoding(WebCore::ResourceRequest&& reques
         void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&& request, RedirectCompletionHandler&& completionHandler) final { completionHandler(WTF::move(request)); }
         void didReceiveChallenge(WebCore::AuthenticationChallenge&& challenge, NegotiatedLegacyTLS negotiatedLegacyTLS, ChallengeCompletionHandler&& completionHandler) final
         {
+            // AQUAWEBKIT: the load's ClientCredentialPolicy decides whether the user is asked, as in
+            // NetworkLoad::didReceiveChallenge: without permission, a credential challenge continues with none.
+            auto scheme = challenge.protectionSpace().authenticationScheme();
+            bool isTLSHandshake = scheme == WebCore::ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested
+                || scheme == WebCore::ProtectionSpace::AuthenticationScheme::ClientCertificateRequested;
+            if (m_clientCredentialPolicy == WebCore::ClientCredentialPolicy::CannotAskClientForCredentials && !isTLSHandshake && !challenge.protectionSpace().isProxy()) {
+                completionHandler(AuthenticationChallengeDisposition::UseCredential, { });
+                return;
+            } // AQUAWEBKIT: closes the credential-policy check above.
             protect(m_networkProcess->authenticationManager())->didReceiveAuthenticationChallenge(m_sessionID, m_pageID, nullptr, challenge, negotiatedLegacyTLS, WTF::move(completionHandler));
         }
         void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&& completionHandler) final
@@ -2174,6 +2184,7 @@ void NetworkSessionCocoa::loadImageForDecoding(WebCore::ResourceRequest&& reques
         const PAL::SessionID m_sessionID;
         const WebPageProxyIdentifier m_pageID;
         const size_t m_maximumBytesFromNetwork;
+        const WebCore::ClientCredentialPolicy m_clientCredentialPolicy; // AQUAWEBKIT: see didReceiveChallenge.
         const Ref<NetworkDataTask> m_dataTask;
         CompletionHandler<void(Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&&)> m_completionHandler;
         WebCore::SharedBufferBuilder m_buffer;

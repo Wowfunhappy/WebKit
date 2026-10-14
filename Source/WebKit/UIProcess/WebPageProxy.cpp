@@ -11958,12 +11958,12 @@ void WebPageProxy::loadAndDecodeImage(WebCore::ResourceRequest&& request, std::o
 // AQUAWEBKIT: the load above without the decode, so the UI process can obtain a site's own
 // image bytes. The favicon store needs them rather than a bitmap: it decides whether to admit
 // an icon by decoding it, and rasterizes what this OS cannot read (#49, #112).
-void WebPageProxy::loadImageData(WebCore::ResourceRequest&& request, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
+void WebPageProxy::loadImageData(WebCore::ResourceRequest&& request, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
 {
     if (isClosed() || !request.url().isValid() || !hasRunningProcess())
         return completionHandler(nullptr);
 
-    sendWithAsyncReply(Messages::WebPage::LoadImageData(request, maximumBytesFromNetwork), [preventProcessShutdownScope = protect(legacyMainFrameProcess())->shutdownPreventingScope(), completionHandler = WTF::move(completionHandler)] (RefPtr<WebCore::SharedBuffer>&& data) mutable {
+    sendWithAsyncReply(Messages::WebPage::LoadImageData(request), [preventProcessShutdownScope = protect(legacyMainFrameProcess())->shutdownPreventingScope(), completionHandler = WTF::move(completionHandler)] (RefPtr<WebCore::SharedBuffer>&& data) mutable {
         completionHandler(WTF::move(data));
     });
 }

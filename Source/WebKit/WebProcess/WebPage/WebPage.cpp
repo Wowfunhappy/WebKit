@@ -8468,15 +8468,13 @@ void WebPage::loadAndDecodeImage(WebCore::ResourceRequest&& request, std::option
     });
 }
 
-// AQUAWEBKIT: LoadAndDecodeImage without the decode. The UI process has no loader of its own,
-// and the favicon store the legacy WK2 icon-database C API drives (#49) needs a site's icon
-// BYTES rather than a bitmap: it admits an icon by decoding it, and bytes this OS has no decoder for
-// (SVG above all) go to createBitmapsFromImageData, which reads SVG where BitmapImage does not. It
-// asks for those bytes when a page's own icon load was cancelled by navigating away (#112), so this
+// AQUAWEBKIT: LoadAndDecodeImage without the decode or a size limit, for the favicon store the legacy
+// WK2 icon-database C API drives (#49, #112). The store needs a site's icon BYTES rather than a bitmap:
+// it admits an icon by decoding it and rasterizes what this OS's image decoders cannot read. The load
 // takes the same document-independent path through the network process that the load above does.
-void WebPage::loadImageData(WebCore::ResourceRequest&& request, uint64_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
+void WebPage::loadImageData(WebCore::ResourceRequest&& request, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
 {
-    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::LoadImageForDecoding(WTF::move(request), m_webPageProxyIdentifier, maximumBytesFromNetwork), [completionHandler = WTF::move(completionHandler)] (Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&& result) mutable {
+    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::LoadImageForDecoding(WTF::move(request), m_webPageProxyIdentifier, std::numeric_limits<uint64_t>::max()), [completionHandler = WTF::move(completionHandler)] (Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&& result) mutable {
         if (!result)
             return completionHandler(nullptr);
         completionHandler(result.value()->makeContiguous());

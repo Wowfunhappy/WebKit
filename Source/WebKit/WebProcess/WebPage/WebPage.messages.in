@@ -978,7 +978,7 @@ messages -> WebPage WantsAsyncDispatchMessage {
     LoadAndDecodeImage(WebCore::ResourceRequest request, std::optional<WebCore::FloatSize> sizeConstraint, uint64_t maximumBytesFromNetwork) -> (Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError> result)
     # AQUAWEBKIT: the same load without the decode — the UI process's favicon store
     # needs a site's icon bytes, not a bitmap (#112).
-    LoadImageData(WebCore::ResourceRequest request, uint64_t maximumBytesFromNetwork) -> (RefPtr<WebCore::SharedBuffer> data)
+    LoadImageData(WebCore::ResourceRequest request) -> (RefPtr<WebCore::SharedBuffer> data)
 #if PLATFORM(COCOA)
     GetInformationFromImageData(Vector<uint8_t> imageData) -> (Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError> result)
     GetImageMetadata(Vector<uint8_t> imageData) -> (Expected<Vector<std::pair<String, float>>, WebCore::ImageDecodingError> result)

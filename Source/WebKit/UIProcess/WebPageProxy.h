@@ -1001,7 +1001,7 @@ public:
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize>, size_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
     // AQUAWEBKIT: fetch image bytes through the web process, for the favicon store (#112).
-    void loadImageData(WebCore::ResourceRequest&&, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
+    void loadImageData(WebCore::ResourceRequest&&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
     // AQUAWEBKIT: the URL of the request that STARTED the committed main-frame load, before any
     // redirect — the UI-process copy of DocumentLoader::originalRequest(), which WebKit 537's
     // IconController::commitToDatabase reads through FrameLoader::initialRequest(). The favicon store
