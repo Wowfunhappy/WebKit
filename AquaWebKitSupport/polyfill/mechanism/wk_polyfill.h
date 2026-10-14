@@ -2,10 +2,8 @@
 //
 // Write a polyfill only for a symbol 10.9 genuinely LACKS (or, deliberately, one it HAS but that
 // misbehaves — WK_POLYFILL_REPLACES). The body always runs: the runtime does what you declared, with
-// no forwarding to 10.9. If you are wrong and 10.9 already has the symbol, the BUILD catches it —
-// the shadow gate in build-polyfill.sh asks this machine whether any symbol the layer defines is one
-// 10.9 already provides, and fails unless it is declared WK_POLYFILL_REPLACES. So verify absence
-// on-host; never ship a polyfill over a working system symbol.
+// no forwarding to 10.9. If you are wrong and 10.9 already has the symbol, the body replaces 10.9's.
+// So verify absence on-host; never ship a polyfill over a working system symbol.
 //
 //   WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageAndOption,
 //       (CTFontRef font, const UTF16Char *chars, CFIndex length, CFStringRef language,
@@ -38,8 +36,8 @@
 // host app that loads WebKit keeps binding to the system's symbols. Nothing here is exported
 // (build-polyfill.sh compiles with -fvisibility=hidden).
 //
-// The first argument names who owns the symbol on 10.9 — used by the build gate to ask whether 10.9
-// has it there, and to resolve WK_ORIGINAL: a framework name ("CoreText"), an absolute path
+// The first argument names who owns the symbol on 10.9 — used to resolve WK_ORIGINAL, and by
+// WK_POLYFILL_REPORT to ask whether 10.9 has it there: a framework name ("CoreText"), an absolute path
 // ("/usr/lib/libz.dylib"), or NULL to search the whole process (right for libSystem/libc symbols).
 //
 // ObjC methods use a different mechanism, since dispatch keys on the selector rather than on a
@@ -142,9 +140,9 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 #define WK_ORIGINAL(NAME) ((wk_pf_fn_##NAME)wk_polyfill_original(&wk_pf_entry_##NAME))
 
 // WK_POLYFILL_ABSENT and WK_POLYFILL_REPLACES install the body as the symbol itself; it always runs.
-// They are ONE mechanism, differing only in the intent the registry records — which the build gate
-// reads: a gap-fill 10.9 turns out to have fails the build, a replacement asserts 10.9 has it. The
-// runtime does what you declared; it never re-decides at a call.
+// They are ONE mechanism, differing only in the intent the registry records, which WK_POLYFILL_REPORT
+// reads: a replacement asserts 10.9 has it. The runtime does what you declared; it never re-decides
+// at a call.
 #define WK_PF_FUNCTION_(ATTRS, PROVIDER, RET, NAME, PARAMS, INTENT)                     \
     _Pragma("clang diagnostic push")                                                    \
     _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")                    \
@@ -179,9 +177,8 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 
 // Data constants. The declared value IS the value — 10.9 lacks the symbol (a gap-fill), or has it and
 // is being deliberately overridden (WK_POLYFILL_CONST_REPLACES). There is no load-time mirroring of
-// 10.9's value; if 10.9 turns out to export a gap-fill constant, that is a mistake the build gate
-// rejects. (The gate replaces the old mirroring, which existed to stop a token-valued placeholder
-// shadowing a key the system interprets — the EXIF and proxy-key regressions. Caught at build now.)
+// 10.9's value, so a gap-fill constant 10.9 turns out to export replaces the system's: verify absence
+// on-host.
 #define WK_POLYFILL_CONST_ATTR_(ATTRS, PROVIDER, TYPE, NAME, VALUE, INTENT)         \
     _Pragma("clang diagnostic push")                                                \
     _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")                \
@@ -224,7 +221,7 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 // binaries, so a host app's objc_getClass is untouched and keeps seeing the system name as free.
 struct wk_polyfill_class_entry {
     const char *name;       // the system class name WebKit asks objc_getClass for
-    const char *provider;   // framework that owns it on a modern OS; the build gate asks 10.9 there
+    const char *provider;   // framework that owns it on a modern OS
     void *cls;              // the privately-named class (WK_PRIV_CLASS)
     void *(*resolve)(void); // ... or, when cls is NULL, builds it on first ask
 };

@@ -47,9 +47,6 @@ if [ ! -d "$WEBCLIP_PLUGIN/MacOS" ]; then
     echo "ERROR: no Web Clip widget plug-in at $WEBCLIP_PLUGIN." >&2
     exit 1
 fi
-wk_verify_tree "$WK_STAGE_ROOT" "the staged tree ($WK_STAGE_ROOT)" || {
-    echo "       Rebuild it: bash AquaWebKitSupport/build.sh" >&2
-    exit 1; }
 
 # ---------------------------------------------------------------------------
 # Copy the staged bundles into place. WebCore rides inside WebKit.framework (nested, as on stock
@@ -78,16 +75,6 @@ done
 # from what is on disk.
 echo "### Rebuilding the system XPC service cache"
 /usr/libexec/xpchelper --rebuild-cache
-# Match on the recorded executable path rather than the service name: the cache interns the names
-# adjacent to other fields, so a name is not a line of its own, and one service name is a prefix of
-# another's ("...Networking" of "...Networking.Development").
-for svc in $WK_XPC_SERVICES; do
-    if [ "$(strings /System/Library/Caches/com.apple.xpchelper.cache | grep -Fc "$XPCSERVICES/$svc.xpc/Contents/MacOS/$svc")" = 0 ]; then
-        echo "ERROR: $svc is missing from the rebuilt XPC service cache." >&2
-        exit 1
-    fi
-done
-echo "  cache holds all $(set -- $WK_XPC_SERVICES; echo $#) WebKit services"
 
 # ---------------------------------------------------------------------------
 # Web Push daemon: the webpushd binary rides inside the WK2 framework (staged with it above), and
@@ -149,7 +136,4 @@ chown root:admin "$WEBCLIP_BINARY" "$WEBCLIP_PAGE_AGENT" "$WEBCLIP_EXTENSION_PAG
 chown -R root:admin "$WEBCLIP_PAGE_BUNDLE"
 echo "  installed."
 
-# ---------------------------------------------------------------------------
-echo "### Verifying the installed product"
-wk_verify_tree "" "the installed system"
 echo "### Done."

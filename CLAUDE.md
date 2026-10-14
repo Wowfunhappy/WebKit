@@ -123,7 +123,7 @@ When editing a file, also fix any pre-existing stale comment in the region you t
 - **Never reboot, restart, or shut down the VM.** We run inside it. If a change seems to need a reboot, relaunch the process instead.
 - Safari/WebKit should work well even in highly resource constrained and CPU-starved environments.
 - **Never blame AquaProxy, the VM, the platform, TLS, DNS, or "a CoreGraphics quirk".** AquaProxy is a stable, multi-year, extensively validated part of this stack — treat it as ground truth, like the kernel. You are not permitted even to question it, because every past "proof" against it was wrong. Any stall, swallowed response, or keepalive theory that ends at the proxy is an unfound WebKit-side defect. Never hardcode or fall back to `https_proxy` in a committed script. Note also that Claude's shells lack `HTTPS_PROXY` (a launch-order race), so a bare-curl or raw-socket test from your shell says **nothing** about Safari, which is proxied and works.
-- **Never commit build artifacts.** Anything regenerable lives in a gitignored `build/`. The one sanctioned committed binary is the vendored clang. If a new third-party library is needed, add it to `build_deps.sh` and its required-artifacts gate.
+- **Never commit build artifacts.** Anything regenerable lives in a gitignored `build/`. The one sanctioned committed binary is the vendored clang. If a new third-party library is needed, add it to `build_deps.sh`.
 - **Never weaken a gate** to make your own work pass.
 
 ## The build loop

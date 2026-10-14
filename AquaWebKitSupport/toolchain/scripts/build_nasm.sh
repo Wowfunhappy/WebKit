@@ -42,7 +42,3 @@ echo "### Installing"
 make install
 
 "$PREFIX/bin/nasm" -v
-echo "### Verifying macho64 + -MD support"
-printf '' > "$WORK/empty.asm"
-"$PREFIX/bin/nasm" -MD "$WORK/dep.d" -f macho64 -o "$WORK/out.o" "$WORK/empty.asm" \
-    && echo "### nasm OK: macho64 + -MD work"

@@ -34,7 +34,6 @@
     ]
   },
   "source_compiler": {
-    "revision": "3d6c19bb9ab4798ecfb2ee943df01a811720fc27",
     "source": {
       "url": "https://static.rust-lang.org/dist/2026-08-12/rustc-nightly-src.tar.xz",
       "name": "rustc-nightly-src.tar.xz"

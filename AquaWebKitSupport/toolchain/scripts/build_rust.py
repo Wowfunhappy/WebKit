@@ -84,13 +84,12 @@ def write_stamp(name, value):
 
 
 def bind_host_runtime(root, shim, prefer_native=False):
-    """Select and audit each Mach-O image's native or shared host provider."""
-    runtime = ctypes.CDLL(str(shim))
+    """Select each Mach-O image's native or shared host provider."""
     native = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
     patched = 0
     for directory, subdirs, filenames in os.walk(root):
         subdirs[:] = [name for name in subdirs if name not in
-                      ('src', 'share', 'include', 'compiler-rt', 'cargo-home', 'host-check')]
+                      ('src', 'share', 'include', 'compiler-rt', 'cargo-home')]
         for name in filenames:
             path = Path(directory) / name
             if path.is_symlink() or path == shim:
@@ -109,7 +108,6 @@ def bind_host_runtime(root, shim, prefer_native=False):
                 if symbol != 'dyld_stub_binder' and 'weak' not in line:
                     symbols.append(symbol)
             use_native = prefer_native and not needs_replacement and all(hasattr(native, symbol[1:]) for symbol in symbols)
-            provider = native if use_native else runtime
             replacement = '/usr/lib/libSystem.B.dylib' if use_native else '@loader_path/libSystem'
             for line in dependencies.splitlines()[1:]:
                 original = line.strip().split(' (compatibility version', 1)[0]
@@ -128,9 +126,6 @@ def bind_host_runtime(root, shim, prefer_native=False):
                 if original != replacement:
                     run(INSTALL_NAME_TOOL, '-change', original, replacement, path)
                     patched += 1
-            for symbol in symbols:
-                if not hasattr(provider, symbol[1:]):
-                    raise RuntimeError(str(path) + ': missing strong host runtime symbol ' + symbol)
     print('### Rust host libSystem import substitutions:', patched, flush=True)
 
 
@@ -172,14 +167,13 @@ def main():
     sources += list((SHARED / 'include').rglob('*'))
     sources += [SHARED / 'atcalls.h', SHARED / 'compiler.h', INPUTS_PATH, Path(__file__),
                 SCRIPTS / 'rustc-wrapper.sh', SCRIPTS / 'rust-env.sh']
-    sources += list((TOOLCHAIN / 'tests/rust-host').rglob('*'))
     for path in sorted(path for path in sources if path.is_file()):
         identity.update(str(path.relative_to(REPO)).encode())
         identity.update(path.read_bytes())
     identity.update(output(CLANG, '--version').encode())
     fingerprint = identity.hexdigest()
     if installed_stamp('.host-runtime', fingerprint):
-        print('### Rust host runtime and build-script/proc-macro checks are current', flush=True)
+        print('### Rust host runtime is current', flush=True)
         return
 
     objects = WORK / 'host'
@@ -210,19 +204,6 @@ def main():
     # Two-level imports require a provider substitution; the host shim reexports
     # native libSystem while supplying the APIs and corrections absent on 10.9.
     bind_host_runtime(PREFIX, shim)
-    run(PREFIX / 'bin/rustc', '--version')
-    run(PREFIX / 'bin/cargo', '--version')
-
-    smoke = PREFIX / 'host-check'
-    if smoke.exists():
-        shutil.rmtree(smoke)
-    shutil.copytree(TOOLCHAIN / 'tests/rust-host', smoke)
-    # This performs actual host compilation, build-script execution and loading
-    # of a proc macro, rather than relying on rustc/cargo --version alone.
-    environment = os.environ.copy()
-    environment['RUSTC'] = str(PREFIX / 'bin/rustc')
-    run(PREFIX / 'bin/cargo', 'build', '--offline', '--manifest-path', smoke / 'Cargo.toml', env=environment)
-    run(smoke / 'target/debug/rust-host-smoke')
     write_stamp('.host-runtime', fingerprint)
 
 

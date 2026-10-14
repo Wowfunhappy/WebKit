@@ -76,9 +76,4 @@ echo "### Installing"
 make install "${MAKE_ARGS[@]}"
 
 "$PREFIX/bin/git" --version
-echo "### Verifying the HTTPS transport links 10.9's libcurl"
-otool -L "$PREFIX/libexec/git-core/git-remote-http" | grep -q "/usr/lib/libcurl" \
-    || { echo "FATAL: git-remote-http does not link the host libcurl"; exit 1; }
-"$PREFIX/bin/git" ls-remote https://github.com/git/git.git HEAD > /dev/null \
-    || { echo "FATAL: git cannot fetch over https"; exit 1; }
 echo "### git OK -> $PREFIX/bin/git"

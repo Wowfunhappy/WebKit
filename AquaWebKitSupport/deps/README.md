@@ -12,8 +12,7 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 - libxml2 2.13 (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of
   the crash-prone 10.9 system libxml2 2.9;
 - SQLite 3.53.4 (`lib/libsqlite3.dylib`, `include/sqlite3.h`), which supplies WebCore's
-  automatic WAL truncation and 64-bit blob bindings; `bin/sqlite3` links the shared library
-  and the dependency gate verifies `PRAGMA wal_checkpoint(TRUNCATE)`;
+  automatic WAL truncation and 64-bit blob bindings;
 - the complete GStreamer 1.28.5 runtime — glib 2.80.5, gstreamer core/base/good/bad,
   FFmpeg + gst-libav, libvpx, dav1d, FDK AAC 2.0.3 (the AAC and xHE-AAC decoder, under
   fdkaacdec), OpenSSL (HLS AES-128 keys),
@@ -35,9 +34,8 @@ the same shared gap archive as the C plugins. Native Cairo/Pango overlay element
 are an optional default-on upstream feature, disabled here because WebCore renders
 the converted cues. All parsers and converters remain enabled.
 
-Every deployed Mach-O targets 10.9, and the script ends with a symbol-resolution gate
-checking, on this host, that every strong undefined symbol resolves and that no weak import
-binds NULL beyond the documented allow-list. No compat or reexport shim dylibs are involved:
+Every deployed Mach-O targets 10.9, and the script ends by checking, on this host, that every
+undefined symbol resolves and that no weak import binds NULL beyond the documented allow-list. No compat or reexport shim dylibs are involved:
 the post-10.9 libc gap is closed at link time by a gap archive built from this project's own
 polyfill sources and force-loaded into each binary. The dylibs are
 self-contained (own `@rpath` + `LC_RPATH @loader_path/../lib`, C++17 runtime alongside).
@@ -63,20 +61,20 @@ Sources, build trees, build tools and the install prefix live in `work/trees/`,
 kept between runs: a rerun re-extracts and re-configures nothing it already has, and each
 package's own build system decides what to redo. What a package is built from — its section of
 `build_deps.sh`, the patches it names, and the values of the settings that section reads without
-defining (the ambient compile flags, the shared GStreamer option set, the pinned meson) — is
-hashed into its build dir, so editing a patch or a flag re-extracts and rebuilds that package.
+defining (the ambient compile flags, the shared GStreamer option set, the pinned meson, the
+GStreamer, GLib and libffi versions) — is hashed into its build dir, so editing a patch, a flag or
+one of those versions re-extracts and rebuilds that package.
 Static libraries and build tools are skipped whole once their product is in the tree and their
 build dirs are dropped; they are linked before the gap archive joins `LDFLAGS`, so no archive
-change reaches them. `--clean` discards `work/trees/`, as does a change of package versions, SDK
-or compiler. The install prefix inside it bakes absolute paths into its `.pc` files and install
-names, so moving the checkout costs one too.
+change reaches them. A change of SDK or compiler is not in the hash; `--clean` discards
+`work/trees/` for that. The install prefix inside it bakes absolute paths into its `.pc` files and
+install names, so moving the checkout takes one too.
 
 That is what makes an edit to one of the polyfill `shared/` sources cheap. They compile into
 the gap archive force-loaded into every dylib here, and no build system tracks its content, so
 when the archive's bytes change the script drops every image built from it — found by the
 archive's own diagnostics inside them — and each package links again: a relink of the media
-runtime, not a rebuild of it. Every image carrying the archive must then postdate it, which the
-run checks before it collects anything.
+runtime, not a rebuild of it.
 
 `build_deps.sh` compiles through **its own ccache** in `work/ccache` (1 GB cap) — separate
 from the WebKit build's much larger cache in `WebKitBuild/ccache` so neither can evict the
@@ -88,11 +86,8 @@ uncached. Both it and `work/tarballs/` sit beside `work/trees/` rather than insi
 
 1. Bump the version in `build_deps.sh` (the URL on the library's own line).
 2. For a GStreamer bump, update `GSTREAMER_VERSION`/`GLIB_VERSION` in
-   `OptionsMacGStreamer.cmake` to match. `build_deps.sh` checks the pair and fails if they
-   disagree, so this cannot be skipped.
-3. `./build_deps.sh --clean`; the tree holds one version of every package, and the script
-   refuses to run against a tree built from a different set. The final gate must print
-   `ok: ... every strong undefined resolves on 10.9`.
+   `OptionsMacGStreamer.cmake` to match.
+3. `./build_deps.sh`; each package whose recipe changed rebuilds from a fresh tree.
 4. Re-point any prose that names the old version: this file, `patches/README.md`'s
    **Target:** lines, and the header comments in `OptionsMac.cmake` /
    `OptionsMacGStreamer.cmake` / `WebKitFindPackage.cmake`.

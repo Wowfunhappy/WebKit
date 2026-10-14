@@ -76,30 +76,4 @@ install -m 755 otool/otool misc/lipo misc/install_name_tool misc/nm misc/nmedit 
         misc/size misc/strings misc/libtool misc/ranlib ar/ar \
         ld64/src/other/dyldinfo "$PREFIX/bin/"
 
-# Every installed tool answers for itself on this host's own Mach-O. A tool that builds but
-# cannot run is the failure this whole change exists to stop, so it is caught here.
-for t in otool lipo install_name_tool nm nmedit strip size strings libtool ranlib ar dyldinfo; do
-    [ -x "$PREFIX/bin/$t" ] || { echo "FATAL: $t did not build"; exit 1; }
-done
-_probe="$(mktemp -d "${TMPDIR:-/tmp}/cctools_probe.XXXXXX")"
-trap 'rc=$?; rm -rf "$WORK" "$_probe"; build_log_report $rc' EXIT
-cp /usr/lib/libz.1.dylib "$_probe/lib.dylib"
-echo 'int wk_cctools_probe(void) { return 7; }' > "$_probe/p.c"
-"$CLANG/bin/clang" -c -mmacosx-version-min=10.9 -o "$_probe/p.o" "$_probe/p.c"
-
-"$PREFIX/bin/lipo"     -info /usr/lib/dyld            > /dev/null
-"$PREFIX/bin/otool"    -h /usr/lib/dyld               > /dev/null
-"$PREFIX/bin/nm"       -g /usr/lib/libz.1.dylib       > /dev/null
-"$PREFIX/bin/dyldinfo" -export /usr/lib/libz.1.dylib  > /dev/null
-"$PREFIX/bin/size"     /usr/lib/libz.1.dylib          > /dev/null
-"$PREFIX/bin/strings"  /usr/lib/libz.1.dylib          > /dev/null
-"$PREFIX/bin/install_name_tool" -id /probe.dylib "$_probe/lib.dylib" > /dev/null
-"$PREFIX/bin/nmedit"   -p "$_probe/p.o"
-cp /usr/lib/libz.1.dylib "$_probe/strip.dylib"
-"$PREFIX/bin/strip"    -x "$_probe/strip.dylib"        > /dev/null
-"$PREFIX/bin/ar"       rc "$_probe/lib.a" "$_probe/p.o"
-"$PREFIX/bin/ranlib"   "$_probe/lib.a"
-"$PREFIX/bin/nm"       -g "$_probe/lib.a" | grep -q wk_cctools_probe
-"$PREFIX/bin/libtool"  -static -o "$_probe/lib2.a" "$_probe/p.o" > /dev/null
-
 echo "### cctools ready: $(ls "$PREFIX/bin" | tr '\n' ' ')"

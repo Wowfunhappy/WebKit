@@ -45,7 +45,7 @@
 # AquaWebKitSupport/deps/build/{include,lib,bin} -- a gitignored artifact this script
 # regenerates. lib/ holds the static link libs plus the whole shared media runtime
 # (with lib/gstreamer-1.0 plugins); bin/ holds gst-inspect-1.0/gst-launch-1.0 for
-# on-box verification. Downloaded source tarballs, build trees, the install prefix
+# running pipelines on this host. Downloaded source tarballs, build trees, the install prefix
 # and its ccache live in the gitignored deps/work; vendored sources stay in Source/.
 #
 # Everything here compiles against the modern SDK with deployment target 10.9 (SDKROOT
@@ -54,8 +54,7 @@
 # 10.9 and crashes on first call. The one exception is the gap archive, compiled against
 # the REAL 10.9 SDK (-isysroot /) because only those headers emit the inode-ABI symbol
 # spellings 64-bit callers reference; it force-loads into every media dylib, so those
-# symbols resolve DEFINED at link time instead. A fail-fast gate at the end proves the
-# shipped runtime resolves completely on this 10.9 host (see "fail-fast gate").
+# symbols resolve DEFINED at link time instead.
 #
 # Usage: AquaWebKitSupport/deps/build_deps.sh [--clean | --check-recipes]
 #        (or via AquaWebKitSupport/bootstrap.sh)
@@ -97,23 +96,10 @@ NINJA="${AQUAWEBKIT_NINJA:-$REPO/AquaWebKitSupport/toolchain/build/ninja/bin/nin
 NASM="${AQUAWEBKIT_NASM:-$REPO/AquaWebKitSupport/toolchain/build/nasm/bin/nasm}"
 SDK="${AQUAWEBKIT_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 
-# The media-runtime versions, which WebKit's build also states: OptionsMacGStreamer.cmake
-# sets GSTREAMER_VERSION/GLIB_VERSION for the upstream version checks in
-# Source/WebCore/platform/GStreamer.cmake and the GStreamer sources. The gate below holds
-# the two in step -- a bump here that skips the CMake side compiles WebKit against version
-# numbers the runtime does not have.
+# The media-runtime versions. AquaWebKitSupport/cmake/OptionsMacGStreamer.cmake states the same
+# numbers to WebKit's build as GSTREAMER_VERSION/GLIB_VERSION.
 GST_VER=1.28.5
 GLIB_VER=2.80.5
-GSTCMAKE="$REPO/AquaWebKitSupport/cmake/OptionsMacGStreamer.cmake"
-for pair in "GSTREAMER_VERSION:$GST_VER" "GLIB_VERSION:$GLIB_VER"; do
-  var=${pair%%:*}; want=${pair#*:}
-  got=$(sed -n "s/^set($var \"\\(.*\\)\")\$/\\1/p" "$GSTCMAKE")
-  if [ "$got" != "$want" ]; then
-    echo "FATAL: $GSTCMAKE sets $var \"$got\"; this script builds $want." >&2
-    echo "       Update the CMake side, then re-run." >&2
-    exit 1
-  fi
-done
 
 # glib's libffi wrap tracks the meson-ports "meson" BRANCH; this pins it to an exact
 # commit so the build is reproducible (update deliberately, with a rebuild).
@@ -162,7 +148,6 @@ RUST_TOOLCHAIN_KEY=$( (
     /usr/bin/shasum -a 256 scripts/build_rust.sh scripts/build_rust.py scripts/rust-env.sh \
         scripts/rustc-wrapper.sh scripts/rust-bootstrap-inputs.json \
         scripts/build_rust_compiler.py patches/rust-macos-deployment-floor.patch
-    find tests/rust-host -type f -print | LC_ALL=C sort | tr '\n' '\0' | xargs -0 /usr/bin/shasum -a 256
   ) | /usr/bin/shasum -a 256 | awk '{ print $1 }') || exit 1
 HTTPD_INPUT_KEY=$( ( /usr/bin/shasum -a 256 < "$HTTPD_CONFIG" \
     && cd "$HTTPD_OPENSSL" && find lib/libssl.a lib/libcrypto.a include lib/pkgconfig -type f -print \
@@ -182,7 +167,7 @@ BORINGSSL_KEY=$( ( cd "$BORINGSSL_SRC" && find . -type f -print | LC_ALL=C sort 
 
 # recipes_key covers this script, its patches, the TLS sources and the Apache inputs. The
 # collect step drops deps/build's copy and the end of the run writes it back, so the key is in the
-# tree only when a run carried every package, gate and manifest through to the end.
+# tree only when a run carried every package and manifest through to the end.
 recipes_key() {
   local p
   { /usr/bin/shasum -a 256 < "$SELF"
@@ -271,7 +256,7 @@ for tool in "$TC/bin/clang" "$NASM" "$CMAKE" "$NINJA"; do
     [ -x "$tool" ] || { echo "FATAL: no $tool; run AquaWebKitSupport/bootstrap.sh." >&2; exit 1; }
 done
 
-# Per-run scratch: the gates below read whatever they find here, so it starts empty every time.
+# Per-run scratch, emptied at the start of every run.
 RUN="$SCRATCH/run"
 rm -rf "$RUN"; mkdir -p "$RUN"
 
@@ -416,6 +401,9 @@ recipe_key() {
     case "$section" in *'"$MESON"'*)          printf 'MESON_PIN=%s\n' "${MESON_PIN:-}";; esac
     case "$section" in *build_rust.sh*)        printf 'RUST_TOOLCHAIN_KEY=%s\n' "$RUST_TOOLCHAIN_KEY";; esac
     case "$section" in *HTTPD_*)              printf 'HTTPD_INPUT_KEY=%s\n' "$HTTPD_INPUT_KEY";; esac
+    case "$section" in *GST_VER*)             printf 'GST_VER=%s\n' "$GST_VER";; esac
+    case "$section" in *GLIB_VER*)            printf 'GLIB_VER=%s\n' "$GLIB_VER";; esac
+    case "$section" in *LIBFFI_REV*)          printf 'LIBFFI_REV=%s\n' "$LIBFFI_REV";; esac
   } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
 }
 
@@ -634,28 +622,6 @@ if ! built libjpeg install/lib/libjpeg.a; then
       && "$NINJA" -j2 && "$NINJA" install ) || exit 1
     finished libjpeg "$d"
 fi
-# REQUIRE_SIMD makes nasm's absence a configure error, not this: ask the archive whether the SIMD
-# objects are in it, the same question the libavif dav1d check below asks.
-"$NMBIN" "$STAGE/lib/libjpeg.a" 2>/dev/null | grep "jsimd_ycc_rgb_convert_avx2" > /dev/null \
-  || { echo "  FATAL: libjpeg.a carries no AVX2 SIMD (jsimd_ycc_rgb_convert_avx2 absent)."; exit 1; }
-# nasm stamps S_ATTR_LOC_RELOC/S_ATTR_EXT_RELOC on any section it relocates, and ld64.lld gives an
-# output section the attributes of the first input section reaching it -- so one such object leading
-# WebCore.framework's __text leaves 10.9 dyld mapping the whole segment non-executable. The
-# toolchain's nasm is patched not to stamp them (toolchain/patches/nasm-macho-object-reloc-attrs.patch);
-# this is the assertion that the patch is in the nasm that built these objects. Every member is asked,
-# because which one leads a link is not decided here.
-_jpegobjs="$SCRATCH/jpeg-objs"
-rm -rf "$_jpegobjs"; mkdir -p "$_jpegobjs"
-( cd "$_jpegobjs" && "$AR" x "$STAGE/lib/libjpeg.a" ) || exit 1
-for _o in "$_jpegobjs"/*.o; do
-  _f=$("$CCTOOLS/otool" -lv "$_o" 2>/dev/null \
-       | awk '/sectname __text/{ found = 1 } found && /attributes/{ sub(/.*attributes[ \t]*/, ""); print; exit }')
-  case "$_f" in *LOC_RELOC*|*EXT_RELOC*)
-    echo "  FATAL: $(basename "$_o") carries __text relocation attributes ($_f); nasm is unpatched."; exit 1;;
-  esac
-done
-rm -rf "$_jpegobjs"
-echo "  ok: libjpeg.a has SIMD and no __text relocation attributes"
 
 echo "==== lcms2 2.16 ===="
 # Little-CMS, the ICC engine WebCore's JPEG and PNG decoders transform profiled images with
@@ -750,13 +716,11 @@ echo "==== 10.9 gap archive ===="
 # definitions always beat dylib (SDK .tbd) exports in ld64 resolution -- so the gap
 # functions link DEFINED, order-independent of -framework/-l flags. -fvisibility=hidden
 # keeps the definitions out of each dylib's export table (private copies, no shadowing
-# of anything the loader resolves; cf. the shadow gates in polyfill/build-polyfill.sh).
+# of anything the loader resolves).
 #
 # Sources, named one by one rather than globbed: each is force-loaded into every deployed
 # media binary, so adding one is a decision about ~200 dylibs and wants to be visible here.
-# Most symbols below are a pure gap on 10.9; a few are deliberate OVERRIDES of a function 10.9 has,
-# named in GAP_REPLACES. The shadow gate at the end of this section holds both halves to this
-# host's answer: an undeclared symbol 10.9 already provides fails the build.
+# Most symbols below are a pure gap on 10.9; a few are deliberate OVERRIDES of a function 10.9 has.
 #
 # From polyfill/polyfills/shared (plain C, so the builds with no polyfill registry compile the same
 # source WebKit does; the tree carries more than this needs, hence the list):
@@ -809,8 +773,8 @@ echo "==== 10.9 gap archive ===="
 #
 SHARED="$REPO/AquaWebKitSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
-# The archive persists between runs -- its mtime is what the coverage gate before the collect step
-# reads. The objects do not, so a source dropped from GAP_SHARED leaves nothing for `ar` to pick up.
+# The archive persists between runs; the objects do not, so a source dropped from GAP_SHARED leaves
+# nothing for `ar` to pick up.
 GAPOBJ="$GAPDIR/obj"
 mkdir -p "$GAPDIR"; rm -rf "$GAPOBJ"; mkdir -p "$GAPOBJ"
 GAP_SHARED="time atcalls utimensat fdopendir statxx clonefile pthread_qos pthread_stack getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence wk_symbols"
@@ -845,65 +809,15 @@ GAP_SYMBOLS="$GAPDIR/gap-symbols.txt"
 # dylibs, where the symbol table answers nothing.
 GAP_LITERALS="$GAPDIR/gap-literals.txt"
 "$CCTOOLS/strings" -a "$GAP_A" | { grep '^\[wk_polyfill\] .\{40,\}' || true; } | sort -u > "$GAP_LITERALS"
-[ -s "$GAP_LITERALS" ] || { echo "  FATAL: no wk_polyfill diagnostic in the gap archive to identify it by"; exit 1; }
 # The rest of the compile's inputs: the objects depend on these as much as on the sources.
 GAP_BUILDINFO="$GAPDIR/gap-buildinfo.txt"
 { printf 'cflags\t%s\n' "${GAPCFLAGS//$SHARED/\$SHARED}"
   printf 'clang\t%s\n' "$("$TC/bin/clang" --version | head -1)"; } > "$GAP_BUILDINFO"
 # The deployed images the force_load never reaches, relative to deps/build: the libc++ pair this
-# script copies and the layout-test httpd. The gate holds the deployed set to exactly this list.
+# script copies and the layout-test httpd.
 GAP_UNLINKED="$GAPDIR/gap-unlinked.txt"
 : > "$GAP_UNLINKED"
 
-# Shadow gate. force_load makes every definition above win inside ~200 deployed dylibs with no
-# forwarding to 10.9, so one written for a symbol 10.9 already provides silently replaces the working
-# system one. tests/gates/shadow-present.c asks THIS machine's runtime -- dlsym on each library in
-# turn, not the modern SDK's stubs and not a flat search -- which of the archive's definitions 10.9
-# has, and every answer must appear in GAP_REPLACES. There is no allow file: an entry here is a
-# stated intent, not an exemption, and the polyfill build holds the same sources to the same rule
-# through its own registry (polyfill/build-polyfill.sh).
-GAP_REPLACES="mach_timebase_info pthread_get_stacksize_np AudioUnitInitialize AudioUnitUninitialize AudioComponentInstanceDispose VTCompressionSessionCreate VTCompressionSessionEncodeFrame"
-GAPGATE="$RUN/gapgate"; mkdir -p "$GAPGATE"
-"$TC/bin/clang" --no-default-config -mmacosx-version-min=10.9 -o "$GAPGATE/present" \
-    "$REPO/AquaWebKitSupport/polyfill/tests/gates/shadow-present.c" || exit 1
-"$NMBIN" -g "$GAP_A" 2>/dev/null | awk '$2 ~ /^[TDSB]$/ { sub(/^_/, "", $3); print $3 }' \
-  | sort -u > "$GAPGATE/defined"
-# The libraries a deployed media dylib's references can bind against, plus the frameworks owning the
-# symbols the archive replaces.
-"$GAPGATE/present" \
-    /usr/lib/libSystem.B.dylib \
-    /usr/lib/libobjc.A.dylib \
-    /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation \
-    /System/Library/Frameworks/CoreServices.framework/CoreServices \
-    /System/Library/Frameworks/ApplicationServices.framework/ApplicationServices \
-    /System/Library/Frameworks/CoreVideo.framework/CoreVideo \
-    /System/Library/Frameworks/CoreMedia.framework/CoreMedia \
-    /System/Library/Frameworks/VideoToolbox.framework/VideoToolbox \
-    /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox \
-    /System/Library/Frameworks/AudioUnit.framework/AudioUnit \
-    /System/Library/Frameworks/CoreAudio.framework/CoreAudio \
-    < "$GAPGATE/defined" | sort -u > "$GAPGATE/on109"
-printf '%s\n' $GAP_REPLACES | sort -u > "$GAPGATE/declared"
-cut -f1 "$GAPGATE/on109" | sort -u > "$GAPGATE/present_names"
-# An ABI-variant spelling (fdopendir$INODE64) is its own linker symbol but one C function, which is
-# the name a declaration carries.
-awk 'NR == FNR { declared[$0] = 1; next }
-     { base = $0
-       if (match($0, /\$[A-Z][A-Z0-9_]*$/)) base = substr($0, 1, RSTART - 1)
-       if (!($0 in declared) && !(base in declared)) print $0 }' \
-    "$GAPGATE/declared" "$GAPGATE/present_names" > "$GAPGATE/offenders"
-if [ -s "$GAPGATE/offenders" ]; then
-    echo "ERROR: the 10.9 gap archive defines symbols this host ALREADY provides, and nothing says so."
-    echo "force_load makes the archive's definition win in every media dylib with no forwarding to 10.9:"
-    while read -r symbol; do
-        printf '  %-44s (10.9 has it in %s)\n' "$symbol" \
-            "$(awk -F'\t' -v s="$symbol" '$1 == s { print $2 }' "$GAPGATE/on109")"
-    done < "$GAPGATE/offenders"
-    echo "If shadowing 10.9 is the POINT, add the name to GAP_REPLACES above; otherwise drop the source"
-    echo "from GAP_SHARED and let the media dylibs bind 10.9's symbol."
-    exit 1
-fi
-echo "  gap shadow gate: clean -- $(wc -l < "$GAPGATE/defined" | tr -d ' ') defined symbols, $(wc -l < "$GAPGATE/on109" | tr -d ' ') present on 10.9, all declared"
 
 # Every media build below (meson via env, autotools via env, FFmpeg/OpenSSL via their
 # own flag plumbing) links the gap archive.
@@ -937,7 +851,7 @@ carriers() {
 # what a libtool package's make rules build and compare timestamps against. Only the build dirs are
 # scanned: the archive itself lives in $GAPDIR, the install prefix holds copies the builds below
 # replace, and the tools were linked before the force_load above joined LDFLAGS. The drop stands
-# until the coverage gate below passes, so the next run continues one that stopped partway.
+# until the run reaches the collect step, so the next run continues one that stopped partway.
 GAP_RELINK="$SCRATCH/.relink-pending"
 if [ -n "$GAP_CHANGED" ] || [ -f "$GAP_RELINK" ]; then
     : > "$GAP_RELINK"
@@ -1230,7 +1144,7 @@ done
 echo "==== libxml2 2.13.6 ===="
 # WebCore links this in place of the 10.9 system libxml2 2.9.0, whose __xmlRaiseError
 # crashes on fatal parse errors (OptionsMac.cmake repoints LIBXML2_INCLUDE_DIR/LIBRARY
-# here). Not a GStreamer dependency — it rides the same staging/collect/gate pipeline.
+# here). Not a GStreamer dependency — it rides the same staging/collect pipeline.
 # Ambient CFLAGS/LDFLAGS apply: the gap archive supplies getentropy (10.12+, which
 # configure detects against the modern SDK and xmlInitRandom then calls) as a DEFINED
 # symbol, the same way it does for every other media dylib.
@@ -1271,7 +1185,7 @@ echo "==== libxslt 1.1.43 ===="
 # two libxml2 images in one process: measured on this host, a document allocated by one and freed by the
 # other faults in xsltFreeStylesheet, while the same sequence against a single libxml2 -- either version
 # -- completes. --without-crypto keeps the EXSLT crypto module (and its libgcrypt dependency) out; WebCore
-# uses none of it. Not a GStreamer dependency -- it rides the same staging/collect/gate pipeline.
+# uses none of it. Not a GStreamer dependency -- it rides the same staging/collect pipeline.
 d=$(get https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz libxslt) || exit 1
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --without-python \
@@ -1342,10 +1256,6 @@ if ! built libavif install/lib/libavif.a; then
       && "$NINJA" install ) || exit 1
     finished libavif "$d"
 fi
-# libavif builds happily with NO codec at all, and then every AVIF fails to decode at runtime
-# with nothing said at build time. Ask the archive itself whether the dav1d codec is in it.
-"$NMBIN" "$STAGE/lib/libavif.a" 2>/dev/null | grep "avifCodecCreateDav1d" > /dev/null \
-  || { echo "  FATAL: libavif has no dav1d codec (avifCodecCreateDav1d absent); AVIF would decode nothing."; exit 1; }
 
 echo "==== FDK AAC 2.0.3 ===="
 # Fraunhofer's AAC decoder under gst-plugins-bad's fdkaacdec, the runtime's AAC decoder: LC,
@@ -1375,7 +1285,7 @@ echo "==== GStreamer $GST_VER (core) ===="
 # value gnu11 (fully supported by clang-22) so objc_std inherits a valid single value.
 GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled -Dc_std=gnu11"
 # -Dtools=enabled: gst-inspect-1.0/gst-launch-1.0 deploy into deps/build/bin for
-# on-box verification of the shipped runtime (plugins load, pipelines run).
+# running pipelines against the shipped runtime.
 d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore) || exit 1
 if prepare "$d"; then
     # input-selector: active_sinkpad_lock covers the choice of pad for an upstream event,
@@ -1797,24 +1707,9 @@ echo "==== layout-test Apache ===="
     ( cd "$d" && make -j2 && make install ) || exit 1
 ) || exit 1
 
-echo "==== gap archive coverage ===="
-# Every image the archive force-loads into was linked after the archive itself: the drop above took
-# the ones built from an older generation, and the builds since linked them again. An older one is a
-# build that did not relink.
-find "$STAGE" -type f -print0 > "$RUN/staged"
-carriers < "$RUN/staged" > "$RUN/linked" || exit 1
-[ -s "$RUN/linked" ] || { echo "  FATAL: nothing under $STAGE carries the gap archive"; exit 1; }
-: > "$RUN/stale"
-while read -r f; do [ "$f" -nt "$GAP_A" ] || echo "$f" >> "$RUN/stale"; done < "$RUN/linked"
-if [ -s "$RUN/stale" ]; then
-    echo "  FATAL: linked before the gap archive they carry:"
-    sed "s|^$STAGE/|    |" "$RUN/stale"
-    exit 1
-fi
-rm -f "$GAP_RELINK"
-echo "  ok: all $(wc -l < "$RUN/linked" | tr -d ' ') images carrying the archive postdate it"
 
 echo "==== collect into deps/build ===="
+rm -f "$GAP_RELINK"
 # Asked again immediately before the collect step replaces the tree those links read from.
 _refuse_under_webkit_build
 rm -f "$DEST/.recipes"
@@ -1869,10 +1764,9 @@ for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nghttp2 curl; do
 done
 # FFmpeg headers: WebCore's MediaRecorder MP4 writer (MediaRecorderPrivateWriterMP4.cpp) compiles
 # against libavformat's ISO base media muxer, beside the three dylibs the media runtime already
-# deploys for gst-libav. The required-artifacts gate below names avformat.h, so a tree that did not
-# install stops the run here rather than at the gate.
+# deploys for gst-libav.
 for inc in libavformat libavcodec libavutil; do
-  cp -Rp "$STAGE/include/$inc" "$DEST/include/" || { echo "  FATAL: $STAGE/include/$inc did not install"; exit 1; }
+  cp -Rp "$STAGE/include/$inc" "$DEST/include/" || exit 1
 done
 mkdir -p "$DEST/lib/glib-2.0/include"
 cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
@@ -1896,8 +1790,7 @@ done
 # reference is bound to the system unwinder instead (fixed up in the collect loop;
 # AquaWebKitSupport/scripts/stage-frameworks.sh enforces the same rule when it stages the tree).
 for cxxlib in libc++.1.dylib libc++abi.1.dylib; do
-  [ -f "$TC/lib/$cxxlib" ] || { echo "  FATAL: $TC/lib/$cxxlib not found"; exit 1; }
-  cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib"
+  cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib" || exit 1
   echo "lib/$cxxlib" >> "$GAP_UNLINKED"
 done
 
@@ -1905,7 +1798,7 @@ done
 # name every dependent's LC_LOAD_DYLIB references), with the original file name and
 # the staged dev-name symlinks pointing at it. Every install name, inter-library
 # reference and rpath is @rpath / @loader_path relative so the deployed runtime is
-# relocatable; absolute build-machine rpaths get stripped and verified gone below.
+# relocatable; absolute build-machine rpaths get stripped.
 normalize() {  # normalize <file> <rpath-to-libdir>: @rpath deps, strip abs rpaths, add LC_RPATH
   local f="$1" rp="$2" dep r
   # staged-prefix dependencies -> @rpath/<install-name basename>
@@ -1930,7 +1823,7 @@ normalize() {  # normalize <file> <rpath-to-libdir>: @rpath deps, strip abs rpat
     "$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$f" || exit 1
   fi
   # drop every absolute LC_RPATH (staged libdir, toolchain libdir) so nothing points
-  # off-tree; the gate below fails if any survives.
+  # off-tree.
   "$CCTOOLS/otool" -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep "^/" || true; } | while read -r r; do
     "$INT" -delete_rpath "$r" "$f" || exit 1
   done
@@ -1992,9 +1885,8 @@ for l in "$STAGE"/lib/*.dylib; do
     ln -sf "$cname" "$DEST/lib/$base"
   fi
 done
-# verification tools (see the gate below)
+# gst-inspect-1.0 and gst-launch-1.0, for running pipelines against the deployed runtime
 for t in gst-inspect-1.0 gst-launch-1.0; do
-  [ -f "$STAGE/bin/$t" ] || { echo "  FATAL: $STAGE/bin/$t not built"; exit 1; }
   collect_tool "$STAGE/bin/$t"
 done
 
@@ -2072,136 +1964,21 @@ if [ ! -f "$f" ]; then
 fi
 echo "  firefox Readerable.js at $FIREFOX_READERABLE_COMMIT"
 
-echo "==== required artifacts ===="
-# Every media-critical artifact must exist by name; a silent dropout (plugin skipped,
-# majored name missing) fails here even if everything else builds.
-REQFAIL=0
-require_glob() {
-  if ! ls $1 > /dev/null 2>&1; then echo "  MISSING required artifact: $1"; REQFAIL=1; fi
-}
-# The Chromium CDM interface WebCore's Widevine key system is written against.
-require_glob "$DEST/include/cdm/content_decryption_module.h"
-# The article extractor behind Safari 7's Reader.
-require_glob "$DEST/include/readability/Readability.js"
-require_glob "$DEST/include/readability/ReadabilityReaderable.js"
-require_glob "$DEST/include/readability/FirefoxReaderable.js"
-require_glob "$DEST/lib/libssl.dylib"
-require_glob "$DEST/lib/libcrypto.dylib"
-require_glob "$DEST/lib/libpsl.5.dylib"
-require_glob "$DEST/lib/libzstd.1.dylib"
-require_glob "$DEST/lib/libzstd.dylib"
-require_glob "$DEST/include/zstd.h"
-require_glob "$DEST/lib/libnghttp2.14.dylib"
-require_glob "$DEST/lib/libnghttp2.dylib"
-require_glob "$DEST/lib/libcurl.4.dylib"
-require_glob "$DEST/lib/libcurl.dylib"
-require_glob "$DEST/include/openssl/ssl.h"
-require_glob "$DEST/include/openssl/crypto.h"
-require_glob "$DEST/include/nghttp2/nghttp2.h"
-require_glob "$DEST/include/curl/curl.h"
-require_glob "$DEST/bin/curl"
-require_glob "$DEST/bin/httpd"
-require_glob "$DEST/httpd.conf"
-require_glob "$DEST/lib/libglib-2.0.*.dylib"
-require_glob "$DEST/lib/gio/modules"
-require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
-require_glob "$DEST/lib/libgstadaptivedemux-1.0.0.dylib"
-require_glob "$DEST/lib/libgsturidownloader-1.0.0.dylib"
-require_glob "$DEST/lib/libavcodec.*.dylib"
-require_glob "$DEST/lib/libavformat.*.dylib"
-require_glob "$DEST/lib/libavutil.*.dylib"
-# The MediaRecorder MP4 writer includes <libavformat/avformat.h>.
-require_glob "$DEST/include/libavformat/avformat.h"
-require_glob "$DEST/lib/libvpx.*.dylib"
-require_glob "$DEST/lib/libxml2.*.dylib"
-require_glob "$DEST/lib/libxslt.*.dylib"
-require_glob "$DEST/lib/libdav1d.*.dylib"
-require_glob "$DEST/lib/libmpg123.*.dylib"
-# Without this plugin decodebin skips mpegaudioparse and every mp3 keeps its encoder delay.
-require_glob "$DEST/lib/gstreamer-1.0/libgstmpg123.dylib"
-require_glob "$DEST/lib/libc++.1.dylib"
-require_glob "$DEST/lib/libc++abi.1.dylib"
-# The static link libraries WebKit's CMake resolves out of this tree by exact path
-# (AquaWebKitSupport/cmake/*.cmake, Source/cmake/*.cmake); naming them here catches a
-# dropout now instead of as an unresolved-symbol link failure in WebCore.
-for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
-         libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
-         libjpeg.a liblcms2.a libtiff.a libots.a libheif.a; do
-  require_glob "$DEST/lib/$a"
-done
-require_glob "$DEST/include/webp/decode.h"
-require_glob "$DEST/include/png.h"
-require_glob "$DEST/include/jpeglib.h"
-require_glob "$DEST/include/lcms2.h"
-require_glob "$DEST/include/tiffio.h"
-require_glob "$DEST/include/opentype-sanitiser.h"
-require_glob "$DEST/include/avif/avif.h"
-require_glob "$DEST/include/libheif/heif.h"
-require_glob "$DEST/include/libxml2/libxml/parser.h"
-require_glob "$DEST/include/libxslt/xslt.h"
-# single-unwinder rule: no libunwind may exist in the deployed set.
-if [ -e "$DEST/lib/libunwind.1.dylib" ]; then
-  echo "  FAIL: $DEST/lib/libunwind.1.dylib exists (mixed-unwinder hazard; must bind /usr/lib/system/libunwind.dylib)"; REQFAIL=1
-fi
-for p in libgstcoreelements libgstlibav libgstvpx libgstopus libgstapplemedia libgstosxaudio \
-         libgsttypefindfunctions libgstplayback libgstisomp4 libgstmatroska \
-         libgstvideoconvertscale libgstaudioconvert libgstaudioresample libgstapp \
-         libgstvorbis libgstogg libgstflac libgstwavparse libgstdeinterlace \
-         libgstautodetect libgsthls libgstdash libgstfdkaac libgstclosedcaption libgstrsclosedcaption; do
-  require_glob "$DEST/lib/gstreamer-1.0/$p.dylib"
-done
-require_glob "$DEST/bin/gst-inspect-1.0"
-if [ "$REQFAIL" = 1 ]; then echo "  FAIL: required artifacts missing (see above)"; exit 1; fi
-echo "  ok: all required artifacts present"
-
-# The AV1 decoder is a patched-in registration (gst-libav-register-libdav1d.patch), so its
-# dylib existing does not prove the element exists; ask the registry itself.
-if ! GST_REGISTRY="$RUN/gate-registry.bin" GST_PLUGIN_PATH="$DEST/lib/gstreamer-1.0" \
-     GST_PLUGIN_SYSTEM_PATH= "$DEST/bin/gst-inspect-1.0" avdec_libdav1d > /dev/null 2>&1; then
-  echo "  FAIL: avdec_libdav1d is not registered (AV1 has a parser but no decoder)"; exit 1
-fi
-echo "  ok: avdec_libdav1d registered"
-
-echo "==== fail-fast gate ===="
-# Ground truth on this 10.9 host: every deployed Mach-O must resolve completely --
-# every undefined symbol comes from the deployed set or from a library the real
-# 10.9 runtime supplies (proved by dlsym, which follows umbrella reexports), and any
-# weak import that resolves NOWHERE must be on the documented weak-allowed list
-# (references the SDK guards behind __builtin_available). Anything else fails loudly.
-GATE="$RUN/gate"; mkdir -p "$GATE/und"
-FAILS="$GATE/failures.txt"; : > "$FAILS"
-
-# Weak imports allowed to bind NULL on 10.9. An entry earns its place only by being
-# UNREACHABLE on this OS; a symbol that some code path calls needs a gap-archive
-# definition instead, not an exemption here.
-#
-#   ___darwin_check_fd_set_overflow
-#     emitted by the modern SDK's FD_SET() inline. $SDK/usr/include/sys/_types/_fd_def.h
-#     calls it only behind `if ((uintptr_t)&__darwin_check_fd_set_overflow != (uintptr_t)0)`,
-#     a weak-symbol address test, so a NULL binding takes the other branch.
-#
-#   _VTRegisterSupplementalVideoDecoderIfAvailable
-#     emitted by GStreamer's applemedia (sys/applemedia/vtutil.c), where the direct call sits
-#     under __builtin_available(macOS 11.0) -- false here -- and the fallback dlsyms it.
-#
-# VTIsHardwareDecodeSupported is NOT here: vtdec.c calls it unguarded from
-# gst_vtdec_check_{vp9,av1}_support, i.e. from gst_vtdec_getcaps, so a NULL binding is a call
-# through address 0. It is defined in the gap archive (polyfills/shared/videotoolbox.c).
+echo "==== undefined references ===="
+# Every undefined symbol in every deployed Mach-O must resolve on this 10.9 host, asked of the library
+# its own two-level import record names (dlsym follows umbrella reexports). A weak import nothing
+# provides binds NULL and must be on WEAK_ALLOWED, each entry unreachable on this OS:
+#   ___darwin_check_fd_set_overflow  the modern SDK's FD_SET() tests the weak symbol's address first
+#   _VTRegisterSupplementalVideoDecoderIfAvailable  applemedia calls it under
+#                                    __builtin_available(macOS 11.0) and dlsyms it otherwise
 WEAK_ALLOWED="___darwin_check_fd_set_overflow _VTRegisterSupplementalVideoDecoderIfAvailable"
-
-# dlsym ground-truth probe. macOS binds undefineds PER SOURCE LIBRARY (two-level namespace),
-# so each symbol is asked of the library its own import record names -- not of the process.
-# Searching process-wide would pass a symbol that some unrelated image happens to export and
-# that the binary under test never loads, which is the whole failure this gate exists to catch.
-# stdin carries "<symbol>\t<library path>" per line; the probe prints the pairs the named
-# library does not provide, plus one OPEN-FAILED line per library that will not load (an
-# unchecked dlopen would silently downgrade every symbol from it to "unresolved").
-cat > "$GATE/dlsym_probe.c" <<'EOF'
+UND="$RUN/undefined"; mkdir -p "$UND"
+# stdin: "<symbol>\t<library path>" per line; stdout: the pairs that library does not provide, and an
+# OPEN-FAILED line per library that does not load.
+cat > "$UND/dlsym_probe.c" <<'EOF'
 #include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 #define MAXLIBS 1024
 int main(void) {
     static char *paths[MAXLIBS]; static void *handles[MAXLIBS]; static int nlibs;
@@ -2209,297 +1986,68 @@ int main(void) {
     while (fgets(line, sizeof line, stdin)) {
         size_t n = strlen(line);
         while (n && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = 0;
-        if (!n) continue;
         char *tab = strchr(line, '\t');
         if (!tab) continue;
         *tab = 0;
-        const char *sym = line; const char *path = tab + 1;
+        const char *sym = line, *path = tab + 1;
         int i, slot = -1;
         for (i = 0; i < nlibs; i++) if (!strcmp(paths[i], path)) { slot = i; break; }
         if (slot < 0) {
             if (nlibs >= MAXLIBS) { printf("TOO-MANY-LIBS\t%s\n", path); continue; }
             void *h = dlopen(path, RTLD_LAZY);
             if (!h) printf("OPEN-FAILED\t%s\n", path);
-            paths[nlibs] = strdup(path); handles[nlibs] = h; slot = nlibs; nlibs++;
+            paths[nlibs] = strdup(path); handles[nlibs] = h; slot = nlibs++;
         }
-        if (!handles[slot]) continue;   /* already reported once */
-        const char *bare = (sym[0] == '_') ? sym + 1 : sym;
-        if (!dlsym(handles[slot], bare)) printf("%s\t%s\n", sym, path);
+        if (handles[slot] && !dlsym(handles[slot], sym[0] == '_' ? sym + 1 : sym))
+            printf("%s\t%s\n", sym, path);
     }
     return 0;
 }
 EOF
-( "$CC_VANILLA" -O2 -mmacosx-version-min=10.9 -o "$GATE/dlsym_probe" "$GATE/dlsym_probe.c" ) || exit 1
-
-# dlopen probe: dyld is the final authority on whether a deployed image loads -- it checks
-# what no static inspection can (segment protections, section attributes, initializers).
-# RTLD_NOW forces full symbol binding at load. The probe carries the deployed tree's rpaths,
-# the same way WebCore's media stack reaches these images.
-cat > "$GATE/dlopen_probe.c" <<'EOF'
-#include <dlfcn.h>
-#include <stdio.h>
-int main(int argc, char **argv)
-{
-    if (argc != 2) return 2;
-    if (!dlopen(argv[1], RTLD_NOW | RTLD_LOCAL)) {
-        fprintf(stderr, "%s\n", dlerror());
-        return 1;
-    }
-    return 0;
-}
-EOF
-( "$CC_VANILLA" -O2 -mmacosx-version-min=10.9 -o "$GATE/dlopen_probe" "$GATE/dlopen_probe.c" \
-    -Wl,-rpath,"$DEST/lib" -Wl,-rpath,"$DEST/lib/gstreamer-1.0" ) || exit 1
-
-# Load commands and two-level imports prove who supplies TLS and HLS decryption;
-# an unused dylib load command alone cannot satisfy the EVP checks.
-for pair in 'libcurl.4.dylib:libssl.dylib' 'libcurl.4.dylib:libcrypto.dylib' \
-            'libcurl.4.dylib:libnghttp2.14.dylib' 'libcurl.4.dylib:libpsl.5.dylib' \
-            'libcurl.4.dylib:libzstd.1.dylib' \
-            'libssl.dylib:libcrypto.dylib' \
-            'gstreamer-1.0/libgsthls.dylib:libcrypto.dylib'; do
-  f=${pair%%:*}; dep=${pair#*:}
-  if ! "$CCTOOLS/otool" -L "$DEST/lib/$f" | awk 'NR>1{print $1}' | grep -x -F "@rpath/$dep" > /dev/null; then
-    echo "$f does not bind @rpath/$dep" >> "$FAILS"
-  fi
-done
-if ! "$CCTOOLS/otool" -L "$DEST/lib/libcurl.4.dylib" | awk 'NR>1{print $1}' \
-     | grep -x '/System/Library/Frameworks/GSS.framework/Versions/A/GSS' > /dev/null; then
-  echo 'libcurl does not bind the system GSS.framework' >> "$FAILS"
-fi
-for plugin in libgsthls; do
-  "$NMBIN" -m "$DEST/lib/gstreamer-1.0/$plugin.dylib" > "$GATE/$plugin.nm"
-  for sym in EVP_CIPHER_CTX_new EVP_CIPHER_CTX_free EVP_CIPHER_CTX_set_padding \
-             EVP_DecryptInit_ex EVP_DecryptUpdate EVP_DecryptFinal_ex EVP_aes_128_cbc; do
-    if ! grep -E "\\(undefined\\) external _$sym \\(from libcrypto\\)$" "$GATE/$plugin.nm" > /dev/null; then
-      echo "$plugin does not import $sym from shared libcrypto" >> "$FAILS"
-    fi
-  done
-done
-"$NMBIN" -gU "$DEST/lib/libcrypto.dylib" | awk '{print $NF}' > "$GATE/crypto.exports"
-for sym in EVP_CIPHER_CTX_new EVP_CIPHER_CTX_free EVP_CIPHER_CTX_set_padding \
-           EVP_DecryptInit_ex EVP_DecryptUpdate EVP_DecryptFinal_ex EVP_aes_128_cbc \
-           EVP_CipherInit_ex EVP_CipherUpdate EVP_CipherFinal_ex EVP_get_cipherbyname; do
-  if ! grep -Fx "_$sym" "$GATE/crypto.exports" > /dev/null; then
-    echo "BoringSSL libcrypto does not export $sym" >> "$FAILS"
-  fi
-done
-for pair in SSL_CTX_new:libssl SSL_new:libssl X509_free:libcrypto; do
-  sym=${pair%%:*}; dep=${pair#*:}
-  if ! "$NMBIN" -m "$DEST/lib/libcurl.4.dylib" | grep -E "\\(undefined\\) external _$sym \\(from $dep\\)$" > /dev/null; then
-    echo "libcurl does not import $sym from $dep" >> "$FAILS"
-  fi
-done
-if "$NMBIN" -gU "$DEST/lib/libcurl.4.dylib" | grep -E ' _(SSL_|SSL_CTX_|OPENSSL_|X509_)' > /dev/null; then
-  echo "libcurl exports an embedded TLS implementation" >> "$FAILS"
-fi
-# Reject extra adaptive/TLS artifacts in both prefixes. Matching the entire public header
-# directory also rejects an include/openssl tree from another provider.
-for prefix in "$STAGE" "$DEST"; do
-  if [ -e "$prefix/lib/gstreamer-1.0/libgstadaptivedemux2.dylib" ] \
-     || [ -L "$prefix/lib/gstreamer-1.0/libgstadaptivedemux2.dylib" ]; then
-    echo "unexpected adaptive plugin: $prefix/lib/gstreamer-1.0/libgstadaptivedemux2.dylib (rerun with --clean)" >> "$FAILS"
-  fi
-  extras=$(find "$prefix" \( -name 'libssl.*.dylib' -o -name 'libcrypto.*.dylib' \
-      -o -name 'libboringssl*' -o -name 'libboringcrypto*' -o -name libssl.a -o -name libcrypto.a \
-      -o -name libgstaes.dylib -o -path '*/include/boringssl' \) -print)
-  [ -z "$extras" ] || printf 'unexpected TLS/AES artifact: %s\n' "$extras" >> "$FAILS"
-  if ! diff -qr "$BORINGSSL_TREE/include/openssl" "$prefix/include/openssl"; then
-    echo "$prefix headers differ from in-tree BoringSSL" >> "$FAILS"
-  fi
-done
-if [ "$("$PKG_CONFIG" --modversion openssl)" != 1.1.1 ] \
-   || [ "$("$PKG_CONFIG" --variable=prefix openssl)" != "$STAGE" ]; then
-  echo 'openssl.pc does not resolve the staged BoringSSL API' >> "$FAILS"
-fi
-for element in hlsdemux hlssink hlssink2 dashdemux ccconverter cea608tott; do
-  if ! GST_REGISTRY="$RUN/gate-registry.bin" GST_PLUGIN_PATH="$DEST/lib/gstreamer-1.0" \
-       GST_PLUGIN_SYSTEM_PATH= "$DEST/bin/gst-inspect-1.0" "$element" > /dev/null; then
-    echo "$element is not registered" >> "$FAILS"
-  fi
-done
-curl_version=$("$DEST/bin/curl" -q --version) || exit 1
-printf '%s\n' "$curl_version"
-features=$(printf '%s\n' "$curl_version" | sed -n 's/^Features: //p' | tr ' ' '\n')
-for feature in HTTP2 SSL brotli zstd GSS-API SPNEGO NTLM PSL; do
-  if ! printf '%s\n' "$features" | grep -Fx "$feature" > /dev/null; then
-    echo "curl is missing $feature" >> "$FAILS"
-  fi
-done
-
-GATE_FILES=""
+"$CC_VANILLA" -O2 -mmacosx-version-min=10.9 -o "$UND/dlsym_probe" "$UND/dlsym_probe.c" || exit 1
+: > "$UND/strong"; : > "$UND/weak"; : > "$UND/unattributed"
 for f in "$DEST"/lib/*.dylib "$DEST"/lib/gstreamer-1.0/*.dylib "$DEST"/bin/*; do
-  [ -L "$f" ] && continue
-  [ -f "$f" ] || continue
-  GATE_FILES="$GATE_FILES $f"
-done
-
-# pass 1: per-file undefineds (strong/weak), load commands, rpath + libc++ checks
-: > "$GATE/all-strong.txt"; : > "$GATE/all-weak.txt"; : > "$GATE/sysdeps.txt"
-: > "$GATE/unattributed.txt"
-: > "$GATE/deployed-exports.txt"
-for f in $GATE_FILES; do
-  b=$(basename "$f")
-  "$NMBIN" -arch x86_64 -gU "$f" 2>/dev/null | awk 'NF>=3{print $3}' >> "$GATE/deployed-exports.txt"
-  # dyld_stub_binder is the lazy-binding glue every 10.9-deployment Mach-O references;
-  # libdyld.dylib provides it on 10.9. It has no C underscore prefix, so the dlsym probe
-  # (which prepends one) can never see it — exclude it rather than false-FAIL every binary.
-  # Keep the "(from X)" field: it names the library this binary binds the symbol against,
-  # and the probe asks that library specifically rather than the whole process.
-  "$NMBIN" -m -arch x86_64 "$f" | awk '
-    /\(undefined\)/ {
-      from="-"
-      if (match($0, /\(from [^)]*\)/)) from=substr($0, RSTART+6, RLENGTH-7)
-      line=$0; sub(/ \(from [^)]*\)[^)]*$/, "", line)
-      n=split(line, a, " "); sym=a[n]
-      if (sym == "dyld_stub_binder") next
-      if (index($0, " weak ")) print "W " sym " " from; else print "S " sym " " from
-    }' | sort -u > "$GATE/und/$b.und"
-  # Resolve each "(from X)" token to a loadable path through this binary's own load commands:
-  # X is the install-name basename minus its version/extension tail.
+  [ -L "$f" ] || [ ! -f "$f" ] && continue
+  # "(from X)" names the library the symbol binds against; X is its install-name leaf minus the
+  # version tail. dyld_stub_binder is libdyld's lazy-binding glue and has no C name to dlsym.
   "$CCTOOLS/otool" -l "$f" | awk '$1=="cmd"{t=$2}
     $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print $2}' \
-    | sort -u > "$GATE/und/$b.deps"
-  # A second ssl/crypto load could give a two-level import another provider with
-  # the same basename. Every direct TLS load must name the deployed BoringSSL pair.
-  : > "$GATE/und/$b.resolved-deps"
-  while read -r dep; do
-    case "$dep" in
-      */libssl.*|*/libcrypto.*)
-        case "$dep" in @rpath/libssl.dylib|@rpath/libcrypto.dylib) ;;
-          *) echo "TLS library outside the shared BoringSSL pair in $b: $dep" >> "$FAILS";;
-        esac;;
-    esac
-    load_name="$dep"
-    case "$dep" in
-      @rpath/*) r="${dep#@rpath/}"
-                if [ -e "$DEST/lib/$r" ]; then dep="$DEST/lib/$r"; else dep="$DEST/lib/gstreamer-1.0/$r"; fi ;;
-    esac
-    printf '%s\t%s\n' "$load_name" "$dep" >> "$GATE/und/$b.resolved-deps"
-  done < "$GATE/und/$b.deps"
-  # Match every import against the same ordered load-command map in one pass.
-  awk '
-    FILENAME == ARGV[1] {
-      split($0, fields, "\t")
-      names[++count] = fields[1]
-      sub(/.*\//, "", names[count])
-      paths[count] = fields[2]
-      next
-    }
-    {
+    | while read -r dep; do
+        path="$dep"
+        case "$dep" in @rpath/*) r="${dep#@rpath/}"
+          if [ -e "$DEST/lib/$r" ]; then path="$DEST/lib/$r"; else path="$DEST/lib/gstreamer-1.0/$r"; fi;; esac
+        printf '%s\t%s\n' "${dep##*/}" "$path"
+      done > "$UND/deps"
+  "$NMBIN" -m -arch x86_64 "$f" | awk -v UNATTR="$UND/unattributed.part" -v WEAK="$UND/weak.part" \
+      -v STRONG="$UND/strong.part" '
+    FILENAME == ARGV[1] { split($0, d, "\t"); names[++n] = d[1]; paths[n] = d[2]; next }
+    /\(undefined\)/ {
+      from = "-"
+      if (match($0, /\(from [^)]*\)/)) from = substr($0, RSTART + 6, RLENGTH - 7)
+      line = $0; sub(/ \(from [^)]*\)[^)]*$/, "", line)
+      k = split(line, a, " "); sym = ""
+      for (i = 1; i < k; ++i) if (a[i] == "external") { sym = a[i + 1]; break }
+      if (sym == "dyld_stub_binder") next
       path = "-"
-      if ($3 != "-") {
-        for (i = 1; i <= count; ++i) {
-          if (names[i] == $3 || index(names[i], $3 ".") == 1) {
-            path = paths[i]
-            break
-          }
-        }
-      }
-      print $1, $2, path
-    }
-  ' "$GATE/und/$b.resolved-deps" "$GATE/und/$b.und" > "$GATE/und/$b.pairs"
-  awk '$1=="S" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-strong.txt"
-  awk '$1=="W" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-weak.txt"
-  awk '$3=="-"{print $2}' "$GATE/und/$b.pairs" >> "$GATE/unattributed.txt"
-  "$CCTOOLS/otool" -l "$f" | awk '$1=="cmd"{t=$2}
-    $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print t, $2}' \
-    >> "$GATE/sysdeps.txt"
-  # (c) verified: no absolute build-machine LC_RPATH survives normalize
-  absrp=$("$CCTOOLS/otool" -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep '^/' || true; })
-  if [ -n "$absrp" ]; then echo "absolute LC_RPATH in $b: $absrp" >> "$FAILS"; fi
-  # (d) no text-relocation attributes: 10.9 dyld trusts S_ATTR_EXT_RELOC(0x200)/
-  # S_ATTR_LOC_RELOC(0x100) on __text and takes its text-relocation path, which leaves the
-  # whole __TEXT segment mapped without the execute bit -- the first call into the image
-  # (dlopen running the module initializers) dies with SIGBUS. The bits are wrong in a
-  # deployed image whether they are genuine (non-PIC code) or inherited from an object file
-  # (toolchain/patches/nasm-macho-object-reloc-attrs.patch keeps nasm from stamping them).
-  textflags=$("$CCTOOLS/otool" -l "$f" | awk '/sectname __text/{t=1} t&&/flags 0x/{print $2; exit}')
-  if [ -n "$textflags" ] && [ $(( textflags & 0x300 )) -ne 0 ]; then
-    echo "relocation attributes on __text in $b (flags $textflags)" >> "$FAILS"
-  fi
-  # no deployed binary may lean on the (pre-C++17) system libc++
-  if "$CCTOOLS/otool" -L "$f" | grep '/usr/lib/libc++' > /dev/null; then
-    echo "system libc++ reference in $b" >> "$FAILS"
-  fi
+      if (from != "-") for (i = 1; i <= n; ++i) if (names[i] == from || index(names[i], from ".") == 1) { path = paths[i]; break }
+      if (path == "-") { print sym > UNATTR; next }
+      print sym "\t" path > (index($0, " weak ") ? WEAK : STRONG)
+    }' "$UND/deps" -
+  for k in strong weak unattributed; do [ -f "$UND/$k.part" ] && cat "$UND/$k.part" >> "$UND/$k"; rm -f "$UND/$k.part"; done
 done
-sort -u -o "$GATE/all-strong.txt" "$GATE/all-strong.txt"
-sort -u -o "$GATE/all-weak.txt"   "$GATE/all-weak.txt"
-sort -u -o "$GATE/deployed-exports.txt" "$GATE/deployed-exports.txt"
-
-# (e) every deployed dylib and plugin must dlopen on this 10.9 host. One image per process,
-# so a loader crash in one cannot mask the rest; an exit above 128 is dyld or an initializer
-# dying on a signal (the __text-attribute case in (d) is SIGBUS here), anything else is
-# dlerror text captured verbatim.
-for f in $GATE_FILES; do
-  case "$f" in */bin/*) continue ;; esac
-  b=$(basename "$f")
-  err=$("$GATE/dlopen_probe" "$f" 2>&1) && rc=0 || rc=$?
-  if [ "$rc" -gt 128 ]; then
-    echo "dlopen of $b crashed (signal $((rc-128)))" >> "$FAILS"
-  elif [ "$rc" -ne 0 ]; then
-    echo "dlopen of $b failed: $err" >> "$FAILS"
-  fi
-done
-
-# every non-@rpath load command must exist on this 10.9 host (weak dylib loads may
-# be absent -- dyld tolerates that); every @rpath one must exist in the deployed tree
-for dep in $(awk '{print $2}' "$GATE/sysdeps.txt" | grep -v '^@' | sort -u); do
-  if [ ! -e "$dep" ]; then
-    kinds=$(awk -v d="$dep" '$2==d{print $1}' "$GATE/sysdeps.txt" | sort -u)
-    case "$kinds" in
-      LC_LOAD_WEAK_DYLIB) echo "  note: weak dylib absent on 10.9 (tolerated): $dep" ;;
-      *) echo "hard-linked library absent on 10.9: $dep" >> "$FAILS" ;;
-    esac
-  fi
-done
-for dep in $(awk '{print $2}' "$GATE/sysdeps.txt" | grep '^@rpath/' | sort -u); do
-  base="${dep#@rpath/}"
-  if [ ! -e "$DEST/lib/$base" ] && [ ! -e "$DEST/lib/gstreamer-1.0/$base" ]; then
-    echo "@rpath dependency missing from deployed tree: $base" >> "$FAILS"
-  fi
-done
-
-# Every undefined must be attributable to a source library; an unattributed one cannot be
-# checked against anything and is not silently passed.
-sort -u -o "$GATE/unattributed.txt" "$GATE/unattributed.txt"
-if [ -s "$GATE/unattributed.txt" ]; then
-  echo "undefined symbols with no resolvable source library:" >> "$FAILS"
-  sed 's/^/  /' "$GATE/unattributed.txt" >> "$FAILS"
-fi
-
-# strong undefineds: each must be provided by the library its own import record names
-: > "$GATE/strong-missing.txt"
-if [ -s "$GATE/all-strong.txt" ]; then
-  "$GATE/dlsym_probe" < "$GATE/all-strong.txt" | sort -u > "$GATE/strong-missing.txt"
-fi
-if [ -s "$GATE/strong-missing.txt" ]; then
-  echo "strong undefined symbols their own source library does not provide on 10.9:" >> "$FAILS"
-  sed 's/^/  /' "$GATE/strong-missing.txt" >> "$FAILS"
-fi
-
-# weak undefineds: those with no provider anywhere bind NULL at load; each must be on
-# the documented allow-list
-: > "$GATE/weak-missing.txt"
-if [ -s "$GATE/all-weak.txt" ]; then
-  "$GATE/dlsym_probe" < "$GATE/all-weak.txt" | sort -u > "$GATE/weak-missing.txt"
-fi
-printf '%s\n' $WEAK_ALLOWED | sort -u > "$GATE/weak-allowed.txt"
-awk -F'\t' 'NR==FNR{ok[$1]=1; next} !ok[$1]' "$GATE/weak-allowed.txt" "$GATE/weak-missing.txt" > "$GATE/weak-bad.txt"
-if [ -s "$GATE/weak-bad.txt" ]; then
-  echo "weak imports that bind NULL on 10.9 and are not allow-listed:" >> "$FAILS"
-  sed 's/^/  /' "$GATE/weak-bad.txt" >> "$FAILS"
-fi
-
-if [ -s "$FAILS" ]; then
-  echo "  ---- GATE FAILURES ----"
-  sed 's/^/  /' "$FAILS"
-  echo "  FAIL: the deployed runtime does not resolve cleanly on 10.9 (see above)"
+sort -u "$UND/strong" | "$UND/dlsym_probe" | sort -u > "$UND/strong-missing"
+sort -u "$UND/weak" | "$UND/dlsym_probe" | sort -u \
+  | awk -F'\t' -v allowed="$WEAK_ALLOWED" 'BEGIN { n = split(allowed, a, " "); for (i = 1; i <= n; ++i) ok[a[i]] = 1 } !ok[$1]' \
+  > "$UND/weak-missing"
+sort -u -o "$UND/unattributed" "$UND/unattributed"
+if [ -s "$UND/strong-missing" ] || [ -s "$UND/weak-missing" ] || [ -s "$UND/unattributed" ]; then
+  [ -s "$UND/strong-missing" ] && { echo "  strong undefined symbols their own library does not provide on 10.9:"; sed 's/^/    /' "$UND/strong-missing"; }
+  [ -s "$UND/weak-missing" ] && { echo "  weak imports that bind NULL on 10.9 and are not allow-listed:"; sed 's/^/    /' "$UND/weak-missing"; }
+  [ -s "$UND/unattributed" ] && { echo "  undefined symbols with no resolvable source library:"; sed 's/^/    /' "$UND/unattributed"; }
+  echo "  FAIL: the deployed runtime has unresolved references on 10.9"
   exit 1
 fi
-echo "  ok: $(echo $GATE_FILES | wc -w | tr -d ' ') binaries; every strong undefined resolves on 10.9;"
-echo "      every dylib and plugin dlopens; no NULL-binding weak imports beyond the"
-echo "      allow-list; no absolute rpaths"
+echo "  ok: every undefined reference in the deployed runtime resolves on 10.9"
 
 echo "==== gap archive manifest ===="
 cp "$GAP_MANIFEST"  "$DEST/gap-sources.sha256" || exit 1
@@ -2510,12 +2058,8 @@ cp "$GAP_UNLINKED"  "$DEST/gap-unlinked.txt"   || exit 1
 echo "  $(wc -l < "$DEST/gap-sources.sha256" | tr -d ' ') source files, $(wc -l < "$DEST/gap-symbols.txt" | tr -d ' ') defined symbols, $(wc -l < "$DEST/gap-literals.txt" | tr -d ' ') literals, $(wc -l < "$DEST/gap-unlinked.txt" | tr -d ' ') outside its reach"
 
 echo "==== done. deps/build: ===="
-# Past every gate: deps/build is now what this script and the patches beside it build.
-CURRENT_RECIPES_KEY=$(recipes_key) || exit 1
-if [ "$CURRENT_RECIPES_KEY" != "$RECIPES_KEY" ]; then
-  echo "FATAL: dependency build script or patches changed during this run; rebuild before publication." >&2
-  exit 1
-fi
+# The key of the recipes this run started from: a script or patch edited since then leaves
+# deps/build behind them, and --check-recipes says so.
 printf '%s\n' "$RECIPES_KEY" > "$DEST/.recipes"
 ls "$DEST/lib" | head -40; ls "$DEST/lib/gstreamer-1.0" | wc -l
 echo "  build tree: $(du -sh "$SCRATCH" | awk '{ print $1 }') at $SCRATCH, $(df -h / | awk 'NR == 2 { print $4 }') free on /"

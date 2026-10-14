@@ -1442,8 +1442,8 @@ WK_POLYFILL_ADD_METHODS(NSScrollerImp)
 // WebKit assigns it (-[NSScrollerImp setLayer:], present here), so marking THAT layer dirty is the
 // faithful 10.9 equivalent — exactly what ScrollerMac's fallback did by hand. -layer is nil in the WK1
 // path (no imp layer set), where [nil setNeedsDisplay] is a harmless no-op and the repaint comes from
-// ScrollbarThemeMac::paint. (GAP_FILL: 10.9 lacks -setNeedsDisplay: on NSScrollerImp — the build gate
-// confirms the absence — and the body always runs.)
+// ScrollbarThemeMac::paint. (GAP_FILL: 10.9 lacks -setNeedsDisplay: on NSScrollerImp, and the body
+// always runs.)
 - (void)setNeedsDisplay:(BOOL)flag { if (flag) [[self layer] setNeedsDisplay]; }
 @end
 WK_POLYFILL_ADD_METHODS(NSMenu)

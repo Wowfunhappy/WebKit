@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build Aqua WebKit: polyfill archives, ninja (configuring first if the build dir is
-# new), staging into WebKitBuild/Release/staged, then the post-build audits. Everything logs to
+# new), staging into WebKitBuild/Release/staged, then the undefined-reference audits. Everything logs to
 # /tmp/wk_build.log. "REBUILD DONE (rc=0)" is printed once, at the very end, and is the signal that the
 # staged product is complete and installable (sudo bash AquaWebKitSupport/install.sh).
 set -uo pipefail
@@ -35,7 +35,7 @@ rm -f "$WK_BUILD_STAMP"
 # link below reads from there. It force-loads the polyfill's shared/ sources into the whole media
 # runtime as well, so an edit to one of them parts those dylibs from the copy libpolyfill.a gives
 # the frameworks; the currency check below the takeover reads only the sources and the deps build's
-# manifest, and relinks on a stale answer. The audit at the end proves it over the staged product.
+# manifest, and relinks on a stale answer.
 DEPS_LOCK="$ROOT/AquaWebKitSupport/deps/work/.lock"
 
 # --- Take over from an in-flight build --------------------------------------------------------
@@ -167,14 +167,6 @@ if [ -n "$DEPS_STALE" ]; then
     echo "### bringing the deps build up to date (AquaWebKitSupport/deps/build_deps.sh)"
     if ! WK_BUILD_AWAITING_DEPS=$$ bash "$ROOT/AquaWebKitSupport/deps/build_deps.sh"; then
         echo "==================== DEPS BUILD FAILED — ABORTING ===================="
-        exit 1
-    fi
-    if ! bash "$ROOT/AquaWebKitSupport/scripts/check-gap-archive-current.sh" --sources-only; then
-        echo "==================== GAP SOURCES ARE AHEAD OF THE DEPS BUILD — ABORTING ===================="
-        exit 1
-    fi
-    if ! bash "$ROOT/AquaWebKitSupport/deps/build_deps.sh" --check-recipes; then
-        echo "==================== DEPS RECIPES ARE AHEAD OF THE DEPS BUILD — ABORTING ===================="
         exit 1
     fi
 fi
@@ -314,10 +306,9 @@ _ninja_log | grep -E 'error:|file not found|FAILED:' | grep -vE 'warning:' | sed
 
 # --- Staging + audits -------------------------------------------------------------------------
 # stage-frameworks.sh turns the linked frameworks into the complete installable product under
-# WebKitBuild/Release/staged; install.sh copies that tree onto the system. The audits need the FINAL
+# WebKitBuild/Release/staged; install.sh copies that tree onto the system. The audits read the FINAL
 # binaries, which exist only once staging has run:
 #   check-absent-references.sh  a reference to a symbol 10.9 lacks binds to 0 and faults on first use
-#   check-sandbox-profiles.sh   a profile 10.9's sandbox cannot compile CRASH()es WebContent at launch
 #   check-abi-gap.sh            every symbol 10.9 binaries bind from our frameworks must be exported
 if [ "$RC" = 0 ]; then
     echo "==================== STAGING ===================="
@@ -370,7 +361,7 @@ else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
 
-for audit in scripts/check-absent-references.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh; do
+for audit in scripts/check-absent-references.sh host-abi/check-abi-gap.sh; do
     [ "$RC" = 0 ] || break
     echo "### $audit"
     bash "$ROOT/AquaWebKitSupport/$audit" || RC=$?

@@ -28,7 +28,7 @@ def main():
     environment['CARGO_HOME'] = str(host.PREFIX / 'cargo-home')
     environment['MACOSX_DEPLOYMENT_TARGET'] = '10.9'
     sdk = Path(environment.get('AQUAWEBKIT_SDK', host.REPO.parent / 'MacOSX26.1.sdk'))
-    key = hashlib.sha256((host.digest(archive) + (host.WORK / '.compiler-verified').read_text()).encode()).hexdigest()
+    key = hashlib.sha256((host.digest(archive) + (host.WORK / '.compiler-built').read_text()).encode()).hexdigest()
     flags = ['-C', 'linker=' + str(host.CLANG), '-C', 'link-arg=--no-default-config',
              '-C', 'link-arg=-fuse-ld=lld', '-C', 'link-arg=-isysroot', '-C', 'link-arg=' + str(sdk),
              '-C', 'link-arg=-mmacosx-version-min=10.9', '-C', 'link-arg=-Wl,-force_load,' + str(archive),

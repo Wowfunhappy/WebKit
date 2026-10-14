@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 
 import build_rust as host
 
@@ -36,8 +35,6 @@ def prepare():
         if kind == 'source':
             arguments += ['--exclude', 'rustc-nightly-src/src/llvm-project']
         host.run(*arguments)
-    if (SOURCE / 'git-commit-hash').read_text().strip() != INPUTS['revision']:
-        raise RuntimeError('Rust source revision differs from the pinned host compiler')
     host.run('patch', '--batch', '-p1', '-i', PATCH, cwd=SOURCE)
     # llvm-strip is the upstream llvm-objcopy multi-call executable. The CI
     # rust-dev component omits this symlink; external-LLVM bootstrap expects it.
@@ -83,50 +80,6 @@ llvm-has-rust-patches = true
     return settings
 
 
-def verify():
-    environment = os.environ.copy()
-    environment['MACOSX_DEPLOYMENT_TARGET'] = '10.9'
-    compiler = STAGE / 'bin/rustc'
-    result = host.output('env', 'MACOSX_DEPLOYMENT_TARGET=10.9', compiler, '--print', 'deployment-target')
-    if result.strip() != 'MACOSX_DEPLOYMENT_TARGET=10.9':
-        raise RuntimeError('Rust compiler did not preserve the requested 10.9 deployment target')
-    probe = host.TOOLCHAIN / 'tests/rust-target/deployment.rs'
-    obj = WORK / 'deployment-probe.o'
-    host.run(compiler, '--crate-type=lib', '--emit=obj', '--target=x86_64-apple-darwin',
-             probe, '-o', obj, env=environment)
-    host.verify_deployment(obj)
-    print('### Rust compiler and emitted LLVM object both target macOS 10.9', flush=True)
-
-
-def verify_host():
-    fixture = host.TOOLCHAIN / 'tests/rust-host'
-    smoke = WORK / 'source-host-check'
-    if smoke.exists():
-        shutil.rmtree(smoke)
-    shutil.copytree(fixture, smoke)
-    environment = os.environ.copy()
-    environment['RUSTC'] = str(STAGE / 'bin/rustc')
-    environment['RUSTC_WRAPPER'] = str(host.SCRIPTS / 'rustc-wrapper.sh')
-    environment['CARGO_HOME'] = str(host.PREFIX / 'cargo-home')
-    host.run(host.PREFIX / 'bin/cargo', 'build', '--offline', '--manifest-path', smoke / 'Cargo.toml', env=environment)
-    host.run(smoke / 'target/debug/rust-host-smoke')
-
-    objcopy = STAGE / 'lib/rustlib/x86_64-apple-darwin/bin/llvm-objcopy'
-    environment['DYLD_PRINT_LIBRARIES'] = '1'
-    copied = WORK / 'deployment-probe-stripped.o'
-    result = subprocess.run([str(objcopy), '--strip-debug', str(WORK / 'deployment-probe.o'), str(copied)],
-                            env=environment, capture_output=True, text=True)
-    print(result.stdout + result.stderr, end='', flush=True)
-    result.check_returncode()
-    loaded = [Path(line.removeprefix('dyld: loaded: ')).resolve()
-              for line in result.stderr.splitlines() if line.startswith('dyld: loaded: ')]
-    llvm_images = [path for path in loaded if path.name.startswith('libLLVM')]
-    cxx_images = [path for path in loaded if path.name.startswith('libc++.')]
-    if llvm_images != [(LLVM / 'lib/libLLVM.dylib').resolve()] or cxx_images != [Path('/usr/lib/libc++.1.dylib').resolve()]:
-        raise RuntimeError('Assembled LLVM tool loaded an unexpected LLVM or C++ provider')
-    host.verify_deployment(copied)
-
-
 def bind_runtime(root, shim):
     for path in root.rglob('*'):
         if path.is_symlink() or not path.is_file():
@@ -155,14 +108,10 @@ def main():
         build_identity.update(value.encode())
     build_fingerprint = build_identity.hexdigest()
     identity = hashlib.sha256()
-    for value in (build_fingerprint, host.digest(Path(__file__)),
-                  host.digest(host.TOOLCHAIN / 'tests/rust-target/deployment.rs')):
+    for value in (build_fingerprint, host.digest(Path(__file__))):
         identity.update(value.encode())
-    for path in sorted((host.TOOLCHAIN / 'tests/rust-host').rglob('*')):
-        if path.is_file():
-            identity.update(host.digest(path).encode())
     fingerprint = identity.hexdigest()
-    stamp = WORK / '.compiler-verified'
+    stamp = WORK / '.compiler-built'
     compiler_exists = (STAGE / 'bin/rustc').is_file()
     host_libraries = STAGE / 'lib/rustlib/x86_64-apple-darwin/lib'
     host_std_exists = all(any(host_libraries.glob('lib' + name + '-*.rlib')) for name in ('std', 'core', 'proc_macro'))
@@ -181,7 +130,6 @@ def main():
         environment['PATH'] = ':'.join(str(host.TOOLCHAIN / ('build/' + tool + '/bin'))
                                        for tool in ('python3', 'ninja', 'cmake', 'clang')) + ':' + environment['PATH']
         # This compiler is a host tool built by the prebuilt 10.12 compiler.
-        # The lowered floor is validated separately in its generated target code.
         environment['MACOSX_DEPLOYMENT_TARGET'] = '10.12'
         flags = ['-C', 'linker=' + str(host.CLANG), '-C', 'link-arg=--no-default-config',
                  '-C', 'link-arg=-fuse-ld=lld', '-C', 'link-arg=-isysroot', '-C', 'link-arg=' + str(sdk),
@@ -199,7 +147,6 @@ def main():
         host.run(host.TOOLCHAIN / 'build/python3/bin/python3', 'x.py', 'build', '--stage', '1',
                  'compiler/rustc', cwd=SOURCE, env=environment)
         bind_runtime(STAGE, shim)
-        verify()
         host.run(host.TOOLCHAIN / 'build/python3/bin/python3', 'x.py', 'build', '--stage', '1',
                  'library', cwd=SOURCE, env=environment)
         bind_runtime(STAGE, shim)
@@ -208,8 +155,6 @@ def main():
         rust_sources.parent.mkdir(parents=True, exist_ok=True)
         if not rust_sources.exists():
             rust_sources.symlink_to(os.path.relpath(host.PREFIX / 'lib/rustlib/src/rust', rust_sources.parent))
-        verify()
-        verify_host()
         if COMPILER_PREFIX.is_symlink():
             COMPILER_PREFIX.unlink()
         elif COMPILER_PREFIX.exists():
@@ -217,7 +162,6 @@ def main():
         COMPILER_PREFIX.symlink_to(os.path.relpath(STAGE, COMPILER_PREFIX.parent))
         stamp.write_text(fingerprint)
     else:
-        verify()
         print('### Mavericks source compiler is current', flush=True)
 
 

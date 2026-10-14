@@ -288,16 +288,16 @@ static int handleCanSeeProvider(void *handle, struct wk_polyfill_entry *entry)
 // A registered name resolves to OUR definition -- the same one a link-time reference binds under
 // force_load -- so soft-linking (SOFT_LINK_CONSTANT/FUNCTION) and link-time references give the same
 // answer, which is the whole point of this override. Gap-fill vs replacement makes no difference here:
-// the body always runs either way, and the build gate guarantees a gap-fill's symbol is one 10.9
-// lacks, so there is nothing on 10.9 for it to shadow. (Were a gap-fill to defer to 10.9 here while
+// the body always runs either way, and a gap-fill's symbol is one 10.9 lacks, so there is nothing on
+// 10.9 for it to shadow. (Were a gap-fill to defer to 10.9 here while
 // the link-time reference bound ours, the same name would resolve two ways.)
 //
 // An answer comes out of the registry only where a real dlsym could plausibly have produced one: the
 // handle has to be able to see the provider (above). The system's answer is taken first, so a
 // non-registered name passes straight through.
 //
-// Declared through the registry like any other polyfill, so WK_POLYFILL_REPORT names it and the shadow
-// check sees a stated intent. Registering it recurses nowhere: lookup() is a scan over this image's own
+// Declared through the registry like any other polyfill, so WK_POLYFILL_REPORT names it. Registering it
+// recurses nowhere: lookup() is a scan over this image's own
 // __wk_pfmap section, and the real dlsym is reached through systemDlsym (from NSLookupSymbolInImage) --
 // which is also why the body uses systemDlsym rather than WK_ORIGINAL: it must work before anything has
 // read the registry.

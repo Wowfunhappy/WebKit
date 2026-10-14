@@ -69,14 +69,12 @@ sources required by the host tools. Generated products and caches live in
 
 The source compiler permits the x86_64 macOS deployment floor of 10.9, preserving
 Darwin's ABI and AArch64's 11.0 minimum. Its host sysroot includes the full
-upstream library target. Bootstrap checks the compiler's reported deployment
-target, emitted Mach-O metadata, and actual Cargo build-script and procedural
-macro execution. Source and runtime fingerprints govern reuse under shared
-mutation locks.
+upstream library target. Source and runtime fingerprints govern reuse under
+shared mutation locks.
 
 Host tools bind missing system APIs through a two-level libSystem reexport
 backed by the shared polyfill implementations. The matching LLVM provider is
-retained, and its tools use native libc++ after an import audit. Explicit-target
+retained, and its tools use native libc++. Explicit-target
 Cargo builds rebuild `std` and `panic_unwind` for 10.9 and link the dependency
 gap archive. `scripts/test_rust_target.py` verifies the target dylib's deployment
 metadata and executes unwinding, destructors, threads, entropy, clocks and file

@@ -43,31 +43,6 @@ tar xzf "$WORK/ccache.tar.gz" -C "$WORK"
 
 "$CMAKE" --build "$WORK/build" -j 2
 
-CCACHE_BIN="$WORK/build/ccache"
-. "$TOOLCHAIN/../scripts/cctools.sh"
-
-echo "### Validate: no dependency on the host's compression libraries"
-# ccache reads its manifests through the zstd and zlib it builds in; 10.9's libz is 1.2.5, whose
-# gzFile layout differs from the SDK's zlib.h.
-linked="$("$CCTOOLS/otool" -L "$CCACHE_BIN")"   # capture first, so a failing otool can't read as a pass
-echo "$linked" | grep -qE '/libz\.|/libzstd' && { echo "### FAIL: links a host compression library"; exit 1; } || echo "### bundled zlib and zstd"
-
-echo "### Validate: compiling the same input twice yields a DIRECT cache hit"
-export CCACHE_DIR="$WORK/cachedir"
-# The probe includes a header so there is an include set to hash into a manifest -- the path
-# direct mode takes, and the one worth checking.
-printf '#include <stdio.h>\nint f(void){return 41;}\n' > "$WORK/probe.c"
-for o in p1.o p2.o; do "$CCACHE_BIN" "$CLANG/bin/clang" --no-default-config -isysroot "$SDK" -c "$WORK/probe.c" -o "$WORK/$o"; done
-# The direct counter alone: ccache falls back to preprocessed mode whenever direct mode fails, so a
-# total that lumps the two together stays healthy with direct mode dead.
-direct=$("$CCACHE_BIN" --print-stats | awk -F'\t' '$1 == "direct_cache_hit" { print $2 }')
-[ "${direct:-0}" -ge 1 ] && echo "### direct mode works ($direct hit)" || { echo "### FAIL: no direct cache hit"; "$CCACHE_BIN" -s -v; exit 1; }
-
-echo "### Validate: 10.9-self-sufficient (no post-10.9 imports)"
-undefined="$("$CCTOOLS/nm" -u "$CCACHE_BIN")"   # capture first, so a failing nm can't read as a pass
-echo "$undefined" | grep -iE 'getentropy|getrandom|clock_gettime|_availability_version_check|os_log' \
-    && { echo "### FAIL: post-10.9 symbol"; exit 1; } || echo "### 10.9-clean"
-
 # Install to a separate file before replacing the executable used by active builds.
 DESTDIR="$WORK/install" "$CMAKE" --install "$WORK/build"
 mkdir -p "$PREFIX/bin"

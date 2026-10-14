@@ -1,9 +1,9 @@
-/* Exercises wk_polyfill.h + wk_polyfill_runtime.c against the real 10.9 runtime. Run by
- * build-polyfill.sh; a failure here means the layer's core promise is broken.
+/* Exercises wk_polyfill.h + wk_polyfill_runtime.c against the real 10.9 runtime, run by hand; a
+ * failure here means the layer's core promise is broken.
  *
  * The promise: a polyfill's body runs unconditionally -- the runtime does what you declared, with no
  * forwarding to 10.9 and no value-mirroring. A polyfill written for a symbol 10.9 actually has would
- * therefore shadow it; that is a mistake the build gate (the shadow gate in build-polyfill.sh) rejects. This test
+ * therefore shadow it, which real code must avoid. This test
  * deliberately declares two gap-fills over PRESENT symbols (CFNullGetTypeID, kCFRunLoopDefaultMode) --
  * something real code must not do -- purely to prove the body/value wins, i.e. that nothing forwards or
  * mirrors behind your back. Real system symbols throughout, not mocks: CFNullGetTypeID and
@@ -29,8 +29,8 @@ WK_POLYFILL_ABSENT("CoreGraphics", CFStringRef, CGColorSpaceGetName, (CGColorSpa
 }
 
 /* --- gap-fill body runs even where 10.9 HAS the function: proves nothing forwards to 10.9.
- * A gap-fill over a present symbol is the mistake the gate rejects in real code; here it shows the
- * body -- not 10.9's CFNullGetTypeID -- is what runs. --------------------------------------- */
+ * A gap-fill over a present symbol is a mistake in real code; here it shows the body -- not 10.9's
+ * CFNullGetTypeID -- is what runs. ----------------------------------------------------------- */
 WK_POLYFILL_ABSENT("CoreFoundation", CFTypeID, CFNullGetTypeID, (void))
 {
     return (CFTypeID)0xBEEF;

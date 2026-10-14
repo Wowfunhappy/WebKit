@@ -93,7 +93,7 @@ kern_return_t mach_timebase_info(mach_timebase_info_t info)
 }
 
 #ifdef WK_POLYFILL_REGISTERED
-/* Registered so WK_POLYFILL_REPORT lists the override and the shadow gate reads a stated intent.
+/* Registered so WK_POLYFILL_REPORT lists the override.
  * The entry is written out by hand so the body above compiles with no wk_polyfill.h, which is how
  * the vendored builds take it. Provider NULL: libSystem, found process-wide. */
 WK_PF_ENTRY(mach_timebase_info, NULL, &mach_timebase_info, WK_POLYFILL_FUNCTION, WK_POLYFILL_REPLACES);

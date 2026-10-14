@@ -1,8 +1,6 @@
 #!/bin/bash
-# Fail the build if a shipped binary references a symbol that, at RUNTIME, nothing it links provides.
-# The mirror image of the shadow gate in polyfill/build-polyfill.sh: that one asks "does the layer
-# define something 10.9 already has?"; this one asks "does WebKit reference something 10.9 does NOT
-# have that the layer forgot to define?"
+# Fail the build if a shipped binary references a symbol that, at RUNTIME, nothing it links provides:
+# "does WebKit reference something 10.9 does NOT have that the layer forgot to define?"
 #
 # The modern SDK marks post-10.9 API with availability, so clang WEAK-imports every such reference; dyld
 # binds an absent weak symbol to 0, and both uses are fatal with nothing at the fault site naming the

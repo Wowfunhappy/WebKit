@@ -53,12 +53,11 @@
 
 // ADD supplies a method 10.9 LACKS; REPLACE shadows one 10.9 HAS. Both install the body; the
 // distinction decides how (class_addMethod vs class_replaceMethod), how the alias pass treats the
-// class's subclasses, and what the shadow gate in build-polyfill.sh requires: an ADD whose method 10.9
-// turns out to implement fails the build, so verify absence on-host rather than declaring one blindly.
+// class's subclasses. An ADD whose method 10.9 turns out to implement replaces 10.9's, so verify
+// absence on-host rather than declaring one blindly.
 enum { WK_METHODS_ADD = 0, WK_METHODS_REPLACE = 1 };
 
-// One block. Emitted into __DATA,__wk_methods and read by the patcher from every WebKit image at load,
-// and by the shadow gate out of the built archive. The placeholder is named rather than referenced so
+// One block. Emitted into __DATA,__wk_methods and read by the patcher from every WebKit image at load. The placeholder is named rather than referenced so
 // the record is plain constant data.
 struct wk_methods_entry {
     const char *placeholder;       // the block's class; its own methods are the bodies

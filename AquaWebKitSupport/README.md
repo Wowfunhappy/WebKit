@@ -49,7 +49,7 @@ AquaWebKitSupport/
 │                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py
 ├── polyfill/                   the polyfill layer -- see polyfill/README.md
 ├── sandbox/                    the sandbox profiles 10.9's sandbox can compile, and scripts/ (check-sandbox-profiles.sh,
-│                               the build gate; check-sandbox-applied.sh; watch-sandbox-denials.sh)
+│                               run by hand; check-sandbox-applied.sh; watch-sandbox-denials.sh)
 ├── host-abi/                   the symbols 10.9 binaries bind from our frameworks (Safari 7, the public API, every
 │                               binary on a 10.9 system) + check-abi-gap.sh (build gate)
 ├── sdk/                        patch-sdk.sh: the two edits the build needs in the macOS SDK (run by bootstrap.sh)

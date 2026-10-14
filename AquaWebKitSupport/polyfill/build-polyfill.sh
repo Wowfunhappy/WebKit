@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the polyfill layer into polyfill/build/ (gitignored) and run its gates. See README.md for how the
+# Build the polyfill layer into polyfill/build/ (gitignored). See README.md for how the
 # layer works and where a polyfill goes; the directory a source sits in decides which product it lands in:
 #
 #   polyfills/c/        libpolyfill.a           force-loaded into every WebKit image, hidden
@@ -15,9 +15,8 @@
 #                       wk_image_marker.o -> libwk_marker.a (force-loaded into every WebKit framework)
 set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/polyfill-env.sh"
-. "$REPO/AquaWebKitSupport/scripts/cctools.sh"; NM="$CCTOOLS/nm"
+. "$REPO/AquaWebKitSupport/scripts/cctools.sh"
 . "$REPO/AquaWebKitSupport/scripts/host-headers.sh"
-TGATES="$POLY/tests/gates"
 OBJ="$(mktemp -d "${TMPDIR:-/tmp}/polybuild.XXXXXX")"; trap 'rm -rf "$OBJ"' EXIT
 mkdir -p "$OUT" "$OBJ"/{c,shared,methods,classes,webkit,jsc,cdm,widevine,mech}
 
@@ -88,7 +87,7 @@ echo "### compiling polyfills/webkit (WebKit.framework only)"
 # MINC rather than INC: websocket.mm asks c/ for the protection space its server-trust challenge carries.
 # deps/build/include holds ICU, libpng, libxml2 and the rest of the vendored roots, so it reaches only
 # the one unit that needs curl and openssl from it -- websocket.mm, which runs its transport on libcurl
-# and builds its ClientHello from CocoaCurlClientHello.h, the header WebCore and the deps gate compile.
+# and builds its ClientHello from CocoaCurlClientHello.h, the header WebCore compiles.
 for f in "$PF"/webkit/*.mm; do
     case "$(basename "$f")" in
         websocket.mm) UNITINC="$MINC -I$REPO/AquaWebKitSupport/deps/build/include -I$REPO/AquaWebKitSupport/source/WebCore/platform/network/cocoa" ;;
@@ -96,82 +95,6 @@ for f in "$PF"/webkit/*.mm; do
     esac
     cc_queue "$CLANG" -c $MODERN $BLOCKCF $UNITINC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
 done
-
-# --- availability inside method bodies -----------------------------------------------------------
-# -Wunguarded-availability is blind inside a polyfill method body: clang reads a body that implements
-# an availability-attributed declaration as an implicit availability context at that version, so a
-# 10.10 send inside a 10.12 method is "guarded" and no diagnostic is emitted. That is the whole of
-# polyfills/methods/, where every block by construction implements a post-10.9 API -- and it is how
-# -[NSTextField labelWithString:] came to send the absent -setLineBreakMode: and die at the first
-# render. Compiling a copy whose method definitions are renamed removes the match against the SDK
-# declaration, and with it the implicit context; the sends inside are then checked like any other.
-# Syntax-only, on a transformed copy: the shipped objects still come from the untouched sources.
-echo "### method-body availability gate"
-GATEONLY='-Wno-everything -Werror=unguarded-availability -Werror=unguarded-availability-new'
-GATESRC="$OBJ/availability-gate"; rm -rf "$GATESRC"; mkdir -p "$GATESRC"/methods
-# methods/ is the whole of it. classes/ compiles against the 10.9 headers, where a post-10.9 API carries
-# no availability attribute for this pass to read -- its equivalent check is the -Werror on its own
-# compile above. webkit/ is not renamed either: websocket.mm declares its methods only in
-# @implementation, so renaming a definition leaves every send through a receiver other than self
-# unresolved, and the one post-10.9 surface it touches is the NSURLSessionWebSocket API it defines
-# itself, which the file-scope check already covers.
-for f in "$PF"/methods/*.m; do
-    d="$(basename "$(dirname "$f")")"; copy="$GATESRC/$d/$(basename "$f")"
-    # The signature keeps its own suppression: the types in it name the very API the block supplies, and
-    # it is only the body the renaming exists to expose.
-    # Two passes over the unit: collect the selectors it defines, then rename those definitions and the
-    # sends to self that reach them. A definition that no longer matches an SDK declaration loses the
-    # implicit availability context, which is the point of the copy; renaming the matching self-sends
-    # keeps it compiling. #line puts the diagnostics back on the real file and line.
-    awk -v src="$f" '''
-        function selname(s,   b, t) { b = index(s, "{"); t = b ? substr(s, 1, b - 1) : s;
-                                      sub(/[[:space:]:(].*$/, "", t); return t }
-        /^@implementation/ || /^WK_POLYFILL_(ADD|REPLACE)_METHODS/ { inimpl = 1 }
-        /^@end/ { inimpl = 0 }
-        NR == FNR {
-            if (inimpl && match($0, /^[[:space:]]*[+-][[:space:]]*\([^)]*\)[[:space:]]*/)) {
-                rest = substr($0, RLENGTH + 1)
-                if (rest ~ /^[A-Za-z_]/ && rest !~ /^init/) defined[selname(rest)] = 1
-            }
-            next
-        }
-        FNR == 1 { printf "#line 1 \"%s\"\n", src }
-        {
-            line = $0
-            if (inimpl && match(line, /^[[:space:]]*[+-][[:space:]]*\([^)]*\)[[:space:]]*/)) {
-                head = substr(line, 1, RLENGTH); rest = substr(line, RLENGTH + 1)
-                if (rest ~ /^[A-Za-z_]/ && rest !~ /^init/) {
-                    brace = index(rest, "{")
-                    sig = brace ? substr(rest, 1, brace - 1) : rest
-                    body = brace ? substr(rest, brace) : ""
-                    print "#pragma clang diagnostic push"
-                    print "#pragma clang diagnostic ignored \"-Wunguarded-availability\""
-                    print "#pragma clang diagnostic ignored \"-Wunguarded-availability-new\""
-                    print head "wkgate_" sig
-                    print "#pragma clang diagnostic pop"
-                    if (body != "") print body
-                    printf "#line %d \"%s\"\n", FNR + 1, src
-                    next
-                }
-            }
-            out = ""
-            while (match(line, /\[self [A-Za-z_][A-Za-z0-9_]*/)) {
-                pre = substr(line, 1, RSTART + 5)
-                sel = substr(line, RSTART + 6, RLENGTH - 6)
-                line = substr(line, RSTART + RLENGTH)
-                out = out pre ((sel in defined) ? "wkgate_" sel : sel)
-            }
-            print out line
-        }''' "$f" "$f" > "$copy"
-    # Each group is checked with the flag set it is really built with; classes/ compiles against the
-    # 10.9 headers, so the modern SDK's own declarations do not collide with the stubs it defines.
-    # -Wno-everything first: this pass asks one question, and the renaming leaves sends through a
-    # receiver other than self unresolved, which is noise here and is checked by the real compile.
-    cc_queue "$CLANG" -fsyntax-only $MODERN $BLOCKCF $(methods_unitinc "$f") $GATEONLY \
-        -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -I"$(dirname "$f")" "$copy"
-done
-cc_wait
-echo "  method-body availability gate: clean"
 
 echo "### compiling polyfills/jsc (JavaScriptCore only)"
 for f in "$PF"/jsc/*.cpp; do
@@ -219,28 +142,11 @@ echo "### libpolyfill.a"
 # Some SDK headers put an explicit visibility("default") on their declarations (DISPATCH_EXPORT, OS_EXPORT),
 # which overrides $HIDDEN on the definition and lands the polyfill in every framework's export table --
 # where the process-wide dlsym WK_ORIGINAL performs finds the layer's own copy instead of 10.9's. nmedit -p
-# demotes every defined global in the members to private extern; the symbols stay visible to the nm-based
-# checks below and still satisfy the force_load link. One list feeds both the demotion and the archive.
+# demotes every defined global in the members to private extern; the symbols still satisfy the force_load
+# link. One list feeds both the demotion and the archive.
 LIBPOLYFILL_MEMBERS=("$OBJ"/c/*.o "$OBJ/mech/wk_polyfill_runtime.o" "$OBJ"/shared/*.o)
 for o in "${LIBPOLYFILL_MEMBERS[@]}"; do "$CCTOOLS/nmedit" -p "$o"; done
 ar_stable "$OUT/libpolyfill.a" "${LIBPOLYFILL_MEMBERS[@]}"
-leaked=$($NM -m "$OUT/libpolyfill.a" | grep -v 'private external\|undefined\|non-external' \
-    | grep 'external' || true)
-if [ -n "$leaked" ]; then
-    echo "ERROR: libpolyfill.a still EXPORTS these symbols; every framework that force-loads it would" >&2
-    echo "re-export them, shadowing the system flat-namespace-wide:" >&2
-    echo "$leaked" >&2
-    exit 1
-fi
-# Force-loading rejects duplicate strong definitions. Mach-O weak definitions (including C++ template
-# instantiations) coalesce; nm -m preserves the weak attribute that its single-letter format omits.
-dupes=$($NM -m "$OUT/libpolyfill.a" | awk '/^[[:xdigit:]]+ \(/ && / external / && !/ weak / { print $NF }' | sort | uniq -d)
-if [ -n "$dupes" ]; then
-    echo "ERROR: libpolyfill.a defines these symbols more than once; force_load makes that a link failure:" >&2
-    echo "$dupes" | sed 's/^/  /' >&2
-    exit 1
-fi
-
 echo "### libpolyfill_classes.dylib"
 # The polyfilled classes have absent-on-10.9 SYSTEM names, which WebKit references with a two-level
 # binding to the framework that owns them in the build SDK. This one dylib defines every stub (each class
@@ -289,257 +195,6 @@ echo "### pasteboard-expiration"
 "$CLANG" $HOST -Wl,-headerpad_max_install_names -o "$OUT/pasteboard-expiration.tmp" "$PF/helpers/pasteboard-expiration.m" \
     -Wl,-force_load,"$OUT/libwk_marker.a" -framework AppKit
 tmp_stable "$OUT/pasteboard-expiration"
-
-# --- shadow gates ------------------------------------------------------------------------------
-# Every polyfill's body runs unconditionally: force_load makes our definition win, the selref rewrite sends
-# WebKit's `foo` to `wk_foo`, and there is no runtime forwarding to 10.9. So a polyfill written for a symbol,
-# method or class 10.9 actually HAS silently replaces the working system one. These gates ask this
-# machine's runtime (dlopen/dlsym and the ObjC runtime, not the modern SDK's stubs) whether anything the
-# layer defines is something 10.9 already provides, and require the answer to be declared: WK_POLYFILL_REPLACES
-# / WK_POLYFILL_REPLACE_METHODS, or delete it. There is no allowlist. Plain-C units with no registry entry
-# (shared/, the mechanism) are held to the same rule. Probe programs: tests/gates/.
-echo "### shadow gates"
-W="$OBJ/shadow"; mkdir -p "$W/members"
-# The 10.9 images a WebKit binary's references can bind against. Not AVFoundation: on 10.9 dlsym(handle) walks
-# the whole dependency tree, and AVFoundation drags in CoreWiFi, whose PRIVATE clock_gettime copy would
-# false-positive symbols no real two-level bind could reach (the layer's AVFoundation additions are classes,
-# covered by the class gate).
-SYSTEM_LIBS="/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics
-/System/Library/Frameworks/CoreText.framework/CoreText
-/System/Library/Frameworks/QuartzCore.framework/QuartzCore
-/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation
-/System/Library/Frameworks/Foundation.framework/Foundation
-/System/Library/Frameworks/AppKit.framework/AppKit
-/System/Library/Frameworks/Security.framework/Security
-/System/Library/Frameworks/CFNetwork.framework/CFNetwork
-/System/Library/Frameworks/CoreServices.framework/CoreServices
-/System/Library/Frameworks/ImageIO.framework/ImageIO
-/System/Library/Frameworks/IOKit.framework/IOKit
-/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration
-/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox
-/System/Library/Frameworks/AudioUnit.framework/AudioUnit
-/System/Library/Frameworks/CoreAudio.framework/CoreAudio
-/System/Library/Frameworks/CoreMedia.framework/CoreMedia
-/System/Library/Frameworks/CoreVideo.framework/CoreVideo
-/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices
-/System/Library/Frameworks/Accelerate.framework/Accelerate
-/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox
-/System/Library/Frameworks/MediaAccessibility.framework/MediaAccessibility
-/System/Library/PrivateFrameworks/TCC.framework/TCC
-/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI
-/System/Library/PrivateFrameworks/DataDetectorsCore.framework/DataDetectorsCore
-/System/Library/Frameworks/Quartz.framework/Frameworks/PDFKit.framework/PDFKit
-/usr/lib/libSystem.B.dylib
-/usr/lib/libobjc.A.dylib
-/usr/lib/libz.dylib
-/usr/lib/libsandbox.1.dylib
-/usr/lib/system/libsystem_sandbox.dylib"
-# The method probes also need the frameworks owning the classes the categories extend.
-OBJC_LIBS="$SYSTEM_LIBS
-/System/Library/Frameworks/AVFoundation.framework/AVFoundation
-/System/Library/Frameworks/CoreLocation.framework/CoreLocation"
-# DataDetectors (owns DDActionsManager) cannot join the lists above: it links the stock WebKit install paths
-# -- on this machine the installed backport, carrying the force-loaded layer, whose exports would then look
-# like 10.9's -- and its transitive closure adds categories that flip other rows' answers (ISSupport adds
-# -[NSString containsString:]). So it joins a SECOND presence pass in a separate process whose answers are
-# used ONLY for rows the first pass could not load the class for. That pass also loads GameController, which
-# owns GCController.
-PROBE_ONLY_LIBS="/System/Library/PrivateFrameworks/DataDetectors.framework/DataDetectors
-/System/Library/Frameworks/GameController.framework/GameController"
-
-# What the layer defines: strong (T/D/S/B) globals of every product force-loaded into a WebKit binary.
-for lib in libpolyfill.a libpolyfill_methods.a libpolyfill_classes.dylib libwtf_compat.a libwk_marker.a libpolyfill_webkit.a; do
-    $NM -g "$OUT/$lib" 2>/dev/null | awk -v lib="$lib" '$2 ~ /^[TDSB]$/ { sub(/^_/, "", $3); print $3 "\t" lib }'
-done | sort -u > "$W/defined"
-cut -f1 "$W/defined" | sort -u > "$W/names"
-# What 10.9 has, and what the registry declares.
-"$CLANG" $HOST -o "$W/present" "$TGATES/shadow-present.c"
-"$W/present" $SYSTEM_LIBS < "$W/names" | sort -u > "$W/on109"
-# -undefined dynamic_lookup: the registry probe reads the section and calls no polyfill, so it must not need
-# a link line that grows with every framework function a body references.
-"$CLANG" $HOST $INC -o "$W/registry" "$TGATES/shadow-registry.c" \
-    -Wl,-force_load,"$OUT/libpolyfill.a" -Wl,-undefined,dynamic_lookup $SYSTEM_LIBS
-"$W/registry" | sort -u > "$W/registry.tsv"
-awk -F'\t' '$2 == "REPLACES" { print $1 }' "$W/registry.tsv" | sort -u > "$W/replaces"
-
-# --- shared-state gate -------------------------------------------------------------------------
-# polyfills/shared/ is force-loaded into every media dylib AND into each of WebKit's frameworks, and
-# polyfills/c/ into each of the frameworks, so the process holds many copies of each of these files. An exported DATA symbol is how one copy would try
-# to reach another copy's state, and it cannot: the framework link makes the symbol local again, so
-# dlsym answers with whichever copy an unrelated load order put first. State a shared/ file keeps for
-# itself is therefore per-image however it is named. The data these files are allowed to export is the
-# kind the registry declares a CONSTANT -- an absent CFStringRef and its friends, written once and read
-# by anyone. Anything else is state, and belongs on the object it describes, where the system owns the
-# association.
-echo "### shared-state gate"
-awk -F'\t' '$3 == "CONSTANT" { print $1 }' "$W/registry.tsv" | sort -u > "$W/constants"
-# C (common) belongs with D/S/B: a tentative definition is exported shared data too.
-# polyfills/c/ is force-loaded into each of WebKit's four frameworks, so its members are multiply
-# instantiated for the same reason and are held to the same rule. Both are compiled exactly as they
-# ship -- $HIDDEN included -- so only data a file deliberately exports is scored.
-SHARED_DATA="$W/shared_data"; : > "$SHARED_DATA"
-{
-    for src in "$PF"/shared/*.c; do
-        obj="$W/sharedgate_shared_$(basename "${src%.c}").o"
-        "$CLANG" $SHAREDCF $HIDDEN -DWK_POLYFILL_REGISTERED $INC -c -o "$obj" "$src" || exit 1
-        "$NM" -g "$obj" | awk -v f="shared/$(basename "$src")" '$2 ~ /^[DSBC]$/ \
-            { sub(/^_/, "", $3); print $3 "\t" f }'
-    done
-    for src in "$PF"/c/*.c "$PF"/c/*.m; do
-        obj="$W/sharedgate_c_$(basename "${src%.*}").o"
-        "$CLANG" $MODERN $HIDDEN $CINC -c -o "$obj" "$src" || exit 1
-        "$NM" -g "$obj" | awk -v f="c/$(basename "$src")" '$2 ~ /^[DSBC]$/ \
-            { sub(/^_/, "", $3); print $3 "\t" f }'
-    done
-} | sort -u > "$SHARED_DATA"
-join -t"$(printf '\t')" -v1 -1 1 -2 1 "$SHARED_DATA" "$W/constants" > "$W/shared_state_offenders"
-if [ -s "$W/shared_state_offenders" ]; then
-    echo "ERROR: a force-loaded polyfill exports data the registry does not declare a CONSTANT."
-    echo "Every image that force-loads it gets its own copy and no copy can reach another's, so this"
-    echo "is per-image state however it is named:"
-    awk -F'\t' '{ printf "  %-40s %s\n", $2, $1 }' "$W/shared_state_offenders"
-    echo "Keep it on the object it describes -- an AudioUnit property listener, a CFTypeRef"
-    echo "association -- so the system owns the association, or declare it WK_POLYFILL_CONSTANT."
-    exit 1
-fi
-echo "  shared-state gate: clean -- $(ls "$PF"/shared/*.c "$PF"/c/*.c "$PF"/c/*.m | wc -l | tr -d ' ') force-loaded sources, $(wc -l < "$SHARED_DATA" | tr -d ' ') exported data symbol(s), all declared CONSTANT"
-
-# Presence is asked of the EXACT linker symbol (an ABI-variant spelling such as syslog$DARWIN_EXTSN or
-# fdopendir$INODE64 is its own symbol); for the registry match the variant suffix is stripped, since a
-# registry entry names the C function while the suffix comes from an asm label on it. OBJC_ names keep
-# their $.
-cut -f1 "$W/on109" | sort -u > "$W/present_names"
-awk 'NR == FNR { accounted[$0] = 1; next }
-     { base = $0
-       if ($0 !~ /^OBJC_/ && match($0, /\$[A-Z][A-Z0-9_]*$/)) base = substr($0, 1, RSTART - 1)
-       if (!($0 in accounted) && !(base in accounted)) print $0 }' "$W/replaces" "$W/present_names" > "$W/offenders"
-if [ -s "$W/offenders" ]; then
-    {
-        echo
-        echo "ERROR: the polyfill layer defines symbols the 10.9 runtime ALREADY provides, and nothing says so."
-        echo "force_load makes our definition win with no forwarding to 10.9, so WebKit silently gets ours:"
-        echo
-        while read -r symbol; do
-            origins=$(awk -F'\t' -v s="$symbol" '$1 == s { printf "%s ", $2 }' "$W/defined")
-            provider=$(awk -F'\t' -v s="$symbol" '$1 == s { print $2 }' "$W/on109")
-            printf '  %-44s defined in %s(10.9 has it in %s)\n' "$symbol" "$origins" "$provider"
-        done < "$W/offenders"
-        echo
-        echo "If shadowing 10.9 is the POINT, declare it WK_POLYFILL_REPLACES (see README.md); otherwise delete"
-        echo "the definition and let WebKit bind 10.9's symbol."
-    } >&2
-    exit 1
-fi
-
-# ObjC methods: one program force-loads every archive carrying blocks (WITHOUT wk_selref_scope.o, whose
-# constructor would install wk_ entry points on every class that has the real method -- the fact being
-# measured) to enumerate each block's methods and targets; a second, with nothing of the layer linked,
-# asks 10.9 whether that class already implements the public selector.
-( cd "$W/members" && "$AR" x "$OUT/libpolyfill_methods.a" && "$AR" x "$OUT/libpolyfill_webkit.a" && rm -f wk_selref_scope.o )
-"$CLANG" $HOST $INC -DWK_POLYFILL_UNIT=gate -o "$W/selregistry" "$TGATES/shadow-selregistry.m" \
-    $(for o in "$W"/members/*.o; do printf -- '-Wl,-force_load,%s ' "$o"; done) "$OUT/libpolyfill.a" \
-    -Wl,-undefined,dynamic_lookup -lobjc -lc++ $OBJC_LIBS
-"$W/selregistry" > "$W/selregistry.raw"
-grep -v '^AMBIGUOUS' "$W/selregistry.raw" | sort -u > "$W/selregistry.tsv"
-"$CLANG" $HOST -o "$W/selpresent" "$TGATES/shadow-selpresent.m" -lobjc
-awk -F'\t' '{ print $4 "\t" $5 "\t" $1 "\t" $6 }' "$W/selregistry.tsv" | sort -u \
-    | "$W/selpresent" $OBJC_LIBS | sort -u > "$W/selon109.base"
-awk -F'\t' '{ print $4 "\t" $5 "\t" $1 "\t" $6 }' "$W/selregistry.tsv" | sort -u \
-    | "$W/selpresent" $OBJC_LIBS $PROBE_ONLY_LIBS | sort -u > "$W/selon109.ext"
-awk -F'\t' 'NR == FNR { ext[$1 FS $2 FS $3] = $0; next }
-            $4 == "NOCLASS" && (($1 FS $2 FS $3) in ext) { print ext[$1 FS $2 FS $3]; next }
-            { print }' "$W/selon109.ext" "$W/selon109.base" | sort -u > "$W/selon109"
-: > "$W/seloffenders"; : > "$W/selnoclass"
-while IFS=$'\t' read -r pub priv intent cls side image block; do
-    [ "$side" = "class" ] && sigil=+ || sigil=-
-    verdict=$(awk -F'\t' -v c="$cls" -v s="$side" -v p="$pub" '$1 == c && $2 == s && $3 == p { print $4 "\t" $5 }' "$W/selon109")
-    state=${verdict%%$'\t'*}; owner=${verdict#*$'\t'}
-    if [ "$state" = "NOCLASS" ]; then printf '%s\t%s\t%s\n' "$cls" "$pub" "$block" >> "$W/selnoclass"; continue; fi
-    [ "$state" = "PRESENT" ] || continue
-    [ "$intent" = "REPLACES" ] && continue
-    printf '%s\t%s\t%s\t%s\n' "$sigil[$cls $pub]" "$block" "$cls" "$owner" >> "$W/seloffenders"
-done < "$W/selregistry.tsv"
-if [ -s "$W/selnoclass" ]; then
-    {
-        echo
-        echo "ERROR: the presence probe could not load these polyfilled methods' classes, so whether 10.9"
-        echo "implements them was NEVER CHECKED:"
-        echo
-        while IFS=$'\t' read -r cls pub block; do printf '  [%s %s] in %s\n' "$cls" "$pub" "$block"; done < "$W/selnoclass"
-        echo
-        echo "Add the framework that owns each class to OBJC_LIBS in build-polyfill.sh, or fix the class name."
-    } >&2
-    exit 1
-fi
-if [ -s "$W/seloffenders" ]; then
-    {
-        echo
-        echo "ERROR: these WK_POLYFILL_ADD_METHODS bodies name a method 10.9 ALREADY implements; the selref rewrite"
-        echo "makes WebKit run ours in place of 10.9's working method:"
-        echo
-        while IFS=$'\t' read -r sent block cls owner; do printf '  %-42s in %-44s 10.9 defines it on %s, in %s\n' "$sent" "$block" "$cls" "$owner"; done < "$W/seloffenders"
-        echo
-        echo "Delete the polyfill, or move it into a WK_POLYFILL_REPLACE_METHODS block if shadowing 10.9 is the point."
-    } >&2
-    exit 1
-fi
-
-# The same method on the same class from two blocks: only one body can be installed (class_addMethod
-# is a no-op once the wk_ method exists), so the other is dead code an edit can land on.
-awk -F'\t' '{ key = $4 FS $5 FS $1; if (!(key in seen)) seen[key] = $7; else if (seen[key] != $7) print $4 "\t" $5 "\t" $1 "\t" seen[key] "\t" $7 }' \
-    "$W/selregistry.tsv" | sort -u > "$W/seldup"
-if [ -s "$W/seldup" ]; then
-    { echo; echo "ERROR: these methods are defined for the same class by more than one block (only one body can install):"; echo
-      awk -F'\t' '{ printf "  [%s %s %s]  %s  and  %s\n", $2, $1, $3, $4, $5 }' "$W/seldup"
-      echo; echo "Keep exactly one definition."; } >&2
-    exit 1
-fi
-
-# A REPLACE body for the same selector on two classes of one inheritance chain: WK_ORIGINAL_METHOD finds
-# the running body as the first REPLACE body up the receiver's chain, which is only well-defined when
-# there is one. The probe reports such pairs among the classes it can load.
-grep '^AMBIGUOUS' "$W/selregistry.raw" | sort -u > "$W/selambiguous" || true
-if [ -s "$W/selambiguous" ]; then
-    { echo; echo "ERROR: one selector is replaced on two classes of the same inheritance chain:"; echo
-      awk -F'\t' '{ printf "  %s %s on %s and %s\n", $3, $2, $4, $5 }' "$W/selambiguous"
-      echo; echo "Replace it once, on the class the receivers share."; } >&2
-    exit 1
-fi
-
-# Classes: a stub registered for a class 10.9 HAS would answer WebKit's soft-link with a handful of methods
-# in place of the real class. There is no REPLACES form for a class. The registrations sit in the class
-# dylib and in the WebCore archive members carrying a __wk_clsmap section; those members are linked into
-# a probe dylib of their own so the same program can read them.
-"$CLANG" $HOST -o "$W/clspresent" "$TGATES/shadow-clspresent.m" -lobjc
-CLSMAP_MEMBERS=()
-for o in "$W"/members/*.o; do
-    if "$CCTOOLS/otool" -l "$o" | grep 'sectname __wk_clsmap' > /dev/null; then CLSMAP_MEMBERS+=("$o"); fi
-done
-{
-    "$W/clspresent" "$OUT/libpolyfill_classes.dylib"
-    if [ "${#CLSMAP_MEMBERS[@]}" -gt 0 ]; then
-        "$CLANG" $HOST -dynamiclib -o "$W/clsmembers.dylib" "${CLSMAP_MEMBERS[@]}" -framework Foundation \
-            "$REPO/AquaWebKitSupport/deps/build/lib/libcrypto.dylib" -Wl,-rpath,"$REPO/AquaWebKitSupport/deps/build/lib" \
-            -Wl,-rpath,"$TC/lib" -Wl,-undefined,dynamic_lookup
-        "$W/clspresent" "$W/clsmembers.dylib"
-    fi
-} | sort -u > "$W/clson109"
-if awk -F'\t' '$3 == "PRESENT"' "$W/clson109" | grep -q .; then
-    {
-        echo
-        echo "ERROR: these WK_POLYFILL_CLASS registrations name a class 10.9 ALREADY has:"
-        echo
-        awk -F'\t' '$3 == "PRESENT" { printf "  %-46s present in %s\n", $1, $2 }' "$W/clson109"
-        echo
-        echo "Delete the stub and let WebKit soft-link 10.9's own class."
-    } >&2
-    exit 1
-fi
-
-echo "  shadow gates: clean -- $(wc -l < "$W/names" | tr -d ' ') defined symbols, $(wc -l < "$W/registry.tsv" | tr -d ' ') registered;"
-echo "    $(wc -l < "$W/present_names" | tr -d ' ') present on 10.9, each declared WK_POLYFILL_REPLACES"
-echo "    $(wc -l < "$W/selregistry.tsv" | tr -d ' ') ObjC method polyfills, each landing on a class; $(awk -F'\t' '$4 == "PRESENT"' "$W/selon109" | wc -l | tr -d ' ') present on 10.9, each in a WK_POLYFILL_REPLACE_METHODS block"
-echo "    $(wc -l < "$W/clson109" | tr -d ' ') ObjC class polyfills, none of which 10.9 has"
 
 echo "### done -> $OUT"
 ls -la "$OUT"

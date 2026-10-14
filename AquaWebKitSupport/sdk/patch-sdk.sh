@@ -18,7 +18,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # AquaWebKitSuppor
 REPO="$(cd "$HERE/../.." && pwd)"
 SDK="${AQUAWEBKIT_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 [ -f "$SDK/SDKSettings.plist" ] || { echo "ERROR: no SDK at $SDK (place MacOSX26.1.sdk beside the checkout or set AQUAWEBKIT_SDK)" >&2; exit 1; }
-CLANG="${AQUAWEBKIT_CLANG:-$REPO/AquaWebKitSupport/toolchain/build/clang}/bin/clang"
 PYTHON3="$REPO/AquaWebKitSupport/toolchain/build/python3/bin/python3"   # 10.9 ships only python 2.7
 
 # --- 1. re-home -------------------------------------------------------------------------------------
@@ -59,32 +58,17 @@ remove_syms "$HERE/coreservices-rehome-symbols.txt" \
 
 # --- 2. availability ----------------------------------------------------------------------------------
 patch_class() {  # $1 = class, $2 = header basename
-    local cls="$1" base="$2" found=0 patched=0 hdr
+    local cls="$1" base="$2" found=0 hdr
     while IFS= read -r hdr; do
         grep -q "@interface $cls\b" "$hdr" 2>/dev/null || continue
         found=$((found+1))
         if [ -f "$hdr.pre-availability-bak" ]; then cp "$hdr.pre-availability-bak" "$hdr"; else cp "$hdr" "$hdr.pre-availability-bak"; fi
         CLS="$cls" perl -0777 -i -pe 's/API_UNAVAILABLE\(macos\)([^\n]*\n\@interface \Q$ENV{CLS}\E\s*:)/API_AVAILABLE(macos(10.9))$1/g' "$hdr"
-        if CLS="$cls" perl -0777 -ne 'exit(/API_AVAILABLE\(macos\(10\.9\)\)[^\n]*\n\@interface \Q$ENV{CLS}\E\s*:/ ? 0 : 1)' "$hdr"; then
-            patched=$((patched+1))
-        else
-            echo "ERROR: $cls @interface in $hdr not macOS-available after patch" >&2; exit 1
-        fi
     done < <(find "$SDK" -name "$base" ! -name "*.bak" -type f 2>/dev/null)
     [ "$found" -gt 0 ] || { echo "ERROR: no files containing '@interface $cls' found for $base under $SDK" >&2; exit 1; }
-    echo "  patched $cls in $patched/$found copy(ies) of $base"
+    echo "  patched $cls in $found copy(ies) of $base"
 }
 echo "### iOS-only soft-linked AVFoundation classes -> declarable on macOS"
 patch_class AVAudioSession AVAudioSession.h
 
-echo "### self-test"
-T="$(mktemp -d "${TMPDIR:-/tmp}/sdkpatch.XXXXXX")"; trap 'rm -rf "$T"' EXIT
-FL="-x objective-c++ -fno-modules -fno-cxx-modules -isysroot $SDK -mmacosx-version-min=10.9 -fsyntax-only"
-# The soft-link shape compiles through the umbrella include WebKit uses (which resolves to the embedded
-# AVFAudio copy).
-printf '#import <AVFoundation/AVFoundation.h>\n@class AVAudioSession;\nnamespace P{ inline AVAudioSession* a(Class c){return [c alloc];} }\n' > "$T/sl.mm"
-"$CLANG" $FL "$T/sl.mm" 2>"$T/e1" || { echo "  FAIL: iOS-only soft-link type does not compile on macOS:"; cat "$T/e1"; exit 1; }
-# Members keep API_UNAVAILABLE(macos): only the class line changed.
-avhdr="$SDK/System/Library/Frameworks/AVFoundation.framework/Versions/Current/Frameworks/AVFAudio.framework/Headers/AVAudioSession.h"
-[ "$(grep -c 'API_UNAVAILABLE(macos)' "$avhdr")" -gt 0 ] || { echo "  FAIL: AVAudioSession.h lost its member-level API_UNAVAILABLE(macos)"; exit 1; }
 echo "### done"

@@ -1,7 +1,6 @@
 # Wire GStreamer 1.28.5 / glib 2.80.5 from AquaWebKitSupport/deps/build
-# (built from source for x86_64 macOS 10.9 by AquaWebKitSupport/deps/build_deps.sh and proved
-# 10.9-clean by that script's symbol-resolution gate; no compat or reexport shim dylibs) into
-# the build,
+# (built from source for x86_64 macOS 10.9 by AquaWebKitSupport/deps/build_deps.sh; no compat or
+# reexport shim dylibs) into the build,
 # replacing the pkg-config-based FindGStreamer/FindGLIB that the GTK/WPE ports use (no pkg-config
 # on this toolchain). Defines the GLib::* imported targets and all GSTREAMER_*_{INCLUDE_DIRS,
 # LIBRARIES} variables that Source/WebCore/platform/GStreamer.cmake consumes, so the upstream

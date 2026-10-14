@@ -501,8 +501,7 @@ OSStatus AudioComponentInstanceDispose(AudioComponentInstance inInstance)
 }
 
 #ifdef WK_POLYFILL_REGISTERED
-/* Registered so WK_POLYFILL_REPORT lists the overrides, the shadow gate reads a stated intent, and
- * the dlsym override answers WebCore's soft-links with these definitions. The entries are written
+/* Registered so WK_POLYFILL_REPORT lists the overrides and the dlsym override answers WebCore's soft-links with these definitions. The entries are written
  * out by hand so the bodies above compile with no wk_polyfill.h, which is how the vendored builds
  * take them. Provider "AudioToolbox", with the rest of the AudioUnit entry points in
  * polyfills/c/AudioToolbox.c: that is the framework upstream's PAL/pal/cf/AudioToolboxSoftLink.cpp

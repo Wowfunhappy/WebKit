@@ -217,8 +217,8 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // selector name has no wk_<name> of its own, so it gets one bound to its real method (the by-name
 // selref rewrite must not hijack another class's method).
 //
-// If an ADD target turns out to implement the public selector after all, the body would shadow 10.9's
-// — a mistake the shadow gate in build-polyfill.sh rejects, exactly as it rejects a shadowing C gap-fill.
+// If an ADD target turns out to implement the public selector after all, the body shadows 10.9's — the
+// same mistake as a shadowing C gap-fill.
 //
 // INTENT DECIDES WHAT HAPPENS TO A SUBCLASS OF THE TARGET. Aliasing a class's own IMP under wk_<name>
 // puts that IMP in FRONT of an inherited body, because the class's own method list is searched first.
@@ -327,8 +327,8 @@ static Class wk_replace_body_owner(Class cls, SEL priv)
 // Correct for: plain target class; a multi-level system chain (NSSavePanel : NSPanel : NSWindow); one
 // WebKit override; a WebKit override sitting on a system subclass; a WebKit subclass that merely inherits
 // an aliased override; and two WebKit overrides stacked in one chain. No class list, no assumption about
-// which classes exist, and resolver-free throughout. The shadow gate keeps one REPLACE body per selector
-// in any one chain, which is what makes "the first body up the chain" the running one.
+// which classes exist, and resolver-free throughout. Each chain carries one REPLACE body per selector,
+// which is what makes "the first body up the chain" the running one.
 // Memo over wk_original_of. The answer is a pure function of (receiver's class, private selector)
 // between method installations: the registry is append-only and an installed body never moves, so an
 // entry only goes stale when an image-load event installs methods (wk_alias_class / wk_install_side),
@@ -392,8 +392,8 @@ struct wk_original wk_original_of(id receiver, SEL privateSelector)
     if (!imp)
         imp = wk_chain_imp(start, pub);
     if (!imp) {
-        // A REPLACE asserts 10.9 HAS the method (the shadow gate checks the target); a receiver whose
-        // chain lacks it has nothing to call through to.
+        // A REPLACE asserts 10.9 HAS the method; a receiver whose chain lacks it has nothing to call
+        // through to.
         fprintf(stderr, "[wk_selref_scope] FATAL: no implementation of %s below the REPLACE body on %s.\n",
                 sel_getName(pub), class_getName(start));
         fflush(stderr);
@@ -739,8 +739,7 @@ static void wk_register_side(Class side, int intent)
 // Installs one side's bodies on one target class (the metaclass, for class methods). Idempotent:
 // class_addMethod is a no-op once the wk_ method exists, and re-replacing with the same IMP changes
 // nothing. An ADD uses class_addMethod because the alias pass may already have bound the wk_ name on a
-// class that has the real method — which for an ADD target the shadow gate rules out, so the body
-// lands. A REPLACE uses class_replaceMethod so the body wins over an alias in either order.
+// class that has the real method — which an ADD target is not, so the body lands. A REPLACE uses class_replaceMethod so the body wins over an alias in either order.
 static void wk_install_side(Class side, Class target, int intent)
 {
     unsigned int n = 0;
