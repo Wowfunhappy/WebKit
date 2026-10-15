@@ -45,6 +45,7 @@ int main(int argc, char** argv)
         NSPasteboard *orphaned = [NSPasteboard pasteboardWithUniqueName];
 
         expect(writeString(expiring, @"expires", 0.5), "the expiration was not scheduled");
+        expect(holds(expiring, @"expires"), "contents cleared before their expiration date");
         writeString(replaced, @"first", 0.5);
         writeString(replaced, @"second", -1);
         writeString(lasting, @"lasts", 10);
@@ -60,7 +61,6 @@ int main(int argc, char** argv)
             waitpid(writer, &status, 0);
         expect(WIFEXITED(status) && !WEXITSTATUS(status), "the writer process failed");
         expect(holds(orphaned, @"orphaned"), "the exited writer's contents are missing");
-        expect(holds(expiring, @"expires"), "contents cleared before their expiration date");
 
         [NSThread sleepForTimeInterval:2.5];
 

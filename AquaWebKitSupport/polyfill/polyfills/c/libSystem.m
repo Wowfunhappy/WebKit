@@ -966,8 +966,6 @@ static struct wk_notify_globals *wk_notifyGlobals(void)
     wk_image image;
     wk_find_image("/usr/lib/system/libsystem_notify.dylib", &image);
     void (*initialize)(void *) = wk_symbol_in_image(&image, "__notify_init_globals");
-    if (!initialize)
-        wk_patch_fail("notify token query", "native globals initializer not found");
     return _os_alloc_once(slot, sizeof(struct wk_notify_globals), initialize);
 }
 

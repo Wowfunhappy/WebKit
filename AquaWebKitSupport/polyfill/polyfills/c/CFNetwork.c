@@ -289,8 +289,6 @@ WK_POLYFILL_REPLACES("CFNetwork", Boolean, _CFNetworkIsKnownHSTSHostWithSession,
 // by SerializableArchive::add(CFStringRef, CFArrayRef). The dearchiver rebuilds the trust from those
 // certificates with SecPolicyCreateSSL(false, NULL) as its policy, so the question the trust asks is
 // then set from the trust it stands for: policies, custom anchors, verify date and network fetch.
-static const char kProtectionSpaceCoding[] = "CFNetwork protection-space property list";
-
 typedef const struct _CFURLProtectionSpace *WKURLProtectionSpaceRef;
 WK_SYSTEM_FN("CFNetwork", WKURLProtectionSpaceRef, CFURLProtectionSpaceCreate,
     (CFAllocatorRef, CFStringRef host, int port, int serverType, CFStringRef realm, int authenticationScheme));
@@ -312,8 +310,6 @@ static wk_add_array_fn wk_archiveAddArray(void)
         wk_image image;
         wk_find_image(kCFNetworkSuffix, &image);
         addArray = (wk_add_array_fn)wk_symbol_in_image(&image, "__ZN19SerializableArchive3addEPK10__CFStringPK9__CFArray");
-        if (!addArray)
-            wk_patch_fail(kProtectionSpaceCoding, "CFNetwork's symbol table does not name the archive writer this calls");
     }
     return addArray;
 }
@@ -434,17 +430,13 @@ void wk_requestSetExplicitFlags(CFTypeRef request, uint16_t explicitFlags)
 bool wk_cookieStorageHasRecordsForURL(CFTypeRef storage, CFURLRef url)
 {
     static bool (*hasRecords)(const void *, CFURLRef);
-    static CFTypeID (*storageTypeID)(void);
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         wk_image image;
         wk_find_image(kCFNetworkSuffix, &image);
         hasRecords = wk_symbol_in_image(&image, "__ZN17HTTPCookieStorage23someCookiesAreSetForURLEPK7__CFURL");
-        storageTypeID = dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageGetTypeID");
-        if (!hasRecords || !storageTypeID)
-            wk_patch_fail("cookie domain index", "native storage entry point not found");
     });
-    if (!storage || !url || CFGetTypeID(storage) != storageTypeID())
+    if (!storage || !url)
         return false;
     return hasRecords((const uint8_t *)storage + kCFPayloadOffset, url);
 }

@@ -8,8 +8,6 @@ __attribute__((constructor)) static void wk_initializeVImage(void)
     wk_find_image("/libsystem_kernel.dylib", &kernel);
     void (*setVectorAvailable)(uint32_t) = wk_symbol_in_image(&vimage, "_SetvImageVectorAvailable");
     uint64_t (*getCapabilities)(void) = wk_symbol_in_image(&kernel, "__get_cpu_capabilities");
-    if (!setVectorAvailable)
-        wk_patch_fail("vImage", "vImage's vector-availability entry point is absent");
 
     // Mavericks' packed-color AVX2 conversion corrupts columns. This changes only vImage's
     // dispatch mask; kHasAVX2_0 is Darwin's capability bit, not the CPUID leaf-7 bit.

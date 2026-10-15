@@ -968,30 +968,6 @@ static void wk_discardExpiredCookies(NSHTTPCookieStorage *storage, NSArray<NSHTT
     }
 }
 
-// The whole jar answers expired records too.
-static BOOL wk_holdsUnexpiredCookie(NSArray<NSHTTPCookie *> *cookies)
-{
-    NSDate *now = [NSDate date];
-    for (NSHTTPCookie *cookie in cookies) {
-        NSDate *expires = [cookie expiresDate];
-        if (!expires || [expires compare:now] == NSOrderedDescending)
-            return YES;
-    }
-    return NO;
-}
-
-static BOOL wk_storageHasUnexpiredDomainCookie(NSHTTPCookieStorage *storage, NSURL *url)
-{
-    if (!wk_cookieStorageHasRecordsForURL(wk_cfCookieStorageOf(storage), (CFURLRef)url))
-        return NO;
-    NSURLComponents *secureURL = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:YES];
-    secureURL.scheme = @"https";
-    if (wk_holdsUnexpiredCookie([storage cookiesForURL:secureURL.URL]))
-        return YES;
-    // The acceptance policy counts unexpired cookies even when their Path excludes this URL.
-    return wk_holdsUnexpiredCookie([storage _getCookiesForDomain:url.host]);
-}
-
 // The public setter and the policy SPI share PSL acceptance at the native jar boundary.
 WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 + (NSHTTPCookieStorage *)sharedHTTPCookieStorage
@@ -1040,11 +1016,12 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
             [usable addObject:cookie];
     }
     // The native main-document policy consults a 2013 PSL. Apply its registrable-domain
-    // boundary with the current PSL, retaining its existing-cookie exception: an unexpired stored cookie
-    // whose domain domain-matches the host, whatever its path or Secure flag.
+    // boundary with the current PSL, retaining its existing-cookie exception, which is native
+    // HTTPCookieStorage::setCookies's own test: any record the jar's domain index holds for the host,
+    // expired or path-restricted ones included.
     if ((policy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain || policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain) && mainDocumentURL
         && wk_hostsHaveDifferentRegistrableDomains((__bridge CFURLRef)url, (__bridge CFURLRef)mainDocumentURL)
-        && (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain || !wk_storageHasUnexpiredDomainCookie(self, url)))
+        && (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain || !wk_cookieStorageHasRecordsForURL(wk_cfCookieStorageOf(self), (__bridge CFURLRef)url)))
         return;
     usable = (NSMutableArray *)wk_cookiesWithStorageIntegrity(self, usable, url);
     CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);

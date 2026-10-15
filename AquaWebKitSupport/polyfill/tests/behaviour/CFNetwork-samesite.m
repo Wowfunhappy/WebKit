@@ -293,15 +293,18 @@ static void checkPolicySeedScope(void)
         NSHTTPCookieStorage *store = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
         store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
         BOOL expired = [mode isEqual:@"expired"];
+        // A whole-second expiry is kept as given, so the seed is stored unexpired and expires in the jar.
+        NSDate *expiry = expired ? [NSDate dateWithTimeIntervalSince1970:floor([NSDate date].timeIntervalSince1970) + 3]
+            : [NSDate dateWithTimeIntervalSinceNow:3600];
         NSHTTPCookie *seed = [NSHTTPCookie cookieWithProperties:@{
             NSHTTPCookieName:@"seed", NSHTTPCookieValue:@"1",
             NSHTTPCookieDomain:[mode isEqual:@"secure-parent"] ? @".seed.test" : url.host,
             NSHTTPCookiePath:[mode isEqual:@"other-path"] ? @"/elsewhere" : @"/",
             NSHTTPCookieSecure:[mode isEqual:@"secure-parent"] ? @YES : @NO,
-            NSHTTPCookieExpires:[NSDate dateWithTimeIntervalSinceNow:expired ? 0.05 : 3600] }];
+            NSHTTPCookieExpires:expiry }];
         [store setCookie:seed];
         if (expired)
-            [NSThread sleepForTimeInterval:0.1];
+            [NSThread sleepUntilDate:[expiry dateByAddingTimeInterval:0.1]];
         store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain;
         NSHTTPCookie *candidate = [NSHTTPCookie cookieWithProperties:@{
             NSHTTPCookieName:@"candidate", NSHTTPCookieValue:@"1", NSHTTPCookieDomain:url.host, NSHTTPCookiePath:@"/" }];
@@ -311,7 +314,7 @@ static void checkPolicySeedScope(void)
             if ([cookie.name isEqual:@"candidate"])
                 found = YES;
         }
-        check(found != expired, [[@"main-document policy seed scope: " stringByAppendingString:mode] UTF8String]);
+        check(found, [[@"main-document policy seed scope: " stringByAppendingString:mode] UTF8String]);
         [store release];
         CFRelease(jar);
     }
