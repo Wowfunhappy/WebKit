@@ -151,6 +151,8 @@ enum class SDKAlignedBehavior {
     BoxPackAccountsForBoxDirection,
     // AQUAWEBKIT: mixed content in a secure document is upgraded or blocked.
     BlockOrUpgradeMixedContent,
+    // AQUAWEBKIT: any attribute change on <embed> reconstructs its renderers.
+    EmbedAttributeChangeReconstructsRenderers,
 
     NumberOfBehaviors
 };

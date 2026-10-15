@@ -1700,8 +1700,9 @@ void dump()
         } else
             printf("ERROR: nil result from %s", methodNameStringForFailedTest());
 
-        if (gTestRunner->shouldDumpResourceLoadCallbacks())
-            gTestRunner->dumpResourceLoadCallbacks();
+        // The buffer includes MIME responses independently of resource load callback logging.
+        // if (gTestRunner->shouldDumpResourceLoadCallbacks())
+        gTestRunner->dumpResourceLoadCallbacks();
 
         // Stop the watchdog thread before we leave this test to make sure it doesn't
         // fire in between tests causing the next test to fail.

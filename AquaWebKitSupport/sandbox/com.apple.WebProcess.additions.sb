@@ -139,18 +139,23 @@
     (global-name "com.apple.coremedia.endpointplaybacksession.xpc")
     (global-name "com.apple.coremedia.endpointpicker.xpc"))
 
-;; Launch Services and the Remote Web Inspector, through the extensions the UI process issues
-;; (WebProcessPool::platformInitializeWebProcess(), WebProcessPool::initializeNewWebProcess()).
+;; Upstream restricts the system logger to root.
 (deny mach-lookup
-    (global-name "com.apple.coreservices.launchservicesd")
+    (global-name "com.apple.system.logger")
+    (with no-report))
+(if (equal? (param "EUID") "0")
+    (allow mach-lookup
+        (global-name "com.apple.system.logger")))
+
+;; The Remote Web Inspector, through the extension the UI process issues
+;; (WebProcessPool::initializeNewWebProcess()).
+(deny mach-lookup
     (global-name "com.apple.webinspector")
     (extension "com.apple.app-sandbox.mach"))
 (allow mach-lookup
     (require-all
         (extension "com.apple.webkit.extension.mach")
-        (require-any
-            (global-name "com.apple.coreservices.launchservicesd")
-            (global-name "com.apple.webinspector"))))
+        (global-name "com.apple.webinspector")))
 
 ;; Kernel clients: no HID parameters or power-management root domain, and no display-property writes.
 (deny iokit-open

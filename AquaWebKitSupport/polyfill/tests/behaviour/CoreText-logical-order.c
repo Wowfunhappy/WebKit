@@ -566,6 +566,157 @@ static void checkNaturalDirection(const char *name, const UniChar *characters, C
     CFRelease(noOptions);
 }
 
+// Visual order and run directions of a line against the levels this port's ICU resolves for controlled, the text
+// with any controls a writing direction stands for in place; positions maps each character of the line's text to
+// its place there. Boundary neutrals and the explicit and isolate controls have no advance and are not compared.
+static bool isZeroWidthControl(UniChar character)
+{
+    return u_charDirection(character) == U_BOUNDARY_NEUTRAL || (character >= 0x202A && character <= 0x202E) || (character >= 0x2066 && character <= 0x2069);
+}
+
+static bool matchesControlledLevels(CTLineRef line, const UniChar *characters, CFIndex length,
+    const UniChar *controlled, CFIndex controlledLength, const CFIndex *positions, UBiDiLevel paragraphLevel)
+{
+    UErrorCode status = U_ZERO_ERROR;
+    UBiDi *bidi = ubidi_open();
+    ubidi_setPara(bidi, controlled, (int32_t)controlledLength, paragraphLevel, NULL, &status);
+    int32_t map[64];
+    ubidi_getVisualMap(bidi, map, &status);
+    const UBiDiLevel *levels = ubidi_getLevels(bidi, &status);
+    bool same = U_SUCCESS(status) && controlledLength <= 64 && length <= 64;
+    CFIndex expected[64];
+    CFIndex expectedCount = 0;
+    for (CFIndex v = 0; same && v < controlledLength; ++v) {
+        for (CFIndex i = 0; i < length; ++i) {
+            if (positions[i] == map[v] && !isZeroWidthControl(characters[i]))
+                expected[expectedCount++] = i;
+        }
+    }
+    CFArrayRef runs = CTLineGetGlyphRuns(line);
+    CFIndex visual = 0;
+    for (CFIndex r = 0; same && r < CFArrayGetCount(runs); ++r) {
+        CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, r);
+        CFRange range = CTRunGetStringRange(run);
+        bool rightToLeft = CTRunGetStatus(run) & kCTRunStatusRightToLeft;
+        for (CFIndex i = 0; same && i < range.length; ++i) {
+            CFIndex index = rightToLeft ? range.location + range.length - 1 - i : range.location + i;
+            if (isZeroWidthControl(characters[index]))
+                continue;
+            same = visual < expectedCount && expected[visual] == index && ((levels[positions[index]] & 1) != 0) == rightToLeft;
+            ++visual;
+        }
+    }
+    ubidi_close(bidi);
+    return same && visual == expectedCount;
+}
+
+// Lays an attributed string out in natural direction as a line, as a typesetter with no forced level and as a frame
+// wide enough for one line, and checks each against current Unicode's levels for controlled.
+static void checkAttributedNaturalDirection(const char *name, CFAttributedStringRef string,
+    const UniChar *controlled, CFIndex controlledLength, const CFIndex *positions, UBiDiLevel paragraphLevel)
+{
+    char what[256];
+    CFIndex length = CFAttributedStringGetLength(string);
+    UniChar characters[64];
+    if (length > 64) {
+        check(false, name);
+        return;
+    }
+    CFStringGetCharacters(CFAttributedStringGetString(string), CFRangeMake(0, length), characters);
+
+    CTLineRef line = CTLineCreateWithAttributedString(string);
+    snprintf(what, sizeof(what), "%s, attributed line: the levels current Unicode resolves", name);
+    check(matchesControlledLevels(line, characters, length, controlled, controlledLength, positions, paragraphLevel), what);
+    CFRelease(line);
+
+    CFDictionaryRef noOptions = CFDictionaryCreate(NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CTTypesetterRef typesetter = CTTypesetterCreateWithAttributedStringAndOptions(string, noOptions);
+    line = CTTypesetterCreateLine(typesetter, CFRangeMake(0, 0));
+    snprintf(what, sizeof(what), "%s, attributed typesetter: the levels current Unicode resolves", name);
+    check(matchesControlledLevels(line, characters, length, controlled, controlledLength, positions, paragraphLevel), what);
+    CFRelease(line);
+    CFRelease(typesetter);
+    CFRelease(noOptions);
+
+    CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString(string);
+    CGPathRef path = CGPathCreateWithRect(CGRectMake(0, 0, 10000, 1000), NULL);
+    CTFrameRef frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, NULL);
+    CFArrayRef lines = CTFrameGetLines(frame);
+    snprintf(what, sizeof(what), "%s, framesetter: one line at the levels current Unicode resolves", name);
+    check(CFArrayGetCount(lines) == 1 && matchesControlledLevels((CTLineRef)CFArrayGetValueAtIndex(lines, 0), characters, length, controlled, controlledLength, positions, paragraphLevel), what);
+    CFRelease(frame);
+    CGPathRelease(path);
+    CFRelease(framesetter);
+}
+
+static void checkAttributedText(const char *name, const UniChar *characters, CFIndex length, CFDictionaryRef attributes, UBiDiLevel paragraphLevel)
+{
+    CFStringRef plain = CFStringCreateWithCharacters(NULL, characters, length);
+    CFAttributedStringRef string = CFAttributedStringCreate(NULL, plain, attributes);
+    CFIndex positions[64];
+    for (CFIndex i = 0; i < length && i < 64; ++i)
+        positions[i] = i;
+    checkAttributedNaturalDirection(name, string, characters, length, positions, paragraphLevel);
+    CFRelease(string);
+    CFRelease(plain);
+}
+
+// A frame narrower than the text breaks its lines at spaces alone: an embedding pair inside a word offers no
+// line break, as the controls themselves offer none, and every character keeps the level current Unicode
+// resolves. The isolate in the second word makes the levels 10.9 resolves differ, so the frame is laid out at
+// explicit levels, with the controls stood in for.
+static void checkEmbeddingInsideWord(CFDictionaryRef attributes)
+{
+    const UniChar text[] = { 'a', 'a', ' ', 0x2067, 'b', 'b', 0x2069, ' ', 'c', 'c', 0x202B, 'd', 'd', 0x05D0, 0x202C, 'e', 'e',
+        ' ', 'f', 'f', ' ', 'g', 'g' };
+    const CFIndex length = sizeof(text) / sizeof(text[0]), wordStart = 8, wordEnd = 17;
+    const UniChar fitting[] = { 'a', 'a', ' ', 'b', 'b', ' ', 'c', 'c' };
+    CFStringRef fittingString = CFStringCreateWithCharacters(NULL, fitting, sizeof(fitting) / sizeof(fitting[0]));
+    CFAttributedStringRef fittingAttributed = CFAttributedStringCreate(NULL, fittingString, attributes);
+    CTLineRef fittingLine = CTLineCreateWithAttributedString(fittingAttributed);
+    double width = CTLineGetTypographicBounds(fittingLine, NULL, NULL, NULL) + 2;
+    CFRelease(fittingLine);
+    CFRelease(fittingAttributed);
+    CFRelease(fittingString);
+
+    CFStringRef plain = CFStringCreateWithCharacters(NULL, text, length);
+    CFAttributedStringRef string = CFAttributedStringCreate(NULL, plain, attributes);
+    CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString(string);
+    CGPathRef path = CGPathCreateWithRect(CGRectMake(0, 0, width, 1000), NULL);
+    CTFrameRef frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, NULL);
+    CFArrayRef lines = CTFrameGetLines(frame);
+
+    UErrorCode status = U_ZERO_ERROR;
+    UBiDi *bidi = ubidi_open();
+    ubidi_setPara(bidi, text, (int32_t)length, UBIDI_DEFAULT_LTR, NULL, &status);
+    const UBiDiLevel *levels = ubidi_getLevels(bidi, &status);
+    bool breaksAtSpaces = CFArrayGetCount(lines) > 1, levelsMatch = U_SUCCESS(status);
+    for (CFIndex l = 0; l < CFArrayGetCount(lines); ++l) {
+        CTLineRef line = (CTLineRef)CFArrayGetValueAtIndex(lines, l);
+        CFIndex start = CTLineGetStringRange(line).location;
+        if (l && start > wordStart && start < wordEnd)
+            breaksAtSpaces = false;
+        CFArrayRef runs = CTLineGetGlyphRuns(line);
+        for (CFIndex r = 0; levelsMatch && r < CFArrayGetCount(runs); ++r) {
+            CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, r);
+            CFRange range = CTRunGetStringRange(run);
+            bool rightToLeft = CTRunGetStatus(run) & kCTRunStatusRightToLeft;
+            for (CFIndex i = range.location; levelsMatch && i < range.location + range.length; ++i) {
+                if (!isZeroWidthControl(text[i]) && text[i] != ' ')
+                    levelsMatch = ((levels[i] & 1) != 0) == rightToLeft;
+            }
+        }
+    }
+    check(breaksAtSpaces, "embedding pair inside a word, framesetter: lines break at spaces, not at the controls");
+    check(levelsMatch, "embedding pair inside a word, framesetter: the levels current Unicode resolves");
+    ubidi_close(bidi);
+    CFRelease(frame);
+    CGPathRelease(path);
+    CFRelease(framesetter);
+    CFRelease(string);
+    CFRelease(plain);
+}
+
 // What the provider layer's skip of the second resolution rests on, checked against both ICUs on this OS:
 // below U+058D every code point has one class in both and the paired brackets are ASCII's, below U+0590
 // none raises a level, and the emoji modifiers are classed differently.
@@ -736,6 +887,33 @@ int main(void)
         CFRelease(withLine);
         CFRelease(withoutLine);
     }
+
+    // Attributed strings resolve the same levels: isolates, an override an isolate ends, as in an attachment title
+    // whose name reverses itself, and a block's writing direction read as the controls it stands for.
+    checkAttributedText("left-to-right isolate between Hebrew letters", isolate, 5, hebrew, UBIDI_DEFAULT_LTR);
+    checkAttributedText("nested isolates", nestedIsolates, 8, hebrew, UBIDI_DEFAULT_LTR);
+    {
+        const UniChar overrideInIsolate[] = { 0x200E, 0x2068, 0x202E, 'e', 't', 'a', 'l', 'o', 's', 'i', 0x2069, 0x200B, '.', 'e', 'x', 't' };
+        checkAttributedText("override ended by an isolate", overrideInIsolate, 16, hebrew, UBIDI_DEFAULT_LTR);
+
+        const UniChar directedText[] = { 'x', 'y', 0x05D0, 0x2066, 'a', 'b', 0x2069 };
+        const UniChar directedControlled[] = { 'x', 'y', 0x202B, 0x05D0, 0x2066, 'a', 'b', 0x2069, 0x202C };
+        const CFIndex directedPositions[] = { 0, 1, 3, 4, 5, 6, 7 };
+        int embedding = kCTWritingDirectionRightToLeft | kCTWritingDirectionEmbedding;
+        CFNumberRef embeddingNumber = CFNumberCreate(NULL, kCFNumberIntType, &embedding);
+        CFArrayRef directions = CFArrayCreate(NULL, (const void **)&embeddingNumber, 1, &kCFTypeArrayCallBacks);
+        CFStringRef plain = CFStringCreateWithCharacters(NULL, directedText, 7);
+        CFMutableAttributedStringRef directed = CFAttributedStringCreateMutable(NULL, 0);
+        CFAttributedStringReplaceString(directed, CFRangeMake(0, 0), plain);
+        CFAttributedStringSetAttributes(directed, CFRangeMake(0, 7), hebrew, true);
+        CFAttributedStringSetAttribute(directed, CFRangeMake(2, 5), kCTWritingDirectionAttributeName, directions);
+        checkAttributedNaturalDirection("right-to-left embedding attribute around an isolate", directed, directedControlled, 9, directedPositions, UBIDI_DEFAULT_LTR);
+        CFRelease(directed);
+        CFRelease(plain);
+        CFRelease(directions);
+        CFRelease(embeddingNumber);
+    }
+    checkEmbeddingInsideWord(hebrew);
 
     // Paragraphs: a right-to-left paragraph style and a left-to-right one on either side of U+2029, LF and CR LF,
     // the second holding an emoji modifier; a style that changes inside a paragraph, which the paragraph's start

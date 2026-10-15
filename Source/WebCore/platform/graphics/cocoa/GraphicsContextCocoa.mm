@@ -127,8 +127,12 @@ void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContex
 
     // The scratch's pixels are the destination's device space with deviceRect's origin at the bitmap's
     // origin, so `draw` works in the destination's user space and lands on the destination's pixel grid.
-    CGContextTranslateCTM(scratch.get(), -deviceRect.origin.x, -deviceRect.origin.y);
-    CGContextConcatCTM(scratch.get(), deviceFromUser);
+    // Its base CTM maps the destination's base space onto those same pixels, because CoreGraphics
+    // measures a focus-ring style's radius in base space and a HiDPI context's scale lives there.
+    CGAffineTransform scratchFromDevice = CGAffineTransformMakeTranslation(-deviceRect.origin.x, -deviceRect.origin.y);
+    CGContextConcatCTM(scratch.get(), CGAffineTransformConcat(deviceFromUser, scratchFromDevice));
+    CGAffineTransform deviceFromBase = CGAffineTransformConcat(CGAffineTransformInvert(getUserToBaseCTM(destination)), deviceFromUser);
+    CGContextSetBaseCTM(scratch.get(), CGAffineTransformConcat(deviceFromBase, scratchFromDevice));
     draw(scratch.get());
 
     RetainPtr image = adoptCF(CGBitmapContextCreateImage(scratch.get()));

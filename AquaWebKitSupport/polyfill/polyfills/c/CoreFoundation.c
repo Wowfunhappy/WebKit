@@ -4,24 +4,21 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <objc/runtime.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <xpc/xpc.h>
 
 #include "wk_clusters.h"
 
-// ---------------------------------------------------------------------------------------------------
-// CoreFoundation prefs daemon tuning — optimizations for sandboxed XPC services; no-ops on 10.9.
-// ---------------------------------------------------------------------------------------------------
-
-WK_POLYFILL_ABSENT("CoreFoundation", void, _CFPrefsSetDirectModeEnabled, (int enabled))
-{
-    (void)enabled;
-}
-
-WK_POLYFILL_ABSENT("CoreFoundation", void, _CFPrefsSetReadOnly, (Boolean flag))
+// CoreFoundation's read-only preferences mode. 10.9's CFPreferences has none; its only caller here is
+// adattributiond's entry point, which this port never launches.
+WK_POLYFILL_ABSENT_FATAL("CoreFoundation", void, _CFPrefsSetReadOnly, (Boolean flag))
 {
     (void)flag;
+    fprintf(stderr, "WK polyfill: _CFPrefsSetReadOnly has no 10.9 implementation.\n");
+    fflush(stderr);
+    abort();
 }
 
 // The XPC bootstrap-dictionary channel is absent on 10.9 (see xpc_copy_bootstrap and

@@ -95,7 +95,11 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 #                                 rather than the value, which a `=0` definition satisfies.
 #   NETWORK_ISSUE_REPORTING       its reporter is libsystem_networkextension's ne_tracker_* (10.10+); 10.9
 #                                 ships no /usr/lib/system/libsystem_networkextension.dylib.
+#   CFPREFS_DIRECT_MODE           upstream pairs direct mode with _CFPrefsSetReadOnly, and 10.9's
+#                                 CoreFoundation has no read-only mode: its direct mode writes plists
+#                                 in-process. Child processes read preferences through cfprefsd.
 add_compile_definitions(
+    ENABLE_CFPREFS_DIRECT_MODE=0
     ENABLE_APPLE_PAY_AMS_UI=0
     ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS=0
     ENABLE_LEGACY_PDFKIT_PLUGIN=0

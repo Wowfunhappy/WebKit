@@ -95,12 +95,9 @@ WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameAccessibilityHigh
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameAccessibilityHighContrastVibrantDark, @"NSAppearanceNameAccessibilityHighContrastVibrantDark");
 // NSFontWeightRegular (AppKit, 10.11+) is a CGFloat, not a token: 0.0 is the documented midpoint of
 // the NSFontWeight scale (ultraLight -0.8 ... black 0.62), which is what the name means wherever it is
-// read. On 10.9 nothing reads it -- its only WebKit callers pass it to +[NSImageSymbolConfiguration
-// configurationWithPointSize:weight:scale:], and that class is 11.0+, so the message goes to a nil
-// class. It is declared here because the ARGUMENT is evaluated before the message: as a weak-imported
-// data symbol it binds to address 0, so loading the CGFloat faults before the nil receiver can absorb
-// the call. Same failure shape as NSAppearanceNameVibrantLight above; the two live sites are
-// RenderThemeMac.mm's attachment-placeholder glyph and _WKWarningView.mm.
+// read. Its WebKit callers, RenderThemeMac.mm's attachment-placeholder glyph and _WKWarningView.mm, pass
+// it as the weight of +[NSImageSymbolConfiguration configurationWithPointSize:weight:scale:]
+// (polyfills/classes/AppKit.m).
 WK_POLYFILL_CONST("AppKit", CGFloat, NSFontWeightRegular, 0.0);
 
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification, @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification");

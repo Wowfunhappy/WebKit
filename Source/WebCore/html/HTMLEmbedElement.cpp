@@ -42,6 +42,11 @@
 #include <wtf/Ref.h>
 #include <wtf/TZoneMallocInlines.h>
 
+#if PLATFORM(COCOA)
+// AQUAWEBKIT: SDKAlignedBehavior::EmbedAttributeChangeReconstructsRenderers, read in attributeChanged().
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLEmbedElement);
@@ -134,17 +139,13 @@ void HTMLEmbedElement::attributeChanged(const QualifiedName& name, const AtomStr
         break;
     }
 
-    // AQUAWEBKIT: behavior fix (#38 Web Clips). Reconstruct renderers (which reloads the
-    // plug-in widget) only when an attribute that determines which plug-in to load changes value.
-    // Dashboard's WebClip plug-in stamps the widget's <embed> on every layout with an unchanged
-    // `style="-apple-dashboard-region:none"` and a `width` that oscillates by 1px in reaction to
-    // the layout itself ('604' -> '603' -> '604'), so any reconstruction keyed on those
-    // attributes tears down and re-creates the plug-in, cancelling its inner page load and
-    // re-triggering layout — an unbounded loop. Presentation attributes still update style and
-    // widget geometry through collectPresentationalHintsForAttribute above.
-    // invalidateStyleAndRenderersForSubtree();
-    if (oldValue != newValue && (name == typeAttr || name == srcAttr || name == codeAttr))
-        invalidateStyleAndRenderersForSubtree();
+#if PLATFORM(COCOA)
+    // AQUAWEBKIT: hosts without EmbedAttributeChangeReconstructsRenderers keep the plug-in widget
+    // across attribute changes; presentational attributes update style and widget geometry.
+    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::EmbedAttributeChangeReconstructsRenderers))
+        return;
+#endif
+    invalidateStyleAndRenderersForSubtree();
 }
 
 void HTMLEmbedElement::parametersForPlugin(Vector<AtomString>& paramNames, Vector<AtomString>& paramValues)

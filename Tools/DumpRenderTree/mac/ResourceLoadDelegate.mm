@@ -257,8 +257,10 @@ BOOL canAuthenticateServerTrustAgainstProtectionSpace(NSString *host)
         gTestRunner->addResourceLoadCallback([string UTF8String]);
     }
     if (!done && !gTestRunner->resourceResponseMIMETypesToDump().empty()) {
+        // dumpResourceLoadCallbacks() terminates each buffered line.
+        // gTestRunner->addResourceLoadCallback([[NSString stringWithFormat:@"%s has MIME type %s\n", [[[[response URL] relativePath] lastPathComponent] UTF8String], [[response MIMEType] UTF8String]] UTF8String]);
         if (gTestRunner->resourceResponseMIMETypesToDump() == "*" || gTestRunner->resourceResponseMIMETypesToDump().contains([[[[response URL] relativePath] lastPathComponent] UTF8String]))
-            gTestRunner->addResourceLoadCallback([[NSString stringWithFormat:@"%s has MIME type %s\n", [[[[response URL] relativePath] lastPathComponent] UTF8String], [[response MIMEType] UTF8String]] UTF8String]);
+            gTestRunner->addResourceLoadCallback([[NSString stringWithFormat:@"%s has MIME type %s", [[[[response URL] relativePath] lastPathComponent] UTF8String], [[response MIMEType] UTF8String]] UTF8String]);
     }
 }
 

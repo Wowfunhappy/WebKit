@@ -7,8 +7,8 @@
 //
 // VALUES: prefer a SEMANTIC 10.9 equivalent (a real API that still exists and adapts) over a frozen
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
-// Hardcoded sRGB is used only for the system tint palette (systemBlue...systemYellow) and the fill
-// hierarchy, which have no 10.9 equivalent -- those constants are Apple's documented values.
+// Hardcoded sRGB is used only for colors with no 10.9 equivalent (the label tier, the system tint
+// palette, the fill hierarchy); those constants are the modern light-Aqua values.
 
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
@@ -102,24 +102,24 @@ WK_POLYFILL_ADD_METHODS(NSSearchFieldCell)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// NSColor semantic + system palette (10.10+/10.14+). Semantic names map to the 10.9 control-text /
-// selection semantics (a real color that still adapts); the systemXxx tint palette and systemFill
-// hierarchy have no 10.9 equivalent, so use Apple's documented sRGB constants.
+// NSColor semantic + system palette (10.10+/10.14+). The selection backgrounds are the SDK-named aliases of
+// 10.9's own colors; the label tier, separator, container border and find highlight return the light-Aqua
+// values in LayoutTests/platform/mac/fast/css/apple-system-control-colors-expected.txt.
 WK_POLYFILL_ADD_METHODS(NSColor)
-+ (NSColor *)labelColor                              { return [NSColor controlTextColor]; }
-+ (NSColor *)secondaryLabelColor                     { return [NSColor disabledControlTextColor]; }
-+ (NSColor *)tertiaryLabelColor                      { return [NSColor disabledControlTextColor]; }
-+ (NSColor *)quaternaryLabelColor                    { return [NSColor gridColor]; }
-+ (NSColor *)quinaryLabelColor                       { return [NSColor gridColor]; }
-+ (NSColor *)placeholderTextColor                    { return [NSColor disabledControlTextColor]; }
-+ (NSColor *)selectedContentBackgroundColor          { return SRGB(56, 117, 215, 255); } // list-box active selection (sRGB; see note)
++ (NSColor *)labelColor                              { return SRGB(0, 0, 0, 216); }
++ (NSColor *)secondaryLabelColor                     { return SRGB(0, 0, 0, 127); }
++ (NSColor *)tertiaryLabelColor                      { return SRGB(0, 0, 0, 66); }
++ (NSColor *)quaternaryLabelColor                    { return SRGB(0, 0, 0, 25); }
++ (NSColor *)quinaryLabelColor                       { return [NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:0.05]; } // black at 5% (swiftuicolors.com/macos-colors)
++ (NSColor *)placeholderTextColor                    { return SRGB(0, 0, 0, 63); }
++ (NSColor *)selectedContentBackgroundColor          { return [NSColor alternateSelectedControlColor]; }
 + (NSColor *)unemphasizedSelectedTextColor           { return [NSColor textColor]; }
-+ (NSColor *)unemphasizedSelectedContentBackgroundColor { return SRGB(220, 220, 220, 255); }
-+ (NSColor *)unemphasizedSelectedTextBackgroundColor { return SRGB(220, 220, 220, 255); }
++ (NSColor *)unemphasizedSelectedContentBackgroundColor { return [NSColor secondarySelectedControlColor]; }
++ (NSColor *)unemphasizedSelectedTextBackgroundColor { return [NSColor secondarySelectedControlColor]; }
 + (NSColor *)controlAccentColor                      { return [NSColor alternateSelectedControlColor]; } // 10.9 system blue
-+ (NSColor *)separatorColor                          { return [NSColor gridColor]; }
-+ (NSColor *)containerBorderColor                    { return [NSColor gridColor]; }
-+ (NSColor *)findHighlightColor                      { return SRGB(255, 237, 102, 255); } // real find-highlight yellow
++ (NSColor *)separatorColor                          { return SRGB(0, 0, 0, 25); }
++ (NSColor *)containerBorderColor                    { return SRGB(0, 0, 0, 63); }
++ (NSColor *)findHighlightColor                      { return SRGB(255, 255, 0, 255); }
 + (NSColor *)systemBlueColor   { return SRGB(0, 122, 255, 255); }
 + (NSColor *)systemBrownColor  { return SRGB(162, 132, 94, 255); }
 + (NSColor *)systemGrayColor   { return SRGB(142, 142, 147, 255); }
@@ -1399,17 +1399,109 @@ WK_POLYFILL_ADD_METHODS(NSSpellChecker)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// SF Symbols (11.0+): no system symbols exist on 10.9, so +imageWithSystemSymbolName: (and the private
-// variant) return nil for every name — matching the real API's unknown-symbol contract. Callers that pass the
-// result to -setImage:/-_setActionImage:/+imageViewWithImage: tolerate nil; the one caller that dereferences
-// the image (RenderThemeMac's attachment-progress placeholder) carries its own nil-guard.
-// +[NSImageView imageViewWithImage:] (10.12+) builds the view the classic way; -setSymbolConfiguration: and
-// -setContentTintColor: are cosmetic template-image properties with nothing to configure for a nil image.
-WK_POLYFILL_ADD_METHODS(NSImage)
-+ (NSImage *)imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { (void)name; (void)desc; return nil; }
-+ (NSImage *)imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { (void)name; (void)desc; return nil; }
+// SF Symbols (11.0+): 10.9 has no symbol catalog. +imageWithSystemSymbolName: draws the symbols whose outline
+// WebKit itself carries -- arrow.down.circle, Regular, the SVG path attachmentElementShadow.css masks its
+// placeholder with -- and returns nil for every other name (and the private variant for every name), the real
+// API's unknown-symbol answer. A symbol image is a template image whose canvas is the outline's bounds, drawn
+// in black at its configuration's point size: the circle spans the system font's line height (ascender to
+// descender) at that size, 13pt when unconfigured. -imageWithSymbolConfiguration: redraws a symbol image at
+// the new configuration and copies any other image.
+static const void *const wkSymbolNameKey = &wkSymbolNameKey;
+
+static NSBezierPath *wkBezierPathFromSVGPathData(const char *data)
+{
+    NSBezierPath *path = [NSBezierPath bezierPath];
+    char command = 0;
+    CGFloat v[6];
+    while (*data) {
+        if (*data == ' ' || *data == ',') {
+            ++data;
+            continue;
+        }
+        if (*data == 'M' || *data == 'L' || *data == 'C' || *data == 'Z') {
+            command = *data++;
+            if (command == 'Z')
+                [path closePath];
+            continue;
+        }
+        int count = command == 'C' ? 6 : 2;
+        for (int i = 0; i < count; ++i) {
+            while (*data == ' ' || *data == ',')
+                ++data;
+            char *end;
+            v[i] = strtod(data, &end);
+            if (end == data)
+                return nil;
+            data = end;
+        }
+        if (command == 'M') {
+            [path moveToPoint:NSMakePoint(v[0], v[1])];
+            command = 'L';
+        } else if (command == 'L')
+            [path lineToPoint:NSMakePoint(v[0], v[1])];
+        else if (command == 'C')
+            [path curveToPoint:NSMakePoint(v[4], v[5]) controlPoint1:NSMakePoint(v[0], v[1]) controlPoint2:NSMakePoint(v[2], v[3])];
+        else
+            return nil;
+    }
+    return path;
+}
+
+static NSBezierPath *wkSymbolOutline(NSString *name)
+{
+    static NSBezierPath *arrowDownCircle;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        arrowDownCircle = [wkBezierPathFromSVGPathData("M29.8071921,59.7070694 C45.9793308,59.7070694 59.4061427,46.3108516 59.4061427,30.1387129 C59.4061427,13.9665149 45.9486179,0.570297031 29.7764199,0.570297031 C13.6287565,0.570297031 0.238811882,13.9665149 0.238811882,30.1387129 C0.238811882,46.3108516 13.6594693,59.7070694 29.8071921,59.7070694 Z M29.8071921,54.7956773 C16.152202,54.7956773 5.20540991,43.8244159 5.20540991,30.1387129 C5.20540991,16.4529505 16.1214297,5.48168318 29.7764199,5.48168318 C43.4621823,5.48168318 54.4641625,16.4529505 54.4641625,30.1387129 C54.4641625,43.8244159 43.4928951,54.7956773 29.8071921,54.7956773 Z M29.8071921,15.3724159 C28.5699446,15.3724159 27.6526575,16.283406 27.6526575,17.5269505 L27.6526575,32.0522377 L27.8804198,38.1703961 L24.9597268,34.6780991 L21.5166773,31.1980397 C21.1471129,30.8284753 20.5993901,30.5700001 19.9776476,30.5700001 C18.7774099,30.5700001 17.8664198,31.4809902 17.8664198,32.6749307 C17.8664198,33.2659605 18.0634099,33.7829704 18.4574495,34.1707129 L28.1269545,43.8157426 C28.7299248,44.3942377 29.1916872,44.6220001 29.8071921,44.6220001 C30.4841822,44.6220001 30.9704199,44.3635248 31.5181426,43.8157426 L41.1939446,34.1707129 C41.5879842,33.7829704 41.7849743,33.2659605 41.7849743,32.6749307 C41.7849743,31.4809902 40.8432119,30.5700001 39.6737466,30.5700001 C39.052004,30.5700001 38.5042813,30.7977624 38.1347169,31.1980397 L34.7224397,34.6780991 L31.7646773,38.207406 L31.9924397,32.0522377 L31.9924397,17.5269505 C31.9924397,16.283406 31.0814496,15.3724159 29.8071921,15.3724159 Z") retain];
+    });
+    return [name isEqualToString:@"arrow.down.circle"] ? arrowDownCircle : nil;
+}
+
+// The point size polyfills/classes/AppKit.m's NSImageSymbolConfiguration answers.
+@protocol WKSymbolConfigurationPointSize
+- (CGFloat)pointSize;
 @end
 
+static id wkSymbolImage(NSString *name, NSString *description, id configuration)
+{
+    NSBezierPath *outline = wkSymbolOutline(name);
+    if (!outline)
+        return nil;
+    NSRect bounds = outline.bounds;
+    NSFont *font = [NSFont systemFontOfSize:configuration ? [(id<WKSymbolConfigurationPointSize>)configuration pointSize] : [NSFont systemFontSize]];
+    CGFloat height = font.ascender - font.descender;
+    NSSize size = NSMakeSize(NSWidth(bounds) * height / NSHeight(bounds), height);
+    NSImage *image = [NSImage imageWithSize:size flipped:YES drawingHandler:^BOOL(NSRect destination) {
+        NSAffineTransform *transform = [NSAffineTransform transform];
+        [transform translateXBy:NSMinX(destination) yBy:NSMinY(destination)];
+        [transform scaleXBy:NSWidth(destination) / NSWidth(bounds) yBy:NSHeight(destination) / NSHeight(bounds)];
+        [transform translateXBy:-NSMinX(bounds) yBy:-NSMinY(bounds)];
+        [[NSColor blackColor] setFill];
+        [[transform transformBezierPath:outline] fill];
+        return YES;
+    }];
+    [image setTemplate:YES];
+    if (description)
+        [image setAccessibilityDescription:description];
+    objc_setAssociatedObject(image, wkSymbolNameKey, name, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    return image;
+}
+
+WK_POLYFILL_ADD_METHODS(NSImage)
++ (NSImage *)imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { return wkSymbolImage(name, desc, nil); }
++ (NSImage *)imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { (void)name; (void)desc; return nil; }
+- (NSImage *)imageWithSymbolConfiguration:(NSImageSymbolConfiguration *)configuration
+{
+    NSString *name = objc_getAssociatedObject(self, wkSymbolNameKey);
+    if (!name)
+        return [[self copy] autorelease];
+    return wkSymbolImage(name, self.accessibilityDescription, configuration);
+}
+@end
+
+// +[NSImageView imageViewWithImage:] (10.12+) builds the view the classic way. -setSymbolConfiguration:
+// redraws the view's symbol image at the configuration; -setContentTintColor: keeps 10.9's template-image
+// drawing.
 WK_POLYFILL_ADD_METHODS(NSImageView)
 + (instancetype)imageViewWithImage:(NSImage *)image
 {
@@ -1417,7 +1509,12 @@ WK_POLYFILL_ADD_METHODS(NSImageView)
     [view setImage:image];
     return view;
 }
-- (void)setSymbolConfiguration:(NSImageSymbolConfiguration *)configuration { (void)configuration; }
+- (void)setSymbolConfiguration:(NSImageSymbolConfiguration *)configuration
+{
+    NSString *name = objc_getAssociatedObject(self.image, wkSymbolNameKey);
+    if (name)
+        self.image = wkSymbolImage(name, self.image.accessibilityDescription, configuration);
+}
 - (void)setContentTintColor:(NSColor *)color { (void)color; }
 @end
 

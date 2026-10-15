@@ -186,7 +186,8 @@ Controller.prototype = {
 
     addVideoListeners: function()
     {
-        for (name in this.HandledVideoEvents) {
+        // for (name in this.HandledVideoEvents) {
+        for (var name in this.HandledVideoEvents) { // AQUAWEBKIT: var scopes the key to this function, as upstream 5b3d36b does.
             this.listenFor(this.video, name, this.HandledVideoEvents[name]);
         };
 
@@ -212,7 +213,8 @@ Controller.prototype = {
 
     removeVideoListeners: function()
     {
-        for (name in this.HandledVideoEvents) {
+        // for (name in this.HandledVideoEvents) {
+        for (var name in this.HandledVideoEvents) { // AQUAWEBKIT: var scopes the key to this function, as upstream 5b3d36b does.
             this.stopListeningFor(this.video, name, this.HandledVideoEvents[name]);
         };
 
@@ -435,7 +437,8 @@ Controller.prototype = {
 
     disconnectControls: function(event)
     {
-        for (item in this.controls) {
+        // for (item in this.controls) {
+        for (var item in this.controls) { // AQUAWEBKIT: var scopes the key to this function, as upstream 5b3d36b does.
             var control = this.controls[item];
             if (control && control.parentNode)
                 control.parentNode.removeChild(control);

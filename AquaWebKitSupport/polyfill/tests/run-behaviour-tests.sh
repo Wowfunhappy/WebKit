@@ -511,6 +511,11 @@ probe_dd_secure_coding() {
         -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS && "$T/dd_secure_coding"
 }
 
+probe_dd_result_categories() {
+    "$CLANG" $MODERN $INC -o "$T/dd_result_categories" "$TBEHAV/DataDetectors-result-categories.c" \
+        $PROBE_LIBS && "$T/dd_result_categories"
+}
+
 probe_keyed_coding() {
     prepare_method_objects FoundationCoding &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/keyed_coding" "$TBEHAV/Foundation-keyed-coding.m" \
@@ -808,6 +813,13 @@ probe_feature_settings_order() {
         "$T/feature_settings_order" "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/FontWithFancyFeatures.otf"
 }
 
+probe_opentype_only_features() {
+    "$CLANG" $MODERN $INC -o "$T/opentype_only_features" "$TBEHAV/CoreText-opentype-only-features.c" $PROBE_LIBS \
+        -framework CoreText -framework CoreGraphics -lc++ &&
+        "$T/opentype_only_features" "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/FontWithFancyFeatures.otf" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/gsubtest-lookup3.otf"
+}
+
 probe_variation_axes() {
     "$CLANG" $MODERN $INC -o "$T/variation_axes" "$TBEHAV/CoreText-variation-axes.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -lc++ &&
@@ -972,6 +984,7 @@ run_probe secure_coding "$@"
 run_probe url_request_coding "$@"
 run_probe url_request_attribution "$@"
 run_probe dd_secure_coding "$@"
+run_probe dd_result_categories "$@"
 run_probe keyed_coding "$@"
 run_probe strict_inline_values "$@"
 run_probe url_response_coding "$@"
@@ -1016,6 +1029,7 @@ run_probe typo_metrics "$@"
 run_probe font_heights "$@"
 run_probe variable_font_tables "$@"
 run_probe feature_settings_order "$@"
+run_probe opentype_only_features "$@"
 run_probe variation_axes "$@"
 run_probe variation_axes_from_data "$@"
 run_probe path_glyph_range "$@"

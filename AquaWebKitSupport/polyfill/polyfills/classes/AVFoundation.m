@@ -340,6 +340,14 @@ static NSString *wkNormalizedSpeechLanguage(NSString *locale)
     return [locale stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
 }
 
+extern CFArrayRef CopySpeechSynthesisVoicesForMode(CFArrayRef modes);
+
+static NSArray *wkSpeechVoiceIdentifiers(void)
+{
+    // SpeechSynthesis exposes the installed default and compact voice groups on 10.9.
+    return [(NSArray *)CopySpeechSynthesisVoicesForMode((CFArrayRef)@[ @"VoiceGroupDefault", @"VoiceGroupCompact" ]) autorelease];
+}
+
 @implementation AVSpeechSynthesisVoice {
     NSString *_identifier;
     NSString *_name;
@@ -385,7 +393,7 @@ static NSString *wkNormalizedSpeechLanguage(NSString *locale)
 + (NSArray *)speechVoices
 {
     NSMutableArray *voices = [NSMutableArray array];
-    for (NSString *nsVoiceName in [NSSpeechSynthesizer availableVoices]) {
+    for (NSString *nsVoiceName in wkSpeechVoiceIdentifiers()) {
         AVSpeechSynthesisVoice *voice = [self voiceForNSVoiceName:nsVoiceName];
         if (voice)
             [voices addObject:voice];
@@ -393,8 +401,7 @@ static NSString *wkNormalizedSpeechLanguage(NSString *locale)
     return voices;
 }
 
-// The "super compact" tier is an iOS voice-asset distinction; 10.9 ships one tier, so the two lists
-// are the same list.
+// Both lists contain 10.9's installed default and compact voices.
 + (NSArray *)speechVoicesIncludingSuperCompact
 {
     return [self speechVoices];
@@ -417,7 +424,7 @@ static NSString *wkNormalizedSpeechLanguage(NSString *locale)
     NSString *target = [wkNormalizedSpeechLanguage(language) lowercaseString];
     NSString *targetPrefix = [[target componentsSeparatedByString:@"-"] firstObject];
     AVSpeechSynthesisVoice *prefixMatch = nil;
-    for (NSString *nsVoiceName in [NSSpeechSynthesizer availableVoices]) {
+    for (NSString *nsVoiceName in wkSpeechVoiceIdentifiers()) {
         AVSpeechSynthesisVoice *voice = [self voiceForNSVoiceName:nsVoiceName];
         NSString *voiceLanguage = [voice.language lowercaseString];
         if ([voiceLanguage isEqualToString:target])

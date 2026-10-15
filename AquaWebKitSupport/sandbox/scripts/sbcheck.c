@@ -79,6 +79,9 @@ int main(int argc, char **argv)
     setParameter(params, "DARWIN_USER_CACHE_DIR", cacheDirectory);
     setParameter(params, "HOME_DIR", home);
     setParameter(params, "HOME_LIBRARY_PREFERENCES_DIR", homePreferences);
+    char effectiveUserID[32];
+    snprintf(effectiveUserID, sizeof(effectiveUserID), "%u", (unsigned)geteuid());
+    setParameter(params, "EUID", effectiveUserID);
     setParameter(params, "CPU", "x86_64");
     setParameter(params, "ENABLE_SANDBOX_MESSAGE_FILTER", "NO");
 

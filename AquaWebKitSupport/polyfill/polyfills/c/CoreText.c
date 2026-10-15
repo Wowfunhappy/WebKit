@@ -118,8 +118,8 @@ WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle4, CFSTR("UICT
 
 // kCTFontOpenTypeFeatureTag / ...Value (10.10 SDK) are the CFDictionary keys for OpenType font features.
 // They have no 10.9 symbol; building a feature dictionary with a NULL key would crash CFDictionary, so
-// define them with CoreText's documented key strings. (10.9 CoreText may not honor the new-style feature
-// dictionary, but the code links and runs without crashing.)
+// define them with CoreText's documented key strings. 10.9 CoreText reads neither key; the feature-settings
+// section below reduces an element naming them to an AAT setting, or carries it when no AAT setting exists.
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontOpenTypeFeatureTag, CFSTR("CTFeatureOpenTypeTag"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontOpenTypeFeatureValue, CFSTR("CTFeatureOpenTypeValue"));
 
@@ -290,14 +290,115 @@ static long wk_fontFallbackOption(CTFontRef font)
     return option;
 }
 
-// Native CTFont equality covers native attributes; the carried fallback policy is part of font identity.
+// The OpenType-form feature settings a descriptor names, which the feature-settings section below states. They
+// ride the descriptor and every font realized or copied from it, as {kCTFontOpenTypeFeatureTag,
+// kCTFontOpenTypeFeatureValue} dictionaries holding each tag once, at its last value, so a later setting of a tag
+// replaces a carried one; the carried ones are read back wherever the font's or descriptor's settings are.
+static const void *wk_openTypeOnlySettingsKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_openTypeOnlySettings");
+    return key;
+}
+
+static CFArrayRef wk_openTypeOnlySettings(CFTypeRef object)
+{
+    return object ? (CFArrayRef)objc_getAssociatedObject((id)(void *)object, wk_openTypeOnlySettingsKey()) : NULL;
+}
+
+static void wk_setOpenTypeOnlySettings(CFTypeRef object, CFArrayRef settings)
+{
+    if (!object)
+        return;
+    objc_setAssociatedObject((id)(void *)object, wk_openTypeOnlySettingsKey(),
+        settings && CFArrayGetCount(settings) ? (id)(void *)settings : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file supplies
+// both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+static CFTypeRef wk_openTypeOnlySettingTag(CFTypeRef setting)
+{
+    return CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontOpenTypeFeatureTag);
+}
+
+static bool wk_openTypeSettingIsCarried(CFTypeRef setting);
+
+// `settings` laid over `base`: a tag keeps its last setting, at the position it was last set at.
+static CFArrayRef wk_copyMergedOpenTypeOnlySettings(CFArrayRef base, CFArrayRef settings)
+{
+    CFMutableArrayRef merged = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (!merged)
+        abort();
+    CFArrayRef sources[] = { base, settings };
+    for (size_t s = 0; s < sizeof(sources) / sizeof(sources[0]); s++) {
+        CFIndex count = sources[s] ? CFArrayGetCount(sources[s]) : 0;
+        for (CFIndex i = 0; i < count; i++) {
+            CFTypeRef setting = CFArrayGetValueAtIndex(sources[s], i);
+            CFTypeRef tag = wk_openTypeOnlySettingTag(setting);
+            for (CFIndex j = CFArrayGetCount(merged); j-- > 0;) {
+                if (CFEqual(wk_openTypeOnlySettingTag(CFArrayGetValueAtIndex(merged, j)), tag))
+                    CFArrayRemoveValueAtIndex(merged, j);
+            }
+            CFArrayAppendValue(merged, setting);
+        }
+    }
+    return merged;
+}
+#pragma clang diagnostic pop
+
+// Whether an object holds a setting that is carried rather than handed to 10.9 alone.
+static bool wk_holdsCarriedOpenTypeSetting(CFTypeRef object)
+{
+    CFArrayRef settings = wk_openTypeOnlySettings(object);
+    for (CFIndex i = 0, count = settings ? CFArrayGetCount(settings) : 0; i < count; i++) {
+        if (wk_openTypeSettingIsCarried(CFArrayGetValueAtIndex(settings, i)))
+            return true;
+    }
+    return false;
+}
+
+// A feature-settings value as read back: the settings 10.9 holds, followed by the carried ones. Consumes
+// `native`.
+static CFTypeRef wk_copySettingsWithOpenTypeOnly(CFTypeRef native, CFArrayRef openTypeOnly)
+{
+    if (!openTypeOnly)
+        return native;
+    CFMutableArrayRef settings = native && CFGetTypeID(native) == CFArrayGetTypeID()
+        ? CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, (CFArrayRef)native)
+        : CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (!settings)
+        abort();
+    for (CFIndex i = 0, count = CFArrayGetCount(openTypeOnly); i < count; i++) {
+        CFTypeRef setting = CFArrayGetValueAtIndex(openTypeOnly, i);
+        if (wk_openTypeSettingIsCarried(setting))
+            CFArrayAppendValue(settings, setting);
+    }
+    if (native)
+        CFRelease(native);
+    return settings;
+}
+
+// Native equality covers native attributes. A font's carried fallback policy, and the OpenType settings a
+// font or descriptor carries, are part of its identity.
 WK_POLYFILL_REPLACES("CoreFoundation", Boolean, CFEqual, (CFTypeRef first, CFTypeRef second))
 {
     if (!WK_ORIGINAL(CFEqual)(first, second))
         return false;
-    if (first == second || CFGetTypeID(first) != CTFontGetTypeID())
+    if (first == second)
         return true;
-    return wk_fontFallbackOption((CTFontRef)first) == wk_fontFallbackOption((CTFontRef)second);
+    CFTypeID type = CFGetTypeID(first);
+    bool font = type == CTFontGetTypeID();
+    if (!font && type != CTFontDescriptorGetTypeID())
+        return true;
+    CFArrayRef firstSettings = wk_openTypeOnlySettings(first);
+    CFArrayRef secondSettings = wk_openTypeOnlySettings(second);
+    if ((firstSettings || secondSettings)
+        && !(firstSettings && secondSettings && WK_ORIGINAL(CFEqual)(firstSettings, secondSettings)))
+        return false;
+    return !font || wk_fontFallbackOption((CTFontRef)first) == wk_fontFallbackOption((CTFontRef)second);
 }
 
 static void wk_recordPalette(CTFontRef font, CFTypeRef palette, CFTypeRef colors)
@@ -330,10 +431,16 @@ static CTFontRef wk_recordDescriptorOptions(CTFontRef font, CTFontDescriptorRef 
         CFRelease(palette);
     if (colors)
         CFRelease(colors);
+    CFArrayRef openTypeOnly = wk_openTypeOnlySettings(descriptor);
+    if (openTypeOnly) {
+        CFArrayRef merged = wk_copyMergedOpenTypeOnlySettings(wk_openTypeOnlySettings(font), openTypeOnly);
+        wk_setOpenTypeOnlySettings(font, merged);
+        CFRelease(merged);
+    }
     return font;
 }
 
-// A copy keeps its palette and fallback policy.
+// A copy keeps its palette, fallback policy and OpenType settings, with its attributes' laid over them.
 static void wk_inheritDescriptorOptions(CTFontRef copy, CTFontRef source, CTFontDescriptorRef attributes)
 {
     if (!copy || copy == source)
@@ -344,6 +451,7 @@ static void wk_inheritDescriptorOptions(CTFontRef copy, CTFontRef source, CTFont
             objc_setAssociatedObject((id)(void *)copy, wk_fallbackOptionKey(), (id)fallback, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         wk_recordPalette(copy, (CFTypeRef)objc_getAssociatedObject((id)(void *)source, wk_paletteKey()),
             (CFTypeRef)objc_getAssociatedObject((id)(void *)source, wk_paletteColorsKey()));
+        wk_setOpenTypeOnlySettings(copy, wk_openTypeOnlySettings(source));
     }
     wk_recordDescriptorOptions(copy, attributes);
 }
@@ -356,11 +464,17 @@ static CTFontDescriptorRef wk_descriptorWithCarriedOptions(CTFontRef font, CTFon
     CFTypeRef palette = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_paletteKey());
     CFTypeRef colors = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_paletteColorsKey());
     CFTypeRef fallback = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_fallbackOptionKey());
-    if (!palette && !colors && !fallback)
+    CFTypeRef openTypeOnly = wk_holdsCarriedOpenTypeSetting(font)
+        ? wk_copySettingsWithOpenTypeOnly(NULL, wk_openTypeOnlySettings(font)) : NULL;
+    if (!palette && !colors && !fallback && !openTypeOnly)
         return descriptor;
-    const void *keys[3];
-    const void *values[3];
+    const void *keys[4];
+    const void *values[4];
     CFIndex count = 0;
+    if (openTypeOnly) {
+        keys[count] = kCTFontFeatureSettingsAttribute;
+        values[count++] = openTypeOnly;
+    }
     if (palette) {
         keys[count] = kCTFontPaletteAttribute;
         values[count++] = palette;
@@ -378,6 +492,8 @@ static CTFontDescriptorRef wk_descriptorWithCarriedOptions(CTFontRef font, CTFon
     CTFontDescriptorRef withPalette = attributes ? CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes) : NULL;
     if (attributes)
         CFRelease(attributes);
+    if (openTypeOnly)
+        CFRelease(openTypeOnly);
     if (!withPalette)
         return descriptor;
     CFRelease(descriptor);
@@ -1076,19 +1192,28 @@ static bool wk_opticalSizeIsDefault(CTFontDescriptorRef descriptor)
 
 // An optical size of "none" is a request 10.9 has no attribute value for, so the descriptor entry
 // points below leave it off the descriptor and mark it instead (the block on the optical size states
-// why). A descriptor answers for what it was asked for, so the two readers put the request back.
+// why), and the OpenType settings 10.9's engine has no request for ride it the same way. A descriptor
+// answers for what it was asked for, so the two readers put the requests back.
 WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTFontDescriptorCopyAttributes, (CTFontDescriptorRef descriptor))
 {
     CFDictionaryRef attributes = WK_ORIGINAL(CTFontDescriptorCopyAttributes)(descriptor);
-    if (!wk_opticalSizeIsDefault(descriptor))
+    bool opticalSizeIsDefault = wk_opticalSizeIsDefault(descriptor);
+    CFArrayRef openTypeOnly = wk_holdsCarriedOpenTypeSetting(descriptor) ? wk_openTypeOnlySettings(descriptor) : NULL;
+    if (!opticalSizeIsDefault && !openTypeOnly)
         return attributes;
     CFMutableDictionaryRef named = attributes
         ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes)
         : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (named && opticalSizeIsDefault)
+        CFDictionarySetValue(named, kCTFontOpticalSizeAttribute, CFSTR("none"));
+    if (named && openTypeOnly) {
+        CFTypeRef native = attributes ? CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute) : NULL;
+        CFTypeRef settings = wk_copySettingsWithOpenTypeOnly(native ? CFRetain(native) : NULL, openTypeOnly);
+        CFDictionarySetValue(named, kCTFontFeatureSettingsAttribute, settings);
+        CFRelease(settings);
+    }
     if (attributes)
         CFRelease(attributes);
-    if (named)
-        CFDictionarySetValue(named, kCTFontOpticalSizeAttribute, CFSTR("none"));
     return named;
 }
 
@@ -1258,6 +1383,8 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
         if (fallback)
             return CFRetain(fallback);
     }
+    if (font && attribute && CFEqual(attribute, kCTFontFeatureSettingsAttribute) && wk_holdsCarriedOpenTypeSetting(font))
+        return wk_copySettingsWithOpenTypeOnly(WK_ORIGINAL(CTFontCopyAttribute)(font, attribute), wk_openTypeOnlySettings(font));
 
     if (attribute && CFEqual(attribute, kCTFontVariationAttribute)) {
         CTFontDescriptorRef source = wk_variableFontSource(font);
@@ -1283,6 +1410,14 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
     if (attribute && CFEqual(attribute, kCTFontOpticalSizeAttribute) && wk_opticalSizeFollowsPointSize(font))
         return CFRetain(CFSTR("auto"));
     return WK_ORIGINAL(CTFontCopyAttribute)(font, attribute);
+}
+
+// A font's settings read back with the OpenType-only ones it carries.
+WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontCopyFeatureSettings, (CTFontRef font))
+{
+    CFArrayRef settings = WK_ORIGINAL(CTFontCopyFeatureSettings)(font);
+    CFArrayRef openTypeOnly = wk_holdsCarriedOpenTypeSetting(font) ? wk_openTypeOnlySettings(font) : NULL;
+    return openTypeOnly ? (CFArrayRef)wk_copySettingsWithOpenTypeOnly(settings, openTypeOnly) : settings;
 }
 
 static const void *wk_userInstalledKey(void) { static char key; return &key; }
@@ -2772,6 +2907,9 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
     if (descriptor && attribute && CFEqual(attribute, kCTFontOpticalSizeAttribute)
         && wk_opticalSizeIsDefault(descriptor))
         return CFRetain(CFSTR("none"));
+    if (descriptor && attribute && CFEqual(attribute, kCTFontFeatureSettingsAttribute) && wk_holdsCarriedOpenTypeSetting(descriptor))
+        return wk_copySettingsWithOpenTypeOnly(WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute),
+            wk_openTypeOnlySettings(descriptor));
     CFTypeRef value = WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute);
     if (value && descriptor && attribute && CFEqual(attribute, kCTFontTraitsAttribute)
         && CFGetTypeID(value) == CFDictionaryGetTypeID()) {
@@ -2871,9 +3009,18 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
 // Each OpenType tag maps to the AAT (feature type, on-selector, off-selector) triple Apple's Font Feature
 // Registry assigns it, so 10.9 applies the feature for real: a value of 0 selects the off selector,
 // anything else the on selector. The two OpenType keys are this layer's own tokens (defined above), absent
-// from 10.9's CoreText, so matching on them cannot collide with a key the system defines. A tag with no
-// entry in the AAT registry — character variants cvNN, and the OpenType-only features outside the AAT
-// model — has no 10.9 representation and is dropped.
+// from 10.9's CoreText, so matching on them cannot collide with a key the system defines.
+//
+// A tag with no entry in the AAT registry — numr, dnom, salt, character variants cvNN, and the rest of the
+// OpenType-only features outside the AAT model — has no 10.9 setting, and 10.9's OpenType engine applies
+// no GSUB or GPOS feature whose tag its own feature table does not name. Such a setting, a registry tag 10.9
+// does not reach through its pair (wk_aatUnreachableTags), and a value above 1 are carried: they ride the
+// descriptor and its fonts (wk_openTypeOnlySettings), a registry tag also as its pair. A font
+// whose GSUB or GPOS carries a feature so turned on shapes through a shaping instance (wk_shapingFont) in
+// which that feature's FeatureRecords are retagged to a stylistic set the font does not use, with that
+// set's AAT on-selector added to its settings: 10.9's engine then applies the feature's own lookups, in
+// lookup order, as it applies any stylistic set, in GSUB and GPOS alike. A value above 1 selects that
+// alternate (wk_copyGSUBSelectingAlternates). A font 10.9 shapes with morx takes no stylistic set.
 // ---------------------------------------------------------------------------------------------------
 
 // Apple's Font Feature Registry, read in both directions: an OpenType tag names an AAT (feature type,
@@ -3284,6 +3431,155 @@ static bool wk_openTypeElementTagValue(CFTypeRef element, CFStringRef *tag, int 
     return true;
 }
 
+// The value an OpenType-form element gives, as it stands: NULL for a bare tag.
+static CFTypeRef wk_openTypeElementValue(CFTypeRef element)
+{
+    CFTypeID type = CFGetTypeID(element);
+// kCTFontOpenTypeFeatureValue is 10.10+ in the SDK and absent on the 10.9 runtime; this file supplies it
+// (WK_POLYFILL_CONST above), so this reads the layer's own definition.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+    if (type == CFDictionaryGetTypeID())
+        return CFDictionaryGetValue((CFDictionaryRef)element, kCTFontOpenTypeFeatureValue);
+#pragma clang diagnostic pop
+    if (type == CFArrayGetTypeID() && CFArrayGetCount((CFArrayRef)element) > 1)
+        return CFArrayGetValueAtIndex((CFArrayRef)element, 1);
+    return NULL;
+}
+
+// The tags 10.9's engine does not apply through the AAT pair the registry gives them, measured on the gsubtest
+// font, which has every feature: afrc, whose pair its feature table leaves unnamed; pkna and pwid, whose shared
+// pair applies neither; valt and vpal, whose pair applies palt, and vhal, whose pair applies halt; and hist and
+// hlig, whose shared pair applies both. The members of a shared pair are carried together.
+static const char wk_aatUnreachableTags[][5] = {
+    "afrc", "halt", "hist", "hlig", "palt", "pkna", "pwid", "valt", "vhal", "vpal",
+};
+
+static const char *const wk_aatSharedPairGroups[][4] = {
+    { "pkna", "pwid", NULL }, { "palt", "valt", "vpal", NULL }, { "halt", "vhal", NULL }, { "hist", "hlig", NULL },
+};
+
+// Whether a setting rides the descriptor and its fonts: a tag with no AAT pair, a tag 10.9 does not reach through
+// its pair, or a value above 1, which selects an alternate no AAT selector names. A carried tag that has a pair is
+// also handed to 10.9 as that pair, which a font shaped from morx reads.
+static bool wk_openTypeTagValueIsCarried(const char *name, int value)
+{
+    int type = 0, onSelector = 0, offSelector = 0;
+    if (!wk_aatFeatureForOpenTypeTag(name, &type, &onSelector, &offSelector) || value > 1)
+        return true;
+    for (size_t i = 0; i < sizeof(wk_aatUnreachableTags) / sizeof(wk_aatUnreachableTags[0]); i++) {
+        if (!memcmp(name, wk_aatUnreachableTags[i], 4))
+            return true;
+    }
+    return false;
+}
+
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file supplies
+// both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+static bool wk_openTypeSettingIsCarried(CFTypeRef setting)
+{
+    char name[8] = { 0 };
+    int value = 1;
+    CFTypeRef tag = CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontOpenTypeFeatureTag);
+    if (!wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontOpenTypeFeatureValue), &value)
+        || !tag || CFGetTypeID(tag) != CFStringGetTypeID()
+        || !CFStringGetCString((CFStringRef)tag, name, sizeof(name), kCFStringEncodingASCII) || strlen(name) != 4)
+        return false;
+    return wk_openTypeTagValueIsCarried(name, value);
+}
+#pragma clang diagnostic pop
+
+// The OpenType tag a four-character OpenType-form element names, with a numeric value or none. NULL for every
+// other element.
+static CFStringRef wk_openTypeOnlyElementTag(CFTypeRef element, int *value)
+{
+    CFStringRef tag = NULL;
+    char name[8] = { 0 };
+    CFTypeRef given = element ? wk_openTypeElementValue(element) : NULL;
+    if (!element || (given && CFGetTypeID(given) != CFNumberGetTypeID())
+        || !wk_openTypeElementTagValue(element, &tag, value)
+        || !CFStringGetCString(tag, name, sizeof(name), kCFStringEncodingASCII) || strlen(name) != 4)
+        return NULL;
+    return tag;
+}
+
+// The OpenType-form settings a feature-settings value names, as tag/value dictionaries holding each tag at its
+// last value. NULL when it names none.
+static CFArrayRef wk_copyOpenTypeOnlySettingsNamed(CFTypeRef settings)
+{
+    if (!settings || CFGetTypeID(settings) != CFArrayGetTypeID())
+        return NULL;
+    CFMutableArrayRef named = NULL;
+    for (CFIndex i = 0, count = CFArrayGetCount((CFArrayRef)settings); i < count; i++) {
+        int value = 1;
+        CFStringRef tag = wk_openTypeOnlyElementTag(CFArrayGetValueAtIndex((CFArrayRef)settings, i), &value);
+        if (!tag)
+            continue;
+        CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &value);
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file
+// supplies both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+        const void *keys[] = { kCTFontOpenTypeFeatureTag, kCTFontOpenTypeFeatureValue };
+#pragma clang diagnostic pop
+        const void *values[] = { tag, number };
+        CFDictionaryRef setting = number ? CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks) : NULL;
+        if (!named)
+            named = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+        if (!setting || !named)
+            abort();
+        CFArrayAppendValue(named, setting);
+        CFRelease(setting);
+        CFRelease(number);
+    }
+    if (!named)
+        return NULL;
+    CFArrayRef deduplicated = wk_copyMergedOpenTypeOnlySettings(NULL, named);
+    CFRelease(named);
+    return deduplicated;
+}
+
+// The OpenType-form settings a descriptor made from `attributes` holds: `original`'s, less those the attributes
+// clear, with the attributes' own laid over them. Only the copy entry point has an original.
+static CTFontDescriptorRef wk_carryOpenTypeOnlySettings(CTFontDescriptorRef result, CTFontDescriptorRef original,
+                                                        CFDictionaryRef attributes)
+{
+    if (!result || result == original)
+        return result;
+    CFTypeRef settings = attributes && CFGetTypeID(attributes) == CFDictionaryGetTypeID()
+        ? CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute) : NULL;
+    CFArrayRef inherited = wk_isNull(settings) ? NULL : wk_openTypeOnlySettings(original);
+    CFMutableArrayRef kept = inherited ? CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, inherited) : NULL;
+    if (inherited && !kept)
+        abort();
+    CFIndex count = kept && settings && CFGetTypeID(settings) == CFArrayGetTypeID() ? CFArrayGetCount((CFArrayRef)settings) : 0;
+    for (CFIndex i = 0; i < count; i++) {
+        CFTypeRef element = CFArrayGetValueAtIndex((CFArrayRef)settings, i);
+        CFStringRef tag = NULL;
+        int value = 0;
+        if (!wk_isNull(wk_openTypeElementValue(element)) || !wk_openTypeElementTagValue(element, &tag, &value))
+            continue;
+        for (CFIndex j = CFArrayGetCount(kept); j-- > 0;) {
+            if (CFEqual(wk_openTypeOnlySettingTag(CFArrayGetValueAtIndex(kept, j)), tag))
+                CFArrayRemoveValueAtIndex(kept, j);
+        }
+    }
+    CFArrayRef named = wk_copyOpenTypeOnlySettingsNamed(settings);
+    if (!kept && !named)
+        return result;
+    CFArrayRef carried = wk_copyMergedOpenTypeOnlySettings(kept, named);
+    wk_setOpenTypeOnlySettings(result, carried);
+    CFRelease(carried);
+    if (named)
+        CFRelease(named);
+    if (kept)
+        CFRelease(kept);
+    return result;
+}
+
 // The OpenType tag of the feature an element sets: the tag an OpenType-form element names, or the one tag an
 // AAT pair's selector belongs to. NULL for a selector naming no single tag -- the numeric default an
 // exclusive type's tags share. `pair` is the AAT dictionary the element reduces to.
@@ -3607,7 +3903,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWith
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)(rewritten ? rewritten : attributes);
     if (rewritten)
         CFRelease(rewritten);
-    return wk_carryOpticalSizeDefault(result, NULL, attributes);
+    return wk_carryOpenTypeOnlySettings(wk_carryOpticalSizeDefault(result, NULL, attributes), NULL, attributes);
 }
 
 // CTFontDescriptorOptions is CoreText SPI (PAL/pal/spi/cf/CoreTextSPI.h), a uint32_t option set.
@@ -3618,7 +3914,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWith
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributesAndOptions)(rewritten ? rewritten : attributes, options);
     if (rewritten)
         CFRelease(rewritten);
-    return wk_carryOpticalSizeDefault(result, NULL, attributes);
+    return wk_carryOpenTypeOnlySettings(wk_carryOpticalSizeDefault(result, NULL, attributes), NULL, attributes);
 }
 
 // The copy entry point is the one that merges, so it is the one a clear directive subtracts from: with
@@ -3661,7 +3957,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateCopy
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateCopyWithAttributes)(original, rewritten ? rewritten : attributes);
     if (rewritten)
         CFRelease(rewritten);
-    return wk_carryOpticalSizeDefault(result, original, attributes);
+    return wk_carryOpenTypeOnlySettings(wk_carryOpticalSizeDefault(result, original, attributes), original, attributes);
 }
 
 // libFontParser's FPFont* system font parser, which WebCore uses to split a downloaded font file
@@ -4757,17 +5053,22 @@ static void wk_collectScripts(CTFontRef font, CTFontTableTag tag, uint32_t **tag
     CFRelease(data);
 }
 
-static bool wk_gposCarriesFeature(wk_font_table gpos, const char tag[4])
+// Whether a GSUB or GPOS table's FeatureList has a record for the tag. Both tables put the list's offset at 6.
+static bool wk_featureListCarriesTag(wk_font_table table, uint32_t tag)
 {
-    uint32_t wanted = ((uint32_t)(uint8_t)tag[0] << 24) | ((uint32_t)(uint8_t)tag[1] << 16)
-                    | ((uint32_t)(uint8_t)tag[2] << 8) | (uint8_t)tag[3];
-    uint64_t featureList = wk_tableU16(gpos, 6);
-    uint64_t featureCount = featureList ? wk_tableU16(gpos, featureList) : 0;
+    uint64_t featureList = wk_tableU16(table, 6);
+    uint64_t featureCount = featureList ? wk_tableU16(table, featureList) : 0;
     for (uint64_t i = 0; i < featureCount; i++) {
-        if (wk_tableU32(gpos, featureList + 2 + i * 6) == wanted)
+        if (wk_tableU32(table, featureList + 2 + i * 6) == tag)
             return true;
     }
     return false;
+}
+
+static bool wk_gposCarriesFeature(wk_font_table gpos, const char tag[4])
+{
+    return wk_featureListCarriesTag(gpos, ((uint32_t)(uint8_t)tag[0] << 24) | ((uint32_t)(uint8_t)tag[1] << 16)
+                                        | ((uint32_t)(uint8_t)tag[2] << 8) | (uint8_t)tag[3]);
 }
 
 // A setting names its feature by OpenType tag and value or by AAT type and selector, and requests the
@@ -6209,8 +6510,729 @@ static void wk_unmapShapingSfnt(void *bytes, void *length)
     munmap(bytes, (size_t)length);
 }
 
-// A shaping instance carries the font's morx with its logical-order subtables flagged for right-to-left text.
-static CGFontRef wk_createShapingInstance(CTFontRef font)
+// A feature a carried setting turns on, the value it is set to, the stylistic set its FeatureRecords take in a
+// shaping instance, and that set's AAT on-selector (the feature-settings section states the mechanism). A parked
+// feature has value 0 and no selector.
+typedef struct {
+    uint32_t tag;
+    int value;
+    uint32_t carrier;
+    int selector;
+} wk_feature_carrier;
+
+enum { WKStylisticSetCount = 20, WKFeatureCarrierCapacity = 2 * WKStylisticSetCount + 12 };
+
+// The tags 10.9's OpenType engine names in its own feature table (CoreText's tag table, at 0x1ef504 in
+// 10.9.5's x86_64 slice) that the AAT registry above has no pair for: the features it applies by script,
+// and vert, which it applies to vertical text. A setting naming one of them stays with the engine.
+static const char wk_engineAppliedFeatureTags[][5] = {
+    "abvf", "abvm", "abvs", "akhn", "blwf", "blwm", "blws", "ccmp", "curs", "falt", "fin2", "fin3",
+    "fina", "half", "haln", "init", "isol", "kern", "locl", "mark", "med2", "medi", "mkmk", "mset",
+    "nukt", "pres", "psts", "rkrf", "rlig", "rphf", "size", "vatu", "vert", "vkrn",
+};
+
+static uint32_t wk_featureTag(const char *name)
+{
+    return ((uint32_t)(uint8_t)name[0] << 24) | ((uint32_t)(uint8_t)name[1] << 16)
+         | ((uint32_t)(uint8_t)name[2] << 8) | (uint8_t)name[3];
+}
+
+static bool wk_engineAppliesFeature(uint32_t tag)
+{
+    for (size_t i = 0; i < sizeof(wk_engineAppliedFeatureTags) / sizeof(wk_engineAppliedFeatureTags[0]); i++) {
+        if (wk_featureTag(wk_engineAppliedFeatureTags[i]) == tag)
+            return true;
+    }
+    return false;
+}
+
+static uint32_t wk_stylisticSetTag(int set)
+{
+    char name[5] = { 's', 's', (char)('0' + set / 10), (char)('0' + set % 10), 0 };
+    return wk_featureTag(name);
+}
+
+static bool wk_layoutTablesCarryTag(wk_font_table gsub, wk_font_table gpos, uint32_t tag)
+{
+    return wk_featureListCarriesTag(gsub, tag) || wk_featureListCarriesTag(gpos, tag);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// A value above 1 selects that alternate from the feature's AlternateSubst lookups (type 3, directly or
+// inside a type 7 Extension). 10.9's engine applies an AlternateSubst lookup at its first alternate, so the
+// shaping instance's GSUB gives the feature, for each such lookup, a clone inserted directly after it: a
+// type 7 lookup whose SingleSubst subtables substitute each covered glyph that has that many alternates
+// and leave the rest. Lookup order is unchanged, the source lookup stays as every other user sees it, and
+// the feature's records take a Feature table of their own. The lookups after a clone are renumbered in
+// every Feature table and contextual lookup record. The table from the end of the LookupList's offset
+// array onward moves up to make room for the inserted offsets, Feature tables, lookups and Extension
+// subtables, and the clones' subtables follow the table.
+// ---------------------------------------------------------------------------------------------------
+
+typedef struct {
+    uint16_t source;
+    int value;
+} wk_alternate_clone;
+
+typedef struct {
+    const uint8_t *in;
+    uint64_t inLength;
+    uint8_t *out;
+    uint64_t outLength;
+    uint64_t insertAt;
+    uint64_t inserted;
+    uint16_t lookupCount;
+    const wk_alternate_clone *clones;
+    CFIndex cloneCount;
+    bool failed;
+} wk_gsub_rewrite;
+
+static uint16_t wk_rewriteIn16(wk_gsub_rewrite *r, uint64_t at)
+{
+    if (at + 2 > r->inLength) {
+        r->failed = true;
+        return 0;
+    }
+    return wk_be16(r->in + at);
+}
+
+static uint32_t wk_rewriteIn32(wk_gsub_rewrite *r, uint64_t at)
+{
+    if (at + 4 > r->inLength) {
+        r->failed = true;
+        return 0;
+    }
+    return wk_be32(r->in + at);
+}
+
+static void wk_rewriteOut16(wk_gsub_rewrite *r, uint64_t at, uint64_t value)
+{
+    if (value > 0xFFFF || at + 2 > r->outLength) {
+        r->failed = true;
+        return;
+    }
+    r->out[at] = (uint8_t)(value >> 8);
+    r->out[at + 1] = (uint8_t)value;
+}
+
+static void wk_rewriteOut32(wk_gsub_rewrite *r, uint64_t at, uint64_t value)
+{
+    if (value > 0xFFFFFFFFu || at + 4 > r->outLength) {
+        r->failed = true;
+        return;
+    }
+    wk_writeBigEndian32(r->out + at, (uint32_t)value);
+}
+
+// Where a position in the source table lies in the rewritten one.
+static uint64_t wk_rewriteMoved(wk_gsub_rewrite *r, uint64_t at)
+{
+    return at >= r->insertAt ? at + r->inserted : at;
+}
+
+// Rewrites the 16-bit offset at `field`, which counts from `base`, for the moved block, and answers its target
+// in the source table (0 for a NULL offset).
+static uint64_t wk_rewriteOffset(wk_gsub_rewrite *r, uint64_t base, uint64_t field)
+{
+    uint16_t offset = wk_rewriteIn16(r, field);
+    if (!offset)
+        return 0;
+    uint64_t target = base + offset;
+    wk_rewriteOut16(r, wk_rewriteMoved(r, field), wk_rewriteMoved(r, target) - wk_rewriteMoved(r, base));
+    return target;
+}
+
+static uint64_t wk_renumberedLookup(wk_gsub_rewrite *r, uint16_t index)
+{
+    if (index >= r->lookupCount)
+        return index;
+    uint64_t before = 0;
+    for (CFIndex c = 0; c < r->cloneCount; c++) {
+        if (r->clones[c].source < index)
+            before++;
+    }
+    return index + before;
+}
+
+// The index of the clone of `source` for `value`, or -1 when there is none.
+static int64_t wk_cloneLookupIndex(wk_gsub_rewrite *r, uint16_t source, int value)
+{
+    int64_t rank = 0;
+    for (CFIndex c = 0; c < r->cloneCount; c++) {
+        if (r->clones[c].source != source)
+            continue;
+        if (r->clones[c].value == value)
+            return (int64_t)wk_renumberedLookup(r, source) + 1 + rank;
+        rank++;
+    }
+    return -1;
+}
+
+static void wk_renumberLookupRecords(wk_gsub_rewrite *r, uint64_t records, uint16_t count)
+{
+    for (uint16_t i = 0; i < count; i++) {
+        uint64_t field = records + 4 * (uint64_t)i + 2;
+        wk_rewriteOut16(r, wk_rewriteMoved(r, field), wk_renumberedLookup(r, wk_rewriteIn16(r, field)));
+    }
+}
+
+// A SubRule / SubClassRule, or with `chained` a ChainSubRule / ChainSubClassRule.
+static void wk_renumberContextRule(wk_gsub_rewrite *r, uint64_t rule, bool chained)
+{
+    uint64_t at = rule;
+    if (chained)
+        at += 2 + 2 * (uint64_t)wk_rewriteIn16(r, at);
+    uint16_t inputCount = wk_rewriteIn16(r, at);
+    uint64_t input = 2 * (uint64_t)(inputCount ? inputCount - 1 : 0);
+    if (!chained) {
+        wk_renumberLookupRecords(r, at + 4 + input, wk_rewriteIn16(r, at + 2));
+        return;
+    }
+    at += 2 + input;
+    at += 2 + 2 * (uint64_t)wk_rewriteIn16(r, at);
+    wk_renumberLookupRecords(r, at + 2, wk_rewriteIn16(r, at));
+}
+
+static void wk_renumberContextRuleSets(wk_gsub_rewrite *r, uint64_t subtable, uint64_t countField, bool chained)
+{
+    uint16_t setCount = wk_rewriteIn16(r, countField);
+    for (uint16_t s = 0; s < setCount && !r->failed; s++) {
+        uint16_t setOffset = wk_rewriteIn16(r, countField + 2 + 2 * (uint64_t)s);
+        if (!setOffset)
+            continue;
+        uint64_t set = subtable + setOffset;
+        uint16_t ruleCount = wk_rewriteIn16(r, set);
+        for (uint16_t k = 0; k < ruleCount && !r->failed; k++) {
+            uint16_t ruleOffset = wk_rewriteIn16(r, set + 2 + 2 * (uint64_t)k);
+            if (ruleOffset)
+                wk_renumberContextRule(r, set + ruleOffset, chained);
+        }
+    }
+}
+
+// The lookup records of a Context (type 5) or ChainContext (type 6) subtable, reached through an Extension.
+static void wk_renumberContextSubtable(wk_gsub_rewrite *r, uint16_t type, uint64_t subtable, bool extended)
+{
+    uint16_t format = wk_rewriteIn16(r, subtable);
+    if (type == 7 && !extended && format == 1) {
+        wk_renumberContextSubtable(r, wk_rewriteIn16(r, subtable + 2), subtable + wk_rewriteIn32(r, subtable + 4), true);
+        return;
+    }
+    if (type == 5 && format == 1)
+        wk_renumberContextRuleSets(r, subtable, subtable + 4, false);
+    else if (type == 5 && format == 2)
+        wk_renumberContextRuleSets(r, subtable, subtable + 6, false);
+    else if (type == 5 && format == 3)
+        wk_renumberLookupRecords(r, subtable + 6 + 2 * (uint64_t)wk_rewriteIn16(r, subtable + 2), wk_rewriteIn16(r, subtable + 4));
+    else if (type == 6 && format == 1)
+        wk_renumberContextRuleSets(r, subtable, subtable + 4, true);
+    else if (type == 6 && format == 2)
+        wk_renumberContextRuleSets(r, subtable, subtable + 10, true);
+    else if (type == 6 && format == 3) {
+        uint64_t at = subtable + 2;
+        for (int sequence = 0; sequence < 3; sequence++)
+            at += 2 + 2 * (uint64_t)wk_rewriteIn16(r, at);
+        wk_renumberLookupRecords(r, at + 2, wk_rewriteIn16(r, at));
+    }
+}
+
+// The AlternateSubst format 1 subtables of a lookup, through its Extension subtables: written to
+// `subtables` when it is non-NULL, and counted. -1 for a lookup that is not an AlternateSubst lookup.
+static CFIndex wk_alternateSubtables(wk_gsub_rewrite *r, uint64_t lookup, uint64_t *subtables)
+{
+    uint16_t type = wk_rewriteIn16(r, lookup);
+    if (type != 3 && type != 7)
+        return -1;
+    uint16_t count = wk_rewriteIn16(r, lookup + 4);
+    CFIndex found = 0;
+    for (uint16_t s = 0; s < count; s++) {
+        uint64_t subtable = lookup + wk_rewriteIn16(r, lookup + 6 + 2 * (uint64_t)s);
+        if (type == 7) {
+            if (wk_rewriteIn16(r, subtable) != 1 || wk_rewriteIn16(r, subtable + 2) != 3)
+                return -1;
+            subtable += wk_rewriteIn32(r, subtable + 4);
+        }
+        if (wk_rewriteIn16(r, subtable) != 1)
+            continue;
+        if (subtables)
+            subtables[found] = subtable;
+        found++;
+    }
+    return r->failed ? -1 : found;
+}
+
+// The substitutions alternate `value` of an AlternateSubst subtable makes, in coverage order, written to
+// `glyphs` and `alternates` when they are non-NULL, and counted.
+static CFIndex wk_alternatePairs(wk_gsub_rewrite *r, uint64_t subtable, int value, uint16_t *glyphs, uint16_t *alternates)
+{
+    uint64_t coverage = subtable + wk_rewriteIn16(r, subtable + 2);
+    uint16_t setCount = wk_rewriteIn16(r, subtable + 4);
+    uint16_t format = wk_rewriteIn16(r, coverage);
+    uint16_t entries = wk_rewriteIn16(r, coverage + 2);
+    CFIndex pairs = 0;
+    for (uint16_t e = 0; e < entries && !r->failed; e++) {
+        uint32_t first, last, index;
+        if (format == 1) {
+            first = last = wk_rewriteIn16(r, coverage + 4 + 2 * (uint64_t)e);
+            index = e;
+        } else if (format == 2) {
+            uint64_t range = coverage + 4 + 6 * (uint64_t)e;
+            first = wk_rewriteIn16(r, range);
+            last = wk_rewriteIn16(r, range + 2);
+            index = wk_rewriteIn16(r, range + 4);
+        } else
+            break;
+        for (uint32_t glyph = first; glyph <= last && !r->failed; glyph++, index++) {
+            if (index >= setCount)
+                break;
+            uint64_t set = subtable + wk_rewriteIn16(r, subtable + 6 + 2 * (uint64_t)index);
+            if (wk_rewriteIn16(r, set) < value)
+                continue;
+            if (glyphs) {
+                glyphs[pairs] = (uint16_t)glyph;
+                alternates[pairs] = wk_rewriteIn16(r, set + 2 + 2 * (uint64_t)(value - 1));
+            }
+            pairs++;
+        }
+    }
+    return pairs;
+}
+
+static int wk_compareAlternateClones(const void *a, const void *b)
+{
+    const wk_alternate_clone *first = (const wk_alternate_clone *)a;
+    const wk_alternate_clone *second = (const wk_alternate_clone *)b;
+    if (first->source != second->source)
+        return first->source < second->source ? -1 : 1;
+    return first->value < second->value ? -1 : first->value > second->value;
+}
+
+static int wk_carrierValue(const wk_feature_carrier *carriers, CFIndex carrierCount, uint32_t tag)
+{
+    for (CFIndex c = 0; c < carrierCount; c++) {
+        if (carriers[c].tag == tag)
+            return carriers[c].value;
+    }
+    return 0;
+}
+
+// The GSUB a shaping instance takes for carriers whose value selects an alternate, or NULL when it needs
+// no rewriting. `feasible` is false when the table's layout leaves no room to rewrite it.
+static CFDataRef wk_copyGSUBSelectingAlternates(CFDataRef gsub, const wk_feature_carrier *carriers, CFIndex carrierCount,
+                                                bool *feasible)
+{
+    *feasible = true;
+    bool selectsAlternate = false;
+    for (CFIndex c = 0; c < carrierCount; c++)
+        selectsAlternate |= carriers[c].value > 1;
+    if (!gsub || !selectsAlternate)
+        return NULL;
+    wk_gsub_rewrite r = { .in = CFDataGetBytePtr(gsub), .inLength = (uint64_t)CFDataGetLength(gsub) };
+    if (!r.in || r.inLength < 10 || wk_be16(r.in) != 1
+        || (wk_be16(r.in + 2) >= 1 && r.inLength >= 14 && wk_be32(r.in + 10))) {
+        *feasible = false;
+        return NULL;
+    }
+    uint64_t scriptList = wk_be16(r.in + 4);
+    uint64_t featureList = wk_be16(r.in + 6);
+    uint64_t lookupList = wk_be16(r.in + 8);
+    if (!featureList || !lookupList)
+        return NULL;
+    r.lookupCount = wk_rewriteIn16(&r, lookupList);
+    r.insertAt = lookupList + 2 + 2 * (uint64_t)r.lookupCount;
+    for (uint16_t j = 0; j < r.lookupCount; j++) {
+        if (lookupList + wk_rewriteIn16(&r, lookupList + 2 + 2 * (uint64_t)j) < r.insertAt)
+            r.failed = true;
+    }
+
+    // The clones the carried features need, and the records that take a Feature table of their own.
+    uint16_t featureCount = wk_rewriteIn16(&r, featureList);
+    wk_alternate_clone *clones = NULL;
+    CFIndex cloneCount = 0, cloneCapacity = 0;
+    bool *redirected = (bool *)calloc((size_t)featureCount + 1, sizeof(bool));
+    if (!redirected)
+        abort();
+    uint64_t featureTablesSize = 0;
+    for (uint16_t i = 0; i < featureCount && !r.failed; i++) {
+        uint64_t record = featureList + 2 + 6 * (uint64_t)i;
+        int value = wk_carrierValue(carriers, carrierCount, wk_rewriteIn32(&r, record));
+        if (value <= 1)
+            continue;
+        uint64_t feature = featureList + wk_rewriteIn16(&r, record + 4);
+        uint16_t lookupIndexCount = wk_rewriteIn16(&r, feature + 2);
+        redirected[i] = true;
+        featureTablesSize += 4 + 2 * (uint64_t)lookupIndexCount;
+        for (uint16_t j = 0; j < lookupIndexCount && !r.failed; j++) {
+            uint16_t index = wk_rewriteIn16(&r, feature + 4 + 2 * (uint64_t)j);
+            if (index >= r.lookupCount
+                || wk_alternateSubtables(&r, lookupList + wk_rewriteIn16(&r, lookupList + 2 + 2 * (uint64_t)index), NULL) < 0)
+                continue;
+            bool known = false;
+            for (CFIndex c = 0; c < cloneCount && !known; c++)
+                known = clones[c].source == index && clones[c].value == value;
+            if (known)
+                continue;
+            if (cloneCount == cloneCapacity) {
+                cloneCapacity = cloneCapacity ? 2 * cloneCapacity : 8;
+                clones = (wk_alternate_clone *)realloc(clones, (size_t)cloneCapacity * sizeof(wk_alternate_clone));
+                if (!clones)
+                    abort();
+            }
+            clones[cloneCount++] = (wk_alternate_clone) { index, value };
+        }
+    }
+    if (r.failed || !cloneCount) {
+        *feasible = !r.failed;
+        free(clones);
+        free(redirected);
+        return NULL;
+    }
+    qsort(clones, (size_t)cloneCount, sizeof(wk_alternate_clone), wk_compareAlternateClones);
+    r.clones = clones;
+    r.cloneCount = cloneCount;
+
+    // Sizes: the inserted block holds the offsets, Feature tables, clone lookups and their Extension
+    // subtables; the SingleSubst subtables and their coverage follow the table.
+    uint64_t lookupsSize = 0, tailSize = 0;
+    for (CFIndex c = 0; c < cloneCount && !r.failed; c++) {
+        uint64_t lookup = lookupList + wk_rewriteIn16(&r, lookupList + 2 + 2 * (uint64_t)clones[c].source);
+        CFIndex count = wk_alternateSubtables(&r, lookup, NULL);
+        uint64_t *subtables = (uint64_t *)calloc((size_t)(count > 0 ? count : 1), sizeof(uint64_t));
+        if (!subtables)
+            abort();
+        wk_alternateSubtables(&r, lookup, subtables);
+        bool filtersMarks = wk_rewriteIn16(&r, lookup + 2) & 0x0010;
+        lookupsSize += 6 + 2 * (uint64_t)count + (filtersMarks ? 2 : 0) + 8 * (uint64_t)count;
+        for (CFIndex s = 0; s < count; s++)
+            tailSize += 10 + 4 * (uint64_t)wk_alternatePairs(&r, subtables[s], clones[c].value, NULL, NULL);
+        free(subtables);
+    }
+    r.inserted = 2 * (uint64_t)cloneCount + featureTablesSize + lookupsSize;
+    uint64_t tail = (r.inLength + r.inserted + 1) & ~(uint64_t)1;
+    r.outLength = tail + tailSize;
+    if (r.failed || r.outLength > 0x7FFFFFFF) {
+        *feasible = false;
+        free(clones);
+        free(redirected);
+        return NULL;
+    }
+    r.out = (uint8_t *)calloc((size_t)r.outLength, 1);
+    if (!r.out)
+        abort();
+    memcpy(r.out, r.in, (size_t)r.insertAt);
+    memcpy(r.out + r.insertAt + r.inserted, r.in + r.insertAt, (size_t)(r.inLength - r.insertAt));
+
+    // The header, the ScriptList and the FeatureList, with each Feature table's lookups renumbered.
+    if (scriptList)
+        wk_rewriteOut16(&r, 4, wk_rewriteMoved(&r, scriptList));
+    wk_rewriteOut16(&r, 6, wk_rewriteMoved(&r, featureList));
+    uint16_t scriptCount = scriptList ? wk_rewriteIn16(&r, scriptList) : 0;
+    for (uint16_t s = 0; s < scriptCount && !r.failed; s++) {
+        uint64_t script = wk_rewriteOffset(&r, scriptList, scriptList + 2 + 6 * (uint64_t)s + 4);
+        if (!script)
+            continue;
+        wk_rewriteOffset(&r, script, script);
+        uint16_t languageSystemCount = wk_rewriteIn16(&r, script + 2);
+        for (uint16_t l = 0; l < languageSystemCount; l++)
+            wk_rewriteOffset(&r, script, script + 4 + 6 * (uint64_t)l + 4);
+    }
+    uint64_t cursor = r.insertAt + 2 * (uint64_t)cloneCount;
+    for (uint16_t i = 0; i < featureCount && !r.failed; i++) {
+        uint64_t field = featureList + 2 + 6 * (uint64_t)i + 4;
+        uint64_t feature = wk_rewriteOffset(&r, featureList, field);
+        if (!feature)
+            continue;
+        wk_rewriteOffset(&r, feature, feature);
+        uint16_t lookupIndexCount = wk_rewriteIn16(&r, feature + 2);
+        for (uint16_t j = 0; j < lookupIndexCount; j++) {
+            uint64_t indexField = feature + 4 + 2 * (uint64_t)j;
+            wk_rewriteOut16(&r, wk_rewriteMoved(&r, indexField), wk_renumberedLookup(&r, wk_rewriteIn16(&r, indexField)));
+        }
+        if (!redirected[i])
+            continue;
+        int value = wk_carrierValue(carriers, carrierCount, wk_rewriteIn32(&r, field - 4));
+        uint64_t movedFeatureList = wk_rewriteMoved(&r, featureList);
+        if (cursor <= movedFeatureList)
+            r.failed = true;
+        wk_rewriteOut16(&r, wk_rewriteMoved(&r, field), cursor - movedFeatureList);
+        wk_rewriteOut16(&r, cursor, 0);
+        wk_rewriteOut16(&r, cursor + 2, lookupIndexCount);
+        for (uint16_t j = 0; j < lookupIndexCount; j++) {
+            uint16_t index = wk_rewriteIn16(&r, feature + 4 + 2 * (uint64_t)j);
+            int64_t clone = wk_cloneLookupIndex(&r, index, value);
+            wk_rewriteOut16(&r, cursor + 4 + 2 * (uint64_t)j, clone >= 0 ? (uint64_t)clone : wk_renumberedLookup(&r, index));
+        }
+        cursor += 4 + 2 * (uint64_t)lookupIndexCount;
+    }
+
+    // The LookupList with the clones in place, and the contextual lookup records renumbered.
+    wk_rewriteOut16(&r, lookupList, (uint64_t)r.lookupCount + (uint64_t)cloneCount);
+    for (uint16_t j = 0; j < r.lookupCount && !r.failed; j++) {
+        uint64_t lookup = lookupList + wk_rewriteIn16(&r, lookupList + 2 + 2 * (uint64_t)j);
+        wk_rewriteOut16(&r, lookupList + 2 + 2 * wk_renumberedLookup(&r, j), wk_rewriteMoved(&r, lookup) - lookupList);
+        uint16_t type = wk_rewriteIn16(&r, lookup);
+        if (type != 5 && type != 6 && type != 7)
+            continue;
+        uint16_t subtableCount = wk_rewriteIn16(&r, lookup + 4);
+        for (uint16_t s = 0; s < subtableCount && !r.failed; s++)
+            wk_renumberContextSubtable(&r, type, lookup + wk_rewriteIn16(&r, lookup + 6 + 2 * (uint64_t)s), false);
+    }
+
+    // The clones.
+    for (CFIndex c = 0; c < cloneCount && !r.failed; c++) {
+        uint64_t lookup = lookupList + wk_rewriteIn16(&r, lookupList + 2 + 2 * (uint64_t)clones[c].source);
+        CFIndex count = wk_alternateSubtables(&r, lookup, NULL);
+        uint64_t *subtables = (uint64_t *)calloc((size_t)(count > 0 ? count : 1), sizeof(uint64_t));
+        if (!subtables)
+            abort();
+        wk_alternateSubtables(&r, lookup, subtables);
+        uint16_t flags = wk_rewriteIn16(&r, lookup + 2);
+        uint64_t header = cursor;
+        uint64_t headerSize = 6 + 2 * (uint64_t)count + ((flags & 0x0010) ? 2 : 0);
+        wk_rewriteOut16(&r, lookupList + 2 + 2 * (uint64_t)wk_cloneLookupIndex(&r, clones[c].source, clones[c].value), header - lookupList);
+        wk_rewriteOut16(&r, header, 7);
+        wk_rewriteOut16(&r, header + 2, flags);
+        wk_rewriteOut16(&r, header + 4, (uint64_t)count);
+        if (flags & 0x0010)
+            wk_rewriteOut16(&r, header + 6 + 2 * (uint64_t)count,
+                wk_rewriteIn16(&r, lookup + 6 + 2 * (uint64_t)wk_rewriteIn16(&r, lookup + 4)));
+        for (CFIndex s = 0; s < count && !r.failed; s++) {
+            uint64_t extension = header + headerSize + 8 * (uint64_t)s;
+            CFIndex pairs = wk_alternatePairs(&r, subtables[s], clones[c].value, NULL, NULL);
+            uint16_t *glyphs = (uint16_t *)calloc((size_t)pairs + 1, sizeof(uint16_t));
+            uint16_t *alternates = (uint16_t *)calloc((size_t)pairs + 1, sizeof(uint16_t));
+            if (!glyphs || !alternates)
+                abort();
+            wk_alternatePairs(&r, subtables[s], clones[c].value, glyphs, alternates);
+            wk_rewriteOut16(&r, header + 6 + 2 * (uint64_t)s, extension - header);
+            wk_rewriteOut16(&r, extension, 1);
+            wk_rewriteOut16(&r, extension + 2, 1);
+            wk_rewriteOut32(&r, extension + 4, tail - extension);
+            uint64_t coverage = tail + 6 + 2 * (uint64_t)pairs;
+            wk_rewriteOut16(&r, tail, 2);
+            wk_rewriteOut16(&r, tail + 2, coverage - tail);
+            wk_rewriteOut16(&r, tail + 4, (uint64_t)pairs);
+            wk_rewriteOut16(&r, coverage, 1);
+            wk_rewriteOut16(&r, coverage + 2, (uint64_t)pairs);
+            for (CFIndex p = 0; p < pairs; p++) {
+                wk_rewriteOut16(&r, tail + 6 + 2 * (uint64_t)p, alternates[p]);
+                wk_rewriteOut16(&r, coverage + 4 + 2 * (uint64_t)p, glyphs[p]);
+            }
+            tail = coverage + 4 + 2 * (uint64_t)pairs;
+            free(glyphs);
+            free(alternates);
+        }
+        cursor = header + headerSize + 8 * (uint64_t)count;
+        free(subtables);
+    }
+    free(clones);
+    free(redirected);
+    if (r.failed) {
+        free(r.out);
+        *feasible = false;
+        return NULL;
+    }
+    CFDataRef rewritten = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, r.out, (CFIndex)r.outLength, kCFAllocatorMalloc);
+    if (!rewritten)
+        abort();
+    return rewritten;
+}
+
+// Whether the font has a metamorphosis table. 10.9 shapes such a font from it and applies none of its GSUB
+// features (measured on AppleSDGothicNeo-Regular and Kefa-Regular), and stylistic-set selectors reach the
+// morx's own sets.
+static bool wk_fontHasMetamorphosis(CTFontRef font)
+{
+    const CTFontTableTag tags[] = { 'morx', 'mort' };
+    for (size_t i = 0; i < sizeof(tags) / sizeof(tags[0]); i++) {
+        CFDataRef table = CTFontCopyTable(font, tags[i], kCTFontTableOptionNoOptions);
+        if (table) {
+            CFRelease(table);
+            return true;
+        }
+    }
+    return false;
+}
+
+// Whether the font's own settings turn a stylistic set on.
+static bool wk_settingsTurnOnStylisticSet(CTFontRef font, int set)
+{
+    CFArrayRef settings = WK_ORIGINAL(CTFontCopyFeatureSettings)(font);
+    bool on = false;
+    for (CFIndex i = 0, count = settings ? CFArrayGetCount(settings) : 0; i < count && !on; i++) {
+        CFTypeRef setting = CFArrayGetValueAtIndex(settings, i);
+        int type = 0, selector = 0;
+        on = setting && CFGetTypeID(setting) == CFDictionaryGetTypeID()
+            && wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontFeatureTypeIdentifierKey), &type)
+            && wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontFeatureSelectorIdentifierKey), &selector)
+            && type == kStylisticAlternativesType && selector == kStylisticAltOneOnSelector + 2 * (set - 1);
+    }
+    if (settings)
+        CFRelease(settings);
+    return on;
+}
+
+// Whether the font's carried settings turn a tag on.
+static bool wk_settingsCarryTagOn(CFArrayRef settings, uint32_t tag)
+{
+    for (CFIndex i = 0, count = CFArrayGetCount(settings); i < count; i++) {
+        CFDictionaryRef setting = (CFDictionaryRef)CFArrayGetValueAtIndex(settings, i);
+        char name[8] = { 0 };
+        int value = 0;
+// kCTFontOpenTypeFeatureValue is 10.10+ in the SDK and absent on the 10.9 runtime; this file supplies it
+// (WK_POLYFILL_CONST above), so this reads the layer's own definition.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+        if (wk_openTypeSettingIsCarried(setting)
+            && wk_intFromNumber(CFDictionaryGetValue(setting, kCTFontOpenTypeFeatureValue), &value) && value
+            && CFStringGetCString((CFStringRef)wk_openTypeOnlySettingTag(setting), name, sizeof(name), kCFStringEncodingASCII)
+            && wk_featureTag(name) == tag)
+            return true;
+#pragma clang diagnostic pop
+    }
+    return false;
+}
+
+// The carriers a font's carried settings take: one for each feature they turn on that the font's GSUB or GPOS
+// has and 10.9's engine leaves alone. A carrier is a stylistic set neither table names, lowest first, and once
+// those run out a set the font has that its settings leave off, whose own records are parked: retagged to a tag
+// 10.9's feature table does not name, which no selector reaches. Where the carried settings turn on a member of a
+// shared AAT pair, the pair reaches whichever member 10.9 applies, so the other members the font has are parked
+// too. A font 10.9 shapes with morx takes none, and a feature whose alternate the GSUB cannot be rewritten to
+// select takes none.
+static CFIndex wk_featureCarriers(CTFontRef font, wk_feature_carrier carriers[WKFeatureCarrierCapacity])
+{
+    CFArrayRef settings = wk_openTypeOnlySettings(font);
+    if (!settings || wk_fontHasMetamorphosis(font))
+        return 0;
+    CFDataRef gsubData = CTFontCopyTable(font, kCTFontTableGSUB, kCTFontTableOptionNoOptions);
+    CFDataRef gposData = CTFontCopyTable(font, kCTFontTableGPOS, kCTFontTableOptionNoOptions);
+    wk_font_table gsub = { gsubData ? CFDataGetBytePtr(gsubData) : NULL,
+        gsubData && CFDataGetBytePtr(gsubData) ? (uint32_t)CFDataGetLength(gsubData) : 0 };
+    wk_font_table gpos = { gposData ? CFDataGetBytePtr(gposData) : NULL,
+        gposData && CFDataGetBytePtr(gposData) ? (uint32_t)CFDataGetLength(gposData) : 0 };
+
+    uint32_t parked = 0;
+    for (int n = 0; n < 100 && !parked; n++) {
+        char name[5] = { 'z', 'z', (char)('0' + n / 10), (char)('0' + n % 10), 0 };
+        if (!wk_layoutTablesCarryTag(gsub, gpos, wk_featureTag(name)))
+            parked = wk_featureTag(name);
+    }
+    int sets[WKStylisticSetCount];
+    bool borrowed[WKStylisticSetCount];
+    int setCount = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        for (int set = 1; set <= WKStylisticSetCount; set++) {
+            bool present = wk_layoutTablesCarryTag(gsub, gpos, wk_stylisticSetTag(set));
+            if (pass ? (present && parked && !wk_settingsTurnOnStylisticSet(font, set) && !wk_settingsCarryTagOn(settings, wk_stylisticSetTag(set))) : !present) {
+                sets[setCount] = set;
+                borrowed[setCount++] = pass;
+            }
+        }
+    }
+
+    CFIndex count = 0;
+    int nextSet = 0;
+    for (CFIndex i = 0, settingCount = CFArrayGetCount(settings); i < settingCount && nextSet < setCount; i++) {
+        CFDictionaryRef setting = (CFDictionaryRef)CFArrayGetValueAtIndex(settings, i);
+        int value = 0;
+        char name[8] = { 0 };
+// kCTFontOpenTypeFeatureValue is 10.10+ in the SDK and absent on the 10.9 runtime; this file supplies it
+// (WK_POLYFILL_CONST above), so this reads the layer's own definition.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+        if (!wk_openTypeSettingIsCarried(setting)
+            || !wk_intFromNumber(CFDictionaryGetValue(setting, kCTFontOpenTypeFeatureValue), &value) || !value
+            || !CFStringGetCString((CFStringRef)wk_openTypeOnlySettingTag(setting), name, sizeof(name), kCFStringEncodingASCII))
+            continue;
+#pragma clang diagnostic pop
+        uint32_t tag = wk_featureTag(name);
+        if (wk_engineAppliesFeature(tag) || !wk_layoutTablesCarryTag(gsub, gpos, tag))
+            continue;
+        int set = sets[nextSet];
+        if (borrowed[nextSet])
+            carriers[count++] = (wk_feature_carrier) { wk_stylisticSetTag(set), 0, parked, -1 };
+        nextSet++;
+        carriers[count++] = (wk_feature_carrier) { tag, value, wk_stylisticSetTag(set), kStylisticAltOneOnSelector + 2 * (set - 1) };
+    }
+    CFIndex assigned = count;
+    for (size_t g = 0; parked && g < sizeof(wk_aatSharedPairGroups) / sizeof(wk_aatSharedPairGroups[0]); g++) {
+        bool turnedOn = false;
+        for (size_t m = 0; wk_aatSharedPairGroups[g][m] && !turnedOn; m++) {
+            for (CFIndex c = 0; c < assigned && !turnedOn; c++)
+                turnedOn = carriers[c].selector >= 0 && carriers[c].tag == wk_featureTag(wk_aatSharedPairGroups[g][m]);
+        }
+        for (size_t m = 0; turnedOn && wk_aatSharedPairGroups[g][m]; m++) {
+            uint32_t tag = wk_featureTag(wk_aatSharedPairGroups[g][m]);
+            bool hasCarrier = false;
+            for (CFIndex c = 0; c < assigned && !hasCarrier; c++)
+                hasCarrier = carriers[c].tag == tag;
+            if (!hasCarrier && wk_layoutTablesCarryTag(gsub, gpos, tag))
+                carriers[count++] = (wk_feature_carrier) { tag, 0, parked, -1 };
+        }
+    }
+    bool feasible = true;
+    CFDataRef rewritten = wk_copyGSUBSelectingAlternates(gsubData, carriers, count, &feasible);
+    if (rewritten)
+        CFRelease(rewritten);
+    if (!feasible) {
+        CFIndex kept = 0;
+        for (CFIndex c = 0; c < count; c++) {
+            if (carriers[c].value <= 1)
+                carriers[kept++] = carriers[c];
+        }
+        count = kept;
+    }
+    if (gsubData)
+        CFRelease(gsubData);
+    if (gposData)
+        CFRelease(gposData);
+    return count;
+}
+
+// Retags, in place, every FeatureRecord of a GSUB or GPOS table that carries a carried feature's tag.
+static void wk_retagFeatureRecords(uint8_t *table, CFIndex length, const wk_feature_carrier *carriers, CFIndex carrierCount)
+{
+    if (length < 10)
+        return;
+    CFIndex featureList = wk_be16(table + 6);
+    if (!featureList || featureList + 2 > length)
+        return;
+    CFIndex featureCount = wk_be16(table + featureList);
+    for (CFIndex i = 0; i < featureCount && featureList + 2 + (i + 1) * 6 <= length; i++) {
+        uint8_t *record = table + featureList + 2 + i * 6;
+        uint32_t tag = wk_be32(record);
+        for (CFIndex c = 0; c < carrierCount; c++) {
+            if (carriers[c].tag == tag) {
+                wk_writeBigEndian32(record, carriers[c].carrier);
+                break;
+            }
+        }
+    }
+}
+
+// Whether the font's morx has logical-order subtables. Kept on the CTFont.
+static bool wk_fontHasLogicalOrderSubtables(CTFontRef font)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_logicalOrderSubtables");
+    CFTypeRef cached = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, key);
+    if (!cached) {
+        CFDataRef morx = CTFontCopyTable(font, 'morx', kCTFontTableOptionNoOptions);
+        bool logicalOrder = morx && wk_morxLogicalOrderSubtables((uint8_t *)CFDataGetBytePtr(morx), CFDataGetLength(morx), false);
+        if (morx)
+            CFRelease(morx);
+        cached = logicalOrder ? kCFBooleanTrue : kCFBooleanFalse;
+        objc_setAssociatedObject((id)(void *)font, key, (id)(void *)cached, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return cached == kCFBooleanTrue;
+}
+
+// A shaping instance carries the font's morx with its logical-order subtables flagged for right-to-left text
+// when `logicalOrder` is set, and its GSUB and GPOS with each carried feature retagged to its carrier and its
+// GSUB selecting each carried feature's alternate.
+static CGFontRef wk_createShapingInstance(CTFontRef font, bool logicalOrder, const wk_feature_carrier *carriers, CFIndex carrierCount)
 {
     CFArrayRef tagArray = CTFontCopyAvailableTables(font, kCTFontTableOptionNoOptions);
     CFIndex tagCount = tagArray ? CFArrayGetCount(tagArray) : 0;
@@ -6236,6 +7258,14 @@ static CGFontRef wk_createShapingInstance(CTFontRef font)
             CFRelease(table);
             table = withoutImages;
         }
+        if (tags[i] == kCTFontTableGSUB && carrierCount) {
+            bool feasible = true;
+            CFDataRef selectingAlternates = wk_copyGSUBSelectingAlternates(table, carriers, carrierCount, &feasible);
+            if (selectingAlternates) {
+                CFRelease(table);
+                table = selectingAlternates;
+            }
+        }
         if (tags[i] == 'CFF ' || tags[i] == 'CFF2')
             compactFontFormat = true;
         tags[count] = tags[i];
@@ -6257,8 +7287,10 @@ static CGFontRef wk_createShapingInstance(CTFontRef font)
     for (CFIndex i = 0; i < count; ++i) {
         CFIndex tableLength = CFDataGetLength(tables[i]);
         memcpy(bytes + offset, CFDataGetBytePtr(tables[i]), (size_t)tableLength);
-        if (tags[i] == 'morx')
+        if (tags[i] == 'morx' && logicalOrder)
             wk_morxLogicalOrderSubtables(bytes + offset, tableLength, true);
+        if ((tags[i] == kCTFontTableGSUB || tags[i] == kCTFontTableGPOS) && carrierCount)
+            wk_retagFeatureRecords(bytes + offset, tableLength, carriers, carrierCount);
         uint8_t *entry = bytes + 12 + 16 * i;
         wk_writeBigEndian32(entry, tags[i]);
         wk_writeBigEndian32(entry + 8, (uint32_t)offset);
@@ -6282,31 +7314,48 @@ static CGFontRef wk_createShapingInstance(CTFontRef font)
 
 static const void *wk_isShapingInstanceKey(void) { return sel_registerName("wk_isShapingInstance"); }
 
-static CGFontRef wk_copyShapingInstanceForFont(CTFontRef font)
+// The shaping instance a font's run takes, or NULL when it needs none: one with the logical-order subtables
+// flagged for a right-to-left run, and with the font's carried features retagged (`carriers` receives them).
+// The graphics font keeps each instance under the transformation it makes.
+static CGFontRef wk_copyShapingInstanceForFont(CTFontRef font, bool rightToLeft, wk_feature_carrier carriers[WKFeatureCarrierCapacity],
+                                               CFIndex *carrierCount)
 {
-    CFDataRef morx = CTFontCopyTable(font, 'morx', kCTFontTableOptionNoOptions);
-    bool logicalOrder = morx && wk_morxLogicalOrderSubtables((uint8_t *)CFDataGetBytePtr(morx), CFDataGetLength(morx), false);
-    if (morx)
-        CFRelease(morx);
-    if (!logicalOrder)
+    bool logicalOrder = rightToLeft && wk_fontHasLogicalOrderSubtables(font);
+    *carrierCount = wk_featureCarriers(font, carriers);
+    if (!logicalOrder && !*carrierCount)
         return NULL;
     CGFontRef graphicsFont = CTFontCopyGraphicsFont(font, NULL);
     if (!graphicsFont)
         return NULL;
-    const void *key = sel_registerName("wk_shapingInstance");
+    CFMutableStringRef transformation = CFStringCreateMutable(kCFAllocatorDefault, 0);
+    if (!transformation)
+        abort();
+    CFStringAppend(transformation, logicalOrder ? CFSTR("L") : CFSTR("-"));
+    for (CFIndex i = 0; i < *carrierCount; i++)
+        CFStringAppendFormat(transformation, NULL, CFSTR(" %08x=%d>%08x"), (unsigned)carriers[i].tag, carriers[i].value, (unsigned)carriers[i].carrier);
+    const void *key = sel_registerName("wk_shapingInstances");
     objc_sync_enter((id)(void *)graphicsFont);
-    CFTypeRef instance = (CFTypeRef)objc_getAssociatedObject((id)(void *)graphicsFont, key);
+    CFMutableDictionaryRef instances = (CFMutableDictionaryRef)objc_getAssociatedObject((id)(void *)graphicsFont, key);
+    if (!instances) {
+        instances = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        if (!instances)
+            abort();
+        objc_setAssociatedObject((id)(void *)graphicsFont, key, (id)(void *)instances, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFRelease(instances);
+    }
+    CFTypeRef instance = CFDictionaryGetValue(instances, transformation);
     if (!instance) {
-        CGFontRef created = wk_createShapingInstance(font);
+        CGFontRef created = wk_createShapingInstance(font, logicalOrder, carriers, *carrierCount);
         instance = created ? (CFTypeRef)created : kCFNull;
         if (created)
             objc_setAssociatedObject((id)(void *)created, wk_isShapingInstanceKey(), (id)(void *)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject((id)(void *)graphicsFont, key, (id)(void *)instance, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFDictionarySetValue(instances, transformation, instance);
         if (created)
             CGFontRelease(created);
     }
     CGFontRef result = instance == kCFNull ? NULL : CGFontRetain((CGFontRef)instance);
     objc_sync_exit((id)(void *)graphicsFont);
+    CFRelease(transformation);
     CGFontRelease(graphicsFont);
     return result;
 }
@@ -6321,12 +7370,47 @@ static bool wk_isShapingInstance(CTFontRef font)
     return instance;
 }
 
-// The source font owns its realized shaping font.
+// The font's descriptor with each carrier's on-selector added to its settings. Consumes `descriptor`.
+static CTFontDescriptorRef wk_descriptorWithCarriers(CTFontDescriptorRef descriptor, const wk_feature_carrier *carriers,
+                                                     CFIndex carrierCount)
+{
+    if (!descriptor || !carrierCount)
+        return descriptor;
+    CFMutableArrayRef settings = CFArrayCreateMutable(kCFAllocatorDefault, carrierCount, &kCFTypeArrayCallBacks);
+    if (!settings)
+        abort();
+    for (CFIndex i = 0; i < carrierCount; i++) {
+        if (carriers[i].selector < 0)
+            continue;
+        CFDictionaryRef setting = wk_aatFeatureDictionary(kStylisticAlternativesType, carriers[i].selector);
+        if (!setting)
+            abort();
+        CFArrayAppendValue(settings, setting);
+        CFRelease(setting);
+    }
+    const void *keys[] = { kCTFontFeatureSettingsAttribute };
+    const void *values[] = { settings };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(settings);
+    CTFontDescriptorRef carried = attributes ? CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes) : NULL;
+    if (attributes)
+        CFRelease(attributes);
+    if (!carried)
+        abort();
+    CFRelease(descriptor);
+    return carried;
+}
+
+// The source font owns its realized shaping fonts, one for each direction.
 static CTFontRef wk_shapingFont(CTFontRef font, bool rightToLeft)
 {
-    if (!rightToLeft)
+    if (!rightToLeft && !wk_holdsCarriedOpenTypeSetting(font))
         return NULL;
-    const void *key = sel_registerName("wk_shapingFont");
+    static const void *keys[2];
+    if (!keys[rightToLeft])
+        keys[rightToLeft] = (const void *)sel_registerName(rightToLeft ? "wk_shapingFont" : "wk_shapingFontLeftToRight");
+    const void *key = keys[rightToLeft];
     objc_sync_enter((id)(void *)font);
     CFTypeRef cached = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, key);
     if (cached) {
@@ -6334,10 +7418,12 @@ static CTFontRef wk_shapingFont(CTFontRef font, bool rightToLeft)
         return cached == kCFNull ? NULL : (CTFontRef)cached;
     }
     CFTypeRef shapingFont = kCFNull;
-    CGFontRef instance = wk_isShapingInstance(font) ? NULL : wk_copyShapingInstanceForFont(font);
+    wk_feature_carrier carriers[WKFeatureCarrierCapacity];
+    CFIndex carrierCount = 0;
+    CGFontRef instance = wk_isShapingInstance(font) ? NULL : wk_copyShapingInstanceForFont(font, rightToLeft, carriers, &carrierCount);
     if (instance) {
         CGAffineTransform matrix = CTFontGetMatrix(font);
-        CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(font);
+        CTFontDescriptorRef descriptor = wk_descriptorWithCarriers(CTFontCopyFontDescriptor(font), carriers, carrierCount);
         shapingFont = CTFontCreateWithGraphicsFont(instance, CTFontGetSize(font), &matrix, descriptor);
         CGFontRelease(instance);
         if (descriptor)
@@ -7110,7 +8196,13 @@ static wk_rightToLeftRange *wk_copyLogicalOrderRightToLeftRanges(wk_clusterFontP
             continue;
         CFDictionaryRef runAttributes = WK_ORIGINAL(CTRunGetAttributes)(run);
         CTFontRef font = runAttributes ? (CTFontRef)CFDictionaryGetValue(runAttributes, kCTFontAttributeName) : NULL;
-        if (!font || CFGetTypeID(font) != CTFontGetTypeID() || !wk_shapingFont(font, true))
+        CFDictionaryRef source = runAttributes ? (CFDictionaryRef)CFDictionaryGetValue(runAttributes, wk_sourceAttributesKey()) : NULL;
+        CTFontRef sourceFont = source && CFGetTypeID(source) == CFDictionaryGetTypeID()
+            ? (CTFontRef)CFDictionaryGetValue(source, kCTFontAttributeName) : NULL;
+        // A run set in its source font's left-to-right shaping font is a run of the source font.
+        if (font && sourceFont && CFGetTypeID(sourceFont) == CTFontGetTypeID() && font == wk_shapingFont(sourceFont, false))
+            font = sourceFont;
+        if (!font || CFGetTypeID(font) != CTFontGetTypeID() || !wk_fontHasLogicalOrderSubtables(font) || !wk_shapingFont(font, true))
             continue;
         if (!ranges) {
             ranges = (wk_rightToLeftRange *)malloc((size_t)runCount * sizeof(wk_rightToLeftRange));
@@ -7148,6 +8240,7 @@ typedef enum {
     WKStandInNone,
     WKStandInZeroWidth,
     WKStandInSpace,
+    WKStandInNoBreakZeroWidth,
 } wk_standIn;
 
 // CoreText does not take an override on two kinds of character. 10.9 classes the isolate controls U+2066-2069 as
@@ -7155,12 +8248,24 @@ typedef enum {
 // paragraph's level. Where those differ from the character's current level, CoreText lays out a space in its
 // place: a space takes its override and is not a mark, so no cluster before it takes it in, and in a zero-width run
 // delegate it has no advance. LF and CR are laid out as a plain space, which is the advance CoreText gives them.
-// In a font without a space, U+FFFC in a zero-width run delegate stands in.
-static wk_standIn wk_standInFor(const wk_providedText *text, const UBiDiLevel *levels, CFIndex index)
+// In a font without the space a stand-in uses, U+FFFC in a zero-width run delegate stands in. Text a client breaks
+// into lines keeps its paragraph separators, CR and LF, and lays out such an isolate control as a no-break space in
+// a zero-width run delegate, which offers no line break. Left in the text, or stood in for by another boundary neutral (U+2060,
+// U+200B, U+FEFF), such a control leaves 10.9 laying out nested isolates without their overrides; with a no-break
+// space it takes them.
+// An embedding or override control U+202A-202E would be applied again on top of the overrides that already carry
+// its effect, so a no-break space in a zero-width run delegate always stands in for it: like the control, it
+// offers no line break.
+static wk_standIn wk_standInFor(const wk_providedText *text, const UBiDiLevel *levels, CFIndex index, bool breaksLines)
 {
     UniChar character = text->characters[index];
-    if (character >= 0x2066 && character <= 0x2069)
-        return !index || levels[index] != levels[index - 1] ? WKStandInZeroWidth : WKStandInNone;
+    if (character >= 0x202A && character <= 0x202E)
+        return WKStandInNoBreakZeroWidth;
+    bool isolateAtNewLevel = character >= 0x2066 && character <= 0x2069 && (!index || levels[index] != levels[index - 1]);
+    if (breaksLines)
+        return isolateAtNewLevel ? WKStandInNoBreakZeroWidth : WKStandInNone;
+    if (isolateAtNewLevel)
+        return WKStandInZeroWidth;
     if (character == '\n' || character == '\r')
         return WKStandInSpace;
     if (!U16_IS_SURROGATE(character) && wk_isParagraphSeparator(character))
@@ -7177,7 +8282,7 @@ typedef struct {
 // The attributed string the provided text is laid out from at explicit levels: each block's attributes, each
 // character overridden to its level raised by two, and the ranges given set in their shaping fonts.
 static CFAttributedStringRef wk_createExplicitLevelString(wk_clusterFontProvider *reader, const wk_providedText *text,
-    const UBiDiLevel *levels, const wk_rightToLeftRange *ranges, CFIndex rangeCount)
+    const UBiDiLevel *levels, const wk_rightToLeftRange *ranges, CFIndex rangeCount, bool breaksLines)
 {
     wk_levelSegment *segments = NULL;
     CFIndex segmentCount = 0;
@@ -7191,10 +8296,10 @@ static CFAttributedStringRef wk_createExplicitLevelString(wk_clusterFontProvider
         const wk_servedBlock *block = &blocks[b];
         CFIndex blockEnd = block->start + block->count;
         for (CFIndex position = block->start; position < blockEnd; ) {
-            wk_standIn standIn = wk_standInFor(text, levels, position);
+            wk_standIn standIn = wk_standInFor(text, levels, position, breaksLines);
             CFIndex end = position + 1;
             if (standIn == WKStandInNone) {
-                while (end < blockEnd && levels[end] == levels[position] && wk_standInFor(text, levels, end) == WKStandInNone)
+                while (end < blockEnd && levels[end] == levels[position] && wk_standInFor(text, levels, end, breaksLines) == WKStandInNone)
                     ++end;
             }
             while (rangeIndex < rangeCount && ranges[rangeIndex].end <= position)
@@ -7214,6 +8319,10 @@ static CFAttributedStringRef wk_createExplicitLevelString(wk_clusterFontProvider
                 : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
             if (!attributes)
                 abort();
+            // A block served in a shaping font stands in for the attributes it was provided with.
+            CFDictionaryRef provided = source ? (CFDictionaryRef)CFDictionaryGetValue(source, wk_sourceAttributesKey()) : NULL;
+            if (provided)
+                source = provided;
             if (shaping && source) {
                 if (CFDictionaryGetValue(source, kCTFontAttributeName) != shaping->font)
                     source = wk_clusterFontAttributes(reader, source, shaping->font);
@@ -7228,7 +8337,7 @@ static CFAttributedStringRef wk_createExplicitLevelString(wk_clusterFontProvider
 
             if (standIn != WKStandInNone) {
                 CTFontRef font = (CTFontRef)CFDictionaryGetValue(attributes, kCTFontAttributeName);
-                UniChar space = ' ';
+                UniChar space = standIn == WKStandInNoBreakZeroWidth ? 0x00A0 : ' ';
                 CGGlyph spaceGlyph;
                 bool hasSpace = font && CFGetTypeID(font) == CTFontGetTypeID() && CTFontGetGlyphsForCharacters(font, &space, &spaceGlyph, 1);
                 if (!laidOut) {
@@ -7237,8 +8346,8 @@ static CFAttributedStringRef wk_createExplicitLevelString(wk_clusterFontProvider
                         abort();
                     memcpy(laidOut, text->characters, (size_t)text->length * sizeof(UniChar));
                 }
-                laidOut[position] = hasSpace ? ' ' : 0xFFFC;
-                if (standIn == WKStandInZeroWidth || !hasSpace) {
+                laidOut[position] = hasSpace ? space : 0xFFFC;
+                if (standIn != WKStandInSpace || !hasSpace) {
                     if (!zeroWidth) {
                         CTRunDelegateCallbacks callbacks = { kCTRunDelegateVersion1, wk_zeroWidthDeallocate, wk_zeroWidthMetric, wk_zeroWidthMetric, wk_zeroWidthMetric };
                         zeroWidth = CTRunDelegateCreate(&callbacks, NULL);
@@ -7402,7 +8511,7 @@ static CFTypeRef wk_createFromReplay(wk_naturalKind kind, wk_replayProvider *pro
     return WK_ORIGINAL(CTTypesetterCreateWithUniCharProviderAndOptions)(wk_replayProvide, dispose, provider, options);
 }
 
-// Attributed-string clients get the same cluster fallback as character providers.
+// Attributed-string clients get the same cluster fallback and left-to-right shaping fonts as character providers.
 static CFAttributedStringRef wk_copyWithClusterFallbackFonts(CFAttributedStringRef string)
 {
     CFMutableAttributedStringRef copy = NULL;
@@ -7411,7 +8520,7 @@ static CFAttributedStringRef wk_copyWithClusterFallbackFonts(CFAttributedStringR
         CFRange range;
         CFDictionaryRef attributes = CFAttributedStringGetAttributes(string, i, &range);
         CTFontRef font = (CTFontRef)CFDictionaryGetValue(attributes, kCTFontAttributeName);
-        if (font && CFGetTypeID(font) == CTFontGetTypeID() && wk_fontUsesSystemFallbackOnly(font)) {
+        if (font && CFGetTypeID(font) == CTFontGetTypeID() && (wk_fontUsesSystemFallbackOnly(font) || wk_holdsCarriedOpenTypeSetting(font))) {
             UniChar *characters = malloc((size_t)range.length * sizeof(UniChar));
             if (!characters)
                 abort();
@@ -7436,9 +8545,12 @@ static CFAttributedStringRef wk_copyWithClusterFallbackFonts(CFAttributedStringR
     return copy;
 }
 
+static CFAttributedStringRef wk_copyForNaturalDirection(CFAttributedStringRef string, bool breaksLines);
+
+// Attributed-string clients in natural direction get the levels current Unicode resolves, as character providers do.
 WK_POLYFILL_REPLACES("CoreText", CTLineRef, CTLineCreateWithAttributedString, (CFAttributedStringRef string))
 {
-    CFAttributedStringRef copy = string ? wk_copyWithClusterFallbackFonts(string) : NULL;
+    CFAttributedStringRef copy = string ? wk_copyForNaturalDirection(string, false) : NULL;
     CTLineRef line = WK_ORIGINAL(CTLineCreateWithAttributedString)(copy ? copy : string);
     if (copy)
         CFRelease(copy);
@@ -7448,18 +8560,254 @@ WK_POLYFILL_REPLACES("CoreText", CTLineRef, CTLineCreateWithAttributedString, (C
 WK_POLYFILL_REPLACES("CoreText", CTTypesetterRef, CTTypesetterCreateWithAttributedStringAndOptions,
     (CFAttributedStringRef string, CFDictionaryRef options))
 {
-    CFAttributedStringRef copy = string ? wk_copyWithClusterFallbackFonts(string) : NULL;
+    int level = 0;
+    CFAttributedStringRef copy = !string ? NULL
+        : wk_forcedEmbeddingLevel(options, &level) ? wk_copyWithClusterFallbackFonts(string) : wk_copyForNaturalDirection(string, true);
     CTTypesetterRef typesetter = WK_ORIGINAL(CTTypesetterCreateWithAttributedStringAndOptions)(copy ? copy : string, options);
     if (copy)
         CFRelease(copy);
     return typesetter;
 }
 
+WK_POLYFILL_REPLACES("CoreText", CTFramesetterRef, CTFramesetterCreateWithAttributedString, (CFAttributedStringRef string))
+{
+    CFAttributedStringRef copy = string ? wk_copyForNaturalDirection(string, true) : NULL;
+    CTFramesetterRef framesetter = WK_ORIGINAL(CTFramesetterCreateWithAttributedString)(copy ? copy : string);
+    if (copy)
+        CFRelease(copy);
+    return framesetter;
+}
+
+// An attributed string served one attribute run at a time.
+typedef struct {
+    CFAttributedStringRef string;
+    const UniChar *characters;
+    CFIndex length;
+} wk_attributedStringSource;
+
+static const UniChar *wk_attributedStringProvide(CFIndex stringIndex, CFIndex *charCount, CFDictionaryRef *attributes, void *refCon)
+{
+    wk_attributedStringSource *source = (wk_attributedStringSource *)refCon;
+    if (stringIndex < 0 || stringIndex >= source->length) {
+        *charCount = 0;
+        return NULL;
+    }
+    CFRange range;
+    *attributes = CFAttributedStringGetAttributes(source->string, stringIndex, &range);
+    *charCount = range.location + range.length - stringIndex;
+    return source->characters + stringIndex;
+}
+
+// The writing direction a block carries: the embeddings and overrides of kCTWritingDirectionAttributeName,
+// outermost first, as their Unicode controls. Returns how many there are, up to capacity.
+static CFIndex wk_writingDirectionControls(CFDictionaryRef attributes, UniChar controls[], CFIndex capacity)
+{
+    CFArrayRef directions = attributes ? (CFArrayRef)CFDictionaryGetValue(attributes, kCTWritingDirectionAttributeName) : NULL;
+    if (!directions || CFGetTypeID(directions) != CFArrayGetTypeID())
+        return 0;
+    CFIndex count = 0;
+    for (CFIndex i = 0; i < CFArrayGetCount(directions) && count < capacity; ++i) {
+        CFNumberRef number = (CFNumberRef)CFArrayGetValueAtIndex(directions, i);
+        int value;
+        if (!number || CFGetTypeID(number) != CFNumberGetTypeID() || !CFNumberGetValue(number, kCFNumberIntType, &value))
+            continue;
+        bool rightToLeft = (value & 1) == kCTWritingDirectionRightToLeft;
+        if (value & kCTWritingDirectionOverride)
+            controls[count++] = rightToLeft ? 0x202E : 0x202D;
+        else
+            controls[count++] = rightToLeft ? 0x202B : 0x202A;
+    }
+    return count;
+}
+
+typedef struct {
+    UniChar *characters;
+    CFIndex length;
+    CFIndex capacity;
+} wk_controlledText;
+
+static void wk_controlledTextAppend(wk_controlledText *text, const UniChar *characters, CFIndex count)
+{
+    if (text->length + count > text->capacity) {
+        text->capacity = 2 * (text->length + count);
+        text->characters = (UniChar *)realloc(text->characters, (size_t)text->capacity * sizeof(UniChar));
+        if (!text->characters)
+            abort();
+    }
+    memcpy(text->characters + text->length, characters, (size_t)count * sizeof(UniChar));
+    text->length += count;
+}
+
+// CoreText reads a block's writing direction as the embedding and override controls it lists around the block, and
+// opens them again after each paragraph separator in it. Levels are resolved for the text with those controls in
+// place, and handed back for the characters the reader served.
+static wk_levelResolution wk_resolveAttributedLevels(wk_clusterFontProvider *reader, const wk_providedText *text, UBiDiLevel **levelsResult)
+{
+    enum { WKMaxWritingDirections = UBIDI_MAX_EXPLICIT_LEVEL + 1 };
+    UniChar controls[WKMaxWritingDirections];
+    wk_servedBlock *blocks = wk_servedBlocks(reader);
+    bool directed = false;
+    for (CFIndex b = 0; b < reader->servedCount && !directed; ++b)
+        directed = wk_writingDirectionControls(blocks[b].attributes, controls, WKMaxWritingDirections) > 0;
+    if (!directed)
+        return wk_resolveLevels(reader, text, levelsResult);
+
+    static const UniChar popDirectionalFormatting = 0x202C;
+    wk_controlledText controlled = { 0 };
+    CFIndex *positions = (CFIndex *)malloc((size_t)text->length * sizeof(CFIndex));
+    CFIndex *blockStarts = (CFIndex *)malloc((size_t)(reader->servedCount + 1) * sizeof(CFIndex));
+    if (!positions || !blockStarts)
+        abort();
+    for (CFIndex b = 0; b < reader->servedCount; ++b) {
+        const wk_servedBlock *block = &blocks[b];
+        CFIndex count = wk_writingDirectionControls(block->attributes, controls, WKMaxWritingDirections);
+        blockStarts[b] = controlled.length;
+        wk_controlledTextAppend(&controlled, controls, count);
+        bool endsParagraph = false;
+        for (CFIndex i = block->start; i < block->start + block->count; ++i) {
+            UniChar character = text->characters[i];
+            positions[i] = controlled.length;
+            wk_controlledTextAppend(&controlled, &character, 1);
+            endsParagraph = !U16_IS_SURROGATE(character) && wk_isParagraphSeparator(character)
+                && !(character == '\r' && i + 1 < text->length && text->characters[i + 1] == '\n');
+            if (endsParagraph && i + 1 < block->start + block->count)
+                wk_controlledTextAppend(&controlled, controls, count);
+        }
+        for (CFIndex i = 0; i < count && !endsParagraph; ++i)
+            wk_controlledTextAppend(&controlled, &popDirectionalFormatting, 1);
+    }
+    blockStarts[reader->servedCount] = controlled.length;
+
+    // The controlled text is served in the blocks it was made from, each with its controls.
+    wk_clusterFontProvider controlledReader = { 0 };
+    for (CFIndex b = 0; b < reader->servedCount; ++b)
+        wk_recordServedBlock(&controlledReader, blockStarts[b], blockStarts[b + 1] - blockStarts[b], controlled.characters + blockStarts[b], blocks[b].attributes);
+    wk_providedText controlledText = { .characters = controlled.characters, .length = controlled.length };
+    UBiDiLevel *controlledLevels = NULL;
+    wk_levelResolution resolution = wk_resolveLevels(&controlledReader, &controlledText, &controlledLevels);
+    if (resolution == WKLevelsExplicit) {
+        UBiDiLevel *levels = (UBiDiLevel *)malloc((size_t)text->length);
+        if (!levels)
+            abort();
+        for (CFIndex i = 0; i < text->length; ++i)
+            levels[i] = controlledLevels[positions[i]];
+        free(controlledLevels);
+        *levelsResult = levels;
+    }
+    wk_clusterFontProviderRelease(&controlledReader);
+    free(blockStarts);
+    free(positions);
+    free(controlled.characters);
+    return resolution;
+}
+
+// The ranges given set in their shaping fonts, over the blocks the reader served.
+static CFAttributedStringRef wk_createShapedString(CFAttributedStringRef string, wk_clusterFontProvider *reader, const wk_rightToLeftRange *ranges, CFIndex rangeCount)
+{
+    CFMutableAttributedStringRef shaped = CFAttributedStringCreateMutableCopy(kCFAllocatorDefault, 0, string);
+    if (!shaped)
+        abort();
+    wk_servedBlock *blocks = wk_servedBlocks(reader);
+    CFAttributedStringBeginEditing(shaped);
+    for (CFIndex b = 0, r = 0; b < reader->servedCount; ++b) {
+        const wk_servedBlock *block = &blocks[b];
+        CFIndex blockEnd = block->start + block->count;
+        for (; r < rangeCount && ranges[r].start < blockEnd; ++r) {
+            CFIndex start = ranges[r].start > block->start ? ranges[r].start : block->start;
+            CFIndex end = ranges[r].end < blockEnd ? ranges[r].end : blockEnd;
+            if (start < end && block->attributes) {
+                CFDictionaryRef source = CFDictionaryGetValue(block->attributes, kCTFontAttributeName) == ranges[r].font
+                    ? block->attributes : wk_clusterFontAttributes(reader, block->attributes, ranges[r].font);
+                CFDictionaryRef attributes = wk_shapingAttributes(reader, source, wk_shapingFont(ranges[r].font, true));
+                CFAttributedStringSetAttributes(shaped, CFRangeMake(start, end - start), attributes, true);
+            }
+            // A range that runs past this block goes on in the next.
+            if (ranges[r].end > blockEnd)
+                break;
+        }
+    }
+    CFAttributedStringEndEditing(shaped);
+    return shaped;
+}
+
+// The attributed string CoreText lays out in place of string in natural direction, or NULL when it lays string out
+// as it is. Where the levels 10.9 resolves differ from current Unicode's, each character is overridden to its current
+// level, as provided text is; right-to-left runs in a font with logical-order subtables are set in its shaping font.
+static CFAttributedStringRef wk_copyForNaturalDirection(CFAttributedStringRef string, bool breaksLines)
+{
+    CFIndex length = CFAttributedStringGetLength(string);
+    if (!length)
+        return NULL;
+    CFStringRef plain = CFAttributedStringGetString(string);
+    const UniChar *characters = CFStringGetCharactersPtr(plain);
+    UniChar *buffer = NULL;
+    if (!characters) {
+        buffer = (UniChar *)malloc((size_t)length * sizeof(UniChar));
+        if (!buffer)
+            abort();
+        CFStringGetCharacters(plain, CFRangeMake(0, length), buffer);
+        characters = buffer;
+    }
+    wk_attributedStringSource source = { string, characters, length };
+    wk_clusterFontProvider reader = { .provide = wk_attributedStringProvide, .refCon = &source, .recordsServedBlocks = true };
+    for (CFIndex index = 0; index < length; ) {
+        CFIndex count = 0;
+        CFDictionaryRef attributes = NULL;
+        if (!wk_clusterFontProvide(index, &count, &attributes, &reader) || count <= 0)
+            break;
+        index += count;
+    }
+    wk_providedText text;
+    wk_providedTextInit(&text, &reader);
+    UBiDiLevel *levels = NULL;
+    // Text the reader could not serve whole is laid out as it was given.
+    wk_levelResolution resolution = text.length == length ? wk_resolveAttributedLevels(&reader, &text, &levels) : WKLevelsLeftToRight;
+
+    CFAttributedStringRef copy;
+    if (resolution == WKLevelsExplicit) {
+        copy = wk_createExplicitLevelString(&reader, &text, levels, NULL, 0, breaksLines);
+        CTLineRef line = WK_ORIGINAL(CTLineCreateWithAttributedString)(copy);
+        CFIndex rangeCount = 0;
+        wk_rightToLeftRange *ranges = line ? wk_copyLogicalOrderRightToLeftRanges(&reader, line, &rangeCount) : NULL;
+        if (line)
+            CFRelease(line);
+        if (ranges) {
+            CFRelease(copy);
+            copy = wk_createExplicitLevelString(&reader, &text, levels, ranges, rangeCount, breaksLines);
+            free(ranges);
+        }
+        free(levels);
+    } else {
+        copy = wk_copyWithClusterFallbackFonts(string);
+        CTLineRef line = resolution == WKLevelsCurrent ? WK_ORIGINAL(CTLineCreateWithAttributedString)(copy ? copy : string) : NULL;
+        CFIndex rangeCount = 0;
+        wk_rightToLeftRange *ranges = line ? wk_copyLogicalOrderRightToLeftRanges(&reader, line, &rangeCount) : NULL;
+        if (line)
+            CFRelease(line);
+        if (ranges) {
+            CFAttributedStringRef shaped = wk_createShapedString(copy ? copy : string, &reader, ranges, rangeCount);
+            if (copy)
+                CFRelease(copy);
+            copy = shaped;
+            free(ranges);
+        }
+    }
+    free(text.copy);
+    wk_clusterFontProviderRelease(&reader);
+    free(buffer);
+    return copy;
+}
+
+// The explicit-level strings natural direction makes are laid out at the levels they carry.
 static CFTypeRef wk_createFromAttributedString(wk_naturalKind kind, CFAttributedStringRef string, CFDictionaryRef options)
 {
-    if (kind == WKNaturalLine)
-        return CTLineCreateWithAttributedString(string);
-    return CTTypesetterCreateWithAttributedStringAndOptions(string, options);
+    CFAttributedStringRef copy = wk_copyWithClusterFallbackFonts(string);
+    CFTypeRef made = kind == WKNaturalLine
+        ? (CFTypeRef)WK_ORIGINAL(CTLineCreateWithAttributedString)(copy ? copy : string)
+        : (CFTypeRef)WK_ORIGINAL(CTTypesetterCreateWithAttributedStringAndOptions)(copy ? copy : string, options);
+    if (copy)
+        CFRelease(copy);
+    return made;
 }
 
 static wk_rightToLeftRange *wk_copyLogicalOrderRanges(wk_naturalKind kind, CFTypeRef made, wk_clusterFontProvider *reader, CFIndex *rangeCount)
@@ -7512,13 +8860,13 @@ static CFTypeRef wk_createNaturalDirection(wk_naturalKind kind, CTUniCharProvide
             made = shaped;
         }
     } else {
-        CFAttributedStringRef string = wk_createExplicitLevelString(&reader, &text, levels, NULL, 0);
+        CFAttributedStringRef string = wk_createExplicitLevelString(&reader, &text, levels, NULL, 0, false);
         made = wk_createFromAttributedString(kind, string, options);
         CFRelease(string);
         CFIndex rangeCount = 0;
         wk_rightToLeftRange *ranges = wk_copyLogicalOrderRanges(kind, made, &reader, &rangeCount);
         if (ranges) {
-            string = wk_createExplicitLevelString(&reader, &text, levels, ranges, rangeCount);
+            string = wk_createExplicitLevelString(&reader, &text, levels, ranges, rangeCount, false);
             CFTypeRef shaped = wk_createFromAttributedString(kind, string, options);
             CFRelease(string);
             free(ranges);

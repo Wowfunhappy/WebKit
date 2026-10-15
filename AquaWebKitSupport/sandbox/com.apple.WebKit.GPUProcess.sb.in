@@ -102,14 +102,13 @@
 ;; only gets that far once the process has checked in with LaunchServices: on this OS a process that
 ;; has not checked in has no window-server session, and CGLChoosePixelFormat then finds no renderer at
 ;; all (EGL_Initialize fails EGL_NOT_INITIALIZED out of DisplayCGL). Check-in happens in
-;; GPUProcess::platformInitializeGPUProcess() under the extension GPUProcessProxy issues for it.
+;; GPUProcess::platformInitializeGPUProcess(). The launchservicesd grant is unconditional: the extension
+;; GPUProcessProxy::platformInitializeGPUProcessParameters() issues for it reaches this process only
+;; from an unsandboxed host, because 10.9's App Sandbox profile grants no mach-issue-extension.
 (allow mach-lookup
        (global-name "com.apple.windowserver.active")
+       (global-name "com.apple.coreservices.launchservicesd")
        (global-name "com.apple.window_proxies"))
-(allow mach-lookup
-       (require-all
-           (extension "com.apple.webkit.extension.mach")
-           (global-name "com.apple.coreservices.launchservicesd")))
 
 ;; The Launch Services database's change seed, CarbonCore's per-user segment, which check-in
 ;; (AuxiliaryProcess::launchServicesCheckIn()) opens beside the coreservicesd copy granted below; 10.9's

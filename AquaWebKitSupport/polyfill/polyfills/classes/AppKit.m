@@ -442,6 +442,38 @@ WK_PRIV_CLASS(NSHapticFeedbackManager) @interface NSHapticFeedbackManager : NSOb
 @end
 WK_PRIV_ALIAS(NSHapticFeedbackManager);
 
+// NSImageSymbolConfiguration (11.0+): the point size, weight and scale a symbol image is drawn at, an
+// immutable value. The symbol images methods/AppKit.m draws read its -pointSize; their one outline is
+// the Regular weight at the Medium scale.
+WK_PRIV_CLASS(NSImageSymbolConfiguration) @interface NSImageSymbolConfiguration : NSObject <NSCopying> {
+    CGFloat _pointSize;
+}
++ (instancetype)configurationWithPointSize:(CGFloat)pointSize weight:(CGFloat)weight scale:(NSInteger)scale;
++ (instancetype)configurationWithPointSize:(CGFloat)pointSize weight:(CGFloat)weight;
+- (CGFloat)pointSize;
+@end
+@implementation NSImageSymbolConfiguration
++ (instancetype)configurationWithPointSize:(CGFloat)pointSize weight:(CGFloat)weight scale:(NSInteger)scale
+{
+    (void)scale;
+    return [self configurationWithPointSize:pointSize weight:weight];
+}
++ (instancetype)configurationWithPointSize:(CGFloat)pointSize weight:(CGFloat)weight
+{
+    (void)weight;
+    NSImageSymbolConfiguration *configuration = [[[self alloc] init] autorelease];
+    configuration->_pointSize = pointSize;
+    return configuration;
+}
+- (id)copyWithZone:(NSZone *)zone
+{
+    (void)zone;
+    return [self retain];
+}
+- (CGFloat)pointSize { return _pointSize; }
+@end
+WK_PRIV_ALIAS(NSImageSymbolConfiguration);
+
 // NSVisualEffectView (10.10+): a vibrancy/backdrop view. 10.9's compositor has no backdrop blur, so
 // the stub degrades the way a real 10.10 effect view degrades when vibrancy is unavailable (Reduce
 // Transparency): it paints its MATERIAL's opaque fallback — a solid fill standing in for the blurred

@@ -682,6 +682,9 @@ static void populateSandboxInitializationParameters(SandboxInitializationParamet
     sandboxParameters.addPathParameter("WEBKIT2_FRAMEWORK_DIR"_s, bundlePath.utf8().data());
     sandboxParameters.addConfDirectoryParameter("DARWIN_USER_TEMP_DIR"_s, _CS_DARWIN_USER_TEMP_DIR);
     sandboxParameters.addConfDirectoryParameter("DARWIN_USER_CACHE_DIR"_s, _CS_DARWIN_USER_CACHE_DIR);
+    // AQUAWEBKIT: 10.9's sandbox language has no uid filter, so com.apple.WebProcess.additions.sb reads EUID for
+    // upstream's root-only system logger grant.
+    sandboxParameters.addParameter("EUID"_s, String::number(geteuid()).utf8());
 
     std::optional<String> homeDirectory = AuxiliaryProcess::getHomeDirectory();
     RELEASE_ASSERT(homeDirectory);
