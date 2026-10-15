@@ -216,8 +216,18 @@ void InjectedBundlePageLoaderClient::didLayoutForFrame(WebPage& page, WebFrame& 
     m_client.didLayoutForFrame(toAPI(&page), toAPI(&frame), m_client.base.clientInfo);
 }
 
+// AQUAWEBKIT: Safari 7 fills didNewFirstVisuallyNonEmptyLayout_unavailable with this callback type, invoked on the
+// relevant-painted-area milestone; Safari schedules Reader detection from it.
+using WKBundlePageDidNewFirstVisuallyNonEmptyLayoutCallback = void (*)(WKBundlePageRef, WKTypeRef* userData, const void* clientInfo);
+
 void InjectedBundlePageLoaderClient::didReachLayoutMilestone(WebPage& page, OptionSet<WebCore::LayoutMilestone> milestones, RefPtr<API::Object>& userData)
 {
+    if (m_client.didNewFirstVisuallyNonEmptyLayout_unavailable && milestones.contains(WebCore::LayoutMilestone::DidHitRelevantRepaintedObjectsAreaThreshold)) { // AQUAWEBKIT: see the callback type above.
+        WKTypeRef newFirstVisuallyNonEmptyLayoutUserData = nullptr;
+        reinterpret_cast<WKBundlePageDidNewFirstVisuallyNonEmptyLayoutCallback>(m_client.didNewFirstVisuallyNonEmptyLayout_unavailable)(toAPI(&page), &newFirstVisuallyNonEmptyLayoutUserData, m_client.base.clientInfo);
+        RefPtr<API::Object> adoptedNewFirstVisuallyNonEmptyLayoutUserData = adoptRef(toImpl(newFirstVisuallyNonEmptyLayoutUserData));
+    }
+
     if (!m_client.didLayout)
         return;
 
@@ -344,6 +354,8 @@ OptionSet<WebCore::LayoutMilestone> InjectedBundlePageLoaderClient::layoutMilest
         milestones.add(WebCore::LayoutMilestone::DidFirstLayout);
     if (m_client.didFirstVisuallyNonEmptyLayoutForFrame)
         milestones.add(WebCore::LayoutMilestone::DidFirstVisuallyNonEmptyLayout);
+    if (m_client.didNewFirstVisuallyNonEmptyLayout_unavailable) // AQUAWEBKIT: see didReachLayoutMilestone.
+        milestones.add(WebCore::LayoutMilestone::DidHitRelevantRepaintedObjectsAreaThreshold);
     return milestones;
 }
 
