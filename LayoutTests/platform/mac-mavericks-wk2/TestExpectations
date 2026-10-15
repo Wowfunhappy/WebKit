@@ -12,6 +12,7 @@ fast/scrolling/mac/momentum-then-programmatic-missing-tiles.html [ Skip ]
 # The fixture dumps at the expanded flag; AppKit's separate track-alpha animation can still be at zero.
 # A state trace reaches expanded,visible_thumb before expanded,visible_track,visible_thumb.
 fast/scrolling/mac/scrollbars/select-overlay-scrollbar-hovered.html [ Skip ]
+fast/scrolling/mac/scrollbars/svg-foreign-object-overlay-scrollbar-hovered.html [ Skip ]
 
 
 # Transferred tracks can miss source settings changes during observer registration,
@@ -30,11 +31,58 @@ http/tests/security/offscreen-canvas-remote-read-remote-image.html [ Skip ]
 # entering fullscreen, and webkitExitFullscreen() ignores a request made during a mode change.
 media/media-fullscreen-inline.html [ Skip ]
 
-# --- Feature gaps on 10.9 ---------------------------------------------------------------------
+# Issue #40: input buttons draw as Aqua push buttons, sized by the bezel and the control font as on 10.9, and 10.9's
+# controlTextColor is opaque black where these dumps expect Tahoe's translucent label color.
+fast/attachment/attachment-image-controls-basic.html [ Skip ]
+fast/attachment/cocoa/wide-attachment-rendering.html [ Skip ]
+fast/attachment/mac/wide-attachment-image-controls-basic.html [ Skip ]
 
-# WebGPU is OFF at the upstream CMake-port default (WebKitFeatures.cmake) and 10.9 has no Metal
-# to back it; every test dies on navigator.gpu === null + notifyDone timeout.
-fast/webgpu [ Skip ]
+# WebCore::caretWidth() (CaretRectComputation.cpp) is 1px here: os_feature_enabled(UIKit, redesigned_text_cursor) is
+# false on 10.9. These dumps expect a 2px caret.
+fast/repaint/placeholder-after-caps-lock-hidden.html [ Skip ]
+
+# Maintainer scope decision: pixel near misses of at most 3 levels per channel, at text, shadow, gradient and
+# marker antialiasing edges.
+fast/box-shadow/outset-shadow-negative-spread-radius.html [ Skip ]
+fast/gradients/alpha-premultiplied-sampled.html [ Skip ]
+fast/gradients/oklab-transparent-keyword-stop.html [ Skip ]
+fast/shadow-dom/activate-over-slotted-content.html [ Skip ]
+fast/shadow-dom/nth-node-on-shadow-child-invalidation.html [ Skip ]
+fast/shadow-dom/nth-node-on-shadow-child-no-jit.html [ Skip ]
+fast/shadow-dom/nth-node-on-shadow-child.html [ Skip ]
+fast/shadow-dom/shadow-host-move-to-different-document.html [ Skip ]
+
+# Maintainer decision (inherent 10.9 behavior stock WebKit 9537.78.2 also has): Core Graphics antialiasing of the
+# shadow circle, shape ellipse and scaled PDF edges matches stock WebKit pixel for pixel.
+fast/box-shadow/inset-box-shadow.html [ Skip ]
+fast/hidpi/pdf-image-scaled.html [ Skip ]
+fast/shapes/shape-outside-floats/shape-outside-floats-ellipse-000.html [ Skip ]
+
+# Upstream records these attachment selection reference failures (webkit.org/b/315881).
+webkit.org/b/315881 fast/attachment/cocoa/wide-attachment-ref-progress-075-selected-extended-left.html [ Skip ]
+webkit.org/b/315881 fast/attachment/cocoa/wide-attachment-ref-progress-075-selected-extended.html [ Skip ]
+
+# Features this port does not provide: site isolation's remote layer tree, NaturalLanguage embeddings for text
+# extraction hints, a PDF renderer (platform/glib skips pdf-iframe-load-crash for the same reason), and PDF plugins.
+fast/history/site-isolation/go-back-then-navigate-subframe.html [ Skip ]
+fast/replaced/pdf-as-embed-with-no-mime-type-is-not-blank.html [ Skip ]
+fast/replaced/pdf-iframe-load-crash.html [ Skip ]
+fast/text-extraction/debug-text-extraction-basic.html [ Skip ]
+
+# The WebContent profile imports 10.9's system.sb, which grants com.apple.cfprefsd.agent and .daemon to every process;
+# 10.9's direct mode is set only by an environment variable read when CoreFoundation starts and has no read-only mode.
+# This test expects direct mode's cfprefsd mach-lookup denials.
+fast/sandbox/mac/sandbox-mach-lookup.html [ Skip ]
+
+# 10.9 names this voice "Samantha Compact".
+fast/speechsynthesis/mac/samantha-voice-available.html [ Skip ]
+
+# Maintainer scope decision (10.9 font metrics): the bold 10.9 system-font title (60.25px) leaves an odd 1/64px
+# remainder in the attachment grid's auto tracks, so the save button's outward-rounded client rect centres on a half
+# pixel and the floored click lands 0.5px left.
+fast/attachment/cocoa/wide-attachment-save-event.html [ Skip ]
+
+# --- Feature gaps on 10.9 ---------------------------------------------------------------------
 
 # Sampled page top color: upstream skips this dir globally and re-enables it in platform/mac-wk2.
 # The sampling result is embedder-gated (SampledPageTopColorMaxDifference defaults to 0) and the
@@ -212,10 +260,6 @@ fast/images/text-recognition [ Skip ]
 # reference. Upstream skips both directories generically and re-enables them in platform/mac-wk2.
 http/tests/paymentrequest [ Skip ]
 http/tests/ssl/applepay [ Skip ]
-
-# WebGPU is off at the upstream CMake-port default and 10.9 has no Metal to back it, so navigator.gpu
-# is null and every test here ends on a notifyDone that never comes.
-http/tests/webgpu [ Skip ]
 
 # Picture-in-Picture is off in this port: cmakeconfig.h carries ENABLE_PICTURE_IN_PICTURE_API 0 and
 # ENABLE_VIDEO_PRESENTATION_MODE 0, which the PiP API needs to compile. requestPictureInPicture,
