@@ -29,7 +29,6 @@
 #import <mach-o/dyld.h>
 #import <mach-o/dyld_images.h>
 #import <mach-o/getsect.h>
-#import <mach/mach.h>
 #import <mach/mach_time.h>
 #import <pthread.h>
 #import <stdbool.h>
@@ -586,9 +585,11 @@ static void wk_note_image_categories(const struct mach_header *mh)
     if (!categories)
         return;
     for (unsigned long i = 0; i < size / sizeof(*categories); i++) {
+        // A category's class is NULL while it is a weak-linked class this OS lacks; once the runtime has
+        // read the image it also nils that category's catlist entry, as its own unload pass expects.
         const struct wk_raw_category *category = categories[i];
-        if (category->cls && (wk_raw_list_may_register(category->instanceMethods)
-                              || wk_raw_list_may_register(category->classMethods)))
+        if (category && category->cls && (wk_raw_list_may_register(category->instanceMethods)
+                                          || wk_raw_list_may_register(category->classMethods)))
             wk_note_category_target(category->cls);
     }
 }
@@ -872,14 +873,9 @@ static void wk_patch(const struct mach_header *mh)
     // Per the ObjC ABI a __objc_selrefs slot holds the image-local methname string before objc uniques
     // the image and the canonical SEL after, so the section is a pointer array, not an array of SEL.
     void **refs = (void **)getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_selrefs", &size);
-    if (!refs)
-        refs = (void **)getsectiondata((const struct mach_header_64 *)mh, "__DATA_CONST", "__objc_selrefs", &size);
     int count = __atomic_load_n(&wk_count, __ATOMIC_ACQUIRE);   // see the synchronisation note
     if (!refs || !size || count == 0)
         return;
-    // selrefs may live in read-only __DATA_CONST; make the range writable (no SIP on 10.9).
-    vm_protect(mach_task_self(), (vm_address_t)refs, size, false,
-               VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
     int n = (int)(size / sizeof(void *));
     __atomic_fetch_add(&wk_stat_refs, n, __ATOMIC_RELAXED);
     for (int i = 0; i < n; i++) {
