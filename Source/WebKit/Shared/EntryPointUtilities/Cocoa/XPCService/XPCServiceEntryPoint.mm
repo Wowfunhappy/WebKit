@@ -213,6 +213,12 @@ void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLoc
 {
     RELEASE_ASSERT(!g_jscConfig.initializeHasBeenCalled);
 
+#if PLATFORM(MAC)
+    // AQUAWEBKIT (#201): the client app's JSCOptions user default (ProcessLauncherCocoa.mm).
+    if (const char* jscOptionsUserDefault = xpc_dictionary_get_string(initializerMessage, "JSCOptions"))
+        JSC::Options::setJSCOptionsUserDefault(jscOptionsUserDefault);
+#endif
+
     if (xpc_dictionary_get_bool(initializerMessage, "configure-jsc-for-testing"))
         JSC::Config::configureForTesting();
     if (enableLockdownMode == EnableLockdownMode::Yes) {

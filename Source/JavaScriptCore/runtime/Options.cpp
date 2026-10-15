@@ -76,6 +76,20 @@ namespace JSC {
 bool useOSLogOptionHasChanged = false;
 Options::SandboxPolicy Options::machExceptionHandlerSandboxPolicy = Options::SandboxPolicy::Unknown;
 
+#if PLATFORM(COCOA)
+// AQUAWEBKIT (#201): the JSCOptions user default Options::setJSCOptionsUserDefault() passes.
+static std::optional<String>& jscOptionsUserDefault()
+{
+    static NeverDestroyed<std::optional<String>> value;
+    return value.get();
+}
+
+void Options::setJSCOptionsUserDefault(const char* value)
+{
+    jscOptionsUserDefault() = String::fromUTF8(value);
+}
+#endif
+
 namespace OptionsHelper {
 
 // The purpose of Metadata is to hold transient info needed during initialization of
@@ -1118,13 +1132,19 @@ void Options::initializeWithOptionsCustomization(const ScopedLambda<void()>& opt
                 }
             }
 #if PLATFORM(COCOA)
-            // AQUAWEBKIT (#201): the global user default JSCOptions holds options for every process that runs
-            // JavaScriptCore, as name=value entries separated by white space or commas, e.g.
-            // `defaults write -g JSCOptions "useJIT=false"`. An option a JSC_ variable sets keeps that value.
-            // The entries are set after the variables, so only the recompute at the end of initialization
-            // derives their dependent options.
-            if (auto defaultsOptions = adoptCF(CFPreferencesCopyValue(CFSTR("JSCOptions"), kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)); defaultsOptions && CFGetTypeID(defaultsOptions.get()) == CFStringGetTypeID()) {
-                auto entries = makeStringByReplacingAll(String(static_cast<CFStringRef>(defaultsOptions.get())).simplifyWhiteSpace(isASCIIWhitespace), ',', ' ');
+            // AQUAWEBKIT (#201): the app's or the global user default JSCOptions holds options for the processes
+            // that run JavaScriptCore for that app, as name=value entries separated by white space or commas,
+            // e.g. `defaults write -g JSCOptions "useJIT=false"`. A WebKit helper process uses its client app's
+            // value (setJSCOptionsUserDefault). An option a JSC_ variable sets keeps that value. The entries are
+            // set after the variables, so only the recompute at the end of initialization derives their
+            // dependent options.
+            auto defaultsOptions = jscOptionsUserDefault().value_or(String());
+            if (!jscOptionsUserDefault()) {
+                if (auto value = adoptCF(CFPreferencesCopyAppValue(CFSTR("JSCOptions"), kCFPreferencesCurrentApplication)); value && CFGetTypeID(value.get()) == CFStringGetTypeID())
+                    defaultsOptions = static_cast<CFStringRef>(value.get());
+            }
+            if (!defaultsOptions.isEmpty()) {
+                auto entries = makeStringByReplacingAll(defaultsOptions.simplifyWhiteSpace(isASCIIWhitespace), ',', ' ');
                 // An option's own name for any of its aliases, as setOption() resolves them.
                 auto canonicalName = [](const char* name, size_t length) {
 #define CANONICAL_OPTION_NAME(aliasedName_, unaliasedName_, equivalence_) \

@@ -147,6 +147,11 @@ public: \
 
     static bool NODELETE isAvailable(ID, Availability);
     JS_EXPORT_PRIVATE static SandboxPolicy machExceptionHandlerSandboxPolicy;
+#if PLATFORM(COCOA)
+    // AQUAWEBKIT (#201): a WebKit helper process sets its client app's JSCOptions user default before
+    // JavaScriptCore initializes, and initialization uses it in place of the process's own.
+    JS_EXPORT_PRIVATE static void setJSCOptionsUserDefault(const char*);
+#endif
 
 private:
     Options();

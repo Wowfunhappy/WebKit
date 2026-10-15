@@ -146,18 +146,22 @@ downloading.
 
 ## JavaScriptCore options
 
-Every 64-bit process that runs this JavaScriptCore (apps, Safari's web content processes, and
-Safari's extension pages alike) reads the global user default `JSCOptions` once, as JavaScriptCore
-starts. It holds JavaScriptCore options as `name=value` pairs separated by spaces or commas, named
-as the `JSC_` environment variables are without the prefix; those variables override it. To run
-JavaScript without the JIT:
+Every 64-bit process that runs this JavaScriptCore for an app (the app itself, including Safari's
+extension pages, and the web content, networking and GPU processes it starts) reads that app's user
+default `JSCOptions` once, as JavaScriptCore starts. It holds JavaScriptCore options as `name=value`
+pairs separated by spaces or commas, named as the `JSC_` environment variables are without the
+prefix; those variables override it. To run JavaScript without the JIT in every app:
 
     defaults write -g JSCOptions "useJIT=false"
+
+An app's own domain covers that app, and its value replaces the global one rather than adding to it:
+
+    defaults write com.apple.Safari JSCOptions "useJIT=false"
 
 Lockdown Mode's JavaScript settings are `useJIT=false useGenerationalGC=false useConcurrentGC=false
 useLLIntICs=false useWasm=false useZombieMode=true allowDoubleShape=false alwaysHaveABadTime=true`;
 any of them can be set alone. Processes started afterwards use the new value, so quit and reopen the
-app. `defaults delete -g JSCOptions` restores the defaults.
+app. `defaults delete -g JSCOptions` (or the app's domain) restores the defaults.
 
 ## `polyfill/build/` contents
 
