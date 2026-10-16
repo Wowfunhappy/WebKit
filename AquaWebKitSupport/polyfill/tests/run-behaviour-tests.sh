@@ -35,6 +35,7 @@ QUARTZCORE_OBJECT_STATE=unbuilt
 CRYPTOKITPRIVATE_OBJECT_STATE=unbuilt
 DEPTH_SORTING_OBJECT_STATE=unbuilt
 SELREF_OBJECT_STATE=unbuilt
+COREIMAGE_OBJECT_STATE=unbuilt
 
 build_method_object() {
     local unit="$1" state source
@@ -54,6 +55,10 @@ build_method_object() {
         AVFoundation)
             state="$AVFOUNDATION_OBJECT_STATE"
             source="$PF/methods/AVFoundation.m"
+            ;;
+        CoreImage)
+            state="$COREIMAGE_OBJECT_STATE"
+            source="$PF/methods/CoreImage.m"
             ;;
         QuartzCoreDepthSorting)
             state="$DEPTH_SORTING_OBJECT_STATE"
@@ -83,6 +88,7 @@ build_method_object() {
             QuartzCore) QUARTZCORE_OBJECT_STATE=built ;;
             CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=built ;;
             QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=built ;;
+            CoreImage) COREIMAGE_OBJECT_STATE=built ;;
         esac
         return 0
     fi
@@ -94,6 +100,7 @@ build_method_object() {
         QuartzCore) QUARTZCORE_OBJECT_STATE=failed ;;
         CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=failed ;;
         QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=failed ;;
+        CoreImage) COREIMAGE_OBJECT_STATE=failed ;;
     esac
     return 1
 }
@@ -378,6 +385,48 @@ probe_cg_iosurface_image_colorspace() {
         "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_iosurface_image_colorspace" \
             "$TBEHAV/CoreGraphics-iosurface-image-colorspace.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface &&
         "$T/cg_iosurface_image_colorspace" "$T/cg_iosurface_side_a.dylib" "$T/cg_iosurface_side_b.dylib"
+}
+
+probe_cg_iosurface_image_matching() {
+    "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/cg_iosurface_image_matching" \
+        "$TBEHAV/CoreGraphics-iosurface-image-matching.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface &&
+        "$T/cg_iosurface_image_matching" "$REPO/Source/ThirdParty/skia/resources/icc_profiles/srgb_lab_pcs.icc"
+}
+
+probe_cg_gradient_dither_space() {
+    "$CLANG" $MODERN $INC -o "$T/cg_gradient_dither_space" \
+        "$TBEHAV/CoreGraphics-gradient-dither-space.c" $PROBE_LIBS -framework CoreGraphics &&
+        "$T/cg_gradient_dither_space"
+}
+
+probe_cg_linear_srgb() {
+    "$CLANG" $MODERN $INC -o "$T/cg_linear_srgb" \
+        "$TBEHAV/CoreGraphics-linear-srgb.c" $PROBE_LIBS -framework CoreGraphics &&
+        "$T/cg_linear_srgb"
+}
+
+probe_accelerate_converter_ramp() {
+    "$CLANG" $HOST -I"$PF/c" -o "$T/accelerate_converter_ramp" "$TBEHAV/Accelerate-converter-ramp.c" \
+        "$PF/methods/Accelerate.m" "$PF/shared/wk_symbols.c" -framework ApplicationServices -framework Accelerate &&
+        "$CLANG" $HOST -o "$T/accelerate_converter_ramp_without_initializer" "$TBEHAV/Accelerate-converter-ramp.c" \
+            -framework ApplicationServices -framework Accelerate &&
+        "$T/accelerate_converter_ramp" && "$T/accelerate_converter_ramp_without_initializer" --without-initializer
+}
+
+probe_cg_layer_context_colorspace() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/cg_layer_context_colorspace" \
+        "$TBEHAV/CoreGraphics-layer-context-colorspace.m" $PROBE_LIBS -framework Cocoa -framework QuartzCore &&
+        "$T/cg_layer_context_colorspace"
+}
+
+probe_coreimage_builtins() {
+    prepare_method_objects CoreImage &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -Wno-four-char-constants -o "$T/coreimage_builtins" "$TBEHAV/CoreImage-builtins.m" \
+            "$OBJ/methods/CoreImage.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework QuartzCore -framework Foundation -framework AppKit -framework IOSurface "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/coreimage_builtins"
 }
 
 probe_cg_live_image() {
@@ -1010,6 +1059,12 @@ run_probe unfair_lock "$@"
 run_probe stroke_line_segments "$@"
 run_probe ax_client_identification "$@"
 run_probe cg_iosurface_image_colorspace "$@"
+run_probe cg_iosurface_image_matching "$@"
+run_probe cg_gradient_dither_space "$@"
+run_probe cg_linear_srgb "$@"
+run_probe accelerate_converter_ramp "$@"
+run_probe cg_layer_context_colorspace "$@"
+run_probe coreimage_builtins "$@"
 run_probe cg_live_image "$@"
 run_probe cg_iosurface_image_reference "$@"
 run_probe cg_iosurface_premultiplied_sanitize "$@"

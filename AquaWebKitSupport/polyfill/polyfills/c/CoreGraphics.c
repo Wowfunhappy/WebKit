@@ -306,9 +306,12 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGPathAddUnevenCornersRoundedRect,
 
 // CGContextDrawConicGradient is macOS 10.12+; 10.9 CoreGraphics has no conic gradient of any kind.
 // The gradient is evaluated once per destination pixel, which is what the real API does: the ramp is
-// sampled by asking 10.9's own CGContextDrawLinearGradient to paint it into a 1xN strip, so colours,
-// interpolation and alpha match every other gradient path exactly, and each pixel takes the ramp entry
-// its angle around the centre falls in. The drawing CTM is set to the identity so the pixel grid is the
+// sampled by asking 10.9's own CGContextDrawLinearGradient to paint it into a floating-point 1xN strip of
+// the gradient's own colour space (so a space coarser than the destination's loses none of the levels the
+// destination keeps, each lands rounded, and an extended-range space's out-of-range components survive), so
+// colours, interpolation and alpha match every other gradient path exactly, and each pixel takes the ramp
+// entry its angle around the centre falls in. The pixels are an image in that space, which the context
+// matches like any other draw. The drawing CTM is set to the identity so the pixel grid is the
 // context's own whatever transform the caller had -- a scaled, flipped or rotated context needs no
 // special case -- and each sample is mapped back through the caller's transform to the space the centre
 // and the angle are stated in. Measured on this host against the geometry of
@@ -334,7 +337,17 @@ static size_t wk_conicRampSamples(CGContextRef context, CGPoint center)
     return (size_t)samples;
 }
 
-static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, size_t rampSamples,
+extern CGColorSpaceRef CGGradientGetColorSpace(CGGradientRef);
+
+// The layout a conic gradient's ramp and pixels take in its colour space.
+typedef struct {
+    CGColorSpaceRef space;
+    size_t bitsPerComponent;
+    size_t pixelBytes;
+    CGBitmapInfo bitmapInfo;
+} wk_conic_layout;
+
+static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, size_t rampSamples, const wk_conic_layout *layout,
     CGPoint center, CGFloat angle)
 {
     const double twoPi = 6.283185307179586;
@@ -346,7 +359,8 @@ static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, siz
     CGRect clip = CGRectIntegral(CGContextGetClipBoundingBox(context));
     size_t columns = (size_t)CGRectGetWidth(clip);
     size_t rows = (size_t)CGRectGetHeight(clip);
-    uint32_t *pixels = (columns && rows) ? (uint32_t *)malloc(columns * rows * 4) : NULL;
+    size_t pixelBytes = layout->pixelBytes;
+    uint8_t *pixels = (columns && rows) ? (uint8_t *)malloc(columns * rows * pixelBytes) : NULL;
     if (!pixels) {
         CGContextRestoreGState(context);
         return;
@@ -356,7 +370,6 @@ static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, siz
     if (start < 0)
         start += twoPi;
     double scale = rampSamples / twoPi;
-    const uint32_t *rampPixels = (const uint32_t *)ramp;
 
     for (size_t row = 0; row < rows; ++row) {
         // CGContextDrawImage lays a bitmap's first row along the destination rect's maxY edge.
@@ -364,7 +377,7 @@ static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, siz
             CGPointMake(CGRectGetMinX(clip) + 0.5, CGRectGetMaxY(clip) - row - 0.5), userFromBase);
         double x = first.x - center.x;
         double y = first.y - center.y;
-        uint32_t *out = pixels + row * columns;
+        uint8_t *out = pixels + row * columns * pixelBytes;
         for (size_t column = 0; column < columns; ++column, x += userFromBase.a, y += userFromBase.b) {
             double turn = atan2(y, x) - start;
             if (turn < 0)
@@ -374,14 +387,12 @@ static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, siz
             size_t index = (size_t)(turn * scale);
             if (index >= rampSamples)
                 index = rampSamples - 1;
-            out[column] = rampPixels[index];
+            memcpy(out + column * pixelBytes, ramp + index * pixelBytes, pixelBytes);
         }
     }
 
-    CGColorSpaceRef deviceRGB = CGColorSpaceCreateDeviceRGB();
-    CGContextRef bitmap = CGBitmapContextCreate(pixels, columns, rows, 8, columns * 4, deviceRGB,
-        kCGImageAlphaPremultipliedLast);
-    CGColorSpaceRelease(deviceRGB);
+    CGContextRef bitmap = CGBitmapContextCreate(pixels, columns, rows, layout->bitsPerComponent, columns * pixelBytes, layout->space,
+        layout->bitmapInfo);
     CGImageRef image = bitmap ? CGBitmapContextCreateImage(bitmap) : NULL;
     if (bitmap)
         CGContextRelease(bitmap);
@@ -403,24 +414,31 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawConicGradient,
     if (CGRectIsNull(clip) || CGRectIsInfinite(clip) || CGRectIsEmpty(clip))
         return;
 
-    size_t samples = wk_conicRampSamples(context, center);
-    uint8_t *ramp = (uint8_t *)calloc(samples, 4);
-    if (!ramp)
+    // WebKit's gradients are RGB; a gradient in another model is sampled in extended sRGB, which holds its colours.
+    CGColorSpaceRef gradientSpace = CGGradientGetColorSpace(gradient);
+    CGColorSpaceRef space = gradientSpace && CGColorSpaceGetModel(gradientSpace) == kCGColorSpaceModelRGB
+        ? CGColorSpaceRetain(gradientSpace) : CGColorSpaceCreateWithName(kCGColorSpaceExtendedSRGB);
+    if (!space)
         return;
-    CGColorSpaceRef deviceRGB = CGColorSpaceCreateDeviceRGB();
-    CGContextRef strip = CGBitmapContextCreate(ramp, samples, 1, 8, samples * 4, deviceRGB,
-        kCGImageAlphaPremultipliedLast);
-    CGColorSpaceRelease(deviceRGB);
-    if (!strip) {
-        free(ramp);
-        return;
-    }
-    CGContextDrawLinearGradient(strip, gradient, CGPointMake(0, 0), CGPointMake(samples, 0),
-        kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
-    CGContextRelease(strip);
+    wk_conic_layout layout = {
+        space,
+        32,
+        16,
+        kCGBitmapFloatComponents | kCGBitmapByteOrder32Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast,
+    };
 
-    wk_paintConicGradient(context, ramp, samples, center, angle);
+    size_t samples = wk_conicRampSamples(context, center);
+    uint8_t *ramp = (uint8_t *)calloc(samples, layout.pixelBytes);
+    CGContextRef strip = ramp ? CGBitmapContextCreate(ramp, samples, 1, layout.bitsPerComponent, samples * layout.pixelBytes, space,
+        layout.bitmapInfo) : NULL;
+    if (strip) {
+        CGContextDrawLinearGradient(strip, gradient, CGPointMake(0, 0), CGPointMake(samples, 0),
+            kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
+        CGContextRelease(strip);
+        wk_paintConicGradient(context, ramp, samples, &layout, center, angle);
+    }
     free(ramp);
+    CGColorSpaceRelease(space);
 }
 
 #pragma clang diagnostic push
@@ -614,6 +632,11 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
 // delegate. The callback is called as CoreGraphics calls a delegate callback, with the delegate, the
 // context's rendering state and its top gstate. The key is a selector, so every image's copy of this
 // archive reads and writes the same association.
+//
+// A Core Animation layer that draws asynchronously hands its delegate such a context, built on
+// QuartzCore's delegate, whose info is the CA::CG::ContextDelegate that renders the drawing. The colour
+// space it renders into, and matches every image to, is the one CA::CG::ContextDelegate::set_colorspace
+// keeps at offset 0x20 of that object in 10.9's QuartzCore.
 extern CGColorSpaceRef CGContextCopyDeviceColorSpace(CGContextRef);
 extern CGColorSpaceRef CGIOSurfaceContextGetColorSpace(CGContextRef);
 
@@ -626,6 +649,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGIOSurfaceContextFlushQueue, (CGContex
 }
 WK_SYSTEM_FN("CoreGraphics", int, CGContextGetType, (CGContextRef));
 extern void *CGContextGetDelegate(CGContextRef);
+extern void *CGContextDelegateGetInfo(void *);
 extern void *CGContextGetRenderingState(CGContextRef);
 extern void *CGContextCopyTopGState(CGContextRef);
 extern void CGGStateRelease(void *);
@@ -658,6 +682,8 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGColorSpaceRef, CGContextGetColorSpace, (CGC
     void *delegate = context ? CGContextGetDelegate(context) : NULL;
     if (!delegate)
         return NULL;
+    if (wk_drawsThroughCoreAnimationIOSurface(context))
+        return *(CGColorSpaceRef *)((char *)CGContextDelegateGetInfo(delegate) + 0x20);
     wk_delegate_color_space_callback callback = (wk_delegate_color_space_callback)(void *)objc_getAssociatedObject((id)delegate, wk_delegateColorSpaceCallbackKey());
     if (!callback)
         return NULL;
@@ -666,6 +692,638 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGColorSpaceRef, CGContextGetColorSpace, (CGC
     if (gstate)
         CGGStateRelease(gstate);
     return colorSpace;
+}
+
+extern CGImageRef CGImageGetMask(CGImageRef);
+extern const void *CGImageGetMaskingColors(CGImageRef);
+
+// A conversion through intermediate bitmaps works in bands of rows of at most this many pixels, which
+// bounds the intermediates whatever the size of the whole.
+static const size_t wk_conversionBandPixels = (size_t)1 << 20;
+
+static size_t wk_conversionBandRows(size_t width)
+{
+    size_t rows = width ? wk_conversionBandPixels / width : 1;
+    return rows ? rows : 1;
+}
+
+// Rows of 16-bit premultiplied RGBA (host order) rounded into rows of 8-bit premultiplied BGRA
+// (kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little). CoreGraphics' own 16-to-8-bit draw drops
+// the low byte.
+static void wk_roundRowsTo8Bit(const uint8_t *from, size_t fromRowBytes, uint8_t *to, size_t toRowBytes, size_t width, size_t rows)
+{
+    static const size_t order[4] = { 2, 1, 0, 3 };
+    for (size_t y = 0; y < rows; y++) {
+        const uint16_t *source = (const uint16_t *)(const void *)(from + y * fromRowBytes);
+        uint8_t *out = to + y * toRowBytes;
+        for (size_t x = 0; x < width; x++) {
+            for (size_t component = 0; component < 4; component++)
+                out[x * 4 + component] = (uint8_t)(((uint32_t)source[x * 4 + order[component]] * 255 + 32767) / 65535);
+        }
+    }
+}
+
+// An image over `context`'s pixels that does not copy them; it is used and released while the context lives.
+static CGImageRef wk_createImageOverBitmap(CGContextRef context)
+{
+    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, CGBitmapContextGetData(context),
+        CGBitmapContextGetBytesPerRow(context) * CGBitmapContextGetHeight(context), NULL);
+    if (!provider)
+        return NULL;
+    CGImageRef image = CGImageCreate(CGBitmapContextGetWidth(context), CGBitmapContextGetHeight(context),
+        CGBitmapContextGetBitsPerComponent(context), CGBitmapContextGetBitsPerPixel(context), CGBitmapContextGetBytesPerRow(context),
+        CGBitmapContextGetColorSpace(context), CGBitmapContextGetBitmapInfo(context), provider, NULL, false, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    return image;
+}
+
+static CGContextRef wk_createBitmapWithImage(CGImageRef image, CGColorSpaceRef colorSpace, size_t bitsPerComponent, CGBitmapInfo bitmapInfo)
+{
+    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
+    CGContextRef bitmap = CGBitmapContextCreate(NULL, width, height, bitsPerComponent, 0, colorSpace, bitmapInfo);
+    if (!bitmap)
+        return NULL;
+    CGContextSetBlendMode(bitmap, kCGBlendModeCopy);
+    CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
+    CGContextSetRenderingIntent(bitmap, CGImageGetRenderingIntent(image));
+    CGContextDrawImage(bitmap, CGRectMake(0, 0, width, height), image);
+    return bitmap;
+}
+
+// A match between two RGB colour spaces evaluated from ColorSync's parametric description of it
+// (kColorSyncTransformParametricConversionData): per-channel parametric curves and 3x4 matrices, in the
+// order they apply, on colour unpremultiplied in floating point. Each curve is tabulated at
+// wk_curveIntervals + 1 points over [0, 1] and interpolated, and its first interval, where a gamma curve is
+// steepest, at wk_curveIntervals + 1 points of its own. A pair ColorSync describes with anything else -- a
+// table, a black point compensation -- has no parametric match, and is matched by CoreGraphics' bitmap
+// route.
+#define WK_COLORSYNC "/System/Library/Frameworks/ApplicationServices.framework/Frameworks/ColorSync.framework/ColorSync"
+WK_SYSTEM_FN(WK_COLORSYNC, CFTypeRef, ColorSyncProfileCreate, (CFDataRef, CFErrorRef *));
+WK_SYSTEM_FN(WK_COLORSYNC, CFTypeRef, ColorSyncTransformCreate, (CFArrayRef, CFDictionaryRef));
+WK_SYSTEM_FN(WK_COLORSYNC, CFTypeRef, ColorSyncTransformCopyProperty, (CFTypeRef, CFTypeRef, CFDictionaryRef));
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncProfile);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncRenderingIntent);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncRenderingIntentPerceptual);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncRenderingIntentRelative);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncRenderingIntentSaturation);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncRenderingIntentAbsolute);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncTransformTag);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncTransformDeviceToPCS);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncTransformPCSToDevice);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncTransformParametricConversionData);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncConversionMatrix);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncConversionParamCurve0);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncConversionParamCurve1);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncConversionParamCurve2);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncConversionParamCurve3);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncConversionParamCurve4);
+WK_SYSTEM_CONST(WK_COLORSYNC, CFStringRef, kColorSyncConversionChannelID);
+
+enum { wk_curveIntervals = 1024, wk_matchMaxSteps = 8, wk_matchCacheSize = 16 };
+
+typedef struct {
+    int type;          // the ICC parametric curve type, 0 to 4
+    double g, a, b, c, d, e, f;
+} wk_param_curve;
+
+typedef struct {
+    bool isMatrix;
+    float matrix[3][4];
+    wk_param_curve curves[3];
+    bool hasCurve[3];
+    float *tables[3];
+} wk_match_step;
+
+typedef struct {
+    CGColorSpaceRef from, to;
+    CGColorRenderingIntent intent;
+    unsigned references; // the cache's and each caller's, under wk_matchCacheLock
+    int stepCount;     // 0: no parametric match
+    wk_match_step steps[wk_matchMaxSteps];
+} wk_rgb_match;
+
+static double wk_evaluateParamCurve(const wk_param_curve *curve, double x)
+{
+    switch (curve->type) {
+    case 0:
+        return pow(x, curve->g);
+    case 1:
+        return x >= -curve->b / curve->a ? pow(curve->a * x + curve->b, curve->g) : 0;
+    case 2:
+        return x >= -curve->b / curve->a ? pow(curve->a * x + curve->b, curve->g) + curve->c : curve->c;
+    case 3:
+        return x >= curve->d ? pow(curve->a * x + curve->b, curve->g) : curve->c * x;
+    default:
+        return x >= curve->d ? pow(curve->a * x + curve->b, curve->g) + curve->e : curve->c * x + curve->f;
+    }
+}
+
+static bool wk_readNumbers(CFArrayRef array, double *out, CFIndex count)
+{
+    if (!array || CFGetTypeID(array) != CFArrayGetTypeID() || CFArrayGetCount(array) < count)
+        return false;
+    for (CFIndex i = 0; i < count; i++) {
+        CFTypeRef value = CFArrayGetValueAtIndex(array, i);
+        if (CFGetTypeID(value) == CFNumberGetTypeID())
+            CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &out[i]);
+        else if (CFGetTypeID(value) == CFStringGetTypeID())
+            out[i] = CFStringGetDoubleValue((CFStringRef)value);
+        else
+            return false;
+    }
+    return true;
+}
+
+// Reads one component of the description into `match`, opening a new curve step when the last step is a
+// matrix or already has a curve for this channel.
+static bool wk_readMatchComponent(CFDictionaryRef component, wk_rgb_match *match)
+{
+    if (CFGetTypeID(component) != CFDictionaryGetTypeID())
+        return false;
+    CFArrayRef matrix = (CFArrayRef)CFDictionaryGetValue(component, WK_SYSTEM(kColorSyncConversionMatrix));
+    if (matrix) {
+        if (CFDictionaryGetCount(component) != 1 || CFGetTypeID(matrix) != CFArrayGetTypeID() || CFArrayGetCount(matrix) != 3
+            || match->stepCount == wk_matchMaxSteps)
+            return false;
+        wk_match_step *step = &match->steps[match->stepCount++];
+        step->isMatrix = true;
+        for (CFIndex row = 0; row < 3; row++) {
+            double values[4];
+            if (!wk_readNumbers((CFArrayRef)CFArrayGetValueAtIndex(matrix, row), values, 4))
+                return false;
+            for (int column = 0; column < 4; column++)
+                step->matrix[row][column] = (float)values[column];
+        }
+        return true;
+    }
+
+    CFStringRef keys[] = {
+        WK_SYSTEM(kColorSyncConversionParamCurve0), WK_SYSTEM(kColorSyncConversionParamCurve1), WK_SYSTEM(kColorSyncConversionParamCurve2),
+        WK_SYSTEM(kColorSyncConversionParamCurve3), WK_SYSTEM(kColorSyncConversionParamCurve4),
+    };
+    CFNumberRef channelNumber = (CFNumberRef)CFDictionaryGetValue(component, WK_SYSTEM(kColorSyncConversionChannelID));
+    int channel = -1;
+    if (!channelNumber || CFGetTypeID(channelNumber) != CFNumberGetTypeID() || !CFNumberGetValue(channelNumber, kCFNumberIntType, &channel)
+        || channel < 0 || channel > 2 || CFDictionaryGetCount(component) != 2)
+        return false;
+    for (int type = 0; type < 5; type++) {
+        CFArrayRef parameters = (CFArrayRef)CFDictionaryGetValue(component, keys[type]);
+        if (!parameters)
+            continue;
+        double values[7];
+        if (!wk_readNumbers(parameters, values, 7))
+            return false;
+        wk_match_step *step = match->stepCount ? &match->steps[match->stepCount - 1] : NULL;
+        if (!step || step->isMatrix || step->hasCurve[channel]) {
+            if (match->stepCount == wk_matchMaxSteps)
+                return false;
+            step = &match->steps[match->stepCount++];
+        }
+        wk_param_curve curve = { type, values[0], values[1], values[2], values[3], values[4], values[5], values[6] };
+        if ((type == 1 || type == 2) && curve.a == 0)
+            return false;
+        step->curves[channel] = curve;
+        step->hasCurve[channel] = true;
+        return true;
+    }
+    return false;
+}
+
+static CFTypeRef wk_copyColorSyncProfile(CGColorSpaceRef space)
+{
+    CFDataRef data = CGColorSpaceCopyICCProfile(space);
+    if (!data)
+        return NULL;
+    CFDataRef repaired = wk_iccProfileForColorSync(data);
+    CFRelease(data);
+    CFTypeRef profile = repaired ? WK_SYSTEM(ColorSyncProfileCreate)(repaired, NULL) : NULL;
+    if (repaired)
+        CFRelease(repaired);
+    return profile;
+}
+
+static CFStringRef wk_colorSyncIntent(CGColorRenderingIntent intent)
+{
+    switch (intent) {
+    case kCGRenderingIntentAbsoluteColorimetric:
+        return WK_SYSTEM(kColorSyncRenderingIntentAbsolute);
+    case kCGRenderingIntentRelativeColorimetric:
+        return WK_SYSTEM(kColorSyncRenderingIntentRelative);
+    case kCGRenderingIntentSaturation:
+        return WK_SYSTEM(kColorSyncRenderingIntentSaturation);
+    default:
+        return WK_SYSTEM(kColorSyncRenderingIntentPerceptual);
+    }
+}
+
+static void wk_buildRGBMatch(wk_rgb_match *match)
+{
+    CFTypeRef fromProfile = wk_copyColorSyncProfile(match->from), toProfile = wk_copyColorSyncProfile(match->to);
+    CFArrayRef description = NULL;
+    if (fromProfile && toProfile) {
+        const void *keys[] = { WK_SYSTEM(kColorSyncProfile), WK_SYSTEM(kColorSyncRenderingIntent), WK_SYSTEM(kColorSyncTransformTag) };
+        const void *fromValues[] = { fromProfile, wk_colorSyncIntent(match->intent), WK_SYSTEM(kColorSyncTransformDeviceToPCS) };
+        const void *toValues[] = { toProfile, wk_colorSyncIntent(match->intent), WK_SYSTEM(kColorSyncTransformPCSToDevice) };
+        CFDictionaryRef from = CFDictionaryCreate(kCFAllocatorDefault, keys, fromValues, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFDictionaryRef to = CFDictionaryCreate(kCFAllocatorDefault, keys, toValues, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        const void *sequence[] = { from, to };
+        CFArrayRef profiles = from && to ? CFArrayCreate(kCFAllocatorDefault, sequence, 2, &kCFTypeArrayCallBacks) : NULL;
+        CFTypeRef transform = profiles ? WK_SYSTEM(ColorSyncTransformCreate)(profiles, NULL) : NULL;
+        if (transform) {
+            description = (CFArrayRef)WK_SYSTEM(ColorSyncTransformCopyProperty)(transform, WK_SYSTEM(kColorSyncTransformParametricConversionData), NULL);
+            CFRelease(transform);
+        }
+        if (profiles)
+            CFRelease(profiles);
+        if (from)
+            CFRelease(from);
+        if (to)
+            CFRelease(to);
+    }
+    if (fromProfile)
+        CFRelease(fromProfile);
+    if (toProfile)
+        CFRelease(toProfile);
+
+    bool usable = description && CFGetTypeID(description) == CFArrayGetTypeID() && CFArrayGetCount(description) > 0;
+    for (CFIndex i = 0; usable && i < CFArrayGetCount(description); i++)
+        usable = wk_readMatchComponent((CFDictionaryRef)CFArrayGetValueAtIndex(description, i), match);
+    if (description)
+        CFRelease(description);
+    for (int s = 0; usable && s < match->stepCount; s++) {
+        wk_match_step *step = &match->steps[s];
+        for (int channel = 0; !step->isMatrix && usable && channel < 3; channel++) {
+            // The coarse table, then the fine one over its first interval; a channel the step has no curve for
+            // takes the identity, which interpolates exactly.
+            float *table = (float *)malloc(2 * (wk_curveIntervals + 1) * sizeof(float));
+            step->tables[channel] = table;
+            usable = table != NULL;
+            const wk_param_curve identity = { 0, 1, 0, 0, 0, 0, 0, 0 };
+            const wk_param_curve *curve = step->hasCurve[channel] ? &step->curves[channel] : &identity;
+            for (int i = 0; usable && i <= wk_curveIntervals; i++) {
+                table[i] = (float)wk_evaluateParamCurve(curve, (double)i / wk_curveIntervals);
+                table[wk_curveIntervals + 1 + i] = (float)wk_evaluateParamCurve(curve, (double)i / wk_curveIntervals / wk_curveIntervals);
+            }
+        }
+    }
+    if (!usable) {
+        for (int s = 0; s < match->stepCount; s++) {
+            for (int channel = 0; channel < 3; channel++)
+                free(match->steps[s].tables[channel]);
+        }
+        memset(match->steps, 0, sizeof(match->steps));
+        match->stepCount = 0;
+    }
+}
+
+static pthread_mutex_t wk_matchCacheLock = PTHREAD_MUTEX_INITIALIZER;
+
+static void wk_freeRGBMatch(wk_rgb_match *match)
+{
+    for (int s = 0; s < wk_matchMaxSteps; s++) {
+        for (int channel = 0; channel < 3; channel++)
+            free(match->steps[s].tables[channel]);
+    }
+    CGColorSpaceRelease(match->from);
+    CGColorSpaceRelease(match->to);
+    free(match);
+}
+
+// Releases a match wk_rgbMatch answered.
+static void wk_releaseRGBMatch(const wk_rgb_match *match)
+{
+    if (!match)
+        return;
+    pthread_mutex_lock(&wk_matchCacheLock);
+    bool last = !--((wk_rgb_match *)match)->references;
+    pthread_mutex_unlock(&wk_matchCacheLock);
+    if (last)
+        wk_freeRGBMatch((wk_rgb_match *)match);
+}
+
+// The parametric match from `from` to `to` under `intent`, or NULL when ColorSync describes it otherwise;
+// the caller releases it. The most recent wk_matchCacheSize pairs are kept.
+static const wk_rgb_match *wk_rgbMatch(CGColorSpaceRef from, CGColorSpaceRef to, CGColorRenderingIntent intent)
+{
+    static wk_rgb_match *cache[wk_matchCacheSize];
+    static unsigned next;
+    pthread_mutex_lock(&wk_matchCacheLock);
+    wk_rgb_match *found = NULL, *evicted = NULL;
+    for (unsigned i = 0; !found && i < wk_matchCacheSize; i++) {
+        wk_rgb_match *entry = cache[i];
+        if (entry && entry->intent == intent && WK_ORIGINAL(CGColorSpaceEqualToColorSpace)(entry->from, from)
+            && WK_ORIGINAL(CGColorSpaceEqualToColorSpace)(entry->to, to))
+            found = entry;
+    }
+    if (!found) {
+        found = (wk_rgb_match *)calloc(1, sizeof(wk_rgb_match));
+        if (found) {
+            found->from = CGColorSpaceRetain(from);
+            found->to = CGColorSpaceRetain(to);
+            found->intent = intent;
+            found->references = 1;
+            wk_buildRGBMatch(found);
+            unsigned slot = next++ % wk_matchCacheSize;
+            evicted = cache[slot] && !--cache[slot]->references ? cache[slot] : NULL;
+            cache[slot] = found;
+        }
+    }
+    if (found && !found->stepCount)
+        found = NULL;
+    if (found)
+        found->references++;
+    pthread_mutex_unlock(&wk_matchCacheLock);
+    if (evicted)
+        wk_freeRGBMatch(evicted);
+    return found;
+}
+
+typedef float wk_float4 __attribute__((ext_vector_type(4)));
+typedef int wk_int4 __attribute__((ext_vector_type(4)));
+
+static inline __attribute__((always_inline)) wk_float4 wk_clampUnit(wk_float4 value)
+{
+    return __builtin_elementwise_min(__builtin_elementwise_max(value, (wk_float4)0), (wk_float4)1);
+}
+
+// The three channels of `rgb` through their tables of a curve step.
+static inline __attribute__((always_inline)) wk_float4 wk_evaluateTables(float *const tables[3], wk_float4 rgb)
+{
+    wk_float4 position = wk_clampUnit(rgb) * (float)wk_curveIntervals;
+    wk_int4 fine = position < 1;
+    position *= 1 + __builtin_convertvector(-fine, wk_float4) * (float)(wk_curveIntervals - 1);
+    wk_int4 index = __builtin_elementwise_min(__builtin_convertvector(position, wk_int4), (wk_int4)(wk_curveIntervals - 1));
+    wk_float4 fraction = position - __builtin_convertvector(index, wk_float4);
+    index += fine & (wk_curveIntervals + 1);
+    wk_float4 low = { tables[0][index.x], tables[1][index.y], tables[2][index.z], 0 };
+    wk_float4 high = { tables[0][index.x + 1], tables[1][index.y + 1], tables[2][index.z + 1], 0 };
+    return low + fraction * (high - low);
+}
+
+static inline __attribute__((always_inline)) wk_float4 wk_applyRGBMatch(const wk_rgb_match *match, wk_float4 rgb)
+{
+    for (int s = 0; s < match->stepCount; s++) {
+        const wk_match_step *step = &match->steps[s];
+        if (step->isMatrix) {
+            const float (*m)[4] = step->matrix;
+            rgb = (wk_float4) { m[0][0], m[1][0], m[2][0], 0 } * rgb.x + (wk_float4) { m[0][1], m[1][1], m[2][1], 0 } * rgb.y
+                + (wk_float4) { m[0][2], m[1][2], m[2][2], 0 } * rgb.z + (wk_float4) { m[0][3], m[1][3], m[2][3], 0 };
+        } else
+            rgb = wk_evaluateTables(step->tables, rgb);
+    }
+    return rgb;
+}
+
+// One premultiplied pixel matched and written as 8-bit premultiplied BGRA: `straight` takes its colour
+// components to unpremultiplied ones, and `scale` takes matched unpremultiplied ones to 8-bit premultiplied
+// levels, which stay within the pixel's 8-bit alpha `alpha8`.
+static inline __attribute__((always_inline)) void wk_matchPremultipliedPixel(const wk_rgb_match *match, float red, float green, float blue, float straight, float scale,
+    int alpha8, uint8_t *out)
+{
+    if (!alpha8) {
+        out[0] = out[1] = out[2] = out[3] = 0;
+        return;
+    }
+    wk_float4 rgb = wk_applyRGBMatch(match, (wk_float4) { red, green, blue, 0 } * straight);
+    wk_int4 levels = __builtin_elementwise_min(__builtin_convertvector(wk_clampUnit(rgb) * scale + 0.5f, wk_int4), (wk_int4)alpha8);
+    out[0] = (uint8_t)levels.z;
+    out[1] = (uint8_t)levels.y;
+    out[2] = (uint8_t)levels.x;
+    out[3] = (uint8_t)alpha8;
+}
+
+// Rows of 16-bit premultiplied RGBA (host order) matched into rows of 8-bit premultiplied BGRA.
+static void wk_matchWideRows(const wk_rgb_match *shared, const uint8_t *from, size_t fromRowBytes, uint8_t *to, size_t toRowBytes, size_t width, size_t rows)
+{
+    // A copy the pixel stores cannot alias, so its steps stay in registers across the rows.
+    const wk_rgb_match local = *shared, *match = &local;
+    for (size_t y = 0; y < rows; y++) {
+        const uint16_t *source = (const uint16_t *)(const void *)(from + y * fromRowBytes);
+        uint8_t *out = to + y * toRowBytes;
+        for (size_t x = 0; x < width; x++, source += 4, out += 4) {
+            unsigned alpha = source[3];
+            float straight = alpha ? 1.0f / (float)alpha : 0;
+            wk_matchPremultipliedPixel(match, source[0], source[1], source[2], straight, (float)alpha * (255.0f / 65535.0f),
+                (int)((alpha * 255 + 32767) / 65535), out);
+        }
+    }
+}
+
+// Rows of 8-bit premultiplied pixels whose red, green, blue and alpha lie at byte offsets `offsets`,
+// matched into rows of 8-bit premultiplied BGRA.
+static float wk_alphaReciprocals[256];
+static void wk_build_alphaReciprocals(void)
+{
+    for (int alpha = 1; alpha < 256; alpha++)
+        wk_alphaReciprocals[alpha] = 1.0f / (float)alpha;
+}
+
+static void wk_matchNarrowRows(const wk_rgb_match *shared, const uint8_t *from, size_t fromRowBytes, const int offsets[4], uint8_t *to, size_t toRowBytes, size_t width, size_t rows)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_build_alphaReciprocals);
+    float reciprocals[256];
+    memcpy(reciprocals, wk_alphaReciprocals, sizeof(reciprocals));
+    const wk_rgb_match local = *shared, *match = &local;
+    int red = offsets[0], green = offsets[1], blue = offsets[2], alphaOffset = offsets[3];
+    for (size_t y = 0; y < rows; y++) {
+        const uint8_t *source = from + y * fromRowBytes;
+        uint8_t *out = to + y * toRowBytes;
+        for (size_t x = 0; x < width; x++, source += 4, out += 4) {
+            int alpha = source[alphaOffset];
+            wk_matchPremultipliedPixel(match, source[red], source[green], source[blue], reciprocals[alpha], (float)alpha, alpha, out);
+        }
+    }
+}
+
+// CGContextDrawLinearGradient and CGContextDrawRadialGradient — DELIBERATE REPLACEMENTS of present 10.9
+// functions, for 8-bit bitmap contexts whose colour space is not the gradient's. 10.9's bitmap rasterizer
+// matches the gradient's colours to the context and then dithers the matched values, so a stretch between
+// two equal stops is dithered too: sRGB 0,128,0 matched into the 8-bit linear-sRGB buffer of an SVG filter
+// is 55.03, which 4% of the stretch stores as 56 (sRGB 129), while 1.5% of its zero red stores as 1 (sRGB
+// 13). Modern CoreGraphics leaves that stretch one colour and still dithers the ramps.
+//
+// So the gradient is drawn over the clip's device bounds twice: undithered into a 16-bit bitmap of its own
+// colour space, and natively into an 8-bit bitmap of the context's, which 10.9 dithers in the context's own
+// quantization. The 16-bit bitmap is matched into the context's space at 8 bits through the pair's
+// parametric match, or when ColorSync gives none, into a 16-bit bitmap of that space and rounded to 8 bits.
+// A pixel where the undithered gradient varies -- differs from a neighbour -- takes the native draw's
+// dithered colour; one where it is flat keeps the matched colour. The result is drawn into the context, a
+// band of rows at a time. An extended-range gradient space is drawn into a floating-point bitmap and not
+// dithered, since an 8-bit bitmap cannot hold its out-of-range components. The bands are transparent outside
+// the gradient's extent, so the route is taken under a blend mode that leaves the destination unchanged
+// beneath a transparent source, and without a shadow, which the native draw casts from the gradient's
+// coverage.
+extern bool CGContextGetAllowsDithering(CGContextRef);
+extern CGBlendMode CGContextGetBlendMode(CGContextRef);
+extern CGColorRenderingIntent CGContextGetRenderingIntent(CGContextRef);
+typedef struct CGStyle *CGStyleRef;
+extern CGStyleRef CGContextGetStyle(CGContextRef);
+
+static bool wk_transparentSourceKeepsDestination(CGBlendMode mode)
+{
+    switch (mode) {
+    case kCGBlendModeClear:
+    case kCGBlendModeCopy:
+    case kCGBlendModeSourceIn:
+    case kCGBlendModeSourceOut:
+    case kCGBlendModeDestinationIn:
+    case kCGBlendModeDestinationAtop:
+    case kCGBlendModePlusDarker:
+        return false;
+    default:
+        return true;
+    }
+}
+
+typedef struct {
+    CGGradientRef gradient;
+    bool radial;
+    CGPoint startPoint;
+    CGFloat startRadius;
+    CGPoint endPoint;
+    CGFloat endRadius;
+    CGGradientDrawingOptions options;
+} wk_gradient_draw;
+
+static void wk_drawGradientDirectly(CGContextRef context, const wk_gradient_draw *draw);
+
+// A bitmap of `space` covering `band` of device space, with the gradient drawn into it under `ctm`.
+static CGContextRef wk_createGradientBand(const wk_gradient_draw *draw, CGColorSpaceRef space, CGRect band, CGAffineTransform ctm,
+    size_t bitsPerComponent, CGBitmapInfo bitmapInfo)
+{
+    CGContextRef bitmap = CGBitmapContextCreate(NULL, (size_t)band.size.width, (size_t)band.size.height, bitsPerComponent, 0, space, bitmapInfo);
+    if (!bitmap)
+        return NULL;
+    CGContextTranslateCTM(bitmap, -band.origin.x, -band.origin.y);
+    CGContextConcatCTM(bitmap, ctm);
+    wk_drawGradientDirectly(bitmap, draw);
+    return bitmap;
+}
+
+// Pixels of `matched` where the undithered gradient in `exact` (16-bit RGBA) differs from a neighbour take the
+// pixel of `native` (laid out as `matched`); the rest keep their own.
+static void wk_ditherGradientRamps(CGContextRef exact, CGContextRef native, CGContextRef matched)
+{
+    size_t width = CGBitmapContextGetWidth(exact), height = CGBitmapContextGetHeight(exact);
+    size_t exactRowBytes = CGBitmapContextGetBytesPerRow(exact);
+    const uint8_t *exactBase = (const uint8_t *)CGBitmapContextGetData(exact);
+    for (size_t y = 0; y < height; y++) {
+        const uint8_t *row = exactBase + y * exactRowBytes;
+        const uint8_t *above = y ? row - exactRowBytes : NULL;
+        const uint8_t *below = y + 1 < height ? row + exactRowBytes : NULL;
+        const uint8_t *nativeRow = (const uint8_t *)CGBitmapContextGetData(native) + y * CGBitmapContextGetBytesPerRow(native);
+        uint8_t *out = (uint8_t *)CGBitmapContextGetData(matched) + y * CGBitmapContextGetBytesPerRow(matched);
+        for (size_t x = 0; x < width; x++) {
+            const uint8_t *pixel = row + x * 8;
+            bool varies = (x && memcmp(pixel - 8, pixel, 8)) || (x + 1 < width && memcmp(pixel + 8, pixel, 8))
+                || (above && memcmp(above + x * 8, pixel, 8)) || (below && memcmp(below + x * 8, pixel, 8));
+            if (varies)
+                memcpy(out + x * 4, nativeRow + x * 4, 4);
+        }
+    }
+}
+
+static bool wk_drawGradientInItsColorSpace(CGContextRef context, const wk_gradient_draw *draw)
+{
+    if (WK_SYSTEM(CGContextGetType)(context) != WK_CG_CONTEXT_TYPE_BITMAP)
+        return false;
+    CGColorSpaceRef contextSpace = CGBitmapContextGetColorSpace(context);
+    CGColorSpaceRef gradientSpace = draw->gradient ? CGGradientGetColorSpace(draw->gradient) : NULL;
+    if (!contextSpace || !gradientSpace || CGBitmapContextGetBitsPerComponent(context) != 8
+        || (CGBitmapContextGetBitmapInfo(context) & kCGBitmapFloatComponents) || !CGContextGetAllowsDithering(context)
+        || !wk_transparentSourceKeepsDestination(CGContextGetBlendMode(context)) || CGContextGetStyle(context)
+        || CGColorSpaceGetModel(gradientSpace) != kCGColorSpaceModelRGB
+        || CGColorSpaceGetModel(contextSpace) != kCGColorSpaceModelRGB
+        || WK_ORIGINAL(CGColorSpaceEqualToColorSpace)(gradientSpace, contextSpace))
+        return false;
+
+    CGAffineTransform ctm = CGContextGetCTM(context);
+    CGRect bounds = CGRectMake(0, 0, CGBitmapContextGetWidth(context), CGBitmapContextGetHeight(context));
+    CGRect device = CGRectIntersection(CGRectApplyAffineTransform(CGContextGetClipBoundingBox(context), ctm), bounds);
+    if (CGRectIsNull(device) || CGRectIsEmpty(device))
+        return true;
+    device = CGRectIntegral(device);
+
+    bool extended = wk_colorSpaceUsesExtendedRange(gradientSpace);
+    const CGBitmapInfo wideInfo = kCGBitmapByteOrder16Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
+    const CGBitmapInfo floatInfo = kCGBitmapFloatComponents | kCGBitmapByteOrder32Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
+    const CGBitmapInfo outInfo = kCGBitmapByteOrder32Little | (CGBitmapInfo)kCGImageAlphaPremultipliedFirst;
+    size_t width = (size_t)device.size.width, bandRows = wk_conversionBandRows(width);
+
+    const wk_rgb_match *match = extended ? NULL : wk_rgbMatch(gradientSpace, contextSpace, CGContextGetRenderingIntent(context));
+    CGContextSaveGState(context);
+    CGContextConcatCTM(context, CGAffineTransformInvert(ctm));
+    CGContextSetInterpolationQuality(context, kCGInterpolationNone);
+    for (CGFloat bandTop = CGRectGetMaxY(device); bandTop > CGRectGetMinY(device); bandTop -= (CGFloat)bandRows) {
+        CGFloat rows = fmin((CGFloat)bandRows, bandTop - CGRectGetMinY(device));
+        CGRect band = CGRectMake(device.origin.x, bandTop - rows, device.size.width, rows);
+        CGContextRef exact = wk_createGradientBand(draw, gradientSpace, band, ctm, extended ? 32 : 16, extended ? floatInfo : wideInfo);
+        CGImageRef exactImage = exact && !match ? wk_createImageOverBitmap(exact) : NULL;
+        CGContextRef matched = exactImage ? wk_createBitmapWithImage(exactImage, contextSpace, 16, wideInfo) : NULL;
+        CGContextRef out = (match && exact) || matched ? CGBitmapContextCreate(NULL, width, (size_t)rows, 8, width * 4, contextSpace, outInfo) : NULL;
+        CGImageRef outImage = NULL;
+        if (out) {
+            if (match)
+                wk_matchWideRows(match, CGBitmapContextGetData(exact), CGBitmapContextGetBytesPerRow(exact), CGBitmapContextGetData(out),
+                    CGBitmapContextGetBytesPerRow(out), width, (size_t)rows);
+            else
+                wk_roundRowsTo8Bit(CGBitmapContextGetData(matched), CGBitmapContextGetBytesPerRow(matched), CGBitmapContextGetData(out),
+                    CGBitmapContextGetBytesPerRow(out), width, (size_t)rows);
+            CGContextRef native = extended ? NULL : wk_createGradientBand(draw, contextSpace, band, ctm, 8, outInfo);
+            if (native) {
+                wk_ditherGradientRamps(exact, native, out);
+                CGContextRelease(native);
+            }
+            outImage = wk_createImageOverBitmap(out);
+        }
+        if (outImage) {
+            CGContextDrawImage(context, band, outImage);
+            CGImageRelease(outImage);
+        } else {
+            // A band whose bitmaps could not be made is the native draw within it.
+            CGContextSaveGState(context);
+            CGContextClipToRect(context, band);
+            CGContextConcatCTM(context, ctm);
+            wk_drawGradientDirectly(context, draw);
+            CGContextRestoreGState(context);
+        }
+        if (out)
+            CGContextRelease(out);
+        if (matched)
+            CGContextRelease(matched);
+        if (exactImage)
+            CGImageRelease(exactImage);
+        if (exact)
+            CGContextRelease(exact);
+    }
+    CGContextRestoreGState(context);
+    wk_releaseRGBMatch(match);
+    return true;
+}
+
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawLinearGradient,
+    (CGContextRef context, CGGradientRef gradient, CGPoint startPoint, CGPoint endPoint, CGGradientDrawingOptions options))
+{
+    wk_gradient_draw draw = { gradient, false, startPoint, 0, endPoint, 0, options };
+    if (!context || !wk_drawGradientInItsColorSpace(context, &draw))
+        wk_drawGradientDirectly(context, &draw);
+}
+
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawRadialGradient,
+    (CGContextRef context, CGGradientRef gradient, CGPoint startCenter, CGFloat startRadius, CGPoint endCenter, CGFloat endRadius, CGGradientDrawingOptions options))
+{
+    wk_gradient_draw draw = { gradient, true, startCenter, startRadius, endCenter, endRadius, options };
+    if (!context || !wk_drawGradientInItsColorSpace(context, &draw))
+        wk_drawGradientDirectly(context, &draw);
+}
+
+static void wk_drawGradientDirectly(CGContextRef context, const wk_gradient_draw *draw)
+{
+    if (draw->radial)
+        WK_ORIGINAL(CGContextDrawRadialGradient)(context, draw->gradient, draw->startPoint, draw->startRadius, draw->endPoint, draw->endRadius, draw->options);
+    else
+        WK_ORIGINAL(CGContextDrawLinearGradient)(context, draw->gradient, draw->startPoint, draw->endPoint, draw->options);
 }
 
 // Lockdown Mode for PDF (macOS 13+). No Lockdown Mode on 10.9.
@@ -742,11 +1400,10 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextSetOwnerIdentity, (CGContextRe
 // The LINEAR names are different, and getting them wrong is not a gamut approximation but a wrong
 // answer. A space named "linear sRGB" whose transfer function is sRGB's ~2.2 gamma misreports every
 // value in it: WebCore composites SVG filters in linearRGB by default, so returning a gamma space
-// there silently moves filter maths into the wrong domain. 10.9 can express the right thing —
-// CGColorSpaceCreateCalibratedRGB takes an explicit gamma, and sRGB's own primaries and D65 white
-// point are just numbers. Measured on this host by converting 0.5 into an sRGB bitmap: this space
-// yields 187 and WebCore's own Resources/linearSRGB.icc yields 188 (one 1/255 rounding step apart),
-// while plain sRGB yields 128, so WebCore's linearRGB filter maths lands in the space it asks for.
+// there silently moves filter maths into the wrong domain. The linear spaces are CoreGraphics' own
+// sRGB profile with its colorants (Display P3's, for linear Display P3) and identity tone curves, so a
+// match between a linear space and its gamma-encoded one is the tone curve alone, as modern macOS gives
+// for kCGColorSpaceLinearSRGB: every 8-bit sRGB level lands on its exact linearization.
 //
 // EVERY colour-space name this file publishes is answered. Probed on this host, stock CGColorSpaceCreateWithName
 // returns NULL for all eleven of them, and a NULL colour space is not a lesser answer but a broken one:
@@ -755,21 +1412,14 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextSetOwnerIdentity, (CGContextRe
 WK_SYSTEM_FN("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef));
 WK_SYSTEM_FN("CoreGraphics", bool, CGColorSpaceEqualToColorSpace, (CGColorSpaceRef, CGColorSpaceRef));
 
-// sRGB's primaries and D65 white point with a gamma of 1.0 — i.e. linear sRGB. Built once; the
-// returned space is retained per call to match CGColorSpaceCreateWithName's Create semantics.
+static CGColorSpaceRef wk_createICCSpaceFromSRGB(const uint32_t colorants[3][3], bool linear, const char *description);
+
+// Linear sRGB, built once; the returned space is retained per call to match CGColorSpaceCreateWithName's
+// Create semantics.
 static CGColorSpaceRef wk_linear_sRGB_storage;
 static void wk_build_linear_sRGB(void)
 {
-    const CGFloat whitePointD65[3] = { 0.9505, 1.0, 1.0890 };
-    const CGFloat blackPoint[3] = { 0.0, 0.0, 0.0 };
-    const CGFloat gammaLinear[3] = { 1.0, 1.0, 1.0 };
-    // Columns are the XYZ coordinates of the sRGB red, green and blue primaries.
-    const CGFloat sRGBPrimariesToXYZ[9] = {
-        0.4124564, 0.2126729, 0.0193339,
-        0.3575761, 0.7151522, 0.1191920,
-        0.1804375, 0.0721750, 0.9503041,
-    };
-    wk_linear_sRGB_storage = CGColorSpaceCreateCalibratedRGB(whitePointD65, blackPoint, gammaLinear, sRGBPrimariesToXYZ);
+    wk_linear_sRGB_storage = wk_createICCSpaceFromSRGB(NULL, true, "Linear sRGB");
 }
 
 static CGColorSpaceRef wk_linear_sRGB_space(void)
@@ -800,18 +1450,13 @@ static CGColorSpaceRef wk_xyz_D50_space(void)
 }
 
 // The wide-gamut spaces. CGColorSpaceCreateCalibratedRGB takes the XYZ coordinates of the red, green
-// and blue primaries as its matrix (columns, the layout the linear-sRGB space above uses) and one
-// gamma per channel, which is what a space whose transfer function IS a power curve needs. Display P3
-// is built from an ICC profile instead -- see below.
+// and blue primaries as its matrix (columns) and one gamma per channel, which is what a space whose
+// transfer function IS a power curve needs. Display P3 and linear Display P3 are built from an ICC
+// profile instead -- see below.
 static const CGFloat wk_whitePointD65[3] = { 0.9505, 1.0, 1.0890 };
 static const CGFloat wk_whitePointD50[3] = { 0.9642, 1.0, 0.8249 };
 static const CGFloat wk_blackPoint[3] = { 0.0, 0.0, 0.0 };
 
-static const CGFloat wk_displayP3PrimariesToXYZ[9] = {
-    0.4865709, 0.2289746, 0.0000000,
-    0.2656677, 0.6917385, 0.0451134,
-    0.1982173, 0.0792869, 1.0439444,
-};
 static const CGFloat wk_rec2020PrimariesToXYZ[9] = {
     0.6369580, 0.2627002, 0.0000000,
     0.1446169, 0.6779981, 0.0280727,
@@ -880,8 +1525,9 @@ static bool wk_iccWriteDescription(uint8_t *tag, uint32_t tagSize, const char *t
 }
 
 // This CoreGraphics' sRGB profile with its colorant tags replaced by `colorants` (D50-adapted XYZ rows
-// in s15Fixed16) and its description by `description`; NULL when the profile cannot be rewritten.
-static CGColorSpaceRef wk_createICCSpaceFromSRGB(const uint32_t colorants[3][3], const char *description)
+// in s15Fixed16) unless they are NULL, its tone curves by the identity when `linear`, and its description
+// by `description`; NULL when the profile cannot be rewritten.
+static CGColorSpaceRef wk_createICCSpaceFromSRGB(const uint32_t colorants[3][3], bool linear, const char *description)
 {
     CGColorSpaceRef sRGB = WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
     if (!sRGB)
@@ -900,10 +1546,11 @@ static CGColorSpaceRef wk_createICCSpaceFromSRGB(const uint32_t colorants[3][3],
     // signature, its offset from the start of the profile and its size.
     uint8_t *bytes = CFDataGetMutableBytePtr(profile);
     size_t length = (size_t)CFDataGetLength(profile);
-    unsigned colorantsWritten = 0;
+    unsigned colorantsWritten = 0, curvesWritten = 0;
     bool described = false;
     if (length >= 132) {
         static const char *const colorantTags[3] = { "rXYZ", "gXYZ", "bXYZ" };
+        static const char *const curveTags[3] = { "rTRC", "gTRC", "bTRC" };
         uint32_t tagCount = wk_iccReadUInt32(bytes + 128);
         for (uint32_t i = 0; i < tagCount && 132 + 12 * (size_t)(i + 1) <= length; i++) {
             const uint8_t *entry = bytes + 132 + 12 * (size_t)i;
@@ -917,17 +1564,27 @@ static CGColorSpaceRef wk_createICCSpaceFromSRGB(const uint32_t colorants[3][3],
                 continue;
             }
             // An XYZType tag is its signature, 4 reserved bytes and three s15Fixed16 numbers.
-            for (unsigned c = 0; c < 3; c++) {
+            for (unsigned c = 0; colorants && c < 3; c++) {
                 if (memcmp(entry, colorantTags[c], 4) || size < 20 || memcmp(tag, "XYZ ", 4))
                     continue;
                 for (unsigned component = 0; component < 3; component++)
                     wk_iccWriteUInt32(tag + 8 + 4 * component, colorants[c][component]);
                 colorantsWritten++;
             }
+            // A curveType tag with no entries is the identity: its signature, 4 reserved bytes and a zero
+            // count. The three curves share one tag, so each entry's size is rewritten to that.
+            for (unsigned c = 0; linear && c < 3; c++) {
+                if (memcmp(entry, curveTags[c], 4) || size < 12 || memcmp(tag, "curv", 4))
+                    continue;
+                wk_iccWriteUInt32(tag + 8, 0);
+                wk_iccWriteUInt32((uint8_t *)entry + 8, 12);
+                curvesWritten++;
+            }
         }
     }
 
-    CGColorSpaceRef space = colorantsWritten == 3 && described ? CGColorSpaceCreateWithICCProfile(profile) : NULL;
+    CGColorSpaceRef space = (!colorants || colorantsWritten == 3) && (!linear || curvesWritten == 3) && described
+        ? CGColorSpaceCreateWithICCProfile(profile) : NULL;
     CFRelease(profile);
     return space;
 }
@@ -935,7 +1592,7 @@ static CGColorSpaceRef wk_createICCSpaceFromSRGB(const uint32_t colorants[3][3],
 static CGColorSpaceRef wk_displayP3_storage;
 static void wk_build_displayP3(void)
 {
-    wk_displayP3_storage = wk_createICCSpaceFromSRGB(wk_displayP3ColorantsD50, "Display P3");
+    wk_displayP3_storage = wk_createICCSpaceFromSRGB(wk_displayP3ColorantsD50, false, "Display P3");
 }
 static CGColorSpaceRef wk_displayP3_space(void)
 {
@@ -1102,7 +1759,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceUsesITUR_2100TF, (CGColorSp
 static CGColorSpaceRef wk_linearDisplayP3_storage;
 static void wk_build_linearDisplayP3(void)
 {
-    wk_linearDisplayP3_storage = wk_makeCalibratedRGB(wk_whitePointD65, 1.0, wk_displayP3PrimariesToXYZ);
+    wk_linearDisplayP3_storage = wk_createICCSpaceFromSRGB(wk_displayP3ColorantsD50, true, "Linear Display P3");
 }
 static CGColorSpaceRef wk_linearDisplayP3_space(void)
 {
@@ -1137,8 +1794,7 @@ static CGColorSpaceRef wk_romm_space(void)
     return wk_romm_storage;
 }
 
-WK_SYSTEM_FN("/System/Library/Frameworks/ApplicationServices.framework/Frameworks/ColorSync.framework/ColorSync", CFTypeRef, ColorSyncProfileCreate, (CFDataRef, CFErrorRef*));
-WK_SYSTEM_FN("/System/Library/Frameworks/ApplicationServices.framework/Frameworks/ColorSync.framework/ColorSync", bool, ColorSyncProfileIsWideGamut, (CFTypeRef));
+WK_SYSTEM_FN(WK_COLORSYNC, bool, ColorSyncProfileIsWideGamut, (CFTypeRef));
 
 // ColorSync classifies the profile's chromaticity triangle against the NTSC gamut threshold.
 WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceIsWideGamutRGB, (CGColorSpaceRef space))
@@ -1230,16 +1886,21 @@ static struct wk_transparency_layer_entry *wk_transparencyLayerHead;
 static int wk_transparencyLayerOpenCount;
 
 
-// CGContextDrawImage — a DELIBERATE REPLACEMENT of a present 10.9 function, for IOSurface contexts.
+// CGContextDrawImage — a DELIBERATE REPLACEMENT of a present 10.9 function, for IOSurface contexts and for
+// 8-bit bitmap contexts drawing a premultiplied image of another colour space (wk_matchesBitmapDraw).
 // 10.9 implements those in QuartzCore (CAIOSurfaceContextVTable), whose CA::Render::copy_image
 // colour-matches an image once and keeps the result in an image cache keyed by the CGImage alone, so
 // every later draw of that image into an IOSurface context reuses the first destination's matching
 // whatever its own colour space is: an sRGB image drawn into a Display P3 surface and then into an
-// sRGB one reads 234,51,35 in both. An IOSurface draw is therefore always made through a
-// CGImageCreateCopy of the image kept for that destination colour space: the copy shares the image's
-// pixels, has a cache entry of its own that no other caller can fill, and is released with the image.
-// 10.9 caches both a CGIOSurfaceContextCreateImage image and a direct-provider image on these routes;
-// the per-space copy is what gives each destination space its own matching.
+// sRGB one reads 234,51,35 in both. It also matches all but small images through its renderer's colour
+// cube, interpolating between nodes eight 8-bit levels apart, which puts level 1 of a linear-sRGB image
+// at sRGB 6 where ColorSync answers 13. An IOSurface draw is therefore always made through an image
+// kept for that destination colour space and released with the image. An image in another colour space
+// is matched into that space by CoreGraphics' bitmap route, which QuartzCore then draws unmatched; an
+// image already in it is a CGImageCreateCopy, which shares its pixels and has a cache entry of its own
+// that no other caller can fill. 10.9 caches both a CGIOSurfaceContextCreateImage image and a
+// direct-provider image on these routes; the per-space image is what gives each destination space its
+// own matching. An image over the renderer's texture limit (below) is drawn in parts of its per-space image.
 //
 // Every image in the process carries its own copy of this archive, so the association key is a
 // selector and the lock is one object the runtime's association table holds for the whole process.
@@ -1258,8 +1919,6 @@ static id wk_ioSurfaceImageLock(void)
     if (lock)
         return lock;
     id anchor = (id)objc_getClass("NSObject");
-    if (!anchor)
-        return nil;
     const void *key = (const void *)sel_registerName("wk_ioSurfaceImageLock");
     objc_sync_enter(anchor);
     id existing = objc_getAssociatedObject(anchor, key);
@@ -1276,42 +1935,178 @@ static id wk_ioSurfaceImageLock(void)
     return lock;
 }
 
-// The copy of `image` an IOSurface context of this colour space draws. The association is a flat array
-// of (colour space, copy) pairs.
-static CGImageRef wk_imageForIOSurfaceColorSpace(CGImageRef image, CGColorSpaceRef colorSpace)
+// The bytes of an unmasked image whose pixels are 8-bit premultiplied RGB in 32 bits, as its provider holds
+// them, or NULL for any other image, which is read through a bitmap.
+static CFDataRef wk_copyPremultipliedPixels(CGImageRef image)
+{
+    CGImageAlphaInfo alpha = CGImageGetAlphaInfo(image);
+    CGBitmapInfo order = CGImageGetBitmapInfo(image) & kCGBitmapByteOrderMask;
+    if (CGImageGetBitsPerComponent(image) != 8 || CGImageGetBitsPerPixel(image) != 32 || CGImageGetDecode(image) || CGImageGetMask(image)
+        || (alpha != kCGImageAlphaPremultipliedFirst && alpha != kCGImageAlphaPremultipliedLast)
+        || (order != kCGBitmapByteOrderDefault && order != kCGBitmapByteOrder32Big && order != kCGBitmapByteOrder32Little))
+        return NULL;
+    CFDataRef data = CGDataProviderCopyData(CGImageGetDataProvider(image));
+    if (data && (size_t)CFDataGetLength(data) < CGImageGetBytesPerRow(image) * (CGImageGetHeight(image) - 1) + CGImageGetWidth(image) * 4) {
+        CFRelease(data);
+        return NULL;
+    }
+    return data;
+}
+
+// The byte offsets of red, green, blue and alpha in a pixel of an image wk_copyPremultipliedPixels reads.
+static void wk_premultipliedOffsets(CGImageRef image, int offsets[4])
+{
+    bool alphaFirst = CGImageGetAlphaInfo(image) == kCGImageAlphaPremultipliedFirst;
+    bool little = (CGImageGetBitmapInfo(image) & kCGBitmapByteOrderMask) == kCGBitmapByteOrder32Little;
+    // Components in memory order for a big-endian word: alpha first is A R G B, alpha last is R G B A.
+    int alphaIndex = alphaFirst ? 0 : 3, redIndex = alphaFirst ? 1 : 0;
+    for (int i = 0; i < 3; i++)
+        offsets[i] = little ? 3 - (redIndex + i) : redIndex + i;
+    offsets[3] = little ? 3 - alphaIndex : alphaIndex;
+}
+
+// `image` matched into a bitmap of `colorSpace` at the image's component depth. The bitmap carries alpha
+// unless the image is opaque: no alpha channel, no mask and no masking colours. 10.9's CoreGraphics matches
+// a premultiplied 8-bit image after unpremultiplying it at 8 bits, which moves dark translucent colours by
+// up to 5 levels: a linear-sRGB 41 at alpha 191 lands on sRGB 95 where the colour is 95.63. Such an image is
+// matched through the pair's parametric match, and when ColorSync gives none, widened to 16 bits in its own
+// colour space, matched there and rounded back to 8 bits, a band of rows at a time.
+static CGImageRef wk_createImageMatchedToColorSpace(CGImageRef image, CGColorSpaceRef colorSpace)
+{
+    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
+    CGImageAlphaInfo alpha = CGImageGetAlphaInfo(image);
+    bool opaque = (alpha == kCGImageAlphaNone || alpha == kCGImageAlphaNoneSkipFirst || alpha == kCGImageAlphaNoneSkipLast)
+        && !CGImageGetMask(image) && !CGImageGetMaskingColors(image);
+    bool premultiplied = alpha == kCGImageAlphaPremultipliedFirst || alpha == kCGImageAlphaPremultipliedLast;
+    size_t bitsPerComponent;
+    CGBitmapInfo bitmapInfo;
+    if (CGImageGetBitmapInfo(image) & kCGBitmapFloatComponents) {
+        bitsPerComponent = 32;
+        bitmapInfo = kCGBitmapFloatComponents | kCGBitmapByteOrder32Host
+            | (CGBitmapInfo)(opaque ? kCGImageAlphaNoneSkipLast : kCGImageAlphaPremultipliedLast);
+    } else if (CGImageGetBitsPerComponent(image) > 8) {
+        bitsPerComponent = 16;
+        bitmapInfo = kCGBitmapByteOrder16Host | (CGBitmapInfo)(opaque ? kCGImageAlphaNoneSkipLast : kCGImageAlphaPremultipliedLast);
+    } else {
+        bitsPerComponent = 8;
+        bitmapInfo = kCGBitmapByteOrder32Little | (CGBitmapInfo)(opaque ? kCGImageAlphaNoneSkipFirst : kCGImageAlphaPremultipliedFirst);
+    }
+
+    CGColorSpaceRef imageSpace = CGImageGetColorSpace(image);
+    if (!premultiplied || bitsPerComponent != 8 || CGColorSpaceGetModel(imageSpace) != kCGColorSpaceModelRGB) {
+        CGContextRef bitmap = wk_createBitmapWithImage(image, colorSpace, bitsPerComponent, bitmapInfo);
+        if (!bitmap)
+            return NULL;
+        CGImageRef pixels = CGBitmapContextCreateImage(bitmap);
+        CGContextRelease(bitmap);
+        if (!pixels)
+            return NULL;
+        CGImageRef matched = CGImageCreate(width, height, bitsPerComponent, CGImageGetBitsPerPixel(pixels), CGImageGetBytesPerRow(pixels),
+            colorSpace, bitmapInfo, CGImageGetDataProvider(pixels), NULL, CGImageGetShouldInterpolate(image), CGImageGetRenderingIntent(image));
+        CGImageRelease(pixels);
+        return matched;
+    }
+
+    CFMutableDataRef pixels = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    if (!pixels)
+        return NULL;
+    CFDataSetLength(pixels, (CFIndex)(width * height * 4));
+    uint8_t *out = CFDataGetMutableBytePtr(pixels);
+    const wk_rgb_match *match = wk_rgbMatch(imageSpace, colorSpace, CGImageGetRenderingIntent(image));
+    CFDataRef source = match ? wk_copyPremultipliedPixels(image) : NULL;
+    bool complete = out != NULL;
+    if (source && out) {
+        int offsets[4];
+        wk_premultipliedOffsets(image, offsets);
+        wk_matchNarrowRows(match, CFDataGetBytePtr(source), CGImageGetBytesPerRow(image), offsets, out, width * 4, width, height);
+    }
+    const CGBitmapInfo wideInfo = kCGBitmapByteOrder16Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
+    const CGBitmapInfo narrowInfo = kCGBitmapByteOrder32Little | (CGBitmapInfo)kCGImageAlphaPremultipliedFirst;
+    static const int narrowOffsets[4] = { 2, 1, 0, 3 };
+    size_t bandRows = wk_conversionBandRows(width);
+    for (size_t top = 0; !source && complete && top < height; top += bandRows) {
+        size_t rows = height - top < bandRows ? height - top : bandRows;
+        CGImageRef band = CGImageCreateWithImageInRect(image, CGRectMake(0, top, width, rows));
+        CGContextRef wide = band ? wk_createBitmapWithImage(band, imageSpace, match ? 8 : 16, match ? narrowInfo : wideInfo) : NULL;
+        CGImageRef wideImage = wide && !match ? wk_createImageOverBitmap(wide) : NULL;
+        CGContextRef matched = wideImage ? wk_createBitmapWithImage(wideImage, colorSpace, 16, wideInfo) : NULL;
+        if (match && wide)
+            wk_matchNarrowRows(match, CGBitmapContextGetData(wide), CGBitmapContextGetBytesPerRow(wide), narrowOffsets, out + top * width * 4, width * 4, width, rows);
+        else if (matched)
+            wk_roundRowsTo8Bit(CGBitmapContextGetData(matched), CGBitmapContextGetBytesPerRow(matched), out + top * width * 4, width * 4, width, rows);
+        complete = match ? wide != NULL : matched != NULL;
+        if (matched)
+            CGContextRelease(matched);
+        if (wideImage)
+            CGImageRelease(wideImage);
+        if (wide)
+            CGContextRelease(wide);
+        if (band)
+            CGImageRelease(band);
+    }
+    if (source)
+        CFRelease(source);
+    wk_releaseRGBMatch(match);
+    CGDataProviderRef provider = complete ? CGDataProviderCreateWithCFData(pixels) : NULL;
+    CFRelease(pixels);
+    if (!provider)
+        return NULL;
+    CGImageRef matched = CGImageCreate(width, height, 8, 32, width * 4, colorSpace, bitmapInfo, provider, NULL,
+        CGImageGetShouldInterpolate(image), CGImageGetRenderingIntent(image));
+    CGDataProviderRelease(provider);
+    return matched;
+}
+
+// The image kept for `colorSpace` in `draws`, a flat array of (colour space, image) pairs, or NULL.
+static CGImageRef wk_findImageForColorSpace(CFArrayRef draws, CGColorSpaceRef colorSpace)
+{
+    CFIndex count = draws ? CFArrayGetCount(draws) : 0;
+    for (CFIndex index = 0; index + 1 < count; index += 2) {
+        if (WK_SYSTEM(CGColorSpaceEqualToColorSpace)((CGColorSpaceRef)CFArrayGetValueAtIndex(draws, index), colorSpace))
+            return (CGImageRef)CFArrayGetValueAtIndex(draws, index + 1);
+    }
+    return NULL;
+}
+
+// The image a context of this colour space draws for `image`, kept on the image as an association. It is
+// made outside the lock, and a thread that loses the race to keep one uses the winner's.
+static CGImageRef wk_imageForDestinationColorSpace(CGImageRef image, CGColorSpaceRef colorSpace)
 {
     id lock = wk_ioSurfaceImageLock();
-    if (!lock)
+    objc_sync_enter(lock);
+    CGImageRef answer = wk_findImageForColorSpace((CFArrayRef)(void *)objc_getAssociatedObject((id)image, wk_ioSurfaceImageDrawsKey()), colorSpace);
+    objc_sync_exit(lock);
+    if (answer)
+        return answer;
+
+    CGColorSpaceRef imageSpace = CGImageGetColorSpace(image);
+    bool matched = imageSpace && !CGImageIsMask(image) && CGColorSpaceGetModel(colorSpace) == kCGColorSpaceModelRGB
+        && !WK_SYSTEM(CGColorSpaceEqualToColorSpace)(imageSpace, colorSpace);
+    CGImageRef copy = matched ? wk_createImageMatchedToColorSpace(image, colorSpace) : NULL;
+    if (!copy)
+        copy = CGImageCreateCopy(image);
+    if (!copy)
         return NULL;
-    CGImageRef answer = NULL;
+
     objc_sync_enter(lock);
     CFMutableArrayRef draws = (CFMutableArrayRef)(void *)objc_getAssociatedObject((id)image, wk_ioSurfaceImageDrawsKey());
-    if (!draws) {
-        draws = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    answer = wk_findImageForColorSpace(draws, colorSpace);
+    if (!answer) {
+        if (!draws) {
+            draws = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+            if (draws) {
+                objc_setAssociatedObject((id)image, wk_ioSurfaceImageDrawsKey(), (id)(void *)draws, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                CFRelease(draws);
+            }
+        }
         if (draws) {
-            objc_setAssociatedObject((id)image, wk_ioSurfaceImageDrawsKey(), (id)(void *)draws, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            CFRelease(draws);
-        }
-    }
-    if (draws) {
-        CFIndex count = CFArrayGetCount(draws);
-        for (CFIndex index = 0; index + 1 < count; index += 2) {
-            if (WK_SYSTEM(CGColorSpaceEqualToColorSpace)((CGColorSpaceRef)CFArrayGetValueAtIndex(draws, index), colorSpace)) {
-                answer = (CGImageRef)CFArrayGetValueAtIndex(draws, index + 1);
-                break;
-            }
-        }
-        if (!answer) {
-            CGImageRef copy = CGImageCreateCopy(image);
-            if (copy) {
-                CFArrayAppendValue(draws, colorSpace);
-                CFArrayAppendValue(draws, copy);
-                CFRelease(copy);
-                answer = copy;
-            }
+            CFArrayAppendValue(draws, colorSpace);
+            CFArrayAppendValue(draws, copy);
+            answer = copy;
         }
     }
     objc_sync_exit(lock);
+    CGImageRelease(copy);
     return answer;
 }
 
@@ -1329,8 +2124,6 @@ WK_SYSTEM_FN("OpenGL", int, CGLDestroyContext, (void *));
 WK_SYSTEM_FN("OpenGL", int, CGLDestroyPixelFormat, (void *));
 WK_SYSTEM_FN("OpenGL", void, glGetIntegerv, (unsigned, int *));
 extern bool CGContextGetShouldAntialias(CGContextRef);
-typedef struct CGStyle *CGStyleRef;
-extern CGStyleRef CGContextGetStyle(CGContextRef);
 extern CGRect CGStyleGetDrawBoundingBox(CGStyleRef, CGRect);
 
 static int wk_rendererTextureLimit(const int *attributes)
@@ -1378,7 +2171,6 @@ size_t wk_coreAnimationTextureLimit(void)
 static bool wk_drawOversizedImageInIOSurface(CGContextRef, CGRect, CGImageRef);
 
 // Direct IOSurface contexts and asynchronous CA layer contexts share this renderer delegate.
-extern void *CGContextDelegateGetInfo(void *);
 extern CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo);
 WK_SYSTEM_FN("IOSurface", IOSurfaceRef, IOSurfaceCreate, (CFDictionaryRef));
 WK_SYSTEM_CONST("IOSurface", CFStringRef, kIOSurfaceWidth);
@@ -1430,14 +2222,39 @@ bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef context)
         && wk_contextDelegateVTable(context) == wk_coreAnimationIOSurfaceDelegateVTable;
 }
 
+// An 8-bit bitmap context of another RGB colour space than a premultiplied 8-bit RGB image draws the image's
+// per-space image, as an IOSurface context does. 10.9's bitmap route unpremultiplies at 8 bits and matches
+// through an 8-bit table, which lands opaque levels up to 0.55 of a level from exact -- sRGB 7 becomes
+// linear-sRGB 0 where it is 0.54 -- and translucent ones up to 5 levels away.
+static bool wk_matchesBitmapDraw(CGContextRef context, CGImageRef image, CGColorSpaceRef *contextSpace)
+{
+    if (WK_SYSTEM(CGContextGetType)(context) != WK_CG_CONTEXT_TYPE_BITMAP || CGBitmapContextGetBitsPerComponent(context) != 8
+        || (CGBitmapContextGetBitmapInfo(context) & kCGBitmapFloatComponents))
+        return false;
+    CGColorSpaceRef destination = CGBitmapContextGetColorSpace(context);
+    CGColorSpaceRef source = CGImageGetColorSpace(image);
+    CGImageAlphaInfo alpha = CGImageGetAlphaInfo(image);
+    if (!destination || !source || CGImageIsMask(image) || CGImageGetBitsPerComponent(image) != 8 || CGImageGetBitsPerPixel(image) != 32
+        || (alpha != kCGImageAlphaPremultipliedFirst && alpha != kCGImageAlphaPremultipliedLast)
+        || CGColorSpaceGetModel(destination) != kCGColorSpaceModelRGB || CGColorSpaceGetModel(source) != kCGColorSpaceModelRGB
+        || WK_SYSTEM(CGColorSpaceEqualToColorSpace)(source, destination))
+        return false;
+    *contextSpace = destination;
+    return true;
+}
+
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef context, CGRect rect, CGImageRef image))
 {
+    CGColorSpaceRef bitmapSpace = NULL;
     if (context && image && wk_drawsThroughCoreAnimationIOSurface(context)) {
-        if (!wk_drawOversizedImageInIOSurface(context, rect, image)) {
-            CGColorSpaceRef colorSpace = CGContextGetColorSpace(context);
-            CGImageRef copy = colorSpace ? wk_imageForIOSurfaceColorSpace(image, colorSpace) : NULL;
-            WK_ORIGINAL(CGContextDrawImage)(context, rect, copy ? copy : image);
-        }
+        CGColorSpaceRef colorSpace = CGContextGetColorSpace(context);
+        CGImageRef copy = colorSpace ? wk_imageForDestinationColorSpace(image, colorSpace) : NULL;
+        CGImageRef drawn = copy ? copy : image;
+        if (!wk_drawOversizedImageInIOSurface(context, rect, drawn))
+            WK_ORIGINAL(CGContextDrawImage)(context, rect, drawn);
+    } else if (context && image && wk_matchesBitmapDraw(context, image, &bitmapSpace)) {
+        CGImageRef copy = wk_imageForDestinationColorSpace(image, bitmapSpace);
+        WK_ORIGINAL(CGContextDrawImage)(context, rect, copy ? copy : image);
     } else
         WK_ORIGINAL(CGContextDrawImage)(context, rect, image);
 }
@@ -1567,14 +2384,16 @@ static bool wk_drawOversizedImageInIOSurface(CGContextRef context, CGRect rect, 
     return true;
 }
 
-// CGContextDrawTiledImage and the pattern setters below draw a private copy of a premultiplied image's
-// pixels. 10.9's software colour match (CA::OGL::SW::tex_color_match) unpremultiplies each sampled
-// 8-bit pixel by its alpha to index a colour cube, and only when the alpha is not 255. At alpha 0 the
-// reciprocal is +inf and the Newton step 0 * inf is NaN, which cvttss2si turns into INT_MIN, and the
-// cube is read far out of bounds; any nonzero alpha stays in range through the cube's own upper clamp.
+// CGContextDrawTiledImage and the pattern setters below draw a private copy of the pixels of a
+// premultiplied image QuartzCore colour-matches. 10.9's software colour match
+// (CA::OGL::SW::tex_color_match) unpremultiplies each sampled 8-bit pixel by its alpha to index a colour
+// cube, and only when the alpha is not 255. At alpha 0 the reciprocal is +inf and the Newton step
+// 0 * inf is NaN, which cvttss2si turns into INT_MIN, and the cube is read far out of bounds; any
+// nonzero alpha stays in range through the cube's own upper clamp.
 // So the dangerous pixel is one whose alpha samples to 0 (8-bit alpha 0, or a 16-bit alpha below
 // 0x0100) with a colour that does not. The CGContextDrawImage replacement above escapes this: its
-// per-colour-space copy takes a route that never colour-matches.
+// per-colour-space image takes a route that never colour-matches. Tile and pattern draws use that image,
+// which is unmatched by QuartzCore whenever it is in the destination's colour space.
 //
 // The image drawn has a direct provider that reads the source image's bytes when CoreGraphics asks for a
 // range, through an access session, and cleans them in CoreGraphics' own buffer before answering, so each
@@ -1825,10 +2644,10 @@ static CGImageRef wk_premultipliedImage(CGImageRef image)
 static CGImageRef wk_copyImageForIOSurfacePattern(CGContextRef context, CGImageRef image)
 {
     CGColorSpaceRef destination = CGContextGetColorSpace(context);
-    CGImageRef copy = destination ? wk_imageForIOSurfaceColorSpace(image, destination) : NULL;
+    CGImageRef copy = destination ? wk_imageForDestinationColorSpace(image, destination) : NULL;
     if (!copy)
         return NULL;
-    CGColorSpaceRef source = CGImageGetColorSpace(image);
+    CGColorSpaceRef source = CGImageGetColorSpace(copy);
     if (source && WK_SYSTEM(CGColorSpaceEqualToColorSpace)(source, destination))
         return CGImageRetain(copy);
     return wk_premultipliedImage(copy);

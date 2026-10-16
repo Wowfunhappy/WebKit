@@ -7,7 +7,10 @@
 // The crash cases run in a child: this binary re-executed with --crash-case N. A forked child cannot
 // make an IOSurface context on this OS, so the child is a fresh process. A child that dies on a signal,
 // or cannot make its context, is a FAIL. Against 10.9's own definitions those children crash, so this
-// gate fails on stock. The byte-identity cases run in-process, comparing the replacement with 10.9.
+// gate fails on stock. The byte-identity cases run in-process, comparing the replacement with 10.9; an
+// image whose colour space is not the surface's reaches QuartzCore matched by CoreGraphics' bitmap route
+// (the CGContextDrawImage replacement's per-colour-space image), so where that matching differs from
+// QuartzCore's the comparison is with 10.9's draw of the image so matched.
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <IOSurface/IOSurface.h>
@@ -98,6 +101,20 @@ static CGImageRef make8GrayAlpha(uint8_t g, uint8_t a)
     CGDataProviderRef d = CGDataProviderCreateWithData(NULL, p, kSide*kSide*2, NULL);
     CGImageRef im = CGImageCreate(kSide, kSide, 8, 16, kSide*2, gray, (CGBitmapInfo)kCGImageAlphaPremultipliedLast, d, NULL, false, kCGRenderingIntentDefault);
     CGColorSpaceRelease(gray); CGDataProviderRelease(d); return im;
+}
+
+// `image` matched into an 8-bit premultiplied bitmap of `space` by CoreGraphics' bitmap route.
+static CGImageRef matchedTo(CGColorSpaceRef space, CGImageRef image)
+{
+    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
+    CGContextRef c = CGBitmapContextCreate(NULL, width, height, 8, 0, space, (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    if (!c)
+        return NULL;
+    CGContextSetBlendMode(c, kCGBlendModeCopy);
+    CGContextDrawImage(c, CGRectMake(0, 0, width, height), image);
+    CGImageRef result = CGBitmapContextCreateImage(c);
+    CGContextRelease(c);
+    return result;
 }
 
 // Crash-case worker, run in the child. It calls CGContextDrawTiledImage directly, so in the archive build
@@ -219,12 +236,15 @@ int main(int argc, char **argv)
     {
         CGImageRef full = make8RGBA(0x80, 0x40, 0x20, 0xFF);
         CGImageRef sub = CGImageCreateWithImageInRect(full, CGRectMake(0, 0, kSide / 2, kSide / 2));
-        if (sub) {
+        CGImageRef matched = sub ? matchedTo(gAdobe, sub) : NULL;
+        if (matched) {
             unsigned char *viaArchive = tileToSurface(CGContextDrawTiledImage, gAdobe, sub);
-            unsigned char *viaSystem = tileToSurface(gSystemTiled, gAdobe, sub);
-            check(!memcmp(viaArchive, viaSystem, kSide * kSide * 4), "subimage (CGImageCreateWithImageInRect) tiled: byte-identical to 10.9");
-            free(viaArchive); free(viaSystem); CGImageRelease(sub);
-        } else check(0, "subimage could be created");
+            unsigned char *viaSystem = tileToSurface(gSystemTiled, gAdobe, matched);
+            check(!memcmp(viaArchive, viaSystem, kSide * kSide * 4), "subimage (CGImageCreateWithImageInRect) tiled: byte-identical to 10.9's draw of it matched");
+            free(viaArchive); free(viaSystem); CGImageRelease(matched);
+        } else check(0, "subimage could be created and matched");
+        if (sub)
+            CGImageRelease(sub);
         CGImageRelease(full);
     }
 
