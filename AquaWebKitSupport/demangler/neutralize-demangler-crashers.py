@@ -38,6 +38,8 @@ N_STAB = 0xe0
 N_EXT = 0x01
 
 GMALLOC = "/usr/lib/libgmalloc.dylib"
+# The demangler under test: the host's, the one ReportCrash and CoreSymbolication call.
+HOST_CXXABI = "/usr/lib/libc++abi.dylib"
 SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # The in-tree clang, the one the rest of this port compiles with. /usr/bin/cc is an xcrun shim
@@ -75,9 +77,12 @@ def build_scan_tools(workdir):
     freecheck = os.path.join(workdir, "freecheck.dylib")
     cxx = resolve_compiler("clang++")
     cc = resolve_compiler("clang")
-    subprocess.check_call([cxx, "-O2",
+    # --no-default-config skips clang++.cfg, which links the toolchain's own libc++abi; the worker
+    # binds __cxa_demangle to HOST_CXXABI alone.
+    subprocess.check_call([cxx, "--no-default-config", "-nostdlib++", "-O2",
                            "-mmacosx-version-min=10.9", "-o", worker,
-                           os.path.join(SUPPORT_DIR, "demangler-crash-scan.cpp")])
+                           os.path.join(SUPPORT_DIR, "demangler-crash-scan.cpp"),
+                           HOST_CXXABI])
     subprocess.check_call([cc, "-dynamiclib",
                            "-mmacosx-version-min=10.9", "-o", freecheck,
                            os.path.join(SUPPORT_DIR,
