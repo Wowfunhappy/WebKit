@@ -1546,11 +1546,9 @@ Ref<WebContextMenuProxy> AquaWebKitPageClient::createContextMenuProxy(WebPagePro
     return WebContextMenuProxyMac::create(m_view, page, WTF::move(frameInfo), WTF::move(context), userData);
 }
 #endif
-RefPtr<WebColorPicker> AquaWebKitPageClient::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
+RefPtr<WebColorPicker> AquaWebKitPageClient::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier> frameID)
 {
-    // Mirror PageClientImplMac — vend a real NSColorPanel-backed
-    // WebColorPickerMac so clicking an <input type=color> opens the native color picker.
-    return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view);
+    return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view, frameID);
 }
 RefPtr<WebDataListSuggestionsDropdown> AquaWebKitPageClient::createDataListSuggestionsDropdown(WebPageProxy& page)
 {

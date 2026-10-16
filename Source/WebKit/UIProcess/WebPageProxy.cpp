@@ -17449,7 +17449,13 @@ void WebPageProxy::closeOverlayedViews()
 
     endDataListSuggestions();
 
-    endColorPicker();
+    // AQUAWEBKIT: a picker closed from this side (wheel event, live resize, view leaving its window) ends through
+    // its client, as when the user dismisses it, so Internals::didEndColorPicker() sends DidEndColorPicker and the
+    // <input type=color> leaves its presenting state. endColorPicker() serves the web process's own EndColorPicker,
+    // which needs no reply.
+    // endColorPicker();
+    if (RefPtr colorPicker = internals().colorPicker)
+        colorPicker->endPicker();
 
     endDateTimePicker();
 }

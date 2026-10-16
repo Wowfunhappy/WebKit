@@ -162,6 +162,12 @@ void ColorInputType::setPopupIsVisible(bool visible)
         return;
     Style::PseudoClassChangeInvalidation styleInvalidation(*protect(element()), CSSSelector::PseudoClass::Open, visible);
     m_popupIsVisible = visible;
+    // AQUAWEBKIT: the color well paints RenderTheme's Presenting state from this flag, which no style rule
+    // reflects. A chooser this process ends (endColorChooser() on blur) gets no DidEndColorPicker back:
+    // WebPageProxy::endColorPicker() clears its picker before ending it, so didEndChooser()'s repaint
+    // never runs for it.
+    if (CheckedPtr renderer = element()->renderer())
+        renderer->repaint();
 }
 
 const AtomString& ColorInputType::formControlType() const
