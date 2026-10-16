@@ -1,7 +1,8 @@
 #!/bin/bash
 # Measures, in Safari with the installed WebKit, whether text gets subpixel (LCD) or grayscale smoothing:
-# page.html's cells name the expected kind and fringe.c judges a screen capture of them. The run opens one
-# Safari window, brings it to the front, and closes it; Safari's other windows are left alone.
+# page.html's cells name the expected kind and fringe.c judges a capture of the probe's window alone, so
+# windows of other applications above it never reach the measurement. The run opens one Safari window,
+# brings it to the front, and closes it; Safari's other windows are left alone.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/font-smoothing.XXXXXX") || exit 2
 W=""
@@ -60,14 +61,11 @@ if echo "$regions" | grep -q '^outside-viewport'; then
     exit 1
 fi
 
-# A window over the probe would hand its own pixels to the measurement.
-front=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true')
-index=$(safari "get index of window id $W")
-if [ "$front" != "Safari" ] || [ "$index" != "1" ]; then
-    echo "FAIL the probe's window is not in front (frontmost application \"$front\", window index $index)"
+# Safari's AppleScript window id is the window's number in the window server.
+if ! screencapture -x -o -l"$W" "$WORK/capture.png"; then
+    echo "FAIL could not capture the probe's window"
     exit 1
 fi
-screencapture -x "$WORK/capture.png"
 
 echo "$regions" | "$WORK/fringe" "$WORK/capture.png"
 status=$?

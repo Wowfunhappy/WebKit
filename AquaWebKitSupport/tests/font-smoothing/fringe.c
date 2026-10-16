@@ -1,6 +1,6 @@
 // fringe <capture.png> < regions : judges each "name expectation x y width height" line (viewport
-// coordinates) of a screen capture holding page.html. The page's magenta marker gives the viewport's
-// origin on screen. In each region the background is the most common colour and the ink the luminance
+// coordinates) of a window capture holding page.html. The page's magenta marker gives the viewport's
+// origin in the capture. In each region the background is the most common colour and the ink the luminance
 // farthest from it; an edge pixel lies strictly between the two, and it is a strong fringe when its RGB
 // channel spread exceeds the background's own by more than 30. Subpixel (LCD) smoothing fringes most edge
 // pixels and grayscale smoothing none.
@@ -99,7 +99,7 @@ int main(int argc, char **argv)
         }
     }
     if (originX < 0) {
-        fprintf(stderr, "fringe: the page's marker is not on screen\n");
+        fprintf(stderr, "fringe: the page's marker is not in the capture\n");
         return 2;
     }
 
