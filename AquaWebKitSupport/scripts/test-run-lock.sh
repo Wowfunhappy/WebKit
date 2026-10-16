@@ -1,4 +1,4 @@
-# Sourced by run-layout-tests.sh, run-api-tests.sh and run-jsc-tests.sh, which set ROOT.
+# Sourced by run-layout-tests.sh, run-api-tests.sh, run-jsc-tests.sh and run-test262.sh, which set ROOT.
 #
 # One test run at a time: each runner reaps the build tree's drivers and services machine-wide, the layout
 # runner's http/wpt servers own fixed ports, and its results directory is shared, so a second invocation
