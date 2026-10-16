@@ -16,12 +16,20 @@
 // Through the gsubtest font, which names all twenty stylistic sets and every feature:
 //   (j) pwid and hlig apply through a borrowed stylistic set, and hlig leaves hist, which shares its AAT
 //       pair, off.
+// Through Inter.var.subset.ttf, a variable font whose numr maps 'n' to glyph 6, cut at wght 700:
+//   (k) numr substitutes 'n', and the substituted glyph advances as the cut does, in a CTLine and in
+//       CTFontShapeGlyphs.
 // Through installed fonts:
 //   (g) numr and dnom set Seravek's '1' as one.numr and one.dnom, the apple.com footnote case;
-//   (h) nalt, which AppleSDGothicNeo-Regular's GSUB has, leaves that font as 10.9 shapes it, from its morx.
+//   (h) nalt, which AppleSDGothicNeo-Regular's GSUB has, leaves that font as 10.9 shapes it, from its morx;
+//   (l) numr substitutes 'n' in Inter.var.subset.ttf registered at process scope, an OpenType variable
+//       font 10.9 reads no glyph of and whose descriptor it matches with a variation keyed by axis name,
+//       in a CTLine and in CTFontShapeGlyphs, and the substituted glyph advances as the font does, at wght 700
+//       as the font built from the same bytes does.
 //
-// usage: opentype_only_features <FontWithFancyFeatures.otf> <gsubtest-lookup3.otf>
+// usage: opentype_only_features <FontWithFancyFeatures.otf> <gsubtest-lookup3.otf> <Inter.var.subset.ttf>
 #include <ApplicationServices/ApplicationServices.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -118,8 +126,9 @@ static int fontValue(CTFontRef font, CFStringRef tag)
     return value;
 }
 
-// The glyph `character` takes in a CTLine set in `font`, and whether the run reports `font`.
-static CGGlyph lineGlyph(CTFontRef font, UniChar character, bool *reportsFont)
+// The glyph `character` takes in a CTLine set in `font`, and whether the run reports `font`. `advance`, when
+// given, receives the glyph's advance in the run.
+static CGGlyph lineGlyphAdvance(CTFontRef font, UniChar character, bool *reportsFont, CGFloat *advance)
 {
     CFStringRef string = CFStringCreateWithCharacters(kCFAllocatorDefault, &character, 1);
     const void *keys[] = { kCTFontAttributeName };
@@ -134,6 +143,11 @@ static CGGlyph lineGlyph(CTFontRef font, UniChar character, bool *reportsFont)
     if (CFArrayGetCount(runs) == 1 && CTRunGetGlyphCount((CTRunRef)CFArrayGetValueAtIndex(runs, 0)) == 1) {
         CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, 0);
         CTRunGetGlyphs(run, CFRangeMake(0, 1), &glyph);
+        if (advance) {
+            CGSize size;
+            CTRunGetAdvances(run, CFRangeMake(0, 1), &size);
+            *advance = size.width;
+        }
         CTFontRef runFont = (CTFontRef)CFDictionaryGetValue(CTRunGetAttributes(run), kCTFontAttributeName);
         *reportsFont = runFont == font || (runFont && CFEqual(runFont, font));
     }
@@ -142,6 +156,11 @@ static CGGlyph lineGlyph(CTFontRef font, UniChar character, bool *reportsFont)
     CFRelease(attributes);
     CFRelease(string);
     return glyph;
+}
+
+static CGGlyph lineGlyph(CTFontRef font, UniChar character, bool *reportsFont)
+{
+    return lineGlyphAdvance(font, character, reportsFont, NULL);
 }
 
 typedef struct {
@@ -153,7 +172,8 @@ typedef struct {
 } Shaped;
 
 // The glyph `character` takes from CTFontShapeGlyphs, given its nominal glyph and advance as WebCore gives them.
-static CGGlyph shapedGlyph(CTFontRef font, UniChar character)
+// `advance`, when given, receives the advance it answers for that glyph.
+static CGGlyph shapedGlyphAdvance(CTFontRef font, UniChar character, CGFloat *advance)
 {
     Shaped storage;
     memset(&storage, 0, sizeof storage);
@@ -170,7 +190,14 @@ static CGGlyph shapedGlyph(CTFontRef font, UniChar character)
             *outOrigins = run->origins;
             *outIndexes = run->indexes;
         });
+    if (advance)
+        *advance = run->advances[0].width;
     return run->count == 1 ? run->glyphs[0] : 0xFFFF;
+}
+
+static CGGlyph shapedGlyph(CTFontRef font, UniChar character)
+{
+    return shapedGlyphAdvance(font, character, NULL);
 }
 
 static CTFontRef fontWithSetting(CTFontDescriptorRef base, CFTypeRef element)
@@ -208,8 +235,8 @@ static CTFontDescriptorRef descriptorFromFontData(const char *path)
 
 int main(int argc, char **argv)
 {
-    if (argc < 3) {
-        printf("usage: %s <FontWithFancyFeatures.otf> <gsubtest-lookup3.otf>\n", argv[0]);
+    if (argc < 4) {
+        printf("usage: %s <FontWithFancyFeatures.otf> <gsubtest-lookup3.otf> <Inter.var.subset.ttf>\n", argv[0]);
         return 2;
     }
     CTFontDescriptorRef fromData = descriptorFromFontData(argv[1]);
@@ -348,6 +375,90 @@ int main(int argc, char **argv)
         CFRelease(pwidOn);
         CFRelease(gsubtest);
     }
+
+    // (k)
+    CGFloat webCutAdvance = 0;
+    CTFontDescriptorRef inter = descriptorFromFontData(argv[3]);
+    check(inter != NULL, "CTFontManagerCreateFontDescriptorFromData returns a descriptor for the variable font");
+    if (inter) {
+        // The variation as UnrealizedCoreTextFont::applyVariations builds it.
+        long long weightTag = 'wght';
+        float weight = 700;
+        CFNumberRef axis = CFNumberCreate(kCFAllocatorDefault, kCFNumberLongLongType, &weightTag);
+        CFNumberRef axisValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &weight);
+        const void *axisKeys[] = { axis };
+        const void *axisValues[] = { axisValue };
+        CFDictionaryRef variation = CFDictionaryCreate(kCFAllocatorDefault, axisKeys, axisValues, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        const void *keys[] = { kCTFontVariationAttribute };
+        const void *values[] = { variation };
+        CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CTFontDescriptorRef bold = CTFontDescriptorCreateCopyWithAttributes(inter, attributes);
+        CTFontRef boldNumr = fontWithSetting(bold, numrOn);
+        const CGGlyph numerator = 6;
+        CGSize cutAdvance;
+        CTFontGetAdvancesForGlyphs(boldNumr, kCTFontOrientationHorizontal, &numerator, &cutAdvance, 1);
+        webCutAdvance = cutAdvance.width;
+        CGFloat lineAdvance = 0, shapedAdvance = 0;
+        check(lineGlyphAdvance(boldNumr, 'n', &reportsFont, &lineAdvance) == numerator
+            && shapedGlyphAdvance(boldNumr, 'n', &shapedAdvance) == numerator,
+            "(k) numr substitutes 'n' in the wght 700 cut in a CTLine and in CTFontShapeGlyphs");
+        check(cutAdvance.width > 0 && fabs(lineAdvance - cutAdvance.width) < 0.01 && fabs(shapedAdvance - cutAdvance.width) < 0.01,
+            "(k) the substituted glyph advances as the wght 700 cut does in a CTLine and in CTFontShapeGlyphs");
+        CFRelease(boldNumr);
+        CFRelease(bold);
+        CFRelease(attributes);
+        CFRelease(variation);
+        CFRelease(axisValue);
+        CFRelease(axis);
+        CFRelease(inter);
+    }
+
+    // (l)
+    CFURLRef interURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)argv[3],
+        (CFIndex)strlen(argv[3]), false);
+    check(CTFontManagerRegisterFontsForURL(interURL, kCTFontManagerScopeProcess, NULL),
+        "the variable font registers at process scope");
+    {
+        CTFontDescriptorRef installed = CTFontDescriptorCreateWithNameAndSize(CFSTR("Inter-Regular"), 0);
+        CTFontRef installedNumr = fontWithSetting(installed, numrOn);
+        const CGGlyph numerator = 6;
+        CGSize fontAdvance;
+        CTFontGetAdvancesForGlyphs(installedNumr, kCTFontOrientationHorizontal, &numerator, &fontAdvance, 1);
+        CGFloat lineAdvance = -1, shapedAdvance = -1;
+        check(lineGlyphAdvance(installedNumr, 'n', &reportsFont, &lineAdvance) == numerator
+            && shapedGlyphAdvance(installedNumr, 'n', &shapedAdvance) == numerator,
+            "(l) numr substitutes 'n' in the installed variable font in a CTLine and in CTFontShapeGlyphs");
+        check(fontAdvance.width > 0 && fabs(lineAdvance - fontAdvance.width) < 0.01 && fabs(shapedAdvance - fontAdvance.width) < 0.01,
+            "(l) the substituted glyph advances as the installed variable font does in a CTLine and in CTFontShapeGlyphs");
+        long long weightTag = 'wght';
+        float weight = 700;
+        CFNumberRef axis = CFNumberCreate(kCFAllocatorDefault, kCFNumberLongLongType, &weightTag);
+        CFNumberRef axisValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &weight);
+        CFDictionaryRef variation = CFDictionaryCreate(kCFAllocatorDefault, (const void **)&axis, (const void **)&axisValue, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        const void *keys[] = { kCTFontVariationAttribute };
+        const void *values[] = { variation };
+        CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CTFontDescriptorRef installedBold = CTFontDescriptorCreateCopyWithAttributes(installed, attributes);
+        CTFontRef installedBoldNumr = fontWithSetting(installedBold, numrOn);
+        CGSize boldAdvance;
+        CTFontGetAdvancesForGlyphs(installedBoldNumr, kCTFontOrientationHorizontal, &numerator, &boldAdvance, 1);
+        check(webCutAdvance > fontAdvance.width && fabs(boldAdvance.width - webCutAdvance) < 0.01,
+            "(l) the installed variable font at wght 700 advances as the font built from its bytes does");
+        CFRelease(installedBoldNumr);
+        CFRelease(installedBold);
+        CFRelease(attributes);
+        CFRelease(variation);
+        CFRelease(axisValue);
+        CFRelease(axis);
+        CFRelease(installedNumr);
+        CFRelease(installed);
+    }
+    CTFontManagerUnregisterFontsForURL(interURL, kCTFontManagerScopeProcess, NULL);
+    CFRelease(interURL);
 
     CFRelease(afrcFont);
     CFRelease(afrcOn);

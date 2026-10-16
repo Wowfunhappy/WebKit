@@ -9,6 +9,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include "wk_font_catalog.h"
 #include "wk_helpers.h"
 #include "VariableFontInstancer.h"
@@ -221,8 +223,28 @@ static CFDataRef wk_fontTable(CTFontRef font, const void *key, CTFontTableTag ta
     return cached == (CFTypeRef)kCFNull ? NULL : (CFDataRef)cached;
 }
 
+// A static cut of a variable font answers its traits as 10.9 answers them for the uncut variable font at
+// the cut's variation, and a cut of an installed face its names as well: 10.9 derives traits from a
+// variable face and its variation, and from a static cut only from the cut's own tables. The cut keeps
+// that uncut font (wk_recordUncutFont, with the variable fonts below).
+static const void *wk_uncutFontKey(bool names)
+{
+    static const void *keys[2];
+    if (!keys[names])
+        keys[names] = (const void *)sel_registerName(names ? "wk_uncutNamesFont" : "wk_uncutTraitsFont");
+    return keys[names];
+}
+
+static CTFontRef wk_uncutFont(CTFontRef font, bool names)
+{
+    return font ? (CTFontRef)(void *)objc_getAssociatedObject((id)(void *)font, wk_uncutFontKey(names)) : NULL;
+}
+
 WK_POLYFILL_REPLACES("CoreText", CTFontSymbolicTraits, CTFontGetSymbolicTraits, (CTFontRef font))
 {
+    CTFontRef uncut = wk_uncutFont(font, false);
+    if (uncut)
+        return CTFontGetSymbolicTraits(uncut);
     CTFontSymbolicTraits traits = WK_ORIGINAL(CTFontGetSymbolicTraits)(font);
     if (font) {
         CFDataRef os2 = wk_fontTable(font, sel_registerName("wk_os2Style"), kCTFontTableOS2);
@@ -251,10 +273,46 @@ static CFDictionaryRef wk_copyTraitsWithSymbolic(CFDictionaryRef traits, CTFontS
 
 WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTFontCopyTraits, (CTFontRef font))
 {
+    CTFontRef uncut = wk_uncutFont(font, false);
+    if (uncut)
+        return CTFontCopyTraits(uncut);
     CFDictionaryRef traits = WK_ORIGINAL(CTFontCopyTraits)(font);
     CFDictionaryRef result = wk_copyTraitsWithSymbolic(traits, CTFontGetSymbolicTraits(font));
     CFRelease(traits);
     return result;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFStringRef, CTFontCopyName, (CTFontRef font, CFStringRef nameKey))
+{
+    CTFontRef uncut = wk_uncutFont(font, true);
+    return WK_ORIGINAL(CTFontCopyName)(uncut ? uncut : font, nameKey);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFStringRef, CTFontCopyPostScriptName, (CTFontRef font))
+{
+    CTFontRef uncut = wk_uncutFont(font, true);
+    return WK_ORIGINAL(CTFontCopyPostScriptName)(uncut ? uncut : font);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFStringRef, CTFontCopyFullName, (CTFontRef font))
+{
+    CTFontRef uncut = wk_uncutFont(font, true);
+    return WK_ORIGINAL(CTFontCopyFullName)(uncut ? uncut : font);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFStringRef, CTFontCopyDisplayName, (CTFontRef font))
+{
+    CTFontRef uncut = wk_uncutFont(font, true);
+    return WK_ORIGINAL(CTFontCopyDisplayName)(uncut ? uncut : font);
+}
+
+static void wk_recordUncutFont(CTFontRef cut, CTFontRef uncut, bool names)
+{
+    if (!cut || !uncut)
+        return;
+    objc_setAssociatedObject((id)(void *)cut, wk_uncutFontKey(false), (id)(void *)uncut, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (names)
+        objc_setAssociatedObject((id)(void *)cut, wk_uncutFontKey(true), (id)(void *)uncut, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // The palette a font was realized with. This OS keeps kCTFontPaletteAttribute and
@@ -717,6 +775,7 @@ extern CTFontRef CTFontCreateForCharactersWithLanguage(CTFontRef currentFont, co
 
 // The fallback option restricts the fonts eligible for character matching.
 static bool wk_fontIsUserInstalled(CTFontRef);
+static CTFontRef wk_cutOfInstalledVariableFont(CTFontRef font, CTFontDescriptorRef request);
 static CTFontRef wk_copySystemFallback(CTFontRef, const UniChar *, CFIndex, CFStringRef, CFIndex *);
 static CTFontRef wk_inheritFontRequest(CTFontRef font, CTFontRef source);
 WK_SYSTEM_FN("CoreText", bool, CTFontManagerRegisterFontsForURLs, (CFArrayRef, CTFontManagerScope, CFArrayRef *));
@@ -731,7 +790,7 @@ WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageA
         CFRelease(result);
         result = wk_copySystemFallback(currentFont, characters, length, language, coveredLength);
     }
-    return wk_inheritFontRequest(result, currentFont);
+    return wk_inheritFontRequest(wk_cutOfInstalledVariableFont(result, NULL), currentFont);
 }
 
 // Variable fonts. 10.9's CoreText cannot instance one. Two behaviours were measured on 10.9.5
@@ -755,6 +814,14 @@ WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageA
 // descriptor is realized with a variation dictionary. The realization then software-cuts a static
 // instance at the requested axis values and builds the font from that.
 #define WK_LEGACY_VARIABLE_FONT_SOURCE_KEY CFSTR("WKAquaWebKitLegacyVariableFontSourceSFNT")
+// The file and registration scope of the installed face a source descriptor was made for.
+#define WK_INSTALLED_VARIABLE_FONT_URL_KEY CFSTR("WKAquaWebKitInstalledVariableFontURL")
+#define WK_INSTALLED_VARIABLE_FONT_SCOPE_KEY CFSTR("WKAquaWebKitInstalledVariableFontRegistrationScope")
+// The face's own variation (a named instance's), which a variation request is laid over; a source carries
+// kCTFontVariationAttribute only when a variation was asked for.
+#define WK_INSTALLED_VARIABLE_FONT_OWN_VARIATION_KEY CFSTR("WKAquaWebKitInstalledVariableFontOwnVariation")
+// The face as 10.9 realizes it at the variation the descriptor was taken at, on a cut's descriptor.
+#define WK_INSTALLED_VARIABLE_FONT_FACE_KEY CFSTR("WKAquaWebKitInstalledVariableFontFace")
 
 // Descriptors retain a CGFont binding: 10.9's descriptor-from-data route frees an object that
 // TFontFeatures reads on realization.
@@ -870,6 +937,10 @@ static CTFontDescriptorRef wk_descriptorAttributesToCarryOver(CTFontDescriptorRe
     CFMutableDictionaryRef remaining = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes);
     CFRelease(attributes);
     CFDictionaryRemoveValue(remaining, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
+    CFDictionaryRemoveValue(remaining, WK_INSTALLED_VARIABLE_FONT_URL_KEY);
+    CFDictionaryRemoveValue(remaining, WK_INSTALLED_VARIABLE_FONT_SCOPE_KEY);
+    CFDictionaryRemoveValue(remaining, WK_INSTALLED_VARIABLE_FONT_FACE_KEY);
+    CFDictionaryRemoveValue(remaining, WK_INSTALLED_VARIABLE_FONT_OWN_VARIATION_KEY);
     CFDictionaryRemoveValue(remaining, kCTFontVariationAttribute);
     CFDictionaryRemoveValue(remaining, kCTFontNameAttribute);
     CFDictionaryRemoveValue(remaining, kCTFontFamilyNameAttribute);
@@ -884,6 +955,10 @@ static CTFontDescriptorRef wk_descriptorAttributesToCarryOver(CTFontDescriptorRe
 // this layer created the descriptor for, and for every request that lands on the fvar defaults.
 // `carriesSource` says whether the descriptor is one of those.
 static CFTypeRef wk_carriedAttribute(CTFontDescriptorRef descriptor, CFStringRef key);
+static CGFontRef wk_copyVariableFontInstance(CFDataRef sfnt, CFDictionaryRef variation);
+static CFDictionaryRef wk_copySourceVariation(CTFontDescriptorRef source);
+static CTFontRef wk_copyUncutFontOfSource(CTFontDescriptorRef source, CFDataRef sfnt, CFDictionaryRef variation,
+                                          CGFontRef cut, bool *names);
 
 static CTFontRef wk_realizeVariableFontInstance(CTFontDescriptorRef descriptor, CGFloat size, const CGAffineTransform *matrix,
                                                bool *carriesSource)
@@ -900,18 +975,21 @@ static CTFontRef wk_realizeVariableFontInstance(CTFontDescriptorRef descriptor, 
     *carriesSource = true;
 
     CTFontRef font = NULL;
-    CFDictionaryRef variations = (CFDictionaryRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontVariationAttribute);
-    CFDataRef instance = wk_legacy_variable_font_instance(sourceData, variations);
-    if (instance) {
-        CGFontRef cgFont = wk_createGraphicsFontFromSfnt(instance);
-        if (cgFont) {
-            CTFontDescriptorRef carriedOver = wk_descriptorAttributesToCarryOver(descriptor);
-            font = CTFontCreateWithGraphicsFont(cgFont, wk_sizeForRealizedFont(descriptor, size), matrix, carriedOver);
-            if (carriedOver)
-                CFRelease(carriedOver);
-            CGFontRelease(cgFont);
-        }
-        CFRelease(instance);
+    // The request is the one the descriptor carries; with none, it realizes at the fvar defaults.
+    CFDictionaryRef variations = wk_copySourceVariation(descriptor);
+    CGFontRef cgFont = variations && CFGetTypeID(variations) == CFDictionaryGetTypeID()
+        ? wk_copyVariableFontInstance(sourceData, variations) : NULL;
+    if (cgFont) {
+        CTFontDescriptorRef carriedOver = wk_descriptorAttributesToCarryOver(descriptor);
+        font = CTFontCreateWithGraphicsFont(cgFont, wk_sizeForRealizedFont(descriptor, size), matrix, carriedOver);
+        if (carriedOver)
+            CFRelease(carriedOver);
+        bool names = false;
+        CTFontRef uncut = font ? wk_copyUncutFontOfSource(descriptor, sourceData, variations, cgFont, &names) : NULL;
+        wk_recordUncutFont(font, uncut, names);
+        if (uncut)
+            CFRelease(uncut);
+        CGFontRelease(cgFont);
     }
     if (variations)
         CFRelease(variations);
@@ -1236,6 +1314,42 @@ static CFTypeRef wk_carriedAttribute(CTFontDescriptorRef descriptor, CFStringRef
     return value;
 }
 
+static void wk_layAxisValue(const void *key, const void *value, void *context)
+{
+    CFDictionarySetValue((CFMutableDictionaryRef)context, key, value);
+}
+
+// The variation a source descriptor realizes at: an installed face's own variation with the request the
+// descriptor carries laid over it.
+static CFDictionaryRef wk_copySourceVariation(CTFontDescriptorRef source)
+{
+    CFDictionaryRef own = (CFDictionaryRef)wk_carriedAttribute(source, WK_INSTALLED_VARIABLE_FONT_OWN_VARIATION_KEY);
+    CFDictionaryRef request = (CFDictionaryRef)wk_carriedAttribute(source, kCTFontVariationAttribute);
+    if (own && CFGetTypeID(own) != CFDictionaryGetTypeID()) {
+        CFRelease(own);
+        own = NULL;
+    }
+    if (request && CFGetTypeID(request) != CFDictionaryGetTypeID()) {
+        CFRelease(request);
+        request = NULL;
+    }
+    if (!own || !request)
+        return own ? own : request;
+    CFMutableDictionaryRef laid = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, own);
+    CFDictionaryApplyFunction(request, wk_layAxisValue, laid);
+    CFRelease(own);
+    CFRelease(request);
+    return laid;
+}
+
+static bool wk_carriesVariationRequest(CTFontDescriptorRef source)
+{
+    CFTypeRef request = wk_carriedAttribute(source, kCTFontVariationAttribute);
+    if (request)
+        CFRelease(request);
+    return request != NULL;
+}
+
 // kCTFontOpticalSizeAttribute takes a CFNumber here: the optical size, in points, that a realized
 // font's advances and tracking are looked up at. The CFString forms "auto" and "none" are a later
 // convention, and this CoreText reads the attribute as a number whatever it holds, so a string
@@ -1361,15 +1475,25 @@ static CTFontDescriptorRef wk_descriptorWithOpticalSize(CTFontDescriptorRef desc
 
 static bool wk_fontIsUserInstalled(CTFontRef font);
 
-// A variable font built from bytes, and the variation its source realizes at; defined with the
+// A variable font built from bytes, and a font's variation keyed by axis identifier; defined with the
 // replacements that answer for such a font.
 static CTFontDescriptorRef wk_variableFontSource(CTFontRef font);
 static CFDictionaryRef wk_copyRealizedVariation(CTFontDescriptorRef descriptor);
+static CFDictionaryRef wk_variationByIdentifier(CTFontRef font, CFTypeRef variation);
+static CFTypeRef wk_copyInstalledVariableFontIdentity(CTFontRef font, CFStringRef attribute);
 
 WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font, CFStringRef attribute))
 {
+    CFTypeRef identity = font && attribute ? wk_copyInstalledVariableFontIdentity(font, attribute) : NULL;
+    if (identity)
+        return identity;
     if (font && attribute && CFEqual(attribute, kCTFontTraitsAttribute))
         return CTFontCopyTraits(font);
+    // A cut of an installed face answers the names of the face it was cut from.
+    CTFontRef uncut = attribute ? wk_uncutFont(font, true) : NULL;
+    if (uncut && (CFEqual(attribute, kCTFontNameAttribute) || CFEqual(attribute, kCTFontDisplayNameAttribute)
+        || CFEqual(attribute, kCTFontFamilyNameAttribute) || CFEqual(attribute, kCTFontStyleNameAttribute)))
+        return WK_ORIGINAL(CTFontCopyAttribute)(uncut, attribute);
     if (font && attribute && (CFEqual(attribute, kCTFontPaletteAttribute) || CFEqual(attribute, kCTFontPaletteColorsAttribute))) {
         CFTypeRef carried = (CFTypeRef)objc_getAssociatedObject((id)(void *)font,
             CFEqual(attribute, kCTFontPaletteAttribute) ? wk_paletteKey() : wk_paletteColorsKey());
@@ -1388,8 +1512,8 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
 
     if (attribute && CFEqual(attribute, kCTFontVariationAttribute)) {
         CTFontDescriptorRef source = wk_variableFontSource(font);
-        if (source)
-            return wk_copyRealizedVariation(source);
+        return source ? wk_copyRealizedVariation(source)
+            : wk_variationByIdentifier(font, WK_ORIGINAL(CTFontCopyAttribute)(font, attribute));
     }
 
     // The attribute compares gate the matrix probe, and the matrix probe gates the associations
@@ -1432,8 +1556,8 @@ static bool wk_fontIsUserInstalled(CTFontRef font)
     if (cached)
         return cached == kCFBooleanTrue;
     bool userInstalled = true;
-    CFTypeRef url = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontURLAttribute);
-    CFTypeRef scope = url ? WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontRegistrationScopeAttribute) : NULL;
+    CFTypeRef url = CTFontCopyAttribute(font, kCTFontURLAttribute);
+    CFTypeRef scope = url ? CTFontCopyAttribute(font, kCTFontRegistrationScopeAttribute) : NULL;
     int scopeValue = 0;
     if (scope && CFGetTypeID(scope) == CFNumberGetTypeID())
         CFNumberGetValue((CFNumberRef)scope, kCFNumberIntType, &scopeValue);
@@ -1832,9 +1956,9 @@ static CFDictionaryRef wk_realizableVariations(CFArrayRef axes, CFDictionaryRef 
 // what makes the font variable, so 10.9 reports no axes, no variation and no variation tables for it.
 // The font keeps the descriptor it was realized from -- the source bytes and the variation request ride on
 // it -- and the replacements below answer from that the way newer CoreText answers from the variable font:
-// the axes and the variation in the form 10.9 reports an installed variable font's, the tables the cut
-// lacks from the source, and a descriptor that realizes the same font. A copy of the font realizes that
-// descriptor with the copy's attributes laid over it.
+// the axes in the form 10.9 reports an installed variable font's, the variation keyed by axis identifier,
+// the tables the cut lacks from the source, and a descriptor that realizes the same font. A copy of the
+// font realizes that descriptor with the copy's attributes laid over it.
 static const void *wk_variableFontSourceKey(void)
 {
     // Cached: sel_registerName hashes under the runtime lock, and this runs per table and attribute read.
@@ -1928,8 +2052,8 @@ static CFArrayRef wk_copyVariationAxesOfSource(CFDataRef source)
 static CFDictionaryRef wk_copyRealizedVariation(CTFontDescriptorRef descriptor)
 {
     CFDataRef source = (CFDataRef)wk_carriedAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
-    CFDictionaryRef request = (CFDictionaryRef)wk_carriedAttribute(descriptor, kCTFontVariationAttribute);
-    bool haveRequest = request && CFGetTypeID(request) == CFDictionaryGetTypeID();
+    CFDictionaryRef request = wk_copySourceVariation(descriptor);
+    bool haveRequest = request != NULL;
     CFIndex count = 0;
     wk_legacy_variable_font_axis *axes = wk_copySourceAxes(source, &count);
     CFMutableDictionaryRef result = axes ? CFDictionaryCreateMutable(kCFAllocatorDefault, count,
@@ -1967,11 +2091,77 @@ WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontCopyVariationAxes, (CTFontRef
     return axes;
 }
 
+static void wk_noteAxisNameKey(const void *key, const void *value, void *context)
+{
+    (void)value;
+    if (CFGetTypeID(key) != CFNumberGetTypeID())
+        *(bool *)context = true;
+}
+
+static bool wk_variationKeysAxisNames(CFTypeRef variation)
+{
+    bool named = false;
+    if (variation && CFGetTypeID(variation) == CFDictionaryGetTypeID())
+        CFDictionaryApplyFunction((CFDictionaryRef)variation, wk_noteAxisNameKey, &named);
+    return named;
+}
+
+// A variation 10.9 reported for `font`, keyed by axis identifier as CTFontCopyVariation documents it.
+// 10.9 keys the default instance of an installed variable font by the axis names CGFontCopyVariations
+// uses ({Weight 400, Slant 0}); the axis CGFontCopyVariationAxes lists under a name sits at the same fvar
+// index in CTFontCopyVariationAxes, which carries its identifier. A variation with a name no axis
+// carries is answered as 10.9 gave it. Consumes `variation`.
+static CFDictionaryRef wk_variationByIdentifier(CTFontRef font, CFTypeRef variation)
+{
+    if (!font || !wk_variationKeysAxisNames(variation))
+        return (CFDictionaryRef)variation;
+    CGFontRef graphics = CTFontCopyGraphicsFont(font, NULL);
+    CFArrayRef graphicsAxes = graphics ? CGFontCopyVariationAxes(graphics) : NULL;
+    if (graphics)
+        CGFontRelease(graphics);
+    CFArrayRef axes = WK_ORIGINAL(CTFontCopyVariationAxes)(font);
+    CFIndex axisCount = axes && graphicsAxes && CFArrayGetCount(axes) == CFArrayGetCount(graphicsAxes) ? CFArrayGetCount(axes) : 0;
+    CFIndex count = CFDictionaryGetCount((CFDictionaryRef)variation);
+    const void **keys = (const void **)malloc((size_t)count * 2 * sizeof(void *));
+    if (!keys)
+        abort();
+    const void **values = keys + count;
+    CFDictionaryGetKeysAndValues((CFDictionaryRef)variation, keys, values);
+    CFMutableDictionaryRef result = CFDictionaryCreateMutable(kCFAllocatorDefault, count,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    for (CFIndex i = 0; result && i < count; i++) {
+        CFTypeRef identifier = CFGetTypeID(keys[i]) == CFNumberGetTypeID() ? keys[i] : NULL;
+        for (CFIndex a = 0; !identifier && a < axisCount; a++) {
+            CFDictionaryRef graphicsAxis = (CFDictionaryRef)CFArrayGetValueAtIndex(graphicsAxes, a);
+            CFDictionaryRef axis = (CFDictionaryRef)CFArrayGetValueAtIndex(axes, a);
+            CFTypeRef name = CFGetTypeID(graphicsAxis) == CFDictionaryGetTypeID()
+                ? CFDictionaryGetValue(graphicsAxis, kCGFontVariationAxisName) : NULL;
+            if (name && CFEqual(name, keys[i]) && CFGetTypeID(axis) == CFDictionaryGetTypeID())
+                identifier = CFDictionaryGetValue(axis, kCTFontVariationAxisIdentifierKey);
+        }
+        if (!identifier) {
+            CFRelease(result);
+            result = NULL;
+            break;
+        }
+        CFDictionarySetValue(result, identifier, values[i]);
+    }
+    free(keys);
+    if (axes)
+        CFRelease(axes);
+    if (graphicsAxes)
+        CFRelease(graphicsAxes);
+    if (!result)
+        return (CFDictionaryRef)variation;
+    CFRelease(variation);
+    return result;
+}
+
 WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTFontCopyVariation, (CTFontRef font))
 {
     CTFontDescriptorRef descriptor = wk_variableFontSource(font);
     if (!descriptor)
-        return WK_ORIGINAL(CTFontCopyVariation)(font);
+        return wk_variationByIdentifier(font, WK_ORIGINAL(CTFontCopyVariation)(font));
     return wk_copyRealizedVariation(descriptor);
 }
 
@@ -1983,9 +2173,11 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontCopyFontDescriptor, 
             WK_ORIGINAL(CTFontCopyFontDescriptor)(font));
     CGFloat size = CTFontGetSize(font);
     CFNumberRef sizeNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &size);
-    const void *keys[] = { kCTFontSizeAttribute };
-    const void *values[] = { sizeNumber };
-    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+    // A cut of an installed face carries the face as 10.9 realizes it at the cut's variation.
+    CTFontRef face = wk_uncutFont(font, true);
+    const void *keys[] = { kCTFontSizeAttribute, WK_INSTALLED_VARIABLE_FONT_FACE_KEY };
+    const void *values[] = { sizeNumber, face };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, face ? 2 : 1,
         &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFRelease(sizeNumber);
     CTFontDescriptorRef result = attributes ? CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes) : NULL;
@@ -2036,6 +2228,376 @@ WK_POLYFILL_REPLACES("CoreText", CFDataRef, CTFontCopyTable, (CTFontRef font, CT
     CFDataRef copied = wk_legacy_variable_font_copy_table(source, table);
     CFRelease(source);
     return copied;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithName,
+                     (CFStringRef name, CGFloat size, const CGAffineTransform *matrix))
+{
+    return wk_recordFontRequest(wk_cutOfInstalledVariableFont(WK_ORIGINAL(CTFontCreateWithName)(name, size, matrix), NULL), size, matrix);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithNameAndOptions,
+                     (CFStringRef name, CGFloat size, const CGAffineTransform *matrix, CFOptionFlags options))
+{
+    return wk_recordFontRequest(wk_cutOfInstalledVariableFont(
+        WK_ORIGINAL(CTFontCreateWithNameAndOptions)(name, size, matrix, options), NULL), size, matrix);
+}
+
+// Installed variable fonts. 10.9's own instancing of a variable font is unreliable: it reads no glyph
+// of a font with an axis whose default is its maximum (Inter's slnt runs -10 to 0, default 0), and the
+// instances it cuts of others have no glyphs (Amstelvar at wght 900 advances 0). An installed variable
+// face therefore draws, as a variable web font does, from a static cut of its sfnt, mapped read-only
+// from the file kCTFontURLAttribute names (the face of that PostScript name, from a collection). Per
+// face, the layer keeps the sfnt, the face's own variation (a named instance's) and a source descriptor
+// that names the face and carries the sfnt, the file and the registration scope; per instance, the
+// instancer keeps the cut. The cut answers the file, registration scope and user-installed status of
+// the face it was cut from.
+
+static void *wk_allocateNothing(CFIndex size, CFOptionFlags hint, void *info)
+{
+    (void)size;
+    (void)hint;
+    (void)info;
+    return NULL;
+}
+
+static void wk_unmapFileContents(void *pointer, void *info)
+{
+    munmap(pointer, (size_t)(uintptr_t)info);
+}
+
+static CFDataRef wk_copyMappedFileContents(CFURLRef url)
+{
+    char path[PATH_MAX];
+    if (!url || !CFURLGetFileSystemRepresentation(url, true, (UInt8 *)path, sizeof(path)))
+        return NULL;
+    int descriptor = open(path, O_RDONLY);
+    if (descriptor < 0)
+        return NULL;
+    struct stat status;
+    void *mapped = MAP_FAILED;
+    if (!fstat(descriptor, &status) && status.st_size > 0)
+        mapped = mmap(NULL, (size_t)status.st_size, PROT_READ, MAP_FILE | MAP_SHARED, descriptor, 0);
+    close(descriptor);
+    if (mapped == MAP_FAILED)
+        return NULL;
+    CFAllocatorContext context = { 0, (void *)(uintptr_t)status.st_size, NULL, NULL, NULL, wk_allocateNothing, NULL, wk_unmapFileContents, NULL };
+    CFAllocatorRef unmapper = CFAllocatorCreate(kCFAllocatorDefault, &context);
+    CFDataRef contents = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (const UInt8 *)mapped, (CFIndex)status.st_size, unmapper);
+    CFRelease(unmapper);
+    return contents;
+}
+
+// A graphics font for sfnt bytes, remembered on the bytes under `key`; `strip` cuts the default instance.
+static CGFontRef wk_copyRememberedGraphicsFont(CFDataRef bytes, const char *key, bool strip)
+{
+    const void *association = (const void *)sel_registerName(key);
+    objc_sync_enter((id)(void *)bytes);
+    CGFontRef font = (CGFontRef)objc_getAssociatedObject((id)(void *)bytes, association);
+    if (font)
+        CGFontRetain(font);
+    else {
+        CFDataRef master = strip ? wk_legacy_variable_font_strip_variations(bytes) : NULL;
+        font = (!strip || master) ? wk_createGraphicsFontFromSfnt(master ? master : bytes) : NULL;
+        if (master)
+            CFRelease(master);
+        if (font)
+            objc_setAssociatedObject((id)(void *)bytes, association, (id)(void *)font, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    objc_sync_exit((id)(void *)bytes);
+    return font;
+}
+
+// The graphics font of a variable font's cut at `variation`, or NULL when the variation lands on the
+// fvar defaults. The instancer keeps each cut's bytes, and the cut's graphics font is kept on them.
+static CGFontRef wk_copyVariableFontInstance(CFDataRef sfnt, CFDictionaryRef variation)
+{
+    CFDataRef instance = variation ? wk_legacy_variable_font_instance(sfnt, variation) : NULL;
+    if (!instance)
+        return NULL;
+    CGFontRef font = wk_copyRememberedGraphicsFont(instance, "wk_variableFontInstance", false);
+    CFRelease(instance);
+    return font;
+}
+
+// In a collection, the face a font of that PostScript name draws from: the face of that name, else the
+// face whose name it extends with an underscore, as 10.9 names a variable face's named instances
+// ("Skia-Regular_Black").
+static CFDataRef wk_copyCollectionFace(CFDataRef collection, CFStringRef name)
+{
+    CFDataRef sanitized = wk_ots_sanitize_font(collection);
+    CFArrayRef faces = sanitized ? wk_ots_copy_font_faces(sanitized) : NULL;
+    CFDataRef result = NULL;
+    for (int pass = 0; pass < 2 && !result; pass++) {
+        for (CFIndex i = 0; name && faces && !result && i < CFArrayGetCount(faces); i++) {
+            CFDataRef face = (CFDataRef)CFArrayGetValueAtIndex(faces, i);
+            CGFontRef faceGraphics = wk_createGraphicsFontFromSfnt(face);
+            CFStringRef faceName = faceGraphics ? CGFontCopyPostScriptName(faceGraphics) : NULL;
+            CFIndex length = faceName ? CFStringGetLength(faceName) : 0;
+            bool matches = faceName && (pass == 0 ? CFEqual(faceName, name)
+                : (CFStringHasPrefix(name, faceName) && CFStringGetLength(name) > length && CFStringGetCharacterAtIndex(name, length) == '_'));
+            if (matches)
+                result = (CFDataRef)CFRetain(face);
+            if (faceName)
+                CFRelease(faceName);
+            if (faceGraphics)
+                CGFontRelease(faceGraphics);
+        }
+    }
+    if (faces)
+        CFRelease(faces);
+    if (sanitized)
+        CFRelease(sanitized);
+    return result;
+}
+
+// The sfnt the installed face `font` draws from, or NULL. A file is mapped once, and a collection's faces
+// are remembered by the PostScript name of the font that asked for them.
+static CFDataRef wk_copyInstalledFontSfnt(CTFontRef font, CFURLRef url)
+{
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static CFMutableDictionaryRef files;
+    CFStringRef path = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
+    if (!path)
+        return NULL;
+    pthread_mutex_lock(&lock);
+    if (!files)
+        files = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFTypeRef file = CFDictionaryGetValue(files, path);
+    if (!file) {
+        file = wk_copyMappedFileContents(url);
+        CFDictionarySetValue(files, path, file ? file : kCFNull);
+        if (file)
+            CFRelease(file);
+        file = CFDictionaryGetValue(files, path);
+    }
+    CFDataRef sfnt = NULL;
+    if (file != kCFNull && CFDataGetLength((CFDataRef)file) >= 4 && !memcmp(CFDataGetBytePtr((CFDataRef)file), "ttcf", 4)) {
+        CFStringRef name = CTFontCopyPostScriptName(font);
+        CFStringRef faceKey = name ? CFStringCreateWithFormat(kCFAllocatorDefault, NULL, CFSTR("%@\n%@"), path, name) : NULL;
+        CFTypeRef face = faceKey ? CFDictionaryGetValue(files, faceKey) : NULL;
+        if (faceKey && !face) {
+            face = wk_copyCollectionFace((CFDataRef)file, name);
+            CFDictionarySetValue(files, faceKey, face ? face : kCFNull);
+            if (face)
+                CFRelease(face);
+            face = CFDictionaryGetValue(files, faceKey);
+        }
+        sfnt = face && face != kCFNull ? (CFDataRef)CFRetain(face) : NULL;
+        if (faceKey)
+            CFRelease(faceKey);
+        if (name)
+            CFRelease(name);
+    } else if (file != kCFNull)
+        sfnt = (CFDataRef)CFRetain(file);
+    pthread_mutex_unlock(&lock);
+    CFRelease(path);
+    return sfnt;
+}
+
+enum { WK_FACE_SFNT, WK_FACE_VARIATION, WK_FACE_SOURCE, WK_FACE_FIELD_COUNT };
+
+// What the layer keeps for the installed face `font` is, on the face's graphics font: kCFNull for a face
+// that is not a variable font, else { sfnt, its own variation or kCFNull, source descriptor }. The face's
+// own variation is the one 10.9 realized it at -- a named instance's, or a request's -- and is kept only
+// when it cuts an instance.
+static CFTypeRef wk_copyInstalledVariableFace(CTFontRef font)
+{
+    CFURLRef url = (CFURLRef)WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontURLAttribute);
+    CFDataRef sfnt = url && CFGetTypeID(url) == CFURLGetTypeID() ? wk_copyInstalledFontSfnt(font, url) : NULL;
+    if (!sfnt || !wk_legacy_variable_font_is_instanceable(sfnt)) {
+        if (sfnt)
+            CFRelease(sfnt);
+        if (url)
+            CFRelease(url);
+        return kCFNull;
+    }
+    CFDictionaryRef own = wk_variationByIdentifier(font, WK_ORIGINAL(CTFontCopyVariation)(font));
+    CFDataRef ownInstance = own && CFGetTypeID(own) == CFDictionaryGetTypeID() && !wk_variationKeysAxisNames(own)
+        ? wk_legacy_variable_font_instance(sfnt, own) : NULL;
+    if (own && !ownInstance) {
+        CFRelease(own);
+        own = NULL;
+    }
+    if (ownInstance)
+        CFRelease(ownInstance);
+    CFMutableDictionaryRef attributes = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFStringRef name = CTFontCopyPostScriptName(font);
+    if (name) {
+        CFDictionarySetValue(attributes, kCTFontNameAttribute, name);
+        CFRelease(name);
+    }
+    CFDictionarySetValue(attributes, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY, sfnt);
+    CFDictionarySetValue(attributes, WK_INSTALLED_VARIABLE_FONT_URL_KEY, url);
+    CFTypeRef scope = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontRegistrationScopeAttribute);
+    if (scope) {
+        CFDictionarySetValue(attributes, WK_INSTALLED_VARIABLE_FONT_SCOPE_KEY, scope);
+        CFRelease(scope);
+    }
+    if (own)
+        CFDictionarySetValue(attributes, WK_INSTALLED_VARIABLE_FONT_OWN_VARIATION_KEY, own);
+    CTFontDescriptorRef source = CTFontDescriptorCreateWithAttributes(attributes);
+    CFRelease(attributes);
+    const void *fields[WK_FACE_FIELD_COUNT] = { sfnt, own ? (const void *)own : kCFNull, source };
+    CFArrayRef result = source ? CFArrayCreate(kCFAllocatorDefault, fields, WK_FACE_FIELD_COUNT, &kCFTypeArrayCallBacks) : NULL;
+    if (source)
+        CFRelease(source);
+    if (own)
+        CFRelease(own);
+    CFRelease(sfnt);
+    CFRelease(url);
+    return result ? (CFTypeRef)result : kCFNull;
+}
+
+// The installed variable face `font` is, or NULL.
+static CFArrayRef wk_installedVariableFace(CTFontRef font)
+{
+    if (!font || wk_variableFontSource(font))
+        return NULL;
+    CFArrayRef axes = WK_ORIGINAL(CTFontCopyVariationAxes)(font);
+    if (!axes)
+        return NULL;
+    CFRelease(axes);
+    CGFontRef graphics = CTFontCopyGraphicsFont(font, NULL);
+    if (!graphics)
+        return NULL;
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_installedVariableFace");
+    objc_sync_enter((id)(void *)graphics);
+    CFTypeRef face = (CFTypeRef)objc_getAssociatedObject((id)(void *)graphics, key);
+    if (face)
+        CFRetain(face);
+    else {
+        face = wk_copyInstalledVariableFace(font);
+        objc_setAssociatedObject((id)(void *)graphics, key, (id)(void *)face, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    objc_sync_exit((id)(void *)graphics);
+    CGFontRelease(graphics);
+    if (face == kCFNull) {
+        CFRelease(face);
+        return NULL;
+    }
+    return (CFArrayRef)face;
+}
+
+// Whether two variation requests realize the same instance of a variable font's sfnt, to the four decimal
+// places 10.9 reports an axis value to.
+static bool wk_variationsRealizeAlike(CFDataRef sfnt, CFDictionaryRef first, CFDictionaryRef second)
+{
+    CFIndex count = 0;
+    wk_legacy_variable_font_axis *axes = wk_copySourceAxes(sfnt, &count);
+    bool alike = axes != NULL;
+    for (CFIndex i = 0; alike && i < count; i++) {
+        double minimum = axes[i].minimumValue / 65536.0;
+        double maximum = axes[i].maximumValue / 65536.0;
+        double values[2] = { axes[i].defaultValue / 65536.0, axes[i].defaultValue / 65536.0 };
+        CFDictionaryRef requests[2] = { first, second };
+        for (int r = 0; r < 2; r++) {
+            if (requests[r] && CFGetTypeID(requests[r]) == CFDictionaryGetTypeID())
+                wk_requestedAxisValue(requests[r], axes[i].tag, &values[r]);
+            values[r] = values[r] < minimum ? minimum : (values[r] > maximum ? maximum : values[r]);
+        }
+        alike = fabs(values[0] - values[1]) <= 0.0001;
+    }
+    if (axes)
+        wk_releaseSourceAxes(axes, count);
+    return alike;
+}
+
+// The source a realization of an installed variable face takes: the face's, with the request laid over
+// it. A request that carries a source already is one.
+static CTFontDescriptorRef wk_copyInstalledVariableFontSource(CFArrayRef face, CTFontDescriptorRef request)
+{
+    CTFontDescriptorRef source = (CTFontDescriptorRef)CFArrayGetValueAtIndex(face, WK_FACE_SOURCE);
+    CFDictionaryRef requested = request ? CTFontDescriptorCopyAttributes(request) : NULL;
+    if (requested && CFDictionaryContainsKey(requested, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY)) {
+        CFRelease(requested);
+        return (CTFontDescriptorRef)CFRetain(request);
+    }
+    CFMutableDictionaryRef laid = requested ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, requested) : NULL;
+    if (requested)
+        CFRelease(requested);
+    if (laid) {
+        CFDictionaryRemoveValue(laid, kCTFontNameAttribute);
+        CFDictionaryRemoveValue(laid, kCTFontFamilyNameAttribute);
+        CFDictionaryRemoveValue(laid, kCTFontTraitsAttribute);
+        CFDictionaryRemoveValue(laid, kCTFontSizeAttribute);
+        CFDictionaryRemoveValue(laid, kCTFontMatrixAttribute);
+    }
+    CTFontDescriptorRef result = laid && CFDictionaryGetCount(laid)
+        ? CTFontDescriptorCreateCopyWithAttributes(source, laid) : (CTFontDescriptorRef)CFRetain(source);
+    if (laid)
+        CFRelease(laid);
+    return result;
+}
+
+static CTFontRef wk_copyInstalledFontAtVariation(CTFontRef face, CFDataRef sfnt, CFDictionaryRef variation, bool requested);
+
+// `font`, or the cut it draws from when it is an installed variable face. `request` is the descriptor or
+// the copy attributes it was realized from. Consumes `font`.
+static CTFontRef wk_cutOfInstalledVariableFont(CTFontRef font, CTFontDescriptorRef request)
+{
+    CFArrayRef face = wk_installedVariableFace(font);
+    if (!face)
+        return font;
+    CTFontDescriptorRef source = wk_copyInstalledVariableFontSource(face, request);
+    if (!source) {
+        CFRelease(face);
+        return font;
+    }
+    bool laidOver = source != (CTFontDescriptorRef)CFArrayGetValueAtIndex(face, WK_FACE_SOURCE);
+    CFTypeRef own = CFArrayGetValueAtIndex(face, WK_FACE_VARIATION);
+    CFDictionaryRef variation = laidOver ? wk_copySourceVariation(source) : own != kCFNull ? (CFDictionaryRef)CFRetain(own) : NULL;
+    if (variation && CFGetTypeID(variation) != CFDictionaryGetTypeID()) {
+        CFRelease(variation);
+        variation = NULL;
+    }
+    CFDataRef sfnt = (CFDataRef)CFArrayGetValueAtIndex(face, WK_FACE_SFNT);
+    CGFontRef cut = wk_copyVariableFontInstance(sfnt, variation);
+    if (!cut)
+        cut = wk_copyRememberedGraphicsFont(sfnt, "wk_variableFontMaster", true);
+    // The uncut font is the face as 10.9 realized it for this request; a request that carries a cut's
+    // source realizes the face that source was taken from at the cut's variation.
+    CTFontRef carriedFace = cut && laidOver ? (CTFontRef)wk_carriedAttribute(source, WK_INSTALLED_VARIABLE_FONT_FACE_KEY) : NULL;
+    CTFontRef uncut = carriedFace && CFGetTypeID(carriedFace) == CTFontGetTypeID()
+        ? wk_copyInstalledFontAtVariation(carriedFace, sfnt, variation, wk_carriesVariationRequest(source))
+        : cut ? (CTFontRef)CFRetain(font) : NULL;
+    if (carriedFace)
+        CFRelease(carriedFace);
+    if (variation)
+        CFRelease(variation);
+    CFRelease(face);
+    CGAffineTransform matrix = CTFontGetMatrix(font);
+    // The face's own source carries nothing past what names and cuts the face.
+    CTFontDescriptorRef carriedOver = cut && laidOver ? wk_descriptorAttributesToCarryOver(source) : NULL;
+    CTFontRef result = cut ? CTFontCreateWithGraphicsFont(cut, CTFontGetSize(font), &matrix, carriedOver) : NULL;
+    if (carriedOver)
+        CFRelease(carriedOver);
+    if (cut)
+        CGFontRelease(cut);
+    if (!result) {
+        if (uncut)
+            CFRelease(uncut);
+        CFRelease(source);
+        return font;
+    }
+    wk_recordVariableFontSource(result, source);
+    wk_recordUncutFont(result, uncut, true);
+    if (uncut)
+        CFRelease(uncut);
+    CFRelease(source);
+    CFRelease(font);
+    return result;
+}
+
+static CFTypeRef wk_copyInstalledVariableFontIdentity(CTFontRef font, CFStringRef attribute)
+{
+    CFStringRef key = CFEqual(attribute, kCTFontURLAttribute) ? WK_INSTALLED_VARIABLE_FONT_URL_KEY
+        : CFEqual(attribute, kCTFontRegistrationScopeAttribute) ? WK_INSTALLED_VARIABLE_FONT_SCOPE_KEY : NULL;
+    CTFontDescriptorRef source = key ? wk_variableFontSource(font) : NULL;
+    return source ? wk_carriedAttribute(source, key) : NULL;
 }
 
 // A copy's attributes with their variation request rewritten against the axes of the font being copied,
@@ -2113,6 +2675,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
             CFRelease(realizable);
         instance = wkApplyTraitsToFace(instance, descriptor);
         instance = wk_fontWithRealizableVariations(instance, descriptor, size, matrix);
+        instance = wk_cutOfInstalledVariableFont(instance, descriptor);
     }
     instance = wk_fontWithTrackingSizeInRange(instance);
     if (resolved)
@@ -2146,6 +2709,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
             CFRelease(realizable);
         instance = wkApplyTraitsToFace(instance, descriptor);
         instance = wk_fontWithRealizableVariations(instance, descriptor, size, matrix);
+        instance = wk_cutOfInstalledVariableFont(instance, descriptor);
     }
     instance = wk_fontWithTrackingSizeInRange(instance);
     if (resolved)
@@ -2765,6 +3329,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
     CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, attributes);
     copy = wkApplyTraitsToFace(copy, attributes);
     copy = wk_fontWithRealizableVariations(copy, attributes, size, matrix);
+    copy = wk_cutOfInstalledVariableFont(copy, attributes);
     copy = wk_fontWithTrackingSizeInRange(copy);
     if (realizable)
         CFRelease(realizable);
@@ -2774,6 +3339,99 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
         wk_markOpticalSizeFollowsPointSize(copy);
     wk_inheritDescriptorOptions(copy, font, requestedAttributes);
     return wk_recordFontRequest(copy, size, requested);
+}
+
+// The installed variable face `face` as 10.9 realizes it at `variation`. Asked for no variation at its own
+// instance it is the face itself, with the face's traits; under a variation request it is a copy of the face
+// under that variation, every axis named and each value one 10.9 realizes, whose traits 10.9 derives from the
+// variation, at the face's own coordinates too.
+static CTFontRef wk_copyInstalledFontAtVariation(CTFontRef face, CFDataRef sfnt, CFDictionaryRef variation, bool requested)
+{
+    CFDictionaryRef own = requested ? NULL : wk_variationByIdentifier(face, WK_ORIGINAL(CTFontCopyVariation)(face));
+    bool atOwnInstance = !requested && wk_variationsRealizeAlike(sfnt, own && !wk_variationKeysAxisNames(own) ? own : NULL, variation);
+    if (own)
+        CFRelease(own);
+    if (atOwnInstance)
+        return (CTFontRef)CFRetain(face);
+    CFArrayRef axes = WK_ORIGINAL(CTFontCopyVariationAxes)(face);
+    CFMutableDictionaryRef full = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    for (CFIndex i = 0; axes && i < CFArrayGetCount(axes); i++) {
+        CFDictionaryRef axis = (CFDictionaryRef)CFArrayGetValueAtIndex(axes, i);
+        CFNumberRef identifier = (CFNumberRef)CFDictionaryGetValue(axis, kCTFontVariationAxisIdentifierKey);
+        CFNumberRef defaultNumber = (CFNumberRef)CFDictionaryGetValue(axis, kCTFontVariationAxisDefaultValueKey);
+        uint32_t tag = 0;
+        double value = 0;
+        if (!identifier || !defaultNumber || !wk_axisTagValue(identifier, &tag)
+            || !CFNumberGetValue(defaultNumber, kCFNumberDoubleType, &value))
+            continue;
+        if (variation)
+            wk_requestedAxisValue(variation, tag, &value);
+        CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &value);
+        CFDictionarySetValue(full, identifier, number);
+        CFRelease(number);
+    }
+    if (axes)
+        CFRelease(axes);
+    const void *keys[] = { kCTFontVariationAttribute };
+    const void *values[] = { full };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(full);
+    CTFontDescriptorRef request = CTFontDescriptorCreateWithAttributes(attributes);
+    CFRelease(attributes);
+    CTFontDescriptorRef realizable = request ? wk_attributesWithRealizableVariations(face, request) : NULL;
+    CTFontRef result = request ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(face, CTFontGetSize(face), NULL,
+        realizable ? realizable : request) : NULL;
+    if (realizable)
+        CFRelease(realizable);
+    if (request)
+        CFRelease(request);
+    return result;
+}
+
+// The uncut font a cut realized from `source` answers its traits from (and, for an installed face, its
+// names): the installed face as 10.9 realizes it at the cut's variation, or a font 10.9 realizes on the
+// source's own sfnt at it, remembered on the cut's graphics font.
+static CTFontRef wk_copyUncutFontOfSource(CTFontDescriptorRef source, CFDataRef sfnt, CFDictionaryRef variation,
+                                          CGFontRef cut, bool *names)
+{
+    CTFontRef face = (CTFontRef)wk_carriedAttribute(source, WK_INSTALLED_VARIABLE_FONT_FACE_KEY);
+    if (face && CFGetTypeID(face) == CTFontGetTypeID()) {
+        *names = true;
+        CTFontRef result = wk_copyInstalledFontAtVariation(face, sfnt, variation, wk_carriesVariationRequest(source));
+        CFRelease(face);
+        return result;
+    }
+    if (face)
+        CFRelease(face);
+    *names = false;
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_uncutWebFont");
+    objc_sync_enter((id)(void *)cut);
+    CTFontRef result = (CTFontRef)(void *)objc_getAssociatedObject((id)(void *)cut, key);
+    if (result)
+        CFRetain(result);
+    else {
+        CGFontRef uncut = wk_copyRememberedGraphicsFont(sfnt, "wk_variableFontUncut", false);
+        const void *keys[] = { kCTFontVariationAttribute };
+        const void *values[] = { variation };
+        CFDictionaryRef attributes = variation ? CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks) : NULL;
+        CTFontDescriptorRef request = attributes ? CTFontDescriptorCreateWithAttributes(attributes) : NULL;
+        result = uncut ? CTFontCreateWithGraphicsFont(uncut, 12, NULL, request) : NULL;
+        if (result)
+            objc_setAssociatedObject((id)(void *)cut, key, (id)(void *)result, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (request)
+            CFRelease(request);
+        if (attributes)
+            CFRelease(attributes);
+        if (uncut)
+            CGFontRelease(uncut);
+    }
+    objc_sync_exit((id)(void *)cut);
+    return result;
 }
 
 // The font `descriptor` asks for, with its variation request rewritten to one this OS realizes. A
@@ -2885,24 +3543,65 @@ static CTFontRef wk_fontWithTrackingSizeInRange(CTFontRef font)
 // as newer CoreText documents — a size of 0 takes the 12.0 default unconditionally, with no descriptor
 // to say otherwise — so the request only has to be recorded on the result, which is what makes a font
 // asked for with a scaled-to-nothing matrix report the pair its caller named.
-WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithName,
-                     (CFStringRef name, CGFloat size, const CGAffineTransform *matrix))
-{
-    return wk_recordFontRequest(WK_ORIGINAL(CTFontCreateWithName)(name, size, matrix), size, matrix);
-}
+static CFTypeRef wk_matchedVariationByIdentifier(CTFontDescriptorRef descriptor, CFTypeRef value);
+static CTFontDescriptorRef wk_attributesWithIdentifiedVariation(CTFontDescriptorRef attributes);
 
-WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithNameAndOptions,
-                     (CFStringRef name, CGFloat size, const CGAffineTransform *matrix, CFOptionFlags options))
+// A variation in the attributes builds the font on a CGFontCreateCopyWithVariations copy of the graphics
+// font, and 10.9's copy reads the original's font data without retaining it. The graphics font the result
+// draws from holds the one it was created from.
+static void wk_retainOriginalGraphicsFont(CTFontRef font, CGFontRef original)
 {
-    return wk_recordFontRequest(WK_ORIGINAL(CTFontCreateWithNameAndOptions)(name, size, matrix, options), size, matrix);
+    CGFontRef drawn = font && original ? CTFontCopyGraphicsFont(font, NULL) : NULL;
+    if (drawn && drawn != original) {
+        static const void *key;
+        if (!key)
+            key = (const void *)sel_registerName("wk_originalGraphicsFont");
+        objc_setAssociatedObject((id)(void *)drawn, key, (id)(void *)original, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (drawn)
+        CGFontRelease(drawn);
 }
 
 WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithGraphicsFont,
                      (CGFontRef font, CGFloat size, const CGAffineTransform *matrix, CTFontDescriptorRef attributes))
 {
-    CTFontRef result = WK_ORIGINAL(CTFontCreateWithGraphicsFont)(font, size, matrix, attributes);
+    CTFontDescriptorRef identified = wk_attributesWithIdentifiedVariation(attributes);
+    CTFontRef result = WK_ORIGINAL(CTFontCreateWithGraphicsFont)(font, size, matrix, identified ? identified : attributes);
+    if (identified)
+        CFRelease(identified);
+    wk_retainOriginalGraphicsFont(result, font);
     wk_recordDescriptorOptions(result, attributes);
     return wk_recordFontRequest(result, size, matrix);
+}
+
+// The CSS weight or width of the face `descriptor` names, from its traits.
+static CFTypeRef wk_copyCSSTraitAttribute(CTFontDescriptorRef descriptor, CFDictionaryRef traits, bool wantWeight)
+{
+    bool wantWidth = !wantWeight;
+    int32_t symbolic = 0;
+    CFNumberRef symbolicNumber = (CFNumberRef)CFDictionaryGetValue(traits, kCTFontSymbolicTrait);
+    if (symbolicNumber)
+        CFNumberGetValue(symbolicNumber, kCFNumberSInt32Type, &symbolic);
+    float trait = 0;
+    float css = 0;
+    bool have = false;
+    CFNumberRef traitNumber = (CFNumberRef)CFDictionaryGetValue(traits, wantWeight ? kCTFontWeightTrait : kCTFontWidthTrait);
+    if (traitNumber && CFNumberGetValue(traitNumber, kCFNumberFloatType, &trait)) {
+        css = (float)(wantWeight ? wkFaceCSSWeight(descriptor, trait) : wkCSSWidth(trait));
+        have = true;
+    } else if (wantWeight && (symbolic & kCTFontTraitBold)) {
+        css = 700;
+        have = true;
+    } else if (wantWidth && (symbolic & kCTFontTraitExpanded)) {
+        css = 125;
+        have = true;
+    } else if (wantWidth && (symbolic & kCTFontTraitCondensed)) {
+        css = 75;
+        have = true;
+    }
+    if (!have)
+        return NULL;
+    return CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &css);
 }
 
 // CTFontDescriptorCopyAttribute answers the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute
@@ -2914,8 +3613,9 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithGraphicsFont,
 // from the descriptor's own kCTFontTraitsAttribute dictionary: kCTFontWeightTrait onto the CSS
 // weight of the face it belongs to (wkFaceCSSWeight, so HelveticaNeue-Medium is 500 and the
 // WebKitWeightWatcher faces 100 to 900), kCTFontWidthTrait onto the CSS stretch scale (-1..1 maps to
-// 50%..200%, 0 to 100%), with symbolic bold/expanded/condensed fallbacks. Every other attribute,
-// and every descriptor the system can answer for, takes the system implementation's answer unchanged.
+// 50%..200%, 0 to 100%), with symbolic bold/expanded/condensed fallbacks. A descriptor of a variable
+// font's cut answers its variation, and for an installed face its traits, names and file, from the font it
+// realizes. Every other attribute takes the system implementation's answer unchanged.
 WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
                      (CTFontDescriptorRef descriptor, CFStringRef attribute))
 {
@@ -2925,6 +3625,42 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
     if (descriptor && attribute && CFEqual(attribute, kCTFontFeatureSettingsAttribute) && wk_holdsCarriedOpenTypeSetting(descriptor))
         return wk_copySettingsWithOpenTypeOnly(WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute),
             wk_openTypeOnlySettings(descriptor));
+    // A source descriptor names a face that 10.9 matches by name, and instances of one variable face share
+    // a name ("Inter-Regular_"), so what 10.9 would match is not the face the descriptor realizes. It answers
+    // its variation from its source, and for an installed face what the font it realizes answers.
+    if (descriptor && attribute && CFEqual(attribute, kCTFontVariationAttribute)) {
+        CFTypeRef source = wk_carriedAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
+        if (source) {
+            CFRelease(source);
+            return wk_copyRealizedVariation(descriptor);
+        }
+    }
+    CFTypeRef installedFile = descriptor && attribute ? wk_carriedAttribute(descriptor, WK_INSTALLED_VARIABLE_FONT_URL_KEY) : NULL;
+    if (installedFile) {
+        CFRelease(installedFile);
+        CFTypeRef carried = wk_carriedAttribute(descriptor, attribute);
+        if (carried)
+            return carried;
+        if (CFEqual(attribute, kCTFontCSSWeightAttribute) || CFEqual(attribute, kCTFontCSSWidthAttribute)) {
+            CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, 0, NULL);
+            CFDictionaryRef traits = font ? CTFontCopyTraits(font) : NULL;
+            CFTypeRef result = traits ? wk_copyCSSTraitAttribute(descriptor, traits, CFEqual(attribute, kCTFontCSSWeightAttribute)) : NULL;
+            if (traits)
+                CFRelease(traits);
+            if (font)
+                CFRelease(font);
+            return result;
+        }
+        if (CFEqual(attribute, kCTFontTraitsAttribute) || CFEqual(attribute, kCTFontDisplayNameAttribute)
+            || CFEqual(attribute, kCTFontFamilyNameAttribute) || CFEqual(attribute, kCTFontStyleNameAttribute)
+            || CFEqual(attribute, kCTFontURLAttribute) || CFEqual(attribute, kCTFontRegistrationScopeAttribute)) {
+            CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, 0, NULL);
+            CFTypeRef result = font ? CTFontCopyAttribute(font, attribute) : NULL;
+            if (font)
+                CFRelease(font);
+            return result;
+        }
+    }
     CFTypeRef value = WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute);
     if (value && descriptor && attribute && CFEqual(attribute, kCTFontTraitsAttribute)
         && CFGetTypeID(value) == CFDictionaryGetTypeID()) {
@@ -2940,6 +3676,8 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
         } else
             CFRelease(requestedTraits);
     }
+    if (attribute && CFEqual(attribute, kCTFontVariationAttribute))
+        value = wk_matchedVariationByIdentifier(descriptor, value);
     if (value || !descriptor || !attribute)
         return value;
     // A variable font built from bytes draws from a static cut, so 10.9 answers no variation for its
@@ -2975,37 +3713,64 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
     }
 
     bool wantWeight = CFEqual(attribute, kCTFontCSSWeightAttribute);
-    bool wantWidth = !wantWeight && CFEqual(attribute, kCTFontCSSWidthAttribute);
-    if (!wantWeight && !wantWidth)
+    if (!wantWeight && !CFEqual(attribute, kCTFontCSSWidthAttribute))
         return NULL;
     CFDictionaryRef traits = (CFDictionaryRef)WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, kCTFontTraitsAttribute);
     if (!traits)
         return NULL;
-    int32_t symbolic = 0;
-    CFNumberRef symbolicNumber = (CFNumberRef)CFDictionaryGetValue(traits, kCTFontSymbolicTrait);
-    if (symbolicNumber)
-        CFNumberGetValue(symbolicNumber, kCFNumberSInt32Type, &symbolic);
-    float trait = 0;
-    float css = 0;
-    bool have = false;
-    CFNumberRef traitNumber = (CFNumberRef)CFDictionaryGetValue(traits, wantWeight ? kCTFontWeightTrait : kCTFontWidthTrait);
-    if (traitNumber && CFNumberGetValue(traitNumber, kCFNumberFloatType, &trait)) {
-        css = (float)(wantWeight ? wkFaceCSSWeight(descriptor, trait) : wkCSSWidth(trait));
-        have = true;
-    } else if (wantWeight && (symbolic & kCTFontTraitBold)) {
-        css = 700;
-        have = true;
-    } else if (wantWidth && (symbolic & kCTFontTraitExpanded)) {
-        css = 125;
-        have = true;
-    } else if (wantWidth && (symbolic & kCTFontTraitCondensed)) {
-        css = 75;
-        have = true;
-    }
+    CFTypeRef result = wk_copyCSSTraitAttribute(descriptor, traits, wantWeight);
     CFRelease(traits);
-    if (!have)
+    return result;
+}
+
+// The variation 10.9 matches for a descriptor that names an installed variable font, keyed by axis
+// identifier as the font answers it. A variation the descriptor carries is the caller's own and is
+// answered as given. Consumes `value`.
+static CFTypeRef wk_matchedVariationByIdentifier(CTFontDescriptorRef descriptor, CFTypeRef value)
+{
+    if (!descriptor || !wk_variationKeysAxisNames(value))
+        return value;
+    CFTypeRef carried = wk_carriedAttribute(descriptor, kCTFontVariationAttribute);
+    if (carried) {
+        CFRelease(carried);
+        return value;
+    }
+    CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, 12, NULL);
+    value = wk_variationByIdentifier(font, value);
+    if (font)
+        CFRelease(font);
+    return value;
+}
+
+// 10.9's CTFontCreateWithGraphicsFont applies the variation its attributes match and reads it keyed
+// by identifier only; for attributes that name an installed variable font it is handed that way.
+// Attributes with no name, family or file match the system's default face, which has no axes.
+static CTFontDescriptorRef wk_attributesWithIdentifiedVariation(CTFontDescriptorRef attributes)
+{
+    CFDictionaryRef carried = attributes ? WK_ORIGINAL(CTFontDescriptorCopyAttributes)(attributes) : NULL;
+    bool namesFace = carried && (CFDictionaryContainsKey(carried, kCTFontNameAttribute)
+        || CFDictionaryContainsKey(carried, kCTFontFamilyNameAttribute) || CFDictionaryContainsKey(carried, kCTFontURLAttribute));
+    if (carried)
+        CFRelease(carried);
+    CFTypeRef matched = namesFace ? WK_ORIGINAL(CTFontDescriptorCopyAttribute)(attributes, kCTFontVariationAttribute) : NULL;
+    if (!wk_variationKeysAxisNames(matched)) {
+        if (matched)
+            CFRelease(matched);
         return NULL;
-    return CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &css);
+    }
+    CFTypeRef variation = wk_matchedVariationByIdentifier(attributes, matched);
+    CTFontDescriptorRef result = NULL;
+    if (!wk_variationKeysAxisNames(variation)) {
+        const void *keys[] = { kCTFontVariationAttribute };
+        const void *values[] = { variation };
+        CFDictionaryRef identified = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        result = identified ? CTFontDescriptorCreateCopyWithAttributes(attributes, identified) : NULL;
+        if (identified)
+            CFRelease(identified);
+    }
+    CFRelease(variation);
+    return result;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -7244,12 +8009,13 @@ static bool wk_fontHasLogicalOrderSubtables(CTFontRef font)
     return cached == kCFBooleanTrue;
 }
 
-// A shaping instance carries the font's morx with its logical-order subtables flagged for right-to-left text
-// when `logicalOrder` is set, and its GSUB and GPOS with each carried feature retagged to its carrier and its
-// GSUB selecting each carried feature's alternate.
+// A shaping instance is assembled from the font's own tables as 10.9 holds them, so a variable web font's
+// cut takes none of its source's variation tables. It carries the font's morx with its logical-order
+// subtables flagged for right-to-left text when `logicalOrder` is set, and its GSUB and GPOS with each carried
+// feature retagged to its carrier and its GSUB selecting each carried feature's alternate.
 static CGFontRef wk_createShapingInstance(CTFontRef font, bool logicalOrder, const wk_feature_carrier *carriers, CFIndex carrierCount)
 {
-    CFArrayRef tagArray = CTFontCopyAvailableTables(font, kCTFontTableOptionNoOptions);
+    CFArrayRef tagArray = WK_ORIGINAL(CTFontCopyAvailableTables)(font, kCTFontTableOptionNoOptions);
     CFIndex tagCount = tagArray ? CFArrayGetCount(tagArray) : 0;
     uint32_t *tags = (uint32_t *)malloc((size_t)(tagCount + 1) * sizeof(uint32_t));
     CFDataRef *tables = (CFDataRef *)malloc((size_t)(tagCount + 1) * sizeof(CFDataRef));
@@ -7265,7 +8031,7 @@ static CGFontRef wk_createShapingInstance(CTFontRef font, bool logicalOrder, con
     CFIndex tablesLength = 0;
     bool compactFontFormat = false;
     for (CFIndex i = 0; i < tagCount; ++i) {
-        CFDataRef table = CTFontCopyTable(font, tags[i], kCTFontTableOptionNoOptions);
+        CFDataRef table = WK_ORIGINAL(CTFontCopyTable)(font, tags[i], kCTFontTableOptionNoOptions);
         if (!table)
             continue;
         if (tags[i] == 'sbix') {
@@ -7438,7 +8204,14 @@ static CTFontRef wk_shapingFont(CTFontRef font, bool rightToLeft)
     CGFontRef instance = wk_isShapingInstance(font) ? NULL : wk_copyShapingInstanceForFont(font, rightToLeft, carriers, &carrierCount);
     if (instance) {
         CGAffineTransform matrix = CTFontGetMatrix(font);
-        CTFontDescriptorRef descriptor = wk_descriptorWithCarriers(CTFontCopyFontDescriptor(font), carriers, carrierCount);
+        CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(font);
+        // A variable web font's cut already is the instance, so the source and the variation stay off it.
+        if (descriptor && wk_variableFontSource(font)) {
+            CTFontDescriptorRef carriedOver = wk_descriptorAttributesToCarryOver(descriptor);
+            CFRelease(descriptor);
+            descriptor = carriedOver;
+        }
+        descriptor = wk_descriptorWithCarriers(descriptor, carriers, carrierCount);
         shapingFont = CTFontCreateWithGraphicsFont(instance, CTFontGetSize(font), &matrix, descriptor);
         CGFontRelease(instance);
         if (descriptor)

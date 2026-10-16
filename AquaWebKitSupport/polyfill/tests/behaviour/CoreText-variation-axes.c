@@ -2,12 +2,18 @@
 // variation dictionary when it names an axis the font has not got, or gives an axis a value outside
 // its range; newer CoreText applies the axes it recognizes and clamps each value into range. Every
 // WebCore realization asks for wght, wdth and a slope axis at once
-// (UnrealizedCoreTextFont::modifyFromContext), and almost no variable font carries all three, so on
-// this OS the whole request was thrown away and every variable font rendered at its default instance.
+// (UnrealizedCoreTextFont::modifyFromContext), and almost no variable font carries all three, so 10.9
+// throws the whole request away and renders every variable font at its default instance.
 //
 // Skia is the variable face this system ships: axes Weight (0.4799 - 3.1999, default 1) and Width
 // (0.6199 - 1.2999, default 1). 'a' measures 31.0938 wide at 80pt on the defaults, and the requests
-// below are judged by that width through both realization entry points.
+// below are judged by that width through both realization entry points, to within one font unit
+// (80/2048 pt): an installed variable face draws from a static cut, whose outlines are whole font units.
+//
+// 10.9 reports Skia's default instance keyed by axis name ({Weight 1, Width 1}), a form its own
+// CTFontCreateWithGraphicsFont cannot read from a descriptor that names the font. CTFontCopyVariation,
+// CTFontCopyAttribute and CTFontDescriptorCopyAttribute answer it keyed by axis identifier, as CTFont.h
+// documents it, and CTFontCreateWithGraphicsFont realizes such a descriptor.
 //
 // The probe links libpolyfill.a the way WebKit does, so the functions it calls are the archive's.
 #include <CoreFoundation/CoreFoundation.h>
@@ -15,6 +21,7 @@
 #include <CoreText/CoreText.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int failures;
 
@@ -66,6 +73,8 @@ static CTFontDescriptorRef modificationDescriptor(CFDictionaryRef request)
 
 // The same request through both entry points WebCore realizes a font from: a copy taken off a font,
 // and a descriptor naming the face outright.
+static const double oneFontUnit = 80.0 / 2048;
+
 static void measure(const char *face, const char (*tags)[5], const double *values, unsigned count,
                     double expected, const char *what)
 {
@@ -78,7 +87,7 @@ static void measure(const char *face, const char (*tags)[5], const double *value
     char detail[256];
     snprintf(detail, sizeof detail, "%s, through a copy", what);
     double width = inkWidth(copied);
-    if (fabs(width - expected) > 0.001) {
+    if (!(fabs(width - expected) <= oneFontUnit)) {
         printf("FAIL: %s (expected %.4f, got %.4f)\n", detail, expected, width);
         failures++;
     }
@@ -93,7 +102,7 @@ static void measure(const char *face, const char (*tags)[5], const double *value
     CTFontRef realized = CTFontCreateWithFontDescriptor(descriptor, 80, NULL);
     snprintf(detail, sizeof detail, "%s, through a descriptor", what);
     width = inkWidth(realized);
-    if (fabs(width - expected) > 0.001) {
+    if (!(fabs(width - expected) <= oneFontUnit)) {
         printf("FAIL: %s (expected %.4f, got %.4f)\n", detail, expected, width);
         failures++;
     }
@@ -107,8 +116,45 @@ static void measure(const char *face, const char (*tags)[5], const double *value
     CFRelease(name);
 }
 
+// A font built on a variation of a graphics font made from data stays whole once that graphics font is
+// released; the probe runs under MallocScribble, so a read of the released font data finds no glyph.
+static void releasedGraphicsFontVariation(void)
+{
+    FILE *file = fopen("/Library/Fonts/Skia.ttf", "rb");
+    long length = file && !fseek(file, 0, SEEK_END) ? ftell(file) : -1;
+    UInt8 *contents = length > 0 && !fseek(file, 0, SEEK_SET) ? (UInt8 *)malloc((size_t)length) : NULL;
+    CFDataRef bytes = contents && fread(contents, 1, (size_t)length, file) == (size_t)length
+        ? CFDataCreate(kCFAllocatorDefault, contents, length) : NULL;
+    free(contents);
+    if (file)
+        fclose(file);
+    CGDataProviderRef fromBytes = bytes ? CGDataProviderCreateWithCFData(bytes) : NULL;
+    CGFontRef graphics = fromBytes ? CGFontCreateWithDataProvider(fromBytes) : NULL;
+    static const char weight[][5] = { "wght" };
+    const double weight700[] = { 1.5453503 };
+    CFDictionaryRef boldRequest = variationRequest(weight, weight700, 1);
+    CTFontDescriptorRef bold = modificationDescriptor(boldRequest);
+    CTFontRef varied = graphics ? CTFontCreateWithGraphicsFont(graphics, 80, NULL, bold) : NULL;
+    if (graphics)
+        CGFontRelease(graphics);
+    if (fromBytes)
+        CGDataProviderRelease(fromBytes);
+    if (bytes)
+        CFRelease(bytes);
+    double width = inkWidth(varied);
+    if (!(fabs(width - 34.296875) <= 0.001)) {
+        printf("FAIL: a font on a variation of a released graphics font measures %.4f, not 34.2969\n", width);
+        failures++;
+    }
+    if (varied)
+        CFRelease(varied);
+    CFRelease(bold);
+    CFRelease(boldRequest);
+}
+
 int main(void)
 {
+    releasedGraphicsFontVariation();
     CTFontRef skia = CTFontCreateWithName(CFSTR("Skia-Regular"), 80, NULL);
     CFArrayRef axes = skia ? CTFontCopyVariationAxes(skia) : NULL;
     check(axes && CFArrayGetCount(axes) == 2, "Skia is installed and reports its two axes");
@@ -202,6 +248,44 @@ int main(void)
         }
         CFTypeRef releases[] = { base, boldRequest, bold, varied, rewrittenRequest, validRequest, rewritten, valid,
             fromRewritten, fromValid, rewrittenVariation, validVariation };
+        for (size_t i = 0; i < sizeof releases / sizeof releases[0]; ++i) {
+            if (releases[i])
+                CFRelease(releases[i]);
+        }
+    }
+
+    // The default instance's variation, keyed by axis identifier, and the descriptors that name the font
+    // realized on its graphics font.
+    {
+        CTFontRef base = CTFontCreateWithName(CFSTR("Skia-Regular"), 80, NULL);
+        CTFontDescriptorRef own = CTFontCopyFontDescriptor(base);
+        CTFontDescriptorRef named = CTFontDescriptorCreateWithNameAndSize(CFSTR("Skia-Regular"), 80);
+        CFTypeRef answers[] = { CTFontCopyVariation(base), CTFontCopyAttribute(base, kCTFontVariationAttribute),
+            CTFontDescriptorCopyAttribute(own, kCTFontVariationAttribute),
+            CTFontDescriptorCopyAttribute(named, kCTFontVariationAttribute) };
+        static const char *const sources[] = { "CTFontCopyVariation", "CTFontCopyAttribute",
+            "CTFontDescriptorCopyAttribute of the font's descriptor", "CTFontDescriptorCopyAttribute of a named descriptor" };
+        const double defaults[] = { 1, 1 };
+        CFDictionaryRef expected = variationRequest(both, defaults, 2);
+        for (size_t i = 0; i < sizeof answers / sizeof answers[0]; ++i) {
+            if (!answers[i] || CFGetTypeID(answers[i]) != CFDictionaryGetTypeID() || !CFEqual(answers[i], expected)) {
+                printf("FAIL: %s keys Skia's default instance by axis identifier\n", sources[i]);
+                failures++;
+            }
+            if (answers[i])
+                CFRelease(answers[i]);
+        }
+        CGFontRef graphics = CTFontCopyGraphicsFont(base, NULL);
+        CTFontRef fromGraphics = CTFontCreateWithGraphicsFont(graphics, 80, NULL, own);
+        CTFontRef fromNamed = CTFontCreateWithGraphicsFont(graphics, 80, NULL, named);
+        CTFontRef fromDescriptor = CTFontCreateWithFontDescriptor(own, 80, NULL);
+        check(fabs(inkWidth(fromGraphics) - defaultWidth) < 0.001,
+            "CTFontCreateWithGraphicsFont realizes Skia's own descriptor at the default instance");
+        check(fabs(inkWidth(fromNamed) - defaultWidth) < 0.001,
+            "CTFontCreateWithGraphicsFont realizes a descriptor naming Skia at the default instance");
+        check(fabs(inkWidth(fromDescriptor) - defaultWidth) < 0.001,
+            "CTFontCreateWithFontDescriptor realizes Skia's own descriptor at the default instance");
+        CFTypeRef releases[] = { base, own, named, expected, graphics, fromGraphics, fromNamed, fromDescriptor };
         for (size_t i = 0; i < sizeof releases / sizeof releases[0]; ++i) {
             if (releases[i])
                 CFRelease(releases[i]);

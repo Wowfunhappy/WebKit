@@ -843,13 +843,23 @@ probe_opentype_only_features() {
     "$CLANG" $MODERN $INC -o "$T/opentype_only_features" "$TBEHAV/CoreText-opentype-only-features.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -lc++ &&
         "$T/opentype_only_features" "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/FontWithFancyFeatures.otf" \
-            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/gsubtest-lookup3.otf"
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/support/fonts/gsubtest-lookup3.otf" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/variations/resources/Inter.var.subset.ttf"
 }
 
 probe_variation_axes() {
     "$CLANG" $MODERN $INC -o "$T/variation_axes" "$TBEHAV/CoreText-variation-axes.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -lc++ &&
-        "$T/variation_axes"
+        MallocScribble=1 "$T/variation_axes"
+}
+
+probe_installed_variable_fonts() {
+    "$CLANG" $MODERN $INC -o "$T/installed_variable_fonts" "$TBEHAV/CoreText-installed-variable-fonts.c" $PROBE_LIBS \
+        -framework CoreText -framework CoreGraphics -lc++ &&
+        MallocScribble=1 "$T/installed_variable_fonts" \
+            "$REPO/LayoutTests/imported/w3c/web-platform-tests/css/css-fonts/variations/resources/Inter.var.subset.ttf" \
+            "$REPO/LayoutTests/fast/text/variations/resources/Amstelvar/Amstelvar-Roman-VF104.ttf" \
+            "$REPO/LayoutTests/resources/Ahem.ttf" "$T"
 }
 
 probe_variation_axes_from_data() {
@@ -1062,6 +1072,7 @@ run_probe feature_settings_order "$@"
 run_probe opentype_only_features "$@"
 run_probe variation_axes "$@"
 run_probe variation_axes_from_data "$@"
+run_probe installed_variable_fonts "$@"
 run_probe path_glyph_range "$@"
 run_probe sbix_sanitizer "$@"
 run_probe aat_validators "$@"
