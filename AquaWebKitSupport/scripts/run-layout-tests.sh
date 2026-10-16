@@ -72,7 +72,17 @@ reap_test_orphans() {
     # path in their arguments, and reaping one of those kills another run's setup step.
     pkill -9 $scope -f "^$ROOT/WebKitBuild/Release/bin/DumpRenderTree" 2>/dev/null
     pkill -9 $scope -f "^$ROOT/WebKitBuild/Release/bin/WebKitTestRunner" 2>/dev/null
-    pkill -9 $scope -f "WebKitBuild/Release/.*com\.apple\.WebKit\.(WebContent|Networking)" 2>/dev/null
+    # The build tree's WebKit services. launchd starts an XPC service with its bare name as argv[0], so a
+    # service is known by the executable lsof reports for it. launchd is its parent, so it is in no run's
+    # process group: services are reaped machine-wide only.
+    if [ -z "$scope" ]; then
+        local servicePid
+        for servicePid in $(pgrep -f '^com\.apple\.WebKit\.(WebContent|Networking)'); do
+            case "$(lsof -a -p "$servicePid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)" in
+                "$ROOT/WebKitBuild/Release/"*) kill -9 "$servicePid" 2>/dev/null;;
+            esac
+        done
+    fi
     pkill -9 $scope -f "^$ROOT/AquaWebKitSupport/toolchain/build/python3/bin/python3 -c from multiprocessing\.spawn" 2>/dev/null
     # A forked webkitpy worker keeps the runner's own argv, and with it the inherited DNS socket.
     pkill -9 $scope -f "^$ROOT/AquaWebKitSupport/toolchain/build/python3/bin/python3 $ROOT/Tools/Scripts/run-webkit-tests" 2>/dev/null
@@ -84,30 +94,17 @@ reap_test_orphans() {
     return 0
 }
 
-# One run at a time: the reap above kills every driver on the machine, the http/wpt servers own fixed
-# ports, and the results directory is shared, so a second invocation waits for the first to finish.
-# The lock is a directory (bash 3.2 has no flock) holding the owner's pid, and is stale once that pid
-# is gone; ps answers that for a root-owned run started under sudo as well as for our own.
-LOCK="$ROOT/WebKitBuild/Release/bin/.run-layout-tests.lock"
-until mkdir "$LOCK" 2>/dev/null; do
-    owner=$(cat "$LOCK/pid" 2>/dev/null)
-    if [ -n "$owner" ] && ! ps -p "$owner" >/dev/null 2>&1; then
-        if rm -rf "$LOCK" 2>/dev/null; then
-            continue
-        fi
-        echo "stale lock owned by pid $owner cannot be removed (try: sudo rm -rf $LOCK)" >&2
-    else
-        echo "waiting: another run-layout-tests.sh (pid ${owner:-?}) is running" >&2
-    fi
-    sleep 15
-done
-echo $$ > "$LOCK/pid"
+. "$ROOT/AquaWebKitSupport/scripts/test-run-lock.sh"
+acquire_test_run_lock
 cleanup() {
     reap_test_orphans own
-    rm -rf "$LOCK"
+    release_test_run_lock
 }
 reap_test_orphans
-trap cleanup EXIT INT TERM
+# A signal ends the run, and the EXIT trap alone reaps and releases the lock.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 WORKERS="--child-processes=1"
 ARGS=()
 for arg in "$@"; do

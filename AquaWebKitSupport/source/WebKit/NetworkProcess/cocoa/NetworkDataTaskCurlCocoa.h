@@ -154,7 +154,6 @@ private:
     bool m_isMainResource { false };
     bool m_needsCertificateInfo { false };
     bool m_cookieBlockingLatched { false };
-    String m_generatedCookieHeader;
     struct HeldCookies {
         Vector<String> fields;
         String remoteAddress;

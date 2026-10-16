@@ -44,11 +44,36 @@ reap_test_orphans() {
     for reapBinary in $BINARIES; do
         pkill -9 -f "^$BINDIR/$reapBinary" 2>/dev/null
     done
-    pkill -9 -f "WebKitBuild/Release/.*com\.apple\.WebKit\.(WebContent|Networking)" 2>/dev/null
+    # The build tree's WebKit services. launchd starts an XPC service with its bare name as argv[0], so a
+    # service is known by the executable lsof reports for it.
+    local servicePid
+    for servicePid in $(pgrep -f '^com\.apple\.WebKit\.(WebContent|Networking)'); do
+        case "$(lsof -a -p "$servicePid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)" in
+            "$ROOT/WebKitBuild/Release/"*) kill -9 "$servicePid" 2>/dev/null;;
+        esac
+    done
     return 0
 }
+# The reap above is machine-wide, so it runs only under the lock run-layout-tests.sh takes as well. A signal
+# ends the run, and the EXIT trap alone reaps and releases the lock.
+. "$ROOT/AquaWebKitSupport/scripts/test-run-lock.sh"
+trap 'exit 130' INT
+trap 'exit 143' TERM
+acquire_test_run_lock
+# The test binaries run in this run's own working directory, where a test's relative paths land (one creates
+# and deletes resources/ and otherVolume.dmg there), never in the source tree.
+WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/wk_api_run.XXXXXX")
+cd "$WORK_DIR" || exit 1
+EXPECTATION_TABLE=""
+cleanup() {
+    reap_test_orphans
+    release_test_run_lock
+    rm -rf "$WORK_DIR"
+    [ -n "$EXPECTATION_TABLE" ] && rm -f "$EXPECTATION_TABLE"
+    return 0
+}
+trap cleanup EXIT
 reap_test_orphans
-trap reap_test_orphans EXIT INT TERM
 
 BIN_PATHS=""
 for BINARY in $BINARIES; do BIN_PATHS="$BIN_PATHS $BINDIR/$BINARY"; done
@@ -96,7 +121,6 @@ done
 TEST_TIMEOUT=${WK_API_TEST_TIMEOUT:-180}
 
 EXPECTATION_TABLE=$(mktemp "${TMPDIR:-/tmp}/wk_api_expectations.XXXXXX")
-trap 'reap_test_orphans; rm -f "$EXPECTATION_TABLE"' EXIT INT TERM
 expectation_for() { # binary test -> Skip | Pass
     awk -F '\t' -v name="$1.$2" '$1 == name { print $2; exit }' "$EXPECTATION_TABLE"
 }

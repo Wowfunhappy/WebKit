@@ -28,6 +28,7 @@
 
 #import "AuthenticationChallenge.h"
 #import "AuthenticationCocoa.h"
+#import "CocoaCurlResourceHandle.h" // AQUAWEBKIT: cocoaCurlLoadsRequest.
 #import "Logging.h"
 #import "NetworkingContext.h"
 #import "OriginAccessPatterns.h"
@@ -285,12 +286,12 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         // AQUAWEBKIT: the completion handler continues the connection; see below.
         // protect(protectedSelf->m_handle.get())->willSendRequest(WTF::move(redirectRequest), WTF::move(response), [protectedSelf = WTF::move(protectedSelf)](ResourceRequest&& request) {
         protect(protectedSelf->m_handle.get())->willSendRequest(WTF::move(redirectRequest), WTF::move(response), [protectedSelf = WTF::move(protectedSelf), connection = WTF::move(connection), callback](ResourceRequest&& request) {
-            // AQUAWEBKIT: the curl transport owns HTTP; leaving this connection detaches its delegate. A
-            // late answer finds that the callback gave CFNetwork nil: an approved request continues on a new
-            // connection, and a nil answer lets the connection deliver the redirect response.
+            // AQUAWEBKIT: a request curl loads (cocoaCurlLoadsRequest) leaves this connection, which detaches its
+            // delegate. A late answer finds that the callback gave CFNetwork nil: an approved request continues on a
+            // new connection, and a nil answer lets the connection deliver the redirect response.
             protectedSelf->m_waitingForCompletion = false;
             RefPtr handle = protectedSelf->m_handle.get();
-            if (handle && !request.isNull() && request.url().protocolIsInHTTPFamily()) {
+            if (handle && !request.isNull() && cocoaCurlLoadsRequest(request)) {
                 callback->setAnswered();
                 handle->continueRedirectOnCocoaCurl(WTF::move(request), RefPtr { protectedSelf->m_messageQueue });
                 return;
@@ -666,7 +667,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // AQUAWEBKIT: see ConnectionCallback.
     // auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse)] mutable {
     Ref callback = ConnectionCallback::create(m_callbacksOnMainThread && isMainThread());
-    auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse), callback] mutable {
+    auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse), connection = retainPtr(connection), callback] mutable {
         if (!protectedSelf->m_handle || !protectedSelf->m_handle->client()) {
             protectedSelf->m_cachedResponseResult = nullptr;
             // protectedSelf->m_semaphore.signal(); // AQUAWEBKIT: only a blocked callback waits.
@@ -681,9 +682,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         //     protectedSelf->m_cachedResponseResult = response;
         //     protectedSelf->m_semaphore.signal();
         // });
-        protectedSelf->m_handle->client()->willCacheResponseAsync(protect(protectedSelf->m_handle.get()), cachedResponse.get(), [protectedSelf = WTF::move(protectedSelf), callback](NSCachedURLResponse * response) mutable {
-            if (callback->isLate())
+        protectedSelf->m_handle->client()->willCacheResponseAsync(protect(protectedSelf->m_handle.get()), cachedResponse.get(), [protectedSelf = WTF::move(protectedSelf), connection = WTF::move(connection), callback](NSCachedURLResponse * response) mutable {
+            // A late answer is stored as CFNetwork stores the callback's own; the callback's nil stored nothing.
+            if (callback->isLate()) {
+                if (RefPtr handle = protectedSelf->m_handle.get(); handle && handle->context())
+                    storeConnectionCachedResponse(handle->context()->storageSession(), response, [connection currentRequest]);
                 return;
+            }
             callback->setAnswered();
             protectedSelf->m_cachedResponseResult = response;
             if (!callback->runsInPlace()) // AQUAWEBKIT: only a blocked callback waits.
@@ -692,8 +697,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     };
 
     [self callFunctionOnMainThread:WTF::move(work)];
-    // AQUAWEBKIT: see ConnectionCallback. Held work answers nil: 10.9's NSURLCache stores HTTP
-    // responses only, and HTTP loads run on curl, so no response reaching this connection is ever stored.
+    // AQUAWEBKIT: see ConnectionCallback.
     // m_semaphore.wait();
     if (callback->runsInPlace()) {
         callback->setReturned();

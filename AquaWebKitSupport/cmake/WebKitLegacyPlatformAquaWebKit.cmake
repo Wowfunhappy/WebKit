@@ -49,6 +49,7 @@ list(APPEND WebKitLegacy_SOURCES
     # Safari's HTTP WebDownload over the shared curl transport; WebDownload.mm reaches its header by
     # bare name, so the directory goes on the include path.
     ${AQUAWEBKIT_SUPPORT}/source/WebKitLegacy/mac/Misc/WebDownloadCurl.mm
+    ${AQUAWEBKIT_SUPPORT}/source/WebKitLegacy/mac/Misc/WebDownloadNative.mm
 
     # The in-process SocketStreamHandle and the legacy WebSocketChannel, the WebKitLegacy-side backing
     # for the 10.9 WebSocket implementation. Its transport is this port's curl one rather than

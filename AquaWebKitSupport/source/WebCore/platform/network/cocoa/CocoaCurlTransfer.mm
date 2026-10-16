@@ -55,6 +55,8 @@
 
 // preserve Cocoa's preferred HTTP language; NSLocale's full fallback list is not the wire preference.
 extern "C" CFStringRef _CFNetworkCopyPreferredLanguageCode(void);
+// 10.9 takes a fourth argument, which CFNetwork's own stores (CFXURLCache::addCachedResponseForRequest) pass as null.
+extern "C" void CFURLCacheAddCachedResponseForRequest(CFURLCacheRef, CFCachedURLResponseRef, CFURLRequestRef, const void*);
 
 // curl framing, upload streams and TLS are independent of a Cocoa loader's policy client.
 // CFNetwork's native conversion preserves FormDataStreamCFNet's { domain: 0, error: -43 }.
@@ -355,19 +357,27 @@ static NSString *const cocoaCurlCacheRangeKey = @"WebKitRequestRange";
 static NSString *const cocoaCurlCacheEmptyBodyKey = @"WebKitEmptyBody";
 static NSString *const cocoaCurlCacheRemovedKey = @"WebKitRemovedEntry";
 
-static RetainPtr<NSURLCache> cocoaCurlURLCache(NetworkStorageSession* storage)
+// The cache a storage session's loads use: its platform session's, none for an ephemeral session without one, and
+// otherwise the shared cache, which is the application's own NSURLCache when it set one.
+static RetainPtr<CFURLCacheRef> cocoaCurlCFURLCache(NetworkStorageSession* storage)
 {
     if (!storage)
         return nullptr;
-    if (auto platformSession = storage->platformSession()) {
-        auto cache = adoptCF(_CFURLStorageSessionCopyCache(kCFAllocatorDefault, platformSession));
-        if (!cache)
-            return nullptr;
-        return adoptNS([[NSURLCache alloc] _initWithExistingCFURLCache:cache.get()]);
-    }
+    if (auto platformSession = storage->platformSession())
+        return adoptCF(_CFURLStorageSessionCopyCache(kCFAllocatorDefault, platformSession));
     if (storage->sessionID().isEphemeral())
         return nullptr;
-    return [NSURLCache sharedURLCache];
+    return adoptCF(CFURLCacheCopySharedURLCache());
+}
+
+static RetainPtr<NSURLCache> cocoaCurlURLCache(NetworkStorageSession* storage)
+{
+    auto cache = cocoaCurlCFURLCache(storage);
+    if (!cache)
+        return nullptr;
+    if (!storage->platformSession())
+        return [NSURLCache sharedURLCache];
+    return adoptNS([[NSURLCache alloc] _initWithExistingCFURLCache:cache.get()]);
 }
 
 static RetainPtr<NSURLRequest> cocoaCurlCacheRequest(const ResourceRequest& request)
@@ -574,6 +584,14 @@ NSData *cocoaCurlCachedBody(NSCachedURLResponse *entry)
     if ([[entry userInfo][cocoaCurlCacheEmptyBodyKey] boolValue])
         return [NSData data];
     return [entry data];
+}
+
+void storeConnectionCachedResponse(NetworkStorageSession* storage, NSCachedURLResponse *response, NSURLRequest *request)
+{
+    if (!response)
+        return;
+    if (auto cache = cocoaCurlCFURLCache(storage))
+        CFURLCacheAddCachedResponseForRequest(cache.get(), [response _CFCachedURLResponse], [request _CFURLRequest], nullptr);
 }
 
 void removeCocoaCurlCachedResponse(NetworkStorageSession* storage, const ResourceRequest& request)

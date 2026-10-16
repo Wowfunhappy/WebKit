@@ -205,20 +205,16 @@ void NetworkDataTaskCurlCocoa::setup()
 {
     // each new HTTP exchange observes current credential/privacy pool ownership, including a credential deletion during an earlier hop.
     m_scheduler = downcast<NetworkSessionCocoa>(*m_session).curlNetworkScheduler(m_webPageProxyID, m_request, m_storedCredentialsPolicy, m_isNavigatingToAppBoundDomain);
-    // A Cookie field this task generated is generated again for each exchange; one the request carries
-    // otherwise, as a Safari 7 extension's onBeforeSendHeaders sets it, is sent as it is.
-    if (auto generated = std::exchange(m_generatedCookieHeader, String()); !generated.isNull() && m_request.httpHeaderField(HTTPHeaderName::Cookie) == generated)
-        m_request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
-    if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        if (auto cookie = cookieHeaderValue(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID); !cookie.isEmpty()) {
-            m_request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
-            m_generatedCookieHeader = cookie;
-        }
-    }
     auto wrapper = downcast<NetworkSessionCocoa>(*m_session).sessionWrapperForTask(m_webPageProxyID, m_request, m_storedCredentialsPolicy, m_isNavigatingToAppBoundDomain);
     RetainPtr<NSURLSessionConfiguration> configuration = wrapper->session.get().configuration;
     CocoaCurlTransferOptions options(configuration.get().TLSMinimumSupportedProtocolVersion);
     options.request = m_request;
+    // The jar's Cookie field goes on the wire only, as CFNetwork adds it; a Cookie field the request carries, as a
+    // Safari 7 extension's onBeforeSendHeaders sets it, is sent as it is.
+    if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
+        if (auto cookie = cookieHeaderValue(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID); !cookie.isEmpty())
+            options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
+    }
     options.contentEncodingSniffingPolicy = m_contentEncodingSniffingPolicy;
     options.connectionURL = m_connectionURL;
     if (auto body = m_request.httpBody())
@@ -417,7 +413,7 @@ void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, con
             cookie = Cookie { NetworkStorageSession::capExpiryOfPersistentCookie(cookie->createNSHTTPCookie().get(), 24_h * 7).get() };
         storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
     }
-    if (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie) && m_generatedCookieHeader.isNull()) {
+    if (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         completion(std::nullopt);
         return;
     }
@@ -492,7 +488,6 @@ void NetworkDataTaskCurlCocoa::redirect()
     if (!SecurityOrigin::create(url)->isSameOriginAs(SecurityOrigin::create(m_request.url()).get())) {
         request.removeHTTPHeaderField(HTTPHeaderName::Authorization);
         request.removeHTTPHeaderField(HTTPHeaderName::Origin);
-        request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
         m_authMethod = CURLAUTH_NONE;
         m_authUser = emptyString();
         m_authPassword = emptyString();
@@ -991,7 +986,7 @@ Vector<uint8_t> NetworkDataTaskCurlCocoa::downloadResumeData() const
         return { };
     auto values = adoptNS([@{
         @"NSURLSessionResumeInfoVersion": @1,
-        @"WebKitRequest": cocoaDownloadRequestInformation(m_request, !m_generatedCookieHeader.isNull()).get(),
+        @"WebKitRequest": cocoaDownloadRequestInformation(m_request).get(),
         @"WebKitStorageSessionIdentifier": @(m_session->sessionID().toUInt64()),
         // private/credential-free/stateless resume retains its original policy.
         @"WebKitStoredCredentialsPolicy": m_storedCredentialsPolicy == StoredCredentialsPolicy::Use ? @"use" : m_storedCredentialsPolicy == StoredCredentialsPolicy::DoNotUse ? @"do-not-use" : @"ephemeral-stateless",

@@ -38,8 +38,25 @@
 + (BOOL)allowsAnyHTTPSCertificateForHost:(NSString *)host;
 @end
 
+// 10.9 Foundation's lookup that NSURLConnection binds a request with: the classes passed to +registerClass:, newest
+// first, each asked +canInitWithRequest:; allowCF:YES falls back to CFNetwork's own protocols (NSCFURLProtocol).
+@interface NSURLProtocol (CocoaCurlRegisteredClasses)
++ (Class)_protocolClassForRequest:(NSURLRequest *)request allowCF:(BOOL)allowCF;
+@end
+
 // the legacy loader owns redirect/cookie/authentication policy; its native connection never owns HTTP wire bytes.
 namespace WebCore {
+bool cocoaCurlLoadsRequest(NSURLRequest *request)
+{
+    NSString *scheme = request.URL.scheme;
+    if (!scheme || ([scheme caseInsensitiveCompare:@"http"] != NSOrderedSame && [scheme caseInsensitiveCompare:@"https"] != NSOrderedSame))
+        return false;
+    return ![NSURLProtocol _protocolClassForRequest:request allowCF:NO];
+}
+bool cocoaCurlLoadsRequest(const ResourceRequest& request)
+{
+    return cocoaCurlLoadsRequest(request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody));
+}
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CocoaCurlResourceHandle);
 Ref<CocoaCurlResourceHandle> CocoaCurlResourceHandle::create(ResourceHandle& handle, NetworkStorageSession& storage, SynchronousLoaderMessageQueue* queue, std::optional<ResourceRequest>&& redirectedRequest)
 {
@@ -159,17 +176,14 @@ void CocoaCurlResourceHandle::beginTransfer()
         return;
     }
     m_cachedEntry = cache.answer == CocoaCurlCacheAnswer::Revalidate ? WTF::move(cache.entry) : nullptr;
-    if (std::exchange(m_generatedCookie, false))
-        m_request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
-    if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        auto cookie = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
-        if (!cookie.isEmpty()) {
-            m_request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
-            m_generatedCookie = true;
-        }
-    }
     CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
+    // The jar's Cookie field goes on the wire only, as CFNetwork adds it.
+    if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
+        auto cookie = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+        if (!cookie.isEmpty())
+            options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
+    }
     options.contentEncodingSniffingPolicy = m_handle->contentEncodingSniffingPolicy();
     options.connectionURL = m_connectionURL;
     if (m_cachedEntry)
@@ -213,7 +227,7 @@ void CocoaCurlResourceHandle::curlReceivedCookies(Vector<String>&& fields, int s
         return;
     }
     storeCookies(fields);
-    if (!m_storage || !m_request.allowCookies() || (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie) && !m_generatedCookie)) {
+    if (!m_storage || !m_request.allowCookies() || m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         completion(std::nullopt);
         return;
     }
@@ -336,7 +350,6 @@ void CocoaCurlResourceHandle::redirect()
     if (!protocolHostAndPortAreEqual(m_request.url(), request.url())) {
         request.clearHTTPAuthorization();
         request.clearHTTPOrigin();
-        request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
     }
     m_handle->d->m_user = request.url().user();
     m_handle->d->m_password = request.url().password();
@@ -358,6 +371,15 @@ void CocoaCurlResourceHandle::redirect()
             loader->cancel();
             if (loader->m_queue)
                 loader->m_queue->kill();
+            return;
+        }
+        // CFNetwork follows a redirect through the protocol that claims the new request.
+        if (!cocoaCurlLoadsRequest(approved)) {
+            approved.setStorageSession(loader->m_handle->d->m_storageSession.get());
+            loader->m_handle->d->m_previousRequest = approved;
+            loader->m_handle->d->m_lastHTTPMethod = approved.httpMethod();
+            Ref handle { *loader->m_handle };
+            handle->continueRedirectOnNewConnection(WTF::move(approved), RefPtr { loader->m_queue });
             return;
         }
         if (!protocolHostAndPortAreEqual(loader->m_request.url(), approved.url())) {
@@ -778,6 +800,6 @@ std::optional<CocoaCurlDownloadTransfer> CocoaCurlResourceHandle::takeDownload()
         completion = std::exchange(m_continuation, nullptr);
     else if (std::exchange(m_holdsDelivery, false) && m_connection)
         completion = [connection = m_connection] { connection->setHoldsDelivery(false); };
-    return CocoaCurlDownloadTransfer { std::exchange(m_connection, nullptr), m_pool.copyRef(), m_storage, m_request, m_connectionURL, m_response, WTF::move(completion), std::exchange(m_sniffed, { }), m_generatedCookie, m_allowCredentials, m_result };
+    return CocoaCurlDownloadTransfer { std::exchange(m_connection, nullptr), m_pool.copyRef(), m_storage, m_request, m_connectionURL, m_response, WTF::move(completion), std::exchange(m_sniffed, { }), m_allowCredentials, m_result };
 }
 }

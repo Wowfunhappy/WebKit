@@ -284,8 +284,8 @@ bool ResourceHandle::start()
     if (!context->isValid())
         return false;
 
-    // AQUAWEBKIT: every legacy HTTP request uses the storage session's curl worker pool.
-    if (firstRequest().url().protocolIsInHTTPFamily()) {
+    // AQUAWEBKIT: an HTTP request no application NSURLProtocol claims uses the storage session's curl worker pool.
+    if (cocoaCurlLoadsRequest(firstRequest())) {
         auto* storage = context->storageSession();
         if (!storage)
             return false;
@@ -439,15 +439,21 @@ void ResourceHandle::continueRedirectOnCocoaCurl(ResourceRequest&& request, RefP
     d->m_cocoaCurlHandle->start();
 }
 
-void ResourceHandle::continueRedirectOnNewConnection(ResourceRequest&& request)
+void ResourceHandle::continueRedirectOnNewConnection(ResourceRequest&& request, RefPtr<SynchronousLoaderMessageQueue>&& queue)
 {
     RefPtr context = d->m_context;
+    if (RefPtr curlHandle = std::exchange(d->m_cocoaCurlHandle, nullptr))
+        curlHandle->cancel();
     [d->m_connection.get() cancel];
     releaseDelegate();
     d->m_connection = nil;
     bool shouldUseCredentialStorage = !client() || client()->shouldUseCredentialStorage(this);
-    createNSURLConnection(makeDelegate(shouldUseCredentialStorage, nullptr), shouldUseCredentialStorage, d->m_shouldContentSniff || context->localFileContentSniffingEnabled(), d->m_contentEncodingSniffingPolicy, SchedulingBehavior::Asynchronous, &request);
-    scheduleOnCallbackThread(connection(), d->m_delegate.get());
+    bool synchronous = !!queue;
+    createNSURLConnection(makeDelegate(shouldUseCredentialStorage, WTF::move(queue)), shouldUseCredentialStorage, d->m_shouldContentSniff || context->localFileContentSniffingEnabled(), d->m_contentEncodingSniffingPolicy, synchronous ? SchedulingBehavior::Synchronous : SchedulingBehavior::Asynchronous, &request);
+    if (synchronous)
+        [connection() setDelegateQueue:operationQueueForAsyncClients()];
+    else
+        scheduleOnCallbackThread(connection(), d->m_delegate.get());
     [connection() start];
     if (d->m_defersLoading)
         [d->m_delegate.get() setDefersLoading:YES connection:connection()];
@@ -484,20 +490,11 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
     }
 
     // AQUAWEBKIT: the synchronous caller processes only its loader queue, while curl performs I/O on its worker.
-    if (request.url().protocolIsInHTTPFamily()) {
+    if (cocoaCurlLoadsRequest(request)) {
         auto* storage = context->storageSession();
         handle->d->m_cocoaCurlHandle = CocoaCurlResourceHandle::create(*handle, *storage, &client.messageQueue());
         handle->d->m_cocoaCurlHandle->start();
-        while (!client.messageQueue().killed()) {
-            if (auto task = client.messageQueue().waitForMessage())
-                (*task)();
-        }
-        error = client.error();
-        if (error.isNull())
-            response = client.response();
-        data.swap(client.mutableData());
-        return;
-    }
+    } else {
 
     bool shouldUseCredentialStorage = storedCredentialsPolicy == StoredCredentialsPolicy::Use;
 #if !PLATFORM(IOS_FAMILY)
@@ -519,6 +516,7 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
 
     [handle->connection() setDelegateQueue:operationQueueForAsyncClients()];
     [handle->connection() start];
+    } // AQUAWEBKIT: closes the native connection branch above.
 
     do {
         if (auto task = client.messageQueue().waitForMessage())

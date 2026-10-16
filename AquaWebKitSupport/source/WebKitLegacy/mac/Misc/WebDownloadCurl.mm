@@ -36,6 +36,10 @@
 #import <wtf/text/StringBuilder.h>
 #include <zlib.h>
 
+@interface WebDownload (NativeLoaderContinuation)
+- (void)_continueOnNativeLoaderWithRequest:(NSURLRequest *)request directory:(NSString *)directory deletesFileUponFailure:(BOOL)deletesFileUponFailure;
+@end
+
 using namespace WebCore;
 
 class WebDownloadCurlClient final : public RefCounted<WebDownloadCurlClient>, public CocoaCurlTransferClient {
@@ -63,7 +67,6 @@ public:
         client->m_pool = WTF::move(transfer.pool);
         client->m_request = WTF::move(transfer.request);
         client->m_connectionURL = WTF::move(transfer.connectionURL);
-        client->m_generatedCookieHeader = transfer.generatedCookieHeader;
         client->m_allowCredentials = transfer.allowStoredCredentials;
         client->m_transfer = WTF::move(transfer.connection);
         if (client->m_transfer)
@@ -165,7 +168,6 @@ private:
     bool m_allowOverwrite { false };
     bool m_responsePrepared { false };
     bool m_createdDestination { false };
-    bool m_generatedCookieHeader { false };
     bool m_allowCredentials { true };
 };
 
@@ -353,19 +355,16 @@ void WebDownloadCurlClient::beginTransfer()
         return;
     }
     m_cachedEntry = cache.answer == CocoaCurlCacheAnswer::Revalidate ? WTF::move(cache.entry) : nullptr;
-    if (std::exchange(m_generatedCookieHeader, false))
-        m_request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
-    if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
-        if (!value.isEmpty()) {
-            m_request.setHTTPHeaderField(HTTPHeaderName::Cookie, value);
-            m_generatedCookieHeader = true;
-        }
-    }
     m_pool = &storage.cocoaCurlConnectionPool(m_allowCredentials);
     Ref scheduler { *m_pool };
     CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
+    // The jar's Cookie field goes on the wire only, as CFNetwork adds it.
+    if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
+        auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+        if (!value.isEmpty())
+            options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, value);
+    }
     options.connectionURL = m_connectionURL;
     if (m_cachedEntry)
         addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());
@@ -401,7 +400,7 @@ void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, int, co
                 storage.setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
         }
     }
-    if (!m_request.allowCookies() || (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie) && !m_generatedCookieHeader)) {
+    if (!m_request.allowCookies() || m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         completion(std::nullopt);
         return;
     }
@@ -547,7 +546,6 @@ void WebDownloadCurlClient::redirect()
         redirected.clearHTTPReferrer();
     if (!SecurityOrigin::create(redirected.url())->isSameOriginAs(SecurityOrigin::create(m_request.url()).get())) {
         redirected.removeHTTPHeaderField(HTTPHeaderName::Authorization);
-        redirected.removeHTTPHeaderField(HTTPHeaderName::Cookie);
         redirected.removeHTTPHeaderField(HTTPHeaderName::Origin);
     }
     if ([m_delegate respondsToSelector:@selector(download:willSendRequest:redirectResponse:)]) {
@@ -566,6 +564,17 @@ void WebDownloadCurlClient::redirect()
         m_auth = CURLAUTH_NONE;
         m_authFailures = 0;
         m_acceptedChain = nullptr;
+    }
+    // CFNetwork follows a redirect through the protocol that claims the new request.
+    if (!cocoaCurlLoadsRequest(redirected)) {
+        Ref protectedThis { *this };
+        RetainPtr download = m_download.get();
+        RetainPtr request = redirected.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
+        RetainPtr directory = m_directory;
+        bool deletesFileUponFailure = m_deleteOnFailure;
+        finish(nil, true);
+        [download _continueOnNativeLoaderWithRequest:request.get() directory:directory.get() deletesFileUponFailure:deletesFileUponFailure];
+        return;
     }
     ++m_redirects;
     m_connectionURL = applyExternalURLRewrite(redirected);
@@ -809,7 +818,7 @@ RetainPtr<NSDictionary> WebDownloadCurlClient::resumeInformation() const
         return nullptr;
     auto result = adoptNS([[NSMutableDictionary alloc] init]);
     [result setObject:m_request.url().string().createNSString().get() forKey:@"NSURLDownloadURL"];
-    [result setObject:cocoaDownloadRequestInformation(m_request, m_generatedCookieHeader).get() forKey:@"WebKitRequest"];
+    [result setObject:cocoaDownloadRequestInformation(m_request).get() forKey:@"WebKitRequest"];
     [result setObject:@(m_received) forKey:@"NSURLDownloadBytesReceived"];
     [result setObject:@(m_storageID.toUInt64()) forKey:@"WebKitStorageSessionIdentifier"];
     [result setObject:@(m_allowCredentials) forKey:@"WebKitAllowStoredCredentials"];

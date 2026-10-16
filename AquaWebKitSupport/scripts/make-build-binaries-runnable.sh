@@ -184,8 +184,8 @@ fix_rpaths() { # bin
         case "$real" in
             "$TC_REAL"/*)   int_or_die -delete_rpath "$rp" "$bin";;
             "$DEPS_LIB_REAL")
-                            int_or_die -delete_rpath "$rp" "$bin"
-                            grep -qxF "$RUNTIME_MIRROR" <<< "$(lc_rpaths "$cmds")" || int_or_die -add_rpath "$RUNTIME_MIRROR" "$bin";;
+                            grep -qxF "$RUNTIME_MIRROR" <<< "$(lc_rpaths "$cmds")" || int_or_die -add_rpath "$RUNTIME_MIRROR" "$bin"
+                            int_or_die -delete_rpath "$rp" "$bin";;
             "$LIBDIR_REAL") have_libdir=1;;
             *)              [ "$have_libdir" = 1 ] && continue
                             if [ -e "$real/libc++.1.dylib" ] || [ -e "$real/libc++abi.1.dylib" ]; then

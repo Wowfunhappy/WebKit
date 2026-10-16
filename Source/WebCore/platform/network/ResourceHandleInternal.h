@@ -92,7 +92,7 @@ public:
     Credential m_initialCredential;
     
 #if PLATFORM(COCOA)
-    // AQUAWEBKIT: HTTP uses the curl adapter; native connections retain non-HTTP protocol support.
+    // AQUAWEBKIT: a request curl loads (cocoaCurlLoadsRequest) uses the curl adapter; a native connection loads any other.
     RefPtr<CocoaCurlResourceHandle> m_cocoaCurlHandle;
     RetainPtr<NSURLConnection> m_connection;
     RetainPtr<id> m_delegate;

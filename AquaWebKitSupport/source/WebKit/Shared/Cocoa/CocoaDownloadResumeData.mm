@@ -51,7 +51,7 @@ Vector<uint8_t> CocoaDownloadResumeData::serializedData() const
 {
     NSDictionary* values = @{
         @"NSURLSessionResumeInfoVersion": @1,
-        @"WebKitRequest": WebCore::cocoaDownloadRequestInformation(request, false).get(),
+        @"WebKitRequest": WebCore::cocoaDownloadRequestInformation(request).get(),
         @"WebKitStorageSessionIdentifier": @(sessionID.toUInt64()),
         @"WebKitStoredCredentialsPolicy": storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::Use ? @"use" : storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::DoNotUse ? @"do-not-use" : @"ephemeral-stateless",
         @"WebKitFirstPartyForCookies": request.firstPartyForCookies().string().createNSString().get(),

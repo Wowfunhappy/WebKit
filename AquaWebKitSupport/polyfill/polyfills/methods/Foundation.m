@@ -3631,18 +3631,24 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "NSURLFileTypeMappings")
 // ---------------------------------------------------------------------------------------------------
 // NSURLCache keys an entry by its request's URL and partition. Mavericks hashes only sampled characters of
 // that key, so long URLs differing outside the samples share one entry and evict each other; modern
-// NSURLCache keeps every distinct URL and partition apart. Each lookup, store and removal names its entry
-// by a partition that digests the whole fragment-free URL and the request's own partition.
+// NSURLCache keeps every distinct URL and partition apart. A store names its entry by a partition that digests
+// the whole fragment-free URL and the request's own partition; a lookup reads that entry, then the one the cache's
+// own loaders stored under the request's key, and a removal clears that entry and the request's own when it is for
+// the request's URL.
 extern const CFStringRef _kCFURLCachePartitionKey;
+
+static NSString *wk_urlCacheSpec(NSURL *url)
+{
+    NSString *spec = url.absoluteString;
+    NSRange fragment = [spec rangeOfString:@"#"];
+    return fragment.location == NSNotFound ? spec : [spec substringToIndex:fragment.location];
+}
 
 static NSURLRequest *wk_urlCacheEntryRequest(NSURLRequest *request)
 {
-    NSString *spec = request.URL.absoluteString;
+    NSString *spec = wk_urlCacheSpec(request.URL);
     if (!spec)
         return request;
-    NSRange fragment = [spec rangeOfString:@"#"];
-    if (fragment.location != NSNotFound)
-        spec = [spec substringToIndex:fragment.location];
     NSString *partition = [NSURLProtocol propertyForKey:(__bridge NSString *)_kCFURLCachePartitionKey inRequest:request];
     CC_SHA256_CTX context;
     CC_SHA256_Init(&context);
@@ -3662,10 +3668,31 @@ static NSURLRequest *wk_urlCacheEntryRequest(NSURLRequest *request)
     return entryRequest;
 }
 
+// The cache's own loaders store under a request's own key, which Mavericks shares between the URLs that agree on its
+// samples: such an entry answers, or is removed for, a request only when its response is for the request's URL.
+static BOOL wk_urlCacheEntryIsForRequest(NSCachedURLResponse *entry, NSURLRequest *request)
+{
+    NSString *spec = wk_urlCacheSpec(request.URL);
+    return entry && spec && [wk_urlCacheSpec(entry.response.URL) isEqualToString:spec];
+}
+
+// The entry stored under a request's own key, as the cache's own lookup reads it.
+static NSCachedURLResponse *wk_urlCacheOwnEntry(NSURLCache *cache, NSURLRequest *request)
+{
+    struct wk_original lookup = wk_original_of(cache, @selector(cachedResponseForRequest:));
+    return ((NSCachedURLResponse *(*)(id, SEL, NSURLRequest *))lookup.imp)(cache, lookup.sel, request);
+}
+
 WK_POLYFILL_REPLACE_METHODS(NSURLCache)
 - (NSCachedURLResponse *)cachedResponseForRequest:(NSURLRequest *)request
 {
-    return WK_ORIGINAL_METHOD(NSCachedURLResponse *, (NSURLRequest *), request ? wk_urlCacheEntryRequest(request) : request);
+    if (!request)
+        return WK_ORIGINAL_METHOD(NSCachedURLResponse *, (NSURLRequest *), request);
+    NSCachedURLResponse *entry = WK_ORIGINAL_METHOD(NSCachedURLResponse *, (NSURLRequest *), wk_urlCacheEntryRequest(request));
+    if (entry)
+        return entry;
+    entry = wk_urlCacheOwnEntry(self, request);
+    return wk_urlCacheEntryIsForRequest(entry, request) ? entry : nil;
 }
 - (void)storeCachedResponse:(NSCachedURLResponse *)cachedResponse forRequest:(NSURLRequest *)request
 {
@@ -3673,6 +3700,39 @@ WK_POLYFILL_REPLACE_METHODS(NSURLCache)
 }
 - (void)removeCachedResponseForRequest:(NSURLRequest *)request
 {
-    WK_ORIGINAL_METHOD(void, (NSURLRequest *), request ? wk_urlCacheEntryRequest(request) : request);
+    if (!request) {
+        WK_ORIGINAL_METHOD(void, (NSURLRequest *), request);
+        return;
+    }
+    WK_ORIGINAL_METHOD(void, (NSURLRequest *), wk_urlCacheEntryRequest(request));
+    if (wk_urlCacheEntryIsForRequest(wk_urlCacheOwnEntry(self, request), request))
+        WK_ORIGINAL_METHOD(void, (NSURLRequest *), request);
 }
 @end
+
+// CFURLCacheCopyResponseForRequest answers as -[NSURLCache cachedResponseForRequest:] does above.
+typedef const struct _CFURLCache *wk_CFURLCacheRef;
+typedef const struct _CFURLRequest *wk_CFURLRequestRef;
+typedef const struct _CFCachedURLResponse *wk_CFCachedURLResponseRef;
+@interface NSURLRequest (WKURLCacheEntries)
+- (id)_initWithCFURLRequest:(wk_CFURLRequestRef)request;
+- (wk_CFURLRequestRef)_CFURLRequest;
+@end
+@interface NSCachedURLResponse (WKURLCacheEntries)
+- (id)_initWithCFCachedURLResponse:(wk_CFCachedURLResponseRef)cachedResponse;
+@end
+WK_POLYFILL_REPLACES("CFNetwork", wk_CFCachedURLResponseRef, CFURLCacheCopyResponseForRequest, (wk_CFURLCacheRef cache, wk_CFURLRequestRef request))
+{
+    if (!request)
+        return WK_ORIGINAL(CFURLCacheCopyResponseForRequest)(cache, request);
+    NSURLRequest *nsRequest = [[[NSURLRequest alloc] _initWithCFURLRequest:request] autorelease];
+    wk_CFCachedURLResponseRef entry = WK_ORIGINAL(CFURLCacheCopyResponseForRequest)(cache, [wk_urlCacheEntryRequest(nsRequest) _CFURLRequest]);
+    if (entry)
+        return entry;
+    entry = WK_ORIGINAL(CFURLCacheCopyResponseForRequest)(cache, request);
+    if (entry && !wk_urlCacheEntryIsForRequest([[[NSCachedURLResponse alloc] _initWithCFCachedURLResponse:entry] autorelease], nsRequest)) {
+        CFRelease(entry);
+        return NULL;
+    }
+    return entry;
+}

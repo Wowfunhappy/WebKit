@@ -22,7 +22,7 @@
 
 namespace WebCore {
 class ResourceRequest;
-WEBCORE_EXPORT RetainPtr<NSDictionary> cocoaDownloadRequestInformation(const ResourceRequest&, bool generatedCookieHeader);
+WEBCORE_EXPORT RetainPtr<NSDictionary> cocoaDownloadRequestInformation(const ResourceRequest&);
 WEBCORE_EXPORT bool restoreCocoaDownloadRequestInformation(ResourceRequest&, id);
 using CocoaRemoteDownloadFactory = RetainPtr<id<WebCoreCocoaDownloadTransport>> (*)(NSURLDownload*, id<NSURLDownloadDelegate>, NSDictionary*, NSString*);
 WEBCORE_EXPORT void setCocoaRemoteDownloadFactory(CocoaRemoteDownloadFactory);

@@ -31,6 +31,7 @@
 #import "NetworkStorageSessionMap.h"
 #import <WebCore/CocoaCurlResourceHandle.h> // AQUAWEBKIT: adopt the current legacy HTTP transaction.
 #import "WebDownloadCurl.h" // AQUAWEBKIT: native download ABI with curl transport.
+#import "WebDownloadNative.h" // AQUAWEBKIT: a curl transfer's redirect continued on NSURLDownload's own loader.
 #import <wtf/RunLoop.h> // AQUAWEBKIT: begin after the initializer returns to Safari.
 #import <Foundation/NSURLAuthenticationChallenge.h>
 #import <WebCore/AuthenticationCocoa.h>
@@ -242,6 +243,7 @@ static void callOnDelegateThreadAndWait(Callable&& work)
 // AQUAWEBKIT: declare Safari's native resume SPI and the typed HTTP initializer.
 @interface NSURLDownload (WebDownloadResumeInformation)
 - (NSDictionary *)_resumeInformation;
+- (id)_initWithResumeInformation:(NSDictionary *)information delegate:(id)delegate path:(NSString *)path;
 // AQUAWEBKIT: native directory SPI is backed by the selected download transport.
 - (NSString *)_directoryPath;
 - (void)_setDirectoryPath:(NSString *)path;
@@ -285,8 +287,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (id)initWithRequest:(NSURLRequest *)request delegate:(id<NSURLDownloadDelegate>)delegate
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    // AQUAWEBKIT: HTTP uses the shared curl transaction; non-HTTP keeps its native protocol handler.
-    if ([request.URL.scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [request.URL.scheme caseInsensitiveCompare:@"https"] == NSOrderedSame)
+    // AQUAWEBKIT: a request curl loads uses the shared curl transaction; any other keeps NSURLDownload's own loader.
+    if (WebCore::cocoaCurlLoadsRequest(request))
         return [self _initCurlWithRequest:request delegate:delegate resumeInformation:nil path:nil directory:nil];
     [self _setRealDelegate:delegate];
     return [super initWithRequest:request delegate:_webInternal];
@@ -311,7 +313,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 IGNORE_WARNINGS_END
 {
     // AQUAWEBKIT: Safari's reload path retains its directory and delegate with curl.
-    if ([request.URL.scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [request.URL.scheme caseInsensitiveCompare:@"https"] == NSOrderedSame)
+    if (WebCore::cocoaCurlLoadsRequest(request))
         return [self _initCurlWithRequest:request delegate:delegate resumeInformation:nil path:nil directory:directory];
     [self _setRealDelegate:delegate];
     return [super _initWithRequest:request delegate:_webInternal directory:directory];
@@ -339,6 +341,13 @@ IGNORE_WARNINGS_END
     return self;
 }
 
+// AQUAWEBKIT: a redirect the curl transfer's delegate approved to a request curl does not load continues on
+// NSURLDownload's own loader, as CFNetwork follows a redirect through the protocol that claims the new request.
+- (void)_continueOnNativeLoaderWithRequest:(NSURLRequest *)request directory:(NSString *)directory deletesFileUponFailure:(BOOL)deletesFileUponFailure
+{
+    _webInternal->curlDownload = adoptNS([[WebDownloadNative alloc] initWithDownload:self delegate:_webInternal request:request directory:directory deletesFileUponFailure:deletesFileUponFailure]);
+}
+
 // AQUAWEBKIT: a download consumes the paused response and any sniffed prefix from its existing HTTP connection.
 - (instancetype)_initWithCurlResourceHandle:(WebCore::CocoaCurlResourceHandle&)handle delegate:(id)delegate
 {
@@ -355,19 +364,31 @@ IGNORE_WARNINGS_END
     return self;
 }
 
+// A WebKit2 download, or a download of a URL curl loads, resumes on curl; any other resumes on NSURLDownload's own loader.
+static bool resumesOnCocoaCurl(id information)
+{
+    if (![information isKindOfClass:[NSDictionary class]])
+        return false;
+    if ([information objectForKey:@"WebKitNetworkProcessResumeData"])
+        return true;
+    id url = [information objectForKey:@"NSURLDownloadURL"];
+    NSURL *nsURL = [url isKindOfClass:[NSString class]] ? [NSURL URLWithString:url] : nil;
+    return nsURL && WebCore::cocoaCurlLoadsRequest([NSURLRequest requestWithURL:nsURL]);
+}
+
 - (id)_initWithResumeInformation:(NSDictionary *)information delegate:(id)delegate path:(NSString *)path
 {
+    if (!resumesOnCocoaCurl(information))
+        return [super _initWithResumeInformation:information delegate:delegate path:path];
     return [self _initCurlWithRequest:nil delegate:delegate resumeInformation:information path:path directory:nil];
 }
 
 - (id)initWithResumeData:(NSData *)data delegate:(id<NSURLDownloadDelegate>)delegate path:(NSString *)path
 {
     id information = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:nil error:nil];
-    if (![information isKindOfClass:[NSDictionary class]]) {
-        [self release];
-        return nil;
-    }
-    return [self _initWithResumeInformation:information delegate:delegate path:path];
+    if (!resumesOnCocoaCurl(information))
+        return [super initWithResumeData:data delegate:delegate path:path];
+    return [self _initCurlWithRequest:nil delegate:delegate resumeInformation:information path:path directory:nil];
 }
 
 - (void)cancel

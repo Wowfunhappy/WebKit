@@ -140,7 +140,7 @@ String LegacyExtensionViewNetwork::generatedCookie(const Load& load, const Resou
 {
     RefPtr networkingContext = load.networkingContext;
     auto* storage = networkingContext ? networkingContext->storageSession() : nullptr;
-    if (!storage || !request.allowCookies() || !request.url().protocolIsInHTTPFamily())
+    if (!storage || !request.allowCookies() || !cocoaCurlLoadsRequest(request))
         return { };
     return storage->cookieRequestHeaderFieldValue(request.firstPartyForCookies(), cookieRequestSameSiteInfo(request), request.url(), std::nullopt, std::nullopt, request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
 }
@@ -421,17 +421,14 @@ bool LegacyExtensionViewNetwork::interceptRedirection(ResourceLoader& loader, Re
     return true;
 }
 
-// The loader's redirect steps, then the redirected request's webRequest steps. A request an extension sends
-// in place to a URL the network does not load, such as a data: URL or an extension's page, starts the
-// loader's load again.
+// The loader's redirect steps, then the redirected request's webRequest steps.
 void LegacyExtensionViewNetwork::followRedirect(ResourceLoader& loader, Ref<Load>&& load, ResourceRequest&& request, ResourceResponse&& redirectResponse, CompletionHandler<void(ResourceRequest&&)>&& completionHandler)
 {
     continueRedirection(loader, WTF::move(request), redirectResponse, [this, weakLoader = WeakPtr { loader }, load = WTF::move(load), redirectResponse, completionHandler = WTF::move(completionHandler)](ResourceRequest&& approved) mutable {
         RefPtr loader = weakLoader.get();
         if (!loader || approved.isNull() || !isInterceptable(approved.url()))
             return completionHandler(WTF::move(approved));
-        auto approvedURL = approved.url();
-        willSendRequest(WTF::move(load), WTF::move(approved), redirectResponse, [weakLoader = WTF::move(weakLoader), approvedURL = WTF::move(approvedURL), completionHandler = WTF::move(completionHandler)](RequestVerdict&& verdict) mutable {
+        willSendRequest(WTF::move(load), WTF::move(approved), redirectResponse, [weakLoader = WTF::move(weakLoader), completionHandler = WTF::move(completionHandler)](RequestVerdict&& verdict) mutable {
             RefPtr loader = weakLoader.get();
             if (!loader || loader->reachedTerminalState())
                 return completionHandler({ });
@@ -440,10 +437,6 @@ void LegacyExtensionViewNetwork::followRedirect(ResourceLoader& loader, Ref<Load
                 return completionHandler({ });
             }
             loader->setRequest(ResourceRequest { verdict.request });
-            if (verdict.request.url() != approvedURL && !verdict.request.url().protocolIsInHTTPFamily()) {
-                completionHandler({ });
-                return LegacyExtensionViewNetwork::singleton().restart(*loader);
-            }
             completionHandler(WTF::move(verdict.request));
         });
     });

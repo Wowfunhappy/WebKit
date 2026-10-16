@@ -376,14 +376,11 @@ void CocoaCurlConnection::curlCompleted(const ResourceError& error, const Networ
 // WebKit registers its typed resume provider when its Objective-C classes load; WebCore does not link upward to WebKit or WebKitLegacy.
 #import "CocoaDownloadTransport.h"
 namespace WebCore {
-RetainPtr<NSDictionary> cocoaDownloadRequestInformation(const ResourceRequest& request, bool generatedCookieHeader)
+RetainPtr<NSDictionary> cocoaDownloadRequestInformation(const ResourceRequest& request)
 {
     auto headers = adoptNS([[NSMutableDictionary alloc] init]);
-    for (auto& field : request.httpHeaderFields()) {
-        if (generatedCookieHeader && equalLettersIgnoringASCIICase(field.key, "cookie"_s))
-            continue;
+    for (auto& field : request.httpHeaderFields())
         [headers setObject:field.value.createNSString().get() forKey:field.key.createNSString().get()];
-    }
     return @{
         @"headers": headers.get(),
         @"timeout": @(request.timeoutInterval()),

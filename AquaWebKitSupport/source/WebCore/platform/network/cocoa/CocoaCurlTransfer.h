@@ -92,6 +92,9 @@ WEBCORE_EXPORT RetainPtr<NSCachedURLResponse> createCocoaCurlCachedResponse(Netw
 WEBCORE_EXPORT void storeCocoaCurlCachedResponse(NetworkStorageSession*, NSCachedURLResponse *, const ResourceRequest&);
 WEBCORE_EXPORT NSData *cocoaCurlCachedBody(NSCachedURLResponse *);
 WEBCORE_EXPORT void removeCocoaCurlCachedResponse(NetworkStorageSession*, const ResourceRequest&);
+// Stores an NSURLConnection's cached response in the cache of the storage session its request carries, as CFNetwork
+// stores the response its connection's delegate returns from -connection:willCacheResponse:.
+WEBCORE_EXPORT void storeConnectionCachedResponse(NetworkStorageSession*, NSCachedURLResponse *, NSURLRequest *);
 
 struct CocoaCurlTransferOptions {
     // A WebKit2 load takes its session configuration's TLSMinimumSupportedProtocolVersion. Every other

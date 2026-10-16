@@ -13,10 +13,17 @@
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/ResourceError.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
+OBJC_CLASS NSURLRequest;
 OBJC_CLASS WebCoreResourceHandleAsOperationQueueDelegate;
 
 namespace WebCore {
 class ResourceHandle;
+
+// Whether curl loads the request: an http(s) request that no NSURLProtocol class the application registered
+// claims. NSURLConnection and NSURLDownload load a claimed request through its class.
+WEBCORE_EXPORT bool cocoaCurlLoadsRequest(NSURLRequest *);
+WEBCORE_EXPORT bool cocoaCurlLoadsRequest(const ResourceRequest&);
+
 struct CocoaCurlDownloadTransfer {
     // Absent for a response the shared NSURLCache answered.
     RefPtr<CocoaCurlConnection> connection;
@@ -28,7 +35,6 @@ struct CocoaCurlDownloadTransfer {
     CocoaCurlTransferResponse response;
     CompletionHandler<void()> completion;
     Vector<uint8_t> bufferedData;
-    bool generatedCookieHeader;
     bool allowStoredCredentials;
     std::optional<ResourceError> result;
 };
@@ -120,7 +126,6 @@ private:
     bool m_noSniff { false };
     bool m_useResponse { false };
     bool m_allowCredentials { false };
-    bool m_generatedCookie { false };
     std::optional<Vector<String>> m_heldCookies;
     Vector<uint8_t> m_sniffed;
     std::unique_ptr<CurlMultipartHandle> m_multipart;

@@ -116,10 +116,11 @@ public:
     WEBCORE_EXPORT NSURLConnection *NODELETE connection() const;
     // AQUAWEBKIT: a paused HTTP transaction can become a download without another request.
     WEBCORE_EXPORT CocoaCurlResourceHandle* cocoaCurlHandle() const;
-    // AQUAWEBKIT: an approved redirect continues on curl for HTTP, or on a new native connection
-    // when the connection's callback returned before the approval.
+    // AQUAWEBKIT: an approved redirect continues on curl for a request curl loads (cocoaCurlLoadsRequest), or on
+    // a new native connection when curl approved a request it does not load or the native connection's callback
+    // returned before the approval.
     void continueRedirectOnCocoaCurl(ResourceRequest&&, RefPtr<SynchronousLoaderMessageQueue>&&);
-    void continueRedirectOnNewConnection(ResourceRequest&&);
+    void continueRedirectOnNewConnection(ResourceRequest&&, RefPtr<SynchronousLoaderMessageQueue>&& = nullptr);
     id makeDelegate(bool, RefPtr<SynchronousLoaderMessageQueue>&&);
     id delegate();
     void releaseDelegate();
