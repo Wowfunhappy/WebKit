@@ -1,22 +1,24 @@
-# Sourced by build.sh, test-products-snapshot.sh and the test programs' build scripts, which set ROOT.
+# Sourced by build.sh, install.sh, test-products-snapshot.sh and the test programs' build scripts,
+# which set ROOT.
 #
-# WebKitBuild/Release mixes links while a build runs: from its configure until staging has
-# materialized the XPC service variants and the runtime is mirrored into the built frameworks, the
-# tree holds some products of this build and some of the last. build.sh holds this lock for that span
-# and test-products-snapshot.sh holds it while it copies the tree, so a copy never reads a tree a
-# build is changing. PRODUCTS_COMPLETE names the build whose products the tree holds, by its start and
-# finish: build.sh removes it when it takes the lock and writes it after a successful link, staging
-# and mirror. A product written after it (a bare ninja, a one-target relink, a standalone
-# build-polyfill.sh) means the tree no longer holds that build.
+# WebKitBuild/Release mixes links while a build runs: from its configure until staging has materialized
+# the XPC service variants and the runtime is mirrored into the built frameworks, the tree holds some
+# products of this build and some of the last. build.sh holds this lock exclusively from its configure
+# until its products are audited and stamped. test-products-snapshot.sh holds it shared while it copies
+# bin/ and lib/, and install.sh while it copies staged/, so neither reads a tree a build is changing,
+# and neither waits on the other. PRODUCTS_COMPLETE names the build whose products the tree holds, by
+# its start and finish: build.sh removes it when it takes the lock and writes it after a successful
+# link, staging, mirror and audits. A product written after it (a bare ninja, a one-target relink, a
+# standalone build-polyfill.sh) means the tree no longer holds that build.
 . "$ROOT/AquaWebKitSupport/scripts/fd-lock.sh"
 PRODUCTS_LOCK="$ROOT/WebKitBuild/.products.lock"
 PRODUCTS_LOCK_FD=8
 PRODUCTS_COMPLETE="$ROOT/WebKitBuild/Release/.products-complete"
 PRODUCTS_LOCK_HELD=""
 
-# take_products_lock try|wait
+# take_products_lock try|wait [shared]
 take_products_lock() {
-    fd_lock "$PRODUCTS_LOCK_FD" "$PRODUCTS_LOCK" "$1" || return 1
+    fd_lock "$PRODUCTS_LOCK_FD" "$PRODUCTS_LOCK" "$1" "${2:-}" || return 1
     PRODUCTS_LOCK_HELD=1
 }
 

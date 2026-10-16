@@ -37,6 +37,20 @@ if [ ! -d "$WK_STAGE_ROOT" ]; then
     echo "       Build it first: bash AquaWebKitSupport/build.sh" >&2
     exit 1
 fi
+# The whole install holds the install lock, since a second install rewrites the same bundles, and the
+# shared products lock, since a build restages the tree it copies.
+ROOT="$(cd "$HERE/.." && /bin/pwd -P)"
+. "$HERE/scripts/products-lock.sh"
+INSTALL_LOCK="$ROOT/WebKitBuild/.install.lock"
+trap release_products_lock EXIT
+if ! fd_lock 6 "$INSTALL_LOCK" try; then
+    echo "  waiting for another install to finish"
+    fd_lock 6 "$INSTALL_LOCK" wait || exit 1
+fi
+if ! take_products_lock try shared; then
+    echo "  waiting for the build to finish"
+    take_products_lock wait shared || exit 1
+fi
 if [ ! -f "$WK_STAGE_ROOT/.build-complete" ]; then
     echo "ERROR: $WK_STAGE_ROOT has no .build-complete stamp, so it is left over from a build that" >&2
     echo "       did not finish. Installing it would put stale code on the system." >&2

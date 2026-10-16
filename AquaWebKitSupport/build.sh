@@ -194,10 +194,10 @@ export CCACHE_COMPILERCHECK="string:$(shasum -a 256 \
     | awk '{print $1}' | shasum -a 256 | awk '{print $1}')"
 
 # --- Products lock ----------------------------------------------------------------------------
-# From here until the runtime is mirrored, WebKitBuild/Release is this build's to change. A test run
-# holding the lock is copying the tree, so this waits at most for that copy.
+# From here until its products are audited and stamped, WebKitBuild/Release is this build's to change.
+# A test run or an install holding the lock is copying the tree, so this waits at most for that copy.
 if ! take_products_lock try; then
-    echo "### waiting for a test run to finish copying the build products"
+    echo "### waiting for a test run or an install to finish copying the build products"
     take_products_lock wait || exit 1
 fi
 rm -f "$PRODUCTS_COMPLETE"
@@ -382,18 +382,19 @@ $gio/gio"
 else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
-[ "$RC" = 0 ] && echo "started $BUILD_STARTED, finished $(date '+%F %T') (build.sh pid $$)" > "$PRODUCTS_COMPLETE"
-release_products_lock
-
 for audit in scripts/check-absent-references.sh host-abi/check-abi-gap.sh; do
     [ "$RC" = 0 ] || break
     echo "### $audit"
     bash "$ROOT/AquaWebKitSupport/$audit" || RC=$?
 done
+if [ "$RC" = 0 ]; then
+    echo "started $BUILD_STARTED, finished $(date '+%F %T') (build.sh pid $$)" > "$PRODUCTS_COMPLETE"
+    date +%s > "$WK_BUILD_STAMP"
+fi
+release_products_lock
 
 echo "==================== REBUILD DONE (rc=$RC) ===================="
 if [ "$RC" = 0 ]; then
-    date +%s > "$WK_BUILD_STAMP"
     echo "### the staged product is complete and installable: sudo bash AquaWebKitSupport/install.sh"
 else
     echo "### NOT installable — see the errors above"

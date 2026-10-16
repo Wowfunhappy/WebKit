@@ -4,8 +4,8 @@
 # and release the products lock on exit.
 #
 # A run's binaries, frameworks and WebKit2 XPC services are a copy of WebKitBuild/Release, so a build
-# that relinks the tree during the run leaves them alone. The copy is taken under the products lock
-# (products-lock.sh), and only of a tree that holds a finished build with nothing changed since: while
+# that relinks the tree during the run leaves them alone. The copy is taken under the shared products
+# lock (products-lock.sh), and only of a tree that holds a finished build with nothing changed since: while
 # a build holds the lock, or when the tree holds no finished build, a run tests the copy of the last
 # one. The copy keeps the tree's bin/ and lib/ layout, which the drivers, the injected bundles and the
 # XPC services find each other by, and holds the C++ runtime and polyfill dylib the build links
@@ -28,7 +28,7 @@ TEST_PRODUCTS_KEPT=""
 snapshot_test_products() {
     local build="$ROOT/WebKitBuild/Release" product changed status link
     local runtime="${AQUAWEBKIT_CLANG:-$ROOT/AquaWebKitSupport/toolchain/build/clang}/lib"
-    if ! take_products_lock try; then
+    if ! take_products_lock try shared; then
         TEST_PRODUCTS_KEPT="a build is changing WebKitBuild/Release"
     elif [ ! -f "$PRODUCTS_COMPLETE" ]; then
         TEST_PRODUCTS_KEPT="the last build of WebKitBuild/Release did not finish"
