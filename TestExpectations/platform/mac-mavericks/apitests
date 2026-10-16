@@ -1,31 +1,55 @@
 # API test expectations for this port (macOS 10.9 under Safari 7), on top of TestExpectations/apitests.
 # AquaWebKitSupport/scripts/run-api-tests.sh runs TestWTF, TestWebCore and TestWebKitAPI against the build tree.
 
-# TestWebKitAPI: this port's suite is the networking, cookie, challenge and server-trust tests, whose behaviour
-# crosses into its own transport and the 10.9 frameworks. The rest of the binary is skipped (maintainer scope decision).
+# TestWebKitAPI: the [ Pass ] tests below run. In each, every WebKit and JavaScriptCore API the test executes is one
+# that stock Safari 7 calls, or that a 10.9 Apple or third-party binary which links or loads WebKit or
+# JavaScriptCore calls (or implements, for a delegate method) without defining a method of that name itself.
 TestWebKitAPI.* [ Skip ]
-TestWebKitAPI.WKHTTPCookieStore.* [ Pass ]
-TestWebKitAPI.WebSocket.* [ Pass ]
-TestWebKitAPI.Challenge.* [ Pass ]
-TestWebKitAPI.WebKit.Cookie* [ Pass ]
-TestWebKitAPI.WebKit.ServerTrust [ Pass ]
-TestWebKitAPI.WebKit.FastServerTrust [ Pass ]
-TestWebKitAPI.WebKit.ErrorSecureCoding [ Pass ]
+TestWebKitAPI.WebKitLegacy.CancelLoadFromResourceLoadDelegate [ Pass ]
+TestWebKitAPI.WebKitLegacy.CloseNewWindowInNavigationPolicyDelegate [ Pass ]
+TestWebKitAPI.WebKitLegacy.CloseWhileCommittingLoad [ Pass ]
+TestWebKitAPI.WebKitLegacy.ContextMenuCanCopyURL [ Pass ]
+TestWebKitAPI.WebKitLegacy.ContextMenuDefaultItemsHaveTags [ Pass ]
+TestWebKitAPI.WebKitLegacy.CrossPartitionFileSchemeAccess [ Pass ]
+TestWebKitAPI.WebKitLegacy.DOMNodeCompareDocumentPosition [ Pass ]
+TestWebKitAPI.WebKitLegacy.DOMRangeOfString [ Pass ]
+TestWebKitAPI.WebKitLegacy.ElementAtPoint [ Pass ]
+TestWebKitAPI.WebKitLegacy.FragmentNavigation [ Pass ]
+TestWebKitAPI.WebKitLegacy.HTMLCollectionNamedItemTest [ Pass ]
+TestWebKitAPI.WebKitLegacy.HTMLFormCollectionNamedItemTest [ Pass ]
+TestWebKitAPI.WebKitLegacy.LimitTitleSize [ Pass ]
+TestWebKitAPI.WebKitLegacy.LoadInvalidURLRequest [ Pass ]
+TestWebKitAPI.WebKitLegacy.MemoryCacheDisableWithinResourceLoadDelegate [ Pass ]
+TestWebKitAPI.WebKitLegacy.MemoryPressureHandler [ Pass ]
+TestWebKitAPI.WebKitLegacy.NoDecidePolicyForMIMETypeDecision [ Pass ]
+TestWebKitAPI.WebKitLegacy.NoDecidePolicyForNavigationActionDecision [ Pass ]
+TestWebKitAPI.WebKitLegacy.ReloadBackForward [ Pass ]
+TestWebKitAPI.WebKitLegacy.RenderedImageFromDOMRange [ Pass ]
+TestWebKitAPI.WebKitLegacy.ScheduleInRunLoop [ Pass ]
+TestWebKitAPI.WebKitLegacy.SetDocumentURITestFile [ Pass ]
+TestWebKitAPI.WebKitLegacy.SetDocumentURITestNull [ Pass ]
+TestWebKitAPI.WebKitLegacy.SetDocumentURITestString [ Pass ]
+TestWebKitAPI.WebKitLegacy.SetDocumentURITestURL [ Pass ]
+TestWebKitAPI.WebKitLegacy.SimplifyMarkupTest [ Pass ]
+TestWebKitAPI.WebKitLegacy.StartLoadInDidFailProvisionalLoad [ Pass ]
+TestWebKitAPI.WebKitLegacy.StopLoadingFromDidFinishLoading [ Pass ]
+TestWebKitAPI.WebKitLegacy.StopLoadingFromDidReceiveResponse [ Pass ]
+TestWebKitAPI.WebKitLegacy.StringByEvaluatingJavaScriptFromString [ Pass ]
+TestWebKitAPI.WebKitLegacy.SubresourceErrorCrash [ Pass ]
+TestWebKitAPI.WebKitLegacy.TypingStyleCrash [ Pass ]
+TestWebKitAPI.WebKitLegacy.WebScriptObjectDescription [ Pass ]
+TestWebKitAPI.WebKitLegacy.WebViewCanPasteURL [ Pass ]
+TestWebKitAPI.WebKitLegacy.WebViewCanPasteZeroPng [ Pass ]
+TestWebKitAPI.WebKitLegacy.WebViewCloseInsideDidFinishLoadForFrame [ Pass ]
+TestWebKitAPI.WebKitLegacy.WillPerformClientRedirectToURLCrash [ Pass ]
+TestWebKitAPI.WebKitLegacy.WindowlessWebViewWithMedia [ Pass ]
 
-# The port builds with ENABLE_PDF_PLUGIN=0; its layout scope also excludes PDF plugins.
-TestWebKitAPI.WebKit.CookieAccessFromPDFInAboutBlank [ Skip ]
+# +[NSFont menuFontOfSize:0] is .LucidaGrandeUI 13 on 10.9, in which "abcdef…uvwxyz" measures 101.5625 pt, wider than
+# the 100 pt limit; upstream's expected truncation assumes the modern system font.
+TestWebKitAPI.WebKitLegacy.StringTruncator [ Skip ]
 
-# On 10.9 the shared cookie jar's accept policy is account-wide, and Safari 7 sets and restores it itself, so the
-# policy this test writes does not stay its own.
-TestWebKitAPI.WebKit.CookieAcceptPolicy [ Skip ]
-
-# The daemon tests register an adattributiond launchd job through -[NSDictionary writeToURL:error:], which 10.9's
-# Foundation lacks, and this port ships no PCM daemon: Safari 7 sets no PCM mach service, so measurement runs in
-# the network process, as the other PrivateClickMeasurement tests exercise.
-TestWebKitAPI.PrivateClickMeasurement.DaemonBasicFunctionality [ Skip ]
-TestWebKitAPI.PrivateClickMeasurement.DaemonDebugMode [ Skip ]
-
-# The SKAdNetwork console message is broadcast from WebPageProxy's commit of the cross-site navigation; when it reaches
-# the committed process before that process's inspector frontend connects, FAST_RETURN_IF_NO_FRONTENDS drops it and the
-# test waits for a message that never arrives.
-TestWebKitAPI.PrivateClickMeasurement.SKAdNetwork [ Skip ]
+# Maintainer decision (no web content decodes in ImageIO): these compare the WebView's icon with ImageIO's decode of
+# the same PNG. WebCore decodes it with libpng, applying its gAMA chunk as upstream's non-CG decoder does, and builds
+# the NSImage from the decoded frames rather than a TIFF parsed by ImageIO.
+TestWebKitAPI.WebKitLegacy.IconLoadingDelegateDefaultFirst [ Skip ]
+TestWebKitAPI.WebKitLegacy.IconLoadingDelegateCustomFirst [ Skip ]
