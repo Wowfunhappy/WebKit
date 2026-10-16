@@ -25,7 +25,8 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/wvimage.XXXXXX")"; trap 'rm -rf "$WORK"' EXIT
 [ -f "$GAP" ] || { echo "no $GAP — build it with polyfill/build-polyfill.sh"; exit 1; }
 
 # The harness compiles with WidevineCdmImage.cpp's own flags, taken from the build itself, and
-# links WTF out of the built JavaScriptCore.
+# links WTF out of the installed JavaScriptCore.framework, by its absolute install name, together with
+# the C++ runtime that framework carries; that is what it loads at run time.
 echo "### building the harness"
 "$REPO/AquaWebKitSupport/toolchain/build/python3/bin/python3" - "$REPO" "$WORK" <<'PY' > "$WORK/build.sh"
 import json, shlex, sys
@@ -52,8 +53,14 @@ print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/source/WebCore/p
 print(compile + " -x objective-c++ -fno-objc-arc -c " + shlex.quote(repo + "/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmArchive.mm") + " -o " + shlex.quote(work + "/archive.o"))
 print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineFirefoxArchive.cpp") + " -o " + shlex.quote(work + "/firefox.o"))
 print(compile + " -c " + shlex.quote(repo + "/AquaWebKitSupport/tests/widevine-image/main.cpp") + " -o " + shlex.quote(work + "/main.o"))
-print(shlex.quote(flags[0]) + " -o " + shlex.quote(work + "/wvimage") + " " + shlex.quote(work + "/image.o") + " " + shlex.quote(work + "/archive.o") + " " + shlex.quote(work + "/firefox.o") + " " + shlex.quote(work + "/main.o")
-      + " -F " + shlex.quote(repo + "/WebKitBuild/Release/lib") + " -framework JavaScriptCore -framework Foundation -framework CoreFoundation -framework Security -lz -larchive")
+# The toolchain's default configuration links its own C++ runtime and unwinder; the link names the
+# installed JavaScriptCore and its C++ runtime instead.
+sysroot = flags[flags.index("-isysroot") + 1]
+print(" ".join(shlex.quote(f) for f in [flags[0], "--no-default-config", "-isysroot", sysroot, "-mmacosx-version-min=10.9", "-fuse-ld=lld"])
+      + " -o " + shlex.quote(work + "/wvimage") + " " + shlex.quote(work + "/image.o") + " " + shlex.quote(work + "/archive.o") + " " + shlex.quote(work + "/firefox.o") + " " + shlex.quote(work + "/main.o")
+      + " /System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore -framework Foundation -framework CoreFoundation -framework Security -lobjc -lz -larchive"
+      + " -nostdlib++ /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++.1.dylib"
+      + " /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++abi.1.dylib")
 PY
 bash "$WORK/build.sh"
 

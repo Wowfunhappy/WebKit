@@ -1,9 +1,16 @@
 #!/bin/bash
-# Exercise the built Image API with complete, cumulative, repeated and truncated video-image data.
+# Exercise the built Image API with complete, cumulative, repeated and truncated video-image data. The
+# program builds against WebKitBuild/Release, records the finished build it was compiled against in
+# <program>.build, and runs only against the copy of that build (test-products-snapshot.sh), which the
+# other test runners share under the test-run lock. The run names the build it tests when it starts
+# and in its last line.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUT="$ROOT/WebKitBuild/Release/incremental-video-image"
+. "$ROOT/AquaWebKitSupport/scripts/products-lock.sh"
 if [ "${1:-}" != --no-build ]; then
+rm -f "$OUT.build"
+TREE_BUILD=$(finished_tree_build) || { echo "WebKitBuild/Release holds no finished build -- run AquaWebKitSupport/build.sh" >&2; exit 1; }
 python3 - "$ROOT" "$OUT" >> /tmp/wk_build.log 2>&1 <<'PY'
 import json, pathlib, shlex, subprocess, sys
 root, out = map(pathlib.Path, sys.argv[1:])
@@ -24,9 +31,21 @@ for arg in it:
 subprocess.run([str(compiler), *flags, '-c', str(root / 'AquaWebKitSupport/tests/image-decoders/incremental-video-image.mm'), '-o', str(out) + '.o'], cwd=build, check=True)
 subprocess.run([str(compiler), '-mmacosx-version-min=10.9', str(out) + '.o', '-o', str(out), '-F' + str(build / 'lib'), '-framework', 'WebCore', '-framework', 'JavaScriptCore', '-framework', 'Foundation', '-framework', 'AppKit', '-Wl,-client_name,TestWebCore', str(poly / 'libpolyfill.a'), '-L' + str(poly), '-lpolyfill_classes', '-Wl,-rpath,' + str(build / 'lib'), '-Wl,-rpath,' + str(deps / 'lib'), '-Wl,-rpath,' + str(poly)], check=True)
 PY
-bash "$ROOT/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh" "$OUT" >> /tmp/wk_build.log 2>&1
+[ "$(finished_tree_build)" = "$TREE_BUILD" ] || { echo "WebKitBuild/Release changed while $OUT was built" >&2; exit 1; }
+echo "$TREE_BUILD" > "$OUT.build"
 fi
-export DYLD_FRAMEWORK_PATH="$ROOT/WebKitBuild/Release/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
+. "$ROOT/AquaWebKitSupport/scripts/test-run-lock.sh"
+. "$ROOT/AquaWebKitSupport/scripts/test-products-snapshot.sh"
+trap 'release_products_lock; release_test_run_lock; tested_build_report' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+acquire_test_run_lock
+snapshot_test_products || { echo "could not copy the build products" >&2; exit 1; }
+tested_build_report
+program_matches_copy "$OUT" "$OUT.build" || exit 1
+bash "$ROOT/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh" --products="$TEST_PRODUCTS" "$OUT" \
+    || { echo "could not make $OUT loadable" >&2; exit 1; }
+export DYLD_FRAMEWORK_PATH="$TEST_PRODUCTS/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
 export __XPC_DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH"
 result=0
 "$OUT" "$ROOT/LayoutTests/http/tests/resources/test.mp4" video/mp4 || result=1

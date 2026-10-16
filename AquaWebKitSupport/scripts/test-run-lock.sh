@@ -1,31 +1,27 @@
-# Sourced by run-layout-tests.sh, run-api-tests.sh, run-jsc-tests.sh and run-test262.sh, which set ROOT.
+# Sourced by run-layout-tests.sh, run-api-tests.sh, run-jsc-tests.sh, run-test262.sh,
+# tests/cocoa-curl/run.sh, tests/image-decoders/incremental-video-image.sh and
+# tests/cdm-proxy-key-system/run.sh, which set ROOT.
 #
-# One test run at a time: each runner reaps the build tree's drivers and services machine-wide, the layout
-# runner's http/wpt servers own fixed ports, and its results directory is shared, so a second invocation
-# waits for the first to finish. The lock is a directory (bash 3.2 has no flock) holding the owner's pid,
-# and is stale once that pid is gone; ps answers that for a root-owned run started under sudo as well as
-# for our own.
-TEST_RUN_LOCK="$ROOT/WebKitBuild/Release/bin/.run-layout-tests.lock"
+# One test run at a time: each runner reaps its drivers and services machine-wide, the layout runner's
+# http/wpt servers own fixed ports, and the products copy (test-products-snapshot.sh) and results
+# directories are shared, so a second invocation waits for the first to finish. The lock is an
+# fd-lock.sh lock on descriptor 9, which a runner closes for every child that can outlive it.
+. "$ROOT/AquaWebKitSupport/scripts/fd-lock.sh"
+TEST_RUN_LOCK="$ROOT/WebKitBuild/.test-run.lock"
+TEST_RUN_LOCK_HELD=""
 
 acquire_test_run_lock() {
-    local owner
-    until mkdir "$TEST_RUN_LOCK" 2>/dev/null; do
-        owner=$(cat "$TEST_RUN_LOCK/pid" 2>/dev/null)
-        if [ -n "$owner" ] && ! ps -p "$owner" >/dev/null 2>&1; then
-            if rm -rf "$TEST_RUN_LOCK" 2>/dev/null; then
-                continue
-            fi
-            echo "stale lock owned by pid $owner cannot be removed (try: sudo rm -rf $TEST_RUN_LOCK)" >&2
-        else
-            echo "waiting: another test run (pid ${owner:-?}) is running" >&2
-        fi
-        sleep 15
-    done
-    echo $$ > "$TEST_RUN_LOCK/pid"
+    if ! fd_lock 9 "$TEST_RUN_LOCK" try; then
+        echo "waiting: another test run holds $TEST_RUN_LOCK" >&2
+        fd_lock 9 "$TEST_RUN_LOCK" wait || exit 1
+    fi
+    TEST_RUN_LOCK_HELD=1
 }
 
-# Only the run that holds the lock releases it.
+# Only the run that took the lock releases it; one still waiting for it stops waiting.
 release_test_run_lock() {
-    [ "$(cat "$TEST_RUN_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$TEST_RUN_LOCK"
+    fd_lock_stop_waiter
+    [ -n "$TEST_RUN_LOCK_HELD" ] && fd_unlock 9
+    TEST_RUN_LOCK_HELD=""
     return 0
 }

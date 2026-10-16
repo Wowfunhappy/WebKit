@@ -96,9 +96,12 @@ and install prefix, and that build's own ccache.
    installed widget's `Info.plist` and the recorded `32bit` flags in each user's
    `com.apple.dashboard` preferences, then restarts the Dock to pick that up.
 
-To run layout tests against the build tree (never the installed system), use
+To run layout tests against the build (never the installed system), use
 `bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port flag is
-mandatory, and the script's header lists the one-time driver-build prereqs.
+mandatory, and the script's header lists the one-time driver-build prereqs. The layout, API, JSC and
+test262 runners run a copy of the last build finished in `WebKitBuild/Release`
+(`scripts/test-products-snapshot.sh`), taken under the lock build.sh holds while it changes the tree
+(`scripts/products-lock.sh`).
 
 This port's test suite is what its expectations do not skip, as for every port.
 `run-layout-tests.sh --wk1|--wk2` with no test paths runs the layout suite: the suites whose behaviour

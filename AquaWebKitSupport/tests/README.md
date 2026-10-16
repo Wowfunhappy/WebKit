@@ -39,7 +39,8 @@ the order of a descriptor source's dispatches and the RunLoop work they queue; s
 transport directly -- transfers, uploads, cookies, HSTS, proxies and PAC, HTTP and proxy
 authentication, client certificates, downloads and resume, the WebKitLegacy ResourceHandle, the
 NetworkProcess data task -- with the Python fixture servers they talk to. `cocoa-curl/build.sh`
-builds them against the current `WebKitBuild/Release` into `WebKitBuild/Release/cocoa-curl-tests/`;
+builds them against the current `WebKitBuild/Release` into `WebKitBuild/Release/cocoa-curl-tests/`, and
+`cocoa-curl/run.sh` runs them against a copy of its products (`scripts/test-products-snapshot.sh`);
 each program's leading comment names the fixture it expects and the port.
 
 `curl-canonical-name/run.sh` checks the installed curl resolver metadata with a loopback

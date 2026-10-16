@@ -17,8 +17,9 @@ class APIRunnerTest(unittest.TestCase):
         scripts = self.root / "AquaWebKitSupport/scripts"
         scripts.mkdir(parents=True)
         source = Path(__file__).resolve().parents[2] / "scripts"
-        for name in ("run-api-tests.sh", "parse-api-test-list.awk", "run-api-test-with-timeout.py",
-                     "api-test-expectations.py"):
+        for name in ("run-api-tests.sh", "test-run-lock.sh", "test-products-snapshot.sh",
+                     "products-lock.sh", "fd-lock.sh", "parse-api-test-list.awk",
+                     "run-api-test-with-timeout.py", "api-test-expectations.py"):
             shutil.copyfile(source / name, scripts / name)
         libraries = self.root / "Tools/Scripts/libraries"
         libraries.mkdir(parents=True)
@@ -31,6 +32,13 @@ class APIRunnerTest(unittest.TestCase):
         (scripts / "make-build-binaries-runnable.sh").write_text("#!/bin/bash\nexit 0\n")
         self.binary = self.root / "WebKitBuild/Release/bin/TestFixture"
         self.binary.parent.mkdir(parents=True)
+        (self.root / "WebKitBuild/Release/lib").mkdir()
+        # The snapshot takes the C++ runtime and the polyfill dylib from where the build links them.
+        for runtime in ("AquaWebKitSupport/toolchain/build/clang/lib/libc++.1.dylib",
+                        "AquaWebKitSupport/toolchain/build/clang/lib/libc++abi.1.dylib",
+                        "AquaWebKitSupport/polyfill/build/libpolyfill_classes.dylib"):
+            (self.root / runtime).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / runtime).write_text("")
         port_expectations = self.root / "TestExpectations/platform/mac-mavericks/apitests"
         port_expectations.parent.mkdir(parents=True)
         port_expectations.write_text("TestFixture.Skipped.* [ Skip ]\nTestFixture.Plain.Flaky [ Pass Failure ]\n"
@@ -46,9 +54,12 @@ class APIRunnerTest(unittest.TestCase):
     def run_fixture(self, script, *arguments):
         self.binary.write_text("#!/bin/bash\n" + script)
         self.binary.chmod(0o755)
+        # The tree holds a finished build: its marker is no older than any product.
+        (self.root / "WebKitBuild/Release/.products-complete").write_text("fixture build\n")
         environment = os.environ.copy()
         environment.update(PATH=str(self.commands) + os.pathsep + environment["PATH"],
-                           TZ="UTC", WK_API_TEST_TIMEOUT="2", LC_ALL="C")
+                           TZ="UTC", WK_API_TEST_TIMEOUT="2", LC_ALL="C",
+                           AQUAWEBKIT_TEST_PRODUCTS_DIR=str(self.root / "products"))
         return subprocess.run(["/bin/bash", str(self.runner), "TestFixture", *arguments],
                               env=environment, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, universal_newlines=True, timeout=20)

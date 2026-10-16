@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run WebKit layout tests against the build-dir test drivers on macOS 10.9, without installing anything
+# Run WebKit layout tests against the build's test drivers on macOS 10.9, without installing anything
 # over the system. One wrapper, two ports — the port is never inferred:
 #
 #   --wk1   WebKit1, driver = DumpRenderTree      (run-webkit-tests -1)
@@ -13,7 +13,10 @@
 # so cannot use the nw_resolver_config redirection Apple's ports use, so the twelve names go in
 # /etc/hosts (`wpt make-hosts-file` lists them; base.py's localhost_aliases() is the same set).
 #
-# Before each run make-build-binaries-runnable.sh makes the in-place build products loadable.
+# A run's drivers, frameworks and WebKit2 XPC services are a copy of the last build finished in
+# WebKitBuild/Release (test-products-snapshot.sh), so builds during the run leave it alone. The run
+# names the build it tests when it starts and in its last line. Results go to
+# --results-directory, by default WebKitBuild/Release/bin/layout-test-results.
 #
 # Usage:  bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk1|--wk2 [run-webkit-tests args] <test paths...>
 #   e.g.  bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk1 storage/domstorage/localstorage/
@@ -37,16 +40,12 @@ case "${1-}" in
 esac
 shift
 
-if [ ! -x "$ROOT/WebKitBuild/Release/bin/$DRIVER" ]; then
-    echo "$DRIVER not built — run AquaWebKitSupport/build.sh" >&2
-    exit 1
-fi
-
-# Orphan hygiene + worker cap: an aborted run orphans build-tree test processes (killing the python
-# runner does not reach grandchildren), and an orphan parked on a GL-retrying test page spams
+# Orphan hygiene + worker cap: an aborted run orphans its test processes (killing the python runner
+# does not reach grandchildren), and an orphan parked on a GL-retrying test page spams
 # "CoreAnimation: failed to create OpenGL context" until 10.9's WindowServer hits its null-texture
-# compositor race and takes the login session down. So reap stale build-tree test processes before
-# starting AND on every exit (both drivers, whichever port), and refuse more than 2 parallel workers.
+# compositor race and takes the login session down. So reap stale test processes of the products copy
+# before starting AND on every exit (both drivers, whichever port), and refuse more than 2 parallel
+# workers.
 #
 # The test servers are reaped with them. layout_test_runner.py starts the http and wpt servers only
 # when nothing already answers on their first port (is_http_server_running / is_wpt_server_running),
@@ -70,16 +69,16 @@ reap_test_orphans() {
     fi
     # Anchored at argv[0]: an unanchored pattern also matches helpers that merely carry a driver's
     # path in their arguments, and reaping one of those kills another run's setup step.
-    pkill -9 $scope -f "^$ROOT/WebKitBuild/Release/bin/DumpRenderTree" 2>/dev/null
-    pkill -9 $scope -f "^$ROOT/WebKitBuild/Release/bin/WebKitTestRunner" 2>/dev/null
-    # The build tree's WebKit services. launchd starts an XPC service with its bare name as argv[0], so a
+    pkill -9 $scope -f "^$TEST_PRODUCTS/bin/DumpRenderTree" 2>/dev/null
+    pkill -9 $scope -f "^$TEST_PRODUCTS/bin/WebKitTestRunner" 2>/dev/null
+    # The copy's WebKit services. launchd starts an XPC service with its bare name as argv[0], so a
     # service is known by the executable lsof reports for it. launchd is its parent, so it is in no run's
     # process group: services are reaped machine-wide only.
     if [ -z "$scope" ]; then
         local servicePid
         for servicePid in $(pgrep -f '^com\.apple\.WebKit\.(WebContent|Networking)'); do
             case "$(lsof -a -p "$servicePid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)" in
-                "$ROOT/WebKitBuild/Release/"*) kill -9 "$servicePid" 2>/dev/null;;
+                "$TEST_PRODUCTS/"*) kill -9 "$servicePid" 2>/dev/null;;
             esac
         done
     fi
@@ -95,10 +94,13 @@ reap_test_orphans() {
 }
 
 . "$ROOT/AquaWebKitSupport/scripts/test-run-lock.sh"
+. "$ROOT/AquaWebKitSupport/scripts/test-products-snapshot.sh"
 acquire_test_run_lock
 cleanup() {
     reap_test_orphans own
+    release_products_lock
     release_test_run_lock
+    tested_build_report
 }
 reap_test_orphans
 # A signal ends the run, and the EXIT trap alone reaps and releases the lock.
@@ -121,9 +123,14 @@ for arg in "$@"; do
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
 
-# --- Make the in-place build products loadable ---------------------------------------------------
-if ! bash "$ROOT/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh"; then
-    echo "ERROR: could not make the build products loadable" >&2
+# --- Snapshot the build products ----------------------------------------------------------------
+if ! snapshot_test_products; then
+    echo "ERROR: could not snapshot the build products" >&2
+    exit 1
+fi
+tested_build_report
+if [ ! -x "$TEST_PRODUCTS/bin/$DRIVER" ]; then
+    echo "$DRIVER is not in the copy — run AquaWebKitSupport/build.sh" >&2
     exit 1
 fi
 
@@ -204,19 +211,22 @@ export __XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS="$WEBKIT_GST_ALLOW_PL
 # two WebCore, two of the private GStreamer runtime -- and two GObject type systems answer GST_TYPE_CAPS
 # differently, so pad templates come back with null caps and the first caps intersection dereferences one.
 #
-# run-webkit-tests puts --root on DYLD_FRAMEWORK_PATH, and --root names bin/, where CMake puts executables;
-# the frameworks are built into lib/, so bin/ alone gives dyld nothing to substitute. Naming
+# run-webkit-tests puts --root on DYLD_FRAMEWORK_PATH, and --root names the snapshot's bin/, where CMake puts
+# executables; the frameworks are in its lib/, so bin/ alone gives dyld nothing to substitute. Naming
 # lib/ here gives it the substitution: exactly one image of each framework loads, and the driver appends
 # its own --root path after ours.
-export DYLD_FRAMEWORK_PATH="$ROOT/WebKitBuild/Release/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
+export DYLD_FRAMEWORK_PATH="$TEST_PRODUCTS/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
 export __XPC_DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH"
 
 # No exec: the runner must stay our child so the EXIT trap can reap orphans even
-# when this wrapper is interrupted.
+# when this wrapper is interrupted. Its servers can outlive it, so it runs without the test-run lock's
+# descriptor.
 # Every selected test gets one attempt, and every test any expectation file records as failing or
-# flaky is skipped, explicitly selected tests included.
+# flaky is skipped, explicitly selected tests included. A --results-directory among the passed arguments
+# comes after the default and overrides it.
 "$ROOT/AquaWebKitSupport/toolchain/build/python3/bin/python3" "$ROOT/Tools/Scripts/run-webkit-tests" \
-    "$PORT_FLAG" --no-build --no-new-test-results --release --root="$ROOT/WebKitBuild/Release/bin" \
+    "$PORT_FLAG" --no-build --no-new-test-results --release --root="$TEST_PRODUCTS/bin" \
+    --results-directory="$ROOT/WebKitBuild/Release/bin/layout-test-results" \
     --additional-env-var="__XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=$__XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS" \
-    $WORKERS "$@" --skip-failing-tests --skipped=always --no-retry-failures
+    $WORKERS "$@" --skip-failing-tests --skipped=always --no-retry-failures 9>&-
 exit $?

@@ -191,19 +191,20 @@ RECIPES_KEY=$(recipes_key) || exit 1
 
 mkdir -p "$SCRATCH"
 
-# One run owns the workspace, and it holds the lock before it reads or discards anything in it.
-LOCK="$WORK/.lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
-    HOLDER="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$HOLDER" ] && kill -0 "$HOLDER" 2>/dev/null; then
-        echo "FATAL: another build_deps.sh holds $LOCK (pid $HOLDER)." >&2
-        exit 1
-    fi
-    echo "### taking over $LOCK from a run that is gone"
-    rm -rf "$LOCK"; mkdir "$LOCK"
+# One run owns the workspace, and it holds the lock (fd-lock.sh) before it reads or discards anything in
+# it; a second run waits for the first. LOCK_OWNER names the holder for build.sh, which waits out a relink
+# its own stale run started and checks for a running one by taking the lock for an instant.
+. "$REPO/AquaWebKitSupport/scripts/fd-lock.sh"
+LOCK="$WORK/.build_deps.lock"
+LOCK_OWNER="$WORK/.build_deps.pid"
+LOCK_HELD=""
+trap 'rc=$?; fd_lock_stop_waiter; [ -n "$LOCK_HELD" ] && { rm -f "$LOCK_OWNER"; fd_unlock 7; }; build_log_report $rc' EXIT
+if ! fd_lock 7 "$LOCK" try; then
+    echo "### waiting: $LOCK is held (pid $(cat "$LOCK_OWNER" 2>/dev/null))"
+    fd_lock 7 "$LOCK" wait || exit 1
 fi
-echo $$ > "$LOCK/pid"
-trap 'rc=$?; rm -rf "$LOCK"; build_log_report $rc' EXIT
+LOCK_HELD=1
+echo $$ > "$LOCK_OWNER"
 
 # The collect step at the end replaces deps/build/{include,lib,bin}, which every WebKit link reads.
 # Candidates come from ps -axo pid=,command=, which lists every process with its full command line:

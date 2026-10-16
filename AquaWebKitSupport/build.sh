@@ -20,6 +20,9 @@ BUILD="$ROOT/WebKitBuild/Release"
 # FAILED/dups/undefined counts below read it back. Run this bare and tail the log.
 . "$ROOT/AquaWebKitSupport/scripts/build-log.sh"
 build_log_open
+# The products lock and completion marker test-products-snapshot.sh copies the tree under, and
+# fd-lock.sh, which takes both locks.
+. "$ROOT/AquaWebKitSupport/scripts/products-lock.sh"
 if [ ! -x "$TC/coreutils/bin/sort" ]; then
     echo "FATAL: no $TC/coreutils/bin/sort -- run AquaWebKitSupport/toolchain/bootstrap.sh"
     exit 1
@@ -35,8 +38,12 @@ rm -f "$WK_BUILD_STAMP"
 # link below reads from there. It force-loads the polyfill's shared/ sources into the whole media
 # runtime as well, so an edit to one of them parts those dylibs from the copy libpolyfill.a gives
 # the frameworks; the currency check below the takeover reads only the sources and the deps build's
-# manifest, and relinks on a stale answer.
-DEPS_LOCK="$ROOT/AquaWebKitSupport/deps/work/.lock"
+# manifest, and relinks on a stale answer. build_deps.sh holds DEPS_LOCK (fd-lock.sh) for its whole
+# run and names itself in DEPS_OWNER while it does.
+DEPS_LOCK="$ROOT/AquaWebKitSupport/deps/work/.build_deps.lock"
+DEPS_OWNER="$ROOT/AquaWebKitSupport/deps/work/.build_deps.pid"
+# A deps build holds the lock exactly when this cannot take it; the probe drops it on exit.
+_deps_running() { ! ( fd_lock 7 "$DEPS_LOCK" try ); }
 
 # --- Take over from an in-flight build --------------------------------------------------------
 # One build dir, one log, one build at a time. A running cmake configure is waited out (it rewrites
@@ -97,8 +104,9 @@ _configuring() {
 # deps/build torn, so it is waited out instead.
 _relinking_deps() {
     local _holder _a _p
-    _holder="$(cat "$DEPS_LOCK/pid" 2>/dev/null || true)"
-    [ -n "$_holder" ] && kill -0 "$_holder" 2>/dev/null || return 1
+    _deps_running || return 1
+    _holder="$(cat "$DEPS_OWNER" 2>/dev/null || true)"
+    [ -n "$_holder" ] || return 1
     for _a in $(_ancestry "$_holder"); do
         for _p in $1; do [ "$_a" = "$_p" ] && return 0; done
     done
@@ -109,7 +117,7 @@ _relinking_deps() {
 TAKEOVER_MARKER="$BUILD/.takeover-waiters/$$"
 mkdir -p "$(dirname "$TAKEOVER_MARKER")" || exit 1
 ps -o lstart= -p $$ > "$TAKEOVER_MARKER" || exit 1
-trap 'rc=$?; rm -f "$TAKEOVER_MARKER"; build_log_report $rc' EXIT
+trap 'rc=$?; rm -f "$TAKEOVER_MARKER"; release_products_lock; build_log_report $rc' EXIT
 _waited=0; _tries=0; _stopped=""; _waitedfor=""; _waited_configure=""; TAKEOVER=""
 while :; do
     _stale="$(_stale_builds | sort -un)"
@@ -143,6 +151,7 @@ if [ -n "$_stopped" ]; then
 fi
 rm -f "$TAKEOVER_MARKER"
 : > "$LOG"   # the one truncation of the run; everything below appends
+BUILD_STARTED="$(date '+%F %T')"
 echo "### BUILD RUN $(date -u +%Y-%m-%dT%H:%M:%SZ) pid=$$"
 [ -n "$TAKEOVER" ] && echo "$TAKEOVER"
 
@@ -150,10 +159,9 @@ echo "### BUILD RUN $(date -u +%Y-%m-%dT%H:%M:%SZ) pid=$$"
 # no other WebKit build may be linking from it. This one has not compiled anything yet, and names
 # itself so the deps build does not count it as a link in flight. A deps build no build.sh owns is
 # someone running build_deps.sh directly, and this build cannot proceed under it.
-DEPS_PID="$(cat "$DEPS_LOCK/pid" 2>/dev/null || true)"
-if [ -n "$DEPS_PID" ] && kill -0 "$DEPS_PID" 2>/dev/null; then
+if _deps_running; then
     echo "==================== A DEPS BUILD IS RUNNING — ABORTING ===================="
-    echo "### $DEPS_LOCK is held by pid $DEPS_PID; rerun when it is done."
+    echo "### $DEPS_LOCK is held (build_deps.sh pid $(cat "$DEPS_OWNER" 2>/dev/null)); rerun when it is done."
     exit 1
 fi
 # Two axes of deps currency: the gap archive sources the media binaries force-load, and the recipes
@@ -187,6 +195,15 @@ export CCACHE_DEPEND=1
 export CCACHE_COMPILERCHECK="string:$(shasum -a 256 \
     "$TC/clang/bin/clang-22" "$TC/clang/bin/clang.cfg" "$TC/clang/bin/clang++.cfg" \
     | awk '{print $1}' | shasum -a 256 | awk '{print $1}')"
+
+# --- Products lock ----------------------------------------------------------------------------
+# From here until the runtime is mirrored, WebKitBuild/Release is this build's to change. A test run
+# holding the lock is copying the tree, so this waits at most for that copy.
+if ! take_products_lock try; then
+    echo "### waiting for a test run to finish copying the build products"
+    take_products_lock wait || exit 1
+fi
+rm -f "$PRODUCTS_COMPLETE"
 
 # --- Configure (fresh build dir) ---------------------------------------------------------------
 # DEVELOPER_MODE is a plain cache variable, not a WebKit option, so every configure passes it:
@@ -341,7 +358,10 @@ if [ "$RC" = 0 ]; then
                 expected="$expected
 $dir/$leaf"
                 if [ "$home" != gstreamer ]; then
-                    ln -sfn "$dir/$leaf" "$gst/$leaf" || exit 1
+                    # Relative, so a copy of the tree links its own libraries.
+                    up=""; rest="${gst#"$BUILD/lib/"}"
+                    while [ -n "$rest" ]; do up="../$up"; case "$rest" in */*) rest="${rest#*/}";; *) rest="";; esac; done
+                    ln -sfn "$up${dir#"$BUILD/lib/"}/$leaf" "$gst/$leaf" || exit 1
                     expected="$expected
 $gst/$leaf"
                 fi
@@ -365,6 +385,8 @@ $gio/gio"
 else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
+[ "$RC" = 0 ] && echo "started $BUILD_STARTED, finished $(date '+%F %T') (build.sh pid $$)" > "$PRODUCTS_COMPLETE"
+release_products_lock
 
 for audit in scripts/check-absent-references.sh host-abi/check-abi-gap.sh; do
     [ "$RC" = 0 ] || break

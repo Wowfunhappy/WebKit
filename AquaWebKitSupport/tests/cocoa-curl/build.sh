@@ -9,9 +9,9 @@
 # every include path, define and -F is the build's own, and links the built frameworks as one of
 # their allowed clients together with the shipped curl and BoringSSL and the polyfill archive the
 # frameworks themselves carry. The .c test is a plain libcurl program. Binaries land in
-# WebKitBuild/Release/cocoa-curl-tests/, and make-build-binaries-runnable.sh then makes them and the
-# build tree they load loadable on 10.9. run.sh starts every fixture server the tests expect and runs
-# them.
+# WebKitBuild/Release/cocoa-curl-tests/, each with a <name>.build naming the finished build it was
+# compiled against; run.sh runs them only against the copy of that build (test-products-snapshot.sh),
+# with every fixture server the tests expect.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
@@ -23,6 +23,11 @@ TC="$ROOT/AquaWebKitSupport/toolchain/build/clang/bin"
 LOG=/tmp/wk_build.log
 CLIENT=TestWebCore
 mkdir -p "$OUT"
+. "$ROOT/AquaWebKitSupport/scripts/products-lock.sh"
+TREE_BUILD=$(finished_tree_build) || {
+    echo "cocoa-curl tests: WebKitBuild/Release holds no finished build -- run AquaWebKitSupport/build.sh" >&2
+    exit 1
+}
 
 # Compile flags of the build's own command for |anchor| (a source file name, or "WebCore" for the
 # unified source that carries NetworkStorageSessionCocoa.mm), minus that command's input and output.
@@ -60,13 +65,23 @@ LEGACY_FLAGS=$(flags_for WebDownloadCurl.mm)
 
 TESTS=("$@"); [ ${#TESTS[@]} -gt 0 ] || TESTS=($(cd "$HERE" && ls *.mm *.c | sed 's/\.mm$//; s/\.c$//'))
 rc=0
-BUILT=()
+# A program whose build finished while the tree still held TREE_BUILD is stamped with it.
+stamp() {
+    if [ "$(finished_tree_build)" = "$TREE_BUILD" ]; then
+        echo "$TREE_BUILD" > "$OUT/$1.build"
+        echo "  built  $1"
+    else
+        echo "### $1: WebKitBuild/Release changed while it was built" >> "$LOG"
+        echo "  FAILED $1 (see $LOG)"; rc=1
+    fi
+}
 for t in "${TESTS[@]}"; do
     echo "### cocoa-curl test: $t" >> "$LOG"
+    rm -f "$OUT/$t.build"
     if [ -f "$HERE/$t.c" ]; then
         if "$TC/clang" -mmacosx-version-min=10.9 -Wl,-headerpad_max_install_names -I"$DEPS/include" "$HERE/$t.c" -o "$OUT/$t" \
              -L"$DEPS/lib" -lcurl -lssl -lcrypto -Wl,-rpath,"$DEPS/lib" >> "$LOG" 2>&1; then
-            echo "  built  $t"; BUILT+=("$OUT/$t")
+            stamp "$t"
         else
             echo "  FAILED $t (see $LOG)"; rc=1
         fi
@@ -92,12 +107,9 @@ for t in "${TESTS[@]}"; do
              -framework Foundation -framework AppKit -framework Security -Wl,-client_name,"$CLIENT" \
              -L"$DEPS/lib" -lcurl -lssl -lcrypto -lglib-2.0 -lgobject-2.0 "$POLY/libpolyfill.a" -L"$POLY" -lpolyfill_classes \
              -Wl,-rpath,"$BUILD/lib" -Wl,-rpath,"$DEPS/lib" -Wl,-rpath,"$POLY" >> "$LOG" 2>&1); then
-        echo "  built  $t"; BUILT+=("$OUT/$t")
+        stamp "$t"
     else
         echo "  FAILED $t (see $LOG)"; rc=1
     fi
 done
-if [ ${#BUILT[@]} -gt 0 ] && ! bash "$ROOT/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh" "${BUILT[@]}" >> "$LOG" 2>&1; then
-    echo "  FAILED to make the build tree and tests loadable (see $LOG)"; rc=1
-fi
 exit $rc

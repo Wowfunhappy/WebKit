@@ -1,9 +1,11 @@
 #!/bin/bash
 # Run JavaScriptCore's test suites (Tools/Scripts/run-javascriptcore-tests: testmasm, testair, testb3,
-# testdfg, testwasmdebugger, then the run-jsc-stress-tests collections) against the build-dir products on
+# testdfg, testwasmdebugger, then the run-jsc-stress-tests collections) against the build's products on
 # macOS 10.9, without installing anything over the system.
 #
-# The binaries are part of every build.sh run, so a green build has them matched to its frameworks.
+# The binaries are part of every build.sh run, so a green build has them matched to its frameworks. A
+# run's binaries and frameworks are a copy of the last build finished in WebKitBuild/Release
+# (test-products-snapshot.sh), so builds during the run leave it alone.
 #
 # Usage:  bash AquaWebKitSupport/scripts/run-jsc-tests.sh [run-javascriptcore-tests args...]
 #   e.g.  bash AquaWebKitSupport/scripts/run-jsc-tests.sh
@@ -14,19 +16,11 @@
 # collections in run-jsc-stress-tests' --quick mode set (--no-quick runs every mode). testapi is outside
 # the suite: its Objective-C tests exercise JSScript, bytecode-cache and module-loader API that no 10.9
 # client uses. Tests are selected by upstream's own conditions (`//@ skip if ...`, the yaml collections)
-# and each runs once. The stress results land in $AQUAWEBKIT_JSC_TEST_DIR/Release/jsc-stress-results,
-# outside the checkout (default: the per-user temporary directory).
+# and each runs once. The stress results land in $AQUAWEBKIT_JSC_TEST_DIR/Release/jsc-stress-results
+# (default: WebKitBuild/JSCTests). The run names the build it tests when it starts and in its last line.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUILD="$ROOT/WebKitBuild/Release"
 TEST_BINARIES="jsc testmasm testair testb3 testdfg testwasmdebugger"
-
-for BINARY in $TEST_BINARIES; do
-    if [ ! -x "$BUILD/bin/$BINARY" ]; then
-        echo "$BINARY not built — run AquaWebKitSupport/build.sh" >&2
-        exit 1
-    fi
-done
 . "$ROOT/AquaWebKitSupport/scripts/cctools.sh"
 
 # At most 2 parallel test processes: the VM's 4 cores are shared with builds and Safari.
@@ -47,10 +41,11 @@ fi
 
 # run-javascriptcore-tests takes --root as an Apple product directory, where the executables sit
 # beside JavaScriptCore.framework (the layout OptionsCocoa.cmake builds). This port builds them into
-# bin/ and lib/, so the root holds copies of both, which also keeps a run on one build while later
-# builds relink the tree. The stress runner finds the framework beside jsc only when that directory
-# is named for its configuration.
-PRODUCTS="${AQUAWEBKIT_JSC_TEST_DIR:-$(getconf DARWIN_USER_TEMP_DIR)AquaWebKitJSCTests}/Release"
+# bin/ and lib/, so the root holds hard links to the snapshot's executables and a link to its
+# framework. The stress runner resolves jsc to its real path and finds the framework beside it only
+# when that directory is named for its configuration, which a hard link keeps and a symbolic one does
+# not.
+PRODUCTS="${AQUAWEBKIT_JSC_TEST_DIR:-$ROOT/WebKitBuild/JSCTests}/Release"
 mkdir -p "$PRODUCTS" || exit 1
 PRODUCTS="$(cd "$PRODUCTS" && pwd -P)" || exit 1
 
@@ -101,31 +96,38 @@ reap_test_orphans() {
     return 0
 }
 # The reap is machine-wide and the root is shared, so a run holds the lock the other test runners take.
-# A signal ends the run, and the EXIT trap alone reaps and releases the lock.
+# A signal ends the run, and the EXIT trap alone reaps and releases the locks.
 . "$ROOT/AquaWebKitSupport/scripts/test-run-lock.sh"
+. "$ROOT/AquaWebKitSupport/scripts/test-products-snapshot.sh"
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_test_run_lock
 cleanup() {
     reap_test_orphans
+    release_products_lock
     release_test_run_lock
+    tested_build_report
     return 0
 }
 trap cleanup EXIT
 reap_test_orphans
 
-rm -rf "$PRODUCTS/JavaScriptCore.framework" || exit 1
-cp -Rp "$BUILD/lib/JavaScriptCore.framework" "$PRODUCTS/" || exit 1
-for BINARY in $TEST_BINARIES; do
-    cp -p "$BUILD/bin/$BINARY" "$PRODUCTS/$BINARY" || exit 1
-done
-
-PRODUCT_MACHOS="$PRODUCTS/JavaScriptCore.framework/Versions/A/JavaScriptCore"
-for BINARY in $TEST_BINARIES; do PRODUCT_MACHOS="$PRODUCT_MACHOS $PRODUCTS/$BINARY"; done
-if ! bash "$ROOT/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh" $PRODUCT_MACHOS; then
-    echo "ERROR: could not make the build products loadable" >&2
+if ! snapshot_test_products; then
+    echo "ERROR: could not snapshot the build products" >&2
     exit 1
 fi
+tested_build_report
+for BINARY in $TEST_BINARIES; do
+    if [ ! -x "$TEST_PRODUCTS/bin/$BINARY" ]; then
+        echo "$BINARY is not in the copy — run AquaWebKitSupport/build.sh" >&2
+        exit 1
+    fi
+done
+rm -rf "$PRODUCTS/JavaScriptCore.framework" || exit 1
+ln -s "$TEST_PRODUCTS/lib/JavaScriptCore.framework" "$PRODUCTS/JavaScriptCore.framework" || exit 1
+for BINARY in $TEST_BINARIES; do
+    ln -f "$TEST_PRODUCTS/bin/$BINARY" "$PRODUCTS/$BINARY" || exit 1
+done
 
 # run-jsc-stress-tests runs on `/usr/bin/env ruby`; WebKit's Ruby scripts run on the toolchain's.
 export PATH="$ROOT/AquaWebKitSupport/toolchain/build/ruby/bin:$PATH"
@@ -134,11 +136,12 @@ export RUN_JAVASCRIPTCORE_TESTS_TESTAPI=false
 
 # --no-fail-fast is upstream's tester configuration (build-webkit-org RunJavaScriptCoreTests);
 # --quick bounds the mode matrix to what this VM's compute affords;
-# --no-retry gives every test exactly one run; --no-copy runs the root's copies in place.
+# --no-retry gives every test exactly one run; --no-copy runs the root's binaries in place.
 # --child-processes comes last, so no abbreviation of it among the passed arguments overrides it.
-# The runner runs in the background so a signal to this script reaches the trap without waiting for it.
+# The runner runs in the background so a signal to this script reaches the trap without waiting for it,
+# and without the test-run lock's descriptor, which its test processes would otherwise keep.
 /usr/bin/perl -I"$ROOT/Tools/Scripts" -I"$ROOT/AquaWebKitSupport/scripts" -MToolchainLipo \
     "$ROOT/Tools/Scripts/run-javascriptcore-tests" \
     --root="$PRODUCTS" --release --no-build --no-copy --no-fail-fast --no-retry --quick \
-    ${ARGS[@]+"${ARGS[@]}"} --child-processes="$CHILD_PROCESSES" &
+    ${ARGS[@]+"${ARGS[@]}"} --child-processes="$CHILD_PROCESSES" 9>&- &
 wait $!

@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build and run the Cocoa curl transport tests against WebKitBuild/Release, with every fixture they need.
+# Build the Cocoa curl transport tests against WebKitBuild/Release and run them against a copy of its
+# products (test-products-snapshot.sh), with every fixture they need.
 #
 #   AquaWebKitSupport/tests/cocoa-curl/run.sh [--no-build] [test-name ...]     (default: every test)
 #
@@ -45,24 +46,16 @@ PY=python3
 BUILD_TESTS=1
 [ "${1:-}" = "--no-build" ] && { BUILD_TESTS=0; shift; }
 TESTS=("$@"); [ ${#TESTS[@]} -gt 0 ] || TESTS=($(cd "$HERE" && ls *.mm *.c | sed 's/\.mm$//; s/\.c$//'))
-# One run at a time: the fixtures own fixed ports, $FX is wiped below, and the run's own root is
-# trusted machine-wide for its length, so a second invocation would destroy the first's state and
-# report against it. The lock is a directory (bash 3.2 has no flock) holding the owner's pid, and is
-# stale once that pid is gone; ps answers that for a root-owned run started under sudo as well as for
-# our own, which kill -0 cannot.
-LOCK="$OUT/.cocoa-curl.lock"
+# One run at a time: the fixtures own fixed ports, $FX is wiped below, the run's own root is trusted
+# machine-wide for its length, and the products copy is shared, so the run holds the test-run lock
+# every test runner takes. Fixture servers and test programs run without its descriptor.
 mkdir -p "$OUT"
-if ! mkdir "$LOCK" 2>/dev/null; then
-    owner=$(cat "$LOCK/pid" 2>/dev/null)
-    if [ -n "$owner" ] && ps -p "$owner" >/dev/null 2>&1; then
-        echo "cocoa-curl tests: LOCKED, another run.sh (pid $owner) is in progress"
-        exit 3
-    fi
-    rm -rf "$LOCK" 2>/dev/null
-    mkdir "$LOCK" 2>/dev/null || { echo "cocoa-curl tests: LOCKED, stale lock at $LOCK cannot be removed"; exit 3; }
-fi
-echo $$ > "$LOCK/pid"
-trap 'rm -rf "$LOCK"' EXIT INT TERM
+. "$ROOT/AquaWebKitSupport/scripts/test-run-lock.sh"
+. "$ROOT/AquaWebKitSupport/scripts/test-products-snapshot.sh"
+trap 'release_products_lock; release_test_run_lock; tested_build_report' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+acquire_test_run_lock
 rm -rf "$FX"; mkdir -p "$FX/keychains"
 rm -rf /private/tmp/curl-legacy-download-tests; mkdir -p /private/tmp/curl-legacy-download-tests
 
@@ -80,10 +73,19 @@ if [ $BUILD_TESTS = 1 ]; then
         exit 2
     fi
 fi
-# A framework build leaves the tree's own Mach-Os homed the way the 26.1 SDK linked them, which dyld
-# on 10.9 refuses; the tests load that tree, so every run prepares it, built here or not.
-bash "$ROOT/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh" >> "$LOG" 2>&1 \
-    || { echo "cocoa-curl: could not make the build tree loadable (see $LOG)"; exit 1; }
+# A framework build leaves its Mach-Os homed the way the 26.1 SDK linked them, which dyld on 10.9
+# refuses; every run makes the copy and the tests loadable, built here or not. A test runs only against
+# the copy of the build it was compiled against (its .build, from build.sh).
+snapshot_test_products || { echo "cocoa-curl: could not copy the build products"; exit 1; }
+tested_build_report
+PROGRAMS=()
+for t in "${TESTS[@]}"; do
+    [ -f "$OUT/$t" ] || continue
+    program_matches_copy "$OUT/$t" "$OUT/$t.build" || exit 1
+    PROGRAMS+=("$OUT/$t")
+done
+bash "$ROOT/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh" --products="$TEST_PRODUCTS" \
+    ${PROGRAMS[@]+"${PROGRAMS[@]}"} || { echo "cocoa-curl: could not make the tests loadable"; exit 1; }
 if [ ! -f "$OUT/libbrotlienc.dylib" ]; then
     echo "### cocoa-curl brotli encoder dylib" >> "$LOG"
     "$TC/clang" -dynamiclib -mmacosx-version-min=10.9 -Wl,-force_load,"$DEPS/lib/libbrotlienc.a" -Wl,-force_load,"$DEPS/lib/libbrotlicommon.a" \
@@ -109,14 +111,16 @@ if ! sudo -n security add-trusted-cert -d -r trustRoot -k /Library/Keychains/Sys
     echo "cocoa-curl: could not trust the run's test root (see $FX/tls-fixtures.log)"; rm -f "$TRUSTED_ROOT"; exit 1
 fi
 PIDS=()
-fixture() { local name=$1; shift; "$@" > "$FX/$name.log" 2>&1 & PIDS+=($!); }
+fixture() { local name=$1; shift; "$@" > "$FX/$name.log" 2>&1 9>&- & PIDS+=($!); }
 cleanup() {
     for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
     untrust_root
-    rm -rf "$LOCK"
+    release_products_lock
+    release_test_run_lock
+    tested_build_report
     return 0
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
 fixture probe      $PY "$HERE/cocoa-curl-probe-server.py" --port 18981 --log-dir "$FX/probe"
 fixture download   $PY "$HERE/cocoa-curl-download-server.py" --port 18982 --log "$FX/download-18982.jsonl"
 fixture resume     $PY "$HERE/cocoa-curl-download-server.py" --port 18983 --log "$FX/download-18983.jsonl"
@@ -150,10 +154,10 @@ failed=0; passed=0; summary=""
 run_one() {
     local t=$1; shift
     local label=$t; [ $# -gt 0 ] && label="$t $*"
-    # Quartz's installed-framework dependencies share the test's build-tree framework images.
-    DYLD_FRAMEWORK_PATH="$BUILD/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}" \
-        __XPC_DYLD_FRAMEWORK_PATH="$BUILD/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}" \
-        perl -e 'alarm shift; exec @ARGV' 180 "$OUT/$t" "$@" > "$FX/$t.log" 2>&1
+    # Quartz's installed-framework dependencies share the test's framework images in the copy.
+    DYLD_FRAMEWORK_PATH="$TEST_PRODUCTS/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}" \
+        __XPC_DYLD_FRAMEWORK_PATH="$TEST_PRODUCTS/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}" \
+        perl -e 'alarm shift; exec @ARGV' 180 "$OUT/$t" "$@" > "$FX/$t.log" 2>&1 9>&-
     local rc=$?
     local last; last=$(grep -v "^objc\[" "$FX/$t.log" | tail -n 1)
     if [ $rc = 0 ]; then passed=$((passed+1)); summary="$summary  PASS $label -- $last\n"

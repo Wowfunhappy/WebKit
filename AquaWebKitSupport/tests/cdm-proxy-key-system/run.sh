@@ -5,8 +5,10 @@
 #   bash AquaWebKitSupport/tests/cdm-proxy-key-system/run.sh [installed|build]
 #
 # "installed" (the default) runs against the WebCore install.sh put under
-# /System/Library/Frameworks/WebKit.framework; "build" runs against WebKitBuild/Release/lib. The
-# harness compiles with a decryptor's own flags out of compile_commands.json.
+# /System/Library/Frameworks/WebKit.framework; "build" runs against the copy of the build's products
+# (test-products-snapshot.sh), under the test-run lock, and only when WebKitBuild/Release still holds
+# the build the copy holds; it names that build when it starts and in its last line. The harness
+# compiles with a decryptor's own flags out of compile_commands.json.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -23,11 +25,25 @@ installed)
     CXXLIB=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
     ;;
 build)
-    WEBCORE="$BUILD/lib/WebCore.framework/Versions/A/WebCore"
-    JSC="$BUILD/lib/JavaScriptCore.framework/Versions/A/JavaScriptCore"
-    GSTLIB="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
+    ROOT="$REPO"
+    . "$REPO/AquaWebKitSupport/scripts/test-run-lock.sh"
+    . "$REPO/AquaWebKitSupport/scripts/test-products-snapshot.sh"
+    trap 'rm -rf "$WORK"; release_products_lock; release_test_run_lock; tested_build_report' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    acquire_test_run_lock
+    snapshot_test_products || { echo "could not copy the build products"; exit 1; }
+    tested_build_report
+    TREE_BUILD=$(finished_tree_build) || TREE_BUILD="(none finished)"
+    if [ "$TREE_BUILD" != "$TEST_PRODUCTS_BUILD" ]; then
+        echo "WebKitBuild/Release holds the build $TREE_BUILD, but the copy holds the build $TEST_PRODUCTS_BUILD; the harness compiles against the first and runs against the second"
+        exit 1
+    fi
+    WEBCORE="$TEST_PRODUCTS/lib/WebCore.framework/Versions/A/WebCore"
+    JSC="$TEST_PRODUCTS/lib/JavaScriptCore.framework/Versions/A/JavaScriptCore"
+    GSTLIB="$TEST_PRODUCTS/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
     GLIBLIB="$GSTLIB"
-    CXXLIB="$REPO/AquaWebKitSupport/toolchain/build/clang/lib"
+    CXXLIB="$TEST_PRODUCTS/lib"
     ;;
 *)
     echo "usage: $0 [installed|build]"; exit 2 ;;
@@ -74,6 +90,12 @@ print(" ".join(shlex.quote(f) for f in link) + " -nostdlib++ -Wl,-client_name,Te
       + " " + " ".join(rpaths))
 PY
 bash "$WORK/build.sh" >> /tmp/wk_build.log 2>&1 || { echo "harness build failed; see /tmp/wk_build.log"; exit 1; }
+if [ "$MODE" = build ]; then
+    [ "$(finished_tree_build)" = "$TREE_BUILD" ] || { echo "WebKitBuild/Release changed while the harness was built"; exit 1; }
+    bash "$REPO/AquaWebKitSupport/scripts/make-build-binaries-runnable.sh" --products="$TEST_PRODUCTS" "$WORK/cdmproxy" \
+        || { echo "could not make the harness loadable"; exit 1; }
+    export DYLD_FRAMEWORK_PATH="$TEST_PRODUCTS/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
+fi
 
 echo "### running"
 "$WORK/cdmproxy"

@@ -1,29 +1,40 @@
 #!/bin/bash
-# Make the in-place build products loadable on 10.9, without installing anything over the system.
+# Make a copy of the build's products loadable on 10.9, without installing anything over the system.
 #
 # The build-dir binaries are not standalone-loadable. stage-frameworks.sh gives the product two things
 # the linked binaries lack: their post-10.9 framework dependencies redirected onto the polyfill, and
 # their C++ runtime bound to private libc++/libc++abi copies that drive the system unwinder
-# (single-unwinder rule, framework-layout.sh). This applies both to every Mach-O under
-# WebKitBuild/Release/{bin,lib}, in place and idempotently, so a test driver run straight out of the
-# build tree resolves everything from it -- including the WebKit2 XPC services, which launchd spawns
-# with no DYLD_* of their own -- and never loads the toolchain's libc++/libc++abi/libunwind.1.
-# Re-run it after any relink; the run wrappers do.
+# (single-unwinder rule, framework-layout.sh). This applies both, in place and idempotently, to every
+# Mach-O under the bin/ and lib/ of a copy of WebKitBuild/Release (test-products-snapshot.sh) and to
+# any extra Mach-O named, so a test driver run straight out of the copy resolves everything from it --
+# including the WebKit2 XPC services, which launchd spawns with no DYLD_* of their own -- and never
+# loads the toolchain's libc++/libc++abi/libunwind.1.
 #
-# The build tree keeps the @rpath form of every dependency, which is what stage-frameworks.sh maps
-# into the product when it stages a binary this script has rewritten. Resolution is steered through
-# each binary's LC_RPATHs instead: the toolchain's entries go, the build's lib dir is present, and any
-# other directory offering a C++ runtime comes after it. Every rewrite changes load commands only, so
-# each file keeps the mtime the link gave it and ninja's view of the build stays unchanged.
+# Resolution is steered through each binary's LC_RPATHs: every entry into WebKitBuild/Release names the
+# same place in the copy, the polyfill build's becomes lib/ (where the copy holds the polyfill and the
+# C++ runtime the build links against), the toolchain's entries go, lib/ is present, and any other
+# directory offering a C++ runtime comes after it. No load command names a path in the checkout outside
+# the copy. The @rpath form of every dependency stays, and every rewrite changes load commands only.
 #
-# Usage: bash AquaWebKitSupport/scripts/make-build-binaries-runnable.sh [extra Mach-O paths...]
-#   Extra paths are rewritten and verified alongside the build tree's own Mach-Os.
+# Usage: bash AquaWebKitSupport/scripts/make-build-binaries-runnable.sh --products=<dir> [extra Mach-O paths...]
+#   Extra paths are rewritten and verified alongside the copy's own Mach-Os.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BUILD="$ROOT/WebKitBuild/Release"
+case "${1-}" in
+    --products=*) PRODUCTS="${1#--products=}"; shift;;
+    *) echo "Usage: bash AquaWebKitSupport/scripts/make-build-binaries-runnable.sh --products=<dir> [extra Mach-O paths...]" >&2
+       exit 2;;
+esac
+if [ ! -d "$PRODUCTS" ]; then
+    echo "ERROR: products directory $PRODUCTS does not exist" >&2
+    exit 1
+fi
+PRODUCTS="$(cd "$PRODUCTS" && pwd -P)" || exit 1
 EXTRA_BINS="$*"
 
-LIBDIR="$ROOT/WebKitBuild/Release/lib"
-BINDIR="$ROOT/WebKitBuild/Release/bin"
+LIBDIR="$PRODUCTS/lib"
+BINDIR="$PRODUCTS/bin"
 POLYBUILD="$ROOT/AquaWebKitSupport/polyfill/build"
 TC="${AQUAWEBKIT_CLANG:-$ROOT/AquaWebKitSupport/toolchain/build/clang}"
 # build.sh mirrors the dependency build's runtime into the built frameworks, and its gstreamer/lib
@@ -44,6 +55,15 @@ canon() { (cd "$1" 2>/dev/null && pwd -P) || echo "$1"; }
 TC_REAL="$(canon "$TC")"
 LIBDIR_REAL="$(canon "$LIBDIR")"
 DEPS_LIB_REAL="$(canon "$DEPS_LIB")"
+POLYBUILD_REAL="$(canon "$POLYBUILD")"
+BUILD_REAL="$(canon "$BUILD")"
+PRODUCTS_REAL="$(canon "$PRODUCTS")"
+ROOT_REAL="$(canon "$ROOT")"
+
+if [ "$PRODUCTS_REAL" = "$BUILD_REAL" ]; then
+    echo "ERROR: $PRODUCTS is the build tree; make a copy with test-products-snapshot.sh" >&2
+    exit 2
+fi
 
 # install_name_tool over a file this script rewrites. A failure is the Mach-O being unwritable or
 # out of load-command padding, and the file would keep the load commands it was built with.
@@ -54,43 +74,9 @@ int_or_die() {
     fi
 }
 
-# Polyfill dylibs the build links, and the post-10.9 frameworks whose missing symbols libpolyfill_classes supplies.
-POLYFILL_LEAVES="libpolyfill_classes.dylib"
+# The post-10.9 frameworks whose missing symbols libpolyfill_classes supplies.
 REDIRECT_FRAMEWORKS="QuartzCore CoreServices CFNetwork"
-POLY="@rpath/libpolyfill_classes.dylib"   # resolved from WebKitBuild/Release/lib via each binary's @rpath
-
-# Stage the polyfills into the build's @rpath dir with an @rpath install id (refresh when the source is newer).
-for leaf in $POLYFILL_LEAVES; do
-    src="$POLYBUILD/$leaf"; dst="$LIBDIR/$leaf"
-    [ -f "$src" ] || continue
-    if [ ! -f "$dst" ] || [ "$src" -nt "$dst" ]; then
-        if ! cp -f "$src" "$dst"; then
-            echo "ERROR: could not stage $src into $LIBDIR" >&2
-            exit 1
-        fi
-        int_or_die -id "@rpath/$leaf" "$dst"
-        echo "  staged $leaf -> $LIBDIR"
-    fi
-done
-
-# Stage the private C++ runtime into the build's lib dir (refresh when the toolchain's is newer). The
-# copies keep their @rpath install names; the rewrite pass below binds their unwinder load to the
-# system one and gives them the LC_RPATH that resolves libc++abi beside libc++, like every other
-# Mach-O here. Each refresh is written beside the copy and moved into place, a new inode each time.
-for lib in libc++.1.dylib libc++abi.1.dylib; do
-    src="$TC/lib/$lib"; dst="$LIBDIR/$lib"
-    if [ ! -f "$src" ]; then
-        echo "ERROR: $src missing — the toolchain's C++ runtime is what the build links against" >&2
-        exit 1
-    fi
-    if [ ! -f "$dst" ] || [ "$src" -nt "$dst" ]; then
-        if ! cp -f "$src" "$dst.tmp" || ! mv -f "$dst.tmp" "$dst"; then
-            echo "ERROR: could not stage $src into $LIBDIR" >&2
-            exit 1
-        fi
-        echo "  staged $lib -> $LIBDIR"
-    fi
-done
+POLY="@rpath/libpolyfill_classes.dylib"   # resolved from $LIBDIR via each binary's @rpath
 
 # Native framework clients resolve WebKit2 through the same binary as CMake's WebKit target.
 link_framework_alias() {
@@ -175,8 +161,24 @@ repoint_all() { # bin substr new
 # moved behind it (dyld searches a binary's own LC_RPATHs in order, before those of the images that
 # loaded it).
 fix_rpaths() { # bin
-    local bin="$1" cmds rp real have_libdir=0 move="" loads_runtime
+    local bin="$1" cmds rp real new have_libdir=0 move="" loads_runtime
     cmds=$(load_commands "$bin") || exit 1
+    for rp in $(lc_rpaths "$cmds"); do
+        case "$rp" in /*) ;; *) continue;; esac
+        real="$(canon "$rp")"
+        case "$real" in
+            "$POLYBUILD_REAL")              new="$LIBDIR_REAL";;
+            "$BUILD_REAL"|"$BUILD_REAL"/*)  new="$PRODUCTS_REAL${real#"$BUILD_REAL"}";;
+            *)                              continue;;
+        esac
+        [ "$new" != "$real" ] || continue
+        if grep -qxF "$new" <<< "$(lc_rpaths "$cmds")"; then
+            int_or_die -delete_rpath "$rp" "$bin"
+        else
+            int_or_die -rpath "$rp" "$new" "$bin"
+        fi
+        cmds=$(load_commands "$bin") || exit 1
+    done
     loads_runtime=$(loaded_dylibs "$cmds" | grep -c '^@rpath/libc++')
     for rp in $(lc_rpaths "$cmds"); do
         case "$rp" in /*) ;; *) continue;; esac
@@ -202,7 +204,7 @@ fix_rpaths() { # bin
 }
 
 # Every Mach-O under bin/ and lib/ (executables, dylibs, bundle and XPC service binaries, the mirrored
-# GStreamer plugins, the staged runtime copies), plus any extra path given. The API tests' resources
+# GStreamer plugins, the runtime copies), plus any extra path given. The API tests' resources
 # bundle holds two signed app-extension fixtures used for static-code resource validation.
 build_tree_machos() {
     local f
@@ -213,7 +215,8 @@ build_tree_machos() {
 }
 MACHOS=$(build_tree_machos)
 
-# Carries each Mach-O's link-time mtime across its rewrite (touch -r copies the timestamp exactly).
+# Carries each Mach-O's link-time mtime across its rewrite (touch -r copies the timestamp exactly), so
+# the next refresh's rsync, which compares size and mtime, copies only what a build relinked.
 MTIME_REF=$(mktemp "${TMPDIR:-/tmp}/make-build-binaries-runnable.XXXXXX") || exit 1
 trap 'rm -f "$MTIME_REF"' EXIT
 
@@ -223,7 +226,7 @@ while IFS= read -r bin; do
         "$GST_PLUGINS"/*) ;;
         *)
             # The polyfill dylib carries an @rpath install_name (build-polyfill.sh), so the build records
-            # @rpath/<leaf> and it resolves from the staged copy in $LIBDIR — no rewrite needed. Only the
+            # @rpath/<leaf> and it resolves from the copy in $LIBDIR — no rewrite needed. Only the
             # post-10.9 system frameworks the build links directly need redirecting onto the reexporting polyfill.
             # A reexport provider must retain its native dependencies. Redirecting its own
             # imports back to its install ID makes a self-reexport cycle in dyld.
@@ -242,13 +245,13 @@ while IFS= read -r bin; do
     fix_rpaths "$bin"
     touch -r "$MTIME_REF" "$bin"
 done <<< "$MACHOS"
-echo "  rewrote $(echo "$MACHOS" | grep -c .) Mach-Os under WebKitBuild/Release/{bin,lib}"
+echo "  rewrote $(echo "$MACHOS" | grep -c .) Mach-Os under $PRODUCTS/{bin,lib}"
 
-# Single-unwinder gate over the build tree, the counterpart of stage-frameworks.sh's over the product.
-# For every Mach-O above: no private libunwind load, no LC_RPATH into the toolchain, and each C++
-# runtime load in @rpath form resolving -- through the binary's own LC_RPATHs, in dyld's order -- at
-# the copy in $LIBDIR.
-echo "  verifying single-unwinder rule over the build tree"
+# Single-unwinder gate over the products, the counterpart of stage-frameworks.sh's over the product.
+# For every Mach-O above: no private libunwind load, no LC_RPATH into the toolchain, no load command
+# naming a path in the checkout outside the products directory, and each C++ runtime load in @rpath
+# form resolving -- through the binary's own LC_RPATHs, in dyld's order -- at the copy in $LIBDIR.
+echo "  verifying single-unwinder rule over $PRODUCTS"
 VIOLATIONS=0
 violation() { echo "  VIOLATION: $1: $2" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
 verify_runtime_binding() { # bin
@@ -261,6 +264,14 @@ verify_runtime_binding() { # bin
     fi
     for rp in $rpaths; do
         case "$(canon "$rp")" in "$TC_REAL"/*) violation "$bin" "LC_RPATH into the toolchain: $rp";; esac
+    done
+    for name in $rpaths $names; do
+        case "$name" in /*) ;; *) continue;; esac
+        if [ -d "$name" ]; then dir="$(canon "$name")"; else dir="$(canon "$(dirname "$name")")"; fi
+        case "$dir/" in
+            "$PRODUCTS_REAL"/*) ;;
+            "$ROOT_REAL"/*) violation "$bin" "names $name, in the checkout outside $PRODUCTS";;
+        esac
     done
     for name in $names; do
         leaf="${name##*/}"
@@ -283,6 +294,6 @@ while IFS= read -r bin; do
     verify_runtime_binding "$bin"
 done <<< "$MACHOS"
 if [ "$VIOLATIONS" -ne 0 ]; then
-    echo "ERROR: $VIOLATIONS build-tree binaries would load a C++ runtime or unwinder other than the build's (mixed-unwinder hazard)" >&2
+    echo "ERROR: $VIOLATIONS binaries under $PRODUCTS would load a C++ runtime, unwinder or library other than the products' own" >&2
     exit 1
 fi
