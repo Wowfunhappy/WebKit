@@ -31,8 +31,9 @@ http/tests/security/offscreen-canvas-remote-read-remote-image.html [ Skip ]
 # entering fullscreen, and webkitExitFullscreen() ignores a request made during a mode change.
 media/media-fullscreen-inline.html [ Skip ]
 
-# Issue #40: input buttons draw as Aqua push buttons, sized by the bezel and the control font as on 10.9, and 10.9's
-# controlTextColor is opaque black where these dumps expect Tahoe's translucent label color.
+# Maintainer decision, issue #40 (classic Aqua controls wherever stock 10.9 WebKit draws them): horizontal input buttons
+# draw as Aqua push buttons, sized by the bezel and the control font as on 10.9. 10.9's controlTextColor is opaque black
+# where these dumps expect Tahoe's translucent label color.
 fast/attachment/attachment-image-controls-basic.html [ Skip ]
 fast/attachment/cocoa/wide-attachment-rendering.html [ Skip ]
 fast/attachment/mac/wide-attachment-image-controls-basic.html [ Skip ]
@@ -44,6 +45,8 @@ fast/repaint/placeholder-after-caps-lock-hidden.html [ Skip ]
 # Maintainer scope decision: pixel near misses of at most 3 levels per channel, at text, shadow, gradient and
 # marker antialiasing edges.
 fast/box-shadow/outset-shadow-negative-spread-radius.html [ Skip ]
+# The same decision: this test's 10px and 12px shadow blurs differ by 12 levels where its fuzz allows 11.
+fast/css/cascade/box-shadow-and-webkit-box-shadow-cascade-order.html [ Skip ]
 fast/gradients/alpha-premultiplied-sampled.html [ Skip ]
 fast/gradients/oklab-transparent-keyword-stop.html [ Skip ]
 fast/shadow-dom/activate-over-slotted-content.html [ Skip ]
@@ -643,3 +646,8 @@ editing/input/cocoa/autocorrect-on.html [ Skip ]
 editing/spelling/grammar-arrow-downstream-into-multiword-phrase.html [ Skip ]
 editing/spelling/grammar-correction-shown-clicking-middle-of-word.html [ Skip ]
 editing/spelling/grammar-correction-shown-clicking-multiword-phrase.html [ Skip ]
+
+# Maintainer scope decision (fonts 10.9 ships, 10.9 font metrics): with Lucida Grande UI the day field spans x=33.7-49.6,
+# so the test's click at the input's centre (x=48.5) focuses it, and the focused field's text is white after the picker
+# sets a value; with Tahoe's metrics the centre misses the day field.
+fast/forms/date/date-editable-components/date-editable-components-component-set-updates-color.html [ Skip ]

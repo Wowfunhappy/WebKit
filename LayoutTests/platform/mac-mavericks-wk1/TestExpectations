@@ -504,6 +504,7 @@ imported/w3c/web-platform-tests/xhr/open-url-redirected-sharedworker-origin.htm 
 
 # ServiceWorkersEnabled and CacheAPIEnabled are false for WebKitLegacy (UnifiedWebPreferences.yaml:7336-7337,
 # 1631-1632), so navigator.serviceWorker and caches are absent.
+fast/dom/navigator-property-gc-after-frame-detach.html [ Skip ]
 imported/w3c/web-platform-tests/resource-timing/workerStart-tao-protected.https.html [ Skip ]
 imported/w3c/web-platform-tests/service-workers [ Skip ]
 imported/w3c/web-platform-tests/html/browsers/browsing-the-web/back-forward-cache/service-worker-client-postmessage.https.html [ Skip ]
@@ -1000,6 +1001,29 @@ http/tests/security/anchor-download-allow-blob.html [ Skip ]
 http/tests/security/anchor-download-allow-data.html [ Skip ]
 http/tests/security/anchor-download-allow-sameorigin.html [ Skip ]
 http/tests/security/anchor-download-octet-stream-no-extension.html [ Skip ]
+
+# These rely on the same download hooks. DownloadAttributeEnabled is also false for WebKitLegacy
+# (UnifiedWebPreferences.yaml), and upstream's WebKit1 expectations record <a download> as unsupported
+# (58c630a^ mac-wk1:1100-1114).
+fast/dom/HTMLAnchorElement/anchor-download-synthetic-click.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-download-user-triggered-synthetic-click.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-download.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-blank-base-target-popup-not-allowed.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-blank-target-popup-not-allowed.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-blank-target.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-includes-backslash.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-includes-doublequote.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-includes-slashes.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-includes-unicode.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-no-extension.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download-then-revoke.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-download.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-nodownload-set.html [ Skip ]
+
+# DumpRenderTree's TestRunner has no setShouldDownloadUndisplayableMIMETypes; upstream's WebKit1 expectations
+# record these for the same reason (58c630a^ mac-wk1:1911-1913).
+fast/dom/HTMLAnchorElement/anchor-file-blob-convert-to-download-async-delegate.html [ Skip ]
+fast/dom/HTMLAnchorElement/anchor-file-blob-convert-to-download.html [ Skip ]
 
 # Each of these calls a WebKitTestRunner TestRunner or EventSendingController method outside any feature
 # check, and DumpRenderTree has none of them, so the test throws before it reaches what it tests. The methods
@@ -1749,6 +1773,7 @@ imported/w3c/web-platform-tests/html/browsers/origin/origin-keyed-agent-clusters
 
 # BarProp::visible() is !chrome().isPopup(), and WebKitLegacy's WebChromeClient::isPopup() returns NO (upstream
 # ce23da4, webkit.org/b/306442), so every bar is visible and no window.open() result counts as a popup.
+fast/dom/Window/new-window-opener.html [ Skip ]
 imported/w3c/web-platform-tests/html/browsers/the-window-object/open-close/open-features-is-popup-condition.html?combination [ Skip ]
 imported/w3c/web-platform-tests/html/browsers/the-window-object/open-close/open-features-is-popup-condition.html?position [ Skip ]
 imported/w3c/web-platform-tests/html/browsers/the-window-object/open-close/open-features-is-popup-condition.html?single-1 [ Skip ]
@@ -2637,3 +2662,147 @@ editing/secure-input/bfcache-restore-preserves-secure-input.html [ Skip ]
 # (markMisspellingsAfterTypingToWord), and 10.9's NSSpellChecker reports "ameagesga" although the insertion point
 # is inside it; WebKit2 checks asynchronously, so the fixture's immediate check sees no marker there.
 editing/spelling/editing-word-with-marker-1.html [ Skip ]
+
+# Upstream's WebKit1 expectations until 58c630a record these fast/forms, fast/dom and fast/css tests; each group names
+# the record and the mechanism on this port.
+# DataListElementEnabled is false for WebKitLegacy (UnifiedWebPreferences.yaml), so <datalist> is an
+# HTMLUnknownElement and input.list is null. Upstream WontFix: "Datalist is unsupported in WK1" (58c630a^ mac-wk1:968-970,
+# from 278bc86). The suggestion-list fixtures call UIScriptController::isShowingDataListSuggestions, which DumpRenderTree's
+# UIScriptControllerMac does not override, so the base class's notImplemented() aborts the driver.
+fast/forms/datalist/data-list-search-input-with-appearance-none.html [ Skip ]
+fast/forms/datalist/datalist-button-change-input-type-on-click-crash.html [ Skip ]
+fast/forms/datalist/datalist-child-validation.html [ Skip ]
+fast/forms/datalist/datalist-hide-using-escape-key.html [ Skip ]
+fast/forms/datalist/datalist-option-labels.html [ Skip ]
+fast/forms/datalist/datalist-show-hide.html [ Skip ]
+fast/forms/datalist/datalist-show-picker.html [ Skip ]
+fast/forms/datalist/datalist-textinput-dynamically-add-options-on-keydown.html [ Skip ]
+fast/forms/datalist/datalist-textinput-dynamically-add-options.html [ Skip ]
+fast/forms/datalist/datalist-textinput-keydown.html [ Skip ]
+fast/forms/datalist/datalist-textinput-suggestions-order.html [ Skip ]
+fast/forms/datalist/datalist.html [ Skip ]
+fast/forms/datalist/input-list.html [ Skip ]
+fast/forms/datalist/suggestions-list-outside-of-visual-viewport.html [ Skip ]
+# InputType{Date,DateTimeLocal,Month,Time,Week}Enabled are false for WebKitLegacy on macOS (UnifiedWebPreferences.yaml),
+# so these types parse as text, as they and color do in stock WebKit 9537.78.2. Upstream: "ENABLE_INPUT_TYPE_* are not enabled on wk1"
+# (58c630a^ mac-wk1:2398-2403, from 1e34a35). The show-picker fixtures call UIScriptController::isShowingDateTimePicker,
+# which DumpRenderTree does not implement.
+fast/forms/date/ValidityState-rangeOverflow-date.html [ Skip ]
+fast/forms/date/ValidityState-rangeUnderflow-date.html [ Skip ]
+fast/forms/date/ValidityState-stepMismatch-date.html [ Skip ]
+fast/forms/date/ValidityState-typeMismatch-date.html [ Skip ]
+fast/forms/date/date-input-type.html [ Skip ]
+fast/forms/date/date-pseudo-classes.html [ Skip ]
+fast/forms/date/date-pseudo-elements.html [ Skip ]
+fast/forms/date/date-setrangetext.html [ Skip ]
+fast/forms/date/date-show-hide-picker.html [ Skip ]
+fast/forms/date/date-show-picker.html [ Skip ]
+fast/forms/date/date-stepup-stepdown.html [ Skip ]
+fast/forms/date/date-validity-badinput.html [ Skip ]
+fast/forms/date/input-date-validation-message.html [ Skip ]
+fast/forms/date/input-valueasdate-date.html [ Skip ]
+fast/forms/date/input-valueasnumber-date.html [ Skip ]
+fast/forms/datetimelocal/ValidityState-rangeOverflow-datetimelocal.html [ Skip ]
+fast/forms/datetimelocal/ValidityState-rangeUnderflow-datetimelocal.html [ Skip ]
+fast/forms/datetimelocal/ValidityState-stepMismatch-datetimelocal.html [ Skip ]
+fast/forms/datetimelocal/ValidityState-typeMismatch-datetimelocal.html [ Skip ]
+fast/forms/datetimelocal/datetime-local-value-sanitization.html [ Skip ]
+fast/forms/datetimelocal/datetimelocal-input-type.html [ Skip ]
+fast/forms/datetimelocal/datetimelocal-pseudo-classes.html [ Skip ]
+fast/forms/datetimelocal/datetimelocal-setrangetext.html [ Skip ]
+fast/forms/datetimelocal/datetimelocal-show-hide-picker.html [ Skip ]
+fast/forms/datetimelocal/datetimelocal-show-picker.html [ Skip ]
+fast/forms/datetimelocal/datetimelocal-stepup-stepdown.html [ Skip ]
+fast/forms/datetimelocal/datetimelocal-validity-badinput.html [ Skip ]
+fast/forms/datetimelocal/input-valueasnumber-datetimelocal.html [ Skip ]
+fast/forms/month/ValidityState-rangeOverflow-month.html [ Skip ]
+fast/forms/month/ValidityState-rangeUnderflow-month.html [ Skip ]
+fast/forms/month/ValidityState-stepMismatch-month.html [ Skip ]
+fast/forms/month/ValidityState-typeMismatch-month.html [ Skip ]
+fast/forms/month/input-valueasdate-month.html [ Skip ]
+fast/forms/month/input-valueasdate.html [ Skip ]
+fast/forms/month/input-valueasnumber-month.html [ Skip ]
+fast/forms/month/month-input-type.html [ Skip ]
+fast/forms/month/month-pseudo-classes.html [ Skip ]
+fast/forms/month/month-setrangetext.html [ Skip ]
+fast/forms/month/month-stepup-stepdown.html [ Skip ]
+fast/forms/time/time-input-type.html [ Skip ]
+fast/forms/time/time-pseudo-classes.html [ Skip ]
+fast/forms/time/time-setrangetext.html [ Skip ]
+fast/forms/time/time-stepup-stepdown.html [ Skip ]
+fast/forms/time/time-validity-badinput.html [ Skip ]
+fast/forms/time/time-validity-rangeoverflow.html [ Skip ]
+fast/forms/time/time-validity-rangeunderflow.html [ Skip ]
+fast/forms/time/time-validity-stepmismatch.html [ Skip ]
+fast/forms/time/time-validity-typemismatch.html [ Skip ]
+fast/forms/time/time-valueasdate.html [ Skip ]
+fast/forms/time/time-valueasnumber.html [ Skip ]
+fast/forms/week/ValidityState-rangeOverflow-week.html [ Skip ]
+fast/forms/week/ValidityState-rangeUnderflow-week.html [ Skip ]
+fast/forms/week/ValidityState-stepMismatch-week.html [ Skip ]
+fast/forms/week/ValidityState-typeMismatch-week.html [ Skip ]
+fast/forms/week/input-valueasdate-week.html [ Skip ]
+fast/forms/week/input-valueasnumber-week.html [ Skip ]
+fast/forms/week/week-input-type.html [ Skip ]
+fast/forms/week/week-pseudo-classes.html [ Skip ]
+fast/forms/week/week-setrangetext.html [ Skip ]
+fast/forms/week/week-stepup-stepdown.html [ Skip ]
+# InputTypeColorEnabled is false for WebKitLegacy, so type=color parses as text. Upstream: "Color well is turned off"
+# (58c630a^ mac-wk1:1259-1266, from 8806717). placeholder-shown-basics (rewritten in b6ea721, after upstream stopped
+# running WebKit1) differs only in its color and date/time rows, which match :placeholder-shown as text fields.
+fast/css/placeholder-shown-basics.html [ Skip ]
+fast/css/pseudo-visited-background-color-on-input.html [ Skip ]
+fast/css/read-only-read-write-input-basics.html [ Skip ]
+fast/forms/color/color-input-swatch.html [ Skip ]
+fast/forms/color/color-input-uses-color-well-appearance.html [ Skip ]
+fast/forms/color/color-setrangetext.html [ Skip ]
+fast/forms/color/input-appearance-color.html [ Skip ]
+fast/forms/color/input-color-onchange-event.html [ Skip ]
+fast/forms/color/input-color-readonly.html [ Skip ]
+fast/forms/color/input-color-swatch-overlay-appearance.html [ Skip ]
+# WebKitLegacy's WebValidationMessageClient (WebView.mm) shows native validation popovers, so the shadow-DOM bubble
+# these inspect is never created. Upstream: "Mac WK1 is using native dialogs instead" (58c630a^ mac-wk1:1746-1755).
+fast/forms/validation-message-appearance.html [ Skip ]
+fast/forms/validation-message-clone.html [ Skip ]
+fast/forms/validation-message-in-relative-body.html [ Skip ]
+fast/forms/validation-message-on-checkbox.html [ Skip ]
+fast/forms/validation-message-on-listbox.html [ Skip ]
+fast/forms/validation-message-on-menulist.html [ Skip ]
+fast/forms/validation-message-on-radio.html [ Skip ]
+fast/forms/validation-message-on-range.html [ Skip ]
+fast/forms/validation-message-on-textarea.html [ Skip ]
+# Upstream: "These tests are WebKit2-only" (58c630a^ mac-wk1:1850-1851, from 7f93c58).
+fast/dom/Window/child-window-focus.html [ Skip ]
+# Upstream skip from showPicker()'s landing (58c630a^ mac-wk1:2907, 5df7cdc).
+fast/forms/select/select-show-picker.html [ Skip ]
+# Upstream: "test uses test helper functions not implemented on WK1" (58c630a^ mac-wk1:2973-2974, from b872b71);
+# DumpRenderTree's TestRunner has no skipPolicyDelegateNotifyDone.
+fast/dom/no-scroll-when-command-click-fragment-URL.html [ Skip ]
+# Upstream WK1 flake, retained until 58c630a (58c630a^ mac-wk1:2274, from 3624841). It passes alone here.
+webkit.org/b/90980 fast/forms/textarea/textarea-state-restore.html [ Skip ]
+# DumpRenderTree's TestRunner::clearBackForwardList keeps the current item, so history.back() in these fuzz fixtures
+# returns to the previous test's page and the dump holds that page. Upstream records: transform-function-perspective-crash
+# as [ Failure ] (58c630a^ mac-wk1:2939, from b6b7455), checkVisibility-no-renderer-crash as constantly failing
+# (60ebdf3), and vertical-align-rem-on-root from its landing (6165a03, 58c630a^ mac-wk1:64-65), whose
+# navigator.storage.estimate() also rejects under WebKitLegacy's DummyStorageProvider before notifyDone().
+fast/css/transform-function-perspective-crash.html [ Skip ]
+webkit.org/b/304216 fast/css/checkVisibility-no-renderer-crash.html [ Skip ]
+fast/css/vertical-align-rem-on-root.html [ Skip ]
+
+# DumpRenderTree's UIScriptControllerMac does not override activateAtPoint, so the base class's notImplemented()
+# aborts the driver. The fixture (7d2bb1e) landed after upstream stopped running WebKit1.
+fast/css/css-anchor-position/anchor-positioned-select-picker.html [ Skip ]
+
+# Upstream behavior; the fixture (b32bca67) landed after upstream stopped running WebKit1. WebKitLegacy decides
+# navigation policy synchronously, so navigation.reload() from a parsing document reaches
+# FrameLoader::continueLoadAfterNavigationPolicy inside the call. Navigation::reload's FrameLoadRequest is not marked
+# isFromNavigationAPI, so stopAllLoaders runs outside the doNotAbortNavigationAPI scope, stops the still-loading
+# document, and aborts the reload's own navigate event; each reload logs its unhandled committed-promise rejection.
+# The reload proceeds, and the crash check passes.
+fast/css/has-lang-jit-crash.html [ Skip ]
+
+# Upstream records this as a flaky text failure on macOS and iOS (webkit.org/b/309370, 3bba259): the RTL scrollers'
+# scrollY depends on whether it is computed before or after the 25px image's size is known (6e55859, reverted in
+# a1325d1). With the size known, as with explicit image dimensions, both drivers here give 458/454 against the
+# baseline's 433/429.
+webkit.org/b/309370 fast/css/vertical-text-overflow-ellipsis-text-align-center.html [ Skip ]

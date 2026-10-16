@@ -14,6 +14,7 @@
 # (all 0 here), the isolated accessibility tree (10.9 has no libAccessibility, so it never engages), the dark
 # appearance (10.9 has none) and WebGPU (off at the upstream CMake-port default; 10.9 has no Metal to back it).
 pdf [ Skip ]
+fast/pdf-plugin-destruction-dispatches-print-event-crash.html [ Skip ]
 mhtml [ Skip ]
 webxr [ Skip ]
 model-element [ Skip ]
@@ -76,14 +77,7 @@ wktr [ Skip ]
 # The same scope decision covers imported/, except the suites for this port's own code: cookies, networking and
 # loading, navigation and history, referrer policy, content security policy, Web Audio and media capture, media
 # playback, WebRTC, WebCrypto, storage and files, workers, notifications and push, browsing context isolation,
-# canvas and images, text encoding, and text and fonts. Those run, as does fast/ apart from the directories below;
-# the rest is skipped here.
-fast/css [ Skip ]
-fast/dom [ Skip ]
-fast/events [ Skip ]
-fast/forms [ Skip ]
-fast/frames [ Skip ]
-fast/pdf-plugin-destruction-dispatches-print-event-crash.html [ Skip ]
+# canvas and images, text encoding, and text and fonts. Those run, as does fast/; the rest is skipped here.
 imported/blink [ Skip ]
 imported/mozilla [ Skip ]
 imported/w3c/IndexedDB-private-browsing [ Skip ]
@@ -358,8 +352,9 @@ fast/css/dashboard-region-values.html [ Pass ]
 # Maintainer scope decision (fonts 10.9 ships, 10.9 font metrics): these render-tree and repaint dumps carry the
 # metrics of Tahoe's fonts. Here the same upstream font selection resolves system-ui and the control fonts to Lucida
 # Grande UI (the details disclosure triangle is 20px wide, not 17px), monospace to Courier, CJK fallback to STSongti
-# and Hiragino, symbol fallback to Lucida Grande and Monaco, and emoji to 10.9's Apple Color Emoji, and the
-# initial-letter tests take Times and Zapfino cap heights.
+# and Hiragino, symbol fallback to Lucida Grande and Monaco, Hebrew to Lucida Grande, Arabic to Geeza Pro, and emoji
+# to 10.9's Apple Color Emoji, and the initial-letter tests take Times and Zapfino cap heights. Password fields draw U+2022: Lucida Grande UI has no U+F79A
+# disc (RenderBlock::updateSecurityDiscCharacters). One reference hardcodes a listbox's Tahoe block size.
 fast/attachment/attachment-label-highlight.html [ Skip ]
 fast/attachment/attachment-progress.html [ Skip ]
 fast/attachment/attachment-select-on-click-inside-user-select-all.html [ Skip ]
@@ -379,11 +374,123 @@ fast/css-generated-content/initial-letter-clearance.html [ Skip ]
 fast/css-generated-content/initial-letter-descender.html [ Skip ]
 fast/css-generated-content/initial-letter-raised.html [ Skip ]
 fast/css-generated-content/initial-letter-sunken.html [ Skip ]
+fast/css/focus-ring-exists-for-search-field.html [ Skip ]
+fast/css/font-family-pictograph.html [ Skip ]
+fast/css/line-height-font-order.html [ Skip ]
+fast/css/line-height.html [ Skip ]
+fast/css/text-input-with-webkit-border-radius.html [ Skip ]
+fast/css/text-overflow-ellipsis-bidi.html [ Skip ]
+fast/css/text-overflow-ellipsis-strict.html [ Skip ]
+fast/css/text-overflow-ellipsis.html [ Skip ]
+fast/css/text-overflow-input.html [ Skip ]
 fast/doctypes/001.html [ Skip ]
 fast/doctypes/002.html [ Skip ]
 fast/doctypes/003.html [ Skip ]
 fast/doctypes/004.html [ Skip ]
+fast/dom/34176.html [ Skip ]
+fast/dom/52776.html [ Skip ]
+fast/dom/HTMLInputElement/input-image-alt-text.html [ Skip ]
 fast/dynamic/008.html [ Skip ]
+fast/forms/003.html [ Skip ]
+fast/forms/004.html [ Skip ]
+fast/forms/auto-fill-button/hide-auto-fill-strong-password-viewable-treatment-when-form-is-reset.html [ Skip ]
+fast/forms/auto-fill-button/input-auto-fill-button.html [ Skip ]
+fast/forms/auto-fill-button/input-contacts-auto-fill-button.html [ Skip ]
+fast/forms/auto-fill-button/input-credit-card-auto-fill-button.html [ Skip ]
+fast/forms/auto-fill-button/input-strong-password-auto-fill-button.html [ Skip ]
+fast/forms/auto-fill-button/input-strong-password-viewable.html [ Skip ]
+fast/forms/basic-inputs.html [ Skip ]
+fast/forms/checkbox-and-pseudo.html [ Skip ]
+fast/forms/date/date-input-rendering-basic.html [ Skip ]
+fast/forms/encoding-test.html [ Skip ]
+fast/forms/fieldset-align.html [ Skip ]
+fast/forms/floating-textfield-relayout.html [ Skip ]
+fast/forms/hidden-listbox.html [ Skip ]
+fast/forms/input-align.html [ Skip ]
+fast/forms/input-appearance-bkcolor.html [ Skip ]
+fast/forms/input-appearance-default-bkcolor.html [ Skip ]
+fast/forms/input-appearance-disabled.html [ Skip ]
+fast/forms/input-appearance-focus.html [ Skip ]
+fast/forms/input-appearance-preventDefault.html [ Skip ]
+fast/forms/input-appearance-readonly.html [ Skip ]
+fast/forms/input-appearance-selection.html [ Skip ]
+fast/forms/input-appearance-visibility.html [ Skip ]
+fast/forms/input-appearance-width.html [ Skip ]
+fast/forms/input-baseline.html [ Skip ]
+fast/forms/input-disabled-color.html [ Skip ]
+fast/forms/input-double-click-selection-gap-bug.html [ Skip ]
+fast/forms/input-field-text-truncated.html [ Skip ]
+fast/forms/input-placeholder-visibility-1.html [ Skip ]
+fast/forms/input-placeholder-visibility-3.html [ Skip ]
+fast/forms/input-readonly-autoscroll.html [ Skip ]
+fast/forms/input-readonly-dimmed.html [ Skip ]
+fast/forms/input-readonly-empty.html [ Skip ]
+fast/forms/input-spaces.html [ Skip ]
+fast/forms/input-table.html [ Skip ]
+fast/forms/input-text-click-inside.html [ Skip ]
+fast/forms/input-text-click-outside.html [ Skip ]
+fast/forms/input-text-double-click.html [ Skip ]
+fast/forms/input-text-drag-down.html [ Skip ]
+fast/forms/input-text-option-delete.html [ Skip ]
+fast/forms/input-text-scroll-left-on-blur.html [ Skip ]
+fast/forms/input-text-self-emptying-click.html [ Skip ]
+fast/forms/input-text-word-wrap.html [ Skip ]
+fast/forms/input-type-text-min-width.html [ Skip ]
+fast/forms/input-width.html [ Skip ]
+fast/forms/listbox-bidi-align.html [ Skip ]
+fast/forms/listbox-scrollbar-incremental-load.html [ Skip ]
+fast/forms/listbox-width-change.html [ Skip ]
+fast/forms/menulist-clip.html [ Skip ]
+fast/forms/menulist-deselect-update.html [ Skip ]
+fast/forms/menulist-option-wrap.html [ Skip ]
+fast/forms/menulist-restrict-line-height.html [ Skip ]
+fast/forms/menulist-width-change.html [ Skip ]
+fast/forms/minWidthPercent.html [ Skip ]
+fast/forms/number/number-appearance-spinbutton-layer.html [ Skip ]
+fast/forms/option-script.html [ Skip ]
+fast/forms/option-strip-whitespace.html [ Skip ]
+fast/forms/option-text-clip.html [ Skip ]
+fast/forms/placeholder-position.html [ Skip ]
+fast/forms/placeholder-pseudo-style.html [ Skip ]
+fast/forms/plaintext-mode-2.html [ Skip ]
+fast/forms/search-cancel-button-style-sharing.html [ Skip ]
+fast/forms/search-display-none-cancel-button.html [ Skip ]
+fast/forms/search-input-rtl.html [ Skip ]
+fast/forms/search-rtl.html [ Skip ]
+fast/forms/search-styled.html [ Skip ]
+fast/forms/search-vertical-alignment.html [ Skip ]
+fast/forms/search/search-padding-cancel-results-buttons.html [ Skip ]
+fast/forms/search/search-size-with-decorations.html [ Skip ]
+fast/forms/select-align.html [ Skip ]
+fast/forms/select-background-none.html [ Skip ]
+fast/forms/select-block-background.html [ Skip ]
+fast/forms/select-change-listbox-to-popup.html [ Skip ]
+fast/forms/select-change-popup-to-listbox.html [ Skip ]
+fast/forms/select-dirty-parent-pref-widths.html [ Skip ]
+fast/forms/select-empty-option-height.html [ Skip ]
+fast/forms/select-list-box-with-height.html [ Skip ]
+fast/forms/select-listbox-multiple-no-focusring.html [ Skip ]
+fast/forms/select-non-native-rendering-direction.html [ Skip ]
+fast/forms/select-overflow-scroll-inherited.html [ Skip ]
+fast/forms/select-overflow-scroll.html [ Skip ]
+fast/forms/select-selected.html [ Skip ]
+fast/forms/select-visual-hebrew.html [ Skip ]
+fast/forms/select-writing-direction-natural.html [ Skip ]
+fast/forms/select/optgroup-rendering.html [ Skip ]
+fast/forms/stuff-on-my-optgroup.html [ Skip ]
+fast/forms/tabbing-input-iframe.html [ Skip ]
+fast/forms/textAreaLineHeight.html [ Skip ]
+fast/forms/textarea-align.html [ Skip ]
+fast/forms/textarea-placeholder-pseudo-style.html [ Skip ]
+fast/forms/textarea-scroll-height.html [ Skip ]
+fast/forms/textarea-scrollbar.html [ Skip ]
+fast/forms/textarea-scrolled-type.html [ Skip ]
+fast/forms/textarea-setinnerhtml.html [ Skip ]
+fast/forms/textfield-focus-ring.html [ Skip ]
+fast/forms/textfield-outline.html [ Skip ]
+fast/forms/textfield-overflow.html [ Skip ]
+fast/forms/vertical-writing-mode/listbox-horizontal-scrollbar.html [ Skip ]
+fast/forms/visual-hebrew-text-field.html [ Skip ]
 fast/html/details-add-child-1.html [ Skip ]
 fast/html/details-add-child-2.html [ Skip ]
 fast/html/details-add-details-child-1.html [ Skip ]
@@ -473,8 +580,10 @@ fast/table/spanOverlapRepaint.html [ Skip ]
 fast/table/text-field-baseline.html [ Skip ]
 fast/transforms/transformed-focused-text-input.html [ Skip ]
 
-# Issue #40: input buttons draw as Aqua push buttons, sized by the bezel and the control font as on 10.9, and 10.9's
-# controlTextColor is opaque black where these dumps expect Tahoe's translucent label color.
+# Maintainer decision, issue #40 (classic Aqua controls wherever stock 10.9 WebKit draws them): horizontal input buttons
+# draw as Aqua push buttons, sized by the bezel and the control font as on 10.9. 10.9's controlTextColor is opaque black
+# where these dumps expect Tahoe's translucent label color (disabledControlTextColor is opaque 50% gray where they expect
+# 25% black).
 fast/block/float/float-avoidance.html [ Skip ]
 fast/html/details-replace-summary-child.html [ Skip ]
 fast/html/details-replace-text.html [ Skip ]
@@ -488,6 +597,41 @@ fast/replaced/width100percent-button.html [ Skip ]
 fast/selectors/064.html [ Skip ]
 fast/table/append-cells2.html [ Skip ]
 fast/table/remove-td-display-none.html [ Skip ]
+fast/css/button-height.html [ Skip ]
+fast/css/continuationCrash.html [ Skip ]
+fast/css/margin-top-bottom-dynamic.html [ Skip ]
+fast/css/rtl-ordering.html [ Skip ]
+fast/dom/HTMLTableColElement/resize-table-using-col-width.html [ Skip ]
+fast/dom/HTMLTextAreaElement/reset-textarea.html [ Skip ]
+fast/forms/basic-buttons.html [ Skip ]
+fast/forms/blankbuttons.html [ Skip ]
+fast/forms/box-shadow-override.html [ Skip ]
+fast/forms/button-align.html [ Skip ]
+fast/forms/button-cannot-be-nested.html [ Skip ]
+fast/forms/button-default-title.html [ Skip ]
+fast/forms/button-generated-content.html [ Skip ]
+fast/forms/button-inner-block-reuse.html [ Skip ]
+fast/forms/button-positioned.html [ Skip ]
+fast/forms/button-sizes.html [ Skip ]
+fast/forms/button-style-color.html [ Skip ]
+fast/forms/button-table-styles.html [ Skip ]
+fast/forms/button-text-transform.html [ Skip ]
+fast/forms/button-white-space.html [ Skip ]
+fast/forms/control-clip-overflow.html [ Skip ]
+fast/forms/control-clip.html [ Skip ]
+fast/forms/control-restrict-line-height.html [ Skip ]
+fast/forms/disabled-select-change-index.html [ Skip ]
+fast/forms/file/file-input-direction.html [ Skip ]
+fast/forms/file/file-input-disabled.html [ Skip ]
+fast/forms/form-element-geometry.html [ Skip ]
+fast/forms/formmove3.html [ Skip ]
+fast/forms/input-appearance-height.html [ Skip ]
+fast/forms/input-button-sizes.html [ Skip ]
+fast/forms/input-first-letter.html [ Skip ]
+fast/forms/input-value.html [ Skip ]
+fast/forms/select-baseline.html [ Skip ]
+fast/forms/select-disabled-appearance.html [ Skip ]
+fast/forms/targeted-frame-submission.html [ Skip ]
 
 # Maintainer decision (inherent 10.9 behavior): 10.9's focus-ring CGStyle draws a wider ring than Tahoe's, so its
 # corner tails show past the references' covers; a standalone CGContextSetStyle call reproduces the same pixels.
@@ -498,6 +642,14 @@ fast/inline/hidpi-outline-auto-with-border-radius-vertical-ltr.html [ Skip ]
 fast/inline/hidpi-outline-auto-with-border-radius-vertical-rtl.html [ Skip ]
 fast/inline/hidpi-outline-auto-with-one-focusring-rect.html [ Skip ]
 fast/inline/hidpi-outline-auto-with-fractional-radius.html [ Skip ]
+# The same ring, scaled 50x with the focused contenteditable, covers the one-pixel strip these references fill with
+# the caret color; with outline: none the caret matches the reference.
+fast/css/caret-color-fallback-to-color.html [ Skip ]
+fast/css/caret-color-inherit.html [ Skip ]
+fast/css/caret-color-span-inside-editable-parent.html [ Skip ]
+fast/css/caret-color-with-inherited-color-property.html [ Skip ]
+fast/css/caret-color-with-initial-color-property.html [ Skip ]
+fast/css/caret-color.html [ Skip ]
 
 # The test drivers run with AppleLanguages (en), so 10.9 falls back to Hiragino Mincho ProN for these CJK markers;
 # upstream's marker path skips a fallback font no taller than the primary one (RenderListMarker.cpp:584) while a span
@@ -510,6 +662,27 @@ fast/overflow/overflow-focus-ring.html [ Skip ]
 fast/replaced/width100percent-textarea.html [ Skip ]
 fast/repaint/4776765.html [ Skip ]
 fast/repaint/leftover-after-shrinking-content.html [ Skip ]
+fast/forms/text-control-intrinsic-widths.html [ Skip ]
+
+# Maintainer scope decision (10.9 control art): these references draw Tahoe's controls. 10.9's NSLevelIndicatorCell
+# fills the meter's box with the Aqua capacity gradient, 10.9's CoreUI progress bar pulses with kCUIAnimationTimeKey
+# (test and reference capture different phases), 10.9's pop-up button art is the same in an inactive window, and
+# 10.9 has no large control size (NSAppearance _usesMetricsAppearance is NO), so a zoomed search field takes the
+# regular size, as platform/mac-wk2's baseline records.
+fast/forms/appearance-base/appearance-base-meter-dynamic.html [ Skip ]
+fast/forms/appearance-base/appearance-base-meter-initial.html [ Skip ]
+fast/forms/appearance-base/appearance-base-meter-value-dynamic.html [ Skip ]
+fast/forms/appearance-base/appearance-base-progress-dynamic.html [ Skip ]
+fast/forms/appearance-base/appearance-base-progress-initial.html [ Skip ]
+fast/forms/appearance-base/appearance-base-progress-value-dynamic.html [ Skip ]
+fast/forms/progress-dynamic-update.html [ Skip ]
+fast/forms/vertical-writing-mode/progress.html [ Skip ]
+fast/forms/select/mac-wk2/inactive-appearance.html [ Skip ]
+fast/forms/search/search-zoom-computed-style-height.html [ Skip ]
+
+# 10.9's NSDateFormatter short time pattern for en_US is "h:mm a", with a space where the WebKit2 dump expects U+202F;
+# both drivers' dumps also carry Tahoe's control-font metrics.
+fast/forms/time/time-input-rendering-basic.html [ Skip ]
 
 # Maintainer scope decision: the Ahem test font's cap height sizes this initial letter at 80px, not 96px.
 fast/css-generated-content/initial-letter-first-line-wrapping.html [ Skip ]
@@ -1004,6 +1177,9 @@ imported/w3c/web-platform-tests/service-workers/service-worker/windowclient-navi
 # under "Dark Mode is Mojave and later". 10.9's AppKit has no NSAppearanceNameDarkAqua (it exports Aqua, Content
 # and LightContent only), so the page's dark color scheme renders as Aqua.
 fast/loader/plain-text-document-dark-mode.html [ Skip ]
+# These mismatch references need a dark appearance to differ from, which 10.9 does not have (see css-dark-mode above).
+fast/forms/listbox-scrollbar-dark-mode.html [ Skip ]
+fast/forms/number/number-dark-appearance.html [ Skip ]
 
 # The two mpegurl subtests fail as platform/glib's baseline records (lines 34 and 60, byte-identical to this
 # port's result): the image decoder this port runs is GStreamer's, which claims only video/ types, so the
@@ -1090,9 +1266,6 @@ fast/text/otsvg-spacing-canvas.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: native cap-height metrics of the Ahem test font.
 fast/text/non-integral-initial-letter-simple.html [ Skip ]
-
-# Maintainer scope decision 2026-09-15: Medium faces report CSS weight 510.
-fast/text/font-weights.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: tests assuming fonts 10.9 does not ship (PingFang, SF, an italic or
 # language-specific system font).
@@ -1420,6 +1593,35 @@ http/wpt/webcodecs/configure-encoder-big-frame-size.html [ Skip ]
 
 # Maintainer decision: SwitchControlEnabled is off, so <input type=checkbox switch> is a 12x12 checkbox.
 imported/w3c/web-platform-tests/css/css-writing-modes/forms/checkbox-switch-input-computed-style.tentative.html [ Skip ]
+fast/forms/switch [ Skip ]
+
+# ENABLE_APPLE_PAY is 0 (10.9 has no Apple Pay): no apple-pay-button appearance and no apple-pay-logo named images.
+fast/css/appearance-apple-pay-button-border-radius-longhands.html [ Skip ]
+fast/css/appearance-apple-pay-button-border-radius.html [ Skip ]
+fast/css/appearance-apple-pay-button-border-width.html [ Skip ]
+fast/css/appearance-apple-pay-button-default-corners.html [ Skip ]
+fast/css/appearance-apple-pay-button-div.html [ Skip ]
+fast/css/appearance-apple-pay-button-inapplicable.html [ Skip ]
+fast/css/appearance-apple-pay-button-input-type-button.html [ Skip ]
+fast/css/appearance-apple-pay-button-style-dynamic-update.html [ Skip ]
+fast/css/appearance-apple-pay-button.html [ Skip ]
+fast/css/getComputedStyle/computed-style-apple-pay-button.html [ Skip ]
+fast/css/webkit-named-image/apple-pay-logo-black [ Skip ]
+fast/css/webkit-named-image/apple-pay-logo-white [ Skip ]
+
+# 10.9's CoreUI tints a widget only Blue, Graphite or Clear (kCUITintKey), so -appearanceByApplyingTintColor: returns
+# its receiver and an accent-color checkbox or radio draws in the system accent, as its mismatch reference does.
+fast/css/accent-color/checkbox.html [ Skip ]
+fast/css/accent-color/radio.html [ Skip ]
+
+# This port generates the -apple- cased accessors, among them element.style.appleDashboardRegion that 10.9's Dashboard
+# widgets set (process-css-properties.py), as a group after the epub-cased one, which the test's ordering invariants
+# exclude.
+fast/css/style-enumerate-properties.html [ Skip ]
+
+# platform/gtk and platform/wpe record this timeout (webkit.org/b/315455) on the libxml2-based XML parser this port
+# shares with them.
+webkit.org/b/315455 fast/dom/Range/detach-range-during-deletecontents.html [ Skip ]
 
 # The WebCore PNG decoder this port runs, as the GLib ports do, reads no eXIf chunk; platform/glib/TestExpectations
 # records both tests.
