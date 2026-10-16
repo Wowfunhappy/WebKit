@@ -11,6 +11,10 @@
 - (void)hide;
 @end
 
+@interface NSSharingService (MaskProbe)
++ (NSArray *)sharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask;
+@end
+
 @interface ProbeDelegate : NSObject <NSSharingServicePickerDelegate, NSSharingServiceDelegate>
 @property (nonatomic) BOOL choseNothing;
 @property (nonatomic) NSUInteger chooseCount;
@@ -63,6 +67,13 @@ int main(void)
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(200, 200, 300, 200) styleMask:NSBorderlessWindowMask backing:NSBackingStoreBuffered defer:NO];
         [window orderFrontRegardless];
         NSView *view = [window contentView];
+
+        // The masked query: the Share bit (1 << 0) answers what +sharingServicesForItems: does; Viewer (1 << 1)
+        // and Editor (1 << 2) match nothing on 10.9.
+        NSArray *shareItems = @[ [[[NSAttributedString alloc] initWithString:@"a"] autorelease] ];
+        NSArray *publicServices = [NSSharingService sharingServicesForItems:shareItems];
+        check("the masked query answers the Share mask with the public services", [publicServices count] && [[NSSharingService sharingServicesForItems:shareItems mask:1 << 0] isEqualToArray:publicServices]);
+        check("the masked query answers a Viewer|Editor mask with no services", ![[NSSharingService sharingServicesForItems:shareItems mask:(1 << 1) | (1 << 2)] count]);
 
         NSSharingServicePicker *picker = [[NSSharingServicePicker alloc] initWithItems:@[ [NSURL URLWithString:@"https://webkit.org/"] ]];
         ProbeDelegate *delegate = [ProbeDelegate new];

@@ -1575,31 +1575,78 @@ WK_POLYFILL_REPLACE_METHODS(NSLevelIndicatorCell)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// NSPopover's 10.10 contract preserves source focus when its content view rejects first responder.
-// 10.9's window focus-sharing API gives that presentation an independent first responder; normal
-// sharing resumes for subsequent interaction. See AppKit's 10.10 NSPopover release notes:
-// https://developer.apple.com/library/archive/releasenotes/AppKit/RN-AppKitOlderNotes/
+// -[NSPopover showRelativeToRect:ofView:preferredEdge:] focuses the popover by the 10.10+ rule (AppKit 10.15
+// 0x3ae08c-0x3ae180): after popoverWillShow: the popover window shares the parent's first responder when the
+// parent can become key and takes its non-activating state; ordering it on screen selects its first key view
+// (-_setUpFirstResponder, 0x1a63b4), which sharing hands to the parent. If focus is not then in the popover,
+// the candidate is the popover window's first responder if that is in the popover
+// (-_validatePopoverFirstResponder:, 0x3b4492), else its initialFirstResponder, else the popover, and it
+// becomes first responder only if it accepts. 10.9's show follows the ordering with an unconditional
+// -makeFirstResponder: (0x2c8b96-0x2c8bf3), so the rule runs at NSWindowDidOrderOnScreenNotification, between
+// the two. When it gives no focus the polyfill turns sharing off and, as 10.15's setter does (0x3b310f,
+// 0x8e65b4), gives the popover window its initialFirstResponder; that confines 10.9's step to the popover
+// window.
+extern NSString *const NSWindowDidOrderOnScreenNotification;
+
 @interface NSPopover (WKPopoverFocus)
 - (NSWindow *)_makePopoverWindowIfNeeded;
 @end
 @interface NSWindow (WKPopoverFocus)
-- (BOOL)_sharesParentFirstResponder;
 - (void)_setSharesParentFirstResponder:(BOOL)shares;
+- (void)_setFirstResponder:(NSResponder *)responder;
+- (BOOL)_isNonactivatingPanel;
+- (void)_setNonactivatingPanel:(BOOL)nonactivating;
 @end
+
+static BOOL wkResponderLiesInPopover(NSPopover *popover, NSWindow *popoverWindow, id responder)
+{
+    if (!responder)
+        return NO;
+    if ([responder isKindOfClass:[NSView class]])
+        return [responder isDescendantOf:[popoverWindow contentView]];
+    return responder == [popover contentViewController] || responder == popover;
+}
 
 WK_POLYFILL_REPLACE_METHODS(NSPopover)
 - (void)showRelativeToRect:(NSRect)positioningRect ofView:(NSView *)positioningView preferredEdge:(NSRectEdge)preferredEdge
 {
-    NSWindow *popoverWindow = nil;
-    BOOL sharesParentFirstResponder = NO;
-    if (![[[self contentViewController] view] acceptsFirstResponder]) {
+    NSWindow *anchorWindow = [positioningView window];
+    __block NSWindow *popoverWindow = nil;
+    __block BOOL sharesParentFirstResponder = NO;
+    __block id didOrderObserver = nil;
+    id willShowObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSPopoverWillShowNotification object:self queue:nil usingBlock:^(NSNotification *willShow) {
+        (void)willShow;
         popoverWindow = [[self _makePopoverWindowIfNeeded] retain];
-        sharesParentFirstResponder = [popoverWindow _sharesParentFirstResponder];
-        [popoverWindow _setSharesParentFirstResponder:NO];
-    }
+        sharesParentFirstResponder = [anchorWindow canBecomeKeyWindow];
+        [popoverWindow _setSharesParentFirstResponder:sharesParentFirstResponder];
+        [popoverWindow _setNonactivatingPanel:[anchorWindow _isNonactivatingPanel]];
+        didOrderObserver = [[[NSNotificationCenter defaultCenter] addObserverForName:NSWindowDidOrderOnScreenNotification object:popoverWindow queue:nil usingBlock:^(NSNotification *didOrder) {
+            (void)didOrder;
+            if (wkResponderLiesInPopover(self, popoverWindow, [anchorWindow firstResponder]))
+                return;
+            id candidate = [popoverWindow firstResponder];
+            if (!wkResponderLiesInPopover(self, popoverWindow, candidate))
+                candidate = [popoverWindow initialFirstResponder];
+            if (!candidate)
+                candidate = self;
+            if ([candidate acceptsFirstResponder]) {
+                [popoverWindow makeFirstResponder:candidate];
+                return;
+            }
+            if (sharesParentFirstResponder) {
+                [popoverWindow _setSharesParentFirstResponder:NO];
+                [popoverWindow _setFirstResponder:[popoverWindow initialFirstResponder]];
+            }
+        }] retain];
+    }];
     @try {
         WK_ORIGINAL_METHOD(void, (NSRect, NSView *, NSRectEdge), positioningRect, positioningView, preferredEdge);
     } @finally {
+        [[NSNotificationCenter defaultCenter] removeObserver:willShowObserver];
+        if (didOrderObserver) {
+            [[NSNotificationCenter defaultCenter] removeObserver:didOrderObserver];
+            [didOrderObserver release];
+        }
         [popoverWindow _setSharesParentFirstResponder:sharesParentFirstResponder];
         [popoverWindow release];
     }
@@ -1647,30 +1694,16 @@ WK_POLYFILL_ADD_METHODS(NSWorkspace)
 }
 @end
 
-// +[NSSharingService getSharingServicesForItems:mask:completion:] — the asynchronous, mask-filtered SPI
-// form, absent on 10.9 (probed on-host). The class is present, and so is the PUBLIC 10.8 API that answers
-// the same question synchronously, +sharingServicesForItems:, so this is a translation rather than a stub.
-//
-// Getting this wrong is not a quiet degradation: ServicesController::hasCompatibleServicesForItems does
-// dispatch_group_enter, calls this, and leaves the group in the completion. With the selector absent the
-// completion never runs, the group is entered three times and never left, and destroying it aborts the
-// process in _dispatch_semaphore_dispose (SIGILL) — which is exactly how Safari died once
-// ENABLE(SERVICE_CONTROLS) was restored.
-//
-// The mask (viewer/editor) cannot be applied here: 10.8's API takes no mask and returns everything that
-// can handle the items. Over-reporting is the safe direction — callers use the result to decide whether to
-// OFFER a services menu, and the menu itself is built by NSSharingServicePicker, which does its own
-// filtering. The completion is delivered asynchronously because that is the shape of the API being
-// replaced; a caller that leaves a dispatch group in it must not be called back before it returns.
-//
-// The enumeration runs on a dedicated, persistent, OFF-MAIN thread that owns a CoreFoundation run loop —
-// NOT a global dispatch worker, and NOT the main thread. +sharingServicesForItems: brings up a ShareKit
-// helper over XPC (SHKHelperController), and on 10.9 that xpc_connection_resume requires the calling
-// thread to have a run loop: on a runloop-less global worker it hits _xpc_api_misuse and SIGILLs the
-// process. The main thread has a run loop, but the real 10.10 async SPI does not run its XPC round-trip on
-// the caller's main thread, and neither should this — a main-queue hop would block the UI thread and be
-// correct only for the current, happens-to-be-non-blocking caller. A dedicated run-loop thread meets both
-// constraints for any caller.
+// +[NSSharingService sharingServicesForItems:mask:] and +getSharingServicesForItems:mask:completion: — the
+// mask-filtered SPI, absent on 10.9. The public +sharingServicesForItems: is the Share-mask query (AppKit
+// 10.15 0x33d70d passes NSSharingServiceMaskShare), and 10.9's ShareKit classifies no service as Viewer or
+// Editor, so a mask without the Share bit matches nothing. The asynchronous form's completion arrives, as
+// the SPI delivers it, from a dedicated thread that owns a CoreFoundation run loop: +sharingServicesForItems:
+// brings up ShareKit's helper over XPC, and on 10.9 xpc_connection_resume needs a run loop on the calling
+// thread.
+
+// NSSharingServiceMaskShare (pal/spi/mac/NSSharingServiceSPI.h).
+static const NSUInteger wkSharingServiceMaskShare = 1 << 0;
 static CFRunLoopRef wkSharingEnumerationRunLoopRef; // published by the thread once it is up
 static dispatch_semaphore_t wkSharingEnumerationReady;
 
@@ -1704,20 +1737,27 @@ static CFRunLoopRef wkSharingEnumerationRunLoop(void)
 
 WK_POLYFILL_ADD_METHODS(NSSharingService)
 
++ (NSArray *)sharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask
+{
+    if (!(mask & wkSharingServiceMaskShare))
+        return @[];
+    return [NSSharingService sharingServicesForItems:items] ?: @[];
+}
+
 + (void)getSharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask completion:(void (^)(NSArray *))completion
 {
-    (void)mask;
     if (!completion)
         return;
+    BOOL wantsShareServices = (mask & wkSharingServiceMaskShare) != 0;
     CFRunLoopRef runLoop = wkSharingEnumerationRunLoop();
     if (!runLoop) {
-        // Thread could not be created; fail closed by reporting no services rather than never calling back.
+        // Without the enumeration thread the completion receives no services.
         completion(@[]);
         return;
     }
     // items/completion are retained by the block copy CFRunLoopPerformBlock makes, and released after it runs.
     CFRunLoopPerformBlock(runLoop, kCFRunLoopCommonModes, ^{
-        NSArray *services = [NSSharingService sharingServicesForItems:items];
+        NSArray *services = wantsShareServices ? [NSSharingService sharingServicesForItems:items] : nil;
         completion(services ?: @[]);
     });
     CFRunLoopWakeUp(runLoop);
@@ -2074,8 +2114,7 @@ WK_POLYFILL_ADD_METHODS(NSPopover)
 WK_POLYFILL_ADD_METHODS(NSViewController)
 - (BOOL)isViewLoaded
 {
-    Ivar viewIvar = class_getInstanceVariable([NSViewController class], "view");
-    return viewIvar && object_getIvar(self, viewIvar);
+    return object_getIvar(self, class_getInstanceVariable([NSViewController class], "view")) != nil;
 }
 @end
 
