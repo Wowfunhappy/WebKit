@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>font smoothing probe</title>
+<!-- Each cell names the smoothing its text gets: "subpixel" (LCD colour fringes) or "grayscale"; run.sh
+     measures the fringes on screen. Every expectation is stock Safari 7's on 10.9 except the clear scroller
+     and frame, noted below. The page also runs in stock Safari 7: prefixed CSS beside the standard, and ES5 script. -->
+<style>
+@font-face { font-family: GeorgiaWeb; src: url(Georgia.ttf); }
+html, body { margin: 0; background: white; color: #111; }
+#marker { position: fixed; left: 0; top: 0; width: 12px; height: 12px; background: #f0f; z-index: 9; }
+.cell, .wrapper { position: absolute; width: 188px; height: 88px; }
+.cell { overflow: hidden; font: 14px/17px "Lucida Grande"; }
+.bold { font: bold 13px/16px Verdana; }
+.heavy { font: 900 15px/18px "Helvetica Neue"; }
+.synthetic { font: bold 13px/16px Monaco; }
+.layer { -webkit-transform: translateZ(0); transform: translateZ(0); }
+.scroller { overflow: scroll; }
+.opaque { background: white; }
+.dark { background: #2c2c2c; color: #ddd; }
+@-webkit-keyframes fade { from { opacity: 0.5; } to { opacity: 1; } }
+@keyframes fade { from { opacity: 0.5; } to { opacity: 1; } }
+.fill { -webkit-animation: fade 0.2s forwards; animation: fade 0.2s forwards; }
+.text { height: 88px; overflow: hidden; font: 14px/17px "Lucida Grande"; }
+</style>
+</head>
+<body>
+<div id="marker"></div>
+<div class="cell" data-expect="subpixel" id="tiles" style="left:8px; top:8px"></div>
+<div class="cell bold" data-expect="subpixel" id="tiles-bold" style="left:204px; top:8px"></div>
+<div class="cell heavy" data-expect="subpixel" id="tiles-heavy" style="left:400px; top:8px"></div>
+<div class="cell synthetic" data-expect="subpixel" id="tiles-synthetic-bold" style="left:596px; top:8px"></div>
+<div class="cell" data-expect="subpixel" id="web-font-synthetic-bold" style="left:792px; top:8px; font:bold 15px/18px GeorgiaWeb"></div>
+
+<div class="cell layer opaque" data-expect="subpixel" id="opaque-layer" style="left:8px; top:104px"></div>
+<div class="cell fill opaque" data-expect="subpixel" id="opaque-fill-forwards" style="left:204px; top:104px"></div>
+<div class="cell scroller opaque" data-expect="subpixel" id="opaque-scroller" style="left:400px; top:104px"></div>
+<div class="cell layer opaque bold" data-expect="subpixel" id="opaque-layer-bold" style="left:596px; top:104px"></div>
+<div class="cell dark" data-expect="subpixel" id="dark-tiles" style="left:792px; top:104px"></div>
+
+<div class="cell layer" data-expect="grayscale" id="clear-layer" style="left:8px; top:200px"></div>
+<div class="cell fill" data-expect="grayscale" id="clear-fill-forwards" style="left:204px; top:200px"></div>
+<div class="cell" data-expect="grayscale" id="opacity-group" style="left:400px; top:200px; opacity:0.99"></div>
+<!-- A dark block painted into a forward-filled layer without a background, as mavericksforever.com's footer. -->
+<div class="fill wrapper" style="left:596px; top:200px"><div class="text dark" data-expect="grayscale" id="dark-in-clear-fill-forwards"></div></div>
+<!-- Opaque blocks painted into a composited layer without a background. -->
+<div class="layer wrapper" style="left:792px; top:200px"><div class="text opaque" data-expect="grayscale" id="opaque-block-in-clear-layer"></div></div>
+<div class="layer wrapper" style="left:8px; top:296px"><div class="text dark" data-expect="grayscale" id="dark-block-in-clear-layer"></div></div>
+
+<!-- An overflow scroller and an iframe without a background are composited for asynchronous scrolling, so
+     their text is grayscale. Stock Safari 7, which composited neither, drew both subpixel. -->
+<div class="cell scroller" data-expect="grayscale" id="clear-scroller" style="left:204px; top:296px"></div>
+<iframe class="wrapper" id="clear-frame" style="left:400px; top:296px; border:0"
+    srcdoc="<body style='margin:0; overflow:scroll; font:14px/17px Lucida Grande; color:#111'><div id=text></div><div style='height:400px'></div></body>"></iframe>
+
+<div class="cell" data-expect="subpixel" id="control-subpixel" style="left:596px; top:296px; -webkit-font-smoothing:subpixel-antialiased"></div>
+<div class="cell" data-expect="grayscale" id="control-antialiased" style="left:792px; top:296px; -webkit-font-smoothing:antialiased"></div>
+<script>
+var text = "";
+for (var i = 0; i < 5; ++i)
+    text += "Hamburgefonts 0123456789 The quick brown fox jumps over the lazy dog. ";
+var cells = document.querySelectorAll("[data-expect]");
+for (var i = 0; i < cells.length; ++i) {
+    cells[i].appendChild(document.createTextNode(text));
+    if (/scroller/.test(cells[i].className))
+        cells[i].insertAdjacentHTML("beforeend", "<div style='height:400px'></div>");
+}
+
+var frame = document.getElementById("clear-frame");
+frame.setAttribute("data-expect", "grayscale");
+frame.onload = function () { frame.contentDocument.getElementById("text").appendChild(frame.contentDocument.createTextNode(text)); };
+cells = document.querySelectorAll("[data-expect]");
+
+// One "name expectation x y width height" line per cell in viewport coordinates, shrunk 2px so cell
+// edges and scrollbars stay out of the measured area. A cell the viewport does not show in full is
+// reported as "outside-viewport name", which fringe.c rejects.
+window.cellRegions = function () {
+    var lines = [];
+    for (var i = 0; i < cells.length; ++i) {
+        var cell = cells[i], r = cell.getBoundingClientRect();
+        if (r.left < 0 || r.top < 0 || r.right > window.innerWidth || r.bottom > window.innerHeight)
+            lines.push("outside-viewport " + cell.id);
+        else
+            lines.push([cell.id, cell.getAttribute("data-expect"), Math.round(r.left + 2), Math.round(r.top + 2), cell.clientWidth - 4, cell.clientHeight - 4].join(" "));
+    }
+    return lines.join("\n");
+};
+
+function ready(message)
+{
+    requestAnimationFrame(function () { requestAnimationFrame(function () { document.title = "font smoothing probe: " + message; }); });
+}
+window.onload = function () {
+    if (!document.fonts || !document.getAnimations) {
+        // Safari 7: the load event follows the web font, and the 0.2s animations end well within a second.
+        setTimeout(function () { ready("ready"); }, 1000);
+        return;
+    }
+    document.fonts.load("bold 15px GeorgiaWeb").then(function (faces) {
+        return Promise.all(document.getAnimations().map(function (animation) { return animation.finished; })).then(function () {
+            ready(faces.length ? "ready" : "GeorgiaWeb did not load");
+        });
+    });
+};
+</script>
+</body>
+</html>
