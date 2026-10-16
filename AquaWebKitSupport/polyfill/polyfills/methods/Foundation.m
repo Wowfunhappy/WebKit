@@ -1645,6 +1645,18 @@ WK_POLYFILL_ADD_METHODS(NSLocale)
 @end
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSUserDefaults volatileDomainForName:] answers a dictionary for every domain name (nonnull in the
+// SDK), empty when the domain holds nothing. 10.9's -[CFPrefsSource alreadylocked_copyDictionary]
+// answers NULL for a source with no entries, so NSArgumentDomain in a process launched without a
+// `-key value` argument (every XPC service) reads as nil there.
+WK_POLYFILL_REPLACE_METHODS(NSUserDefaults)
+- (NSDictionary<NSString *, id> *)volatileDomainForName:(NSString *)domainName
+{
+    return WK_ORIGINAL_METHOD(NSDictionary *, (NSString *), domainName) ?: @{};
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------
 // +[NSURLProtocol _protocolClassForRequest:skipAppSSO:] (macOS 11+ SPI): the protocol class that would
 // handle the request, passing over the App SSO protocol when asked to. 10.9 has no App SSO protocol, so
 // the answer is 10.9's own +_protocolClassForRequest:.

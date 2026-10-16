@@ -616,6 +616,16 @@ probe_language_minimization() {
         "$T/language_minimization"
 }
 
+probe_volatile_domain() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/volatile_domain" "$TBEHAV/Foundation-volatile-domain.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/volatile_domain"
+}
+
 probe_avf_display_color() {
     "$CLANG" $HOST -fno-objc-arc -I"$PF/methods" -I"$PF/c" -o "$T/avf_display_color" "$TBEHAV/AVFoundation-display-color.m" \
         "$PF/methods/Accelerate.m" "$PF/shared/wk_symbols.c" -framework Cocoa -framework QuartzCore -framework CoreMedia -framework CoreVideo -framework Accelerate &&
@@ -1004,6 +1014,7 @@ run_probe url_data_representation "$@"
 run_probe relative_file_url "$@"
 run_probe promised_item_values "$@"
 run_probe language_minimization "$@"
+run_probe volatile_domain "$@"
 run_probe avf_display_color "$@"
 run_probe avf_resource_loader_drain "$@"
 run_probe avf_display_color_kvo "$@"
