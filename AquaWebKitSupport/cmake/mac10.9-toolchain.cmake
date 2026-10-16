@@ -40,7 +40,8 @@ set(CMAKE_OBJCXX_COMPILER ${_TC}/bin/clang++)
 # `cmake --fresh` and a fresh clone, both of which wipe cache-only launcher vars.
 # CMake holds one launcher per language, and this tree compiles all four: WebKit's
 # Mac code is largely ObjC++, so OBJCXX carries most of the cache's value. The
-# compiler stays the real clang above; ccache masquerades via CMAKE_*_LAUNCHER.
+# compiler stays the real clang above; ccache masquerades via CMAKE_*_LAUNCHER,
+# behind ccache-launcher.sh, which runs precompiled-header compiles uncached.
 # build.sh pins CCACHE_DIR to WebKitBuild/ccache; ccache reads it from the env at
 # compile time. Override _CCACHE with AQUAWEBKIT_CCACHE (set it empty to disable).
 if (DEFINED ENV{AQUAWEBKIT_CCACHE})
@@ -49,10 +50,16 @@ else ()
     get_filename_component(_CCACHE "${CMAKE_CURRENT_LIST_DIR}/../toolchain/build/ccache/bin/ccache" ABSOLUTE)
 endif ()
 if (_CCACHE AND EXISTS "${_CCACHE}")
-    set(CMAKE_C_COMPILER_LAUNCHER      "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
-    set(CMAKE_CXX_COMPILER_LAUNCHER    "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
-    set(CMAKE_OBJC_COMPILER_LAUNCHER   "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
-    set(CMAKE_OBJCXX_COMPILER_LAUNCHER "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
+    set(_CCACHE_LAUNCHER "${CMAKE_CURRENT_LIST_DIR}/ccache-launcher.sh;${_CCACHE}")
+    set(CMAKE_C_COMPILER_LAUNCHER      "${_CCACHE_LAUNCHER}" CACHE STRING "ccache compiler launcher" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER    "${_CCACHE_LAUNCHER}" CACHE STRING "ccache compiler launcher" FORCE)
+    set(CMAKE_OBJC_COMPILER_LAUNCHER   "${_CCACHE_LAUNCHER}" CACHE STRING "ccache compiler launcher" FORCE)
+    set(CMAKE_OBJCXX_COMPILER_LAUNCHER "${_CCACHE_LAUNCHER}" CACHE STRING "ccache compiler launcher" FORCE)
+else ()
+    set(CMAKE_C_COMPILER_LAUNCHER      "" CACHE STRING "ccache compiler launcher" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER    "" CACHE STRING "ccache compiler launcher" FORCE)
+    set(CMAKE_OBJC_COMPILER_LAUNCHER   "" CACHE STRING "ccache compiler launcher" FORCE)
+    set(CMAKE_OBJCXX_COMPILER_LAUNCHER "" CACHE STRING "ccache compiler launcher" FORCE)
 endif ()
 
 set(CMAKE_AR      ${_TC}/bin/llvm-ar      CACHE FILEPATH "")

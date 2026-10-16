@@ -189,9 +189,6 @@ export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
 export CCACHE_BASEDIR="$(dirname "$ROOT")"
 export CCACHE_NOHASHDIR=1
 export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_defines,ivfsoverlay"
-# Keys come from the compiler's -MD dependencies and the included files' contents. Preprocessed output
-# carries no #define lines, so a define-only header change keyed that way returns a stale precompiled header.
-export CCACHE_DEPEND=1
 export CCACHE_COMPILERCHECK="string:$(shasum -a 256 \
     "$TC/clang/bin/clang-22" "$TC/clang/bin/clang.cfg" "$TC/clang/bin/clang++.cfg" \
     | awk '{print $1}' | shasum -a 256 | awk '{print $1}')"
@@ -216,8 +213,7 @@ if [ ! -f "$CACHE_FILE" ]; then
     if ! "$CMAKE" -S "$ROOT" -B "$BUILD" -G Ninja \
             -DCMAKE_MAKE_PROGRAM="$NINJA" \
             -DCMAKE_TOOLCHAIN_FILE="$ROOT/AquaWebKitSupport/cmake/mac10.9-toolchain.cmake" \
-            -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1 $DEV_FLAGS; then
+            -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $DEV_FLAGS; then
         echo "==================== CONFIGURE FAILED — ABORTING ===================="
         printf '%s\n' "$(tail -20 "$LOG")"; exit 1
     fi
@@ -284,7 +280,7 @@ fi
 # --- Header overlay membership ---------------------------------------------------------------
 # Every compile searches AquaWebKitSupport/polyfill/headers with -idirafter, so adding or removing a
 # header there changes what an #include or __has_include resolves to in any translation unit. Neither
-# ninja's depfiles nor ccache's depend mode records a header that was absent, so the overlay's file
+# ninja's depfiles nor ccache's direct mode records a header that was absent, so the overlay's file
 # list enters every cache key below, and a change to it removes the built objects and precompiled
 # headers for ninja to rebuild.
 OVERLAY_LIST="$BUILD/polyfill-header-overlay.list"
