@@ -213,7 +213,8 @@ if [ ! -f "$CACHE_FILE" ]; then
     if ! "$CMAKE" -S "$ROOT" -B "$BUILD" -G Ninja \
             -DCMAKE_MAKE_PROGRAM="$NINJA" \
             -DCMAKE_TOOLCHAIN_FILE="$ROOT/AquaWebKitSupport/cmake/mac10.9-toolchain.cmake" \
-            -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $DEV_FLAGS; then
+            -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1 $DEV_FLAGS; then
         echo "==================== CONFIGURE FAILED — ABORTING ===================="
         printf '%s\n' "$(tail -20 "$LOG")"; exit 1
     fi
