@@ -243,6 +243,17 @@ probe_scrollview_insets() {
         "$T/scrollview_insets"
 }
 
+probe_text_field_line_cap() {
+    prepare_method_objects AppKit &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/text_field_line_cap" "$TBEHAV/AppKit-text-field-line-cap.m" \
+            "$OBJ/methods/AppKit.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/text_field_line_cap" &&
+        "$T/text_field_line_cap" -NSStringDrawingTypesetterBehavior 4
+}
+
 probe_color_popover_top_bar() {
     "$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/color_popover_top_bar" "$TBEHAV/AppKit-color-popover-top-bar.m" \
         -framework AppKit -framework Foundation -lobjc &&
@@ -1039,6 +1050,7 @@ run_probe share_picker_popover "$@"
 run_probe popover_focus "$@"
 run_probe touch_bar "$@"
 run_probe scrollview_insets "$@"
+run_probe text_field_line_cap "$@"
 run_probe color_popover_top_bar "$@"
 run_probe dispatch_activate "$@"
 run_probe sectask_identity "$@"

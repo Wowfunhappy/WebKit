@@ -60,36 +60,87 @@ WK_POLYFILL_ADD_METHODS(NSButtonCell)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSControl setMaximumNumberOfLines:] (10.11+) and -[NSView sizeThatFits:] (10.10+). maximumNumberOfLines
-// caps how many wrapped lines a label lays out; sizeThatFits: measures the label at a target width.
-// 10.9's -sizeToFit already does the wrapped measurement, so sizeThatFits: reuses it (saving and
-// restoring the frame so the measure has no side effect) and then clamps the height to the stored
-// line cap. maximumNumberOfLines stores the cap on the control; 0 (the default) means no cap.
-static const char kWKMaxLinesKey;
+// -[NSControl sizeThatFits:] (10.10+) is the cell's own measurement at the proposed size, which 10.9's
+// -[NSCell cellSizeForBounds:] makes.
 WK_POLYFILL_ADD_METHODS(NSControl)
+- (NSSize)sizeThatFits:(NSSize)size
+{
+    return [[self cell] cellSizeForBounds:NSMakeRect(0, 0, size.width, size.height)];
+}
+@end
+
+// -[NSTextField maximumNumberOfLines] / -setMaximumNumberOfLines: (10.11+) store the line cap on the field
+// (0, the default, is no cap), and -sizeThatFits: measures at most that many wrapped lines: the cell's
+// -cellSizeForBounds: of the characters on its first lines, less a paragraph separator ending the last one
+// (the cell measures a trailing separator as one more line). Those lines come from laying the cell's text
+// out the way NSCell lays it out -- the cell's own -_typesetterBehavior, no font leading, a 2pt line
+// fragment padding inside -titleRectForBounds: -- so they break where the cell breaks. 10.9's cell draws
+// every line that fits its frame, so a frame set from this size shows exactly the capped lines.
+@interface NSCell (WKTypesetterBehavior)
+- (NSTypesetterBehavior)_typesetterBehavior;
+@end
+static const char kWKMaximumNumberOfLinesKey;
+static NSInteger maximumNumberOfLines(NSTextField *field)
+{
+    return [objc_getAssociatedObject(field, &kWKMaximumNumberOfLinesKey) integerValue];
+}
+WK_POLYFILL_ADD_METHODS(NSTextField)
+- (NSInteger)maximumNumberOfLines
+{
+    return maximumNumberOfLines(self);
+}
 - (void)setMaximumNumberOfLines:(NSInteger)maximumNumberOfLines
 {
-    objc_setAssociatedObject(self, &kWKMaxLinesKey, @(maximumNumberOfLines), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, &kWKMaximumNumberOfLinesKey, @(maximumNumberOfLines), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 - (NSSize)sizeThatFits:(NSSize)size
 {
-    NSRect saved = [self frame];
-    [self setFrameSize:NSMakeSize(size.width, size.height)];
-    [self sizeToFit];
-    NSSize fit = [self frame].size;
-    [self setFrame:saved];
+    NSCell *cell = [self cell];
+    NSRect bounds = NSMakeRect(0, 0, size.width, size.height);
+    NSSize fit = [cell cellSizeForBounds:bounds];
+    NSInteger maximumLines = maximumNumberOfLines(self);
+    if (maximumLines <= 0)
+        return fit;
 
-    NSInteger maxLines = [objc_getAssociatedObject(self, &kWKMaxLinesKey) integerValue];
-    if (maxLines > 0) {
-        NSFont *font = [self font];
-        if (font) {
-            NSLayoutManager *lm = [[NSLayoutManager alloc] init];
-            CGFloat cap = maxLines * [lm defaultLineHeightForFont:font];
-            if (fit.height > cap)
-                fit.height = cap;
-        }
+    NSAttributedString *text = [cell attributedStringValue];
+    NSTextStorage *storage = [[NSTextStorage alloc] initWithAttributedString:text];
+    NSLayoutManager *layoutManager = [[NSLayoutManager alloc] init];
+    [layoutManager setTypesetterBehavior:[cell _typesetterBehavior]];
+    [layoutManager setUsesFontLeading:NO];
+    NSTextContainer *container = [[NSTextContainer alloc] initWithContainerSize:NSMakeSize(NSWidth([cell titleRectForBounds:bounds]), CGFLOAT_MAX)];
+    [container setLineFragmentPadding:2];
+    [layoutManager addTextContainer:container];
+    [storage addLayoutManager:layoutManager];
+
+    NSRange glyphs = [layoutManager glyphRangeForTextContainer:container];
+    NSUInteger glyph = glyphs.location;
+    NSInteger lines = 0;
+    for (; lines < maximumLines && glyph < NSMaxRange(glyphs); lines++) {
+        NSRange lineGlyphs;
+        [layoutManager lineFragmentRectForGlyphAtIndex:glyph effectiveRange:&lineGlyphs];
+        glyph = NSMaxRange(lineGlyphs);
     }
-    return fit;
+    // A trailing paragraph separator lays out one more, empty line after the last glyph's.
+    BOOL capped = glyph < NSMaxRange(glyphs) || (lines == maximumLines && [layoutManager extraLineFragmentTextContainer]);
+    NSRange characters = [layoutManager characterRangeForGlyphRange:NSMakeRange(glyphs.location, glyph - glyphs.location) actualGlyphRange:NULL];
+    if (characters.length) {
+        NSUInteger paragraphEnd;
+        NSUInteger contentsEnd;
+        [[text string] getParagraphStart:NULL end:&paragraphEnd contentsEnd:&contentsEnd forRange:NSMakeRange(NSMaxRange(characters) - 1, 1)];
+        if (paragraphEnd == NSMaxRange(characters))
+            characters.length = contentsEnd - characters.location;
+    }
+    [storage release];
+    [layoutManager release];
+    [container release];
+    if (!capped)
+        return fit;
+
+    NSCell *firstLines = [cell copy];
+    [firstLines setAttributedStringValue:[text attributedSubstringFromRange:characters]];
+    NSSize cappedSize = [firstLines cellSizeForBounds:bounds];
+    [firstLines release];
+    return cappedSize;
 }
 @end
 
@@ -102,10 +153,10 @@ WK_POLYFILL_ADD_METHODS(NSSearchFieldCell)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// NSColor semantic + system palette (10.10+/10.14+). The selection backgrounds are the SDK-named aliases of
-// 10.9's own colors; the label tier, separator, container border and find highlight return the light-Aqua
-// values in LayoutTests/platform/mac/fast/css/apple-system-control-colors-expected.txt, and the system palette
-// those in LayoutTests/platform/mac/fast/css/apple-system-colors-expected.txt.
+// NSColor semantic + system palette (10.10+/10.14+). The selection and alternating-content backgrounds are
+// the SDK-named aliases of 10.9's own colors; the label tier, separator, container border and find highlight
+// return the light-Aqua values in LayoutTests/platform/mac/fast/css/apple-system-control-colors-expected.txt,
+// and the system palette those in LayoutTests/platform/mac/fast/css/apple-system-colors-expected.txt.
 WK_POLYFILL_ADD_METHODS(NSColor)
 + (NSColor *)labelColor                              { return SRGB(0, 0, 0, 216); }
 + (NSColor *)secondaryLabelColor                     { return SRGB(0, 0, 0, 127); }
@@ -117,10 +168,12 @@ WK_POLYFILL_ADD_METHODS(NSColor)
 + (NSColor *)unemphasizedSelectedTextColor           { return [NSColor textColor]; }
 + (NSColor *)unemphasizedSelectedContentBackgroundColor { return [NSColor secondarySelectedControlColor]; }
 + (NSColor *)unemphasizedSelectedTextBackgroundColor { return [NSColor secondarySelectedControlColor]; }
++ (NSArray<NSColor *> *)alternatingContentBackgroundColors { return [NSColor controlAlternatingRowBackgroundColors]; }
 + (NSColor *)controlAccentColor                      { return [NSColor alternateSelectedControlColor]; } // 10.9 system blue
 + (NSColor *)separatorColor                          { return SRGB(0, 0, 0, 25); }
 + (NSColor *)containerBorderColor                    { return SRGB(0, 0, 0, 63); }
 + (NSColor *)findHighlightColor                      { return SRGB(255, 255, 0, 255); }
++ (NSColor *)linkColor                               { return SRGB(0, 104, 218, 255); } // light Aqua #0068DA (swiftuicolors.com/macos-colors)
 + (NSColor *)systemBlueColor   { return SRGB(0, 122, 255, 255); }
 + (NSColor *)systemBrownColor  { return SRGB(162, 132, 94, 255); }
 + (NSColor *)systemGrayColor   { return SRGB(142, 142, 147, 255); }

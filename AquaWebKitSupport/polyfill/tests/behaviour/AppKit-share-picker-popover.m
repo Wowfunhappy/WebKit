@@ -1,9 +1,11 @@
 // The share picker's popover form shows 10.9's services menu, reports the choice to its completion,
 // and -hide closes the menu while it is up.
 //
-// The chosen-service case activates this process and drives the menu with keystrokes posted to the
-// login session, so it needs the window server session this VM runs in.
+// Each case acts once the services menu has begun tracking, and the chosen-service case drives the menu
+// with keystrokes posted to this process, so it needs the window server session this VM runs in but no
+// other application's cooperation.
 #import <AppKit/AppKit.h>
+#import <ApplicationServices/ApplicationServices.h>
 #include <stdio.h>
 
 @interface NSSharingServicePicker (PopoverProbe)
@@ -43,11 +45,26 @@
 
 static void postKey(CGKeyCode key)
 {
+    ProcessSerialNumber currentProcess;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    GetCurrentProcess(&currentProcess);
+#pragma clang diagnostic pop
     for (int down = 1; down >= 0; --down) {
         CGEventRef event = CGEventCreateKeyboardEvent(NULL, key, down);
-        CGEventPost(kCGSessionEventTap, event);
+        CGEventPostToPSN(&currentProcess, event);
         CFRelease(event);
     }
+}
+
+// Runs `action` on the run loop's next pass, in the menu-tracking mode as well, once a menu has begun
+// tracking; returns the observer to remove.
+static id afterMenuBeginsTracking(void (^action)(void))
+{
+    return [[NSNotificationCenter defaultCenter] addObserverForName:NSMenuDidBeginTrackingNotification object:nil queue:nil usingBlock:^(__unused NSNotification *notification) {
+        CFRunLoopPerformBlock(CFRunLoopGetCurrent(), kCFRunLoopCommonModes, action);
+        CFRunLoopWakeUp(CFRunLoopGetCurrent());
+    }];
 }
 
 static unsigned failures;
@@ -84,16 +101,17 @@ int main(void)
 
         __block BOOL menuTracked = NO;
         __block BOOL delegateForwarded = NO;
-        id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSMenuDidBeginTrackingNotification object:nil queue:nil usingBlock:^(__unused NSNotification *notification) {
+        id observer = afterMenuBeginsTracking(^{
             menuTracked = YES;
-        }];
-        CFRunLoopTimerRef hideTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 0.5, 0, 0, 0, ^(__unused CFRunLoopTimerRef timer) {
             id current = [picker delegate];
             delegateForwarded = [current respondsToSelector:@selector(sharingServicePicker:delegateForSharingService:)]
                 && [(id<NSSharingServicePickerDelegate>)current sharingServicePicker:picker delegateForSharingService:[NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail]] == (id)delegate;
             [picker hide];
         });
-        CFRunLoopAddTimer(CFRunLoopGetCurrent(), hideTimer, kCFRunLoopCommonModes);
+        CFRunLoopTimerRef stuckHideTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 10, 0, 0, 0, ^(__unused CFRunLoopTimerRef timer) {
+            [picker hide];
+        });
+        CFRunLoopAddTimer(CFRunLoopGetCurrent(), stuckHideTimer, kCFRunLoopCommonModes);
 
         __block NSUInteger completionCount = 0;
         __block NSSharingService *completedService = (NSSharingService *)@"unset";
@@ -102,8 +120,8 @@ int main(void)
             completedService = service;
         }];
         [[NSNotificationCenter defaultCenter] removeObserver:observer];
-        CFRunLoopTimerInvalidate(hideTimer);
-        CFRelease(hideTimer);
+        CFRunLoopTimerInvalidate(stuckHideTimer);
+        CFRelease(stuckHideTimer);
 
         check("the services menu was shown", menuTracked);
         check("delegate messages reach the client's delegate while shown", delegateForwarded);
@@ -118,17 +136,12 @@ int main(void)
             handlerRan = YES;
         }] autorelease];
         NSSharingServicePicker *choosingPicker = [[NSSharingServicePicker alloc] initWithItems:@[ [NSURL URLWithString:@"https://webkit.org/"] ]];
-        // Keystrokes reach a menu only in the active application.
-        [NSApp activateIgnoringOtherApps:YES];
-        [window makeKeyWindow];
-        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
         [choosingPicker setDelegate:choosingDelegate];
 
-        CFRunLoopTimerRef chooseTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 0.5, 0, 0, 0, ^(__unused CFRunLoopTimerRef timer) {
+        id chooseObserver = afterMenuBeginsTracking(^{
             postKey(125); // Down arrow: highlight the only item.
             postKey(36); // Return: choose it.
         });
-        CFRunLoopAddTimer(CFRunLoopGetCurrent(), chooseTimer, kCFRunLoopCommonModes);
         CFRunLoopTimerRef stuckTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 10, 0, 0, 0, ^(__unused CFRunLoopTimerRef timer) {
             [choosingPicker hide];
         });
@@ -140,8 +153,7 @@ int main(void)
             ++choiceCompletionCount;
             choiceCompletedService = [service retain];
         }];
-        CFRunLoopTimerInvalidate(chooseTimer);
-        CFRelease(chooseTimer);
+        [[NSNotificationCenter defaultCenter] removeObserver:chooseObserver];
         CFRunLoopTimerInvalidate(stuckTimer);
         CFRelease(stuckTimer);
 
