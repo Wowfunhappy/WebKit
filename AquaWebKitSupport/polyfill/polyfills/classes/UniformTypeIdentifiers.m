@@ -179,15 +179,34 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     CFRelease(uti);
     return t;
 }
-// -tags (11.0+): the type's known tags, keyed by tag class. MIMETypeRegistry::preferredExtensionForMIMEType
-// indexes it with UTTagClassFilenameExtension. Built from the same LaunchServices registry the modern
-// framework reads (_UTTypeCopyAllTagsWithClass, declared above), for the two tag classes WebKit and
-// the modern framework both know.
+// -tags (11.0+): the type's tags, keyed by tag class. MIMETypeRegistry::preferredExtensionForMIMEType
+// indexes it with UTTagClassFilenameExtension and PlatformPasteboardMac with com.apple.nspboard-type. A
+// type LaunchServices declares answers every tag class of its declaration's UTTypeTagSpecification, each as
+// an array (a declaration may give a single string), and a wk_declared_types.h type LaunchServices declares
+// without a MIME type (the fonts) adds the table's. A table type LaunchServices does not declare answers
+// from the table; any other identifier (a dynamic one) answers its extension and MIME type tags.
 - (NSDictionary *)tags
 {
     if (!_identifier) return [NSDictionary dictionary];
     NSMutableDictionary *tags = [NSMutableDictionary dictionary];
     const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
+    CFDictionaryRef declaration = UTTypeCopyDeclaration((__bridge CFStringRef)_identifier);
+    if (declaration) {
+        CFTypeRef specification = CFDictionaryGetValue(declaration, kUTTypeTagSpecificationKey);
+        if (specification && CFGetTypeID(specification) == CFDictionaryGetTypeID()) {
+            for (id tagClass in (__bridge NSDictionary *)specification) {
+                id value = [(__bridge NSDictionary *)specification objectForKey:tagClass];
+                if ([value isKindOfClass:[NSArray class]])
+                    [tags setObject:[NSArray arrayWithArray:value] forKey:tagClass];
+                else if ([value isKindOfClass:[NSString class]])
+                    [tags setObject:[NSArray arrayWithObject:value] forKey:tagClass];
+            }
+        }
+        CFRelease(declaration);
+        if (declared && declared->mimeType && ![tags objectForKey:@"public.mime-type"])
+            [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->mimeType] forKey:@"public.mime-type"];
+        return tags;
+    }
     if (declared) {
         if (declared->filenameExtension)
             [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->filenameExtension] forKey:@"public.filename-extension"];

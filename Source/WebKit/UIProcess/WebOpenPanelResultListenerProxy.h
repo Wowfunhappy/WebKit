@@ -30,6 +30,7 @@
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
+#include <wtf/text/WTFString.h> // AQUAWEBKIT: m_allowedMIMETypes.
 
 namespace API {
 class Array;
@@ -54,6 +55,9 @@ public:
     void chooseFiles(const Vector<String>& filenames, const String& displayString, const API::Data* iconImageData);
 #endif
     void chooseFiles(const Vector<String>& filenames, const Vector<String>& allowedMIMETypes = { });
+    // AQUAWEBKIT: the open panel's allowed MIME types, which WKOpenPanelResultListenerChooseFiles passes on.
+    void setAllowedMIMETypes(Vector<String>&& allowedMIMETypes) { m_allowedMIMETypes = WTF::move(allowedMIMETypes); }
+    const Vector<String>& allowedMIMETypes() const { return m_allowedMIMETypes; }
     void cancel();
 
     void invalidate();
@@ -65,6 +69,7 @@ private:
 
     RefPtr<WebPageProxy> m_page;
     WeakPtr<WebProcessProxy> m_process;
+    Vector<String> m_allowedMIMETypes; // AQUAWEBKIT: see setAllowedMIMETypes().
 };
 
 } // namespace WebKit

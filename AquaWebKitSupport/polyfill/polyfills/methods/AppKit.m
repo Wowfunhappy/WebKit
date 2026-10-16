@@ -104,7 +104,8 @@ WK_POLYFILL_ADD_METHODS(NSSearchFieldCell)
 // ---------------------------------------------------------------------------------------------------
 // NSColor semantic + system palette (10.10+/10.14+). The selection backgrounds are the SDK-named aliases of
 // 10.9's own colors; the label tier, separator, container border and find highlight return the light-Aqua
-// values in LayoutTests/platform/mac/fast/css/apple-system-control-colors-expected.txt.
+// values in LayoutTests/platform/mac/fast/css/apple-system-control-colors-expected.txt, and the system palette
+// those in LayoutTests/platform/mac/fast/css/apple-system-colors-expected.txt.
 WK_POLYFILL_ADD_METHODS(NSColor)
 + (NSColor *)labelColor                              { return SRGB(0, 0, 0, 216); }
 + (NSColor *)secondaryLabelColor                     { return SRGB(0, 0, 0, 127); }
@@ -123,7 +124,7 @@ WK_POLYFILL_ADD_METHODS(NSColor)
 + (NSColor *)systemBlueColor   { return SRGB(0, 122, 255, 255); }
 + (NSColor *)systemBrownColor  { return SRGB(162, 132, 94, 255); }
 + (NSColor *)systemGrayColor   { return SRGB(142, 142, 147, 255); }
-+ (NSColor *)systemGreenColor  { return SRGB(52, 199, 89, 255); }
++ (NSColor *)systemGreenColor  { return SRGB(40, 205, 65, 255); }
 + (NSColor *)systemOrangeColor { return SRGB(255, 149, 0, 255); }
 + (NSColor *)systemPinkColor   { return SRGB(255, 45, 85, 255); }
 + (NSColor *)systemPurpleColor { return SRGB(175, 82, 222, 255); }
@@ -164,11 +165,10 @@ WK_POLYFILL_ADD_METHODS(NSColor)
 //   - Dark Aqua. 10.9 ships no dark appearance. +appearanceNamed:NSAppearanceNameDarkAqua returns a
 //     stand-in object that carries the name but renders as Aqua, so a dark-appearance draw comes out
 //     light. Nothing crashes and no call site is guarded; dark form controls simply look light.
-//   - Per-appearance tint. -appearanceByApplyingTintColor: (11.0+) has no 10.9 equivalent: CoreUI on 10.9
-//     draws with the system-wide accent (blue/graphite) and takes no per-appearance tint, so the polyfill
-//     returns the receiver unchanged and a requested tint is ignored. On this OS the only tint that ever
-//     reaches it is the one -tintColor below just handed out — the system accent — so the round trip is
-//     exact for every value WebKit actually passes; a tint from anywhere else would be dropped.
+//   - Per-appearance tint. -appearanceByApplyingTintColor: (11.0+) has no 10.9 equivalent: 10.9's CoreUI
+//     widget tint (kCUITintKey) takes only Blue, Graphite and Clear, so the polyfill returns the receiver
+//     unchanged. The system accent -tintColor below hands out round-trips exactly; an author's CSS
+//     accent-color is dropped, and checkboxes, radios and other native controls draw in the system accent.
 
 // 10.9's spelling of the CoreUI draw, which no SDK we build against declares.
 @interface NSAppearance (WKAquaWebKitSPI)

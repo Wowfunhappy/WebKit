@@ -1537,11 +1537,11 @@ static NSString *wk_contentDispositionReadAsUTF8(NSString *field)
     return [[[NSString alloc] initWithData:bytes encoding:NSUTF8StringEncoding] autorelease];
 }
 
-WK_POLYFILL_REPLACE_METHODS(NSURLResponse)
-- (NSString *)suggestedFilename
+// The name a response's UTF-8 Content-Disposition reading gives, when that reading differs from the field.
+static BOOL wk_suggestedFilenameFromUTF8Reading(NSURLResponse *self, NSString **filename)
 {
     if (![self isKindOfClass:[NSHTTPURLResponse class]])
-        return WK_ORIGINAL_METHOD(NSString *, ());
+        return NO;
     NSHTTPURLResponse *response = (NSHTTPURLResponse *)self;
     NSDictionary *headers = [response allHeaderFields];
     NSString *key = nil;
@@ -1554,14 +1554,55 @@ WK_POLYFILL_REPLACE_METHODS(NSURLResponse)
     id field = key ? [headers objectForKey:key] : nil;
     NSString *reading = [field isKindOfClass:[NSString class]] ? wk_contentDispositionReadAsUTF8(field) : nil;
     if (!reading)
-        return WK_ORIGINAL_METHOD(NSString *, ());
+        return NO;
 
     NSMutableDictionary *fields = [[headers mutableCopy] autorelease];
     [fields setObject:reading forKey:key];
     NSHTTPURLResponse *readResponse = [[[NSHTTPURLResponse alloc] initWithURL:[response URL] statusCode:[response statusCode] HTTPVersion:@"HTTP/1.1" headerFields:fields] autorelease];
     [readResponse _setMIMEType:[response MIMEType]];
-    CFStringRef filename = WK_SYSTEM(CFURLResponseCopySuggestedFilename)([readResponse _CFURLResponse]);
-    return filename ? [(NSString *)filename autorelease] : nil;
+    CFStringRef copied = WK_SYSTEM(CFURLResponseCopySuggestedFilename)([readResponse _CFURLResponse]);
+    *filename = copied ? [(NSString *)copied autorelease] : nil;
+    return YES;
+}
+
+// A response with no Content-Disposition field and no host or path component in its URL -- blob:, data:,
+// about: -- has no name of its own, and 10.9's CFURLResponseCopySuggestedFilename names it "Unknown" whatever
+// its MIME type, where modern Foundation adds the extension NSURLFileTypeMappings prefers for that type
+// ("Unknown.otf"). Every other name stays as 10.9 gives it.
+@interface NSObject (WKFileTypeMappings)
++ (id)sharedMappings;
+- (NSString *)preferredExtensionForMIMEType:(NSString *)type;
+@end
+
+static BOOL wk_responseNamesNoFile(NSURLResponse *response)
+{
+    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+        for (id field in [(NSHTTPURLResponse *)response allHeaderFields]) {
+            if ([field isKindOfClass:[NSString class]] && [field caseInsensitiveCompare:@"Content-Disposition"] == NSOrderedSame)
+                return NO;
+        }
+    }
+    NSURL *url = [response URL];
+    NSString *component = [url lastPathComponent];
+    return url && !url.host.length && (!component.length || [component isEqualToString:@"/"]);
+}
+
+static NSString *wk_unnamedResponseFilename(NSURLResponse *response, NSString *filename)
+{
+    NSString *mimeType = [response MIMEType];
+    if (!filename.length || filename.pathExtension.length || !mimeType.length || !wk_responseNamesNoFile(response))
+        return filename;
+    NSString *extension = [[NSClassFromString(@"NSURLFileTypeMappings") sharedMappings] preferredExtensionForMIMEType:mimeType];
+    return extension.length ? [filename stringByAppendingPathExtension:extension] : filename;
+}
+
+WK_POLYFILL_REPLACE_METHODS(NSURLResponse)
+- (NSString *)suggestedFilename
+{
+    NSString *filename = nil;
+    if (!wk_suggestedFilenameFromUTF8Reading(self, &filename))
+        filename = WK_ORIGINAL_METHOD(NSString *, ());
+    return wk_unnamedResponseFilename(self, filename);
 }
 @end
 
@@ -3560,8 +3601,9 @@ WK_POLYFILL_ADD_METHODS(NSURL)
 @end
 
 // NSURLFileTypeMappings (private; 10.9 has it) is what MIMETypeRegistry asks for extension <-> MIME type.
-// It reads LaunchServices, which declares no HEIF type on this OS, so those types are answered from the
-// declarations -[UTType ...] carries (wk_declared_types.h), as modern Foundation does.
+// It reads LaunchServices, which on this OS has no declaration for the HEIF, AVIF and WebP types and declares
+// the OpenType and TrueType font types without a MIME type, so those types are answered from the declarations
+// -[UTType ...] carries (wk_declared_types.h), as modern Foundation does.
 WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "NSURLFileTypeMappings")
 - (NSString *)MIMETypeForExtension:(NSString *)extension
 {

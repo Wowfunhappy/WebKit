@@ -22,6 +22,7 @@ WK_SYSTEM_FN("CoreText", CTFontSymbolicTraits, CTFontGetSymbolicTraits, (CTFontR
 extern const CFStringRef kCTFontUIFontDesignTrait;
 extern const CFStringRef kCTFontUIFontDesignDefault;
 extern const CFStringRef kCTFontUIFontDesignMonospaced;
+extern const CFStringRef kCTFontCSSWeightAttribute;
 extern const CGFloat kCTFontWeightThin;
 extern const CGFloat kCTFontWeightLight;
 extern const CGFloat kCTFontWeightRegular;
@@ -443,6 +444,121 @@ int main(void)
     check(!removedItalic, "all installed native italic traits survive");
     CFRelease(installed);
     CFRelease(collection);
+
+    // WebCore's capabilitiesForFontDescriptor ranks an installed family's faces by this answer, so a named
+    // face has to carry the CSS weight of its named CoreText weight: Medium at 500 is what font-weight 500
+    // picks over Regular, and DemiBold at 600 what font-weight 600 picks over Bold.
+    const struct { CFStringRef face; float css; } cssWeights[] = {
+        { CFSTR("HelveticaNeue-UltraLight"), 100 }, { CFSTR("HelveticaNeue-Thin"), 200 },
+        { CFSTR("HelveticaNeue-Light"), 300 }, { CFSTR("HelveticaNeue"), 400 },
+        { CFSTR("HelveticaNeue-Medium"), 500 }, { CFSTR("AvenirNext-DemiBold"), 600 },
+        { CFSTR("HelveticaNeue-Bold"), 700 }, { CFSTR("AvenirNext-Heavy"), 900 },
+    };
+    for (unsigned i = 0; i < sizeof(cssWeights) / sizeof(cssWeights[0]); ++i) {
+        CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithNameAndSize(cssWeights[i].face, 0);
+        CFNumberRef number = (CFNumberRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontCSSWeightAttribute);
+        float css = -1;
+        if (number) {
+            CFNumberGetValue(number, kCFNumberFloatType, &css);
+            CFRelease(number);
+        }
+        CFStringGetCString(cssWeights[i].face, name, sizeof(name), kCFStringEncodingUTF8);
+        printf("css weight %s=%g\n", name, css);
+        check(css == cssWeights[i].css, "a named face reports its named weight's CSS weight");
+        CFRelease(descriptor);
+    }
+
+    // Faces whose 10.9 weight sits on a named weight keep that weight's CSS weight whatever their OS/2
+    // table declares: Futura-Medium is 0.0 and declares 500, the Hiragino Sans GB faces are 0.0 and 0.4
+    // and declare 300 and 600.
+    const struct { CFStringRef face; float css; } namedOverDeclared[] = {
+        { CFSTR("Futura-Medium"), 400 }, { CFSTR("HiraginoSansGB-W3"), 400 }, { CFSTR("HiraginoSansGB-W6"), 700 },
+    };
+    for (unsigned i = 0; i < sizeof(namedOverDeclared) / sizeof(namedOverDeclared[0]); ++i) {
+        CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithNameAndSize(namedOverDeclared[i].face, 0);
+        CFNumberRef number = (CFNumberRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontCSSWeightAttribute);
+        float css = -1;
+        if (number) {
+            CFNumberGetValue(number, kCFNumberFloatType, &css);
+            CFRelease(number);
+        }
+        CFStringGetCString(namedOverDeclared[i].face, name, sizeof(name), kCFStringEncodingUTF8);
+        printf("css weight %s=%g\n", name, css);
+        check(css == namedOverDeclared[i].css, "a face on a named weight reports that weight's CSS weight");
+        CFRelease(descriptor);
+    }
+
+    // The WebKitWeightWatcher test faces declare 100 to 900. 10.9 gives a face made from its file the
+    // weight its usWeightClass interpolates to (-0.5, -0.23, 0.2, 0.6, 0.8 between named weights) and a
+    // face registered by URL the weight its style name suggests (-0.5, -0.2, 0.5, 0.7); both report
+    // the declared weight.
+    char fontsDirectory[1024];
+    snprintf(fontsDirectory, sizeof(fontsDirectory), "%s", __FILE__);
+    char *suffix = strstr(fontsDirectory, "AquaWebKitSupport/polyfill/tests/behaviour/");
+    check(suffix != NULL, "the probe locates the checkout's test fonts");
+    if (suffix) {
+        strcpy(suffix, "Tools/WebKitTestRunner/fonts/");
+        CFURLRef urls[9];
+        for (unsigned w = 0; w < 9; ++w) {
+            char path[1100];
+            snprintf(path, sizeof(path), "%sWebKitWeightWatcher%u.ttf", fontsDirectory, (w + 1) * 100);
+            urls[w] = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, strlen(path), false);
+            CFArrayRef fromFile = CTFontManagerCreateFontDescriptorsFromURL(urls[w]);
+            CTFontDescriptorRef descriptor = fromFile && CFArrayGetCount(fromFile)
+                ? (CTFontDescriptorRef)CFArrayGetValueAtIndex(fromFile, 0) : NULL;
+            CFNumberRef number = descriptor ? (CFNumberRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontCSSWeightAttribute) : NULL;
+            float css = -1;
+            if (number) {
+                CFNumberGetValue(number, kCFNumberFloatType, &css);
+                CFRelease(number);
+            }
+            printf("css weight WeightWatcher%u from file=%g\n", (w + 1) * 100, css);
+            check(css == (w + 1) * 100, "a face made from a file reports its declared weight");
+            if (fromFile)
+                CFRelease(fromFile);
+        }
+        for (unsigned w = 0; w < 9; ++w)
+            CTFontManagerRegisterFontsForURL(urls[w], kCTFontManagerScopeProcess, NULL);
+        const void *familyKeys[] = { kCTFontFamilyNameAttribute };
+        const void *familyValues[] = { CFSTR("WebKit WeightWatcher") };
+        CFDictionaryRef familyAttributes = CFDictionaryCreate(NULL, familyKeys, familyValues, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CTFontDescriptorRef family = CTFontDescriptorCreateWithAttributes(familyAttributes);
+        CFSetRef mandatory = CFSetCreate(NULL, familyKeys, 1, &kCFTypeSetCallBacks);
+        CFArrayRef members = CTFontDescriptorCreateMatchingFontDescriptors(family, mandatory);
+        unsigned seen = 0;
+        for (CFIndex i = 0; members && i < CFArrayGetCount(members); ++i) {
+            CTFontDescriptorRef member = (CTFontDescriptorRef)CFArrayGetValueAtIndex(members, i);
+            CTFontRef font = CTFontCreateWithFontDescriptor(member, 12, NULL);
+            CFDataRef os2 = font ? CTFontCopyTable(font, kCTFontTableOS2, kCTFontTableOptionNoOptions) : NULL;
+            unsigned declared = os2 && CFDataGetLength(os2) >= 6
+                ? ((unsigned)CFDataGetBytePtr(os2)[4] << 8) | CFDataGetBytePtr(os2)[5] : 0;
+            CFNumberRef number = (CFNumberRef)CTFontDescriptorCopyAttribute(member, kCTFontCSSWeightAttribute);
+            float css = -1;
+            if (number) {
+                CFNumberGetValue(number, kCFNumberFloatType, &css);
+                CFRelease(number);
+            }
+            postScriptName(font, name, sizeof(name));
+            printf("css weight %s registered=%g declared=%u\n", name, css, declared);
+            check(declared && css == declared, "a registered face reports its declared weight");
+            ++seen;
+            if (os2)
+                CFRelease(os2);
+            if (font)
+                CFRelease(font);
+        }
+        check(seen == 9, "all nine registered WeightWatcher faces enumerate");
+        if (members)
+            CFRelease(members);
+        CFRelease(mandatory);
+        CFRelease(family);
+        CFRelease(familyAttributes);
+        for (unsigned w = 0; w < 9; ++w) {
+            CTFontManagerUnregisterFontsForURL(urls[w], kCTFontManagerScopeProcess, NULL);
+            CFRelease(urls[w]);
+        }
+    }
 
     if (failures) {
         printf("### CoreText face selection: %d failure(s)\n", failures);

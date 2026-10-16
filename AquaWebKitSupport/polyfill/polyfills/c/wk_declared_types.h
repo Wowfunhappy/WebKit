@@ -1,11 +1,13 @@
-// Types the modern system declares that 10.9's LaunchServices has never heard of, with the filename
-// extension and MIME type each is declared with: the HEIF family as the macOS SDK's UTCoreTypes.h names
-// it -- public.heif, public.heic and public.heics conforming to public.heif-standard, which conforms to
-// public.image -- and the AVIF and WebP image formats, each conforming to public.image.
+// Types as the modern system declares them, where 10.9's LaunchServices has no declaration or one without
+// a MIME type, with the filename extension and MIME type each is declared with: the HEIF family as the
+// macOS SDK's UTCoreTypes.h names it -- public.heif, public.heic and public.heics conforming to
+// public.heif-standard, which conforms to public.image -- the AVIF and WebP image formats, each conforming
+// to public.image, and the OpenType and TrueType fonts, which 10.9 declares with the same conformance and
+// no MIME type; upstream's platform/mac file-url-mimetypes baselines record them as font/otf and font/ttf.
 //
-// classes/UniformTypeIdentifiers.m (UTType), methods/Foundation.m (NSURLFileTypeMappings, and the MIME
-// type of a file URL's NSURLResponse) and c/CFNetwork.c (the same, for CFURLResponse) answer these types
-// from this table and every other type from LaunchServices.
+// classes/UniformTypeIdentifiers.m (UTType), methods/Foundation.m (NSURLFileTypeMappings, the MIME type of
+// a file URL's NSURLResponse and the extension of a suggested filename) and c/CFNetwork.c (the MIME type,
+// for CFURLResponse) answer these types from this table and every other type from LaunchServices.
 #pragma once
 
 #include <CoreFoundation/CoreFoundation.h>
@@ -25,6 +27,8 @@ static const WKDeclaredType wkDeclaredTypes[] = {
     { CFSTR("public.heics"), CFSTR("public.heif-standard"), CFSTR("heics"), CFSTR("image/heic-sequence") },
     { CFSTR("public.avif"), CFSTR("public.image"), CFSTR("avif"), CFSTR("image/avif") },
     { CFSTR("org.webmproject.webp"), CFSTR("public.image"), CFSTR("webp"), CFSTR("image/webp") },
+    { CFSTR("public.opentype-font"), CFSTR("public.font"), CFSTR("otf"), CFSTR("font/otf") },
+    { CFSTR("public.truetype-ttf-font"), CFSTR("public.truetype-font"), CFSTR("ttf"), CFSTR("font/ttf") },
 };
 
 #define WK_DECLARED_TYPE_COUNT (sizeof(wkDeclaredTypes) / sizeof(wkDeclaredTypes[0]))

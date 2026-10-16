@@ -67,11 +67,12 @@ void WKOpenPanelResultListenerChooseFiles(WKOpenPanelResultListenerRef listenerR
 {
     // AQUAWEBKIT: Safari 7's BrowserPageUIClient calls the legacy 2-argument
     // WKOpenPanelResultListenerChooseFiles(listenerRef, fileURLs), so the third argument is
-    // whatever the caller left in %rdx. allowedMimeTypes only filters iOS-style media pickers;
-    // the list passed down is empty.
+    // whatever the caller left in %rdx. The listener carries its open panel's allowed MIME types,
+    // the list UIDelegate::runOpenPanel passes from the same parameters; image transcoding reads it.
     // protect(toImpl(listenerRef))->chooseFiles(filePathsFromFileURLs(*protect(toImpl(fileURLsRef))), protect(toImpl(allowedMimeTypesRef))->toStringVector());
     UNUSED_PARAM(allowedMimeTypesRef);
-    protect(toImpl(listenerRef))->chooseFiles(filePathsFromFileURLs(*protect(toImpl(fileURLsRef))), Vector<String> { });
+    Ref listener = *toImpl(listenerRef);
+    listener->chooseFiles(filePathsFromFileURLs(*protect(toImpl(fileURLsRef))), listener->allowedMIMETypes());
 }
 
 void WKOpenPanelResultListenerCancel(WKOpenPanelResultListenerRef listenerRef)

@@ -469,7 +469,7 @@ SecTrustRef wk_credentialServerTrust(CFTypeRef credential)
 
 // ---------------------------------------------------------------------------------------------------
 // The MIME type of a file URL's response. 10.9's loader asks LaunchServices for the type the filename
-// extension names, and LaunchServices declares none of wk_declared_types.h's types, so a response it
+// extension names, and LaunchServices gives none of wk_declared_types.h's types a MIME type, so a response it
 // derives for one of those extensions is typed from the table, as the modern loader types it. A response
 // a caller builds or retypes keeps the MIME type it was given, whatever its URL.
 // ---------------------------------------------------------------------------------------------------

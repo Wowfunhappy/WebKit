@@ -155,6 +155,12 @@ probe_accent_color() {
         "$T/accent_color"
 }
 
+probe_declared_types() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/declared_types" "$TBEHAV/UniformTypeIdentifiers-declared-types.m" \
+        -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
+        "$T/declared_types"
+}
+
 probe_scrolling_axis_filter() {
     /usr/bin/python "$TBEHAV/AppKit-scrolling-axis-filter.py" "$OUT/libpolyfill_classes.dylib"
 }
@@ -974,6 +980,7 @@ run_probe rsabssa "$@"
 run_probe item_provider "$@"
 run_probe samesite "$@"
 run_probe suggested_filename "$@"
+run_probe declared_types "$@"
 run_probe protocol_class "$@"
 run_probe backup_exclusion "$@"
 run_probe shared_cookie_jar "$@"

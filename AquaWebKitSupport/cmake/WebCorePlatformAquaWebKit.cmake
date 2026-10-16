@@ -166,8 +166,13 @@ endif ()
 # find_library(LOOKUP_FRAMEWORK Lookup HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
 # list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
 
-# pass bare macro names (no =1) to the CSS value preprocessor; the value-1 form trips the in-tree makeprop/CSS preprocessor here.
-set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE_PAY_NEW_BUTTON_TYPES")
+# The platform defines the WebCore generators see, matching this build's C++ configuration: upstream's list also
+# names ENABLE_APPLE_PAY_NEW_BUTTON_TYPES, HAVE_CORE_MATERIAL and HAVE_MATERIAL_HOSTING, which are off here.
+set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA")
+
+# Apple's DerivedSources.make preprocesses every WebCore generator input with the platform defines as well
+# as the feature defines; html.css's PLATFORM(COCOA) rules read them.
+string(APPEND FEATURE_DEFINES_WITH_SPACE_SEPARATOR " ${CSS_VALUE_PLATFORM_DEFINES}")
 
 # #68: also build the classic Safari 7 / Mavericks media-controls script.
 # make-js-file-arrays.py names the array from the basename, emitting mediaControlsAppleJavaScript,

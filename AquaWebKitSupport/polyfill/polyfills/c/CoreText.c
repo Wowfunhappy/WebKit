@@ -2272,6 +2272,41 @@ static CGFloat wkCSSWeight(CGFloat weight)
     return ladder[count - 1].css;
 }
 
+// The CSS weight of a face whose kCTFontWeightTrait is `weight`. 10.9 answers one of CoreText's named
+// weights for its own faces, and that weight's CSS weight is the answer. Between named weights, the
+// value is 10.9's interpolation -- from the style name for a font registered by name (ExtraLight -0.5,
+// SemiLight -0.2, ExtraBold 0.5), from the OS/2 usWeightClass for one made from a file -- and the face's
+// usWeightClass is the weight it stands for, read as 10.9's WeightFromWeightClass reads it: 1 to 1000,
+// with 1 to 10 in hundreds.
+static CGFloat wkFaceCSSWeight(CTFontDescriptorRef face, CGFloat weight)
+{
+    const float named[] = {
+        (float)kCTFontWeightUltraLight, (float)kCTFontWeightThin, (float)kCTFontWeightLight,
+        (float)kCTFontWeightRegular, (float)kCTFontWeightMedium, (float)kCTFontWeightSemibold,
+        (float)kCTFontWeightBold, (float)kCTFontWeightHeavy, (float)kCTFontWeightBlack,
+    };
+    for (size_t i = 0; i < sizeof(named) / sizeof(named[0]); ++i) {
+        if ((float)weight == named[i])
+            return wkCSSWeight(weight);
+    }
+    unsigned weightClass = 0;
+    CTFontRef font = face ? WK_ORIGINAL(CTFontCreateWithFontDescriptor)(face, 0, NULL) : NULL;
+    if (font) {
+        CFDataRef os2 = CTFontCopyTable(font, kCTFontTableOS2, kCTFontTableOptionNoOptions);
+        if (os2) {
+            if (CFDataGetLength(os2) >= 6) {
+                const UInt8 *bytes = CFDataGetBytePtr(os2);
+                weightClass = ((unsigned)bytes[4] << 8) | bytes[5];
+            }
+            CFRelease(os2);
+        }
+        CFRelease(font);
+    }
+    if (!weightClass || weightClass > 1000)
+        return wkCSSWeight(weight);
+    return weightClass <= 10 ? weightClass * 100.0 : (CGFloat)weightClass;
+}
+
 // The CSS stretch percentage a kCTFontWidthTrait value stands for: -1..1 onto 50%..200%, in the two
 // segments that meet at standard width.
 static CGFloat wkCSSWidth(CGFloat width)
@@ -2306,12 +2341,12 @@ typedef struct {
     bool isSourceFace;
 } wk_face_rank;
 
-static wk_face_rank wkRankFace(CGFloat width, CGFloat weight, CGFloat targetWidth, CGFloat targetWeight,
+static wk_face_rank wkRankFace(CGFloat width, CGFloat cssWeight, CGFloat targetWidth, CGFloat targetWeight,
                                bool isSourceFace)
 {
     wk_face_rank rank;
     rank.width = wkAxisRank(wkCSSWidth(width), wkCSSWidth(targetWidth), 100.0);
-    rank.weight = wkAxisRank(wkCSSWeight(weight), wkCSSWeight(targetWeight), 500.0);
+    rank.weight = wkAxisRank(cssWeight, wkCSSWeight(targetWeight), 500.0);
     rank.isSourceFace = isSourceFace;
     return rank;
 }
@@ -2347,7 +2382,7 @@ static CTFontDescriptorRef wk_bestShippedMatch(CTFontDescriptorRef request, CFAr
         wk_font_traits traits;
         wkDescriptorTraits(candidate, &traits);
         bool slant = (traits.symbolic & kCTFontTraitItalic) == (wanted.symbolic & kCTFontTraitItalic);
-        wk_face_rank rank = wkRankFace(traits.width, traits.weight, wanted.width, wanted.weight, false);
+        wk_face_rank rank = wkRankFace(traits.width, wkFaceCSSWeight(candidate, traits.weight), wanted.width, wanted.weight, false);
         if (!best || (slant && !bestSlant) || (slant == bestSlant && wkRankIsNearer(&rank, &bestRank))) {
             best = candidate;
             bestRank = rank;
@@ -2445,7 +2480,7 @@ static CFStringRef wkSelectFamilyMemberName(CFStringRef family, CFStringRef sour
             ++candidates;
 
             CFStringRef memberName = (CFStringRef)CTFontDescriptorCopyAttribute(member, kCTFontNameAttribute);
-            wk_face_rank rank = wkRankFace(traits.haveWidth ? traits.width : 0.0, traits.weight,
+            wk_face_rank rank = wkRankFace(traits.haveWidth ? traits.width : 0.0, wkFaceCSSWeight(member, traits.weight),
                                            targetWidth, targetWeight,
                                            memberName && CFEqual(memberName, sourceName));
             if (memberName)
@@ -2613,7 +2648,7 @@ static CTFontRef wkNearestSymbolicTraitFace(CTFontRef copy, CGFloat targetWeight
                 if (!descriptor || !wkDescriptorTraits(descriptor, &traits) || !traits.haveWeight)
                     haveWeights = false;
                 else
-                    weights[i] = traits.weight;
+                    weights[i] = wkFaceCSSWeight(descriptor, traits.weight);
                 if (descriptor)
                     CFRelease(descriptor);
             }
@@ -2876,31 +2911,11 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithGraphicsFont,
 // normal weight/width for every installed face: findClosestFont() then cannot prefer Verdana-Bold
 // for a bold request and the engine synthesizes bold over the regular face (it also hides the
 // real trait from NSFontManager — the Mail formatting-toolbar state). The answers here derive
-// from the descriptor's own kCTFontTraitsAttribute dictionary: kCTFontWeightTrait through the
-// same keyframe curve as WebCore's normalizeCTWeight (FontMetricsNormalization.h),
-// kCTFontWidthTrait onto the CSS stretch scale (-1..1 maps to 50%..200%, 0 to 100%), with
-// symbolic bold/expanded/condensed fallbacks. Every other attribute, and every descriptor the
-// system can answer for, takes the system implementation's answer unchanged.
-static const struct { float ct; float css; } wk_ct_weight_keyframes[] = {
-    { -0.8f, 30 }, { -0.4f, 274 }, { 0.0f, 400 }, { 0.23f, 510 },
-    { 0.3f, 590 }, { 0.4f, 700 }, { 0.56f, 860 }, { 0.62f, 1000 },
-};
-
-static float wk_normalize_ct_weight(float value)
-{
-    size_t count = sizeof(wk_ct_weight_keyframes) / sizeof(wk_ct_weight_keyframes[0]);
-    if (value < wk_ct_weight_keyframes[0].ct)
-        return wk_ct_weight_keyframes[0].css;
-    for (size_t i = 0; i + 1 < count; i++) {
-        float beforeCT = wk_ct_weight_keyframes[i].ct, afterCT = wk_ct_weight_keyframes[i + 1].ct;
-        if (value >= beforeCT && value <= afterCT) {
-            float ratio = (value - beforeCT) / (afterCT - beforeCT);
-            return ratio * (wk_ct_weight_keyframes[i + 1].css - wk_ct_weight_keyframes[i].css) + wk_ct_weight_keyframes[i].css;
-        }
-    }
-    return wk_ct_weight_keyframes[count - 1].css;
-}
-
+// from the descriptor's own kCTFontTraitsAttribute dictionary: kCTFontWeightTrait onto the CSS
+// weight of the face it belongs to (wkFaceCSSWeight, so HelveticaNeue-Medium is 500 and the
+// WebKitWeightWatcher faces 100 to 900), kCTFontWidthTrait onto the CSS stretch scale (-1..1 maps to
+// 50%..200%, 0 to 100%), with symbolic bold/expanded/condensed fallbacks. Every other attribute,
+// and every descriptor the system can answer for, takes the system implementation's answer unchanged.
 WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
                      (CTFontDescriptorRef descriptor, CFStringRef attribute))
 {
@@ -2975,7 +2990,7 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
     bool have = false;
     CFNumberRef traitNumber = (CFNumberRef)CFDictionaryGetValue(traits, wantWeight ? kCTFontWeightTrait : kCTFontWidthTrait);
     if (traitNumber && CFNumberGetValue(traitNumber, kCFNumberFloatType, &trait)) {
-        css = wantWeight ? wk_normalize_ct_weight(trait) : (float)wkCSSWidth(trait);
+        css = (float)(wantWeight ? wkFaceCSSWeight(descriptor, trait) : wkCSSWidth(trait));
         have = true;
     } else if (wantWeight && (symbolic & kCTFontTraitBold)) {
         css = 700;
