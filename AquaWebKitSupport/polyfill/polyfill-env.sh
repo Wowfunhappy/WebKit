@@ -26,3 +26,11 @@ methods_unitinc() {
         *) echo "$MINC" ;;
     esac
 }
+
+# classes/Foundation.m formats durations through WebKit's ICU (deps/build/include, libicucore.78.dylib).
+classes_unitinc() {
+    case "$(basename "$1")" in
+        Foundation.m) echo "$INC -I$REPO/AquaWebKitSupport/deps/build/include -DU_DISABLE_RENAMING=1" ;;
+        *) echo "$INC" ;;
+    esac
+}

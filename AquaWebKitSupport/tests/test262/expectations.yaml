@@ -1,0 +1,22 @@
+# JSC's isValidTimeZoneNameFromICUTimeZone (Source/JavaScriptCore/runtime/IntlObject.cpp:1946) admits a canonical
+# time zone ID without a '/' only when it is UTC or GMT (line 1956). Under tz 2026e CST6CDT, EST5EDT, MST7MDT
+# and PST8PDT are canonical zones, so Intl and Temporal reject them.
+---
+test/intl402/DateTimeFormat/timezone-case-insensitive.js:
+  default: 'RangeError: invalid time zone: CST6CDT'
+  strict mode: 'RangeError: invalid time zone: CST6CDT'
+test/intl402/Temporal/ZonedDateTime/from/timezone-case-insensitive.js:
+  default: 'RangeError: ''2020-01-01[CST6CDT]'' contains an invalid time zone identifier'
+  strict mode: 'RangeError: ''2020-01-01[CST6CDT]'' contains an invalid time zone identifier'
+test/intl402/Temporal/ZonedDateTime/iana-legacy-names.js:
+  default: 'RangeError: ''EST5EDT'' is not a valid time zone identifier'
+  strict mode: 'RangeError: ''EST5EDT'' is not a valid time zone identifier'
+test/intl402/Temporal/ZonedDateTime/links.js:
+  default: 'RangeError: ''CST6CDT'' is not a valid time zone identifier'
+  strict mode: 'RangeError: ''CST6CDT'' is not a valid time zone identifier'
+test/intl402/Temporal/ZonedDateTime/prototype/equals/timezone-case-insensitive.js:
+  default: 'RangeError: ''CST6CDT'' is not a valid time zone identifier'
+  strict mode: 'RangeError: ''CST6CDT'' is not a valid time zone identifier'
+test/intl402/Temporal/ZonedDateTime/timezone-case-insensitive.js:
+  default: 'RangeError: ''CST6CDT'' is not a valid time zone identifier'
+  strict mode: 'RangeError: ''CST6CDT'' is not a valid time zone identifier'

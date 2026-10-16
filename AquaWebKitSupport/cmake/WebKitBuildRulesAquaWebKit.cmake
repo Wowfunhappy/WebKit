@@ -180,7 +180,7 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
             "${AQUAWEBKIT_DEPS}/lib/libjpeg.a"
             # ICU's character break iterator, which the CoreFoundation and CoreText polyfills segment grapheme
             # clusters with.
-            "${AQUAWEBKIT_DEPS}/lib/libicuuc.a"
+            "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib"
             # libpng's and libtiff's own inflate and CRC. WebCore already reaches the system zlib
             # through its other dependencies; JavaScriptCore and the XPC services do not.
             "z"

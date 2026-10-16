@@ -6,6 +6,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <unicode/uameasureformat.h>
+#include <unicode/udisplaycontext.h>
+#include <unicode/ulistformatter.h>
+#include <unicode/unum.h>
+#include <unicode/ures.h>
+#include <unicode/ustring.h>
 
 // NSPresentationIntent (Foundation, 12.0+): the semantic-structure metadata an attributed string
 // carries alongside its visual attributes (this block is a quote / a header of level N / table cell
@@ -362,18 +368,14 @@ WK_PRIV_ALIAS(NSURLSessionTaskMetrics);
 // hour/minute/second, standalone formatting context, at most two units. VoiceOver reads the result
 // out, so the spelled-out localized wording IS the string's purpose.
 //
-// The unit names, their plural forms and the separator between them are CLDR data, and 10.9's ICU
-// (51.1, /usr/lib/libicucore.A.dylib) carries all of it. Each locale bundle's "units" and
-// "unitsShort" tables hold "{0} hour" / "{0} hours" keyed by that locale's own plural categories --
-// ru has one/few/many/other, ja has only other -- and ICU's MessageFormat picks the category for a
-// value under the locale's plural rules and formats the number in the locale's digits. So the words
-// in the output are the system's own, in the user's language; none of them are written here.
-//
-// 10.9 divergence, the separator: CLDR's "unit" list style, which is what joins the units on
-// 10.10+, postdates ICU 51 -- the only list style in this data is "standard", whose two-item pattern
-// is "{0} and {1}". The standard style's non-final ("middle") pattern is what the unit style uses in
-// nearly every locale ("{0}, {1}" for en/es/he, "{0}، {1}" for ar, "{0}、{1}" for ja), so the units
-// are joined with that and English reads "1 hour, 2 minutes".
+// The formatting is Apple ICU's measure format (uameasfmt), the interface modern Foundation formats with,
+// in WebKit's ICU: unit names under the locale's plural rules, joined by the locale's unit list pattern.
+// None of the words are written here. Each style is one of its widths -- Full WIDE, Short SHORT,
+// Abbreviated NARROW, Brief SHORTER, Positional NUMERIC ("1:10"; days and a lone unit fall back to the
+// narrow form, "3d 4h"). SpellOut is WIDE with every number spelled out: the measure format spells out
+// only the last unit's number, so each unit is formatted on its own with a spell-out number format in the
+// unit's grammatical gender (the first capitalized for the start of a sentence) and the pieces are joined
+// by the locale's unit list.
 //
 // maximumUnitCount truncates rather than rounds, which is what 10.10+ documents: "1h 10m 30s,
 // maximumUnitCount set to 2: '1h 10m'". A zero-valued unit is dropped, the zero-formatting default
@@ -390,29 +392,14 @@ typedef NS_ENUM(NSInteger, NSDateComponentsFormatterUnitsStyle) {
 };
 typedef NSInteger NSFormattingContext;
 
-// ICU's C resource-bundle and message-format entry points. libicucore is built with symbol renaming
-// disabled, so these bare names are its real exports, and 10.9 ships no <unicode/*.h> for them --
-// hence the declarations here. build-polyfill.sh links this dylib against libicucore.
-typedef int32_t WKICUErrorCode;    // UErrorCode; > 0 is a failure, < 0 a warning
-typedef uint16_t WKICUChar;        // UChar
-typedef struct UResourceBundle UResourceBundle;
-extern UResourceBundle *ures_open(const char *packageName, const char *locale, WKICUErrorCode *status);
-extern UResourceBundle *ures_getByKeyWithFallback(const UResourceBundle *bundle, const char *keyPath, UResourceBundle *fillIn, WKICUErrorCode *status);
-extern UResourceBundle *ures_getByIndex(const UResourceBundle *bundle, int32_t index, UResourceBundle *fillIn, WKICUErrorCode *status);
-extern const WKICUChar *ures_getString(const UResourceBundle *bundle, int32_t *length, WKICUErrorCode *status);
-extern int32_t ures_getSize(const UResourceBundle *bundle);
-extern const char *ures_getKey(const UResourceBundle *bundle);
-extern void ures_close(UResourceBundle *bundle);
-extern int32_t u_formatMessage(const char *locale, const WKICUChar *pattern, int32_t patternLength, WKICUChar *result, int32_t resultLength, WKICUErrorCode *status, ...);
-
 // The units a plain time interval decomposes into, largest first, each with the key CLDR stores it
 // under. These are the fixed-length ones; a month and a year are as long as the calendar says, so a
 // caller that allows them gets the units below that instead.
-static const struct { NSUInteger calendarUnit; const char *dataKey; } wkDurationUnits[] = {
-    { NSCalendarUnitDay,    "day"    },
-    { NSCalendarUnitHour,   "hour"   },
-    { NSCalendarUnitMinute, "minute" },
-    { NSCalendarUnitSecond, "second" },
+static const struct { NSUInteger calendarUnit; UAMeasureUnit measureUnit; const char *dataKey; } wkDurationUnits[] = {
+    { NSCalendarUnitDay,    UAMEASUNIT_DURATION_DAY,    "day"    },
+    { NSCalendarUnitHour,   UAMEASUNIT_DURATION_HOUR,   "hour"   },
+    { NSCalendarUnitMinute, UAMEASUNIT_DURATION_MINUTE, "minute" },
+    { NSCalendarUnitSecond, UAMEASUNIT_DURATION_SECOND, "second" },
 };
 #define WK_DURATION_UNIT_COUNT ((NSInteger)(sizeof(wkDurationUnits) / sizeof(wkDurationUnits[0])))
 
@@ -426,116 +413,104 @@ static NSInteger wkDurationComponentValue(NSDateComponents *components, NSUInteg
     }
 }
 
-// A CLDR unit pattern ("{0} hours") as a MessageFormat plural submessage: the placeholder becomes the
-// plural argument's own number placeholder, and each character MessageFormat reads as syntax is
-// quoted so a locale's literal text arrives intact.
-static void wkAppendPluralSubmessage(NSMutableString *out, NSString *pattern)
+static NSString *wkStringFromUChars(const UChar *text, int32_t length, UErrorCode status)
 {
-    NSUInteger length = pattern.length;
-    for (NSUInteger i = 0; i < length; i++) {
-        unichar c = [pattern characterAtIndex:i];
-        if (c == '{' && i + 2 < length && [pattern characterAtIndex:i + 1] == '0' && [pattern characterAtIndex:i + 2] == '}') {
-            [out appendString:@"#"];
-            i += 2;
-        } else if (c == '\'')
-            [out appendString:@"''"];
-        else if (c == '{' || c == '}' || c == '#')
-            [out appendFormat:@"'%C'", c];
-        else
-            [out appendFormat:@"%C", c];
-    }
+    if (U_FAILURE(status) || status == U_STRING_NOT_TERMINATED_WARNING || length < 0)
+        return nil;
+    return [NSString stringWithCharacters:(const unichar *)text length:(NSUInteger)length];
 }
 
-// "{0} hour" / "{0} hours" / ... for one unit, as the locale's plural rules apply them to value.
-static NSString *wkSpelledOutUnit(const char *table, const char *unitKey, NSInteger value, const char *localeID)
+// The measures in one of the measure format's widths, "1 hour, 10 minutes".
+static NSString *wkFormattedMeasures(const UAMeasure *measures, NSInteger count, UAMeasureFormatWidth width, const char *localeID)
 {
-    WKICUErrorCode status = 0;
-    UResourceBundle *localeBundle = ures_open(NULL, localeID, &status);
-    UResourceBundle *unitTable = NULL;
-    NSString *result = nil;
-    if (status <= 0 && localeBundle) {
-        char keyPath[64];
-        snprintf(keyPath, sizeof(keyPath), "%s/%s", table, unitKey);
-        unitTable = ures_getByKeyWithFallback(localeBundle, keyPath, NULL, &status);
-    }
-    if (status <= 0 && unitTable) {
-        NSMutableString *pattern = [NSMutableString stringWithString:@"{0,plural,"];
-        int32_t categories = ures_getSize(unitTable);
-        for (int32_t i = 0; i < categories; i++) {
-            WKICUErrorCode itemStatus = 0;
-            UResourceBundle *item = ures_getByIndex(unitTable, i, NULL, &itemStatus);
-            int32_t textLength = 0;
-            const WKICUChar *text = (item && itemStatus <= 0) ? ures_getString(item, &textLength, &itemStatus) : NULL;
-            const char *category = item ? ures_getKey(item) : NULL;
-            if (text && category && itemStatus <= 0) {
-                [pattern appendFormat:@"%s{", category];
-                wkAppendPluralSubmessage(pattern, [NSString stringWithCharacters:(const unichar *)text length:(NSUInteger)textLength]);
-                [pattern appendString:@"}"];
-            }
-            ures_close(item);
-        }
-        [pattern appendString:@"}"];
-
-        unichar patternBuffer[512];
-        WKICUChar formatted[512];
-        NSUInteger patternLength = pattern.length;
-        if (patternLength && patternLength <= sizeof(patternBuffer) / sizeof(patternBuffer[0])) {
-            [pattern getCharacters:patternBuffer range:NSMakeRange(0, patternLength)];
-            WKICUErrorCode formatStatus = 0;
-            int32_t formattedLength = u_formatMessage(localeID, (const WKICUChar *)patternBuffer, (int32_t)patternLength,
-                formatted, (int32_t)(sizeof(formatted) / sizeof(formatted[0])), &formatStatus, (double)value);
-            if (formatStatus <= 0 && formattedLength > 0 && formattedLength <= (int32_t)(sizeof(formatted) / sizeof(formatted[0])))
-                result = [NSString stringWithCharacters:(const unichar *)formatted length:(NSUInteger)formattedLength];
-        }
-    }
-    ures_close(unitTable);
-    ures_close(localeBundle);
-    return result;
+    UErrorCode status = U_ZERO_ERROR;
+    UAMeasureFormat *format = uameasfmt_open(localeID, width, NULL, &status);
+    UChar text[512];
+    int32_t length = uameasfmt_formatMultiple(format, measures, (int32_t)count, text, (int32_t)(sizeof(text) / sizeof(text[0])), &status);
+    uameasfmt_close(format);
+    return wkStringFromUChars(text, length, status);
 }
 
-// The locale's pattern for a list item that is not the last one -- "{0}, {1}" in English.
-static NSString *wkDurationListPattern(const char *localeID)
-{
-    WKICUErrorCode status = 0;
-    UResourceBundle *localeBundle = ures_open(NULL, localeID, &status);
-    UResourceBundle *item = (status <= 0 && localeBundle) ? ures_getByKeyWithFallback(localeBundle, "listPattern/standard/middle", NULL, &status) : NULL;
-    NSString *pattern = nil;
-    if (status <= 0 && item) {
-        int32_t textLength = 0;
-        const WKICUChar *text = ures_getString(item, &textLength, &status);
-        if (text && status <= 0)
-            pattern = [NSString stringWithCharacters:(const unichar *)text length:(NSUInteger)textLength];
-    }
-    ures_close(item);
-    ures_close(localeBundle);
-    return pattern ?: @"{0}, {1}";
-}
+// ICU's resource lookup along a key path with locale fallback (uresimp.h), which libicucore exports.
+extern UResourceBundle *ures_getByKeyWithFallback(const UResourceBundle *bundle, const char *keyPath, UResourceBundle *fillIn, UErrorCode *status);
 
-static NSString *wkApplyListPattern(NSString *pattern, NSString *first, NSString *second)
+// The spell-out rule set that agrees with a duration unit's grammatical gender in the locale: CLDR records
+// the gender with the unit's names ("feminine" for French "heure"), and the locale's spell-out rules name
+// a cardinal rule set for it ("%spellout-cardinal-feminine"; in Russian, whose rule sets are also split by
+// case, that is the nominative one). Where the locale records no gender for the unit, or has no rule set
+// for it, the number is spelled out with the locale's default.
+static void wkSetSpellOutGender(UNumberFormat *spellOut, const char *unitKey, const char *localeID, UErrorCode *status)
 {
-    NSMutableString *result = [NSMutableString string];
-    NSUInteger length = pattern.length;
-    for (NSUInteger i = 0; i < length; i++) {
-        unichar c = [pattern characterAtIndex:i];
-        unichar placeholder = (c == '{' && i + 2 < length && [pattern characterAtIndex:i + 2] == '}') ? [pattern characterAtIndex:i + 1] : 0;
-        if (placeholder == '0' || placeholder == '1') {
-            [result appendString:placeholder == '0' ? first : second];
-            i += 2;
+    if (U_FAILURE(*status))
+        return;
+    char keyPath[64];
+    snprintf(keyPath, sizeof(keyPath), "units/duration/%s/gender", unitKey);
+    UErrorCode lookupStatus = U_ZERO_ERROR;
+    UResourceBundle *units = ures_open(U_ICUDATA_NAME "-unit", localeID, &lookupStatus);
+    UResourceBundle *gender = ures_getByKeyWithFallback(units, keyPath, NULL, &lookupStatus);
+    int32_t genderLength = 0;
+    const UChar *genderName = U_SUCCESS(lookupStatus) ? ures_getString(gender, &genderLength, &lookupStatus) : NULL;
+    UChar ruleSet[96];
+    int32_t ruleSetLength = 0;
+    if (genderName && U_SUCCESS(lookupStatus)) {
+        static const char prefix[] = "%spellout-cardinal-";
+        ruleSetLength = (int32_t)strlen(prefix);
+        if (ruleSetLength + genderLength < (int32_t)(sizeof(ruleSet) / sizeof(ruleSet[0]))) {
+            u_charsToUChars(prefix, ruleSet, ruleSetLength);
+            u_memcpy(ruleSet + ruleSetLength, genderName, genderLength);
+            ruleSetLength += genderLength;
         } else
-            [result appendFormat:@"%C", c];
+            ruleSetLength = 0;
     }
-    return result;
+    ures_close(gender);
+    ures_close(units);
+    if (!ruleSetLength)
+        return;
+
+    UChar ruleSets[4096];
+    UErrorCode ruleSetsStatus = U_ZERO_ERROR;
+    int32_t ruleSetsLength = unum_getTextAttribute(spellOut, UNUM_PUBLIC_RULESETS, ruleSets, (int32_t)(sizeof(ruleSets) / sizeof(ruleSets[0])), &ruleSetsStatus);
+    if (U_FAILURE(ruleSetsStatus) || ruleSetsStatus == U_STRING_NOT_TERMINATED_WARNING)
+        return;
+    for (int32_t start = 0; start < ruleSetsLength;) {
+        int32_t end = start;
+        while (end < ruleSetsLength && ruleSets[end] != ';')
+            end++;
+        if (end - start == ruleSetLength && !u_memcmp(ruleSets + start, ruleSet, ruleSetLength)) {
+            unum_setTextAttribute(spellOut, UNUM_DEFAULT_RULESET, ruleSet, ruleSetLength, status);
+            return;
+        }
+        start = end + 1;
+    }
 }
 
-// The digit form, "1:02:05": the largest shown unit as it stands, each smaller one padded to two
-// digits. It is what the positional style asks for, and what stands in should a locale's unit data
-// be unreachable.
-static NSString *wkPositionalDuration(const NSInteger *values, const NSInteger *shown, NSInteger shownCount)
+// The measures with every number spelled out, "One hour, ten minutes".
+static NSString *wkSpelledOutMeasures(const UAMeasure *measures, const char *const *unitKeys, NSInteger count, const char *localeID)
 {
-    NSMutableString *result = [NSMutableString string];
-    for (NSInteger i = 0; i < shownCount; i++)
-        [result appendFormat:(i ? @":%02ld" : @"%ld"), (long)values[shown[i]]];
-    return result;
+    enum { maximumPieces = 8, pieceCapacity = 256 };
+    UChar pieces[maximumPieces][pieceCapacity];
+    const UChar *strings[maximumPieces];
+    int32_t lengths[maximumPieces];
+    if (count < 1 || count > maximumPieces)
+        return nil;
+
+    UErrorCode status = U_ZERO_ERROR;
+    for (NSInteger i = 0; i < count && U_SUCCESS(status); i++) {
+        UNumberFormat *spellOut = unum_open(UNUM_SPELLOUT, NULL, 0, localeID, NULL, &status);
+        wkSetSpellOutGender(spellOut, unitKeys[i], localeID, &status);
+        unum_setContext(spellOut, i ? UDISPCTX_CAPITALIZATION_FOR_MIDDLE_OF_SENTENCE : UDISPCTX_CAPITALIZATION_FOR_BEGINNING_OF_SENTENCE, &status);
+        UAMeasureFormat *format = uameasfmt_open(localeID, UAMEASFMT_WIDTH_WIDE, spellOut, &status);
+        lengths[i] = uameasfmt_format(format, measures[i].value, measures[i].unit, pieces[i], pieceCapacity, &status);
+        strings[i] = pieces[i];
+        uameasfmt_close(format);
+        if (status == U_STRING_NOT_TERMINATED_WARNING)
+            return nil;
+    }
+    UListFormatter *list = ulistfmt_openForType(localeID, ULISTFMT_TYPE_UNITS, ULISTFMT_WIDTH_WIDE, &status);
+    UChar text[1024];
+    int32_t length = ulistfmt_format(list, strings, lengths, (int32_t)count, text, (int32_t)(sizeof(text) / sizeof(text[0])), &status);
+    ulistfmt_close(list);
+    return wkStringFromUChars(text, length, status);
 }
 
 WK_PRIV_CLASS(NSDateComponentsFormatter) @interface NSDateComponentsFormatter : NSFormatter
@@ -594,24 +569,28 @@ WK_PRIV_CLASS(NSDateComponentsFormatter) @interface NSDateComponentsFormatter : 
     if (_maximumUnitCount > 0 && shownCount > _maximumUnitCount)
         shownCount = _maximumUnitCount;
 
-    if (positional)
-        return wkPositionalDuration(values, shown, shownCount);
-
-    // Full and SpellOut read the whole unit names, the shorter styles the abbreviated ones. ICU 51
-    // has the two tables; the narrow forms Abbreviated and Brief draw on from 10.12 arrived later,
-    // so those styles read the abbreviated names as Short does.
-    const char *table = (_unitsStyle == NSDateComponentsFormatterUnitsStyleFull || _unitsStyle == NSDateComponentsFormatterUnitsStyleSpellOut) ? "units" : "unitsShort";
-    const char *localeID = [[NSLocale currentLocale] localeIdentifier].UTF8String;
-    NSString *listPattern = wkDurationListPattern(localeID);
-    NSString *result = nil;
+    UAMeasure measures[WK_DURATION_UNIT_COUNT];
+    const char *unitKeys[WK_DURATION_UNIT_COUNT];
     for (NSInteger i = 0; i < shownCount; i++) {
-        NSInteger index = shown[i];
-        NSString *piece = wkSpelledOutUnit(table, wkDurationUnits[units[index]].dataKey, values[index], localeID);
-        if (!piece)
-            return wkPositionalDuration(values, shown, shownCount);
-        result = result ? wkApplyListPattern(listPattern, result, piece) : piece;
+        measures[i].value = values[shown[i]];
+        measures[i].unit = wkDurationUnits[units[shown[i]]].measureUnit;
+        unitKeys[i] = wkDurationUnits[units[shown[i]]].dataKey;
     }
-    return result;
+    const char *localeID = [[NSLocale currentLocale] localeIdentifier].UTF8String;
+    switch (_unitsStyle) {
+    case NSDateComponentsFormatterUnitsStylePositional:
+        return wkFormattedMeasures(measures, shownCount, UAMEASFMT_WIDTH_NUMERIC, localeID);
+    case NSDateComponentsFormatterUnitsStyleAbbreviated:
+        return wkFormattedMeasures(measures, shownCount, UAMEASFMT_WIDTH_NARROW, localeID);
+    case NSDateComponentsFormatterUnitsStyleShort:
+        return wkFormattedMeasures(measures, shownCount, UAMEASFMT_WIDTH_SHORT, localeID);
+    case NSDateComponentsFormatterUnitsStyleSpellOut:
+        return wkSpelledOutMeasures(measures, unitKeys, shownCount, localeID);
+    case NSDateComponentsFormatterUnitsStyleBrief:
+        return wkFormattedMeasures(measures, shownCount, UAMEASFMT_WIDTH_SHORTER, localeID);
+    default:
+        return wkFormattedMeasures(measures, shownCount, UAMEASFMT_WIDTH_WIDE, localeID);
+    }
 }
 @end
 WK_PRIV_ALIAS(NSDateComponentsFormatter);

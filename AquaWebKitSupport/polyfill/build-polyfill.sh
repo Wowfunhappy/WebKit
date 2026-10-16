@@ -80,7 +80,7 @@ echo "### compiling polyfills/classes (one shared definition each)"
 # respond to" -- carries no flag of its own. Promoting the whole set is what makes it stop the build;
 # these units compile with no warnings today, so it costs nothing.
 for f in "$PF"/classes/*.m; do
-    cc_queue "$CLANG" -c $HOST -fobjc-weak -Werror $INC -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c $HOST -fobjc-weak -Werror $(classes_unitinc "$f") -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
@@ -110,12 +110,13 @@ cc_queue "$CLANG" -c $MODERN $INC -DWK_POLYFILL_UNIT=mechanism -o "$OBJ/mech/wk_
 cc_queue "$CLANG" -c $HOST               -o "$OBJ/mech/wk_image_marker.o"    "$MECH/wk_image_marker.c"
 
 echo "### compiling polyfills/cdm (the Widevine CDM's libSystem gap library)"
-# Exported (no HIDDEN): another image binds to these. getentropy and aligned_alloc are the layer's own
-# shared sources, compiled a second time with their exports intact.
+# Exported (no HIDDEN): another image binds to these. getentropy, aligned_alloc, pthread_qos and os_log
+# are the layer's own shared sources, compiled a second time with their exports intact.
 CDMCF="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 $WARN -I$PF/shared/include"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/getentropy.o"    "$PF/shared/getentropy.c"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/aligned_alloc.o" "$PF/shared/aligned_alloc.c"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/pthread_qos.o" "$PF/shared/pthread_qos.c"
+cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/os_log.o" "$PF/shared/os_log.c"
 for f in "$PF"/cdm/*.c; do
     cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
 done
@@ -157,12 +158,15 @@ echo "### libpolyfill_classes.dylib"
 # frameworks and scripts/stage-frameworks.sh repoints each WebKit binary's dependency on them to it, so the
 # class resolves here and the framework's real symbols pass through. compatibility_version is very high so
 # the repointed load commands are satisfied; the install name is @rpath (self-contained, mapped to the
-# in-bundle copy by staging). -licucore is for NSDateComponentsFormatter, which spells its durations out
-# through 10.9's own ICU. -headerpad_max_install_names leaves room for the long absolute in-bundle install
-# name staging stamps on it.
+# in-bundle copy by staging). libicucore.78.dylib is WebKit's ICU, which NSDateComponentsFormatter spells
+# its durations out with; the dependency build's lib dir is its rpath here, which
+# make-build-binaries-runnable.sh repoints in a test-products copy and staging replaces with the in-bundle
+# path. -headerpad_max_install_names leaves room for the long absolute in-bundle install names staging
+# stamps on it.
 "$CLANG" --no-default-config -mmacosx-version-min=10.9 -dynamiclib -Wl,-headerpad_max_install_names \
     -install_name @rpath/libpolyfill_classes.dylib -compatibility_version 9999.0.0 -current_version 9999.0.0 \
-    -licucore -framework CoreFoundation -framework ApplicationServices \
+    "$REPO/AquaWebKitSupport/deps/build/lib/libicucore.78.dylib" -Wl,-rpath,"$REPO/AquaWebKitSupport/deps/build/lib" \
+    -framework CoreFoundation -framework ApplicationServices \
     -Wl,-reexport_framework,Foundation -Wl,-reexport_framework,AppKit -Wl,-reexport_framework,QuartzCore \
     -Wl,-reexport_framework,CoreServices -Wl,-reexport_framework,CFNetwork \
     "$OBJ"/classes/*.o -o "$OUT/libpolyfill_classes.dylib.tmp"

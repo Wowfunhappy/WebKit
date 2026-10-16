@@ -439,6 +439,9 @@ echo "### Deploying polyfill ObjC classes dylib into JavaScriptCore.framework ($
 if [ -f "$WK_SUPPORT/polyfill/build/libpolyfill_classes.dylib" ]; then
     cp -f "$WK_SUPPORT/polyfill/build/libpolyfill_classes.dylib" "$(s "$JSC_LIBS")/libpolyfill_classes.dylib"
     int_or_die -id "$JSC_LIBS/libpolyfill_classes.dylib" "$(s "$JSC_LIBS")/libpolyfill_classes.dylib"
+    # Its ICU, libicucore.78.dylib, ships beside it in the same directory.
+    rewrite_rpath_deps "$(s "$JSC_LIBS")/libpolyfill_classes.dylib"
+    strip_rpaths "$(s "$JSC_LIBS")/libpolyfill_classes.dylib"
 else
     echo "ERROR: libpolyfill_classes.dylib missing — every WebKit app would fail to load (polyfill ObjC classes)." >&2
     echo "       Build it with AquaWebKitSupport/polyfill/build-polyfill.sh (build.sh does this)." >&2

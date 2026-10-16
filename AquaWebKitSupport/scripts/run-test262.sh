@@ -11,8 +11,11 @@
 #         bash AquaWebKitSupport/scripts/run-test262.sh --failing-files
 #
 # With no arguments it runs what upstream's runner runs by default: every test under JSTests/test262/test,
-# filtered by JSTests/test262/config.yaml and judged against JSTests/test262/expectations.yaml. Only
-# failures outside the expectations count, and the exit status is 1 when there is one. The runner writes
+# filtered by JSTests/test262/config.yaml. A run is judged against upstream's JSTests/test262/expectations.yaml
+# plus this port's AquaWebKitSupport/tests/test262/expectations.yaml, whose entries take a path's place;
+# the two are merged into $AQUAWEBKIT_TEST262_DIR/expectations.yaml at each run, unless the arguments name
+# an expectations file (-e) or ignore expectations (-x). Only failures outside the expectations count, and
+# the exit status is 1 when there is one. The runner writes
 # its results (results.yaml, summary.txt, index.html) to $AQUAWEBKIT_TEST262_DIR/test262-results
 # (default: WebKitBuild/Test262); --stats and --failing-files read the last run's results from there.
 # --save, which rewrites the checked-in expectations, is refused. The run names the build it tests when
@@ -23,16 +26,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # At most 2 parallel test processes: the VM's 4 cores are shared with builds and Safari.
 CHILD_PROCESSES=2
 ARGS=()
+OWN_EXPECTATIONS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --child-processes=*|-p=*) CHILD_PROCESSES="${1#*=}" ;;
         --child-processes|-p) CHILD_PROCESSES="${2-}"; shift ;;
         *)
             # Getopt::Long matches case-insensitively and takes any unique abbreviation.
-            case "$(echo "$1" | tr '[:upper:]' '[:lower:]')" in
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
                 -sa|-sav|-save|--sa|--sav|--save)
                     echo "ERROR: $1 refused — it rewrites JSTests/test262/expectations.yaml." >&2
                     exit 1 ;;
+                -e|--e|-e=*|--e=*|-ex*|--ex*|-x|--x|-ignore-e*|--ignore-e*)
+                    OWN_EXPECTATIONS=1 ;;
             esac
             ARGS+=("$1") ;;
     esac
@@ -127,6 +133,21 @@ export DYLD_FRAMEWORK_PATH="$TEST_PRODUCTS/lib"
 # --jsc and --child-processes come last, so no abbreviation of them among the passed arguments overrides
 # them. The runner runs in the background so a signal to this script reaches the trap without waiting for it,
 # and without the test-run lock's descriptor, which its forked children would otherwise keep.
+# The merge reads and writes the files as bytes, as the runner's own LoadFile and DumpFile do.
+if [ -z "$OWN_EXPECTATIONS" ]; then
+    /usr/bin/perl -I "$ROOT/Tools/Scripts/test262/local/lib/perl5" -MYAML -e '
+        my ($upstream, $port, $merged) = @ARGV;
+        sub load { open my $in, "<", $_[0] or die "$_[0]: $!\n"; local $/; YAML::Load(<$in>) }
+        my $expectations = load($upstream);
+        my $ours = load($port);
+        $expectations->{$_} = $ours->{$_} for keys %$ours;
+        open my $out, ">", $merged or die "$merged: $!\n";
+        print $out YAML::Dump($expectations);
+        close $out or die "$merged: $!\n";
+    ' "$ROOT/JSTests/test262/expectations.yaml" "$ROOT/AquaWebKitSupport/tests/test262/expectations.yaml" \
+        "$PRODUCTS/expectations.yaml" || exit 1
+    ARGS+=(--expectations="$PRODUCTS/expectations.yaml")
+fi
 cd "$PRODUCTS" || exit 1
 PWD="$PRODUCTS" /usr/bin/perl "$ROOT/Tools/Scripts/test262-runner" \
     ${ARGS[@]+"${ARGS[@]}"} --jsc="$TEST_PRODUCTS/bin/jsc" --child-processes="$CHILD_PROCESSES" 9>&- &

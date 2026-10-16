@@ -1,8 +1,9 @@
 #!/bin/bash
 # Build vendored dependencies for WebKit and its layout-test server on macOS 10.9:
 #
-#   ICU 78.3 (static)                   -> JSC Intl (ucfpos_*/udtitvfmt_*/... that
-#                                          10.9's ICU 51 libicucore lacks)
+#   Apple ICU 76142.5.1.200             -> libicucore.78.dylib, WebKit's one ICU: JSC Intl
+#                                          (ucfpos_*/udtitvfmt_*/... that 10.9's ICU 51 libicucore
+#                                          lacks), WebCore, libwebrtc, libpsl and the polyfill layer
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
@@ -449,16 +450,34 @@ finished() {
   mkdir -p "$SCRATCH/stamps" && printf '%s\n' "$k" > "$SCRATCH/stamps/$1" && rm -rf "${2:?}"
 }
 
-echo "==== ICU 78.3 ===="
-# ICU supplies Unicode 17 IDNA mappings and Intl data. Its C++ build tools use
-# the full clang wrapper's libc++; unversioned exports match U_DISABLE_RENAMING=1.
-u=https://github.com/unicode-org/icu/releases/download/release-78.3/icu4c-78.3-sources.tgz
+echo "==== Apple ICU 76142.5.1.200 ===="
+# The ICU macOS 26.5 ships as libicucore (ICU 78.1, Unicode 17, with Apple's CLDR data and
+# calendar astronomy), the library upstream's Cocoa port runs its Intl, IDNA and text
+# segmentation against. CPPFLAGS are the definitions Apple's makefile compiles it with. Its
+# C++ build tools use the full clang wrapper's libc++; unversioned exports match
+# U_DISABLE_RENAMING=1. DateTimePatternGenerator includes the os_feature_enabled() SPI header,
+# which the public SDK lacks; apple-sdk/ declares it as PAL's FeatureFlagsSPI.h does, and the
+# polyfill layer defines _os_feature_enabled_impl. Apple's tree keeps ICU's LICENSE one level
+# above where icu4c's install rule reads it.
+# macOS replaces the time zone resources at run time with its current tz release; here that
+# release, as ICU's tz update publishes it, is compiled into the data.
+u=https://github.com/apple-oss-distributions/ICU/archive/refs/tags/ICU-76142.5.1.200.tar.gz
+TZ_UPDATE=https://raw.githubusercontent.com/unicode-org/icu-data/bae5ca647fa41703393dbf00240ec1b807a9c353/tzdata/icunew/2026e/44
 if ! built icu install/lib/libicuuc.a; then
-    archive="$SRC/icu4c-78.3-sources.tgz"
-    [ -f "$archive" ] || fetch "$u" "$archive" || exit 1
     d=$(get "$u" icu) || exit 1
-    ( cd "$d/source" \
-      && CXXFLAGS="$CXXFLAGS -std=c++17" ./configure --prefix="$STAGE" \
+    for f in zoneinfo64 timezoneTypes metaZones windowsZones; do
+        fetch_cached "$TZ_UPDATE/$f.txt" "$d/icu/icu4c/source/data/misc/$f.txt" || exit 1
+    done
+    mkdir -p "$d/apple-sdk/os" || exit 1
+    printf '%s\n' '#pragma once' '#include <stdbool.h>' \
+        '#define os_feature_enabled(d, f) _os_feature_enabled_impl(#d, #f)' \
+        '#ifdef __cplusplus' 'extern "C"' '#endif' \
+        'bool _os_feature_enabled_impl(const char *domain, const char *feature);' \
+        > "$d/apple-sdk/os/feature_private.h" || exit 1
+    cp -p "$d/icu/LICENSE" "$d/icu/icu4c/LICENSE" || exit 1
+    ( cd "$d/icu/icu4c/source" \
+      && CPPFLAGS="-DSTD_INSPIRED -DU_SHOW_CPLUSPLUS_API=1 -DU_SHOW_INTERNAL_API=1 -DU_TIMEZONE=timezone -DUCONFIG_NO_MF2=1 -idirafter $d/apple-sdk" \
+         CXXFLAGS="$CXXFLAGS -std=c++17" ./configure --prefix="$STAGE" \
            --enable-static --disable-shared --disable-renaming \
            --disable-samples --disable-tests --disable-extras --disable-icuio --disable-layoutex \
       && make -j2 && make install ) || exit 1
@@ -737,6 +756,9 @@ echo "==== 10.9 gap archive ===="
 #   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
 #   os_unfair_lock  os_unfair_lock_lock/trylock/unlock/assert_owner/assert_not_owner (10.12+),
 #                   os_unfair_lock_lock_with_flags/_with_options (10.15+)
+#   os_log          os_log_create, os_log_type_enabled and the os_log() emit points (10.12+), which
+#                   Apple's ICU calls
+#   os_feature      _os_feature_enabled_impl (10.13+), which Apple's ICU calls
 #   mkostemp            mkostemp/mkostemps
 #   os_version          _availability_version_check (@available lowering; lld requires a
 #                       definition for compiler-rt's weak-import reference)
@@ -778,7 +800,7 @@ GAPDIR="$SCRATCH/gap"
 # nothing for `ar` to pick up.
 GAPOBJ="$GAPDIR/obj"
 mkdir -p "$GAPDIR"; rm -rf "$GAPOBJ"; mkdir -p "$GAPOBJ"
-GAP_SHARED="time atcalls utimensat fdopendir statxx clonefile pthread_qos pthread_stack getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence wk_symbols"
+GAP_SHARED="time atcalls utimensat fdopendir statxx clonefile pthread_qos pthread_stack getentropy pthread_chdir os_unfair_lock os_log os_feature mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence wk_symbols"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPOBJ/$s.d" -c "$SHARED/$s.c" -o "$GAPOBJ/$s.o" || exit 1
@@ -939,14 +961,26 @@ if prepare "$d"; then
 fi
 ( cd "$d" && "$NINJA" -C out -j2 && "$NINJA" -C out install ) || exit 1
 
+echo "==== ICU dylib (libicucore.78.dylib) ===="
+# One image carries WebKit's ICU, as libicucore does for Apple's port: the three archives above,
+# force-loaded into one dylib that JavaScriptCore, WebCore, libwebrtc, libpsl and the polyfill layer all
+# link, with os_log and os_feature_enabled from the gap archive. The install name's leaf is distinct
+# from the system's libicucore.A.dylib, which 10.9's own frameworks load into the same process.
+ICU_DYLIB="$STAGE/lib/libicucore.78.dylib"
+"$CXX_BIN" -dynamiclib $LDFLAGS -install_name @rpath/libicucore.78.dylib \
+    -compatibility_version 1.0.0 -current_version 78.1.0 \
+    -Wl,-force_load,"$STAGE/lib/libicuuc.a" -Wl,-force_load,"$STAGE/lib/libicui18n.a" \
+    -Wl,-force_load,"$STAGE/lib/libicudata.a" -o "$ICU_DYLIB.next" || exit 1
+if cmp -s "$ICU_DYLIB.next" "$ICU_DYLIB"; then rm -f "$ICU_DYLIB.next"; else mv -f "$ICU_DYLIB.next" "$ICU_DYLIB" || exit 1; fi
+
 echo "==== libpsl 0.21.5 ===="
 # curl's cookie store rejects public-suffix domains using the bundled PSL. ICU supplies
-# Unicode/IDNA conversion from the same static libraries WebCore uses; NLS is unused.
-# U_DISABLE_RENAMING matches the unversioned exports of this tree's ICU build.
+# Unicode/IDNA conversion; NLS is unused. U_DISABLE_RENAMING matches the unversioned exports of
+# this tree's ICU build.
 d=$(get https://github.com/rockdaboot/libpsl/releases/download/0.21.5/libpsl-0.21.5.tar.gz libpsl) || exit 1
 if prepare "$d"; then
     ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" \
-        LIBICU_CFLAGS="-I$STAGE/include -DU_DISABLE_RENAMING=1" LIBICU_LIBS="-L$STAGE/lib -licuuc -licudata" \
+        LIBICU_CFLAGS="-I$STAGE/include -DU_DISABLE_RENAMING=1" LIBICU_LIBS="-L$STAGE/lib -licucore.78" \
         LDFLAGS="$LDFLAGS -L$TC/lib -Wl,-rpath,$TC/lib -Wl,-rpath,$STAGE/lib" \
         LIBS="-lc++ -lc++abi" ./configure --prefix="$STAGE" --disable-static --enable-shared \
         --enable-runtime=libicu --enable-builtin --disable-nls --disable-gtk-doc --disable-man ) || exit 1
@@ -1746,8 +1780,7 @@ done
 mkdir -p "$DEST/lib/glib-2.0/include"
 cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 # static libs
-for l in libicuuc.a libicui18n.a libicudata.a \
-         libgpg-error.a libgcrypt.a libtasn1.a \
+for l in libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
          libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
          libjpeg.a liblcms2.a libtiff.a libots.a libheif.a; do

@@ -4,7 +4,8 @@ Libraries WebKit links that the 10.9 system doesn't provide. **`build_deps.sh`**
 them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 `build/include` + `build/bin`):
 
-- the static libraries WebKit links directly — ICU 78.3, libgcrypt/libgpg-error/libtasn1,
+- `lib/libicucore.78.dylib`, WebKit's ICU: Apple's ICU fork (ICU-76142.5.1.200, ICU 78.1) with tz 2026e;
+- the static libraries WebKit links directly — libgcrypt/libgpg-error/libtasn1,
   brotli, woff2, and the image codecs. This build decodes every image format in WebCore rather
   than in 10.9's ImageIO, so libjpeg-turbo 3.1.2, libpng 1.6.43, libwebp 1.3.2, libtiff 4.7.0 and
   libavif 1.3.0 (on the dav1d below) are on the path every page's images take, with lcms2 2.16

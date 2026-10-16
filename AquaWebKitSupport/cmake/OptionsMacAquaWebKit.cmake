@@ -63,13 +63,14 @@ if (NOT EXISTS "${AQUAWEBKIT_DEPS}/lib/libgcrypt.a")
 endif ()
 
 # ICU. The system libicucore is ICU 51 and lacks the modern Intl symbols JSC needs (ucfpos_*,
-# udtitvfmt_*, ureldatefmt_*, ulistfmt_*, ...), so this port links the ICU static libraries
-# deps/build_deps.sh builds with the matching headers WebKitFindPackage.cmake stages. Answering the
-# three cache entries here is what makes its `find_library(ICU_*_LIBRARY icucore)` calls no-ops:
-# find_library leaves an already-answered result alone.
-set(ICU_I18N_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicui18n.a" CACHE FILEPATH "" FORCE)
-set(ICU_UC_LIBRARY   "${AQUAWEBKIT_DEPS}/lib/libicuuc.a"   CACHE FILEPATH "" FORCE)
-set(ICU_DATA_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicudata.a" CACHE FILEPATH "" FORCE)
+# udtitvfmt_*, ureldatefmt_*, ulistfmt_*, ...), so this port links libicucore.78.dylib, Apple's ICU as
+# deps/build_deps.sh builds it. One library answers all three of FindICU.cmake's
+# `find_library(ICU_*_LIBRARY icucore)` calls, as libicucore does for Apple's port; find_library leaves
+# these already-answered cache entries alone. WebKit compiles against Source/WTF/icu's headers, as
+# Apple's port does.
+set(ICU_I18N_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
+set(ICU_UC_LIBRARY   "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
+set(ICU_DATA_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
 
 # upstream injects WEBKIT_BUNDLE_VERSION from Version.xcconfig via the Xcode
 # build; the CMake port never defines it, so the UI-process/child version handshake in

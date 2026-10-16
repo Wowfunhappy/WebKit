@@ -47,14 +47,6 @@ typedef const char *PolyCStringConst;
 WK_POLYFILL_CONST(NULL, PolyCStringConst, XPC_ACTIVITY_REQUIRE_NETWORK_CONNECTIVITY, "RequireNetworkConnectivity");
 WK_POLYFILL_CONST(NULL, PolyCStringConst, XPC_ACTIVITY_RANDOM_INITIAL_DELAY, "RandomInitialDelay");
 
-// _os_log_default is the storage behind OS_LOG_DEFAULT (10.12+). Call sites only ever take its
-// ADDRESS and hand that to _os_log_internal / _os_log_impl, which on 10.9 ignore the log handle
-// (below), so nothing reads the storage — it exists so that taking its address yields a
-// valid, stable pointer rather than dereferencing a NULL weak import.
-static struct { int unused; } wkOSLogDefaultStorage;
-typedef void *PolyVoidPtrConst;
-WK_POLYFILL_CONST(NULL, PolyVoidPtrConst, _os_log_default, &wkOSLogDefaultStorage);
-
 // ---------------------------------------------------------------------------------------------------
 // Sandbox -- two extension flags absent on 10.9.
 //
@@ -266,28 +258,6 @@ WK_POLYFILL_ABSENT(NULL, bool, os_variant_is_basesystem, (const char *subsystem)
     }
 }
 
-// os_log unified logging is 10.12+; _os_log_internal is the macro-emitted backing for every os_log()
-// call site and is absent from 10.9's libSystem (it links as the Mach-O symbol __os_log_internal).
-// Without a definition the first os_log() call aborts fatally ("lazy symbol binding failed"); a no-op
-// makes logging silently do nothing. (OS_LOG_DEFAULT's backing storage, _os_log_default, is a data
-// symbol defined above; the no-op ignores whichever log handle it is handed.)
-// Signature uses plain types (os_log_t/os_log_type_t aren't visible under --no-default-config);
-// ABI-equivalent: os_log_t==pointer, os_log_type_t==uint8_t, buf==uint8_t*, size==uint32_t.
-WK_POLYFILL_ABSENT(NULL, void, _os_log_internal,
-    (void *dso, void *log, uint8_t type, const char *format, uint8_t *buf, uint32_t size)) {
-    (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
-}
-
-// os_log_create(subsystem, category) -> os_log_t (10.12+, absent on 10.9). os_log_t is an os_object /
-// ObjC type, and WebKit wraps the result in a RetainPtr<os_log_t> — so it sends -retain/-release to it.
-// Therefore the returned handle MUST be a real, retainable Objective-C object (a bare pointer crashes in
-// objc_msgSend on [obj retain]). Return a fresh +1 NSObject (matching os_log_create's create semantics);
-// _os_log_internal ignores the log, so the object's only role is to be a valid refcounted handle.
-WK_POLYFILL_ABSENT(NULL, void *, _os_log_create, (const char *subsystem, const char *category)) {
-    (void)subsystem; (void)category;
-    return (void *)[[NSObject alloc] init];
-}
-
 // os_signpost performance tracing is 10.14+; absent on 10.9. No-op so signpost call sites link and the
 // "is signposting enabled" guard always reports disabled (no emit happens).
 WK_POLYFILL_ABSENT(NULL, bool, os_signpost_enabled, (void *log)) { (void)log; return false; }
@@ -296,17 +266,6 @@ WK_POLYFILL_ABSENT(NULL, void, _os_signpost_emit_with_name_impl,
     (void *dso, void *log, uint8_t type, uint64_t spid, const char *name, const char *format, uint8_t *buf, uint32_t size)) {
     (void)dso; (void)log; (void)type; (void)spid; (void)name; (void)format; (void)buf; (void)size;
 }
-
-// os_feature_enabled(domain, feature) — libSystem feature-flag query (10.13+). Every WebKit call site
-// gates a feature that postdates 10.9 (VisualIntelligence/Translate/TextComposer post-editing/the
-// redesigned text cursor), so the faithful answer on this OS is "not enabled".
-WK_POLYFILL_ABSENT(NULL, bool, _os_feature_enabled_impl, (const char *domain, const char *feature))
-{
-    (void)domain;
-    (void)feature;
-    return false;
-}
-
 
 // timingsafe_bcmp (constant-time compare, used by crypto) is absent on 10.9. Provide a constant-time
 // implementation (no early-out) so timing characteristics match the real function.
@@ -686,35 +645,13 @@ WK_POLYFILL_ABSENT(NULL, const char *, dyld_shared_cache_file_path, (void))
 
 WK_POLYFILL_ABSENT(NULL, void, cache_simulate_memory_warning_event, (uint64_t a)) { (void)a; }
 
-#pragma mark - os_log emit points (10.12+)
-
-// The other two macro-emitted os_log() backings, and the "would this level be logged?" query the
-// os_log macros consult first. Unified logging does not exist on 10.9: report every level disabled
-// and drop what is emitted anyway. (_os_log_internal above is the third backing.)
-WK_POLYFILL_ABSENT(NULL, int, os_log_type_enabled, (void *log, int type))
-{
-    (void)log; (void)type;
-    return 0; // logging disabled
-}
-
-WK_POLYFILL_ABSENT(NULL, void, _os_log_impl,
-    (void *dso, void *log, int type, const char *format, void *buf, unsigned int size))
-{
-    (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
-}
-
-WK_POLYFILL_ABSENT(NULL, void, _os_log_error_impl,
-    (void *dso, void *log, int type, const char *format, void *buf, unsigned int size))
-{
-    (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
-}
+#pragma mark - os_log / os_trace SPI (10.12+)
 
 // The os_log/os_trace SPI WebKit reaches for through wtf/spi/cocoa/OSLogSPI.h. None of the five
 // symbols exist in this OS's libSystem or libsystem_trace (checked with nm against both), which is
 // the whole of the gap: unified logging arrived in 10.12 and there is no hook for it to call here.
-// Plain types are used for the same reason the emit points above use them — os_log_t and
-// os_log_type_t are not visible under --no-default-config, and both are ABI-equivalent to a pointer
-// and a uint8_t.
+// Plain types stand in for os_log_t and os_log_type_t, which are ABI-equivalent to a pointer and a
+// uint8_t.
 WK_POLYFILL_ABSENT(NULL, void, os_log_with_args,
     (void *log, int type, const char *format, va_list args, void *ret_addr))
 {

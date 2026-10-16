@@ -24,8 +24,8 @@ T="$OBJ/tests"
 trap 'rm -rf "$OBJ"' EXIT
 mkdir -p "$T" "$OBJ/methods" "$OBJ/mech"
 
-PROBE_LIBS="$OUT/libpolyfill.a $REPO/AquaWebKitSupport/deps/build/lib/libots.a $REPO/AquaWebKitSupport/deps/build/lib/libwoff2dec.a $REPO/AquaWebKitSupport/deps/build/lib/libbrotlidec.a $REPO/AquaWebKitSupport/deps/build/lib/libbrotlicommon.a $REPO/AquaWebKitSupport/deps/build/lib/libpng16.a $REPO/AquaWebKitSupport/deps/build/lib/libtiff.a $REPO/AquaWebKitSupport/deps/build/lib/libjpeg.a $REPO/AquaWebKitSupport/deps/build/lib/libicuuc.a $REPO/AquaWebKitSupport/deps/build/lib/libpsl.5.dylib $REPO/AquaWebKitSupport/deps/build/lib/libcrypto.dylib -L$REPO/AquaWebKitSupport/deps/build/lib -lc++ -Wl,-rpath,$REPO/AquaWebKitSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework CFNetwork -framework CoreGraphics -framework IOSurface -framework CoreText -framework Security -framework CoreMedia -Wl,-rpath,$OUT -lbsm -lsandbox -lobjc -lz"
-ICU_LIBS="$REPO/AquaWebKitSupport/deps/build/lib/libicuuc.a $REPO/AquaWebKitSupport/deps/build/lib/libicudata.a -lc++"
+PROBE_LIBS="$OUT/libpolyfill.a $REPO/AquaWebKitSupport/deps/build/lib/libots.a $REPO/AquaWebKitSupport/deps/build/lib/libwoff2dec.a $REPO/AquaWebKitSupport/deps/build/lib/libbrotlidec.a $REPO/AquaWebKitSupport/deps/build/lib/libbrotlicommon.a $REPO/AquaWebKitSupport/deps/build/lib/libpng16.a $REPO/AquaWebKitSupport/deps/build/lib/libtiff.a $REPO/AquaWebKitSupport/deps/build/lib/libjpeg.a $REPO/AquaWebKitSupport/deps/build/lib/libicucore.78.dylib $REPO/AquaWebKitSupport/deps/build/lib/libpsl.5.dylib $REPO/AquaWebKitSupport/deps/build/lib/libcrypto.dylib -L$REPO/AquaWebKitSupport/deps/build/lib -lc++ -Wl,-rpath,$REPO/AquaWebKitSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework CFNetwork -framework CoreGraphics -framework IOSurface -framework CoreText -framework Security -framework CoreMedia -Wl,-rpath,$OUT -lbsm -lsandbox -lobjc -lz"
+ICU_LIBS="$REPO/AquaWebKitSupport/deps/build/lib/libicucore.78.dylib -lc++"
 
 APPKIT_OBJECT_STATE=unbuilt
 FOUNDATION_OBJECT_STATE=unbuilt
@@ -153,6 +153,15 @@ probe_accent_color() {
             -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
             $PROBE_LIBS &&
         "$T/accent_color"
+}
+
+probe_date_components_formatter() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/date_components_formatter" "$TBEHAV/Foundation-date-components-formatter.m" \
+        "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
+        "$T/date_components_formatter" en_US &&
+        "$T/date_components_formatter" fr_FR &&
+        "$T/date_components_formatter" de_DE &&
+        "$T/date_components_formatter" ru_RU
 }
 
 probe_declared_types() {
@@ -1011,6 +1020,7 @@ run_probe item_provider "$@"
 run_probe samesite "$@"
 run_probe suggested_filename "$@"
 run_probe declared_types "$@"
+run_probe date_components_formatter "$@"
 run_probe protocol_class "$@"
 run_probe backup_exclusion "$@"
 run_probe shared_cookie_jar "$@"

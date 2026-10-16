@@ -8662,11 +8662,11 @@ WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTRunGetAttributes, (CTRunRef 
 // 10.9's CoreText resolves its levels with libicucore's ICU 51, which predates the Unicode 6.3 bracket-pair
 // and isolate rules and classes a code point assigned since by its block's default: an emoji modifier is left
 // to right there, so a skin-tone sequence between Hebrew letters splits into two runs. Modern CoreText
-// resolves levels from current Unicode data. When the levels ICU 51 resolves are the levels this port's ICU
-// 74 resolves, the provided blocks go to CoreText as they were provided. When they differ, the text is laid
-// out from an attributed string that overrides each character to its ICU 74 level. An override can only
-// raise a level, so each is raised by two, which leaves the visual order and every run's direction as they
-// are.
+// resolves levels from current Unicode data. When the levels ICU 51 resolves are the levels WebKit's ICU
+// resolves, the provided blocks go to CoreText as they were provided. When they differ, the text is laid
+// out from an attributed string that overrides each character to its level in WebKit's ICU. An override
+// can only raise a level, so each is raised by two, which leaves the visual order and every run's direction
+// as they are.
 //
 // A right-to-left run set in a font with logical-order subtables is then set again in its shaping font. The
 // fonts do not enter level resolution, so the second layout resolves the same runs.
@@ -8678,7 +8678,7 @@ WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", void, ubidi_setPara, (UBiDi *, const
 WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", const UBiDiLevel *, ubidi_getLevels, (UBiDi *, UErrorCode *));
 WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", void, ubidi_close, (UBiDi *));
 
-// A thread's ICU 74 and ICU 51 resolvers.
+// A thread's resolvers in WebKit's ICU and in ICU 51.
 typedef struct {
     UBiDi *current;
     UBiDi *system;

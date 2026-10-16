@@ -3,7 +3,7 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 
-// The port's ICU 74 exports its C API under unversioned names.
+// WebKit's ICU exports its C API under unversioned names.
 #define U_DISABLE_RENAMING 1
 #include <unicode/ubrk.h>
 #include <unicode/utext.h>

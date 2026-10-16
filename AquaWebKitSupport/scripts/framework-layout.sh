@@ -65,7 +65,7 @@ SYSTEM_UNWINDER=/usr/lib/system/libunwind.dylib
 # The private libraries live in the Frameworks directory of the lowest framework that loads them, so
 # no framework reaches into a bundle stacked on it. The vendored third-party runtime
 # (deps/build_deps.sh) is split the same way by wk_runtime_library_homes below.
-#   JSC_LIBS      the C++ runtime, the polyfill classes, and what JavaScriptCore loads (GLib, libpsl,
+#   JSC_LIBS      the C++ runtime, the polyfill classes, and what JavaScriptCore loads (ICU, GLib, libpsl,
 #                 libcrypto) with their dependencies
 #   WEBCORE_LIBS  libwebrtc, and what WebCore, WebKit and WebKit2 load beyond JSC_LIBS: curl with its
 #                 TLS and HTTP/2 libraries, libxml2/libxslt, the FFmpeg decoders, dav1d, libopus

@@ -739,7 +739,7 @@ static void checkBidiDataPremises(void)
         if (codePoint < 0x058D)
             bracketsAreAscii = bracketsAreAscii && ((u_getIntPropertyValue(codePoint, UCHAR_BIDI_PAIRED_BRACKET_TYPE) != U_BPT_NONE) == ascii);
     }
-    check(sameBelowArmenianSigns, "below U+058D, ICU 51 and ICU 74 class every code point alike");
+    check(sameBelowArmenianSigns, "below U+058D, ICU 51 and WebKit's ICU class every code point alike");
     check(systemDirection(0x058D) != u_charDirection(0x058D) && systemDirection(0x058E) != u_charDirection(0x058E), "U+058D and U+058E are classed differently");
     check(noneRaise, "below U+0590, no class raises a level");
     bool separatorsAsListed = true;
@@ -749,7 +749,7 @@ static void checkBidiDataPremises(void)
     }
     check(separatorsAsListed, "below U+058D, the paragraph separators are LF, CR, U+001C-001E and U+0085");
     check(bracketsAreAscii, "below U+058D, the paired brackets are the six ASCII ones");
-    check(systemDirection(0x1F3FE) == U_LEFT_TO_RIGHT && u_charDirection(0x1F3FE) == U_OTHER_NEUTRAL, "an emoji modifier is left to right in ICU 51 and a neutral in ICU 74");
+    check(systemDirection(0x1F3FE) == U_LEFT_TO_RIGHT && u_charDirection(0x1F3FE) == U_OTHER_NEUTRAL, "an emoji modifier is left to right in ICU 51 and a neutral in WebKit's ICU");
 }
 
 #define UNITS(...) (const UniChar[]){ __VA_ARGS__ }, (CFIndex)(sizeof((UniChar[]){ __VA_ARGS__ }) / sizeof(UniChar))
