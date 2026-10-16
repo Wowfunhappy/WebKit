@@ -89,9 +89,10 @@ macro(_AQUAWEBKIT_APPLY_TARGET_POLICY _target)
     # The test images additionally carry their own calls to selectors 10.9 lacks (Challenge.mm sends
     # -[NSKeyedArchiver initRequiringSecureCoding:]). WK_POLYFILL_ADD_METHODS installs those under a
     # renamed selector and the patcher rewrites the call sites only in marked images, so an unmarked
-    # image sends the original name to a class that does not implement it.
+    # image sends the original name to a class that does not implement it. The patcher and the method
+    # polyfills are WebCore's, so these are the images that run in a process with WebCore loaded.
     foreach (_aquaWebKitTestImage DumpRenderTree WebKitTestRunner TestRunnerInjectedBundle
-                           TestWTF TestWebCore TestWebKit TestWebKitLegacy)
+                           TestWebCore TestWebKit TestWebKitLegacy)
         if ("${_target}" STREQUAL "${_aquaWebKitTestImage}")
             _WEBKIT_FORCE_LOAD_WK_MARKER(${_target})
         endif ()
