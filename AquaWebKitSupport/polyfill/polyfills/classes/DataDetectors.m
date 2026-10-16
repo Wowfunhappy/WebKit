@@ -230,3 +230,13 @@ static void *wk_resolveDDSecureActionContext(void)
     });
     return secureContext;
 }
+
+// DDMacAction is the Mac action class WebKit soft-links (HAVE(DATA_DETECTORS_MAC_ACTION)) and casts the
+// "DDAction" of DDActionsManager's menu items to. 10.9's DDAction holds that role: it is the base of
+// DDMiscAction, DDURLAction and DDSeparatorAction, carries actionUTI, and the menu items' actions are
+// instances of it, so the name resolves to DDAction itself.
+WK_POLYFILL_CLASS_RESOLVED("DataDetectors", DDMacAction, wk_resolveDDMacAction);
+static void *wk_resolveDDMacAction(void)
+{
+    return objc_getClass("DDAction");
+}

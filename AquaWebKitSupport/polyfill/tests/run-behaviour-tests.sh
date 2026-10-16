@@ -517,9 +517,19 @@ probe_dd_secure_coding() {
         -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS && "$T/dd_secure_coding"
 }
 
+probe_dd_mac_action() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dd_mac_action" "$TBEHAV/DataDetectors-mac-action.m" \
+        -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS && "$T/dd_mac_action"
+}
+
 probe_dd_result_categories() {
     "$CLANG" $MODERN $INC -o "$T/dd_result_categories" "$TBEHAV/DataDetectors-result-categories.c" \
         $PROBE_LIBS && "$T/dd_result_categories"
+}
+
+probe_dd_highlight_scale() {
+    "$CLANG" $MODERN $INC -o "$T/dd_highlight_scale" "$TBEHAV/DataDetectors-highlight-scale.c" \
+        -framework AppKit $PROBE_LIBS && "$T/dd_highlight_scale"
 }
 
 probe_keyed_coding() {
@@ -1001,7 +1011,9 @@ run_probe secure_coding "$@"
 run_probe url_request_coding "$@"
 run_probe url_request_attribution "$@"
 run_probe dd_secure_coding "$@"
+run_probe dd_mac_action "$@"
 run_probe dd_result_categories "$@"
+run_probe dd_highlight_scale "$@"
 run_probe keyed_coding "$@"
 run_probe strict_inline_values "$@"
 run_probe url_response_coding "$@"

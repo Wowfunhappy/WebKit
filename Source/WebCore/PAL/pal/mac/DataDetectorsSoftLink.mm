@@ -40,9 +40,7 @@ SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDActionContext, PAL_
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDActionsManager, PAL_EXPORT)
 
 #if HAVE(DATA_DETECTORS_MAC_ACTION)
-// AQUAWEBKIT: 10.9's DataDetectors exports no DDMacAction; it soft-links optionally and resolves to nil here.
-// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDMacAction, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDMacAction, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDMacAction, PAL_EXPORT)
 #else
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDAction, PAL_EXPORT)
 #endif
