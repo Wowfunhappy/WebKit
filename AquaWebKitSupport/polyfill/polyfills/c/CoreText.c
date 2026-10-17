@@ -741,8 +741,9 @@ WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontGetSbixImageSizeForGlyphAndContent
     return strikeSize;
 }
 
-// Font and text matrices place both the glyph and its pen before the context transform.
-// Bitmap glyphs carry their own colors independently of the context's fill and stroke.
+// Font and text matrices place both the glyph and its pen before the context transform. A bitmap glyph
+// paints its own colours at the context's alpha; the text fill colour decides only whether it paints
+// (wk_sbixGlyphsArePainted).
 static void wk_drawSbixGlyph(CTFontRef font, CGGlyph glyph, CGPoint position, CGContextRef context)
 {
     CGAffineTransform textMatrix = CGAffineTransformConcat(CTFontGetMatrix(font), CGContextGetTextMatrix(context));
@@ -6408,13 +6409,23 @@ WK_POLYFILL_ABSENT("CoreText", void, CTRunGetBaseAdvancesAndOrigins,
 
 WK_SYSTEM_FN("CoreGraphics", int, CGContextGetType, (CGContextRef));
 WK_SYSTEM_FN("CoreGraphics", CGTextDrawingMode, CGContextGetTextDrawingMode, (CGContextRef));
+WK_SYSTEM_FN("CoreGraphics", CGColorRef, CGContextGetFillColorAsColor, (CGContextRef));
+
+// Modern CoreText paints colour glyphs as filled layers whatever the text drawing mode. An sbix glyph paints
+// unless the text fill colour is fully transparent, when it paints nothing, its shadow included; any other
+// fill alpha, and the stroke colour, leave the image as it is. A COLR glyph paints whatever the fill colour:
+// its layers fill with their palette colours, and a layer naming the foreground (palette entry 0xFFFF) fills
+// with the fill colour, alpha included.
+static bool wk_sbixGlyphsArePainted(CGContextRef context)
+{
+    CGColorRef fill = WK_SYSTEM(CGContextGetFillColorAsColor)(context);
+    return fill && CGColorGetAlpha(fill) > 0;
+}
 
 // Defined after the CTFontDrawGlyphs replacement below, because it re-issues color
 // runs through that entry point's original implementation.
 static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count);
 static void wk_drawGlyphRun(CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context);
-
-WK_SYSTEM_FN("CoreGraphics", CGColorRef, CGContextGetFillColorAsColor, (CGContextRef));
 
 typedef enum { WK_GLYPH_OUTLINE, WK_GLYPH_SBIX, WK_GLYPH_COLR } wk_glyph_kind;
 
@@ -6610,6 +6621,7 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
     // intersects the clip with an empty rectangle, which is the same outcome. The colour glyphs are
     // painted before that call installs the clip.
     CGTextDrawingMode mode = WK_SYSTEM(CGContextGetTextDrawingMode)(context);
+    bool sbixGlyphsArePainted = wk_sbixGlyphsArePainted(context);
 
     // kCGTextInvisible paints nothing at all. The outlined glyphs still reach CoreText, which paints
     // nothing for them either, so whatever a call carries with it is unchanged; splitting the run is
@@ -6661,7 +6673,7 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
                 // as well, and a colour glyph's own colours are what their paint looks like.
                 if (kind == WK_GLYPH_COLR)
                     wk_drawColrRun(&f, &glyphs[i], &positions[i], next - i, context);
-                else {
+                else if (sbixGlyphsArePainted) {
                     for (size_t j = i; j < next; ++j)
                         wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
                 }
@@ -6682,7 +6694,7 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
         wk_glyph_kind kind = WK_GLYPH_OUTLINE;
         size_t next = wk_colorRunGroup(&f, glyphs, count, i, &kind);
         if (kind == WK_GLYPH_SBIX) {
-            for (size_t j = i; j < next; ++j)
+            for (size_t j = i; sbixGlyphsArePainted && j < next; ++j)
                 wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
         } else if (kind == WK_GLYPH_COLR)
             wk_drawColrRun(&f, &glyphs[i], &positions[i], next - i, context);

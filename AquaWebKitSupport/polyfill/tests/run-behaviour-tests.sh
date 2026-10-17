@@ -838,6 +838,13 @@ probe_colr_filled_paths() {
         "$T/colr_filled_paths" "$REPO/LayoutTests/fast/text/resources/Ahem-COLR.ttf"
 }
 
+probe_color_glyph_fill_alpha() {
+    "$CLANG" $MODERN $INC -o "$T/color_glyph_fill_alpha" "$TBEHAV/CoreText-color-glyph-fill-alpha.c" $PROBE_LIBS \
+        -framework CoreText -framework CoreGraphics -framework ImageIO &&
+        "$T/color_glyph_fill_alpha" "$REPO/LayoutTests/http/tests/canvas/color-fonts/resources/Ahem-sbix.ttf" \
+            "$REPO/LayoutTests/fast/text/resources/Ahem-COLR.ttf"
+}
+
 probe_font_provenance() {
     "$CLANG" $MODERN $INC -o "$T/font_provenance" "$TBEHAV/CoreText-font-provenance.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -lc++ &&
@@ -1139,6 +1146,7 @@ run_probe named_color_spaces "$@"
 run_probe hdr_gainmap "$@"
 run_probe cmyk_row_mask "$@"
 run_probe colr_filled_paths "$@"
+run_probe color_glyph_fill_alpha "$@"
 run_probe feature_clear "$@"
 run_probe descriptor_options "$@"
 run_probe sbix_bitmap_placement "$@"
