@@ -73,6 +73,7 @@
 #include "RemoteFrame.h"
 #include "RemoteFrameClient.h"
 #include "RenderAncestorIterator.h"
+#include "RenderBlockFlow.h" // AQUAWEBKIT: scrolled contents over column rules.
 #include "RenderBoxInlines.h"
 #include "RenderDescendantIterator.h"
 #include "RenderElementInlines.h"
@@ -1929,11 +1930,26 @@ void RenderLayerBacking::updateAfterDescendants()
         // For non-root layers, background is always painted by the primary graphics layer.
         ASSERT(!m_backgroundLayer);
         m_graphicsLayer->setContentsOpaque(!m_hasSubpixelRounding && m_owningLayer.backgroundIsKnownToBeOpaqueInRect(compositedBounds()));
-        // AQUAWEBKIT: scrolled contents draw over the scroller's opaque solid background, which
-        // their layer carries so 10.9 smooths the text drawn there over it (PlatformCALayer::drawLayerContents).
+        // AQUAWEBKIT: where the scroller's own painting under its scrolled contents is one opaque solid
+        // color, the scrolled contents layer carries that color so 10.9 smooths the text drawn there over
+        // it (PlatformCALayer::drawLayerContents). Inset shadows, outlines drawn inside the border box,
+        // border images and column rules paint beneath the scrolled contents as well, so a scroller with
+        // one keeps its scrolled contents transparent.
         if (m_scrolledContentsLayer) {
+            auto& style = renderer().style();
             auto backgroundColor = rendererBackgroundColor();
-            bool drawsOverSolidColor = m_graphicsLayer->contentsOpaque() && backgroundColor.isOpaque() && !Style::hasImageInAnyLayer(renderer().style().backgroundLayers());
+            bool hasInsetShadow = false;
+            for (auto& shadow : style.boxShadow())
+                hasInsetShadow |= Style::isInset(shadow);
+            auto* blockFlow = dynamicDowncast<RenderBlockFlow>(renderer());
+            bool hasVisibleColumnRule = blockFlow && blockFlow->multiColumnFlow()
+                && isVisibleBorderStyle(collapsedBorderStyle(style.columnRuleStyle())) && !style.columnRuleColor().isKnownTransparent();
+            bool paintsOnlyBackgroundColor = !Style::hasImageInAnyLayer(style.backgroundLayers())
+                && !hasInsetShadow
+                && !(style.hasOutline() && style.usedOutlineOffset().unresolvedValue() < 0)
+                && style.borderImageSource().isNone()
+                && !hasVisibleColumnRule;
+            bool drawsOverSolidColor = m_graphicsLayer->contentsOpaque() && backgroundColor.isOpaque() && paintsOnlyBackgroundColor;
             m_scrolledContentsLayer->setBackgroundColor(drawsOverSolidColor ? backgroundColor : Color());
         }
     }

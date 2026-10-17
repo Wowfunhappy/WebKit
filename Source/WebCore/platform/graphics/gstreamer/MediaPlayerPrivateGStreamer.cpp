@@ -2130,7 +2130,9 @@ void MediaPlayerPrivateGStreamer::handleStreamCollectionMessage(GstMessage* mess
     // and sometimes with duplicated streams. Let's only listen for stream-collection messages from
     // the source to avoid these issues.
     auto sourceName = StringView::fromLatin1(GST_OBJECT_NAME(m_source.get()));
-    if (!(sourceName.startsWith("filesrc"_s) || WEBKIT_IS_WEB_SRC(m_source.get())) && GST_MESSAGE_SRC(message) != GST_OBJECT(m_source.get())) {
+    // if (!(sourceName.startsWith("filesrc"_s) || WEBKIT_IS_WEB_SRC(m_source.get())) && GST_MESSAGE_SRC(message) != GST_OBJECT(m_source.get())) {
+    // AQUAWEBKIT: regular playback runs on playbin3, where a data: URL plays from dataurisrc, which posts no stream collection of its own.
+    if (!(sourceName.startsWith("filesrc"_s) || sourceName.startsWith("dataurisrc"_s) || WEBKIT_IS_WEB_SRC(m_source.get())) && GST_MESSAGE_SRC(message) != GST_OBJECT(m_source.get())) {
         GST_DEBUG_OBJECT(pipeline(), "Ignoring redundant STREAM_COLLECTION from %" GST_PTR_FORMAT, message->src);
         return;
     }
