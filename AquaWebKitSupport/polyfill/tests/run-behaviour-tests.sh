@@ -33,7 +33,6 @@ FOUNDATIONCODING_OBJECT_STATE=unbuilt
 AVFOUNDATION_OBJECT_STATE=unbuilt
 QUARTZCORE_OBJECT_STATE=unbuilt
 CRYPTOKITPRIVATE_OBJECT_STATE=unbuilt
-DEPTH_SORTING_OBJECT_STATE=unbuilt
 SELREF_OBJECT_STATE=unbuilt
 COREIMAGE_OBJECT_STATE=unbuilt
 
@@ -60,10 +59,6 @@ build_method_object() {
             state="$COREIMAGE_OBJECT_STATE"
             source="$PF/methods/CoreImage.m"
             ;;
-        QuartzCoreDepthSorting)
-            state="$DEPTH_SORTING_OBJECT_STATE"
-            source="$PF/methods/QuartzCoreDepthSorting.m"
-            ;;
         QuartzCore)
             state="$QUARTZCORE_OBJECT_STATE"
             source="$PF/methods/QuartzCore.m"
@@ -87,7 +82,6 @@ build_method_object() {
             AVFoundation) AVFOUNDATION_OBJECT_STATE=built ;;
             QuartzCore) QUARTZCORE_OBJECT_STATE=built ;;
             CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=built ;;
-            QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=built ;;
             CoreImage) COREIMAGE_OBJECT_STATE=built ;;
         esac
         return 0
@@ -99,7 +93,6 @@ build_method_object() {
         AVFoundation) AVFOUNDATION_OBJECT_STATE=failed ;;
         QuartzCore) QUARTZCORE_OBJECT_STATE=failed ;;
         CryptoKitPrivate) CRYPTOKITPRIVATE_OBJECT_STATE=failed ;;
-        QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=failed ;;
         CoreImage) COREIMAGE_OBJECT_STATE=failed ;;
     esac
     return 1
@@ -1045,14 +1038,14 @@ probe_control_character_glyphs() {
         "$T/control_character_glyphs"
 }
 
-probe_depth_sorting() {
+probe_calayer_hierarchy() {
     prepare_method_objects QuartzCore &&
-        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/depth_sorting" "$TBEHAV/QuartzCore-depth-sorting.m" \
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/calayer_hierarchy" "$TBEHAV/CALayer-hierarchy.m" \
             "$OBJ/methods/QuartzCore.o" "$OBJ/mech/wk_selref_scope.o" \
             -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
-            -framework QuartzCore -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            -framework QuartzCore -framework Foundation "$OUT/libpolyfill_classes.dylib" \
             $PROBE_LIBS &&
-        "$T/depth_sorting"
+        "$T/calayer_hierarchy"
 }
 
 probe_frame_rate_range() {
@@ -1191,7 +1184,7 @@ run_probe audiounit_max_frames "$@"
 run_probe character_clusters "$@"
 run_probe cluster_fallback "$@"
 run_probe logical_order "$@"
-run_probe depth_sorting "$@"
+run_probe calayer_hierarchy "$@"
 run_probe frame_rate_range "$@"
 run_probe shape_glyphs_context "$@"
 run_probe css_family_language "$@"

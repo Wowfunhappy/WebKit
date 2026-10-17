@@ -15,8 +15,8 @@ and run directly with the toolchain python: `api-runner-test.py`, `api-timeout-t
 `AquaWebKitSupport/`) checks both font-collection loading entry points and colored glyph layers
 under stroke mode, transformed text matrices, opacity, and shadows.
 
-The `depth_sorting` behavior probe checks native Core Animation capability detection,
-hierarchy operations, singular matrices, and parent and child animations with the polyfill loaded.
+The `calayer_hierarchy` behavior probe checks native CALayer hierarchy operations and capability
+detection with `methods/QuartzCore.m` loaded.
 
 The `h264_parameter_sets` behavior probe checks count-only and indexed AVC parameter-set
 queries against native parameter bytes, then decodes four frames for Baseline, High, and
