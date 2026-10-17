@@ -25,10 +25,10 @@
 #                                          predates AVIF)
 #   libheif 1.23.5 (static, on FFmpeg)  -> this port's HEIFImageDecoder: HEIC/HEIF stills, their
 #                                          HEVC decoded by FFmpeg's hevc decoder
-#   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
-#                                          crash-prone system libxml2 2.9.0
-#   libxslt 1.1.43 (shared)             -> WebCore XSLT, built against the libxml2 above so one
-#                                          process never holds two libxml2 images
+#   Apple libxml2 39.10 (shared)        -> WebCore XML/SVG parsing: macOS 26.5's libxml2 2.9.13, in
+#                                          place of 10.9's crash-prone system libxml2 2.9.0
+#   Apple libxslt 21.13 (shared)        -> WebCore XSLT: macOS 26.5's libxslt 1.1.35, built against the
+#                                          libxml2 above so one process never holds two libxml2 images
 #   SQLite 3.53.4 (shared)              -> WebCore databases and WAL checkpoint/truncation
 #   BoringSSL (in-tree, shared)        -> curl TLS, WebCore SSL APIs and HLS AES-128 keys
 #   libpsl 0.21.5 (shared, ICU)        -> public-suffix rejection in curl's cookie store
@@ -757,8 +757,12 @@ echo "==== 10.9 gap archive ===="
 #   os_unfair_lock  os_unfair_lock_lock/trylock/unlock/assert_owner/assert_not_owner (10.12+),
 #                   os_unfair_lock_lock_with_flags/_with_options (10.15+)
 #   os_log          os_log_create, os_log_type_enabled and the os_log() emit points (10.12+), which
-#                   Apple's ICU calls
+#                   Apple's ICU and libxml2 call
 #   os_feature      _os_feature_enabled_impl (10.13+), which Apple's ICU calls
+#   dyld_version    dyld_program_sdk_at_least/dyld_program_minos_at_least/dyld_sdk_at_least
+#                   (10.10+), which Apple's libxml2 and libxslt call
+#   fd_set          __darwin_check_fd_set_overflow (11.0+), which FD_SET calls at Apple libxml2's
+#                   14.0 target
 #   mkostemp            mkostemp/mkostemps
 #   os_version          _availability_version_check (@available lowering; lld requires a
 #                       definition for compiler-rt's weak-import reference)
@@ -791,7 +795,14 @@ echo "==== 10.9 gap archive ===="
 #                       duration-less frame's rate from its absolute presentation time; frames after
 #                       a session's first carry the session's average duration, and the output
 #                       samples are handed back without it (vtenc submits duration-less frames); a
-#                       specification requiring RequiredLowLatency gets 10.9's EncoderUsage 1
+#                       specification requiring RequiredLowLatency gets 10.9's EncoderUsage 1; a
+#                       source buffer missing a colour attachment the session declares is encoded
+#                       carrying the session's value (10.9 answers -12917 for it; vtenc tags none)
+#   vtdecompression_colour  a deliberate OVERRIDE of VTDecompressionSessionCreate,
+#                       VTDecompressionSessionCanAcceptFormatDescription and
+#                       VTDecompressionSessionDecodeFrame: 10.9's H.264 decoder accepts an avcC
+#                       SPS colour description only within primaries 0-8, transfer 0-12 and matrix
+#                       0-8; sessions decode as a copy naming the other fields unspecified
 #   wk_symbols          loaded-image symbol lookup the overrides above resolve 10.9's entry points with
 #
 SHARED="$REPO/AquaWebKitSupport/polyfill/polyfills/shared"
@@ -800,7 +811,7 @@ GAPDIR="$SCRATCH/gap"
 # nothing for `ar` to pick up.
 GAPOBJ="$GAPDIR/obj"
 mkdir -p "$GAPDIR"; rm -rf "$GAPOBJ"; mkdir -p "$GAPOBJ"
-GAP_SHARED="time atcalls utimensat fdopendir statxx clonefile pthread_qos pthread_stack getentropy pthread_chdir os_unfair_lock os_log os_feature mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence wk_symbols"
+GAP_SHARED="time atcalls utimensat fdopendir statxx clonefile pthread_qos pthread_stack getentropy pthread_chdir os_unfair_lock os_log os_feature dyld_version fd_set mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence vtdecompression_colour wk_symbols"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPOBJ/$s.d" -c "$SHARED/$s.c" -o "$GAPOBJ/$s.o" || exit 1
@@ -1176,20 +1187,62 @@ for v in "$STAGE"/lib/libvpx.*.dylib; do
   "$INT" -id "$STAGE/lib/$(basename "$v")" "$v" || exit 1
 done
 
-echo "==== libxml2 2.13.6 ===="
-# WebCore links this in place of the 10.9 system libxml2 2.9.0, whose __xmlRaiseError
-# crashes on fatal parse errors (OptionsMac.cmake repoints LIBXML2_INCLUDE_DIR/LIBRARY
-# here). Not a GStreamer dependency — it rides the same staging/collect pipeline.
-# Ambient CFLAGS/LDFLAGS apply: the gap archive supplies getentropy (10.12+, which
-# configure detects against the modern SDK and xmlInitRandom then calls) as a DEFINED
-# symbol, the same way it does for every other media dylib.
-d=$(get https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.6.tar.xz libxml2) || exit 1
+echo "==== Apple libxml2 39.10 (libxml2 2.9.13) ===="
+# The libxml2 macOS 26.5 ships, which upstream's Cocoa port parses XML, XHTML and SVG with. WebCore links it
+# in place of 10.9's system libxml2 2.9.0 (OptionsMacAquaWebKit.cmake points LIBXML2_INCLUDE_DIR/LIBRARY
+# here), as do the adaptive-demux, DASH and Smooth Streaming plugins and the libxslt below. Built as Apple's
+# Xcode project builds its libxml2 target: that target's sources against the configuration in
+# "Pregenerated Files", the dylib versions and export list Apple's xcconfigs give it, this tree's ICU (the
+# converters Apple's build enables) and the system zlib. The sources compile for a 14.0 target: Apple
+# compiles its behaviour for macOS 13 and 14 (XPath resource limits, the ICU pivot buffer, the node-flag
+# accessors in tree.h) only at those targets. Those accessors keep internal flags in the high bits of
+# existing fields (xmlAttr.atype, xmlDoc.properties, xmlNode.extra), so callers built for older targets
+# see those fields as they do against macOS 26.5's own libxml2; no structure layout depends on the
+# target. The dylib links for 10.9; what the 14.0 target takes from the system beyond 10.9 comes from the
+# gap archive: __darwin_check_fd_set_overflow (FD_SET), _os_log_fault_impl, and
+# dyld_program_sdk_at_least/dyld_program_minos_at_least for its linked-on-or-after checks, declared in
+# apple-sdk/ as dyld_priv.h declares them.
+u=https://github.com/apple-oss-distributions/libxml2/archive/refs/tags/libxml2-39.10.tar.gz
+d=$(get "$u" libxml2) || exit 1
 if prepare "$d"; then
-    ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --without-python --without-lzma ) || exit 1
+    mkdir -p "$d/apple-sdk/mach-o" "$d/out" || exit 1
+    printf '%s\n' '#pragma once' '#include <mach-o/dyld.h>' '#include <stdbool.h>' '#include <stdint.h>' \
+        'typedef uint32_t dyld_platform_t;' \
+        'typedef struct { dyld_platform_t platform; uint32_t version; } dyld_build_version_t;' \
+        '#define DYLD_MACOSX_VERSION_10_9 0x000A0900' \
+        '#define dyld_fall_2022_os_versions ({ (dyld_build_version_t) { 0xffffffff, 0x07e60901 }; })' \
+        '#define dyld_fall_2023_os_versions ({ (dyld_build_version_t) { 0xffffffff, 0x07e70901 }; })' \
+        '#define dyld_2024_SU_E_os_versions ({ (dyld_build_version_t) { 0xffffffff, 0x07e90301 }; })' \
+        'extern const char *__progname;' \
+        'extern uint32_t dyld_get_program_sdk_version(void);' \
+        'extern bool dyld_program_sdk_at_least(dyld_build_version_t version);' \
+        'extern bool dyld_program_minos_at_least(dyld_build_version_t version);' \
+        > "$d/apple-sdk/mach-o/dyld_priv.h" || exit 1
     prepared "$d"
 fi
-( cd "$d" && make -s -j2 \
-  && make -s install ) || exit 1
+APPLE_XML_CFLAGS="-O2 -isysroot $SDK -mmacosx-version-min=14.0 -std=gnu99 -DNDEBUG -DHAVE_CONFIG_H -DU_DISABLE_RENAMING=1"
+APPLE_XML_SDK="$d/apple-sdk"
+LIBXML2_GEN="$d/Pregenerated Files"
+for s in buf c14n catalog chvalid debugXML dict DOCBparser encoding entities error globals hash HTMLparser \
+    HTMLtree legacy list nanoftp nanohttp parser parserInternals pattern relaxng SAX SAX2 schematron threads tree \
+    uri valid xinclude xlink xmlIO xmlmemory xmlmodule xmlreader xmlregexp xmlsave xmlschemas xmlschemastypes \
+    xmlstring xmlunicode xmlwriter xpath xpointer xzlib xmlversion; do
+    $CC $APPLE_XML_CFLAGS -I"$LIBXML2_GEN/include" -I"$d/libxml2/include" -I"$d/libxml2" -I"$STAGE/include" \
+        -idirafter "$APPLE_XML_SDK" -c "$d/libxml2/$s.c" -o "$d/out/$s.o" || exit 1
+done
+rm -rf "$STAGE/include/libxml2" && mkdir -p "$STAGE/include/libxml2/libxml" \
+  && cp -p "$d"/libxml2/include/libxml/*.h "$STAGE/include/libxml2/libxml/" \
+  && cp -p "$LIBXML2_GEN/include/libxml/xmlversion.h" "$STAGE/include/libxml2/libxml/" || exit 1
+LIBXML2_DYLIB="$STAGE/lib/libxml2.2.dylib"
+"$CC_BIN" -dynamiclib -isysroot "$SDK" $LDFLAGS -install_name "$LIBXML2_DYLIB" \
+    -compatibility_version 10.0.0 -current_version 10.9.0 \
+    -Wl,-exported_symbols_list,"$LIBXML2_GEN/libxml2.exp" "$d"/out/*.o \
+    -L"$STAGE/lib" -licucore.78 -lz -o "$LIBXML2_DYLIB.next" || exit 1
+if cmp -s "$LIBXML2_DYLIB.next" "$LIBXML2_DYLIB"; then rm -f "$LIBXML2_DYLIB.next"; else mv -f "$LIBXML2_DYLIB.next" "$LIBXML2_DYLIB" || exit 1; fi
+ln -sf libxml2.2.dylib "$STAGE/lib/libxml2.dylib" || exit 1
+mkdir -p "$STAGE/lib/pkgconfig" && printf '%s\n' "prefix=$STAGE" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' \
+    'Name: libXML' 'Version: 2.9.13' 'Description: libXML library version2.' \
+    'Libs: -L${libdir} -lxml2' 'Cflags: -I${includedir}/libxml2' > "$STAGE/lib/pkgconfig/libxml-2.0.pc" || exit 1
 
 echo "==== SQLite 3.53.4 ===="
 # WebCore's automatic WAL hook uses SQLITE_CHECKPOINT_TRUNCATE, supported since 3.8.8.
@@ -1213,22 +1266,54 @@ if prepare "$d"; then
 fi
 ( cd "$d" && make -j2 && make install ) || exit 1
 
-echo "==== libxslt 1.1.43 ===="
-# Built against the libxml2 above, and that is the whole reason it is here. WebCore parses an XSLT
-# stylesheet with libxml2 and hands the document to libxslt, which frees it again through
-# xsltFreeStylesheet. 10.9's /usr/lib/libxslt.1.dylib binds the system libxml2 2.9.0, so linking it puts
-# two libxml2 images in one process: measured on this host, a document allocated by one and freed by the
-# other faults in xsltFreeStylesheet, while the same sequence against a single libxml2 -- either version
-# -- completes. --without-crypto keeps the EXSLT crypto module (and its libgcrypt dependency) out; WebCore
-# uses none of it. Not a GStreamer dependency -- it rides the same staging/collect pipeline.
-d=$(get https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz libxslt) || exit 1
+echo "==== Apple libxslt 21.13 (libxslt 1.1.35) ===="
+# The libxslt macOS 26.5 ships, the pair of the libxml2 above: WebCore parses an XSLT stylesheet with
+# libxml2 and hands the document to libxslt, which frees it again through xsltFreeStylesheet, so both
+# libraries must be one libxml2's. Built as Apple's Xcode project builds its libxslt and libexslt targets,
+# from the same 14.0 target and dyld_priv.h declarations as libxml2 (Apple's transform code uses the
+# internals its configuration declares only from macOS 14), linked for 10.9 against the libxml2 above.
+u=https://github.com/apple-oss-distributions/libxslt/archive/refs/tags/libxslt-21.13.tar.gz
+d=$(get "$u" libxslt) || exit 1
 if prepare "$d"; then
-    ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --without-python \
-        --without-crypto --with-libxml-prefix="$STAGE" ) || exit 1
+    mkdir -p "$d/out/libxslt" "$d/out/libexslt" || exit 1
     prepared "$d"
 fi
-( cd "$d" && make -s -j2 \
-  && make -s install ) || exit 1
+LIBXSLT_GEN="$d/Pregenerated Files"
+for s in attributes attrvt documents extensions extra functions imports keys namespaces numbers pattern preproc \
+    security templates transform variables xslt xsltlocale xsltutils; do
+    $CC $APPLE_XML_CFLAGS -D_REENTRANT -I"$LIBXSLT_GEN/include/libxslt" -I"$LIBXSLT_GEN/include" -I"$d/libxslt" \
+        -I"$d/libxslt/libxslt" -I"$STAGE/include/libxml2" -I"$STAGE/include" -idirafter "$APPLE_XML_SDK" \
+        -c "$d/libxslt/libxslt/$s.c" -o "$d/out/libxslt/$s.o" || exit 1
+done
+for s in common crypto date dynamic exslt functions math saxon sets strings; do
+    $CC $APPLE_XML_CFLAGS -D_REENTRANT -I"$LIBXSLT_GEN/include/libexslt" -I"$LIBXSLT_GEN/include/libxslt" \
+        -I"$LIBXSLT_GEN/include" -I"$d/libxslt" -I"$d/libxslt/libxslt" -I"$d/libxslt/libexslt" \
+        -I"$STAGE/include/libxml2" -I"$STAGE/include" -idirafter "$APPLE_XML_SDK" \
+        -c "$d/libxslt/libexslt/$s.c" -o "$d/out/libexslt/$s.o" || exit 1
+done
+rm -rf "$STAGE/include/libxslt" "$STAGE/include/libexslt" \
+  && mkdir -p "$STAGE/include/libxslt" "$STAGE/include/libexslt" \
+  && cp -p "$d"/libxslt/libxslt/*.h "$LIBXSLT_GEN/include/libxslt/xsltconfig.h" "$STAGE/include/libxslt/" \
+  && cp -p "$d"/libxslt/libexslt/*.h "$LIBXSLT_GEN/include/libexslt/exsltconfig.h" "$STAGE/include/libexslt/" || exit 1
+LIBXSLT_DYLIB="$STAGE/lib/libxslt.1.dylib"
+"$CC_BIN" -dynamiclib -isysroot "$SDK" $LDFLAGS -install_name "$LIBXSLT_DYLIB" \
+    -compatibility_version 3.0.0 -current_version 3.26.0 \
+    -Wl,-exported_symbols_list,"$LIBXSLT_GEN/libxslt.exp" "$d"/out/libxslt/*.o "$LIBXML2_DYLIB" \
+    -o "$LIBXSLT_DYLIB.next" || exit 1
+if cmp -s "$LIBXSLT_DYLIB.next" "$LIBXSLT_DYLIB"; then rm -f "$LIBXSLT_DYLIB.next"; else mv -f "$LIBXSLT_DYLIB.next" "$LIBXSLT_DYLIB" || exit 1; fi
+LIBEXSLT_DYLIB="$STAGE/lib/libexslt.0.dylib"
+"$CC_BIN" -dynamiclib -isysroot "$SDK" $LDFLAGS -install_name "$LIBEXSLT_DYLIB" \
+    -compatibility_version 9.0.0 -current_version 9.15.0 \
+    -Wl,-exported_symbols_list,"$LIBXSLT_GEN/libexslt.exp" "$d"/out/libexslt/*.o "$LIBXSLT_DYLIB" "$LIBXML2_DYLIB" \
+    -o "$LIBEXSLT_DYLIB.next" || exit 1
+if cmp -s "$LIBEXSLT_DYLIB.next" "$LIBEXSLT_DYLIB"; then rm -f "$LIBEXSLT_DYLIB.next"; else mv -f "$LIBEXSLT_DYLIB.next" "$LIBEXSLT_DYLIB" || exit 1; fi
+ln -sf libxslt.1.dylib "$STAGE/lib/libxslt.dylib" && ln -sf libexslt.0.dylib "$STAGE/lib/libexslt.dylib" || exit 1
+printf '%s\n' "prefix=$STAGE" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' 'Name: libxslt' 'Version: 1.1.35' \
+    'Description: XSLT library version 2.' 'Requires: libxml-2.0' 'Libs: -L${libdir} -lxslt' 'Cflags: -I${includedir}' \
+    > "$STAGE/lib/pkgconfig/libxslt.pc" || exit 1
+printf '%s\n' "prefix=$STAGE" 'libdir=${prefix}/lib' 'includedir=${prefix}/include' 'Name: libexslt' 'Version: 0.8.20' \
+    'Description: EXSLT Extension library' 'Requires: libxml-2.0 libxslt' 'Libs: -L${libdir} -lexslt' 'Cflags: -I${includedir}' \
+    > "$STAGE/lib/pkgconfig/libexslt.pc" || exit 1
 
 echo "==== dav1d 1.4.3 ===="
 # FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec, which
@@ -1292,6 +1377,17 @@ if ! built libavif install/lib/libavif.a; then
     finished libavif "$d"
 fi
 
+echo "==== x264 (H.264 encoder) ===="
+u=https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz
+if ! built x264 install/lib/libx264.a; then
+    d=$(get "$u" x264) || exit 1
+    ( cd "$d" && AS="$NASM" STRIP= ./configure --prefix="$STAGE" \
+        --enable-static --enable-pic --disable-cli \
+      && make -s -j2 \
+      && make -s install ) || exit 1
+    finished x264 "$d"
+fi
+
 echo "==== FDK AAC 2.0.3 ===="
 # Fraunhofer's AAC decoder under gst-plugins-bad's fdkaacdec, the runtime's AAC decoder: LC,
 # HE-AAC v1/v2, LD, ELD and MPEG-D USAC (xHE-AAC) with its LPD speech core. Static, so the plugin
@@ -1327,6 +1423,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" \
         && patch -p1 < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" ) \
       || { echo "gstreamer queue2 segment-done patch failed to apply"; exit 1; }
+    # gstpreset: system presets relocate with libgstreamer, as plugins do. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-preset-relocated-datadir.patch" \
+        && patch -p1 < "$HERE/patches/gstreamer-preset-relocated-datadir.patch" ) \
+      || { echo "gstreamer preset datadir patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dtools=enabled -Dbenchmarks=disabled -Dlibunwind=disabled -Ddbghelp=disabled \
         -Dbash-completion=disabled ) || exit 1
@@ -1484,13 +1584,6 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-h264-profile-caps.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-h264-profile-caps.patch" ) \
       || { echo "gst-plugins-bad vtenc H.264 profile-caps patch failed to apply"; exit 1; }
-    # vtenc tells the compression session the color of its frames but hands it source
-    # pixel buffers carrying no color attachments; 10.9's VideoToolbox reads the source color from
-    # the buffer and answers kVTInsufficientSourceColorDataErr (-12917) for every frame. This
-    # attaches the colorimetry the session was told. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-source-colorimetry.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-source-colorimetry.patch" ) \
-      || { echo "gst-plugins-bad vtenc source-colorimetry patch failed to apply"; exit 1; }
     # H.264 output caps carry the encoded SPS colorimetry reported by h264parse.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-h264-output-colorimetry.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-h264-output-colorimetry.patch" ) \
@@ -1528,6 +1621,17 @@ if prepare "$d"; then
         -Daes=disabled -Dhls=disabled -Ddash=enabled \
         -Dwebrtc=disabled -Dwebrtcdsp=disabled -Ddtls=disabled -Dsrtp=disabled -Dsctp=disabled \
         -Dapplemedia=enabled -Dfdkaac=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && "$MESON" compile -C b -j 2 \
+  && "$MESON" install -C b ) || exit 1
+
+echo "==== gst-plugins-ugly (x264) ===="
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-ugly/gst-plugins-ugly-$GST_VER.tar.xz gstugly) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" \
+        -Dbuildtype=release -Dtests=disabled -Ddoc=disabled -Dc_std=gnu11 \
+        -Dauto_features=disabled -Dgpl=enabled -Dx264=enabled ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
@@ -1722,8 +1826,11 @@ rm -f "$GAP_RELINK"
 # Asked again immediately before the collect step replaces the tree those links read from.
 _refuse_under_webkit_build
 rm -f "$DEST/.recipes"
-rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin"
-mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin"
+rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin" "$DEST/share"
+mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin" "$DEST/share/gstreamer-1.0"
+# The element presets (x264enc's profile presets among them), in <prefix>/share beside lib, where a
+# relocated libgstreamer reads them.
+cp -Rp "$STAGE/share/gstreamer-1.0/presets" "$DEST/share/gstreamer-1.0/"
 # GIO's module directory, beside libgio. On macOS GLib loads modules from <libgio's directory>/gio/modules
 # when that directory exists (get_gio_module_dir), and from the configured prefix otherwise. No module
 # ships, so it stays empty.
@@ -1761,7 +1868,7 @@ cp -p "$STAGE/include/tiffio.h" "$STAGE/include/tiff.h" "$STAGE/include/tiffvers
 # includes <png.h>, and png.h includes pngconf.h, which includes pnglibconf.h.
 cp -p "$STAGE/include/png.h" "$STAGE/include/pngconf.h" "$STAGE/include/pnglibconf.h" "$DEST/include/"
 # libxml2 headers: WebCore compiles against these. OptionsMac.cmake points
-# LIBXML2_INCLUDE_DIR here so the headers match the 2.13 dylib deployed alongside them.
+# LIBXML2_INCLUDE_DIR here so the headers match the dylib deployed alongside them.
 cp -Rp "$STAGE/include/libxml2"    "$DEST/include/"
 # libxslt headers, from the same build and for the same reason: WebCore compiles its XSLT against these
 # rather than the SDK's, so the declarations match the dylib deployed beside them.

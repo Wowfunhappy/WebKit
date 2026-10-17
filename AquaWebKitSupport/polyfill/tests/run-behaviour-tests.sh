@@ -747,6 +747,16 @@ probe_avf_display_layer_layout() {
         "$T/avf_display_layer_layout"
 }
 
+probe_avf_display_layer_transaction() {
+    prepare_method_objects AVFoundation &&
+        "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new -fno-objc-arc -o "$T/avf_display_layer_transaction" "$TBEHAV/AVFoundation-display-layer-transaction.m" \
+            "$OBJ/methods/AVFoundation.o" "$OBJ/mech/wk_selref_scope.o" "$PF/methods/Accelerate.m" -I"$PF/c" -framework Accelerate \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework QuartzCore -framework AppKit -framework Foundation \
+            -framework CoreServices -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
+        "$T/avf_display_layer_transaction"
+}
+
 probe_constant_packet_input() {
     "$CLANG" $MODERN $INC -o "$T/constant_packet_input" "$TBEHAV/AudioToolbox-constant-packet-input.c" \
         $PROBE_LIBS -framework AudioToolbox -framework AudioUnit &&
@@ -812,6 +822,12 @@ probe_encode_cadence() {
     "$CLANG" $MODERN $INC -Wno-unused-function -o "$T/encode_cadence" "$TBEHAV/VideoToolbox-encode-cadence.c" $PROBE_LIBS \
         -framework VideoToolbox -framework CoreVideo &&
         "$T/encode_cadence"
+}
+
+probe_decode_colour_description() {
+    "$CLANG" $MODERN $INC -o "$T/decode_colour_description" "$TBEHAV/VideoToolbox-decode-colour-description.c" $PROBE_LIBS \
+        -framework VideoToolbox -framework CoreVideo &&
+        "$T/decode_colour_description"
 }
 
 probe_encode_low_latency() {
@@ -1132,6 +1148,7 @@ run_probe avf_display_color "$@"
 run_probe avf_resource_loader_drain "$@"
 run_probe avf_display_color_kvo "$@"
 run_probe avf_display_layer_layout "$@"
+run_probe avf_display_layer_transaction "$@"
 run_probe constant_packet_input "$@"
 run_probe delay_mode_excess_input "$@"
 run_probe optical_size "$@"
@@ -1141,6 +1158,7 @@ run_probe font_data_descriptors "$@"
 run_probe font_collections "$@"
 run_probe h264_parameter_sets "$@"
 run_probe encode_cadence "$@"
+run_probe decode_colour_description "$@"
 run_probe encode_low_latency "$@"
 run_probe pixel_buffer_conformer "$@"
 run_probe public_suffix "$@"

@@ -21,22 +21,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/graphics/re"
 )
 
-# The XML headers WebCore compiles against are the ones deployed beside it. Upstream's PlatformMac.cmake
-# adds the SDK's usr/include/libxml2 and usr/include/libxslt to the system include path, and the SDK
-# declares libxml2 2.9.13 while this port links the 2.13.6 from deps/build (OptionsMacAquaWebKit sets
-# LIBXML2_* and LIBXSLT_* there) -- so those entries put a translation unit's declarations and the
-# library it links out of step, and the struct fields that differ between the two versions sit at the
-# tail, where the mismatch is silent. Removing them leaves the deps/build headers, which the imported
-# LibXml2/LibXslt targets already carry, as the only ones on the line.
-list(REMOVE_ITEM WebCore_SYSTEM_INCLUDE_DIRECTORIES
-    "${CMAKE_OSX_SYSROOT}/usr/include/libxslt"
-    "${CMAKE_OSX_SYSROOT}/usr/include/libxml2"
-)
-list(INSERT WebCore_SYSTEM_INCLUDE_DIRECTORIES 0
-    "${LIBXML2_INCLUDE_DIR}"
-    "${LIBXSLT_INCLUDE_DIR}"
-)
-
 # libwebrtc/CMakeLists.txt is the GTK and WPE ports' CMake, and puts libwebrtc in WebCore_LIBRARIES,
 # which propagates a hard load command to everything that links WebCore -- WebKitLegacy included, which
 # references nothing in it. The Cocoa build links it weakly and only where its symbols are used:

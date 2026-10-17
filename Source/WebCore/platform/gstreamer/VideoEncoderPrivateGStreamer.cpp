@@ -148,9 +148,6 @@ enum EncoderId {
     SvtAv1,
     QualcommH264,
     QualcommH265,
-    // AQUAWEBKIT: this platform's H.264 encoder. Upstream's GStreamer ports have no
-    // VideoToolbox, so its table lists none, and videoEncoderSetCodec finds nothing for avc1 here.
-    VideoToolboxH264,
 };
 
 class Encoders {
@@ -739,37 +736,6 @@ static void webkit_video_encoder_class_init(WebKitVideoEncoderClass* klass)
                 break;
             };
         });
-    // AQUAWEBKIT: x264enc and openh264enc are absent from this port's plugin set; vtenc_h264 is
-    // the H.264 encoder it has, so register it the way the others are. The encoded caps end the bin, where
-    // h264parse negotiates the requested profile with vtenc. Registration is skipped automatically when the
-    // factory is absent, so this is inert on a build without applemedia.
-    Encoders::registerEncoder(VideoToolboxH264, "vtenc_h264"_s, "h264parse"_s, "video/x-h264"_s, nullptr,
-        [](WebKitVideoEncoder* self) {
-            g_object_set(self->priv->parser.get(), "config-interval", 1, nullptr);
-            // vtenc turns a caps level into a fixed VideoToolbox level, which rejects frames larger than that
-            // level allows, so VideoToolbox chooses the level for the requested profile.
-            auto& encodedCaps = self->priv->encodedCaps;
-            if (!gst_caps_is_any(encodedCaps.get()) && !gst_caps_is_empty(encodedCaps.get())) {
-                encodedCaps = adoptGRef(gst_caps_make_writable(encodedCaps.leakRef()));
-                auto structure = gst_caps_get_structure(encodedCaps.get(), 0);
-                gst_structure_remove_field(structure, "level");
-                gst_structure_set(structure, "alignment", G_TYPE_STRING, "au", "stream-format", G_TYPE_STRING, "avc", nullptr);
-            }
-        }, "bitrate"_s, setBitrateKbitPerSec, "max-keyframe-interval"_s, [](GstElement*, BitrateMode) {
-            notImplemented();
-        }, [](GstElement* encoder, LatencyMode mode) {
-            // Frame reordering stays off in both modes, so encoded frames leave in input order. Per-frame
-            // metadata carries each input's timestamp and duration through VideoToolbox's asynchronous output
-            // and drain.
-            switch (mode) {
-            case REALTIME_LATENCY_MODE:
-                g_object_set(encoder, "realtime", TRUE, "allow-frame-reordering", FALSE, nullptr);
-                break;
-            case QUALITY_LATENCY_MODE:
-                g_object_set(encoder, "realtime", FALSE, "allow-frame-reordering", FALSE, nullptr);
-                break;
-            };
-        }); // AQUAWEBKIT: closes the VideoToolbox H.264 encoder registration above.
     Encoders::registerEncoder(OpenH264, "openh264enc"_s, "h264parse"_s, "video/x-h264"_s,
         "video/x-h264,alignment=au,stream-format=avc"_s,
         [](WebKitVideoEncoder* self) {

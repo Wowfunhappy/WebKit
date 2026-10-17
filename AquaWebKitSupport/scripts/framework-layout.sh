@@ -71,9 +71,11 @@ SYSTEM_UNWINDER=/usr/lib/system/libunwind.dylib
 #                 TLS and HTTP/2 libraries, libxml2/libxslt, the FFmpeg decoders, dav1d, libopus
 #   GST_LIBS      GStreamer (#90): its own libraries, its plugins (gstreamer-1.0/), and the libraries
 #                 only those load
+#   GST_SHARE     GStreamer's data beside GST_LIBS: the element presets (gstreamer-1.0/presets/)
 JSC_LIBS=$JSC_BUNDLE/Versions/A/Frameworks
 WEBCORE_LIBS=$WEBCORE_BUNDLE/Versions/A/Frameworks
 GST_LIBS=$WEBCORE_LIBS/gstreamer/lib
+GST_SHARE=$WEBCORE_LIBS/gstreamer/share
 XPCSERVICES=$WEBKIT2_BUNDLE/Versions/A/XPCServices
 
 # Canonical stock backup (flat *.framework dirs), captured once by

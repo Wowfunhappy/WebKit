@@ -425,17 +425,12 @@ set_target_properties(SQLite::SQLite3 PROPERTIES
     IMPORTED_LOCATION "${AQUAWEBKIT_DEPS}/lib/libsqlite3.dylib"
     INTERFACE_INCLUDE_DIRECTORIES "${AQUAWEBKIT_DEPS}/include")
 
-# The libxml2 2.13 from deps/build (@rpath install name, shipped alongside GStreamer) instead of the
-# SDK tbd, which binds /usr/lib/libxml2.2.dylib — libxml2 2.9.0 on 10.9, whose __xmlRaiseError crashes
-# on fatal parse errors from SVG/XML payloads.
-#
-# libxslt comes from deps/build for one reason: it has to be the same libxml2. WebCore parses a
+# Apple's libxml2 and libxslt from deps/build (macOS 26.5's, @rpath install names, shipped alongside
+# GStreamer) instead of the SDK tbds, which bind /usr/lib/libxml2.2.dylib and /usr/lib/libxslt.1.dylib:
+# libxml2 2.9.0 on 10.9, whose __xmlRaiseError crashes on fatal parse errors from SVG/XML payloads. Their
+# public headers are the SDK's, byte for byte. libxslt has to be the same libxml2's: WebCore parses a
 # stylesheet with libxml2 and hands the document to libxslt, which frees it again through
-# xsltFreeStylesheet. 10.9's /usr/lib/libxslt.1.dylib binds the system libxml2, so the WebContent
-# process held two libxml2 images and that free crossed between them: measured on this host it faults,
-# while the same sequence against a single libxml2 — either version — completes.
-# WebCorePlatformAquaWebKit puts both include directories ahead of the SDK's, so the headers each
-# library is compiled against are the ones deployed beside it.
+# xsltFreeStylesheet.
 set(LIBXML2_INCLUDE_DIR "${AQUAWEBKIT_DEPS}/include/libxml2" CACHE PATH "" FORCE)
 set(LIBXML2_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libxml2.2.dylib" CACHE FILEPATH "" FORCE)
 set(LIBXSLT_INCLUDE_DIR "${AQUAWEBKIT_DEPS}/include" CACHE PATH "" FORCE)

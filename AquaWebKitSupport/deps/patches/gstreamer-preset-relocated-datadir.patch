@@ -1,0 +1,53 @@
+# A relocated libgstreamer reads system presets from its prefix's datadir, which it reaches from its
+# library directory the way gstpluginloader.c reaches the plugin scanner. See patches/README.md.
+
+--- a/meson.build
++++ b/meson.build
+@@ -151,6 +151,8 @@
+ cdata.set_quoted('GST_PTP_HELPER_INSTALLED', join_paths(prefix, helpers_install_dir, 'gst-ptp-helper'))
+ cdata.set_quoted('GST_PLUGIN_SUBDIR', get_option('libdir'),
+   description: 'plugin directory path component, used to find plugins on relocatable builds')
++cdata.set_quoted('GST_DATA_SUBDIR', get_option('datadir'),
++  description: 'datadir path component, used to find presets on relocatable builds')
+ cdata.set_quoted('GST_PLUGIN_SCANNER_SUBDIR', libexecdir,
+   description: 'libexecdir path component, used to find plugin-scanner on relocatable builds')
+ cdata.set_quoted('GST_PTP_HELPER_SUBDIR', libexecdir,
+--- a/gst/gstpreset.c
++++ b/gst/gstpreset.c
+@@ -196,8 +196,34 @@
+           "presets", NULL);
+       g_free (basedir);
+ #else
+-      preset_dir = g_build_filename (GST_DATADIR, "gstreamer-" GST_API_VERSION,
+-          "presets", NULL);
++      /* A relocated libgstreamer finds its data the way it finds its plugin
++       * scanner: from the library's directory, up the libdir components to
++       * the prefix, then down the datadir components. */
++#define MAX_PATH_DEPTH 64
++      char *relocated_libgstreamer = priv_gst_get_relocated_libgstreamer ();
++      int plugin_subdir_depth = priv_gst_count_directories (GST_PLUGIN_SUBDIR);
++
++      if (relocated_libgstreamer && !g_path_is_absolute (GST_DATA_SUBDIR)
++          && plugin_subdir_depth < MAX_PATH_DEPTH) {
++        const char *filenamev[MAX_PATH_DEPTH + 5];
++        int i = 0, j;
++
++        filenamev[i++] = relocated_libgstreamer;
++        for (j = 0; j < plugin_subdir_depth; j++)
++          filenamev[i++] = "..";
++        filenamev[i++] = GST_DATA_SUBDIR;
++        filenamev[i++] = "gstreamer-" GST_API_VERSION;
++        filenamev[i++] = "presets";
++        filenamev[i++] = NULL;
++        g_assert (i <= MAX_PATH_DEPTH + 5);
++
++        preset_dir = g_build_filenamev ((char **) filenamev);
++      } else {
++        preset_dir = g_build_filename (GST_DATADIR,
++            "gstreamer-" GST_API_VERSION, "presets", NULL);
++      }
++      g_free (relocated_libgstreamer);
++#undef MAX_PATH_DEPTH
+ #endif
+       GST_INFO_OBJECT (preset, "system_preset_dir: '%s'", preset_dir);
+       preset_path = g_strdup_printf ("%s" G_DIR_SEPARATOR_S "%s.prs",

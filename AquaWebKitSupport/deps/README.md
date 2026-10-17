@@ -10,13 +10,14 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
   than in 10.9's ImageIO, so libjpeg-turbo 3.1.2, libpng 1.6.43, libwebp 1.3.2, libtiff 4.7.0 and
   libavif 1.3.0 (on the dav1d below) are on the path every page's images take, with lcms2 2.16
   transforming the ones that carry an ICC profile;
-- libxml2 2.13 (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of
-  the crash-prone 10.9 system libxml2 2.9;
+- Apple's libxml2 39.10 and libxslt 21.13, macOS 26.5's libxml2 2.9.13 and libxslt 1.1.35
+  (`lib/libxml2.2.dylib`, `lib/libxslt.1.dylib`, `include/libxml2`, `include/libxslt`), which WebCore
+  links in place of the crash-prone 10.9 system libxml2 2.9.0;
 - SQLite 3.53.4 (`lib/libsqlite3.dylib`, `include/sqlite3.h`), which supplies WebCore's
   automatic WAL truncation and 64-bit blob bindings;
-- the complete GStreamer 1.28.7 runtime — glib 2.80.5, gstreamer core/base/good/bad,
+- the complete GStreamer 1.28.7 runtime — glib 2.80.5, gstreamer core/base/good/bad and the x264 plugin from ugly,
   FFmpeg + gst-libav, libvpx, dav1d, FDK AAC 2.0.3 (the AAC and xHE-AAC decoder, under
-  fdkaacdec), OpenSSL (HLS AES-128 keys),
+  fdkaacdec), x264 (H.264 encoding), OpenSSL (HLS AES-128 keys),
   gst-plugins-rs 0.15.2 closed-caption parsers/converters —
   plus `bin/gst-inspect-1.0` and `bin/gst-launch-1.0` for on-box debugging;
 - `include/readability`, Mozilla's Readability 0.6.0 (the npm release) and Firefox's

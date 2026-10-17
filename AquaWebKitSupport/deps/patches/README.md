@@ -69,19 +69,6 @@ Both are the one defect — the registry advertising an encoder VideoToolbox can
 
 H.265 still decodes through `avdec_h265`; `h265parse` and `rtph265pay/depay` are unaffected.
 
-## gst-plugins-bad-vtenc-source-colorimetry.patch
-
-**Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
-**Applied to:** libgstapplemedia (every vtenc element)
-
-`gst_vtenc_set_colorimetry()` tells the compression session what color its frames are in, mapping the negotiated caps onto `kVTCompressionPropertyKey_ColorPrimaries`, `_TransferFunction` and `_YCbCrMatrix`. A session that has been told a color needs the source frame's color too, to know whether a conversion stands between the two — and 10.9's VideoToolbox reads that from the source `CVPixelBuffer`'s own `kCVImageBufferColorPrimariesKey` / `_TransferFunctionKey` / `_YCbCrMatrixKey` attachments. For a property the session declares and the buffer leaves unstated it answers **-12917** (`kVTInsufficientSourceColorDataErr`), in the output callback, for every frame. vtenc tags no source buffer anywhere — `sys/applemedia` calls `CVBufferSetAttachment` in neither the encoder nor its helpers — and encodes on the systems it ships for, so the requirement is 10.9's.
-
-`gst_vtenc_encode_frame()` builds its source buffer with `CVPixelBufferCreateWithPlanarBytes()` over the `GstBuffer`'s own memory, passing NULL for the pixel buffer attributes and setting no attachments. So on 10.9 every `vtenc_h264` frame failed and the element emitted nothing — at every frame size, in NV12, I420 and UYVY alike, with or without a bitrate, realtime on or off. A buffer that arrives already CoreVideo-backed carries its own color attachments and takes the other branch of `gst_vtenc_encode_frame`, which is what WebKit hands the encoder for a canvas or `ArrayBuffer` `VideoFrame`; so WebCodecs H.264 looked healthy while a frame decoded into system memory could not be encoded at all. Measured on the pre-patch build, a WebCodecs VP8-to-H.264 transcode — `vp8dec` output straight into a `VideoEncoder` configured `avc1.42001E`, `vtenc_h264` being this port's only H.264 encoder — accepted all ten frames, emitted no chunk, fired no error and never settled its `flush()`.
-
-Measured with a bare `VTCompressionSession` over `CVPixelBufferCreateWithPlanarBytes`: with no color property on the session every frame encodes; with any one of the three set and no attachment on the buffer every frame answers -12917; and with the buffer carrying an attachment for each property the session was told, every frame encodes. The requirement is per property, so the patch attaches exactly the set `gst_vtenc_set_colorimetry()` declared — nothing is invented for a component the caps leave unknown — and the values are the ones the session already holds, which makes source and target color identical and the conversion an identity. Where the session holds no color property at all — 10.9 refuses the BT.2020 values outright, -12902 — the attachments change nothing: the emitted SPS is byte-identical with the source buffer untagged, tagged BT.601 or tagged BT.2020.
-
-The single-macroblock limit is separate and belongs to the encoder itself: a frame no wider than 16 and no taller than 16 (14x14, 16x16) answers **-12348** from a bare `VTCompressionSession` as well as through vtenc, while 16x17, 17x16 and everything larger encode.
-
 ## gst-plugins-bad-vtenc-drain-queued-frames.patch
 
 **Target:** `gst-plugins-bad-1.28.7`, `sys/applemedia/vtenc.c`, `sys/applemedia/vtenc.h`
@@ -270,6 +257,15 @@ When a track's ContentEncodings make it `application/x-webm-enc`, the demuxer re
 A source that performs a segment seek ends the segment with a `SEGMENT_DONE` event instead of EOS, and no data follows until the application seeks again. `multiqueue` records that (`is_segment_done`) and counts the queue as full, as at EOS. `queue2` recognises only EOS (`is_eos`), so after a segment-done event it keeps waiting for data that is not coming: as playback drains it, it reports buffering down to 0%, and an application that pauses for buffering (WebKit's player does) stops the pipeline with the event still queued, so the demuxer never receives it and the segment never completes. Measured in Safari with a looping Range-served MP4: the second pass stopped about a second before the end, at buffering 0%, with no pipeline segment-done.
 
 The patch gives `queue2` the same state: a queued `SEGMENT_DONE` makes the buffering level 100% until a new segment, stream-start, flush or reactivation.
+
+## gstreamer-preset-relocated-datadir.patch
+
+**Target:** `gstreamer-1.28.7`, `meson.build`, `gst/gstpreset.c`
+**Applied to:** libgstreamer (`GstPreset`)
+
+A relocated libgstreamer finds its plugins and its plugin scanner from its own location (`priv_gst_get_relocated_libgstreamer`, dladdr), but outside Windows `GstPreset` reads system presets only from the compile-time `GST_DATADIR`. The runtime WebKit ships lives in `WebCore.framework/Versions/A/Frameworks/gstreamer`, so `GST_DATADIR` names the build machine's install prefix: a sandboxed WebContent is denied it, and no other machine has it. `x264enc`'s `Profile Main` and `Profile High` presets, which WebKit's encoder loads for those H.264 profiles, then fail to load (`gstpreset.c:292: Unable to read preset file`), and the encoder writes Constrained Baseline whatever profile WebCodecs asked for.
+
+The patch adds `GST_DATA_SUBDIR` (the `datadir` option) beside `GST_PLUGIN_SUBDIR` and builds the system preset directory the way `gstpluginloader.c` builds the plugin scanner's path: the relocated library directory, one `..` per component of `GST_PLUGIN_SUBDIR`, then `GST_DATA_SUBDIR`, `gstreamer-1.0/presets`. It reads `GST_DATADIR` when the library location is unknown or the datadir is absolute. `build_deps.sh` collects the presets into `deps/build/share`, and staging deploys them to `gstreamer/share` beside `gstreamer/lib`.
 
 ## curl-reusable-preconnect.patch
 

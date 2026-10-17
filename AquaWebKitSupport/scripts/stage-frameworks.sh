@@ -496,6 +496,11 @@ for plugin in "$RUNTIME_SRC"/gstreamer-1.0/*.dylib; do
     RUNTIME_DEPLOYED="$RUNTIME_DEPLOYED
 $(s "$GST_LIBS")/gstreamer-1.0/$(basename "$plugin")"
 done
+# The element presets, in gstreamer/share beside gstreamer/lib, where libgstreamer reads them.
+rm -rf "$(s "$GST_SHARE")"
+mkdir -p "$(s "$GST_SHARE")/gstreamer-1.0"
+cp -R "$RUNTIME_SRC/../share/gstreamer-1.0/presets" "$(s "$GST_SHARE")/gstreamer-1.0/"
+find "$(s "$GST_SHARE")" -type f -exec chmod 644 {} +
 while read -r lib; do
     [ -n "$lib" ] || continue
     int_or_die -id "${lib#$STAGE}" "$lib"

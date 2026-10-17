@@ -2,12 +2,16 @@
 // the session, keeps a usable quantizer after its rate changes. The encoder, property sequence and clock
 // origin are libwebrtc's: ExpectedFrameRate 60 then 29 then 30, AverageBitRate 235000 then 600000, and a
 // capture clock at 75510506 ms. The encoded samples carry the durations the frames were submitted with:
-// none for these, and exactly the stated one for a frame that states it.
+// none for these, and exactly the stated one for a frame that states it. A session told its frames' colour
+// encodes NV12 and I420 frames made with CVPixelBufferCreateWithPlanarBytes that carry no colour attachments,
+// and IOSurface-backed NV12 frames without them, whose IOSurfaces nothing holds once the session completes.
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
+#include <IOSurface/IOSurface.h>
 #include <VideoToolbox/VideoToolbox.h>
 #include <assert.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,6 +126,83 @@ static void encodedWithStatedDuration(void *context, void *frame, OSStatus statu
         ++stated->matching;
 }
 
+struct Untagged {
+    unsigned samples;
+    unsigned failures;
+    OSStatus status;
+};
+
+static void encodedUntagged(void *context, void *frame, OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sample)
+{
+    (void)frame;
+    (void)flags;
+    struct Untagged *untagged = context;
+    if (status || !sample) {
+        ++untagged->failures;
+        untagged->status = status;
+    } else
+        ++untagged->samples;
+}
+
+static void releasePlanes(void *context, const void *data, size_t dataSize, size_t planeCount, const void *planes[])
+{
+    (void)data;
+    (void)dataSize;
+    (void)planeCount;
+    (void)planes;
+    free(context);
+}
+
+// A 320x240 frame over caller-owned planes with no attachments, as gst-plugins-bad's vtenc builds one.
+static CVPixelBufferRef untaggedPlanarFrame(OSType format, unsigned frame)
+{
+    size_t planeCount = format == kCVPixelFormatType_420YpCbCr8Planar ? 3 : 2;
+    size_t widths[3] = { 320, planeCount == 3 ? 160 : 160, 160 };
+    size_t heights[3] = { 240, 120, 120 };
+    size_t bytesPerRow[3] = { 320, planeCount == 3 ? 160 : 320, 160 };
+    size_t total = 0;
+    for (size_t plane = 0; plane < planeCount; ++plane)
+        total += bytesPerRow[plane] * heights[plane];
+    unsigned char *memory = malloc(total);
+    assert(memory);
+    void *bases[3];
+    size_t offset = 0;
+    for (size_t plane = 0; plane < planeCount; ++plane) {
+        bases[plane] = memory + offset;
+        for (size_t i = 0; i < bytesPerRow[plane] * heights[plane]; ++i)
+            memory[offset + i] = plane ? 128 : (unsigned char)((i + frame * 8) & 255);
+        offset += bytesPerRow[plane] * heights[plane];
+    }
+    CVPixelBufferRef image = NULL;
+    assert(!CVPixelBufferCreateWithPlanarBytes(NULL, 320, 240, format, NULL, 0, planeCount, bases, widths, heights, bytesPerRow,
+        releasePlanes, memory, NULL, &image));
+    return image;
+}
+
+// A 320x240 NV12 frame backed by an IOSurface, with no attachments.
+static CVPixelBufferRef untaggedSurfaceFrame(unsigned frame)
+{
+    CFDictionaryRef surfaceProperties = CFDictionaryCreate(NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const void *keys[] = { kCVPixelBufferIOSurfacePropertiesKey };
+    const void *values[] = { surfaceProperties };
+    CFDictionaryRef attributes = CFDictionaryCreate(NULL, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CVPixelBufferRef image = NULL;
+    assert(!CVPixelBufferCreate(NULL, 320, 240, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, attributes, &image));
+    CFRelease(attributes);
+    CFRelease(surfaceProperties);
+    assert(CVPixelBufferGetIOSurface(image));
+    assert(!CVPixelBufferLockBaseAddress(image, 0));
+    for (size_t plane = 0; plane < 2; ++plane) {
+        unsigned char *base = CVPixelBufferGetBaseAddressOfPlane(image, plane);
+        size_t size = CVPixelBufferGetBytesPerRowOfPlane(image, plane) * CVPixelBufferGetHeightOfPlane(image, plane);
+        for (size_t i = 0; i < size; ++i)
+            base[i] = plane ? 128 : (unsigned char)((i + frame * 8) & 255);
+    }
+    assert(!CVPixelBufferUnlockBaseAddress(image, 0));
+    CVBufferRemoveAllAttachments(image);
+    return image;
+}
+
 static CVPixelBufferRef grayFrame(void)
 {
     CVPixelBufferRef image = NULL;
@@ -207,6 +288,53 @@ int main(void)
     if (stated.samples != 10 || stated.matching != stated.samples) {
         printf("FAIL %u of %u samples keep the stated duration\n", stated.matching, stated.samples);
         ++failures;
+    }
+
+    static const OSType untaggedFormats[] = { kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8Planar,
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange };
+    static const char *untaggedNames[] = { "NV12", "I420", "IOSurface NV12" };
+    for (unsigned f = 0; f < 3; ++f) {
+        bool surfaceBacked = f == 2;
+        IOSurfaceRef surfaces[5] = { NULL };
+        static struct Untagged untagged;
+        memset(&untagged, 0, sizeof(untagged));
+        VTCompressionSessionRef taggedSession = NULL;
+        assert(!VTCompressionSessionCreate(NULL, 320, 240, kCMVideoCodecType_H264, NULL, NULL, NULL, encodedUntagged, &untagged, &taggedSession));
+        assert(!VTSessionSetProperty(taggedSession, kVTCompressionPropertyKey_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2));
+        assert(!VTSessionSetProperty(taggedSession, kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2));
+        assert(!VTSessionSetProperty(taggedSession, kVTCompressionPropertyKey_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2));
+        for (unsigned frame = 0; frame < 5; ++frame) {
+            CVPixelBufferRef image = surfaceBacked ? untaggedSurfaceFrame(frame) : untaggedPlanarFrame(untaggedFormats[f], frame);
+            assert(!CVBufferGetAttachment(image, kCVImageBufferColorPrimariesKey, NULL));
+            assert(!VTCompressionSessionEncodeFrame(taggedSession, image, CMTimeMake(frame, 30), CMTimeMake(1, 30), NULL, NULL, NULL));
+            if (CVBufferGetAttachment(image, kCVImageBufferColorPrimariesKey, NULL)) {
+                printf("FAIL the caller's untagged %s frame gained a colour attachment\n", untaggedNames[f]);
+                ++failures;
+            }
+            if (surfaceBacked) {
+                surfaces[frame] = CVPixelBufferGetIOSurface(image);
+                CFRetain(surfaces[frame]);
+            }
+            CVPixelBufferRelease(image);
+        }
+        assert(!VTCompressionSessionCompleteFrames(taggedSession, kCMTimeInvalid));
+        VTCompressionSessionInvalidate(taggedSession);
+        CFRelease(taggedSession);
+        for (unsigned frame = 0; frame < 5; ++frame) {
+            if (!surfaces[frame])
+                continue;
+            if (IOSurfaceIsInUse(surfaces[frame])) {
+                printf("FAIL IOSurface NV12 frame %u: its IOSurface is still in use, use count %d\n", frame,
+                    (int)IOSurfaceGetUseCount(surfaces[frame]));
+                ++failures;
+            }
+            CFRelease(surfaces[frame]);
+        }
+        if (untagged.samples != 5 || untagged.failures) {
+            printf("FAIL %s frames without colour attachments: %u of 5 encoded, %u failed (last status %d)\n",
+                untaggedNames[f], untagged.samples, untagged.failures, (int)untagged.status);
+            ++failures;
+        }
     }
 
     double mean = slices ? qp / slices : 99;

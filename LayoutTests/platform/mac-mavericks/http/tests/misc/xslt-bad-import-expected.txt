@@ -1,3 +1,0 @@
-CONSOLE MESSAGE: Document is empty
-
-This test passes if it does not crash.

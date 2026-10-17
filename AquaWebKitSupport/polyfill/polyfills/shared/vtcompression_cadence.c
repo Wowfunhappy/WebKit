@@ -24,6 +24,13 @@
  * it once the session names a colour property; its BT.601 conversion is kept for a session that names
  * none at a BT.601 size.
  *
+ * 10.9's encoder reads a frame's colour from the source buffer's own ColorPrimaries, TransferFunction and
+ * YCbCrMatrix attachments, and answers kVTInsufficientSourceColorDataErr for every frame whose buffer
+ * leaves unstated a colour property the session declares (measured with CVPixelBufferCreateWithPlanarBytes
+ * NV12 and I420 frames). Such a frame is encoded as a buffer sharing its pixels and attachments that also
+ * carries the session's value for each property it leaves unstated, which makes the source colour the
+ * session's and the conversion an identity; the caller's buffer is untouched.
+ *
  * A specification requiring kVTVideoEncoderSpecification_RequiredLowLatency (10.13+, which libwebrtc's
  * RTCVideoEncoderH264 passes) gets 10.9's own request for a low-latency encoder, kVTVideoEncoderSpecification_Usage
  * 1. Without it the software H.264 encoder holds ten frames before emitting one (333 ms at 30 fps); with it each
@@ -112,6 +119,20 @@ typedef size_t (*WKCVPixelBufferGetBytesPerRowOfPlaneFunction)(CFTypeRef, size_t
 typedef int32_t (*WKCVPixelBufferPoolCreateFunction)(CFAllocatorRef, CFDictionaryRef, CFDictionaryRef, CFTypeRef *);
 typedef int32_t (*WKCVPixelBufferPoolCreatePixelBufferFunction)(CFAllocatorRef, CFTypeRef, CFTypeRef *);
 typedef OSStatus (*WKVTSessionCopyPropertyFunction)(CFTypeRef, CFStringRef, CFAllocatorRef, void *);
+typedef Boolean (*WKCVPixelBufferIsPlanarFunction)(CFTypeRef);
+typedef size_t (*WKCVPixelBufferGetPlaneCountFunction)(CFTypeRef);
+typedef size_t (*WKCVPixelBufferGetWidthOfPlaneFunction)(CFTypeRef, size_t);
+typedef size_t (*WKCVPixelBufferGetHeightOfPlaneFunction)(CFTypeRef, size_t);
+typedef void (*WKCVPixelBufferReleasePlanarBytesCallback)(void *, const void *, size_t, size_t, const void *[]);
+typedef void (*WKCVPixelBufferReleaseBytesCallback)(void *, const void *);
+typedef int32_t (*WKCVPixelBufferCreateWithPlanarBytesFunction)(CFAllocatorRef, size_t, size_t, uint32_t, void *, size_t, size_t,
+    void *[], size_t[], size_t[], size_t[], WKCVPixelBufferReleasePlanarBytesCallback, void *, CFDictionaryRef, CFTypeRef *);
+typedef int32_t (*WKCVPixelBufferCreateWithBytesFunction)(CFAllocatorRef, size_t, size_t, uint32_t, void *, size_t,
+    WKCVPixelBufferReleaseBytesCallback, void *, CFDictionaryRef, CFTypeRef *);
+typedef CFTypeRef (*WKCVPixelBufferGetIOSurfaceFunction)(CFTypeRef);
+typedef int32_t (*WKCVPixelBufferCreateWithIOSurfaceFunction)(CFAllocatorRef, CFTypeRef, CFDictionaryRef, CFTypeRef *);
+typedef CFDictionaryRef (*WKCVBufferGetAttachmentsFunction)(CFTypeRef, uint32_t);
+typedef void (*WKCVBufferSetAttachmentsFunction)(CFTypeRef, CFDictionaryRef, uint32_t);
 typedef struct WKOpaqueCMFormatDescription *WKCMFormatDescriptionRef;
 typedef struct WKOpaqueCMBlockBuffer *WKCMBlockBufferRef;
 typedef struct {
@@ -225,6 +246,16 @@ WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferGetBaseAddressOfPlane)
 WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferGetBytesPerRowOfPlane)
 WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferPoolCreate)
 WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferPoolCreatePixelBuffer)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferIsPlanar)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferGetPlaneCount)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferGetWidthOfPlane)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferGetHeightOfPlane)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferCreateWithPlanarBytes)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferCreateWithBytes)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferGetIOSurface)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVPixelBufferCreateWithIOSurface)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVBufferGetAttachments)
+WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVBufferSetAttachments)
 
 WK_CADENCE_FUNCTION(kWKVideoToolboxImage, VTSessionCopyProperty)
 
@@ -837,6 +868,115 @@ static CFTypeRef wk_encode_copy_converted_frame(WKVTCompressionSessionRef compre
     return converted;
 }
 
+static void wk_encode_release_shared_planes(void *source, const void *data, size_t dataSize, size_t planeCount, const void *planes[])
+{
+    (void)data;
+    (void)dataSize;
+    (void)planeCount;
+    (void)planes;
+    wk_system_CVPixelBufferUnlockBaseAddress()(source, 1 /* kCVPixelBufferLock_ReadOnly */);
+    CFRelease(source);
+}
+
+static void wk_encode_release_shared_bytes(void *source, const void *base)
+{
+    (void)base;
+    wk_system_CVPixelBufferUnlockBaseAddress()(source, 1 /* kCVPixelBufferLock_ReadOnly */);
+    CFRelease(source);
+}
+
+// A buffer sharing |imageBuffer|'s pixels and attachments that also carries the session's value for each colour
+// property the session declares and |imageBuffer| leaves unstated, or NULL when it states every one. |*failed| is
+// set when such a buffer is needed and could not be made. A buffer backed by an IOSurface is shared through a
+// buffer over that IOSurface, whose use count holds it out of its pool; one without an IOSurface is shared under a
+// read-only lock its bytes release.
+static CFTypeRef wk_encode_copy_colour_stated_frame(WKVTCompressionSessionRef compressionSession, CFTypeRef imageBuffer, bool *failed)
+{
+    *failed = false;
+    if (!imageBuffer || CFGetTypeID(imageBuffer) != wk_system_CVPixelBufferGetTypeID()())
+        return NULL;
+    static const struct {
+        const char *sessionProperty;
+        const char *attachment;
+    } properties[] = {
+        { "ColorPrimaries", "CVImageBufferColorPrimaries" },
+        { "TransferFunction", "CVImageBufferTransferFunction" },
+        { "YCbCrMatrix", "CVImageBufferYCbCrMatrix" },
+    };
+    enum { propertyCount = sizeof(properties) / sizeof(properties[0]) };
+    CFStringRef attachmentKeys[propertyCount] = { NULL };
+    CFTypeRef missing[propertyCount] = { NULL };
+    bool anyMissing = false;
+    for (size_t i = 0; i < propertyCount; ++i) {
+        attachmentKeys[i] = CFStringCreateWithCString(kCFAllocatorDefault, properties[i].attachment, kCFStringEncodingASCII);
+        if (wk_system_CVBufferGetAttachment()(imageBuffer, attachmentKeys[i], NULL))
+            continue;
+        CFStringRef sessionKey = CFStringCreateWithCString(kCFAllocatorDefault, properties[i].sessionProperty, kCFStringEncodingASCII);
+        missing[i] = wk_encode_copy_session_string(compressionSession, sessionKey);
+        CFRelease(sessionKey);
+        anyMissing |= !!missing[i];
+    }
+
+    CFTypeRef stated = NULL;
+    if (anyMissing) {
+        size_t width = wk_system_CVPixelBufferGetWidth()(imageBuffer);
+        size_t height = wk_system_CVPixelBufferGetHeight()(imageBuffer);
+        uint32_t format = wk_system_CVPixelBufferGetPixelFormatType()(imageBuffer);
+        CFTypeRef surface = wk_system_CVPixelBufferGetIOSurface()(imageBuffer);
+        if (surface) {
+            if (wk_system_CVPixelBufferCreateWithIOSurface()(kCFAllocatorDefault, surface, NULL, &stated) || !stated)
+                stated = NULL;
+        } else if (!wk_system_CVPixelBufferLockBaseAddress()(imageBuffer, 1 /* kCVPixelBufferLock_ReadOnly */)) {
+            CFRetain(imageBuffer);
+            int32_t status;
+            if (wk_system_CVPixelBufferIsPlanar()(imageBuffer)) {
+                enum { maximumPlanes = 4 };
+                size_t planeCount = wk_system_CVPixelBufferGetPlaneCount()(imageBuffer);
+                void *bases[maximumPlanes];
+                size_t widths[maximumPlanes], heights[maximumPlanes], bytesPerRow[maximumPlanes];
+                for (size_t plane = 0; plane < planeCount && plane < maximumPlanes; ++plane) {
+                    bases[plane] = wk_system_CVPixelBufferGetBaseAddressOfPlane()(imageBuffer, plane);
+                    widths[plane] = wk_system_CVPixelBufferGetWidthOfPlane()(imageBuffer, plane);
+                    heights[plane] = wk_system_CVPixelBufferGetHeightOfPlane()(imageBuffer, plane);
+                    bytesPerRow[plane] = wk_system_CVPixelBufferGetBytesPerRowOfPlane()(imageBuffer, plane);
+                }
+                status = planeCount <= maximumPlanes
+                    ? wk_system_CVPixelBufferCreateWithPlanarBytes()(kCFAllocatorDefault, width, height, format, NULL, 0, planeCount,
+                        bases, widths, heights, bytesPerRow, wk_encode_release_shared_planes, (void *)imageBuffer, NULL, &stated)
+                    : -6661; // kCVReturnInvalidArgument
+            } else {
+                status = wk_system_CVPixelBufferCreateWithBytes()(kCFAllocatorDefault, width, height, format,
+                    wk_system_CVPixelBufferGetBaseAddress()(imageBuffer), wk_system_CVPixelBufferGetBytesPerRow()(imageBuffer),
+                    wk_encode_release_shared_bytes, (void *)imageBuffer, NULL, &stated);
+            }
+            if (status || !stated) {
+                stated = NULL;
+                wk_system_CVPixelBufferUnlockBaseAddress()(imageBuffer, 1);
+                CFRelease(imageBuffer);
+            }
+        }
+        if (stated) {
+            for (uint32_t mode = 0; mode < 2; ++mode) { // kCVAttachmentMode_ShouldNotPropagate, kCVAttachmentMode_ShouldPropagate
+                CFDictionaryRef attachments = wk_system_CVBufferGetAttachments()(imageBuffer, mode);
+                if (attachments)
+                    wk_system_CVBufferSetAttachments()(stated, attachments, mode);
+            }
+            for (size_t i = 0; i < propertyCount; ++i) {
+                if (missing[i])
+                    wk_system_CVBufferSetAttachment()(stated, attachmentKeys[i], missing[i], 1 /* kCVAttachmentMode_ShouldPropagate */);
+            }
+        }
+        *failed = !stated;
+    }
+    for (size_t i = 0; i < propertyCount; ++i) {
+        if (missing[i])
+            CFRelease(missing[i]);
+        if (attachmentKeys[i])
+            CFRelease(attachmentKeys[i]);
+    }
+    return stated;
+}
+
 OSStatus VTCompressionSessionEncodeFrame(WKVTCompressionSessionRef compressionSession, CFTypeRef imageBuffer,
     WKCMTime presentationTimeStamp, WKCMTime duration, CFDictionaryRef frameProperties, void *sourceFrameRefCon,
     uint32_t *infoFlagsOut)
@@ -853,6 +993,17 @@ OSStatus VTCompressionSessionEncodeFrame(WKVTCompressionSessionRef compressionSe
     CFTypeRef converted = wk_encode_copy_converted_frame(compressionSession, session, imageBuffer, &conversionFailed);
     if (conversionFailed)
         return -12904; // kVTAllocationFailedErr
+    CFTypeRef colourStated = wk_encode_copy_colour_stated_frame(compressionSession, converted ? converted : imageBuffer, &conversionFailed);
+    if (conversionFailed) {
+        if (converted)
+            CFRelease(converted);
+        return -12904; // kVTAllocationFailedErr
+    }
+    if (colourStated) {
+        if (converted)
+            CFRelease(converted);
+        converted = colourStated;
+    }
 
     WKCadenceFrame *frame = calloc(1, sizeof(*frame));
     if (!frame)

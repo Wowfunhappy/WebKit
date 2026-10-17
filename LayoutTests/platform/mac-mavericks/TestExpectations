@@ -1619,10 +1619,6 @@ fast/css/accent-color/radio.html [ Skip ]
 # exclude.
 fast/css/style-enumerate-properties.html [ Skip ]
 
-# platform/gtk and platform/wpe record this timeout (webkit.org/b/315455) on the libxml2-based XML parser this port
-# shares with them.
-webkit.org/b/315455 fast/dom/Range/detach-range-during-deletecontents.html [ Skip ]
-
 # The WebCore PNG decoder this port runs, as the GLib ports do, reads no eXIf chunk; platform/glib/TestExpectations
 # records both tests.
 imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-exif-png.html [ Skip ]

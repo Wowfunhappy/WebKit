@@ -9,7 +9,7 @@
  * pair, created on the first call for that pair and never deallocated; the os_log_create() macro calls
  * it as _os_log_create, which takes the caller's image as well.
  *
- * Plain C: Apple's ICU in the deps build calls os_log() too, and the Widevine CDM's gap library
+ * Plain C: Apple's ICU and libxml2 in the deps build call os_log() too, and the Widevine CDM's gap library
  * exports these. os_log_t and os_log_type_t are not visible under the 10.9 headers; a pointer and a
  * uint8_t are their ABI.
  */
@@ -92,6 +92,11 @@ void _os_log_error_impl(void *dso, void *log, uint8_t type, const char *format, 
     (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
 }
 
+void _os_log_fault_impl(void *dso, void *log, uint8_t type, const char *format, uint8_t *buf, uint32_t size)
+{
+    (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
+}
+
 #ifdef WK_POLYFILL_REGISTERED
 WK_PF_ENTRY(_os_log_default, NULL, &_os_log_default, WK_POLYFILL_CONSTANT, WK_POLYFILL_GAP_FILL);
 WK_PF_ENTRY(os_log_create, NULL, &os_log_create, WK_POLYFILL_FUNCTION, WK_POLYFILL_GAP_FILL);
@@ -100,4 +105,5 @@ WK_PF_ENTRY(os_log_type_enabled, NULL, &os_log_type_enabled, WK_POLYFILL_FUNCTIO
 WK_PF_ENTRY(_os_log_internal, NULL, &_os_log_internal, WK_POLYFILL_FUNCTION, WK_POLYFILL_GAP_FILL);
 WK_PF_ENTRY(_os_log_impl, NULL, &_os_log_impl, WK_POLYFILL_FUNCTION, WK_POLYFILL_GAP_FILL);
 WK_PF_ENTRY(_os_log_error_impl, NULL, &_os_log_error_impl, WK_POLYFILL_FUNCTION, WK_POLYFILL_GAP_FILL);
+WK_PF_ENTRY(_os_log_fault_impl, NULL, &_os_log_fault_impl, WK_POLYFILL_FUNCTION, WK_POLYFILL_GAP_FILL);
 #endif

@@ -346,8 +346,10 @@ if [ "$RC" = 0 ]; then
                 esac
             }
             gst="$(build_home_dir gstreamer)"
-            mkdir -p "$(build_home_dir jsc)" "$gst/gstreamer-1.0" || exit 1
+            mkdir -p "$(build_home_dir jsc)" "$gst/gstreamer-1.0" "$gst/../share/gstreamer-1.0/presets" || exit 1
             rsync -a --delete "$src/gstreamer-1.0/" "$gst/gstreamer-1.0/" || exit 1
+            # The element presets, beside gstreamer/lib (see stage-frameworks.sh).
+            rsync -a --delete "$src/../share/gstreamer-1.0/presets/" "$gst/../share/gstreamer-1.0/presets/" || exit 1
             expected="$gst/gstreamer-1.0"
             while read -r home leaf file; do
                 dir="$(build_home_dir "$home")"
