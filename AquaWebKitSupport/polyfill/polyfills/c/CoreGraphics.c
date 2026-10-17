@@ -1159,6 +1159,7 @@ extern CGBlendMode CGContextGetBlendMode(CGContextRef);
 extern CGColorRenderingIntent CGContextGetRenderingIntent(CGContextRef);
 typedef struct CGStyle *CGStyleRef;
 extern CGStyleRef CGContextGetStyle(CGContextRef);
+extern CGRect CGStyleGetDrawBoundingBox(CGStyleRef, CGRect);
 
 static bool wk_transparentSourceKeepsDestination(CGBlendMode mode)
 {
@@ -1310,9 +1311,160 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawLinearGradient,
         wk_drawGradientDirectly(context, &draw);
 }
 
+static void wk_freeMaskData(void *info, const void *data, size_t size)
+{
+    free((void *)data);
+}
+
+// Fills the clip with the gradient's colour at location 0 (`start`) or 1: the gradient drawn linearly across
+// `device`, entirely before its start or past its end. The context's CTM is the device transform's inverse.
+static void wk_fillWithGradientEnd(CGContextRef context, CGGradientRef gradient, CGRect device, bool start)
+{
+    CGFloat edge = start ? CGRectGetMaxX(device) + 1 : CGRectGetMinX(device) - 1;
+    wk_gradient_draw past = { gradient, false, CGPointMake(edge - (start ? 0 : 1), 0), 0, CGPointMake(edge + (start ? 1 : 0), 0), 0,
+        start ? kCGGradientDrawsBeforeStartLocation : kCGGradientDrawsAfterEndLocation };
+    if (!wk_drawGradientInItsColorSpace(context, &past))
+        wk_drawGradientDirectly(context, &past);
+}
+
+// Fills the device pixels of `box` that `mask` (rows from the top of `box`) selects. The image owns `mask`.
+static void wk_fillMaskWithGradientEnd(CGContextRef context, CGGradientRef gradient, CGRect box, uint8_t *mask, bool start)
+{
+    size_t width = (size_t)box.size.width, height = (size_t)box.size.height;
+    CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
+    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, mask, width * height, wk_freeMaskData);
+    CGImageRef image = CGImageCreate(width, height, 8, 8, width, gray, (CGBitmapInfo)kCGImageAlphaNone, provider, NULL, false,
+        kCGRenderingIntentDefault);
+    CGContextSaveGState(context);
+    CGContextClipToMask(context, box, image);
+    wk_fillWithGradientEnd(context, gradient, box, start);
+    CGContextRestoreGState(context);
+    CGImageRelease(image);
+    CGDataProviderRelease(provider);
+    CGColorSpaceRelease(gray);
+}
+
+// The shading of concentric circles with radii `startRadius` < `endRadius` < `startRadius` + 2e-6, sampled at the
+// clip's device pixel centres: the start colour within the end circle (within the start circle only under
+// kCGGradientDrawsBeforeStartLocation), the end colour beyond it under kCGGradientDrawsAfterEndLocation. Pixels
+// are sampled within the end circle's device bounds; the rest of the clip lies beyond it. Fills of disjoint whole
+// pixels compose as one draw, except under a style, which the fills share through one transparency layer.
+static void wk_drawThinRadialGradient(CGContextRef context, CGGradientRef gradient, CGPoint center, CGFloat startRadius,
+    CGFloat endRadius, CGGradientDrawingOptions options)
+{
+    CGAffineTransform toDevice = CGContextGetUserSpaceToDeviceSpaceTransform(context);
+    CGRect clip = CGContextGetClipBoundingBox(context);
+    if (CGRectIsNull(clip) || CGRectIsEmpty(clip) || CGRectIsInfinite(clip) || !(toDevice.a * toDevice.d - toDevice.b * toDevice.c))
+        return;
+    // A style paints around what it is drawn with, so the shading is drawn as far beyond the clip as the style
+    // reaches into it. CGStyleGetDrawBoundingBox outsets a base-space rect by that reach.
+    CGStyleRef style = CGContextGetStyle(context);
+    if (style) {
+        CGAffineTransform ctm = CGContextGetCTM(context);
+        CGRect reach = CGStyleGetDrawBoundingBox(style, CGRectApplyAffineTransform(clip, ctm));
+        if (!CGRectIsNull(reach) && !CGRectIsInfinite(reach))
+            clip = CGRectApplyAffineTransform(reach, CGAffineTransformInvert(ctm));
+    }
+    CGAffineTransform toUser = CGAffineTransformInvert(toDevice);
+    CGRect device = CGRectIntegral(CGRectApplyAffineTransform(clip, toDevice));
+    if (CGRectIsEmpty(device))
+        return;
+    CGPoint deviceCenter = CGPointApplyAffineTransform(center, toDevice);
+    CGFloat extentX = endRadius * hypot(toDevice.a, toDevice.c), extentY = endRadius * hypot(toDevice.b, toDevice.d);
+    CGRect box = CGRectIntersection(device, CGRectIntegral(CGRectMake(deviceCenter.x - extentX - 1, deviceCenter.y - extentY - 1,
+        2 * extentX + 2, 2 * extentY + 2)));
+    if (CGRectIsNull(box))
+        box = CGRectZero;
+    bool before = options & kCGGradientDrawsBeforeStartLocation, after = options & kCGGradientDrawsAfterEndLocation;
+
+    // Beyond the box: the bands of the clip above, below and beside it.
+    CGRect bands[4];
+    size_t bandCount = 0;
+    if (after) {
+        if (CGRectIsEmpty(box))
+            bands[bandCount++] = device;
+        else {
+            CGRect candidates[4] = {
+                CGRectMake(CGRectGetMinX(device), CGRectGetMaxY(box), device.size.width, CGRectGetMaxY(device) - CGRectGetMaxY(box)),
+                CGRectMake(CGRectGetMinX(device), CGRectGetMinY(device), device.size.width, CGRectGetMinY(box) - CGRectGetMinY(device)),
+                CGRectMake(CGRectGetMinX(device), CGRectGetMinY(box), CGRectGetMinX(box) - CGRectGetMinX(device), box.size.height),
+                CGRectMake(CGRectGetMaxX(box), CGRectGetMinY(box), CGRectGetMaxX(device) - CGRectGetMaxX(box), box.size.height),
+            };
+            for (size_t i = 0; i < 4; i++) {
+                if (!CGRectIsEmpty(candidates[i]))
+                    bands[bandCount++] = candidates[i];
+            }
+        }
+    }
+
+    size_t width = (size_t)box.size.width, height = (size_t)box.size.height;
+    uint8_t *startMask = NULL, *endMask = NULL;
+    bool anyStart = false, anyEnd = false;
+    if (width && height) {
+        startMask = calloc(width, height);
+        endMask = after ? calloc(width, height) : NULL;
+        if (!startMask || (after && !endMask))
+            abort();
+        CGFloat startSquared = startRadius * startRadius, endSquared = endRadius * endRadius;
+        for (size_t row = 0; row < height; row++) {
+            CGPoint point = CGPointApplyAffineTransform(CGPointMake(box.origin.x + 0.5, CGRectGetMaxY(box) - row - 0.5), toUser);
+            CGFloat x = point.x - center.x, y = point.y - center.y;
+            for (size_t column = 0; column < width; column++, x += toUser.a, y += toUser.b) {
+                CGFloat squared = x * x + y * y;
+                if (squared > endSquared) {
+                    if (after) {
+                        endMask[row * width + column] = 255;
+                        anyEnd = true;
+                    }
+                } else if (before || squared >= startSquared) {
+                    startMask[row * width + column] = 255;
+                    anyStart = true;
+                }
+            }
+        }
+    }
+
+    unsigned fills = anyStart + anyEnd + (bandCount > 0);
+    if (fills) {
+        CGContextSaveGState(context);
+        CGContextConcatCTM(context, toUser);
+        bool layer = fills > 1 && style;
+        if (layer)
+            CGContextBeginTransparencyLayerWithRect(context, device, NULL);
+        if (anyStart) {
+            wk_fillMaskWithGradientEnd(context, gradient, box, startMask, true);
+            startMask = NULL;
+        }
+        if (anyEnd) {
+            wk_fillMaskWithGradientEnd(context, gradient, box, endMask, false);
+            endMask = NULL;
+        }
+        if (bandCount) {
+            CGContextSaveGState(context);
+            CGContextClipToRects(context, bands, bandCount);
+            wk_fillWithGradientEnd(context, gradient, device, false);
+            CGContextRestoreGState(context);
+        }
+        if (layer)
+            CGContextEndTransparencyLayer(context);
+        CGContextRestoreGState(context);
+    }
+    free(startMask);
+    free(endMask);
+}
+
 WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawRadialGradient,
     (CGContextRef context, CGGradientRef gradient, CGPoint startCenter, CGFloat startRadius, CGPoint endCenter, CGFloat endRadius, CGGradientDrawingOptions options))
 {
+    // Modern CoreGraphics moves an end radius within 1e-6 of the start radius out by 1e-6, and evaluates the
+    // shading of the concentric circles that results exactly.
+    if (fabs(startRadius - endRadius) < 1e-6) {
+        endRadius += 1e-6;
+        if (context && gradient && startCenter.x == endCenter.x && startCenter.y == endCenter.y) {
+            wk_drawThinRadialGradient(context, gradient, startCenter, startRadius, endRadius, options);
+            return;
+        }
+    }
     wk_gradient_draw draw = { gradient, true, startCenter, startRadius, endCenter, endRadius, options };
     if (!context || !wk_drawGradientInItsColorSpace(context, &draw))
         wk_drawGradientDirectly(context, &draw);
@@ -2124,7 +2276,6 @@ WK_SYSTEM_FN("OpenGL", int, CGLDestroyContext, (void *));
 WK_SYSTEM_FN("OpenGL", int, CGLDestroyPixelFormat, (void *));
 WK_SYSTEM_FN("OpenGL", void, glGetIntegerv, (unsigned, int *));
 extern bool CGContextGetShouldAntialias(CGContextRef);
-extern CGRect CGStyleGetDrawBoundingBox(CGStyleRef, CGRect);
 
 static int wk_rendererTextureLimit(const int *attributes)
 {
