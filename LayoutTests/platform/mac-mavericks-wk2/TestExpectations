@@ -610,6 +610,14 @@ scrollingcoordinator/mac/latching/main-frame-back-swipe.html [ Skip ]
 webgl/1.0.x/conformance/reading/read-pixels-test.html [ Skip ]
 webgl/2.0.y/conformance/reading/read-pixels-test.html [ Skip ]
 
+# These benchmarks draw into a canvas that is never inserted into the document, which
+# HTMLCanvasElement::prepareForDisplay does not pace, so with the GPU process their frame counts measure
+# command submission. The Apple Software Renderer executes 800 draws in more than a frame, so a control
+# that never switches textures also scores 0.29-0.37.
+webgl/1.0.x/conformance/rendering/texture-switch-performance.html [ Skip ]
+webgl/2.0.y/conformance/rendering/texture-switch-performance.html [ Skip ]
+webgl/2.0.y/conformance2/rendering/texture-switch-performance.html [ Skip ]
+
 # MockContentFilter rewrites the request to a different local file after the network process's per-file sandbox
 # extension was issued for the original (NetworkResourceLoadParameters / NetworkResourceLoader consume it), so
 # 10.9's sandbox denies reading pass.html. The grant path and profile file-read rules match upstream; how modern
@@ -651,3 +659,10 @@ editing/spelling/grammar-correction-shown-clicking-multiword-phrase.html [ Skip 
 # so the test's click at the input's centre (x=48.5) focuses it, and the focused field's text is white after the picker
 # sets a value; with Tahoe's metrics the centre misses the day field.
 fast/forms/date/date-editable-components/date-editable-components-component-set-updates-color.html [ Skip ]
+
+# The blend regions match their references exactly. Sixteen pixels in the identical explanatory
+# paragraph differ by one grayscale level, exceeding the fixtures' ten-pixel fuzzy allowance.
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-canvas-parent.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-canvas-sibling.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-iframe-parent.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-iframe-sibling.html [ ImageOnlyFailure ]
