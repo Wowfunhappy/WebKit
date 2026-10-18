@@ -253,44 +253,58 @@ WK_POLYFILL_REPLACES(NULL, dispatch_source_t, dispatch_source_create,
     return WK_ORIGINAL(dispatch_source_create)(type, handle, mask, queue);
 }
 
-// xpc_type_get_name (newer XPC introspection) — used only for diagnostic strings; return a generic label.
-WK_POLYFILL_ABSENT(NULL, const char *, xpc_type_get_name, (xpc_type_t type)) { (void)type; return "xpc-object"; }
-
-// xpc_dictionary_get_array (10.10+): the typed array accessor. 10.9 has xpc_dictionary_get_value, which
-// returns the same borrowed object when the key holds an array — exactly what callers (e.g. the auth
-// client-certificate chain in AuthenticationManagerCocoa) expect.
-WK_POLYFILL_ABSENT(NULL, xpc_object_t, xpc_dictionary_get_array, (xpc_object_t xdict, const char *key)) { return xpc_dictionary_get_value(xdict, key); }
-
-// xpc_connection_copy_invalidation_reason (10.10+): no per-connection reason string on 10.9; return a
-// caller-freeable generic reason (used only for diagnostic logging).
-WK_POLYFILL_ABSENT(NULL, char *, xpc_connection_copy_invalidation_reason, (xpc_connection_t connection)) { (void)connection; return strdup("connection invalidated"); }
-
-// xpc_connection_activate (10.14+): starts a connection created in the suspended state, which is
-// exactly what xpc_connection_resume did before the rename — 10.14 split "resume" into activate
-// (first start) and resume (undo a suspend), keeping the old spelling working for both. 10.9 has
-// only xpc_connection_resume (checked against libxpc), and every call site here activates a
-// freshly-created connection, which is the case the two spellings share.
-WK_POLYFILL_ABSENT(NULL, void, xpc_connection_activate, (xpc_connection_t connection))
+// Native XPC type identities are classes named OS_xpc_<type>.
+WK_POLYFILL_ABSENT(NULL, const char *, xpc_type_get_name, (xpc_type_t type))
 {
-    if (connection)
-        xpc_connection_resume(connection);
+    return class_getName((Class)type) + sizeof("OS_xpc_") - 1;
 }
 
-// xpc_transaction_exit_clean (10.10+): exit once outstanding transactions drain. It is called from the
-// XPC service entry point's shutdown path (after the OS transaction is cleared), so a clean exit matches.
-WK_POLYFILL_ABSENT(NULL, void, xpc_transaction_exit_clean, (void)) { exit(0); }
+WK_POLYFILL_ABSENT(NULL, xpc_object_t, xpc_dictionary_get_array, (xpc_object_t dictionary, const char *key))
+{
+    xpc_object_t value = xpc_dictionary_get_value(dictionary, key);
+    return value && xpc_get_type(value) == XPC_TYPE_ARRAY ? value : NULL;
+}
 
-#pragma mark - newer-than-10.9 C / CoreFoundation symbols WebKit references
-// A few plain C / CoreFoundation symbols WebKit (and the bundled libwebrtc) reference are absent from
-// the 10.9 runtime. (The GStreamer dylibs' own post-10.9 libc gap is closed at link time by the gap
-// archive AquaWebKitSupport/deps/build_deps.sh force-loads into them, not here.)
+// Mavericks x86_64 libxpc stores the terminal error installed by xpc_connection_cancel at 0xb0.
+WK_POLYFILL_ABSENT(NULL, char *, xpc_connection_copy_invalidation_reason, (xpc_connection_t connection))
+{
+    xpc_object_t error = (xpc_object_t)__atomic_load_n((uintptr_t *)((char *)connection + 0xb0), __ATOMIC_ACQUIRE);
+    if (!error)
+        return NULL;
+    return strdup(xpc_dictionary_get_string(error, XPC_ERROR_KEY_DESCRIPTION));
+}
 
-// __darwin_check_fd_set_overflow (the fortified FD_SET bounds check) is newer; on 10.9 reproduce its
-// semantics: a descriptor is valid if non-negative and (when not unlimited) within FD_SETSIZE. The
-// FD_SET macro the modern SDK emits calls it.
-WK_POLYFILL_ABSENT(NULL, int, __darwin_check_fd_set_overflow, (int n, const void *fdset, int unlimited)) {
-    (void)fdset;
-    return (n >= 0 && (unlimited || n < FD_SETSIZE)) ? 1 : 0;
+// Mavericks x86_64 libxpc keeps activation state at 0x38. Activation consumes the
+// initial suspension once; additional suspensions remain balanced by native resume.
+WK_POLYFILL_ABSENT(NULL, void, xpc_connection_activate, (xpc_connection_t connection))
+{
+    const void *key = (const void *)sel_registerName("wk_xpcConnectionActivated");
+    @synchronized ((id)connection) {
+        uint32_t state = __atomic_load_n((uint32_t *)((char *)connection + 0x38), __ATOMIC_ACQUIRE);
+        if (objc_getAssociatedObject((id)connection, key) || state)
+            return;
+        objc_setAssociatedObject((id)connection, key, (id)kCFBooleanTrue, OBJC_ASSOCIATION_ASSIGN);
+        xpc_connection_resume(connection);
+    }
+}
+
+extern void _vproc_transactions_enable(void);
+extern void _vproc_transaction_try_exit(int);
+extern void xpc_set_idle_handler(dispatch_queue_t, dispatch_block_t);
+
+// The native idle callback holds a transaction until it returns. The queued exit check
+// runs after that callback releases its transaction and observes the native transaction count.
+WK_POLYFILL_ABSENT(NULL, void, xpc_transaction_exit_clean, (void))
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dispatch_queue_t queue = dispatch_queue_create("org.aquawebkit.xpc.clean-exit", DISPATCH_QUEUE_SERIAL);
+        _vproc_transactions_enable();
+        xpc_set_idle_handler(queue, ^{
+            dispatch_async(queue, ^{ _vproc_transaction_try_exit(0); });
+        });
+        dispatch_async(queue, ^{ _vproc_transaction_try_exit(0); });
+    });
 }
 
 #pragma mark - dladdr
@@ -1385,38 +1399,24 @@ WK_POLYFILL_ABSENT(NULL, void, xpc_connection_set_oneshot_instance, (xpc_connect
     xpc_connection_set_instance(connection, instance);
 }
 
-// os_transaction_create (10.10+). The XPC service entry point (Shared/EntryPointUtilities/Cocoa/
-// XPCService/XPCServiceEntryPoint) creates one os_transaction to keep the child process alive across
-// its initializer; on 10.9 that symbol is absent from libSystem, so every WebContent/Networking/GPU
-// child crashed at launch on a lazy bind of _os_transaction_create (EXC_BREAKPOINT in
-// dyld::fastBindLazySymbol from NetworkServiceInitializer / WebContentServiceInitializer).
-//
-// os_transaction is the os_object-era spelling of the launchd transaction 10.9 exports as
-// xpc_transaction_begin / xpc_transaction_end (both present in /usr/lib/system/libxpc.dylib, over
-// vproc_transaction): while a job holding one is dirty, launchd leaves it alone; a job that holds
-// none is clean and launchd may terminate it. A dispatch queue carries the transaction because it
-// is an os_object with a finalizer, so the count follows the returned handle's own lifetime through
-// the os_retain / os_release forwarders above, however the caller scopes it.
-WK_SYSTEM_FN(NULL, void, xpc_transaction_begin, (void));
-WK_SYSTEM_FN(NULL, void, xpc_transaction_end, (void));
-
-// 10.9's libdispatch runs an object's finalizer only when its context is non-NULL, so the handle
-// carries this address to keep the end of the transaction reachable from its dispose.
-static const char wk_transactionContext;
+// An os_transaction owns a native launchd transaction. The dispatch object's finalizer
+// ends the transaction held in its context when the last reference is released.
+WK_SYSTEM_FN(NULL, void *, vproc_transaction_begin, (void *));
+WK_SYSTEM_FN(NULL, void, vproc_transaction_end, (void *, void *));
 
 static void wk_endTransaction(void *context)
 {
-    (void)context;
-    WK_SYSTEM(xpc_transaction_end)();
+    WK_SYSTEM(vproc_transaction_end)(NULL, context);
 }
 
 WK_POLYFILL_ABSENT(NULL, void *, os_transaction_create, (const char *description))
 {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ _vproc_transactions_enable(); });
     dispatch_queue_t transaction = dispatch_queue_create(description ? description : "com.apple.webkit.os-transaction", DISPATCH_QUEUE_SERIAL);
     if (!transaction)
         return NULL;
-    WK_SYSTEM(xpc_transaction_begin)();
-    dispatch_set_context(transaction, (void *)&wk_transactionContext);
+    dispatch_set_context(transaction, WK_SYSTEM(vproc_transaction_begin)(NULL));
     dispatch_set_finalizer_f(transaction, wk_endTransaction);
     return transaction;
 }
