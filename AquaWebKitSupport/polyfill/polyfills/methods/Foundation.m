@@ -3656,6 +3656,41 @@ static NSString *wk_urlCacheSpec(NSURL *url)
     return fragment.location == NSNotFound ? spec : [spec substringToIndex:fragment.location];
 }
 
+static id wk_cachePropertyListValue(id value, NSMutableSet *ancestors)
+{
+    if ([value isKindOfClass:[NSString class]] || [value isKindOfClass:[NSNumber class]]
+        || [value isKindOfClass:[NSData class]] || [value isKindOfClass:[NSDate class]])
+        return value;
+    if ([value isKindOfClass:[NSURL class]])
+        return [value absoluteString];
+    NSValue *identity = [NSValue valueWithPointer:value];
+    if ([ancestors containsObject:identity])
+        return nil;
+    [ancestors addObject:identity];
+    id result = nil;
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSMutableArray *array = [NSMutableArray array];
+        for (id element in value) {
+            id converted = wk_cachePropertyListValue(element, ancestors);
+            if (converted)
+                [array addObject:converted];
+        }
+        result = array;
+    } else if ([value isKindOfClass:[NSDictionary class]]) {
+        NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
+        for (id key in value) {
+            if (![key isKindOfClass:[NSString class]])
+                continue;
+            id converted = wk_cachePropertyListValue([value objectForKey:key], ancestors);
+            if (converted)
+                [dictionary setObject:converted forKey:key];
+        }
+        result = dictionary;
+    }
+    [ancestors removeObject:identity];
+    return result;
+}
+
 static NSURLRequest *wk_urlCacheEntryRequest(NSURLRequest *request)
 {
     NSString *spec = wk_urlCacheSpec(request.URL);
@@ -3676,6 +3711,15 @@ static NSURLRequest *wk_urlCacheEntryRequest(NSURLRequest *request)
     for (unsigned i = 0; i < CC_SHA256_DIGEST_LENGTH; ++i)
         snprintf(hex + i * 2, 3, "%02x", digest[i]);
     NSMutableURLRequest *entryRequest = [[request mutableCopy] autorelease];
+    // Mavericks' disk-cache request archive requires property-list values in protocol properties.
+    NSDictionary *properties = (NSDictionary *)WK_SYSTEM(_CFURLRequestGetProtocolProperties)(wk_cfURLRequest(request));
+    for (NSString *key in properties) {
+        id converted = wk_cachePropertyListValue(properties[key], [NSMutableSet set]);
+        if (converted)
+            [NSURLProtocol setProperty:converted forKey:key inRequest:entryRequest];
+        else
+            [NSURLProtocol removePropertyForKey:key inRequest:entryRequest];
+    }
     [NSURLProtocol setProperty:[NSString stringWithUTF8String:hex] forKey:(__bridge NSString *)_kCFURLCachePartitionKey inRequest:entryRequest];
     return entryRequest;
 }
@@ -3733,6 +3777,11 @@ typedef const struct _CFCachedURLResponse *wk_CFCachedURLResponseRef;
 @interface NSCachedURLResponse (WKURLCacheEntries)
 - (id)_initWithCFCachedURLResponse:(wk_CFCachedURLResponseRef)cachedResponse;
 @end
+WK_POLYFILL_REPLACES("CFNetwork", void, CFURLCacheAddCachedResponseForRequest, (wk_CFURLCacheRef cache, wk_CFCachedURLResponseRef response, wk_CFURLRequestRef request, const void *userData))
+{
+    NSURLRequest *nsRequest = request ? [[[NSURLRequest alloc] _initWithCFURLRequest:request] autorelease] : nil;
+    WK_ORIGINAL(CFURLCacheAddCachedResponseForRequest)(cache, response, request ? [wk_urlCacheEntryRequest(nsRequest) _CFURLRequest] : request, userData);
+}
 WK_POLYFILL_REPLACES("CFNetwork", wk_CFCachedURLResponseRef, CFURLCacheCopyResponseForRequest, (wk_CFURLCacheRef cache, wk_CFURLRequestRef request))
 {
     if (!request)
