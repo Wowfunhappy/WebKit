@@ -95,6 +95,8 @@ int main(void)
                 dispatch_semaphore_signal(done);
             });
             dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+            // Complete the queue block and its captured references before the owner releases the layer.
+            dispatch_sync(queue, ^{ });
             dispatch_release(done);
 
             [layer removeFromSuperlayer];

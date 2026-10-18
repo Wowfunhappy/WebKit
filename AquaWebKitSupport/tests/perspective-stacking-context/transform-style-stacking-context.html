@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Dynamic transform-style creates a stacking context</title>
+<style>
+.stage { position:relative; display:inline-block; width:220px; height:200px; transform-style:preserve-3d; perspective:400px; }
+.scene { position:relative; width:200px; height:180px; transform-style:preserve-3d; }
+.front { position:relative; width:200px; height:100px; background:aqua; transform:translateZ(0); }
+.tilt { position:absolute; left:0; top:60px; width:200px; height:60px; background:olive; transform:rotateX(40deg); }
+</style>
+<p>The two scenes should match. The left scene changes from flat to preserve-3d after it first renders.</p>
+<div class="stage"><div id="dynamic" class="scene" style="transform-style:flat"><div class="front"></div><div class="tilt"></div></div></div>
+<div class="stage"><div class="scene"><div class="front"></div><div class="tilt"></div></div></div>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.getElementById('dynamic').style.transformStyle = 'preserve-3d';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (window.testRunner)
+            testRunner.notifyDone();
+    }));
+}));
+</script>
