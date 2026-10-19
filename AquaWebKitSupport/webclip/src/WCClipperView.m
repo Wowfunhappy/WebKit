@@ -403,33 +403,52 @@ static NSRect rectFromPageRect(id value)
 
 // Where a window lies on the screen. The Dock moves a widget's window itself: DashboardClient updates its
 // frame in this process only once a move ends; the window server knows its place throughout.
-static NSRect windowServerFrame(NSWindow *window)
+static BOOL windowServerFrame(NSWindow *window, NSRect *frame)
 {
     CGRect bounds;
-    CGSGetWindowBounds(CGSMainConnectionID(), (int)[window windowNumber], &bounds);
+    if (CGSGetWindowBounds(CGSMainConnectionID(), (int)[window windowNumber], &bounds) != kCGErrorSuccess)
+        return NO;
     // The window server's coordinates run down from the top of the first screen.
     CGFloat firstScreenHeight = NSHeight([[[NSScreen screens] firstObject] frame]);
-    return NSMakeRect(bounds.origin.x, firstScreenHeight - CGRectGetMaxY(bounds), bounds.size.width, bounds.size.height);
+    *frame = NSMakeRect(bounds.origin.x, firstScreenHeight - CGRectGetMaxY(bounds), bounds.size.width, bounds.size.height);
+    return YES;
 }
 
-- (NSRect)placeholderFrameOnScreen
+- (NSRect)placeholderFrameInWidgetWindowFrame:(NSRect)widgetWindowFrame
 {
-    NSRect widgetWindowFrame = windowServerFrame([_placeholder window]);
     return NSOffsetRect([_placeholder convertRect:[_placeholder bounds] toView:nil], NSMinX(widgetWindowFrame), NSMinY(widgetWindowFrame));
 }
 
 // The plug-in's view can overhang the widget window, which clips it, and the page window shows the
 // same part of the clip.
-- (void)placePageWindow
+- (BOOL)placePageWindow
 {
-    NSRect placeholderFrame = [self placeholderFrameOnScreen];
-    NSRect frame = NSIntersectionRect(placeholderFrame, windowServerFrame([_placeholder window]));
-    if (!NSEqualRects(frame, [_pageWindow frame]))
-        [_pageWindow setFrame:frame display:YES];
+    NSRect widgetWindowFrame;
+    if (!windowServerFrame([_placeholder window], &widgetWindowFrame))
+        return NO;
+    NSRect placeholderFrame = [self placeholderFrameInWidgetWindowFrame:widgetWindowFrame];
+    NSRect frame = NSIntersectionRect(placeholderFrame, widgetWindowFrame);
     NSRect clipperFrame = NSOffsetRect(placeholderFrame, -NSMinX(frame), -NSMinY(frame));
-    if (!NSEqualRects(clipperFrame, [self frame]))
+    BOOL windowChanged = !NSEqualRects(frame, [_pageWindow frame]);
+    BOOL clipperChanged = !NSEqualRects(clipperFrame, [self frame]);
+    if (!windowChanged && !clipperChanged) {
+        [self placeTheme];
+        return YES;
+    }
+    // The window's geometry and its layer tree reach the screen together.
+    NSDisableScreenUpdates();
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (windowChanged)
+        [_pageWindow setFrame:frame display:NO];
+    if (clipperChanged)
         [self setFrame:clipperFrame];
     [self placeTheme];
+    [_pageWindow displayIfNeeded];
+    [CATransaction commit];
+    [CATransaction flush];
+    NSEnableScreenUpdates();
+    return YES;
 }
 
 // A theme stock drew in a window of its own takes the size of the widget's window, which the
@@ -467,8 +486,10 @@ static NSRect windowServerFrame(NSWindow *window)
     BOOL showedClip = [_pageWindow isVisible] && [_pageWindow alphaValue] > 0;
     // The clip takes the placeholder's size whether or not its window shows: the clip's place is
     // recorded with the widget's size.
-    if (_pageWindow && [_placeholder window])
-        [self placePageWindow];
+    if (_pageWindow && [_placeholder window] && ![self placePageWindow]) {
+        shows = NO;
+        showsClip = NO;
+    }
     if (showsClip != showedClip)
         [_placeholder setNeedsDisplay:YES];
     // The stand-in is on screen in the widget window before the clip leaves the page window.
@@ -514,9 +535,12 @@ static NSRect windowServerFrame(NSWindow *window)
 - (void)placeholderDidChange
 {
     if ([_placeholder window] && !_pageWindow) {
+        NSRect widgetWindowFrame;
+        if (!windowServerFrame([_placeholder window], &widgetWindowFrame))
+            return;
         // Dashboard's clients stay in the background, and their windows are panels that take the key
         // focus with the key window.
-        _pageWindow = [[WCPageWindow alloc] initWithContentRect:[self placeholderFrameOnScreen] styleMask:NSBorderlessWindowMask | NSNonactivatingPanelMask backing:NSBackingStoreBuffered defer:NO];
+        _pageWindow = [[WCPageWindow alloc] initWithContentRect:[self placeholderFrameInWidgetWindowFrame:widgetWindowFrame] styleMask:NSBorderlessWindowMask | NSNonactivatingPanelMask backing:NSBackingStoreBuffered defer:NO];
         [_pageWindow setFloatingPanel:NO];
         [_pageWindow setHidesOnDeactivate:NO];
         [_pageWindow setReleasedWhenClosed:NO];
@@ -529,7 +553,6 @@ static NSRect windowServerFrame(NSWindow *window)
         [_pageWindow setLevel:[[_placeholder window] level]];
         [_pageWindow setContentView:[[NSView alloc] init]];
         [_pageWindow setClipperView:self];
-        [self placePageWindow];
         [[_pageWindow contentView] addSubview:self];
         // The window is one layer tree, frame view included.
         [[[_pageWindow contentView] superview] setWantsLayer:YES];
@@ -545,7 +568,8 @@ static NSRect windowServerFrame(NSWindow *window)
     // While the page window stays shown, a new placeholder frame moves and sizes it; it stays where it
     // is among the widget's windows.
     if ([_pageWindow isVisible] && [self showsPageWindow]) {
-        [self placePageWindow];
+        if (![self placePageWindow])
+            [self orderPageWindowOut];
         return;
     }
     [self updatePageWindow];
@@ -914,7 +938,8 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
 {
     if (![_pageWindow isVisible] || ![self showsPageWindow])
         return;
-    [self placePageWindow];
+    if (![self placePageWindow])
+        [self orderPageWindowOut];
 }
 
 // The Dock puts the widget's close box right above the widget window, and the page window goes below it. The box
@@ -1281,6 +1306,26 @@ static const CGFloat WCMaximumClipperLength = 20000;
     [self layoutPageViewport];
 }
 
++ (Class)themeClassForID:(int)themeID
+{
+    switch (themeID) {
+    case WCThemeGlass:
+        return [WCGlassTheme class];
+    case WCThemeBlackEdge:
+        return [WCBlackEdgeTheme class];
+    case WCThemeVintageCorners:
+        return [WCVintageCornersTheme class];
+    case WCThemePlain:
+        return [WCPlainTheme class];
+    case WCThemePegboard:
+        return [WCPegboardTheme class];
+    case WCThemeTornEdge:
+        return [WCTornEdgeTheme class];
+    default:
+        return [WebClipper defaultThemeClass];
+    }
+}
+
 - (void)setTheme:(int)themeID
 {
     WCTheme *oldTheme = _currentTheme;
@@ -1290,31 +1335,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
     }
     [_currentTheme removeFromSuperview];
 
-    Class themeClass;
-    switch (themeID) {
-    case WCThemeGlass:
-        themeClass = [WCGlassTheme class];
-        break;
-    case WCThemeBlackEdge:
-        themeClass = [WCBlackEdgeTheme class];
-        break;
-    case WCThemeVintageCorners:
-        themeClass = [WCVintageCornersTheme class];
-        break;
-    case WCThemePlain:
-        themeClass = [WCPlainTheme class];
-        break;
-    case WCThemePegboard:
-        themeClass = [WCPegboardTheme class];
-        break;
-    case WCThemeTornEdge:
-        themeClass = [WCTornEdgeTheme class];
-        break;
-    default:
-        themeClass = [WebClipper defaultThemeClass];
-        break;
-    }
-    _currentTheme = [[themeClass alloc] init];
+    _currentTheme = [[[WCClipperView themeClassForID:themeID] alloc] init];
     [_currentTheme setDoneButton:_lockCameraButton];
     [_currentTheme setDashboardWebView:[[self controller] dashboardWebView]];
     addLayerBackedSubview(_currentTheme, _flipperImageView);

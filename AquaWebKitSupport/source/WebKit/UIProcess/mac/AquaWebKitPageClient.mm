@@ -872,7 +872,7 @@ WebCore::IntSize AquaWebKitPageClient::viewSize()
 bool AquaWebKitPageClient::isViewWindowActive()
 {
     NSWindow *window = [m_view window];
-    return window && ([window isKeyWindow] || [window isMainWindow]);
+    return [window isKeyWindow] || (window && [NSApp keyWindow] == window);
 }
 
 bool AquaWebKitPageClient::isViewFocused()

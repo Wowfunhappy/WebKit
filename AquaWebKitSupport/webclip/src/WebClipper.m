@@ -734,10 +734,16 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
     if (!clipRectString)
         return NO;
     NSRect clipRect = NSRectFromString(clipRectString);
-    Class themeClass = [WebClipper defaultThemeClass];
+    // A new clip takes the widget-wide theme last selected on a clip's back, Glass until there is one.
+    int themeID = WCThemeGlass;
+    id lastChosenTheme = [[self windowScriptObject] evaluateWebScript:@"widget.preferenceForKey(\"Theme\")"];
+    if ([lastChosenTheme isKindOfClass:[NSNumber class]])
+        themeID = [lastChosenTheme intValue];
+    [settings setObject:@(themeID) forKey:@"Theme"];
+    Class themeClass = [WCClipperView themeClassForID:themeID];
     clipRect.size.height += [themeClass borderTop] + [themeClass borderBottom];
     clipRect.size.width += [themeClass borderLeft] + [themeClass borderRight];
-    [_webClipperView showLoadingClipWithTheme:[[settings _web_numberForKey:@"Theme"] intValue] size:clipRect.size];
+    [_webClipperView showLoadingClipWithTheme:themeID size:clipRect.size];
     // The clip copies Safari's extensions while Safari reports the page, and loads once it has both.
     dispatch_group_t copyingExtensions = dispatch_group_create();
     NSString *extensionsDirectory = [self safariExtensionsDirectory];
@@ -828,4 +834,3 @@ static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, vo
 }
 
 @end
-
