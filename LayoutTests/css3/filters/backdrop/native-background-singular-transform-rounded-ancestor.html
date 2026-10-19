@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>A backdrop filter under a singularly transformed rounded clip is not rendered</title>
+<link rel="match" href="native-background-singular-transform-expected.html">
+<style>
+html, body { margin: 0; width: 200px; height: 200px; }
+body { background: linear-gradient(90deg, rgb(255, 0, 0) 0 50%, rgb(0, 0, 255) 50%); }
+.clip { width: 200px; height: 200px; border-radius: 40px; overflow: hidden; transform: scale3d(1, 1, 0); }
+.filter { width: 200px; height: 200px; -webkit-backdrop-filter: invert(1); }
+</style>
+<div class="clip"><div class="filter"></div></div>

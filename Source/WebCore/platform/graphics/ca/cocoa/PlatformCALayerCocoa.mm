@@ -315,6 +315,86 @@ bool PlatformCALayerCocoa::needsExplicitDepthSorting()
     return result;
 }
 
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+void PlatformCALayerCocoa::setBackdropCropLayers(const PlatformCALayerList& layers, size_t parentIndex, PlatformCALayer& backdropLayer)
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    [(WebBackdropLayerAquaWebKit *)m_layer.get() setCropLayers:createNSArray(layers, [](auto& layer) {
+        return layer->platformLayer();
+    }).get() parentIndex:parentIndex == notFound ? NSNotFound : parentIndex backdropLayer:(WebBackdropLayerAquaWebKit *)backdropLayer.platformLayer()];
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+void PlatformCALayerCocoa::setBackdropSamplesBackdropRoot(bool samplesBackdropRoot)
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    [(WebBackdropLayerAquaWebKit *)m_layer.get() setSamplesBackdropRoot:samplesBackdropRoot];
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+RefPtr<PlatformCALayer> PlatformCALayerCocoa::backdropSamplingSurfaceBackdropLayer() const
+{
+    return platformCALayerForLayer((__bridge void*)[(WebBackdropLayerAquaWebKit *)m_layer.get() samplingSurfaceBackdropLayer]);
+}
+
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit; an empty rect when no filter reads the superlayer.
+std::optional<FloatRect> PlatformCALayerCocoa::sampleRegionInSuperlayer(const PlatformCALayer& layer)
+{
+    CGRect region;
+    if (!WebBackdropLayerAquaWebKitSampleRegionInSuperlayer(layer.platformLayer(), &region))
+        return std::nullopt;
+    return CGRectIsNull(region) ? FloatRect { } : FloatRect { region };
+}
+
+// AQUAWEBKIT: drawing and backdrop reading bounds share the nearest ordinary rendering surface.
+std::optional<FloatRect> PlatformCALayerCocoa::extentInSamplingSurface(const PlatformCALayer& layer, const PlatformCALayerList& ancestors)
+{
+    CGRect extent;
+    if (!WebBackdropLayerAquaWebKitExtentInSamplingSurface(layer.platformLayer(), createNSArray(ancestors, [](auto& ancestor) { return ancestor->platformLayer(); }).get(), &extent))
+        return std::nullopt;
+    return CGRectIsNull(extent) ? FloatRect { } : FloatRect { extent };
+}
+
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit; null layers repeat the last update.
+void PlatformCALayerCocoa::updateBackdropSamplingSurfaceFromLayerTree(PlatformCALayer* boundary, PlatformCALayer* backdropLayer)
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    auto* layer = (WebBackdropLayerAquaWebKit *)m_layer.get();
+    if (boundary && backdropLayer)
+        [layer updateSamplingSurfaceWithBoundary:boundary->platformLayer() backdropLayer:(WebBackdropLayerAquaWebKit *)backdropLayer->platformLayer()];
+    else
+        [layer updateSamplingSurfaceFromLayerTree];
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+void PlatformCALayerCocoa::updateBackdropSamplingSurface(PlatformCALayer& boundary, const PlatformCALayerList& path, PlatformCALayer& backdropLayer)
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    [(WebBackdropLayerAquaWebKit *)m_layer.get() updateSamplingSurfaceWithBoundary:boundary.platformLayer() path:createNSArray(path, [](auto& layer) {
+        return layer->platformLayer();
+    }).get() backdropLayer:(WebBackdropLayerAquaWebKit *)backdropLayer.platformLayer()];
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+void PlatformCALayerCocoa::backdropLayerTreeDidCommit()
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    WebBackdropLayerAquaWebKitLayerTreeDidCommit();
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+
+// AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+void PlatformCALayerCocoa::backdropContentsDidChange()
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    WebBackdropLayerAquaWebKitContentsDidChange(m_layer.get());
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+
 void PlatformCALayerCocoa::commonInit()
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
@@ -380,6 +460,7 @@ Ref<PlatformCALayer> PlatformCALayerCocoa::clone(PlatformCALayerClient* owner) c
     };
     auto newLayer = PlatformCALayerCocoa::create(type, owner);
     newLayer->m_isBackdropHostingLayer = m_isBackdropHostingLayer; // AQUAWEBKIT: replicas preserve backdrop sampling boundaries.
+    newLayer->m_hostContinuesDepthContext = m_hostContinuesDepthContext; // AQUAWEBKIT: and the CSS 3D context their host sits in.
     
     newLayer->setPosition(position());
     newLayer->setBounds(bounds());
@@ -499,32 +580,58 @@ void PlatformCALayerCocoa::removeFromSuperlayer()
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
+// AQUAWEBKIT: backdrop hosts must share the containing render surface, and the children of a host inside a
+// CSS 3D context belong to that context.
+bool PlatformCALayerCocoa::sublayerStartsDepthContext(const PlatformCALayer& sublayer) const
+{
+    return !m_hostContinuesDepthContext && sublayer.layerType() == LayerType::LayerTypeTransformLayer
+        && !downcast<PlatformCALayerCocoa>(sublayer).m_isBackdropHostingLayer;
+}
+
 // AQUAWEBKIT: native sorting layers flatten each child context into CSS painter order.
 void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerList& list)
 {
-    // AQUAWEBKIT: backdrop hosts must share the containing render surface.
-    auto is3DContext = [](auto& child) {
-        return child->layerType() == LayerType::LayerTypeTransformLayer
-            && !downcast<PlatformCALayerCocoa>(child.get())->m_isBackdropHostingLayer;
+    auto is3DContext = [this](auto& child) {
+        return sublayerStartsDepthContext(*child);
     };
     bool has3DContext = list.containsIf(is3DContext);
     bool distributePerspective = has3DContext && !m_depthSortingTransform.isIdentity();
+    // A sampling-surface layer samples this layer's surface, and draws its footprint flat in it.
+    auto isSamplingSurface = [](auto& child) {
+        auto* backdrop = dynamic_objc_cast<WebBackdropLayerAquaWebKit>(child->platformLayer());
+        return backdrop && backdrop.samplingSurfaceBackdropLayer;
+    };
+    // A context keeps its layer while its child stays, so sampling-surface layers can follow that layer.
+    auto previousBoundaries = std::exchange(m_depthSortingLayers, { });
+    HashMap<void*, RefPtr<PlatformCALayerCocoa>> previousBoundaryBySublayer;
+    for (auto& boundary : previousBoundaries) {
+        if (!boundary)
+            continue;
+        auto children = boundary->sublayersForLogging();
+        if (children.size() == 1)
+            previousBoundaryBySublayer.set(children[0]->platformLayer(), boundary);
+    }
     m_depthSortingLayers.resize(list.size());
+    m_depthSortingLayerBySublayer.clear();
     PlatformCALayerList physicalChildren;
     for (size_t i = 0; i < list.size(); ++i) {
         auto& boundary = m_depthSortingLayers[i];
-        if (distributePerspective || is3DContext(list[i])) { // Only CSS 3D contexts introduce sorting boundaries.
+        if ((distributePerspective && !isSamplingSurface(list[i])) || is3DContext(list[i])) { // Only CSS 3D contexts introduce sorting boundaries.
+            if (auto previous = previousBoundaryBySublayer.find(list[i]->platformLayer()); previous != previousBoundaryBySublayer.end()) {
+                boundary = previous->value;
+                previousBoundaryBySublayer.remove(previous);
+            }
             if (!boundary) {
                 boundary = create(LayerType::LayerTypeLayer, nullptr);
                 [boundary->m_layer setSortsSublayers:YES];
                 boundary->setName("3D rendering context"_s);
+                m_createdDepthSortingLayers = true;
             }
             boundary->setSublayers({ list[i] });
+            m_depthSortingLayerBySublayer.set(list[i]->platformLayer(), boundary);
             physicalChildren.append(boundary);
-        } else {
-            boundary = nullptr;
+        } else
             physicalChildren.append(list[i]);
-        }
     }
     if (m_layerType != LayerType::LayerTypeTransformLayer) // AQUAWEBKIT: a transform layer sorts in its ancestor's context.
         [m_layer setSortsSublayers:NO];
@@ -533,6 +640,15 @@ void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerLis
     [m_layer setSublayers:createNSArray(physicalChildren, [] (auto& layer) {
         return layer->m_layer;
     }).get()];
+}
+
+// AQUAWEBKIT: see GraphicsLayerCA::appendBackdropSamplingSteps().
+PlatformCALayer* PlatformCALayerCocoa::depthSortingLayerForSublayer(const PlatformCALayer& sublayer) const
+{
+    auto* boundary = m_depthSortingLayerBySublayer.get(sublayer.platformLayer());
+    if (!boundary || [sublayer.platformLayer() superlayer] != boundary->m_layer)
+        return nullptr;
+    return boundary;
 }
 
 // AQUAWEBKIT: structural replica insertion operates on the CSS children of owned boundaries.
@@ -585,6 +701,7 @@ void PlatformCALayerCocoa::updateDepthSortingGeometry()
 void PlatformCALayerCocoa::setSublayers(const PlatformCALayerList& list)
 {
     m_depthSortingLayers.clear(); // AQUAWEBKIT: ordinary tree replacement releases owned context layers.
+    m_depthSortingLayerBySublayer.clear(); // AQUAWEBKIT: keep the child-to-context index with its owned layers.
     // Short circuiting here avoids the allocation of the array below.
     if (!list.size()) {
         removeAllSublayers();
@@ -616,6 +733,7 @@ PlatformCALayerList PlatformCALayerCocoa::sublayersForLogging() const
 void PlatformCALayerCocoa::removeAllSublayers()
 {
     m_depthSortingLayers.clear(); // AQUAWEBKIT: release explicit child contexts with their tree.
+    m_depthSortingLayerBySublayer.clear(); // AQUAWEBKIT: keep the child-to-context index with its owned layers.
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setSublayers:nil];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -650,6 +768,7 @@ void PlatformCALayerCocoa::adoptSublayers(PlatformCALayer& source)
     // AQUAWEBKIT: layer-type changes transfer ownership of the real sorting boundaries.
     auto& cocoaSource = downcast<PlatformCALayerCocoa>(source);
     m_depthSortingLayers = WTF::move(cocoaSource.m_depthSortingLayers);
+    m_depthSortingLayerBySublayer = WTF::move(cocoaSource.m_depthSortingLayerBySublayer); // AQUAWEBKIT: transfer the child-to-context index too.
     m_depthSortingTransform = cocoaSource.m_depthSortingTransform;
     m_hasCSSChildrenTransform = cocoaSource.m_hasCSSChildrenTransform;
     BEGIN_BLOCK_OBJC_EXCEPTIONS
@@ -786,9 +905,12 @@ void PlatformCALayerCocoa::setSublayerTransform(const TransformationMatrix& valu
 
 void PlatformCALayerCocoa::setIsBackdropRoot(bool isBackdropRoot)
 {
-    BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [m_layer setShouldRasterize:isBackdropRoot];
-    END_BLOCK_OBJC_EXCEPTIONS
+    // AQUAWEBKIT: 10.9 has no CABackdropLayer to read a rasterized backdrop root; GraphicsLayerCA ends backdrop
+    // sampling at isBackdropRoot().
+    UNUSED_PARAM(isBackdropRoot);
+    // BEGIN_BLOCK_OBJC_EXCEPTIONS
+    // [m_layer setShouldRasterize:isBackdropRoot];
+    // END_BLOCK_OBJC_EXCEPTIONS
 }
 
 bool PlatformCALayerCocoa::backdropRootIsOpaque() const
@@ -1028,10 +1150,10 @@ void PlatformCALayerCocoa::setFilters(const FilterOperations& filters)
 void PlatformCALayerCocoa::copyFiltersFrom(const PlatformCALayer& sourceLayer)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    // AQUAWEBKIT: backdrop replicas copy the native background-filter property.
+    // AQUAWEBKIT: backdrop replicas copy the background filters as set.
     // [m_layer setFilters:[sourceLayer.platformLayer() filters]];
     if (layerType() == LayerType::LayerTypeBackdropLayer)
-        [m_layer setBackgroundFilters:[sourceLayer.platformLayer() backgroundFilters]];
+        [m_layer setBackgroundFilters:[(WebBackdropLayerAquaWebKit *)sourceLayer.platformLayer() assignedBackgroundFilters]];
     else
         [m_layer setFilters:[sourceLayer.platformLayer() filters]];
     END_BLOCK_OBJC_EXCEPTIONS

@@ -541,6 +541,21 @@ private:
     // AQUAWEBKIT: the backdrop's shape mask carries the layer's opacity while a transform host holds it.
     bool backdropNeedsCoverage() const;
     bool passesBackdropSampling() const; // AQUAWEBKIT: see StructuralLayerForBackdropSampling.
+    // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
+    struct BackdropSamplingStep;
+    void updateBackdropSamplingSurfaces();
+    void updateBackdropSamplingSurfacesInSubtree();
+    void updateBackdropSamplingThroughCreatedDepthSortingLayers(bool maxLayerDepthReached);
+    void appendBackdropSamplingSurfaceCopies(Vector<RefPtr<PlatformCALayer>>&, const PlatformCALayer* element, PlatformCALayer& boundaryCopy, const CloneID&);
+    bool appendBackdropSamplingSteps(const GraphicsLayerCA& child, Vector<BackdropSamplingStep, 16>&, bool requireResolvedDepthBoundary = false);
+    void appendBackdropSamplingSurfaces(PlatformCALayerList&, const PlatformCALayer* element, const PlatformCALayer& container);
+    struct BackdropPlacementBounds;
+    static HashMap<const PlatformCALayer*, std::optional<BackdropPlacementBounds>>* measuredBackdropPlacementBounds; // AQUAWEBKIT: placement cache uses the private bounds type.
+    std::optional<BackdropPlacementBounds> backdropPlacementBounds(const PlatformCALayer&, const PlatformCALayer& container);
+    bool backdropPlacementCanSwap(const PlatformCALayer& earlier, const PlatformCALayer& later, const PlatformCALayer& container);
+    void appendForBackdropPlacement(PlatformCALayerList&, PlatformCALayer&, const PlatformCALayer& container, bool movable);
+    bool hasBackdropPlacement() const;
+    void detachBackdropSamplingSurfaces(const GraphicsLayerCA& parent);
     void noteChildrenBackdropSamplingContextChanged(); // AQUAWEBKIT: see StructuralLayerForBackdropSampling.
     void updateBackdropCoverage();
     Vector<Ref<PlatformCALayer>> backdropCoverageLayers() const;
@@ -701,6 +716,7 @@ private:
     bool hasDescendantsWithUncommittedChanges() const { return m_hasDescendantsWithUncommittedChanges; }
     void NODELETE setHasDescendantsWithUncommittedChanges(bool);
     enum ScheduleFlushOrNot { ScheduleFlush, DontScheduleFlush };
+    void setBackdropSamplingSurfaceEmitted(GraphicsLayerCA& emitter, PlatformCALayer* element, PlatformCALayer* backdropLayer, PlatformCALayer&, bool emitted, ScheduleFlushOrNot); // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
     void noteLayerPropertyChanged(LayerChangeFlags, ScheduleFlushOrNot = ScheduleFlush);
     void noteSublayersChanged(ScheduleFlushOrNot = ScheduleFlush);
     void noteChangesForScaleSensitiveProperties();
@@ -772,8 +788,30 @@ private:
 
     ContentsLayerPurpose m_contentsLayerPurpose { ContentsLayerPurpose::None };
     bool m_isCommittingChanges { false };
-    bool m_backdropHasCoverage { false }; // AQUAWEBKIT: the backdrop's shape mask holds this layer's opacity.
+    bool m_backdropHasCoverage { false }; // AQUAWEBKIT: see backdropNeedsCoverage().
     bool m_passesBackdropSampling { false }; // AQUAWEBKIT: set by the client for layers between a backdrop and its root.
+    // AQUAWEBKIT: a backdrop's sampling-surface layers, each emitted by the layer whose sublayer list holds the
+    // separate surface it samples behind, just before that surface.
+    struct BackdropSamplingSurface {
+        WeakPtr<GraphicsLayer> emitter;
+        ThreadSafeWeakPtr<PlatformCALayer> element;
+        ThreadSafeWeakPtr<PlatformCALayer> backdropLayer;
+        Ref<PlatformCALayer> layer;
+    };
+    Vector<BackdropSamplingSurface> m_backdropSamplingSurfaces;
+    struct EmittedBackdropSamplingSurface {
+        ThreadSafeWeakPtr<PlatformCALayer> element;
+        ThreadSafeWeakPtr<PlatformCALayer> backdropLayer;
+        WeakPtr<GraphicsLayer> backdrop;
+        Ref<PlatformCALayer> layer;
+        HashMap<CloneID, Ref<PlatformCALayer>> replicaCopies;
+        // No layer between the backdrop and the emitter moves outside a commit, so the layer can precede siblings
+        // whose extent stays clear of the pixels it reads.
+        bool reorderable { false };
+    };
+    Vector<EmittedBackdropSamplingSurface> m_emittedBackdropSamplingSurfaces;
+    bool m_hasReorderedBackdropSublayers { false }; // AQUAWEBKIT: restore CSS order when a placed backdrop stops sampling.
+    bool m_backdropSamplingAwaitsDepthSortingLayer { false }; // AQUAWEBKIT: see updateBackdropSamplingThroughCreatedDepthSortingLayers().
     bool m_shouldUpdateRootRelativeScaleFactor : 1 { false };
     bool m_needsFullRepaint : 1;
     bool m_allowsBackingStoreDetaching : 1;

@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>A singularly transformed backdrop-filter layer is not rendered</title>
+<link rel="match" href="native-background-singular-transform-expected.html">
+<style>
+html, body { margin: 0; width: 200px; height: 200px; }
+body { background: linear-gradient(90deg, rgb(255, 0, 0) 0 50%, rgb(0, 0, 255) 50%); }
+.filter { width: 200px; height: 200px; transform: scale3d(1, 1, 0); -webkit-backdrop-filter: invert(1); }
+</style>
+<div class="filter"></div>

@@ -1048,6 +1048,16 @@ probe_calayer_hierarchy() {
         "$T/calayer_hierarchy"
 }
 
+probe_singular_transform() {
+    prepare_method_objects QuartzCore &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/singular_transform" "$TBEHAV/QuartzCore-singular-transform.m" \
+            "$OBJ/methods/QuartzCore.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework QuartzCore -framework Foundation "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/singular_transform"
+}
+
 probe_frame_rate_range() {
     prepare_method_objects QuartzCore &&
         "$CLANG" $MODERN $INC -fno-objc-arc -Wno-unguarded-availability-new -o "$T/frame_rate_range" "$TBEHAV/QuartzCore-frame-rate-range.m" \
@@ -1185,6 +1195,7 @@ run_probe character_clusters "$@"
 run_probe cluster_fallback "$@"
 run_probe logical_order "$@"
 run_probe calayer_hierarchy "$@"
+run_probe singular_transform "$@"
 run_probe frame_rate_range "$@"
 run_probe shape_glyphs_context "$@"
 run_probe css_family_language "$@"

@@ -30,6 +30,9 @@
 #import "TransformationMatrix.h"
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+#if PLATFORM(MAC)
+#import <WebCore/WebBackdropLayerAquaWebKit.h> // AQUAWEBKIT: see -_web_setLayerBoundsOrigin:.
+#endif
 
 @implementation CALayer (WebCoreCALayerExtras)
 
@@ -64,6 +67,9 @@
     CGRect bounds = [self bounds];
     bounds.origin = origin;
     [self setBounds:bounds];
+#if PLATFORM(MAC)
+    WebBackdropLayerAquaWebKitGeometryDidChange(self); // AQUAWEBKIT: sampling surfaces mirror scrolled layers.
+#endif
 }
 
 - (void)_web_setLayerTopLeftPosition:(CGPoint)position
@@ -79,6 +85,9 @@
     }
     
     [self setPosition:newPosition];
+#if PLATFORM(MAC)
+    WebBackdropLayerAquaWebKitGeometryDidChange(self); // AQUAWEBKIT: sampling surfaces mirror scrolled layers.
+#endif
 }
 
 + (CALayer *)_web_renderLayerWithContextID:(uint32_t)contextID shouldPreserveFlip:(BOOL)preservesFlip

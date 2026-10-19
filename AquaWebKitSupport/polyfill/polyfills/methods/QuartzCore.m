@@ -5,6 +5,7 @@
 #import "wk_coregraphics.h"
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
+#import <math.h>
 #import <objc/runtime.h>
 #import <pthread.h>
 
@@ -49,6 +50,68 @@ static CFTypeRef wk_copyTiledLayerContents(CGImageRef image)
     return tiles;
 }
 
+static const void *wk_layerCallerHiddenWhileForcingSingularTransformKey(void)
+{
+    return sel_registerName("wk_layerCallerHiddenWhileForcingSingularTransform");
+}
+
+static BOOL wk_transformIsInvertible(CATransform3D t)
+{
+    double determinant =
+        t.m11 * (t.m22 * (t.m33 * t.m44 - t.m34 * t.m43) - t.m23 * (t.m32 * t.m44 - t.m34 * t.m42) + t.m24 * (t.m32 * t.m43 - t.m33 * t.m42))
+        - t.m12 * (t.m21 * (t.m33 * t.m44 - t.m34 * t.m43) - t.m23 * (t.m31 * t.m44 - t.m34 * t.m41) + t.m24 * (t.m31 * t.m43 - t.m33 * t.m41))
+        + t.m13 * (t.m21 * (t.m32 * t.m44 - t.m34 * t.m42) - t.m22 * (t.m31 * t.m44 - t.m34 * t.m41) + t.m24 * (t.m31 * t.m42 - t.m32 * t.m41))
+        - t.m14 * (t.m21 * (t.m32 * t.m43 - t.m33 * t.m42) - t.m22 * (t.m31 * t.m43 - t.m33 * t.m41) + t.m23 * (t.m31 * t.m42 - t.m32 * t.m41));
+    return isfinite(determinant) && determinant != 0;
+}
+
+static BOOL wk_affineTransformIsInvertible(CGAffineTransform transform)
+{
+    double determinant = transform.a * transform.d - transform.b * transform.c;
+    return isfinite(determinant) && determinant != 0;
+}
+
+static BOOL wk_layerRealHidden(CALayer *layer)
+{
+    SEL selector = sel_registerName("isHidden");
+    IMP implementation = class_getMethodImplementation([CALayer class], selector);
+    return ((BOOL (*)(id, SEL))implementation)(layer, selector);
+}
+
+static void wk_setLayerRealHidden(CALayer *layer, BOOL hidden)
+{
+    SEL selector = sel_registerName("setHidden:");
+    IMP implementation = class_getMethodImplementation([CALayer class], selector);
+    ((void (*)(id, SEL, BOOL))implementation)(layer, selector, hidden);
+}
+
+// CALayer does not render a layer whose transform is non-invertible (macOS 15+); 10.9 renders it
+// flattened. Such a layer is forced natively hidden, and the association holds the caller's hidden value
+// for as long as the force lasts. A forced layer is always natively hidden, so a natively visible layer is
+// never forced.
+static NSNumber *wk_layerCallerHiddenWhileForced(CALayer *layer)
+{
+    return wk_layerRealHidden(layer) ? objc_getAssociatedObject(layer, wk_layerCallerHiddenWhileForcingSingularTransformKey()) : nil;
+}
+
+static void wk_updateLayerSingularTransform(CALayer *layer, BOOL singular)
+{
+    BOOL realHidden = wk_layerRealHidden(layer);
+    if (!singular && !realHidden)
+        return;
+    NSNumber *callerHidden = realHidden ? objc_getAssociatedObject(layer, wk_layerCallerHiddenWhileForcingSingularTransformKey()) : nil;
+    if (singular && !callerHidden) {
+        objc_setAssociatedObject(layer, wk_layerCallerHiddenWhileForcingSingularTransformKey(), @(realHidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (!realHidden)
+            wk_setLayerRealHidden(layer, YES);
+        return;
+    }
+    if (!singular && callerHidden) {
+        wk_setLayerRealHidden(layer, callerHidden.boolValue);
+        objc_setAssociatedObject(layer, wk_layerCallerHiddenWhileForcingSingularTransformKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
 // CA's plain-image contents require one renderer texture. The native tiled contents
 // object preserves the image's pixel dimensions and CALayer's contents geometry.
 WK_POLYFILL_REPLACE_METHODS(CALayer)
@@ -70,6 +133,43 @@ WK_POLYFILL_REPLACE_METHODS(CALayer)
             return image;
     }
     return contents;
+}
+
+- (void)setTransform:(CATransform3D)transform
+{
+    WK_ORIGINAL_METHOD(void, (CATransform3D), transform);
+    wk_updateLayerSingularTransform(self, !wk_transformIsInvertible(transform));
+}
+
+- (void)setAffineTransform:(CGAffineTransform)transform
+{
+    WK_ORIGINAL_METHOD(void, (CGAffineTransform), transform);
+    wk_updateLayerSingularTransform(self, !wk_affineTransformIsInvertible(transform));
+}
+
+- (void)setHidden:(BOOL)hidden
+{
+    if (wk_layerCallerHiddenWhileForced(self)) {
+        objc_setAssociatedObject(self, wk_layerCallerHiddenWhileForcingSingularTransformKey(), @(hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    WK_ORIGINAL_METHOD(void, (BOOL), hidden);
+}
+
+- (BOOL)isHidden
+{
+    if (!WK_ORIGINAL_METHOD(BOOL, ()))
+        return NO;
+    NSNumber *hidden = objc_getAssociatedObject(self, wk_layerCallerHiddenWhileForcingSingularTransformKey());
+    return hidden ? hidden.boolValue : YES;
+}
+
+- (BOOL)hidden
+{
+    if (!WK_ORIGINAL_METHOD(BOOL, ()))
+        return NO;
+    NSNumber *hidden = objc_getAssociatedObject(self, wk_layerCallerHiddenWhileForcingSingularTransformKey());
+    return hidden ? hidden.boolValue : YES;
 }
 @end
 

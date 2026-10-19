@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Blending the inverted backdrop at half opacity can round one level differently. -->
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-6400">
+<style>
+body { margin: 0; }
+@keyframes fade { from { filter: opacity(1); } to { filter: opacity(0); } }
+.background { position: absolute; left: 0; top: 0; width: 300px; height: 200px; background: repeating-linear-gradient(90deg, #000 0 10px, #fc0 10px 20px), #fc0; }
+.clip { position: absolute; left: 30px; top: 30px; width: 200px; height: 120px; overflow: hidden; border-radius: 20px; }
+.panel { position: absolute; left: 20px; top: 20px; width: 160px; height: 80px; -webkit-backdrop-filter: invert(1); filter: opacity(0.5); }
+</style>
+</head>
+<body>
+<div class="background"></div>
+<div class="clip"><div class="panel"></div></div>
+</body>
+</html>
