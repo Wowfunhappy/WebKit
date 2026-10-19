@@ -28,7 +28,7 @@
 
 #import "FloatConversion.h"
 #import "PlatformCALayerCocoa.h"
-#import <WebCore/WebBackdropLayerAquaWebKit.h> // AQUAWEBKIT: explicit WebKit backdrop role, independent of CALayer's API.
+#import <WebCore/WebBackdropLayerAquaWebKit.h> // AQUAWEBKIT: WebKit's stand-in for CABackdropLayer.
 #import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockObjCExceptions.h>
@@ -214,14 +214,10 @@ void PlatformCAFilters::updatePresentationModifiers(const FilterOperations& filt
 
 void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOperations& filters, bool backdropIsOpaque)
 {
-    bool isBackdropLayer = is_objc<WebBackdropLayerAquaWebKit>(layer); // AQUAWEBKIT: target the native background-filter surface.
+    bool isBackdropLayer = is_objc<WebBackdropLayerAquaWebKit>(layer); // AQUAWEBKIT: WebKit's stand-in for CABackdropLayer.
     if (!filters.size()) {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
-        // [layer setFilters:nil];
-        if (isBackdropLayer) // AQUAWEBKIT: clearing a backdrop leaves native foreground filters alone.
-            [layer setBackgroundFilters:nil];
-        else
-            [layer setFilters:nil];
+        [layer setFilters:nil];
         // FIXME: this adds shadow properties to the layer even when it had none.
         [layer setShadowOffset:CGSizeZero];
         [layer setShadowColor:nil];
@@ -317,7 +313,7 @@ void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOper
             CAFilter *filter = [CAFilter filterWithType:kCAFilterGaussianBlur];
             [filter setValue:@(blurOperation.stdDeviation()) forKey:@"inputRadius"];
             // if (is_objc<CABackdropLayer>(layer)) {
-            if (isBackdropLayer) { // AQUAWEBKIT: normalize edges for the native backdrop surface.
+            if (isBackdropLayer) { // AQUAWEBKIT: WebKit's stand-in for CABackdropLayer.
 #if PLATFORM(VISION)
                 // FIXME: https://bugs.webkit.org/show_bug.cgi?id=275965
                 UNUSED_PARAM(backdropIsOpaque);
@@ -342,10 +338,7 @@ void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOper
         return nil;
     });
 
-    // if ([array count])
-    if ([array count] && isBackdropLayer) // AQUAWEBKIT: explicit routing preserves CALayer.filters semantics.
-        [layer setBackgroundFilters:array.get()];
-    else if ([array count])
+    if ([array count])
         [layer setFilters:array.get()];
 
     END_BLOCK_OBJC_EXCEPTIONS

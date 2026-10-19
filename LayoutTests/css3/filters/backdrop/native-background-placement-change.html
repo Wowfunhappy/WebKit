@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<link rel="match" href="native-background-placement-change-expected.html">
+<style>
+html, body { margin: 0; background: black; }
+#earlier { position: absolute; width: 100px; height: 100px; background: white; will-change: transform; }
+#backdrop { position: absolute; left: 200px; width: 100px; height: 100px; -webkit-backdrop-filter: invert(1); }
+#control { position: absolute; left: 450px; top: 10px; width: 30px; height: 30px; background: lime; }
+</style>
+<div id="earlier"></div>
+<div id="backdrop"></div>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+const frame = () => new Promise(requestAnimationFrame);
+(async () => {
+    await frame();
+    await frame();
+    earlier.style.transform = 'translateX(200px)';
+    await frame();
+    await frame();
+    if (window.testRunner)
+        testRunner.notifyDone();
+})();
+</script>
+
+<div id="control"></div>

@@ -92,6 +92,13 @@
 
 namespace WebCore {
 
+// AQUAWEBKIT: backdrops with sampling-surface layers; see GraphicsLayerCA::updateBackdropSamplingSurfaces().
+static unsigned backdropsWithSamplingSurfaces;
+// AQUAWEBKIT: avoids backdrop-placement walks when no GraphicsLayer owns a backdrop layer.
+static unsigned liveBackdropLayers;
+// AQUAWEBKIT: see appendForBackdropPlacement().
+static bool rebuildingForBackdropPlacement;
+
 WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsLayerCA);
 
 // The threshold width or height above which a tiled layer will be used. This should be
@@ -450,6 +457,15 @@ GraphicsLayerCA::~GraphicsLayerCA()
     if (isTrackingDisplayListReplay()) [[unlikely]]
         layerDisplayListMap().remove(this);
 
+    // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
+    if (!m_backdropSamplingSurfaces.isEmpty()) {
+        --backdropsWithSamplingSurfaces;
+        for (auto& surface : m_backdropSamplingSurfaces) {
+            if (RefPtr emitter = downcast<GraphicsLayerCA>(surface.emitter.get()))
+                setBackdropSamplingSurfaceEmitted(*emitter, nullptr, nullptr, surface.layer, false, ScheduleFlush);
+        }
+    }
+
     // We release our references to the PlatformCALayers here, but do not actively unparent them,
     // since that will cause a commit and break our batched commit model. The layers will
     // get released when the rootmost modified GraphicsLayerCA rebuilds its child layers.
@@ -473,8 +489,11 @@ GraphicsLayerCA::~GraphicsLayerCA()
     if (m_structuralLayer)
         protect(m_structuralLayer)->setOwner(nullptr);
 
-    if (m_backdropLayer)
+    if (m_backdropLayer) { // AQUAWEBKIT: maintain the global backdrop-placement gate.
+        ASSERT(liveBackdropLayers);
+        --liveBackdropLayers;
         protect(m_backdropLayer)->setOwner(nullptr);
+    } // AQUAWEBKIT: maintains the global backdrop-placement gate.
 
     if (m_backdropClippingLayer)
         protect(m_backdropClippingLayer)->setOwner(nullptr);
@@ -568,6 +587,11 @@ bool GraphicsLayerCA::replaceChild(GraphicsLayer* oldChild, Ref<GraphicsLayer>&&
 void GraphicsLayerCA::willModifyChildren()
 {
     noteSublayersChanged();
+    // AQUAWEBKIT: see detachBackdropSamplingSurfaces().
+    if (backdropsWithSamplingSurfaces) {
+        for (auto& child : children())
+            downcast<GraphicsLayerCA>(child.get()).detachBackdropSamplingSurfaces(*this);
+    }
 }
 
 void GraphicsLayerCA::setMaskLayer(RefPtr<GraphicsLayer>&& layer)
@@ -745,6 +769,8 @@ void GraphicsLayerCA::setPreserves3D(bool preserves3D)
     GraphicsLayer::setPreserves3D(preserves3D);
     noteLayerPropertyChanged(Preserves3DChanged);
     noteChildrenBackdropSamplingContextChanged(); // AQUAWEBKIT: see StructuralLayerForBackdropSampling.
+    if (is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()) // AQUAWEBKIT: see updateSublayerList().
+        noteSublayersChanged();
 }
 
 void GraphicsLayerCA::setMasksToBounds(bool masksToBounds)
@@ -1570,6 +1596,10 @@ void GraphicsLayerCA::setContentsMagnificationFilter(ScalingFilter filter)
 
 void GraphicsLayerCA::layerDidDisplay(PlatformCALayer* layer)
 {
+    // AQUAWEBKIT: sampling-surface layers copy the masks on their path; see updateBackdropSamplingSurfaces().
+    if (backdropsWithSamplingSurfaces && is<PlatformCALayerCocoa>(*layer))
+        downcast<PlatformCALayerCocoa>(*layer).backdropContentsDidChange();
+
     if (!m_layerClones)
         return;
 
@@ -1625,6 +1655,9 @@ void GraphicsLayerCA::flushCompositingState(const FloatRect& visibleRect)
 #endif
 
     recursiveCommitChanges(commitState, state);
+    // AQUAWEBKIT: crops that met a sampling surface outside the host's tree see the tree this commit built.
+    if (liveBackdropLayers)
+        PlatformCALayerCocoa::backdropLayerTreeDidCommit();
 }
 
 void GraphicsLayerCA::flushCompositingStateForThisLayerOnly()
@@ -2029,11 +2062,21 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
     if (isBackdropRoot())
         childCommitState.backdropRootIsOpaque = backgroundColor().isOpaque() || client().backdropRootIsOpaque(this);
 
+    bool maskHadChanges = false; // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
     if (RefPtr maskLayer = downcast<GraphicsLayerCA>(m_maskLayer.get())) {
+        maskHadChanges = maskLayer->m_uncommittedChanges; // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
         maskLayer->setVisibleAndCoverageRects(rects);
         maskLayer->commitLayerTypeChangesBeforeSublayers(childCommitState, pageScaleFactor, layerTypeChanged);
         maskLayer->commitLayerChangesBeforeSublayers(childCommitState, pageScaleFactor, baseRelativePosition, layerTypeChanged);
     }
+
+    // AQUAWEBKIT: the sampling-surface layers reproduce this layer's committed mask, and those of the backdrops
+    // below it.
+    if (hadChanges || commitState.ancestorHadChanges) {
+        if (m_backdropLayer || !m_backdropSamplingSurfaces.isEmpty())
+            updateBackdropSamplingSurfaces();
+    } else if (maskHadChanges && backdropsWithSamplingSurfaces)
+        updateBackdropSamplingSurfacesInSubtree();
 
     bool hasDescendantsWithRunningTransformAnimations = false;
 
@@ -2391,8 +2434,18 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
 
 void GraphicsLayerCA::commitLayerChangesAfterSublayers(CommitState& commitState)
 {
-    if (!m_uncommittedChanges)
+    // AQUAWEBKIT: the children have committed, so their extents and animations are current; see
+    // appendForBackdropPlacement().
+    if (liveBackdropLayers && !(m_uncommittedChanges & ChildrenChanged) && hasBackdropPlacement()) {
+        SetForScope keepUnchangedSublayers(rebuildingForBackdropPlacement, true);
+        updateSublayerList(commitState.treeDepth > cMaxLayerTreeDepth);
+    }
+    // if (!m_uncommittedChanges)
+    //     return;
+    if (!m_uncommittedChanges) { // AQUAWEBKIT: see updateBackdropSamplingThroughCreatedDepthSortingLayers().
+        updateBackdropSamplingThroughCreatedDepthSortingLayers(commitState.treeDepth > cMaxLayerTreeDepth);
         return;
+    } // AQUAWEBKIT: closes the block above.
 
     SetForScope committingChangesChange(m_isCommittingChanges, true);
 
@@ -2401,6 +2454,7 @@ void GraphicsLayerCA::commitLayerChangesAfterSublayers(CommitState& commitState)
 
     if (m_uncommittedChanges & ChildrenChanged)
         updateSublayerList(commitState.treeDepth > cMaxLayerTreeDepth);
+    updateBackdropSamplingThroughCreatedDepthSortingLayers(commitState.treeDepth > cMaxLayerTreeDepth); // AQUAWEBKIT: see the function.
 
     if (m_uncommittedChanges & ReplicatedLayerChanged)
         updateReplicatedLayers();
@@ -2446,6 +2500,9 @@ static bool needsDepthSortingBoundaries(PlatformCALayer& layer)
 // AQUAWEBKIT: the actual platform tree carries context ownership and native animations.
 static void setSublayersForCSS(PlatformCALayer& layer, const PlatformCALayerList& children)
 {
+    // Rebuilds that only place layers for their backdrops leave unchanged lists alone.
+    if (rebuildingForBackdropPlacement && is<PlatformCALayerCocoa>(layer) && downcast<PlatformCALayerCocoa>(layer).sublayersForCSS() == children)
+        return;
     if (needsDepthSortingBoundaries(layer))
         downcast<PlatformCALayerCocoa>(layer).setSublayersWithDepthSorting(children);
     else
@@ -2465,21 +2522,522 @@ static void prependSublayerForCSS(PlatformCALayer& parent, PlatformCALayer& chil
     setSublayersForCSS(parent, children);
 }
 
+// AQUAWEBKIT: 10.9 backgroundFilters sample only the nearest ancestor that is not a CATransformLayer. Every other
+// layer between a backdrop layer and the end of its sampling (its backdrop root, a group Core Animation renders
+// offscreen, the page's tiles, an opaque surface over it, or the top of the tree) is a separate surface, and the
+// pixels behind it get their own backdrop layer, just before it in its superlayer: a sampling-surface layer that the
+// GraphicsLayerCA building that superlayer's sublayer list emits. Each step is a layer on the way up, with that emitter.
+struct GraphicsLayerCA::BackdropSamplingStep {
+    RefPtr<PlatformCALayer> layer;
+    GraphicsLayerCA* emitter { nullptr };
+    bool endsSampling { false };
+    // The layer in the emitter's sublayer list that the sampling-surface layer precedes, when it is not `layer`.
+    RefPtr<PlatformCALayer> element { };
+};
+
+static GraphicsLayerCA* parentLayerCA(const GraphicsLayerCA& layer)
+{
+    return downcast<GraphicsLayerCA>(layer.parent());
+}
+
+// The layers between `child`'s layer and this layer's superlayer, innermost first, in the order the sublayer lists
+// built by updateSublayerList() nest them.
+bool GraphicsLayerCA::appendBackdropSamplingSteps(const GraphicsLayerCA& child, Vector<BackdropSamplingStep, 16>& steps, bool requireResolvedDepthBoundary)
+{
+    RefPtr layer = m_layer;
+    bool clippingLayerHostsChildren = m_contentsRectClipsDescendants && m_contentsClippingLayer;
+    bool structuralLayerHostsChildren = !clippingLayerHostsChildren && m_structuralLayer && structuralLayerPurpose() != StructuralLayerPurpose::StructuralLayerForBackdrop;
+    RefPtr container = clippingLayerHostsChildren ? m_contentsClippingLayer : structuralLayerHostsChildren ? m_structuralLayer : layer;
+    // A CSS 3D rendering context gets its own sorting layer, a separate surface between the child and this layer.
+    RefPtr childLayer = child.layerForSuperlayer();
+    if (needsDepthSortingBoundaries(*container)) {
+        auto& cocoaContainer = downcast<PlatformCALayerCocoa>(*container);
+        if (RefPtr depthSortingLayer = cocoaContainer.depthSortingLayerForSublayer(*childLayer))
+            steps.append({ WTF::move(depthSortingLayer), this, false, WTF::move(childLayer) });
+        else if (cocoaContainer.sublayerStartsDepthContext(*childLayer) || !childrenTransform().isIdentity()) {
+            // This layer's sublayer list makes the sorting layer later in the commit.
+            if (requireResolvedDepthBoundary)
+                return false;
+            m_backdropSamplingAwaitsDepthSortingLayer = true;
+        }
+    }
+
+    auto* parent = parentLayerCA(*this);
+    // A group's opacity, filters, blending or mask make Core Animation render it offscreen, and the backdrop layers
+    // inside it read only that offscreen image.
+    bool rendersOffscreen = opacity() < 1 || !filters().isEmpty() || blendMode() != BlendMode::Normal || maskLayer();
+    bool endsAtLayer = isBackdropRoot() || rendersOffscreen || layer->layerType() == PlatformCALayer::LayerType::LayerTypePageTiledBackingLayer;
+    if (clippingLayerHostsChildren)
+        steps.append({ m_contentsClippingLayer, this, false });
+    if (!structuralLayerHostsChildren)
+        steps.append({ layer, m_structuralLayer ? this : parent, endsAtLayer });
+    if (m_structuralLayer)
+        steps.append({ m_structuralLayer, parent, false });
+    return true;
+}
+
+static bool isPaintedBefore(const GraphicsLayer& a, const GraphicsLayer& b)
+{
+    Vector<const GraphicsLayer*, 32> ancestorsOfA;
+    for (auto* layer = &a; layer; layer = layer->parent())
+        ancestorsOfA.insert(0, layer);
+    Vector<const GraphicsLayer*, 32> ancestorsOfB;
+    for (auto* layer = &b; layer; layer = layer->parent())
+        ancestorsOfB.insert(0, layer);
+    size_t i = 0;
+    while (i < ancestorsOfA.size() && i < ancestorsOfB.size() && ancestorsOfA[i] == ancestorsOfB[i])
+        ++i;
+    if (i == ancestorsOfA.size() || i == ancestorsOfB.size() || !i)
+        return ancestorsOfA.size() < ancestorsOfB.size();
+    auto& siblings = ancestorsOfA[i - 1]->children();
+    auto indexOf = [&](const GraphicsLayer* layer) {
+        return siblings.findIf([&](auto& child) {
+            return child.ptr() == layer;
+        });
+    };
+    return indexOf(ancestorsOfA[i]) < indexOf(ancestorsOfB[i]);
+}
+
+// AQUAWEBKIT: a layer's drawing extent and background-filter reads in its sampling surface, over their animations.
+struct GraphicsLayerCA::BackdropPlacementBounds {
+    FloatRect extent;
+    FloatRect region;
+};
+
+// AQUAWEBKIT: the bounds a placement pass has measured.
+HashMap<const PlatformCALayer*, std::optional<GraphicsLayerCA::BackdropPlacementBounds>>* GraphicsLayerCA::measuredBackdropPlacementBounds;
+
+static bool hasScrollingNodeInSubtree(const GraphicsLayer& layer)
+{
+    if (layer.scrollingNodeID())
+        return true;
+    for (auto& child : layer.children()) {
+        if (hasScrollingNodeInSubtree(child.get()))
+            return true;
+    }
+    if (auto* replica = layer.replicaLayer(); replica && hasScrollingNodeInSubtree(*replica))
+        return true;
+    return false;
+}
+
+// Unknown for a layer that moves outside a commit (the scrolling thread's), or one whose drawing or reading isn't
+// bounded.
+std::optional<GraphicsLayerCA::BackdropPlacementBounds> GraphicsLayerCA::backdropPlacementBounds(const PlatformCALayer& layer, const PlatformCALayer& container)
+{
+    auto measure = [&]() -> std::optional<BackdropPlacementBounds> {
+        if (auto* replica = downcast<GraphicsLayerCA>(replicaLayer()); replica && replica->primaryLayer() == &layer)
+            return std::nullopt;
+        for (auto& child : children()) {
+            if (downcast<GraphicsLayerCA>(child.get()).layerForSuperlayer() == &layer && hasScrollingNodeInSubtree(child.get()))
+                return std::nullopt;
+        }
+        // The planned chain is available while the native hosts are being attached in this commit.
+        PlatformCALayerList ancestors { const_cast<PlatformCALayer*>(&container) };
+        if (container.layerType() == PlatformCALayer::LayerType::LayerTypeTransformLayer && &container == m_layer.get() && m_structuralLayer)
+            ancestors.append(m_structuralLayer);
+        Vector<BackdropSamplingStep, 16> steps;
+        for (GraphicsLayerCA* child = this, *parent = parentLayerCA(*this); parent && ancestors.last()->layerType() == PlatformCALayer::LayerType::LayerTypeTransformLayer; child = parent, parent = parentLayerCA(*parent)) {
+            steps.clear();
+            if (!parent->appendBackdropSamplingSteps(*child, steps, true))
+                return std::nullopt;
+            for (auto& step : steps) {
+                ancestors.append(step.layer);
+                if (step.layer->layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer)
+                    break;
+            }
+        }
+        auto region = PlatformCALayerCocoa::sampleRegionInSuperlayer(layer);
+        auto extent = region ? PlatformCALayerCocoa::extentInSamplingSurface(layer, ancestors) : std::nullopt;
+        if (!extent)
+            return std::nullopt;
+        return BackdropPlacementBounds { *extent, *region };
+    };
+    if (!measuredBackdropPlacementBounds)
+        return measure();
+    return measuredBackdropPlacementBounds->ensure(&layer, measure).iterator->value;
+}
+
+// Two siblings draw the same in either order when neither draws where the other draws or reads.
+bool GraphicsLayerCA::backdropPlacementCanSwap(const PlatformCALayer& earlier, const PlatformCALayer& later, const PlatformCALayer& container)
+{
+    auto a = backdropPlacementBounds(earlier, container);
+    auto b = backdropPlacementBounds(later, container);
+    if (!a || !b)
+        return false;
+    return !a->extent.intersects(b->extent) && !a->extent.intersects(b->region) && !a->region.intersects(b->extent);
+}
+
+// A layer whose background filters read this list's surface goes before the siblings it can swap with, so
+// their updates leave its filters alone. A transform layer's sublayers sort by depth.
+void GraphicsLayerCA::appendForBackdropPlacement(PlatformCALayerList& list, PlatformCALayer& layer, const PlatformCALayer& container, bool movable)
+{
+    size_t index = list.size();
+    // AQUAWEBKIT: coordinate-only backdrop hosts follow CSS paint order; other transform layers sort by depth.
+    bool continuesDepthContext = preserves3D()
+        || (is<PlatformCALayerCocoa>(*m_layer) && downcast<PlatformCALayerCocoa>(*m_layer).hostContinuesDepthContext());
+    bool sortsByDepth = continuesDepthContext || (container.layerType() == PlatformCALayer::LayerType::LayerTypeTransformLayer
+        && !(is<PlatformCALayerCocoa>(container) && downcast<PlatformCALayerCocoa>(container).isBackdropHostingLayer()
+            && !downcast<PlatformCALayerCocoa>(container).hostContinuesDepthContext()));
+    if (movable && !sortsByDepth) {
+        if (auto bounds = backdropPlacementBounds(layer, container); bounds && !bounds->region.isEmpty()) {
+            for (size_t candidate = list.size(); candidate && backdropPlacementCanSwap(*list[candidate - 1], layer, container); --candidate)
+                index = candidate - 1;
+        }
+    }
+    m_hasReorderedBackdropSublayers |= index != list.size();
+    list.insert(index, &layer);
+}
+
+// Whether this layer's sublayer lists hold layers it places by appendForBackdropPlacement().
+bool GraphicsLayerCA::hasBackdropPlacement() const
+{
+    if (m_hasReorderedBackdropSublayers || !m_emittedBackdropSamplingSurfaces.isEmpty())
+        return true;
+    for (auto& child : children()) {
+        auto* layer = downcast<GraphicsLayerCA>(child.get()).layerForSuperlayer();
+        auto region = layer ? PlatformCALayerCocoa::sampleRegionInSuperlayer(*layer) : std::nullopt;
+        if (!region || !region->isEmpty())
+            return true;
+    }
+    return false;
+}
+
+void GraphicsLayerCA::appendBackdropSamplingSurfaces(PlatformCALayerList& list, const PlatformCALayer* element, const PlatformCALayer& container)
+{
+    Vector<const EmittedBackdropSamplingSurface*, 4> surfaces;
+    for (auto& surface : m_emittedBackdropSamplingSurfaces) {
+        if (surface.element.get().get() == element && surface.backdrop)
+            surfaces.append(&surface);
+    }
+    if (surfaces.size() > 1) {
+        std::stable_sort(surfaces.begin(), surfaces.end(), [](auto* a, auto* b) {
+            return isPaintedBefore(*a->backdrop, *b->backdrop);
+        });
+    }
+    for (auto* surface : surfaces)
+        appendForBackdropPlacement(list, surface->layer.get(), container, surface->reorderable);
+}
+
+void GraphicsLayerCA::setBackdropSamplingSurfaceEmitted(GraphicsLayerCA& emitter, PlatformCALayer* element, PlatformCALayer* backdropLayer, PlatformCALayer& layer, bool emitted, ScheduleFlushOrNot scheduleFlush)
+{
+    auto& emittedSurfaces = emitter.m_emittedBackdropSamplingSurfaces;
+    auto index = emittedSurfaces.findIf([&](auto& surface) {
+        return surface.layer.ptr() == &layer;
+    });
+    if (emitted == (index != notFound) && (!emitted || emittedSurfaces[index].element.get().get() == element))
+        return;
+    if (index != notFound)
+        emittedSurfaces.removeAt(index);
+    if (emitted)
+        emittedSurfaces.append({ element, backdropLayer, *this, layer, { } });
+    emitter.noteSublayersChanged(scheduleFlush);
+}
+
+// The CA layers from `layer`'s superlayer up to `end`, or to the top of the tree.
+static PlatformCALayerList superlayersUpTo(PlatformCALayer& layer, const PlatformCALayer* end)
+{
+    PlatformCALayerList result;
+    for (auto* superlayer = layer.superlayer(); superlayer && superlayer != end; superlayer = superlayer->superlayer())
+        result.append(superlayer);
+    return result;
+}
+
+void GraphicsLayerCA::updateBackdropSamplingSurfaces()
+{
+    RefPtr backdropLayer = m_backdropLayer;
+    Vector<BackdropSamplingStep, 16> steps;
+    if (backdropLayer && is<PlatformCALayerCocoa>(*backdropLayer) && m_structuralLayer) {
+        steps.append({ m_structuralLayer, parentLayerCA(*this), false });
+        for (GraphicsLayerCA* child = this, *ancestor = parentLayerCA(*this); ancestor; child = ancestor, ancestor = parentLayerCA(*ancestor)) {
+            if (!ancestor->appendBackdropSamplingSteps(*child, steps))
+                break;
+        }
+    }
+
+    // Each step that is a separate surface, up to where the sampling ends, gets a sampling-surface layer. A chain's
+    // layers are the backdrop layer's ancestors: those below its first step, then the steps.
+    struct Chain {
+        RefPtr<PlatformCALayer> backdropLayer;
+        PlatformCALayerList layersBelowSteps;
+        Vector<BackdropSamplingStep, 16> steps;
+        Vector<size_t, 8> boundaries;
+        std::optional<size_t> end;
+        bool followsSteps { true };
+    };
+    auto findBoundaries = [](Chain& chain) {
+        for (size_t i = 0; i < chain.steps.size(); ++i) {
+            Ref layer = *chain.steps[i].layer;
+            if (layer->layerType() == PlatformCALayer::LayerType::LayerTypeTransformLayer)
+                continue;
+            bool opaque = (layer->isOpaque() || layer->backgroundColor().isOpaque()) && layer->masksToBounds() && !layer->maskLayer() && !layer->cornerRadius();
+            if (chain.steps[i].endsSampling || opaque || !chain.steps[i].emitter) {
+                chain.end = i;
+                return;
+            }
+            chain.boundaries.append(i);
+        }
+    };
+    auto chainLayers = [](const Chain& chain) {
+        PlatformCALayerList layers = chain.layersBelowSteps;
+        for (auto& step : chain.steps)
+            layers.append(step.layer);
+        return layers;
+    };
+
+    Vector<Chain, 2> chains;
+    if (backdropLayer) {
+        chains.append({ backdropLayer, { }, WTF::move(steps), { }, std::nullopt, true });
+        findBoundaries(chains[0]);
+    }
+
+    // A replica's copy of the backdrop layer lies in the replica's layer, which the replicated layer's sublayer list
+    // holds; past that its sampling takes the backdrop layer's own steps. Inside the replica, the replica's copies of
+    // the sampling-surface layers serve it.
+    if (backdropLayer && m_layerClones && !chains[0].steps.isEmpty()) {
+        auto primarySteps = chains[0].steps;
+        auto primaryEnd = chains[0].end;
+        for (auto& clone : m_layerClones->backdropLayerClones.values()) {
+            PlatformCALayerList below;
+            bool found = false;
+            for (auto* layer = clone->superlayer(); layer && !found; layer = layer->superlayer()) {
+                GraphicsLayerCA* replicated = nullptr;
+                for (auto* ancestor = this; ancestor && !replicated; ancestor = parentLayerCA(*ancestor)) {
+                    if (RefPtr replica = downcast<GraphicsLayerCA>(ancestor->m_replicaLayer.get()); replica && replica->primaryLayer() == layer)
+                        replicated = ancestor;
+                }
+                if (!replicated) {
+                    below.append(layer);
+                    continue;
+                }
+                found = true;
+                auto index = primarySteps.findIf([&](auto& step) {
+                    return step.layer == replicated->m_structuralLayer;
+                });
+                Chain chain { clone.ptr(), WTF::move(below), { }, { }, std::nullopt, true };
+                chain.steps.append({ layer, replicated, false });
+                if (index != notFound)
+                    chain.steps.appendRange(primarySteps.begin() + index, primarySteps.end());
+                if (index != notFound && (!primaryEnd || *primaryEnd >= index))
+                    findBoundaries(chain);
+                else
+                    chain.followsSteps = false;
+                chains.append(WTF::move(chain));
+            }
+            if (!found)
+                chains.append({ clone.ptr(), superlayersUpTo(clone, nullptr), { }, { }, std::nullopt, false });
+        }
+    }
+
+    bool hadSamplingSurfaces = !m_backdropSamplingSurfaces.isEmpty();
+    Vector<BackdropSamplingSurface> surfaces;
+    for (auto& chain : chains) {
+        for (auto boundaryIndex : chain.boundaries) {
+            auto& step = chain.steps[boundaryIndex];
+            RefPtr element = step.element ? step.element : step.layer;
+            auto index = m_backdropSamplingSurfaces.findIf([&](auto& surface) {
+                return surface.element.get() == element && surface.backdropLayer.get() == chain.backdropLayer;
+            });
+            Ref layer = index != notFound ? m_backdropSamplingSurfaces[index].layer.copyRef() : createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeBackdropLayer, nullptr);
+            if (index != notFound) {
+                if (RefPtr previousEmitter = downcast<GraphicsLayerCA>(m_backdropSamplingSurfaces[index].emitter.get()); previousEmitter && previousEmitter != step.emitter)
+                    setBackdropSamplingSurfaceEmitted(*previousEmitter, nullptr, nullptr, layer, false, DontScheduleFlush);
+                m_backdropSamplingSurfaces.removeAt(index);
+            }
+            setBackdropSamplingSurfaceEmitted(*step.emitter, element.get(), chain.backdropLayer.get(), layer, true, DontScheduleFlush);
+            bool reorderable = chain.backdropLayer == backdropLayer;
+            for (GraphicsLayer* owner = this; reorderable && owner && owner != step.emitter; owner = owner->parent())
+                reorderable = !owner->scrollingNodeID();
+            auto& emitted = step.emitter->m_emittedBackdropSamplingSurfaces;
+            if (auto index = emitted.findIf([&](auto& surface) { return surface.layer.ptr() == layer.ptr(); }); index != notFound && emitted[index].reorderable != reorderable) {
+                emitted[index].reorderable = reorderable;
+                step.emitter->noteSublayersChanged(DontScheduleFlush);
+            }
+            surfaces.append({ *step.emitter, element.get(), chain.backdropLayer.get(), WTF::move(layer) });
+        }
+    }
+    for (auto& stale : m_backdropSamplingSurfaces) {
+        if (RefPtr emitter = downcast<GraphicsLayerCA>(stale.emitter.get()))
+            setBackdropSamplingSurfaceEmitted(*emitter, nullptr, nullptr, stale.layer, false, DontScheduleFlush);
+    }
+    if (hadSamplingSurfaces != !surfaces.isEmpty())
+        surfaces.isEmpty() ? --backdropsWithSamplingSurfaces : ++backdropsWithSamplingSurfaces;
+    m_backdropSamplingSurfaces = WTF::move(surfaces);
+    if (!backdropLayer || !is<PlatformCALayerCocoa>(*backdropLayer))
+        return;
+
+    // Each backdrop-filter layer crops its blur to the backdrop's footprint in the surface it samples. The last one
+    // in a chain that ends samples the surface where the sampling ends.
+    size_t surfaceIndex = 0;
+    for (auto& chain : chains) {
+        auto layers = chainLayers(chain);
+        downcast<PlatformCALayerCocoa>(*chain.backdropLayer).setBackdropCropLayers(layers, 0, *chain.backdropLayer);
+        downcast<PlatformCALayerCocoa>(*chain.backdropLayer).setBackdropSamplesBackdropRoot(chain.end && chain.boundaries.isEmpty());
+        for (auto boundaryIndex : chain.boundaries) {
+            auto& step = chain.steps[boundaryIndex];
+            Ref layer = m_backdropSamplingSurfaces[surfaceIndex++].layer;
+            auto& cocoaLayer = downcast<PlatformCALayerCocoa>(layer.get());
+            // The layers between the boundary and the backdrop layer, outermost first; the ancestors above a
+            // replica's copy may join its layer tree later in this commit.
+            PlatformCALayerList path;
+            for (size_t j = boundaryIndex; j--;)
+                path.append(chain.steps[j].layer);
+            for (size_t j = chain.layersBelowSteps.size(); j--;)
+                path.append(chain.layersBelowSteps[j]);
+            cocoaLayer.updateBackdropSamplingSurface(*step.layer, path, *chain.backdropLayer);
+            size_t parentIndex = chain.layersBelowSteps.size() + boundaryIndex + 1;
+            cocoaLayer.setBackdropCropLayers(layers, parentIndex < layers.size() ? parentIndex : notFound, *chain.backdropLayer);
+            cocoaLayer.setBackdropSamplesBackdropRoot(chain.end && boundaryIndex == chain.boundaries.last());
+        }
+    }
+
+    // A replica's copies of the sampling-surface layers serve the backdrop layer's copies in that replica.
+    for (auto& surface : m_backdropSamplingSurfaces) {
+        RefPtr emitter = downcast<GraphicsLayerCA>(surface.emitter.get());
+        if (!emitter)
+            continue;
+        auto index = emitter->m_emittedBackdropSamplingSurfaces.findIf([&](auto& emitted) {
+            return emitted.layer.ptr() == surface.layer.ptr();
+        });
+        if (index == notFound)
+            continue;
+        for (auto& copy : emitter->m_emittedBackdropSamplingSurfaces[index].replicaCopies.values()) {
+            auto& cocoaCopy = downcast<PlatformCALayerCocoa>(copy.get());
+            cocoaCopy.updateBackdropSamplingSurfaceFromLayerTree(nullptr, nullptr);
+            RefPtr servedLayer = cocoaCopy.backdropSamplingSurfaceBackdropLayer();
+            auto chainIndex = chains.findIf([&](auto& chain) {
+                return chain.backdropLayer == servedLayer;
+            });
+            if (servedLayer && chainIndex != notFound)
+                cocoaCopy.setBackdropCropLayers(chainLayers(chains[chainIndex]), notFound, *servedLayer);
+        }
+    }
+}
+
+// AQUAWEBKIT: see updateBackdropSamplingSurfaces().
+void GraphicsLayerCA::updateBackdropSamplingSurfacesInSubtree()
+{
+    if (m_backdropLayer || !m_backdropSamplingSurfaces.isEmpty())
+        updateBackdropSamplingSurfaces();
+    for (auto& child : children())
+        downcast<GraphicsLayerCA>(child.get()).updateBackdropSamplingSurfacesInSubtree();
+}
+
+// AQUAWEBKIT: a backdrop below a CSS 3D context samples through the context's sorting layer, which the sublayer list
+// this layer builds after its descendants commit creates. When that list has created one that a backdrop's update
+// in this commit found missing, the backdrops below update again and the list takes their sampling-surface layers.
+void GraphicsLayerCA::updateBackdropSamplingThroughCreatedDepthSortingLayers(bool maxLayerDepthReached)
+{
+    bool created = false;
+    for (auto* container : { m_layer.get(), m_structuralLayer.get(), m_contentsClippingLayer.get() }) {
+        if (auto* cocoaContainer = dynamicDowncast<PlatformCALayerCocoa>(container))
+            created |= cocoaContainer->takeCreatedDepthSortingLayers();
+    }
+    if (!std::exchange(m_backdropSamplingAwaitsDepthSortingLayer, false) || !created)
+        return;
+    SetForScope committingChanges(m_isCommittingChanges, true);
+    for (auto& child : children())
+        downcast<GraphicsLayerCA>(child.get()).updateBackdropSamplingSurfacesInSubtree();
+    m_backdropSamplingAwaitsDepthSortingLayer = false;
+    updateSublayerList(maxLayerDepthReached);
+    m_uncommittedChanges &= ~ChildrenChanged;
+}
+
+// AQUAWEBKIT: the GraphicsLayers owning the layers from `top`'s sublayer down to `layer`; empty when `layer` is not
+// below `top`.
+static Vector<const PlatformCALayerClient*, 8> layerOwnersBelow(const PlatformCALayer& top, const PlatformCALayer& layer)
+{
+    Vector<const PlatformCALayerClient*, 8> owners;
+    for (auto* current = &layer; current; current = current->superlayer()) {
+        if (current == &top)
+            return owners;
+        owners.insert(0, current->owner());
+    }
+    return { };
+}
+
+// AQUAWEBKIT: a separate surface inside a replica holds the replica's copy of the sampling-surface layer emitted
+// before its original, which serves the copy of its backdrop layer there: the one whose layers from the boundary down
+// come from the same GraphicsLayers. The copy lies just before the boundary's copy.
+void GraphicsLayerCA::appendBackdropSamplingSurfaceCopies(Vector<RefPtr<PlatformCALayer>>& list, const PlatformCALayer* element, PlatformCALayer& boundaryCopy, const CloneID& cloneID)
+{
+    for (auto& surface : m_emittedBackdropSamplingSurfaces) {
+        RefPtr backdrop = downcast<GraphicsLayerCA>(surface.backdrop.get());
+        RefPtr surfaceElement = surface.element.get();
+        RefPtr servedLayer = surface.backdropLayer.get();
+        if (surfaceElement.get() != element || !backdrop || !backdrop->m_layerClones || !servedLayer)
+            continue;
+        auto owners = layerOwnersBelow(*surfaceElement, *servedLayer);
+        RefPtr<PlatformCALayer> backdropCopy;
+        for (auto& candidate : backdrop->m_layerClones->backdropLayerClones.values()) {
+            auto candidateOwners = layerOwnersBelow(boundaryCopy, candidate.get());
+            if (!candidateOwners.isEmpty() && candidateOwners == owners) {
+                backdropCopy = candidate.ptr();
+                break;
+            }
+        }
+        if (!backdropCopy)
+            continue;
+        Ref copy = surface.replicaCopies.ensure(cloneID, [&] {
+            return createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeBackdropLayer, nullptr);
+        }).iterator->value;
+        downcast<PlatformCALayerCocoa>(copy.get()).updateBackdropSamplingSurfaceFromLayerTree(&boundaryCopy, backdropCopy.get());
+        list.append(copy.ptr());
+    }
+}
+
+// A subtree leaving this layer stops emitting through this layer and its ancestors; its backdrops emit again from
+// their next commit wherever the subtree lands.
+void GraphicsLayerCA::detachBackdropSamplingSurfaces(const GraphicsLayerCA& parent)
+{
+    for (auto& surface : m_backdropSamplingSurfaces) {
+        RefPtr emitter = downcast<GraphicsLayerCA>(surface.emitter.get());
+        bool emitterIsOutside = false;
+        for (const GraphicsLayer* layer = &parent; layer && !emitterIsOutside; layer = layer->parent())
+            emitterIsOutside = layer == emitter.get();
+        if (!emitterIsOutside)
+            continue;
+        setBackdropSamplingSurfaceEmitted(*emitter, nullptr, nullptr, surface.layer, false, ScheduleFlush);
+        surface.emitter = nullptr;
+    }
+    for (auto& child : children())
+        downcast<GraphicsLayerCA>(child.get()).detachBackdropSamplingSurfaces(parent);
+}
+
 void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
 {
+    m_hasReorderedBackdropSublayers = false; // AQUAWEBKIT: this rebuild records every list it reorders.
     RefPtr layer = m_layer;
     if (maxLayerDepthReached) {
         layer->setSublayers({ });
         return;
     }
 
+    // AQUAWEBKIT: a coordinate-only host child sits in this layer's CSS 3D context when this layer preserves 3D or is
+    // itself a host inside one, and its children then belong to that context. Set here, before the child commits.
+    if (RefPtr cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(*layer); cocoaLayer && PlatformCALayerCocoa::needsExplicitDepthSorting()) {
+        bool childHostsContinueContext = type() == Type::Structural ? cocoaLayer->hostContinuesDepthContext() : preserves3D();
+        for (auto& child : children()) {
+            auto& childLayer = downcast<GraphicsLayerCA>(child.get());
+            RefPtr host = dynamicDowncast<PlatformCALayerCocoa>(childLayer.m_layer.get());
+            if (childLayer.type() != Type::Structural || !host || host->hostContinuesDepthContext() == childHostsContinueContext)
+                continue;
+            host->setHostContinuesDepthContext(childHostsContinueContext);
+            childLayer.m_uncommittedChanges |= ChildrenChanged; // The child commits after this layer, in this commit.
+        }
+    }
+
     auto appendStructuralLayerChildren = [&](PlatformCALayerList& list) {
         if (m_backdropLayer)
             list.append(m_backdropLayer);
 
-        if (m_replicaLayer)
-            list.append(downcast<GraphicsLayerCA>(*m_replicaLayer).primaryLayer());
+        // if (m_replicaLayer)
+        //     list.append(downcast<GraphicsLayerCA>(*m_replicaLayer).primaryLayer());
+        if (RefPtr replicaLayer = m_replicaLayer) { // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
+            appendBackdropSamplingSurfaces(list, downcast<GraphicsLayerCA>(*replicaLayer).primaryLayer(), *m_structuralLayer);
+            list.append(downcast<GraphicsLayerCA>(*replicaLayer).primaryLayer());
+        } // AQUAWEBKIT: closes the block above.
     
+        appendBackdropSamplingSurfaces(list, layer.get(), *m_structuralLayer); // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
         list.append(layer);
     };
 
@@ -2497,15 +3055,25 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
         if (auto* customSublayers = layer->customSublayers())
             list.appendVector(*customSublayers);
 
-        if (m_contentsClippingLayer)
+        if (m_contentsClippingLayer) {
+            appendBackdropSamplingSurfaces(list, m_contentsClippingLayer.get(), *layer); // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
             appendClippingLayers(list);
-        else
+        } else // AQUAWEBKIT: closes the block above.
             appendContentsLayer(list);
     };
 
     auto appendLayersFromChildren = [&](PlatformCALayerList& list) {
-        for (Ref child : children())
-            list.append(downcast<GraphicsLayerCA>(child.get()).layerForSuperlayer());
+        // AQUAWEBKIT: the layer the children's list belongs to; see updateBackdropSamplingSurfaces().
+        RefPtr childrenContainer = m_contentsRectClipsDescendants && m_contentsClippingLayer ? m_contentsClippingLayer
+            : m_structuralLayer && structuralLayerPurpose() != StructuralLayerPurpose::StructuralLayerForBackdrop ? m_structuralLayer : layer;
+        HashMap<const PlatformCALayer*, std::optional<BackdropPlacementBounds>> bounds;
+        SetForScope measuredBounds(measuredBackdropPlacementBounds, &bounds);
+        for (Ref child : children()) {
+            appendBackdropSamplingSurfaces(list, downcast<GraphicsLayerCA>(child.get()).layerForSuperlayer(), *childrenContainer); // AQUAWEBKIT: see updateBackdropSamplingSurfaces().
+            // list.append(downcast<GraphicsLayerCA>(child.get()).layerForSuperlayer());
+            // AQUAWEBKIT: see appendForBackdropPlacement(); placement moves a layer only while some backdrop layer reads a surface.
+            appendForBackdropPlacement(list, *downcast<GraphicsLayerCA>(child.get()).layerForSuperlayer(), *childrenContainer, liveBackdropLayers && !hasScrollingNodeInSubtree(child.get()));
+        } // AQUAWEBKIT: closes the loop above.
     };
 
     auto appendDebugLayers = [&](PlatformCALayerList& list) {
@@ -2773,6 +3341,8 @@ void GraphicsLayerCA::updateBackdropFilters(CommitState& commitState)
 
     if (!canHaveBackdropFilters) {
         if (RefPtr backdropLayer = std::exchange(m_backdropLayer, nullptr)) {
+            ASSERT(liveBackdropLayers); // AQUAWEBKIT: maintain the global backdrop-placement gate.
+            --liveBackdropLayers;
             backdropLayer->removeFromSuperlayer();
             backdropLayer->setOwner(nullptr);
         }
@@ -2793,8 +3363,11 @@ void GraphicsLayerCA::updateBackdropFilters(CommitState& commitState)
 
     bool makeLayer = !m_backdropLayer || (m_backdropLayer->layerType() != expectedLayerType);
     if (makeLayer) {
+        bool hadBackdropLayer = !!m_backdropLayer; // AQUAWEBKIT: maintain the global backdrop-placement gate.
         Ref backdropLayer = createPlatformCALayer(expectedLayerType, this);
         m_backdropLayer = backdropLayer.copyRef();
+        if (!hadBackdropLayer) // AQUAWEBKIT: maintain the global backdrop-placement gate.
+            ++liveBackdropLayers;
         backdropLayer->setAnchorPoint(FloatPoint3D());
         backdropLayer->setMasksToBounds(true);
 #if HAVE(CORE_MATERIAL)
@@ -2958,11 +3531,13 @@ void GraphicsLayerCA::updateBackdropCoverage()
     RefPtr animatedLayer = primaryLayer();
     for (auto& layer : backdropCoverageLayers()) {
         layer->setOpacity(needsCoverage ? m_opacity : 1);
-        if (!needsCoverage)
-            continue;
         for (auto& animation : m_animations) {
-            if (animation.m_property == AnimatedProperty::Opacity && !animation.m_pendingRemoval)
+            if (animation.m_property != AnimatedProperty::Opacity)
+                continue;
+            if (needsCoverage && !animation.m_pendingRemoval)
                 moveOrCopyLayerAnimation(Copy, animation.animationIdentifier(), std::nullopt, animatedLayer.get(), layer.ptr());
+            else
+                layer->removeAnimationForKey(animation.animationIdentifier());
         }
     }
 }
@@ -3605,6 +4180,11 @@ void GraphicsLayerCA::updateReplicatedLayers()
     else
         // protect(m_layer)->insertSublayer(*replicaRoot, 0); // AQUAWEBKIT: reflected 3D roots need their native sorting boundary.
         prependSublayerForCSS(*m_layer, *replicaRoot);
+
+    // AQUAWEBKIT: the replicated layers update their sampling surfaces before this replica copies their backdrop
+    // layers; the copies get theirs in the same commit.
+    if (liveBackdropLayers)
+        downcast<GraphicsLayerCA>(*m_replicatedLayer).updateBackdropSamplingSurfacesInSubtree();
 }
 
 #if HAVE(SUPPORT_HDR_DISPLAY)
@@ -5369,6 +5949,7 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
                 clonalSublayers.append(replicaLayer);
                 
             // Add the primary layer next. Even if we have negative z-order children, the primary layer always comes behind.
+            appendBackdropSamplingSurfaceCopies(clonalSublayers, m_layer.get(), *primaryLayer, replicaState.cloneID()); // AQUAWEBKIT: see appendBackdropSamplingSurfaceCopies().
             clonalSublayers.append(primaryLayer);
         } else if (contentsClippingLayer) {
             // FIXME: add the contents layer in the correct order with negative z-order children.
@@ -5382,12 +5963,17 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
             clonalSublayers.append(contentsLayer);
         }
         
+        auto cloneID = replicaState.cloneID(); // AQUAWEBKIT: see appendBackdropSamplingSurfaceCopies().
         replicaState.push(ReplicaState::ChildBranch);
 
         for (auto& childLayer : childLayers) {
             Ref childLayerCA = downcast<GraphicsLayerCA>(childLayer.get());
-            if (auto platformLayer = childLayerCA->fetchCloneLayers(replicaRoot, replicaState, IntermediateCloneLevel))
+            // if (auto platformLayer = childLayerCA->fetchCloneLayers(replicaRoot, replicaState, IntermediateCloneLevel))
+            //     clonalSublayers.append(WTF::move(platformLayer));
+            if (auto platformLayer = childLayerCA->fetchCloneLayers(replicaRoot, replicaState, IntermediateCloneLevel)) { // AQUAWEBKIT: see appendBackdropSamplingSurfaceCopies().
+                appendBackdropSamplingSurfaceCopies(clonalSublayers, childLayerCA->layerForSuperlayer(), *platformLayer, cloneID);
                 clonalSublayers.append(WTF::move(platformLayer));
+            } // AQUAWEBKIT: closes the block above.
         }
 
         replicaState.pop();

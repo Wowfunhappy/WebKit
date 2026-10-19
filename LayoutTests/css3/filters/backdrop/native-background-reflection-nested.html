@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { margin: 0; }
+.background { position: absolute; left: 0; top: 0; width: 460px; height: 240px; background: repeating-linear-gradient(90deg, #000 0 10px, #fc0 10px 20px), #fc0; }
+.band { position: absolute; left: 0; top: 120px; width: 460px; height: 120px; background: repeating-linear-gradient(0deg, #06f 0 10px, #fff 10px 20px); }
+.outer { position: absolute; left: 20px; top: 20px; width: 200px; height: 200px; -webkit-box-reflect: right 10px; }
+.inner { position: absolute; left: 20px; top: 20px; width: 100px; height: 60px; -webkit-box-reflect: below 10px; }
+.panel { position: absolute; left: 0; top: 0; width: 100px; height: 60px; -webkit-backdrop-filter: invert(1); }
+</style>
+</head>
+<body>
+<div class="background"></div>
+<div class="band"></div>
+<div class="outer"><div class="inner"><div class="panel"></div></div></div>
+</body>
+</html>

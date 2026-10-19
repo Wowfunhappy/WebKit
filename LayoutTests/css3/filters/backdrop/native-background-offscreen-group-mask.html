@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="match" href="native-background-offscreen-group-mask-expected.html">
+<!-- The group's mask renders it offscreen, so the backdrop reads only the group's own green, not the stripes. -->
+<style>
+body { margin: 0; }
+.under { position: absolute; left: 0; top: 0; width: 400px; height: 400px; background: repeating-linear-gradient(90deg, #00f 0 10px, #ff0 10px 20px); }
+.group { position: absolute; left: 100px; top: 100px; width: 200px; height: 200px; background: green; -webkit-mask-image: linear-gradient(black, rgba(0, 0, 0, 0.5)); }
+.panel { position: absolute; left: 0; top: 0; width: 200px; height: 200px; -webkit-backdrop-filter: invert(1); }
+</style>
+</head>
+<body>
+<div class="under"></div>
+<div class="group"><div class="panel"></div></div>
+</body>
+</html>

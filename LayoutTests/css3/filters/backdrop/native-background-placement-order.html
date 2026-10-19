@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+body { margin: 0; white-space: pre; }
+.stage { position: absolute; width: 250px; height: 100px; background: white; transform: translateZ(0); transform-origin: 0 0; }
+.earlier { position: absolute; width: 40px; height: 40px; background: black; will-change: transform; }
+.backdrop { position: absolute; left: 100px; top: 50px; width: 40px; height: 40px; -webkit-backdrop-filter: blur(8px); }
+#translated { top: 120px; transform: translateX(200px) scale(2); }
+#animated { top: 260px; transform: translateX(200px) scale(2); animation: move 100s linear infinite alternate; }
+#translated > *, #animated > * { left: 100px; top: 0; }
+#translated > .earlier, #animated > .earlier { left: 99px; width: 1px; }
+#depth { top: 420px; transform-style: preserve-3d; }
+@keyframes move { from { transform: translateX(200px) scale(2); } to { transform: translateX(400px) scale(2); } }
+</style>
+<div class="stage" id="flat"><div class="earlier"></div><div class="backdrop"></div></div>
+<div class="stage" id="translated"><div class="earlier"></div><div class="backdrop"></div></div>
+<div class="stage" id="animated"><div class="earlier"></div><div class="backdrop"></div></div>
+<div class="stage" id="depth"><div class="earlier"></div><div class="backdrop"></div></div>
+<script>
+if (window.testRunner) {
+    testRunner.dumpAsText();
+    testRunner.waitUntilDone();
+}
+const frame = () => new Promise(requestAnimationFrame);
+(async () => {
+    await frame();
+    await frame();
+    const results = [];
+    for (const [name, movesBefore] of [['flat', true], ['translated', false], ['animated', false], ['depth', false]]) {
+        const stage = document.getElementById(name);
+        const tree = internals.platformLayerTreeAsText(stage, internals.PLATFORM_LAYER_TREE_DEBUG);
+        const index = element => tree.indexOf('(id ProcessQualified(' + internals.layerIDForElement(element) + ',');
+        const earlier = index(stage.children[0]);
+        const backdrop = index(stage.children[1]);
+        const passed = earlier >= 0 && backdrop >= 0 && ((backdrop < earlier) === movesBefore);
+        results.push((passed ? 'PASS ' : 'FAIL ') + name + ' placement');
+    }
+    document.body.textContent = results.join('\n');
+    if (window.testRunner)
+        testRunner.notifyDone();
+})();
+</script>

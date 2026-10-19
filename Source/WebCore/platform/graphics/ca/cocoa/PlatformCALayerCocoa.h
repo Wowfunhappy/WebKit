@@ -28,6 +28,7 @@
 #include <WebCore/ContentsFormat.h>
 #include <WebCore/GraphicsLayer.h>
 #include <WebCore/PlatformCALayer.h>
+#include <wtf/HashMap.h> // AQUAWEBKIT: indexes CSS children to their native sorting boundaries.
 
 OBJC_CLASS NSObject;
 
@@ -45,9 +46,24 @@ public:
 
     // AQUAWEBKIT: GraphicsLayerCA places each CSS child context in a native sorting layer.
     static bool needsExplicitDepthSorting();
+    // AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+    void setBackdropCropLayers(const PlatformCALayerList& layers, size_t parentIndex, PlatformCALayer& backdropLayer);
+    void setBackdropSamplesBackdropRoot(bool);
+    RefPtr<PlatformCALayer> backdropSamplingSurfaceBackdropLayer() const;
+    static std::optional<FloatRect> extentInSamplingSurface(const PlatformCALayer&, const PlatformCALayerList& ancestors); // AQUAWEBKIT: placement bounds share the backdrop sampling space.
+    static std::optional<FloatRect> sampleRegionInSuperlayer(const PlatformCALayer&); // AQUAWEBKIT: see WebBackdropLayerAquaWebKit.
+    void updateBackdropSamplingSurfaceFromLayerTree(PlatformCALayer* boundary, PlatformCALayer* backdropLayer);
+    void updateBackdropSamplingSurface(PlatformCALayer& boundary, const PlatformCALayerList& path, PlatformCALayer& backdropLayer);
+    void backdropContentsDidChange(); // AQUAWEBKIT: see WebBackdropLayerAquaWebKitContentsDidChange().
+    static void backdropLayerTreeDidCommit(); // AQUAWEBKIT: see WebBackdropLayerAquaWebKitLayerTreeDidCommit().
     void setIsBackdropHostingLayer(bool value) { m_isBackdropHostingLayer = value; } // AQUAWEBKIT: a backdrop host shares its parent's background.
     bool isBackdropHostingLayer() const { return m_isBackdropHostingLayer; } // AQUAWEBKIT: identifies transparent backdrop hosts.
+    void setHostContinuesDepthContext(bool value) { m_hostContinuesDepthContext = value; } // AQUAWEBKIT: see GraphicsLayerCA::updateSublayerList().
+    bool hostContinuesDepthContext() const { return m_hostContinuesDepthContext; } // AQUAWEBKIT: a host inside a CSS 3D context.
     void setSublayersWithDepthSorting(const PlatformCALayerList&);
+    bool sublayerStartsDepthContext(const PlatformCALayer&) const;
+    PlatformCALayer* depthSortingLayerForSublayer(const PlatformCALayer&) const; // AQUAWEBKIT: the context layer wrapping a CSS 3D context.
+    bool takeCreatedDepthSortingLayers() { return std::exchange(m_createdDepthSortingLayers, false); } // AQUAWEBKIT: since the last call.
     PlatformCALayerList sublayersForCSS() const;
     void setChildrenTransformForDepthSorting(const TransformationMatrix&);
 
@@ -244,8 +260,11 @@ private:
     // AQUAWEBKIT: these are real platform layers owned by their containing CSS layer.
     void updateDepthSortingGeometry();
     Vector<RefPtr<PlatformCALayerCocoa>> m_depthSortingLayers;
+    HashMap<void*, RefPtr<PlatformCALayerCocoa>> m_depthSortingLayerBySublayer;
     bool m_hasCSSChildrenTransform { false };
     bool m_isBackdropHostingLayer { false }; // AQUAWEBKIT: transform-only backdrop hosts are not CSS 3D contexts.
+    bool m_hostContinuesDepthContext { false }; // AQUAWEBKIT: a host whose superlayer is inside a CSS 3D context.
+    bool m_createdDepthSortingLayers { false }; // AQUAWEBKIT: see takeCreatedDepthSortingLayers().
     TransformationMatrix m_depthSortingTransform;
 
     RetainPtr<NSObject> m_delegate;

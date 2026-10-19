@@ -2,18 +2,20 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!-- The backdrop blur reads only the panel, with its edges duplicated. -->
 <style>
 body { margin: 0; }
 .background { width: 600px; height: 200px; background: linear-gradient(black 100px, white 100px); }
 .panel { position: absolute; top: 50px; width: 100px; height: 100px; overflow: hidden; opacity: 0.5; }
 #rounded { border-radius: 20px; }
-.filtered { position: absolute; top: -50px; -webkit-filter: blur(8px); transform: translateZ(0); }
+.cropped { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: linear-gradient(black 100px, white 100px) no-repeat; background-size: 600px 200px; filter: url(#cropped-blur); }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position: absolute"><filter id="cropped-blur" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="8" edgeMode="duplicate"/></filter></svg>
 <div class="background"></div>
-<div class="panel" style="left: 50px"><div class="background filtered" style="left: -50px"></div></div>
-<div class="panel" id="rounded" style="left: 250px"><div class="background filtered" style="left: -250px"></div></div>
-<div class="panel" style="left: 450px"><div class="background filtered" style="left: -450px"></div></div>
+<div class="panel" style="left: 50px"><div class="cropped" style="background-position: -50px -50px"></div></div>
+<div class="panel" id="rounded" style="left: 250px"><div class="cropped" style="background-position: -250px -50px"></div></div>
+<div class="panel" style="left: 450px"><div class="cropped" style="background-position: -450px -50px"></div></div>
 </body>
 </html>
