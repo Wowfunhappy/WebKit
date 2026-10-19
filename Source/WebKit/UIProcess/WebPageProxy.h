@@ -1020,10 +1020,6 @@ public:
     void stopLoading();
     RefPtr<API::Navigation> reload(OptionSet<WebCore::ReloadOption>);
 
-    // AQUAWEBKIT: invoked by WebPreferences when Safari 7's global Private Browsing toggle flips;
-    // reloads so the navigation-policy path moves the page onto/off that client's ephemeral store (#55).
-    void privateBrowsingEnabledDidChange();
-
     RefPtr<API::Navigation> goForward();
     RefPtr<API::Navigation> goBack();
 

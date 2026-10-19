@@ -71,15 +71,10 @@ public:
     // puts each page on a shared ephemeral WebsiteDataStore. (#55)
     void setPrivateBrowsingEnabled(bool);
     bool privateBrowsingEnabled() const { return m_privateBrowsingEnabled; }
-    // The ephemeral session every page under these preferences shares while Private Browsing is on. It hangs
-    // off the preferences object because each client owns its own: Safari's windows share one, and a second
-    // client of the same C SPI -- QuickLook's Web2.qldisplay asks for private previews -- gets its own rather
-    // than resetting Safari's live session out from under it.
+    // The ephemeral session every page under these preferences shares while Private Browsing is on.
     WebsiteDataStore& privateBrowsingDataStore();
-    // The same session without creating one, and still answering while a retired session is being vacated,
-    // so the navigation-policy path can recognise a page that is still on it. A page can only already be on
-    // a session that exists, so this is what that path asks before reaching for the creating accessor above.
-    WebsiteDataStore* privateBrowsingDataStoreIfExists() const;
+    // Recognises a page on any of this client's private sessions without creating one.
+    bool isPrivateBrowsingDataStore(const WebsiteDataStore&) const;
 
     const WebPreferencesStore& store() const LIFETIME_BOUND { return m_store; }
 
@@ -166,11 +161,11 @@ private:
 
     WeakHashSet<WebPageProxy> m_pages;
     bool m_privateBrowsingEnabled { false }; // AQUAWEBKIT: see setPrivateBrowsingEnabled (#55).
-    // AQUAWEBKIT: see privateBrowsingDataStore (#55). The RefPtr owns the session while Private
-    // Browsing is on; leaving drops it there and then, and the WeakPtr keeps naming it only for as long as
-    // pages are still being moved off, so the session dies with the last of them rather than lingering.
+    // AQUAWEBKIT: see privateBrowsingDataStore (#55). The RefPtr owns the session while Private Browsing
+    // is on. The set names every private session of this client that a page still holds; each dies with
+    // the last page on it.
     RefPtr<WebsiteDataStore> m_privateBrowsingDataStore;
-    WeakPtr<WebsiteDataStore> m_retiringPrivateBrowsingDataStore;
+    WeakHashSet<WebsiteDataStore> m_privateBrowsingDataStores;
     unsigned m_updateBatchCount { 0 };
     bool m_needUpdateAfterBatch { false };
 
