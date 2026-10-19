@@ -97,10 +97,10 @@
 +  GST_DEBUG_OBJECT (urisrc, "parsebin cannot take %" GST_PTR_FORMAT
 +      ", resetting it to reconfigure for the new stream format", caps);
 +
-+  GST_STATE_LOCK (urisrc);
++  GST_STATE_LOCK (info->demuxer);
 +  gst_element_set_state (info->demuxer, GST_STATE_NULL);
 +  gst_element_sync_state_with_parent (info->demuxer);
-+  GST_STATE_UNLOCK (urisrc);
++  GST_STATE_UNLOCK (info->demuxer);
 +
 +  return GST_PAD_PROBE_OK;
 +}

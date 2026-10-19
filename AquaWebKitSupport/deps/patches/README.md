@@ -179,7 +179,18 @@ A stream whose media type changes mid-play stops at the change. The case that re
 
 decodebin3 already answers this for the parsebin *it* owns: on a caps event its chain does not accept, `gst_decodebin_input_reset_parsebin()` sets that parsebin to `GST_STATE_NULL` and syncs it back, and it re-autoplugs from the new caps — here, plugging a CENC decryptor ahead of the parser. urisourcebin owns a parsebin too, and `uridecodebin3` sets `parse-streams=TRUE` on it unconditionally, so in a playbin3 pipeline (which WebKit uses for every MSE player) the parsing happens in urisourcebin and decodebin3's own input is the `identity` passthrough. Nothing resets urisourcebin's parsebin, so the reconfiguration decodebin3 assumes exists never runs.
 
-The patch gives urisourcebin the same reset, driven from the pad feeding parsebin rather than from parsebin's own sink: the reset deactivates that sink pad, so a probe holding its stream lock would deadlock, which is also why decodebin3 performs the reset from its ghost sink. parsebin answers accept-caps from its current chain (`gst_parse_chain_accept_caps`), and with no chain built yet the query falls through to the pad template and accepts, so the first caps of a stream never trigger a reset.
+The patch gives urisourcebin the same reset, driven from the pad feeding parsebin rather than from parsebin's own sink: the reset deactivates that sink pad, so a probe holding its stream lock would deadlock, which is also why decodebin3 performs the reset from its ghost sink. parsebin answers accept-caps from its current chain (`gst_parse_chain_accept_caps`), and with no chain built yet the query falls through to the pad template and accepts, so the first caps of a stream never trigger a reset. The reset holds parsebin's own state lock, so a parent state change that reaches parsebin waits for it to finish; it takes no lock a downward state change holds while it stops the feeding element's task.
+
+## gst-plugins-base-urisourcebin-parsebin-state-lock.patch
+
+**Target:** `gst-plugins-base-1.28.7`, `gst/playback/gsturisourcebin.c`
+**Applied to:** libgstplayback (urisourcebin)
+
+`setup_parsebin_for_slot()` runs from typefind's `have-type` signal. In pull mode the signal comes from `gst_type_find_element_loop()`, so the callback owns typefind's sink-pad stream lock, and its `gst_element_sync_state_with_parent()` on the new parsebin waits for parsebin's state lock. `gst_bin_element_set_state()` takes a child's state lock before it checks the child's locked flag, so a concurrent parent transition can hold parsebin's state lock, activate typefind's source pad in pull mode, and wait in `gst_pad_pause_task()` for that stream lock.
+
+The patch takes parsebin's state lock before clearing its locked flag and releases it after the sync, so a parent transition either finds parsebin still locked and skips it, or waits until the sync has finished. The lock is recursive and `gst_element_sync_state_with_parent()` already takes it at this point, so the lock order is upstream's. urisourcebin's own state lock is not taken from the streaming thread, so teardown, which joins typefind's task while holding it, is unaffected.
+
+This is upstream issue #4472. GStreamer 1.28.8 and `main` (fetched 2026-10-19) carry the same code; the open upstream MR !10539 instead takes urisourcebin's state lock in the callback, which deadlocks against a downward state change that holds it while stopping typefind's task.
 
 ## gst-plugins-base-audiodecoder-reset-subframe-samples.patch
 

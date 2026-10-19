@@ -1452,6 +1452,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" ) \
       || { echo "gst-plugins-base urisourcebin parsebin-reset patch failed to apply"; exit 1; }
+    # urisourcebin: sync parsebin under its own state lock. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-urisourcebin-parsebin-state-lock.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-urisourcebin-parsebin-state-lock.patch" ) \
+      || { echo "gst-plugins-base urisourcebin parsebin state-lock patch failed to apply"; exit 1; }
     # audiodecoder: a reset forgets the subframe samples of the frames it drops. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" ) \
