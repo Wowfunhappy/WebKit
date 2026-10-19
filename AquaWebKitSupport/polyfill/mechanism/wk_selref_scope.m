@@ -740,32 +740,37 @@ static void wk_register_side(Class side, int intent)
 // Installs one side's bodies on one target class (the metaclass, for class methods). Idempotent:
 // class_addMethod is a no-op once the wk_ method exists, and re-replacing with the same IMP changes
 // nothing. An ADD uses class_addMethod because the alias pass may already have bound the wk_ name on a
-// class that has the real method — which an ADD target is not, so the body lands. A REPLACE uses class_replaceMethod so the body wins over an alias in either order.
-static void wk_install_side(Class side, Class target, int intent)
+// class that has the real method — which an ADD target is not, so the body lands. A REPLACE uses
+// class_replaceMethod so the body wins over an alias in either order. Returns whether a body landed.
+static bool wk_install_side(Class side, Class target, int intent)
 {
     unsigned int n = 0;
     Method *methods = class_copyMethodList(side, &n);
+    bool installed = false;
     for (unsigned int i = 0; i < n; i++) {
         SEL priv = wk_private_selector(method_getName(methods[i]));
         IMP imp = method_getImplementation(methods[i]);
         const char *types = method_getTypeEncoding(methods[i]);
         if (intent == WK_METHODS_REPLACE)
-            class_replaceMethod(target, priv, imp, types);
+            installed |= class_replaceMethod(target, priv, imp, types) != imp;
         else
-            class_addMethod(target, priv, imp, types);
+            installed |= class_addMethod(target, priv, imp, types);
     }
     free(methods);
     // Invalidates the wk_original_of memo: the targets' chains answer differently now.
-    __atomic_fetch_add(&wk_install_generation, 1, __ATOMIC_RELEASE);
+    if (installed)
+        __atomic_fetch_add(&wk_install_generation, 1, __ATOMIC_RELEASE);
+    return installed;
 }
 
-// YES once every target class exists — the bodies are now installed on all of them.
+// YES once every target class exists — the bodies are now installed on all of them. Sets *installed
+// when a body landed on a target that lacked it.
 //
 // The metaclass is reached through the class object (object_getClass), NOT objc_getMetaClass: 10.9's
 // objc_getMetaClass prints "class `X' not linked into application" on every miss, and a deferred block
 // for a lazily-loaded framework's class polls this on every image event until the class arrives —
 // hundreds of stderr lines per process launch. objc_getClass misses silently.
-static BOOL wk_install_entry(const struct wk_methods_entry *e)
+static BOOL wk_install_entry(const struct wk_methods_entry *e, bool *installed)
 {
     Class placeholder = wk_placeholder_class(e);
     BOOL complete = YES;
@@ -775,8 +780,8 @@ static BOOL wk_install_entry(const struct wk_methods_entry *e)
             complete = NO;
             continue;
         }
-        wk_install_side(placeholder, target, e->intent);
-        wk_install_side(object_getClass(placeholder), object_getClass(target), e->intent);
+        *installed |= wk_install_side(placeholder, target, e->intent);
+        *installed |= wk_install_side(object_getClass(placeholder), object_getClass(target), e->intent);
     }
     return complete;
 }
@@ -791,15 +796,17 @@ static const struct wk_methods_entry *wk_deferred[WK_MAX_BLOCKS];
 static int wk_deferred_count;
 
 // Retries the blocks still waiting for a class; the list drains as the classes appear and is empty in
-// the common case, so an image load costs nothing extra once everything is installed. Caller holds
-// wk_reg_lock.
-static void wk_install_deferred(void)
+// the common case, so an image load costs nothing extra once everything is installed. Returns whether
+// a body landed. Caller holds wk_reg_lock.
+static bool wk_install_deferred(void)
 {
+    bool installed = false;
     int keep = 0;
     for (int i = 0; i < wk_deferred_count; i++)
-        if (!wk_install_entry(wk_deferred[i]))
+        if (!wk_install_entry(wk_deferred[i], &installed))
             wk_deferred[keep++] = wk_deferred[i];
     wk_deferred_count = keep;
+    return installed;
 }
 
 // Images whose blocks have been collected: the constructor scans the launch batch, and an image that
@@ -807,6 +814,55 @@ static void wk_install_deferred(void)
 enum { WK_MAX_BLOCK_IMAGES = 8 };
 static const struct mach_header *wk_collected[WK_MAX_BLOCK_IMAGES];
 static int wk_collected_count;
+
+// The images listed when the constructor runs, sorted by header address. The constructor's sweep aliases
+// every one of them for each entry registered by then, and every later wk_collect aliases every loaded
+// image for the entries it adds, so such an image's own dependents_initialized notification has nothing
+// left to alias unless that callback installed a body. An unloaded image leaves the set, since a later
+// image can be mapped at its address. Guarded by wk_reg_lock.
+static const struct mach_header **wk_launch_images;
+static uint32_t wk_launch_image_count;
+
+static int wk_compare_headers(const void *a, const void *b)
+{
+    uintptr_t x = (uintptr_t)*(const struct mach_header *const *)a;
+    uintptr_t y = (uintptr_t)*(const struct mach_header *const *)b;
+    return x < y ? -1 : x > y;
+}
+
+static void wk_note_launch_images(void)
+{
+    uint32_t c = _dyld_image_count();
+    wk_launch_images = malloc(c * sizeof(*wk_launch_images));
+    if (!wk_launch_images)
+        abort();
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < c; i++) {
+        const struct mach_header *mh = _dyld_get_image_header(i);
+        if (mh)
+            wk_launch_images[n++] = mh;
+    }
+    qsort(wk_launch_images, n, sizeof(*wk_launch_images), wk_compare_headers);
+    wk_launch_image_count = n;
+}
+
+static const struct mach_header **wk_find_launch_image(const struct mach_header *mh)
+{
+    return bsearch(&mh, wk_launch_images, wk_launch_image_count, sizeof(*wk_launch_images),
+                   wk_compare_headers);
+}
+
+static void wk_remove_image(const struct mach_header *mh, intptr_t slide)
+{
+    (void)slide;
+    pthread_mutex_lock(&wk_reg_lock);
+    const struct mach_header **entry = wk_find_launch_image(mh);
+    if (entry) {
+        memmove(entry, entry + 1, (wk_launch_images + wk_launch_image_count - (entry + 1)) * sizeof(*entry));
+        wk_launch_image_count--;
+    }
+    pthread_mutex_unlock(&wk_reg_lock);
+}
 
 static void wk_patch(const struct mach_header *mh);
 static void wk_patch_loaded_images(void)
@@ -852,7 +908,8 @@ static int wk_collect(const struct mach_header *mh)
     // Bodies first, then the alias sweep: the sweep's chain test (wk_alias_class) has to see a REPLACE
     // body on its target before it looks at the target's subclasses.
     for (int i = 0; i < n; i++) {
-        if (wk_install_entry(&e[i]))
+        bool installed = false;
+        if (wk_install_entry(&e[i], &installed))
             continue;
         if (wk_deferred_count >= WK_MAX_BLOCKS)
             wk_registry_full("polyfill blocks are waiting for a class to load", WK_MAX_BLOCKS,
@@ -941,9 +998,11 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
         // above) — and when the dlopen'ing call stack goes on to send the rewritten selector immediately
         // (PAL soft-link then send, WebViewImpl.mm:3703), there is no later image load to rescue it and
         // the send dies on the uninstalled wk_ method. The drain runs before the alias sweep so the sweep
-        // sees a REPLACE body on its target before it looks at the target's subclasses.
-        wk_install_deferred();
-        wk_alias_image(info[i].imageLoadAddress, 0, swept < 0 ? wk_count : swept);
+        // sees a REPLACE body on its target before it looks at the target's subclasses. A launch image
+        // is swept only when the drain installed a body (see wk_launch_images).
+        bool installed = wk_install_deferred();
+        if (installed || !wk_find_launch_image(info[i].imageLoadAddress))
+            wk_alias_image(info[i].imageLoadAddress, 0, swept < 0 ? wk_count : swept);
         pthread_mutex_unlock(&wk_reg_lock);
     }
     return NULL;
@@ -989,6 +1048,10 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
     // dispatches each image whose initializers are running, this one among them; the loop below covers
     // every other loaded image.
     uint64_t t0 = mach_absolute_time();
+    pthread_mutex_lock(&wk_reg_lock);
+    wk_note_launch_images();
+    pthread_mutex_unlock(&wk_reg_lock);
+    _dyld_register_func_for_remove_image(wk_remove_image);
     wk_watch_for_images();
     uint32_t c = _dyld_image_count();
     // Registers and installs every block, aliases each newly registered selector across every image
