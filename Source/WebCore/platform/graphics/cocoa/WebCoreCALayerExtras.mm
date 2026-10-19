@@ -204,21 +204,6 @@ void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CA
 Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CALayer*, CGPoint)> layerEventRegionContainsPoint, std::function<std::optional<ScrollingNodeID>(CALayer*)> scrollingNodeIDForLayer, CALayer* layer, const FloatPoint& point, bool& hasAnyNonInteractiveScrollingLayers)
 {
     Vector<LayerAndPoint, 16> layersAtPoint;
-    // AQUAWEBKIT: own the transaction this traversal begins on a thread without a run loop.
-    // -[CALayer presentationLayer] (read below for animating layers) is the one CALayer accessor that
-    // lazily begins an implicit CATransaction, and 10.9's CA commits a thread's implicit transaction from
-    // an observer it installs on that thread's run loop. This hit-test runs on the EventDispatcher thread,
-    // a WorkQueue worker with no run loop (CFRunLoopCopyCurrentMode() is NULL), where CA logs a
-    // transaction left open as "deleted thread with uncommitted CATransaction". There the whole traversal
-    // runs inside an explicit transaction, which keeps every presentation snapshot attached (a commit
-    // between reads detaches them, and -convertPoint:fromLayer: then returns unconverted points) and ends
-    // at a point this code controls. On a thread that runs a run loop, such as the UI-process main thread
-    // (RemoteScrollingCoordinatorProxy::handleWheelEvent -> RemoteScrollingTreeMac::scrollingNodeForPoint
-    // inside AppKit event handling), ending the transaction is CA's observer's job.
-    RetainPtr<CFStringRef> runLoopMode = adoptCF(CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent()));
-    bool ownTransaction = !runLoopMode;
-    if (ownTransaction)
-        [CATransaction begin];
     collectDescendantLayersAtPoint(layersAtPoint, layer, point, [&] (auto layer, auto point) {
         if (layerEventRegionContainsPoint(layer, point))
             return true;
@@ -228,10 +213,6 @@ Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CA
         }
         return false;
     });
-    // AQUAWEBKIT: closes the transaction opened above, ending it on this thread rather than
-    // leaving it for a run-loop observer that a WorkQueue worker never reaches.
-    if (ownTransaction)
-        [CATransaction commit];
     // Hit-test front to back.
     layersAtPoint.reverse();
     return layersAtPoint;
