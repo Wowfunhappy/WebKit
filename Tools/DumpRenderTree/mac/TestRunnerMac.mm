@@ -347,7 +347,9 @@ void TestRunner::queueLoad(JSStringRef url, JSStringRef target)
     RetainPtr<CFStringRef> urlCF = adoptCF(JSStringCopyCFString(kCFAllocatorDefault, url));
     NSString *urlNS = (__bridge NSString *)urlCF.get();
 
-    // Resolve queued navigations with the same URL parser as WebKitTestRunner.
+    // NSURL *nsurl = [NSURL URLWithString:urlNS relativeToURL:[[[mainFrame dataSource] response] URL]];
+    // NSString *nsurlString = [nsurl absoluteString];
+    // AQUAWEBKIT: Resolve queued navigations with the same URL parser as WebKitTestRunner.
     auto nsurl = WTF::URL { WTF::URL { [[[mainFrame dataSource] response] URL] }, WTF::String { urlNS } }.createNSURL();
     NSString *nsurlString = [nsurl.get() absoluteString];
 
@@ -1225,8 +1227,8 @@ static bool isSecureEventInputEnabledInFrame(WebFrame *frame)
 
 bool TestRunner::isSecureEventInputEnabled() const
 {
-    // Each WebHTMLView owns its frame's secure-input state.
     // return dynamic_objc_cast<WebHTMLView>(mainFrame.frameView.documentView)._secureEventInputEnabledForTesting;
+    // AQUAWEBKIT: Each WebHTMLView owns its frame's secure-input state, including child frames.
     return isSecureEventInputEnabledInFrame(mainFrame);
 }
 
