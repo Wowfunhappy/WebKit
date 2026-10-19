@@ -153,26 +153,18 @@ void WebPreferences::update()
         page->preferencesDidChange();
 }
 
-// AQUAWEBKIT: Safari 7's global Private Browsing toggle. Each page is moved between the default
-// store and this client's ephemeral one and reloaded, which makes the toggle take effect on pages already
-// open (#55).
+// AQUAWEBKIT: Safari 7's global Private Browsing toggle. Each page's next navigation moves it between
+// the default store and this client's ephemeral one (#55).
 void WebPreferences::setPrivateBrowsingEnabled(bool enabled)
 {
     if (m_privateBrowsingEnabled == enabled)
         return;
     m_privateBrowsingEnabled = enabled;
 
-    for (Ref page : m_pages)
-        page->privateBrowsingEnabledDidChange();
-
-    // Leaving Private Browsing gives up ownership of this client's session here. The reloads above are
-    // still in flight, so it is named weakly until the last page moves off, at which point it dies. Only
-    // this client's session is released, so another client's live one is untouched, and entering always
-    // starts a new session. The early return above means this runs only on a real change.
-    if (!enabled) {
-        m_retiringPrivateBrowsingDataStore = m_privateBrowsingDataStore.get();
+    // Leaving Private Browsing gives up this client's ownership of its session. Pages still on it keep it
+    // alive until they navigate off, and entering again always starts a new session.
+    if (!enabled)
         m_privateBrowsingDataStore = nullptr;
-    }
 }
 
 // AQUAWEBKIT: the ephemeral session this client's private-browsing pages share, created on first
@@ -185,18 +177,16 @@ WebsiteDataStore& WebPreferences::privateBrowsingDataStore()
         // tracking state the client chose; a session created after that choice starts from it.
         if (WebsiteDataStore::defaultDataStoreExists())
             m_privateBrowsingDataStore->setTrackingPreventionEnabled(WebsiteDataStore::defaultDataStore().trackingPreventionEnabled());
-        m_retiringPrivateBrowsingDataStore = nullptr;
+        m_privateBrowsingDataStores.add(*m_privateBrowsingDataStore);
     }
     return *m_privateBrowsingDataStore;
 }
 
-// AQUAWEBKIT: names the session a page could already be on -- the live one, or one being vacated
-// after Private Browsing was turned off -- without bringing either into existence (#55).
-WebsiteDataStore* WebPreferences::privateBrowsingDataStoreIfExists() const
+// AQUAWEBKIT: whether a page's store is one of this client's private sessions, current or one a page
+// still holds from an earlier Private Browsing interval (#55).
+bool WebPreferences::isPrivateBrowsingDataStore(const WebsiteDataStore& websiteDataStore) const
 {
-    if (m_privateBrowsingDataStore)
-        return m_privateBrowsingDataStore.get();
-    return m_retiringPrivateBrowsingDataStore.get();
+    return m_privateBrowsingDataStores.contains(websiteDataStore);
 }
 
 void WebPreferences::startBatchingUpdates()
