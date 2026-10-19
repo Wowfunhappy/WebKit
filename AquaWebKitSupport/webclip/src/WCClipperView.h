@@ -33,6 +33,8 @@
 - (WebScriptObject *)widgetScriptObject;
 
 - (void)showLoadingClipWithTheme:(int)themeID size:(NSSize)size;
+// The theme class that draws themeID; an unknown ID draws the default theme.
++ (Class)themeClassForID:(int)themeID;
 - (void)loadURLString:(NSString *)URLString clipRect:(NSRect)clipRect clipSignature:(NSDictionary *)clipSignature pageSize:(NSSize)pageSize displayLoadingText:(BOOL)displayLoadingText resizeWidget:(BOOL)resizeWidget;
 - (void)setTheme:(int)themeID;
 - (void)switchToThemeAtIndex:(unsigned)index;

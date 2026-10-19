@@ -21,7 +21,16 @@
      donePressed();
  }
  
-@@ -115,9 +115,14 @@
+@@ -98,6 +98,8 @@
+ {
+     setSelectedThemeOnBackside(themeOptionForThemeID(themeID), themeNameForThemeID(themeID));
+     webClip.switchToThemeAtIndex_(themeID);
++    // New clips inherit the widget-wide theme.
++    widget.setPreferenceForKey(themeID, "Theme");
+ }
+ 
+ function glassIcon_onclick(element)
+@@ -115,9 +117,14 @@
      switchTheme(WebClipTheme.WebClipPegboard);
  }
  
@@ -38,7 +47,7 @@
  }
  
  function vintageIcon_onclick(element)
-@@ -140,7 +145,7 @@
+@@ -140,7 +147,7 @@
  function resetThemeSelectionOnBackside()
  {    
      document.getElementById("blackEdgeOption").classList.remove("selected");
@@ -47,7 +56,7 @@
      document.getElementById("glassOption").classList.remove("selected");
      document.getElementById("tornEdgeOption").classList.remove("selected");
      document.getElementById("pegboardOption").classList.remove("selected");
-@@ -160,6 +165,9 @@
+@@ -160,6 +167,9 @@
      widget.setPreferenceForKey(webClip.fixedWidthFontSize(), createkey("FixedWidthFontSize"));
      widget.setPreferenceForKey(webClip.minimumFontSize(), createkey("MinimumFontSize"));
      widget.setPreferenceForKey(webClip.pageSizeString(), createkey("PageSize"));
@@ -57,7 +66,7 @@
      widget.setPreferenceForKey(webClip.standardFont(), createkey("StandardFont"));
      widget.setPreferenceForKey(webClip.standardFontSize(), createkey("StandardFontSize"));
      widget.setPreferenceForKey(webClip.textSizeMultiplier(), createkey("TextSizeMultiplier"));
-@@ -184,6 +192,9 @@
+@@ -184,6 +194,9 @@
  
  function onremove()
  {
@@ -67,7 +76,7 @@
      // Remove instance preferences when removed from Dashboard.
      widget.setPreferenceForKey(null, createkey("ClipRect"));
      widget.setPreferenceForKey(null, createkey("ClipSignature"));   
-@@ -194,6 +205,9 @@
+@@ -194,6 +207,9 @@
      widget.setPreferenceForKey(null, createkey("FixedWidthFontSize"));
      widget.setPreferenceForKey(null, createkey("MinimumFontSize"));
      widget.setPreferenceForKey(null, createkey("PageSize"));
@@ -77,7 +86,7 @@
      widget.setPreferenceForKey(null, createkey("PlayAudioOutOfDashboard"));
      widget.setPreferenceForKey(null, createkey("StandardFont"));
      widget.setPreferenceForKey(null, createkey("StandardFontSize"));
-@@ -219,8 +233,8 @@
+@@ -219,8 +235,8 @@
          case WebClipTheme.WebClipPegboard:
              themeName = getLocalizedString("Pegboard");
              break;
@@ -88,7 +97,7 @@
              break;
          case WebClipTheme.WebClipGlass:
              themeName = getLocalizedString("Glass");
-@@ -249,8 +263,8 @@
+@@ -249,8 +265,8 @@
          case WebClipTheme.WebClipPegboard:
              themeOption = document.getElementById("pegboardOption");
              break;
@@ -99,7 +108,7 @@
              break;
          case WebClipTheme.WebClipGlass:
              themeOption = document.getElementById("glassOption");
-@@ -275,12 +289,13 @@
+@@ -275,12 +291,13 @@
      setSelectedThemeOnBackside(themeOptionForThemeID(selectedThemeID), themeNameForThemeID(selectedThemeID));
      new AppleGlassButton(document.getElementById('done'), getLocalizedString('Done'), donePressed);
      new AppleGlassButton(document.getElementById('editPosition'), getLocalizedString('Edit'), panAndCropPressed);
@@ -114,7 +123,7 @@
      document.getElementById("glassThumbnail").onload = thumbnailDidLoad;
      document.getElementById("tornEdgeThumbnail").onload = thumbnailDidLoad;
      document.getElementById("vintageThumbnail").onload = thumbnailDidLoad;
-@@ -419,7 +434,7 @@
+@@ -419,7 +436,7 @@
  {
      var imageSource = "data:image/tiff;base64," + thumbnail;
      var blackEdge = document.getElementById("blackEdgeThumbnail");
@@ -123,7 +132,7 @@
      var glass = document.getElementById("glassThumbnail");
      var tornEdge = document.getElementById("tornEdgeThumbnail");
      var pegboard = document.getElementById("pegboardThumbnail");
-@@ -427,7 +442,7 @@
+@@ -427,7 +444,7 @@
      
      // To ensure onload events for thumbnails, nil-out the images.
      blackEdge.src = "";
@@ -132,7 +141,7 @@
      glass.src = "";
      pegboard.src = "";
      tornEdge.src = "";
-@@ -435,7 +450,7 @@
+@@ -435,7 +452,7 @@
      thumbnailLoadCount = 0;
  
      blackEdge.src = imageSource;
@@ -141,7 +150,7 @@
      glass.src = imageSource;
      pegboard.src = imageSource;
      tornEdge.src = "data:image/tiff;base64," + tornEdgeThumbnail;
-@@ -480,7 +495,15 @@
+@@ -480,7 +497,15 @@
          widget.resizeAndMoveTo(window.screenX + backXOffset, window.screenY + backYOffset, backsideWidth, backsideHeight);
      }
      
