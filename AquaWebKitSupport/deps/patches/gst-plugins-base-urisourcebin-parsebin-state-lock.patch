@@ -1,0 +1,27 @@
+# A playbin3 pipeline can hang forever in pull mode: setup_parsebin_for_slot() runs from typefind's
+# have-type callback, which owns typefind's sink-pad stream lock, and its
+# gst_element_sync_state_with_parent (parsebin) waits for parsebin's state lock. A concurrent parent
+# transition that takes parsebin's state lock (gst_bin_element_set_state takes the child's state lock
+# before it checks the child's locked flag) and then activates typefind waits in gst_pad_pause_task for
+# that stream lock. Upstream issue #4472.
+#
+# Holding parsebin's state lock while its locked flag is cleared and it is synced makes the two
+# atomic: a parent transition either finds parsebin still locked and skips it, or waits until the sync
+# is done. The state lock is recursive, so the nested set_state re-enters it, and upstream already takes
+# it at this point inside gst_element_sync_state_with_parent; no new lock order is introduced.
+#
+# Applied by build_deps with patch -p1 after
+# gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch.
+--- a/gst/playback/gsturisourcebin.c
++++ b/gst/playback/gsturisourcebin.c
+@@ -2246,8 +2246,10 @@
+     gst_element_sync_state_with_parent (info->pre_parse_queue);
+   }
+   /* `parsebin` can be synchronized */
++  GST_STATE_LOCK (info->demuxer);
+   gst_element_set_locked_state (info->demuxer, FALSE);
+   gst_element_sync_state_with_parent (info->demuxer);
++  GST_STATE_UNLOCK (info->demuxer);
+   GST_URI_SOURCE_BIN_UNLOCK (urisrc);
+   return TRUE;
+ 
