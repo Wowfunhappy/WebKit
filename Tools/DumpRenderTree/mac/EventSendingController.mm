@@ -248,6 +248,7 @@ static NSDraggingSession *drt_WebHTMLView_beginDraggingSessionWithItemsEventSour
             || aSelector == @selector(rawKeyDown:withModifiers:withLocation:)
             || aSelector == @selector(rawKeyUp:withModifiers:withLocation:)
             || aSelector == @selector(leapForward:)
+            || aSelector == @selector(asyncKeyDown:withModifiers:)
             || aSelector == @selector(asyncMouseDown:withModifiers:)
             || aSelector == @selector(asyncMouseMoveToX:Y:)
             || aSelector == @selector(asyncMouseUp:withModifiers:)
@@ -318,6 +319,8 @@ static NSDraggingSession *drt_WebHTMLView_beginDraggingSessionWithItemsEventSour
         return @"scheduleAsynchronousKeyDown";
     if (aSelector == @selector(leapForward:))
         return @"leapForward";
+    if (aSelector == @selector(asyncKeyDown:withModifiers:))
+        return @"asyncKeyDown";
     if (aSelector == @selector(asyncMouseDown:withModifiers:))
         return @"asyncMouseDown";
     if (aSelector == @selector(asyncMouseUp:withModifiers:))
@@ -604,6 +607,11 @@ static NSInteger swizzledEventButtonNumber()
     return lastButtonDown;
 }
 #endif
+
+- (void)asyncKeyDown:(NSString *)character withModifiers:(WebScriptObject *)modifiers
+{
+    [self keyDown:character withModifiers:modifiers withLocation:0];
+} // AQUAWEBKIT: Upstream testdriver send_keys uses asyncKeyDown; WK1 dispatches the same synchronous key event.
 
 - (void)asyncMouseDown:(int)buttonNumber withModifiers:(WebScriptObject*)modifiers
 {

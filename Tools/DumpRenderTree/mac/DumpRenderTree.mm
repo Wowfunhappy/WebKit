@@ -1915,7 +1915,10 @@ static WTR::TestOptions testOptionsForTest(const WTR::TestCommand& command)
     }
     WTR::TestFeatures features = WTR::TestOptions::defaults();
     WTR::merge(features, WTR::hardcodedFeaturesBasedOnPathForTest(command));
+    // AQUAWEBKIT: Match WebKitTestRunner's parsing of self-comparison and additional test headers.
+    WTR::merge(features, WTR::featureDefaultsFromSelfComparisonHeader(command, WTR::TestOptions::keyTypeMapping()));
     WTR::merge(features, WTR::featureDefaultsFromTestHeaderForTest(command, WTR::TestOptions::keyTypeMapping()));
+    WTR::merge(features, WTR::featureFromAdditionalHeaderOption(command, WTR::TestOptions::keyTypeMapping()));
 
     return WTR::TestOptions { WTF::move(features) };
 }
