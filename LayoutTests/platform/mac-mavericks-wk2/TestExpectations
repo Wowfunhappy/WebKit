@@ -14,6 +14,9 @@ fast/scrolling/mac/momentum-then-programmatic-missing-tiles.html [ Skip ]
 fast/scrolling/mac/scrollbars/select-overlay-scrollbar-hovered.html [ Skip ]
 fast/scrolling/mac/scrollbars/svg-foreign-object-overlay-scrollbar-hovered.html [ Skip ]
 
+# Synchronous EventSender gestures race asynchronous StartDrag/DragEnded IPC.
+webkit.org/b/311928 fast/css/user-drag-none.html [ Skip ]
+
 
 # Transferred tracks can miss source settings changes during observer registration,
 # leaving their dimensions empty (upstream fix c7f5f3f, after this fork).
@@ -395,50 +398,6 @@ imported/w3c/web-platform-tests/webrtc/legacy/munge-dont.html [ Pass ]
 
 # --- Graphics: 10.9 system behaviour ------------------------------------------------------------
 
-# Native backgroundFilters sample only up to the nearest CALayer, so clips, clip-path, masks and reflections
-# between a backdrop and its backdrop root bound the sample. Every test that passes, and that upstream does not
-# record as flaky, is listed [ Pass ].
-css3/filters/backdrop [ Skip ]
-css3/filters/backdrop/native-background-filter.html [ Pass ]
-css3/filters/backdrop/native-background-filter-dynamic.html [ Pass ]
-css3/filters/backdrop/native-background-blur.html [ Pass ]
-css3/filters/backdrop/native-background-animation.html [ Pass ]
-css3/filters/backdrop/native-background-opacity.html [ Pass ]
-css3/filters/backdrop/native-background-opacity-change.html [ Pass ]
-css3/filters/backdrop/native-background-opacity-coverage.html [ Pass ]
-css3/filters/backdrop/native-background-opacity-host-change.html [ Pass ]
-css3/filters/backdrop/native-background-transformed-ancestor.html [ Pass ]
-css3/filters/backdrop/native-background-sampling-perspective.html [ Pass ]
-css3/filters/backdrop/native-background-sampling-perspective-change.html [ Pass ]
-css3/filters/backdrop/native-background-sampling-preserve-3d.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-nested.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-backface-visibility.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-composited-blend-mode.html [ Pass ]
-css3/filters/backdrop/add-remove-add-backdrop-filter.html [ Pass ]
-css3/filters/backdrop/animation.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-does-not-size-properly-absolute.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-does-not-size-properly-border-and-padding.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-border-radius-and-reflection-remove.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-border-radius-value-remove.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-cliprect.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-mask.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-reflection-remove-backdrop.html [ Pass ]
-css3/filters/backdrop/backdrop-with-visibility-hidden.html [ Pass ]
-css3/filters/backdrop/backdrop-with-visibility-hidden-2.html [ Pass ]
-css3/filters/backdrop/backdrop-with-visibility-hidden-changing.html [ Pass ]
-css3/filters/backdrop/blur-input-bounds.html [ Pass ]
-css3/filters/backdrop/dynamic-with-clip-path.html [ Pass ]
-css3/filters/backdrop/effect-hw.html [ Pass ]
-css3/filters/backdrop/backdropfilter-property-computed-style.html [ Pass ]
-css3/filters/backdrop/backdropfilter-property-parsing-invalid.html [ Pass ]
-css3/filters/backdrop/backdropfilter-property-parsing.html [ Pass ]
-css3/filters/backdrop/backdropfilter-property.html [ Pass ]
-css3/filters/backdrop/resource-use-add-more-layers.html [ Pass ]
-css3/filters/backdrop/resource-use-change-size-from-zero.html [ Pass ]
-css3/filters/backdrop/resource-use-excessive.html [ Pass ]
-css3/filters/backdrop/resource-use-ok.html [ Pass ]
-css3/filters/backdrop/resource-use-remove-some-layers.html [ Pass ]
-
 # Maintainer scope decision 2026-09-15: pixel near misses. The Display P3 ImageData red channel is 2 vs 3;
 # imagesmoothing's three inherited failing subtests report 177,77,0 vs 178,77,0.
 fast/canvas/canvas-color-space-display-p3-ImageData.html [ Skip ]
@@ -660,9 +619,85 @@ editing/spelling/grammar-correction-shown-clicking-multiword-phrase.html [ Skip 
 # sets a value; with Tahoe's metrics the centre misses the day field.
 fast/forms/date/date-editable-components/date-editable-components-component-set-updates-color.html [ Skip ]
 
+# The fixture's clipped, 50x-scaled editable element includes Mavericks' native focus ring;
+# its reference contains only a solid green rectangle.
+css3/color-filters/color-filter-caret-color.html [ ImageOnlyFailure ]
+
+# 10.9 Core Animation's backgroundFilters output does not contribute to a layer shadow, while the mask or
+# masksToBounds needed to shape that output also clips a shadow generated from the layer's own content.
+imported/w3c/web-platform-tests/css/filter-effects/drop-shadow-currentcolor-dynamic-003.html [ ImageOnlyFailure ]
+
+# The reference approximates the easing extremum; Mavericks exceeds its fuzzy pixel-count allowance.
+imported/w3c/web-platform-tests/css/css-masking/clip-path/animations/clip-path-animation-custom-timing-function.html [ ImageOnlyFailure ]
+
+# Equivalent perspective function/property paths differ by one level at three edge pixels.
+imported/w3c/web-platform-tests/css/css-transforms/transform3d-perspective-001.html [ ImageOnlyFailure ]
+
+# Text-mask composition differs from direct glyph filling by one level, exceeding the fuzzy pixel-count allowance.
+imported/w3c/web-platform-tests/css/css-backgrounds/background-clip/clip-text-multiline-background-image.html [ ImageOnlyFailure ]
+
+# Marker viewport clipping and the reference's explicit clip paths rasterize fractional boundaries differently.
+imported/w3c/web-platform-tests/svg/painting/marker-005.svg [ ImageOnlyFailure ]
+
 # The blend regions match their references exactly. Sixteen pixels in the identical explanatory
 # paragraph differ by one grayscale level, exceeding the fixtures' ten-pixel fuzzy allowance.
 imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-canvas-parent.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-canvas-sibling.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-iframe-parent.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-iframe-sibling.html [ ImageOnlyFailure ]
+
+# Maintainer scope decision 2026-10-18: 10.9 Core Animation's asynchronous tile rasterizer differs from synchronous
+# drawing in edge coverage. These pass when AcceleratedDrawingEnabled=false.
+# Circle rims only: maxDifference=77 over 4,581 pixels.
+css3/masking/mask-repeat-space-content.html [ ImageOnlyFailure ]
+# Circle rims only: maxDifference=96 over 12,725 pixels.
+css3/masking/mask-repeat-space-padding.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/background-clip/clip-border-area-rounded.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/background-repeat/background-repeat-round-roundup.xht [ ImageOnlyFailure ]
+# Diagonal image and glyph edges only: maxDifference=57 over 7,551 pixels.
+imported/w3c/web-platform-tests/css/css-backgrounds/background-size-025.html [ ImageOnlyFailure ]
+# Diagonal image and glyph edges only: maxDifference=97 over 5,166 pixels.
+imported/w3c/web-platform-tests/css/css-backgrounds/background-size-027.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/background-size-028.html [ ImageOnlyFailure ]
+# Diagonal image and glyph edges only: maxDifference=92 over 5,544 pixels.
+imported/w3c/web-platform-tests/css/css-backgrounds/background-size-029.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/background-size-030.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/background-size-031.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/background-size/background-size-contain.xht [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/border-image-007.html [ ImageOnlyFailure ]
+# Rounded ring edges only: maxDifference=76 over 6,828 pixels.
+imported/w3c/web-platform-tests/css/css-backgrounds/border-radius-clipping-with-transform-001.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-backgrounds/box-shadow-border-radius-001.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-ellipse-001.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-ellipse-002.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-ellipse-004.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-ellipse-005.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-ellipse-006.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-ellipse-007.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-ellipse-008.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-paddingBox-1e.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-rect-003.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-text-decor/text-shadow/svg-fill-none.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-text-decor/text-shadow/svg-stroke-dasharray.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/group/svg-transform-nested-008.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/rotate/svg-rotate-angle-45-001.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/rotate/svg-rotate-angle-45-011.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/rotate/svg-rotate-angle-45-022.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/skewX/svg-skewxy-001.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/skewY/svg-skewy-001.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/skewY/svg-skewy-006.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/skewY/svg-skewy-011.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/skewY/svg-skewy-016.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/skewY/svg-skewy-021.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-transforms/ttwf-transform-skewx-001.html [ ImageOnlyFailure ]
+svg/animations/animateMotion-accumulate-1a.svg [ ImageOnlyFailure ]
+svg/animations/animateMotion-accumulate-1b.svg [ ImageOnlyFailure ]
+svg/animations/animateMotion-accumulate-1c.svg [ ImageOnlyFailure ]
+svg/animations/animateMotion-accumulate-2a.svg [ ImageOnlyFailure ]
+svg/animations/animateMotion-accumulate-2b.svg [ ImageOnlyFailure ]
+svg/dom-paint-order/deep-nesting-with-transforms.html [ ImageOnlyFailure ]
+
+# 10.9 Core Animation blends a background filter through a rounded shape mask as dst * (255 - m) >> 8 inside the mask's
+# bounding box, so pixels the shape leaves uncovered there come out one level darker: 717 pixels with WebKitTestRunner
+# against the test's allowance of 710 (696 with DumpRenderTree).
+css3/filters/backdrop/backdrop-filter-uneven-corner-radii.html [ ImageOnlyFailure ]
