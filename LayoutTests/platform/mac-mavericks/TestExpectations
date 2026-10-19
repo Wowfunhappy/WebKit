@@ -38,12 +38,10 @@ http/tests/site-isolation/inspector [ Skip ]
 http/tests/websocket/tests/hybi/inspector [ Skip ]
 
 # Upstream rendering, layout, DOM and JavaScript suites, outside this suite's scope by maintainer decision.
-animations [ Skip ]
 applicationmanifest [ Skip ]
 css-typedom [ Skip ]
 css1 [ Skip ]
 css2.1 [ Skip ]
-css3 [ Skip ]
 cssom [ Skip ]
 displaylists [ Skip ]
 dom [ Skip ]
@@ -63,21 +61,77 @@ pointerevents [ Skip ]
 requestidlecallback [ Skip ]
 resize-observer [ Skip ]
 streams [ Skip ]
-svg [ Skip ]
 tables [ Skip ]
-transforms [ Skip ]
-transitions [ Skip ]
 traversal [ Skip ]
 userscripts [ Skip ]
-wasm [ Skip ]
-webanimations [ Skip ]
 webexposed [ Skip ]
 wktr [ Skip ]
+
+# css3/ runs only its filters, blending, colour filters and masking, which draw through this port's Core Animation
+# and Core Graphics; its other entries are skipped with the suites above.
+css3/autoclose-braces-and-parentheses.html [ Skip ]
+css3/background [ Skip ]
+css3/bdi-element.html [ Skip ]
+css3/calc [ Skip ]
+css3/calculated-word-spacing.html [ Skip ]
+css3/color [ Skip ]
+css3/css-supports-document-parser-context.html [ Skip ]
+css3/css-variable-definition.html [ Skip ]
+css3/escape-dom-api.html [ Skip ]
+css3/flexbox [ Skip ]
+css3/font-feature-font-face-local.html [ Skip ]
+css3/font-feature-settings-calc.html [ Skip ]
+css3/font-feature-settings-font-face-rendering.html [ Skip ]
+css3/font-feature-settings-parsing.html [ Skip ]
+css3/font-feature-settings-stylistic-set.html [ Skip ]
+css3/font-synthesis-small-caps.html [ Skip ]
+css3/font-variant-all.html [ Skip ]
+css3/font-variant-font-face-override.html [ Skip ]
+css3/font-variant-parsing.html [ Skip ]
+css3/font-variant-petite-caps-synthesis.html [ Skip ]
+css3/font-variant-small-caps-synthesis.html [ Skip ]
+css3/font-weight-multiple-selectors.html [ Skip ]
+css3/font-weight.html [ Skip ]
+css3/images [ Skip ]
+css3/infinite-word-spacing.html [ Skip ]
+css3/khtml-background-size-0x0-bmp.html [ Skip ]
+css3/out-of-memory-in-css-tokenizer.html [ Skip ]
+css3/overwrite-content-alignment.html [ Skip ]
+css3/overwrite-self-alignment.html [ Skip ]
+css3/parse-align-content.html [ Skip ]
+css3/parse-align-items.html [ Skip ]
+css3/parse-align-self.html [ Skip ]
+css3/parse-alignment-of-root-elements.html [ Skip ]
+css3/parse-justify-content.html [ Skip ]
+css3/parse-place-content.html [ Skip ]
+css3/parse-place-items.html [ Skip ]
+css3/parse-place-self.html [ Skip ]
+css3/parsing-css3-nthchild.html [ Skip ]
+css3/scroll-snap [ Skip ]
+css3/short-hand-var-serialization.html [ Skip ]
+css3/style-zoomed-image.html [ Skip ]
+css3/supports-crash.html [ Skip ]
+css3/supports-cssom.html [ Skip ]
+css3/supports-dom-api.html [ Skip ]
+css3/supports-not-selector-cssom.html [ Skip ]
+css3/supports-not-selector.html [ Skip ]
+css3/supports.html [ Skip ]
+css3/text-decoration [ Skip ]
+css3/touch-action [ Skip ]
+css3/unicode-bidi-float-crash.html [ Skip ]
+css3/unicode-bidi-insolate-parse.html [ Skip ]
+css3/unicode-bidi-isolate-aharon-failing.html [ Skip ]
+css3/unicode-bidi-isolate-aharon.html [ Skip ]
+css3/unicode-bidi-isolate-basic.html [ Skip ]
+css3/viewport-percentage-lengths [ Skip ]
+css3/zoom-coords.xhtml [ Skip ]
 
 # The same scope decision covers imported/, except the suites for this port's own code: cookies, networking and
 # loading, navigation and history, referrer policy, content security policy, Web Audio and media capture, media
 # playback, WebRTC, WebCrypto, storage and files, workers, notifications and push, browsing context isolation,
-# canvas and images, text encoding, and text and fonts. Those run, as does fast/; the rest is skipped here.
+# canvas and images, text encoding, text and fonts, WebAssembly, SVG, and the CSS suites drawn through this port's
+# text, colour, image and Core Animation code (text, text decoration, writing modes, colour, images, backgrounds,
+# masking, filter effects, compositing and transforms). Those run, as does fast/; the rest is skipped here.
 imported/blink [ Skip ]
 imported/mozilla [ Skip ]
 imported/w3c/IndexedDB-private-browsing [ Skip ]
@@ -99,16 +153,13 @@ imported/w3c/web-platform-tests/cors [ Skip ]
 imported/w3c/web-platform-tests/credential-management [ Skip ]
 imported/w3c/web-platform-tests/css/CSS2 [ Skip ]
 imported/w3c/web-platform-tests/css/WOFF2 [ Skip ]
-imported/w3c/web-platform-tests/css/compositing [ Skip ]
 imported/w3c/web-platform-tests/css/css-align [ Skip ]
 imported/w3c/web-platform-tests/css/css-anchor-position [ Skip ]
 imported/w3c/web-platform-tests/css/css-animations [ Skip ]
-imported/w3c/web-platform-tests/css/css-backgrounds [ Skip ]
 imported/w3c/web-platform-tests/css/css-borders [ Skip ]
 imported/w3c/web-platform-tests/css/css-box [ Skip ]
 imported/w3c/web-platform-tests/css/css-break [ Skip ]
 imported/w3c/web-platform-tests/css/css-cascade [ Skip ]
-imported/w3c/web-platform-tests/css/css-color [ Skip ]
 imported/w3c/web-platform-tests/css/css-color-adjust [ Skip ]
 imported/w3c/web-platform-tests/css/css-color-hdr [ Skip ]
 imported/w3c/web-platform-tests/css/css-conditional [ Skip ]
@@ -125,11 +176,9 @@ imported/w3c/web-platform-tests/css/css-font-loading [ Skip ]
 imported/w3c/web-platform-tests/css/css-forms [ Skip ]
 imported/w3c/web-platform-tests/css/css-grid [ Skip ]
 imported/w3c/web-platform-tests/css/css-highlight-api [ Skip ]
-imported/w3c/web-platform-tests/css/css-images [ Skip ]
 imported/w3c/web-platform-tests/css/css-inline [ Skip ]
 imported/w3c/web-platform-tests/css/css-lists [ Skip ]
 imported/w3c/web-platform-tests/css/css-logical [ Skip ]
-imported/w3c/web-platform-tests/css/css-masking [ Skip ]
 imported/w3c/web-platform-tests/css/css-mixins [ Skip ]
 imported/w3c/web-platform-tests/css/css-multicol [ Skip ]
 imported/w3c/web-platform-tests/css/css-namespaces [ Skip ]
@@ -153,9 +202,6 @@ imported/w3c/web-platform-tests/css/css-sizing [ Skip ]
 imported/w3c/web-platform-tests/css/css-style-attr [ Skip ]
 imported/w3c/web-platform-tests/css/css-syntax [ Skip ]
 imported/w3c/web-platform-tests/css/css-tables [ Skip ]
-imported/w3c/web-platform-tests/css/css-text [ Skip ]
-imported/w3c/web-platform-tests/css/css-text-decor [ Skip ]
-imported/w3c/web-platform-tests/css/css-transforms [ Skip ]
 imported/w3c/web-platform-tests/css/css-transitions [ Skip ]
 imported/w3c/web-platform-tests/css/css-typed-om [ Skip ]
 imported/w3c/web-platform-tests/css/css-ui [ Skip ]
@@ -164,11 +210,9 @@ imported/w3c/web-platform-tests/css/css-variables [ Skip ]
 imported/w3c/web-platform-tests/css/css-view-transitions [ Skip ]
 imported/w3c/web-platform-tests/css/css-viewport [ Skip ]
 imported/w3c/web-platform-tests/css/css-will-change [ Skip ]
-imported/w3c/web-platform-tests/css/css-writing-modes [ Skip ]
 imported/w3c/web-platform-tests/css/cssom [ Skip ]
 imported/w3c/web-platform-tests/css/cssom-view [ Skip ]
 imported/w3c/web-platform-tests/css/fill-stroke [ Skip ]
-imported/w3c/web-platform-tests/css/filter-effects [ Skip ]
 imported/w3c/web-platform-tests/css/geometry [ Skip ]
 imported/w3c/web-platform-tests/css/mediaqueries [ Skip ]
 imported/w3c/web-platform-tests/css/motion [ Skip ]
@@ -291,7 +335,6 @@ imported/w3c/web-platform-tests/speech-api [ Skip ]
 imported/w3c/web-platform-tests/storage-access-api [ Skip ]
 imported/w3c/web-platform-tests/streams [ Skip ]
 imported/w3c/web-platform-tests/subresource-integrity [ Skip ]
-imported/w3c/web-platform-tests/svg [ Skip ]
 imported/w3c/web-platform-tests/svg-aam [ Skip ]
 imported/w3c/web-platform-tests/touch-events [ Skip ]
 imported/w3c/web-platform-tests/trusted-types [ Skip ]
@@ -302,7 +345,6 @@ imported/w3c/web-platform-tests/user-timing [ Skip ]
 imported/w3c/web-platform-tests/video-rvfc [ Skip ]
 imported/w3c/web-platform-tests/visual-viewport [ Skip ]
 imported/w3c/web-platform-tests/wai-aria [ Skip ]
-imported/w3c/web-platform-tests/wasm [ Skip ]
 imported/w3c/web-platform-tests/web-animations [ Skip ]
 imported/w3c/web-platform-tests/web-locks [ Skip ]
 imported/w3c/web-platform-tests/web-share [ Skip ]
@@ -316,45 +358,14 @@ imported/w3c/web-platform-tests/worklets [ Skip ]
 imported/w3c/web-platform-tests/x-frame-options [ Skip ]
 imported/w3c/web-platform-tests/xml [ Skip ]
 
-# Single tests from the skipped css3/ and fast/ directories that exercise this port's compositing and the legacy
-# styling native clients use. Upstream records no expectation for any of them.
-css3/filters/backdrop/native-background-filter.html [ Pass ]
-css3/filters/backdrop/native-background-filter-dynamic.html [ Pass ]
-css3/filters/backdrop/native-background-blur.html [ Pass ]
-css3/filters/backdrop/native-background-animation.html [ Pass ]
-css3/filters/backdrop/native-background-opacity.html [ Pass ]
-css3/filters/backdrop/native-background-opacity-change.html [ Pass ]
-css3/filters/backdrop/native-background-opacity-coverage.html [ Pass ]
-css3/filters/backdrop/native-background-opacity-host-change.html [ Pass ]
-css3/filters/backdrop/native-background-transformed-ancestor.html [ Pass ]
-css3/filters/backdrop/native-background-sampling-perspective.html [ Pass ]
-css3/filters/backdrop/native-background-sampling-perspective-change.html [ Pass ]
-css3/filters/backdrop/native-background-sampling-preserve-3d.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-nested.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-backface-visibility.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-composited-blend-mode.html [ Pass ]
-css3/filters/backdrop/add-remove-add-backdrop-filter.html [ Pass ]
-css3/filters/backdrop/animation.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-does-not-size-properly-absolute.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-does-not-size-properly-border-and-padding.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-border-radius-and-reflection-remove.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-border-radius-value-remove.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-cliprect.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-mask.html [ Pass ]
-css3/filters/backdrop/backdrop-filter-with-reflection-remove-backdrop.html [ Pass ]
-css3/filters/backdrop/backdrop-with-visibility-hidden.html [ Pass ]
-css3/filters/backdrop/backdrop-with-visibility-hidden-2.html [ Pass ]
-css3/filters/backdrop/backdrop-with-visibility-hidden-changing.html [ Pass ]
-css3/filters/backdrop/blur-input-bounds.html [ Pass ]
-css3/filters/backdrop/dynamic-with-clip-path.html [ Pass ]
-fast/css/dashboard-region-values.html [ Pass ]
-
 # Maintainer scope decision (fonts 10.9 ships, 10.9 font metrics): these render-tree and repaint dumps carry the
 # metrics of Tahoe's fonts. Here the same upstream font selection resolves system-ui and the control fonts to Lucida
 # Grande UI (the details disclosure triangle is 20px wide, not 17px), monospace to Courier, CJK fallback to STSongti
 # and Hiragino, symbol fallback to Lucida Grande and Monaco, Hebrew to Lucida Grande, Arabic to Geeza Pro, and emoji
 # to 10.9's Apple Color Emoji, and the initial-letter tests take Times and Zapfino cap heights. Password fields draw U+2022: Lucida Grande UI has no U+F79A
 # disc (RenderBlock::updateSecurityDiscCharacters). One reference hardcodes a listbox's Tahoe block size.
+transforms/2d/zoom-menulist.html [ Skip ]
+transforms/3d/general/perspective-non-layer.html [ Skip ]
 fast/attachment/attachment-label-highlight.html [ Skip ]
 fast/attachment/attachment-progress.html [ Skip ]
 fast/attachment/attachment-select-on-click-inside-user-select-all.html [ Skip ]
@@ -579,6 +590,16 @@ fast/table/colspanMinWidth.html [ Skip ]
 fast/table/spanOverlapRepaint.html [ Skip ]
 fast/table/text-field-baseline.html [ Skip ]
 fast/transforms/transformed-focused-text-input.html [ Skip ]
+svg/custom/foreign-object-skew.svg [ Skip ]
+svg/custom/inline-svg-in-xhtml.xml [ Skip ]
+svg/custom/object-sizing.xhtml [ Skip ]
+svg/hixie/mixed/003.xml [ Skip ]
+svg/W3C-I18N/text-dirLTR-ubOverride.svg [ Skip ]
+svg/W3C-I18N/tspan-dirLTR-ubOverride-in-default-context.svg [ Skip ]
+svg/W3C-I18N/tspan-dirLTR-ubOverride-in-ltr-context.svg [ Skip ]
+svg/W3C-I18N/tspan-dirLTR-ubOverride-in-rtl-context.svg [ Skip ]
+svg/W3C-I18N/tspan-dirNone-ubOverride-in-default-context.svg [ Skip ]
+svg/W3C-I18N/tspan-dirNone-ubOverride-in-ltr-context.svg [ Skip ]
 
 # Maintainer decision, issue #40 (classic Aqua controls wherever stock 10.9 WebKit draws them): horizontal input buttons
 # draw as Aqua push buttons, sized by the bezel and the control font as on 10.9. 10.9's controlTextColor is opaque black
@@ -712,8 +733,8 @@ webkit.org/b/257195 imported/w3c/web-platform-tests/html/browsers/browsing-the-w
 # platform/glib records this media-cache timeout on the shared GStreamer backend.
 webkit.org/b/257624 http/tests/security/video-cross-origin-caching.html [ Skip ]
 
-# Apple's port records this constant failure on Sequoia: the Hebrew text breaks after the hyphen. This port's ICU 78.3
-# breaks there too (UAX #14 LB21a, HL (HY | HH) × [^HL]).
+# Apple's port records this constant failure on Sequoia: the Hebrew text breaks after the hyphen. This port's ICU,
+# Apple's ICU 78.1, breaks there too (UAX #14 LB21a, HL (HY | HH) × [^HL]).
 webkit.org/b/294043 platform/mac/fast/text/line-break-locale.html [ Skip ]
 
 # platform/glib:5103-5107 skips these four ("Does not work on glib platforms", upstream da2cbcc). The
@@ -807,6 +828,8 @@ media/modern-media-controls/css/cursor.html [ Skip ]
 media/modern-media-controls/css/pointer-events-none.html [ Skip ]
 media/modern-media-controls/css/transformed-media.html [ Skip ]
 media/modern-media-controls/css/webkit-cursor-visibility-auto-hide.html [ Skip ]
+# Apple's current port records this media-controls fixture as a timeout (platform/mac-sequoia-wk2/TestExpectations:61).
+media/modern-media-controls/macos-fullscreen-media-controls/macos-fullscreen-rtl-volume-button-no-overlap.html [ Skip ]
 # The classic controls panel fades in over 0.25s, so the snapshot catches it mid-fade.
 imported/w3c/web-platform-tests/css/css-writing-modes/abs-pos-replaced-vrl-001.html [ Skip ]
 media/modern-media-controls/macos-inline-media-controls/macos-inline-media-controls-zoomed.html [ Skip ]
@@ -1307,6 +1330,7 @@ fast/text/orientation-sideways.html [ Skip ]
 fast/text/international/text-combine-image-test.html [ Skip ]
 # 10.9's own fallback table sets Devanagari, Gujarati, Bengali, Gurmukhi, Khmer and Lao in DevanagariMT, GujaratiMT,
 # Bangla MN, Gurmukhi MT, Khmer MN and Lao MN, and WebKit's line boxes match those faces' metrics.
+transforms/2d/hindi-rotated.html [ Skip ]
 fast/text/indic.html [ Skip ]
 fast/text/complex-text-opacity.html [ Skip ]
 fast/text/khmer-lao-font.html [ Skip ]
@@ -1676,6 +1700,85 @@ editing/execCommand/mac/copyFont-pasteFont.html [ Skip ]
 editing/pasteboard/paste-canvas-background-dark-mode.html [ Skip ]
 editing/pasteboard/paste-dark-mode-color-filtered.html [ Skip ]
 
+# Maintainer OTS scope decision 2026-09-15: converted SVG-font sanitization and compatibility differences.
+svg/custom/svg-fonts-without-missing-glyph.xhtml [ Skip ]
+svg/text/kerning.svg [ Skip ]
+svg/text/multichar-glyph.svg [ Skip ]
+
+# Several Mavericks system colours retain light-appearance values, while its native control and selection
+# colours differ from the modern references.
+imported/w3c/web-platform-tests/css/css-color/system-color-compute.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-color/system-color-consistency.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-color/system-color-support.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-color/system-color-hightlights-vs-getSelection-001.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-color/system-color-hightlights-vs-getSelection-002.html [ Skip ]
+
+# Maintainer scope decision 2026-09-15: SVG compositing and marker edge rasterization near misses.
+svg/compositing/outermost-svg-directly-composited-group-child-overflow-hidden.html [ Skip ]
+svg/compositing/outermost-svg-with-border-padding-margin.html [ Skip ]
+svg/compositing/outermost-svg-with-border.html [ Skip ]
+imported/w3c/web-platform-tests/svg/painting/marker-006.svg [ Skip ]
+
+# Maintainer scope decision 2026-09-23: Core Graphics rasterizes the equivalent focal-radius and remapped-stop
+# radial gradients differently, by at most seven channel levels.
+imported/w3c/web-platform-tests/svg/pservers/reftests/radialgradient-basic-002.svg [ Skip ]
+
+# 10.9's CoreGraphics has no CGStyleCreateColorMatrix, so CSS colour matrices go through
+# FEColorMatrixSoftwareApplier::applyPlatformAccelerated, which quantizes the matrix to 1/256 for
+# vImageMatrixMultiply_ARGB8888: sepia(1) of red is 101,89,70 against the reference's 100,89,69.
+imported/w3c/web-platform-tests/css/filter-effects/filters-sepia-001-test.html [ Skip ]
+
+# Apple's port records this constant failure on Tahoe (webkit.org/b/313664), since the WPT resync dropped the
+# test's maxDifference=0-2 allowance: the filter() image and the filtered layer dither their gradients
+# differently. Here too the two differ by at most 2 levels.
+webkit.org/b/313664 imported/w3c/web-platform-tests/css/filter-effects/filter-function/filter-function-linear-gradient.html [ Skip ]
+
+# Apple's port records this constant failure on Sequoia x86_64 (webkit.org/b/315337); here three antialiased
+# text pixels differ by one level.
+webkit.org/b/315337 imported/w3c/web-platform-tests/css/filter-effects/root-element-with-opacity-filter-001.html [ Skip ]
+
+# 10.9 Core Animation has no mirror edge mode, and its normalized-edge blur differs from the mirrored reference at box corners.
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-edge-mirror.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-edge-pixels-2.html [ ImageOnlyFailure ]
+
+# 10.9 Core Animation blends a background filter through a non-rectangular mask or rounded clip as
+# dst * (255 - m) >> 8 inside the mask's bounding box, so pixels the shape leaves uncovered there come out one level darker.
+css3/filters/backdrop/backdrop-filter-with-border-radius.html [ ImageOnlyFailure ]
+css3/filters/backdrop/backdrop-filter-with-border-radius-value-change.html [ ImageOnlyFailure ]
+css3/filters/backdrop/backdrop-filter-with-clip-path.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-svg-text-backdrop-filter.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-clip-rect-2.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-mask.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-mask-large.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-clip-radius-zoom.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-nested-border-radius-clip.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-nested-border-radius-clip-4.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-transform.html [ ImageOnlyFailure ]
+
+# 10.9 Core Animation's gaussianBlur differs from the references' blur by up to nine levels across the blurred area.
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-basic-blur.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-filter.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-blur-large.html [ ImageOnlyFailure ]
+
+# With two blurring background-filter layers in one sampling surface, 10.9 Core Animation draws the pixels within the
+# blur's reach outside the first one's shape at 254/255 coverage, one level toward what lies behind the page: 3682
+# pixels at blur(5px) and 5385 at blur(10px) with DumpRenderTree, 3683 and 5392 with WebKitTestRunner. A reflection's
+# sampling surface follows its original's; the references' two backdrops draw in the opposite order.
+css3/filters/backdrop/backdrop-filter-with-reflection.html [ ImageOnlyFailure ]
+css3/filters/backdrop/backdrop-filter-with-reflection-add-backdrop.html [ ImageOnlyFailure ]
+css3/filters/backdrop/backdrop-filter-with-reflection-value-change.html [ ImageOnlyFailure ]
+
+# Core Animation's transform-animation path fails these tests in both drivers (webkit.org/b/230080); 307236@main
+# passes them only through the WebKit2 threaded-animations path, which this port compiles out.
+webkit.org/b/230080 imported/w3c/web-platform-tests/css/css-transforms/animation/transform-interpolation-skew.html [ Skip ]
+webkit.org/b/230080 imported/w3c/web-platform-tests/css/css-transforms/animation/transform-interpolation-perspective.html [ Skip ]
+
+# The test waits with threadedAnimationsCommit(), one animation frame, which is written for
+# ThreadedTimeBasedAnimationsEnabled (a preview feature the test runners enable). This port builds with
+# ENABLE_THREADED_ANIMATIONS=0, so in both drivers the animation commits through the legacy Core Animation path,
+# which threaded-animations-utils.js's own legacyAnimationCommit() allows three frames.
+webanimations/transform-animation-with-delay-yields-accelerated-animation.html [ Skip ]
+
 # Upstream records these native WebGL results for Apple's port under the bugs cited.
 webkit.org/b/237415 webgl/1.0.x/conformance/rendering/clipping-wide-points.html [ Skip ]
 webkit.org/b/292182 webgl/2.0.y/conformance2/rendering/clipping-wide-points.html [ Skip ]
@@ -1687,3 +1790,11 @@ webkit.org/b/292182 webgl/1.0.x/conformance/textures/misc/texture-srgb-upload.ht
 webkit.org/b/292182 webgl/2.0.y/conformance/textures/misc/texture-srgb-upload.html [ Skip ]
 webkit.org/b/301328 webgl/2.0.y/conformance2/textures/misc/immutable-tex-render-feedback.html [ Skip ]
 webkit.org/b/313392 webgl/2.0.y/conformance2/textures/misc/tex-image-10bpc.html [ Skip ]
+
+# The x264 encoder supports High 4:2:2; platform/glib/TestExpectations:1937 records the same result.
+http/wpt/webcodecs/H264-422.html [ Failure ]
+
+# The test compiles and links 156 shader programs (78 vector-combine constructor cases, each as a vertex and a
+# fragment variant) and draws five input rows through each. On WebKit2 it takes 17.9 s at load average 2.5 and
+# 66.8 s under eight CPU burners, against the normal 30-second deadline.
+webgl/1.0.x/deqp/data/gles2/shaders/conversions_vector_combine.html [ Slow ]

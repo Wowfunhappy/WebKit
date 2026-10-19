@@ -2806,3 +2806,167 @@ fast/css/has-lang-jit-crash.html [ Skip ]
 # a1325d1). With the size known, as with explicit image dimensions, both drivers here give 458/454 against the
 # baseline's 433/429.
 webkit.org/b/309370 fast/css/vertical-text-overflow-ellipsis-text-align-center.html [ Skip ]
+
+# Upstream skips unprefixed backdrop filter on WK1 (58c630a^ mac-wk1:3003); WebKitLegacy's
+# CSSUnprefixedBackdropFilterEnabled default is false.
+css3/filters/backdrop-filter-page-scale.html [ Skip ]
+css3/filters/hidpi-backdrop-filter-rasterization-scale.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-svg-text-backdrop-filter.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/animation/backdrop-filter-composition-001.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/animation/backdrop-filter-interpolation-001.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/animation/backdrop-filter-interpolation-002.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/animation/backdrop-filter-interpolation-003.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/animation/backdrop-filter-interpolation-004.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-animation-in-effect.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-clip-path-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-mask.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-basic-blur.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-basic-opacity-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-basic.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-border-radius-change.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-boundary.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-box-shadow.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-clip-radius-zoom.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-clip-rect-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-clip-rounded-clip.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-clipped.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-containing-block.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-corner-shape-change.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-edge-clipping-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-edge-mirror.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-edge-pixels-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-fixed-clip.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-image-size-filter-size-mismatch.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-important.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-inline-positioning.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-isolation-fixed.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-isolation-isolate.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-nested-border-radius-clip-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-nested-border-radius-clip-3.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-nested-border-radius-clip-4.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-nested-border-radius-clip.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-filter.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-mask-large.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-mask.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-will-change-opacity.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-reference-filter-mutated.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-reference-filter.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-scale-transform.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-svg-blur.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-svg-foreignObject.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-svg.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-transform.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-update.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-with-mix-blend-mode-same-element.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-blur-large.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-brightness.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-contrast.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-grayscale-001.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-grayscale-002.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-grayscale-003.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-hue-rotate.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-invert.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-saturate.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-sepia.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/drop-shadow-currentcolor-dynamic-003.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/inheritance.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/parsing/backdrop-filter-computed.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/parsing/backdrop-filter-parsing-valid.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/repaint-added-backdrop-filter.html [ Skip ]
+
+# WebKitLegacy scrolls frames on the main thread; there is no scrolling-thread frame scrolling to test.
+css3/filters/backdrop/native-background-scrolled-iframe.html [ Skip ]
+
+# Upstream DumpRenderTree does not expose testRunner.setUseDarkAppearanceForTesting().
+svg/custom/svg-image-dark-mode-dynamic.html [ Skip ]
+svg/custom/svg-image-dark-mode-initial.html [ Skip ]
+svg/custom/svg-image-dark-mode-prefers-color-scheme-repeat-loads.html [ Skip ]
+
+# Upstream: "Animated image throttling behaves differently on WK1" (58c630a^ mac-wk1:1768-1775).
+svg/animations/animated-svg-image-removed-from-document-paused.html [ Skip ]
+svg/animations/animated-svg-image-outside-viewport-paused.html [ Skip ]
+svg/animations/animations-paused-in-background-page.html [ Skip ]
+svg/animations/animations-paused-in-background-page-iframe.html [ Skip ]
+
+# Upstream records these WK1 wheel-action timeouts at 58c630a^ mac-wk1:2957-2962; snap-area-overflow-boundary-viewport-covering.html
+# is the WPT resync (5dbb3ad) of the recorded snap-area-overflow-boundary.html.
+webkit.org/b/263441 imported/w3c/web-platform-tests/css/css-overscroll-behavior/overscroll-behavior.html [ Skip ]
+webkit.org/b/263441 imported/w3c/web-platform-tests/css/css-scroll-snap/input/snap-area-overflow-boundary-viewport-covering.html [ Skip ]
+webkit.org/b/263441 imported/w3c/web-platform-tests/css/css-transforms/scroll-preserve-3d.html [ Skip ]
+webkit.org/b/263441 imported/w3c/web-platform-tests/dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-div.html [ Skip ]
+webkit.org/b/263441 imported/w3c/web-platform-tests/dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-div.html [ Skip ]
+
+# WebKitLegacy lacks functional service/shared-worker support; these mixed WebAssembly fixtures fail their worker
+# prerequisites.
+imported/w3c/web-platform-tests/wasm/jsapi/exception/basic.tentative.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/jsapi/exception/basic.tentative.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/memory/clone-error.tentative.https.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/memory/clone-error.tentative.https.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/memory/messageport-via-sharedworker-success.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/memory/window-nested-dedicated-worker-failure.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/memory/window-sharedworker-failure.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/module/broadcastchannel-success-and-failure.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/module/nested-worker-success.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/module/window-serviceworker-failure.https.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/module/window-sharedworker-failure.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/body.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/body.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/contenttype.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/contenttype.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/empty-body.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/empty-body.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/historical.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/historical.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/instantiateStreaming-bad-imports.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/instantiateStreaming-bad-imports.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/instantiateStreaming.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/instantiateStreaming.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/invalid-args.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/invalid-args.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/invalid-code.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/invalid-code.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/modified-contenttype.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/modified-contenttype.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/origin.sub.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/origin.sub.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/rejected-arg.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/rejected-arg.any.sharedworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/status.any.serviceworker.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/status.any.sharedworker.html [ Skip ]
+
+# WebKitLegacy does not enable SharedArrayBuffer, so this window fixture cannot reach its serialization assertions.
+imported/w3c/web-platform-tests/wasm/serialization/memory/window-success.tentative.https.html [ Skip ]
+
+# DumpRenderTree's whole-document text dump includes the SVG's literal "abc" before the 81 passing identity assertions.
+imported/w3c/web-platform-tests/svg/types/SameObject-identity.html [ Skip ]
+
+# This repaint fixture requires testRunner.dontForceRepaint(), which DumpRenderTree does not expose.
+svg/repaint/non-scaling-stroke-transform-animation.html [ Skip ]
+
+# Upstream b/278124 records the same one-channel mask-reference failures beyond the tests' fuzzy allowance.
+webkit.org/b/278124 imported/w3c/web-platform-tests/css/css-masking/mask-image/mask-image-3a.html [ Skip ]
+webkit.org/b/278124 imported/w3c/web-platform-tests/css/css-masking/mask-image/mask-image-3b.html [ Skip ]
+webkit.org/b/278124 imported/w3c/web-platform-tests/css/css-masking/mask-image/mask-image-3c.html [ Skip ]
+webkit.org/b/278124 imported/w3c/web-platform-tests/css/css-masking/mask-image/mask-image-3d.html [ Skip ]
+webkit.org/b/278124 imported/w3c/web-platform-tests/css/css-masking/mask-image/mask-image-3e.html [ Skip ]
+
+# Upstream Apple WK1 records this fixture at 58c630a^ mac-wk1:3275. DumpRenderTree captures a non-composited page
+# into a bitmap with FlattenCompositingLayers; converting scale(1,1,0) to affine drops its singular Z component.
+imported/w3c/web-platform-tests/css/css-transforms/individual-transform/individual-transform-3.html [ Skip ]
+
+# Upstream b/315710 names the box-shadow/ copy of the Cocoa table-row shadow regression; the top-level fixture is
+# an identical copy.
+webkit.org/b/315710 imported/w3c/web-platform-tests/css/css-backgrounds/box-shadow-table-row-display.html [ Skip ]
+webkit.org/b/315710 imported/w3c/web-platform-tests/css/css-backgrounds/box-shadow/box-shadow-table-row-display.html [ Skip ]
+
+# Upstream b/255101 and Apple WK1 at 58c630a^ mac-wk1:2799/2801 record the root-background margin omission on the
+# non-extended background path.
+webkit.org/b/255101 imported/w3c/web-platform-tests/css/css-backgrounds/background-attachment-margin-root-001.html [ Skip ]
+webkit.org/b/255101 imported/w3c/web-platform-tests/css/css-backgrounds/background-margin-root.html [ Skip ]
+
+# Maintainer scope: exclude these two WK1 tests, which match their expected output but have disproportionately slow loaded runs.
+editing/selection/caret-at-bidi-boundary.html [ Skip ]
+webgl/1.0.x/conformance/ogles/GL/acos/acos_001_to_006.html [ Skip ]
+
+# Upstream records this test as flaky (webkit.org/b/186406): it counts layer flushes inside a 10 ms timer, which a third flush can reach.
+webkit.org/b/186406 compositing/iframes/display-none-subframe.html [ Skip ]
