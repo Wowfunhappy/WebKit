@@ -226,14 +226,25 @@ static WKAVFDisplayColor *wkAVFDisplayColorFor(id layer)
 //
 // Mavericks' layer lays out its content layer and its video queue's layers on the calling thread, and the
 // layer's status and error live in its style (avf-display-color.h). Each of these methods makes those changes
-// inside a transaction of its own, which nests in any transaction the caller has open and otherwise commits
-// them, and the layers it retained, before the method returns -- on a thread without a run loop as well,
-// where an implicit transaction would stay open until the thread exits.
+// inside a transaction of its own, which commits them before the method returns unless a transaction open on
+// the calling thread holds it nested. On a thread running its run loop, that transaction's observer commits
+// them; on a thread running no run loop, where an implicit transaction (a -presentationLayer read opens one)
+// has no observer, the method flushes it.
 //
 // A sample of a new presentation size makes Mavericks' layer lay out its content layer from bounds it
 // read before applying that layout, so on a thread other than the one setting the bounds the layout
 // can be stale. The layer then lays itself out again on the main thread from its current bounds:
 // -[AVSampleBufferDisplayLayer setBounds:] lays the content layer out before it reaches CALayer.
+static void wkAVFCommitTransaction(void)
+{
+    [CATransaction commit];
+    CFStringRef runLoopMode = CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent());
+    if (runLoopMode)
+        CFRelease(runLoopMode);
+    else
+        [CATransaction flush];
+}
+
 WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (void)enqueueSampleBuffer:(CMSampleBufferRef)sample
 {
@@ -266,7 +277,7 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
                 }
             }
         } @finally {
-            [CATransaction commit];
+            wkAVFCommitTransaction();
         }
     }
 }
@@ -280,7 +291,7 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
         WK_ORIGINAL_METHOD(void, ());
         [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
     } @finally {
-        [CATransaction commit];
+        wkAVFCommitTransaction();
     }
 }
 - (void)flushAndRemoveImage
@@ -290,7 +301,7 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
         WK_ORIGINAL_METHOD(void, ());
         [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
     } @finally {
-        [CATransaction commit];
+        wkAVFCommitTransaction();
     }
 }
 @end
