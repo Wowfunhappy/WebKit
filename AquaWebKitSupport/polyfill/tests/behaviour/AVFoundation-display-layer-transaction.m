@@ -10,8 +10,12 @@
 // A display layer whose samples, flushes and status changes come from a dispatch queue is released by its
 // owner on the main thread, and is deallocated there: no transaction left open on the queue's thread
 // keeps it alive into a later commit on that thread, where its dealloc would race the main thread's
-// commit. When the queue's block has a transaction of its own open, the layer's methods leave it open:
-// its completion block is still that transaction's, and has not run, when they return.
+// commit. An implicit transaction open on the queue's thread, which runs no run loop, is committed when
+// the layer's methods return, with the layer's changes nested in it. On a thread running its run loop,
+// the caller's transaction stays open for the run loop's commit.
+
+// A transaction's values last until it commits.
+static NSString * const openTransactionKey = @"displayLayerTransactionTestOpen";
 
 static volatile int deallocations;
 static volatile int deallocationsOffMain;
@@ -67,34 +71,43 @@ int main(void)
             drainMainRunLoop();
 
             int operation = i % 3;
-            BOOL callerTransaction = i >= layers / 2;
-            dispatch_semaphore_t done = dispatch_semaphore_create(0);
-            dispatch_async(queue, ^{
-                assert(!pthread_main_np());
-                __block volatile int completed = 0;
-                void (^completion)(void) = nil;
-                if (callerTransaction) {
-                    completion = [^{ completed = 1; } copy];
-                    [CATransaction setCompletionBlock:completion];
-                    unrelated.opacity = unrelated.opacity == 1 ? 0.5 : 1;
-                }
+            BOOL openTransaction = i >= layers / 2;
+            void (^operate)(void) = ^{
                 [layer enqueueSampleBuffer:sample];
                 if (operation == 1)
                     [layer flush];
                 else if (operation == 2)
                     [layer flushAndRemoveImage];
-                if (callerTransaction) {
-                    // A committed transaction takes its completion block with it.
-                    if (completed || [CATransaction completionBlock] != completion) {
-                        printf("display layer transaction: the caller's transaction committed inside the layer's methods\n");
-                        abort();
-                    }
-                    [CATransaction flush];
-                    [completion release];
+            };
+            dispatch_semaphore_t done = dispatch_semaphore_create(0);
+            dispatch_async(queue, ^{
+                assert(!pthread_main_np());
+                if (openTransaction) {
+                    [CATransaction setValue:@YES forKey:openTransactionKey];
+                    unrelated.opacity = unrelated.opacity == 1 ? 0.5 : 1;
+                }
+                operate();
+                if (openTransaction && [CATransaction valueForKey:openTransactionKey]) {
+                    printf("display layer transaction: an implicit transaction stayed open on a thread without a run loop\n");
+                    abort();
                 }
                 dispatch_semaphore_signal(done);
             });
             dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+            if (openTransaction) {
+                __block BOOL openAfterOperation = NO;
+                CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopDefaultMode, ^{
+                    [CATransaction setValue:@YES forKey:openTransactionKey];
+                    unrelated.opacity = unrelated.opacity == 1 ? 0.5 : 1;
+                    operate();
+                    openAfterOperation = !![CATransaction valueForKey:openTransactionKey];
+                });
+                drainMainRunLoop();
+                if (!openAfterOperation || [CATransaction valueForKey:openTransactionKey]) {
+                    printf("display layer transaction: the run loop's transaction committed inside the layer's methods\n");
+                    abort();
+                }
+            }
             // Complete the queue block and its captured references before the owner releases the layer.
             dispatch_sync(queue, ^{ });
             dispatch_release(done);
