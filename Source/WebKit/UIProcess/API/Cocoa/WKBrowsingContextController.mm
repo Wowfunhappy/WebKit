@@ -57,6 +57,7 @@
 #import "WKURLResponseNS.h"
 #import "WKViewInternal.h"
 #import "WebFrameProxy.h"
+#import "WebPageGroup.h"
 #import "WebPageProxy.h"
 #import "WebProtectionSpace.h"
 #import "_WKRemoteObjectRegistryInternal.h"
@@ -153,6 +154,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)loadRequest:(NSURLRequest *)request userData:(id)userData
 {
+    RetainPtr<NSMutableURLRequest> requestWithCookies;
+    if (_page->pageGroup().identifier() == "QuickLookPreview"_s && !request.HTTPShouldHandleCookies) {
+        // AQUAWEBKIT: The maintainer chose consistent QuickLookPreview cookies, so enable them on its embedder request.
+        requestWithCookies = adoptNS([request mutableCopy]);
+        [requestWithCookies.get() setHTTPShouldHandleCookies:YES];
+        request = requestWithCookies.get();
+    }
+
     // AQUAWEBKIT: userData travels as an ObjCObjectGraph; Apple Mail passes its document load context
     // here and MailUIWebBundle unwraps it with WKObjCTypeWrapperGetObject.
     RefPtr<WebKit::ObjCObjectGraph> wkUserData;
