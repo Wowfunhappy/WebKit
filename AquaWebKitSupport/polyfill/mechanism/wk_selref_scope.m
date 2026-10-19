@@ -820,20 +820,23 @@ static void wk_patch_loaded_images(void)
 // constructor time for everything in the launch batch, and from wk_image_initializing for an image
 // that arrives later (inside the add-image callback the runtime cannot see the arriving image's
 // classes yet — see the note above wk_image_initializing — and a block is a class).
-static void wk_collect(const struct mach_header *mh)
+//
+// Returns the registry count from which this call aliased every loaded image — mh among them, since
+// dyld lists an image from the moment it is mapped — or -1 when it read no blocks.
+static int wk_collect(const struct mach_header *mh)
 {
     unsigned long size = 0;
     const struct wk_methods_entry *e =
         (const struct wk_methods_entry *)getsectiondata((const struct mach_header_64 *)mh,
                                                          "__DATA", "__wk_methods", &size);
     if (!e)
-        return;
+        return -1;
     int n = (int)(size / sizeof(struct wk_methods_entry));
     pthread_mutex_lock(&wk_reg_lock);
     for (int i = 0; i < wk_collected_count; i++)
         if (wk_collected[i] == mh) {
             pthread_mutex_unlock(&wk_reg_lock);
-            return;
+            return -1;
         }
     if (wk_collected_count >= WK_MAX_BLOCK_IMAGES)
         wk_registry_full("images carry polyfill blocks", WK_MAX_BLOCK_IMAGES, "WK_MAX_BLOCK_IMAGES",
@@ -862,6 +865,7 @@ static void wk_collect(const struct mach_header *mh)
     wk_alias_loaded_images(before, wk_count);
     wk_patch_loaded_images();
     pthread_mutex_unlock(&wk_reg_lock);
+    return before;
 }
 
 static void wk_patch(const struct mach_header *mh)
@@ -924,22 +928,24 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
                                          const struct dyld_image_info *info)
 {
     (void)state;
-    // Blocks an arriving image carries (WebKit.framework's, when it is loaded after WebCore) are read
-    // here, the first point the runtime has the image's classes.
-    for (uint32_t i = 0; i < count; i++)
-        wk_collect(info[i].imageLoadAddress);
-    pthread_mutex_lock(&wk_reg_lock);   // see the synchronisation note
-    // Deferred blocks are retried HERE, not from the add-image callback: a class a block names can
-    // arrive via dlopen (DDActionsManager arrives with soft-linked DataDetectors), and inside the
-    // add-image callback the runtime cannot see the arriving image's classes yet (the measurement
-    // above) — and when the dlopen'ing call stack goes on to send the rewritten selector immediately
-    // (PAL soft-link then send, WebViewImpl.mm:3703), there is no later image load to rescue it and the
-    // send dies on the uninstalled wk_ method. The drain runs before the alias sweep so the sweep sees
-    // a REPLACE body on its target before it looks at the target's subclasses.
-    wk_install_deferred();
-    for (uint32_t i = 0; i < count; i++)
-        wk_alias_image(info[i].imageLoadAddress, 0, wk_count);
-    pthread_mutex_unlock(&wk_reg_lock);
+    for (uint32_t i = 0; i < count; i++) {
+        // Blocks an arriving image carries (WebKit.framework's, when it is loaded after WebCore) are
+        // read here, the first point the runtime has the image's classes. Reading them aliases every
+        // loaded image, this one included, for the entries they add, so this image's own sweep below
+        // covers the entries registered before them.
+        int swept = wk_collect(info[i].imageLoadAddress);
+        pthread_mutex_lock(&wk_reg_lock);   // see the synchronisation note
+        // Deferred blocks are retried HERE, not from the add-image callback: a class a block names can
+        // arrive via dlopen (DDActionsManager arrives with soft-linked DataDetectors), and inside the
+        // add-image callback the runtime cannot see the arriving image's classes yet (the measurement
+        // above) — and when the dlopen'ing call stack goes on to send the rewritten selector immediately
+        // (PAL soft-link then send, WebViewImpl.mm:3703), there is no later image load to rescue it and
+        // the send dies on the uninstalled wk_ method. The drain runs before the alias sweep so the sweep
+        // sees a REPLACE body on its target before it looks at the target's subclasses.
+        wk_install_deferred();
+        wk_alias_image(info[i].imageLoadAddress, 0, swept < 0 ? wk_count : swept);
+        pthread_mutex_unlock(&wk_reg_lock);
+    }
     return NULL;
 }
 
