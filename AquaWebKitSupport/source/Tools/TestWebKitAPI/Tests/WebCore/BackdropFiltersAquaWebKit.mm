@@ -10,6 +10,7 @@
 #import <WebCore/WebBackdropLayerAquaWebKit.h>
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <objc/runtime.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
 #include <set>
 
 namespace TestWebKitAPI {
@@ -382,6 +383,45 @@ static CALayer *nativeMask(CALayer *layer)
     SEL selector = sel_registerName("mask");
     IMP implementation = class_getMethodImplementation(CALayer.class, selector);
     return ((CALayer *(*)(id, SEL))implementation)(layer, selector);
+}
+
+TEST(BackdropFiltersAquaWebKit, PresentationLayerTakesAnimatedFilters)
+{
+    RetainPtr backdrop = adoptNS([[WebBackdropLayerAquaWebKit alloc] init]);
+    [backdrop setBounds:CGRectMake(0, 0, 100, 60)];
+    RetainPtr mask = adoptNS([[CAShapeLayer alloc] init]);
+    [backdrop setMask:mask.get()];
+    PlatformCAFilters::setFiltersOnLayer(backdrop.get(), FilterOperations { { BlurFilterOperation::create(8),
+        BasicComponentTransferFilterOperation::create(0.5, FilterOperation::Type::Opacity) } }, true);
+    RetainPtr<CALayer> coverage = [mask superlayer];
+    ASSERT_NOT_NULL(coverage.get());
+    RetainPtr<NSArray> coverageFilters = [coverage filters];
+    EXPECT_EQ(coverage.get(), nativeMask(backdrop.get()));
+    CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:@"backgroundFilters.filter_0.inputRadius"];
+    animation.fromValue = @16;
+    animation.toValue = @16;
+    animation.duration = 1000;
+    [backdrop addAnimation:animation forKey:@"blur"];
+    // Only a committed layer has a presentation layer.
+    CAContext *context = [CAContext localContext];
+    context.layer = backdrop.get();
+    [CATransaction flush];
+
+    CALayer *presentation = [backdrop presentationLayer];
+    ASSERT_NOT_NULL(presentation);
+    EXPECT_NE(backdrop.get(), presentation);
+    ASSERT_EQ(1U, [[presentation backgroundFilters] count]);
+    EXPECT_EQ(16, [[[[presentation backgroundFilters] firstObject] valueForKey:@"inputRadius"] doubleValue]);
+    EXPECT_TRUE(CGRectEqualToRect(CGRectMake(0, 0, 100, 60), [presentation bounds]));
+
+    // The model layer keeps its filters and its coverage mask.
+    ASSERT_EQ(1U, [[backdrop backgroundFilters] count]);
+    EXPECT_EQ(8, [[[[backdrop backgroundFilters] firstObject] valueForKey:@"inputRadius"] doubleValue]);
+    EXPECT_EQ(coverage.get(), nativeMask(backdrop.get()));
+    EXPECT_TRUE([[coverage sublayers] isEqualToArray:@[ mask.get() ]]);
+    EXPECT_EQ(coverageFilters.get(), [coverage filters]);
+    EXPECT_EQ(mask.get(), [backdrop mask]);
+    [context invalidate];
 }
 
 TEST(BackdropFiltersAquaWebKit, BackdropFilterAnimationGroupsAreSplitByTarget)

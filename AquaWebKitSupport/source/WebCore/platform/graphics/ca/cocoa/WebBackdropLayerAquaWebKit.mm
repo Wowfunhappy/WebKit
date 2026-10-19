@@ -1181,6 +1181,9 @@ static std::optional<CGRect> sampleRegionInSuperlayer(CALayer *layer, unsigned d
     // _presentedLock, which is held only to copy it.
     RecursiveLock _updateLock;
     Lock _presentedLock;
+    // Core Animation sets a presentation copy's animated values through its setters. The copy holds values; the
+    // model layer alone builds the mask and filter layers.
+    BOOL _presentationCopy;
     BOOL _presentedHidden;
     BOOL _pathToSurfaceNotRendered;
     RetainPtr<NSArray> _assignedBackgroundFilters;
@@ -1253,6 +1256,7 @@ static std::optional<CGRect> sampleRegionInSuperlayer(CALayer *layer, unsigned d
         _crop = other->_crop;
         _pathToSurfaceNotRendered = other->_pathToSurfaceNotRendered;
     }
+    _presentationCopy = self.modelLayer != self;
     _presentedHidden = [super isHidden];
     return self;
 }
@@ -1347,7 +1351,7 @@ static std::optional<CGRect> sampleRegionInSuperlayer(CALayer *layer, unsigned d
     bool cropping = !CGRectIsNull(_crop);
     CGRect bounds = cropping ? _crop : _presentedBounds;
     CALayer *coverage = _opacityMask ? _opacityMask.get() : _presentedMask.get();
-    if (_opacityMask) {
+    if (_opacityMask && !_presentationCopy) {
         if (!CGRectEqualToRect([_opacityMask bounds], _presentedBounds))
             [_opacityMask setBounds:_presentedBounds];
         if (!CGPointEqualToPoint([_opacityMask position], _presentedBounds.origin))
@@ -1356,16 +1360,20 @@ static std::optional<CGRect> sampleRegionInSuperlayer(CALayer *layer, unsigned d
     if (!CGRectEqualToRect([super bounds], bounds))
         [super setBounds:bounds];
     if (!cropping) {
-        if (coverage.superlayer)
-            [coverage removeFromSuperlayer];
-        if ([super mask] != coverage)
-            [super setMask:coverage];
+        if (!_presentationCopy) {
+            if (coverage.superlayer)
+                [coverage removeFromSuperlayer];
+            if ([super mask] != coverage)
+                [super setMask:coverage];
+        }
         if ([super masksToBounds] != _presentedMasksToBounds)
             [super setMasksToBounds:_presentedMasksToBounds];
         if ([super cornerRadius] != _presentedCornerRadius)
             [super setCornerRadius:_presentedCornerRadius];
         return;
     }
+    if (_presentationCopy)
+        return;
     // A mask's own clip is ignored; the clip lies on its sublayer.
     if (!_cropMask) {
         _cropMask = makeLayer(CALayer.class);
@@ -1457,6 +1465,15 @@ static std::optional<CGRect> sampleRegionInSuperlayer(CALayer *layer, unsigned d
 - (void)setBackgroundFilters:(NSArray *)backgroundFilters
 {
     Locker locker { _updateLock };
+    if (_presentationCopy) {
+        // An animation's value, derived from the filters -backgroundFilters returns.
+        {
+            Locker presentedLocker { _presentedLock };
+            _committedBackgroundFilters = adoptNS([backgroundFilters copy]);
+        }
+        [super setBackgroundFilters:self.backgroundFilters];
+        return;
+    }
     {
         Locker presentedLocker { _presentedLock };
         _assignedBackgroundFilters = adoptNS([backgroundFilters copy]);
