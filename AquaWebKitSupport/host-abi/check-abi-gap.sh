@@ -1,8 +1,9 @@
 #!/bin/bash
 # Build gate: every symbol a 10.9 binary binds from our frameworks must be exported by the staged
-# product. Each contract is a list of symbols stock 10.9 exported (see docs/MAVERICKS-WEBKIT-ABI-REFERENCE.md
+# product. Each contract is a list of symbols a 10.9 binary binds (see docs/MAVERICKS-WEBKIT-ABI-REFERENCE.md
 # for how each was captured):
 #   safari-needs-from-<framework>.txt   what stock Safari 7 imports
+#   safari9-needs-from-<framework>.txt  what Safari 9.1.3 for 10.9 (WebKit 601) imports
 #   public-needs-from-<framework>.txt   the 10.9 SDK's public API: symbols its WebKit and JavaScriptCore
 #                                       headers declare
 #   system-needs-from-<framework>.txt   what every other binary on a stock 10.9 system imports

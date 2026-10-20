@@ -1,6 +1,6 @@
 #!/bin/bash
-# stage-headers.sh — the developer headers and module maps of JavaScriptCore.framework,
-# WebKit.framework and WebKit2.framework in the staged tree. Run by stage-frameworks.sh.
+# stage-headers.sh — the developer headers and module maps of JavaScriptCore.framework and
+# WebKit.framework in the staged tree. Run by stage-frameworks.sh.
 #
 # Each header is the one Apple's shipping (Production) build emits for this WebKit version: the
 # set comes from the Xcode projects (JavaScriptCore and WebKit headers marked Public; for the
@@ -9,11 +9,9 @@
 # first for the legacy headers). The deployment target fills in WK_MAC_TBA, as in any build
 # without WebKitAdditions.
 #
-# The headers then follow the binaries' name shift: WebKitLegacy's headers are already spelled
-# <WebKit/...> by the migrate rule, and keep their own umbrella WebKit.h; the WebKit (WK2) headers
-# become <WebKit2/...>, with the umbrella WebKit.h as WebKit2.h and its <WebKit/WebKitLegacy.h>
-# import naming the legacy umbrella <WebKit/WebKit.h>. The nested WebCore.framework ships no
-# headers, as on stock 10.9.
+# WebKit.framework carries both sets, as Apple's does: the legacy headers migrated into it, with
+# their umbrella WebKitLegacy.h, and the WebKit (WK2) headers, whose umbrella WebKit.h imports it.
+# The nested frameworks and WebKit2.framework ship no headers.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,7 +100,7 @@ echo "  $(ls "$JSC_HEADERS" | wc -l | tr -d ' ') headers"
 # The legacy API: Xcode copies each header into WebKitLegacy.framework/PrivateHeaders through
 # WebKitLegacy's rule (WebCore's copies them verbatim), then WebKit's rule migrates it from there.
 # The rule recognizes a migrated header by that directory name, so the intermediate copy keeps it.
-echo "### WebKit.framework headers (WebKitLegacy)"
+echo "### WebKit.framework headers"
 new_header_dirs "$WEBKIT_BUNDLE"
 WK_HEADERS="$STAGE$WEBKIT_BUNDLE/Versions/A/Headers"
 while IFS='|' read -r input output; do
@@ -121,46 +119,23 @@ while IFS='|' read -r input output; do
             cp "$(source_of WebCore "$name")" "$mid";;
         *) echo "ERROR: unrecognized migrated header source $input" >&2; exit 1;;
     esac
-    SRCROOT="$SRC/WebKit" run_rule "$SRC/WebKit/Scripts/postprocess-header-rule" "$mid" "$WK_HEADERS/$name" public
+    SRCROOT="$SRC/WebKit" run_rule "$SRC/WebKit/Scripts/postprocess-header-rule" "$mid" "$WK_HEADERS/${output##*/}" public
 done < <(paste -d'|' <(grep -v '^#' "$SRC/WebKit/MigratedHeaders-input.xcfilelist" | grep .) \
                      <(grep -v '^#' "$SRC/WebKit/MigratedHeaders-output.xcfilelist" | grep .))
-cp "$SRC/WebKit/Modules/OSX.modulemap" "$STAGE$WEBKIT_BUNDLE/Versions/A/Modules/module.modulemap"
-cp "$(source_of WebKit WebKit.apinotes)" "$WK_HEADERS/WebKit.apinotes"
-echo "  $(ls "$WK_HEADERS" | wc -l | tr -d ' ') headers"
-
-# ---------------------------------------------------------------------------
-echo "### WebKit2.framework headers (WebKit)"
-new_header_dirs "$WEBKIT2_BUNDLE"
-WK2_HEADERS="$STAGE$WEBKIT2_BUNDLE/Versions/A/Headers"
-WK2_NAMES="$(public_in_project WebKit)"
-# The name shift: a WK2 header is <WebKit2/...> (its umbrella WebKit2.h), the legacy umbrella is
-# <WebKit/WebKit.h>, and every other <WebKit/...> header is a legacy one that keeps its spelling.
-shift_name() { case "$1" in WebKit.h) echo WebKit2.h;; WebKit.apinotes) echo WebKit2.apinotes;; *) echo "$1";; esac; }
-WK2_NAMES_FILE="$WORK/wk2-names"
-echo "$WK2_NAMES" > "$WK2_NAMES_FILE"
-for name in $WK2_NAMES; do
+# The WebKit (WK2) headers, through WebKit's rule.
+for name in $(public_in_project WebKit); do
     case "$name" in
         *.h)
             SRCROOT="$SRC/WebKit" run_rule "$SRC/WebKit/Scripts/postprocess-header-rule" \
-                "$(source_of WebKit "$name")" "$WORK/WebKit.framework/Headers/$name" public
-            perl -pe 'BEGIN { open my $f, "<", shift or die; chomp(my @n = <$f>); %wk2 = map { $_ => 1 } @n }
-                      s{<WebKit/([^>]+)>}{ $wk2{$1} ? "<WebKit2/" . ($1 eq "WebKit.h" ? "WebKit2.h" : $1) . ">"
-                                         : $1 eq "WebKitLegacy.h" ? "<WebKit/WebKit.h>" : "<WebKit/$1>" }ge' \
-                "$WK2_NAMES_FILE" < "$WORK/WebKit.framework/Headers/$name" > "$WK2_HEADERS/$(shift_name "$name")";;
+                "$(source_of WebKit "$name")" "$WK_HEADERS/$name" public;;
         WebKit.apinotes)
-            sed 's/^Name: WebKit$/Name: WebKit2/' "$(source_of WebKit "$name")" > "$WK2_HEADERS/WebKit2.apinotes";;
+            cp "$(source_of WebKit "$name")" "$WK_HEADERS/$name";;
         *) echo "ERROR: Public file $name in WebKit.xcodeproj has no staging rule" >&2; exit 1;;
     esac
 done
-cat > "$STAGE$WEBKIT2_BUNDLE/Versions/A/Modules/module.modulemap" <<'EOF'
-framework module WebKit2 [system] {
-  umbrella header "WebKit2.h"
-  module * { export * }
-  export *
-}
-EOF
-echo "  $(ls "$WK2_HEADERS" | wc -l | tr -d ' ') headers"
+cp "$SRC/WebKit/Modules/OSX.modulemap" "$STAGE$WEBKIT_BUNDLE/Versions/A/Modules/module.modulemap"
+echo "  $(ls "$WK_HEADERS" | wc -l | tr -d ' ') headers"
 
-for b in "$JSC_BUNDLE" "$WEBKIT_BUNDLE" "$WEBKIT2_BUNDLE"; do
+for b in "$JSC_BUNDLE" "$WEBKIT_BUNDLE"; do
     chmod -R a+rX "$STAGE$b/Versions/A/Headers" "$STAGE$b/Versions/A/Modules"
 done

@@ -161,7 +161,7 @@ static NSString * const WebInspectorFrontendGroupName = @"WebInspectorClassicFro
 - (void)startLoading
 {
     RetainPtr<NSURL> requestURL = self.request.URL;
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    NSBundle *bundle = WebCore::inspectorFrontendBundle(); // AQUAWEBKIT: see InspectorFrontendClassicBridge.h.
     // Resolve inspector-resource:///<path> against the bundle, as WK2's
     // WKInspectorResourceURLSchemeHandler does: the lookup stays inside the bundle and picks the
     // localized copy of a resource that has one.
@@ -704,7 +704,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (NSString *)inspectorPagePath
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    // NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    NSBundle *bundle = WebCore::inspectorFrontendBundle(); // AQUAWEBKIT: see InspectorFrontendClassicBridge.h.
     if (!bundle)
         return nil;
 
@@ -713,7 +714,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (NSString *)inspectorTestPagePath
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    // NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    NSBundle *bundle = WebCore::inspectorFrontendBundle(); // AQUAWEBKIT: see InspectorFrontendClassicBridge.h.
     if (!bundle)
         return nil;
 

@@ -17,14 +17,21 @@ frameworks miss any of them.
 
 ## Frameworks and loading
 
-Safari 7 loads three WebKit dylibs by absolute `LC_LOAD_DYLIB` path. The 10.9 layout uses a **name shift**
-relative to modern WebKit:
+Safari 7 loads three WebKit dylibs by absolute `LC_LOAD_DYLIB` path, and binds each symbol from the
+framework that exported it on stock 10.9:
 
-| Safari-7 framework | Load path | Modern equivalent | Symbols Safari needs |
-|---|---|---|---|
-| **JavaScriptCore** | `/System/Library/Frameworks/JavaScriptCore.framework` | JavaScriptCore | 95 |
-| **WebKit** (WebKit1 / `WebView`) | `/System/Library/Frameworks/WebKit.framework` | **WebKitLegacy** | 24 |
-| **WebKit2** (WK2 / `WKView`) | `/System/Library/PrivateFrameworks/WebKit2.framework` | **WebKit** | 606 |
+| Safari-7 framework | Load path | Symbols Safari needs |
+|---|---|---|
+| **JavaScriptCore** | `/System/Library/Frameworks/JavaScriptCore.framework` | 95 |
+| **WebKit** (WebKit1 / `WebView`) | `/System/Library/Frameworks/WebKit.framework` | 24 |
+| **WebKit2** (WK2 / `WKView`) | `/System/Library/PrivateFrameworks/WebKit2.framework` | 606 |
+
+Safari 9.1.3 for 10.9 (WebKit 601) loads the same three, and binds 627 WebKit symbols, WK1 and WK2 alike,
+from `WebKit.framework`, where 601 kept WK2. The port installs Apple's 601 layout, which serves both:
+`WebKit.framework` is WK2 (the `WebKit` target) and re-exports `WebKitLegacy.framework`, nested beside
+`WebCore.framework` in its `Versions/A/Frameworks`; `WebKit2.framework` is an image with no code that
+re-exports `WebKit.framework`. dyld resolves a two-level bind by searching the named image and then, in
+order, the images it re-exports.
 
 `compatibility_version` is `1.0.0` for all; dyld accepts our build's higher `current_version` against
 Safari's `>= 537.78.x` requirement. (Safari also imports ~1385 symbols from system frameworks; those are
@@ -272,7 +279,19 @@ comm -12 safari-imports.txt exports-JavaScriptCore.txt > safari-needs-from-JavaS
 ```
 and likewise for `WebKit.framework/Versions/A/WebKit` (24) and `WebKit2.framework/Versions/A/WebKit2` (606). Safari
 imports 2110 symbols in all; the remaining ~1385 come from system frameworks and 0 from WebCore directly.
-`StagedFrameworks/Safari` (a Safari-9 mechanism) is empty and unused by Safari 7.
+
+`safari9-needs-from-<framework>.txt` is every symbol Safari 9's `Safari.framework` binds from that framework,
+from Apple's `Safari9.1.3Mavericks.pkg` as installed (`safari9-imports.txt` is its full import list):
+
+```
+F=/System/Library/StagedFrameworks/Safari/Safari.framework/Versions/A/Safari
+nm -gu "$F" | awk '{print $NF}' | sort -u > safari9-imports.txt
+nm -m -u "$F" | awk '$(NF-1) == "(from" && $NF == "WebKit)" {print $(NF-2)}' | sort -u > safari9-needs-from-WebKit.txt
+```
+and likewise for JavaScriptCore (95, Safari 7's set). Eight of the 627 WebKit symbols are in no 10.9 contract:
+the three `WKPageRunJavaScript*ResultListenerCall` functions and `WKPageSetBackgroundExtendsBeyondPage`, which
+upstream still has, and 601's origin-data manager (`WKContextGetOriginDataManager`, `WKOriginDataManager*`),
+which `WKPage.cpp` restores.
 
 `public-needs-from-<framework>.txt` holds every symbol the stock framework's re-export closure exported that
 the stock 10.9 public headers (`<stock>/<framework>.framework/Headers`) declare: the classes those headers

@@ -8,20 +8,32 @@
 #if PLATFORM(MAC)
 
 #import <Foundation/Foundation.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/RetainPtr.h>
 
 namespace WebCore {
 
-// Whether the com.apple.WebInspectorUI bundle that inspector-resource:// serves from is the classic
-// frontend the bridge below adapts. The frontend built from this tree carries the Test.html the
-// system's does not, and dyld answers with it wherever the build directory is on
-// DYLD_FRAMEWORK_PATH; a frontend built from this tree matches this backend and takes no bridge.
+// The WebInspectorUI bundle inspector-resource:// serves from. The frontend built from this tree
+// carries the Test.html no system frontend does, and dyld maps it wherever the build directory is on
+// DYLD_FRAMEWORK_PATH; it matches this backend. Any other is served from 10.9's WebInspectorUI, the
+// classic frontend the bridge below adapts, whichever copy dyld mapped: Safari 9's
+// DYLD_VERSIONED_FRAMEWORK_PATH maps the WebKit 601 frontend it stages beside its own WebKit.
+inline NSBundle *inspectorFrontendBundle()
+{
+    static NeverDestroyed<RetainPtr<NSBundle>> bundle = []() -> RetainPtr<NSBundle> {
+        NSBundle *mapped = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+        if ([mapped pathForResource:@"Test" ofType:@"html"])
+            return mapped;
+        return [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/WebInspectorUI.framework"];
+    }();
+    return bundle.get().get();
+}
+
+// Whether that bundle is the classic frontend.
 inline bool inspectorFrontendIsClassic()
 {
-    static const bool isClassic = [] {
-        NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-        return bundle && ![bundle pathForResource:@"Test" ofType:@"html"];
-    }();
-    return isClassic;
+    NSBundle *bundle = inspectorFrontendBundle();
+    return bundle && ![bundle pathForResource:@"Test" ofType:@"html"];
 }
 
 // The classic-frontend bridge user script, shared by both ports.

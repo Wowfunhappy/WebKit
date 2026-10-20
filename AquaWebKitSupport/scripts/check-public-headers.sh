@@ -19,9 +19,9 @@ rm -rf "$WORK"
 mkdir -p "$WORK/tu" "$WORK/log"
 
 FLAGS=(-fsyntax-only -isysroot "$SDK" -mmacosx-version-min=10.9 -arch x86_64
-       -F"$STAGE$FRAMEWORKS_DIR" -F"$STAGE$PRIVATE_DIR" -fmodules-cache-path="$WORK/modules")
+       -F"$STAGE$FRAMEWORKS_DIR" -fmodules-cache-path="$WORK/modules")
 
-FRAMEWORKS="JavaScriptCore:$JSC_BUNDLE WebKit:$WEBKIT_BUNDLE WebKit2:$WEBKIT2_BUNDLE"
+FRAMEWORKS="JavaScriptCore:$JSC_BUNDLE WebKit:$WEBKIT_BUNDLE"
 
 # Step 1. One line per compile: framework, language, header.
 : > "$WORK/jobs"

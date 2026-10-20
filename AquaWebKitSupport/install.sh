@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — copy the staged product (WebKitBuild/Release/staged, laid out exactly as it lands on disk
-# by scripts/stage-frameworks.sh) onto the 10.9 system where stock Safari 7.0.6 loads it, then the few
+# by scripts/stage-frameworks.sh) onto the 10.9 system where stock Safari (7.0.6, or 9.1.3) loads it, then the few
 # things that live in host files nobody builds. See scripts/framework-layout.sh for the layout.
 #
 # The factory (stock) frameworks are preserved ONCE in $STOCK_BACKUP (captured at build time by
@@ -63,8 +63,8 @@ if [ ! -d "$WEBCLIP_PLUGIN/MacOS" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Copy the staged bundles into place. WebCore rides inside WebKit.framework (nested, as on stock
-# 10.9), so three copies place all four frameworks. The staged tree already carries the modes the
+# Copy the staged bundles into place. WebCore and WebKitLegacy ride inside WebKit.framework, so
+# three copies place all five frameworks. The staged tree already carries the modes the
 # sandbox needs (world-readable dylibs under traversable dirs), and `cp -p` carries them across
 # verbatim — without it cp applies root's umask instead, which can drop the world-read bit a
 # sandboxed WebContent needs. `cp -p` also copies the staged tree's ownership, so chown follows to

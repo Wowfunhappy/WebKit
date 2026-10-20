@@ -7,7 +7,7 @@
 set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PLIST=/System/Library/PrivateFrameworks/WebKit2.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/Info.plist
+PLIST=/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/Info.plist
 SERVICE_TEMP_DIR="$(getconf DARWIN_USER_TEMP_DIR)com.apple.WebKit.Networking+com.apple.Safari"
 SOURCE=https://rewrite-source.invalid:18990
 WORK="$(mktemp -d /tmp/external-url-rewrite.XXXXXX)"

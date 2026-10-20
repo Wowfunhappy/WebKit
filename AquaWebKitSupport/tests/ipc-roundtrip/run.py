@@ -59,7 +59,7 @@ with open("/tmp/wk_build.log", "a") as log:
                     # UserData.cpp and ObjCObjectGraph.mm reference WebKit2-internal API::Object helpers the
                     # round trips never call; they stay lazily bound.
                     "-Wl,-undefined,dynamic_lookup",
-                    "/System/Library/PrivateFrameworks/WebKit2.framework/WebKit2",
+                    "/System/Library/Frameworks/WebKit.framework/WebKit",
                     "/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/WebCore",
                     "/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore",
                     "-framework", "Foundation", "-framework", "AppKit",

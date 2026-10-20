@@ -3,7 +3,7 @@
 # installable product, staged at WebKitBuild/Release/staged/ laid out exactly as it lands on
 # disk. Installing is then a plain copy (AquaWebKitSupport/install.sh).
 #
-# Everything that shapes an artifact happens here: the 10.9 name shift, the bundle resources
+# Everything that shapes an artifact happens here: the 10.9 layout, the bundle resources
 # CMake does not copy, the developer headers (scripts/stage-headers.sh), the private C++ runtime /
 # polyfill / vendored runtime deploys, the install-name rewrite to absolute /System paths, the demangler
 # guard, the full stock XPC service set, and the stock i386 graft. See scripts/framework-layout.sh for the layout these produce.
@@ -167,9 +167,8 @@ absolute_for_rpath_dep() {
     case "$dep" in
         @rpath/JavaScriptCore.framework/*) id_path JavaScriptCore;;
         @rpath/WebCore.framework/*)        id_path WebCore;;
-        # NOTE: our build's WebKitLegacy is named "WebKitLegacy" and WK2 "WebKit".
-        @rpath/WebKitLegacy.framework/*)   id_path WebKit;;
-        @rpath/WebKit.framework/*)         id_path WebKit2;;
+        @rpath/WebKitLegacy.framework/*)   id_path WebKitLegacy;;
+        @rpath/WebKit.framework/*)         id_path WebKit;;
         @rpath/libc++.1.dylib)             echo "$JSC_LIBS/libc++.1.dylib";;
         @rpath/libc++abi.1.dylib)          echo "$JSC_LIBS/libc++abi.1.dylib";;
         # Single-unwinder rule (see framework-layout.sh): bind to the system unwinder.
@@ -270,43 +269,20 @@ strip_rpaths() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 1: copy each built framework into the staged tree and apply the final bundle layout —
-# binary rename, Versions/Current + top-level symlinks, stock bundle identity.
-echo "### Staging frameworks into $STAGE (name shift)"
+# Step 1: copy each built framework into the staged tree, in the layout framework-layout.sh describes.
+echo "### Staging frameworks into $STAGE"
 rm -rf "$STAGE"
 stage_framework() {
-    local builtName="$1" destBundle="$(s "$2")" destBinName="$3"
+    local builtName="$1" destBundle="$(s "$2")"
     local src="$LIBDIR/$builtName.framework"
     [ -d "$src" ] || { echo "ERROR: missing built framework $src" >&2; return 1; }
 
-    echo "== $builtName -> ${destBundle#$STAGE} (binary: $destBinName) =="
+    echo "== $builtName -> ${destBundle#$STAGE} =="
     mkdir -p "$(dirname "$destBundle")"
     cp -RP "$src" "$destBundle"
     # A built bundle's Frameworks dir holds the build tree's copy of the vendored runtime (build.sh);
     # step 3 deploys the product's.
     rm -rf "$destBundle/Versions/A/Frameworks"
-
-    # Rename the binary (Versions/A/<old> -> Versions/A/<new>) + Current symlink + top symlink.
-    local va="$destBundle/Versions/A"
-    if [ "$builtName" != "$destBinName" ] && [ -f "$va/$builtName" ]; then
-        mv "$va/$builtName" "$va/$destBinName"
-        # -h replaces the Versions/Current symlink itself; without it ln follows Current into
-        # Versions/A and leaves a self-referential Versions/A/A behind.
-        ln -sfh "A" "$destBundle/Versions/Current"
-        rm -f "$destBundle/$builtName"
-        ln -sf "Versions/Current/$destBinName" "$destBundle/$destBinName"
-        # Fix Info.plist CFBundleExecutable. Both stamps below are load-bearing and unsuppressed:
-        # a bundle's identity is how it is FOUND at runtime — LocalizedStrings.cpp reaches its string
-        # table through CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebCore")), and a missed
-        # stamp would surface as every WebCore string coming back untranslated (#105) rather than as
-        # the staging failure it actually is.
-        /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $destBinName" "$va/Resources/Info.plist"
-        # keep the STOCK bundle identifier for the name-shifted frameworks
-        # (WebKitLegacy installs as WebKit.framework = com.apple.WebKit; WK2 installs as
-        # WebKit2.framework = com.apple.WebKit2). The build stamps com.apple.<target-name>
-        # (see WebKitMacros.cmake), which is right for WebCore/JavaScriptCore but not these two.
-        /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.apple.$destBinName" "$va/Resources/Info.plist"
-    fi
 
     # The build emits its XPCServices symlinks as ABSOLUTE paths back into the build tree — at the
     # bundle top level, where a framework wants the standard relative form, and once more inside
@@ -331,23 +307,37 @@ stage_framework() {
         esac
     done < <(find "$destBundle" -type l)
 }
-# Order matters: WebCore nests inside WebKit.framework, so WebKitLegacy (-> WebKit.framework)
-# is staged first and WebCore is laid into it.
-stage_framework JavaScriptCore "$JSC_BUNDLE"      JavaScriptCore
-stage_framework WebKitLegacy   "$WEBKIT_BUNDLE"   WebKit
-stage_framework WebCore        "$WEBCORE_BUNDLE"  WebCore
-stage_framework WebKit         "$WEBKIT2_BUNDLE"  WebKit2
-# Match stock: the public WebKit umbrella exposes its nested frameworks via a top-level symlink
-# (WebKit.framework/Frameworks -> Versions/Current/Frameworks). Loads use the full Versions/A path,
-# but the symlink keeps the on-disk layout identical to stock 10.9.
+# WebCore and WebKitLegacy nest inside WebKit.framework, so it is staged first.
+stage_framework JavaScriptCore "$JSC_BUNDLE"
+stage_framework WebKit         "$WEBKIT_BUNDLE"
+stage_framework WebCore        "$WEBCORE_BUNDLE"
+stage_framework WebKitLegacy   "$WEBKITLEGACY_BUNDLE"
 ln -sfh Versions/Current/Frameworks "$(s "$WEBKIT_BUNDLE")/Frameworks"
+
+# WebKit.framework's i386 slice is stock 10.9's WebKit (step 7), which finds its nibs, images and
+# localized strings in WebKit.framework's resources.
+for res in "$STOCK_BACKUP/WebKit.framework/Versions/A/Resources/"*; do
+    case "$(basename "$res")" in Info.plist|version.plist) continue;; esac
+    cp -RP "$res" "$(s "$WEBKIT_BUNDLE")/Versions/A/Resources/"
+done
+
+# WebKit2.framework: an image with no code that re-exports WebKit.framework (step 4 links it), and the
+# bundle identity of stock 10.9's WebKit2.
+W2="$(s "$WEBKIT2_BUNDLE")"
+mkdir -p "$W2/Versions/A/Resources"
+cp "$LIBDIR/WebKit.framework/Versions/A/Resources/Info.plist" "$W2/Versions/A/Resources/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable WebKit2" -c "Set :CFBundleIdentifier com.apple.WebKit2" \
+    "$W2/Versions/A/Resources/Info.plist"
+ln -sfh A "$W2/Versions/Current"
+ln -sfh Versions/Current/Resources "$W2/Resources"
+ln -sfh Versions/Current/WebKit2 "$W2/WebKit2"
 
 # The WebKit Mach-O binaries this build produces: each bundle's own contents, minus its
 # Versions/A/Frameworks dir (which holds the nested WebCore — staged as its own bundle — and the
 # deployed C++ runtime, polyfill and vendored runtime dylibs, all handled explicitly below).
 webkit_machos() {
     local bundle f
-    for bundle in "$(s "$JSC_BUNDLE")" "$(s "$WEBKIT_BUNDLE")" "$(s "$WEBCORE_BUNDLE")" "$(s "$WEBKIT2_BUNDLE")"; do
+    for bundle in "$(s "$JSC_BUNDLE")" "$(s "$WEBKIT_BUNDLE")" "$(s "$WEBCORE_BUNDLE")" "$(s "$WEBKITLEGACY_BUNDLE")"; do
         while IFS= read -r f; do
             case "$f" in "$bundle/Versions/A/Frameworks/"*) continue;; esac
             file "$f" 2>/dev/null | grep -q "Mach-O" && echo "$f"
@@ -469,7 +459,7 @@ if [ -f "$LIBDIR/libwebrtc.dylib" ]; then
     cp -f "$LIBDIR/libwebrtc.dylib" "$(s "$WEBCORE_LIBS")/libwebrtc.dylib"
     int_or_die -id "$WEBCORE_LIBS/libwebrtc.dylib" "$(s "$WEBCORE_LIBS")/libwebrtc.dylib"
 else
-    echo "ERROR: libwebrtc.dylib missing — WebCore and WebKit2 both load it, so no WebKit app would launch." >&2
+    echo "ERROR: libwebrtc.dylib missing — WebCore and WebKit both load it, so no WebKit app would launch." >&2
     exit 1
 fi
 
@@ -533,7 +523,7 @@ echo "### Rewriting install names to absolute /System paths"
 for name in JavaScriptCore:$JSC_BUNDLE/Versions/A/JavaScriptCore \
             WebKit:$WEBKIT_BUNDLE/Versions/A/WebKit \
             WebCore:$WEBCORE_BUNDLE/Versions/A/WebCore \
-            WebKit2:$WEBKIT2_BUNDLE/Versions/A/WebKit2; do
+            WebKitLegacy:$WEBKITLEGACY_BUNDLE/Versions/A/WebKitLegacy; do
     "$INSTALL_NAME_TOOL" -id "$(id_path "${name%%:*}")" "$(s "${name#*:}")"
 done
 while IFS= read -r f; do
@@ -548,6 +538,19 @@ rewrite_rpath_deps "$WEBRTC_STAGED"
 rewrite_abs_deps   "$WEBRTC_STAGED"
 strip_rpaths       "$WEBRTC_STAGED"
 echo "  rewritten: $(webkit_machos | wc -l | tr -d ' ') Mach-O binaries carry absolute paths and no LC_RPATH"
+
+# WebKit2.framework's image, at WebKit's version: no code, a re-export of WebKit.framework, and libSystem,
+# as every linked image loads.
+SDK="${AQUAWEBKIT_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
+WEBKIT_STAGED_BINARY="$(s "$WEBKIT_BUNDLE")/Versions/A/WebKit"
+WEBKIT_VERSION="$("$OTOOL" -l "$WEBKIT_STAGED_BINARY" | awk '/cmd LC_ID_DYLIB/ {id = 1} id && /current version/ {print $3; exit}')"
+WEBKIT_SDK="$("$OTOOL" -l "$WEBKIT_STAGED_BINARY" | awk '/cmd LC_VERSION_MIN_MACOSX/ {v = 1} v && $1 == "sdk" {print $2; exit}')"
+[ -n "$WEBKIT_VERSION" ] && [ -n "$WEBKIT_SDK" ] || { echo "ERROR: no version or SDK in $WEBKIT_STAGED_BINARY" >&2; exit 1; }
+"$TC/bin/ld64.lld" -dylib -arch x86_64 -platform_version macos 10.9 "$WEBKIT_SDK" -syslibroot "$SDK" \
+    -dylib_install_name "$(id_path WebKit2)" -dylib_current_version "$WEBKIT_VERSION" -dylib_compatibility_version 1.0.0 \
+    -reexport_library "$WEBKIT_STAGED_BINARY" -lSystem -o "$(s "$WEBKIT2_BUNDLE")/Versions/A/WebKit2" \
+    || { echo "ERROR: could not link WebKit2.framework" >&2; exit 1; }
+echo "  linked WebKit2.framework $WEBKIT_VERSION, re-exporting $(id_path WebKit)"
 
 # The Web Clip plug-in and its injected bundle go through the same rewriting, from the build's
 # WebClipPlugin directory into their place inside the widget; the widget's script, page and style sheet
@@ -591,7 +594,7 @@ echo "### Demangler guard (pass 2/2): frameworks + all in-bundle dylibs"
 DEMANGLER_GUARD_BINS="$(s "$JSC_BUNDLE")/Versions/A/JavaScriptCore
 $(s "$WEBKIT_BUNDLE")/Versions/A/WebKit
 $(s "$WEBCORE_BUNDLE")/Versions/A/WebCore
-$(s "$WEBKIT2_BUNDLE")/Versions/A/WebKit2
+$(s "$WEBKITLEGACY_BUNDLE")/Versions/A/WebKitLegacy
 $(find "$(s "$JSC_LIBS")" "$(s "$WEBCORE_LIBS")" -type f -name '*.dylib')"
 echo "$DEMANGLER_GUARD_BINS" | grep -v '^$' | sort -u | \
     xargs /usr/bin/python "$WK_SUPPORT/demangler/neutralize-demangler-crashers.py" || {
@@ -659,8 +662,9 @@ materialize_xpc_variants "$LIBDIR/WebKit.framework/Versions/A/XPCServices"
 # (Safari) and fatten each framework binary with the ORIGINAL stock i386 slice, so 32-bit WebView
 # apps load the stock legacy WebKit1. dyld selects the slice by process arch and each slice keeps
 # its OWN load commands, so the two dependency graphs stay fully independent:
-#   x86_64 (ours):  WebKit -> WebKit.framework/.../Frameworks/WebCore + JavaScriptCore
-#   i386  (stock):  WebKit -> WebKit.framework/.../Frameworks/WebCore + JavaScriptCore
+#   x86_64 (ours):  WebKit (WK2) -> .../Frameworks/WebKitLegacy, .../Frameworks/WebCore, JavaScriptCore;
+#                   WebKit2 -> WebKit
+#   i386  (stock):  WebKit (WK1) -> .../Frameworks/WebCore + JavaScriptCore; WebKit2 -> the same two
 # Both arches resolve WebCore at the SAME nested path (the stock 10.9 layout); the nested WebCore
 # binary is fattened too, so dyld picks the modern x86_64 WebCore for 64-bit Safari and the stock
 # i386 WebCore for 32-bit apps. The stock i386 slices reference only 10.9 system libs by absolute
