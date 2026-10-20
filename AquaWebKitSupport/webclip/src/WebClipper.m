@@ -661,12 +661,12 @@ static NSString * const WCSafariPageStateScriptFormat = @"(function (x, y) {"
     "return JSON.stringify([scrollX, scrollY, body ? body.scrollLeft : 0, body ? body.scrollTop : 0, innerWidth, innerHeight, document.documentElement.clientWidth, document.documentElement.clientHeight, location.href, boxScrolls]);"
 "})(%f, %f)";
 
-static NSAppleEventDescriptor *safariFrontTabSpecifier(void)
+static NSAppleEventDescriptor *safariCurrentTabSpecifier(int windowIndex)
 {
     NSAppleEventDescriptor *window = [NSAppleEventDescriptor recordDescriptor];
     [window setDescriptor:[NSAppleEventDescriptor descriptorWithTypeCode:'cwin'] forKeyword:keyAEDesiredClass];
     [window setDescriptor:[NSAppleEventDescriptor descriptorWithEnumCode:formAbsolutePosition] forKeyword:keyAEKeyForm];
-    [window setDescriptor:[NSAppleEventDescriptor descriptorWithInt32:1] forKeyword:keyAEKeyData];
+    [window setDescriptor:[NSAppleEventDescriptor descriptorWithInt32:windowIndex] forKeyword:keyAEKeyData];
     [window setDescriptor:[NSAppleEventDescriptor nullDescriptor] forKeyword:keyAEContainer];
     NSAppleEventDescriptor *tab = [NSAppleEventDescriptor recordDescriptor];
     [tab setDescriptor:[NSAppleEventDescriptor descriptorWithTypeCode:cProperty] forKeyword:keyAEDesiredClass];
@@ -676,32 +676,59 @@ static NSAppleEventDescriptor *safariFrontTabSpecifier(void)
     return [tab coerceToDescriptorType:typeObjectSpecifier];
 }
 
+// The clip's tab is the current tab of one of Safari's windows, the front one as Safari adds the clip, though
+// Safari's own window order can put another window first by the time it is asked: each of Safari's windows is
+// asked in turn, front to back, until one's current tab shows the clipped page. A window without a tab
+// (Preferences) answers with an error, and a Top Sites tab with its own address; neither is the clip's window.
+static int safariWindowCount(NSAppleEventDescriptor *target)
+{
+    NSAppleEventDescriptor *event = [NSAppleEventDescriptor appleEventWithEventClass:kAECoreSuite eventID:kAECountElements targetDescriptor:target returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
+    [event setParamDescriptor:[NSAppleEventDescriptor nullDescriptor] forKeyword:keyDirectObject];
+    [event setParamDescriptor:[NSAppleEventDescriptor descriptorWithTypeCode:'cwin'] forKeyword:keyAEObjectClass];
+    AppleEvent replyEvent;
+    if (AESendMessage([event aeDesc], &replyEvent, kAEWaitReply | kAENeverInteract, kAEDefaultTimeout) != noErr)
+        return 0;
+    NSAppleEventDescriptor *reply = [[NSAppleEventDescriptor alloc] initWithAEDescNoCopy:&replyEvent];
+    if ([reply paramDescriptorForKeyword:keyErrorNumber])
+        return 0;
+    return [[reply paramDescriptorForKeyword:keyDirectObject] int32Value];
+}
+
 static void requestPageStateOfSafariTab(NSString *URLString, NSRect clipRect, void (^completionHandler)(NSDictionary *pageState))
 {
     NSString *script = [NSString stringWithFormat:WCSafariPageStateScriptFormat, NSMidX(clipRect), NSMidY(clipRect)];
     NSData *safari = [@"com.apple.Safari" dataUsingEncoding:NSUTF8StringEncoding];
     NSAppleEventDescriptor *target = [NSAppleEventDescriptor descriptorWithDescriptorType:typeApplicationBundleID data:safari];
-    NSAppleEventDescriptor *event = [NSAppleEventDescriptor appleEventWithEventClass:'sfri' eventID:'dojs' targetDescriptor:target returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
-    [event setParamDescriptor:[NSAppleEventDescriptor descriptorWithString:script] forKeyword:keyDirectObject];
-    [event setParamDescriptor:safariFrontTabSpecifier() forKeyword:'dcnm'];
+    NSString *clippedURLString = [[NSURL URLWithString:URLString] absoluteString];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        AppleEvent replyEvent;
-        OSStatus status = AESendMessage([event aeDesc], &replyEvent, kAEWaitReply | kAENeverInteract, kAEDefaultTimeout);
-        NSString *result = nil;
-        if (status == noErr) {
+        NSArray *values = nil;
+        NSMutableArray *shownURLStrings = [NSMutableArray array];
+        OSStatus status = noErr;
+        int windowCount = safariWindowCount(target);
+        for (int windowIndex = 1; !values && windowIndex <= windowCount; ++windowIndex) {
+            NSAppleEventDescriptor *event = [NSAppleEventDescriptor appleEventWithEventClass:'sfri' eventID:'dojs' targetDescriptor:target returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
+            [event setParamDescriptor:[NSAppleEventDescriptor descriptorWithString:script] forKeyword:keyDirectObject];
+            [event setParamDescriptor:safariCurrentTabSpecifier(windowIndex) forKeyword:'dcnm'];
+            AppleEvent replyEvent;
+            status = AESendMessage([event aeDesc], &replyEvent, kAEWaitReply | kAENeverInteract, kAEDefaultTimeout);
+            if (status != noErr)
+                break;
             NSAppleEventDescriptor *reply = [[NSAppleEventDescriptor alloc] initWithAEDescNoCopy:&replyEvent];
-            result = [[reply paramDescriptorForKeyword:keyDirectObject] stringValue];
+            if ([reply paramDescriptorForKeyword:keyErrorNumber])
+                continue;
+            NSString *result = [[reply paramDescriptorForKeyword:keyDirectObject] stringValue];
+            NSArray *windowValues = result ? [NSJSONSerialization JSONObjectWithData:[result dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
+            if (![windowValues isKindOfClass:[NSArray class]] || [windowValues count] != 10 || ![[windowValues objectAtIndex:9] isKindOfClass:[NSArray class]])
+                continue;
+            NSString *pageURLString = [windowValues objectAtIndex:8];
+            if ([[[NSURL URLWithString:pageURLString] absoluteString] isEqualToString:clippedURLString])
+                values = windowValues;
+            else
+                [shownURLStrings addObject:pageURLString];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            NSArray *values = result ? [NSJSONSerialization JSONObjectWithData:[result dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
-            if (![values isKindOfClass:[NSArray class]] || [values count] != 10 || ![[values objectAtIndex:9] isKindOfClass:[NSArray class]]) {
-                NSLog(@"Web Clip: Safari did not report the clipped page (%d)", (int)status);
-                completionHandler(nil);
-                return;
-            }
-            NSString *pageURLString = [values objectAtIndex:8];
-            if (![[[NSURL URLWithString:pageURLString] absoluteString] isEqualToString:[[NSURL URLWithString:URLString] absoluteString]]) {
-                NSLog(@"Web Clip: Safari's tab shows %@, not the clipped %@", pageURLString, URLString);
+            if (!values) {
+                NSLog(@"Web Clip: none of Safari's %d windows shows the clipped %@ (%d; current tabs show %@)", windowCount, URLString, (int)status, [shownURLStrings componentsJoinedByString:@", "]);
                 completionHandler(nil);
                 return;
             }

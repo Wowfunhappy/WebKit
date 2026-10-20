@@ -589,6 +589,16 @@ static Class s_pdfRepresentationClass;
 static Class s_pdfViewClass;
 #endif
 
+#if ENABLE(DASHBOARD_SUPPORT)
+// AQUAWEBKIT: part of legacy Dashboard support. Pre-HTML5 parser quirks are required to remain
+// compatible with many Dashboard widgets (<rdar://problem/8175982>), so a page in Dashboard backward
+// compatibility mode keeps them whatever its preferences say.
+static bool needsPreHTML5ParserQuirks(WebCore::Page* page, WebPreferences *preferences)
+{
+    return (page && page->settings().usesDashboardBackwardCompatibilityMode()) || [preferences usePreHTML5ParserQuirks];
+}
+#endif // AQUAWEBKIT: closes the ENABLE(DASHBOARD_SUPPORT) guard above.
+
 #if PLATFORM(IOS_FAMILY)
 @interface WebView(WebViewPrivate)
 - (void)_preferencesChanged:(WebPreferences *)preferences;
@@ -1327,13 +1337,16 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 // Web Clips via the WebClip.plugin WebKit-ObjC plug-in — declares the widget's WebView legacy through
 // it during setup. Read off DashboardClient.framework's call sites, it sends AlwaysSendMouseEvents,
 // AlwaysSendActiveNullEvents and AlwaysAcceptsFirstMouse as YES, AllowWheelScrolling as NO, and
-// UseBackwardCompatibilityMode as YES.
-//
-// Backward-compatibility mode is the host saying this surface is authored against the pre-HTML5
-// parser, so it carries into the setting that selects those quirks; widget markup uses self-closing
-// start tags and unquoted attributes that the HTML5 tokenizer otherwise reads as text.
+// UseBackwardCompatibilityMode as YES. The setter and getter are upstream's Dashboard SPI.
 - (void)_setDashboardBehavior:(WebDashboardBehavior)behavior to:(BOOL)flag
 {
+#if ENABLE(DASHBOARD_SUPPORT)
+    // FIXME: Remove this blanket assignment once Dashboard and Dashcode implement
+    // specific support for the backward compatibility mode flag.
+    if (behavior == WebDashboardBehaviorAllowWheelScrolling && flag == NO && _private->page)
+        _private->page->settings().setUsesDashboardBackwardCompatibilityMode(true);
+#endif
+
     switch (behavior) {
     case WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows:
         _private->dashboardBehaviorAlwaysSendMouseEventsToAllWindows = flag;
@@ -1348,15 +1361,19 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
         _private->dashboardBehaviorAllowWheelScrolling = flag;
         break;
     case WebDashboardBehaviorUseBackwardCompatibilityMode:
-        _private->dashboardBehaviorUseBackwardCompatibilityMode = flag;
-        if (RefPtr page = _private->page) {
 #if ENABLE(DASHBOARD_SUPPORT)
-            page->settings().setUsesDashboardBackwardCompatibilityMode(flag);
+        if (_private->page)
+            _private->page->settings().setUsesDashboardBackwardCompatibilityMode(flag);
 #endif
-            page->settings().setUsePreHTML5ParserQuirks(flag);
-        }
         break;
     }
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    // Pre-HTML5 parser quirks should be enabled if Dashboard is in backward
+    // compatibility mode. See <rdar://problem/8175982>.
+    if (_private->page)
+        _private->page->settings().setUsePreHTML5ParserQuirks(needsPreHTML5ParserQuirks(_private->page.get(), [self preferences]));
+#endif
 }
 
 - (BOOL)_dashboardBehavior:(WebDashboardBehavior)behavior
@@ -1371,7 +1388,11 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
     case WebDashboardBehaviorAllowWheelScrolling:
         return _private->dashboardBehaviorAllowWheelScrolling;
     case WebDashboardBehaviorUseBackwardCompatibilityMode:
-        return _private->dashboardBehaviorUseBackwardCompatibilityMode;
+#if ENABLE(DASHBOARD_SUPPORT)
+        return _private->page && _private->page->settings().usesDashboardBackwardCompatibilityMode();
+#else
+        return NO;
+#endif
     }
     return NO;
 }
@@ -3165,6 +3186,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self _preferencesChangedGenerated:preferences];
 
     auto& settings = _private->page->settings();
+#if ENABLE(DASHBOARD_SUPPORT)
+    settings.setUsePreHTML5ParserQuirks(needsPreHTML5ParserQuirks(_private->page.get(), preferences)); // AQUAWEBKIT: see needsPreHTML5ParserQuirks().
+#endif // AQUAWEBKIT: closes the ENABLE(DASHBOARD_SUPPORT) guard above.
 
     if (isLockdownModeEnabled())
         settings.disableFeaturesForLockdownMode();

@@ -1984,7 +1984,14 @@ static bool mouseEventIsPartOfClickOrDrag(NSEvent *event)
             // If it is one of those cases where the page is not active and the mouse is not pressed, then we can
             // fire a much more restricted and efficient scrollbars-only version of the event.
 
-            if ([[self window] isKeyWindow] || mouseEventIsPartOfClickOrDrag(event))
+            // if ([[self window] isKeyWindow] || mouseEventIsPartOfClickOrDrag(event))
+            // AQUAWEBKIT: DashboardClient declares a widget's WebView AlwaysSendMouseEventsToAllWindows, so
+            // every widget hovers whether or not it has the focus.
+            if ([[self window] isKeyWindow] || mouseEventIsPartOfClickOrDrag(event)
+#if ENABLE(DASHBOARD_SUPPORT)
+                || [[self _webView] _dashboardBehavior:WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows]
+#endif
+                ) // AQUAWEBKIT: closes the condition above.
                 coreFrame->eventHandler().mouseMoved(event, [[self _webView] _pressureEvent]);
             else {
                 [self removeAllToolTips];
@@ -4732,7 +4739,12 @@ static RefPtr<WebCore::KeyboardEvent> currentKeyboardEvent(WebCore::LocalFrame* 
 #if PLATFORM(MAC)
     if (!_private->installedTrackingArea) {
         NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingInVisibleRect | NSTrackingCursorUpdate;
-        if (_NSRecommendedScrollerStyle() == NSScrollerStyleLegacy)
+        // if (_NSRecommendedScrollerStyle() == NSScrollerStyleLegacy)
+        if (_NSRecommendedScrollerStyle() == NSScrollerStyleLegacy // AQUAWEBKIT: part of legacy Dashboard support, as in _updateMouseoverWithEvent:.
+#if ENABLE(DASHBOARD_SUPPORT)
+            || [[self _webView] _dashboardBehavior:WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows]
+#endif
+            ) // AQUAWEBKIT: closes the condition above.
             options |= NSTrackingActiveAlways;
         else
             options |= NSTrackingActiveInKeyWindow;

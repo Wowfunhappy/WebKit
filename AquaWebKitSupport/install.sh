@@ -148,6 +148,9 @@ cp -p "$WK_STAGE_ROOT$WEBCLIP_WIDGET_PAGE" "$WEBCLIP_WIDGET_PAGE"
 cp -p "$WK_STAGE_ROOT$WEBCLIP_WIDGET_STYLE_SHEET" "$WEBCLIP_WIDGET_STYLE_SHEET"
 chown root:admin "$WEBCLIP_BINARY" "$WEBCLIP_PAGE_AGENT" "$WEBCLIP_EXTENSION_PAGE_SCRIPT" "$WEBCLIP_WIDGET_SCRIPT" "$WEBCLIP_WIDGET_PAGE" "$WEBCLIP_WIDGET_STYLE_SHEET"
 chown -R root:admin "$WEBCLIP_PAGE_BUNDLE"
+# Apple's signatures of the widget and its plug-in cover the stock files replaced above, and Dashboard
+# loads no plug-in for a widget whose signature does not match its contents.
+rm -rf "/Library/Widgets/Web Clip.wdgt/_CodeSignature" "$WEBCLIP_PLUGIN/_CodeSignature"
 echo "  installed."
 
 echo "### Done."

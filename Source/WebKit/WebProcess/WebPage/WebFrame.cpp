@@ -1515,7 +1515,13 @@ WebCore::HandleUserInputEventResult WebFrame::handleMouseEvent(const WebMouseEve
         // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one
         // of those cases where the page is not active and the mouse is not pressed, then we can fire a more
         // efficient scrollbars-only version of the event.
-        if (!(page()->corePage()->focusController().isActive() || (mouseEvent.button() != WebMouseEventButton::None)))
+        // if (!(page()->corePage()->focusController().isActive() || (mouseEvent.button() != WebMouseEventButton::None)))
+        // AQUAWEBKIT: a Dashboard widget's page takes every move (DashboardAlwaysSendsMouseEventsToAllWindows).
+        if (!(page()->corePage()->focusController().isActive() || (mouseEvent.button() != WebMouseEventButton::None)
+#if ENABLE(DASHBOARD_SUPPORT)
+            || page()->corePage()->settings().dashboardAlwaysSendsMouseEventsToAllWindows()
+#endif
+            )) // AQUAWEBKIT: closes the condition above.
             return coreLocalFrame->eventHandler().passMouseMovedEventToScrollbars(platformMouseEvent);
 #endif
         return coreLocalFrame->eventHandler().mouseMoved(platformMouseEvent);

@@ -64,7 +64,20 @@ typedef NS_ENUM(NSUInteger, WebStorageBlockingPolicy) {
 + (void)_removeOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
 @end
 
+@interface WebView (WCDashboardSPI)
+- (BOOL)_dashboardBehavior:(int)behavior;
+@end
+
+// WebKit's WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows.
+static const int WCDashboardBehaviorAlwaysSendMouseEventsToAllWindows = 0;
+
+@interface _WKFeature : NSObject
+@property (nonatomic, readonly, copy) NSString *key;
+@end
+
 @interface WKPreferences (WCWebKitSPI)
++ (NSArray<_WKFeature *> *)_features;
+- (void)_setEnabled:(BOOL)value forFeature:(_WKFeature *)feature;
 @property (nonatomic, setter=_setStandardFontFamily:) NSString *_standardFontFamily;
 @property (nonatomic, copy, setter=_setFixedPitchFontFamily:) NSString *_fixedPitchFontFamily;
 @property (nonatomic, setter=_setDefaultFontSize:) NSUInteger _defaultFontSize;

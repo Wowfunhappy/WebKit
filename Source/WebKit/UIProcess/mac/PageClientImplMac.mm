@@ -800,7 +800,13 @@ void PageClientImpl::recommendedScrollbarStyleDidChange(ScrollbarStyle newStyle)
 {
     // Now re-create a tracking area with the appropriate options given the new scrollbar style
     NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingInVisibleRect | NSTrackingCursorUpdate;
-    if (newStyle == ScrollbarStyle::AlwaysVisible)
+    // if (newStyle == ScrollbarStyle::AlwaysVisible)
+    // AQUAWEBKIT: a Dashboard widget's page tracks the mouse all the time (DashboardAlwaysSendsMouseEventsToAllWindows).
+    if (newStyle == ScrollbarStyle::AlwaysVisible
+#if ENABLE(DASHBOARD_SUPPORT)
+        || protect(protect(m_impl)->page().preferences())->dashboardAlwaysSendsMouseEventsToAllWindows()
+#endif
+        ) // AQUAWEBKIT: closes the condition above.
         options |= NSTrackingActiveAlways;
     else
         options |= NSTrackingActiveInKeyWindow;
