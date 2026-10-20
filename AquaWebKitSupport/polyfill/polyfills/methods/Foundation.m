@@ -520,11 +520,50 @@ static WKCookieChangeSubscription *wk_existingCookieSubscription(CFHTTPCookieSto
 // Both the rewritten Objective-C accessor and the CF default-store shim use this override.
 static NSHTTPCookieStorage *wk_sharedCookieStorageOverride;
 
-// The CF and Objective-C default-store accessors share the process's published jar.
+static void wk_registerCookieNotifications(NSHTTPCookieStorage *);
+
+@interface NSHTTPCookieStorage (WKApplicationCookieStorage)
+- (id)_initWithIdentifier:(NSString *)identifier private:(BOOL)isPrivate;
+@end
+
+// The jar WebKit uses as an application's default: the account jar Safari uses, or, when the
+// application's own defaults domain turns WebKitUsesSystemCookieJar off, the persistent jar cookied
+// keeps under the application's bundle identifier (its process name without one). The application's own
+// calls to the cookie APIs keep the account jar either way.
+static BOOL wk_applicationUsesSystemCookieJar(void)
+{
+    CFPropertyListRef value = CFPreferencesCopyValue(CFSTR("WebKitUsesSystemCookieJar"), kCFPreferencesCurrentApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    if (!value)
+        return YES;
+    BOOL usesSystemJar = YES;
+    if (CFGetTypeID(value) == CFBooleanGetTypeID())
+        usesSystemJar = CFBooleanGetValue(value);
+    else if (CFGetTypeID(value) == CFNumberGetTypeID() || CFGetTypeID(value) == CFStringGetTypeID())
+        usesSystemJar = [(id)value boolValue];
+    CFRelease(value);
+    return usesSystemJar;
+}
+
+static NSHTTPCookieStorage *wk_applicationCookieStorage(void)
+{
+    static NSHTTPCookieStorage *storage;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        if (wk_applicationUsesSystemCookieJar())
+            return;
+        NSString *identifier = [[NSBundle mainBundle] bundleIdentifier] ?: [[NSProcessInfo processInfo] processName];
+        storage = [[NSHTTPCookieStorage alloc] _initWithIdentifier:identifier private:NO];
+        wk_registerCookieNotifications(storage);
+    });
+    return storage;
+}
+
+// The CF and Objective-C default-store accessors share the process's published jar, else the
+// application's own.
 CFHTTPCookieStorageRef wk_sharedCookieStorage(void)
 {
     @synchronized ([NSHTTPCookieStorage class]) {
-        NSHTTPCookieStorage *storage = [[wk_sharedCookieStorageOverride retain] autorelease];
+        NSHTTPCookieStorage *storage = [[(wk_sharedCookieStorageOverride ?: wk_applicationCookieStorage()) retain] autorelease];
         return wk_cfCookieStorageOf(storage);
     }
 }
@@ -535,7 +574,6 @@ static NSHTTPCookieStorage *wk_nativeSharedCookieStorage(void)
     struct wk_original getter = wk_original_of(storageClass, @selector(sharedHTTPCookieStorage));
     return ((NSHTTPCookieStorage *(*)(id, SEL))getter.imp)(storageClass, getter.sel);
 }
-static void wk_registerCookieNotifications(NSHTTPCookieStorage *);
 
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 + (void)_setSharedHTTPCookieStorage:(NSHTTPCookieStorage *)storage
@@ -976,7 +1014,7 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
         if (wk_sharedCookieStorageOverride)
             return [[wk_sharedCookieStorageOverride retain] autorelease];
     }
-    return WK_ORIGINAL_METHOD(NSHTTPCookieStorage *, ());
+    return wk_applicationCookieStorage() ?: WK_ORIGINAL_METHOD(NSHTTPCookieStorage *, ());
 }
 - (void)setCookie:(NSHTTPCookie *)cookie
 {
@@ -1128,9 +1166,46 @@ WK_POLYFILL_ADD_METHODS(NSURLConnection)
 - (id)_initWithRequest:(NSURLRequest *)request delegate:(id)delegate usesCache:(BOOL)usesCacheFlag maxContentLength:(long long)maxContentLength startImmediately:(BOOL)startImmediately connectionProperties:(NSDictionary *)connectionProperties;
 @end
 
+// A WebKitLegacy load names no storage session and no cookie storage, which CFNetwork answers with the
+// account jar. When the application keeps its own jar (wk_applicationCookieStorage), the request names
+// that jar, so the load's Cookie header and Set-Cookie use the jar its WebKit views read.
+typedef struct _CFURLRequest *WKCFMutableURLRequestRef;
+extern CFHTTPCookieStorageRef CFURLRequestCopyHTTPCookieStorage(WKCFMutableURLRequestRef);
+extern void CFURLRequestSetHTTPCookieStorage(WKCFMutableURLRequestRef, CFHTTPCookieStorageRef);
+WK_SYSTEM_FN("CFNetwork", CFTypeRef, _CFURLRequestCopyStorageSession, (WKCFMutableURLRequestRef));
+
+static WKCFMutableURLRequestRef wk_cfMutableURLRequest(NSURLRequest *request)
+{
+    static SEL cfRequestSelector;
+    if (!cfRequestSelector)
+        cfRequestSelector = sel_registerName("_CFURLRequest");
+    return (WKCFMutableURLRequestRef)((void *(*)(id, SEL))objc_msgSend)(request, cfRequestSelector);
+}
+
+static NSURLRequest *wk_requestUsingApplicationCookieStorage(NSURLRequest *request)
+{
+    NSHTTPCookieStorage *storage = wk_applicationCookieStorage();
+    if (!storage || !request)
+        return request;
+    WKCFMutableURLRequestRef cfRequest = wk_cfMutableURLRequest(request);
+    CFHTTPCookieStorageRef named = CFURLRequestCopyHTTPCookieStorage(cfRequest);
+    CFTypeRef session = WK_SYSTEM(_CFURLRequestCopyStorageSession)(cfRequest);
+    if (named || session) {
+        if (named)
+            CFRelease(named);
+        if (session)
+            CFRelease(session);
+        return request;
+    }
+    NSMutableURLRequest *stamped = [[request mutableCopy] autorelease];
+    CFURLRequestSetHTTPCookieStorage(wk_cfMutableURLRequest(stamped), wk_cfCookieStorageOf(storage));
+    return stamped;
+}
+
 WK_POLYFILL_REPLACE_METHODS(NSURLConnection)
 - (id)_initWithRequest:(NSURLRequest *)request delegate:(id)delegate usesCache:(BOOL)usesCacheFlag maxContentLength:(long long)maxContentLength startImmediately:(BOOL)startImmediately connectionProperties:(NSDictionary *)connectionProperties
 {
+    request = wk_requestUsingApplicationCookieStorage(request);
     NSDictionary *urlConnectionProperties = connectionProperties[@"kCFURLConnectionURLConnectionProperties"];
     if (urlConnectionProperties[@"_kCFURLConnectionPropertyTimingDataOptions"]) {
         NSMutableDictionary *remaining = [[urlConnectionProperties mutableCopy] autorelease];
@@ -1143,6 +1218,25 @@ WK_POLYFILL_REPLACE_METHODS(NSURLConnection)
         connectionProperties = properties;
     }
     return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id, BOOL, long long, BOOL, NSDictionary *), request, delegate, usesCacheFlag, maxContentLength, startImmediately, connectionProperties);
+}
++ (NSData *)sendSynchronousRequest:(NSURLRequest *)request returningResponse:(NSURLResponse **)response error:(NSError **)error
+{
+    return WK_ORIGINAL_METHOD(NSData *, (NSURLRequest *, NSURLResponse **, NSError **), wk_requestUsingApplicationCookieStorage(request), response, error);
+}
+@end
+
+@interface NSURLDownload (WKPolyfill10_9DirectorySPI)
+- (id)_initWithRequest:(NSURLRequest *)request delegate:(id)delegate directory:(NSString *)directory;
+@end
+
+WK_POLYFILL_REPLACE_METHODS(NSURLDownload)
+- (instancetype)initWithRequest:(NSURLRequest *)request delegate:(id <NSURLDownloadDelegate>)delegate
+{
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id), wk_requestUsingApplicationCookieStorage(request), delegate);
+}
+- (id)_initWithRequest:(NSURLRequest *)request delegate:(id)delegate directory:(NSString *)directory
+{
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id, NSString *), wk_requestUsingApplicationCookieStorage(request), delegate, directory);
 }
 @end
 
@@ -2072,7 +2166,6 @@ WK_POLYFILL_REPLACE_METHODS(NSMutableURLRequest)
 // The request side of the flag above. Read at TASK CREATION, so a policy the embedder changes while the
 // session is alive takes effect on the next task -- which is the whole point of the storage being
 // authoritative, and is why nothing here is cached on the session.
-typedef struct _CFURLRequest *WKCFMutableURLRequestRef;
 extern void CFURLRequestSetHTTPCookieStorageAcceptPolicy(WKCFMutableURLRequestRef request, int32_t policy);
 
 static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSURLRequest *request)
@@ -2088,10 +2181,7 @@ static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSU
         return request;
 
     NSMutableURLRequest *stamped = [[request mutableCopy] autorelease];
-    static SEL cfRequestSelector;
-    if (!cfRequestSelector)
-        cfRequestSelector = sel_registerName("_CFURLRequest");
-    WKCFMutableURLRequestRef cfRequest = (WKCFMutableURLRequestRef)((void *(*)(id, SEL))objc_msgSend)(stamped, cfRequestSelector);
+    WKCFMutableURLRequestRef cfRequest = wk_cfMutableURLRequest(stamped);
     if (!cfRequest)
         return request;
     CFURLRequestSetHTTPCookieStorageAcceptPolicy(cfRequest, (int32_t)[storage cookieAcceptPolicy]);
@@ -2100,44 +2190,21 @@ static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSU
 
 // ---------------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------------
-// -[NSHTTPCookieStorage _initWithIdentifier:private:] (10.13+).
+// -[NSHTTPCookieStorage _initWithIdentifier:private:] and its NSURLCredentialStorage twin (10.13+).
 //
-// Arities read off the disassembly rather than guessed: _CFURLStorageSessionCreate uses rdi/rsi/rdx
-// (three), each Copy*Storage uses rdi/rsi (two). Shared by the cookie and credential initializers below.
-// The properties dictionary a storage session is created with. CFNetwork keys privacy off the literal
-// _kCFURLStorageSessionIsPrivate value, so build the dictionary the API actually reads -- the same key
-// upstream WebCore uses in NetworkStorageSessionCocoa. Resolved through the soft-link path because the
-// SDK stub is not a reliable guide to what 10.9's CFNetwork exports.
-static CFStringRef wk_storageSessionIsPrivateKey(void)
+// The properties a storage session is created with. CFNetwork reads privacy from the
+// _kCFURLStorageSessionIsPrivate key, as upstream WebCore's NetworkStorageSessionCocoa sets it; 10.9's
+// CFNetwork exports the key, which the 26.1 SDK's stub library lacks.
+static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate)
 {
     static CFStringRef key;
-    static bool resolved;
-    if (!resolved) {
-        CFStringRef *slot = (CFStringRef *)dlsym(RTLD_DEFAULT, "_kCFURLStorageSessionIsPrivate");
-        key = slot ? *slot : NULL;
-        resolved = true;
-    }
-    return key;
-}
-
-// Returns NULL ONLY as "could not build the contract"; callers must treat that as a hard failure, never
-// as "create the session without the key". Passing NULL properties selects CFNetwork's PERSISTENT branch,
-// so a private:YES request that fell back to NULL would silently get an on-disk, app-identifier-keyed jar
-// -- the exact defect this key was added to fix.
-static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate, bool *outFailed)
-{
-    *outFailed = false;
-    CFStringRef key = wk_storageSessionIsPrivateKey();
-    if (!key) {
-        *outFailed = true;
-        return NULL;
-    }
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        key = *(CFStringRef *)dlsym(RTLD_DEFAULT, "_kCFURLStorageSessionIsPrivate");
+    });
     const void *keys[] = { key };
     const void *values[] = { isPrivate ? kCFBooleanTrue : kCFBooleanFalse };
-    CFDictionaryRef properties = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    if (!properties)
-        *outFailed = true;
-    return properties;
+    return CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 }
 
 void wk_cookieStorageDidRemoveAllCookies(CFHTTPCookieStorageRef storage)
@@ -2180,10 +2247,9 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 
 // A null CF storage is how upstream spells "this session uses the process's shared jar" --
 // NetworkStorageSession::nsCookieStorage() maps it to +sharedHTTPCookieStorage itself, and modern
-// CFNetwork answers this initializer with the default store. 10.9 instead logs "Cannot get default
-// cookie store - using a memory store for this process" and substitutes a fresh, EMPTY in-memory store,
-// so a caller that deleted cookies from the shared jar and then flushed through the result was flushing
-// a store its deletions never touched.
+// CFNetwork answers this initializer with the default store. 10.9 logs "Cannot get default cookie store
+// - using a memory store for this process" and substitutes a fresh, empty in-memory store; this answers
+// with the shared jar, as the modern initializer does.
 WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 - (id)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)storage
 {
@@ -2200,24 +2266,11 @@ extern CFURLStorageSessionRef _CFURLStorageSessionCreate(CFAllocatorRef, CFStrin
 extern CFURLCredentialStorageRef _CFURLStorageSessionCopyCredentialStorage(CFAllocatorRef, CFURLStorageSessionRef);
 extern CFHTTPCookieStorageRef _CFURLStorageSessionCopyCookieStorage(CFAllocatorRef, CFURLStorageSessionRef);
 
-// Both parameters mean something and both are honoured, the same way the credential-storage twin below
-// honours them -- the identifier names a CFNetwork STORAGE SESSION (not a file), and private selects
-// whether that session is backed by the process's persistent state. 10.9 exports the whole pair:
-// _CFURLStorageSessionCreate makes a session of its own and _CFURLStorageSessionCopyCookieStorage takes
-// that session's cookie storage (both probed present), which is the identical mapping upstream WebKit
-// uses for identified sessions in NetworkStorageSessionCocoa. -[NSHTTPCookieStorage
-// _initWithCFHTTPCookieStorage:] then wraps the result in the ObjC class.
-//
-// Doing it this way is what makes the identifier MEAN the same thing here as everywhere else: a component
-// that names a store through _CFURLStorageSessionCreate and one that names it through this initializer
-// land on the same jar. Ignoring the arguments would be correct only for the private:YES caller WebKit
-// happens to have, and inventing a per-identifier file path would create a second, private naming scheme
-// that agrees with nothing else in the system.
-//
-// NetworkTaskCocoa::statelessCookieStorage is the private:YES caller that matters: it needs a storage
-// whose cookies are never sent with a redirected request. Without this it fell back to the SHARED storage
-// and set NSHTTPCookieAcceptPolicyNever on it -- turning cookie acceptance off process-wide.
-
+// The identifier names a CFNetwork storage session and private selects whether the session keeps its
+// state in memory or in the persistent store cookied keeps under that identifier, the mapping upstream
+// WebKit uses for identified sessions in NetworkStorageSessionCocoa. 10.9 exports _CFURLStorageSessionCreate
+// (three arguments) and _CFURLStorageSessionCopyCookieStorage (two); -[NSHTTPCookieStorage
+// _initWithCFHTTPCookieStorage:] wraps the session's jar.
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 - (id)_initWithIdentifier:(NSString *)identifier private:(BOOL)isPrivate
 {
@@ -2225,34 +2278,11 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     if (!initWithCFStorageSelector)
         initWithCFStorageSelector = sel_registerName("_initWithCFHTTPCookieStorage:");
 
-    // The session properties must carry the REAL key, not merely be non-NULL: CFNetwork's
-    // StorageSession::copyCookieStorage tests GetValue(props, _kCFURLStorageSessionIsPrivate) ==
-    // kCFBooleanTrue and takes the PERSISTENT branch otherwise, so an empty dictionary yields an
-    // on-disk, app-identifier-keyed jar that outlives the process -- the opposite of private, measured
-    // surviving across two runs.
-    bool propertiesFailed = false;
-    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate, &propertiesFailed);
-    if (propertiesFailed) {
-        // No key means the privacy contract cannot be expressed. Creating the session anyway would hand a
-        // private:YES caller a persistent jar and a private:NO caller no guarantee at all, so fail here.
-        [self release];
-        return nil;
-    }
-    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, privateProperties);
-    if (privateProperties)
-        CFRelease(privateProperties);
-
-    CFHTTPCookieStorageRef storage = session ? _CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, session) : NULL;
-    if (session)
-        CFRelease(session);
-
-    // No in-memory substitution: for private:NO that would be a jar that silently never persists, which is
-    // a fake value. A failed session is an initializer failure, reported the way the twin below reports it.
-    if (!storage) {
-        [self release];
-        return nil;
-    }
-
+    CFDictionaryRef properties = wk_storageSessionProperties(isPrivate);
+    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, properties);
+    CFRelease(properties);
+    CFHTTPCookieStorageRef storage = _CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, session);
+    CFRelease(session);
     id result = ((id (*)(id, SEL, CFHTTPCookieStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
     CFRelease(storage);
     return result;
@@ -2260,17 +2290,9 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 
 @end
 
-// -[NSURLCredentialStorage _initWithIdentifier:private:] (10.13+), the same contract one layer over:
-// credentials that belong to this data store alone and are not the process-wide set. Built the same way,
-// from primitives 10.9 exports: _CFURLStorageSessionCreate makes a storage session of its own,
-// _CFURLStorageSessionCopyCredentialStorage takes that session's credential storage, and
-// -[NSURLCredentialStorage _initWithCFURLCredentialStorage:] (probed present) wraps it.
-//
-// NOT CFURLCredentialStorageCreate, which looks like the obvious call and is the wrong one: read off the
-// disassembly it fetches _CFURLStorageSessionGetDefault and copies THAT session's storage, i.e. it hands
-// back the shared credentials — the opposite of private. Arities also read off the disassembly rather
-// than guessed: _CFURLStorageSessionCreate uses rdi/rsi/rdx (three), the copy uses rdi/rsi (two).
-
+// The same contract for credentials: _CFURLStorageSessionCopyCredentialStorage (two arguments) takes the
+// identified session's credential storage, which a private session keeps apart from the keychain-backed
+// set, and -[NSURLCredentialStorage _initWithCFURLCredentialStorage:] wraps it.
 WK_POLYFILL_ADD_METHODS(NSURLCredentialStorage)
 - (id)_initWithIdentifier:(NSString *)identifier private:(BOOL)isPrivate
 {
@@ -2278,34 +2300,11 @@ WK_POLYFILL_ADD_METHODS(NSURLCredentialStorage)
     if (!initWithCFStorageSelector)
         initWithCFStorageSelector = sel_registerName("_initWithCFURLCredentialStorage:");
 
-    // private:YES has to mean the caller does not see the process's persistent credentials, and 10.9 can
-    // express that: measured on this host, a session created with a non-NULL properties dictionary yields
-    // a credential storage reporting ZERO protection spaces, while the same call with NULL properties
-    // reports the keychain-backed set the shared storage shows. So the flag selects the properties
-    // argument -- it is not decoration, and ignoring it would have made this correct only for the
-    // private:NO caller WebKit happens to be.
-    // Same real key as the cookie twin above. The credential path happens to read any non-NULL dict as
-    // private (it tests == kCFBooleanFalse for persistent), but spelling the contract out is what makes
-    // both correct for the same reason instead of by opposite accident.
-    bool propertiesFailed = false;
-    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate, &propertiesFailed);
-    if (propertiesFailed) {
-        [self release];
-        return nil;
-    }
-    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, privateProperties);
-    if (privateProperties)
-        CFRelease(privateProperties);
-    CFURLCredentialStorageRef storage = session ? _CFURLStorageSessionCopyCredentialStorage(kCFAllocatorDefault, session) : NULL;
-    if (session)
-        CFRelease(session);
-    if (!storage) {
-        // -_initWithCFURLCredentialStorage: TRAPS on NULL (measured: SIGTRAP, exit 133), so a failure to
-        // build the storage has to come back as nil -- the ordinary "this initializer failed" answer --
-        // rather than as a dead NetworkProcess.
-        [self release];
-        return nil;
-    }
+    CFDictionaryRef properties = wk_storageSessionProperties(isPrivate);
+    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, properties);
+    CFRelease(properties);
+    CFURLCredentialStorageRef storage = _CFURLStorageSessionCopyCredentialStorage(kCFAllocatorDefault, session);
+    CFRelease(session);
     id result = ((id (*)(id, SEL, CFURLCredentialStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
     CFRelease(storage);
     return result;

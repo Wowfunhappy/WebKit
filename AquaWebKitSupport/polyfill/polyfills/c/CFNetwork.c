@@ -57,30 +57,26 @@ WK_POLYFILL_REPLACES("CFNetwork", CFHTTPCookieStorageRef, _CFHTTPCookieStorageGe
     static CFHTTPCookieStorageRef (*sharedStorage)(void);
     if (!sharedStorage)
         sharedStorage = (CFHTTPCookieStorageRef (*)(void))dlsym(RTLD_DEFAULT, "wk_sharedCookieStorage");
-    CFHTTPCookieStorageRef storage = sharedStorage ? sharedStorage() : NULL;
+    CFHTTPCookieStorageRef storage = sharedStorage();
     return storage ? storage : WK_ORIGINAL(_CFHTTPCookieStorageGetDefault)(allocator);
 }
 
 WK_POLYFILL_CONST("CFNetwork", CFStringRef, kCFURLRequestContentDecoderSkipURLCheck, CFSTR("kCFURLRequestContentDecoderSkipURLCheck"));
 
 // ---------------------------------------------------------------------------------------------------
-// CFNetwork — features absent on 10.9; callers tolerate null/no-op.
+// CFNetwork — features 10.9 lacks.
 // ---------------------------------------------------------------------------------------------------
 
 // Cross-process handoff of an identified cookie store: one process turns its storage into an opaque
 // CFData, another turns that CFData back into the same store. 10.9 lacks the identifying-data pair, but it
 // has the two halves the pair is made of -- CFHTTPCookieStorageCreateArchive and
 // CFHTTPCookieStorageCreateFromArchive, both exported (note: no leading underscore in the C names) and
-// both taking (allocator, thing), read off the disassembly. The archive is a CFArray of cookie property
-// dictionaries -- CFHTTPCookieStorageCreateFromArchive's first act is CFArrayGetCount on it -- so a
-// property list carries it across the process boundary as the CFData the API's shape requires.
-//
-// Measured on this host: an in-memory storage archives to a 5-element CFArray, serializes to 62 bytes,
-// and rehydrates into a live storage. Returning NULL here instead would be a fake value: it forces a
-// NULL check into CookieStorageUtilsCF and makes NetworkProcess skip installing the shared storage at
-// all, so the process silently runs on a different cookie jar than the one it was handed.
-// Resolved at run time, not declared extern: both live in 10.9's CFNetwork but neither is in the 26.1
-// SDK's stub library, so a link-time reference fails to build even though the call works at runtime.
+// both taking (allocator, thing), read off the disassembly. The archive is a five-element CFArray
+// describing the store: (0, accept policy, (cookies), identifier string, {urlstring} for a file-backed jar
+// or {ident, persistent} for one cookied keeps), and rebuilding from it reopens the same file or reattaches
+// to the same cookied jar. A property list carries it across the process boundary as the CFData the API's
+// shape requires.
+// Resolved at run time: both live in 10.9's CFNetwork but neither is in the 26.1 SDK's stub library.
 WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCreateArchive, (CFAllocatorRef, void *));
 WK_SYSTEM_FN("CFNetwork", void *, CFHTTPCookieStorageCreateFromArchive, (CFAllocatorRef, CFArrayRef));
 
@@ -122,11 +118,19 @@ WK_POLYFILL_ABSENT("CFNetwork", Boolean, _CFNetworkSetATSContext, (CFDataRef con
     return false;
 }
 
-// Per-storage-session cache disable (newer API). The caller guards the call; on 10.9 it is a no-op
-// (cache policy is handled through the storage session that is created without an on-disk cache).
+// A storage session carries its own URL cache (20 MB on disk, 4 MB in memory for an identified
+// session); disabling it sets both capacities of that cache to zero.
+typedef const struct _CFURLCache *CFURLCacheRef;
+extern CFURLCacheRef _CFURLStorageSessionCopyCache(CFAllocatorRef, CFURLStorageSessionRef);
+extern void CFURLCacheSetDiskCapacity(CFURLCacheRef, CFIndex);
+extern void CFURLCacheSetMemoryCapacity(CFURLCacheRef, CFIndex);
+
 WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *storageSession))
 {
-    (void)storageSession;
+    CFURLCacheRef cache = _CFURLStorageSessionCopyCache(kCFAllocatorDefault, (CFURLStorageSessionRef)storageSession);
+    CFURLCacheSetDiskCapacity(cache, 0);
+    CFURLCacheSetMemoryCapacity(cache, 0);
+    CFRelease(cache);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -156,8 +160,6 @@ WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *s
 // the storage CFHTTPCookieStorageCreateFromArchive rebuilds from an empty one is the same
 // MemoryCookieStorage with its lock in place. NetworkStorageSession::deleteAllCookies runs on a
 // dispatch queue while the main thread reads the same jar, which is the access the lock serializes.
-static const char kPrivateStorageSession[] = "CFNetwork private storage session";
-
 static const void *wk_privateCookieStorageKey(void)
 {
     static const void *key;
@@ -180,16 +182,10 @@ static Boolean wk_propertiesAskForPrivateSession(CFDictionaryRef properties)
 static CFHTTPCookieStorageRef wk_createLockedInMemoryCookieStorage(CFAllocatorRef allocator)
 {
     CFHTTPCookieStorageRef empty = WK_SYSTEM(CFHTTPCookieStorageCreateInMemory)(allocator, NULL);
-    if (!empty)
-        wk_patch_fail(kPrivateStorageSession, "CFNetwork refused an in-memory cookie storage");
     CFArrayRef archive = WK_SYSTEM(CFHTTPCookieStorageCreateArchive)(allocator, empty);
     CFRelease(empty);
-    if (!archive)
-        wk_patch_fail(kPrivateStorageSession, "an empty cookie storage did not archive");
     CFHTTPCookieStorageRef storage = (CFHTTPCookieStorageRef)WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive)(allocator, archive);
     CFRelease(archive);
-    if (!storage)
-        wk_patch_fail(kPrivateStorageSession, "CFNetwork refused to rebuild a cookie storage from its archive");
     return storage;
 }
 
