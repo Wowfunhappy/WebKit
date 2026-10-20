@@ -1,7 +1,7 @@
 # AquaWebKitSupport
 
 Everything that makes this WebKit fork build and run on **macOS 10.9.5 Mavericks**
-with the system-installed **Safari 7.0.6**, or Apple's Safari 9.1.3 for Mavericks, kept
+with the system-installed **Safari 7.0.6**, or Apple's Safari 7.1.8 or 9.1.3 for Mavericks, kept
 self-contained so a fresh clone *is* the build environment.
 
 The build runs on a 10.9 host with a modern compiler (clang-22) against a modern
@@ -137,15 +137,15 @@ and AppKit headers ahead of the SDK's. The headers keep Apple's availability ann
 calls warn under `-Wunguarded-availability` and link weakly. The i386 slice of every framework
 is stock 10.9's, whose API is the 10.9 SDK's.
 
-## Safari 9
+## Safari 7.1.8 and 9.1.3
 
-Safari 9.1.3 for Mavericks keeps its own WebKit 601 in `/System/Library/StagedFrameworks/Safari` and
-reaches it through `DYLD_VERSIONED_FRAMEWORK_PATH`, which picks a staged framework only when it is
-newer than the installed one; this port's are, so Safari 9 runs on them with nothing of Apple's
-changed. The installed layout is the one Apple shipped 601 in, so Safari 9's binds resolve (see
-`docs/MAVERICKS-WEBKIT-ABI-REFERENCE.md`). Its Web Inspector is the same classic frontend Safari 7
-gets, though Safari 9 stages a newer one. Safari 9 checks extension signatures that Safari 7 does
-not, on its own WebKit as on this one, so an extension Safari 7 loads may not load there.
+Safari 7.1.8 and 9.1.3 for Mavericks keep their own WebKit (600 and 601) in
+`/System/Library/StagedFrameworks/Safari` and reach it through `DYLD_VERSIONED_FRAMEWORK_PATH`, which
+picks a staged framework only when it is newer than the installed one; this port's are, so either
+Safari runs on them with nothing of Apple's changed. The installed layout is the one Apple shipped 601
+in, so their binds resolve (see `docs/MAVERICKS-WEBKIT-ABI-REFERENCE.md`). Their Web Inspector is the
+same classic frontend Safari 7.0.6 gets, though each stages a newer one. Both load their own staged
+`Safari.framework`, not the one in `/System/Library/PrivateFrameworks`.
 
 ## Playing audio and video files in the tab
 
