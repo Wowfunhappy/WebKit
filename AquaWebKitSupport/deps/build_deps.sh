@@ -1460,6 +1460,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-audiodecoder-reset-subframe-samples.patch" ) \
       || { echo "gst-plugins-base audiodecoder subframe-reset patch failed to apply"; exit 1; }
+    # decodebin3: keep an input stream that already delivered its data when another input unblocks. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin3-keep-unblocked-eos-stream.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin3-keep-unblocked-eos-stream.patch" ) \
+      || { echo "gst-plugins-base decodebin3 unblocked-EOS patch failed to apply"; exit 1; }
     # video-format: 2-bit alpha unpacks to the full 16-bit range. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" ) \

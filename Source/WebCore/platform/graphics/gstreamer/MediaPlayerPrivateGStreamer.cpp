@@ -718,6 +718,17 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
     seekFlags = static_cast<GstSeekFlags>(GST_SEEK_FLAG_SEGMENT | GST_SEEK_FLAG_ACCURATE);
     return gst_element_send_event(m_pipeline.get(), gst_event_new_seek(rate, GST_FORMAT_TIME, seekFlags, GST_SEEK_TYPE_SET, seekStart, GST_SEEK_TYPE_SET, seekStop));
     */
+    // AQUAWEBKIT: a demuxer that handles no segment seek (adaptivedemux2, matroskademux in push mode) refuses the whole
+    // seek carrying the flag. The media then loops from its end of stream, as Ogg does: the seek is sent again as the
+    // plain flushing seek it stands for, except play()'s initial segment seek, which has no flushing counterpart.
+    if (!result && (seekFlags & GST_SEEK_FLAG_SEGMENT)) {
+        GST_DEBUG_OBJECT(pipeline(), "[Seek] Segment seek refused, the media loops from its end of stream");
+        m_isSegmentSeekAllowed = false;
+        if (!isSegment) {
+            seekFlags = static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE);
+            result = gst_element_send_event(m_pipeline.get(), gst_event_new_seek(rate, GST_FORMAT_TIME, seekFlags, GST_SEEK_TYPE_SET, seekStart, GST_SEEK_TYPE_SET, seekStop));
+        }
+    }
     return result; // AQUAWEBKIT: as above.
 }
 
