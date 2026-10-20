@@ -149,11 +149,24 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
         });
     }
 
+    void continueAfterEnd()
+    {
+        if (!inputCompleted || interrupted.exchange(true) || stopped)
+            return;
+        callOnMainThread([self = shared_from_this()] {
+            if (!self->stopped)
+                self->callbacks.interrupted();
+        });
+    }
+
     void streamEvent(Track& track, GstEvent* event)
     {
         std::lock_guard lock(eventLock);
-        if (inputCompleted)
+        if (inputCompleted) {
+            if (GST_EVENT_TYPE(event) == GST_EVENT_STREAM_START)
+                continueAfterEnd();
             return;
+        }
         if (GST_EVENT_TYPE(event) == GST_EVENT_STREAM_START) {
             // A selected track starts a new stream before its segment arrives.
             if (track.initialized && !interrupted.exchange(true)) {
@@ -890,13 +903,28 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
             }, new Check { shared_from_this(), i }, [](gpointer data) { delete static_cast<Check*>(data); });
         }
         auto destroy = +[](gpointer data, GClosure*) { delete static_cast<std::shared_ptr<Impl>*>(data); };
-        auto topologyChanged = +[](GstElement*, GstPad* pad, gpointer data) {
+        auto padAddedToSink = +[](GstElement*, GstPad* pad, gpointer data) {
+            auto self = *static_cast<std::shared_ptr<Impl>*>(data);
+            if (strcmp(GST_PAD_NAME(pad), "video_sink") && strcmp(GST_PAD_NAME(pad), "audio_sink"))
+                return;
+            if (!self->inputCompleted) {
+                self->fail();
+                return;
+            }
+            gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, [](GstPad*, GstPadProbeInfo* info, gpointer data) -> GstPadProbeReturn {
+                if (GST_EVENT_TYPE(gst_pad_probe_info_get_event(info)) != GST_EVENT_STREAM_START)
+                    return GST_PAD_PROBE_OK;
+                static_cast<std::shared_ptr<Impl>*>(data)->get()->continueAfterEnd();
+                return GST_PAD_PROBE_REMOVE;
+            }, new std::shared_ptr<Impl>(WTF::move(self)), [](gpointer data) { delete static_cast<std::shared_ptr<Impl>*>(data); });
+        };
+        auto padRemovedFromSink = +[](GstElement*, GstPad* pad, gpointer data) {
             auto self = *static_cast<std::shared_ptr<Impl>*>(data);
             if (!self->inputCompleted && (!strcmp(GST_PAD_NAME(pad), "video_sink") || !strcmp(GST_PAD_NAME(pad), "audio_sink")))
                 self->fail();
         };
-        padAdded = g_signal_connect_data(playbackSink.get(), "pad-added", G_CALLBACK(topologyChanged), new std::shared_ptr<Impl>(shared_from_this()), destroy, G_CONNECT_DEFAULT);
-        padRemoved = g_signal_connect_data(playbackSink.get(), "pad-removed", G_CALLBACK(topologyChanged), new std::shared_ptr<Impl>(shared_from_this()), destroy, G_CONNECT_DEFAULT);
+        padAdded = g_signal_connect_data(playbackSink.get(), "pad-added", G_CALLBACK(padAddedToSink), new std::shared_ptr<Impl>(shared_from_this()), destroy, G_CONNECT_DEFAULT);
+        padRemoved = g_signal_connect_data(playbackSink.get(), "pad-removed", G_CALLBACK(padRemovedFromSink), new std::shared_ptr<Impl>(shared_from_this()), destroy, G_CONNECT_DEFAULT);
         sinkRemoved = g_signal_connect_data(playback, "deep-element-removed", G_CALLBACK(+[](GstBin*, GstBin*, GstElement* element, gpointer data) {
             auto self = *static_cast<std::shared_ptr<Impl>*>(data);
             if (!self->inputCompleted) {

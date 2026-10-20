@@ -46,6 +46,9 @@ int main(int argc, char** argv)
         return 2;
     bool done = false;
     bool failed = false;
+    bool reachedEnd = false;
+    bool continuedAfterEnd = false;
+    bool expectContinuation = getenv("CAPTURE_POST_EOS_STREAM_START");
     unsigned count = 0;
     uint64_t bytes = 0;
     double lastEnd = 0;
@@ -76,8 +79,20 @@ int main(int argc, char** argv)
             else
                 completion();
         },
-        [&] { done = true; },
-        [&] { fprintf(stderr, "Unexpected capture interruption\n"); failed = done = true; },
+        [&] {
+            if (expectContinuation)
+                reachedEnd = true;
+            else
+                done = true;
+        },
+        [&] {
+            if (expectContinuation && reachedEnd) {
+                continuedAfterEnd = done = true;
+                return;
+            }
+            fprintf(stderr, "Unexpected capture interruption\n");
+            failed = done = true;
+        },
         [&] { fprintf(stderr, "Capture failure\n"); failed = done = true; }
     }, true, { });
     if (!capture)
@@ -113,12 +128,34 @@ int main(int argc, char** argv)
     auto report = started + std::chrono::seconds(30);
     bool stalled = false;
     bool cancelled = false;
+    bool continuationSent = false;
     unsigned stallSeconds = getenv("CAPTURE_MAIN_STALL") ? atoi(getenv("CAPTURE_MAIN_STALL")) : 0;
     while ((!done || !deliveries.empty()) && std::chrono::steady_clock::now() < deadline) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, .02, true);
         while (!deliveries.empty() && deliveries.front().ready <= std::chrono::steady_clock::now()) {
             deliveries.front().completion();
             deliveries.pop_front();
+        }
+        if (expectContinuation && reachedEnd && !continuationSent) {
+            continuationSent = true;
+            auto* sink = gst_bin_get_by_name(GST_BIN(playback), "ps");
+            GstElement* selected = nullptr;
+            g_object_get(sink, "video-sink", &selected, nullptr);
+            if (!selected)
+                g_object_get(sink, "audio-sink", &selected, nullptr);
+            auto* pad = selected ? gst_element_get_static_pad(selected, "sink") : nullptr;
+            auto* peer = pad ? gst_pad_get_peer(pad) : nullptr;
+            auto* event = gst_event_new_stream_start("post-eos-stream");
+            gst_event_set_group_id(event, 2);
+            if (!peer || !gst_pad_push_event(peer, event))
+                failed = done = true;
+            if (peer)
+                gst_object_unref(peer);
+            if (pad)
+                gst_object_unref(pad);
+            if (selected)
+                gst_object_unref(selected);
+            gst_object_unref(sink);
         }
         if (stallSeconds && !stalled && std::chrono::steady_clock::now() - started > std::chrono::seconds(5)) {
             stalled = true;
@@ -142,7 +179,7 @@ int main(int argc, char** argv)
     gst_object_unref(playback);
     for (unsigned i = 0; i < 10; ++i)
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, .02, true);
-    bool success = !failed && done && count && (!getenv("CAPTURE_CANCEL_AFTER_STALL") || cancelled);
+    bool success = !failed && done && count && (!getenv("CAPTURE_CANCEL_AFTER_STALL") || cancelled) && (!expectContinuation || continuedAfterEnd);
     fprintf(stderr, "%s: %u fragments, %.3f seconds, %llu bytes\n", success ? "PASS" : "FAIL", count, lastEnd, static_cast<unsigned long long>(bytes));
     return !success;
 }

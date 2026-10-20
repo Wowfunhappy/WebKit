@@ -10,7 +10,7 @@ import shlex
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['all', 'video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps'], default='all')
+parser.add_argument('--case', choices=['all', 'video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps', 'post-eos'], default='all')
 parser.add_argument('--seconds', type=int, default=20)
 parser.add_argument('--skip-build', action='store_true')
 parser.add_argument('--main-stall', type=int, default=0, help='Block main-thread delivery after five seconds')
@@ -65,7 +65,7 @@ for directory in (gst, jsc):
 env = dict(os.environ, CAPTURE_MAIN_STALL=str(args.main_stall), CAPTURE_CONSUMER_DELAY=str(args.consumer_delay), DYLD_LIBRARY_PATH=str(libs), GST_REGISTRY_FORK='no', GST_PLUGIN_SYSTEM_PATH_1_0=str(root / 'AquaWebKitSupport/deps/build/lib/gstreamer-1.0'))
 if args.cancel_after_stall:
     env['CAPTURE_CANCEL_AFTER_STALL'] = '1'
-cases = ['video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps'] if args.case == 'all' else [args.case]
+cases = ['video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps', 'post-eos'] if args.case == 'all' else [args.case]
 for case in cases:
     video_seconds = 4 if case == 'audio-tail' else args.seconds
     audio_seconds = 4 if case == 'video-tail' else args.seconds
@@ -86,4 +86,6 @@ for case in cases:
     case_env = dict(env)
     if case == 'initial-gaps':
         case_env['CAPTURE_INITIAL_GAPS'] = '1'
+    if case == 'post-eos':
+        case_env['CAPTURE_POST_EOS_STREAM_START'] = '1'
     subprocess.run([str(out / 'test'), pipeline, str(limit)], env=case_env, timeout=limit + 30, check=True)

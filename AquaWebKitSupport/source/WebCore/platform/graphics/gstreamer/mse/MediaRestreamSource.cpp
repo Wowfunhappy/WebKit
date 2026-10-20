@@ -564,7 +564,8 @@ void MediaRestreamSource::startCapture()
                             source->startCapture();
                             return;
                         }
-                        source->finishCapture();
+                        if (source->m_element->ended())
+                            source->finishCapture();
                     });
                 });
             }

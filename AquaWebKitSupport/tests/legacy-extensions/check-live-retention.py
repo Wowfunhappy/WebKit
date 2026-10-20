@@ -37,7 +37,8 @@ def windows():
 
 def playlist(url):
     text = read(url).decode()
-    assert '#EXT-X-PLAYLIST-TYPE:EVENT' in text, text
+    ended = '#EXT-X-ENDLIST' in text
+    assert ('#EXT-X-PLAYLIST-TYPE:VOD' if ended else '#EXT-X-PLAYLIST-TYPE:EVENT') in text, text
     durations = [float(value) for value in re.findall(r'^#EXTINF:([^,]+),', text, re.M)]
     assert durations and sum(durations) > 0, durations
     assert all(0 < value and round(value) <= 3 for value in durations), durations
