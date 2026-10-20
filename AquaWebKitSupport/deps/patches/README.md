@@ -205,6 +205,20 @@ fdkaacdec on HE-AAC, which hands out each frame's samples as subframes: a flushi
 produced output starting at 4.876 s with "Got data flow before segment event". The reset clears
 the count with the frames it belongs to.
 
+## gst-plugins-base-audiodecoder-queued-gap-ownership.patch
+
+**Target:** gst-plugins-base 1.28.7, `gst-libs/gst/audio/gstaudiodecoder.c` (unchanged on GStreamer main)
+
+`gst_audio_decoder_handle_gap()` queues a GAP that arrives while a frame is only partly pushed as
+subframes (`subframe_samples != 0`), so it goes out after that frame's data. It appends the event to
+`pending_events` and then also unrefs it, so the queue holds a pointer it owns no reference to. When
+the frame finishes, `send_pending_events()` pushes the freed event and the push frees it again (a
+flush drops it twice the same way): WebContent aborted on an HLS stream with "pointer being freed
+was not allocated" in `_gst_event_free` under `gst_audio_decoder_finish_frame_or_subframe()`. Only a
+subclass that finishes subframes reaches the branch; fdkaacdec does under
+gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch. The queue keeps the reference the caller
+handed over, as it does for the SEGMENT and other serialized events the same function queues.
+
 ## gst-plugins-base-decodebin3-keep-unblocked-eos-stream.patch
 
 **Target:** gst-plugins-base 1.28.7, `gst/playback/gstdecodebin3.c`
