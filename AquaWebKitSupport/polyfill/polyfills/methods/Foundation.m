@@ -527,12 +527,12 @@ static void wk_registerCookieNotifications(NSHTTPCookieStorage *);
 @end
 
 // The jar WebKit uses as an application's default: the account jar Safari uses, or, when the
-// application's own defaults domain turns WebKitUsesSystemCookieJar off, the persistent jar cookied
+// application's own defaults domain turns AquaWebKitUsesSystemCookieJar off, the persistent jar cookied
 // keeps under the application's bundle identifier (its process name without one). The application's own
 // calls to the cookie APIs keep the account jar either way.
 static BOOL wk_applicationUsesSystemCookieJar(void)
 {
-    CFPropertyListRef value = CFPreferencesCopyValue(CFSTR("WebKitUsesSystemCookieJar"), kCFPreferencesCurrentApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    CFPropertyListRef value = CFPreferencesCopyValue(CFSTR("AquaWebKitUsesSystemCookieJar"), kCFPreferencesCurrentApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
     if (!value)
         return YES;
     BOOL usesSystemJar = YES;

@@ -187,7 +187,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.reply(json.dumps({k.lower(): v for k, v in self.headers.items()}), 'application/json')
         # Top-level navigations whose download or display display-or-download.safariextension decides: /inline/ is
         # the extension's, /plain/ is not. The PDFs need the cookie /inline/login sets and send no CORS headers.
-        # Media files download unless WebKitPlayMediaFilesInline is on, whatever their Content-Disposition.
+        # Media files download unless AquaWebKitPlayMediaFilesInline is on, whatever their Content-Disposition.
         if path.startswith('/inline/login'):
             return self.reply('ok', headers=[('Set-Cookie', 'pdf=1; Path=/; Max-Age=600')])
         if path.startswith('/inline/') or path.startswith('/plain/'):

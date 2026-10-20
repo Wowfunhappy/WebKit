@@ -10299,11 +10299,11 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
             if (!frame->isMainFrame() && MIMETypeRegistry::isSupportedModelMIMEType(navigationResponse->response().mimeType()))
                 return true;
             // AQUAWEBKIT: a main-frame navigation to a raw audio/video resource downloads unless the
-            // app's or the global user default WebKitPlayMediaFilesInline is on (#200). Subframe loads,
+            // app's or the global user default AquaWebKitPlayMediaFilesInline is on (#200). Subframe loads,
             // <object>/<embed> and WKPage/WKBundlePageCanShowMIMEType keep
             // MIMETypeRegistry::canShowMIMEType's answer and still render a MediaDocument.
             if (policyAction == PolicyAction::Use && frame->isMainFrame() && MIMETypeRegistry::isSupportedMediaMIMEType(navigationResponse->response().mimeType())
-                && !CFPreferencesGetAppBooleanValue(CFSTR("WebKitPlayMediaFilesInline"), kCFPreferencesCurrentApplication, nullptr))
+                && !CFPreferencesGetAppBooleanValue(CFSTR("AquaWebKitPlayMediaFilesInline"), kCFPreferencesCurrentApplication, nullptr))
                 return true;
             if (policyAction != PolicyAction::Use || process->lockdownMode() != WebProcessProxy::LockdownMode::Enabled)
                 return false;
