@@ -461,11 +461,11 @@ void ProcessLauncher::tryFinishLaunchingProcess(ASCIILiteral name, Function<void
     }
 
 #if PLATFORM(MAC)
-    // AQUAWEBKIT (#201): the service's JavaScriptCore takes its options from this app's JSCOptions user
+    // AQUAWEBKIT (#201): the service's JavaScriptCore takes its options from this app's AquaWebKitJSCOptions user
     // default (Options.cpp), which an empty string leaves unset.
-    RetainPtr jscOptionsUserDefault = adoptCF(CFPreferencesCopyAppValue(CFSTR("JSCOptions"), kCFPreferencesCurrentApplication));
+    RetainPtr jscOptionsUserDefault = adoptCF(CFPreferencesCopyAppValue(CFSTR("AquaWebKitJSCOptions"), kCFPreferencesCurrentApplication));
     bool hasJSCOptionsUserDefault = jscOptionsUserDefault && CFGetTypeID(jscOptionsUserDefault.get()) == CFStringGetTypeID();
-    xpc_dictionary_set_string(bootstrapMessage.get(), "JSCOptions", hasJSCOptionsUserDefault ? String(static_cast<CFStringRef>(jscOptionsUserDefault.get())).utf8().data() : "");
+    xpc_dictionary_set_string(bootstrapMessage.get(), "AquaWebKitJSCOptions", hasJSCOptionsUserDefault ? String(static_cast<CFStringRef>(jscOptionsUserDefault.get())).utf8().data() : "");
 #endif
 
     xpc_dictionary_set_string(bootstrapMessage.get(), "message-name", "bootstrap");

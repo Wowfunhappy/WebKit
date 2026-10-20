@@ -214,8 +214,8 @@ void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLoc
     RELEASE_ASSERT(!g_jscConfig.initializeHasBeenCalled);
 
 #if PLATFORM(MAC)
-    // AQUAWEBKIT (#201): the client app's JSCOptions user default (ProcessLauncherCocoa.mm).
-    if (const char* jscOptionsUserDefault = xpc_dictionary_get_string(initializerMessage, "JSCOptions"))
+    // AQUAWEBKIT (#201): the client app's AquaWebKitJSCOptions user default (ProcessLauncherCocoa.mm).
+    if (const char* jscOptionsUserDefault = xpc_dictionary_get_string(initializerMessage, "AquaWebKitJSCOptions"))
         JSC::Options::setJSCOptionsUserDefault(jscOptionsUserDefault);
 #endif
 

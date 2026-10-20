@@ -54,9 +54,9 @@
 #endif
 
 #if PLATFORM(COCOA)
-#include <CoreFoundation/CoreFoundation.h> // AQUAWEBKIT (#201): the JSCOptions user default.
+#include <CoreFoundation/CoreFoundation.h> // AQUAWEBKIT (#201): the AquaWebKitJSCOptions user default.
 #include <crt_externs.h>
-#include <wtf/RetainPtr.h> // AQUAWEBKIT (#201): the JSCOptions user default.
+#include <wtf/RetainPtr.h> // AQUAWEBKIT (#201): the AquaWebKitJSCOptions user default.
 #endif
 
 #if ENABLE(JIT_CAGE)
@@ -77,7 +77,7 @@ bool useOSLogOptionHasChanged = false;
 Options::SandboxPolicy Options::machExceptionHandlerSandboxPolicy = Options::SandboxPolicy::Unknown;
 
 #if PLATFORM(COCOA)
-// AQUAWEBKIT (#201): the JSCOptions user default Options::setJSCOptionsUserDefault() passes.
+// AQUAWEBKIT (#201): the AquaWebKitJSCOptions user default Options::setJSCOptionsUserDefault() passes.
 static std::optional<String>& jscOptionsUserDefault()
 {
     static NeverDestroyed<std::optional<String>> value;
@@ -1132,15 +1132,15 @@ void Options::initializeWithOptionsCustomization(const ScopedLambda<void()>& opt
                 }
             }
 #if PLATFORM(COCOA)
-            // AQUAWEBKIT (#201): the app's or the global user default JSCOptions holds options for the processes
+            // AQUAWEBKIT (#201): the app's or the global user default AquaWebKitJSCOptions holds options for the processes
             // that run JavaScriptCore for that app, as name=value entries separated by white space or commas,
-            // e.g. `defaults write -g JSCOptions "useJIT=false"`. A WebKit helper process uses its client app's
+            // e.g. `defaults write -g AquaWebKitJSCOptions "useJIT=false"`. A WebKit helper process uses its client app's
             // value (setJSCOptionsUserDefault). An option a JSC_ variable sets keeps that value. The entries are
             // set after the variables, so only the recompute at the end of initialization derives their
             // dependent options.
             auto defaultsOptions = jscOptionsUserDefault().value_or(String());
             if (!jscOptionsUserDefault()) {
-                if (auto value = adoptCF(CFPreferencesCopyAppValue(CFSTR("JSCOptions"), kCFPreferencesCurrentApplication)); value && CFGetTypeID(value.get()) == CFStringGetTypeID())
+                if (auto value = adoptCF(CFPreferencesCopyAppValue(CFSTR("AquaWebKitJSCOptions"), kCFPreferencesCurrentApplication)); value && CFGetTypeID(value.get()) == CFStringGetTypeID())
                     defaultsOptions = static_cast<CFStringRef>(value.get());
             }
             if (!defaultsOptions.isEmpty()) {
@@ -1169,7 +1169,7 @@ void Options::initializeWithOptionsCustomization(const ScopedLambda<void()>& opt
                     if (isSetByVariable)
                         continue;
                     if (!Options::setOption(entry.utf8().data(), false)) {
-                        dataLog("ERROR: invalid option in the JSCOptions user default: ", entry, "\n");
+                        dataLog("ERROR: invalid option in the AquaWebKitJSCOptions user default: ", entry, "\n");
                         hasBadOptions = true;
                     }
                 }

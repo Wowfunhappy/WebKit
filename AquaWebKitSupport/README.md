@@ -141,42 +141,42 @@ is stock 10.9's, whose API is the 10.9 SDK's.
 A tab downloads an audio or video file it navigates to, whatever the server's `Content-Disposition`
 says; the same file still plays in a frame or an `<embed>`. To play such files in the tab instead:
 
-    defaults write -g WebKitPlayMediaFilesInline -bool true
+    defaults write -g AquaWebKitPlayMediaFilesInline -bool true
 
 `-g` covers every app; an app's own domain (`defaults write com.apple.Safari …`) covers that app.
-The next navigation uses the new value. `defaults delete -g WebKitPlayMediaFilesInline` restores
+The next navigation uses the new value. `defaults delete -g AquaWebKitPlayMediaFilesInline` restores
 downloading.
 
 ## Keeping an app's cookies apart from Safari's
 
 On 10.9 every app's web views share Safari's cookies, through the system's account-wide cookie jar. An
-app whose defaults turn `WebKitUsesSystemCookieJar` off keeps its own jar for its web views instead:
+app whose defaults turn `AquaWebKitUsesSystemCookieJar` off keeps its own jar for its web views instead:
 the one the system's cookie daemon keeps under the app's bundle identifier (the process name for a
 command-line tool), `~/Library/Cookies/<bundle identifier>.binarycookies`:
 
-    defaults write com.example.App WebKitUsesSystemCookieJar -bool false
+    defaults write com.example.App AquaWebKitUsesSystemCookieJar -bool false
 
 Quit and reopen the app for the change to take effect. `defaults delete com.example.App
-WebKitUsesSystemCookieJar` shares Safari's cookies again.
+AquaWebKitUsesSystemCookieJar` shares Safari's cookies again.
 
 ## JavaScriptCore options
 
 Every 64-bit process that runs this JavaScriptCore for an app (the app itself, including Safari's
 extension pages, and the web content, networking and GPU processes it starts) reads that app's user
-default `JSCOptions` once, as JavaScriptCore starts. It holds JavaScriptCore options as `name=value`
+default `AquaWebKitJSCOptions` once, as JavaScriptCore starts. It holds JavaScriptCore options as `name=value`
 pairs separated by spaces or commas, named as the `JSC_` environment variables are without the
 prefix; those variables override it. To run JavaScript without the JIT in every app:
 
-    defaults write -g JSCOptions "useJIT=false"
+    defaults write -g AquaWebKitJSCOptions "useJIT=false"
 
 An app's own domain covers that app, and its value replaces the global one rather than adding to it:
 
-    defaults write com.apple.Safari JSCOptions "useJIT=false"
+    defaults write com.apple.Safari AquaWebKitJSCOptions "useJIT=false"
 
 Lockdown Mode's JavaScript settings are `useJIT=false useGenerationalGC=false useConcurrentGC=false
 useLLIntICs=false useWasm=false useZombieMode=true allowDoubleShape=false alwaysHaveABadTime=true`;
 any of them can be set alone. Processes started afterwards use the new value, so quit and reopen the
-app. `defaults delete -g JSCOptions` (or the app's domain) restores the defaults.
+app. `defaults delete -g AquaWebKitJSCOptions` (or the app's domain) restores the defaults.
 
 ## `polyfill/build/` contents
 
