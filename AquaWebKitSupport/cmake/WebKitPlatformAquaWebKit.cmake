@@ -5,8 +5,8 @@
 # AquaWebKitSupport/cmake/WebCorePlatformAquaWebKit.cmake for the rationale.
 
 # SOVERSION "A" pins the standard Versions/A framework layout, matching WebCore/JavaScriptCore/
-# WebKitLegacy, the nested XPCServices (which build into Versions/A/XPCServices) and Safari 7's
-# absolute LC_LOAD_DYLIB of .../WebKit2.framework/Versions/A/WebKit2. The dylib version follows
+# WebKitLegacy, the nested XPCServices (which build into Versions/A/XPCServices) and the absolute
+# LC_LOAD_DYLIB 10.9 binaries make of .../WebKit.framework/Versions/A/WebKit. The dylib version follows
 # WEBKIT_MAC_VERSION from the upstream version file.
 #
 # libpolyfill_webkit.a carries the RFC 6455 WebSocket client that provides
@@ -16,17 +16,10 @@
 # _OBJC_CLASS_$_NSURLSessionWebSocketMessage import. It is a SEPARATE archive from libpolyfill_methods.a
 # so these ObjC classes are registered exactly once, here, rather than in every image that links the
 # shared archive.
-# com.apple.WebKit2 is the identity this port installs WK2 under (stage-frameworks.sh renames the
-# framework to WebKit2.framework, because Safari 7's API contract gives the WebKit.framework name and
-# the com.apple.WebKit identity to WebKitLegacy). Stamping it at build time makes the build tree answer
-# the same CFBundleGetBundleWithIdentifier lookups the installed tree does -- XPCServiceMain.mm finds
-# the network and web-content entry points that way, and a build-tree WebKit2 without this identity
-# hands CFBundleGetFunctionPointerForName a null bundle, so every service dies at launch.
 macro(_AQUAWEBKIT_FINALIZE_WEBKIT_TARGET _target)
     set_target_properties(${_target} PROPERTIES
         LINKER_LANGUAGE CXX
-        SOVERSION "A"
-        MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit2")
+        SOVERSION "A")
     _AQUAWEBKIT_LINK_LIBWEBRTC(${_target})
     if (APPLE)
         target_link_options(${_target} PRIVATE

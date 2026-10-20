@@ -3966,6 +3966,13 @@ typedef void (*WK109StorageManagerDidClearFunction)(WKErrorRef, void*);
 WK_EXPORT void WKPluginSiteDataManagerClearAllSiteData(WKWebsiteDataStoreRef, void*, WK109StorageManagerDidClearFunction);
 WK_EXPORT void WKPluginSiteDataManagerClearSiteData(WKWebsiteDataStoreRef, WKArrayRef, uint64_t, uint64_t, void*, WK109StorageManagerDidClearFunction);
 WK_EXPORT void WKPluginSiteDataManagerGetSitesWithData(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+// AQUAWEBKIT: WebKit 601's origin-data manager (removed upstream by 169880@main), which Safari 9 binds.
+// Its manager is the context's website data store; the type bits are 601's WKOriginDataTypes.
+typedef uint32_t WK601OriginDataTypes;
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetOriginDataManager(WKContextRef);
+WK_EXPORT void WKOriginDataManagerGetOrigins(WKWebsiteDataStoreRef, WK601OriginDataTypes, void*, WK109StorageManagerGetOriginsFunction);
+WK_EXPORT void WKOriginDataManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef, WK601OriginDataTypes, WKSecurityOriginRef, void*, WK109StorageManagerDidClearFunction);
+WK_EXPORT void WKOriginDataManagerDeleteAllEntries(WKWebsiteDataStoreRef, WK601OriginDataTypes, void*, WK109StorageManagerDidClearFunction);
 WK_EXPORT bool WKBundleBackForwardListItemIsInPageCache(void*);
 WK_EXPORT void WKBundlePageSetDiagnosticLoggingClient(void*, void*);
 }
@@ -4077,6 +4084,27 @@ void WKPluginSiteDataManagerClearSiteData(WKWebsiteDataStoreRef, WKArrayRef, uin
         callback(nullptr, context);
 }
 void WKPluginSiteDataManagerGetSitesWithData(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
+
+// 601 served IndexedDB through these whatever types it was passed.
+WKWebsiteDataStoreRef WKContextGetOriginDataManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+void WKOriginDataManagerGetOrigins(WKWebsiteDataStoreRef store, WK601OriginDataTypes, void* context, WK109StorageManagerGetOriginsFunction callback)
+{
+    wk109AnswerWithOrigins(store, WebKit::WebsiteDataType::IndexedDBDatabases, context, callback);
+}
+void WKOriginDataManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef store, WK601OriginDataTypes, WKSecurityOriginRef origin, void* context, WK109StorageManagerDidClearFunction callback)
+{
+    WebKit::WebsiteDataRecord record;
+    record.add(WebKit::WebsiteDataType::IndexedDBDatabases, protect(toImpl(origin))->securityOrigin());
+    protect(toImpl(store))->removeData(WebKit::WebsiteDataType::IndexedDBDatabases, { record }, [context, callback] {
+        callback(nullptr, context);
+    });
+}
+void WKOriginDataManagerDeleteAllEntries(WKWebsiteDataStoreRef store, WK601OriginDataTypes, void* context, WK109StorageManagerDidClearFunction callback)
+{
+    protect(toImpl(store))->removeData(WebKit::WebsiteDataType::IndexedDBDatabases, -WallTime::infinity(), [context, callback] {
+        callback(nullptr, context);
+    });
+}
 bool WKBundleBackForwardListItemIsInPageCache(void*) { return false; }
 void WKBundlePageSetDiagnosticLoggingClient(void*, void*) {}
 }

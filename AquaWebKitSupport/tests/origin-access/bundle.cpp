@@ -17,7 +17,7 @@ extern "C" __attribute__((visibility("default"))) int WKOriginAccessProbe(int op
     if (initializedAsNativeBundle != !!expectsNativeBundle)
         return 102;
     wk_image image;
-    if (!wk_find_image("/WebKit2.framework/Versions/A/WebKit2", &image))
+    if (!wk_find_image("/WebKit.framework/Versions/A/WebKit", &image))
         return 100;
     auto singleton = reinterpret_cast<void*(*)()>(wk_symbol_in_image(&image, "__ZN6WebKit10WebProcess9singletonEv"));
     auto network = reinterpret_cast<WebKit::NetworkProcessConnection&(*)(void*)>(wk_symbol_in_image(&image, "__ZN6WebKit10WebProcess30ensureNetworkProcessConnectionEv"));

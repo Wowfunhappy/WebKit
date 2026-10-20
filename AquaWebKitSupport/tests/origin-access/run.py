@@ -48,13 +48,13 @@ with open("/tmp/wk_build.log", "a") as log:
         objects.append(str(obj))
     compile(base + ["-c", str(root / "AquaWebKitSupport/polyfill/polyfills/shared/wk_symbols.c"), "-o", str(out / "symbols.o")])
     compile(base + ["-bundle", *objects, str(out / "symbols.o"), "-o", str(bundle / "Contents/MacOS/OriginAccess"),
-        "/System/Library/PrivateFrameworks/WebKit2.framework/WebKit2",
+        "/System/Library/Frameworks/WebKit.framework/WebKit",
         "/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore",
         "-framework", "Foundation", "-nostdlib++",
         "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++.1.dylib",
         "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++abi.1.dylib"])
     compile(base + [str(out / "main.o"), "-o", str(executable),
-        "/System/Library/PrivateFrameworks/WebKit2.framework/WebKit2",
+        "/System/Library/Frameworks/WebKit.framework/WebKit",
         "-framework", "Foundation", "-framework", "AppKit", "-nostdlib++",
         "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++.1.dylib",
         "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks/libc++abi.1.dylib"])

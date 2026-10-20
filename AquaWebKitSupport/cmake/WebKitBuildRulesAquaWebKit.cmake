@@ -101,8 +101,7 @@ endmacro()
 
 # CMake's default Info.plist leaves CFBundleIdentifier empty; stamp the canonical identifier that
 # CFBundleGetBundleWithIdentifier resolves for WebCore::copyLocalizedString. WebKit then takes its
-# framework rules, com.apple.WebKit2 identity included, from _AQUAWEBKIT_FINALIZE_WEBKIT_TARGET
-# (WebKitPlatformAquaWebKit.cmake).
+# framework rules from _AQUAWEBKIT_FINALIZE_WEBKIT_TARGET (WebKitPlatformAquaWebKit.cmake).
 macro(_AQUAWEBKIT_SET_FRAMEWORK_IDENTIFIER _target)
     if (AQUAWEBKIT_SUPPORT)
         set_target_properties(${_target} PROPERTIES

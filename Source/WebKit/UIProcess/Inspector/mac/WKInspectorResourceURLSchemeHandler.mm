@@ -32,6 +32,7 @@
 #import "WKURLSchemeTask.h"
 #import "WebInspectorUIProxy.h"
 #import "WebURLSchemeHandlerCocoa.h"
+#import <WebCore/InspectorFrontendClassicBridge.h> // AQUAWEBKIT: inspectorFrontendBundle().
 #import <WebCore/MIMETypeRegistry.h>
 #import <wtf/Assertions.h>
 #import <wtf/darwin/DispatchExtras.h>
@@ -68,7 +69,8 @@
 {
     dispatch_assert_queue(mainDispatchQueueSingleton());
     if (!_cachedBundle) {
-        _cachedBundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+        // _cachedBundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+        _cachedBundle = WebCore::inspectorFrontendBundle(); // AQUAWEBKIT: see InspectorFrontendClassicBridge.h.
 
         // It is an error if WebInspectorUI has not already been soft-linked by the time
         // we load resources from it. And if soft-linking fails, we shouldn't start loads.

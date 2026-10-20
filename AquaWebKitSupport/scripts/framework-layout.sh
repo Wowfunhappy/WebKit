@@ -4,11 +4,15 @@
 # This file is SOURCED, never executed: it defines paths and helpers, and performs no work of
 # its own.
 #
-# Name shift (built framework -> installed bundle, installed binary name):
-#   JavaScriptCore -> /System/Library/Frameworks/JavaScriptCore.framework           (bin: JavaScriptCore)
-#   WebKitLegacy   -> /System/Library/Frameworks/WebKit.framework                   (bin: WebKit)
-#   WebCore        -> ...WebKit.framework/Versions/A/Frameworks/WebCore.framework   (bin: WebCore — nested, as on stock 10.9)
-#   WebKit (WK2)   -> /System/Library/PrivateFrameworks/WebKit2.framework           (bin: WebKit2)
+# The layout Apple shipped WebKit 601 in for Safari 9 on 10.9: WebKit.framework is WK2 and re-exports
+# WebKitLegacy, so a binary that binds WK1 symbols from WebKit.framework (every 10.9 binary) and one that
+# binds everything from it (Safari 9) both resolve; WebKit2.framework is an empty image that re-exports
+# WebKit.framework, for the WK2 binds 10.9 binaries make from WebKit2.framework (Safari 7).
+#   JavaScriptCore -> /System/Library/Frameworks/JavaScriptCore.framework
+#   WebKit (WK2)   -> /System/Library/Frameworks/WebKit.framework
+#   WebCore        -> ...WebKit.framework/Versions/A/Frameworks/WebCore.framework
+#   WebKitLegacy   -> ...WebKit.framework/Versions/A/Frameworks/WebKitLegacy.framework
+#   (re-export)    -> /System/Library/PrivateFrameworks/WebKit2.framework
 
 WK_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WK_SUPPORT="$WK_REPO/AquaWebKitSupport"
@@ -26,11 +30,10 @@ PRIVATE_DIR=/System/Library/PrivateFrameworks
 JSC_BUNDLE=$FRAMEWORKS_DIR/JavaScriptCore.framework
 WEBKIT_BUNDLE=$FRAMEWORKS_DIR/WebKit.framework
 WEBKIT2_BUNDLE=$PRIVATE_DIR/WebKit2.framework
-# WebCore is nested INSIDE the public WebKit umbrella, matching the stock 10.9 layout: stock has NO
-# top-level /System/Library/PrivateFrameworks/WebCore.framework — its WebKit2/WebKit binaries link
-# WebCore at this nested path.
+# WebCore is nested inside WebKit.framework, at the path stock 10.9's WebKit and WebKit2 load it from.
 WEBCORE_BUNDLE=$WEBKIT_BUNDLE/Versions/A/Frameworks/WebCore.framework
-# The three bundles an install replaces. WebCore rides inside WEBKIT_BUNDLE.
+WEBKITLEGACY_BUNDLE=$WEBKIT_BUNDLE/Versions/A/Frameworks/WebKitLegacy.framework
+# The three bundles an install replaces. WebCore and WebKitLegacy ride inside WEBKIT_BUNDLE.
 WK_INSTALL_ROOTS="$JSC_BUNDLE $WEBKIT_BUNDLE $WEBKIT2_BUNDLE"
 # The Web Clip widget's plug-in. The port supplies its executable (fat: ours for x86_64, the stock
 # i386 slice for a 32-bit DashboardClient), its page script, its injected bundle, and the widget's
@@ -67,7 +70,7 @@ SYSTEM_UNWINDER=/usr/lib/system/libunwind.dylib
 # (deps/build_deps.sh) is split the same way by wk_runtime_library_homes below.
 #   JSC_LIBS      the C++ runtime, the polyfill classes, and what JavaScriptCore loads (ICU, GLib, libpsl,
 #                 libcrypto) with their dependencies
-#   WEBCORE_LIBS  libwebrtc, and what WebCore, WebKit and WebKit2 load beyond JSC_LIBS: curl with its
+#   WEBCORE_LIBS  libwebrtc, and what WebCore, WebKitLegacy and WebKit load beyond JSC_LIBS: curl with its
 #                 TLS and HTTP/2 libraries, libxml2/libxslt, the FFmpeg decoders, dav1d, libopus
 #   GST_LIBS      GStreamer (#90): its own libraries, its plugins (gstreamer-1.0/), and the libraries
 #                 only those load
@@ -76,7 +79,7 @@ JSC_LIBS=$JSC_BUNDLE/Versions/A/Frameworks
 WEBCORE_LIBS=$WEBCORE_BUNDLE/Versions/A/Frameworks
 GST_LIBS=$WEBCORE_LIBS/gstreamer/lib
 GST_SHARE=$WEBCORE_LIBS/gstreamer/share
-XPCSERVICES=$WEBKIT2_BUNDLE/Versions/A/XPCServices
+XPCSERVICES=$WEBKIT_BUNDLE/Versions/A/XPCServices
 
 # Canonical stock backup (flat *.framework dirs), captured once by
 # scripts/stage-frameworks.sh and read by the i386 graft.
@@ -95,15 +98,15 @@ WebContent:Plugin.32
 WebContent:Plugin.64
 WebContent:Plugin.Development"
 
-# Absolute install_name each framework binary advertises (matches Safari's LC_LOAD_DYLIB).
-# macOS 10.9 ships bash 3.2 (no associative arrays), so this is a function keyed by the
-# installed binary name rather than a `declare -A` map.
+# Absolute install_name each framework binary advertises, keyed by binary name (bash 3.2 has no
+# associative arrays).
 id_path() {
     case "$1" in
         JavaScriptCore) echo "$JSC_BUNDLE/Versions/A/JavaScriptCore";;
-        WebKit)         echo "$WEBKIT_BUNDLE/Versions/A/WebKit";;        # our WebKitLegacy
-        WebKit2)        echo "$WEBKIT2_BUNDLE/Versions/A/WebKit2";;      # our WebKit (WK2)
-        WebCore)        echo "$WEBCORE_BUNDLE/Versions/A/WebCore";;      # nested in WebKit.framework (stock layout)
+        WebKit)         echo "$WEBKIT_BUNDLE/Versions/A/WebKit";;
+        WebKit2)        echo "$WEBKIT2_BUNDLE/Versions/A/WebKit2";;
+        WebCore)        echo "$WEBCORE_BUNDLE/Versions/A/WebCore";;
+        WebKitLegacy)   echo "$WEBKITLEGACY_BUNDLE/Versions/A/WebKitLegacy";;
         *) echo "";;
     esac
 }
@@ -120,7 +123,7 @@ LIPO="$CCTOOLS/lipo"
 # whose libraries name each other @rpath/<install-name leaf>; each one ships in the Frameworks
 # directory of the lowest framework that loads it (see JSC_LIBS above):
 #   jsc        everything JavaScriptCore's binaries load, transitively
-#   webcore    everything else the WebCore, WebKit and WebKit2 bundles and libwebrtc load, transitively,
+#   webcore    everything else WebCore, WebKitLegacy, WebKit and libwebrtc load, transitively,
 #              short of GStreamer's own libgst* libraries; and libopus, which the polyfill layer's
 #              AudioToolbox Opus encoder opens beside WebCore (AudioToolboxOpus.c)
 #   gstreamer  the libgst* libraries those load and everything the plugins load, transitively

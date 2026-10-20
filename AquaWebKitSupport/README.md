@@ -1,8 +1,8 @@
 # AquaWebKitSupport
 
 Everything that makes this WebKit fork build and run on **macOS 10.9.5 Mavericks**
-with the system-installed **Safari 7.0.6**, kept self-contained so a fresh clone
-*is* the build environment.
+with the system-installed **Safari 7.0.6**, or Apple's Safari 9.1.3 for Mavericks, kept
+self-contained so a fresh clone *is* the build environment.
 
 The build runs on a 10.9 host with a modern compiler (clang-22) against a modern
 macOS SDK, with the deployment target pinned to 10.9 so the binaries bind to 10.9's
@@ -121,20 +121,31 @@ results and no unrun tests, not just the exit status.
 ## Building software against the installed frameworks
 
 The installed frameworks carry the headers and module maps Apple's build emits for this WebKit
-version (`scripts/stage-headers.sh`). The frameworks keep 10.9's names, so the APIs sit where
-10.9 put them:
+version (`scripts/stage-headers.sh`), in the layout Apple's own builds use:
 
 | Framework | Contents | Import | Link |
 |---|---|---|---|
 | `JavaScriptCore.framework` | the JavaScriptCore API | `<JavaScriptCore/JavaScriptCore.h>` | `-framework JavaScriptCore` |
-| `WebKit.framework` | the legacy API (`WebView`, the DOM classes) | `<WebKit/WebKit.h>` | `-framework WebKit` |
-| `PrivateFrameworks/WebKit2.framework` | the modern API (`WKWebView`, ...) | `<WebKit2/WebKit2.h>` or `@import WebKit2;` | `-F/System/Library/PrivateFrameworks -framework WebKit2` |
+| `WebKit.framework` | the modern API (`WKWebView`, ...) and the legacy API (`WebView`, the DOM classes) | `<WebKit/WebKit.h>` or `@import WebKit;` | `-framework WebKit` |
+
+`PrivateFrameworks/WebKit2.framework` only re-exports `WebKit.framework`, for the binaries 10.9 linked
+against it, and carries no headers.
 
 Build with a modern SDK and `-mmacosx-version-min=10.9`, and `-F` a directory holding links to
-just these three frameworks: `-F/System/Library/Frameworks` would also put 10.9's own Foundation
+just these two frameworks: `-F/System/Library/Frameworks` would also put 10.9's own Foundation
 and AppKit headers ahead of the SDK's. The headers keep Apple's availability annotations, so post-10.9 API
 calls warn under `-Wunguarded-availability` and link weakly. The i386 slice of every framework
 is stock 10.9's, whose API is the 10.9 SDK's.
+
+## Safari 9
+
+Safari 9.1.3 for Mavericks keeps its own WebKit 601 in `/System/Library/StagedFrameworks/Safari` and
+reaches it through `DYLD_VERSIONED_FRAMEWORK_PATH`, which picks a staged framework only when it is
+newer than the installed one; this port's are, so Safari 9 runs on them with nothing of Apple's
+changed. The installed layout is the one Apple shipped 601 in, so Safari 9's binds resolve (see
+`docs/MAVERICKS-WEBKIT-ABI-REFERENCE.md`). Its Web Inspector is the same classic frontend Safari 7
+gets, though Safari 9 stages a newer one. Safari 9 checks extension signatures that Safari 7 does
+not, on its own WebKit as on this one, so an extension Safari 7 loads may not load there.
 
 ## Playing audio and video files in the tab
 

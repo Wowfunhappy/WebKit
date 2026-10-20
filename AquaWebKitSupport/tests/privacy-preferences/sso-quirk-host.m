@@ -5,9 +5,8 @@
 //     clang -fobjc-arc -framework Cocoa -o sso-quirk-host sso-quirk-host.m
 //     ./sso-quirk-host
 //
-// WebKit2.framework -- where this port keeps the modern WK2 classes, WebKit.framework being the
-// WebKitLegacy surface Safari 7 links against -- is dlopened rather than linked, because 10.9's ld
-// cannot parse a dylib this toolchain produces.
+// WebKit.framework is dlopened rather than linked, because 10.9's ld cannot parse a dylib this
+// toolchain produces.
 //
 // It plants a quirk pairing four domains (the threshold above which the sheet builds the table),
 // records the first-party interaction ITP wants for the embedded origin, and loads
@@ -42,7 +41,7 @@ static void afterTestStore(void *context)
 
 - (void)applicationDidFinishLaunching:(NSNotification *)note
 {
-    if (!dlopen("/System/Library/PrivateFrameworks/WebKit2.framework/WebKit2", RTLD_NOW)) {
+    if (!dlopen("/System/Library/Frameworks/WebKit.framework/WebKit", RTLD_NOW)) {
         NSLog(@"sso-quirk-host: %s", dlerror());
         [NSApp terminate:nil];
         return;
@@ -91,7 +90,7 @@ static void afterTestStore(void *context)
     // non-secure context, which leaves loopback as the only usable pair -- so mark the store a test
     // store rather than renaming the hosts.
     void (^markTestStore)(dispatch_block_t) = ^(dispatch_block_t next) {
-        void *handle = dlopen("/System/Library/PrivateFrameworks/WebKit2.framework/WebKit2", RTLD_NOW);
+        void *handle = dlopen("/System/Library/Frameworks/WebKit.framework/WebKit", RTLD_NOW);
         void *(*defaultStoreRef)(void) = dlsym(handle, "WKWebsiteDataStoreGetDefaultDataStore");
         void (*setIsRunningTest)(void *, bool, void *, void (*)(void *)) = dlsym(handle, "WKWebsiteDataStoreSetStatisticsIsRunningTest");
         if (!defaultStoreRef || !setIsRunningTest) {
