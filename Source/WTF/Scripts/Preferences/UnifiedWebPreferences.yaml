@@ -2309,6 +2309,24 @@ DamageRectangleThreshold:
     WebCore:
       default: 4
 
+# AQUAWEBKIT: part of legacy Dashboard support. A widget's WebKit page takes the pointer's moves whether
+# or not its window is key, as -[WebView _setDashboardBehavior:WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows to:]
+# declares for a widget's WebView.
+DashboardAlwaysSendsMouseEventsToAllWindows:
+  type: bool
+  status: internal
+  category: dom
+  humanReadableName: "Dashboard Widget Hover"
+  humanReadableDescription: "Send the pointer's moves to the page while its window is not key, as Dashboard widgets do"
+  condition: ENABLE(DASHBOARD_SUPPORT)
+  defaultValue:
+    WebCore:
+      default: false
+    WebKit:
+      default: false
+    WebKitLegacy:
+      default: false
+
 DataDetectorTypes:
   type: uint32_t
   refinedType: WebCore::DataDetectorType

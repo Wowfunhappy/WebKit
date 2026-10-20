@@ -479,6 +479,13 @@ static BOOL windowServerFrame(NSWindow *window, NSRect *frame)
     return [self showsPageWindow] && !_standsInForCloseBox;
 }
 
+// The clip leaves the screen with its page still in the page window, and AppKit keeps that window's tool tip, shown or
+// pending. The page's goes with its tool tip rects, which WebKit adds again as the page's tool tip next changes.
+- (void)removePageToolTip
+{
+    [(_previousPageView ?: _webView) removeAllToolTips];
+}
+
 - (void)updatePageWindow
 {
     BOOL shows = [self showsPageWindow];
@@ -494,6 +501,7 @@ static BOOL windowServerFrame(NSWindow *window, NSRect *frame)
         [_placeholder setNeedsDisplay:YES];
     // The stand-in is on screen in the widget window before the clip leaves the page window.
     if (showedClip && !showsClip) {
+        [self removePageToolTip];
         NSDisableScreenUpdates();
         [_placeholder display];
         if (shows)
@@ -843,13 +851,18 @@ static NSHashTable *clipperViews;
 }
 
 // The Dock puts a widget's close box, in a window of its own, right above the widget window as it shows the close
-// boxes, so a new window of the Dock's is watched until it first comes on screen or goes away.
+// boxes, so a new window of the Dock's is watched until it first comes on screen or goes away. The close box's
+// window is untitled; the Dock titles each widget's window with the widget's path, and a new widget's window can
+// come on screen right above another widget's.
 static NSMutableSet<NSNumber *> *newWindows;
 
 static void newWindowDidOrderIn(uint32_t window)
 {
     [newWindows removeObject:@(window)];
     [WCClipperView requestWidgetWindowNotifications];
+    NSArray *info = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, window));
+    if ([[[info firstObject] objectForKey:(__bridge NSString *)kCGWindowName] length])
+        return;
     for (WCClipperView *view in [clipperViews allObjects])
         [view windowDidOrderIn:window];
 }
@@ -1912,6 +1925,13 @@ static WKProcessPool *clipProcessPool(void)
     preferences._defaultFixedPitchFontSize = [controller fixedWidthFontSize];
     preferences.minimumFontSize = [controller minimumFontSize];
     preferences._defaultTextEncodingName = [controller defaultTextEncodingName];
+    // The clip's page takes the pointer as the widget's own WebView does, focused or not.
+    if ([[controller dashboardWebView] _dashboardBehavior:WCDashboardBehaviorAlwaysSendMouseEventsToAllWindows]) {
+        for (_WKFeature *feature in [WKPreferences _features]) {
+            if ([feature.key isEqualToString:@"DashboardAlwaysSendsMouseEventsToAllWindows"])
+                [preferences _setEnabled:YES forFeature:feature];
+        }
+    }
 
     WKUserContentController *userContentController = configuration.userContentController;
     _clipWorld = [WKContentWorld worldWithName:@"WebClip"];

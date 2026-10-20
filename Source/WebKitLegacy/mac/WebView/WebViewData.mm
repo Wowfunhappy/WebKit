@@ -129,6 +129,10 @@ int pluginDatabaseClientCount = 0;
     zoomMultiplier = 1;
     zoomsTextOnly = NO;
 
+#if ENABLE(DASHBOARD_SUPPORT) // AQUAWEBKIT: part of legacy Dashboard support; see -[WebClipView scrollWheel:].
+    dashboardBehaviorAllowWheelScrolling = YES;
+#endif // AQUAWEBKIT: closes the ENABLE(DASHBOARD_SUPPORT) guard above.
+
 #if PLATFORM(MAC)
     interactiveFormValidationEnabled = YES;
 #else

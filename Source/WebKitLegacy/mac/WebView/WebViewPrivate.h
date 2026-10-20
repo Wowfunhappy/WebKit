@@ -281,8 +281,8 @@ typedef enum {
 
 // AQUAWEBKIT: legacy Dashboard control regions, consumed by DashboardClient via
 // -webView:dashboardRegionsChanged: and read internally by WebChromeClient. The behavior flags below
-// are the ones DashboardClient declares on a widget's WebView during setup; WebHTMLView reads
-// AlwaysAcceptsFirstMouse through -_dashboardBehavior:.
+// are the ones DashboardClient declares on a widget's WebView during setup; WebHTMLView and WebClipView
+// read them through -_dashboardBehavior:.
 - (NSDictionary *)_dashboardRegions;
 
 typedef enum {

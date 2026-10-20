@@ -219,18 +219,16 @@ class WebSelectionServiceController;
     BOOL becomingFirstResponderFromOutside;
     BOOL usesPageCache;
 
-    // AQUAWEBKIT: the five WebDashboardBehavior flags 10.9's DashboardClient declares on a
-    // widget's WebView, kept so -[WebView _dashboardBehavior:] answers what the host set.
+    // AQUAWEBKIT: the WebDashboardBehavior flags 10.9's DashboardClient declares on a widget's WebView,
+    // read through -[WebView _dashboardBehavior:]. Backward compatibility mode lives in the page's settings.
     BOOL dashboardBehaviorAlwaysSendMouseEventsToAllWindows;
     BOOL dashboardBehaviorAlwaysSendActiveNullEventsToPlugIns;
     BOOL dashboardBehaviorAlwaysAcceptsFirstMouse;
     BOOL dashboardBehaviorAllowWheelScrolling;
-    BOOL dashboardBehaviorUseBackwardCompatibilityMode;
 
     // AQUAWEBKIT: backing store for WebView's -observationInfo/-setObservationInfo:
-    // (NSKeyValueObservingCustomization), as in the Safari-7-era WebView. Xcode 6.2's DVTFoundation
-    // KVO-dealloc setup requires the WebView class to override observationInfo (Xcode links WebKit
-    // for its documentation web views).
+    // (NSKeyValueObservingCustomization). Xcode 6.2's DVTFoundation KVO-dealloc setup requires the
+    // WebView class to override observationInfo (Xcode links WebKit for its documentation web views).
     void* observationInfo;
 
 #if !PLATFORM(IOS_FAMILY)

@@ -32,6 +32,7 @@
 
 #import "WebFrameInternal.h"
 #import "WebFrameView.h"
+#import "WebNSViewExtras.h" // AQUAWEBKIT: -[NSView _webView], for scrollWheel:.
 #import "WebViewPrivate.h"
 #import <WebCore/DocumentView.h>
 #import <WebCore/LocalFrame.h>
@@ -169,6 +170,23 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (_haveAdditionalClip)
         rect = NSIntersectionRect(rect, _additionalClip);
     return rect;
+}
+
+// AQUAWEBKIT: part of legacy Dashboard support. A widget whose host turns AllowWheelScrolling off does
+// not scroll on the wheel.
+- (void)scrollWheel:(NSEvent *)event
+{
+    NSView *docView = [self documentView];
+    if ([docView respondsToSelector:@selector(_webView)]) {
+#if ENABLE(DASHBOARD_SUPPORT)
+        WebView *wv = [docView _webView];
+        if ([wv _dashboardBehavior:WebDashboardBehaviorAllowWheelScrolling]) {
+            [super scrollWheel:event];
+        }
+#endif
+        return;
+    }
+    [super scrollWheel:event];
 }
 
 @end
