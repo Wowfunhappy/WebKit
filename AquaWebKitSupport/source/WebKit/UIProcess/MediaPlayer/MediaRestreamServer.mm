@@ -80,10 +80,13 @@ static SInt32 appleEventTimeout(std::optional<MonotonicTime> deadline)
     return std::clamp<SInt32>(std::ceil((*deadline - MonotonicTime::now()).seconds() * 60), 0, 30 * 60);
 }
 
-static RetainPtr<NSAppleEventDescriptor> movieProperty(pid_t pid, NSAppleEventDescriptor* object, DescType property, std::optional<MonotonicTime> deadline = std::nullopt)
+static RetainPtr<NSAppleEventDescriptor> movieProperty(pid_t pid, NSAppleEventDescriptor* object, DescType property, std::optional<MonotonicTime> deadline = std::nullopt, OSStatus* resultError = nullptr)
 {
-    if (deadline && MonotonicTime::now() >= *deadline)
+    if (deadline && MonotonicTime::now() >= *deadline) {
+        if (resultError)
+            *resultError = errAETimeout;
         return nullptr;
+    }
     auto specifier = objectSpecifier(typeProperty, object, formPropertyID, [NSAppleEventDescriptor descriptorWithTypeCode:property]);
     auto target = [NSAppleEventDescriptor descriptorWithDescriptorType:typeKernelProcessID bytes:&pid length:sizeof(pid)];
     auto event = [NSAppleEventDescriptor appleEventWithEventClass:kAECoreSuite eventID:kAEGetData targetDescriptor:target returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
@@ -91,7 +94,10 @@ static RetainPtr<NSAppleEventDescriptor> movieProperty(pid_t pid, NSAppleEventDe
     AppleEvent reply { typeNull, nullptr };
     auto error = AESendMessage(event.aeDesc, &reply, kAEWaitReply | kAENeverInteract, appleEventTimeout(deadline));
     auto result = adoptNS([[NSAppleEventDescriptor alloc] initWithAEDescNoCopy:&reply]);
-    if (error || [result paramDescriptorForKeyword:keyErrorNumber].int32Value)
+    auto replyError = [result paramDescriptorForKeyword:keyErrorNumber].int32Value;
+    if (resultError)
+        *resultError = error ? error : replyError;
+    if (error || replyError)
         return nullptr;
     return [result paramDescriptorForKeyword:keyDirectObject];
 }
@@ -184,6 +190,38 @@ struct MovieWindow {
     std::optional<double> rate;
 };
 
+struct MovieWindowLookup {
+    bool succeeded { false };
+    std::optional<MovieWindow> window;
+};
+
+static MovieWindowLookup movieWindow(pid_t pid, int32_t identifier, const std::optional<PlayerAdapter>& adapter)
+{
+    @autoreleasepool {
+        auto window = objectSpecifier(cWindow, nil, formUniqueID, [NSAppleEventDescriptor descriptorWithInt32:identifier]);
+        OSStatus error = noErr;
+        auto document = movieProperty(pid, window.get(), 'docu', std::nullopt, &error);
+        if (error == errAENoSuchObject || (document && document.get().descriptorType == typeType && document.get().typeCodeValue == cMissingValue))
+            return { true, std::nullopt };
+        if (error || !document)
+            return { };
+
+        MovieWindow result { identifier, { }, false };
+        auto file = movieProperty(pid, document.get(), 'file');
+        if (file && file.get().descriptorType == typeFileURL) {
+            NSData* data = file.get().data;
+            result.url.assign(static_cast<const char*>(data.bytes), data.length);
+            result.known = true;
+        }
+        if (adapter) {
+            result.position = movieNumber(pid, document.get(), adapter->position);
+            result.duration = movieNumber(pid, document.get(), adapter->duration);
+            result.rate = movieNumber(pid, document.get(), adapter->rate);
+        }
+        return { true, WTF::move(result) };
+    }
+}
+
 static std::optional<std::vector<MovieWindow>> movieWindows(pid_t pid, const std::optional<PlayerAdapter>& adapter, std::optional<MonotonicTime> deadline = std::nullopt)
 {
     @autoreleasepool {
@@ -275,6 +313,7 @@ struct MediaRestreamServer::Impl {
         std::optional<int32_t> window;
         pid_t playerPID { 0 };
         bool tracksMovie { false };
+        bool capturesMedia { false };
         std::optional<PlayerAdapter> adapter;
         std::optional<double> position;
         std::shared_ptr<Opening> opening;
@@ -886,31 +925,25 @@ struct MediaRestreamServer::Impl {
         for (auto& session : owners)
             revisions.emplace(session.get(), session->controlRevision);
         monitorQueue->dispatch([this, owners = WTF::move(owners), revisions = WTF::move(revisions)]() mutable {
-            std::map<const Session*, std::optional<std::vector<MovieWindow>>> results;
+            std::map<const Session*, MovieWindowLookup> results;
             for (auto& session : owners) {
                 auto pid = session->playerPID;
-                @autoreleasepool {
-                    results.emplace(session.get(), session->application.get().terminated ? std::optional<std::vector<MovieWindow>> { std::vector<MovieWindow> { } } : movieWindows(pid, session->adapter));
-                }
+                results.emplace(session.get(), session->application.get().terminated ? MovieWindowLookup { true, std::nullopt } : movieWindow(pid, *session->window, session->capturesMedia ? std::nullopt : session->adapter));
             }
             callOnMainThread([this, owners = WTF::move(owners), results = WTF::move(results), revisions = WTF::move(revisions)] {
                 querying = false;
                 std::vector<std::shared_ptr<Session>> ended;
                 for (auto& [token, session] : sessions) {
                     auto found = results.find(session.get());
-                    if (!session->window || found == results.end() || !found->second || revisions.at(session.get()) != session->controlRevision)
+                    if (!session->window || found == results.end() || !found->second.succeeded || revisions.at(session.get()) != session->controlRevision)
                         continue;
-                    auto& windows = *found->second;
-                    auto match = std::find_if(windows.begin(), windows.end(), [&](auto& window) {
-                        return *session->window == window.identifier && (!window.known || window.url == session->url);
-                    });
-                    if (match == windows.end())
+                    if (!found->second.window || (found->second.window->known && found->second.window->url != session->url))
                         ended.push_back(session);
-                    else if (match->position) {
-                        session->position = match->position;
-                        if (match->duration && match->rate) {
+                    else if (found->second.window->position) {
+                        session->position = found->second.window->position;
+                        if (found->second.window->duration && found->second.window->rate) {
                             if (RefPtr process = session->process.get())
-                                process->send(Messages::MediaRestreamSession::PlaybackState(session->identifier, *match->position, *match->duration, *match->rate), 0);
+                                process->send(Messages::MediaRestreamSession::PlaybackState(session->identifier, *found->second.window->position, *found->second.window->duration, *found->second.window->rate), 0);
                         }
                     }
                 }
@@ -1089,6 +1122,7 @@ void MediaRestreamServer::open(WebPageProxy& page, WebProcessProxy& process, uin
     session->playerPID = application.processIdentifier;
     session->adapter = adapter;
     session->tracksMovie = adapter.has_value();
+    session->capturesMedia = directURL.isEmpty();
     m_impl->sessions.emplace(token, session);
     auto opening = std::shared_ptr<Impl::Opening>(new Impl::Opening { WTF::move(completion), url, position, rate, paused, !directURL.isEmpty(), url != directURL });
     session->opening = opening;

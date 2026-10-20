@@ -18,6 +18,7 @@ controls = {
     'query-timeout': {'queryAfter': 60},
     'cancel-query': {'querySleep': 8},
     'missing-file': {},
+    'transient-window-list': {},
     'closed-document': {},
     'source-change': {},
     'application-exit': {},
@@ -132,6 +133,13 @@ if case == 'source-change':
     time.sleep(8)
     assert not any('close' in json.loads(line) for line in records()[before:]), 'Page source change closed the independent receiver'
     print('PASS accepted receiver survives source change', flush=True)
+if case == 'transient-window-list':
+    configure({'omitWindowList': True})
+    time.sleep(8)
+    assert js('video.paused') == 'true', 'A transient window-list omission released the receiver'
+    assert not any('close' in json.loads(line) for line in records()[before:]), 'A transient window-list omission closed the receiver'
+    configure({})
+    print('PASS retained window identity survives transient omission from application window list', flush=True)
 configure({'closed': True})
 if case != 'source-change':
     wait(lambda: js('!video.paused') == 'true', 15)

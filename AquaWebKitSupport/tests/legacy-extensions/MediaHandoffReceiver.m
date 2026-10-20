@@ -94,7 +94,7 @@ static void record(NSDictionary *entry)
                 return;
             }
             value = [NSAppleEventDescriptor listDescriptor];
-            if (self.url)
+            if (self.url && ![control[@"omitWindowList"] boolValue])
                 [value insertDescriptor:[NSAppleEventDescriptor descriptorWithInt32:self.identifier] atIndex:1];
         } else if (property == 'docu')
             value = self.url && ![control[@"documentMissing"] boolValue] ? documentSpecifier(self.identifier) : [NSAppleEventDescriptor descriptorWithTypeCode:cMissingValue];
