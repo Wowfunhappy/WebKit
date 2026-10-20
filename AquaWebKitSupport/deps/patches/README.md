@@ -205,6 +205,21 @@ fdkaacdec on HE-AAC, which hands out each frame's samples as subframes: a flushi
 produced output starting at 4.876 s with "Got data flow before segment event". The reset clears
 the count with the frames it belongs to.
 
+## gst-plugins-base-decodebin3-keep-unblocked-eos-stream.patch
+
+**Target:** gst-plugins-base 1.28.7, `gst/playback/gstdecodebin3.c`
+
+decodebin3 holds each input stream until some input of the same collection sees its first buffer,
+then `gst_decodebin_input_unblock_streams()` unblocks them all and removes any that has reached EOS,
+a stream that ended without delivering data. Each input's first buffer unblocks again, so a stream
+that was already unblocked, delivered its data and reached EOS before another input's first buffer
+is removed too, with its multiqueue slot and output. A later flushing seek then stops at that input
+and never reaches the output's sink, which keeps the stale EOS, and the stream never plays again.
+Under playbin3 every stream of a file enters decodebin3 as its own input: a 0.18 s MP4 whose
+one-frame video track reaches EOS during preroll before the audio's first buffer lost its video for
+good, and a looping `<video>` of it stalled (WPT `video_loop_base`). Only a stream still blocked,
+which has delivered nothing, is removed.
+
 ## gst-plugins-base-video-format-2bit-alpha.patch
 
 **Target:** gst-plugins-base 1.28.7, `gst-libs/gst/video/video-format.c`
