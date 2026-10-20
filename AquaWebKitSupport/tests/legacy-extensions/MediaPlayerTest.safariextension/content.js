@@ -23,6 +23,8 @@
             options.sourceMode = parameters.get("sourceMode");
         if (parameters.has("capture"))
             options.capture = JSON.parse(parameters.get("capture"));
+        if (parameters.has("routeTimeout"))
+            options.routeTimeout = Number(parameters.get("routeTimeout"));
         var title = parameters.get("title");
         options.title = title === null ? document.title : title;
         if (application.value === "com.apple.QuickTimePlayerX")

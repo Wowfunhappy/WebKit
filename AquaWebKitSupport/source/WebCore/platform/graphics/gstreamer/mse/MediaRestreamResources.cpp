@@ -19,17 +19,23 @@ String MediaRestreamSource::playlist(std::optional<uint64_t> subtitle) const
     if (!valid() || m_ready || m_segments.empty())
         return { };
     StringBuilder result;
-    result.append("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-PLAYLIST-TYPE:"_s, m_ended ? "VOD"_s : "EVENT"_s, "\n#EXT-X-TARGETDURATION:"_s, hlsTargetDuration,
-        "\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n"_s);
+    result.append("#EXTM3U\n#EXT-X-VERSION:6\n"_s);
+    if (m_ended)
+        result.append("#EXT-X-PLAYLIST-TYPE:VOD\n"_s);
+    else if (!m_maxHistoryDuration)
+        result.append("#EXT-X-PLAYLIST-TYPE:EVENT\n"_s);
+    result.append("#EXT-X-TARGETDURATION:"_s, hlsTargetDuration,
+        "\n#EXT-X-MEDIA-SEQUENCE:"_s, m_firstSequence, "\n#EXT-X-DISCONTINUITY-SEQUENCE:"_s, m_discontinuitySequence,
+        "\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n"_s);
     for (size_t i = 0; i < m_segments.size(); ++i) {
         auto& segment = m_segments[i];
         if (segment.discontinuity)
             result.append("#EXT-X-DISCONTINUITY\n"_s);
         result.append("#EXTINF:"_s, segment.duration, ",\n"_s);
         if (subtitle)
-            result.append("sub-"_s, *subtitle, '-', i, ".vtt\n"_s);
+            result.append("sub-"_s, *subtitle, '-', m_firstSequence + i, ".vtt\n"_s);
         else
-            result.append(i, ".ts\n"_s);
+            result.append(m_firstSequence + i, ".ts\n"_s);
     }
     if (m_ended)
         result.append("#EXT-X-ENDLIST\n"_s);

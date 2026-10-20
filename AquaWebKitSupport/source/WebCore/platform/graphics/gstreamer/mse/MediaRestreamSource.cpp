@@ -412,7 +412,7 @@ bool MediaRestreamSource::validateTextTracks(HTMLMediaElement& element, const Ve
     });
 }
 
-void MediaRestreamSource::create(HTMLMediaElement& element, const std::optional<Vector<Ref<TextTrack>>>& textTracks, const IntSize& captureSize, const String& videoCodec, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&& completion)
+void MediaRestreamSource::create(HTMLMediaElement& element, const std::optional<Vector<Ref<TextTrack>>>& textTracks, const IntSize& captureSize, const String& videoCodec, std::optional<double> maxHistoryDuration, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&& completion)
 {
     auto* player = playbackBackend(element);
     if (!player || !player->pipeline() || element.ended())
@@ -436,6 +436,7 @@ void MediaRestreamSource::create(HTMLMediaElement& element, const std::optional<
     Ref source = adoptRef(*new MediaRestreamSource(element, player->pipeline()));
     source->m_captureSize = captureSize;
     source->m_videoCodec = videoCodec;
+    source->m_maxHistoryDuration = maxHistoryDuration;
     if (!videoCodec.isEmpty()) {
         source->m_frames = std::make_shared<MediaRestreamFrameQueue>();
         source->m_frames->ready = [weakThis = WeakPtr { source.get() }] {
@@ -805,6 +806,15 @@ void MediaRestreamSource::append(double start, double end, double sourceRate, do
     Vector<FileRange> subtitleRanges;
     uint64_t payloadSize = bytes;
     auto storage = m_storage;
+    if (m_maxHistoryDuration && storage->writtenDuration >= std::min(300.0, *m_maxHistoryDuration / 64)) {
+        storage->file = captureFile();
+        storage->writtenBytes = 0;
+        storage->writtenDuration = 0;
+        if (!storage->file) {
+            initialized(makeUnexpected("unsupported-source"_s));
+            return stop();
+        }
+    }
     auto file = storage->file;
     auto offset = storage->writtenBytes;
     for (auto& subtitle : subtitles) {
@@ -819,6 +829,7 @@ void MediaRestreamSource::append(double start, double end, double sourceRate, do
     }
     m_pendingWrites += payloadSize;
     storage->writtenBytes += payloadSize;
+    storage->writtenDuration += end - start;
     m_peakBandwidth = std::max(m_peakBandwidth, 8.0 * bytes / (end - start));
     storage->queue->dispatch([weakThis = WeakPtr { *this }, storage, file, completion = WTF::move(completion), data = payload.takeBufferAsContiguous(), payloadSize, segment = Segment { end - start, { file, offset, bytes }, discontinuity, WTF::move(subtitleRanges) }]() mutable {
         auto bytes = data->span();
@@ -841,7 +852,9 @@ void MediaRestreamSource::append(double start, double end, double sourceRate, do
                 return source->stop();
             }
             source->m_totalDuration += segment.duration;
+            source->m_playlistDuration += segment.duration;
             source->m_segments.push_back(WTF::move(segment));
+            source->trimHistory();
             if (source->m_ready && source->m_totalDuration < hlsMinimumDuration)
                 source->m_startupTimer.startOneShot(30_s);
             if (source->m_ready && source->m_totalDuration >= hlsMinimumDuration)
@@ -850,9 +863,32 @@ void MediaRestreamSource::append(double start, double end, double sourceRate, do
     });
 }
 
+void MediaRestreamSource::trimHistory()
+{
+    if (!m_maxHistoryDuration)
+        return;
+    auto now = MonotonicTime::now();
+    while (m_segments.size() > 1 && m_playlistDuration > *m_maxHistoryDuration) {
+        auto segment = WTF::move(m_segments.front());
+        m_segments.pop_front();
+        m_playlistDuration -= segment.duration;
+        m_discontinuitySequence += segment.discontinuity;
+        m_retiredSegments.push_back({ m_firstSequence++, WTF::move(segment), now + Seconds(hlsMinimumDuration + segment.duration) });
+    }
+    while (!m_retiredSegments.empty() && m_retiredSegments.front().expires <= now)
+        m_retiredSegments.pop_front();
+}
+
 const MediaRestreamSource::Segment* MediaRestreamSource::segmentForSequence(uint64_t sequence) const
 {
-    return sequence < m_segments.size() ? &m_segments[sequence] : nullptr;
+    if (sequence >= m_firstSequence) {
+        auto index = sequence - m_firstSequence;
+        return index < m_segments.size() ? &m_segments[index] : nullptr;
+    }
+    if (m_retiredSegments.empty() || sequence < m_retiredSegments.front().sequence)
+        return nullptr;
+    auto index = sequence - m_retiredSegments.front().sequence;
+    return index < m_retiredSegments.size() ? &m_retiredSegments[index].segment : nullptr;
 }
 
 void MediaRestreamSource::initialized(Expected<Ref<MediaRestreamSource>, String>&& result)

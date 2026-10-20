@@ -984,23 +984,33 @@ if (typeof native.openInMediaPlayer === "function") {
             return Promise.reject(new TypeError("sourceMode must be auto, direct, or capture"));
         if (options.resolveSource !== undefined && typeof options.resolveSource !== "function")
             return Promise.reject(new TypeError("resolveSource must be a function"));
+        const routeTimeout = options.routeTimeout === undefined ? 30 : options.routeTimeout;
+        if (!Number.isFinite(routeTimeout) || routeTimeout < 1)
+            return Promise.reject(new TypeError("routeTimeout must be a finite number of at least 1 second"));
         let capture = "";
         if (options.capture !== undefined) {
             if (!options.capture || typeof options.capture !== "object")
                 return Promise.reject(new TypeError("capture must be an object"));
-            const { maxWidth = 3840, maxHeight = 2160, transport = "hls", videoCodec = "h264" } = options.capture;
+            const { maxWidth = 3840, maxHeight = 2160, transport = "hls", videoCodec = "h264", maxHistoryDuration } = options.capture;
             if (!(transport === "hls" && videoCodec === "h264") && !(transport === "rtsp" && ["jpeg", "utvideo"].includes(videoCodec)))
                 return Promise.reject(new TypeError("Unsupported capture transport or video codec"));
             if (![maxWidth, maxHeight].every(value => Number.isInteger(value) && value >= 2 && value <= 16384))
                 return Promise.reject(new TypeError("capture.maxWidth and capture.maxHeight must be integers between 2 and 16384"));
-            capture = JSON.stringify({ maxWidth, maxHeight, transport, videoCodec });
+            if (maxHistoryDuration !== undefined && (!Number.isFinite(maxHistoryDuration) || maxHistoryDuration < 9))
+                return Promise.reject(new TypeError("capture.maxHistoryDuration must be a finite number of at least 9 seconds"));
+            if (maxHistoryDuration !== undefined && transport !== "hls")
+                return Promise.reject(new TypeError("capture.maxHistoryDuration requires HLS transport"));
+            const captureOptions = { maxWidth, maxHeight, transport, videoCodec };
+            if (maxHistoryDuration !== undefined)
+                captureOptions.maxHistoryDuration = maxHistoryDuration;
+            capture = JSON.stringify(captureOptions);
         }
         const resolveSource = options.resolveSource && ((url, complete) => {
             Promise.resolve().then(() => options.resolveSource(url)).then(source => {
                 complete(JSON.stringify(source === undefined ? { url } : source));
             }).catch(() => complete(""));
         });
-        return native.openInMediaPlayer(element, options.application, options.textTracks, options.adapter === undefined ? "" : JSON.stringify(options.adapter), options.title, options.openingMessage, resolveSource, sourceMode, parent, capture);
+        return native.openInMediaPlayer(element, options.application, options.textTracks, options.adapter === undefined ? "" : JSON.stringify(options.adapter), options.title, options.openingMessage, resolveSource, sourceMode, parent, capture, routeTimeout);
     };
     const withHandoff = async (callback, parent, ticket) => {
         if (typeof callback !== "function")

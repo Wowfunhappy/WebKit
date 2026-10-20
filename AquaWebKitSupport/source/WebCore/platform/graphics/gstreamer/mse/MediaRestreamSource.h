@@ -53,7 +53,7 @@ public:
     static bool isPlayingExternally(const HTMLMediaElement&);
     static void elementDestroyed(HTMLMediaElement&);
     static void elementWillLoad(HTMLMediaElement&);
-    static void create(HTMLMediaElement&, const std::optional<Vector<Ref<TextTrack>>>&, const IntSize&, const String& videoCodec, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&&);
+    static void create(HTMLMediaElement&, const std::optional<Vector<Ref<TextTrack>>>&, const IntSize&, const String& videoCodec, std::optional<double> maxHistoryDuration, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&&);
     static Ref<MediaRestreamSource> createDirect(HTMLMediaElement&, bool matchingTimeline, bool remote = false);
     ~MediaRestreamSource();
     String streamDescription() { return m_frames ? m_frames->description() : String { }; }
@@ -93,9 +93,16 @@ private:
         Vector<FileRange> subtitles;
     };
     const Segment* segmentForSequence(uint64_t) const;
+    void trimHistory();
+    struct RetiredSegment {
+        uint64_t sequence;
+        Segment segment;
+        MonotonicTime expires;
+    };
     struct Storage {
         std::shared_ptr<FileSystem::FileHandle> file;
         uint64_t writtenBytes { 0 };
+        double writtenDuration { 0 };
         Ref<WorkQueue> queue { WorkQueue::create("Media restream storage"_s) };
         std::atomic<bool> stopped { false };
     };
@@ -115,6 +122,11 @@ private:
     std::optional<CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>> m_ready;
     Function<void()> m_didStop;
     std::deque<Segment> m_segments;
+    std::deque<RetiredSegment> m_retiredSegments;
+    uint64_t m_firstSequence { 0 };
+    uint64_t m_discontinuitySequence { 0 };
+    double m_playlistDuration { 0 };
+    std::optional<double> m_maxHistoryDuration;
     HashSet<uint64_t> m_cancelledRequests;
     HashSet<uint64_t> m_requests;
     uint64_t m_pendingWrites { 0 };

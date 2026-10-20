@@ -9,6 +9,7 @@ import urllib.parse
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--route', default='route', choices=['route', 'route-timeout', 'route-rejected'])
+parser.add_argument('--route-timeout-seconds', type=float)
 parser.add_argument('--paused', action='store_true')
 parser.add_argument('--fallback-screenshot', type=pathlib.Path)
 parser.add_argument('--source', default='mse.mp4')
@@ -40,12 +41,22 @@ def windows():
 
 baseline = windows()
 title = 'Route title / 100% — captions'
-url = 'http://127.0.0.1:8843/quicktime.html?' + urllib.parse.urlencode({'source': args.source, 'airplay': args.route, 'title': title, 'disconnect': 'none' if args.return_inline == 'controlled' else args.return_inline or args.fallback_disconnect})
+parameters = {'source': args.source, 'airplay': args.route, 'title': title, 'disconnect': 'none' if args.return_inline == 'controlled' else args.return_inline or args.fallback_disconnect}
+if args.route_timeout_seconds is not None:
+    parameters['routeTimeout'] = args.route_timeout_seconds
+url = 'http://127.0.0.1:8843/quicktime.html?' + urllib.parse.urlencode(parameters)
 osa('tell application "Safari" to make new document with properties {URL:' + json.dumps(url) + '}')
 wait(lambda: js('Boolean(document.querySelector("video")?.readyState >= 2 && document.querySelector("#open-media-player"))') == 'true')
 js('video.currentTime=10;video.playbackRate=1.25;' + ('' if args.paused else 'video.play()'))
 wait(lambda: js('!video.seeking && video.currentTime>=10') == 'true')
 js('document.querySelector("#open-media-player").click()')
+if args.route == 'route-timeout' and args.route_timeout_seconds is not None:
+    wait(lambda: js('video.webkitCurrentPlaybackTargetIsWireless') == 'true', 10)
+    routed = time.monotonic()
+    wait(lambda: js('!video.webkitCurrentPlaybackTargetIsWireless') == 'true', args.route_timeout_seconds + 5)
+    elapsed = time.monotonic() - routed
+    assert args.route_timeout_seconds - .5 <= elapsed <= args.route_timeout_seconds + 3, elapsed
+    print('ROUTE_TIMEOUT', round(elapsed, 2), flush=True)
 if args.fallback_screenshot:
     time.sleep(6)
     wait(lambda: js('!video.webkitCurrentPlaybackTargetIsWireless') == 'true')

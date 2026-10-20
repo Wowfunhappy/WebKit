@@ -21,6 +21,8 @@ The output is an accumulating HLS event stream. Check rewinding to the beginning
 
 `check-capture-transitions.py --cycles 30` repeats source seeks, rate changes and MediaSource replacements while checking advancing HLS sequences, discontinuities, receiver playback and continuation after tab closure.
 
+`check-capture-history.py` requests a 12-second generic `maxHistoryDuration`, then checks sequence advancement, recently removed segment grace, expiry, and a completed VOD bounded to the selected history duration.
+
 `check-audio-endurance.py --seconds 3600` checks live audio-only capture, advancing receiver playback, a bounded playlist and endpoint cleanup after tab closure. `check-direct-redirects.py` checks relative and cross-port redirects for native HLS, MP4 video and audio-only media while retaining direct delivery and seeking.
 
 For generic target selection, install `MediaPlayerTest.safariextension`. Its fixture controls call the same API. `create-media-receiver.py` generates and registers the local test app `org.aqua.webkit.media-handoff-receiver`. Received URLs appear in `build/media-receiver.jsonl`; keep the app running during HTTP and codec checks. A missing application must reject with `application-unavailable` and preserve source playback state.
@@ -104,6 +106,7 @@ QuickTime’s unacknowledged 404 launch: it must report `application-start-uncer
 and leave the page paused. Use `--fallback-disconnect sync`, `async`, or
 `none` to vary whether the site replaces its decoder on disconnect, and
 `--source flac.webm` to exercise an audio-only decoder.
+Pass `--route-timeout-seconds 2` with `--route route-timeout` to verify an extension-selected negotiation deadline before fallback.
 
 Inspect the private placard during the initial capture interval: it should hide
 inline video and captions, show an animated spinner and the extension's complete opening message, then change to the external playback message when the receiver accepts.
