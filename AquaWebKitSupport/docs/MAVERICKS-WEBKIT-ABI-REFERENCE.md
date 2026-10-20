@@ -291,7 +291,14 @@ nm -m -u "$F" | awk '$(NF-1) == "(from" && $NF == "WebKit)" {print $(NF-2)}' | s
 and likewise for JavaScriptCore (95, Safari 7's set). Eight of the 627 WebKit symbols are in no 10.9 contract:
 the three `WKPageRunJavaScript*ResultListenerCall` functions and `WKPageSetBackgroundExtendsBeyondPage`, which
 upstream still has, and 601's origin-data manager (`WKContextGetOriginDataManager`, `WKOriginDataManager*`),
-which `WKPage.cpp` restores.
+which `WKPage.cpp` restores. Safari 7.1.8 for 10.9 (WebKit 600) binds 624 WebKit symbols, all among Safari 9's
+627, and Safari 7's 95 JavaScriptCore ones.
+
+The client structs these Safaris register (by version) share upstream's layouts but one: Safari 7.1.8
+registers `WKPageUIClient` version 4 as WebKit 600 shipped it, with `runJavaScriptAlert`/`Confirm`/`Prompt`
+(the `_deprecatedForUseWithV5` shapes) where every other WebKit's version 4 has three unused slots and
+`isPlayingAudioDidChange`. `WKPageSetPageUIClient` translates it to version 5 (`fixUpBotchedPageUIClient`,
+upstream 977c5de).
 
 `public-needs-from-<framework>.txt` holds every symbol the stock framework's re-export closure exported that
 the stock 10.9 public headers (`<stock>/<framework>.framework/Headers`) declare: the classes those headers
