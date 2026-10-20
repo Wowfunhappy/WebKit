@@ -53,7 +53,7 @@ public:
     static bool isPlayingExternally(const HTMLMediaElement&);
     static void elementDestroyed(HTMLMediaElement&);
     static void elementWillLoad(HTMLMediaElement&);
-    static void create(HTMLMediaElement&, const std::optional<Vector<Ref<TextTrack>>>&, const IntSize&, const String& videoCodec, std::optional<double> maxHistoryDuration, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&&);
+    static void create(HTMLMediaElement&, const std::optional<Vector<Ref<TextTrack>>>&, const IntSize&, const String& videoCodec, std::optional<double> maxHistoryDuration, std::optional<uint64_t> minimumFreeStorage, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&&);
     static Ref<MediaRestreamSource> createDirect(HTMLMediaElement&, bool matchingTimeline, bool remote = false);
     ~MediaRestreamSource();
     String streamDescription() { return m_frames ? m_frames->description() : String { }; }
@@ -94,6 +94,7 @@ private:
     };
     const Segment* segmentForSequence(uint64_t) const;
     void trimHistory();
+    bool updateStoragePressure();
     struct RetiredSegment {
         uint64_t sequence;
         Segment segment;
@@ -127,6 +128,7 @@ private:
     uint64_t m_discontinuitySequence { 0 };
     double m_playlistDuration { 0 };
     std::optional<double> m_maxHistoryDuration;
+    std::optional<uint64_t> m_minimumFreeStorage;
     HashSet<uint64_t> m_cancelledRequests;
     HashSet<uint64_t> m_requests;
     uint64_t m_pendingWrites { 0 };
@@ -147,6 +149,7 @@ private:
     bool m_rebinding { false };
     bool m_loopSeeked { false };
     bool m_captureDrained { false };
+    bool m_storagePressure { false };
     URL m_initialURL;
     uint64_t m_presentationOwner;
     bool m_remote { false };

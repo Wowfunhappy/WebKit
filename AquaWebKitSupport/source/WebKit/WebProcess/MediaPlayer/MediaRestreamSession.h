@@ -13,7 +13,7 @@ public:
     void ref() const final { }
     void deref() const final { }
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void create(WebCore::HTMLMediaElement&, const std::optional<Vector<Ref<WebCore::TextTrack>>>& textTracks, const WebCore::IntSize& captureSize, const String& videoCodec, std::optional<double> maxHistoryDuration, CompletionHandler<void(Expected<uint64_t, String>&&)>&&);
+    void create(WebCore::HTMLMediaElement&, const std::optional<Vector<Ref<WebCore::TextTrack>>>& textTracks, const WebCore::IntSize& captureSize, const String& videoCodec, std::optional<double> maxHistoryDuration, std::optional<uint64_t> minimumFreeStorage, CompletionHandler<void(Expected<uint64_t, String>&&)>&&);
     uint64_t createDirect(WebCore::HTMLMediaElement&, bool matchingTimeline, bool remote = false);
     void stop(uint64_t, bool returnToInline = false, std::optional<double> position = std::nullopt);
     void accept(uint64_t, const URL&);

@@ -32,6 +32,7 @@
 #include <wtf/text/StringBuilder.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/mount.h>
 
 namespace WebCore {
 // Match the capture queues, including high-bitrate fragments and VBV bursts.
@@ -412,7 +413,7 @@ bool MediaRestreamSource::validateTextTracks(HTMLMediaElement& element, const Ve
     });
 }
 
-void MediaRestreamSource::create(HTMLMediaElement& element, const std::optional<Vector<Ref<TextTrack>>>& textTracks, const IntSize& captureSize, const String& videoCodec, std::optional<double> maxHistoryDuration, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&& completion)
+void MediaRestreamSource::create(HTMLMediaElement& element, const std::optional<Vector<Ref<TextTrack>>>& textTracks, const IntSize& captureSize, const String& videoCodec, std::optional<double> maxHistoryDuration, std::optional<uint64_t> minimumFreeStorage, CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>&& completion)
 {
     auto* player = playbackBackend(element);
     if (!player || !player->pipeline() || element.ended())
@@ -437,6 +438,7 @@ void MediaRestreamSource::create(HTMLMediaElement& element, const std::optional<
     source->m_captureSize = captureSize;
     source->m_videoCodec = videoCodec;
     source->m_maxHistoryDuration = maxHistoryDuration;
+    source->m_minimumFreeStorage = minimumFreeStorage;
     if (!videoCodec.isEmpty()) {
         source->m_frames = std::make_shared<MediaRestreamFrameQueue>();
         source->m_frames->ready = [weakThis = WeakPtr { source.get() }] {
@@ -806,7 +808,12 @@ void MediaRestreamSource::append(double start, double end, double sourceRate, do
     Vector<FileRange> subtitleRanges;
     uint64_t payloadSize = bytes;
     auto storage = m_storage;
-    if (m_maxHistoryDuration && storage->writtenDuration >= std::min(300.0, *m_maxHistoryDuration / 64)) {
+    auto enteredStoragePressure = updateStoragePressure();
+    if (m_storagePressure)
+        trimHistory();
+    bool rotatesStorage = m_maxHistoryDuration || (m_minimumFreeStorage && *m_minimumFreeStorage);
+    double storageFileDuration = m_storagePressure ? hlsMinimumDuration : m_maxHistoryDuration ? std::min(300.0, *m_maxHistoryDuration / 64) : 300;
+    if (rotatesStorage && (enteredStoragePressure || storage->writtenDuration >= storageFileDuration)) {
         storage->file = captureFile();
         storage->writtenBytes = 0;
         storage->writtenDuration = 0;
@@ -863,20 +870,35 @@ void MediaRestreamSource::append(double start, double end, double sourceRate, do
     });
 }
 
+bool MediaRestreamSource::updateStoragePressure()
+{
+    if (!m_minimumFreeStorage || !*m_minimumFreeStorage || !m_storage || !m_storage->file)
+        return false;
+    struct statfs statistics;
+    if (fstatfs(m_storage->file->platformHandle(), &statistics) < 0)
+        return false;
+    auto available = static_cast<uint64_t>(statistics.f_bavail) * static_cast<uint64_t>(statistics.f_bsize);
+    bool pressure = available < *m_minimumFreeStorage;
+    return !std::exchange(m_storagePressure, pressure) && pressure;
+}
+
 void MediaRestreamSource::trimHistory()
 {
-    if (!m_maxHistoryDuration)
-        return;
     auto now = MonotonicTime::now();
-    while (m_segments.size() > 1 && m_playlistDuration > *m_maxHistoryDuration) {
+    auto retainedDuration = m_storagePressure ? std::optional<double> { hlsMinimumDuration } : m_maxHistoryDuration;
+    while (retainedDuration && m_segments.size() > 1 && m_playlistDuration > *retainedDuration) {
         auto segment = WTF::move(m_segments.front());
         m_segments.pop_front();
         m_playlistDuration -= segment.duration;
         m_discontinuitySequence += segment.discontinuity;
         m_retiredSegments.push_back({ m_firstSequence++, WTF::move(segment), now + Seconds(hlsMinimumDuration + segment.duration) });
     }
-    while (!m_retiredSegments.empty() && m_retiredSegments.front().expires <= now)
-        m_retiredSegments.pop_front();
+    if (m_storagePressure)
+        m_retiredSegments.clear();
+    else {
+        while (!m_retiredSegments.empty() && m_retiredSegments.front().expires <= now)
+            m_retiredSegments.pop_front();
+    }
 }
 
 const MediaRestreamSource::Segment* MediaRestreamSource::segmentForSequence(uint64_t sequence) const

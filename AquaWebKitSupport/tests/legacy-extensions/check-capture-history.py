@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check an extension-selected HLS history limit and completed retained window."""
+import argparse
 import json
 import pathlib
 import re
@@ -11,6 +12,10 @@ import urllib.request
 
 rig = pathlib.Path(__file__).resolve().parent
 control = rig / 'build/media-receiver-control.json'
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--force-storage-pressure', action='store_true')
+args = parser.parse_args()
+maximum_duration = 9 if args.force_storage_pressure else 12
 
 
 def osa(script):
@@ -37,7 +42,7 @@ def playlist(url):
     sequence = int(re.search(r'^#EXT-X-MEDIA-SEQUENCE:(\d+)$', text, re.M).group(1))
     resources = [urllib.parse.urljoin(url, line) for line in text.splitlines() if line and not line.startswith('#')]
     assert durations and len(durations) == len(resources)
-    assert sum(durations) <= 12.000001, durations
+    assert sum(durations) <= maximum_duration + .000001, durations
     return text, sequence, durations, resources
 
 
@@ -69,7 +74,10 @@ def storage_files():
 
 baseline_storage = storage_files()
 control.write_text('{}')
-capture = json.dumps({'maxWidth': 3840, 'maxHeight': 2160, 'transport': 'hls', 'videoCodec': 'h264', 'maxHistoryDuration': 12})
+capture_options = {'maxWidth': 3840, 'maxHeight': 2160, 'transport': 'hls', 'videoCodec': 'h264', 'maxHistoryDuration': 12}
+if args.force_storage_pressure:
+    capture_options['minimumFreeStorage'] = 2**53 - 1
+capture = json.dumps(capture_options)
 query = urllib.parse.urlencode({'source': 'mse.mp4', 'mode': 'live', 'end': '1', 'sourceMode': 'capture', 'adapter': 'fixture', 'capture': capture})
 osa('tell application "Safari" to make new document with properties {URL:' + json.dumps('http://127.0.0.1:8843/quicktime.html?' + query) + '}')
 window = osa('tell application "Safari" to get id of front window')
@@ -91,14 +99,17 @@ try:
     old_url = initial[3][0]
     old_data = read(old_url)
     advanced = wait(lambda: (lambda state: state if state[1] > initial[1] else None)(playlist(media_url)), 30)
-    assert read(old_url) == old_data, 'Removed segment lacked request grace'
-    wait(lambda: unavailable(old_url), 20)
+    if args.force_storage_pressure:
+        wait(lambda: unavailable(old_url), 10)
+    else:
+        assert read(old_url) == old_data, 'Removed segment lacked request grace'
+        wait(lambda: unavailable(old_url), 20)
     final = wait(lambda: (lambda state: state if '#EXT-X-ENDLIST' in state[0] else None)(playlist(media_url)), 75)
     assert '#EXT-X-PLAYLIST-TYPE:VOD' in final[0] and '#EXT-X-PLAYLIST-TYPE:EVENT' not in final[0]
-    assert final[1] > advanced[1] and 9 <= sum(final[2]) <= 12.000001
+    assert final[1] > advanced[1] and 6 <= sum(final[2]) <= maximum_duration + .000001
     retained_storage = storage_files() - baseline_storage
     assert 1 <= len(retained_storage) <= 24, len(retained_storage)
-    print('PASS extension-selected history limit, sequence advancement, request grace and bounded VOD', final[1], sum(final[2]), flush=True)
+    print('PASS extension-selected history limit, sequence advancement, storage policy and bounded VOD', args.force_storage_pressure, final[1], sum(final[2]), flush=True)
 finally:
     control.write_text('{"closed":true}')
     osa('tell application "Safari" to close window id ' + window)

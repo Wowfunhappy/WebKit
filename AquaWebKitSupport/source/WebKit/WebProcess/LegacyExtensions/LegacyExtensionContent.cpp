@@ -271,6 +271,7 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
     WebCore::IntSize captureSize;
     String captureCodec;
     std::optional<double> captureHistoryDuration;
+    std::optional<uint64_t> captureMinimumFreeStorage;
     double routeTimeout { 30 };
     String openingMessage;
     bool negotiating { false };
@@ -326,11 +327,11 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
         return true;
     }
 
-    bool matches(const ContentContextNative& context, const String& app, const String& description, const Vector<Ref<WebCore::TextTrack>>& tracks, MediaPlayerSourceMode mode, const WebCore::IntSize& size, const String& codec, std::optional<double> historyDuration, double timeout) const
+    bool matches(const ContentContextNative& context, const String& app, const String& description, const Vector<Ref<WebCore::TextTrack>>& tracks, MediaPlayerSourceMode mode, const WebCore::IntSize& size, const String& codec, std::optional<double> historyDuration, std::optional<uint64_t> minimumFreeStorage, double timeout) const
     {
         return native.extensionKey == context.extensionKey && application == app && sameAdapter(adapter, description)
             && (finished ? (mode == MediaPlayerSourceMode::Auto || (restream ? mode == MediaPlayerSourceMode::Capture : mode == MediaPlayerSourceMode::Direct)) : mode == sourceMode)
-            && ((finished && !restream) || (captureSize == size && captureCodec == codec && captureHistoryDuration == historyDuration))
+            && ((finished && !restream) || (captureSize == size && captureCodec == codec && captureHistoryDuration == historyDuration && captureMinimumFreeStorage == minimumFreeStorage))
             && (finished || routeTimeout == timeout)
             && textTracks->size() == tracks.size()
             && std::equal(textTracks->begin(), textTracks->end(), tracks.begin(), [](auto& a, auto& b) { return a.ptr() == b.ptr(); });
@@ -625,7 +626,7 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
                 directIdentifier = MediaRestreamSession::singleton().createDirect(*media, matchingTimeline);
             launch(*directIdentifier);
         } else
-            MediaRestreamSession::singleton().create(*media, textTracks, captureSize, captureCodec, captureHistoryDuration, WTF::move(launch));
+            MediaRestreamSession::singleton().create(*media, textTracks, captureSize, captureCodec, captureHistoryDuration, captureMinimumFreeStorage, WTF::move(launch));
     }
 };
 
@@ -715,6 +716,7 @@ static JSValueRef contentContextOpenInMediaPlayer(JSContextRef context, JSObject
     WebCore::IntSize captureSize;
     String captureCodec;
     std::optional<double> captureHistoryDuration;
+    std::optional<uint64_t> captureMinimumFreeStorage;
     JSValueRef routeTimeoutError = nullptr;
     double routeTimeout = argumentCount > 10 ? JSValueToNumber(context, arguments[10], &routeTimeoutError) : 30;
     if (routeTimeoutError || !std::isfinite(routeTimeout) || routeTimeout < 1) {
@@ -738,9 +740,17 @@ static JSValueRef contentContextOpenInMediaPlayer(JSContextRef context, JSObject
             pending->complete(makeUnexpected("unsupported-source"_s));
             return promise;
         }
+        auto minimumFreeStorage = object->getDouble("minimumFreeStorage"_s);
+        if (minimumFreeStorage) {
+            if (!std::isfinite(*minimumFreeStorage) || *minimumFreeStorage < 0 || *minimumFreeStorage > 9007199254740991.0 || *minimumFreeStorage != std::floor(*minimumFreeStorage)) {
+                pending->complete(makeUnexpected("unsupported-source"_s));
+                return promise;
+            }
+            captureMinimumFreeStorage = static_cast<uint64_t>(*minimumFreeStorage);
+        }
         auto transport = object->getString("transport"_s);
         auto codec = object->getString("videoCodec"_s);
-        if (transport == "rtsp"_s && !captureHistoryDuration && (codec == "utvideo"_s || codec == "jpeg"_s))
+        if (transport == "rtsp"_s && !captureHistoryDuration && !captureMinimumFreeStorage && (codec == "utvideo"_s || codec == "jpeg"_s))
             captureCodec = codec;
         else if (transport != "hls"_s || codec != "h264"_s) {
             pending->complete(makeUnexpected("unsupported-source"_s));
@@ -754,10 +764,10 @@ static JSValueRef contentContextOpenInMediaPlayer(JSContextRef context, JSObject
         auto request = weakRequest.lock();
         if (!request || !request->sourceValid() || request->media.get() != media.get() || (request->finished && !request->completedURL))
             continue;
-        if (request->matches(*native, application, adapter, effectiveTracks, sourceMode, captureSize, captureCodec, captureHistoryDuration, routeTimeout))
+        if (request->matches(*native, application, adapter, effectiveTracks, sourceMode, captureSize, captureCodec, captureHistoryDuration, captureMinimumFreeStorage, routeTimeout))
             request->subscribe(WTF::move(pending));
         else if (sourceMode == MediaPlayerSourceMode::Direct && request->finished && request->restream
-            && request->matches(*native, application, adapter, effectiveTracks, MediaPlayerSourceMode::Auto, captureSize, captureCodec, captureHistoryDuration, routeTimeout))
+            && request->matches(*native, application, adapter, effectiveTracks, MediaPlayerSourceMode::Auto, captureSize, captureCodec, captureHistoryDuration, captureMinimumFreeStorage, routeTimeout))
             pending->complete(makeUnexpected("no-direct-source"_s));
         else
             pending->complete(makeUnexpected("application-busy"_s));
@@ -771,6 +781,7 @@ static JSValueRef contentContextOpenInMediaPlayer(JSContextRef context, JSObject
     request->captureSize = captureSize;
     request->captureCodec = captureCodec;
     request->captureHistoryDuration = captureHistoryDuration;
+    request->captureMinimumFreeStorage = captureMinimumFreeStorage;
     request->routeTimeout = routeTimeout;
     request->parentHandoffIdentifier = *parentHandoff;
     if (argumentCount > 6 && JSValueIsObject(context, arguments[6])) {

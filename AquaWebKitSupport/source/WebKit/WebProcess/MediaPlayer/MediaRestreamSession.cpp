@@ -18,9 +18,9 @@ MediaRestreamSession::MediaRestreamSession()
     WebProcess::singleton().addMessageReceiver(Messages::MediaRestreamSession::messageReceiverName(), *this);
 }
 
-void MediaRestreamSession::create(WebCore::HTMLMediaElement& element, const std::optional<Vector<Ref<WebCore::TextTrack>>>& textTracks, const WebCore::IntSize& captureSize, const String& videoCodec, std::optional<double> maxHistoryDuration, CompletionHandler<void(Expected<uint64_t, String>&&)>&& completion)
+void MediaRestreamSession::create(WebCore::HTMLMediaElement& element, const std::optional<Vector<Ref<WebCore::TextTrack>>>& textTracks, const WebCore::IntSize& captureSize, const String& videoCodec, std::optional<double> maxHistoryDuration, std::optional<uint64_t> minimumFreeStorage, CompletionHandler<void(Expected<uint64_t, String>&&)>&& completion)
 {
-    WebCore::MediaRestreamSource::create(element, textTracks, captureSize, videoCodec, maxHistoryDuration, [this, completion = WTF::move(completion)](auto&& source) mutable {
+    WebCore::MediaRestreamSource::create(element, textTracks, captureSize, videoCodec, maxHistoryDuration, minimumFreeStorage, [this, completion = WTF::move(completion)](auto&& source) mutable {
         if (!source)
             return completion(makeUnexpected(source.error()));
         auto identifier = m_nextIdentifier++;

@@ -991,7 +991,7 @@ if (typeof native.openInMediaPlayer === "function") {
         if (options.capture !== undefined) {
             if (!options.capture || typeof options.capture !== "object")
                 return Promise.reject(new TypeError("capture must be an object"));
-            const { maxWidth = 3840, maxHeight = 2160, transport = "hls", videoCodec = "h264", maxHistoryDuration } = options.capture;
+            const { maxWidth = 3840, maxHeight = 2160, transport = "hls", videoCodec = "h264", maxHistoryDuration, minimumFreeStorage } = options.capture;
             if (!(transport === "hls" && videoCodec === "h264") && !(transport === "rtsp" && ["jpeg", "utvideo"].includes(videoCodec)))
                 return Promise.reject(new TypeError("Unsupported capture transport or video codec"));
             if (![maxWidth, maxHeight].every(value => Number.isInteger(value) && value >= 2 && value <= 16384))
@@ -1000,9 +1000,15 @@ if (typeof native.openInMediaPlayer === "function") {
                 return Promise.reject(new TypeError("capture.maxHistoryDuration must be a finite number of at least 9 seconds"));
             if (maxHistoryDuration !== undefined && transport !== "hls")
                 return Promise.reject(new TypeError("capture.maxHistoryDuration requires HLS transport"));
+            if (minimumFreeStorage !== undefined && (!Number.isSafeInteger(minimumFreeStorage) || minimumFreeStorage < 0))
+                return Promise.reject(new TypeError("capture.minimumFreeStorage must be a nonnegative safe integer number of bytes"));
+            if (minimumFreeStorage !== undefined && transport !== "hls")
+                return Promise.reject(new TypeError("capture.minimumFreeStorage requires HLS transport"));
             const captureOptions = { maxWidth, maxHeight, transport, videoCodec };
             if (maxHistoryDuration !== undefined)
                 captureOptions.maxHistoryDuration = maxHistoryDuration;
+            if (minimumFreeStorage !== undefined)
+                captureOptions.minimumFreeStorage = minimumFreeStorage;
             capture = JSON.stringify(captureOptions);
         }
         const resolveSource = options.resolveSource && ((url, complete) => {
