@@ -4004,7 +4004,9 @@ WKDataRef WKDownloadGetResumeData(WKDownloadRef download)
     return toAPI(toImpl(download)->legacyResumeData());
 #endif
 }
-void* WKGraphicsContextGetCGContext(void*) { return nullptr; }
+// A page overlay's drawRect callback is handed the CGContextRef itself (WKBundlePageOverlay.cpp), which
+// is the graphics context a client asks this for.
+void* WKGraphicsContextGetCGContext(void* graphicsContext) { return graphicsContext; }
 
 // The store an empty engine-side feature still has to answer from, so the Privacy pane's
 // per-type queries complete.
