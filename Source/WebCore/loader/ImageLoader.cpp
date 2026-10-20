@@ -279,6 +279,9 @@ void ImageLoader::updateFromElement(RelevantMutation relevantMutation)
     }
     ResourceRequest resourceRequest(WTF::move(imageURL));
     resourceRequest.setInspectorInitiatorNodeIdentifier(InspectorInstrumentation::identifierForNode(element));
+    // AQUAWEBKIT: the list-of-available-images lookup reads the partition the image is stored in (323594@main, webkit.org/b/327203).
+    resourceRequest.setShouldBlockThirdPartyStorage(document->shouldBlockThirdPartyStorage());
+    resourceRequest.setFirstPartyForCookies(document->firstPartyForCookies());
 
     auto request = createPotentialAccessControlRequest(WTF::move(resourceRequest), WTF::move(options), document, crossOriginAttribute);
     request.setInitiator(element);
