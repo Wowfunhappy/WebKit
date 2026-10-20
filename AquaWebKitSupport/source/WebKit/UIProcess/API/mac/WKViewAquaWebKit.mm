@@ -486,8 +486,12 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // configuration createNewPage() prepared for it (window features, opened main-frame name, opener,
     // initial sandbox flags and referrer policy), as a configuration-based client would.
     RefPtr<API::PageConfiguration> configuration = WebKit::WebPageProxy::takeConfigurationOfPageBeingOpened();
-    if (!configuration)
+    if (!configuration) {
         configuration = API::PageConfiguration::create();
+        // A C API page shares its context's visited links, which WKContextAddVisitedLink writes, as in
+        // WebKit 601's WebProcessPool::createWebPage; a prepared configuration carries its opener's.
+        configuration->setVisitedLinkStore(&WebKit::toImpl(contextRef)->visitedLinkStore());
+    }
     configuration->setProcessPool(WebKit::toImpl(contextRef));
     // honor the page group Safari passes — its identifier is
     // how the injected bundle scopes extension content scripts
