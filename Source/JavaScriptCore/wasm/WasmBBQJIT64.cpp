@@ -3066,6 +3066,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F32Floor", TypeKind::F32,
         BLOCK(Value::fromF32(Math::floorFloat(operand.asF32()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: macOS 10.9 runs on Core 2 CPUs, which lack the SSE4.1 rounding instructions; there this calls the C helper, as B3LowerMacrosAfterOptimizations does.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F32, operandLocation);
+                emitCCall(&Math::floorFloat, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.floorFloat(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )
@@ -3077,6 +3083,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F64Floor", TypeKind::F64,
         BLOCK(Value::fromF64(Math::floorDouble(operand.asF64()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF32Floor.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F64, operandLocation);
+                emitCCall(&Math::floorDouble, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.floorDouble(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )
@@ -3088,6 +3100,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F32Ceil", TypeKind::F32,
         BLOCK(Value::fromF32(Math::ceilFloat(operand.asF32()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF32Floor.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F32, operandLocation);
+                emitCCall(&Math::ceilFloat, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.ceilFloat(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )
@@ -3099,6 +3117,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F64Ceil", TypeKind::F64,
         BLOCK(Value::fromF64(Math::ceilDouble(operand.asF64()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF32Floor.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F64, operandLocation);
+                emitCCall(&Math::ceilDouble, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.ceilDouble(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )
@@ -3110,6 +3134,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F32Nearest", TypeKind::F32,
         BLOCK(Value::fromF32(roundevenf(operand.asF32()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF32Floor.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F32, operandLocation);
+                emitCCall(&Math::f32_nearest, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.roundTowardNearestIntFloat(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )
@@ -3121,6 +3151,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F64Nearest", TypeKind::F64,
         BLOCK(Value::fromF64(roundeven(operand.asF64()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF32Floor.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F64, operandLocation);
+                emitCCall(&Math::f64_nearest, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.roundTowardNearestIntDouble(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )
@@ -3132,6 +3168,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F32Trunc", TypeKind::F32,
         BLOCK(Value::fromF32(Math::truncFloat(operand.asF32()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF32Floor.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F32, operandLocation);
+                emitCCall(&Math::truncFloat, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.truncFloat(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )
@@ -3143,6 +3185,12 @@ PartialResult BBQJIT::addI32WrapI64(Value operand, Value& result)
         "F64Trunc", TypeKind::F64,
         BLOCK(Value::fromF64(Math::truncDouble(operand.asF64()))),
         BLOCK(
+            if (!m_jit.supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF32Floor.
+                consume(result);
+                auto arg = Value::pinned(TypeKind::F64, operandLocation);
+                emitCCall(&Math::truncDouble, singleElementSpan(arg), result);
+                return;
+            }
             m_jit.truncDouble(operandLocation.asFPR(), resultLocation.asFPR());
         )
     )

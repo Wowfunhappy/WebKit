@@ -3437,7 +3437,8 @@ static double clampDoubleToByte(double d)
     return roundeven(d);
 }
 
-static void compileClampDoubleToByte(JITCompiler& jit, GPRReg result, FPRReg source, FPRReg scratch)
+// static void compileClampDoubleToByte(JITCompiler& jit, GPRReg result, FPRReg source, FPRReg scratch)
+static void compileClampDoubleToByte(SpeculativeJIT& jit, GPRReg result, FPRReg source, FPRReg scratch) // AQUAWEBKIT: SpeculativeJIT for the rounding call below.
 {
     // Unordered compare so we pick up NaN
     jit.moveZeroToDouble(scratch);
@@ -3445,7 +3446,16 @@ static void compileClampDoubleToByte(JITCompiler& jit, GPRReg result, FPRReg sou
     jit.move64ToDouble(CCallHelpers::TrustedImm64(std::bit_cast<uint64_t>(255.0)), scratch);
     MacroAssembler::Jump tooBig = jit.branchDouble(MacroAssembler::DoubleGreaterThanAndOrdered, source, scratch);
     
-    jit.roundTowardNearestIntDouble(source, scratch);
+    // jit.roundTowardNearestIntDouble(source, scratch);
+    // AQUAWEBKIT: macOS 10.9 runs on Core 2 CPUs, which lack the SSE4.1 rounding instructions; there this
+    // calls the C helper, as compileNumberIsSafeInteger does.
+    if (jit.supportsFloatingPointRounding())
+        jit.roundTowardNearestIntDouble(source, scratch);
+    else {
+        jit.silentSpillAllRegisters(scratch);
+        jit.callOperationWithoutExceptionCheck(Math::f64_nearest, scratch, source);
+        jit.silentFillAllRegisters();
+    }
     jit.truncateDoubleToInt32(scratch, result);   
     MacroAssembler::Jump truncatedInt = jit.jump();
     

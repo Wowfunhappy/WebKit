@@ -2230,10 +2230,23 @@ ipintOp(_f32_neg, macro()
     nextIPIntInstruction()
 end)
 
+# AQUAWEBKIT: macOS 10.9 runs on Core 2 CPUs, which lack the SSE4.1 rounding instructions; on x86_64 the
+# f32/f64 ceil, floor, trunc and nearest opcodes call the C helper, as the popcount opcodes do. Both take
+# ft0 and leave the result in ft1.
+macro floatingPointRounding(roundInstruction, helper)
+    if X86_64
+        operationCall(macro() cCall2(helper) end)
+        moved ft0, ft1
+    else
+        roundInstruction()
+    end
+end
+
 ipintOp(_f32_ceil, macro()
     # f32.ceil
     popFloat32(ft0)
-    ceilf ft0, ft1
+    # ceilf ft0, ft1
+    floatingPointRounding(macro() ceilf ft0, ft1 end, _ceilFloat) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat32(ft1)
 
     advancePC(1)
@@ -2243,7 +2256,8 @@ end)
 ipintOp(_f32_floor, macro()
     # f32.floor
     popFloat32(ft0)
-    floorf ft0, ft1
+    # floorf ft0, ft1
+    floatingPointRounding(macro() floorf ft0, ft1 end, _floorFloat) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat32(ft1)
 
     advancePC(1)
@@ -2253,7 +2267,8 @@ end)
 ipintOp(_f32_trunc, macro()
     # f32.trunc
     popFloat32(ft0)
-    truncatef ft0, ft1
+    # truncatef ft0, ft1
+    floatingPointRounding(macro() truncatef ft0, ft1 end, _truncFloat) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat32(ft1)
 
     advancePC(1)
@@ -2263,7 +2278,8 @@ end)
 ipintOp(_f32_nearest, macro()
     # f32.nearest
     popFloat32(ft0)
-    roundf ft0, ft1
+    # roundf ft0, ft1
+    floatingPointRounding(macro() roundf ft0, ft1 end, _f32_nearest) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat32(ft1)
 
     advancePC(1)
@@ -2438,7 +2454,8 @@ end)
 ipintOp(_f64_ceil, macro()
     # f64.ceil
     popFloat64(ft0)
-    ceild ft0, ft1
+    # ceild ft0, ft1
+    floatingPointRounding(macro() ceild ft0, ft1 end, _ceilDouble) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat64(ft1)
 
     advancePC(1)
@@ -2448,7 +2465,8 @@ end)
 ipintOp(_f64_floor, macro()
     # f64.floor
     popFloat64(ft0)
-    floord ft0, ft1
+    # floord ft0, ft1
+    floatingPointRounding(macro() floord ft0, ft1 end, _floorDouble) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat64(ft1)
 
     advancePC(1)
@@ -2458,7 +2476,8 @@ end)
 ipintOp(_f64_trunc, macro()
     # f64.trunc
     popFloat64(ft0)
-    truncated ft0, ft1
+    # truncated ft0, ft1
+    floatingPointRounding(macro() truncated ft0, ft1 end, _truncDouble) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat64(ft1)
 
     advancePC(1)
@@ -2468,7 +2487,8 @@ end)
 ipintOp(_f64_nearest, macro()
     # f64.nearest
     popFloat64(ft0)
-    roundd ft0, ft1
+    # roundd ft0, ft1
+    floatingPointRounding(macro() roundd ft0, ft1 end, _f64_nearest) # AQUAWEBKIT: see floatingPointRounding.
     pushFloat64(ft1)
 
     advancePC(1)

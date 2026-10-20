@@ -591,7 +591,8 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(roundFloat, float, (float value))
     return roundFloatImpl(value);
 }
 
-#if USE(JSVALUE32_64)
+// #if USE(JSVALUE32_64)
+// AQUAWEBKIT: 64-bit Wasm calls f32_nearest and f64_nearest on x86_64 CPUs without SSE4.1 rounding instructions.
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_nearest, float, (float operand))
 {
     return roundevenf(operand);
@@ -602,6 +603,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f64_nearest, double, (double operand))
     return roundeven(operand);
 }
 
+#if USE(JSVALUE32_64) // AQUAWEBKIT: upstream's guard, opened after f32_nearest and f64_nearest.
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_roundeven, float, (float operand)) { return roundevenf(operand); }
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f64_roundeven, double, (double operand)) { return roundeven(operand); }
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_trunc, float, (float operand)) { return std::trunc(operand); }

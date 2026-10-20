@@ -36,11 +36,16 @@
 #include <sys/sysctl.h>
 #endif
 
+// AQUAWEBKIT: macOS releases before 11 run on Macs without AVX (Core 2, Nehalem, Westmere), so there
+// AVX is detected and the probe trampoline chosen at run time, as upstream does off Darwin.
+#define AQUAWEBKIT_ALL_CPUS_HAVE_AVX (OS(DARWIN) && !(PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 110000))
+
 namespace JSC {
 
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(ctiMasmProbeTrampoline, void, ());
 JSC_ANNOTATE_JIT_OPERATION_PROBE(ctiMasmProbeTrampoline);
-#if !OS(DARWIN)
+// #if !OS(DARWIN)
+#if !AQUAWEBKIT_ALL_CPUS_HAVE_AVX // AQUAWEBKIT: see AQUAWEBKIT_ALL_CPUS_HAVE_AVX.
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(ctiMasmProbeTrampolineAVX, void, ());
 JSC_ANNOTATE_JIT_OPERATION_PROBE(ctiMasmProbeTrampolineAVX);
 #endif
@@ -193,7 +198,8 @@ static_assert(sizeof(Probe::State) == PROBE_SIZE, "Probe::State::size's matches 
     "vmovaps " STRINGIZE_VALUE_OF(PROBE_CPU_XMM14_VECTOR_OFFSET) "(%rbp), %xmm14" "\n" \
     "vmovaps " STRINGIZE_VALUE_OF(PROBE_CPU_XMM15_VECTOR_OFFSET) "(%rbp), %xmm15" "\n"
 
-#if !OS(DARWIN)
+// #if !OS(DARWIN)
+#if !AQUAWEBKIT_ALL_CPUS_HAVE_AVX // AQUAWEBKIT: see AQUAWEBKIT_ALL_CPUS_HAVE_AVX.
 #define PROBE_XMM_SAVE_MOVAPS \
     "movaps %xmm0,  " STRINGIZE_VALUE_OF(PROBE_CPU_XMM0_VECTOR_OFFSET) "(%rsp)" "\n" \
     "movaps %xmm1,  " STRINGIZE_VALUE_OF(PROBE_CPU_XMM1_VECTOR_OFFSET) "(%rsp)" "\n" \
@@ -404,7 +410,8 @@ __asm__( \
     ASM_PREVIOUS_SECTION \
 );
 
-#if OS(DARWIN)
+// #if OS(DARWIN)
+#if AQUAWEBKIT_ALL_CPUS_HAVE_AVX // AQUAWEBKIT: see AQUAWEBKIT_ALL_CPUS_HAVE_AVX.
 // On macOS, all x86_64 CPUs support AVX. Use vmovaps unconditionally.
 DEFINE_PROBE_TRAMPOLINE(ctiMasmProbeTrampoline, PROBE_XMM_SAVE_VMOVAPS, PROBE_XMM_RESTORE_VMOVAPS,
     ctiMasmProbeTrampolineCopyLoop, ctiMasmProbeTrampolineProbeStateIsSafe, ctiMasmProbeTrampolineRestoreRegisters)
@@ -464,7 +471,8 @@ void MacroAssembler::probe(Probe::Function function, void* arg)
     push(RegisterID::eax);
     push(RegisterID::eax);
 
-#if OS(DARWIN)
+// #if OS(DARWIN)
+#if AQUAWEBKIT_ALL_CPUS_HAVE_AVX // AQUAWEBKIT: see AQUAWEBKIT_ALL_CPUS_HAVE_AVX.
     move(TrustedImmPtr(reinterpret_cast<void*>(ctiMasmProbeTrampoline)), RegisterID::eax);
 #else
     if (supportsAVX())
@@ -507,7 +515,8 @@ void MacroAssemblerX86_64::collectCPUFeatures()
             s_sse4_1CheckState = (cpuid[2] & (1 << 19)) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
             s_sse4_2CheckState = (cpuid[2] & (1 << 20)) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
             s_popcntCheckState = (cpuid[2] & (1 << 23)) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
-#if OS(DARWIN)
+// #if OS(DARWIN)
+#if AQUAWEBKIT_ALL_CPUS_HAVE_AVX // AQUAWEBKIT: see AQUAWEBKIT_ALL_CPUS_HAVE_AVX.
             s_avxCheckState = CPUIDCheckState::Set;
 #else
             s_avxCheckState = (cpuid[2] & (1 << 28)) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;

@@ -7151,7 +7151,18 @@ void SpeculativeJIT::compileDateGet(Node* node)
 
         move64ToDouble(TrustedImm64(std::bit_cast<uint64_t>(static_cast<double>(msPerSecond))), temp2FPR);
         divDouble(temp1FPR, temp2FPR, temp3FPR);
-        floorDouble(temp3FPR, temp3FPR);
+        // floorDouble(temp3FPR, temp3FPR);
+        // AQUAWEBKIT: macOS 10.9 runs on Core 2 CPUs, which lack the SSE4.1 rounding instructions; there this
+        // calls the C helper, as compileArithRounding does, and reloads the operands the call clobbers.
+        if (supportsFloatingPointRounding())
+            floorDouble(temp3FPR, temp3FPR);
+        else {
+            silentSpillAllRegisters(temp3FPR);
+            callOperationWithoutExceptionCheck(Math::floorDouble, temp3FPR, temp3FPR);
+            silentFillAllRegisters();
+            loadDouble(Address(baseGPR, DateInstance::offsetOfInternalNumber()), temp1FPR);
+            move64ToDouble(TrustedImm64(std::bit_cast<uint64_t>(static_cast<double>(msPerSecond))), temp2FPR);
+        }
         mulDouble(temp3FPR, temp2FPR, temp3FPR);
         subDouble(temp1FPR, temp3FPR, temp1FPR);
         truncateDoubleToInt32(temp1FPR, resultRegs.payloadGPR());

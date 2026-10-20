@@ -12,6 +12,7 @@
 #include <dispatch/dispatch.h>
 #include <xpc/xpc.h>
 #include <dlfcn.h>
+#include <math.h>
 #include <libproc.h>
 #include <mach/mach.h>
 #include <mach/thread_act.h>
@@ -161,6 +162,21 @@ WK_POLYFILL_REPLACES(NULL, dispatch_queue_global_t, dispatch_get_global_queue, (
     else if (identifier == 0x09 /*QOS_CLASS_BACKGROUND*/ || identifier == 0x05 /*QOS_CLASS_MAINTENANCE*/)
         identifier = DISPATCH_QUEUE_PRIORITY_BACKGROUND;
     return WK_ORIGINAL(dispatch_get_global_queue)(identifier, flags);
+}
+
+// round and roundf give a NaN back quiet, as the IEEE operation they implement does and as later macOS does: its
+// libm returns NaN + 0.0. 10.9's returns a signaling NaN unchanged. Canonicalizing quiets a NaN and keeps its sign
+// and payload, the bits that addition gives. Every other value goes to the system's.
+WK_POLYFILL_REPLACES(NULL, double, round, (double x)) {
+    if (isnan(x))
+        return __builtin_canonicalize(x);
+    return WK_ORIGINAL(round)(x);
+}
+
+WK_POLYFILL_REPLACES(NULL, float, roundf, (float x)) {
+    if (isnan(x))
+        return __builtin_canonicalizef(x);
+    return WK_ORIGINAL(roundf)(x);
 }
 
 // task_info(TASK_VM_INFO) grew phys_footprint after 10.9. This kernel answers the flavor with the

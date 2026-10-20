@@ -2,7 +2,10 @@
 
 macro(AQUAWEBKIT_LIBWEBRTC_ADD_TARGET)
     # Keep production sources, Cocoa capture and the checked-in Apple assembly.
-    list(REMOVE_ITEM webrtc_SOURCES Source/webrtc/modules/video_coding/h265_vps_sps_pps_tracker.cc)
+    list(REMOVE_ITEM webrtc_SOURCES
+        Source/third_party/abseil-cpp/absl/random/internal/nanobenchmark.cc
+        Source/webrtc/modules/video_coding/h265_vps_sps_pps_tracker.cc
+    )
     list(FILTER webrtc_SOURCES EXCLUDE REGEX "/audio_device/linux/|/fake_[a-z0-9_]+\\.cc$|_testing(_common)?\\.cc$|_unittest\\.cc$|_test\\.cc$|(^|/)test/|/tools/|/rtc_tools/|/testdata/|/virtual_socket_server\\.cc$|/compute_interpolated_gain_curve\\.cc$|/corruption_detection/evaluation/|/bwe_rtp\\.cc$|/video_loopback_main\\.cc$|/print_hash_of\\.cc$|/gaussian_distribution_gentables\\.cc$|/boringssl/src/tool/|/bazel-example/|/fipstools/|/libyuv/util/|/default_task_queue_factory_win\\.cc$|/rtc_event_log_impl\\.cc$|(^|/)(chacha/chacha-x86_64|cipher/aes128gcmsiv-x86_64|cipher/chacha20_poly1305_x86_64)-")
     list(APPEND webrtc_SOURCES
         Source/third_party/abseil-cpp/absl/base/internal/tracing.cc
@@ -33,6 +36,12 @@ endmacro()
 # Runs at the end of libwebrtc/CMakeLists.txt, after it has set the targets' own properties, so these win.
 macro(AQUAWEBKIT_LIBWEBRTC_FINALIZE_TARGETS)
     if (APPLE)
+        # libvpx's SIMD sources carry their instruction sets (AQUAWEBKIT_LIBWEBRTC_VPX_SOURCES); the rest of
+        # the library stays on the deployment target's baseline, which 10.9's Macs without AVX2 run.
+        get_target_property(_vpx_options vpx COMPILE_OPTIONS)
+        list(REMOVE_ITEM _vpx_options "$<$<COMPILE_LANGUAGE:CXX>:-mavx2>" "$<$<COMPILE_LANGUAGE:C>:-mavx2>")
+        set_property(TARGET vpx PROPERTY COMPILE_OPTIONS ${_vpx_options})
+
         # Cocoa's Xcode project uses default visibility and an explicit export list for WebRTC and WebM.
         set_target_properties(webrtc webm PROPERTIES CXX_VISIBILITY_PRESET default C_VISIBILITY_PRESET default)
         # OptionsCocoa's directory flags follow the visibility presets; match the Xcode override.
@@ -137,4 +146,17 @@ macro(AQUAWEBKIT_LIBWEBRTC_VPX_SOURCES)
     # beside this port's mac/x64 one, and the two-pass encoder TUs vp9cx.mk strips under
     # CONFIG_REALTIME_ONLY (set in config/mac/x64/vpx_config.h).
     list(FILTER vpx_SOURCES EXCLUDE REGEX "/libvpx/tools/|/libvpx/(args|ivfdec|ivfenc|md5_utils|rate_hist|tools_common|video_reader|video_writer|vpxstats|warnings|y4menc|y4minput)\\.c$|/config/linux/ppc64/|/vp9_firstpass\\.c$|/vp9_mbgraph\\.c$|/vp9_temporal_filter\\.c$|/temporal_filter_(ssse3|sse4|avx2)\\.c$|/vp9_alt_ref_aq\\.c$|/vp9_aq_(variance|360|complexity)\\.c$")
+    # As in libvpx's own build (vpx_dsp.mk), each SIMD source gets its instruction set; rtcd picks the
+    # variant the CPU runs.
+    foreach (_source IN LISTS vpx_SOURCES)
+        if (_source MATCHES "_avx2\\.c$")
+            set_source_files_properties(${_source} PROPERTIES COMPILE_OPTIONS "-mavx2")
+        elseif (_source MATCHES "_avx\\.c$")
+            set_source_files_properties(${_source} PROPERTIES COMPILE_OPTIONS "-mavx")
+        elseif (_source MATCHES "_sse4\\.c$")
+            set_source_files_properties(${_source} PROPERTIES COMPILE_OPTIONS "-msse4.1")
+        elseif (_source MATCHES "_ssse3\\.c$")
+            set_source_files_properties(${_source} PROPERTIES COMPILE_OPTIONS "-mssse3")
+        endif ()
+    endforeach ()
 endmacro()

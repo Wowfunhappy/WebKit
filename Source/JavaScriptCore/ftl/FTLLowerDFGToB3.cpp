@@ -24347,6 +24347,10 @@ IGNORE_CLANG_WARNINGS_END
 
             m_out.appendTo(withinRange, continuation);
 
+            // AQUAWEBKIT: macOS 10.9 runs on Core 2 CPUs, which lack the SSE4.1 rounding instructions; there this calls the C helper.
+            if (!MacroAssembler::supportsFloatingPointRounding())
+                doubleValue = m_out.callWithoutSideEffects(Double, Math::f64_nearest, doubleValue);
+            else { // AQUAWEBKIT: the rounding instruction below, as upstream emits it.
             PatchpointValue* patchpoint = m_out.patchpoint(Double);
             patchpoint->append(ConstrainedValue(doubleValue, B3::ValueRep::SomeRegister));
             patchpoint->setGenerator([=] (CCallHelpers& jit, const StackmapGenerationParams& params) {
@@ -24354,6 +24358,7 @@ IGNORE_CLANG_WARNINGS_END
             });
             patchpoint->effects = Effects::none();
             doubleValue = patchpoint;
+            } // AQUAWEBKIT: closes the else above.
 
             intValues.append(m_out.anchor(m_out.doubleToInt32(doubleValue)));
             m_out.jump(continuation);
