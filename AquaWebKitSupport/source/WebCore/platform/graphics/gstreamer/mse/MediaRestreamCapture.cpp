@@ -593,18 +593,16 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
         if (!sink)
             return false;
         GstElement* selectedVideoSink = nullptr;
-        GstElement* selectedAudioSink = nullptr;
-        g_object_get(sink.get(), "video-sink", &selectedVideoSink, "audio-sink", &selectedAudioSink, nullptr);
+        g_object_get(sink.get(), "video-sink", &selectedVideoSink, nullptr);
         GRefPtr videoSink = adoptGRef(selectedVideoSink);
-        GRefPtr audioSink = adoptGRef(selectedAudioSink);
         GRefPtr<GstPad> videoPad;
         GRefPtr<GstPad> audioPad;
         GRefPtr activeVideo = adoptGRef(gst_element_get_static_pad(sink.get(), "video_sink"));
         GRefPtr activeAudio = adoptGRef(gst_element_get_static_pad(sink.get(), "audio_sink"));
         if (activeVideo && videoSink)
             videoPad = adoptGRef(gst_element_get_static_pad(videoSink.get(), "sink"));
-        if (includeAudio && activeAudio && audioSink)
-            audioPad = adoptGRef(gst_element_get_static_pad(audioSink.get(), "sink"));
+        if (includeAudio)
+            audioPad = WTF::move(activeAudio);
         for (auto* pad : { &videoPad, &audioPad }) {
             if (*pad) {
                 GRefPtr eos = adoptGRef(gst_pad_get_sticky_event(pad->get(), GST_EVENT_EOS, 0));

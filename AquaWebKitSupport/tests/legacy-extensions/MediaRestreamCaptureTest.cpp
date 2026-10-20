@@ -12,6 +12,43 @@
 using namespace WebCore;
 template class WebCore::GstBufferMapper<GstMapInfo, gst_buffer_map, gst_buffer_unmap>;
 
+static std::optional<unsigned> aacChannels(std::span<const uint8_t> transport)
+{
+    std::optional<unsigned> audioPID;
+    Vector<uint8_t> audio;
+    for (size_t offset = 0; offset + 188 <= transport.size(); offset += 188) {
+        auto packet = transport.subspan(offset, 188);
+        if (packet[0] != 0x47 || !(packet[3] & 0x10))
+            continue;
+        unsigned pid = ((packet[1] & 31) << 8) | packet[2];
+        size_t begin = 4;
+        if (packet[3] & 0x20)
+            begin += 1 + packet[4];
+        if (begin >= packet.size())
+            continue;
+        auto payload = packet.subspan(begin);
+        if (packet[1] & 0x40) {
+            if (payload.size() < 9 || payload[0] || payload[1] || payload[2] != 1 || payload[3] < 0xc0 || payload[3] > 0xdf)
+                continue;
+            audioPID = pid;
+            if (9 + payload[8] > payload.size())
+                continue;
+            payload = payload.subspan(9 + payload[8]);
+        }
+        if (audioPID == pid)
+            audio.append(payload);
+    }
+    for (size_t offset = 0; offset + 7 <= audio.size(); ++offset) {
+        if (audio[offset] != 0xff || (audio[offset + 1] & 0xf6) != 0xf0)
+            continue;
+        auto channels = ((audio[offset + 2] & 1) << 2) | (audio[offset + 3] >> 6);
+        auto length = ((audio[offset + 3] & 3) << 11) | (audio[offset + 4] << 3) | (audio[offset + 5] >> 5);
+        if (channels && length >= 7 && offset + length <= audio.size())
+            return channels;
+    }
+    return std::nullopt;
+}
+
 int main(int argc, char** argv)
 {
     if (argc != 3)
@@ -49,6 +86,8 @@ int main(int argc, char** argv)
     bool reachedEnd = false;
     bool continuedAfterEnd = false;
     bool expectContinuation = getenv("CAPTURE_POST_EOS_STREAM_START");
+    unsigned expectedChannels = getenv("CAPTURE_EXPECT_CHANNELS") ? atoi(getenv("CAPTURE_EXPECT_CHANNELS")) : 0;
+    std::optional<unsigned> observedChannels;
     unsigned count = 0;
     uint64_t bytes = 0;
     double lastEnd = 0;
@@ -67,6 +106,12 @@ int main(int argc, char** argv)
                 && (!count || std::abs(start - lastEnd) < .000001) && !payload.empty() && !(payload.size() % 188);
             for (size_t i = 0; i < payload.size(); i += 188)
                 valid &= payload[i] == 0x47;
+            if (expectedChannels) {
+                if (auto channels = aacChannels(payload)) {
+                    valid &= !observedChannels || *observedChannels == *channels;
+                    observedChannels = *channels;
+                }
+            }
             if (!valid) {
                 fprintf(stderr, "Invalid fragment %u: %.9f..%.9f, previous %.9f, %zu bytes\n", count, start, end, lastEnd, payload.size());
                 failed = done = true;
@@ -179,7 +224,8 @@ int main(int argc, char** argv)
     gst_object_unref(playback);
     for (unsigned i = 0; i < 10; ++i)
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, .02, true);
-    bool success = !failed && done && count && (!getenv("CAPTURE_CANCEL_AFTER_STALL") || cancelled) && (!expectContinuation || continuedAfterEnd);
+    bool success = !failed && done && count && (!getenv("CAPTURE_CANCEL_AFTER_STALL") || cancelled) && (!expectContinuation || continuedAfterEnd)
+        && (!expectedChannels || observedChannels == expectedChannels);
     fprintf(stderr, "%s: %u fragments, %.3f seconds, %llu bytes\n", success ? "PASS" : "FAIL", count, lastEnd, static_cast<unsigned long long>(bytes));
     return !success;
 }

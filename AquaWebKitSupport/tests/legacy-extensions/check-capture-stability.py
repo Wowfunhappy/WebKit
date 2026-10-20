@@ -88,4 +88,6 @@ for case in cases:
         case_env['CAPTURE_INITIAL_GAPS'] = '1'
     if case == 'post-eos':
         case_env['CAPTURE_POST_EOS_STREAM_START'] = '1'
+    if case == 'surround':
+        case_env['CAPTURE_EXPECT_CHANNELS'] = '6'
     subprocess.run([str(out / 'test'), pipeline, str(limit)], env=case_env, timeout=limit + 30, check=True)
