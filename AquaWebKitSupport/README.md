@@ -147,6 +147,18 @@ says; the same file still plays in a frame or an `<embed>`. To play such files i
 The next navigation uses the new value. `defaults delete -g WebKitPlayMediaFilesInline` restores
 downloading.
 
+## Keeping an app's cookies apart from Safari's
+
+On 10.9 every app's web views share Safari's cookies, through the system's account-wide cookie jar. An
+app whose defaults turn `WebKitUsesSystemCookieJar` off keeps its own jar for its web views instead:
+the one the system's cookie daemon keeps under the app's bundle identifier (the process name for a
+command-line tool), `~/Library/Cookies/<bundle identifier>.binarycookies`:
+
+    defaults write com.example.App WebKitUsesSystemCookieJar -bool false
+
+Quit and reopen the app for the change to take effect. `defaults delete com.example.App
+WebKitUsesSystemCookieJar` shares Safari's cookies again.
+
 ## JavaScriptCore options
 
 Every 64-bit process that runs this JavaScriptCore for an app (the app itself, including Safari's
