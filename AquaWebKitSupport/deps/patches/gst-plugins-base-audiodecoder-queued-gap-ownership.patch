@@ -1,0 +1,11 @@
+# audiodecoder: a GAP queued behind a frame's subframes keeps the reference the queue owns. See patches/README.md.
+--- a/gst-libs/gst/audio/gstaudiodecoder.c
++++ b/gst-libs/gst/audio/gstaudiodecoder.c
+@@ -2337,7 +2337,6 @@
+       } else {
+         dec->priv->pending_events =
+             g_list_append (dec->priv->pending_events, event);
+-        gst_event_unref (event);
+         ret = TRUE;
+       }
+     } else {

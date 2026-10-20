@@ -89,7 +89,8 @@ uncached. Both it and `work/tarballs/` sit beside `work/trees/` rather than insi
 1. Bump the version in `build_deps.sh` (the URL on the library's own line).
 2. For a GStreamer bump, update `GSTREAMER_VERSION`/`GLIB_VERSION` in
    `OptionsMacGStreamer.cmake` to match.
-3. `./build_deps.sh`; each package whose recipe changed rebuilds from a fresh tree.
+3. `./build_deps.sh --clean`. The packages share one install prefix, which keeps the files an
+   older version installed (its sonames, a plug-in it no longer builds) until `--clean` empties it.
 4. Re-point any prose that names the old version: this file, `patches/README.md`'s
    **Target:** lines, and the header comments in `OptionsMac.cmake` /
    `OptionsMacGStreamer.cmake` / `WebKitFindPackage.cmake`.
