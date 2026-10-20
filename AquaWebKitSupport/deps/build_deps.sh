@@ -1220,7 +1220,9 @@ if prepare "$d"; then
         > "$d/apple-sdk/mach-o/dyld_priv.h" || exit 1
     prepared "$d"
 fi
-APPLE_XML_CFLAGS="-O2 -isysroot $SDK -mmacosx-version-min=14.0 -std=gnu99 -DNDEBUG -DHAVE_CONFIG_H -DU_DISABLE_RENAMING=1"
+# The 14.0 deployment target selects Apple's version-gated behaviour; -march keeps the code to the
+# Core 2 instruction set 10.9 runs on, which a 14.0 target would raise.
+APPLE_XML_CFLAGS="-O2 -isysroot $SDK -mmacosx-version-min=14.0 -march=core2 -std=gnu99 -DNDEBUG -DHAVE_CONFIG_H -DU_DISABLE_RENAMING=1"
 APPLE_XML_SDK="$d/apple-sdk"
 LIBXML2_GEN="$d/Pregenerated Files"
 for s in buf c14n catalog chvalid debugXML dict DOCBparser encoding entities error globals hash HTMLparser \
@@ -1669,7 +1671,9 @@ fi
     # Explicit-target flags apply to the plugin and rebuilt standard library. The
     # toolchain's Cargo wrapper supplies separate host-only runtime support.
     # Preserve upstream's panic=unwind release profile and its FFI panic guards.
+    # target-cpu: the Core 2 instruction set 10.9 runs on, below rustc's default for this target.
     rust_flags=(
+        -C target-cpu=core2
         -C "linker=$CC_BIN"
         -C link-arg=--no-default-config -C link-arg=-fuse-ld=lld
         -C link-arg=-isysroot -C "link-arg=$SDK"

@@ -7034,6 +7034,11 @@ auto OMGIRGenerator::addF32ConvertUI64(ExpressionType argVar, ExpressionType& re
 auto OMGIRGenerator::addF64Nearest(ExpressionType argVar, ExpressionType& result) -> PartialResult
 {
     Value* arg = get(argVar);
+    if (!MacroAssembler::supportsFloatingPointRounding()) { // AQUAWEBKIT: macOS 10.9 runs on Core 2 CPUs, which lack the SSE4.1 rounding instructions; there this calls the C helper, as addI32Popcnt does without POPCNT.
+        Value* funcAddress = m_currentBlock->appendNew<ConstPtrValue>(m_proc, origin(), tagCFunction<OperationPtrTag>(Math::f64_nearest));
+        result = push(m_currentBlock->appendNew<CCallValue>(m_proc, Double, origin(), Effects::none(), funcAddress, arg));
+        return { };
+    }
     PatchpointValue* patchpoint = m_currentBlock->appendNew<PatchpointValue>(m_proc, Double, origin());
     patchpoint->append(arg, ValueRep::SomeRegister);
     patchpoint->setGenerator([=] (CCallHelpers& jit, const StackmapGenerationParams& params) {
@@ -7047,6 +7052,11 @@ auto OMGIRGenerator::addF64Nearest(ExpressionType argVar, ExpressionType& result
 auto OMGIRGenerator::addF32Nearest(ExpressionType argVar, ExpressionType& result) -> PartialResult
 {
     Value* arg = get(argVar);
+    if (!MacroAssembler::supportsFloatingPointRounding()) { // AQUAWEBKIT: see addF64Nearest.
+        Value* funcAddress = m_currentBlock->appendNew<ConstPtrValue>(m_proc, origin(), tagCFunction<OperationPtrTag>(Math::f32_nearest));
+        result = push(m_currentBlock->appendNew<CCallValue>(m_proc, Float, origin(), Effects::none(), funcAddress, arg));
+        return { };
+    }
     PatchpointValue* patchpoint = m_currentBlock->appendNew<PatchpointValue>(m_proc, Float, origin());
     patchpoint->append(arg, ValueRep::SomeRegister);
     patchpoint->setGenerator([=] (CCallHelpers& jit, const StackmapGenerationParams& params) {

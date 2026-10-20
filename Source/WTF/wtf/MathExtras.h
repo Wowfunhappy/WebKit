@@ -181,7 +181,8 @@ inline float roundevenf(float value)
     float rounded = std::round(value);
     if (std::fabs(value - rounded) == 0.5f) {
         if (std::fmod(rounded, 2.0f) != 0.0f)
-            return rounded - std::copysign(1.0f, value);
+            // return rounded - std::copysign(1.0f, value);
+            return std::copysign(rounded - std::copysign(1.0f, value), value); // AQUAWEBKIT: keeps the sign of -0.5, which rounds to -0.0.
     }
     return rounded;
 }
@@ -191,7 +192,8 @@ inline double roundeven(double value)
     double rounded = std::round(value);
     if (std::fabs(value - rounded) == 0.5) {
         if (std::fmod(rounded, 2.0) != 0.0)
-            return rounded - std::copysign(1.0, value);
+            // return rounded - std::copysign(1.0, value);
+            return std::copysign(rounded - std::copysign(1.0, value), value); // AQUAWEBKIT: keeps the sign of -0.5, which rounds to -0.0.
     }
     return rounded;
 }
