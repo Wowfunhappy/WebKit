@@ -305,6 +305,7 @@ struct MediaRestreamServer::Impl {
         uint64_t identifier;
         Ref<PageClient> client;
         Ref<ProcessThrottler::Activity> activity;
+        WebProcessProxy::ShutdownPreventingScopeCounter::Token shutdownPreventingScope;
         std::string url;
         std::string playlistName;
         String suppliedPlaylist;
@@ -314,6 +315,9 @@ struct MediaRestreamServer::Impl {
         pid_t playerPID { 0 };
         bool tracksMovie { false };
         bool capturesMedia { false };
+        bool sourceComplete { false };
+        bool releasingPage { false };
+        bool pageReleased { false };
         std::optional<PlayerAdapter> adapter;
         std::optional<double> position;
         std::shared_ptr<Opening> opening;
@@ -997,7 +1001,26 @@ struct MediaRestreamServer::Impl {
     bool ownsPage(const WebPageProxy& page) const
     {
         return std::any_of(handoffs.begin(), handoffs.end(), [&](auto& handoff) { return handoff.page.ptr() == &page; })
-            || std::any_of(sessions.begin(), sessions.end(), [&](auto& entry) { return entry.second->page.ptr() == &page; });
+            || std::any_of(sessions.begin(), sessions.end(), [&](auto& entry) { return entry.second->page.ptr() == &page && !entry.second->pageReleased; });
+    }
+
+    void releaseCompletedSource(std::shared_ptr<Session> session)
+    {
+        if (!session->sourceComplete || session->pageReleased || session->releasingPage || !detachedPages.contains(session->page.ptr()))
+            return;
+        RefPtr process = session->process.get();
+        if (!process)
+            return;
+        session->releasingPage = true;
+        process->sendWithAsyncReply(Messages::MediaRestreamSession::ReleasePage(session->identifier), [this, session](bool released) {
+            session->releasingPage = false;
+            if (std::none_of(sessions.begin(), sessions.end(), [&](auto& entry) { return entry.second == session; }))
+                return;
+            if (!released)
+                return remove(session, false);
+            session->pageReleased = true;
+            closeDetachedPageIfUnowned(session->page);
+        }, 0);
     }
 
     void closeDetachedPageIfUnowned(WebPageProxy& page)
@@ -1114,7 +1137,7 @@ void MediaRestreamServer::open(WebPageProxy& page, WebProcessProxy& process, uin
         }
         url = URL { makeString("http://127.0.0.1:"_s, m_impl->port, '/', String::fromUTF8(token), '/', playlistName) };
     }
-    auto session = std::make_shared<Impl::Session>(Impl::Session { Ref { page }, WeakPtr { process }, identifier, Ref { *page.pageClient() }, process.throttler().backgroundActivity("External media playback"_s), url.string().utf8().data() });
+    auto session = std::make_shared<Impl::Session>(Impl::Session { Ref { page }, WeakPtr { process }, identifier, Ref { *page.pageClient() }, process.throttler().backgroundActivity("External media playback"_s), process.shutdownPreventingScope(), url.string().utf8().data() });
     session->rtsp = WTF::move(rtsp);
     session->suppliedPlaylist = playlist;
     session->playlistName = localPlaylist && !title.isEmpty() ? playlistName.utf8().data() : "";
@@ -1320,6 +1343,18 @@ void MediaRestreamServer::end(IPC::Connection& connection, uint64_t identifier)
     }
 }
 
+void MediaRestreamServer::complete(IPC::Connection& connection, uint64_t identifier)
+{
+    for (auto& [token, session] : m_impl->sessions) {
+        RefPtr process = session->process.get();
+        if (session->identifier != identifier || !process || !process->hasConnection(connection))
+            continue;
+        session->sourceComplete = true;
+        m_impl->releaseCompletedSource(session);
+        return;
+    }
+}
+
 bool MediaRestreamServer::ownsPage(const WebPageProxy& page) const
 {
     return m_impl->ownsPage(page);
@@ -1357,6 +1392,12 @@ bool MediaRestreamServer::isDetached(const WebPageProxy& page) const
 
 bool MediaRestreamServer::detachPage(WebPageProxy& page)
 {
-    return m_impl->detachedPages.insert(&page).second;
+    if (!m_impl->detachedPages.insert(&page).second)
+        return false;
+    for (auto& [token, session] : m_impl->sessions) {
+        if (session->page.ptr() == &page)
+            m_impl->releaseCompletedSource(session);
+    }
+    return true;
 }
 }

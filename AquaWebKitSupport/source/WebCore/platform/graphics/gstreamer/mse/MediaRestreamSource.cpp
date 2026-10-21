@@ -606,6 +606,22 @@ void MediaRestreamSource::finishCapture()
     }
     if (m_ready)
         initialized(m_segments.empty() ? Expected<Ref<MediaRestreamSource>, String>(makeUnexpected("no-source"_s)) : Expected<Ref<MediaRestreamSource>, String>(Ref { *this }));
+    if (m_didFinish)
+        std::exchange(m_didFinish, { })();
+}
+
+bool MediaRestreamSource::releasePage()
+{
+    if (!m_ended || !m_accepted || m_ready || m_stopped)
+        return false;
+    if (auto capture = std::exchange(m_capture, nullptr))
+        capture->stop();
+    if (m_subtitles)
+        m_subtitles->freeze();
+    detachElement();
+    m_player = nullptr;
+    m_pipeline = nullptr;
+    return true;
 }
 
 void MediaRestreamSource::accept(const URL& url)

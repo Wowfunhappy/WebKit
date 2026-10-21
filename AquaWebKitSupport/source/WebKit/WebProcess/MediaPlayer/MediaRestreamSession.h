@@ -4,6 +4,7 @@
 #include "SharedBufferReference.h"
 #include <WebCore/MediaRestreamSource.h>
 #include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 
 namespace WebKit {
 class MediaRestreamSession final : public IPC::MessageReceiver {
@@ -25,10 +26,14 @@ private:
     void playlist(uint64_t, const String&, CompletionHandler<void(String&&)>&&);
     void segment(uint64_t, uint64_t, uint64_t, CompletionHandler<void(std::optional<IPC::SharedBufferReference>&&)>&&);
     void cancel(uint64_t, uint64_t);
+    void releasePage(uint64_t, CompletionHandler<void(bool)>&&);
     void playbackState(uint64_t, double position, double duration, double rate);
+    void completed(uint64_t);
+    void reportCompleted(uint64_t);
     void ended(uint64_t);
     uint64_t m_nextIdentifier { 1 };
     HashMap<uint64_t, Ref<WebCore::MediaRestreamSource>> m_sources;
     HashMap<uint64_t, Function<void()>> m_didEnd;
+    HashSet<uint64_t> m_completed;
 };
 }

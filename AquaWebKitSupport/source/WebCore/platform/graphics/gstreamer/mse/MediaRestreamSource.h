@@ -63,7 +63,11 @@ public:
     void cancel(uint64_t request);
     void stop(bool returnToInline = false, std::optional<double> position = std::nullopt);
     void accept(const URL&);
+    bool releasePage();
     void setDidStop(Function<void()>&& callback) { m_didStop = WTF::move(callback); }
+    void setDidFinish(Function<void()>&& callback) { m_didFinish = WTF::move(callback); }
+    bool accepted() const { return m_accepted; }
+    bool ended() const { return m_ended; }
 
 private:
     static constexpr unsigned hlsTargetDuration = 3;
@@ -122,6 +126,7 @@ private:
     RefPtr<MediaRestreamSource> m_initializing;
     std::optional<CompletionHandler<void(Expected<Ref<MediaRestreamSource>, String>&&)>> m_ready;
     Function<void()> m_didStop;
+    Function<void()> m_didFinish;
     std::deque<Segment> m_segments;
     std::deque<RetiredSegment> m_retiredSegments;
     uint64_t m_firstSequence { 0 };

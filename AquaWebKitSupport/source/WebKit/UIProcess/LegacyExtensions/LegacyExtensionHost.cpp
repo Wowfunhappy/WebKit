@@ -667,6 +667,11 @@ void LegacyExtensionHost::endRestream(IPC::Connection& connection, uint64_t iden
     MediaRestreamServer::singleton().end(connection, identifier);
 }
 
+void LegacyExtensionHost::completeRestream(IPC::Connection& connection, uint64_t identifier)
+{
+    MediaRestreamServer::singleton().complete(connection, identifier);
+}
+
 void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameID);

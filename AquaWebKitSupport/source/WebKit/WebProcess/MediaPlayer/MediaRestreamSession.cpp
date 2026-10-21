@@ -25,7 +25,11 @@ void MediaRestreamSession::create(WebCore::HTMLMediaElement& element, const std:
             return completion(makeUnexpected(source.error()));
         auto identifier = m_nextIdentifier++;
         source->get().setDidStop([this, identifier] { ended(identifier); });
+        source->get().setDidFinish([this, identifier] { completed(identifier); });
+        bool ended = source->get().ended();
         m_sources.add(identifier, WTF::move(*source));
+        if (ended)
+            completed(identifier);
         completion(identifier);
     });
 }
@@ -83,10 +87,19 @@ void MediaRestreamSession::cancel(uint64_t identifier, uint64_t request)
         source->cancel(request);
 }
 
+void MediaRestreamSession::releasePage(uint64_t identifier, CompletionHandler<void(bool)>&& completion)
+{
+    RefPtr source = m_sources.get(identifier);
+    completion(source && source->releasePage());
+}
+
 void MediaRestreamSession::accept(uint64_t identifier, const URL& url)
 {
-    if (RefPtr source = m_sources.get(identifier))
+    if (RefPtr source = m_sources.get(identifier)) {
         source->accept(url);
+        if (m_completed.contains(identifier))
+            reportCompleted(identifier);
+    }
 }
 
 uint64_t MediaRestreamSession::createDirect(WebCore::HTMLMediaElement& element, bool matchingTimeline, bool remote)
@@ -114,8 +127,26 @@ void MediaRestreamSession::setDidEnd(uint64_t identifier, Function<void()>&& cal
     m_didEnd.set(identifier, WTF::move(callback));
 }
 
+void MediaRestreamSession::completed(uint64_t identifier)
+{
+    RefPtr source = m_sources.get(identifier);
+    if (!source || !source->ended())
+        return;
+    m_completed.add(identifier);
+    if (source->accepted())
+        reportCompleted(identifier);
+}
+
+void MediaRestreamSession::reportCompleted(uint64_t identifier)
+{
+    if (!m_completed.remove(identifier))
+        return;
+    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::CompleteRestream(identifier), 0);
+}
+
 void MediaRestreamSession::ended(uint64_t identifier)
 {
+    m_completed.remove(identifier);
     m_sources.remove(identifier);
     if (auto callback = m_didEnd.take(identifier))
         callback();

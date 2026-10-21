@@ -11,6 +11,7 @@ messages -> LegacyExtensionHost {
     EndMediaPlayerHandoff(uint64_t request)
     OpenInMediaPlayer(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, String application, uint64_t request, uint64_t identifier, URL directURL, String playlist, String title, String adapter, String captureCodec, double position, double rate, bool paused) -> (Expected<URL, String> result)
     ActivateMediaPlayer(uint64_t identifier) -> (Expected<bool, String> activated)
+    CompleteRestream(uint64_t identifier)
     EndRestream(uint64_t identifier)
     Post(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, String message, IPC::SharedBufferReference data)
 }

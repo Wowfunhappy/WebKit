@@ -10,5 +10,6 @@ messages -> MediaRestreamSession {
     Segment(uint64_t identifier, uint64_t request, uint64_t index) -> (std::optional<IPC::SharedBufferReference> data)
     PlaybackState(uint64_t identifier, double position, double duration, double rate)
     Cancel(uint64_t identifier, uint64_t request)
+    ReleasePage(uint64_t identifier) -> (bool released)
     Stop(uint64_t identifier, bool returnToInline, std::optional<double> position)
 }

@@ -23,6 +23,7 @@ public:
     bool beginHandoff(WebPageProxy&, WebProcessProxy&, uint64_t);
     bool hasHandoff(const WebPageProxy&, IPC::Connection&, uint64_t) const;
     void endHandoff(IPC::Connection&, uint64_t);
+    void complete(IPC::Connection&, uint64_t);
     void end(IPC::Connection&, uint64_t);
     void control(IPC::Connection&, uint64_t, const String&, double, CompletionHandler<void(bool)>&&);
     void activate(IPC::Connection&, uint64_t, CompletionHandler<void(Expected<bool, String>&&)>&&);

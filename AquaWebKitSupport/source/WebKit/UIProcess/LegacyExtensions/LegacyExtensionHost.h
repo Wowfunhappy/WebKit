@@ -187,6 +187,7 @@ private:
     void endMediaPlayerHandoff(IPC::Connection&, uint64_t request);
     void activateMediaPlayer(IPC::Connection&, uint64_t identifier, CompletionHandler<void(Expected<bool, String>&&)>&&);
     void openInMediaPlayer(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& extensionKey, String&& application, uint64_t request, uint64_t identifier, URL&& directURL, String&& playlist, String&& title, String&& adapter, String&& captureCodec, double position, double rate, bool paused, CompletionHandler<void(Expected<URL, String>&&)>&&);
+    void completeRestream(IPC::Connection&, uint64_t);
     void endRestream(IPC::Connection&, uint64_t);
     void post(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data);
 
