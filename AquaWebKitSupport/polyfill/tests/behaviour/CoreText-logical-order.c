@@ -126,6 +126,25 @@ static void shapeForced(Text *text, short level, Shape *shape)
     CFRelease(options);
 }
 
+__attribute__((noinline)) static void reuseProviderStack(void)
+{
+    volatile uint8_t bytes[32768];
+    for (size_t i = 0; i < sizeof(bytes); ++i)
+        bytes[i] = (uint8_t)i;
+}
+
+static void shapeForcedAfterStackReuse(Text *text, short level, Shape *shape)
+{
+    CFDictionaryRef options = forcedLevel(level);
+    CTTypesetterRef typesetter = CTTypesetterCreateWithUniCharProviderAndOptions(provide, NULL, text, options);
+    reuseProviderStack();
+    CTLineRef line = CTTypesetterCreateLine(typesetter, CFRangeMake(0, 0));
+    readLine(line, shape);
+    CFRelease(line);
+    CFRelease(typesetter);
+    CFRelease(options);
+}
+
 // The same text typeset from an attributed string, which reads no provider.
 static void shapeNative(const UniChar *characters, CFIndex length, CTFontRef font, short level, Shape *shape)
 {
@@ -803,6 +822,8 @@ int main(void)
     shapeForced(&text, 0, &ltr);
     shapeNative(pair, 7, logicalFont, 0, &native);
     check(sameGlyphs(&ltr, native.glyphs, native.glyphCount), "left to right: the attributed-string typesetting");
+    shapeForcedAfterStackReuse(&text, 0, &native);
+    check(sameGlyphs(&ltr, native.glyphs, native.glyphCount), "left to right: a typesetter owns its provider text after creation");
     shapeForced(&text, 1, &rtl);
     CGGlyph reversed[MaxGlyphs];
     for (CFIndex i = 0; i < ltr.glyphCount; ++i)
