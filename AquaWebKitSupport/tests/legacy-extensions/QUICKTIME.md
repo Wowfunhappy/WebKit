@@ -21,7 +21,7 @@ The output is an accumulating HLS event stream. Check rewinding to the beginning
 
 `check-capture-transitions.py --cycles 30` repeats source seeks, rate changes and MediaSource replacements while checking advancing HLS sequences, discontinuities, receiver playback and continuation after tab closure.
 
-`check-capture-history.py` requests a 12-second generic `maxHistoryDuration`, then checks sequence advancement, recently removed segment grace, expiry, and a completed VOD bounded to the selected history duration. `--force-storage-pressure` supplies an unreachable free-space reserve and checks immediate eviction to the nine-second streaming minimum plus bounded storage files.
+`check-capture-history.py` requests a 12-second generic `maxHistoryDuration`, then checks sequence advancement, recently removed segment grace, expiry, and a finalized playlist bounded to the selected history duration. `--force-storage-pressure` supplies an unreachable free-space reserve and checks immediate eviction to the nine-second streaming minimum plus bounded storage files.
 
 `check-audio-endurance.py --seconds 3600` checks live audio-only capture, advancing receiver playback, a bounded playlist and endpoint cleanup after tab closure. `check-direct-redirects.py` checks relative and cross-port redirects for native HLS, MP4 video and audio-only media while retaining direct delivery and seeking.
 

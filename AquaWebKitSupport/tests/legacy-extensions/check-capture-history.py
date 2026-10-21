@@ -112,15 +112,15 @@ try:
         assert read(old_url) == old_data, 'Removed segment lacked request grace'
         wait(lambda: unavailable(old_url), 20)
     final = wait(lambda: (lambda state: state if '#EXT-X-ENDLIST' in state[0] else None)(playlist(media_url)), 75)
-    assert '#EXT-X-PLAYLIST-TYPE:VOD' in final[0] and '#EXT-X-PLAYLIST-TYPE:EVENT' not in final[0]
+    assert '#EXT-X-PLAYLIST-TYPE:' not in final[0]
     assert final[1] > advanced[1] and 6 <= sum(final[2]) <= maximum_duration + .000001
     wait(lambda: any(entry.get('path') == completion_report for entry in json.loads(read('http://127.0.0.1:8843/log'))), 20)
     closed = playlist(media_url)
-    assert '#EXT-X-PLAYLIST-TYPE:VOD' in closed[0] and '#EXT-X-ENDLIST' in closed[0]
+    assert '#EXT-X-PLAYLIST-TYPE:' not in closed[0] and '#EXT-X-ENDLIST' in closed[0]
     assert all(read(resource) for resource in closed[3])
     retained_storage = storage_files() - baseline_storage
     assert 1 <= len(retained_storage) <= 24, len(retained_storage)
-    print('PASS extension-selected history limit, sequence advancement, storage policy and bounded VOD', args.force_storage_pressure, final[1], sum(final[2]), flush=True)
+    print('PASS extension-selected history limit, sequence advancement, storage policy and bounded finalized playlist', args.force_storage_pressure, final[1], sum(final[2]), flush=True)
 finally:
     control.write_text('{"closed":true}')
     if window:

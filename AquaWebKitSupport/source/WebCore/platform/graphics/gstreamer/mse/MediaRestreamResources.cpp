@@ -20,9 +20,7 @@ String MediaRestreamSource::playlist(std::optional<uint64_t> subtitle) const
         return { };
     StringBuilder result;
     result.append("#EXTM3U\n#EXT-X-VERSION:6\n"_s);
-    if (m_ended)
-        result.append("#EXT-X-PLAYLIST-TYPE:VOD\n"_s);
-    else if (!m_maxHistoryDuration)
+    if (!m_maxHistoryDuration)
         result.append("#EXT-X-PLAYLIST-TYPE:EVENT\n"_s);
     result.append("#EXT-X-TARGETDURATION:"_s, hlsTargetDuration,
         "\n#EXT-X-MEDIA-SEQUENCE:"_s, m_firstSequence, "\n#EXT-X-DISCONTINUITY-SEQUENCE:"_s, m_discontinuitySequence,
