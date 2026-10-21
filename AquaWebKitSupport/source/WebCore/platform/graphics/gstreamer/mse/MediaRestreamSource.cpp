@@ -119,7 +119,8 @@ public:
             if (source->m_direct) {
                 if (source->m_accepted && (event.type() == eventNames().emptiedEvent || event.type() == eventNames().loadstartEvent || event.type() == eventNames().errorEvent || event.type() == eventNames().pagehideEvent))
                     source->detachReceiver();
-                else if (event.type() != eventNames().playEvent || !source->m_element->paused())
+                else if (!source->m_accepted && (event.type() == eventNames().errorEvent || event.type() == eventNames().pagehideEvent
+                    || (event.type() == eventNames().loadstartEvent && source->m_element->currentSrc() != source->m_initialURL)))
                     source->stop();
                 return;
             }
@@ -375,7 +376,7 @@ bool MediaRestreamSource::sameSource() const
     if (!m_element || m_element->currentSrc() != m_initialURL || !m_document || &m_element->document() != m_document.get() || !m_document->page() || !m_element->player())
         return false;
     if (m_direct)
-        return (m_remote && !m_returning) || (m_element->player() == m_player.get() && m_player->playerPrivate() == m_backend);
+        return (!m_accepted && !m_returning) || (m_remote && !m_returning) || (m_element->player() == m_player.get() && m_player->playerPrivate() == m_backend);
     auto* player = playbackBackend(*m_element);
     return player && m_element->player() == m_player.get() && m_player->playerPrivate() == m_backend
         && (m_ended || player->pipeline() == m_pipeline.get()
@@ -626,6 +627,10 @@ bool MediaRestreamSource::releasePage()
 
 void MediaRestreamSource::accept(const URL& url)
 {
+    if (m_direct && !m_remote && m_element && m_element->player() && m_element->currentSrc() == m_initialURL) {
+        m_player = m_element->player();
+        m_backend = m_player->playerPrivate();
+    }
     m_accepted = true;
     m_remoteUpdated = MonotonicTime::now();
     if (m_remote) {

@@ -2,6 +2,7 @@
 """Check accumulated HLS history, completed seeking, receiver pause and cleanup."""
 import argparse
 import json
+import math
 import re
 import subprocess
 import time
@@ -12,6 +13,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--source', default='mse.mp4')
 parser.add_argument('--seconds', type=int, default=180)
 parser.add_argument('--pause-seconds', type=int, default=65)
+parser.add_argument('--max-history-duration', type=int)
+parser.add_argument('--close-before-pause', action='store_true')
 args = parser.parse_args()
 
 def osa(script):
@@ -38,7 +41,10 @@ def windows():
 def playlist(url):
     text = read(url).decode()
     ended = '#EXT-X-ENDLIST' in text
-    assert ('#EXT-X-PLAYLIST-TYPE:VOD' if ended else '#EXT-X-PLAYLIST-TYPE:EVENT') in text, text
+    if ended:
+        assert '#EXT-X-PLAYLIST-TYPE:VOD' in text, text
+    elif not args.max_history_duration:
+        assert '#EXT-X-PLAYLIST-TYPE:EVENT' in text, text
     durations = [float(value) for value in re.findall(r'^#EXTINF:([^,]+),', text, re.M)]
     assert durations and sum(durations) > 0, durations
     assert all(0 < value and round(value) <= 3 for value in durations), durations
@@ -67,7 +73,10 @@ def storage_bytes():
 
 before = windows()
 baseline_storage = storage_bytes()
-query = urllib.parse.urlencode(dict(source=args.source, sourceMode='capture', subtitles='1'))
+parameters = dict(source=args.source, sourceMode='capture', subtitles='1')
+if args.max_history_duration:
+    parameters['capture'] = json.dumps(dict(maxWidth=1920, maxHeight=1080, transport='hls', videoCodec='h264', maxHistoryDuration=args.max_history_duration, minimumFreeStorage=5 * 1024 * 1024 * 1024))
+query = urllib.parse.urlencode(parameters)
 osa('tell application "Safari" to make new document with properties {URL:' + json.dumps('http://127.0.0.1:8843/quicktime.html?' + query) + '}')
 safari_window = osa('tell application "Safari" to get id of front window')
 wait(lambda: js('Boolean(document.querySelector("#video")?.readyState>=2&&document.querySelector("#open-media-player"))') == 'true')
@@ -99,11 +108,17 @@ qt('pause MOVIE')
 wait(lambda: qt('get playing of MOVIE') == 'false', 10)
 paused_time = float(qt('get current time of MOVIE'))
 previous_capture = playlist(media_url)
+if args.close_before_pause:
+    js('setTimeout(()=>video.loop=false,' + str((args.pause_seconds + args.seconds) * 1000) + ');true')
+    osa('tell application "Safari" to close current tab of window id ' + safari_window)
+    safari_window = None
+    print('TAB_CLOSED_WHILE_RECEIVER_PAUSED', flush=True)
 started = time.monotonic()
 while time.monotonic() - started < args.pause_seconds:
     time.sleep(min(15, args.pause_seconds - (time.monotonic() - started)))
-    assert js('video.paused') == 'false', 'Receiver pause paused the source'
-    assert js('JSON.stringify(receiverPlaybackEvents)') == '[]', 'Receiver pause emitted source playback events'
+    if safari_window:
+        assert js('video.paused') == 'false', 'Receiver pause paused the source'
+        assert js('JSON.stringify(receiverPlaybackEvents)') == '[]', 'Receiver pause emitted source playback events'
     assert abs(float(qt('get current time of MOVIE')) - paused_time) < .1
     current_capture = playlist(media_url)
     assert current_capture['end'] > previous_capture['end'], 'Capture stopped while receiver was paused'
@@ -112,11 +127,12 @@ while time.monotonic() - started < args.pause_seconds:
     print('RECEIVER_PAUSED_SOURCE_PLAYING', round(time.monotonic() - started, 1), 'captured', current_capture['duration'], flush=True)
 qt('play MOVIE')
 wait(lambda: float(qt('get current time of MOVIE')) > paused_time + 1, 15)
-assert js('video.paused') == 'false'
-assert js('JSON.stringify(receiverPlaybackEvents)') == '[]', 'Receiver resume emitted source playback events'
-js('setTimeout(()=>video.loop=false,' + str(args.seconds * 1000) + ');true')
-osa('tell application "Safari" to close current tab of window id ' + safari_window)
-print('TAB_CLOSED', flush=True)
+if safari_window:
+    assert js('video.paused') == 'false'
+    assert js('JSON.stringify(receiverPlaybackEvents)') == '[]', 'Receiver resume emitted source playback events'
+    js('setTimeout(()=>video.loop=false,' + str(args.seconds * 1000) + ');true')
+    osa('tell application "Safari" to close current tab of window id ' + safari_window)
+    print('TAB_CLOSED', flush=True)
 started = time.monotonic()
 previous = float(qt('get current time of MOVIE'))
 previous_duration = playlist(media_url)['duration']
@@ -132,7 +148,12 @@ while time.monotonic() - started < args.seconds:
     if subtitle_segment:
         assert read(subtitle_segment) == subtitle_data
     stored, files = storage_bytes()
-    assert files == baseline_storage[1] + 1, ('Capture must use one growing file', files, baseline_storage)
+    if args.max_history_duration:
+        extent_duration = min(300, args.max_history_duration / 64)
+        maximum_files = math.ceil(args.max_history_duration / extent_duration) + 2
+        assert baseline_storage[1] < files <= baseline_storage[1] + maximum_files, ('Capture storage extents are unbounded', files, baseline_storage, maximum_files)
+    else:
+        assert files == baseline_storage[1] + 1, ('Capture must use one growing file', files, baseline_storage)
     print('PLAY', round(time.monotonic() - started, 1), current, 'duration', state['duration'], 'stored', stored, 'files', files, flush=True)
 wait(lambda: '#EXT-X-ENDLIST' in playlist(media_url)['text'], 90)
 final = playlist(media_url)

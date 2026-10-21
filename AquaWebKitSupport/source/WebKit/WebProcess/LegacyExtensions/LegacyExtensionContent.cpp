@@ -48,6 +48,7 @@
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/WindowProxy.h>
 #include <wtf/JSONValues.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -198,11 +199,11 @@ struct MediaPlayerPromise {
 
 class MediaPlayerSourceListener final : public WebCore::EventListener {
 public:
-    static Ref<MediaPlayerSourceListener> create(Function<void()>&& changed) { return adoptRef(*new MediaPlayerSourceListener(WTF::move(changed))); }
-    void handleEvent(WebCore::ScriptExecutionContext&, WebCore::Event&) final { m_changed(); }
+    static Ref<MediaPlayerSourceListener> create(Function<void(const AtomString&)>&& changed) { return adoptRef(*new MediaPlayerSourceListener(WTF::move(changed))); }
+    void handleEvent(WebCore::ScriptExecutionContext&, WebCore::Event& event) final { m_changed(event.type()); }
 private:
-    explicit MediaPlayerSourceListener(Function<void()>&& changed) : EventListener(NativeEventListenerType), m_changed(WTF::move(changed)) { }
-    Function<void()> m_changed;
+    explicit MediaPlayerSourceListener(Function<void(const AtomString&)>&& changed) : EventListener(NativeEventListenerType), m_changed(WTF::move(changed)) { }
+    Function<void(const AtomString&)> m_changed;
 };
 
 // The JS completion owns only a weak request reference and can be called once.
@@ -276,6 +277,8 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
     String openingMessage;
     bool negotiating { false };
     bool returningToLocal { false };
+    bool retryingRoute { false };
+    bool routeRetryScheduled { false };
     bool negotiatedRemote { false };
     bool restoringPlayIntent { false };
     bool resolvingSource { false };
@@ -284,17 +287,27 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
     double initialPosition { 0 };
     double initialRate { 1 };
     bool initiallyPaused { false };
+    std::optional<MonotonicTime> routeDeadline;
+    std::optional<URL> retrySourceURL;
+    std::optional<double> retryPlaybackPosition;
+    uint64_t retryGeneration { 0 };
     RefPtr<MediaPlayerSourceListener> sourceListener;
     RunLoop::Timer sourceTimer;
     std::shared_ptr<MediaPlayerOpenRequest> preparing;
 
     MediaPlayerOpenRequest(std::unique_ptr<MediaPlayerPromise>&& promise, const ContentContextNative& context, WebCore::HTMLMediaElement& element, String app, String mediaTitle, String message, String description, std::optional<Vector<Ref<WebCore::TextTrack>>>&& tracks)
-        : native(context), media(element), player(element.player()), document(element.document().identifier()), sourceURL(element.currentSrc()), application(WTF::move(app)), title(WTF::move(mediaTitle)), adapter(WTF::move(description)), candidates(element.externalMediaSourceURLs()), textTracks(WTF::move(tracks)), openingMessage(WTF::move(message)), sourceTimer(RunLoop::mainSingleton(), "External playback source negotiation"_s, [this] { sourceDeadline(); })
+        : native(context), media(element), player(element.player()), document(element.document().identifier()), sourceURL(element.currentSrc()), application(WTF::move(app)), title(WTF::move(mediaTitle)), adapter(WTF::move(description)), textTracks(WTF::move(tracks)), openingMessage(WTF::move(message)), sourceTimer(RunLoop::mainSingleton(), "External playback source negotiation"_s, [this] { sourceDeadline(); })
     {
         initialPosition = std::isfinite(element.duration()) ? element.currentTime() : 0;
         initialRate = element.playbackRate();
         initiallyPaused = element.paused();
         pending.append(WTF::move(promise));
+        updateCandidates();
+    }
+
+    void updateCandidates()
+    {
+        candidates = media->externalMediaSourceURLs();
         for (auto& track : *textTracks) {
             if (track->trackType() != WebCore::TextTrack::InBand) {
                 candidates.clear();
@@ -303,6 +316,20 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
             candidates.removeAllMatching([&](auto& url) { return url != sourceURL; });
         }
     }
+
+    bool refreshSourceForURL(const URL& expectedURL)
+    {
+        RefPtr document = documentForNative(native);
+        if (!document || !media || media->document().identifier() != this->document || !media->document().page() || !media->player() || media->currentSrc() != expectedURL
+            || !WebCore::MediaRestreamSource::validateTextTracks(*media, *textTracks))
+            return false;
+        player = media->player();
+        sourceURL = media->currentSrc();
+        updateCandidates();
+        return true;
+    }
+
+    bool refreshInitialSource() { return refreshSourceForURL(sourceURL); }
 
     static std::vector<std::weak_ptr<MediaPlayerOpenRequest>>& requests()
     {
@@ -420,7 +447,7 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
         WebProcess::singleton().parentProcessConnection()->sendWithAsyncReply(Messages::LegacyExtensionHost::BeginMediaPlayerHandoff(native.frameID, requestIdentifier, parentHandoffIdentifier, String { }, native.extensionKey), [self = shared_from_this()](Expected<bool, String>&& began) {
             if (!began)
                 return self->complete(makeUnexpected(began.error()));
-            if (!self->valid())
+            if (!self->refreshInitialSource())
                 return self->complete(makeUnexpected("no-source"_s));
             self->media->setMediaPlayerPresentedExternally(true, self->presentationIdentifier, self->openingMessage);
             self->prepareSource();
@@ -431,11 +458,11 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
     {
         negotiating = true;
         preparing = shared_from_this();
-        sourceListener = MediaPlayerSourceListener::create([weakThis = weak_from_this()] {
+        sourceListener = MediaPlayerSourceListener::create([weakThis = weak_from_this()](const AtomString& eventType) {
             if (auto self = weakThis.lock())
-                self->sourceChanged();
+                self->sourceChanged(eventType);
         });
-        for (auto& name : { WebCore::eventNames().loadstartEvent, WebCore::eventNames().loadedmetadataEvent, WebCore::eventNames().loadeddataEvent, WebCore::eventNames().canplayEvent, WebCore::eventNames().seekedEvent, WebCore::eventNames().playingEvent, WebCore::eventNames().errorEvent })
+        for (auto& name : { WebCore::eventNames().loadstartEvent, WebCore::eventNames().loadedmetadataEvent, WebCore::eventNames().loadeddataEvent, WebCore::eventNames().canplayEvent, WebCore::eventNames().seekedEvent, WebCore::eventNames().playEvent, WebCore::eventNames().playingEvent, WebCore::eventNames().timeupdateEvent, WebCore::eventNames().errorEvent })
             media->addEventListener(name, Ref { *sourceListener });
     }
 
@@ -443,7 +470,7 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
     {
         sourceTimer.stop();
         if (media && sourceListener) {
-            for (auto& name : { WebCore::eventNames().loadstartEvent, WebCore::eventNames().loadedmetadataEvent, WebCore::eventNames().loadeddataEvent, WebCore::eventNames().canplayEvent, WebCore::eventNames().seekedEvent, WebCore::eventNames().playingEvent, WebCore::eventNames().errorEvent })
+            for (auto& name : { WebCore::eventNames().loadstartEvent, WebCore::eventNames().loadedmetadataEvent, WebCore::eventNames().loadeddataEvent, WebCore::eventNames().canplayEvent, WebCore::eventNames().seekedEvent, WebCore::eventNames().playEvent, WebCore::eventNames().playingEvent, WebCore::eventNames().timeupdateEvent, WebCore::eventNames().errorEvent })
                 media->removeEventListener(name, *sourceListener, { });
         }
         sourceListener = nullptr;
@@ -457,9 +484,14 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
         }
         if (!candidates.isEmpty() || adapter.isEmpty() || !textTracks->isEmpty() || !WebCore::MediaRestreamSource::canNegotiateRemotePlayback(*media))
             return next();
+        auto now = MonotonicTime::now();
+        if (!routeDeadline)
+            routeDeadline = now + Seconds(routeTimeout);
+        if (now >= *routeDeadline)
+            return next();
         observeSourceChanges();
         directIdentifier = MediaRestreamSession::singleton().createDirect(*media, std::isfinite(media->duration()), true);
-        sourceTimer.startOneShot(Seconds(routeTimeout));
+        sourceTimer.startOneShot(*routeDeadline - now);
         WebCore::MediaRestreamSource::setExternalPlaybackTarget(*media, presentationIdentifier, true);
     }
 
@@ -468,6 +500,7 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
         auto protect = shared_from_this();
         stopSourceObservation();
         returningToLocal = true;
+        routeDeadline = std::nullopt;
         observeSourceChanges();
         sourceTimer.startOneShot(15_s);
         WebCore::MediaRestreamSource::setPreparingExternalPlayback(*media, presentationIdentifier, true);
@@ -475,7 +508,7 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
             MediaRestreamSession::singleton().stop(*std::exchange(directIdentifier, std::nullopt), true);
         WebCore::MediaRestreamSource::setExternalPlaybackTarget(*media, presentationIdentifier, false);
         media->setMediaPlayerPresentedExternally(true, presentationIdentifier, openingMessage);
-        sourceChanged();
+        sourceChanged(nullAtom());
     }
 
     void sourceDeadline()
@@ -483,18 +516,96 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
         auto protect = shared_from_this();
         if (resolvingSource)
             return complete(makeUnexpected(resolutionSourceValid() ? "source-resolution-failed"_s : "no-source"_s));
+        if (retryingRoute)
+            return complete(makeUnexpected("no-source"_s));
         if (!valid() || returningToLocal)
             return complete(makeUnexpected("no-source"_s));
         returnToLocalSource();
     }
 
-    void sourceChanged()
+    void sourceChanged(const AtomString& eventType)
     {
         if (!negotiating)
             return;
         auto protect = shared_from_this();
         if (!valid())
             return complete(makeUnexpected("no-source"_s));
+        if (retryingRoute) {
+            if (retrySourceURL && (media->currentSrc() != *retrySourceURL || eventType == WebCore::eventNames().loadstartEvent)) {
+                if (media->currentSrc().protocolIsInHTTPFamily()) {
+                    stopSourceObservation();
+                    retryingRoute = false;
+                    routeRetryScheduled = false;
+                    retrySourceURL = std::nullopt;
+                    retryPlaybackPosition = std::nullopt;
+                    negotiating = false;
+                    negotiatedRemote = true;
+                    routeDeadline = std::nullopt;
+                    preparing = nullptr;
+                    if (!refreshSourceForURL(media->currentSrc()))
+                        return complete(makeUnexpected("no-source"_s));
+                    directIdentifier = MediaRestreamSession::singleton().createDirect(*media, std::isfinite(media->duration()), true);
+                    WebCore::MediaRestreamSource::setExternalPlaybackTarget(*media, presentationIdentifier, true);
+                    nextCandidate = 0;
+                    WebCore::MediaRestreamSource::setPreparingExternalPlayback(*media, presentationIdentifier, false);
+                    return next();
+                }
+                retrySourceURL = media->currentSrc();
+                routeRetryScheduled = false;
+                ++retryGeneration;
+                restoringPlayIntent = false;
+                retryPlaybackPosition = std::nullopt;
+            }
+            if (media->error()) {
+                return complete(makeUnexpected("unsupported-source"_s));
+            }
+            if (media->readyState() < WebCore::HTMLMediaElement::HAVE_CURRENT_DATA || media->seeking())
+                return;
+            if (routeRetryScheduled)
+                return;
+            if (initiallyPaused && !media->paused())
+                media->pause();
+            if (!initiallyPaused && !std::exchange(restoringPlayIntent, true)) {
+                media->play();
+                return;
+            }
+            if (!initiallyPaused && initialRate) {
+                if (!media->player()->timeIsProgressing())
+                    return;
+                if (!retryPlaybackPosition) {
+                    retryPlaybackPosition = media->currentTime();
+                    return;
+                }
+                if (media->currentTime() <= *retryPlaybackPosition)
+                    return;
+            }
+            routeRetryScheduled = true;
+            auto generation = retryGeneration;
+            RunLoop::mainSingleton().dispatch([self = shared_from_this(), generation] {
+                if (self->finished || !self->retryingRoute || !self->routeRetryScheduled || self->retryGeneration != generation)
+                    return;
+                if (!self->media || !self->media->player() || self->media->readyState() < WebCore::HTMLMediaElement::HAVE_CURRENT_DATA || self->media->seeking()
+                    || !self->retrySourceURL || self->media->currentSrc() != *self->retrySourceURL) {
+                    self->routeRetryScheduled = false;
+                    ++self->retryGeneration;
+                    self->restoringPlayIntent = false;
+                    self->retryPlaybackPosition = std::nullopt;
+                    self->sourceChanged(nullAtom());
+                    return;
+                }
+                self->routeRetryScheduled = false;
+                self->stopSourceObservation();
+                self->retryingRoute = false;
+                auto expectedURL = std::exchange(self->retrySourceURL, std::nullopt);
+                self->retryPlaybackPosition = std::nullopt;
+                self->negotiating = false;
+                self->preparing = nullptr;
+                if (!expectedURL || !self->refreshSourceForURL(*expectedURL))
+                    return self->complete(makeUnexpected("no-source"_s));
+                self->prepareSource();
+            });
+            return;
+        }
         if (media->error()) {
             if (!returningToLocal)
                 return returnToLocalSource();
@@ -519,11 +630,31 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
                     media->play();
                 return;
             }
-        } else if (WebCore::MediaRestreamSource::requiresCapture(*media))
+        } else if (WebCore::MediaRestreamSource::requiresCapture(*media)) {
+            if (!media->currentSrc().protocolIsInHTTPFamily() && (media->currentSrc() != sourceURL
+                || (eventType == WebCore::eventNames().loadstartEvent && media->player() != player.get()))) {
+                retryingRoute = true;
+                retrySourceURL = media->currentSrc();
+                routeRetryScheduled = false;
+                ++retryGeneration;
+                restoringPlayIntent = false;
+                retryPlaybackPosition = std::nullopt;
+                auto timeout = 15_s;
+                if (routeDeadline)
+                    timeout = std::min(timeout, std::max(0_s, *routeDeadline - MonotonicTime::now()));
+                sourceTimer.startOneShot(timeout);
+                WebCore::MediaRestreamSource::setExternalPlaybackTarget(*media, presentationIdentifier, false);
+                if (directIdentifier)
+                    MediaRestreamSession::singleton().stop(*std::exchange(directIdentifier, std::nullopt));
+                sourceChanged(nullAtom());
+            }
             return;
+        }
         stopSourceObservation();
         negotiating = false;
         negotiatedRemote = !returningToLocal;
+        if (negotiatedRemote)
+            routeDeadline = std::nullopt;
         preparing = nullptr;
         player = media->player();
         sourceURL = media->currentSrc();
@@ -536,11 +667,16 @@ struct MediaPlayerOpenRequest : std::enable_shared_from_this<MediaPlayerOpenRequ
     bool sourceValid() const
     {
         return media && media->document().identifier() == document
-            && media->document().page() && (negotiating || ((restream || negotiatedRemote) && WebCore::MediaRestreamSource::isPlayingExternally(*media)) || (media->player() == player.get() && media->currentSrc() == sourceURL));
+            && media->document().page() && (negotiating || ((restream || negotiatedRemote) && WebCore::MediaRestreamSource::isPlayingExternally(*media))
+                || (directIdentifier && media->currentSrc() == sourceURL) || (media->player() == player.get() && media->currentSrc() == sourceURL));
     }
 
     bool valid() const { return documentForNative(native) && sourceValid(); }
-    bool resolutionSourceValid() const { return valid() && media->currentSrc() == sourceURL && media->player() == player.get(); }
+    bool resolutionSourceValid() const
+    {
+        return documentForNative(native) && media && media->document().identifier() == document && media->document().page()
+            && media->player() && media->currentSrc() == sourceURL && WebCore::MediaRestreamSource::validateTextTracks(*media, *textTracks);
+    }
 
     void next()
     {

@@ -74,7 +74,7 @@
                     throw new Error("test rejection");
                 if (resolver === "timeout" || resolver === "timeout-replaced")
                     return new Promise(function () { });
-                if (resolver === "delay")
+                if (resolver === "delay" || resolver === "reload" || resolver === "direct-reload")
                     await new Promise(function (resolve) { setTimeout(resolve, 3000); });
                 if (resolver === "invalid")
                     return { url: url, playlist: 42 };
@@ -113,6 +113,12 @@
                 operation = operation.then(function () { return savedScope.open(video, options); });
         } else
             operation = aqua.mediaPlayer.open(video, options);
+        if (parameters.has("reloadAfterOpen"))
+            video.load();
+        else if (parameters.has("replaceAfterOpen")) {
+            video.src = "/quicktime-media/plain.mp4?replacement";
+            video.load();
+        }
         var operations = [operation];
         if (parameters.has("coalesce") || parameters.has("coalesceMode")) {
             var repeatOptions = Object.assign({}, options);

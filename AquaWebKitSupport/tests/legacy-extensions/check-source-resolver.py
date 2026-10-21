@@ -36,34 +36,48 @@ def result():
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-all_modes = ['identity', 'playlist', 'reject', 'invalid', 'oversized', 'timeout', 'delay', 'timeout-replaced']
+all_modes = ['identity', 'initial-reload', 'initial-replaced', 'direct-reload', 'playlist', 'reject', 'invalid', 'oversized', 'timeout', 'delay', 'reload', 'timeout-replaced']
 parser.add_argument('modes', nargs='*', default=all_modes)
 modes = parser.parse_args().modes
 if any(mode not in all_modes for mode in modes):
     parser.error('Unknown resolver mode')
 baseline = windows()
 for mode in modes:
-    source_parameters = 'mse.mp4&airplay=route' if mode in ['delay', 'timeout-replaced'] else 'index.m3u8'
+    if mode in ['delay', 'reload', 'timeout-replaced']:
+        source_parameters = 'mse.mp4&airplay=route'
+    else:
+        source_parameters = 'index.m3u8'
+        if mode == 'initial-reload':
+            source_parameters += '&reloadAfterOpen=1'
+        elif mode == 'initial-replaced':
+            source_parameters += '&replaceAfterOpen=1'
     url = 'http://127.0.0.1:8843/quicktime.html?source=' + source_parameters + '&resolve=' + mode
     osa('tell application "Safari" to make new document with properties {URL:' + json.dumps(url) + '}')
     wait(lambda: js('Boolean(document.querySelector("video")?.readyState >= 2 && document.querySelector("#open-media-player"))') == 'true')
     js('video.currentTime=5;video.play()')
     wait(lambda: js('!video.seeking && video.currentTime>=5') == 'true')
     source = js('video.currentSrc')
+    resolved_source = source
     js('document.querySelector("#open-media-player").click()')
-    if mode in ['delay', 'timeout-replaced']:
+    if mode in ['delay', 'reload', 'direct-reload', 'timeout-replaced']:
         wait(lambda: js('document.querySelector("#media-player-result").dataset.resolving') == 'true')
-        js('video.src="/quicktime-media/plain.mp4?replacement";video.load()')
+        if mode in ['reload', 'direct-reload']:
+            resolved_source = js('video.currentSrc')
+            js('video.load()')
+        else:
+            js('video.src="/quicktime-media/plain.mp4?replacement";video.load()')
     value = wait(result)
     print(mode, value, flush=True)
-    if mode in ['identity', 'playlist']:
+    if mode in ['identity', 'initial-reload', 'direct-reload', 'playlist', 'reload']:
         assert value['method'] == 'url', value
-        if mode == 'identity':
+        if mode in ['identity', 'initial-reload']:
             assert value['url'] == source, value
-        else:
+        elif mode == 'playlist':
             assert value['url'] != source, value
             text = urllib.request.urlopen(value['url'], timeout=10).read().decode()
             assert source in text and '#EXT-X-STREAM-INF:' in text, text
+        elif mode in ['reload', 'direct-reload']:
+            assert value['url'] == resolved_source, value
         owned = wait(lambda: windows() - baseline)
         assert len(owned) == 1, owned
         movie = 'document of window id ' + str(next(iter(owned)))
@@ -87,7 +101,7 @@ for mode in modes:
                     return True
             wait(released)
     else:
-        assert value.get('error') == ('no-source' if mode in ['delay', 'timeout-replaced'] else 'source-resolution-failed'), value
+        assert value.get('error') == ('no-source' if mode in ['initial-replaced', 'delay', 'timeout-replaced'] else 'source-resolution-failed'), value
         assert windows() == baseline, 'Resolver failure opened a receiver'
         osa('tell application "Safari" to close current tab of front window')
 print('PASS source resolution, full seek, tab closure, cleanup and error paths', flush=True)

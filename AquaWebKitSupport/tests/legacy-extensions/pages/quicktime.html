@@ -81,14 +81,56 @@
     window.replaceHandoffSource = async function () {
         const position = video.currentTime;
         const playing = !video.paused;
+        window.routeReplacementWasPlaying = playing;
+        window.routeLocalStartPosition = 0;
         const rate = video.playbackRate;
         const replacement = new MediaSource();
         window.handoffMedia = replacement;
         video.src = URL.createObjectURL(replacement);
         await loadHandoffMedia(replacement, source, null, report, () => video.currentTime,
             callback => video.addEventListener('seeking', callback), callback => video.addEventListener('timeupdate', callback));
-        video.currentTime = position;
+        if (!params.has('routeReload'))
+            video.currentTime = position;
         video.playbackRate = rate;
+        if (playing || params.has('restoreAutoplay'))
+            await video.play();
+    };
+    window.replaceHandoffStreamSource = async function () {
+        const playing = !video.paused;
+        window.routeReplacementWasPlaying = playing;
+        window.routeLocalStartPosition = 0;
+        const context = new AudioContext();
+        const oscillator = context.createOscillator();
+        const destination = context.createMediaStreamDestination();
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 180;
+        const graphics = canvas.getContext('2d');
+        let frame = 0;
+        const drawing = setInterval(() => {
+            graphics.fillStyle = `hsl(${frame++ % 360},80%,50%)`;
+            graphics.fillRect(0, 0, canvas.width, canvas.height);
+        }, 1000 / 30);
+        oscillator.connect(destination);
+        oscillator.start();
+        const stream = canvas.captureStream(30);
+        stream.addTrack(destination.stream.getAudioTracks()[0]);
+        (window.routeStreamSources ||= []).push({ context, oscillator, drawing });
+        const loaded = new Promise((resolve, reject) => {
+            video.addEventListener('loadeddata', resolve, { once: true });
+            video.addEventListener('error', reject, { once: true });
+        });
+        video.srcObject = null;
+        video.removeAttribute('src');
+        video.load();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        video.srcObject = stream;
+        await loaded;
+        if (params.has('routeRecoveryReload') && !window.routeRecoveryReloaded) {
+            window.routeRecoveryReloaded = true;
+            await window.replaceHandoffStreamSource();
+            return;
+        }
         if (playing || params.has('restoreAutoplay'))
             await video.play();
     };
@@ -98,23 +140,69 @@
         if (!params.has('routeChangeOnly'))
             video.addEventListener('webkitplaybacktargetavailabilitychanged', () => {});
         let routeGeneration = 0;
+        window.routeLocalAdvances = 0;
+        let routeProgressArmed = false;
+        video.addEventListener('timeupdate', () => {
+            if (!routeProgressArmed || video.webkitCurrentPlaybackTargetIsWireless || video.currentTime <= window.routeLocalStartPosition)
+                return;
+            routeProgressArmed = false;
+            ++window.routeLocalAdvances;
+        });
+        const replaceRouteSource = () => {
+            const replace = params.has('routeStreamReload') ? window.replaceHandoffStreamSource : window.replaceHandoffSource;
+            window.routeReplacement = (window.routeReplacement || Promise.resolve()).then(() => replace());
+        };
+        video.addEventListener('timeupdate', () => {
+            if (!params.has('routeDispatchReload') || window.routeDispatchReloaded || !window.routeReloadCount || video.webkitCurrentPlaybackTargetIsWireless)
+                return;
+            window.routeDispatchReloaded = true;
+            queueMicrotask(replaceRouteSource);
+        });
         video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', () => {
             const generation = ++routeGeneration;
             if (video.webkitCurrentPlaybackTargetIsWireless) {
+                if (routeProgressArmed && video.currentTime > window.routeLocalStartPosition) {
+                    routeProgressArmed = false;
+                    ++window.routeLocalAdvances;
+                }
+                const reloads = Number(params.get('routeReload')) || 0;
+                window.routeReloadCount ||= 0;
+                if (window.routeReloadCount < reloads) {
+                    ++window.routeReloadCount;
+                    const reload = () => {
+                        if (generation === routeGeneration && video.webkitCurrentPlaybackTargetIsWireless)
+                            replaceRouteSource();
+                    };
+                    if (window.routeReloadCount > 1 && params.has('routeReloadDelay'))
+                        setTimeout(reload, Number(params.get('routeReloadDelay')));
+                    else
+                        reload();
+                    return;
+                }
                 if (params.get('airplay') !== 'route-timeout') {
                     const selectSource = () => {
-                        if (generation === routeGeneration && video.webkitCurrentPlaybackTargetIsWireless)
+                        if (generation === routeGeneration && video.webkitCurrentPlaybackTargetIsWireless) {
+                            video.srcObject = null;
                             video.src = '/quicktime-media/' + (params.get('airplay') === 'route-rejected' ? 'missing.mp4' : 'plain.mp4');
+                        }
                     };
                     if (params.has('routeDelay'))
                         setTimeout(selectSource, Number(params.get('routeDelay')));
                     else
                         selectSource();
                 }
-            } else if (params.get('disconnect') === 'sync')
-                window.replaceHandoffSource();
-            else if (params.get('disconnect') !== 'none')
-                setTimeout(() => window.replaceHandoffSource(), 300);
+            } else {
+                if (params.has('routeReload') && window.routeReloadCount) {
+                    routeProgressArmed = Boolean(window.routeReplacementWasPlaying);
+                }
+                if (params.has('routeRecoveryHTTP')) {
+                    video.srcObject = null;
+                    video.src = '/quicktime-media/plain.mp4';
+                } else if (params.get('disconnect') === 'sync')
+                    replaceRouteSource();
+                else if (params.get('disconnect') !== 'none')
+                    setTimeout(replaceRouteSource, 300);
+            }
         });
     } else if (params.has('airplay')) {
         const local = document.createElement('source');
