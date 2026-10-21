@@ -8564,43 +8564,6 @@ static void wk_clusterFontProviderRelease(wk_clusterFontProvider *provider)
     free(provider->servedBlocks);
 }
 
-static void wk_clusterFontDispose(const UniChar *characters, void *refCon)
-{
-    wk_clusterFontProvider *provider = (wk_clusterFontProvider *)refCon;
-    if (provider->forwardsDispose)
-        provider->dispose(characters, provider->refCon);
-    if (!--provider->outstandingBlocks && provider->creationFinished) {
-        wk_clusterFontProviderRelease(provider);
-        free(provider);
-    }
-}
-
-// A provider with a dispose callback is read again when CoreText releases what it made, so it lives on the
-// heap until the last block is disposed of.
-static wk_clusterFontProvider *wk_clusterFontProviderBegin(wk_clusterFontProvider *local)
-{
-    if (!local->dispose)
-        return local;
-    wk_clusterFontProvider *provider = (wk_clusterFontProvider *)malloc(sizeof(*provider));
-    if (!provider)
-        abort();
-    *provider = *local;
-    return provider;
-}
-
-static void wk_clusterFontProviderEnd(wk_clusterFontProvider *provider)
-{
-    if (!provider->dispose) {
-        wk_clusterFontProviderRelease(provider);
-        return;
-    }
-    provider->creationFinished = true;
-    if (!provider->outstandingBlocks) {
-        wk_clusterFontProviderRelease(provider);
-        free(provider);
-    }
-}
-
 // Whether options force an embedding level, and which.
 static bool wk_forcedEmbeddingLevel(CFDictionaryRef options, int *level)
 {
@@ -9625,6 +9588,34 @@ static wk_rightToLeftRange *wk_copyLogicalOrderRanges(wk_naturalKind kind, CFTyp
     return ranges;
 }
 
+// A typesetter can read its provider after creation, so materialize the blocks into text it owns.
+static CFAttributedStringRef wk_createProvidedString(wk_clusterFontProvider *reader, const wk_providedText *text)
+{
+    CFStringRef plain = CFStringCreateWithCharacters(kCFAllocatorDefault, text->characters, text->length);
+    CFMutableAttributedStringRef string = CFAttributedStringCreateMutable(kCFAllocatorDefault, 0);
+    if (!plain || !string)
+        abort();
+    CFAttributedStringReplaceString(string, CFRangeMake(0, 0), plain);
+    CFRelease(plain);
+    wk_servedBlock *blocks = wk_servedBlocks(reader);
+    CFAttributedStringBeginEditing(string);
+    for (CFIndex i = 0; i < reader->servedCount; ++i) {
+        if (blocks[i].attributes)
+            CFAttributedStringSetAttributes(string, CFRangeMake(blocks[i].start, blocks[i].count), blocks[i].attributes, true);
+    }
+    CFAttributedStringEndEditing(string);
+    return string;
+}
+
+static void wk_disposeServedBlocks(wk_clusterFontProvider *reader)
+{
+    if (!reader->dispose)
+        return;
+    wk_servedBlock *blocks = wk_servedBlocks(reader);
+    for (CFIndex i = 0; i < reader->servedCount; ++i)
+        reader->dispose(blocks[i].characters, reader->refCon);
+}
+
 static CFTypeRef wk_createNaturalDirection(wk_naturalKind kind, CTUniCharProviderCallback provide, CTUniCharDisposeCallback dispose, void *refCon, CFDictionaryRef options)
 {
     wk_clusterFontProvider reader = { .provide = provide, .dispose = dispose, .refCon = refCon, .recordsServedBlocks = true };
@@ -9642,22 +9633,40 @@ static CFTypeRef wk_createNaturalDirection(wk_naturalKind kind, CTUniCharProvide
 
     CFTypeRef made;
     if (resolution != WKLevelsExplicit) {
-        wk_replayProvider storage;
-        wk_replayProvider *provider = wk_replayProviderBegin(&storage, &reader, NULL, 0);
-        made = wk_createFromReplay(kind, provider, options);
-        wk_replayProviderEnd(provider);
-        CFIndex rangeCount = 0;
-        wk_rightToLeftRange *ranges = resolution == WKLevelsCurrent ? wk_copyLogicalOrderRanges(kind, made, &reader, &rangeCount) : NULL;
-        if (ranges) {
-            wk_replayProvider shapingStorage;
-            wk_replayProvider *shaping = wk_replayProviderBegin(&shapingStorage, &reader, ranges, rangeCount);
-            CFTypeRef shaped = wk_createFromReplay(kind, shaping, options);
-            wk_replayProviderEnd(shaping);
-            free(ranges);
-            if (dispose)
-                provider->base.forwardsDispose = false;
-            CFRelease(made);
-            made = shaped;
+        if (kind == WKNaturalTypesetter) {
+            CFAttributedStringRef string = wk_createProvidedString(&reader, &text);
+            made = wk_createFromAttributedString(kind, string, options);
+            CFIndex rangeCount = 0;
+            wk_rightToLeftRange *ranges = resolution == WKLevelsCurrent ? wk_copyLogicalOrderRanges(kind, made, &reader, &rangeCount) : NULL;
+            if (ranges) {
+                CFAttributedStringRef shapedString = wk_createShapedString(string, &reader, ranges, rangeCount);
+                CFTypeRef shaped = wk_createFromAttributedString(kind, shapedString, options);
+                CFRelease(shapedString);
+                free(ranges);
+                if (made)
+                    CFRelease(made);
+                made = shaped;
+            }
+            CFRelease(string);
+            wk_disposeServedBlocks(&reader);
+        } else {
+            wk_replayProvider storage;
+            wk_replayProvider *provider = wk_replayProviderBegin(&storage, &reader, NULL, 0);
+            made = wk_createFromReplay(kind, provider, options);
+            wk_replayProviderEnd(provider);
+            CFIndex rangeCount = 0;
+            wk_rightToLeftRange *ranges = resolution == WKLevelsCurrent ? wk_copyLogicalOrderRanges(kind, made, &reader, &rangeCount) : NULL;
+            if (ranges) {
+                wk_replayProvider shapingStorage;
+                wk_replayProvider *shaping = wk_replayProviderBegin(&shapingStorage, &reader, ranges, rangeCount);
+                CFTypeRef shaped = wk_createFromReplay(kind, shaping, options);
+                wk_replayProviderEnd(shaping);
+                free(ranges);
+                if (dispose)
+                    provider->base.forwardsDispose = false;
+                CFRelease(made);
+                made = shaped;
+            }
         }
     } else {
         CFAttributedStringRef string = wk_createExplicitLevelString(&reader, &text, levels, NULL, 0, false);
@@ -9693,23 +9702,32 @@ static CFTypeRef wk_createNaturalDirection(wk_naturalKind kind, CTUniCharProvide
 static CTTypesetterRef wk_createForcedLevelTypesetter(CTUniCharProviderCallback provide, CTUniCharDisposeCallback dispose, void *refCon, CFDictionaryRef options, int level)
 {
     bool rightToLeft = level & 1;
-    wk_clusterFontProvider local = { .provide = provide, .dispose = dispose, .refCon = refCon,
-        .rightToLeft = rightToLeft, .recordsServedBlocks = rightToLeft, .forwardsDispose = true };
-    wk_clusterFontProvider *provider = wk_clusterFontProviderBegin(&local);
-    CTTypesetterRef typesetter = WK_ORIGINAL(CTTypesetterCreateWithUniCharProviderAndOptions)(wk_clusterFontProvide,
-        dispose ? wk_clusterFontDispose : NULL, provider, options);
+    wk_clusterFontProvider reader = { .provide = provide, .dispose = dispose, .refCon = refCon,
+        .rightToLeft = rightToLeft, .recordsServedBlocks = true };
+    for (CFIndex index = 0;;) {
+        CFIndex count = 0;
+        CFDictionaryRef attributes = NULL;
+        if (!wk_clusterFontProvide(index, &count, &attributes, &reader) || count <= 0)
+            break;
+        index += count;
+    }
+    wk_providedText text;
+    wk_providedTextInit(&text, &reader);
+    CFAttributedStringRef string = wk_createProvidedString(&reader, &text);
+    CTTypesetterRef typesetter = (CTTypesetterRef)wk_createFromAttributedString(WKNaturalTypesetter, string, options);
     CFIndex rangeCount = 0;
-    wk_rightToLeftRange *ranges = typesetter && provider->fallsBack ? wk_copyLogicalOrderRanges(WKNaturalTypesetter, typesetter, provider, &rangeCount) : NULL;
+    wk_rightToLeftRange *ranges = typesetter && reader.fallsBack ? wk_copyLogicalOrderRanges(WKNaturalTypesetter, typesetter, &reader, &rangeCount) : NULL;
     if (ranges) {
-        wk_replayProvider storage;
-        wk_replayProvider *shaping = wk_replayProviderBegin(&storage, provider, ranges, rangeCount);
-        CTTypesetterRef shaped = (CTTypesetterRef)wk_createFromReplay(WKNaturalTypesetter, shaping, options);
-        wk_replayProviderEnd(shaping);
+        CFAttributedStringRef shapedString = wk_createShapedString(string, &reader, ranges, rangeCount);
+        CTTypesetterRef shaped = (CTTypesetterRef)wk_createFromAttributedString(WKNaturalTypesetter, shapedString, options);
+        CFRelease(shapedString);
         free(ranges);
-        provider->forwardsDispose = false;
         CFRelease(typesetter);
         typesetter = shaped;
     }
-    wk_clusterFontProviderEnd(provider);
+    CFRelease(string);
+    wk_disposeServedBlocks(&reader);
+    free(text.copy);
+    wk_clusterFontProviderRelease(&reader);
     return typesetter;
 }
