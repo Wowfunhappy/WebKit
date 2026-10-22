@@ -37,8 +37,11 @@
  #editPosition
  {
  display: inline-block;
-@@ -210,25 +206,14 @@
+@@ -208,27 +204,17 @@
+  left: 14px;
+  width: 73px;
   height: 50px;
++ clip: rect(0, 70px, 50px, 0);
  }
  
 -#deckledIcon
@@ -70,3 +73,12 @@
  }
  
  #glassIcon
+@@ -263,7 +249,7 @@
+ {
+  top: 18px;
+  left: 24px;
+- width: 62px;
++ width: 63px;
+  height: 40px;
+ }
+ 
