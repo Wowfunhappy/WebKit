@@ -2,6 +2,7 @@
 #import "config.h"
 #import "CocoaCookie.h"
 #import "Cookie.h"
+#import "NetworkStorageSession.h"
 #import "platform/network/curl/CookieUtil.h"
 #import "PublicSuffixStore.h"
 #import "ResourceRequest.h"
@@ -22,7 +23,7 @@ namespace WebCore {
 // Cookie::SameSitePolicy::None means and what an NSHTTPCookie with no SameSite property carries;
 // sameSiteExplicitlyNone tells that apart from the attribute written out as "None", which the caller
 // admits only from a secure origin.
-static std::optional<Cookie> parseSetCookieField(const String& field, bool& sameSiteExplicitlyNone)
+static std::optional<Cookie> parseSetCookieField(const String& field, bool& sameSiteExplicitlyNone, bool& partitioned)
 {
     auto separator = field.find(';');
     // CFNetwork reads a value that opens with a double quote through its closing quote, a ';' inside it included.
@@ -54,6 +55,8 @@ static std::optional<Cookie> parseSetCookieField(const String& field, bool& same
             cookie.httpOnly = true;
         else if (equalLettersIgnoringASCIICase(name, "secure"_s))
             cookie.secure = true;
+        else if (equalLettersIgnoringASCIICase(name, "partitioned"_s))
+            partitioned = true;
         else if (equalLettersIgnoringASCIICase(name, "domain"_s)) {
             if (value.isEmpty())
                 continue;
@@ -103,7 +106,7 @@ static std::optional<Cookie> parseSetCookieField(const String& field, bool& same
     return cookie;
 }
 
-std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
+std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url, const String& partition)
 {
     for (auto character : StringView(field).codeUnits()) {
         if ((character < 0x20 && character != '\t') || character == 0x7f)
@@ -133,7 +136,8 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
         }
     }
     bool explicitNone = false;
-    auto parsed = parseSetCookieField(parsedField, explicitNone);
+    bool partitioned = false;
+    auto parsed = parseSetCookieField(parsedField, explicitNone, partitioned);
     if (!parsed)
         return std::nullopt;
     auto& cookie = *parsed;
@@ -163,8 +167,10 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
     if (cookie.path.isEmpty())
         cookie.path = CookieUtil::defaultPathForURL(url);
     bool secureOrigin = url.protocolIs("https"_s) || url.protocolIs("wss"_s);
-    if ((cookie.secure && !secureOrigin) || (explicitNone && !cookie.secure))
+    if ((cookie.secure && !secureOrigin) || (explicitNone && !cookie.secure) || (partitioned && !cookie.secure))
         return std::nullopt;
+    if (partitioned && !partition.isEmpty())
+        cookie.partitionKey = partition;
     if ((cookie.name.startsWithIgnoringASCIICase("__Secure-"_s) && !cookie.secure)
         || (cookie.name.startsWithIgnoringASCIICase("__Host-"_s) && (!cookie.secure || hasDomain || !hasRootPath))
         || (cookie.name.startsWithIgnoringASCIICase("__Http-"_s) && (!cookie.secure || !cookie.httpOnly))
@@ -178,6 +184,11 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
     return parsed;
 }
 
+String cookiePartitionForTopLevelURL(const URL& url)
+{
+    return NetworkStorageSession::cookiePartitionIdentifier(url);
+}
+
 SameSiteInfo cookieRequestSameSiteInfo(const ResourceRequest& request)
 {
     auto info = SameSiteInfo::create(request);
@@ -188,10 +199,15 @@ SameSiteInfo cookieRequestSameSiteInfo(const ResourceRequest& request)
 } // namespace WebCore
 
 // the Objective-C WebSocket transport shares WebCore's per-field parser.
-extern "C" WEBCORE_EXPORT CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef field, CFURLRef url)
+extern "C" WEBCORE_EXPORT CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef field, CFURLRef url, CFStringRef partition)
 {
-    auto cookie = WebCore::parseHTTPSetCookie(String(field), URL(url));
+    auto cookie = WebCore::parseHTTPSetCookie(String(field), URL(url), partition ? String(partition) : String { });
     return cookie ? (CFTypeRef)cookie->createNSHTTPCookie().leakRef() : nullptr;
+}
+
+extern "C" WEBCORE_EXPORT CFStringRef WebCoreCookiePartitionIdentifier(CFURLRef topLevelURL)
+{
+    return WebCore::cookiePartitionForTopLevelURL(URL(topLevelURL)).createCFString().leakRef();
 }
 
 extern "C" WEBCORE_EXPORT void WebCoreCookieStorageSetHTTPResponseCookies(CFTypeRef storageValue, CFArrayRef cookies, CFURLRef responseURL, CFURLRef firstPartyURL, bool sameSite, bool topLevel)

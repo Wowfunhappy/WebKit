@@ -239,9 +239,12 @@ void CocoaCurlResourceHandle::storeCookies(const Vector<String>& fields)
     if (!m_storage || !m_request.allowCookies())
         return;
     auto sameSite = SameSiteInfo::create(m_request);
+    auto blockingDecision = m_storage->thirdPartyCookieBlockingDecisionForRequest(m_request, std::nullopt, std::nullopt, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No);
+    String cookiePartition = m_storage->isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(m_request.firstPartyForCookies()) : String { };
     for (auto& field : fields) {
-        auto cookie = parseHTTPSetCookie(field, m_request.url());
-        if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite))
+        auto cookie = parseHTTPSetCookie(field, m_request.url(), cookiePartition);
+        if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite)
+            && (blockingDecision != ThirdPartyCookieBlockingDecision::AllExceptPartitioned || !cookie->partitionKey.isEmpty()))
             m_storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
     }
 }

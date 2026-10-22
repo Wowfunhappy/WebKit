@@ -1,5 +1,6 @@
 // Native cookie metadata and the policy reads used by NSHTTPCookieStorage's modern SPI.
-// Mavericks stores SameSite, precise creation time and SetInJavaScript in the persisted Comment field.
+// Mavericks stores SameSite, precise creation time, SetInJavaScript and CHIPS metadata in the
+// persisted Comment field.
 #ifndef WK_SAMESITE_H
 #define WK_SAMESITE_H
 #include <CoreFoundation/CoreFoundation.h>
@@ -15,9 +16,14 @@ typedef enum {
 } wk_same_site_policy;
 
 #define WK_MAXIMUM_COOKIE_LIFETIME_SECONDS (400 * 24 * 60 * 60)
-CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef setInJavaScript, CFStringRef comment);
+CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef setInJavaScript,
+    CFStringRef partition, CFStringRef originalName,
+    CFStringRef comment);
 CFStringRef wk_cookieBlobCopyCreated(CFStringRef comment);
 CFStringRef wk_cookieBlobCopySetInJavaScript(CFStringRef comment);
+CFStringRef wk_cookieBlobCopyPartition(CFStringRef comment);
+CFStringRef wk_cookieBlobCopyOriginalName(CFStringRef comment);
+void wk_cookieBlobCopyPartitionAndName(CFStringRef comment, CFStringRef *partition, CFStringRef *name);
 CFStringRef wk_sameSiteCopyValue(CFStringRef comment);
 CFStringRef wk_sameSiteCopyServerComment(CFStringRef comment);
 wk_same_site_policy wk_sameSitePolicyOfComment(CFStringRef comment);

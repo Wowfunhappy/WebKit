@@ -339,7 +339,7 @@ static void checkRoundTrip(const char *sameSite, const char *comment)
 {
     CFStringRef policy = str(sameSite);
     CFStringRef original = comment ? str(comment) : NULL;
-    CFStringRef blob = wk_cookieBlobCreate(policy, NULL, NULL, original);
+    CFStringRef blob = wk_cookieBlobCreate(policy, NULL, NULL, NULL, NULL, original);
     check(blob != NULL, "the pair encodes");
     if (blob) {
         CFStringRef readPolicy = wk_sameSiteCopyValue(blob);
@@ -361,7 +361,7 @@ static void checkRoundTrip(const char *sameSite, const char *comment)
 static void checkPolicy(const char *sameSite, wk_same_site_policy expected, const char *what)
 {
     CFStringRef policy = str(sameSite);
-    CFStringRef blob = wk_cookieBlobCreate(policy, NULL, NULL, NULL);
+    CFStringRef blob = wk_cookieBlobCreate(policy, NULL, NULL, NULL, NULL, NULL);
     check(blob && wk_sameSitePolicyOfComment(blob) == expected, what);
     if (blob)
         CFRelease(blob);
@@ -520,12 +520,12 @@ int main(void)
     }
 
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
-    check(wk_cookieBlobCreate(NULL, NULL, NULL, NULL) == NULL, "nothing to carry encodes to nothing");
+    check(wk_cookieBlobCreate(NULL, NULL, NULL, NULL, NULL, NULL) == NULL, "nothing to carry encodes to nothing");
 
     // The creation time a caller of +[NSHTTPCookie cookieWithProperties:] asked for rides in the same
     // blob, because 10.9's record cannot carry it (any "Created" a caller passes comes back as 1).
     {
-        CFStringRef withEverything = wk_cookieBlobCreate(CFSTR("Strict"), CFSTR("100000"), NULL, CFSTR("a server comment"));
+        CFStringRef withEverything = wk_cookieBlobCreate(CFSTR("Strict"), CFSTR("100000"), NULL, NULL, NULL, CFSTR("a server comment"));
         CFStringRef created = withEverything ? wk_cookieBlobCopyCreated(withEverything) : NULL;
         CFStringRef policy = withEverything ? wk_sameSiteCopyValue(withEverything) : NULL;
         CFStringRef comment = withEverything ? wk_sameSiteCopyServerComment(withEverything) : NULL;
@@ -541,7 +541,7 @@ int main(void)
         if (withEverything)
             CFRelease(withEverything);
 
-        CFStringRef timeOnly = wk_cookieBlobCreate(NULL, CFSTR("810100830.5"), NULL, NULL);
+        CFStringRef timeOnly = wk_cookieBlobCreate(NULL, CFSTR("810100830.5"), NULL, NULL, NULL, NULL);
         CFStringRef readBack = timeOnly ? wk_cookieBlobCopyCreated(timeOnly) : NULL;
         check(readBack && CFEqual(readBack, CFSTR("810100830.5")), "a creation time alone reads back");
         check(timeOnly && wk_sameSiteCopyValue(timeOnly) == NULL, "and carries no attribute");
@@ -553,13 +553,13 @@ int main(void)
 
         CFStringRef plain = CFSTR("a comment the server sent");
         check(wk_cookieBlobCopyCreated(plain) == NULL, "a comment that is not one of ours carries no time");
-        check(wk_cookieBlobCreate(NULL, NULL, NULL, plain) != NULL, "and encodes to itself");
+        check(wk_cookieBlobCreate(NULL, NULL, NULL, NULL, NULL, plain) != NULL, "and encodes to itself");
     }
 
     // Whether a script wrote the cookie rides in the same blob, for the same reason: 10.9's record
     // drops the property.
     {
-        CFStringRef marked = wk_cookieBlobCreate(CFSTR("Lax"), CFSTR("100001"), CFSTR("TRUE"), CFSTR("a server comment"));
+        CFStringRef marked = wk_cookieBlobCreate(CFSTR("Lax"), CFSTR("100001"), CFSTR("TRUE"), NULL, NULL, CFSTR("a server comment"));
         CFStringRef mark = marked ? wk_cookieBlobCopySetInJavaScript(marked) : NULL;
         CFStringRef alongsideTime = marked ? wk_cookieBlobCopyCreated(marked) : NULL;
         CFStringRef alongsidePolicy = marked ? wk_sameSiteCopyValue(marked) : NULL;
@@ -579,7 +579,7 @@ int main(void)
         if (marked)
             CFRelease(marked);
 
-        CFStringRef markOnly = wk_cookieBlobCreate(NULL, NULL, CFSTR("TRUE"), NULL);
+        CFStringRef markOnly = wk_cookieBlobCreate(NULL, NULL, CFSTR("TRUE"), NULL, NULL, NULL);
         CFStringRef markOnlyBack = markOnly ? wk_cookieBlobCopySetInJavaScript(markOnly) : NULL;
         check(markOnlyBack && CFEqual(markOnlyBack, CFSTR("TRUE")), "a mark alone reads back");
         check(markOnly && wk_cookieBlobCopyCreated(markOnly) == NULL, "and carries no creation time");
@@ -589,7 +589,7 @@ int main(void)
         if (markOnly)
             CFRelease(markOnly);
 
-        CFStringRef unmarked = wk_cookieBlobCreate(CFSTR("Lax"), CFSTR("100002"), NULL, NULL);
+        CFStringRef unmarked = wk_cookieBlobCreate(CFSTR("Lax"), CFSTR("100002"), NULL, NULL, NULL, NULL);
         check(unmarked && wk_cookieBlobCopySetInJavaScript(unmarked) == NULL, "a blob without the field reads back no mark");
         check(wk_cookieBlobCopySetInJavaScript(CFSTR("a comment the server sent")) == NULL,
             "and neither does a comment that is not one of ours");
@@ -603,7 +603,7 @@ int main(void)
         CFMutableStringRef huge = CFStringCreateMutable(NULL, 0);
         for (int i = 0; i < 3000; ++i)
             CFStringAppend(huge, CFSTR("S"));
-        CFStringRef blob = wk_cookieBlobCreate(CFSTR("Lax"), NULL, NULL, huge);
+        CFStringRef blob = wk_cookieBlobCreate(CFSTR("Lax"), NULL, NULL, NULL, NULL, huge);
         CFStringRef carried = blob ? wk_sameSiteCopyServerComment(blob) : NULL;
         check(carried && CFEqual(carried, huge), "a comment of 3000 characters is carried whole");
         check(blob && wk_sameSitePolicyOfComment(blob) == WK_SAME_SITE_LAX, "alongside the attribute");
@@ -762,7 +762,7 @@ int main(void)
                 "the original UTF-16 comment is preserved");
             check([((NSString *(*)(id, SEL))objc_msgSend)(kept, sel_getUid("wk_sameSitePolicy")) isEqualToString:@"strict"],
                 "the SameSite restriction survives every comment value");
-            CFStringRef blob = wk_cookieBlobCreate(CFSTR("Lax"), NULL, NULL, (CFStringRef)unencodable);
+            CFStringRef blob = wk_cookieBlobCreate(CFSTR("Lax"), NULL, NULL, NULL, NULL, (CFStringRef)unencodable);
             CFStringRef decoded = wk_sameSiteCopyServerComment(blob);
             check(decoded && CFEqual(decoded, (CFStringRef)unencodable), "UTF-16 metadata round-trips");
             if (decoded)

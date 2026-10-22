@@ -520,6 +520,8 @@ void WKContextSetHTTPPipeliningEnabled(WKContextRef contextRef, bool enabled)
 
 void WKContextWarmInitialProcess(WKContextRef contextRef)
 {
+    // AQUAWEBKIT: Safari 7 warms both its network session and web process through this legacy API.
+    WebKit::WebsiteDataStore::defaultDataStore().networkProcess();
     protect(WebKit::toImpl(contextRef))->prewarmProcess();
 }
 

@@ -54,6 +54,12 @@
 // FPFontCreateMemorySafeFontsFromData on the OpenType Sanitiser (polyfill/polyfills/c/CoreText.c).
 #define HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA 1
 
+// The cookie-storage polyfill implements CFNetwork's opt-in partition key and
+// allow-only-partitioned policy. This enables WebKit's CHIPS path independently of the system
+// CFNetwork version, just as the native capability does on newer macOS releases.
+#define HAVE_ALLOW_ONLY_PARTITIONED_COOKIES 1
+#define CFN_COOKIE_ACCEPTS_POLICY_PARTITION 1
+
 // CoreTelephony is not usable on 10.9; CoreTelephonyUtilities is HAVE(CORE_TELEPHONY)-guarded.
 #define HAVE_CORE_TELEPHONY 0
 

@@ -2,6 +2,7 @@
 #include "config.h"
 #include <WebCore/CocoaCookie.h>
 #include <WebCore/Cookie.h>
+#include <WebCore/CookieJar.h>
 #include <WebCore/CocoaCurlConnection.h>
 #include <WebCore/CookieStorageObserver.h>
 #include <WebCore/NetworkStorageSession.h>
@@ -18,6 +19,15 @@
 #include <cmath>
 #include <cstdio>
 #include <dlfcn.h>
+#include "../../polyfill/mechanism/wk_polyfill.h"
+#define WK_POLYFILL_UNIT CookieTests
+#include "../../polyfill/mechanism/wk_selref_scope.h"
+
+WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCopyCookies, (CFHTTPCookieStorageRef));
+
+@interface NSHTTPCookieStorage (CookieTestSharedStorage)
++ (void)_setSharedHTTPCookieStorage:(NSHTTPCookieStorage *)storage;
+@end
 
 using namespace WebCore;
 static unsigned failures;
@@ -69,6 +79,11 @@ static void parserTests()
     check(parse("__Secure-a=1; Secure"_s).has_value(), "secure prefix accepted with Secure");
     check(parse("__Host-a=1; Secure; Path=/"_s).has_value(), "host prefix accepted with root path and no Domain");
     check(parse("__Http-a=1; Secure; HttpOnly"_s).has_value(), "HTTP prefix accepted with Secure and HttpOnly");
+    auto partitioned = parseHTTPSetCookie("chips=1; Secure; SameSite=None; Partitioned"_s, secure, "https://top.test"_s);
+    check(partitioned && partitioned->partitionKey == "https://top.test"_s, "Partitioned cookie receives its top-level site key");
+    check(!parseHTTPSetCookie("chips=1; SameSite=None; Partitioned"_s, secure, "https://top.test"_s), "Partitioned cookie requires Secure");
+    auto disabledPartitioning = parseHTTPSetCookie("chips=1; Secure; Partitioned"_s, secure);
+    check(disabledPartitioning && disabledPartitioning->partitionKey.isEmpty(), "disabled CHIPS ignores Partitioned and keeps an unpartitioned cookie");
     check(!parseHTTPSetCookie("a=1; Secure"_s, URL { "http://web-platform.test/"_s }), "insecure origin cannot set Secure");
     struct DomainCase { ASCIILiteral url; ASCIILiteral field; bool accepted; };
     const DomainCase domains[] = {
@@ -150,6 +165,7 @@ static void mutationTests()
     auto createStorage = reinterpret_cast<CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFDictionaryRef)>(dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCreateInMemory"));
     RELEASE_ASSERT(createStorage);
     NetworkStorageSession session(PAL::SessionID::generateEphemeralSessionID(), nullptr, adoptCF(createStorage(kCFAllocatorDefault, nullptr)), NetworkStorageSession::IsInMemoryCookieStore::Yes);
+    session.setOptInCookiePartitioningEnabled(true);
     check(&session.cocoaCurlConnectionPool(true) != &session.cocoaCurlConnectionPool(false), "legacy credential policies own separate connection and TLS pools");
     check(&session.cocoaCurlConnectionPool(false) == &session.cocoaCurlConnectionPool(false), "credential-free legacy loads reuse their own pool");
     Ref authenticatedPool { session.cocoaCurlConnectionPool(true) };
@@ -250,9 +266,174 @@ static void mutationTests()
     replacement.value = "blocked"_s;
     session.setCookie(replacement, tenant, tenant);
     check(session.getAllCookies().size() == 1 && session.getAllCookies()[0].value == "updated"_s, "HTTP obeys native never-accept policy");
+    session.setCookie(*parseHTTPSetCookie("tenant=; Path=/; Secure; Max-Age=0"_s, tenant), tenant, tenant);
+    check(session.getAllCookies().size() == 1 && session.getAllCookies()[0].value == "updated"_s, "an expired HTTP write obeys native never-accept policy");
     [storage setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyAlways];
     session.deleteAllCookies([] { });
     check(!parseHTTPSetCookie("invalid=1; Domain=pages.dev"_s, tenant), "WebCore parser rejects a modern private public suffix");
+
+    URL topA { "https://top-a.test/"_s };
+    URL topB { "https://top-b.test/"_s };
+    URL embedded { "https://embedded.test/resource"_s };
+    auto unpartitioned = *parseHTTPSetCookie("shared=unpartitioned; Path=/; Secure; SameSite=None"_s, embedded);
+    auto partitionA = *parseHTTPSetCookie("shared=partition-a; Path=/; Secure; SameSite=None; Partitioned"_s, embedded, cookiePartitionForTopLevelURL(topA));
+    auto partitionB = *parseHTTPSetCookie("shared=partition-b; Path=/; Secure; SameSite=None; Partitioned"_s, embedded, cookiePartitionForTopLevelURL(topB));
+    auto sameValueInAnotherPartition = partitionA;
+    sameValueInAnotherPartition.partitionKey = partitionB.partitionKey;
+    check(!(partitionA == sameValueInAnotherPartition), "cookie identity includes its CHIPS partition");
+    CFHTTPCookieStorageSetCookieAcceptPolicy(session.cookieStorage().get(), CFHTTPCookieStorageAcceptPolicyOnlyFromMainDocumentDomain);
+    session.setCookie(partitionA, embedded, topA);
+    check(session.getAllCookies().size() == 1, "main-document acceptance admits a cross-site partitioned record in an empty jar");
+    session.deleteCookie(partitionA, [] { });
+    CFHTTPCookieStorageSetCookieAcceptPolicy(session.cookieStorage().get(), CFHTTPCookieStorageAcceptPolicyAlways);
+    session.setCookie(unpartitioned, embedded, topA);
+    session.setCookie(partitionA, embedded, topA);
+    session.setCookie(partitionB, embedded, topB);
+    [storage setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyNever];
+    session.setCookie(*parseHTTPSetCookie("shared=; Path=/; Secure; SameSite=None; Partitioned; Max-Age=0"_s, embedded, cookiePartitionForTopLevelURL(topA)), embedded, topA);
+    check(session.getAllCookies().size() == 3, "an expired partitioned HTTP write obeys native never-accept policy");
+    [storage setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyAlways];
+    auto chips = session.getAllCookies();
+    unsigned partitionedCount = 0;
+    for (auto& storedCookie : chips)
+        partitionedCount += !storedCookie.partitionKey.isEmpty();
+    check(chips.size() == 3 && partitionedCount == 2, "unpartitioned and same-key cookies coexist across CHIPS partitions");
+    auto nativeCookies = adoptCF(WK_SYSTEM(CFHTTPCookieStorageCopyCookies)(session.cookieStorage().get()));
+    auto nativeGetter = wk_original_of(storage.get(), @selector(cookies));
+    NSArray *nativeNSCookies = ((NSArray *(*)(id, SEL))nativeGetter.imp)(storage.get(), nativeGetter.sel);
+    check(CFArrayGetCount(nativeCookies.get()) == 1 && nativeNSCookies.count == 1, "native CF and NS enumeration of the main jar contain only the unpartitioned cookie");
+    auto managedCookies = adoptCF(CFHTTPCookieStorageCopyCookies(session.cookieStorage().get()));
+    check(CFArrayGetCount(managedCookies.get()) == 3 && [storage cookies].count == 3, "WebKit CF and NS management enumeration includes both logical partitions");
+    NSArray *logicalCookies = [storage cookies];
+    NSString *nativeHeader = [NSHTTPCookie requestHeaderFieldsWithCookies:logicalCookies][@"Cookie"];
+    check([nativeHeader containsString:@"shared=partition-a"] && [nativeHeader containsString:@"shared=partition-b"] && ![nativeHeader containsString:@"WKPartition-"], "native Foundation header serialization sees logical cookie names");
+    NSData *encodedCookies = [NSKeyedArchiver archivedDataWithRootObject:logicalCookies];
+    NSArray *decodedCookies = [NSKeyedUnarchiver unarchiveObjectWithData:encodedCookies];
+    unsigned decodedPartitions = 0;
+    for (NSHTTPCookie *cookie in decodedCookies)
+        decodedPartitions += !Cookie(cookie).partitionKey.isEmpty();
+    check(decodedCookies.count == 3 && decodedPartitions == 2, "native keyed archives preserve logical names and partition metadata");
+    auto expiryUpdate = partitionA;
+    expiryUpdate.session = false;
+    expiryUpdate.expires = WallTime::now().secondsSinceEpoch().milliseconds() + 3600000;
+    session.setCookie(expiryUpdate, embedded, topA);
+    session.getAllCookies();
+    expiryUpdate.expires = *expiryUpdate.expires + 3600000;
+    session.setCookie(expiryUpdate, embedded, topA);
+    bool expiryUpdated = false;
+    for (auto& cookie : session.getAllCookies()) {
+        if (cookie.partitionKey == partitionA.partitionKey)
+            expiryUpdated = cookie.expires && std::abs(*cookie.expires - *expiryUpdate.expires) < 1000;
+    }
+    check(expiryUpdated, "a same-value expiry-only overwrite invalidates the logical projection immediately");
+    auto headerFor = [&](const URL& top) {
+        return session.cookieRequestHeaderFieldValue(top, { false, false, false }, embedded, std::nullopt, std::nullopt, IncludeSecureCookies::Yes, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+    };
+    auto sameSiteUpdate = expiryUpdate;
+    sameSiteUpdate.sameSite = Cookie::SameSitePolicy::Strict;
+    session.setCookie(sameSiteUpdate, embedded, topA);
+    check(!headerFor(topA).contains("shared=partition-a"_s), "a same-value SameSite-only overwrite invalidates the decoded policy immediately");
+    session.setCookie(expiryUpdate, embedded, topA);
+    auto headerA = headerFor(topA);
+    auto headerB = headerFor(topB);
+    check(headerA.contains("shared=unpartitioned"_s) && headerA.contains("shared=partition-a"_s) && !headerA.contains("shared=partition-b"_s), "top-level site A reads only its partition and unpartitioned cookies");
+    check(headerB.contains("shared=unpartitioned"_s) && !headerB.contains("shared=partition-a"_s) && headerB.contains("shared=partition-b"_s), "top-level site B reads only its partition and unpartitioned cookies");
+    session.setTrackingPreventionEnabled(true);
+    session.setThirdPartyCookieBlockingMode(ThirdPartyCookieBlockingMode::AllExceptPartitioned);
+    headerA = headerFor(topA);
+    check(!headerA.contains("shared=unpartitioned"_s) && headerA.contains("shared=partition-a"_s) && !headerA.contains("shared=partition-b"_s), "third-party blocking sends only the matching partition");
+    CFHTTPCookieStorageSetCookieAcceptPolicy(session.cookieStorage().get(), static_cast<CFHTTPCookieStorageAcceptPolicy>(3));
+    auto rejected = partitionA;
+    rejected.value = "exclusive-policy-write"_s;
+    session.setCookie(rejected, embedded, topA);
+    check(headerFor(topA).isEmpty(), "exclusive main-document policy withholds cross-site partitioned reads");
+    [storage setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyAlways];
+    check(headerFor(topA).contains("shared=partition-a"_s), "exclusive main-document policy also rejects cross-site partitioned writes");
+    session.deleteCookie(partitionA, [] { });
+    chips = session.getAllCookies();
+    check(chips.size() == 2 && !headerFor(topA).contains("shared=partition-a"_s) && headerFor(topB).contains("shared=partition-b"_s), "deleting one partition leaves the others intact");
+
+    session.deleteAllCookies([] { });
+    auto createArchive = reinterpret_cast<CFArrayRef (*)(CFAllocatorRef, void *)>(dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCreateArchive"));
+    auto createFromArchive = reinterpret_cast<void* (*)(CFAllocatorRef, CFArrayRef)>(dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCreateFromArchive"));
+    RELEASE_ASSERT(createArchive && createFromArchive);
+    NetworkStorageSession archiveSource(PAL::SessionID::generateEphemeralSessionID(), nullptr, adoptCF(createStorage(kCFAllocatorDefault, nullptr)), NetworkStorageSession::IsInMemoryCookieStore::Yes);
+    archiveSource.setOptInCookiePartitioningEnabled(true);
+    URL archiveURL { "https://embedded.test/scope/resource"_s };
+    auto archiveUnpartitioned = *parseHTTPSetCookie("archive=unpartitioned; Path=/scope; Max-Age=3600; Secure; SameSite=None"_s, archiveURL);
+    auto archivePartitionA = *parseHTTPSetCookie("archive=partition-a; Path=/scope; Max-Age=3600; Secure; SameSite=None; Partitioned"_s, archiveURL, cookiePartitionForTopLevelURL(topA));
+    auto archivePartitionB = *parseHTTPSetCookie("archive=partition-b; Path=/scope; Max-Age=3600; Secure; SameSite=None; Partitioned"_s, archiveURL, cookiePartitionForTopLevelURL(topB));
+    archiveSource.setCookie(archiveUnpartitioned);
+    archiveSource.setCookie(archivePartitionA, archiveURL, topA);
+    archiveSource.setCookie(archivePartitionB, archiveURL, topB);
+    check(archiveSource.getAllCookies().size() == 3, "archive source contains unpartitioned and same-key partitioned cookies");
+    auto archive = adoptCF(createArchive(kCFAllocatorDefault, archiveSource.cookieStorage().get()));
+    check(CFArrayGetCount(archive.get()) == 2, "the storage archive includes the companion archive");
+    auto rawArchiveSource = adoptCF(WK_SYSTEM(CFHTTPCookieStorageCopyCookies)(archiveSource.cookieStorage().get()));
+    check(CFArrayGetCount(rawArchiveSource.get()) == 1, "archiving leaves partitioned records outside the main jar");
+    auto restoredStorage = adoptCF(static_cast<CFHTTPCookieStorageRef>(createFromArchive(kCFAllocatorDefault, archive.get())));
+    NetworkStorageSession restored(PAL::SessionID::generateEphemeralSessionID(), nullptr, WTF::move(restoredStorage), NetworkStorageSession::IsInMemoryCookieStore::Yes);
+    restored.setOptInCookiePartitioningEnabled(true);
+    auto restoredCookies = restored.getAllCookies();
+    unsigned restoredPartitionedCount = 0;
+    bool restoredFields = restoredCookies.size() == 3;
+    for (auto& cookie : restoredCookies) {
+        restoredPartitionedCount += !cookie.partitionKey.isEmpty();
+        restoredFields &= cookie.name == "archive"_s && cookie.domain == "embedded.test"_s && cookie.path == "/scope"_s;
+        const Cookie* sourceCookie = cookie.value == "unpartitioned"_s ? &archiveUnpartitioned
+            : cookie.value == "partition-a"_s ? &archivePartitionA
+            : cookie.value == "partition-b"_s ? &archivePartitionB : nullptr;
+        restoredFields &= sourceCookie && cookie.expires && sourceCookie->expires && std::abs(*cookie.expires - *sourceCookie->expires) < 1000;
+    }
+    check(restoredFields && restoredPartitionedCount == 2, "archive restoration preserves logical CHIPS identity, scope, expiry and coexistence");
+    auto restoredHeader = [&](const URL& top) {
+        return restored.cookieRequestHeaderFieldValue(top, { false, false, false }, archiveURL, std::nullopt, std::nullopt, IncludeSecureCookies::Yes, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+    };
+    check(restoredHeader(topA).contains("archive=unpartitioned"_s) && restoredHeader(topA).contains("archive=partition-a"_s) && !restoredHeader(topA).contains("archive=partition-b"_s), "restored jar selects partition A");
+    check(restoredHeader(topB).contains("archive=unpartitioned"_s) && !restoredHeader(topB).contains("archive=partition-a"_s) && restoredHeader(topB).contains("archive=partition-b"_s), "restored jar selects partition B");
+    restored.deleteCookie(archivePartitionA, [] { });
+    check(restored.getAllCookies().size() == 2 && !restoredHeader(topA).contains("archive=partition-a"_s) && restoredHeader(topB).contains("archive=partition-b"_s), "partition-specific deletion survives archive restoration");
+    check(archiveSource.getAllCookies().size() == 3, "restored in-memory companions are independent of the source jar");
+    Vector<String> hosts { "embedded.test"_s };
+    bool removedHosts = false;
+    restored.deleteCookiesForHostnames(hosts.span(), IncludeHttpOnlyCookies::Yes, ScriptWrittenCookiesOnly::No, [&] { removedHosts = true; });
+    check(pump([&] { return removedHosts; }) && restored.getAllCookies().isEmpty(), "hostname deletion covers the main jar and companion");
+    archiveSource.deleteAllCookiesModifiedSince(WallTime::fromRawSeconds(0), [] { });
+    check(archiveSource.getAllCookies().isEmpty(), "since-date deletion covers both jars");
+
+    Ref partitionChanges = ChangeObserver::create();
+    check(session.startListeningForCookieChangeNotifications(partitionChanges.get(), embedded, embedded, FrameIdentifier::generate(), PageIdentifier::generate(), ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No), "partitioned cookie observer subscribes");
+    unsigned partitionNotifications = 0;
+    observer.startObserving([&] { ++partitionNotifications; });
+    session.setCookie(partitionA, embedded, topA);
+    check(pump([&] { return partitionChanges->added.size() == 1 && partitionNotifications > 0; }) && partitionChanges->added[0].partitionKey == partitionA.partitionKey, "companion mutations reach both cookie notification paths");
+    auto overwrittenPartition = partitionA;
+    overwrittenPartition.value = "server-overwrite"_s;
+    session.setCookie(overwrittenPartition, embedded, topA);
+    check(pump([&] { return partitionChanges->added.size() == 2; }) && partitionChanges->added.last().value == "server-overwrite"_s, "partitioned HTTP overwrite reaches the change listener");
+    session.setCookie(*parseHTTPSetCookie("shared=; Path=/; Secure; SameSite=None; Partitioned; Max-Age=0"_s, embedded, partitionA.partitionKey), embedded, topA);
+    check(pump([&] { return partitionChanges->deleted.size() == 1; }) && session.getAllCookies().isEmpty(), "partitioned HTTP deletion reaches the change listener");
+    session.setCookie(partitionB, embedded, topB);
+    session.deleteAllCookies([] { });
+    check(session.getAllCookies().isEmpty() && pump([&] { return partitionChanges->allDeleted == 1; }), "remove-all clears the companion and notifies listeners");
+    HashSet<String> partitionHosts { "embedded.test"_s };
+    session.stopListeningForCookieChangeNotifications(partitionChanges.get(), partitionHosts);
+    observer.stopObserving();
+
+    RetainPtr savedSharedStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+    [NSHTTPCookieStorage _setSharedHTTPCookieStorage:storage.get()];
+    {
+        NetworkStorageSession sharedSession(PAL::SessionID::defaultSessionID());
+        check(!sharedSession.cookieStorage(), "the default-session management path has a null CF storage");
+        sharedSession.setCookie(partitionA, embedded, topA);
+        auto sharedCookies = sharedSession.getAllCookies();
+        check(sharedCookies.size() == 1 && sharedCookies[0].partitionKey == partitionA.partitionKey, "null CF storage enumeration includes its shared companion");
+        bool sharedDeleted = false;
+        sharedSession.deleteAllCookies([&] { sharedDeleted = true; });
+        check(pump([&] { return sharedDeleted; }) && sharedSession.getAllCookies().isEmpty(), "null CF storage remove-all clears its shared companion");
+    }
+    [NSHTTPCookieStorage _setSharedHTTPCookieStorage:savedSharedStorage.get()];
+
 }
 
 int main()

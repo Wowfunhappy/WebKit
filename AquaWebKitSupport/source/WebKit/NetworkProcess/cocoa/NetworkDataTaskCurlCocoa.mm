@@ -403,10 +403,14 @@ void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, con
 {
     auto* storage = m_session->networkStorageSession();
     auto sameSite = SameSiteInfo::create(m_request);
+    auto blockingDecision = storage->thirdPartyCookieBlockingDecisionForRequest(m_request, m_frameID, m_pageID, shouldRelaxThirdPartyCookieBlocking(*m_session, m_request, m_webPageProxyID), IsKnownCrossSiteTracker::No);
+    String cookiePartition = storage->isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(m_request.firstPartyForCookies()) : String { };
     bool capExpiry = shouldCapCookieExpiryForThirdPartyCloaking(remoteAddress, resolvedCNAMEDomain);
     for (const auto& field : fields) {
-        auto cookie = parseHTTPSetCookie(field, m_request.url());
+        auto cookie = parseHTTPSetCookie(field, m_request.url(), cookiePartition);
         if (!cookie || !(cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite))
+            continue;
+        if (blockingDecision == ThirdPartyCookieBlockingDecision::AllExceptPartitioned && cookie->partitionKey.isEmpty())
             continue;
         // NetworkTaskCocoa's cookiesByCappingExpiry, over its week-long m_ageCapForCNAMECloakedCookies.
         if (capExpiry)
