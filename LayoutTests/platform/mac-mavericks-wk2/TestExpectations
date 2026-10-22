@@ -701,3 +701,9 @@ svg/dom-paint-order/deep-nesting-with-transforms.html [ ImageOnlyFailure ]
 # bounding box, so pixels the shape leaves uncovered there come out one level darker: 717 pixels with WebKitTestRunner
 # against the test's allowance of 710 (696 with DumpRenderTree).
 css3/filters/backdrop/backdrop-filter-uneven-corner-radii.html [ ImageOnlyFailure ]
+# The cookie-storage polyfill provides the system CFNetwork partitioned cookie storage; upstream enables these where the system CFNetwork does.
+http/tests/resourceLoadStatistics/only-partitioned-third-party-cookies.https.html [ Pass ]
+http/tests/resourceLoadStatistics/only-partitioned-cookies-after-redirect.https.html [ Pass ]
+http/tests/resourceLoadStatistics/only-partitioned-cookies-after-redirect-fetch.https.html [ Pass ]
+http/tests/cookies/accept-partitioned-first-and-third-party-cookies.https.html [ Pass ]
+imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies.tentative.https.html [ Pass ]

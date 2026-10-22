@@ -5,6 +5,7 @@
 #include "wk_symbols.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -44,13 +45,11 @@ static int wk_hexValue(UniChar c)
     return c - 'A' + 10;
 }
 
-// Walks |comment| and answers whether it is one of this layer's. When it is and |key| names a field it
-// carries, *valueRange is that field's still-encoded value; otherwise *valueRange is empty at
-// kCFNotFound. Allocation-free -- this runs once per cookie per request.
-static bool wk_blobScan(CFStringRef comment, const char *key, CFRange *valueRange)
+// Validates the whole blob and locates the requested fields without allocating.
+static bool wk_blobScanFields(CFStringRef comment, const char *const *keys, CFRange *ranges, size_t keyCount)
 {
-    valueRange->location = kCFNotFound;
-    valueRange->length = 0;
+    for (size_t key = 0; key < keyCount; ++key)
+        ranges[key] = CFRangeMake(kCFNotFound, 0);
     if (!comment)
         return false;
 
@@ -84,7 +83,6 @@ static bool wk_blobScan(CFStringRef comment, const char *key, CFRange *valueRang
     if (!digits || count < 1)
         return false;
 
-    size_t keyLength = strlen(key);
     for (long field = 0; field < count; ++field) {
         if (position >= length || WK_AT(position) != ' ')
             return false;
@@ -124,40 +122,69 @@ static bool wk_blobScan(CFStringRef comment, const char *key, CFRange *valueRang
             ++position;
         }
         CFIndex valueLength = position - valueStart;
-        if (valueRange->location == kCFNotFound && thisKeyLength == (CFIndex)keyLength) {
+        for (size_t key = 0; key < keyCount; ++key) {
+            if (ranges[key].location != kCFNotFound || thisKeyLength != (CFIndex)strlen(keys[key]))
+                continue;
             bool matches = true;
             for (CFIndex i = 0; i < thisKeyLength && matches; ++i)
-                matches = WK_AT(keyStart + i) == (UniChar)key[i];
+                matches = WK_AT(keyStart + i) == (UniChar)keys[key][i];
             if (matches)
-                *valueRange = CFRangeMake(valueStart, valueLength);
+                ranges[key] = CFRangeMake(valueStart, valueLength);
         }
     }
     if (position != length) {
-        valueRange->location = kCFNotFound;
-        valueRange->length = 0;
+        for (size_t key = 0; key < keyCount; ++key)
+            ranges[key] = CFRangeMake(kCFNotFound, 0);
         return false;
     }
     return true;
 #undef WK_AT
 }
 
-// Every NSString code unit has an encoding, including an unpaired surrogate in an application comment.
+static bool wk_blobScan(CFStringRef comment, const char *key, CFRange *range)
+{
+    return wk_blobScanFields(comment, &key, range, 1);
+}
+
+// The scan validates escapes before this decoder compacts them in place.
 static CFStringRef wk_copyDecodedField(CFStringRef comment, CFRange range)
 {
-    CFMutableStringRef decoded = CFStringCreateMutable(NULL, 0);
-    if (!decoded)
+    if (range.location == kCFNotFound)
         return NULL;
-    CFIndex end = range.location + range.length;
-    for (CFIndex i = range.location; i < end; ++i) {
-        UniChar c = CFStringGetCharacterAtIndex(comment, i);
+    UniChar inlineCharacters[256];
+    if ((uintmax_t)range.length > SIZE_MAX / sizeof(UniChar))
+        return NULL;
+    UniChar *characters = range.length <= (CFIndex)(sizeof(inlineCharacters) / sizeof(inlineCharacters[0]))
+        ? inlineCharacters : malloc((size_t)range.length * sizeof(UniChar));
+    if (!characters)
+        return NULL;
+    CFStringGetCharacters(comment, range, characters);
+    CFIndex decodedLength = 0;
+    for (CFIndex i = 0; i < range.length; ++i) {
+        UniChar c = characters[i];
         if (c == '%') {
             c = 0;
             for (unsigned digit = 0; digit < 4; ++digit)
-                c = (UniChar)((c << 4) | wk_hexValue(CFStringGetCharacterAtIndex(comment, ++i)));
+                c = (UniChar)((c << 4) | wk_hexValue(characters[++i]));
         }
-        CFStringAppendCharacters(decoded, &c, 1);
+        characters[decodedLength++] = c;
     }
+    CFStringRef decoded = CFStringCreateWithCharacters(NULL, characters, decodedLength);
+    if (characters != inlineCharacters)
+        free(characters);
     return decoded;
+}
+
+void wk_cookieBlobCopyPartitionAndName(CFStringRef comment, CFStringRef *partition, CFStringRef *name)
+{
+    const char *keys[] = { "pk", "pn" };
+    CFRange ranges[2];
+    *partition = NULL;
+    *name = NULL;
+    if (!wk_blobScanFields(comment, keys, ranges, 2))
+        return;
+    *partition = wk_copyDecodedField(comment, ranges[0]);
+    *name = wk_copyDecodedField(comment, ranges[1]);
 }
 
 static CFStringRef wk_copyPercentEncoded(CFStringRef value)
@@ -178,20 +205,26 @@ static CFStringRef wk_copyPercentEncoded(CFStringRef value)
     return encoded;
 }
 
-CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef setInJavaScript, CFStringRef comment)
+CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef setInJavaScript,
+    CFStringRef partition, CFStringRef originalName,
+    CFStringRef comment)
 {
-    if (!sameSite && !created && !setInJavaScript)
+    if (!sameSite && !created && !setInJavaScript && !partition && !originalName)
         return comment ? (CFStringRef)CFRetain(comment) : NULL;
 
     CFStringRef encodedSameSite = sameSite ? wk_copyPercentEncoded(sameSite) : NULL;
     CFStringRef encodedCreated = created ? wk_copyPercentEncoded(created) : NULL;
     CFStringRef encodedSetInJavaScript = setInJavaScript ? wk_copyPercentEncoded(setInJavaScript) : NULL;
+    CFStringRef encodedPartition = partition ? wk_copyPercentEncoded(partition) : NULL;
+    CFStringRef encodedOriginalName = originalName ? wk_copyPercentEncoded(originalName) : NULL;
     CFStringRef encodedComment = comment ? wk_copyPercentEncoded(comment) : NULL;
     CFMutableStringRef blob = NULL;
     if ((!sameSite || encodedSameSite) && (!created || encodedCreated) && (!setInJavaScript || encodedSetInJavaScript)
+        && (!partition || encodedPartition) && (!originalName || encodedOriginalName)
         && (!comment || encodedComment)) {
         int fields = (encodedComment ? 1 : 0) + (encodedCreated ? 1 : 0) + (encodedSameSite ? 1 : 0)
-            + (encodedSetInJavaScript ? 1 : 0);
+            + (encodedSetInJavaScript ? 1 : 0) + (encodedPartition ? 1 : 0)
+            + (encodedOriginalName ? 1 : 0);
         blob = CFStringCreateMutable(NULL, 0);
         if (!blob)
             wk_patch_fail(kSameSiteEncoding, "a comment could not be allocated");
@@ -204,6 +237,10 @@ CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStr
             CFStringAppendFormat(blob, NULL, CFSTR(" ss=%@"), encodedSameSite);
         if (encodedSetInJavaScript)
             CFStringAppendFormat(blob, NULL, CFSTR(" js=%@"), encodedSetInJavaScript);
+        if (encodedPartition)
+            CFStringAppendFormat(blob, NULL, CFSTR(" pk=%@"), encodedPartition);
+        if (encodedOriginalName)
+            CFStringAppendFormat(blob, NULL, CFSTR(" pn=%@"), encodedOriginalName);
     }
     if (encodedSameSite)
         CFRelease(encodedSameSite);
@@ -211,6 +248,10 @@ CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStr
         CFRelease(encodedCreated);
     if (encodedSetInJavaScript)
         CFRelease(encodedSetInJavaScript);
+    if (encodedPartition)
+        CFRelease(encodedPartition);
+    if (encodedOriginalName)
+        CFRelease(encodedOriginalName);
     if (encodedComment)
         CFRelease(encodedComment);
 
@@ -234,6 +275,22 @@ CFStringRef wk_cookieBlobCopySetInJavaScript(CFStringRef comment)
 {
     CFRange range;
     if (!wk_blobScan(comment, "js", &range) || range.location == kCFNotFound)
+        return NULL;
+    return wk_copyDecodedField(comment, range);
+}
+
+CFStringRef wk_cookieBlobCopyPartition(CFStringRef comment)
+{
+    CFRange range;
+    if (!wk_blobScan(comment, "pk", &range) || range.location == kCFNotFound)
+        return NULL;
+    return wk_copyDecodedField(comment, range);
+}
+
+CFStringRef wk_cookieBlobCopyOriginalName(CFStringRef comment)
+{
+    CFRange range;
+    if (!wk_blobScan(comment, "pn", &range) || range.location == kCFNotFound)
         return NULL;
     return wk_copyDecodedField(comment, range);
 }
@@ -343,12 +400,8 @@ CFStringRef wk_requestPathCreate(CFURLRef url)
     return (CFStringRef)CFRetain(CFSTR("/"));
 }
 
-// RFC 6265bis 5.5 sends the cookie with the longer path first. 10.9 answers host-only cookies ahead of
-// the ones carrying a Domain attribute and orders by path length only within each of those groups, so
-// a /cookies/attributes cookie with a Domain follows a /cookies one without. Answers whether |path|
-// must precede |otherPath|; equal lengths answer false both ways, which leaves the caller's existing
-// order among them -- 10.9 sorts those by name where the RFC wants creation order, and its creation
-// time is whole seconds, so that much it cannot express.
+// RFC 6265 5.4 sends longer paths first across domain groups. Equal lengths leave creation-time
+// and stability decisions to the caller.
 bool wk_cookiePathSortsFirst(CFStringRef path, CFStringRef otherPath)
 {
     CFIndex length = path ? CFStringGetLength(path) : 0;

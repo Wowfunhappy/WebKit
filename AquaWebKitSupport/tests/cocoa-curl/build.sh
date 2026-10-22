@@ -101,11 +101,18 @@ for t in "${TESTS[@]}"; do
     grep -q '<WebKitLegacy/' "$HERE/$t.mm" && EXTRA_FW="-framework WebKitLegacy"
     # <WebKitLegacy/X.h> resolves through the build's WebKitLegacy framework-header map.
     FLAGS="$FLAGS -F$BUILD/lib -I$BUILD/Source/WebKitLegacy/WebKitLegacy-framework-headers.hmap"
+    POLY_LINK=("$POLY/libpolyfill.a")
+    # This test exercises CFNetwork replacements as well as the WebCore API. Its C SPI calls
+    # need the same definitions and soft-link registry as a WebKit framework.
+    if [ "$t" = cocoa-curl-cookies ]; then
+        (cd "$OUT" && "$TC/llvm-ar" x "$POLY/libpolyfill.a" CFNetwork.o) || exit 1
+        POLY_LINK=("$OUT/CFNetwork.o" "$POLY/libpolyfill.a" "-Wl,-force_load,$POLY/libwk_marker.a")
+    fi
     if (cd "$BUILD" && eval "\"$TC/clang++\" $FLAGS -c \"$HERE/$t.mm\" -o \"$OUT/$t.o\"" >> "$LOG" 2>&1 \
         && "$TC/clang++" -mmacosx-version-min=10.9 -Wl,-headerpad_max_install_names "$OUT/$t.o" -o "$OUT/$t" \
              -F"$BUILD/lib" -framework WebCore -framework WebKit -framework JavaScriptCore $EXTRA_FW \
              -framework Foundation -framework AppKit -framework Security -Wl,-client_name,"$CLIENT" \
-             -L"$DEPS/lib" -lcurl -lssl -lcrypto -lglib-2.0 -lgobject-2.0 "$POLY/libpolyfill.a" -L"$POLY" -lpolyfill_classes \
+             -L"$DEPS/lib" -lcurl -lssl -lcrypto -lglib-2.0 -lgobject-2.0 "${POLY_LINK[@]}" -L"$POLY" -lpolyfill_classes \
              -Wl,-rpath,"$BUILD/lib" -Wl,-rpath,"$DEPS/lib" -Wl,-rpath,"$POLY" >> "$LOG" 2>&1); then
         stamp "$t"
     else

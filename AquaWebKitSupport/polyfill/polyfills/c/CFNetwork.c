@@ -67,24 +67,51 @@ WK_POLYFILL_CONST("CFNetwork", CFStringRef, kCFURLRequestContentDecoderSkipURLCh
 // CFNetwork — features 10.9 lacks.
 // ---------------------------------------------------------------------------------------------------
 
-// Cross-process handoff of an identified cookie store: one process turns its storage into an opaque
-// CFData, another turns that CFData back into the same store. 10.9 lacks the identifying-data pair, but it
-// has the two halves the pair is made of -- CFHTTPCookieStorageCreateArchive and
-// CFHTTPCookieStorageCreateFromArchive, both exported (note: no leading underscore in the C names) and
-// both taking (allocator, thing), read off the disassembly. The archive is a five-element CFArray
-// describing the store: (0, accept policy, (cookies), identifier string, {urlstring} for a file-backed jar
-// or {ident, persistent} for one cookied keeps), and rebuilding from it reopens the same file or reattaches
-// to the same cookied jar. A property list carries it across the process boundary as the CFData the API's
-// shape requires.
-// Resolved at run time: both live in 10.9's CFNetwork but neither is in the 26.1 SDK's stub library.
+// Cookie storage archives carry the native main jar and its WebKit companion. Each native archive
+// reopens its file/cookied identity or copies its in-memory records.
 WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCreateArchive, (CFAllocatorRef, void *));
 WK_SYSTEM_FN("CFNetwork", void *, CFHTTPCookieStorageCreateFromArchive, (CFAllocatorRef, CFArrayRef));
+
+typedef CFHTTPCookieStorageRef (*wk_companion_storage)(CFHTTPCookieStorageRef);
+typedef void (*wk_set_companion_storage)(CFHTTPCookieStorageRef, CFHTTPCookieStorageRef);
+
+WK_POLYFILL_REPLACES("CFNetwork", CFArrayRef, CFHTTPCookieStorageCreateArchive, (CFAllocatorRef allocator, void *storage))
+{
+    CFArrayRef native = WK_ORIGINAL(CFHTTPCookieStorageCreateArchive)(allocator, storage);
+    static wk_companion_storage companionStorage;
+    if (!companionStorage)
+        companionStorage = (wk_companion_storage)dlsym(RTLD_DEFAULT, "wk_cookieStorageCompanion");
+    if (!native)
+        return native;
+    CFArrayRef companion = WK_ORIGINAL(CFHTTPCookieStorageCreateArchive)(allocator, companionStorage(storage));
+    const void *jars[] = { native, companion };
+    CFArrayRef archive = CFArrayCreate(allocator, jars, 2, &kCFTypeArrayCallBacks);
+    CFRelease(companion);
+    CFRelease(native);
+    return archive;
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", void *, CFHTTPCookieStorageCreateFromArchive, (CFAllocatorRef allocator, CFArrayRef archive))
+{
+    if (!archive || CFArrayGetCount(archive) != 2)
+        return WK_ORIGINAL(CFHTTPCookieStorageCreateFromArchive)(allocator, archive);
+    CFHTTPCookieStorageRef storage = WK_ORIGINAL(CFHTTPCookieStorageCreateFromArchive)(allocator, CFArrayGetValueAtIndex(archive, 0));
+    static wk_set_companion_storage setCompanionStorage;
+    if (!setCompanionStorage)
+        setCompanionStorage = (wk_set_companion_storage)dlsym(RTLD_DEFAULT, "wk_cookieStorageSetCompanion");
+    if (storage) {
+        CFHTTPCookieStorageRef companion = WK_ORIGINAL(CFHTTPCookieStorageCreateFromArchive)(allocator, CFArrayGetValueAtIndex(archive, 1));
+        setCompanionStorage(storage, companion);
+        CFRelease(companion);
+    }
+    return storage;
+}
 
 WK_POLYFILL_ABSENT("CFNetwork", CFDataRef, CFHTTPCookieStorageCreateIdentifyingData, (CFAllocatorRef allocator, void *storage))
 {
     if (!storage)
         return NULL;
-    CFArrayRef archive = WK_SYSTEM(CFHTTPCookieStorageCreateArchive)(allocator, storage);
+    CFArrayRef archive = CFHTTPCookieStorageCreateArchive(allocator, storage);
     if (!archive)
         return NULL;
     CFDataRef data = CFPropertyListCreateData(allocator, archive, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
@@ -101,7 +128,7 @@ WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateFromIdentifying
         return NULL;
     void *storage = NULL;
     if (CFGetTypeID(archive) == CFArrayGetTypeID())
-        storage = WK_SYSTEM(CFHTTPCookieStorageCreateFromArchive)(allocator, archive);
+        storage = CFHTTPCookieStorageCreateFromArchive(allocator, archive);
     CFRelease(archive);
     return storage;
 }
@@ -229,6 +256,16 @@ static wk_hsts_query wk_knownHSTSHostQuery(void)
     return query;
 }
 
+// A jar's enumeration includes its partitioned cookies, which the WebCore-only half of the layer keeps.
+typedef CFArrayRef (*wk_copy_cookies)(CFHTTPCookieStorageRef);
+WK_POLYFILL_REPLACES("CFNetwork", CFArrayRef, CFHTTPCookieStorageCopyCookies, (CFHTTPCookieStorageRef storage))
+{
+    static wk_copy_cookies copyCookies;
+    if (!copyCookies)
+        copyCookies = (wk_copy_cookies)dlsym(RTLD_DEFAULT, "wk_cookieStorageCopyCookies");
+    return copyCookies(storage);
+}
+
 // NetworkStorageSession::deleteAllCookies clears a CF storage through this entry point. The storage's
 // own handler reports that clear as a remove-all, which a subscriber cannot reconstruct from a diff:
 // the jar it takes includes cookies no subscriber ever saw.
@@ -244,8 +281,7 @@ WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageDeleteAllCookies, (CF
     static wk_removed_all notify;
     if (!notify)
         notify = (wk_removed_all)dlsym(RTLD_DEFAULT, "wk_cookieStorageDidRemoveAllCookies");
-    if (notify)
-        notify(storage);
+    notify(storage);
 }
 
 // NetworkStorageSession::deleteHTTPCookie removes one cookie through this entry point, which reaches the
@@ -260,10 +296,7 @@ WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageDeleteCookie, (CFHTTP
     static wk_delete_cookie_notifying notifying;
     if (!notifying)
         notifying = (wk_delete_cookie_notifying)dlsym(RTLD_DEFAULT, "wk_cookieStorageDeleteCookie");
-    if (notifying)
-        notifying(storage, cookie, WK_ORIGINAL(CFHTTPCookieStorageDeleteCookie));
-    else
-        WK_ORIGINAL(CFHTTPCookieStorageDeleteCookie)(storage, cookie);
+    notifying(storage, cookie, WK_ORIGINAL(CFHTTPCookieStorageDeleteCookie));
 }
 
 WK_POLYFILL_REPLACES("CFNetwork", Boolean, _CFNetworkIsKnownHSTSHostWithSession, (CFURLRef url, CFTypeRef session))
@@ -435,6 +468,33 @@ bool wk_cookieStorageHasRecordsForURL(CFTypeRef storage, CFURLRef url)
     if (!storage || !url)
         return false;
     return hasRecords((const uint8_t *)storage + kCFPayloadOffset, url);
+}
+
+// The domain entry point is the indexed lookup after CFNetwork's URL host normalization.
+bool wk_cookieStorageHasRecordsForDomain(CFTypeRef storage, const char *domain)
+{
+    static bool (*hasRecords)(const void *, const char *);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        wk_image image;
+        wk_find_image(kCFNetworkSuffix, &image);
+        hasRecords = wk_symbol_in_image(&image, "__ZN17HTTPCookieStorage26someCookiesAreSetForDomainEPKc");
+    });
+    return storage && domain && hasRecords((const uint8_t *)storage + kCFPayloadOffset, domain);
+}
+
+// CFHTTPCookieGetFlags dispatches cookieHeader at vtable offset 0x38 on the
+// CFRuntime payload. CompactHTTPCookieWithData's copy constructor uses the first
+// word as the allocation and memcpy byte length.
+const void *wk_cookieCompactBytes(CFTypeRef cookie, size_t *length)
+{
+    const void *payload = (const uint8_t *)cookie + kCFPayloadOffset;
+    const void *const *vtable = *(const void *const *const *)payload;
+    const uint8_t *bytes = ((const uint8_t *(*)(const void *))vtable[7])(payload);
+    uint32_t encodedLength;
+    memcpy(&encodedLength, bytes, sizeof(encodedLength));
+    *length = encodedLength;
+    return bytes;
 }
 
 static const uint8_t *wk_credentialPayload(CFTypeRef credential, size_t extent)

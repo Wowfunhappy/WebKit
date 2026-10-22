@@ -7,13 +7,11 @@
 
 #include "wk_set_cookie_string.h"
 
-extern CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef, CFURLRef) CF_RETURNS_RETAINED;
+extern CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef, CFURLRef, CFStringRef) CF_RETURNS_RETAINED;
 
 WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
 + (NSHTTPCookie *)_cookieForSetCookieString:(NSString *)field forURL:(NSURL *)url partition:(NSString *)partition
 {
-    // The build disables partitioned cookie storage, so its native representation is unpartitioned.
-    (void)partition;
     if (!field.length || !url)
         return nil;
     // The SPI answers the first cookie of a string that holds several, divided as 10.9's parser divides them.
@@ -21,6 +19,6 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
     if (first.location == kCFNotFound)
         return nil;
     NSString *cookie = [field substringWithRange:NSMakeRange((NSUInteger)first.location, (NSUInteger)first.length)];
-    return [(NSHTTPCookie *)WebCoreCookieCreateFromHTTPResponseField((CFStringRef)cookie, (CFURLRef)url) autorelease];
+    return [(NSHTTPCookie *)WebCoreCookieCreateFromHTTPResponseField((CFStringRef)cookie, (CFURLRef)url, (CFStringRef)partition) autorelease];
 }
 @end

@@ -33,7 +33,7 @@
 
 #import <CFNetwork/CFNetwork.h>
 
-extern "C" CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef, CFURLRef) CF_RETURNS_RETAINED;
+extern "C" CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef, CFURLRef, CFStringRef) CF_RETURNS_RETAINED;
 extern "C" void WebCoreCookieStorageSetHTTPResponseCookies(CFTypeRef, CFArrayRef, CFURLRef, CFURLRef, bool, bool);
 extern "C" void _CFHTTPMessageSetResponseURL(CFHTTPMessageRef, CFURLRef);
 #import <Security/Security.h>
@@ -238,6 +238,7 @@ typedef NS_ENUM(NSInteger, WKWSState) {
 
     NSHTTPCookieStorage *_explicitCookieStorage; // the jar this task alone uses, when it was given one
     NSURL *_siteForCookies;
+    NSString *_storagePartitionIdentifier;
     BOOL _isTopLevelNavigation;
     NSArray<NSHTTPCookie *> *(^_cookieTransform)(NSArray<NSHTTPCookie *> *);
 
@@ -360,6 +361,12 @@ static NSHTTPCookieStorage *wsSessionCookieStorage(NSURLSession *session)
 - (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler;
 @end
 
+@interface NSHTTPCookie (WKPolyfillPartition)
+- (NSString *)_storagePartition;
+@end
+
+static NSString * const wkAllowOnlyPartitionedCookiesKey = @"WKAllowOnlyPartitionedCookies";
+
 // The Cookie header NSURLSession attaches to each hop of a task whose request handles cookies.
 // HTTPShouldHandleCookies is how a caller withholds cookies from one request, and both
 // NetworkSessionCocoa::createWebSocketTask and NetworkTaskCocoa::willPerformHTTPRedirection clear it on
@@ -371,7 +378,7 @@ static NSHTTPCookieStorage *wsSessionCookieStorage(NSURLSession *session)
 // (NetworkStorageSession::cookiesForURL), so a handshake to another site gets exactly the cookies an
 // http request to it would; the site this read is for is WebKit's own same-site answer, stamped on the
 // request it made or set on the task when a redirect changed it.
-static void wsApplyStoredCookies(NSHTTPCookieStorage *storage, NSMutableURLRequest *request, NSURL *siteForCookies, BOOL isTopLevelNavigation)
+static void wsApplyStoredCookies(NSHTTPCookieStorage *storage, NSMutableURLRequest *request, NSURL *siteForCookies, BOOL isTopLevelNavigation, NSString *storagePartitionIdentifier)
 {
     if (![request HTTPShouldHandleCookies] || [request valueForHTTPHeaderField:@"Cookie"])
         return;
@@ -380,8 +387,11 @@ static void wsApplyStoredCookies(NSHTTPCookieStorage *storage, NSMutableURLReque
     policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] = @(isTopLevelNavigation);
     if (siteForCookies)
         policyProperties[@"_kCFHTTPCookiePolicyPropertySiteForCookies"] = wsHTTPURL(siteForCookies);
+    if ([[NSURLProtocol propertyForKey:wkAllowOnlyPartitionedCookiesKey inRequest:request] boolValue])
+        policyProperties[@"_kCFHTTPCookiePolicyPropertyAllowOnlyPartitionedCookies"] = @YES;
+    NSString *partition = storagePartitionIdentifier;
     __block NSArray<NSHTTPCookie *> *cookies = nil;
-    [storage _getCookiesForURL:cookieURL mainDocumentURL:request.mainDocumentURL partition:nil
+    [storage _getCookiesForURL:cookieURL mainDocumentURL:request.mainDocumentURL partition:partition
         policyProperties:policyProperties completionHandler:^(NSArray<NSHTTPCookie *> *result) { cookies = result; }];
     if (!cookies.count)
         return;
@@ -393,15 +403,17 @@ static void wsApplyStoredCookies(NSHTTPCookieStorage *storage, NSMutableURLReque
 // A handshake response's Set-Cookie fields reach the session's storage, as they do for every other
 // NSURLSession task.
 static void wsStoreCookiesFromResponse(NSHTTPCookieStorage *storage, NSHTTPURLResponse *response, NSArray<NSString *> *fields, NSURLRequest *request,
-    NSArray<NSHTTPCookie *> *(^cookieTransform)(NSArray<NSHTTPCookie *> *), NSURL *siteForCookies, BOOL isTopLevelNavigation)
+    NSArray<NSHTTPCookie *> *(^cookieTransform)(NSArray<NSHTTPCookie *> *), NSURL *siteForCookies, BOOL isTopLevelNavigation, NSString *storagePartitionIdentifier)
 {
     if (![request HTTPShouldHandleCookies])
         return;
     NSURL *cookieURL = wsHTTPURL(response.URL ?: request.URL);
+    NSString *partition = storagePartitionIdentifier;
+    BOOL allowOnlyPartitioned = [[NSURLProtocol propertyForKey:wkAllowOnlyPartitionedCookiesKey inRequest:request] boolValue];
     NSMutableArray<NSHTTPCookie *> *parsed = [NSMutableArray arrayWithCapacity:fields.count];
     for (NSString *field in fields) {
-        NSHTTPCookie *cookie = CFBridgingRelease(WebCoreCookieCreateFromHTTPResponseField((__bridge CFStringRef)field, (__bridge CFURLRef)cookieURL));
-        if (cookie)
+        NSHTTPCookie *cookie = CFBridgingRelease(WebCoreCookieCreateFromHTTPResponseField((__bridge CFStringRef)field, (__bridge CFURLRef)cookieURL, (__bridge CFStringRef)partition));
+        if (cookie && (!allowOnlyPartitioned || [cookie _storagePartition]))
             [parsed addObject:cookie];
     }
     NSArray<NSHTTPCookie *> *cookies = parsed;
@@ -857,6 +869,8 @@ static NSData *wsChallengeToken(NSHTTPURLResponse *response, NSString *scheme)
 // response sets.
 - (void)set_siteForCookies:(NSURL *)site { _siteForCookies = site; }
 - (NSURL *)_siteForCookies { return _siteForCookies; }
+- (void)set_storagePartitionIdentifier:(NSString *)identifier { _storagePartitionIdentifier = [identifier copy]; }
+- (NSString *)_storagePartitionIdentifier { return _storagePartitionIdentifier; }
 - (void)set_isTopLevelNavigation:(BOOL)isTopLevelNavigation { _isTopLevelNavigation = isTopLevelNavigation; }
 - (BOOL)_isTopLevelNavigation { return _isTopLevelNavigation; }
 - (void)set_cookieTransformCallback:(NSArray<NSHTTPCookie *> *(^)(NSArray<NSHTTPCookie *> *))callback
@@ -887,7 +901,7 @@ static NSData *wsChallengeToken(NSHTTPURLResponse *response, NSString *scheme)
         // given whatever cookie storage and site-for-cookies its creator meant it to use.
         NSMutableURLRequest *request = [[self currentRequest] mutableCopy];
         wsApplyStoredCookies([self cookieStorage], request, wsSiteForCookies(request) ?: self->_siteForCookies,
-            wsSiteForCookies(request) ? wsIsTopLevelNavigation(request) : self->_isTopLevelNavigation);
+            wsSiteForCookies(request) ? wsIsTopLevelNavigation(request) : self->_isTopLevelNavigation, self->_storagePartitionIdentifier);
         [self setCurrentRequest:request];
         [self startConnection];
     });
@@ -1902,7 +1916,7 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
 
     _response = [[NSHTTPURLResponse alloc] initWithURL:_request.URL statusCode:statusCode HTTPVersion:@"HTTP/1.1" headerFields:responseHeaders];
     wsStoreCookiesFromResponse([self cookieStorage], (NSHTTPURLResponse *)_response, setCookieFields, _request, _cookieTransform,
-        wsSiteForCookies(_request) ?: _siteForCookies, wsSiteForCookies(_request) ? wsIsTopLevelNavigation(_request) : _isTopLevelNavigation);
+        wsSiteForCookies(_request) ?: _siteForCookies, wsSiteForCookies(_request) ? wsIsTopLevelNavigation(_request) : _isTopLevelNavigation, _storagePartitionIdentifier);
 
     if (statusCode == 301 || statusCode == 302 || statusCode == 303 || statusCode == 307 || statusCode == 308)
         return [self followRedirect];
@@ -2297,7 +2311,7 @@ static NSURLAuthenticationChallenge *wsPasswordChallenge(NSURLProtectionSpace *s
     }
     NSMutableURLRequest *hop = [request mutableCopy];
     wsApplyStoredCookies([self cookieStorage], hop, wsSiteForCookies(hop) ?: _siteForCookies,
-        wsSiteForCookies(hop) ? wsIsTopLevelNavigation(hop) : _isTopLevelNavigation);
+        wsSiteForCookies(hop) ? wsIsTopLevelNavigation(hop) : _isTopLevelNavigation, _storagePartitionIdentifier);
     [self setCurrentRequest:hop];
     if (_transportOpen && _curl) {
         [self armHandshakeDeadline:wsRequestTimeout(_request, _session)];

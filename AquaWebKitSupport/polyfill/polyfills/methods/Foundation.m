@@ -15,6 +15,7 @@
 #import "wk_url_coding.h"
 #import "wk_polyfill.h"
 #import "wk_samesite.h"
+#import "wk_symbols.h"
 #import "wk_selref_scope.h"
 #import <AppKit/AppKit.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -26,6 +27,7 @@
 #import <fcntl.h>
 #import <limits.h>
 #import <math.h>
+#import <stdint.h>
 #import <string.h>
 #import <strings.h>
 #import <sys/stat.h>
@@ -82,8 +84,8 @@ WK_POLYFILL_ADD_METHODS(NSProcessInfo)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// Cookie reads apply SameSite policy from the native record's encoded metadata. Partitioning is
-// disabled by this build; the policy dictionary supplies the request's site and navigation context.
+// Cookie reads apply SameSite and CHIPS policy from the native record's encoded metadata. The policy
+// dictionary supplies the request's site, navigation context and top-level storage partition.
 
 // The modern native-cookie setter validates domain scope before invoking the 10.9 jar.
 // Its native API contract shares WebCore's PSL and literal-address predicates.
@@ -176,45 +178,52 @@ extern void CFHTTPCookieStorageAddObserver(CFHTTPCookieStorageRef, CFRunLoopRef,
 extern void CFHTTPCookieStorageRemoveObserver(CFHTTPCookieStorageRef, CFRunLoopRef, CFStringRef, WKCookieStorageChangedProc, void *);
 static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id);
 
+typedef struct OpaqueCFHTTPCookie *CFHTTPCookieRef;
 @interface NSHTTPCookieStorage (WKCookieObservationStorage)
 - (instancetype)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)storage;
 - (NSArray<NSHTTPCookie *> *)_getCookiesForDomain:(NSString *)domain;
+- (void)_getCookiesForPartition:(NSString *)partition completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler;
 @end
 @interface NSHTTPCookie (WKCookieObservationPartition)
 - (NSString *)_storagePartition;
 - (NSURL *)OriginURL;
+- (CFHTTPCookieRef)_GetInternalCFHTTPCookie;
 @end
 
-typedef struct OpaqueCFHTTPCookie *CFHTTPCookieRef;
-extern CFArrayRef CFHTTPCookieStorageCopyCookies(CFHTTPCookieStorageRef);
+WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCopyCookies, (CFHTTPCookieStorageRef));
 extern CFStringRef CFHTTPCookieCopyDomain(CFHTTPCookieRef);
 
 @interface NSHTTPCookie (WKCFHTTPCookieBridge)
 + (NSHTTPCookie *)cookieWithCFHTTPCookie:(CFHTTPCookieRef)cookie;
++ (NSArray<NSHTTPCookie *> *)_cf2nsCookies:(CFArrayRef)cookies;
 @end
 
-// The cookies stored under any of |cookieDomains|, each Domain field compared as a whole string. The jar is
-// read whole: 10.9's per-domain query, CFHTTPCookieStorageCopyCookiesMatching, is not safe while other
-// threads use the storage. A cookie's Domain is read from the stored cookie, and only a cookie in
-// |cookieDomains| is wrapped.
-static NSMutableArray<NSHTTPCookie *> *wk_cookiesStoredInDomains(CFHTTPCookieStorageRef storage, NSSet<NSString *> *cookieDomains)
+static NSHTTPCookieStorage *wk_partitionedCookieStorage(CFHTTPCookieStorageRef);
+static NSHTTPCookie *wk_logicalCookieFromCompanionCookie(NSHTTPCookie *);
+
+// Domain enumeration is for observation and management. Request reads use the native URL index.
+static NSMutableArray<NSHTTPCookie *> *wk_cookiesStoredInDomains(CFHTTPCookieStorageRef storage, NSSet<NSString *> *cookieDomains, BOOL includePartitioned)
 {
     NSMutableArray<NSHTTPCookie *> *result = [NSMutableArray array];
     if (!storage || !cookieDomains.count)
         return result;
-    CFArrayRef stored = CFHTTPCookieStorageCopyCookies(storage);
-    if (!stored)
-        return result;
-    for (CFIndex i = 0, count = CFArrayGetCount(stored); i < count; ++i) {
-        CFHTTPCookieRef storedCookie = (CFHTTPCookieRef)CFArrayGetValueAtIndex(stored, i);
-        CFStringRef storedDomain = CFHTTPCookieCopyDomain(storedCookie);
-        NSString *domain = [(NSString *)storedDomain lowercaseString];
-        if (storedDomain)
-            CFRelease(storedDomain);
-        if (domain && [cookieDomains containsObject:domain])
-            [result addObject:[NSHTTPCookie cookieWithCFHTTPCookie:storedCookie]];
+    for (unsigned jar = 0; jar < (includePartitioned ? 2u : 1u); ++jar) {
+        CFHTTPCookieStorageRef source = jar ? wk_cfCookieStorageOf(wk_partitionedCookieStorage(storage)) : storage;
+        CFArrayRef stored = WK_SYSTEM(CFHTTPCookieStorageCopyCookies)(source);
+        if (!stored)
+            continue;
+        for (CFIndex i = 0, count = CFArrayGetCount(stored); i < count; ++i) {
+            CFHTTPCookieRef record = (CFHTTPCookieRef)CFArrayGetValueAtIndex(stored, i);
+            CFStringRef domain = CFHTTPCookieCopyDomain(record);
+            if (domain && [cookieDomains containsObject:[(NSString *)domain lowercaseString]]) {
+                NSHTTPCookie *cookie = [NSHTTPCookie cookieWithCFHTTPCookie:record];
+                [result addObject:jar ? wk_logicalCookieFromCompanionCookie(cookie) : cookie];
+            }
+            if (domain)
+                CFRelease(domain);
+        }
+        CFRelease(stored);
     }
-    CFRelease(stored);
     return result;
 }
 
@@ -248,6 +257,7 @@ typedef void (^WKCookiesRemovedHandler)(NSArray<NSHTTPCookie *> *, NSString *, b
     dispatch_queue_t _changedQueue;
     dispatch_queue_t _removedQueue;
     CFHTTPCookieStorageRef _observedStorage;
+    CFHTTPCookieStorageRef _observedCompanion;
     NSMutableDictionary *_visible;
 }
 - (void)updateObservationOfStorage:(CFHTTPCookieStorageRef)storage rebaseline:(BOOL)rebaseline;
@@ -293,13 +303,18 @@ static NSMutableDictionary *wk_cookieIndex(void)
 
 static NSArray<NSHTTPCookie *> *wk_cookiesACandidateWouldOverlay(NSHTTPCookieStorage *, NSHTTPCookie *, NSURL *);
 static NSURL *wk_cookieOriginURL(NSHTTPCookie *);
+static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *, NSHTTPCookieStorage *, BOOL, CFStringRef, BOOL, BOOL);
+static NSArray<NSHTTPCookie *> *wk_cookiesMatchingRequestPath(NSArray<NSHTTPCookie *> *, NSURL *);
 
 static void wk_cookieSubscriptionStorageChanged(CFHTTPCookieStorageRef storage, void *context)
 {
     @autoreleasepool {
-        @synchronized ((id)storage) {
-            [(WKCookieChangeSubscription *)context storageChanged:storage];
+        WKCookieChangeSubscription *subscription = context;
+        CFHTTPCookieStorageRef mainStorage = subscription->_observedStorage;
+        @synchronized ((id)mainStorage) {
+            [subscription storageChanged:mainStorage];
         }
+        (void)storage;
     }
 }
 
@@ -348,7 +363,7 @@ static void wk_watchSharedCookieJarDirectory(void)
 {
     NSMutableDictionary *index = wk_cookieIndex();
     NSDate *now = [NSDate date];
-    for (NSHTTPCookie *candidate in wk_cookiesStoredInDomains(storage, cookieDomains)) {
+    for (NSHTTPCookie *candidate in wk_cookiesStoredInDomains(storage, cookieDomains, YES)) {
         NSDate *expires = candidate.expiresDate;
         if (!expires || [expires compare:now] == NSOrderedDescending)
             index[wk_cookieIndexKey(candidate)] = candidate;
@@ -360,9 +375,11 @@ static void wk_watchSharedCookieJarDirectory(void)
     if (![self isSubscribed]) {
         if (_observedStorage) {
             CFHTTPCookieStorageRemoveObserver(_observedStorage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
+            CFHTTPCookieStorageRemoveObserver(_observedCompanion, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
             dispatch_async(dispatch_get_main_queue(), ^{ [wk_observingCookieSubscriptions removeObject:self]; });
         }
         _observedStorage = NULL;
+        _observedCompanion = NULL;
         [_visible release];
         _visible = nil;
         return;
@@ -374,6 +391,8 @@ static void wk_watchSharedCookieJarDirectory(void)
     if (!_observedStorage) {
         _observedStorage = storage;
         CFHTTPCookieStorageAddObserver(storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
+        _observedCompanion = wk_cfCookieStorageOf(wk_partitionedCookieStorage(storage));
+        CFHTTPCookieStorageAddObserver(_observedCompanion, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!wk_observingCookieSubscriptions)
                 wk_observingCookieSubscriptions = [[NSHashTable weakObjectsHashTable] retain];
@@ -640,6 +659,7 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 @interface WKCookieNotificationRegistration : NSObject {
 @public
     CFHTTPCookieStorageRef _storage;
+    CFHTTPCookieStorageRef _companion;
     NSHTTPCookieStorage *_context;
 }
 - (instancetype)initWithContext:(NSHTTPCookieStorage *)context;
@@ -660,11 +680,15 @@ static void wk_postCookiesChangedNotification(CFHTTPCookieStorageRef storage, vo
     _context = context;
     _storage = (CFHTTPCookieStorageRef)CFRetain(wk_cfCookieStorageOf(context));
     CFHTTPCookieStorageAddObserver(_storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_postCookiesChangedNotification, self);
+    _companion = (CFHTTPCookieStorageRef)CFRetain(wk_cfCookieStorageOf(wk_partitionedCookieStorage(_storage)));
+    CFHTTPCookieStorageAddObserver(_companion, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_postCookiesChangedNotification, self);
     return self;
 }
 - (void)dealloc
 {
     CFHTTPCookieStorageRemoveObserver(_storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_postCookiesChangedNotification, self);
+    CFHTTPCookieStorageRemoveObserver(_companion, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_postCookiesChangedNotification, self);
+    CFRelease(_companion);
     CFRelease(_storage);
     [super dealloc];
 }
@@ -717,18 +741,8 @@ static NSString *wk_canonicalSameSitePolicy(NSHTTPCookie *cookie)
     return nil;
 }
 
-// A property dictionary carries the attribute under NSHTTPCookieSameSitePolicy, which is the literal
-// "SameSite" CookieCocoa's createNSHTTPCookie writes and NetworkStorageSessionCocoa's
-// setAllCookiesToSameSiteStrict writes through the constant. It is lifted out and encoded into the
-// Comment the record does carry, so the caller's own Created still reaches the constructor.
-// -properties reports Created as the NSNumber of seconds the record holds, and 10.9's constructors
-// answer that spelling with the value 1 rather than with the number or with a fresh timestamp
-// (measured; an NSDate is ignored and a fresh one assigned, which is also what an absent key gets).
-// A cookie whose creation time reads as 1 sorts ahead of every other cookie of its path, which is the
-// order RFC 6265 5.4 composes the Cookie header in. Dropping the key leaves the constructor to stamp
-// the record it is making, which is the answer it gives for every spelling it does understand.
-// The creation time a caller asks for, as the blob carries it: a decimal string of the CFAbsoluteTime
-// the "Created" key names, which is the number -properties reports for a cookie 10.9 stamped itself.
+// The metadata carries the caller's creation time as CFAbsoluteTime seconds. Mavericks' native
+// constructor stamps its own time when Created is absent and stores 1 when given a numeric Created.
 static NSString *wk_createdFieldOfProperties(NSDictionary *properties)
 {
     id created = [properties objectForKey:@"Created"];
@@ -796,26 +810,25 @@ static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
         policy = nil;
     }
     NSString *created = wk_createdFieldOfProperties(properties);
-    // 10.9's NSHTTPCookie drops a property it does not know: SetInJavaScript is gone from -properties
-    // before the cookie is stored, and it is what selects the cookies
-    // NetworkStorageSession::deleteCookiesForHostnames(ScriptWrittenCookiesOnly::Yes) removes. It rides
-    // in the blob with the other two.
+    // The metadata preserves script provenance and partition keys outside the native property set.
     NSString *setInJavaScript = properties[@"SetInJavaScript"] ? @"1" : nil;
-    if (!policy && !created && !setInJavaScript)
+    NSString *partition = [properties[@"StoragePartition"] isKindOfClass:[NSString class]] ? properties[@"StoragePartition"] : nil;
+    NSString *originalName = [properties[@"WKPartitionedOriginalName"] isKindOfClass:[NSString class]] ? properties[@"WKPartitionedOriginalName"] : nil;
+    if (!policy && !created && !setInJavaScript && !partition && !originalName)
         return properties;
 
     NSMutableDictionary *translated = [[properties mutableCopy] autorelease];
     [translated removeObjectForKey:NSHTTPCookieSameSitePolicy];
     [translated removeObjectForKey:@"SetInJavaScript"];
-    // 10.9's own record cannot carry a creation time a caller chose: whatever the key names, the cookie
-    // comes back reporting 1, and a cookie whose creation time reads as 1 sorts ahead of every other
-    // cookie of its path in the order RFC 6265 5.4 composes the Cookie header in. Dropping the key
-    // leaves the constructor to stamp the record it is making, and the time the caller asked for rides
-    // in the blob with the SameSite attribute, which is what -properties reports back.
+    [translated removeObjectForKey:@"StoragePartition"];
+    [translated removeObjectForKey:@"WKPartitionedOriginalName"];
+    // Mavericks' constructor supplies its native timestamp; the metadata carries the caller's
+    // precise creation time for -properties and RFC 6265 5.4 ordering.
     [translated removeObjectForKey:@"Created"];
 
     id comment = properties[NSHTTPCookieComment];
     CFStringRef encoded = wk_cookieBlobCreate((CFStringRef)policy, (CFStringRef)created, (CFStringRef)setInJavaScript,
+        (CFStringRef)partition, (CFStringRef)originalName,
         [comment isKindOfClass:[NSString class]] ? (CFStringRef)comment : NULL);
     if (!encoded)
         return nil;
@@ -823,6 +836,314 @@ static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
     return translated;
 }
 #pragma clang diagnostic pop
+
+// Each main CF handle owns a companion. Persistent identities name a cookied jar; memory stores
+// own a locked in-memory jar through the private storage-session implementation.
+static const void *const wk_partitionedCookieStorageKey = &wk_partitionedCookieStorageKey;
+WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCreateArchive, (CFAllocatorRef, CFHTTPCookieStorageRef));
+WK_SYSTEM_FN("CFNetwork", double, CFHTTPCookieGetCreationTime, (CFHTTPCookieRef));
+WK_SYSTEM_FN("CFNetwork", void, CFHTTPCookieStorageDeleteAllCookies, (CFHTTPCookieStorageRef));
+WK_SYSTEM_FN("CFNetwork", void, CFHTTPCookieStorageSyncStorageNow, (CFHTTPCookieStorageRef));
+
+static NSString *wk_cookieIdentifierDigest(NSData *data)
+{
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+    char encoded[CC_SHA256_DIGEST_LENGTH * 2 + 1];
+    static const char hex[] = "0123456789abcdef";
+    for (unsigned i = 0; i < CC_SHA256_DIGEST_LENGTH; ++i) {
+        encoded[i * 2] = hex[digest[i] >> 4];
+        encoded[i * 2 + 1] = hex[digest[i] & 15];
+    }
+    encoded[sizeof(encoded) - 1] = 0;
+    return [NSString stringWithUTF8String:encoded];
+}
+
+static NSHTTPCookieStorage *wk_partitionedCookieStorage(CFHTTPCookieStorageRef storage)
+{
+    @synchronized ((id)storage) {
+        NSHTTPCookieStorage *companion = objc_getAssociatedObject((id)storage, wk_partitionedCookieStorageKey);
+        if (companion)
+            return companion;
+        NSArray *archive = [(NSArray *)WK_SYSTEM(CFHTTPCookieStorageCreateArchive)(NULL, storage) autorelease];
+        NSDictionary *location = archive.count > 4 && [archive[4] isKindOfClass:[NSDictionary class]] ? archive[4] : nil;
+        NSArray *identity = nil;
+        if (location[@"urlstring"])
+            identity = @[@"file", location[@"urlstring"]];
+        else if ([location[@"persistent"] boolValue] && location[@"ident"])
+            identity = @[@"cookied", location[@"ident"]];
+        NSData *data = identity ? [NSPropertyListSerialization dataWithPropertyList:identity format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL] : nil;
+        NSString *identifier = [@"org.aqua.WebKit.CHIPS." stringByAppendingString:data ? wk_cookieIdentifierDigest(data) : [[NSUUID UUID] UUIDString]];
+        companion = [[NSHTTPCookieStorage alloc] _initWithIdentifier:identifier private:!identity];
+        companion.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+        objc_setAssociatedObject((id)storage, wk_partitionedCookieStorageKey, companion, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [companion release];
+        return companion;
+    }
+}
+
+CFHTTPCookieStorageRef wk_cookieStorageCompanion(CFHTTPCookieStorageRef storage)
+{
+    return wk_cfCookieStorageOf(wk_partitionedCookieStorage(storage));
+}
+
+void wk_cookieStorageSetCompanion(CFHTTPCookieStorageRef storage, CFHTTPCookieStorageRef companion)
+{
+    NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:companion];
+    @synchronized ((id)storage) {
+        objc_setAssociatedObject((id)storage, wk_partitionedCookieStorageKey, wrapper, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [wrapper release];
+}
+
+// The companion already carries validated metadata, including its original creation time.
+// Native copying changes the logical name without decoding and re-encoding that metadata.
+static NSHTTPCookie *wk_logicalCookieWithName(NSHTTPCookie *cookie, NSString *name)
+{
+    if (!name)
+        return cookie;
+    struct wk_original getter = wk_original_of(cookie, @selector(properties));
+    NSDictionary *raw = ((NSDictionary *(*)(id, SEL))getter.imp)(cookie, getter.sel);
+    NSMutableDictionary *properties = [[raw mutableCopy] autorelease];
+    properties[NSHTTPCookieName] = name;
+    [properties removeObjectForKey:@"Created"];
+    struct wk_original factory = wk_original_of([NSHTTPCookie class], @selector(cookieWithProperties:));
+    return ((NSHTTPCookie *(*)(id, SEL, NSDictionary *))factory.imp)([NSHTTPCookie class], factory.sel, properties);
+}
+
+static NSHTTPCookie *wk_logicalCookieFromCompanionCookie(NSHTTPCookie *cookie)
+{
+    NSString *name = [(NSString *)wk_cookieBlobCopyOriginalName((CFStringRef)wk_rawCookieComment(cookie)) autorelease];
+    return wk_logicalCookieWithName(cookie, name);
+}
+
+static NSHTTPCookie *wk_companionCookie(NSHTTPCookie *cookie)
+{
+    NSMutableDictionary *properties = [[cookie.properties mutableCopy] autorelease];
+    properties[@"WKPartitionedOriginalName"] = cookie.name;
+    NSData *identity = [NSPropertyListSerialization dataWithPropertyList:@[[cookie _storagePartition], cookie.name] format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+    properties[NSHTTPCookieName] = [@"WKPartition-" stringByAppendingString:wk_cookieIdentifierDigest(identity)];
+    return [NSHTTPCookie cookieWithProperties:properties];
+}
+
+static void wk_setCookieDirectly(NSHTTPCookieStorage *storage, NSHTTPCookie *cookie)
+{
+    NSURL *url = wk_cookieOriginURL(cookie);
+    struct wk_original original = wk_original_of(storage, @selector(setCookies:forURL:mainDocumentURL:));
+    ((void (*)(id, SEL, NSArray<NSHTTPCookie *> *, NSURL *, NSURL *))original.imp)(storage, original.sel, @[cookie], url, url);
+}
+
+static void wk_deleteCookieDirectly(NSHTTPCookieStorage *storage, NSHTTPCookie *cookie)
+{
+    struct wk_original original = wk_original_of(storage, @selector(deleteCookie:));
+    ((void (*)(id, SEL, NSHTTPCookie *))original.imp)(storage, original.sel, cookie);
+}
+
+@interface WKCookieProjectionKey : NSObject {
+    NSString *_name;
+    NSString *_domain;
+    NSString *_path;
+    NSUInteger _hash;
+}
+- (instancetype)initWithCookie:(NSHTTPCookie *)cookie;
+@end
+
+@implementation WKCookieProjectionKey
+- (instancetype)initWithCookie:(NSHTTPCookie *)cookie
+{
+    if (!(self = [super init]))
+        return nil;
+    _name = [cookie.name copy];
+    _domain = [cookie.domain copy];
+    _path = [cookie.path copy];
+    _hash = (_name.hash * 31 + _domain.hash) * 31 + _path.hash;
+    return self;
+}
+- (NSUInteger)hash { return _hash; }
+- (BOOL)isEqual:(id)object
+{
+    if (object == self)
+        return YES;
+    if (![object isKindOfClass:[WKCookieProjectionKey class]])
+        return NO;
+    WKCookieProjectionKey *other = object;
+    return [_name isEqualToString:other->_name] && [_domain isEqualToString:other->_domain] && [_path isEqualToString:other->_path];
+}
+- (void)dealloc
+{
+    [_name release];
+    [_domain release];
+    [_path release];
+    [super dealloc];
+}
+@end
+
+@interface WKCookieRequestMetadata : NSObject {
+@public
+    NSString *_partition;
+    double _created;
+    BOOL _hasCreated;
+    wk_same_site_policy _sameSite;
+}
+@end
+@implementation WKCookieRequestMetadata
+- (void)dealloc
+{
+    [_partition release];
+    [super dealloc];
+}
+@end
+
+static const void *const wk_cookieRequestMetadataKey = &wk_cookieRequestMetadataKey;
+static const void *const wk_cookieDecodedMetadataCacheKey = &wk_cookieDecodedMetadataCacheKey;
+
+static NSCache *wk_cookieDecodedMetadataCache(NSHTTPCookieStorage *wrapper)
+{
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(wrapper);
+    @synchronized ((id)storage) {
+        NSCache *cache = objc_getAssociatedObject((id)storage, wk_cookieDecodedMetadataCacheKey);
+        if (!cache) {
+            cache = [[[NSCache alloc] init] autorelease];
+            objc_setAssociatedObject((id)storage, wk_cookieDecodedMetadataCacheKey, cache, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return cache;
+    }
+}
+
+
+// Each logical copy is matched against the complete current native record.
+// The native URL index remains authoritative for selection and expiry.
+@interface WKCookieProjection : NSObject {
+@public
+    NSData *_recordData;
+    NSHTTPCookie *_cookie;
+}
+- (BOOL)matchesRecord:(CFHTTPCookieRef)record;
+@end
+@implementation WKCookieProjection
+- (BOOL)matchesRecord:(CFHTTPCookieRef)record
+{
+    size_t length;
+    const void *bytes = wk_cookieCompactBytes(record, &length);
+    return _recordData.length == length && !memcmp(_recordData.bytes, bytes, length);
+}
+- (void)dealloc
+{
+    [_recordData release];
+    [_cookie release];
+    [super dealloc];
+}
+@end
+
+static const void *const wk_cookieProjectionCacheKey = &wk_cookieProjectionCacheKey;
+
+static NSCache *wk_cookieProjectionCache(NSHTTPCookieStorage *companion)
+{
+    @synchronized (companion) {
+        NSCache *cache = objc_getAssociatedObject(companion, wk_cookieProjectionCacheKey);
+        if (!cache) {
+            cache = [[[NSCache alloc] init] autorelease];
+            objc_setAssociatedObject(companion, wk_cookieProjectionCacheKey, cache, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return cache;
+    }
+}
+
+static BOOL wk_companionHasRecordsForURL(NSHTTPCookieStorage *companion, NSURL *url)
+{
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(companion);
+    NSString *host = url.isFileURL ? @"^filecookies^" : wk_jarHostForURLHost(url.host);
+    const char *domain = host.UTF8String;
+    BOOL needsLowercase = NO;
+    for (const unsigned char *c = (const unsigned char *)domain; c && *c; ++c) {
+        if (*c >= 0x80)
+            return wk_cookieStorageHasRecordsForURL(storage, (CFURLRef)url);
+        needsLowercase |= *c >= 'A' && *c <= 'Z';
+    }
+    if (needsLowercase)
+        domain = host.lowercaseString.UTF8String;
+    return wk_cookieStorageHasRecordsForDomain(storage, domain);
+}
+
+static NSArray<NSHTTPCookie *> *wk_partitionedCookies(NSHTTPCookieStorage *storage, NSURL *url, NSString *partition)
+{
+    NSHTTPCookieStorage *companion = wk_partitionedCookieStorage(wk_cfCookieStorageOf(storage));
+    if (url && !wk_companionHasRecordsForURL(companion, url))
+        return @[];
+    struct wk_original original = wk_original_of(companion, url ? @selector(cookiesForURL:) : @selector(cookies));
+    NSArray *stored = url ? ((NSArray *(*)(id, SEL, NSURL *))original.imp)(companion, original.sel, url)
+                         : ((NSArray *(*)(id, SEL))original.imp)(companion, original.sel);
+    if (url)
+        stored = wk_cookiesMatchingRequestPath(stored, url);
+    NSCache *cache = wk_cookieProjectionCache(companion);
+    NSMutableArray<NSHTTPCookie *> *matches = [NSMutableArray arrayWithCapacity:stored.count];
+    for (NSHTTPCookie *cookie in stored) {
+        WKCookieProjectionKey *key = [[[WKCookieProjectionKey alloc] initWithCookie:cookie] autorelease];
+        CFHTTPCookieRef record = [cookie _GetInternalCFHTTPCookie];
+        WKCookieProjection *projection = [[(WKCookieProjection *)[cache objectForKey:key] retain] autorelease];
+        if (![projection matchesRecord:record]) {
+            CFStringRef recordPartition, name;
+            CFStringRef rawComment = (CFStringRef)wk_rawCookieComment(cookie);
+            wk_cookieBlobCopyPartitionAndName(rawComment, &recordPartition, &name);
+            BOOL matchesPartition = !partition || [(NSString *)recordPartition isEqualToString:partition];
+            if (matchesPartition) {
+                NSHTTPCookie *logical = wk_logicalCookieWithName(cookie, (NSString *)name);
+                WKCookieRequestMetadata *metadata = [[[WKCookieRequestMetadata alloc] init] autorelease];
+                metadata->_partition = [(NSString *)recordPartition retain];
+                CFStringRef created = wk_cookieBlobCopyCreated(rawComment);
+                metadata->_created = created ? CFStringGetDoubleValue(created) : WK_SYSTEM(CFHTTPCookieGetCreationTime)(record);
+                metadata->_hasCreated = YES;
+                if (created)
+                    CFRelease(created);
+                metadata->_sameSite = wk_sameSitePolicyOfComment(rawComment);
+                objc_setAssociatedObject(logical, wk_cookieRequestMetadataKey, metadata, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                projection = [[[WKCookieProjection alloc] init] autorelease];
+                size_t recordLength;
+                const void *recordBytes = wk_cookieCompactBytes(record, &recordLength);
+                projection->_recordData = [[NSData alloc] initWithBytes:recordBytes length:recordLength];
+                projection->_cookie = [logical retain];
+                [cache setObject:projection forKey:key];
+            }
+            if (recordPartition)
+                CFRelease(recordPartition);
+            if (name)
+                CFRelease(name);
+            if (!matchesPartition)
+                continue;
+        }
+        WKCookieRequestMetadata *metadata = objc_getAssociatedObject(projection->_cookie, wk_cookieRequestMetadataKey);
+        if (!partition || [metadata->_partition isEqualToString:partition])
+            [matches addObject:projection->_cookie];
+    }
+    return matches;
+}
+
+static NSArray<NSHTTPCookie *> *wk_partitionedCookiesForURL(NSHTTPCookieStorage *storage, NSURL *url, NSString *partition)
+{
+    return partition.length ? wk_partitionedCookies(storage, url, partition) : @[];
+}
+
+// WebKit's management APIs enumerate logical records from both jars.
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
+- (NSArray<NSHTTPCookie *> *)cookies
+{
+    return [WK_ORIGINAL_METHOD(NSArray *, ()) arrayByAddingObjectsFromArray:wk_partitionedCookies(self, nil, nil)];
+}
+@end
+
+CFArrayRef wk_cookieStorageCopyCookies(CFHTTPCookieStorageRef storage)
+{
+    CFArrayRef native = WK_SYSTEM(CFHTTPCookieStorageCopyCookies)(storage);
+    if (!native)
+        return NULL;
+    CFMutableArrayRef cookies = CFArrayCreateMutableCopy(NULL, 0, native);
+    CFRelease(native);
+    NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage];
+    for (NSHTTPCookie *cookie in wk_partitionedCookies(wrapper, nil, nil))
+        CFArrayAppendValue(cookies, [cookie _GetInternalCFHTTPCookie]);
+    [wrapper release];
+    return cookies;
+}
 
 // RFC 6265bis storage integrity, which modern CFNetwork applies beneath this boundary for every caller.
 static NSString *wk_bareCookieDomain(NSString *domain)
@@ -862,7 +1183,12 @@ static NSArray<NSHTTPCookie *> *wk_cookiesACandidateWouldOverlay(NSHTTPCookieSto
         components.scheme = @"https";
     components.path = candidate.path.length ? candidate.path : @"/";
     NSURL *lookupURL = components.URL;
-    return lookupURL ? [storage cookiesForURL:lookupURL] : @[];
+    if (!lookupURL)
+        return @[];
+    NSString *partition = [candidate _storagePartition];
+    if (partition)
+        return wk_partitionedCookiesForURL(storage, lookupURL, partition);
+    return [storage cookiesForURL:lookupURL];
 }
 
 // RFC 6265bis 5.5: a write from an insecure origin may neither overwrite nor shadow a Secure record, and
@@ -947,63 +1273,100 @@ static NSArray<NSHTTPCookie *> *wk_cookiesAScriptMaySet(NSHTTPCookieStorage *sto
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 - (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
 {
-    (void)partition;
     NSHTTPCookieAcceptPolicy policy = self.cookieAcceptPolicy;
     if (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain && mainDocumentURL
         && wk_hostsHaveDifferentRegistrableDomains((CFURLRef)url, (CFURLRef)mainDocumentURL))
         return completionHandler(@[]);
-    NSArray<NSHTTPCookie *> *cookies = [self cookiesForURL:url];
-
-    // policyProperties carries this read's SameSite context. 10.13+ CFNetwork withholds a Strict or Lax
-    // cookie from a cross-site read here; the same rule is applied from what the cookie carries. Which
-    // site this read is for is derived from SiteForCookies against the URL being read rather than read
-    // off the presence of the stamp, because a stamp travels unchanged across a redirect that changes
-    // host.
-    id siteForCookies = policyProperties[@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
-    if ([siteForCookies isKindOfClass:[NSURL class]] && cookies.count
-        && !wk_sameSiteURLsAreSameSite((CFURLRef)siteForCookies, (CFURLRef)url)) {
-        // A same-site read lets every cookie ride whatever its policy says (wk_sameSiteAllows), so
-        // only a cross-site read pays the per-cookie comment scan.
-        bool isTopLevelNavigation = [policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] boolValue];
-        NSMutableArray<NSHTTPCookie *> *allowed = [NSMutableArray arrayWithCapacity:cookies.count];
-        for (NSHTTPCookie *cookie in cookies) {
-            // A read carries no HTTP method, so a navigation is the only safe-method case there is.
-            if (wk_sameSiteAllows(wk_sameSitePolicyOfComment((CFStringRef)wk_rawCookieComment(cookie)),
-                                  false, isTopLevelNavigation, isTopLevelNavigation))
-                [allowed addObject:cookie];
+    NSArray<NSHTTPCookie *> *partitioned = wk_partitionedCookiesForURL(self, url, partition);
+    NSArray<NSHTTPCookie *> *cookies = partitioned;
+    if (![policyProperties[@"_kCFHTTPCookiePolicyPropertyAllowOnlyPartitionedCookies"] boolValue]) {
+        struct wk_original original = wk_original_of(self, @selector(cookiesForURL:));
+        NSArray *unpartitioned = ((NSArray *(*)(id, SEL, NSURL *))original.imp)(self, original.sel, url);
+        if (!partitioned.count)
+            cookies = unpartitioned;
+        else {
+            NSMutableArray<NSHTTPCookie *> *combined = [NSMutableArray arrayWithCapacity:unpartitioned.count + partitioned.count];
+            [combined addObjectsFromArray:unpartitioned];
+            [combined addObjectsFromArray:partitioned];
+            cookies = combined;
         }
-        cookies = allowed;
     }
+
+    id siteForCookies = policyProperties[@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
+    BOOL filterSameSite = [siteForCookies isKindOfClass:[NSURL class]]
+        && !wk_sameSiteURLsAreSameSite((CFURLRef)siteForCookies, (CFURLRef)url);
+    BOOL isTopLevelNavigation = [policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] boolValue];
+    CFStringRef requestPath = wk_requestPathCreate((CFURLRef)url);
+    cookies = wk_cookiesInSendOrder(cookies, self, !!partitioned.count, requestPath, filterSameSite, isTopLevelNavigation);
+    CFRelease(requestPath);
     completionHandler(cookies);
 }
 // The SPI every script-side write reaches this jar through, and the only one, so the rules that hold for
 // a script rather than for a response belong here.
 - (void)_setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
 {
-    (void)policyProperties;
-    [self setCookies:wk_cookiesAScriptMaySet(self, cookies, url) forURL:url mainDocumentURL:mainDocumentURL];
+    NSArray<NSHTTPCookie *> *scriptCookies = wk_cookiesAScriptMaySet(self, cookies, url);
+    if ([policyProperties[@"_kCFHTTPCookiePolicyPropertyAllowOnlyPartitionedCookies"] boolValue]) {
+        NSMutableArray<NSHTTPCookie *> *partitioned = [NSMutableArray array];
+        for (NSHTTPCookie *cookie in scriptCookies) {
+            if ([cookie _storagePartition])
+                [partitioned addObject:cookie];
+        }
+        scriptCookies = partitioned;
+    }
+    [self setCookies:scriptCookies forURL:url mainDocumentURL:mainDocumentURL];
 }
 - (NSArray<NSHTTPCookie *> *)_getCookiesForDomain:(NSString *)domain
 {
     if (!domain.length)
         return [NSMutableArray array];
-    return wk_cookiesStoredInDomains(wk_cfCookieStorageOf(self), [NSSet setWithArray:wk_cookieDomainsMatchingHost(domain.lowercaseString)]);
+    return wk_cookiesStoredInDomains(wk_cfCookieStorageOf(self), [NSSet setWithArray:wk_cookieDomainsMatchingHost(domain.lowercaseString)], NO);
+}
+- (void)_getCookiesForPartition:(NSString *)partition completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
+{
+    completionHandler(partition.length ? wk_partitionedCookies(self, nil, partition) : @[]);
 }
 
 @end
 
-// A cookie whose expiry has passed is discarded at storage time rather than kept. 10.9's jar evaluates
-// expiry only against a record it already holds -- handed one whose name it does not know, -setCookies:
-// stores it, where it stays out of the per-URL view but remains in -cookies, so a Set-Cookie that only
-// removes a cookie leaves a dead one behind for every reader of the whole jar.
+// 10.9 keeps a new expired key in the jar. Cleanup inspects stored records so native acceptance
+// decisions also govern expiry writes.
 static void wk_discardExpiredCookies(NSHTTPCookieStorage *storage, NSArray<NSHTTPCookie *> *cookies)
 {
     NSDate *now = [NSDate date];
+    NSMutableSet<NSArray *> *expiredKeys = nil;
+    NSMutableSet<NSString *> *expiredDomains = nil;
     for (NSHTTPCookie *cookie in cookies) {
-        NSDate *expires = [cookie expiresDate];
-        if (expires && [expires compare:now] != NSOrderedDescending)
-            [storage deleteCookie:cookie];
+        NSDate *expires = cookie.expiresDate;
+        if (!expires || [expires compare:now] == NSOrderedDescending)
+            continue;
+        if (!expiredKeys) {
+            expiredKeys = [NSMutableSet set];
+            expiredDomains = [NSMutableSet set];
+        }
+        [expiredKeys addObject:wk_cookieIndexKey(cookie)];
+        [expiredDomains addObject:cookie.domain.lowercaseString];
     }
+    if (!expiredKeys)
+        return;
+
+    CFArrayRef stored = WK_SYSTEM(CFHTTPCookieStorageCopyCookies)(wk_cfCookieStorageOf(storage));
+    if (!stored)
+        return;
+    for (CFIndex i = 0, count = CFArrayGetCount(stored); i < count; ++i) {
+        CFHTTPCookieRef record = (CFHTTPCookieRef)CFArrayGetValueAtIndex(stored, i);
+        CFStringRef domain = CFHTTPCookieCopyDomain(record);
+        BOOL matchesDomain = domain && [expiredDomains containsObject:[(NSString *)domain lowercaseString]];
+        if (domain)
+            CFRelease(domain);
+        if (!matchesDomain)
+            continue;
+        NSHTTPCookie *cookie = [NSHTTPCookie cookieWithCFHTTPCookie:record];
+        NSDate *expires = cookie.expiresDate;
+        if (expires && [expires compare:now] != NSOrderedDescending && [expiredKeys containsObject:wk_cookieIndexKey(cookie)])
+            wk_deleteCookieDirectly(storage, cookie);
+    }
+    CFRelease(stored);
 }
 
 // The public setter and the policy SPI share PSL acceptance at the native jar boundary.
@@ -1026,8 +1389,12 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
         return;
     cookie = usable[0];
     CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
-    WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
-    wk_discardExpiredCookies(self, @[cookie]);
+    if (self.cookieAcceptPolicy == NSHTTPCookieAcceptPolicyNever)
+        return;
+    NSHTTPCookieStorage *target = [cookie _storagePartition] ? wk_partitionedCookieStorage(storage) : self;
+    NSHTTPCookie *record = [cookie _storagePartition] ? wk_companionCookie(cookie) : cookie;
+    wk_setCookieDirectly(target, record);
+    wk_discardExpiredCookies(target, @[record]);
     @synchronized ((id)storage) {
         [wk_existingCookieSubscription(storage) storage:storage didChangeCookies:@[cookie]];
     }
@@ -1038,7 +1405,10 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
     if (!wk_publicCookieMayReplaceStoredCookie(self, cookie))
         return;
     CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
-    WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
+    if ([cookie _storagePartition])
+        wk_deleteCookieDirectly(wk_partitionedCookieStorage(storage), wk_companionCookie(cookie));
+    else
+        WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
     @synchronized ((id)storage) {
         [wk_existingCookieSubscription(storage) storage:storage didChangeCookies:@[cookie]];
     }
@@ -1047,6 +1417,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 - (void)setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL
 {
     NSHTTPCookieAcceptPolicy policy = self.cookieAcceptPolicy;
+    if (policy == NSHTTPCookieAcceptPolicyNever)
+        return;
     // WebCore HTTP, document.cookie and Cookie Store API mutations share this native jar boundary.
     NSMutableArray<NSHTTPCookie *> *usable = [NSMutableArray arrayWithCapacity:cookies.count];
     for (NSHTTPCookie *cookie in cookies) {
@@ -1054,31 +1426,52 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
             [usable addObject:cookie];
     }
     // The native main-document policy consults a 2013 PSL. Apply its registrable-domain
-    // boundary with the current PSL, retaining its existing-cookie exception, which is native
-    // HTTPCookieStorage::setCookies's own test: any record the jar's domain index holds for the host,
-    // expired or path-restricted ones included.
+    // boundary with the current PSL. OnlyFromMainDocumentDomain admits partitioned cookies and
+    // unpartitioned cookies for a host with existing records, including expired or path-restricted
+    // records. ExclusivelyFromMainDocumentDomain rejects every cross-site write.
     if ((policy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain || policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain) && mainDocumentURL
         && wk_hostsHaveDifferentRegistrableDomains((__bridge CFURLRef)url, (__bridge CFURLRef)mainDocumentURL)
-        && (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain || !wk_cookieStorageHasRecordsForURL(wk_cfCookieStorageOf(self), (__bridge CFURLRef)url)))
-        return;
+        && (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain || !wk_cookieStorageHasRecordsForURL(wk_cfCookieStorageOf(self), (__bridge CFURLRef)url))) {
+        if (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain)
+            return;
+        NSMutableArray<NSHTTPCookie *> *partitioned = [NSMutableArray array];
+        for (NSHTTPCookie *cookie in usable) {
+            if ([cookie _storagePartition])
+                [partitioned addObject:cookie];
+        }
+        usable = partitioned;
+    }
     usable = (NSMutableArray *)wk_cookiesWithStorageIntegrity(self, usable, url);
     CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
-    WK_ORIGINAL_METHOD(void, (NSArray *, NSURL *, NSURL *), usable, url, mainDocumentURL);
-    wk_discardExpiredCookies(self, usable);
+    NSMutableArray<NSHTTPCookie *> *unpartitioned = [NSMutableArray arrayWithCapacity:usable.count];
+    NSMutableArray<NSHTTPCookie *> *partitionedRecords = [NSMutableArray array];
+    for (NSHTTPCookie *cookie in usable) {
+        if (![cookie _storagePartition]) {
+            [unpartitioned addObject:cookie];
+            continue;
+        }
+        NSHTTPCookie *record = wk_companionCookie(cookie);
+        wk_setCookieDirectly(wk_partitionedCookieStorage(storage), record);
+        [partitionedRecords addObject:record];
+    }
+    if (unpartitioned.count)
+        WK_ORIGINAL_METHOD(void, (NSArray *, NSURL *, NSURL *), unpartitioned, url, mainDocumentURL);
+    wk_discardExpiredCookies(self, unpartitioned);
+    if (partitionedRecords.count)
+        wk_discardExpiredCookies(wk_partitionedCookieStorage(storage), partitionedRecords);
     @synchronized ((id)storage) {
         [wk_existingCookieSubscription(storage) storage:storage didChangeCookies:usable];
     }
 }
 @end
 
-// -[NSHTTPCookie _storagePartition] is the per-cookie partition key; 10.9 stores everything
-// unpartitioned, so nil (the "no partition" value the callers already treat as the default) is honest.
+// -[NSHTTPCookie _storagePartition] is the per-cookie CHIPS key preserved in the native metadata blob.
 // -[NSHTTPCookie sameSitePolicy] (10.13+) reports a cookie's stored SameSite attribute (paired with the
 // NSHTTPCookieSameSiteLax/Strict constants polyfilled in c/Foundation.m), which on 10.9 is what the
 // cookie carries in its Comment field (wk_samesite.h).
 WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
 - (NSString *)sameSitePolicy { return wk_canonicalSameSitePolicy(self); }
-- (NSString *)_storagePartition { return nil; }
+- (NSString *)_storagePartition { return [(NSString *)wk_cookieBlobCopyPartition((CFStringRef)wk_rawCookieComment(self)) autorelease]; }
 
 @end
 
@@ -1102,7 +1495,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
     NSString *sameSite = [(NSString *)wk_sameSiteCopyValue((CFStringRef)comment) autorelease];
     NSString *created = [(NSString *)wk_cookieBlobCopyCreated((CFStringRef)comment) autorelease];
     NSString *setInJavaScript = [(NSString *)wk_cookieBlobCopySetInJavaScript((CFStringRef)comment) autorelease];
-    if (!sameSite && !created && !setInJavaScript)
+    NSString *partition = [(NSString *)wk_cookieBlobCopyPartition((CFStringRef)comment) autorelease];
+    if (!sameSite && !created && !setInJavaScript && !partition)
         return properties;
 
     NSMutableDictionary *decoded = [[properties mutableCopy] autorelease];
@@ -1117,6 +1511,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
         decoded[@"Created"] = @([created doubleValue]);
     if (setInJavaScript)
         decoded[@"SetInJavaScript"] = @1;
+    if (partition)
+        decoded[@"StoragePartition"] = partition;
     return decoded;
 #pragma clang diagnostic pop
 }
@@ -1125,7 +1521,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
     NSString *description = WK_ORIGINAL_METHOD(NSString *, ());
     NSString *raw = wk_rawCookieComment(self);
     NSString *sameSite = [(NSString *)wk_sameSiteCopyValue((CFStringRef)raw) autorelease];
-    if (!sameSite)
+    NSString *partition = [(NSString *)wk_cookieBlobCopyPartition((CFStringRef)raw) autorelease];
+    if (!sameSite && !partition)
         return description;
     NSString *server = [(NSString *)wk_sameSiteCopyServerComment((CFStringRef)raw) autorelease];
     return [description stringByReplacingOccurrencesOfString:[NSString stringWithFormat:@" comment:\"%@\"", raw]
@@ -1577,6 +1974,7 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 - (void)_saveCookies:(dispatch_block_t)completionHandler
 {
     [self _saveCookies];
+    [wk_partitionedCookieStorage(wk_cfCookieStorageOf(self)) _saveCookies];
     if (completionHandler)
         completionHandler();
 }
@@ -2043,11 +2441,12 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 }
 @end
 
-// RFC 6265bis 5.5 sends the longer cookie-path first. Among equal paths the jar's own order stands, and
-// the slot a cookie arrived in settles every tie, so the sort is stable.
+// RFC 6265 5.4 sends longer paths first, then earlier creation times. Equal timestamps retain
+// the native order. A native timestamp of 1 sorts before later timestamps.
 struct wk_cookieSendSlot {
     NSHTTPCookie *cookie;
     CFStringRef path;
+    double created;
     NSUInteger arrival;
 };
 
@@ -2059,36 +2458,75 @@ static int wk_compareCookieSendSlots(const void *a, const void *b)
         return -1;
     if (wk_cookiePathSortsFirst(second->path, first->path))
         return 1;
-    return first->arrival < second->arrival ? -1 : 1;
+    if (first->created < second->created)
+        return -1;
+    if (first->created > second->created)
+        return 1;
+    return first->arrival < second->arrival ? -1 : first->arrival > second->arrival;
 }
 
 // Answers |cookies| itself when it already reads that way, so the common case costs one scan.
-static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *cookies)
+static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *cookies, NSHTTPCookieStorage *storage, BOOL hasPartitionedCookies, CFStringRef requestPath, BOOL filterSameSite, BOOL isTopLevelNavigation)
 {
     NSUInteger count = cookies.count;
-    if (count < 2)
+    if (!count)
         return cookies;
-    // A URL's cookies are few; the heap is for the jar that holds more than a page ever sends.
     struct wk_cookieSendSlot inlineSlots[32];
     struct wk_cookieSendSlot *slots = count <= (sizeof(inlineSlots) / sizeof(inlineSlots[0]))
         ? inlineSlots : (struct wk_cookieSendSlot *)malloc(count * sizeof(inlineSlots[0]));
     if (!slots)
-        return cookies;
+        wk_patch_fail("CFNetwork cookie send order", "cookie slots could not be allocated");
+    NSCache *decodedMetadata = nil;
+    NSUInteger kept = 0;
     for (NSUInteger i = 0; i < count; ++i) {
         NSHTTPCookie *cookie = cookies[i];
-        slots[i].cookie = cookie;
-        slots[i].path = (CFStringRef)cookie.path;
-        slots[i].arrival = i;
+        CFStringRef path = (CFStringRef)cookie.path;
+        if (!wk_cookiePathMatchesRequestPath(path, requestPath))
+            continue;
+        WKCookieRequestMetadata *metadata = hasPartitionedCookies ? objc_getAssociatedObject(cookie, wk_cookieRequestMetadataKey) : nil;
+        CFStringRef comment = !metadata && (filterSameSite || count > 1) ? (CFStringRef)wk_rawCookieComment(cookie) : NULL;
+        if (comment) {
+            if (!decodedMetadata)
+                decodedMetadata = wk_cookieDecodedMetadataCache(storage);
+            metadata = [[(WKCookieRequestMetadata *)[decodedMetadata objectForKey:(NSString *)comment] retain] autorelease];
+            if (!metadata) {
+                metadata = [[[WKCookieRequestMetadata alloc] init] autorelease];
+                CFStringRef created = wk_cookieBlobCopyCreated(comment);
+                metadata->_hasCreated = !!created;
+                if (created) {
+                    metadata->_created = CFStringGetDoubleValue(created);
+                    CFRelease(created);
+                }
+                metadata->_sameSite = wk_sameSitePolicyOfComment(comment);
+                [decodedMetadata setObject:metadata forKey:(NSString *)comment];
+            }
+        }
+        if (filterSameSite) {
+            wk_same_site_policy policy = metadata ? metadata->_sameSite : WK_SAME_SITE_NONE;
+            // This SPI carries no HTTP method; a navigation is its safe-method case.
+            if (!wk_sameSiteAllows(policy, false, isTopLevelNavigation, isTopLevelNavigation))
+                continue;
+        }
+        struct wk_cookieSendSlot *slot = &slots[kept++];
+        slot->cookie = cookie;
+        slot->path = path;
+        if (metadata && metadata->_hasCreated)
+            slot->created = metadata->_created;
+        else if (count > 1)
+            slot->created = WK_SYSTEM(CFHTTPCookieGetCreationTime)([cookie _GetInternalCFHTTPCookie]);
+        else
+            slot->created = 0;
+        slot->arrival = i;
     }
-
     bool ordered = true;
-    for (NSUInteger i = 1; i < count && ordered; ++i)
+    for (NSUInteger i = 1; i < kept && ordered; ++i)
         ordered = wk_compareCookieSendSlots(&slots[i - 1], &slots[i]) < 0;
     NSArray<NSHTTPCookie *> *result = cookies;
-    if (!ordered) {
-        qsort(slots, count, sizeof(slots[0]), wk_compareCookieSendSlots);
-        NSMutableArray<NSHTTPCookie *> *sorted = [NSMutableArray arrayWithCapacity:count];
-        for (NSUInteger i = 0; i < count; ++i)
+    if (kept != count || !ordered) {
+        if (!ordered)
+            qsort(slots, kept, sizeof(slots[0]), wk_compareCookieSendSlots);
+        NSMutableArray<NSHTTPCookie *> *sorted = [NSMutableArray arrayWithCapacity:kept];
+        for (NSUInteger i = 0; i < kept; ++i)
             [sorted addObject:slots[i].cookie];
         result = sorted;
     }
@@ -2097,15 +2535,10 @@ static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *c
     return result;
 }
 
-// RFC 6265 5.1.4 holds a cookie to a request-path on a path-segment boundary; 10.9 tests only that the
-// cookie-path is a prefix (HTTPCookieStorage::lookupAndCopyCookies is a strlen bound and a strncmp), so
-// a cookie whose Path is /cook is answered here for /cookies/anything. This is the read every other
-// answer is built from -- _getCookiesForURL: above, NetworkStorageSession::getCookies, and through it
-// WKHTTPCookieStore and the extension cookies API.
-WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
-- (NSArray<NSHTTPCookie *> *)cookiesForURL:(NSURL *)url
+// Native URL lookup supplies domain, Secure and expiry matching. The path check adds
+// RFC 6265's segment boundary to Mavericks' prefix match.
+static NSArray<NSHTTPCookie *> *wk_cookiesMatchingRequestPath(NSArray<NSHTTPCookie *> *cookies, NSURL *url)
 {
-    NSArray<NSHTTPCookie *> *cookies = WK_ORIGINAL_METHOD(NSArray *, (NSURL *), url);
     CFStringRef requestPath = wk_requestPathCreate((CFURLRef)url);
     NSMutableArray<NSHTTPCookie *> *onPath = nil;
     for (NSUInteger i = 0; i < cookies.count; ++i) {
@@ -2121,7 +2554,17 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
         }
     }
     CFRelease(requestPath);
-    return wk_cookiesInSendOrder(onPath ?: cookies);
+    return onPath ?: cookies;
+}
+
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
+- (NSArray<NSHTTPCookie *> *)cookiesForURL:(NSURL *)url
+{
+    NSArray<NSHTTPCookie *> *cookies = WK_ORIGINAL_METHOD(NSArray *, (NSURL *), url);
+    CFStringRef requestPath = wk_requestPathCreate((CFURLRef)url);
+    NSArray *result = wk_cookiesInSendOrder(cookies, self, NO, requestPath, NO, NO);
+    CFRelease(requestPath);
+    return result;
 }
 @end
 
@@ -2132,6 +2575,7 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 // platform does not keep the flag for, the value is kept in the request's own property store, which
 // survives -mutableCopy; the platform's own answer is used unchanged for the schemes it does keep.
 static NSString * const wkShouldHandleCookiesKey = @"WKShouldHandleCookies";
+static NSString * const wkAllowOnlyPartitionedCookiesKey = @"WKAllowOnlyPartitionedCookies";
 
 // Runs on every request and every redirect in both processes (ResourceRequestCocoa's
 // doUpdateResourceRequest reads the flag back each time), so it compares the scheme in place rather
@@ -2159,6 +2603,15 @@ WK_POLYFILL_REPLACE_METHODS(NSMutableURLRequest)
     WK_ORIGINAL_METHOD(void, (BOOL), shouldHandle);
     if (!wk_urlKeepsCookieFlagNatively([self URL]))
         [NSURLProtocol setProperty:(shouldHandle ? @YES : @NO) forKey:wkShouldHandleCookiesKey inRequest:self];
+}
+@end
+
+// Modern CFNetwork carries this request policy internally. The WebSocket transport reads the same
+// stamp, while Cocoa/curl data tasks apply their NetworkStorageSession decision directly.
+WK_POLYFILL_ADD_METHODS(NSMutableURLRequest)
+- (void)_setAllowOnlyPartitionedCookies:(BOOL)allowOnly
+{
+    [NSURLProtocol setProperty:(allowOnly ? @YES : @NO) forKey:wkAllowOnlyPartitionedCookiesKey inRequest:self];
 }
 @end
 
@@ -2209,6 +2662,14 @@ static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate)
 
 void wk_cookieStorageDidRemoveAllCookies(CFHTTPCookieStorageRef storage)
 {
+    CFHTTPCookieStorageRef companion = wk_cookieStorageCompanion(storage);
+    CFArrayRef cookies = WK_SYSTEM(CFHTTPCookieStorageCopyCookies)(companion);
+    if (cookies && CFArrayGetCount(cookies)) {
+        WK_SYSTEM(CFHTTPCookieStorageDeleteAllCookies)(companion);
+        WK_SYSTEM(CFHTTPCookieStorageSyncStorageNow)(companion);
+    }
+    if (cookies)
+        CFRelease(cookies);
     @synchronized ((id)storage) {
         [wk_existingCookieSubscription(storage) storageRemovedAllCookies];
     }
@@ -2220,6 +2681,12 @@ void wk_cookieStorageDeleteCookie(CFHTTPCookieStorageRef storage, CFHTTPCookieRe
 {
     @autoreleasepool {
         NSHTTPCookie *cookie = storage && cf ? [NSHTTPCookie cookieWithCFHTTPCookie:cf] : nil;
+        if ([cookie _storagePartition]) {
+            NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage];
+            [wrapper deleteCookie:cookie];
+            [wrapper release];
+            return;
+        }
         deleteCookie(storage, cf);
         if (!cookie)
             return;
@@ -2237,7 +2704,7 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 - (void)removeCookiesSinceDate:(NSDate *)date
 {
     NSTimeInterval since = [date timeIntervalSinceReferenceDate];
-    for (NSHTTPCookie *cookie in [[[self cookies] copy] autorelease]) {
+    for (NSHTTPCookie *cookie in [self cookies]) {
         if ([[[cookie properties] objectForKey:@"Created"] doubleValue] < since)
             continue;
         [self deleteCookie:cookie];
@@ -3031,6 +3498,7 @@ static void wk_bindDownloadTaskToFile(id task, NSString *path)
 static const void *const wk_taskPriorityKey = &wk_taskPriorityKey;
 static const void *wk_taskIsPreconnectKey = &wk_taskIsPreconnectKey;
 static const void *const wk_taskCookieTransformKey = &wk_taskCookieTransformKey;
+static const void *const wk_taskStoragePartitionIdentifierKey = &wk_taskStoragePartitionIdentifierKey;
 
 WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 // -priority/-setPriority: (10.10+). 10.9's URL loading has no per-task scheduling priority, so the value
@@ -3097,6 +3565,15 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 - (id)_cookieTransformCallback
 {
     return objc_getAssociatedObject(self, wk_taskCookieTransformKey);
+}
+// Local and registered-protocol tasks carry the same partition identifier as HTTP tasks.
+- (void)set_storagePartitionIdentifier:(NSString *)identifier
+{
+    objc_setAssociatedObject(self, wk_taskStoragePartitionIdentifierKey, identifier, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+- (NSString *)_storagePartitionIdentifier
+{
+    return objc_getAssociatedObject(self, wk_taskStoragePartitionIdentifierKey);
 }
 - (void)set_siteForCookies:(id)site { (void)site; }
 - (void)set_isTopLevelNavigation:(BOOL)value { (void)value; }
