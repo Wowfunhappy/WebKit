@@ -33,6 +33,8 @@
 	</dict>
 	<key>Description</key>
 	<string>Local media handoff test controls</string>
+	<key>DeveloperIdentifier</key>
+	<string>WDAOQFIKHZ</string>
 	<key>ExtensionInfoDictionaryVersion</key>
 	<string>1.0</string>
 	<key>Permissions</key>
