@@ -35,6 +35,11 @@ typedef struct {
     void (*didReceiveSynchronousMessageFromInjectedBundle)(WKContextRef, WKStringRef messageName, WKTypeRef messageBody, WKTypeRef *returnData, const void *clientInfo);
 } WKContextInjectedBundleClientV0;
 extern void WKContextSetInjectedBundleClient(WKContextRef, const WKContextInjectedBundleClientV0 *);
+extern void WKContextWarmInitialProcess(WKContextRef);
+
+@interface WKWebsiteDataStore (WCWebKitSPI)
+- (void)_setResourceLoadStatisticsEnabled:(BOOL)enabled;
+@end
 
 // The WebKit 1 SPI Safari configures its extension pages' views with.
 typedef NS_ENUM(NSUInteger, WebStorageBlockingPolicy) {
