@@ -1897,6 +1897,14 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
         [self updateFrame];
 }
 
+// A clip prevents cross-site tracking exactly when Safari does. Safari 7 decides that from its Privacy
+// setting, which is the account's cookie accept policy: any policy but Always.
+static void applySafariTrackingPrevention(void)
+{
+    BOOL preventsTracking = [NSHTTPCookieStorage sharedHTTPCookieStorage].cookieAcceptPolicy != NSHTTPCookieAcceptPolicyAlways;
+    [[WKWebsiteDataStore defaultDataStore] _setResourceLoadStatisticsEnabled:preventsTracking];
+}
+
 // The clips' web content processes load the plug-in's injected bundle. A clip is a Safari tab to its copy
 // of Safari's extensions, which the pool's extension runtime runs.
 static WKProcessPool *clipProcessPool(void)
@@ -1907,6 +1915,13 @@ static WKProcessPool *clipProcessPool(void)
         configuration.injectedBundleURL = [[NSBundle bundleForClass:[WCClipperView class]] URLForResource:@"WebClipPageBundle" withExtension:@"bundle"];
         processPool = [[WKProcessPool alloc] _initWithConfiguration:configuration];
         [WCExtensionRuntime serveProcessPool:processPool];
+        applySafariTrackingPrevention();
+        [[NSDistributedNotificationCenter defaultCenter] addObserverForName:NSHTTPCookieManagerAcceptPolicyChangedNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *) {
+            applySafariTrackingPrevention();
+        }];
+        // Safari 7 warms WebKit the same way, so the data store's network session exists before the first
+        // clip page joins it.
+        WKContextWarmInitialProcess((__bridge WKContextRef)processPool);
     }
     return processPool;
 }
