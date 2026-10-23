@@ -1,5 +1,4 @@
-// The WebPageProxy members this port adds on the Mac: the QuickTime Player hand-off for an HLS
-// playlist, and the runtime installation of Google's Widevine CDM.
+// Mac page support for QuickTime Player URL hand-offs and Widevine CDM installation.
 
 #import "config.h"
 #import "WebPageProxy.h"
@@ -19,14 +18,13 @@
 
 namespace WebKit {
 
-// Called from decidePolicyForResponseShared. LaunchServices delivers the URL as the GetURL Apple
-// event QuickTime Player's Internet suite handles, and answers whether the hand-off was made.
-bool WebPageProxy::openMediaPlaylistInQuickTimePlayer(const URL& url)
+// Navigation policy and extension hand-offs use LaunchServices to deliver a GetURL Apple event.
+bool WebPageProxy::openURLInMediaPlayer(const URL& url, const String& application)
 {
-    if (!url.protocolIsInHTTPFamily())
+    if (!url.protocolIsInHTTPFamily() || application.isEmpty())
         return false;
 
-    return [[NSWorkspace sharedWorkspace] openURLs:@[url.createNSURL().get()] withAppBundleIdentifier:@"com.apple.QuickTimePlayerX" options:NSWorkspaceLaunchAsync additionalEventParamDescriptor:nil launchIdentifiers:nullptr];
+    return [[NSWorkspace sharedWorkspace] openURLs:@[url.createNSURL().get()] withAppBundleIdentifier:application.createNSString().get() options:NSWorkspaceLaunchAsync additionalEventParamDescriptor:nil launchIdentifiers:nullptr];
 }
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

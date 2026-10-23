@@ -227,10 +227,20 @@ void MediaPlayerPrivateGStreamerMSE::mirrorEnabledVideoTrackIfNeeded(const Video
 
 MediaTime MediaPlayerPrivateGStreamerMSE::duration() const
 {
-    if (!m_pipeline || m_didErrorOccur) [[unlikely]]
+    // AQUAWEBKIT: the MediaSource duration survives disposal of its completed playback pipeline.
+    // if (!m_pipeline || m_didErrorOccur) [[unlikely]]
+    if (m_didErrorOccur) [[unlikely]]
         return MediaTime();
 
     return m_mediaTimeDuration.isValid() ? m_mediaTimeDuration : MediaTime::zeroTime();
+}
+
+// AQUAWEBKIT: asynchronous seek completion observes the EOS position after tearDown(false).
+MediaTime MediaPlayerPrivateGStreamerMSE::currentTime() const
+{
+    if (!m_pipeline && m_isEndReached && !m_didErrorOccur)
+        return m_isSeeking ? m_seekTarget.time : m_playbackRate > 0 ? duration() : MediaTime::zeroTime();
+    return MediaPlayerPrivateGStreamer::currentTime();
 }
 
 Ref<MediaTimePromise> MediaPlayerPrivateGStreamerMSE::seekToTarget(const SeekTarget& target)
@@ -459,7 +469,10 @@ void MediaPlayerPrivateGStreamerMSE::didPreroll()
 void MediaPlayerPrivateGStreamerMSE::didEnd()
 {
     MediaPlayerPrivateGStreamer::didEnd();
-    tearDown(false);
+    // AQUAWEBKIT: the base callback can revoke EOS by starting a seek or a new load.
+    // tearDown(false);
+    if (m_isEndReached)
+        tearDown(false);
 }
 
 const PlatformTimeRanges& MediaPlayerPrivateGStreamerMSE::buffered() const

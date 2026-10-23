@@ -517,6 +517,7 @@ if (USE_GSTREAMER)
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/HLSTimedMetadataGStreamer.mm
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/ID3v2FrameParser.cpp
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerHLSTrack.cpp
+        ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/MediaPlayerAudioOutputSuppression.cpp
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoFrameGStreamerCocoa.mm
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GLibMainContextAquaWebKit.cpp
         ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerPackagingAquaWebKit.cpp
@@ -998,3 +999,18 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 set_source_files_properties(${WEBCORE_DIR}/platform/network/curl/CookieUtil.cpp PROPERTIES COMPILE_DEFINITIONS USE_CURL=1)
 # CurlMultipartHandle uses only WTF and platform-independent WebCore types; its MIME framing is compiled the same way.
 set_source_files_properties(${WEBCORE_DIR}/platform/network/curl/CurlMultipartHandle.cpp PROPERTIES COMPILE_DEFINITIONS USE_CURL=1)
+
+list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse")
+list(APPEND WebCore_SOURCES
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSource.cpp
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamCapture.cpp
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSubtitles.cpp
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamResources.cpp
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSegmenter.cpp
+)
+list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+    ${WebCore_DERIVED_SOURCES_DIR}/JSTextTrack.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamFrameQueue.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSource.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSegmenter.h
+)

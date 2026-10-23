@@ -16,7 +16,7 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
   links in place of the crash-prone 10.9 system libxml2 2.9.0;
 - SQLite 3.53.4 (`lib/libsqlite3.dylib`, `include/sqlite3.h`), which supplies WebCore's
   automatic WAL truncation and 64-bit blob bindings;
-- the complete GStreamer 1.28.7 runtime — glib 2.80.5, gstreamer core/base/good/bad and the x264 plugin from ugly,
+- the complete GStreamer 1.28.7 runtime — glib 2.80.5, gstreamer core/base/good/bad, gst-rtsp-server and the x264 plugin from ugly,
   FFmpeg + gst-libav, libvpx, dav1d, FDK AAC 2.0.3 (the AAC and xHE-AAC decoder, under
   fdkaacdec), x264 (H.264 encoding), OpenSSL (HLS AES-128 keys),
   gst-plugins-rs 0.15.2 closed-caption parsers/converters —

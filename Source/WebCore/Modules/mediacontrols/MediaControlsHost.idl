@@ -64,6 +64,8 @@ enum DeviceType {
     readonly attribute boolean userGestureRequired;
     readonly attribute boolean isInMediaDocument;
     readonly attribute boolean shouldForceControlsDisplay;
+    readonly attribute DOMString? externalMediaOpeningMessage; // AQUAWEBKIT: extension text during startup, null after acceptance.
+    readonly attribute boolean externalMediaPresentation; // AQUAWEBKIT: reuse the PiP placard for external applications.
     readonly attribute boolean supportsSeeking;
     readonly attribute boolean inWindowFullscreen;
     readonly attribute boolean supportsRewind;

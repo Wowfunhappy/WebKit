@@ -1,0 +1,24 @@
+--- a/gst-libs/gst/video/video-converter.c
++++ b/gst-libs/gst/video/video-converter.c
+@@ -1728,7 +1728,9 @@
+   } else {
+     same_matrix =
+         convert->in_info.colorimetry.matrix ==
+-        convert->out_info.colorimetry.matrix;
++        convert->out_info.colorimetry.matrix
++        && convert->in_info.colorimetry.range ==
++        convert->out_info.colorimetry.range;
+   }
+ 
+   if (CHECK_PRIMARIES_NONE (convert)) {
+@@ -8804,7 +8806,9 @@
+ 
+     in_matrix = convert->in_info.colorimetry.matrix;
+     out_matrix = convert->out_info.colorimetry.matrix;
+-    same_matrix = in_matrix == out_matrix;
++    same_matrix = in_matrix == out_matrix
++        && convert->in_info.colorimetry.range ==
++        convert->out_info.colorimetry.range;
+   }
+ 
+   if (CHECK_PRIMARIES_NONE (convert)) {

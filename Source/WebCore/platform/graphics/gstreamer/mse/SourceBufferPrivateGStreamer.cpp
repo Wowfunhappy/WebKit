@@ -129,6 +129,9 @@ void SourceBufferPrivateGStreamer::resetParserStateInternal()
 
 void SourceBufferPrivateGStreamer::removedFromMediaSource()
 {
+    // AQUAWEBKIT: worker DOM calls share the GStreamer sample dispatcher.
+    if (!isMainThread())
+        return callOnMainThreadAndWait([&] { removedFromMediaSource(); });
     ASSERT(isMainThread());
 
     for (auto& [_, track] : tracks())
@@ -148,6 +151,12 @@ void SourceBufferPrivateGStreamer::removedFromMediaSource()
 
 bool SourceBufferPrivateGStreamer::canSwitchToType(const ContentType& type)
 {
+    // AQUAWEBKIT: isolate worker strings while serializing the parser type change.
+    if (!isMainThread()) {
+        bool supported;
+        callOnMainThreadAndWait([&, isolatedType = type.isolatedCopy()] { supported = canSwitchToType(isolatedType); });
+        return supported;
+    }
     RefPtr player = this->player();
 
     if (isContentTypeSupported(type)) {
@@ -163,6 +172,9 @@ bool SourceBufferPrivateGStreamer::canSwitchToType(const ContentType& type)
 
 void SourceBufferPrivateGStreamer::startChangingType()
 {
+    // AQUAWEBKIT: worker DOM calls share the GStreamer sample dispatcher.
+    if (!isMainThread())
+        return callOnMainThreadAndWait([&] { startChangingType(); });
     ASSERT(isMainThread());
 
     m_appendPipeline->startChangingType();
@@ -346,10 +358,12 @@ void SourceBufferPrivateGStreamer::unregisterTrack(TrackID trackId)
 {
     ASSERT(isMainThread());
 
-    RefPtr mediaSource = m_mediaSource.get();
-    ASSERT(mediaSource);
-
-    downcast<MediaSourcePrivateGStreamer>(mediaSource)->unregisterTrack(trackId);
+    // AQUAWEBKIT: worker teardown can outlive the owning media source's track registry.
+    // RefPtr mediaSource = m_mediaSource.get();
+    // ASSERT(mediaSource);
+    // downcast<MediaSourcePrivateGStreamer>(mediaSource)->unregisterTrack(trackId);
+    if (RefPtr mediaSource = m_mediaSource.get())
+        downcast<MediaSourcePrivateGStreamer>(mediaSource)->unregisterTrack(trackId);
 }
 
 size_t SourceBufferPrivateGStreamer::platformMaximumBufferSize() const
@@ -473,6 +487,9 @@ RefPtr<MediaPlayerPrivateGStreamerMSE> SourceBufferPrivateGStreamer::player() co
 
 void SourceBufferPrivateGStreamer::detach()
 {
+    // AQUAWEBKIT: worker DOM calls share the GStreamer sample dispatcher.
+    if (!isMainThread())
+        return callOnMainThreadAndWait([&] { detach(); });
     for (auto& track : m_tracks)
         flush(track.first);
 

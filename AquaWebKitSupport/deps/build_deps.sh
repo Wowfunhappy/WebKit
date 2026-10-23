@@ -1456,6 +1456,8 @@ echo "==== FDK AAC 2.0.3 ===="
 u=https://github.com/mstorsjo/fdk-aac/archive/refs/tags/v2.0.3.tar.gz
 if ! built fdkaac install/lib/libfdk-aac.a; then
     d=$(get "$u" fdkaac) || exit 1
+    ( cd "$d" && patch -p1 < "$HERE/patches/fdk-aac-adts-channel-configuration.patch" ) \
+      || { echo "FDK AAC ADTS channel configuration patch failed to apply"; exit 1; }
     ( cd "$d" && mkdir -p out && cd out \
       && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_PROGRAMS=OFF \
@@ -1503,6 +1505,7 @@ fi
 echo "==== gst-plugins-base ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$GST_VER.tar.xz gstbase) || exit 1
 if prepare "$d"; then
+    ( cd "$d" && patch -p1 < "$HERE/patches/gst-plugins-base-video-converter-range.patch" ) || exit 1
     # urisourcebin owns the parsebin in a playbin3 pipeline, and nothing resets it
     # when a stream's media type changes mid-play, so an MSE SourceBuffer handed a clear period and then
     # an encrypted one stops at the change. This gives urisourcebin the reset decodebin3 already performs
@@ -1541,10 +1544,14 @@ echo "==== gst-plugins-good ===="
 # Native HLS and DASH use gst-plugins-bad's legacy demuxers through webkitwebsrc.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
+    ( cd "$d" && patch -p1 < "$HERE/patches/gst-plugins-good-rtpmp4gpay-channel-count.patch" ) || exit 1
     # aacparse: emit every complete synchronized ADTS packet without waiting for EOS. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-aacparse-synchronized-input-minimum.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-aacparse-synchronized-input-minimum.patch" ) \
       || { echo "gst-plugins-good AAC synchronized-input patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-scaletempo-gap-timing.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-scaletempo-gap-timing.patch" ) \
+      || { echo "gst-plugins-good scaletempo gap timing patch failed to apply"; exit 1; }
     # qtdemux: expose the video track of an ISO/IEC 23008-12 image sequence, whose media handler is
     # 'pict'. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" \
@@ -1675,11 +1682,16 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-encode-errors.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-encode-errors.patch" ) \
       || { echo "gst-plugins-bad vtenc encode-errors patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 < "$HERE/patches/gst-plugins-bad-fdkaacenc-header-period.patch" ) \
+      || { echo "gst-plugins-bad fdkaacenc header-period patch failed to apply"; exit 1; }
     # fdkaacdec: hand each frame its own samples past the decoder's output delay, run the decoder
     # without look-ahead post-processing, and honour GstAudioClippingMeta. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-fdkaacdec-output-delay-and-clipping.patch" ) \
       || { echo "gst-plugins-bad fdkaacdec output-delay patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsmux-dedicated-pcr-header.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsmux-dedicated-pcr-header.patch" ) \
+        || exit 1
     # Both transport muxers share the ATSC EAC3 stream mapping.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsmux-eac3.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsmux-eac3.patch" ) \
@@ -1824,6 +1836,15 @@ if ! built libheif install/lib/libheif.a; then
     finished libheif "$d"
 fi
 
+echo "==== gst-rtsp-server ===="
+d=$(get https://gstreamer.freedesktop.org/src/gst-rtsp-server/gst-rtsp-server-$GST_VER.tar.xz gstrtspserver) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
+        -Dtests=disabled -Dexamples=disabled -Ddoc=disabled -Dintrospection=disabled ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && "$MESON" compile -C b -j 2 && "$MESON" install -C b ) || exit 1
+
 echo "==== gst-libav ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$GST_VER.tar.xz gstlibav) || exit 1
 if prepare "$d"; then
@@ -1850,6 +1871,7 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-libav-avviddec-clear-decode-only-on-copied-output.patch" \
         && patch -p1 < "$HERE/patches/gst-libav-avviddec-clear-decode-only-on-copied-output.patch" ) \
       || { echo "gst-libav decode-only patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 < "$HERE/patches/gst-libav-utvideo.patch" ) || exit 1
     # gst-libav's option set has no "examples"; it takes the shared options minus that one.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
         -Ddoc=disabled ) || exit 1

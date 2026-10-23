@@ -1,0 +1,17 @@
+--- a/libMpegTPEnc/src/tpenc_lib.cpp
++++ b/libMpegTPEnc/src/tpenc_lib.cpp
+@@ -256,6 +256,14 @@
+   /* Copy configuration structure */
+   FDKmemcpy(&hTpEnc->config, cconfig, sizeof(CODER_CONFIG));
+ 
++  /* Modified for Aqua WebKit: ADTS has a three-bit channel configuration.
++     Larger configurations require a Program Config Element. */
++  if (transportFmt == TT_MP4_ADTS &&
++      getChannelConfig(hTpEnc->config.channelMode,
++                       hTpEnc->config.channelConfigZero) > 7) {
++    hTpEnc->config.channelConfigZero = 1;
++  }
++
+   /* Init transportEnc struct. */
+   hTpEnc->transportFmt = transportFmt;
+ 

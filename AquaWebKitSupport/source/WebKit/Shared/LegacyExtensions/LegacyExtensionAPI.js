@@ -977,6 +977,89 @@ function receiverTable() {
 }
 
 const aqua = {};
+if (typeof native.createMediaSession === "function") {
+    const wrapSource = source => {
+        const command = (name, options = {}, data) => source.command(name, JSON.stringify(options), data);
+        const player = Object.freeze({
+            url: source.url,
+            closed: source.closed,
+            state: () => command("state"),
+            play: () => command("play"),
+            pause: () => command("pause"),
+            seek: value => command("seek", { value }),
+            setRate: value => command("rate", { value }),
+            activate: () => command("activate"),
+            close: () => command("close"),
+        });
+        return Object.freeze({
+            url: source.url,
+            method: source.capture ? "restream" : "url",
+            closed: source.closed,
+            close: () => command("close"),
+            setResource: (name, data, type = "application/octet-stream") => command("resource", { name, type }, typeof data === "string" ? new TextEncoder().encode(data) : data),
+            removeResource: name => command("remove-resource", { name }),
+            setPlaylistProvider: (handler, { timeout = 30 } = {}) => {
+                if (handler !== null && typeof handler !== "function")
+                    return Promise.reject(new TypeError("A playlist provider must be a function or null"));
+                const callback = handler && ((name, complete) => {
+                    Promise.resolve().then(() => handler(name)).then(text => complete(typeof text === "string" ? text : undefined), () => complete());
+                });
+                return command("playlist-provider", { timeout }, callback);
+            },
+            open: async ({ application, adapter, timeout = 30 } = {}) => {
+                await command("open", { application, adapter: adapter === undefined ? "" : JSON.stringify(adapter), timeout });
+                return player;
+            },
+        });
+    };
+    const createSession = async (element, options = {}, parent) => {
+        const handle = await native.createMediaSession(element, options.textTracks, parent);
+        const command = (name, options = {}) => handle.command(name, JSON.stringify(options));
+        return Object.freeze({
+            inspect: () => command("inspect"),
+            connect: (message = "") => command("connect", { message }),
+            confirmConnection: () => command("connected"),
+            disconnect: () => command("disconnect"),
+            present: (mode, message = "") => command("present", { mode, message }),
+            publish: async options => wrapSource(await command("publish", options)),
+            capture: async (options = {}) => wrapSource(await command("capture", { maxWidth: 3840, maxHeight: 2160, transport: "hls", videoCodec: "h264", ...options })),
+            close: () => command("close"),
+        });
+    };
+    const withHandoff = async (callback, parent, ticket) => {
+        if (typeof callback !== "function")
+            throw new TypeError("withHandoff requires a function");
+        let value, error, failed = false;
+        const controller = new AbortController();
+        try {
+            await native.withMediaPlayerHandoff((complete, identifier) => {
+                const scope = {
+                    signal: controller.signal,
+                    createSession: (element, options) => createSession(element, options, identifier),
+                    withHandoff: callback => withHandoff(callback, identifier),
+                };
+                Promise.resolve().then(() => callback(scope)).then(result => {
+                    value = result;
+                    complete();
+                }, reason => {
+                    error = reason;
+                    failed = true;
+                    complete();
+                });
+            }, parent, ticket);
+            if (failed)
+                throw error;
+            return value;
+        } finally {
+            controller.abort();
+        }
+    };
+    aqua.mediaPlayer = { capabilities: Object.freeze({ version: 1, sessions: true, urlSources: true, captureSources: true, playerControl: true, resources: true, playlistProvider: true, resourceByteLimit: 64 * 1024 * 1024 }), createSession: (element, options) => createSession(element, options), withHandoff: (callback, options = {}) => {
+        if (options.ticket !== undefined && (typeof options.ticket !== "string" || !options.ticket.length))
+            return Promise.reject(new TypeError("A handoff ticket must be a string"));
+        return withHandoff(callback, undefined, options.ticket);
+    } };
+}
 if (isHost) {
     // A tab is a tab ID, or where Safari's extension API is, a SafariBrowserTab, which the router finds at its
     // place in safari.application.browserWindows.
@@ -993,6 +1076,10 @@ if (isHost) {
         throw new TypeError("A tab is a tab ID or a SafariBrowserTab of an open window.");
     };
     const tabReferences = tabs => (Array.isArray(tabs) ? tabs : [tabs]).map(tabReference);
+    aqua.mediaPlayer = Object.assign(aqua.mediaPlayer || {}, {
+        prepareHandoff: tab => callRouter("aqua.mediaPlayer.prepareHandoff", tabReference(tab)),
+        cancelHandoff: ticket => callRouter("aqua.mediaPlayer.cancelHandoff", ticket),
+    });
     aqua.tabs = {
         hide(...args) {
             return withOptionalCallback(args, async tabs => callRouter("aqua.tabs.hide", tabReferences(tabs)));

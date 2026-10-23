@@ -148,8 +148,19 @@ void MediaSourcePrivateGStreamer::handleLogMessage(const WTFLogChannel& channel,
 }
 #endif // !RELEASE_LOG_DISABLED && !defined(GST_DISABLE_GST_DEBUG)
 
-MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuffer(const ContentType& contentType, const MediaSourceConfiguration&, RefPtr<SourceBufferPrivate>& sourceBufferPrivate)
+// MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuffer(const ContentType& contentType, const MediaSourceConfiguration&, RefPtr<SourceBufferPrivate>& sourceBufferPrivate)
+// AQUAWEBKIT: worker MediaSource calls enter the GStreamer backend on its main dispatcher.
+MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuffer(const ContentType& contentType, const MediaSourceConfiguration& configuration, RefPtr<SourceBufferPrivate>& sourceBufferPrivate)
 {
+    // AQUAWEBKIT: isolate worker strings before main-thread GStreamer construction.
+    if (!isMainThread()) {
+        AddStatus status;
+        callOnMainThreadAndWait([&, type = contentType.isolatedCopy()] { status = addSourceBuffer(type, configuration, sourceBufferPrivate); });
+        return status;
+    }
+    // AQUAWEBKIT: navigation can detach the player while construction waits for main.
+    if (!platformPlayer())
+        return AddStatus::InvalidState;
     DEBUG_LOG(LOGIDENTIFIER, contentType);
 
     // Once every SourceBuffer has had an initialization segment appended playback starts and it's too late to add new SourceBuffers.
@@ -159,8 +170,14 @@ MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuf
     if (!SourceBufferPrivateGStreamer::isContentTypeSupported(contentType))
         return MediaSourcePrivateGStreamer::AddStatus::NotSupported;
 
-    m_sourceBuffers.append(SourceBufferPrivateGStreamer::create(*this, contentType));
-    sourceBufferPrivate = m_sourceBuffers.last();
+    // AQUAWEBKIT: worker source-buffer access shares the base-class lock.
+    // m_sourceBuffers.append(SourceBufferPrivateGStreamer::create(*this, contentType));
+    // sourceBufferPrivate = m_sourceBuffers.last();
+    sourceBufferPrivate = SourceBufferPrivateGStreamer::create(*this, contentType);
+    {
+        Locker locker { m_lock };
+        m_sourceBuffers.append(*sourceBufferPrivate);
+    }
     sourceBufferPrivate->setMediaSourceDuration(duration());
     return MediaSourcePrivateGStreamer::AddStatus::Ok;
 }
@@ -182,6 +199,9 @@ RefPtr<MediaPlayerPrivateGStreamerMSE> MediaSourcePrivateGStreamer::platformPlay
 
 void MediaSourcePrivateGStreamer::durationChanged(const MediaTime& duration)
 {
+    // AQUAWEBKIT: worker callers serialize player mutations with GStreamer playback.
+    if (!isMainThread())
+        return callOnMainThreadAndWait([&] { durationChanged(duration); });
     ASSERT(isMainThread());
 
     RefPtr player = platformPlayer();
@@ -197,6 +217,9 @@ void MediaSourcePrivateGStreamer::durationChanged(const MediaTime& duration)
 
 void MediaSourcePrivateGStreamer::markEndOfStream(EndOfStreamStatus endOfStreamStatus)
 {
+    // AQUAWEBKIT: worker callers serialize player mutations with GStreamer playback.
+    if (!isMainThread())
+        return callOnMainThreadAndWait([&] { markEndOfStream(endOfStreamStatus); });
     ASSERT(isMainThread());
 
     MediaSourcePrivate::markEndOfStream(endOfStreamStatus);
@@ -224,6 +247,9 @@ void MediaSourcePrivateGStreamer::markEndOfStream(EndOfStreamStatus endOfStreamS
 
 void MediaSourcePrivateGStreamer::unmarkEndOfStream()
 {
+    // AQUAWEBKIT: worker callers serialize player mutations with GStreamer playback.
+    if (!isMainThread())
+        return callOnMainThreadAndWait([&] { unmarkEndOfStream(); });
     ASSERT(isMainThread());
     RefPtr player = platformPlayer();
     if (!player)

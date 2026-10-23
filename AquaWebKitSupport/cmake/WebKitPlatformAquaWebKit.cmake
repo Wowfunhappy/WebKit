@@ -187,6 +187,7 @@ foreach (_aquaWebKitReceiver
     UIProcess/LegacyExtensions/LegacyExtensionNetworkProxy
     WebProcess/LegacyExtensions/LegacyExtensionContent
     NetworkProcess/LegacyExtensions/LegacyExtensionNetwork
+    WebProcess/MediaPlayer/MediaRestreamSession
 )
     get_filename_component(_aquaWebKitReceiverName ${_aquaWebKitReceiver} NAME)
     configure_file("${AQUAWEBKIT_LEGACY_EXTENSIONS}/${_aquaWebKitReceiver}.messages.in"
@@ -612,3 +613,17 @@ list(REMOVE_ITEM WebKit_SOURCES
     ${WEBKIT_DIR}/Platform/cocoa/WKMaterialHostingSupport.swift
     ${WEBKIT_DIR}/UIProcess/PDF/WKPDFHUDView.swift
 )
+
+list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
+    "${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/MediaPlayer"
+    "${AQUAWEBKIT_SUPPORT}/source/WebKit/WebProcess/MediaPlayer"
+)
+list(APPEND WebKit_SOURCES
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/MediaPlayer/MediaRestreamRTSP.cpp
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/MediaPlayer/MediaRestreamServer.mm
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/MediaPlayer/MediaPlayerPage.mm
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/WebProcess/MediaPlayer/MediaRestreamSession.cpp
+)
+
+list(APPEND WebKit_LIBRARIES ${GSTREAMER_RTSP_SERVER_LIBRARIES} ${GSTREAMER_APP_LIBRARIES} ${GSTREAMER_RTP_LIBRARIES} ${GSTREAMER_VIDEO_LIBRARIES})
+list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES ${GSTREAMER_INCLUDE_DIRS})

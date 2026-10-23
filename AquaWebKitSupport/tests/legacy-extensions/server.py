@@ -31,6 +31,8 @@ def record(entry):
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, '.vtt': 'text/vtt; charset=utf-8'}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=os.path.join(ROOT, 'pages'), **kwargs)
 
@@ -52,10 +54,47 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         for name, value in headers:
             self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
+    def do_HEAD(self):
+        if self.path.startswith("/quicktime-media/"):
+            return self.do_GET()
+        return super().do_HEAD()
 
     def do_GET(self):
         path = self.path
+        if urllib.parse.urlsplit(path).path == '/quicktime-delayed-captions.vtt':
+            time.sleep(3)
+            with open(os.path.join(ROOT, 'pages', 'quicktime-captions.vtt'), 'rb') as captions:
+                return self.reply(captions.read(), 'text/vtt; charset=utf-8')
+        if path.startswith('/quicktime-media/'):
+            if urllib.parse.parse_qs(urllib.parse.urlsplit(path).query).get('delay') == ['3']:
+                time.sleep(3)
+            name = urllib.parse.urlsplit(path).path.rsplit('/', 1)[-1]
+            if not name or name in ('.', '..'):
+                return self.reply('not found', status=404)
+            filename = os.path.join(ROOT, 'build', 'quicktime-media', name)
+            try:
+                with open(filename, 'rb') as media:
+                    data = media.read()
+            except FileNotFoundError:
+                return self.reply('generate fixtures first', status=404)
+            content_type = {'.mp4': 'video/mp4', '.webm': 'video/webm', '.m3u8': 'application/vnd.apple.mpegurl', '.ts': 'video/mp2t', '.vtt': 'text/vtt; charset=utf-8'}.get(os.path.splitext(name)[1], 'application/octet-stream')
+            range_header = self.headers.get('Range')
+            if range_header:
+                try:
+                    if not range_header.startswith('bytes='):
+                        raise ValueError()
+                    start, end = range_header[6:].split('-')
+                    start = int(start) if start else max(0, len(data) - int(end))
+                    end = min(int(end), len(data) - 1) if range_header[6:].split('-')[0] and end else len(data) - 1
+                    if start < 0 or start > end or start >= len(data):
+                        raise ValueError()
+                except ValueError:
+                    return self.reply('', status=416, headers=[('Content-Range', 'bytes */%d' % len(data))])
+                return self.reply(data[start:end + 1], content_type, 206, [('Content-Range', 'bytes %d-%d/%d' % (start, end, len(data))), ('Accept-Ranges', 'bytes')])
+            return self.reply(data, content_type, headers=[('Accept-Ranges', 'bytes')])
         if path == '/log':
             with LOCK:
                 return self.reply(json.dumps(LOG, indent=1), 'application/json')

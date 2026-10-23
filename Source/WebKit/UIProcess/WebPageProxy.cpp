@@ -94,6 +94,7 @@
 #include "GoToBackForwardItemParameters.h"
 #include "ImageOptions.h"
 #include "JavaScriptEvaluationResult.h"
+#include "MediaRestreamServer.h" // AQUAWEBKIT: External media sessions own detached media-producing pages.
 #include "LegacyExtensionHost.h" // AQUAWEBKIT: the Safari 7 extension hooks below.
 #include "LegacyGlobalSettings.h"
 #include "LoadParameters.h"
@@ -1927,11 +1928,21 @@ void WebPageProxy::close()
     if (m_isClosed)
         return;
 
+    // AQUAWEBKIT: External media players retain this page and its nonvisual WKView while the movie consumes MSE data.
+    if (MediaRestreamServer::singleton().ownsPage(*this)) {
+        if (MediaRestreamServer::singleton().detachPage(*this)) {
+            LegacyExtensionHost::singleton().tabWillClose(*this);
+            internals().sleepDisablers.clear();
+            detachMediaPlayerTab();
+        }
+        return;
+    } // AQUAWEBKIT: ordinary close runs when the final restream session releases the producer.
+
     WEBPAGEPROXY_RELEASE_LOG(Loading, "close:");
 
     m_isClosed = true;
 
-    LegacyExtensionHost::singleton().pageWillClose(*this); // AQUAWEBKIT: Safari 7 extensions' tabs.onRemoved; ends the page's extension ports.
+    LegacyExtensionHost::singleton().pageWillClose(*this); // AQUAWEBKIT: close the document's extension ports; detached tabs have already emitted tabs.onRemoved.
 
     // Make sure we do this before we clear the UIClient so that we can ask the UIClient
     // to release the wake locks.
@@ -2066,6 +2077,8 @@ void WebPageProxy::close()
 
 bool WebPageProxy::tryClose()
 {
+    if (MediaRestreamServer::singleton().ownsPage(*this)) // AQUAWEBKIT: producer ownership transfers without running beforeunload.
+        return true;
     if (!hasRunningProcess())
         return true;
 
@@ -10414,7 +10427,7 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
 #if PLATFORM(MAC)
         // AQUAWEBKIT: the QuickTime Player hand-off decided above. Ignoring the response
         // leaves the current page in place.
-        if (!playlistToPlayInQuickTimePlayer.isNull() && openMediaPlaylistInQuickTimePlayer(playlistToPlayInQuickTimePlayer))
+        if (!playlistToPlayInQuickTimePlayer.isNull() && openURLInMediaPlayer(playlistToPlayInQuickTimePlayer, "com.apple.QuickTimePlayerX"_s))
             policyAction = PolicyAction::Ignore;
 #endif
         completionHandlerWrapper(policyAction);

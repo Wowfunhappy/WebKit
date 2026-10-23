@@ -1991,8 +1991,9 @@ public:
     void savePDFToFileInDownloadsFolder(String&& suggestedFilename, URL&& originatingURL, std::span<const uint8_t>);
 
 #if PLATFORM(MAC)
-    // AQUAWEBKIT: the QuickTime Player hand-off decidePolicyForResponseShared makes for an HLS playlist.
-    bool openMediaPlaylistInQuickTimePlayer(const URL&);
+    // AQUAWEBKIT: opens media URLs from navigation policy and extension hand-offs in QuickTime Player.
+    bool openURLInMediaPlayer(const URL&, const String& application);
+    void detachMediaPlayerTab(); // AQUAWEBKIT: releases Safari clients and inspectors while the media producer lives.
 #endif
 
 #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)

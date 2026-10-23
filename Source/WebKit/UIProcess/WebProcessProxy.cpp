@@ -38,6 +38,7 @@
 #include "GPUProcessConnectionParameters.h"
 #include "GoToBackForwardItemParameters.h"
 #include "JavaScriptEvaluationResult.h"
+#include "MediaRestreamServer.h" // AQUAWEBKIT: dead producers release their QuickTime server sessions.
 #include "LegacyExtensionHost.h" // AQUAWEBKIT: the Safari 7 extension hooks below.
 #include "LoadParameters.h"
 #include "Logging.h"
@@ -1473,6 +1474,7 @@ void WebProcessProxy::processDidTerminateOrFailedToLaunch(ProcessTerminationReas
     Ref protectedThis { *this };
 
     liveProcessesLRU().remove(*this);
+    MediaRestreamServer::singleton().processTerminated(*this); // AQUAWEBKIT: an ended connection cannot serve restream requests.
 
     // AQUAWEBKIT: see WebConnection.h.
     if (RefPtr webConnection = this->webConnection())

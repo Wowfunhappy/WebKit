@@ -366,6 +366,13 @@ public:
         m_fullScreenClient.m_page = page;
 #endif
     }
+    void viewWillDeallocate()
+    {
+        m_view = nil;
+#if ENABLE(FULLSCREEN_API)
+        m_fullScreenClient.m_view = nil;
+#endif
+    }
 #if ENABLE(FULLSCREEN_API)
     NSView *fullScreenPlaceholderView() const { return m_fullScreenClient.placeholderView(); }
 #endif
@@ -2221,6 +2228,11 @@ std::unique_ptr<PageClient> createAquaWebKitPageClient(NSView *view)
 void setAquaWebKitPageClientPage(PageClient& client, WebPageProxy* page)
 {
     static_cast<AquaWebKitPageClient&>(client).setPage(page);
+}
+
+void aquaWebKitPageClientViewWillDeallocate(PageClient& client)
+{
+    static_cast<AquaWebKitPageClient&>(client).viewWillDeallocate();
 }
 
 void aquaWebKitPageClientViewDidChangeBackingProperties(PageClient& client)

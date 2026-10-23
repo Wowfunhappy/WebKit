@@ -1,0 +1,237 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>QuickTime handoff</title>
+<h1>QuickTime handoff</h1>
+<p><a href="?source=plain.mp4">MP4</a> · <a href="?source=index.m3u8">Native HLS</a> · <a href="?source=mse.mp4">MSE H.264/AAC</a> · <a href="?source=vp9-opus.webm">MSE VP9/Opus</a> · <a href="?source=vp8-vorbis.webm">MSE VP8/Vorbis</a></p>
+<p><a href="?source=uneven.mp4">Uneven track endings</a> · <a href="?source=mse.mp4&mode=open">Finite MSE without EOS</a> · <a href="?source=mse.mp4&mode=window">Buffered window</a> · <a href="?source=mse.mp4&worker=1">Worker MSE</a> · <a href="?source=encrypted.mp4">Encrypted MSE</a> · <a href="?source=flac.webm">MSE FLAC audio</a></p>
+<video id="video" controls width="640" height="360"></video>
+<pre id="result"></pre>
+<script src="quicktime-mse.js"></script>
+<script src="quicktime-live.js"></script>
+<script src="quicktime-epochs.js"></script>
+<script>
+(async () => {
+    const params = new URLSearchParams(location.search);
+    const source = params.get('source') || 'plain.mp4';
+    const mode = params.get('mode');
+    let video = document.querySelector('video');
+    if (params.get('element') === 'audio') {
+        const audio = document.createElement('audio');
+        audio.id = 'video';
+        audio.controls = true;
+        video.replaceWith(audio);
+        video = audio;
+    }
+    if (params.has('pitch'))
+        video.preservesPitch = params.get('pitch') !== 'false';
+    if (params.get('subtitles') === 'external' || params.get('subtitles') === 'delayed') {
+        const track = document.createElement('track');
+        track.kind = 'subtitles';
+        track.label = 'English';
+        track.srclang = 'en';
+        track.default = true;
+        track.src = params.get('subtitles') === 'delayed' ? '/quicktime-delayed-captions.vtt' : '/quicktime-captions.vtt';
+        video.appendChild(track);
+        track.track.mode = 'showing';
+        window.handoffTrackElement = track;
+    } else if (params.has('subtitles')) {
+        const track = video.addTextTrack('subtitles', 'English', 'en');
+        track.mode = 'showing';
+        window.handoffTextTrack = track;
+        for (let start = 0; start < 120; start += 5) {
+            const cue = new VTTCue(start + .5, start + 7.5, 'Subtitle at ' + start + ' seconds');
+            cue.id = 'cue-' + start;
+            track.addCue(cue);
+        }
+    }
+    const report = text => document.querySelector('#result').textContent = text;
+    video.addEventListener('error', () => report(video.error.message));
+    if (source === 'plain.mp4' || source === 'index.m3u8') {
+        video.src = '/quicktime-media/' + source;
+        return;
+    }
+    if (params.has('worker')) {
+        const worker = new Worker('quicktime-worker.js');
+        worker.onmessage = event => {
+            if (event.data.handle) video.srcObject = event.data.handle;
+            else if (event.data.play) video.play();
+            else report(event.data.report);
+        };
+        worker.onerror = event => report(event.message);
+        video.addEventListener('seeking', () => worker.postMessage({ seek: video.currentTime }));
+        video.addEventListener('timeupdate', () => worker.postMessage({ time: video.currentTime }));
+        worker.postMessage({ source, mode, finish: params.has('end'), finite: params.has('liveHint') });
+        window.handoffWorker = worker;
+        return;
+    }
+    if (source === 'encrypted.mp4') {
+        const access = await navigator.requestMediaKeySystemAccess('org.w3.clearkey', [{
+            initDataTypes: ['cenc'], videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.64001F"' }]
+        }]);
+        await video.setMediaKeys(await access.createMediaKeys());
+        video.addEventListener('encrypted', async event => {
+            const session = video.mediaKeys.createSession();
+            const base64 = hex => btoa(String.fromCharCode(...hex.match(/../g).map(byte => parseInt(byte, 16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            session.addEventListener('message', async () => {
+                await session.update(new TextEncoder().encode(JSON.stringify({ keys: [{ kty: 'oct', kid: base64('d0d1d2d3d4d5d6d7d8d9dadbdcdddedf'), k: base64('c0c1c2c3c4c5c6c7c8c9cacbcccdcecf') }], type: 'temporary' })));
+            });
+            await session.generateRequest(event.initDataType, event.initData);
+        });
+    }
+    window.replaceHandoffSource = async function () {
+        const position = video.currentTime;
+        const playing = !video.paused;
+        window.routeReplacementWasPlaying = playing;
+        window.routeLocalStartPosition = 0;
+        const rate = video.playbackRate;
+        const replacement = new MediaSource();
+        window.handoffMedia = replacement;
+        video.src = URL.createObjectURL(replacement);
+        await loadHandoffMedia(replacement, source, null, report, () => video.currentTime,
+            callback => video.addEventListener('seeking', callback), callback => video.addEventListener('timeupdate', callback));
+        if (!params.has('routeReload'))
+            video.currentTime = position;
+        video.playbackRate = rate;
+        if (playing || params.has('restoreAutoplay'))
+            await video.play();
+    };
+    window.replaceHandoffStreamSource = async function () {
+        const playing = !video.paused;
+        window.routeReplacementWasPlaying = playing;
+        window.routeLocalStartPosition = 0;
+        const context = new AudioContext();
+        const oscillator = context.createOscillator();
+        const destination = context.createMediaStreamDestination();
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 180;
+        const graphics = canvas.getContext('2d');
+        let frame = 0;
+        const drawing = setInterval(() => {
+            graphics.fillStyle = `hsl(${frame++ % 360},80%,50%)`;
+            graphics.fillRect(0, 0, canvas.width, canvas.height);
+        }, 1000 / 30);
+        oscillator.connect(destination);
+        oscillator.start();
+        const stream = canvas.captureStream(30);
+        stream.addTrack(destination.stream.getAudioTracks()[0]);
+        (window.routeStreamSources ||= []).push({ context, oscillator, drawing });
+        const loaded = new Promise((resolve, reject) => {
+            video.addEventListener('loadeddata', resolve, { once: true });
+            video.addEventListener('error', reject, { once: true });
+        });
+        video.srcObject = null;
+        video.removeAttribute('src');
+        video.load();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        video.srcObject = stream;
+        await loaded;
+        if (params.has('routeRecoveryReload') && !window.routeRecoveryReloaded) {
+            window.routeRecoveryReloaded = true;
+            await window.replaceHandoffStreamSource();
+            return;
+        }
+        if (playing || params.has('restoreAutoplay'))
+            await video.play();
+    };
+    const media = new MediaSource();
+    if (params.get('airplay')?.startsWith('route')) {
+        video.src = URL.createObjectURL(media);
+        if (!params.has('routeChangeOnly'))
+            video.addEventListener('webkitplaybacktargetavailabilitychanged', () => {});
+        let routeGeneration = 0;
+        window.routeLocalAdvances = 0;
+        let routeProgressArmed = false;
+        video.addEventListener('timeupdate', () => {
+            if (!routeProgressArmed || video.webkitCurrentPlaybackTargetIsWireless || video.currentTime <= window.routeLocalStartPosition)
+                return;
+            routeProgressArmed = false;
+            ++window.routeLocalAdvances;
+        });
+        const replaceRouteSource = () => {
+            const replace = params.has('routeStreamReload') ? window.replaceHandoffStreamSource : window.replaceHandoffSource;
+            window.routeReplacement = (window.routeReplacement || Promise.resolve()).then(() => replace());
+        };
+        video.addEventListener('timeupdate', () => {
+            if (!params.has('routeDispatchReload') || window.routeDispatchReloaded || !window.routeReloadCount || video.webkitCurrentPlaybackTargetIsWireless)
+                return;
+            window.routeDispatchReloaded = true;
+            queueMicrotask(replaceRouteSource);
+        });
+        video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', () => {
+            const generation = ++routeGeneration;
+            if (video.webkitCurrentPlaybackTargetIsWireless) {
+                if (routeProgressArmed && video.currentTime > window.routeLocalStartPosition) {
+                    routeProgressArmed = false;
+                    ++window.routeLocalAdvances;
+                }
+                const reloads = Number(params.get('routeReload')) || 0;
+                window.routeReloadCount ||= 0;
+                if (window.routeReloadCount < reloads) {
+                    ++window.routeReloadCount;
+                    const reload = () => {
+                        if (generation === routeGeneration && video.webkitCurrentPlaybackTargetIsWireless)
+                            replaceRouteSource();
+                    };
+                    if (window.routeReloadCount > 1 && params.has('routeReloadDelay'))
+                        setTimeout(reload, Number(params.get('routeReloadDelay')));
+                    else
+                        reload();
+                    return;
+                }
+                if (params.get('airplay') !== 'route-timeout') {
+                    const selectSource = () => {
+                        if (generation === routeGeneration && video.webkitCurrentPlaybackTargetIsWireless) {
+                            video.srcObject = null;
+                            video.src = '/quicktime-media/' + (params.get('airplay') === 'route-rejected' ? 'missing.mp4' : 'plain.mp4');
+                        }
+                    };
+                    if (params.has('routeDelay'))
+                        setTimeout(selectSource, Number(params.get('routeDelay')));
+                    else
+                        selectSource();
+                }
+            } else {
+                if (params.has('routeReload') && window.routeReloadCount) {
+                    routeProgressArmed = Boolean(window.routeReplacementWasPlaying);
+                }
+                if (params.has('routeRecoveryHTTP')) {
+                    video.srcObject = null;
+                    video.src = '/quicktime-media/plain.mp4';
+                } else if (params.get('disconnect') === 'sync')
+                    replaceRouteSource();
+                else if (params.get('disconnect') !== 'none')
+                    setTimeout(replaceRouteSource, 300);
+            }
+        });
+    } else if (params.has('airplay')) {
+        const local = document.createElement('source');
+        local.src = URL.createObjectURL(media);
+        video.appendChild(local);
+        if (params.get('airplay') === 'src-attribute')
+            video.src = local.src;
+        const remote = document.createElement('source');
+        remote.src = '/quicktime-media/' + (params.get('airplay') === 'invalid' || params.get('airplay') === 'delayed-invalid' ? 'missing.mp4' : 'plain.mp4');
+        if (params.get('airplay').startsWith('delayed'))
+            remote.src += '?delay=3';
+        remote.type = 'video/mp4';
+        if (params.get('airplay') === 'unmatched')
+            remote.media = '(min-width: 100000px)';
+        if (params.get('airplay') === 'denied')
+            video.setAttribute('x-webkit-airplay', 'deny');
+        video.appendChild(remote);
+    } else
+        video.src = URL.createObjectURL(media);
+    window.handoffMedia = media;
+    if (mode === 'epochs') {
+        await loadEpochHandoffMedia(media, report, Number(params.get('offset')) || 0);
+        return;
+    }
+    if (mode === 'live') {
+        await loadLiveHandoffMedia(media, video, source, report, params.has('end'), params.has('liveHint'));
+        return;
+    }
+    await loadHandoffMedia(media, source, mode, report, () => video.currentTime,
+        callback => video.addEventListener('seeking', callback), callback => video.addEventListener('timeupdate', callback));
+})().catch(error => document.querySelector('#result').textContent = error.stack);
+</script>

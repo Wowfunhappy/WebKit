@@ -228,3 +228,5 @@ generations are removed after a successful update check.
 archive extraction, rejection of tampered CRX3 data and malformed MAR indexes, and scoped host paths.
 Use [the castLabs VMP lab](https://castlabs.github.io/wv-vmp-lab/) in Safari for the integration check:
 the license response must report `PLATFORM_SOFTWARE_VERIFIED`, and media time must advance.
+
+`aqua.mediaPlayer.createSession(video)` exposes native browser-route, media-source and receiver-control primitives. Extension-owned helpers compose these into a handoff to an installed macOS application. Extension bundles and helpers are maintained outside the WebKit checkout. See [the API guide](docs/MV2-COMPATIBILITY-API.md#the-aqua-namespace).

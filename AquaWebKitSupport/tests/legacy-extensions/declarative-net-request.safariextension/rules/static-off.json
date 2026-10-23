@@ -1,3 +1,0 @@
-[
-    { "id": 1, "action": { "type": "block" }, "condition": { "urlFilter": "/dnr/static-off-blocked", "resourceTypes": ["xmlhttprequest"] } }
-]

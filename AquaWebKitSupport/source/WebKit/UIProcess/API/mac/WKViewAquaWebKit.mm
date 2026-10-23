@@ -149,6 +149,7 @@ using namespace WebKit;
 namespace WebKit {
 std::unique_ptr<PageClient> createAquaWebKitPageClient(NSView *view);
 void setAquaWebKitPageClientPage(PageClient&, WebPageProxy *);
+void aquaWebKitPageClientViewWillDeallocate(PageClient&);
 void aquaWebKitPageClientViewDidChangeBackingProperties(PageClient&);
 void setAquaWebKitPageClientWindowOcclusionDetectionEnabled(PageClient&, bool);
 bool aquaWebKitPageClientWindowOcclusionDetectionEnabled(PageClient&);
@@ -181,8 +182,8 @@ static bool waitForTextInputReply(WebPageProxy& page, Message&& message, ReplyHa
 
 // Per-view ownership and AppKit event-interpretation state.
 struct WKViewState {
-    RefPtr<WebKit::WebPageProxy> page;
     std::unique_ptr<WebKit::PageClient> pageClient;
+    RefPtr<WebKit::WebPageProxy> page;
     WKViewInterpretKeyEventsParameters* interpretKeyEventsParameters { nullptr };
     // pinch-to-zoom / smart-magnify / swipe-navigation state, mirroring
     // WebViewImpl's m_allowsMagnification, m_allowsBackForwardNavigationGestures and
@@ -411,6 +412,11 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // give the WebContent pid's remote-UI registration back before the view
     // that owned it goes away (the matching half of the registration made when its token arrived).
     [self _aquaWebKitUpdateRemoteAccessibilityRegistration:NO];
+    // WebViewImpl closes the page while its PageClient is alive.
+    if (_wkState) {
+        aquaWebKitPageClientViewWillDeallocate(*_wkState->pageClient);
+        _wkState->page->close();
+    }
     // release the lazily-created browsing-context controller and delete the WKViewState.
     [_browsingContextController release];
     _browsingContextController = nil;

@@ -45,6 +45,7 @@ public:
     // Safari withdraws an extension's world when it disables or reloads the extension: once no user
     // content controller holds user content in a content-script world, its contexts are inert.
     bool isContextWorldLive(WebCore::DOMWrapperWorld&) const;
+    void userContentDidChange();
     void didClearWindowObjectForFrame(WebFrame&, WebCore::DOMWrapperWorld&);
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;

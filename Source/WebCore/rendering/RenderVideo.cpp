@@ -257,6 +257,11 @@ void RenderVideo::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& paintOf
     auto rect = videoBoxRect;
     rect.moveBy(paintOffset);
     GraphicsContext& context = paintInfo.context();
+    // AQUAWEBKIT: the native external-presentation placard covers an unpainted inline video.
+    if (videoElement->isMediaPlayerPresentedExternally()) {
+        context.fillRect(rect, Color::black);
+        return;
+    }
 
     if (paintInfo.phase == PaintPhase::Foreground) {
         page->addRelevantRepaintedObject(*this, rect);

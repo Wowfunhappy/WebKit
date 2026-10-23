@@ -55,6 +55,7 @@
 // AQUAWEBKIT: Cocoa presents through the shared sample-buffer layer and video manager.
 #if PLATFORM(COCOA)
 #include "ImageRotationSessionVT.h" // AQUAWEBKIT: Cocoa normalizes extracted pixels with VideoToolbox.
+#include "MediaPlayerAudioOutputSuppression.h" // AQUAWEBKIT: physical output follows external-presentation ownership.
 #include "SampleBufferDisplayLayer.h"
 #include "VideoLayerManager.h"
 #endif
@@ -175,6 +176,7 @@ public:
     MediaPlayer::ReadyState readyState() const final;
 #if PLATFORM(COCOA) // AQUAWEBKIT: the Cocoa presenter shows no frames while the page is hidden.
     void setPageIsVisible(bool) final;
+    void setInlineOutputSuppressed(bool); // AQUAWEBKIT: external presentation suppresses inline video and physical audio.
 #else
     void setPageIsVisible(bool visible) final { m_pageIsVisible = visible; }
 #endif // AQUAWEBKIT: closes the PLATFORM(COCOA) branch above.
@@ -183,8 +185,10 @@ public:
     MediaTime duration() const override;
     MediaTime currentTime() const override;
     const PlatformTimeRanges& buffered() const override;
+    const PlatformTimeRanges& seekable() const override; // AQUAWEBKIT: adaptive demuxers expose their current seek window.
     MediaTime maxTimeSeekable() const override;
-    MediaTime minTimeSeekable() const final { return MediaTime::zeroTime(); }
+    // MediaTime minTimeSeekable() const final { return MediaTime::zeroTime(); }
+    MediaTime minTimeSeekable() const final; // AQUAWEBKIT: the adaptive live window may start after zero.
     bool didLoadingProgress() const final;
     unsigned long long totalBytes() const final;
     std::optional<bool> isCrossOrigin(const SecurityOrigin&) const final;
@@ -695,6 +699,8 @@ private:
     std::unique_ptr<VideoLayerManager> m_videoLayerManager;
     RetainPtr<WebRootSampleBufferBoundsChangeListener> m_videoLayerBoundsObserver;
     bool m_shouldMaintainAspectRatio { true }; // AQUAWEBKIT: see setShouldMaintainAspectRatio().
+    bool m_inlineVideoOutputSuppressed { false }; // AQUAWEBKIT: guarded by m_videoLayerLock.
+    MediaPlayerAudioOutputSuppression m_inlineAudioOutput; // AQUAWEBKIT: suppression survives pipeline teardown and recreation.
     bool m_videoLayerPageIsVisible { false }; // AQUAWEBKIT: see setPageIsVisible(); guarded by m_videoLayerLock.
 #endif
 

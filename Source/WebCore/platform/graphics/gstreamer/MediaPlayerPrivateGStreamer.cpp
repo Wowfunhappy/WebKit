@@ -748,7 +748,9 @@ Ref<MediaTimePromise> MediaPlayerPrivateGStreamer::seekToTarget(const SeekTarget
         return MediaTimePromise::createAndResolve(inTarget.time);
     }
 
-    if (m_isLiveStream.value_or(false)) {
+    auto adaptiveRange = adaptiveStreamSeekable(m_pipeline.get()); // AQUAWEBKIT: adaptive live streams can seek within the demuxer's window.
+    // if (m_isLiveStream.value_or(false)) {
+    if (m_isLiveStream.value_or(false) && (!adaptiveRange || !adaptiveRange->length())) { // AQUAWEBKIT: retain nonseekable live-source behavior.
         // A live stream can't move its playback position, but per the seek algorithm the seek still
         // completes at the current position.
         GST_DEBUG_OBJECT(pipeline(), "[Seek] Live stream seek unhandled");
@@ -1046,11 +1048,31 @@ const PlatformTimeRanges& MediaPlayerPrivateGStreamer::buffered() const
     return m_buffered;
 }
 
+// AQUAWEBKIT: read adaptive ranges from the demuxer, including while playback is paused.
+const PlatformTimeRanges& MediaPlayerPrivateGStreamer::seekable() const
+{
+    if (auto ranges = adaptiveStreamSeekable(m_pipeline.get())) {
+        m_seekable = WTF::move(*ranges);
+        return m_seekable;
+    }
+    return MediaPlayerPrivateInterface::seekable();
+}
+
+MediaTime MediaPlayerPrivateGStreamer::minTimeSeekable() const
+{
+    if (auto ranges = adaptiveStreamSeekable(m_pipeline.get()); ranges && ranges->length())
+        return ranges->start(0);
+    return MediaTime::zeroTime();
+} // AQUAWEBKIT: closes adaptive seek-window accessors.
+
 MediaTime MediaPlayerPrivateGStreamer::maxTimeSeekable() const
 {
     GST_TRACE_OBJECT(pipeline(), "errorOccured: %s", boolForPrinting(m_didErrorOccur));
     if (m_didErrorOccur)
         return MediaTime::zeroTime();
+
+    if (auto ranges = adaptiveStreamSeekable(m_pipeline.get())) // AQUAWEBKIT: use the actual live edge for adaptive streams.
+        return ranges->length() ? ranges->end(ranges->length() - 1) : MediaTime::zeroTime();
 
     bool isLiveStream = m_isLiveStream.value_or(false);
     GST_TRACE_OBJECT(pipeline(), "isLiveStream: %s (has value %s)", boolForPrinting(isLiveStream), boolForPrinting(m_isLiveStream.has_value()));
@@ -1771,6 +1793,9 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
         return nullptr;
 
     m_platformAudioSink = audioSink; // AQUAWEBKIT: the rendering audio sink, see queueLoopPass().
+#if PLATFORM(COCOA) // AQUAWEBKIT: silence belongs to the external-presentation lifetime.
+    m_inlineAudioOutput.configureSink(audioSink);
+#endif
 #if ENABLE(WEB_AUDIO)
     GstElement* audioSinkBin = gst_bin_new("audio-sink");
     ensureAudioSourceProvider();
@@ -2542,9 +2567,13 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
 
         GST_DEBUG_OBJECT(pipeline(), "Changed state from %s to %s", gst_state_get_name(currentState), gst_state_get_name(newState));
 
+        /* AQUAWEBKIT: pending track selection reads the pipeline state refreshed by updateStates().
         if (!m_isLegacyPlaybin && currentState == GST_STATE_PAUSED && newState == GST_STATE_PLAYING)
             playbin3SendSelectStreamsIfAppropriate();
+        */
         updateStates();
+        if (!m_isLegacyPlaybin && currentState == GST_STATE_PAUSED && newState == GST_STATE_PLAYING) // AQUAWEBKIT: apply the selection with the refreshed state.
+            playbin3SendSelectStreamsIfAppropriate();
         checkPlayingConsistency();
 
         break;
@@ -3648,7 +3677,10 @@ void MediaPlayerPrivateGStreamer::didEnd()
     // Now that playback has ended it's NOT a safe time to send a SELECT_STREAMS event. In fact, as of GStreamer 1.16,
     // playbin3 will crash on a GStreamer assertion (combine->sinkpad being unexpectedly null) if we try. Instead, wait
     // until we get the initial STREAMS_SELECTED message one more time.
-    m_waitingForStreamsSelectedEvent = true;
+    // m_waitingForStreamsSelectedEvent = true;
+    // AQUAWEBKIT: a queued seamless pass retains the active stream selection and emits no new initial STREAMS_SELECTED.
+    if (!m_isCompletingLoopPass)
+        m_waitingForStreamsSelectedEvent = true;
 
     if (!player->isLooping() && !isMediaSource()) {
         m_isPaused = true;

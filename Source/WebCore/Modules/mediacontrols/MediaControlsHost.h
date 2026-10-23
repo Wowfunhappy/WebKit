@@ -104,6 +104,8 @@ public:
     bool NODELETE isInMediaDocument() const;
     bool userGestureRequired() const;
     bool shouldForceControlsDisplay() const;
+    String externalMediaOpeningMessage() const; // AQUAWEBKIT: extension startup text for private controls.
+    bool externalMediaPresentation() const; // AQUAWEBKIT: native handoff presentation state for the PiP placard.
     bool supportsSeeking() const;
     bool NODELETE inWindowFullscreen() const;
     bool supportsRewind() const;

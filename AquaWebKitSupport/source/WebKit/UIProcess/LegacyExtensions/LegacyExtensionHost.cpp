@@ -1,5 +1,6 @@
 #include "config.h"
 #include "LegacyExtensionHost.h"
+#include "MediaRestreamServer.h"
 
 #include "LegacyExtensionClipboard.h"
 #include "LegacyExtensionContentMessages.h"
@@ -50,6 +51,7 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
 #include <cmath>
+#include <limits>
 
 namespace WebKit {
 
@@ -195,7 +197,7 @@ static RefPtr<WebPageProxy> pageForTabID(std::optional<double> tabID)
     if (!rawValue || !WebPageProxyIdentifier::isValidIdentifier(*rawValue))
         return nullptr;
     RefPtr page = WebProcessProxy::webPage(WebPageProxyIdentifier { *rawValue });
-    if (!page || page->isClosed())
+    if (!page || page->isClosed() || MediaRestreamServer::singleton().isDetached(*page))
         return nullptr;
     return page;
 }
@@ -616,6 +618,85 @@ void LegacyExtensionHost::unloadExtensionIfUnused(const String& extensionKey)
 
 // Content contexts.
 
+void LegacyExtensionHost::beginMediaPlayerHandoff(IPC::Connection& connection, WebCore::FrameIdentifier frameID, uint64_t request, uint64_t parent, String&& ticket, String&& extensionKey, CompletionHandler<void(Expected<bool, String>&&)>&& completion)
+{
+    RefPtr frame = WebFrameProxy::webFrame(frameID);
+    if (!frame || !frame->page() || !protect(frame->process())->hasConnection(connection))
+        return completion(makeUnexpected("no-source"_s));
+    auto& server = MediaRestreamServer::singleton();
+    if (!ticket.isNull()) {
+        if (parent || !server.claimHandoff(*frame->page(), frame->process(), ticket, extensionKey, request))
+            return completion(makeUnexpected("no-source"_s));
+        return completion(true);
+    }
+    if (parent ? !server.hasHandoff(*frame->page(), connection, parent) : server.isDetached(*frame->page()))
+        return completion(makeUnexpected("no-source"_s));
+    if (!MediaRestreamServer::singleton().beginHandoff(*frame->page(), frame->process(), request))
+        return completion(makeUnexpected("no-source"_s));
+    completion(true);
+}
+
+void LegacyExtensionHost::activateMediaPlayer(IPC::Connection& connection, uint64_t identifier, CompletionHandler<void(Expected<bool, String>&&)>&& completion)
+{
+    MediaRestreamServer::singleton().activate(connection, identifier, WTF::move(completion));
+}
+
+void LegacyExtensionHost::controlMediaPlayer(IPC::Connection& connection, uint64_t identifier, String&& command, double value, CompletionHandler<void(bool)>&& completion)
+{
+    MediaRestreamServer::singleton().control(connection, identifier, command, value, WTF::move(completion));
+}
+
+void LegacyExtensionHost::endMediaPlayerHandoff(IPC::Connection& connection, uint64_t request)
+{
+    MediaRestreamServer::singleton().endHandoff(connection, request);
+}
+
+void LegacyExtensionHost::publishMediaSource(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& extensionKey, uint64_t request, uint64_t identifier, URL&& url, String&& playlist, String&& title, String&& codec, CompletionHandler<void(Expected<URL, String>&&)>&& completion)
+{
+    RefPtr frame = WebFrameProxy::webFrame(frameID);
+    if (!frame || !frame->page() || !protect(frame->process())->hasConnection(connection) || extensionKey.isEmpty() || !MediaRestreamServer::singleton().hasHandoff(*frame->page(), connection, request))
+        return completion(makeUnexpected("no-source"_s));
+    if ((!url.isEmpty() && !url.protocolIsInHTTPFamily()) || playlist.length() > 1024 * 1024 || (!playlist.isEmpty() && (url.isEmpty() || !playlist.startsWith("#EXTM3U"_s))))
+        return completion(makeUnexpected("unsupported-source"_s));
+    m_documents.set(documentID, std::pair { frameID, documentURL });
+    MediaRestreamServer::singleton().publish(*frame->page(), frame->process(), identifier, url, playlist, title, codec, WTF::move(completion));
+}
+
+void LegacyExtensionHost::openPublishedMedia(IPC::Connection& connection, uint64_t identifier, String&& application, String&& adapter, double timeout, CompletionHandler<void(Expected<URL, String>&&)>&& completion)
+{
+    MediaRestreamServer::singleton().open(connection, identifier, application, adapter, timeout, WTF::move(completion));
+}
+
+void LegacyExtensionHost::mediaPlayerState(IPC::Connection& connection, uint64_t identifier, CompletionHandler<void(Expected<String, String>&&)>&& completion)
+{
+    MediaRestreamServer::singleton().state(connection, identifier, WTF::move(completion));
+}
+
+void LegacyExtensionHost::setMediaResource(IPC::Connection& connection, uint64_t identifier, String&& name, String&& type, std::optional<IPC::SharedBufferReference>&& bytes, CompletionHandler<void(Expected<URL, String>&&)>&& completion)
+{
+    if (bytes && bytes->span().size() > 64 * 1024 * 1024)
+        return completion(makeUnexpected("resource-quota-exceeded"_s));
+    RefPtr<WebCore::SharedBuffer> data;
+    if (bytes)
+        data = WebCore::SharedBuffer::create(bytes->span());
+    MediaRestreamServer::singleton().setResource(connection, identifier, name, type, WTF::move(data), WTF::move(completion));
+}
+
+void LegacyExtensionHost::setMediaPlaylistProvider(IPC::Connection& connection, uint64_t identifier, bool enabled, CompletionHandler<void(bool)>&& completion)
+{
+    completion(MediaRestreamServer::singleton().setPlaylistProvider(connection, identifier, enabled));
+}
+
+void LegacyExtensionHost::endRestream(IPC::Connection& connection, uint64_t identifier)
+{
+    MediaRestreamServer::singleton().end(connection, identifier);
+}
+
+void LegacyExtensionHost::completeRestream(IPC::Connection& connection, uint64_t identifier)
+{
+    MediaRestreamServer::singleton().complete(connection, identifier);
+}
+
 void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameID);
@@ -623,6 +704,27 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
         return;
     if (!protect(frame->process())->hasConnection(connection))
         return;
+    if (MediaRestreamServer::singleton().isDetached(*frame->page())) {
+        auto value = JSON::Value::parseJSON(message);
+        RefPtr object = value ? value->asObject() : nullptr;
+        if (!object)
+            return;
+        auto portID = object->getString("portId"_s);
+        auto iterator = m_ports.find(portID);
+        if (iterator == m_ports.end() || iterator->value.extensionKey != extensionKey)
+            return;
+        Endpoint endpoint { nullptr, frameID, documentID };
+        if (auto identifier = m_hostContextByRemoteFrame.get(frameID)) {
+            if (RefPtr context = m_hostContexts.get(identifier); context && context->documentID == documentID && context->extensionKey == extensionKey)
+                endpoint = Endpoint { context, std::nullopt, std::nullopt };
+        }
+        auto type = object->getString("t"_s);
+        if (type == "post"_s)
+            routePost(endpoint, message, portID);
+        else if (type == "disconnect"_s)
+            routeDisconnect(endpoint, portID);
+        return;
+    }
     m_documents.set(documentID, std::pair { frameID, documentURL });
     if (RefPtr context = extensionPageContext(*frame, documentID, documentURL, extensionKey)) {
         route(Endpoint { context, std::nullopt, std::nullopt }, extensionKey, message, data.unsafeBuffer());
@@ -836,7 +938,7 @@ void LegacyExtensionHost::tabEndpoints(WebPageProxy& page, std::optional<double>
     });
 }
 
-bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
+bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data, bool existingPort)
 {
     Markable<WebCore::FrameIdentifier> frameID = endpoint.frameID;
     Markable<WebCore::ScriptExecutionContextIdentifier> documentID = endpoint.documentID;
@@ -853,7 +955,7 @@ bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extens
         documentID = context->documentID;
     }
     RefPtr frame = WebFrameProxy::webFrame(frameID);
-    if (!frame || !frame->page())
+    if (!frame || !frame->page() || (!existingPort && MediaRestreamServer::singleton().isDetached(*frame->page())))
         return false;
     protect(frame->process())->send(Messages::LegacyExtensionContent::Deliver(*frameID, documentID ? std::optional { *documentID } : std::nullopt, extensionKey, message, IPC::SharedBufferReference { WTF::move(data) }), 0);
     return true;
@@ -943,11 +1045,11 @@ void LegacyExtensionHost::routePost(const Endpoint& from, const String& message,
     auto port = iterator->value;
     if (port.opener == from) {
         for (auto& receiver : port.receivers)
-            deliver(receiver, port.extensionKey, message);
+            deliver(receiver, port.extensionKey, message, nullptr, true);
         return;
     }
     if (port.receivers.contains(from))
-        deliver(port.opener, port.extensionKey, message);
+        deliver(port.opener, port.extensionKey, message, nullptr, true);
 }
 
 void LegacyExtensionHost::routeDisconnect(const Endpoint& from, const String& portID)
@@ -967,7 +1069,7 @@ void LegacyExtensionHost::routeDisconnect(const Endpoint& from, const String& po
         auto extensionKey = port.extensionKey;
         m_ports.remove(iterator);
         for (auto& receiver : receivers)
-            deliver(receiver, extensionKey, disconnectMessage);
+            deliver(receiver, extensionKey, disconnectMessage, nullptr, true);
         return;
     }
     if (!port.receivers.removeAll(from) || !port.receivers.isEmpty())
@@ -975,7 +1077,7 @@ void LegacyExtensionHost::routeDisconnect(const Endpoint& from, const String& po
     auto opener = port.opener;
     auto extensionKey = port.extensionKey;
     m_ports.remove(iterator);
-    deliver(opener, extensionKey, disconnectMessage);
+    deliver(opener, extensionKey, disconnectMessage, nullptr, true);
 }
 
 void LegacyExtensionHost::routeOneShotMessage(const Endpoint& from, const String& extensionKey, JSON::Object& message)
@@ -1275,6 +1377,31 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
                     page->closePage();
             }
         }
+        resultToHostContext(context, callID, nullptr);
+        return;
+    }
+
+    if (method == "aqua.mediaPlayer.prepareHandoff"_s) {
+        RefPtr reference = objectArgument(0);
+        RefPtr<WebPageProxy> page;
+        if (reference) {
+            if (auto identifier = reference->getDouble("tabId"_s))
+                page = pageForTabID(*identifier);
+            else {
+                auto window = reference->getDouble("window"_s);
+                auto index = reference->getDouble("index"_s);
+                if (window && index && *window >= 0 && *index >= 0 && *window < std::numeric_limits<size_t>::max() && *index < std::numeric_limits<size_t>::max() && std::floor(*window) == *window && std::floor(*index) == *index)
+                    page = LegacyExtensionHiddenTabs::pageOfSafariTab(static_cast<size_t>(*window), static_cast<size_t>(*index));
+            }
+        }
+        RefPtr frame = page ? page->mainFrame() : nullptr;
+        auto ticket = frame ? MediaRestreamServer::singleton().prepareHandoff(*page, frame->process(), context.extensionKey) : String { };
+        resultToHostContext(context, callID, ticket.isEmpty() ? nullptr : JSON::Value::create(ticket).ptr(), ticket.isEmpty() ? "no-source"_s : String { });
+        return;
+    }
+    if (method == "aqua.mediaPlayer.cancelHandoff"_s) {
+        RefPtr value = argument(0);
+        MediaRestreamServer::singleton().cancelHandoff(value ? value->asString() : String { }, context.extensionKey);
         resultToHostContext(context, callID, nullptr);
         return;
     }
@@ -1582,6 +1709,7 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
 
 void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
 {
+    MediaRestreamServer::singleton().cancelPreparedHandoffs(extensionKey);
     LegacyExtensionHiddenTabs::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionMimeHandlers::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionPrivacy::singleton().extensionDidUnload(extensionKey);
@@ -1652,6 +1780,8 @@ void LegacyExtensionHost::loadDeclarativeNetRequest(const String& extensionKey, 
 
 void LegacyExtensionHost::contentRuleListNotification(WebPageProxy& page, const URL& url, const WebCore::ContentRuleListResults& results)
 {
+    if (MediaRestreamServer::singleton().isDetached(page))
+        return;
     for (auto& result : results.results) {
         if (RefPtr declarativeNetRequest = m_declarativeNetRequests.get(result.first))
             declarativeNetRequest->handleContentRuleListNotificationForTab(tabIDForPage(page), url);
@@ -1726,12 +1856,6 @@ void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
 
 void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
 {
-    LegacyExtensionHiddenTabs::singleton().pageWillClose(page);
-    if (auto observer = tabObservers().take(page.identifier()))
-        page.pageLoadState().removeObserver(*observer);
-    for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
-        declarativeNetRequest->tabWasRemoved(tabIDForPage(page));
-
     Vector<WebCore::FrameIdentifier> frameIDs;
     if (RefPtr mainFrame = page.mainFrame()) {
         forEachFrame(*mainFrame, [&](auto& frame) {
@@ -1739,6 +1863,18 @@ void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
         });
     }
     framesDidGoAway(frameIDs);
+
+    if (!MediaRestreamServer::singleton().isDetached(page))
+        tabWillClose(page);
+}
+
+void LegacyExtensionHost::tabWillClose(WebPageProxy& page)
+{
+    LegacyExtensionHiddenTabs::singleton().pageWillClose(page);
+    if (auto observer = tabObservers().take(page.identifier()))
+        page.pageLoadState().removeObserver(*observer);
+    for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
+        declarativeNetRequest->tabWasRemoved(tabIDForPage(page));
 
     auto removeInfo = JSON::Object::create();
     removeInfo->setDouble("windowId"_s, -1);
@@ -1763,6 +1899,11 @@ static Ref<JSON::Object> navigationDetails(WebPageProxy& page, WebFrameProxy& fr
 
 void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, API::Navigation* navigation, WebCore::FrameLoadType loadType, const URL& url)
 {
+    Ref protectedPage { page };
+    if (frame.isMainFrame())
+        MediaRestreamServer::singleton().cancelPreparedHandoffs(page);
+    if (protectedPage->isClosed() || MediaRestreamServer::singleton().isDetached(page))
+        return;
     // A tab's declarativeNetRequest action count is its current page's.
     if (frame.isMainFrame()) {
         for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
@@ -1839,6 +1980,8 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
 
 void LegacyExtensionHost::didStartProvisionalLoad(WebPageProxy& page, WebFrameProxy& frame, const URL& url)
 {
+    if (MediaRestreamServer::singleton().isDetached(page))
+        return;
     auto arguments = JSON::Array::create();
     arguments->pushObject(navigationDetails(page, frame, url));
     dispatchEvent("webNavigation.onBeforeNavigate"_s, WTF::move(arguments));
@@ -1846,6 +1989,8 @@ void LegacyExtensionHost::didStartProvisionalLoad(WebPageProxy& page, WebFramePr
 
 void LegacyExtensionHost::didFinishLoad(WebPageProxy& page, WebFrameProxy& frame)
 {
+    if (MediaRestreamServer::singleton().isDetached(page))
+        return;
     auto arguments = JSON::Array::create();
     arguments->pushObject(navigationDetails(page, frame, frame.url()));
     dispatchEvent("webNavigation.onCompleted"_s, WTF::move(arguments));
@@ -1854,6 +1999,8 @@ void LegacyExtensionHost::didFinishLoad(WebPageProxy& page, WebFrameProxy& frame
 // A frame's navigation that fails before it commits, or a committed document's load that fails.
 void LegacyExtensionHost::didFailLoad(WebPageProxy& page, WebFrameProxy& frame, const URL& url, const WebCore::ResourceError& error)
 {
+    if (MediaRestreamServer::singleton().isDetached(page))
+        return;
     auto details = navigationDetails(page, frame, url);
     details->setString("error"_s, LegacyExtensions::networkErrorName(error));
     auto arguments = JSON::Array::create();
@@ -1863,6 +2010,8 @@ void LegacyExtensionHost::didFailLoad(WebPageProxy& page, WebFrameProxy& frame, 
 
 void LegacyExtensionHost::didFinishDocumentLoad(WebPageProxy& page, WebFrameProxy& frame)
 {
+    if (MediaRestreamServer::singleton().isDetached(page))
+        return;
     auto arguments = JSON::Array::create();
     arguments->pushObject(navigationDetails(page, frame, frame.url()));
     dispatchEvent("webNavigation.onDOMContentLoaded"_s, WTF::move(arguments));

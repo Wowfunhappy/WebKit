@@ -574,6 +574,14 @@ and checks exact WebVTT text and timing through WebCore's CEA-608 conversion pat
 The existing in-band exposure and CEA608 cue-endtime layout tests cover browser
 integration.
 
+## gst-plugins-bad-mpegtsmux-dedicated-pcr-header.patch
+
+The dedicated PCR packet header uses the program's configured PID before
+serialization. This initializes the first packet as well as subsequent packets.
+MediaSource restreams use a dedicated PCR PID so their program tables remain
+identical across independently muxed segments with different audio/video start
+orders.
+
 ## gst-plugins-bad-mpegtsmux-eac3.patch
 
 **Target:** gst-plugins-bad 1.28.7, `gst/mpegtsmux`.
@@ -593,3 +601,36 @@ records. Each record serializes its own name, matching the advertised name lengt
 and total section allocation. `AquaWebKitSupport/tests/atsc-rrt/run.sh` reparses
 serialized bytes and checks empty and populated tables, unequal name lengths,
 multiple dimensions and rating values, descriptors, CRCs, and deterministic output.
+
+### gst-plugins-good-scaletempo-gap-timing.patch
+
+Computes clipped GAP duration in the input segment before converting its start
+timestamp to the output segment. Continuous media handoff consumes post-scaletempo
+GAP events as silence, including finite audio endings at nonunit playback rates.
+The isolated capture probes cover 0.5× and 2× playback through EOS.
+
+## fdk-aac-adts-channel-configuration.patch
+
+**Target:** `fdk-aac-2.0.3`, `libMpegTPEnc/src/tpenc_lib.cpp`
+**Applied to:** libfdk-aac (fdkaacenc)
+
+ADTS reserves three bits for the channel configuration. FDK maps rear-surround 7.1 to MPEG configuration 12, which `adtsWrite_EncodeHeader` truncates to 4. The resulting frames cannot decode. `transportEnc_Init` selects configuration zero for ADTS configurations above 7; the transport's existing Program Config Element writer supplies the complete channel layout and repeats it in the stream. Audio samples and channel positions retain their original mapping.
+
+## gst-plugins-bad-fdkaacenc-header-period.patch
+
+**Target:** `gst-plugins-bad-1.28.7`, `ext/fdkaac/gstfdkaacenc.c`, `ext/fdkaac/gstfdkaacenc.h`
+**Applied to:** fdkaacenc
+
+The `header-period` property exposes FDK's `AACENC_HEADER_PERIOD`, retaining its automatic default. Capture selects one frame so every AAC access unit includes any required Program Config Element and remains decodable after segment selection or encoder-delay trimming. FDK's framed ADTS output goes directly to the transport muxer.
+
+## gst-libav-utvideo.patch
+
+Maps FFmpeg's UT Video codec to `video/x-utvideo`, exposing the existing encoder and decoder with codec initialization data for local media transport.
+
+## gst-plugins-base-video-converter-range.patch
+
+`video_converter_lookup_fastpath` and `chain_convert` treat matching color matrices with different sample ranges as a conversion. Copy/repacking transforms require both to match. Range conversion uses the converter's matrix path. This converts limited-range samples to full-range JPEG levels. `tests/legacy-extensions/check-media-color-range.py` checks black, white and neutral chroma with the converter's fixed-point rounding tolerance.
+
+## gst-plugins-good-rtpmp4gpay-channel-count.patch
+
+MPEG-4 Generic RTP advertises the audio channel count from negotiated caps, or the AudioSpecificConfig mapping when caps omit it. The AAC channel configuration code is an index, including 7.1 layouts at indices 7 and 12. Program Config Element layouts use the caps channel count. Explicit-frequency AudioSpecificConfig reads the 24-bit frequency before the channel configuration, as the syntax requires. `tests/legacy-extensions/check-rtp-audio-config.py` covers both eight-channel configurations, stereo and explicit sample rates.

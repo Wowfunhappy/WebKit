@@ -154,3 +154,5 @@ Source/WebCore/PAL/pal/PALSwift-Generated.h
 AquaWebKitSupport/tests/wk1host/build/
 AquaWebKitSupport/tests/secure-context-window-reuse/build/
 AquaWebKitSupport/tests/samesite/build/
+
+AquaWebKitSupport/tests/legacy-extensions/build/

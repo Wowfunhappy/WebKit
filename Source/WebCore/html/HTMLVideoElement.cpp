@@ -157,6 +157,9 @@ void HTMLVideoElement::acceleratedRenderingStateChanged()
 
 bool HTMLVideoElement::supportsAcceleratedRendering() const
 {
+    // AQUAWEBKIT: the inline layer is detached while another application presents this video.
+    if (isMediaPlayerPresentedExternally())
+        return false;
     return RefPtr { player() } && protect(player())->supportsAcceleratedRendering();
 }
 
@@ -184,7 +187,9 @@ void HTMLVideoElement::computeAcceleratedRenderingStateAndUpdateMediaPlayer()
     bool isInFullScreen = false;
 #endif
     CheckedPtr renderer = this->renderer();
-    bool canBeAccelerated = player->supportsAcceleratedRendering() && (isInFullScreen || (m_isIntersectingViewport && renderer && protect(renderer->view())->compositor().hasAcceleratedCompositing()));
+    //bool canBeAccelerated = player->supportsAcceleratedRendering() && (isInFullScreen || (m_isIntersectingViewport && renderer && protect(renderer->view())->compositor().hasAcceleratedCompositing()));
+    // AQUAWEBKIT: external presentation disables inline compositing while decoding continues.
+    bool canBeAccelerated = !isMediaPlayerPresentedExternally() && player->supportsAcceleratedRendering() && (isInFullScreen || (m_isIntersectingViewport && renderer && protect(renderer->view())->compositor().hasAcceleratedCompositing()));
     if (canBeAccelerated == m_renderingCanBeAccelerated)
         return;
     m_renderingCanBeAccelerated = canBeAccelerated;

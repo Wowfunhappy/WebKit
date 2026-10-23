@@ -267,6 +267,20 @@ void MediaPlayerPrivateGStreamer::setPageIsVisible(bool visible)
         pushSampleToVideoLayer(true);
 }
 
+void MediaPlayerPrivateGStreamer::setInlineOutputSuppressed(bool suppressed)
+{
+    m_inlineAudioOutput.setSuppressed(suppressed);
+    {
+        Locker locker { m_videoLayerLock };
+        if (std::exchange(m_inlineVideoOutputSuppressed, suppressed) == suppressed)
+            return;
+        if (m_sampleBufferDisplayLayer)
+            m_sampleBufferDisplayLayer->flush();
+    }
+    if (!suppressed)
+        pushSampleToVideoLayer(true);
+}
+
 void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
 {
     Locker layerLocker { m_videoLayerLock };
@@ -283,7 +297,7 @@ void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
         if (!isDuplicateSample)
             ++m_sampleCount;
     }
-    if (!m_videoLayerPageIsVisible)
+    if (!m_videoLayerPageIsVisible || m_inlineVideoOutputSuppressed)
         return;
     Ref<VideoFrame> frame = VideoFrameGStreamer::createWrappedSample(sample);
     RetainPtr pixelBuffer = frame->pixelBuffer();

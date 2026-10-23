@@ -753,10 +753,20 @@ public:
 
     void mediaSessionCaptionTracksChanged();
     void mediaSessionCaptionsEnabledChanged();
+    // AQUAWEBKIT: external live consumers participate in media visibility independently of the document.
+    bool hasMediaPlayerRestream() const;
+    void updateMediaPlayerRestreamState();
+    // AQUAWEBKIT: external application presentation shares the native PiP placard.
+    bool isMediaPlayerPresentedExternally() const { return m_mediaPlayerPresentedExternally; }
+    WEBCORE_EXPORT void setMediaPlayerPresentedExternally(bool, uint64_t owner, const String& openingMessage = { });
+    uint64_t mediaPlayerPresentationOwner() const { return m_mediaPlayerPresentationOwner; } // AQUAWEBKIT: presentation cleanup is scoped to its handoff.
+    const String& mediaPlayerOpeningMessage() const { return m_mediaPlayerOpeningMessage; } // AQUAWEBKIT: private startup presentation.
+    WEBCORE_EXPORT Vector<URL> externalMediaSourceURLs(); // AQUAWEBKIT: site-provided remote playback alternatives.
 
 protected:
     HTMLMediaElement(const QualifiedName&, Document&, bool createdByParser);
     virtual ~HTMLMediaElement();
+    void stopMediaPlayerRestreams(); // AQUAWEBKIT: destruction ends sessions waiting for this element’s samples.
 
     void removeAllEventListeners() final;
 
@@ -1439,6 +1449,9 @@ private:
     size_t m_reportedExtraMemoryCost { 0 };
 
     friend class MediaControlsHost;
+    uint64_t m_mediaPlayerPresentationOwner { 0 }; // AQUAWEBKIT: identifies the current handoff.
+    String m_mediaPlayerOpeningMessage; // AQUAWEBKIT: extension startup text; null outside startup.
+    bool m_mediaPlayerPresentedExternally { false }; // AQUAWEBKIT: presentation ownership is independent of wireless routing.
     const std::unique_ptr<MediaControlsHost> m_mediaControlsHost;
 
 #if ENABLE(MEDIA_STREAM)

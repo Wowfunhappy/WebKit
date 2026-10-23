@@ -116,6 +116,16 @@ class MediaController
     }
 
     // Public
+    // AQUAWEBKIT: native presentation changes refresh the existing shadow controls without page script events.
+    set externalMediaPresentation(value)
+    {
+        this._updateControlsAvailability();
+        for (const support of this._supportingObjects || []) {
+            if (support instanceof PlacardSupport)
+                support.handleEvent();
+        }
+    }
+
     get media()
     {
         return this.mediaWeakRef.deref() ?? MediaController.NullMedia;

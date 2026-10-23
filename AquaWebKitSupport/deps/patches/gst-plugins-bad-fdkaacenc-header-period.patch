@@ -1,0 +1,73 @@
+--- a/ext/fdkaac/gstfdkaacenc.h
++++ b/ext/fdkaac/gstfdkaacenc.h
+@@ -78,6 +78,7 @@
+ 
+   HANDLE_AACENCODER enc;
+   gint bitrate;
++  guint header_period;
+ 
+   guint outbuf_size, samples_per_frame;
+   gboolean need_reorder;
+--- a/ext/fdkaac/gstfdkaacenc.c
++++ b/ext/fdkaac/gstfdkaacenc.c
+@@ -39,6 +39,7 @@
+   PROP_0,
+   PROP_AFTERBURNER,
+   PROP_BITRATE,
++  PROP_HEADER_PERIOD,
+   PROP_PEAK_BITRATE,
+   PROP_RATE_CONTROL,
+   PROP_VBR_PRESET,
+@@ -152,6 +153,9 @@
+   GstFdkAacEnc *self = GST_FDKAACENC (object);
+ 
+   switch (prop_id) {
++    case PROP_HEADER_PERIOD:
++      self->header_period = g_value_get_uint (value);
++      break;
+     case PROP_BITRATE:
+       self->bitrate = g_value_get_int (value);
+       break;
+@@ -181,6 +185,9 @@
+   GstFdkAacEnc *self = GST_FDKAACENC (object);
+ 
+   switch (prop_id) {
++    case PROP_HEADER_PERIOD:
++      g_value_set_uint (value, self->header_period);
++      break;
+     case PROP_BITRATE:
+       g_value_set_int (value, self->bitrate);
+       break;
+@@ -492,6 +499,12 @@
+     return FALSE;
+   }
+ 
++  if ((err = aacEncoder_SetParam (self->enc, AACENC_HEADER_PERIOD,
++              self->header_period)) != AACENC_OK) {
++    GST_ERROR_OBJECT (self, "Unable to set header period: %d", err);
++    return FALSE;
++  }
++
+   if ((err = aacEncoder_SetParam (self->enc, AACENC_BITRATE,
+               bitrate)) != AACENC_OK) {
+     GST_ERROR_OBJECT (self, "Unable to set bitrate %d: %d", bitrate, err);
+@@ -720,6 +733,7 @@
+ gst_fdkaacenc_init (GstFdkAacEnc * self)
+ {
+   self->bitrate = DEFAULT_BITRATE;
++  self->header_period = 0xff;
+   self->enc = NULL;
+   self->is_drained = TRUE;
+   self->afterburner = FALSE;
+@@ -746,6 +760,11 @@
+   base_class->getcaps = GST_DEBUG_FUNCPTR (gst_fdkaacenc_get_caps);
+   base_class->handle_frame = GST_DEBUG_FUNCPTR (gst_fdkaacenc_handle_frame);
+   base_class->flush = GST_DEBUG_FUNCPTR (gst_fdkaacenc_flush);
++
++  g_object_class_install_property (object_class, PROP_HEADER_PERIOD,
++      g_param_spec_uint ("header-period", "Header period",
++          "Configuration repetition in audio frames (255 selects automatic)",
++          0, 255, 255, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+ 
+   g_object_class_install_property (object_class, PROP_BITRATE,
+       g_param_spec_int ("bitrate",

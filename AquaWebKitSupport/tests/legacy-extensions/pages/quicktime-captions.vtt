@@ -1,0 +1,33 @@
+WEBVTT
+
+STYLE
+::cue(#crossing) { color: lime; }
+::cue-region(#shared) { background-color: rgba(0, 0, 80, .8); }
+
+REGION
+id:shared
+width:40%
+lines:3
+regionanchor:0%,100%
+viewportanchor:5%,90%
+scroll:up
+
+opening
+00:00:00.500 --> 00:00:07.500
+English subtitles survive tab close.
+
+crossing
+00:00:05.500 --> 00:00:12.500 line:80%,center position:50%,center size:80% align:center
+This cue crosses a segment boundary.
+
+region-cue
+00:00:12.000 --> 00:00:20.000 region:shared
+A region with a supplied CSS identifier.
+
+later
+00:00:25.000 --> 00:00:40.000
+Seeking keeps subtitle timing aligned.
+
+ending
+00:00:50.000 --> 00:01:00.000
+The final subtitle.

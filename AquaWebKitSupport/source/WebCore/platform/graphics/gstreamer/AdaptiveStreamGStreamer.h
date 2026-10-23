@@ -2,6 +2,7 @@
 
 #include <gst/gst.h>
 #include <optional>
+#include <WebCore/PlatformTimeRanges.h>
 
 namespace WebCore {
 
@@ -9,5 +10,6 @@ namespace WebCore {
 // query: adaptivedemux2 answers TRUE with -1 for a live stream and its duration otherwise. Empty without
 // an adaptive demuxer that has answered.
 std::optional<bool> adaptiveStreamIsLive(GstElement* pipeline);
+std::optional<PlatformTimeRanges> adaptiveStreamSeekable(GstElement* pipeline);
 
 }

@@ -1,0 +1,69 @@
+--- a/gst/rtp/gstrtpmp4gpay.c
++++ b/gst/rtp/gstrtpmp4gpay.c
+@@ -183,7 +183,7 @@
+ 
+ static gboolean
+ gst_rtp_mp4g_pay_parse_audio_config (GstRtpMP4GPay * rtpmp4gpay,
+-    GstBuffer * buffer)
++    GstBuffer * buffer, gint channels)
+ {
+   GstMapInfo map;
+   guint8 objectType = 0;
+@@ -207,11 +207,6 @@
+   if (samplingIdx > 12 && samplingIdx != 15)
+     goto wrong_freq;
+ 
+-  if (!gst_bit_reader_get_bits_uint8 (&br, &channelCfg, 4))
+-    goto too_short;
+-  if (channelCfg > 7)
+-    goto wrong_channels;
+-
+   /* rtp rate depends on sampling rate of the audio */
+   if (samplingIdx == 15) {
+     guint32 rate = 0;
+@@ -225,6 +220,16 @@
+     /* else use the rate from the table */
+     rtpmp4gpay->rate = sampling_table[samplingIdx];
+   }
++
++  if (!gst_bit_reader_get_bits_uint8 (&br, &channelCfg, 4))
++    goto too_short;
++  if (channels <= 0) {
++    static const guint8 channel_counts[16] =
++        { 0, 1, 2, 3, 4, 5, 6, 8, 0, 0, 0, 7, 8, 24, 8, 0 };
++    channels = channel_counts[channelCfg];
++  }
++  if (channels <= 0)
++    goto wrong_channels;
+ 
+   rtpmp4gpay->frame_len = 1024;
+ 
+@@ -250,7 +255,7 @@
+ 
+   /* extra rtp params contain the number of channels */
+   g_free (rtpmp4gpay->params);
+-  rtpmp4gpay->params = g_strdup_printf ("%d", channelCfg);
++  rtpmp4gpay->params = g_strdup_printf ("%d", channels);
+   /* audio stream type */
+   rtpmp4gpay->streamtype = "5";
+   /* mode only high bitrate for now */
+@@ -292,7 +297,7 @@
+ wrong_channels:
+   {
+     GST_ELEMENT_ERROR (rtpmp4gpay, STREAM, NOT_IMPLEMENTED,
+-        (NULL), ("unsupported number of channels %d, must < 8", channelCfg));
++        (NULL), ("missing channel count for configuration %d", channelCfg));
+     gst_buffer_unmap (buffer, &map);
+     return FALSE;
+   }
+@@ -413,7 +418,9 @@
+ 
+       /* parse buffer */
+       if (!strcmp (name, "audio/mpeg")) {
+-        res = gst_rtp_mp4g_pay_parse_audio_config (rtpmp4gpay, buffer);
++        gint channels = 0;
++        gst_structure_get_int (structure, "channels", &channels);
++        res = gst_rtp_mp4g_pay_parse_audio_config (rtpmp4gpay, buffer, channels);
+         media_type = "audio";
+       } else if (!strcmp (name, "video/mpeg")) {
+         res = gst_rtp_mp4g_pay_parse_video_config (rtpmp4gpay, buffer);

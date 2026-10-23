@@ -26,6 +26,7 @@
 
 #include "config.h"
 #include "HTMLMediaElement.h"
+#include "MediaRestreamSource.h" // AQUAWEBKIT: extension-selected external playback routes.
 
 #if ENABLE(VIDEO)
 
@@ -775,6 +776,7 @@ void HTMLMediaElement::initializeMediaSession()
 
 HTMLMediaElement::~HTMLMediaElement()
 {
+    stopMediaPlayerRestreams(); // AQUAWEBKIT: release pending external-player sessions before destroying the media producer.
     HTMLMEDIAELEMENT_RELEASE_LOG(Destructor);
 
     if (m_seekRequest->hasCallback())
@@ -1600,6 +1602,9 @@ void HTMLMediaElement::load()
 
 void HTMLMediaElement::prepareForLoad()
 {
+    MediaRestreamSource::elementWillLoad(*this); // AQUAWEBKIT: drain capture before replacing the decoded producer.
+    if (!hasMediaPlayerRestream() && !MediaRestreamSource::preparingExternalPlayback(*this)) // AQUAWEBKIT: external sessions retain presentation across a producer replacement.
+        setMediaPlayerPresentedExternally(false, m_mediaPlayerPresentationOwner); // AQUAWEBKIT: a replacement source releases its predecessor’s presentation synchronously.
     // https://html.spec.whatwg.org/multipage/embedded-content.html#media-element-load-algorithm
     // The Media Element Load Algorithm
     // 12 February 2017
@@ -6320,6 +6325,7 @@ void HTMLMediaElement::mediaEngineWasUpdated()
 
 void HTMLMediaElement::mediaPlayerEngineUpdated()
 {
+    setMediaPlayerPresentedExternally(m_mediaPlayerPresentedExternally, m_mediaPlayerPresentationOwner, m_mediaPlayerOpeningMessage); // AQUAWEBKIT: replacement engines inherit external output suppression.
     HTMLMEDIAELEMENT_RELEASE_LOG(MediaPlayerEngineUpdated, protect(m_player)->engineDescription().utf8());
 
 #if ENABLE(MEDIA_SOURCE)
@@ -7127,6 +7133,9 @@ void HTMLMediaElement::mediaVolumeDidChange()
 
 bool HTMLMediaElement::elementIsHidden() const
 {
+    // AQUAWEBKIT: live media remains observable in its external player after the document becomes hidden.
+    if (hasMediaPlayerRestream())
+        return false;
 #if ENABLE(FULLSCREEN_API)
     auto* documentFullscreen = document().fullscreenIfExists();
     if (isVideo() && documentFullscreen && documentFullscreen->isFullscreen() && documentFullscreen->fullscreenElement())
@@ -7365,6 +7374,8 @@ void HTMLMediaElement::isWirelessPlaybackTargetDisabledChanged()
         return;
 
     m_wirelessPlaybackTargetDisabled = disabled;
+    if (disabled) // AQUAWEBKIT: a page can withdraw an independent extension playback route.
+        MediaRestreamSource::disconnectIndependentPlayback(*this);
 
     if (hasTargetAvailabilityListeners()) {
         Ref mediaSession = this->mediaSession();
@@ -7496,7 +7507,8 @@ bool HTMLMediaElement::removeEventListener(const AtomString& eventType, EventLis
 bool HTMLMediaElement::webkitCurrentPlaybackTargetIsWireless() const
 {
     INFO_LOG(LOGIDENTIFIER, m_isPlayingToWirelessTarget);
-    return m_isPlayingToWirelessTarget;
+    // return m_isPlayingToWirelessTarget;
+    return m_isPlayingToWirelessTarget || MediaRestreamSource::externalPlaybackTarget(*this); // AQUAWEBKIT: the native application adapter participates in external route selection.
 }
 
 void HTMLMediaElement::setPlayingOnSecondScreen(bool value)
@@ -8158,6 +8170,9 @@ void HTMLMediaElement::privateBrowsingStateDidChange(PAL::SessionID sessionID)
 
 bool HTMLMediaElement::shouldForceControlsDisplay() const
 {
+    // AQUAWEBKIT: the external presentation placard also covers videos with site-provided controls.
+    if (isMediaPlayerPresentedExternally())
+        return true;
     if (isFullscreen() && videoUsesElementFullscreen())
         return true;
 

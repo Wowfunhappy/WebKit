@@ -41,6 +41,7 @@ function Controller(root, video, host)
     this.updateVolume();
     this.updateHasAudio();
     this.updateHasVideo();
+    this.externalMediaPresentation = host.externalMediaPresentation; // AQUAWEBKIT: initialize the private handoff placard.
 };
 
 /* Enums */
@@ -54,6 +55,34 @@ Controller.PauseAfterSeeking = 1;
 Controller.gLastTimelineId = 0;
 
 Controller.prototype = {
+
+    // AQUAWEBKIT: classic controls present the external-player placard in their private shadow tree.
+    set externalMediaPresentation(value)
+    {
+        if (!this.externalPlacard) {
+            this.externalPlacard = document.createElement('div');
+            this.externalSpinner = document.createElement('span');
+            this.externalSpinner.style.cssText = 'width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:10px;flex-shrink:0';
+            this.externalSpinnerAnimation = this.externalSpinner.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 800, iterations: Infinity });
+            this.externalLabel = document.createElement('span');
+            this.externalPlacard.appendChild(this.externalSpinner);
+            this.externalPlacard.appendChild(this.externalLabel);
+            this.externalPlacard.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;background:black;color:rgb(164,164,164);font:13px Helvetica,sans-serif;text-align:center;padding:20px;box-sizing:border-box;z-index:1';
+            this.root.appendChild(this.externalPlacard); // AQUAWEBKIT: the private placard is independent of the site-styleable native-controls wrapper.
+        }
+        const message = this.host.externalMediaOpeningMessage;
+        const opening = value && message !== null;
+        this.externalLabel.textContent = opening ? message : this.UIString('This video is playing in another application.');
+        this.externalSpinner.style.display = opening ? '' : 'none';
+        if (opening)
+            this.externalSpinnerAnimation.play();
+        else
+            this.externalSpinnerAnimation.pause();
+        this.externalPlacard.style.display = value ? 'flex' : 'none';
+        if (this.host.textTrackContainer)
+            this.host.textTrackContainer.style.visibility = value ? 'hidden' : '';
+        this.handleControlsChange();
+    },
 
     /* Constants */
     HandledVideoEvents: {
@@ -273,11 +302,15 @@ Controller.prototype = {
 
     shouldHaveAnyUI: function()
     {
+        if (this.host.externalMediaPresentation) // AQUAWEBKIT: site-owned controls also receive the handoff placard.
+            return true;
         return this.shouldHaveControls() || (this.video.textTracks && this.video.textTracks.length);
     },
 
     shouldHaveControls: function()
     {
+        if (this.host.externalMediaPresentation) // AQUAWEBKIT: the receiver owns playback controls during handoff.
+            return false;
         return this.video.controls || this.isFullScreen();
     },
 

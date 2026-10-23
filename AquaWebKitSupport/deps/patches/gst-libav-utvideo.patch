@@ -1,0 +1,32 @@
+--- a/ext/libav/gstavcodecmap.c
++++ b/ext/libav/gstavcodecmap.c
+@@ -1067,6 +1067,7 @@
+     case AV_CODEC_ID_XMA2:
+     case AV_CODEC_ID_MACE3:
+     case AV_CODEC_ID_MACE6:
++    case AV_CODEC_ID_UTVIDEO:
+     case AV_CODEC_ID_HUFFYUV:
+     case AV_CODEC_ID_FFVHUFF:
+     case AV_CODEC_ID_CYUV:
+@@ -1747,6 +1748,11 @@
+     }
+       break;
+ 
++    case AV_CODEC_ID_UTVIDEO:
++      caps = gst_ff_vid_caps_new (context, NULL, codec_id, encode,
++          "video/x-utvideo", NULL);
++      break;
++
+     case AV_CODEC_ID_HUFFYUV:
+       caps =
+           gst_ff_vid_caps_new (context, NULL, codec_id, encode,
+@@ -4800,6 +4806,9 @@
+     }
+     if (id != AV_CODEC_ID_NONE)
+       video = TRUE;
++  } else if (!strcmp (mimetype, "video/x-utvideo")) {
++    id = AV_CODEC_ID_UTVIDEO;
++    video = TRUE;
+   } else if (!strcmp (mimetype, "video/x-huffyuv")) {
+     id = AV_CODEC_ID_HUFFYUV;
+     video = TRUE;

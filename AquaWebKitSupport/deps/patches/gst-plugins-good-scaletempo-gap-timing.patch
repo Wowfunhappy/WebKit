@@ -1,0 +1,37 @@
+Subject: scaletempo: calculate clipped gap duration before scaling timestamps
+
+A gap's clipped start and stop are expressed in the input segment. Calculate
+its duration in that coordinate system before transforming the start to the
+output segment. Decoded-frame restreaming consumes these gaps as silence;
+mixed coordinates underflow at slower rates and extend silence at faster rates.
+
+--- a/gst/audiofx/gstscaletempo.c
++++ b/gst/audiofx/gstscaletempo.c
+@@ -750,20 +750,20 @@
+         goto done;
+       }
+ 
+-      if (scaletempo->reverse) {
+-        cstart = scaletempo->in_segment.stop - cstart;
+-      } else {
+-        cstart -= scaletempo->in_segment.start;
+-      }
+-      cstart = cstart / scaletempo->scale + scaletempo->in_segment.start;
+       if (GST_CLOCK_TIME_IS_VALID (gap_duration)) {
+-        /* Clip duration if needed */
++        /* Clip duration in the input segment before scaling the timestamp. */
+         if (GST_CLOCK_TIME_IS_VALID (cstart)
+             && GST_CLOCK_TIME_IS_VALID (cstop)) {
+           gap_duration = cstop - cstart;
+         }
+         gap_duration = gap_duration / ABS (scaletempo->scale);
+       }
++      if (scaletempo->reverse) {
++        cstart = scaletempo->in_segment.stop - cstart;
++      } else {
++        cstart -= scaletempo->in_segment.start;
++      }
++      cstart = cstart / scaletempo->scale + scaletempo->in_segment.start;
+       gst_event_unref (event);
+       event = gst_event_new_gap (cstart, gap_duration);
+     }

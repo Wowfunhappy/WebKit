@@ -64,6 +64,7 @@ public:
 
     void durationChanged() override;
     MediaTime duration() const override;
+    MediaTime currentTime() const override; // AQUAWEBKIT: preserve the completed MSE timeline after pipeline disposal.
 
     const PlatformTimeRanges& buffered() const override;
     MediaTime maxTimeSeekable() const override;

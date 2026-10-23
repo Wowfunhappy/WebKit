@@ -18,6 +18,7 @@
 
 #include "config.h"
 #include "AudioSourceProviderGStreamer.h"
+#include "MediaRestreamSource.h" // AQUAWEBKIT: route changes end captures attached to the media sink.
 
 #if ENABLE(WEB_AUDIO) && ENABLE(VIDEO) && USE(GSTREAMER)
 
@@ -322,6 +323,8 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
 {
     if (client() == newClient.get())
         return;
+
+    MediaRestreamSource::audioRoutingChanged(*this); // AQUAWEBKIT: release media-sink capture before routing through Web Audio.
 
     ASP_DEBUG("Setting up client %p (previous: %p)", newClient.get(), client());
 

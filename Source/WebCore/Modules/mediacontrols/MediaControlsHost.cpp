@@ -314,6 +314,18 @@ bool MediaControlsHost::userGestureRequired() const
     return !protect(protect(m_mediaElement)->mediaSession())->playbackStateChangePermitted(MediaPlaybackState::Playing);
 }
 
+// AQUAWEBKIT: the placard uses presentation ownership independently of AirPlay routes.
+String MediaControlsHost::externalMediaOpeningMessage() const
+{
+    return m_mediaElement->mediaPlayerOpeningMessage();
+}
+
+// AQUAWEBKIT: external presentation owns the inline surface.
+bool MediaControlsHost::externalMediaPresentation() const
+{
+    return m_mediaElement->isMediaPlayerPresentedExternally();
+}
+
 bool MediaControlsHost::shouldForceControlsDisplay() const
 {
     return protect(m_mediaElement)->shouldForceControlsDisplay();

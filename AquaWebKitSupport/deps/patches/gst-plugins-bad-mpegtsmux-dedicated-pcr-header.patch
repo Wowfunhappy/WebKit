@@ -1,0 +1,16 @@
+--- a/gst/mpegtsmux/tsmux/tsmux.c
++++ b/gst/mpegtsmux/tsmux/tsmux.c
+@@ -1648,12 +1648,12 @@
+         if (!gst_buffer_map (buf, &map, GST_MAP_WRITE))
+           goto fail_unmapped;
+
++        stream->program->pi.pid = stream->program->pcr_pid;
+         if (!tsmux_write_ts_header (mux, map.data, &stream->program->pi, 0,
+                 NULL, NULL))
+           goto fail;
+
+         gst_buffer_unmap (buf, &map);
+-        stream->program->pi.pid = stream->program->pcr_pid;
+         stream->program->pi.flags &= TSMUX_PACKET_FLAG_PES_FULL_HEADER;
+         if (!tsmux_packet_out (mux, buf, new_pcr, FALSE))
+           return FALSE;

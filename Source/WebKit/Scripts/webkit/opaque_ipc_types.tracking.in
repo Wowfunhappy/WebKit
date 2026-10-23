@@ -395,6 +395,12 @@
 [SafeWrapper] StructureParam WebModel::ImageAsset.dataHandle std::optional<WebCore::SharedMemory::Handle>
 
 [UnsafeWrapper] std::optional<IPC::SharedBufferReference> {
+    # AQUAWEBKIT: extension-owned media resources are size-bounded, MIME-restricted, and copied to owned loopback responses without parsing.
+    [UnsafeWrapper] MessageParam LegacyExtensionHost.SetMediaResource data
+    # AQUAWEBKIT: owning WebContent media bytes are copied to the loopback HTTP response without parsing in the UI process.
+    [UnsafeWrapper] MessageParamReply MediaRestreamSession.Segment data
+    # AQUAWEBKIT: bounded encoded media samples are packetized for the loopback RTP receiver.
+    [UnsafeWrapper] MessageParamReply MediaRestreamSession.NextFrame data
     [Legacy] MessageParamReply WebPage.GetMainResourceDataOfFrame buffer
     [Legacy] MessageParamReply WebPage.GetResourceDataFromFrame buffer
     [Legacy] MessageParamReply WebPage.GetAccessibilityTreeData dataReference

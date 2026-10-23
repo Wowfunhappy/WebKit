@@ -77,6 +77,7 @@ _GST_DEFINE_COMPONENT(GSTREAMER_TAG      libgsttag-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_FFT      libgstfft-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_ALLOCATORS libgstallocators-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_RTP    libgstrtp-1.0.dylib)
+_GST_DEFINE_COMPONENT(GSTREAMER_RTSP_SERVER libgstrtspserver-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_SDP    libgstsdp-1.0.dylib)
 # MPEG-TS section parsing, which the media player reads in-band metadata tracks from; the
 # native HLS support this port ships carries MPEG-TS segments.

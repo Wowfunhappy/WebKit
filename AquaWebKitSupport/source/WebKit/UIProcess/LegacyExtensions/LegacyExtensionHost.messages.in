@@ -6,5 +6,16 @@
     ExceptionForEnabledBy
 ]
 messages -> LegacyExtensionHost {
+    BeginMediaPlayerHandoff(WebCore::FrameIdentifier frameID, uint64_t request, uint64_t parent, String ticket, String extensionKey) -> (Expected<bool, String> began)
+    ControlMediaPlayer(uint64_t identifier, String command, double value) -> (bool succeeded)
+    PublishMediaSource(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, uint64_t request, uint64_t identifier, URL url, String playlist, String title, String codec) -> (Expected<URL, String> result)
+    OpenPublishedMedia(uint64_t identifier, String application, String adapter, double timeout) -> (Expected<URL, String> result)
+    MediaPlayerState(uint64_t identifier) -> (Expected<String, String> result)
+    SetMediaResource(uint64_t identifier, String name, String type, std::optional<IPC::SharedBufferReference> data) -> (Expected<URL, String> result)
+    SetMediaPlaylistProvider(uint64_t identifier, bool enabled) -> (bool enabled)
+    EndMediaPlayerHandoff(uint64_t request)
+    ActivateMediaPlayer(uint64_t identifier) -> (Expected<bool, String> activated)
+    CompleteRestream(uint64_t identifier)
+    EndRestream(uint64_t identifier)
     Post(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, String message, IPC::SharedBufferReference data)
 }

@@ -1,5 +1,13 @@
 #include "config.h"
 #include "LegacyExtensionContent.h"
+#include "MediaRestreamSession.h"
+#include <WebCore/MediaPlayer.h>
+#include <WebCore/EventListener.h>
+#include <WebCore/EventNames.h>
+#include <WebCore/Event.h>
+#include <wtf/RunLoop.h>
+#include <wtf/Scope.h>
+#include <map>
 
 #include "InjectedBundleScriptWorld.h"
 #include "LegacyExtensionContentMessages.h"
@@ -17,8 +25,17 @@
 #include <WebCore/DocumentInlines.h>
 #include <WebCore/DocumentPage.h>
 #include <WebCore/HTMLFrameOwnerElement.h>
+#include <WebCore/HTMLMediaElement.h>
+#include <WebCore/SecurityOrigin.h>
+#include <JavaScriptCore/JSRetainPtr.h>
+#include <JavaScriptCore/JSStringRef.h>
+#include <wtf/Expected.h>
+#include <wtf/HashSet.h>
+#include <cmath>
+#include <vector>
 #include <WebCore/JSDOMWindow.h>
 #include <WebCore/JSElement.h>
+#include <WebCore/JSTextTrack.h>
 #include <WebCore/JSWindowProxy.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/LegacyExtensionMimeHandlerDocument.h>
@@ -33,8 +50,10 @@
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/WindowProxy.h>
 #include <wtf/JSONValues.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebKit {
 
@@ -141,6 +160,48 @@ static JSValueRef contentContextWithClipboardWriteAccess(JSContextRef context, J
     return result;
 }
 
+
+// The JS completion owns only a weak request reference and can be called once.
+static JSObjectRef sourceCompletion(JSContextRef context, Function<void(String)>&& completion)
+{
+    using Callback = Function<void(String)>;
+    static JSClassRef callbackClass = [] {
+        JSClassDefinition definition = kJSClassDefinitionEmpty;
+        definition.className = "MediaSourceCompletion";
+        definition.finalize = [](JSObjectRef object) { delete static_cast<Callback*>(JSObjectGetPrivate(object)); };
+        definition.callAsFunction = [](JSContextRef context, JSObjectRef function, JSObjectRef, size_t count, const JSValueRef arguments[], JSValueRef*) -> JSValueRef {
+            auto& callback = *static_cast<Callback*>(JSObjectGetPrivate(function));
+            if (callback) {
+                auto complete = std::exchange(callback, { });
+                complete(count && JSValueIsString(context, arguments[0]) ? LegacyExtensions::stringArgument(context, count, arguments, 0) : String { });
+            }
+            return JSValueMakeUndefined(context);
+        };
+        return JSClassCreate(&definition);
+    }();
+    return JSObjectMake(context, callbackClass, new Callback(WTF::move(completion)));
+}
+
+
+static uint64_t nextMediaPlayerHandoffIdentifier()
+{
+    static uint64_t identifier = 0;
+    return ++identifier;
+}
+
+static bool activeMediaPlayerHandoffScope(const ContentContextNative&, uint64_t);
+
+static std::optional<uint64_t> parentMediaPlayerHandoff(JSContextRef context, size_t count, const JSValueRef arguments[], size_t index, const ContentContextNative& native)
+{
+    if (count <= index || JSValueIsUndefined(context, arguments[index]))
+        return 0;
+    auto identifier = parseInteger<uint64_t>(LegacyExtensions::stringArgument(context, count, arguments, index));
+    if (!identifier || !activeMediaPlayerHandoffScope(native, *identifier))
+        return std::nullopt;
+    return identifier;
+}
+
+
 // A promise a native function returns, which a callback settles.
 struct NativePromise {
     JSRetainPtr<JSGlobalContextRef> context;
@@ -173,6 +234,120 @@ struct NativePromise {
         JSObjectCallAsFunction(context.get(), reject, nullptr, 1, &error, nullptr);
     }
 };
+
+struct MediaPlayerHandoffScope : std::enable_shared_from_this<MediaPlayerHandoffScope> {
+    ContentContextNative native;
+    std::unique_ptr<NativePromise> promise;
+    JSObjectRef callback;
+    uint64_t identifier { nextMediaPlayerHandoffIdentifier() };
+    uint64_t parentIdentifier;
+    String ticket;
+    RunLoop::Timer deadline;
+    std::shared_ptr<MediaPlayerHandoffScope> active;
+    bool finished { false };
+
+    MediaPlayerHandoffScope(const ContentContextNative& context, std::unique_ptr<NativePromise>&& pending, JSObjectRef operation, uint64_t parent, String&& preparedTicket)
+        : native(context), promise(WTF::move(pending)), callback(operation), parentIdentifier(parent), ticket(WTF::move(preparedTicket))
+        , deadline(RunLoop::mainSingleton(), "External playback selection"_s, [this] { complete("handoff-timeout"_s); })
+    {
+        JSValueProtect(promise->context.get(), callback);
+    }
+
+    static std::vector<std::weak_ptr<MediaPlayerHandoffScope>>& scopes()
+    {
+        static NeverDestroyed<std::vector<std::weak_ptr<MediaPlayerHandoffScope>>> scopes;
+        return scopes;
+    }
+
+    ~MediaPlayerHandoffScope()
+    {
+        JSValueUnprotect(promise->context.get(), callback);
+    }
+
+    void complete(const String& error = { })
+    {
+        if (std::exchange(finished, true))
+            return;
+        auto protect = shared_from_this();
+        deadline.stop();
+        active = nullptr;
+        if (error.isEmpty())
+            promise->resolveWith(JSValueMakeUndefined(promise->context.get()));
+        else
+            promise->rejectWith(error);
+        WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::EndMediaPlayerHandoff(identifier), 0);
+    }
+
+    void start()
+    {
+        active = shared_from_this();
+        std::erase_if(scopes(), [](auto& scope) { return scope.expired(); });
+        scopes().push_back(active);
+        deadline.startOneShot(5_min);
+        WebProcess::singleton().parentProcessConnection()->sendWithAsyncReply(Messages::LegacyExtensionHost::BeginMediaPlayerHandoff(native.frameID, identifier, parentIdentifier, ticket, native.extensionKey), [self = shared_from_this()](Expected<bool, String>&& began) {
+            if (self->finished)
+                return;
+            if (!began)
+                return self->complete(began.error());
+            if (!*began || !documentForNative(self->native))
+                return self->complete("no-source"_s);
+            JSValueRef finish = sourceCompletion(self->promise->context.get(), [weakThis = self->weak_from_this()](String) {
+                if (auto scope = weakThis.lock())
+                    scope->complete();
+            });
+            JSValueRef exception = nullptr;
+            auto identifierString = adopt(JSStringCreateWithUTF8CString(String::number(self->identifier).utf8().data()));
+            JSValueRef arguments[] = { finish, JSValueMakeString(self->promise->context.get(), identifierString.get()) };
+            JSObjectCallAsFunction(self->promise->context.get(), self->callback, nullptr, 2, arguments, &exception);
+            if (exception)
+                self->complete("handoff-failed"_s);
+        }, 0);
+    }
+};
+
+static bool activeMediaPlayerHandoffScope(const ContentContextNative& native, uint64_t identifier)
+{
+    return std::any_of(MediaPlayerHandoffScope::scopes().begin(), MediaPlayerHandoffScope::scopes().end(), [&](auto& weakScope) {
+        auto scope = weakScope.lock();
+        return scope && !scope->finished && scope->identifier == identifier && scope->native.frameID == native.frameID
+            && scope->native.documentIdentifier == native.documentIdentifier && scope->native.extensionKey == native.extensionKey
+            && documentForNative(scope->native);
+    });
+}
+
+static JSValueRef contentContextWithMediaPlayerHandoff(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    JSObjectRef resolve;
+    JSObjectRef reject;
+    auto promise = JSObjectMakeDeferredPromise(context, &resolve, &reject, exception);
+    if (!promise)
+        return JSValueMakeUndefined(context);
+    auto pending = std::make_unique<NativePromise>(context, resolve, reject);
+    auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    auto callback = argumentCount && JSValueIsObject(context, arguments[0]) ? JSValueToObject(context, arguments[0], nullptr) : nullptr;
+    auto parent = parentMediaPlayerHandoff(context, argumentCount, arguments, 1, *native);
+    if (!parent || !documentForNative(*native) || !callback || !JSObjectIsFunction(context, callback)) {
+        pending->rejectWith("no-source"_s);
+        return promise;
+    }
+    auto ticket = LegacyExtensions::stringArgument(context, argumentCount, arguments, 2);
+    std::make_shared<MediaPlayerHandoffScope>(*native, WTF::move(pending), callback, *parent, WTF::move(ticket))->start();
+    return promise;
+}
+
+#include "MediaPlayerPrimitives.inc"
+
+void LegacyExtensionContent::userContentDidChange()
+{
+    Vector<std::shared_ptr<NativeMediaSession>> expired;
+    std::erase_if(NativeMediaSession::sessions(), [](auto& weakSession) { return weakSession.expired(); });
+    for (auto& weakSession : NativeMediaSession::sessions()) {
+        if (auto session = weakSession.lock(); session && !session->closed && !documentForNative(session->native))
+            expired.append(WTF::move(session));
+    }
+    for (auto& session : expired)
+        session->close();
+}
 
 // mimeHandler: the document whose handler page is the context's own, the extension's page in a frame.
 static RefPtr<WebCore::LegacyExtensionMimeHandlerDocument> mimeHandlerDocument(const ContentContextNative& native)
@@ -259,6 +434,8 @@ static JSClassRef contentContextNativeClass(LegacyExtensions::ContextKind kind)
 {
     static JSClassRef contentClass = [] {
         static const JSStaticFunction functions[] = {
+            { "createMediaSession", contentContextCreateMediaSession, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "withMediaPlayerHandoff", contentContextWithMediaPlayerHandoff, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "send", contentContextSend, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "insertCSS", contentContextInsertCSS, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "removeCSS", contentContextRemoveCSS, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
@@ -358,6 +535,7 @@ String LegacyExtensionContent::extensionKeyForWorld(WebFrame& frame, WebCore::DO
 
 void LegacyExtensionContent::didClearWindowObjectForFrame(WebFrame& frame, WebCore::DOMWrapperWorld& world)
 {
+    userContentDidChange();
     auto extensionKey = extensionKeyForWorld(frame, world);
     if (extensionKey.isEmpty())
         return;

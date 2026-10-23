@@ -66,7 +66,24 @@ class PlacardSupport extends MediaControllerSupport
         const media = this.mediaController.media;
 
         let placard = null;
-        if (media.webkitPresentationMode === "picture-in-picture" && this._controlsNeedJavascriptPipPlacard())
+        // if (media.webkitPresentationMode === "picture-in-picture" && this._controlsNeedJavascriptPipPlacard())
+        // AQUAWEBKIT: external presentation uses the private PiP placard.
+        if (this.mediaController.host?.externalMediaPresentation) {
+            placard = controls.pipPlacard;
+            if (placard) {
+                const message = this.mediaController.host.externalMediaOpeningMessage;
+                const opening = message !== null;
+                placard.description = opening ? "<span></span>" : UIString("This video is playing in another application.");
+                if (opening) {
+                    placard._descriptionNode.element.textContent = message;
+                    const spinner = document.createElement("span");
+                    spinner.style.cssText = "display:inline-block;width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:10px;vertical-align:middle";
+                    placard._descriptionNode.element.prepend(spinner);
+                    spinner.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
+                }
+            }
+        }
+        else if (media.webkitPresentationMode === "picture-in-picture" && this._controlsNeedJavascriptPipPlacard())
             placard = controls.pipPlacard;
         else if (media.webkitPresentationMode === "fullscreen" && this._controlsNeedJavascriptFullscreenPlacard())
             placard = controls.fullscreenPlacard;
