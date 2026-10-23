@@ -8,8 +8,9 @@ is obvious by location:
   `clang.cfg`/`clang++.cfg` link set, the resource headers, and the private
   `libc++`/`libc++abi`/`libunwind` dylibs, and LLVM's `LICENSE.TXT`.
 - **`scripts/`** — COMMITTED source: `build_{cctools,openssl,python3,nasm,ninja,cmake,ccache,git,ruby,coreutils}.sh`.
-- **`patches/`** — COMMITTED patches the build scripts apply to the tools they build;
-  each patch's header states the defect it fixes.
+- **`patches/`** — COMMITTED patches the build scripts apply to the tools they build, and
+  the `llvm-project` patches (`lld-*.patch`) the vendored clang is built with; each patch's
+  header states the defect it fixes.
 - **`bootstrap.sh`** — assembles `build/` from `vendor/` + `scripts/`.
 - **`build/`** — ARTIFACTS (gitignored): the unpacked, usable clang plus the
   from-source helper tools. Delete it and re-run `bootstrap.sh` to reconstruct.
@@ -31,7 +32,8 @@ The in-tree clang is the bootstrap compiler for the next one:
 
 1. **Build the new clang from `llvm-project` source** using the current in-tree clang
    (`build/clang/bin/clang{,++}`) as `CMAKE_C/CXX_COMPILER`, with
-   `CMAKE_OSX_DEPLOYMENT_TARGET=10.9` against the SDK, building the runtimes too
+   `CMAKE_OSX_DEPLOYMENT_TARGET=10.9` against the SDK, with every `patches/lld-*.patch`
+   applied (`patch -p1` at the `llvm-project` root), building the runtimes too
    (`clang;lld` in `LLVM_ENABLE_PROJECTS`, `libcxx;libcxxabi;libunwind;compiler-rt` in
    `LLVM_ENABLE_RUNTIMES`). The result must run on 10.9 — the same 10.9-targeting
    constraints the helper-tool scripts handle (SDKROOT for headers; an availability
