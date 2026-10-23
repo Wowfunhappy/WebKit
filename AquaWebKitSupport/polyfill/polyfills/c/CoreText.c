@@ -3605,6 +3605,123 @@ static CFTypeRef wk_copyCSSTraitAttribute(CTFontDescriptorRef descriptor, CFDict
     return CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &css);
 }
 
+// The table `tag` of the sfnt at `sfnt` in `file`, whose table offsets count from `base`: the start of the
+// file for a plain font or a collection, the start of the resource for a suitcase.
+static bool wk_sfntTable(const uint8_t *file, size_t size, size_t sfnt, size_t base, uint32_t tag, const uint8_t **table, size_t *length)
+{
+    if (sfnt > size || size - sfnt < 12)
+        return false;
+    size_t count = wk_be16(file + sfnt + 4);
+    if ((size - sfnt - 12) / 16 < count)
+        return false;
+    for (size_t i = 0; i < count; i++) {
+        const uint8_t *record = file + sfnt + 12 + i * 16;
+        if (wk_be32(record) != tag)
+            continue;
+        size_t offset = base + wk_be32(record + 8);
+        size_t tableLength = wk_be32(record + 12);
+        if (offset > size || size - offset < tableLength)
+            return false;
+        *table = file + offset;
+        *length = tableLength;
+        return true;
+    }
+    return false;
+}
+
+// Whether the sfnt's PostScript name (name ID 6, Macintosh Roman or Windows Unicode) is `name`.
+static bool wk_sfntHasPostScriptName(const uint8_t *file, size_t size, size_t sfnt, size_t base, const char *name)
+{
+    const uint8_t *table;
+    size_t length;
+    if (!wk_sfntTable(file, size, sfnt, base, 'name', &table, &length) || length < 6)
+        return false;
+    size_t count = wk_be16(table + 2);
+    size_t strings = wk_be16(table + 4);
+    size_t nameLength = strlen(name);
+    if ((length - 6) / 12 < count)
+        return false;
+    for (size_t i = 0; i < count; i++) {
+        const uint8_t *record = table + 6 + i * 12;
+        unsigned platform = wk_be16(record), encoding = wk_be16(record + 2);
+        if (wk_be16(record + 6) != 6)
+            continue;
+        size_t stringLength = wk_be16(record + 8), offset = strings + wk_be16(record + 10);
+        if (offset > length || length - offset < stringLength)
+            continue;
+        const uint8_t *string = table + offset;
+        if (platform == 1 && encoding == 0 && stringLength == nameLength && !memcmp(string, name, nameLength))
+            return true;
+        if (platform == 3 && (encoding == 0 || encoding == 1) && stringLength == nameLength * 2) {
+            size_t j = 0;
+            while (j < nameLength && !string[j * 2] && string[j * 2 + 1] == (uint8_t)name[j])
+                j++;
+            if (j == nameLength)
+                return true;
+        }
+    }
+    return false;
+}
+
+// The sfnt in `file` that holds the face named `name`: the file itself, a face of a TrueType collection,
+// or an 'sfnt' resource of a data-fork suitcase (.dfont).
+static bool wk_findFaceSfnt(const uint8_t *file, size_t size, const char *name, size_t *sfnt, size_t *base)
+{
+    if (size < 16)
+        return false;
+    uint32_t magic = wk_be32(file);
+    if (magic == 0x00010000 || magic == 'OTTO' || magic == 'true' || magic == 'typ1') {
+        *sfnt = *base = 0;
+        return true;
+    }
+    if (magic == 'ttcf') {
+        size_t count = wk_be32(file + 8);
+        if ((size - 12) / 4 < count)
+            return false;
+        for (size_t i = 0; i < count; i++) {
+            size_t offset = wk_be32(file + 12 + i * 4);
+            if (wk_sfntHasPostScriptName(file, size, offset, 0, name)) {
+                *sfnt = offset;
+                *base = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+    size_t data = wk_be32(file), map = wk_be32(file + 4), mapLength = wk_be32(file + 12);
+    if (data < 16 || map > size || size - map < mapLength || mapLength < 30)
+        return false;
+    size_t types = map + wk_be16(file + map + 24);
+    if (types > size || size - types < 2)
+        return false;
+    size_t typeCount = (size_t)wk_be16(file + types) + 1;
+    if ((size - types - 2) / 8 < typeCount)
+        return false;
+    for (size_t i = 0; i < typeCount; i++) {
+        const uint8_t *type = file + types + 2 + i * 8;
+        if (wk_be32(type) != 'sfnt')
+            continue;
+        size_t resourceCount = (size_t)wk_be16(type + 4) + 1;
+        size_t references = types + wk_be16(type + 6);
+        if (references > size || (size - references) / 12 < resourceCount)
+            return false;
+        for (size_t j = 0; j < resourceCount; j++) {
+            const uint8_t *reference = file + references + j * 12;
+            size_t resource = data + (wk_be32(reference + 4) & 0xFFFFFF);
+            if (resource > size || size - resource < 4)
+                continue;
+            size_t start = resource + 4;
+            if (wk_sfntHasPostScriptName(file, size, start, start, name)) {
+                *sfnt = *base = start;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool wk_installedFaceSymbolicTraits(CTFontDescriptorRef, CFDictionaryRef, CTFontSymbolicTraits *);
+
 // CTFontDescriptorCopyAttribute answers the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute
 // queries that 10.15+ CoreText bakes into every descriptor. 10.9 descriptors carry no such keys,
 // so its own implementation answers NULL and WebCore's per-face capability read degrades to
@@ -3615,8 +3732,10 @@ static CFTypeRef wk_copyCSSTraitAttribute(CTFontDescriptorRef descriptor, CFDict
 // weight of the face it belongs to (wkFaceCSSWeight, so HelveticaNeue-Medium is 500 and the
 // WebKitWeightWatcher faces 100 to 900), kCTFontWidthTrait onto the CSS stretch scale (-1..1 maps to
 // 50%..200%, 0 to 100%), with symbolic bold/expanded/condensed fallbacks. A descriptor of a variable
-// font's cut answers its variation, and for an installed face its traits, names and file, from the font it
-// realizes. Every other attribute takes the system implementation's answer unchanged.
+// font's cut answers its variation, and a cut of an installed face its traits, names and file, from the
+// font it realizes. An installed face without a variation answers its symbolic traits from its own tables
+// in its file (wk_installedFaceSymbolicTraits); another face, from the font it realizes. Every other
+// attribute takes the system implementation's answer unchanged.
 WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
                      (CTFontDescriptorRef descriptor, CFStringRef attribute))
 {
@@ -3667,12 +3786,20 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
         && CFGetTypeID(value) == CFDictionaryGetTypeID()) {
         CFTypeRef requestedTraits = wk_carriedAttribute(descriptor, kCTFontTraitsAttribute);
         if (!requestedTraits) {
-            CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, 12, NULL);
-            if (font) {
-                CFDictionaryRef corrected = wk_copyTraitsWithSymbolic((CFDictionaryRef)value, CTFontGetSymbolicTraits(font));
+            CTFontSymbolicTraits symbolic = 0;
+            bool known = wk_installedFaceSymbolicTraits(descriptor, (CFDictionaryRef)value, &symbolic);
+            if (!known) {
+                CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, 12, NULL);
+                if (font) {
+                    symbolic = CTFontGetSymbolicTraits(font);
+                    known = true;
+                    CFRelease(font);
+                }
+            }
+            if (known) {
+                CFDictionaryRef corrected = wk_copyTraitsWithSymbolic((CFDictionaryRef)value, symbolic);
                 CFRelease(value);
                 value = corrected;
-                CFRelease(font);
             }
         } else
             CFRelease(requestedTraits);
@@ -3722,6 +3849,84 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
     CFTypeRef result = wk_copyCSSTraitAttribute(descriptor, traits, wantWeight);
     CFRelease(traits);
     return result;
+}
+
+// The symbolic traits of an installed face that carries no variation, as modern CoreText's registry
+// records them: 10.9's own registry traits, with the italic its OS/2 fsSelection (italic or oblique) or
+// head macStyle declares and the color glyphs a COLR table provides. The face's tables are read from its
+// file, which needs no realized font; files stay mapped and answers are kept per face.
+static bool wk_installedFaceSymbolicTraits(CTFontDescriptorRef descriptor, CFDictionaryRef registryTraits, CTFontSymbolicTraits *symbolic)
+{
+    CFTypeRef variation = wk_carriedAttribute(descriptor, kCTFontVariationAttribute);
+    if (variation) {
+        CFRelease(variation);
+        return false;
+    }
+    CFNumberRef registrySymbolic = (CFNumberRef)CFDictionaryGetValue(registryTraits, kCTFontSymbolicTrait);
+    int64_t registryValue = 0;
+    if (!registrySymbolic || !CFNumberGetValue(registrySymbolic, kCFNumberSInt64Type, &registryValue))
+        return false;
+    CFURLRef url = (CFURLRef)WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, kCTFontURLAttribute);
+    CFStringRef name = (CFStringRef)WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, kCTFontNameAttribute);
+    CFStringRef path = url ? CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle) : NULL;
+    CFStringRef key = path && name ? CFStringCreateWithFormat(kCFAllocatorDefault, NULL, CFSTR("%@\n%@"), path, name) : NULL;
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static CFMutableDictionaryRef files;
+    static CFMutableDictionaryRef faces;
+    bool known = false;
+    if (key) {
+        pthread_mutex_lock(&lock);
+        if (!files) {
+            files = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            faces = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        }
+        CFTypeRef style = CFDictionaryGetValue(faces, key);
+        if (!style) {
+            CFTypeRef file = CFDictionaryGetValue(files, path);
+            if (!file) {
+                file = wk_copyMappedFileContents(url);
+                CFDictionarySetValue(files, path, file ? file : kCFNull);
+                if (file)
+                    CFRelease(file);
+                file = CFDictionaryGetValue(files, path);
+            }
+            char nameBytes[256];
+            size_t sfnt, base;
+            style = kCFNull;
+            if (file != kCFNull && CFStringGetCString(name, nameBytes, sizeof(nameBytes), kCFStringEncodingASCII)
+                && wk_findFaceSfnt(CFDataGetBytePtr((CFDataRef)file), (size_t)CFDataGetLength((CFDataRef)file), nameBytes, &sfnt, &base)) {
+                const uint8_t *bytes = CFDataGetBytePtr((CFDataRef)file);
+                size_t size = (size_t)CFDataGetLength((CFDataRef)file);
+                const uint8_t *table;
+                size_t length;
+                int32_t bits = 0;
+                if ((wk_sfntTable(bytes, size, sfnt, base, 'OS/2', &table, &length) && length >= 64 && (wk_be16(table + 62) & 0x201))
+                    || (wk_sfntTable(bytes, size, sfnt, base, 'head', &table, &length) && length >= 46 && (wk_be16(table + 44) & 2)))
+                    bits |= kCTFontTraitItalic;
+                if (wk_sfntTable(bytes, size, sfnt, base, 'COLR', &table, &length))
+                    bits |= kCTFontTraitColorGlyphs;
+                style = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &bits);
+                CFDictionarySetValue(faces, key, style);
+                CFRelease(style);
+            } else
+                CFDictionarySetValue(faces, key, kCFNull);
+        }
+        int32_t bits;
+        if (style != kCFNull && CFNumberGetValue((CFNumberRef)style, kCFNumberSInt32Type, &bits)) {
+            *symbolic = (CTFontSymbolicTraits)(uint32_t)registryValue | (CTFontSymbolicTraits)bits;
+            known = true;
+        }
+        pthread_mutex_unlock(&lock);
+    }
+    if (key)
+        CFRelease(key);
+    if (path)
+        CFRelease(path);
+    if (name)
+        CFRelease(name);
+    if (url)
+        CFRelease(url);
+    return known;
 }
 
 // The variation 10.9 matches for a descriptor that names an installed variable font, keyed by axis
