@@ -186,6 +186,17 @@ probe_pasteboard_expiration() {
         "$T/pasteboard_expiration"
 }
 
+probe_pasteboard_data_without_conversion() {
+    prepare_method_objects AppKit &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/pasteboard_data_without_conversion" "$TBEHAV/AppKit-pasteboard-data-without-conversion.m" \
+            "$OBJ/methods/AppKit.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/pasteboard_data_without_conversion" &&
+        "$T/pasteboard_data_without_conversion" -NSPasteboardConvertsFileReferenceURLsToFilePathURLs YES
+}
+
 probe_share_picker_popover() {
     prepare_method_objects AppKit &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/share_picker_popover" "$TBEHAV/AppKit-share-picker-popover.m" \
@@ -1087,6 +1098,7 @@ run_probe accent_color "$@"
 run_probe scrolling_axis_filter "$@"
 run_probe level_indicator_direction "$@"
 run_probe pasteboard_expiration "$@"
+run_probe pasteboard_data_without_conversion "$@"
 run_probe share_picker_popover "$@"
 run_probe popover_focus "$@"
 run_probe touch_bar "$@"

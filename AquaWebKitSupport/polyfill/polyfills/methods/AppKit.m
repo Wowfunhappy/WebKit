@@ -851,6 +851,52 @@ WK_POLYFILL_ADD_METHODS(NSPasteboard)
 @end
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSPasteboard _dataWithoutConversionForType:securityScoped:] (private SPI) returns the data written
+// for `type`, never data translated from another type (a PNG read as TIFF): 10.9's private
+// -_dataWithoutConversionForType:. File-URL data that names a file reference URL comes back as its file
+// path URL, unless the executable is built with the 10.10 SDK or later and
+// NSPasteboardConvertsFileReferenceURLsToFilePathURLs, read once per process, is not YES.
+// `securityScoped` decides whether a file-URL read consumes the item's sandbox extension (NO) or leaves
+// it for the caller to attach to the URL (YES); 10.9's CFPasteboardCopyData consumes it on every
+// file-URL read.
+@interface NSPasteboard (WKDataWithoutConversion)
++ (NSString *)_typeIdentifierForName:(NSString *)name;
++ (NSData *)_convertStringToData:(NSString *)string;
+- (NSData *)_dataWithoutConversionForType:(NSString *)type;
+@end
+
+extern NSStringEncoding _NSDefaultFileSystemEncoding(void);
+extern uint32_t dyld_get_program_sdk_version(void);
+
+static BOOL pasteboardConvertsFileReferenceURLsToFilePathURLs(void)
+{
+    static BOOL converts;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        converts = dyld_get_program_sdk_version() < 0x000A0A00
+            || [[NSUserDefaults standardUserDefaults] boolForKey:@"NSPasteboardConvertsFileReferenceURLsToFilePathURLs"];
+    });
+    return converts;
+}
+
+WK_POLYFILL_ADD_METHODS(NSPasteboard)
+- (NSData *)_dataWithoutConversionForType:(NSString *)type securityScoped:(BOOL)securityScoped
+{
+    (void)securityScoped;
+    NSData *data = [self _dataWithoutConversionForType:type];
+    if (!data.length || !UTTypeEqual((CFStringRef)[[self class] _typeIdentifierForName:type], kUTTypeFileURL)
+        || !pasteboardConvertsFileReferenceURLsToFilePathURLs())
+        return data;
+
+    CFStringEncoding encoding = CFStringConvertNSStringEncodingToEncoding(_NSDefaultFileSystemEncoding());
+    NSURL *url = [(NSURL *)CFURLCreateWithBytes(NULL, data.bytes, data.length, encoding, NULL) autorelease];
+    if (!url.isFileReferenceURL)
+        return data;
+    return [NSPasteboard _convertStringToData:url.filePathURL.absoluteString] ?: data;
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------
 // +[NSLayoutConstraint activateConstraints:] / +deactivateConstraints: and -isActive (all 10.10+).
 //
 // 10.10 replaced "add this constraint to the right view" with "activate it, and let AppKit work out
