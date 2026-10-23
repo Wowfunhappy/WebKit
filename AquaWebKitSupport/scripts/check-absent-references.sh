@@ -294,9 +294,9 @@ while [ -s "$WORK/libs.$round" ]; do
 
     # PER-SYMBOL re-exports, which live only in the export trie and have no symbol-table entry at all:
     # "[re-export] _av_freep (from libavutil)". dyld binds them, nm -gU cannot see them, and they are
-    # not LC_REEXPORT_DYLIB either. FFmpeg forwards its whole libavutil surface this way -- libavcodec
-    # defines 168 symbols and re-exports 596 -- so without this read every image that imports
-    # av_malloc/av_freep through libavcodec reports them absent.
+    # not LC_REEXPORT_DYLIB either. FFmpeg's _av* export lists re-export every libavutil symbol a
+    # library references this way -- libavcodec defines 178 symbols and re-exports 261 -- so without
+    # this read an image that imports av_malloc/av_freep through libavcodec reports them absent.
     bulk "$WORK/libs.$round.nul" "$DYLDINFO" -export | awk -v libs="$WORK/libs.$round" "$HDRFN"'
         BEGIN { while ((getline l < libs) > 0) want[l] = 1; close(libs) }
         /^\// && /:$/ { cur = hdrpath($0); keep = (cur in want); next }

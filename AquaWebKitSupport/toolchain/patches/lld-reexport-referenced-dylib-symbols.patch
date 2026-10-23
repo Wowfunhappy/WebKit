@@ -1,0 +1,28 @@
+# ld64.lld re-exports every dylib symbol that matches an -exported_symbols_list pattern, whether or
+# not the link references it. ld64 re-exports only the dylib symbols the link resolved: a pattern
+# turns a referenced proxy atom global, and a literal name joins the undefines first, so a
+# re-exported symbol always comes from a dylib the output loads.
+#
+# FFmpeg links each library with the pattern _av*, so lld re-exports libavutil's whole av* surface
+# from libavcodec. libavformat resolves the libavutil symbols it uses through those re-exports, yet
+# lld still re-exports libavutil's _avutil_version, _avutil_configuration and _avutil_license from
+# it. -dead_strip_dylibs (clang.cfg) drops libavformat's now-unreferenced libavutil load command,
+# and the three trie entries keep library ordinal 0, which names no dylib. dyldinfo -export
+# indexes its dylib table with ordinal-1 and reads the word before the table, which crashes it in
+# printf whenever that word is not a valid pointer.
+#
+# The patch re-exports a dylib symbol only when the link references it, as ld64 does. Literal
+# -exported_symbol names stay re-exported: the driver adds them as undefined symbols before
+# resolution, which references them.
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -1662,7 +1662,8 @@
+           defined->privateExtern = true;
+         }
+       } else if (auto *dysym = dyn_cast<DylibSymbol>(sym)) {
+-        dysym->shouldReexport = config->exportedSymbols.match(sym->getName());
++        dysym->shouldReexport = dysym->isReferenced() &&
++                                config->exportedSymbols.match(sym->getName());
+       }
+     });
+     if (warningsCount > kMaxWarnings)
