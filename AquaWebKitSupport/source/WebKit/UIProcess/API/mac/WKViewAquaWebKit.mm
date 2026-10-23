@@ -332,6 +332,10 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     preferences->setBoolValueForKey(WebKit::WebPreferencesKey::usesSingleWebProcessKey(), processPool.get().usesSingleWebProcess(), true);
     preferences->setBoolValueForKey(WebKit::WebPreferencesKey::processSwapOnCrossSiteNavigationEnabledKey(), processPool.get().configuration().processSwapsOnNavigation(), true);
 
+    // 537 started the network process at page creation along with the web process (see the eager launch
+    // below), so the data store's network session exists when the page joins the store.
+    configuration->websiteDataStore().networkProcess();
+
     // allocate the per-view state holding the page proxy and page client.
     _wkState = new WKViewState;
     _wkState->pageClient = createAquaWebKitPageClient(self);
@@ -537,6 +541,23 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 - (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { [self release]; return nil; }
 - (WKPageRef)pageRef { return _wkState ? WebKit::toAPI(_wkState->page.get()) : nullptr; }
 
+// QuickLook previews use Safari's cookies (WKBrowsingContextController), so their data store prevents
+// cross-site tracking exactly when Safari 7 does: for any account cookie accept policy but Always.
+static void followSafariTrackingPreventionForQuickLookPreviews()
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        auto apply = [] {
+            bool preventsTracking = [NSHTTPCookieStorage sharedHTTPCookieStorage].cookieAcceptPolicy != NSHTTPCookieAcceptPolicyAlways;
+            WebKit::WebsiteDataStore::defaultDataStore().setTrackingPreventionEnabled(preventsTracking);
+        };
+        apply();
+        [[NSDistributedNotificationCenter defaultCenter] addObserverForName:NSHTTPCookieManagerAcceptPolicyChangedNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *) {
+            apply();
+        }];
+    });
+}
+
 // legacy initializer used by QuickLook's Web2.qldisplay. It hands
 // us a WKProcessGroup + WKBrowsingContextGroup; unwrap them to the underlying
 // WKContextRef/WKPageGroupRef and route through the existing C-ref init path.
@@ -548,6 +569,8 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
         return nil;
     }
     WKPageGroupRef pageGroupRef = browsingContextGroup ? [browsingContextGroup _pageGroupRef] : nullptr;
+    if (pageGroupRef && WebKit::toImpl(pageGroupRef)->identifier() == "QuickLookPreview"_s)
+        followSafariTrackingPreventionForQuickLookPreviews();
     return [self initWithFrame:frame contextRef:contextRef pageGroupRef:pageGroupRef];
 }
 
