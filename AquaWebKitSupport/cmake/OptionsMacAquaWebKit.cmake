@@ -208,7 +208,7 @@ WEBKIT_OPTION_DEFINE(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 "Toggle predefined
 # This port decodes every image format in WebCore rather than in 10.9's ImageIO, so the decoders'
 # libraries are as required as libgcrypt above -- a tree without them builds a WebKit that draws no
 # JPEG, PNG or TIFF at all. Asked here, by name, rather than left to a link failure inside WebCore.
-foreach (_image_lib libpng16 libjpeg liblcms2 libtiff libheif)
+foreach (_image_lib libpng16 libjpeg liblcms2 libtiff libheif libjxl_dec libhwy)
     if (NOT EXISTS "${AQUAWEBKIT_DEPS}/lib/${_image_lib}.a")
         message(FATAL_ERROR
             "${AQUAWEBKIT_DEPS}/lib/${_image_lib}.a is missing.\n"
@@ -356,6 +356,10 @@ SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH TRUE)
 # serves it, the same way WEBPImageDecoder serves WebP (ScalableImageDecoder::create dispatches
 # both). libavif is built decode-only on the dav1d already in deps by deps/build_deps.sh.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE ON)
+
+# ON — 10.9's ImageIO predates JPEG XL too, so WebCore's JPEGXLImageDecoder serves it on the
+# libjxl decoder library deps/build_deps.sh builds.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE ON)
 else ()
 
 # Build products share the layout consumed by the installer and test runners.

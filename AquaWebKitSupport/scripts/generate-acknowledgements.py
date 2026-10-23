@@ -69,6 +69,8 @@ SHIPPED = [
     ('x264', r'/videolan/x264/', []),
     ('Fraunhofer FDK AAC', r'/mstorsjo/fdk-aac/', []),
     ('libavif', r'/libavif/', []),
+    ('libjxl', r'/libjxl/libjxl/', []),
+    ('Highway', r'/google/highway/', []),
     ('GStreamer', r'/gstreamer-', []),
     ('GStreamer Base Plugins', r'/gst-plugins-base-', []),
     ('GStreamer Good Plugins', r'/gst-plugins-good-', []),

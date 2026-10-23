@@ -1652,6 +1652,13 @@ imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientati
 # that ignores Range.
 http/tests/media/media-seeking-no-ranges-server.html [ Pass ]
 
+# This port decodes JPEG XL with WebCore's JPEGXLImageDecoder on libjxl (USE_JPEGXL), as the GLib ports do;
+# platform/glib/TestExpectations runs the same four tests.
+fast/images/jpegxl-as-image.html [ Pass ]
+fast/images/jpegxl-image-decoding.html [ Pass ]
+fast/images/jpegxl-with-color-profile.html [ Pass ]
+fast/images/animated-jpegxl-loop-count.html [ Pass ]
+
 # ENABLE_VIDEO_PRESENTATION_MODE=0; HTMLVideoElement.idl omits webkitSetPresentationMode.
 fullscreen/exit-full-screen-video-crash.html [ Skip ]
 

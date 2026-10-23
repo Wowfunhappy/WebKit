@@ -557,6 +557,10 @@ list(APPEND WebCore_LIBRARIES
     "${AQUAWEBKIT_DEPS}/lib/libjpeg.a"
     # libheif decodes HEVC through the libavcodec and libavutil dylibs WebCore links below.
     "${AQUAWEBKIT_DEPS}/lib/libheif.a"
+    # JPEGXLImageDecoder (USE_JPEGXL) on libjxl's decoder library and its highway SIMD layer. Its
+    # brotli comes from the archives every force-load consumer links.
+    "${AQUAWEBKIT_DEPS}/lib/libjxl_dec.a"
+    "${AQUAWEBKIT_DEPS}/lib/libhwy.a"
 )
 
 AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" AQUAWEBKIT_WITHHELD_COCOA_SOURCES AQUAWEBKIT_ADDED_COCOA_SOURCES)
@@ -865,6 +869,8 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # USE_AVIF is ON here, so ScalableImageDecoder.cpp resolves a bare
     # `#include "AVIFImageDecoder.h"`. Upstream's Mac build never compiles that branch.
     "${WEBCORE_DIR}/platform/image-decoders/avif"
+    # Likewise for `#include "JPEGXLImageDecoder.h"` under USE_JPEGXL.
+    "${WEBCORE_DIR}/platform/image-decoders/jpegxl"
     # Same gap: MediaPlayerPrivateGStreamer.cpp resolves a bare `#include "GStreamerMediaStreamSource.h"`
     # from platform/mediastream/gstreamer, and GStreamerCommon.cpp reaches "ApplicationGLib.h" in
     # platform/glib, whose ApplicationGLib.cpp this port builds. Only the GTK and WPE ports list these
