@@ -74,6 +74,7 @@ private:
     void clear();
 
     void tryDecodeSize(bool allDataReceived) override WTF_REQUIRES_LOCK(m_lock);
+    std::optional<Seconds> frameDurationFromHeaderAtIndex(size_t) const final WTF_REQUIRES_LOCK(m_lock); // AQUAWEBKIT: the duration in the frame's header.
 
     bool hasAlpha() const;
     bool hasAnimation() const;
@@ -106,6 +107,7 @@ private:
     size_t m_currentFrame { 0 };
 
     bool m_isLastFrameHeaderReceived { false }; // If this is true, we know we don't need to update m_frameCount.
+    Vector<std::optional<Seconds>> m_frameHeaderDurations; // AQUAWEBKIT: each parsed frame header's duration, by frame index.
 
 #if USE(LCMS)
     LCMSTransformPtr m_iccTransform;

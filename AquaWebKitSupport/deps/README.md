@@ -7,8 +7,9 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 - `lib/libicucore.78.dylib`, WebKit's ICU: Apple's ICU fork (ICU-76142.5.1.200, ICU 78.1) with tz 2026e;
 - the static libraries WebKit links directly — libgcrypt/libgpg-error/libtasn1,
   brotli, woff2, and the image codecs. This build decodes every image format in WebCore rather
-  than in 10.9's ImageIO, so libjpeg-turbo 3.1.2, libpng 1.6.43, libwebp 1.3.2, libtiff 4.7.0 and
-  libavif 1.3.0 (on the dav1d below) are on the path every page's images take, with lcms2 2.16
+  than in 10.9's ImageIO, so libjpeg-turbo 3.1.2, libpng 1.6.43, libwebp 1.3.2, libtiff 4.7.0,
+  libavif 1.3.0 (on the dav1d below), libheif 1.23.5 (on the FFmpeg below) and libjxl 0.12.0's
+  decoder (on highway 1.4.0) are on the path every page's images take, with lcms2 2.16
   transforming the ones that carry an ICC profile;
 - Apple's libxml2 39.10 and libxslt 21.13, macOS 26.5's libxml2 2.9.13 and libxslt 1.1.35
   (`lib/libxml2.2.dylib`, `lib/libxslt.1.dylib`, `include/libxml2`, `include/libxslt`), which WebCore

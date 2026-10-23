@@ -23,6 +23,8 @@
 #   libtiff 4.7.0 (static, on libjpeg)  -> this port's TIFFImageDecoder
 #   libavif 1.3.0 (static, on dav1d)    -> WebCore's AVIFImageDecoder (10.9's ImageIO
 #                                          predates AVIF)
+#   libjxl 0.12.0 (static decoder, on   -> WebCore's JPEGXLImageDecoder (10.9's ImageIO
+#     highway 1.4.0)                       predates JPEG XL)
 #   libheif 1.23.5 (static, on FFmpeg)  -> this port's HEIFImageDecoder: HEIC/HEIF stills, their
 #                                          HEVC decoded by FFmpeg's hevc decoder
 #   Apple libxml2 39.10 (shared)        -> WebCore XML/SVG parsing: macOS 26.5's libxml2 2.9.13, in
@@ -1379,6 +1381,63 @@ if ! built libavif install/lib/libavif.a; then
     finished libavif "$d"
 fi
 
+echo "==== highway 1.4.0 ===="
+# libjxl's SIMD layer. Its code for each instruction-set tier is chosen at run time from CPUID, so
+# the tiers above Core 2 run only on CPUs that have them.
+u=https://github.com/google/highway/archive/refs/tags/1.4.0.tar.gz
+if ! built highway install/lib/libhwy.a; then
+    d=$(get "$u" highway)
+    ( cd "$d" && mkdir -p out && cd out \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DHWY_FORCE_STATIC_LIBS=ON \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -DHWY_ENABLE_CONTRIB=OFF -DHWY_ENABLE_EXAMPLES=OFF -DHWY_ENABLE_TESTS=OFF \
+           -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_LIBDIR=lib .. \
+      && "$NINJA" -j2 \
+      && "$NINJA" install ) || exit 1
+    finished highway "$d"
+fi
+
+echo "==== libjxl 0.12.0 ===="
+# WebCore's JPEGXLImageDecoder (USE_JPEGXL): 10.9's ImageIO predates JPEG XL. Only the decoder
+# library, libjxl_dec.a, is built and staged, with the headers decode.h includes. It takes highway
+# and brotli from the stage. Its configure also requires a CMS for libjxl_cms, which the decoder
+# library does not link, and is given the lcms2 above. The SSSE3 tier is on: it is the highest one
+# a Core 2 runs.
+u=https://github.com/libjxl/libjxl/archive/refs/tags/v0.12.0.tar.gz
+if ! built libjxl install/lib/libjxl_dec.a; then
+    d=$(get "$u" libjxl)
+    ( cd "$d" && mkdir -p out && cd out \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG" -DCMAKE_PREFIX_PATH="$STAGE" \
+           -DJPEGXL_FORCE_SYSTEM_HWY=ON -DJPEGXL_FORCE_SYSTEM_BROTLI=ON \
+           -DJPEGXL_ENABLE_SKCMS=OFF -DJPEGXL_FORCE_SYSTEM_LCMS2=ON \
+           -DLCMS2_INCLUDE_DIR="$STAGE/include" -DLCMS2_LIBRARY="$STAGE/lib/liblcms2.a" \
+           -DJPEGXL_ENABLE_HWY_SSSE3=ON \
+           -DJPEGXL_ENABLE_TOOLS=OFF -DJPEGXL_ENABLE_DEVTOOLS=OFF -DJPEGXL_ENABLE_FUZZERS=OFF \
+           -DJPEGXL_ENABLE_DOXYGEN=OFF -DJPEGXL_ENABLE_MANPAGES=OFF -DJPEGXL_ENABLE_BENCHMARK=OFF \
+           -DJPEGXL_ENABLE_EXAMPLES=OFF -DJPEGXL_ENABLE_JNI=OFF -DJPEGXL_ENABLE_SJPEG=OFF \
+           -DJPEGXL_ENABLE_OPENEXR=OFF -DJPEGXL_ENABLE_VIEWERS=OFF -DJPEGXL_ENABLE_TCMALLOC=OFF \
+           -DJPEGXL_ENABLE_PLUGINS=OFF -DJPEGXL_ENABLE_TRANSCODE_JPEG=OFF \
+           -DJPEGXL_BUNDLE_LIBPNG=OFF -DBUILD_TESTING=OFF \
+           -DCMAKE_DISABLE_FIND_PACKAGE_GIF=ON -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=ON \
+           -DCMAKE_DISABLE_FIND_PACKAGE_PNG=ON -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON \
+           -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
+      && "$NINJA" -j2 jxl_dec \
+      && cp -p lib/libjxl_dec.a "$STAGE/lib/libjxl_dec.a" \
+      && rm -rf "$STAGE/include/jxl" && mkdir -p "$STAGE/include/jxl" \
+      && ( cd ../lib/include/jxl && cp -p decode.h cms_interface.h codestream_header.h color_encoding.h \
+             memory_manager.h parallel_runner.h types.h "$STAGE/include/jxl/" ) \
+      && cp -p lib/include/jxl/jxl_export.h lib/include/jxl/version.h "$STAGE/include/jxl/" ) || exit 1
+    finished libjxl "$d"
+fi
+
 echo "==== x264 (H.264 encoder) ===="
 u=https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz
 if ! built x264 install/lib/libx264.a; then
@@ -1892,6 +1951,7 @@ cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -p "$STAGE/include/opentype-sanitiser.h" "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
 cp -Rp "$STAGE/include/avif"       "$DEST/include/"
+cp -Rp "$STAGE/include/jxl"        "$DEST/include/"
 cp -Rp "$STAGE/include/libheif"    "$DEST/include/"
 # libjpeg-turbo, lcms2 and libtiff all install flat headers at the include root, which is where
 # JPEGImageDecoder's <jpeglib.h>, LCMSUniquePtr.h's <lcms2.h> and TIFFImageDecoder's <tiffio.h>
@@ -1928,7 +1988,7 @@ cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 for l in libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
          libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
-         libjpeg.a liblcms2.a libtiff.a libots.a libheif.a; do
+         libjpeg.a liblcms2.a libtiff.a libots.a libheif.a libjxl_dec.a libhwy.a; do
   cp -p "$STAGE/lib/$l" "$DEST/lib/"
 done
 

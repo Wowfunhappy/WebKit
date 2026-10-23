@@ -30,7 +30,10 @@
 #include <algorithm>
 #include <memory>
 
-#if PLATFORM(COCOA)
+// AQUAWEBKIT: Apple's libjxl comes with the system's JPEG XL support (HAVE(JPEGXL)); without it
+// this port links the libjxl decoder library deps/build_deps.sh builds, declared by its own header.
+// #if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && HAVE(JPEGXL)
 #import <pal/spi/cocoa/AppleJPEGXL/AppleJPEGXLSPI.h>
 #else
 #include <jxl/decode.h>

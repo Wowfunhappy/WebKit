@@ -153,6 +153,14 @@ void JPEGXLImageDecoder::tryDecodeSize(bool allDataReceived)
     decode(Query::Size, 0, allDataReceived);
 }
 
+// AQUAWEBKIT: a frame's duration before it is decoded; see ScalableImageDecoder::frameDurationAtIndex().
+std::optional<Seconds> JPEGXLImageDecoder::frameDurationFromHeaderAtIndex(size_t index) const
+{
+    if (index >= m_frameHeaderDurations.size())
+        return std::nullopt;
+    return m_frameHeaderDurations[index];
+}
+
 bool JPEGXLImageDecoder::hasAlpha() const
 {
     return m_basicInfo && m_basicInfo->alpha_bits > 0;
@@ -326,6 +334,13 @@ JxlDecoderStatus JPEGXLImageDecoder::processInput(Query query)
 
             if (frameHeader.is_last)
                 m_isLastFrameHeaderReceived = true;
+
+            // AQUAWEBKIT: kept for frameDurationFromHeaderAtIndex(); the frame count query reads every header.
+            if (hasAnimation()) {
+                if (m_currentFrame >= m_frameHeaderDurations.size())
+                    m_frameHeaderDurations.resize(m_currentFrame + 1);
+                m_frameHeaderDurations[m_currentFrame] = Seconds((double)frameHeader.duration * m_basicInfo->animation.tps_denominator / m_basicInfo->animation.tps_numerator);
+            }
 
             if (query != Query::DecodedImage) {
                 if (JxlDecoderSetImageOutCallback(m_decoder.get(), &s_pixelFormat, [](void*, size_t, size_t, size_t, const void*) { }, nullptr) != JXL_DEC_SUCCESS)
