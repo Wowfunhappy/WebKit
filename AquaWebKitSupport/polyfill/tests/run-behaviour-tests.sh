@@ -888,6 +888,12 @@ probe_descriptor_options() {
         "$T/descriptor_options"
 }
 
+probe_descriptor_traits() {
+    "$CLANG" $MODERN $INC -o "$T/descriptor_traits" "$TBEHAV/CoreText-descriptor-traits.c" $PROBE_LIBS \
+        -framework CoreText -framework CoreGraphics -lc++ &&
+        "$T/descriptor_traits"
+}
+
 probe_sbix_bitmap_placement() {
     "$CLANG" $MODERN $INC -o "$T/sbix_bitmap_placement" "$TBEHAV/CoreText-sbix-bitmap-placement.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -framework ImageIO -lc++ &&
@@ -1180,6 +1186,7 @@ run_probe colr_filled_paths "$@"
 run_probe color_glyph_fill_alpha "$@"
 run_probe feature_clear "$@"
 run_probe descriptor_options "$@"
+run_probe descriptor_traits "$@"
 run_probe sbix_bitmap_placement "$@"
 run_probe typo_metrics "$@"
 run_probe font_heights "$@"
