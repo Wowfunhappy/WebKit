@@ -563,10 +563,13 @@ probe_cookie_change_churn() {
 }
 
 probe_private_storage_session() {
+    prepare_method_objects Foundation &&
     "$CLANG" $MODERN $INC -fno-objc-arc -dynamiclib -DWK_PROBE_SECOND_IMAGE -o "$T/private_storage_session_image.dylib" \
         "$TBEHAV/CFNetwork-private-storage-session.m" $PROBE_LIBS &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/private_storage_session" "$TBEHAV/CFNetwork-private-storage-session.m" \
-            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" $PROBE_LIBS &&
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
         "$T/private_storage_session" "$T/private_storage_session_image.dylib"
 }
 
