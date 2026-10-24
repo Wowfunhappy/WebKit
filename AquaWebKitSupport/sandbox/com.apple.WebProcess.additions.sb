@@ -157,6 +157,19 @@
         (extension "com.apple.webkit.extension.mach")
         (global-name "com.apple.webinspector")))
 
+;; The App Store's daemons, through the extensions the App Store issues to its injected
+;; StoreWebBundle, as upstream grants com.apple.commerce to the process that injected that bundle:
+;; CommerceKit's storeagent, the storehelper and App Store sign-in prompt a purchase runs, and the
+;; SoftwareUpdate daemon behind the store's update controller.
+(allow mach-lookup
+    (require-all
+        (extension "com.apple.app-sandbox.mach")
+        (require-any
+            (global-name "com.apple.storeagent-xpc")
+            (global-name "com.apple.storehelper")
+            (global-name "com.apple.appstore.CKSignInPrompt.hostclient")
+            (global-name "com.apple.softwareupdated"))))
+
 ;; Kernel clients: no HID parameters or power-management root domain, and no display-property writes.
 (deny iokit-open
     (iokit-user-client-class "IOHIDParamUserClient")
