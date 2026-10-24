@@ -4951,24 +4951,49 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateCopy
 // 10.9 through dlsym: FPFontCopyPostScriptName is there, FPFontCreateFontsFromData and
 // FPFontCopySFNTData are not.
 //
-// 10.9 has no font-collection parser to stand in for the missing pair, so the polyfill's answer is
-// the honest one for a machine without one: the data is a single font, and its sfnt bytes are the
-// bytes themselves. An FPFontRef here is therefore the CFData, and the two functions that consume
-// one recognise that. Since 10.9 does export FPFontCopyPostScriptName, that one is a replacement
-// and hands anything it does not recognise back to the system implementation.
+// An FPFontRef here is one face's sanitized sfnt as a CFData, and the functions that consume one
+// recognise that. Since 10.9 does export FPFontCopyPostScriptName, that one is a replacement and
+// hands anything it does not recognise back to the system implementation.
+//
+// FontParser is CoreText's own reader, so every face it returns is one
+// CTFontManagerCreateFontDescriptorFromData realizes. On 10.9 the reader that realizes a face is
+// CoreGraphics, which does not open a CFF2 outline table, so a face is returned only once it has
+// realized.
 typedef const struct __FPFont* FPFontRef;
+
+static CFArrayRef wk_copyRealizableFontFaces(CFDataRef sanitized)
+{
+    CFArrayRef faces = wk_ots_copy_font_faces(sanitized);
+    if (!faces)
+        return NULL;
+    CFMutableArrayRef realizable = CFArrayCreateMutable(kCFAllocatorDefault, CFArrayGetCount(faces), &kCFTypeArrayCallBacks);
+    for (CFIndex i = 0; i < CFArrayGetCount(faces); ++i) {
+        CFDataRef face = (CFDataRef)CFArrayGetValueAtIndex(faces, i);
+        CTFontDescriptorRef descriptor = wk_realizeDescriptorFromSfnt(face);
+        if (!descriptor)
+            continue;
+        CFRelease(descriptor);
+        CFArrayAppendValue(realizable, face);
+    }
+    CFRelease(faces);
+    if (!CFArrayGetCount(realizable)) {
+        CFRelease(realizable);
+        return NULL;
+    }
+    return realizable;
+}
 
 WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateFontsFromData, (CFDataRef data))
 {
     // The system parser's splitter; on this port every downloadable font is sanitized here (OTS,
     // unwrapping a WOFF or WOFF2 container as it reads), so the sfnt the rest of the path opens is one
-    // OTS wrote, never the bytes off the network. A font OTS refuses has no sanitized form: the empty
-    // result upstream reads as "something is wrong with the font" and rejects the @font-face. An
-    // FPFontRef is that sanitized CFData, as it is for FPFontCreateMemorySafeFontsFromData below.
+    // OTS wrote, never the bytes off the network. A font OTS refuses has no sanitized form, and one
+    // this system cannot realize has no face: the empty result upstream reads as "something is wrong
+    // with the font" and rejects the @font-face.
     CFDataRef sanitized = wk_font_is_ots_sanitized(data) ? (CFDataRef)CFRetain(data) : wk_ots_sanitize_font(data);
     if (!sanitized)
         return NULL;
-    CFArrayRef fonts = wk_ots_copy_font_faces(sanitized);
+    CFArrayRef fonts = wk_copyRealizableFontFaces(sanitized);
     CFRelease(sanitized);
     return fonts;
 }
@@ -4992,17 +5017,23 @@ WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateMemorySafeFontsFromData, 
     CFDataRef sanitized = wk_ots_sanitize_font(data);
     if (!sanitized)
         return NULL;
-    // An FPFontRef is the CFData, as it is for FPFontCreateFontsFromData above.
-    CFArrayRef fonts = wk_ots_copy_font_faces(sanitized);
+    CFArrayRef fonts = wk_copyRealizableFontFaces(sanitized);
     CFRelease(sanitized);
     return fonts;
 }
 
 WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontManagerCreateMemorySafeFontDescriptorFromData, (CFDataRef data))
 {
-    // Reached only with bytes FPFontCreateMemorySafeFontsFromData already sanitized, so it realizes
-    // them without sanitizing again.
-    return wk_realizeDescriptorFromSfnt(data);
+    // Bytes OTS already wrote are realized as they are; any others are sanitized first, and a font OTS
+    // will not accept has no descriptor.
+    if (wk_font_is_ots_sanitized(data))
+        return wk_realizeDescriptorFromSfnt(data);
+    CFDataRef sanitized = wk_ots_sanitize_font(data);
+    if (!sanitized)
+        return NULL;
+    CTFontDescriptorRef descriptor = wk_realizeDescriptorFromSfnt(sanitized);
+    CFRelease(sanitized);
+    return descriptor;
 }
 
 WK_POLYFILL_REPLACES("CoreText", CFStringRef, FPFontCopyPostScriptName, (FPFontRef font))
