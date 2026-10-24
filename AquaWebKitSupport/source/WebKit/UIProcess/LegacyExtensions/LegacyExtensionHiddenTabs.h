@@ -1,11 +1,11 @@
-// Tabs Safari 7 extensions hide from Safari's tab bar without closing them: aqua.tabs.
+// Tabs Safari 7 extensions hide from Safari's tab bar without closing them: browser.tabs.hide and tabs.show.
 //
 // A hidden tab moves, as a tab dragged between windows moves, into a browser window that is never shown, where
 // its page keeps running as a background tab's does. Showing it moves it back into the window it was hidden
 // from, after the last of the tabs that preceded it there, or to the end of the frontmost browser window when
 // that window has closed. As in Firefox's tabs.hide, the selected tab of a window cannot be hidden, a hidden
 // tab that Safari brings to the front is shown, and an extension's hidden tabs show again when the extension
-// unloads.
+// unloads. Each change of a tab's hidden state, however it comes about, goes to tabs.onUpdated listeners.
 
 #pragma once
 
@@ -38,12 +38,14 @@ public:
     Vector<WebPageProxyIdentifier> hide(const String& extensionKey, const Vector<Ref<WebPageProxy>>&);
     // The hidden tabs Safari did not move out of the hidden window, which stay hidden.
     Vector<WebPageProxyIdentifier> show(const Vector<Ref<WebPageProxy>>&);
-    Vector<WebPageProxyIdentifier> hiddenTabs();
+    bool isHidden(WebPageProxy&) const;
 
     void pageWillClose(WebPageProxy&);
     void extensionDidUnload(const String& extensionKey);
     // A page's view moved to a window, which for a hidden tab means Safari selected it in the hidden window.
     void webViewDidMoveToWindow(WebPageProxy&, NSWindow *);
+    // Safari moved a hidden tab's item into or out of a tab view.
+    void tabViewItemDidMove();
 
 private:
     friend class NeverDestroyed<LegacyExtensionHiddenTabs>;
@@ -51,10 +53,13 @@ private:
 
     struct HiddenTab {
         WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(HiddenTab);
+        ~HiddenTab();
         String extensionKey;
         RetainPtr<id> tabViewItem;
         WeakObjCPtr<NSWindowController> window;
         Vector<WebPageProxyIdentifier> precedingTabs;
+        // Observes the item's tabView while the tab is hidden.
+        RetainPtr<id> tabViewObserver;
     };
 
     enum class Destination : bool { WindowItWasHiddenFrom, AnyWindow };
@@ -65,9 +70,11 @@ private:
     void observeHiddenWindow(NSWindow *);
     void hiddenWindowChanged();
     void forgetShownTabs();
+    static void hiddenStateDidChange(WebPageProxyIdentifier, bool hidden);
     void closeHiddenWindowIfEmpty();
 
     HashMap<WebPageProxyIdentifier, std::unique_ptr<HiddenTab>> m_tabs;
+    RetainPtr<id> m_tabViewItemObserver;
     WeakObjCPtr<NSWindowController> m_hiddenWindow;
     // The hidden window's own empty tab, and the observers of the window.
     RetainPtr<id> m_hiddenWindowTab;

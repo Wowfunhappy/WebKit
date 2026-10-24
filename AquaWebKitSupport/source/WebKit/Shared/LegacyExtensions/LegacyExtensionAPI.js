@@ -228,6 +228,22 @@ const callRouter = (method, ...args) => new Promise((resolve, reject) => {
     send({ t: "call", callId, method, args });
 });
 
+// A tab is a tab ID, or where Safari's extension API is, a SafariBrowserTab, which the router finds at its
+// place in safari.application.browserWindows.
+const tabReference = tab => {
+    if (typeof tab === "number")
+        return { tabId: tab };
+    const application = globalThis.safari && globalThis.safari.application;
+    if (application && tab && typeof tab === "object" && tab.browserWindow) {
+        const window = Array.prototype.indexOf.call(application.browserWindows, tab.browserWindow);
+        const index = window < 0 ? -1 : Array.prototype.indexOf.call(tab.browserWindow.tabs, tab);
+        if (index >= 0)
+            return { window, index };
+    }
+    throw new TypeError("A tab is a tab ID or a SafariBrowserTab of an open window.");
+};
+const tabReferences = tabs => (Array.isArray(tabs) ? tabs : [tabs]).map(tabReference);
+
 // Match patterns (https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns).
 
 const escapeForRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -674,6 +690,14 @@ if (isHost) {
         connect(tabId, connectInfo = {}) {
             return connect(connectInfo.name, { tabId, frameId: typeof connectInfo.frameId === "number" ? connectInfo.frameId : undefined });
         },
+        hide(...args) {
+            return withOptionalCallback(args, async tabIds => callRouter("tabs.hide", tabReferences(tabIds)));
+        },
+        show(...args) {
+            return withOptionalCallback(args, async tabIds => {
+                await callRouter("tabs.show", tabReferences(tabIds));
+            });
+        },
         onCreated: trackedEvent("tabs.onCreated"),
         onRemoved: trackedEvent("tabs.onRemoved"),
         onUpdated: trackedEvent("tabs.onUpdated"),
@@ -1061,38 +1085,10 @@ if (typeof native.createMediaSession === "function") {
     } };
 }
 if (isHost) {
-    // A tab is a tab ID, or where Safari's extension API is, a SafariBrowserTab, which the router finds at its
-    // place in safari.application.browserWindows.
-    const tabReference = tab => {
-        if (typeof tab === "number")
-            return { tabId: tab };
-        const application = globalThis.safari && globalThis.safari.application;
-        if (application && tab && typeof tab === "object" && tab.browserWindow) {
-            const window = Array.prototype.indexOf.call(application.browserWindows, tab.browserWindow);
-            const index = window < 0 ? -1 : Array.prototype.indexOf.call(tab.browserWindow.tabs, tab);
-            if (index >= 0)
-                return { window, index };
-        }
-        throw new TypeError("A tab is a tab ID or a SafariBrowserTab of an open window.");
-    };
-    const tabReferences = tabs => (Array.isArray(tabs) ? tabs : [tabs]).map(tabReference);
     aqua.mediaPlayer = Object.assign(aqua.mediaPlayer || {}, {
         prepareHandoff: tab => callRouter("aqua.mediaPlayer.prepareHandoff", tabReference(tab)),
         cancelHandoff: ticket => callRouter("aqua.mediaPlayer.cancelHandoff", ticket),
     });
-    aqua.tabs = {
-        hide(...args) {
-            return withOptionalCallback(args, async tabs => callRouter("aqua.tabs.hide", tabReferences(tabs)));
-        },
-        show(...args) {
-            return withOptionalCallback(args, async tabs => {
-                await callRouter("aqua.tabs.show", tabReferences(tabs));
-            });
-        },
-        getHidden(...args) {
-            return withOptionalCallback(args, async () => callRouter("aqua.tabs.getHidden"));
-        },
-    };
 }
 if (Object.keys(aqua).length)
     Object.defineProperty(globalThis, "aqua", { value: aqua, writable: true, configurable: true, enumerable: false });

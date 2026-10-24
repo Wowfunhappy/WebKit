@@ -1,6 +1,6 @@
 # MV2 compatibility API for Safari 7 extensions
 
-This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `browser` namespace modeled on the WebExtensions (MV2) API. It sits alongside Safari 7's own `safari.extension` / `safari.application` / `safari.self` API, which stays fully available. Use `browser` for what Safari 7 cannot do: messaging addressed by tab and frame, script and style injection on demand, network interception and response filtering, navigation events, cookies, document viewers, privacy settings, and the clipboard.
+This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `browser` namespace modeled on the WebExtensions (MV2) API. It sits alongside Safari 7's own `safari.extension` / `safari.application` / `safari.self` API, which stays fully available. Use `browser` for what Safari 7 cannot do: messaging addressed by tab and frame, script and style injection on demand, hiding tabs, network interception and response filtering, navigation events, cookies, document viewers, privacy settings, and the clipboard.
 
 The engine provides only what needs the engine. Anything an extension can build from `safari.*` or the web platform, such as `runtime.getURL`, `storage`, `tabs.query`, `tabs.create`, and menus, is left to the extension's own platform layer (the uBlock Origin port's `browser-safari.js`, for example, builds these on top).
 
@@ -132,10 +132,10 @@ Returns the element's shadow root whether it is open or closed. Content-script w
 ### Tab objects
 
 ```js
-{ id, url, title, status /* "loading" | "complete" */, incognito }
+{ id, url, title, status /* "loading" | "complete" */, incognito, hidden }
 ```
 
-`url` is the page's active URL. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information.
+`url` is the page's active URL. `hidden` is whether the tab is hidden with `tabs.hide`. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information.
 
 ### `tabs.get(tabId)` → `Promise<Tab>`
 
@@ -185,6 +185,16 @@ Adds a style sheet to the target frames' current documents, with the frame selec
 
 Removes every sheet this extension inserted into the target documents whose source text equals the given `code` (or the given file's text).
 
+### `tabs.hide(tabIds)` → `Promise<number[]>`
+
+Hides tabs from Safari's tab bar without closing them, as Firefox's `tabs.hide` does, and resolves to the IDs of the tabs it hid. A hidden tab's page keeps running as a background tab's does. `tabIds` is a tab or an array of tabs; a tab is a tab ID or, in a page with Safari's extension API, a `SafariBrowserTab`. A tab already hidden, the selected tab of a window, and a tab of a window showing all its tabs (Tab View) are not hidden. A tab that names no open tab rejects the call with `Invalid tab ID: <tabId>`.
+
+### `tabs.show(tabIds)` → `Promise<void>`
+
+Shows hidden tabs, each in the window it was hidden from, after the last of the tabs that preceded it there; at the end of the frontmost browser window when that window has closed; or in a new window when none is open. A tab that is not hidden is left as it is. Safari moves no tab into a window showing all its tabs: the call then rejects, and the tab stays hidden.
+
+Hidden tabs are kept in a browser window Safari never shows, after an empty tab of its own; in `safari.application.browserWindows` that window's `visible` is false. Safari saves that window with its session like any other, so reopening the last session shows the hidden tabs in a window of their own. Safari shows a hidden tab when Merge All Windows or `SafariBrowserWindow.insertTab` moves it to another window. As Firefox shows a hidden tab that is selected, a hidden tab Safari selects, for `activate()`, shows selected in its window, and one Safari brings to the front, for an alert of its page, shows selected in its window, which comes to the front. The tabs an extension hid show again when the extension unloads. A tab shown by Safari or by the extension unloading goes, when its window shows all its tabs, where it would go had that window closed.
+
 ### Tab events
 
 Tab events go to every extension's host contexts that listen for them.
@@ -192,7 +202,7 @@ Tab events go to every extension's host contexts that listen for them.
 | Event | Arguments |
 | --- | --- |
 | `tabs.onCreated` | `(tab)` |
-| `tabs.onUpdated` | `(tabId, changeInfo, tab)`; `changeInfo` holds exactly one of `status`, `title`, `url` |
+| `tabs.onUpdated` | `(tabId, changeInfo, tab)`; `changeInfo` holds exactly one of `status`, `title`, `url`, `hidden` |
 | `tabs.onRemoved` | `(tabId, { windowId: -1, isWindowClosing: false })` |
 
 ## `browser.webNavigation` (host contexts only)
@@ -495,7 +505,7 @@ Safari 7's extension resource protocol has limits that apply to every file in th
 
 ## The aqua namespace
 
-`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.tabs` is in every extension page: the global page, popovers, and pages loaded in tabs or frames. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`.
+`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`.
 
 ### aqua.mediaPlayer
 
@@ -604,13 +614,3 @@ The helper owns source selection, optional `resolveSource(url)`, source-mode pre
 The helper's behavior and defaults can be changed by an extension update. Native capabilities can also be used directly without loading the helper.
 
 The external `AquaWebKit-Extensions/lib/HLSPlaylistRelay.js`, packaged as `relay.js`, provides the optional `relayPlaylists` policy. It preserves HLS renditions and metadata, rewrites playlist references to owned endpoints, and fetches media playlists on receiver requests. Media segments remain original remote URLs; no decoding or re-encoding is involved. Unrequested renditions are not polled. This keeps legacy receiver HTTP compatibility outside WebKit.
-
-### aqua.tabs
-
-An extension can hide tabs from Safari's tab bar without closing them, as Firefox's `tabs.hide` does. A hidden tab's page keeps running as a background tab's does. Each method also takes a trailing callback.
-
-- `aqua.tabs.hide(tabs)` → `Promise<number[]>` hides a tab or an array of tabs and resolves to the IDs of the tabs it hid; a tab already hidden, the selected tab of a window, and a tab of a window showing all its tabs are not among them. A tab is a `browser.tabs` tab ID or, in a page with Safari's extension API, a `SafariBrowserTab`. A tab that names no open tab rejects the call with `Invalid tab ID`.
-- `aqua.tabs.show(tabs)` → `Promise<void>` shows hidden tabs, each in the window it was hidden from, after the last of the tabs that preceded it there; at the end of the frontmost browser window when that window has closed; or in a new window when none is open. A tab that is not hidden is left as it is. Safari moves no tab into a window showing all its tabs: the call then rejects, and the tab stays hidden.
-- `aqua.tabs.getHidden()` → `Promise<Tab[]>` the hidden tabs, described as `browser.tabs.get` describes a tab.
-
-Hidden tabs are kept in a browser window Safari never shows, after an empty tab of its own; in `safari.application.browserWindows` that window's `visible` is false. Safari saves that window with its session like any other, so reopening the last session shows the hidden tabs in a window of their own. Safari's Merge All Windows shows hidden tabs too. As Firefox shows a hidden tab that is selected, a hidden tab Safari selects, for `activate()`, shows selected in its window, and one Safari brings to the front, for an alert of its page, shows selected in its window, which comes to the front. The tabs an extension hid show again when the extension unloads. A tab shown by Safari or by the extension unloading goes, when its window shows all its tabs, where it would go had that window closed.

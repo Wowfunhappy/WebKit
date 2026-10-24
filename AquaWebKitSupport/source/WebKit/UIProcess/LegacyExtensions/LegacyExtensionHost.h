@@ -87,6 +87,8 @@ public:
     void pageWasCreated(WebPageProxy&);
     void pageWillClose(WebPageProxy&);
     void tabWillClose(WebPageProxy&);
+    // Reports a change of a tab's hidden state to tabs.onUpdated listeners, describing the tab as it is now.
+    void tabHiddenDidChange(WebPageProxy&, bool hidden);
     void didCommitLoad(WebPageProxy&, WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, API::Navigation*, WebCore::FrameLoadType, const URL&);
     void didStartProvisionalLoad(WebPageProxy&, WebFrameProxy&, const URL&);
     void didFinishDocumentLoad(WebPageProxy&, WebFrameProxy&);
@@ -232,6 +234,7 @@ private:
     void sendNetworkListeners(NetworkProcessProxy&);
 
     Ref<JSON::Object> tabDescription(WebPageProxy&) const;
+    Ref<JSON::Array> tabUpdatedArguments(WebPageProxy&, Ref<JSON::Object>&& changeInfo) const;
     void resultToHostContext(HostContext&, double callID, RefPtr<JSON::Value>&& result, const String& error = { });
 
     RefPtr<HostContext> extensionPageContext(WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, const URL& documentURL, const String& extensionKey);

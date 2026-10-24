@@ -1,6 +1,7 @@
 #import "config.h"
 #import "LegacyExtensionHiddenTabs.h"
 
+#import "LegacyExtensionHost.h"
 #import "WKAPICast.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
@@ -36,6 +37,26 @@
 
 @protocol LegacyExtensionWKView <NSObject>
 - (WKPageRef)pageRef;
+@end
+
+static void* tabViewContext = &tabViewContext;
+
+// Safari moves a tab between windows by taking its item out of one window's tab view and putting it into
+// another's, which sets the item's tabView.
+@interface WKLegacyExtensionHiddenTabObserver : NSObject
+@end
+
+@implementation WKLegacyExtensionHiddenTabObserver
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if (context != tabViewContext) {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        return;
+    }
+    WebKit::LegacyExtensionHiddenTabs::singleton().tabViewItemDidMove();
+}
+
 @end
 
 namespace WebKit {
@@ -92,7 +113,16 @@ static RetainPtr<SafariWindowController> windowOfTabViewItem(id tabViewItem)
     return nil;
 }
 
-LegacyExtensionHiddenTabs::LegacyExtensionHiddenTabs() = default;
+LegacyExtensionHiddenTabs::LegacyExtensionHiddenTabs()
+    : m_tabViewItemObserver(adoptNS([[WKLegacyExtensionHiddenTabObserver alloc] init]))
+{
+}
+
+LegacyExtensionHiddenTabs::HiddenTab::~HiddenTab()
+{
+    if (tabViewObserver)
+        [tabViewItem.get() removeObserver:tabViewObserver.get() forKeyPath:@"tabView" context:tabViewContext];
+}
 
 void LegacyExtensionHiddenTabs::observeHiddenWindow(NSWindow *window)
 {
@@ -190,7 +220,10 @@ Vector<WebPageProxyIdentifier> LegacyExtensionHiddenTabs::hide(const String& ext
         if (![[hiddenWindow orderedTabViewItems] containsObject:hiddenTab->tabViewItem.get()])
             continue;
         hidden.append(identifier);
+        hiddenTab->tabViewObserver = m_tabViewItemObserver;
+        [hiddenTab->tabViewItem.get() addObserver:m_tabViewItemObserver.get() forKeyPath:@"tabView" options:0 context:tabViewContext];
         m_tabs.add(identifier, WTF::move(hiddenTab));
+        hiddenStateDidChange(identifier, true);
     }
     closeHiddenWindowIfEmpty();
     return hidden;
@@ -255,6 +288,7 @@ bool LegacyExtensionHiddenTabs::showTab(WebPageProxyIdentifier identifier, Desti
     if ([[hiddenWindow orderedTabViewItems] containsObject:tabViewItem])
         return false;
     m_tabs.remove(identifier);
+    hiddenStateDidChange(identifier, false);
     return true;
 }
 
@@ -292,16 +326,36 @@ void LegacyExtensionHiddenTabs::hiddenWindowChanged()
     });
 }
 
-// A tab can leave the hidden window by Safari's own means, such as Merge All Windows, which shows it, or
-// closing it.
+void LegacyExtensionHiddenTabs::tabViewItemDidMove()
+{
+    // Safari is amid moving the tab: its move completes first.
+    RunLoop::mainSingleton().dispatch([this] {
+        forgetShownTabs();
+    });
+}
+
+// A tab can leave the hidden window by Safari's own means, which show it: Merge All Windows, or an extension's
+// SafariBrowserWindow.insertTab.
 void LegacyExtensionHiddenTabs::forgetShownTabs()
 {
     RetainPtr hiddenWindowController = hiddenWindow();
     NSArray *hiddenTabViewItems = [(SafariWindowController *)hiddenWindowController.get() orderedTabViewItems];
+    Vector<WebPageProxyIdentifier> shownTabs;
     m_tabs.removeIf([&](auto& entry) {
-        return ![hiddenTabViewItems containsObject:entry.value->tabViewItem.get()];
+        if ([hiddenTabViewItems containsObject:entry.value->tabViewItem.get()])
+            return false;
+        shownTabs.append(entry.key);
+        return true;
     });
+    for (auto identifier : shownTabs)
+        hiddenStateDidChange(identifier, false);
     closeHiddenWindowIfEmpty();
+}
+
+void LegacyExtensionHiddenTabs::hiddenStateDidChange(WebPageProxyIdentifier identifier, bool hidden)
+{
+    if (RefPtr page = WebProcessProxy::webPage(identifier))
+        LegacyExtensionHost::singleton().tabHiddenDidChange(*page, hidden);
 }
 
 // The hidden window closes with its own tab once that is all it holds.
@@ -313,10 +367,13 @@ void LegacyExtensionHiddenTabs::closeHiddenWindowIfEmpty()
         [hiddenWindow closeTabOrWindowWithoutConfirming:[(id<LegacyExtensionSafariTabViewItem>)m_hiddenWindowTab.get() wkView]];
 }
 
-Vector<WebPageProxyIdentifier> LegacyExtensionHiddenTabs::hiddenTabs()
+bool LegacyExtensionHiddenTabs::isHidden(WebPageProxy& page) const
 {
-    forgetShownTabs();
-    return copyToVector(m_tabs.keys());
+    auto* hiddenTab = m_tabs.get(page.identifier());
+    if (!hiddenTab)
+        return false;
+    RetainPtr hiddenWindowController = hiddenWindow();
+    return [[(SafariWindowController *)hiddenWindowController.get() orderedTabViewItems] containsObject:hiddenTab->tabViewItem.get()];
 }
 
 void LegacyExtensionHiddenTabs::pageWillClose(WebPageProxy& page)

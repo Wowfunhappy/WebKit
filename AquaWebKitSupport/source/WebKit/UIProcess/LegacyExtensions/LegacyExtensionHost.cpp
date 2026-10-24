@@ -202,6 +202,24 @@ static RefPtr<WebPageProxy> pageForTabID(std::optional<double> tabID)
     return page;
 }
 
+// A tab reference from tabReference in LegacyExtensionAPI.js: `{ tabId }`, or `{ window, index }`, its place in
+// Safari's browserWindows and their tabs.
+static RefPtr<WebPageProxy> pageForTabReference(const JSON::Object* reference)
+{
+    if (!reference)
+        return nullptr;
+    if (auto tabID = reference->getDouble("tabId"_s))
+        return pageForTabID(tabID);
+    auto isIndex = [](std::optional<double> value) {
+        return value && *value >= 0 && *value <= std::numeric_limits<uint32_t>::max() && std::floor(*value) == *value;
+    };
+    auto window = reference->getDouble("window"_s);
+    auto index = reference->getDouble("index"_s);
+    if (!isIndex(window) || !isIndex(index))
+        return nullptr;
+    return LegacyExtensionHiddenTabs::pageOfSafariTab(static_cast<size_t>(*window), static_cast<size_t>(*index));
+}
+
 static double tabIDForPage(const WebPageProxy& page)
 {
     return static_cast<double>(page.identifier().toUInt64());
@@ -1176,6 +1194,7 @@ Ref<JSON::Object> LegacyExtensionHost::tabDescription(WebPageProxy& page) const
     tab->setString("title"_s, page.pageLoadState().title());
     tab->setString("status"_s, page.pageLoadState().isLoading() ? "loading"_s : "complete"_s);
     tab->setBoolean("incognito"_s, page.sessionID().isEphemeral());
+    tab->setBoolean("hidden"_s, LegacyExtensionHiddenTabs::singleton().isHidden(page));
     return tab;
 }
 
@@ -1382,18 +1401,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
     }
 
     if (method == "aqua.mediaPlayer.prepareHandoff"_s) {
-        RefPtr reference = objectArgument(0);
-        RefPtr<WebPageProxy> page;
-        if (reference) {
-            if (auto identifier = reference->getDouble("tabId"_s))
-                page = pageForTabID(*identifier);
-            else {
-                auto window = reference->getDouble("window"_s);
-                auto index = reference->getDouble("index"_s);
-                if (window && index && *window >= 0 && *index >= 0 && *window < std::numeric_limits<size_t>::max() && *index < std::numeric_limits<size_t>::max() && std::floor(*window) == *window && std::floor(*index) == *index)
-                    page = LegacyExtensionHiddenTabs::pageOfSafariTab(static_cast<size_t>(*window), static_cast<size_t>(*index));
-            }
-        }
+        RefPtr page = pageForTabReference(objectArgument(0).get());
         RefPtr frame = page ? page->mainFrame() : nullptr;
         auto ticket = frame ? MediaRestreamServer::singleton().prepareHandoff(*page, frame->process(), context.extensionKey) : String { };
         resultToHostContext(context, callID, ticket.isEmpty() ? nullptr : JSON::Value::create(ticket).ptr(), ticket.isEmpty() ? "no-source"_s : String { });
@@ -1406,25 +1414,16 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
-    // aqua.tabs: tabs hidden from Safari's tab bar. A tab is `{ tabId }`, or `{ window, index }`, its place in
-    // Safari's browserWindows and their tabs. As in Firefox's tabs.hide and tabs.show, a tab that names no
-    // open tab rejects the call.
-    if (method == "aqua.tabs.hide"_s || method == "aqua.tabs.show"_s) {
+    // tabs.hide and tabs.show: tabs hidden from Safari's tab bar, as Firefox hides them. As in Firefox, a tab
+    // that names no open tab rejects the call.
+    if (method == "tabs.hide"_s || method == "tabs.show"_s) {
         // Every tab is found before any moves, since a move changes the places of the tabs after it.
         Vector<Ref<WebPageProxy>> pages;
         if (RefPtr tabs = argument(0) ? argument(0)->asArray() : nullptr) {
             for (auto& tabValue : *tabs) {
                 RefPtr tab = tabValue->asObject();
                 auto tabID = tab ? tab->getDouble("tabId"_s) : std::nullopt;
-                RefPtr<WebPageProxy> page;
-                if (tabID)
-                    page = pageForTabID(*tabID);
-                else if (tab) {
-                    auto window = tab->getDouble("window"_s);
-                    auto index = tab->getDouble("index"_s);
-                    if (window && index && *window >= 0 && *index >= 0)
-                        page = LegacyExtensionHiddenTabs::pageOfSafariTab(static_cast<size_t>(*window), static_cast<size_t>(*index));
-                }
+                RefPtr page = pageForTabReference(tab.get());
                 if (!page) {
                     resultToHostContext(context, callID, nullptr, tabID ? makeString("Invalid tab ID: "_s, *tabID) : "Invalid tab."_s);
                     return;
@@ -1432,7 +1431,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
                 pages.append(page.releaseNonNull());
             }
         }
-        if (method == "aqua.tabs.show"_s) {
+        if (method == "tabs.show"_s) {
             auto stillHidden = LegacyExtensionHiddenTabs::singleton().show(pages);
             if (!stillHidden.isEmpty()) {
                 resultToHostContext(context, callID, nullptr, makeString("Safari could not show tab "_s, stillHidden.first().toUInt64(), ": its window shows all its tabs."_s));
@@ -1445,16 +1444,6 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         for (auto identifier : LegacyExtensionHiddenTabs::singleton().hide(context.extensionKey, pages))
             hiddenTabIDs->pushDouble(static_cast<double>(identifier.toUInt64()));
         resultToHostContext(context, callID, WTF::move(hiddenTabIDs));
-        return;
-    }
-
-    if (method == "aqua.tabs.getHidden"_s) {
-        auto hiddenTabs = JSON::Array::create();
-        for (auto identifier : LegacyExtensionHiddenTabs::singleton().hiddenTabs()) {
-            if (RefPtr page = WebProcessProxy::webPage(identifier))
-                hiddenTabs->pushObject(tabDescription(*page));
-        }
-        resultToHostContext(context, callID, WTF::move(hiddenTabs));
         return;
     }
 
@@ -1830,11 +1819,7 @@ void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
     page.setNavigationClient(makeUniqueRef<LegacyExtensionNavigationClient>());
     auto observer = LegacyExtensionTabObserver::create(page, [](WebPageProxy& page, Ref<JSON::Object>&& changeInfo) {
         auto& host = LegacyExtensionHost::singleton();
-        auto arguments = JSON::Array::create();
-        arguments->pushDouble(tabIDForPage(page));
-        arguments->pushObject(WTF::move(changeInfo));
-        arguments->pushObject(host.tabDescription(page));
-        host.dispatchEvent("tabs.onUpdated"_s, WTF::move(arguments));
+        host.dispatchEvent("tabs.onUpdated"_s, host.tabUpdatedArguments(page, WTF::move(changeInfo)));
     });
     page.pageLoadState().addObserver(observer.get());
     bool controllerHasRules = userContentControllers().containsIf([&](auto& controller) {
@@ -1852,6 +1837,26 @@ void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
     dispatchEvent("tabs.onCreated"_s, WTF::move(arguments));
     if (!m_cookieObservers.isEmpty())
         updateCookieObservers();
+}
+
+Ref<JSON::Array> LegacyExtensionHost::tabUpdatedArguments(WebPageProxy& page, Ref<JSON::Object>&& changeInfo) const
+{
+    auto arguments = JSON::Array::create();
+    arguments->pushDouble(tabIDForPage(page));
+    arguments->pushObject(WTF::move(changeInfo));
+    arguments->pushObject(tabDescription(page));
+    return arguments;
+}
+
+void LegacyExtensionHost::tabHiddenDidChange(WebPageProxy& page, bool hidden)
+{
+    auto changeInfo = JSON::Object::create();
+    changeInfo->setBoolean("hidden"_s, hidden);
+    // Delivery runs a WebKit 1 page's listeners synchronously, so it waits for Safari's move or the
+    // extension's call to return.
+    RunLoop::mainSingleton().dispatch([arguments = tabUpdatedArguments(page, WTF::move(changeInfo))] mutable {
+        LegacyExtensionHost::singleton().dispatchEvent("tabs.onUpdated"_s, WTF::move(arguments));
+    });
 }
 
 void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
