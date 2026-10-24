@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# generate-acknowledgements.py -- write the Acknowledgements file that accompanies a distributed
-# build: AquaWebKitSupport/NOTICE, then the license text of everything the installed product contains.
+# generate-legal.py -- write the Legal file that accompanies a distributed build:
+# AquaWebKitSupport/NOTICE, then the license text of everything the installed product contains.
 #
 #   AquaWebKitSupport/toolchain/build/python3/bin/python3 \
-#       AquaWebKitSupport/scripts/generate-acknowledgements.py [output]
+#       AquaWebKitSupport/scripts/generate-legal.py [output]
 #
-# The output defaults to WebKitBuild/Release/Acknowledgements.txt. The texts come from:
+# The output defaults to WebKitBuild/Release/Legal.txt. The texts come from:
 #   - this port: AquaWebKitSupport/LICENSE and the polyfill layer's shared/LICENSE and APSL-2.0.txt;
 #   - WebKit: the license files under the Source/ directories the build compiles;
 #   - LLVM: toolchain/vendor/clang/LICENSE.TXT, for the C++ runtime in JavaScriptCore.framework;
@@ -32,10 +32,11 @@ TOOLCHAIN = os.path.join(SUPPORT, 'toolchain', 'build')
 LICENSE_NAME = re.compile(r'^(COPYING|LICEN[CS]E|COPYRIGHT|NOTICE|PATENTS|UNLICENSE)', re.IGNORECASE)
 
 # The libraries the product ships, by a pattern on their build_deps.sh URL, with any license file
-# below the top of their tarball. Every URL in build_deps.sh must match one of these, SHIPPED_FILES,
-# LICENSE_TEXTS or NOT_HERE.
+# below the top of their tarball, or source file whose opening comment carries its own notice.
+# Every URL in build_deps.sh must match one of these, SHIPPED_FILES, LICENSE_TEXTS, PART_OF or
+# NOT_HERE.
 SHIPPED = [
-    ('ICU', r'/icu4c-', []),
+    ('ICU', r'/apple-oss-distributions/ICU/', ['icu/LICENSE']),
     ('libgpg-error', r'/libgpg-error-', []),
     ('libgcrypt', r'/libgcrypt-', []),
     ('libtasn1', r'/libtasn1-', []),
@@ -63,8 +64,8 @@ SHIPPED = [
     ('Opus', r'/opus-', []),
     ('FLAC', r'/flac-', []),
     ('libvpx', r'/webmproject/libvpx/', []),
-    ('libxml2', r'/libxml2-', []),
-    ('libxslt', r'/libxslt-', []),
+    ('libxml2', r'/libxml2-', ['libxml2/Copyright', 'libxml2/dict.c', 'libxml2/hash.c', 'libxml2/list.c']),
+    ('libxslt', r'/libxslt-', ['libxslt/Copyright']),
     ('dav1d', r'/dav1d-', []),
     ('x264', r'/videolan/x264/', []),
     ('Fraunhofer FDK AAC', r'/mstorsjo/fdk-aac/', []),
@@ -77,6 +78,7 @@ SHIPPED = [
     ('GStreamer Bad Plugins', r'/gst-plugins-bad-', []),
     ('GStreamer Ugly Plugins (x264)', r'/gst-plugins-ugly-', []),
     ('GStreamer FFmpeg plug-in (gst-libav)', r'/gst-libav-', []),
+    ('GStreamer RTSP Server', r'/gst-rtsp-server-', []),
     ('FFmpeg', r'/ffmpeg-', []),
     ('libheif', r'/libheif-', []),
     ('Readability', r'/@mozilla/readability/', []),
@@ -88,6 +90,9 @@ SHIPPED_FILES = [
     ('Firefox Readerable.js', r'/toolkit/components/reader/Readerable\.js$', 'spdx-{MPL_TEXT_SPDX_RELEASE}-MPL-2.0.txt'),
     ('Chromium CDM interface headers', r'/chromium/cdm/', 'chromium-{CHROMIUM_LICENSE_TAG}-LICENSE'),
 ]
+# Files compiled into a library above, under the license text that library's section carries: ICU's
+# time zone update, whose terms are ICU's LICENSE.
+PART_OF = [r'/unicode-org/icu-data/']
 LICENSE_TEXTS = [r'/spdx/license-list-data/', r'/chromium/src/.*/LICENSE',
                 r'/sqlite/sqlite/.*/LICENSE\.md$']
 # Build tools, the layout tests' Apache, the zlib GLib finds on 10.9 instead, and the Meson build
@@ -104,7 +109,7 @@ RUST_PLUGIN = 'gst-plugin-closedcaption'
 
 
 def fail(message):
-    sys.exit('generate-acknowledgements: ' + message)
+    sys.exit('generate-legal: ' + message)
 
 
 def read(path):
@@ -157,7 +162,13 @@ def tarball_licenses(path, extras):
         relative = '/'.join(parts)
         if (len(parts) == 1 and LICENSE_NAME.match(parts[0])) \
                 or (len(parts) == 2 and parts[0] == 'LICENSES') or relative in extras:
-            texts.append((relative, subprocess.check_output(['tar', '-xOf', path, name]).decode('utf-8', 'replace')))
+            text = subprocess.check_output(['tar', '-xOf', path, name]).decode('utf-8', 'replace')
+            if relative.endswith('.c'):
+                header = re.match(r'/\*.*?\*/', text, re.DOTALL)
+                if not header:
+                    fail('%s in %s opens with no comment' % (relative, path))
+                text = header.group(0)
+            texts.append((relative, text))
             if relative in extras:
                 extras = [e for e in extras if e != relative]
     if extras:
@@ -171,7 +182,7 @@ def third_party_sections():
     _, variables = build_deps_script()
     found = {}
     for url in build_deps_urls():
-        if any(re.search(pattern, url) for pattern in NOT_HERE + LICENSE_TEXTS):
+        if any(re.search(pattern, url) for pattern in NOT_HERE + LICENSE_TEXTS + PART_OF):
             continue
         matches = [entry for entry in SHIPPED if is_tarball(url) and re.search(entry[1], url)]
         if matches:
@@ -181,7 +192,7 @@ def third_party_sections():
             continue
         matches = [entry for entry in SHIPPED_FILES if re.search(entry[1], url)]
         if not matches:
-            fail('%s matches nothing in SHIPPED, SHIPPED_FILES, LICENSE_TEXTS or NOT_HERE' % url)
+            fail('%s matches nothing in SHIPPED, SHIPPED_FILES, LICENSE_TEXTS, PART_OF or NOT_HERE' % url)
         name, _, license_name = matches[0]
         if name not in found:
             path = os.path.join(TARBALLS, license_name.format(**variables))
@@ -278,7 +289,7 @@ def rust_sections():
 
 
 def main():
-    output = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, 'WebKitBuild', 'Release', 'Acknowledgements.txt')
+    output = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, 'WebKitBuild', 'Release', 'Legal.txt')
     shared = os.path.join(SUPPORT, 'polyfill', 'polyfills', 'shared')
     sections = [('Aqua WebKit', [('AquaWebKitSupport/LICENSE', read(os.path.join(SUPPORT, 'LICENSE')))]),
                 ('Polyfill layer (MacPorts legacy support)', [('LICENSE', read(os.path.join(shared, 'LICENSE'))),
@@ -289,16 +300,16 @@ def main():
     sections += third_party_sections()
     sections += rust_sections()
 
-    rule = '=' * 78
-    out = [read(os.path.join(SUPPORT, 'NOTICE')).rstrip('\n')]
-    first_seen = {}
+    # Each distinct text once, headed by every file that carries it, in order of first appearance.
+    groups = {}
     for title, texts in sections:
         for label, text in texts:
-            heading = '%s -- %s' % (title, label)
             digest = hashlib.sha256(text.encode()).hexdigest()
-            body = text.rstrip('\n') if digest not in first_seen else '(The same text as "%s".)' % first_seen[digest]
-            first_seen.setdefault(digest, heading)
-            out += ['', rule, heading, rule, '', body]
+            groups.setdefault(digest, (text, []))[1].append('%s -- %s' % (title, label))
+    rule = '=' * 78
+    out = [read(os.path.join(SUPPORT, 'NOTICE')).rstrip('\n')]
+    for text, headings in groups.values():
+        out += ['', rule] + headings + [rule, '', text.rstrip('\n')]
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     with open(output, 'w') as f:
         f.write('\n'.join(out) + '\n')

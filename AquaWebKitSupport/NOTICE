@@ -1,32 +1,25 @@
-Aqua WebKit -- Acknowledgements
+Aqua WebKit -- Legal
 
-This product is Aqua WebKit, WebKit built for OS X 10.9 from the mavericks-backport
-branch of https://github.com/Wowfunhappy/WebKit, together with the third-party
-libraries whose licenses follow. That repository holds the source of WebKit, of this
-port's AquaWebKitSupport directory, and of the build scripts.
-AquaWebKitSupport/deps/build_deps.sh names the upstream release each third-party
-library is built from, and AquaWebKitSupport/deps/patches holds the changes applied
-to them.
+The source code for Aqua WebKit is available at https://github.com/Wowfunhappy/WebKit.
 
 LICENSES
 
-WebKit's source is under the GNU Lesser General Public License, version 2 or 2.1 (most
-of it with the option of any later version), and under other licenses, given below
-under "WebKit". This port's own source, including the Web Clip plug-in, is under the
-BSD 2-Clause license given first below. WebCore.framework contains libheif, which is
-under the GNU Lesser General Public License version 3. The LLVM license covers the C++
-runtime in JavaScriptCore.framework, and the Rust crates are those in the
-closed-caption GStreamer plug-in.
+Aqua WebKit's own source code, including the Web Clip plug-in, is distributed under the terms of the BSD 2-Clause License, reproduced below under "Aqua WebKit".
 
-COMBINED LIBRARIES
+WebKit is open source software with portions distributed under the terms of the GNU Lesser General Public License (LGPL), version 2 or 2.1, most of them with the option of any later version, and portions under the terms of BSD-style and other licenses, reproduced below under "WebKit".
 
-Each library in this product that is a work based on a library under the GNU Lesser
-General Public License -- JavaScriptCore, WebKit, WebKit2 and WebCore, and each LGPL
-library whose license text follows -- is combined into a single library with other
-library facilities: this port's polyfill layer (AquaWebKitSupport/polyfill in the source),
-part of which is under the Apple Public Source License 2.0, given below under "Polyfill
-layer". This notice is given under section 7 of the GNU Lesser General Public License
-version 2.1 and section 5 of version 3. The work based on each such library, uncombined
-with the polyfill layer, is available in source form: WebKit's in the repository above,
-and every other library's as its upstream release with the patches in
-AquaWebKitSupport/deps/patches.
+WebCore.framework includes libheif, which is distributed under the terms of the LGPL, version 3.
+
+JavaScriptCore.framework includes the LLVM C++ runtime (libc++ and libc++abi), which is distributed under the terms of the Apache License v2.0 with LLVM Exceptions.
+
+The closed-caption GStreamer plug-in includes the Rust crates listed below under "Rust crate".
+
+NOTICE OF COMBINED LIBRARIES
+
+This notice is given under section 7(b) of the LGPL, version 2.1, and section 5(b) of the LGPL, version 3.
+
+JavaScriptCore, WebKit, WebKit2, WebCore, and each other library in this product that is distributed under the terms of the LGPL are combined libraries. Part of each is a work based on a library distributed under the terms of the LGPL, and part is other library facilities: the Aqua WebKit polyfill layer (AquaWebKitSupport/polyfill in the source code). Part of the polyfill layer is distributed under the terms of the Apple Public Source License 2.0, reproduced below under "Polyfill layer".
+
+The uncombined form of each such work is available in source code form: for WebKit, from the repository above; for every other library, as its upstream release with the patches in AquaWebKitSupport/deps/patches.
+
+Aqua WebKit includes the following open source software.

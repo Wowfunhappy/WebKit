@@ -2125,7 +2125,7 @@ for h in content_decryption_module.h content_decryption_module_export.h content_
   cp "$f" "$DEST/include/cdm/$h" || exit 1
 done
 # The Chromium license the headers name, from Chromium's source at a pinned tag
-# (scripts/generate-acknowledgements.py reads it here).
+# (scripts/generate-legal.py reads it here).
 CHROMIUM_LICENSE_TAG=130.0.6723.0
 f="$SRC/chromium-$CHROMIUM_LICENSE_TAG-LICENSE"
 if [ ! -f "$f" ]; then
@@ -2168,7 +2168,7 @@ if [ ! -f "$f" ]; then
 fi
 cp "$f" "$DEST/include/readability/FirefoxReaderable.js" || exit 1
 # The MPL 2.0 text Readerable.js is under, from SPDX's license list at a pinned release
-# (scripts/generate-acknowledgements.py reads it here).
+# (scripts/generate-legal.py reads it here).
 MPL_TEXT_SPDX_RELEASE=v3.24.0
 f="$SRC/spdx-$MPL_TEXT_SPDX_RELEASE-MPL-2.0.txt"
 if [ ! -f "$f" ]; then

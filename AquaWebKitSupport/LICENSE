@@ -1,14 +1,9 @@
-This port's own work is under the license below: the files in this
-directory, and the files the port adds elsewhere in the repository, that
-carry no copyright notice of their own. These are excepted:
+Unless otherwise noted, the files in this directory, and the files Aqua WebKit adds elsewhere in this repository, are distributed under the terms of the BSD 2-Clause License below. The following exceptions apply:
 
-- A file that carries its own notice is under the terms that notice states,
-  and so are the port's changes to it.
-- A patch is under the license of the code it modifies.
-- A file in a directory with its own LICENSE, LICENSE.TXT, COPYING or
-  OFL.txt is under that file's terms.
-- A file restored from an earlier release of upstream WebKit is under the
-  terms it was released with there.
+- A file that carries its own copyright and license notice is distributed under the terms stated in that notice, as are Aqua WebKit's modifications to it.
+- A patch is distributed under the terms of the license of the code it modifies.
+- A file in a directory that contains its own LICENSE, LICENSE.TXT, COPYING or OFL.txt file is distributed under the terms of that file.
+- A file restored from an earlier release of upstream WebKit is distributed under the terms of the license it was released under.
 
 Copyright (C) 2026 Wowfunhappy. All rights reserved.
 

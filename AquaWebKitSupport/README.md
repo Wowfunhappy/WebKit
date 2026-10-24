@@ -25,7 +25,7 @@ AquaWebKitSupport/
 │  (top level = the things you invoke)
 ├── README.md                   this file
 ├── LICENSE                     the BSD 2-Clause license of this port's own files
-├── NOTICE                      the head of the Acknowledgements file (scripts/generate-acknowledgements.py)
+├── NOTICE                      the head of the Legal file (scripts/generate-legal.py)
 ├── bootstrap.sh                fresh-clone setup: toolchain, SDK patches, deps, polyfill archives
 ├── build.sh                    build: polyfill archives, ninja (configures on first run), stage, audits
 ├── install.sh                  installer: copy the staged product into the 10.9 system
@@ -44,7 +44,7 @@ AquaWebKitSupport/
 │                               check-backport-markers.sh (divergence gate),
 │                               check-public-headers.sh (run by hand: every shipped header compiles),
 │                               check-imageio-decode.sh (run by hand: no page bytes reach ImageIO),
-│                               generate-acknowledgements.py (run by hand: the license texts a distributed build needs),
+│                               generate-legal.py (run by hand: the license texts a distributed build needs),
 │                               build-log.sh and host-headers.sh (sourced: the one build log, and the 10.9 header probe),
 │                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py
 ├── polyfill/                   the polyfill layer -- see polyfill/README.md
