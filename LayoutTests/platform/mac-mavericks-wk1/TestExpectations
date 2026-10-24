@@ -2970,3 +2970,69 @@ webgl/1.0.x/conformance/ogles/GL/acos/acos_001_to_006.html [ Skip ]
 
 # Upstream records this test as flaky (webkit.org/b/186406): it counts layer flushes inside a 10 ms timer, which a third flush can reach.
 webkit.org/b/186406 compositing/iframes/display-none-subframe.html [ Skip ]
+
+# Maintainer scope decision 2026-09-15: pixel near misses of one level. clip-text-flex (2,703 pixels against a
+# 2,289-pixel allowance), clip-text-text-emphasis (5,321 against 5,100) and clip-path-inset-round-rendering (1,066
+# against 677) exceed only their fixtures' pixel counts; svg/text/reftests/opacity differs by one level across the
+# 200x50 translucent rectangle.
+imported/w3c/web-platform-tests/css/css-backgrounds/background-clip/clip-text-flex.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-backgrounds/background-clip/clip-text-text-emphasis.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-inset-round-rendering.html [ Skip ]
+imported/w3c/web-platform-tests/svg/text/reftests/opacity.svg [ Skip ]
+
+# Maintainer scope decision 2026-09-15: pixel near misses at antialiased edges. DumpRenderTree captures these
+# composited pages from the window server; the 3D-transformed edges differ from their references by two levels at
+# 199 pixels (transform3d-perspective-003/004), by 103 levels against the fixture's 102-level allowance
+# (outermost-svg-directly-composited-shape-child), and by 14 levels at 168 pixels against an allowance of 20 levels
+# at 80 pixels (transform-3d-rotateY-stair-below-001).
+imported/w3c/web-platform-tests/css/css-transforms/transform3d-perspective-003.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-transforms/transform3d-perspective-004.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-transforms/transform-3d-rotateY-stair-below-001.xht [ Skip ]
+svg/compositing/outermost-svg-directly-composited-shape-child.html [ Skip ]
+
+# Upstream Apple WK1 records this fixture at 58c630a^ mac-wk1:2855 (webkit.org/b/260320).
+webkit.org/b/260320 imported/w3c/web-platform-tests/css/css-backgrounds/background-clip-content-box-002.html [ Skip ]
+
+# WebDynamicScrollBarsView's -updateScrollers adds 15 to a negative document bounds origin when it removes the first
+# layout's vertical scroller; with viewport-relative overflow the relayout leaves WebCore's scroll origin unchanged, so
+# ScrollView::setScrollOrigin never resends it and the horizontal knob stays 15 pixels of scroll short of the end. The
+# content is identical. Upstream Apple WK1 records -013 at 58c630a^ mac-wk1:2420 (webkit.org/b/214291); -001 and -004
+# were recorded failing for every port (58c630a^ TestExpectations:5110-5111, webkit.org/b/209080) until 467edd7, after
+# WK1 testing ended.
+webkit.org/b/214291 imported/w3c/web-platform-tests/css/css-writing-modes/sizing-orthog-htb-in-vrl-001.xht [ Skip ]
+webkit.org/b/214291 imported/w3c/web-platform-tests/css/css-writing-modes/sizing-orthog-htb-in-vrl-004.xht [ Skip ]
+webkit.org/b/214291 imported/w3c/web-platform-tests/css/css-writing-modes/sizing-orthog-htb-in-vrl-013.xht [ Skip ]
+
+# Upstream records these on Apple's iOS port (platform/ios:4792-4793) and GTK (platform/gtk:1100-1101), and Apple WK1
+# skipped css/filter-effects at 58c630a^ mac-wk1:3005: the absolutely positioned children of a static filtered element
+# paint outside the non-composited scroller. WebKit composites the scroller.
+imported/w3c/web-platform-tests/css/filter-effects/filtered-block-is-container.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/filtered-inline-is-container.html [ Skip ]
+
+# Each inline box of a shaping range is painted clipped to its fractional edges, and CoreGraphics gives the shared
+# edge pixel partial coverage from both boxes. Upstream's WK1 bots passed these only with the fuzzy allowances that
+# ae520534 (shaping-*: 62 levels at 28, 56 and 10 pixels) and 7403e77 (boundary-shaping-010: 59 at 15) added for this
+# seam; the WPT resync 50995a5 dropped them after WK1 testing ended. letter-spacing-ligatures-005 keeps upstream's 4/9
+# allowance and measures 14/21 with 10.9's Arabic system font. WebKit draws through Core Animation, which assigns each
+# pixel to one box.
+imported/w3c/web-platform-tests/css/css-text/shaping/shaping-000.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/shaping/shaping-004.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/shaping/shaping-005.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/shaping/shaping-006.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/shaping/shaping-007.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/shaping/shaping_lig-000.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/boundary-shaping/boundary-shaping-010.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-text/letter-spacing/letter-spacing-ligatures-005.html [ Skip ]
+
+# Maintainer scope decision 2026-09-23 (inherent 10.9 behaviour): drawn by 10.9's CoreGraphics into a bitmap, the
+# rounded border-image tiles' diamond edges differ from the reference by 38 levels at 1,344 pixels against the
+# fixture's 20-level allowance. WebKitTestRunner with AcceleratedDrawingEnabled=false measures the same 38 levels
+# at 1,344 pixels; its Core Animation drawing stays within the allowance.
+imported/w3c/web-platform-tests/css/css-backgrounds/border-image-repeat-round.html [ Skip ]
+
+# The test waits for internals.workerThreadCount to equal 1. fast/canvas/offscreen-nested-worker-serialization.html,
+# when it runs earlier in the same DumpRenderTree, leaves its outer and nested WorkerThreads alive: upstream's
+# WorkerMessagingProxy posts the nested worker's lifecycle tasks to the terminating outer worker as ordinary tasks,
+# which its run loop drops, so WorkerOrWorkletThread's deferred destroy never runs (identical on WebKit main).
+# WebKit runs each test in a fresh web process.
+fast/workers/worker-terminate-forever.html [ Skip ]

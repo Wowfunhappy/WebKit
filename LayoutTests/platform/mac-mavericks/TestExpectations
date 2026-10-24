@@ -781,6 +781,15 @@ webkit.org/b/278914 imported/w3c/web-platform-tests/html/semantics/embedded-cont
 webkit.org/b/311050 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/playing-the-media-resource/fragmented-mp4-end.html [ Skip ]
 webkit.org/b/256782 imported/w3c/web-platform-tests/mediacapture-streams/MediaStream-MediaElement-preload-none.https.html [ Skip ]
 
+# platform/glib:4453 records this test [ Pass Timeout ] on the GStreamer ports.
+webkit.org/b/312714 media/media-source/media-source-webm-configuration-framerate.html [ Skip ]
+
+# Upstream records this as a flaky text failure on mac-wk2 (platform/mac-wk2:2114, webkit.org/b/306821): the runner
+# dumps before the body's onload handler runs. FrameLoader's zero-delay check timer can complete the main frame
+# through checkLoadComplete() after the document's last load-event delay is released but before its own
+# loadEventDelayTimer runs checkCompleted(), so didFinishLoad precedes the load event.
+webkit.org/b/306821 fast/css-grid-layout/grid-item-display.html [ Skip ]
+
 # This mixed action-handler test requires native voice activity detection, which 10.9 lacks.
 imported/w3c/web-platform-tests/mediasession/setactionhandler.html [ Skip ]
 
@@ -1275,6 +1284,32 @@ fast/text/glyph-display-lists/glyph-display-list-sharing-colr.html [ Skip ]
 
 # Maintainer scope decision 2026-09-15: pixel-noise near misses (one level, or 4 against a tolerance of 3 per channel).
 fast/text/empty-shadow.html [ Skip ]
+
+# Maintainer scope decision 2026-09-15: pixel near miss. effect-brightness differs by one level at 26,400 pixels.
+css3/filters/effect-brightness.html [ Skip ]
+
+# The fixture's clipped, 50x-scaled editable element includes Mavericks' native focus ring;
+# its reference contains only a solid green rectangle.
+css3/color-filters/color-filter-caret-color.html [ ImageOnlyFailure ]
+
+# The reference approximates the easing extremum; Mavericks exceeds its fuzzy pixel-count allowance.
+imported/w3c/web-platform-tests/css/css-masking/clip-path/animations/clip-path-animation-custom-timing-function.html [ ImageOnlyFailure ]
+
+# Equivalent perspective function/property paths differ by one level at one to three edge pixels.
+imported/w3c/web-platform-tests/css/css-transforms/transform3d-perspective-001.html [ ImageOnlyFailure ]
+
+# Text-mask composition differs from direct glyph filling by one level, exceeding the fuzzy pixel-count allowance.
+imported/w3c/web-platform-tests/css/css-backgrounds/background-clip/clip-text-multiline-background-image.html [ ImageOnlyFailure ]
+
+# Marker viewport clipping and the reference's explicit clip paths rasterize fractional boundaries differently.
+imported/w3c/web-platform-tests/svg/painting/marker-005.svg [ ImageOnlyFailure ]
+
+# The blend regions match their references exactly. Sixteen or seventeen pixels in the identical explanatory
+# paragraph differ by one grayscale level, exceeding the fixtures' ten-pixel fuzzy allowance.
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-canvas-parent.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-canvas-sibling.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-iframe-parent.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/compositing/mix-blend-mode/mix-blend-mode-iframe-sibling.html [ ImageOnlyFailure ]
 
 # Maintainer scope decision 2026-09-15: pixel near misses. Every differing source-image channel is
 # within one level: canvas-scale-shadowBlur's sampled shadow edge is alpha 4 vs 5;
