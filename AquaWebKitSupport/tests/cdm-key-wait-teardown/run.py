@@ -21,13 +21,18 @@ def compile_arguments():
             continue
         if not source.is_file() or 'CDMProxy.cpp' not in source.read_text():
             continue
-        args = iter(shlex.split(entry['command'])[1:])
+        args = shlex.split(entry['command'])[1:]
         result = []
-        for arg in args:
-            if arg == '-o':
-                next(args)
-            elif arg not in ('-c', entry['file']):
-                result.append(arg)
+        i = 0
+        while i < len(args):
+            if args[i] == '-o':
+                i += 2
+            elif args[i] == '-Xclang' and args[i + 1] in ('-include', '-include-pch'):
+                i += 4
+            else:
+                if args[i] not in ('-c', entry['file']):
+                    result.append(args[i])
+                i += 1
         return result
     raise RuntimeError('CDMProxy.cpp compile command not found; configure the main build first')
 

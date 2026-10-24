@@ -64,6 +64,7 @@ CLEANUP=$(sed -n '/^trap .*TAKEOVER_MARKER/p' "$BUILD_SCRIPT")
 if (
     TAKEOVER_MARKER="$WORK/marker"
     touch "$TAKEOVER_MARKER"
+    release_products_lock() { :; }
     build_log_report() { printf '%s\n' "$1" > "$WORK/report-status"; }
     eval "$CLEANUP"
     exit 7
