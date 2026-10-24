@@ -44,6 +44,20 @@
 (allow file-read*
     (home-literal "/Library/Cookies"))
 
+;; Change crumbs for the cookied jars this process opens. CFNetwork names a jar's crumb segment by
+;; its identifier, cut to the last 30 bytes when longer (Crumbery::Crumbery), so the base profile's
+;; FNetwork.defaultStorageSession is the default jar's. An application's own jar and the CHIPS
+;; companions end in a SHA-256 hex digest, NetworkProcess::addStorageSession's sessions in a UUID.
+(allow ipc-posix-shm-read-data
+    (ipc-posix-name-regex #"^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$")
+    (ipc-posix-name-regex #"^[0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$"))
+
+;; Name resolution. libcurl resolves hosts with getaddrinfo() in this process, which reads
+;; /etc/hosts; upstream's current profile grants it, and the base profile misspells it
+;; "/private/etc/host".
+(allow file-read*
+    (literal "/private/etc/hosts"))
+
 ;; ---------------------------------------------------------------------------------------------------
 ;; Everything below narrows the base profile to what upstream's current Networking profile allows
 ;; (NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in), in this OS's terms.
@@ -54,9 +68,7 @@
 (deny file-write*
     (subpath "/private/var/db/mds"))
 
-;; Network statistics, routing sockets and power management, which upstream denies.
-(deny network-outbound
-    (control-name "com.apple.network.statistics"))
+;; Routing sockets and power management, which upstream denies.
 (deny system-socket
     (socket-domain AF_ROUTE))
 (deny mach-lookup

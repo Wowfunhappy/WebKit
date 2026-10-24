@@ -163,7 +163,8 @@ downloading.
 On 10.9 every app's web views share Safari's cookies, through the system's account-wide cookie jar. An
 app whose defaults turn `AquaWebKitUsesSystemCookieJar` off keeps its own jar for its web views instead:
 the one the system's cookie daemon keeps under the app's bundle identifier (the process name for a
-command-line tool), `~/Library/Cookies/<bundle identifier>.binarycookies`:
+command-line tool) and its SHA-256 digest,
+`~/Library/Cookies/<bundle identifier>.<digest>.binarycookies`:
 
     defaults write com.example.App AquaWebKitUsesSystemCookieJar -bool false
 

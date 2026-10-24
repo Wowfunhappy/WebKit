@@ -540,6 +540,7 @@ static WKCookieChangeSubscription *wk_existingCookieSubscription(CFHTTPCookieSto
 static NSHTTPCookieStorage *wk_sharedCookieStorageOverride;
 
 static void wk_registerCookieNotifications(NSHTTPCookieStorage *);
+static NSString *wk_cookieIdentifierDigest(NSData *);
 
 @interface NSHTTPCookieStorage (WKApplicationCookieStorage)
 - (id)_initWithIdentifier:(NSString *)identifier private:(BOOL)isPrivate;
@@ -547,8 +548,10 @@ static void wk_registerCookieNotifications(NSHTTPCookieStorage *);
 
 // The jar WebKit uses as an application's default: the account jar Safari uses, or, when the
 // application's own defaults domain turns AquaWebKitUsesSystemCookieJar off, the persistent jar cookied
-// keeps under the application's bundle identifier (its process name without one). The application's own
-// calls to the cookie APIs keep the account jar either way.
+// keeps under the application's bundle identifier (its process name without one) followed by that name's
+// SHA-256 digest. CFNetwork names a jar's change-crumb segment by the last 30 bytes of its identifier, and
+// the Networking process's sandbox grants those hex names. The application's own calls to the cookie APIs
+// keep the account jar either way.
 static BOOL wk_applicationUsesSystemCookieJar(void)
 {
     CFPropertyListRef value = CFPreferencesCopyValue(CFSTR("AquaWebKitUsesSystemCookieJar"), kCFPreferencesCurrentApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
@@ -570,7 +573,8 @@ static NSHTTPCookieStorage *wk_applicationCookieStorage(void)
     dispatch_once(&once, ^{
         if (wk_applicationUsesSystemCookieJar())
             return;
-        NSString *identifier = [[NSBundle mainBundle] bundleIdentifier] ?: [[NSProcessInfo processInfo] processName];
+        NSString *name = [[NSBundle mainBundle] bundleIdentifier] ?: [[NSProcessInfo processInfo] processName];
+        NSString *identifier = [NSString stringWithFormat:@"%@.%@", name, wk_cookieIdentifierDigest([name dataUsingEncoding:NSUTF8StringEncoding])];
         storage = [[NSHTTPCookieStorage alloc] _initWithIdentifier:identifier private:NO];
         wk_registerCookieNotifications(storage);
     });
