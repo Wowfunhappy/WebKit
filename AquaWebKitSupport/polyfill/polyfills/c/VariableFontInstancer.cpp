@@ -8,9 +8,10 @@
 // the pinned axis coordinates, compute each tuple's scalar, apply the interpolated per-point
 // deltas (including IUP inference for unreferenced points and the four phantom points) to every
 // glyph, then reassemble a static sfnt with rebuilt glyf/loca/hmtx/head/hhea and the variation
-// tables dropped.
+// tables dropped. A font whose outlines are a CFF2 table is cut the same way into one with a CFF
+// table (see the CFF2 section).
 //
-// Everything but the three C entry points at the bottom has internal linkage: this object is
+// Everything but the C entry points at the bottom has internal linkage: this object is
 // force-loaded into every shipped WebKit binary as part of libpolyfill.a, and nothing outside
 // CoreText.c has any business calling into it.
 #include "VariableFontInstancer.h"
@@ -19,9 +20,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <optional>
-#include <pthread.h>
 #include <string>
 #include <utility>
 #include <vector>
@@ -236,8 +237,8 @@ static std::optional<ParsedSfnt> parseSfnt(CFDataRef input)
     sfnt.whole = Reader(CFDataGetBytePtr(input), CFDataGetLength(input));
     Reader header = sfnt.whole;
     sfnt.sfntVersion = header.u32();
-    // Only single TrueType-outline sfnts (0x00010000 / 'true'). Collections ('ttcf') and CFF ('OTTO') are not handled.
-    if (sfnt.sfntVersion != 0x00010000 && sfnt.sfntVersion != 0x74727565)
+    // Single sfnts with TrueType outlines (0x00010000 / 'true') or CFF-family outlines ('OTTO'); collections ('ttcf') are not handled.
+    if (sfnt.sfntVersion != 0x00010000 && sfnt.sfntVersion != 0x74727565 && sfnt.sfntVersion != 0x4F54544F)
         return std::nullopt;
     uint16_t numTables = header.u16();
     header.skip(6);
@@ -543,6 +544,48 @@ public:
                 ends[axis] = regions.f2dot14();
             }
             m_scalars.push_back(tupleScalar(coords, peaks, &starts, &ends));
+        }
+        return true;
+    }
+
+    // The axis count of the store's region list, for a caller with no coordinates of its own.
+    std::optional<uint16_t> axisCount() const
+    {
+        Reader store = m_reader;
+        store.u16(); // format
+        uint32_t regionOffset = store.u32();
+        if (store.failed() || !regionOffset || regionOffset > store.size())
+            return std::nullopt;
+        Reader regions = store.slice(regionOffset, store.size() - regionOffset);
+        uint16_t axes = regions.u16();
+        return regions.failed() ? std::nullopt : std::optional<uint16_t>(axes);
+    }
+
+    // The scalars of the regions ItemVariationData `dataIndex` weights its deltas by, in its region-index
+    // order. A NULL ItemVariationData has no regions.
+    bool dataScalars(uint32_t dataIndex, std::vector<float>& scalars) const
+    {
+        if (dataIndex >= m_dataCount)
+            return false;
+        Reader store = m_reader;
+        store.seek(8 + size_t(dataIndex) * 4);
+        uint32_t dataOffset = store.u32();
+        scalars.clear();
+        if (store.failed() || dataOffset > store.size())
+            return false;
+        if (!dataOffset)
+            return true;
+        Reader data = store.slice(dataOffset, store.size() - dataOffset);
+        data.skip(4); // itemCount, wordDeltaCount
+        uint16_t regionIndexCount = data.u16();
+        if (data.failed() || !data.bytesAt(6, size_t(regionIndexCount) * 2))
+            return false;
+        scalars.resize(regionIndexCount);
+        for (uint16_t i = 0; i < regionIndexCount; ++i) {
+            uint16_t region = data.u16();
+            if (region >= m_scalars.size())
+                return false;
+            scalars[i] = m_scalars[region];
         }
         return true;
     }
@@ -1173,10 +1216,10 @@ struct BBox {
     int32_t xMin { 0 }, yMin { 0 }, xMax { 0 }, yMax { 0 };
     bool valid { false };
 
-    void add(float x, float y)
+    void add(float x, float y) { addPoint(int32_t(std::lround(x)), int32_t(std::lround(y))); }
+
+    void addPoint(int32_t xi, int32_t yi)
     {
-        int32_t xi = int32_t(std::lround(x));
-        int32_t yi = int32_t(std::lround(y));
         if (!valid) {
             xMin = xMax = xi;
             yMin = yMax = yi;
@@ -1503,6 +1546,390 @@ static bool computeGlyphDeltas(const GvarHeader& gvarHeader, Reader gvarTable, u
         }
     }
     return !data.failed();
+}
+
+// Variation deltas a GPOS or GDEF table carries in VariationIndex device tables -- variable kerning,
+// placement, anchors and ligature carets -- folded into the values they adjust at the instance, with the
+// device offsets cleared. A ValueRecord's hinting device tables are cleared too: 10.9 lays a record that
+// has one out without any of its value (measured: an A-V kern of -100 with a 20 ppem device applies at no
+// size). Every subtable, PairSet, anchor and caret value is folded once, however many records share it.
+class LayoutDeltaFolder {
+public:
+    LayoutDeltaFolder(std::vector<uint8_t>& bytes, const ItemVariationStore& store)
+        : m_bytes(bytes)
+        , m_store(store)
+        , m_visited(bytes.size(), false)
+    {
+    }
+
+    bool foldGPOS()
+    {
+        uint16_t lookupListOffset = u16(8);
+        if (m_failed || !lookupListOffset)
+            return !m_failed;
+        size_t lookupList = lookupListOffset;
+        uint16_t lookupCount = u16(lookupList);
+        for (uint16_t i = 0; i < lookupCount && !m_failed; ++i) {
+            size_t lookup = lookupList + u16(lookupList + 2 + size_t(i) * 2);
+            uint16_t type = u16(lookup);
+            uint16_t subtableCount = u16(lookup + 4);
+            for (uint16_t j = 0; j < subtableCount && !m_failed; ++j)
+                foldSubtable(type, lookup + u16(lookup + 6 + size_t(j) * 2), 0);
+        }
+        return !m_failed;
+    }
+
+    bool foldGDEF()
+    {
+        size_t list = u16(8);
+        uint16_t ligGlyphCount = list ? u16(list + 2) : 0;
+        for (uint16_t i = 0; i < ligGlyphCount && !m_failed; ++i) {
+            size_t ligGlyph = list + u16(list + 4 + size_t(i) * 2);
+            uint16_t caretCount = u16(ligGlyph);
+            for (uint16_t j = 0; j < caretCount && !m_failed; ++j) {
+                size_t caret = ligGlyph + u16(ligGlyph + 2 + size_t(j) * 2);
+                if (u16(caret) != 3 || !firstVisit(caret))
+                    continue;
+                // Format 3: coordinate, then a device offset from the caret value.
+                foldCoordinate(caret + 2, caret, caret + 4);
+            }
+        }
+        // Every VariationIndex now folded, GDEF's item variation store is referenced by nothing, and its
+        // regions name axes the instance no longer has.
+        if (!m_failed && u16(2) >= 3) {
+            setU16(14, 0);
+            setU16(16, 0);
+        }
+        return !m_failed;
+    }
+
+private:
+    uint16_t u16(size_t offset)
+    {
+        if (offset > m_bytes.size() || m_bytes.size() - offset < 2) {
+            m_failed = true;
+            return 0;
+        }
+        return uint16_t(m_bytes[offset] << 8 | m_bytes[offset + 1]);
+    }
+
+    void setU16(size_t offset, uint16_t value)
+    {
+        if (offset > m_bytes.size() || m_bytes.size() - offset < 2) {
+            m_failed = true;
+            return;
+        }
+        m_bytes[offset] = uint8_t(value >> 8);
+        m_bytes[offset + 1] = uint8_t(value);
+    }
+
+    // Whether `count` items of `stride` bytes from `start` lie inside the table.
+    bool fits(size_t start, uint64_t count, size_t stride)
+    {
+        if (start > m_bytes.size() || count * stride > m_bytes.size() - start) {
+            m_failed = true;
+            return false;
+        }
+        return true;
+    }
+
+    bool firstVisit(size_t offset)
+    {
+        if (offset >= m_visited.size()) {
+            m_failed = true;
+            return false;
+        }
+        if (m_visited[offset])
+            return false;
+        m_visited[offset] = true;
+        return true;
+    }
+
+    // The delta of the device table at `device`, or nothing when it is not a VariationIndex table.
+    std::optional<int32_t> variationDelta(size_t device)
+    {
+        uint16_t outer = u16(device);
+        uint16_t inner = u16(device + 2);
+        if (m_failed || u16(device + 4) != 0x8000)
+            return std::nullopt;
+        auto delta = m_store.delta(uint32_t(outer) << 16 | inner);
+        if (!delta) {
+            m_failed = true;
+            return std::nullopt;
+        }
+        return int32_t(std::floor(*delta + 0.5));
+    }
+
+    void addTo(size_t valueOffset, int32_t delta)
+    {
+        int32_t value = int16_t(u16(valueOffset)) + delta;
+        setU16(valueOffset, uint16_t(clampToInt16(value)));
+    }
+
+    // A coordinate at `value` with its device offset at `deviceOffset`, relative to `base`.
+    void foldCoordinate(size_t value, size_t base, size_t deviceOffset)
+    {
+        uint16_t offset = u16(deviceOffset);
+        if (m_failed || !offset)
+            return;
+        if (auto delta = variationDelta(base + offset)) {
+            addTo(value, *delta);
+            setU16(deviceOffset, 0);
+        }
+    }
+
+    void foldAnchor(size_t base, uint16_t offset)
+    {
+        if (!offset)
+            return;
+        size_t anchor = base + offset;
+        if (u16(anchor) != 3 || !firstVisit(anchor))
+            return;
+        foldCoordinate(anchor + 2, anchor, anchor + 6);
+        foldCoordinate(anchor + 4, anchor, anchor + 8);
+        // With both devices cleared, the anchor is a format 1 one; its unused device offsets stay behind.
+        if (!m_failed && !u16(anchor + 6) && !u16(anchor + 8))
+            setU16(anchor, 1);
+    }
+
+    static size_t valueRecordSize(uint16_t format)
+    {
+        size_t fields = 0;
+        for (uint16_t bit = 1; bit <= 0x80; bit <<= 1)
+            fields += (format & bit) ? 1 : 0;
+        return fields * 2;
+    }
+
+    // The ValueRecords of one value-format slot of a subtable, each with the table its device offsets
+    // are relative to.
+    struct ValueRecordRef {
+        size_t record;
+        size_t parent;
+    };
+
+    // Folds the records of one slot and rewrites the subtable's ValueFormat at `formatOffset`. Each device
+    // field the format has without its base field becomes that base field, so every record keeps its size;
+    // the rule reads the format alone, so subtables sharing PairSets agree on their layout. Only records not
+    // folded through another subtable are in `records`.
+    void foldValueRecords(size_t formatOffset, const std::vector<ValueRecordRef>& records)
+    {
+        uint16_t format = u16(formatOffset);
+        if (m_failed || !(format & 0xF0))
+            return;
+        auto fieldPosition = [](uint16_t format, uint16_t bit) {
+            size_t index = 0;
+            for (uint16_t b = 1; b < bit; b <<= 1)
+                index += (format & b) ? 1 : 0;
+            return index * 2;
+        };
+        uint16_t newFormat = format;
+        for (uint16_t device = 0x10; device <= 0x80; device <<= 1) {
+            uint16_t base = device >> 4;
+            if ((format & device) && !(format & base))
+                newFormat = uint16_t((newFormat & ~device) | base);
+        }
+        int32_t values[8];
+        for (const auto& ref : records) {
+            for (unsigned field = 0; field < 8; ++field) {
+                uint16_t bit = uint16_t(1 << field);
+                values[field] = (format & bit) ? (field < 4 ? int32_t(int16_t(u16(ref.record + fieldPosition(format, bit)))) : int32_t(u16(ref.record + fieldPosition(format, bit)))) : 0;
+            }
+            for (unsigned field = 4; field < 8; ++field) {
+                if (!values[field])
+                    continue;
+                if (auto delta = variationDelta(ref.parent + uint32_t(values[field])))
+                    values[field - 4] += *delta;
+                values[field] = 0;
+            }
+            for (unsigned field = 0; field < 8; ++field) {
+                uint16_t bit = uint16_t(1 << field);
+                if (newFormat & bit)
+                    setU16(ref.record + fieldPosition(newFormat, bit), uint16_t(field < 4 ? clampToInt16(values[field]) : values[field]));
+            }
+        }
+        setU16(formatOffset, newFormat);
+    }
+
+    void foldSubtable(uint16_t type, size_t subtable, int depth)
+    {
+        if (m_failed || !firstVisit(subtable))
+            return;
+        uint16_t format = u16(subtable);
+        switch (type) {
+        case 1: { // SinglePos
+            uint16_t valueFormat = u16(subtable + 4);
+            size_t size = valueRecordSize(valueFormat);
+            std::vector<ValueRecordRef> records;
+            if (format == 1)
+                records.push_back({ subtable + 6, subtable });
+            else if (format == 2) {
+                uint16_t count = u16(subtable + 6);
+                if (!fits(subtable + 8, count, size))
+                    return;
+                for (uint16_t i = 0; i < count; ++i)
+                    records.push_back({ subtable + 8 + size_t(i) * size, subtable });
+            }
+            foldValueRecords(subtable + 4, records);
+            break;
+        }
+        case 2: { // PairPos
+            uint16_t format1 = u16(subtable + 4);
+            uint16_t format2 = u16(subtable + 6);
+            size_t size1 = valueRecordSize(format1);
+            size_t size2 = valueRecordSize(format2);
+            std::vector<ValueRecordRef> first, second;
+            if (format == 1) {
+                uint16_t pairSetCount = u16(subtable + 8);
+                for (uint16_t i = 0; i < pairSetCount && !m_failed; ++i) {
+                    size_t pairSet = subtable + u16(subtable + 10 + size_t(i) * 2);
+                    if (!firstVisit(pairSet))
+                        continue;
+                    uint16_t pairCount = u16(pairSet);
+                    if (!fits(pairSet + 2, pairCount, 2 + size1 + size2))
+                        return;
+                    for (uint16_t j = 0; j < pairCount; ++j) {
+                        size_t record = pairSet + 2 + size_t(j) * (2 + size1 + size2);
+                        first.push_back({ record + 2, pairSet });
+                        second.push_back({ record + 2 + size1, pairSet });
+                    }
+                }
+            } else if (format == 2) {
+                uint16_t class1Count = u16(subtable + 12);
+                uint16_t class2Count = u16(subtable + 14);
+                if (!fits(subtable + 16, uint64_t(class1Count) * class2Count, size1 + size2))
+                    return;
+                for (uint32_t i = 0; i < uint32_t(class1Count) * class2Count; ++i) {
+                    size_t record = subtable + 16 + size_t(i) * (size1 + size2);
+                    first.push_back({ record, subtable });
+                    second.push_back({ record + size1, subtable });
+                }
+            }
+            foldValueRecords(subtable + 4, first);
+            foldValueRecords(subtable + 6, second);
+            break;
+        }
+        case 3: { // CursivePos
+            uint16_t count = u16(subtable + 4);
+            for (uint16_t i = 0; i < count && !m_failed; ++i) {
+                foldAnchor(subtable, u16(subtable + 6 + size_t(i) * 4));
+                foldAnchor(subtable, u16(subtable + 8 + size_t(i) * 4));
+            }
+            break;
+        }
+        case 4: // MarkBasePos
+        case 6: { // MarkMarkPos
+            uint16_t classCount = u16(subtable + 6);
+            foldMarkArray(subtable + u16(subtable + 8));
+            size_t array = subtable + u16(subtable + 10);
+            uint16_t count = u16(array);
+            if (!fits(array + 2, uint64_t(count) * classCount, 2))
+                return;
+            for (uint32_t i = 0; i < uint32_t(count) * classCount && !m_failed; ++i)
+                foldAnchor(array, u16(array + 2 + size_t(i) * 2));
+            break;
+        }
+        case 5: { // MarkLigPos
+            uint16_t classCount = u16(subtable + 6);
+            foldMarkArray(subtable + u16(subtable + 8));
+            size_t ligatureArray = subtable + u16(subtable + 10);
+            uint16_t ligatureCount = u16(ligatureArray);
+            for (uint16_t i = 0; i < ligatureCount && !m_failed; ++i) {
+                size_t attach = ligatureArray + u16(ligatureArray + 2 + size_t(i) * 2);
+                uint16_t componentCount = u16(attach);
+                if (!fits(attach + 2, uint64_t(componentCount) * classCount, 2))
+                    return;
+                for (uint32_t j = 0; j < uint32_t(componentCount) * classCount && !m_failed; ++j)
+                    foldAnchor(attach, u16(attach + 2 + size_t(j) * 2));
+            }
+            break;
+        }
+        case 9: // Extension
+            if (format == 1 && depth < 1) {
+                uint16_t extensionType = u16(subtable + 2);
+                uint32_t offset = uint32_t(u16(subtable + 4)) << 16 | u16(subtable + 6);
+                if (extensionType != 9)
+                    foldSubtable(extensionType, subtable + offset, depth + 1);
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    void foldMarkArray(size_t array)
+    {
+        uint16_t count = u16(array);
+        for (uint16_t i = 0; i < count && !m_failed; ++i)
+            foldAnchor(array, u16(array + 4 + size_t(i) * 4));
+    }
+
+    std::vector<uint8_t>& m_bytes;
+    const ItemVariationStore& m_store;
+    std::vector<bool> m_visited;
+    bool m_failed { false };
+};
+
+// A GSUB, GPOS or GDEF table at the instance: FeatureVariations resolved, and the VariationIndex deltas
+// GDEF's item variation store holds folded into GPOS values and GDEF caret values.
+static bool instanceLayoutTable(const ParsedSfnt& sfnt, uint32_t tag, std::vector<uint8_t>& bytes, const std::vector<float>& coords)
+{
+    constexpr uint32_t gsubTag = tagFor('G', 'S', 'U', 'B');
+    constexpr uint32_t gposTag = tagFor('G', 'P', 'O', 'S');
+    constexpr uint32_t gdefTag = tagFor('G', 'D', 'E', 'F');
+    if ((tag == gsubTag || tag == gposTag) && !instanceLayoutFeatures(bytes, coords))
+        return false;
+    if ((tag != gposTag && tag != gdefTag) || !sfnt.find(gdefTag))
+        return true;
+    Reader gdef = sfnt.tableReader(gdefTag);
+    uint32_t version = gdef.u32();
+    if (gdef.failed() || version < 0x00010003)
+        return true;
+    gdef.seek(14);
+    uint32_t storeOffset = gdef.u32();
+    if (gdef.failed() || storeOffset > gdef.size())
+        return false;
+    if (!storeOffset)
+        return true;
+    ItemVariationStore store(gdef.slice(storeOffset, gdef.size() - storeOffset));
+    std::vector<float> at = coords;
+    if (at.empty()) {
+        auto axisCount = store.axisCount();
+        if (!axisCount)
+            return false;
+        at.assign(*axisCount, 0);
+    }
+    if (!store.initialize(at))
+        return false;
+    LayoutDeltaFolder folder(bytes, store);
+    return tag == gposTag ? folder.foldGPOS() : folder.foldGDEF();
+}
+
+// Reflects a pinned instance in OS/2's weight and width classes, so font traits match the outlines.
+static void applyPinnedClasses(std::vector<uint8_t>& os2, const std::vector<LegacyVariableFontAxis>& axes, const std::vector<double>& pinnedDesignValues)
+{
+    if (os2.size() < 8)
+        return;
+    auto writeBE16At = [&](size_t offset, uint16_t v) {
+        os2[offset] = uint8_t(v >> 8);
+        os2[offset + 1] = uint8_t(v);
+    };
+    for (size_t i = 0; i < axes.size() && i < pinnedDesignValues.size(); ++i) {
+        if (axes[i].tag == tagFor('w', 'g', 'h', 't'))
+            writeBE16At(4, uint16_t(std::min(1000.0, std::max(1.0, pinnedDesignValues[i]))));
+        else if (axes[i].tag == tagFor('w', 'd', 't', 'h')) {
+            static constexpr float widthClassPercentages[] = { 50, 62.5, 75, 87.5, 100, 112.5, 125, 150, 200 };
+            uint16_t widthClass = 5;
+            float best = 1e9;
+            for (uint16_t c = 0; c < 9; ++c) {
+                float distance = std::abs(pinnedDesignValues[i] - widthClassPercentages[c]);
+                if (distance < best) {
+                    best = distance;
+                    widthClass = c + 1;
+                }
+            }
+            writeBE16At(6, widthClass);
+        }
+    }
 }
 
 struct InstancedGlyph {
@@ -1875,36 +2302,11 @@ CFDataRef Instancer::assemble()
             break;
         }
         default:
-            if (table.tag == tagFor('O', 'S', '/', '2') && copy.size() >= 8) {
-                // Reflect the pinned instance in the reported weight/width classes so
-                // font traits match what the outlines now are.
-                auto writeBE16At = [&](size_t offset, uint16_t v) {
-                    copy[offset] = uint8_t(v >> 8);
-                    copy[offset + 1] = uint8_t(v);
-                };
-                for (size_t i = 0; i < m_axes.size(); ++i) {
-                    if (m_axes[i].tag == tagFor('w', 'g', 'h', 't'))
-                        writeBE16At(4, uint16_t(std::min(1000.0, std::max(1.0, m_pinnedDesignValues[i]))));
-                    else if (m_axes[i].tag == tagFor('w', 'd', 't', 'h')) {
-                        static constexpr float widthClassPercentages[] = { 50, 62.5, 75, 87.5, 100, 112.5, 125, 150, 200 };
-                        uint16_t widthClass = 5;
-                        float best = 1e9;
-                        for (uint16_t c = 0; c < 9; ++c) {
-                            float distance = std::abs(m_pinnedDesignValues[i] - widthClassPercentages[c]);
-                            if (distance < best) {
-                                best = distance;
-                                widthClass = c + 1;
-                            }
-                        }
-                        writeBE16At(6, widthClass);
-                    }
-                }
-            }
+            if (table.tag == tagFor('O', 'S', '/', '2'))
+                applyPinnedClasses(copy, m_axes, m_pinnedDesignValues);
             break;
         }
-        if ((table.tag == tagFor('G', 'S', 'U', 'B') || table.tag == tagFor('G', 'P', 'O', 'S')) && !instanceLayoutFeatures(copy, m_coords))
-            return nullptr;
-        if (!applyMetricVariations(table.tag, copy, globalDeltas))
+        if (!instanceLayoutTable(m_sfnt, table.tag, copy, m_coords) || !applyMetricVariations(table.tag, copy, globalDeltas))
             return nullptr;
         outTables.emplace_back(table.tag, std::move(copy));
     }
@@ -1924,10 +2326,1628 @@ CFDataRef Instancer::instance(const std::vector<std::pair<uint32_t, double>>& pi
     return assemble();
 }
 
+// The name-table record 10.9's CoreText reads for `nameID`: Macintosh Roman, English first, then
+// Unicode, then Windows Unicode, US English first.
+static CFStringRef copyNameRecord(const ParsedSfnt& sfnt, uint16_t nameID)
+{
+    constexpr uint32_t nameTag = tagFor('n', 'a', 'm', 'e');
+    if (!sfnt.find(nameTag))
+        return nullptr;
+    Reader name = sfnt.tableReader(nameTag);
+    name.u16(); // version
+    uint16_t count = name.u16();
+    uint16_t storageOffset = name.u16();
+    int bestRank = 5;
+    uint16_t bestPlatform = 0;
+    size_t bestOffset = 0;
+    size_t bestLength = 0;
+    for (uint16_t i = 0; i < count && !name.failed(); ++i) {
+        uint16_t platformID = name.u16();
+        uint16_t encodingID = name.u16();
+        uint16_t languageID = name.u16();
+        uint16_t recordNameID = name.u16();
+        uint16_t length = name.u16();
+        uint16_t offset = name.u16();
+        if (name.failed() || recordNameID != nameID)
+            continue;
+        int rank;
+        if (platformID == 1 && !encodingID)
+            rank = languageID ? 1 : 0;
+        else if (!platformID)
+            rank = 2;
+        else if (platformID == 3 && (encodingID == 1 || encodingID == 10))
+            rank = languageID == 0x409 ? 3 : 4;
+        else
+            continue;
+        if (rank < bestRank) {
+            bestRank = rank;
+            bestPlatform = platformID;
+            bestOffset = offset;
+            bestLength = length;
+        }
+    }
+    if (bestRank == 5)
+        return nullptr;
+    const uint8_t* bytes = name.bytesAt(size_t(storageOffset) + bestOffset, bestLength);
+    if (!bytes)
+        return nullptr;
+    return CFStringCreateWithBytes(kCFAllocatorDefault, bytes, CFIndex(bestLength),
+        bestPlatform == 1 ? kCFStringEncodingMacRoman : kCFStringEncodingUTF16BE, false);
+}
+
+// CFF2, the OpenType 1.8 outline table, variable or not. 10.9's CoreGraphics reads CFF (version 1)
+// outlines only, so a font with a CFF2 table is rewritten as one with a CID-keyed CFF table at a
+// pinned instance. Every charstring runs with its blends resolved at the instance's region scalars and
+// its subroutines inlined, and is re-encoded as a Type 2 charstring of moveto/lineto/curveto segments
+// on whole-unit points; stem hints and hint masks are not carried. Private DICT blends resolve the same
+// way. HVAR, VVAR and MVAR vary the metrics tables, as gvar's phantom points and MVAR do for glyf.
+
+constexpr uint32_t cff2Tag = tagFor('C', 'F', 'F', '2');
+constexpr uint32_t cffTag = tagFor('C', 'F', 'F', ' ');
+constexpr uint32_t hvarTag = tagFor('H', 'V', 'A', 'R');
+constexpr uint32_t vvarTag = tagFor('V', 'V', 'A', 'R');
+constexpr uint32_t vheaTag = tagFor('v', 'h', 'e', 'a');
+constexpr uint32_t vmtxTag = tagFor('v', 'm', 't', 'x');
+constexpr uint32_t vorgTag = tagFor('V', 'O', 'R', 'G');
+constexpr uint32_t os2Tag = tagFor('O', 'S', '/', '2');
+
+// The CFF2 Top DICT and Private DICT operators read here; escaped operators are 0x0c00 | the second byte.
+constexpr uint16_t charStringsOperator = 17;
+constexpr uint16_t privateOperator = 18;
+constexpr uint16_t subrsOperator = 19;
+constexpr uint16_t vsindexOperator = 22;
+constexpr uint16_t blendOperator = 23;
+constexpr uint16_t vstoreOperator = 24;
+constexpr uint16_t fontMatrixOperator = 0x0c07;
+constexpr uint16_t fdArrayOperator = 0x0c24;
+constexpr uint16_t fdSelectOperator = 0x0c25;
+
+// The CFF2 limits: the argument stack, and the nesting of subroutine calls.
+constexpr size_t maximumCFF2StackDepth = 513;
+constexpr int maximumSubroutineDepth = 10;
+// Inlining subroutines can multiply a short charstring's work; one glyph runs at most this many
+// operators and draws at most this many segments.
+constexpr uint64_t maximumCharstringOperations = 1 << 20;
+constexpr size_t maximumGlyphSegments = 1 << 16;
+
+// A CFF2 INDEX: a 32-bit count, an offset size, count + 1 one-based offsets, then the data.
+class CFF2Index {
+public:
+    bool parse(Reader table, size_t offset, size_t& end)
+    {
+        if (offset > table.size())
+            return false;
+        Reader index = table.slice(offset, table.size() - offset);
+        m_count = index.u32();
+        if (index.failed())
+            return false;
+        if (!m_count) {
+            end = offset + 4;
+            return true;
+        }
+        uint8_t offSize = index.u8();
+        if (index.failed() || offSize < 1 || offSize > 4)
+            return false;
+        uint64_t offsetsLength = (uint64_t(m_count) + 1) * offSize;
+        if (offsetsLength > index.size())
+            return false;
+        m_offsets.resize(size_t(m_count) + 1);
+        for (auto& value : m_offsets) {
+            uint32_t read = 0;
+            for (uint8_t b = 0; b < offSize; ++b)
+                read = (read << 8) | index.u8();
+            value = read;
+        }
+        if (index.failed() || m_offsets[0] != 1)
+            return false;
+        for (size_t i = 1; i < m_offsets.size(); ++i) {
+            if (m_offsets[i] < m_offsets[i - 1])
+                return false;
+        }
+        size_t dataStart = 5 + size_t(offsetsLength);
+        uint64_t dataLength = uint64_t(m_offsets.back()) - 1;
+        if (dataStart > index.size() || dataLength > index.size() - dataStart)
+            return false;
+        m_data = index.slice(dataStart, size_t(dataLength));
+        end = offset + dataStart + size_t(dataLength);
+        return true;
+    }
+
+    uint32_t count() const { return m_count; }
+    Reader item(uint32_t i) const { return m_data.slice(m_offsets[i] - 1, m_offsets[i + 1] - m_offsets[i]); }
+
+private:
+    uint32_t m_count { 0 };
+    std::vector<uint32_t> m_offsets;
+    Reader m_data { nullptr, 0 };
+};
+
+// The region scalars a blend weights its deltas by: those of the regions the ItemVariationData its
+// vsindex selects names. One ItemVariationData's region list is read at a time.
+class BlendScalars {
+public:
+    explicit BlendScalars(const ItemVariationStore* store)
+        : m_store(store)
+    {
+    }
+
+    const std::vector<float>* forIndex(uint32_t vsindex)
+    {
+        if (!m_store)
+            return nullptr;
+        if (!m_read || vsindex != m_vsindex) {
+            m_read = true;
+            m_vsindex = vsindex;
+            m_valid = m_store->dataScalars(vsindex, m_scalars);
+        }
+        return m_valid ? &m_scalars : nullptr;
+    }
+
+private:
+    const ItemVariationStore* m_store;
+    std::vector<float> m_scalars;
+    uint32_t m_vsindex { 0 };
+    bool m_read { false };
+    bool m_valid { false };
+};
+
+// Resolves a blend on `stack`: n default values, then k deltas for each of them, then n itself.
+static bool resolveBlend(std::vector<double>& stack, BlendScalars* blend, uint32_t vsindex)
+{
+    const std::vector<float>* scalars = blend ? blend->forIndex(vsindex) : nullptr;
+    if (!scalars || stack.empty())
+        return false;
+    double count = stack.back();
+    stack.pop_back();
+    size_t k = scalars->size();
+    if (count < 0 || count != std::floor(count) || count > stack.size())
+        return false;
+    size_t n = size_t(count);
+    if (n * (k + 1) > stack.size())
+        return false;
+    size_t base = stack.size() - n * (k + 1);
+    for (size_t i = 0; i < n; ++i) {
+        double value = stack[base + i];
+        for (size_t j = 0; j < k; ++j)
+            value += double((*scalars)[j]) * stack[base + n + i * k + j];
+        stack[base + i] = value;
+    }
+    stack.resize(base + n);
+    return true;
+}
+
+// A DICT real: packed decimal nibbles, terminated by 0xf.
+static bool readDictReal(Reader& dict, double& value)
+{
+    double mantissa = 0;
+    int fractionDigits = 0;
+    bool inFraction = false;
+    bool negative = false;
+    int exponent = 0;
+    int exponentSign = 0;
+    bool done = false;
+    while (!done) {
+        uint8_t byte = dict.u8();
+        if (dict.failed())
+            return false;
+        for (int half = 0; half < 2 && !done; ++half) {
+            uint8_t nibble = half ? (byte & 0xf) : (byte >> 4);
+            if (nibble <= 9) {
+                if (exponentSign) {
+                    if (exponent > 1000)
+                        return false;
+                    exponent = exponent * 10 + nibble;
+                } else {
+                    mantissa = mantissa * 10 + nibble;
+                    if (inFraction)
+                        ++fractionDigits;
+                }
+            } else if (nibble == 0xa)
+                inFraction = true;
+            else if (nibble == 0xb)
+                exponentSign = 1;
+            else if (nibble == 0xc)
+                exponentSign = -1;
+            else if (nibble == 0xe)
+                negative = true;
+            else if (nibble == 0xf)
+                done = true;
+            else
+                return false;
+        }
+    }
+    value = mantissa * std::pow(10.0, double(exponentSign * exponent - fractionDigits));
+    if (negative)
+        value = -value;
+    return std::isfinite(value);
+}
+
+struct DictEntry {
+    uint16_t op { 0 };
+    std::vector<double> operands;
+};
+
+// Reads a DICT into its entries, resolving blends with `blend` (null where none may appear). A
+// vsindex entry is kept, since a Private DICT's vsindex is its charstrings' default as well.
+static bool parseDict(Reader dict, BlendScalars* blend, std::vector<DictEntry>& entries)
+{
+    std::vector<double> operands;
+    uint32_t vsindex = 0;
+    while (dict.position() < dict.size()) {
+        uint8_t b0 = dict.u8();
+        if (b0 == 28)
+            operands.push_back(dict.s16());
+        else if (b0 == 29)
+            operands.push_back(dict.s32());
+        else if (b0 == 30) {
+            double real = 0;
+            if (!readDictReal(dict, real))
+                return false;
+            operands.push_back(real);
+        } else if (b0 >= 32 && b0 <= 246)
+            operands.push_back(int(b0) - 139);
+        else if (b0 >= 247 && b0 <= 250)
+            operands.push_back((int(b0) - 247) * 256 + dict.u8() + 108);
+        else if (b0 >= 251 && b0 <= 254)
+            operands.push_back(-(int(b0) - 251) * 256 - dict.u8() - 108);
+        else if (b0 <= 27) {
+            uint16_t op = b0 == 12 ? uint16_t(0x0c00 | dict.u8()) : b0;
+            if (op == blendOperator) {
+                if (!resolveBlend(operands, blend, vsindex))
+                    return false;
+                continue;
+            }
+            if (op == vsindexOperator) {
+                if (operands.size() != 1 || operands[0] < 0 || operands[0] > 65535)
+                    return false;
+                vsindex = uint32_t(operands[0]);
+            }
+            entries.push_back({ op, operands });
+            operands.clear();
+        } else
+            return false;
+        if (dict.failed() || operands.size() > maximumCFF2StackDepth)
+            return false;
+    }
+    return operands.empty();
+}
+
+static const DictEntry* findDictEntry(const std::vector<DictEntry>& entries, uint16_t op)
+{
+    for (const auto& entry : entries) {
+        if (entry.op == op)
+            return &entry;
+    }
+    return nullptr;
+}
+
+static bool dictOffset(const DictEntry* entry, size_t index, size_t& value)
+{
+    if (!entry || index >= entry->operands.size())
+        return false;
+    double operand = entry->operands[index];
+    if (operand < 0 || operand != std::floor(operand) || operand > 0x7FFFFFFF)
+        return false;
+    value = size_t(operand);
+    return true;
+}
+
+struct OutlineSegment {
+    bool isCurve { false };
+    double x1 { 0 }, y1 { 0 }, x2 { 0 }, y2 { 0 }, x { 0 }, y { 0 };
+};
+
+struct OutlineContour {
+    double startX { 0 };
+    double startY { 0 };
+    size_t firstSegment { 0 };
+};
+
+// A glyph's contours in absolute coordinates. Each contour's segments run from its firstSegment to the
+// next contour's (or the end); the buffers are kept across glyphs.
+struct Outline {
+    std::vector<OutlineContour> contours;
+    std::vector<OutlineSegment> segments;
+
+    void clear()
+    {
+        contours.clear();
+        segments.clear();
+    }
+
+    size_t endOfContour(size_t contour) const
+    {
+        return contour + 1 < contours.size() ? contours[contour + 1].firstSegment : segments.size();
+    }
+};
+
+static uint32_t subroutineBias(uint32_t count)
+{
+    return count < 1240 ? 107 : (count < 33900 ? 1131 : 32768);
+}
+
+// Runs CFF2 charstrings into absolute outlines. One interpreter serves every glyph of a font.
+class CFF2CharstringInterpreter {
+public:
+    CFF2CharstringInterpreter(const CFF2Index& globalSubrs, BlendScalars* blend)
+        : m_globalSubrs(globalSubrs)
+        , m_blend(blend)
+    {
+        m_stack.reserve(maximumCFF2StackDepth + 1);
+    }
+
+    bool run(Reader charstring, const CFF2Index* localSubrs, uint32_t vsindex, Outline& outline)
+    {
+        m_localSubrs = localSubrs;
+        m_vsindex = vsindex;
+        m_outline = &outline;
+        m_stack.clear();
+        m_x = m_y = 0;
+        m_stems = 0;
+        m_operations = 0;
+        m_ended = false;
+        return execute(charstring, 0);
+    }
+
+private:
+    bool moveTo(double dx, double dy)
+    {
+        m_x += dx;
+        m_y += dy;
+        m_outline->contours.push_back({ m_x, m_y, m_outline->segments.size() });
+        return true;
+    }
+
+    bool lineTo(double dx, double dy)
+    {
+        if (m_outline->contours.empty() || m_outline->segments.size() >= maximumGlyphSegments)
+            return false;
+        m_x += dx;
+        m_y += dy;
+        OutlineSegment segment;
+        segment.x = m_x;
+        segment.y = m_y;
+        m_outline->segments.push_back(segment);
+        return true;
+    }
+
+    bool curveTo(double dxa, double dya, double dxb, double dyb, double dxc, double dyc)
+    {
+        if (m_outline->contours.empty() || m_outline->segments.size() >= maximumGlyphSegments)
+            return false;
+        OutlineSegment segment;
+        segment.isCurve = true;
+        segment.x1 = m_x + dxa;
+        segment.y1 = m_y + dya;
+        segment.x2 = segment.x1 + dxb;
+        segment.y2 = segment.y1 + dyb;
+        segment.x = segment.x2 + dxc;
+        segment.y = segment.y2 + dyc;
+        m_x = segment.x;
+        m_y = segment.y;
+        m_outline->segments.push_back(segment);
+        return true;
+    }
+
+    // hvcurveto and vhcurveto: curves alternating between a horizontal and a vertical start tangent,
+    // the last one taking a fifth argument for its final tangent's other component.
+    bool alternatingCurves(bool horizontal)
+    {
+        const auto& s = m_stack;
+        size_t i = 0;
+        if (s.size() < 4)
+            return false;
+        while (s.size() - i >= 4) {
+            double last = s.size() - i == 5 ? s[i + 4] : 0;
+            bool ok = horizontal ? curveTo(s[i], 0, s[i + 1], s[i + 2], last, s[i + 3])
+                                 : curveTo(0, s[i], s[i + 1], s[i + 2], s[i + 3], last);
+            if (!ok)
+                return false;
+            i += s.size() - i == 5 ? 5 : 4;
+            horizontal = !horizontal;
+        }
+        return i == s.size();
+    }
+
+    bool execute(Reader cs, int depth)
+    {
+        while (cs.position() < cs.size()) {
+            if (++m_operations > maximumCharstringOperations)
+                return false;
+            uint8_t b0 = cs.u8();
+            if (b0 >= 32 && b0 <= 246)
+                m_stack.push_back(int(b0) - 139);
+            else if (b0 >= 247 && b0 <= 250)
+                m_stack.push_back((int(b0) - 247) * 256 + cs.u8() + 108);
+            else if (b0 >= 251 && b0 <= 254)
+                m_stack.push_back(-(int(b0) - 251) * 256 - cs.u8() - 108);
+            else if (b0 == 28)
+                m_stack.push_back(cs.s16());
+            else if (b0 == 255)
+                m_stack.push_back(cs.s32() / 65536.0);
+            else if (b0 == 11) // return
+                return true;
+            else if (!executeOperator(b0, cs, depth))
+                return false;
+            if (cs.failed() || m_stack.size() > maximumCFF2StackDepth)
+                return false;
+            if (m_ended)
+                return true;
+        }
+        return true;
+    }
+
+    bool executeOperator(uint8_t b0, Reader& cs, int depth)
+    {
+        auto& s = m_stack;
+        bool ok = true;
+        switch (b0) {
+        case 1: // hstem
+        case 3: // vstem
+        case 18: // hstemhm
+        case 23: // vstemhm
+            m_stems += s.size() / 2;
+            break;
+        case 19: // hintmask
+        case 20: // cntrmask
+            // Arguments before the first mask are an implied vstem.
+            m_stems += s.size() / 2;
+            cs.skip((m_stems + 7) / 8);
+            break;
+        case 21: // rmoveto
+            ok = s.size() == 2 && moveTo(s[0], s[1]);
+            break;
+        case 22: // hmoveto
+            ok = s.size() == 1 && moveTo(s[0], 0);
+            break;
+        case 4: // vmoveto
+            ok = s.size() == 1 && moveTo(0, s[0]);
+            break;
+        case 5: // rlineto
+            ok = !s.empty() && !(s.size() % 2);
+            for (size_t i = 0; ok && i < s.size(); i += 2)
+                ok = lineTo(s[i], s[i + 1]);
+            break;
+        case 6: // hlineto
+        case 7: { // vlineto
+            bool horizontal = b0 == 6;
+            ok = !s.empty();
+            for (size_t i = 0; ok && i < s.size(); ++i, horizontal = !horizontal)
+                ok = horizontal ? lineTo(s[i], 0) : lineTo(0, s[i]);
+            break;
+        }
+        case 8: // rrcurveto
+            ok = !s.empty() && !(s.size() % 6);
+            for (size_t i = 0; ok && i < s.size(); i += 6)
+                ok = curveTo(s[i], s[i + 1], s[i + 2], s[i + 3], s[i + 4], s[i + 5]);
+            break;
+        case 24: // rcurveline
+            ok = s.size() >= 8 && !((s.size() - 2) % 6);
+            for (size_t i = 0; ok && i + 2 < s.size(); i += 6)
+                ok = curveTo(s[i], s[i + 1], s[i + 2], s[i + 3], s[i + 4], s[i + 5]);
+            ok = ok && lineTo(s[s.size() - 2], s[s.size() - 1]);
+            break;
+        case 25: // rlinecurve
+            ok = s.size() >= 8 && !((s.size() - 6) % 2);
+            for (size_t i = 0; ok && i + 6 < s.size(); i += 2)
+                ok = lineTo(s[i], s[i + 1]);
+            if (ok) {
+                size_t c = s.size() - 6;
+                ok = curveTo(s[c], s[c + 1], s[c + 2], s[c + 3], s[c + 4], s[c + 5]);
+            }
+            break;
+        case 26: { // vvcurveto
+            size_t i = s.size() % 2;
+            double dx1 = i ? s[0] : 0;
+            ok = s.size() - i >= 4 && !((s.size() - i) % 4);
+            for (; ok && i < s.size(); i += 4, dx1 = 0)
+                ok = curveTo(dx1, s[i], s[i + 1], s[i + 2], 0, s[i + 3]);
+            break;
+        }
+        case 27: { // hhcurveto
+            size_t i = s.size() % 2;
+            double dy1 = i ? s[0] : 0;
+            ok = s.size() - i >= 4 && !((s.size() - i) % 4);
+            for (; ok && i < s.size(); i += 4, dy1 = 0)
+                ok = curveTo(s[i], dy1, s[i + 1], s[i + 2], s[i + 3], 0);
+            break;
+        }
+        case 30: // vhcurveto
+            ok = alternatingCurves(false);
+            break;
+        case 31: // hvcurveto
+            ok = alternatingCurves(true);
+            break;
+        case 10: // callsubr
+        case 29: { // callgsubr
+            const CFF2Index* subrs = b0 == 10 ? m_localSubrs : &m_globalSubrs;
+            if (!subrs || s.empty() || depth >= maximumSubroutineDepth)
+                return false;
+            double index = s.back() + subroutineBias(subrs->count());
+            s.pop_back();
+            if (index < 0 || index != std::floor(index) || index >= subrs->count())
+                return false;
+            Reader subr = subrs->item(uint32_t(index));
+            if (subr.failed())
+                return false;
+            // The callee works on the caller's stack.
+            return execute(subr, depth + 1);
+        }
+        case 14: // endchar
+            m_ended = true;
+            break;
+        case 15: // vsindex
+            if (s.size() != 1 || s[0] < 0 || s[0] > 65535)
+                return false;
+            m_vsindex = uint32_t(s[0]);
+            break;
+        case 16: // blend
+            return resolveBlend(s, m_blend, m_vsindex);
+        case 12: {
+            uint8_t b1 = cs.u8();
+            switch (b1) {
+            case 35: // flex
+                ok = s.size() == 13 && curveTo(s[0], s[1], s[2], s[3], s[4], s[5]) && curveTo(s[6], s[7], s[8], s[9], s[10], s[11]);
+                break;
+            case 34: // hflex
+                ok = s.size() == 7 && curveTo(s[0], 0, s[1], s[2], s[3], 0) && curveTo(s[4], 0, s[5], -s[2], s[6], 0);
+                break;
+            case 36: // hflex1
+                ok = s.size() == 9 && curveTo(s[0], s[1], s[2], s[3], s[4], 0) && curveTo(s[5], 0, s[6], s[7], s[8], -(s[1] + s[3] + s[7]));
+                break;
+            case 37: { // flex1
+                if (s.size() != 11)
+                    return false;
+                double dx = s[0] + s[2] + s[4] + s[6] + s[8];
+                double dy = s[1] + s[3] + s[5] + s[7] + s[9];
+                bool horizontal = std::abs(dx) > std::abs(dy);
+                ok = curveTo(s[0], s[1], s[2], s[3], s[4], s[5])
+                    && curveTo(s[6], s[7], s[8], s[9], horizontal ? s[10] : -dx, horizontal ? -dy : s[10]);
+                break;
+            }
+            default:
+                return false;
+            }
+            break;
+        }
+        default:
+            return false;
+        }
+        s.clear();
+        return ok;
+    }
+
+    const CFF2Index& m_globalSubrs;
+    BlendScalars* m_blend;
+    const CFF2Index* m_localSubrs { nullptr };
+    uint32_t m_vsindex { 0 };
+    Outline* m_outline { nullptr };
+    std::vector<double> m_stack;
+    double m_x { 0 };
+    double m_y { 0 };
+    uint32_t m_stems { 0 };
+    uint64_t m_operations { 0 };
+    bool m_ended { false };
+};
+
+static void addCubicBounds(BBox& bbox, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t x3, int32_t y3)
+{
+    bbox.addPoint(x3, y3);
+    const double p0[2] = { double(x0), double(y0) };
+    const double p1[2] = { double(x1), double(y1) };
+    const double p2[2] = { double(x2), double(y2) };
+    const double p3[2] = { double(x3), double(y3) };
+    for (int axis = 0; axis < 2; ++axis) {
+        // Only a control point outside its curve's end points can put an extremum between them.
+        double low = std::min(p0[axis], p3[axis]);
+        double high = std::max(p0[axis], p3[axis]);
+        if (p1[axis] >= low && p1[axis] <= high && p2[axis] >= low && p2[axis] <= high)
+            continue;
+        // The derivative over 3: a t^2 + b t + c.
+        double a = -p0[axis] + 3 * p1[axis] - 3 * p2[axis] + p3[axis];
+        double b = 2 * (p0[axis] - 2 * p1[axis] + p2[axis]);
+        double c = p1[axis] - p0[axis];
+        double roots[2];
+        int rootCount = 0;
+        if (std::abs(a) < 1e-12) {
+            if (std::abs(b) > 1e-12)
+                roots[rootCount++] = -c / b;
+        } else {
+            double discriminant = b * b - 4 * a * c;
+            if (discriminant >= 0) {
+                double root = std::sqrt(discriminant);
+                roots[rootCount++] = (-b + root) / (2 * a);
+                roots[rootCount++] = (-b - root) / (2 * a);
+            }
+        }
+        for (int r = 0; r < rootCount; ++r) {
+            double t = roots[r];
+            if (!(t > 0 && t < 1))
+                continue;
+            double u = 1 - t;
+            double x = u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0];
+            double y = u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1];
+            bbox.add(float(x), float(y));
+        }
+    }
+}
+
+// The whole-unit point an outline coordinate is encoded at.
+static bool roundedCoordinate(double value, int32_t& rounded)
+{
+    double r = std::floor(value + 0.5);
+    if (!(std::abs(r) <= 32767))
+        return false;
+    rounded = int32_t(r);
+    return true;
+}
+
+// The bounds of `outline` as encodeType2Charstring encodes it: whole-unit points, curve extrema included.
+static bool outlineBounds(const Outline& outline, BBox& bbox)
+{
+    for (size_t c = 0; c < outline.contours.size(); ++c) {
+        size_t end = outline.endOfContour(c);
+        if (outline.contours[c].firstSegment == end)
+            continue;
+        int32_t x, y;
+        if (!roundedCoordinate(outline.contours[c].startX, x) || !roundedCoordinate(outline.contours[c].startY, y))
+            return false;
+        bbox.addPoint(x, y);
+        for (size_t i = outline.contours[c].firstSegment; i < end; ++i) {
+            const OutlineSegment& segment = outline.segments[i];
+            int32_t p[6];
+            if (!roundedCoordinate(segment.x, p[4]) || !roundedCoordinate(segment.y, p[5]))
+                return false;
+            if (segment.isCurve) {
+                if (!roundedCoordinate(segment.x1, p[0]) || !roundedCoordinate(segment.y1, p[1])
+                    || !roundedCoordinate(segment.x2, p[2]) || !roundedCoordinate(segment.y2, p[3]))
+                    return false;
+                addCubicBounds(bbox, x, y, p[0], p[1], p[2], p[3], p[4], p[5]);
+            } else
+                bbox.addPoint(p[4], p[5]);
+            x = p[4];
+            y = p[5];
+        }
+    }
+    return true;
+}
+
+static void writeType2Number(Writer& out, int32_t v)
+{
+    if (v >= -107 && v <= 107)
+        out.u8(uint8_t(v + 139));
+    else if (v >= 108 && v <= 1131) {
+        v -= 108;
+        out.u8(uint8_t((v >> 8) + 247));
+        out.u8(uint8_t(v));
+    } else if (v >= -1131 && v <= -108) {
+        v = -v - 108;
+        out.u8(uint8_t((v >> 8) + 251));
+        out.u8(uint8_t(v));
+    } else {
+        out.u8(28);
+        out.s16(int16_t(v));
+    }
+}
+
+// Encodes `outline` as a Type 2 charstring on whole-unit points: the advance width as the first
+// stack-clearing operator's extra argument, then per contour an rmoveto followed by runs of rlineto and
+// rrcurveto, each holding at most the 48 arguments a Type 2 stack takes, then endchar. Every number is a
+// Type 2 integer, so a width or a coordinate step past 16 bits fails the glyph. `bbox` receives the bounds
+// outlineBounds gives.
+static bool encodeType2Charstring(const Outline& outline, int32_t width, Writer& out, std::vector<int32_t>& arguments, BBox& bbox)
+{
+    if (width < -32768 || width > 32767)
+        return false;
+    int32_t x = 0, y = 0;
+    bool widthWritten = false;
+    arguments.clear();
+    auto delta = [&](double target, int32_t& current, int32_t& value) {
+        int32_t rounded;
+        if (!roundedCoordinate(target, rounded))
+            return false;
+        value = rounded - current;
+        current = rounded;
+        return value >= -32768 && value <= 32767;
+    };
+    auto emit = [&](uint8_t op) {
+        if (!widthWritten) {
+            writeType2Number(out, width);
+            widthWritten = true;
+        }
+        for (int32_t argument : arguments)
+            writeType2Number(out, argument);
+        out.u8(op);
+        arguments.clear();
+    };
+    for (size_t c = 0; c < outline.contours.size(); ++c) {
+        size_t end = outline.endOfContour(c);
+        if (outline.contours[c].firstSegment == end)
+            continue;
+        int32_t dx, dy;
+        if (!delta(outline.contours[c].startX, x, dx) || !delta(outline.contours[c].startY, y, dy))
+            return false;
+        arguments.push_back(dx);
+        arguments.push_back(dy);
+        emit(21);
+        bbox.addPoint(x, y);
+        uint8_t runOperator = 0;
+        for (size_t i = outline.contours[c].firstSegment; i < end; ++i) {
+            const OutlineSegment& segment = outline.segments[i];
+            uint8_t op = segment.isCurve ? 8 : 5;
+            size_t perSegment = segment.isCurve ? 6 : 2;
+            if (runOperator && (runOperator != op || arguments.size() + perSegment > 48))
+                emit(runOperator);
+            runOperator = op;
+            int32_t d[6];
+            int32_t startX = x, startY = y;
+            if (segment.isCurve) {
+                if (!delta(segment.x1, x, d[0]) || !delta(segment.y1, y, d[1]))
+                    return false;
+                int32_t x1 = x, y1 = y;
+                if (!delta(segment.x2, x, d[2]) || !delta(segment.y2, y, d[3]))
+                    return false;
+                int32_t x2 = x, y2 = y;
+                if (!delta(segment.x, x, d[4]) || !delta(segment.y, y, d[5]))
+                    return false;
+                arguments.insert(arguments.end(), d, d + 6);
+                addCubicBounds(bbox, startX, startY, x1, y1, x2, y2, x, y);
+            } else {
+                if (!delta(segment.x, x, d[0]) || !delta(segment.y, y, d[1]))
+                    return false;
+                arguments.insert(arguments.end(), d, d + 2);
+                bbox.addPoint(x, y);
+            }
+        }
+        if (runOperator)
+            emit(runOperator);
+    }
+    emit(14);
+    return true;
+}
+
+static void writeDictInteger(Writer& out, int32_t v)
+{
+    if (v >= -107 && v <= 107)
+        out.u8(uint8_t(v + 139));
+    else if (v >= 108 && v <= 1131) {
+        v -= 108;
+        out.u8(uint8_t((v >> 8) + 247));
+        out.u8(uint8_t(v));
+    } else if (v >= -1131 && v <= -108) {
+        v = -v - 108;
+        out.u8(uint8_t((v >> 8) + 251));
+        out.u8(uint8_t(v));
+    } else if (v >= -32768 && v <= 32767) {
+        out.u8(28);
+        out.s16(int16_t(v));
+    } else {
+        out.u8(29);
+        out.u32(uint32_t(v));
+    }
+}
+
+// An offset in its five-byte form, so that a DICT's size does not depend on the offsets it holds.
+static void writeDictOffset(Writer& out, uint32_t v)
+{
+    out.u8(29);
+    out.u32(v);
+}
+
+static void writeDictNumber(Writer& out, double v)
+{
+    if (v == std::floor(v) && std::abs(v) <= 0x7FFFFFFF) {
+        writeDictInteger(out, int32_t(v));
+        return;
+    }
+    char text[32];
+    snprintf(text, sizeof(text), "%.9g", v);
+    std::vector<uint8_t> nibbles;
+    for (const char* c = text; *c; ++c) {
+        if (*c >= '0' && *c <= '9')
+            nibbles.push_back(uint8_t(*c - '0'));
+        else if (*c == '.' || *c == ',')
+            nibbles.push_back(0xa);
+        else if (*c == '-')
+            nibbles.push_back(0xe);
+        else if (*c == 'e' || *c == 'E') {
+            if (c[1] == '-') {
+                nibbles.push_back(0xc);
+                ++c;
+            } else {
+                nibbles.push_back(0xb);
+                if (c[1] == '+')
+                    ++c;
+            }
+        }
+    }
+    nibbles.push_back(0xf);
+    if (nibbles.size() % 2)
+        nibbles.push_back(0xf);
+    out.u8(30);
+    for (size_t i = 0; i < nibbles.size(); i += 2)
+        out.u8(uint8_t(nibbles[i] << 4 | nibbles[i + 1]));
+}
+
+static void writeDictOperator(Writer& out, uint16_t op)
+{
+    if (op >= 0x0c00) {
+        out.u8(12);
+        out.u8(uint8_t(op));
+    } else
+        out.u8(uint8_t(op));
+}
+
+// A CFF (version 1) INDEX of `count` items laid end to end in `data`, item i ending at ends[i]: a 16-bit
+// count, then offsets of the smallest size that holds them.
+static bool writeCFFIndex(Writer& out, const uint8_t* data, const std::vector<uint32_t>& ends)
+{
+    if (ends.size() > 0xFFFF)
+        return false;
+    out.u16(uint16_t(ends.size()));
+    if (ends.empty())
+        return true;
+    uint64_t dataSize = ends.back();
+    if (dataSize + 1 > 0xFFFFFFFFull)
+        return false;
+    uint8_t offSize = dataSize + 1 <= 0xFF ? 1 : (dataSize + 1 <= 0xFFFF ? 2 : (dataSize + 1 <= 0xFFFFFF ? 3 : 4));
+    out.u8(offSize);
+    auto writeOffset = [&](uint64_t value) {
+        for (int b = offSize - 1; b >= 0; --b)
+            out.u8(uint8_t(value >> (8 * b)));
+    };
+    writeOffset(1);
+    for (uint32_t end : ends)
+        writeOffset(uint64_t(end) + 1);
+    out.bytes(data, size_t(dataSize));
+    return true;
+}
+
+static bool writeCFFIndex(Writer& out, const std::vector<std::vector<uint8_t>>& items)
+{
+    std::vector<uint8_t> data;
+    std::vector<uint32_t> ends;
+    for (const auto& item : items) {
+        data.insert(data.end(), item.begin(), item.end());
+        if (data.size() > 0xFFFFFFFEull)
+            return false;
+        ends.push_back(uint32_t(data.size()));
+    }
+    return writeCFFIndex(out, data.data(), ends);
+}
+
+// The name a CFF Name INDEX may hold: printable ASCII without the PostScript delimiters, at most 63 bytes.
+static std::string postScriptFontName(CFStringRef name)
+{
+    std::string result;
+    char buffer[256];
+    if (name && CFStringGetCString(name, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
+        for (const char* c = buffer; *c && result.size() < 63; ++c) {
+            if (*c > 32 && *c < 127 && !strchr("[](){}<>/%", *c))
+                result.push_back(*c);
+        }
+    }
+    return result.empty() ? std::string("Untitled") : result;
+}
+
+struct CFF2FontDict {
+    std::vector<DictEntry> privateEntries;
+    CFF2Index localSubrs;
+    bool hasLocalSubrs { false };
+    uint32_t vsindex { 0 };
+};
+
+// Every glyph's Type 2 charstring, laid end to end, glyph i ending at ends[i]; and each glyph's bounds.
+struct CFF2Outlines {
+    Writer charstrings;
+    std::vector<uint32_t> ends;
+    std::vector<BBox> bounds;
+};
+
+// The parsed CFF2 table: what the conversion of every glyph reads.
+class CFF2Font {
+public:
+    bool parse(Reader table, uint32_t numGlyphs, const std::vector<float>& coords)
+    {
+        uint8_t major = table.u8();
+        table.u8(); // minor
+        uint8_t headerSize = table.u8();
+        uint16_t topDictLength = table.u16();
+        if (table.failed() || major != 2 || headerSize < 5 || size_t(headerSize) + topDictLength > table.size())
+            return false;
+        std::vector<DictEntry> top;
+        if (!parseDict(table.slice(headerSize, topDictLength), nullptr, top))
+            return false;
+        size_t end = 0;
+        if (!m_globalSubrs.parse(table, size_t(headerSize) + topDictLength, end))
+            return false;
+
+        size_t offset = 0;
+        if (const DictEntry* vstore = findDictEntry(top, vstoreOperator)) {
+            // A uint16 length precedes the store.
+            if (!dictOffset(vstore, 0, offset) || offset > table.size() || table.size() - offset < 2)
+                return false;
+            m_store.emplace(table.slice(offset + 2, table.size() - offset - 2));
+            // A font without fvar sits at every axis's default.
+            std::vector<float> at = coords;
+            if (at.empty()) {
+                auto axisCount = m_store->axisCount();
+                if (!axisCount)
+                    return false;
+                at.assign(*axisCount, 0);
+            }
+            if (!m_store->initialize(at))
+                return false;
+            m_blend.emplace(&*m_store);
+        }
+        if (const DictEntry* matrix = findDictEntry(top, fontMatrixOperator)) {
+            if (matrix->operands.size() != 6)
+                return false;
+            m_fontMatrix = matrix->operands;
+        }
+        if (!dictOffset(findDictEntry(top, charStringsOperator), 0, offset) || !m_charstrings.parse(table, offset, end) || m_charstrings.count() != numGlyphs)
+            return false;
+
+        CFF2Index fdArray;
+        if (!dictOffset(findDictEntry(top, fdArrayOperator), 0, offset) || !fdArray.parse(table, offset, end) || !fdArray.count() || fdArray.count() > 256)
+            return false;
+        for (uint32_t fd = 0; fd < fdArray.count(); ++fd) {
+            std::vector<DictEntry> fontDict;
+            if (!parseDict(fdArray.item(fd), nullptr, fontDict))
+                return false;
+            size_t privateSize = 0, privateOffset = 0;
+            const DictEntry* privateEntry = findDictEntry(fontDict, privateOperator);
+            if (!dictOffset(privateEntry, 0, privateSize) || !dictOffset(privateEntry, 1, privateOffset)
+                || privateOffset > table.size() || privateSize > table.size() - privateOffset)
+                return false;
+            CFF2FontDict dict;
+            if (!parseDict(table.slice(privateOffset, privateSize), blend(), dict.privateEntries))
+                return false;
+            if (const DictEntry* vsindex = findDictEntry(dict.privateEntries, vsindexOperator))
+                dict.vsindex = uint32_t(vsindex->operands[0]);
+            size_t subrsOffset = 0;
+            if (findDictEntry(dict.privateEntries, subrsOperator)) {
+                if (!dictOffset(findDictEntry(dict.privateEntries, subrsOperator), 0, subrsOffset)
+                    || !dict.localSubrs.parse(table, privateOffset + subrsOffset, end))
+                    return false;
+                dict.hasLocalSubrs = true;
+            }
+            m_fontDicts.push_back(std::move(dict));
+        }
+
+        m_fdSelect.assign(numGlyphs, 0);
+        if (findDictEntry(top, fdSelectOperator)) {
+            if (!dictOffset(findDictEntry(top, fdSelectOperator), 0, offset) || !parseFDSelect(table, offset, numGlyphs))
+                return false;
+        } else if (m_fontDicts.size() != 1)
+            return false;
+        for (uint8_t fd : m_fdSelect) {
+            if (fd >= m_fontDicts.size())
+                return false;
+        }
+        m_interpreter.emplace(m_globalSubrs, blend());
+        return true;
+    }
+
+    // Runs glyph `glyph` into `outline`.
+    bool outline(uint32_t glyph, Outline& outline)
+    {
+        const CFF2FontDict& dict = m_fontDicts[m_fdSelect[glyph]];
+        Reader charstring = m_charstrings.item(glyph);
+        outline.clear();
+        return !charstring.failed() && m_interpreter->run(charstring, dict.hasLocalSubrs ? &dict.localSubrs : nullptr, dict.vsindex, outline);
+    }
+
+    // The CID-keyed CFF table for `outlines`, under the PostScript name `name`.
+    std::optional<std::vector<uint8_t>> assembleCFF(const std::string& name, const CFF2Outlines& outlines, const BBox& fontBBox) const
+    {
+        uint32_t numGlyphs = uint32_t(outlines.ends.size());
+        if (!numGlyphs || numGlyphs > 0xFFFF)
+            return std::nullopt;
+
+        Writer nameIndex;
+        writeCFFIndex(nameIndex, { std::vector<uint8_t>(name.begin(), name.end()) });
+        // The ROS registry and ordering are the first two strings past the 391 standard ones.
+        Writer stringIndex;
+        writeCFFIndex(stringIndex, { std::vector<uint8_t> { 'A', 'd', 'o', 'b', 'e' }, std::vector<uint8_t> { 'I', 'd', 'e', 'n', 't', 'i', 't', 'y' } });
+        Writer globalSubrIndex;
+        writeCFFIndex(globalSubrIndex, std::vector<std::vector<uint8_t>> { });
+
+        // charset: glyph i is CID i.
+        Writer charset;
+        if (numGlyphs > 1) {
+            charset.u8(2);
+            charset.u16(1);
+            charset.u16(uint16_t(numGlyphs - 2));
+        } else
+            charset.u8(0);
+
+        // FDSelect, format 3.
+        Writer fdSelect;
+        std::vector<std::pair<uint16_t, uint8_t>> ranges;
+        for (uint32_t glyph = 0; glyph < numGlyphs; ++glyph) {
+            if (ranges.empty() || ranges.back().second != m_fdSelect[glyph])
+                ranges.emplace_back(uint16_t(glyph), m_fdSelect[glyph]);
+        }
+        fdSelect.u8(3);
+        fdSelect.u16(uint16_t(ranges.size()));
+        for (const auto& range : ranges) {
+            fdSelect.u16(range.first);
+            fdSelect.u8(range.second);
+        }
+        fdSelect.u16(uint16_t(numGlyphs));
+
+        Writer charStringsIndex;
+        if (!writeCFFIndex(charStringsIndex, outlines.charstrings.vector().data(), outlines.ends))
+            return std::nullopt;
+
+        // Private DICTs: the resolved CFF2 entries without their subroutines or variation index, and
+        // zero default and nominal widths, which every charstring's explicit width is relative to.
+        std::vector<std::vector<uint8_t>> privateDicts;
+        for (const auto& dict : m_fontDicts) {
+            Writer out;
+            for (const auto& entry : dict.privateEntries) {
+                if (entry.op == subrsOperator || entry.op == vsindexOperator || entry.op == 20 || entry.op == 21)
+                    continue;
+                for (double operand : entry.operands)
+                    writeDictNumber(out, operand);
+                writeDictOperator(out, entry.op);
+            }
+            writeDictInteger(out, 0);
+            writeDictOperator(out, 20);
+            writeDictInteger(out, 0);
+            writeDictOperator(out, 21);
+            privateDicts.push_back(out.vector());
+        }
+
+        auto topDict = [&](uint32_t charsetOffset, uint32_t fdSelectOffset, uint32_t fdArrayOffset, uint32_t charStringsOffset) {
+            Writer out;
+            writeDictInteger(out, 391);
+            writeDictInteger(out, 392);
+            writeDictInteger(out, 0);
+            writeDictOperator(out, 0x0c1e); // ROS
+            writeDictInteger(out, int32_t(numGlyphs));
+            writeDictOperator(out, 0x0c22); // CIDCount
+            writeDictInteger(out, fontBBox.xMin);
+            writeDictInteger(out, fontBBox.yMin);
+            writeDictInteger(out, fontBBox.xMax);
+            writeDictInteger(out, fontBBox.yMax);
+            writeDictOperator(out, 5); // FontBBox
+            if (!m_fontMatrix.empty()) {
+                for (double value : m_fontMatrix)
+                    writeDictNumber(out, value);
+                writeDictOperator(out, fontMatrixOperator);
+            }
+            writeDictOffset(out, charsetOffset);
+            writeDictOperator(out, 15);
+            writeDictOffset(out, fdSelectOffset);
+            writeDictOperator(out, fdSelectOperator);
+            writeDictOffset(out, fdArrayOffset);
+            writeDictOperator(out, fdArrayOperator);
+            writeDictOffset(out, charStringsOffset);
+            writeDictOperator(out, charStringsOperator);
+            return out.vector();
+        };
+        auto fontDicts = [&](uint32_t firstPrivateOffset) {
+            std::vector<std::vector<uint8_t>> dicts;
+            uint64_t offset = firstPrivateOffset;
+            for (const auto& privateDict : privateDicts) {
+                Writer out;
+                writeDictOffset(out, uint32_t(privateDict.size()));
+                writeDictOffset(out, uint32_t(offset));
+                writeDictOperator(out, privateOperator);
+                dicts.push_back(out.vector());
+                offset += privateDict.size();
+            }
+            return dicts;
+        };
+
+        // Every offset is written in its fixed five-byte form, so the sizes measured with zeros hold.
+        Writer measuredTop;
+        writeCFFIndex(measuredTop, { topDict(0, 0, 0, 0) });
+        Writer measuredFDArray;
+        writeCFFIndex(measuredFDArray, fontDicts(0));
+        uint64_t charsetOffset = 4 + nameIndex.size() + measuredTop.size() + stringIndex.size() + globalSubrIndex.size();
+        uint64_t fdSelectOffset = charsetOffset + charset.size();
+        uint64_t charStringsOffset = fdSelectOffset + fdSelect.size();
+        uint64_t fdArrayOffset = charStringsOffset + charStringsIndex.size();
+        uint64_t privateOffset = fdArrayOffset + measuredFDArray.size();
+        uint64_t total = privateOffset;
+        for (const auto& privateDict : privateDicts)
+            total += privateDict.size();
+        if (total > maximumAssembledFontSize)
+            return std::nullopt;
+
+        Writer cff;
+        cff.vector().reserve(size_t(total));
+        cff.u8(1); // major
+        cff.u8(0); // minor
+        cff.u8(4); // header size
+        cff.u8(4); // absolute offset size
+        cff.bytes(nameIndex.vector().data(), nameIndex.size());
+        writeCFFIndex(cff, { topDict(uint32_t(charsetOffset), uint32_t(fdSelectOffset), uint32_t(fdArrayOffset), uint32_t(charStringsOffset)) });
+        cff.bytes(stringIndex.vector().data(), stringIndex.size());
+        cff.bytes(globalSubrIndex.vector().data(), globalSubrIndex.size());
+        cff.bytes(charset.vector().data(), charset.size());
+        cff.bytes(fdSelect.vector().data(), fdSelect.size());
+        cff.bytes(charStringsIndex.vector().data(), charStringsIndex.size());
+        writeCFFIndex(cff, fontDicts(uint32_t(privateOffset)));
+        for (const auto& privateDict : privateDicts)
+            cff.bytes(privateDict.data(), privateDict.size());
+        if (cff.size() != total)
+            return std::nullopt;
+        return std::move(cff.vector());
+    }
+
+private:
+    BlendScalars* blend() { return m_blend ? &*m_blend : nullptr; }
+
+    bool parseFDSelect(Reader table, size_t offset, uint32_t numGlyphs)
+    {
+        if (offset > table.size())
+            return false;
+        Reader select = table.slice(offset, table.size() - offset);
+        uint8_t format = select.u8();
+        if (format == 0) {
+            for (uint32_t glyph = 0; glyph < numGlyphs; ++glyph)
+                m_fdSelect[glyph] = select.u8();
+            return !select.failed();
+        }
+        if (format != 3 && format != 4)
+            return false;
+        uint32_t rangeCount = format == 3 ? select.u16() : select.u32();
+        uint32_t first = format == 3 ? select.u16() : select.u32();
+        if (select.failed() || !rangeCount || first)
+            return false;
+        for (uint32_t range = 0; range < rangeCount; ++range) {
+            uint16_t fd = format == 3 ? select.u8() : select.u16();
+            uint32_t next = format == 3 ? select.u16() : select.u32();
+            if (select.failed() || next <= first || next > numGlyphs || fd > 0xFF)
+                return false;
+            for (uint32_t glyph = first; glyph < next; ++glyph)
+                m_fdSelect[glyph] = uint8_t(fd);
+            first = next;
+        }
+        return first == numGlyphs;
+    }
+
+    CFF2Index m_globalSubrs;
+    CFF2Index m_charstrings;
+    std::optional<ItemVariationStore> m_store;
+    std::optional<BlendScalars> m_blend;
+    std::optional<CFF2CharstringInterpreter> m_interpreter;
+    std::vector<double> m_fontMatrix;
+    std::vector<CFF2FontDict> m_fontDicts;
+    std::vector<uint8_t> m_fdSelect;
+};
+
+// An HVAR or VVAR delta for one glyph through the mapping at `mappingOffset` (zero: glyph IDs index
+// the store's first ItemVariationData directly).
+static std::optional<double> glyphMetricDelta(Reader table, const ItemVariationStore& store, uint32_t mappingOffset, uint32_t glyph)
+{
+    if (!mappingOffset)
+        return store.delta(glyph);
+    if (mappingOffset > table.size())
+        return std::nullopt;
+    auto index = mappedVariationIndex(table.slice(mappingOffset, table.size() - mappingOffset), glyph);
+    return index ? store.delta(*index) : std::nullopt;
+}
+
+// Rewrites a font whose outlines are a CFF2 table as one with a CFF table, at the instance pinned by
+// `pinnedAxisValues` (the fvar defaults where an axis is not named, and for a font without fvar).
+class CFF2Instancer {
+public:
+    explicit CFF2Instancer(const ParsedSfnt& sfnt)
+        : m_sfnt(sfnt)
+    {
+    }
+
+    CFDataRef instance(const std::vector<std::pair<uint32_t, double>>& pinnedAxisValues)
+    {
+        m_pinned = !pinnedAxisValues.empty();
+        if (!computeCoords(pinnedAxisValues) || !readMetrics())
+            return nullptr;
+        CFF2Font font;
+        Reader table = m_sfnt.tableReader(cff2Tag);
+        if (table.failed() || !font.parse(table, m_numGlyphs, m_coords))
+            return nullptr;
+        if (!varyMetrics())
+            return nullptr;
+        CFF2Outlines outlines;
+        outlines.ends.resize(m_numGlyphs);
+        outlines.bounds.resize(m_numGlyphs);
+        outlines.charstrings.vector().reserve(table.size() * 2);
+        BBox fontBBox;
+        Outline outline;
+        std::vector<int32_t> arguments;
+        arguments.reserve(48);
+        for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+            if (!font.outline(glyph, outline) || !encodeType2Charstring(outline, m_advances[glyph], outlines.charstrings, arguments, outlines.bounds[glyph]))
+                return nullptr;
+            if (outlines.charstrings.size() > maximumAssembledFontSize)
+                return nullptr;
+            outlines.ends[glyph] = uint32_t(outlines.charstrings.size());
+            const BBox& bounds = outlines.bounds[glyph];
+            if (bounds.valid) {
+                fontBBox.add(bounds.xMin, bounds.yMin);
+                fontBBox.add(bounds.xMax, bounds.yMax);
+            }
+        }
+        if (m_hasVerticalMetrics && !resolveTopSideBearings(outlines.bounds))
+            return nullptr;
+        CFStringRef nameRecord = copyNameRecord(m_sfnt, 6);
+        std::string name = postScriptFontName(nameRecord);
+        if (nameRecord)
+            CFRelease(nameRecord);
+        auto cff = font.assembleCFF(name, outlines, fontBBox);
+        if (!cff)
+            return nullptr;
+        return assemble(*cff, outlines.bounds, fontBBox);
+    }
+
+private:
+    bool computeCoords(const std::vector<std::pair<uint32_t, double>>& pinnedAxisValues)
+    {
+        if (!m_sfnt.find(fvarTag))
+            return pinnedAxisValues.empty();
+        m_axes = parseFvarAxes(m_sfnt);
+        if (m_axes.empty())
+            return false;
+        m_coords.resize(m_axes.size());
+        m_pinnedDesignValues.resize(m_axes.size());
+        for (size_t i = 0; i < m_axes.size(); ++i) {
+            const auto& axis = m_axes[i];
+            double value = axis.defaultValue;
+            for (const auto& [tag, pinnedValue] : pinnedAxisValues) {
+                if (tag == axis.tag) {
+                    value = pinnedValue;
+                    break;
+                }
+            }
+            value = std::min(axis.maximumValue, std::max(axis.minimumValue, value));
+            m_pinnedDesignValues[i] = value;
+            m_coords[i] = normalizedFixed(axis, value) / 65536.0f;
+        }
+        return applyAvar(m_sfnt, m_coords);
+    }
+
+    bool atDefault() const
+    {
+        return std::all_of(m_coords.begin(), m_coords.end(), [](float coordinate) { return !coordinate; });
+    }
+
+    bool readMetrics()
+    {
+        Reader maxp = m_sfnt.tableReader(maxpTag);
+        maxp.seek(4);
+        m_numGlyphs = maxp.u16();
+        Reader hhea = m_sfnt.tableReader(hheaTag);
+        hhea.seek(34);
+        uint16_t numberOfHMetrics = hhea.u16();
+        if (maxp.failed() || hhea.failed() || !m_numGlyphs || !numberOfHMetrics || numberOfHMetrics > m_numGlyphs)
+            return false;
+        if (!readLongMetrics(m_sfnt.tableReader(hmtxTag), numberOfHMetrics, m_advances, m_leftSideBearings))
+            return false;
+        if (m_sfnt.find(vheaTag) && m_sfnt.find(vmtxTag)) {
+            Reader vhea = m_sfnt.tableReader(vheaTag);
+            vhea.seek(34);
+            uint16_t numberOfVMetrics = vhea.u16();
+            if (vhea.failed() || !numberOfVMetrics || numberOfVMetrics > m_numGlyphs
+                || !readLongMetrics(m_sfnt.tableReader(vmtxTag), numberOfVMetrics, m_verticalAdvances, m_topSideBearings))
+                return false;
+            m_hasVerticalMetrics = true;
+        }
+        return true;
+    }
+
+    bool readLongMetrics(Reader table, uint16_t longCount, std::vector<int32_t>& advances, std::vector<int32_t>& bearings)
+    {
+        advances.resize(m_numGlyphs);
+        bearings.resize(m_numGlyphs);
+        int32_t lastAdvance = 0;
+        for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+            if (glyph < longCount)
+                lastAdvance = table.u16();
+            advances[glyph] = lastAdvance;
+            bearings[glyph] = table.s16();
+        }
+        return !table.failed();
+    }
+
+    // HVAR and VVAR advance deltas, and VVAR's vertical-origin deltas over VORG.
+    bool varyMetrics()
+    {
+        if (atDefault())
+            return true;
+        auto vary = [&](uint32_t tag, std::vector<int32_t>& advances, bool vertical) {
+            if (!m_sfnt.find(tag))
+                return true;
+            Reader table = m_sfnt.tableReader(tag);
+            uint16_t major = table.u16();
+            table.u16(); // minor
+            uint32_t storeOffset = table.u32();
+            uint32_t advanceMapping = table.u32();
+            table.u32(); // start-side bearing mapping
+            table.u32(); // end-side bearing mapping
+            uint32_t originMapping = vertical ? table.u32() : 0;
+            if (table.failed() || major != 1 || !storeOffset || storeOffset > table.size())
+                return false;
+            ItemVariationStore store(table.slice(storeOffset, table.size() - storeOffset));
+            if (!store.initialize(m_coords))
+                return false;
+            for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+                auto delta = glyphMetricDelta(table, store, advanceMapping, glyph);
+                if (!delta)
+                    return false;
+                advances[glyph] = std::min<int32_t>(65535, std::max<int32_t>(0, advances[glyph] + int32_t(std::floor(*delta + 0.5))));
+            }
+            if (originMapping && m_sfnt.find(vorgTag)) {
+                if (!readVerticalOrigins(m_verticalOrigins))
+                    return false;
+                for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+                    auto delta = glyphMetricDelta(table, store, originMapping, glyph);
+                    if (!delta)
+                        return false;
+                    m_verticalOrigins[glyph] += int32_t(std::floor(*delta + 0.5));
+                }
+                m_variesVerticalOrigins = true;
+            }
+            return true;
+        };
+        return vary(hvarTag, m_advances, false) && (!m_hasVerticalMetrics || vary(vvarTag, m_verticalAdvances, true));
+    }
+
+    bool readVerticalOrigins(std::vector<int32_t>& origins) const
+    {
+        Reader vorg = m_sfnt.tableReader(vorgTag);
+        uint16_t major = vorg.u16();
+        vorg.u16(); // minor
+        int16_t defaultOrigin = vorg.s16();
+        uint16_t count = vorg.u16();
+        if (vorg.failed() || major != 1)
+            return false;
+        origins.assign(m_numGlyphs, defaultOrigin);
+        for (uint16_t i = 0; i < count; ++i) {
+            uint16_t glyph = vorg.u16();
+            int16_t origin = vorg.s16();
+            if (glyph < m_numGlyphs)
+                origins[glyph] = origin;
+        }
+        return !vorg.failed();
+    }
+
+    // A glyph's top-side bearing is its vertical origin less its top. The origin is VORG's where the
+    // font has one; otherwise it is the default master's, which the outline at the fvar defaults gives.
+    bool resolveTopSideBearings(const std::vector<BBox>& bounds)
+    {
+        if (atDefault())
+            return true;
+        constexpr int32_t noOrigin = std::numeric_limits<int32_t>::min();
+        std::vector<int32_t> origins;
+        if (m_sfnt.find(vorgTag)) {
+            if (m_variesVerticalOrigins)
+                origins = m_verticalOrigins;
+            else if (!readVerticalOrigins(origins))
+                return false;
+        } else {
+            CFF2Font defaultFont;
+            std::vector<float> defaultCoords(m_axes.size(), 0);
+            if (!applyAvar(m_sfnt, defaultCoords) || !defaultFont.parse(m_sfnt.tableReader(cff2Tag), m_numGlyphs, defaultCoords))
+                return false;
+            origins.resize(m_numGlyphs);
+            Outline outline;
+            for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+                BBox defaultBounds;
+                if (!defaultFont.outline(glyph, outline) || !outlineBounds(outline, defaultBounds))
+                    return false;
+                origins[glyph] = defaultBounds.valid ? m_topSideBearings[glyph] + defaultBounds.yMax : noOrigin;
+            }
+        }
+        for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+            if (bounds[glyph].valid && origins[glyph] != noOrigin)
+                m_topSideBearings[glyph] = origins[glyph] - bounds[glyph].yMax;
+        }
+        return true;
+    }
+
+    CFDataRef assemble(const std::vector<uint8_t>& cff, const std::vector<BBox>& bounds, const BBox& fontBBox)
+    {
+        std::map<uint32_t, double> globalDeltas;
+        if (!metricVariations(m_sfnt, m_coords, globalDeltas))
+            return nullptr;
+
+        // hmtx: CFF outlines put each glyph's left side bearing at its left edge.
+        Writer hmtx;
+        int32_t advanceWidthMax = 0;
+        int32_t minLeftSideBearing = 32767, minRightSideBearing = 32767, xMaxExtent = -32768;
+        bool anyContours = false;
+        for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+            const BBox& box = bounds[glyph];
+            int32_t advance = m_advances[glyph];
+            int32_t leftSideBearing = box.valid ? box.xMin : m_leftSideBearings[glyph];
+            advanceWidthMax = std::max(advanceWidthMax, advance);
+            if (box.valid) {
+                anyContours = true;
+                minLeftSideBearing = std::min(minLeftSideBearing, leftSideBearing);
+                minRightSideBearing = std::min(minRightSideBearing, advance - box.xMax);
+                xMaxExtent = std::max(xMaxExtent, box.xMax);
+            }
+            hmtx.u16(uint16_t(advance));
+            hmtx.s16(clampToInt16(leftSideBearing));
+        }
+
+        Writer vmtx;
+        int32_t advanceHeightMax = 0;
+        int32_t minTopSideBearing = 32767, minBottomSideBearing = 32767, yMaxExtent = -32768;
+        if (m_hasVerticalMetrics) {
+            for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+                const BBox& box = bounds[glyph];
+                int32_t advance = m_verticalAdvances[glyph];
+                int32_t topSideBearing = m_topSideBearings[glyph];
+                advanceHeightMax = std::max(advanceHeightMax, advance);
+                if (box.valid) {
+                    minTopSideBearing = std::min(minTopSideBearing, topSideBearing);
+                    minBottomSideBearing = std::min(minBottomSideBearing, advance - topSideBearing - (box.yMax - box.yMin));
+                    yMaxExtent = std::max(yMaxExtent, topSideBearing + (box.yMax - box.yMin));
+                }
+                vmtx.u16(uint16_t(advance));
+                vmtx.s16(clampToInt16(topSideBearing));
+            }
+        }
+
+        Reader os2Metrics = m_sfnt.tableReader(os2Tag);
+        Reader hheaMetrics = m_sfnt.tableReader(hheaTag);
+        const uint8_t* typo = os2Metrics.bytesAt(68, 6);
+        const uint8_t* horizontal = hheaMetrics.bytesAt(4, 6);
+        bool synchronizeVerticalMetrics = typo && horizontal && !std::memcmp(typo, horizontal, 6);
+
+        auto writeBE16At = [](std::vector<uint8_t>& bytes, size_t offset, int16_t v) {
+            bytes[offset] = uint8_t(uint16_t(v) >> 8);
+            bytes[offset + 1] = uint8_t(uint16_t(v));
+        };
+        std::vector<std::pair<uint32_t, std::vector<uint8_t>>> outTables;
+        for (const auto& table : m_sfnt.tables) {
+            if (isVariationTableTag(table.tag) || table.tag == tagFor('D', 'S', 'I', 'G') || table.tag == cff2Tag || table.tag == cffTag)
+                continue;
+            const uint8_t* bytes = m_sfnt.whole.bytesAt(table.offset, table.length);
+            if (!bytes)
+                return nullptr;
+            std::vector<uint8_t> copy(bytes, bytes + table.length);
+            switch (table.tag) {
+            case hmtxTag:
+                copy = hmtx.vector();
+                break;
+            case vmtxTag:
+                if (m_hasVerticalMetrics)
+                    copy = vmtx.vector();
+                break;
+            case headTag:
+                if (copy.size() < 54)
+                    return nullptr;
+                if (anyContours) {
+                    writeBE16At(copy, 36, clampToInt16(fontBBox.xMin));
+                    writeBE16At(copy, 38, clampToInt16(fontBBox.yMin));
+                    writeBE16At(copy, 40, clampToInt16(fontBBox.xMax));
+                    writeBE16At(copy, 42, clampToInt16(fontBBox.yMax));
+                }
+                break;
+            case hheaTag:
+                if (copy.size() < 36)
+                    return nullptr;
+                writeBE16At(copy, 10, int16_t(uint16_t(std::min<int32_t>(advanceWidthMax, 65535))));
+                if (anyContours) {
+                    writeBE16At(copy, 12, clampToInt16(minLeftSideBearing));
+                    writeBE16At(copy, 14, clampToInt16(minRightSideBearing));
+                    writeBE16At(copy, 16, clampToInt16(xMaxExtent));
+                }
+                writeBE16At(copy, 34, int16_t(m_numGlyphs));
+                if (synchronizeVerticalMetrics) {
+                    const uint32_t tags[] = { tagFor('h', 'a', 's', 'c'), tagFor('h', 'd', 's', 'c'), tagFor('h', 'l', 'g', 'p') };
+                    for (size_t i = 0; i < 3; ++i) {
+                        auto delta = globalDeltas.find(tags[i]);
+                        if (delta == globalDeltas.end())
+                            continue;
+                        int16_t original = int16_t((uint16_t(copy[4 + 2 * i]) << 8) | copy[5 + 2 * i]);
+                        double value = original + std::floor(delta->second + 0.5);
+                        if (value < -32768 || value > 32767)
+                            return nullptr;
+                        writeBE16At(copy, 4 + 2 * i, int16_t(value));
+                    }
+                }
+                break;
+            case vheaTag:
+                if (!m_hasVerticalMetrics)
+                    break;
+                if (copy.size() < 36)
+                    return nullptr;
+                writeBE16At(copy, 10, int16_t(uint16_t(std::min<int32_t>(advanceHeightMax, 65535))));
+                if (anyContours) {
+                    writeBE16At(copy, 12, clampToInt16(minTopSideBearing));
+                    writeBE16At(copy, 14, clampToInt16(minBottomSideBearing));
+                    writeBE16At(copy, 16, clampToInt16(yMaxExtent));
+                }
+                writeBE16At(copy, 34, int16_t(m_numGlyphs));
+                break;
+            case vorgTag:
+                if (m_variesVerticalOrigins)
+                    copy = verticalOriginTable();
+                break;
+            case os2Tag:
+                if (m_pinned)
+                    applyPinnedClasses(copy, m_axes, m_pinnedDesignValues);
+                break;
+            default:
+                break;
+            }
+            if (!instanceLayoutTable(m_sfnt, table.tag, copy, m_coords) || !applyMetricVariations(table.tag, copy, globalDeltas))
+                return nullptr;
+            outTables.emplace_back(table.tag, std::move(copy));
+        }
+        outTables.emplace_back(cffTag, cff);
+        return assembleSfnt(tagFor('O', 'T', 'T', 'O'), outTables);
+    }
+
+    // VORG for the varied origins: the most common one as the default, every other glyph listed.
+    std::vector<uint8_t> verticalOriginTable() const
+    {
+        std::vector<int32_t> sorted = m_verticalOrigins;
+        std::sort(sorted.begin(), sorted.end());
+        int32_t mostCommon = sorted.empty() ? 0 : sorted[0];
+        size_t best = 0;
+        for (size_t i = 0; i < sorted.size();) {
+            size_t j = i;
+            while (j < sorted.size() && sorted[j] == sorted[i])
+                ++j;
+            if (j - i > best) {
+                best = j - i;
+                mostCommon = sorted[i];
+            }
+            i = j;
+        }
+        Writer out;
+        out.u16(1);
+        out.u16(0);
+        out.s16(clampToInt16(mostCommon));
+        size_t countPosition = out.size();
+        out.u16(0);
+        uint16_t count = 0;
+        for (uint32_t glyph = 0; glyph < m_numGlyphs; ++glyph) {
+            if (m_verticalOrigins[glyph] == mostCommon)
+                continue;
+            out.u16(uint16_t(glyph));
+            out.s16(clampToInt16(m_verticalOrigins[glyph]));
+            ++count;
+        }
+        out.vector()[countPosition] = uint8_t(count >> 8);
+        out.vector()[countPosition + 1] = uint8_t(count);
+        return out.vector();
+    }
+
+    const ParsedSfnt& m_sfnt;
+    bool m_pinned { false };
+    std::vector<LegacyVariableFontAxis> m_axes;
+    std::vector<float> m_coords;
+    std::vector<double> m_pinnedDesignValues;
+    uint32_t m_numGlyphs { 0 };
+    std::vector<int32_t> m_advances;
+    std::vector<int32_t> m_leftSideBearings;
+    bool m_hasVerticalMetrics { false };
+    std::vector<int32_t> m_verticalAdvances;
+    std::vector<int32_t> m_topSideBearings;
+    bool m_variesVerticalOrigins { false };
+    std::vector<int32_t> m_verticalOrigins;
+};
+
+// A variable font this file can cut: fvar over glyf outlines with gvar, or over a CFF2 table.
+static bool isInstanceable(const ParsedSfnt& sfnt)
+{
+    return sfnt.find(fvarTag) && ((sfnt.find(gvarTag) && sfnt.find(glyfTag)) || sfnt.find(cff2Tag));
+}
+
 std::vector<LegacyVariableFontAxis> legacyVariableFontAxes(CFDataRef data)
 {
     auto sfnt = parseSfnt(data);
-    if (!sfnt || !sfnt->find(fvarTag) || !sfnt->find(gvarTag) || !sfnt->find(glyfTag))
+    if (!sfnt || !isInstanceable(*sfnt))
         return { };
     return parseFvarAxes(*sfnt);
 }
@@ -1937,6 +3957,8 @@ CFDataRef createLegacyVariableFontInstance(CFDataRef data, const std::vector<std
     auto sfnt = parseSfnt(data);
     if (!sfnt)
         return nullptr;
+    if (sfnt->find(cff2Tag))
+        return CFF2Instancer(*sfnt).instance(pinnedAxisValues);
     Instancer instancer(*sfnt);
     return instancer.instance(pinnedAxisValues);
 }
@@ -1948,7 +3970,15 @@ CFDataRef createFontDataWithVariationTablesStripped(CFDataRef input)
         return input;
     };
     auto sfnt = parseSfnt(input);
-    if (!sfnt || !sfnt->find(fvarTag))
+    if (!sfnt)
+        return retainInput();
+    // CFF2 outlines, variable or not, become CFF ones at the fvar defaults.
+    if (sfnt->find(cff2Tag)) {
+        if (CFDataRef converted = CFF2Instancer(*sfnt).instance({ }))
+            return converted;
+        return retainInput();
+    }
+    if (!sfnt->find(fvarTag))
         return retainInput();
 
     auto axes = parseFvarAxes(*sfnt);
@@ -1974,7 +4004,7 @@ CFDataRef createFontDataWithVariationTablesStripped(CFDataRef input)
         if (!bytes || !table.length)
             continue;
         std::vector<uint8_t> copy(bytes, bytes + table.length);
-        if ((table.tag == tagFor('G', 'S', 'U', 'B') || table.tag == tagFor('G', 'P', 'O', 'S')) && !instanceLayoutFeatures(copy, defaultCoords))
+        if (!instanceLayoutTable(*sfnt, table.tag, copy, defaultCoords))
             return retainInput();
         outTables.emplace_back(table.tag, std::move(copy));
     }
@@ -2032,46 +4062,16 @@ std::vector<std::pair<uint32_t, double>> pinnedAxisValues(CFDataRef sfnt, CFDict
     return allDefault ? std::vector<std::pair<uint32_t, double>> { } : pins;
 }
 
-// Cutting an instance parses and re-emits the whole font, and CSS font-variation-settings is
-// animatable, so a page can ask for a new pinned-value set every frame. Memoize by source buffer
-// and requested variations. Keys hold a reference to the source data so that a freed buffer's
-// address cannot be reused by a different font and alias an entry; entries are never evicted, so
-// the table is capped and past the cap instances are cut uncached (a pathological animated axis
-// then pays CPU, not RSS).
-constexpr size_t maximumCachedInstances = 128;
-
-pthread_mutex_t instanceCacheMutex = PTHREAD_MUTEX_INITIALIZER;
-// Values (and the retained sources) are immortal, and the table is capped, so a flat vector is both
-// small enough to scan and free of the associative containers' weak libc++ helper symbols, which
-// libpolyfill.a — force-loaded into every binary — must not carry.
-std::vector<std::pair<std::string, CFDataRef>>* instanceCache;
-
-std::string instanceCacheKey(CFDataRef sfnt, CFDictionaryRef variations)
+// The canonical key of a pinned-value set: every axis's value in fvar order, so that every request
+// realizing one instance has one key.
+std::string instanceKey(const std::vector<std::pair<uint32_t, double>>& pins)
 {
-    char buffer[64];
-    snprintf(buffer, sizeof(buffer), "%p/%ld:", static_cast<const void*>(sfnt), static_cast<long>(CFDataGetLength(sfnt)));
-    std::string key = buffer;
-
-    CFIndex count = CFDictionaryGetCount(variations);
-    std::vector<const void*> keys(count ? count : 1);
-    std::vector<const void*> values(count ? count : 1);
-    CFDictionaryGetKeysAndValues(variations, keys.data(), values.data());
-    std::vector<std::string> entries;
-    entries.reserve(count);
-    for (CFIndex i = 0; i < count; ++i) {
-        double tag = 0;
-        double value = 0;
-        if (CFGetTypeID(keys[i]) == CFNumberGetTypeID())
-            CFNumberGetValue(static_cast<CFNumberRef>(keys[i]), kCFNumberDoubleType, &tag);
-        if (CFGetTypeID(values[i]) == CFNumberGetTypeID())
-            CFNumberGetValue(static_cast<CFNumberRef>(values[i]), kCFNumberDoubleType, &value);
-        snprintf(buffer, sizeof(buffer), "%.0f=%a;", tag, value);
-        entries.emplace_back(buffer);
+    std::string key;
+    char buffer[48];
+    for (const auto& [tag, value] : pins) {
+        snprintf(buffer, sizeof(buffer), "%c%c%c%c=%a;", char(tag >> 24), char(tag >> 16), char(tag >> 8), char(tag), value);
+        key += buffer;
     }
-    // CFDictionary has no order; sort so that one requested set has one key.
-    std::sort(entries.begin(), entries.end());
-    for (const auto& entry : entries)
-        key += entry;
     return key;
 }
 
@@ -2091,91 +4091,27 @@ CFDataRef wk_legacy_variable_font_strip_variations(CFDataRef sfnt)
 
 CFDataRef wk_legacy_variable_font_instance(CFDataRef sfnt, CFDictionaryRef ctVariationAttribute)
 {
-    if (!sfnt || !ctVariationAttribute || CFGetTypeID(ctVariationAttribute) != CFDictionaryGetTypeID()
-        || !CFDictionaryGetCount(ctVariationAttribute))
+    if (!sfnt || !ctVariationAttribute || CFGetTypeID(ctVariationAttribute) != CFDictionaryGetTypeID())
         return nullptr;
-
-    std::string key = instanceCacheKey(sfnt, ctVariationAttribute);
-
-    pthread_mutex_lock(&instanceCacheMutex);
-    if (!instanceCache)
-        instanceCache = new std::vector<std::pair<std::string, CFDataRef>>();
-    for (const auto& entry : *instanceCache) {
-        if (entry.first != key)
-            continue;
-        // A remembered null records that this font declined instancing at these values, so the
-        // parse is not retried for every glyph run.
-        CFDataRef cached = entry.second;
-        pthread_mutex_unlock(&instanceCacheMutex);
-        return cached ? static_cast<CFDataRef>(CFRetain(cached)) : nullptr;
-    }
-
     auto pins = pinnedAxisValues(sfnt, ctVariationAttribute);
-    CFDataRef instance = pins.empty() ? nullptr : createLegacyVariableFontInstance(sfnt, pins);
-
-    if (instanceCache->size() < maximumCachedInstances) {
-        if (instance)
-            CFRetain(instance);
-        CFRetain(sfnt); // Keeps the address in the key from being reused by another font.
-        instanceCache->emplace_back(key, instance);
-    }
-    pthread_mutex_unlock(&instanceCacheMutex);
-    return instance;
+    return pins.empty() ? nullptr : createLegacyVariableFontInstance(sfnt, pins);
 }
 
-// The name-table record 10.9's CoreText names an axis with: Macintosh Roman, English first, then
-// Unicode, then Windows Unicode, US English first.
-static CFStringRef copyAxisName(const ParsedSfnt& sfnt, uint16_t nameID)
+CFStringRef wk_legacy_variable_font_copy_instance_key(CFDataRef sfnt, CFDictionaryRef ctVariationAttribute)
 {
-    constexpr uint32_t nameTag = tagFor('n', 'a', 'm', 'e');
-    if (!sfnt.find(nameTag))
+    if (!sfnt || !ctVariationAttribute || CFGetTypeID(ctVariationAttribute) != CFDictionaryGetTypeID())
         return nullptr;
-    Reader name = sfnt.tableReader(nameTag);
-    name.u16(); // version
-    uint16_t count = name.u16();
-    uint16_t storageOffset = name.u16();
-    int bestRank = 5;
-    uint16_t bestPlatform = 0;
-    size_t bestOffset = 0;
-    size_t bestLength = 0;
-    for (uint16_t i = 0; i < count && !name.failed(); ++i) {
-        uint16_t platformID = name.u16();
-        uint16_t encodingID = name.u16();
-        uint16_t languageID = name.u16();
-        uint16_t recordNameID = name.u16();
-        uint16_t length = name.u16();
-        uint16_t offset = name.u16();
-        if (name.failed() || recordNameID != nameID)
-            continue;
-        int rank;
-        if (platformID == 1 && !encodingID)
-            rank = languageID ? 1 : 0;
-        else if (!platformID)
-            rank = 2;
-        else if (platformID == 3 && (encodingID == 1 || encodingID == 10))
-            rank = languageID == 0x409 ? 3 : 4;
-        else
-            continue;
-        if (rank < bestRank) {
-            bestRank = rank;
-            bestPlatform = platformID;
-            bestOffset = offset;
-            bestLength = length;
-        }
-    }
-    if (bestRank == 5)
+    auto pins = pinnedAxisValues(sfnt, ctVariationAttribute);
+    if (pins.empty())
         return nullptr;
-    const uint8_t* bytes = name.bytesAt(size_t(storageOffset) + bestOffset, bestLength);
-    if (!bytes)
-        return nullptr;
-    return CFStringCreateWithBytes(kCFAllocatorDefault, bytes, CFIndex(bestLength),
-        bestPlatform == 1 ? kCFStringEncodingMacRoman : kCFStringEncodingUTF16BE, false);
+    std::string key = instanceKey(pins);
+    return CFStringCreateWithBytes(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(key.data()), CFIndex(key.size()), kCFStringEncodingASCII, false);
 }
 
 CFIndex wk_legacy_variable_font_copy_axes(CFDataRef sfnt, wk_legacy_variable_font_axis* axes, CFIndex capacity)
 {
     auto parsed = parseSfnt(sfnt);
-    if (!parsed || !parsed->find(fvarTag) || !parsed->find(gvarTag) || !parsed->find(glyfTag))
+    if (!parsed || !isInstanceable(*parsed))
         return 0;
     auto list = parseFvarAxes(*parsed);
     for (size_t i = 0; i < list.size() && CFIndex(i) < capacity; ++i) {
@@ -2183,7 +4119,7 @@ CFIndex wk_legacy_variable_font_copy_axes(CFDataRef sfnt, wk_legacy_variable_fon
         axes[i].minimumValue = list[i].fixedMinimumValue;
         axes[i].defaultValue = list[i].fixedDefaultValue;
         axes[i].maximumValue = list[i].fixedMaximumValue;
-        axes[i].name = copyAxisName(*parsed, list[i].nameID);
+        axes[i].name = copyNameRecord(*parsed, list[i].nameID);
     }
     return CFIndex(list.size());
 }

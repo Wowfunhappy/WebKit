@@ -6,6 +6,7 @@
 #include "../../polyfills/c/VariableFontInstancer.cpp"
 
 #include <cstdlib>
+#include <malloc/malloc.h>
 #include <initializer_list>
 
 namespace TableTests {
@@ -610,28 +611,474 @@ void testPrecisionAndCache()
     check(fixed == 32770, "normalization rounds through font 16.16 coordinates before division");
     check(normalizedF2Dot14(fixed) == 8193.0f / 16384.0f, "F2DOT14 normalization retains the boundary-crossing rounded unit");
 
-    const uint8_t source[] = { 0, 1, 0, 0 };
-    CFDataRef data = CFDataCreate(kCFAllocatorDefault, source, sizeof(source));
-    int32_t tag = axis.tag;
-    CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &tag);
     double first = 700.0144;
     double second = 700.01441;
-    CFNumberRef firstValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &first);
-    CFNumberRef secondValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &second);
+    check(instanceKey({ { axis.tag, first } }) != instanceKey({ { axis.tag, second } }),
+        "distinct precise axis values do not alias in the instance key");
+    check(instanceKey({ { axis.tag, first } }) == instanceKey({ { axis.tag, first } }), "identical pins keep a stable instance key");
+}
+
+// A two-glyph font with a CFF2 table and a wght axis (100-900, default 400): glyph 1 is a box whose right
+// edge moves 100 units at wght 900 through a charstring blend, its advance grows 40 there through HVAR,
+// and its Private DICT BlueValues top grows 5. The charstring opens with stem hints and a hint mask.
+struct CFF2Fixture {
+    uint16_t advance { 600 };
+    // An ItemVariationData count and region count for the store blends use; past one, every
+    // ItemVariationData shares one region list.
+    uint16_t dataCount { 1 };
+    uint16_t regionCount { 1 };
+    // Whether the glyph and the Private DICT blend; a blend weighs every region of its store.
+    bool blends { true };
+};
+
+Bytes cff2RegionStore(const CFF2Fixture& fixture, bool withRows)
+{
+    // ItemVariationStore: one axis; region 0 peaks at wght max, the others peak nowhere.
+    Bytes store;
+    append16(store, 1);
+    size_t regionListOffset = 8 + size_t(fixture.dataCount) * 4;
+    append32(store, uint32_t(regionListOffset));
+    append16(store, fixture.dataCount);
+    size_t dataOffset = regionListOffset + 4 + size_t(fixture.regionCount) * 6;
+    for (uint16_t i = 0; i < fixture.dataCount; ++i)
+        append32(store, uint32_t(dataOffset));
+    append16(store, 1);
+    append16(store, fixture.regionCount);
+    for (uint16_t r = 0; r < fixture.regionCount; ++r) {
+        append16(store, 0);
+        append16(store, r ? 0 : 16384);
+        append16(store, 16384);
+    }
+    append16(store, withRows ? 2 : 0);
+    append16(store, 0);
+    append16(store, fixture.regionCount);
+    for (uint16_t r = 0; r < fixture.regionCount; ++r)
+        append16(store, r);
+    if (withRows) {
+        // Byte deltas for glyphs 0 and 1 over every region; only region 0 carries one.
+        for (uint16_t glyph = 0; glyph < 2; ++glyph) {
+            for (uint16_t r = 0; r < fixture.regionCount; ++r)
+                store.push_back(glyph && !r ? 40 : 0);
+        }
+    }
+    return store;
+}
+
+Bytes cff2Table(const CFF2Fixture& fixture)
+{
+    auto number = [](Bytes& out, int v) {
+        if (v >= -107 && v <= 107)
+            out.push_back(uint8_t(v + 139));
+        else {
+            out.push_back(28);
+            append16(out, uint16_t(int16_t(v)));
+        }
+    };
+    auto offset = [](Bytes& out, uint32_t v) {
+        out.push_back(29);
+        append32(out, v);
+    };
+    // Glyph 1: 0 10 hstemhm 20 30 hintmask, then a 200x300 box at x 100 whose width blends by 100.
+    Bytes glyph;
+    number(glyph, 0);
+    number(glyph, 10);
+    glyph.push_back(18);
+    number(glyph, 20);
+    number(glyph, 30);
+    glyph.push_back(19);
+    glyph.push_back(0xC0);
+    number(glyph, 100);
+    number(glyph, 0);
+    glyph.push_back(21);
+    number(glyph, 200);
+    if (fixture.blends) {
+        for (uint16_t r = 0; r < fixture.regionCount; ++r)
+            number(glyph, r ? 0 : 100);
+        number(glyph, 1);
+        glyph.push_back(16);
+    }
+    number(glyph, 0);
+    number(glyph, 0);
+    number(glyph, 300);
+    glyph.push_back(5);
+
+    Bytes privateDict;
+    // BlueValues 0 10, the second blending by 5.
+    number(privateDict, 0);
+    number(privateDict, 10);
+    if (fixture.blends) {
+        for (uint16_t r = 0; r < fixture.regionCount; ++r)
+            number(privateDict, 0);
+        for (uint16_t r = 0; r < fixture.regionCount; ++r)
+            number(privateDict, r ? 0 : 5);
+        number(privateDict, 2);
+        privateDict.push_back(23);
+    }
+    privateDict.push_back(6);
+
+    // Layout: header (5), Top DICT (3 offsets), empty global subrs, vstore, CharStrings, FDArray, Private.
+    const size_t topDictSize = 3 * 6 + 1;
+    Bytes store = cff2RegionStore(fixture, false);
+    size_t vstoreOffset = 5 + topDictSize + 4;
+    size_t charStringsOffset = vstoreOffset + 2 + store.size();
+    Bytes charStrings;
+    append32(charStrings, 2);
+    charStrings.push_back(4);
+    append32(charStrings, 1);
+    append32(charStrings, 1);
+    append32(charStrings, uint32_t(1 + glyph.size()));
+    charStrings.insert(charStrings.end(), glyph.begin(), glyph.end());
+    size_t fdArrayOffset = charStringsOffset + charStrings.size();
+    Bytes fontDict;
+    size_t privateOffset = fdArrayOffset + 4 + 1 + 2 + 11;
+    offset(fontDict, uint32_t(privateDict.size()));
+    offset(fontDict, uint32_t(privateOffset));
+    fontDict.push_back(18);
+    Bytes fdArray;
+    append32(fdArray, 1);
+    fdArray.push_back(1);
+    fdArray.push_back(1);
+    fdArray.push_back(uint8_t(1 + fontDict.size()));
+    fdArray.insert(fdArray.end(), fontDict.begin(), fontDict.end());
+
+    Bytes table = { 2, 0, 5 };
+    append16(table, uint16_t(topDictSize));
+    offset(table, uint32_t(charStringsOffset));
+    table.push_back(17);
+    offset(table, uint32_t(fdArrayOffset));
+    table.push_back(12);
+    table.push_back(36);
+    offset(table, uint32_t(vstoreOffset));
+    table.push_back(24);
+    append32(table, 0);
+    append16(table, uint16_t(store.size()));
+    table.insert(table.end(), store.begin(), store.end());
+    table.insert(table.end(), charStrings.begin(), charStrings.end());
+    table.insert(table.end(), fdArray.begin(), fdArray.end());
+    requireRange(table, privateOffset, 0);
+    table.insert(table.end(), privateDict.begin(), privateDict.end());
+    return table;
+}
+
+CFDataRef cff2Font(const CFF2Fixture& fixture)
+{
+    Bytes head(54, 0);
+    put32(head, 0, 0x00010000);
+    put32(head, 12, 0x5F0F3CF5);
+    put16(head, 18, 1000);
+    Bytes hhea(36, 0);
+    put32(hhea, 0, 0x00010000);
+    put16(hhea, 4, 800);
+    put16(hhea, 6, uint16_t(-200));
+    put16(hhea, 34, 2);
+    Bytes maxp = words({ 0, 0x5000, 2 });
+    Bytes hmtx = words({ 500, 0, fixture.advance, 100 });
+    Bytes fvar = words({ 1, 0, 16, 2, 1, 20, 0, 8 });
+    append32(fvar, tagFor('w', 'g', 'h', 't'));
+    append32(fvar, 100 << 16);
+    append32(fvar, 400 << 16);
+    append32(fvar, 900 << 16);
+    append16(fvar, 0);
+    append16(fvar, 256);
+    // avar maps nothing, so 900 normalizes to 1.
+    Bytes hvar = words({ 1, 0 });
+    append32(hvar, 20);
+    append32(hvar, 0);
+    append32(hvar, 0);
+    append32(hvar, 0);
+    CFF2Fixture hvarStore;
+    Bytes store = cff2RegionStore(hvarStore, true);
+    hvar.insert(hvar.end(), store.begin(), store.end());
+    std::vector<std::pair<uint32_t, std::vector<uint8_t>>> tables = {
+        { tagFor('h', 'e', 'a', 'd'), head }, { tagFor('h', 'h', 'e', 'a'), hhea }, { tagFor('m', 'a', 'x', 'p'), maxp },
+        { tagFor('h', 'm', 't', 'x'), hmtx }, { tagFor('f', 'v', 'a', 'r'), fvar }, { tagFor('H', 'V', 'A', 'R'), hvar },
+        { tagFor('C', 'F', 'F', '2'), cff2Table(fixture) },
+    };
+    return assembleSfnt(tagFor('O', 'T', 'T', 'O'), tables);
+}
+
+Bytes tableOf(CFDataRef font, uint32_t tag)
+{
+    CFDataRef table = wk_legacy_variable_font_copy_table(font, tag);
+    Bytes bytes;
+    if (table) {
+        bytes.assign(CFDataGetBytePtr(table), CFDataGetBytePtr(table) + CFDataGetLength(table));
+        CFRelease(table);
+    }
+    return bytes;
+}
+
+bool contains(const Bytes& haystack, const Bytes& needle)
+{
+    return std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end()) != haystack.end();
+}
+
+CFDictionaryRef weightRequest(double value)
+{
+    int32_t tag = tagFor('w', 'g', 'h', 't');
+    CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &tag);
+    CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &value);
     const void* keys[] = { key };
-    const void* firstValues[] = { firstValue };
-    const void* secondValues[] = { secondValue };
-    CFDictionaryRef firstRequest = CFDictionaryCreate(kCFAllocatorDefault, keys, firstValues, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFDictionaryRef secondRequest = CFDictionaryCreate(kCFAllocatorDefault, keys, secondValues, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    check(instanceCacheKey(data, firstRequest) != instanceCacheKey(data, secondRequest),
-        "same-source requests with distinct precise axis values do not alias in the cache");
-    check(instanceCacheKey(data, firstRequest) == instanceCacheKey(data, firstRequest), "identical requests retain a stable cache key");
-    CFRelease(secondRequest);
-    CFRelease(firstRequest);
-    CFRelease(secondValue);
-    CFRelease(firstValue);
+    const void* values[] = { number };
+    CFDictionaryRef request = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFRelease(key);
-    CFRelease(data);
+    CFRelease(number);
+    return request;
+}
+
+void testCFF2()
+{
+    CFDataRef source = cff2Font({ });
+    check(wk_legacy_variable_font_is_instanceable(source), "fvar over CFF2 is instanceable");
+
+    CFDataRef master = wk_legacy_variable_font_strip_variations(source);
+    check(master != source, "the default master of a CFF2 font is rewritten");
+    Bytes cff = tableOf(master, tagFor('C', 'F', 'F', ' '));
+    // Width 600, rmoveto 100 0, rlineto 200 0 0 300, endchar; the hints are not carried.
+    check(contains(cff, { 248, 236, 239, 139, 21, 247, 92, 139, 139, 247, 192, 5, 14 }), "the default master's glyph is the box at its default width");
+    check(tableOf(master, tagFor('C', 'F', 'F', '2')).empty() && tableOf(master, tagFor('f', 'v', 'a', 'r')).empty() && tableOf(master, tagFor('H', 'V', 'A', 'R')).empty(),
+        "the default master carries CFF in place of CFF2 and no variation tables");
+    Bytes hmtx = tableOf(master, tagFor('h', 'm', 't', 'x'));
+    check(hmtx.size() == 8 && read16(hmtx, 4) == 600 && read16(hmtx, 6) == 100, "the default master keeps advance 600 and puts the left side bearing at the box's left edge");
+    // BlueValues 0 10 in the Private DICT.
+    check(contains(cff, { 139, 149, 6 }), "the default master's Private DICT BlueValues resolve to 0 10");
+    CFRelease(master);
+
+    CFDictionaryRef heavy = weightRequest(900);
+    CFDataRef instance = wk_legacy_variable_font_instance(source, heavy);
+    check(instance, "a CFF2 font cuts at wght 900");
+    if (instance) {
+        Bytes cut = tableOf(instance, tagFor('C', 'F', 'F', ' '));
+        // Width 640, rmoveto 100 0, rlineto 300 0 0 300, endchar.
+        check(contains(cut, { 249, 20, 239, 139, 21, 247, 192, 139, 139, 247, 192, 5, 14 }), "the blend widens the box by 100 at wght 900, and the width is HVAR's");
+        Bytes cutMetrics = tableOf(instance, tagFor('h', 'm', 't', 'x'));
+        check(cutMetrics.size() == 8 && read16(cutMetrics, 4) == 640, "HVAR grows the advance by 40 at wght 900");
+        check(contains(cut, { 139, 154, 6 }), "the Private DICT blend resolves BlueValues to 0 15 at wght 900");
+        CFRelease(instance);
+    }
+    CFRelease(source);
+
+    CFF2Fixture wide;
+    wide.advance = 40000;
+    source = cff2Font(wide);
+    instance = wk_legacy_variable_font_instance(source, heavy);
+    check(!instance, "a width past a Type 2 integer refuses the cut");
+    if (instance)
+        CFRelease(instance);
+    CFRelease(source);
+
+    // 65535 ItemVariationData records sharing one 32767-region list: scalars for all of them would be
+    // billions of floats from a table of under a megabyte.
+    CFF2Fixture shared;
+    shared.dataCount = 65535;
+    shared.regionCount = 32767;
+    shared.blends = false;
+    source = cff2Font(shared);
+    malloc_statistics_t before, after;
+    malloc_zone_statistics(nullptr, &before);
+    instance = wk_legacy_variable_font_instance(source, heavy);
+    malloc_zone_statistics(nullptr, &after);
+    check(instance, "a store whose ItemVariationData share one region list still cuts");
+    check(after.max_size_in_use - before.size_in_use < 64 * 1024 * 1024, "reading one ItemVariationData's regions keeps memory proportional to the table");
+    if (instance)
+        CFRelease(instance);
+    CFRelease(source);
+    CFRelease(heavy);
+}
+
+// A GPOS PairPos (format 1) record whose first value has only an XAdvance device, a VariationIndex into
+// GDEF's store whose delta at full weight is 40: folding exchanges the device field for an XAdvance.
+void testLayoutDeltaFolding()
+{
+    Bytes gpos = words({ 1, 0, 0, 0, 10 });
+    // LookupList at 10: one lookup at 4 from it.
+    append16(gpos, 1);
+    append16(gpos, 4);
+    // Lookup at 14: type 2, flag 0, one subtable at 8 from it.
+    append16(gpos, 2);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 8);
+    // PairPos format 1 at 22: coverage 0 (unread), valueFormat1 XAdvDevice, valueFormat2 none, one PairSet.
+    size_t subtable = gpos.size();
+    append16(gpos, 1);
+    append16(gpos, 0);
+    append16(gpos, 0x40);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 12);
+    // PairSet at subtable+12: one record (second glyph 1, device at 6 from the PairSet).
+    append16(gpos, 1);
+    append16(gpos, 1);
+    append16(gpos, 6);
+    // VariationIndex: outer 0, inner 1, format 0x8000.
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 0x8000);
+
+    Bytes gdef = words({ 1, 3, 0, 0, 0, 0, 0 });
+    append32(gdef, 18);
+    CFF2Fixture storeShape;
+    Bytes store = cff2RegionStore(storeShape, true);
+    gdef.insert(gdef.end(), store.begin(), store.end());
+    std::vector<std::pair<uint32_t, std::vector<uint8_t>>> tables = { { tagFor('G', 'D', 'E', 'F'), gdef }, { tagFor('G', 'P', 'O', 'S'), gpos } };
+    CFDataRef font = assembleSfnt(0x00010000, tables);
+    auto sfnt = parseSfnt(font);
+    for (float coordinate : { 1.0f, 0.5f }) {
+        Bytes folded = gpos;
+        bool ok = sfnt && instanceLayoutTable(*sfnt, tagFor('G', 'P', 'O', 'S'), folded, { coordinate });
+        int16_t expected = coordinate == 1.0f ? 40 : 20;
+        check(ok && read16(folded, subtable + 4) == 0x04 && int16_t(read16(folded, subtable + 12 + 4)) == expected,
+            coordinate == 1.0f ? "a device-only value gains an XAdvance holding the full delta" : "the folded XAdvance scales with the region");
+    }
+    CFRelease(font);
+}
+
+// GDEF version 1.3 over the one-region store, whose item 1 has delta 40 at full weight.
+Bytes gdefWithStore()
+{
+    Bytes gdef = words({ 1, 3, 0, 0, 0, 0, 0 });
+    append32(gdef, 18);
+    CFF2Fixture storeShape;
+    Bytes store = cff2RegionStore(storeShape, true);
+    gdef.insert(gdef.end(), store.begin(), store.end());
+    return gdef;
+}
+
+bool foldGPOS(Bytes& gpos, float coordinate)
+{
+    std::vector<std::pair<uint32_t, std::vector<uint8_t>>> tables = { { tagFor('G', 'D', 'E', 'F'), gdefWithStore() }, { tagFor('G', 'P', 'O', 'S'), gpos } };
+    CFDataRef font = assembleSfnt(0x00010000, tables);
+    auto sfnt = parseSfnt(font);
+    bool ok = sfnt && instanceLayoutTable(*sfnt, tagFor('G', 'P', 'O', 'S'), gpos, { coordinate });
+    CFRelease(font);
+    return ok;
+}
+
+// Two PairPos (format 1) subtables, one lookup each, sharing one PairSet whose record has an XAdvance
+// device only: both subtables take the XAdvance layout, and the delta is added once.
+void testSharedPairSet()
+{
+    Bytes gpos = words({ 1, 0, 0, 0, 10 });
+    append16(gpos, 2);
+    append16(gpos, 6);
+    append16(gpos, 14);
+    // Lookups at 16 and 24, each with one subtable at 8 from it (subtables at 24+... below).
+    size_t firstLookup = gpos.size();
+    append16(gpos, 2);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 16);
+    size_t secondLookup = gpos.size();
+    append16(gpos, 2);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 20);
+    // Subtable A at firstLookup+16, subtable B right after; both point at one PairSet.
+    size_t subtableA = firstLookup + 16;
+    size_t subtableB = subtableA + 12;
+    size_t pairSet = subtableB + 12;
+    requireRange(gpos, 0, 0);
+    gpos.resize(subtableA);
+    for (size_t subtable : { subtableA, subtableB }) {
+        append16(gpos, 1);
+        append16(gpos, 0);
+        append16(gpos, 0x40);
+        append16(gpos, 0);
+        append16(gpos, 1);
+        append16(gpos, uint16_t(pairSet - subtable));
+    }
+    put16(gpos, secondLookup + 6, uint16_t(subtableB - secondLookup));
+    append16(gpos, 1);
+    append16(gpos, 1);
+    append16(gpos, 6);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 0x8000);
+    bool ok = foldGPOS(gpos, 1.0f);
+    check(ok && read16(gpos, subtableA + 4) == 0x04 && read16(gpos, subtableB + 4) == 0x04,
+        "subtables sharing a PairSet both take the XAdvance layout");
+    check(ok && int16_t(read16(gpos, pairSet + 4)) == 40, "a shared PairSet's value takes its delta once");
+}
+
+// One PairPos slot whose first record has a VariationIndex and whose second has a hinting device (deltas
+// for 20 ppem): the first takes its delta, and the second keeps its zero value with its device cleared.
+void testMixedDevices()
+{
+    Bytes gpos = words({ 1, 0, 0, 0, 10 });
+    append16(gpos, 1);
+    append16(gpos, 4);
+    append16(gpos, 2);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 8);
+    size_t subtable = gpos.size();
+    append16(gpos, 1);
+    append16(gpos, 0);
+    append16(gpos, 0x40);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 12);
+    size_t pairSet = gpos.size();
+    append16(gpos, 2);
+    append16(gpos, 1);
+    append16(gpos, 10);
+    append16(gpos, 2);
+    append16(gpos, 16);
+    // VariationIndex at pairSet+10; a hinting device (format 2, 20-20 ppem, +7) at pairSet+16.
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 0x8000);
+    append16(gpos, 20);
+    append16(gpos, 20);
+    append16(gpos, 2);
+    append16(gpos, 0x7000);
+    bool ok = foldGPOS(gpos, 1.0f);
+    check(ok && read16(gpos, subtable + 4) == 0x04, "a slot mixing variation and hinting devices takes the XAdvance layout");
+    check(ok && int16_t(read16(gpos, pairSet + 4)) == 40 && int16_t(read16(gpos, pairSet + 8)) == 0,
+        "the variation record keeps its delta and the hinting record its base value");
+}
+
+// A MarkBasePos whose base anchor is format 3 with a VariationIndex on x: x takes the delta and the anchor
+// becomes format 1.
+void testAnchorFolding()
+{
+    Bytes gpos = words({ 1, 0, 0, 0, 10 });
+    append16(gpos, 1);
+    append16(gpos, 4);
+    append16(gpos, 4);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 8);
+    size_t subtable = gpos.size();
+    // markCoverage, baseCoverage (unread), one mark class, MarkArray at 12, BaseArray at 16.
+    append16(gpos, 1);
+    append16(gpos, 0);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 12);
+    append16(gpos, 16);
+    // MarkArray: no marks.
+    append16(gpos, 0);
+    append16(gpos, 0);
+    // BaseArray at subtable+16: one base record, anchor at 4 from the array.
+    size_t baseArray = gpos.size();
+    append16(gpos, 1);
+    append16(gpos, 4);
+    size_t anchor = gpos.size();
+    append16(gpos, 3);
+    append16(gpos, 100);
+    append16(gpos, 200);
+    append16(gpos, 10);
+    append16(gpos, 0);
+    append16(gpos, 0);
+    append16(gpos, 1);
+    append16(gpos, 0x8000);
+    (void)subtable;
+    (void)baseArray;
+    bool ok = foldGPOS(gpos, 1.0f);
+    check(ok && read16(gpos, anchor) == 1 && int16_t(read16(gpos, anchor + 2)) == 140 && int16_t(read16(gpos, anchor + 4)) == 200,
+        "a format 3 anchor takes its delta and becomes format 1");
 }
 
 } // namespace TableTests
@@ -644,6 +1091,11 @@ int main()
     TableTests::testFeatureSelection();
     TableTests::testLargeAlternate();
     TableTests::testPrecisionAndCache();
+    TableTests::testCFF2();
+    TableTests::testLayoutDeltaFolding();
+    TableTests::testSharedPairSet();
+    TableTests::testMixedDevices();
+    TableTests::testAnchorFolding();
     std::printf("%u checks, %u failures\n", TableTests::checks, TableTests::failures);
     return TableTests::failures ? 1 : 0;
 }
