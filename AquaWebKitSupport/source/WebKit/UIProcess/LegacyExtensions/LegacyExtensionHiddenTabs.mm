@@ -133,12 +133,24 @@ void LegacyExtensionHiddenTabs::observeHiddenWindow(NSWindow *window)
         }]);
     }
     // Merge All Windows moves every tab of every window, the hidden window's own tab too, into the front window
-    // and closes the windows it emptied.
+    // and closes the windows it emptied. The hidden tabs move on into a new hidden window, in the order Safari put
+    // them, before Safari draws them there.
     m_hiddenWindowObservers.append([[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification object:window queue:nil usingBlock:^(NSNotification *) {
         for (auto& observer : std::exchange(m_hiddenWindowObservers, { }))
             [[NSNotificationCenter defaultCenter] removeObserver:observer.get()];
         RetainPtr hiddenWindowTab = WTF::move(m_hiddenWindowTab);
         m_hiddenWindow = nil;
+        RetainPtr mergeWindow = windowOfTabViewItem(hiddenWindowTab.get());
+        if (!mergeWindow || [mergeWindow window] == window)
+            return;
+        Vector<RetainPtr<id>> mergedTabs;
+        for (id item in [mergeWindow orderedTabViewItems]) {
+            RefPtr page = pageOfTabViewItem(item);
+            if (page && m_tabs.contains(page->identifier()))
+                mergedTabs.append(item);
+        }
+        for (auto& item : mergedTabs)
+            moveToHiddenWindow(item.get());
         RunLoop::mainSingleton().dispatch([hiddenWindowTab = WTF::move(hiddenWindowTab)] {
             if (RetainPtr window = windowOfTabViewItem(hiddenWindowTab.get()))
                 [window closeTabWithoutConfirming:[(id<LegacyExtensionSafariTabViewItem>)hiddenWindowTab.get() wkView]];
@@ -203,21 +215,7 @@ Vector<WebPageProxyIdentifier> LegacyExtensionHiddenTabs::hide(const String& ext
 
     Vector<WebPageProxyIdentifier> hidden;
     for (auto& [identifier, hiddenTab] : tabsToHide) {
-        RetainPtr hiddenWindowController = hiddenWindow();
-        if (!hiddenWindowController) {
-            // The window keeps its own empty tab selected, so its title stays as it is made. Safari lists a
-            // browser window in the Window menu as it makes it and again whenever its title changes.
-            id<LegacyExtensionSafariDocument> document = [documentController() createHiddenEmptyBrowserDocument];
-            hiddenWindowController = [document browserWindowControllerMac];
-            m_hiddenWindowTab = [(SafariWindowController *)hiddenWindowController.get() selectedTab];
-            [[hiddenWindowController window] setExcludedFromWindowsMenu:YES];
-            [NSApp removeWindowsItem:[hiddenWindowController window]];
-            m_hiddenWindow = hiddenWindowController.get();
-            observeHiddenWindow([hiddenWindowController window]);
-        }
-        SafariWindowController *hiddenWindow = (SafariWindowController *)hiddenWindowController.get();
-        [hiddenWindow moveTabFromOtherWindow:hiddenTab->tabViewItem.get() toIndex:static_cast<unsigned>([hiddenWindow numberOfTabs]) andSelect:NO];
-        if (![[hiddenWindow orderedTabViewItems] containsObject:hiddenTab->tabViewItem.get()])
+        if (!moveToHiddenWindow(hiddenTab->tabViewItem.get()))
             continue;
         hidden.append(identifier);
         hiddenTab->tabViewObserver = m_tabViewItemObserver;
@@ -227,6 +225,27 @@ Vector<WebPageProxyIdentifier> LegacyExtensionHiddenTabs::hide(const String& ext
     }
     closeHiddenWindowIfEmpty();
     return hidden;
+}
+
+// Moves the tab to the end of the hidden window, which this makes when there is none, and returns whether Safari
+// moved it there.
+bool LegacyExtensionHiddenTabs::moveToHiddenWindow(id tabViewItem)
+{
+    RetainPtr hiddenWindowController = hiddenWindow();
+    if (!hiddenWindowController) {
+        // The window keeps its own empty tab selected, so its title stays as it is made. Safari lists a browser
+        // window in the Window menu as it makes it and again whenever its title changes.
+        id<LegacyExtensionSafariDocument> document = [documentController() createHiddenEmptyBrowserDocument];
+        hiddenWindowController = [document browserWindowControllerMac];
+        m_hiddenWindowTab = [(SafariWindowController *)hiddenWindowController.get() selectedTab];
+        [[hiddenWindowController window] setExcludedFromWindowsMenu:YES];
+        [NSApp removeWindowsItem:[hiddenWindowController window]];
+        m_hiddenWindow = hiddenWindowController.get();
+        observeHiddenWindow([hiddenWindowController window]);
+    }
+    SafariWindowController *hiddenWindow = (SafariWindowController *)hiddenWindowController.get();
+    [hiddenWindow moveTabFromOtherWindow:tabViewItem toIndex:static_cast<unsigned>([hiddenWindow numberOfTabs]) andSelect:NO];
+    return [[hiddenWindow orderedTabViewItems] containsObject:tabViewItem];
 }
 
 Vector<WebPageProxyIdentifier> LegacyExtensionHiddenTabs::show(const Vector<Ref<WebPageProxy>>& pages)
@@ -334,7 +353,7 @@ void LegacyExtensionHiddenTabs::tabViewItemDidMove()
     });
 }
 
-// A tab can leave the hidden window by Safari's own means, which show it: Merge All Windows, or an extension's
+// A tab can leave the hidden window by Safari's own means, which show it, such as an extension's
 // SafariBrowserWindow.insertTab.
 void LegacyExtensionHiddenTabs::forgetShownTabs()
 {

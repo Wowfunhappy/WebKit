@@ -66,6 +66,7 @@ private:
     enum class Raise : bool { No, Yes };
 
     RetainPtr<NSWindowController> hiddenWindow() const;
+    bool moveToHiddenWindow(id tabViewItem);
     bool showTab(WebPageProxyIdentifier, Destination, Raise);
     void observeHiddenWindow(NSWindow *);
     void hiddenWindowChanged();
