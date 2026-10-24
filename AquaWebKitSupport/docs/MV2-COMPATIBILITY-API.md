@@ -132,18 +132,22 @@ Returns the element's shadow root whether it is open or closed. Content-script w
 ### Tab objects
 
 ```js
-{ id, url, title, status /* "loading" | "complete" */, incognito, hidden }
+{ id, url, title, status /* "loading" | "complete" */, incognito, hidden, audible, mutedInfo: { muted } }
 ```
 
-`url` is the page's active URL. `hidden` is whether the tab is hidden with `tabs.hide`. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information.
+`url` is the page's active URL. `hidden` is whether the tab is hidden with `tabs.hide`. `audible` is whether the page is playing audio, muted or not. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information.
 
 ### `tabs.get(tabId)` → `Promise<Tab>`
 
 Rejects with `"No tab with id: <tabId>."` if the tab does not exist.
 
-### `tabs.update(tabId, { url })` → `Promise<Tab>`
+### `tabs.update(tabId, { url, muted })` → `Promise<Tab>`
 
-Loads `url` in the tab. `url` is the only supported property. The returned tab object describes the tab at the moment of the call, before the load starts. Rejects with `"No tab with this id."`.
+Loads `url` in the tab, and mutes or unmutes its audio by `muted`. These are the only supported properties. The returned tab object describes the tab at the moment of the call, before the load starts. Rejects with `"No tab with this id."`.
+
+### `tabs.goBack(tabId)` and `tabs.goForward(tabId)` → `Promise<void>`
+
+Go back or forward in the tab's history, as Safari's Back and Forward buttons do, and resolve at once. A tab is a tab ID or a `SafariBrowserTab`. With no tab, the call acts on the calling extension page's own tab or, from the global page, a popover or a bar, on the active tab of the frontmost window. A tab with no history in that direction is left as it is.
 
 ### `tabs.reload(tabId, { bypassCache })` → `Promise<void>`
 
@@ -202,7 +206,7 @@ Tab events go to every extension's host contexts that listen for them.
 | Event | Arguments |
 | --- | --- |
 | `tabs.onCreated` | `(tab)` |
-| `tabs.onUpdated` | `(tabId, changeInfo, tab)`; `changeInfo` holds exactly one of `status`, `title`, `url`, `hidden` |
+| `tabs.onUpdated` | `(tabId, changeInfo, tab)`; `changeInfo` holds exactly one of `status`, `title`, `url`, `hidden`, `audible`, `mutedInfo` |
 | `tabs.onRemoved` | `(tabId, { windowId: -1, isWindowClosing: false })` |
 
 ## `browser.webNavigation` (host contexts only)

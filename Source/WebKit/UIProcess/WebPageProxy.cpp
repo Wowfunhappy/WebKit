@@ -11766,7 +11766,10 @@ void WebPageProxy::setMuted(WebCore::MediaProducerMutedStateFlags state, FromApp
 #endif
     WEBPAGEPROXY_RELEASE_LOG(Media, "setMuted, app state = %d, final state = %d", state.toRaw(), newState.toRaw());
 
+    bool audioMutedChanges = internals().mutedState.contains(WebCore::MediaProducerMutedState::AudioIsMuted) != newState.contains(WebCore::MediaProducerMutedState::AudioIsMuted); // AQUAWEBKIT: for Safari 7 extensions' tabs.onUpdated mutedInfo.
     internals().mutedState = newState;
+    if (audioMutedChanges)
+        LegacyExtensionHost::singleton().tabMutedDidChange(*this); // AQUAWEBKIT: Safari 7 extensions' tabs.onUpdated mutedInfo.
 
     if (!hasRunningProcess())
         return completionHandler();
@@ -16904,6 +16907,8 @@ void WebPageProxy::updatePlayingMediaDidChange(CanDelayNotification canDelayNoti
 
     if (playingAudioChanges && pageClient)
         pageClient->isPlayingAudioDidChange();
+    if (playingAudioChanges)
+        LegacyExtensionHost::singleton().tabAudibleDidChange(*this); // AQUAWEBKIT: Safari 7 extensions' tabs.onUpdated audible.
 
 #if ENABLE(MEDIA_STREAM)
     if (oldMediaCaptureState != newMediaCaptureState) {

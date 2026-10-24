@@ -243,6 +243,15 @@ const tabReference = tab => {
     throw new TypeError("A tab is a tab ID or a SafariBrowserTab of an open window.");
 };
 const tabReferences = tabs => (Array.isArray(tabs) ? tabs : [tabs]).map(tabReference);
+// With no tab, `{ current }`: the router takes the calling page's own tab, or else `current`, the active tab
+// of the frontmost window where Safari's extension API is.
+const tabReferenceOrCurrent = tab => {
+    if (tab !== undefined && tab !== null)
+        return tabReference(tab);
+    const application = globalThis.safari && globalThis.safari.application;
+    const window = application && application.activeBrowserWindow;
+    return { current: window && window.activeTab ? tabReference(window.activeTab) : null };
+};
 
 // Match patterns (https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns).
 
@@ -689,6 +698,12 @@ if (isHost) {
         },
         connect(tabId, connectInfo = {}) {
             return connect(connectInfo.name, { tabId, frameId: typeof connectInfo.frameId === "number" ? connectInfo.frameId : undefined });
+        },
+        goBack(...args) {
+            return withOptionalCallback(args, async tabId => callRouter("tabs.goBack", tabReferenceOrCurrent(tabId)));
+        },
+        goForward(...args) {
+            return withOptionalCallback(args, async tabId => callRouter("tabs.goForward", tabReferenceOrCurrent(tabId)));
         },
         hide(...args) {
             return withOptionalCallback(args, async tabIds => callRouter("tabs.hide", tabReferences(tabIds)));

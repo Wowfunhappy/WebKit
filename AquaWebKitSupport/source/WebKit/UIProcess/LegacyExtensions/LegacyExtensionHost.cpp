@@ -25,6 +25,8 @@
 #include "NetworkProcessProxy.h"
 #include "PageLoadState.h"
 #include "SharedBufferReference.h"
+#include "WKAPICast.h"
+#include "WKPage.h"
 #include "WebBackForwardList.h"
 #include "WebBackForwardListItem.h"
 #include "WebFrameProxy.h"
@@ -1195,6 +1197,10 @@ Ref<JSON::Object> LegacyExtensionHost::tabDescription(WebPageProxy& page) const
     tab->setString("status"_s, page.pageLoadState().isLoading() ? "loading"_s : "complete"_s);
     tab->setBoolean("incognito"_s, page.sessionID().isEphemeral());
     tab->setBoolean("hidden"_s, LegacyExtensionHiddenTabs::singleton().isHidden(page));
+    tab->setBoolean("audible"_s, page.isPlayingAudio());
+    auto mutedInfo = JSON::Object::create();
+    mutedInfo->setBoolean("muted"_s, page.isAudioMuted());
+    tab->setObject("mutedInfo"_s, WTF::move(mutedInfo));
     return tab;
 }
 
@@ -1470,8 +1476,37 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
             auto url = properties->getString("url"_s);
             if (!url.isEmpty())
                 page->loadRequest(WebCore::ResourceRequest { URL { url } });
+            if (auto muted = properties->getBoolean("muted"_s)) {
+                auto mutedState = page->mutedStateFlags();
+                mutedState.set(WebCore::MediaProducerMutedState::AudioIsMuted, *muted);
+                page->setMuted(mutedState);
+            }
         }
         resultToHostContext(context, callID, tabDescription(*page).ptr());
+        return;
+    }
+
+    // With no tab (`{ current }`), the calling page's own tab, as upstream's getCurrentTab takes it, or else the
+    // active tab of the frontmost window.
+    if (method == "tabs.goBack"_s || method == "tabs.goForward"_s) {
+        RefPtr reference = objectArgument(0);
+        RefPtr<WebPageProxy> page;
+        if (RefPtr current = reference ? reference->getValue("current"_s) : nullptr) {
+            if (RefPtr frame = WebFrameProxy::webFrame(context.frameID))
+                page = frame->page();
+            if (!page)
+                page = pageForTabReference(current->asObject().get());
+        } else
+            page = pageForTabReference(reference.get());
+        if (!page) {
+            resultToHostContext(context, callID, nullptr, "No tab with this id."_s);
+            return;
+        }
+        if (method == "tabs.goBack"_s)
+            WKPageGoBack(toAPI(page.get()));
+        else
+            WKPageGoForward(toAPI(page.get()));
+        resultToHostContext(context, callID, nullptr);
         return;
     }
 
@@ -1848,15 +1883,38 @@ Ref<JSON::Array> LegacyExtensionHost::tabUpdatedArguments(WebPageProxy& page, Re
     return arguments;
 }
 
+void LegacyExtensionHost::reportTabUpdate(WebPageProxy& page, Ref<JSON::Object>&& changeInfo)
+{
+    if (!tabObservers().contains(page.identifier()))
+        return;
+    // Delivery runs a WebKit 1 page's listeners synchronously, so it waits for the change, which can come
+    // from Safari's tab move or the extension's own call, to return.
+    RunLoop::mainSingleton().dispatch([arguments = tabUpdatedArguments(page, WTF::move(changeInfo))] mutable {
+        LegacyExtensionHost::singleton().dispatchEvent("tabs.onUpdated"_s, WTF::move(arguments));
+    });
+}
+
 void LegacyExtensionHost::tabHiddenDidChange(WebPageProxy& page, bool hidden)
 {
     auto changeInfo = JSON::Object::create();
     changeInfo->setBoolean("hidden"_s, hidden);
-    // Delivery runs a WebKit 1 page's listeners synchronously, so it waits for Safari's move or the
-    // extension's call to return.
-    RunLoop::mainSingleton().dispatch([arguments = tabUpdatedArguments(page, WTF::move(changeInfo))] mutable {
-        LegacyExtensionHost::singleton().dispatchEvent("tabs.onUpdated"_s, WTF::move(arguments));
-    });
+    reportTabUpdate(page, WTF::move(changeInfo));
+}
+
+void LegacyExtensionHost::tabAudibleDidChange(WebPageProxy& page)
+{
+    auto changeInfo = JSON::Object::create();
+    changeInfo->setBoolean("audible"_s, page.isPlayingAudio());
+    reportTabUpdate(page, WTF::move(changeInfo));
+}
+
+void LegacyExtensionHost::tabMutedDidChange(WebPageProxy& page)
+{
+    auto mutedInfo = JSON::Object::create();
+    mutedInfo->setBoolean("muted"_s, page.isAudioMuted());
+    auto changeInfo = JSON::Object::create();
+    changeInfo->setObject("mutedInfo"_s, WTF::move(mutedInfo));
+    reportTabUpdate(page, WTF::move(changeInfo));
 }
 
 void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
