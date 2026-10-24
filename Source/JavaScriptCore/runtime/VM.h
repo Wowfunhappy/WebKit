@@ -937,6 +937,7 @@ public:
 
     const UniqueRef<MicrotaskCallCache> m_syncResumeCallCache;
     MicrotaskCallCache& syncResumeCallCache() { return m_syncResumeCallCache.get(); }
+    void clearMicrotaskCallCaches(); // AQUAWEBKIT: 319570@main (webkit.org/b/322226).
 
     enum class StructureChainIntegrityEvent : uint8_t {
         Add,

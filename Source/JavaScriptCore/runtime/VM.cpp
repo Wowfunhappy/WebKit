@@ -1860,6 +1860,12 @@ void VM::finalizeUnconditionally()
     m_syncResumeCallCache->finalizeUnconditionally(*this);
 }
 
+// AQUAWEBKIT: 319570@main (webkit.org/b/322226).
+void VM::clearMicrotaskCallCaches()
+{
+    m_syncResumeCallCache->clear();
+}
+
 template<typename Visitor>
 void VM::visitAggregateImpl(Visitor& visitor)
 {

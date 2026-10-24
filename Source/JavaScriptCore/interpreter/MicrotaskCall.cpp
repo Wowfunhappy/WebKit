@@ -73,6 +73,17 @@ void MicrotaskCall::unlinkOrUpgradeImpl(VM&, CodeBlock* oldCodeBlock, CodeBlock*
     m_addressForCall = nullptr;
 }
 
+// AQUAWEBKIT: 319570@main (webkit.org/b/322226).
+void MicrotaskCall::clear()
+{
+    if (isOnList())
+        remove();
+    m_addressForCall = nullptr;
+    m_codeBlock = nullptr;
+    m_functionExecutable = nullptr;
+    m_numParameters = 0;
+}
+
 void MicrotaskCall::visitWeak(VM& vm)
 {
     if ((m_functionExecutable && !vm.heap.isMarked(m_functionExecutable)) || (m_codeBlock && !vm.heap.isMarked(m_codeBlock))) {
