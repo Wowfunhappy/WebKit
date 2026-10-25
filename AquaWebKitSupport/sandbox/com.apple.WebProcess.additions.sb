@@ -39,7 +39,11 @@
 ;; IIDC, AppleCamera for built-in ISP cameras. launchd starts one on demand, so reaching it costs a
 ;; job-creation as well as the mach-lookup; the literals are the four daemons behind the four services,
 ;; spelled as the kernel resolves them. file-read* covers the whole DAL directory, which CoreMediaIO
-;; scans and loads its plug-ins from.
+;; scans and loads its plug-ins from, and the com.apple.cmio preference domain, which upstream's
+;; capture grants read (shared-preferences-read) and this OS's cfprefsd checks as a read of the
+;; user's plist. CoreMediaIO also registers for system sleep and wake
+;; (IORegisterForSystemPower), which opens the power-management root domain's user client; the base
+;; profile grants that client, as upstream's GPU process profile does.
 (allow mach-lookup
     (require-any
         (global-name "com.apple.cmio.VDCAssistant")
@@ -55,7 +59,8 @@
         (literal "/Library/CoreMediaIO/Plug-Ins/DAL/AppleCamera.plugin/Contents/Resources/AppleCameraAssistant")))
 
 (allow file-read*
-    (subpath "/Library/CoreMediaIO/Plug-Ins/DAL"))
+    (subpath "/Library/CoreMediaIO/Plug-Ins/DAL")
+    (home-literal "/Library/Preferences/com.apple.cmio.plist"))
 
 (allow device-camera)
 
@@ -170,10 +175,9 @@
             (global-name "com.apple.appstore.CKSignInPrompt.hostclient")
             (global-name "com.apple.softwareupdated"))))
 
-;; Kernel clients: no HID parameters or power-management root domain, and no display-property writes.
+;; Kernel clients: no HID parameters, and no display-property writes.
 (deny iokit-open
-    (iokit-user-client-class "IOHIDParamUserClient")
-    (iokit-user-client-class "RootDomainUserClient"))
+    (iokit-user-client-class "IOHIDParamUserClient"))
 (deny iokit-set-properties
     (iokit-connection "IODisplay"))
 
