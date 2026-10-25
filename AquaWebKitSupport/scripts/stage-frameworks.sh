@@ -552,19 +552,37 @@ WEBKIT_SDK="$("$OTOOL" -l "$WEBKIT_STAGED_BINARY" | awk '/cmd LC_VERSION_MIN_MAC
     || { echo "ERROR: could not link WebKit2.framework" >&2; exit 1; }
 echo "  linked WebKit2.framework $WEBKIT_VERSION, re-exporting $(id_path WebKit)"
 
-# The Web Clip plug-in and its injected bundle go through the same rewriting, from the build's
-# WebClipPlugin directory into their place inside the widget; the widget's script, page and style sheet
-# are Apple's with WebClip.{js,html,css}.patch applied.
-echo "### Staging the Web Clip plug-in"
-mkdir -p "$(s "$WEBCLIP_PLUGIN")/MacOS" "$(s "$WEBCLIP_PLUGIN")/Resources"
+# The Web Clip widget is Apple's, copied from the stock backup. The plug-in and its injected bundle go
+# through the same rewriting, from the build's WebClipPlugin directory into their place inside it; the
+# widget's script, page and style sheet are Apple's with WebClip.{js,html,css}.patch applied.
+echo "### Staging the Web Clip widget"
+mkdir -p "$(dirname "$(s "$WEBCLIP_WIDGET")")"
+cp -Rp "$STOCK_BACKUP/Web Clip.wdgt" "$(s "$WEBCLIP_WIDGET")"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WebClip" "$(s "$WEBCLIP_BINARY")"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WCPageAgent.js" "$(s "$WEBCLIP_PAGE_AGENT")"
 cp "$(dirname "$LIBDIR")/WebClipPlugin/WCSafariExtensionPage.js" "$(s "$WEBCLIP_EXTENSION_PAGE_SCRIPT")"
-rm -rf "$(s "$WEBCLIP_PAGE_BUNDLE")"
 cp -R "$(dirname "$LIBDIR")/WebClipPlugin/WebClipPageBundle.bundle" "$(s "$WEBCLIP_PAGE_BUNDLE")"
 patch -s -o "$(s "$WEBCLIP_WIDGET_SCRIPT")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.js" "$REPO/AquaWebKitSupport/webclip/WebClip.js.patch"
 patch -s -o "$(s "$WEBCLIP_WIDGET_PAGE")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.html" "$REPO/AquaWebKitSupport/webclip/WebClip.html.patch"
 patch -s -o "$(s "$WEBCLIP_WIDGET_STYLE_SHEET")" "$STOCK_BACKUP/Web Clip.wdgt/WebClip.css" "$REPO/AquaWebKitSupport/webclip/WebClip.css.patch"
+# #38: the Dock picks the DashboardClient architecture before any WebKit code runs, from each widget's
+# AllowInternetPlugins flag, and a widget carrying it runs i386 -- which loads the grafted stock i386
+# slice rather than our x86_64 engine. On the Web Clip widget the flag only ever enabled NPAPI plug-ins,
+# which the clip does not embed and the modern engine lacks, so clearing it is what puts Web Clips on
+# this port's engine.
+/usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$(s "$WEBCLIP_WIDGET")/Info.plist"
+# The widget and its plug-in carry the version of the WebKit they ship with, as Apple's do. The
+# version.plist files are Apple's build records of the stock widget.
+WEBKIT_BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$(s "$WEBKIT_BUNDLE")/Versions/A/Resources/Info.plist")"
+WEBKIT_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$(s "$WEBKIT_BUNDLE")/Versions/A/Resources/Info.plist")"
+for bundle in "$(s "$WEBCLIP_WIDGET")" "$(s "$WEBCLIP_PLUGIN")"; do
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $WEBKIT_BUNDLE_VERSION" \
+        -c "Set :CFBundleShortVersionString $WEBKIT_SHORT_VERSION" "$bundle/Info.plist"
+    rm "$bundle/version.plist"
+done
+# Apple's signatures of the widget and its plug-in cover the stock files replaced above, and Dashboard
+# loads no plug-in for a widget whose signature does not match its contents.
+rm -r "$(s "$WEBCLIP_WIDGET")/_CodeSignature" "$(s "$WEBCLIP_PLUGIN")/_CodeSignature"
 rewrite_rpath_deps "$(s "$WEBCLIP_BINARY")"
 rewrite_abs_deps   "$(s "$WEBCLIP_BINARY")"
 strip_rpaths       "$(s "$WEBCLIP_BINARY")"

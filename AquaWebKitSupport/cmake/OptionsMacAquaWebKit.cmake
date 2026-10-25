@@ -72,11 +72,28 @@ set(ICU_I18N_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH
 set(ICU_UC_LIBRARY   "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
 set(ICU_DATA_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
 
-# upstream injects WEBKIT_BUNDLE_VERSION from Version.xcconfig via the Xcode
-# build; the CMake port never defines it, so the UI-process/child version handshake in
-# ProcessLauncherCocoa.mm and XPCServiceMain.mm has no macro to reference. Define it here from the
-# single WEBKIT_MAC_VERSION source of truth so both sites agree and neither hardcodes a literal.
-add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
+# Bundle versions are Version.xcconfig's Production ones: the system version prefix, x for macOS 10.x,
+# before FULL_VERSION, and the prefix before MAJOR_VERSION for the short version (9625.1.29.11.27 and
+# 9625 on 10.9). The frameworks take them from CMake's MACOSX_FRAMEWORK_* variables, and the XPC
+# services from WEBKIT_VERSION and WEBKIT_VERSION_MAJOR.
+file(STRINGS "${CMAKE_SOURCE_DIR}/Configurations/Version.xcconfig" _aquawebkit_version_lines
+    REGEX "^(MAJOR|MINOR|TINY|MICRO|NANO)_VERSION = [0-9]+;")
+foreach (_line IN LISTS _aquawebkit_version_lines)
+    string(REGEX MATCH "^([A-Z]+)_VERSION = ([0-9]+);" _ "${_line}")
+    set(_aquawebkit_${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
+endforeach ()
+string(REGEX MATCH "^10\\.([0-9]+)" _ "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+set(_aquawebkit_system_version_prefix "${CMAKE_MATCH_1}")
+set(MACOSX_FRAMEWORK_BUNDLE_VERSION
+    "${_aquawebkit_system_version_prefix}${_aquawebkit_MAJOR}.${_aquawebkit_MINOR}.${_aquawebkit_TINY}.${_aquawebkit_MICRO}.${_aquawebkit_NANO}")
+set(MACOSX_FRAMEWORK_SHORT_VERSION_STRING "${_aquawebkit_system_version_prefix}${_aquawebkit_MAJOR}")
+set(WEBKIT_VERSION "${MACOSX_FRAMEWORK_BUNDLE_VERSION}")
+set(WEBKIT_VERSION_MAJOR "${MACOSX_FRAMEWORK_SHORT_VERSION_STRING}")
+foreach (_part IN ITEMS version_lines MAJOR MINOR TINY MICRO NANO system_version_prefix)
+    unset(_aquawebkit_${_part})
+endforeach ()
+unset(_line)
+unset(_part)
 
 # this port's values for the features PlatformEnableCocoa.h decides with a
 # `#if !defined(ENABLE_X)` block. A command-line definition preempts that block, so the port states

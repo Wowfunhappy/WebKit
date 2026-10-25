@@ -89,12 +89,10 @@ and install prefix, and that build's own ccache.
    `REBUILD DONE (rc=0)`.
 
 5. **Install** onto the 10.9 target: `sudo bash AquaWebKitSupport/install.sh`. Installing copies the
-   staged tree into `/System`, and reaches two things outside our own frameworks. It clears the
-   `com.apple.webkit.webpushd.relocatable` job from the invoking user's launchd session, so the
-   daemon serving the previous framework is gone. And because the Dock picks the DashboardClient
-   architecture before any of our code runs, it clears the `AllowInternetPlugins` flag in each
-   installed widget's `Info.plist` and the recorded `32bit` flags in each user's
-   `com.apple.dashboard` preferences, then restarts the Dock to pick that up.
+   staged frameworks into `/System` and the staged Web Clip widget into `/Library/Widgets`, and
+   reaches two things outside them. It rebuilds the system XPC service cache, so launchd finds the
+   services stock 10.9 never had. And it clears the `com.apple.webkit.webpushd.relocatable` job from
+   the invoking user's launchd session, so the daemon serving the previous framework is gone.
 
 To run layout tests against the build (never the installed system), use
 `bash AquaWebKitSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port flag is

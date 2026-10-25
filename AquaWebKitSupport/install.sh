@@ -5,7 +5,7 @@
 #
 # The factory (stock) frameworks are preserved ONCE in $STOCK_BACKUP (captured at build time by
 # stage-frameworks.sh); a re-run only replaces our own previous build and backs nothing up.
-# Run with: sudo bash install.sh   (writes to /System only — fully self-contained, no /usr/local)
+# Run with: sudo bash install.sh   (writes to /System and /Library/Widgets — fully self-contained, no /usr/local)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -57,11 +57,6 @@ if [ ! -f "$WK_STAGE_ROOT/.build-complete" ]; then
     echo "       Rebuild it: bash AquaWebKitSupport/build.sh" >&2
     exit 1
 fi
-if [ ! -d "$WEBCLIP_PLUGIN/MacOS" ]; then
-    echo "ERROR: no Web Clip widget plug-in at $WEBCLIP_PLUGIN." >&2
-    exit 1
-fi
-
 # ---------------------------------------------------------------------------
 # Copy the staged bundles into place. WebCore and WebKitLegacy ride inside WebKit.framework, so
 # three copies place all five frameworks. The staged tree already carries the modes the
@@ -111,46 +106,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# #38: the Dock picks the DashboardClient architecture before any WebKit code runs, from each
-# widget's AllowInternetPlugins flag, and a widget carrying it runs i386 -- which loads the grafted
-# stock i386 slice rather than our x86_64 engine. On the Web Clip widget the flag only ever enabled
-# NPAPI plug-ins, which the clip does not embed and the modern engine lacks, so clearing it is what
-# puts Web Clips on this port's engine. This is the one widget the port owns; every other widget on
-# the system, Apple's and third-party alike, keeps whatever its author declared.
-force_64bit_web_clip_widget() {
-    echo "### Clearing AllowInternetPlugins on the Web Clip widget (64-bit DashboardClient)"
-    local wplist="/Library/Widgets/Web Clip.wdgt/Info.plist"
-    local cur
-    cur=$(/usr/libexec/PlistBuddy -c 'Print :AllowInternetPlugins' "$wplist" 2>/dev/null) || cur=""
-    if [ "$cur" != "true" ]; then
-        echo "  already 64-bit"
-        return 0
-    fi
-    if ! /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$wplist"; then
-        echo "ERROR: could not clear AllowInternetPlugins on $wplist." >&2
-        exit 1
-    fi
-    echo "  AllowInternetPlugins -> false"
-}
-force_64bit_web_clip_widget
-
-# The Web Clip widget's plug-in executable, its page script, its injected bundle and the patched widget
-# script, page and style sheet are this port's (staged under the widget's path); the widget's images and
-# localized strings stay Apple's.
-echo "### Installing the Web Clip plug-in"
-cp -p "$WK_STAGE_ROOT$WEBCLIP_BINARY" "$WEBCLIP_BINARY"
-cp -p "$WK_STAGE_ROOT$WEBCLIP_PAGE_AGENT" "$WEBCLIP_PAGE_AGENT"
-cp -p "$WK_STAGE_ROOT$WEBCLIP_EXTENSION_PAGE_SCRIPT" "$WEBCLIP_EXTENSION_PAGE_SCRIPT"
-rm -rf "$WEBCLIP_PAGE_BUNDLE"
-cp -Rp "$WK_STAGE_ROOT$WEBCLIP_PAGE_BUNDLE" "$WEBCLIP_PAGE_BUNDLE"
-cp -p "$WK_STAGE_ROOT$WEBCLIP_WIDGET_SCRIPT" "$WEBCLIP_WIDGET_SCRIPT"
-cp -p "$WK_STAGE_ROOT$WEBCLIP_WIDGET_PAGE" "$WEBCLIP_WIDGET_PAGE"
-cp -p "$WK_STAGE_ROOT$WEBCLIP_WIDGET_STYLE_SHEET" "$WEBCLIP_WIDGET_STYLE_SHEET"
-chown root:admin "$WEBCLIP_BINARY" "$WEBCLIP_PAGE_AGENT" "$WEBCLIP_EXTENSION_PAGE_SCRIPT" "$WEBCLIP_WIDGET_SCRIPT" "$WEBCLIP_WIDGET_PAGE" "$WEBCLIP_WIDGET_STYLE_SHEET"
-chown -R root:admin "$WEBCLIP_PAGE_BUNDLE"
-# Apple's signatures of the widget and its plug-in cover the stock files replaced above, and Dashboard
-# loads no plug-in for a widget whose signature does not match its contents.
-rm -rf "/Library/Widgets/Web Clip.wdgt/_CodeSignature" "$WEBCLIP_PLUGIN/_CodeSignature"
+# The Web Clip widget is staged whole, and owned like every widget in /Library/Widgets.
+echo "### Installing the Web Clip widget"
+rm -rf "$WEBCLIP_WIDGET"
+cp -RPp "$WK_STAGE_ROOT$WEBCLIP_WIDGET" "$WEBCLIP_WIDGET"
+chown -R root:admin "$WEBCLIP_WIDGET"
 echo "  installed."
 
 echo "### Done."
