@@ -1,5 +1,6 @@
 // Exercise application plug-in admission in a WebKit1 host without Mail's signature quirk, and
-// focusing an attachment by clicking it inside an editable document.
+// focusing an attachment by clicking it inside an editable document. The click keeps the caret only
+// when the host's Info.plist turns on KeepEditableSelectionOnMouseFocus with a Boolean.
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 
@@ -93,10 +94,13 @@ int main(void)
         [documentView mouseUp:[NSEvent mouseEventWithType:NSLeftMouseUp location:location modifierFlags:0
             timestamp:[[NSProcessInfo processInfo] systemUptime] windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:0]];
         BOOL focused = [[(DOMHTMLDocument *)document activeElement] isSameNode:attachment];
-        BOOL cleared = ![webView selectedDOMRange];
+        id keepOverride = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"AquaWebKitSDKAlignedBehaviors"]
+            objectForKey:@"KeepEditableSelectionOnMouseFocus"];
+        BOOL keepsCaret = keepOverride && CFGetTypeID((CFTypeRef)keepOverride) == CFBooleanGetTypeID() && [keepOverride boolValue];
+        BOOL correctCaret = keepsCaret == !![webView selectedDOMRange];
         printf("%s click focuses attachment\n", focused ? "PASS" : "FAIL");
-        printf("%s click clears caret\n", cleared ? "PASS" : "FAIL");
-        passed &= focused && cleared;
+        printf("%s click %s caret\n", correctCaret ? "PASS" : "FAIL", keepsCaret ? "keeps" : "clears");
+        passed &= focused && correctCaret;
 
         [webView close];
         [window orderOut:nil];

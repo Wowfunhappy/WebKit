@@ -20,6 +20,14 @@ git grep -n -w AQUAWEBKIT
 
 Each marker is a deliberate divergence in `Source/`. A three-way merge will silently drop or mangle these wherever upstream also touched the file. Walk the list; re-apply each by hand, then run `AquaWebKitSupport/scripts/check-backport-markers.sh` against the new base — it reports every divergent hunk that lost its marker, every upstream line that was deleted rather than commented out, and every upstream file the tree no longer has.
 
+## SDK-aligned behavior names
+
+`sdkAlignedBehaviorNames` in `AquaWebKitSupport/polyfill/headers/WebKitAdditions/RuntimeApplicationChecksCocoaAdditions.cpp`
+lists every `SDKAlignedBehavior` in enum order, for apps' Info.plist overrides
+([SDK-ALIGNED-BEHAVIORS.md](SDK-ALIGNED-BEHAVIORS.md)). A `static_assert` fails the build when upstream adds,
+removes or reorders an entry. Update the table to match the enum, and gate any new upstream behavior that
+Apple's internal additions hold in the same file.
+
 ## New `USE(GLIB)` blocks that assume GLib *is* the platform
 
 We define `USE(GLIB)` for gstreamer, but mostly use Cocoa APIs. Be mindful of any new or changed `#if USE(GLIB)` blocks which activate on Cocoa and either won't compile or displace a Cocoa subsystem we need.

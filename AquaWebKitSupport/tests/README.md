@@ -7,7 +7,10 @@ scopes. It also checks the installed private runtime's identities and dependency
 `bash attachment-plugin/run.sh` checks the installed WebKit1 application plug-in path with
 Mail's signature quirk disabled. Attachment objects (including uppercase MIME types) and
 Web Clips must create attached native views; Flash, unknown types and lookalike types must not.
-Clicking an attachment in the editable document must focus it and clear the caret, as on stock.
+Clicking an attachment in the editable document must focus it and clear the caret, as on stock. The
+same host also runs as `build/Override.app`, whose Info.plist turns on `KeepEditableSelectionOnMouseFocus`
+(the click must then keep the caret) and names a behavior that does not exist, and as `build/IntegerValue.app`,
+which gives that behavior an integer instead of a Boolean. Both bad entries must be reported and ignored.
 
 `api-runner/` holds the regression tests for `scripts/run-api-tests.sh`, which use fake build products
 and run directly with the toolchain python: `api-runner-test.py`, `api-timeout-test.py` and `api-test-list.sh`.

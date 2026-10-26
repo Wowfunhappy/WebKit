@@ -13,3 +13,5 @@ vendored deps, and each of those directories carries its own README for its own 
 - **[EXTENSION-BROWSER-API.md](EXTENSION-BROWSER-API.md)** — the WebExtensions-style `browser` namespace this WebKit
   gives Safari 7 legacy extensions, the engine behaviors extension pages get, and packaging notes.
 - **[EXTENSION-AQUA-API.md](EXTENSION-AQUA-API.md)** — the `aqua` namespace those extensions get for media handoff.
+- **[SDK-ALIGNED-BEHAVIORS.md](SDK-ALIGNED-BEHAVIORS.md)** — the behaviors WebKit keys to the SDK an app was built
+  against, which ones an app on 10.9 gets, and how an app turns individual ones on or off in its Info.plist.

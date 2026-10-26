@@ -56,7 +56,7 @@ AquaWebKitSupport/
 ├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash), run by staging
 ├── toolchain/                  the in-tree compiler + helper build tools, incl. a modern git (vendor/ committed, build/ regenerated)
 ├── deps/                       third-party libraries WebKit links: build/ regenerated, work/ builds it (see deps/README.md)
-├── docs/                       prose: upstream-merge notes, the private WebKit ABI reference, the extension APIs
+├── docs/                       prose: upstream-merge notes, the private WebKit ABI reference, the extension APIs, SDK-aligned behaviors
 └── tests/                      manual test pages (see tests/README.md)
 ```
 
