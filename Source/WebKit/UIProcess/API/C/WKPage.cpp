@@ -90,7 +90,8 @@
 #if PLATFORM(MAC)
 #include <CoreFoundation/CFPreferences.h> // AQUAWEBKIT: the host browser's privacy preference, read in applyBrowserPrivacyPreferenceToDefaultPolicies.
 #include <WebCore/AdvancedPrivacyProtections.h> // AQUAWEBKIT: ditto.
-#endif // AQUAWEBKIT: closes the guard around the two includes above.
+#include <WebCore/UserAgent.h> // AQUAWEBKIT: Safari's application name, for QuickLook previews in WKPageSetApplicationNameForUserAgent.
+#endif // AQUAWEBKIT: closes the guard around the includes above.
 #include "WKPageRenderingProgressEventsInternal.h"
 #include "WKPluginInformation.h"
 #include "WebBackForwardCache.h"
@@ -558,6 +559,14 @@ WKStringRef WKPageCopyApplicationNameForUserAgent(WKPageRef pageRef)
 void WKPageSetApplicationNameForUserAgent(WKPageRef pageRef, WKStringRef applicationNameRef)
 {
     CRASH_IF_SUSPENDED;
+#if PLATFORM(MAC)
+    // AQUAWEBKIT: QuickLook's web previews (the QuickLookPreview page group, which Web2.qldisplay names
+    // "QuickLook/5.0") identify as Safari, whose cookies they also use.
+    if (toImpl(pageRef)->pageGroup().identifier() == "QuickLookPreview"_s) {
+        protect(toImpl(pageRef))->setApplicationNameForUserAgent(WebCore::safariApplicationNameForUserAgent());
+        return;
+    }
+#endif // AQUAWEBKIT: closes the QuickLookPreview guard above.
     protect(toImpl(pageRef))->setApplicationNameForUserAgent(toWTFString(applicationNameRef));
 }
 

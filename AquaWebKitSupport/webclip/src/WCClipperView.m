@@ -1931,7 +1931,7 @@ static WKProcessPool *clipProcessPool(void)
     WebClipper *controller = [self controller];
     WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
     configuration.processPool = clipProcessPool();
-    configuration.applicationNameForUserAgent = [WebClipper userAgent];
+    configuration.applicationNameForUserAgent = [WebClipper safariApplicationNameForUserAgent];
 
     WKPreferences *preferences = configuration.preferences;
     preferences._standardFontFamily = [controller standardFont];

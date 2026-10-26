@@ -67,28 +67,13 @@
     return 254;
 }
 
-+ (NSString *)webClipVersion
+// The installed Safari's version and bundle version as "Version/<version> Safari/<build>", the application
+// name WebKit reports as its own Safari release; clips and their extension pages load with it.
++ (NSString *)safariApplicationNameForUserAgent
 {
-    static NSString *version;
-    if (!version)
-        version = [[[NSBundle bundleWithIdentifier:[WebClipper bundleIdentifier]] infoDictionary] objectForKey:@"CFBundleVersion"];
-    return version;
-}
-
-+ (NSString *)safariVersion
-{
-    static NSString *version;
-    if (!version) {
-        version = [[[NSBundle bundleWithPath:@"/Applications/Safari.app"] infoDictionary] objectForKey:@"CFBundleVersion"];
-        if (!version)
-            version = [self webClipVersion];
-    }
-    return version;
-}
-
-+ (NSString *)userAgent
-{
-    return [NSString stringWithFormat:@"%@/%@ %@/%@", @"WebClip", [WebClipper webClipVersion], @"Safari", [WebClipper safariVersion]];
+    NSString *safariPath = [[NSWorkspace sharedWorkspace] absolutePathForAppBundleWithIdentifier:@"com.apple.Safari"];
+    NSDictionary *info = [NSBundle bundleWithPath:safariPath].infoDictionary;
+    return [NSString stringWithFormat:@"Version/%@ Safari/%@", info[@"CFBundleShortVersionString"], info[@"CFBundleVersion"]];
 }
 
 + (NSView *)plugInViewWithArguments:(NSDictionary *)arguments

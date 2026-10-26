@@ -15,9 +15,7 @@
 + (Class)defaultThemeClass;
 + (float)backsideWidth;
 + (float)backsideHeight;
-+ (NSString *)webClipVersion;
-+ (NSString *)safariVersion;
-+ (NSString *)userAgent;
++ (NSString *)safariApplicationNameForUserAgent;
 + (NSView *)plugInViewWithArguments:(NSDictionary *)arguments;
 
 @property (nonatomic, strong) WebPreferences *webPreferences;

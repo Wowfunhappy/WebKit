@@ -32,16 +32,36 @@
 
 namespace WebCore {
 
+// AQUAWEBKIT: an application name that names Safari ("Version/<version> Safari/<build>", as Safari 7
+// passes) names the Safari release this WebKit ships in. The application's other tokens stay.
+ASCIILiteral safariApplicationNameForUserAgent()
+{
+    return "Version/26.0 Safari/605.1.15"_s;
+}
+
+static String applicationNameWithCurrentSafariVersion(const String& applicationName)
+{
+    StringView name { applicationName };
+    for (size_t versionStart = name.find("Version/"_s); versionStart != notFound; versionStart = name.find("Version/"_s, versionStart + 1)) {
+        if (versionStart && name[versionStart - 1] != ' ')
+            continue;
+        size_t safariStart = name.find(' ', versionStart);
+        if (safariStart == notFound || !name.substring(safariStart + 1).startsWith("Safari/"_s))
+            continue;
+        size_t safariEnd = name.find(' ', safariStart + 1);
+        if (safariEnd == notFound)
+            safariEnd = name.length();
+        return makeString(name.left(versionStart), safariApplicationNameForUserAgent(), name.substring(safariEnd));
+    }
+    return applicationName;
+}
+
 String standardUserAgentWithApplicationName(const String& applicationName, const String&, UserAgentType)
 {
-    // AQUAWEBKIT: the user agent is the modern Safari one, independent of the host application
-    // name (Safari 7 passes "Safari/9537.86.7.8", which contradicts the Version/ token). Version/26.0 is
-    // the Safari generation this WebKit snapshot ships in.
     // String appNameSuffix = applicationName.isEmpty() ? emptyString() : makeString(' ', applicationName);
-    //
-    // return makeString("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"_s, appNameSuffix);
-    UNUSED_PARAM(applicationName);
-    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"_s;
+    String appNameSuffix = applicationName.isEmpty() ? emptyString() : makeString(' ', applicationNameWithCurrentSafariVersion(applicationName)); // AQUAWEBKIT: see safariApplicationNameForUserAgent.
+
+    return makeString("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"_s, appNameSuffix);
 }
 
 } // namespace WebCore

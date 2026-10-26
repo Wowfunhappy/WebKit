@@ -2,6 +2,7 @@
 
 #import "WCSafariContentLists.h"
 #import "WCWebKitSPI.h"
+#import "WebClipper.h"
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <pthread.h>
 
@@ -263,18 +264,6 @@ static id objectFromJSONText(NSString *text)
 {
     NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
     return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-}
-
-// Safari's name for itself in the user agent its extension pages load with.
-static NSString *safariApplicationNameForUserAgent(void)
-{
-    NSString *safariPath = [[NSWorkspace sharedWorkspace] absolutePathForAppBundleWithIdentifier:@"com.apple.Safari"];
-    NSDictionary *info = safariPath ? [NSBundle bundleWithPath:safariPath].infoDictionary : nil;
-    NSString *version = info[@"CFBundleShortVersionString"];
-    NSString *build = info[@"CFBundleVersion"];
-    if (![version isKindOfClass:[NSString class]] || ![build isKindOfClass:[NSString class]])
-        return nil;
-    return [NSString stringWithFormat:@"Version/%@ Safari/%@", version, build];
 }
 
 // A value of a Settings.plist default, as JSON text.
@@ -687,7 +676,7 @@ static NSString *extensionPageGroup(void)
     preferences.notificationsEnabled = YES;
 
     WebView *view = [[WebView alloc] initWithFrame:NSZeroRect frameName:nil groupName:extensionPageGroup()];
-    view.applicationNameForUserAgent = safariApplicationNameForUserAgent();
+    view.applicationNameForUserAgent = [WebClipper safariApplicationNameForUserAgent];
     view.preferences = preferences;
     view.drawsBackground = NO;
     view.frameLoadDelegate = self;

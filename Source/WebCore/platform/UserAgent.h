@@ -37,6 +37,9 @@ WEBCORE_EXPORT String standardUserAgentWithApplicationName(const String& applica
 
 WEBCORE_EXPORT ASCIILiteral osNameForUserAgent();
 WEBCORE_EXPORT String systemMarketingVersionForUserAgentString();
+#if PLATFORM(MAC) // AQUAWEBKIT: the application name that names the Safari release this WebKit ships in (UserAgentMac.mm).
+WEBCORE_EXPORT ASCIILiteral safariApplicationNameForUserAgent();
+#endif // AQUAWEBKIT: closes the PLATFORM(MAC) guard above.
 #else
 
 WEBCORE_EXPORT String standardUserAgent(const String& applicationName = emptyString(), const String& applicationVersion = emptyString());
