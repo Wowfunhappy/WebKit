@@ -31,7 +31,8 @@
 #include "config.h"
 #include "NetworkDataTaskDataURL.h"
 
-#if USE(CURL) || USE(SOUP)
+// #if USE(CURL) || USE(SOUP)
+#if USE(CURL) || USE(SOUP) || PLATFORM(COCOA) // AQUAWEBKIT: see NetworkDataTaskDataURL.h.
 
 #include "AuthenticationManager.h"
 #include "Download.h"
@@ -41,7 +42,9 @@
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/SharedBuffer.h> // AQUAWEBKIT: didDecodeDataURL.
 #include <pal/text/TextEncoding.h>
+#include <wtf/SchedulePair.h> // AQUAWEBKIT: resume.
 #include <wtf/Vector.h>
 
 #if USE(CURL)
@@ -77,7 +80,13 @@ void NetworkDataTaskDataURL::resume()
 
     m_state = State::Running;
 
-    DataURLDecoder::decode(firstRequest().url(), { }, DataURLDecoder::ShouldValidatePadding::Yes, [this, protectedThis = Ref { *this }](auto decodeResult) mutable {
+    // AQUAWEBKIT: Cocoa's decoder answers on the run loops of its schedule context; this task's is the main one.
+    DataURLDecoder::ScheduleContext scheduleContext;
+#if USE(COCOA_EVENT_LOOP)
+    scheduleContext.scheduledPairs.add(SchedulePair::create(CFRunLoopGetMain(), kCFRunLoopCommonModes));
+#endif
+    // DataURLDecoder::decode(firstRequest().url(), { }, DataURLDecoder::ShouldValidatePadding::Yes, [this, protectedThis = Ref { *this }](auto decodeResult) mutable {
+    DataURLDecoder::decode(firstRequest().url(), scheduleContext, DataURLDecoder::ShouldValidatePadding::Yes, [this, protectedThis = Ref { *this }](auto decodeResult) mutable {
         if (m_state == State::Canceling || m_state == State::Completed)
             return;
 
@@ -106,7 +115,15 @@ NetworkDataTask::State NetworkDataTaskDataURL::state() const
 
 void NetworkDataTaskDataURL::setPendingDownloadLocation(const String& filename, SandboxExtension::Handle&& sandboxExtensionHandle, bool allowOverwrite)
 {
+    // AQUAWEBKIT: Cocoa's sandboxed network process writes the destination under its sandbox extension, as NetworkDataTaskCocoa does.
+#if PLATFORM(COCOA)
+    NetworkDataTask::setPendingDownloadLocation(filename, { }, allowOverwrite);
+    m_sandboxExtension = SandboxExtension::create(WTF::move(sandboxExtensionHandle));
+    if (RefPtr sandboxExtension = m_sandboxExtension)
+        sandboxExtension->consume();
+#else
     NetworkDataTask::setPendingDownloadLocation(filename, WTF::move(sandboxExtensionHandle), allowOverwrite);
+#endif // AQUAWEBKIT: closes the sandbox extension branch above.
     m_allowOverwriteDownload = allowOverwrite;
 }
 
@@ -140,9 +157,19 @@ void NetworkDataTaskDataURL::didDecodeDataURL(std::optional<WebCore::DataURLDeco
 
         switch (policyAction) {
         case PolicyAction::Use:
+            // AQUAWEBKIT: a Safari 7 extension's webRequest redirect of a subresource to a data: URL loads it here.
+            /*
             // Should not be reached for data URLs as they are normally handled in the web process.
             invalidateAndCancel();
             ASSERT_NOT_REACHED();
+            */ // AQUAWEBKIT: closes upstream's branch above; the decoded data goes to the client.
+            if (m_client)
+                m_client->didReceiveData(SharedBuffer::create(WTF::move(data)));
+            if (m_state == State::Canceling || m_state == State::Completed)
+                return;
+            m_state = State::Completed;
+            if (m_client)
+                m_client->didCompleteWithError({ }, { });
             break;
         case PolicyAction::Ignore:
             invalidateAndCancel();
@@ -165,6 +192,8 @@ void NetworkDataTaskDataURL::downloadDecodedData(Vector<uint8_t>&& data)
         ResourceError error(CURLE_WRITE_ERROR, m_response.url());
 #elif USE(SOUP)
         ResourceError error(downloadDestinationError(m_response, "Cannot write destination file."_s));
+#else // AQUAWEBKIT: Cocoa's write failure.
+        ResourceError error(errorDomainWebKitInternal, 0, m_response.url(), "Cannot write destination file."_s);
 #endif
         if (m_client)
             m_client->didCompleteWithError(error);
@@ -175,6 +204,9 @@ void NetworkDataTaskDataURL::downloadDecodedData(Vector<uint8_t>&& data)
     auto& downloadManager = m_session->networkProcess().downloadManager();
     Ref download = Download::create(downloadManager, *m_pendingDownloadID, *this, *m_session, suggestedFilename());
     downloadManager.dataTaskBecameDownloadTask(*m_pendingDownloadID, download.copyRef());
+#if PLATFORM(COCOA) // AQUAWEBKIT: the download holds the destination's sandbox extension, as NetworkSessionCocoa's do.
+    download->setSandboxExtension(WTF::move(m_sandboxExtension));
+#endif
     download->didCreateDestination(m_pendingDownloadLocation);
 
     if (!downloadDestinationFile.write(data.span())) {
@@ -184,6 +216,8 @@ void NetworkDataTaskDataURL::downloadDecodedData(Vector<uint8_t>&& data)
         ResourceError error(CURLE_WRITE_ERROR, m_response.url());
 #elif USE(SOUP)
         ResourceError error(downloadDestinationError(m_response, "Cannot write destination file."_s));
+#else // AQUAWEBKIT: Cocoa's write failure.
+        ResourceError error(errorDomainWebKitInternal, 0, m_response.url(), "Cannot write destination file."_s);
 #endif
         download->didFail(error, { });
         invalidateAndCancel();

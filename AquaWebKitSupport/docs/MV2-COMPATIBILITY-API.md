@@ -19,7 +19,8 @@ Sources:
 | declarativeNetRequest | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionDeclarativeNetRequest.{h,mm}`, on WebKit's own implementation in `Source/WebKit/UIProcess/Extensions/` |
 | Clipboard | writes: `WebLegacyExtensionPageObserver.mm` (WebKit 1 preferences) and `LegacyExtensionContent.cpp` (web content pages); reads: `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm` |
 | WebKit 1 page hooks | `AquaWebKitSupport/source/WebKitLegacy/mac/LegacyExtensions/WebLegacyExtensionPageObserver.mm` |
-| Root-relative URLs | `AquaWebKitSupport/source/WTF/wtf/LegacyExtensionURL.{h,cpp}` |
+| Relative URLs in extension documents | `AquaWebKitSupport/source/WTF/wtf/LegacyExtensionURL.{h,cpp}` |
+| WebKit 1 views' BroadcastChannels, message ports, shared workers and Web Locks | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionViewConnection.{h,cpp}` |
 | Test extension and server | `AquaWebKitSupport/tests/legacy-extensions/` |
 
 ## Contexts
@@ -170,11 +171,11 @@ Opens a port to the extension's contexts in a tab, with the same frame selection
 Runs code in the extension's content-script world of the target frames: `frameId` (default `0`), or every frame when `allFrames` is `true`.
 
 - `file` is a path within the extension, resolved from the extension's root. Its text is fetched by the calling page and run as code.
-- The code runs through indirect `eval`, so the result is the value of its last expression statement.
+- The code runs as a classic script of that world, so the result is the script's completion value, and its top-level `let`, `const`, `class`, `var` and `function` declarations stay visible to later injections and to the content scripts. A call made during a user gesture runs the code with that gesture.
 - `runAt` is `"document_start"`, `"document_end"`, or `"document_idle"` (default). `document_end` waits for `DOMContentLoaded`; `document_idle` waits for `DOMContentLoaded` and then one more task.
 - Documents at `about:blank` or `about:srcdoc` are targets only when `matchAboutBlank` is `true`. With `allFrames`, they are skipped; a call whose only target is one rejects with `Cannot access contents of url "about:blank".`
-- The Promise resolves with an array holding one result per frame that ran the code. A result that cannot be serialized to JSON becomes `null`.
-- Frames that could not run the code are left out of the array. The call rejects only when no frame ran the code, with the first error: the code's exception message, `"No tab with this id."`, `"No frame with this id."`, `"The extension has no access to this frame."`, or `"Cannot access the contents of an extension page."` (the frame shows an extension page).
+- The Promise resolves with an array holding one result per frame that ran the code, converted as Chrome converts it: a value JSON cannot hold (a function, a symbol, a BigInt, `undefined`, a non-finite number) is `null` in an array and left out of an object, a property whose getter throws is `null`, an object met again on its own path is `null`, and nesting stops at a depth of 100. Code that throws gives `null`, and its exception goes to the frame's console.
+- Frames that could not run the code are left out of the array. The call rejects only when no frame ran the code, with the first error: `"No tab with this id."`, `"No frame with this id."`, `"The extension has no access to this frame."`, or `"Cannot access the contents of an extension page."` (the frame shows an extension page).
 - The extension must have content scripts, because the code runs in the world Safari creates for them. A frame whose content-script world has no window object yet gets one created for the injection.
 
 ### `tabs.insertCSS(tabId, { code | file, frameId, allFrames, matchAboutBlank, runAt, cssOrigin })` → `Promise<void>`
@@ -300,7 +301,7 @@ A successful cache revalidation (a `304` for a cached entry) reports the cached 
 | Verdict | Effect |
 | --- | --- |
 | `{ cancel: true }` in `onBeforeRequest` | The load fails with `net::ERR_BLOCKED_BY_CLIENT`, as a load WebKit's content rules block does; a main-frame navigation shows Safari's error page for it. A WebSocket fails and closes with code `1006`. |
-| `{ redirectUrl }` in `onBeforeRequest` | A main-frame navigation follows a `307 Internal Redirect` to the new URL, keeping its method and body, so the address and history show it. Any other request loads the new URL in place, as WebKit's content rules redirect one, after `onBeforeRedirect` and the new URL's own `onBeforeRequest`. An invalid URL is ignored. After 20 such redirects the load fails. |
+| `{ redirectUrl }` in `onBeforeRequest` | A main-frame navigation follows a `307 Internal Redirect` to the new URL, keeping its method and body, so the address and history show it. Any other request loads the new URL in place, as WebKit's content rules redirect one, after `onBeforeRedirect` and the new URL's own `onBeforeRequest`, and is checked as a request for the new URL: a cross-origin XHR or fetch redirected to a `data:` URL or to an extension file succeeds as it does in Chrome, and a `data:` URL answers with status 200. An invalid URL is ignored. After 20 such redirects the load fails. |
 | `{ cancel: true }` in `onBeforeSendHeaders` | As `cancel` in `onBeforeRequest`. |
 | `{ requestHeaders }` in `onBeforeSendHeaders` | Replaces the request's header fields. |
 | `{ cancel: true }` in `onHeadersReceived` | As `cancel` in `onBeforeRequest`. |
@@ -358,7 +359,7 @@ Empties the in-memory caches of the Safari process and of every web content proc
 
 ## `browser.declarativeNetRequest` (host contexts only)
 
-WebKit's own declarativeNetRequest, the one it gives a WebExtension: rules are validated, stored, and translated to a WebKit content rule list by WebKit's implementation, and the content rule list engine applies them to every load of every tab. The rule format, priorities, limits, and error messages are that implementation's ([Chrome's documentation](https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest) describes the format).
+WebKit's own declarativeNetRequest, the one it gives a WebExtension: rules are validated, stored, and translated to a WebKit content rule list by WebKit's implementation, and the content rule list engine applies them to every load of every tab except a load of an extension's own files (`safari-extension:` URLs, any extension's), which no rule matches, as in Chrome. The rule format, priorities, limits, and error messages are that implementation's ([Chrome's documentation](https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest) describes the format).
 
 | Member | |
 | --- | --- |
@@ -483,7 +484,8 @@ WebKit 1 extension views (global page, popovers, bars) also have WebCore's async
 
 These need no API calls.
 
-- **Root-relative URLs in extension documents.** Safari 7 serves an extension's files at `safari-extension://<key>/<token>/<path>`, where `<token>` is fixed for each Safari launch. In an extension document, a root-relative reference such as `/js/app.js` resolves under `safari-extension://<key>/<token>/`, as a WebExtension's resolves against its origin. `/x.js` and `./x.js` from a root-level page name the same file, including for ES module identity.
+- **Relative URLs in extension documents.** Safari 7 serves an extension's files at `safari-extension://<key>/<token>/<path>`, where `<token>` is fixed for each Safari launch. In an extension document, relative references resolve within `safari-extension://<key>/<token>/` as a WebExtension's resolve within its origin: a root-relative reference such as `/js/app.js` resolves under it, and dot-segments stop at it, so `../styles/a.css` from a root-level page is `styles/a.css`. `/x.js`, `./x.js` and `../x.js` from a root-level page name the same file, including for ES module identity.
+- **BroadcastChannel, SharedWorker and Web Locks in the WebKit 1 views.** The global page, popovers and bars have them, as WebKit 2 views do, and share them with the extension's pages in tabs and frames: a channel reaches all of the extension's pages, `new SharedWorker(url)` connects every page to one worker, and a lock held by one page holds for all. Safari's process takes part in the default session's channels, message ports and shared workers over a network process connection of its own, and uses that session's lock manager.
 - **`safari-extension:` is a secure scheme that bypasses Content Security Policy.** An extension's resources load into pages whatever the page's CSP allows.
 - **Inline scripts from content scripts ignore the page's CSP.** An inline classic or module script, import map, or speculation rules element that a content-script world inserts runs even where the page's CSP forbids inline script, just as that world's own fetches, WebSockets, and workers are not subject to the page's CSP.
 - **Blobs in the global page.** `blob:` URLs and `FileReader` work in the WebKit 1 global page; the extension scheme is registered with the Safari process's scheme registry.
@@ -505,7 +507,7 @@ Safari 7's extension resource protocol has limits that apply to every file in th
 
 `api-test.safariextension` exercises every namespace against the local server (`server.py`, ports 8843 and 8844, and 8845, which counts preconnections). `response-filter.safariextension` rewrites `/filter/` responses and sets the privacy settings `pages/filter.html` asks for (results in `window.__results`). `mime-handler.safariextension` displays `/mime/` PDFs and reports reads to the server log; `/mime/embed.html` embeds one, and `/mime-options/false` and `/mime-options/true` set its option. `limited-access.safariextension` has website access to `localhost` alone. `declarative-net-request.safariextension` applies rules to `pages/dnr.html` (results in `window.__results`; API calls in the server log as `dnr-api`).
 
-`display-or-download.safariextension` decides whether `/inline/` responses display or download: open `/inline/login`, `/inline/doc.pdf` (viewer result in `window.__result`), `/inline/data.bin` and `/inline/force-download.html`, and the unaffected `/plain/` equivalents. `/plain/clip.mp4` and `/plain/server-inline.mp4` download unless `AquaWebKitPlayMediaFilesInline` is on. `hidden-tabs.safariextension` hides and shows tabs via `window.postMessage({ hiddenTabs: operation, args })`; its `global.js` lists operations, with answers in `window.__hiddenTabsResult`. Open `pages/coverage.html` from the server for aggregate results in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
+`display-or-download.safariextension` decides whether `/inline/` responses display or download: open `/inline/login`, `/inline/doc.pdf` (viewer result in `window.__result`), `/inline/data.bin` and `/inline/force-download.html`, and the unaffected `/plain/` equivalents. `/plain/clip.mp4` and `/plain/server-inline.mp4` download unless `AquaWebKitPlayMediaFilesInline` is on. `hidden-tabs.safariextension` hides and shows tabs via `window.postMessage({ hiddenTabs: operation, args })`; its `global.js` lists operations, with answers in `window.__hiddenTabsResult`. `compat-test.safariextension` checks Chrome-compatible behaviors on `pages/compat.html` (results in the page's `data-compat-*` attributes): onBeforeRequest redirects of same- and cross-origin XHR and fetch to `data:` and to extension files, declarativeNetRequest leaving extension files alone, executeScript declarations, result conversion and gestures, and dot-segments at the extension root; its `page.html`, opened in a tab, checks BroadcastChannel, Web Locks and SharedWorker shared with the global page, and `gestureProbe()` there, run from AppleScript's `do JavaScript`, injects with the gesture. `pages/data-download.html` downloads a 64 KiB `data:` URL. Open `pages/coverage.html` from the server for aggregate results in `window.__results`. Extension Builder installs do not persist across Safari relaunches; click Install again after relaunching.
 
 ## The aqua namespace
 
@@ -607,7 +609,7 @@ await aqua.mediaPlayer.withHandoff(async scope => {
 }, { ticket });
 ```
 
-`withHandoff(callback)` and nested `scope.withHandoff(callback)` retain a calling page across asynchronous selection. `scope.signal` is aborted on completion or expiry; completed scopes reject new sessions. Scopes have a five-minute lifetime bound. Accepted sources retain their own playback lifetime. Retained documents keep existing extension ports after visible tab closure, but closed tabs are absent from tab queries and cannot receive new connections.
+`withHandoff(callback)` and nested `scope.withHandoff(callback)` retain a calling page across asynchronous selection. `scope.signal` is aborted on completion; completed scopes reject new sessions. A scope lasts until its callback settles, or until its document stops (navigates away, enters the back/forward cache, or leaves its frame) or its content world is withdrawn, which reject it with `no-source`. Accepted sources retain their own playback lifetime. Retained documents keep existing extension ports after visible tab closure, but closed tabs are absent from tab queries and cannot receive new connections.
 
 #### Extension-owned handoff helper
 

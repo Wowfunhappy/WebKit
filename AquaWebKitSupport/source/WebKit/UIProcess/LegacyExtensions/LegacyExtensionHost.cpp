@@ -13,6 +13,7 @@
 #include "LegacyExtensionMimeHandlers.h"
 #include "LegacyExtensionPrivacy.h"
 #include "LegacyExtensionScheme.h"
+#include "LegacyExtensionViewConnection.h"
 #include "LegacyExtensionViewNetwork.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
@@ -45,7 +46,9 @@
 #include <WebCore/MemoryCache.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SharedBuffer.h>
+#include <WebCore/UserGestureIndicator.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -154,6 +157,13 @@ static JSValueRef hostContextSend(JSContextRef context, JSObjectRef, JSObjectRef
     return JSValueMakeUndefined(context);
 }
 
+// isProcessingUserGesture(): whether the caller runs inside a user gesture, which a call it makes carries on as
+// upstream's API calls do.
+static JSValueRef hostContextIsProcessingUserGesture(JSContextRef context, JSObjectRef, JSObjectRef, size_t, const JSValueRef[], JSValueRef*)
+{
+    return JSValueMakeBoolean(context, WebCore::UserGestureIndicator::processingUserGesture());
+}
+
 static void hostContextFinalize(JSObjectRef object)
 {
     delete static_cast<HostContextNative*>(JSObjectGetPrivate(object));
@@ -164,6 +174,7 @@ static JSClassRef hostContextNativeClass()
     static JSClassRef nativeClass = [] {
         static const JSStaticFunction functions[] = {
             { "send", hostContextSend, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "isProcessingUserGesture", hostContextIsProcessingUserGesture, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { nullptr, nullptr, 0 },
         };
         JSClassDefinition definition = kJSClassDefinitionEmpty;
@@ -482,6 +493,8 @@ LegacyExtensionHost::~LegacyExtensionHost() = default;
 LegacyExtensionHost::LegacyExtensionHost()
 {
     LegacyExtensions::registerExtensionScheme();
+    if (WTF::MacApplication::isSafari())
+        LegacyExtensionViewConnection::singleton().install();
     WebSetLegacyExtensionPageObserver(&pageObserver());
     WebCore::LegacyLoadInterceptor::setSingleton(&LegacyExtensionViewNetwork::singleton());
     // privacy's onChange, with each extension's view of the setting.
@@ -1558,9 +1571,10 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         request->setString("code"_s, details->getString("code"_s));
         request->setString("runAt"_s, details->getString("runAt"_s));
         request->setBoolean("matchAboutBlank"_s, details->getBoolean("matchAboutBlank"_s).value_or(false));
-        if (method == "tabs.executeScript"_s)
+        if (method == "tabs.executeScript"_s) {
             request->setString("t"_s, "exec"_s);
-        else {
+            request->setBoolean("userGesture"_s, details->getBoolean("userGesture"_s).value_or(false));
+        } else {
             request->setString("t"_s, "css"_s);
             request->setString("op"_s, method == "tabs.insertCSS"_s ? "insert"_s : "remove"_s);
             request->setString("origin"_s, details->getString("cssOrigin"_s));

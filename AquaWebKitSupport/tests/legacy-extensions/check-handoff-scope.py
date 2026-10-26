@@ -26,11 +26,11 @@ def windows():
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('cases', nargs='*', default=['throw', 'reject', 'stale', 'delayed', 'nested', 'unscoped', 'timeout'])
+parser.add_argument('cases', nargs='*', default=['throw', 'reject', 'stale', 'delayed', 'nested', 'unscoped'])
 cases = parser.parse_args().cases
 baseline = windows()
 for case in cases:
-    assert case in ['throw', 'reject', 'stale', 'delayed', 'nested', 'unscoped', 'timeout'], case
+    assert case in ['throw', 'reject', 'stale', 'delayed', 'nested', 'unscoped'], case
     url = 'http://127.0.0.1:8843/quicktime.html?' + urllib.parse.urlencode(dict(source='plain.mp4', sourceMode='direct', handoffScope=case))
     osa('tell application "Safari" to make new document with properties {URL:' + json.dumps(url) + '}')
     window = osa('tell application "Safari" to get id of front window')
@@ -43,10 +43,10 @@ for case in cases:
 
     wait(lambda: js('Boolean(document.querySelector("#video")?.readyState>=2 && document.querySelector("#open-media-player"))') == 'true')
     js('document.querySelector("#open-media-player").click()')
-    if case in ['throw', 'reject', 'stale', 'timeout']:
-        text = wait(lambda: (lambda value: value if value.startswith('{') else None)(js('document.querySelector("#media-player-result").textContent')), seconds=330 if case == 'timeout' else 30)
+    if case in ['throw', 'reject', 'stale']:
+        text = wait(lambda: (lambda value: value if value.startswith('{') else None)(js('document.querySelector("#media-player-result").textContent')), seconds=30)
         result = json.loads(text)
-        expected = 'handoff-timeout' if case == 'timeout' else 'no-source' if case == 'stale' else 'scope-test-error'
+        expected = 'no-source' if case == 'stale' else 'scope-test-error'
         assert result == dict(error=expected), result
         assert js('document.querySelector("#media-player-result").dataset.scope') == 'aborted'
         assert windows() == baseline

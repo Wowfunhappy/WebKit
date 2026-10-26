@@ -173,6 +173,7 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHost.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionMimeHandlers.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionPrivacy.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewConnection.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewNetwork.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp
@@ -582,7 +583,7 @@ AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "
 AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "Sources.txt" AQUAWEBKIT_WITHHELD_WEBKIT_SOURCES AQUAWEBKIT_ADDED_WEBKIT_SOURCES)
 AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" AQUAWEBKIT_WITHHELD_WEBKIT_COCOA_SOURCES AQUAWEBKIT_ADDED_WEBKIT_COCOA_SOURCES)
 
-# The Cocoa curl transport's NetworkProcess task and Private Click Measurement request, Safari's native
+# The Cocoa curl transport's NetworkProcess task, upstream's data: task, and Private Click Measurement request, Safari's native
 # resume facade and its typed resume record -- this backport's own sources, beside the rest of the 10.9 glue. NetworkDataTask.cpp and
 # the download code reach the headers by bare name, so the directories go on the include path.
 find_package(CURL 8.22 REQUIRED)
@@ -596,6 +597,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${AQUAWEBKIT_SUPPORT}/source/WebKit/Shared/Cocoa"
 )
 list(APPEND WebKit_SOURCES
+    ${WEBKIT_DIR}/NetworkProcess/NetworkDataTaskDataURL.cpp
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCurlCocoa.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/NetworkProcess/PrivateClickMeasurement/cocoa/PrivateClickMeasurementCurlLoadTask.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.mm

@@ -30,7 +30,8 @@
 
 #pragma once
 
-#if USE(CURL) || USE(SOUP)
+// #if USE(CURL) || USE(SOUP)
+#if USE(CURL) || USE(SOUP) || PLATFORM(COCOA) // AQUAWEBKIT: Cocoa loads data: URLs Safari 7 extensions redirect to here (NetworkDataTask::create).
 
 #include "NetworkDataTask.h"
 #include <WebCore/DataURLDecoder.h>
@@ -65,6 +66,9 @@ private:
     State m_state { State::Suspended };
     bool m_allowOverwriteDownload { false };
     WebCore::ResourceResponse m_response;
+#if PLATFORM(COCOA) // AQUAWEBKIT: setPendingDownloadLocation.
+    RefPtr<SandboxExtension> m_sandboxExtension;
+#endif
 };
 
 } // namespace WebKit

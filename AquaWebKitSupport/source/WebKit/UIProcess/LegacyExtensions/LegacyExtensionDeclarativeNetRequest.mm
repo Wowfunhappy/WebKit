@@ -436,6 +436,12 @@ void LegacyExtensionDeclarativeNetRequest::compileDeclarativeNetRequestRules(NSM
             return redirectedRule;
         });
 
+        // As in Chrome, no rule matches a request for an extension's files.
+        allConvertedRules = [allConvertedRules arrayByAddingObject:@{
+            @"action": @{ @"type": @"ignore-previous-rules" },
+            @"trigger": @{ @"url-filter": @"^safari-extension:" },
+        }];
+
         auto *webKitRules = encodeJSONString(allConvertedRules, JSONOptions::FragmentsAllowed);
         if (!webKitRules) {
             dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {

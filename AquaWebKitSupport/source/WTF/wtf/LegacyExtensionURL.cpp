@@ -1,12 +1,26 @@
 #include "config.h"
 #include "LegacyExtensionURL.h"
 
+#include <wtf/ASCIICType.h>
 #include <wtf/URL.h>
 #include <wtf/text/MakeString.h>
 
 namespace WTF {
 
-std::optional<URL> resolveLegacyExtensionRootRelativeURL(const URL& base, const String& relative, const URLTextEncoding* encoding)
+static bool startsWithScheme(StringView reference)
+{
+    if (reference.isEmpty() || !isASCIIAlpha(reference[0]))
+        return false;
+    for (auto character : reference.codeUnits()) {
+        if (character == ':')
+            return true;
+        if (!isASCIIAlphanumeric(character) && character != '+' && character != '-' && character != '.')
+            return false;
+    }
+    return false;
+}
+
+std::optional<LegacyExtensionRoot> legacyExtensionRootForReference(const URL& base, const String& relative)
 {
     if (!base.protocolIs("safari-extension"_s))
         return std::nullopt;
@@ -15,21 +29,31 @@ std::optional<URL> resolveLegacyExtensionRootRelativeURL(const URL& base, const 
     auto reference = StringView { relative }.trim([](char16_t character) { return character <= ' '; }).toString().removeCharacters([](char16_t character) {
         return character == '\t' || character == '\n' || character == '\r';
     });
-    if (!reference.startsWith('/') || reference.startsWith("//"_s))
+    if (reference.startsWith("//"_s) || startsWithScheme(reference))
         return std::nullopt;
 
     auto basePath = base.path();
     size_t tokenEnd = basePath.find('/', 1);
     if (!basePath.startsWith('/') || tokenEnd == notFound)
         return std::nullopt;
-    auto root = basePath.left(tokenEnd + 1);
-    if (reference.startsWith(root) || reference == basePath.left(tokenEnd))
-        return std::nullopt;
+    auto rootPath = basePath.left(tokenEnd);
 
-    URL rootURL = base;
-    rootURL.setPath(root);
-    rootURL.removeQueryAndFragmentIdentifier();
-    return URL(rootURL, makeString('.', reference), encoding);
+    // A reference that spells the root names the same place as one that starts at it.
+    if (reference.startsWith(rootPath) && (reference.length() == rootPath.length() || reference[rootPath.length()] == '/' || reference[rootPath.length()] == '?' || reference[rootPath.length()] == '#')) {
+        reference = reference.substring(rootPath.length());
+        if (!reference.startsWith('/'))
+            reference = makeString('/', reference);
+    }
+
+    URL baseBelowRoot = base;
+    baseBelowRoot.setPath(basePath.substring(tokenEnd));
+    return LegacyExtensionRoot { WTF::move(baseBelowRoot), WTF::move(reference), rootPath.toString() };
+}
+
+void placeUnderLegacyExtensionRoot(URL& url, const LegacyExtensionRoot& root)
+{
+    if (url.isValid())
+        url.setPath(makeString(root.path, url.path()));
 }
 
 } // namespace WTF

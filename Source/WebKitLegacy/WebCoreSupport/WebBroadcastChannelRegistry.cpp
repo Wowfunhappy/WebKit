@@ -24,6 +24,7 @@
  */
 
 #include "WebBroadcastChannelRegistry.h"
+#include "WebLegacyExtensionPageObserver.h" // AQUAWEBKIT: getOrCreate.
 
 #include <WebCore/BroadcastChannel.h>
 #include <WebCore/SerializedScriptValue.h>
@@ -31,8 +32,12 @@
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 
-Ref<WebBroadcastChannelRegistry> WebBroadcastChannelRegistry::getOrCreate(bool privateSession)
+// Ref<WebBroadcastChannelRegistry> WebBroadcastChannelRegistry::getOrCreate(bool privateSession)
+Ref<WebCore::BroadcastChannelRegistry> WebBroadcastChannelRegistry::getOrCreate(bool privateSession) // AQUAWEBKIT: the shared registry below is no WebBroadcastChannelRegistry.
 {
+    // AQUAWEBKIT: in Safari, the default session's channels are the ones Safari 7 extension views share with WebKit 2.
+    if (RefPtr registry = WebLegacyExtensionBroadcastChannelRegistry(); registry && !privateSession)
+        return registry.releaseNonNull();
     static NeverDestroyed<WeakPtr<WebBroadcastChannelRegistry>> defaultSessionRegistry;
     static NeverDestroyed<WeakPtr<WebBroadcastChannelRegistry>> privateSessionRegistry;
     auto& existingRegistry = privateSession ? privateSessionRegistry : defaultSessionRegistry;

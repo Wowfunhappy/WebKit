@@ -555,19 +555,69 @@ if (!isHost) {
     const isReachable = matchAboutBlank => matchAboutBlank || !isAboutBlankOrSrcdoc();
     const unreachable = callId => send({ t: "result", callId, error: `Cannot access contents of url "${document.URL}".` });
 
-    const didReceiveExecuteScript = ({ callId, code, runAt, matchAboutBlank }) => isReachable(matchAboutBlank) ? runWhen(runAt || "document_idle", () => {
-        let result;
-        try {
-            result = (0, eval)(code);
-        } catch (exception) {
-            send({ t: "result", callId, error: errorMessage(exception) });
-            return;
+    // The value of injected code as Chrome's V8ValueConverter carries it: what JSON cannot hold is null in an array
+    // and left out of an object, a getter that throws gives null, an object met again on its own path is null, and
+    // nesting stops at a depth of 100. Dates and regular expressions are objects like any other.
+    const injectionResult = (value, path = new Set()) => {
+        switch (typeof value) {
+        case "boolean":
+        case "string":
+            return value;
+        case "number":
+            return Number.isFinite(value) ? value : undefined;
+        case "object":
+            if (value === null)
+                return null;
+            break;
+        default:
+            return undefined;
         }
+        if (path.has(value))
+            return null;
+        if (path.size === 100)
+            return undefined;
+        const property = key => {
+            try {
+                return injectionResult(value[key], path);
+            } catch {
+                return null;
+            }
+        };
+        // An object whose shape a proxy refuses to give is null.
+        let length;
+        let keys;
         try {
-            send({ t: "result", callId, result });
+            if (Array.isArray(value))
+                length = value.length;
+            else
+                keys = Object.keys(value);
         } catch {
-            send({ t: "result", callId, result: null });
+            return null;
         }
+        path.add(value);
+        let result;
+        if (keys === undefined) {
+            result = [];
+            for (let index = 0; index < length; ++index) {
+                const element = property(index);
+                result.push(element === undefined ? null : element);
+            }
+        } else {
+            result = {};
+            for (const key of keys) {
+                const propertyValue = property(key);
+                if (propertyValue !== undefined)
+                    Object.defineProperty(result, key, { value: propertyValue, enumerable: true, writable: true, configurable: true });
+            }
+        }
+        path.delete(value);
+        return result;
+    };
+
+    // As in Chrome, a frame whose code throws gives null; the exception goes to the frame's console.
+    const didReceiveExecuteScript = ({ callId, code, runAt, matchAboutBlank, userGesture }) => isReachable(matchAboutBlank) ? runWhen(runAt || "document_idle", () => {
+        const result = injectionResult(native.executeScript(code, !!userGesture));
+        send({ t: "result", callId, result: result === undefined ? null : result });
     }) : unreachable(callId);
 
     // A file's style sheet is based at the file; code's, as upstream's, has a URL of its own.
@@ -675,8 +725,9 @@ if (isHost) {
         },
         executeScript(...args) {
             return withOptionalCallback(args, async (tabId, details = {}) => {
+                const userGesture = native.isProcessingUserGesture();
                 const code = typeof details.file === "string" ? await resourceText(details.file) : String(details.code);
-                return callRouter("tabs.executeScript", tabId, Object.assign(injectionTarget(details), { code }));
+                return callRouter("tabs.executeScript", tabId, Object.assign(injectionTarget(details), { code, userGesture }));
             });
         },
         insertCSS(...args) {

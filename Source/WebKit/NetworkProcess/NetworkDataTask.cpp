@@ -58,7 +58,9 @@ Ref<NetworkDataTask> NetworkDataTask::create(NetworkSession& session, NetworkDat
     ASSERT(!parameters.request.url().protocolIsBlob());
     auto dataTask = [&] {
 #if PLATFORM(COCOA)
-        // AQUAWEBKIT: HTTP(S) uses curl; Cocoa dispatches local and registered custom protocols.
+        // AQUAWEBKIT: HTTP(S) uses curl and data: upstream's own task; Cocoa dispatches local and registered custom protocols.
+        if (parameters.request.url().protocolIsData())
+            return NetworkDataTaskDataURL::create(session, client, parameters);
         if (NetworkDataTaskCurlCocoa::canHandle(session, parameters))
             return NetworkDataTaskCurlCocoa::create(session, client, parameters);
         return NetworkDataTaskCocoa::create(session, client, parameters);

@@ -64,9 +64,10 @@ void URL::invalidate()
 
 URL::URL(const URL& base, const String& relative, const URLTextEncoding* encoding)
 {
-    // AQUAWEBKIT: a Safari 7 extension document's root-relative references resolve under its per-launch root.
-    if (auto url = resolveLegacyExtensionRootRelativeURL(base, relative, encoding)) {
-        *this = WTF::move(*url);
+    // AQUAWEBKIT: a Safari 7 extension document's relative references resolve within its per-launch root.
+    if (auto legacyExtensionRoot = legacyExtensionRootForReference(base, relative)) {
+        *this = URLParser(WTF::move(legacyExtensionRoot->reference), legacyExtensionRoot->base, encoding).result();
+        placeUnderLegacyExtensionRoot(*this, *legacyExtensionRoot);
         return;
     }
     *this = URLParser(String { relative },  base, encoding).result();

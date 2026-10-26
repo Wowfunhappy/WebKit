@@ -311,6 +311,16 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
     return interceptBeforeRequest(checker, request, client, handler);
 }
 
+// A request redirected before anything is sent is checked as a request for its new URL, as one whose URL WebKit's
+// content rules change before it reaches the network process is.
+void LegacyExtensionNetwork::checkAsRequestFor(NetworkLoadChecker& checker, const URL& url)
+{
+    checker.m_url = url;
+    checker.m_isSameOriginRequest = checker.isSameOrigin(url, checker.m_origin.get());
+    if (checker.m_options.credentials == FetchOptions::Credentials::SameOrigin)
+        checker.m_storedCredentialsPolicy = checker.m_isSameOriginRequest ? StoredCredentialsPolicy::Use : StoredCredentialsPolicy::DoNotUse;
+}
+
 // onBeforeRequest, then the request's headers. A redirect the verdict makes before the request is sent
 // is Chrome's internal redirect: a main frame follows it as a redirect; any other request loads the new URL
 // in place, as WebKit's content rules redirect it, after the redirect's onBeforeRedirect and the new URL's
@@ -367,6 +377,8 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
             request.setURL(WTF::move(redirectURL));
             if (checker->isRedirected())
                 m_extensionRedirectTargets.set(*checker, request.url());
+            else
+                checkAsRequestFor(*checker, request.url());
             if (isInterceptable(request.url()) && interceptBeforeRequest(*checker, request, client, handler))
                 return;
             m_resumingRequests.add(*checker);

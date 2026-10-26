@@ -32,7 +32,8 @@
 
 class WebBroadcastChannelRegistry : public WebCore::BroadcastChannelRegistry, public CanMakeWeakPtr<WebBroadcastChannelRegistry> {
 public:
-    static Ref<WebBroadcastChannelRegistry> getOrCreate(bool privateSession);
+    // static Ref<WebBroadcastChannelRegistry> getOrCreate(bool privateSession);
+    static Ref<WebCore::BroadcastChannelRegistry> getOrCreate(bool privateSession); // AQUAWEBKIT: may return the registry Safari 7 extension views share (getOrCreate).
 
     void registerChannel(const WebCore::PartitionedSecurityOrigin&, const String& name, WebCore::BroadcastChannelIdentifier) final;
     void unregisterChannel(const WebCore::PartitionedSecurityOrigin&, const String& name, WebCore::BroadcastChannelIdentifier) final;

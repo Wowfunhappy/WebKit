@@ -154,6 +154,7 @@ private:
     String cookieHeader(NetworkLoadChecker&, const WebCore::ResourceRequest&);
 
     bool interceptBeforeRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
+    static void checkAsRequestFor(NetworkLoadChecker&, const URL&);
     bool interceptRequestHeaders(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
     void redirect(NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);
     bool loadsInPlace(NetworkResourceLoader&, const URL&);

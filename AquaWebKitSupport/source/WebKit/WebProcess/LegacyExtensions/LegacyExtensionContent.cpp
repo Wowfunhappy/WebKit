@@ -21,6 +21,7 @@
 #include "WebUserContentController.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSLock.h>
+#include <WebCore/ActiveDOMObject.h>
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/DocumentInlines.h>
 #include <WebCore/DocumentPage.h>
@@ -44,14 +45,17 @@
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/MemoryCache.h>
 #include <WebCore/Page.h>
+#include <WebCore/RunJavaScriptParameters.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/Settings.h>
+#include <WebCore/UserGestureIndicator.h>
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/WindowProxy.h>
 #include <wtf/JSONValues.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
@@ -115,6 +119,36 @@ static JSValueRef contentContextRemoveCSS(JSContextRef context, JSObjectRef, JSO
     if (document && !code.isNull())
         LegacyExtensionContent::singleton().removeStyleSheets(*document, native->extensionKey, code);
     return JSValueMakeUndefined(context);
+}
+
+// executeScript(code, userGesture): runs code as a classic script of the context's world, as upstream runs a
+// WebExtension's injected code, with the caller's user gesture, and returns its completion value. Code that throws,
+// or cannot run, returns null; ScriptController reports the exception to the frame's console.
+static JSValueRef contentContextExecuteScript(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef*)
+{
+    auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    RefPtr document = documentForNative(*native);
+    RefPtr frame = document ? document->frame() : nullptr;
+    auto code = LegacyExtensions::stringArgument(context, argumentCount, arguments, 0);
+    if (!frame || code.isNull())
+        return JSValueMakeNull(context);
+    bool userGesture = argumentCount > 1 && JSValueToBoolean(context, arguments[1]);
+    JSValueRef completionValue = JSValueMakeNull(context);
+    frame->script().executeAsynchronousUserAgentScriptInWorld(*native->world, { WTF::move(code), JSC::SourceTaintedOrigin::Untainted, URL { }, false, std::nullopt, userGesture, WebCore::RemoveTransientActivation::Yes }, [&](WebCore::ValueOrException result) {
+        if (!result)
+            return;
+        auto* globalObject = toJS(context);
+        JSC::JSLockHolder lock(globalObject->vm());
+        completionValue = toRef(globalObject, result.value());
+    });
+    return completionValue;
+}
+
+// isProcessingUserGesture(): whether the caller runs inside a user gesture, which a call it makes carries on as
+// upstream's API calls do.
+static JSValueRef contentContextIsProcessingUserGesture(JSContextRef context, JSObjectRef, JSObjectRef, size_t, const JSValueRef[], JSValueRef*)
+{
+    return JSValueMakeBoolean(context, WebCore::UserGestureIndicator::processingUserGesture());
 }
 
 // frameId(target): the WebExtensions frame ID of a window, or of a frame element's content; -1 for
@@ -235,6 +269,44 @@ struct NativePromise {
     }
 };
 
+// Calls its function once its document stops: the document is navigated away from, enters the back/forward cache,
+// or leaves its frame.
+class DocumentStopObserver final : public RefCounted<DocumentStopObserver>, public WebCore::ActiveDOMObject {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(DocumentStopObserver);
+public:
+    static Ref<DocumentStopObserver> create(WebCore::Document& document, Function<void()>&& documentStopped)
+    {
+        Ref observer = adoptRef(*new DocumentStopObserver(document, WTF::move(documentStopped)));
+        observer->suspendIfNeeded();
+        return observer;
+    }
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+private:
+    DocumentStopObserver(WebCore::Document& document, Function<void()>&& documentStopped)
+        : ActiveDOMObject(document)
+        , m_documentStopped(WTF::move(documentStopped))
+    {
+    }
+
+    void stop() final
+    {
+        if (auto documentStopped = std::exchange(m_documentStopped, nullptr))
+            documentStopped();
+    }
+
+    void suspend(WebCore::ReasonForSuspension reason) final
+    {
+        if (reason == WebCore::ReasonForSuspension::BackForwardCache)
+            stop();
+    }
+
+    Function<void()> m_documentStopped;
+};
+
+// A handoff lasts until its operation finishes, or its document stops or its content world is withdrawn.
 struct MediaPlayerHandoffScope : std::enable_shared_from_this<MediaPlayerHandoffScope> {
     ContentContextNative native;
     std::unique_ptr<NativePromise> promise;
@@ -242,13 +314,12 @@ struct MediaPlayerHandoffScope : std::enable_shared_from_this<MediaPlayerHandoff
     uint64_t identifier { nextMediaPlayerHandoffIdentifier() };
     uint64_t parentIdentifier;
     String ticket;
-    RunLoop::Timer deadline;
+    RefPtr<DocumentStopObserver> documentObserver;
     std::shared_ptr<MediaPlayerHandoffScope> active;
     bool finished { false };
 
     MediaPlayerHandoffScope(const ContentContextNative& context, std::unique_ptr<NativePromise>&& pending, JSObjectRef operation, uint64_t parent, String&& preparedTicket)
         : native(context), promise(WTF::move(pending)), callback(operation), parentIdentifier(parent), ticket(WTF::move(preparedTicket))
-        , deadline(RunLoop::mainSingleton(), "External playback selection"_s, [this] { complete("handoff-timeout"_s); })
     {
         JSValueProtect(promise->context.get(), callback);
     }
@@ -269,7 +340,6 @@ struct MediaPlayerHandoffScope : std::enable_shared_from_this<MediaPlayerHandoff
         if (std::exchange(finished, true))
             return;
         auto protect = shared_from_this();
-        deadline.stop();
         active = nullptr;
         if (error.isEmpty())
             promise->resolveWith(JSValueMakeUndefined(promise->context.get()));
@@ -278,12 +348,15 @@ struct MediaPlayerHandoffScope : std::enable_shared_from_this<MediaPlayerHandoff
         WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::EndMediaPlayerHandoff(identifier), 0);
     }
 
-    void start()
+    void start(WebCore::Document& document)
     {
         active = shared_from_this();
         std::erase_if(scopes(), [](auto& scope) { return scope.expired(); });
         scopes().push_back(active);
-        deadline.startOneShot(5_min);
+        documentObserver = DocumentStopObserver::create(document, [weakThis = weak_from_this()] {
+            if (auto scope = weakThis.lock())
+                scope->complete("no-source"_s);
+        });
         WebProcess::singleton().parentProcessConnection()->sendWithAsyncReply(Messages::LegacyExtensionHost::BeginMediaPlayerHandoff(native.frameID, identifier, parentIdentifier, ticket, native.extensionKey), [self = shared_from_this()](Expected<bool, String>&& began) {
             if (self->finished)
                 return;
@@ -326,12 +399,13 @@ static JSValueRef contentContextWithMediaPlayerHandoff(JSContextRef context, JSO
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
     auto callback = argumentCount && JSValueIsObject(context, arguments[0]) ? JSValueToObject(context, arguments[0], nullptr) : nullptr;
     auto parent = parentMediaPlayerHandoff(context, argumentCount, arguments, 1, *native);
-    if (!parent || !documentForNative(*native) || !callback || !JSObjectIsFunction(context, callback)) {
+    RefPtr document = documentForNative(*native);
+    if (!parent || !document || !callback || !JSObjectIsFunction(context, callback)) {
         pending->rejectWith("no-source"_s);
         return promise;
     }
     auto ticket = LegacyExtensions::stringArgument(context, argumentCount, arguments, 2);
-    std::make_shared<MediaPlayerHandoffScope>(*native, WTF::move(pending), callback, *parent, WTF::move(ticket))->start();
+    std::make_shared<MediaPlayerHandoffScope>(*native, WTF::move(pending), callback, *parent, WTF::move(ticket))->start(*document);
     return promise;
 }
 
@@ -347,6 +421,14 @@ void LegacyExtensionContent::userContentDidChange()
     }
     for (auto& session : expired)
         session->close();
+
+    Vector<std::shared_ptr<MediaPlayerHandoffScope>> endedScopes;
+    for (auto& weakScope : MediaPlayerHandoffScope::scopes()) {
+        if (auto scope = weakScope.lock(); scope && !scope->finished && !documentForNative(scope->native))
+            endedScopes.append(WTF::move(scope));
+    }
+    for (auto& scope : endedScopes)
+        scope->complete("no-source"_s);
 }
 
 // mimeHandler: the document whose handler page is the context's own, the extension's page in a frame.
@@ -440,6 +522,7 @@ static JSClassRef contentContextNativeClass(LegacyExtensions::ContextKind kind)
             { "insertCSS", contentContextInsertCSS, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "removeCSS", contentContextRemoveCSS, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "frameId", contentContextFrameID, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "executeScript", contentContextExecuteScript, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { nullptr, nullptr, 0 },
         };
         JSClassDefinition definition = kJSClassDefinitionEmpty;
@@ -454,6 +537,7 @@ static JSClassRef contentContextNativeClass(LegacyExtensions::ContextKind kind)
     static JSClassRef hostClass = [] {
         static const JSStaticFunction functions[] = {
             { "withClipboardWriteAccess", contentContextWithClipboardWriteAccess, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "isProcessingUserGesture", contentContextIsProcessingUserGesture, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "mimeHandlerStream", contentContextMimeHandlerStream, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "mimeHandlerFallBack", contentContextMimeHandlerFallBack, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { nullptr, nullptr, 0 },
