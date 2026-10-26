@@ -56,7 +56,7 @@ AquaWebKitSupport/
 ├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash), run by staging
 ├── toolchain/                  the in-tree compiler + helper build tools, incl. a modern git (vendor/ committed, build/ regenerated)
 ├── deps/                       third-party libraries WebKit links: build/ regenerated, work/ builds it (see deps/README.md)
-├── docs/                       prose: upstream-merge notes, the private WebKit ABI reference, the MV2 compatibility API
+├── docs/                       prose: upstream-merge notes, the private WebKit ABI reference, the extension APIs
 └── tests/                      manual test pages (see tests/README.md)
 ```
 
@@ -228,4 +228,4 @@ archive extraction, rejection of tampered CRX3 data and malformed MAR indexes, a
 Use [the castLabs VMP lab](https://castlabs.github.io/wv-vmp-lab/) in Safari for the integration check:
 the license response must report `PLATFORM_SOFTWARE_VERIFIED`, and media time must advance.
 
-`aqua.mediaPlayer.createSession(video)` exposes native browser-route, media-source and receiver-control primitives. Extension-owned helpers compose these into a handoff to an installed macOS application. Extension bundles and helpers are maintained outside the WebKit checkout. See [the API guide](docs/MV2-COMPATIBILITY-API.md#the-aqua-namespace).
+`aqua.mediaPlayer.createSession(video)` exposes native browser-route, media-source and receiver-control primitives. Extension-owned helpers compose these into a handoff to an installed macOS application. Extension bundles and helpers are maintained outside the WebKit checkout. See [the API guide](docs/EXTENSION-AQUA-API.md).

@@ -10,3 +10,6 @@ vendored deps, and each of those directories carries its own README for its own 
   the backport must satisfy on 10.9: the frozen 725-symbol core Safari 7 binds against, across JavaScriptCore /
   WebKitLegacy / WebKit2, plus the extra legacy surface Mail and QuickLook need, and how the contract data in
   `../host-abi/` was captured.
+- **[EXTENSION-BROWSER-API.md](EXTENSION-BROWSER-API.md)** — the WebExtensions-style `browser` namespace this WebKit
+  gives Safari 7 legacy extensions, the engine behaviors extension pages get, and packaging notes.
+- **[EXTENSION-AQUA-API.md](EXTENSION-AQUA-API.md)** — the `aqua` namespace those extensions get for media handoff.
