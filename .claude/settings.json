@@ -6,5 +6,19 @@
         "path": ".claude/plugins"
       }
     }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/build-wait-guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }
