@@ -153,6 +153,8 @@ enum class SDKAlignedBehavior {
     BlockOrUpgradeMixedContent,
     // AQUAWEBKIT: any attribute change on <embed> reconstructs its renderers.
     EmbedAttributeChangeReconstructsRenderers,
+    // AQUAWEBKIT: a mouse-driven focus change keeps a contentEditable selection.
+    KeepEditableSelectionOnMouseFocus,
 
     NumberOfBehaviors
 };

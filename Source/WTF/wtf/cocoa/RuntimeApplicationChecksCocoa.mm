@@ -253,6 +253,7 @@ static SDKAlignedBehaviors computeSDKAlignedBehaviors()
         disableBehavior(SDKAlignedBehavior::IgnorePageLocationDuringHardPocketEligibilityCheck);
         disableBehavior(SDKAlignedBehavior::ScrollPocketInFullscreen);
         disableBehavior(SDKAlignedBehavior::BoxPackAccountsForBoxDirection); // AQUAWEBKIT: Messages' balloons right-align with box-pack: end under box-direction: reverse.
+        disableBehavior(SDKAlignedBehavior::KeepEditableSelectionOnMouseFocus); // AQUAWEBKIT: Notes and Mail attachment plug-ins take a click without placing a caret.
     }
 
     // This should be disabled unconditionally until WTF::String is made thread-safe. See the comment in UserScript.cpp.

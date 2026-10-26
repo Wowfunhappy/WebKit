@@ -76,6 +76,11 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
+#if PLATFORM(COCOA)
+// AQUAWEBKIT: SDKAlignedBehavior::KeepEditableSelectionOnMouseFocus, read in clearSelectionIfNeeded().
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FocusController);
@@ -142,6 +147,23 @@ static void clearSelectionIfNeeded(LocalFrame* oldFocusedFrame, LocalFrame* newF
         if (newFocusedNode->contains(selectionStartNode) || selectionStartNode->shadowHost() == newFocusedNode)
             return;
     }
+
+#if PLATFORM(COCOA)
+    // AQUAWEBKIT: hosts without KeepEditableSelectionOnMouseFocus keep a contentEditable selection only when the
+    // pressed node cannot start a selection, so clicking a Notes or Mail attachment plug-in clears the caret.
+    RefPtr legacyMousePressNode = newFocusedFrame ? newFocusedFrame->eventHandler().mousePressNode() : nullptr;
+    if (legacyMousePressNode && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::KeepEditableSelectionOnMouseFocus)) {
+        if (!legacyMousePressNode->canStartSelection()) {
+            RefPtr root = selection.rootEditableElement();
+            RefPtr host = root ? root->shadowHost() : nullptr;
+            RefPtr rootOrHost = host ? host : root;
+            if (!rootOrHost || (!is<HTMLInputElement>(*rootOrHost) && !is<HTMLTextAreaElement>(*rootOrHost)))
+                return;
+        }
+        oldFocusedFrame->selection().clear();
+        return;
+    }
+#endif
 
     if (RefPtr mousePressNode = newFocusedFrame ? newFocusedFrame->eventHandler().mousePressNode() : nullptr) {
         RefPtr root = selection.rootEditableElement();
