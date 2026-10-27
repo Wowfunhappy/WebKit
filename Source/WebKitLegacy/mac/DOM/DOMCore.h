@@ -39,6 +39,7 @@
 #import <WebKitLegacy/DOMNamedNodeMap.h>
 #import <WebKitLegacy/DOMNode.h>
 #import <WebKitLegacy/DOMNodeList.h>
+#import <WebKitLegacy/DOMNotation.h> // AQUAWEBKIT: the 10.9 SDK's DOMCore.h imports this class too.
 #import <WebKitLegacy/DOMObject.h>
 #import <WebKitLegacy/DOMProcessingInstruction.h>
 #import <WebKitLegacy/DOMText.h>

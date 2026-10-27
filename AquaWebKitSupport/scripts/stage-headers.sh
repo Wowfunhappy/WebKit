@@ -97,12 +97,36 @@ for name in $(public_in_project JavaScriptCore); do
         "$(source_of JavaScriptCore "$name")" "$JSC_HEADERS/$name" public
 done
 cp "$SRC/JavaScriptCore/JavaScriptCore.modulemap" "$STAGE$JSC_BUNDLE/Versions/A/Modules/module.modulemap"
+# The Objective-C API headers, which the i386 slice (stock's, below) lacks, take the exclusion
+# Apple's 10.9 map gives them there, with JSTypedArray.h, the one this WebKit adds.
+python3 - "$STAGE$JSC_BUNDLE/Versions/A/Modules/module.modulemap" <<'EOF'
+import sys
+path = sys.argv[1]
+text = open(path).read().rstrip()
+assert text.endswith("}"), "unexpected module map shape"
+text = text[:-1].rstrip() + """
+
+  explicit module JSVirtualMachine {
+    // FIXME: 32-bit x86 is a poor way to say "fragile Objective-C ABI"
+    requires x86_32
+    exclude header "JSValue.h"
+    exclude header "JSContext.h"
+    exclude header "JSExport.h"
+    exclude header "JSManagedValue.h"
+    exclude header "JSVirtualMachine.h"
+    exclude header "JSTypedArray.h"
+  }
+}
+"""
+open(path, "w").write(text)
+EOF
 echo "  $(ls "$JSC_HEADERS" | wc -l | tr -d ' ') headers"
 
 # ---------------------------------------------------------------------------
 # The legacy API: Xcode copies each header into WebKitLegacy.framework/PrivateHeaders through
 # WebKitLegacy's rule (WebCore's copies them verbatim), then WebKit's rule migrates it from there.
 # The rule recognizes a migrated header by that directory name, so the intermediate copy keeps it.
+# DOMNotation.h, the 10.9 SDK class this port restores, migrates the same way.
 echo "### WebKit.framework headers"
 new_header_dirs "$WEBKIT_BUNDLE"
 WK_HEADERS="$STAGE$WEBKIT_BUNDLE/Versions/A/Headers"
@@ -124,7 +148,8 @@ while IFS='|' read -r input output; do
     esac
     SRCROOT="$SRC/WebKit" run_rule "$SRC/WebKit/Scripts/postprocess-header-rule" "$mid" "$WK_HEADERS/${output##*/}" public
 done < <(paste -d'|' <(grep -v '^#' "$SRC/WebKit/MigratedHeaders-input.xcfilelist" | grep .) \
-                     <(grep -v '^#' "$SRC/WebKit/MigratedHeaders-output.xcfilelist" | grep .))
+                     <(grep -v '^#' "$SRC/WebKit/MigratedHeaders-output.xcfilelist" | grep .)
+         echo '$(WEBKITLEGACY_PRIVATE_HEADERS_DIR)/DOMNotation.h|$(TARGET_BUILD_DIR)/$(PUBLIC_HEADERS_FOLDER_PATH)/DOMNotation.h')
 # The WebKit (WK2) headers, through WebKit's rule.
 for name in $(public_in_project WebKit); do
     case "$name" in
@@ -137,6 +162,30 @@ for name in $(public_in_project WebKit); do
     esac
 done
 cp "$SRC/WebKit/Modules/OSX.modulemap" "$STAGE$WEBKIT_BUNDLE/Versions/A/Modules/module.modulemap"
+
+# The stock headers this WebKit lacks, which the last step below adds (the 32-bit Carbon API and the
+# NPAPI plug-in interface), take the module map entries Apple's 10.9 map gives them.
+python3 - "$STAGE$WEBKIT_BUNDLE/Versions/A/Modules/module.modulemap" <<'EOF'
+import sys
+path = sys.argv[1]
+text = open(path).read().rstrip()
+assert text.endswith("}"), "unexpected module map shape"
+text = text[:-1].rstrip() + """
+
+  explicit module NPAPI {
+    header "nptypes.h"
+    header "npapi.h"
+    header "npfunctions.h"
+    header "npruntime.h"
+    export *
+  }
+
+  exclude header "HIWebView.h"
+  exclude header "CarbonUtils.h"
+}
+"""
+open(path, "w").write(text)
+EOF
 echo "  $(ls "$WK_HEADERS" | wc -l | tr -d ' ') headers"
 
 # ---------------------------------------------------------------------------
@@ -157,6 +206,39 @@ done
 python3 "$HERE/legacy-sdk-headers.py" --prelude "$HERE/legacy-sdk-prelude.h" --sdk "$SDK" "${PLATFORMS[@]}" \
     --base "$JSC_HEADERS/JSBase.h" --base "$WK_HEADERS/WKFoundation.h" --base "$WK_HEADERS/WebKitAvailability.h" \
     "${ALL_HEADERS[@]}"
+
+# ---------------------------------------------------------------------------
+# The i386 slice of each framework is stock 10.9's, so an i386 compile reads the stock framework's
+# headers: each header carries this WebKit's declarations under __LP64__ and the stock one's
+# otherwise, and a stock header this WebKit lacks ships as it is.
+echo "### stock headers for the i386 slice"
+python3 - "$STAGE$JSC_BUNDLE" "$STOCK_BACKUP/JavaScriptCore.framework" "$STAGE$WEBKIT_BUNDLE" "$STOCK_BACKUP/WebKit.framework" <<'EOF'
+import os, sys
+
+def read(directory, name):
+    with open(os.path.join(directory, name), errors="surrogateescape") as f:
+        text = f.read()
+    return text if text.endswith("\n") else text + "\n"
+
+for bundle, stock_bundle in zip(sys.argv[1::2], sys.argv[2::2]):
+    ours_dir = os.path.join(bundle, "Versions/A/Headers")
+    stock_dir = os.path.join(stock_bundle, "Versions/A/Headers")
+    stock = {n for n in os.listdir(stock_dir) if n.endswith(".h")}
+    if not stock:
+        sys.exit("ERROR: no stock headers in %s" % stock_dir)
+    ours = {n for n in os.listdir(ours_dir) if n.endswith(".h")}
+    for name in sorted(ours | stock):
+        if name not in ours:
+            text = read(stock_dir, name)
+        elif name in stock:
+            text = ("#ifdef __LP64__\n" + read(ours_dir, name)
+                    + "#else /* the i386 slice: the macOS 10.9 WebKit */\n" + read(stock_dir, name) + "#endif\n")
+        else:
+            text = ("#ifdef __LP64__ /* the i386 slice, the macOS 10.9 WebKit, lacks this header */\n"
+                    + read(ours_dir, name) + "#endif\n")
+        with open(os.path.join(ours_dir, name), "w", errors="surrogateescape") as f:
+            f.write(text)
+EOF
 
 for b in "$JSC_BUNDLE" "$WEBKIT_BUNDLE"; do
     chmod -R a+rX "$STAGE$b/Versions/A/Headers" "$STAGE$b/Versions/A/Modules"

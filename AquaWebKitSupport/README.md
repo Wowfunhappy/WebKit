@@ -44,7 +44,7 @@ AquaWebKitSupport/
 │                               check-absent-references.sh (build gate),
 │                               check-gap-archive-current.sh (build.sh runs its --sources-only half; the rest by hand),
 │                               check-backport-markers.sh (divergence gate),
-│                               check-public-headers.sh (run by hand: every shipped header compiles, with the modern SDK and Xcode 6's),
+│                               check-public-headers.sh (run by hand: every shipped header compiles, with the modern SDK and Xcode 6's, x86_64 and i386),
 │                               check-imageio-decode.sh (run by hand: no page bytes reach ImageIO),
 │                               generate-legal.py (run by hand: the license texts a distributed build needs),
 │                               build-log.sh and host-headers.sh (sourced: the one build log, and the 10.9 header probe),
@@ -138,7 +138,9 @@ just these two frameworks: `-F/System/Library/Frameworks` would also put 10.9's 
 and AppKit headers ahead of the SDK's. The WK_ and JSC_ availability annotations are empty, since
 the installed frameworks carry the API they declare on 10.9; deprecations, and the few raw
 `API_AVAILABLE` annotations in upstream's text, remain. The i386 slice of every
-framework is stock 10.9's, whose API is the 10.9 SDK's.
+framework is stock 10.9's, so an i386 compile reads the stock framework's declarations, and the
+headers stock 10.9 has beyond this WebKit's (the Carbon API and the NPAPI plug-in interface) ship
+as well.
 
 ## Safari 7.1.8 and 9.1.3
 
