@@ -1,0 +1,6 @@
+<!DOCTYPE html>
+<title>canLoad frame</title>
+<img src="/res/canload-frame-1.png">
+<script>
+addEventListener('load', () => setTimeout(() => parent.postMessage({ canloadFrame: document.documentElement.getAttribute('data-canload') }, '*'), 2000));
+</script>

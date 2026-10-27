@@ -966,9 +966,11 @@ list(APPEND WebCore_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlAuthentication.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlConnection.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlMultipartHandle.cpp
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyConfiguration.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyResolver.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlResourceHandle.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlScheduler.mm
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlSocketStream.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTLS.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTransfer.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaMIMESniffing.cpp
@@ -983,10 +985,12 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlAuthentication.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlConnection.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlMultipartHandle.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyConfiguration.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyResolver.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlResourceHandle.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlScheduler.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlSocketGate.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlSocketStream.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTLS.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTransfer.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaDownloadTransport.h

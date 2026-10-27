@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>WebSocket regression</title>
+<style>
+body { font: 13px -apple-system-font, Helvetica, sans-serif; margin: 16px; }
+.pass { color: #080; } .fail { color: #b00; } .skip { color: #888; }
+</style>
+<h1>WebSocket regression</h1>
+<p>Served by server.py on http://127.0.0.1:18995/. The wss cases need the certificate of https://127.0.0.1:18996/
+accepted first (open it and continue past the warning). Results land in <code>window.__results</code>;
+<code>window.__done</code> is set at the end.</p>
+<ol id="list"></ol>
+<script>
+const WS = 'ws://127.0.0.1:18995';
+const WSS = 'wss://127.0.0.1:18996';
+window.__results = {};
+window.__done = false;
+
+function report(name, pass, detail) {
+    window.__results[name] = { pass, detail };
+    const item = document.createElement('li');
+    item.className = pass === null ? 'skip' : pass ? 'pass' : 'fail';
+    item.textContent = `${pass === null ? 'SKIP' : pass ? 'PASS' : 'FAIL'} ${name}: ${detail}`;
+    document.getElementById('list').appendChild(item);
+}
+
+// The socket's events in order, until it closes or the time runs out. `onOpen(socket, events)` runs at open.
+function events(url, { protocols, onOpen, onMessage, timeout = 8000, binaryType = 'blob' } = {}) {
+    return new Promise(resolve => {
+        const seen = [];
+        let socket;
+        try {
+            socket = protocols ? new WebSocket(url, protocols) : new WebSocket(url);
+        } catch (error) {
+            resolve({ seen: ['throw:' + error.name], socket: null });
+            return;
+        }
+        socket.binaryType = binaryType;
+        const timer = setTimeout(() => resolve({ seen: seen.concat('timeout'), socket }), timeout);
+        socket.onopen = () => { seen.push('open'); if (onOpen) onOpen(socket, seen); };
+        socket.onmessage = event => {
+            seen.push(typeof event.data === 'string' ? 'message:' + (event.data.length > 64 ? event.data.length + ' chars' : event.data) : 'binary');
+            if (onMessage) onMessage(socket, event, seen);
+        };
+        socket.onerror = () => seen.push('error');
+        socket.onclose = event => {
+            seen.push(`close:${event.code}${event.reason ? ':' + event.reason : ''}${event.wasClean ? '' : ':unclean'}`);
+            clearTimeout(timer);
+            resolve({ seen, socket });
+        };
+    });
+}
+
+async function expectSequence(name, url, expected, options) {
+    const { seen } = await events(url, options);
+    report(name, seen.join(',') === expected, `expected [${expected}] got [${seen.join(',')}]`);
+}
+
+async function log() {
+    return (await fetch('/log')).json();
+}
+
+function randomBytes(length) {
+    const bytes = new Uint8Array(length);
+    for (let offset = 0; offset < length; offset += 65536)
+        crypto.getRandomValues(bytes.subarray(offset, Math.min(length, offset + 65536)));
+    return bytes;
+}
+
+function sameBytes(a, b) {
+    if (a.length !== b.length)
+        return false;
+    for (let i = 0; i < a.length; ++i) {
+        if (a[i] !== b[i])
+            return false;
+    }
+    return true;
+}
+
+async function echoRoundTrip(name, base) {
+    const text = 'héllo ✓ \u{1F600}';
+    const { seen } = await events(base + '/echo', {
+        onOpen: socket => socket.send(text),
+        onMessage: (socket, event) => socket.close(1000, 'done'),
+    });
+    const expected = `open,message:${text},close:1000:done`;
+    report(name, seen.join(',') === expected, `expected [${expected}] got [${seen.join(',')}]`);
+}
+
+async function largeMessages(name, base) {
+    const text = 'x'.repeat(1 << 20) + 'end';
+    const binary = randomBytes(5 << 20);
+    const received = [];
+    const { seen } = await events(base + '/echo', {
+        binaryType: 'arraybuffer',
+        timeout: 30000,
+        onOpen: socket => { socket.send(text); socket.send(binary); },
+        onMessage: (socket, event) => {
+            received.push(event.data);
+            if (received.length === 2)
+                socket.close(1000);
+        },
+    });
+    const textOK = received[0] === text;
+    const binaryOK = received[1] instanceof ArrayBuffer && sameBytes(new Uint8Array(received[1]), binary);
+    report(name, textOK && binaryOK && seen[seen.length - 1] === 'close:1000', `text ${textOK}, 5 MB binary ${binaryOK}, events [${seen.join(',')}]`);
+}
+
+const cases = [
+    ['plain ws echo', () => echoRoundTrip('plain ws echo', WS)],
+    ['wss echo', () => echoRoundTrip('wss echo', WSS)],
+    ['large messages (ws)', () => largeMessages('large messages (ws)', WS)],
+    ['large messages (wss)', () => largeMessages('large messages (wss)', WSS)],
+    ['binary blob', async () => {
+        const { seen } = await events(WS + '/echo', {
+            onOpen: socket => socket.send(new Blob([new Uint8Array([1, 2, 3])])),
+            onMessage: (socket, event) => socket.close(),
+        });
+        report('binary blob', seen.join(',') === 'open,binary,close:1005', seen.join(','));
+    }],
+    ['cookie sent on handshake', async () => {
+        document.cookie = 'page-cookie=1; path=/';
+        let headers;
+        await events(WS + '/headers', { onMessage: (socket, event) => { headers = JSON.parse(event.data); socket.close(); } });
+        const cookie = headers && headers.cookie || '';
+        report('cookie sent on handshake', /(^|; )page-cookie=1(;|$)/.test(cookie), `Cookie: ${cookie}`);
+    }],
+    ['handshake Set-Cookie stored', async () => {
+        document.cookie = 'ws-cookie=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+        await events(WS + '/set-cookie', { onMessage: socket => socket.close() });
+        report('handshake Set-Cookie stored', /(^|; )ws-cookie=2(;|$)/.test(document.cookie), `document.cookie: ${document.cookie}`);
+    }],
+    ['request header fields', async () => {
+        let headers;
+        await events(WS + '/headers', { onMessage: (socket, event) => { headers = JSON.parse(event.data); socket.close(); } });
+        const ok = headers && headers.origin === location.origin && headers.host === '127.0.0.1:18995' && headers['sec-websocket-version'] === '13'
+            && !('sec-websocket-extensions' in headers) && /websocket/i.test(headers.upgrade);
+        report('request header fields', !!ok, JSON.stringify(headers));
+    }],
+    ['subprotocol selected', async () => {
+        let protocol;
+        const { seen } = await events(WS + '/protocol', { protocols: ['one', 'two'], onOpen: socket => { protocol = socket.protocol; socket.close(); } });
+        report('subprotocol selected', protocol === 'two', `protocol ${protocol}, events [${seen.join(',')}]`);
+    }],
+    ['subprotocol not offered fails', () => expectSequence('subprotocol not offered fails', WS + '/bad-protocol', 'error,close:1006:unclean', { protocols: ['one'] })],
+    ['extension not offered fails', () => expectSequence('extension not offered fails', WS + '/extension', 'error,close:1006:unclean')],
+    ['wrong accept fails', () => expectSequence('wrong accept fails', WS + '/bad-accept', 'error,close:1006:unclean')],
+    ['server close code and reason', () => expectSequence('server close code and reason', WS + '/close?code=4001&reason=bye', 'open,close:4001:bye')],
+    ['server empty close is 1005', () => expectSequence('server empty close is 1005', WS + '/close-empty', 'open,close:1005')],
+    ['client close code echoed', () => expectSequence('client close code echoed', WS + '/echo', 'open,close:4002:client', { onOpen: socket => socket.close(4002, 'client') })],
+    ['close without code is 1005', () => expectSequence('close without code is 1005', WS + '/echo', 'open,close:1005', { onOpen: socket => socket.close() })],
+    ['abort after handshake', () => expectSequence('abort after handshake', WS + '/abort', 'open,close:1006:unclean')],
+    ['frame then end', () => expectSequence('frame then end', WS + '/frame-eof', 'open,message:hello,close:1006:unclean')],
+    ['Close(1000) then end', () => expectSequence('Close(1000) then end', WS + '/close-1000', 'open,close:1000')],
+    ['peer drops after client close', () => expectSequence('peer drops after client close', WS + '/drop-client-close', 'open,close:1006:unclean', { onOpen: socket => socket.close(4001) })],
+    ['redirect followed', async () => {
+        const { seen } = await events(WS + '/redirect', { onOpen: socket => socket.send('after redirect'), onMessage: socket => socket.close() });
+        report('redirect followed', seen.join(',') === 'open,message:after redirect,close:1005', seen.join(','));
+    }],
+    ['Basic credentials from the URL', async () => {
+        const { seen } = await events('ws://test:secret@127.0.0.1:18995/basic', { onOpen: socket => socket.send('authenticated'), onMessage: socket => socket.close() });
+        report('Basic credentials from the URL', seen.join(',') === 'open,message:authenticated,close:1005', seen.join(','));
+    }],
+    ['NTLM credentials from the URL', async () => {
+        const { seen } = await events('ws://CURL%5Ccurl-test:correct-password@127.0.0.1:18995/ntlm', { onOpen: socket => socket.send('ntlm'), onMessage: socket => socket.close() });
+        const entries = await log();
+        if (seen.join(',') === 'error,close:1006:unclean' && !entries.some(entry => entry.path === '/ntlm' && entry.authorization)) {
+            report('NTLM credentials from the URL', null, 'server.py has no pyspnego');
+            return;
+        }
+        report('NTLM credentials from the URL', seen.join(',') === 'open,message:ntlm,close:1005', seen.join(','));
+    }],
+    ['invalid UTF-8 fails', () => expectSequence('invalid UTF-8 fails', WS + '/bad-utf8', 'open,error,close:1006:unclean')],
+    ['masked server frame fails', () => expectSequence('masked server frame fails', WS + '/masked', 'open,error,close:1006:unclean')],
+    ['fragments with a ping between', async () => {
+        const { seen } = await events(WS + '/fragmented', { onMessage: socket => socket.close() });
+        report('fragments with a ping between', seen.join(',') === 'open,message:fragmented message,close:1005', seen.join(','));
+    }],
+    ['ping answered with pong', async () => {
+        const { seen } = await events(WS + '/ping', { onMessage: socket => socket.close() });
+        report('ping answered with pong', seen.join(',') === 'open,message:pong probe,close:1005', seen.join(','));
+    }],
+    ['bufferedAmount follows the reader', async () => {
+        await fetch('/reset');
+        const chunk = randomBytes(64 * 1024);
+        const total = 64 * chunk.length;
+        let samples = [], start = 0, drained = 0;
+        await events(WS + '/slow-sink', {
+            timeout: 30000,
+            onOpen: socket => {
+                for (let i = 0; i < 64; ++i)
+                    socket.send(chunk);
+                start = performance.now();
+                const poll = setInterval(() => {
+                    samples.push(socket.bufferedAmount);
+                    if (!socket.bufferedAmount) {
+                        clearInterval(poll);
+                        drained = performance.now() - start;
+                        socket.close();
+                    }
+                }, 100);
+            },
+        });
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const received = (await log()).filter(entry => entry.path === '/slow-sink' && 'received' in entry).map(entry => entry.received)[0];
+        const decreasing = samples.every((value, index) => !index || value <= samples[index - 1]);
+        // 4 MB at 2 MB/s, less what the socket buffers hold.
+        const ok = received === total && decreasing && drained > 1000 && samples[0] > 0;
+        report('bufferedAmount follows the reader', ok, `received ${received} of ${total}, drained after ${Math.round(drained)} ms, first sample ${samples[0]}, decreasing ${decreasing}`);
+    }],
+    ['unanswered handshake stays pending', async () => {
+        const { seen } = await events(WS + '/no-answer', { timeout: 3000 });
+        report('unanswered handshake stays pending', seen.join(',') === 'timeout', seen.join(','));
+    }],
+];
+
+(async () => {
+    for (const [name, run] of cases) {
+        try {
+            await run();
+        } catch (error) {
+            report(name, false, 'threw ' + error);
+        }
+    }
+    window.__done = true;
+})();
+</script>

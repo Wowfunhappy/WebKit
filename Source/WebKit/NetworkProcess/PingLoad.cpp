@@ -28,6 +28,7 @@
 
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationManager.h"
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: Safari 7 extensions' proxy.onRequest routes a ping's task.
 #include "Logging.h"
 #include "NetworkConnectionToWebProcess.h"
 #include "NetworkLoadChecker.h"
@@ -126,6 +127,7 @@ void PingLoad::loadRequest(NetworkProcess& networkProcess, ResourceRequest&& req
         loadParameters.request = WTF::move(request);
         Ref task = NetworkDataTask::create(*networkSession, *this, WTF::move(loadParameters));
         m_task = task.copyRef();
+        LegacyExtensionNetwork::singleton().didCreatePingTask(m_networkLoadChecker, task); // AQUAWEBKIT: the ping's proxy.onRequest answers reach its task.
         task->resume();
     } else
         ASSERT_NOT_REACHED();

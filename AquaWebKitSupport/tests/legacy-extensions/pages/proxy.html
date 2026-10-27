@@ -1,0 +1,223 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>proxy</title>
+<!-- proxy.safariextension sets proxy.settings and answers proxy.onRequest; proxy.py must be running. Hosts under
+     .proxy-test resolve nowhere, so a load to one succeeds only through a test proxy, which answers with JSON
+     naming itself. Each case's `pass` and what it saw collect in window.__results; window.__done is set at the end.
+     The HTTPS proxy cases route through the proxy when its certificate (proxy.py's build/proxy-tls/cert.pem) is
+     trusted, and must fail closed when it is not; window.__results.httpsProxySettings.saw.trusted tells which. -->
+<script>
+'use strict';
+const ask = message => new Promise(resolve => {
+    const id = Math.random();
+    addEventListener('message', function listener(event) {
+        if (!event.data || event.data.reply !== id)
+            return;
+        removeEventListener('message', listener);
+        resolve(event.data.result);
+    });
+    postMessage({ toExtension: message, id }, '*');
+});
+let serial = 0;
+const load = async url => {
+    try {
+        const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}n=${++serial}`, { cache: 'no-store' });
+        const text = await response.text();
+        let json;
+        try {
+            json = JSON.parse(text);
+        } catch {
+        }
+        return { status: response.status, json };
+    } catch (error) {
+        return { failed: String(error) };
+    }
+};
+const proxyLog = () => fetch('http://127.0.0.1:8856/log', { cache: 'no-store' }).then(response => response.json());
+const set = value => ask({ set: { value } });
+const via = (result, proxy) => !!result.json && result.json.proxy === proxy;
+const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const openWebSocket = url => new Promise(resolve => {
+    const socket = new WebSocket(url);
+    const timer = setTimeout(() => resolve({ error: 'timeout' }), 10000);
+    socket.onmessage = event => {
+        clearTimeout(timer);
+        resolve({ message: event.data });
+    };
+    socket.onerror = () => {
+        clearTimeout(timer);
+        resolve({ error: 'error' });
+    };
+});
+const AUTHORIZATION = 'Basic dGVzdDpzZWNyZXQ=';
+
+(async () => {
+    const results = {};
+    const check = (name, pass, saw) => {
+        results[name] = { pass: !!pass, saw };
+    };
+    await ask({ clear: true });
+    await ask({ events: true });
+
+    // proxy.settings.
+    let got = await ask({ get: {} });
+    check('initialGet', got.value && got.value.mode === 'system' && got.levelOfControl === 'controllable_by_this_extension', got);
+    got = await ask({ get: { incognito: true } });
+    check('incognitoGet', got.incognitoSpecific === false, got);
+
+    let answer = await set({ mode: 'fixed_servers', rules: { singleProxy: { host: '127.0.0.1', port: 8856 }, bypassList: ['bypass.proxy-test', '<local>'] } });
+    let result = await load('http://a.proxy-test/fixed');
+    check('fixedSingleProxy', answer === 'ok' && via(result, 8856), { answer, result });
+    result = await load('http://bypass.proxy-test/fixed');
+    check('fixedBypassList', !!result.failed, result);
+    result = await load('http://proxytestlocal/fixed');
+    check('fixedBypassLocal', !!result.failed, result);
+    result = await load('http://127.0.0.1:8843/proxy.html');
+    check('fixedImplicitLoopbackBypass', result.status === 200, result);
+    got = await ask({ get: {} });
+    const single = got.value && got.value.rules && got.value.rules.singleProxy;
+    check('fixedGet', got.levelOfControl === 'controlled_by_this_extension' && got.value.mode === 'fixed_servers' && single && single.scheme === 'http' && single.port === 8856, got);
+    let events = await ask({ events: true });
+    check('onChange', events.onChange.length >= 1 && events.onChange[events.onChange.length - 1].value.mode === 'fixed_servers', events.onChange);
+    result = await ask({ fetch: 'http://a.proxy-test/wk1-fixed' });
+    check('wk1FixedSingleProxy', via(result, 8856), result);
+    result = await load('https://secure.proxy-test/connect');
+    let log = await proxyLog();
+    check('fixedConnect', !!result.failed && log.some(entry => entry.method === 'CONNECT' && entry.target === 'secure.proxy-test:443'), { result, connects: log.filter(entry => entry.method === 'CONNECT') });
+
+    let socket = await openWebSocket('ws://ws.proxy-test/fixed-ws');
+    check('webSocketFixedSingleProxy', socket.message === '8856 /fixed-ws', socket);
+    socket = await ask({ webSocket: 'ws://ws.proxy-test/fixed-ws-wk1' });
+    check('wk1WebSocketFixedSingleProxy', socket.message === '8856 /fixed-ws-wk1', socket);
+
+    // An HTTPS proxy: its certificate is evaluated natively for 127.0.0.1, and an untrusted one fails the load.
+    answer = await set({ mode: 'fixed_servers', rules: { singleProxy: { scheme: 'https', host: '127.0.0.1', port: 8860 } } });
+    result = await load('http://a.proxy-test/https-settings');
+    log = await proxyLog();
+    const httpsTrusted = via(result, 8860);
+    check('httpsProxySettings', answer === 'ok' && (httpsTrusted || (!!result.failed && !log.some(entry => (entry.path || '').startsWith('/https-settings')))), { trusted: httpsTrusted, result });
+    result = await load('https://secure.proxy-test/https-connect');
+    log = await proxyLog();
+    check('httpsProxyConnect', !!result.failed && (!httpsTrusted || log.some(entry => entry.method === 'CONNECT' && entry.proxy === 8860 && entry.target === 'secure.proxy-test:443')), { result, connects: log.filter(entry => entry.method === 'CONNECT') });
+
+    answer = await set({ mode: 'fixed_servers', rules: { proxyForHttps: { host: '127.0.0.1', port: 8859 }, fallbackProxy: { host: '127.0.0.1', port: 8856 } } });
+    result = await load('http://a.proxy-test/fallback');
+    check('fixedFallbackProxy', answer === 'ok' && via(result, 8856), { answer, result });
+
+    answer = await set({ mode: 'fixed_servers', rules: { singleProxy: { host: '127.0.0.1', port: 8856 }, proxyForHttp: { host: '127.0.0.1', port: 8856 } } });
+    check('fixedConflictError', answer.error === 'Proxy rule for singleProxy and proxyForHttp set.', answer);
+    answer = await set({ mode: 'fixed_servers' });
+    check('fixedMissingRulesError', answer.error === "Proxy mode 'fixed_servers' requires a 'rules' field.", answer);
+
+    const pac = 'function FindProxyForURL(url, host) { if (shExpMatch(host, "*.proxy-test") && host != "direct.proxy-test") return "PROXY 127.0.0.1:8856"; return "DIRECT"; }';
+    answer = await set({ mode: 'pac_script', pacScript: { data: pac } });
+    result = await load('http://a.proxy-test/pac-data');
+    const pacDirect = await load('http://direct.proxy-test/pac-data');
+    check('pacData', answer === 'ok' && via(result, 8856) && !!pacDirect.failed, { answer, result, pacDirect });
+    answer = await ask({ setPacFile: true });
+    result = await load('http://a.proxy-test/pac-file');
+    check('pacExtensionFile', answer === 'ok' && via(result, 8856), { answer, result });
+    answer = await set({ mode: 'pac_script', pacScript: { data: 'function FindProxyForURL(url, host) { return "PROXY 127.0.0.1:8859; PROXY 127.0.0.1:8856"; }' } });
+    result = await load('http://a.proxy-test/pac-failover');
+    check('pacFailover', answer === 'ok' && via(result, 8856), { answer, result });
+    await ask({ events: true });
+    answer = await set({ mode: 'pac_script', pacScript: { data: 'function FindProxyForURL(url, host) { (' } });
+    result = await load('http://a.proxy-test/pac-invalid');
+    events = await ask({ events: true });
+    check('pacInvalidGoesDirect', !!result.failed && events.onProxyError.some(error => error.fatal === false && error.error === 'net::ERR_PAC_SCRIPT_FAILED'), { result, onProxyError: events.onProxyError });
+
+    answer = await set({ mode: 'direct' });
+    result = await load('http://a.proxy-test/direct');
+    check('direct', answer === 'ok' && !!result.failed, { answer, result });
+
+    answer = await set({ mode: 'fixed_servers', rules: { singleProxy: { host: '127.0.0.1', port: 8859 } } });
+    result = await load('http://a.proxy-test/dead');
+    events = await ask({ events: true });
+    check('onProxyErrorDeadProxy', !!result.failed && events.onProxyError.some(error => error.fatal === true && error.error === 'net::ERR_PROXY_CONNECTION_FAILED'), { result, onProxyError: events.onProxyError });
+
+    answer = await ask({ clear: true });
+    got = await ask({ get: {} });
+    result = await load('http://a.proxy-test/cleared');
+    log = await proxyLog();
+    check('clearRestoresSystem', answer === 'ok' && got.value.mode === 'system' && got.levelOfControl === 'controllable_by_this_extension' && !log.some(entry => (entry.path || '').startsWith('/cleared')), { got, result });
+
+    // proxy.onRequest, with no proxy.settings value.
+    await ask({ events: true });
+    result = await load('http://a.proxy-test/or/http');
+    check('onRequestHttp', via(result, 8856), result);
+    result = await load('http://a.proxy-test/or/promise');
+    check('onRequestPromise', via(result, 8856), result);
+    result = await load('http://a.proxy-test/or/null');
+    check('onRequestNullIsDirect', !!result.failed, result);
+    result = await load('http://a.proxy-test/or/socks');
+    check('onRequestSocksCredentials', via(result, 'socks') && result.json.host === 'a.proxy-test', result);
+    result = await load('http://a.proxy-test/or/auth');
+    check('onRequestProxyAuthorizationHeader', via(result, 8857) && result.json.authorization === AUTHORIZATION, result);
+    result = await load('http://a.proxy-test/or/auth-missing');
+    events = await ask({ events: true });
+    check('onRequestProxyChallenge', result.status === 407 && events.onAuthRequired.some(entry => entry.isProxy === true), { result, onAuthRequired: events.onAuthRequired });
+    result = await load('http://a.proxy-test/or/failover');
+    check('onRequestFailover', via(result, 8856), result);
+    result = await load('http://a.proxy-test/or/dead');
+    events = await ask({ events: true });
+    check('onRequestDeadProxy', !!result.failed && events.onProxyError.some(error => error.fatal === true && error.error === 'net::ERR_PROXY_CONNECTION_FAILED'), { result, onProxyError: events.onProxyError });
+    await load('http://a.proxy-test/or/invalid');
+    await load('http://a.proxy-test/or/throw');
+    events = await ask({ events: true });
+    check('onErrorInvalidProxyInfo', events.onError.includes('ProxyInfoData: Invalid proxy server type: "bogus"'), events.onError);
+    check('onErrorListenerThrows', events.onError.includes('listener failed'), events.onError);
+    result = await load('http://a.proxy-test/or/chain');
+    check('onRequestDirectKeepsEarlierAnswer', via(result, 8856), result);
+    await load('http://a.proxy-test/or/details');
+    events = await ask({ events: true });
+    const first = events.details.find(entry => entry.listener === 'first');
+    const second = events.details.find(entry => entry.listener === 'second');
+    check('onRequestDetails', first && second && first.type === 'xmlhttprequest' && first.method === 'GET' && first.url.startsWith('http://a.proxy-test/or/details') && typeof first.tabId === 'number' && first.tabId >= 0 && first.frameId === 0 && !first.hasRequestHeaders && second.hasRequestHeaders, events.details);
+    await load('http://a.proxy-test/or/order');
+    events = await ask({ events: true });
+    check('onRequestBeforeWebRequest', events.order.join(',') === 'proxy /or/order,beforeRequest /or/order', events.order);
+    result = await ask({ fetch: 'http://a.proxy-test/or/http' });
+    check('wk1OnRequest', via(result, 8856), result);
+    result = await load('http://a.proxy-test/or/https');
+    check('onRequestHttpsProxy', httpsTrusted ? via(result, 8860) && result.json.authorization === AUTHORIZATION : !!result.failed, result);
+
+    // Pings and beacons reach proxy.onRequest, as Firefox's every channel does.
+    await ask({ events: true });
+    navigator.sendBeacon('http://a.proxy-test/or/beacon', 'beacon');
+    await sleep(1500);
+    log = await proxyLog();
+    events = await ask({ events: true });
+    check('onRequestBeacon', log.some(entry => entry.proxy === 8856 && (entry.path || '').startsWith('/or/beacon') && entry.method === 'POST') && events.details.some(entry => entry.type === 'ping'), { details: events.details, log: log.filter(entry => (entry.path || '').startsWith('/or/beacon')) });
+    // WebKit 1 has no sendBeacon (BeaconAPIEnabled is off for WebKitLegacy); the global page sends a hyperlink ping.
+    await ask({ ping: 'http://a.proxy-test/or/ping-wk1' });
+    await sleep(1500);
+    log = await proxyLog();
+    check('wk1OnRequestPing', log.some(entry => entry.proxy === 8856 && (entry.path || '').startsWith('/or/ping-wk1') && entry.method === 'POST'), log.filter(entry => (entry.path || '').startsWith('/or/ping')));
+
+    // WebSockets, a page's and the global page's, connect through curl as loads do and take every route.
+    socket = await openWebSocket('ws://ws.proxy-test/or/ws');
+    check('webSocketOnRequest', socket.message === '8856 /or/ws', socket);
+    socket = await openWebSocket('ws://ws.proxy-test/or/ws-socks');
+    check('webSocketOnRequestSocks', socket.message === 'socks-anonymous /or/ws-socks', socket);
+    socket = await openWebSocket('ws://ws.proxy-test/or/ws-https');
+    check('webSocketOnRequestHttpsProxy', httpsTrusted ? socket.message === '8860 /or/ws-https' : socket.error === 'error', socket);
+    socket = await ask({ webSocket: 'ws://ws.proxy-test/or/ws' });
+    check('wk1WebSocketOnRequest', socket.message === '8856 /or/ws', socket);
+    socket = await ask({ webSocket: 'ws://ws.proxy-test/or/ws-https' });
+    check('wk1WebSocketHTTPSProxy', httpsTrusted ? socket.message === '8860 /or/ws-https' : socket.error === 'error', socket);
+
+    // onRequest answers act on the proxy.settings route.
+    await set({ mode: 'fixed_servers', rules: { singleProxy: { host: '127.0.0.1', port: 8856 } } });
+    result = await load('http://a.proxy-test/or/direct');
+    check('onRequestDirectKeepsSettingsProxy', via(result, 8856), result);
+    await set({ mode: 'direct' });
+    result = await load('http://a.proxy-test/or/direct');
+    const overridden = await load('http://a.proxy-test/or/http');
+    check('onRequestOverSettingsDirect', !!result.failed && via(overridden, 8856), { result, overridden });
+
+    await ask({ clear: true });
+    window.__results = results;
+    window.__done = true;
+    document.body.append(JSON.stringify(results, null, 1));
+})();
+</script>

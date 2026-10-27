@@ -4,7 +4,9 @@
 
 #include "LegacyExtensionClipboard.h"
 #include "LegacyExtensionContentMessages.h"
+#include "LegacyExtensionDNS.h"
 #include "LegacyExtensionDeclarativeNetRequest.h"
+#include "LegacyExtensionDevTools.h"
 #include "LegacyExtensionErrors.h"
 #include "LegacyExtensionHiddenTabs.h"
 #include "LegacyExtensionHostMessages.h"
@@ -12,7 +14,10 @@
 #include "LegacyExtensionJavaScript.h"
 #include "LegacyExtensionMimeHandlers.h"
 #include "LegacyExtensionPrivacy.h"
+#include "LegacyExtensionProxy.h"
+#include "LegacyExtensionSaveAsPDF.h"
 #include "LegacyExtensionScheme.h"
+#include "LegacyExtensionTabCapture.h"
 #include "LegacyExtensionViewConnection.h"
 #include "LegacyExtensionViewNetwork.h"
 #include "LegacyExtensionNetworkMessages.h"
@@ -41,6 +46,7 @@
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/WeakInlines.h>
+#include <WebCore/CocoaCurlProxyConfiguration.h>
 #include <WebCore/ContentRuleListResults.h>
 #include <WebCore/Cookie.h>
 #include <WebCore/MemoryCache.h>
@@ -62,6 +68,8 @@ namespace WebKit {
 
 static constexpr auto extensionScheme = "safari-extension"_s;
 static constexpr auto noReceiverError = "Could not establish connection. Receiving end does not exist."_s;
+// Chrome's error for the channels of a document that enters the back/forward cache (extension_message_port.cc).
+static constexpr auto closedWhenPageEntersBackForwardCacheError = "The page keeping the extension port is moved into back/forward cache, so the message channel is closed."_s;
 
 // A page's tabs.onUpdated source.
 class LegacyExtensionTabObserver final : public PageLoadStateObserverBase, public RefCounted<LegacyExtensionTabObserver> {
@@ -143,9 +151,22 @@ static HashMap<WebPageProxyIdentifier, Ref<LegacyExtensionTabObserver>>& tabObse
     return observers;
 }
 
+// The active tab of the frontmost browser window: Safari 7's activeBrowserWindow.activeTab, and Firefox's
+// tabTracker.activeTab.
+static RefPtr<WebPageProxy> activeTabOfFrontmostWindow()
+{
+    Vector<Ref<WebPageProxy>> pages;
+    for (auto identifier : tabObservers().keys()) {
+        if (RefPtr page = WebProcessProxy::webPage(identifier))
+            pages.append(page.releaseNonNull());
+    }
+    return LegacyExtensionDeclarativeNetRequest::activeTabOfFrontmostWindow(pages);
+}
+
 // The native object LegacyExtensionAPI.js receives in a host context.
 struct HostContextNative {
     uint64_t hostContextIdentifier;
+    std::optional<double> inspectedTabID;
 };
 
 static JSValueRef hostContextSend(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef*)
@@ -159,9 +180,25 @@ static JSValueRef hostContextSend(JSContextRef context, JSObjectRef, JSObjectRef
 
 // isProcessingUserGesture(): whether the caller runs inside a user gesture, which a call it makes carries on as
 // upstream's API calls do.
+// isValid(): whether the context is valid, as for content contexts.
+static JSValueRef hostContextIsValid(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t, const JSValueRef[], JSValueRef*)
+{
+    auto* native = static_cast<HostContextNative*>(JSObjectGetPrivate(thisObject));
+    return JSValueMakeBoolean(context, LegacyExtensionHost::singleton().isHostContextValid(native->hostContextIdentifier));
+}
+
 static JSValueRef hostContextIsProcessingUserGesture(JSContextRef context, JSObjectRef, JSObjectRef, size_t, const JSValueRef[], JSValueRef*)
 {
     return JSValueMakeBoolean(context, WebCore::UserGestureIndicator::processingUserGesture());
+}
+
+// inspectedTabId(): in a devtools page, the tab its Web Inspector inspects; elsewhere undefined.
+static JSValueRef hostContextInspectedTabID(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t, const JSValueRef[], JSValueRef*)
+{
+    auto* native = static_cast<HostContextNative*>(JSObjectGetPrivate(thisObject));
+    if (!native || !native->inspectedTabID)
+        return JSValueMakeUndefined(context);
+    return JSValueMakeNumber(context, *native->inspectedTabID);
 }
 
 static void hostContextFinalize(JSObjectRef object)
@@ -174,7 +211,9 @@ static JSClassRef hostContextNativeClass()
     static JSClassRef nativeClass = [] {
         static const JSStaticFunction functions[] = {
             { "send", hostContextSend, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "isValid", hostContextIsValid, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "isProcessingUserGesture", hostContextIsProcessingUserGesture, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "inspectedTabId", hostContextInspectedTabID, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { nullptr, nullptr, 0 },
         };
         JSClassDefinition definition = kJSClassDefinitionEmpty;
@@ -270,11 +309,48 @@ static void forEachFrame(WebFrameProxy& frame, NOESCAPE const Function<void(WebF
         forEachFrame(child, function);
 }
 
+static URL extensionRoot(const URL&);
+
 static String extensionKeyForURL(const URL& url)
 {
     if (!url.protocolIs(extensionScheme))
         return { };
     return url.host().toString();
+}
+
+// Safari 7 keys an extension "<CFBundleIdentifier>-<developer ID>", the ID being the ten characters naming
+// the Safari Developer certificate that signed it; a Web Clip's copy of an extension adds ".<clip identifier>".
+struct ExtensionKeyParts {
+    StringView bundleIdentifier;
+    StringView safariKey;
+    StringView clip;
+};
+
+static ExtensionKeyParts extensionKeyParts(StringView extensionKey)
+{
+    static constexpr unsigned developerIDLength = 10;
+    auto separator = extensionKey.reverseFind('-');
+    if (separator == notFound)
+        return { extensionKey, extensionKey, { } };
+    auto developerID = extensionKey.substring(separator + 1);
+    if (developerID.length() < developerIDLength || (developerID.length() > developerIDLength && developerID[developerIDLength] != '.'))
+        return { extensionKey, extensionKey, { } };
+    for (unsigned i = 0; i < developerIDLength; ++i) {
+        if (!isASCIIDigit(developerID[i]) && !isASCIIUpper(developerID[i]))
+            return { extensionKey, extensionKey, { } };
+    }
+    auto safariKeyLength = separator + 1 + developerIDLength;
+    return { extensionKey.left(separator), extensionKey.left(safariKeyLength), extensionKey.substring(safariKeyLength) };
+}
+
+// runtime.sendMessage and runtime.connect name an extension of the sender's clip by its bundle identifier or
+// its key, with or without the clip identifier.
+static bool extensionIdNames(const String& extensionId, const String& extensionKey, const String& senderExtensionKey)
+{
+    auto parts = extensionKeyParts(extensionKey);
+    if (parts.clip != extensionKeyParts(senderExtensionKey).clip)
+        return false;
+    return extensionId == extensionKey || extensionId == parts.safariKey || extensionId == parts.bundleIdentifier;
 }
 
 static double timeStamp()
@@ -512,6 +588,28 @@ LegacyExtensionHost::LegacyExtensionHost()
             deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, event->toJSONString());
         }
     });
+    // proxy.settings' onChange, with each extension's view of the setting.
+    LegacyExtensionProxy::singleton().setChangeObserver([this] {
+        for (auto& context : copyToVector(m_hostContexts.values())) {
+            if (!context->interests.contains("proxy.settings.onChange"_s))
+                continue;
+            auto arguments = JSON::Array::create();
+            arguments->pushObject(LegacyExtensionProxy::singleton().details(context->extensionKey));
+            auto event = JSON::Object::create();
+            event->setString("t"_s, "event"_s);
+            event->setString("name"_s, "proxy.settings.onChange"_s);
+            event->setArray("args"_s, WTF::move(arguments));
+            deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, event->toJSONString());
+        }
+    });
+    // The proxy errors of this process's own loads.
+    WebCore::CocoaCurlProxyConfiguration::setErrorObserver([this](bool fatal, const String& error, const String& details) {
+        auto event = JSON::Object::create();
+        event->setBoolean("fatal"_s, fatal);
+        event->setString("error"_s, error);
+        event->setString("details"_s, details);
+        dispatchProxyError(event->toJSONString());
+    });
 }
 
 void LegacyExtensionHost::webProcessCreated(WebProcessProxy& process)
@@ -524,11 +622,68 @@ void LegacyExtensionHost::webProcessDidInitialize(WebProcessProxy& process)
     LegacyExtensionMimeHandlers::singleton().sendHandlers(process);
 }
 
+// An extension whose content scripts or style sheets a web process holds is loaded: Safari adds them to every
+// web process while it has the extension enabled, under the root the extension's files are served at, and
+// withdraws them when it disables or reloads the extension.
+void LegacyExtensionHost::setUserContentExtensionRoots(IPC::Connection& connection, Vector<String>&& rootStrings)
+{
+    Vector<URL> roots;
+    for (auto& rootString : rootStrings) {
+        URL root { rootString };
+        if (extensionRoot(root) == root)
+            roots.append(WTF::move(root));
+    }
+    auto processIdentifier = WebProcessProxy::fromConnection(connection)->coreProcessIdentifier();
+    if (roots.isEmpty())
+        m_userContentExtensionRoots.remove(processIdentifier);
+    else
+        m_userContentExtensionRoots.set(processIdentifier, roots);
+    updateUserContentExtensions(roots);
+}
+
+void LegacyExtensionHost::webProcessWillShutDown(WebProcessProxy& process)
+{
+    if (m_userContentExtensionRoots.remove(process.coreProcessIdentifier()))
+        updateUserContentExtensions();
+}
+
+// Each extension's root is the one it is loaded from while a process still reports it, as while Safari moves
+// a reloaded extension's content to its new root, and otherwise the one a process reported last; a reported
+// root the extension was moved from counts toward its presence but does not become its root again.
+void LegacyExtensionHost::updateUserContentExtensions(const Vector<URL>& latestRoots)
+{
+    HashMap<String, URL> extensions;
+    for (auto& roots : m_userContentExtensionRoots.values()) {
+        for (auto& root : roots)
+            extensions.add(extensionKeyForURL(root), root);
+    }
+    for (auto& root : latestRoots)
+        extensions.set(extensionKeyForURL(root), root);
+    for (auto& [extensionKey, root] : extensions) {
+        auto loadedRoot = m_websiteAccessRoots.get(extensionKey);
+        bool loadedRootIsReported = std::ranges::any_of(m_userContentExtensionRoots.values(), [&](auto& roots) {
+            return roots.contains(loadedRoot);
+        });
+        if (loadedRootIsReported)
+            root = loadedRoot;
+    }
+    auto previous = std::exchange(m_userContentExtensions, extensions);
+    for (auto& [extensionKey, root] : extensions) {
+        m_extensionsPresentInSafari.add(extensionKey);
+        loadWebsiteAccess(extensionKey, root);
+    }
+    for (auto& extensionKey : previous.keys()) {
+        if (!m_userContentExtensions.contains(extensionKey))
+            unloadExtensionIfUnused(extensionKey);
+    }
+}
+
 void LegacyExtensionHost::networkProcessCreated(NetworkProcessProxy& networkProcess)
 {
     networkProcess.addMessageReceiver(Messages::LegacyExtensionNetworkProxy::messageReceiverName(), m_networkProxy);
     sendNetworkListeners(networkProcess);
     LegacyExtensionPrivacy::singleton().sendSettings(networkProcess);
+    LegacyExtensionProxy::singleton().sendSettings(networkProcess);
 }
 
 // The StreamFilters of a network process's loads fail with it.
@@ -550,7 +705,8 @@ void LegacyExtensionHost::didClearWindowObject(const void* frame, JSC::JSGlobalO
     String previousExtensionKey;
     if (auto identifier = m_hostContextByFrame.take(frame)) {
         if (auto context = m_hostContexts.take(identifier)) {
-            previousExtensionKey = context->extensionKey;
+            if (!context->devToolsTabID)
+                previousExtensionKey = context->extensionKey;
             hostContextDidGoAway(*context, ContextIsReplaced::Yes);
         }
     }
@@ -570,11 +726,14 @@ void LegacyExtensionHost::didClearWindowObject(const void* frame, JSC::JSGlobalO
     context->extensionKey = extensionKey;
     context->url = documentURL;
     context->globalObject = JSC::Weak<JSC::JSGlobalObject>(&globalObject);
+    context->devToolsTabID = LegacyExtensionDevTools::singleton().inspectedTabForFrame(frame, extensionKey);
 
-    if (!LegacyExtensions::installAPI(globalObject, LegacyExtensions::ContextKind::Host, hostContextNativeClass(), new HostContextNative { context->identifier }))
+    if (!LegacyExtensions::installAPI(globalObject, LegacyExtensions::ContextKind::Host, hostContextNativeClass(), new HostContextNative { context->identifier, context->devToolsTabID }))
         return;
 
     m_hostContextByFrame.add(frame, context->identifier);
+    if (!context->devToolsTabID)
+        m_extensionsPresentInSafari.add(extensionKey);
     loadWebsiteAccess(context->extensionKey, context->url);
     m_hostContexts.add(context->identifier, WTF::move(context));
 }
@@ -634,19 +793,57 @@ void LegacyExtensionHost::hostContextDidGoAway(HostContext& context, ContextIsRe
         updateNetworkListeners();
     if (!m_cookieObservers.isEmpty())
         updateCookieObservers();
-    if (isReplaced == ContextIsReplaced::No)
+    if (isReplaced == ContextIsReplaced::No && !context.devToolsTabID)
         unloadExtensionIfUnused(context.extensionKey);
 }
 
-// An extension is loaded while any of its pages is: the global page, bars and popovers Safari keeps while it is
-// enabled, and its pages in tabs.
+// An extension is loaded while Safari presents it: while it has the global page, bars and popovers Safari keeps
+// while the extension is enabled, or a web process holds its user content. Its pages in tabs and its devtools
+// pages do not keep it loaded; its devtools pages live only while it is loaded.
+bool LegacyExtensionHost::isRetiredRoot(const String& extensionKey, const URL& root) const
+{
+    auto iterator = m_retiredRoots.find(extensionKey);
+    return iterator != m_retiredRoots.end() && iterator->value.contains(root.string());
+}
+
+bool LegacyExtensionHost::isPresentInSafari(const String& extensionKey) const
+{
+    if (m_userContentExtensions.contains(extensionKey))
+        return true;
+    return std::ranges::any_of(m_hostContexts.values(), [&](auto& context) {
+        return context->extensionKey == extensionKey && !context->frameID && !context->devToolsTabID;
+    });
+}
+
 void LegacyExtensionHost::unloadExtensionIfUnused(const String& extensionKey)
 {
-    for (auto& context : m_hostContexts.values()) {
-        if (context->extensionKey == extensionKey)
-            return;
-    }
+    if (isPresentInSafari(extensionKey))
+        return;
+    // Safari disabled or reloaded the extension, and keeps any of its pages that tabs show: those belong to an
+    // extension that is gone.
+    if (m_extensionsPresentInSafari.remove(extensionKey))
+        invalidateExtensionPages(extensionKey);
     extensionDidUnload(extensionKey);
+}
+
+void LegacyExtensionHost::invalidateExtensionPages(const String& extensionKey, const URL& root)
+{
+    for (auto& context : copyToVector(m_hostContexts.values())) {
+        if (context->extensionKey == extensionKey && context->frameID && (root.isNull() || extensionRoot(context->url) != root))
+            invalidateExtensionPage(context);
+    }
+}
+
+// The context ends its ports, messages, webRequest verdicts and StreamFilters as a context that goes away does,
+// and stays to drop what its page sends.
+void LegacyExtensionHost::invalidateExtensionPage(HostContext& context)
+{
+    if (context.isInvalidated || !context.frameID || !context.documentID)
+        return;
+    context.isInvalidated = true;
+    if (RefPtr frame = WebFrameProxy::webFrame(*context.frameID))
+        protect(frame->process())->send(Messages::LegacyExtensionContent::InvalidateExtensionPage(*context.frameID, *context.documentID), 0);
+    hostContextDidGoAway(context, ContextIsReplaced::Yes);
 }
 
 // Content contexts.
@@ -744,9 +941,9 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
             return;
         auto portID = object->getString("portId"_s);
         auto iterator = m_ports.find(portID);
-        if (iterator == m_ports.end() || iterator->value.extensionKey != extensionKey)
+        if (iterator == m_ports.end())
             return;
-        Endpoint endpoint { nullptr, frameID, documentID };
+        Endpoint endpoint { nullptr, frameID, documentID, extensionKey };
         if (auto identifier = m_hostContextByRemoteFrame.get(frameID)) {
             if (RefPtr context = m_hostContexts.get(identifier); context && context->documentID == documentID && context->extensionKey == extensionKey)
                 endpoint = Endpoint { context, std::nullopt, std::nullopt };
@@ -763,7 +960,7 @@ void LegacyExtensionHost::post(IPC::Connection& connection, WebCore::FrameIdenti
         route(Endpoint { context, std::nullopt, std::nullopt }, extensionKey, message, data.unsafeBuffer());
         return;
     }
-    route(Endpoint { nullptr, frameID, documentID }, extensionKey, message);
+    route(Endpoint { nullptr, frameID, documentID, extensionKey }, extensionKey, message);
 }
 
 // A frame showing one of the extension's own pages speaks for that page, not for a content script. A
@@ -790,8 +987,15 @@ RefPtr<LegacyExtensionHost::HostContext> LegacyExtensionHost::extensionPageConte
     context->frameID = frame.frameID();
     context->documentID = documentID;
     m_hostContextByRemoteFrame.set(frame.frameID(), context->identifier);
-    loadWebsiteAccess(context->extensionKey, context->url);
     m_hostContexts.add(context->identifier, context.copyRef());
+    // A page of a copy of the extension Safari replaced. A page of an extension Safari does not present yet, as a
+    // tab Safari restores before it loads its extensions, stays valid until Safari presents the extension.
+    auto pageRoot = extensionRoot(documentURL);
+    auto currentRoot = m_websiteAccessRoots.get(extensionKey);
+    if (isRetiredRoot(extensionKey, pageRoot) || (m_extensionsPresentInSafari.contains(extensionKey) && currentRoot.isValid() && pageRoot != currentRoot))
+        invalidateExtensionPage(context);
+    else if (!currentRoot.isValid())
+        loadWebsiteAccess(context->extensionKey, context->url);
     return context;
 }
 
@@ -813,6 +1017,12 @@ void LegacyExtensionHost::documentsDidGoAway(NOESCAPE const Function<bool(WebCor
     });
 }
 
+bool LegacyExtensionHost::isEnteringBackForwardCache(const Endpoint& endpoint) const
+{
+    auto documentID = endpoint.host ? endpoint.host->documentID : endpoint.documentID;
+    return documentID && m_documentsEnteringBackForwardCache.contains(*documentID);
+}
+
 void LegacyExtensionHost::didDestroyFrame(WebCore::FrameIdentifier frameID)
 {
     framesDidGoAway({ frameID });
@@ -832,6 +1042,9 @@ void LegacyExtensionHost::framesDidGoAway(const Vector<WebCore::FrameIdentifier>
                 hostContextDidGoAway(*context);
         }
     }
+    m_documentsEnteringBackForwardCache.removeIf([&](auto& entry) {
+        return frameIDs.contains(entry.value);
+    });
 }
 
 void LegacyExtensionHost::endpointDidGoAway(const Endpoint& endpoint)
@@ -852,8 +1065,10 @@ void LegacyExtensionHost::endpointsDidGoAway(NOESCAPE const Function<bool(const 
                 portEnds.append({ portID, receiver });
         }
     }
+    // As Chrome closes the channels of a document that enters the back/forward cache, the other ends learn
+    // why, and the document itself is told nothing; the ends of a destroyed document go away with no error.
     for (auto& [portID, endpoint] : portEnds)
-        routeDisconnect(endpoint, portID);
+        routeDisconnect(endpoint, portID, isEnteringBackForwardCache(endpoint) ? String { closedWhenPageEntersBackForwardCacheError } : String { });
 
     Vector<std::pair<String, Endpoint>> messageEnds;
     for (auto& [messageID, message] : m_oneShotMessages) {
@@ -873,9 +1088,14 @@ void LegacyExtensionHost::endpointsDidGoAway(NOESCAPE const Function<bool(const 
             m_oneShotMessages.remove(iterator);
             continue;
         }
+        bool isCached = isEnteringBackForwardCache(endpoint);
+        // The channel closes, with Chrome's error, when its last pending receiver enters the cache unanswered.
         auto reply = JSON::Object::create();
         reply->setString("msgId"_s, messageID);
-        reply->setBoolean("none"_s, true);
+        if (isCached && !message.answered && message.pendingReceivers.size() == 1)
+            reply->setString("error"_s, closedWhenPageEntersBackForwardCacheError);
+        else
+            reply->setBoolean("none"_s, true);
         routeReply(endpoint, reply.get());
     }
 
@@ -892,6 +1112,8 @@ void LegacyExtensionHost::endpointsDidGoAway(NOESCAPE const Function<bool(const 
 
 void LegacyExtensionHost::route(const Endpoint& from, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
+    if (from.host && from.host->isInvalidated)
+        return;
     auto value = JSON::Value::parseJSON(message);
     RefPtr object = value ? value->asObject() : nullptr;
     if (!object)
@@ -910,6 +1132,23 @@ void LegacyExtensionHost::route(const Endpoint& from, const String& extensionKey
         return routeReply(from, *object);
     if (type == "result"_s)
         return routeCallResult(from, *object);
+
+    // A document with extension contexts entering the back/forward cache, ahead of its frame's commit of
+    // another document.
+    if (type == "cached"_s) {
+        auto documentID = from.host ? from.host->documentID : from.documentID;
+        auto frameID = from.host ? from.host->frameID : from.frameID;
+        if (documentID && frameID)
+            m_documentsEnteringBackForwardCache.set(*documentID, *frameID);
+        return;
+    }
+
+    // A content-script context whose world was withdrawn.
+    if (type == "gone"_s) {
+        if (!from.host)
+            endpointDidGoAway(from);
+        return;
+    }
 
     if (!from.host)
         return;
@@ -935,6 +1174,26 @@ Vector<LegacyExtensionHost::Endpoint> LegacyExtensionHost::hostContextsListening
     return endpoints;
 }
 
+// Two installed extensions can share a bundle identifier, which names each of them, while an extension's key
+// names it alone. An ID that names the sender's own extension is an internal message, as in Chrome, which
+// never comes here: another extension with the sender's bundle identifier receives nothing.
+Vector<LegacyExtensionHost::Endpoint> LegacyExtensionHost::externalHostContextsListeningTo(const String& extensionId, const String& senderExtensionKey, const String& eventName) const
+{
+    Vector<Endpoint> endpoints;
+    for (auto& context : m_hostContexts.values()) {
+        if (!extensionIdNames(extensionId, context->extensionKey, senderExtensionKey))
+            continue;
+        if (context->interests.contains(eventName))
+            endpoints.append(Endpoint { context.copyRef(), std::nullopt });
+    }
+    return endpoints;
+}
+
+const String& LegacyExtensionHost::extensionKeyOf(const Endpoint& endpoint)
+{
+    return endpoint.host ? endpoint.host->extensionKey : endpoint.extensionKey;
+}
+
 // The frames a tab shows: the frame tree of its documents as the web content process has it, which leaves
 // out frames kept in the back/forward cache.
 static void forEachFrameInTree(const FrameTreeNodeData& node, double parentFrameId, NOESCAPE const Function<void(const FrameInfoData&, double parentFrameId)>& function)
@@ -952,7 +1211,7 @@ void LegacyExtensionHost::tabEndpoints(WebPageProxy& page, std::optional<double>
     auto endpointFor = [this, extensionKey](WebFrameProxy& frame, Markable<WebCore::ScriptExecutionContextIdentifier> documentID) {
         if (RefPtr context = extensionPageContext(frame, documentID, documentURL(frame, documentID), extensionKey))
             return Endpoint { WTF::move(context), std::nullopt, std::nullopt };
-        return Endpoint { nullptr, frame.frameID(), documentID };
+        return Endpoint { nullptr, frame.frameID(), documentID, extensionKey };
     };
     RefPtr targetFrame = frameId ? frameForTab(page, *frameId) : nullptr;
     if (frameId && !targetFrame)
@@ -963,8 +1222,13 @@ void LegacyExtensionHost::tabEndpoints(WebPageProxy& page, std::optional<double>
             forEachFrameInTree(*tree, -1, [&](auto& info, double) {
                 if (targetFrameID && info.frameID != *targetFrameID)
                     return;
-                if (RefPtr frame = WebFrameProxy::webFrame(info.frameID))
-                    endpoints.append(endpointFor(*frame, info.documentID));
+                RefPtr frame = WebFrameProxy::webFrame(info.frameID);
+                if (!frame)
+                    return;
+                // A frame showing an invalidated extension page has no context of the extension.
+                auto endpoint = endpointFor(*frame, info.documentID);
+                if (!endpoint.host || !endpoint.host->isInvalidated)
+                    endpoints.append(WTF::move(endpoint));
             });
         }
         completionHandler(WTF::move(endpoints));
@@ -976,7 +1240,7 @@ bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extens
     Markable<WebCore::FrameIdentifier> frameID = endpoint.frameID;
     Markable<WebCore::ScriptExecutionContextIdentifier> documentID = endpoint.documentID;
     if (RefPtr context = endpoint.host) {
-        if (!m_hostContexts.contains(context->identifier))
+        if (!m_hostContexts.contains(context->identifier) || context->isInvalidated)
             return false;
         if (!context->frameID) {
             auto* globalObject = context->globalObject.get();
@@ -997,6 +1261,7 @@ bool LegacyExtensionHost::deliver(const Endpoint& endpoint, const String& extens
 Ref<JSON::Object> LegacyExtensionHost::senderDescription(const Endpoint& endpoint) const
 {
     auto sender = JSON::Object::create();
+    sender->setString("id"_s, extensionKeyParts(extensionKeyOf(endpoint)).safariKey.toString());
     Markable<WebCore::FrameIdentifier> frameID = endpoint.frameID;
     if (RefPtr context = endpoint.host) {
         if (!context->frameID) {
@@ -1026,36 +1291,42 @@ void LegacyExtensionHost::routeConnect(const Endpoint& from, const String& exten
     connect->setString("portId"_s, portID);
     connect->setString("name"_s, message.getString("name"_s));
     connect->setObject("sender"_s, senderDescription(from));
+    // An extension ID other than the sender's own reaches runtime.onConnectExternal.
+    auto extensionId = message.getString("extensionId"_s);
+    bool isExternal = !extensionId.isEmpty() && !extensionIdNames(extensionId, extensionKey, extensionKey);
+    if (isExternal)
+        connect->setBoolean("external"_s, true);
 
     // Until its receivers are known, a port keeps what its opener posts.
-    m_ports.add(portID, Port { extensionKey, from, { }, true, { } });
+    m_ports.add(portID, Port { from, { }, true, { } });
     auto didFindReceivers = [this, portID, connectMessage = connect->toJSONString()](Vector<Endpoint>&& receivers) {
         auto iterator = m_ports.find(portID);
         if (iterator == m_ports.end())
             return;
         auto& port = iterator->value;
         auto opener = port.opener;
-        auto extensionKey = port.extensionKey;
         if (receivers.isEmpty()) {
             m_ports.remove(iterator);
             auto disconnect = JSON::Object::create();
             disconnect->setString("t"_s, "disconnect"_s);
             disconnect->setString("portId"_s, portID);
             disconnect->setString("error"_s, noReceiverError);
-            deliver(opener, extensionKey, disconnect->toJSONString());
+            deliver(opener, extensionKeyOf(opener), disconnect->toJSONString());
             return;
         }
         port.receivers = receivers;
         port.isResolving = false;
         auto queuedMessages = std::exchange(port.queuedMessages, { });
         for (auto& receiver : receivers)
-            deliver(receiver, extensionKey, connectMessage);
+            deliver(receiver, extensionKeyOf(receiver), connectMessage);
         for (auto& queuedMessage : queuedMessages) {
             for (auto& receiver : receivers)
-                deliver(receiver, extensionKey, queuedMessage);
+                deliver(receiver, extensionKeyOf(receiver), queuedMessage);
         }
     };
 
+    if (isExternal)
+        return didFindReceivers(externalHostContextsListeningTo(extensionId, extensionKey, "runtime.onConnectExternal"_s));
     if (from.host && message.getDouble("tabId"_s)) {
         RefPtr page = pageForTabID(message.getDouble("tabId"_s));
         if (!page)
@@ -1078,14 +1349,14 @@ void LegacyExtensionHost::routePost(const Endpoint& from, const String& message,
     auto port = iterator->value;
     if (port.opener == from) {
         for (auto& receiver : port.receivers)
-            deliver(receiver, port.extensionKey, message, nullptr, true);
+            deliver(receiver, extensionKeyOf(receiver), message, nullptr, true);
         return;
     }
     if (port.receivers.contains(from))
-        deliver(port.opener, port.extensionKey, message, nullptr, true);
+        deliver(port.opener, extensionKeyOf(port.opener), message, nullptr, true);
 }
 
-void LegacyExtensionHost::routeDisconnect(const Endpoint& from, const String& portID)
+void LegacyExtensionHost::routeDisconnect(const Endpoint& from, const String& portID, const String& error)
 {
     auto iterator = m_ports.find(portID);
     if (iterator == m_ports.end())
@@ -1094,23 +1365,23 @@ void LegacyExtensionHost::routeDisconnect(const Endpoint& from, const String& po
     auto disconnect = JSON::Object::create();
     disconnect->setString("t"_s, "disconnect"_s);
     disconnect->setString("portId"_s, portID);
+    if (!error.isNull())
+        disconnect->setString("error"_s, error);
     auto disconnectMessage = disconnect->toJSONString();
 
     auto& port = iterator->value;
     if (port.opener == from) {
         auto receivers = std::exchange(port.receivers, { });
-        auto extensionKey = port.extensionKey;
         m_ports.remove(iterator);
         for (auto& receiver : receivers)
-            deliver(receiver, extensionKey, disconnectMessage, nullptr, true);
+            deliver(receiver, extensionKeyOf(receiver), disconnectMessage, nullptr, true);
         return;
     }
     if (!port.receivers.removeAll(from) || !port.receivers.isEmpty())
         return;
     auto opener = port.opener;
-    auto extensionKey = port.extensionKey;
     m_ports.remove(iterator);
-    deliver(opener, extensionKey, disconnectMessage, nullptr, true);
+    deliver(opener, extensionKeyOf(opener), disconnectMessage, nullptr, true);
 }
 
 void LegacyExtensionHost::routeOneShotMessage(const Endpoint& from, const String& extensionKey, JSON::Object& message)
@@ -1125,22 +1396,29 @@ void LegacyExtensionHost::routeOneShotMessage(const Endpoint& from, const String
     if (auto body = message.getValue("msg"_s))
         forwarded->setValue("msg"_s, body.releaseNonNull());
     forwarded->setObject("sender"_s, senderDescription(from));
+    // An extension ID other than the sender's own reaches runtime.onMessageExternal.
+    auto extensionId = message.getString("extensionId"_s);
+    bool isExternal = !extensionId.isEmpty() && !extensionIdNames(extensionId, extensionKey, extensionKey);
+    if (isExternal)
+        forwarded->setBoolean("external"_s, true);
 
-    auto didFindReceivers = [this, from, extensionKey, messageID, forwardedMessage = forwarded->toJSONString()](Vector<Endpoint>&& receivers) {
+    auto didFindReceivers = [this, from, messageID, forwardedMessage = forwarded->toJSONString()](Vector<Endpoint>&& receivers) {
         if (receivers.isEmpty()) {
             auto reply = JSON::Object::create();
             reply->setString("t"_s, "reply"_s);
             reply->setString("msgId"_s, messageID);
             reply->setString("error"_s, noReceiverError);
-            deliver(from, extensionKey, reply->toJSONString());
+            deliver(from, extensionKeyOf(from), reply->toJSONString());
             return;
         }
-        if (!m_oneShotMessages.add(messageID, OneShotMessage { extensionKey, from, receivers, false }).isNewEntry)
+        if (!m_oneShotMessages.add(messageID, OneShotMessage { from, receivers, false }).isNewEntry)
             return;
         for (auto& receiver : receivers)
-            deliver(receiver, extensionKey, forwardedMessage);
+            deliver(receiver, extensionKeyOf(receiver), forwardedMessage);
     };
 
+    if (isExternal)
+        return didFindReceivers(externalHostContextsListeningTo(extensionId, extensionKey, "runtime.onMessageExternal"_s));
     if (from.host && message.getDouble("tabId"_s)) {
         RefPtr page = pageForTabID(message.getDouble("tabId"_s));
         if (!page)
@@ -1178,13 +1456,12 @@ void LegacyExtensionHost::routeReply(const Endpoint& from, JSON::Object& reply)
         answer->setBoolean("none"_s, true);
     }
     auto sender = message.sender;
-    auto extensionKey = message.extensionKey;
     if (finished)
         m_oneShotMessages.remove(iterator);
 
     // Delivery can run the sender's JavaScript, and through it this router, before it returns.
     if (answers)
-        deliver(sender, extensionKey, answer->toJSONString());
+        deliver(sender, extensionKeyOf(sender), answer->toJSONString());
 }
 
 // Router calls: the methods host contexts cannot answer themselves.
@@ -1236,6 +1513,24 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return value ? value->asObject() : nullptr;
     };
 
+    // devtools, from a devtools page, for its inspected tab within the extension's website access.
+    if (method.startsWith("devtools."_s)) {
+        if (!context.devToolsTabID)
+            return resultToHostContext(context, callID, nullptr, makeString("Unsupported method "_s, method));
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, method, arguments](const LegacyExtensions::WebsiteAccess& access) mutable {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            LegacyExtensionDevTools::singleton().performCall(*context->devToolsTabID, context->extensionKey, access, method, WTF::move(arguments), [this, context, callID](LegacyExtensionDevTools::CallResult&& result) {
+                if (!m_hostContexts.contains(context->identifier))
+                    return;
+                if (!result)
+                    return resultToHostContext(context, callID, nullptr, result.error());
+                resultToHostContext(context, callID, WTF::move(result.value()));
+            });
+        });
+        return;
+    }
+
     // Chrome's contract: memory-cache hits never reach webRequest, so a changed listener empties the
     // memory caches, the UI process's for its WebKit 1 pages and every web process's.
     if (method == "webRequest.handlerBehaviorChanged"_s) {
@@ -1251,12 +1546,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
     // when no window shows a tab.
     if (method == "declarativeNetRequest.activeTabActionCount"_s) {
         RefPtr declarativeNetRequest = m_declarativeNetRequests.get(context.extensionKey);
-        Vector<Ref<WebPageProxy>> pages;
-        for (auto identifier : tabObservers().keys()) {
-            if (RefPtr page = WebProcessProxy::webPage(identifier))
-                pages.append(page.releaseNonNull());
-        }
-        RefPtr activeTab = LegacyExtensionDeclarativeNetRequest::activeTabOfFrontmostWindow(pages);
+        RefPtr activeTab = activeTabOfFrontmostWindow();
         auto count = declarativeNetRequest && activeTab ? declarativeNetRequest->actionCountForTab(tabIDForPage(*activeTab)) : std::nullopt;
         auto answer = JSON::Object::create();
         answer->setBoolean("displaying"_s, declarativeNetRequest && declarativeNetRequest->displaysActionCount());
@@ -1302,6 +1592,30 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
 
     // privacy's settings: get(name), set(name, value, scope) and clear(name, scope). Only the regular scope is
     // supported, as in Firefox.
+    // proxy.settings: get(details), set(value, scope, pacData) and clear(scope). Only the regular scope is supported,
+    // as in Firefox. `pacData` is the script of a pac_script value's URL the extension read itself.
+    if (method == "proxy.settings.get"_s || method == "proxy.settings.set"_s || method == "proxy.settings.clear"_s) {
+        if (method == "proxy.settings.get"_s) {
+            auto details = LegacyExtensionProxy::singleton().details(context.extensionKey);
+            if (RefPtr options = objectArgument(0); options && options->getBoolean("incognito"_s).value_or(false))
+                details->setBoolean("incognitoSpecific"_s, false);
+            return resultToHostContext(context, callID, WTF::move(details));
+        }
+        RefPtr scopeValue = argument(method == "proxy.settings.set"_s ? 1 : 0);
+        if (auto scope = scopeValue ? scopeValue->asString() : String(); scope != "regular"_s)
+            return resultToHostContext(context, callID, nullptr, makeString("The scope \""_s, scope, "\" is not supported."_s));
+        if (method == "proxy.settings.clear"_s) {
+            LegacyExtensionProxy::singleton().clear(context.extensionKey);
+            return resultToHostContext(context, callID, nullptr);
+        }
+        RefPtr value = objectArgument(0);
+        if (!value)
+            return resultToHostContext(context, callID, nullptr, "Error at property 'value': Invalid type: expected object."_s);
+        RefPtr pacDataValue = argument(2);
+        auto error = LegacyExtensionProxy::singleton().set(context.extensionKey, *value, pacDataValue ? pacDataValue->asString() : String());
+        return resultToHostContext(context, callID, nullptr, error);
+    }
+
     if (method == "privacy.get"_s || method == "privacy.set"_s || method == "privacy.clear"_s) {
         RefPtr nameValue = argument(0);
         auto name = nameValue ? nameValue->asString() : String();
@@ -1523,6 +1837,77 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
+    // tabs.captureTab(tabId, options), of the active tab of the frontmost window when there is no tab, as
+    // Firefox takes it. As Firefox's needs <all_urls>, it needs website access to every site. A tab showing
+    // another extension's page is captured blurred.
+    if (method == "tabs.captureTab"_s) {
+        auto tabID = numberArgument(0);
+        RefPtr page = tabID ? pageForTabID(tabID) : activeTabOfFrontmostWindow();
+        if (!page)
+            return resultToHostContext(context, callID, nullptr, tabID ? makeString("Invalid tab ID: "_s, *tabID) : "Cannot access activeTab"_s);
+        LegacyExtensions::TabCaptureOptions options;
+        if (RefPtr details = objectArgument(1)) {
+            options.jpeg = details->getString("format"_s) == "jpeg"_s;
+            options.quality = details->getDouble("quality"_s);
+            options.scale = details->getDouble("scale"_s);
+            if (RefPtr rect = details->getObject("rect"_s))
+                options.rect = WebCore::FloatRect(rect->getDouble("x"_s).value_or(0), rect->getDouble("y"_s).value_or(0), rect->getDouble("width"_s).value_or(0), rect->getDouble("height"_s).value_or(0));
+        }
+        auto owningExtension = extensionKeyForURL(URL { page->pageLoadState().url() });
+        auto blur = !owningExtension.isNull() && owningExtension != context.extensionKey ? LegacyExtensions::BlurCapture::Yes : LegacyExtensions::BlurCapture::No;
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, page = page.releaseNonNull(), options, blur](const LegacyExtensions::WebsiteAccess& access) {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            if (access.level != LegacyExtensions::WebsiteAccess::Level::All || !access.includesSecurePages)
+                return resultToHostContext(context, callID, nullptr, "Missing host permission for the tab"_s);
+            if (page->isClosed())
+                return resultToHostContext(context, callID, nullptr, makeString("Invalid tab ID: "_s, tabIDForPage(page)));
+            LegacyExtensions::captureTab(page, options, blur, [this, context, callID](Expected<String, String>&& dataURL) {
+                if (!m_hostContexts.contains(context->identifier))
+                    return;
+                if (!dataURL)
+                    return resultToHostContext(context, callID, nullptr, dataURL.error());
+                resultToHostContext(context, callID, JSON::Value::create(dataURL.value()));
+            });
+        });
+        return;
+    }
+
+    // tabs.saveAsPDF(pageSettings), of the active tab of the frontmost window, as Firefox takes it.
+    if (method == "tabs.saveAsPDF"_s) {
+        RefPtr page = activeTabOfFrontmostWindow();
+        if (!page)
+            return resultToHostContext(context, callID, nullptr, "Cannot access activeTab"_s);
+        RefPtr pageSettings = objectArgument(0);
+        if (!pageSettings)
+            pageSettings = JSON::Object::create();
+        LegacyExtensions::saveTabAsPDF(*page, *pageSettings, [this, context = Ref { context }, callID](String&& status) {
+            if (m_hostContexts.contains(context->identifier))
+                resultToHostContext(context, callID, JSON::Value::create(WTF::move(status)));
+        });
+        return;
+    }
+
+    // dns.resolve(hostname, flags), with the system resolver. A speculative lookup is refused while DNS
+    // prefetching is off, as privacy.network.networkPredictionEnabled turns it off in Firefox.
+    if (method == "dns.resolve"_s) {
+        RefPtr hostnameValue = argument(0);
+        Vector<String> flags;
+        if (RefPtr flagValues = argument(1) ? argument(1)->asArray() : nullptr) {
+            for (auto& flag : *flagValues)
+                flags.append(flag->asString());
+        }
+        auto predictionEnabled = LegacyExtensionPrivacy::singleton().details(context.extensionKey, "network.networkPredictionEnabled"_s)->getBoolean("value"_s).value_or(true);
+        LegacyExtensions::resolveHostname(hostnameValue ? hostnameValue->asString() : String { }, flags, !predictionEnabled, [this, context = Ref { context }, callID](Expected<Ref<JSON::Object>, String>&& record) {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            if (!record)
+                return resultToHostContext(context, callID, nullptr, record.error());
+            resultToHostContext(context, callID, WTF::move(record.value()));
+        });
+        return;
+    }
+
     if (method == "webNavigation.getFrame"_s || method == "webNavigation.getAllFrames"_s) {
         RefPtr details = objectArgument(0);
         RefPtr page = details ? pageForTabID(details->getDouble("tabId"_s)) : nullptr;
@@ -1638,6 +2023,17 @@ void LegacyExtensionHost::finishRouterCallIfComplete(uint64_t callID)
 
 // Events.
 
+// The events the network ends dispatch: webRequest's, as their names without the namespace, and proxy.onRequest.
+static bool isNetworkEvent(const String& name)
+{
+    return name.startsWith("webRequest."_s) || name == LegacyExtensions::proxyOnRequest;
+}
+
+static String networkEventName(const String& name)
+{
+    return name.startsWith("webRequest."_s) ? name.substring(11) : name;
+}
+
 void LegacyExtensionHost::routeInterest(HostContext& context, JSON::Object& message)
 {
     RefPtr events = message.getObject("events"_s);
@@ -1650,11 +2046,11 @@ void LegacyExtensionHost::routeInterest(HostContext& context, JSON::Object& mess
     }
     bool networkInterestsChanged = false;
     for (auto& interest : interests) {
-        if (interest.key.startsWith("webRequest."_s) && (!context.interests.contains(interest.key) || context.interests.get(interest.key) != interest.value))
+        if (isNetworkEvent(interest.key) && (!context.interests.contains(interest.key) || context.interests.get(interest.key) != interest.value))
             networkInterestsChanged = true;
     }
     for (auto& interest : context.interests) {
-        if (interest.key.startsWith("webRequest."_s) && !interests.contains(interest.key))
+        if (isNetworkEvent(interest.key) && !interests.contains(interest.key))
             networkInterestsChanged = true;
     }
     context.interests = WTF::move(interests);
@@ -1718,12 +2114,18 @@ static URL extensionRoot(const URL& url)
     return root;
 }
 
-// An extension Safari reloads serves its files from a new root, whose Info.plist is read again.
+// An extension Safari reloads serves its files from a new root, whose Info.plist is read again. The root it is
+// moved from is retired: a web process still reporting the replaced copy's user content cannot move it back.
 void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const URL& url)
 {
     auto root = extensionRoot(url);
-    if (!root.isValid() || m_websiteAccessRoots.get(extensionKey) == root)
+    if (!root.isValid() || m_websiteAccessRoots.get(extensionKey) == root || isRetiredRoot(extensionKey, root))
         return;
+    if (auto previousRoot = m_websiteAccessRoots.get(extensionKey); previousRoot.isValid()) {
+        m_retiredRoots.ensure(extensionKey, [] { return HashSet<String> { }; }).iterator->value.add(previousRoot.string());
+        // The pages tabs show of the copy Safari replaced.
+        invalidateExtensionPages(extensionKey, root);
+    }
     m_websiteAccessRoots.set(extensionKey, root);
     if (RefPtr declarativeNetRequest = m_declarativeNetRequests.take(extensionKey))
         declarativeNetRequest->unload();
@@ -1739,18 +2141,22 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
         loadDeclarativeNetRequest(extensionKey, root, WTF::move(infoPlist.declarativeNetRequest), loaded);
         LegacyExtensionMimeHandlers::singleton().extensionDidLoad(extensionKey, root, WTF::move(infoPlist.mimeTypesHandler));
         LegacyExtensionPrivacy::singleton().extensionDidLoad(extensionKey);
+        LegacyExtensionProxy::singleton().extensionDidLoad(extensionKey);
         for (auto& waiter : m_websiteAccessWaiters.take(extensionKey))
             waiter(loaded);
         updateNetworkListeners();
+        LegacyExtensionDevTools::singleton().extensionDidLoad(extensionKey, root, infoPlist.devToolsPage);
     });
 }
 
 void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
 {
+    LegacyExtensionDevTools::singleton().extensionDidUnload(extensionKey);
     MediaRestreamServer::singleton().cancelPreparedHandoffs(extensionKey);
     LegacyExtensionHiddenTabs::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionMimeHandlers::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionPrivacy::singleton().extensionDidUnload(extensionKey);
+    LegacyExtensionProxy::singleton().extensionDidUnload(extensionKey);
     m_websiteAccessRoots.remove(extensionKey);
     m_websiteAccessWaiters.remove(extensionKey);
     if (m_websiteAccess.remove(extensionKey))
@@ -1840,6 +2246,27 @@ void LegacyExtensionHost::dispatchEvent(const String& eventName, Ref<JSON::Array
     Vector<Ref<HostContext>> listeners;
     for (auto& context : m_hostContexts.values()) {
         if (context->interests.contains(eventName))
+            listeners.append(context);
+    }
+    if (listeners.isEmpty())
+        return;
+    auto event = JSON::Object::create();
+    event->setString("t"_s, "event"_s);
+    event->setString("name"_s, eventName);
+    event->setArray("args"_s, WTF::move(arguments));
+    auto message = event->toJSONString();
+    for (auto& context : listeners)
+        deliver(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message);
+}
+
+void LegacyExtensionHost::dispatchDevToolsEvent(double inspectedTabID, const String& eventName, Ref<JSON::Array>&& arguments, Function<bool(const LegacyExtensions::WebsiteAccess&, const String& extensionKey)>&& allows)
+{
+    Vector<Ref<HostContext>> listeners;
+    for (auto& context : m_hostContexts.values()) {
+        if (context->devToolsTabID != inspectedTabID || !context->interests.contains(eventName))
+            continue;
+        auto access = m_websiteAccess.find(context->extensionKey);
+        if (access != m_websiteAccess.end() && allows(access->value, context->extensionKey))
             listeners.append(context);
     }
     if (listeners.isEmpty())
@@ -1985,6 +2412,7 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
     if (frame.isMainFrame()) {
         for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
             declarativeNetRequest->resetActionCount(tabIDForPage(page));
+        LegacyExtensionDevTools::singleton().didCommitLoad(page, url);
     }
 
     // The frame's subframes, and every context of the frame's other documents, are gone.
@@ -2013,6 +2441,9 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
             }
         }
     }
+    m_documentsEnteringBackForwardCache.removeIf([&](auto& entry) {
+        return entry.value == frame.frameID() && (!documentID || entry.key != *documentID);
+    });
 
     auto details = navigationDetails(page, frame, url);
     bool isBackForward = loadType == WebCore::FrameLoadType::Back || loadType == WebCore::FrameLoadType::Forward || loadType == WebCore::FrameLoadType::IndexedBackForward;
@@ -2059,6 +2490,8 @@ void LegacyExtensionHost::didStartProvisionalLoad(WebPageProxy& page, WebFramePr
 {
     if (MediaRestreamServer::singleton().isDetached(page))
         return;
+    if (frame.isMainFrame())
+        LegacyExtensionDevTools::singleton().didStartProvisionalLoad(page);
     auto arguments = JSON::Array::create();
     arguments->pushObject(navigationDetails(page, frame, url));
     dispatchEvent("webNavigation.onBeforeNavigate"_s, WTF::move(arguments));
@@ -2145,7 +2578,7 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, const
 
 void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&& completionHandler)
 {
-    auto qualifiedName = makeString("webRequest."_s, eventName);
+    auto qualifiedName = eventName == LegacyExtensions::proxyOnRequest ? eventName : makeString("webRequest."_s, eventName);
     // An extension's own resources are visible only to that extension; a web request, only to the extensions
     // whose website access covers it. A context whose extension's website access is still being read hears
     // the event once it is read.
@@ -2249,6 +2682,15 @@ void LegacyExtensionHost::routeWebRequestResponse(const HostContext& context, JS
             call.response->setArray("requestHeaders"_s, headers.releaseNonNull());
         if (RefPtr headers = result->getArray("responseHeaders"_s))
             call.response->setArray("responseHeaders"_s, headers.releaseNonNull());
+        // proxy.onRequest answers, each context's after those of the contexts created before it.
+        if (RefPtr answers = result->getArray("proxy"_s); answers && answers->length()) {
+            RefPtr contextAnswers = call.response->getObject("proxyByContext"_s);
+            if (!contextAnswers) {
+                contextAnswers = JSON::Object::create();
+                call.response->setObject("proxyByContext"_s, Ref { *contextAnswers });
+            }
+            contextAnswers->setArray(String::number(context.identifier), answers.releaseNonNull());
+        }
     }
     finishWebRequestCallIfComplete(*token);
 }
@@ -2259,6 +2701,21 @@ void LegacyExtensionHost::finishWebRequestCallIfComplete(uint64_t token)
     if (iterator == m_webRequestCalls.end() || !iterator->value.pendingHostContexts.isEmpty())
         return;
     auto call = m_webRequestCalls.take(iterator);
+    if (RefPtr contextAnswers = call.response->getObject("proxyByContext"_s)) {
+        Vector<std::pair<uint64_t, Ref<JSON::Array>>> ordered;
+        for (auto& [identifier, answers] : *contextAnswers) {
+            if (RefPtr array = answers->asArray())
+                ordered.append({ parseInteger<uint64_t>(identifier).value_or(0), array.releaseNonNull() });
+        }
+        std::ranges::sort(ordered, { }, &std::pair<uint64_t, Ref<JSON::Array>>::first);
+        auto merged = JSON::Array::create();
+        for (auto& [identifier, answers] : ordered) {
+            for (auto& answer : answers.get())
+                merged->pushValue(answer.copyRef());
+        }
+        call.response->remove("proxyByContext"_s);
+        call.response->setArray("proxy"_s, WTF::move(merged));
+    }
     call.completionHandler(call.response->toJSONString());
 }
 
@@ -2269,16 +2726,16 @@ void LegacyExtensionHost::updateNetworkListeners()
     auto blocking = JSON::Object::create();
     for (auto& context : m_hostContexts.values()) {
         for (auto& [name, interest] : context->interests) {
-            if (!name.startsWith("webRequest."_s))
+            if (!isNetworkEvent(name))
                 continue;
-            auto eventName = name.substring(11);
+            auto eventName = networkEventName(name);
             if (!observed.contains(eventName))
                 observed.append(eventName);
             RefPtr interestValue = JSON::Value::parseJSON(interest);
             RefPtr interestObject = interestValue ? interestValue->asObject() : nullptr;
             if (!interestObject)
                 continue;
-            for (auto option : { "requestBody"_s, "extraHeaders"_s }) {
+            for (auto option : { "requestBody"_s, "extraHeaders"_s, "requestHeaders"_s }) {
                 auto qualifiedOption = makeString(eventName, ':', option);
                 if (interestObject->getBoolean(option).value_or(false) && !options.contains(qualifiedOption))
                     options.append(WTF::move(qualifiedOption));
@@ -2313,6 +2770,18 @@ void LegacyExtensionHost::updateNetworkListeners()
         sendNetworkListeners(networkProcess);
 }
 
+// proxy.onProxyError reaches every extension, as Chromium's ProxyEventRouter broadcasts it.
+void LegacyExtensionHost::dispatchProxyError(const String& detailsJSON)
+{
+    auto value = JSON::Value::parseJSON(detailsJSON);
+    RefPtr details = value ? value->asObject() : nullptr;
+    if (!details)
+        return;
+    auto arguments = JSON::Array::create();
+    arguments->pushObject(details.releaseNonNull());
+    dispatchEvent(LegacyExtensions::proxyOnProxyError, WTF::move(arguments));
+}
+
 void LegacyExtensionHost::sendNetworkListeners(NetworkProcessProxy& networkProcess)
 {
     networkProcess.send(Messages::LegacyExtensionNetwork::SetListeners(m_observedNetworkEvents, m_networkListenerOptions, m_blockingNetworkListeners), 0);
@@ -2325,6 +2794,8 @@ void LegacyExtensionNetworkProxy::dispatchBlockingEvent(String&& eventName, Stri
 
 void LegacyExtensionNetworkProxy::dispatchEvent(String&& eventName, String&& details)
 {
+    if (eventName == LegacyExtensions::proxyOnProxyError)
+        return LegacyExtensionHost::singleton().dispatchProxyError(details);
     LegacyExtensionHost::singleton().dispatchWebRequestEvent(eventName, details, { });
 }
 

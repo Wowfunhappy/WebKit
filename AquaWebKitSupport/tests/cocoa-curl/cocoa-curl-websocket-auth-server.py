@@ -1,7 +1,8 @@
-# Loopback NTLM and Kerberos/SPNEGO WebSocket authentication fixture.
+# Loopback NTLM and Kerberos/SPNEGO WebSocket authentication fixture for cocoa-curl-websocket-auth.mm, run by
+# cocoa-curl-websocket-kerberos.py, which owns the realm.
 import base64, hashlib, itertools, os, pathlib, socket, sys, threading
 import spnego
-from native_gss import Acceptor
+from cocoa_curl_websocket_gss import Acceptor
 ROOT = pathlib.Path(os.environ['WEBSOCKET_AUTH_WORK'])
 (ROOT/'users.txt').write_text('CURL:curl-test:correct-password\n'); os.environ['NTLM_USER_FILE'] = str(ROOT/'users.txt')
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'

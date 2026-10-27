@@ -20,6 +20,7 @@
 #include "NetworkLoadClient.h"
 #include "NetworkResourceLoader.h"
 #include "WebPageProxyIdentifier.h"
+#include <WebCore/CocoaCurlProxyConfiguration.h>
 #include <WebCore/WebSocketIdentifier.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NetworkLoadMetrics.h>
@@ -107,6 +108,13 @@ public:
     // The privacy API's network.networkPredictionEnabled: DNS prefetching and the preconnections pages ask for.
     bool allowsNetworkPrediction() const { return m_networkPredictionEnabled; }
 
+    // The proxy.onRequest answers for the request a load's or ping's network task sends to the URL.
+    Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults(NetworkDataTaskCurlCocoa&, const URL&);
+    // A ping's task, which its checker's answers route.
+    void didCreatePingTask(NetworkLoadChecker&, NetworkDataTask&);
+    // The proxy.onRequest answers for a WebSocket's handshake, which its task's route takes.
+    Vector<WebCore::CocoaCurlProxyFilterResult> takeWebSocketProxyFilterResults(NetworkConnectionToWebProcess&, WebCore::WebSocketIdentifier);
+
 private:
     friend class NeverDestroyed<LegacyExtensionNetwork>;
     LegacyExtensionNetwork() = default;
@@ -119,6 +127,8 @@ private:
     void disconnectResponseFilter(uint64_t filterID, uint64_t dispatched);
     void suspendResponseFilter(uint64_t filterID);
     void resumeResponseFilter(uint64_t filterID);
+    // The proxy.settings value that applies, as CocoaCurlProxyConfiguration reads it; empty when no extension's does.
+    void setProxyConfiguration(String&&);
     void setPrivacySettings(bool networkPredictionEnabled, bool hyperlinkAuditingEnabled)
     {
         m_networkPredictionEnabled = networkPredictionEnabled;
@@ -153,6 +163,7 @@ private:
     RefPtr<NetworkDataTaskCurlCocoa> curlTask(NetworkResourceLoader&);
     String cookieHeader(NetworkLoadChecker&, const WebCore::ResourceRequest&);
 
+    bool interceptProxyRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
     bool interceptBeforeRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
     static void checkAsRequestFor(NetworkLoadChecker&, const URL&);
     bool interceptRequestHeaders(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
@@ -202,6 +213,14 @@ private:
     // attach to any more.
     WeakHashSet<NetworkResourceLoader> m_loadersWithDeliveredBody;
     WeakHashMap<NetworkResourceLoader, URL> m_deferredCleanupURLs;
+    // The proxy.onRequest answers for each load's latest request, and the request's URL.
+    struct ProxyAnswers {
+        URL url;
+        Vector<WebCore::CocoaCurlProxyFilterResult> results;
+    };
+    WeakHashMap<NetworkLoadChecker, ProxyAnswers> m_proxyAnswers;
+    WeakHashMap<NetworkLoadChecker, ThreadSafeWeakPtr<NetworkDataTask>> m_pingTasks;
+    WeakHashMap<NetworkConnectionToWebProcess, HashMap<uint64_t, Vector<WebCore::CocoaCurlProxyFilterResult>>> m_webSocketProxyFilterResults;
     bool m_networkPredictionEnabled { true };
     // The privacy API's websites.hyperlinkAuditingEnabled: the pings of <a ping>.
     bool m_hyperlinkAuditingEnabled { true };

@@ -32,6 +32,7 @@
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/NetworkStorageSession.h>
+#include <WebCore/RegistrableDomain.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/ProcessID.h>
@@ -86,6 +87,49 @@ void LegacyExtensionNetwork::initialize(NetworkProcess& networkProcess)
     LegacyExtensions::registerExtensionScheme();
     m_networkProcess = networkProcess;
     networkProcess.addMessageReceiver(Messages::LegacyExtensionNetwork::messageReceiverName(), *this);
+    CocoaCurlProxyConfiguration::setErrorObserver([this](bool fatal, const String& error, const String& details) {
+        auto event = JSON::Object::create();
+        event->setBoolean("fatal"_s, fatal);
+        event->setString("error"_s, error);
+        event->setString("details"_s, details);
+        notify(proxyOnProxyError, event->toJSONString());
+    });
+}
+
+void LegacyExtensionNetwork::setProxyConfiguration(String&& configuration)
+{
+    CocoaCurlProxyConfiguration::setCurrent(configuration.isEmpty() ? nullptr : CocoaCurlProxyConfiguration::create(configuration));
+}
+
+Vector<CocoaCurlProxyFilterResult> LegacyExtensionNetwork::proxyFilterResults(NetworkDataTaskCurlCocoa& task, const URL& url)
+{
+    if (m_proxyAnswers.isEmptyIgnoringNullReferences())
+        return { };
+    for (auto& loader : m_loaders) {
+        RefPtr networkLoad = loader.m_networkLoad;
+        if (!networkLoad || networkLoad->m_task.get() != &task)
+            continue;
+        RefPtr checker = loader.m_networkLoadChecker;
+        auto iterator = checker ? m_proxyAnswers.find(*checker) : m_proxyAnswers.end();
+        if (iterator == m_proxyAnswers.end() || !equalIgnoringFragmentIdentifier(iterator->value.url, url))
+            return { };
+        return iterator->value.results;
+    }
+    for (auto entry : m_pingTasks) {
+        if (entry.value.get().get() != &task)
+            continue;
+        auto iterator = m_proxyAnswers.find(entry.key);
+        if (iterator == m_proxyAnswers.end() || !equalIgnoringFragmentIdentifier(iterator->value.url, url))
+            return { };
+        return iterator->value.results;
+    }
+    return { };
+}
+
+void LegacyExtensionNetwork::didCreatePingTask(NetworkLoadChecker& checker, NetworkDataTask& task)
+{
+    if (observes(proxyOnRequest))
+        m_pingTasks.set(checker, ThreadSafeWeakPtr { task });
 }
 
 void LegacyExtensionNetwork::notify(ASCIILiteral eventName, const String& details)
@@ -308,7 +352,47 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
         notify(onBeforeRedirect, details->toJSONString());
     }
 
-    return interceptBeforeRequest(checker, request, client, handler);
+    return interceptProxyRequest(checker, request, client, handler) || interceptBeforeRequest(checker, request, client, handler);
+}
+
+// proxy.onRequest, which Firefox fires before a request's webRequest events, pings, beacons and reports included.
+// The answers of the listeners whose filters match the request act on the route its network task connects by.
+bool LegacyExtensionNetwork::interceptProxyRequest(NetworkLoadChecker& checker, ResourceRequest& request, ContentSecurityPolicyClient* client, NetworkLoadChecker::ValidationHandler& handler)
+{
+    m_proxyAnswers.remove(checker);
+    if (!observes(proxyOnRequest) || !request.url().protocolIsInHTTPFamily())
+        return false;
+    // Firefox's proxy.RequestDetails.
+    auto details = requestDetails(checker, request);
+    details->setBoolean("fromCache"_s, false);
+    details->setBoolean("incognito"_s, checker.m_sessionID.isEphemeral());
+    details->setBoolean("thirdParty"_s, !request.firstPartyForCookies().isEmpty() && !RegistrableDomain(request.firstPartyForCookies()).matches(request.url()));
+    if (auto documentURL = details->getString("documentUrl"_s); !documentURL.isNull())
+        details->setString("originUrl"_s, documentURL);
+    if (hasOption(proxyOnRequest, requestHeadersOption))
+        details->setArray("requestHeaders"_s, headersArray(request.httpHeaderFields()));
+    if (!blocks(proxyOnRequest, details))
+        return false;
+
+    bool hasClient = !!client;
+    dispatch(proxyOnRequest, details->toJSONString(), [this, weakChecker = WeakPtr { checker }, request = WTF::move(request), hasClient, handler = WTF::move(handler)](RefPtr<JSON::Object>&& response) mutable {
+        RefPtr checker = weakChecker.get();
+        if (!checker)
+            return handler(ResourceError { ResourceError::Type::Cancellation });
+        RefPtr loader = checker->m_networkResourceLoader.get();
+        if (hasClient && !loader)
+            return handler(ResourceError { ResourceError::Type::Cancellation });
+        if (RefPtr answers = response ? response->getArray("proxy"_s) : nullptr) {
+            if (auto results = LegacyExtensions::proxyFilterResults(*answers); !results.isEmpty())
+                m_proxyAnswers.set(*checker, ProxyAnswers { request.url(), WTF::move(results) });
+        }
+        ContentSecurityPolicyClient* client = hasClient ? loader.get() : nullptr;
+        if (interceptBeforeRequest(*checker, request, client, handler))
+            return;
+        m_resumingRequests.add(*checker);
+        checker->checkRequest(WTF::move(request), client, WTF::move(handler));
+    });
+    return true;
 }
 
 // A request redirected before anything is sent is checked as a request for its new URL, as one whose URL WebKit's
@@ -379,7 +463,7 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
                 m_extensionRedirectTargets.set(*checker, request.url());
             else
                 checkAsRequestFor(*checker, request.url());
-            if (isInterceptable(request.url()) && interceptBeforeRequest(*checker, request, client, handler))
+            if (isInterceptable(request.url()) && (interceptProxyRequest(*checker, request, client, handler) || interceptBeforeRequest(*checker, request, client, handler)))
                 return;
             m_resumingRequests.add(*checker);
             checker->checkRequest(WTF::move(request), client, WTF::move(handler));
@@ -630,10 +714,21 @@ bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& load
     return true;
 }
 
-// onBeforeRequest for a WebSocket handshake.
+Vector<CocoaCurlProxyFilterResult> LegacyExtensionNetwork::takeWebSocketProxyFilterResults(NetworkConnectionToWebProcess& connection, WebCore::WebSocketIdentifier identifier)
+{
+    auto iterator = m_webSocketProxyFilterResults.find(connection);
+    if (iterator == m_webSocketProxyFilterResults.end())
+        return { };
+    return iterator->value.take(identifier.toUInt64());
+}
+
+// A WebSocket's handshake, as Firefox's channel for it: proxy.onRequest, then onBeforeRequest. The proxy.onRequest
+// answers act on the route the socket's task resolves (WebSocketTask).
 bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& connection, const ResourceRequest& request, WebCore::WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, const ClientOrigin& clientOrigin, Function<void()>&& createChannel)
 {
-    if (!observes(onBeforeRequest))
+    if (auto iterator = m_webSocketProxyFilterResults.find(connection); iterator != m_webSocketProxyFilterResults.end())
+        iterator->value.remove(identifier.toUInt64());
+    if (!observes(onBeforeRequest) && !observes(proxyOnRequest))
         return false;
 
     auto details = JSON::Object::create();
@@ -647,13 +742,30 @@ bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& c
     details->setDouble("parentFrameId"_s, 0);
     details->setString("initiator"_s, clientOrigin.clientOrigin.toString());
 
-    if (!blocks(onBeforeRequest, details)) {
-        notify(onBeforeRequest, details->toJSONString());
+    auto beforeRequestBlocks = blocks(onBeforeRequest, details);
+    RefPtr<JSON::Object> proxyRequestDetails;
+    if (observes(proxyOnRequest)) {
+        proxyRequestDetails = JSON::Object::create();
+        for (auto& [key, value] : details.get())
+            proxyRequestDetails->setValue(key, value.copyRef());
+        proxyRequestDetails->setBoolean("fromCache"_s, false);
+        proxyRequestDetails->setBoolean("incognito"_s, connection.sessionID().isEphemeral());
+        proxyRequestDetails->setBoolean("thirdParty"_s, !clientOrigin.topOrigin.isNull() && !RegistrableDomain(clientOrigin.topOrigin).matches(request.url()));
+        if (hasOption(proxyOnRequest, requestHeadersOption))
+            proxyRequestDetails->setArray("requestHeaders"_s, headersArray(request.httpHeaderFields()));
+    }
+    bool proxyRequestBlocks = proxyRequestDetails && blocks(proxyOnRequest, *proxyRequestDetails);
+    if (!beforeRequestBlocks && !proxyRequestBlocks) {
+        if (proxyRequestDetails)
+            notify(proxyOnRequest, proxyRequestDetails->toJSONString());
+        if (observes(onBeforeRequest))
+            notify(onBeforeRequest, details->toJSONString());
         return false;
     }
 
+    // A socket waiting on the extensions is pending until it opens or fails.
     m_pendingWebSockets.ensure(connection, [] { return HashSet<uint64_t> { }; }).iterator->value.add(identifier.toUInt64());
-    dispatch(onBeforeRequest, details->toJSONString(), [this, weakConnection = WeakPtr { connection }, identifier, createChannel = WTF::move(createChannel)](RefPtr<JSON::Object>&& verdict) mutable {
+    auto finish = [this, weakConnection = WeakPtr { connection }, identifier, createChannel = WTF::move(createChannel)](const String& error) mutable {
         RefPtr connection = weakConnection.get();
         if (!connection)
             return;
@@ -663,12 +775,43 @@ bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& c
         Ref ipcConnection = connection->connection();
         if (!ipcConnection->isValid())
             return;
-        if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
-            ipcConnection->send(Messages::WebSocketChannel::DidReceiveMessageError { "WebSocket connection was blocked by an extension"_s }, identifier.toUInt64());
+        if (!error.isNull()) {
+            if (auto results = m_webSocketProxyFilterResults.find(*connection); results != m_webSocketProxyFilterResults.end())
+                results->value.remove(identifier.toUInt64());
+            ipcConnection->send(Messages::WebSocketChannel::DidReceiveMessageError { error }, identifier.toUInt64());
             ipcConnection->send(Messages::WebSocketChannel::DidClose { 1006, emptyString() }, identifier.toUInt64());
             return;
         }
         createChannel();
+    };
+    auto beforeRequest = [this, details, finish = WTF::move(finish)]() mutable {
+        if (!blocks(onBeforeRequest, details)) {
+            if (observes(onBeforeRequest))
+                notify(onBeforeRequest, details->toJSONString());
+            return finish({ });
+        }
+        dispatch(onBeforeRequest, details->toJSONString(), [finish = WTF::move(finish)](RefPtr<JSON::Object>&& verdict) mutable {
+            finish(verdict && verdict->getBoolean("cancel"_s).value_or(false) ? "WebSocket connection was blocked by an extension"_s : String());
+        });
+    };
+    if (!proxyRequestBlocks) {
+        if (proxyRequestDetails)
+            notify(proxyOnRequest, proxyRequestDetails->toJSONString());
+        beforeRequest();
+        return true;
+    }
+    dispatch(proxyOnRequest, proxyRequestDetails->toJSONString(), [this, weakConnection = WeakPtr { connection }, identifier, beforeRequest = WTF::move(beforeRequest)](RefPtr<JSON::Object>&& response) mutable {
+        RefPtr connection = weakConnection.get();
+        if (!connection)
+            return;
+        auto pending = m_pendingWebSockets.find(*connection);
+        if (pending == m_pendingWebSockets.end() || !pending->value.contains(identifier.toUInt64()))
+            return;
+        if (RefPtr answers = response ? response->getArray("proxy"_s) : nullptr) {
+            if (auto results = LegacyExtensions::proxyFilterResults(*answers); !results.isEmpty())
+                m_webSocketProxyFilterResults.ensure(*connection, [] { return HashMap<uint64_t, Vector<CocoaCurlProxyFilterResult>> { }; }).iterator->value.set(identifier.toUInt64(), WTF::move(results));
+        }
+        beforeRequest();
     });
     return true;
 }
@@ -739,6 +882,8 @@ bool LegacyExtensionNetwork::didReceivePendingWebSocketMessage(NetworkConnection
     // A socket closed before it opened reports an abnormal closure.
     if (decoder.messageName() == IPC::MessageName::NetworkSocketChannel_Close) {
         iterator->value.remove(decoder.destinationID());
+        if (auto results = m_webSocketProxyFilterResults.find(connection); results != m_webSocketProxyFilterResults.end())
+            results->value.remove(decoder.destinationID());
         connection.connection().send(Messages::WebSocketChannel::DidClose { 1006, emptyString() }, decoder.destinationID());
     }
     return true;

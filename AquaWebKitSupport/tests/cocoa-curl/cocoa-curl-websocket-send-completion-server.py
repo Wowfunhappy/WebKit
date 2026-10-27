@@ -1,4 +1,5 @@
-# WebSocket sink for websocket-send-completion.mm. Every path answers with a valid 101:
+# WebSocket sink for cocoa-curl-websocket-send-completion.mm, on the port its argument names. Every path answers
+# with a valid 101:
 #   /slow-sink  reads frames at 2 MB/s and prints the payload bytes it received
 #   /stall      reads nothing after the handshake and keeps the connection up
 #   /late-open  holds the 101 for half a second, follows it with a text frame "early N" counting the bytes that

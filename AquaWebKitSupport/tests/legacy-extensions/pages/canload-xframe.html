@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<title>canLoad in a cross-origin frame</title>
+<iframe id="frame" src="http://127.0.0.1:8843/canload-frame.html"></iframe>
+<p>The frame is cross-origin; canload.safariextension's content script records its canLoad answers in the frame's &lt;html data-canload&gt;, which the frame posts here as window.__frameAnswers.</p>
+<script>
+addEventListener('message', event => { if (event.data && event.data.canloadFrame) window.__frameAnswers = event.data.canloadFrame; });
+</script>

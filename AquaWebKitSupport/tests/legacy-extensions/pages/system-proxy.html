@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>System proxy failover</title>
+<p>Driven by check-system-proxy-failover.py, which points the system at a PAC file answering
+<code>PROXY 127.0.0.1:8859; PROXY 127.0.0.1:8856</code> for .proxy-test hosts. Nothing listens on 8859, so every
+load and WebSocket below reaches its host through 8856 (proxy.py). Results land in <code>window.__results</code>.</p>
+<pre id="out"></pre>
+<script>
+window.__results = {};
+window.__done = false;
+
+function report(name, pass, detail) {
+    window.__results[name] = { pass, detail };
+    document.getElementById('out').textContent += `${pass ? 'PASS' : 'FAIL'} ${name}: ${detail}\n`;
+}
+
+function webSocketMessage(url) {
+    return new Promise(resolve => {
+        const socket = new WebSocket(url);
+        const timer = setTimeout(() => resolve('timeout'), 15000);
+        socket.onmessage = event => { clearTimeout(timer); resolve(event.data); socket.close(); };
+        socket.onclose = event => { clearTimeout(timer); resolve('close:' + event.code); };
+    });
+}
+
+(async () => {
+    try {
+        const response = await fetch('http://failover.proxy-test/system-failover', { cache: 'no-store' });
+        const body = await response.json();
+        report('load fails over to the second proxy', body.proxy === 8856, JSON.stringify(body));
+    } catch (error) {
+        report('load fails over to the second proxy', false, 'threw ' + error);
+    }
+    const message = await webSocketMessage('ws://failover.proxy-test/system-failover-ws');
+    report('WebSocket fails over to the second proxy', message === '8856 /system-failover-ws', message);
+    try {
+        const response = await fetch('http://failover.proxy-test/system-failover-xhr?' + Date.now());
+        const body = await response.json();
+        report('a later load takes the same route', body.proxy === 8856, JSON.stringify(body));
+    } catch (error) {
+        report('a later load takes the same route', false, 'threw ' + error);
+    }
+    window.__done = true;
+})();
+</script>

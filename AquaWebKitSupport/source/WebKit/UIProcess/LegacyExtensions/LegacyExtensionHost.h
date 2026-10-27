@@ -3,10 +3,10 @@
 // Safari 7 hosts an extension's global page and toolbar popovers in WebKit 1 views in its own process,
 // and extension pages opened in tabs or frames in web content processes; with content scripts, which run
 // in web content processes too, they are the extension's contexts. The router connects them: runtime
-// ports and one-shot messages between contexts, the tabs/webNavigation/webRequest events and methods and
-// the clipboard reads extension pages make, and the webRequest verdicts network processes wait on. Tabs are
-// WebPageProxy identifiers and frames are FrameIdentifiers, with 0 standing for a tab's main frame as in
-// the WebExtensions API.
+// ports and one-shot messages between an extension's contexts and between extensions, the
+// tabs/webNavigation/webRequest events and methods and the clipboard reads extension pages make, and the
+// webRequest verdicts network processes wait on. Tabs are WebPageProxy identifiers and frames are
+// FrameIdentifiers, with 0 standing for a tab's main frame as in the WebExtensions API.
 
 #pragma once
 
@@ -15,9 +15,11 @@
 #include <JavaScriptCore/Weak.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/ProcessIdentifier.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/Expected.h>
 #include <wtf/Variant.h>
 #include <wtf/JSONValues.h>
@@ -81,6 +83,7 @@ public:
     void webProcessCreated(WebProcessProxy&);
     // A web process's state, sent once it is initialized.
     void webProcessDidInitialize(WebProcessProxy&);
+    void webProcessWillShutDown(WebProcessProxy&);
     void networkProcessCreated(NetworkProcessProxy&);
     void networkProcessDidTerminate(NetworkProcessProxy&);
 
@@ -105,6 +108,8 @@ public:
     // An event whose details already name the load's tab and frames as the API reports them.
     void dispatchWebRequestEvent(const String& eventName, Ref<JSON::Object>&& details, CompletionHandler<void(String&&)>&&);
     void dispatchCookieChange(const WebCore::Cookie&, Ref<JSON::Array>&&);
+    // proxy.onProxyError, with its `{ fatal, error, details }` as JSON.
+    void dispatchProxyError(const String& details);
     // An event of a StreamFilter an extension context attached to a network process's load.
     void dispatchResponseFilterEvent(uint64_t filterID, const String& event, RefPtr<WebCore::SharedBuffer>&&, const String& error);
 
@@ -117,6 +122,11 @@ public:
     void didClearWindowObject(const void* frame, JSC::JSGlobalObject&, const URL& documentURL);
     void frameWillBeDestroyed(const void* frame);
     void postFromHostContext(uint64_t hostContextIdentifier, const String& message, RefPtr<WebCore::SharedBuffer>&& data);
+    // Whether a WebKit 1 host context is valid: its document is still its view's, which keeps the extension.
+    bool isHostContextValid(uint64_t hostContextIdentifier) const { return m_hostContexts.contains(hostContextIdentifier); }
+
+    // A devtools event, to the listening devtools pages of the inspected tab whose extensions `allows` admits.
+    void dispatchDevToolsEvent(double inspectedTabID, const String& eventName, Ref<JSON::Array>&& arguments, Function<bool(const LegacyExtensions::WebsiteAccess&, const String& extensionKey)>&& allows);
 
 private:
     friend class NeverDestroyed<LegacyExtensionHost>;
@@ -133,22 +143,30 @@ private:
         JSC::Weak<JSC::JSGlobalObject> globalObject;
         Markable<WebCore::FrameIdentifier> frameID;
         Markable<WebCore::ScriptExecutionContextIdentifier> documentID;
+        // The tab a devtools page inspects. A devtools page does not keep its extension loaded.
+        std::optional<double> devToolsTabID;
         // Each event a listener is registered for, with its JSON interest: the filters of its blocking
         // listeners, and the extraInfoSpec options (requestBody, extraHeaders) a listener asks for.
         HashMap<String, String> interests;
+        // An extension page in a tab whose extension Safari disabled or reloaded: it is told nothing more and
+        // what it sends is dropped.
+        bool isInvalidated { false };
     };
 
     // One end of a port or a one-shot message: an extension page, or the content-script context of an
-    // extension in one document of a frame of a web content process.
+    // extension in one document of a frame of a web content process. A content-script context names its
+    // extension in `extensionKey`; a host context's extension is the host's own.
     struct Endpoint {
         RefPtr<HostContext> host;
         Markable<WebCore::FrameIdentifier> frameID;
         Markable<WebCore::ScriptExecutionContextIdentifier> documentID;
+        String extensionKey;
         bool operator==(const Endpoint&) const = default;
     };
+    static const String& extensionKeyOf(const Endpoint&);
 
+    // The two ends of a port or a one-shot message can be contexts of different extensions.
     struct Port {
-        String extensionKey;
         Endpoint opener;
         Vector<Endpoint> receivers;
         bool isResolving { false };
@@ -156,7 +174,6 @@ private:
     };
 
     struct OneShotMessage {
-        String extensionKey;
         Endpoint sender;
         Vector<Endpoint> pendingReceivers;
         bool answered { false };
@@ -198,11 +215,14 @@ private:
     void completeRestream(IPC::Connection&, uint64_t);
     void endRestream(IPC::Connection&, uint64_t);
     void post(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data);
+    void setUserContentExtensionRoots(IPC::Connection&, Vector<String>&& roots);
+    void updateUserContentExtensions(const Vector<URL>& latestRoots = { });
 
     void route(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr);
     void routeConnect(const Endpoint&, const String& extensionKey, JSON::Object&);
     void routePost(const Endpoint&, const String& message, const String& portID);
-    void routeDisconnect(const Endpoint&, const String& portID);
+    // `error` is the runtime.lastError of the other ends' onDisconnect.
+    void routeDisconnect(const Endpoint&, const String& portID, const String& error = { });
     void routeOneShotMessage(const Endpoint&, const String& extensionKey, JSON::Object&);
     void routeReply(const Endpoint&, JSON::Object&);
     void routeCallResult(const Endpoint&, JSON::Object&);
@@ -213,6 +233,9 @@ private:
     void performCall(HostContext&, JSON::Object&);
 
     Vector<Endpoint> hostContextsListeningTo(const String& extensionKey, const String& eventName, const Endpoint& except) const;
+    // The host contexts listening to `eventName` of the other extensions `extensionId` names for a sender
+    // of the extension `senderExtensionKey`.
+    Vector<Endpoint> externalHostContextsListeningTo(const String& extensionId, const String& senderExtensionKey, const String& eventName) const;
     void tabEndpoints(WebPageProxy&, std::optional<double> frameId, const String& extensionKey, CompletionHandler<void(Vector<Endpoint>&&)>&&);
     bool deliver(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr, bool existingPort = false);
     Ref<JSON::Object> senderDescription(const Endpoint&) const;
@@ -222,6 +245,11 @@ private:
     enum class ContextIsReplaced : bool { No, Yes };
     void hostContextDidGoAway(HostContext&, ContextIsReplaced = ContextIsReplaced::No);
     void unloadExtensionIfUnused(const String& extensionKey);
+    bool isPresentInSafari(const String& extensionKey) const;
+    bool isRetiredRoot(const String& extensionKey, const URL& root) const;
+    // The extension's pages in tabs, except those at `root`.
+    void invalidateExtensionPages(const String& extensionKey, const URL& root = { });
+    void invalidateExtensionPage(HostContext&);
     void framesDidGoAway(const Vector<WebCore::FrameIdentifier>&);
     void finishRouterCallIfComplete(uint64_t);
     void finishWebRequestCallIfComplete(uint64_t);
@@ -243,6 +271,7 @@ private:
     RefPtr<HostContext> extensionPageContext(WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, const URL& documentURL, const String& extensionKey);
     URL documentURL(WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier>) const;
     void documentsDidGoAway(NOESCAPE const Function<bool(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier)>&);
+    bool isEnteringBackForwardCache(const Endpoint&) const;
 
     HashMap<uint64_t, Ref<HostContext>> m_hostContexts;
     HashMap<const void*, uint64_t> m_hostContextByFrame;
@@ -250,6 +279,9 @@ private:
     // The frame and URL of each document an extension context has posted from, as its web content process
     // reports them.
     HashMap<WebCore::ScriptExecutionContextIdentifier, std::pair<WebCore::FrameIdentifier, URL>> m_documents;
+    // The documents with extension contexts that entered the back/forward cache, by their frames, until the
+    // frame's commit of another document ends their contexts' routes.
+    HashMap<WebCore::ScriptExecutionContextIdentifier, WebCore::FrameIdentifier> m_documentsEnteringBackForwardCache;
     HashMap<String, Port> m_ports;
     HashMap<String, OneShotMessage> m_oneShotMessages;
     HashMap<uint64_t, RouterCall> m_routerCalls;
@@ -267,6 +299,14 @@ private:
     HashMap<String, Ref<LegacyExtensionCookieObserver>> m_cookieObservers;
     HashMap<String, LegacyExtensions::WebsiteAccess> m_websiteAccess;
     HashMap<String, URL> m_websiteAccessRoots;
+    // The roots of the extensions whose user content each web process holds, and the extension keys and roots
+    // that makes loaded.
+    HashMap<WebCore::ProcessIdentifier, Vector<URL>> m_userContentExtensionRoots;
+    HashMap<String, URL> m_userContentExtensions;
+    // The extensions Safari presents: their global pages, bars, popovers or user content.
+    HashSet<String> m_extensionsPresentInSafari;
+    // The roots each extension was moved from when Safari reloaded it, which never become its root again.
+    HashMap<String, HashSet<String>> m_retiredRoots;
     HashMap<String, Vector<Function<void(const LegacyExtensions::WebsiteAccess&)>>> m_websiteAccessWaiters;
     HashMap<String, Ref<LegacyExtensionDeclarativeNetRequest>> m_declarativeNetRequests;
 };

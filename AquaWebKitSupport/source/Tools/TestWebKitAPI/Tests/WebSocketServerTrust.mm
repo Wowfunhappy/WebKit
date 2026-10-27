@@ -1,8 +1,8 @@
 /*
- * A WebSocket task's server certificate goes to the session delegate on this port
- * (AquaWebKitSupport/polyfill/polyfills/webkit/websocket.mm). The curl transport collects the peer's
- * chain for Security to evaluate, and the delegate's decision must hold the whole connection,
- * not just the bytes this side writes.
+ * A page WebSocket's server certificate goes to the navigation delegate on this port, from inside the TLS
+ * handshake of the curl transport's WebSocket task (AquaWebKitSupport/source/WebKit/NetworkProcess/cocoa/
+ * WebSocketTaskCurlCocoa.mm), and the delegate's decision must hold the whole connection, not just the
+ * bytes this side writes.
  */
 
 #import "config.h"
@@ -43,10 +43,8 @@ static void removeAllCookies(WKHTTPCookieStore *store)
     }
 }
 
-// PerformDefaultHandling hands the decision back to the evaluation this port does in place of the chain
-// check NSURLSession would have done -- the same verdict a task falls back to when nothing implements
-// URLSession:task:didReceiveChallenge:completionHandler: or the challenge cannot be built. A
-// self-signed certificate must lose there too.
+// PerformDefaultHandling hands the decision back to the system's evaluation, which a self-signed
+// certificate loses.
 enum class TrustAnswer : uint8_t { Reject, Accept, DefaultHandling, Decline };
 
 // A wss server whose certificate the delegate is asked about, answering the handshake as soon as the

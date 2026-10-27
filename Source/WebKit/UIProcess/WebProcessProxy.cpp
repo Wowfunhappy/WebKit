@@ -763,6 +763,7 @@ void WebProcessProxy::shutDown()
     WEBPROCESSPROXY_RELEASE_LOG(Process, "shutDown:");
 
     m_isShuttingDown = true;
+    LegacyExtensionHost::singleton().webProcessWillShutDown(*this); // AQUAWEBKIT: the process's Safari 7 extension user content goes with it.
 
     if (m_isInProcessCache) {
         processPool().webProcessCache().removeProcess(*this, WebProcessCache::ShouldShutDownProcess::No);

@@ -1,5 +1,6 @@
 # Messages from a web content process's Safari 7 extension contexts (content scripts and extension pages)
-# to the UI process's router, with the bytes a message carries.
+# to the UI process's router, with the bytes a message carries, and the roots of the extensions whose user
+# content the process holds.
 [
     DispatchedFrom=WebContent,
     DispatchedTo=UI,
@@ -17,5 +18,6 @@ messages -> LegacyExtensionHost {
     ActivateMediaPlayer(uint64_t identifier) -> (Expected<bool, String> activated)
     CompleteRestream(uint64_t identifier)
     EndRestream(uint64_t identifier)
+    SetUserContentExtensionRoots(Vector<String> roots)
     Post(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, String message, IPC::SharedBufferReference data)
 }

@@ -33,6 +33,7 @@
 #include "APIProcessPoolConfiguration.h"
 #include "APIUIClient.h"
 #include "InspectorBrowserAgent.h"
+#include "LegacyExtensionDevTools.h" // AQUAWEBKIT: the Safari 7 extension devtools hooks below.
 #include "MessageSenderInlines.h"
 #include "PageClient.h"
 #include "WebAutomationSession.h"
@@ -538,6 +539,7 @@ void WebInspectorUIProxy::openLocalInspectorFrontend()
     if (RefPtr webExtensionController = inspectedPage->webExtensionController())
         webExtensionController->inspectorWillOpen(*this, *inspectedPage);
 #endif
+    LegacyExtensionDevTools::singleton().inspectorWillOpen(*this, *inspectedPage); // AQUAWEBKIT: Safari 7 extensions' devtools pages.
 
     inspectedPage->uiClient().didAttachLocalInspector(*inspectedPage, *this);
 
@@ -590,6 +592,8 @@ void WebInspectorUIProxy::closeFrontendPageAndWindow()
     
     SetForScope reentrancyProtector(m_closing, true);
     
+    LegacyExtensionDevTools::singleton().inspectorWillClose(*this); // AQUAWEBKIT: Safari 7 extensions' devtools pages.
+
     // Notify clients when a local inspector closes so it can clear _WKInspectorDelegate and perform other cleanup.
     if (RefPtr inspectedPage = m_inspectedPage.get()) {
 #if ENABLE(INSPECTOR_EXTENSIONS)

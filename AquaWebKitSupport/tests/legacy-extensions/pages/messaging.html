@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Extension messaging</title>
+<style>
+body { font: 13px -apple-system-font, "Lucida Grande", sans-serif; margin: 16px; }
+td { padding: 2px 8px; vertical-align: top; }
+.pass { color: #080; }
+.fail { color: #b00; }
+.detail { color: #666; font-size: 11px; word-break: break-all; }
+</style>
+<h1>Extension messaging</h1>
+<p>Load <code>messaging-a.safariextension</code> and <code>messaging-b.safariextension</code> from
+<code>~/Desktop/AquaWebKit-Extensions</code> in Extension Builder. Results: <code>window.__results</code>.</p>
+<ul>
+<li><code>?case=disabled</code>: with messaging-b disabled, messages and ports to it fail.</li>
+<li><code>?case=bfcache</code>: a content script's port and its unanswered messages close when its page
+enters the back/forward cache, with Chrome's error on the other side, while the page itself is told nothing;
+the page goes to <code>?case=away</code> and back by itself.</li>
+<li><code>?case=tabpage</code>: messaging-b opens its <code>page.html</code> in a background tab; once
+<code>__results.phase</code> is <code>"reload-or-disable-messaging-b"</code>, Reload messaging-b in Extension
+Builder or disable it; the page stops receiving messages, its port's other end disconnects, and in the page's
+tab <code>window.__pageState</code> records the <code>browser.*</code> calls throwing.</li>
+<li><code>?case=restoredpage</code>: with a <code>page.html</code> of messaging-b that Safari restored with the
+session in another tab, the page answers messaging-a's messages once Safari loads messaging-b.</li>
+<li><code>?case=reload</code>: once <code>__results.phase</code> is <code>"reload-messaging-a"</code>, click Reload
+for messaging-a in Extension Builder; the port its old content script holds disconnects on the other side,
+the old content script's messaging calls throw "Extension context invalidated.", and a port the reloaded
+version opens from this document works.</li>
+</ul>
+<p id="summary">Running…</p>
+<table id="cases"></table>
+<script>
+"use strict";
+const mode = ["disabled", "bfcache", "away", "reload", "tabpage", "restoredpage", "idle"].find(name => name === new URLSearchParams(location.search).get("case")) || "full";
+window.__results = { done: false, mode, phase: "", passed: 0, failed: 0, cases: [] };
+
+// Each extension's content script answers through window.__messagingDeliver(extension, json).
+const pending = new Map();
+window.__messagingDeliver = (extension, json) => {
+    const answer = JSON.parse(json);
+    const request = pending.get(extension);
+    if (!request || request.op !== answer.op)
+        return;
+    pending.delete(extension);
+    request.resolve(answer);
+};
+
+const ask = (extension, op, milliseconds, fields) => new Promise((resolve, reject) => {
+    const request = { op, resolve };
+    pending.set(extension, request);
+    window.postMessage(Object.assign({ messagingTest: extension, op, mode }, fields), "*");
+    setTimeout(() => {
+        if (pending.get(extension) !== request)
+            return;
+        pending.delete(extension);
+        reject(new Error("no answer from messaging-" + extension));
+    }, milliseconds);
+});
+
+const hasContentScript = async (extension, attempts) => {
+    for (let attempt = 0; attempt < attempts; ++attempt) {
+        try {
+            await ask(extension, "hello", 200);
+            return true;
+        } catch {
+        }
+    }
+    return false;
+};
+
+const add = result => window.__results.cases.push(result);
+
+const render = () => {
+    const results = window.__results;
+    results.passed = results.cases.filter(result => result.pass).length;
+    results.failed = results.cases.length - results.passed;
+    document.getElementById("summary").textContent = (results.done ? "Done" : "Running") + " (" + mode + "): " + results.passed + " passed, " + results.failed + " failed";
+    const table = document.getElementById("cases");
+    table.textContent = "";
+    for (const result of results.cases) {
+        const row = table.insertRow();
+        const status = row.insertCell();
+        status.className = result.pass ? "pass" : "fail";
+        status.textContent = result.pass ? "PASS" : "FAIL";
+        row.insertCell().textContent = result.name;
+        const detail = row.insertCell();
+        detail.className = "detail";
+        detail.textContent = result.pass ? "" : (result.detail || "");
+    }
+};
+
+const finish = () => {
+    window.__results.done = true;
+    render();
+};
+
+const addResults = answer => {
+    for (const result of answer.results || [])
+        add(result);
+    render();
+};
+
+const openHeldPort = async () => {
+    if (!(await hasContentScript("a", 50))) {
+        add({ name: "messaging-a's content script answers", pass: false });
+        return null;
+    }
+    const answer = await ask("a", "openHeldPort", 10000);
+    add({ name: "a content: the held port to b connects", pass: answer.connected, detail: JSON.stringify(answer) });
+    return answer.connected ? answer.name : null;
+};
+
+const bfcacheStarted = "messagingBackForwardCacheStarted";
+
+const runBackForwardCache = async () => {
+    // A back navigation that loads the page again instead of restoring it.
+    if (sessionStorage.getItem(bfcacheStarted)) {
+        sessionStorage.removeItem(bfcacheStarted);
+        add({ name: "the page is restored from the back/forward cache", pass: false, detail: "the page loaded again" });
+        return finish();
+    }
+    if (!(await openHeldPort()))
+        return finish();
+    const held = await ask("a", "holdChannels", 10000).catch(error => ({ ok: false, error: String(error) }));
+    add({ name: "a content: unanswered messages to and from this page are pending", pass: held.ok, detail: JSON.stringify(held) });
+    if (!held.ok)
+        return finish();
+    window.addEventListener("pageshow", async event => {
+        sessionStorage.removeItem(bfcacheStarted);
+        add({ name: "the page is restored from the back/forward cache", pass: event.persisted });
+        try {
+            addResults(await ask("a", "afterRestore", 20000));
+        } catch (error) {
+            add({ name: "a content: checks after restore", pass: false, detail: String(error) });
+        }
+        finish();
+    }, { once: true });
+    sessionStorage.setItem(bfcacheStarted, "1");
+    window.__results.phase = "away";
+    location.href = "messaging.html?case=away";
+};
+
+const runReload = async () => {
+    if (!(await hasContentScript("b", 50))) {
+        add({ name: "messaging-b's content script answers", pass: false });
+        return finish();
+    }
+    const name = await openHeldPort();
+    if (!name)
+        return finish();
+    await ask("a", "prepareReload", 10000).catch(error => add({ name: "a content: prepares for the reload", pass: false, detail: String(error) }));
+    window.__results.phase = "reload-messaging-a";
+    document.getElementById("summary").textContent = "Click Reload for messaging-a in Extension Builder.";
+    try {
+        addResults(await ask("b", "afterReload", 210000, { name }));
+    } catch (error) {
+        add({ name: "b: checks after messaging-a reloads", pass: false, detail: String(error) });
+    }
+
+    // The old content script, invalidated, as Chrome invalidates an unloaded extension's content scripts.
+    const root = document.documentElement;
+    root.setAttribute("data-messaging-probe", "1");
+    for (let attempt = 0; attempt < 50 && !root.hasAttribute("data-messaging-old-context"); ++attempt)
+        await new Promise(resolve => setTimeout(resolve, 100));
+    const old = JSON.parse(root.getAttribute("data-messaging-old-context") || "null");
+    const invalidated = "Extension context invalidated.";
+    add({ name: "a old content script: its timer still runs", pass: !!old });
+    if (old) {
+        const detail = JSON.stringify(old);
+        add({ name: "a old content script: its port's onDisconnect does not fire", pass: old.onDisconnect === null, detail });
+        const throwsInvalidated = (label, field) => add({ name: "a old content script: " + label + " throws \"" + invalidated + "\"", pass: old[field] === invalidated, detail });
+        throwsInvalidated("port.postMessage", "postMessage");
+        throwsInvalidated("reading port.onMessage", "portOnMessage");
+        throwsInvalidated("port.disconnect()", "disconnect");
+        throwsInvalidated("postMessage on a port it disconnected earlier", "closedPortPostMessage");
+        throwsInvalidated("disconnect() on a port it disconnected earlier", "closedPortDisconnect");
+        throwsInvalidated("runtime.sendMessage", "sendMessage");
+        throwsInvalidated("runtime.connect", "connect");
+        throwsInvalidated("runtime.getFrameId", "getFrameId");
+        throwsInvalidated("reading runtime.onMessage", "onMessage");
+        throwsInvalidated("dom.openOrClosedShadowRoot", "openOrClosedShadowRoot");
+        add({ name: "a old content script: its pending sendMessage never settles", pass: old.heldMessage === null, detail });
+    }
+    finish();
+};
+
+const runTabPage = async () => {
+    if (!(await hasContentScript("a", 50))) {
+        add({ name: "messaging-a's content script answers", pass: false });
+        return finish();
+    }
+    const opened = await ask("a", "openExtensionPage", 40000).catch(error => ({ detail: String(error) }));
+    add({ name: "b opens its page in a background tab", pass: opened.ready, detail: opened.detail });
+    add({ name: "b's page answers a's messages", pass: opened.answers, detail: opened.detail });
+    add({ name: "b's page holds a port to a's global page", pass: opened.connected, detail: opened.detail });
+    if (!opened.ready || !opened.answers)
+        return finish();
+    window.__results.pageTag = opened.tag;
+    window.__results.phase = "reload-or-disable-messaging-b";
+    document.getElementById("summary").textContent = "Click Reload for messaging-b in Extension Builder, or disable it in Safari's Extensions preferences.";
+    try {
+        addResults(await ask("a", "awaitPageInvalidation", 200000, { tag: opened.tag }));
+    } catch (error) {
+        add({ name: "a: checks after messaging-b is reloaded or disabled", pass: false, detail: String(error) });
+    }
+    finish();
+};
+
+// A page of messaging-b Safari restored with the session answers once Safari loads messaging-b.
+const runRestoredPage = async () => {
+    if (!(await hasContentScript("a", 50))) {
+        add({ name: "messaging-a's content script answers", pass: false });
+        return finish();
+    }
+    let answer;
+    for (let attempt = 0; attempt < 30; ++attempt) {
+        answer = await ask("a", "pingExtensionPage", 5000).catch(error => ({ answers: false, detail: String(error) }));
+        if (answer.answers)
+            break;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    add({ name: "b's restored page answers a's messages", pass: answer.answers, detail: answer.detail });
+    finish();
+};
+
+(async () => {
+    // A page whose content scripts a harness talks to directly.
+    if (mode === "idle")
+        return;
+    if (mode === "restoredpage")
+        return runRestoredPage();
+    if (mode === "tabpage")
+        return runTabPage();
+    if (mode === "away")
+        return setTimeout(() => history.back(), 500);
+    if (mode === "bfcache")
+        return runBackForwardCache();
+    if (mode === "reload")
+        return runReload();
+    if (mode === "disabled")
+        add({ name: "messaging-b is disabled: its content script is absent", pass: !(await hasContentScript("b", 5)) });
+    for (const extension of mode === "disabled" ? ["a"] : ["a", "b"]) {
+        if (!(await hasContentScript(extension, 50))) {
+            add({ name: "messaging-" + extension + "'s content script answers", pass: false });
+            continue;
+        }
+        try {
+            const answer = await ask(extension, "run", 120000);
+            for (const result of answer.results || [])
+                add(result);
+        } catch (error) {
+            add({ name: "messaging-" + extension + " runs its cases", pass: false, detail: String(error) });
+        }
+        render();
+    }
+    finish();
+})();
+</script>

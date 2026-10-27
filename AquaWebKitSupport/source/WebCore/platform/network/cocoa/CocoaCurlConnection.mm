@@ -9,6 +9,7 @@
 #include "HTTPParsers.h"
 #include <cmath>
 #include "SynchronousLoaderClient.h"
+#include <wtf/text/MakeString.h>
 
 // one worker owns every easy/multi handle in a session pool; policy callbacks retain their original client queue.
 namespace WebCore {
@@ -113,6 +114,15 @@ void CocoaCurlConnection::start()
     options.proxyUser = options.proxyUser.isolatedCopy();
     options.proxyPassword = options.proxyPassword.isolatedCopy();
     options.connectionPartition = options.connectionPartition.isolatedCopy();
+    // A proxy filter's Proxy-Authorization field and isolation key keep the connections through its proxies to
+    // the loads that carry them, as Firefox's connection key includes them.
+    for (auto& result : options.proxyFilterResults) {
+        for (auto& entry : result.entries) {
+            if (entry && (!entry->authorizationHeader.isEmpty() || !entry->isolationKey.isEmpty()))
+                options.connectionPartition = makeString(options.connectionPartition, '\n', entry->host, ':', entry->port, '\n', entry->authorizationHeader, '\n', entry->isolationKey);
+        }
+    }
+    options.proxyFilterResults = options.proxyFilterResults.map([](auto& result) { return result.isolatedCopy(); });
     m_pool->runLoop().dispatch([connection = Ref { *this }, options = WTF::move(options), deferred = m_deferred || m_holdsDelivery]() mutable {
         auto& scheduler = connection->m_pool->scheduler(options.connectionPartition, connection->m_messageQueue ? CocoaCurlConnectionPool::Loader::Synchronous : CocoaCurlConnectionPool::Loader::Asynchronous);
         connection->m_transfer = CocoaCurlTransfer::create(scheduler, connection.get(), WTF::move(options));

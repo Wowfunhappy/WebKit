@@ -57,6 +57,8 @@ void loadInfoPlist(const URL& root, CompletionHandler<void(InfoPlist&&)>&& compl
                 infoPlist.websiteAccess = websiteAccess(plist);
                 infoPlist.declarativeNetRequest = manifestEntry(plist, @"declarative_net_request");
                 infoPlist.mimeTypesHandler = manifestEntry(plist, @"mime_types_handler");
+                if (NSString *devToolsPage = plist[@"WebExtensionDevtoolsPage"]; [devToolsPage isKindOfClass:NSString.class])
+                    infoPlist.devToolsPage = devToolsPage;
             }
             completionHandler(WTF::move(infoPlist));
         });

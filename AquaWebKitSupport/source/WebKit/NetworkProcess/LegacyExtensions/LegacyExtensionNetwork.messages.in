@@ -2,7 +2,8 @@
 # ("<event>:<option>"), and the filter of each blocking listener: a JSON object mapping an event name to an
 # array of {extension, urls, types, tabId}. The StreamFilters an extension attaches to a load, by the load's
 # request identifier, within the extension's website access (as WebsiteAccess JSON), and what it does with
-# them; `dispatched` counts the data events the extension has dispatched. The privacy API's settings.
+# them; `dispatched` counts the data events the extension has dispatched. The privacy API's settings, and the
+# proxy.settings value that applies, empty when no extension's does.
 [
     DispatchedFrom=UI,
     DispatchedTo=Networking,
@@ -17,4 +18,5 @@ messages -> LegacyExtensionNetwork {
     SuspendResponseFilter(uint64_t filterID)
     ResumeResponseFilter(uint64_t filterID)
     SetPrivacySettings(bool networkPredictionEnabled, bool hyperlinkAuditingEnabled)
+    SetProxyConfiguration(String configuration)
 }

@@ -8,6 +8,7 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
@@ -20,6 +21,7 @@ class ResourceHandle;
 class ResourceLoader;
 class ResourceRequest;
 class ResourceResponse;
+struct CocoaCurlProxyFilterResult;
 struct FetchOptions;
 
 class WEBCORE_EXPORT LegacyLoadInterceptor {
@@ -40,6 +42,9 @@ public:
     // Whether the Set-Cookie fields of the handle's responses wait for their onHeadersReceived verdict, which
     // stores or discards them.
     virtual bool holdsReceivedCookies(const ResourceHandle&) = 0;
+
+    // The proxy filters' answers for the request the handle sends to the URL (CocoaCurlProxyConfiguration.h).
+    virtual Vector<CocoaCurlProxyFilterResult> proxyFilterResults(const ResourceHandle&, const URL&) = 0;
 
     // The steps of a load that is not a ResourceLoader's: a ping, beacon or report.
     class Load : public RefCounted<Load> {
@@ -66,8 +71,9 @@ public:
     };
     virtual RefPtr<SynchronousLoad> willLoadSynchronously(FrameLoader&, const ResourceRequest&, const FetchOptions&) = 0;
 
-    // A WebSocket's handshake, which opens its connection once the handler is called with true.
-    virtual bool interceptWebSocket(Document&, const URL&, CompletionHandler<void(bool)>&&) = 0;
+    // A WebSocket's handshake, which opens its connection once the handler is called with true, routed by the
+    // proxy filters' answers it is called with.
+    virtual bool interceptWebSocket(Document&, const URL&, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&)>&&) = 0;
 
 protected:
     // The loader's own steps, which a held load resumes with.

@@ -17,6 +17,14 @@ const DOMEvent = globalThis.Event;
 
 const send = (message, bytes) => native.send(JSON.stringify(message), bytes);
 
+// A context whose document is gone, or whose extension Safari disabled or reloaded, is invalidated. As in
+// Chrome (api_binding_util.cc IsContextValidOrThrowError), every API method it calls and every event it reads
+// then throws.
+const checkContextIsValid = () => {
+    if (!native.isValid())
+        throw new Error("Extension context invalidated.");
+};
+
 const randomId = () => {
     const words = new Uint32Array(4);
     crypto.getRandomValues(words);
@@ -56,14 +64,16 @@ const updateInterest = () => {
     for (const [name, event] of trackedEvents) {
         if (!event.hasListeners())
             continue;
-        const blockingFilters = event._listeners.filter(isBlocking).map(({ filter }) => {
+        // Every proxy.onRequest listener answers for the requests its filter matches.
+        const blockingEntries = name === "proxy.onRequest" ? event._listeners : event._listeners.filter(isBlocking);
+        const blockingFilters = blockingEntries.map(({ filter }) => {
             if (!filter || typeof filter !== "object")
                 return {};
             const { urls, types, tabId } = filter;
             return { urls: Array.isArray(urls) ? urls : undefined, types: Array.isArray(types) ? types : undefined, tabId: typeof tabId === "number" ? tabId : undefined };
         });
         const interest = blockingFilters.length ? { blockingFilters } : {};
-        for (const option of ["requestBody", "extraHeaders"]) {
+        for (const option of ["requestBody", "extraHeaders", "requestHeaders"]) {
             if (event._listeners.some(entry => hasExtraInfo(entry, option)))
                 interest[option] = true;
         }
@@ -132,20 +142,34 @@ class Port {
         this.name = name;
         if (sender !== undefined)
             this.sender = sender;
-        this.onMessage = new Event();
-        this.onDisconnect = new Event();
+        this._onMessage = new Event();
+        this._onDisconnect = new Event();
         this._portId = portId;
         this._connected = true;
         ports.set(portId, this);
     }
 
+    // Its events and methods check that the context is valid before anything else, as Chrome's port does
+    // (gin_port.cc).
+    get onMessage() {
+        checkContextIsValid();
+        return this._onMessage;
+    }
+
+    get onDisconnect() {
+        checkContextIsValid();
+        return this._onDisconnect;
+    }
+
     postMessage(message) {
+        checkContextIsValid();
         if (!this._connected)
             throw new Error("Attempting to use a disconnected port object");
         send({ t: "post", portId: this._portId, msg: message });
     }
 
     disconnect() {
+        checkContextIsValid();
         if (!this._connected)
             return;
         this._connected = false;
@@ -154,7 +178,7 @@ class Port {
     }
 
     _didReceiveMessage(message) {
-        this.onMessage._fire(message, this);
+        this._onMessage._fire(message, this);
     }
 
     _didDisconnect(error) {
@@ -162,7 +186,7 @@ class Port {
             return;
         this._connected = false;
         ports.delete(this._portId);
-        withLastError(error, () => this.onDisconnect._fire(this));
+        withLastError(error, () => this._onDisconnect._fire(this));
     }
 }
 
@@ -184,8 +208,11 @@ const sendMessage = (message, target) => new Promise((resolve, reject) => {
 
 const onMessage = trackedEvent("runtime.onMessage");
 const onConnect = trackedEvent("runtime.onConnect");
+// Messages and ports from other extensions reach only host contexts.
+const onMessageExternal = isHost ? trackedEvent("runtime.onMessageExternal") : new Event();
+const onConnectExternal = isHost ? trackedEvent("runtime.onConnectExternal") : new Event();
 
-const didReceiveOneShotMessage = ({ msgId, msg, sender }) => {
+const didReceiveOneShotMessage = ({ msgId, msg, sender, external }) => {
     let responded = false;
     const respond = reply => {
         if (responded)
@@ -195,7 +222,7 @@ const didReceiveOneShotMessage = ({ msgId, msg, sender }) => {
     };
     const sendResponse = response => respond({ response });
     let willRespondAsynchronously = false;
-    for (const { callback } of onMessage._listeners.slice()) {
+    for (const { callback } of (external ? onMessageExternal : onMessage)._listeners.slice()) {
         let result;
         try {
             result = callback(msg, sender, sendResponse);
@@ -370,6 +397,91 @@ const dispatchWebRequestEvent = async (event, details) => {
     return response;
 };
 
+// Firefox's proxy.onError, which reports the errors of this context's proxy.onRequest listeners.
+const proxyErrorEvent = new Event();
+
+// Firefox's ProxyInfoData.validate, with its error messages.
+const proxyInfoTypes = { direct: "direct", http: "http", https: "https", proxy: "http", socks: "socks", socks4: "socks4" };
+const validateProxyInfo = info => {
+    if (info === null)
+        return null;
+    const rawType = info !== undefined ? info.type : undefined;
+    if (typeof rawType === "string" && rawType.toLowerCase() === "direct")
+        return { type: "direct" };
+    const type = typeof rawType === "string" ? proxyInfoTypes[rawType.toLowerCase()] : undefined;
+    if (!type)
+        throw new Error(`ProxyInfoData: Invalid proxy server type: "${rawType}"`);
+    const { host } = info;
+    if (typeof host !== "string" || host.includes(" "))
+        throw new Error(`ProxyInfoData: Invalid proxy server host: "${host}"`);
+    if (!host.length)
+        throw new Error("ProxyInfoData: Proxy server host cannot be empty");
+    const port = Number.parseInt(info.port, 10);
+    if (!Number.isInteger(port))
+        throw new Error(`ProxyInfoData: Invalid proxy server port: "${port}"`);
+    if (port < 1 || port > 0xffff)
+        throw new Error(`ProxyInfoData: Proxy server port ${port} outside range 1 to 65535`);
+    for (const name of ["username", "password"]) {
+        if (info[name] !== undefined && typeof info[name] !== "string")
+            throw new Error(`ProxyInfoData: Invalid proxy server ${name}: "${info[name]}"`);
+    }
+    if (info.proxyDNS !== undefined) {
+        if (typeof info.proxyDNS !== "boolean")
+            throw new Error(`ProxyInfoData: Invalid proxyDNS value: "${info.proxyDNS}"`);
+        if (info.proxyDNS && type !== "socks" && type !== "socks4")
+            throw new Error("ProxyInfoData: proxyDNS can only be true for SOCKS proxy servers");
+    }
+    if (info.failoverTimeout !== undefined && (!Number.isInteger(info.failoverTimeout) || info.failoverTimeout < 1))
+        throw new Error(`ProxyInfoData: Invalid failover timeout: "${info.failoverTimeout}"`);
+    if (info.proxyAuthorizationHeader !== undefined) {
+        if (typeof info.proxyAuthorizationHeader !== "string")
+            throw new Error(`ProxyInfoData: Invalid proxy server authorization header: "${info.proxyAuthorizationHeader}"`);
+        if (type !== "http" && type !== "https")
+            throw new Error(`ProxyInfoData: ProxyAuthorizationHeader requires type "https" or "http"`);
+    }
+    if (info.connectionIsolationKey !== undefined && typeof info.connectionIsolationKey !== "string")
+        throw new Error(`ProxyInfoData: Invalid proxy connection isolation key: "${info.connectionIsolationKey}"`);
+    const { username, password, proxyDNS, failoverTimeout, proxyAuthorizationHeader, connectionIsolationKey } = info;
+    return { type, host, port, username, password, proxyDNS, failoverTimeout, proxyAuthorizationHeader, connectionIsolationKey };
+};
+
+// proxy.onRequest listeners run in registration order, each answer acting on the route the ones before it left, as
+// Firefox's ProxyChannelFilter applies them: undefined keeps the route, null connects directly, and a ProxyInfo or
+// an array of them replaces it, ending at a null entry. A listener that throws or answers with an invalid
+// ProxyInfo keeps the route and reports the error to proxy.onError.
+const dispatchProxyRequest = async (event, details) => {
+    const answers = [];
+    for (const entry of event._listeners.slice()) {
+        if (!filterMatches(entry.filter, details))
+            continue;
+        const listenerDetails = Object.assign({}, details);
+        if (!hasExtraInfo(entry, "requestHeaders"))
+            delete listenerDetails.requestHeaders;
+        try {
+            const result = await entry.callback(listenerDetails);
+            if (result === undefined)
+                continue;
+            if (result === null) {
+                answers.push(null);
+                continue;
+            }
+            if (typeof result !== "object")
+                throw new Error("ProxyInfoData: proxyData must be an object or array of objects");
+            const answer = [];
+            for (const info of Array.isArray(result) ? result : [result]) {
+                const proxy = validateProxyInfo(info);
+                answer.push(proxy);
+                if (proxy === null)
+                    break;
+            }
+            answers.push(answer);
+        } catch (error) {
+            proxyErrorEvent._fire({ message: errorMessage(error), fileName: error && error.sourceURL, lineNumber: error && error.line, stack: error && error.stack });
+        }
+    }
+    return { proxy: answers };
+};
+
 // webRequest.filterResponseData's StreamFilter, as Firefox's: the network process sends the filter its response's
 // body, and what the filter writes is the body the page receives. While the filter is suspended, events already
 // on their way wait here. Each message back reports how many data events have been dispatched, so a disconnect
@@ -523,16 +635,42 @@ browser.runtime = {
     get lastError() {
         return lastError;
     },
+    // connect(optional string extensionId, optional object connectInfo), each argument matched by its type.
     connect(...args) {
-        const connectInfo = args.find(argument => argument && typeof argument === "object") || {};
-        return connect(connectInfo.name);
+        const extensionId = args.length && (typeof args[0] === "string" || args[0] == null) ? args.shift() : null;
+        const connectInfo = args.length && (typeof args[0] === "object" || args[0] === undefined) ? args.shift() : null;
+        if (args.length)
+            throw new TypeError("Error in invocation of runtime.connect(optional string extensionId, optional object connectInfo): No matching signature.");
+        return connect(connectInfo ? connectInfo.name : undefined, extensionId ? { extensionId } : { });
     },
+    // sendMessage(optional string extensionId, any message, optional object options, optional function callback),
+    // two arguments being (extensionId, message) when the first is a string, null or undefined, as Chrome's
+    // MassageSendMessageArguments has it. An extensionId of null, undefined or "" is the caller's own.
     sendMessage(...args) {
-        return withOptionalCallback(args, message => sendMessage(message, { }));
+        return withOptionalCallback(args, (...rest) => {
+            let extensionId = null;
+            let message;
+            let options = null;
+            if (rest.length === 1)
+                [message] = rest;
+            else if (rest.length === 2 && (typeof rest[0] === "string" || rest[0] == null))
+                [extensionId, message] = rest;
+            else if (rest.length === 2)
+                [message, options] = rest;
+            else if (rest.length === 3)
+                [extensionId, message, options] = rest;
+            if (!rest.length || rest.length > 3 || (extensionId != null && typeof extensionId !== "string") || (options != null && typeof options !== "object"))
+                throw new TypeError("Error in invocation of runtime.sendMessage(optional string extensionId, any message, optional object options, optional function callback): No matching signature.");
+            return sendMessage(message, extensionId ? { extensionId } : { });
+        });
     },
     onConnect,
     onMessage,
 };
+if (isHost) {
+    browser.runtime.onConnectExternal = onConnectExternal;
+    browser.runtime.onMessageExternal = onMessageExternal;
+}
 
 if (!isHost) {
     const runWhen = (runAt, callback) => {
@@ -706,6 +844,85 @@ if (isHost) {
         runAt: details.runAt || "document_idle",
     });
 
+    // The checks Firefox's schemas make of the arguments of tabs.captureTab, tabs.saveAsPDF and dns.resolve, with
+    // its messages; a call whose arguments fail them throws.
+    const schemaError = (value, schema, path = "") => {
+        const fail = message => path ? `Error processing ${path}: ${message}` : message;
+        const expected = type => fail(`Expected ${type} instead of ${JSON.stringify(value)}`);
+        const child = name => path ? `${path}.${name}` : String(name);
+        if (schema.enum) {
+            if (typeof value !== "string")
+                return expected("string");
+            return schema.enum.includes(value) ? undefined : fail(`Invalid enumeration value ${JSON.stringify(value)}`);
+        }
+        switch (schema.type) {
+        case "integer":
+            if (!Number.isInteger(value))
+                return expected("integer");
+            if (schema.minimum !== undefined && value < schema.minimum)
+                return fail(`Integer ${value} is too small (must be at least ${schema.minimum})`);
+            if (schema.maximum !== undefined && value > schema.maximum)
+                return fail(`Integer ${value} is too big (must be at most ${schema.maximum})`);
+            return undefined;
+        case "array":
+            if (!Array.isArray(value))
+                return expected("array");
+            for (let index = 0; index < value.length; ++index) {
+                const error = schemaError(value[index], schema.items, child(index));
+                if (error)
+                    return error;
+            }
+            return undefined;
+        case "object":
+            if (!value || typeof value !== "object" || Array.isArray(value))
+                return expected("object");
+            for (const name of Object.keys(value)) {
+                if (!Object.hasOwn(schema.properties, name))
+                    return fail(`Unexpected property "${name}"`);
+            }
+            for (const [name, property] of Object.entries(schema.properties)) {
+                if (value[name] === undefined || value[name] === null) {
+                    if (!property.optional)
+                        return fail(`Property "${name}" is required`);
+                    continue;
+                }
+                const error = schemaError(value[name], property, child(name));
+                if (error)
+                    return error;
+            }
+            return undefined;
+        default:
+            return typeof value === schema.type ? undefined : expected(schema.type);
+        }
+    };
+    const checkParameter = (method, name, value, schema) => {
+        const error = value === undefined || value === null ? undefined : schemaError(value, schema);
+        if (error)
+            throw new Error(`Type error for parameter ${name} (${error}) for ${method}.`);
+    };
+    const optional = schema => Object.assign({ optional: true }, schema);
+    // extensionTypes.ImageDetails. resetScrollPosition is accepted and, as for an extension Firefox does not
+    // sign, ignored.
+    const imageDetailsSchema = {
+        type: "object",
+        properties: {
+            format: optional({ enum: ["jpeg", "png"] }),
+            quality: optional({ type: "integer", minimum: 0, maximum: 100 }),
+            rect: optional({ type: "object", properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } }),
+            scale: optional({ type: "number" }),
+            resetScrollPosition: optional({ type: "boolean" }),
+        },
+    };
+    const pageSettingsSchema = { type: "object", properties: { } };
+    for (const name of ["toFileName", "headerLeft", "headerCenter", "headerRight", "footerLeft", "footerCenter", "footerRight"])
+        pageSettingsSchema.properties[name] = optional({ type: "string" });
+    for (const name of ["paperSizeUnit", "orientation"])
+        pageSettingsSchema.properties[name] = optional({ type: "integer" });
+    for (const name of ["paperWidth", "paperHeight", "scaling", "edgeLeft", "edgeRight", "edgeTop", "edgeBottom", "marginLeft", "marginRight", "marginTop", "marginBottom"])
+        pageSettingsSchema.properties[name] = optional({ type: "number" });
+    for (const name of ["shrinkToFit", "showBackgroundColors", "showBackgroundImages"])
+        pageSettingsSchema.properties[name] = optional({ type: "boolean" });
+
     browser.tabs = {
         get(...args) {
             return withOptionalCallback(args, tabId => callRouter("tabs.get", tabId).then(tab => {
@@ -764,9 +981,43 @@ if (isHost) {
                 await callRouter("tabs.show", tabReferences(tabIds));
             });
         },
+        // As Firefox matches arguments to its schema, an object first is the options of a call with no tab.
+        captureTab(...args) {
+            return withOptionalCallback(args, (...parameters) => {
+                if (typeof parameters[0] === "object" && parameters[0] !== null)
+                    parameters.unshift(null);
+                const [tabId = null, options = null] = parameters;
+                if ((tabId !== null && typeof tabId !== "number") || (options !== null && typeof options !== "object"))
+                    throw new Error("Incorrect argument types for tabs.captureTab.");
+                checkParameter("tabs.captureTab", "tabId", tabId, { type: "integer", minimum: 0 });
+                checkParameter("tabs.captureTab", "options", options, imageDetailsSchema);
+                return callRouter("tabs.captureTab", tabId, options || {});
+            });
+        },
+        saveAsPDF(...args) {
+            return withOptionalCallback(args, pageSettings => {
+                if (pageSettings === undefined || pageSettings === null)
+                    throw new Error("Incorrect argument types for tabs.saveAsPDF.");
+                checkParameter("tabs.saveAsPDF", "pageSettings", pageSettings, pageSettingsSchema);
+                return callRouter("tabs.saveAsPDF", pageSettings);
+            });
+        },
         onCreated: trackedEvent("tabs.onCreated"),
         onRemoved: trackedEvent("tabs.onRemoved"),
         onUpdated: trackedEvent("tabs.onUpdated"),
+    };
+
+    // Firefox's dns.
+    const resolveFlags = ["allow_name_collisions", "bypass_cache", "canonical_name", "disable_ipv4", "disable_ipv6", "disable_trr", "offline", "priority_low", "priority_medium", "speculate"];
+    browser.dns = {
+        resolve(...args) {
+            return withOptionalCallback(args, (hostname, flags = null) => {
+                if (typeof hostname !== "string" || (flags !== null && !Array.isArray(flags)))
+                    throw new Error("Incorrect argument types for dns.resolve.");
+                checkParameter("dns.resolve", "flags", flags, { type: "array", items: { enum: resolveFlags } });
+                return callRouter("dns.resolve", hostname, flags || []);
+            });
+        },
     };
 
     // cookies. The router reads and writes a cookie store within the extension's website access; matching a
@@ -878,6 +1129,40 @@ if (isHost) {
         },
         onChange: trackedEvent(`privacy.${name}.onChange`),
     });
+    // proxy: Chromium's proxy.settings, a ChromeSetting the router keeps, of which only the regular scope is
+    // supported; Firefox's proxy.onRequest and proxy.onError; Chromium's proxy.onProxyError. A pac_script value's
+    // script at a URL no network load reaches -- the extension's own resources, data: and blob: URLs -- is read
+    // here and travels with the value.
+    const proxyScope = details => details.scope === undefined ? "regular" : String(details.scope);
+    const pacScriptData = async value => {
+        const url = value && value.mode === "pac_script" && value.pacScript && typeof value.pacScript.url === "string" ? value.pacScript.url : "";
+        try {
+            const resolved = url ? new URL(url, location.href) : null;
+            if (!resolved || !["safari-extension:", "data:", "blob:"].includes(resolved.protocol))
+                return undefined;
+            return await (await fetch(resolved.href)).text();
+        } catch {
+            return undefined;
+        }
+    };
+    browser.proxy = {
+        settings: {
+            get(...args) {
+                return withOptionalCallback(args, (details = {}) => callRouter("proxy.settings.get", { incognito: !!(details && details.incognito) }));
+            },
+            set(...args) {
+                return withOptionalCallback(args, async (details = {}) => callRouter("proxy.settings.set", details.value, proxyScope(details), await pacScriptData(details.value)));
+            },
+            clear(...args) {
+                return withOptionalCallback(args, (details = {}) => callRouter("proxy.settings.clear", proxyScope(details)));
+            },
+            onChange: trackedEvent("proxy.settings.onChange"),
+        },
+        onRequest: trackedEvent("proxy.onRequest"),
+        onError: proxyErrorEvent,
+        onProxyError: trackedEvent("proxy.onProxyError"),
+    };
+
     browser.privacy = {
         network: {
             networkPredictionEnabled: chromeSetting("network.networkPredictionEnabled"),
@@ -989,20 +1274,414 @@ if (isHost) {
     }
 }
 
+// devtools, in a devtools page: native.inspectedTabId() is the tab its Web Inspector inspects. The methods follow
+// Chrome's devtools API (ExtensionAPI.ts): a trailing callback, or else a Promise, and failures reported as
+// Chrome's ExtensionServer records ({ code, description, details, isError }) rather than through lastError.
+if (isHost && typeof native.inspectedTabId === "function" && typeof native.inspectedTabId() === "number") {
+    const devToolsError = () => new Error("DevTools API encountered an error");
+    const failedRecord = error => ({ code: "E_FAILED", description: "Operation failed: %s", details: [errorMessage(error)], isError: true });
+    const callbackOrPromise = args => {
+        const callback = typeof args[args.length - 1] === "function" ? args[args.length - 1] : undefined;
+        if (callback)
+            return { callback };
+        let resolve, reject;
+        const promise = new Promise((resolvePromise, rejectPromise) => {
+            resolve = resolvePromise;
+            reject = rejectPromise;
+        });
+        return { promise, resolve, reject };
+    };
+
+    // HAR entries, as upstream's WI.HARBuilder writes them from the WI.Resource the Network domain's events
+    // describe. A record is a request's events as the router collected them.
+    const harDate = seconds => typeof seconds === "number" && Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : "";
+    const headerValue = (headers, name) => {
+        const lowercaseName = name.toLowerCase();
+        for (const key in headers || {}) {
+            if (key.toLowerCase() === lowercaseName)
+                return headers[key];
+        }
+        return undefined;
+    };
+    const harHeaders = headers => Object.keys(headers || {}).map(name => ({ name, value: headers[name] }));
+    const parseQueryString = queryString => {
+        if (!queryString)
+            return [];
+        const decode = string => {
+            try {
+                return decodeURIComponent(string.replace(/\+/g, " "));
+            } catch {
+                return string;
+            }
+        };
+        return queryString.split("&").map(parameter => {
+            let index = parameter.indexOf("=");
+            if (index === -1)
+                index = parameter.length;
+            return { name: decode(parameter.substring(0, index)), value: decode(parameter.substring(index + 1)) };
+        });
+    };
+    const httpVersion = protocol => ({ "h2": "HTTP/2", "http/1.0": "HTTP/1.0", "http/1.1": "HTTP/1.1", "spdy/2": "SPDY/2", "spdy/3": "SPDY/3", "spdy/3.1": "SPDY/3.1" })[protocol] || "";
+    const requestCookies = header => {
+        if (!header || !header.trim())
+            return [];
+        const cookies = [];
+        for (const pair of header.trim().split(/; /)) {
+            const match = pair.match(/^([^\s=]+)[ \t]*=[ \t]*(.*)$/);
+            if (match)
+                cookies.push({ name: match[1], value: match[2] });
+        }
+        return cookies;
+    };
+    const responseCookies = (header, requestSentSeconds) => {
+        const cookies = [];
+        for (const line of (header || "").split(/, (?![0-9])/)) {
+            const nameValue = line.match(/^([^\s=]+)[ \t]*=[ \t]*([^;]*)/);
+            if (!nameValue)
+                continue;
+            const cookie = { name: nameValue[1], value: nameValue[2] };
+            let expires = null;
+            let maxAge = null;
+            let httpOnly = false;
+            let secure = false;
+            let sameSite = "None";
+            for (const attribute of line.substring(nameValue[0].length).split(/; ?/)) {
+                const match = attribute && attribute.match(/^([^\s=]+)(?:=(.*))?$/);
+                if (!match)
+                    continue;
+                const value = match[2];
+                switch (match[1].toLowerCase()) {
+                case "expires":
+                    expires = new Date(value);
+                    if (isNaN(expires.getTime()))
+                        expires = null;
+                    break;
+                case "max-age":
+                    maxAge = /^\d+$/.test(value || "") ? parseInt(value, 10) : null;
+                    break;
+                case "path":
+                    cookie.path = value;
+                    break;
+                case "domain":
+                    cookie.domain = value;
+                    break;
+                case "secure":
+                    secure = true;
+                    break;
+                case "httponly":
+                    httpOnly = true;
+                    break;
+                case "samesite": {
+                    const lowercaseValue = (value || "").toLowerCase();
+                    sameSite = lowercaseValue === "lax" ? "Lax" : lowercaseValue === "strict" ? "Strict" : "None";
+                    break;
+                }
+                }
+            }
+            let expirationDate = null;
+            if (expires || maxAge)
+                expirationDate = maxAge ? new Date((typeof requestSentSeconds === "number" ? requestSentSeconds * 1000 : Date.now()) + maxAge * 1000) : expires;
+            cookie.expires = expirationDate ? expirationDate.toISOString() : "";
+            cookie.httpOnly = httpOnly;
+            cookie.secure = secure;
+            if (sameSite !== "None")
+                cookie.sameSite = sameSite;
+            cookies.push(cookie);
+        }
+        return cookies;
+    };
+    const number = value => typeof value === "number" ? value : NaN;
+
+    // WI.ResourceTimingData.fromPayload, with its getters' fallbacks to the request's event times.
+    const timingData = record => {
+        const payload = (record.response && record.response.timing) || {};
+        const startTime = number(payload.startTime);
+        let fetchStart = number(payload.fetchStart);
+        if (isNaN(fetchStart) || fetchStart < startTime)
+            fetchStart = startTime;
+        const offset = value => value > 0 ? fetchStart + value / 1000 : NaN;
+        const data = {
+            startTime,
+            domainLookupStart: offset(payload.domainLookupStart),
+            domainLookupEnd: offset(payload.domainLookupEnd),
+            connectStart: offset(payload.connectStart),
+            connectEnd: offset(payload.connectEnd),
+            secureConnectionStart: offset(payload.secureConnectionStart),
+            requestStart: offset(payload.requestStart),
+            responseStart: offset(payload.responseStart),
+            responseEnd: number(record.finishedTimestamp) || offset(payload.responseEnd),
+        };
+        for (const key of Object.keys(data))
+            data[key] = data[key] || NaN;
+        if (data.domainLookupStart >= data.domainLookupEnd)
+            data.domainLookupStart = data.domainLookupEnd = NaN;
+        if (data.connectStart >= data.connectEnd)
+            data.connectStart = data.connectEnd = NaN;
+        const sent = number(record.timestamp);
+        return {
+            startTime: data.startTime || sent,
+            domainLookupStart: data.domainLookupStart,
+            domainLookupEnd: data.domainLookupEnd,
+            connectStart: data.connectStart,
+            connectEnd: data.connectEnd,
+            secureConnectionStart: data.secureConnectionStart,
+            requestStart: data.requestStart || data.startTime || sent,
+            responseStart: data.responseStart || data.startTime || number(record.responseTimestamp) || number(record.finishedTimestamp),
+            responseEnd: data.responseEnd || number(record.finishedTimestamp),
+        };
+    };
+
+    const harTimings = timing => {
+        const result = { blocked: -1, dns: -1, connect: -1, ssl: -1, send: 0, wait: 0, receive: 0 };
+        if (!timing.startTime || !timing.responseEnd)
+            return result;
+        const { startTime, domainLookupStart, domainLookupEnd, connectStart, connectEnd, secureConnectionStart, requestStart, responseStart, responseEnd } = timing;
+        result.blocked = ((domainLookupStart || connectStart || requestStart) - startTime) * 1000;
+        if (domainLookupStart)
+            result.dns = ((domainLookupEnd || connectStart || requestStart) - domainLookupStart) * 1000;
+        if (connectStart)
+            result.connect = ((connectEnd || requestStart) - connectStart) * 1000;
+        if (secureConnectionStart)
+            result.ssl = ((connectEnd || requestStart) - secureConnectionStart) * 1000;
+        result.send = (domainLookupEnd || connectEnd) ? (requestStart - (connectEnd || domainLookupEnd)) * 1000 : 0;
+        result.wait = (responseStart - requestStart) * 1000;
+        result.receive = (responseEnd - responseStart) * 1000;
+        return result;
+    };
+
+    const harEntry = record => {
+        const response = record.response || {};
+        const metrics = record.metrics || {};
+        const requestHeaders = metrics.requestHeaders || response.requestHeaders || record.requestHeaders || {};
+        const responseHeaders = response.headers || {};
+        const cached = !!record.fromMemoryCache || response.source === "memory-cache" || response.source === "disk-cache";
+        const responseBodySize = number(metrics.responseBodyDecodedSize);
+        const responseBodyTransferSize = number(metrics.responseBodyBytesReceived);
+        const responseHeadersTransferSize = number(metrics.responseHeaderBytesReceived);
+        const estimatedSize = number(record.dataLength) || 0;
+        let size = estimatedSize;
+        if (!isNaN(number(record.cachedBodySize)) && record.fromMemoryCache)
+            size = record.cachedBodySize;
+        else if (!isNaN(responseBodySize) && responseBodySize !== 0)
+            size = responseBodySize;
+        let estimatedEncodedSize;
+        if (!isNaN(responseBodyTransferSize))
+            estimatedEncodedSize = responseBodyTransferSize;
+        else if (cached)
+            estimatedEncodedSize = 0;
+        else if (!isNaN(Number(headerValue(responseHeaders, "Content-Length"))))
+            estimatedEncodedSize = Number(headerValue(responseHeaders, "Content-Length"));
+        else if (!isNaN(number(record.encodedDataLength)))
+            estimatedEncodedSize = record.encodedDataLength;
+        else
+            estimatedEncodedSize = estimatedSize;
+        let decodedSize = !isNaN(responseBodySize) ? responseBodySize : size;
+        let encodedSize = !isNaN(responseBodyTransferSize) ? responseBodyTransferSize : estimatedEncodedSize;
+        if (isNaN(decodedSize))
+            decodedSize = 0;
+        if (isNaN(encodedSize))
+            encodedSize = 0;
+        const timing = timingData(record);
+        const url = record.url || "";
+        let queryString = "";
+        try {
+            queryString = new URL(url).search.substring(1);
+        } catch { }
+
+        const request = {
+            method: record.method || "",
+            url,
+            httpVersion: httpVersion(metrics.protocol),
+            cookies: requestCookies(headerValue(requestHeaders, "Cookie")),
+            headers: harHeaders(requestHeaders),
+            queryString: parseQueryString(queryString),
+            headersSize: !isNaN(number(metrics.requestHeaderBytesSent)) ? metrics.requestHeaderBytesSent : -1,
+            bodySize: !isNaN(number(metrics.requestBodyBytesSent)) ? metrics.requestBodyBytesSent : -1,
+        };
+        if (record.postData) {
+            const contentType = headerValue(requestHeaders, "Content-Type") || "";
+            request.postData = {
+                mimeType: contentType,
+                text: record.postData,
+                params: /^application\/x-www-form-urlencoded\s*(;.*)?$/i.test(contentType) ? parseQueryString(record.postData) : [],
+            };
+        }
+
+        const harResponse = {
+            status: response.status || 0,
+            statusText: response.statusText || "",
+            httpVersion: httpVersion(metrics.protocol),
+            cookies: responseCookies(headerValue(responseHeaders, "Set-Cookie"), record.walltime),
+            headers: harHeaders(responseHeaders),
+            content: { size: decodedSize, compression: decodedSize - encodedSize, mimeType: response.mimeType || "x-unknown" },
+            redirectURL: headerValue(responseHeaders, "Location") || "",
+            headersSize: !isNaN(responseHeadersTransferSize) ? responseHeadersTransferSize : -1,
+            bodySize: !isNaN(responseBodyTransferSize) ? responseBodyTransferSize : -1,
+        };
+        if (!isNaN(responseHeadersTransferSize + responseBodyTransferSize))
+            harResponse._transferSize = responseHeadersTransferSize + responseBodyTransferSize;
+        if (record.failureText)
+            harResponse._error = record.failureText;
+
+        const entry = {
+            pageref: "page_0",
+            startedDateTime: harDate(record.walltime),
+            time: timing.startTime && timing.responseEnd ? (timing.responseEnd - timing.startTime) * 1000 : 0,
+            request,
+            response: harResponse,
+            cache: {},
+            timings: harTimings(timing),
+        };
+        if (metrics.remoteAddress) {
+            entry.serverIPAddress = metrics.remoteAddress.replace(/:\d+$/, "");
+            const port = parseInt(metrics.remoteAddress.substring(metrics.remoteAddress.lastIndexOf(":") + 1));
+            if (entry.serverIPAddress && !isNaN(port))
+                entry._serverPort = port;
+        }
+        if (metrics.connectionIdentifier)
+            entry.connection = String(metrics.connectionIdentifier);
+        const fetchType = { "network": "Network Load", "memory-cache": "Memory Cache", "disk-cache": "Disk Cache", "service-worker": "Service Worker", "inspector-override": "Inspector Override" }[record.fromMemoryCache ? "memory-cache" : response.source];
+        if (fetchType)
+            entry._fetchType = fetchType;
+        if (["low", "medium", "high"].includes(metrics.priority))
+            entry._priority = metrics.priority;
+        return entry;
+    };
+
+    const redirectEntries = record => record.redirects.map(redirect => {
+        const response = redirect.response || {};
+        const responseHeaders = response.headers || {};
+        const walltime = typeof record.walltime === "number" && typeof redirect.timestamp === "number" ? record.walltime + (redirect.timestamp - record.timestamp) : undefined;
+        return {
+            pageref: "page_0",
+            startedDateTime: harDate(walltime),
+            time: 0,
+            request: { method: redirect.method || "", url: redirect.url || "", httpVersion: "", cookies: [], headers: harHeaders(redirect.requestHeaders), queryString: [], headersSize: -1, bodySize: -1 },
+            response: { status: response.status || 0, statusText: response.statusText || "", httpVersion: "", cookies: [], headers: harHeaders(responseHeaders), content: { size: 0, mimeType: "x-unknown" }, redirectURL: responseHeaders.Location || responseHeaders.location || "", headersSize: -1, bodySize: -1 },
+            cache: {},
+            timings: { blocked: -1, dns: -1, connect: -1, ssl: -1, send: 0, wait: 0, receive: 0 },
+        };
+    });
+
+    // A request's entry carries getContent() on its prototype, as Chrome's Request objects do.
+    const requestEntry = record => Object.setPrototypeOf(harEntry(record), {
+        getContent(...args) {
+            const { callback, promise, resolve, reject } = callbackOrPromise(args);
+            callRouter("devtools.network.getContent", record.id).catch(failedRecord).then(response => {
+                if (response && response.isError && reject)
+                    return reject(devToolsError());
+                const { content, encoding } = response || {};
+                if (resolve)
+                    resolve({ content, encoding });
+                if (callback)
+                    callback(content, encoding);
+            });
+            return promise;
+        },
+    });
+
+    const harLog = ({ records, page }) => {
+        page = page || {};
+        const main = records.find(record => record.loaderId === page.loaderId && record.type === "Document");
+        const pageTimings = {};
+        if (main && typeof page.domContentLoadedTimestamp === "number")
+            pageTimings.onContentLoad = (page.domContentLoadedTimestamp - main.timestamp) * 1000;
+        if (main && typeof page.loadTimestamp === "number")
+            pageTimings.onLoad = (page.loadTimestamp - main.timestamp) * 1000;
+        const entries = [];
+        for (const record of records) {
+            entries.push(...redirectEntries(record));
+            entries.push(requestEntry(record));
+        }
+        return {
+            version: "1.2",
+            creator: { name: "WebKit Web Inspector", version: "1.0" },
+            pages: [{ startedDateTime: harDate(main && main.walltime), id: "page_0", title: page.url || "", pageTimings }],
+            entries,
+        };
+    };
+
+    const onRequestFinished = trackedEvent("devtools.network.onRequestFinished");
+    onRequestFinished._fire = function(record) {
+        Event.prototype._fire.call(this, requestEntry(record));
+    };
+
+    browser.devtools = {
+        inspectedWindow: {
+            tabId: native.inspectedTabId(),
+            eval(expression, optionsOrCallback) {
+                const options = typeof optionsOrCallback === "object" && optionsOrCallback !== null ? optionsOrCallback : {};
+                const { callback, promise, resolve, reject } = callbackOrPromise(Array.from(arguments));
+                const unsupported = ["useContentScriptContext", "scriptExecutionContext"].find(name => options[name]);
+                const evaluation = unsupported
+                    ? Promise.resolve({ code: "E_NOTSUPPORTED", description: "Object does not support requested operation: %s", details: [unsupported], isError: true })
+                    : callRouter("devtools.inspectedWindow.eval", String(expression), { frameURL: typeof options.frameURL === "string" ? options.frameURL : undefined }).catch(failedRecord);
+                evaluation.then(result => {
+                    if (result.isError && reject)
+                        return reject(devToolsError());
+                    if (result.isException) {
+                        if (reject)
+                            reject(result);
+                    } else if (resolve)
+                        resolve(result.value);
+                    if (!callback)
+                        return;
+                    if (result.isError || result.isException)
+                        callback(undefined, result);
+                    else
+                        callback(result.value);
+                });
+                return promise;
+            },
+            reload(optionsOrUserAgent) {
+                let options = {};
+                if (typeof optionsOrUserAgent === "object" && optionsOrUserAgent !== null)
+                    options = optionsOrUserAgent;
+                else if (typeof optionsOrUserAgent === "string")
+                    options = { userAgent: optionsOrUserAgent };
+                callRouter("devtools.inspectedWindow.reload", {
+                    ignoreCache: options.ignoreCache === true,
+                    userAgent: typeof options.userAgent === "string" ? options.userAgent : undefined,
+                    injectedScript: typeof options.injectedScript === "string" ? options.injectedScript : undefined,
+                }).catch(() => { });
+            },
+        },
+        network: {
+            onRequestFinished,
+            onNavigated: trackedEvent("devtools.network.onNavigated"),
+            getHAR(...args) {
+                const { callback, promise, resolve, reject } = callbackOrPromise(args);
+                callRouter("devtools.network.getHAR").then(archive => {
+                    const log = harLog(archive);
+                    if (resolve)
+                        resolve(log);
+                    if (callback)
+                        callback(log);
+                }, () => {
+                    if (reject)
+                        reject(devToolsError());
+                });
+                return promise;
+            },
+        },
+    };
+}
+
 // Incoming messages.
 
 function receiverTable() {
     if (!receiverTable.table) {
         receiverTable.table = {
-            connect({ portId, name, sender }) {
+            connect({ portId, name, sender, external }) {
                 const port = new Port(portId, name, sender);
-                if (!onConnect.hasListeners()) {
+                const event = external ? onConnectExternal : onConnect;
+                if (!event.hasListeners()) {
                     port._connected = false;
                     ports.delete(portId);
                     send({ t: "disconnect", portId });
                     return;
                 }
-                onConnect._fire(port);
+                event._fire(port);
             },
             post({ portId, msg }) {
                 const port = ports.get(portId);
@@ -1052,6 +1731,12 @@ function receiverTable() {
                     return;
                 }
                 const event = trackedEvents.get(name);
+                if (name === "proxy.onRequest") {
+                    const dispatch = event ? dispatchProxyRequest(event, args[0]) : Promise.resolve({});
+                    if (token !== undefined)
+                        dispatch.then(result => send({ t: "respond", token, result }), () => send({ t: "respond", token, result: {} }));
+                    return;
+                }
                 if (name.startsWith("webRequest.")) {
                     const dispatch = event ? dispatchWebRequestEvent(event, args[0]) : Promise.resolve({});
                     if (token !== undefined)
@@ -1156,6 +1841,37 @@ if (isHost) {
         cancelHandoff: ticket => callRouter("aqua.mediaPlayer.cancelHandoff", ticket),
     });
 }
+// Every method of a namespace and of its nested namespaces checks that the context is valid when called, and
+// every event when read, as Chrome's bindings do (api_binding.cc RunAPIBindingHandlerCallback, GetEventObject).
+const guardNamespace = namespace => {
+    for (const key of Object.getOwnPropertyNames(namespace)) {
+        const descriptor = Object.getOwnPropertyDescriptor(namespace, key);
+        if (!descriptor.configurable || !("value" in descriptor))
+            continue;
+        const value = descriptor.value;
+        if (typeof value === "function") {
+            Object.defineProperty(namespace, key, Object.assign(descriptor, {
+                value: function (...args) {
+                    checkContextIsValid();
+                    return value.apply(this, args);
+                },
+            }));
+        } else if (value instanceof Event) {
+            Object.defineProperty(namespace, key, {
+                get() {
+                    checkContextIsValid();
+                    return value;
+                },
+                enumerable: descriptor.enumerable,
+                configurable: true,
+            });
+        } else if (value && typeof value === "object" && !Object.isFrozen(value) && Object.getPrototypeOf(value) === Object.prototype)
+            guardNamespace(value);
+    }
+};
+guardNamespace(browser);
+guardNamespace(aqua);
+
 if (Object.keys(aqua).length)
     Object.defineProperty(globalThis, "aqua", { value: aqua, writable: true, configurable: true, enumerable: false });
 

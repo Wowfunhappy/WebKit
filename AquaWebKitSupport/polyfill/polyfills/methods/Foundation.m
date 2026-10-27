@@ -2610,8 +2610,8 @@ WK_POLYFILL_REPLACE_METHODS(NSMutableURLRequest)
 }
 @end
 
-// Modern CFNetwork carries this request policy internally. The WebSocket transport reads the same
-// stamp, while Cocoa/curl data tasks apply their NetworkStorageSession decision directly.
+// Modern CFNetwork carries this request policy internally; the request keeps it as a protocol property. The
+// curl data and WebSocket tasks apply their NetworkStorageSession decision directly.
 WK_POLYFILL_ADD_METHODS(NSMutableURLRequest)
 - (void)_setAllowOnlyPartitionedCookies:(BOOL)allowOnly
 {

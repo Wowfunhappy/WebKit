@@ -537,6 +537,8 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
 #endif
             completionHandler(nsRequest.get());
         });
+    // AQUAWEBKIT: a page WebSocket is a WebSocketTask on the curl transport (WebSocketTaskCurlCocoa), never an NSURLSession task.
+    /*
     } else if (RefPtr webSocketTask = [self existingWebSocketTask:task]) {
         WebCore::ResourceResponse resourceResponse(response);
         webSocketTask->willPerformHTTPRedirection(WTF::move(resourceResponse), request, [completionHandler = makeBlockPtr(completionHandler), taskIdentifier](auto&& request) {
@@ -548,6 +550,7 @@ static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *r
             RetainPtr nsRequest = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody);
             completionHandler(nsRequest.get());
         });
+    */ // AQUAWEBKIT: closes the WebSocket redirect branch above.
     } else {
         LOG(NetworkSession, "%zu willPerformHTTPRedirection completionHandler (nil)", taskIdentifier);
         completionHandler(nil);
@@ -623,8 +626,9 @@ static inline void processServerTrustEvaluation(NetworkSessionCocoa& session, Se
         return nullptr;
     }
 
-    if (RefPtr webSocketTask = _sessionWrapper->webSocketDataTaskMap.get(task.taskIdentifier).get())
-        return webSocketTask->networkSession();
+    // AQUAWEBKIT: a page WebSocket is a WebSocketTask on the curl transport (WebSocketTaskCurlCocoa), never an NSURLSession task.
+    // if (RefPtr webSocketTask = _sessionWrapper->webSocketDataTaskMap.get(task.taskIdentifier).get())
+    //     return webSocketTask->networkSession();
 
     return nullptr;
 }
@@ -847,11 +851,13 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
     if (auto networkDataTask = [self existingTask:task])
         networkDataTask->didCompleteWithError(updatedError.get(), networkDataTask->networkLoadMetrics());
+    // AQUAWEBKIT: a page WebSocket is a WebSocketTask on the curl transport (WebSocketTaskCurlCocoa), never an NSURLSession task.
+    /*
     else if (RefPtr webSocketTask = [self existingWebSocketTask:task]) {
         // Even if error is null here, it's an error to close a WebSocket without a close frame which should be received
         // in URLSession:webSocketTask:didCloseWithCode:reason: but this can be hit in some TCP error cases like rdar://110487778
         webSocketTask->didClose(WebCore::ThreadableWebSocketChannel::CloseEventCodeAbnormalClosure, emptyString());
-    } else if (updatedError) {
+    } */ else if (updatedError) { // AQUAWEBKIT: closes the WebSocket branch above.
         if (!_sessionWrapper)
             return;
         auto downloadID = _sessionWrapper->downloadMap.takeOptional(task.taskIdentifier);
@@ -1099,6 +1105,8 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
     _sessionWrapper->downloadMap.add(downloadTask.taskIdentifier, downloadID);
 }
 
+// AQUAWEBKIT: a page WebSocket is a WebSocketTask on the curl transport (WebSocketTaskCurlCocoa), never an NSURLSession task.
+/*
 - (RefPtr<WebSocketTask>)existingWebSocketTask:(NSURLSessionTask *)task
 {
     if (!_sessionWrapper)
@@ -1127,6 +1135,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         webSocketTask->didClose(closeCode, closeReason.get());
     }
 }
+*/ // AQUAWEBKIT: closes the NSURLSession WebSocket delegate methods above.
 
 @end
 
@@ -1812,11 +1821,14 @@ static CompletionHandler<void(WebKit::AuthenticationChallengeDisposition disposi
 void NetworkSessionCocoa::continueDidReceiveChallenge(SessionWrapper& sessionWrapper, const WebCore::AuthenticationChallenge& challenge, NegotiatedLegacyTLS negotiatedLegacyTLS, NetworkDataTaskCocoa::TaskIdentifier taskIdentifier, RefPtr<NetworkDataTaskCocoa> networkDataTask, CompletionHandler<void(WebKit::AuthenticationChallengeDisposition, const WebCore::Credential&)>&& completionHandler)
 {
     if (!networkDataTask) {
+        // AQUAWEBKIT: a page WebSocket is a WebSocketTask on the curl transport (WebSocketTaskCurlCocoa), which puts its own challenges.
+        /*
         if (RefPtr webSocketTask = sessionWrapper.webSocketDataTaskMap.get(taskIdentifier).get()) {
             auto challengeCompletionHandler = createChallengeCompletionHandler(networkProcess(), sessionID(), challenge, webSocketTask->partition(), 0, WTF::move(completionHandler));
             protect(networkProcess().authenticationManager())->didReceiveAuthenticationChallenge(sessionID(), webSocketTask->webPageProxyID(), !webSocketTask->topOrigin().isNull() ? &webSocketTask->topOrigin() : nullptr, challenge, negotiatedLegacyTLS, WTF::move(challengeCompletionHandler));
             return;
         }
+        */ // AQUAWEBKIT: closes the WebSocket challenge branch above.
         if (auto downloadID = sessionWrapper.downloadMap.getOptional(taskIdentifier)) {
             if (RefPtr download = protect(networkProcess().downloadManager())->download(*downloadID)) {
                 WebCore::AuthenticationChallenge authenticationChallenge { challenge };
@@ -1855,6 +1867,13 @@ DMFWebsitePolicyMonitor *NetworkSessionCocoa::deviceManagementPolicyMonitor()
 RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
     ASSERT(!request.hasHTTPHeaderField(WebCore::HTTPHeaderName::SecWebSocketProtocol));
+    // AQUAWEBKIT: every page WebSocket is an RFC 6455 client on the curl transport, as the curl port's
+    // NetworkSessionCurl::createWebSocketTask makes one (WebSocketTaskCurlCocoa).
+    UNUSED_PARAM(hadMainFrameMainResourcePrivateRelayed);
+    UNUSED_PARAM(allowPrivacyProxy);
+    UNUSED_PARAM(advancedPrivacyProtections);
+    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSetForPage(webPageProxyID), request, protocol, clientOrigin, storedCredentialsPolicy, isInitiatedByDedicatedWorker);
+    /*
     RetainPtr nsRequest = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
     if (!nsRequest || ![nsRequest URL])
         return nullptr;
@@ -1907,6 +1926,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     task.get().maximumMessageSize = NSIntegerMax;
 
     return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy, isInitiatedByDedicatedWorker);
+    */ // AQUAWEBKIT: closes the NSURLSession WebSocket task above.
 }
 
 void NetworkSessionCocoa::addWebSocketTask(WebPageProxyIdentifier webPageProxyID, WebSocketTask& task)

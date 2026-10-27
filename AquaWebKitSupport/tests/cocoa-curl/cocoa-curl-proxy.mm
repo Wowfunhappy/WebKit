@@ -1,4 +1,5 @@
-// Resolve real CF proxy dictionaries, including PAC URL execution, without changing system settings.
+// Resolve real CF proxy dictionaries, including PAC URL execution, without changing system settings. Every route the
+// settings give a URL comes back in order, the first one first: a PAC answer naming several servers yields them all.
 #include "config.h"
 #include <WebCore/CocoaCurlProxyResolver.h>
 #include <wtf/MainThread.h>
@@ -7,15 +8,20 @@
 #include <cstdio>
 using namespace WebCore;
 static unsigned failures;
-static void resolve(NSString* address, NSDictionary* settings, CFStringRef expectedType, NSString* expectedHost = nil, int expectedPort = 0)
+static void resolve(NSString* address, NSDictionary* settings, CFStringRef expectedType, NSString* expectedHost = nil, int expectedPort = 0, NSArray<NSString*>* expectedRoutes = nil)
 {
     bool done = false;
-    Ref resolver = CocoaCurlProxyResolver::create(URL { String(address) }, (__bridge CFDictionaryRef)settings, [&](RetainPtr<CFDictionaryRef>&& route, const String& error) {
-        auto dictionary = (__bridge NSDictionary*)route.get();
+    Ref resolver = CocoaCurlProxyResolver::createForRoutes(URL { String(address) }, (__bridge CFDictionaryRef)settings, [&](RetainPtr<CFArrayRef>&& routes, const String& error) {
+        auto list = (__bridge NSArray*)routes.get();
+        NSDictionary* dictionary = list.count ? list[0] : nil;
+        NSMutableArray<NSString*>* seen = [NSMutableArray array];
+        for (NSDictionary* route in list)
+            [seen addObject:[NSString stringWithFormat:@"%@:%@", route[(id)kCFProxyTypeKey], route[(id)kCFProxyPortNumberKey] ?: @0]];
         bool passed = error.isEmpty() && [dictionary[(id)kCFProxyTypeKey] isEqual:(id)expectedType]
+            && (!expectedRoutes || [seen isEqualToArray:expectedRoutes])
             && (!expectedHost || [dictionary[(id)kCFProxyHostNameKey] isEqual:expectedHost])
             && (!expectedPort || [dictionary[(id)kCFProxyPortNumberKey] intValue] == expectedPort);
-        printf("Proxy %s route=%s host=%s port=%d error=%s %s\n", address.UTF8String, [dictionary[(id)kCFProxyTypeKey] UTF8String], [dictionary[(id)kCFProxyHostNameKey] UTF8String], [dictionary[(id)kCFProxyPortNumberKey] intValue], error.utf8().data(), passed ? "PASS" : "FAIL");
+        printf("Proxy %s route=%s host=%s port=%d routes=[%s] error=%s %s\n", address.UTF8String, [dictionary[(id)kCFProxyTypeKey] UTF8String], [dictionary[(id)kCFProxyHostNameKey] UTF8String], [dictionary[(id)kCFProxyPortNumberKey] intValue], [seen componentsJoinedByString:@","].UTF8String, error.utf8().data(), passed ? "PASS" : "FAIL");
         failures += !passed;
         done = true;
         CFRunLoopStop(CFRunLoopGetMain());
@@ -42,12 +48,14 @@ int main()
         char directory[] = "/private/tmp/curl-proxy-PAC-XXXXXX";
         RELEASE_ASSERT(mkdtemp(directory));
         NSString* file = [[NSString stringWithUTF8String:directory] stringByAppendingPathComponent:@"proxy.pac"];
-        NSString* script = @"function FindProxyForURL(url, host) { if (host == 'direct.test') return 'DIRECT'; return 'PROXY 127.0.0.1:18985'; }";
+        NSString* script = @"function FindProxyForURL(url, host) { if (host == 'direct.test') return 'DIRECT'; if (host == 'failover.test') return 'PROXY 127.0.0.1:18959; PROXY 127.0.0.1:18985; DIRECT'; return 'PROXY 127.0.0.1:18985'; }";
         RELEASE_ASSERT([script writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil]);
         NSDictionary* pac = @{ @"ProxyAutoConfigEnable": @1, @"ProxyAutoConfigURLString": [NSURL fileURLWithPath:file].absoluteString };
         // CF classifies an HTTP CONNECT route as HTTPS for an HTTPS target.
         resolve(@"https://proxy-target.invalid/", pac, kCFProxyTypeHTTPS, @"127.0.0.1", 18985);
         resolve(@"https://direct.test/", pac, kCFProxyTypeNone);
+        resolve(@"http://failover.test/", pac, kCFProxyTypeHTTP, @"127.0.0.1", 18959,
+            @[ [NSString stringWithFormat:@"%@:18959", kCFProxyTypeHTTP], [NSString stringWithFormat:@"%@:18985", kCFProxyTypeHTTP], [NSString stringWithFormat:@"%@:0", kCFProxyTypeNone] ]);
         [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:directory] error:nil];
         auto systemAfter = adoptCF(CFNetworkCopySystemProxySettings());
         bool unchanged = systemBefore && systemAfter && CFEqual(systemBefore.get(), systemAfter.get());

@@ -526,6 +526,76 @@ String authenticationSchemeName(const AuthenticationChallenge& challenge)
     }
 }
 
+// Firefox's ProxyInfo, as ProxyInfoData.createProxyInfoFromData makes a proxy of it: SOCKS proxies take the
+// credentials and resolve the host themselves with proxyDNS; HTTP and HTTPS proxies take the Proxy-Authorization
+// field.
+static std::optional<CocoaCurlProxyServer> proxyServer(const JSON::Object& info)
+{
+    auto type = info.getString("type"_s);
+    CocoaCurlProxyServer server;
+    if (type == "direct"_s)
+        return server;
+    bool proxyDNS = info.getBoolean("proxyDNS"_s).value_or(false);
+    if (type == "http"_s)
+        server.type = CocoaCurlProxyServer::Type::HTTP;
+    else if (type == "https"_s)
+        server.type = CocoaCurlProxyServer::Type::HTTPS;
+    else if (type == "socks"_s)
+        server.type = proxyDNS ? CocoaCurlProxyServer::Type::SOCKS5Hostname : CocoaCurlProxyServer::Type::SOCKS5;
+    else if (type == "socks4"_s)
+        server.type = proxyDNS ? CocoaCurlProxyServer::Type::SOCKS4A : CocoaCurlProxyServer::Type::SOCKS4;
+    else
+        return std::nullopt;
+    auto port = info.getInteger("port"_s);
+    server.host = info.getString("host"_s);
+    if (server.host.isEmpty() || !port || *port < 1 || *port > 65535)
+        return std::nullopt;
+    server.port = *port;
+    if (server.type == CocoaCurlProxyServer::Type::HTTP || server.type == CocoaCurlProxyServer::Type::HTTPS)
+        server.authorizationHeader = info.getString("proxyAuthorizationHeader"_s);
+    else {
+        server.username = info.getString("username"_s);
+        server.password = info.getString("password"_s);
+    }
+    server.isolationKey = info.getString("connectionIsolationKey"_s);
+    if (auto timeout = info.getInteger("failoverTimeout"_s); timeout && *timeout > 0)
+        server.failoverTimeout = Seconds(*timeout);
+    return server;
+}
+
+Vector<CocoaCurlProxyFilterResult> proxyFilterResults(JSON::Array& answers)
+{
+    Vector<CocoaCurlProxyFilterResult> results;
+    for (auto& answer : answers) {
+        CocoaCurlProxyFilterResult result;
+        if (answer->isNull()) {
+            result.entries.append(std::nullopt);
+            results.append(WTF::move(result));
+            continue;
+        }
+        RefPtr list = answer->asArray();
+        if (!list)
+            continue;
+        bool valid = true;
+        for (auto& entry : *list) {
+            if (entry->isNull()) {
+                result.entries.append(std::nullopt);
+                continue;
+            }
+            RefPtr info = entry->asObject();
+            auto server = info ? proxyServer(*info) : std::nullopt;
+            if (!server) {
+                valid = false;
+                break;
+            }
+            result.entries.append(WTF::move(*server));
+        }
+        if (valid)
+            results.append(WTF::move(result));
+    }
+    return results;
+}
+
 ResourceError cancellationError(const ResourceRequest& request)
 {
     return blockedByContentBlockerError(request);

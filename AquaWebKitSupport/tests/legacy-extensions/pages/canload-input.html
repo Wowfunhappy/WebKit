@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>canLoad while typing</title>
+<input id="field" autofocus>
+<p>Each keystroke in the field inserts an image, so its beforeload (and canLoad) runs inside text input; answers in &lt;html data-canload&gt;.</p>
+<script>
+let n = 0;
+document.getElementById('field').addEventListener('keydown', () => { const img = new Image(); img.src = '/res/canload-key.png?' + (++n); document.body.appendChild(img); });
+document.getElementById('field').addEventListener('input', () => { const img = new Image(); img.src = '/res/canload-input.png?' + (++n); document.body.appendChild(img); });
+</script>

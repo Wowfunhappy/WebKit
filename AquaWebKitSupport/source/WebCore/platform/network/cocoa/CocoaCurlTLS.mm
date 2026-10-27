@@ -253,7 +253,9 @@ static ssl_verify_result_t verifyAsynchronously(SSL* ssl, uint8_t* alert)
     }
     return ssl_verify_retry;
 }
-static ssl_private_key_result_t signWithIdentity(SSL* ssl, uint8_t*, size_t*, size_t, uint16_t algorithm, const uint8_t* input, size_t inputSize)
+static ssl_private_key_result_t completeIdentitySignature(SSL*, uint8_t* output, size_t* outputSize, size_t capacity);
+
+static ssl_private_key_result_t signWithIdentity(SSL* ssl, uint8_t* output, size_t* outputSize, size_t capacity, uint16_t algorithm, const uint8_t* input, size_t inputSize)
 {
     auto state = CocoaCurlTLSState::fromSSL(ssl);
     if (!state || !state->privateKey)
@@ -299,6 +301,9 @@ static ssl_private_key_result_t signWithIdentity(SSL* ssl, uint8_t*, size_t*, si
     state->signingComplete = false;
     if (!data || !state->requestSignature || !state->requestSignature(nativeAlgorithm, WTF::move(data)))
         return ssl_private_key_failure;
+    // A transport that owns its handshaking thread signs before requestSignature returns.
+    if (state->signingComplete)
+        return completeIdentitySignature(ssl, output, outputSize, capacity);
     return ssl_private_key_retry;
 }
 
@@ -328,7 +333,10 @@ static int clientCertificateCallback(SSL* ssl, void*)
             if (!state->requestIdentity || !state->requestIdentity(ssl))
                 return 0;
         }
-        return -1; // BoringSSL suspends CertificateRequest until WebKit answers the challenge.
+        // BoringSSL suspends CertificateRequest until WebKit answers the challenge, which a transport that owns its
+        // handshaking thread does before requestIdentity returns.
+        if (!state->identityAnswered)
+            return -1;
     }
     if (!state->identity)
         return 1;
@@ -402,6 +410,18 @@ static int synchronousVerifyCallback(int, X509_STORE_CTX* store)
         state->accepted = evaluateNativeTrust(*state, store);
     X509_STORE_CTX_set_error(store, state->accepted ? X509_V_OK : X509_V_ERR_CERT_REJECTED);
     return state->accepted;
+}
+
+CURLcode CocoaCurlTLSState::installWithClientIdentity(SSL_CTX* ssl, const std::shared_ptr<CocoaCurlTLSState>& state)
+{
+    if (!cocoaCurlInstallClientHello(ssl))
+        return CURLE_SSL_CIPHER;
+    auto retained = std::make_unique<std::shared_ptr<CocoaCurlTLSState>>(state);
+    if (tlsStateIndex() < 0 || !SSL_CTX_set_ex_data(ssl, tlsStateIndex(), retained.get()))
+        return CURLE_OUT_OF_MEMORY;
+    retained.release();
+    SSL_CTX_set_cert_cb(ssl, clientCertificateCallback, nullptr);
+    return CURLE_OK;
 }
 
 CURLcode CocoaCurlTLSState::installSynchronously(SSL_CTX* ssl, const std::shared_ptr<CocoaCurlTLSState>& state)

@@ -1,4 +1,5 @@
-# WebSocket handshake fixture for websocket-open-order.mm. Every path answers with a valid 101:
+# WebSocket handshake fixture for cocoa-curl-websocket-open-order.mm, on the port its argument names. Every path
+# answers with a valid 101:
 #   /abort       closes the connection right after the handshake response
 #   /frame       sends a text frame in the same write as the handshake response and keeps the connection up
 #   /late-close  closes the connection half a second after the handshake response
@@ -8,10 +9,12 @@
 #   /echo-client-close echoes the client's Close frame before closing the connection
 #   /no-answer   reads the request and never answers it
 #   /proxy.pac   a PAC file sending proxied.invalid through this server as an HTTP proxy
+#   /failover.pac  a PAC file sending failover.invalid through 127.0.0.1:18959, where nothing listens, then this server
 #   /stalled.pac a PAC request answered never
 # A request in absolute form (ws://host/path), as a proxy receives it, is served by its path.
 import base64, hashlib, socket, sys, threading, time
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+PORT = int(sys.argv[1])
 def receive_frame(c):
     header = c.recv(2)
     if len(header) != 2:
@@ -45,7 +48,11 @@ def handle(c):
         path = '/' + path.split('/', 3)[3]
         print('proxied request %s' % path, flush=True)
     if path == '/proxy.pac':
-        script = b'function FindProxyForURL(url, host) { return host == "proxied.invalid" ? "PROXY 127.0.0.1:18987" : "DIRECT"; }'
+        script = ('function FindProxyForURL(url, host) { return host == "proxied.invalid" ? "PROXY 127.0.0.1:%d" : "DIRECT"; }' % PORT).encode()
+        c.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/x-ns-proxy-autoconfig\r\nContent-Length: %d\r\nConnection: close\r\n\r\n' % len(script) + script)
+        c.close(); return
+    if path == '/failover.pac':
+        script = ('function FindProxyForURL(url, host) { return host == "failover.invalid" ? "PROXY 127.0.0.1:18959; PROXY 127.0.0.1:%d" : "DIRECT"; }' % PORT).encode()
         c.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/x-ns-proxy-autoconfig\r\nContent-Length: %d\r\nConnection: close\r\n\r\n' % len(script) + script)
         c.close(); return
     if path == '/stalled.pac':
@@ -89,7 +96,7 @@ def handle(c):
         c.close(); return
     c.close()
 s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(('127.0.0.1', int(sys.argv[1]))); s.listen(8)
+s.bind(('127.0.0.1', PORT)); s.listen(8)
 while True:
     conn, _ = s.accept()
     threading.Thread(target=handle, args=(conn,), daemon=True).start()

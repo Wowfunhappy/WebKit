@@ -1965,6 +1965,7 @@ public:
 
     void beginPrinting(WebFrameProxy*, const PrintInfo&);
     void endPrinting(CompletionHandler<void()>&& = [] { });
+    bool isInPrintingMode() const { return m_isInPrintingMode; } // AQUAWEBKIT: Safari 7 extensions' tabs.saveAsPDF prints a page only outside another print session.
     std::optional<IPC::AsyncReplyID> computePagesForPrinting(WebCore::FrameIdentifier, const PrintInfo&, CompletionHandler<void(const Vector<WebCore::IntRect>&, double, const WebCore::FloatBoxExtent&)>&&);
     void getPDFFirstPageSize(WebCore::FrameIdentifier, CompletionHandler<void(WebCore::FloatSize)>&&);
 #if PLATFORM(COCOA)

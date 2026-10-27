@@ -44,7 +44,8 @@ class Credential;
 class StorageSessionProvider;
 class ProtectionSpace;
 class SocketStreamHandleClient;
-class SocketStreamCurlTransport; // AQUAWEBKIT: see the note in the private section below.
+class CocoaCurlSocketStream; // AQUAWEBKIT: see the note in the private section below.
+struct CocoaCurlProxyFilterResult; // AQUAWEBKIT: the proxy.onRequest answers CocoaCurlSocketStream's route takes.
 
 class SocketStreamHandleImpl : public SocketStreamHandle {
 public:
@@ -65,9 +66,9 @@ private:
     SocketStreamHandleImpl(const URL&, SocketStreamHandleClient&, PAL::SessionID, const String& credentialPartition, SourceApplicationAuditToken&&, const StorageSessionProvider*, bool shouldAcceptInsecureCertificates);
     // AQUAWEBKIT: this port's socket streams run on libcurl and BoringSSL, the stack the rest
     // of its network layer uses, so what a WebSocket handshake presents is the browser's ClientHello.
-    // SocketStreamCurlTransport owns the connection, its proxy route and its native trust evaluation;
+    // CocoaCurlSocketStream owns the connection, its proxy route and its native trust evaluation;
     // AquaWebKitSupport/source/WebKitLegacy/WebCoreSupport/SocketStreamHandleImplCurl.cpp implements
-    // both. CFStream's pair, its PAC source and its CONNECT credentials are commented out below.
+    // the handle on it. CFStream's pair, its PAC source and its CONNECT credentials are commented out below.
     /*
     void createStreams();
     void scheduleStreams();
@@ -80,7 +81,7 @@ private:
     static CFStringRef NODELETE copyPACExecutionDescription(void*);
     */ // AQUAWEBKIT: closes the CFStream declarations commented out above.
 
-    void connect();
+    void connect(Vector<CocoaCurlProxyFilterResult>&&); // AQUAWEBKIT: with the handshake's proxy.onRequest answers.
     void transportDidOpen();
     void transportDidReceiveData(std::span<const uint8_t>);
     void transportDidClose();
@@ -119,7 +120,7 @@ private:
     */ // AQUAWEBKIT: closes the CFStream declarations commented out above.
 
     bool m_shouldAcceptInsecureCertificates; // AQUAWEBKIT: also declared in the block above, which this port replaces.
-    RefPtr<SocketStreamCurlTransport> m_transport; // AQUAWEBKIT: owns the connection; see the note above.
+    RefPtr<CocoaCurlSocketStream> m_transport; // AQUAWEBKIT: owns the connection; see the note above.
 
     RetainPtr<CFURLRef> m_httpsURL; // ws(s): replaced with https:
     String m_credentialPartition;

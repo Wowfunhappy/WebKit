@@ -7,6 +7,7 @@
 #pragma once
 
 #include "LegacyExtensionWebRequest.h"
+#include <WebCore/CocoaCurlProxyConfiguration.h>
 #include <WebCore/LegacyLoadInterceptor.h>
 #include <WebCore/NetworkingContext.h>
 #include <WebCore/ResourceError.h>
@@ -54,6 +55,9 @@ private:
         String method;
         // The Cookie field an onBeforeSendHeaders verdict set, which is its exchange's alone.
         String editedCookie;
+        // The proxy.onRequest answers for the load's latest request, and the request's URL.
+        URL proxyAnswersURL;
+        Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults;
         WebCore::ResourceResponse response;
     };
 
@@ -82,9 +86,10 @@ private:
     void loaderDidFinish(WebCore::ResourceLoader&) final;
     void loaderDidFail(WebCore::ResourceLoader&, const WebCore::ResourceError&) final;
     bool holdsReceivedCookies(const WebCore::ResourceHandle&) final;
+    Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults(const WebCore::ResourceHandle&, const URL&) final;
     RefPtr<WebCore::LegacyLoadInterceptor::Load> pingLoad(WebCore::LocalFrame&, const WebCore::ResourceRequest&, const WebCore::FetchOptions&) final;
     RefPtr<WebCore::LegacyLoadInterceptor::SynchronousLoad> willLoadSynchronously(WebCore::FrameLoader&, const WebCore::ResourceRequest&, const WebCore::FetchOptions&) final;
-    bool interceptWebSocket(WebCore::Document&, const URL&, CompletionHandler<void(bool)>&&) final;
+    bool interceptWebSocket(WebCore::Document&, const URL&, CompletionHandler<void(bool, Vector<WebCore::CocoaCurlProxyFilterResult>&&)>&&) final;
 
     RefPtr<Load> createLoad(WebCore::LocalFrame*, const WebCore::ResourceRequest&, WebCore::FetchOptions::Destination, bool isMainFrameLoad, String&& requestId);
     Ref<JSON::Object> details(const Load&) const;
@@ -97,6 +102,10 @@ private:
     // onBeforeRedirect for a redirect's request, then the request's onBeforeRequest, onBeforeSendHeaders and
     // onSendHeaders.
     void willSendRequest(Ref<Load>&&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse& redirectResponse, RequestCompletion&&);
+    // proxy.onRequest, before the request's webRequest events.
+    void proxyRequest(Ref<Load>&&, WebCore::ResourceRequest&&, RequestCompletion&&);
+    // Firefox's proxy.RequestDetails, or null when no proxy.onRequest listener answers for the request.
+    RefPtr<JSON::Object> proxyRequestDetails(const Load&, const WebCore::ResourceRequest&);
     void beforeRequest(Ref<Load>&&, WebCore::ResourceRequest&&, RequestCompletion&&);
     void beforeSendHeaders(Ref<Load>&&, WebCore::ResourceRequest&&, RequestCompletion&&);
     // onHeadersReceived for a response, or a redirect response. The response's held Set-Cookie fields are

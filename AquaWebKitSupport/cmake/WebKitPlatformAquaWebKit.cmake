@@ -9,13 +9,9 @@
 # LC_LOAD_DYLIB 10.9 binaries make of .../WebKit.framework/Versions/A/WebKit. The dylib version follows
 # WEBKIT_MAC_VERSION from the upstream version file.
 #
-# libpolyfill_webkit.a carries the RFC 6455 WebSocket client that provides
-# NSURLSessionWebSocketTask/Message (10.15+, absent on 10.9) and the stub @implementations Safari 7
-# binds out of WebKit.framework. A static archive linked into a framework contributes its symbols to
-# that framework, which is what satisfies both the two-level "Expected in: WebKit" bind and the weak
-# _OBJC_CLASS_$_NSURLSessionWebSocketMessage import. It is a SEPARATE archive from libpolyfill_methods.a
-# so these ObjC classes are registered exactly once, here, rather than in every image that links the
-# shared archive.
+# libpolyfill_webkit.a carries the NSURLSession task metrics (10.12+) of WebKit's sessions, with the
+# delegate relay that records them. It is a SEPARATE archive from libpolyfill_methods.a so its ObjC
+# classes are registered exactly once, here, rather than in every image that links the shared archive.
 macro(_AQUAWEBKIT_FINALIZE_WEBKIT_TARGET _target)
     set_target_properties(${_target} PROPERTIES
         LINKER_LANGUAGE CXX
@@ -168,11 +164,16 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebRequest.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebsiteAccess.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionDevTools.mm
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionDNS.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHiddenTabs.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionInfoPlist.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHost.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionMimeHandlers.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionPrivacy.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionProxy.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionSaveAsPDF.mm
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionTabCapture.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewConnection.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewNetwork.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
@@ -577,13 +578,16 @@ set(AQUAWEBKIT_WITHHELD_WEBKIT_CMAKE_COCOA_SOURCES
 )
 # 10.9 uses runtime array literals; ARC gives the request coder's static collections process-lifetime ownership.
 list(APPEND AQUAWEBKIT_WITHHELD_WEBKIT_CMAKE_COCOA_SOURCES "Shared/Cocoa/CoreIPCNSURLRequest.mm @nonARC")
+# Page WebSockets are WebSocketTaskCurlCocoa's, below.
+list(APPEND AQUAWEBKIT_WITHHELD_WEBKIT_CMAKE_COCOA_SOURCES "NetworkProcess/cocoa/WebSocketTaskCocoa.mm @nonARC")
+list(REMOVE_ITEM WebKit_SOURCES NetworkProcess/cocoa/WebSocketTaskCocoa.mm)
 set(AQUAWEBKIT_ADDED_WEBKIT_CMAKE_COCOA_SOURCES "Shared/Cocoa/CoreIPCNSURLRequest.mm")
 AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "SourcesCMakeCocoa.txt" AQUAWEBKIT_WITHHELD_WEBKIT_CMAKE_COCOA_SOURCES AQUAWEBKIT_ADDED_WEBKIT_CMAKE_COCOA_SOURCES)
 
 AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "Sources.txt" AQUAWEBKIT_WITHHELD_WEBKIT_SOURCES AQUAWEBKIT_ADDED_WEBKIT_SOURCES)
 AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" AQUAWEBKIT_WITHHELD_WEBKIT_COCOA_SOURCES AQUAWEBKIT_ADDED_WEBKIT_COCOA_SOURCES)
 
-# The Cocoa curl transport's NetworkProcess task, upstream's data: task, and Private Click Measurement request, Safari's native
+# The Cocoa curl transport's NetworkProcess data and WebSocket tasks, upstream's data: task, and Private Click Measurement request, Safari's native
 # resume facade and its typed resume record -- this backport's own sources, beside the rest of the 10.9 glue. NetworkDataTask.cpp and
 # the download code reach the headers by bare name, so the directories go on the include path.
 find_package(CURL 8.22 REQUIRED)
@@ -599,6 +603,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebKit_SOURCES
     ${WEBKIT_DIR}/NetworkProcess/NetworkDataTaskDataURL.cpp
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCurlCocoa.mm
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/NetworkProcess/cocoa/WebSocketTaskCurlCocoa.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/NetworkProcess/PrivateClickMeasurement/cocoa/PrivateClickMeasurementCurlLoadTask.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/Cocoa/CocoaCurlLegacyDownload.mm

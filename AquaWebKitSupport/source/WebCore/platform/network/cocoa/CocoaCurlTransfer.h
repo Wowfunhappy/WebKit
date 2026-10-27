@@ -6,6 +6,7 @@
 
 // a Cocoa HTTP transaction exposes native values to browser policy clients.
 // Transfers and their callbacks remain on the owning scheduler run loop; callers bridge UI policy.
+#include "CocoaCurlProxyConfiguration.h"
 #include "CocoaCurlScheduler.h"
 #include "CocoaCurlTLS.h"
 #include <WebCore/FormData.h>
@@ -26,7 +27,6 @@ OBJC_CLASS NSCachedURLResponse;
 
 namespace WebCore {
 class CocoaCurlContentDecoder;
-class CocoaCurlProxyResolver;
 class NetworkStorageSession;
 class ResourceError;
 class CocoaCurlTransfer;
@@ -64,6 +64,8 @@ WEBCORE_EXPORT String cocoaCurlDefaultAcceptLanguage();
 WEBCORE_EXPORT String cocoaCurlDefaultAcceptEncoding();
 // Parse the escaped native request URL before applying scheme, origin and port policy.
 WEBCORE_EXPORT Expected<URL, int> cocoaCurlRequestURL(const URL&);
+// The CURLOPT_SSLVERSION floor for a TLSMinimumSupportedProtocolVersion.
+long cocoaCurlMinimumTLSVersion(tls_protocol_version_t);
 enum class IsMainResourceLoad : bool;
 enum class IsNoSniffSet : bool;
 // adjustMIMETypeIfNecessary over the native response CFNetwork would build from this one, for a response
@@ -110,6 +112,8 @@ struct CocoaCurlTransferOptions {
     URL connectionURL;
     RefPtr<CocoaCurlUploadBody> upload;
     RetainPtr<CFDictionaryRef> proxySettings;
+    // The answers of the proxy filters for the request (CocoaCurlProxyConfiguration.h).
+    Vector<CocoaCurlProxyFilterResult> proxyFilterResults;
     RetainPtr<CFArrayRef> acceptedCertificateChain;
     RetainPtr<SecTrustRef> allowedServerTrust;
     // The loader includes the response's certificate info (NetworkLoadParameters::needsCertificateInfo).
@@ -178,6 +182,11 @@ private:
     void curlCancel() final { cancel(); }
     bool setup();
     bool openUpload();
+    // Connects through the next server of the route a CocoaCurlRouteResolver chose.
+    bool startProxyRoute();
+    // A connection to the route's proxy that failed before any response, which the route's next server is tried
+    // in place of; true when it is.
+    bool failOverProxy(CURLcode);
     void closeUpload();
     void activity();
     void timeout();
@@ -203,6 +212,7 @@ private:
     static int seekCallback(void*, curl_off_t, int);
     static int progressCallback(void*, curl_off_t, curl_off_t, curl_off_t, curl_off_t);
     static CURLcode sslContextCallback(CURL*, void*, void*);
+    CURLcode installProxyTLS(SSL_CTX*);
 
     Ref<CocoaCurlScheduler> m_scheduler;
     CocoaCurlTransferClient* m_client;
@@ -212,7 +222,12 @@ private:
     size_t m_uploadElement { 0 };
     uint64_t m_uploadElementOffset { 0 };
     uint64_t m_uploadElementLength { 0 };
-    RefPtr<CocoaCurlProxyResolver> m_proxyResolver;
+    RefPtr<CocoaCurlRouteResolver> m_routeResolver;
+    // The servers of the chosen route not yet tried.
+    CocoaCurlProxyRoute m_proxyRoute;
+    curl_slist* m_proxyHeaders { nullptr };
+    // The HTTPS proxy the transfer connects through, whose handshake installProxyTLS answers for.
+    std::optional<CocoaCurlProxyServer> m_tlsProxy;
     std::shared_ptr<CocoaCurlTLSState> m_tls;
     CURL* m_easy { nullptr };
     curl_slist* m_headers { nullptr };

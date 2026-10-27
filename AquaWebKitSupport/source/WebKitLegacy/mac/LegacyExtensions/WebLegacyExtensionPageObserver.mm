@@ -14,14 +14,14 @@
 
 static const WebLegacyExtensionPageObserver* observer;
 
-// Safari 7 keeps its extension views' preferences under these identifiers: the global page, popovers and
-// extension bars. As extension pages, they have the async clipboard API, BroadcastChannel, SharedWorker and
-// Web Locks a WebKit 2 view has by default, and write the clipboard whenever they ask, as a WebExtension's
-// pages with clipboardWrite do.
+// The preference identifiers of the extension views: Safari 7's global page, popovers and extension bars, and
+// the router's devtools pages (LegacyExtensionDevTools). As extension pages, they have the async clipboard API,
+// BroadcastChannel, SharedWorker and Web Locks a WebKit 2 view has by default, and write the clipboard whenever
+// they ask, as a WebExtension's pages with clipboardWrite do.
 static void registerExtensionViewPreferenceDefaults()
 {
     NSMutableDictionary *defaults = [NSMutableDictionary dictionary];
-    for (NSString *identifier in @[ @"ExtensionGlobalPage", @"ExtensionPopover", @"ExtensionBar" ]) {
+    for (NSString *identifier in @[ @"ExtensionGlobalPage", @"ExtensionPopover", @"ExtensionBar", @"ExtensionDevToolsPage" ]) {
         defaults[[identifier stringByAppendingString:WebKitAsyncClipboardAPIEnabledPreferenceKey]] = @YES;
         defaults[[identifier stringByAppendingString:WebKitJavaScriptCanAccessClipboardPreferenceKey]] = @YES;
         defaults[[identifier stringByAppendingString:@"WebKitBroadcastChannelEnabled"]] = @YES;

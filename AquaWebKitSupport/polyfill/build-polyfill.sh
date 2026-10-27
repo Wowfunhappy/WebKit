@@ -84,16 +84,8 @@ for f in "$PF"/classes/*.m; do
 done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
-# MINC rather than INC: websocket.mm asks c/ for the protection space its server-trust challenge carries.
-# deps/build/include holds ICU, libpng, libxml2 and the rest of the vendored roots, so it reaches only
-# the one unit that needs curl and openssl from it -- websocket.mm, which runs its transport on libcurl
-# and builds its ClientHello from CocoaCurlClientHello.h, the header WebCore compiles.
 for f in "$PF"/webkit/*.mm; do
-    case "$(basename "$f")" in
-        websocket.mm) UNITINC="$MINC -I$REPO/AquaWebKitSupport/deps/build/include -I$REPO/AquaWebKitSupport/source/WebCore/platform/network/cocoa" ;;
-        *) UNITINC="$MINC" ;;
-    esac
-    cc_queue "$CLANG" -c $MODERN $BLOCKCF $UNITINC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
+    cc_queue "$CLANG" -c $MODERN $BLOCKCF $INC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
 done
 
 echo "### compiling polyfills/jsc (JavaScriptCore only)"

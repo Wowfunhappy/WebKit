@@ -72,6 +72,12 @@ public:
     static String cookieHeader(NetworkSession&, const WebCore::ResourceRequest&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, WebCore::StoredCredentialsPolicy, bool cookieBlockingLatched = false);
     String cookieHeader(const WebCore::ResourceRequest&) const;
 
+    // A response's Set-Cookie fields, stored for the request as an exchange of this task stores its own. `capExpiry`
+    // caps a persistent cookie's lifetime, for a response that shouldCapCookieExpiryForThirdPartyCloaking says
+    // reached a third party through a CNAME or an address.
+    static void storeCookies(NetworkSession&, const WebCore::ResourceRequest&, const Vector<String>& fields, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, bool capExpiry);
+    static bool shouldCapCookieExpiryForThirdPartyCloaking(NetworkSession&, const WebCore::ResourceRequest&, const String& remoteAddress, const WebCore::RegistrableDomain& resolvedCNAMEDomain);
+
     // The Set-Cookie fields of a response held for Safari 7 extensions' onHeadersReceived. Storing them
     // stores the fields given in their place; discarding them stores none.
     const Vector<String>* heldCookies() const { return m_heldCookies ? &m_heldCookies->fields : nullptr; }
@@ -103,7 +109,6 @@ private:
     void updateMetrics(const WebCore::NetworkLoadMetrics&);
     bool cookiesBlocked();
     void storeReceivedCookies(Vector<String>&&, const String& remoteAddress, const WebCore::RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&&);
-    bool shouldCapCookieExpiryForThirdPartyCloaking(const String& remoteAddress, const WebCore::RegistrableDomain& resolvedCNAMEDomain);
     Vector<uint8_t> downloadResumeData() const;
     void publishResponse();
     void decidePolicy(WebCore::PolicyAction);

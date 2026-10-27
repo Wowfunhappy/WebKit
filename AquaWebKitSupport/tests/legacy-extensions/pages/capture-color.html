@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<!-- A page of one color, ?color=rrggbb, which capture-pdf-dns.safariextension captures in a background tab. -->
+<title>capture color</title>
+<style>html, body { margin: 0; height: 100%; }</style>
+<script>
+document.documentElement.style.background = "#" + (/^[0-9a-f]{6}$/i.exec(location.search.slice(7)) || ["00ff00"])[0];
+</script>

@@ -11,8 +11,10 @@
 
 #include "MessageReceiver.h"
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/PageIdentifier.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/UserStyleSheet.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakHashMap.h>
@@ -42,9 +44,13 @@ public:
 
     void initialize(WebProcess&);
 
-    // Safari withdraws an extension's world when it disables or reloads the extension: once no user
-    // content controller holds user content in a content-script world, its contexts are inert.
-    bool isContextWorldLive(WebCore::DOMWrapperWorld&) const;
+    // Safari withdraws an extension's user content when it disables or reloads the extension: once no user
+    // content controller holds user content of the copy of the extension at `root` (any, if empty) in a
+    // content-script world, the world's contexts of that copy are inert, and the router ends their ports and
+    // messages.
+    bool isContextLive(WebCore::DOMWrapperWorld&, const String& root = { }) const;
+    // User content was added or removed: also tells the router the roots of the extensions whose user content
+    // the process holds.
     void userContentDidChange();
     void didClearWindowObjectForFrame(WebFrame&, WebCore::DOMWrapperWorld&);
 
@@ -64,12 +70,16 @@ private:
     void deliver(WebCore::FrameIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier>, String&& extensionKey, String&& message, IPC::SharedBufferReference&&);
     void evictMemoryCache();
     void setMimeHandlers(String&&);
+    void invalidateExtensionPage(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier);
+    void setPrintsBackgrounds(WebCore::PageIdentifier, bool);
+    void executionContextForFrameURL(WebCore::PageIdentifier, String&& frameURL, CompletionHandler<void(std::optional<int>, URL&&)>&&);
 
     WebCore::DOMWrapperWorld* contentScriptWorld(const String& extensionKey) const;
     String extensionKeyForWorld(WebFrame&, WebCore::DOMWrapperWorld&) const;
     void replyWithoutContext(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, const String& extensionKey, const String& message);
 
     WeakHashMap<WebCore::Document, Vector<InjectedStyleSheet>, WebCore::WeakPtrImplWithEventTargetData> m_injectedStyleSheets;
+    Vector<String> m_reportedUserContentExtensionRoots;
 };
 
 } // namespace WebKit

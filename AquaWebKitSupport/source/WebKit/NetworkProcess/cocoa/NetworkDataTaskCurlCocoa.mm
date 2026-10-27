@@ -221,6 +221,7 @@ void NetworkDataTaskCurlCocoa::setup()
         options.upload = CocoaCurlUploadBody::create(*body, &m_session->blobRegistry());
     // NetworkSessionCocoa writes the explicit dictionary, or the one its HTTP and HTTPS proxy URLs make, into the configuration.
     options.proxySettings = bridge_cast(configuration.get().connectionProxyDictionary);
+    options.proxyFilterResults = LegacyExtensionNetwork::singleton().proxyFilterResults(*this, m_request.url());
     options.acceptedCertificateChain = m_acceptedCertificateChain;
     // a certificate the user accepted for this host governs whether or not the host
     // is HSTS-known; the exception stays scoped to that exact host and chain.
@@ -344,29 +345,29 @@ void NetworkDataTaskCurlCocoa::invalidateAndCancel()
 
 // NetworkTaskCocoa::setCookieTransformForFirstPartyRequest: a same-site subresource that resolves through a
 // CNAME, or to an address range, other than the top site's sets cookies whose expiry is capped.
-bool NetworkDataTaskCurlCocoa::shouldCapCookieExpiryForThirdPartyCloaking(const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain)
+bool NetworkDataTaskCurlCocoa::shouldCapCookieExpiryForThirdPartyCloaking(NetworkSession& session, const ResourceRequest& request, const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain)
 {
-    auto* storage = m_session->networkStorageSession();
-    if (!storage || !storage->trackingPreventionEnabled() || m_request.isThirdParty())
+    auto* storage = session.networkStorageSession();
+    if (!storage || !storage->trackingPreventionEnabled() || request.isThirdParty())
         return false;
-    auto firstPartyURL = m_request.firstPartyForCookies();
+    auto firstPartyURL = request.firstPartyForCookies();
     auto firstPartyHostName = firstPartyURL.host().toString();
     auto cnameDomain = resolvedCNAMEDomain;
     if (cnameDomain.isEmpty()) {
-        if (auto domain = m_session->thirdPartyCNAMEDomainForTesting())
+        if (auto domain = session.thirdPartyCNAMEDomainForTesting())
             cnameDomain = *domain;
     }
     if (cnameDomain.isEmpty()) {
-        auto firstPartyAddress = m_session->firstPartyHostIPAddress(firstPartyHostName);
+        auto firstPartyAddress = session.firstPartyHostIPAddress(firstPartyHostName);
         if (!firstPartyAddress)
             return false;
         auto address = IPAddress::fromString(remoteAddress);
         if (!address)
             return false;
         return NetworkTaskCocoa::shouldCapCookieExpiryForThirdPartyIPAddress(*address, *firstPartyAddress)
-            && !NetworkTaskCocoa::needsThirdPartyIPAddressQuirk(m_request.url(), RegistrableDomain { firstPartyURL }.string());
+            && !NetworkTaskCocoa::needsThirdPartyIPAddressQuirk(request.url(), RegistrableDomain { firstPartyURL }.string());
     }
-    auto firstPartyHostCNAME = m_session->firstPartyHostCNAMEDomain(firstPartyHostName);
+    auto firstPartyHostCNAME = session.firstPartyHostCNAMEDomain(firstPartyHostName);
     return !cnameDomain.matches(firstPartyURL) && (!firstPartyHostCNAME || cnameDomain != *firstPartyHostCNAME);
 }
 
@@ -399,15 +400,16 @@ void NetworkDataTaskCurlCocoa::storeHeldCookies(std::optional<Vector<String>>&& 
     storeReceivedCookies(WTF::move(held->fields), held->remoteAddress, held->resolvedCNAMEDomain, [](auto&&) { });
 }
 
-void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void NetworkDataTaskCurlCocoa::storeCookies(NetworkSession& session, const ResourceRequest& request, const Vector<String>& fields, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID, bool capExpiry)
 {
-    auto* storage = m_session->networkStorageSession();
-    auto sameSite = SameSiteInfo::create(m_request);
-    auto blockingDecision = storage->thirdPartyCookieBlockingDecisionForRequest(m_request, m_frameID, m_pageID, shouldRelaxThirdPartyCookieBlocking(*m_session, m_request, m_webPageProxyID), IsKnownCrossSiteTracker::No);
-    String cookiePartition = storage->isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(m_request.firstPartyForCookies()) : String { };
-    bool capExpiry = shouldCapCookieExpiryForThirdPartyCloaking(remoteAddress, resolvedCNAMEDomain);
+    auto* storage = session.networkStorageSession();
+    if (!storage)
+        return;
+    auto sameSite = SameSiteInfo::create(request);
+    auto blockingDecision = storage->thirdPartyCookieBlockingDecisionForRequest(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(session, request, webPageProxyID), IsKnownCrossSiteTracker::No);
+    String cookiePartition = storage->isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(request.firstPartyForCookies()) : String { };
     for (const auto& field : fields) {
-        auto cookie = parseHTTPSetCookie(field, m_request.url(), cookiePartition);
+        auto cookie = parseHTTPSetCookie(field, request.url(), cookiePartition);
         if (!cookie || !(cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite))
             continue;
         if (blockingDecision == ThirdPartyCookieBlockingDecision::AllExceptPartitioned && cookie->partitionKey.isEmpty())
@@ -415,8 +417,13 @@ void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, con
         // NetworkTaskCocoa's cookiesByCappingExpiry, over its week-long m_ageCapForCNAMECloakedCookies.
         if (capExpiry)
             cookie = Cookie { NetworkStorageSession::capExpiryOfPersistentCookie(cookie->createNSHTTPCookie().get(), 24_h * 7).get() };
-        storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
+        storage->setCookie(*cookie, request.url(), request.firstPartyForCookies());
     }
+}
+
+void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&& completion)
+{
+    storeCookies(*m_session, m_request, fields, m_frameID, m_pageID, m_webPageProxyID, shouldCapCookieExpiryForThirdPartyCloaking(*m_session, m_request, remoteAddress, resolvedCNAMEDomain));
     if (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         completion(std::nullopt);
         return;

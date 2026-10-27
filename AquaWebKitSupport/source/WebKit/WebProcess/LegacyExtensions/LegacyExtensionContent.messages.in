@@ -1,7 +1,9 @@
 # The UI process's router delivering a message, with the bytes it carries, to one frame's context of one
 # Safari 7 extension, webRequest.handlerBehaviorChanged emptying the memory cache, whose hits never reach
-# webRequest, and the mimeHandler viewers extensions supply, as a JSON array of
-# {mimeType, extensionKey, handlerURL, canEmbed}.
+# webRequest, the mimeHandler viewers extensions supply, as a JSON array of
+# {mimeType, extensionKey, handlerURL, canEmbed}, whether one page prints backgrounds, for tabs.saveAsPDF, and
+# the execution context of the main world of a page's frame, found by its URL, for devtools.inspectedWindow.eval,
+# and the invalidation of an extension page whose extension Safari disabled or reloaded.
 [
     DispatchedFrom=UI,
     DispatchedTo=WebContent,
@@ -11,4 +13,7 @@ messages -> LegacyExtensionContent {
     Deliver(WebCore::FrameIdentifier frameID, std::optional<WebCore::ScriptExecutionContextIdentifier> documentID, String extensionKey, String message, IPC::SharedBufferReference data)
     EvictMemoryCache()
     SetMimeHandlers(String handlers)
+    SetPrintsBackgrounds(WebCore::PageIdentifier pageID, bool printsBackgrounds)
+    ExecutionContextForFrameURL(WebCore::PageIdentifier pageID, String frameURL) -> (std::optional<int> executionContextID, URL frameURL)
+    InvalidateExtensionPage(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID)
 }

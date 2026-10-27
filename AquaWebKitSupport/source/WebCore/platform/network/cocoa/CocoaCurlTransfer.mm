@@ -27,7 +27,6 @@
 #include "CocoaCurlTransfer.h"
 #include "CocoaCurlContentDecoder.h"
 #include "CocoaCurlClientHello.h"
-#include "CocoaCurlProxyResolver.h"
 #include "BlobRegistryImpl.h"
 #include "PlatformStrategies.h"
 #include "HTTPParsers.h"
@@ -148,11 +147,12 @@ CocoaCurlTransfer::~CocoaCurlTransfer()
     ASSERT(m_scheduler->runLoop().isCurrent());
     ASSERT(!m_running);
     closeUpload();
-    if (m_proxyResolver)
-        m_proxyResolver->cancel();
+    if (m_routeResolver)
+        m_routeResolver->cancel();
     if (m_easy)
         curl_easy_cleanup(m_easy);
     curl_slist_free_all(m_headers);
+    curl_slist_free_all(m_proxyHeaders);
 }
 
 void CocoaCurlTransfer::closeUpload()
@@ -255,7 +255,7 @@ int CocoaCurlTransfer::progressCallback(void* context, curl_off_t, curl_off_t, c
     return 0;
 }
 
-static long cocoaCurlMinimumTLSVersion(tls_protocol_version_t version)
+long cocoaCurlMinimumTLSVersion(tls_protocol_version_t version)
 {
     switch (version) {
     case tls_protocol_version_TLSv10:
@@ -686,9 +686,6 @@ bool CocoaCurlTransfer::setup()
     CURL_SET(CURLOPT_HTTPAUTH, m_options.authentication);
     CURL_SET(CURLOPT_USERNAME, m_options.user.utf8().data());
     CURL_SET(CURLOPT_PASSWORD, m_options.password.utf8().data());
-    CURL_SET(CURLOPT_PROXYAUTH, m_options.proxyAuthentication);
-    CURL_SET(CURLOPT_PROXYUSERNAME, m_options.proxyUser.utf8().data());
-    CURL_SET(CURLOPT_PROXYPASSWORD, m_options.proxyPassword.utf8().data());
     CURL_SET(CURLOPT_NOSIGNAL, 1L);
     // As upstream's CurlHandle::enableHttp does: let ALPN pick the version, and wait for a connection
     // whose protocol is known rather than opening another one that cannot be multiplexed on.
@@ -804,25 +801,80 @@ void CocoaCurlTransfer::start()
     }
     // PAC resolution is part of the request inactivity timeout.
     activity();
-    m_proxyResolver = CocoaCurlProxyResolver::create(connectionURL(), m_options.proxySettings.get(), [transfer = Ref { *this }](RetainPtr<CFDictionaryRef>&& proxy, const String& error) {
+    m_routeResolver = CocoaCurlRouteResolver::create(connectionURL(), m_options.proxySettings.get(), m_options.proxyFilterResults, [transfer = Ref { *this }](Expected<CocoaCurlProxyRoute, String>&& route) {
         if (!transfer->m_running)
             return;
-        if (!error.isEmpty()) {
-            transfer->finish(NSURLErrorCannotFindHost, error);
+        if (!route) {
+            transfer->finish(NSURLErrorCannotFindHost, route.error());
             return;
         }
-        bool routeResolved = CocoaCurlProxyResolver::apply(transfer->m_easy, proxy.get(), transfer->m_response.proxyHost, transfer->m_response.proxyPort);
-        auto& options = transfer->m_options;
-        bool credentialsMatchRoute = options.proxyCredentialHost == transfer->m_response.proxyHost && options.proxyCredentialPort == transfer->m_response.proxyPort;
-        bool credentialsApplied = routeResolved && CocoaCurlProxyResolver::applyCredentials(transfer->m_easy, proxy.get(), credentialsMatchRoute ? options.proxyAuthentication : CURLAUTH_NONE, credentialsMatchRoute ? options.proxyUser : emptyString(), credentialsMatchRoute ? options.proxyPassword : emptyString());
+        transfer->m_proxyRoute = WTF::move(*route);
         transfer->m_started = MonotonicTime::now();
-        if (!credentialsApplied || !transfer->m_scheduler->add(transfer.get())) {
+        if (!transfer->startProxyRoute()) {
             transfer->finish(NSURLErrorCannotConnectToHost, "Could not start the resolved proxy route"_s);
             return;
         }
         transfer->activity();
     });
-    m_proxyResolver->start();
+    m_routeResolver->start();
+}
+
+bool CocoaCurlTransfer::startProxyRoute()
+{
+    CocoaCurlProxyServer server;
+    if (!m_proxyRoute.isEmpty()) {
+        server = m_proxyRoute.first();
+        m_proxyRoute.removeAt(0);
+    }
+    if (m_proxyRoute.isEmpty())
+        server.failoverTimeout = { };
+    bool isProxy = server.type != CocoaCurlProxyServer::Type::Direct;
+    if (server.type == CocoaCurlProxyServer::Type::HTTPS)
+        m_tlsProxy = server;
+    else
+        m_tlsProxy = std::nullopt;
+    m_response.proxyHost = isProxy ? server.host : emptyString();
+    m_response.proxyPort = isProxy ? server.port : 0;
+    // A challenge's credential for this proxy, or the credential the proxy's settings carry.
+    bool credentialsMatchRoute = isProxy && m_options.proxyAuthentication && m_options.proxyCredentialHost == server.host && m_options.proxyCredentialPort == server.port;
+    bool hasOwnCredentials = !server.username.isEmpty() || !server.password.isEmpty();
+    long authentication = credentialsMatchRoute ? m_options.proxyAuthentication : hasOwnCredentials ? CURLAUTH_ANY : CURLAUTH_NONE;
+    auto& user = credentialsMatchRoute ? m_options.proxyUser : server.username;
+    auto& password = credentialsMatchRoute ? m_options.proxyPassword : server.password;
+    return CocoaCurlRouteResolver::apply(m_easy, server, m_proxyHeaders)
+        && curl_easy_setopt(m_easy, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(server.failoverTimeout.milliseconds())) == CURLE_OK
+        && curl_easy_setopt(m_easy, CURLOPT_PROXY_SSLVERSION, cocoaCurlMinimumTLSVersion(m_options.minimumTLSProtocol)) == CURLE_OK
+        && curl_easy_setopt(m_easy, CURLOPT_PROXYAUTH, authentication) == CURLE_OK
+        && CocoaCurlRouteResolver::applyCredentials(m_easy, user, password)
+        && m_scheduler->add(*this);
+}
+
+// Chromium reports a load that fails to reach its proxy as net::ERR_PROXY_CONNECTION_FAILED to proxy.onProxyError,
+// and tries the next proxy a route names first.
+bool CocoaCurlTransfer::failOverProxy(CURLcode result)
+{
+    if (m_response.proxyHost.isEmpty() || m_status >= 0 || m_publishedResponse)
+        return false;
+    bool connectionFailed = result == CURLE_COULDNT_CONNECT || result == CURLE_COULDNT_RESOLVE_PROXY || result == CURLE_OPERATION_TIMEDOUT;
+    if (!connectionFailed && result != CURLE_PROXY)
+        return false;
+    if (!m_proxyRoute.isEmpty()) {
+        m_scheduler->runLoop().dispatch([transfer = Ref { *this }] {
+            if (!transfer->m_running)
+                return;
+            transfer->m_errorBuffer[0] = 0;
+            transfer->m_uploaded = 0;
+            if (!transfer->openUpload() || !transfer->startProxyRoute()) {
+                transfer->finish(NSURLErrorCannotConnectToHost, "Could not start the resolved proxy route"_s);
+                return;
+            }
+            transfer->activity();
+        });
+        return true;
+    }
+    if (connectionFailed)
+        CocoaCurlProxyConfiguration::reportError(true, "net::ERR_PROXY_CONNECTION_FAILED"_s, emptyString());
+    return false;
 }
 
 void CocoaCurlTransfer::setPriority(ResourceLoadPriority priority)
@@ -855,9 +907,42 @@ static WorkerPool& cocoaCurlTrustEvaluationQueue()
     return queue.get();
 }
 
-CURLcode CocoaCurlTransfer::sslContextCallback(CURL*, void* context, void* data)
+// An HTTPS proxy's certificate is the proxy host's, trusted natively or not at all, as browsers fail a connection to
+// a proxy whose certificate they do not trust; the proxy gets no client certificate.
+CURLcode CocoaCurlTransfer::installProxyTLS(SSL_CTX* context)
+{
+    auto state = std::make_shared<CocoaCurlTLSState>();
+    state->url = CocoaCurlRouteResolver::tlsURL(*m_tlsProxy);
+    state->identityAnswered = true;
+    state->requestVerification = [weakTransfer = WeakPtr { *this }, weakState = std::weak_ptr { state }](std::unique_ptr<CocoaCurlTLSVerification>&& verification) {
+        RefPtr transfer = weakTransfer.get();
+        auto state = weakState.lock();
+        if (!transfer || !transfer->m_running || !state)
+            return false;
+        ++transfer->m_clientInteractions;
+        transfer->m_timer.stop();
+        cocoaCurlTrustEvaluationQueue().postTask([transfer = WTF::move(transfer), state = WTF::move(state), verification = WTF::move(verification)]() mutable {
+            verification->evaluate();
+            Ref worker { transfer->m_scheduler->runLoop() };
+            worker->dispatch([transfer = WTF::move(transfer), state = WTF::move(state), verification = WTF::move(verification)]() mutable {
+                --transfer->m_clientInteractions;
+                if (!transfer->m_running)
+                    return;
+                verification->apply(*state);
+                state->evaluated = true;
+                transfer->resumeTransfer();
+            });
+        });
+        return true;
+    };
+    return CocoaCurlTLSState::install(context, state);
+}
+
+CURLcode CocoaCurlTransfer::sslContextCallback(CURL* easy, void* context, void* data)
 {
     auto& transfer = *static_cast<CocoaCurlTransfer*>(data);
+    if (transfer.m_tlsProxy && CocoaCurlRouteResolver::isProxyHandshake(easy))
+        return transfer.installProxyTLS(static_cast<SSL_CTX*>(context));
     transfer.m_tls = std::make_shared<CocoaCurlTLSState>();
     auto& state = *transfer.m_tls;
     state.url = transfer.connectionURL();
@@ -1490,6 +1575,8 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
         return;
     if (result == CURLE_RECV_ERROR && responseEndsAtConnectionClose())
         result = CURLE_OK;
+    if (failOverProxy(result))
+        return;
     m_result = result;
     updateTLS();
     updateMetrics();
@@ -1601,8 +1688,8 @@ void CocoaCurlTransfer::finish(int code, const String& message)
     updateMetrics();
     m_timer.stop();
     m_scheduler->remove(m_easy);
-    if (m_proxyResolver)
-        m_proxyResolver->cancel();
+    if (m_routeResolver)
+        m_routeResolver->cancel();
     closeUpload();
     m_metrics.responseEnd = MonotonicTime::now();
     m_metrics.markComplete();

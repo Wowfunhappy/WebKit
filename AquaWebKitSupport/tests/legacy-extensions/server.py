@@ -266,6 +266,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         record({'method': 'POST', 'path': self.path, 'body': body})
         if self.path.startswith('/main-post-target'):
             return self.reply('<!doctype html><title>posted</title><p id="posted">' + body + '</p>', 'text/html')
+        # messaging.html as the result of a form submission, which Safari asks before loading again.
+        if self.path.startswith('/messaging.html'):
+            with open(os.path.join(ROOT, 'pages', 'messaging.html'), 'rb') as page:
+                return self.reply(page.read(), 'text/html')
         self.reply('ok')
 
 

@@ -194,6 +194,8 @@ void CocoaCurlResourceHandle::beginTransfer()
     // DocumentLoader's main resource includes its certificate info (CertificateInfoPolicy::IncludeCertificateInfo).
     options.needsCertificateInfo = m_handle->firstRequest().requester() == ResourceRequestRequester::Main;
     options.connectionPartition = Site { m_request.firstPartyForCookies() }.toString();
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && m_handle)
+        options.proxyFilterResults = interceptor->proxyFilterResults(*m_handle, m_request.url());
     options.user = m_user;
     options.password = m_password;
     options.authentication = m_auth;

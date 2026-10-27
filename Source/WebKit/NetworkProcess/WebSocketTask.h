@@ -26,7 +26,9 @@
 #pragma once
 
 #if PLATFORM(COCOA)
-#include "WebSocketTaskCocoa.h"
+// AQUAWEBKIT: a page WebSocket is an RFC 6455 client on the curl transport (AquaWebKitSupport's WebSocketTaskCurlCocoa).
+#include "WebSocketTaskCurlCocoa.h"
+// #include "WebSocketTaskCocoa.h"
 #elif USE(SOUP)
 #include "WebSocketTaskSoup.h"
 #elif USE(CURL)

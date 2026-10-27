@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!--
+The driver of capture-pdf-dns.safariextension: dns.resolve, tabs.captureTab and tabs.saveAsPDF.
+
+On load the page asks the extension's global page to run the dns and captureTab cases; their outcome lands in
+window.__results as { done, pass, cases: { name: { ok, ... } } }. The page is blue (#3366cc) with a red
+100x100 block at its top left, the colors the captures of this tab are checked for. Keep this tab first in its
+window and selected.
+
+savePDF(settings) asks for tabs.saveAsPDF of this tab with the given PageSettings (by default A4 in millimeters,
+landscape, one-inch margins, backgrounds shown, named capture-pdf-dns); its status lands in window.__pdfResult.
+-->
+<title>capture-pdf-dns</title>
+<style>
+html, body { margin: 0; background: #3366cc; }
+#red { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #ff0000; }
+</style>
+<div id="red"></div>
+<script>
+window.__results = { done: false };
+window.__pdfResult = null;
+window.addEventListener("message", event => {
+    if (event.source !== window || !event.data || !event.data.capturePdfDnsResult)
+        return;
+    const { op, result } = event.data.capturePdfDnsResult;
+    if (op === "run")
+        window.__results = result;
+    else if (op === "saveAsPDF")
+        window.__pdfResult = result;
+});
+const ask = (op, args) => window.postMessage({ capturePdfDns: op, args }, "*");
+function run() {
+    window.__results = { done: false };
+    ask("run", { clientWidth: document.documentElement.clientWidth, clientHeight: document.documentElement.clientHeight, dpr: window.devicePixelRatio });
+}
+function savePDF(settings) {
+    window.__pdfResult = null;
+    ask("saveAsPDF", settings || {
+        toFileName: "capture-pdf-dns",
+        paperSizeUnit: 1,
+        paperWidth: 210,
+        paperHeight: 297,
+        orientation: 1,
+        marginTop: 1,
+        marginRight: 1,
+        marginBottom: 1,
+        marginLeft: 1,
+        showBackgroundColors: true,
+    });
+}
+// ?long makes the page some hundred printed pages long, for printing it while it saves as PDF.
+if (location.search.includes("long")) {
+    const text = document.createElement("div");
+    text.style.cssText = "position: relative; margin-top: 120px; font: 16px serif; color: white";
+    text.textContent = "capture-pdf-dns ".repeat(60000);
+    document.body.appendChild(text);
+}
+if (!location.search.includes("manual"))
+    window.addEventListener("load", run);
+</script>

@@ -17,6 +17,7 @@
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NetworkingContext.h>
+#include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceHandle.h>
 #include <WebCore/ResourceLoader.h>
 #include <WebCore/ResourceLoaderOptions.h>
@@ -179,7 +180,45 @@ void LegacyExtensionViewNetwork::willSendRequest(Ref<Load>&& load, ResourceReque
     }
     if (!isInterceptable(request.url()))
         return completion({ RequestVerdict::Kind::Proceed, WTF::move(request), { }, { } });
-    beforeRequest(WTF::move(load), WTF::move(request), WTF::move(completion));
+    proxyRequest(WTF::move(load), WTF::move(request), WTF::move(completion));
+}
+
+// Firefox fires proxy.onRequest before a request's webRequest events, pings, beacons and reports included. The
+// answers of the listeners whose filters match the request act on the route its handle connects by.
+void LegacyExtensionViewNetwork::proxyRequest(Ref<Load>&& load, ResourceRequest&& request, RequestCompletion&& completion)
+{
+    load->proxyFilterResults = { };
+    load->proxyAnswersURL = { };
+    load->url = request.url();
+    load->method = request.httpMethod();
+    RefPtr details = proxyRequestDetails(load, request);
+    if (!details)
+        return beforeRequest(WTF::move(load), WTF::move(request), WTF::move(completion));
+    dispatch(proxyOnRequest, details.releaseNonNull(), [this, load = WTF::move(load), request = WTF::move(request), completion = WTF::move(completion)](RefPtr<JSON::Object>&& response) mutable {
+        if (RefPtr answers = response ? response->getArray("proxy"_s) : nullptr) {
+            load->proxyFilterResults = LegacyExtensions::proxyFilterResults(*answers);
+            load->proxyAnswersURL = request.url();
+        }
+        beforeRequest(WTF::move(load), WTF::move(request), WTF::move(completion));
+    });
+}
+
+RefPtr<JSON::Object> LegacyExtensionViewNetwork::proxyRequestDetails(const Load& load, const ResourceRequest& request)
+{
+    auto& url = request.url();
+    if (!m_listeners.observes(proxyOnRequest) || !(url.protocolIsInHTTPFamily() || url.protocolIs("ws"_s) || url.protocolIs("wss"_s)))
+        return nullptr;
+    auto details = this->details(load);
+    details->setBoolean("fromCache"_s, false);
+    details->setBoolean("incognito"_s, false);
+    details->setBoolean("thirdParty"_s, !request.firstPartyForCookies().isEmpty() && !RegistrableDomain(request.firstPartyForCookies()).matches(url));
+    if (!load.documentURL.isEmpty())
+        details->setString("originUrl"_s, load.documentURL);
+    if (m_listeners.hasOption(proxyOnRequest, requestHeadersOption))
+        details->setArray("requestHeaders"_s, headersArray(request.httpHeaderFields()));
+    if (!m_listeners.blocks(proxyOnRequest, details))
+        return nullptr;
+    return details;
 }
 
 // onBeforeRequest. A redirect the verdict makes before the request is sent is Chrome's internal redirect: a
@@ -224,7 +263,7 @@ void LegacyExtensionViewNetwork::beforeRequest(Ref<Load>&& load, ResourceRequest
         load->url = request.url();
         if (!isInterceptable(request.url()))
             return completion({ RequestVerdict::Kind::Proceed, WTF::move(request), { }, { } });
-        beforeRequest(WTF::move(load), WTF::move(request), WTF::move(completion));
+        proxyRequest(WTF::move(load), WTF::move(request), WTF::move(completion));
     });
 }
 
@@ -567,6 +606,7 @@ public:
     static Ref<LegacyExtensionViewPing> create(Ref<LegacyExtensionViewNetwork::Load>&& load) { return adoptRef(*new LegacyExtensionViewPing(WTF::move(load))); }
 
     const ResourceHandle* handle() const { return m_handle.get(); }
+    const LegacyExtensionViewNetwork::Load& load() const { return m_load; }
 
 private:
     using Network = LegacyExtensionViewNetwork;
@@ -673,6 +713,25 @@ bool LegacyExtensionViewNetwork::holdsReceivedCookies(const ResourceHandle& hand
     return false;
 }
 
+// A handle's transfer begins on a later turn of the main run loop than its creation, once its loader or ping holds it.
+Vector<CocoaCurlProxyFilterResult> LegacyExtensionViewNetwork::proxyFilterResults(const ResourceHandle& handle, const URL& url)
+{
+    auto answers = [&](const Load& load) -> Vector<CocoaCurlProxyFilterResult> {
+        if (!equalIgnoringFragmentIdentifier(load.proxyAnswersURL, url))
+            return { };
+        return load.proxyFilterResults;
+    };
+    for (auto entry : m_loads) {
+        if (entry.key.handle() == &handle)
+            return answers(entry.value);
+    }
+    for (auto& ping : m_pings) {
+        if (ping.handle() == &handle)
+            return answers(ping.load());
+    }
+    return { };
+}
+
 RefPtr<LegacyLoadInterceptor::Load> LegacyExtensionViewNetwork::pingLoad(LocalFrame& frame, const ResourceRequest& request, const FetchOptions& options)
 {
     if (!isInterceptable(request.url()))
@@ -734,9 +793,10 @@ RefPtr<LegacyLoadInterceptor::SynchronousLoad> LegacyExtensionViewNetwork::willL
 }
 
 // onBeforeRequest for a WebSocket handshake.
-bool LegacyExtensionViewNetwork::interceptWebSocket(Document& document, const URL& url, CompletionHandler<void(bool)>&& completionHandler)
+// proxy.onRequest, then onBeforeRequest, for a WebSocket handshake.
+bool LegacyExtensionViewNetwork::interceptWebSocket(Document& document, const URL& url, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&)>&& completionHandler)
 {
-    if (!m_listeners.observes(onBeforeRequest))
+    if (!m_listeners.observes(onBeforeRequest) && !m_listeners.observes(proxyOnRequest))
         return false;
     ResourceRequest request { URL { url } };
     request.setHTTPMethod("GET"_s);
@@ -745,14 +805,31 @@ bool LegacyExtensionViewNetwork::interceptWebSocket(Document& document, const UR
         return false;
     load->type = "websocket"_s;
     load->documentURL = { };
+    auto beforeRequest = [this, load](Vector<CocoaCurlProxyFilterResult>&& proxyFilterResults, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&)>&& completionHandler) {
+        auto details = this->details(*load);
+        if (!m_listeners.blocks(onBeforeRequest, details)) {
+            if (m_listeners.observes(onBeforeRequest))
+                notify(onBeforeRequest, WTF::move(details));
+            return completionHandler(true, WTF::move(proxyFilterResults));
+        }
+        dispatch(onBeforeRequest, WTF::move(details), [proxyFilterResults = WTF::move(proxyFilterResults), completionHandler = WTF::move(completionHandler)](RefPtr<JSON::Object>&& verdict) mutable {
+            completionHandler(!verdict || !verdict->getBoolean("cancel"_s).value_or(false), WTF::move(proxyFilterResults));
+        });
+    };
+    if (RefPtr details = proxyRequestDetails(*load, request)) {
+        dispatch(proxyOnRequest, details.releaseNonNull(), [beforeRequest = WTF::move(beforeRequest), completionHandler = WTF::move(completionHandler)](RefPtr<JSON::Object>&& response) mutable {
+            RefPtr answers = response ? response->getArray("proxy"_s) : nullptr;
+            beforeRequest(answers ? LegacyExtensions::proxyFilterResults(*answers) : Vector<CocoaCurlProxyFilterResult> { }, WTF::move(completionHandler));
+        });
+        return true;
+    }
     auto details = this->details(*load);
     if (!m_listeners.blocks(onBeforeRequest, details)) {
-        notify(onBeforeRequest, WTF::move(details));
+        if (m_listeners.observes(onBeforeRequest))
+            notify(onBeforeRequest, WTF::move(details));
         return false;
     }
-    dispatch(onBeforeRequest, WTF::move(details), [completionHandler = WTF::move(completionHandler)](RefPtr<JSON::Object>&& verdict) mutable {
-        completionHandler(!verdict || !verdict->getBoolean("cancel"_s).value_or(false));
-    });
+    beforeRequest({ }, WTF::move(completionHandler));
     return true;
 }
 

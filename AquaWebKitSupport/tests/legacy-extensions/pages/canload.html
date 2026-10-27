@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<title>canLoad</title>
+<img src="/res/canload-1.png?a">
+<img src="/res/canload-2.png?b">
+<script src="/res/canload-3.js?c"></script>
+<iframe src="/res/canload-4.html?d"></iframe>
+<p>canload.safariextension calls safari.self.tab.canLoad from beforeload handlers, after DOMContentLoaded and from a timer, in an Info.plist Start script (answers in &lt;html data-canload&gt;) and in a Start script added with safari.extension.addContentScriptFromURL (answers in &lt;html data-canload-start&gt;). Every answer carries the global page's running count. Its page.html, opened at the extension's base URI (&lt;html data-base&gt;), calls it from an extension page in a tab (answers in window.__answers).</p>

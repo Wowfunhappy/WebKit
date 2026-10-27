@@ -156,3 +156,4 @@ AquaWebKitSupport/tests/secure-context-window-reuse/build/
 AquaWebKitSupport/tests/samesite/build/
 
 AquaWebKitSupport/tests/legacy-extensions/build/
+AquaWebKitSupport/tests/websocket/build/

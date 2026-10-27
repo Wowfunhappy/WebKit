@@ -25,8 +25,8 @@
 
 #include "config.h"
 #include "WebUserContentController.h"
-#include "LegacyExtensionContent.h" // AQUAWEBKIT: withdraw native media leases with their extension world.
-#include <wtf/Scope.h> // AQUAWEBKIT: complete withdrawal after user-content containers are updated.
+#include "LegacyExtensionContent.h" // AQUAWEBKIT: end Safari 7 extension contexts with their content world.
+#include <wtf/Scope.h> // AQUAWEBKIT: notify Safari 7 extension contexts after the user-content containers are updated.
 
 #include "ContentWorldShared.h"
 #include "FrameInfoData.h"
@@ -254,7 +254,7 @@ void WebUserContentController::removeUserScript(ContentWorldIdentifier worldIden
 
 void WebUserContentController::removeAllUserScripts(const Vector<ContentWorldIdentifier>& worldIdentifiers)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     for (auto& worldIdentifier : worldIdentifiers) {
         RefPtr world = worldMap().get(worldIdentifier);
         if (!world) {
@@ -296,7 +296,7 @@ void WebUserContentController::removeUserStyleSheet(ContentWorldIdentifier world
 
 void WebUserContentController::removeAllUserStyleSheets(const Vector<ContentWorldIdentifier>& worldIdentifiers)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     bool sheetsChanged = false;
     for (auto& worldIdentifier : worldIdentifiers) {
         RefPtr world = worldMap().get(worldIdentifier);
@@ -534,6 +534,7 @@ void WebUserContentController::removeAllContentRuleLists()
 
 void WebUserContentController::addUserScriptInternal(InjectedBundleScriptWorld& world, const std::optional<UserScriptIdentifier>& userScriptIdentifier, UserScript&& userScript, InjectUserScriptImmediately immediately)
 {
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: tell the router which Safari 7 extensions' user content this process holds.
     if (immediately == InjectUserScriptImmediately::Yes) {
         Page::forEachPage([&] (auto& page) {
             if (userScript.injectedFrames() == UserContentInjectedFrames::InjectInTopFrameOnly) {
@@ -570,7 +571,7 @@ void WebUserContentController::addUserScript(InjectedBundleScriptWorld& world, U
 
 void WebUserContentController::removeUserScriptWithURL(InjectedBundleScriptWorld& world, const URL& url)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     auto it = m_userScripts.find(world);
     if (it == m_userScripts.end())
         return;
@@ -586,7 +587,7 @@ void WebUserContentController::removeUserScriptWithURL(InjectedBundleScriptWorld
 
 void WebUserContentController::removeUserScriptInternal(InjectedBundleScriptWorld& world, UserScriptIdentifier userScriptIdentifier)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     auto it = m_userScripts.find(world);
     if (it == m_userScripts.end())
         return;
@@ -602,12 +603,13 @@ void WebUserContentController::removeUserScriptInternal(InjectedBundleScriptWorl
 
 void WebUserContentController::removeUserScripts(InjectedBundleScriptWorld& world)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     m_userScripts.remove(world);
 }
 
 void WebUserContentController::addUserStyleSheetInternal(InjectedBundleScriptWorld& world, const std::optional<UserStyleSheetIdentifier>& userStyleSheetIdentifier, UserStyleSheet&& userStyleSheet)
 {
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: tell the router which Safari 7 extensions' user content this process holds.
     auto& styleSheetsInWorld = m_userStyleSheets.ensure(world, [] {
         return Vector<std::pair<std::optional<UserStyleSheetIdentifier>, WebCore::UserStyleSheet>> { };
     }).iterator->value;
@@ -632,7 +634,7 @@ void WebUserContentController::addUserStyleSheet(InjectedBundleScriptWorld& worl
 
 void WebUserContentController::removeUserStyleSheetWithURL(InjectedBundleScriptWorld& world, const URL& url)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     auto it = m_userStyleSheets.find(world);
     if (it == m_userStyleSheets.end())
         return;
@@ -653,7 +655,7 @@ void WebUserContentController::removeUserStyleSheetWithURL(InjectedBundleScriptW
 
 void WebUserContentController::removeUserStyleSheetInternal(InjectedBundleScriptWorld& world, UserStyleSheetIdentifier userStyleSheetIdentifier)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     auto it = m_userStyleSheets.find(world);
     if (it == m_userStyleSheets.end())
         return;
@@ -685,7 +687,7 @@ void WebUserContentController::removeUserStyleSheetInternal(InjectedBundleScript
 
 void WebUserContentController::removeUserStyleSheets(InjectedBundleScriptWorld& world)
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     if (!m_userStyleSheets.remove(world))
         return;
 
@@ -713,7 +715,7 @@ void WebUserContentController::forEachUserContentOfAllControllers(NOESCAPE const
 
 void WebUserContentController::removeAllUserContent()
 {
-    auto notifyMediaSessions = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: release bindings whose content world was withdrawn.
+    auto notifyLegacyExtensionContexts = makeScopeExit([] { LegacyExtensionContent::singleton().userContentDidChange(); }); // AQUAWEBKIT: end the extension contexts, media leases and ports whose content world was withdrawn.
     m_userScripts.clear();
 
     if (!m_userStyleSheets.isEmpty()) {

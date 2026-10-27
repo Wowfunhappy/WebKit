@@ -17,6 +17,9 @@ struct InfoPlist {
     // The `mime_types_handler` entry, with a WebExtension manifest's keys: each MIME type's `handler_url` and
     // `can_embed`.
     RefPtr<JSON::Object> mimeTypesHandler;
+    // `WebExtensionDevtoolsPage`, a WebExtension manifest's `devtools_page`: the path of the extension's devtools
+    // page within it.
+    String devToolsPage;
 };
 
 // The Info.plist of the extension whose files are at `root` (safari-extension://<key>/<token>/); empty when it

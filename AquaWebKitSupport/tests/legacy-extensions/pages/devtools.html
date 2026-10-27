@@ -1,0 +1,15 @@
+<!doctype html>
+<title>devtools inspected page</title>
+<!-- The page devtools.safariextension's devtools page inspects. Its loads give the devtools page requests to
+     report: a script, an image, a frame, a redirect, and a fetch of /echo-headers that saves the User-Agent the
+     request carried in window.__echoedUserAgent. -->
+<p id="inspect-me">Select me in the Web Inspector</p>
+<script src="/res/devtools-probe.js"></script>
+<img src="/res/devtools.png" alt="">
+<iframe src="/res/devtools-frame.html"></iframe>
+<script>
+fetch("/moved-devtools").then(response => response.text());
+fetch("/echo-headers?devtools").then(response => response.json()).then(headers => {
+    window.__echoedUserAgent = headers["user-agent"];
+});
+</script>

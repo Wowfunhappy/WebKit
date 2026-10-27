@@ -4,9 +4,9 @@
  */
 #pragma once
 
-// Cocoa curl routes use the system proxy resolver, including PAC and bypass rules.
+// The routes the system proxy resolver answers with for a URL, including PAC and bypass rules, in CFNetwork's order
+// (CocoaCurlRouteResolver turns them into a load's route).
 #include <CoreFoundation/CoreFoundation.h>
-#include <curl/curl.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
@@ -16,21 +16,22 @@
 namespace WebCore {
 class WEBCORE_EXPORT CocoaCurlProxyResolver final : public RefCounted<CocoaCurlProxyResolver> {
 public:
-    using Completion = CompletionHandler<void(RetainPtr<CFDictionaryRef>&&, const String& error)>;
-    static Ref<CocoaCurlProxyResolver> create(const URL&, CFDictionaryRef configuredSettings, Completion&&);
+    using RoutesCompletion = CompletionHandler<void(RetainPtr<CFArrayRef>&&, const String& error)>;
+    static Ref<CocoaCurlProxyResolver> createForRoutes(const URL&, CFDictionaryRef configuredSettings, RoutesCompletion&&);
+    // The routes a proxy auto-configuration entry (kCFProxyTypeAutoConfigurationURL or JavaScript) answers with.
+    static Ref<CocoaCurlProxyResolver> createForAutoConfiguration(const URL&, CFDictionaryRef proxy, RoutesCompletion&&);
     ~CocoaCurlProxyResolver();
     void start();
     void cancel();
-    static bool applyCredentials(CURL*, CFDictionaryRef, long authentication, const String& user, const String& password);
-    static bool apply(CURL*, CFDictionaryRef, String& host, int& port);
 private:
-    CocoaCurlProxyResolver(const URL&, CFDictionaryRef, Completion&&);
+    CocoaCurlProxyResolver(const URL&, CFDictionaryRef, RoutesCompletion&&);
     void resolved(CFArrayRef, CFErrorRef);
-    void finish(CFDictionaryRef, const String&);
+    void finish(CFArrayRef, const String&);
     Ref<RunLoop> m_runLoop;
     URL m_url;
     RetainPtr<CFDictionaryRef> m_settings;
+    RetainPtr<CFDictionaryRef> m_autoConfiguration;
     RetainPtr<CFRunLoopSourceRef> m_pacSource;
-    Completion m_completion;
+    RoutesCompletion m_completion;
 };
 } // namespace WebCore

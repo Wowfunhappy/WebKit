@@ -22,6 +22,9 @@ struct CocoaCurlTLSState {
     // For a transport that owns its handshaking thread: the same ClientHello and the same native trust
     // evaluation, run inside the handshake rather than through the scheduler's pause and resume.
     WEBCORE_EXPORT static CURLcode installSynchronously(SSL_CTX*, const std::shared_ptr<CocoaCurlTLSState>&);
+    // For a transport that owns its handshaking thread and judges the server's certificate itself: the same
+    // ClientHello, and the client identity requestIdentity and requestSignature answer before they return.
+    static CURLcode installWithClientIdentity(SSL_CTX*, const std::shared_ptr<CocoaCurlTLSState>&);
     WEBCORE_EXPORT static std::shared_ptr<CocoaCurlTLSState> fromSSL(SSL*);
     WEBCORE_EXPORT static RetainPtr<CFArrayRef> certificateAuthorities(SSL*);
     WEBCORE_EXPORT bool negotiatedLegacyTLS() const;

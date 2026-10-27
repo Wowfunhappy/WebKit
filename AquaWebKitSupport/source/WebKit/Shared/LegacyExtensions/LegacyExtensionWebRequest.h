@@ -15,6 +15,7 @@
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
+struct CocoaCurlProxyFilterResult;
 class AuthenticationChallenge;
 class HTTPHeaderMap;
 class ResourceError;
@@ -36,6 +37,11 @@ inline constexpr auto onErrorOccurred = "onErrorOccurred"_s;
 inline constexpr auto onAuthRequired = "onAuthRequired"_s;
 inline constexpr auto requestBodyOption = "requestBody"_s;
 inline constexpr auto extraHeadersOption = "extraHeaders"_s;
+// Firefox's proxy.onRequest, which reaches the network ends with the webRequest events, and its extraInfoSpec
+// option; Chromium's proxy.onProxyError, which they report.
+inline constexpr auto proxyOnRequest = "proxy.onRequest"_s;
+inline constexpr auto requestHeadersOption = "requestHeaders"_s;
+inline constexpr auto proxyOnProxyError = "proxy.onProxyError"_s;
 
 // The events extensions listen to, the extraInfoSpec options their listeners ask for, and the filters of the
 // blocking listeners, as the router sends them.
@@ -115,6 +121,10 @@ RefPtr<JSON::Object> requestBody(const WebCore::ResourceRequest&);
 // The WebExtensions name of an HTTP authentication scheme; null for a challenge that is not HTTP
 // authentication.
 String authenticationSchemeName(const WebCore::AuthenticationChallenge&);
+
+// The proxy.onRequest answers the router merged, each listener's in the order the listeners answer for a
+// request: null for a direct connection, or a list of Firefox ProxyInfo objects and nulls.
+Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults(JSON::Array& answers);
 
 // A request an extension cancels fails as one WebKit's content rules block, as Chrome fails it with
 // net::ERR_BLOCKED_BY_CLIENT.
