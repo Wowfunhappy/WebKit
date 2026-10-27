@@ -4,10 +4,12 @@
 //
 // Each MIME type goes to one handler: that of the most recently loaded extension that declares the type and has
 // not disabled it, Safari loading its extensions in the order they were installed. application/pdf is the one
-// type an extension can handle, as in Chrome. Web content processes receive the handlers as JSON.
+// type an extension can handle, as in Chrome. A handler serves the responses within its extension's website access.
+// Web content processes receive the handlers as JSON.
 
 #pragma once
 
+#include "LegacyExtensionWebsiteAccess.h"
 #include <wtf/HashMap.h>
 #include <wtf/JSONValues.h>
 #include <wtf/URL.h>
@@ -22,7 +24,7 @@ class LegacyExtensionMimeHandlers {
 public:
     static LegacyExtensionMimeHandlers& singleton();
 
-    void extensionDidLoad(const String& extensionKey, const URL& root, RefPtr<JSON::Object>&& mimeTypesHandler);
+    void extensionDidLoad(const String& extensionKey, const URL& root, RefPtr<JSON::Object>&& mimeTypesHandler, const LegacyExtensions::WebsiteAccess&);
     void extensionDidUnload(const String& extensionKey);
 
     // getMimeHandlerOptions and setMimeHandlerOptions: `{ enabled }`, which persists.
@@ -40,6 +42,7 @@ private:
     struct Extension {
         String extensionKey;
         Vector<Handler> handlers;
+        Vector<String> urlPatterns;
     };
 
     HashMap<String, bool, ASCIICaseInsensitiveHash>& disabledTypes(const String& extensionKey);

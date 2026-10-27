@@ -6,6 +6,7 @@
 #pragma once
 
 #include "HTMLDocument.h"
+#include "UserContentURLPattern.h"
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/text/StringHash.h>
@@ -21,6 +22,11 @@ struct LegacyExtensionMimeHandler {
     URL handlerURL;
     // Whether the handler also serves <embed>, <object> and frames, and not only top-level documents.
     bool canEmbed { false };
+    // The extension's website access: the handler serves only the responses of URLs it covers, a blob: URL by its
+    // origin.
+    Vector<UserContentURLPattern> urlPatterns;
+
+    bool serves(const URL&) const;
 };
 
 class LegacyExtensionMimeHandlerDocument final : public HTMLDocument {
@@ -30,24 +36,29 @@ public:
     // The handler of each type, as the web process's router sends them.
     WEBCORE_EXPORT static void setHandlers(HashMap<String, LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash>&&);
     // Whether a page shows the type: an extension handles it at the top level or embedded, and, while a frame's
-    // response policy is decided, in that frame.
+    // response policy is decided, in that frame and for that response's URL.
     WEBCORE_EXPORT static bool handles(const String& mimeType);
-    // Whether an <embed> or <object> of the type shows the handler.
-    WEBCORE_EXPORT static bool handlesEmbedded(const String& mimeType);
+    // Whether an <embed> or <object> of the URL and type shows the handler.
+    WEBCORE_EXPORT static bool handlesEmbedded(const URL&, const String& mimeType);
 
     // The document of a frame's response of a type a handler serves in that frame.
     static RefPtr<Document> createIfHandled(LocalFrame&, const URL&, const String& mimeType);
 
-    // Scopes the decision of a frame's response policy, during which `handles` answers for that frame: a frame
-    // below the top level shows a type only when its handler embeds.
+    // Scopes the decision of a frame's response policy, during which `handles` answers for that frame and response:
+    // a frame below the top level shows a type only when its handler embeds.
     class ResponsePolicyScope {
         WTF_MAKE_NONCOPYABLE(ResponsePolicyScope);
     public:
-        WEBCORE_EXPORT explicit ResponsePolicyScope(const LocalFrame&);
+        WEBCORE_EXPORT ResponsePolicyScope(const LocalFrame&, const URL& responseURL);
         WEBCORE_EXPORT ~ResponsePolicyScope();
 
+        struct Response {
+            bool isEmbedded { false };
+            URL url;
+        };
+
     private:
-        std::optional<bool> m_previousFrameIsEmbedded;
+        std::optional<Response> m_previousResponse;
     };
     // The document whose handler page the frame shows.
     WEBCORE_EXPORT static LegacyExtensionMimeHandlerDocument* forHandlerFrame(LocalFrame&);

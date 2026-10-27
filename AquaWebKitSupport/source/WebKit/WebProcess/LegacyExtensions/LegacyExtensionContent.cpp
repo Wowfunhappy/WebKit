@@ -903,7 +903,12 @@ void LegacyExtensionContent::setMimeHandlers(String&& handlersJSON)
             RefPtr handler = entry->asObject();
             if (!handler)
                 continue;
-            handlers.set(handler->getString("mimeType"_s), WebCore::LegacyExtensionMimeHandler { handler->getString("extensionKey"_s), URL { handler->getString("handlerURL"_s) }, handler->getBoolean("canEmbed"_s).value_or(false) });
+            Vector<WebCore::UserContentURLPattern> urlPatterns;
+            if (RefPtr patterns = handler->getArray("urlPatterns"_s)) {
+                for (auto& pattern : *patterns)
+                    urlPatterns.append(WebCore::UserContentURLPattern { pattern->asString() });
+            }
+            handlers.set(handler->getString("mimeType"_s), WebCore::LegacyExtensionMimeHandler { handler->getString("extensionKey"_s), URL { handler->getString("handlerURL"_s) }, handler->getBoolean("canEmbed"_s).value_or(false), WTF::move(urlPatterns) });
         }
     }
     WebCore::LegacyExtensionMimeHandlerDocument::setHandlers(WTF::move(handlers));

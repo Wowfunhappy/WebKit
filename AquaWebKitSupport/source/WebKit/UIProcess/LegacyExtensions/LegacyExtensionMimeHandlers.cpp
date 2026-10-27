@@ -43,12 +43,12 @@ HashMap<String, bool, ASCIICaseInsensitiveHash>& LegacyExtensionMimeHandlers::di
     }).iterator->value;
 }
 
-void LegacyExtensionMimeHandlers::extensionDidLoad(const String& extensionKey, const URL& root, RefPtr<JSON::Object>&& mimeTypesHandler)
+void LegacyExtensionMimeHandlers::extensionDidLoad(const String& extensionKey, const URL& root, RefPtr<JSON::Object>&& mimeTypesHandler, const LegacyExtensions::WebsiteAccess& websiteAccess)
 {
     m_extensions.removeAllMatching([&](auto& extension) {
         return extension.extensionKey == extensionKey;
     });
-    Extension extension { extensionKey, { } };
+    Extension extension { extensionKey, { }, websiteAccess.urlPatterns() };
     if (mimeTypesHandler) {
         for (auto& [mimeType, value] : *mimeTypesHandler) {
             RefPtr entry = value->asObject();
@@ -119,6 +119,10 @@ void LegacyExtensionMimeHandlers::update()
             description->setString("extensionKey"_s, extension.extensionKey);
             description->setString("handlerURL"_s, handler.handlerURL.string());
             description->setBoolean("canEmbed"_s, handler.canEmbed);
+            auto urlPatterns = JSON::Array::create();
+            for (auto& pattern : extension.urlPatterns)
+                urlPatterns->pushString(pattern);
+            description->setArray("urlPatterns"_s, WTF::move(urlPatterns));
             handlers.set(handler.mimeType, WTF::move(description));
         }
     }

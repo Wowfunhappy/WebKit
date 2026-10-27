@@ -1005,7 +1005,7 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     // WKBundlePagePolicyActionUse (canShortCircuitPolicyDecisionForResponse) for the responses it
     // commits without its UI-process handler -- plain non-attachment http text/html. The UIProcess
     // carries that answer out as it does any Use.
-    LegacyExtensionMimeHandlerDocument::ResponsePolicyScope mimeHandlerScope { m_localFrame.get() }; // AQUAWEBKIT: whether the page shows the type is whether this frame does.
+    LegacyExtensionMimeHandlerDocument::ResponsePolicyScope mimeHandlerScope { m_localFrame.get(), response.url() }; // AQUAWEBKIT: whether the page shows the type is whether this frame does, for this response.
     RefPtr<API::Object> bundleUserData;
     bool bundlePolicyDecidedUse = webPage->injectedBundlePolicyClient().decidePolicyForResponse(webPage.get(), m_frame.ptr(), response, request, bundleUserData) == WKBundlePagePolicyActionUse;
 
@@ -1946,7 +1946,7 @@ ObjectContentType WebLocalFrameLoaderClient::objectContentType(const URL& url, c
             return ObjectContentType::Frame;
     }
 #endif
-    if (LegacyExtensionMimeHandlerDocument::handlesEmbedded(mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
+    if (LegacyExtensionMimeHandlerDocument::handlesEmbedded(url, mimeType)) // AQUAWEBKIT: a Safari 7 extension's mimeHandler viewer shows it.
         return ObjectContentType::Frame;
     if (MIMETypeRegistry::isSupportedImageMIMEType(mimeType))
         return ObjectContentType::Image;

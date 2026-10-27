@@ -1,0 +1,8 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>access boundaries</title>
+<p>access-boundaries.safariextension (website access: localhost) checks its access from this page, at http://localhost:8843/access.html; its frame is 127.0.0.1, outside the access.</p>
+<script>
+if (!location.search)
+    document.write('<iframe src="http://127.0.0.1:8843/access.html?frame" width="300" height="80"></iframe>');
+</script>

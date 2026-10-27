@@ -14,6 +14,7 @@
 #include "JSDOMGlobalObject.h"
 #include "LocalFrame.h"
 #include "RawDataDocumentParser.h"
+#include "SecurityOrigin.h"
 #include "SharedBuffer.h"
 #include <pal/text/TextEncoding.h>
 #include <wtf/NeverDestroyed.h>
@@ -39,21 +40,29 @@ static WeakHashSet<LegacyExtensionMimeHandlerDocument, WeakPtrImplWithEventTarge
     return documents;
 }
 
-// Whether the frame whose response policy is being decided is below the top level.
-static std::optional<bool>& decidingFrameIsEmbedded()
+// The response whose policy is being decided: whether its frame is below the top level, and its URL.
+static std::optional<LegacyExtensionMimeHandlerDocument::ResponsePolicyScope::Response>& decidingResponse()
 {
-    static std::optional<bool> isEmbedded;
-    return isEmbedded;
+    static NeverDestroyed<std::optional<LegacyExtensionMimeHandlerDocument::ResponsePolicyScope::Response>> response;
+    return response;
 }
 
-LegacyExtensionMimeHandlerDocument::ResponsePolicyScope::ResponsePolicyScope(const LocalFrame& frame)
-    : m_previousFrameIsEmbedded(std::exchange(decidingFrameIsEmbedded(), !frame.isMainFrame()))
+LegacyExtensionMimeHandlerDocument::ResponsePolicyScope::ResponsePolicyScope(const LocalFrame& frame, const URL& responseURL)
+    : m_previousResponse(std::exchange(decidingResponse(), Response { !frame.isMainFrame(), responseURL }))
 {
 }
 
 LegacyExtensionMimeHandlerDocument::ResponsePolicyScope::~ResponsePolicyScope()
 {
-    decidingFrameIsEmbedded() = m_previousFrameIsEmbedded;
+    decidingResponse() = WTF::move(m_previousResponse);
+}
+
+bool LegacyExtensionMimeHandler::serves(const URL& url) const
+{
+    auto target = url.protocolIsBlob() ? SecurityOrigin::create(url)->toURL() : url;
+    return std::ranges::any_of(urlPatterns, [&](auto& pattern) {
+        return pattern.matches(target);
+    });
 }
 
 void LegacyExtensionMimeHandlerDocument::setHandlers(HashMap<String, LegacyExtensionMimeHandler, ASCIICaseInsensitiveHash>&& newHandlers)
@@ -63,17 +72,21 @@ void LegacyExtensionMimeHandlerDocument::setHandlers(HashMap<String, LegacyExten
 
 bool LegacyExtensionMimeHandlerDocument::handles(const String& mimeType)
 {
-    if (decidingFrameIsEmbedded().value_or(false))
-        return handlesEmbedded(mimeType);
-    return !mimeType.isEmpty() && handlers().contains(mimeType);
+    auto& response = decidingResponse();
+    if (response && response->isEmbedded)
+        return handlesEmbedded(response->url, mimeType);
+    if (mimeType.isEmpty())
+        return false;
+    auto iterator = handlers().find(mimeType);
+    return iterator != handlers().end() && (!response || iterator->value.serves(response->url));
 }
 
-bool LegacyExtensionMimeHandlerDocument::handlesEmbedded(const String& mimeType)
+bool LegacyExtensionMimeHandlerDocument::handlesEmbedded(const URL& url, const String& mimeType)
 {
     if (mimeType.isEmpty())
         return false;
     auto iterator = handlers().find(mimeType);
-    return iterator != handlers().end() && iterator->value.canEmbed;
+    return iterator != handlers().end() && iterator->value.canEmbed && iterator->value.serves(url);
 }
 
 // The body arrives here; the document loader keeps it.
@@ -114,7 +127,7 @@ RefPtr<Document> LegacyExtensionMimeHandlerDocument::createIfHandled(LocalFrame&
 {
     auto iterator = mimeType.isEmpty() ? handlers().end() : handlers().find(mimeType);
     bool isEmbedded = !frame.isMainFrame();
-    if (iterator == handlers().end() || (isEmbedded && !iterator->value.canEmbed))
+    if (iterator == handlers().end() || (isEmbedded && !iterator->value.canEmbed) || !iterator->value.serves(url))
         return nullptr;
     Ref document = adoptRef(*new LegacyExtensionMimeHandlerDocument(frame, url, mimeType, iterator->value, isEmbedded));
     document->addToContextsMap();

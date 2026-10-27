@@ -58,6 +58,7 @@ class WebBackForwardListItem;
 class WebFrameProxy;
 class WebPageProxy;
 class WebProcessProxy;
+struct FrameInfoData;
 class WebUserContentControllerProxy;
 
 class LegacyExtensionNetworkProxy final : public IPC::MessageReceiver {
@@ -238,9 +239,27 @@ private:
     // The host contexts listening to `eventName` of the other extensions `extensionId` names for a sender
     // of the extension `senderExtensionKey`.
     Vector<Endpoint> externalHostContextsListeningTo(const String& extensionId, const String& senderExtensionKey, const String& eventName) const;
+    // A tab's frames, or the one `frameId` names: the frame tree of its documents as the web content process
+    // has it, which leaves out frames kept in the back/forward cache.
+    void tabFrames(WebPageProxy&, std::optional<double> frameId, CompletionHandler<void(Vector<FrameInfoData>&&)>&&);
+    // The context an extension has in a frame: its page where the frame shows one, its content scripts
+    // elsewhere; none where the frame shows an invalidated page of the extension.
+    std::optional<Endpoint> tabFrameEndpoint(const FrameInfoData&, const String& extensionKey);
     void tabEndpoints(WebPageProxy&, std::optional<double> frameId, const String& extensionKey, CompletionHandler<void(Vector<Endpoint>&&)>&&);
-    bool deliver(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr, bool existingPort = false);
-    Ref<JSON::Object> senderDescription(const Endpoint&) const;
+    // While the receiving extension's website access is read, what goes to it waits, in order.
+    void deliver(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr, bool existingPort = false);
+    // Whether the message reached the endpoint, for an extension whose website access is read.
+    bool deliverNow(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr, bool existingPort = false);
+    // A message as an extension that sees the page at `pageURL` gets it, or as one that does not; a null message
+    // does not reach it.
+    void deliverSeeingPage(const Endpoint&, const URL& pageURL, const String& visibleMessage, const String& hiddenMessage);
+    // A message's sender, with its tab as an extension that sees the tab's page gets it, and as one that does not.
+    struct SenderDescription {
+        Ref<JSON::Object> visible;
+        Ref<JSON::Object> hidden;
+        URL pageURL;
+    };
+    SenderDescription senderDescription(const Endpoint&) const;
     void endpointDidGoAway(const Endpoint&);
     void endpointsDidGoAway(NOESCAPE const Function<bool(const Endpoint&)>&);
     // A context its frame's next document replaces leaves the extension loaded.
@@ -256,6 +275,11 @@ private:
     void finishRouterCallIfComplete(uint64_t);
     void finishWebRequestCallIfComplete(uint64_t);
     void dispatchEvent(const String& eventName, Ref<JSON::Array>&& arguments);
+    // An event with its arguments as an extension that sees the page at `pageURL` gets them, and as one that does
+    // not; null arguments do not reach it.
+    void dispatchEvent(const String& eventName, const URL& pageURL, RefPtr<JSON::Array>&& visibleArguments, RefPtr<JSON::Array>&& hiddenArguments);
+    // A webNavigation event of a frame, for the extensions that see its URL.
+    void dispatchNavigationEvent(const String& eventName, Ref<JSON::Object>&& details, const URL&);
     void updateNetworkListeners();
     void updateCookieObservers();
     void loadWebsiteAccess(const String& extensionKey, const URL&);
@@ -265,10 +289,12 @@ private:
     void withWebsiteAccess(const String& extensionKey, Function<void(const LegacyExtensions::WebsiteAccess&)>&&);
     void sendNetworkListeners(NetworkProcessProxy&);
 
-    Ref<JSON::Object> tabDescription(WebPageProxy&) const;
-    Ref<JSON::Array> tabUpdatedArguments(WebPageProxy&, Ref<JSON::Object>&& changeInfo) const;
+    // A tab, with its URL and title when the extension sees its page.
+    Ref<JSON::Object> tabDescription(WebPageProxy&, bool seesPage) const;
     void reportTabUpdate(WebPageProxy&, Ref<JSON::Object>&& changeInfo);
     void resultToHostContext(HostContext&, double callID, RefPtr<JSON::Value>&& result, const String& error = { });
+    // A call's result that is a tab, at the time of the call, as the calling extension sees it.
+    void resultWithTab(HostContext&, double callID, WebPageProxy&);
 
     RefPtr<HostContext> extensionPageContext(WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, const URL& documentURL, const String& extensionKey);
     URL documentURL(WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier>) const;

@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>access blob pdf</title>
+<p>Shows /mime/doc.pdf through a blob: URL of this page's origin in a frame; access-boundaries.safariextension's PDF handler shows it only when the origin is within its website access (localhost).</p>
+<script>
+fetch('/mime/doc.pdf').then(response => response.blob()).then(blob => {
+    const frame = document.createElement('iframe');
+    frame.width = 300;
+    frame.height = 200;
+    frame.src = URL.createObjectURL(blob);
+    document.body.appendChild(frame);
+});
+</script>
