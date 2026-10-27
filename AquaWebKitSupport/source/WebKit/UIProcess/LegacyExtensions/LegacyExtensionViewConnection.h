@@ -6,6 +6,7 @@
 #pragma once
 
 #include "Connection.h"
+#include "Encoder.h"
 #include <WebCore/Site.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
@@ -48,7 +49,12 @@ private:
     bool m_isConnecting { false };
     bool m_needsChannelRegistration { false };
     uint64_t m_connectionGeneration { 0 };
-    Vector<Function<void(IPC::Connection&)>> m_pendingMessages;
+    // Messages waiting for the connection, as AuxiliaryProcessProxy keeps them.
+    struct PendingMessage {
+        UniqueRef<IPC::Encoder> encoder;
+        std::optional<IPC::Connection::AsyncReplyHandler> asyncReplyHandler;
+    };
+    Vector<PendingMessage> m_pendingMessages;
     HashSet<WebCore::Site> m_allowedFirstParties;
     HashMap<WebCore::Site, Vector<Function<void()>>> m_messagesAwaitingFirstParty;
 };

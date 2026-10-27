@@ -366,15 +366,17 @@ void LegacyExtensionViewConnection::install()
     WebSetLegacyExtensionBroadcastChannelRegistry(LegacyExtensionViewBroadcastChannels::singleton());
 }
 
+// A message holds references to its arguments, so one waiting for the connection waits encoded, as
+// AuxiliaryProcessProxy's do.
 template<typename Message> void LegacyExtensionViewConnection::send(Message&& message)
 {
     if (RefPtr connection = m_connection) {
         connection->send(std::forward<Message>(message), 0);
         return;
     }
-    m_pendingMessages.append([message = std::forward<Message>(message)](IPC::Connection& connection) mutable {
-        connection.send(WTF::move(message), 0);
-    });
+    auto encoder = makeUniqueRef<IPC::Encoder>(Message::name(), 0);
+    message.encode(encoder.get());
+    m_pendingMessages.append({ WTF::move(encoder), std::nullopt });
     connect();
 }
 
@@ -384,9 +386,9 @@ template<typename Message, typename CompletionHandler> void LegacyExtensionViewC
         connection->sendWithAsyncReply(std::forward<Message>(message), std::forward<CompletionHandler>(completionHandler), 0);
         return;
     }
-    m_pendingMessages.append([message = std::forward<Message>(message), completionHandler = std::forward<CompletionHandler>(completionHandler)](IPC::Connection& connection) mutable {
-        connection.sendWithAsyncReply(WTF::move(message), WTF::move(completionHandler), 0);
-    });
+    auto encoder = makeUniqueRef<IPC::Encoder>(Message::name(), 0);
+    message.encode(encoder.get());
+    m_pendingMessages.append({ WTF::move(encoder), IPC::Connection::makeAsyncReplyHandler<Message>(std::forward<CompletionHandler>(completionHandler)) });
     connect();
 }
 
@@ -439,7 +441,11 @@ void LegacyExtensionViewConnection::didConnect(std::optional<IPC::Connection::Ha
             });
             return;
         }
-        m_pendingMessages.clear();
+        // Each waiting reply handler is called without a reply, as in AuxiliaryProcessProxy::replyToPendingMessages.
+        for (auto& message : std::exchange(m_pendingMessages, { })) {
+            if (message.asyncReplyHandler && message.asyncReplyHandler->completionHandler)
+                message.asyncReplyHandler->completionHandler(nullptr, nullptr);
+        }
         LegacyExtensionViewMessagePorts::singleton().connectionClosed();
         return;
     }
@@ -448,8 +454,12 @@ void LegacyExtensionViewConnection::didConnect(std::optional<IPC::Connection::Ha
     connection->open(*this);
     if (std::exchange(m_needsChannelRegistration, false))
         LegacyExtensionViewBroadcastChannels::singleton().registerChannelsWithNetworkProcess();
-    for (auto& sendMessage : std::exchange(m_pendingMessages, { }))
-        sendMessage(connection);
+    for (auto& message : std::exchange(m_pendingMessages, { })) {
+        if (message.asyncReplyHandler)
+            connection->sendMessageWithAsyncReply(WTF::move(message.encoder), WTF::move(*message.asyncReplyHandler), { });
+        else
+            connection->sendMessage(WTF::move(message.encoder), { });
+    }
 }
 
 void LegacyExtensionViewConnection::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
