@@ -54,6 +54,7 @@
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/UserGestureIndicator.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/OptionSet.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
@@ -71,7 +72,18 @@ static constexpr auto noReceiverError = "Could not establish connection. Receivi
 // Chrome's error for the channels of a document that enters the back/forward cache (extension_message_port.cc).
 static constexpr auto closedWhenPageEntersBackForwardCacheError = "The page keeping the extension port is moved into back/forward cache, so the message channel is closed."_s;
 
-// A page's tabs.onUpdated source.
+// A tab's URL: its main frame's committed URL, as Chrome's Tab.url is, or the URL an error page stands for.
+static const URL& tabURL(WebPageProxy& page)
+{
+    auto& pageLoadState = page.pageLoadState();
+    return pageLoadState.unreachableURL().isEmpty() ? pageLoadState.url() : pageLoadState.unreachableURL();
+}
+
+// A page's tabs.onUpdated source, reporting navigations as Chrome's TabsEventRouter does: a main-frame commit reports
+// the tab loading, with its URL when that changed, and the tab's first stop loading after a commit reports it
+// complete. A navigation that never commits, such as an HTTPS upgrade WebKit falls back from, reports nothing.
+// Changes are reported together, with the tab's state at that time, after upstream's tabs.onUpdated coalescing delay
+// (WebExtensionContext::didChangeTabProperties).
 class LegacyExtensionTabObserver final : public PageLoadStateObserverBase, public RefCounted<LegacyExtensionTabObserver> {
 public:
     static Ref<LegacyExtensionTabObserver> create(WebPageProxy& page, Function<void(WebPageProxy&, Ref<JSON::Object>&&)>&& didUpdate)
@@ -82,49 +94,96 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
+    void didCommitMainFrameNavigation()
+    {
+        m_didCommit = true;
+        scheduleUpdate();
+    }
+
+    enum class Property : uint8_t {
+        Hidden = 1 << 0,
+        Audible = 1 << 1,
+        Muted = 1 << 2,
+    };
+    void didChange(Property property)
+    {
+        m_changedProperties.add(property);
+        scheduleUpdate();
+    }
+
 private:
     LegacyExtensionTabObserver(WebPageProxy& page, Function<void(WebPageProxy&, Ref<JSON::Object>&&)>&& didUpdate)
         : m_page(page)
         , m_didUpdate(WTF::move(didUpdate))
+        , m_url(tabURL(page))
+        , m_title(page.pageLoadState().title())
     {
     }
 
-    void report(Ref<JSON::Object>&& changeInfo)
+    void scheduleUpdate()
     {
-        if (RefPtr page = m_page.get())
+        if (std::exchange(m_updateIsScheduled, true))
+            return;
+        constexpr auto updatedEventDelay = 25_ms;
+        RunLoop::mainSingleton().dispatchAfter(updatedEventDelay, [protectedThis = Ref { *this }] {
+            protectedThis->update();
+        });
+    }
+
+    void update()
+    {
+        m_updateIsScheduled = false;
+        RefPtr page = m_page.get();
+        if (!page)
+            return;
+        if (std::exchange(m_didCommit, false)) {
+            m_completeIsPending = true;
+            auto changeInfo = JSON::Object::create();
+            changeInfo->setString("status"_s, "loading"_s);
+            if (auto& url = tabURL(*page); url != m_url) {
+                m_url = url;
+                changeInfo->setString("url"_s, url.string());
+            }
             m_didUpdate(*page, WTF::move(changeInfo));
+        }
+        if (auto& title = page->pageLoadState().title(); !equalIgnoringNullity(title, m_title)) {
+            m_title = title;
+            auto changeInfo = JSON::Object::create();
+            changeInfo->setString("title"_s, title);
+            m_didUpdate(*page, WTF::move(changeInfo));
+        }
+        auto changedProperties = std::exchange(m_changedProperties, { });
+        if (changedProperties.contains(Property::Hidden)) {
+            auto changeInfo = JSON::Object::create();
+            changeInfo->setBoolean("hidden"_s, LegacyExtensionHiddenTabs::singleton().isHidden(*page));
+            m_didUpdate(*page, WTF::move(changeInfo));
+        }
+        if (changedProperties.contains(Property::Audible)) {
+            auto changeInfo = JSON::Object::create();
+            changeInfo->setBoolean("audible"_s, page->isPlayingAudio());
+            m_didUpdate(*page, WTF::move(changeInfo));
+        }
+        if (changedProperties.contains(Property::Muted)) {
+            auto mutedInfo = JSON::Object::create();
+            mutedInfo->setBoolean("muted"_s, page->isAudioMuted());
+            auto changeInfo = JSON::Object::create();
+            changeInfo->setObject("mutedInfo"_s, WTF::move(mutedInfo));
+            m_didUpdate(*page, WTF::move(changeInfo));
+        }
+        if (m_completeIsPending && !page->pageLoadState().isLoading()) {
+            m_completeIsPending = false;
+            auto changeInfo = JSON::Object::create();
+            changeInfo->setString("status"_s, "complete"_s);
+            m_didUpdate(*page, WTF::move(changeInfo));
+        }
     }
 
     void willChangeIsLoading() final { }
-    void didChangeIsLoading() final
-    {
-        RefPtr page = m_page.get();
-        if (!page)
-            return;
-        auto changeInfo = JSON::Object::create();
-        changeInfo->setString("status"_s, page->pageLoadState().isLoading() ? "loading"_s : "complete"_s);
-        report(WTF::move(changeInfo));
-    }
+    void didChangeIsLoading() final { scheduleUpdate(); }
     void willChangeTitle() final { }
-    void didChangeTitle() final
-    {
-        RefPtr page = m_page.get();
-        if (!page)
-            return;
-        auto changeInfo = JSON::Object::create();
-        changeInfo->setString("title"_s, page->pageLoadState().title());
-        report(WTF::move(changeInfo));
-    }
+    void didChangeTitle() final { scheduleUpdate(); }
     void willChangeActiveURL() final { }
-    void didChangeActiveURL() final
-    {
-        RefPtr page = m_page.get();
-        if (!page)
-            return;
-        auto changeInfo = JSON::Object::create();
-        changeInfo->setString("url"_s, page->pageLoadState().activeURL().string());
-        report(WTF::move(changeInfo));
-    }
+    void didChangeActiveURL() final { }
     void willChangeHasOnlySecureContent() final { }
     void didChangeHasOnlySecureContent() final { }
     void willChangeEstimatedProgress() final { }
@@ -143,6 +202,12 @@ private:
 
     WeakPtr<WebPageProxy> m_page;
     Function<void(WebPageProxy&, Ref<JSON::Object>&&)> m_didUpdate;
+    URL m_url;
+    String m_title;
+    OptionSet<Property> m_changedProperties;
+    bool m_didCommit { false };
+    bool m_completeIsPending { false };
+    bool m_updateIsScheduled { false };
 };
 
 static HashMap<WebPageProxyIdentifier, Ref<LegacyExtensionTabObserver>>& tabObservers()
@@ -1482,7 +1547,7 @@ Ref<JSON::Object> LegacyExtensionHost::tabDescription(WebPageProxy& page) const
 {
     auto tab = JSON::Object::create();
     tab->setDouble("id"_s, tabIDForPage(page));
-    tab->setString("url"_s, page.pageLoadState().activeURL().string());
+    tab->setString("url"_s, tabURL(page).string());
     tab->setString("title"_s, page.pageLoadState().title());
     tab->setString("status"_s, page.pageLoadState().isLoading() ? "loading"_s : "complete"_s);
     tab->setBoolean("incognito"_s, page.sessionID().isEphemeral());
@@ -2288,14 +2353,17 @@ class LegacyExtensionNavigationClient final : public API::NavigationClient {
     {
         LegacyExtensionHost::singleton().contentRuleListNotification(page, url, results);
     }
+    void didSameDocumentNavigation(WebPageProxy& page, API::Navigation*, SameDocumentNavigationType, API::Object*) final
+    {
+        LegacyExtensionHost::singleton().didCommitMainFrameNavigation(page);
+    }
 };
 
 void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
 {
     page.setNavigationClient(makeUniqueRef<LegacyExtensionNavigationClient>());
     auto observer = LegacyExtensionTabObserver::create(page, [](WebPageProxy& page, Ref<JSON::Object>&& changeInfo) {
-        auto& host = LegacyExtensionHost::singleton();
-        host.dispatchEvent("tabs.onUpdated"_s, host.tabUpdatedArguments(page, WTF::move(changeInfo)));
+        LegacyExtensionHost::singleton().reportTabUpdate(page, WTF::move(changeInfo));
     });
     page.pageLoadState().addObserver(observer.get());
     bool controllerHasRules = userContentControllers().containsIf([&](auto& controller) {
@@ -2328,34 +2396,25 @@ void LegacyExtensionHost::reportTabUpdate(WebPageProxy& page, Ref<JSON::Object>&
 {
     if (!tabObservers().contains(page.identifier()))
         return;
-    // Delivery runs a WebKit 1 page's listeners synchronously, so it waits for the change, which can come
-    // from Safari's tab move or the extension's own call, to return.
-    RunLoop::mainSingleton().dispatch([arguments = tabUpdatedArguments(page, WTF::move(changeInfo))] mutable {
-        LegacyExtensionHost::singleton().dispatchEvent("tabs.onUpdated"_s, WTF::move(arguments));
-    });
+    dispatchEvent("tabs.onUpdated"_s, tabUpdatedArguments(page, WTF::move(changeInfo)));
 }
 
-void LegacyExtensionHost::tabHiddenDidChange(WebPageProxy& page, bool hidden)
+void LegacyExtensionHost::tabHiddenDidChange(WebPageProxy& page)
 {
-    auto changeInfo = JSON::Object::create();
-    changeInfo->setBoolean("hidden"_s, hidden);
-    reportTabUpdate(page, WTF::move(changeInfo));
+    if (RefPtr observer = tabObservers().get(page.identifier()))
+        observer->didChange(LegacyExtensionTabObserver::Property::Hidden);
 }
 
 void LegacyExtensionHost::tabAudibleDidChange(WebPageProxy& page)
 {
-    auto changeInfo = JSON::Object::create();
-    changeInfo->setBoolean("audible"_s, page.isPlayingAudio());
-    reportTabUpdate(page, WTF::move(changeInfo));
+    if (RefPtr observer = tabObservers().get(page.identifier()))
+        observer->didChange(LegacyExtensionTabObserver::Property::Audible);
 }
 
 void LegacyExtensionHost::tabMutedDidChange(WebPageProxy& page)
 {
-    auto mutedInfo = JSON::Object::create();
-    mutedInfo->setBoolean("muted"_s, page.isAudioMuted());
-    auto changeInfo = JSON::Object::create();
-    changeInfo->setObject("mutedInfo"_s, WTF::move(mutedInfo));
-    reportTabUpdate(page, WTF::move(changeInfo));
+    if (RefPtr observer = tabObservers().get(page.identifier()))
+        observer->didChange(LegacyExtensionTabObserver::Property::Muted);
 }
 
 void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
@@ -2410,6 +2469,7 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
         return;
     // A tab's declarativeNetRequest action count is its current page's.
     if (frame.isMainFrame()) {
+        didCommitMainFrameNavigation(page);
         for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
             declarativeNetRequest->resetActionCount(tabIDForPage(page));
         LegacyExtensionDevTools::singleton().didCommitLoad(page, url);
@@ -2484,6 +2544,12 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
     auto arguments = JSON::Array::create();
     arguments->pushObject(WTF::move(details));
     dispatchEvent("webNavigation.onCommitted"_s, WTF::move(arguments));
+}
+
+void LegacyExtensionHost::didCommitMainFrameNavigation(WebPageProxy& page)
+{
+    if (RefPtr observer = tabObservers().get(page.identifier()))
+        observer->didCommitMainFrameNavigation();
 }
 
 void LegacyExtensionHost::didStartProvisionalLoad(WebPageProxy& page, WebFrameProxy& frame, const URL& url)

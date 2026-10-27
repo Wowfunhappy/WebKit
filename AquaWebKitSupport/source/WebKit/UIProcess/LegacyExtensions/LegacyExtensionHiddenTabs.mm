@@ -221,7 +221,7 @@ Vector<WebPageProxyIdentifier> LegacyExtensionHiddenTabs::hide(const String& ext
         hiddenTab->tabViewObserver = m_tabViewItemObserver;
         [hiddenTab->tabViewItem.get() addObserver:m_tabViewItemObserver.get() forKeyPath:@"tabView" options:0 context:tabViewContext];
         m_tabs.add(identifier, WTF::move(hiddenTab));
-        hiddenStateDidChange(identifier, true);
+        hiddenStateDidChange(identifier);
     }
     closeHiddenWindowIfEmpty();
     return hidden;
@@ -307,7 +307,7 @@ bool LegacyExtensionHiddenTabs::showTab(WebPageProxyIdentifier identifier, Desti
     if ([[hiddenWindow orderedTabViewItems] containsObject:tabViewItem])
         return false;
     m_tabs.remove(identifier);
-    hiddenStateDidChange(identifier, false);
+    hiddenStateDidChange(identifier);
     return true;
 }
 
@@ -367,14 +367,14 @@ void LegacyExtensionHiddenTabs::forgetShownTabs()
         return true;
     });
     for (auto identifier : shownTabs)
-        hiddenStateDidChange(identifier, false);
+        hiddenStateDidChange(identifier);
     closeHiddenWindowIfEmpty();
 }
 
-void LegacyExtensionHiddenTabs::hiddenStateDidChange(WebPageProxyIdentifier identifier, bool hidden)
+void LegacyExtensionHiddenTabs::hiddenStateDidChange(WebPageProxyIdentifier identifier)
 {
     if (RefPtr page = WebProcessProxy::webPage(identifier))
-        LegacyExtensionHost::singleton().tabHiddenDidChange(*page, hidden);
+        LegacyExtensionHost::singleton().tabHiddenDidChange(*page);
 }
 
 // The hidden window closes with its own tab once that is all it holds.

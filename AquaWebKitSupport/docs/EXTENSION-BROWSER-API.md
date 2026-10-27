@@ -177,7 +177,7 @@ Returns the element's shadow root whether it is open or closed. Content-script w
 { id, url, title, status /* "loading" | "complete" */, incognito, hidden, audible, mutedInfo: { muted } }
 ```
 
-`url` is the page's active URL. `hidden` is whether the tab is hidden with `tabs.hide`. `audible` is whether the page is playing audio, muted or not. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information.
+`url` is the URL of the page the tab shows, as in Chrome: the main frame's last committed URL, or for an error page the URL that failed to load; a navigation in progress has not changed it. `status` is `"loading"` while any load is in progress. `hidden` is whether the tab is hidden with `tabs.hide`. `audible` is whether the page is playing audio, muted or not. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information.
 
 ### `tabs.get(tabId)` → `Promise<Tab>`
 
@@ -283,10 +283,12 @@ The page is printed as Safari's File > Export as PDF prints it, with WebKit 2's 
 
 Tab events go to every extension's host contexts that listen for them.
 
+`tabs.onUpdated` reports navigations as Chrome does: `{ status: "loading" }` when a main-frame load or same-document navigation commits, and `{ status: "complete" }` when the tab next stops loading. A navigation that never commits, such as an HTTPS upgrade that falls back to HTTP, reports nothing. Changes within 25 ms of the first are reported together, as WebKit's own `tabs.onUpdated` reports them.
+
 | Event | Arguments |
 | --- | --- |
 | `tabs.onCreated` | `(tab)` |
-| `tabs.onUpdated` | `(tabId, changeInfo, tab)`; `changeInfo` holds exactly one of `status`, `title`, `url`, `hidden`, `audible`, `mutedInfo` |
+| `tabs.onUpdated` | `(tabId, changeInfo, tab)`; `changeInfo` is one of `{ status: "loading" }` with `url` when the URL changed, `{ status: "complete" }`, `{ title }`, `{ hidden }`, `{ audible }`, `{ mutedInfo }` |
 | `tabs.onRemoved` | `(tabId, { windowId: -1, isWindowClosing: false })` |
 
 ## `browser.dns` (host contexts only)

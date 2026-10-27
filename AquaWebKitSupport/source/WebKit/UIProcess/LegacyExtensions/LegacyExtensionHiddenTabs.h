@@ -71,7 +71,7 @@ private:
     void observeHiddenWindow(NSWindow *);
     void hiddenWindowChanged();
     void forgetShownTabs();
-    static void hiddenStateDidChange(WebPageProxyIdentifier, bool hidden);
+    static void hiddenStateDidChange(WebPageProxyIdentifier);
     void closeHiddenWindowIfEmpty();
 
     HashMap<WebPageProxyIdentifier, std::unique_ptr<HiddenTab>> m_tabs;

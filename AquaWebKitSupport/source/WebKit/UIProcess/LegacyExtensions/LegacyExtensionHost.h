@@ -90,11 +90,13 @@ public:
     void pageWasCreated(WebPageProxy&);
     void pageWillClose(WebPageProxy&);
     void tabWillClose(WebPageProxy&);
-    // Report changes of a tab's state to tabs.onUpdated listeners, describing the tab as it is now.
-    void tabHiddenDidChange(WebPageProxy&, bool hidden);
+    // Report changes of a tab's state to tabs.onUpdated listeners.
+    void tabHiddenDidChange(WebPageProxy&);
     void tabAudibleDidChange(WebPageProxy&);
     void tabMutedDidChange(WebPageProxy&);
     void didCommitLoad(WebPageProxy&, WebFrameProxy&, Markable<WebCore::ScriptExecutionContextIdentifier> documentID, API::Navigation*, WebCore::FrameLoadType, const URL&);
+    // A main-frame load or same-document navigation committed.
+    void didCommitMainFrameNavigation(WebPageProxy&);
     void didStartProvisionalLoad(WebPageProxy&, WebFrameProxy&, const URL&);
     void didFinishDocumentLoad(WebPageProxy&, WebFrameProxy&);
     void didFinishLoad(WebPageProxy&, WebFrameProxy&);
