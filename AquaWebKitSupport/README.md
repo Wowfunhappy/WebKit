@@ -38,11 +38,13 @@ AquaWebKitSupport/
 │                               images and strings stay Apple's
 ├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
 │                               stage-headers.sh (the developer headers and module maps, through upstream's header rules),
+│                               legacy-sdk-headers.py and legacy-sdk-prelude.h (run by staging: the headers also serve
+│                               the 10.9 and 10.10 SDKs and Xcode 6's compiler),
 │                               framework-layout.sh (sourced: the installed layout, shared by stage + install),
 │                               check-absent-references.sh (build gate),
 │                               check-gap-archive-current.sh (build.sh runs its --sources-only half; the rest by hand),
 │                               check-backport-markers.sh (divergence gate),
-│                               check-public-headers.sh (run by hand: every shipped header compiles),
+│                               check-public-headers.sh (run by hand: every shipped header compiles, with the modern SDK and Xcode 6's),
 │                               check-imageio-decode.sh (run by hand: no page bytes reach ImageIO),
 │                               generate-legal.py (run by hand: the license texts a distributed build needs),
 │                               build-log.sh and host-headers.sh (sourced: the one build log, and the 10.9 header probe),
@@ -119,7 +121,9 @@ results and no unrun tests, not just the exit status.
 ## Building software against the installed frameworks
 
 The installed frameworks carry the headers and module maps Apple's build emits for this WebKit
-version (`scripts/stage-headers.sh`), in the layout Apple's own builds use:
+version when it installs on an older macOS (`scripts/stage-headers.sh`), in the layout Apple's own
+builds use, spelled so that the 10.9 and 10.10 SDKs and the compiler of Xcode 6.2 read them as well
+as a modern SDK and compiler do:
 
 | Framework | Contents | Import | Link |
 |---|---|---|---|
@@ -129,11 +133,12 @@ version (`scripts/stage-headers.sh`), in the layout Apple's own builds use:
 `PrivateFrameworks/WebKit2.framework` only re-exports `WebKit.framework`, for the binaries 10.9 linked
 against it, and carries no headers.
 
-Build with a modern SDK and `-mmacosx-version-min=10.9`, and `-F` a directory holding links to
+Build with any of those SDKs and `-mmacosx-version-min=10.9`, and `-F` a directory holding links to
 just these two frameworks: `-F/System/Library/Frameworks` would also put 10.9's own Foundation
-and AppKit headers ahead of the SDK's. The headers keep Apple's availability annotations, so post-10.9 API
-calls warn under `-Wunguarded-availability` and link weakly. The i386 slice of every framework
-is stock 10.9's, whose API is the 10.9 SDK's.
+and AppKit headers ahead of the SDK's. The WK_ and JSC_ availability annotations are empty, since
+the installed frameworks carry the API they declare on 10.9; deprecations, and the few raw
+`API_AVAILABLE` annotations in upstream's text, remain. The i386 slice of every
+framework is stock 10.9's, whose API is the 10.9 SDK's.
 
 ## Safari 7.1.8 and 9.1.3
 

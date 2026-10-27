@@ -7,11 +7,19 @@
 // WebDownload retains its NSURLDownload ABI with a curl-backed HTTP implementation.
 #import <Foundation/Foundation.h>
 #import <WebCore/CocoaDownloadTransport.h>
+#import <WebKitLegacy/WebDownload.h>
 #include <wtf/RefPtr.h>
 
-@class WebDownload;
 class WebDownloadCurlClient;
-namespace WebCore { struct CocoaCurlDownloadTransfer; }
+namespace WebCore {
+class CocoaCurlResourceHandle;
+struct CocoaCurlDownloadTransfer;
+}
+
+// Adopts a paused legacy HTTP transaction without initializing another wire loader.
+@interface WebDownload (CocoaCurlTransferAdoption)
+- (instancetype)_initWithCurlResourceHandle:(WebCore::CocoaCurlResourceHandle&)handle delegate:(id)delegate;
+@end
 
 @interface WebDownloadCurl : NSObject <NSURLAuthenticationChallengeSender, WebCoreCocoaDownloadTransport> {
 @package

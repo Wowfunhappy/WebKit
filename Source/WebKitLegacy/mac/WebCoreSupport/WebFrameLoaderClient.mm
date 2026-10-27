@@ -84,6 +84,7 @@
 #import <WebCore/CachedFrame.h>
 #import <WebCore/Chrome.h>
 #import <WebCore/CocoaCurlProxyConfiguration.h> // AQUAWEBKIT: prefetchDNS reads the extensions' proxy configuration.
+#import "WebDownloadCurl.h" // AQUAWEBKIT: a download adopts the curl transaction of its load.
 #import <WebCore/LegacyLoadInterceptor.h> // AQUAWEBKIT: and their proxy filters.
 #import <WebCore/ContainerNodeInlines.h>
 #import <WebCore/DNS.h>

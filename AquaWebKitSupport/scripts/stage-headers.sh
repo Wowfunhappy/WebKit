@@ -2,12 +2,15 @@
 # stage-headers.sh — the developer headers and module maps of JavaScriptCore.framework and
 # WebKit.framework in the staged tree. Run by stage-frameworks.sh.
 #
-# Each header is the one Apple's shipping (Production) build emits for this WebKit version: the
-# set comes from the Xcode projects (JavaScriptCore and WebKit headers marked Public; for the
-# legacy API, the MigratedHeaders xcfilelist entries public on macOS), and each file goes through
-# the same header rules Xcode runs (Scripts/postprocess-header-rule, with WebKitLegacy's own rule
-# first for the legacy headers). The deployment target fills in WK_MAC_TBA, as in any build
-# without WebKitAdditions.
+# The set of headers is Apple's for this WebKit version: it comes from the Xcode projects
+# (JavaScriptCore and WebKit headers marked Public; for the legacy API, the MigratedHeaders
+# xcfilelist entries public on macOS). Each file goes through the same header rules Xcode runs
+# (Scripts/postprocess-header-rule, with WebKitLegacy's own rule first for the legacy headers), as
+# Apple runs them for a WebKit that installs on a macOS older than its own
+# (WK_USE_OVERRIDE_FRAMEWORKS_DIR = YES, the Safari staged frameworks): header postprocessing is
+# off, so WKFoundation.h and JavaScriptCore's WebKitAvailability.h define the WK_ and JSC_
+# availability macros empty. The few raw API_AVAILABLE and NS_CLASS_AVAILABLE annotations in
+# upstream's text remain. A last pass then spells the headers for the 10.9 and 10.10 SDKs too.
 #
 # WebKit.framework carries both sets, as Apple's does: the legacy headers migrated into it, with
 # their umbrella WebKitLegacy.h, and the WebKit (WK2) headers, whose umbrella WebKit.h imports it.
@@ -33,12 +36,12 @@ ln -s "$(xcrun -f unifdef)" "$WORK/bin/unifdef"
 export PATH="$WORK/bin:$WK_SUPPORT/toolchain/build/python3/bin:$PATH"
 
 # Every variable the rules and their config generators read, set as Xcode sets it for a
-# Production build installed to /System (WK_USE_OVERRIDE_FRAMEWORKS_DIR = NO).
+# Production build with WK_USE_OVERRIDE_FRAMEWORKS_DIR = YES.
 export WK_PLATFORM_NAME=macosx PLATFORM_NAME=macosx
 export MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
 export TARGET_MAC_OS_X_VERSION_MAJOR="${DEPLOYMENT_TARGET%%.*}0000"
-export WK_FRAMEWORK_HEADER_POSTPROCESSING_DISABLED=NO JSC_FRAMEWORK_HEADER_POSTPROCESSING_DISABLED=NO
-export WK_LIBRARY_HEADERS_FOLDER_PATH=/usr/local/include
+export WK_FRAMEWORK_HEADER_POSTPROCESSING_DISABLED=YES JSC_FRAMEWORK_HEADER_POSTPROCESSING_DISABLED=YES
+export WK_LIBRARY_HEADERS_FOLDER_PATH=/usr/local/include/safari-sdk
 export BUILT_PRODUCTS_DIR="$WORK/products" SHARED_DERIVED_FILE_DIR="$WORK/derived"
 mkdir -p "$BUILT_PRODUCTS_DIR"
 
@@ -135,6 +138,25 @@ for name in $(public_in_project WebKit); do
 done
 cp "$SRC/WebKit/Modules/OSX.modulemap" "$STAGE$WEBKIT_BUNDLE/Versions/A/Modules/module.modulemap"
 echo "  $(ls "$WK_HEADERS" | wc -l | tr -d ' ') headers"
+
+# ---------------------------------------------------------------------------
+# The headers serve the macOS 10.9 and 10.10 SDKs and the compilers Xcode 6 ships with them as
+# well as a modern SDK. The platform conditionals those SDKs do not define take their macOS values,
+# and legacy-sdk-headers.py spells modern syntax through the macros of legacy-sdk-prelude.h, which
+# each framework's base headers carry.
+echo "### headers for the 10.9 and 10.10 SDKs"
+ALL_HEADERS=("$JSC_HEADERS"/*.h "$WK_HEADERS"/*.h)
+PLATFORMS=(-DTARGET_OS_OSX=1 -DTARGET_OS_IOS=0 -DTARGET_OS_MACCATALYST=0 -DTARGET_OS_VISION=0 -DTARGET_OS_TV=0
+           -DTARGET_OS_WATCH=0)
+for h in "${ALL_HEADERS[@]}"; do
+    rc=0
+    unifdef -B "${PLATFORMS[@]}" -o "$WORK/unifdef.h" "$h" || rc=$?
+    [ "$rc" -lt 2 ] || { echo "ERROR: unifdef failed on $h" >&2; exit 1; }
+    mv "$WORK/unifdef.h" "$h"
+done
+python3 "$HERE/legacy-sdk-headers.py" --prelude "$HERE/legacy-sdk-prelude.h" --sdk "$SDK" "${PLATFORMS[@]}" \
+    --base "$JSC_HEADERS/JSBase.h" --base "$WK_HEADERS/WKFoundation.h" --base "$WK_HEADERS/WebKitAvailability.h" \
+    "${ALL_HEADERS[@]}"
 
 for b in "$JSC_BUNDLE" "$WEBKIT_BUNDLE"; do
     chmod -R a+rX "$STAGE$b/Versions/A/Headers" "$STAGE$b/Versions/A/Modules"
