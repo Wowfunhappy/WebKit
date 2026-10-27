@@ -11,6 +11,7 @@ typedef const UniChar *(*CTUniCharProviderCallback)(CFIndex, CFIndex *, CFDictio
 typedef void (*CTUniCharDisposeCallback)(const UniChar *, void *);
 extern CTLineRef CTLineCreateWithUniCharProvider(CTUniCharProviderCallback, CTUniCharDisposeCallback, void *);
 extern CTTypesetterRef CTTypesetterCreateWithUniCharProviderAndOptions(CTUniCharProviderCallback, CTUniCharDisposeCallback, void *, CFDictionaryRef);
+extern const CFStringRef kCTFontFallbackOptionAttribute;
 
 static int failures;
 
@@ -181,6 +182,60 @@ int main(void)
     if (text.disposed != text.provided) {
         fprintf(stderr, "FAIL dispose: %d blocks provided, %d disposed\n", text.provided, text.disposed);
         ++failures;
+    }
+
+    // A supplementary character the block's font has no glyph for, first in the block or after a letter,
+    // takes its cluster alone to the fallback font and the whole block is typeset, at either forced level
+    // or none (a line, for the entry without options).
+    int systemOnly = 1;
+    CFNumberRef systemOnlyNumber = CFNumberCreate(NULL, kCFNumberIntType, &systemOnly);
+    CFTypeRef fallbackKeys[] = { kCTFontFallbackOptionAttribute };
+    CFTypeRef fallbackValues[] = { systemOnlyNumber };
+    CFDictionaryRef fallbackOptions = CFDictionaryCreate(NULL, fallbackKeys, fallbackValues, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CTFontDescriptorRef fallbackDescriptor = CTFontDescriptorCreateWithAttributes(fallbackOptions);
+    CTFontRef timesFont = (CTFontRef)CFDictionaryGetValue(times, kCTFontAttributeName);
+    CTFontRef systemOnlyFont = CTFontCreateCopyWithAttributes(timesFont, 16, NULL, fallbackDescriptor);
+    CFDictionaryRef systemOnlyTimes = CFDictionaryCreate(NULL, (const void **)&kCTFontAttributeName, (const void **)&systemOnlyFont, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    short leftToRightLevel = 0;
+    CFNumberRef leftToRightNumber = CFNumberCreate(NULL, kCFNumberShortType, &leftToRightLevel);
+    CFDictionaryRef leftToRight = CFDictionaryCreate(NULL, optionKeys, (CFTypeRef *)&leftToRightNumber, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const UniChar openingEmoji[] = { 0xD83D, 0xDE00, 'a' };
+    const UniChar emojiAfterLetter[] = { 'a', 0xD83D, 0xDE00 };
+    const UniChar openingMathLetter[] = { 0xD835, 0xDC00, 0xD83D, 0xDE00 };
+    const struct {
+        const char *label;
+        const UniChar *characters;
+        CFIndex length;
+        CFDictionaryRef attributes;
+        CFDictionaryRef options;
+        ExpectedRun runs[2];
+        CFIndex runCount;
+    } openings[] = {
+        { "system fallback, opening emoji", openingEmoji, COUNT(openingEmoji), systemOnlyTimes, leftToRight,
+            { { 0, 2, "AppleColorEmoji", 1 }, { 2, 1, "Times-Roman", 1 } }, 2 },
+        { "system fallback, opening emoji, right to left", openingEmoji, COUNT(openingEmoji), systemOnlyTimes, rightToLeft,
+            { { 2, 1, "Times-Roman", 1 }, { 0, 2, "AppleColorEmoji", 1 } }, 2 },
+        { "system fallback, opening emoji, natural direction", openingEmoji, COUNT(openingEmoji), systemOnlyTimes, NULL,
+            { { 0, 2, "AppleColorEmoji", 1 }, { 2, 1, "Times-Roman", 1 } }, 2 },
+        { "system fallback, emoji after a letter", emojiAfterLetter, COUNT(emojiAfterLetter), systemOnlyTimes, leftToRight,
+            { { 0, 1, "Times-Roman", 1 }, { 1, 2, "AppleColorEmoji", 1 } }, 2 },
+        { "shaping font, opening uncovered letter, right to left", openingMathLetter, COUNT(openingMathLetter),
+            attributesWithFont("AppleColorEmoji"), rightToLeft, { { 0, 0, NULL, 0 } }, 0 },
+    };
+    for (CFIndex i = 0; i < COUNT(openings); ++i) {
+        text = (Text) { openings[i].characters, openings[i].length, openings[i].attributes, 0, 0 };
+        typesetter = openings[i].options ? CTTypesetterCreateWithUniCharProviderAndOptions(provide, NULL, &text, openings[i].options) : NULL;
+        line = typesetter ? CTTypesetterCreateLine(typesetter, CFRangeMake(0, 0)) : openings[i].options ? NULL : CTLineCreateWithUniCharProvider(provide, NULL, &text);
+        CFRange range = line ? CTLineGetStringRange(line) : CFRangeMake(kCFNotFound, 0);
+        if (range.location || range.length != openings[i].length) {
+            fprintf(stderr, "FAIL %s: line covers %ld+%ld of %ld\n", openings[i].label, (long)range.location, (long)range.length, (long)openings[i].length);
+            ++failures;
+        } else if (openings[i].runCount)
+            expectRuns(openings[i].label, line, openings[i].runs, openings[i].runCount);
+        if (line)
+            CFRelease(line);
+        if (typesetter)
+            CFRelease(typesetter);
     }
 
     const UniChar keycaps[] = { '#', 0x20E3, ' ', '1', 0xFE0F, 0x20E3 };

@@ -8798,8 +8798,8 @@ static void wk_serveBlock(wk_clusterFontProvider *provider, const UniChar *chara
         CFIndex uncovered = wk_nextUncoveredCharacter(&coverage, 0, length);
         if (uncovered < length) {
             UBreakIterator *iterator = wk_blockClusterIterator(&clusters);
-            CFIndex start = ubrk_preceding(iterator, (int32_t)(uncovered + 1));
             CFIndex end = ubrk_following(iterator, (int32_t)uncovered);
+            CFIndex start = ubrk_previous(iterator);
             if (!start) {
                 CTFontRef fallback = wk_copySystemFallback(font, characters, end, language, NULL);
                 if (!fallback) {
@@ -8839,7 +8839,8 @@ static void wk_serveBlock(wk_clusterFontProvider *provider, const UniChar *chara
     if (shapingFont) {
         if (uncovered < served) {
             UBreakIterator *iterator = wk_blockClusterIterator(&clusters);
-            CFIndex clusterStart = ubrk_preceding(iterator, (int32_t)(uncovered + 1));
+            ubrk_following(iterator, (int32_t)uncovered);
+            CFIndex clusterStart = ubrk_previous(iterator);
             if (!clusterStart) {
                 // Clusters the font does not cover are set in the fallback font CoreText finds for them.
                 CFIndex end = ubrk_following(iterator, 0);
@@ -9989,7 +9990,6 @@ static CFTypeRef wk_createNaturalDirection(wk_naturalKind kind, CTUniCharProvide
             wk_replayProvider storage;
             wk_replayProvider *provider = wk_replayProviderBegin(&storage, &reader, NULL, 0);
             made = wk_createFromReplay(kind, provider, options);
-            wk_replayProviderEnd(provider);
             CFIndex rangeCount = 0;
             wk_rightToLeftRange *ranges = resolution == WKLevelsCurrent ? wk_copyLogicalOrderRanges(kind, made, &reader, &rangeCount) : NULL;
             if (ranges) {
@@ -9998,11 +9998,13 @@ static CFTypeRef wk_createNaturalDirection(wk_naturalKind kind, CTUniCharProvide
                 CFTypeRef shaped = wk_createFromReplay(kind, shaping, options);
                 wk_replayProviderEnd(shaping);
                 free(ranges);
-                if (dispose)
-                    provider->base.forwardsDispose = false;
+                // The shaped line's provider disposes of the client's blocks.
+                provider->base.forwardsDispose = false;
+                wk_replayProviderEnd(provider);
                 CFRelease(made);
                 made = shaped;
-            }
+            } else
+                wk_replayProviderEnd(provider);
         }
     } else {
         CFAttributedStringRef string = wk_createExplicitLevelString(&reader, &text, levels, NULL, 0, false);
