@@ -34,9 +34,11 @@
 #include "DataTaskIdentifier.h"
 #include "DownloadID.h"
 #include "DownloadManager.h"
+#include "LoadedWebArchive.h"
 #include "NetworkActivityTracker.h"
 #include "NetworkContentRuleListManager.h"
 #include "QuotaIncreaseRequestIdentifier.h"
+#include "SecurityFlags.h"
 #include "SharedPreferencesForWebProcess.h"
 #include "UseDownloadPlaceholder.h"
 #include "WebPageProxyIdentifier.h"
@@ -56,6 +58,7 @@
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ServiceWorkerIdentifier.h>
 #include <WebCore/ServiceWorkerTypes.h>
+#include <WebCore/Site.h>
 #include <memory>
 #include <wtf/CheckedRef.h>
 #include <wtf/CrossThreadTask.h>
@@ -63,6 +66,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/MemoryPressureHandler.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -96,6 +100,7 @@ class NetworkStorageSession;
 struct NotificationData;
 class ResourceError;
 class UserContentURLPattern;
+enum class AdvancedPrivacyProtections : uint16_t;
 enum class HTTPCookieAcceptPolicy : uint8_t;
 enum class IncludeHttpOnlyCookies : bool;
 enum class StoredCredentialsPolicy : uint8_t;
@@ -127,7 +132,6 @@ class SandboxExtensionHandle;
 class WebPageNetworkParameters;
 enum class CallDownloadDidStart : bool;
 enum class DidFilterKnownLinkDecoration : bool;
-enum class LoadedWebArchive : bool;
 enum class RemoteWorkerType : uint8_t;
 enum class ShouldGrandfatherStatistics : bool;
 enum class StorageAccessStatus : uint8_t;
@@ -345,7 +349,7 @@ public:
     void setOptInCookiePartitioningEnabled(PAL::SessionID, bool) const;
 #endif
 
-    void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::ResourceRequest&&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>, uint64_t requiredCookiesVersion);
+    void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::ResourceRequest&&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>, OptionSet<WebCore::AdvancedPrivacyProtections>, uint64_t requiredCookiesVersion);
 
     void setSessionIsControlledByAutomation(PAL::SessionID, bool);
     bool NODELETE sessionIsControlledByAutomation(PAL::SessionID) const;
@@ -476,16 +480,30 @@ public:
     void deleteWebsiteDataForOrigin(PAL::SessionID, OptionSet<WebsiteDataType>, const WebCore::ClientOrigin&, CompletionHandler<void()>&&);
     void deleteWebsiteDataForOrigins(PAL::SessionID, OptionSet<WebsiteDataType>, const Vector<WebCore::SecurityOriginData>& origins, const Vector<String>& cookieHostNames, const Vector<String>& HSTSCacheHostnames, const Vector<RegistrableDomain>&, CompletionHandler<void()>&&);
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    bool allowsFirstPartyForCookies(WebCore::ProcessIdentifier, const URL&);
+    bool allowsFirstPartyForCookies(WebCore::ProcessIdentifier, const RegistrableDomain&);
+#endif
     enum class AllowCookieAccess : uint8_t { Disallow, Allow, Terminate };
-    AllowCookieAccess allowsFirstPartyForCookies(WebCore::ProcessIdentifier, const URL&);
-    AllowCookieAccess allowsFirstPartyForCookies(WebCore::ProcessIdentifier, const RegistrableDomain&);
-    void addAllowedFirstPartyForCookies(WebCore::ProcessIdentifier, WebCore::RegistrableDomain&&, LoadedWebArchive, CompletionHandler<void()>&&);
+
+    AllowCookieAccess allowsFirstPartyForCookiesLegacy(WebCore::ProcessIdentifier, const URL&);
+    AllowCookieAccess allowsFirstPartyForCookiesLegacy(WebCore::ProcessIdentifier, const RegistrableDomain&);
+
+    // Unlike allowsFirstPartyForCookies, this compares the scheme as well as the registrable domain.
+    bool allowsFirstPartySite(WebCore::ProcessIdentifier, const WebCore::Site&) const;
+
+    void addAllowedFirstPartyForCookies(WebCore::ProcessIdentifier, WebCore::Site&&, LoadedWebArchive, CompletionHandler<void()>&&);
+    void addAllowedFirstPartyDomainForCookies(WebCore::ProcessIdentifier, WebCore::RegistrableDomain&&, LoadedWebArchive, CompletionHandler<void()>&&);
 
     // Per-process allow-list of WebPageProxyIdentifiers the WebContent process is permitted to reference. Fed by the
     // (trusted) UIProcess as it associates a process with a page, and used to reject a process that supplies a
     // WebPageProxyIdentifier it does not own over IPC.
     bool allowsWebPageProxyIdentifier(WebCore::ProcessIdentifier, std::optional<WebPageProxyIdentifier>) const;
     void addAllowedWebPageProxyIdentifier(WebCore::ProcessIdentifier, WebPageProxyIdentifier);
+
+    void authorizeDownloadForWebProcess(WebCore::ProcessIdentifier, DownloadID, CompletionHandler<void()>&&);
+    std::optional<WebCore::ProcessIdentifier> authorizedProcessForDownload(DownloadID) const;
+    void removeAuthorizedDownload(DownloadID);
 
     void requestBackgroundFetchPermission(PAL::SessionID, const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
     void setInspectionForServiceWorkersAllowed(PAL::SessionID, bool);
@@ -564,6 +582,8 @@ private:
     void initializeNetworkProcess(NetworkProcessCreationParameters&&, CompletionHandler<void()>&&);
     void createNetworkConnectionToWebProcess(WebCore::ProcessIdentifier, PAL::SessionID, NetworkProcessConnectionParameters&&,  CompletionHandler<void(std::optional<IPC::Connection::Handle>&&, WebCore::HTTPCookieAcceptPolicy)>&&);
     void sharedPreferencesForWebProcessDidChange(WebCore::ProcessIdentifier, SharedPreferencesForWebProcess&&, CompletionHandler<void()>&&);
+    void securityFlagsDidChange(SecurityFlags::Storage&&);
+    void isSecurityFlagEnabledForTesting(const String&, CompletionHandler<void(std::optional<bool>)>&&);
 
     void fetchWebsitesWithUserInteractions(PAL::SessionID, CompletionHandler<void(HashSet<RegistrableDomain>&&)>&&);
 
@@ -573,7 +593,7 @@ private:
     // FIXME: This should take a session ID so we can identify which disk cache to delete.
     void clearDiskCache(WallTime modifiedSince, CompletionHandler<void()>&&);
 
-    void downloadRequest(PAL::SessionID, DownloadID, const WebCore::ResourceRequest&, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain>, const String& suggestedFilename);
+    void downloadRequest(PAL::SessionID, DownloadID, const WebCore::ResourceRequest&, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain>, OptionSet<WebCore::AdvancedPrivacyProtections>, const String& suggestedFilename);
     void resumeDownload(PAL::SessionID, DownloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtensionHandle&&, CallDownloadDidStart, std::span<const uint8_t> activityAccessToken);
     void cancelDownload(DownloadID, CompletionHandler<void(std::span<const uint8_t>)>&&);
 #if PLATFORM(COCOA)
@@ -672,8 +692,14 @@ private:
 
     HashMap<PAL::SessionID, std::unique_ptr<NetworkSession>> m_networkSessions;
     HashMap<PAL::SessionID, std::unique_ptr<WebCore::NetworkStorageSession>> m_networkStorageSessions;
-    HashMap<WebCore::ProcessIdentifier, std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>> m_allowedFirstPartiesForCookies;
+    struct AllowedFirstParties {
+        LoadedWebArchive loadedWebArchive { LoadedWebArchive::No };
+        HashSet<WebCore::RegistrableDomain> domains;
+        HashSet<WebCore::Site> sites;
+    };
+    HashMap<WebCore::ProcessIdentifier, AllowedFirstParties> m_allowedFirstPartiesForCookies;
     HashMap<WebCore::ProcessIdentifier, HashSet<WebPageProxyIdentifier>> m_allowedWebPageProxyIdentifiers;
+    HashMap<DownloadID, WebCore::ProcessIdentifier> m_authorizedDownloads;
 
 #if PLATFORM(COCOA)
     void platformInitializeNetworkProcessCocoa(const NetworkProcessCreationParameters&);
@@ -721,6 +747,10 @@ private:
     bool m_didSyncCookiesForClose { false };
 #if PLATFORM(COCOA)
     int m_mediaStreamingActivitityToken { NOTIFY_TOKEN_INVALID };
+    MonotonicTime m_lastMediaStreamingActivityNotificationTime;
+    std::optional<bool> m_notifiedMediaStreamingActivity;
+    std::optional<bool> m_pendingMediaStreamingActivity;
+    bool m_mediaStreamingActivityFlushScheduled { false };
     bool m_isParentProcessFullWebBrowserOrRunningTest { false };
 #endif
 #if PLATFORM(IOS_FAMILY)

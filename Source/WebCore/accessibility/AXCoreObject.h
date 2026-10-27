@@ -563,6 +563,8 @@ public:
     bool NODELETE isList() const;
     virtual bool isDescriptionList() const = 0;
     bool isFileUploadButton() const;
+    // True for a native select.
+    bool isSelectElement() const { return elementName() == ElementName::HTML_select; }
     // Returns true for objects whose role implies interactivity. For example, when a screen
     // reader announces "link", it doesn't need to announce "clickable" or "pressable" — that
     // is implicit in the concept of a link.
@@ -961,6 +963,19 @@ public:
     virtual bool hasTextRuns() = 0;
     virtual TextEmissionBehavior textEmissionBehavior() const = 0;
     bool emitsNewline() const;
+    // True when TextIterator considers this object's node to be a replaced element (form controls,
+    // images, plugins, media, ...). The text-marker APIs represent these with a single U+FFFC
+    // object replacement character (only when the object is unignored, see
+    // AccessibilityObject::replacedNodeNeedsCharacter) rather than with newlines at their block
+    // boundaries, because TextIterator handles them in handleReplacedElement, not exitNode.
+    virtual bool isReplacedElementForTextEmission() const = 0;
+    // True when this object's node is inside a user-agent shadow tree, e.g. the inner text of a
+    // text field or the controls of a <video>. TextIterator walks the light DOM and so never emits
+    // this text, and neither do the text-marker walks over document text.
+    virtual bool isInUserAgentShadowTree() const = 0;
+    // True when this object's node is in the shadow tree of an <input> or <textarea>, as opposed to
+    // an ARIA text control.
+    virtual bool isInsideNativeTextControl() const = 0;
     virtual AXTextRunLineID listMarkerLineID() const = 0;
     virtual String listMarkerText() const = 0;
     virtual FontOrientation fontOrientation() const = 0;

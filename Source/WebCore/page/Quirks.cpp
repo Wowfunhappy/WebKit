@@ -521,6 +521,18 @@ bool Quirks::isYoutubeEmbedDomain() const
     return isEmbedDomain("youtube.com"_s) || isEmbedDomain("youtube-nocookie.com"_s);
 }
 
+bool Quirks::isGoogleMapsEmbed() const
+{
+    if (protect(m_document)->isTopDocument())
+        return false;
+
+    auto url = documentURL();
+    if (!url.path().startsWith("/maps/embed"_s))
+        return false;
+
+    return PublicSuffixStore::singleton().domainWithoutPublicSuffix(RegistrableDomain(url).string()) == "google"_s;
+}
+
 // apple.com rdar://154434137
 bool Quirks::ensureCaptionVisibilityInFullscreenAndPictureInPicture() const
 {
@@ -853,6 +865,18 @@ bool Quirks::needsYouTubeOverflowScrollQuirk() const
 #endif
 }
 
+// webex.com rdar://143715630
+bool Quirks::needsWebExScrollabilityQuirk() const
+{
+#if PLATFORM(IOS_FAMILY) && ENABLE(DESKTOP_CONTENT_MODE_QUIRKS)
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsWebExScrollabilityQuirk);
+#else
+    return false;
+#endif
+}
+
 // amazon.com rdar://128962002
 bool Quirks::needsPrimeVideoUserSelectNoneQuirk() const
 {
@@ -930,6 +954,58 @@ bool Quirks::needsZomatoEmailLoginLabelQuirk() const
     QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
 
     return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsZomatoEmailLoginLabelQuirk);
+#else
+    return false;
+#endif
+}
+
+// box.com rdar://187475153
+bool Quirks::needsBoxAnnotationQuirk(const Element& element) const
+{
+#if PLATFORM(MAC)
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    if (!m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsBoxAnnotationQuirk))
+        return false;
+
+    return element.hasClassName("ba-RegionCreation-creator"_s);
+#else
+    UNUSED_PARAM(element);
+    return false;
+#endif
+}
+
+// docs.google.com rdar://189433637
+bool Quirks::needsGoogleDocsNavigationWidgetScrollQuirk() const
+{
+#if PLATFORM(MAC)
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsGoogleDocsNavigationWidgetScrollQuirk);
+#else
+    return false;
+#endif
+}
+
+// google.com/maps/embed rdar://184166392
+bool Quirks::needsGoogleMapsEmbedManipulationSurfaceQuirk() const
+{
+#if PLATFORM(MAC)
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsGoogleMapsEmbedManipulationSurfaceQuirk);
+#else
+    return false;
+#endif
+}
+
+// maps.google.com rdar://185857498
+bool Quirks::needsGoogleMapsMagnificationWheelDeltaScalingQuirk() const
+{
+#if PLATFORM(MAC)
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsGoogleMapsMagnificationWheelDeltaScalingQuirk);
 #else
     return false;
 #endif
@@ -1869,6 +1945,16 @@ bool Quirks::shouldDisableLazyIframeLoadingQuirk() const
     return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldDisableLazyIframeLoadingQuirk);
 }
 
+// Moon Player app (rdar://162452658): the app hides its WKWebView while continuing to display
+// the video layer it hosts, so page visibility does not indicate whether the video is on screen.
+// Tearing the layer down when the page becomes hidden leaves the app displaying a black frame.
+bool Quirks::shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk() const
+{
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk);
+}
+
 // reddit.com with Sink It extension (rdar://176377447) and apple.com/retail (rdar://181007316).
 bool Quirks::shouldDisableScrollAnchoringQuirk() const
 {
@@ -2197,20 +2283,20 @@ bool Quirks::needsConsistentQueryParameterFilteringQuirk(const URL& url) const
         return false;
 
     static bool wasLoggedOnce { false };
-    URL lowercaseURL { url.string().foldCase() };
 
-    if (lowercaseURL.host() == "bundle-file"_s || RegistrableDomain { lowercaseURL } == "consistentqueryparameterfiltering.internal"_s)
+    if (equalLettersIgnoringASCIICase(url.host(), "bundle-file"_s)
+        || equalLettersIgnoringASCIICase(RegistrableDomain { url }.string(), "consistentqueryparameterfiltering.internal"_s))
         return true;
 
     bool enableQuirk = m_document->settings().consistentQueryParameterFilteringInternalQuirkEnabled()
-        && needsConsistentQueryParameterFilteringInternal(lowercaseURL);
+        && needsConsistentQueryParameterFilteringInternal(URL { url.string().foldCase() });
 
     if (RefPtr page = m_document->page())
         enableQuirk |= page->requiresConsistentPrivacyQuirkForDomain(url);
 
     if (enableQuirk && !wasLoggedOnce) {
         RELEASE_LOG(Loading, "Quirks::needsConsistentQueryParameterFilteringQuirk: Enabling consistent privacy protections");
-        protect(m_document)->addConsoleMessage(MessageSource::Other, MessageLevel::Info, makeString("Enabling consistent privacy protections on \""_s, lowercaseURL.string(), "\""_s));
+        protect(m_document)->addConsoleMessage(MessageSource::Other, MessageLevel::Info, makeString("Enabling consistent privacy protections on \""_s, url.string(), "\""_s));
         wasLoggedOnce = true;
     }
 
@@ -2381,6 +2467,7 @@ static AccessibilityRole accessibilityRole(const Element& element)
 
 // walmart.com: rdar://123734840
 // live.outlook.com: rdar://152277211
+// icloud.com: rdar://187710972
 bool Quirks::shouldIgnoreContentObservationForClick(const Node& targetNode) const
 {
     QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
@@ -2400,6 +2487,14 @@ bool Quirks::shouldIgnoreContentObservationForClick(const Node& targetNode) cons
     if (m_quirksData.isOutlook) {
         if (target && target->getIdAttribute().startsWith("swatchColorPicker"_s))
             return true;
+    }
+
+    if (m_quirksData.isICloud) {
+        for (Ref ancestor : lineageOfType<Element>(targetNode)) {
+            if (accessibilityRole(ancestor) == AccessibilityRole::TreeItem)
+                return true;
+        }
+        return false;
     }
 
     if (m_quirksData.isWalmart) {
@@ -2544,6 +2639,35 @@ bool Quirks::shouldAvoidStartingSelectionOnMouseDownOverPointerCursor(const Node
 
     return false;
 }
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+
+// Outlook on the web: rdar://187832523
+// icloud.com: rdar://188875593
+bool Quirks::shouldTreatLongClickAsSecondaryClick(const Node& target) const
+{
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    if (!m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldTreatLongClickAsSecondaryClickQuirk))
+        return false;
+
+    if (m_quirksData.isICloud) {
+        for (Ref ancestor : lineageOfType<Element>(target)) {
+            if (ancestor->hasClassName("thread-list-item"_s) && equalLettersIgnoringASCIICase(ancestor->attributeWithoutSynchronization(HTMLNames::roleAttr), "treeitem"_s))
+                return true;
+        }
+        return false;
+    }
+
+    for (Ref ancestor : lineageOfType<Element>(target)) {
+        if (ancestor->hasAttribute("data-focusable-row"_s))
+            return true;
+    }
+
+    return false;
+}
+
+#endif
 
 bool Quirks::shouldReuseLiveRangeForSelectionUpdate() const
 {
@@ -2840,6 +2964,17 @@ std::optional<Quirks::TikTokOverflowingContentQuirkType> Quirks::needsTikTokOver
     return { };
 }
 
+// tiktok.com rdar://problem/183445905
+bool Quirks::needsTikTokCaptchaSliderTouchActionQuirk(const Element& element) const
+{
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    if (!m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsTikTokCaptchaSliderTouchActionQuirk))
+        return false;
+
+    return element.getIdAttribute() == "secsdk-captcha-drag-wrapper"_s;
+}
+
 // rdar://166400170
 bool Quirks::needsInstagramResizingReelsQuirk(const Element& element, const Style::ComputedStyle& elementStyle, const Style::ComputedStyle& parentStyle) const
 {
@@ -2959,6 +3094,18 @@ URL Quirks::topDocumentURL() const
         return m_topDocumentURLForTesting;
 
     return protect(m_document)->topURL();
+}
+
+URL Quirks::documentURL() const
+{
+    Ref document = *protect(m_document);
+
+    if (!document->isTopDocument()) [[unlikely]] {
+        if (RefPtr page = document->page(); page && !page->quirksSubframeURLForTesting().isEmpty())
+            return page->quirksSubframeURLForTesting();
+    }
+
+    return document->url();
 }
 
 void Quirks::setTopDocumentURLForTesting(URL&& url)
@@ -3096,11 +3243,13 @@ static void handleSlackQuirks(QuirksData& quirksData, const URL&, const String& 
 }
 
 #if ENABLE(DESKTOP_CONTENT_MODE_QUIRKS)
-static void handleScriptToEvaluateBeforeRunningScriptFromURLQuirk(QuirksData& quirksData, const URL& /* quirksURL */, const String& topDomain, const URL& /* documentURL */)
+static void handleWebExQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& topDomain, const URL& /* documentURL */)
 {
     if (topDomain == "webex.com"_s) {
         quirksData.isWebEx = true;
         quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsScriptToEvaluateBeforeRunningScriptFromURLQuirk);
+        // webex.com rdar://143715630
+        quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsWebExScrollabilityQuirk);
     }
 }
 #endif
@@ -3132,6 +3281,16 @@ static void handleICloudQuirks(QuirksData& quirksData, const URL& quirksURL, con
 {
     QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("icloud.com"_s);
 
+    quirksData.isICloud = true;
+
+#if ENABLE(TWO_PHASE_CLICKS)
+    // icloud.com rdar://187710972
+    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::MayNeedToIgnoreContentObservation);
+#endif
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    // icloud.com rdar://188875593
+    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldTreatLongClickAsSecondaryClickQuirk);
+#endif
 #if PLATFORM(IOS_FAMILY)
     // icloud.com rdar://131836301
     bool shouldSilenceWindowResizeEventsDuringApplicationSnapshotting = quirksURL.path().contains("mail"_s) || quirksURL.fragmentIdentifier().contains("mail"_s);
@@ -3244,6 +3403,8 @@ static void handleTikTokQuirks(QuirksData& quirksData, const URL& /* quirksURL *
 
     quirksData.isTikTok = true;
     quirksData.enableQuirks({
+        // tiktok.com rdar://problem/183445905
+        QuirksData::SiteSpecificQuirk::NeedsTikTokCaptchaSliderTouchActionQuirk,
         QuirksData::SiteSpecificQuirk::NeedsTikTokOverflowingContentQuirk,
         // tiktok.com rdar://174179805
         QuirksData::SiteSpecificQuirk::ShouldDispatchSimulatedMouseEventsAssumeDefaultPreventedQuirk,
@@ -3483,6 +3644,16 @@ static void handleBankOfAmericaQuirks(QuirksData& quirksData, const URL& /* quir
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::MaybeBypassBackForwardCache);
 }
 
+#if PLATFORM(MAC)
+static void handleBoxQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& quirksDomainString, const URL& /* documentURL */)
+{
+    QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("box.com"_s);
+
+    // box.com rdar://187475153
+    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsBoxAnnotationQuirk);
+}
+#endif
+
 static void handleBingQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& quirksDomainString, const URL& /* documentURL */)
 {
     QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("bing.com"_s);
@@ -3555,12 +3726,16 @@ static void handleGoogleQuirks(QuirksData& quirksData, const URL& quirksURL, con
 
     auto topDocumentPath = quirksURL.path();
     auto topDocumentHost = quirksURL.host();
-    if (startsWithLettersIgnoringASCIICase(topDocumentPath, "/maps/"_s)) {
+    if (equalLettersIgnoringASCIICase(topDocumentPath, "/maps"_s) || startsWithLettersIgnoringASCIICase(topDocumentPath, "/maps/"_s)) {
         quirksData.isGoogleMaps = true;
         quirksData.enableQuirks({
 #if ENABLE(TWO_PHASE_CLICKS)
             // maps.google.com rdar://152194074
             QuirksData::SiteSpecificQuirk::MayNeedToIgnoreContentObservation,
+#endif
+#if PLATFORM(MAC)
+            // maps.google.com rdar://185857498
+            QuirksData::SiteSpecificQuirk::NeedsGoogleMapsMagnificationWheelDeltaScalingQuirk,
 #endif
 #if PLATFORM(IOS_FAMILY)
             // maps.google.com rdar://67358928
@@ -3609,6 +3784,8 @@ static void handleGoogleQuirks(QuirksData& quirksData, const URL& quirksURL, con
 #if PLATFORM(MAC)
     // docs.google.com https://bugs.webkit.org/show_bug.cgi?id=161984
     quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::IsTouchBarUpdateSuppressedForHiddenContentEditableQuirk, quirksData.isGoogleDocs);
+    // docs.google.com rdar://189433637
+    quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::NeedsGoogleDocsNavigationWidgetScrollQuirk, quirksData.isGoogleDocs);
 #endif
 }
 
@@ -3731,9 +3908,31 @@ static void handleLinkedInQuirks(QuirksData& quirksData, const URL& /* quirksURL
     quirksData.isLinkedIn = true;
 }
 
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+// Outlook on the web: rdar://187832523
+static void setOutlookOnTheWebQuirks(QuirksData& quirksData, const URL& quirksURL)
+{
+    auto topDocumentHost = quirksURL.host();
+    bool isOutlook = topDocumentHost == "outlook.live.com"_s
+        || topDocumentHost == "outlook.office.com"_s
+        || topDocumentHost == "outlook.office365.com"_s
+        || topDocumentHost == "outlook.cloud.microsoft"_s;
+    quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldTreatLongClickAsSecondaryClickQuirk, isOutlook);
+}
+
+static void handleOfficeQuirks(QuirksData& quirksData, const URL& quirksURL, const String& /* quirksDomainString */, const URL& /* documentURL */)
+{
+    setOutlookOnTheWebQuirks(quirksData, quirksURL);
+}
+#endif
+
 static void handleLiveQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& /* documentURL */)
 {
     QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("live.com"_s);
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    setOutlookOnTheWebQuirks(quirksData, quirksURL);
+#endif
 
     auto topDocumentHost = quirksURL.host();
     quirksData.isOutlook = topDocumentHost == "outlook.live.com"_s;
@@ -3785,13 +3984,18 @@ static void handleMediumQuirks(QuirksData& quirksData, const URL& /* quirksURL *
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldDispatchSyntheticMouseEventsWhenModifyingSelectionQuirk);
 }
 
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || HAVE(APPKIT_GESTURES_SUPPORT)
 static void handleMicrosoftCloudQuirks(QuirksData& quirksData, const URL& quirksURL, const String& /* quirksDomainString */, const URL& /* documentURL */)
 {
+#if PLATFORM(IOS_FAMILY)
     auto topDocumentHost = quirksURL.host();
     // m365.cloud.microsoft rdar://157794706
     bool shouldAllowPopupFromMicrosoftOfficeToOneDrive = topDocumentHost.endsWithIgnoringASCIICase("m365.cloud.microsoft"_s);
     quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldAllowPopupFromMicrosoftOfficeToOneDrive, shouldAllowPopupFromMicrosoftOfficeToOneDrive);
+#endif
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    setOutlookOnTheWebQuirks(quirksData, quirksURL);
+#endif
 }
 #endif
 
@@ -4193,11 +4397,15 @@ void Quirks::determineRelevantQuirks()
 #if PLATFORM(IOS_FAMILY)
     static const bool shouldDisableLazyIframeLoadingQuirk = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoUNIQLOLazyIframeLoadingQuirk) && WTF::IOSApplication::isUNIQLOApp();
     static const bool needsResettingTransitionCancelsRunningTransitionQuirk = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ResettingTransitionCancelsRunningTransitionQuirk) && WTF::IOSApplication::isDOFUSTouch();
+    static const bool shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoMediaLayerTeardownOnPageVisibilityChangeQuirk) && WTF::IOSApplication::isMoonPlayer();
 
     m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldDisableLazyIframeLoadingQuirk, shouldDisableLazyIframeLoadingQuirk);
 
     // DOFUS Touch app (rdar://112679186)
     m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::NeedsResettingTransitionCancelsRunningTransitionQuirk, needsResettingTransitionCancelsRunningTransitionQuirk);
+
+    // Moon Player app (rdar://162452658)
+    m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk, shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk);
 #endif
 
 #if PLATFORM(MAC)
@@ -4209,6 +4417,11 @@ void Quirks::determineRelevantQuirks()
 
 #if PLATFORM(COCOA)
     m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::NeedsYouTubeCaptionQuirk, isYoutubeEmbedDomain());
+#endif
+
+#if PLATFORM(MAC)
+    // google.com/maps/embed rdar://184166392
+    m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::NeedsGoogleMapsEmbedManipulationSurfaceQuirk, isGoogleMapsEmbed());
 #endif
 
     auto quirksURL = topDocumentURL();
@@ -4242,6 +4455,9 @@ void Quirks::determineRelevantQuirks()
         { "bankofamerica"_s, &handleBankOfAmericaQuirks },
         { "bestbuy"_s, &handleBestBuyQuirks },
         { "bing"_s, &handleBingQuirks },
+#if PLATFORM(MAC)
+        { "box"_s, &handleBoxQuirks },
+#endif
         { "bungalow"_s, &handleBungalowQuirks },
         { "capitalgroup"_s, &handleCapitalGroupQuirks },
 #if PLATFORM(IOS_FAMILY)
@@ -4302,7 +4518,7 @@ void Quirks::determineRelevantQuirks()
 #endif
         { "marcus"_s, &handleMarcusQuirks },
         { "medium"_s, &handleMediumQuirks },
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || HAVE(APPKIT_GESTURES_SUPPORT)
         { "cloud"_s, &handleMicrosoftCloudQuirks },
 #endif
         { "menlosecurity"_s, &handleMenloSecurityQuirks },
@@ -4311,6 +4527,10 @@ void Quirks::determineRelevantQuirks()
         { "nba"_s, &handleNBAQuirks },
         { "nfl"_s, &handleNFLQuirks },
         { "nhl"_s, &handleNHLQuirks },
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+        { "office"_s, &handleOfficeQuirks },
+        { "office365"_s, &handleOfficeQuirks },
+#endif
 #if PLATFORM(IOS) || PLATFORM(VISION)
         { "nytimes"_s, &handleNYTimesQuirks },
 #endif
@@ -4357,7 +4577,7 @@ void Quirks::determineRelevantQuirks()
         { "weather"_s, &handleWeatherQuirks },
 #endif
 #if PLATFORM(IOS_FAMILY) && ENABLE(DESKTOP_CONTENT_MODE_QUIRKS)
-        { "webex"_s, &handleScriptToEvaluateBeforeRunningScriptFromURLQuirk },
+        { "webex"_s, &handleWebExQuirks },
 #endif
         { "weebly"_s, &handleWeeblyQuirks },
         { "workspaces"_s, &handleWorkspacesQuirks },
@@ -4381,7 +4601,7 @@ void Quirks::determineRelevantQuirks()
 
     auto findResult = dispatchMap->find(quirkDomainWithoutPSL);
     if (findResult != dispatchMap->end())
-        (findResult->value)(m_quirksData, quirksURL, quirksDomainString, protect(m_document)->url());
+        (findResult->value)(m_quirksData, quirksURL, quirksDomainString, documentURL());
 
     // Note: `needsDisableDOMPasteAccessQuirk` needs a live document to assess
     // Note: `shouldDisableElementFullscreen` needs a live document for embedded sites

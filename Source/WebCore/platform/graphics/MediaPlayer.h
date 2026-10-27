@@ -186,6 +186,7 @@ struct MediaPlayerLoadOptions {
     ContentType contentType { };
     bool requiresRemotePlayback { false };
     bool supportsLimitedMatroska { false };
+    bool disableTeardownOnVisibilityChange { false };
     std::optional<bool> supportsProgressMonitoringOverride { };
     VideoRendererPreferences videoRendererPreferences { };
 };
@@ -837,6 +838,9 @@ private:
     void loadWithNextMediaEngine(const MediaPlayerFactory*);
     CheckedPtr<const MediaPlayerFactory> nextMediaEngine(const MediaPlayerFactory*);
     void reloadTimerFired();
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    void setPlayerPrivate(RefPtr<MediaPlayerPrivateInterface>&&);
+#endif
 
     // When the engine fallback chain is exhausted on FormatError/DecodeError and we haven't yet
     // sniffed the body, fetch a short prefix of the resource, determine the actual Content-Type
@@ -854,6 +858,10 @@ private:
 
     WeakPtr<MediaPlayerClient> m_client;
     Timer m_reloadTimer;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    // Read on the audio render thread through audioSourceProvider(). Write it only through
+    // setPlayerPrivate().
+#endif
     RefPtr<MediaPlayerPrivateInterface> m_private;
     WeakPtr<const MediaPlayerFactory> m_currentMediaEngine;
     WeakHashSet<const MediaPlayerFactory> m_attemptedEngines;

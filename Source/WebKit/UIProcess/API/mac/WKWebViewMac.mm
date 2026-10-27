@@ -51,6 +51,7 @@
 #import "_WKWarningView.h"
 #import <WebCore/CGWindowUtilities.h>
 #import <WebCore/CornerRadii.h>
+#import <WebCore/FloatPoint.h>
 #import <WebCore/FrameIdentifier.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebKit/WKUIDelegatePrivate.h>
@@ -824,8 +825,12 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 }
 #endif // ENABLE(DRAG_SUPPORT)
 
+// FIXME: This is no longer actually called. Should it instead be replaced by `-[NSView _hitTestToBlockWindowResizing:forResizeDirection:]`? Or removed entirely?
+// This was originally added to resolve <rdar://9211232>.
 - (BOOL)_windowResizeMouseLocationIsInVisibleScrollerThumb:(NSPoint)point
 {
+    // FIXME: Consider using the new `isPointInScrollbar` path, which works for both axes,
+    // and leverages UI-side scrolling instead of cached web content information.
     return _impl->windowResizeMouseLocationIsInVisibleScrollerThumb(NSPointToCGPoint(point));
 }
 
@@ -1561,6 +1566,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self _gestureEventWasNotHandledByWebCore:event];
 }
 
+- (void)_web_magnificationGestureEventWasNotHandledByWebCoreWithPhase:(NSEventPhase)phase magnification:(CGFloat)magnification locationInWindow:(NSPoint)locationInWindow
+{
+    [self _magnificationGestureEventWasNotHandledByWebCoreWithPhase:phase magnification:magnification locationInWindow:locationInWindow];
+}
+
 - (void)_takeFindStringFromSelectionInternal:(id)sender
 {
     [self takeFindStringFromSelection:sender];
@@ -1872,7 +1882,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
     _impl->updateTopScrollPocketStyle();
-    _impl->updateScrollPocketVisibilityWhenScrolledToTop();
+    _impl->updateScrollPocketVisibilityWhenScrolledToTopAndNonEditable();
     _impl->updateTopScrollPocketCaptureColor();
 #endif
 }
@@ -2090,6 +2100,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)_gestureEventWasNotHandledByWebCore:(NSEvent *)event
 {
     _impl->gestureEventWasNotHandledByWebCoreFromViewOnly(event);
+}
+
+- (void)_magnificationGestureEventWasNotHandledByWebCoreWithPhase:(NSEventPhase)phase magnification:(CGFloat)magnification locationInWindow:(NSPoint)locationInWindow
+{
+    _impl->magnificationGestureEventWasNotHandledByWebCoreFromViewOnly(phase, magnification, locationInWindow);
 }
 
 - (double)minimumMagnification

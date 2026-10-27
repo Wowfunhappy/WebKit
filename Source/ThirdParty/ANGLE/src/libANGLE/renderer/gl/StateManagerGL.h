@@ -36,107 +36,6 @@ class TransformFeedbackGL;
 class VertexArrayGL;
 class QueryGL;
 
-struct ExternalContextVertexAttribute
-{
-    bool enabled;
-    const angle::Format *format;
-    GLuint stride;
-    GLvoid *pointer;
-    GLuint buffer;
-    gl::VertexAttribCurrentValueData currentData;
-};
-
-// TODO(penghuang): use gl::State?
-struct ExternalContextState
-{
-    GLint packAlignment;
-    GLint unpackAlignment;
-
-    GLenum vertexArrayBufferBinding;
-    GLenum elementArrayBufferBinding;
-
-    bool depthTest;
-    bool cullFace;
-    GLenum cullFaceMode;
-    std::array<bool, 4> colorMask;
-    gl::ColorF colorClear;
-    gl::ColorF blendColor;
-    GLfloat depthClear;
-    GLenum currentProgram;
-    GLenum depthFunc;
-    bool depthMask;
-    GLfloat depthRage[2];
-    GLenum frontFace;
-    GLfloat lineWidth;
-    GLfloat polygonOffsetFactor;
-    GLfloat polygonOffsetUnits;
-    GLfloat polygonOffsetClamp;
-    GLfloat sampleCoverageValue;
-    bool sampleCoverageInvert;
-    GLenum blendEquationRgb;
-    GLenum blendEquationAlpha;
-    bool enableBlendEquationAdvancedCoherent;
-
-    bool enableDither;
-    GLenum polygonMode;
-    bool enablePolygonOffsetPoint;
-    bool enablePolygonOffsetLine;
-    bool enablePolygonOffsetFill;
-    bool enableDepthClamp;
-    bool enableSampleAlphaToCoverage;
-    bool enableSampleCoverage;
-    bool multisampleEnabled;
-
-    bool blendEnabled;
-    GLenum blendSrcRgb;
-    GLenum blendSrcAlpha;
-    GLenum blendDestRgb;
-    GLenum blendDestAlpha;
-    GLenum activeTexture;
-    gl::Rectangle viewport;
-    GLenum clipOrigin;
-    GLenum clipDepthMode;
-    bool scissorTest;
-    gl::Rectangle scissorBox;
-
-    struct StencilState
-    {
-        bool stencilTestEnabled;
-        GLenum stencilFrontFunc;
-        GLint stencilFrontRef;
-        GLenum stencilFrontMask;
-        GLenum stencilBackFunc;
-        GLint stencilBackRef;
-        GLenum stencilBackMask;
-        GLint stencilClear;
-        GLenum stencilFrontWritemask;
-        GLenum stencilBackWritemask;
-        GLenum stencilFrontFailOp;
-        GLenum stencilFrontZFailOp;
-        GLenum stencilFrontZPassOp;
-        GLenum stencilBackFailOp;
-        GLenum stencilBackZFailOp;
-        GLenum stencilBackZPassOp;
-    };
-    StencilState stencilState;
-
-    GLenum framebufferBinding;
-
-    struct TextureBindings
-    {
-        GLenum texture2d;
-        GLenum textureCubeMap;
-        GLenum textureExternalOES;
-        // TODO(boliu): TEXTURE_RECTANGLE_ARB
-    };
-    std::vector<TextureBindings> textureBindings;
-
-    GLenum vertexArrayBinding;
-
-    angle::FixedVector<ExternalContextVertexAttribute, gl::MAX_VERTEX_ATTRIBS>
-        defaultVertexArrayAttributes;
-};
-
 struct VertexAttributeGL
 {
     bool enabled                = false;
@@ -146,16 +45,22 @@ struct VertexAttributeGL
     GLuint relativeOffset = 0;
 
     GLuint bindingIndex = 0;
+
+    bool operator==(const VertexAttributeGL &other) const = default;
 };
+std::ostream &operator<<(std::ostream &os, const VertexAttributeGL &attribute);
 
 struct VertexBindingGL
 {
     GLuint stride   = 16;
     GLuint divisor  = 0;
-    uintptr_t offset = 0;
+    GLintptr offset = 0;
 
     GLuint buffer = 0;
+
+    bool operator==(const VertexBindingGL &other) const = default;
 };
+std::ostream &operator<<(std::ostream &os, const VertexBindingGL &binding);
 
 struct VertexArrayStateGL
 {
@@ -165,7 +70,160 @@ struct VertexArrayStateGL
 
     angle::FixedVector<VertexAttributeGL, gl::MAX_VERTEX_ATTRIBS> attributes;
     angle::FixedVector<VertexBindingGL, gl::MAX_VERTEX_ATTRIBS> bindings;
+
+    bool operator==(const VertexArrayStateGL &other) const = default;
 };
+std::ostream &operator<<(std::ostream &os, const VertexArrayStateGL &state);
+
+void QueryVertexArrayStateGL(const FunctionsGL *functions, VertexArrayStateGL *state);
+
+struct IndexedBufferBindingGL
+{
+    GLintptr offset = 0;
+    GLsizeiptr size = 0;
+    GLuint buffer   = 0;
+};
+bool operator==(const IndexedBufferBindingGL &a, const IndexedBufferBindingGL &b);
+std::ostream &operator<<(std::ostream &os, const IndexedBufferBindingGL &binding);
+
+struct ImageUnitBindingGL
+{
+    explicit ImageUnitBindingGL(GLenum defaultFormat);
+
+    GLuint texture    = 0;
+    GLint level       = 0;
+    GLboolean layered = false;
+    GLint layer       = 0;
+    GLenum access     = GL_READ_ONLY;
+    GLenum format     = GL_R32UI;
+};
+bool operator==(const ImageUnitBindingGL &a, const ImageUnitBindingGL &b);
+std::ostream &operator<<(std::ostream &os, const ImageUnitBindingGL &binding);
+
+// Caps needed to initialize a new ContextStateGL
+struct ContextStateGLCaps
+{
+    ContextStateGLCaps(const FunctionsGL *functions, const gl::Caps &caps);
+
+    bool defaultFramebufferSrgbState = false;
+    GLenum defaultImageBindingFormat = GL_R32UI;
+
+    GLint maxVertexAttributes            = 0;
+    GLint maxVertexAttribBindings        = 0;
+    GLint maxImageUnits                  = 0;
+    GLint maxDrawBuffers                 = 0;
+    GLint maxUniformBufferBindings       = 0;
+    GLint maxAtomicCounterBufferBindings = 0;
+    GLint maxShaderStorageBufferBindings = 0;
+};
+
+struct ContextStateGL
+{
+    explicit ContextStateGL(const ContextStateGLCaps &caps);
+
+    GLuint program = 0;
+
+    GLuint vao = 0;
+    VertexArrayStateGL defaultVAOState;
+    gl::AttribArray<gl::VertexAttribCurrentValueData> vertexAttribCurrentValues;
+
+    angle::PackedEnumMap<gl::BufferBinding, GLuint> buffers = {};
+    angle::PackedEnumMap<gl::BufferBinding, std::vector<IndexedBufferBindingGL>> indexedBuffers;
+
+    size_t textureUnitIndex                                                        = 0;
+    angle::PackedEnumMap<gl::TextureType, gl::ActiveTextureArray<GLuint>> textures = {};
+    gl::ActiveTextureArray<GLuint> samplers                                        = {};
+
+    std::vector<ImageUnitBindingGL> images;
+
+    GLuint transformFeedback = 0;
+
+    gl::PixelUnpackState unpackState;
+    gl::PixelPackState packState;
+
+    std::array<GLuint, angle::FramebufferBinding::FramebufferBindingSingletonMax> framebuffers = {
+        0};
+    GLuint renderbuffer = 0;
+
+    bool scissorTestEnabled = false;
+    gl::Rectangle scissor   = gl::Rectangle(0, 0, 0, 0);
+    gl::Rectangle viewport  = gl::Rectangle(0, 0, 0, 0);
+    float near              = 0.0f;
+    float far               = 1.0f;
+
+    gl::ClipOrigin clipOrigin       = gl::ClipOrigin::LowerLeft;
+    gl::ClipDepthMode clipDepthMode = gl::ClipDepthMode::NegativeOneToOne;
+
+    gl::ColorF blendColor = gl::ColorF(0, 0, 0, 0);
+    gl::BlendStateExt blendState;
+    bool blendAdvancedCoherent = true;
+
+    bool sampleAlphaToCoverageEnabled = false;
+    bool sampleCoverageEnabled        = false;
+    float sampleCoverageValue         = 1.0f;
+    bool sampleCoverageInvert         = false;
+    bool sampleMaskEnabled            = false;
+    gl::SampleMaskArray<GLbitfield> sampleMaskValues;
+
+    bool depthTestEnabled                     = false;
+    GLenum depthFunc                          = GL_LESS;
+    bool depthMask                            = true;
+    bool stencilTestEnabled                   = false;
+    GLenum stencilFrontFunc                   = GL_ALWAYS;
+    GLint stencilFrontRef                     = 0;
+    GLuint stencilFrontValueMask              = static_cast<GLuint>(-1);
+    GLenum stencilFrontStencilFailOp          = GL_KEEP;
+    GLenum stencilFrontStencilPassDepthFailOp = GL_KEEP;
+    GLenum stencilFrontStencilPassDepthPassOp = GL_KEEP;
+    GLuint stencilFrontWritemask              = static_cast<GLuint>(-1);
+    GLenum stencilBackFunc                    = GL_ALWAYS;
+    GLint stencilBackRef                      = 0;
+    GLuint stencilBackValueMask               = static_cast<GLuint>(-1);
+    GLenum stencilBackStencilFailOp           = GL_KEEP;
+    GLenum stencilBackStencilPassDepthFailOp  = GL_KEEP;
+    GLenum stencilBackStencilPassDepthPassOp  = GL_KEEP;
+    GLuint stencilBackWritemask               = static_cast<GLuint>(-1);
+
+    bool cullFaceEnabled           = false;
+    gl::CullFaceMode cullFace      = gl::CullFaceMode::Back;
+    GLenum frontFace               = GL_CCW;
+    gl::PolygonMode polygonMode    = gl::PolygonMode::Fill;
+    bool polygonOffsetPointEnabled = false;
+    bool polygonOffsetLineEnabled  = false;
+    bool polygonOffsetFillEnabled  = false;
+    GLfloat polygonOffsetFactor    = 0.0f;
+    GLfloat polygonOffsetUnits     = 0.0f;
+    GLfloat polygonOffsetClamp     = 0.0f;
+    bool depthClampEnabled         = false;
+    bool rasterizerDiscardEnabled  = false;
+    float lineWidth                = 1.0f;
+
+    bool primitiveRestartFixedIndexEnabled = false;
+    bool primitiveRestartEnabled           = false;
+    GLuint primitiveRestartIndex           = 0;
+
+    gl::ColorF clearColor = gl::ColorF(0.0f, 0.0f, 0.0f, 0.0f);
+    float clearDepth      = 1.0f;
+    GLint clearStencil    = 0;
+
+    bool framebufferSRGBEnabled = false;
+
+    bool ditherEnabled                 = true;
+    bool textureCubemapSeamlessEnabled = false;
+
+    bool multisamplingEnabled    = true;
+    bool sampleAlphaToOneEnabled = false;
+
+    GLenum provokingVertex = GL_LAST_VERTEX_CONVENTION;
+
+    gl::ClipDistanceEnableBits enabledClipDistances;
+
+    bool logicOpEnabled          = false;
+    gl::LogicalOperation logicOp = gl::LogicalOperation::Copy;
+};
+bool operator==(const ContextStateGL &a, const ContextStateGL &b);
+bool operator!=(const ContextStateGL &a, const ContextStateGL &b);
+std::ostream &operator<<(std::ostream &os, const ContextStateGL &state);
 
 class StateManagerGL final : angle::NonCopyable
 {
@@ -185,18 +243,21 @@ class StateManagerGL final : angle::NonCopyable
     void deleteRenderbuffer(GLuint rbo);
     void deleteTransformFeedback(GLuint transformFeedback);
 
+    void onSyncedFlushOrFinish();
+
     void useProgram(GLuint program);
     void forceUseProgram(GLuint program);
-    void bindVertexArray(GLuint vao, VertexArrayStateGL *vaoState);
+    void bindVertexArray(GLuint vao);
     void bindBuffer(gl::BufferBinding target, GLuint buffer);
     void bindBufferBase(gl::BufferBinding target, size_t index, GLuint buffer);
     void bindBufferRange(gl::BufferBinding target,
                          size_t index,
                          GLuint buffer,
-                         size_t offset,
-                         size_t size);
+                         GLintptr offset,
+                         GLsizeiptr size);
     void activeTexture(size_t unit);
     void bindTexture(gl::TextureType type, GLuint texture);
+    void bindTexture(gl::TextureType type, size_t unit, GLuint texture);
     void bindSampler(size_t unit, GLuint sampler);
     void bindImageTexture(size_t unit,
                           GLuint texture,
@@ -206,6 +267,7 @@ class StateManagerGL final : angle::NonCopyable
                           GLenum access,
                           GLenum format);
     void bindFramebuffer(GLenum type, GLuint framebuffer);
+    void forcefullyFlush();
     void bindRenderbuffer(GLenum type, GLuint renderbuffer);
     void bindTransformFeedback(GLenum type, GLuint transformFeedback);
     void onTransformFeedbackStateChange();
@@ -233,6 +295,7 @@ class StateManagerGL final : angle::NonCopyable
     void setSampleCoverage(float value, bool invert);
     void forceSetSampleCoverage(float value, bool invert);
     void setSampleMaskEnabled(bool enabled);
+    void setSampleMask(const gl::SampleMaskArray<GLbitfield> &maskValues);
     void setSampleMaski(GLuint maskNumber, GLbitfield mask);
 
     void setDepthTestEnabled(bool enabled);
@@ -258,6 +321,7 @@ class StateManagerGL final : angle::NonCopyable
     void setRasterizerDiscardEnabled(bool enabled);
     void setLineWidth(float width);
 
+    angle::Result setPrimitiveRestartFixedIndexEnabled(const gl::Context *context, bool enabled);
     angle::Result setPrimitiveRestartEnabled(const gl::Context *context, bool enabled);
     angle::Result setPrimitiveRestartIndex(const gl::Context *context, GLuint index);
 
@@ -282,8 +346,6 @@ class StateManagerGL final : angle::NonCopyable
 
     void setMultisamplingStateEnabled(bool enabled);
     void setSampleAlphaToOneStateEnabled(bool enabled);
-
-    void setCoverageModulation(GLenum components);
 
     void setProvokingVertex(GLenum mode);
 
@@ -322,27 +384,33 @@ class StateManagerGL final : angle::NonCopyable
         GetImplAs<ProgramExecutableGL>(executable)->updateEmulatedClipOrigin(origin);
     }
 
-    GLuint getProgramID() const { return mProgram; }
-    GLuint getVertexArrayID() const { return mVAO; }
+    GLuint getProgramID() const { return mState.program; }
+    GLuint getVertexArrayID() const { return mState.vao; }
     GLuint getFramebufferID(angle::FramebufferBinding binding) const
     {
-        return mFramebuffers[binding];
+        return mState.framebuffers[binding];
     }
-    GLuint getBufferID(gl::BufferBinding binding) const { return mBuffers[binding]; }
+    GLuint getBufferID(gl::BufferBinding binding) const { return mState.buffers[binding]; }
 
     bool getHasSeparateFramebufferBindings() const { return mHasSeparateFramebufferBindings; }
 
     GLuint getDefaultVAO() const;
-    VertexArrayStateGL *getDefaultVAOState();
     void setDefaultVAOStateDirty();
 
-    void validateState() const;
+    VertexArrayStateGL *getVAOState(GLuint vao);
+    VertexArrayStateGL *getOrCreateVAOState(GLuint vao);
+    VertexArrayStateGL *getCurrentVAOState();
 
-    void syncFromNativeContext(const gl::Extensions &extensions, ExternalContextState *state);
-    void restoreNativeContext(const gl::Extensions &extensions, const ExternalContextState *state);
+    void validateState();
+
+    std::unique_ptr<ContextStateGL> createContextStateGL() const;
+    angle::Result syncFromNativeContext(const gl::Context *context,
+                                        ContextStateGL *outNativeContextState);
+    angle::Result restoreNativeContext(const gl::Context *context,
+                                       const ContextStateGL &nativeContextState);
 
   private:
-    void forceBindVertexArray(GLuint vao, VertexArrayStateGL *vaoState);
+    void forceBindVertexArray(GLuint vao);
 
     void setTextureCubemapSeamlessEnabled(bool enabled);
 
@@ -366,12 +434,6 @@ class StateManagerGL final : angle::NonCopyable
 
     void setBufferBindingDirty(gl::BufferBinding binding);
 
-    template <typename T>
-    void get(GLenum name, T *value);
-
-    template <size_t n, typename T>
-    void get(GLenum name, std::array<T, n> *values);
-
     void syncSamplersState(const gl::Context *context);
     void syncTransformFeedbackState(const gl::Context *context);
     void syncProgramState(const gl::Context *context);
@@ -383,92 +445,30 @@ class StateManagerGL final : angle::NonCopyable
         const gl::ProgramExecutable *executable,
         const gl::FramebufferState &drawFramebufferState) const;
 
-    void syncBlendFromNativeContext(const gl::Extensions &extensions, ExternalContextState *state);
-    void restoreBlendNativeContext(const gl::Extensions &extensions,
-                                   const ExternalContextState *state);
+    void setDefaultVAOState(const VertexArrayStateGL &state);
+    angle::Result setState(const gl::Context *context, const ContextStateGL &state);
 
-    void syncFramebufferFromNativeContext(const gl::Extensions &extensions,
-                                          ExternalContextState *state);
-    void restoreFramebufferNativeContext(const gl::Extensions &extensions,
-                                         const ExternalContextState *state);
-
-    void syncPixelPackUnpackFromNativeContext(const gl::Extensions &extensions,
-                                              ExternalContextState *state);
-    void restorePixelPackUnpackNativeContext(const gl::Extensions &extensions,
-                                             const ExternalContextState *state);
-
-    void syncStencilFromNativeContext(const gl::Extensions &extensions,
-                                      ExternalContextState *state);
-    void restoreStencilNativeContext(const gl::Extensions &extensions,
-                                     const ExternalContextState *state);
-
-    void syncBufferBindingsFromNativeContext(const gl::Extensions &extensions,
-                                             ExternalContextState *state);
-    void restoreBufferBindingsNativeContext(const gl::Extensions &extensions,
-                                            const ExternalContextState *state);
-
-    void syncTextureUnitsFromNativeContext(const gl::Extensions &extensions,
-                                           ExternalContextState *state);
-    void restoreTextureUnitsNativeContext(const gl::Extensions &extensions,
-                                          const ExternalContextState *state);
-
-    void syncVertexArraysFromNativeContext(const gl::Extensions &extensions,
-                                           ExternalContextState *state);
-    void restoreVertexArraysNativeContext(const gl::Extensions &extensions,
-                                          const ExternalContextState *state);
+    void ensurePlaceholderFramebuffer();
 
     const FunctionsGL *mFunctions;
     const angle::FeaturesGL &mFeatures;
 
-    GLuint mProgram;
+    ContextStateGLCaps mCaps;
+    ContextStateGL mState;
 
     const bool mSupportsVertexArrayObjects;
-    GLuint mVAO;
-    std::vector<gl::VertexAttribCurrentValueData> mVertexAttribCurrentValues;
 
     GLuint mDefaultVAO = 0;
-    // The current state of the default VAO is owned by StateManagerGL. It may be shared between
-    // multiple VertexArrayGL objects if the native driver does not support vertex array objects.
-    // When this object is shared, StateManagerGL forces VertexArrayGL to resynchronize itself every
-    // time a new vertex array is bound.
-    VertexArrayStateGL mDefaultVAOState;
 
-    // The state of the currently bound vertex array object so StateManagerGL can know about the
-    // current element array buffer.
-    VertexArrayStateGL *mVAOState = nullptr;
+    // The state of all tracked VAOs. It is owned by StateManagerGL because it affects the global
+    // element array buffer binding when a new VAO is bound.
+    //
+    // The current state of the default VAO is in mState. It may be shared
+    // between multiple VertexArrayGL objects if the native driver does not support vertex array
+    // objects. When this object is shared, StateManagerGL forces VertexArrayGL to resynchronize
+    // itself every time a new vertex array is bound.
+    std::map<GLuint, VertexArrayStateGL> mVAOStates;
 
-    angle::PackedEnumMap<gl::BufferBinding, GLuint> mBuffers;
-
-    struct IndexedBufferBinding
-    {
-        IndexedBufferBinding();
-
-        size_t offset;
-        size_t size;
-        GLuint buffer;
-    };
-    angle::PackedEnumMap<gl::BufferBinding, std::vector<IndexedBufferBinding>> mIndexedBuffers;
-
-    size_t mTextureUnitIndex;
-    angle::PackedEnumMap<gl::TextureType, gl::ActiveTextureArray<GLuint>> mTextures;
-    gl::ActiveTextureArray<GLuint> mSamplers;
-
-    struct ImageUnitBinding
-    {
-        ImageUnitBinding()
-            : texture(0), level(0), layered(false), layer(0), access(GL_READ_ONLY), format(GL_R32UI)
-        {}
-
-        GLuint texture;
-        GLint level;
-        GLboolean layered;
-        GLint layer;
-        GLenum access;
-        GLenum format;
-    };
-    std::vector<ImageUnitBinding> mImages;
-
-    GLuint mTransformFeedback;
     TransformFeedbackGL *mCurrentTransformFeedback;
 
     // Queries that are currently running on the driver
@@ -480,107 +480,21 @@ class StateManagerGL final : angle::NonCopyable
 
     gl::ContextID mPrevDrawContext;
 
-    GLint mUnpackAlignment;
-    GLint mUnpackRowLength;
-    GLint mUnpackSkipRows;
-    GLint mUnpackSkipPixels;
-    GLint mUnpackImageHeight;
-    GLint mUnpackSkipImages;
+    GLuint mPlaceholderFbo                         = 0;
+    GLuint mPlaceholderFboColorRenderbuffer        = 0;
+    GLuint mPlaceholderFboDepthStencilRenderbuffer = 0;
 
-    GLint mPackAlignment;
-    GLint mPackRowLength;
-    GLint mPackSkipRows;
-    GLint mPackSkipPixels;
-
-    // TODO(jmadill): Convert to std::array when available
-    std::vector<GLenum> mFramebuffers;
-    GLuint mRenderbuffer;
-    GLuint mPlaceholderFbo;
-    GLuint mPlaceholderRbo;
-
-    bool mScissorTestEnabled;
-    gl::Rectangle mScissor;
-    gl::Rectangle mViewport;
-    float mNear;
-    float mFar;
-
-    gl::ClipOrigin mClipOrigin;
-    gl::ClipDepthMode mClipDepthMode;
-
-    gl::ColorF mBlendColor;
-    gl::BlendStateExt mBlendStateExt;
-    bool mBlendAdvancedCoherent;
     const bool mIndependentBlendStates;
 
-    bool mSampleAlphaToCoverageEnabled;
-    bool mSampleCoverageEnabled;
-    float mSampleCoverageValue;
-    bool mSampleCoverageInvert;
-    bool mSampleMaskEnabled;
-    gl::SampleMaskArray<GLbitfield> mSampleMaskValues;
     bool mSampleCoverageEverChanged;
+    bool mHasUnflushedQueries;
 
-    bool mDepthTestEnabled;
-    GLenum mDepthFunc;
-    bool mDepthMask;
-    bool mStencilTestEnabled;
-    GLenum mStencilFrontFunc;
-    GLint mStencilFrontRef;
-    GLuint mStencilFrontValueMask;
-    GLenum mStencilFrontStencilFailOp;
-    GLenum mStencilFrontStencilPassDepthFailOp;
-    GLenum mStencilFrontStencilPassDepthPassOp;
-    GLuint mStencilFrontWritemask;
-    GLenum mStencilBackFunc;
-    GLint mStencilBackRef;
-    GLuint mStencilBackValueMask;
-    GLenum mStencilBackStencilFailOp;
-    GLenum mStencilBackStencilPassDepthFailOp;
-    GLenum mStencilBackStencilPassDepthPassOp;
-    GLuint mStencilBackWritemask;
-
-    bool mCullFaceEnabled;
-    gl::CullFaceMode mCullFace;
-    GLenum mFrontFace;
-    gl::PolygonMode mPolygonMode;
-    bool mPolygonOffsetPointEnabled;
-    bool mPolygonOffsetLineEnabled;
-    bool mPolygonOffsetFillEnabled;
-    GLfloat mPolygonOffsetFactor;
-    GLfloat mPolygonOffsetUnits;
-    GLfloat mPolygonOffsetClamp;
-    bool mDepthClampEnabled;
-    bool mRasterizerDiscardEnabled;
-    float mLineWidth;
-
-    bool mPrimitiveRestartEnabled;
-    GLuint mPrimitiveRestartIndex;
-
-    gl::ColorF mClearColor;
-    float mClearDepth;
-    GLint mClearStencil;
-
-    bool mFramebufferSRGBAvailable;
-    bool mFramebufferSRGBEnabled;
+    const bool mFramebufferSRGBAvailable;
     const bool mHasSeparateFramebufferBindings;
-
-    bool mDitherEnabled;
-    bool mTextureCubemapSeamlessEnabled;
-
-    bool mMultisamplingEnabled;
-    bool mSampleAlphaToOneEnabled;
-
-    GLenum mCoverageModulation;
 
     const bool mIsMultiviewEnabled;
 
-    GLenum mProvokingVertex;
-
-    gl::ClipDistanceEnableBits mEnabledClipDistances;
     const size_t mMaxClipDistances;
-
-    bool mLogicOpEnabled;
-    gl::LogicalOperation mLogicOp;
 
     gl::state::DirtyBits mLocalDirtyBits;
     gl::state::ExtendedDirtyBits mLocalExtendedDirtyBits;

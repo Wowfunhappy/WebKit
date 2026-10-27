@@ -44,13 +44,17 @@ struct WebKit::InteractionInformationAtPosition {
     bool isColorInput;
     bool isRangeInput;
     bool isARIASlider;
+    bool isCustomSlider;
+    bool hasDirectionalResizeCursor;
+    bool isInResizeControl;
+    bool isOverVideo;
     bool isNearMarkedText;
 #if PLATFORM(IOS_FAMILY)
     bool touchCalloutEnabled;
 #endif
     bool isLink;
     bool isImage;
-#if ENABLE(MODEL_PROCESS)
+#if ENABLE(MODEL_ELEMENT_STAGE_MODE)
     bool isInteractiveModel;
 #endif
     bool isAttachment;
@@ -59,6 +63,7 @@ struct WebKit::InteractionInformationAtPosition {
     bool isPausedVideo;
     bool isElement;
     bool isContentEditable;
+    bool isOverEditableContent;
     Markable<WebCore::ScrollingNodeID> containerScrollingNodeID;
 #if ENABLE(DATA_DETECTION)
     bool isDataDetectorLink;
@@ -73,7 +78,9 @@ struct WebKit::InteractionInformationAtPosition {
 #if PLATFORM(IOS_FAMILY)
     bool needsPointerTouchCompatibilityQuirk;
 #endif
+    bool shouldTreatLongClickAsSecondaryClickQuirk;
     WebCore::FloatPoint adjustedPointForNodeRespondingToClickEvents;
+    std::optional<WebCore::IntPoint> automationAdjustedInteractionLocation;
     URL url;
     URL imageURL;
     URL modelURL;

@@ -7,10 +7,6 @@
 //    Implements the class methods for FramebufferMtl.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/metal/ContextMtl.h"
 
@@ -20,6 +16,7 @@
 #include "common/angleutils.h"
 #include "common/base/anglebase/numerics/checked_math.h"
 #include "common/debug.h"
+#include "common/unsafe_buffers.h"
 #include "libANGLE/ErrorStrings.h"
 #include "libANGLE/renderer/metal/BufferMtl.h"
 #include "libANGLE/renderer/metal/DisplayMtl.h"
@@ -266,7 +263,8 @@ angle::Result FramebufferMtl::clearBufferfv(const gl::Context *context,
     else
     {
         clearColorBuffers.set(drawbuffer);
-        clearOpts.clearColor = mtl::ClearColorValue(values[0], values[1], values[2], values[3]);
+        clearOpts.clearColor =
+            ANGLE_UNSAFE_TODO(mtl::ClearColorValue(values[0], values[1], values[2], values[3]));
     }
 
     return clearImpl(context, clearColorBuffers, &clearOpts);
@@ -286,7 +284,8 @@ angle::Result FramebufferMtl::clearBufferuiv(const gl::Context *context,
     clearColorBuffers.set(drawbuffer);
 
     mtl::ClearRectParams clearOpts;
-    clearOpts.clearColor = mtl::ClearColorValue(values[0], values[1], values[2], values[3]);
+    clearOpts.clearColor =
+        ANGLE_UNSAFE_TODO(mtl::ClearColorValue(values[0], values[1], values[2], values[3]));
 
     return clearImpl(context, clearColorBuffers, &clearOpts);
 }
@@ -311,7 +310,8 @@ angle::Result FramebufferMtl::clearBufferiv(const gl::Context *context,
     else
     {
         clearColorBuffers.set(drawbuffer);
-        clearOpts.clearColor = mtl::ClearColorValue(values[0], values[1], values[2], values[3]);
+        clearOpts.clearColor =
+            ANGLE_UNSAFE_TODO(mtl::ClearColorValue(values[0], values[1], values[2], values[3]));
     }
 
     return clearImpl(context, clearColorBuffers, &clearOpts);
@@ -384,7 +384,7 @@ angle::Result FramebufferMtl::readPixels(const gl::Context *context,
     }
 
     ANGLE_TRY(readPixelsImpl(context, flippedArea, params, getColorReadRenderTarget(context),
-                             static_cast<uint8_t *>(pixels) + outputSkipBytes));
+                             ANGLE_UNSAFE_TODO(static_cast<uint8_t *>(pixels) + outputSkipBytes)));
 
     return angle::Result::Continue;
 }
@@ -598,7 +598,7 @@ angle::Result FramebufferMtl::blitWithDraw(const gl::Context *context,
     if (blitDepthBuffer || blitStencilBuffer)
     {
         mtl::DepthStencilBlitParams dsBlitParams;
-        memcpy(&dsBlitParams, &baseParams, sizeof(baseParams));
+        ANGLE_UNSAFE_TODO(memcpy(&dsBlitParams, &baseParams, sizeof(baseParams)));
         RenderTargetMtl *srcDepthRt   = srcFrameBuffer->getDepthRenderTarget();
         RenderTargetMtl *srcStencilRt = srcFrameBuffer->getStencilRenderTarget();
 
@@ -649,7 +649,7 @@ angle::Result FramebufferMtl::blitWithDraw(const gl::Context *context,
     if (blitColorBuffer)
     {
         mtl::ColorBlitParams colorBlitParams;
-        memcpy(&colorBlitParams, &baseParams, sizeof(baseParams));
+        ANGLE_UNSAFE_TODO(memcpy(&colorBlitParams, &baseParams, sizeof(baseParams)));
 
         RenderTargetMtl *srcColorRt = srcFrameBuffer->getColorReadRenderTarget(context);
         ASSERT(srcColorRt);
@@ -856,12 +856,11 @@ angle::Result FramebufferMtl::prepareForUse(const gl::Context *context) const
 
         if (mBackbuffer->hasRobustResourceInit())
         {
-            ANGLE_TRY(mBackbuffer->initializeContents(
-                context, GL_BACK, gl::OwnImageIndex(gl::ImageIndex::Make2D(0))));
+            ANGLE_TRY(mBackbuffer->initializeContents(context, GL_BACK, gl::ImageIndex::Make2D(0)));
             if (mBackbuffer->hasDepthStencil())
             {
-                ANGLE_TRY(mBackbuffer->initializeContents(
-                    context, GL_DEPTH, gl::OwnImageIndex(gl::ImageIndex::Make2D(0))));
+                ANGLE_TRY(
+                    mBackbuffer->initializeContents(context, GL_DEPTH, gl::ImageIndex::Make2D(0)));
             }
         }
     }
@@ -1540,7 +1539,7 @@ angle::Result FramebufferMtl::invalidateImpl(const gl::Context *context,
 
     for (size_t i = 0; i < count; ++i)
     {
-        const GLenum attachment = attachments[i];
+        const GLenum attachment = ANGLE_UNSAFE_TODO(attachments[i]);
 
         switch (attachment)
         {
@@ -1699,7 +1698,7 @@ angle::Result readPixelsCopyImpl(
     packPixelsRowParams.area.height     = 1;
     packPixelsRowParams.reverseRowOrder = false;
     for (int r = startRow, i = 0; i < area.height;
-         ++i, r += rowOffset, pixels += packPixelsRowParams.outputPitch)
+         ++i, r += rowOffset, ANGLE_UNSAFE_TODO(pixels += packPixelsRowParams.outputPitch))
     {
         srcRowRegion.y             = r;
         packPixelsRowParams.area.y = packPixelsParams.area.y + i;
@@ -1768,6 +1767,18 @@ angle::Result FramebufferMtl::readPixelsImpl(const gl::Context *context,
 
     if (features.copyTextureToBufferForReadOptimization.enabled)
     {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        // The temporary buffer is sized from |texture|'s extents but indexed with |area|, which is
+        // clipped against the frontend attachment size. The mtl_utils.mm guards do not cover this:
+        // the copy into the buffer uses the texture's own extents, so only the indexing below is
+        // out of bounds when the two disagree.
+        const mtl::MipmapNativeLevel &readLevel = renderTarget->getLevelIndex();
+        const bool areaIsContainedInLevel =
+            area.x >= 0 && area.y >= 0 &&
+            static_cast<uint32_t>(area.x1()) <= texture->width(readLevel) &&
+            static_cast<uint32_t>(area.y1()) <= texture->height(readLevel);
+        ANGLE_CHECK_ASSERT(contextMtl, areaIsContainedInLevel);
+#endif
         mtl::BufferRef buffer;
         ANGLE_TRY(CopyTextureSliceLevelToTempBuffer(context, texture, renderTarget->getLevelIndex(),
                                                     renderTarget->getLayerIndex(), &buffer));
@@ -1781,8 +1792,8 @@ angle::Result FramebufferMtl::readPixelsImpl(const gl::Context *context,
         angle::Result result = readPixelsCopyImpl(
             context, area, packPixelsParams, renderTarget,
             [&](const gl::Rectangle &region, const uint8_t *&src) {
-                src =
-                    bufferData + region.y * bufferRowPitch + region.x * readAngleFormat.pixelBytes;
+                src = ANGLE_UNSAFE_TODO(bufferData + region.y * bufferRowPitch +
+                                        region.x * readAngleFormat.pixelBytes);
                 return angle::Result::Continue;
             },
             pixels);

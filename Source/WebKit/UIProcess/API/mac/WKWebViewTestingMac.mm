@@ -159,6 +159,19 @@
 #endif
 }
 
+- (BOOL)isPointInScrollbar:(NSPoint)locationInView
+{
+    return _impl->isPointInScrollbar(locationInView);
+}
+
+- (BOOL)_refreshControlHostIsTrackingForTesting
+{
+#if HAVE(NSREFRESHCONTROLLER)
+    return _impl->refreshControllerIsTracking();
+#else
+    return NO;
+#endif
+}
 
 @end
 

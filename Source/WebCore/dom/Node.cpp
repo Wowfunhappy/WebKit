@@ -681,10 +681,16 @@ ExceptionOr<void> Node::before(FixedVector<NodeOrString>&& nodeOrStringVector)
         return result.releaseException();
 
     auto newChildren = result.releaseReturnValue();
+#ifdef RC_REMOVE_SEC_ACCEL_3
     if (auto checkResult = parent->ensurePreInsertionValidityForPhantomDocumentFragment(newChildren); checkResult.hasException())
         return checkResult;
 
     RefPtr viableNextSibling = viablePreviousSibling ? viablePreviousSibling->nextSibling() : parent->firstChild();
+#else
+    RefPtr viableNextSibling = viablePreviousSibling ? viablePreviousSibling->nextSibling() : parent->firstChild();
+    if (auto checkResult = parent->ensurePreInsertionValidityForPhantomDocumentFragment(newChildren, viableNextSibling.get()); checkResult.hasException())
+        return checkResult;
+#endif
     return parent->insertChildrenBeforeWithoutPreInsertionValidityCheck(WTF::move(newChildren), viableNextSibling.get());
 }
 
@@ -702,8 +708,13 @@ ExceptionOr<void> Node::after(FixedVector<NodeOrString>&& nodeOrStringVector)
         return result.releaseException();
 
     auto newChildren = result.releaseReturnValue();
+#ifdef RC_REMOVE_SEC_ACCEL_3
     if (auto checkResult = parent->ensurePreInsertionValidityForPhantomDocumentFragment(newChildren); checkResult.hasException())
         return checkResult;
+#else
+    if (auto checkResult = parent->ensurePreInsertionValidityForPhantomDocumentFragment(newChildren, viableNextSibling.get()); checkResult.hasException())
+        return checkResult;
+#endif
 
     return parent->insertChildrenBeforeWithoutPreInsertionValidityCheck(WTF::move(newChildren), viableNextSibling.get());
 }
@@ -1476,20 +1487,38 @@ static Node* traverseToShadowIncludingRoot(Node* current)
         current = parent;
     return current;
 }
+
+static Node* realRootFromShadowIncludingRoot(Node* shadowIncludingRoot)
+{
+    auto* root = shadowIncludingRoot;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (auto* parent = root->parentNode(); parent && parent->isDocumentFragmentForInnerOuterHTML())
+        return parent;
+#endif
+    return root;
+}
 #endif
 
 ALWAYS_INLINE void Node::updateShadowIncludingRoot()
 {
+#ifdef RC_REMOVE_SEC_ACCEL_3
     if (auto* parent = parentNode())
+#else
+    if (auto* parent = parentNode(); parent && !parent->isDocumentFragmentForInnerOuterHTML())
+#endif
         m_shadowIncludingRoot = parent->m_shadowIncludingRoot;
     else if (auto* shadowRoot = dynamicDowncast<ShadowRoot>(this)) [[unlikely]] {
         auto* host = shadowRoot->host();
+#ifdef RC_REMOVE_SEC_ACCEL_3
         auto* root = host ? host->m_shadowIncludingRoot : shadowRoot;
         shadowRoot->setShadowIncludingRoot(root);
         m_shadowIncludingRoot = root;
+#else
+        m_shadowIncludingRoot = host ? host->m_shadowIncludingRoot : shadowRoot;
+#endif
     } else
         m_shadowIncludingRoot = this;
-    ASSERT(traverseToShadowIncludingRoot(this) == m_shadowIncludingRoot);
+    ASSERT(traverseToShadowIncludingRoot(this) == realRootFromShadowIncludingRoot(m_shadowIncludingRoot));
 }
 
 Node::NeedsPostConnectionSteps Node::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
@@ -2154,18 +2183,27 @@ static unsigned traverseSubtreeToUpdateTreeScope(Node& root, NOESCAPE const Move
 {
     unsigned count = 0;
     for (CheckedPtr node = &root; node; node = NodeTraversal::next(*node, &root)) {
+#ifdef RC_REMOVE_SEC_ACCEL_3
         moveNode(*node);
         ++count;
+#else
+        count += moveNode(*node);
+#endif
 
         RefPtr element = dynamicDowncast<Element>(*node);
         if (!element)
             continue;
 
         if (element->hasSyntheticAttrChildNodes()) {
+#ifdef RC_REMOVE_SEC_ACCEL_3
             for (auto& attr : element->attrNodeList()) {
                 moveNode(attr);
                 ++count;
             }
+#else
+            for (auto& attr : element->attrNodeList())
+                count += moveNode(attr);
+#endif
         }
 
         if (RefPtr shadow = element->shadowRoot())
@@ -2199,8 +2237,18 @@ inline unsigned Node::moveShadowTreeToNewDocumentFastCase(ShadowRoot& shadowRoot
 {
     ASSERT(isDocumentEligibleForFastAdoption(oldDocument, newDocument));
     adoptCustomElementRegistryIfNotExplicitlySet(shadowRoot, newDocument);
+#ifdef RC_REMOVE_SEC_ACCEL_3
     return traverseSubtreeToUpdateTreeScope(shadowRoot, [&](Node& node) {
         node.moveNodeToNewDocumentFastCase(oldDocument, newDocument);
+#else
+    return traverseSubtreeToUpdateTreeScope(shadowRoot, [&](Node& node) -> unsigned {
+        if (&node.treeScope() != static_cast<TreeScope*>(&shadowRoot)) {
+            RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&node.document() == &newDocument);
+            return 0;
+        }
+        node.moveNodeToNewDocumentFastCase(oldDocument, newDocument);
+        return 1;
+#endif
     }, [&oldDocument, &newDocument](ShadowRoot& innerShadowRoot) {
         RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&innerShadowRoot.document() == &oldDocument);
         innerShadowRoot.moveShadowRootToNewDocument(oldDocument, newDocument);
@@ -2212,8 +2260,18 @@ inline void Node::moveShadowTreeToNewDocumentSlowCase(ShadowRoot& shadowRoot, Do
 {
     ASSERT(!isDocumentEligibleForFastAdoption(oldDocument, newDocument));
     adoptCustomElementRegistryIfNotExplicitlySet(shadowRoot, newDocument);
+#ifdef RC_REMOVE_SEC_ACCEL_3
     traverseSubtreeToUpdateTreeScope(shadowRoot, [&](Node& node) {
         node.moveNodeToNewDocumentSlowCase(oldDocument, newDocument);
+#else
+    traverseSubtreeToUpdateTreeScope(shadowRoot, [&](Node& node) -> unsigned {
+        if (&node.treeScope() != static_cast<TreeScope*>(&shadowRoot)) {
+            RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&node.document() == &newDocument);
+            return 0;
+        }
+        node.moveNodeToNewDocumentSlowCase(oldDocument, newDocument);
+        return 1;
+#endif
     }, [&oldDocument, &newDocument](ShadowRoot& innerShadowRoot) {
         RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&innerShadowRoot.document() == &oldDocument);
         innerShadowRoot.moveShadowRootToNewDocument(oldDocument, newDocument);
@@ -2233,11 +2291,18 @@ void Node::moveTreeToNewScope(Node& root, TreeScope& oldScope, TreeScope& newSco
         oldDocument->incrementReferencingNodeCount();
         bool isFastCase = isDocumentEligibleForFastAdoption(oldDocument, newDocument) && !newScopeIsUAShadowTree;
         if (isFastCase) {
+#ifdef RC_REMOVE_SEC_ACCEL_3
             unsigned nodeCount = traverseSubtreeToUpdateTreeScope(root, [&](Node& node) {
+#else
+            unsigned nodeCount = traverseSubtreeToUpdateTreeScope(root, [&](Node& node) -> unsigned {
+#endif
                 ASSERT(!node.isTreeScope());
                 RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&node.treeScope() == &oldScope);
                 node.setTreeScope(newScope);
                 node.moveNodeToNewDocumentFastCase(oldDocument, newDocument);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+                return 1;
+#endif
             }, [&](ShadowRoot& shadowRoot) {
                 ASSERT_WITH_SECURITY_IMPLICATION(&shadowRoot.document() == oldDocument.ptr());
                 shadowRoot.moveShadowRootToNewParentScope(newScope, newDocument);
@@ -2246,13 +2311,20 @@ void Node::moveTreeToNewScope(Node& root, TreeScope& oldScope, TreeScope& newSco
             newDocument->incrementReferencingNodeCount(nodeCount);
             oldDocument->decrementReferencingNodeCount(nodeCount);
         } else {
+#ifdef RC_REMOVE_SEC_ACCEL_3
             traverseSubtreeToUpdateTreeScope(root, [&](Node& node) {
+#else
+            traverseSubtreeToUpdateTreeScope(root, [&](Node& node) -> unsigned {
+#endif
                 ASSERT(!node.isTreeScope());
                 RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&node.treeScope() == &oldScope);
                 if (newScopeIsUAShadowTree)
                     node.setEventTargetFlag(EventTargetFlag::HasBeenInUserAgentShadowTree);
                 node.setTreeScope(newScope);
                 node.moveNodeToNewDocumentSlowCase(oldDocument, newDocument);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+                return 1;
+#endif
             }, [&](ShadowRoot& shadowRoot) {
                 ASSERT_WITH_SECURITY_IMPLICATION(&shadowRoot.document() == oldDocument.ptr());
                 shadowRoot.moveShadowRootToNewParentScope(newScope, newDocument);
@@ -2263,16 +2335,27 @@ void Node::moveTreeToNewScope(Node& root, TreeScope& oldScope, TreeScope& newSco
         RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&oldScope.documentScope() == oldDocument.ptr() && &newScope.documentScope() == newDocument.ptr());
         oldDocument->decrementReferencingNodeCount();
     } else {
-        traverseSubtreeToUpdateTreeScope(root, [&](Node& node) {
+#ifdef RC_REMOVE_SEC_ACCEL_3
+            traverseSubtreeToUpdateTreeScope(root, [&](Node& node) {
+#else
+            traverseSubtreeToUpdateTreeScope(root, [&](Node& node) -> unsigned {
+#endif
             ASSERT(!node.isTreeScope());
             RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&node.treeScope() == &oldScope);
             if (newScopeIsUAShadowTree)
                 node.setEventTargetFlag(EventTargetFlag::HasBeenInUserAgentShadowTree);
             node.setTreeScope(newScope);
             if (!node.hasRareData()) [[likely]]
+#ifdef RC_REMOVE_SEC_ACCEL_3
                 return;
+#else
+                return 1;
+#endif
             if (auto* nodeLists = node.rareData()->nodeLists())
                 nodeLists->adoptTreeScope();
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            return 1;
+#endif
         }, [&newScope](ShadowRoot& shadowRoot) {
             shadowRoot.setParentTreeScope(newScope);
             return 0; // Unused.
@@ -2843,8 +2926,8 @@ void Node::defaultEventHandler(Event& event)
 
 bool Node::willRespondToMouseMoveEvents() const
 {
-    // FIXME: Why is the iOS code path different from the non-iOS code path?
-#if !PLATFORM(IOS_FAMILY)
+    // FIXME: Why is the Cocoa code path different from the non-Cocoa code path?
+#if !PLATFORM(COCOA)
     auto* element = dynamicDowncast<Element>(*this);
     if (!element)
         return false;
@@ -2884,8 +2967,8 @@ bool Node::willRespondToMouseClickEvents(const Style::ComputedStyle* styleToUse)
 
 bool Node::willRespondToMouseClickEventsWithEditability(Editability editability) const
 {
-    // FIXME: Why is the iOS code path different from the non-iOS code path?
-#if !PLATFORM(IOS_FAMILY)
+    // FIXME: Why is the Cocoa code path different from the non-Cocoa code path?
+#if !PLATFORM(COCOA)
     auto* element = dynamicDowncast<Element>(*this);
     if (!element)
         return false;

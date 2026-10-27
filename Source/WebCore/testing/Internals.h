@@ -1437,6 +1437,7 @@ public:
     };
 
     void setCookie(CookieData&&);
+    void deleteCookie(const String& cookieName);
     Vector<CookieData> getCookies() const;
 
     // In combination with createWebDriverCookieData() this attempts to implement
@@ -1548,6 +1549,7 @@ public:
     bool destroySleepDisabler(unsigned identifier);
 
     void setTopDocumentURLForQuirks(const String&);
+    void setSubframeURLForQuirks(const String&);
 
 #if ENABLE(APP_HIGHLIGHTS)
     Vector<String> appHighlightContextMenuItemTitles() const;
@@ -1723,7 +1725,7 @@ private:
     ExceptionOr<RenderedDocumentMarker*> markerAt(Node&, const String& markerType, unsigned index);
     ExceptionOr<ScrollableArea*> scrollableAreaForNode(Node*) const;
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     static RetainPtr<VKCImageAnalysis> fakeImageAnalysisResultForTesting(const Vector<ImageOverlayLine>&);
 #endif
 

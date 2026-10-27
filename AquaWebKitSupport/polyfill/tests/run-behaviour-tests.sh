@@ -594,6 +594,16 @@ probe_session_invalidation() {
         "$T/session_invalidation"
 }
 
+probe_skip_preferred_client_certificate_lookup() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/skip_preferred_client_certificate_lookup" "$TBEHAV/CFNetwork-skip-preferred-client-certificate-lookup.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/skip_preferred_client_certificate_lookup"
+}
+
 probe_dd_secure_coding() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dd_secure_coding" "$TBEHAV/DataDetectors-secure-coding.m" \
         -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS && "$T/dd_secure_coding"
@@ -1148,6 +1158,7 @@ run_probe shared_cookie_jar "$@"
 run_probe cookie_change_churn "$@"
 run_probe private_storage_session "$@"
 run_probe session_invalidation "$@"
+run_probe skip_preferred_client_certificate_lookup "$@"
 run_probe secure_coding "$@"
 run_probe url_request_coding "$@"
 run_probe url_request_attribution "$@"

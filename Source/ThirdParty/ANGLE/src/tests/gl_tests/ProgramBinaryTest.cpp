@@ -8,6 +8,7 @@
 #include "test_utils/ANGLETest.h"
 
 #include <stdint.h>
+#include <array>
 #include <memory>
 
 #include "common/string_utils.h"
@@ -1105,7 +1106,6 @@ TEST_P(ProgramBinaryTest, SRGBDecodeWithSamplerAndTexelFetchTest)
     // http://anglebug.com/42263564
     ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsWindows());
     ANGLE_SKIP_TEST_IF(IsOpenGL() && IsAMD() && IsWindows());
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && (IsNVIDIA() || IsARM64()) && IsMac());
     ANGLE_SKIP_TEST_IF(IsOpenGLES() && IsNexus5X());
 
     constexpr char kVS[] =
@@ -1187,7 +1187,7 @@ TEST_P(ProgramBinaryES3Test, ArrayOfStructContainingArrayOfSamplers)
 
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), kFS);
     glUseProgram(program);
-    GLTexture textures[4];
+    std::array<GLTexture, 4> textures;
     GLColor expected = MakeGLColor(32, 64, 96, 255);
     GLubyte data[8]  = {};  // 4 bytes of padding, so that texture can be initialized with 4 bytes
     ANGLE_UNSAFE_TODO(memcpy(data, expected.data(), sizeof(expected)));
@@ -1196,7 +1196,7 @@ TEST_P(ProgramBinaryES3Test, ArrayOfStructContainingArrayOfSamplers)
         int outerIdx = i % 2;
         int innerIdx = i / 2;
         glActiveTexture(GL_TEXTURE0 + i);
-        glBindTexture(GL_TEXTURE_2D, ANGLE_UNSAFE_TODO(textures[i]));
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
         // Each element provides two components.
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                      ANGLE_UNSAFE_TODO(data + i));
@@ -1817,8 +1817,6 @@ ANGLE_INSTANTIATE_TEST(ProgramBinariesAcrossPlatforms,
                        //                     | this config  | this config  | result
                        PlatformsWithLinkResult(ES2_D3D11(),   ES2_D3D11(),   true ), // Loading + reloading binary should work
                        PlatformsWithLinkResult(ES3_D3D11(),   ES3_D3D11(),   true ), // Loading + reloading binary should work
-                       PlatformsWithLinkResult(ES2_D3D11(),   ES2_D3D9(),    false), // Switching from D3D11 to D3D9 shouldn't work
-                       PlatformsWithLinkResult(ES2_D3D9(),    ES2_D3D11(),   false), // Switching from D3D9 to D3D11 shouldn't work
                        PlatformsWithLinkResult(ES2_D3D11(),   ES3_D3D11(),   false), // Switching to newer client version shouldn't work
                        PlatformsWithLinkResult(ES2_VULKAN(),  ES2_VULKAN(),  true ), // Loading + reloading binary should work
                        PlatformsWithLinkResult(ES3_VULKAN(),  ES3_VULKAN(),  true ), // Loading + reloading binary should work

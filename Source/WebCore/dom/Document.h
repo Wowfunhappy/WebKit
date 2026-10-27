@@ -493,7 +493,11 @@ public:
 
     ALWAYS_INLINE void decrementReferencingNodeCount(unsigned count = 1)
     {
+#ifdef RC_REMOVE_SEC_ACCEL_3
         ASSERT_WITH_SECURITY_IMPLICATION(m_referencingNodeCount >= count);
+#else
+        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(m_referencingNodeCount >= count);
+#endif
 
         m_referencingNodeCount -= count;
         if (!m_referencingNodeCount && !refCount()) {
@@ -1969,7 +1973,7 @@ public:
     void setPaintWorkletGlobalScopeForName(const String& name, Ref<PaintWorkletGlobalScope>&&);
 
     WEBCORE_EXPORT bool hitTest(const HitTestRequest&, HitTestResult&);
-    bool hitTest(const HitTestRequest&, const HitTestLocation&, HitTestResult&);
+    WEBCORE_EXPORT bool hitTest(const HitTestRequest&, const HitTestLocation&, HitTestResult&);
 #if ASSERT_ENABLED
     bool inHitTesting() const { return m_inHitTesting; }
 #endif

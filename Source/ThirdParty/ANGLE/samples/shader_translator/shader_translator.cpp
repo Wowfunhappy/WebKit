@@ -36,6 +36,7 @@ static sh::GLenum FindShaderType(const char *fileName);
 static bool CompileFile(char *fileName, ShHandle compiler, const ShCompileOptions &compileOptions);
 static void LogMsg(const char *msg, const char *name, const int num, const char *logName);
 static void PrintVariable(const std::string &prefix, size_t index, const sh::ShaderVariable &var);
+static void PrintBlock(const std::string &prefix, size_t index, const sh::InterfaceBlock &block);
 static void PrintActiveVariables(ShHandle compiler);
 
 // If NUM_SOURCE_STRINGS is set to a value > 1, the input file data is
@@ -114,6 +115,9 @@ int main(int argc, char *argv[])
                 case 'u':
                     printActiveVariables = true;
                     break;
+                case 'g':
+                    compileOptions.outputDebugInfo = true;
+                    break;
                 case 'r':
                     compileOptions.useIR = true;
                     break;
@@ -180,18 +184,12 @@ int main(int argc, char *argv[])
                                 break;
                             case 'v':
                                 output = SH_SPIRV_VULKAN_OUTPUT;
+                                compileOptions.emitSPIRV14 = true;
                                 compileOptions.initializeUninitializedLocals = true;
                                 compileOptions.removeInactiveVariables       = true;
                                 break;
                             case 'h':
-                                if (argv[0][4] == '1' && argv[0][5] == '1')
-                                {
-                                    output = SH_HLSL_4_1_OUTPUT;
-                                }
-                                else
-                                {
-                                    output = SH_HLSL_3_0_OUTPUT;
-                                }
+                                output = SH_HLSL_4_1_OUTPUT;
                                 break;
                             case 'm':
                                 output = SH_MSL_METAL_OUTPUT;
@@ -201,6 +199,7 @@ int main(int argc, char *argv[])
                                 compileOptions.removeInactiveVariables              = true;
                                 compileOptions.retainInactiveFragmentOutputs        = true;
                                 compileOptions.ensureLoopForwardProgress            = true;
+                                compileOptions.separateCompoundStructDeclarations   = true;
                                 break;
                             default:
                                 failCode = EFailUsage;
@@ -339,7 +338,6 @@ int main(int argc, char *argv[])
             {
                 switch (output)
                 {
-                    case SH_HLSL_3_0_OUTPUT:
                     case SH_HLSL_4_1_OUTPUT:
                         compileOptions.selectViewInNvGLSLVertexShader = false;
                         break;
@@ -436,11 +434,12 @@ void usage()
 {
     // clang-format off
     printf(
-        "Usage: translate [-i -o -u -l -b=e -b=g -b=h9 -x=i -x=d] file1 file2 ...\n"
+        "Usage: translate [-i -o -u -l -b=e -b=g -b=h11 -x=i -x=d] file1 file2 ...\n"
         "Where: filename : filename ending in .frag*, .vert*, .comp*, .geom*, .tcs* or .tes*\n"
         "       -i       : print intermediate tree\n"
         "       -o       : print translated code\n"
         "       -u       : print active attribs, uniforms, varyings and program outputs\n"
+        "       -g       : include debug info in the output\n"
         "       -r       : use the IR instead of AST\n"
         "       -s=e2    : use GLES2 spec (this is by default)\n"
         "       -s=e3    : use GLES3 spec\n"
@@ -452,7 +451,6 @@ void usage()
         "       -b=g     : output GLSL code (version 150)\n"
         "       -b=g[NUM]: output GLSL code (NUM can be 150, 330, 400, 410, 420, 430, 440, 450)\n"
         "       -b=v     : output Vulkan SPIR-V code\n"
-        "       -b=h9    : output HLSL9 code\n"
         "       -b=h11   : output HLSL11 code\n"
         "       -b=m     : output MSL code\n"
         "       -x=i     : enable GL_OES_EGL_image_external\n"
@@ -740,6 +738,43 @@ void PrintVariable(const std::string &prefix, size_t index, const sh::ShaderVari
     }
 }
 
+static void PrintBlock(const std::string &prefix, size_t index, const sh::InterfaceBlock &block)
+{
+    std::string layout = "unknown";
+    switch (block.layout)
+    {
+        case sh::BLOCKLAYOUT_STD140:
+            layout = "std140";
+            break;
+        case sh::BLOCKLAYOUT_STD430:
+            layout = "std430";
+            break;
+        case sh::BLOCKLAYOUT_PACKED:
+            layout = "packed";
+            break;
+        case sh::BLOCKLAYOUT_SHARED:
+            layout = "shared";
+            break;
+    }
+    printf("%s %u : name=%s, mappedName=%s, instanceName=%s, layout=%s, arraySizes=%u",
+           prefix.c_str(), static_cast<unsigned int>(index), block.name.c_str(),
+           block.mappedName.c_str(), block.instanceName.c_str(), layout.c_str(), block.arraySize);
+    printf("\n");
+    if (block.fields.size())
+    {
+        std::string structPrefix;
+        for (size_t i = 0; i < prefix.size(); ++i)
+        {
+            structPrefix += ' ';
+        }
+        structPrefix += "    field";
+        for (size_t i = 0; i < block.fields.size(); ++i)
+        {
+            PrintVariable(structPrefix, i, block.fields[i]);
+        }
+    }
+}
+
 static void PrintActiveVariables(ShHandle compiler)
 {
     const std::vector<sh::ShaderVariable> *uniforms       = sh::GetUniforms(compiler);
@@ -747,6 +782,8 @@ static void PrintActiveVariables(ShHandle compiler)
     const std::vector<sh::ShaderVariable> *outputVaryings = sh::GetOutputVaryings(compiler);
     const std::vector<sh::ShaderVariable> *attributes     = sh::GetAttributes(compiler);
     const std::vector<sh::ShaderVariable> *outputs        = sh::GetOutputVariables(compiler);
+    const std::vector<sh::InterfaceBlock> *ubos           = sh::GetUniformBlocks(compiler);
+    const std::vector<sh::InterfaceBlock> *ssbos          = sh::GetShaderStorageBlocks(compiler);
     for (size_t varCategory = 0; varCategory < 5; ++varCategory)
     {
         size_t numVars = 0;
@@ -793,7 +830,44 @@ static void PrintActiveVariables(ShHandle compiler)
 
             PrintVariable(varCategoryName, i, *var);
         }
-        printf("\n");
+        if (numVars > 0)
+        {
+            printf("\n");
+        }
+    }
+    for (size_t blockCategory = 0; blockCategory < 2; ++blockCategory)
+    {
+        size_t numBlocks = 0;
+        std::string blockType;
+        if (blockCategory == 0)
+        {
+            numBlocks = ubos->size();
+            blockType = "UBO";
+        }
+        else
+        {
+            numBlocks = ssbos->size();
+            blockType = "SSBO";
+        }
+
+        for (size_t i = 0; i < numBlocks; ++i)
+        {
+            const sh::InterfaceBlock *block;
+            if (blockCategory == 0)
+            {
+                block = &((*ubos)[i]);
+            }
+            else
+            {
+                block = &((*ssbos)[i]);
+            }
+
+            PrintBlock(blockType, i, *block);
+        }
+        if (numBlocks > 0)
+        {
+            printf("\n");
+        }
     }
 }
 

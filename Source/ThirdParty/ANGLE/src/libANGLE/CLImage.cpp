@@ -6,14 +6,13 @@
 // CLImage.cpp: Implements the cl::Image class.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
+#include <angle_cl.h>
 
-#include "CL/cl_half.h"
-
+#include "libANGLE/CLBitField.h"
 #include "libANGLE/CLContext.h"
 #include "libANGLE/CLImage.h"
+#include "libANGLE/CLMemory.h"
+#include "libANGLE/cl_types.h"
 #include "libANGLE/cl_utils.h"
 
 #include <cstring>
@@ -110,7 +109,7 @@ angle::Result Image::getInfo(ImageInfo name,
         }
         if (copyValue != nullptr)
         {
-            std::memcpy(value, copyValue, copySize);
+            ANGLE_UNSAFE_TODO(std::memcpy(value, copyValue, copySize));
         }
     }
     if (valueSizeRet != nullptr)
@@ -134,8 +133,8 @@ PixelColor Image::packPixels(const void *fillColor) const
             const float *src = static_cast<const float *>(fillColor);
             for (size_t i = 0; i < channelCount; ++i)
             {
-                packedColor.u8[i] =
-                    gl::floatToNormalized<uint8_t>(gl::clamp(src[swizzle[i]], 0.0f, 1.0f));
+                ANGLE_UNSAFE_TODO(packedColor.u8[i]) = gl::floatToNormalized<uint8_t>(
+                    gl::clamp(ANGLE_UNSAFE_TODO(src[swizzle[i]]), 0.0f, 1.0f));
             }
             break;
         }
@@ -144,8 +143,8 @@ PixelColor Image::packPixels(const void *fillColor) const
             const float *src = static_cast<const float *>(fillColor);
             for (size_t i = 0; i < channelCount; ++i)
             {
-                packedColor.u16[i] =
-                    gl::floatToNormalized<uint16_t>(gl::clamp(src[swizzle[i]], 0.0f, 1.0f));
+                ANGLE_UNSAFE_TODO(packedColor.u16[i]) = gl::floatToNormalized<uint16_t>(
+                    gl::clamp(ANGLE_UNSAFE_TODO(src[swizzle[i]]), 0.0f, 1.0f));
             }
             break;
         }
@@ -154,8 +153,8 @@ PixelColor Image::packPixels(const void *fillColor) const
             const float *src = static_cast<const float *>(fillColor);
             for (size_t i = 0; i < channelCount; ++i)
             {
-                packedColor.s8[i] =
-                    gl::floatToNormalized<int8_t>(gl::clamp(src[swizzle[i]], -1.0f, 1.0f));
+                ANGLE_UNSAFE_TODO(packedColor.s8[i]) = gl::floatToNormalized<int8_t>(
+                    gl::clamp(ANGLE_UNSAFE_TODO(src[swizzle[i]]), -1.0f, 1.0f));
             }
             break;
         }
@@ -164,8 +163,8 @@ PixelColor Image::packPixels(const void *fillColor) const
             const float *src = static_cast<const float *>(fillColor);
             for (size_t i = 0; i < channelCount; ++i)
             {
-                packedColor.s16[i] =
-                    gl::floatToNormalized<int16_t>(gl::clamp(src[swizzle[i]], -1.0f, 1.0f));
+                ANGLE_UNSAFE_TODO(packedColor.s16[i]) = gl::floatToNormalized<int16_t>(
+                    gl::clamp(ANGLE_UNSAFE_TODO(src[swizzle[i]]), -1.0f, 1.0f));
             }
             break;
         }
@@ -178,15 +177,15 @@ PixelColor Image::packPixels(const void *fillColor) const
             {
                 if (fmt.image_channel_data_type == CL_SIGNED_INT8)
                 {
-                    packedColor.s8[i] = gl::clampCast<int8_t>(src[swizzle[i]]);
+                    ANGLE_UNSAFE_TODO(packedColor.s8[i] = gl::clampCast<int8_t>(src[swizzle[i]]));
                 }
                 else if (fmt.image_channel_data_type == CL_SIGNED_INT16)
                 {
-                    packedColor.s16[i] = gl::clampCast<int16_t>(src[swizzle[i]]);
+                    ANGLE_UNSAFE_TODO(packedColor.s16[i] = gl::clampCast<int16_t>(src[swizzle[i]]));
                 }
                 else
                 {
-                    packedColor.s32[i] = src[swizzle[i]];
+                    ANGLE_UNSAFE_TODO(packedColor.s32[i] = src[swizzle[i]]);
                 }
             }
             break;
@@ -200,15 +199,16 @@ PixelColor Image::packPixels(const void *fillColor) const
             {
                 if (fmt.image_channel_data_type == CL_UNSIGNED_INT8)
                 {
-                    packedColor.u8[i] = gl::clampCast<uint8_t>(src[swizzle[i]]);
+                    ANGLE_UNSAFE_TODO(packedColor.u8[i] = gl::clampCast<uint8_t>(src[swizzle[i]]));
                 }
                 else if (fmt.image_channel_data_type == CL_UNSIGNED_INT16)
                 {
-                    packedColor.u16[i] = gl::clampCast<uint16_t>(src[swizzle[i]]);
+                    ANGLE_UNSAFE_TODO(packedColor.u16[i] =
+                                          gl::clampCast<uint16_t>(src[swizzle[i]]));
                 }
                 else
                 {
-                    packedColor.u32[i] = src[swizzle[i]];
+                    ANGLE_UNSAFE_TODO(packedColor.u32[i] = src[swizzle[i]]);
                 }
             }
             break;
@@ -218,7 +218,8 @@ PixelColor Image::packPixels(const void *fillColor) const
             const float *src = static_cast<const float *>(fillColor);
             for (size_t i = 0; i < channelCount; ++i)
             {
-                packedColor.fp16[i] = cl_half_from_float(src[swizzle[i]], CL_HALF_RTE);
+                ANGLE_UNSAFE_TODO(packedColor.fp16[i] =
+                                      cl_half_from_float(src[swizzle[i]], CL_HALF_RTE));
             }
             break;
         }
@@ -227,7 +228,7 @@ PixelColor Image::packPixels(const void *fillColor) const
             const float *src = static_cast<const float *>(fillColor);
             for (size_t i = 0; i < channelCount; ++i)
             {
-                packedColor.fp32[i] = src[swizzle[i]];
+                ANGLE_UNSAFE_TODO(packedColor.fp32[i] = src[swizzle[i]]);
             }
             break;
         }

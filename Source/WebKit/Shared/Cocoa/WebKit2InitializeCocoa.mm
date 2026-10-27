@@ -26,12 +26,14 @@
 #import "config.h"
 #import "WebKit2Initialize.h"
 
+#import "SecurityFlagsController.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/CommonAtomStrings.h>
 #import <WebCore/WebCoreJITOperations.h>
 #import <mutex>
 #import <wtf/MainThread.h>
 #import <wtf/RefCounted.h>
+#import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/WorkQueue.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
@@ -82,6 +84,9 @@ static void runInitializationCode(void* = nullptr)
         PAL::GCrypt::initialize();
 #endif
 
+    // Every auxiliary process entry point calls setAuxiliaryProcessType() before this, so this is the UIProcess.
+    if (!isInAuxiliaryProcess())
+        SecurityFlagsController::initialize();
 }
 
 void InitializeWebKit2()

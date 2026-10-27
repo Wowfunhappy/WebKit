@@ -2697,8 +2697,6 @@ bool Page::shouldUpdateAccessibilityRegions() const
                 protectedMainDocument = owner->document();
         }
 
-        // If accessibility is enabled and we have a main document, that document should have an AX object cache.
-        ASSERT(!protectedMainDocument || protectedMainDocument->existingAXObjectCache());
         if (CheckedPtr topAxObjectCache = protectedMainDocument ? protectedMainDocument->existingAXObjectCache() : nullptr)
             topAxObjectCache->scheduleObjectRegionsUpdate();
         return false;
@@ -5519,6 +5517,22 @@ void NODELETE Page::setPortsForUpgradingInsecureSchemeForTesting(uint16_t upgrad
 std::optional<std::pair<uint16_t, uint16_t>> Page::portsForUpgradingInsecureSchemeForTesting() const
 {
     return m_portsForUpgradingInsecureSchemeForTesting;
+}
+
+void Page::setQuirksSubframeURLForTesting(URL&& url)
+{
+    if (m_quirksSubframeURLForTesting == url)
+        return;
+
+    m_quirksSubframeURLForTesting = WTF::move(url);
+
+    forEachDocument([](Document& document) {
+        if (document.isTopDocument())
+            return;
+
+        document.quirks().determineRelevantQuirks();
+        document.scheduleFullStyleRebuild();
+    });
 }
 
 #if USE(ATSPI)

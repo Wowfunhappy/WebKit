@@ -51,6 +51,7 @@
 #import <ranges>
 #import <wtf/RetainPtr.h>
 #import <wtf/SoftLinking.h>
+#import <wtf/darwin/DispatchExtras.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <MobileCoreServices/MobileCoreServices.h>
@@ -1901,6 +1902,36 @@ TEST(WKAttachmentTests, CreateAttachmentsFromExistingImage)
     EXPECT_TRUE([[info data] isEqualToData:testImageData()]);
 }
 
+TEST(WKAttachmentTests, AttachmentNameFromWebContentIsSanitized)
+{
+    // The attachment name comes from web content (here, the alt attribute) and ends up naming files
+    // written on the user's behalf when the attachment is dragged out, so it must not contain path
+    // components.
+    auto webView = webViewForTestingAttachments();
+    NSString *asyncScript = @"return new Promise(resolve => {"
+        "const image = document.createElement('img');"
+        "image.alt = '../../../../tmp/evil.png';"
+        "image.addEventListener('load', () => resolve(HTMLAttachmentElement.getAttachmentIdentifier(image)), { once: true });"
+        "image.src = 'icon.png';"
+        "document.body.appendChild(image);"
+        "})";
+
+    __block RetainPtr<NSString> attachmentIdentifier;
+    __block bool doneWithScript = false;
+    [webView callAsyncJavaScript:asyncScript arguments:nil inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(NSString *result, NSError *error) {
+        EXPECT_NULL(error);
+        attachmentIdentifier = result;
+        doneWithScript = true;
+    }];
+    Util::run(&doneWithScript);
+
+    EXPECT_NOT_NULL(attachmentIdentifier);
+    RetainPtr name = [[[webView _attachmentForIdentifier:attachmentIdentifier.get()] info] name];
+    EXPECT_FALSE([name containsString:@"/"]);
+    EXPECT_FALSE([name hasPrefix:@"."]);
+    EXPECT_TRUE([name hasSuffix:@"evil.png"]);
+}
+
 TEST(WKAttachmentTests, UserDragNonePreventsDragOnAttachmentElement)
 {
     RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
@@ -2497,6 +2528,41 @@ TEST(WKAttachmentTestsIOS, DragAttachmentInsertedAsData)
     EXPECT_EQ(UIPreferredPresentationStyleAttachment, itemProvider.preferredPresentationStyle);
     [itemProvider expectType:UTTypePDF.identifier withData:data.get()];
     EXPECT_WK_STREQ("document.pdf", [itemProvider suggestedName]);
+    [dragAndDropSimulator endDataTransfer];
+}
+
+TEST(WKAttachmentTestsIOS, LoadPromisedAttachmentFileRepresentationOffMainThread)
+{
+    RetainPtr webView = webViewForTestingAttachments();
+    RetainPtr data = retainPtr(testPDFData());
+    RetainPtr<_WKAttachment> attachment;
+    {
+        ObserveAttachmentUpdatesForScope observer(webView);
+        attachment = [webView synchronouslyInsertAttachmentWithFilename:@"document.pdf" contentType:@"application/pdf" data:data];
+        observer.expectAttachmentUpdates(@[ ], @[ attachment ]);
+    }
+
+    [webView evaluateJavaScript:@"getSelection().removeAllRanges()" completionHandler:nil];
+    RetainPtr dragAndDropSimulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView]);
+    [dragAndDropSimulator runFrom:CGPointMake(25, 25) to:CGPointMake(-100, -100)];
+
+    EXPECT_EQ(1U, [dragAndDropSimulator sourceItemProviders].count);
+    RetainPtr<NSItemProvider> itemProvider = [dragAndDropSimulator sourceItemProviders].firstObject;
+
+    __block bool done = false;
+    __block RetainPtr<NSData> loadedData;
+    __block RetainPtr<NSError> loadError;
+    dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        [itemProvider loadFileRepresentationForTypeIdentifier:UTTypePDF.identifier completionHandler:^(NSURL *url, NSError *error) {
+            loadedData = [NSData dataWithContentsOfURL:url];
+            loadError = error;
+            done = true;
+        }];
+    });
+    TestWebKitAPI::Util::run(&done);
+
+    EXPECT_NULL(loadError);
+    EXPECT_TRUE([loadedData isEqualToData:data]);
     [dragAndDropSimulator endDataTransfer];
 }
 

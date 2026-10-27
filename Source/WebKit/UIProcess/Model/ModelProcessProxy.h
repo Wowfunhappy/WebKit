@@ -54,6 +54,7 @@ class WebProcessProxy;
 class WebsiteDataStore;
 struct ModelProcessConnectionParameters;
 struct ModelProcessCreationParameters;
+namespace SecurityFlags { struct Storage; }
 struct SharedPreferencesForWebProcess;
 
 class ModelProcessProxy final : public AuxiliaryProcessProxy {
@@ -68,6 +69,7 @@ public:
 
     void createModelProcessConnection(WebProcessProxy&, IPC::Connection::Handle&& connectionIdentifier, ModelProcessConnectionParameters&&);
     void sharedPreferencesForWebProcessDidChange(WebProcessProxy&, SharedPreferencesForWebProcess&&, CompletionHandler<void()>&&);
+    void securityFlagsDidChange(const SecurityFlags::Storage&);
 
     void updateProcessAssertion();
 

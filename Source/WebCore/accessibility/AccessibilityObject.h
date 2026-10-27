@@ -64,6 +64,7 @@ WTF_ALLOW_COMPACT_POINTERS_TO_INCOMPLETE_TYPE(WebCore::AXObjectRareData);
 
 namespace WebCore {
 
+class HTMLTextFormControlElement;
 class IntPoint;
 class IntSize;
 class ScrollableArea;
@@ -140,7 +141,9 @@ public:
 
     bool isSecureField() const override { return false; }
     bool isContainedBySecureField() const;
-    bool isNativeTextControl() const override { return false; }
+    bool isNativeTextControl() const final { return nativeTextControl(); }
+    // The <textarea> or text <input> whose value this object exposes, or null.
+    HTMLTextFormControlElement* nativeTextControl() const;
     virtual bool isSearchField() const { return false; }
     bool isAttachment() const override { return false; }
 #if ENABLE(ATTACHMENT_ELEMENT)
@@ -439,6 +442,9 @@ public:
     virtual AXTextRuns textRuns() { return { }; }
     bool hasTextRuns() final { return textRuns().size(); }
     TextEmissionBehavior textEmissionBehavior() const override { return TextEmissionBehavior::None; }
+    bool isReplacedElementForTextEmission() const final;
+    bool isInUserAgentShadowTree() const final;
+    bool isInsideNativeTextControl() const final;
     AXTextRunLineID listMarkerLineID() const override { return { }; }
     String listMarkerText() const override { return { }; }
     FontOrientation fontOrientation() const final;

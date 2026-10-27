@@ -45,6 +45,7 @@ struct QuirksData {
     bool isGoogleDocs : 1 { false };
     bool isGoogleProperty : 1 { false };
     bool isGoogleMaps : 1 { false };
+    bool isICloud : 1 { false };
     bool isIHeart : 1 { false };
     bool isInVideo : 1 { false };
     bool isLinkedIn : 1 { false };
@@ -83,6 +84,9 @@ struct QuirksData {
 #endif
         NeedsAirIndiaExpressLayeringQuirk,
         NeedsBodyScrollbarWidthNoneDisabledQuirk,
+#if PLATFORM(MAC)
+        NeedsBoxAnnotationQuirk,
+#endif
         NeedsCanPlayAfterSeekedQuirk,
         NeedsChromeMediaControlsPseudoElementQuirk,
 #if PLATFORM(COCOA)
@@ -110,6 +114,11 @@ struct QuirksData {
         NeedsGoogleMapsScrollingQuirk,
         NeedsGoogleTranslateScrollingQuirk,
 #endif
+#if PLATFORM(MAC)
+        NeedsGoogleDocsNavigationWidgetScrollQuirk,
+        NeedsGoogleMapsEmbedManipulationSurfaceQuirk,
+        NeedsGoogleMapsMagnificationWheelDeltaScalingQuirk,
+#endif
 #if PLATFORM(IOS) || PLATFORM(VISION)
         NeedsNetflixVolumeSliderQuirk,
 #endif
@@ -132,6 +141,7 @@ struct QuirksData {
         NeedsScrollbarWidthThinDisabledQuirk,
         NeedsSeekingSupportDisabledQuirk,
         NeedsSuppressPostLayoutBoundaryEventsQuirk,
+        NeedsTikTokCaptchaSliderTouchActionQuirk,
         NeedsTikTokOverflowingContentQuirk,
         NeedsVP9FullRangeFlagQuirk,
         NeedsVideoShouldMaintainAspectRatioQuirk,
@@ -188,6 +198,7 @@ struct QuirksData {
         ShouldAllowMediaStreamTrackSerializationQuirk,
 #endif
         ShouldDisableLazyIframeLoadingQuirk,
+        ShouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk,
 #if PLATFORM(IOS_FAMILY)
         ShouldDisablePointerEventsQuirk,
 #endif
@@ -264,6 +275,7 @@ struct QuirksData {
         ShouldSuppressAutocorrectionAndAutocapitalizationInHiddenEditableAreasQuirk,
 #endif
 #if ENABLE(DESKTOP_CONTENT_MODE_QUIRKS)
+        NeedsWebExScrollabilityQuirk,
         ShouldSupportHoverMediaQueriesQuirk,
 #endif
 #if PLATFORM(IOS_FAMILY)
@@ -274,6 +286,9 @@ struct QuirksData {
 #endif
         ShouldUnloadHeavyFrames,
         ShouldAvoidStartingSelectionOnMouseDownOverPointerCursor,
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+        ShouldTreatLongClickAsSecondaryClickQuirk,
+#endif
         ShouldAllowNotificationPermissionWithoutUserGesture,
         NeedsInstagramResizingReelsQuirk,
         NeedsYahooVolumeSliderQuirk,

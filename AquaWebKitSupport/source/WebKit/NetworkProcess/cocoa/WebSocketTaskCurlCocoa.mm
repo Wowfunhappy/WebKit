@@ -468,6 +468,7 @@ void WebSocketTask::startConnection()
     options.tunnelsPlainConnections = false;
     options.minimumTLSProtocol = configuration.get().TLSMinimumSupportedProtocolVersion;
     options.serverTrust = CocoaCurlSocketStream::ServerTrust::Client;
+    options.presentsPreferredIdentity = !configuration.get()._shouldSkipPreferredClientCertificateLookup;
     // A session routes its tasks by its configuration's proxy dictionary; an empty one means the system settings.
     options.configuredProxySettings = (__bridge CFDictionaryRef)configuration.get().connectionProxyDictionary;
     options.proxyFilterResults = m_proxyFilterResults;

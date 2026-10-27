@@ -150,6 +150,16 @@ typedef NS_ENUM(uint8_t, _WKRestrictedOpenerType) {
 -(void)_setRestrictedOpenerTypeForTesting:(_WKRestrictedOpenerType)type forDomain:(NSString *)domain WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 -(void)_getAppBadgeForTesting:(void(^)(NSNumber *))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 
+// Resets every security flag to its secure default, then turns off the named ones, so an empty array resets.
+// Ignores the WebKitDebugDisabledSecurityFlags user default, which every other path honours.
++ (void)_setDisabledSecurityFlagsForTesting:(NSArray<NSString *> *)flagNames WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+// Asks the platform's list service for the disabled security flags again, as its change notification would, and
+// gives the list back the ownership _setDisabledSecurityFlagsForTesting: took.
++ (void)_requestDisabledSecurityFlagsForTesting WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+// Answers nil if this build has no flag by that name.
+- (void)_isSecurityFlagEnabledInNetworkProcessForTesting:(NSString *)flagName completionHandler:(void(^)(NSNumber *))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
++ (NSNumber *)_isSecurityFlagEnabledInUIProcessForTesting:(NSString *)flagName WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+
 @property (nonatomic, readonly) NSUUID *_identifier;
 @property (nonatomic, readonly) NSString *_webPushPartition;
 

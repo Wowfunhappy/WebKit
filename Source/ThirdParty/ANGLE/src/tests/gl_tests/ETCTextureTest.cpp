@@ -7,6 +7,8 @@
 //   Tests for ETC lossy decode formats.
 //
 
+#include <array>
+
 #include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
@@ -45,7 +47,7 @@ class ETCTextureTest : public ANGLETest<>
 // Tests a cube map array texture with compressed ETC2 RGB8 format
 TEST_P(ETCTextureTest, ETC2RGB8_CubeMapValidation)
 {
-    ANGLE_SKIP_TEST_IF(!(IsGLExtensionEnabled("GL_EXT_texture_cube_map_array") &&
+    ANGLE_SKIP_TEST_IF(!(IsGLExtensionEnabled("GL_EXT_texture_cube_map_array") ||
                          (getClientMajorVersion() >= 3 && getClientMinorVersion() > 1)));
 
     constexpr GLsizei kInvalidTextureWidth  = 8;
@@ -64,8 +66,6 @@ TEST_P(ETCTextureTest, ETC2RGB8_CubeMapValidation)
 
     constexpr GLenum kFormat = GL_COMPRESSED_RGB8_ETC2;
 
-    std::vector<GLubyte> arrayData;
-
     constexpr GLuint kWidth       = 4u;
     constexpr GLuint kHeight      = 4u;
     constexpr GLuint kDepth       = 6u;
@@ -77,19 +77,26 @@ TEST_P(ETCTextureTest, ETC2RGB8_CubeMapValidation)
     constexpr GLuint kNumBlocksHigh = (kHeight + kBlockHeight - 1u) / kBlockHeight;
     constexpr GLuint kBytes         = kNumBlocksWide * kNumBlocksHigh * kPixelBytes * kDepth;
 
-    arrayData.reserve(kBytes);
+    std::vector<GLubyte> arrayData(kBytes, 0);
 
     glCompressedTexImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, kFormat, kWidth, kHeight, kDepth, 0,
                            kBytes, arrayData.data());
     EXPECT_GL_NO_ERROR();
 
+    // Invalid Dimensions
     glCompressedTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, 0, 0, 0, kInvalidTextureWidth,
-                              kInvalidTextureHeight, kDepth, GL_RGB, kInvalidTextureData.size(),
-                              kInvalidTextureData.data());
-    glCompressedTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, 0, 0, 0, kInvalidTextureWidth,
-                              kInvalidTextureHeight, kDepth, GL_RGB, kInvalidTextureData.size(),
-                              kInvalidTextureData.data());
+                              kInvalidTextureHeight, kDepth, kFormat, kBytes, arrayData.data());
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
+
+    // Invalid Format
+    glCompressedTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, 0, 0, 0, kWidth, kHeight, kDepth,
+                              GL_RGB, kBytes, arrayData.data());
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Invalid Data Size
+    glCompressedTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, 0, 0, 0, kWidth, kHeight, kDepth,
+                              kFormat, kInvalidTextureData.size(), kInvalidTextureData.data());
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
 }
 
 // Tests that uploading compressed texture from a PBO with a misaligned offset doesn't crash.
@@ -97,10 +104,6 @@ TEST_P(ETCTextureTest, PBOWithMisalignedOffset)
 {
     // Need ES 3.0 for PBOs.
     ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
-
-    // Check if ETC2 is supported. Not supported, for example, on ANGLE/OpenGL on macOS.
-    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_compressed_ETC2_RGB8_texture") &&
-                       !IsGLExtensionEnabled("GL_ANGLE_compressed_texture_etc"));
 
     constexpr GLsizei kWidth  = 512;
     constexpr GLsizei kHeight = 512;
@@ -116,6 +119,40 @@ TEST_P(ETCTextureTest, PBOWithMisalignedOffset)
     // Use GL_COMPRESSED_RGB8_ETC2 which is core in ES 3.0
     glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB8_ETC2, kWidth, kHeight, 0,
                            compressedSize, nullptr);
+
+    // Misaligned offset to trigger the fallback path in Metal backend
+    constexpr GLsizei kPBOOffset = 1;
+
+    GLBuffer pbo;
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+    glBufferData(GL_PIXEL_UNPACK_BUFFER, kPBOOffset + compressedSize, nullptr, GL_STATIC_DRAW);
+    ASSERT_GL_NO_ERROR();
+
+    glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kWidth, kHeight, GL_COMPRESSED_RGB8_ETC2,
+                              compressedSize, reinterpret_cast<void *>(kPBOOffset));
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests that uploading compressed texture from a PBO with a misaligned offset doesn't crash, using
+// storage textures.
+TEST_P(ETCTextureTest, PBOWithMisalignedOffsetImmutableTexture)
+{
+    // Need ES 3.0 for PBOs.
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
+
+    constexpr GLsizei kWidth  = 512;
+    constexpr GLsizei kHeight = 512;
+    constexpr GLsizei kBPB    = 8;  // 8 bytes per block
+    constexpr GLsizei kBW     = 4;
+    constexpr GLsizei kBH     = 4;
+
+    GLsizei blocksX        = kWidth / kBW;
+    GLsizei blocksY        = kHeight / kBH;
+    GLsizei compressedSize = blocksX * blocksY * kBPB;
+
+    glBindTexture(GL_TEXTURE_2D, mTexture);
+    // Use GL_COMPRESSED_RGB8_ETC2 which is core in ES 3.0
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB8_ETC2, kWidth, kHeight);
 
     // Misaligned offset to trigger the fallback path in Metal backend
     constexpr GLsizei kPBOOffset = 1;
@@ -162,14 +199,14 @@ class ETCToBCTextureTest : public ANGLETest<>
     // min alpha value = 0x14
     // Result BC4 data are 0xb00914b6, 0xdb3ffb91
     static constexpr uint32_t kEtcRGBAData[4] = {0xd556975c, 0x088ff048, 0x9e6c6c6c, 0x3f11f1ff};
-    static constexpr uint32_t kExpectedRGBAColor[16] = {
+    static constexpr std::array<uint32_t, 16> kExpectedRGBAColor = {
         0x14373737, 0x14373737, 0xb6000000, 0xb6000000, 0x88a5a6a5, 0x88373737,
         0x70000000, 0x70000000, 0x88a5a6a5, 0x2b6e6f6e, 0x2b000000, 0x2b000000,
         0x88a5a6a5, 0x426e6f6e, 0x42000000, 0x42000000,
     };
     // Result BC4 data as {0xf6f1836f, 0xc41c5e7c}
     static constexpr uint32_t kEacR11Signed[2]            = {0xb068efff, 0x00b989e7};
-    static constexpr uint32_t kExpectedR11SignedColor[16] = {
+    static constexpr std::array<uint32_t, 16> kExpectedR11SignedColor = {
         0xff000003, 0xff000046, 0xff0000ac, 0xff0000ac, 0xff000025, 0xff000003,
         0xff000025, 0xff0000ac, 0xff000046, 0xff0000ac, 0xff000003, 0xff000046,
         0xff000003, 0xff0000ef, 0xff000003, 0xff000046,
@@ -177,7 +214,7 @@ class ETCToBCTextureTest : public ANGLETest<>
 
     // Result BC1 data as {0xa65a7b55, 0xcc3c4f43}
     static constexpr uint32_t kRgb8a1[2]          = {0x95938c6a, 0x0030e384};
-    static constexpr uint32_t kExpectedRgb8a1[16] = {
+    static constexpr std::array<uint32_t, 16> kExpectedRgb8a1 = {
         0x00000000, 0xffab697b, 0xffab697b, 0xffd6cba5, 0x00000000, 0x00000000,
         0xffab697b, 0xffd6cba5, 0xffab697b, 0x00000000, 0x00000000, 0xffab697b,
         0xffab697b, 0x00000000, 0xffab697b, 0x00000000,
@@ -379,8 +416,8 @@ TEST_P(ETCToBCTextureTest, ETC2Rgba8UnormToBC3)
     {
         for (int j = 0; j < 4; ++j)
         {
-            ANGLE_UNSAFE_TODO(
-                EXPECT_PIXEL_COLOR_NEAR(j, i, GLColor(kExpectedRGBAColor[i * 4 + j]), kAbsError));
+
+            EXPECT_PIXEL_COLOR_NEAR(j, i, GLColor(kExpectedRGBAColor[i * 4 + j]), kAbsError);
         }
     }
 }
@@ -496,8 +533,7 @@ TEST_P(ETCToBCTextureTest, ETC2R11SignedToBC4)
     {
         for (int j = 0; j < 4; ++j)
         {
-            ANGLE_UNSAFE_TODO(EXPECT_PIXEL_COLOR_NEAR(
-                j, i, GLColor(kExpectedR11SignedColor[i * 4 + j]), kAbsError));
+            EXPECT_PIXEL_COLOR_NEAR(j, i, GLColor(kExpectedR11SignedColor[i * 4 + j]), kAbsError);
         }
     }
 }
@@ -528,7 +564,7 @@ TEST_P(ETCToBCTextureTest, ETC2RG11ToBC5)
     {
         for (int j = 0; j < 4; ++j)
         {
-            uint32_t color = (ANGLE_UNSAFE_TODO(kExpectedRGBAColor[i * 4 + j]) & 0xff000000) >> 24;
+            uint32_t color = (kExpectedRGBAColor[i * 4 + j] & 0xff000000) >> 24;
             color |= color << 8;
             color |= 0xff000000;
             EXPECT_PIXEL_COLOR_NEAR(j, i, GLColor(color), kAbsError);
@@ -557,13 +593,13 @@ TEST_P(ETCToBCTextureTest, ETC2Rgb8a1UnormToBC1)
     {
         for (int j = 0; j < 4; ++j)
         {
-            ANGLE_UNSAFE_TODO(
-                EXPECT_PIXEL_COLOR_NEAR(j, i, GLColor(kExpectedRgb8a1[i * 4 + j]), kAbsError));
+
+            EXPECT_PIXEL_COLOR_NEAR(j, i, GLColor(kExpectedRgb8a1[i * 4 + j]), kAbsError);
         }
     }
 }
 
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(ETCTextureTest);
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND_ES31_AND_ES32(ETCTextureTest);
 ANGLE_INSTANTIATE_TEST_ES3_AND(ETCToBCTextureTest,
                                ES3_VULKAN().enable(Feature::SupportsComputeTranscodeEtcToBc));
 }  // anonymous namespace

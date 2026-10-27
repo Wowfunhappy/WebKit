@@ -102,7 +102,7 @@ void MessagePortChannelRegistry::didDisentangleMessagePort(const MessagePortIden
         channel->disentanglePort(port);
 }
 
-void MessagePortChannelRegistry::didCloseMessagePort(const MessagePortIdentifier& port)
+void MessagePortChannelRegistry::didCloseMessagePort(const MessagePortIdentifier& port, MessagePortStatus status)
 {
     ASSERT(isMainThread());
 
@@ -117,13 +117,13 @@ void MessagePortChannelRegistry::didCloseMessagePort(const MessagePortIdentifier
         LOG(MessagePorts, "Registry: (Note) The channel closed for port %s had messages pending or in flight", port.logString().utf8().data());
 #endif
 
-    channel->closePort(port);
+    channel->closePort(port, status);
 
     // FIXME: When making message ports be multi-process, this should probably push a notification
     // to the remaining port to tell it this port closed.
 }
 
-bool MessagePortChannelRegistry::didPostMessageToRemote(MessageWithMessagePorts&& message, const MessagePortIdentifier& remoteTarget)
+bool MessagePortChannelRegistry::didPostMessageToRemote(MessageWithMessagePorts&& message, const MessagePortIdentifier& remoteTarget, CompletionHandlerCallingScope&& blobURLsInFlight)
 {
     ASSERT(isMainThread());
 
@@ -136,7 +136,7 @@ bool MessagePortChannelRegistry::didPostMessageToRemote(MessageWithMessagePorts&
         return false;
     }
 
-    return channel->postMessageToRemote(WTF::move(message), remoteTarget);
+    return channel->postMessageToRemote(WTF::move(message), remoteTarget, WTF::move(blobURLsInFlight));
 }
 
 void MessagePortChannelRegistry::takeAllMessagesForPort(const MessagePortIdentifier& port, CompletionHandler<void(Vector<MessageWithMessagePorts>&&, CompletionHandler<void()>&&)>&& callback)

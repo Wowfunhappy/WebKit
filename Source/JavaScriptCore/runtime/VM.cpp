@@ -1044,7 +1044,7 @@ SourceProviderCache* VM::addSourceProviderCache(SourceProvider* sourceProvider)
 {
     auto addResult = sourceProviderCacheMap.add(sourceProvider, nullptr);
     if (addResult.isNewEntry)
-        addResult.iterator->value = adoptRef(new SourceProviderCache);
+        addResult.iterator->value = SourceProviderCache::create(sourceProvider->source().length());
     return addResult.iterator->value.get();
 }
 
@@ -1860,7 +1860,6 @@ void VM::finalizeUnconditionally()
     m_syncResumeCallCache->finalizeUnconditionally(*this);
 }
 
-// AQUAWEBKIT: 319570@main (webkit.org/b/322226).
 void VM::clearMicrotaskCallCaches()
 {
     m_syncResumeCallCache->clear();

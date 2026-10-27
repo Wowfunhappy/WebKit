@@ -11,13 +11,10 @@
 #ifndef LIBANGLE_CONTEXT_H_
 #define LIBANGLE_CONTEXT_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 #include <mutex>
 #include <set>
 #include <string>
+#include "common/unsafe_buffers.h"
 
 #include "angle_gl.h"
 #include "common/MemoryBuffer.h"
@@ -642,6 +639,9 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
     void deleteMemoryObject(MemoryObjectID memoryObject);
     void deleteSemaphore(SemaphoreID semaphore);
 
+    // Only used for capturing frame data in ANGLE_capture_enabled builds.
+    bool canProtectCoherentMemoryDirectly();
+
     void bindReadFramebuffer(FramebufferID framebufferHandle);
     void bindDrawFramebuffer(FramebufferID framebufferHandle);
 
@@ -737,8 +737,6 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
     MemoryProgramCache *getMemoryProgramCache() const { return mMemoryProgramCache; }
     MemoryShaderCache *getMemoryShaderCache() const { return mMemoryShaderCache; }
 
-    angle::SimpleMutex &getProgramCacheMutex() const;
-
     bool hasBeenCurrent() const { return mHasBeenCurrent; }
     egl::Display *getDisplay() const { return mDisplay; }
     egl::Surface *getCurrentDrawSurface() const { return mCurrentDrawSurface; }
@@ -754,7 +752,7 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
     }
 
     bool isShared() const { return mShared; }
-    bool isSharedContext() const { return mSharedContext; }
+    bool isSharedContext() const { return mSharedContext.load(std::memory_order_relaxed); }
     // Once a context is setShared() it cannot be undone
     void setShared()
     {
@@ -808,8 +806,9 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
 
     bool nameStartsWithReservedPrefix(const GLchar *name) const
     {
-        return (strncmp(name, "gl_", 3) == 0) ||
-               (isWebGL() && (strncmp(name, "webgl_", 6) == 0 || strncmp(name, "_webgl_", 7) == 0));
+        return (ANGLE_UNSAFE_TODO(strncmp(name, "gl_", 3)) == 0) ||
+               (isWebGL() && (ANGLE_UNSAFE_TODO(strncmp(name, "webgl_", 6)) == 0 ||
+                              ANGLE_UNSAFE_TODO(strncmp(name, "_webgl_", 7)) == 0));
     }
 
     ANGLE_INLINE bool isTextureGenerated(TextureID texture) const
@@ -1069,7 +1068,7 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
 
     State mState;
     bool mShared;
-    bool mSharedContext;
+    std::atomic<bool> mSharedContext;
     bool mDisplayTextureShareGroup;
     bool mDisplaySemaphoreShareGroup;
 
@@ -1173,8 +1172,6 @@ class Context final : public egl::LabeledObject, angle::NonCopyable, public angl
     mutable std::string mCachedSerializedStateString;
 
     mutable size_t mRefCount;
-
-    OverlayType mOverlay;
 
     bool mIsDestroyed;
     bool mDestroyedManagers;

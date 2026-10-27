@@ -5443,6 +5443,22 @@ MediaRecorderEnabledWebM:
       default: false
   sharedPreferenceForWebProcess: true
 
+MediaResourceLoadTimeoutForTesting:
+  type: uint32_t
+  status: internal
+  category: media
+  condition: PLATFORM(COCOA)
+  webcoreBinding: DeprecatedGlobalSettings
+  humanReadableName: "Media Resource Load Timeout For Testing"
+  humanReadableDescription: "Test override for the timeout applied to each media resource load serviced by WebKit, in milliseconds (0 means use production default)"
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
+
 MediaSessionCaptureToggleAPIEnabled:
   type: bool
   status: stable
@@ -6826,7 +6842,7 @@ RemoveBackgroundEnabled:
   category: dom
   humanReadableName: "Remove Background"
   humanReadableDescription: "Enable Remove Background"
-  condition: ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+  condition: ENABLE(IMAGE_ANALYSIS)
   exposed: [ WebKit ]
   defaultValue:
     WebCore:
@@ -8833,6 +8849,34 @@ UseAppKitGestures:
   defaultsOverridable: true
   humanReadableName: "AppKit Gestures"
   humanReadableDescription: "Use AppKit Gestures"
+  condition: PLATFORM(MAC)
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: defaultUseAppKitGestures()
+    WebCore:
+      default: false
+
+UseAppKitGesturesForGestureEvents:
+  type: bool
+  status: internal
+  humanReadableName: "AppKit gestures for gesture events"
+  humanReadableDescription: "Use AppKit gestures to drive gesture event synthesis"
+  condition: PLATFORM(MAC)
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: defaultUseAppKitGestures()
+    WebCore:
+      default: false
+
+UseAppKitGesturesForPointerEvents:
+  type: bool
+  status: internal
+  humanReadableName: "AppKit gestures for pointer events"
+  humanReadableDescription: "Use AppKit gestures to drive DOM pointer events directly, rather than deriving them from synthesized mouse events"
   condition: PLATFORM(MAC)
   defaultValue:
     WebKitLegacy:

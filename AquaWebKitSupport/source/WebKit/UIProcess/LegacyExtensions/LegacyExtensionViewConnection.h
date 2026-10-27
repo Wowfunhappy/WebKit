@@ -6,7 +6,7 @@
 #pragma once
 
 #include "Connection.h"
-#include <WebCore/RegistrableDomain.h>
+#include <WebCore/Site.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
@@ -27,7 +27,7 @@ public:
     template<typename Message> void send(Message&&);
     template<typename Message, typename CompletionHandler> void sendWithAsyncReply(Message&&, CompletionHandler&&);
     // Runs `sendMessages` once the network process takes `domain` as a first party of this process's documents.
-    void whenFirstPartyAllowed(const WebCore::RegistrableDomain&, Function<void()>&& sendMessages);
+    void whenFirstPartyAllowed(const WebCore::Site&, Function<void()>&& sendMessages);
 
     void ref() const { }
     void deref() const { }
@@ -49,8 +49,8 @@ private:
     bool m_needsChannelRegistration { false };
     uint64_t m_connectionGeneration { 0 };
     Vector<Function<void(IPC::Connection&)>> m_pendingMessages;
-    HashSet<WebCore::RegistrableDomain> m_allowedFirstParties;
-    HashMap<WebCore::RegistrableDomain, Vector<Function<void()>>> m_messagesAwaitingFirstParty;
+    HashSet<WebCore::Site> m_allowedFirstParties;
+    HashMap<WebCore::Site, Vector<Function<void()>>> m_messagesAwaitingFirstParty;
 };
 
 } // namespace WebKit

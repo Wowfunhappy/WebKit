@@ -45,8 +45,14 @@ public:
     {
     }
     
-    void operator()(Node*, Edge edge)
+    void operator()(Node* node, Edge edge)
     {
+        if (edge->isTuple()) {
+            ASSERT(node->op() == ExtractFromTuple && edge.useKind() == UntypedUse);
+            m_maySeeEmptyChild |= !!(m_state.forTupleNode(edge, node->extractOffset()).m_type & SpecEmpty);
+            return;
+        }
+
         m_maySeeEmptyChild |= !!(m_state.forNode(edge).m_type & SpecEmpty);
 
         switch (edge.useKind()) {
@@ -311,7 +317,9 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case Int52Rep:
     case BooleanToNumber:
     case FiatInt52:
+#ifdef RC_REMOVE_SEC_ACCEL_3
     case HasIndexedProperty:
+#endif
     case CheckStructureImmediate:
     case GetMyArgumentByVal:
     case GetMyArgumentByValOutOfBounds:
@@ -426,6 +434,9 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case GetVectorLength:
     case ArrayPop:
     case ArrayShift:
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    case HasIndexedProperty:
+#endif
     case StringAt:
     case StringCharAt:
     case StringCharCodeAt:

@@ -6,15 +6,6 @@
 // CLCommandQueueVk.cpp: Implements the class methods for CLCommandQueueVk.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
-#include "common/PackedCLEnums_autogen.h"
-#include "common/SimpleMutex.h"
-#include "common/log_utils.h"
-#include "common/system_utils.h"
-
 #include "libANGLE/renderer/vulkan/CLCommandQueueVk.h"
 #include "libANGLE/renderer/vulkan/CLContextVk.h"
 #include "libANGLE/renderer/vulkan/CLDeviceVk.h"
@@ -40,7 +31,6 @@
 #include "libANGLE/CLImage.h"
 #include "libANGLE/CLKernel.h"
 #include "libANGLE/CLSampler.h"
-#include "libANGLE/Error.h"
 #include "libANGLE/cl_types.h"
 #include "libANGLE/cl_utils.h"
 
@@ -280,14 +270,6 @@ CLCommandQueueVk::~CLCommandQueueVk()
 
     ASSERT(mComputePassCommands->empty());
     ASSERT(!mNeedPrintfHandling);
-
-    if (mPrintfBuffer)
-    {
-        // The lifetime of printf buffer is scoped to command queue, release and destroy.
-        const bool wasLastUser = mPrintfBuffer->release();
-        ASSERT(wasLastUser);
-        delete mPrintfBuffer;
-    }
 
     if (mQueueSerialIndex != kInvalidQueueSerialIndex)
     {
@@ -594,6 +576,9 @@ angle::Result CLCommandQueueVk::copyImageToFromBuffer(CLImageVk &imageVk,
                                                       VkBufferImageCopy copyRegion,
                                                       ImageBufferCopyDirection direction)
 {
+    // 1D image buffers are treated separately
+    ASSERT(!cl::Is1DImageBuffer(imageVk.getType()));
+
     vk::Renderer *renderer = mContext->getRenderer();
 
     vk::CommandResources resources;
@@ -606,7 +591,7 @@ angle::Result CLCommandQueueVk::copyImageToFromBuffer(CLImageVk &imageVk,
     }
     else
     {
-        resources.onImageTransferWrite(gl::LevelIndex(0), 1, 0,
+        resources.onImageTransferWrite(gl::OwnerLevel(0), 1, gl::OwnerLayer(0),
                                        static_cast<uint32_t>(imageVk.getArraySize()), aspectFlags,
                                        &imageVk.getImage());
         resources.onBufferTransferRead(&buffer.getBuffer());
@@ -654,7 +639,6 @@ angle::Result CLCommandQueueVk::addToHostTransferList(CLBufferVk *srcBuffer,
     // TODO(aannestrand): Flush here if we reach some max-transfer-buffer heuristic
     // http://anglebug.com/377545840
 
-    cl::Memory *transferBufferHandle   = nullptr;
     cl::MemFlags transferBufferMemFlag = cl::MemFlags(CL_MEM_READ_WRITE);
 
     // We insert an appropriate copy command in the command stream. For the host ptr, we create CL
@@ -671,18 +655,17 @@ angle::Result CLCommandQueueVk::addToHostTransferList(CLBufferVk *srcBuffer,
             break;
     }
 
-    transferBufferHandle = cl::Buffer::Cast(this->mContext->getFrontendObject().createBuffer(
-        nullptr, transferBufferMemFlag, transferConfig.getSize(),
-        const_cast<void *>(transferConfig.getHostPtr())));
+    cl::BufferPtr transferBufferHandle = cl::BufferPtr::Create(
+        const_cast<cl::Context &>(mCommandQueue.getContext()), cl::Memory::PropArray{},
+        transferBufferMemFlag, transferConfig.getSize(),
+        const_cast<void *>(transferConfig.getHostPtr()));
     if (transferBufferHandle == nullptr)
     {
         ANGLE_CL_RETURN_ERROR(CL_OUT_OF_RESOURCES);
     }
-    HostTransferEntry transferEntry{transferConfig, cl::MemoryPtr{transferBufferHandle}};
-    mCommandsStateMap.addHostTransferEntry(mComputePassCommands->getQueueSerial(), transferEntry);
 
-    // Release initialization reference, lifetime controlled by RefPointer.
-    transferBufferHandle->release();
+    HostTransferEntry transferEntry{transferConfig, transferBufferHandle};
+    mCommandsStateMap.addHostTransferEntry(mComputePassCommands->getQueueSerial(), transferEntry);
 
     // We need an execution barrier if buffer can be written to by kernel
     if (!mComputePassCommands->getCommandBuffer().empty() && srcBuffer->isWritable())
@@ -814,7 +797,6 @@ angle::Result CLCommandQueueVk::addToHostTransferList(CLImageVk *srcImage,
     // TODO(aannestrand): Flush here if we reach some max-transfer-buffer heuristic
     // http://anglebug.com/377545840
 
-    cl::Memory *transferBufferHandle   = nullptr;
     cl::MemFlags transferBufferMemFlag = cl::MemFlags(CL_MEM_READ_WRITE);
 
     // We insert an appropriate copy command in the command stream. For the host ptr, we create CL
@@ -829,19 +811,17 @@ angle::Result CLCommandQueueVk::addToHostTransferList(CLImageVk *srcImage,
             break;
     }
 
-    transferBufferHandle = cl::Buffer::Cast(this->mContext->getFrontendObject().createBuffer(
-        nullptr, transferBufferMemFlag, transferConfig.getSize(),
-        const_cast<void *>(transferConfig.getHostPtr())));
+    cl::BufferPtr transferBufferHandle = cl::BufferPtr::Create(
+        const_cast<cl::Context &>(mCommandQueue.getContext()), cl::Memory::PropArray{},
+        transferBufferMemFlag, transferConfig.getSize(),
+        const_cast<void *>(transferConfig.getHostPtr()));
     if (transferBufferHandle == nullptr)
     {
         ANGLE_CL_RETURN_ERROR(CL_OUT_OF_RESOURCES);
     }
 
-    HostTransferEntry transferEntry{transferConfig, cl::MemoryPtr{transferBufferHandle}};
+    HostTransferEntry transferEntry{transferConfig, transferBufferHandle};
     mCommandsStateMap.addHostTransferEntry(mComputePassCommands->getQueueSerial(), transferEntry);
-
-    // Release initialization reference, lifetime controlled by RefPointer.
-    transferBufferHandle->release();
 
     CLBufferVk &transferBufferHandleVk = transferBufferHandle->getImpl<CLBufferVk>();
     ImageBufferCopyDirection direction = ImageBufferCopyDirection::ToBuffer;
@@ -892,6 +872,16 @@ angle::Result CLCommandQueueVk::enqueueReadImage(const cl::Image &image,
                                                  cl::EventPtr &event)
 
 {
+    // If its a 1Dbuffer we route this to ReadBuffer
+    if (cl::Is1DImageBuffer(image.getType()))
+    {
+        cl::Buffer *parentBuffer = cl::Buffer::Cast(image.getParent()->getNative());
+        size_t offset            = origin.x * image.getElementSize() + parentBuffer->getOffset();
+        size_t readSize          = region.width * image.getElementSize();
+
+        return enqueueReadBuffer(*parentBuffer, blocking, offset, readSize, ptr, waitEvents, event);
+    }
+
     std::scoped_lock<std::mutex> sl(mCommandQueueMutex);
 
     ANGLE_TRY(preEnqueueOps(
@@ -900,15 +890,6 @@ angle::Result CLCommandQueueVk::enqueueReadImage(const cl::Image &image,
 
     CLImageVk &imageVk = image.getImpl<CLImageVk>();
     cl::BufferRect ptrRect{cl::kOffsetZero, region, rowPitch, slicePitch, imageVk.getElementSize()};
-
-    if (cl::Is1DImageBuffer(image.getType()) ||
-        (image.getParent() && cl::Is2DImage(image.getParent()->getType())))
-    {
-        // TODO: need to implement buffer-based parent image ops later
-        // http://anglebug.com/444481344
-        UNIMPLEMENTED();
-        ANGLE_CL_RETURN_ERROR(CL_OUT_OF_RESOURCES);
-    }
 
     // Create a transfer buffer and push it in update list
     HostReadTransferConfig transferConfig(CL_COMMAND_READ_IMAGE, ptrRect.getRectSize(), ptr,
@@ -935,6 +916,17 @@ angle::Result CLCommandQueueVk::enqueueWriteImage(const cl::Image &image,
                                                   const cl::EventPtrs &waitEvents,
                                                   cl::EventPtr &event)
 {
+    // If its a 1Dbuffer we route this to WriteBuffer
+    if (cl::Is1DImageBuffer(image.getType()))
+    {
+        cl::Buffer *parentBuffer = cl::Buffer::Cast(image.getParent()->getNative());
+        size_t offset            = origin.x * image.getElementSize() + parentBuffer->getOffset();
+        size_t writeSize         = region.width * image.getElementSize();
+
+        return enqueueWriteBuffer(*parentBuffer, blocking, offset, writeSize, ptr, waitEvents,
+                                  event);
+    }
+
     std::scoped_lock<std::mutex> sl(mCommandQueueMutex);
 
     ANGLE_TRY(preEnqueueOps(
@@ -944,15 +936,6 @@ angle::Result CLCommandQueueVk::enqueueWriteImage(const cl::Image &image,
     CLImageVk &imageVk = image.getImpl<CLImageVk>();
     cl::BufferRect ptrRect{cl::kOffsetZero, region, inputRowPitch, inputSlicePitch,
                            imageVk.getElementSize()};
-
-    if (cl::Is1DImageBuffer(image.getType()) ||
-        (image.getParent() && cl::Is2DImage(image.getParent()->getType())))
-    {
-        // TODO: need to implement buffer-based parent image ops later
-        // http://anglebug.com/444481344
-        UNIMPLEMENTED();
-        ANGLE_CL_RETURN_ERROR(CL_OUT_OF_RESOURCES);
-    }
 
     // Create a transfer buffer and push it in update list
     HostWriteTransferConfig transferConfig(CL_COMMAND_WRITE_IMAGE, ptrRect.getRectSize(),
@@ -977,9 +960,45 @@ angle::Result CLCommandQueueVk::enqueueCopyImage(const cl::Image &srcImage,
                                                  const cl::EventPtrs &waitEvents,
                                                  cl::EventPtr &event)
 {
+    // If any of the image is 1Dbuffer route it to an appropriate buffer equivalent
+    if (cl::Is1DImageBuffer(srcImage.getType()) && cl::Is1DImageBuffer(dstImage.getType()))
+    {
+        cl::Buffer *parentSrc = cl::Buffer::Cast(srcImage.getParent()->getNative());
+        cl::Buffer *parentDst = cl::Buffer::Cast(dstImage.getParent()->getNative());
+
+        size_t srcOffset = srcOrigin.x * srcImage.getElementSize() + parentSrc->getOffset();
+        size_t dstOffset = dstOrigin.x * dstImage.getElementSize() + parentDst->getOffset();
+
+        return enqueueCopyBuffer(*parentSrc, *parentDst, srcOffset, dstOffset,
+                                 region.width * srcImage.getElementSize(), waitEvents, event);
+    }
+    if (cl::Is1DImageBuffer(srcImage.getType()))
+    {
+        ASSERT(region.height == 1 && region.depth == 1);
+
+        cl::Buffer *parentSrc = cl::Buffer::Cast(srcImage.getParent()->getNative());
+
+        size_t srcOffset = srcOrigin.x * srcImage.getElementSize() + parentSrc->getOffset();
+
+        return enqueueCopyBufferToImage(*parentSrc, dstImage, srcOffset, dstOrigin, region,
+                                        waitEvents, event);
+    }
+    if (cl::Is1DImageBuffer(dstImage.getType()))
+    {
+        ASSERT(region.height == 1 && region.depth == 1);
+
+        cl::Buffer *parentDst = cl::Buffer::Cast(dstImage.getParent()->getNative());
+
+        size_t dstOffset = dstOrigin.x * dstImage.getElementSize() + parentDst->getOffset();
+
+        return enqueueCopyImageToBuffer(srcImage, *parentDst, srcOrigin, region, dstOffset,
+                                        waitEvents, event);
+    }
+
     std::scoped_lock<std::mutex> sl(mCommandQueueMutex);
 
     ANGLE_TRY(preEnqueueOps(event, cl::ExecutionStatus::Queued));
+
     ANGLE_TRY(processWaitlist(waitEvents));
 
     auto srcImageVk = &srcImage.getImpl<CLImageVk>();
@@ -989,7 +1008,7 @@ angle::Result CLCommandQueueVk::enqueueCopyImage(const cl::Image &srcImage,
     vk::OutsideRenderPassCommandBuffer *commandBuffer;
     VkImageAspectFlags dstAspectFlags = srcImageVk->getImage().getAspectFlags();
     VkImageAspectFlags srcAspectFlags = dstImageVk->getImage().getAspectFlags();
-    resources.onImageTransferWrite(gl::LevelIndex(0), 1, 0, 1, dstAspectFlags,
+    resources.onImageTransferWrite(gl::OwnerLevel(0), 1, gl::OwnerLayer(0), 1, dstAspectFlags,
                                    &dstImageVk->getImage());
     resources.onImageTransferRead(srcAspectFlags, &srcImageVk->getImage());
     ANGLE_TRY(getCommandBuffer(resources, &commandBuffer));
@@ -1024,13 +1043,25 @@ angle::Result CLCommandQueueVk::enqueueFillImage(const cl::Image &image,
                                                  const cl::EventPtrs &waitEvents,
                                                  cl::EventPtr &event)
 {
+    CLImageVk &imageVk = image.getImpl<CLImageVk>();
+    cl::Extents extent = imageVk.getImageExtent();
+
+    // If its 1Dbuffer route it to FillBuffer
+    if (cl::Is1DImageBuffer(image.getType()))
+    {
+        cl::Buffer *parentBuffer   = cl::Buffer::Cast(image.getParent()->getNative());
+        size_t offset              = origin.x * image.getElementSize() + parentBuffer->getOffset();
+        size_t fillSize            = region.width * image.getElementSize();
+        cl::PixelColor packedColor = image.packPixels(fillColor);
+
+        return enqueueFillBuffer(*parentBuffer, (void *)&packedColor, image.getElementSize(),
+                                 offset, fillSize, waitEvents, event);
+    }
+
     std::scoped_lock<std::mutex> sl(mCommandQueueMutex);
 
     ANGLE_TRY(preEnqueueOps(event, cl::ExecutionStatus::Queued));
     ANGLE_TRY(processWaitlist(waitEvents));
-
-    CLImageVk &imageVk = image.getImpl<CLImageVk>();
-    cl::Extents extent = imageVk.getImageExtent();
 
     CLBufferVk *stagingBuffer = nullptr;
     ANGLE_TRY(imageVk.getOrCreateStagingBuffer(&stagingBuffer));
@@ -1059,6 +1090,17 @@ angle::Result CLCommandQueueVk::enqueueCopyImageToBuffer(const cl::Image &srcIma
                                                          const cl::EventPtrs &waitEvents,
                                                          cl::EventPtr &event)
 {
+    // If its 1Dbuffer route it to buffer equivalent
+    if (cl::Is1DImageBuffer(srcImage.getType()))
+    {
+        cl::Buffer *parentSrc = cl::Buffer::Cast(srcImage.getParent()->getNative());
+
+        size_t srcOffset = srcOrigin.x * srcImage.getElementSize() + parentSrc->getOffset();
+
+        return enqueueCopyBuffer(*parentSrc, dstBuffer, srcOffset, dstOffset,
+                                 region.width * srcImage.getElementSize(), waitEvents, event);
+    }
+
     std::scoped_lock<std::mutex> sl(mCommandQueueMutex);
 
     ANGLE_TRY(preEnqueueOps(event, cl::ExecutionStatus::Queued));
@@ -1082,13 +1124,26 @@ angle::Result CLCommandQueueVk::enqueueCopyBufferToImage(const cl::Buffer &srcBu
                                                          const cl::EventPtrs &waitEvents,
                                                          cl::EventPtr &event)
 {
+    CLBufferVk &srcBufferVk = srcBuffer.getImpl<CLBufferVk>();
+    CLImageVk &dstImageVk   = dstImage.getImpl<CLImageVk>();
+
+    // If the parent is 1Dbuffer we route this to copyBuffer
+    if (cl::Is1DImageBuffer(dstImage.getType()))
+    {
+        cl::Buffer *parentBuffer = cl::Buffer::Cast(dstImage.getParent()->getNative());
+
+        size_t dstOffset = dstOrigin.x * dstImage.getElementSize() + parentBuffer->getOffset();
+        size_t copySize  = region.width * dstImage.getElementSize();
+
+        return enqueueCopyBuffer(srcBuffer, *parentBuffer, srcOffset, dstOffset, copySize,
+                                 waitEvents, event);
+    }
+
     std::scoped_lock<std::mutex> sl(mCommandQueueMutex);
 
     ANGLE_TRY(preEnqueueOps(event, cl::ExecutionStatus::Queued));
     ANGLE_TRY(processWaitlist(waitEvents));
 
-    CLBufferVk &srcBufferVk = srcBuffer.getImpl<CLBufferVk>();
-    CLImageVk &dstImageVk   = dstImage.getImpl<CLImageVk>();
     VkBufferImageCopy copyRegion =
         cl_vk::CalculateBufferImageCopyRegion(srcOffset, 0, 0, dstOrigin, region, &dstImageVk);
     ANGLE_TRY(copyImageToFromBuffer(dstImageVk, srcBufferVk, copyRegion,
@@ -1108,18 +1163,27 @@ angle::Result CLCommandQueueVk::enqueueMapImage(const cl::Image &image,
                                                 cl::EventPtr &event,
                                                 void *&mapPtr)
 {
+    CLImageVk *imageVk = &image.getImpl<CLImageVk>();
+    cl::Extents extent = imageVk->getImageExtent();
+    size_t elementSize = image.getElementSize();
+    size_t rowPitch    = image.getRowSize();
+    size_t offset =
+        (origin.x * elementSize) + (origin.y * rowPitch) + (origin.z * extent.height * rowPitch);
+    size_t size = (region.width * region.height * region.depth * elementSize);
+
+    // If its 1Dbuffer do a map buffer
+    if (cl::Is1DImageBuffer(image.getType()))
+    {
+        cl::Buffer *parentBuffer = cl::Buffer::Cast(image.getParent()->getNative());
+
+        return enqueueMapBuffer(*parentBuffer, blocking, mapFlags, offset, size, waitEvents, event,
+                                mapPtr);
+    }
+
     std::scoped_lock<std::mutex> sl(mCommandQueueMutex);
 
     ANGLE_TRY(preEnqueueOps(event, cl::ExecutionStatus::Complete));
     ANGLE_TRY(processWaitlist(waitEvents));
-
-    CLImageVk *imageVk = &image.getImpl<CLImageVk>();
-    cl::Extents extent = imageVk->getImageExtent();
-    size_t elementSize = imageVk->getElementSize();
-    size_t rowPitch    = imageVk->getRowPitch();
-    size_t offset =
-        (origin.x * elementSize) + (origin.y * rowPitch) + (origin.z * extent.height * rowPitch);
-    size_t size = (region.width * region.height * region.depth * elementSize);
 
     mComputePassCommands->imageRead(mContext, imageVk->getImage().getAspectFlags(),
                                     vk::ImageAccess::TransferSrc, &imageVk->getImage());
@@ -1189,9 +1253,11 @@ angle::Result CLCommandQueueVk::enqueueUnmapMemObject(const cl::Memory &memory,
         ANGLE_TRY(finishInternal());
     }
 
-    if (memory.getType() == cl::MemObjectType::Buffer)
+    if (cl::IsBufferType(memory.getType()) || cl::Is1DImageBuffer(memory.getType()))
     {
-        CLBufferVk &bufferVk = memory.getImpl<CLBufferVk>();
+        CLBufferVk &bufferVk = cl::Is1DImageBuffer(memory.getType())
+                                   ? memory.getParent()->getImpl<CLBufferVk>()
+                                   : memory.getImpl<CLBufferVk>();
         if (memory.getFlags().intersects(CL_MEM_USE_HOST_PTR))
         {
             ANGLE_TRY(finishInternal());
@@ -1309,8 +1375,8 @@ angle::Result CLCommandQueueVk::enqueueNDRangeKernel(const cl::Kernel &kernel,
     const uint32_t *maxComputeWorkGroupCount =
         mContext->getRenderer()->getPhysicalDeviceProperties().limits.maxComputeWorkGroupCount;
     for (cl::NDRange &uniformRegion : enqueueNDRange.createUniformRegions(
-             {maxComputeWorkGroupCount[0], maxComputeWorkGroupCount[1],
-              maxComputeWorkGroupCount[2]}))
+             {maxComputeWorkGroupCount[0], ANGLE_UNSAFE_TODO(maxComputeWorkGroupCount[1]),
+              ANGLE_UNSAFE_TODO(maxComputeWorkGroupCount[2])}))
     {
         cl::WorkgroupCount uniformRegionWorkgroupCount = uniformRegion.getWorkgroupCount();
         const VkPushConstantRange *pushConstantRegionOffset =
@@ -1581,10 +1647,10 @@ angle::Result CLCommandQueueVk::addMemoryDependencies(cl::Memory *clMem, MemoryH
     }
 
     // Insert a layout transition for images
-    if (cl::IsImageType(clMem->getType()))
+    if (cl::IsImageType(clMem->getType()) && !cl::Is1DImageBuffer(clMem->getType()))
     {
         CLImageVk &vkMem = clMem->getImpl<CLImageVk>();
-        mComputePassCommands->imageWrite(mContext, gl::LevelIndex(0), 0, 1,
+        mComputePassCommands->imageWrite(mContext, gl::OwnerLevel(0), gl::OwnerLayer(0), 1,
                                          vkMem.getImage().getAspectFlags(),
                                          vk::ImageAccess::ComputeShaderWrite, &vkMem.getImage());
     }
@@ -1631,12 +1697,10 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
     for (const ClspvLiteralSampler &literalSampler : devProgramData->reflectionData.literalSamplers)
     {
         cl::SamplerPtr clLiteralSampler =
-            cl::SamplerPtr(cl::Sampler::Cast(this->mContext->getFrontendObject().createSampler(
-                literalSampler.normalizedCoords, literalSampler.addressingMode,
-                literalSampler.filterMode)));
+            cl::SamplerPtr::Create(const_cast<cl::Context &>(mCommandQueue.getContext()),
+                                   cl::Sampler::PropArray{}, literalSampler.normalizedCoords,
+                                   literalSampler.addressingMode, literalSampler.filterMode);
 
-        // Release immediately to ensure correct refcount
-        clLiteralSampler->release();
         ASSERT(clLiteralSampler != nullptr);
         CLSamplerVk &vkLiteralSampler = clLiteralSampler->getImpl<CLSamplerVk>();
 
@@ -1759,6 +1823,7 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
 
                 ANGLE_TRY(addMemoryDependencies(&arg));
 
+                // update push constants for image channel info
                 cl_image_format imageFormat = vkMem.getFormat();
                 const VkPushConstantRange *imageDataChannelOrderRange =
                     devProgramData->getImageDataChannelOrderRange(index);
@@ -1811,6 +1876,29 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
 
                 ANGLE_TRY(addMemoryDependencies(&arg));
 
+                // update push constants for image channel info
+                cl_image_format imageFormat = vkMem.getFormat();
+                const VkPushConstantRange *imageDataChannelOrderRange =
+                    devProgramData->getImageDataChannelOrderRange(index);
+                if (imageDataChannelOrderRange != nullptr)
+                {
+                    mComputePassCommands->getCommandBuffer().pushConstants(
+                        kernelVk.getPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT,
+                        imageDataChannelOrderRange->offset, imageDataChannelOrderRange->size,
+                        &imageFormat.image_channel_order);
+                }
+
+                const VkPushConstantRange *imageDataChannelDataTypeRange =
+                    devProgramData->getImageDataChannelDataTypeRange(index);
+                if (imageDataChannelDataTypeRange != nullptr)
+                {
+                    mComputePassCommands->getCommandBuffer().pushConstants(
+                        kernelVk.getPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT,
+                        imageDataChannelDataTypeRange->offset, imageDataChannelDataTypeRange->size,
+                        &imageFormat.image_channel_data_type);
+                }
+
+                // Update buffer/descriptor info
                 VkBufferView &bufferView           = kernelArgDescSetBuilder.allocBufferView();
                 const vk::BufferView *vkBufferView = nullptr;
                 ANGLE_TRY(vkMem.getBufferView(&vkBufferView));
@@ -1856,7 +1944,7 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
                     // for the argument declared as a pointer to global or constant memory in the
                     // kernel.
                     uint64_t null = 0;
-                    std::memcpy(argPushConstOrigin, &null, arg.handleSize);
+                    ANGLE_UNSAFE_TODO(std::memcpy(argPushConstOrigin, &null, arg.handleSize));
                 }
                 else
                 {
@@ -1867,7 +1955,7 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
 
                     uint64_t devAddr =
                         vkMem.getBuffer().getDeviceAddress(mContext) + vkMem.getOffset();
-                    std::memcpy(argPushConstOrigin, &devAddr, arg.handleSize);
+                    ANGLE_UNSAFE_TODO(std::memcpy(argPushConstOrigin, &devAddr, arg.handleSize));
                 }
 
                 mComputePassCommands->getCommandBuffer().pushConstants(
@@ -1920,7 +2008,7 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
     {
         // POD arguments exceeded the push constant size and are packaged in a storage buffer. Setup
         // commands and dependencies accordingly.
-        cl::MemoryPtr clMem = kernelVk.getPodBuffer();
+        cl::BufferPtr clMem = kernelVk.getPodBuffer();
         ASSERT(clMem != nullptr);
         CLBufferVk &vkMem = clMem->getImpl<CLBufferVk>();
 
@@ -1955,7 +2043,7 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
     if (devProgramData->reflectionData.pushConstants.contains(
             NonSemanticClspvReflectionConstantDataPointerPushConstant))
     {
-        cl::MemoryPtr clMem =
+        cl::BufferPtr clMem =
             kernelVk.getProgram()->getOrCreateModuleConstantDataBuffer(kernelVk.getKernelName());
         CLBufferVk &vkMem = clMem->getImpl<CLBufferVk>();
         uint64_t devAddr  = vkMem.getBuffer().getDeviceAddress(mContext) + vkMem.getOffset();
@@ -1983,12 +2071,12 @@ angle::Result CLCommandQueueVk::processKernelResources(CLKernelVk &kernelVk)
         UpdateDescriptorSetsBuilder &printfDescSetBuilder =
             updateDescriptorSetsBuilders[DescriptorSetIndex::Printf];
 
-        cl::MemoryPtr clMem = getOrCreatePrintfBuffer();
+        cl::BufferPtr clMem = getOrCreatePrintfBuffer();
         CLBufferVk &vkMem   = clMem->getImpl<CLBufferVk>();
         uint8_t *mapPointer = nullptr;
         ANGLE_TRY(vkMem.map(mapPointer, 0));
         // The spec calls out *The first 4 bytes of the buffer should be zero-initialized.*
-        memset(mapPointer, 0, 4);
+        ANGLE_UNSAFE_TODO(memset(mapPointer, 0, 4));
 
         if (kernelVk.usesPrintfBufferPointerPushConstant())
         {
@@ -2233,16 +2321,18 @@ angle::Result CLCommandQueueVk::postEnqueueOps(const cl::EventPtr &event)
     return angle::Result::Continue;
 }
 
+// We have a need for submitting an empty command in the following cases
+//  - resetting a command buffer due to an error
+//  - there are no commands recorded and there is an event request - eg. mapbuffer
 angle::Result CLCommandQueueVk::submitEmptyCommand()
 {
-    // This will be called as part of resetting the command buffer and command buffer has to be
-    // empty.
+    // Only to be called on empty command buffer
     ASSERT(mComputePassCommands->empty());
+    ASSERT(mExternalEvents.empty());
 
     // There is nothing to be flushed, mark it flushed and do a submit to signal the queue serial
     mLastFlushedQueueSerial = mComputePassCommands->getQueueSerial();
     ANGLE_TRY(submitCommands());
-    ANGLE_TRY(finishQueueSerialInternal(mLastSubmittedQueueSerial));
 
     // increment the queue serial for the next command batch
     mComputePassCommands->setQueueSerial(
@@ -2262,13 +2352,14 @@ angle::Result CLCommandQueueVk::resetCommandBufferWithError(cl_int errorCode)
 
     ANGLE_TRY(mCommandsStateMap.setEventsWithQueueSerialToState(currentSerial,
                                                                 cl::ExecutionStatus::InvalidEnum));
-    mCommandsStateMap.erase(currentSerial);
+    mCommandsStateMap.eraseUpTo(currentSerial);
     mExternalEvents.clear();
 
     // Command buffer has been reset and as such the associated queue serial will not get signaled
     // leading to causality issues. So submit an empty command to keep the queue serials timelines
     // intact.
     ANGLE_TRY(submitEmptyCommand());
+    ANGLE_TRY(finishQueueSerialInternal(mLastSubmittedQueueSerial));
 
     ANGLE_CL_RETURN_ERROR(errorCode);
 }
@@ -2281,8 +2372,8 @@ angle::Result CLCommandQueueVk::finishQueueSerialInternal(const QueueSerial queu
 
     ANGLE_TRY(mContext->getRenderer()->finishQueueSerial(mContext, queueSerial));
 
-    // Ensure memory  objects are synced back to host CPU
-    ANGLE_TRY(mCommandsStateMap.processQueueSerial(queueSerial));
+    // Ensure memory objects are synced back to host CPU
+    ANGLE_TRY(mCommandsStateMap.processQueueSerialUpTo(queueSerial));
 
     if (mNeedPrintfHandling)
     {
@@ -2293,7 +2384,7 @@ angle::Result CLCommandQueueVk::finishQueueSerialInternal(const QueueSerial queu
     ANGLE_TRY(mCommandsStateMap.setEventsWithQueueSerialToState(queueSerial,
                                                                 cl::ExecutionStatus::Complete));
 
-    mCommandsStateMap.erase(queueSerial);
+    mCommandsStateMap.eraseUpTo(queueSerial);
 
     return angle::Result::Continue;
 }
@@ -2310,54 +2401,80 @@ angle::Result CLCommandQueueVk::finishQueueSerial(const QueueSerial queueSerial)
     return finishQueueSerialInternal(queueSerial);
 }
 
-angle::Result CLCommandQueueVk::flushInternal()
+// This is to be called before flushing the currently recorded commands into the vk::renderer
+// primary command buffer. This ensures the dependent commands are recorded first in sequence to
+// ensure correct ordering.
+angle::Result CLCommandQueueVk::processExternalEvents()
 {
-    if (!mComputePassCommands->empty())
+    if (!mExternalEvents.empty())
     {
-        // If we still have dependant events, handle them now
-        if (!mExternalEvents.empty())
+        // Dependent events are either user events or events external to this command queue
+        for (const auto &depEvent : mExternalEvents)
         {
-            for (const auto &depEvent : mExternalEvents)
+            if (depEvent->getImpl<CLEventVk>().isUserEvent())
             {
-                if (depEvent->getImpl<CLEventVk>().isUserEvent())
+                // We just wait here for user to set the event object
+                cl_int status = CL_QUEUED;
+                ANGLE_TRY(depEvent->getImpl<CLEventVk>().waitForUserEventStatus());
+                ANGLE_TRY(depEvent->getImpl<CLEventVk>().getCommandExecutionStatus(status));
+                if (status < 0)
                 {
-                    // We just wait here for user to set the event object
-                    cl_int status = CL_QUEUED;
-                    ANGLE_TRY(depEvent->getImpl<CLEventVk>().waitForUserEventStatus());
-                    ANGLE_TRY(depEvent->getImpl<CLEventVk>().getCommandExecutionStatus(status));
-                    if (status < 0)
-                    {
-                        ERR() << "Invalid dependant user-event (" << depEvent.get()
-                              << ") status encountered!";
-                        ANGLE_TRY(resetCommandBufferWithError(
-                            CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST));
-                    }
+                    ERR() << "Invalid dependant user-event (" << depEvent.get()
+                          << ") status encountered!";
+                    ANGLE_TRY(
+                        resetCommandBufferWithError(CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST));
+                }
+            }
+            else
+            {
+                if (depEvent->getCommandQueue()->getPriority() != mCommandQueue.getPriority())
+                {
+                    // this implicitly means that different Vk Queues are used between the
+                    // dependency event queue and this queue. thus, sync/finish here to ensure
+                    // dependencies.
+                    // TODO: Look into Vk Semaphores here to track GPU-side only
+                    // https://anglebug.com/42267109
+                    ANGLE_TRY(depEvent->getCommandQueue()->finish());
                 }
                 else
                 {
-                    if (depEvent->getCommandQueue()->getPriority() != mCommandQueue.getPriority())
-                    {
-                        // this implicitly means that different Vk Queues are used between the
-                        // dependency event queue and this queue. thus, sync/finish here to ensure
-                        // dependencies.
-                        // TODO: Look into Vk Semaphores here to track GPU-side only
-                        // https://anglebug.com/42267109
-                        ANGLE_TRY(depEvent->getCommandQueue()->finish());
-                    }
-                    else
-                    {
-                        // We have inserted appropriate pipeline barriers, we just need to flush the
-                        // dependent queue before we submit the commands here.
-                        ANGLE_TRY(depEvent->getCommandQueue()->flush());
-                    }
+                    // We have inserted appropriate pipeline barriers, we just need to flush the
+                    // dependent queue before we submit the commands here.
+                    ANGLE_TRY(depEvent->getCommandQueue()->flush());
                 }
             }
-            mExternalEvents.clear();
         }
+        mExternalEvents.clear();
+    }
 
+    return angle::Result::Continue;
+}
+
+// The flushInternal follows the semantics of the clFlush(queue) entrypoint - i.e. commands are
+// submitted to the device. Here we do below for this
+//   - flush all the commands (external to this queue) that this queue is dependent on to the
+//   vulkan primary command buffer
+//   - flush all the enqueued command in this queue to vulkan primary command buffer
+//   - Trigger a vkQueueSubmit
+angle::Result CLCommandQueueVk::flushInternal()
+{
+    // Process any external events -- there could be situations where we have an external event
+    // dependency and no commands recorded e.g. clEnqueueMapBuffer - with even deps
+    ANGLE_TRY(processExternalEvents());
+
+    if (!mComputePassCommands->empty())
+    {
         ANGLE_TRY(flushComputePassCommands());
+
         ANGLE_TRY(submitCommands());
         ASSERT(!hasCommandsPendingSubmission());
+    }
+    else
+    {
+        // If we dont have commands recorded, we do an empty submit command for the cases where
+        // there will be event request with no commands inserted in command buffer. (eg. only
+        // enqueueMapBuffer recorded in command queue)
+        ANGLE_TRY(submitEmptyCommand());
     }
 
     return angle::Result::Continue;
@@ -2420,16 +2537,17 @@ angle::Result CLCommandQueueVk::onResourceAccess(const vk::CommandResources &res
 
 // A single CL buffer is setup for every command queue of size kPrintfBufferSize. This can be
 // expanded later, if more storage is needed.
-cl::MemoryPtr CLCommandQueueVk::getOrCreatePrintfBuffer()
+cl::BufferPtr CLCommandQueueVk::getOrCreatePrintfBuffer()
 {
     if (!mPrintfBuffer)
     {
-        mPrintfBuffer = cl::Buffer::Cast(mContext->getFrontendObject().createBuffer(
-            nullptr, cl::MemFlags(CL_MEM_READ_WRITE), kPrintfBufferSize, nullptr));
+        mPrintfBuffer = cl::BufferPtr::Create(
+            const_cast<cl::Context &>(mCommandQueue.getContext()), cl::Memory::PropArray{},
+            cl::MemFlags(CL_MEM_READ_WRITE), kPrintfBufferSize, nullptr);
     }
     mCommandsStateMap.addPrintfBuffer(mComputePassCommands->getQueueSerial(), mPrintfBuffer);
 
-    return cl::MemoryPtr(mPrintfBuffer);
+    return mPrintfBuffer;
 }
 
 bool CLCommandQueueVk::hasUserEventDependency() const
@@ -2469,39 +2587,41 @@ angle::Result CommandsStateMap::setEventsWithQueueSerialToState(const QueueSeria
     return angle::Result::Continue;
 }
 
-angle::Result CommandsStateMap::processQueueSerial(const QueueSerial queueSerial)
+angle::Result CommandsStateMap::processQueueSerialUpTo(const QueueSerial queueSerial)
 {
     std::unique_lock<angle::SimpleMutex> ul(mMutex);
-    HostTransferEntries list = mCommandsState[queueSerial].mHostTransferList;
-    for (const HostTransferEntry &hostTransferEntry : list)
-    {
-        ANGLE_TRY(std::visit(HostTransferConfigVisitor(
-                                 hostTransferEntry.transferBufferHandle->getImpl<CLBufferVk>()),
-                             hostTransferEntry.transferConfig));
-    }
-    list.clear();
 
-    cl::KernelPtrs kernels = mCommandsState[queueSerial].mKernels;
-
-    for (cl::KernelPtr kernel : kernels)
-    {
-        CLKernelVk *kernelVk = &kernel->getImpl<CLKernelVk>();
-
-        if (kernelVk->usesPrintf())
+    std::for_each(mCommandsState.begin(), mCommandsState.upper_bound(queueSerial), [](auto &pair) {
+        HostTransferEntries list = pair.second.mHostTransferList;
+        for (const HostTransferEntry &hostTransferEntry : list)
         {
-            ASSERT(kernels.size() == 1);
-
-            auto printfInfos =
-                kernelVk->getProgram()->getPrintfDescriptors(kernelVk->getKernelName());
-
-            CLBufferVk &vkMem = mCommandsState[queueSerial].mPrintfBuffer->getImpl<CLBufferVk>();
-
-            unsigned char *data = nullptr;
-            ANGLE_TRY(vkMem.map(data, 0));
-            ANGLE_TRY(ClspvProcessPrintfBuffer(data, vkMem.getSize(), printfInfos));
-            vkMem.unmap();
+            ANGLE_TRY(std::visit(HostTransferConfigVisitor(
+                                     hostTransferEntry.transferBufferHandle->getImpl<CLBufferVk>()),
+                                 hostTransferEntry.transferConfig));
         }
-    }
+        list.clear();
+
+        cl::KernelPtrs kernels = pair.second.mKernels;
+
+        for (cl::KernelPtr kernel : kernels)
+        {
+            CLKernelVk *kernelVk = &kernel->getImpl<CLKernelVk>();
+
+            if (kernelVk->usesPrintf())
+            {
+                auto printfInfos =
+                    kernelVk->getProgram()->getPrintfDescriptors(kernelVk->getKernelName());
+
+                CLBufferVk &vkMem = pair.second.mPrintfBuffer->template getImpl<CLBufferVk>();
+
+                unsigned char *data = nullptr;
+                ANGLE_TRY(vkMem.map(data, 0));
+                ANGLE_TRY(ClspvProcessPrintfBuffer(data, vkMem.getSize(), printfInfos));
+                vkMem.unmap();
+            }
+        }
+        return angle::Result::Continue;
+    });
 
     return angle::Result::Continue;
 }

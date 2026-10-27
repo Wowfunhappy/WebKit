@@ -41,6 +41,10 @@
 #include <WebCore/UTIUtilities.h>
 #include <wtf/MachSendRight.h>
 
+#if ENABLE(LOCKDOWN_MODE_API)
+#include <pal/cocoa/LockdownModeCocoa.h>
+#endif
+
 namespace WebKit {
 
 using namespace WebCore;
@@ -67,12 +71,20 @@ Ref<RemoteImageDecoderAVFManager> RemoteImageDecoderAVF::manager() const
 
 bool RemoteImageDecoderAVF::canDecodeType(const String& mimeType)
 {
+#if ENABLE(LOCKDOWN_MODE_API)
+    if (PAL::isLockdownModeEnabledForCurrentProcess())
+        return false;
+#endif
     // TODO: We may need to remove AVAssetMIMETypeCache in the Web process
     return AVAssetMIMETypeCache::singleton().canDecodeType(mimeType) != MediaPlayerEnums::SupportsType::IsNotSupported;
 }
 
 bool RemoteImageDecoderAVF::supportsMediaType(MediaType type)
 {
+#if ENABLE(LOCKDOWN_MODE_API)
+    if (PAL::isLockdownModeEnabledForCurrentProcess())
+        return false;
+#endif
     // TODO: We may need to remove AVAssetMIMETypeCache in the Web process
     return type == MediaType::Video && AVAssetMIMETypeCache::singleton().isAvailable();
 }
@@ -147,9 +159,21 @@ bool RemoteImageDecoderAVF::frameHasAlphaAtIndex(size_t index) const
     return m_frameInfos[index].hasAlpha;
 }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+WebCore::PlatformImagePtr RemoteImageDecoderAVF::frameImageAtIndex(size_t index) const
+{
+    Locker locker { m_frameImagesLock };
+    return m_frameImages.get(index);
+}
+#endif
+
 PlatformImagePtr RemoteImageDecoderAVF::createFrameImageAtIndex(size_t index, SubsamplingLevel, const DecodingOptions&)
 {
+#ifdef RC_REMOVE_SEC_ACCEL_3
     if (PlatformImagePtr image = m_frameImages.get(index))
+#else
+    if (PlatformImagePtr image = frameImageAtIndex(index))
+#endif
         return image;
 
     Ref protectedThis { *this };
@@ -165,13 +189,24 @@ PlatformImagePtr RemoteImageDecoderAVF::createFrameImageAtIndex(size_t index, Su
 
         imageHandle->takeOwnershipOfMemory(MemoryLedger::Graphics);
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
         if (RefPtr bitmap = ShareableBitmap::create(WTF::move(*imageHandle)))
             protectedThis->m_frameImages.add(index, bitmap->createPlatformImage(DontCopyBackingStore));
+#else
+        if (RefPtr bitmap = ShareableBitmap::create(WTF::move(*imageHandle))) {
+            Locker locker { protectedThis->m_frameImagesLock };
+            protectedThis->m_frameImages.add(index, bitmap->createPlatformImage(DontCopyBackingStore));
+        }
+#endif
     };
 
     callOnMainRunLoopAndWait(WTF::move(createFrameImage));
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
     return m_frameImages.get(index);
+#else
+    return frameImageAtIndex(index);
+#endif
 }
 
 void RemoteImageDecoderAVF::setExpectedContentSize(long long expectedContentSize)
@@ -208,8 +243,21 @@ void RemoteImageDecoderAVF::setData(const FragmentedSharedBuffer& data, bool all
 
 void RemoteImageDecoderAVF::clearFrameBufferCache(size_t index)
 {
+#ifdef RC_REMOVE_SEC_ACCEL_3
     for (size_t i = 0; i < std::min(index + 1, m_frameCount); ++i)
         m_frameImages.remove(i);
+#else
+    Vector<PlatformImagePtr> removedImages;
+    {
+        Locker locker { m_frameImagesLock };
+        size_t count = std::min(index + 1, m_frameCount);
+        for (size_t i = 0; i < count; ++i) {
+            if (PlatformImagePtr image = m_frameImages.take(i))
+                removedImages.append(WTF::move(image));
+        }
+    }
+    removedImages.clear();
+#endif
 
     if (auto gpuProcessConnection = m_gpuProcessConnection.get())
         gpuProcessConnection->connection().send(Messages::RemoteImageDecoderAVFProxy::ClearFrameBufferCache(m_identifier, index), 0);

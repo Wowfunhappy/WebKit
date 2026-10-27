@@ -163,7 +163,11 @@ private:
         for (auto& port : message.transferredPorts)
             messagePortSentToRemote(port.first);
 
+        Vector<URL> blobURLs;
         if (auto& serializedScriptValue = message.message) {
+            blobURLs = serializedScriptValue->blobURLs().map([](auto& blobURL) {
+                return URL { blobURL };
+            });
             if (serializedScriptValue->sharedBufferContentsArray() && !serializedScriptValue->sharedBufferContentsArray()->isEmpty()) {
                 auto identifier = NonSerializedDataIdentifier::generate();
                 m_nonSerializedDataRegistry.add(identifier, std::exchange(serializedScriptValue->sharedBufferContentsArray(), nullptr));
@@ -171,7 +175,7 @@ private:
             }
         }
 
-        LegacyExtensionViewConnection::singleton().send(Messages::NetworkConnectionToWebProcess::PostMessageToRemote { message, remoteTarget });
+        LegacyExtensionViewConnection::singleton().send(Messages::NetworkConnectionToWebProcess::PostMessageToRemote { message, remoteTarget, blobURLs });
     }
 
     HashMap<MessagePortIdentifier, Vector<MessageWithMessagePorts>> m_inProcessPortMessages;
@@ -249,9 +253,13 @@ private:
     void postMessage(const PartitionedSecurityOrigin& origin, const String& name, BroadcastChannelIdentifier source, Ref<SerializedScriptValue>&& message, CompletionHandler<void()>&& completionHandler) final
     {
         auto callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
-        postMessageLocally(origin, name, source, message.copyRef(), callbackAggregator.copyRef());
+        auto blobURLs = message->blobURLs().map([](auto& blobURL) {
+            return URL { blobURL };
+        });
+        // The IPC goes first: postMessageLocally() consumes the SerializedScriptValue, possibly on another thread.
         if (auto clientOrigin = toClientOrigin(origin))
-            LegacyExtensionViewConnection::singleton().sendWithAsyncReply(Messages::NetworkBroadcastChannelRegistry::PostMessage { *clientOrigin, name, MessageWithMessagePorts { WTF::move(message), { } } }, [callbackAggregator] { });
+            LegacyExtensionViewConnection::singleton().sendWithAsyncReply(Messages::NetworkBroadcastChannelRegistry::PostMessage { *clientOrigin, name, MessageWithMessagePorts { message.copyRef(), { } }, WTF::move(blobURLs) }, [callbackAggregator] { });
+        postMessageLocally(origin, name, source, WTF::move(message), WTF::move(callbackAggregator));
     }
 
     void postMessageLocally(const PartitionedSecurityOrigin& origin, const String& name, std::optional<BroadcastChannelIdentifier> sourceInProcess, Ref<SerializedScriptValue>&& message, Ref<CallbackAggregator>&& callbackAggregator)
@@ -307,9 +315,9 @@ private:
 
     // The server takes a shared worker request from a process whose documents have the worker's top origin as a
     // first party.
-    static RegistrableDomain firstParty(const SharedWorkerKey& key)
+    static Site firstParty(const SharedWorkerKey& key)
     {
-        return RegistrableDomain::uncheckedCreateFromHost(key.origin.topOrigin.host());
+        return Site { key.origin.topOrigin };
     }
 
     SharedWorkerObjectConnection* sharedWorkerConnection() final { return this; }
@@ -382,22 +390,22 @@ template<typename Message, typename CompletionHandler> void LegacyExtensionViewC
     connect();
 }
 
-void LegacyExtensionViewConnection::whenFirstPartyAllowed(const RegistrableDomain& domain, Function<void()>&& sendMessages)
+void LegacyExtensionViewConnection::whenFirstPartyAllowed(const Site& site, Function<void()>&& sendMessages)
 {
-    if (m_allowedFirstParties.contains(domain))
+    if (m_allowedFirstParties.contains(site))
         return sendMessages();
-    auto addResult = m_messagesAwaitingFirstParty.add(domain, Vector<Function<void()>> { });
+    auto addResult = m_messagesAwaitingFirstParty.add(site, Vector<Function<void()>> { });
     addResult.iterator->value.append(WTF::move(sendMessages));
     if (!addResult.isNewEntry)
         return;
     // The network process takes the first party on its connection to this process, which a message on this
     // connection does not overtake: the waiting messages go once it replies.
-    sessionDataStore()->networkProcess().sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies { Process::identifier(), domain, LoadedWebArchive::No }, [domain, generation = m_connectionGeneration] {
+    sessionDataStore()->networkProcess().sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies { Process::identifier(), site, LoadedWebArchive::No }, [site, generation = m_connectionGeneration] {
         auto& connection = LegacyExtensionViewConnection::singleton();
         if (connection.m_connectionGeneration != generation)
             return;
-        connection.m_allowedFirstParties.add(domain);
-        for (auto& sendMessages : connection.m_messagesAwaitingFirstParty.take(domain))
+        connection.m_allowedFirstParties.add(site);
+        for (auto& sendMessages : connection.m_messagesAwaitingFirstParty.take(site))
             sendMessages();
     });
 }

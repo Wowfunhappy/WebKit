@@ -7,11 +7,8 @@
 //    Helper functions for the Vulkan Caps.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/vulkan/vk_caps_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include <type_traits>
 
@@ -278,7 +275,7 @@ void LogMissingExtensionsForGLES32(const gl::Extensions &nativeExtensions)
         if (!requiredExtensions[index])
         {
             INFO() << "The following extension is required for GLES 3.2: "
-                   << kRequiredExtensionNames[index];
+                   << ANGLE_UNSAFE_TODO(kRequiredExtensionNames[index]);
         }
     }
 }
@@ -1520,6 +1517,10 @@ void Renderer::ensureCapsInitialized() const
     mNativeLimitations.maxBufferBytes  = static_cast<size_t>(mMaxMemoryAllocationSize);
     mNativeLimitations.maxTextureBytes = static_cast<size_t>(mMaxMemoryAllocationSize);
 
+    // Ask the front-end to handle robust-init when copying between mips of the same texture via
+    // glCopyTexImage2D.
+    mNativeLimitations.noRobustInitOnOOBCopyTexImageSameTexture = true;
+
     // Log any missing extensions required for GLES 3.2.
     LogMissingExtensionsForGLES32(mNativeExtensions);
 }
@@ -1710,25 +1711,25 @@ egl::ConfigSet GenerateConfigs(const GLenum *colorFormats,
     for (size_t colorFormatIdx = 0; colorFormatIdx < colorFormatsCount; colorFormatIdx++)
     {
         const gl::InternalFormat &colorFormatInfo =
-            gl::GetSizedInternalFormatInfo(colorFormats[colorFormatIdx]);
+            gl::GetSizedInternalFormatInfo(ANGLE_UNSAFE_TODO(colorFormats[colorFormatIdx]));
         ASSERT(colorFormatInfo.sized);
 
         for (size_t depthStencilFormatIdx = 0; depthStencilFormatIdx < depthStencilFormatCount;
              depthStencilFormatIdx++)
         {
-            const gl::InternalFormat &depthStencilFormatInfo =
-                gl::GetSizedInternalFormatInfo(depthStencilFormats[depthStencilFormatIdx]);
-            ASSERT(depthStencilFormats[depthStencilFormatIdx] == GL_NONE ||
-                   depthStencilFormatInfo.sized);
+            const gl::InternalFormat &depthStencilFormatInfo = gl::GetSizedInternalFormatInfo(
+                ANGLE_UNSAFE_TODO(depthStencilFormats[depthStencilFormatIdx]));
+            ANGLE_UNSAFE_TODO(ASSERT(depthStencilFormats[depthStencilFormatIdx] == GL_NONE ||
+                                     depthStencilFormatInfo.sized));
 
             const gl::SupportedSampleSet *configSampleCounts = &sampleCounts;
             // If there is no depth/stencil buffer, use the color samples set.
-            if (depthStencilFormats[depthStencilFormatIdx] == GL_NONE)
+            if (ANGLE_UNSAFE_TODO(depthStencilFormats[depthStencilFormatIdx]) == GL_NONE)
             {
                 configSampleCounts = &colorSampleCounts;
             }
             // If there is no color buffer, use the depth/stencil samples set.
-            else if (colorFormats[colorFormatIdx] == GL_NONE)
+            else if (ANGLE_UNSAFE_TODO(colorFormats[colorFormatIdx]) == GL_NONE)
             {
                 configSampleCounts = &depthStencilSampleCounts;
             }

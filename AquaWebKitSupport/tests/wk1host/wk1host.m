@@ -1,11 +1,15 @@
 // A minimal WebKit1 host: one WebView in one window, loading the URL given on the command line.
-// Console messages, alerts and load failures go to stdout, so a WK1-only bug can be driven and
-// read from a shell. A third argument is JavaScript run against the main frame once it has
-// loaded, which is how a page that waits for a click is driven. Build with build.sh.
+// Console messages, alerts, authentication challenges and load failures go to stdout, so a WK1-only
+// bug can be driven and read from a shell. A third argument is JavaScript run against the main frame
+// once it has loaded, which is how a page that waits for a click is driven. Build with build.sh.
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import <dlfcn.h>
+
+@interface NSURLRequest (WK1HostCertificates)
++ (void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
+@end
 
 @interface Host : NSObject {
 @public
@@ -47,6 +51,16 @@
     }
 }
 
+- (void)webView:(WebView *)sender resource:(id)identifier didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge fromDataSource:(WebDataSource *)dataSource
+{
+    printf("CHALLENGE %s\n", [[[challenge protectionSpace] authenticationMethod] UTF8String]);
+    fflush(stdout);
+    if ([[challenge sender] respondsToSelector:@selector(performDefaultHandlingForAuthenticationChallenge:)])
+        [[challenge sender] performDefaultHandlingForAuthenticationChallenge:challenge];
+    else
+        [[challenge sender] continueWithoutCredentialForAuthenticationChallenge:challenge];
+}
+
 - (void)webView:(WebView *)sender didFailProvisionalLoadWithError:(NSError *)error forFrame:(WebFrame *)frame
 {
     printf("LOADFAIL %s\n", [[error description] UTF8String]);
@@ -83,6 +97,11 @@ int main(int argc, const char *argv[])
                 setAllowsAnySSLCertificate(true);
         }
 
+        // WK1HOST_ALLOW_HOST names a host whose certificate is accepted, through the NSURLRequest SPI stock
+        // WebKit 1's NSURLConnection loads honor as well.
+        if (getenv("WK1HOST_ALLOW_HOST"))
+            [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:[NSString stringWithUTF8String:getenv("WK1HOST_ALLOW_HOST")]];
+
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(80, 80, 1000, 700)
             styleMask:NSTitledWindowMask | NSClosableWindowMask | NSResizableWindowMask
             backing:NSBackingStoreBuffered defer:NO];
@@ -92,6 +111,7 @@ int main(int argc, const char *argv[])
             host->script = [NSString stringWithUTF8String:argv[3]];
         [webView setUIDelegate:host];
         [webView setFrameLoadDelegate:host];
+        [webView setResourceLoadDelegate:host];
         [window setContentView:webView];
         [window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];

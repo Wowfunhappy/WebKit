@@ -9,11 +9,8 @@
 //   See: https://www.khronos.org/registry/vulkan/specs/misc/GL_KHR_vulkan_glsl.txt
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "compiler/translator/spirv/TranslatorSPIRV.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/PackedEnums.h"
 #include "common/utilities.h"
@@ -31,7 +28,6 @@
 #include "compiler/translator/tree_ops/RewriteAtomicCounters.h"
 #include "compiler/translator/tree_ops/RewriteDfdy.h"
 #include "compiler/translator/tree_ops/RewriteStructSamplers.h"
-#include "compiler/translator/tree_ops/SeparateStructFromUniformDeclarations.h"
 #include "compiler/translator/tree_ops/spirv/ClampGLLayer.h"
 #include "compiler/translator/tree_ops/spirv/EmulateAdvancedBlendEquations.h"
 #include "compiler/translator/tree_ops/spirv/EmulateFragColorData.h"
@@ -559,52 +555,29 @@ ShaderVariable *FindIOBlockShaderVariable(std::vector<ShaderVariable> *vars,
     return nullptr;
 }
 
-ShaderVariable *FindUniformFieldShaderVariable(std::vector<ShaderVariable> *vars,
-                                               const ImmutableString &name,
-                                               const char *prefix)
+void GetSamplersInStruct(std::vector<ShaderVariable> *fields, TVector<ShaderVariable *> *samplers)
 {
-    for (ShaderVariable &var : *vars)
+    for (ShaderVariable &var : *fields)
     {
-        // The name of the sampler is derived from the uniform name + fields
-        // that reach the uniform, concatenated with '_' per RewriteStructSamplers.
-        std::string varName = prefix;
-        varName += '_';
-        varName += var.name;
-
-        if (name == varName)
+        if (gl::IsSamplerType(var.type))
         {
-            return &var;
+            samplers->push_back(&var);
         }
-
-        ShaderVariable *field = FindUniformFieldShaderVariable(&var.fields, name, varName.c_str());
-        if (field != nullptr)
+        else
         {
-            return field;
+            GetSamplersInStruct(&var.fields, samplers);
         }
     }
-    return nullptr;
 }
 
-ShaderVariable *FindUniformShaderVariable(std::vector<ShaderVariable> *vars,
-                                          const ImmutableString &name)
+TVector<ShaderVariable *> GetSamplersInStructs(std::vector<ShaderVariable> *vars)
 {
+    TVector<ShaderVariable *> samplers;
     for (ShaderVariable &var : *vars)
     {
-        if (name == var.name)
-        {
-            return &var;
-        }
-
-        // Note: samplers in structs are moved out.  Such samplers will be found in the fields of
-        // the struct uniform.
-        ShaderVariable *field = FindUniformFieldShaderVariable(&var.fields, name, var.name.c_str());
-        if (field != nullptr)
-        {
-            return field;
-        }
+        GetSamplersInStruct(&var.fields, &samplers);
     }
-    UNREACHABLE();
-    return nullptr;
+    return samplers;
 }
 
 void SetSpirvIdInFields(uint32_t id, std::vector<ShaderVariable> *fields)
@@ -614,6 +587,18 @@ void SetSpirvIdInFields(uint32_t id, std::vector<ShaderVariable> *fields)
         field.id = id;
         SetSpirvIdInFields(id, &field.fields);
     }
+}
+
+bool IsOnlyOpaqueType(const ShaderVariable &uniform)
+{
+    if (uniform.fields.empty())
+    {
+        return gl::IsOpaqueType(uniform.type);
+    }
+
+    // The parser places sampler types in the end of the struct, so if there are any non-opaque
+    // fields in the uniform, at least the first field must be non-opaque.
+    return IsOnlyOpaqueType(uniform.fields[0]);
 }
 }  // anonymous namespace
 
@@ -631,9 +616,9 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
     int aggregateTypesUsedForUniforms = 0;
     int r32fImageCount                = 0;
     int atomicCounterCount            = 0;
-    for (const auto &uniform : getUniforms())
+    for (const ShaderVariable &uniform : getUniforms())
     {
-        if (!uniform.isBuiltIn() && uniform.active && !gl::IsOpaqueType(uniform.type))
+        if (!uniform.isBuiltIn() && uniform.active && !IsOnlyOpaqueType(uniform))
         {
             ++defaultUniformCount;
         }
@@ -678,18 +663,10 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
 
     if (aggregateTypesUsedForUniforms > 0)
     {
-        if (!SeparateStructFromUniformDeclarations(this, root, &getSymbolTable()))
+        if (!RewriteStructSamplers(this, root, &getSymbolTable()))
         {
             return false;
         }
-
-        int removedUniformsCount;
-
-        if (!RewriteStructSamplers(this, root, &getSymbolTable(), &removedUniformsCount))
-        {
-            return false;
-        }
-        defaultUniformCount -= removedUniformsCount;
     }
 
     // Replace array of array of opaque uniforms with a flattened array.  This is run after
@@ -1227,6 +1204,12 @@ void TranslatorSPIRV::assignSpirvIds(TIntermBlock *root)
     // of this fact for optimal hashing.
     mFirstUnusedSpirvId = vk::spirv::kIdFirstUnreserved;
 
+    // Extracted samplers are given generic names and cannot be looked up.  They are given IDs in
+    // sequence based on declaration order, which also means they cannot be dead-code eliminated or
+    // reordered by any transformation
+    TVector<ShaderVariable *> extractedSamplers = GetSamplersInStructs(&mUniforms);
+    uint32_t nextExtractedSampler               = 0;
+
     for (TIntermNode *node : *root->getSequence())
     {
         TIntermDeclaration *decl = node->getAsDeclarationNode();
@@ -1294,8 +1277,22 @@ void TranslatorSPIRV::assignSpirvIds(TIntermBlock *root)
         }
         else if (qualifier == EvqUniform)
         {
-            ShaderVariable *uniform = FindUniformShaderVariable(&mUniforms, symbol->getName());
-            variableId              = &uniform->id;
+            // The translator never adds any samplers that are not declared in the shader.  As such,
+            // the only |AngleInternal| samplers are those that are extracted from uniforms.
+            if (IsSampler(type.getBasicType()) &&
+                symbol->variable().symbolType() == SymbolType::AngleInternal)
+            {
+                // Since the samplers are declared in the shader in the same order as they are
+                // collected in reflection info, pick the next |ShaderVariable| for these samplers.
+                ASSERT(nextExtractedSampler < extractedSamplers.size());
+                variableId = &extractedSamplers[nextExtractedSampler]->id;
+                ++nextExtractedSampler;
+            }
+            else
+            {
+                ShaderVariable *uniform = FindShaderVariable(&mUniforms, symbol->getName());
+                variableId              = &uniform->id;
+            }
         }
         else if (qualifier == EvqAttribute || qualifier == EvqVertexIn)
         {
@@ -1316,7 +1313,7 @@ void TranslatorSPIRV::assignSpirvIds(TIntermBlock *root)
             if (angle::BeginsWith(name.data(), "webgl_") &&
                 symbol->variable().symbolType() == SymbolType::AngleInternal)
             {
-                name = ImmutableString(name.data() + 3, name.length() - 3);
+                name = ImmutableString(ANGLE_UNSAFE_TODO(name.data() + 3), name.length() - 3);
             }
 
             ShaderVariable *output = FindShaderVariable(&mOutputVariables, name);

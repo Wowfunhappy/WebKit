@@ -62,13 +62,13 @@ extension WebKit.WebPageProxy {
         at point: WebCore.IntPoint,
         by granularity: WebCore.TextGranularity,
         isInteractingWithFocusedElement: Bool
-    ) async {
+    ) async -> Bool {
         await withCheckedContinuation { continuation in
             selectTextWithGranularityAtPoint(
                 point,
                 granularity,
                 isInteractingWithFocusedElement,
-                consuming: .init({ continuation.resume() }, WTF.ThreadLikeAssertion(WTF.CurrentThreadLike()))
+                consuming: .init({ continuation.resume(returning: $0) }, WTF.ThreadLikeAssertion(WTF.CurrentThreadLike()))
             )
         }
     }
@@ -80,6 +80,7 @@ extension WebKit.WebPageProxy {
         by granularity: WebCore.TextGranularity,
         isInteractingWithFocusedElement: Bool,
         source: WebKit.TextInteractionSource,
+        anchor: WebKit.SelectionExtentAnchor,
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             updateSelectionWithExtentPointAndBoundary(
@@ -87,6 +88,7 @@ extension WebKit.WebPageProxy {
                 granularity,
                 isInteractingWithFocusedElement,
                 source,
+                anchor,
                 consuming: .init({ continuation.resume(returning: $0) }, WTF.ThreadLikeAssertion(WTF.CurrentThreadLike()))
             )
         }

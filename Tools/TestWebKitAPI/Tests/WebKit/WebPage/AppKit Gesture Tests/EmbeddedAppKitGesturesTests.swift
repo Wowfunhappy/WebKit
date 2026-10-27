@@ -29,7 +29,6 @@ import struct Foundation.URL
 @_spi(Testing) import _WebKit_SwiftUI
 import SwiftUI
 import struct Swift.String
-import struct _Concurrency.Task
 private import struct TestWebKitAPILibrary.DOMRect
 import Testing
 private import TestWebKitAPILibrary
@@ -39,7 +38,7 @@ private import AppKit_Private.NSMenu_Private
 extension AppKitGesturesTests {
     @MainActor
     @Suite(.serialized, .timeLimit(.minutes(1)))
-    struct Embedded: AppKitGestureTestSuite {
+    final class Embedded: AppKitGestureTestSuite {
         @MainActor
         private final class ContentOffsetStorage {
             var value = CGPoint.zero
@@ -57,7 +56,7 @@ extension AppKitGesturesTests {
             return WebPage(configuration: configuration)
         }()
 
-        let window: NSWindow
+        let windowHost: TestWindowHost
 
         private let windowSize = NSSize(width: 800, height: 600)
         private let contentHeight: CGFloat = 2000
@@ -65,7 +64,7 @@ extension AppKitGesturesTests {
         private var contentOffset = ContentOffsetStorage()
 
         init() async throws {
-            self.window = NSWindow(size: windowSize) { [windowSize, contentHeight, contentOffset, page] in
+            self.windowHost = TestWindowHost(size: windowSize) { [windowSize, contentHeight, contentOffset, page] in
                 ScrollView {
                     VStack(spacing: 0) {
                         WebView(page)
@@ -81,10 +80,6 @@ extension AppKitGesturesTests {
                     contentOffset.value = newContentOffset
                 }
             }
-
-            self.window.setFrameOrigin(.zero)
-            NSApp.activate(ignoringOtherApps: true)
-            self.window.makeKeyAndOrderFront(nil)
 
             await NSApp.waitForActivation()
         }
@@ -229,6 +224,43 @@ extension AppKitGesturesTests.Embedded {
 
         let newSelection = try await page.callJavaScript(JavaScriptMessages.GetSelection())
         #expect(newSelection == crazySelection)
+    }
+
+    @Test(
+        .bug("https://webkit.org/b/324477", "Interrupt an enclosing scroll view's deceleration follows the link below")
+    )
+    func interruptingEnclosingScrollViewDecelerationDoesNotFollowLink() async throws {
+        let html = """
+            <body style="margin: 0;">
+                <a id="link" href="about:blank"
+                   style="display: block; width: 100%; height: 100vh;
+                          background: repeating-linear-gradient(to bottom, blue 0 50px, white 50px 100px);">
+                </a>
+            </body>
+            """
+
+        let initialURL = try #require(URL(string: "http://webkit.org/"))
+        try await page.load(html: html, baseURL: initialURL).wait()
+        await page.waitForNextPresentationUpdate()
+
+        let cgScreenOrigin = screenBounds(ofPointInWindowCoordinates: .init(x: 0, y: windowSize.height))
+        let viewportInCGScreen = CGRect(origin: cgScreenOrigin, size: windowSize)
+
+        let center = viewportInCGScreen.center
+        let flickStart = CGPoint(x: center.x, y: center.y + 50)
+        let flickEnd = CGPoint(x: center.x, y: center.y - 50)
+
+        await recap.play { composer in
+            composer._wk_scroll(withStart: flickStart, end: flickEnd, duration: .seconds(0.1))
+            composer.advanceTime(0.05)
+            composer._wk_click(at: center, for: .seconds(0.05))
+        }
+
+        await page.waitForPendingMouseEvents()
+        await page.waitForNextPresentationUpdate()
+
+        try await Task.sleep(for: .seconds(1))
+        #expect(page.url == initialURL)
     }
 }
 

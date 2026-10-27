@@ -7,11 +7,8 @@
 // accordingly.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/vulkan/spv_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include <array>
 #include <cctype>
@@ -919,7 +916,7 @@ bool IsNonSemanticInstruction(const uint32_t *instruction)
 {
     // To avoid parsing the numerous GLSL OpExtInst instructions, take a quick peek at the set and
     // skip instructions that aren't non-semantic.
-    return instruction[3] == sh::vk::spirv::kIdNonSemanticInstructionSet;
+    return ANGLE_UNSAFE_TODO(instruction[3]) == sh::vk::spirv::kIdNonSemanticInstructionSet;
 }
 
 enum class EntryPointList
@@ -1030,7 +1027,8 @@ const uint32_t *SpirvTransformerBase::getCurrentInstruction(spv::Op *opCodeOut,
 
 void SpirvTransformerBase::copyInstruction(const uint32_t *instruction, size_t wordCount)
 {
-    mSpirvBlobOut->insert(mSpirvBlobOut->end(), instruction, instruction + wordCount);
+    mSpirvBlobOut->insert(mSpirvBlobOut->end(), instruction,
+                          ANGLE_UNSAFE_TODO(instruction + wordCount));
 }
 
 spirv::IdRef SpirvTransformerBase::GetNewId(spirv::Blob *blob)
@@ -2643,7 +2641,7 @@ void SpirvTransformFeedbackCodeGenerator::addMemberDecorate(const XFBInterfaceVa
         ASSERT(xfb.pod.stride != ShaderInterfaceVariableXfbInfo::kInvalid);
         ASSERT(xfb.pod.offset != ShaderInterfaceVariableXfbInfo::kInvalid);
 
-        const uint32_t xfbDecorationValues[kXfbDecorationCount] = {
+        const std::array<uint32_t, kXfbDecorationCount> xfbDecorationValues = {
             xfb.pod.buffer,
             xfb.pod.stride,
             xfb.pod.offset,
@@ -2657,7 +2655,7 @@ void SpirvTransformFeedbackCodeGenerator::addMemberDecorate(const XFBInterfaceVa
         for (size_t i = 0; i < kXfbDecorationCount; ++i)
         {
             spirv::WriteMemberDecorate(blobOut, id, spirv::LiteralInteger(fieldIndex),
-                                       kXfbDecorations[i],
+                                       ANGLE_UNSAFE_TODO(kXfbDecorations[i]),
                                        {spirv::LiteralInteger(xfbDecorationValues[i])});
         }
     }
@@ -2675,7 +2673,7 @@ void SpirvTransformFeedbackCodeGenerator::addDecorate(const XFBInterfaceVariable
     ASSERT(info.xfb.pod.stride != ShaderInterfaceVariableXfbInfo::kInvalid);
     ASSERT(info.xfb.pod.offset != ShaderInterfaceVariableXfbInfo::kInvalid);
 
-    const uint32_t xfbDecorationValues[kXfbDecorationCount] = {
+    const std::array<uint32_t, kXfbDecorationCount> xfbDecorationValues = {
         info.xfb.pod.buffer,
         info.xfb.pod.stride,
         info.xfb.pod.offset,
@@ -2688,7 +2686,7 @@ void SpirvTransformFeedbackCodeGenerator::addDecorate(const XFBInterfaceVariable
     //     OpDecorate %id Offset xfb.offset
     for (size_t i = 0; i < kXfbDecorationCount; ++i)
     {
-        spirv::WriteDecorate(blobOut, id, kXfbDecorations[i],
+        spirv::WriteDecorate(blobOut, id, ANGLE_UNSAFE_TODO(kXfbDecorations[i]),
                              {spirv::LiteralInteger(xfbDecorationValues[i])});
     }
 }
@@ -4813,8 +4811,9 @@ TransformationState SpirvTransformer::transformExtension(const uint32_t *instruc
     spirv::LiteralString name;
     spirv::ParseExtension(instruction, &name);
 
-    return strcmp(name, "SPV_KHR_non_semantic_info") == 0 ? TransformationState::Transformed
-                                                          : TransformationState::Unchanged;
+    return ANGLE_UNSAFE_TODO(strcmp(name, "SPV_KHR_non_semantic_info")) == 0
+               ? TransformationState::Transformed
+               : TransformationState::Unchanged;
 }
 
 TransformationState SpirvTransformer::transformExtInstImport(const uint32_t *instruction)

@@ -52,8 +52,10 @@ DECLARE_SYSTEM_HEADER
 #endif
 
 #import <AppKit/NSGestureRecognizer_Private.h>
+#import <AppKit/NSMagnificationGestureRecognizer_Private.h>
 #import <AppKit/NSPanGestureRecognizer_Private.h>
 #import <AppKit/NSPressGestureRecognizer_Private.h>
+#import <AppKit/NSRotationGestureRecognizer_Private.h>
 
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
 #import <AppKit/NSViewCornerConfiguration_Private.h>
@@ -271,6 +273,16 @@ NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 @property (weak) id /* <NSTextSelectionManagerDelegate> */ _webkitDelegate;
 @end
 
+// FIXME: Move this above once <rdar://problem/188247170> is in an SDK.
+@interface NSPanGestureRecognizer (Staging_188247170)
+- (NSPoint)_startLocationInView:(NSView *)view;
+@end
+
+@interface NSGestureRecognizer (IPI)
+@property (setter=_setIsScrollGestureRecognizer:) BOOL _isScrollGestureRecognizer;
+- (BOOL)_acceptsBeingFailureRequirementForGestureRecognizer:(NSGestureRecognizer *)otherGestureRecognizer;
+@end
+
 NS_HEADER_AUDIT_END(nullability, sendability)
 
 #endif // HAVE(APPKIT_GESTURES_SUPPORT)
@@ -295,7 +307,9 @@ NS_HEADER_AUDIT_END(nullability, sendability)
 @property (nonatomic, readonly) CGFloat refreshControlDynamicDampeningThreshold;
 @end
 
-// We need to spell out the protocol here for Swift/C++ interop support in WebKit-Swift-Generated.h
+// WebKit-Swift-Generated.h references this protocol, and AppKit declares it only in Swift, so
+// Objective-C needs it spelled out here. The Swift conformance uses AppKit_SPI, which cannot
+// replace this declaration.
 @protocol NSRefreshControlHosting <NSObject>
 @required
 @property (nonatomic, readonly) CGFloat refreshControlVisibleHeight;
@@ -303,6 +317,9 @@ NS_HEADER_AUDIT_END(nullability, sendability)
 
 - (void)applyWithVerticalInset:(CGFloat)verticalInset animated:(BOOL)animated completion:(void (^ _Nullable)(void))completion;
 - (void)removeWithVerticalInset:(CGFloat)verticalInset animated:(BOOL)animated completion:(void (^ _Nullable)(void))completion;
+
+@optional
+@property (nonatomic, readonly) BOOL refreshControlHostIsTracking;
 @end
 
 #endif

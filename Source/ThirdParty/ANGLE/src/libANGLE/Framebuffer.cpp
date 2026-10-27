@@ -7,11 +7,8 @@
 // Framebuffer.cpp: Implements the gl::Framebuffer class. Implements GL framebuffer
 // objects and related functionality. [OpenGL ES 2.0.24] section 4.4 page 105.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/Framebuffer.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/Optional.h"
 #include "common/bitset_utils.h"
@@ -175,38 +172,13 @@ FramebufferStatus CheckResolveTargetMatchesForCompleteness(
 
 FramebufferStatus CheckAttachmentSampleCounts(const Context *context,
                                               GLsizei currAttachmentSamples,
-                                              GLsizei samples,
-                                              bool colorAttachment)
+                                              GLsizei samples)
 {
     if (currAttachmentSamples != samples)
     {
-        if (colorAttachment)
-        {
-            // APPLE_framebuffer_multisample, which EXT_draw_buffers refers to, requires that
-            // all color attachments have the same number of samples for the FBO to be complete.
-            return FramebufferStatus::Incomplete(
-                GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
-                err::kFramebufferIncompleteMultisampleInconsistentSampleCounts);
-        }
-        else
-        {
-            // CHROMIUM_framebuffer_mixed_samples allows a framebuffer to be considered complete
-            // when its depth or stencil samples are a multiple of the number of color samples.
-            if (!context->getExtensions().framebufferMixedSamplesCHROMIUM)
-            {
-                return FramebufferStatus::Incomplete(
-                    GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
-                    err::kFramebufferIncompleteMultisampleInconsistentSampleCounts);
-            }
-
-            if ((currAttachmentSamples % std::max(samples, 1)) != 0)
-            {
-                return FramebufferStatus::Incomplete(
-                    GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
-                    err::
-                        kFramebufferIncompleteMultisampleDepthStencilSampleCountDivisibleByColorSampleCount);
-            }
-        }
+        return FramebufferStatus::Incomplete(
+            GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
+            err::kFramebufferIncompleteMultisampleInconsistentSampleCounts);
     }
 
     return FramebufferStatus::Complete();
@@ -214,7 +186,6 @@ FramebufferStatus CheckAttachmentSampleCounts(const Context *context,
 
 FramebufferStatus CheckAttachmentSampleCompleteness(const Context *context,
                                                     const FramebufferAttachment &attachment,
-                                                    bool colorAttachment,
                                                     Optional<int> *samples,
                                                     Optional<bool> *fixedSampleLocations,
                                                     Optional<int> *renderToTextureSamples)
@@ -256,9 +227,8 @@ FramebufferStatus CheckAttachmentSampleCompleteness(const Context *context,
                 FramebufferAttachment::kDefaultRenderToTextureSamples ||
             currRenderToTextureSamples != FramebufferAttachment::kDefaultRenderToTextureSamples)
         {
-            FramebufferStatus sampleCountStatus =
-                CheckAttachmentSampleCounts(context, currRenderToTextureSamples,
-                                            renderToTextureSamples->value(), colorAttachment);
+            FramebufferStatus sampleCountStatus = CheckAttachmentSampleCounts(
+                context, currRenderToTextureSamples, renderToTextureSamples->value());
             if (!sampleCountStatus.isComplete())
             {
                 return sampleCountStatus;
@@ -278,8 +248,8 @@ FramebufferStatus CheckAttachmentSampleCompleteness(const Context *context,
             currRenderToTextureSamples == FramebufferAttachment::kDefaultRenderToTextureSamples)
         {
 
-            FramebufferStatus sampleCountStatus = CheckAttachmentSampleCounts(
-                context, attachment.getSamples(), samples->value(), colorAttachment);
+            FramebufferStatus sampleCountStatus =
+                CheckAttachmentSampleCounts(context, attachment.getSamples(), samples->value());
             if (!sampleCountStatus.isComplete())
             {
                 return sampleCountStatus;
@@ -1250,7 +1220,7 @@ void Framebuffer::setDrawBuffers(size_t count, const GLenum *buffers)
     auto &drawStates = mState.mDrawBufferStates;
 
     ASSERT(count <= drawStates.size());
-    std::copy(buffers, buffers + count, drawStates.begin());
+    std::copy(buffers, ANGLE_UNSAFE_TODO(buffers + count), drawStates.begin());
     std::fill(drawStates.begin() + count, drawStates.end(), GL_NONE);
     mDirtyBits.set(DIRTY_BIT_DRAW_BUFFERS);
 
@@ -1408,9 +1378,8 @@ FramebufferStatus Framebuffer::checkStatusWithGLFrontEnd(const Context *context)
                     err::kFramebufferIncompleteDepthStencilInColorBuffer);
             }
 
-            FramebufferStatus attachmentSampleCompleteness =
-                CheckAttachmentSampleCompleteness(context, colorAttachment, true, &samples,
-                                                  &fixedSampleLocations, &renderToTextureSamples);
+            FramebufferStatus attachmentSampleCompleteness = CheckAttachmentSampleCompleteness(
+                context, colorAttachment, &samples, &fixedSampleLocations, &renderToTextureSamples);
             if (!attachmentSampleCompleteness.isComplete())
             {
                 return attachmentSampleCompleteness;
@@ -1522,9 +1491,8 @@ FramebufferStatus Framebuffer::checkStatusWithGLFrontEnd(const Context *context)
                 err::kFramebufferIncompleteAttachmentNoDepthBitsInDepthBuffer);
         }
 
-        FramebufferStatus attachmentSampleCompleteness =
-            CheckAttachmentSampleCompleteness(context, depthAttachment, false, &samples,
-                                              &fixedSampleLocations, &renderToTextureSamples);
+        FramebufferStatus attachmentSampleCompleteness = CheckAttachmentSampleCompleteness(
+            context, depthAttachment, &samples, &fixedSampleLocations, &renderToTextureSamples);
         if (!attachmentSampleCompleteness.isComplete())
         {
             return attachmentSampleCompleteness;
@@ -1591,9 +1559,8 @@ FramebufferStatus Framebuffer::checkStatusWithGLFrontEnd(const Context *context)
                 err::kFramebufferIncompleteAttachmentNoStencilBitsInStencilBuffer);
         }
 
-        FramebufferStatus attachmentSampleCompleteness =
-            CheckAttachmentSampleCompleteness(context, stencilAttachment, false, &samples,
-                                              &fixedSampleLocations, &renderToTextureSamples);
+        FramebufferStatus attachmentSampleCompleteness = CheckAttachmentSampleCompleteness(
+            context, stencilAttachment, &samples, &fixedSampleLocations, &renderToTextureSamples);
         if (!attachmentSampleCompleteness.isComplete())
         {
             return attachmentSampleCompleteness;
@@ -1747,10 +1714,10 @@ FramebufferStatus Framebuffer::checkStatusWithGLFrontEnd(const Context *context)
             err::kFramebufferIncompleteMultisampleNonFixedSamplesWithRenderbuffers);
     }
 
-    // The WebGL conformance tests implicitly define that all framebuffer
-    // attachments must be unique. For example, the same level of a texture can
-    // not be attached to two different color attachments.
-    if (context->isWebGL() || context->isHardenedContext())
+    // The WebGL conformance tests implicitly define that all framebuffer attachments must be
+    // unique. For example, the same level of a texture can not be attached to two different color
+    // attachments. The same restriction is applied to hardened contexts.
+    if (context->isHardenedContext())
     {
         if (!mState.colorAttachmentsAreUniqueImages())
         {
@@ -1815,6 +1782,27 @@ angle::Result Framebuffer::partialClearNeedsInit(const Context *context,
     }
 
     if (depth && context->getFrontendFeatures().forceDepthAttachmentInitOnClear.enabled)
+    {
+        *needsInitOut = true;
+        return angle::Result::Continue;
+    }
+
+    // Clearing only one aspect of a packed depth-stencil attachment is a partial
+    // clear of the underlying resource. While the framebuffer tracks depth and
+    // stencil initialization needs separately in mState.mResourceNeedsInit, the
+    // underlying resource (texture level or renderbuffer) has a single shared
+    // InitState. Marking one aspect as Initialized updates the shared resource state,
+    // which would incorrectly suppress robust-init of the other aspect.
+    if (depth && !stencil && mState.mDepthAttachment.isAttached() &&
+        mState.mDepthAttachment.getStencilSize() > 0 &&
+        mState.mResourceNeedsInit[DIRTY_BIT_DEPTH_ATTACHMENT])
+    {
+        *needsInitOut = true;
+        return angle::Result::Continue;
+    }
+    if (stencil && !depth && mState.mStencilAttachment.isAttached() &&
+        mState.mStencilAttachment.getDepthSize() > 0 &&
+        mState.mResourceNeedsInit[DIRTY_BIT_STENCIL_ATTACHMENT])
     {
         *needsInitOut = true;
         return angle::Result::Continue;
@@ -1908,7 +1896,7 @@ angle::Result Framebuffer::invalidateSub(const Context *context,
 
         for (size_t i = 0; i < count; ++i)
         {
-            GLenum attachment = attachments[i];
+            GLenum attachment = ANGLE_UNSAFE_TODO(attachments[i]);
             if (attachment >= GL_COLOR_ATTACHMENT0 &&
                 attachment < GL_COLOR_ATTACHMENT0 + IMPLEMENTATION_MAX_DRAW_BUFFERS)
             {
@@ -2574,6 +2562,18 @@ void Framebuffer::onSubjectStateChange(angle::SubjectIndex index, angle::Subject
             return;
         }
 
+        if (message == angle::SubjectMessage::TextureLayerCountIncreased)
+        {
+            FramebufferAttachment *attachment = getAttachmentFromSubjectIndex(index);
+            if (attachment)
+            {
+                (void)mImpl->onAttachmentLayerCountChange(attachment);
+            }
+            mDirtyBits.set(index);
+            onStateChange(angle::SubjectMessage::DirtyBitsFlagged);
+            return;
+        }
+
         // This can be triggered by the GL back-end TextureGL class.
         ASSERT(message == angle::SubjectMessage::DirtyBitsFlagged ||
                message == angle::SubjectMessage::TextureIDDeleted);
@@ -3050,7 +3050,8 @@ void Framebuffer::markAttachmentsUninitialized(const Context *context,
 {
     for (size_t i = 0; i < count; ++i)
     {
-        const FramebufferAttachment *attachment = mState.getAttachment(context, attachments[i]);
+        const FramebufferAttachment *attachment =
+            mState.getAttachment(context, ANGLE_UNSAFE_TODO(attachments[i]));
         if (attachment)
         {
             attachment->setInitState(InitState::MayNeedInit);
@@ -3069,7 +3070,7 @@ Framebuffer::overrideInvalidateAttachments(size_t count, const GLenum *attachmen
 
     for (size_t i = 0; i < count; ++i)
     {
-        GLenum attachment = attachments[i];
+        GLenum attachment = ANGLE_UNSAFE_TODO(attachments[i]);
         if (attachment == GL_DEPTH_ATTACHMENT)
         {
             invalidateDepth = true;

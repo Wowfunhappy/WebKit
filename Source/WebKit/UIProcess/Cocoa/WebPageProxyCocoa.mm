@@ -88,6 +88,7 @@
 #import <WebCore/NotImplemented.h>
 #import <WebCore/NowPlayingInfo.h>
 #import <WebCore/NullPlaybackSessionInterface.h>
+#import <WebCore/PlatformPasteboard.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
 #import <WebCore/PlatformRenderTheme.h>
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
@@ -496,8 +497,24 @@ bool WebPageProxy::scrollingUpdatesDisabledForTesting()
 
 #if ENABLE(DRAG_SUPPORT)
 
-void WebPageProxy::startDrag(const DragItem& dragItem, ShareableBitmap::Handle&& dragImageHandle, const std::optional<NodeIdentifier>& nodeID, const std::optional<FrameIdentifier>& frameID)
+void WebPageProxy::startDrag(IPC::Connection& connection, const DragItem& dragItem, ShareableBitmap::Handle&& dragImageHandle, const std::optional<NodeIdentifier>& nodeID, const std::optional<FrameIdentifier>& frameID)
 {
+    auto& promisedAttachmentInfo = dragItem.promisedAttachmentInfo;
+#if ENABLE(ATTACHMENT_ELEMENT)
+    MESSAGE_CHECK(promisedAttachmentInfo.attachmentIdentifier.isEmpty() || protect(preferences())->attachmentElementEnabled(), connection);
+#endif
+    for (auto& [type, data] : promisedAttachmentInfo.additionalTypesAndData) {
+        // These are written to the platform drag pasteboard verbatim, so hold them to the same
+        // standard as any other pasteboard write coming from the web process: it must never be able
+        // to plant a file reference on the drag pasteboard. Editor::getPasteboardTypesAndDataForAttachment
+        // never produces a file type, so this is not a limitation on any legitimate drag.
+        MESSAGE_CHECK(!type.isEmpty(), connection);
+        MESSAGE_CHECK(data, connection);
+#if PLATFORM(MAC)
+        MESSAGE_CHECK(!PlatformPasteboard::isFilePasteboardType(type), connection);
+#endif
+    }
+
     if (RefPtr pageClient = this->pageClient())
         pageClient->startDrag(dragItem, WTF::move(dragImageHandle), nodeID, frameID);
 }
@@ -674,7 +691,7 @@ _WKRemoteObjectRegistry *WebPageProxy::remoteObjectRegistry()
 RemoteObjectRegistry* WebPageProxy::uiRemoteObjectRegistry()
 {
     if (RetainPtr registry = remoteObjectRegistry())
-        return &[registry remoteObjectRegistry];
+        return [registry remoteObjectRegistry];
     return nullptr;
 }
 
@@ -1018,6 +1035,15 @@ void WebPageProxy::setUpHighlightsObserver()
 
 #endif
 
+#if ENABLE(APPLE_PAY)
+
+void WebPageProxy::didCompleteApplePayPayment()
+{
+    uiClient().didCompleteApplePayPayment(*this);
+}
+
+#endif
+
 #if ENABLE(APPLE_PAY_AMS_UI)
 
 void WebPageProxy::startApplePayAMSUISession(URL&& originatingURL, ApplePayAMSUIRequest&& request, CompletionHandler<void(std::optional<bool>&&)>&& completionHandler)
@@ -1206,7 +1232,7 @@ void WebPageProxy::setCocoaView(WKWebView *view)
     internals().cocoaView = view;
 }
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 void WebPageProxy::replaceImageForRemoveBackground(const ElementContext& elementContext, const Vector<String>& types, std::span<const uint8_t> data)
 {
@@ -1452,9 +1478,21 @@ void WebPageProxy::updateDisplayCaptureCapability()
         protect(processPool->extensionCapabilityGranter())->grant(*displayCaptureCapability, *this);
 }
 
+bool WebPageProxy::hasDisplayCaptureAuthorization() const
+{
+#if ENABLE(MEDIA_STREAM)
+    return m_isPromptingForDisplayCapture || m_hasGrantedDisplayCapture;
+#else
+    return false;
+#endif
+}
+
 bool WebPageProxy::shouldActivateDisplayCaptureCapability() const
 {
     if (!isViewVisible())
+        return false;
+
+    if (!hasDisplayCaptureAuthorization())
         return false;
 
     return internals().mediaState.containsAny(MediaProducer::DisplayCaptureMask | MediaProducer::IsPromptingForDisplayCaptureMask);
@@ -1465,6 +1503,9 @@ bool WebPageProxy::shouldDeactivateDisplayCaptureCapability() const
     RefPtr displayCaptureCapability = this->displayCaptureCapability();
     if (!displayCaptureCapability || !displayCaptureCapability->isActivatingOrActive())
         return false;
+
+    if (!hasDisplayCaptureAuthorization())
+        return true;
 
     if (internals().mediaState.containsAny(MediaProducer::DisplayCaptureMask | MediaProducer::IsPromptingForDisplayCaptureMask))
         return false;
@@ -2147,15 +2188,15 @@ void WebPageProxy::selectPositionAtPoint(WebCore::IntPoint point, bool isInterac
     }, webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::selectTextWithGranularityAtPoint(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, CompletionHandler<void()>&& callbackFunction)
+void WebPageProxy::selectTextWithGranularityAtPoint(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, CompletionHandler<void(bool preventedByPage)>&& callbackFunction)
 {
     if (!hasRunningProcess()) {
-        callbackFunction();
+        callbackFunction(false);
         return;
     }
 
-    protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::SelectTextWithGranularityAtPoint(point, granularity, isInteractingWithFocusedElement), [callbackFunction = WTF::move(callbackFunction), backgroundActivity = protect(m_legacyMainFrameProcess->throttler())->backgroundActivity("WebPageProxy::selectTextWithGranularityAtPoint"_s)] mutable {
-        callbackFunction();
+    protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::SelectTextWithGranularityAtPoint(point, granularity, isInteractingWithFocusedElement), [callbackFunction = WTF::move(callbackFunction), backgroundActivity = protect(m_legacyMainFrameProcess->throttler())->backgroundActivity("WebPageProxy::selectTextWithGranularityAtPoint"_s)](bool preventedByPage) mutable {
+        callbackFunction(preventedByPage);
     }, webPageIDInMainFrameProcess());
 }
 
@@ -2164,9 +2205,14 @@ void WebPageProxy::updateSelectionWithExtentPoint(WebCore::IntPoint point, bool 
     protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::UpdateSelectionWithExtentPoint(point, isInteractingWithFocusedElement, respectSelectionAnchor), WTF::move(callback), webPageIDInMainFrameProcess());
 }
 
+void WebPageProxy::updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, TextInteractionSource source, SelectionExtentAnchor anchor, CompletionHandler<void(bool)>&& callback)
+{
+    protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::UpdateSelectionWithExtentPointAndBoundary(point, granularity, isInteractingWithFocusedElement, source, anchor), WTF::move(callback), webPageIDInMainFrameProcess());
+}
+
 void WebPageProxy::updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, TextInteractionSource source, CompletionHandler<void(bool)>&& callback)
 {
-    protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::UpdateSelectionWithExtentPointAndBoundary(point, granularity, isInteractingWithFocusedElement, source), WTF::move(callback), webPageIDInMainFrameProcess());
+    updateSelectionWithExtentPointAndBoundary(point, granularity, isInteractingWithFocusedElement, source, SelectionExtentAnchor::GestureStart, WTF::move(callback));
 }
 
 void WebPageProxy::startAutoscrollAtPosition(const WebCore::FloatPoint& positionInWindow)
@@ -2204,18 +2250,18 @@ void WebPageProxy::potentialTapAtPosition(std::optional<WebCore::FrameIdentifier
     } });
 }
 
-void WebPageProxy::commitPotentialTap(std::optional<WebCore::FrameIdentifier> remoteFrameID, OptionSet<WebEventModifier> modifiers, TransactionID layerTreeTransactionIdAtLastTouchStart, WebCore::PointerID pointerId)
+void WebPageProxy::commitPotentialTap(std::optional<WebCore::FrameIdentifier> remoteFrameID, OptionSet<WebEventModifier> modifiers, TransactionID layerTreeTransactionIdAtLastTouchStart, WebCore::PointerID pointerId, CompletesDoubleClick completesDoubleClick)
 {
     if (RefPtr frame = remoteFrameID ? WebFrameProxy::webFrame(*remoteFrameID) : m_mainFrame.get())
         frame->notifyActivated(MonotonicTime::now());
 
-    sendWithAsyncReplyToProcessContainingFrame(remoteFrameID, Messages::WebPage::CommitPotentialTap(remoteFrameID, modifiers, layerTreeTransactionIdAtLastTouchStart, pointerId), Messages::WebPage::CommitPotentialTap::Reply { [weakThis = WeakPtr { *this }, modifiers, layerTreeTransactionIdAtLastTouchStart, pointerId](auto targetFrameID) {
+    sendWithAsyncReplyToProcessContainingFrame(remoteFrameID, Messages::WebPage::CommitPotentialTap(remoteFrameID, modifiers, layerTreeTransactionIdAtLastTouchStart, pointerId, completesDoubleClick), Messages::WebPage::CommitPotentialTap::Reply { [weakThis = WeakPtr { *this }, modifiers, layerTreeTransactionIdAtLastTouchStart, pointerId, completesDoubleClick](auto targetFrameID) {
         if (!targetFrameID)
             return;
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return;
-        protectedThis->commitPotentialTap(targetFrameID, modifiers, layerTreeTransactionIdAtLastTouchStart, pointerId);
+        protectedThis->commitPotentialTap(targetFrameID, modifiers, layerTreeTransactionIdAtLastTouchStart, pointerId, completesDoubleClick);
     } });
 }
 

@@ -83,6 +83,8 @@
 #import <WebCore/BitmapImage.h>
 #import <WebCore/CachedFrame.h>
 #import <WebCore/Chrome.h>
+#import <WebCore/CocoaCurlProxyConfiguration.h> // AQUAWEBKIT: prefetchDNS reads the extensions' proxy configuration.
+#import <WebCore/LegacyLoadInterceptor.h> // AQUAWEBKIT: and their proxy filters.
 #import <WebCore/ContainerNodeInlines.h>
 #import <WebCore/DNS.h>
 #import <WebCore/DOMWrapperWorld.h>
@@ -1995,6 +1997,11 @@ void WebFrameLoaderClient::contentFilterDidBlockLoad(WebCore::ContentFilterUnblo
 
 void WebFrameLoaderClient::prefetchDNS(const String& hostname)
 {
+    // AQUAWEBKIT: the proxies Safari 7 extensions route loads through, as NetworkSessionCocoa::canPrefetchDNS reads them.
+    if (RefPtr configuration = WebCore::CocoaCurlProxyConfiguration::current(); configuration && configuration->routesThroughProxies())
+        return;
+    if (auto* interceptor = WebCore::LegacyLoadInterceptor::singleton(); interceptor && (interceptor->hasProxyFilters() || !interceptor->allowsNetworkPrediction())) // AQUAWEBKIT: proxy.onRequest, as above, and privacy.network.networkPredictionEnabled.
+        return;
     WebCore::prefetchDNS(hostname);
 }
 

@@ -47,13 +47,15 @@ private:
     enum class MayCacheLayoutResult : bool { No, Yes };
     InlineLayoutUnit computedIntrinsicWidthForConstraint(IntrinsicWidthMode, AbstractLineBuilder&, MayCacheLayoutResult = MayCacheLayoutResult::No);
     InlineLayoutUnit simplifiedMinimumWidth(const ElementBox& root) const;
+    std::optional<InlineLayoutUnit> minimumContentSizeForBreakSpaces();
+    InlineLayoutUnit lineBuilderMinimumContentSize();
     InlineLayoutUnit simplifiedMaximumWidth(MayCacheLayoutResult = MayCacheLayoutResult::No);
 
     InlineFormattingContext& NODELETE formattingContext() LIFETIME_BOUND;
     const InlineFormattingContext& NODELETE formattingContext() const LIFETIME_BOUND;
     const InlineContentCache& formattingState() const LIFETIME_BOUND;
     const ElementBox& NODELETE formattingContextRoot() const;
-    const ElementBox& NODELETE lineBuilerRoot() const;
+    const ElementBox& NODELETE lineBuilderRoot() const;
     const InlineItemList& inlineItemList() const LIFETIME_BOUND { return m_inlineItems.content(); }
 
 private:

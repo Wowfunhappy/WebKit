@@ -28,6 +28,13 @@ struct CocoaCurlTLSState {
     WEBCORE_EXPORT static std::shared_ptr<CocoaCurlTLSState> fromSSL(SSL*);
     WEBCORE_EXPORT static RetainPtr<CFArrayRef> certificateAuthorities(SSL*);
     WEBCORE_EXPORT bool negotiatedLegacyTLS() const;
+    // HTTPProtocolSSLSupport::getSSLCertsCached: the identity the keychain prefers for the URL, and the
+    // certificates that follow its leaf. A keychain lookup and a trust evaluation, so not on a shared worker.
+    struct PreferredIdentity {
+        RetainPtr<SecIdentityRef> identity;
+        RetainPtr<NSArray> certificates;
+    };
+    WEBCORE_EXPORT static std::optional<PreferredIdentity> preferredIdentity(const URL&);
     uint16_t negotiatedProtocol { 0 };
     uint16_t negotiatedCipher { 0 };
     URL url;
@@ -56,6 +63,14 @@ struct CocoaCurlTLSState {
     bool trusted { false };
     bool identityRequested { false };
     bool identityAnswered { false };
+    // A CertificateRequest takes the keychain's identity preference for url before asking requestIdentity, as
+    // CFNetwork's HTTP loads do unless their session sets _shouldSkipPreferredClientCertificateLookup.
+    // requestPreferredIdentity looks it up off the handshake and resumes it with preferredIdentityResolved set,
+    // and the identity answered when there is one.
+    bool presentsPreferredIdentity { false };
+    Function<bool()> requestPreferredIdentity;
+    bool preferredIdentityRequested { false };
+    bool preferredIdentityResolved { false };
 };
 
 // The verification operation owns a separate X509 context and native result. SSL/easy handles stay on their curl worker.

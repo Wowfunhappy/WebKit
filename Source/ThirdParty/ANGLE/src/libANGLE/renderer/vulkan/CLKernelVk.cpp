@@ -6,15 +6,9 @@
 // CLKernelVk.cpp: Implements the class methods for CLKernelVk.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
-#include "common/PackedEnums.h"
-
+#include "libANGLE/renderer/vulkan/CLKernelVk.h"
 #include "libANGLE/renderer/vulkan/CLContextVk.h"
 #include "libANGLE/renderer/vulkan/CLDeviceVk.h"
-#include "libANGLE/renderer/vulkan/CLKernelVk.h"
 #include "libANGLE/renderer/vulkan/CLMemoryVk.h"
 #include "libANGLE/renderer/vulkan/CLProgramVk.h"
 #include "libANGLE/renderer/vulkan/cl_types.h"
@@ -70,8 +64,7 @@ bool IsCLKernelArgumentReadonly(const CLKernelArgument &kernelArgument)
         case NonSemanticClspvReflectionArgumentStorageImage:
         case NonSemanticClspvReflectionArgumentSampledImage:
         {
-            const cl::Memory *mem = cl::Memory::Cast(*static_cast<cl_mem *>(kernelArgument.handle));
-            return mem->getFlags().intersects(CL_MEM_READ_ONLY);
+            return kernelArgument.info.accessQualifier == CL_KERNEL_ARG_ACCESS_READ_ONLY;
         }
         default:
         {
@@ -101,13 +94,6 @@ CLKernelVk::~CLKernelVk()
 {
     mComputePipelineCache.destroy(mContext);
     mShaderProgramHelper.destroy(mContext->getRenderer());
-
-    if (mPodBuffer)
-    {
-        // mPodBuffer assignment will make newly created buffer
-        // return refcount of 2, so need to release by 1
-        mPodBuffer->release();
-    }
 }
 
 angle::Result CLKernelVk::init()
@@ -192,9 +178,9 @@ angle::Result CLKernelVk::init()
 
     if (podBufferSize > 0)
     {
-        mPodBuffer =
-            cl::MemoryPtr(cl::Buffer::Cast(this->mContext->getFrontendObject().createBuffer(
-                nullptr, cl::MemFlags(CL_MEM_READ_ONLY), podBufferSize, nullptr)));
+        mPodBuffer = cl::BufferPtr::Create(
+            const_cast<cl::Context &>(mKernel.getProgram().getContext()), cl::Memory::PropArray{},
+            cl::MemFlags(CL_MEM_READ_ONLY), podBufferSize, nullptr);
     }
 
     if (usesPrintf() && !usesPrintfBufferPointerPushConstant())
@@ -259,7 +245,7 @@ angle::Result CLKernelVk::setArg(cl_uint argIndex, size_t argSize, const void *a
                 if (argSize > 0 && argValue != nullptr)
                 {
                     // Copy the contents since app is free to delete/reassign the contents after
-                    memcpy(arg.handle, argValue, arg.handleSize);
+                    ANGLE_UNSAFE_TODO(memcpy(arg.handle, argValue, arg.handleSize));
                 }
                 break;
             case NonSemanticClspvReflectionArgumentPodUniform:
@@ -279,10 +265,21 @@ angle::Result CLKernelVk::setArg(cl_uint argIndex, size_t argSize, const void *a
             case NonSemanticClspvReflectionArgumentStorageTexelBuffer:
             case NonSemanticClspvReflectionArgumentPointerPushConstant:
             case NonSemanticClspvReflectionArgumentPointerUniform:
+            {
                 ASSERT(argSize == sizeof(cl_mem *));
-                arg.handle     = *static_cast<const cl_mem *>(argValue);
+                cl_mem memHandle = *static_cast<const cl_mem *>(argValue);
+                arg.handle       = memHandle;
                 arg.handleSize = argSize;
+
+                if (cl::Memory::Cast(memHandle)->getFlags().intersects(CL_MEM_READ_ONLY) &&
+                    !IsCLKernelArgumentReadonly(arg))
+                {
+                    WARN() << "The cl_mem argument at index:" << argIndex
+                           << " is setup as read-only, and the kernel is writing to it -- This "
+                              "could lead to undefined behavior";
+                }
                 break;
+            }
             case NonSemanticClspvReflectionArgumentWorkgroup:
                 ASSERT(arg.workgroupBufferElemSize != 0);
                 mLocalMemoryArgSizes[argIndex] = argSize;
@@ -493,13 +490,17 @@ angle::Result CLKernelVk::allocateDescriptorSet(
 {
     if (mDescriptorSets[index] && mDescriptorSets[index]->valid())
     {
-        if (mDescriptorSets[index]->usedByCommandBuffer(computePassCommands->getQueueSerial()))
+        // Safe to reuse: descriptor set is no longer in use by the GPU.
+        if (mContext->getRenderer()->hasResourceUseFinished(
+                mDescriptorSets[index]->getResourceUse()))
         {
-            mDescriptorSets[index].reset();
+            // Set DS serial to current CB serial upon reuse.
+            mDescriptorSets[index]->setQueueSerial(computePassCommands->getQueueSerial());
+            return angle::Result::Continue;
         }
         else
         {
-            return angle::Result::Continue;
+            mDescriptorSets[index].reset();
         }
     }
 

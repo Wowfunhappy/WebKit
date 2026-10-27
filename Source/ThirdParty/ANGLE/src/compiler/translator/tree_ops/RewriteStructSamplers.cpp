@@ -20,9 +20,10 @@
 
 namespace sh
 {
+const char kExtractedSamplerNamePrefix[] = "extractedSampler";
+
 namespace
 {
-
 // Used to map one structure type to another (one where the samplers are removed).
 struct StructureData
 {
@@ -208,7 +209,7 @@ bool RewriteModifiedStructFieldSelectionExpression(TCompiler *compiler,
     const bool isSampler = node->getType().isSampler();
 
     TIntermSymbol *baseUniform = nullptr;
-    std::string samplerName;
+    std::string samplerPath;
 
     TVector<TIntermBinary *> indexNodeStack;
 
@@ -225,15 +226,15 @@ bool RewriteModifiedStructFieldSelectionExpression(TCompiler *compiler,
             {
                 // When indexed into a struct, get the field name instead and construct the sampler
                 // name.
-                samplerName.insert(0, iter->getIndexStructFieldName().data());
-                samplerName.insert(0, "_");
+                samplerPath.insert(0, iter->getIndexStructFieldName().data());
+                samplerPath.insert(0, ".");
             }
 
             if (baseUniform)
             {
                 // If left is a symbol, we have reached the end of the chain.  Use the struct name
                 // to finish building the name of the sampler.
-                samplerName.insert(0, baseUniform->variable().name().data());
+                samplerPath.insert(0, baseUniform->variable().name().data());
             }
         }
 
@@ -243,8 +244,8 @@ bool RewriteModifiedStructFieldSelectionExpression(TCompiler *compiler,
 
     if (isSampler)
     {
-        ASSERT(extractedSamplers.find(samplerName) != extractedSamplers.end());
-        *rewritten = new TIntermSymbol(extractedSamplers.at(samplerName));
+        ASSERT(extractedSamplers.find(samplerPath) != extractedSamplers.end());
+        *rewritten = new TIntermSymbol(extractedSamplers.at(samplerPath));
     }
     else
     {
@@ -316,11 +317,9 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
     explicit RewriteStructSamplersTraverser(TCompiler *compiler, TSymbolTable *symbolTable)
         : TIntermTraverser(true, false, false, symbolTable),
           mCompiler(compiler),
-          mRemovedUniformsCount(0),
           mUnsupportedError(false)
     {}
 
-    int removedUniformsCount() const { return mRemovedUniformsCount; }
 
     // Each struct sampler declaration is stripped of its samplers. New uniforms are added for each
     // stripped struct sampler.
@@ -462,7 +461,7 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
                     const TStructure *modifiedStruct = mStructureMap[fieldStruct].modified;
                     ASSERT(modifiedStruct);
 
-                    newType = new TType(modifiedStruct, true);
+                    newType = new TType(modifiedStruct, false);
                     if (fieldType.isArray())
                     {
                         newType->makeArrays(fieldType.getArraySizes());
@@ -558,10 +557,6 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
             ASSERT(mStructureUniformMap.find(&variable) == mStructureUniformMap.end());
             mStructureUniformMap[&variable] = newVariable;
         }
-        else
-        {
-            mRemovedUniformsCount++;
-        }
 
         exitArray(type);
     }
@@ -575,7 +570,7 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
         const TType &fieldType = *field->type();
         if (fieldType.isSampler() || fieldType.isStructureContainingSamplers())
         {
-            std::string newPrefix = prefix + "_" + field->name().data();
+            std::string newPrefix = prefix + "." + field->name().data();
 
             if (fieldType.isSampler())
             {
@@ -608,7 +603,7 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
     }
 
     // Extracts a sampler from a struct. Declares the new extracted sampler.
-    void extractSampler(const std::string &newName,
+    void extractSampler(const std::string &path,
                         const TType &fieldType,
                         TIntermSequence *newSequence)
     {
@@ -623,6 +618,10 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
         GenerateArraySizesFromStack(&parentArraySizes);
         newType->makeArrays(parentArraySizes);
 
+        std::ostringstream newNameBuilder;
+        newNameBuilder << kExtractedSamplerNamePrefix << mExtractedSamplers.size();
+        const std::string newName = newNameBuilder.str();
+
         ImmutableStringBuilder nameBuilder(newName.size() + 1);
         nameBuilder << newName;
 
@@ -636,12 +635,8 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
 
         newSequence->push_back(samplerDecl);
 
-        // TODO: Use a temp name instead of generating a name as currently done.  There is no
-        // guarantee that these generated names cannot clash.  Create a mapping from the previous
-        // name to the name assigned to the temp variable so ShaderVariable::mappedName can be
-        // updated post-transformation.  http://anglebug.com/42262930
-        ASSERT(mExtractedSamplers.find(newName) == mExtractedSamplers.end());
-        mExtractedSamplers[newName] = newVariable;
+        ASSERT(mExtractedSamplers.find(path) == mExtractedSamplers.end());
+        mExtractedSamplers[path] = newVariable;
     }
 
     void enterArray(const TType &arrayType)
@@ -660,7 +655,6 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
     }
 
     TCompiler *mCompiler;
-    int mRemovedUniformsCount;
 
     // Map structures with samplers to ones that have their samplers removed.
     StructureMap mStructureMap;
@@ -686,10 +680,7 @@ class RewriteStructSamplersTraverser final : public TIntermTraverser
 };
 }  // anonymous namespace
 
-bool RewriteStructSamplers(TCompiler *compiler,
-                           TIntermBlock *root,
-                           TSymbolTable *symbolTable,
-                           int *removedUniformsCountOut)
+bool RewriteStructSamplers(TCompiler *compiler, TIntermBlock *root, TSymbolTable *symbolTable)
 {
     RewriteStructSamplersTraverser traverser(compiler, symbolTable);
     root->traverse(&traverser);
@@ -697,7 +688,6 @@ bool RewriteStructSamplers(TCompiler *compiler,
     {
         return false;
     }
-    *removedUniformsCountOut = traverser.removedUniformsCount();
     return traverser.updateTree(compiler, root);
 }
 }  // namespace sh

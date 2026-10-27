@@ -35,11 +35,11 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     PageLoadCompleted(WebCore::PageIdentifier webPageID)
     BrowsingContextRemoved(WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID)
     PrefetchDNS(String hostname)
-    SendH2Ping(URL url, WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID, enum:bool std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain) -> (Expected<Seconds, WebCore::ResourceError> result)
+    SendH2Ping(URL url, WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID, enum:bool std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections) -> (Expected<Seconds, WebCore::ResourceError> result)
     PreconnectTo(struct WebKit::PreconnectRequest request);
     IsResourceLoadFinished(WebCore::ResourceLoaderIdentifier resourceLoadIdentifier) -> (bool isFinished)
 
-    StartDownload(WebKit::DownloadID downloadID, WebCore::ResourceRequest request, std::optional<WebCore::SecurityOriginData> topOrigin, enum:bool std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, String suggestedName, enum:bool WebCore::FromDownloadAttribute fromDownloadAttribute, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID)
+    StartDownload(WebKit::DownloadID downloadID, WebCore::ResourceRequest request, std::optional<WebCore::SecurityOriginData> topOrigin, enum:bool std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, String suggestedName, enum:bool WebCore::FromDownloadAttribute fromDownloadAttribute, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID)
     ConvertMainResourceLoadToDownload(std::optional<WebCore::ResourceLoaderIdentifier> mainResourceLoadIdentifier, WebKit::DownloadID downloadID, WebCore::ResourceRequest request, std::optional<WebCore::SecurityOriginData> topOrigin, WebCore::ResourceResponse response, enum:bool std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain)
 
     CookiesForDOM(URL firstParty, struct WebCore::SameSiteInfo sameSiteInfo, URL url, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier pageID, enum:bool WebCore::IncludeSecureCookies includeSecureCookies, WebKit::WebPageProxyIdentifier webPageProxyID) -> (String cookieString, bool didAccessSecureCookies) Synchronous
@@ -126,7 +126,7 @@ messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
     MessagePortDisentangled(struct WebCore::MessagePortIdentifier local)
     MessagePortClosed(struct WebCore::MessagePortIdentifier local)
     TakeAllMessagesForPort(struct WebCore::MessagePortIdentifier port) -> (Vector<WebCore::MessageWithMessagePorts> messages, std::optional<WebKit::MessageBatchIdentifier> messageBatchIdentifier)
-    PostMessageToRemote(struct WebCore::MessageWithMessagePorts message, struct WebCore::MessagePortIdentifier remote)
+    PostMessageToRemote(struct WebCore::MessageWithMessagePorts message, struct WebCore::MessagePortIdentifier remote, Vector<URL> blobURLs)
     DidDeliverMessagePortMessages(WebKit::MessageBatchIdentifier messageBatchIdentifier)
     RegisterURLSchemesAsCORSEnabled(Vector<String> schemes);
 #if PLATFORM(MAC)

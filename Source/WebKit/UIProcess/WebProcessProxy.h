@@ -114,6 +114,7 @@ struct WebProcessCreationParameters;
 class SecurityOriginData;
 struct WrappedCryptoKey;
 
+enum class AccessibilityMode : uint8_t;
 enum class PermissionName : uint8_t;
 enum class ThirdPartyCookieBlockingMode : uint8_t;
 using FramesPerSecond = unsigned;
@@ -214,8 +215,8 @@ public:
     ~WebProcessProxy();
 
     static void forWebPagesWithOrigin(PAL::SessionID, const WebCore::SecurityOriginData&, NOESCAPE const Function<void(WebPageProxy&)>&);
-    void addAllowedFirstPartyForCookies(const WebCore::RegistrableDomain&, LoadedWebArchive);
-    const std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>& allowedFirstPartiesForCookiesData() const { return m_allowedFirstPartiesForCookies; }
+    void addAllowedFirstPartyForCookies(const WebCore::Site&, LoadedWebArchive);
+    const std::pair<LoadedWebArchive, HashSet<WebCore::Site>>& allowedFirstPartiesForCookiesData() const { return m_allowedFirstPartiesForCookies; }
 
     void initializeWebProcess(WebProcessCreationParameters&&);
 
@@ -490,6 +491,15 @@ public:
 #if PLATFORM(COCOA)
     void unblockAccessibilityServerIfNeeded();
 #endif
+
+    // A web process reporting the mode it just transitioned to.
+    void accessibilityModeDidChange(WebCore::AccessibilityMode);
+
+    // The mode web content should be in, UIProcess-wide. When one process enables accessibility we
+    // propagate it to all of them. Tests can turn it back off with resetAccessibilityModeForTesting.
+    static WebCore::AccessibilityMode accessibilityModeForWebContent();
+    static void setAccessibilityModeForWebContent(WebCore::AccessibilityMode, const WebProcessProxy* processToSkip = nullptr);
+    static void resetAccessibilityModeForTesting();
 
     void updateAudibleMediaAssertions();
     void updateMediaStreamingActivity();
@@ -882,7 +892,7 @@ private:
     HashSet<WebCore::Site> m_committedSites;
     std::optional<WebCore::Site> m_sharedProcessMainFrameSite;
     HashSet<WebCore::RegistrableDomain> m_sharedProcessDomains;
-    std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>> m_allowedFirstPartiesForCookies { LoadedWebArchive::No, { } };
+    std::pair<LoadedWebArchive, HashSet<WebCore::Site>> m_allowedFirstPartiesForCookies { LoadedWebArchive::No, { } };
     bool m_isInProcessCache { false };
     bool m_isShuttingDown { false };
 
@@ -1020,7 +1030,7 @@ private:
 
     bool m_didReceiveLogsDuringLaunchForTesting { false };
 #endif // ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
-} SWIFT_SHARED_REFERENCE(refWebProcessProxy, derefWebProcessProxy);
+} SWIFT_SHARED_REFERENCE(refWebProcessProxy, derefWebProcessProxy) SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
 
 WTF::TextStream& operator<<(WTF::TextStream&, const WebProcessProxy&);
 

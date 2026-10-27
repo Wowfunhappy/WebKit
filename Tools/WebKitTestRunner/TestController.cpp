@@ -139,6 +139,13 @@
 
 namespace WTR {
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+// Presence of this symbol in the WebKitTestRunner binary is the run-webkit-tests
+// gate for LayoutTests/sar3/. Compiled out when RC_REMOVE_SEC_ACCEL_3 is defined.
+// Non-const external linkage plus used/visibility keeps it in the symbol table.
+__attribute__((used, visibility("default"))) bool SAR3Enabled = true;
+#endif
+
 #if OS(WINDOWS)
 static constexpr auto pathSeparator = '\\';
 #else
@@ -1435,7 +1442,7 @@ void TestController::resetPreferencesToConsistentValues(const TestOptions& optio
         WKPreferencesResetAllInternalDebugFeatures(preferences);
 
         WKPreferencesSetProcessSwapOnNavigationEnabled(preferences, options.shouldEnableProcessSwapOnNavigation());
-        WKPreferencesSetStorageBlockingPolicy(preferences, kWKAllowAllStorage); // FIXME: We should be testing the default.
+        WKPreferencesSetStorageBlockingPolicy(preferences, options.blockThirdPartyStorage() ? kWKBlockThirdPartyStorage : kWKAllowAllStorage); // FIXME: We should be testing the default.
         WKPreferencesSetMinimumFontSize(preferences, 0);
 
         WKPreferencesSetBoolValueForKeyForTesting(preferences, options.allowTestOnlyIPC(), toWK("AllowTestOnlyIPC").get());
@@ -1502,6 +1509,7 @@ bool TestController::resetStateToConsistentValues(const TestOptions& options, Re
     resetStoragePersistedState();
 
     WKContextClearCurrentModifierStateForTesting(TestController::singleton().context());
+    WKContextResetAccessibilityModeForTesting(TestController::singleton().context());
     WKContextSetUseSeparateServiceWorkerProcess(TestController::singleton().context(), false);
     WKContextClearMockGamepadsForTesting(TestController::singleton().context());
 
@@ -4566,7 +4574,8 @@ void TestController::decidePolicyForNavigationAction(WKPageRef page, WKNavigatio
     if (targetFrame && m_dumpPolicyDelegateCallbacks) {
         protectedCurrentInvocation()->outputText(makeString(" - decidePolicyForNavigationAction\n"_s, string(request.get(), page),
             " is main frame - "_s, targetFrame && WKFrameInfoGetIsMainFrame(targetFrame.get()) ? "yes"_s : "no"_s,
-            " should open URLs externally - "_s, WKNavigationActionGetShouldOpenExternalSchemes(navigationAction) ? "yes"_s : "no"_s, '\n'));
+            " should open URLs externally - "_s, WKNavigationActionGetShouldOpenExternalSchemes(navigationAction) ? "yes"_s : "no"_s,
+            " has unconsumed user gesture - "_s, WKNavigationActionHasUnconsumedUserGesture(navigationAction) ? "yes"_s : "no"_s, '\n'));
     }
 
     if (m_policyDelegateEnabled) {
@@ -5732,6 +5741,12 @@ void TestController::setResourceMonitorList(WKStringRef rulesText, CompletionHan
 
 #if !PLATFORM(IOS_FAMILY)
 void TestController::setHasMouseDeviceForTesting(bool)
+{
+}
+#endif
+
+#if !PLATFORM(MAC)
+void TestController::setHasFakePaymentUIForTesting(bool)
 {
 }
 #endif

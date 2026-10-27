@@ -27,7 +27,7 @@
 
 #include "compiler/translator/Compiler.h"
 
-#if ANGLE_SH_VERSION != 412
+#if ANGLE_SH_VERSION != 423
 #    error Check if there are added options and update this check.
 #endif
 
@@ -41,7 +41,7 @@
     MACRO(sourcePath, 2, any, none)                                           \
     MACRO(intermediateTree, 3, any, none)                                     \
     MACRO(validateAST, 4, none, any)                                          \
-    MACRO(validateLoopIndexing, 5, any, none)                                 \
+    MACRO(limitOutputVaryingsTo256, 5, glsl, none)                            \
     MACRO(lineDirectives, 6, any, none)                                       \
     MACRO(removeInvariantAndCentroidForESSL3, 7, glsl, none)                  \
     MACRO(emulateAbsIntFunction, 8, glsl, none)                               \
@@ -77,7 +77,7 @@
     MACRO(forceDeferNonConstGlobalInitializers, 40, msl, none)                \
     MACRO(emulateGLBaseVertexBaseInstance, 41, any, none)                     \
     MACRO(wrapSwitchInIfTrue, 42, spirvVk, none)                              \
-    MACRO(takeVideoTextureAsExternalOES, 43, glsl, none)                      \
+    MACRO(unused4, 43, any, none)                                             \
     MACRO(addBaseVertexToVertexID, 44, any, none)                             \
     MACRO(removeDynamicIndexingOfSwizzledVector, 45, glsl, none)              \
     MACRO(allowTranslateUniformBlockToStructuredBuffer, 46, hlsl, none)       \
@@ -92,7 +92,7 @@
     MACRO(rejectWebglShadersWithLargeVariables, 56, any, none)                \
     MACRO(explicitFragmentLocations, 57, glsl, none)                          \
     MACRO(unused, 58, any, none)                                              \
-    MACRO(unused2, 59, any, none)                                             \
+    MACRO(avoidComplexExpressionsInStructConstructor, 59, glsl, none)         \
     MACRO(allowExtensionDisableAfterNonPPTokensInWebGL, 60, any, none)        \
     MACRO(passHighpToPackUnormSnormBuiltins, 61, glsl, none)                  \
     MACRO(emulateClipDistanceState, 62, glsl, none)                           \
@@ -111,7 +111,7 @@
     MACRO(removeInactiveVariables, 75, any, spirvVk || msl)                   \
     MACRO(retainInactiveFragmentOutputs, 76, any, msl)                        \
     MACRO(ensureLoopForwardProgress, 77, none, msl)                           \
-    MACRO(skipAllValidationAndTransforms, 78, none, none)                     \
+    MACRO(unused2, 78, none, none)                                            \
     MACRO(transformFloatUniformTo16Bits, 79, none, spirvVk)                   \
     MACRO(useIR, 80, none, none)                                              \
     MACRO(expandFragmentOutputsToVec4, 81, any, glsl)
@@ -153,7 +153,6 @@ ShShaderOutput resolveShaderOutput(ShShaderOutput output);
     MACRO(ANGLE_texture_multisample, !msl)                     \
     MACRO(ANGLE_multi_draw, !msl)                              \
     MACRO(ANGLE_base_vertex_base_instance, any)                \
-    MACRO(WEBGL_video_texture, !msl)                           \
     MACRO(APPLE_clip_distance, any)                            \
     MACRO(OES_texture_cube_map_array, !msl)                    \
     MACRO(EXT_texture_cube_map_array, !msl)                    \

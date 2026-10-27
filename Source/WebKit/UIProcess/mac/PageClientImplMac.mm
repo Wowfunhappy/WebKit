@@ -737,7 +737,7 @@ void PageClientImpl::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&
 #if ENABLE(MAC_GESTURE_EVENTS)
 void PageClientImpl::gestureEventWasNotHandledByWebCore(const NativeWebGestureEvent& event)
 {
-    m_impl->gestureEventWasNotHandledByWebCore(event.nativeEvent());
+    m_impl->gestureEventWasNotHandledByWebCore(event);
 }
 #endif
 
@@ -858,6 +858,19 @@ void PageClientImpl::willBeginViewGesture()
 void PageClientImpl::didEndViewGesture()
 {
     protect(m_impl)->suppressContentRelativeChildViews(WebViewImpl::ContentRelativeChildViewsSuppressionType::Restore);
+}
+
+bool PageClientImpl::everMagnifiedDuringCurrentGesture() const
+{
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    CheckedPtr impl = m_impl.get();
+    if (!impl)
+        return false;
+
+    return [impl->appKitGestureController() everMagnifiedDuringCurrentGesture];
+#else
+    return false;
+#endif
 }
 
 #if ENABLE(FULLSCREEN_API)

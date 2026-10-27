@@ -45,6 +45,11 @@ public:
 
     // The proxy filters' answers for the request the handle sends to the URL (CocoaCurlProxyConfiguration.h).
     virtual Vector<CocoaCurlProxyFilterResult> proxyFilterResults(const ResourceHandle&, const URL&) = 0;
+    // Whether proxy filters answer for requests at all.
+    virtual bool hasProxyFilters() const = 0;
+    // The privacy settings that cover DNS prefetching, and the hyperlink auditing pings that carry Ping-To.
+    virtual bool allowsNetworkPrediction() const = 0;
+    virtual bool refusesPing(const ResourceRequest&) const = 0;
 
     // The steps of a load that is not a ResourceLoader's: a ping, beacon or report.
     class Load : public RefCounted<Load> {

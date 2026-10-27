@@ -85,7 +85,7 @@
 #include "modules/video_coding/svc/scalability_mode_util.h"
 #include "modules/video_coding/svc/scalable_video_controller.h"
 #include "modules/video_coding/timing/decode_time_percentile_filter.h"
-#include "modules/video_coding/timing/timestamp_extrapolator.h"
+// #include "modules/video_coding/timing/timestamp_extrapolator.h" // AQUAWEBKIT: 319806@main (webkit.org/b/322502) moves it below.
 #include "net/dcsctp/packet/chunk/chunk.h"
 #include "net/dcsctp/packet/data.h"
 #include "net/dcsctp/packet/parameter/parameter.h"
@@ -118,6 +118,7 @@
 #include "third_party/boringssl/src/pki/cert_errors.h"
 #include "third_party/boringssl/src/pki/parser.h"
 #include "third_party/boringssl/src/ssl/internal.h"
+#include "video/timing/timestamp_extrapolator.h" // AQUAWEBKIT: 319806@main (webkit.org/b/322502).
 #include "vpx/vpx_codec.h"
 
 #endif

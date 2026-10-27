@@ -2446,9 +2446,16 @@ public:
     UserTypingGestureIndicator m_typingGestureIndicator;
 };
 
-void Editor::setComposition(const String& text, SetCompositionMode mode)
+void Editor::setComposition(const String& passedText, SetCompositionMode mode)
 {
     ASSERT(mode == ConfirmComposition || mode == CancelComposition);
+
+#ifdef RC_REMOVE_SEC_ACCEL_3
+    auto& text = passedText;
+#else
+    auto text = passedText;
+#endif
+
     Ref document = this->document();
     SetCompositionScope setCompositionScope(document.copyRef());
 
@@ -2732,6 +2739,30 @@ void Editor::learnSpelling()
     textChecker()->learnWord(text);
 }
 
+void Editor::ignoreSpelling(const SimpleRange& range)
+{
+    if (!client())
+        return;
+
+    removeMarkers(range, DocumentMarkerType::Spelling);
+
+    String text = plainText(range);
+    ASSERT(text.length());
+    textChecker()->ignoreWordInSpellDocument(text);
+}
+
+void Editor::learnSpelling(const SimpleRange& range)
+{
+    if (!client())
+        return;
+
+    removeMarkers(range, DocumentMarkerType::Spelling);
+
+    String text = plainText(range);
+    ASSERT(text.length());
+    textChecker()->learnWord(text);
+}
+
 #if !PLATFORM(IOS_FAMILY)
 
 void Editor::advanceToNextMisspelling(bool startBeforeSelection)
@@ -2972,6 +3003,14 @@ TextCheckingGuesses Editor::guessesForMisspelledOrUngrammatical()
     if (misspelledWord.isEmpty())
         return { };
     return { guessesForMisspelledWord(misspelledWord), true, false };
+}
+
+TextCheckingGuesses Editor::guessesForMisspelledOrUngrammatical(const SimpleRange& range)
+{
+    CheckedPtr client = this->client();
+    if (!client)
+        return { };
+    return TextCheckingHelper(*client, range).guessesForMisspelledWordOrUngrammaticalPhrase(isGrammarCheckingEnabled());
 }
 
 void Editor::showSpellingGuessPanel()

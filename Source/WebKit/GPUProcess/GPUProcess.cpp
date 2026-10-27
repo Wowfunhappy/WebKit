@@ -144,6 +144,11 @@ void GPUProcess::sharedPreferencesForWebProcessDidChange(WebCore::ProcessIdentif
     completionHandler();
 }
 
+void GPUProcess::securityFlagsDidChange(SecurityFlags::Storage&& securityFlags)
+{
+    SecurityFlags::Storage::update(WTF::move(securityFlags));
+}
+
 void GPUProcess::removeGPUConnectionToWebProcess(GPUConnectionToWebProcess& connection)
 {
     RELEASE_LOG(Process, "%p - GPUProcess::removeGPUConnectionToWebProcess: processIdentifier=%" PRIu64, this, connection.webProcessIdentifier().toUInt64());
@@ -222,6 +227,7 @@ void GPUProcess::initializeGPUProcess(GPUProcessCreationParameters&& parameters,
     CompletionHandlerCallingScope callCompletionHandler(WTF::move(completionHandler));
 
     applyProcessCreationParameters(WTF::move(parameters.auxiliaryProcessParameters));
+    SecurityFlags::Storage::update(WTF::move(parameters.securityFlags));
     RELEASE_LOG(Process, "%p - GPUProcess::initializeGPUProcess:", this);
     WTF::Thread::setCurrentThreadIsUserInitiated();
     WebCore::initializeCommonAtomStrings();
@@ -287,6 +293,11 @@ CoreAudioCaptureUnit::defaultSingleton().setStatusBarWasTappedCallback([weakProc
 
 void GPUProcess::updateGPUProcessPreferences(GPUProcessPreferences&& preferences)
 {
+#if PLATFORM(COCOA)
+    if (preferences.mediaResourceLoadTimeoutForTesting != std::exchange(m_preferences.mediaResourceLoadTimeoutForTesting, preferences.mediaResourceLoadTimeoutForTesting))
+        WebCore::DeprecatedGlobalSettings::setMediaResourceLoadTimeoutForTesting(m_preferences.mediaResourceLoadTimeoutForTesting.value_or(0));
+#endif
+
 #if ENABLE(VP9)
     if (updatePreference(m_preferences.vp9DecoderEnabled, preferences.vp9DecoderEnabled)) {
         VP9TestingOverrides::singleton().setShouldEnableVP9Decoder(*m_preferences.vp9DecoderEnabled);

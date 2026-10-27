@@ -128,7 +128,6 @@ impl Generator {
             ImageDimension::Buffer => "Buffer",
             ImageDimension::External => "ExternalOES",
             ImageDimension::ExternalY2Y => "External2DY2YEXT",
-            ImageDimension::Video => "VideoWEBGL",
             ImageDimension::PixelLocal => {
                 base_name = "pixelLocalANGLE";
                 ""
@@ -265,7 +264,7 @@ impl Generator {
             result.push(' ');
         }
         match precision {
-            Precision::NotApplicable => (),
+            Precision::NotApplicable | Precision::Unassigned => (),
             Precision::Low => result.push_str("lowp "),
             Precision::Medium => result.push_str("mediump "),
             Precision::High => result.push_str("highp "),
@@ -337,12 +336,17 @@ impl Generator {
         .to_string()
     }
 
-    fn name_str(name: &Name, temp_prefix: &'static str, id: u32) -> String {
+    fn name_str(
+        name: &Name,
+        temp_prefix: &'static str,
+        user_prefix: &'static str,
+        id: u32,
+    ) -> String {
         format!(
             "{}{}{}",
             match name.source {
                 // Make sure unnamed interface blocks remain unnamed.
-                NameSource::ShaderInterface if !name.name.is_empty() => USER_SYMBOL_PREFIX,
+                NameSource::ShaderInterface if !name.name.is_empty() => user_prefix,
                 NameSource::Temporary => temp_prefix,
                 _ => "",
             },
@@ -368,13 +372,11 @@ impl Generator {
         let var_name = if let Some(built_in) = built_in {
             Self::built_in_str(built_in, ir_meta.get_shader_type())
         } else {
-            Self::name_str(name, temp_prefix, id)
+            Self::name_str(name, temp_prefix, USER_VARIABLE_PREFIX, id)
         };
 
-        let mut declaration_text = format!(
-            "{qualifiers}{} {var_name}{}",
-            &type_info.use_text_pre, &type_info.use_text_post
-        );
+        let mut declaration_text =
+            format!("{qualifiers}{} {var_name}{}", type_info.use_text_pre, type_info.use_text_post);
 
         if let Some(constant_id) = initializer {
             write!(declaration_text, " = {}", self.get_constant_expression(constant_id)).unwrap();
@@ -634,28 +636,32 @@ impl ast::Target for Generator {
                     let base_type = &self.types[&type_id];
                     (
                         base_type.declaration_text_pre.clone(),
-                        format!("{}[{count}]", &base_type.declaration_text_post),
+                        format!("{}[{count}]", base_type.declaration_text_post),
                         Some(base_type.use_text_pre.clone()),
-                        Some(format!("{}[{count}]", &base_type.use_text_post)),
+                        Some(format!("{}[{count}]", base_type.use_text_post)),
                     )
                 }
                 &Type::UnsizedArray(type_id) => {
                     let base_type = &self.types[&type_id];
                     (
                         base_type.declaration_text_pre.clone(),
-                        format!("{}[]", &base_type.declaration_text_post),
+                        format!("{}[]", base_type.declaration_text_post),
                         Some(base_type.use_text_pre.clone()),
-                        Some(format!("{}[]", &base_type.use_text_post)),
+                        Some(format!("{}[]", base_type.use_text_post)),
                     )
                 }
                 &Type::Image(basic_type, image_type) => {
                     (Self::image_type_str(basic_type, image_type), "".to_string(), None, None)
                 }
                 Type::Struct(name, fields, specialization) => {
-                    let name = Self::name_str(name, TEMP_STRUCT_PREFIX, id.id);
+                    let user_prefix = match *specialization {
+                        StructSpecialization::Struct => USER_VARIABLE_PREFIX,
+                        StructSpecialization::InterfaceBlock => USER_BLOCK_PREFIX,
+                    };
+                    let name = Self::name_str(name, TEMP_STRUCT_PREFIX, user_prefix, id.id);
                     let declaration_text = format!(
                         "{} {{\n{}}}",
-                        &name,
+                        name,
                         fields
                             .iter()
                             .enumerate()
@@ -680,7 +686,7 @@ impl ast::Target for Generator {
 
                     // Declare the struct for future use.
                     if *specialization == StructSpecialization::Struct {
-                        writeln!(self.type_declarations, "struct {};", &declaration_text).unwrap();
+                        writeln!(self.type_declarations, "struct {};", declaration_text).unwrap();
                     }
 
                     (
@@ -728,8 +734,8 @@ impl ast::Target for Generator {
             &ConstantValue::YuvCsc(yuv_csc) => Self::yuv_csc_standard_str(yuv_csc),
             ConstantValue::Composite(elements) => format!(
                 "{}{}({})",
-                &type_info.use_text_pre,
-                &type_info.use_text_post,
+                type_info.use_text_pre,
+                type_info.use_text_post,
                 elements
                     .iter()
                     .map(|element| self.constants[element].text.clone())
@@ -783,13 +789,14 @@ impl ast::Target for Generator {
         let qualifiers =
             Self::qualifiers_str(function.return_precision, &function.return_decorations);
         let return_type = &self.types[&function.return_type_id];
-        let name = Self::name_str(&function.name, TEMP_FUNCTION_PREFIX, id.id);
+        let name =
+            Self::name_str(&function.name, TEMP_FUNCTION_PREFIX, USER_VARIABLE_PREFIX, id.id);
 
         let declaration_text = format!(
             "{qualifiers}{}{} {}({})",
-            &return_type.use_text_pre,
-            &return_type.use_text_post,
-            &name,
+            return_type.use_text_pre,
+            return_type.use_text_post,
+            name,
             function
                 .params
                 .iter()
@@ -797,7 +804,7 @@ impl ast::Target for Generator {
                     format!(
                         "{} {}",
                         Self::function_param_direction_str(param.direction),
-                        &self.variables[&param.variable_id].declaration_text
+                        self.variables[&param.variable_id].declaration_text
                     )
                 })
                 .collect::<Vec<_>>()
@@ -918,7 +925,8 @@ impl ast::Target for Generator {
         field: &Field,
     ) {
         let lhs = self.get_expression(id);
-        let field_name = Self::name_str(&field.name, TEMP_STRUCT_FIELD_PREFIX, index);
+        let field_name =
+            Self::name_str(&field.name, TEMP_STRUCT_FIELD_PREFIX, USER_VARIABLE_PREFIX, index);
         // Note: if selecting the field of a nameless interface block, just use the field.
         let expr = if lhs.is_empty() { field_name } else { format!("{}.{}", lhs, field_name) };
         self.expressions.insert(result, expr);

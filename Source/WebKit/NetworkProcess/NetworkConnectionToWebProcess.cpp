@@ -61,6 +61,7 @@
 #include "PreconnectTask.h"
 #include "RTCDataChannelRemoteManagerProxy.h"
 #include "RemoteWorkerType.h"
+#include "SecurityFlags.h"
 #include "ServiceWorkerFetchTaskMessages.h"
 #include "WebErrors.h"
 #include "WebProcessMessages.h"
@@ -203,8 +204,7 @@ NetworkConnectionToWebProcess::~NetworkConnectionToWebProcess()
     // This may call hasUploadStateChanged().
     m_networkResourceLoaders.clear();
 
-    for (auto& port : m_processEntangledPorts)
-        protect(m_networkProcess->messagePortChannelRegistry())->didCloseMessagePort(port);
+    closeAllEntangledMessagePorts();
 
     auto completionHandlers = std::exchange(m_messageBatchDeliveryCompletionHandlers, { });
     for (auto& completionHandler : completionHandlers.values())
@@ -245,10 +245,16 @@ void NetworkConnectionToWebProcess::loadImageForDecoding(WebCore::ResourceReques
     auto url = request.url();
     MESSAGE_CHECK_COMPLETION(url.isValid() && url.protocolIsInHTTPFamily(), completionHandler(makeUnexpected<WebCore::ResourceError>({ })));
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()), completionHandler(makeUnexpected<WebCore::ResourceError>({ })));
+    else
+#endif
     if (request.firstPartyForCookies().isValid())
-        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow, completionHandler(makeUnexpected<WebCore::ResourceError>({ })));
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow, completionHandler(makeUnexpected<WebCore::ResourceError>({ })));
     else
         request.setAllowCookies(false);
+
     CheckedPtr networkSession = this->networkSession();
     if (!networkSession)
         return completionHandler(makeUnexpected<WebCore::ResourceError>({ }));
@@ -486,8 +492,16 @@ bool NetworkConnectionToWebProcess::dispatchSyncMessage(IPC::Connection& connect
     return false;
 }
 
+void NetworkConnectionToWebProcess::closeAllEntangledMessagePorts()
+{
+    for (auto& port : std::exchange(m_processEntangledPorts, { }))
+        protect(m_networkProcess->messagePortChannelRegistry())->didCloseMessagePort(port, MessagePortStatus::Unclaimed);
+}
+
 void NetworkConnectionToWebProcess::didClose(IPC::Connection& connection)
 {
+    closeAllEntangledMessagePorts();
+
     if (RefPtr connection = std::exchange(m_swContextConnection, nullptr))
         connection->stop();
 
@@ -546,24 +560,29 @@ void NetworkConnectionToWebProcess::didReceiveInvalidMessage(IPC::Connection&, I
     protect(m_networkProcess->parentProcessConnection())->send(Messages::NetworkProcessProxy::TerminateWebProcess(m_webProcessIdentifier), 0);
 }
 
-void NetworkConnectionToWebProcess::createSocketChannel(const ResourceRequest& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
+void NetworkConnectionToWebProcess::createSocketChannel(ResourceRequest&& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
     MESSAGE_CHECK(request.url().isValid());
-    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()) != NetworkProcess::AllowCookieAccess::Terminate);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()));
+    else
+#endif
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, request.firstPartyForCookies()) != NetworkProcess::AllowCookieAccess::Terminate);
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "createSocketChannel: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return;
     }
 
     // AQUAWEBKIT: Safari 7 extensions' webRequest.onBeforeRequest decides a WebSocket before its channel exists.
-    if (LegacyExtensionNetwork::singleton().interceptWebSocket(*this, request, identifier, webPageProxyID, frameID, clientOrigin, [this, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker] {
-        if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))
+    if (LegacyExtensionNetwork::singleton().interceptWebSocket(*this, request, identifier, webPageProxyID, frameID, clientOrigin, [this, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker] mutable {
+        if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, WTF::move(request), protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))
             m_networkSocketChannels.add(identifier, channel.releaseNonNull());
     }))
         return;
 
     ASSERT(!m_networkSocketChannels.contains(identifier));
-    if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))
+    if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, WTF::move(request), protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))
         m_networkSocketChannels.add(identifier, channel.releaseNonNull());
 }
 
@@ -613,11 +632,19 @@ RefPtr<ServiceWorkerFetchTask> NetworkConnectionToWebProcess::createFetchTask(Ne
 
 void NetworkConnectionToWebProcess::scheduleResourceLoad(NetworkResourceLoadParameters&& loadParameters, std::optional<NetworkResourceLoadIdentifier> existingLoaderToResume)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies());
-    if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow) [[unlikely]]
-        RELEASE_LOG_ERROR(Loading, "scheduleResourceLoad: Web process does not have cookie access to url %" SENSITIVE_LOG_STRING " for request %" SENSITIVE_LOG_STRING, loadParameters.request.firstPartyForCookies().string().utf8().data(), loadParameters.request.url().string().utf8().data());
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()));
+    else
+#endif
+    {
+        auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies());
+        if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow) [[unlikely]]
+            RELEASE_LOG_ERROR(Loading, "scheduleResourceLoad: Web process does not have cookie access to url %" SENSITIVE_LOG_STRING " for request %" SENSITIVE_LOG_STRING, loadParameters.request.firstPartyForCookies().string().utf8().data(), loadParameters.request.url().string().utf8().data());
 
-    MESSAGE_CHECK(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate);
+        MESSAGE_CHECK(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate);
+    }
+
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, loadParameters.webPageProxyID)) {
         RELEASE_LOG_ERROR(Loading, "scheduleResourceLoad: dropping load from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return;
@@ -698,7 +725,12 @@ void NetworkConnectionToWebProcess::terminateForInvalidLoaderResumeClaim()
 
 void NetworkConnectionToWebProcess::performSynchronousLoad(NetworkResourceLoadParameters&& loadParameters, CompletionHandler<void(const ResourceError&, const ResourceResponse, Vector<uint8_t>&&)>&& reply)
 {
-    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()), reply({ }, { }, { }));
+    else
+#endif
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, loadParameters.webPageProxyID)) {
         RELEASE_LOG_ERROR(Loading, "performSynchronousLoad: dropping load from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return reply({ }, { }, { });
@@ -725,7 +757,12 @@ void NetworkConnectionToWebProcess::testProcessIncomingSyncMessagesWhenWaitingFo
 
 void NetworkConnectionToWebProcess::loadPing(NetworkResourceLoadParameters&& loadParameters)
 {
-    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()));
+    else
+#endif
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, loadParameters.webPageProxyID)) {
         RELEASE_LOG_ERROR(Loading, "loadPing: dropping ping from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return;
@@ -789,7 +826,7 @@ void NetworkConnectionToWebProcess::prefetchDNS(const String& hostname)
         WebCore::prefetchDNS(hostname);
 }
 
-void NetworkConnectionToWebProcess::sendH2Ping(URL&& url, WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&& completionHandler)
+void NetworkConnectionToWebProcess::sendH2Ping(URL&& url, WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier webPageID, WebCore::FrameIdentifier webFrameID, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&& completionHandler)
 {
 #if ENABLE(SERVER_PRECONNECT)
     CheckedPtr networkSession = this->networkSession();
@@ -803,6 +840,11 @@ void NetworkConnectionToWebProcess::sendH2Ping(URL&& url, WebPageProxyIdentifier
     parameters.parentPID = legacyPresentingApplicationPID();
     parameters.shouldPreconnectOnly = PreconnectOnly::Yes;
     parameters.isNavigatingToAppBoundDomain = isNavigatingToAppBoundDomain;
+#ifdef RC_REMOVE_SEC_ACCEL_3
+    UNUSED_PARAM(advancedPrivacyProtections);
+#else
+    parameters.advancedPrivacyProtections = advancedPrivacyProtections;
+#endif // RC_REMOVE_SEC_ACCEL_3
     parameters.request = ResourceRequest { WTF::move(url) };
 
     auto pingURL = parameters.request.url();
@@ -812,7 +854,7 @@ void NetworkConnectionToWebProcess::sendH2Ping(URL&& url, WebPageProxyIdentifier
 #else
     ASSERT_NOT_REACHED();
     completionHandler(makeUnexpected(internalError(url)));
-#endif
+#endif // ENABLE(SERVER_PRECONNECT)
 }
 
 void NetworkConnectionToWebProcess::preconnectTo(PreconnectRequest&& preconnectRequest)
@@ -876,12 +918,36 @@ NetworkStorageSession* NetworkConnectionToWebProcess::storageSession()
     return m_networkProcess->storageSession(m_sessionID);
 }
 
-void NetworkConnectionToWebProcess::startDownload(DownloadID downloadID, const ResourceRequest& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, const String& suggestedName, FromDownloadAttribute fromDownloadAttribute, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID)
+bool NetworkConnectionToWebProcess::consumeDownloadAuthorization(DownloadID downloadID)
 {
-    if (!request.firstPartyForCookies().isEmpty())
-        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
+    auto authorizedProcess = m_networkProcess->authorizedProcessForDownload(downloadID);
 
-    protect(m_networkProcess->downloadManager())->startDownload(m_sessionID, downloadID, request, topOrigin, isNavigatingToAppBoundDomain, suggestedName, fromDownloadAttribute, frameID, pageID, webProcessIdentifier());
+    if (!authorizedProcess) {
+        CONNECTION_RELEASE_LOG_ERROR(Loading, "consumeDownloadAuthorization: refusing to start download %" PRIu64 " because it is not authorized", downloadID.toUInt64());
+        return false;
+    }
+
+    // FIXME: add runtime feature flag in follow-up.
+    MESSAGE_CHECK_WITH_RETURN_VALUE(*authorizedProcess == m_webProcessIdentifier, false);
+
+    m_networkProcess->removeAuthorizedDownload(downloadID);
+    return true;
+}
+
+void NetworkConnectionToWebProcess::startDownload(DownloadID downloadID, const ResourceRequest& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, const String& suggestedName, FromDownloadAttribute fromDownloadAttribute, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID)
+{
+    if (!consumeDownloadAuthorization(downloadID))
+        return;
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()));
+    else
+#endif
+    if (!request.firstPartyForCookies().isEmpty())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
+
+    protect(m_networkProcess->downloadManager())->startDownload(m_sessionID, downloadID, request, topOrigin, isNavigatingToAppBoundDomain, advancedPrivacyProtections, suggestedName, fromDownloadAttribute, frameID, pageID, webProcessIdentifier());
 }
 
 void NetworkConnectionToWebProcess::loadCancelledDownloadRedirectRequestInFrame(const WebCore::ResourceRequest& request, const WebCore::FrameIdentifier& frameID, const WebCore::PageIdentifier& pageID)
@@ -893,11 +959,19 @@ void NetworkConnectionToWebProcess::convertMainResourceLoadToDownload(std::optio
 {
     RELEASE_ASSERT(RunLoop::isMain());
 
+    if (!consumeDownloadAuthorization(downloadID))
+        return;
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()));
+    else
+#endif
     if (!request.firstPartyForCookies().isEmpty())
-        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
 
     if (!mainResourceLoadIdentifier) {
-        protect(m_networkProcess->downloadManager())->startDownload(m_sessionID, downloadID, request, topOrigin, isNavigatingToAppBoundDomain);
+        protect(m_networkProcess->downloadManager())->startDownload(m_sessionID, downloadID, request, topOrigin, isNavigatingToAppBoundDomain, { });
         return;
     }
 
@@ -929,14 +1003,38 @@ static bool shouldTreatAsSameSite(const URL& firstParty, const URL& url)
 #endif
 }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+static bool allowsCookieAccess(const URL& firstParty, const URL& url)
+{
+    if (!RegistrableDomain(firstParty).isEmpty())
+        return true;
+
+    return firstParty.protocolIsFile() && RegistrableDomain(url).isEmpty();
+}
+#endif
+
 void NetworkConnectionToWebProcess::cookiesForDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, IncludeSecureCookies includeSecureCookies, WebPageProxyIdentifier webPageProxyID, CompletionHandler<void(String cookieString, bool secureCookiesAccessed)>&& completionHandler)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }, false));
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler({ }, false));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }, false));
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "cookiesForDOM: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return completionHandler({ }, false);
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler({ }, false);
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return completionHandler({ }, false);
     if (sameSiteInfo.isSameSite && !shouldTreatAsSameSite(firstParty, url)) {
@@ -959,12 +1057,26 @@ void NetworkConnectionToWebProcess::cookiesForDOM(const URL& firstParty, const S
 
 void NetworkConnectionToWebProcess::setCookiesFromDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, const String& cookieString, RequiresScriptTrackingPrivacy requiresScriptTrackingPrivacy, WebPageProxyIdentifier webPageProxyID)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate);
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate);
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "setCookiesFromDOM: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return;
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return;
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return;
     if (sameSiteInfo.isSameSite && !shouldTreatAsSameSite(firstParty, url)) {
@@ -992,12 +1104,26 @@ void NetworkConnectionToWebProcess::cookiesEnabledSync(const URL& firstParty, co
 
 void NetworkConnectionToWebProcess::cookiesEnabled(const URL& firstParty, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WebPageProxyIdentifier webPageProxyID, CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(false));
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler(false));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(false));
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "cookiesEnabled: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return completionHandler(false);
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler(false);
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return completionHandler(false);
 
@@ -1013,12 +1139,26 @@ void NetworkConnectionToWebProcess::cookiesEnabled(const URL& firstParty, const 
 
 void NetworkConnectionToWebProcess::cookieRequestHeaderFieldValue(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, IncludeSecureCookies includeSecureCookies, std::optional<WebPageProxyIdentifier> webPageProxyID, CompletionHandler<void(String, bool)>&& completionHandler)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }, false));
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler({ }, false));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }, false));
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "cookieRequestHeaderFieldValue: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return completionHandler({ }, false);
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler({ }, false);
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return completionHandler({ }, false);
     if (sameSiteInfo.isSameSite && !shouldTreatAsSameSite(firstParty, url)) {
@@ -1035,12 +1175,26 @@ void NetworkConnectionToWebProcess::cookieRequestHeaderFieldValue(const URL& fir
 
 void NetworkConnectionToWebProcess::getRawCookies(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }));
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler({ }));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }));
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "getRawCookies: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return completionHandler({ });
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler({ });
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return completionHandler({ });
     if (sameSiteInfo.isSameSite && !shouldTreatAsSameSite(firstParty, url)) {
@@ -1058,21 +1212,29 @@ void NetworkConnectionToWebProcess::getRawCookies(const URL& firstParty, const S
 
 void NetworkConnectionToWebProcess::setRawCookie(const URL& firstParty, const URL& url, const WebCore::Cookie& cookie, ShouldPartitionCookie shouldPartitionCookie)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate);
-    MESSAGE_CHECK(RegistrableDomain::uncheckedCreateFromHost(cookie.domain).matches(firstParty));
-    MESSAGE_CHECK(RegistrableDomain(url).matches(firstParty));
-    if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
-        return;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty));
+        if (!allowsCookieAccess(firstParty, url))
+            return;
+    } else
+#endif
+    {
+        auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate);
+        if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
+            return;
+    }
 
     CheckedPtr networkStorageSession = storageSession();
     if (!networkStorageSession)
         return;
 
+    if (networkStorageSession->shouldBlockCookies(firstParty, url, std::nullopt, std::nullopt, ShouldRelaxThirdPartyCookieBlocking::No, NetworkSession::isResourceFromKnownCrossSiteTracker(firstParty, url)))
+        return;
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
-    networkStorageSession->setCookie(firstParty, cookie, shouldPartitionCookie);
+    networkStorageSession->setCookie(cookie, url, firstParty, shouldPartitionCookie);
 #else
-    UNUSED_PARAM(firstParty);
     UNUSED_PARAM(shouldPartitionCookie);
     networkStorageSession->setCookie(cookie, url, firstParty);
 #endif
@@ -1083,25 +1245,50 @@ void NetworkConnectionToWebProcess::deleteCookie(const URL& firstParty, const UR
     MESSAGE_CHECK_COMPLETION(!firstParty.isEmpty() && firstParty.isValid(), completionHandler());
     MESSAGE_CHECK_COMPLETION(!url.isEmpty() && url.isValid(), completionHandler());
     MESSAGE_CHECK_COMPLETION(!cookieName.isEmpty(), completionHandler());
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
-    if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
-        return completionHandler();
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler());
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler();
+    } else
+#endif
+    {
+        auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
+        if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
+            return completionHandler();
+    }
 
     CheckedPtr networkStorageSession = storageSession();
     if (!networkStorageSession)
+        return completionHandler();
+    if (networkStorageSession->shouldBlockCookies(firstParty, url, std::nullopt, std::nullopt, ShouldRelaxThirdPartyCookieBlocking::No, NetworkSession::isResourceFromKnownCrossSiteTracker(firstParty, url)))
         return completionHandler();
     networkStorageSession->deleteCookie(firstParty, url, cookieName, WTF::move(completionHandler));
 }
 
 void NetworkConnectionToWebProcess::cookiesForDOMAsync(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, IncludeSecureCookies includeSecureCookies, WebCore::CookieStoreGetOptions&& options, std::optional<WebPageProxyIdentifier> webPageProxyID, CompletionHandler<void(std::optional<Vector<WebCore::Cookie>>&&)>&& completionHandler)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(std::nullopt));
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler(std::nullopt));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(std::nullopt));
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "cookiesForDOMAsync: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return completionHandler(std::nullopt);
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler(std::nullopt);
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return completionHandler(std::nullopt);
     if (sameSiteInfo.isSameSite && !shouldTreatAsSameSite(firstParty, url)) {
@@ -1124,12 +1311,26 @@ void NetworkConnectionToWebProcess::cookiesForDOMAsync(const URL& firstParty, co
 
 void NetworkConnectionToWebProcess::setCookieFromDOMAsync(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WebCore::Cookie&& cookie, RequiresScriptTrackingPrivacy requiresScriptTrackingPrivacy, std::optional<WebPageProxyIdentifier> webPageProxyID, CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(false));
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler(false));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(false));
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "setCookieFromDOMAsync: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return completionHandler(false);
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler(false);
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return completionHandler(false);
     if (sameSiteInfo.isSameSite && !shouldTreatAsSameSite(firstParty, url)) {
@@ -1155,10 +1356,19 @@ void NetworkConnectionToWebProcess::domCookiesForHost(const URL& url, Completion
 {
     auto host = url.host().toString();
     MESSAGE_CHECK_COMPLETION(HashSet<String>::isValidValue(url.host().toString()), completionHandler({ }));
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, url);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }));
-    if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
-        return completionHandler({ });
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, url), completionHandler({ }));
+        if (RegistrableDomain(url).isEmpty())
+            return completionHandler({ });
+    } else
+#endif
+    {
+        auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, url);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler({ }));
+        if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
+            return completionHandler({ });
+    }
 
     CheckedPtr networkStorageSession = storageSession();
     if (!networkStorageSession)
@@ -1171,12 +1381,26 @@ void NetworkConnectionToWebProcess::domCookiesForHost(const URL& url, Completion
 
 void NetworkConnectionToWebProcess::subscribeToCookieChangeNotifications(const URL& url, const URL& firstParty, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier pageID, WebPageProxyIdentifier webPageProxyID, CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
-    MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(false));
+    auto allowCookieAccess = NetworkProcess::AllowCookieAccess::Disallow;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_COMPLETION(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty), completionHandler(false));
+    else
+#endif
+    {
+        allowCookieAccess = m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, firstParty);
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler(false));
+    }
     if (!m_networkProcess->allowsWebPageProxyIdentifier(m_webProcessIdentifier, webPageProxyID)) {
         RELEASE_LOG_ERROR(IPC, "subscribeToCookieChangeNotifications: dropping request from process %" PRIu64 " for pageID not in allow-list", m_webProcessIdentifier.toUInt64());
         return completionHandler(false);
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!allowsCookieAccess(firstParty, url))
+            return completionHandler({ });
+    } else
+#endif
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return completionHandler({ });
 
@@ -1319,11 +1543,17 @@ void NetworkConnectionToWebProcess::registerInternalBlobURLOptionallyFileBacked(
     CheckedPtr session = networkSession();
     if (!session)
         return;
-    if (blobFileAccessEnforcementEnabled() && shouldCheckBlobFileAccess())
-        MESSAGE_CHECK(isFilePathAllowed(fileBackedPath));
+
+    RefPtr<BlobDataFileReference> file;
+    if (!blobFileAccessEnforcementEnabled() || !shouldCheckBlobFileAccess() || isFilePathAllowed(fileBackedPath))
+        file = BlobDataFileReferenceWithSandboxExtension::create(fileBackedPath);
+    else if (!session->blobRegistry().blobDataFromURL(srcURL)) {
+        CONNECTION_RELEASE_LOG_ERROR(Loading, "registerInternalBlobURLOptionallyFileBacked: refusing to back a blob with a file path this process is not allowed, and srcURL is not registered");
+        return;
+    }
 
     m_blobURLs.add({ url, std::nullopt });
-    session->blobRegistry().registerInternalBlobURLOptionallyFileBacked(url, srcURL, BlobDataFileReferenceWithSandboxExtension::create(fileBackedPath), contentType, { });
+    session->blobRegistry().registerInternalBlobURLOptionallyFileBacked(url, srcURL, WTF::move(file), contentType, { });
 }
 
 void NetworkConnectionToWebProcess::registerInternalBlobURLForSlice(const URL& url, const URL& srcURL, int64_t start, int64_t end, const String& contentType)
@@ -1364,6 +1594,36 @@ void NetworkConnectionToWebProcess::unregisterBlobURLHandle(const URL& url, cons
 
     m_blobURLHandles.remove({ url, topOrigin });
     session->blobRegistry().unregisterBlobURLHandle(url, topOrigin);
+}
+
+bool NetworkConnectionToWebProcess::ownsBlobURL(const URL& url) const
+{
+    return m_blobURLs.contains({ url, std::nullopt }) || m_blobURLHandles.contains({ url, std::nullopt });
+}
+
+CompletionHandlerCallingScope NetworkConnectionToWebProcess::retainBlobURLsWhileMessageIsInFlight(const Vector<URL>& blobURLs)
+{
+    CheckedPtr session = networkSession();
+    if (!session || blobURLs.isEmpty())
+        return { };
+
+    Vector<URL> retainedBlobURLs;
+    for (auto& url : blobURLs) {
+        if (!ownsBlobURL(url) || !session->blobRegistry().blobDataFromURL(url))
+            continue;
+        session->blobRegistry().registerBlobURLHandle(url, std::nullopt);
+        retainedBlobURLs.append(url);
+    }
+    if (retainedBlobURLs.isEmpty())
+        return { };
+
+    return CompletionHandlerCallingScope { [networkProcess = WeakPtr { m_networkProcess.get() }, sessionID = m_sessionID, retainedBlobURLs = WTF::move(retainedBlobURLs)] {
+        CheckedPtr session = networkProcess ? networkProcess->networkSession(sessionID) : nullptr;
+        if (!session)
+            return;
+        for (auto& url : retainedBlobURLs)
+            session->blobRegistry().unregisterBlobURLHandle(url, std::nullopt);
+    } };
 }
 
 void NetworkConnectionToWebProcess::blobType(const URL& url, CompletionHandler<void(String)>&& completionHandler)
@@ -1457,7 +1717,15 @@ void NetworkConnectionToWebProcess::removeStorageAccessForFrame(FrameIdentifier 
 
 void NetworkConnectionToWebProcess::logUserInteraction(RegistrableDomain&& domain)
 {
-    if (m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, domain) != NetworkProcess::AllowCookieAccess::Allow) {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129()) {
+        if (!m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, domain)) {
+            ASSERT_NOT_REACHED();
+            return;
+        }
+    } else
+#endif
+    if (m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, domain) != NetworkProcess::AllowCookieAccess::Allow) {
         ASSERT_NOT_REACHED();
         return;
     }
@@ -1573,7 +1841,12 @@ void NetworkConnectionToWebProcess::storageAccessQuirkForTopFrameDomain(URL&& to
 
 void NetworkConnectionToWebProcess::requestStorageAccessUnderOpener(WebCore::RegistrableDomain&& domainInNeedOfStorageAccess, PageIdentifier openerPageID, WebCore::RegistrableDomain&& openerDomain)
 {
-    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, domainInNeedOfStorageAccess) == NetworkProcess::AllowCookieAccess::Allow);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, domainInNeedOfStorageAccess));
+    else
+#endif
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookiesLegacy(m_webProcessIdentifier, domainInNeedOfStorageAccess) == NetworkProcess::AllowCookieAccess::Allow);
 
     if (CheckedPtr networkSession = this->networkSession()) {
         if (RefPtr resourceLoadStatistics = networkSession->resourceLoadStatistics())
@@ -1724,8 +1997,12 @@ void NetworkConnectionToWebProcess::establishSharedWorkerContextConnection(WebPa
 {
     CONNECTION_RELEASE_LOG(SharedWorker, "establishSharedWorkerContextConnection:");
     if (CheckedPtr session = networkSession()) {
-        auto allowCookieAccess = session->networkProcess().allowsFirstPartyForCookies(webProcessIdentifier(), site.domain());
-        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        if (SecurityFlags::radar176384129())
+            MESSAGE_CHECK_COMPLETION(session->networkProcess().allowsFirstPartyForCookies(webProcessIdentifier(), site.domain()), completionHandler());
+        else
+#endif
+            MESSAGE_CHECK_COMPLETION(session->networkProcess().allowsFirstPartyForCookiesLegacy(webProcessIdentifier(), site.domain()) != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
         if (CheckedPtr swServer = session->sharedWorkerServer())
             m_sharedWorkerContextConnection = WebSharedWorkerServerToContextConnection::create(*this, WTF::move(site), *swServer, crossOriginEmbedderPolicy);
     }
@@ -1808,8 +2085,12 @@ void NetworkConnectionToWebProcess::establishSWContextConnection(WebPageProxyIde
 
     if (session) {
         Ref swServer = session->ensureSWServer();
-        auto allowCookieAccess = session->networkProcess().allowsFirstPartyForCookies(webProcessIdentifier(), site.domain());
-        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        if (SecurityFlags::radar176384129())
+            MESSAGE_CHECK_COMPLETION(session->networkProcess().allowsFirstPartyForCookies(webProcessIdentifier(), site.domain()), completionHandler());
+        else
+#endif
+            MESSAGE_CHECK_COMPLETION(session->networkProcess().allowsFirstPartyForCookiesLegacy(webProcessIdentifier(), site.domain()) != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
 
         MESSAGE_CHECK_COMPLETION(swServer->hasPendingConnectionDomain({ site.domain(), crossOriginEmbedderPolicy }), completionHandler());
 
@@ -1918,7 +2199,8 @@ void NetworkConnectionToWebProcess::messagePortClosed(const MessagePortIdentifie
     if (RefPtr channel = registry->existingChannelContainingPort(port))
         MESSAGE_CHECK(channel->processForPort(port) == m_webProcessIdentifier);
 
-    registry->didCloseMessagePort(port);
+    m_processEntangledPorts.remove(port);
+    registry->didCloseMessagePort(port, MessagePortStatus::Closed);
 }
 
 MessageBatchIdentifier NetworkConnectionToWebProcess::nextMessageBatchIdentifier(CompletionHandler<void()>&& deliveryCallback)
@@ -1968,7 +2250,7 @@ void NetworkConnectionToWebProcess::didDeliverMessagePortMessages(MessageBatchId
         callback();
 }
 
-void NetworkConnectionToWebProcess::postMessageToRemote(MessageWithMessagePorts&& message, const MessagePortIdentifier& port)
+void NetworkConnectionToWebProcess::postMessageToRemote(MessageWithMessagePorts&& message, const MessagePortIdentifier& port, Vector<URL>&& blobURLs)
 {
     CheckedRef registry = m_networkProcess->messagePortChannelRegistry();
     RefPtr channel = registry->existingChannelContainingPort(port);
@@ -1985,7 +2267,7 @@ void NetworkConnectionToWebProcess::postMessageToRemote(MessageWithMessagePorts&
     for (auto& transferredPort : message.transferredPorts)
         MESSAGE_CHECK(registry->claimPendingTransferOrigin(transferredPort.first, m_webProcessIdentifier));
 
-    if (registry->didPostMessageToRemote(WTF::move(message), port)) {
+    if (registry->didPostMessageToRemote(WTF::move(message), port, retainBlobURLsWhileMessageIsInFlight(blobURLs))) {
         if (auto destinationProcess = channel->processForPort(port)) {
             if (RefPtr connectionToWebProcess = m_networkProcess->webProcessConnection(*destinationProcess))
                 connectionToWebProcess->m_connection->send(Messages::NetworkProcessConnection::MessagesAvailableForPort(port), 0);

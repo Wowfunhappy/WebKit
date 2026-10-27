@@ -54,15 +54,7 @@ TEST_P(WebGLCompressedTextureAvailabilityTest, Test)
         EXPECT_TRUE(EnsureGLExtensionEnabled(kDXT5));
         EXPECT_TRUE(EnsureGLExtensionEnabled(kS3TCSRGB));
 
-        if (IsD3D9())
-        {
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kRGTC));
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kBPTC));
-        }
-        else
-        {
-            EXPECT_TRUE(EnsureGLExtensionEnabled(kRGTC));
-        }
+        EXPECT_TRUE(EnsureGLExtensionEnabled(kRGTC));
 
         EXPECT_FALSE(EnsureGLExtensionEnabled(kETC1));
         EXPECT_FALSE(EnsureGLExtensionEnabled(kETC1Sub));
@@ -106,28 +98,6 @@ TEST_P(WebGLCompressedTextureAvailabilityTest, Test)
         else
         {
             // Need proper Catalyst detection to assert formats here.
-        }
-    }
-    else if (IsDesktopOpenGL())
-    {
-        if (IsMac())
-        {
-            // OpenGL version is fixed to 4.1 on macOS, so the supported formats are the same on all
-            // devices.
-            EXPECT_TRUE(EnsureGLExtensionEnabled(kDXT1));
-            EXPECT_TRUE(EnsureGLExtensionEnabled(kDXT3));
-            EXPECT_TRUE(EnsureGLExtensionEnabled(kDXT5));
-            EXPECT_TRUE(EnsureGLExtensionEnabled(kS3TCSRGB));
-            EXPECT_TRUE(EnsureGLExtensionEnabled(kRGTC));
-
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kBPTC));
-
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kETC1));
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kETC1Sub));
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kETC2));
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kASTCLDR));
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kASTCHDR));
-            EXPECT_FALSE(EnsureGLExtensionEnabled(kPVRTC1));
         }
     }
 }

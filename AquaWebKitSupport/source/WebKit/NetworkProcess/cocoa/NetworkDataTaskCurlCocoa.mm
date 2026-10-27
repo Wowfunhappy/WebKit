@@ -18,6 +18,7 @@
 #import "NetworkProcess.h"
 #import "NetworkSessionCocoa.h"
 #import "PrivateRelayed.h"
+#import "SecurityFlags.h"
 #import "AuthenticationChallengeDisposition.h"
 #import "Download.h"
 #import "DownloadManager.h"
@@ -105,6 +106,7 @@ NetworkDataTaskCurlCocoa::NetworkDataTaskCurlCocoa(NetworkSession& session, Netw
     , m_contentEncodingSniffingPolicy(parameters.contentEncodingSniffingPolicy)
     , m_isMainResource(parameters.mainResourceNavigationDataForAnyFrame.has_value())
     , m_needsCertificateInfo(parameters.needsCertificateInfo)
+    , m_isDataTaskForAPI(parameters.isDataTaskForAPI)
 {
     m_isNavigatingToAppBoundDomain = parameters.isNavigatingToAppBoundDomain;
     if (parameters.downloadResume) {
@@ -140,6 +142,19 @@ NetworkDataTaskCurlCocoa::NetworkDataTaskCurlCocoa(NetworkSession& session, Netw
         m_authPassword = m_initialCredential.password();
         m_authMethod = CURLAUTH_BASIC;
     }
+    disallowCookiesWithoutFirstPartyDomain(m_request);
+}
+
+// NetworkDataTaskCocoa's rule for a first party with no registrable domain, such as about:blank: the load
+// proceeds without cookies. A _WKDataTask request is not the web content process's and keeps its own policy.
+void NetworkDataTaskCurlCocoa::disallowCookiesWithoutFirstPartyDomain(ResourceRequest& request) const
+{
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (!m_isDataTaskForAPI && SecurityFlags::radar176384129() && RegistrableDomain(request.firstPartyForCookies()).isEmpty())
+        request.setAllowCookies(false);
+#else
+    UNUSED_PARAM(request);
+#endif
 }
 
 NetworkDataTaskCurlCocoa::~NetworkDataTaskCurlCocoa()
@@ -209,6 +224,7 @@ void NetworkDataTaskCurlCocoa::setup()
     RetainPtr<NSURLSessionConfiguration> configuration = wrapper->session.get().configuration;
     CocoaCurlTransferOptions options(configuration.get().TLSMinimumSupportedProtocolVersion);
     options.request = m_request;
+    options.presentsPreferredIdentity = !configuration.get()._shouldSkipPreferredClientCertificateLookup;
     // The jar's Cookie field goes on the wire only, as CFNetwork adds it; a Cookie field the request carries, as a
     // Safari 7 extension's onBeforeSendHeaders sets it, is sent as it is.
     if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
@@ -348,7 +364,7 @@ void NetworkDataTaskCurlCocoa::invalidateAndCancel()
 bool NetworkDataTaskCurlCocoa::shouldCapCookieExpiryForThirdPartyCloaking(NetworkSession& session, const ResourceRequest& request, const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain)
 {
     auto* storage = session.networkStorageSession();
-    if (!storage || !storage->trackingPreventionEnabled() || request.isThirdParty())
+    if (!storage || !storage->trackingPreventionEnabled() || request.isThirdParty() || request.isTopSite())
         return false;
     auto firstPartyURL = request.firstPartyForCookies();
     auto firstPartyHostName = firstPartyURL.host().toString();
@@ -548,6 +564,7 @@ void NetworkDataTaskCurlCocoa::redirect()
                 protectedThis->m_authPassword = String();
                 protectedThis->m_authMethod = CURLAUTH_NONE;
             }
+            protectedThis->disallowCookiesWithoutFirstPartyDomain(approved);
             protectedThis->m_connectionURL = applyExternalURLRewrite(approved);
             protectedThis->restart(WTF::move(approved));
         });

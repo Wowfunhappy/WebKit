@@ -35,9 +35,9 @@
 namespace angle
 {
 
-#if defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
+#if defined(ANGLE_ENABLE_D3D11)
 using Microsoft::WRL::ComPtr;
-#endif  // defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
+#endif  // defined(ANGLE_ENABLE_D3D11)
 
 // Forward declaration. Implementation in system_utils.h
 using ThreadId = std::thread::id;
@@ -62,7 +62,7 @@ constexpr char kPerfMonitorExtensionName[] = "GL_AMD_performance_monitor";
 struct PerfMonitorCounterInfo
 {
     PerfMonitorCounterInfo() = default;
-    PerfMonitorCounterInfo(const char *name) : name(name) {}
+    PerfMonitorCounterInfo(std::string_view name) : name(name) {}
 
     std::string name;
 };
@@ -97,9 +97,7 @@ struct PerfMonitorTriplet
 
 #define ANGLE_VK_PERF_COUNTERS_X(FN)               \
     FN(commandQueueSubmitCallsTotal)               \
-    FN(commandQueueSubmitCallsPerFrame)            \
     FN(vkQueueSubmitCallsTotal)                    \
-    FN(vkQueueSubmitCallsPerFrame)                 \
     FN(commandQueueWaitSemaphoresTotal)            \
     FN(renderPasses)                               \
     FN(writeDescriptorSets)                        \
@@ -140,7 +138,6 @@ struct PerfMonitorTriplet
     FN(monolithicPipelineCreation)                 \
     FN(descriptorSetAllocations)                   \
     FN(descriptorSetCacheTotalSize)                \
-    FN(descriptorSetCacheKeySizeBytes)             \
     FN(uniformsAndXfbDescriptorSetCacheHits)       \
     FN(uniformsAndXfbDescriptorSetCacheMisses)     \
     FN(uniformsAndXfbDescriptorSetCacheTotalSize)  \
@@ -162,10 +159,24 @@ struct PerfMonitorTriplet
     FN(vertexArraySyncStateCalls)                  \
     FN(allocateNewBufferBlockCalls)                \
     FN(bufferSuballocationCalls)                   \
-    FN(dynamicBufferAllocations)                   \
     FN(framebufferCacheSize)                       \
     FN(pendingSubmissionGarbageObjects)            \
     FN(graphicsDriverUniformsUpdated)
+
+#define ANGLE_VK_API_PERF_COUNTER_GROUPS_X(FN) \
+    FN(Command)                                \
+    FN(Submit)                                 \
+    FN(Surface)                                \
+    FN(Wait)                                   \
+    FN(Other)
+
+#define ANGLE_VK_API_PERF_COUNTER_TYPES_X(FN) \
+    FN(WallTimeNs)                            \
+    FN(Samples)
+
+#define ANGLE_VK_API_PERF_COUNTER_TYPES_WITH_PARAM_X(FN, PARAM) \
+    FN(WallTimeNs, PARAM)                                       \
+    FN(Samples, PARAM)
 
 #define ANGLE_DECLARE_PERF_COUNTER(COUNTER) uint64_t COUNTER;
 
@@ -176,6 +187,28 @@ struct VulkanPerfCounters
 
 #undef ANGLE_DECLARE_PERF_COUNTER
 
+#define ANGLE_DECLARE_VK_API_PERF_COUNTER_ENUM(NAME) NAME,
+
+enum class VulkanApiPerfCounterGroup
+{
+    ANGLE_VK_API_PERF_COUNTER_GROUPS_X(ANGLE_DECLARE_VK_API_PERF_COUNTER_ENUM)
+    // EnumCount enables PackedEnums support.
+    EnumCount
+};
+
+enum class VulkanApiPerfCounterType
+{
+    ANGLE_VK_API_PERF_COUNTER_TYPES_X(ANGLE_DECLARE_VK_API_PERF_COUNTER_ENUM)
+    // EnumCount enables PackedEnums support.
+    EnumCount
+};
+
+#undef ANGLE_DECLARE_VK_API_PERF_COUNTER_ENUM
+
+std::string_view GetVulkanApiPerfCounterGroupName(VulkanApiPerfCounterGroup group);
+std::string_view GetVulkanApiPerfCounterTypeName(VulkanApiPerfCounterType type);
+std::string_view GetVulkanApiPerfCounterName(VulkanApiPerfCounterGroup group,
+                                             VulkanApiPerfCounterType type);
 }  // namespace angle
 
 template <typename T, size_t N>

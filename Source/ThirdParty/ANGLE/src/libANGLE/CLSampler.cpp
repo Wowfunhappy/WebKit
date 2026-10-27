@@ -6,16 +6,16 @@
 // CLSampler.cpp: Implements the cl::Sampler class.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
+#include "common/unsafe_buffers.h"
 
-#include "libANGLE/CLSampler.h"
+#include <angle_cl.h>
 
 #include "libANGLE/CLContext.h"
+#include "libANGLE/CLSampler.h"
 #include "libANGLE/cl_utils.h"
 
 #include <cstring>
+#include <type_traits>
 
 namespace cl
 {
@@ -78,7 +78,7 @@ angle::Result Sampler::getInfo(SamplerInfo name,
         }
         if (copyValue != nullptr)
         {
-            std::memcpy(value, copyValue, copySize);
+            ANGLE_UNSAFE_TODO(std::memcpy(value, copyValue, copySize));
         }
     }
     if (valueSizeRet != nullptr)

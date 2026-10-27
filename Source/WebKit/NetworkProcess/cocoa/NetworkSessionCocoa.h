@@ -96,13 +96,19 @@ struct IsolatedSession {
 public:
     IsolatedSession()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
-        // AQUAWEBKIT: see sessionWithoutCredentialStorage below.
+#ifndef RC_REMOVE_SEC_ACCEL_3
         , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
+#endif
     { }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    SessionWrapper& initializeSessionWithoutCredentialStorageIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
+#endif
+
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
-    // AQUAWEBKIT: the DoNotUse counterpart, see SessionSet::sessionWithoutCredentialStorage.
+#ifndef RC_REMOVE_SEC_ACCEL_3
     UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
+#endif
     WallTime lastUsed;
 };
 
@@ -114,9 +120,9 @@ public:
     }
 
     SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
-    // AQUAWEBKIT: a StoredCredentialsPolicy::DoNotUse task needs a session of its own, see
-    // sessionWrapperForTask.
-    SessionWrapper& initializeSessionWithoutCredentialStorageIfNeeded(NetworkSessionCocoa&);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    SessionWrapper& initializeSessionWithoutCredentialStorageIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
+#endif
 
     CheckedRef<SessionWrapper> isolatedSession(WebCore::StoredCredentialsPolicy, const WebCore::RegistrableDomain&, NavigatingToAppBoundDomain, NetworkSessionCocoa&);
     HashMap<WebCore::RegistrableDomain, std::unique_ptr<IsolatedSession>> isolatedSessions;
@@ -124,18 +130,19 @@ public:
     std::unique_ptr<IsolatedSession> appBoundSession;
 
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
-    UniqueRef<SessionWrapper> ephemeralStatelessSession;
-    // AQUAWEBKIT: same configuration as sessionWithCredentialStorage but with no
-    // URLCredentialStorage, created on first use.
+#ifndef RC_REMOVE_SEC_ACCEL_3
     UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
+#endif
+    UniqueRef<SessionWrapper> ephemeralStatelessSession;
 
 private:
 
     SessionSet()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
-        , ephemeralStatelessSession(makeUniqueRef<SessionWrapper>())
-        // AQUAWEBKIT: see sessionWithoutCredentialStorage above.
+#ifndef RC_REMOVE_SEC_ACCEL_3
         , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
+#endif
+        , ephemeralStatelessSession(makeUniqueRef<SessionWrapper>())
     { }
 };
 
@@ -239,7 +246,7 @@ private:
     void deleteAlternativeServicesForHostNames(const Vector<String>&) override;
     void clearAlternativeServices(WallTime) override;
 
-    RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker) final;
+    RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, WebCore::ResourceRequest&&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker) final;
     void addWebSocketTask(WebPageProxyIdentifier, WebSocketTask&) final;
     void removeWebSocketTask(SessionSet&, WebSocketTask&) final;
 

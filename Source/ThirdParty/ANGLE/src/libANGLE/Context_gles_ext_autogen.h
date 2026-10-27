@@ -36,6 +36,7 @@
     /* GL_OES_point_sprite */                                                                      \
     /* GL_OES_query_matrix */                                                                      \
     GLbitfield queryMatrixx(GLfixed *mantissa, GLint *exponent);                                   \
+    /* GL_OES_stencil8 */                                                                          \
     /* GL_OES_texture_cube_map */                                                                  \
     void getTexGenfv(GLenum coord, GLenum pname, GLfloat *params);                                 \
     void getTexGeniv(GLenum coord, GLenum pname, GLint *params);                                   \
@@ -89,14 +90,9 @@
     /* GL_EXT_EGL_image_storage_compression */                                                     \
     /* GL_EXT_YUV_target */                                                                        \
     /* GL_EXT_base_instance */                                                                     \
-    void drawArraysInstancedBaseInstance(PrimitiveMode modePacked, GLint first, GLsizei count,     \
-                                         GLsizei instancecount, GLuint baseinstance);              \
     void drawElementsInstancedBaseInstance(PrimitiveMode modePacked, GLsizei count,                \
                                            DrawElementsType typePacked, const void *indices,       \
                                            GLsizei instancecount, GLuint baseinstance);            \
-    void drawElementsInstancedBaseVertexBaseInstance(                                              \
-        PrimitiveMode modePacked, GLsizei count, DrawElementsType typePacked, const void *indices, \
-        GLsizei instancecount, GLint basevertex, GLuint baseinstance);                             \
     /* GL_EXT_blend_func_extended */                                                               \
     void bindFragDataLocation(ShaderProgramID programPacked, GLuint color, const GLchar *name);    \
     void bindFragDataLocationIndexed(ShaderProgramID programPacked, GLuint colorNumber,            \
@@ -262,10 +258,11 @@
     /* GL_EXT_texture_shadow_lod */                                                                \
     /* GL_EXT_texture_storage */                                                                   \
     /* GL_EXT_texture_storage_compression */                                                       \
-    void texStorageAttribs2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width,  \
-                             GLsizei height, const GLint *attrib_list);                            \
-    void texStorageAttribs3D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width,  \
-                             GLsizei height, GLsizei depth, const GLint *attrib_list);             \
+    void texStorageAttribs2D(TextureType targetPacked, GLsizei levels, GLenum internalformat,      \
+                             GLsizei width, GLsizei height, const GLint *attrib_list);             \
+    void texStorageAttribs3D(TextureType targetPacked, GLsizei levels, GLenum internalformat,      \
+                             GLsizei width, GLsizei height, GLsizei depth,                         \
+                             const GLint *attrib_list);                                            \
     /* GL_EXT_texture_type_2_10_10_10_REV */                                                       \
     /* GL_EXT_unpack_subimage */                                                                   \
     /* GL_IMG_texture_compression_pvrtc */                                                         \
@@ -282,8 +279,6 @@
     /* GL_KHR_texture_compression_astc_ldr */                                                      \
     /* GL_KHR_texture_compression_astc_sliced_3d */                                                \
     /* GL_MESA_framebuffer_flip_y */                                                               \
-    void framebufferParameteriMESA(GLenum target, GLenum pname, GLint param);                      \
-    void getFramebufferParameterivMESA(GLenum target, GLenum pname, GLint *params);                \
     /* GL_NV_EGL_stream_consumer_external */                                                       \
     /* GL_NV_fence */                                                                              \
     void deleteFencesNV(GLsizei n, const FenceNVID *fencesPacked);                                 \
@@ -294,8 +289,6 @@
     void setFenceNV(FenceNVID fencePacked, GLenum condition);                                      \
     GLboolean testFenceNV(FenceNVID fencePacked);                                                  \
     /* GL_NV_framebuffer_blit */                                                                   \
-    void blitFramebufferNV(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0,        \
-                           GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter); \
     /* GL_NV_pack_subimage */                                                                      \
     /* GL_NV_pixel_buffer_object */                                                                \
     /* GL_NV_polygon_mode */                                                                       \
@@ -310,17 +303,7 @@
     /* GL_OES_EGL_image_external */                                                                \
     /* GL_OES_EGL_image_external_essl3 */                                                          \
     /* GL_OES_EGL_sync */                                                                          \
-    /* GL_OES_compressed_EAC_R11_signed_texture */                                                 \
-    /* GL_OES_compressed_EAC_R11_unsigned_texture */                                               \
-    /* GL_OES_compressed_EAC_RG11_signed_texture */                                                \
-    /* GL_OES_compressed_EAC_RG11_unsigned_texture */                                              \
     /* GL_OES_compressed_ETC1_RGB8_texture */                                                      \
-    /* GL_OES_compressed_ETC2_RGB8_texture */                                                      \
-    /* GL_OES_compressed_ETC2_RGBA8_texture */                                                     \
-    /* GL_OES_compressed_ETC2_punchthroughA_RGBA8_texture */                                       \
-    /* GL_OES_compressed_ETC2_punchthroughA_sRGB8_alpha_texture */                                 \
-    /* GL_OES_compressed_ETC2_sRGB8_alpha8_texture */                                              \
-    /* GL_OES_compressed_ETC2_sRGB8_texture */                                                     \
     /* GL_OES_compressed_paletted_texture */                                                       \
     /* GL_OES_copy_image */                                                                        \
     /* GL_OES_depth24 */                                                                           \
@@ -390,15 +373,13 @@
     /* GL_QCOM_tiled_rendering */                                                                  \
     void endTiling(GLbitfield preserveMask);                                                       \
     void startTiling(GLuint x, GLuint y, GLuint width, GLuint height, GLbitfield preserveMask);    \
-    /* GL_WEBGL_video_texture */                                                                   \
                                                                                                    \
     /* ANGLE Extensions */                                                                         \
                                                                                                    \
     /* GL_ANGLE_base_vertex_base_instance */                                                       \
-    void drawArraysInstancedBaseInstanceANGLE(PrimitiveMode modePacked, GLint first,               \
-                                              GLsizei count, GLsizei instanceCount,                \
-                                              GLuint baseInstance);                                \
-    void drawElementsInstancedBaseVertexBaseInstanceANGLE(                                         \
+    void drawArraysInstancedBaseInstance(PrimitiveMode modePacked, GLint first, GLsizei count,     \
+                                         GLsizei instanceCount, GLuint baseInstance);              \
+    void drawElementsInstancedBaseVertexBaseInstance(                                              \
         PrimitiveMode modePacked, GLsizei count, DrawElementsType typePacked, const void *indices, \
         GLsizei instanceCount, GLint baseVertex, GLuint baseInstance);                             \
     void multiDrawArraysInstancedBaseInstance(                                                     \
@@ -425,6 +406,7 @@
                           GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLint z,  \
                           GLint width, GLint height, GLint depth, GLboolean unpackFlipY,           \
                           GLboolean unpackPremultiplyAlpha, GLboolean unpackUnmultiplyAlpha);      \
+    /* GL_ANGLE_explicit_context */                                                                \
     /* GL_ANGLE_framebuffer_multisample */                                                         \
     /* GL_ANGLE_get_image */                                                                       \
     void getTexImage(TextureTarget targetPacked, GLint level, GLenum format, GLenum type,          \
@@ -643,7 +625,6 @@
                         GLint xoffset, GLint yoffset, GLint x, GLint y, GLint width, GLint height, \
                         GLboolean unpackFlipY, GLboolean unpackPremultiplyAlpha,                   \
                         GLboolean unpackUnmultiplyAlpha);                                          \
-    /* GL_CHROMIUM_framebuffer_mixed_samples */                                                    \
     /* GL_CHROMIUM_lose_context */                                                                 \
     void loseContext(GraphicsResetStatus currentPacked, GraphicsResetStatus otherPacked);          \
     /* GL_WEBKIT_explicit_resolve_target */                                                        \

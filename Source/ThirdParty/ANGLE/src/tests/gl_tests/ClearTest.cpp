@@ -4,6 +4,7 @@
 // found in the LICENSE file.
 //
 
+#include <array>
 #include <variant>
 #include "common/unsafe_buffers.h"
 
@@ -1503,10 +1504,6 @@ TEST_P(ClearTest, DefaultFramebuffer)
 // This forces down path that uses draw to do clear
 TEST_P(ClearTest, EmptyScissor)
 {
-    // These configs have bug that fails this test.
-    // These configs are unmaintained so skipping.
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsD3D9());
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsMac() && IsOpenGL());
     glClearColor(0.25f, 0.5f, 0.5f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glEnable(GL_SCISSOR_TEST);
@@ -1733,9 +1730,6 @@ TEST_P(ClearTest, ChangeFramebufferAttachmentFromRGBAtoRGB)
 {
     // http://anglebug.com/40096508
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsAdreno() && IsOpenGLES());
-
-    // http://anglebug.com/40644765
-    ANGLE_SKIP_TEST_IF(IsMac() && IsDesktopOpenGL() && IsIntel());
 
     ANGLE_GL_PROGRAM(program, angle::essl1_shaders::vs::Simple(),
                      angle::essl1_shaders::fs::UniformColor());
@@ -2053,30 +2047,30 @@ TEST_P(ClearTestES3, ClearMultipleAttachmentsFollowedBySpecificOne)
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
 
-    GLTexture textures[kAttachmentCount];
-    GLenum drawBuffers[kAttachmentCount];
-    GLColor clearValues[kAttachmentCount];
+    std::array<GLTexture, kAttachmentCount> textures;
+    std::array<GLenum, kAttachmentCount> drawBuffers;
+    std::array<GLColor, kAttachmentCount> clearValues;
 
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        glBindTexture(GL_TEXTURE_2D, ANGLE_UNSAFE_TODO(textures[i]));
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                      pixelData.data());
-        ANGLE_UNSAFE_TODO({
+        {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D,
                                    textures[i], 0);
             drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
-        })
+        }
 
-        ANGLE_UNSAFE_TODO({
+        {
             clearValues[i].R = static_cast<GLubyte>(1 + i * 20);
             clearValues[i].G = static_cast<GLubyte>(7 + i * 20);
             clearValues[i].B = static_cast<GLubyte>(12 + i * 20);
             clearValues[i].A = static_cast<GLubyte>(16 + i * 20);
-        })
+        }
     }
 
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
@@ -2090,7 +2084,7 @@ TEST_P(ClearTestES3, ClearMultipleAttachmentsFollowedBySpecificOne)
     // Clear odd targets individually.
     for (uint32_t i = 1; i < kAttachmentCount; i += 2)
     {
-        clearColor = ANGLE_UNSAFE_TODO(clearValues[i]).toNormalizedVector();
+        clearColor = clearValues[i].toNormalizedVector();
         glClearBufferfv(GL_COLOR, i, clearColor.data());
     }
 
@@ -2102,7 +2096,7 @@ TEST_P(ClearTestES3, ClearMultipleAttachmentsFollowedBySpecificOne)
         ASSERT_GL_NO_ERROR();
 
         uint32_t clearIndex   = i % 2 == 0 ? 0 : i;
-        const GLColor &expect = ANGLE_UNSAFE_TODO(clearValues[clearIndex]);
+        const GLColor &expect = clearValues[clearIndex];
 
         EXPECT_PIXEL_COLOR_EQ(0, 0, expect);
         EXPECT_PIXEL_COLOR_EQ(0, kSize - 1, expect);
@@ -2126,28 +2120,28 @@ TEST_P(ClearTestES3, ClearMultipleAttachmentsIndividually)
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
 
-    GLTexture textures[kAttachmentCount];
+    std::array<GLTexture, kAttachmentCount> textures;
     GLRenderbuffer depthStencil;
-    GLenum drawBuffers[kAttachmentCount];
-    GLColor clearValues[kAttachmentCount];
+    std::array<GLenum, kAttachmentCount> drawBuffers;
+    std::array<GLColor, kAttachmentCount> clearValues;
 
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        glBindTexture(GL_TEXTURE_2D, ANGLE_UNSAFE_TODO(textures[i]));
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                      pixelData.data());
-        ANGLE_UNSAFE_TODO({
+        {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D,
                                    textures[i], 0);
             drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
-        })
+        }
 
-        ANGLE_UNSAFE_TODO({
+        {
             clearValues[i].R = static_cast<GLubyte>(1 + i * 20);
             clearValues[i].G = static_cast<GLubyte>(7 + i * 20);
             clearValues[i].B = static_cast<GLubyte>(12 + i * 20);
             clearValues[i].A = static_cast<GLubyte>(16 + i * 20);
-        })
+        }
     }
 
     glBindRenderbuffer(GL_RENDERBUFFER, depthStencil);
@@ -2155,14 +2149,14 @@ TEST_P(ClearTestES3, ClearMultipleAttachmentsIndividually)
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
                               depthStencil);
 
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
 
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        glClearBufferfv(GL_COLOR, i, ANGLE_UNSAFE_TODO(clearValues[i]).toNormalizedVector().data());
+        glClearBufferfv(GL_COLOR, i, clearValues[i].toNormalizedVector().data());
     }
 
     glClearBufferfv(GL_DEPTH, 0, &kDepthClearValue);
@@ -2174,7 +2168,7 @@ TEST_P(ClearTestES3, ClearMultipleAttachmentsIndividually)
         glReadBuffer(GL_COLOR_ATTACHMENT0 + i);
         ASSERT_GL_NO_ERROR();
 
-        const GLColor &expect = ANGLE_UNSAFE_TODO(clearValues[i]);
+        const GLColor &expect = clearValues[i];
 
         EXPECT_PIXEL_COLOR_EQ(0, 0, expect);
         EXPECT_PIXEL_COLOR_EQ(0, kSize - 1, expect);
@@ -2184,8 +2178,8 @@ TEST_P(ClearTestES3, ClearMultipleAttachmentsIndividually)
 
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     for (uint32_t i = 1; i < kAttachmentCount; ++i)
-        ANGLE_UNSAFE_TODO(drawBuffers[i]) = GL_NONE;
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+        drawBuffers[i] = GL_NONE;
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     verifyDepth(kDepthClearValue, kSize);
     verifyStencil(kStencilClearValue, kSize);
@@ -2201,22 +2195,22 @@ TEST_P(ClearTestES3, MaskedScissoredClearMultipleAttachments)
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
 
-    GLTexture textures[kAttachmentCount];
-    GLenum drawBuffers[kAttachmentCount];
+    std::array<GLTexture, kAttachmentCount> textures;
+    std::array<GLenum, kAttachmentCount> drawBuffers;
 
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        glBindTexture(GL_TEXTURE_2D, ANGLE_UNSAFE_TODO(textures[i]));
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                      pixelData.data());
-        ANGLE_UNSAFE_TODO({
+        {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D,
                                    textures[i], 0);
             drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
-        })
+        }
     }
 
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
@@ -2309,22 +2303,22 @@ TEST_P(ClearTestES3, MaskedIndexedClearMultipleAttachments)
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
 
-    GLTexture textures[kAttachmentCount];
-    GLenum drawBuffers[kAttachmentCount];
+    std::array<GLTexture, kAttachmentCount> textures;
+    std::array<GLenum, kAttachmentCount> drawBuffers;
 
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        glBindTexture(GL_TEXTURE_2D, ANGLE_UNSAFE_TODO(textures[i]));
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                      pixelData.data());
-        ANGLE_UNSAFE_TODO({
+        {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D,
                                    textures[i], 0);
             drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
-        })
+        }
     }
 
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
@@ -2371,17 +2365,17 @@ TEST_P(ClearTestES3, MaskedClearHeterogeneousAttachments)
     constexpr uint32_t kAttachmentCount                   = 3;
     constexpr float kDepthClearValue                      = 0.256f;
     constexpr int32_t kStencilClearValue                  = 0x1D;
-    constexpr GLenum kAttachmentFormats[kAttachmentCount] = {
+    constexpr std::array<GLenum, kAttachmentCount> kAttachmentFormats = {
         GL_RGBA8,
         GL_RGBA8I,
         GL_RGBA8UI,
     };
-    constexpr GLenum kDataFormats[kAttachmentCount] = {
+    constexpr std::array<GLenum, kAttachmentCount> kDataFormats = {
         GL_RGBA,
         GL_RGBA_INTEGER,
         GL_RGBA_INTEGER,
     };
-    constexpr GLenum kDataTypes[kAttachmentCount] = {
+    constexpr std::array<GLenum, kAttachmentCount> kDataTypes = {
         GL_UNSIGNED_BYTE,
         GL_BYTE,
         GL_UNSIGNED_BYTE,
@@ -2391,20 +2385,18 @@ TEST_P(ClearTestES3, MaskedClearHeterogeneousAttachments)
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
 
-    GLTexture textures[kAttachmentCount];
+    std::array<GLTexture, kAttachmentCount> textures;
     GLRenderbuffer depthStencil;
-    GLenum drawBuffers[kAttachmentCount];
+    std::array<GLenum, kAttachmentCount> drawBuffers;
 
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        ANGLE_UNSAFE_TODO({
-            glBindTexture(GL_TEXTURE_2D, textures[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, kAttachmentFormats[i], kSize, kSize, 0, kDataFormats[i],
-                         kDataTypes[i], pixelData.data());
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D,
-                                   textures[i], 0);
-            drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
-        })
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, kAttachmentFormats[i], kSize, kSize, 0, kDataFormats[i],
+                     kDataTypes[i], pixelData.data());
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, textures[i],
+                               0);
+        drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
     }
 
     glBindRenderbuffer(GL_RENDERBUFFER, depthStencil);
@@ -2412,7 +2404,7 @@ TEST_P(ClearTestES3, MaskedClearHeterogeneousAttachments)
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
                               depthStencil);
 
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_EQ(0, 0, 0, 0, 0, 0);
@@ -2470,8 +2462,8 @@ TEST_P(ClearTestES3, MaskedClearHeterogeneousAttachments)
 
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     for (uint32_t i = 1; i < kAttachmentCount; ++i)
-        ANGLE_UNSAFE_TODO(drawBuffers[i]) = GL_NONE;
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+        drawBuffers[i] = GL_NONE;
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     verifyDepth(kDepthClearValue, kSize);
     verifyStencil(kStencilClearValue, kSize);
@@ -2496,17 +2488,17 @@ TEST_P(ClearTestES3, ScissoredClearHeterogeneousAttachments)
     constexpr uint32_t kAttachmentCount                   = 3;
     constexpr float kDepthClearValue                      = 0.256f;
     constexpr int32_t kStencilClearValue                  = 0x1D;
-    constexpr GLenum kAttachmentFormats[kAttachmentCount] = {
+    constexpr std::array<GLenum, kAttachmentCount> kAttachmentFormats = {
         GL_RGBA8,
         GL_RGBA8I,
         GL_RGBA8UI,
     };
-    constexpr GLenum kDataFormats[kAttachmentCount] = {
+    constexpr std::array<GLenum, kAttachmentCount> kDataFormats = {
         GL_RGBA,
         GL_RGBA_INTEGER,
         GL_RGBA_INTEGER,
     };
-    constexpr GLenum kDataTypes[kAttachmentCount] = {
+    constexpr std::array<GLenum, kAttachmentCount> kDataTypes = {
         GL_UNSIGNED_BYTE,
         GL_BYTE,
         GL_UNSIGNED_BYTE,
@@ -2516,20 +2508,18 @@ TEST_P(ClearTestES3, ScissoredClearHeterogeneousAttachments)
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
 
-    GLTexture textures[kAttachmentCount];
+    std::array<GLTexture, kAttachmentCount> textures;
     GLRenderbuffer depthStencil;
-    GLenum drawBuffers[kAttachmentCount];
+    std::array<GLenum, kAttachmentCount> drawBuffers;
 
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        ANGLE_UNSAFE_TODO({
-            glBindTexture(GL_TEXTURE_2D, textures[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, kAttachmentFormats[i], kSize, kSize, 0, kDataFormats[i],
-                         kDataTypes[i], pixelData.data());
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D,
-                                   textures[i], 0);
-            drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
-        })
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, kAttachmentFormats[i], kSize, kSize, 0, kDataFormats[i],
+                     kDataTypes[i], pixelData.data());
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, textures[i],
+                               0);
+        drawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
     }
 
     glBindRenderbuffer(GL_RENDERBUFFER, depthStencil);
@@ -2537,7 +2527,7 @@ TEST_P(ClearTestES3, ScissoredClearHeterogeneousAttachments)
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
                               depthStencil);
 
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_EQ(0, 0, 0, 0, 0, 0);
@@ -2611,8 +2601,8 @@ TEST_P(ClearTestES3, ScissoredClearHeterogeneousAttachments)
 
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     for (uint32_t i = 1; i < kAttachmentCount; ++i)
-        ANGLE_UNSAFE_TODO(drawBuffers[i]) = GL_NONE;
-    glDrawBuffers(kAttachmentCount, drawBuffers);
+        drawBuffers[i] = GL_NONE;
+    glDrawBuffers(kAttachmentCount, drawBuffers.data());
 
     verifyDepth(kDepthClearValue, kHalfSize);
     verifyStencil(kStencilClearValue, kHalfSize);
@@ -3374,9 +3364,6 @@ TEST_P(ClearTest, DrawThenInceptionScissorClears)
 // assert.
 TEST_P(ClearTestES3, ClearDisabledNonZeroAttachmentNoAssert)
 {
-    // http://anglebug.com/40644728
-    ANGLE_SKIP_TEST_IF(IsMac() && IsDesktopOpenGL());
-
     GLFramebuffer fb;
     glBindFramebuffer(GL_FRAMEBUFFER, fb);
 
@@ -3406,8 +3393,6 @@ TEST_P(ClearTestES3, ClearDisabledNonZeroAttachmentNoAssert)
 // stencil works.
 TEST_P(ClearTestES3, ClearMaxAttachments)
 {
-    // http://anglebug.com/40644728
-    ANGLE_SKIP_TEST_IF(IsMac() && IsDesktopOpenGL());
     // http://anglebug.com/42263935
     ANGLE_SKIP_TEST_IF(IsAMD() && IsD3D11());
 
@@ -3495,9 +3480,6 @@ TEST_P(ClearTestES3, ClearMaxAttachments)
 // stencil after a draw call works.
 TEST_P(ClearTestES3, ClearMaxAttachmentsAfterDraw)
 {
-    // http://anglebug.com/40644728
-    ANGLE_SKIP_TEST_IF(IsMac() && IsDesktopOpenGL());
-
     constexpr GLsizei kSize = 16;
 
     GLint maxDrawBuffers = 0;
@@ -3677,9 +3659,6 @@ TEST_P(ClearTestES3, ClearThenMixedMaskedClear)
 // Test that clearing stencil after a draw call works.
 TEST_P(ClearTestES3, ClearStencilAfterDraw)
 {
-    // http://anglebug.com/40644728
-    ANGLE_SKIP_TEST_IF(IsMac() && IsDesktopOpenGL());
-
     constexpr GLsizei kSize = 16;
 
     GLint maxDrawBuffers = 0;
@@ -3782,23 +3761,20 @@ TEST_P(ClearTestES3, ClearStencilAfterDraw)
 // Test that mid-render pass clearing of mixed used and unused color attachments works.
 TEST_P(ClearTestES3, MixedRenderPassClearMixedUsedUnusedAttachments)
 {
-    // http://anglebug.com/40644728
-    ANGLE_SKIP_TEST_IF(IsMac() && IsDesktopOpenGL());
-
     constexpr GLsizei kSize = 16;
 
     // Setup framebuffer.
     GLFramebuffer fb;
     glBindFramebuffer(GL_FRAMEBUFFER, fb);
 
-    GLRenderbuffer color[2];
+    std::array<GLRenderbuffer, 2> color;
 
     for (GLint colorIndex = 0; colorIndex < 2; ++colorIndex)
     {
-        glBindRenderbuffer(GL_RENDERBUFFER, ANGLE_UNSAFE_TODO(color[colorIndex]));
+        glBindRenderbuffer(GL_RENDERBUFFER, color[colorIndex]);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, kSize, kSize);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + colorIndex,
-                                  GL_RENDERBUFFER, ANGLE_UNSAFE_TODO(color[colorIndex]));
+                                  GL_RENDERBUFFER, color[colorIndex]);
     }
     EXPECT_GL_NO_ERROR();
     ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
@@ -4830,12 +4806,11 @@ TEST_P(ClearTestES31, Bind3DTextureAndClearUsingMultipleAttachments)
     glClearColor(1.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    const GLenum usedAttachment[kAttachmentCount] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-                                                     GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT1};
+    const std::array<GLenum, kAttachmentCount> usedAttachment = {
+        GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT1};
     for (uint32_t i = 0; i < kAttachmentCount; ++i)
     {
-        glFramebufferTextureLayer(GL_FRAMEBUFFER, ANGLE_UNSAFE_TODO(usedAttachment[i]), texture3D,
-                                  0, i);
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, usedAttachment[i], texture3D, 0, i);
         ASSERT_GL_NO_ERROR();
         EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
         ASSERT_GL_NO_ERROR();

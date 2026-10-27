@@ -191,6 +191,7 @@ void CocoaCurlResourceHandle::beginTransfer()
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body);
     options.acceptedCertificateChain = m_acceptedChain;
+    options.presentsPreferredIdentity = true;
     // DocumentLoader's main resource includes its certificate info (CertificateInfoPolicy::IncludeCertificateInfo).
     options.needsCertificateInfo = m_handle->firstRequest().requester() == ResourceRequestRequester::Main;
     options.connectionPartition = Site { m_request.firstPartyForCookies() }.toString();

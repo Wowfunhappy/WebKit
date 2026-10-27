@@ -6,11 +6,10 @@
 // BuildSPIRV: Helper for OutputSPIRV to build SPIR-V.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "compiler/translator/spirv/BuildSPIRV.h"
+#include "common/unsafe_buffers.h"
+
+#include <array>
 
 #include "common/spirv/spirv_instruction_builder_autogen.h"
 #include "compiler/translator/ValidateVaryingLocations.h"
@@ -630,7 +629,7 @@ void SpirvTypeSpec::onBlockFieldSelection(const TType &fieldType)
         // Apply row-major only to structs that contain matrices.
         isRowMajorQualifiedBlock =
             IsBlockFieldRowMajorQualified(fieldType, isRowMajorQualifiedBlock) &&
-            fieldType.isStructureContainingMatrices();
+            fieldType.isMatrixPackingApplicable();
 
         // Structs without bools aren't affected by |isOrHasBoolInInterfaceBlock|.
         if (isOrHasBoolInInterfaceBlock)
@@ -734,8 +733,6 @@ SpirvType SPIRVBuilder::getSpirvType(const TType &type, const SpirvTypeSpec &typ
         // External textures are treated as 2D textures in the vulkan back-end.
         case EbtSamplerExternalOES:
         case EbtSamplerExternal2DY2YEXT:
-        // WEBGL video textures too.
-        case EbtSamplerVideoWEBGL:
             spirvType.type = EbtSampler2D;
             break;
         // yuvCscStandardEXT is just a uint under the hood.
@@ -1058,12 +1055,13 @@ void SPIRVBuilder::predefineCommonTypes()
     // A few type pointers that are helpful for the SPIR-V transformer
     if (mShaderType != gl::ShaderType::Compute)
     {
-        struct
+        struct Infos
         {
             ReservedIds typeId;
             ReservedIds typePointerId;
             spv::StorageClass storageClass;
-        } infos[] = {
+        };
+        static constexpr std::array<Infos, 5> kInfos = {{
             {
                 kIdInt,
                 kIdIntInputTypePointer,
@@ -1089,12 +1087,10 @@ void SPIRVBuilder::predefineCommonTypes()
                 kIdIVec4FunctionTypePointer,
                 spv::StorageClassFunction,
             },
-        };
+        }};
 
-        for (size_t index = 0; index < ArraySize(infos); ++index)
+        for (const Infos &info : kInfos)
         {
-            const auto &info = infos[index];
-
             const spirv::IdRef typeId        = spirv::IdRef(info.typeId);
             const spirv::IdRef typePointerId = spirv::IdRef(info.typePointerId);
             SpirvIdAndStorageClass key{typeId, info.storageClass};
@@ -1398,7 +1394,6 @@ void SPIRVBuilder::getImageTypeParameters(TBasicType type,
             break;
         case EbtSamplerExternalOES:
         case EbtSamplerExternal2DY2YEXT:
-        case EbtSamplerVideoWEBGL:
             // These must have already been converted to EbtSampler2D.
             UNREACHABLE();
             break;
@@ -2437,7 +2432,7 @@ void SPIRVBuilder::writeMemberDecorations(const SpirvType &type, spirv::IdRef ty
         }
 
         // Add matrix decorations if any.
-        if (fieldType.isMatrix())
+        if (fieldType.isMatrix() && type.typeSpec.blockStorage != EbsUnspecified)
         {
             // ColMajor or RowMajor
             const bool isRowMajor =

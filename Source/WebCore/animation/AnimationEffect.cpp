@@ -34,6 +34,9 @@
 #include "CommonAtomStrings.h"
 #include "FillMode.h"
 #include "JSComputedEffectTiming.h"
+#ifndef RC_REMOVE_SEC_ACCEL_3
+#include "ScriptDisallowedScope.h"
+#endif // RC_REMOVE_SEC_ACCEL_3
 #include "ScriptExecutionContext.h"
 #include "ScrollTimeline.h"
 #include "StyleSingleAnimationRange.h"
@@ -422,7 +425,7 @@ void AnimationEffect::animationPlaybackRateDidChange()
     m_timingDidMutate = true;
 }
 
-void AnimationEffect::animationProgressBasedTimelineSourceDidChangeMetrics(const Style::SingleAnimationRange& animationAttachmentRange)
+void AnimationEffect::animationProgressBasedTimelineSourceDidChangeMetrics(const ResolvableTimelineRange& animationAttachmentRange)
 {
     if (!animationAttachmentRange.isDefault())
         m_timingDidMutate = true;
@@ -437,6 +440,10 @@ void AnimationEffect::updateComputedTimingPropertiesIfNeeded()
 {
     if (!m_timingDidMutate)
         return;
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    ScriptDisallowedScope::InMainThread scriptDisallowedScope;
+#endif // RC_REMOVE_SEC_ACCEL_3
 
     m_timingDidMutate = false;
 

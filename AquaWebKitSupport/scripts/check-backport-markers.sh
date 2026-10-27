@@ -37,7 +37,7 @@
 #   1. $1 (CLI argument)                      -- manual override
 #   2. $AQUAWEBKIT_UPSTREAM_BASE (env var)    -- manual override
 #   3. auto-discover: git merge-base HEAD <upstream ref>
-#      (upstream/safari-7625.1.29.11-branch by default;
+#      (upstream/safari-7625.2.8.11-branch by default;
 #       override via $AQUAWEBKIT_UPSTREAM_REF)
 #
 # The baseline follows upstream revisions incorporated into committed history.
@@ -64,7 +64,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT" || { echo "ERROR: cannot cd to repo root $REPO_ROOT" >&2; exit 2; }
 
-UPSTREAM_REF_CANDIDATES="${AQUAWEBKIT_UPSTREAM_REF:-upstream/safari-7625.1.29.11-branch}"
+UPSTREAM_REF_CANDIDATES="${AQUAWEBKIT_UPSTREAM_REF:-upstream/safari-7625.2.8.11-branch}"
 
 # --- resolve base commit ----------------------------------------------------
 BASE=""

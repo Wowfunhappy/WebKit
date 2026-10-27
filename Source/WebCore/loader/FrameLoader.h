@@ -232,7 +232,8 @@ public:
     void detachViewsAndDocumentLoader();
 
     static void addHTTPOriginIfNeeded(ResourceRequest&, const String& origin);
-    static void addSameSiteInfoToRequestIfNeeded(ResourceRequest&, const Document* initiator = nullptr);
+    // static void addSameSiteInfoToRequestIfNeeded(ResourceRequest&, const Document* initiator = nullptr);
+    WEBCORE_EXPORT static void addSameSiteInfoToRequestIfNeeded(ResourceRequest&, const Document* initiator = nullptr); // AQUAWEBKIT: WebKitLegacy's WebSocketChannel marks its handshake request.
 
     const LocalFrameLoaderClient& client() const { return m_client.get(); }
     LocalFrameLoaderClient& client() { return m_client.get(); }
@@ -384,6 +385,8 @@ public:
 
     bool isDispatchingPageSwapEvent() const  { return m_isDispatchingPageSwapEvent; }
 
+    void updateFirstPartyForCookies();
+
 private:
     enum FormSubmissionCacheLoadPolicy {
         MayAttemptCacheOnlyLoadForFormSubmissionItem,
@@ -408,7 +411,6 @@ private:
 
     void loadProvisionalItemFromCachedPage();
 
-    void updateFirstPartyForCookies();
     void setFirstPartyForCookies(const URL&);
 
     ResourceRequestCachePolicy defaultRequestCachingPolicy(const ResourceRequest&, FrameLoadType, bool isMainResource);

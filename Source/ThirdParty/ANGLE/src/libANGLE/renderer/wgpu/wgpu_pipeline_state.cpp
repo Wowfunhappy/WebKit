@@ -4,11 +4,8 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/wgpu/wgpu_pipeline_state.h"
+#include "common/unsafe_buffers.h"
 
 #include <limits>
 
@@ -54,14 +51,14 @@ constexpr WGPUFrontFace UnpackFrontFace(uint32_t packedFrontFace)
 
 PackedVertexAttribute::PackedVertexAttribute()
 {
-    memset(this, 0, sizeof(PackedVertexAttribute));
+    ANGLE_UNSAFE_TODO(memset(this, 0, sizeof(PackedVertexAttribute)));
 }
 
 // GraphicsPipelineDesc implementation.
 RenderPipelineDesc::RenderPipelineDesc()
 {
     (void)mPad0;
-    memset(this, 0, sizeof(RenderPipelineDesc));
+    ANGLE_UNSAFE_TODO(memset(this, 0, sizeof(RenderPipelineDesc)));
 
     mDepthStencilState.stencilReadMask =
         std::numeric_limits<decltype(mDepthStencilState.stencilReadMask)>::max();
@@ -78,7 +75,7 @@ RenderPipelineDesc::RenderPipelineDesc(const RenderPipelineDesc &other)
 
 RenderPipelineDesc &RenderPipelineDesc::operator=(const RenderPipelineDesc &other)
 {
-    memcpy(this, &other, sizeof(*this));
+    ANGLE_UNSAFE_TODO(memcpy(this, &other, sizeof(*this)));
     return *this;
 }
 
@@ -203,12 +200,12 @@ bool RenderPipelineDesc::setColorWriteMask(size_t colorIndex, bool r, bool g, bo
 bool RenderPipelineDesc::setVertexAttribute(size_t attribIndex, PackedVertexAttribute &newAttrib)
 {
     PackedVertexAttribute &currentAttrib = mVertexAttributes[attribIndex];
-    if (memcmp(&currentAttrib, &newAttrib, sizeof(PackedVertexAttribute)) == 0)
+    if (ANGLE_UNSAFE_TODO(memcmp(&currentAttrib, &newAttrib, sizeof(PackedVertexAttribute))) == 0)
     {
         return false;
     }
 
-    memcpy(&currentAttrib, &newAttrib, sizeof(PackedVertexAttribute));
+    ANGLE_UNSAFE_TODO(memcpy(&currentAttrib, &newAttrib, sizeof(PackedVertexAttribute)));
     return true;
 }
 
@@ -486,7 +483,7 @@ angle::Result RenderPipelineDesc::createPipeline(ContextWgpu *context,
 
 bool operator==(const RenderPipelineDesc &lhs, const RenderPipelineDesc &rhs)
 {
-    return memcmp(&lhs, &rhs, sizeof(RenderPipelineDesc)) == 0;
+    return ANGLE_UNSAFE_TODO(memcmp(&lhs, &rhs, sizeof(RenderPipelineDesc))) == 0;
 }
 
 // PipelineCache implementation.

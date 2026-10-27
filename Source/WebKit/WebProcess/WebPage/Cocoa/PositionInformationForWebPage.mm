@@ -63,19 +63,28 @@
 #import <WebCore/LocalFrameInlines.h>
 #import <WebCore/Model.h>
 #import <WebCore/NodeDocument.h>
+#import <WebCore/NodeInlines.h>
 #import <WebCore/Page.h>
 #import <WebCore/PlatformScreen.h>
 #import <WebCore/Quirks.h>
 #import <WebCore/RenderBlockFlow.h>
 #import <WebCore/RenderBoxInlines.h>
 #import <WebCore/RenderImage.h>
+#import <WebCore/RenderLayer.h>
 #import <WebCore/RenderObjectDocument.h>
+#import <WebCore/RenderObjectInlines.h>
 #import <WebCore/RenderObjectStyle.h>
 #import <WebCore/RenderVideo.h>
 #import <WebCore/RenderVideoInlines.h>
+#import <WebCore/RenderView.h>
 #import <WebCore/ScrollingCoordinator.h>
+#import <WebCore/TypedElementDescendantIteratorInlines.h>
 #import <WebCore/VisibleUnits.h>
 #import <wtf/text/StringToIntegerConversion.h>
+
+#if USE(APPLE_INTERNAL_SDK)
+#import <WebKitAdditions/PositionInformationForWebPageAdditions.mm>
+#endif
 
 namespace WebKit {
 
@@ -346,6 +355,55 @@ static void elementPositionInformation(WebPage& page, WebCore::Element& element,
     info.elementContext = page.contextForElement(element);
 }
 
+static bool isRangeInput(const RefPtr<WebCore::Node>& node)
+{
+    RefPtr input = dynamicDowncast<WebCore::HTMLInputElement>(node);
+    return input && input->isRangeControl() && !input->isDisabledFormControl();
+}
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+static bool isARIASlider(const WebCore::Element& element)
+{
+    const auto ariaRole = element.attributeWithoutSynchronization(WebCore::HTMLNames::roleAttr);
+    return WebCore::AccessibilityObject::ariaRoleToWebCoreRole(ariaRole) == WebCore::AccessibilityRole::Slider;
+}
+
+static bool isVisuallyHidden(const WebCore::Element& element)
+{
+    CheckedPtr renderer = element.renderer();
+    if (!renderer)
+        return false;
+
+    auto visibleRect = WebCore::snappedIntRect(renderer->absoluteClippedOverflowRectForRepaint());
+    if (visibleRect.width() <= 1 || visibleRect.height() <= 1)
+        return true;
+
+    return !visibleRect.intersects(renderer->view().documentRect());
+}
+
+static bool isCustomSlider(WebCore::Node& hitNode, WebCore::HTMLVideoElement& video)
+{
+    static constexpr unsigned maximumAncestorDepth = 3;
+
+    // Ignore built-in media controls.
+    if (hitNode.isInUserAgentShadowTree())
+        return false;
+
+    unsigned depth = 0;
+    for (RefPtr ancestor = hitNode.parentElementInComposedTree(); ancestor && depth < maximumAncestorDepth; ancestor = ancestor->parentElementInComposedTree(), ++depth) {
+        for (Ref descendant : WebCore::descendantsOfType<WebCore::Element>(*ancestor)) {
+            if ((isRangeInput(descendant.ptr()) || isARIASlider(descendant)) && isVisuallyHidden(descendant))
+                return true;
+        }
+
+        if (ancestor->isShadowIncludingInclusiveAncestorOf(video))
+            break;
+    }
+
+    return false;
+}
+#endif
+
 static void selectionPositionInformation(WebPage& page, const InteractionInformationRequest& request, InteractionInformationAtPosition& info)
 {
     // `request.point` is in the root-view coordinate space.
@@ -391,7 +449,11 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
 
         return InteractionInformationAtPosition::Selectability::Selectable;
     })();
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    info.shouldTreatLongClickAsSecondaryClickQuirk = protect(hitNode->document())->quirks().shouldTreatLongClickAsSecondaryClick(*hitNode);
+#endif
     info.isSelected = result.isSelected();
+    info.isOverEditableContent = hitNode->isContentEditable();
 
     info.isOverSelectableText = info.isSelectable() && renderer->isRenderText() && hitNode->canStartSelection();
 
@@ -427,34 +489,54 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
                 info.isColorInput = true;
         }
 
-        if (!info.isRangeInput) {
-            if (RefPtr input = dynamicDowncast<WebCore::HTMLInputElement>(currentNode); input && input->isRangeControl() && !input->isDisabledFormControl())
-                info.isRangeInput = true;
-        }
+        if (!info.isRangeInput)
+            info.isRangeInput = isRangeInput(currentNode);
 
         if (info.prefersDraggingOverTextSelection || info.isDHTMLDraggable || info.isColorInput || info.isRangeInput)
             break;
     }
 
 #if HAVE(APPKIT_GESTURES_SUPPORT)
-    if (!info.isRangeInput) {
-        constexpr auto sliderHitType = hitType | OptionSet {
-            WebCore::HitTestRequest::Type::CollectMultipleElements,
-            WebCore::HitTestRequest::Type::IncludeAllElementsUnderPoint,
-        };
-        const auto sliderResult = localMainFrame->eventHandler().hitTestResultAtPoint(contentsPoint, sliderHitType);
-        for (Ref node : sliderResult.listBasedTestResult()) {
-            const RefPtr element = dynamicDowncast<WebCore::Element>(node);
-            if (!element)
-                continue;
-
-            const auto ariaRole = element->attributeWithoutSynchronization(WebCore::HTMLNames::roleAttr);
-            if (WebCore::AccessibilityObject::ariaRoleToWebCoreRole(ariaRole) == WebCore::AccessibilityRole::Slider) {
-                info.isARIASlider = true;
-                break;
-            }
-        }
+    switch (renderer->style().cursorType()) {
+    case WebCore::CursorType::EWResize:
+    case WebCore::CursorType::NSResize:
+    case WebCore::CursorType::ColumnResize:
+    case WebCore::CursorType::RowResize:
+        info.hasDirectionalResizeCursor = true;
+        break;
+    default:
+        break;
     }
+
+    if (CheckedPtr layerRenderer = dynamicDowncast<WebCore::RenderLayerModelObject>(renderer); layerRenderer && layerRenderer->hasLayer())
+        info.isInResizeControl = layerRenderer->layer()->isPointInResizeControl(WebCore::roundedIntPoint(result.localPoint()));
+
+    constexpr auto allElementsHitType = hitType | OptionSet {
+        WebCore::HitTestRequest::Type::CollectMultipleElements,
+        WebCore::HitTestRequest::Type::IncludeAllElementsUnderPoint,
+    };
+    const auto allElementsResult = localMainFrame->eventHandler().hitTestResultAtPoint(contentsPoint, allElementsHitType);
+    RefPtr<WebCore::HTMLVideoElement> videoUnderPoint;
+    for (Ref node : allElementsResult.listBasedTestResult()) {
+        if (!videoUnderPoint) {
+            videoUnderPoint = hostVideoElementIgnoringImageOverlay(node.get());
+            info.isOverVideo = !!videoUnderPoint;
+        }
+
+        if (!info.isRangeInput && !info.isARIASlider) {
+            if (const RefPtr element = dynamicDowncast<WebCore::Element>(node))
+                info.isARIASlider = isARIASlider(*element);
+        }
+
+        if (info.isOverVideo && (info.isRangeInput || info.isARIASlider))
+            break;
+    }
+
+    if (videoUnderPoint && !info.isRangeInput && !info.isARIASlider)
+        info.isCustomSlider = isCustomSlider(*hitNode, *videoUnderPoint);
+
+    if (request.inputSource == WebEventInputSource::Automation)
+        automationAdjustedInteractionPositionInformation(*localMainFrame, *frameView, contentsPoint, info);
 #endif // HAVE(APPKIT_GESTURES_SUPPORT)
 
 #if PLATFORM(MACCATALYST)
@@ -743,6 +825,11 @@ InteractionInformationAtPosition positionInformationForWebPage(WebPage& page, co
 #if ENABLE(MODEL_PROCESS)
     if (RefPtr modelElement = dynamicDowncast<WebCore::HTMLModelElement>(hitTestNode))
         info.isInteractiveModel = modelElement->model() && modelElement->supportsStageModeInteraction();
+#elif ENABLE(MODEL_ELEMENT_STAGE_MODE)
+    // There is no stage mode session in this configuration. Instead, the orbit is driven by mouse events
+    // forwarded by HTMLModelElement to the model player. This behavior is gated behind `isInteractive`.
+    if (RefPtr modelElement = dynamicDowncast<WebCore::HTMLModelElement>(hitTestNode))
+        info.isInteractiveModel = modelElement->model() && modelElement->isInteractive();
 #endif
 
 #if ENABLE(MODEL_ELEMENT)

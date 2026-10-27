@@ -28,6 +28,7 @@
 #if ENABLE(MAC_GESTURE_EVENTS)
 
 #include "WebEvent.h"
+#include "WebEventPhase.h"
 #include <WebCore/FloatPoint.h>
 #include <WebCore/FloatSize.h>
 #include <WebCore/IntPoint.h>
@@ -43,11 +44,15 @@ namespace WebKit {
 
 class WebGestureEvent : public WebEvent {
 public:
-    WebGestureEvent(WebEvent&& event, WebCore::IntPoint position, float gestureScale, float gestureRotation)
+    using Phase = WebEventPhase;
+
+    WebGestureEvent(WebEvent&& event, WebCore::IntPoint position, float gestureScale, float gestureRotation, Phase phase, WebEventInputSource inputSource)
         : WebEvent(WTF::move(event))
         , m_position(position)
         , m_gestureScale(gestureScale)
         , m_gestureRotation(gestureRotation)
+        , m_phase(phase)
+        , m_inputSource(inputSource)
     {
         ASSERT(isGestureEventType(type()));
     }
@@ -56,6 +61,8 @@ public:
 
     float gestureScale() const { return m_gestureScale; }
     float gestureRotation() const { return m_gestureRotation; }
+    Phase phase() const { return m_phase; }
+    WebEventInputSource inputSource() const { return m_inputSource; }
 
 private:
     bool isGestureEventType(WebEventType) const;
@@ -63,6 +70,8 @@ private:
     WebCore::IntPoint m_position;
     float m_gestureScale;
     float m_gestureRotation;
+    Phase m_phase;
+    WebEventInputSource m_inputSource { WebEventInputSource::UserDriven };
 };
 
 } // namespace WebKit

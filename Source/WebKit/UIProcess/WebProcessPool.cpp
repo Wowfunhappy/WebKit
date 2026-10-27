@@ -530,7 +530,7 @@ GPUProcessProxy& WebProcessPool::ensureGPUProcess()
         m_gpuProcess = gpuProcess.copyRef();
         for (Ref process : m_processes)
             gpuProcess->updatePreferences(process);
-        gpuProcess->updateScreenPropertiesIfNeeded();
+        gpuProcess->updateScreenPropertiesIfNeeded(*this);
     }
     return *m_gpuProcess;
 }
@@ -779,7 +779,7 @@ void WebProcessPool::establishRemoteWorkerContextConnectionToNetworkProcess(Remo
     auto aggregator = CallbackAggregator::create([completionHandler = WTF::move(completionHandler), remoteProcessIdentifier = remoteWorkerProcessProxy->coreProcessIdentifier()]() mutable {
         completionHandler(remoteProcessIdentifier);
     });
-    protect(websiteDataStore->networkProcess())->addAllowedFirstPartyForCookies(*remoteWorkerProcessProxy, site.domain(), LoadedWebArchive::No, [aggregator] { });
+    protect(websiteDataStore->networkProcess())->addAllowedFirstPartyForCookies(*remoteWorkerProcessProxy, site, LoadedWebArchive::No, [aggregator] { });
     if (auto workerPageProxyID = remoteWorkerProcessProxy->remoteWorkerPageProxyID(workerType))
         protect(websiteDataStore->networkProcess())->addAllowedWebPageProxyIdentifier(*remoteWorkerProcessProxy, *workerPageProxyID);
     remoteWorkerProcessProxy->establishRemoteWorkerContext(workerType, preferencesStore.store, site, serviceWorkerPageIdentifier, workerCrossOriginEmbedderPolicy, [aggregator] { });
@@ -1454,7 +1454,7 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 
     if (RefPtr gpuProcess = GPUProcessProxy::singletonIfCreated()) {
         gpuProcess->updatePreferences(*process);
-        gpuProcess->updateScreenPropertiesIfNeeded();
+        gpuProcess->updateScreenPropertiesIfNeeded(*this);
     }
 #endif
 
@@ -2234,7 +2234,10 @@ void WebProcessPool::processForNavigation(WebPageProxy& page, WebFrameProxy& fra
     }
 
     if (siteIsolationEnabled) {
-        if (RefPtr targetItem = navigation.targetItem(); targetItem && frame.isMainFrame()) {
+        // Only allow the target back/forward item to influence process selection when the navigation is within the same site.
+        // Compare two Sites rather than using Site::matches(): matches() derives the registrable domain from
+        // URL::host(), which is empty for a blob URL, so a blob-URL item would not even match itself.
+        if (RefPtr targetItem = navigation.targetItem(); targetItem && frame.isMainFrame() && Site { URL { targetItem->url() } } == site) {
             if (RefPtr suspendedPage = targetItem->suspendedPage()) {
                 Ref process = suspendedPage->process();
                 if (process->state() != AuxiliaryProcessProxy::State::Terminated) {
@@ -2260,7 +2263,7 @@ void WebProcessPool::processForNavigation(WebPageProxy& page, WebFrameProxy& fra
         if (RefPtr frameProcess = browsingContextGroup.processForSite(site))
             process = &frameProcess->process();
         if (process && process->websiteDataStore() == dataStore.ptr() && process->websiteDataStore() == &page.websiteDataStore() && !process->isInProcessCache() && process->lockdownMode() == lockdownMode && enhancedSecurityStatesAreConsistent(process->enhancedSecurity(), enhancedSecurity)) {
-            page.addAllowedFirstPartyForCookies(*process, mainFrameSite.domain(), LoadedWebArchive::No, [completionHandler = WTF::move(completionHandler), process, preventProcessShutdownScope = process->shutdownPreventingScope()] () mutable {
+            page.addAllowedFirstPartyForCookies(*process, mainFrameSite, LoadedWebArchive::No, [completionHandler = WTF::move(completionHandler), process, preventProcessShutdownScope = process->shutdownPreventingScope()] () mutable {
                 completionHandler(process.releaseNonNull(), nullptr, "Found process for the same site"_s);
             });
             return;
@@ -2317,7 +2320,7 @@ void WebProcessPool::prepareProcessForNavigation(Ref<WebProcessProxy>&& process,
         completionHandler(WTF::move(process), suspendedPage, reason);
     };
 
-    page.addAllowedFirstPartyForCookies(process, site.domain(), loadedWebArchive, [callCompletionHandler = WTF::move(callCompletionHandler), weakSuspendedPage = WeakPtr { suspendedPage }]() mutable {
+    page.addAllowedFirstPartyForCookies(process, site, loadedWebArchive, [callCompletionHandler = WTF::move(callCompletionHandler), weakSuspendedPage = WeakPtr { suspendedPage }]() mutable {
         if (RefPtr suspendedPage = weakSuspendedPage.get())
             suspendedPage->waitUntilReadyToUnsuspend(WTF::move(callCompletionHandler));
         else
@@ -2403,7 +2406,11 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
         && !(isRequestFromClientOrUserInput || siteIsolationEnabled))
         return { WTF::move(sourceProcess), nullptr, "Browsing context has opened other windows"_s };
 
-    if (RefPtr targetItem = navigation.targetItem(); targetItem && frame.isMainFrame() && !siteIsolationEnabled) {
+    // Only allow the target back/forward item to influence process selection when the navigation is within the same site.
+    // Otherwise the targeted process might get some undeserved first party privileges.
+    // Compare two Sites rather than using Site::matches(): matches() derives the registrable domain from
+    // URL::host(), which is empty for a blob URL, so a blob-URL item would not even match itself.
+    if (RefPtr targetItem = navigation.targetItem(); targetItem && frame.isMainFrame() && !siteIsolationEnabled && Site { URL { targetItem->url() } } == targetSite) {
         if (CheckedPtr suspendedPage = targetItem->suspendedPage()) {
             if (suspendedPage->process().state() != AuxiliaryProcessProxy::State::Terminated)
                 return { suspendedPage->process(), suspendedPage.get(), "Using target back/forward item's process and suspended page"_s };
@@ -2441,9 +2448,11 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
     }
 
     URL sourceURL;
-    if (page.isPageOpenedByDOMShowingInitialEmptyDocument() && !navigation.requesterOrigin().isNull())
-        sourceURL = URL { navigation.requesterOrigin().toString() };
-    else
+    if (page.isPageOpenedByDOMShowingInitialEmptyDocument()) {
+        if (RefPtr openerFrame = WebFrameProxy::webFrame(page.openerFrameIdentifier()))
+            sourceURL = URL { openerFrame->url().protocolHostAndPort() };
+    }
+    if (sourceURL.isEmpty())
         sourceURL = pageSourceURL;
 
     if (sourceURL.isEmpty()) {

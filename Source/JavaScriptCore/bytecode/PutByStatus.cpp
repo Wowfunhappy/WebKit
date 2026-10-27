@@ -437,7 +437,15 @@ PutByStatus PutByStatus::computeFor(JSGlobalObject* globalObject, const Structur
 
         // Our hypothesis is that we're doing a transition. Before we prove that this is really
         // true, we want to do some sanity checks.
-    
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        // getConcurrently above saw only the property table. If this structure's static property
+        // table has not been reified, it can still own the property, in which case the put is not
+        // a transition at all and goes through the static entry's setter or replaces it in place.
+        if (structure->hasNonReifiedStaticProperty(uid))
+            return PutByStatus(LikelyTakesSlowPath);
+#endif
+
         // Don't cache put transitions on dictionaries.
         if (structure->isDictionary())
             return PutByStatus(LikelyTakesSlowPath);
@@ -473,6 +481,14 @@ PutByStatus PutByStatus::computeFor(JSGlobalObject* globalObject, const Structur
     
     result.shrinkToFit();
     return result;
+}
+
+PutByStatus PutByStatus::computeFor(CodeBlock* profiledBlock, BytecodeIndex bytecodeIndex, JSGlobalObject* globalObject, const StructureSet& set, CacheableIdentifier identifier, bool isDirect, PrivateFieldPutKind privateFieldPutKind)
+{
+    if (hasBadCacheExitSite(profiledBlock, bytecodeIndex))
+        return PutByStatus(LikelyTakesSlowPath);
+
+    return computeFor(globalObject, set, identifier, isDirect, privateFieldPutKind);
 }
 #endif
 

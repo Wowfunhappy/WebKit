@@ -217,6 +217,8 @@ class WebKit::WebGestureEvent : WebKit::WebEvent {
     WebCore::IntPoint position();
     float gestureScale();
     float gestureRotation();
+    WebKit::WebEventPhase phase();
+    WebKit::WebEventInputSource inputSource();
 };
 #endif
 
@@ -225,7 +227,7 @@ class WebKit::WebGestureEvent : WebKit::WebEvent {
     ScrollByPixelWheelEvent
 };
 
-[Nested] enum class WebKit::WebWheelEvent::Phase : uint8_t {
+enum class WebKit::WebEventPhase : uint8_t {
     None,
     Began,
     Stationary,
@@ -263,6 +265,7 @@ class WebKit::WebWheelEvent : WebKit::WebEvent {
     std::optional<WebCore::FloatSize> rawPlatformDelta();
     WebKit::WebWheelEvent::MomentumEndType momentumEndType();
     WebKit::WebEventInputSource inputSource();
+    float momentumFastScrollMultiplier();
 #endif
 };
 

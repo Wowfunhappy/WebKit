@@ -107,6 +107,8 @@ public:
 
     // The privacy API's network.networkPredictionEnabled: DNS prefetching and the preconnections pages ask for.
     bool allowsNetworkPrediction() const { return m_networkPredictionEnabled; }
+    // Whether the extensions choose the proxies loads take: a proxy.settings value that names them, or proxy.onRequest.
+    bool routesThroughProxies() const;
 
     // The proxy.onRequest answers for the request a load's or ping's network task sends to the URL.
     Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults(NetworkDataTaskCurlCocoa&, const URL&);

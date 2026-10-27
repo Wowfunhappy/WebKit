@@ -7,12 +7,9 @@
 //   always have to be re-compiled. Can be used in conjunction with the platform
 //   layer to warm up the cache from disk.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 // Include zlib first, otherwise FAR gets defined elsewhere.
 #define USE_SYSTEM_ZLIB
+#include "common/unsafe_buffers.h"
 #include "compression_utils_portable.h"
 
 #include "libANGLE/MemoryProgramCache.h"
@@ -117,7 +114,7 @@ void MemoryProgramCache::ComputeHash(const Context *context,
     // Get the hash
     ASSERT(hashOut);
     hasher.Final();
-    memcpy(hashOut->data(), hasher.Digest(), angle::kBlobCacheKeyLength);
+    ANGLE_UNSAFE_TODO(memcpy(hashOut->data(), hasher.Digest(), angle::kBlobCacheKeyLength));
 }
 
 angle::Result MemoryProgramCache::getProgram(const Context *context,
@@ -145,7 +142,7 @@ angle::Result MemoryProgramCache::getProgram(const Context *context,
         case egl::BlobCache::GetAndDecompressResult::DecompressFailure:
             ANGLE_PERF_WARNING(context->getState().getDebug(), GL_DEBUG_SEVERITY_LOW,
                                "Error decompressing program binary data fetched from cache.");
-            remove(*hashOut);
+            mBlobCache.remove(*hashOut);
             // Consider this blob "not found".  As far as the rest of the code is considered,
             // corrupted cache might as well not have existed.
             return angle::Result::Continue;
@@ -162,7 +159,7 @@ angle::Result MemoryProgramCache::getProgram(const Context *context,
             {
                 ANGLE_PERF_WARNING(context->getState().getDebug(), GL_DEBUG_SEVERITY_LOW,
                                    "Failed to load program binary from cache.");
-                remove(*hashOut);
+                mBlobCache.remove(*hashOut);
             }
 
             return angle::Result::Continue;
@@ -177,11 +174,6 @@ bool MemoryProgramCache::getAt(size_t index,
                                egl::BlobCache::Value *programOut)
 {
     return mBlobCache.getAt(index, hashOut, programOut);
-}
-
-void MemoryProgramCache::remove(const egl::BlobCache::Key &programHash)
-{
-    mBlobCache.remove(programHash);
 }
 
 angle::Result MemoryProgramCache::putProgram(const egl::BlobCache::Key &programHash,
@@ -217,14 +209,14 @@ angle::Result MemoryProgramCache::putProgram(const egl::BlobCache::Key &programH
     }
 
     {
-        std::scoped_lock<angle::SimpleMutex> lock(mBlobCache.getMutex());
+        std::scoped_lock<angle::SimpleMutex> blobCacheLock(mBlobCache.getMutex());
         // TODO: http://anglebug.com/42266037
         // This was a workaround for Chrome until it added support for EGL_ANDROID_blob_cache,
         // tracked by http://anglebug.com/42261225. This issue has since been closed, but removing
         // this still causes a test failure.
         auto *platform = ANGLEPlatformCurrent();
         angle::ProgramKeyType key = {};
-        memcpy(key.data(), programHash.data(), angle::kBlobCacheKeyLength);
+        ANGLE_UNSAFE_TODO(memcpy(key.data(), programHash.data(), angle::kBlobCacheKeyLength));
         platform->cacheProgram(platform, key, compressedData.size(), compressedData.data());
     }
 
@@ -249,7 +241,7 @@ bool MemoryProgramCache::putBinary(const egl::BlobCache::Key &programHash,
     {
         return false;
     }
-    memcpy(newEntry.data(), binary, length);
+    ANGLE_UNSAFE_TODO(memcpy(newEntry.data(), binary, length));
 
     // Store the binary.
     mBlobCache.populate(programHash, std::move(newEntry));
@@ -262,9 +254,9 @@ void MemoryProgramCache::clear()
     mBlobCache.clear();
 }
 
-void MemoryProgramCache::resize(size_t maxCacheSizeBytes)
+size_t MemoryProgramCache::resize(size_t maxCacheSizeBytes)
 {
-    mBlobCache.resize(maxCacheSizeBytes);
+    return mBlobCache.resize(maxCacheSizeBytes);
 }
 
 size_t MemoryProgramCache::entryCount() const

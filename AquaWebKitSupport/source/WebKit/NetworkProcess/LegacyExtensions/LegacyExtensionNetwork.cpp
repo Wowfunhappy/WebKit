@@ -355,6 +355,13 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
     return interceptProxyRequest(checker, request, client, handler) || interceptBeforeRequest(checker, request, client, handler);
 }
 
+bool LegacyExtensionNetwork::routesThroughProxies() const
+{
+    if (RefPtr configuration = CocoaCurlProxyConfiguration::current(); configuration && configuration->routesThroughProxies())
+        return true;
+    return observes(proxyOnRequest);
+}
+
 // proxy.onRequest, which Firefox fires before a request's webRequest events, pings, beacons and reports included.
 // The answers of the listeners whose filters match the request act on the route its network task connects by.
 bool LegacyExtensionNetwork::interceptProxyRequest(NetworkLoadChecker& checker, ResourceRequest& request, ContentSecurityPolicyClient* client, NetworkLoadChecker::ValidationHandler& handler)

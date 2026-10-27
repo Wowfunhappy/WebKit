@@ -48,6 +48,7 @@
 #include "NetworkStorageManager.h"
 #include "PrivateRelayed.h"
 #include "ResourceLoadInfo.h"
+#include "SecurityFlags.h"
 #include "ServiceWorkerFetchTask.h"
 #include "SharedBufferReference.h"
 #include "WebErrors.h"
@@ -376,7 +377,11 @@ void NetworkResourceLoader::retrieveCacheEntryInternal(std::unique_ptr<NetworkCa
     }
     if (entry->needsValidation() || request.cachePolicy() == WebCore::ResourceRequestCachePolicy::RefreshAnyCacheData) {
         LOADER_RELEASE_LOG("retrieveCacheEntryInternal: Cached entry needs revalidation");
+#ifdef RC_REMOVE_SEC_ACCEL_3
         validateCacheEntry(WTF::move(entry));
+#else
+        validateCacheEntry(WTF::move(request), WTF::move(entry));
+#endif
         return;
     }
     LOADER_RELEASE_LOG("retrieveCacheEntryInternal: Cached entry is directly usable");
@@ -637,7 +642,7 @@ void NetworkResourceLoader::convertToDownload(DownloadID downloadID, const Resou
 
     // This can happen if the resource came from the disk cache.
     if (!m_networkLoad) {
-        protect(connectionToWebProcess().networkProcess().downloadManager())->startDownload(sessionID(), downloadID, request, m_parameters.topOrigin ? std::optional { m_parameters.topOrigin->data() } : std::nullopt, m_parameters.isNavigatingToAppBoundDomain);
+        protect(connectionToWebProcess().networkProcess().downloadManager())->startDownload(sessionID(), downloadID, request, m_parameters.topOrigin ? std::optional { m_parameters.topOrigin->data() } : std::nullopt, m_parameters.isNavigatingToAppBoundDomain, m_parameters.advancedPrivacyProtections);
         abort();
         return;
     }
@@ -929,7 +934,7 @@ void NetworkResourceLoader::didReceiveInformationalResponse(ResourceResponse&& r
         return;
 
     if (!m_earlyHintsResourceLoader)
-        m_earlyHintsResourceLoader = WTF::makeUnique<EarlyHintsResourceLoader>(*this);
+        lazyInitialize(m_earlyHintsResourceLoader, EarlyHintsResourceLoader::create(*this));
     m_earlyHintsResourceLoader->handleEarlyHintsResponse(WTF::move(response));
 }
 
@@ -997,11 +1002,21 @@ void NetworkResourceLoader::didReceiveResponse(ResourceResponse&& receivedRespon
 
     if (m_cacheEntryForValidation) {
         bool validationSucceeded = m_response.httpStatusCode() == httpStatus304NotModified;
+#ifdef RC_REMOVE_SEC_ACCEL_3
         LOADER_RELEASE_LOG("didReceiveResponse: Received revalidation response (validationSucceeded=%d, wasOriginalRequestConditional=%d)", validationSucceeded, originalRequest().isConditional());
+#else
+        LOADER_RELEASE_LOG("didReceiveResponse: Received revalidation response (validationSucceeded=%d, wasCachedEntryRequestConditional=%d)", validationSucceeded, m_requestForCacheEntryValidation.isConditional());
+#endif
         if (validationSucceeded) {
+#ifdef RC_REMOVE_SEC_ACCEL_3
             m_cacheEntryForValidation = protect(m_cache)->update(originalRequest(), *m_cacheEntryForValidation, m_response, m_privateRelayed);
             // If the request was conditional then this revalidation was not triggered by the network cache and we pass the 304 response to WebCore.
             if (originalRequest().isConditional()) {
+#else
+            m_cacheEntryForValidation = protect(m_cache)->update(m_requestForCacheEntryValidation, *m_cacheEntryForValidation, m_response, m_privateRelayed);
+            // If the request was conditional then this revalidation was not triggered by the network cache and we pass the 304 response to WebCore.
+            if (m_requestForCacheEntryValidation.isConditional()) {
+#endif
                 // Add CORP header to the 304 response if previously set to avoid being blocked by load checker due to COEP.
                 auto crossOriginResourcePolicy = m_cacheEntryForValidation->response().httpHeaderField(HTTPHeaderName::CrossOriginResourcePolicy);
                 if (!crossOriginResourcePolicy.isEmpty())
@@ -1010,9 +1025,16 @@ void NetworkResourceLoader::didReceiveResponse(ResourceResponse&& receivedRespon
                 if (!crossOriginEmbedderPolicy.isEmpty())
                     m_response.setHTTPHeaderField(HTTPHeaderName::CrossOriginEmbedderPolicy, crossOriginEmbedderPolicy);
                 m_cacheEntryForValidation = nullptr;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+                m_requestForCacheEntryValidation = { };
+#endif
             }
-        } else
+        } else {
             m_cacheEntryForValidation = nullptr;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            m_requestForCacheEntryValidation = { };
+#endif
+        }
     }
     if (m_cacheEntryForValidation)
         return completionHandler(PolicyAction::Use);
@@ -1219,6 +1241,9 @@ void NetworkResourceLoader::didFinishLoading(const NetworkLoadMetrics& networkLo
         ASSERT(m_response.httpStatusCode() == httpStatus304NotModified);
         LOG(NetworkCache, "(NetworkProcess) revalidated");
         didRetrieveCacheEntry(WTF::move(m_cacheEntryForValidation));
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        m_requestForCacheEntryValidation = { };
+#endif
         return;
     }
 
@@ -1272,6 +1297,9 @@ void NetworkResourceLoader::didFailLoading(const ResourceError& error)
     ASSERT(!error.isNull());
 
     m_cacheEntryForValidation = nullptr;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    m_requestForCacheEntryValidation = { };
+#endif
 
     if (isSynchronous()) {
         m_synchronousLoadData->error = error;
@@ -1494,8 +1522,14 @@ void NetworkResourceLoader::continueWillSendRedirectedRequest(ResourceRequest&& 
         if (newRequest.isNull())
             return completionHandler({ });
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        if (SecurityFlags::radar176384129()) {
+            if (newRequest.firstPartyForCookies() != firstPartyForCookiesFromRedirectRequest)
+                MESSAGE_CHECK_COMPLETION_BASE(connection->networkProcess().allowsFirstPartyForCookies(connection->webProcessIdentifier(), newRequest.firstPartyForCookies()), connection->connection(), completionHandler({ }));
+        } else
+#endif
         if (newRequest.firstPartyForCookies() != firstPartyForCookiesFromRedirectRequest) {
-            auto allowCookieAccess = connection->networkProcess().allowsFirstPartyForCookies(connection->webProcessIdentifier(), newRequest.firstPartyForCookies());
+            auto allowCookieAccess = connection->networkProcess().allowsFirstPartyForCookiesLegacy(connection->webProcessIdentifier(), newRequest.firstPartyForCookies());
             MESSAGE_CHECK_COMPLETION_BASE(allowCookieAccess == NetworkProcess::AllowCookieAccess::Allow, connection->connection(), completionHandler({ }));
         }
 
@@ -1906,14 +1940,23 @@ void NetworkResourceLoader::sendResultForCacheEntry(std::unique_ptr<NetworkCache
     dispatchDidFinishResourceLoad();
 }
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
 void NetworkResourceLoader::validateCacheEntry(std::unique_ptr<NetworkCache::Entry> entry)
+#else
+void NetworkResourceLoader::validateCacheEntry(WebCore::ResourceRequest&& request, std::unique_ptr<NetworkCache::Entry> entry)
+#endif
 {
     LOADER_RELEASE_LOG("validateCacheEntry:");
     ASSERT(!m_networkLoad);
 
     // If the request is already conditional then the revalidation was not triggered by the disk cache
     // and we should not overwrite the existing conditional headers.
+#ifdef RC_REMOVE_SEC_ACCEL_3
     ResourceRequest revalidationRequest = originalRequest();
+#else
+    ResourceRequest revalidationRequest = protocolHostAndPortAreEqual(originalRequest().url(), request.url()) ? originalRequest() : WTF::move(request);
+    m_requestForCacheEntryValidation = revalidationRequest;
+#endif
     if (!revalidationRequest.isConditional()) {
         String eTag = entry->response().httpHeaderField(HTTPHeaderName::ETag);
         String lastModified = entry->response().httpHeaderField(HTTPHeaderName::LastModified);
@@ -2389,7 +2432,7 @@ void NetworkResourceLoader::cancelMainResourceLoadForContentFilter(const WebCore
 
 void NetworkResourceLoader::handleProvisionalLoadFailureFromContentFilter(const URL& blockedPageURL, WebCore::SubstituteData&& substituteData)
 {
-    connectionToWebProcess().networkProcess().addAllowedFirstPartyForCookies(m_connection->webProcessIdentifier(), RegistrableDomain { WebCore::ContentFilter::blockedPageURL() }, LoadedWebArchive::No, [] { });
+    connectionToWebProcess().networkProcess().addAllowedFirstPartyDomainForCookies(m_connection->webProcessIdentifier(), RegistrableDomain { WebCore::ContentFilter::blockedPageURL() }, LoadedWebArchive::No, [] { });
     send(Messages::WebResourceLoader::ContentFilterDidBlockLoad(m_unblockHandler, m_unblockRequestDeniedScript, m_contentFilter->blockedError(), blockedPageURL, substituteData));
 }
 

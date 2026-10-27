@@ -49,6 +49,12 @@ class Sampler;
 class State;
 class Texture;
 
+enum class EnsureInitializedLevels
+{
+    BaseOnly,
+    AllEnabledLevels,
+};
+
 constexpr GLuint kInitialMaxLevel = 1000;
 
 bool IsMipmapFiltered(GLenum minFilterMode);
@@ -207,17 +213,21 @@ class TextureState final : private angle::NonCopyable
         return mEGLImageSourceAttributes;
     }
 
-    SourceImageIndex toSourceIndex(const OwnImageIndex &index) const
+    OwnerImageIndex toOwnerIndex(const ImageIndex &index) const
     {
-        return mEGLImageSourceAttributes.toSourceIndex(index);
+        return mEGLImageSourceAttributes.toOwnerIndex(index);
     }
-    SourceLevel toSourceLevel(OwnLevel level) const
+    OwnerLevel toOwnerLevel(LevelIndex level) const
     {
-        return mEGLImageSourceAttributes.toSourceLevel(level);
+        return mEGLImageSourceAttributes.toOwnerLevel(level);
     }
-    SourceLayer toSourceLayer(OwnLayer layer) const
+    OwnerLayer toOwnerLayer(LayerIndex layer) const
     {
-        return mEGLImageSourceAttributes.toSourceLayer(layer);
+        return mEGLImageSourceAttributes.toOwnerLayer(layer);
+    }
+    OwnerLayer toOwnerDepth(const Offset &offset) const
+    {
+        return mEGLImageSourceAttributes.toOwnerDepth(offset);
     }
 
   private:
@@ -713,7 +723,7 @@ class Texture final : public RefCountObject<TextureID>,
     GLuint getId() const override;
 
     // Needed for robust resource init.
-    angle::Result ensureInitialized(const Context *context);
+    angle::Result ensureInitialized(const Context *context, EnsureInitializedLevels levels);
     InitState initState(GLenum binding, const ImageIndex &imageIndex) const override;
     InitState initState() const { return mState.mInitState; }
     void setInitState(GLenum binding, const ImageIndex &imageIndex, InitState initState) override;
@@ -730,7 +740,7 @@ class Texture final : public RefCountObject<TextureID>,
         return false;
     }
 
-    bool isEGLImageSource(const ImageIndex &index) const;
+    bool isEGLImageSource(const OwnerImageIndex &index) const;
 
     bool isDepthOrStencil() const
     {

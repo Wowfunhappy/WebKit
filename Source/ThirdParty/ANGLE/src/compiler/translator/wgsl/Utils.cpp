@@ -62,11 +62,13 @@ void WriteWgslBareTypeName(StringStreamType &output,
             break;
 
         case TBasicType::EbtStruct:
-            WriteNameOf(output, *type.getStruct());
+            WriteNameOf(output, *type.getStruct(),
+                        type.getStruct()->isImplementingInterfaceBlock() ? kUserBlockNamePrefix
+                                                                         : kUserVariableNamePrefix);
             break;
 
         case TBasicType::EbtInterfaceBlock:
-            WriteNameOf(output, *type.getInterfaceBlock());
+            WriteNameOf(output, *type.getInterfaceBlock(), kUserBlockNamePrefix);
             break;
 
         default:
@@ -115,7 +117,10 @@ void WriteWgslBareTypeName(StringStreamType &output,
 }
 
 template <typename StringStreamType>
-void WriteNameOf(StringStreamType &output, SymbolType symbolType, const ImmutableString &name)
+void WriteNameOf(StringStreamType &output,
+                 SymbolType symbolType,
+                 const ImmutableString &name,
+                 char userSymbolPrefix)
 {
     switch (symbolType)
     {
@@ -123,7 +128,7 @@ void WriteNameOf(StringStreamType &output, SymbolType symbolType, const Immutabl
             output << name;
             break;
         case SymbolType::UserDefined:
-            output << '_' << kUserDefinedNamePrefix << name;
+            output << '_' << userSymbolPrefix << name;
             break;
         case SymbolType::AngleInternal:
             output << name;
@@ -200,7 +205,8 @@ template void WriteWgslBareTypeName<TInfoSinkBase>(TInfoSinkBase &output,
                                                    const EmitTypeConfig &config);
 template void WriteNameOf<TInfoSinkBase>(TInfoSinkBase &output,
                                          SymbolType symbolType,
-                                         const ImmutableString &name);
+                                         const ImmutableString &name,
+                                         char userSymbolPrefix);
 template void WriteWgslType<TInfoSinkBase>(TInfoSinkBase &output,
                                            const TType &type,
                                            const EmitTypeConfig &config);
@@ -210,7 +216,8 @@ template void WriteWgslBareTypeName<TStringStream>(TStringStream &output,
                                                    const EmitTypeConfig &config);
 template void WriteNameOf<TStringStream>(TStringStream &output,
                                          SymbolType symbolType,
-                                         const ImmutableString &name);
+                                         const ImmutableString &name,
+                                         char userSymbolPrefix);
 template void WriteWgslType<TStringStream>(TStringStream &output,
                                            const TType &type,
                                            const EmitTypeConfig &config);

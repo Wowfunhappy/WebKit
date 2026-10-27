@@ -4,15 +4,12 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #if defined(_MSC_VER)
 #    pragma warning(disable : 4718)
 #endif
 
 #include "compiler/translator/Types.h"
+#include "common/unsafe_buffers.h"
 #include "compiler/translator/ImmutableString.h"
 #include "compiler/translator/InfoSink.h"
 #include "compiler/translator/IntermNode.h"
@@ -144,8 +141,6 @@ const char *getBasicString(TBasicType t)
             return "uimageBuffer";
         case EbtAtomicCounter:
             return "atomic_uint";
-        case EbtSamplerVideoWEBGL:
-            return "samplerVideoWEBGL";
         case EbtPixelLocalANGLE:
             return "pixelLocalANGLE";
         case EbtIPixelLocalANGLE:
@@ -459,7 +454,7 @@ const char *TType::buildMangledName() const
     if (basicMangledName[0] != '{')
     {
         mangledName += basicMangledName[0];
-        mangledName += basicMangledName[1];
+        mangledName += ANGLE_UNSAFE_TODO(basicMangledName[1]);
     }
     else
     {
@@ -758,47 +753,6 @@ const char *TType::getMangledName() const
 void TType::realize()
 {
     getMangledName();
-}
-
-void TType::createSamplerSymbols(const ImmutableString &namePrefix,
-                                 const TString &apiNamePrefix,
-                                 TVector<const TVariable *> *outputSymbols,
-                                 TMap<const TVariable *, TString> *outputSymbolsToAPINames,
-                                 TSymbolTable *symbolTable) const
-{
-    if (isStructureContainingSamplers())
-    {
-        if (isArray())
-        {
-            TType elementType(*this);
-            elementType.toArrayElementType();
-            for (unsigned int arrayIndex = 0u; arrayIndex < getOutermostArraySize(); ++arrayIndex)
-            {
-                std::stringstream elementName = sh::InitializeStream<std::stringstream>();
-                elementName << namePrefix << "_" << arrayIndex;
-                TStringStream elementApiName;
-                elementApiName << apiNamePrefix << "[" << arrayIndex << "]";
-                elementType.createSamplerSymbols(ImmutableString(elementName.str()),
-                                                 elementApiName.str(), outputSymbols,
-                                                 outputSymbolsToAPINames, symbolTable);
-            }
-        }
-        else
-        {
-            mStructure->createSamplerSymbols(namePrefix.data(), apiNamePrefix, outputSymbols,
-                                             outputSymbolsToAPINames, symbolTable);
-        }
-        return;
-    }
-
-    ASSERT(IsSampler(type));
-    TVariable *variable =
-        new TVariable(symbolTable, namePrefix, new TType(*this), SymbolType::AngleInternal);
-    outputSymbols->push_back(variable);
-    if (outputSymbolsToAPINames)
-    {
-        (*outputSymbolsToAPINames)[variable] = apiNamePrefix;
-    }
 }
 
 TFieldListCollection::TFieldListCollection(const TFieldList *fields)

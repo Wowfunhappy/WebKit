@@ -9,6 +9,7 @@
 //   Contains the GetLoadFunctionsMap for texture_format_util.h
 //
 
+#include "common/debug.h"
 #include "libANGLE/renderer/load_functions_table.h"
 
 #include "image_util/copyimage.h"
@@ -41,7 +42,7 @@ void UnimplementedLoadFunction(const ImageLoadContext &context,
                                size_t outputRowPitch,
                                size_t outputDepthPitch)
 {
-    UNIMPLEMENTED();
+    FATAL() << "UNIMPLEMENTED load function.";
 }
 
 void UnreachableLoadFunction(const ImageLoadContext &context,
@@ -55,7 +56,7 @@ void UnreachableLoadFunction(const ImageLoadContext &context,
                              size_t outputRowPitch,
                              size_t outputDepthPitch)
 {
-    UNREACHABLE();
+    FATAL() << "UNREACHABLE load function.";
 }
 
 LoadImageFunctionInfo A1RGB5_ANGLEX_to_A1R5G5B5_UNORM(GLenum type)
@@ -1987,7 +1988,7 @@ LoadImageFunctionInfo G8_B8_R8_3PLANE_420_UNORM_ANGLE_to_default(GLenum type)
     switch (type)
     {
         case GL_UNSIGNED_BYTE:
-            return LoadImageFunctionInfo(UnimplementedLoadFunction, true);
+            return LoadImageFunctionInfo(LoadYuvToNative, true);
         default:
             UNREACHABLE();
             return LoadImageFunctionInfo(UnreachableLoadFunction, true);
@@ -3232,6 +3233,8 @@ LoadImageFunctionInfo RGB565_to_R8G8B8A8_UNORM(GLenum type)
     {
         case GL_UNSIGNED_BYTE:
             return LoadImageFunctionInfo(LoadToNative3To4<GLubyte, 0xFF>, true);
+        case GL_UNSIGNED_INT_2_10_10_10_REV_EXT:
+            return LoadImageFunctionInfo(LoadRGB10A2ToRGBA8, true);
         case GL_UNSIGNED_SHORT_5_6_5:
             return LoadImageFunctionInfo(LoadR5G6B5ToRGBA8, true);
         default:
@@ -3312,6 +3315,10 @@ LoadImageFunctionInfo RGB8_to_R8G8B8A8_UNORM(GLenum type)
             return LoadImageFunctionInfo(LoadToNative3To4<GLubyte, 0xFF>, true);
         case GL_UNSIGNED_INT_2_10_10_10_REV:
             return LoadImageFunctionInfo(LoadRGB10A2ToRGBA8, true);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        case GL_UNSIGNED_SHORT_5_6_5:
+            return LoadImageFunctionInfo(LoadR5G6B5ToRGBA8, true);
+#endif
         default:
             UNREACHABLE();
             return LoadImageFunctionInfo(UnreachableLoadFunction, true);

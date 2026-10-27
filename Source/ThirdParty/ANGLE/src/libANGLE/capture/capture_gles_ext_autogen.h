@@ -916,11 +916,6 @@ angle::CallCapture CaptureCopySubTextureCHROMIUM(const State &glState,
                                                  GLboolean unpackPremultiplyAlpha,
                                                  GLboolean unpackUnmultiplyAlpha);
 
-// GL_CHROMIUM_framebuffer_mixed_samples
-angle::CallCapture CaptureCoverageModulationCHROMIUM(const State &glState,
-                                                     bool isCallValid,
-                                                     GLenum components);
-
 // GL_CHROMIUM_lose_context
 angle::CallCapture CaptureLoseContextCHROMIUM(const State &glState,
                                               bool isCallValid,
@@ -1954,7 +1949,7 @@ angle::CallCapture CaptureTexStorage3DEXT(const State &glState,
 // GL_EXT_texture_storage_compression
 angle::CallCapture CaptureTexStorageAttribs2DEXT(const State &glState,
                                                  bool isCallValid,
-                                                 GLenum target,
+                                                 TextureType targetPacked,
                                                  GLsizei levels,
                                                  GLenum internalformat,
                                                  GLsizei width,
@@ -1962,7 +1957,7 @@ angle::CallCapture CaptureTexStorageAttribs2DEXT(const State &glState,
                                                  const GLint *attrib_list);
 angle::CallCapture CaptureTexStorageAttribs3DEXT(const State &glState,
                                                  bool isCallValid,
-                                                 GLenum target,
+                                                 TextureType targetPacked,
                                                  GLsizei levels,
                                                  GLenum internalformat,
                                                  GLsizei width,
@@ -2103,12 +2098,12 @@ angle::CallCapture CaptureReadnPixelsKHR(const State &glState,
 angle::CallCapture CaptureFramebufferParameteriMESA(const State &glState,
                                                     bool isCallValid,
                                                     GLenum target,
-                                                    GLenum pname,
+                                                    FramebufferParameter pnamePacked,
                                                     GLint param);
 angle::CallCapture CaptureGetFramebufferParameterivMESA(const State &glState,
                                                         bool isCallValid,
                                                         GLenum target,
-                                                        GLenum pname,
+                                                        FramebufferParameter pnamePacked,
                                                         GLint *params);
 
 // GL_NV_fence
@@ -2512,6 +2507,8 @@ angle::CallCapture CaptureMinSampleShadingOES(const State &glState,
 // GL_OES_shader_multisample_interpolation
 
 // GL_OES_standard_derivatives
+
+// GL_OES_stencil8
 
 // GL_OES_surfaceless_context
 
@@ -4513,7 +4510,7 @@ void CaptureTexParameterIuivEXT_params(const State &glState,
                                        const GLuint *params,
                                        angle::ParamCapture *paramCapture);
 void CaptureTexStorageAttribs2DEXT_attrib_list(const State &glState,
-                                               GLenum target,
+                                               TextureType targetPacked,
                                                GLsizei levels,
                                                GLenum internalformat,
                                                GLsizei width,
@@ -4521,7 +4518,7 @@ void CaptureTexStorageAttribs2DEXT_attrib_list(const State &glState,
                                                const GLint *attrib_list,
                                                angle::ParamCapture *paramCapture);
 void CaptureTexStorageAttribs3DEXT_attrib_list(const State &glState,
-                                               GLenum target,
+                                               TextureType targetPacked,
                                                GLsizei levels,
                                                GLenum internalformat,
                                                GLsizei width,
@@ -4697,7 +4694,7 @@ void CaptureReadnPixelsKHR_data(const State &glState,
                                 angle::ParamCapture *paramCapture);
 void CaptureGetFramebufferParameterivMESA_params(const State &glState,
                                                  GLenum target,
-                                                 GLenum pname,
+                                                 FramebufferParameter pnamePacked,
                                                  GLint *params,
                                                  angle::ParamCapture *paramCapture);
 void CaptureDeleteFencesNV_fencesPacked(const State &glState,

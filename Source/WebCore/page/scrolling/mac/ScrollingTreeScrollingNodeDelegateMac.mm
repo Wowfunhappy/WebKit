@@ -427,6 +427,39 @@ String ScrollingTreeScrollingNodeDelegateMac::scrollbarStateForOrientation(Scrol
     return m_scrollerPair->scrollbarStateForOrientation(orientation);
 }
 
+Vector<RetainPtr<CALayer>, 2> ScrollingTreeScrollingNodeDelegateMac::hitTestableScrollbarLayers() const
+{
+    Ref node = scrollingNode();
+    bool usesOverlayScrollbars = m_scrollerPair->scrollbarStyle() == ScrollbarStyle::Overlay;
+
+    Vector<RetainPtr<CALayer>, 2> layers;
+    auto appendIfHitTestable = [&](ScrollerMac& scroller, NativeScrollbarVisibility visibility) {
+        RetainPtr hostLayer = scroller.hostLayer();
+        if (!hostLayer)
+            return;
+
+        switch (visibility) {
+        case NativeScrollbarVisibility::HiddenByStyle:
+            return;
+        case NativeScrollbarVisibility::ReplacedByCustomScrollbar:
+            // The web process paints custom scrollbars into the host layer, and they are never overlay scrollbars.
+            break;
+        case NativeScrollbarVisibility::Visible:
+            // The web process only hit-tests an overlay scrollbar while it is shown, which it learns about
+            // through ScrollerMac::visibilityChanged(), so consult the same state here.
+            if (usesOverlayScrollbars && !scroller.isVisible())
+                return;
+            break;
+        }
+
+        layers.append(WTF::move(hostLayer));
+    };
+
+    appendIfHitTestable(m_scrollerPair->verticalScroller(), node->verticalNativeScrollbarVisibility());
+    appendIfHitTestable(m_scrollerPair->horizontalScroller(), node->horizontalNativeScrollbarVisibility());
+    return layers;
+}
+
 } // namespace WebCore
 
 #endif // PLATFORM(MAC)

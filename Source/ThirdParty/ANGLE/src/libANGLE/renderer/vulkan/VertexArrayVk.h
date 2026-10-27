@@ -46,15 +46,17 @@ class VertexArrayVk : public VertexArrayImpl
                                        const gl::AttributesMask &dirtyDefaultAttribsMask);
 
     angle::Result updateStreamedAttribs(const gl::Context *context,
+                                        const gl::AttributesMask activeStreamingAttribsMask,
                                         GLint firstVertex,
                                         GLsizei vertexOrIndexCount,
-                                        GLsizei baseInstance,
+                                        GLuint baseInstance,
                                         GLsizei instanceCount,
                                         gl::DrawElementsType indexTypeOrInvalid,
                                         const void *indices,
                                         gl::AttributesMask *strideDirtyAttribMaskOut);
 
-    void resetInactiveStreamedAttribs(const gl::Context *context);
+    void updateCurrentActiveStreamingAttribsMask(const gl::Context *context,
+                                                 vk::BufferHelper &emptyBuffer);
 
     angle::Result handleLineLoop(ContextVk *contextVk,
                                  GLint firstVertex,
@@ -161,6 +163,8 @@ class VertexArrayVk : public VertexArrayImpl
 
     void syncDirtyDisabledAttribs(ContextVk *contextVk,
                                   const gl::AttributesMask &disabledAttributesMask);
+    void resetInactiveStreamingAttribs(const gl::AttributesMask inactiveAttribMask,
+                                       vk::BufferHelper &emptyBuffer);
 
   private:
 

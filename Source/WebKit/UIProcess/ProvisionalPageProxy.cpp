@@ -41,6 +41,7 @@
 #include "PageClient.h"
 #include "ProvisionalFrameCreationParameters.h"
 #include "RemotePageProxy.h"
+#include "SecurityFlags.h"
 #include "SuspendedPageProxy.h"
 #include "URLSchemeTaskParameters.h"
 #include "WebBackForwardCacheEntry.h"
@@ -73,6 +74,7 @@
 #endif
 
 #define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, process().connection())
+#define MESSAGE_CHECK_COMPLETION(assertion, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, process().connection(), completion)
 
 namespace WebKit {
 
@@ -443,16 +445,26 @@ void ProvisionalPageProxy::didStartProvisionalLoadForFrame(FrameIdentifier frame
 {
     if (!validateInput(frameID, navigationID))
         return;
+    MESSAGE_CHECK((!frameInfo.webPageProxyID || process().isAssociatedWithPage(*frameInfo.webPageProxyID)));
 
     PROVISIONALPAGEPROXY_RELEASE_LOG(ProcessSwapping, "didStartProvisionalLoadForFrame: frameID=%" PRIu64, frameID.toUInt64());
     ASSERT(m_provisionalLoadURL.isNull());
+
+    RefPtr page = m_page.get();
+    if (SecurityFlags::radar180469521()) {
+        RefPtr navigation = page ? page->navigationState().navigation(m_navigationID) : nullptr;
+        if (navigation) {
+            RefPtr targetItem = navigation->targetItem();
+            MESSAGE_CHECK(url == navigation->currentRequest().url() || (targetItem && url == targetItem->url()));
+        }
+    }
+
     m_provisionalLoadURL = url;
 
     // Merely following a server side redirect so there is no need to send a didStartProvisionalLoad again.
     if (m_isServerRedirect)
         return;
 
-    RefPtr page = m_page.get();
     if (!page)
         return;
 
@@ -467,6 +479,7 @@ void ProvisionalPageProxy::didFailProvisionalLoadForFrame(FrameInfoData&& frameI
 {
     if (!validateInput(frameInfo.frameID, navigationID))
         return;
+    MESSAGE_CHECK((!frameInfo.webPageProxyID || process().isAssociatedWithPage(*frameInfo.webPageProxyID)));
 
     PROVISIONALPAGEPROXY_RELEASE_LOG_ERROR(ProcessSwapping, "didFailProvisionalLoadForFrame: frameID=%" PRIu64, frameInfo.frameID.toUInt64());
     ASSERT(!m_provisionalLoadURL.isNull());
@@ -500,6 +513,7 @@ void ProvisionalPageProxy::didCommitLoadForFrame(IPC::Connection& connection, Fr
 {
     if (!validateInput(frameID, navigationID))
         return;
+    MESSAGE_CHECK((!frameInfo.webPageProxyID || process().isAssociatedWithPage(*frameInfo.webPageProxyID)));
 
     PROVISIONALPAGEPROXY_RELEASE_LOG(ProcessSwapping, "didCommitLoadForFrame: frameID=%" PRIu64, frameID.toUInt64());
     RefPtr page = m_page.get();
@@ -561,6 +575,7 @@ void ProvisionalPageProxy::decidePolicyForResponse(FrameInfoData&& frameInfo, st
 {
     if (!validateInput(frameInfo.frameID, navigationID))
         return completionHandler({ });
+    MESSAGE_CHECK_COMPLETION((!frameInfo.webPageProxyID || process().isAssociatedWithPage(*frameInfo.webPageProxyID)), completionHandler({ }));
 
     if (RefPtr page = m_page.get())
         // AQUAWEBKIT: forward bundlePolicyUserData (injected-bundle policy client userData).
@@ -898,13 +913,19 @@ void ProvisionalPageProxy::didReceiveSyncMessage(IPC::Connection& connection, IP
         return;
     }
 
-    RefPtr page = m_page.get();
-    if (page) {
-        if (decoder.messageReceiverName() == Messages::WebBackForwardList::messageReceiverName())
-            page->backForwardListMessageReceiver().didReceiveSyncMessage(connection, decoder, replyEncoder);
-        else
+    if (decoder.messageName() == Messages::WebPageProxy::ShouldGoToBackForwardListItemSync::name()) {
+        if (RefPtr page = m_page.get())
             page->didReceiveSyncMessage(connection, decoder, replyEncoder);
+        return;
     }
+
+    if (decoder.messageReceiverName() == Messages::WebBackForwardList::messageReceiverName()) {
+        if (RefPtr page = m_page.get())
+            page->backForwardListMessageReceiver().didReceiveSyncMessage(connection, decoder, replyEncoder);
+        return;
+    }
+
+    LOG(ProcessSwapping, "Unhandled sync message %s from provisional process", description(decoder.messageName()).characters());
 }
 
 IPC::Connection* ProvisionalPageProxy::messageSenderConnection() const
@@ -938,3 +959,4 @@ void ProvisionalPageProxy::updateFrameProcess()
 } // namespace WebKit
 
 #undef MESSAGE_CHECK
+#undef MESSAGE_CHECK_COMPLETION

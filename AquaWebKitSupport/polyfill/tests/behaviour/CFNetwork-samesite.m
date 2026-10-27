@@ -283,6 +283,39 @@ static void checkPublicSetterPolicy(void)
     CFRelease(jar);
 }
 
+// A cross-site read on a top-level navigation keeps a Lax cookie only for a safe request, which a request is
+// unless _kCFHTTPCookiePolicyPropertyIsSafeRequest says otherwise (HTTPCookieStorage::copyCookiesForURL).
+static void checkLaxTopLevelSafeRequest(void)
+{
+    CFHTTPCookieStorageRef jar = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFDictionaryRef))
+        cfnetwork("CFHTTPCookieStorageCreateInMemory"))(NULL, NULL);
+    NSHTTPCookieStorage *store = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
+    store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+    NSURL *url = [NSURL URLWithString:@"https://lax.test/"];
+    [store setCookies:@[[NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"lax", NSHTTPCookieValue: @"1",
+        NSHTTPCookieDomain: url.host, NSHTTPCookiePath: @"/", @"SameSite": @"Lax" }]] forURL:url mainDocumentURL:url];
+    struct { id isSafeRequest; BOOL isTopLevelNavigation; NSUInteger expected; const char *what; } cases[] = {
+        { nil, YES, 1, "a cross-site top-level navigation without IsSafeRequest reads the Lax cookie" },
+        { @YES, YES, 1, "a cross-site top-level navigation marked safe reads the Lax cookie" },
+        { @NO, YES, 0, "a cross-site top-level navigation marked unsafe does not read the Lax cookie" },
+        { nil, NO, 0, "a cross-site subresource does not read the Lax cookie" },
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        NSMutableDictionary *properties = [NSMutableDictionary dictionaryWithDictionary:@{
+            @"_kCFHTTPCookiePolicyPropertySiteForCookies": [NSURL URLWithString:@""],
+            @"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation": @(cases[i].isTopLevelNavigation) }];
+        if (cases[i].isSafeRequest)
+            properties[@"_kCFHTTPCookiePolicyPropertyIsSafeRequest"] = cases[i].isSafeRequest;
+        __block NSUInteger count = NSNotFound;
+        [store _getCookiesForURL:url mainDocumentURL:url partition:nil policyProperties:properties completionHandler:^(NSArray *cookies) {
+            count = cookies.count;
+        }];
+        check(count == cases[i].expected, cases[i].what);
+    }
+    [store release];
+    CFRelease(jar);
+}
+
 static void checkPolicySeedScope(void)
 {
     NSURL *url = [NSURL URLWithString:@"http://child.seed.test/"];
@@ -774,6 +807,7 @@ int main(void)
     }
 
     checkPublicSetterPolicy();
+    checkLaxTopLevelSafeRequest();
     checkPolicySeedScope();
     checkFileBackedCookieAcceptPolicy();
     checkConcurrentExclusivePolicy();

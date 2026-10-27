@@ -32,6 +32,7 @@
 #import "DefaultWebBrowserChecks.h"
 #import "Download.h"
 #import "LegacyCustomProtocolManager.h"
+#import "LegacyExtensionNetwork.h" // AQUAWEBKIT: canPrefetchDNS reads the extensions' proxies.
 #import "Logging.h"
 #import "NetworkDataTaskBlob.h"
 #import "NetworkDataTaskCocoa.h"
@@ -40,6 +41,7 @@
 #import "NetworkProcessProxyMessages.h"
 #import "NetworkSessionCreationParameters.h"
 #import "PrivateRelayed.h"
+#import "SecurityFlags.h"
 #import "WKURLSessionTaskDelegate.h"
 #import "WebErrors.h"
 #import "WebPageNetworkParameters.h"
@@ -52,6 +54,7 @@
 #import <WebCore/HTTPStatusCodes.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/NotImplemented.h>
+#import <WebCore/RegistrableDomain.h>
 #import <WebCore/ResourceError.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceRequestCFNet.h>
@@ -1095,7 +1098,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
     // That conversion is a send inside CFNetwork, which the selref-scope polyfill mechanism does not see.
     downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();
-    Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
+    Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename(), networkDataTask->advancedPrivacyProtections());
     networkDataTask->transferSandboxExtensionToDownload(download);
     ASSERT(FileSystem::fileExists(networkDataTask->pendingDownloadLocation()));
     download->didCreateDestination(networkDataTask->pendingDownloadLocation());
@@ -1526,21 +1529,31 @@ SessionWrapper& SessionSet::initializeEphemeralStatelessSessionIfNeeded(Navigati
     return ephemeralStatelessSession.get();
 }
 
-// AQUAWEBKIT: a session identical to sessionWithCredentialStorage except that it has no
-// URLCredentialStorage, so that StoredCredentialsPolicy::DoNotUse tasks can be given a session whose
-// credential storage is absent rather than a per-task override 10.9 cannot honour. Everything else --
-// cookies, cache, proxies, TLS floor -- is the same, because DoNotUse governs credentials only.
-SessionWrapper& SessionSet::initializeSessionWithoutCredentialStorageIfNeeded(NetworkSessionCocoa& session)
+#ifndef RC_REMOVE_SEC_ACCEL_3
+static SessionWrapper& initializeSessionWithoutCredentialStorageIfNeeded(SessionWrapper& sessionWithoutCredentialStorage, const SessionWrapper& sessionWithCredentialStorage, NavigatingToAppBoundDomain isNavigatingToAppBoundDomain, NetworkSessionCocoa& session)
 {
-    if (sessionWithoutCredentialStorage->session)
-        return sessionWithoutCredentialStorage.get();
+    if (sessionWithoutCredentialStorage.session)
+        return sessionWithoutCredentialStorage;
 
-    RetainPtr<NSURLSessionConfiguration> configuration = adoptNS([retainPtr(sessionWithCredentialStorage->session.get().configuration) copy]);
+    RetainPtr<NSURLSessionConfiguration> configuration = adoptNS([sessionWithCredentialStorage.session.get().configuration copy]);
     configuration.get().URLCredentialStorage = nil;
-    protect(sessionWithoutCredentialStorage)->initialize(configuration.get(), session, WebCore::StoredCredentialsPolicy::DoNotUse, NavigatingToAppBoundDomain::No);
+    configuration.get()._shouldSkipPreferredClientCertificateLookup = YES;
 
-    return sessionWithoutCredentialStorage.get();
+    protect(sessionWithoutCredentialStorage)->initialize(configuration.get(), session, WebCore::StoredCredentialsPolicy::DoNotUse, isNavigatingToAppBoundDomain);
+
+    return sessionWithoutCredentialStorage;
 }
+
+SessionWrapper& SessionSet::initializeSessionWithoutCredentialStorageIfNeeded(NavigatingToAppBoundDomain isNavigatingToAppBoundDomain, NetworkSessionCocoa& session)
+{
+    return WebKit::initializeSessionWithoutCredentialStorageIfNeeded(sessionWithoutCredentialStorage, sessionWithCredentialStorage, isNavigatingToAppBoundDomain, session);
+}
+
+SessionWrapper& IsolatedSession::initializeSessionWithoutCredentialStorageIfNeeded(NavigatingToAppBoundDomain isNavigatingToAppBoundDomain, NetworkSessionCocoa& session)
+{
+    return WebKit::initializeSessionWithoutCredentialStorageIfNeeded(sessionWithoutCredentialStorage, sessionWithCredentialStorage, isNavigatingToAppBoundDomain, session);
+}
+#endif // RC_REMOVE_SEC_ACCEL_3
 
 CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optional<WebPageProxyIdentifier> webPageProxyID, const WebCore::ResourceRequest& request, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain)
 {
@@ -1563,9 +1576,15 @@ CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optio
 
     switch (storedCredentialsPolicy) {
     case WebCore::StoredCredentialsPolicy::Use:
-        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get(); // AQUAWEBKIT: the Use policy has its own session, see above.
-    case WebCore::StoredCredentialsPolicy::DoNotUse: // AQUAWEBKIT: its own session, see above.
-        return protect(sessionSetForPage(webPageProxyID))->initializeSessionWithoutCredentialStorageIfNeeded(*this);
+        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get();
+    case WebCore::StoredCredentialsPolicy::DoNotUse:
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        if (SecurityFlags::radar183065569())
+            return protect(sessionSetForPage(webPageProxyID))->initializeSessionWithoutCredentialStorageIfNeeded(NavigatingToAppBoundDomain::No, *this);
+        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get();
+#else
+        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get();
+#endif
     case WebCore::StoredCredentialsPolicy::EphemeralStateless:
         return initializeEphemeralStatelessSessionIfNeeded(webPageProxyID, NavigatingToAppBoundDomain::No);
     }
@@ -1584,9 +1603,20 @@ SessionWrapper& NetworkSessionCocoa::appBoundSession(std::optional<WebPageProxyI
     return [&](auto storedCredentialsPolicy) -> SessionWrapper& {
         switch (storedCredentialsPolicy) {
         case WebCore::StoredCredentialsPolicy::Use:
-        case WebCore::StoredCredentialsPolicy::DoNotUse:
             LOG(NetworkSession, "Using app-bound NSURLSession.");
             return sessionSet->appBoundSession->sessionWithCredentialStorage.get();
+        case WebCore::StoredCredentialsPolicy::DoNotUse:
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            if (SecurityFlags::radar183065569()) {
+                LOG(NetworkSession, "Using app-bound NSURLSession without credential storage.");
+                return sessionSet->appBoundSession->initializeSessionWithoutCredentialStorageIfNeeded(NavigatingToAppBoundDomain::Yes, *this);
+            }
+            LOG(NetworkSession, "Using app-bound NSURLSession.");
+            return sessionSet->appBoundSession->sessionWithCredentialStorage.get();
+#else
+            LOG(NetworkSession, "Using app-bound NSURLSession.");
+            return sessionSet->appBoundSession->sessionWithCredentialStorage.get();
+#endif
         case WebCore::StoredCredentialsPolicy::EphemeralStateless:
             return initializeEphemeralStatelessSessionIfNeeded(webPageProxyID, NavigatingToAppBoundDomain::Yes);
         }
@@ -1631,17 +1661,20 @@ CheckedRef<SessionWrapper> SessionSet::isolatedSession(WebCore::StoredCredential
     CheckedRef sessionWrapper = [this, protectedThis = Ref { *this }, &entry, isNavigatingToAppBoundDomain, session = CheckedRef { session }] (auto storedCredentialsPolicy) -> SessionWrapper& {
         switch (storedCredentialsPolicy) {
         case WebCore::StoredCredentialsPolicy::Use:
-            LOG(NetworkSession, "Using isolated NSURLSession."); // AQUAWEBKIT: the Use policy has its own session, see above.
+            LOG(NetworkSession, "Using isolated NSURLSession.");
             return entry->sessionWithCredentialStorage;
-        case WebCore::StoredCredentialsPolicy::DoNotUse: { // AQUAWEBKIT: its own session, see above.
-            LOG(NetworkSession, "Using isolated NSURLSession without credential storage.");
-            if (!entry->sessionWithoutCredentialStorage->session) {
-                RetainPtr<NSURLSessionConfiguration> configuration = adoptNS([retainPtr(entry->sessionWithCredentialStorage->session.get().configuration) copy]);
-                configuration.get().URLCredentialStorage = nil;
-                protect(entry->sessionWithoutCredentialStorage)->initialize(configuration.get(), session, WebCore::StoredCredentialsPolicy::DoNotUse, isNavigatingToAppBoundDomain);
+        case WebCore::StoredCredentialsPolicy::DoNotUse:
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            if (SecurityFlags::radar183065569()) {
+                LOG(NetworkSession, "Using isolated NSURLSession without credential storage.");
+                return entry->initializeSessionWithoutCredentialStorageIfNeeded(isNavigatingToAppBoundDomain, session);
             }
-            return entry->sessionWithoutCredentialStorage;
-        }
+            LOG(NetworkSession, "Using isolated NSURLSession.");
+            return entry->sessionWithCredentialStorage;
+#else
+            LOG(NetworkSession, "Using isolated NSURLSession.");
+            return entry->sessionWithCredentialStorage;
+#endif
         case WebCore::StoredCredentialsPolicy::EphemeralStateless:
             return initializeEphemeralStatelessSessionIfNeeded(isNavigatingToAppBoundDomain, session);
         }
@@ -1688,25 +1721,33 @@ void NetworkSessionCocoa::clearIsolatedSessions()
 void NetworkSessionCocoa::invalidateAndCancelSessionSet(SessionSet& sessionSet)
 {
     [sessionSet.sessionWithCredentialStorage->session invalidateAndCancel];
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    [sessionSet.sessionWithoutCredentialStorage->session invalidateAndCancel];
+#endif
     [sessionSet.ephemeralStatelessSession->session invalidateAndCancel];
     [sessionSet.sessionWithCredentialStorage->delegate sessionInvalidated];
-    [sessionSet.ephemeralStatelessSession->delegate sessionInvalidated];
-    // AQUAWEBKIT: the DoNotUse session goes down with the rest of the set.
-    [sessionSet.sessionWithoutCredentialStorage->session invalidateAndCancel];
+#ifndef RC_REMOVE_SEC_ACCEL_3
     [sessionSet.sessionWithoutCredentialStorage->delegate sessionInvalidated];
+#endif
+    [sessionSet.ephemeralStatelessSession->delegate sessionInvalidated];
 
     for (auto& session : sessionSet.isolatedSessions.values()) {
         [session->sessionWithCredentialStorage->session invalidateAndCancel];
         [session->sessionWithCredentialStorage->delegate sessionInvalidated];
-        // AQUAWEBKIT: as above, for the isolated DoNotUse session.
+#ifndef RC_REMOVE_SEC_ACCEL_3
         [session->sessionWithoutCredentialStorage->session invalidateAndCancel];
         [session->sessionWithoutCredentialStorage->delegate sessionInvalidated];
+#endif
     }
     sessionSet.isolatedSessions.clear();
 
     if (sessionSet.appBoundSession) {
         [sessionSet.appBoundSession->sessionWithCredentialStorage->session invalidateAndCancel];
         [sessionSet.appBoundSession->sessionWithCredentialStorage->delegate sessionInvalidated];
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        [sessionSet.appBoundSession->sessionWithoutCredentialStorage->session invalidateAndCancel];
+        [sessionSet.appBoundSession->sessionWithoutCredentialStorage->delegate sessionInvalidated];
+#endif
     }
 }
 
@@ -1864,8 +1905,13 @@ DMFWebsitePolicyMonitor *NetworkSessionCocoa::deviceManagementPolicyMonitor()
 #endif
 }
 
-RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
+RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, NetworkSocketChannel& channel, WebCore::ResourceRequest&& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129() && WebCore::RegistrableDomain(request.firstPartyForCookies()).isEmpty())
+        request.setAllowCookies(false);
+#endif
+
     ASSERT(!request.hasHTTPHeaderField(WebCore::HTTPHeaderName::SecWebSocketProtocol));
     // AQUAWEBKIT: every page WebSocket is an RFC 6455 client on the curl transport, as the curl port's
     // NetworkSessionCurl::createWebSocketTask makes one (WebSocketTaskCurlCocoa).
@@ -2233,6 +2279,12 @@ void NetworkSessionCocoa::dataTaskWithRequest(WebPageProxyIdentifier pageID, Web
         return;
     }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    // This does not have a call to request.setAllowCookies(false) if RegistrableDomain(request.firstPartyForCookies()).isEmpty()
+    // because calls to this don't come from the web content process, and it would break SPI behavior
+    // to introduce such a call. We could add a call to setFirstPartyForCookies, but that would be equivalent
+    // to not having the domain check.
+#endif
     auto session = sessionWrapperForTask(pageID, request, WebCore::StoredCredentialsPolicy::Use, std::nullopt)->session;
     RetainPtr task = [session dataTaskWithRequest:nsRequest.get()];
     auto delegate = adoptNS([[WKURLSessionTaskDelegate alloc] initWithTask:task.get() identifier:identifier session:*this]);
@@ -2276,6 +2328,7 @@ void NetworkSessionCocoa::dataTaskWithRequest(WebPageProxyIdentifier pageID, Web
     parameters.request = WTF::move(request);
     parameters.storedCredentialsPolicy = WebCore::StoredCredentialsPolicy::Use;
     parameters.clientCredentialPolicy = WebCore::ClientCredentialPolicy::MayAskClientForCredentials;
+    parameters.isDataTaskForAPI = true;
     parameters.topOrigin = topOrigin ? topOrigin->securityOrigin().ptr() : nullptr;
     if (parameters.request.url().protocolIsBlob())
         parameters.blobFileReferences = blobRegistry().filesInBlob(parameters.request.url(), topOrigin);
@@ -2393,17 +2446,23 @@ void NetworkSessionCocoa::forEachSessionWrapper(NOESCAPE const Function<void(Ses
 {
     auto sessionSetFunction = [&](SessionSet& sessionSet) {
         function(protect(sessionSet.sessionWithCredentialStorage).get());
-        function(protect(sessionSet.ephemeralStatelessSession).get());
-        // AQUAWEBKIT: the DoNotUse session is one of this set's sessions like any other.
+#ifndef RC_REMOVE_SEC_ACCEL_3
         function(protect(sessionSet.sessionWithoutCredentialStorage).get());
-        if (sessionSet.appBoundSession)
+#endif
+        function(protect(sessionSet.ephemeralStatelessSession).get());
+        if (sessionSet.appBoundSession) {
             function(protect(sessionSet.appBoundSession->sessionWithCredentialStorage));
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            function(protect(sessionSet.appBoundSession->sessionWithoutCredentialStorage));
+#endif
+        }
 
         for (auto& isolatedSession : sessionSet.isolatedSessions.values()) {
-            if (isolatedSession) { // AQUAWEBKIT: braced for the second session below.
+            if (isolatedSession) {
                 function(protect(isolatedSession->sessionWithCredentialStorage));
-                // AQUAWEBKIT: the isolated DoNotUse session is one of this set's sessions too.
+#ifndef RC_REMOVE_SEC_ACCEL_3
                 function(protect(isolatedSession->sessionWithoutCredentialStorage));
+#endif
             }
         }
     };
@@ -2532,6 +2591,9 @@ bool NetworkSessionCocoa::canPrefetchDNS() const
     if (!m_nwProxyConfigs.isEmpty())
         return false;
 #endif
+    // AQUAWEBKIT: the proxies Safari 7 extensions route curl loads through, as m_nwProxyConfigs's.
+    if (LegacyExtensionNetwork::singleton().routesThroughProxies())
+        return false;
     return true;
 }
 
@@ -2606,11 +2668,20 @@ void NetworkSessionCocoa::removeNetworkWebsiteData(std::optional<WallTime> modif
         }
     };
 
-    bool result = [usageFeed performNetworkDomainsActionWithOptions:options reply:makeBlockPtr([completionHandler = WTF::move(completionHandler)](NSDictionary *reply, NSError *error) mutable {
+    auto callOnMainRunLoop = [completionHandler = WTF::move(completionHandler)]() mutable {
+        ensureOnMainRunLoop(WTF::move(completionHandler));
+    };
+    // -performNetworkDomainsActionWithOptions: does not always invoke the block passed to it, such as when it returns false.
+    // The finalizer keeps the completion handler we were given from being dropped in that case.
+    auto handler = CompletionHandlerWithFinalizer<void()>(WTF::move(callOnMainRunLoop), [](Function<void()>& completionHandler) {
+        completionHandler();
+    }, CompletionHandlerCallThread::AnyThread);
+
+    bool result = [usageFeed performNetworkDomainsActionWithOptions:options reply:makeBlockPtr([handler = WTF::move(handler)](NSDictionary *reply, NSError *error) mutable {
         if (error)
             RELEASE_LOG_DEBUG(NetworkSession, "Error deleting network domain data %" PUBLIC_LOG_STRING, error.localizedDescription.UTF8String);
 
-        completionHandler();
+        handler();
     }).get()];
 
     if (!result)

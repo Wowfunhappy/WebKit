@@ -46,13 +46,17 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     bool isColorInput,
     bool isRangeInput,
     bool isARIASlider,
+    bool isCustomSlider,
+    bool hasDirectionalResizeCursor,
+    bool isInResizeControl,
+    bool isOverVideo,
     bool isNearMarkedText,
 #if PLATFORM(IOS_FAMILY)
     bool touchCalloutEnabled,
 #endif
     bool isLink,
     bool isImage,
-#if ENABLE(MODEL_PROCESS)
+#if ENABLE(MODEL_ELEMENT_STAGE_MODE)
     bool isInteractiveModel,
 #endif
     bool isAttachment,
@@ -61,6 +65,7 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     bool isPausedVideo,
     bool isElement,
     bool isContentEditable,
+    bool isOverEditableContent,
     Markable<WebCore::ScrollingNodeID>&& containerScrollingNodeID,
 #if ENABLE(DATA_DETECTION)
     bool isDataDetectorLink,
@@ -75,7 +80,9 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
 #if PLATFORM(IOS_FAMILY)
     bool needsPointerTouchCompatibilityQuirk,
 #endif
+    bool shouldTreatLongClickAsSecondaryClickQuirk,
     WebCore::FloatPoint&& adjustedPointForNodeRespondingToClickEvents,
+    std::optional<WebCore::IntPoint>&& automationAdjustedInteractionLocation,
     URL&& url,
     URL&& imageURL,
     URL&& modelURL,
@@ -113,13 +120,17 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     , isColorInput(isColorInput)
     , isRangeInput(isRangeInput)
     , isARIASlider(isARIASlider)
+    , isCustomSlider(isCustomSlider)
+    , hasDirectionalResizeCursor(hasDirectionalResizeCursor)
+    , isInResizeControl(isInResizeControl)
+    , isOverVideo(isOverVideo)
     , isNearMarkedText(isNearMarkedText)
 #if PLATFORM(IOS_FAMILY)
     , touchCalloutEnabled(touchCalloutEnabled)
 #endif
     , isLink(isLink)
     , isImage(isImage)
-#if ENABLE(MODEL_PROCESS)
+#if ENABLE(MODEL_ELEMENT_STAGE_MODE)
     , isInteractiveModel(isInteractiveModel)
 #endif
     , isAttachment(isAttachment)
@@ -128,6 +139,7 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
     , isPausedVideo(isPausedVideo)
     , isElement(isElement)
     , isContentEditable(isContentEditable)
+    , isOverEditableContent(isOverEditableContent)
     , containerScrollingNodeID(WTF::move(containerScrollingNodeID))
 #if ENABLE(DATA_DETECTION)
     , isDataDetectorLink(isDataDetectorLink)
@@ -142,7 +154,9 @@ InteractionInformationAtPosition::InteractionInformationAtPosition(
 #if PLATFORM(IOS_FAMILY)
     , needsPointerTouchCompatibilityQuirk(needsPointerTouchCompatibilityQuirk)
 #endif
+    , shouldTreatLongClickAsSecondaryClickQuirk(shouldTreatLongClickAsSecondaryClickQuirk)
     , adjustedPointForNodeRespondingToClickEvents(WTF::move(adjustedPointForNodeRespondingToClickEvents))
+    , automationAdjustedInteractionLocation(WTF::move(automationAdjustedInteractionLocation))
     , url(WTF::move(url))
     , imageURL(WTF::move(imageURL))
     , modelURL(WTF::move(modelURL))

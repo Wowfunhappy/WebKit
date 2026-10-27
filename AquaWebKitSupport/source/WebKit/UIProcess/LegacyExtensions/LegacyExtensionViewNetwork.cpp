@@ -3,6 +3,7 @@
 
 #include "LegacyExtensionErrors.h"
 #include "LegacyExtensionHost.h"
+#include "LegacyExtensionPrivacy.h"
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
 #include <WebCore/CocoaCookie.h>
@@ -730,6 +731,18 @@ Vector<CocoaCurlProxyFilterResult> LegacyExtensionViewNetwork::proxyFilterResult
             return answers(ping.load());
     }
     return { };
+}
+
+bool LegacyExtensionViewNetwork::allowsNetworkPrediction() const
+{
+    return LegacyExtensionPrivacy::singleton().allowsNetworkPrediction();
+}
+
+// A hyperlink auditing ping, which carries Ping-To, is not sent while the privacy API turns hyperlink auditing off;
+// beacons and other pings are, as LegacyExtensionNetwork::interceptRequest decides it for WebKit 2.
+bool LegacyExtensionViewNetwork::refusesPing(const ResourceRequest& request) const
+{
+    return request.hasHTTPHeaderField(HTTPHeaderName::PingTo) && !LegacyExtensionPrivacy::singleton().allowsHyperlinkAuditing();
 }
 
 RefPtr<LegacyLoadInterceptor::Load> LegacyExtensionViewNetwork::pingLoad(LocalFrame& frame, const ResourceRequest& request, const FetchOptions& options)

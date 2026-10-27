@@ -1474,13 +1474,6 @@ CallCapture ParseCallCapture(const Token &nameToken,
                                                                                      strings);
         return CallCapture(EntryPoint::GLCopyTextureCHROMIUM, std::move(params));
     }
-    if (strcmp(nameToken, "glCoverageModulationCHROMIUM") == 0)
-    {
-        ParamBuffer params =
-            ParseParameters<std::remove_pointer<PFNGLCOVERAGEMODULATIONCHROMIUMPROC>::type>(
-                paramTokens, strings);
-        return CallCapture(EntryPoint::GLCoverageModulationCHROMIUM, std::move(params));
-    }
     if (strcmp(nameToken, "glCreateMemoryObjectsEXT") == 0)
     {
         ParamBuffer params =
@@ -6344,6 +6337,12 @@ CallCapture ParseCallCapture(const Token &nameToken,
             ParseParameters<decltype(UpdateClientArrayPointer)>(paramTokens, strings);
         return CallCapture("UpdateClientArrayPointer", std::move(params));
     }
+    if (strcmp(nameToken, "UpdateClientArrayPointerWithOffset") == 0)
+    {
+        ParamBuffer params =
+            ParseParameters<decltype(UpdateClientArrayPointerWithOffset)>(paramTokens, strings);
+        return CallCapture("UpdateClientArrayPointerWithOffset", std::move(params));
+    }
     if (strcmp(nameToken, "UpdateClientBufferData") == 0)
     {
         ParamBuffer params =
@@ -6725,6 +6724,11 @@ void ReplayCustomFunctionCall(const CallCapture &call, const TraceFunctionMap &c
     if (call.customFunctionName == "UpdateClientArrayPointer")
     {
         DispatchCallCapture(UpdateClientArrayPointer, captures);
+        return;
+    }
+    if (call.customFunctionName == "UpdateClientArrayPointerWithOffset")
+    {
+        DispatchCallCapture(UpdateClientArrayPointerWithOffset, captures);
         return;
     }
     if (call.customFunctionName == "UpdateClientBufferData")

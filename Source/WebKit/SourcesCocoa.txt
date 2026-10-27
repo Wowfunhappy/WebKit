@@ -405,6 +405,7 @@ UIProcess/API/Cocoa/WKWebExtensionWindowConfiguration.mm
 UIProcess/API/Cocoa/WKWebsiteDataRecord.mm @nonARC
 UIProcess/API/Cocoa/WKWebsiteDataStore.mm @nonARC
 UIProcess/API/Cocoa/WKWebView.mm @nonARC
+UIProcess/API/Cocoa/WKWebView+TextExtraction.mm @nonARC
 UIProcess/API/Cocoa/WKWebViewTesting.mm @nonARC
 UIProcess/API/Cocoa/WKWebViewConfiguration.mm @nonARC
 UIProcess/API/Cocoa/WKWebpagePreferences.mm @nonARC
@@ -466,6 +467,7 @@ UIProcess/Cocoa/PlaybackSessionManagerProxy.mm @nonARC
 UIProcess/Cocoa/ProcessAssertionCocoa.mm @nonARC
 UIProcess/Cocoa/ResourceLoadDelegate.mm @nonARC
 UIProcess/Cocoa/SafeBrowsingUtilities.mm @nonARC
+UIProcess/Cocoa/SecurityFlagsControllerCocoa.mm @nonARC
 UIProcess/Cocoa/SessionStateCoding.mm @nonARC
 UIProcess/Cocoa/SystemPreviewControllerCocoa.mm @nonARC
 UIProcess/Cocoa/TextCheckingController.mm @nonARC
@@ -629,6 +631,7 @@ UIProcess/ios/WKWebGeolocationPolicyDeciderIOS.mm @nonARC
 
 UIProcess/Launcher/cocoa/ProcessLauncherCocoa.mm @nonARC
 
+UIProcess/mac/AppKitGestures/WKAppKitGestureController.mm @nonARC
 UIProcess/mac/CorrectionPanel.mm @nonARC
 UIProcess/mac/DisplayLinkMac.cpp
 UIProcess/mac/PageClientImplMac.mm @nonARC
@@ -648,7 +651,7 @@ UIProcess/mac/WebProcessProxyMac.mm @nonARC
 UIProcess/mac/WindowServerConnection.mm @nonARC
 UIProcess/mac/WKFullScreenWindowController.mm @nonARC
 UIProcess/mac/WKImmediateActionController.mm @nonARC
-UIProcess/mac/WKAppKitGestureController.mm @nonARC
+UIProcess/mac/PositionInformationManager.cpp
 UIProcess/mac/WKPrintingView.mm @nonARC
 UIProcess/mac/WKQuickLookPreviewController.mm @nonARC
 UIProcess/mac/WKRevealItemPresenter.mm @nonARC

@@ -7,14 +7,12 @@
 #ifndef LIBANGLE_RENDERER_WGPU_WGPU_COMMAND_BUFFER_H_
 #define LIBANGLE_RENDERER_WGPU_WGPU_COMMAND_BUFFER_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "common/debug.h"
+#include "common/unsafe_buffers.h"
 #include "libANGLE/renderer/wgpu/wgpu_utils.h"
 
 #include <webgpu/webgpu.h>
+#include <array>
 #include <unordered_set>
 
 namespace rx
@@ -273,7 +271,7 @@ class CommandBuffer
     struct CommandBlock
     {
         static constexpr size_t kCommandBlockDataSize = kCommandBlockSize - (sizeof(size_t) * 2);
-        uint8_t mData[kCommandBlockDataSize]          = {0};
+        std::array<uint8_t, kCommandBlockDataSize> mData = {0};
 
         size_t mCurrentPosition = 0;
 
@@ -347,8 +345,8 @@ class CommandBuffer
         CommandID *id = reinterpret_cast<CommandID *>(idAndCommandStorage);
         *id           = Command;
 
-        CommandType *commandStruct =
-            reinterpret_cast<CommandType *>(idAndCommandStorage + sizeof(CommandID));
+        CommandType *commandStruct = reinterpret_cast<CommandType *>(
+            ANGLE_UNSAFE_TODO(idAndCommandStorage + sizeof(CommandID)));
 
         mState.commandCount++;
 

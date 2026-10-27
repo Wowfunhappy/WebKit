@@ -68,6 +68,7 @@
 #include "FrameSelection.h"
 #include "GeometryUtilities.h"
 #include "HTMLAreaElement.h"
+#include "HTMLBRElement.h"
 #include "HTMLBodyElement.h"
 #include "HTMLDataListElement.h"
 #include "HTMLDetailsElement.h"
@@ -116,6 +117,7 @@
 #include "SharedBuffer.h"
 #include "TextCheckerClient.h"
 #include "TextCheckingHelper.h"
+#include "TextControlInnerElements.h"
 #include "TextIterator.h"
 #include "UserGestureIndicator.h"
 #include "VisibleUnits.h"
@@ -940,6 +942,38 @@ std::optional<SimpleRange> AccessibilityObject::simpleRange() const
             return range;
     }
     return AXObjectCache::rangeForNodeContents(*node);
+}
+
+HTMLTextFormControlElement* AccessibilityObject::nativeTextControl() const
+{
+    if (auto* textArea = dynamicDowncast<HTMLTextAreaElement>(node()))
+        return textArea;
+
+    auto* input = dynamicDowncast<HTMLInputElement>(node());
+    return input && (input->isText() || input->isNumberField()) ? input : nullptr;
+}
+
+AXTextMarkerRange AccessibilityObject::textMarkerRange() const
+{
+    // A native text control's value lives in its shadow inner text element, so the host has no
+    // children whose contents to take: simpleRange covers the control as a single replaced object,
+    // which stringifies to an object replacement character rather than the value.
+    if (RefPtr textControl = nativeTextControl()) {
+        if (RefPtr innerText = textControl->innerTextElement()) {
+            auto range = AXObjectCache::rangeForNodeContents(*innerText);
+            // A value ending in a line break renders an empty final line, which
+            // HTMLTextFormControlElement::setInnerTextValue gives a line box by appending a
+            // placeholder <br>. That <br>'s newline is collapsed out by rendering and is not a
+            // character of the value, so leave it out.
+            if (is<HTMLBRElement>(innerText->lastChild()) && range.end.offset)
+                --range.end.offset;
+            // A control with no value has no text to point at, so leave it pointing at itself,
+            // which is the only marker its callers can place in the document.
+            if (range.start != range.end)
+                return AXTextMarkerRange { std::optional { range } };
+        }
+    }
+    return simpleRange();
 }
 
 Vector<BoundaryPoint> AccessibilityObject::previousLineStartBoundaryPoints(const VisiblePosition& startingPosition, const SimpleRange& targetRange, unsigned positionsToRetrieve) const
@@ -1988,9 +2022,13 @@ VisiblePositionRange AccessibilityObject::lineRangeForPosition(const VisiblePosi
         return { };
     }
 
-    // Move from the given visiblePosition forward until it hits the start of the next line or cross over a line break.
+    // Walk forward to the first position that is no longer on this line. Start the search
+    // one position back because with line-break: after-white-space, the start of the next line
+    // could be the same offset with downstream affinity.
     auto end = visiblePosition;
-    while (end.isNotNull() && inSameLine(end, visiblePosition)) {
+    if (auto previous = visiblePosition.previous(); inSameLine(previous, visiblePosition))
+        end = WTF::move(previous);
+    while (end.isNotNull() && startOfLine(end) == start) {
         auto next = end.next();
         if (next == end) {
             // Without this break, we would loop infinitely.
@@ -2036,6 +2074,29 @@ bool AccessibilityObject::replacedNodeNeedsCharacter(Node& replacedNode)
 
     return true;
 }
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+bool AccessibilityObject::isReplacedElementForTextEmission() const
+{
+    // This is the unignored half of replacedNodeNeedsCharacter, so that the AX-thread text walks
+    // can apply the ignored check themselves: an ignored replaced element (e.g. a <legend>) emits
+    // no U+FFFC, but its block boundaries still don't emit newlines.
+    RefPtr node = this->node();
+    return node && !node->isTextNode() && isRendererReplacedElement(node->renderer());
+}
+
+bool AccessibilityObject::isInUserAgentShadowTree() const
+{
+    RefPtr node = this->node();
+    return node && node->isInUserAgentShadowTree();
+}
+
+bool AccessibilityObject::isInsideNativeTextControl() const
+{
+    RefPtr node = this->node();
+    return node && is<HTMLTextFormControlElement>(node->shadowHost());
+}
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
 #if ENABLE(MODEL_ELEMENT_ACCESSIBILITY)
 
@@ -2407,10 +2468,12 @@ CharacterRange AccessibilityObject::doAXStyleRangeForIndex(unsigned index) const
 }
 
 // Given an indexed character, the line number of the text associated with this accessibility
-// object that contains the character.
+// object that contains the character. The index one past the last character is accepted too: that
+// is where the caret sits at the end of a field, and it is a position AXInsertionPointLineNumber
+// already answers for.
 unsigned AccessibilityObject::doAXLineForIndex(unsigned index)
 {
-    return lineForPosition(visiblePositionForIndex(index, false));
+    return lineForPosition(visiblePositionForIndex(index, /* lastIndexOK */ true));
 }
 
 void AccessibilityObject::updateBackingStore()
@@ -2826,7 +2889,24 @@ bool AccessibilityObject::replaceTextInRange(const String& replacementString, co
     // Also only do this when the field is in editing mode.
     Ref frame = renderer()->frame();
     if (element->shouldUseInputMethod()) {
-        frame->selection().setSelectedRange(rangeForCharacterRange(range), Affinity::Downstream, FrameSelection::ShouldCloseTyping::Yes);
+        // Don't clamp to getLengthForTextRange() here. It reports the value of a text control, and
+        // an editing host need not be one: a design-mode body carries no contenteditable attribute,
+        // so it measures as empty and every index would collapse to 0. visiblePositionForIndex()
+        // already lands an index past the end of the content at the end of it, so the only bound
+        // needed is the one the call itself can represent.
+        constexpr uint64_t maxIndex = std::numeric_limits<int>::max();
+        uint64_t startIndex = std::min<uint64_t>(range.location, maxIndex);
+        uint64_t endIndex = startIndex + std::min<uint64_t>(range.length, maxIndex - startIndex);
+
+        auto start = visiblePositionForIndex(static_cast<int>(startIndex));
+        std::optional insertionRange = makeSimpleRange(start, endIndex == startIndex ? start : visiblePositionForIndex(static_cast<int>(endIndex)));
+        if (!insertionRange)
+            return false;
+
+        // Fail if the selection can't be set, otherwise the wrong text would be replaced.
+        if (!frame->selection().setSelectedRange(*insertionRange, Affinity::Downstream, FrameSelection::ShouldCloseTyping::Yes))
+            return false;
+
         protect(frame->editor())->replaceSelectionWithText(replacementString, Editor::SelectReplacement::No, Editor::SmartReplace::No);
         return true;
     }

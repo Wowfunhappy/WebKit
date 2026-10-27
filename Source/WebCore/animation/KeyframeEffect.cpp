@@ -64,6 +64,9 @@
 #include "RenderBoxModelObject.h"
 #include "RenderElement.h"
 #include "RenderObjectInlines.h"
+#ifndef RC_REMOVE_SEC_ACCEL_3
+#include "ScriptDisallowedScope.h"
+#endif // RC_REMOVE_SEC_ACCEL_3
 #include "ScrollTimeline.h"
 #include "Settings.h"
 #include "StyleAdjuster.h"
@@ -239,6 +242,10 @@ static std::optional<KeyframeEffect::KeyframeOffset> validateKeyframeOffset(cons
 
 static double computedOffset(Style::SingleAnimationRangeName rangeName, Style::Percentage<> offset, const ScrollTimeline* scrollTimeline, WebAnimation* animation)
 {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    ScriptDisallowedScope::InMainThread scriptDisallowedScope;
+#endif // RC_REMOVE_SEC_ACCEL_3
+
     if ((rangeName == Style::SingleAnimationRangeName::Normal || rangeName == Style::SingleAnimationRangeName::Omitted))
         return Style::evaluate<double>(offset);
 
@@ -256,7 +263,7 @@ static double computedOffset(Style::SingleAnimationRangeName rangeName, Style::P
     if (!animation)
         return computedOffsetWithinNamedRange;
 
-    auto attachmentRange = Ref { *animation }->range();
+    auto attachmentRange = protect(animation)->range();
     if (attachmentRange.isDefault())
         return computedOffsetWithinNamedRange;
 
@@ -1732,6 +1739,11 @@ bool KeyframeEffect::isRunningAcceleratedAnimationForProperty(CSSPropertyID prop
 bool KeyframeEffect::isRunningAcceleratedTransformRelatedAnimation() const
 {
     return isRunningAccelerated() && animatablePropertiesContainTransformRelatedProperty(m_blendingKeyframes.properties());
+}
+
+bool KeyframeEffect::isRunningOrAboutToRunAcceleratedTransformRelatedAnimation() const
+{
+    return (isRunningAccelerated() || isAboutToRunAccelerated()) && animatablePropertiesContainTransformRelatedProperty(m_blendingKeyframes.properties());
 }
 
 void KeyframeEffect::invalidate()
@@ -3342,7 +3354,7 @@ RefPtr<const ScrollTimeline> KeyframeEffect::activeScrollTimeline() const
     return nullptr;
 }
 
-void KeyframeEffect::animationProgressBasedTimelineSourceDidChangeMetrics(const Style::SingleAnimationRange& animationAttachmentRange)
+void KeyframeEffect::animationProgressBasedTimelineSourceDidChangeMetrics(const ResolvableTimelineRange& animationAttachmentRange)
 {
     AnimationEffect::animationProgressBasedTimelineSourceDidChangeMetrics(animationAttachmentRange);
     m_needsComputedKeyframeOffsetsUpdate = true;
@@ -3363,8 +3375,13 @@ void KeyframeEffect::updateComputedKeyframeOffsetsIfNeeded()
     if (scrollTimeline && !scrollTimeline->currentTime())
         return;
 
-    if (!m_parsedKeyframes.isEmpty())
-        computeMissingKeyframeOffsets(m_parsedKeyframes, scrollTimeline.get(), animation.get());
+    if (!m_parsedKeyframes.isEmpty()) {
+        // Make a copy of m_parsedKeyframes to be processed by computeMissingKeyframeOffsets() to
+        // guarantee we don't modify this member variable with a potential getKeyframes() re-entrancy.
+        auto parsedKeyframes = m_parsedKeyframes;
+        computeMissingKeyframeOffsets(parsedKeyframes, scrollTimeline.get(), animation.get());
+        m_parsedKeyframes = WTF::move(parsedKeyframes);
+    }
 
     m_blendingKeyframes.updatedComputedOffsets([&](auto& specifiedOffset) {
         return computedOffset(specifiedOffset.name, specifiedOffset.value, scrollTimeline.get(), animation.get());

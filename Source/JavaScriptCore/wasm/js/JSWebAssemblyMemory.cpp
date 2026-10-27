@@ -49,7 +49,10 @@ JSWebAssemblyMemory* JSWebAssemblyMemory::create(VM& vm, Structure* structure)
     
 void JSWebAssemblyMemory::adopt(Ref<Wasm::Memory>&& memory)
 {
-    m_memory.swap(memory);
+    {
+        Locker locker { cellLock() };
+        m_memory.swap(memory);
+    }
     ASSERT(m_memory->refCount() == 1);
 }
 
@@ -301,7 +304,11 @@ void JSWebAssemblyMemory::growSuccessCallback(VM& vm, PageCount oldPageCount, Pa
             if (m_buffer->isFixedLength())
                 disassociateArrayBuffer(vm);
             else if (!m_buffer->isShared())
+#ifdef RC_REMOVE_SEC_ACCEL_3
                 m_buffer->refreshAfterWasmMemoryGrow(m_memory.ptr());
+#else
+                m_buffer->refreshAfterWasmMemoryGrow();
+#endif // RC_REMOVE_SEC_ACCEL_3
         } else {
             // historical behavior before the SAB feature:
             // clear out the old array buffer because it might now be pointing to stale memory.
@@ -336,7 +343,12 @@ void JSWebAssemblyMemory::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_bufferWrapper);
-    visitor.reportExtraMemoryVisited(thisObject->memory().size());
+    size_t memorySize;
+    {
+        Locker locker { thisObject->cellLock() };
+        memorySize = thisObject->memory().size();
+    }
+    visitor.reportExtraMemoryVisited(memorySize);
 }
 
 DEFINE_VISIT_CHILDREN(JSWebAssemblyMemory);

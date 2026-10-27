@@ -34,12 +34,14 @@
 #import "Helpers/cocoa/TestWKWebView.h"
 #import "Helpers/Utilities.h"
 #import <WebKit/WKErrorPrivate.h>
+#import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKScriptMessageHandler.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/_WKDataTask.h>
 #import <WebKit/_WKDataTaskDelegate.h>
+#import <WebKit/_WKFeature.h>
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <mach/mach_init.h>
 #import <mach/mach_port.h>
@@ -300,6 +302,51 @@ TEST(NetworkProcess, CORSPreflightCachePartitioned)
         TestWebKitAPI::Util::spinRunLoop();
 }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+TEST(NetworkProcess, DistinctStoredCredentialsPolicyPartitionsConnections)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer server({
+        { "/prime"_s, HTTPResponse({ { "Access-Control-Allow-Origin"_s, "*"_s } }, "prime"_s) },
+        { "/api"_s, HTTPResponse({ { "Access-Control-Allow-Origin"_s, "*"_s } }, "api"_s) },
+    });
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [webView synchronouslyLoadHTMLString:@"<body>" baseURL:[NSURL URLWithString:@"http://example.com/"]];
+
+    RetainPtr origin = server.origin().createNSString();
+    RetainPtr script = [NSString stringWithFormat:
+        @"await fetch('%@/prime', { mode: 'no-cors', credentials: 'include' });"
+        "const response = await fetch('%@/api', { mode: 'cors', credentials: 'omit' });"
+        "return await response.text();", origin.get(), origin.get()];
+
+    EXPECT_WK_STREQ("api", [webView objectByCallingAsyncFunction:script.get() withArguments:@{ }]);
+    EXPECT_EQ(server.totalRequests(), 2u);
+    EXPECT_EQ(server.totalConnections(), 2u);
+}
+
+TEST(NetworkProcess, SameStoredCredentialsPolicyReusesConnections)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer server({
+        { "/one"_s, HTTPResponse({ { "Access-Control-Allow-Origin"_s, "*"_s } }, "one"_s) },
+        { "/two"_s, HTTPResponse({ { "Access-Control-Allow-Origin"_s, "*"_s } }, "two"_s) },
+    });
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [webView synchronouslyLoadHTMLString:@"<body>" baseURL:[NSURL URLWithString:@"http://example.com/"]];
+
+    RetainPtr origin = server.origin().createNSString();
+    RetainPtr script = [NSString stringWithFormat:
+        @"await fetch('%@/one', { mode: 'cors', credentials: 'omit' });"
+        "const response = await fetch('%@/two', { mode: 'cors', credentials: 'omit' });"
+        "return await response.text();", origin.get(), origin.get()];
+
+    EXPECT_WK_STREQ("two", [webView objectByCallingAsyncFunction:script.get() withArguments:@{ }]);
+    EXPECT_EQ(server.totalRequests(), 2u);
+    EXPECT_EQ(server.totalConnections(), 1u);
+}
+#endif // RC_REMOVE_SEC_ACCEL_3
 
 static Vector<RetainPtr<WKScriptMessage>> networkProcessReceivedMessagesVector;
 static bool networkProcessReceivedMessage = false;
@@ -608,6 +655,57 @@ TEST(_WKDataTask, Basic)
     }];
     Util::run(&done);
 }
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+TEST(_WKDataTask, Cookies)
+{
+    using namespace TestWebKitAPI;
+    Vector<char> receivedRequest;
+    HTTPServer server([&](Connection connection) {
+        connection.receiveHTTPRequest([&, connection](Vector<char>&& request) {
+            auto cookies = HTTPServer::parseCookies(request);
+            receivedRequest = WTF::move(request);
+            connection.send(HTTPResponse(cookies).serialize());
+        });
+    });
+
+    RetainPtr dataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    RetainPtr cookie = [NSHTTPCookie cookieWithProperties:@{
+        NSHTTPCookiePath: @"/",
+        NSHTTPCookieName: @"testkey",
+        NSHTTPCookieValue: @"testvalue",
+        NSHTTPCookieDomain: @"127.0.0.1",
+    }];
+    __block bool setCookieDone = false;
+    [dataStore.get().httpCookieStore setCookie:cookie.get() completionHandler:^{
+        setCookieDone = true;
+    }];
+    Util::run(&setCookieDone);
+
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration setWebsiteDataStore:dataStore.get()];
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    __block bool done = false;
+    __block RetainPtr<NSMutableData> receivedData = adoptNS([NSMutableData new]);
+    [webView _dataTaskWithRequest:server.request() completionHandler:^(_WKDataTask *task) {
+        RetainPtr delegate = adoptNS([TestDataTaskDelegate new]);
+        task.delegate = delegate.get();
+        delegate.get().didReceiveData = ^(_WKDataTask *, NSData *data) {
+            [receivedData appendData:data];
+        };
+        delegate.get().didCompleteWithError = ^(_WKDataTask *, NSError *error) {
+            EXPECT_NULL(error);
+            done = true;
+        };
+    }];
+    Util::run(&done);
+
+    RetainPtr echoedCookies = adoptNS([[NSString alloc] initWithData:receivedData.get() encoding:NSUTF8StringEncoding]);
+    EXPECT_WK_STREQ(echoedCookies.get(), "testkey=testvalue");
+    EXPECT_TRUE(contains(receivedRequest.span(), "Cookie: testkey=testvalue\r\n"_span));
+}
+#endif
 
 TEST(_WKDataTask, Challenge)
 {
@@ -971,3 +1069,131 @@ TEST(NetworkProcess, URLSchemeHandlerWasPrivateRelayed)
 
     EXPECT_EQ(NO, [webView _wasPrivateRelayed]);
 }
+
+#if ENABLE(IPC_TESTING_API)
+
+static bool attackerReceivedMessage = false;
+static bool attackerReady = false;
+static RetainPtr<NSString> interceptedMessageName;
+
+@interface BroadcastChannelSpoofMessageHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation BroadcastChannelSpoofMessageHandler
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    NSString *body = [message body];
+    if ([body isEqualToString:@"ready"])
+        attackerReady = true;
+    else if ([body hasPrefix:@"INTERCEPTED:"]) {
+        interceptedMessageName = body;
+        attackerReceivedMessage = true;
+    }
+}
+@end
+
+static RetainPtr<WKWebViewConfiguration> createConfigurationWithIPCTestingAPI()
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"]) {
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+            break;
+        }
+    }
+    return configuration;
+}
+
+static constexpr auto attackerHTML = R"IPCRESOURCE(
+<!DOCTYPE html><html><body>
+<script src='/coreipc.js'></script>
+<script>
+if (!window.IPC)
+    webkit.messageHandlers.test.postMessage('ready');
+else {
+    CoreIPC.Networking.NetworkBroadcastChannelRegistry.RegisterChannel(0, {
+        origin: {
+            topOrigin: {
+                data: {
+                    variantType: 'WebCore::SecurityOriginData::Tuple',
+                    variant: { protocol: 'http', host: 'victim.example', port: { } }
+                }
+            },
+            clientOrigin: {
+                data: {
+                    variantType: 'WebCore::SecurityOriginData::Tuple',
+                    variant: { protocol: 'http', host: 'victim.example', port: { } }
+                }
+            }
+        },
+        name: 'secret'
+    });
+
+    IPC.addIncomingMessageListener('Networking', (msg) => {
+        const postMsgName = IPC.messages.WebBroadcastChannelRegistry_PostMessageToRemote?.name;
+        if (postMsgName && msg.name === postMsgName)
+            webkit.messageHandlers.test.postMessage('INTERCEPTED:' + msg.name);
+    });
+
+    webkit.messageHandlers.test.postMessage('ready');
+}
+</script></body></html>"
+)IPCRESOURCE"_s;
+
+TEST(NetworkProcess, BroadcastChannelOriginSpoof)
+{
+    using namespace TestWebKitAPI;
+
+    attackerReceivedMessage = false;
+    attackerReady = false;
+    interceptedMessageName = nil;
+
+    // For the types involved in this attack, we need coreipc.js
+    NSURL *coreIPCURL = [NSBundle.test_resourcesBundle URLForResource:@"coreipc" withExtension:@"js"];
+    if (!coreIPCURL)
+        coreIPCURL = [NSBundle.mainBundle URLForResource:@"coreipc" withExtension:@"js"];
+    ASSERT_TRUE(coreIPCURL);
+    NSString *coreIPCJS = [NSString stringWithContentsOfURL:coreIPCURL encoding:NSUTF8StringEncoding error:nil];
+
+    HTTPServer server({
+        { "/attacker.html"_s, { attackerHTML } },
+        { "/coreipc.js"_s, { { { "Content-Type"_s, "text/javascript"_s } }, String(coreIPCJS) } },
+    });
+
+    auto configuration = createConfigurationWithIPCTestingAPI();
+
+    auto messageHandler = adoptNS([[BroadcastChannelSpoofMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"test"];
+
+    // The attacking page registers its connection to listen for broadcast channel messages
+    // that it otherwise should not receive.
+    auto attackerView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [attackerView loadRequest:server.request("/attacker.html"_s)];
+    Util::run(&attackerReady);
+
+    auto attackerPID = [attackerView _webProcessIdentifier];
+    EXPECT_NE(attackerPID, 0);
+
+    auto victimView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    NSString *victimHTML = @"<script>let bc = new BroadcastChannel('secret');</script>";
+    [victimView synchronouslyLoadHTMLString:victimHTML baseURL:[NSURL URLWithString:@"http://victim.example/"]];
+
+    auto victimPID = [victimView _webProcessIdentifier];
+    EXPECT_NE(victimPID, 0);
+    EXPECT_NE(attackerPID, victimPID);
+
+    bool finishedRunningScript = false;
+    [victimView evaluateJavaScript:@"bc.postMessage('sensitive-data')" completionHandler:[&](id, NSError *error) {
+        EXPECT_TRUE(!error);
+        finishedRunningScript = true;
+    }];
+    Util::run(&finishedRunningScript);
+
+    // Wait for the attacker to receive the intercepted message.
+    // If it doesn't happen within a second, it probably never will.
+    Util::runFor(&attackerReceivedMessage, 1_s);
+
+    EXPECT_FALSE([interceptedMessageName hasPrefix:@"INTERCEPTED:"]);
+}
+
+#endif // ENABLE(IPC_TESTING_API)

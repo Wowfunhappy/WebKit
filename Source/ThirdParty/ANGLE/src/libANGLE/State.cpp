@@ -6,14 +6,11 @@
 
 // State.cpp: Implements the State class, encapsulating raw GL state.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 // Older clang versions have a false positive on this warning here.
 #pragma clang diagnostic ignored "-Wglobal-constructors"
 
 #include "libANGLE/State.h"
+#include "common/unsafe_buffers.h"
 
 #include <string.h>
 #include <limits>
@@ -106,20 +103,7 @@ T *AllocateOrGetSharedResourceManager(const State *shareContextState,
 // refactory done.
 bool IsTextureCompatibleWithSampler(TextureType texture, TextureType sampler)
 {
-    if (sampler == texture)
-    {
-        return true;
-    }
-
-    if (sampler == TextureType::VideoImage)
-    {
-        if (texture == TextureType::VideoImage || texture == TextureType::_2D)
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return sampler == texture;
 }
 
 // While pixel local storage is active, the drawbuffers on and after 'firstPLSDrawBuffer'
@@ -475,8 +459,6 @@ void PrivateState::initialize(Context *context)
     mMultiSampling    = true;
     mSampleAlphaToOne = false;
 
-    mCoverageModulation = GL_NONE;
-
     // This coherent blending is enabled by default, but can be enabled or disabled by calling
     // glEnable() or glDisable() with the symbolic constant GL_BLEND_ADVANCED_COHERENT_KHR.
     mBlendAdvancedCoherent = true;
@@ -676,8 +658,7 @@ void PrivateState::setClipControl(ClipOrigin origin, ClipDepthMode depth)
 
     if (updated)
     {
-        mDirtyBits.set(state::DIRTY_BIT_EXTENDED);
-        mExtendedDirtyBits.set(state::EXTENDED_DIRTY_BIT_CLIP_CONTROL);
+        mDirtyBits.set(state::DIRTY_BIT_CLIP_CONTROL);
     }
 }
 
@@ -1217,15 +1198,6 @@ void PrivateState::setUnpackSkipPixels(GLint skipPixels)
 {
     mUnpack.skipPixels = skipPixels;
     mDirtyBits.set(state::DIRTY_BIT_UNPACK_STATE);
-}
-
-void PrivateState::setCoverageModulation(GLenum components)
-{
-    if (mCoverageModulation != components)
-    {
-        mCoverageModulation = components;
-        mDirtyBits.set(state::DIRTY_BIT_COVERAGE_MODULATION);
-    }
 }
 
 void PrivateState::setFramebufferSRGB(bool sRGB)
@@ -2014,28 +1986,25 @@ void PrivateState::getFloatv(GLenum pname, GLfloat *params) const
             break;
         case GL_DEPTH_RANGE:
             params[0] = mNearZ;
-            params[1] = mFarZ;
+            ANGLE_UNSAFE_TODO(params[1]) = mFarZ;
             break;
         case GL_COLOR_CLEAR_VALUE:
             params[0] = mColorClearValue.red;
-            params[1] = mColorClearValue.green;
-            params[2] = mColorClearValue.blue;
-            params[3] = mColorClearValue.alpha;
+            ANGLE_UNSAFE_TODO(params[1]) = mColorClearValue.green;
+            ANGLE_UNSAFE_TODO(params[2]) = mColorClearValue.blue;
+            ANGLE_UNSAFE_TODO(params[3]) = mColorClearValue.alpha;
             break;
         case GL_BLEND_COLOR:
             params[0] = mBlendColor.red;
-            params[1] = mBlendColor.green;
-            params[2] = mBlendColor.blue;
-            params[3] = mBlendColor.alpha;
+            ANGLE_UNSAFE_TODO(params[1]) = mBlendColor.green;
+            ANGLE_UNSAFE_TODO(params[2]) = mBlendColor.blue;
+            ANGLE_UNSAFE_TODO(params[3]) = mBlendColor.alpha;
             break;
         case GL_MULTISAMPLE_EXT:
             *params = static_cast<GLfloat>(mMultiSampling);
             break;
         case GL_SAMPLE_ALPHA_TO_ONE_EXT:
             *params = static_cast<GLfloat>(mSampleAlphaToOne);
-            break;
-        case GL_COVERAGE_MODULATION_CHROMIUM:
-            params[0] = static_cast<GLfloat>(mCoverageModulation);
             break;
         case GL_ALPHA_TEST_REF:
             *params = mGLES1State.mAlphaTestParameters.ref;
@@ -2044,38 +2013,40 @@ void PrivateState::getFloatv(GLenum pname, GLfloat *params) const
         {
             const auto &color = mGLES1State.mCurrentColor;
             params[0]         = color.red;
-            params[1]         = color.green;
-            params[2]         = color.blue;
-            params[3]         = color.alpha;
+            ANGLE_UNSAFE_TODO(params[1]) = color.green;
+            ANGLE_UNSAFE_TODO(params[2]) = color.blue;
+            ANGLE_UNSAFE_TODO(params[3]) = color.alpha;
             break;
         }
         case GL_CURRENT_NORMAL:
         {
             const auto &normal = mGLES1State.mCurrentNormal;
             params[0]          = normal[0];
-            params[1]          = normal[1];
-            params[2]          = normal[2];
+            ANGLE_UNSAFE_TODO(params[1]) = normal[1];
+            ANGLE_UNSAFE_TODO(params[2]) = normal[2];
             break;
         }
         case GL_CURRENT_TEXTURE_COORDS:
         {
             const auto &texcoord = mGLES1State.mCurrentTextureCoords[mActiveSampler];
             params[0]            = texcoord.s;
-            params[1]            = texcoord.t;
-            params[2]            = texcoord.r;
-            params[3]            = texcoord.q;
+            ANGLE_UNSAFE_TODO(params[1]) = texcoord.t;
+            ANGLE_UNSAFE_TODO(params[2]) = texcoord.r;
+            ANGLE_UNSAFE_TODO(params[3]) = texcoord.q;
             break;
         }
         case GL_MODELVIEW_MATRIX:
-            memcpy(params, mGLES1State.mModelviewMatrices.back().constData(), 16 * sizeof(GLfloat));
+            ANGLE_UNSAFE_TODO(memcpy(params, mGLES1State.mModelviewMatrices.back().constData(),
+                                     16 * sizeof(GLfloat)));
             break;
         case GL_PROJECTION_MATRIX:
-            memcpy(params, mGLES1State.mProjectionMatrices.back().constData(),
-                   16 * sizeof(GLfloat));
+            ANGLE_UNSAFE_TODO(memcpy(params, mGLES1State.mProjectionMatrices.back().constData(),
+                                     16 * sizeof(GLfloat)));
             break;
         case GL_TEXTURE_MATRIX:
-            memcpy(params, mGLES1State.mTextureMatrices[mActiveSampler].back().constData(),
-                   16 * sizeof(GLfloat));
+            ANGLE_UNSAFE_TODO(
+                memcpy(params, mGLES1State.mTextureMatrices[mActiveSampler].back().constData(),
+                       16 * sizeof(GLfloat)));
             break;
         case GL_LIGHT_MODEL_AMBIENT:
             GetLightModelParameters(&mGLES1State, pname, params);
@@ -2233,15 +2204,15 @@ void PrivateState::getIntegerv(GLenum pname, GLint *params) const
             break;
         case GL_VIEWPORT:
             params[0] = mViewport.x;
-            params[1] = mViewport.y;
-            params[2] = mViewport.width;
-            params[3] = mViewport.height;
+            ANGLE_UNSAFE_TODO(params[1]) = mViewport.y;
+            ANGLE_UNSAFE_TODO(params[2]) = mViewport.width;
+            ANGLE_UNSAFE_TODO(params[3]) = mViewport.height;
             break;
         case GL_SCISSOR_BOX:
             params[0] = mScissor.x;
-            params[1] = mScissor.y;
-            params[2] = mScissor.width;
-            params[3] = mScissor.height;
+            ANGLE_UNSAFE_TODO(params[1]) = mScissor.y;
+            ANGLE_UNSAFE_TODO(params[2]) = mScissor.width;
+            ANGLE_UNSAFE_TODO(params[3]) = mScissor.height;
             break;
         case GL_POLYGON_MODE_NV:
             *params = ToGLenum(mRasterizer.polygonMode);
@@ -2258,9 +2229,6 @@ void PrivateState::getIntegerv(GLenum pname, GLint *params) const
             break;
         case GL_SAMPLE_ALPHA_TO_ONE_EXT:
             *params = static_cast<GLint>(mSampleAlphaToOne);
-            break;
-        case GL_COVERAGE_MODULATION_CHROMIUM:
-            *params = static_cast<GLint>(mCoverageModulation);
             break;
         case GL_ALPHA_TEST_FUNC:
             *params = ToGLenum(mGLES1State.mAlphaTestParameters.func);
@@ -2401,9 +2369,9 @@ void PrivateState::getBooleani_v(GLenum target, GLuint index, GLboolean *data) c
             bool r, g, b, a;
             BlendStateExt::UnpackColorMask(colorMask, &r, &g, &b, &a);
             data[0] = r;
-            data[1] = g;
-            data[2] = b;
-            data[3] = a;
+            ANGLE_UNSAFE_TODO(data[1]) = g;
+            ANGLE_UNSAFE_TODO(data[2]) = b;
+            ANGLE_UNSAFE_TODO(data[3]) = a;
             break;
         }
         default:
@@ -2460,7 +2428,6 @@ State::State(const State *shareContextState,
              TextureManager *shareTextures,
              SemaphoreManager *shareSemaphores,
              egl::ContextMutex *contextMutex,
-             const OverlayType *overlay,
              const Version &clientVersion,
              bool debug,
              bool bindGeneratesResourceCHROMIUM,
@@ -2504,7 +2471,6 @@ State::State(const State *shareContextState,
       mVertexArray(nullptr),
       mDisplayTextureShareGroup(shareTextures != nullptr),
       mMaxShaderCompilerThreads(std::numeric_limits<GLuint>::max()),
-      mOverlay(overlay),
       mPrivateState(clientVersion,
                     debug,
                     bindGeneratesResourceCHROMIUM,
@@ -2571,10 +2537,6 @@ void State::initialize(Context *context)
     if (nativeExtensions.EGLImageExternalOES || nativeExtensions.EGLStreamConsumerExternalNV)
     {
         mSamplerTextures[TextureType::External].resize(getCaps().maxCombinedTextureImageUnits);
-    }
-    if (nativeExtensions.videoTextureWEBGL)
-    {
-        mSamplerTextures[TextureType::VideoImage].resize(getCaps().maxCombinedTextureImageUnits);
     }
     mCompleteTextureBindings.reserve(getCaps().maxCombinedTextureImageUnits);
     for (int32_t textureIndex = 0; textureIndex < getCaps().maxCombinedTextureImageUnits;
@@ -2713,12 +2675,14 @@ ANGLE_INLINE void State::setActiveTextureDirty(size_t textureIndex, Texture *tex
         return;
     }
 
-    if (texture->hasAnyDirtyBit())
+    const bool needsRobustInit =
+        isRobustResourceInitEnabled() && texture->initState() == InitState::MayNeedInit;
+    if (texture->hasAnyDirtyBit() || needsRobustInit)
     {
         setTextureDirty(textureIndex);
     }
 
-    if (isRobustResourceInitEnabled() && texture->initState() == InitState::MayNeedInit)
+    if (needsRobustInit)
     {
         mDirtyObjects.set(state::DIRTY_OBJECT_TEXTURES_INIT);
     }
@@ -3866,21 +3830,6 @@ void State::getBooleani_v(GLenum target, GLuint index, GLboolean *data) const
 // refactor done.
 Texture *State::getTextureForActiveSampler(TextureType type, size_t index)
 {
-    if (type != TextureType::VideoImage)
-    {
-        return mSamplerTextures[type][index].get();
-    }
-
-    ASSERT(type == TextureType::VideoImage);
-
-    Texture *candidateTexture = mSamplerTextures[type][index].get();
-    if (candidateTexture->getWidth(TextureTarget::VideoImage, 0) == 0 ||
-        candidateTexture->getHeight(TextureTarget::VideoImage, 0) == 0 ||
-        candidateTexture->getDepth(TextureTarget::VideoImage, 0) == 0)
-    {
-        return mSamplerTextures[TextureType::_2D][index].get();
-    }
-
     return mSamplerTextures[type][index].get();
 }
 
@@ -3921,7 +3870,8 @@ angle::Result State::syncTexturesInit(const Context *context, Command command)
         Texture *texture = mActiveTexturesCache[textureUnitIndex];
         if (texture)
         {
-            ANGLE_TRY(texture->ensureInitialized(context));
+            ANGLE_TRY(
+                texture->ensureInitialized(context, EnsureInitializedLevels::AllEnabledLevels));
         }
     }
     return angle::Result::Continue;
@@ -3936,7 +3886,8 @@ angle::Result State::syncImagesInit(const Context *context, Command command)
         Texture *texture = mImageUnits[imageUnitIndex].texture.get();
         if (texture)
         {
-            ANGLE_TRY(texture->ensureInitialized(context));
+            ANGLE_TRY(
+                texture->ensureInitialized(context, EnsureInitializedLevels::AllEnabledLevels));
         }
     }
     return angle::Result::Continue;
@@ -4164,14 +4115,11 @@ angle::Result State::onExecutableChange(const Context *context)
         if (!image)
             continue;
 
-        if (image->hasAnyDirtyBit())
+        const bool needsRobustInit =
+            isRobustResourceInitEnabled() && image->initState() == InitState::MayNeedInit;
+        if (image->hasAnyDirtyBit() || needsRobustInit)
         {
             ANGLE_TRY(image->syncState(context, Command::Other));
-        }
-
-        if (isRobustResourceInitEnabled() && image->initState() == InitState::MayNeedInit)
-        {
-            mDirtyObjects.set(state::DIRTY_OBJECT_IMAGES_INIT);
         }
     }
 
@@ -4265,13 +4213,15 @@ void State::onImageStateChange(const Context *context, size_t unit)
         if (!image.texture.get())
             return;
 
-        if (image.texture->hasAnyDirtyBit())
+        const bool needsRobustInit =
+            isRobustResourceInitEnabled() && image.texture->initState() == InitState::MayNeedInit;
+        if (image.texture->hasAnyDirtyBit() || needsRobustInit)
         {
             mDirtyImages.set(unit);
             mDirtyObjects.set(state::DIRTY_OBJECT_IMAGES);
         }
 
-        if (isRobustResourceInitEnabled() && image.texture->initState() == InitState::MayNeedInit)
+        if (needsRobustInit)
         {
             mDirtyObjects.set(state::DIRTY_OBJECT_IMAGES_INIT);
         }
@@ -4313,6 +4263,16 @@ void State::onAtomicCounterBufferStateChange(size_t atomicCounterBufferIndex)
 void State::onShaderStorageBufferStateChange(size_t shaderStorageBufferIndex)
 {
     mDirtyBits.set(state::DIRTY_BIT_SHADER_STORAGE_BUFFER_BINDING);
+}
+
+void State::onCurrentExecutableRelink()
+{
+    // Called when a program or PPO is already current but its executable is recreated.  The state
+    // of the previous executable is cleaned up before the new executable is installed.
+    if (mExecutable)
+    {
+        unsetActiveTextures(mExecutable->getActiveSamplersMask());
+    }
 }
 
 void State::initializeForCapture(const Context *context)

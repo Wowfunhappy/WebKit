@@ -303,7 +303,7 @@ static NSMutableDictionary *wk_cookieIndex(void)
 
 static NSArray<NSHTTPCookie *> *wk_cookiesACandidateWouldOverlay(NSHTTPCookieStorage *, NSHTTPCookie *, NSURL *);
 static NSURL *wk_cookieOriginURL(NSHTTPCookie *);
-static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *, NSHTTPCookieStorage *, BOOL, CFStringRef, BOOL, BOOL);
+static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *, NSHTTPCookieStorage *, BOOL, CFStringRef, BOOL, BOOL, BOOL);
 static NSArray<NSHTTPCookie *> *wk_cookiesMatchingRequestPath(NSArray<NSHTTPCookie *> *, NSURL *);
 
 static void wk_cookieSubscriptionStorageChanged(CFHTTPCookieStorageRef storage, void *context)
@@ -1300,8 +1300,11 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     BOOL filterSameSite = [siteForCookies isKindOfClass:[NSURL class]]
         && !wk_sameSiteURLsAreSameSite((CFURLRef)siteForCookies, (CFURLRef)url);
     BOOL isTopLevelNavigation = [policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] boolValue];
+    // A request is safe unless the properties say otherwise.
+    id isSafeRequestValue = policyProperties[@"_kCFHTTPCookiePolicyPropertyIsSafeRequest"];
+    BOOL isSafeRequest = isSafeRequestValue ? [isSafeRequestValue boolValue] : YES;
     CFStringRef requestPath = wk_requestPathCreate((CFURLRef)url);
-    cookies = wk_cookiesInSendOrder(cookies, self, !!partitioned.count, requestPath, filterSameSite, isTopLevelNavigation);
+    cookies = wk_cookiesInSendOrder(cookies, self, !!partitioned.count, requestPath, filterSameSite, isTopLevelNavigation, isSafeRequest);
     CFRelease(requestPath);
     completionHandler(cookies);
 }
@@ -2250,7 +2253,6 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "__NSCFLocalDownloadTask", "__NSCFURLSe
 // NSURLSessionConfiguration. Installed on the public class WebKit compiles against and on the concrete
 // class 10.9 vends.
 WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionConfiguration", "__NSCFURLSessionConfiguration")
-- (void)set_shouldSkipPreferredClientCertificateLookup:(BOOL)value { (void)value; }
 - (void)set_connectionCacheNumPriorityLevels:(NSUInteger)value { (void)value; }
 - (void)set_connectionCacheMinimumFastLanePriority:(NSUInteger)value { (void)value; }
 - (void)set_connectionCacheNumFastLanes:(NSUInteger)value { (void)value; }
@@ -2272,6 +2274,33 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionConfiguration", "__NSCFURLSess
 - (id)_hstsStorage { return nil; }
 - (void)set_alternativeServicesStorage:(id)value { (void)value; }
 - (id)_alternativeServicesStorage { return nil; }
+@end
+
+// -_shouldSkipPreferredClientCertificateLookup is a stored configuration property, NO by default. It lives in
+// the configuration's 10.9 _cfurlConnectionProperties dictionary, which -copy and +sessionWithConfiguration:
+// carry, under a key CFNetwork does not read. 10.9's CFNetwork itself always offers an HTTPS task the keychain's
+// preferred identity for its URL (HTTPProtocol::setupSSLPropertiesOnStream), and has no session or request
+// setting that skips that lookup and still lets the server's certificate request reach the delegate; the
+// Cocoa curl transport, which carries this port's HTTPS, reads the value (CocoaCurlTLSState).
+@interface NSObject (WKSessionConfigurationConnectionProperties)
+- (NSDictionary *)_cfurlConnectionProperties;
+- (void)set_cfurlConnectionProperties:(NSDictionary *)properties;
+@end
+
+static NSString * const WKSkipsPreferredClientCertificateLookupKey = @"WKSkipsPreferredClientCertificateLookup";
+
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionConfiguration", "__NSCFURLSessionConfiguration")
+- (BOOL)_shouldSkipPreferredClientCertificateLookup
+{
+    return [[[self _cfurlConnectionProperties] objectForKey:WKSkipsPreferredClientCertificateLookupKey] boolValue];
+}
+- (void)set_shouldSkipPreferredClientCertificateLookup:(BOOL)value
+{
+    NSMutableDictionary *properties = [[self _cfurlConnectionProperties] mutableCopy] ?: [NSMutableDictionary new];
+    [properties setObject:@(value) forKey:WKSkipsPreferredClientCertificateLookupKey];
+    [self set_cfurlConnectionProperties:properties];
+    [properties release];
+}
 @end
 
 // -TLSMinimumSupportedProtocolVersion is the tls_protocol_version_t spelling of the SSLProtocol
@@ -2470,7 +2499,7 @@ static int wk_compareCookieSendSlots(const void *a, const void *b)
 }
 
 // Answers |cookies| itself when it already reads that way, so the common case costs one scan.
-static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *cookies, NSHTTPCookieStorage *storage, BOOL hasPartitionedCookies, CFStringRef requestPath, BOOL filterSameSite, BOOL isTopLevelNavigation)
+static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *cookies, NSHTTPCookieStorage *storage, BOOL hasPartitionedCookies, CFStringRef requestPath, BOOL filterSameSite, BOOL isTopLevelNavigation, BOOL isSafeRequest)
 {
     NSUInteger count = cookies.count;
     if (!count)
@@ -2507,8 +2536,7 @@ static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *c
         }
         if (filterSameSite) {
             wk_same_site_policy policy = metadata ? metadata->_sameSite : WK_SAME_SITE_NONE;
-            // This SPI carries no HTTP method; a navigation is its safe-method case.
-            if (!wk_sameSiteAllows(policy, false, isTopLevelNavigation, isTopLevelNavigation))
+            if (!wk_sameSiteAllows(policy, false, isTopLevelNavigation, isSafeRequest))
                 continue;
         }
         struct wk_cookieSendSlot *slot = &slots[kept++];
@@ -2566,7 +2594,7 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 {
     NSArray<NSHTTPCookie *> *cookies = WK_ORIGINAL_METHOD(NSArray *, (NSURL *), url);
     CFStringRef requestPath = wk_requestPathCreate((CFURLRef)url);
-    NSArray *result = wk_cookiesInSendOrder(cookies, self, NO, requestPath, NO, NO);
+    NSArray *result = wk_cookiesInSendOrder(cookies, self, NO, requestPath, NO, NO, YES);
     CFRelease(requestPath);
     return result;
 }

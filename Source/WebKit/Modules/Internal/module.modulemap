@@ -382,13 +382,37 @@ module WebKit_Internal [system] {
 
     module WKAppKitGestureController {
         requires cplusplus20
-        header "../../UIProcess/mac/WKAppKitGestureController.h"
+        header "../../UIProcess/mac/AppKitGestures/WKAppKitGestureController.h"
+        export *
+    }
+
+    module WKMouseTrackingGestureRecognizer {
+        requires objc
+        header "../../UIProcess/mac/AppKitGestures/WKMouseTrackingGestureRecognizer.h"
+        export *
+    }
+
+    module WKPointerTrackingGestureRecognizer {
+        requires objc
+        header "../../UIProcess/mac/AppKitGestures/WKPointerTrackingGestureRecognizer.h"
+        export *
+    }
+
+    module WKPressGestureRecognizer {
+        requires objc
+        header "../../UIProcess/mac/AppKitGestures/WKPressGestureRecognizer.h"
         export *
     }
 
     module WKUserContentControllerInternal {
         requires cplusplus20,objc
         header "../../UIProcess/API/Cocoa/WKUserContentControllerInternal.h"
+        export *
+    }
+
+    module SecurityFlags {
+        requires cplusplus20
+        header "SecurityFlagsForSwift.h"
         export *
     }
 

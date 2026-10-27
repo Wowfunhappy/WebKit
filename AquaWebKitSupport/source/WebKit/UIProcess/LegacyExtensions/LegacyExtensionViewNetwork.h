@@ -87,6 +87,9 @@ private:
     void loaderDidFail(WebCore::ResourceLoader&, const WebCore::ResourceError&) final;
     bool holdsReceivedCookies(const WebCore::ResourceHandle&) final;
     Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults(const WebCore::ResourceHandle&, const URL&) final;
+    bool hasProxyFilters() const final { return m_listeners.observes(LegacyExtensions::proxyOnRequest); }
+    bool allowsNetworkPrediction() const final;
+    bool refusesPing(const WebCore::ResourceRequest&) const final;
     RefPtr<WebCore::LegacyLoadInterceptor::Load> pingLoad(WebCore::LocalFrame&, const WebCore::ResourceRequest&, const WebCore::FetchOptions&) final;
     RefPtr<WebCore::LegacyLoadInterceptor::SynchronousLoad> willLoadSynchronously(WebCore::FrameLoader&, const WebCore::ResourceRequest&, const WebCore::FetchOptions&) final;
     bool interceptWebSocket(WebCore::Document&, const URL&, CompletionHandler<void(bool, Vector<WebCore::CocoaCurlProxyFilterResult>&&)>&&) final;

@@ -2,11 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "anglebase/sha1.h"
+#include "common/unsafe_buffers.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -97,7 +94,7 @@ void SecureHashAlgorithm::Update(const void *data, size_t nbytes)
     const uint8_t *d = reinterpret_cast<const uint8_t *>(data);
     while (nbytes--)
     {
-        M[cursor++] = *d++;
+        ANGLE_UNSAFE_TODO(M[cursor++] = *d++);
         if (cursor >= 64)
             Process();
         l += 8;
@@ -178,16 +175,16 @@ void SecureHashAlgorithm::Process()
 std::array<uint8_t, kSHA1Length> SecureHashAlgorithm::DigestAsArray() const
 {
     std::array<uint8_t, kSHA1Length> digest;
-    memcpy(digest.data(), Digest(), SecureHashAlgorithm::kDigestSizeBytes);
+    ANGLE_UNSAFE_TODO(memcpy(digest.data(), Digest(), SecureHashAlgorithm::kDigestSizeBytes));
     return digest;
 }
 
 std::string SHA1HashString(const std::string &str)
 {
-    char hash[SecureHashAlgorithm::kDigestSizeBytes];
-    SHA1HashBytes(reinterpret_cast<const unsigned char *>(str.c_str()), str.length(),
-                  reinterpret_cast<unsigned char *>(hash));
-    return std::string(hash, SecureHashAlgorithm::kDigestSizeBytes);
+    std::string hash(SecureHashAlgorithm::kDigestSizeBytes, '\0');
+    SHA1HashBytes(reinterpret_cast<const unsigned char *>(str.data()), str.size(),
+                  reinterpret_cast<unsigned char *>(hash.data()));
+    return hash;
 }
 
 void SHA1HashBytes(const unsigned char *data, size_t len, unsigned char *hash)
@@ -196,7 +193,7 @@ void SHA1HashBytes(const unsigned char *data, size_t len, unsigned char *hash)
     sha.Update(data, len);
     sha.Final();
 
-    memcpy(hash, sha.Digest(), SecureHashAlgorithm::kDigestSizeBytes);
+    ANGLE_UNSAFE_TODO(memcpy(hash, sha.Digest(), SecureHashAlgorithm::kDigestSizeBytes));
 }
 
 }  // namespace base

@@ -8,6 +8,8 @@
 #    pragma allow_unsafe_buffers
 #endif
 
+#include <array>
+
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 #include "util/random_utils.h"
@@ -413,9 +415,6 @@ TEST_P(UniformBufferTest, BufferBlockBindingChange)
 // https://code.google.com/p/angleproject/issues/detail?id=965
 TEST_P(UniformBufferTest, UniformBufferManyUpdates)
 {
-    // TODO(jmadill): Figure out why this fails on OSX Intel OpenGL.
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsMac() && IsOpenGL());
-
     int px = getWindowWidth() / 2;
     int py = getWindowHeight() / 2;
 
@@ -2510,7 +2509,7 @@ TEST_P(UniformBufferTest, Std140UniformBlockWithRowMajorQualifier)
 {
     // AMD OpenGL driver doesn't seem to apply the row-major qualifier right.
     // http://anglebug.com/40096480
-    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL() && !IsMac());
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
 
     constexpr char kFS[] =
         R"(#version 300 es
@@ -2558,7 +2557,7 @@ TEST_P(UniformBufferTest, Std140UniformBlockWithPerMemberRowMajorQualifier)
 {
     // AMD OpenGL driver doesn't seem to apply the row-major qualifier right.
     // http://anglebug.com/40096480
-    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL() && !IsMac());
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
 
     constexpr char kFS[] =
         R"(#version 300 es
@@ -2652,7 +2651,7 @@ TEST_P(UniformBufferTest, Std140UniformBlockWithRowMajorQualifierOnStruct)
 {
     // AMD OpenGL driver doesn't seem to apply the row-major qualifier right.
     // http://anglebug.com/40096480
-    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL() && !IsMac());
+    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
 
     constexpr char kFS[] =
         R"(#version 300 es
@@ -2715,9 +2714,6 @@ void main()
 {
   fragColor = color;
 })";
-
-    // http://anglebug.com/40096481
-    ANGLE_SKIP_TEST_IF(IsMac() && IsNVIDIA() && IsDesktopOpenGL());
 
     ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFragmentShader);
 
@@ -2978,9 +2974,6 @@ void main()
 // Test a uniform block where an array of row-major matrices is dynamically indexed.
 TEST_P(UniformBufferTest, Std140UniformBlockWithDynamicallyIndexedRowMajorArray)
 {
-    // http://anglebug.com/42262481 , http://anglebug.com/40096480
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL() && (IsIntel() || IsAMD()));
-
     constexpr char kFS[] =
         R"(#version 300 es
 
@@ -3008,7 +3001,7 @@ TEST_P(UniformBufferTest, Std140UniformBlockWithDynamicallyIndexedRowMajorArray)
     std::vector<GLubyte> v(kDataSize, 0);
     float *vAsFloat = reinterpret_cast<float *>(v.data());
     // Write out this initializer to make it clearer what the matrix contains.
-    float matrixData[kElementsPerMatrix] = {
+    static constexpr std::array<float, kElementsPerMatrix> matrixData = {
         // clang-format off
         0.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
@@ -3064,8 +3057,8 @@ TEST_P(UniformBufferTest, ManyBlocks)
         })";
 
     ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
-    GLBuffer buffers[12];
-    GLint bufferIndex[12];
+    std::array<GLBuffer, 12> buffers;
+    std::array<GLint, 12> bufferIndex;
     bufferIndex[0]  = glGetUniformBlockIndex(program, "uboBlock[0]");
     bufferIndex[1]  = glGetUniformBlockIndex(program, "uboBlock[1]");
     bufferIndex[2]  = glGetUniformBlockIndex(program, "uboBlock[2]");
@@ -3296,9 +3289,20 @@ class UniformBlockWithOneLargeArrayMemberTest : public ANGLETest<>
     static constexpr GLuint kVectorPerMat                           = 4;
     static constexpr GLuint kFloatPerVector                         = 4;
     static constexpr GLuint kPositionCount                          = 12;
-    static constexpr unsigned int positionToTest[kPositionCount][2] = {
-        {0, 0},   {75, 0},  {98, 13}, {31, 31}, {0, 32},   {65, 33},
-        {23, 54}, {63, 63}, {0, 64},  {43, 86}, {53, 100}, {127, 127}};
+    static constexpr std::array<std::array<unsigned int, 2>, kPositionCount> positionToTest = {{
+        {0, 0},
+        {75, 0},
+        {98, 13},
+        {31, 31},
+        {0, 32},
+        {65, 33},
+        {23, 54},
+        {63, 63},
+        {0, 64},
+        {43, 86},
+        {53, 100},
+        {127, 127},
+    }};
 };
 
 // Test uniform block whose member is structure type, which contains a mat4 member.
@@ -3881,8 +3885,6 @@ TEST_P(UniformBlockWithOneLargeArrayMemberTest, TwoUniformBlocksInDiffProgram)
 // buffer data correctly.
 TEST_P(UniformBlockWithOneLargeArrayMemberTest, SharedSameBufferWithOtherOne)
 {
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsMac() && IsOpenGL());
-
     std::ostringstream stream;
     generateArraySizeAndDivisorsDeclaration(stream, false, true, false);
     const std::string &kFS =
@@ -4094,7 +4096,7 @@ TEST_P(UniformBlockWithOneLargeArrayMemberTest, MemberTypeIsMatrixAndInstanced)
 TEST_P(UniformBlockWithOneLargeArrayMemberTest, MemberTypeIsMatrixAndRowMajorQualifier)
 {
     // http://anglebug.com/42262481 , http://anglebug.com/40096480
-    ANGLE_SKIP_TEST_IF((IsMac() && IsOpenGL()) || IsAndroid() || (IsAMD() && IsOpenGL()) ||
+    ANGLE_SKIP_TEST_IF(IsAndroid() || (IsAMD() && IsOpenGL()) ||
                        (IsLinux() && IsIntel() && IsOpenGL()));
 
     std::ostringstream stream;
@@ -4655,8 +4657,8 @@ TEST_P(UniformBufferTest, BufferDataInLoop)
     floatData[2] = 0.25f;
     floatData[3] = 1.0f;
 
-    GLTexture textures[2];
-    GLFramebuffer fbos[2];
+    std::array<GLTexture, 2> textures;
+    std::array<GLFramebuffer, 2> fbos;
     for (int i = 0; i < 2; i++)
     {
         glBindTexture(GL_TEXTURE_2D, textures[i]);

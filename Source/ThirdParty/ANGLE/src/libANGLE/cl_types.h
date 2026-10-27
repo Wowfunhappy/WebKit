@@ -9,19 +9,26 @@
 #ifndef LIBANGLE_CLTYPES_H_
 #define LIBANGLE_CLTYPES_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #if defined(ANGLE_ENABLE_CL)
 #    include "libANGLE/CLBitField.h"
 #    include "libANGLE/CLRefPointer.h"
 #    include "libANGLE/Debug.h"
+#    include "libANGLE/Error.h"
 #    include "libANGLE/angletypes.h"
 
+#    include "common/MemoryBuffer.h"
 #    include "common/PackedCLEnums_autogen.h"
+#    include "common/PackedEnums.h"
+#    include "common/SimpleMutex.h"
+#    include "common/SynchronizedValue.h"
 #    include "common/WorkerThread.h"
 #    include "common/angleutils.h"
+#    include "common/hash_containers.h"
+#    include "common/log_utils.h"
+#    include "common/mathutil.h"
+#    include "common/string_utils.h"
+#    include "common/system_utils.h"
+#    include "common/unsafe_buffers.h"
 
 // Include frequently used standard headers
 #    include <algorithm>
@@ -265,19 +272,28 @@ struct NDRange
         {
             if (globalWorkOffsetIn != nullptr)
             {
-                ASSERT(!(static_cast<uint32_t>((globalWorkOffsetIn[dim] + globalWorkSizeIn[dim])) <
-                         globalWorkOffsetIn[dim]));
-                globalWorkOffset[dim] = static_cast<uint32_t>(globalWorkOffsetIn[dim]);
+                ASSERT(!ANGLE_UNSAFE_TODO(
+                    (static_cast<uint32_t>((globalWorkOffsetIn[dim] + globalWorkSizeIn[dim])) <
+                     globalWorkOffsetIn[dim])));
+                globalWorkOffset[dim] =
+                    static_cast<uint32_t>(ANGLE_UNSAFE_TODO(globalWorkOffsetIn[dim]));
             }
             if (globalWorkSizeIn != nullptr)
             {
-                ASSERT(globalWorkSizeIn[dim] <= UINT32_MAX);
-                globalWorkSize[dim] = static_cast<uint32_t>(globalWorkSizeIn[dim]);
+                ASSERT(ANGLE_UNSAFE_TODO(globalWorkSizeIn[dim]) <= UINT32_MAX);
+                globalWorkSize[dim] =
+                    static_cast<uint32_t>(ANGLE_UNSAFE_TODO(globalWorkSizeIn[dim]));
+            }
+            else
+            {
+                // For versions >= 2.1, global work size can be a nullptr, in which case set dim to
+                // zero. Validation checks ensure that we are here only for >= 2.1 versions.
+                globalWorkSize[dim] = 0;
             }
             if (localWorkSizeIn != nullptr)
             {
-                ASSERT(localWorkSizeIn[dim] <= UINT32_MAX);
-                localWorkSize[dim] = static_cast<uint32_t>(localWorkSizeIn[dim]);
+                ASSERT(ANGLE_UNSAFE_TODO(localWorkSizeIn[dim]) <= UINT32_MAX);
+                localWorkSize[dim] = static_cast<uint32_t>(ANGLE_UNSAFE_TODO(localWorkSizeIn[dim]));
             }
         }
     }
@@ -317,8 +333,9 @@ struct NDRange
         {
             for (uint32_t dim = 0; dim < workDimensions; dim++)
             {
-                NDRange &region    = regions.at(regionPos);
-                uint32_t remainder = region.globalWorkSize[dim] % region.localWorkSize[dim];
+                NDRange &region = regions.at(regionPos);
+                uint32_t remainder =
+                    ANGLE_UNSAFE_TODO(region.globalWorkSize[dim] % region.localWorkSize[dim]);
                 if (remainder != 0)
                 {
                     // Split the range along this dimension. The original range's global work size
@@ -328,8 +345,8 @@ struct NDRange
                     // range).
                     NDRange newRegion(region);
                     newRegion.globalWorkSize[dim] = newRegion.localWorkSize[dim] = remainder;
-                    region.globalWorkSize[dim] = newRegion.globalWorkOffset[dim] =
-                        (region.globalWorkSize[dim] - remainder);
+                    ANGLE_UNSAFE_TODO(region.globalWorkSize[dim] = newRegion.globalWorkOffset[dim] =
+                                          (region.globalWorkSize[dim] - remainder));
                     regions.push_back(newRegion);
                 }
             }
@@ -399,6 +416,8 @@ class Defer : public angle::Closure
   private:
     F mFunc;
 };
+
+constexpr cl_ulong kMaxAllocSentinel = 0;
 
 }  // namespace cl
 

@@ -332,6 +332,7 @@ bool hasCapacityToUseLargeGigacage();
     \
     v(Unsigned, maximumBinaryStringSwitchCaseLength, 50, Normal, nullptr) \
     v(Unsigned, maximumBinaryStringSwitchTotalLength, 2000, Normal, nullptr) \
+    v(Unsigned, maximumInlineStringSwitchCaseCount, 64, Normal, "Maximum number of cases for which the baseline JIT dispatches op_switch_string inline instead of calling out."_s) \
     v(Unsigned, maximumRegExpTestInlineCodesize, 500, Normal, "Maximum code size in bytes for inlined RegExp.test JIT code."_s) \
     v(Unsigned, maximumRegExpJITCodeSize, 16 * MB, Normal, "Maximum generated code size in bytes for RegExp JIT compilation before falling back to the interpreter."_s) \
     \
@@ -633,6 +634,8 @@ bool hasCapacityToUseLargeGigacage();
     v(Unsigned, maxPartialLoopUnrollingBodyNodeSize, 70, Normal, nullptr) \
     v(Unsigned, maxPartialLoopUnrollingIterationCount, 4, Normal, nullptr) \
     v(Unsigned, maxNumericHotLoopSize, 225, Normal, nullptr) \
+    v(Unsigned, maxIntegerRangeOptimizationRelationshipsPerNode, 24, Normal, "How many relationships IRO keeps about any one node, 0 for no cap."_s) \
+    v(Unsigned, maxIntegerRangeOptimizationWork, 50000000, Normal, "Give up threshold for IRO"_s) \
     v(Bool, printEachUnrolledLoop, false, Normal, nullptr) \
     v(Bool, verboseExecutablePoolAllocation, false, Normal, nullptr) \
     v(Bool, useHandlerICInFTL, false, Normal, nullptr) \

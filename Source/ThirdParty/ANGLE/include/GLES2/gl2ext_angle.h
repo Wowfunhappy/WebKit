@@ -82,15 +82,6 @@ GL_APICALL void GL_APIENTRY glProvokingVertexANGLE(GLenum provokeMode);
 #define GL_RENDERABILITY_VALIDATION_ANGLE 0x9EA0
 #endif /* GL_ANGLE_renderability_validation */
 
-#ifndef GL_CHROMIUM_framebuffer_mixed_samples
-#define GL_CHROMIUM_frambuffer_mixed_samples 1
-#define GL_COVERAGE_MODULATION_CHROMIUM 0x9332
-typedef void (GL_APIENTRYP PFNGLCOVERAGEMODULATIONCHROMIUMPROC) (GLenum components);
-#ifdef GL_GLEXT_PROTOTYPES
-GL_APICALL void GL_APIENTRY glCoverageModulationCHROMIUM(GLenum components);
-#endif
-#endif /* GL_CHROMIUM_framebuffer_mixed_samples */
-
 #ifndef GL_CHROMIUM_bind_generates_resource
 #define GL_CHROMIUM_bind_generates_resource 1
 #define GL_BIND_GENERATES_RESOURCE_CHROMIUM 0x9244
@@ -481,12 +472,6 @@ GL_APICALL void GL_APIENTRY glGetRenderbufferImageANGLE (GLenum target, GLenum f
 #endif
 #endif /* GL_ANGLE_get_image */
 
-#ifndef GL_WEBGL_video_texture
-#define GL_WEBGL_video_texture 1
-#define GL_TEXTURE_VIDEO_IMAGE_WEBGL 0x9248
-#define GL_SAMPLER_VIDEO_IMAGE_WEBGL 0x9249
-#endif /* GL_WEBGL_video_texture */
-
 #ifndef GL_ANGLE_memory_object_flags
 #define GL_ANGLE_memory_object_flags 1
 #define GL_CREATE_SPARSE_BINDING_BIT_ANGLE                    0x00000001
@@ -733,5 +718,11 @@ typedef void (GL_APIENTRYP PFNGLBINDMETALRASTERIZATIONRATEMAPANGLEPROC) (GLuint,
 GL_APICALL void GL_APIENTRY glBindMetalRasterizationRateMapANGLE(GLuint framebuffer, GLMTLRasterizationRateMapANGLE map);
 #endif
 #endif /* GL_ANGLE_variable_rasterization_rate_metal */
+
+#ifndef GL_ANGLE_explicit_context
+#define GL_ANGLE_explicit_context
+typedef void *GLeglDisplayANGLE;
+typedef void *GLeglContextANGLE;
+#endif /* GL_ANGLE_explicit_context */
 
 #endif  // INCLUDE_GLES2_GL2EXT_ANGLE_H_

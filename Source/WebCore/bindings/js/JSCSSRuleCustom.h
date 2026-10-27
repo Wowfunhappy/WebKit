@@ -35,11 +35,15 @@ WebCoreOpaqueRoot root(StyleSheet*);
 
 inline WebCoreOpaqueRoot root(CSSRule* rule)
 {
-    if (rule->parentRule())
-        return root(rule->parentRule());
-    if (rule->parentStyleSheet())
-        return root(rule->parentStyleSheet());
+#ifdef RC_REMOVE_SEC_ACCEL_3
+    if (SUPPRESS_UNCOUNTED_LOCAL auto* parentRule = rule->parentRule())
+        return root(parentRule);
+    if (SUPPRESS_UNCOUNTED_LOCAL auto* parentStyleSheet = rule->parentStyleSheet())
+        return root(parentStyleSheet);
     return WebCoreOpaqueRoot { rule };
+#else
+    return rule->opaqueRootForGCThread();
+#endif
 }
 
 } // namespace WebCore

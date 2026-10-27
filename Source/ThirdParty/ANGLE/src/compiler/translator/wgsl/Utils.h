@@ -17,13 +17,16 @@ namespace sh
 
 // Can be used with TSymbol or TField or TFunc.
 template <typename StringStreamType, typename Object>
-void WriteNameOf(StringStreamType &output, const Object &namedObject)
+void WriteNameOf(StringStreamType &output, const Object &namedObject, char userSymbolPrefix)
 {
-    WriteNameOf(output, namedObject.symbolType(), namedObject.name());
+    WriteNameOf(output, namedObject.symbolType(), namedObject.name(), userSymbolPrefix);
 }
 
 template <typename StringStreamType>
-void WriteNameOf(StringStreamType &output, SymbolType symbolType, const ImmutableString &name);
+void WriteNameOf(StringStreamType &output,
+                 SymbolType symbolType,
+                 const ImmutableString &name,
+                 char userSymbolPrefix);
 
 enum class WgslAddressSpace
 {

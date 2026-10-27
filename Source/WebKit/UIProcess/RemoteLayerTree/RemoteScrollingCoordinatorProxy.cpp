@@ -140,7 +140,9 @@ void RemoteScrollingCoordinatorProxy::establishLayerTreeScrollingRelations(IPC::
         for (auto overflowNodeID : positionedNode->relatedOverflowScrollingNodes()) {
             RefPtr node = scrollingTree().nodeForID(overflowNodeID);
             RefPtr overflowNode = dynamicDowncast<ScrollingTreeOverflowScrollingNode>(node.get());
-            MESSAGE_CHECK_BASE(overflowNode, connection);
+            ASSERT(overflowNode);
+            if (!overflowNode)
+                continue;
             SUPPRESS_FORWARD_DECL_ARG RetainPtr scrollContainerLayer = static_cast<CALayer*>(overflowNode->scrollContainerLayer());
             SUPPRESS_FORWARD_DECL_ARG auto layerID = RemoteLayerTreeNode::layerID(scrollContainerLayer.get());
             MESSAGE_CHECK_BASE(layerID, connection);
@@ -157,7 +159,9 @@ void RemoteScrollingCoordinatorProxy::establishLayerTreeScrollingRelations(IPC::
     for (auto& scrollProxyNode : scrollingTree().activeOverflowScrollProxyNodes()) {
         RefPtr node = scrollingTree().nodeForID(scrollProxyNode->overflowScrollingNodeID());
         RefPtr overflowNode = dynamicDowncast<ScrollingTreeOverflowScrollingNode>(node.get());
-        MESSAGE_CHECK_BASE(overflowNode, connection);
+        ASSERT(overflowNode);
+        if (!overflowNode)
+            continue;
 
         SUPPRESS_FORWARD_DECL_ARG RetainPtr scrollProxyLayer = scrollProxyNode->layer();
         SUPPRESS_FORWARD_DECL_ARG if (RefPtr layerNode = RemoteLayerTreeNode::forCALayer(scrollProxyLayer.get())) {
@@ -226,8 +230,7 @@ void RemoteScrollingCoordinatorProxy::handleWheelEvent(const WebWheelEvent& whee
 
     // Replicate the hack in EventDispatcher::internalWheelEvent(). We could pass rubberBandableEdges all the way through the
     // WebProcess and back via the ScrollingTree, but we only ever need to consult it here.
-    if (platformWheelEvent.phase() == PlatformWheelEventPhase::Began)
-        m_scrollingTree->setClientAllowedMainFrameRubberBandableEdges(rubberBandableEdges);
+    m_scrollingTree->setClientAllowedMainFrameRubberBandableEdges(rubberBandableEdges);
 
     auto processingSteps = m_scrollingTree->determineWheelEventProcessing(platformWheelEvent);
     if (!processingSteps.contains(WheelEventProcessingSteps::AsyncScrolling)) {
@@ -262,6 +265,11 @@ TrackingType RemoteScrollingCoordinatorProxy::eventTrackingTypeForPoint(WebCore:
 WebCore::RectEdges<bool> RemoteScrollingCoordinatorProxy::pinnedStateIncludingAncestorsAtPoint(FloatPoint p)
 {
     return m_scrollingTree->pinnedStateIncludingAncestorsAtPoint(p);
+}
+
+bool RemoteScrollingCoordinatorProxy::isPointInScrollbar(FloatPoint p)
+{
+    return m_scrollingTree->isPointInScrollbar(p);
 }
 
 void RemoteScrollingCoordinatorProxy::viewportChangedViaDelegatedScrolling(const FloatPoint& scrollPosition, const FloatRect& layoutViewport, double scale)

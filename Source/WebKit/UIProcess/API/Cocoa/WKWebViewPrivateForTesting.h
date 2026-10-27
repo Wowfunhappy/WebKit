@@ -88,6 +88,10 @@ typedef NSVisualEffectView _WKPlatformVisualEffectView;
 @property (nonatomic, setter=_setMediaCaptureReportingDelayForTesting:) double _mediaCaptureReportingDelayForTesting WK_API_AVAILABLE(macos(12.0), ios(15.0));
 @property (nonatomic, readonly) BOOL _wirelessVideoPlaybackDisabled;
 
+// Highest end time of the seekable ranges the playback controls manager knows about, NaN when it
+// has none. An empty range here is what leaves the fullscreen scrubber disabled.
+@property (nonatomic, readonly) double _maximumSeekableTime;
+
 - (void)_setIndexOfGetDisplayMediaDeviceSelectedForTesting:(nullable NSNumber *)index;
 - (void)_setSystemCanPromptForGetDisplayMediaForTesting:(BOOL)canPrompt;
 
@@ -136,6 +140,10 @@ typedef NSVisualEffectView _WKPlatformVisualEffectView;
 
 + (void)_setApplicationBundleIdentifier:(NSString *)bundleIdentifier;
 + (void)_clearApplicationBundleIdentifierTestingOverride;
+
+// Accessibility mode is a single UIProcess-wide value, so these are per-process, not per-view.
++ (BOOL)_isAccessibilityEnabledForTesting;
++ (void)_resetAccessibilityModeForTesting;
 
 - (BOOL)_hasSleepDisabler;
 - (WKWebViewAudioRoutingArbitrationStatus)_audioRoutingArbitrationStatus;
@@ -193,8 +201,9 @@ typedef NSVisualEffectView _WKPlatformVisualEffectView;
 #endif
 - (void)_cancelFixedColorExtensionFadeAnimationsForTesting;
 
-- (void)_startMonitoringWheelEventsForTesting:(void(^)(void))completionHandler;
-- (void)_waitForWheelEventsToCompleteForTesting:(void(^)(void))completionHandler;
+- (void)_startMonitoringWheelEventsForTestingWithCompletionHandler:(void(^)(void))completionHandler;
+- (void)_waitForWheelEventsToCompleteForTestingWithCompletionHandler:(void(^)(void))completionHandler;
+- (void)_waitForWheelEventsAndMomentumToCompleteForTestingWithCompletionHandler:(void(^)(void))completionHandler;
 
 - (unsigned)_forwardedLogsCountForTesting;
 - (bool)_receivedLogsDuringLaunchForTesting;

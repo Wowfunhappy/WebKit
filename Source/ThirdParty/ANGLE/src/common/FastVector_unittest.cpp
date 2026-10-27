@@ -7,11 +7,10 @@
 //   Tests of the FastVector class
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
+#include <array>
 
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
 #include "common/FastVector.h"
 
@@ -25,9 +24,9 @@ TEST(FastVector, Constructors)
 
     // Try varying initial vector sizes to test purely stack-allocated and
     // heap-allocated vectors, and ensure they copy correctly.
-    size_t vectorSizes[] = {5, 3, 16, 32};
+    static constexpr std::array<size_t, 4> vectorSizes = {5, 3, 16, 32};
 
-    for (size_t i = 0; i < sizeof(vectorSizes) / sizeof(vectorSizes[0]); i++)
+    for (size_t i = 0; i < vectorSizes.size(); i++)
     {
         FastVector<int, 5> count(vectorSizes[i]);
         EXPECT_EQ(vectorSizes[i], count.size());
@@ -216,7 +215,7 @@ TEST(FastVector, Resize)
 TEST(FastVector, resetWithRawData)
 {
     FastVector<int, 5> vec;
-    int data[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    std::array<int, 9> data = {1, 2, 3, 4, 5, 6, 7, 8, 9};
 
     vec.resetWithRawData(9, reinterpret_cast<uint8_t *>(&data[0]));
     EXPECT_EQ(9u, vec.size());

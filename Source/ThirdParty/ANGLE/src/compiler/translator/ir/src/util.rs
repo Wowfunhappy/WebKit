@@ -437,7 +437,28 @@ pub fn is_precision_applicable_to_type(ir_meta: &IRMeta, type_id: TypeId) -> boo
     while let Some(id) = ir_meta.get_type(base_type_id).get_element_type_id() {
         base_type_id = id;
     }
-    matches!(base_type_id, TYPE_ID_FLOAT | TYPE_ID_INT | TYPE_ID_UINT)
+    match ir_meta.get_type(base_type_id) {
+        Type::Scalar(basic_type) => {
+            // OpenGL ES Shading Language Version 3.20.0
+            // Literal constants do not have precision qualifiers. Neither do Boolean variables.
+            matches!(
+                basic_type,
+                BasicType::Float | BasicType::Int | BasicType::Uint | BasicType::AtomicCounter
+            )
+        }
+        Type::Image(_, _) => true,
+        Type::DeadCodeEliminated => false,
+        Type::Struct(_, _, _) => false,
+        _ => panic!("Unrecognized base_type!"),
+    }
+}
+
+pub fn unassigned_precision(ir_meta: &IRMeta, type_id: TypeId) -> Precision {
+    if is_precision_applicable_to_type(ir_meta, type_id) {
+        Precision::Unassigned
+    } else {
+        Precision::NotApplicable
+    }
 }
 
 // Helper to walk back the instructions starting from an id, in search of some origin.
@@ -534,7 +555,6 @@ pub fn trace_back_to_variable(ir_meta: &IRMeta, id: Id) -> Option<VariableId> {
 // into `while` loops.  In particular:
 //
 // * ESSL 100 needs this to comply with the spec, as the output is passed to the OpenGL ES driver.
-// * HLSL needs this for D3D9.
 //
 // This function checks whether the block ends in loop in the above form.  If so, the information
 // needed to reconstruct the for loop is returned.

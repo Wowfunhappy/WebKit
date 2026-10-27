@@ -103,6 +103,9 @@ struct GLColorRGB
     static const GLColorRGB green;
     static const GLColorRGB red;
     static const GLColorRGB yellow;
+    static const GLColorRGB magenta;
+    static const GLColorRGB cyan;
+    static const GLColorRGB white;
 };
 
 struct GLColorRG
@@ -537,6 +540,7 @@ class ANGLETestBase : public ::testing::Test
 
     int getClientMajorVersion() const;
     int getClientMinorVersion() const;
+    bool isAtLeastClientVersion(int major, int minor) const;
 
     GLWindowBase *getGLWindow() const;
     EGLWindow *getEGLWindow() const;

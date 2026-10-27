@@ -635,6 +635,7 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     , m_webPageTesting(WebPageTesting::create(*this))
     , m_mainFrame(WebFrame::create(*this, parameters.mainFrameIdentifier))
     , m_pageGroup(WebProcess::singleton().webPageGroup(WTF::move(parameters.pageGroupData)))
+    , m_userAgent(WTF::move(parameters.userAgent))
 #if ENABLE(TILED_CA_DRAWING_AREA)
     , m_drawingAreaType(parameters.drawingAreaType)
     // AQUAWEBKIT: LayerHostingMode plumbing, so the WebProcess honors the UI process's compositing mode (iBooks; 537's dual LayerHostingMode).
@@ -1118,26 +1119,9 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     if (parameters.isEditable)
         setEditable(true);
 
-    inheritAccessibilityMode(parameters.accessibilityMode);
-
-    WebCore::AXObjectCache::setSyncModeToOtherProcessesCallback([weakPage = WeakPtr { *this }](WebCore::AccessibilityMode mode) {
-        if (RefPtr page = weakPage.get())
-            page->send(Messages::WebPageProxy::SetAccessibilityMode(mode));
-    });
-
-    if (auto mode = WebCore::AXObjectCache::accessibilityMode(); !WebCore::isAccessibilityModeOff(mode)) {
-        // If accessibility was already enabled process-wide before this WebPage was
-        // created (e.g. WebProcess::setEnhancedAccessibility ran before initialize),
-        // the mode transition fired before the sync callback above was registered, so
-        // the new WebPageProxy on the UIProcess never learned about it. Sync the
-        // current mode now so requestFrameScreenPosition and other AX-mode-gated
-        // IPCs aren't dropped.
-        send(Messages::WebPageProxy::SetAccessibilityMode(mode));
-    }
-
 #if PLATFORM(MAC)
     if (WebCore::AXObjectCache::shouldForceAccessibilityEnabled())
-        WebCore::AXObjectCache::enableAccessibility(WebCore::AXObjectCache::ForceAXThreadMode::Yes);
+        WebCore::AXObjectCache::enableAccessibility(WebCore::AXObjectCache::AXThreadModePreconditions::None);
 #endif // PLATFORM(MAC)
 
 #if PLATFORM(MAC)
@@ -1171,8 +1155,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 #if HAVE(NSREFRESHCONTROLLER)
     setHasRefreshController(parameters.hasRefreshController);
 #endif
-
-    m_userAgent = WTF::move(parameters.userAgent);
 
     setMediaVolume(parameters.mediaVolume);
 
@@ -1671,6 +1653,9 @@ WebPage::~WebPage()
     WebStorageNamespaceProvider::decrementUseCount(sessionStorageNamespaceIdentifier());
 
 #if ENABLE(GPU_PROCESS) && HAVE(VISIBILITY_PROPAGATION_VIEW)
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    assertIsMainRunLoop();
+#endif
     if (RefPtr gpuProcessConnection = WebProcess::singleton().existingGPUProcessConnection())
         gpuProcessConnection->destroyVisibilityPropagationContextForPage(*this);
 #endif // ENABLE(GPU_PROCESS)
@@ -3073,27 +3058,6 @@ void WebPage::accessibilitySettingsDidChange()
     protect(corePage())->accessibilitySettingsDidChange();
 }
 
-void WebPage::inheritAccessibilityMode(WebCore::AccessibilityMode mode)
-{
-    if (WebCore::isAccessibilityModeOff(mode)) {
-        // Accessibility may already be enabled process-wide (e.g. a prior
-        // WebPage in this process received a non-Off mode, or
-        // shouldForceAccessibilityEnabled() triggered enableAccessibility).
-        // Receiving Off for a new page is normal in that case — just no-op.
-        //
-        // In the future, we may add a way to disable accessibility in
-        // production (i.e. the user turns off their AT), in which case
-        // this function will need to change.
-        return;
-    }
-
-    auto forceAXThreadMode = mode == WebCore::AccessibilityMode::AXThread
-        ? WebCore::AXObjectCache::ForceAXThreadMode::Yes
-        : WebCore::AXObjectCache::ForceAXThreadMode::No;
-
-    WebCore::AXObjectCache::enableAccessibility(forceAXThreadMode);
-}
-
 void WebPage::screenPropertiesDidChange(bool affectsStyle)
 {
     protect(corePage())->screenPropertiesDidChange(affectsStyle);
@@ -4059,6 +4023,15 @@ void WebPage::setLastKnownMousePosition(WebCore::FrameIdentifier frameID, const 
         return;
 
     frame->coreLocalFrame()->eventHandler().setLastKnownMousePosition(eventPoint, globalPoint, WTF::move(source));
+}
+
+void WebPage::mousePointerDidDisappear()
+{
+    if (RefPtr page = corePage()) {
+        page->forEachLocalFrame([](LocalFrame& frame) {
+            frame.eventHandler().mousePointerDidDisappear();
+        });
+    }
 }
 
 void WebPage::startDeferringResizeEvents()
@@ -5318,6 +5291,9 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     m_ipcTestingAPIEnabled = store.getBoolValueForKey(WebPreferencesKey::ipcTestingAPIEnabledKey());
 
     protect(WebProcess::singleton().parentProcessConnection())->setIgnoreInvalidMessageForTesting();
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    assertIsMainRunLoop();
+#endif
     if (auto* gpuProcessConnection = WebProcess::singleton().existingGPUProcessConnection())
         gpuProcessConnection->connection().setIgnoreInvalidMessageForTesting();
 #if ENABLE(MODEL_PROCESS)
@@ -8298,7 +8274,7 @@ void WebPage::didCommitLoad(WebFrame* frame)
 
     updateMockAccessibilityElementAfterCommittingLoad();
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     m_elementsToExcludeFromRemoveBackground.clear();
 #endif
 
@@ -8512,6 +8488,10 @@ void WebPage::flushPendingSampledPageTopColorChange()
 
     send(Messages::WebPageProxy::SampledPageTopColorChanged(protect(corePage())->sampledPageTopColor()));
 }
+
+#if __has_include(<WebKitAdditions/WebPageAdditionsImpl.cpp>)
+#include <WebKitAdditions/WebPageAdditionsImpl.cpp>
+#endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
 void WebPage::allowImmersiveElement(CompletionHandler<void(bool)>&& completion)
@@ -9525,6 +9505,9 @@ bool WebPage::usesEphemeralSession() const
 void WebPage::configureLoggingChannel(const String& channelName, WTFLogChannelState state, WTFLogLevel level)
 {
 #if ENABLE(GPU_PROCESS)
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    assertIsMainRunLoop();
+#endif
     if (RefPtr gpuProcessConnection = WebProcess::singleton().existingGPUProcessConnection())
         gpuProcessConnection->configureLoggingChannel(channelName, state, level);
 #endif
@@ -10107,7 +10090,7 @@ void WebPage::cancelTextRecognitionForVideoInElementFullScreen()
 #endif // ENABLE(IMAGE_ANALYSIS) && ENABLE(VIDEO)
 
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 void WebPage::shouldAllowRemoveBackground(const ElementContext& context, CompletionHandler<void(bool)>&& completion) const
 {

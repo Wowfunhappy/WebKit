@@ -160,6 +160,9 @@ public:
 
     virtual void captionTracksChanged() { }
     virtual void captionsEnabledChanged() { }
+
+    virtual void seekableRangesChanged() { }
+
 };
 
 class HTMLMediaElement
@@ -763,6 +766,8 @@ public:
     const String& mediaPlayerOpeningMessage() const { return m_mediaPlayerOpeningMessage; } // AQUAWEBKIT: private startup presentation.
     WEBCORE_EXPORT Vector<URL> externalMediaSourceURLs(); // AQUAWEBKIT: site-provided remote playback alternatives.
 
+    void seekableRangesChanged();
+
 protected:
     HTMLMediaElement(const QualifiedName&, Document&, bool createdByParser);
     virtual ~HTMLMediaElement();
@@ -942,6 +947,7 @@ private:
     const std::optional<Vector<FourCC>>& allowedMediaCaptionFormatTypes() const final;
 
     void mediaPlayerBufferedTimeRangesChanged() final;
+    void mediaPlayerSeekableTimeRangesChanged() final;
 
     bool mediaPlayerShouldDisableHDR() const final { return shouldDisableHDR(); }
 

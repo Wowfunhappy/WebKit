@@ -130,6 +130,9 @@ struct CocoaCurlTransferOptions {
     long authentication { CURLAUTH_NONE };
     long proxyAuthentication { CURLAUTH_NONE };
     bool preconnect { false };
+    // CocoaCurlTLSState::presentsPreferredIdentity: a WebKit1 load's, as NSURLConnection's, or a WebKit2 load whose
+    // session configuration does not skip the preferred client certificate lookup.
+    bool presentsPreferredIdentity { false };
     // Under the default policy a gzip archive arrives encoded, as CFNetwork delivers it.
     ContentEncodingSniffingPolicy contentEncodingSniffingPolicy { ContentEncodingSniffingPolicy::Default };
 };

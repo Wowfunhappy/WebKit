@@ -4761,6 +4761,9 @@ private:
         patchpoint->append(m_notCellMask, ValueRep::lateReg(GPRInfo::notCellMaskRegister));
         patchpoint->append(m_numberTag, ValueRep::lateReg(GPRInfo::numberTagRegister));
         patchpoint->clobber(RegisterSet::macroClobberedGPRs());
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        patchpoint->clobber(RegisterSet::macroClobberedFPRs());
+#endif
         patchpoint->numGPScratchRegisters = Options::useHandlerICInFTL() ? 1 : 0;
 
         RefPtr<PatchpointExceptionHandle> exceptionHandle = preparePatchpointForExceptions(patchpoint);
@@ -6643,6 +6646,9 @@ IGNORE_CLANG_WARNINGS_END
             patchpoint->append(m_notCellMask, ValueRep::lateReg(GPRInfo::notCellMaskRegister));
             patchpoint->append(m_numberTag, ValueRep::lateReg(GPRInfo::numberTagRegister));
             patchpoint->clobber(RegisterSet::macroClobberedGPRs());
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            patchpoint->clobber(RegisterSet::macroClobberedFPRs());
+#endif
             patchpoint->numGPScratchRegisters = Options::useHandlerICInFTL() ? 1 : 0;
 
             RefPtr<PatchpointExceptionHandle> exceptionHandle = preparePatchpointForExceptions(patchpoint);
@@ -9800,6 +9806,9 @@ IGNORE_CLANG_WARNINGS_END
                 m_out.appendTo(useCacheCase, slowButArrayBufferCase);
                 RegisteredStructure arrayStructure = m_graph.registerStructure(globalObject->arrayStructureForIndexingTypeDuringAllocation(CopyOnWriteArrayWithContiguous));
                 LValue fastArray = allocateObject<JSArray>(arrayStructure, m_out.addPtr(cached, JSCellButterfly::offsetOfData()), slowButArrayBufferCase);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+                mutatorFence();
+#endif
                 ValueFromBlock fastResult = m_out.anchor(fastArray);
                 m_out.jump(continuation);
 
@@ -10707,8 +10716,22 @@ IGNORE_CLANG_WARNINGS_END
         else if (m_node->child1().useKind() == SetObjectUse)
             speculateSetObject(m_node->child1());
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
         bool fastSpreadProven = m_graph.canDoFastSpread(m_node, m_state.forNode(m_node->child1()));
         bool fastSpreadWithStructureCheck = !fastSpreadProven && m_graph.canDoFastSpreadWithStructureCheck(m_node);
+#else
+        // Same two decisions the pre-fix code made, so everything downstream is shared verbatim.
+        constexpr bool canSpeculate = true;
+        Graph::ProtocolWatchResult arrayWatch = Graph::ProtocolWatchResult::Unwatchable;
+        // The structures a RequiresSemanticStructureCheck operand must be narrowed to, which is every
+        // realm the operand's proven structures belong to rather than just the semantic origin's.
+        RegisteredStructureSet arrayStructuresToCheck;
+        if (m_node->child1().useKind() == ArrayUse)
+            std::tie(arrayWatch, arrayStructuresToCheck) = m_graph.tryWatchArrayIteratorProtocol(m_node->child1().node(), m_state.forNode(m_node->child1()), canSpeculate);
+
+        bool fastSpreadProven = arrayWatch == Graph::ProtocolWatchResult::Proven;
+        bool fastSpreadWithStructureCheck = arrayWatch == Graph::ProtocolWatchResult::RequiresSemanticStructureCheck;
+#endif // RC_REMOVE_SEC_ACCEL_3
 
         if (fastSpreadProven || fastSpreadWithStructureCheck) {
             LBasicBlock indexingTypeCheck = fastSpreadWithStructureCheck ? m_out.newBlock() : nullptr;
@@ -10725,8 +10748,9 @@ IGNORE_CLANG_WARNINGS_END
             LBasicBlock lastNext = nullptr;
 
             if (fastSpreadWithStructureCheck) {
-                JSGlobalObject* childGlobalObject = m_graph.globalObjectFor(m_node->child1()->origin.semantic);
                 LValue structureID = m_out.load32(argument, m_heaps.JSCell_structureID);
+#ifdef RC_REMOVE_SEC_ACCEL_3
+                JSGlobalObject* childGlobalObject = m_graph.globalObjectFor(m_node->child1()->origin.semantic);
                 constexpr size_t numShapes = std::size(Graph::originalArrayShapesForSpread);
                 for (size_t i = 0; i < numShapes; ++i) {
                     RegisteredStructure registered = m_graph.registerStructure(childGlobalObject->originalArrayStructureForIndexingType(Graph::originalArrayShapesForSpread[i]));
@@ -10737,6 +10761,20 @@ IGNORE_CLANG_WARNINGS_END
                     if (!isLast)
                         m_out.appendTo(nextCompare);
                 }
+#else
+                Vector<RegisteredStructure, 8> structures;
+                arrayStructuresToCheck.forEach([&](RegisteredStructure registered) {
+                    structures.append(registered);
+                });
+                for (size_t i = 0; i < structures.size(); ++i) {
+                    bool isLast = (i + 1 == structures.size());
+                    LBasicBlock nextCompare = isLast ? slowPath : m_out.newBlock();
+                    m_out.branch(m_out.equal(structureID, weakStructureID(structures[i])),
+                        unsure(indexingTypeCheck), unsure(nextCompare));
+                    if (!isLast)
+                        m_out.appendTo(nextCompare);
+                }
+#endif // RC_REMOVE_SEC_ACCEL_3
                 lastNext = m_out.appendTo(indexingTypeCheck, copyOnWriteContiguousCheck);
             }
 
@@ -10835,6 +10873,7 @@ IGNORE_CLANG_WARNINGS_END
             LBasicBlock slowPath = m_out.newBlock();
             LBasicBlock continuation = m_out.newBlock();
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
             // Guard: route prototype-mutated or own-Symbol.iterator Sets to slowPath.
             // The check can be folded when an upstream CheckStructure has already
             // proven that the operand carries the original Set structure.
@@ -10855,6 +10894,30 @@ IGNORE_CLANG_WARNINGS_END
                         rarely(slowPath), usually(storageCheck));
                 }
             }
+#else
+            // The inline path below walks the Set's storage directly, bypassing Symbol.iterator, so
+            // it is only valid where the iteration protocol has been proven non-observable. Anything
+            // else goes to slowPath, which performs the authoritative
+            // isIteratorProtocolFastAndNonObservable check.
+            auto [setWatch, setStructureToCheck] = m_graph.tryWatchSetIteratorProtocol(m_node->child1().node(), m_state.forNode(m_node->child1()), canSpeculate);
+            switch (setWatch) {
+            case Graph::ProtocolWatchResult::Unwatchable:
+                m_out.jump(slowPath);
+                break;
+
+            case Graph::ProtocolWatchResult::RequiresSemanticStructureCheck: {
+                LValue structureID = m_out.load32(argument, m_heaps.JSCell_structureID);
+                m_out.branch(m_out.notEqual(structureID,
+                    weakStructureID(setStructureToCheck)),
+                    rarely(slowPath), usually(storageCheck));
+                break;
+            }
+
+            case Graph::ProtocolWatchResult::Proven:
+                m_out.jump(storageCheck);
+                break;
+            }
+#endif // RC_REMOVE_SEC_ACCEL_3
             LBasicBlock lastNext = m_out.appendTo(storageCheck, obsoleteCheck);
 
             // Load Set storage pointer.
@@ -11021,6 +11084,9 @@ IGNORE_CLANG_WARNINGS_END
         LBasicBlock loopHeader = m_out.newBlock();
         LBasicBlock loopBody = m_out.newBlock();
         LBasicBlock storeSlot = m_out.newBlock();
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        LBasicBlock releaseScratch = m_out.newBlock();
+#endif
         LBasicBlock continuation = m_out.newBlock();
 
         LValue cached = m_out.loadPtr(m_out.absolute(&vm().m_cachedSortScratch));
@@ -11045,18 +11111,36 @@ IGNORE_CLANG_WARNINGS_END
 
         m_out.appendTo(loopBody, storeSlot);
         LValue value = m_out.load64(m_out.baseIndex(sourceHeap, butterfly, index));
+#ifdef RC_REMOVE_SEC_ACCEL_3
         ValueFromBlock holeResult = m_out.anchor(m_out.constIntPtr(std::bit_cast<void*>(vm().m_sortScratchSentinel.get())));
+#endif
         LValue isHole = m_out.isZero64(value);
         if (m_node->arrayMode().type() == Array::Contiguous)
             isHole = m_out.bitOr(isHole, m_out.equal(value, m_out.constInt64(JSValue::encode(jsUndefined()))));
+#ifdef RC_REMOVE_SEC_ACCEL_3
         m_out.branch(isHole, rarely(continuation), usually(storeSlot));
 
         m_out.appendTo(storeSlot, continuation);
+#else
+        m_out.branch(isHole, rarely(releaseScratch), usually(storeSlot));
+
+        m_out.appendTo(storeSlot, releaseScratch);
+#endif
         m_out.store64(value, m_out.baseIndex(m_heaps.indexedContiguousProperties, scratch, index, JSValue(), JSCellButterfly::offsetOfData()));
         LValue nextIndex = m_out.add(index, m_out.intPtrOne);
         m_out.addIncomingToPhi(index, m_out.anchor(nextIndex));
         m_out.jump(loopHeader);
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        // The scratch won't be barriered, so need to undo the writes.
+        // Without this, we could have an unremembered old/black cell referencing new/white cells.
+        m_out.appendTo(releaseScratch, continuation);
+        splatWords(m_out.add(scratch, m_out.constIntPtr(JSCellButterfly::offsetOfData())), m_out.int32Zero, m_out.constInt32(sortScratchSlotCount), m_out.int64Zero, m_heaps.indexedContiguousProperties.atAnyIndex());
+        m_out.storePtr(scratch, m_out.absolute(&vm().m_cachedSortScratch));
+        ValueFromBlock holeResult = m_out.anchor(m_out.constIntPtr(std::bit_cast<void*>(vm().m_sortScratchSentinel.get())));
+        m_out.jump(continuation);
+
+#endif
         m_out.appendTo(continuation, lastNext);
         setJSValue(m_out.phi(pointerType(), successResult, holeResult));
     }
@@ -14034,6 +14118,7 @@ IGNORE_CLANG_WARNINGS_END
                     shuffleData.numParameters = jit.codeBlock()->numParameters();
                     shuffleData.setupCalleeSaveRegisters(state->jitCode->calleeSaveRegisters());
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
                     if (nativeFunction && !vm->isDebuggerHookInjected()) {
                         jit.store32(
                             CCallHelpers::TrustedImm32(callSiteIndex.bits()),
@@ -14043,6 +14128,7 @@ IGNORE_CLANG_WARNINGS_END
                         jit.ret();
                         return;
                     }
+#endif
 
                     auto* callLinkInfo = state->jitCode->common.m_directCallLinkInfos.add(semanticNodeOrigin, CallLinkInfo::UseDataIC::No, state->graph.m_codeBlock, executable);
                     callLinkInfo->setCallType(CallLinkInfo::DirectTailCall);
@@ -18343,7 +18429,8 @@ IGNORE_CLANG_WARNINGS_END
     void compileExtractFromTuple()
     {
         auto& loweredNodeValue = m_tupleValues.at(m_node->tupleIndex());
-        ASSERT(isValid(loweredNodeValue));
+        if (!isValid(loweredNodeValue))
+            DFG_CRASH(m_graph, m_node, makeString("Tuple value not defined for slot "_s, m_node->tupleIndex()).ascii().data(), m_node->op(), m_node->tupleIndex(), m_graph.m_tupleData.at(m_node->tupleIndex()).resultFlags);
         LValue result = loweredNodeValue.value();
 
         switch (m_graph.m_tupleData.at(m_node->tupleIndex()).resultFlags) {

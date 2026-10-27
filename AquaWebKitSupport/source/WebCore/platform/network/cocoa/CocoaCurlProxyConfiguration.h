@@ -89,6 +89,8 @@ public:
     WEBCORE_EXPORT static void reportError(bool fatal, ASCIILiteral error, const String& details);
 
     Mode mode() const { return m_mode; }
+    // Whether the configuration chooses proxies itself, rather than leaving loads direct or to the system's.
+    bool routesThroughProxies() const { return m_mode == Mode::AutoDetect || m_mode == Mode::PACScript || m_mode == Mode::FixedServers; }
     // A load to the URL takes no proxy: an implicit bypass rule or the bypass list names it.
     bool bypasses(const URL&) const;
     // The route of a fixed_servers configuration, which the bypass rules apply to.

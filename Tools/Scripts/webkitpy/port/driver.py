@@ -347,16 +347,18 @@ class Driver(object):
 
     HTTP_DIR = "http/tests/"
     HTTP_LOCAL_DIR = "http/tests/local/"
-    WEBKIT_SPECIFIC_WEB_PLATFORM_TEST_SUBDIR = "http/wpt/"
     WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE = "WebKit/"
 
     def is_http_test(self, driver_input):
         if driver_input.additional_header and "runInCrossOriginFrame=true" in driver_input.additional_header:
             return True
-        return driver_input.test_name.startswith(self.HTTP_DIR) and not driver_input.test_name.startswith(self.HTTP_LOCAL_DIR)
+        test_name = driver_input.test_name
+        if test_name.startswith(self.HTTP_LOCAL_DIR):
+            return False
+        return any(test_name.startswith(root + "/") for root in self._port.http_test_roots())
 
     def is_webkit_specific_web_platform_test(self, test_name):
-        return test_name.startswith(self.WEBKIT_SPECIFIC_WEB_PLATFORM_TEST_SUBDIR)
+        return any(test_name.startswith(root + "/") for root in self._port.web_platform_test_roots())
 
     def is_web_platform_test(self, test_name):
         return test_name.startswith(self.web_platform_test_server_doc_root)
@@ -394,12 +396,20 @@ class Driver(object):
         if self.is_web_platform_test(test_name):
             return self.wpt_test_path_to_uri(test_name[len(self.web_platform_test_server_doc_root):])
         if self.is_webkit_specific_web_platform_test(test_name):
-            return self.wpt_webkit_test_path_to_uri(self.WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE + test_name[len(self.WEBKIT_SPECIFIC_WEB_PLATFORM_TEST_SUBDIR):])
+            for root in self._port.web_platform_test_roots():
+                root_prefix = root + "/"
+                if test_name.startswith(root_prefix):
+                    route = self._port.url_prefix_for_web_platform_test_root(root) + self.WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE
+                    return self.wpt_webkit_test_path_to_uri(route + test_name[len(root_prefix):])
 
         if not self.is_http_test(driver_input):
             return path.abspath_to_uri(self._port.host.platform, self._port.abspath_for_test(test_name))
-        if self.HTTP_DIR in test_name:
-            return self.http_test_path_to_uri(test_name[len(self.HTTP_DIR):])
+        for root in self._port.http_test_roots():
+            root_prefix = root + "/"
+            if test_name.startswith(root_prefix):
+                rest = test_name[len(root_prefix):]
+                url_prefix = self._port.url_prefix_for_http_test_root(root)
+                return self.http_base_url(secure=self.is_secure_path(rest)) + url_prefix + rest
         return self.http_test_path_to_uri("root/" + test_name)
 
     def uri_to_test(self, uri):
@@ -415,10 +425,11 @@ class Driver(object):
             if not prefix.endswith('/'):
                 prefix += '/'
             return uri[len(prefix):]
-        if uri.startswith(self.web_platform_test_server_base_http_url + self.WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE):
-            return uri.replace(self.web_platform_test_server_base_http_url + self.WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE, self.WEBKIT_SPECIFIC_WEB_PLATFORM_TEST_SUBDIR)
-        if uri.startswith(self.web_platform_test_server_base_https_url + self.WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE):
-            return uri.replace(self.web_platform_test_server_base_https_url + self.WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE, self.WEBKIT_SPECIFIC_WEB_PLATFORM_TEST_SUBDIR)
+        for root in self._port.web_platform_test_roots():
+            route = self._port.url_prefix_for_web_platform_test_root(root) + self.WEBKIT_WEB_PLATFORM_TEST_SERVER_ROUTE
+            for base in (self.web_platform_test_server_base_http_url, self.web_platform_test_server_base_https_url):
+                if uri.startswith(base + route):
+                    return uri.replace(base + route, root + "/")
         if uri.startswith(self.web_platform_test_server_base_http_url):
             return uri.replace(self.web_platform_test_server_base_http_url, self.web_platform_test_server_doc_root)
         if uri.startswith(self.web_platform_test_server_base_https_url):
@@ -427,10 +438,19 @@ class Driver(object):
             base_url = self.http_base_url(secure=False)
             if base_url + "root/" in uri:
                 return uri.replace(base_url + "root/", "")
-            return uri.replace(self.http_base_url(secure=False), self.HTTP_DIR)
+            return self._http_url_path_to_test(uri[len(base_url):])
         if uri.startswith("https://"):
-            return uri.replace(self.http_base_url(secure=True), self.HTTP_DIR)
+            return self._http_url_path_to_test(uri[len(self.http_base_url(secure=True)):])
         raise NotImplementedError('unknown url type: %s' % uri)
+
+    def _http_url_path_to_test(self, url_path):
+        """Inverse of the per-root URL prefix stripping in test_to_uri()."""
+        roots = self._port.http_test_roots()
+        for root in roots[1:]:
+            url_prefix = self._port.url_prefix_for_http_test_root(root)
+            if url_prefix and url_path.startswith(url_prefix):
+                return root + "/" + url_path[len(url_prefix):]
+        return roots[0] + "/" + url_path
 
     def has_crashed(self):
         if self._server_process is None:

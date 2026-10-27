@@ -69,6 +69,9 @@
 #include "JSWeakMap.h"
 #include "JSWeakObjectRef.h"
 #include "JSWeakSet.h"
+#if ENABLE(WEBASSEMBLY)
+#include "JSWebAssemblySuspendingWrapper.h"
+#endif
 #include "MachineStackMarker.h"
 #include "MarkStackMergingConstraint.h"
 #include "MarkedSpaceInlines.h"
@@ -1145,7 +1148,6 @@ void Heap::deleteAllCodeBlocks(DeleteAllCodeEffort effort)
                 });
         });
 
-    // AQUAWEBKIT: 319570@main (webkit.org/b/322226).
     // MicrotaskCallCache lives outside any CodeBlock and keys its cached entry points on the callee's
     // executable, so after the code is detached above its callee check would still hit and call into it.
     vm.clearMicrotaskCallCaches();
@@ -3625,6 +3627,10 @@ void Heap::finalizeWasmCalleeCleanup()
     // Realistically, this is probably not needed, since we're essentially guarenteed to make a syscall
     // that will syncronize the instruction cache during GC. That said, this happens so infrequently it's
     // better to just have the code be clear.
+    //
+    // Note that this fence only covers callsites that were already repatched but might not be visible
+    // here yet. It does not keep live Callee from holding a not yet repatched direct call to
+    // the code about to freed.
     if (!wasmCalleesToRelease.isEmpty())
         WTF::crossModifyingCodeFence();
 

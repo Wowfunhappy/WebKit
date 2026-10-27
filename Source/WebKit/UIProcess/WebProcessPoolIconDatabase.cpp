@@ -32,6 +32,7 @@
 #include "APIData.h"
 #include "APIIconLoadingClient.h"
 #include "APIPageConfiguration.h"
+#include "PageLoadState.h"
 #include "WebIconDatabase.h"
 #include "WebPageProxy.h"
 #include <WebCore/LinkIcon.h>

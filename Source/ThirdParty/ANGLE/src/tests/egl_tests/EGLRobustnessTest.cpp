@@ -12,6 +12,8 @@
 #include <gtest/gtest.h>
 #include "common/unsafe_buffers.h"
 
+#include <array>
+
 #include "common/debug.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
@@ -802,15 +804,15 @@ void main() {
     glDispatchCompute(8192, 1, 1);
 
     glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
-    uint32_t bufferDataOut[kBufferSize] = {};
+    std::array<uint32_t, kBufferSize> bufferDataOut = {};
     const uint32_t *ptr                 = reinterpret_cast<uint32_t *>(
         glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, sizeof(kBufferData), GL_MAP_READ_BIT));
-    ANGLE_UNSAFE_TODO(memcpy(bufferDataOut, ptr, sizeof(kBufferData)));
+    ANGLE_UNSAFE_TODO(memcpy(bufferDataOut.data(), ptr, sizeof(kBufferData)));
     glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 
     for (uint32_t index = 0; index < kBufferSize; ++index)
     {
-        ANGLE_UNSAFE_TODO(EXPECT_EQ(bufferDataOut[index], index)) << " index " << index;
+        EXPECT_EQ(bufferDataOut[index], index) << " index " << index;
     }
 }
 
@@ -852,15 +854,15 @@ void main() {
     glDispatchCompute(8192, 1, 1);
 
     glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
-    uint32_t bufferDataOut[kBufferSize] = {};
+    std::array<uint32_t, kBufferSize> bufferDataOut = {};
     const uint32_t *ptr                 = reinterpret_cast<uint32_t *>(
         glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, sizeof(kBufferData), GL_MAP_READ_BIT));
-    ANGLE_UNSAFE_TODO(memcpy(bufferDataOut, ptr, sizeof(kBufferData)));
+    ANGLE_UNSAFE_TODO(memcpy(bufferDataOut.data(), ptr, sizeof(kBufferData)));
     glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 
     for (uint32_t index = 0; index < kBufferSize; ++index)
     {
-        ANGLE_UNSAFE_TODO(EXPECT_EQ(bufferDataOut[index], index)) << " index " << index;
+        EXPECT_EQ(bufferDataOut[index], index) << " index " << index;
     }
 }
 
@@ -918,7 +920,6 @@ GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLRobustnessTestES31);
 ANGLE_INSTANTIATE_TEST(EGLRobustnessTest,
                        WithNoFixture(ES2_VULKAN()),
                        WithNoFixture(ES2_METAL()),
-                       WithNoFixture(ES2_D3D9()),
                        WithNoFixture(ES2_D3D11()),
                        WithNoFixture(ES2_OPENGL()),
                        WithNoFixture(ES2_OPENGLES()),

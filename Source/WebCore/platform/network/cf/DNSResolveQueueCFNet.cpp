@@ -248,6 +248,7 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
     ASSERT(isMainThread());
     DNSServiceRef service { nullptr };
     auto& leakedAccumulator = DNSAddressAccumulator::create(WTF::move(completionHandler)).leakRef();
+    ++m_prefetchedHostnameCountForTesting;
     DNSServiceErrorType result = DNSServiceGetAddrInfo(&service, kDNSServiceFlagsReturnIntermediates, kDNSServiceInterfaceIndexAny, kDNSServiceProtocol_IPv4 | kDNSServiceProtocol_IPv6, hostname.utf8().data(), dnsLookupCallback, &leakedAccumulator);
     if (result != kDNSServiceErr_NoError) {
         ASSERT(!service);

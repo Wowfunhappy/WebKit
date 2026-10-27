@@ -77,6 +77,13 @@ def run_test_parallel_safety_single_iteration(test_name):
         _log.error(f'Error in test-parallel-safety iteration for {test_name}: {e}')
         raise  # Re-raise so TaskPool can handle the error appropriately
 
+
+class EarlyExitException(Exception):
+    def __init__(self, failure_count):
+        self.failure_count = failure_count
+        super().__init__(f'Exiting early after {failure_count} failures.')
+
+
 def report_result(worker, test, status, output, elapsed=None):
     if elapsed < Runner.ELAPSED_THRESHOLD and status == Runner.STATUS_PASSED and (not output or Runner.instance.port.get_option('quiet')):
         Runner.instance.printer.write_update(f'{worker} {test} {Runner.NAME_FOR_STATUS[status]}')
@@ -89,6 +96,11 @@ def report_result(worker, test, status, output, elapsed=None):
             Runner.instance.results[test] = status, output, elapsed
     else:
         Runner.instance.results[test] = status, output, elapsed
+
+    if status in (Runner.STATUS_FAILED, Runner.STATUS_CRASHED, Runner.STATUS_TIMEOUT):
+        Runner.instance._failure_count += 1
+        if Runner.instance.exit_after_n_failures and Runner.instance._failure_count >= Runner.instance.exit_after_n_failures:
+            raise EarlyExitException(Runner.instance._failure_count)
 
 
 def teardown_shard():
@@ -124,6 +136,8 @@ class Runner(object):
         self._has_logged_for_test = True  # Suppress an empty line between "Running tests" and the first test's output.
         self.results = {}
         self.expectations = expectations
+        self.exit_after_n_failures = None
+        self._failure_count = 0
 
     # FIXME API tests should run as an app, we won't need this function <https://bugs.webkit.org/show_bug.cgi?id=175204>
     @staticmethod
@@ -162,6 +176,29 @@ class Runner(object):
             for i, test in enumerate(tests):
                 shards[f"{test}.{i}"] = [test]
         return shards
+
+    @staticmethod
+    def _is_disabled_test(test_name):
+        # gtest never runs a test whose method component is prefixed with
+        # DISABLED_.  test_name is the full binary.suite.method form; strip the
+        # binary name, then check the method component.
+        components = test_name.split('.')[1:]
+        return len(components) > 1 and components[1].startswith('DISABLED_')
+
+    @staticmethod
+    def _partition_parallel_safety_tests(tests):
+        # In test-parallel-safety mode each supplied test is dispatched as a
+        # repeat=True task, so a disabled test loops as an instant no-op and
+        # emits "Disabled" without bound until the log limit is hit.  Partition
+        # disabled tests out of the repeat set.
+        runnable = []
+        disabled = []
+        for test in tests:
+            if Runner._is_disabled_test(test):
+                disabled.append(test)
+            else:
+                runnable.append(test)
+        return runnable, disabled
 
     def run(self, tests, num_workers):
         if not tests:
@@ -207,6 +244,9 @@ class Runner(object):
             if supplied_tests_raw:
                 for test_arg in supplied_tests_raw:
                     supplied_tests.extend(test_arg.split())
+                supplied_tests, disabled_tests = Runner._partition_parallel_safety_tests(supplied_tests)
+                if disabled_tests:
+                    _log.warning(f'Test-parallel-safety mode: skipping {len(disabled_tests)} disabled test(s) that cannot be repeat-run: {disabled_tests}')
                 _log.info(f'Test-parallel-safety mode: creating repeat loop tasks for tests: {supplied_tests}')
 
                 if len(supplied_tests) <= max_repeat_workers:
@@ -341,8 +381,7 @@ class _Worker(object):
             env=self._port.environment_for_api_tests())
 
         status = Runner.STATUS_RUNNING
-        split_test = test.split('.')
-        if len(split_test) > 1 and split_test[1].startswith('DISABLED_') and not self._port.get_option('force'):
+        if Runner._is_disabled_test(f'{binary_name}.{test}') and not self._port.get_option('force'):
             status = Runner.STATUS_DISABLED
 
         stdout_buffer = ''

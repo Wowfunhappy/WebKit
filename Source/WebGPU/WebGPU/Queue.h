@@ -73,6 +73,7 @@ public:
     void writeBuffer(Buffer&, uint64_t bufferOffset, std::span<uint8_t> data);
     void writeBuffer(id<MTLBuffer>, uint64_t bufferOffset, std::span<uint8_t> data) HAS_SWIFTCXX_THUNK;
     void clearBuffer(id<MTLBuffer>, NSUInteger offset = 0, NSUInteger size = NSUIntegerMax);
+    void copyBuffer(id<MTLBuffer> source, uint64_t sourceOffset, id<MTLBuffer> destination, uint64_t destinationOffset, uint64_t size);
     void writeTexture(const WGPUImageCopyTexture& destination, std::span<uint8_t> data, const WGPUTextureDataLayout&, const WGPUExtent3D& writeSize, bool skipValidation = false);
     void setLabel(String&&);
 
@@ -97,6 +98,11 @@ public:
     id<MTLBlitCommandEncoder> ensureBlitCommandEncoder();
     void finalizeBlitCommandEncoder();
 
+    void addProvisionalTextureClear(Texture&, uint32_t mipLevel, uint32_t slice, uint64_t commandEncoderId);
+    void removeProvisionalTextureClears(const Texture&, uint32_t mipLevel, uint32_t slice);
+    void discardProvisionalTextureClears(uint64_t commandEncoderId);
+    void resolveProvisionalTextureClears(std::optional<uint64_t> committingCommandEncoderId = std::nullopt);
+
     // This can be called on a background thread.
     void scheduleWork(Instance::WorkItem&&);
     [[nodiscard]] uint64_t retainCounterSampleBuffer(CommandEncoder&);
@@ -118,10 +124,20 @@ private:
 
     bool NODELETE isIdle() const;
     bool isSchedulingIdle() const { return m_submittedCommandBufferCount == m_scheduledCommandBufferCount; }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    std::pair<id<MTLBuffer>, uint64_t> reserveTemporaryBuffer(size_t);
+#endif // RC_REMOVE_SEC_ACCEL_3
     void removeMTLCommandBufferInternal(id<MTLCommandBuffer>);
     void clearTextureIfNeeded(Texture&, uint32_t mipLevelCount, uint32_t arrayLayerCount, uint32_t baseMipLevel, uint32_t baseArrayLayer);
 
     NSString * _Nullable errorValidatingWriteTexture(const WGPUImageCopyTexture&, const WGPUTextureDataLayout&, const WGPUExtent3D&, size_t, const Texture&) const;
+
+    struct ProvisionalTextureClear {
+        WeakPtr<Texture> texture;
+        uint32_t mipLevel { 0 };
+        uint32_t slice { 0 };
+        uint64_t commandEncoderId { 0 };
+    };
 
     id<MTLCommandQueue> _Nullable m_commandQueue { nil };
     id<MTLCommandBuffer> _Nullable m_commandBuffer { nil };
@@ -142,6 +158,7 @@ private:
     const ThreadSafeWeakPtr<Instance> m_instance;
     id<MTLBuffer> _Nullable m_temporaryBuffer;
     uint64_t m_temporaryBufferOffset;
+    Vector<ProvisionalTextureClear> m_provisionalTextureClears;
 } SWIFT_SHARED_REFERENCE(refQueue, derefQueue) SWIFT_PRIVATE_FILEID("WebGPU/Queue.swift");
 
 } // namespace WebGPU

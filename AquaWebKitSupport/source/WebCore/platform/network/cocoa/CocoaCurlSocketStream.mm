@@ -187,6 +187,17 @@ void CocoaCurlSocketStream::start()
         // The state is read on the connect queue, so its string may not share a StringImpl with the main thread's.
         m_tls->url = m_options.url.isolatedCopy();
         m_tls->acceptAnyCertificate = m_options.acceptsAnyCertificate;
+        m_tls->presentsPreferredIdentity = m_options.presentsPreferredIdentity;
+        // The connect queue is this stream's own, and the handshake on it waits for the lookup.
+        m_tls->requestPreferredIdentity = [tls = m_tls.get()] {
+            if (auto preferred = CocoaCurlTLSState::preferredIdentity(tls->url)) {
+                tls->identity = WTF::move(preferred->identity);
+                tls->clientCertificates = WTF::move(preferred->certificates);
+                tls->identityAnswered = true;
+            }
+            tls->preferredIdentityResolved = true;
+            return true;
+        };
         if (m_options.serverTrust == ServerTrust::Client) {
             // Both run on the connect queue inside the handshake, which waits for their answers. The stream outlives
             // the connect (connect() holds a reference until connectFinished).

@@ -41,25 +41,54 @@
 
 namespace WebKit {
 
-static WebWheelEvent::Phase phaseForEvent(NSEvent *event)
+WebEventPhase WebEventFactory::phaseForEvent(NSEvent *event)
 {
-    using enum WebWheelEvent::Phase;
+    return phaseForNativeEventPhase([event phase]);
+}
+
+WebEventPhase WebEventFactory::phaseForNativeEventPhase(NSEventPhase nativePhase)
+{
+    using enum WebEventPhase;
 
     auto phase = None;
-    if ([event phase] & NSEventPhaseBegan)
+    if (nativePhase & NSEventPhaseBegan)
         phase = Began;
-    if ([event phase] & NSEventPhaseStationary)
+    if (nativePhase & NSEventPhaseStationary)
         phase = Stationary;
-    if ([event phase] & NSEventPhaseChanged)
+    if (nativePhase & NSEventPhaseChanged)
         phase = Changed;
-    if ([event phase] & NSEventPhaseEnded)
+    if (nativePhase & NSEventPhaseEnded)
         phase = Ended;
-    if ([event phase] & NSEventPhaseCancelled)
+    if (nativePhase & NSEventPhaseCancelled)
         phase = Cancelled;
-    if ([event phase] & NSEventPhaseMayBegin)
+    if (nativePhase & NSEventPhaseMayBegin)
         phase = MayBegin;
 
     return phase;
+}
+
+NSEventPhase WebEventFactory::toNativeEventPhase(WebEventPhase phase)
+{
+    switch (phase) {
+    case WebEventPhase::None:
+        return NSEventPhaseNone;
+    case WebEventPhase::Began:
+        return NSEventPhaseBegan;
+    case WebEventPhase::Stationary:
+        return NSEventPhaseStationary;
+    case WebEventPhase::Changed:
+        return NSEventPhaseChanged;
+    case WebEventPhase::Ended:
+        return NSEventPhaseEnded;
+    case WebEventPhase::Cancelled:
+        return NSEventPhaseCancelled;
+    case WebEventPhase::MayBegin:
+    case WebEventPhase::WillBegin:
+        return NSEventPhaseMayBegin;
+    }
+
+    ASSERT_NOT_REACHED();
+    return NSEventPhaseNone;
 }
 
 static WebWheelEvent::Phase momentumPhaseForEvent(NSEvent *event)
@@ -86,6 +115,45 @@ static int typeForEvent(NSEvent *event)
     return static_cast<int>([NSMenu menuTypeForEvent:event]);
 }
 
+static unsigned short buttonsMaskForMouseButton(WebCore::MouseButton button)
+{
+    // https://w3c.github.io/pointerevents/#the-buttons-property
+    switch (button) {
+    case WebCore::MouseButton::Left:
+        return 1;
+    case WebCore::MouseButton::Right:
+        return 2;
+    case WebCore::MouseButton::Middle:
+        return 4;
+    case WebCore::MouseButton::Back:
+        return 8;
+    case WebCore::MouseButton::Forward:
+        return 16;
+    case WebCore::MouseButton::None:
+    case WebCore::MouseButton::PointerHasNotChanged:
+    case WebCore::MouseButton::Other:
+        return 0;
+    }
+
+    ASSERT_NOT_REACHED();
+    return 0;
+}
+
+static unsigned short buttonsForAutomationEvent(NSEvent *event)
+{
+    switch ([event type]) {
+    case NSEventTypeLeftMouseDown:
+    case NSEventTypeLeftMouseDragged:
+    case NSEventTypeRightMouseDown:
+    case NSEventTypeRightMouseDragged:
+    case NSEventTypeOtherMouseDown:
+    case NSEventTypeOtherMouseDragged:
+        return buttonsMaskForMouseButton(WebCore::mouseButtonForEvent(event));
+    default:
+        return 0;
+    }
+}
+
 bool WebEventFactory::shouldBeHandledAsContextClick(const WebCore::PlatformMouseEvent& event)
 {
     return (static_cast<NSMenuType>(event.menuTypeForEvent()) == NSMenuTypeContextMenu);
@@ -109,7 +177,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(NSEvent *event, NSEvent *last
     }
 
     WebMouseEventButton button = kit(WebCore::mouseButtonForEvent(event));
-    unsigned short buttons = WebCore::currentlyPressedMouseButtons();
+    unsigned short buttons = inputSource == WebEventInputSource::Automation ? buttonsForAutomationEvent(event) : WebCore::currentlyPressedMouseButtons();
     float deltaX = [event deltaX];
     float deltaY = [event deltaY];
     float deltaZ = [event deltaZ];

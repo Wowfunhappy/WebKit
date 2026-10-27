@@ -8,11 +8,8 @@
 // VertexShader and FragmentShader. Implements GL shader objects and related
 // functionality. [OpenGL ES 2.0.24] section 2.10 page 24 and section 3.8 page 84.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/Shader.h"
+#include "common/unsafe_buffers.h"
 
 #include <functional>
 #include <sstream>
@@ -74,9 +71,9 @@ void GetSourceImpl(const std::string &source, GLsizei bufSize, GLsizei *length, 
     if (bufSize > 0)
     {
         index = std::min(bufSize - 1, static_cast<GLsizei>(source.length()));
-        memcpy(buffer, source.c_str(), index);
+        ANGLE_UNSAFE_TODO(memcpy(buffer, source.c_str(), index));
 
-        buffer[index] = '\0';
+        ANGLE_UNSAFE_TODO(buffer[index]) = '\0';
     }
 
     if (length)
@@ -537,9 +534,9 @@ void Shader::getInfoLog(const Context *context, GLsizei bufSize, GLsizei *length
     if (bufSize > 0)
     {
         index = std::min(bufSize - 1, static_cast<GLsizei>(mInfoLog.length()));
-        memcpy(infoLog, mInfoLog.c_str(), index);
+        ANGLE_UNSAFE_TODO(memcpy(infoLog, mInfoLog.c_str(), index));
 
-        infoLog[index] = '\0';
+        ANGLE_UNSAFE_TODO(infoLog[index]) = '\0';
     }
 
     if (length)
@@ -632,9 +629,9 @@ void Shader::compile(const Context *context, angle::JobResultExpectancy resultEx
     options.objectCode       = true;
     options.emulateGLDrawID  = true;
 
-    // Add default options to WebGL shaders to prevent unexpected behavior during
-    // compilation.
-    if (context->isWebGL() || context->isHardenedContext())
+    // Add default options to WebGL shaders to prevent unexpected behavior during compilation.
+    // Similarly protect hardened contexts.
+    if (context->isHardenedContext())
     {
         options.initGLPosition             = true;
         options.limitCallStackDepth        = true;
@@ -670,11 +667,6 @@ void Shader::compile(const Context *context, angle::JobResultExpectancy resultEx
     options.validateAST = true;
 #endif
 
-    if (context->getState().usesPassthroughShaders())
-    {
-        options.skipAllValidationAndTransforms = true;
-    }
-
     // Find a shader in Blob Cache
     Compiler *compiler = context->getCompiler();
     setShaderKey(context, options, compiler->getShaderOutputType(),
@@ -702,7 +694,10 @@ void Shader::compile(const Context *context, angle::JobResultExpectancy resultEx
 
     if (context->getState().usesPassthroughShaders())
     {
-        passthroughCompile(context, &options, resultExpectancy);
+        // Note: the passthrough compile path is only supported for the GL backend, and it doesn't
+        // actually compile the shader by ANGLE's translator; it behaves as if the shader binary is
+        // loaded.
+        passthroughCompile(context, resultExpectancy);
         return;
     }
 
@@ -915,7 +910,8 @@ bool Shader::loadBinaryImpl(const Context *context,
                             angle::JobResultExpectancy resultExpectancy,
                             bool generatedWithOfflineCompiler)
 {
-    BinaryInputStream stream(angle::Span(static_cast<const uint8_t *>(binary), length));
+    BinaryInputStream stream(
+        ANGLE_UNSAFE_TODO(angle::Span(static_cast<const uint8_t *>(binary), length)));
 
     mState.mCompiledState = std::make_shared<CompiledShaderState>(mState.getShaderType());
 
@@ -927,8 +923,8 @@ bool Shader::loadBinaryImpl(const Context *context,
         // type match
         std::vector<uint8_t> commitString(angle::GetANGLEShaderProgramVersionHashSize(), 0);
         stream.readBytes(commitString);
-        ASSERT(memcmp(commitString.data(), angle::GetANGLEShaderProgramVersion(),
-                      commitString.size()) == 0);
+        ANGLE_UNSAFE_TODO(ASSERT(memcmp(commitString.data(), angle::GetANGLEShaderProgramVersion(),
+                                        commitString.size()) == 0));
 
         gl::ShaderType shaderType;
         stream.readEnum(&shaderType);
@@ -985,7 +981,6 @@ bool Shader::loadBinaryImpl(const Context *context,
 }
 
 void Shader::passthroughCompile(const Context *context,
-                                ShCompileOptions *compileOptions,
                                 angle::JobResultExpectancy resultExpectancy)
 {
     mState.mCompiledState = std::make_shared<CompiledShaderState>(mState.getShaderType());
@@ -993,9 +988,11 @@ void Shader::passthroughCompile(const Context *context,
 
     mState.mCompileStatus = CompileStatus::COMPILE_REQUESTED;
 
-    // Ask the backend to prepare the translate task
+    // Ask the backend to prepare the translate task.  Note that only the GL backend is supported in
+    // this path, and ultimately only the load() function of the translate task will be used.
+    ShCompileOptions unusedOptions = {};
     std::shared_ptr<rx::ShaderTranslateTask> translateTask =
-        mImplementation->compile(context, compileOptions);
+        mImplementation->compile(context, &unusedOptions);
 
     std::shared_ptr<CompileTask> compileTask(new CompileTask(
         context->getFrontendFeatures(), mState.mCompiledState, std::move(translateTask)));
@@ -1035,7 +1032,7 @@ void Shader::setShaderKey(const Context *context,
 
     // Get the hash.
     hasher.Final();
-    memcpy(mShaderHash.data(), hasher.Digest(), angle::kBlobCacheKeyLength);
+    ANGLE_UNSAFE_TODO(memcpy(mShaderHash.data(), hasher.Digest(), angle::kBlobCacheKeyLength));
 }
 
 bool WaitCompileJobUnlocked(const SharedCompileJob &compileJob)

@@ -912,12 +912,6 @@ bool ValidateCopySubTextureCHROMIUM(const Context *context,
                                     GLboolean unpackPremultiplyAlpha,
                                     GLboolean unpackUnmultiplyAlpha);
 
-// GL_CHROMIUM_framebuffer_mixed_samples
-bool ValidateCoverageModulationCHROMIUM(const PrivateState &state,
-                                        ErrorSet *errors,
-                                        angle::EntryPoint entryPoint,
-                                        GLenum components);
-
 // GL_CHROMIUM_lose_context
 bool ValidateLoseContextCHROMIUM(const Context *context,
                                  angle::EntryPoint entryPoint,
@@ -1918,7 +1912,7 @@ bool ValidateTexStorage3DEXT(const Context *context,
 // GL_EXT_texture_storage_compression
 bool ValidateTexStorageAttribs2DEXT(const Context *context,
                                     angle::EntryPoint entryPoint,
-                                    GLenum target,
+                                    TextureType targetPacked,
                                     GLsizei levels,
                                     GLenum internalformat,
                                     GLsizei width,
@@ -1926,7 +1920,7 @@ bool ValidateTexStorageAttribs2DEXT(const Context *context,
                                     const GLint *attrib_list);
 bool ValidateTexStorageAttribs3DEXT(const Context *context,
                                     angle::EntryPoint entryPoint,
-                                    GLenum target,
+                                    TextureType targetPacked,
                                     GLsizei levels,
                                     GLenum internalformat,
                                     GLsizei width,
@@ -2055,12 +2049,12 @@ bool ValidateReadnPixelsKHR(const Context *context,
 bool ValidateFramebufferParameteriMESA(const Context *context,
                                        angle::EntryPoint entryPoint,
                                        GLenum target,
-                                       GLenum pname,
+                                       FramebufferParameter pnamePacked,
                                        GLint param);
 bool ValidateGetFramebufferParameterivMESA(const Context *context,
                                            angle::EntryPoint entryPoint,
                                            GLenum target,
-                                           GLenum pname,
+                                           FramebufferParameter pnamePacked,
                                            const GLint *params);
 
 // GL_NV_fence
@@ -2442,6 +2436,8 @@ bool ValidatePointSizePointerOES(const Context *context,
 // GL_OES_shader_multisample_interpolation
 
 // GL_OES_standard_derivatives
+
+// GL_OES_stencil8
 
 // GL_OES_surfaceless_context
 

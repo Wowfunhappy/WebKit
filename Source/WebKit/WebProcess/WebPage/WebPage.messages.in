@@ -68,21 +68,26 @@ messages -> WebPage WantsAsyncDispatchMessage {
     KeyEvent(WebCore::FrameIdentifier frameID, WebKit::WebKeyboardEvent event)
     MouseEvent(WebCore::FrameIdentifier frameID, WebKit::WebMouseEvent event, std::optional<Vector<WebKit::SandboxExtensionHandle>> sandboxExtensions)
     SetLastKnownMousePosition(WebCore::FrameIdentifier frameID, WebCore::DoublePoint eventPoint, WebCore::DoublePoint globalPoint, enum:uint8_t std::optional<WebCore::LastKnownMousePositionSource> source);
+    MousePointerDidDisappear();
 
 #if PLATFORM(COCOA)
     SelectWithGesture(WebCore::IntPoint point, enum:uint8_t WebKit::GestureType gestureType, enum:uint8_t WebKit::GestureRecognizerState gestureState, bool isInteractingWithFocusedElement) -> (WebCore::IntPoint point, enum:uint8_t WebKit::GestureType gestureType, enum:uint8_t WebKit::GestureRecognizerState gestureState, OptionSet<WebKit::SelectionFlags> flags)
     RequestPositionInformation(struct WebKit::InteractionInformationRequest request)
     SelectPositionAtPoint(WebCore::IntPoint point, bool isInteractingWithFocusedElement) -> ()
     UpdateSelectionWithExtentPoint(WebCore::IntPoint point, bool isInteractingWithFocusedElement, enum:bool WebKit::RespectSelectionAnchor respectSelectionAnchor) -> (bool endIsMoving)
-    UpdateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point, enum:uint8_t WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, enum:uint8_t WebKit::TextInteractionSource sources) -> (bool endIsMoving)
-    SelectTextWithGranularityAtPoint(WebCore::IntPoint point, enum:uint8_t WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement) -> ()
+    UpdateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point, enum:uint8_t WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, enum:uint8_t WebKit::TextInteractionSource sources, enum:bool WebKit::SelectionExtentAnchor anchor) -> (bool endIsMoving)
+    SelectTextWithGranularityAtPoint(WebCore::IntPoint point, enum:uint8_t WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement) -> (bool preventedByPage)
 #endif
 
 #if ENABLE(TWO_PHASE_CLICKS)
     PotentialTapAtPosition(std::optional<WebCore::FrameIdentifier> frameID, WebKit::TapIdentifier requestID, WebCore::FloatPoint point, bool shouldRequestMagnificationInformation, enum:uint8_t WebKit::WebEventInputSource inputSource) -> (struct std::optional<WebCore::RemoteUserInputEventData> data)
-    CommitPotentialTap(std::optional<WebCore::FrameIdentifier> frameID, OptionSet<WebKit::WebEventModifier> modifiers, WebKit::TransactionID lastLayerTreeTransactionId, WebCore::PointerID pointerId) -> (std::optional<WebCore::FrameIdentifier> remoteFrameID)
+    CommitPotentialTap(std::optional<WebCore::FrameIdentifier> frameID, OptionSet<WebKit::WebEventModifier> modifiers, WebKit::TransactionID lastLayerTreeTransactionId, WebCore::PointerID pointerId, enum:bool WebKit::CompletesDoubleClick completesDoubleClick) -> (std::optional<WebCore::FrameIdentifier> remoteFrameID)
     CancelPotentialTap()
     HandleDoubleTapForDoubleClickAtPoint(WebCore::IntPoint point, OptionSet<WebKit::WebEventModifier> modifiers, WebKit::TransactionID lastLayerTreeTransactionId, enum:uint8_t WebKit::WebEventInputSource inputSource, enum:uint8_t WebKit::WebMouseEventSyntheticClickType syntheticClickType)
+#endif
+
+#if PLATFORM(MAC)
+    DispatchTrackedPointerEvent(std::optional<WebCore::FrameIdentifier> frameID, enum:uint8_t WebKit::WebEventPhase phase, WebCore::FloatPoint locationInRootView, OptionSet<WebKit::WebEventModifier> modifiers) -> (bool wasCanceled, struct std::optional<WebCore::RemoteUserInputEventData> remoteUserInputEventData)
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -571,7 +576,6 @@ messages -> WebPage WantsAsyncDispatchMessage {
     PerformAccessibilitySearchInRemoteFrame(WebCore::FrameIdentifier frameID, struct WebCore::AccessibilitySearchCriteriaIPC criteria) -> (Vector<WebCore::AccessibilityRemoteToken> results)
     ContinueAccessibilitySearchInParentFrame(WebCore::FrameIdentifier childFrameID, struct WebCore::AccessibilitySearchCriteriaIPC criteria) -> (Vector<WebCore::AccessibilityRemoteToken> results)
 #endif
-    InheritAccessibilityMode(enum:uint8_t WebCore::AccessibilityMode mode)
 
 #if PLATFORM(MAC)
     GetAccessibilityWebProcessDebugInfo() -> (struct WebCore::AXDebugInfo result) Synchronous
@@ -635,7 +639,7 @@ messages -> WebPage WantsAsyncDispatchMessage {
     SetCaretBlinkingSuspended(bool blinkSuspended)
 #endif
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     ReplaceImageForRemoveBackground(struct WebCore::ElementContext context, Vector<String> types, std::span<const uint8_t> data)
     ShouldAllowRemoveBackground(struct WebCore::ElementContext context) -> (bool result)
 #endif

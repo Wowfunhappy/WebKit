@@ -189,6 +189,11 @@ void WebSWContextManagerConnection::installServiceWorker(ServiceWorkerContextDat
 
         auto lastNavigationWasAppInitiated = contextData.lastNavigationWasAppInitiated;
         Ref page = Page::create(WTF::move(pageConfiguration));
+
+#if HAVE(SANDBOX_STATE_FLAGS)
+        WebPage::setHasLaunchedWebContentProcess();
+#endif
+
         if (m_preferencesStore) {
             WebPage::updateSettingsGenerated(*m_preferencesStore, page->settings());
             page->settings().setStorageBlockingPolicy(static_cast<StorageBlockingPolicy>(m_preferencesStore->getUInt32ValueForKey(WebPreferencesKey::storageBlockingPolicyKey())));
@@ -330,10 +335,27 @@ void WebSWContextManagerConnection::startFetch(SWServerConnectionIdentifier serv
 
 void WebSWContextManagerConnection::postMessageToServiceWorker(ServiceWorkerIdentifier serviceWorkerIdentifier, MessageWithMessagePorts&& message, ServiceWorkerOrClientData&& sourceData)
 {
+    postMessageToServiceWorkerInternal(serviceWorkerIdentifier, WTF::move(message), WTF::move(sourceData), { });
+}
+
+void WebSWContextManagerConnection::postMessageToServiceWorkerAndNotifyWhenDispatched(ServiceWorkerIdentifier serviceWorkerIdentifier, MessageWithMessagePorts&& message, ServiceWorkerOrClientData&& sourceData, CompletionHandler<void()>&& completionHandler)
+{
     assertIsCurrent(m_queue.get());
 
-    if (auto serviceWorkerThreadProxy = SWContextManager::singleton().serviceWorkerThreadProxyFromBackgroundThread(serviceWorkerIdentifier))
-        serviceWorkerThreadProxy->fireMessageEvent(WTF::move(message), WTF::move(sourceData));
+    postMessageToServiceWorkerInternal(serviceWorkerIdentifier, WTF::move(message), WTF::move(sourceData), CompletionHandlerCallingScope { CompletionHandler<void()> { [queue = m_queue, completionHandler = WTF::move(completionHandler)]() mutable {
+        queue->dispatch(WTF::move(completionHandler));
+    }, CompletionHandlerCallThread::AnyThread } });
+}
+
+void WebSWContextManagerConnection::postMessageToServiceWorkerInternal(ServiceWorkerIdentifier serviceWorkerIdentifier, MessageWithMessagePorts&& message, ServiceWorkerOrClientData&& sourceData, CompletionHandlerCallingScope&& messageDispatched)
+{
+    assertIsCurrent(m_queue.get());
+
+    auto serviceWorkerThreadProxy = SWContextManager::singleton().serviceWorkerThreadProxyFromBackgroundThread(serviceWorkerIdentifier);
+    if (!serviceWorkerThreadProxy)
+        return;
+
+    serviceWorkerThreadProxy->fireMessageEvent(WTF::move(message), WTF::move(sourceData), WTF::move(messageDispatched));
 }
 
 void WebSWContextManagerConnection::fireInstallEvent(ServiceWorkerIdentifier identifier)
@@ -496,7 +518,14 @@ void WebSWContextManagerConnection::postMessageToServiceWorkerClient(const Scrip
     for (auto& port : message.transferredPorts)
         WebMessagePortChannelProvider::singleton().messagePortSentToRemote(port.first);
 
-    m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::PostMessageToServiceWorkerClient(destinationIdentifier, message, sourceIdentifier, sourceOrigin), 0);
+    Vector<URL> blobURLs;
+    if (auto& serializedScriptValue = message.message) {
+        blobURLs = serializedScriptValue->blobURLs().map([](auto& blobURL) {
+            return URL { blobURL };
+        });
+    }
+
+    m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::PostMessageToServiceWorkerClient(destinationIdentifier, message, sourceIdentifier, sourceOrigin, WTF::move(blobURLs)), 0);
 }
 
 void WebSWContextManagerConnection::didFinishInstall(std::optional<ServiceWorkerJobDataIdentifier> jobDataIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, bool wasSuccessful)

@@ -2447,9 +2447,6 @@ webkit.org/b/210438 compositing/overflow/scroll-container-background-with-compos
 # DRT's context-menu observer returns titles; this fixture requires item objects with enabled state.
 webkit.org/b/116651 media/context-menu-download-media-uses-media-url.html [ Skip ]
 
-# Legacy's handshake cookie proxy uses the document navigation's isTopSite context.
-webkit.org/b/309567 http/tests/websocket/tests/hybi/websocket-samesite-lax-not-sent-cross-site.html [ Skip ]
-
 # WebKitLegacy's DummySpeechRecognitionProvider does not start recognition sessions.
 webkit.org/b/136224 fast/mediastream/audio-session-stays-active-when-removing-session-during-speech-recognition.html [ Skip ]
 

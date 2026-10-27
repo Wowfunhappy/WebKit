@@ -275,8 +275,15 @@ void WebSocketChannel::didOpenSocketStream(SocketStreamHandle& handle)
     }
     auto handshakeMessage = m_handshake->clientHandshakeMessage();
     std::optional<CookieRequestHeaderFieldProxy> cookieRequestHeaderFieldProxy;
-    if (m_allowCookies)
+    // if (m_allowCookies)
+    //     cookieRequestHeaderFieldProxy = CookieJar::cookieRequestHeaderFieldProxy(*m_document, m_handshake->httpURLForAuthenticationAndCookies());
+    if (m_allowCookies) { // AQUAWEBKIT: the handshake is a subresource request, with the same-site context
+        // ThreadableWebSocketChannel::webSocketConnectRequest gives the WebKit 2 handshake, not the document navigation's.
         cookieRequestHeaderFieldProxy = CookieJar::cookieRequestHeaderFieldProxy(*m_document, m_handshake->httpURLForAuthenticationAndCookies());
+        ResourceRequest handshakeRequest { URL { m_handshake->url() } };
+        FrameLoader::addSameSiteInfoToRequestIfNeeded(handshakeRequest, m_document.get());
+        cookieRequestHeaderFieldProxy->sameSiteInfo = SameSiteInfo::create(handshakeRequest);
+    } // AQUAWEBKIT: closes the handshake cookie proxy above.
     handle.sendHandshake(WTF::move(handshakeMessage), WTF::move(cookieRequestHeaderFieldProxy), [this, protectedThis = Ref { *this }] (bool success, bool didAccessSecureCookies) {
         if (!success)
             fail("Failed to send WebSocket handshake."_s);

@@ -163,6 +163,7 @@
 		DDB3724628ECE32F00A2F32D /* libbmalloc.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DDB3724528ECE32F00A2F32D /* libbmalloc.a */; };
 		DDD2187627A21750002B7025 /* WebKit.framework in Product Dependencies */ = {isa = PBXBuildFile; fileRef = C081224813FC1B0300DC39AE /* WebKit.framework */; };
 		DDFBE4AC2A90556700CA7023 /* libWTF.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7C83E0291D0A5CDF00FEBCF3 /* libWTF.a */; };
+		F5971BD071D50EA78EF87EE5 /* UnifiedSource53-nonARC.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0DBC072EC3DC8EA98F7B7BEE /* UnifiedSource53-nonARC.mm */; };
 		FE9CD7E42D10CE7500266FDD /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 574F55D0204D471C002948C6 /* Security.framework */; };
 /* End PBXBuildFile section */
 
@@ -415,6 +416,7 @@
 /* Begin PBXFileReference section */
 		07275CBB2D01398C002315A5 /* _WebKit_SwiftUI.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = _WebKit_SwiftUI.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		07597D7E2F81DD59000C96D0 /* config.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = config.h; sourceTree = "<group>"; };
+		0DBC072EC3DC8EA98F7B7BEE /* UnifiedSource53-nonARC.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = "UnifiedSource53-nonARC.mm"; sourceTree = "<group>"; };
 		0F4FFAA01ED3D0DE00F7111F /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 		1AEDE22413E5E7A000E62FE8 /* InjectedBundleControllerMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = InjectedBundleControllerMac.mm; path = mac/InjectedBundleControllerMac.mm; sourceTree = "<group>"; };
 		2B648DBA28C1C1F700791F2B /* WebKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = WebKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -553,6 +555,9 @@
 				"WebKit/WebPage/AppKit Gesture Tests/BasicAppKitGesturesTests.swift",
 				"WebKit/WebPage/AppKit Gesture Tests/DoubleClickGesturesTests.swift",
 				"WebKit/WebPage/AppKit Gesture Tests/EmbeddedAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/InactiveWindowAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/QuirksAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/RefreshControlGesturesTests.swift",
 				WebKit/WebPage/EditingFontSizeTests.swift,
 				WebKit/WebPage/JavaScriptExpressionTests.swift,
 				WebKit/WebPage/JSHandleTests.swift,
@@ -563,6 +568,7 @@
 				WebKit/WebPage/UserContentControllerTests.swift,
 				WebKit/WebPage/WebPageMouseEventsTests.swift,
 				WebKit/WebPage/WebPageNavigationTests.swift,
+				WebKit/WebPage/WebPageScrollbarTests.swift,
 				WebKit/WebPage/WebPageTests.swift,
 				WebKit/WebPage/WebPageTransferableTests.swift,
 				WebKit/WKWebView/CodingTests.swift,
@@ -581,6 +587,7 @@
 				"cocoa/Foundation+Extras.swift",
 				cocoa/HTTPServer.mm,
 				cocoa/HTTPServer.swift,
+				cocoa/ImageAnalysisTestingUtilities.swift,
 				cocoa/JavaScriptMessages.swift,
 				cocoa/JavaScriptTypes.swift,
 				cocoa/StdLibExtras.swift,
@@ -705,6 +712,8 @@
 				WebCore/cocoa/ImageRotationSessionVT.cpp,
 				WebCore/cocoa/IOSurfaceTests.mm,
 				WebCore/cocoa/MediaPlayerPrivateAVFoundationObjCTests.mm,
+				WebCore/cocoa/MultiRepresentationHEICAttachment.mm,
+				WebCore/cocoa/PlatformScreenTests.mm,
 				WebCore/cocoa/PrivateClickMeasurementCocoa.mm,
 				WebCore/cocoa/ResourceMonitor.mm,
 				WebCore/cocoa/ScrollbarWidthCrash.mm,
@@ -805,6 +814,7 @@
 				WebCore/TextCodec.cpp,
 				WebCore/TextIterator.cpp,
 				WebCore/TimeRanges.cpp,
+				WebCore/TrackPrivateChangedCallbacks.cpp,
 				WebCore/TransformationMatrix.cpp,
 				WebCore/U2fCommandConstructorTest.cpp,
 				WebCore/URLParserTextEncoding.cpp,
@@ -1038,6 +1048,7 @@
 				WebKit/WKWebView/mac/MenuTypesForMouseEvents.mm,
 				WebKit/WKWebView/mac/MouseEventTests.mm,
 				WebKit/WKWebView/mac/NoPolicyDelegateResponse.mm,
+				WebKit/WKWebView/mac/NSRefreshControllerTests.mm,
 				WebKit/WKWebView/mac/NSResponderTests.mm,
 				WebKit/WKWebView/mac/PageVisibilityStateWithWindowChanges.mm,
 				WebKit/WKWebView/mac/RenderedImageFromDOMNode.mm,
@@ -1074,6 +1085,7 @@
 				WebKit/WKWebView/mac/WKWebViewMacEditingTests.mm,
 				WebKit/WKWebView/mac/WKWebViewTitlebarSeparatorTests.mm,
 				WebKit/WKWebView/mac/WordBoundaryTypingAttributes.mm,
+				WebKit/WKWebView/MediaLoading.mm,
 				WebKit/WKWebView/MediaStreamingActivitySuspended.mm,
 				WebKit/WKWebView/MediaStreamTrackDetached.mm,
 				WebKit/WKWebView/MSEIsTypeSupportedCaching.mm,
@@ -1085,6 +1097,7 @@
 				WebKit/WKWebView/SmartLists.mm,
 				WebKit/WKWebView/SpatialAudioExperience.mm,
 				WebKit/WKWebView/WebRTC.mm,
+				WebKit/WKWebView/WKAttachmentTests.mm,
 				WebKit/WKWebView/WKBackForwardListTests.mm,
 				WebKit/WKWebView/WKWebExtensionAPILocalization.mm,
 				WebKit/WKWebView/WKWebViewLogging.mm,
@@ -1108,6 +1121,7 @@
 				WebKitLegacy/mac/DownloadThread.mm,
 				WebKitLegacy/mac/EarlyKVOCrash.mm,
 				WebKitLegacy/mac/EmbeddedPrintPagination.mm,
+				WebKitLegacy/mac/PDFEmbeddedPrintScript.mm,
 				WebKitLegacy/mac/PreventImageLoadWithAutoResizing.mm,
 				WebKitLegacy/mac/URLExtras.mm,
 				WebKitLegacy/mac/UserContentTest.mm,
@@ -1329,6 +1343,9 @@
 				"WebKit/WebPage/AppKit Gesture Tests/BasicAppKitGesturesTests.swift",
 				"WebKit/WebPage/AppKit Gesture Tests/DoubleClickGesturesTests.swift",
 				"WebKit/WebPage/AppKit Gesture Tests/EmbeddedAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/InactiveWindowAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/QuirksAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/RefreshControlGesturesTests.swift",
 				WebKit/WebPage/EditingFontSizeTests.swift,
 				WebKit/WebPage/JavaScriptExpressionTests.swift,
 				WebKit/WebPage/JSHandleTests.swift,
@@ -1339,6 +1356,7 @@
 				WebKit/WebPage/UserContentControllerTests.swift,
 				WebKit/WebPage/WebPageMouseEventsTests.swift,
 				WebKit/WebPage/WebPageNavigationTests.swift,
+				WebKit/WebPage/WebPageScrollbarTests.swift,
 				WebKit/WebPage/WebPageTests.swift,
 				WebKit/WebPage/WebPageTransferableTests.swift,
 				WebKit/WKWebView/CodingTests.swift,
@@ -1369,6 +1387,7 @@
 				WebKit/WKPage/CanHandleRequest_Bundle.cpp,
 				WebKit/WKPage/cocoa/CustomBundleObject.mm,
 				WebKit/WKPage/cocoa/CustomBundleParameter_Bundle.mm,
+				WebKit/WKPage/cocoa/EnableAccessibilityInWebProcess_Bundle.mm,
 				WebKit/WKPage/cocoa/ForceLightAppearanceInBundle_Bundle.mm,
 				WebKit/WKPage/cocoa/GetBackingScaleFactor_Bundle.mm,
 				WebKit/WKPage/cocoa/InjectedBundleAppleEvent_Bundle.cpp,
@@ -1851,6 +1870,7 @@
 				5CABDB932735C9BA00B88BCB /* UnifiedSource50-nonARC.mm */,
 				5CABDB952735C9BB00B88BC0 /* UnifiedSource51-nonARC.mm */,
 				51A97F062FD0B59400FBDD0C /* UnifiedSource52-nonARC.mm */,
+				0DBC072EC3DC8EA98F7B7BEE /* UnifiedSource53-nonARC.mm */,
 			);
 			path = "unified-sources";
 			sourceTree = "<group>";
@@ -2467,6 +2487,7 @@
 				5CABDBC02735C9BD00B88BCB /* UnifiedSource50-nonARC.mm in Sources */,
 				5CABDBC22735C9BE00B88BC0 /* UnifiedSource51-nonARC.mm in Sources */,
 				51A97F1B2FD0B5A400FBDD0C /* UnifiedSource52-nonARC.mm in Sources */,
+				F5971BD071D50EA78EF87EE5 /* UnifiedSource53-nonARC.mm in Sources */,
 				07792FA62F9D9AE9009EF126 /* WebProcessPlugInWithInternals.mm in Sources */,
 			);
 		};

@@ -514,6 +514,7 @@ enum class TextInteractionSource : uint8_t;
 enum class TextRecognitionUpdateResult : uint8_t;
 enum class VisitedLinkTableIdentifierType;
 enum class WebEventModifier : uint8_t;
+enum class WebEventPhase : uint8_t;
 enum class WebEventType : uint32_t;
 enum class WebEventInputSource : uint8_t;
 enum class WebMouseEventSyntheticClickType : uint8_t;
@@ -917,7 +918,6 @@ public:
     // Called when we inherit an accessibility mode from the UI process.
     // The inheritance aspect is an important semantic, as if we inherit
     // AXThread mode, we should skip the client checks it normally does.
-    void inheritAccessibilityMode(WebCore::AccessibilityMode);
 
 #if PLATFORM(MAC)
     void getAccessibilityWebProcessDebugInfo(CompletionHandler<void(WebCore::AXDebugInfo)>&&);
@@ -1133,22 +1133,26 @@ public:
 
     void selectPositionAtPoint(WebCore::IntPoint, bool isInteractingWithFocusedElement, CompletionHandler<void()>&&);
     void updateSelectionWithExtentPoint(WebCore::IntPoint, bool isInteractingWithFocusedElement, RespectSelectionAnchor, CompletionHandler<void(bool)>&&);
-    void updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint, WebCore::TextGranularity, bool isInteractingWithFocusedElement, TextInteractionSource, CompletionHandler<void(bool)>&&);
-    void selectTextWithGranularityAtPoint(WebCore::IntPoint, WebCore::TextGranularity, bool isInteractingWithFocusedElement, CompletionHandler<void()>&&);
+    void updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint, WebCore::TextGranularity, bool isInteractingWithFocusedElement, TextInteractionSource, SelectionExtentAnchor, CompletionHandler<void(bool)>&&);
+    void selectTextWithGranularityAtPoint(WebCore::IntPoint, WebCore::TextGranularity, bool isInteractingWithFocusedElement, CompletionHandler<void(bool preventedByPage)>&&);
 #endif // PLATFORM(COCOA)
 
 #if ENABLE(TWO_PHASE_CLICKS)
     Awaitable<std::optional<WebCore::RemoteUserInputEventData>> potentialTapAtPosition(std::optional<WebCore::FrameIdentifier>, WebKit::TapIdentifier, WebCore::FloatPoint, bool shouldRequestMagnificationInformation, WebKit::WebEventInputSource);
-    Awaitable<std::optional<WebCore::FrameIdentifier>> commitPotentialTap(std::optional<WebCore::FrameIdentifier>, OptionSet<WebKit::WebEventModifier>, TransactionID lastLayerTreeTransactionId, WebCore::PointerID);
+    Awaitable<std::optional<WebCore::FrameIdentifier>> commitPotentialTap(std::optional<WebCore::FrameIdentifier>, OptionSet<WebKit::WebEventModifier>, TransactionID lastLayerTreeTransactionId, WebCore::PointerID, CompletesDoubleClick);
     void cancelPotentialTap();
     void cancelPotentialTapInFrame(WebFrame&);
     void commitPotentialTapFailed();
     void didHandleTapAsHover();
     void sendTapHighlightForNodeIfNecessary(WebKit::TapIdentifier, WebCore::Node*, WebCore::FloatPoint);
     void handleSyntheticClick(std::optional<WebCore::FrameIdentifier>, WebCore::Node& nodeRespondingToClick, const WebCore::FloatPoint& location, OptionSet<WebKit::WebEventModifier>, WebCore::PointerID = WebCore::mousePointerID);
-    void completeSyntheticClick(std::optional<WebCore::FrameIdentifier>, WebCore::Node& nodeRespondingToClick, const WebCore::FloatPoint& location, OptionSet<WebKit::WebEventModifier>, WebCore::SyntheticClickType, WebCore::PointerID = WebCore::mousePointerID);
+    void completeSyntheticClick(std::optional<WebCore::FrameIdentifier>, WebCore::Node& nodeRespondingToClick, const WebCore::FloatPoint& location, OptionSet<WebKit::WebEventModifier>, WebCore::SyntheticClickType, WebCore::PointerID = WebCore::mousePointerID, int clickCount = 1);
     void handleDoubleTapForDoubleClickAtPoint(const WebCore::IntPoint&, OptionSet<WebKit::WebEventModifier>, TransactionID lastLayerTreeTransactionId, WebEventInputSource, WebMouseEventSyntheticClickType);
     void invokePendingSyntheticClickCallback(WebCore::SyntheticClickResult);
+#endif
+
+#if PLATFORM(MAC)
+    void dispatchTrackedPointerEvent(std::optional<WebCore::FrameIdentifier>, WebEventPhase, WebCore::FloatPoint locationInRootView, OptionSet<WebKit::WebEventModifier>, CompletionHandler<void(bool wasCanceled, std::optional<WebCore::RemoteUserInputEventData>)>&&);
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -1409,7 +1413,7 @@ public:
     void replaceSelectionWithPasteboardData(const Vector<String>& types, std::span<const uint8_t>);
 #endif
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     void replaceImageForRemoveBackground(const WebCore::ElementContext&, const Vector<String>& types, std::span<const uint8_t>);
 #endif
 
@@ -1782,6 +1786,10 @@ public:
     void sampledPageTopColorChanged() { m_pendingSampledPageTopColorChange = true; }
     void flushPendingSampledPageTopColorChange();
 
+#if __has_include(<WebKitAdditions/WebPageAdditions.h>)
+#include <WebKitAdditions/WebPageAdditions.h>
+#endif
+
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     void allowImmersiveElement(CompletionHandler<void(bool)>&&);
     void presentImmersiveElement(const WebCore::LayerHostingContextIdentifier, CompletionHandler<void(bool)>&&);
@@ -2052,7 +2060,7 @@ public:
     void cancelTextRecognitionForVideoInElementFullScreen();
 #endif
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     void shouldAllowRemoveBackground(const WebCore::ElementContext&, CompletionHandler<void(bool)>&&) const;
 #endif
 
@@ -2237,6 +2245,10 @@ public:
 
     void updateRemoteIntersectionObservers();
 
+#if HAVE(SANDBOX_STATE_FLAGS)
+    static void setHasLaunchedWebContentProcess();
+#endif
+
 private:
     WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
 
@@ -2390,6 +2402,7 @@ private:
     void keyEvent(WebCore::FrameIdentifier, const WebKeyboardEvent&);
 
     void setLastKnownMousePosition(WebCore::FrameIdentifier, const WebCore::DoublePoint&, const WebCore::DoublePoint&, std::optional<WebCore::LastKnownMousePositionSource>&& = std::nullopt);
+    void mousePointerDidDisappear();
 
 #if ENABLE(IOS_TOUCH_EVENTS)
     void touchEventSync(const WebTouchEvent&, CompletionHandler<void(bool)>&&);
@@ -2397,6 +2410,10 @@ private:
     void updatePotentialTapSecurityOrigin(const WebTouchEvent&, bool wasHandled);
 #elif ENABLE(TOUCH_EVENTS)
     void touchEvent(const WebTouchEvent&, CompletionHandler<void(std::optional<WebEventType>, bool)>&&);
+#endif
+
+#if ENABLE(TWO_PHASE_CLICKS)
+    void dispatchDeferredSyntheticClickIfNeeded();
 #endif
 
     void cancelPointer(WebCore::PointerID, const WebCore::IntPoint&);
@@ -2795,10 +2812,6 @@ private:
     void updateTextExtractionFilterRules(Vector<WebCore::TextExtraction::FilterRuleData>&&);
     void applyTextExtractionFilter(const String& input, CompletionHandler<void(const String&)>&&);
 
-#if HAVE(SANDBOX_STATE_FLAGS)
-    static void setHasLaunchedWebContentProcess();
-#endif
-
     template<typename T> T contentsToRootView(WebCore::FrameIdentifier, T);
     template<typename T> T rootViewToContents(WebCore::FrameIdentifier, T);
     void contentsToRootViewRect(WebCore::FrameIdentifier, WebCore::FloatRect, CompletionHandler<void(WebCore::FloatRect)>&&);
@@ -3124,6 +3137,7 @@ private:
     // require a minimum drag toward an edge before selection autoscroll engages, so a selection that merely
     // originates near an edge doesn't scroll. Persists across hot-zone enter/exit within a single drag.
     std::optional<WebCore::IntPoint> m_selectionAutoscrollDragOrigin;
+    std::optional<WebCore::FloatPoint> m_lastTrackedPointerLocation;
 #if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
     bool m_fullScreenTitlebarOverlayIsDisplayed { false };
 #endif
@@ -3171,6 +3185,11 @@ private:
     WebCore::FloatPoint m_pendingSyntheticClickLocation;
     OptionSet<WebKit::WebEventModifier> m_pendingSyntheticClickModifiers;
     WebCore::PointerID m_pendingSyntheticClickPointerId { 0 };
+    Function<void()> m_deferredSyntheticClick;
+    uint64_t m_deferredSyntheticClickGeneration { 0 };
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    bool m_lastSyntheticMousePressPreventedSelection { false };
+#endif
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -3387,7 +3406,7 @@ private:
 
     const Ref<WebHistoryItemClient> m_historyItemClient;
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     WeakHashSet<WebCore::Element, WebCore::WeakPtrImplWithEventTargetData> m_elementsToExcludeFromRemoveBackground;
 #endif
 

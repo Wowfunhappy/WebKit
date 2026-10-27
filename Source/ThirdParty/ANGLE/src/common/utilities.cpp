@@ -4,10 +4,6 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 // utilities.cpp: Conversion functions and other utility routines.
 
 // Older clang versions have a false positive on this warning here.
@@ -21,6 +17,7 @@
 #include "common/mathutil.h"
 #include "common/platform.h"
 #include "common/string_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include <set>
 
@@ -48,7 +45,7 @@ gl::IndexRange ComputeTypedIndexRange(const IndexType *indices,
     {
         for (size_t i = 0; i < count; i++)
         {
-            IndexType index = indices[i];
+            IndexType index = ANGLE_UNSAFE_TODO(indices[i]);
             if (index == primitiveRestartIndex)
             {
                 continue;
@@ -62,7 +59,7 @@ gl::IndexRange ComputeTypedIndexRange(const IndexType *indices,
     {
         for (size_t i = 0; i < count; i++)
         {
-            IndexType index = indices[i];
+            IndexType index = ANGLE_UNSAFE_TODO(indices[i]);
             minIndex        = std::min(minIndex, index);
             maxIndex        = std::max(maxIndex, index);
         }
@@ -160,7 +157,6 @@ GLenum VariableComponentType(GLenum type)
         case GL_UNSIGNED_INT_SAMPLER_BUFFER:
         case GL_UNSIGNED_INT_IMAGE_BUFFER:
         case GL_UNSIGNED_INT_ATOMIC_COUNTER:
-        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
         case GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT:
             return GL_INT;
         case GL_UNSIGNED_INT:
@@ -351,7 +347,6 @@ int VariableRowCount(GLenum type)
         case GL_IMAGE_BUFFER:
         case GL_INT_IMAGE_BUFFER:
         case GL_UNSIGNED_INT_IMAGE_BUFFER:
-        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
         case GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT:
             return 1;
         case GL_FLOAT_MAT2:
@@ -432,7 +427,6 @@ int VariableColumnCount(GLenum type)
         case GL_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_ATOMIC_COUNTER:
-        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
         case GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT:
             return 1;
         case GL_BOOL_VEC2:
@@ -500,7 +494,6 @@ bool IsSamplerType(GLenum type)
         case GL_SAMPLER_CUBE_SHADOW:
         case GL_SAMPLER_2D_ARRAY_SHADOW:
         case GL_SAMPLER_CUBE_MAP_ARRAY_SHADOW:
-        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
         case GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT:
             return true;
     }
@@ -893,7 +886,6 @@ int VariableSortOrder(GLenum type)
         case GL_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_ATOMIC_COUNTER:
-        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
         case GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT:
             return 6;
 
@@ -1032,8 +1024,8 @@ unsigned int ParseArrayIndex(const std::string &name, size_t *nameLengthWithoutA
         if (indexIsValidDecimalNumber)
         {
             errno = 0;  // reset global error flag.
-            unsigned long subscript =
-                strtoul(name.c_str() + open + 1, /*endptr*/ nullptr, /*radix*/ 10);
+            unsigned long subscript = ANGLE_UNSAFE_TODO(
+                strtoul(name.c_str() + open + 1, /*endptr*/ nullptr, /*radix*/ 10));
 
             // Check if resulting integer is out-of-range or conversion error.
             if (angle::base::IsValueInRangeForNumericType<uint32_t>(subscript) &&
@@ -1495,7 +1487,7 @@ void writeFile(const char *path, std::string_view content)
         return;
     }
 
-    fwrite(content.data(), sizeof(char), content.size(), file);
+    ANGLE_UNSAFE_TODO(fwrite(content.data(), sizeof(char), content.size(), file));
     fclose(file);
 #else
     UNREACHABLE();

@@ -74,7 +74,7 @@ static void parserTests()
         auto cookie = parseHTTPSetCookie(makeString("a=1; Extension="_s, static_cast<char16_t>(character)), secure);
         check(!cookie, "CTL in an attribute rejects the entire field");
     }
-    for (auto field : { ""_s, "="_s, "a=1; SameSite=None"_s, "__Secure-a=1"_s, "__SeCuRe-a=1"_s, "__Host-a=1; Secure; Path=/x"_s, "__Host-a=1; Secure; Path=/; Domain=web-platform.test"_s, "__Http-a=1; Secure"_s, "__Host-Http-a=1; Secure; Path=/"_s })
+    for (auto field : { ""_s, "="_s, "__Secure-a=1"_s, "__SeCuRe-a=1"_s, "__Host-a=1; Secure; Path=/x"_s, "__Host-a=1; Secure; Path=/; Domain=web-platform.test"_s, "__Http-a=1; Secure"_s, "__Host-Http-a=1; Secure; Path=/"_s })
         check(!parse(field), field.characters());
     check(parse("__Secure-a=1; Secure"_s).has_value(), "secure prefix accepted with Secure");
     check(parse("__Host-a=1; Secure; Path=/"_s).has_value(), "host prefix accepted with root path and no Domain");
@@ -85,6 +85,7 @@ static void parserTests()
     auto disabledPartitioning = parseHTTPSetCookie("chips=1; Secure; Partitioned"_s, secure);
     check(disabledPartitioning && disabledPartitioning->partitionKey.isEmpty(), "disabled CHIPS ignores Partitioned and keeps an unpartitioned cookie");
     check(!parseHTTPSetCookie("a=1; Secure"_s, URL { "http://web-platform.test/"_s }), "insecure origin cannot set Secure");
+    check(parseHTTPSetCookie("a=1; SameSite=None"_s, URL { "http://web-platform.test/"_s }).has_value(), "SameSite=None without Secure is accepted, as CFNetwork accepts it");
     struct DomainCase { ASCIILiteral url; ASCIILiteral field; bool accepted; };
     const DomainCase domains[] = {
         { "http://myserver/x"_s, "a=1"_s, true },

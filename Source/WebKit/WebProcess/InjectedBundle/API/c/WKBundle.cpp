@@ -93,11 +93,6 @@ void WKBundleGarbageCollectJavaScriptObjects(WKBundleRef bundleRef)
     protect(WebKit::toImpl(bundleRef))->garbageCollectJavaScriptObjects();
 }
 
-void WKBundleGarbageCollectJavaScriptObjectsOnAlternateThreadForDebugging(WKBundleRef bundleRef, bool waitUntilDone)
-{
-    protect(WebKit::toImpl(bundleRef))->garbageCollectJavaScriptObjectsOnAlternateThreadForDebugging(waitUntilDone);
-}
-
 size_t WKBundleGetJavaScriptObjectsCount(WKBundleRef bundleRef)
 {
     return protect(WebKit::toImpl(bundleRef))->javaScriptObjectsCount();

@@ -81,6 +81,8 @@ struct NetworkLoadParameters {
     uint64_t requiredCookiesVersion { 0 };
     // AQUAWEBKIT: resume uses the normal NetworkLoad redirect, challenge and download contracts.
     std::optional<DownloadResumeParameters> downloadResume;
+    // AQUAWEBKIT: a _WKDataTask request keeps its own cookie policy, as upstream's NSURLSession data task does.
+    bool isDataTaskForAPI { false };
 };
 
 } // namespace WebKit

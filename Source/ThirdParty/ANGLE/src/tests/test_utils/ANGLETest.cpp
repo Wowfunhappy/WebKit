@@ -35,7 +35,10 @@ const GLColorRGB GLColorRGB::black(0u, 0u, 0u);
 const GLColorRGB GLColorRGB::blue(0u, 0u, 255u);
 const GLColorRGB GLColorRGB::green(0u, 255u, 0u);
 const GLColorRGB GLColorRGB::red(255u, 0u, 0u);
-const GLColorRGB GLColorRGB::yellow(255u, 255u, 0);
+const GLColorRGB GLColorRGB::yellow(255u, 255u, 0u);
+const GLColorRGB GLColorRGB::magenta(255u, 0u, 255u);
+const GLColorRGB GLColorRGB::cyan(0u, 255u, 255u);
+const GLColorRGB GLColorRGB::white(255u, 255u, 255u);
 
 const GLColor GLColor::black            = GLColor(0u, 0u, 0u, 255u);
 const GLColor GLColor::blue             = GLColor(0u, 0u, 255u, 255u);
@@ -218,8 +221,6 @@ GPUTestConfig::API GetTestConfigAPIFromRenderer(angle::GLESDriverType driverType
     {
         case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
             return GPUTestConfig::kAPID3D11;
-        case EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE:
-            return GPUTestConfig::kAPID3D9;
         case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
             return GPUTestConfig::kAPIGLDesktop;
         case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
@@ -871,10 +872,27 @@ void ANGLETestBase::ANGLETestSetUp()
     if (mFixture->eglWindow->getClientMajorVersion() != mCurrentParams->majorVersion ||
         mFixture->eglWindow->getClientMinorVersion() != mCurrentParams->minorVersion)
     {
-        WARN() << "Requested Context version does not match the version created. Requested: "
-               << mCurrentParams->majorVersion << "." << mCurrentParams->minorVersion
-               << ", Actual: " << mFixture->eglWindow->getClientMajorVersion() << "."
-               << mFixture->eglWindow->getClientMinorVersion();
+        std::stringstream versionComparison;
+        versionComparison << "(Requested: " << mCurrentParams->majorVersion << "."
+                          << mCurrentParams->minorVersion
+                          << ", Actual: " << mFixture->eglWindow->getClientMajorVersion() << "."
+                          << mFixture->eglWindow->getClientMinorVersion() << ")";
+
+        if (mCurrentParams->isDisableRequested(Feature::EnableCreateContextBackwardsCompatible))
+        {
+            INFO() << "Extension EGL_ANGLE_create_context_backwards_compatible is disabled. "
+                   << versionComparison.str();
+        }
+        else if (!IsEGLClientExtensionEnabled("EGL_ANGLE_create_context_backwards_compatible"))
+        {
+            INFO() << "Extension EGL_ANGLE_create_context_backwards_compatible is not supported. "
+                   << versionComparison.str();
+        }
+        else
+        {
+            WARN() << "Requested context version does not match the version created. "
+                   << versionComparison.str();
+        }
     }
 
     if (needSwap)
@@ -1740,6 +1758,13 @@ bool ANGLETestBase::shouldShowWindow() const
 int ANGLETestBase::getClientMinorVersion() const
 {
     return getGLWindow()->getClientMinorVersion();
+}
+
+bool ANGLETestBase::isAtLeastClientVersion(int major, int minor) const
+{
+    return getGLWindow()->getClientMajorVersion() > major ||
+           (getGLWindow()->getClientMajorVersion() == major &&
+            getGLWindow()->getClientMinorVersion() >= minor);
 }
 
 EGLWindow *ANGLETestBase::getEGLWindow() const

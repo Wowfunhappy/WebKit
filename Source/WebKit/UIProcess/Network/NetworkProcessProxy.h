@@ -30,6 +30,7 @@
 #include "AuxiliaryProcessProxy.h"
 #include "BackgroundFetchState.h"
 #include "DataTaskIdentifier.h"
+#include "DownloadID.h"
 #include "IdentifierTypes.h"
 #include "NetworkResourceLoadIdentifier.h"
 #include "ProcessLauncher.h"
@@ -43,6 +44,7 @@
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NotificationEventType.h>
 #include <WebCore/RegistrableDomain.h>
+#include <WebCore/Site.h>
 #include <memory>
 #include <wtf/Deque.h>
 #include <wtf/TZoneMalloc.h>
@@ -78,6 +80,7 @@ class ResourceRequest;
 class SecurityOrigin;
 class SecurityOriginData;
 class Site;
+enum class AdvancedPrivacyProtections : uint16_t;
 enum class ShouldSample : bool;
 enum class StorageAccessPromptWasShown : bool;
 enum class StorageAccessWasGranted : uint8_t;
@@ -112,6 +115,7 @@ enum class WebsiteDataType : uint32_t;
 
 struct FrameInfoData;
 struct NetworkProcessCreationParameters;
+namespace SecurityFlags { struct Storage; }
 struct ResourceLoadInfo;
 struct WebPushMessage;
 struct WebsiteData;
@@ -143,12 +147,15 @@ public:
     void getNetworkProcessConnection(WebProcessProxy&, CompletionHandler<void(NetworkProcessConnectionInfo&&)>&&);
 
     void sharedPreferencesForWebProcessDidChange(WebProcessProxy&, SharedPreferencesForWebProcess&&, CompletionHandler<void()>&&);
+    void securityFlagsDidChange(const SecurityFlags::Storage&);
+    void isSecurityFlagEnabledForTesting(const String&, CompletionHandler<void(std::optional<bool>)>&&);
 
     Ref<DownloadProxy> createDownloadProxy(WebsiteDataStore&, Ref<API::DownloadClient>&&, const WebCore::ResourceRequest&, const std::optional<FrameInfoData>&, WebPageProxy* originatingPage);
     void dataTaskWithRequest(WebPageProxy&, PAL::SessionID, WebCore::ResourceRequest&&, const std::optional<WebCore::SecurityOriginData>& topOrigin, bool shouldRunAtForegroundPriority, CompletionHandler<void(API::DataTask&)>&&);
 
-    void addAllowedFirstPartyForCookies(WebProcessProxy&, const WebCore::RegistrableDomain& firstPartyForCookies, LoadedWebArchive, CompletionHandler<void()>&&);
+    void addAllowedFirstPartyForCookies(WebProcessProxy&, const WebCore::Site& firstPartyForCookies, LoadedWebArchive, CompletionHandler<void()>&&);
     void addAllowedWebPageProxyIdentifier(WebProcessProxy&, WebPageProxyIdentifier);
+    void authorizeDownloadForWebProcess(WebProcessProxy&, DownloadID, CompletionHandler<void()>&&);
     void addAllowedFilePaths(WebProcessProxy&, const Vector<String>& paths);
 
     void fetchWebsiteData(PAL::SessionID, OptionSet<WebsiteDataType>, OptionSet<WebsiteDataFetchOption>, CompletionHandler<void(WebsiteData)>&&);
@@ -158,7 +165,7 @@ public:
     void websiteDataOriginDirectoryForTesting(PAL::SessionID, WebCore::ClientOrigin&&, OptionSet<WebsiteDataType>, CompletionHandler<void(const String&)>&&);
     void lastPageLoadNetworkActivityCompletionCodeForTesting(PAL::SessionID, WebCore::PageIdentifier, CompletionHandler<void(std::optional<NetworkActivityTracker::CompletionCode>)>&&);
 
-    void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::ResourceRequest&&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>);
+    void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::ResourceRequest&&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>, OptionSet<WebCore::AdvancedPrivacyProtections>);
 
     void clearPrevalentResource(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void()>&&);
     void clearUserInteraction(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void()>&&);
@@ -499,7 +506,7 @@ private:
 #endif
 
     WeakHashSet<WebsiteDataStore> m_websiteDataStores;
-    WeakHashMap<WebProcessProxy, std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>> m_allowedFirstPartiesForCookies;
+    WeakHashMap<WebProcessProxy, std::pair<LoadedWebArchive, HashSet<WebCore::Site>>> m_allowedFirstPartiesForCookies;
     WeakHashMap<WebProcessProxy, HashSet<WebPageProxyIdentifier>> m_allowedWebPageProxyIdentifiers;
     WeakHashMap<WebProcessProxy, HashSet<String>> m_allowedFilePathsByProcess;
     HashMap<DataTaskIdentifier, Ref<API::DataTask>> m_dataTasks;

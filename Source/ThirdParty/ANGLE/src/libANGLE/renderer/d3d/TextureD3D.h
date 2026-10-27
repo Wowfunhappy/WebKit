@@ -108,7 +108,7 @@ class TextureD3D : public TextureImpl, public angle::ObserverInterface
 
     angle::Result getAttachmentRenderTarget(const gl::Context *context,
                                             GLenum binding,
-                                            const gl::OwnImageIndex &ownImageIndex,
+                                            const gl::ImageIndex &imageIndex,
                                             GLsizei samples,
                                             FramebufferAttachmentRenderTarget **rtOut) override;
 
@@ -120,7 +120,7 @@ class TextureD3D : public TextureImpl, public angle::ObserverInterface
 
     angle::Result initializeContents(const gl::Context *context,
                                      GLenum binding,
-                                     const gl::OwnImageIndex &ownImageIndex) override;
+                                     const gl::ImageIndex &imageIndex) override;
 
     angle::Result ensureUnorderedAccess(const gl::Context *context);
     angle::Result onLabelUpdate(const gl::Context *context) override;
@@ -174,6 +174,9 @@ class TextureD3D : public TextureImpl, public angle::ObserverInterface
     virtual GLint getLevelZeroDepth() const;
 
     GLint creationLevels(GLsizei width, GLsizei height, GLsizei depth) const;
+    bool isLevelComplete(int level) const;
+    bool isValidLevel(int level) const;
+    virtual bool isNonBaseLevelComplete(int level) const;
     virtual angle::Result initMipmapImages(const gl::Context *context) = 0;
     bool isBaseImageZeroSize() const;
     virtual bool isImageComplete(const gl::ImageIndex &index) const = 0;
@@ -204,6 +207,9 @@ class TextureD3D : public TextureImpl, public angle::ObserverInterface
 
     angle::Result releaseTexStorage(const gl::Context *context,
                                     const gl::TexLevelMask &copyStorageToImagesMask);
+    angle::Result releaseTexStorage(
+        const gl::Context *context,
+        const gl::CubeFaceArray<gl::TexLevelMask> &copyStorageToImagesMask);
 
     GLuint getBaseLevel() const { return mBaseLevel; }
 
@@ -224,7 +230,7 @@ class TextureD3D : public TextureImpl, public angle::ObserverInterface
 
     virtual angle::Result updateStorage(const gl::Context *context) = 0;
 
-    bool shouldUseSetData(const ImageD3D *image) const;
+    bool shouldUseSetData(const gl::ImageIndex &index, const ImageD3D *image) const;
 
     angle::Result generateMipmapUsingImages(const gl::Context *context, const GLuint maxLevel);
 
@@ -250,7 +256,7 @@ class TextureD3D_2D : public TextureD3D
     bool isSRGB(GLint level) const;
 
     angle::Result setImage(const gl::Context *context,
-                           const gl::OwnImageIndex &ownIndex,
+                           const gl::ImageIndex &index,
                            GLenum internalFormat,
                            const gl::Extents &size,
                            GLenum format,
@@ -259,7 +265,7 @@ class TextureD3D_2D : public TextureD3D
                            gl::Buffer *unpackBuffer,
                            const uint8_t *pixels) override;
     angle::Result setSubImage(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               const gl::Box &area,
                               GLenum format,
                               GLenum type,
@@ -268,14 +274,14 @@ class TextureD3D_2D : public TextureD3D
                               const uint8_t *pixels) override;
 
     angle::Result setCompressedImage(const gl::Context *context,
-                                     const gl::OwnImageIndex &ownIndex,
+                                     const gl::ImageIndex &index,
                                      GLenum internalFormat,
                                      const gl::Extents &size,
                                      const gl::PixelUnpackState &unpack,
                                      size_t imageSize,
                                      const uint8_t *pixels) override;
     angle::Result setCompressedSubImage(const gl::Context *context,
-                                        const gl::OwnImageIndex &ownIndex,
+                                        const gl::ImageIndex &index,
                                         const gl::Box &area,
                                         GLenum format,
                                         const gl::PixelUnpackState &unpack,
@@ -283,29 +289,29 @@ class TextureD3D_2D : public TextureD3D
                                         const uint8_t *pixels) override;
 
     angle::Result copyImage(const gl::Context *context,
-                            const gl::OwnImageIndex &ownIndex,
+                            const gl::ImageIndex &index,
                             const gl::Rectangle &sourceArea,
                             GLenum internalFormat,
                             gl::Framebuffer *source) override;
     angle::Result copySubImage(const gl::Context *context,
-                               const gl::OwnImageIndex &ownIndex,
+                               const gl::ImageIndex &index,
                                const gl::Offset &destOffset,
                                const gl::Rectangle &sourceArea,
                                gl::Framebuffer *source) override;
 
     angle::Result copyTexture(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               GLenum internalFormat,
                               GLenum type,
-                              gl::OwnLevel ownSourceLevel,
+                              gl::LevelIndex sourceLevel,
                               bool unpackFlipY,
                               bool unpackPremultiplyAlpha,
                               bool unpackUnmultiplyAlpha,
                               const gl::Texture *source) override;
     angle::Result copySubTexture(const gl::Context *context,
-                                 const gl::OwnImageIndex &ownIndex,
+                                 const gl::ImageIndex &index,
                                  const gl::Offset &destOffset,
-                                 gl::OwnLevel ownSourceLevel,
+                                 gl::LevelIndex sourceLevel,
                                  const gl::Box &sourceBox,
                                  bool unpackFlipY,
                                  bool unpackPremultiplyAlpha,
@@ -350,8 +356,7 @@ class TextureD3D_2D : public TextureD3D
     angle::Result updateStorage(const gl::Context *context) override;
     angle::Result initMipmapImages(const gl::Context *context) override;
 
-    bool isValidLevel(int level) const;
-    bool isLevelComplete(int level) const;
+    bool isNonBaseLevelComplete(int level) const override;
     bool isImageComplete(const gl::ImageIndex &index) const override;
 
     angle::Result updateStorageLevel(const gl::Context *context, int level);
@@ -383,7 +388,7 @@ class TextureD3D_Cube : public TextureD3D
     bool isSRGB(GLint level, GLint layer) const;
 
     angle::Result setImage(const gl::Context *context,
-                           const gl::OwnImageIndex &ownIndex,
+                           const gl::ImageIndex &index,
                            GLenum internalFormat,
                            const gl::Extents &size,
                            GLenum format,
@@ -392,7 +397,7 @@ class TextureD3D_Cube : public TextureD3D
                            gl::Buffer *unpackBuffer,
                            const uint8_t *pixels) override;
     angle::Result setSubImage(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               const gl::Box &area,
                               GLenum format,
                               GLenum type,
@@ -401,14 +406,14 @@ class TextureD3D_Cube : public TextureD3D
                               const uint8_t *pixels) override;
 
     angle::Result setCompressedImage(const gl::Context *context,
-                                     const gl::OwnImageIndex &ownIndex,
+                                     const gl::ImageIndex &index,
                                      GLenum internalFormat,
                                      const gl::Extents &size,
                                      const gl::PixelUnpackState &unpack,
                                      size_t imageSize,
                                      const uint8_t *pixels) override;
     angle::Result setCompressedSubImage(const gl::Context *context,
-                                        const gl::OwnImageIndex &ownIndex,
+                                        const gl::ImageIndex &index,
                                         const gl::Box &area,
                                         GLenum format,
                                         const gl::PixelUnpackState &unpack,
@@ -416,29 +421,29 @@ class TextureD3D_Cube : public TextureD3D
                                         const uint8_t *pixels) override;
 
     angle::Result copyImage(const gl::Context *context,
-                            const gl::OwnImageIndex &ownIndex,
+                            const gl::ImageIndex &index,
                             const gl::Rectangle &sourceArea,
                             GLenum internalFormat,
                             gl::Framebuffer *source) override;
     angle::Result copySubImage(const gl::Context *context,
-                               const gl::OwnImageIndex &ownIndex,
+                               const gl::ImageIndex &index,
                                const gl::Offset &destOffset,
                                const gl::Rectangle &sourceArea,
                                gl::Framebuffer *source) override;
 
     angle::Result copyTexture(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               GLenum internalFormat,
                               GLenum type,
-                              gl::OwnLevel ownSourceLevel,
+                              gl::LevelIndex sourceLevel,
                               bool unpackFlipY,
                               bool unpackPremultiplyAlpha,
                               bool unpackUnmultiplyAlpha,
                               const gl::Texture *source) override;
     angle::Result copySubTexture(const gl::Context *context,
-                                 const gl::OwnImageIndex &ownIndex,
+                                 const gl::ImageIndex &index,
                                  const gl::Offset &destOffset,
-                                 gl::OwnLevel ownSourceLevel,
+                                 gl::LevelIndex sourceLevel,
                                  const gl::Box &sourceBox,
                                  bool unpackFlipY,
                                  bool unpackPremultiplyAlpha,
@@ -481,7 +486,6 @@ class TextureD3D_Cube : public TextureD3D
     angle::Result updateStorage(const gl::Context *context) override;
     angle::Result initMipmapImages(const gl::Context *context) override;
 
-    bool isValidFaceLevel(int faceIndex, int level) const;
     bool isFaceLevelComplete(int faceIndex, int level) const;
     bool isCubeComplete() const;
     bool isImageComplete(const gl::ImageIndex &index) const override;
@@ -517,7 +521,7 @@ class TextureD3D_3D : public TextureD3D
     bool isSRGB(GLint level) const;
 
     angle::Result setImage(const gl::Context *context,
-                           const gl::OwnImageIndex &ownIndex,
+                           const gl::ImageIndex &index,
                            GLenum internalFormat,
                            const gl::Extents &size,
                            GLenum format,
@@ -526,7 +530,7 @@ class TextureD3D_3D : public TextureD3D
                            gl::Buffer *unpackBuffer,
                            const uint8_t *pixels) override;
     angle::Result setSubImage(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               const gl::Box &area,
                               GLenum format,
                               GLenum type,
@@ -535,14 +539,14 @@ class TextureD3D_3D : public TextureD3D
                               const uint8_t *pixels) override;
 
     angle::Result setCompressedImage(const gl::Context *context,
-                                     const gl::OwnImageIndex &ownIndex,
+                                     const gl::ImageIndex &index,
                                      GLenum internalFormat,
                                      const gl::Extents &size,
                                      const gl::PixelUnpackState &unpack,
                                      size_t imageSize,
                                      const uint8_t *pixels) override;
     angle::Result setCompressedSubImage(const gl::Context *context,
-                                        const gl::OwnImageIndex &ownIndex,
+                                        const gl::ImageIndex &index,
                                         const gl::Box &area,
                                         GLenum format,
                                         const gl::PixelUnpackState &unpack,
@@ -550,29 +554,29 @@ class TextureD3D_3D : public TextureD3D
                                         const uint8_t *pixels) override;
 
     angle::Result copyImage(const gl::Context *context,
-                            const gl::OwnImageIndex &ownIndex,
+                            const gl::ImageIndex &index,
                             const gl::Rectangle &sourceArea,
                             GLenum internalFormat,
                             gl::Framebuffer *source) override;
     angle::Result copySubImage(const gl::Context *context,
-                               const gl::OwnImageIndex &ownIndex,
+                               const gl::ImageIndex &index,
                                const gl::Offset &destOffset,
                                const gl::Rectangle &sourceArea,
                                gl::Framebuffer *source) override;
 
     angle::Result copyTexture(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               GLenum internalFormat,
                               GLenum type,
-                              gl::OwnLevel ownSourceLevel,
+                              gl::LevelIndex sourceLevel,
                               bool unpackFlipY,
                               bool unpackPremultiplyAlpha,
                               bool unpackUnmultiplyAlpha,
                               const gl::Texture *source) override;
     angle::Result copySubTexture(const gl::Context *context,
-                                 const gl::OwnImageIndex &ownIndex,
+                                 const gl::ImageIndex &index,
                                  const gl::Offset &destOffset,
-                                 gl::OwnLevel ownSourceLevel,
+                                 gl::LevelIndex sourceLevel,
                                  const gl::Box &sourceBox,
                                  bool unpackFlipY,
                                  bool unpackPremultiplyAlpha,
@@ -616,8 +620,7 @@ class TextureD3D_3D : public TextureD3D
     angle::Result updateStorage(const gl::Context *context) override;
     angle::Result initMipmapImages(const gl::Context *context) override;
 
-    bool isValidLevel(int level) const;
-    bool isLevelComplete(int level) const;
+    bool isNonBaseLevelComplete(int level) const override;
     bool isImageComplete(const gl::ImageIndex &index) const override;
     angle::Result updateStorageLevel(const gl::Context *context, int level);
 
@@ -648,7 +651,7 @@ class TextureD3D_2DArray : public TextureD3D
     bool isDepth(GLint level) const;
 
     angle::Result setImage(const gl::Context *context,
-                           const gl::OwnImageIndex &ownIndex,
+                           const gl::ImageIndex &index,
                            GLenum internalFormat,
                            const gl::Extents &size,
                            GLenum format,
@@ -657,7 +660,7 @@ class TextureD3D_2DArray : public TextureD3D
                            gl::Buffer *unpackBuffer,
                            const uint8_t *pixels) override;
     angle::Result setSubImage(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               const gl::Box &area,
                               GLenum format,
                               GLenum type,
@@ -666,14 +669,14 @@ class TextureD3D_2DArray : public TextureD3D
                               const uint8_t *pixels) override;
 
     angle::Result setCompressedImage(const gl::Context *context,
-                                     const gl::OwnImageIndex &ownIndex,
+                                     const gl::ImageIndex &index,
                                      GLenum internalFormat,
                                      const gl::Extents &size,
                                      const gl::PixelUnpackState &unpack,
                                      size_t imageSize,
                                      const uint8_t *pixels) override;
     angle::Result setCompressedSubImage(const gl::Context *context,
-                                        const gl::OwnImageIndex &ownIndex,
+                                        const gl::ImageIndex &index,
                                         const gl::Box &area,
                                         GLenum format,
                                         const gl::PixelUnpackState &unpack,
@@ -681,29 +684,29 @@ class TextureD3D_2DArray : public TextureD3D
                                         const uint8_t *pixels) override;
 
     angle::Result copyImage(const gl::Context *context,
-                            const gl::OwnImageIndex &ownIndex,
+                            const gl::ImageIndex &index,
                             const gl::Rectangle &sourceArea,
                             GLenum internalFormat,
                             gl::Framebuffer *source) override;
     angle::Result copySubImage(const gl::Context *context,
-                               const gl::OwnImageIndex &ownIndex,
+                               const gl::ImageIndex &index,
                                const gl::Offset &destOffset,
                                const gl::Rectangle &sourceArea,
                                gl::Framebuffer *source) override;
 
     angle::Result copyTexture(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               GLenum internalFormat,
                               GLenum type,
-                              gl::OwnLevel ownSourceLevel,
+                              gl::LevelIndex sourceLevel,
                               bool unpackFlipY,
                               bool unpackPremultiplyAlpha,
                               bool unpackUnmultiplyAlpha,
                               const gl::Texture *source) override;
     angle::Result copySubTexture(const gl::Context *context,
-                                 const gl::OwnImageIndex &ownIndex,
+                                 const gl::ImageIndex &index,
                                  const gl::Offset &destOffset,
-                                 gl::OwnLevel ownSourceLevel,
+                                 gl::LevelIndex sourceLevel,
                                  const gl::Box &sourceBox,
                                  bool unpackFlipY,
                                  bool unpackPremultiplyAlpha,
@@ -746,8 +749,7 @@ class TextureD3D_2DArray : public TextureD3D
     angle::Result updateStorage(const gl::Context *context) override;
     angle::Result initMipmapImages(const gl::Context *context) override;
 
-    bool isValidLevel(int level) const;
-    bool isLevelComplete(int level) const;
+    bool isNonBaseLevelComplete(int level) const override;
     bool isImageComplete(const gl::ImageIndex &index) const override;
     bool isSRGB(GLint level) const;
     angle::Result updateStorageLevel(const gl::Context *context, int level);
@@ -777,7 +779,7 @@ class TextureD3DImmutableBase : public TextureD3D
 
     ImageD3D *getImage(const gl::ImageIndex &index) const override;
     angle::Result setImage(const gl::Context *context,
-                           const gl::OwnImageIndex &ownIndex,
+                           const gl::ImageIndex &index,
                            GLenum internalFormat,
                            const gl::Extents &size,
                            GLenum format,
@@ -786,7 +788,7 @@ class TextureD3DImmutableBase : public TextureD3D
                            gl::Buffer *unpackBuffer,
                            const uint8_t *pixels) override;
     angle::Result setSubImage(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               const gl::Box &area,
                               GLenum format,
                               GLenum type,
@@ -795,14 +797,14 @@ class TextureD3DImmutableBase : public TextureD3D
                               const uint8_t *pixels) override;
 
     angle::Result setCompressedImage(const gl::Context *context,
-                                     const gl::OwnImageIndex &ownIndex,
+                                     const gl::ImageIndex &index,
                                      GLenum internalFormat,
                                      const gl::Extents &size,
                                      const gl::PixelUnpackState &unpack,
                                      size_t imageSize,
                                      const uint8_t *pixels) override;
     angle::Result setCompressedSubImage(const gl::Context *context,
-                                        const gl::OwnImageIndex &ownIndex,
+                                        const gl::ImageIndex &index,
                                         const gl::Box &area,
                                         GLenum format,
                                         const gl::PixelUnpackState &unpack,
@@ -810,12 +812,12 @@ class TextureD3DImmutableBase : public TextureD3D
                                         const uint8_t *pixels) override;
 
     angle::Result copyImage(const gl::Context *context,
-                            const gl::OwnImageIndex &ownIndex,
+                            const gl::ImageIndex &index,
                             const gl::Rectangle &sourceArea,
                             GLenum internalFormat,
                             gl::Framebuffer *source) override;
     angle::Result copySubImage(const gl::Context *context,
-                               const gl::OwnImageIndex &ownIndex,
+                               const gl::ImageIndex &index,
                                const gl::Offset &destOffset,
                                const gl::Rectangle &sourceArea,
                                gl::Framebuffer *source) override;
@@ -972,7 +974,7 @@ class TextureD3D_Buffer : public TextureD3D
     angle::Result setBuffer(const gl::Context *context, GLenum internalFormat) override;
 
     angle::Result setImage(const gl::Context *context,
-                           const gl::OwnImageIndex &ownIndex,
+                           const gl::ImageIndex &index,
                            GLenum internalFormat,
                            const gl::Extents &size,
                            GLenum format,
@@ -981,7 +983,7 @@ class TextureD3D_Buffer : public TextureD3D
                            gl::Buffer *unpackBuffer,
                            const uint8_t *pixels) override;
     angle::Result setSubImage(const gl::Context *context,
-                              const gl::OwnImageIndex &ownIndex,
+                              const gl::ImageIndex &index,
                               const gl::Box &area,
                               GLenum format,
                               GLenum type,
@@ -990,14 +992,14 @@ class TextureD3D_Buffer : public TextureD3D
                               const uint8_t *pixels) override;
 
     angle::Result setCompressedImage(const gl::Context *context,
-                                     const gl::OwnImageIndex &ownIndex,
+                                     const gl::ImageIndex &index,
                                      GLenum internalFormat,
                                      const gl::Extents &size,
                                      const gl::PixelUnpackState &unpack,
                                      size_t imageSize,
                                      const uint8_t *pixels) override;
     angle::Result setCompressedSubImage(const gl::Context *context,
-                                        const gl::OwnImageIndex &ownIndex,
+                                        const gl::ImageIndex &index,
                                         const gl::Box &area,
                                         GLenum format,
                                         const gl::PixelUnpackState &unpack,
@@ -1005,12 +1007,12 @@ class TextureD3D_Buffer : public TextureD3D
                                         const uint8_t *pixels) override;
 
     angle::Result copyImage(const gl::Context *context,
-                            const gl::OwnImageIndex &ownIndex,
+                            const gl::ImageIndex &index,
                             const gl::Rectangle &sourceArea,
                             GLenum internalFormat,
                             gl::Framebuffer *source) override;
     angle::Result copySubImage(const gl::Context *context,
-                               const gl::OwnImageIndex &ownIndex,
+                               const gl::ImageIndex &index,
                                const gl::Offset &destOffset,
                                const gl::Rectangle &sourceArea,
                                gl::Framebuffer *source) override;

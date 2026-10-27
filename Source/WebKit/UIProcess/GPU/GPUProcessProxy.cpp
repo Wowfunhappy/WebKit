@@ -39,6 +39,7 @@
 #include "OverrideLanguages.h"
 #include "ProcessTerminationReason.h"
 #include "ProvisionalPageProxy.h"
+#include "SecurityFlags.h"
 #include "SharedFileHandle.h"
 #include "WebKitServiceNames.h"
 #include "WebPageGroup.h"
@@ -173,6 +174,7 @@ GPUProcessProxy::GPUProcessProxy()
 
     GPUProcessCreationParameters parameters;
     parameters.auxiliaryProcessParameters = auxiliaryProcessParameters();
+    parameters.securityFlags.replaceWith(securityFlags());
     parameters.overrideLanguages = overrideLanguages();
 
 #if ENABLE(MEDIA_STREAM)
@@ -546,6 +548,11 @@ void GPUProcessProxy::sharedPreferencesForWebProcessDidChange(WebProcessProxy& w
     sendWithAsyncReply(Messages::GPUProcess::SharedPreferencesForWebProcessDidChange { webProcessProxy.coreProcessIdentifier(), WTF::move(sharedPreferencesForWebProcess) }, WTF::move(completionHandler));
 }
 
+void GPUProcessProxy::securityFlagsDidChange(const SecurityFlags::Storage& securityFlags)
+{
+    send(Messages::GPUProcess::SecurityFlagsDidChange { securityFlags }, 0);
+}
+
 void GPUProcessProxy::gpuProcessExited(ProcessTerminationReason reason)
 {
     Ref protectedThis { *this };
@@ -820,13 +827,15 @@ void GPUProcessProxy::updatePreferences(WebProcessProxy& webProcess)
     send(Messages::GPUProcess::UpdateGPUProcessPreferences(gpuPreferences), 0);
 }
 
-void GPUProcessProxy::updateScreenPropertiesIfNeeded()
+void GPUProcessProxy::updateScreenPropertiesIfNeeded(WebProcessPool& processPool)
 {
 #if PLATFORM(MAC)
     if (!canSendMessage())
         return;
 
-    setScreenProperties(collectScreenProperties());
+    setScreenProperties(processPool.cachedScreenProperties());
+#else
+    UNUSED_PARAM(processPool);
 #endif
 }
 

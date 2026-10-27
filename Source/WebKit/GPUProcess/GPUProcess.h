@@ -31,6 +31,7 @@
 #include "GPUProcessPreferences.h"
 #include "RemoteSnapshotIdentifier.h"
 #include "SandboxExtension.h"
+#include "SecurityFlags.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/ImageBuffer.h>
@@ -189,6 +190,7 @@ private:
     void initializeProcess(const AuxiliaryProcessInitializationParameters&) override;
     void initializeProcessName(const AuxiliaryProcessInitializationParameters&) override;
     void initializeSandbox(const AuxiliaryProcessInitializationParameters&, SandboxInitializationParameters&) override;
+    Thread::QOS connectionReceiveQueueQOS() const override { return Thread::QOS::UserInteractive; }
     bool shouldTerminate() override;
 
     void tryExitIfUnused();
@@ -203,6 +205,7 @@ private:
     void updateGPUProcessPreferences(GPUProcessPreferences&&);
     void createGPUConnectionToWebProcess(WebCore::ProcessIdentifier, PAL::SessionID, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&, CompletionHandler<void()>&&);
     void sharedPreferencesForWebProcessDidChange(WebCore::ProcessIdentifier, SharedPreferencesForWebProcess&&, CompletionHandler<void()>&&);
+    void securityFlagsDidChange(SecurityFlags::Storage&&);
     void addSession(PAL::SessionID, GPUProcessSessionParameters&&);
     void removeSession(PAL::SessionID);
     void updateSandboxAccess(const Vector<SandboxExtension::Handle>&);

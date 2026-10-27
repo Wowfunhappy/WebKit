@@ -5324,24 +5324,6 @@
                 "url": "https://www.w3.org/TR/css-logical/#inset-properties"
             }
         },
-        "flow-tolerance": {
-            "animation-type": "by computed value",
-            "initial": "normal",
-            "values": [
-                "normal",
-                "infinite"
-            ],
-            "codegen-properties": {
-                "computed-style-storage-path": ["m_nonInheritedData", "rareData", "grid"],
-                "computed-style-storage-kind": "reference",
-                "computed-style-type": "Style::FlowTolerance",
-                "parser-grammar": "normal | <length-percentage [0,inf]> | infinite"
-            },
-            "specification": {
-                "category": "css-grid",
-                "url": "https://drafts.csswg.org/css-grid-3/#placement-tolerance"
-            }
-        },
         "left": {
             "animation-type": "by computed value",
             "initial": "auto",
@@ -10394,7 +10376,7 @@
                 "computed-style-storage-kind": "value",
                 "computed-style-type": "Style::AlignItems",
                 "parser-function": "consumeAlignItems",
-                "parser-grammar-unused": "normal | stretch | <baseline-position> | [ <overflow-position>? <self-position> ]",
+                "parser-grammar-unused": "[ <overflow-position>? normal ] | stretch | <baseline-position> | [ <overflow-position>? <self-position> ]",
                 "parser-grammar-unused-reason": "Needs support for default values on optionals.",
                 "comment": "Alternate definition in css-flexbox - flex-start | flex-end | center | baseline | stretch"
             },
@@ -10433,7 +10415,7 @@
                 "computed-style-storage-kind": "value",
                 "computed-style-type": "Style::AlignSelf",
                 "parser-function": "consumeAlignSelf",
-                "parser-grammar-unused": "auto | normal | stretch | <baseline-position> | [ <overflow-position>? <self-position> ]",
+                "parser-grammar-unused": "auto | [ <overflow-position>? normal ] | stretch | <baseline-position> | [ <overflow-position>? <self-position> ]",
                 "parser-grammar-unused-reason": "Needs support for default values on optionals.",
                 "comment": "Alternate definition in css-flexbox - auto | flex-start | flex-end | center | baseline | stretch"
             },
@@ -10705,7 +10687,7 @@
                 "computed-style-storage-kind": "value",
                 "computed-style-type": "Style::JustifySelf",
                 "parser-function": "consumeJustifySelf",
-                "parser-grammar-unused": "auto | normal | stretch | <baseline-position> | [ <overflow-position>? [ <self-position> | left | right ] ]",
+                "parser-grammar-unused": "auto | [ <overflow-position>? normal ] | stretch | <baseline-position> | [ <overflow-position>? [ <self-position> | left | right ] ]",
                 "parser-grammar-unused-reason": "Needs support for default values on optionals."
             },
             "specification": {
@@ -10725,7 +10707,7 @@
                 "computed-style-storage-kind": "value",
                 "computed-style-type": "Style::JustifyItems",
                 "parser-function": "consumeJustifyItems",
-                "parser-grammar-unused": "[ normal | stretch | <baseline-position> | [ <overflow-position>? [ <self-position> | left | right ] ] | legacy | legacy ] && [ left | right | center ]",
+                "parser-grammar-unused": "[ [ <overflow-position>? normal ] | stretch | <baseline-position> | [ <overflow-position>? [ <self-position> | left | right ] ] | legacy | legacy ] && [ left | right | center ]",
                 "parser-grammar-unused-reason": "Needs support for default values on optionals."
             },
             "specification": {
@@ -11039,6 +11021,27 @@
             "specification": {
                 "category": "css-grid",
                 "url": "https://www.w3.org/TR/css-grid-1/#propdef-grid-auto-flow"
+            }
+        },
+        "fit-tolerance": {
+            "animation-type": "by computed value",
+            "initial": "normal",
+            "values": [
+                "normal",
+                "infinite"
+            ],
+            "codegen-properties": {
+                "aliases": [
+                    "flow-tolerance"
+                ],
+                "computed-style-storage-path": ["m_nonInheritedData", "rareData", "grid"],
+                "computed-style-storage-kind": "reference",
+                "computed-style-type": "Style::FitTolerance",
+                "parser-grammar": "normal | <length-percentage [0,inf]> | infinite"
+            },
+            "specification": {
+                "category": "css-grid",
+                "url": "https://drafts.csswg.org/css-grid-3/#placement-tolerance"
             }
         },
         "hyphenate-character": {

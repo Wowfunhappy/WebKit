@@ -9,11 +9,11 @@
 //   allocation list for the D3D renderer.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/VaryingPacking.h"
+
+#include <array>
+
+#include "common/unsafe_buffers.h"
 
 #include "common/CompiledShaderState.h"
 #include "common/utilities.h"
@@ -151,11 +151,10 @@ GLint GetMaxShaderOutputVectors(const Caps &caps, ShaderType shaderStage)
 
 bool ShouldSkipPackedVarying(const sh::ShaderVariable &varying, PackMode packMode)
 {
-    // Don't pack gl_Position. Also don't count gl_PointSize for D3D9.
+    // Don't pack gl_Position.
     // Additionally, gl_TessLevelInner and gl_TessLevelOuter should not be packed.
-    return varying.name == "gl_Position" ||
-           (varying.name == "gl_PointSize" && packMode == PackMode::ANGLE_NON_CONFORMANT_D3D9) ||
-           varying.name == "gl_TessLevelInner" || varying.name == "gl_TessLevelOuter";
+    return varying.name == "gl_Position" || varying.name == "gl_TessLevelInner" ||
+           varying.name == "gl_TessLevelOuter";
 }
 
 std::vector<unsigned int> StripVaryingArrayDimension(const sh::ShaderVariable *frontVarying,
@@ -366,16 +365,9 @@ bool VaryingPacking::packVaryingIntoRegisterMap(PackMode packMode,
     unsigned int varyingRows    = gl::VariableRowCount(transposedType);
     unsigned int varyingColumns = gl::VariableColumnCount(transposedType);
 
-    // Special pack mode for D3D9. Each varying takes a full register, no sharing.
-    // TODO(jmadill): Implement more sophisticated component packing in D3D9.
-    if (packMode == PackMode::ANGLE_NON_CONFORMANT_D3D9)
-    {
-        varyingColumns = 4;
-    }
-
     // "Variables of type mat2 occupies 2 complete rows."
     // For non-WebGL contexts, we allow mat2 to occupy only two columns per row.
-    else if (packMode == PackMode::WEBGL_STRICT && varying.type == GL_FLOAT_MAT2)
+    if (packMode == PackMode::WEBGL_STRICT && varying.type == GL_FLOAT_MAT2)
     {
         varyingColumns = 4;
     }
@@ -429,9 +421,9 @@ bool VaryingPacking::packVaryingIntoRegisterMap(PackMode packMode,
     // first. Each variable is placed in the column that leaves the least amount of space in the
     // column and aligned to the lowest available rows within that column."
     ASSERT(varyingColumns == 1);
-    unsigned int contiguousSpace[4]     = {0};
-    unsigned int bestContiguousSpace[4] = {0};
-    unsigned int totalSpace[4]          = {0};
+    std::array<unsigned int, 4> contiguousSpace     = {0};
+    std::array<unsigned int, 4> bestContiguousSpace = {0};
+    std::array<unsigned int, 4> totalSpace          = {0};
 
     for (unsigned int row = 0; row < maxVaryingVectors; ++row)
     {
@@ -984,13 +976,6 @@ bool VaryingPacking::packUserVaryings(gl::InfoLog &infoLog,
                                          ? packedVarying.frontVarying.stage
                                          : packedVarying.backVarying.stage;
             infoLog << "Could not pack varying " << packedVarying.fullName(eitherStage);
-
-            // TODO(jmadill): Implement more sophisticated component packing in D3D9.
-            if (packMode == PackMode::ANGLE_NON_CONFORMANT_D3D9)
-            {
-                infoLog << "Note: Additional non-conformant packing restrictions are enforced on "
-                           "D3D9.";
-            }
 
             return false;
         }

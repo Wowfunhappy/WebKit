@@ -45,6 +45,19 @@ extension WebPage {
         case toggleUnderline = "ToggleUnderline"
     }
 
+    /// The main frame tree node of this page.
+    public var mainFrame: _WKFrameTreeNode? {
+        get async {
+            await backingWebView._frames()
+        }
+    }
+
+    /// The scale factor by which the page scales content relative to its bounds.
+    public var pageZoom: Double {
+        get { backingWebView.pageZoom }
+        set { backingWebView.pageZoom = newValue }
+    }
+
     /// Suspends execution of the current context until the next presentation update has occurred for this page.
     public func waitForNextPresentationUpdate() async {
         await withCheckedContinuation { continuation in
@@ -53,6 +66,13 @@ extension WebPage {
             })
         }
     }
+
+    #if WTF_PLATFORM_MAC
+    /// The set of views containing the PDF HUDs within the page, if any.
+    public var pdfHUDs: Set<NSView> {
+        backingWebView._pdfHUDs()
+    }
+    #endif // WTF_PLATFORM_MAC
 
     /// Configures a specific preference for the engine to use.
     ///
@@ -94,13 +114,6 @@ extension WebPage {
         await waitForNextPresentationUpdate()
     }
 
-    /// The main frame tree node of this page.
-    public var mainFrame: _WKFrameTreeNode? {
-        get async {
-            await backingWebView._frames()
-        }
-    }
-
     /// Perform the specified edit command on the webpage, optionally with an argument provided to the command.
     ///
     /// - Parameters:
@@ -111,7 +124,15 @@ extension WebPage {
         assert(success)
     }
 
-    #if os(macOS)
+    #if WTF_PLATFORM_MAC
+    /// Determines if the specified point is located above a visible scrollbar.
+    ///
+    /// - Parameter locationInView: The point in view coordinates to test.
+    /// - Returns: `true` if the point is over a scrollbar; `false` otherwise.
+    public func isPointInScrollbar(locationInView: NSPoint) -> Bool {
+        backingWebView.isPoint(inScrollbar: locationInView)
+    }
+
     /// Sends a left mouse-down NSEvent to the web view at the given location.
     ///
     /// - Parameter location: The location in window coordinates.
@@ -132,7 +153,11 @@ extension WebPage {
     ///   - location: The location in window coordinates.
     ///   - flags: Modifier flags to include in the event.
     public func mouseMove(to location: NSPoint, flags: NSEvent.ModifierFlags = []) {
-        backingWebView.mouseMoved(with: mouseEvent(.mouseMoved, at: location, flags: flags, clickCount: 0, pressure: 0))
+        // WKWebView receives mouse moves through tracking areas rather than the responder
+        // chain, so sending one to the view directly with `-mouseMoved:` would go nowhere.
+        // `_simulateMouseMove:` is the entry point that reaches `WebViewImpl::mouseMoved`.
+        // See precedent established in PlatformWebView, TestWKWebView, and EventSenderProxy.
+        backingWebView._simulateMouseMove(mouseEvent(.mouseMoved, at: location, flags: flags, clickCount: 0, pressure: 0))
     }
 
     /// Sends a left mouse-dragged NSEvent to the web view at the given location.
@@ -200,12 +225,39 @@ extension WebPage {
         }
     }
 
+    /// Monitors wheel events while `body` runs, then suspends until the resulting scroll comes to rest.
+    ///
+    /// - Parameters:
+    ///   - expectingMomentumEnd: Whether to additionally wait for a momentum phase to end.
+    ///   - body: The work producing the scroll.
+    /// - Throws: Whatever `body` throws, without waiting for the scroll to come to rest.
+    public func withWheelEventMonitoring<Failure: Error>(
+        expectingMomentumEnd: Bool = false,
+        perform body: () async throws(Failure) -> Void
+    ) async throws(Failure) {
+        await backingWebView._startMonitoringWheelEventsForTesting()
+
+        try await body()
+
+        if expectingMomentumEnd {
+            await backingWebView._waitForWheelEventsAndMomentumToCompleteForTesting()
+        } else {
+            await backingWebView._waitForWheelEventsToCompleteForTesting()
+        }
+    }
+
     /// Copies the current selection to the system pasteboard and returns its string representation.
     public func copySelection() async -> String? {
         NSPasteboard.general.clearContents()
         NSApp.sendAction(#selector(NSText.copy(_:)), to: backingWebView, from: nil)
         await waitForNextPresentationUpdate()
         return NSPasteboard.general.string(forType: .string)
+    }
+
+    /// Selects the entire contents of the page.
+    public func selectAll() async {
+        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: backingWebView, from: nil)
+        await waitForNextPresentationUpdate()
     }
 
     private func mouseEvent(

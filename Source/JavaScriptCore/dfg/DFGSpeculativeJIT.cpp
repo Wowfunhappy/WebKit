@@ -390,6 +390,10 @@ void SpeculativeJIT::speculationCheckOutOfMemory(JSValueSource, Node*, const Jum
     });
 }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+// Note that emitting the mutatorFence is the responsibility of the caller and should be
+// done after its last initializing stores and before the object escapes.
+#endif
 void SpeculativeJIT::emitAllocateRawObject(GPRReg resultGPR, RegisteredStructure structure, GPRReg storageGPR, unsigned numElements, unsigned vectorLength)
 {
     ASSERT(!isCopyOnWrite(structure->indexingMode()));
@@ -460,8 +464,10 @@ void SpeculativeJIT::emitAllocateRawObject(GPRReg resultGPR, RegisteredStructure
         store32(TrustedImm32(numElements), Address(storageGPR, Butterfly::offsetOfPublicLength()));
     
     emitInitializeOutOfLineStorage(storageGPR, structure->outOfLineCapacity(), scratchGPR);
+#ifdef RC_REMOVE_SEC_ACCEL_3
     
     mutatorFence(vm);
+#endif
 }
 
 void SpeculativeJIT::emitGetArgumentCount(InlineCallFrame* inlineCallFrame, GPRReg lengthGPR, bool includeThis)
@@ -9513,8 +9519,21 @@ void SpeculativeJIT::compileSpread(Node* node)
     else if (node->child1().useKind() == SetObjectUse)
         speculateSetObject(node->child1(), argument);
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
     bool fastSpreadProven = m_graph.canDoFastSpread(node, m_state.forNode(node->child1()));
     bool fastSpreadWithStructureCheck = !fastSpreadProven && m_graph.canDoFastSpreadWithStructureCheck(node);
+#else
+    // Same two decisions the pre-fix code made, so everything downstream is shared verbatim.
+    constexpr bool canSpeculate = true;
+    Graph::ProtocolWatchResult arrayWatch = Graph::ProtocolWatchResult::Unwatchable;
+    // The structures a RequiresSemanticStructureCheck operand must be narrowed to, which is every
+    // realm the operand's proven structures belong to rather than just the semantic origin's.
+    RegisteredStructureSet arrayStructuresToCheck;
+    if (node->child1().useKind() == ArrayUse)
+        std::tie(arrayWatch, arrayStructuresToCheck) = m_graph.tryWatchArrayIteratorProtocol(node->child1().node(), m_state.forNode(node->child1()), canSpeculate);
+    bool fastSpreadProven = arrayWatch == Graph::ProtocolWatchResult::Proven;
+    bool fastSpreadWithStructureCheck = arrayWatch == Graph::ProtocolWatchResult::RequiresSemanticStructureCheck;
+#endif // RC_REMOVE_SEC_ACCEL_3
 
     if (fastSpreadProven || fastSpreadWithStructureCheck) {
 #if USE(JSVALUE64)
@@ -9534,13 +9553,19 @@ void SpeculativeJIT::compileSpread(Node* node)
         JumpList done;
 
         if (fastSpreadWithStructureCheck) {
-            JSGlobalObject* childGlobalObject = m_graph.globalObjectFor(node->child1()->origin.semantic);
             load32(Address(argument, JSCell::structureIDOffset()), scratch1GPR);
             JumpList structureMatched;
+#ifdef RC_REMOVE_SEC_ACCEL_3
+            JSGlobalObject* childGlobalObject = m_graph.globalObjectFor(node->child1()->origin.semantic);
             for (IndexingType indexingType : Graph::originalArrayShapesForSpread) {
                 RegisteredStructure registered = m_graph.registerStructure(childGlobalObject->originalArrayStructureForIndexingType(indexingType));
                 structureMatched.append(branchWeakStructure(Equal, scratch1GPR, registered));
             }
+#else
+            arrayStructuresToCheck.forEach([&](RegisteredStructure registered) {
+                structureMatched.append(branchWeakStructure(Equal, scratch1GPR, registered));
+            });
+#endif // RC_REMOVE_SEC_ACCEL_3
             slowPath.append(jump());
             structureMatched.link(this);
         }
@@ -9641,6 +9666,7 @@ void SpeculativeJIT::compileSpread(Node* node)
 
         using Helper = JSSet::Helper;
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
         // Guard: any non-default structure (changed prototype, or own properties
         // including Symbol.iterator) means we cannot assume the standard iterator
         // protocol applies to this instance. Route such sets to the slow path,
@@ -9660,6 +9686,27 @@ void SpeculativeJIT::compileSpread(Node* node)
                 slowPath.append(branch32(NotEqual, scratch2GPR, TrustedImm32(registeredSetStructure->id().bits())));
             }
         }
+#else
+        // The inline path below walks the Set's storage directly, bypassing Symbol.iterator, so it
+        // is only valid where the iteration protocol has been proven non-observable. Anything less
+        // goes to the slow path, which performs the authoritative
+        // isIteratorProtocolFastAndNonObservable check.
+        auto [setWatch, setStructureToCheck] = m_graph.tryWatchSetIteratorProtocol(node->child1().node(), m_state.forNode(node->child1()), canSpeculate);
+        switch (setWatch) {
+        case Graph::ProtocolWatchResult::Unwatchable:
+            slowPath.append(jump());
+            break;
+
+        case Graph::ProtocolWatchResult::RequiresSemanticStructureCheck: {
+            load32(Address(argument, JSCell::structureIDOffset()), scratch2GPR);
+            slowPath.append(branch32(NotEqual, scratch2GPR, TrustedImm32(setStructureToCheck->id().bits())));
+            break;
+        }
+
+        case Graph::ProtocolWatchResult::Proven:
+            break;
+        }
+#endif // RC_REMOVE_SEC_ACCEL_3
 
         // Load Set storage pointer.
         loadPtr(Address(argument, JSSet::offsetOfStorage()), scratch1GPR);
@@ -9788,6 +9835,9 @@ void SpeculativeJIT::compileNewArray(Node* node)
                 break;
             }
         }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        mutatorFence(vm());
+#endif
 
         // Yuck, we should *really* have a way of also returning the storageGPR. But
         // that's the least of what's wrong with this code. We really shouldn't be
@@ -9915,6 +9965,9 @@ void SpeculativeJIT::compileNewArrayWithSpread(Node* node)
             addPtr(TrustedImm32(JSCellButterfly::offsetOfData()), butterflyGPR);
 
             emitAllocateJSObject<JSArray>(resultGPR, TrustedImmPtr(structure), butterflyGPR, scratch1GPR, scratch2GPR, slowCases, SlowAllocationResult::UndefinedBehavior);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            mutatorFence(vm());
+#endif
 
             addSlowPathGenerator(slowPathCall(slowCases, this, operationNewArrayBuffer, resultGPR, TrustedImmPtr(&vm()), structure, immutableButterflyGPR));
 
@@ -14745,6 +14798,9 @@ void SpeculativeJIT::compileMaterializeNewObject(Node* node)
             break;
         }
     }
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    mutatorFence(vm());
+#endif
 
     cellResult(resultGPR, node);
 }
@@ -15840,6 +15896,9 @@ void SpeculativeJIT::compileNewArrayBuffer(Node* node)
         JumpList slowCases;
 
         emitAllocateJSObject<JSArray>(resultGPR, TrustedImmPtr(structure), TrustedImmPtr(array->toButterfly()), scratch1GPR, scratch2GPR, slowCases, SlowAllocationResult::UndefinedBehavior);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        mutatorFence(vm());
+#endif
 
         addSlowPathGenerator(slowPathCall(slowCases, this, operationNewArrayBuffer, result.gpr(), TrustedImmPtr(&vm()), structure, LinkableConstant(*this, array)));
 
@@ -16006,6 +16065,12 @@ void SpeculativeJIT::compileArraySortCompact(Node* node)
     jump().linkTo(loop, this);
 
     holes.link(this);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    // The scratch won't be barriered, so need to undo the writes.
+    // Without this, we could have an unremembered old/black cell referencing new/white cells.
+    emitFillStorageWithJSEmpty(scratchGPR, JSCellButterfly::offsetOfData(), sortScratchSlotCount, counterGPR);
+    storePtr(scratchGPR, &vm().m_cachedSortScratch);
+#endif
     move(TrustedImmPtr(std::bit_cast<void*>(vm().m_sortScratchSentinel.get())), scratchGPR);
 
     done.link(this);
@@ -16068,6 +16133,9 @@ void SpeculativeJIT::compileNewArrayWithButterfly(Node* node)
     JumpList slowCases;
 
     emitAllocateJSObject<JSArray>(resultGPR, TrustedImmPtr(structure), storageGPR, scratch1GPR, scratch2GPR, slowCases, SlowAllocationResult::UndefinedBehavior);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    mutatorFence(vm());
+#endif
 
     addSlowPathGenerator(slowPathCall(slowCases, this, operationNewArrayWithSize, result.gpr(), LinkableConstant::globalObject(*this, node), structure, TrustedImm32(node->child1()->asInt32()), storageGPR));
 
@@ -16294,6 +16362,9 @@ void SpeculativeJIT::compileOwnPropertyKeysVariant(Node* node)
             addPtr(TrustedImm32(JSCellButterfly::offsetOfData()), scratchGPR);
 
             emitAllocateJSObject<JSArray>(resultGPR, TrustedImmPtr(arrayStructure), scratchGPR, structureGPR, scratch2GPR, slowButArrayBufferCases, SlowAllocationResult::UndefinedBehavior);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            mutatorFence(vm());
+#endif
 
             addSlowPathGenerator(slowPathCall(slowButArrayBufferCases, this, operationNewArrayBuffer, resultGPR, TrustedImmPtr(&vm()), arrayStructure, scratch3GPR));
 

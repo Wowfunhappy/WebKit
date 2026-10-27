@@ -6,10 +6,6 @@
 // CLDeviceVk.cpp: Implements the class methods for CLDeviceVk.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/vulkan/CLDeviceVk.h"
 #include "libANGLE/renderer/driver_utils.h"
 #include "libANGLE/renderer/vulkan/clspv_utils.h"
@@ -38,8 +34,7 @@ uint32_t CLDeviceVk::getNumComputeUnits() const
                shaderCoreProperties.shaderArraysPerEngineCount *
                shaderCoreProperties.computeUnitsPerShaderArray / workGroupFactor;
     }
-
-    return cl::IMPLEMENATION_NUM_COMPUTE_UNITS;
+    return cl::IMPLEMENTATION_NUM_COMPUTE_UNITS;
 }
 
 uint32_t CLDeviceVk::getWorkGroupSizeMultiple() const
@@ -48,8 +43,7 @@ uint32_t CLDeviceVk::getWorkGroupSizeMultiple() const
     {
         return getRenderer()->getPhysicalDeviceShaderCorePropertiesAMD().wavefrontSize;
     }
-
-    return cl::IMPLEMENATION_PREFERRED_WORKGROUP_SIZE_MULTIPLE;
+    return cl::IMPLEMENTATION_PREFERRED_WORKGROUP_SIZE_MULTIPLE;
 }
 
 cl_ulong CLDeviceVk::getSingleFpConfig() const
@@ -117,6 +111,98 @@ cl_ulong CLDeviceVk::getCacheSize() const
     return 1024 * 1024ULL;
 }
 
+cl_ulong CLDeviceVk::getHeapSizeForResource(const VkMemoryPropertyFlags supportedProperties,
+                                            const VkMemoryPropertyFlags avoidedProperties) const
+{
+    const vk::MemoryProperties &memoryProperties = mRenderer->getMemoryProperties();
+    for (uint32_t memTypeIdx = 0; memTypeIdx < memoryProperties.getMemoryTypeCount(); memTypeIdx++)
+    {
+        bool support = (memoryProperties.getMemoryType(memTypeIdx).propertyFlags &
+                        supportedProperties) == supportedProperties;
+        bool avoid =
+            (memoryProperties.getMemoryType(memTypeIdx).propertyFlags & avoidedProperties) != 0;
+        if (support && !avoid)
+        {
+            return memoryProperties.getHeapSizeForMemoryType(memTypeIdx);
+        }
+    }
+    return 0;
+}
+
+cl_ulong CLDeviceVk::getGlobalMemSize() const
+{
+    // Memory-property sets that can back CL buffers (host-visible), with varying cache/coherency.
+    cl_ulong bufferSize                                            = 0;
+    static constexpr VkMemoryPropertyFlags kBufferSupportedFlags[] = {
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    };
+    for (const VkMemoryPropertyFlags &supportedFlags : kBufferSupportedFlags)
+    {
+        bufferSize = std::max(bufferSize, getHeapSizeForResource(supportedFlags, 0));
+    }
+
+    // Memory-property sets that can back CL images (device-local, non-host-coherent).
+    cl_ulong imageSize                                            = 0;
+    static constexpr VkMemoryPropertyFlags kImageSupportedFlags[] = {
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT};
+    for (const VkMemoryPropertyFlags &supportedFlags : kImageSupportedFlags)
+    {
+        imageSize = std::max(imageSize, getHeapSizeForResource(
+                                            supportedFlags, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT));
+    }
+
+    // Return the size of the smallest memory heap
+    if (bufferSize == 0)
+    {
+        return imageSize;
+    }
+    if (imageSize == 0)
+    {
+        return bufferSize;
+    }
+    return std::min(bufferSize, imageSize);
+}
+
+cl_ulong CLDeviceVk::getMaxMemAllocSize() const
+{
+    constexpr cl_ulong MB = 1024 * 1024UL;
+    constexpr cl_ulong GB = 1024 * MB;
+
+    const cl_ulong globalMemorySize = getGlobalMemSize();
+    const cl_ulong quarterGlobalMem = globalMemorySize >> 2;
+    const cl_ulong maxAllocSize     = mRenderer->getMaxMemoryAllocationSize();
+    const cl_ulong specMinimum      = gl::clamp(quarterGlobalMem, 32 * MB, 1 * GB);
+
+    if (maxAllocSize < specMinimum)
+    {  // vulkan device is not conformant
+        ERR() << "vk device (0x" << this
+              << ") CL_DEVICE_MAX_MEM_ALLOC_SIZE is less than CL spec minimum (i.e. "
+              << maxAllocSize << " < " << specMinimum << ")!";
+        return cl::kMaxAllocSentinel;
+    }
+
+    return specMinimum;
+}
+
+size_t CLDeviceVk::getImageMaxBufferSize() const
+{
+    const VkPhysicalDeviceProperties &properties = mRenderer->getPhysicalDeviceProperties();
+    const VkDeviceSize maxBufferSize             = std::min(
+        static_cast<cl_ulong>(properties.limits.maxTexelBufferElements), getMaxMemAllocSize());
+
+    // Reserve headroom for the vertex-attribute stride padding that
+    // padVertexAttribBufferSizeIfNeeded() would later append. padVertexAttribBufferSizeIfNeeded(0)
+    // yields that padding amount (0 when the padBuffersToMaxVertexAttribStride feature is
+    // disabled).
+    const VkDeviceSize maxVertexAttribStride = mRenderer->padVertexAttribBufferSizeIfNeeded(0);
+    ASSERT(maxBufferSize > maxVertexAttribStride);
+
+    return static_cast<size_t>(maxBufferSize - maxVertexAttribStride);
+}
+
 CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
     : CLDeviceImpl(device), mRenderer(renderer), mSpirvVersion(ClspvGetSpirvVersion(renderer))
 {
@@ -133,36 +219,40 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::Profile, std::string("FULL_PROFILE")},
         {cl::DeviceInfo::OpenCL_C_Version, std::string("OpenCL C 1.2 ")},
         {cl::DeviceInfo::LatestConformanceVersionPassed, std::string("FIXME")}};
+
     mInfoSizeT = {
+        // Below caps are retrieved from Vulkan queries
         {cl::DeviceInfo::MaxWorkGroupSize, props.limits.maxComputeWorkGroupInvocations},
-        {cl::DeviceInfo::MaxGlobalVariableSize, 1024 * 1024 * 1024},
+        {cl::DeviceInfo::ProfilingTimerResolution, props.limits.timestampPeriod},
+
+        // Below caps are retrieved from vendor specific extensions if present
+        {cl::DeviceInfo::PreferredWorkGroupSizeMultiple, getWorkGroupSizeMultiple()},
+
+        // Below caps are not supported by current implementation
+        {cl::DeviceInfo::MaxGlobalVariableSize, 0},
         {cl::DeviceInfo::GlobalVariablePreferredTotalSize, 0},
 
+        // Below caps are set to some known good values
         // TODO(aannestrand) Update these hardcoded platform/device queries
         // http://anglebug.com/42266935
         {cl::DeviceInfo::MaxParameterSize, 1024},
-        {cl::DeviceInfo::ProfilingTimerResolution, 1},
         {cl::DeviceInfo::PrintfBufferSize, 1024 * 1024},
-        {cl::DeviceInfo::PreferredWorkGroupSizeMultiple, getWorkGroupSizeMultiple()},
     };
 
     mInfoULong = {
+        // Below caps are retrieved from Vulkan queries
+        {cl::DeviceInfo::MaxMemAllocSize, getMaxMemAllocSize()},
+        {cl::DeviceInfo::GlobalMemSize, getGlobalMemSize()},
         {cl::DeviceInfo::LocalMemSize, props.limits.maxComputeSharedMemorySize},
-        {cl::DeviceInfo::SVM_Capabilities, 0ULL},
-        {cl::DeviceInfo::QueueOnDeviceProperties, 0ULL},
-        {cl::DeviceInfo::PartitionAffinityDomain, 0ULL},
-        {cl::DeviceInfo::DeviceEnqueueCapabilities, 0ULL},
-        {cl::DeviceInfo::QueueOnHostProperties, CL_QUEUE_PROFILING_ENABLE},
 
-        // TODO(aannestrand) Update these hardcoded platform/device queries
-        // http://anglebug.com/42266935
+        // Below caps are retrieved from vendor specific extensions if present
+        {cl::DeviceInfo::SingleFpConfig, getSingleFpConfig()},
         {cl::DeviceInfo::HalfFpConfig, getHalfFpConfig()},
         {cl::DeviceInfo::DoubleFpConfig, getDoubleFpConfig()},
         {cl::DeviceInfo::GlobalMemCacheSize, getCacheSize()},
-        {cl::DeviceInfo::GlobalMemSize, 4 * 1024 * 1024 * 1024ULL},
-        // Constant buffer size is same as global variable size in SGPU
-        {cl::DeviceInfo::MaxConstantBufferSize, 1024 * 1024 * 1024ULL},
-        {cl::DeviceInfo::SingleFpConfig, getSingleFpConfig()},
+
+        // Below are Vulkan backend implementation details
+        {cl::DeviceInfo::QueueOnHostProperties, CL_QUEUE_PROFILING_ENABLE},
         {cl::DeviceInfo::AtomicMemoryCapabilities,
          CL_DEVICE_ATOMIC_ORDER_RELAXED | CL_DEVICE_ATOMIC_SCOPE_WORK_GROUP |
              CL_DEVICE_ATOMIC_ORDER_ACQ_REL | CL_DEVICE_ATOMIC_SCOPE_DEVICE |
@@ -173,6 +263,18 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
                                                       CL_DEVICE_ATOMIC_SCOPE_WORK_GROUP |
                                                       // non-mandatory
                                                       CL_DEVICE_ATOMIC_SCOPE_WORK_ITEM},
+
+        // Below caps are not supported by current implementation
+        {cl::DeviceInfo::SVM_Capabilities, 0ULL},
+        {cl::DeviceInfo::QueueOnDeviceProperties, 0ULL},
+        {cl::DeviceInfo::PartitionAffinityDomain, 0ULL},
+        {cl::DeviceInfo::DeviceEnqueueCapabilities, 0ULL},
+
+        // Below caps are set to some known good values
+        // TODO(aannestrand) Update these hardcoded platform/device queries
+        // http://anglebug.com/42266935
+        // Constant buffer size is same as global variable size in SGPU
+        {cl::DeviceInfo::MaxConstantBufferSize, 1024 * 1024 * 1024ULL},
     };
 
     cl_uint maxNumSubGroups = 0u;
@@ -185,15 +287,42 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
     }
 
     mInfoUInt = {
+        // Below caps are retrieved from Vulkan queries
         {cl::DeviceInfo::VendorID, props.vendorID},
-        {cl::DeviceInfo::MaxReadImageArgs, cl::IMPLEMENATION_MAX_READ_IMAGES},
-        {cl::DeviceInfo::MaxWriteImageArgs, cl::IMPLEMENATION_MAX_WRITE_IMAGES},
-        {cl::DeviceInfo::MaxReadWriteImageArgs, cl::IMPLEMENATION_MAX_WRITE_IMAGES},
         {cl::DeviceInfo::GlobalMemCachelineSize,
          static_cast<cl_uint>(props.limits.nonCoherentAtomSize)},
+        {cl::DeviceInfo::MaxNumSubGroups, maxNumSubGroups},
+        {cl::DeviceInfo::SubGroupIndependentForwardProgress,
+         maxNumSubGroups > 0 ? CL_TRUE : CL_FALSE},
+        {cl::DeviceInfo::AddressBits,
+         mRenderer->getFeatures().supportsBufferDeviceAddress.enabled ? 64 : 32},
+
+        // Below caps are retrieved from vendor specific extensions if present
+        {cl::DeviceInfo::MaxComputeUnits, getNumComputeUnits()},
+        // Frequency is reported in MHz
+        {cl::DeviceInfo::MaxClockFrequency, 555},
+        // Report the number of CU's as max sub devices for now
+        {cl::DeviceInfo::PartitionMaxSubDevices, getNumComputeUnits()},
+
+        // Below are currently setup as Vulkan backend implementation details
+        {cl::DeviceInfo::MaxReadImageArgs, cl::IMPLEMENTATION_MAX_READ_IMAGES},
+        {cl::DeviceInfo::MaxWriteImageArgs, cl::IMPLEMENTATION_MAX_WRITE_IMAGES},
+        {cl::DeviceInfo::MaxReadWriteImageArgs, cl::IMPLEMENTATION_MAX_WRITE_IMAGES},
         {cl::DeviceInfo::Available, CL_TRUE},
         {cl::DeviceInfo::LinkerAvailable, CL_TRUE},
         {cl::DeviceInfo::CompilerAvailable, CL_TRUE},
+        {cl::DeviceInfo::ExecutionCapabilities, CL_EXEC_KERNEL},
+        {cl::DeviceInfo::PreferredInteropUserSync, CL_TRUE},
+        {cl::DeviceInfo::GlobalMemCacheType, CL_READ_WRITE_CACHE},
+        {cl::DeviceInfo::HostUnifiedMemory, CL_TRUE},
+        // TODO(aannestrand) Update these hardcoded platform/device queries
+        // http://anglebug.com/42266935
+        {cl::DeviceInfo::EndianLittle, CL_TRUE},
+        {cl::DeviceInfo::LocalMemType, CL_LOCAL},
+        {cl::DeviceInfo::MaxWorkItemDimensions, 3},
+        {cl::DeviceInfo::NonUniformWorkGroupSupport, CL_TRUE},
+
+        // Below caps are not supported by current implementation
         {cl::DeviceInfo::MaxOnDeviceQueues, 0},
         {cl::DeviceInfo::MaxOnDeviceEvents, 0},
         {cl::DeviceInfo::QueueOnDeviceMaxSize, 0},
@@ -203,27 +332,15 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::PipeSupport, CL_FALSE},
         {cl::DeviceInfo::PipeMaxActiveReservations, 0},
         {cl::DeviceInfo::ErrorCorrectionSupport, CL_FALSE},
-        {cl::DeviceInfo::PreferredInteropUserSync, CL_TRUE},
-        {cl::DeviceInfo::ExecutionCapabilities, CL_EXEC_KERNEL},
+        {cl::DeviceInfo::GenericAddressSpaceSupport, CL_FALSE},
+        {cl::DeviceInfo::WorkGroupCollectiveFunctionsSupport, CL_FALSE},
 
-        // TODO(aannestrand) Update these hardcoded platform/device queries
-        // http://anglebug.com/42266935
-        {cl::DeviceInfo::AddressBits,
-         mRenderer->getFeatures().supportsBufferDeviceAddress.enabled ? 64 : 32},
-        {cl::DeviceInfo::EndianLittle, CL_TRUE},
-        {cl::DeviceInfo::LocalMemType, CL_LOCAL},
+        // Below caps are set to some known good values
         // TODO (http://anglebug.com/379669750) Vulkan reports a big sampler count number, we dont
         // need that many and set it to minimum req for now.
         {cl::DeviceInfo::MaxSamplers, 16u},
         {cl::DeviceInfo::MaxConstantArgs, 8},
-        {cl::DeviceInfo::MaxNumSubGroups, maxNumSubGroups},
-        {cl::DeviceInfo::MaxComputeUnits, getNumComputeUnits()},
-        // Frequency is reported in MHz
-        {cl::DeviceInfo::MaxClockFrequency, 555},
-        {cl::DeviceInfo::MaxWorkItemDimensions, 3},
         {cl::DeviceInfo::MinDataTypeAlignSize, 128},
-        {cl::DeviceInfo::GlobalMemCacheType, CL_READ_WRITE_CACHE},
-        {cl::DeviceInfo::HostUnifiedMemory, CL_TRUE},
         {cl::DeviceInfo::NativeVectorWidthChar, 4},
         {cl::DeviceInfo::NativeVectorWidthShort, 2},
         {cl::DeviceInfo::NativeVectorWidthInt, 1},
@@ -231,8 +348,6 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::NativeVectorWidthFloat, 1},
         {cl::DeviceInfo::NativeVectorWidthDouble, mRenderer->getNativeVectorWidthDouble()},
         {cl::DeviceInfo::NativeVectorWidthHalf, mRenderer->getNativeVectorWidthHalf()},
-        // Report the number of CU's as max sub devices for now
-        {cl::DeviceInfo::PartitionMaxSubDevices, getNumComputeUnits()},
         {cl::DeviceInfo::PreferredVectorWidthChar, 4},
         {cl::DeviceInfo::PreferredVectorWidthShort, 8},
         {cl::DeviceInfo::PreferredVectorWidthInt, 1},
@@ -243,11 +358,6 @@ CLDeviceVk::CLDeviceVk(const cl::Device &device, vk::Renderer *renderer)
         {cl::DeviceInfo::PreferredLocalAtomicAlignment, 0},
         {cl::DeviceInfo::PreferredGlobalAtomicAlignment, 0},
         {cl::DeviceInfo::PreferredPlatformAtomicAlignment, 0},
-        {cl::DeviceInfo::NonUniformWorkGroupSupport, CL_TRUE},
-        {cl::DeviceInfo::GenericAddressSpaceSupport, CL_FALSE},
-        {cl::DeviceInfo::SubGroupIndependentForwardProgress,
-         maxNumSubGroups > 0 ? CL_TRUE : CL_FALSE},
-        {cl::DeviceInfo::WorkGroupCollectiveFunctionsSupport, CL_FALSE},
     };
 }
 
@@ -263,9 +373,14 @@ CLDeviceImpl::Info CLDeviceVk::createInfo(cl::DeviceType type) const
     info.maxWorkItemSizes.push_back(properties.limits.maxComputeWorkGroupSize[1]);
     info.maxWorkItemSizes.push_back(properties.limits.maxComputeWorkGroupSize[2]);
 
+    info.maxMemAllocSize = mInfoULong.at(cl::DeviceInfo::MaxMemAllocSize);
+    if (info.maxMemAllocSize == cl::kMaxAllocSentinel)
+    {  // got sentinel - skips/removes device via CLDeviceImpl::Info::isValid check
+        return info;
+    }
+
     // TODO(aannestrand) Update these hardcoded platform/device queries
     // http://anglebug.com/42266935
-    info.maxMemAllocSize  = 1 << 30;
     info.memBaseAddrAlign = 1024;
 
     info.imageSupport = CL_TRUE;
@@ -276,7 +391,7 @@ CLDeviceImpl::Info CLDeviceVk::createInfo(cl::DeviceType type) const
     info.image3D_MaxHeight = properties.limits.maxImageDimension3D;
     info.image3D_MaxDepth  = properties.limits.maxImageDimension3D;
     // Max number of pixels for a 1D image created from a buffer object.
-    info.imageMaxBufferSize = properties.limits.maxTexelBufferElements;
+    info.imageMaxBufferSize = getImageMaxBufferSize();
     info.imageMaxArraySize  = properties.limits.maxImageArrayLayers;
     // The following are queried when image2d is created from buffer. We mimic its support for now
     // by doing a copy and as such dont have alignment requirements.
@@ -497,7 +612,7 @@ angle::Result CLDeviceVk::getInfoString(cl::DeviceInfo name, size_t size, char *
 {
     if (mInfoString.count(name))
     {
-        std::strcpy(value, mInfoString.at(name).c_str());
+        ANGLE_UNSAFE_TODO(std::strcpy(value, mInfoString.at(name).c_str()));
         return angle::Result::Continue;
     }
     ANGLE_CL_RETURN_ERROR(CL_INVALID_VALUE);

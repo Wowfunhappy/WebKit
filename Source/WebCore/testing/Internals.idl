@@ -1398,6 +1398,7 @@ enum ContentsFormat {
     boolean validateAV1PerLevelConstraints(DOMString codecParameters, VideoConfiguration configuration);
 
     undefined setCookie(CookieData cookieData);
+    undefined deleteCookie(DOMString cookieName);
     sequence<CookieData> getCookies();
     sequence<WebDriverCookieData> webDriverGetCookies(Document document);
 
@@ -1538,6 +1539,7 @@ enum ContentsFormat {
     Promise<ImageBufferResourceLimits> getImageBufferResourceLimits();
 
     undefined setTopDocumentURLForQuirks(DOMString urlString);
+    undefined setSubframeURLForQuirks(DOMString urlString);
 
     [CallWith=CurrentGlobalObject] ReadableStream readableStreamFromMessagePort(MessagePort port);
     [CallWith=CurrentGlobalObject] WritableStream writableStreamFromMessagePort(MessagePort port);

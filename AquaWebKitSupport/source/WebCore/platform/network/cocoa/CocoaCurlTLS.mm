@@ -323,11 +323,49 @@ static ssl_private_key_result_t completeIdentitySignature(SSL* ssl, uint8_t* out
     return ssl_private_key_success;
 }
 
+// The name is the URL's absolute string without trailing '/' characters; the certificates are the intermediates of
+// the leaf's basic X.509 chain, when it evaluates as proceed or unspecified.
+std::optional<CocoaCurlTLSState::PreferredIdentity> CocoaCurlTLSState::preferredIdentity(const URL& url)
+{
+    auto name = url.string();
+    unsigned length = name.length();
+    while (length && name[length - 1] == '/')
+        --length;
+    SecIdentityRef preferred = nullptr;
+    if (SecIdentityCopyPreference(name.left(length).createCFString().get(), 0, nullptr, &preferred) || !preferred)
+        return std::nullopt;
+    PreferredIdentity result { adoptCF(preferred), adoptNS([NSMutableArray new]) };
+    SecCertificateRef leaf = nullptr;
+    if (SecIdentityCopyCertificate(preferred, &leaf))
+        return result;
+    auto leafCertificate = adoptCF(leaf);
+    SecTrustRef trust = nullptr;
+    auto policy = adoptCF(SecPolicyCreateBasicX509());
+    if (SecTrustCreateWithCertificates(leaf, policy.get(), &trust))
+        return result;
+    auto adoptedTrust = adoptCF(trust);
+    SecTrustResultType evaluation = kSecTrustResultInvalid;
+    if (SecTrustEvaluate(trust, &evaluation) || (evaluation != kSecTrustResultProceed && evaluation != kSecTrustResultUnspecified))
+        return result;
+    CFIndex count = SecTrustGetCertificateCount(trust);
+    for (CFIndex index = 1; index < count - 1; ++index)
+        [(NSMutableArray *)result.certificates.get() addObject:(__bridge id)SecTrustGetCertificateAtIndex(trust, index)];
+    return result;
+}
+
 static int clientCertificateCallback(SSL* ssl, void*)
 {
     auto state = CocoaCurlTLSState::fromSSL(ssl);
     if (!state)
         return 0;
+    if (!state->identityAnswered && state->presentsPreferredIdentity && !state->preferredIdentityResolved) {
+        if (!std::exchange(state->preferredIdentityRequested, true)) {
+            if (!state->requestPreferredIdentity || !state->requestPreferredIdentity())
+                state->preferredIdentityResolved = true;
+        }
+        if (!state->preferredIdentityResolved)
+            return -1;
+    }
     if (!state->identityAnswered) {
         if (!std::exchange(state->identityRequested, true)) {
             if (!state->requestIdentity || !state->requestIdentity(ssl))

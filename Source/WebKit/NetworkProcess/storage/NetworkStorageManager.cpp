@@ -1573,8 +1573,18 @@ void NetworkStorageManager::moveData(OptionSet<WebsiteDataType> types, WebCore::
             targetOriginStorageManager->deleteData(types, -WallTime::infinity());
 
             // Move data from source origin to target origin.
-            originStorageManager(sourceOrigin)->moveData(types, targetOriginStorageManager->resolvedPath(WebsiteDataType::LocalStorage), targetOriginStorageManager->resolvedPath(WebsiteDataType::IndexedDBDatabases));
+            CheckedRef sourceOriginStorageManager = originStorageManager(sourceOrigin);
+            sourceOriginStorageManager->moveData(types, targetOriginStorageManager->resolvedPath(WebsiteDataType::LocalStorage), targetOriginStorageManager->resolvedPath(WebsiteDataType::IndexedDBDatabases));
+
+            // The source origin does not exist after the rename, so nothing using it can be active.
+            // Delete the data that was not moved, including ServiceWorkerRegistrations, which deleteDataOnDisk
+            // has to leave to SWServer for origins that may still be in use. Otherwise the source origin
+            // directory is left behind and every origin traversal keeps paying for it.
+            sourceOriginStorageManager->deleteData(allManagedTypes(), -WallTime::infinity());
         }
+
+        if (auto persistedFile = persistedFilePath(sourceOrigin); !persistedFile.isEmpty())
+            FileSystem::deleteFile(persistedFile);
 
         removeOriginStorageManagerIfPossible(targetOrigin);
         removeOriginStorageManagerIfPossible(sourceOrigin);
@@ -1643,7 +1653,7 @@ void NetworkStorageManager::setWebProcessSuspended(WebCore::ProcessIdentifier pr
     workQueue().dispatch([this, protectedThis = Ref { *this }, processIdentifier, isSuspended] {
         assertIsCurrent(workQueue());
         if (RefPtr connectionToClient = m_idbStorageRegistry->existingConnectionToClient(processIdentifier))
-            connectionToClient->setClientProcessSuspended(isSuspended);
+            connectionToClient->setClientSuspended(isSuspended);
     });
 }
 

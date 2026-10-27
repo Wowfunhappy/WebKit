@@ -253,6 +253,14 @@ bool Styleable::isRunningAcceleratedTransformRelatedAnimation() const
     });
 }
 
+bool Styleable::isRunningOrAboutToRunAcceleratedTransformRelatedAnimation() const
+{
+    auto* effectStack = keyframeEffectStack();
+    return effectStack && effectStack->hasMatchingEffect([](auto& effect) {
+        return effect.isRunningOrAboutToRunAcceleratedTransformRelatedAnimation();
+    });
+}
+
 bool Styleable::hasRunningAcceleratedAnimations() const
 {
     if (auto* effectStack = keyframeEffectStack()) {
@@ -438,7 +446,7 @@ void Styleable::updateCSSAnimations(const Style::ComputedStyle* currentStyle, co
                 if (previousAnimation->animationName() == currentAnimationName) {
                     // Timing properties or play state may have changed so we need to update the backing animation with
                     // the Animation found in the current style.
-                    previousAnimation->setBackingStyleAnimation(currentAnimation);
+                    previousAnimation->setBackingStyleAnimation(currentAnimation, newStyle.usedZoomForLength());
                     // Keyframes may have been cleared if the @keyframes rules was changed since
                     // the last style update, so we must ensure keyframes are picked up.
                     previousAnimation->updateKeyframesIfNeeded(currentStyle, newStyle, resolutionContext);
@@ -452,7 +460,7 @@ void Styleable::updateCSSAnimations(const Style::ComputedStyle* currentStyle, co
             }
 
             if (!foundMatchingAnimation && isInDisplayNoneTree == Style::IsInDisplayNoneTree::No) {
-                auto cssAnimation = CSSAnimation::create(*this, Style::Animation { currentAnimation }, currentStyle, newStyle, resolutionContext);
+                auto cssAnimation = CSSAnimation::create(*this, Style::Animation { currentAnimation }, newStyle.usedZoomForLength(), currentStyle, newStyle, resolutionContext);
                 newStyleOriginatedAnimations.append(cssAnimation.ptr());
                 newAnimations.add(WTF::move(cssAnimation));
             }

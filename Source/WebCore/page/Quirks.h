@@ -152,9 +152,14 @@ public:
 
     bool NODELETE needsGMailOverflowScrollQuirk() const;
     bool NODELETE needsYouTubeOverflowScrollQuirk() const;
+    bool NODELETE needsWebExScrollabilityQuirk() const;
     bool NODELETE needsFullscreenDisplayNoneQuirk() const;
     bool NODELETE needsFullscreenObjectFitQuirk() const;
     bool needsZomatoEmailLoginLabelQuirk() const;
+    bool needsBoxAnnotationQuirk(const Element&) const;
+    bool NODELETE needsGoogleDocsNavigationWidgetScrollQuirk() const;
+    bool NODELETE needsGoogleMapsEmbedManipulationSurfaceQuirk() const;
+    bool NODELETE needsGoogleMapsMagnificationWheelDeltaScalingQuirk() const;
     bool NODELETE needsGoogleMapsScrollingQuirk() const;
     bool NODELETE needsGoogleTranslateScrollingQuirk() const;
     bool NODELETE needsNetflixVolumeSliderQuirk() const;
@@ -255,6 +260,7 @@ public:
     WEBCORE_EXPORT bool shouldDisableAdSkippingInPip() const;
 #endif
     bool shouldDisableLazyIframeLoadingQuirk() const;
+    bool shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk() const;
 
     bool shouldBlockFetchWithNewlineAndLessThan() const;
     bool shouldDisableFetchMetadata() const;
@@ -324,6 +330,10 @@ public:
 
     WEBCORE_EXPORT bool shouldAvoidStartingSelectionOnMouseDownOverPointerCursor(const Node&) const;
 
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    WEBCORE_EXPORT bool shouldTreatLongClickAsSecondaryClick(const Node&) const;
+#endif
+
     bool shouldReuseLiveRangeForSelectionUpdate() const;
 
     bool NODELETE needsFacebookStoriesCreationFormQuirk(const Element&, const Style::ComputedStyle&) const;
@@ -340,6 +350,7 @@ public:
 
     enum class TikTokOverflowingContentQuirkType : bool { VideoSectionQuirk, CommentsSectionQuirk };
     std::optional<TikTokOverflowingContentQuirkType> needsTikTokOverflowingContentQuirk(const Element&, const Style::ComputedStyle& parentStyle) const;
+    bool needsTikTokCaptchaSliderTouchActionQuirk(const Element&) const;
 
     bool needsInstagramResizingReelsQuirk(const Element&, const Style::ComputedStyle& elementStyle, const Style::ComputedStyle& parentStyle) const;
 
@@ -393,6 +404,7 @@ private:
     bool domainStartsWith(const String&) const;
     bool isEmbedDomain(const String&) const;
     bool isYoutubeEmbedDomain() const;
+    bool isGoogleMapsEmbed() const;
 
     static bool domainNeedsAvoidResizingWhenInputViewBoundsChangeQuirk(const URL&, QuirksData&);
     static bool domainNeedsScrollbarWidthThinDisabledQuirk(const URL&, QuirksData&);
@@ -401,6 +413,7 @@ private:
 #endif
 
     URL topDocumentURL() const;
+    URL documentURL() const;
 
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
     mutable WeakPtr<const Element, WeakPtrImplWithEventTargetData> m_facebookStoriesCreationFormContainer;

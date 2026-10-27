@@ -100,7 +100,7 @@
 #import "_WKWebViewTextInputNotifications.h"
 #import <Carbon/Carbon.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#import <WebCore/AXObjectCache.h>
+#import <WebCore/AXObjectTypes.h>
 #import <WebCore/ActivityState.h>
 #import <WebCore/AttributedString.h>
 #import <WebCore/CGWindowUtilities.h>
@@ -833,6 +833,48 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 
 @end
 
+@interface WKPromisedImageContext : NSObject
+- (instancetype)initWithFileName:(NSString *)fileName data:(NSData *)data url:(NSString *)url;
+
+@property (nonatomic, readonly) NSString *fileName;
+@property (nonatomic, readonly) NSData *data;
+@property (nonatomic, readonly) NSString *url;
+@end
+
+@implementation WKPromisedImageContext {
+    RetainPtr<NSString> _fileName;
+    RetainPtr<NSData> _data;
+    RetainPtr<NSString> _url;
+}
+
+- (instancetype)initWithFileName:(NSString *)fileName data:(NSData *)data url:(NSString *)url
+{
+    if (!(self = [super init]))
+        return nil;
+
+    _fileName = fileName;
+    _data = data;
+    _url = url;
+    return self;
+}
+
+- (NSString *)fileName
+{
+    return _fileName;
+}
+
+- (NSData *)data
+{
+    return _data;
+}
+
+- (NSString *)url
+{
+    return _url;
+}
+
+@end
+
 #if HAVE(TOUCH_BAR)
 
 @interface WKTextListTouchBarViewController : NSViewController {
@@ -1222,7 +1264,7 @@ static NSArray<NSString *> *passwordTextTouchBarDefaultItemIdentifiers()
 
 #endif // HAVE(TOUCH_BAR)
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 @interface WKImageAnalysisOverlayViewDelegate : NSObject<VKCImageAnalysisOverlayViewDelegate>
 - (instancetype)initWithWebViewImpl:(WebKit::WebViewImpl&)impl;
@@ -1306,7 +1348,7 @@ static void* imageOverlayObservationContext = &imageOverlayObservationContext;
 
 @end
 
-#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#endif // ENABLE(IMAGE_ANALYSIS)
 
 namespace WebKit {
 
@@ -1459,7 +1501,7 @@ WebViewImpl::WebViewImpl(WKWebView *view, WebProcessPool& processPool, Ref<API::
     }, viewStateHysteresis);
 
 #if HAVE(APPKIT_GESTURES_SUPPORT)
-    m_appKitGestureController = adoptNS([[WKAppKitGestureController alloc] initWithPage:m_page viewImpl:*this]);
+    m_appKitGestureController = adoptNS([[WKAppKitGestureController alloc] initWithView:view]);
     m_textSelectionController = adoptNS([[WKTextSelectionController alloc] initWithView:view]);
 #endif
 
@@ -1560,6 +1602,14 @@ void WebViewImpl::didRelaunchProcess()
 
     accessibilityRegisterUIProcessTokens();
     windowDidChangeScreen(); // Make sure DisplayID is set.
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    // FIXME: Should we delay initialization till the end of the auxiliary process launch lifecycle?
+
+    // Ensure we pick up any preference changes between web view initialization and web process launch.
+    if (RetainPtr appKitGestureController = m_appKitGestureController)
+        [appKitGestureController preferencesDidChange];
+#endif
 }
 
 void WebViewImpl::scrollingCoordinatorWasCreated()
@@ -1867,6 +1917,15 @@ bool WebViewImpl::isPointOnPDFHUD(WebCore::FloatPoint locationInView)
 }
 #endif // AQUAWEBKIT: inline PDF HUD methods.
 
+bool WebViewImpl::isPointInScrollbar(CGPoint locationInView)
+{
+    CheckedPtr scrollingCoordinatorProxy = m_page->scrollingCoordinatorProxy();
+    if (!scrollingCoordinatorProxy)
+        return false;
+
+    return scrollingCoordinatorProxy->isPointInScrollbar(locationInView);
+}
+
 bool WebViewImpl::isViewVisible(NSView *view)
 {
     return m_pageClient->isViewVisible(view, [view window]);
@@ -1952,7 +2011,7 @@ void WebViewImpl::updateWindowAndViewFrames()
         }
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        if (WebCore::AXObjectCache::accessibilityEnabled())
+        if (!WebCore::isAccessibilityModeOff(WebProcessProxy::accessibilityModeForWebContent()))
             accessibilityPosition = [[weakThis->m_view.get() accessibilityAttributeValue:NSAccessibilityPositionAttribute] pointValue];
 ALLOW_DEPRECATED_DECLARATIONS_END
 
@@ -2598,7 +2657,7 @@ void WebViewImpl::pageDidScroll(const IntPoint& scrollOffset)
 
     if (pageIsScrolledToTopDidChange) {
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
-        updateScrollPocketVisibilityWhenScrolledToTop();
+        updateScrollPocketVisibilityWhenScrolledToTopAndNonEditable();
         updatePrefersSolidColorHardPocket();
 #endif
         [protect(view()) didChangeValueForKey:@"hasScrolledContentsUnderTitlebar"];
@@ -2614,10 +2673,10 @@ void WebViewImpl::didEndSyntheticMomentumScrolling()
 
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 
-void WebViewImpl::updateScrollPocketVisibilityWhenScrolledToTop()
+void WebViewImpl::updateScrollPocketVisibilityWhenScrolledToTopAndNonEditable()
 {
     RetainPtr view = m_view.get();
-    if ([view _usesAutomaticContentInsetBackgroundFill] && pageIsScrolledToTop())
+    if ([view _usesAutomaticContentInsetBackgroundFill] && pageIsScrolledToTop() && !m_page->isEditable())
         [view _addReasonToHideTopScrollPocket:HideScrollPocketReason::ScrolledToTop];
     else
         [view _removeReasonToHideTopScrollPocket:HideScrollPocketReason::ScrolledToTop];
@@ -3853,7 +3912,7 @@ void WebViewImpl::preferencesDidChange()
 
 #if HAVE(APPKIT_GESTURES_SUPPORT)
     if (RetainPtr appKitGestureController = m_appKitGestureController)
-        [appKitGestureController enableGesturesIfNeeded];
+        [appKitGestureController preferencesDidChange];
 #endif
 }
 
@@ -4195,20 +4254,22 @@ id WebViewImpl::accessibilityHitTest(CGPoint)
 
 void WebViewImpl::enableAccessibilityIfNecessary(NSString *attribute)
 {
-#if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
     // The attributes NSAccessibilityParentAttribute and NSAccessibilityPositionAttribute do not require AX initialization in the WebContent process.
     if (![attribute isEqualToString:NSAccessibilityParentAttribute] && ![attribute isEqualToString:NSAccessibilityPositionAttribute]) {
+#if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
+        // Bring the accessibility server up before any web process is told accessibility is on.
         Ref processPool = m_page->configuration().processPool();
         processPool->initializeAccessibilityIfNecessary();
-    }
 #endif
+        WebProcessProxy::setAccessibilityModeForWebContent(WebCore::AccessibilityMode::MainThread);
+    }
 
-    if (WebCore::AXObjectCache::accessibilityEnabled())
+    if (m_didUpdateFramesForAccessibility)
         return;
+    m_didUpdateFramesForAccessibility = true;
 
-    // After enabling accessibility update the window frame on the web process so that the
-    // correct accessibility position is transmitted (when AX is off, that position is not calculated).
-    WebCore::AXObjectCache::enableAccessibility();
+    // Update the window frame on the web process so that the correct accessibility position is
+    // transmitted (when AX is off, that position is not calculated).
     updateWindowAndViewFrames();
 }
 
@@ -4427,7 +4488,15 @@ void WebViewImpl::setAcceleratedCompositingRootLayer(CALayer *rootLayer)
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
-    [m_layerHostingView layer].sublayers = rootLayer ? @[ rootLayer ] : nil;
+    RetainPtr sublayers = adoptNS([NSMutableArray new]);
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    if (RetainPtr captureLayer = [[m_topScrollPocket captureView] layer])
+        [sublayers addObject:captureLayer];
+#endif
+    if (rootLayer)
+        [sublayers addObject:rootLayer];
+
+    [m_layerHostingView layer].sublayers = sublayers;
 
     [CATransaction commit];
 
@@ -4800,8 +4869,8 @@ NSString *WebViewImpl::fileNameForFilePromiseProvider(NSFilePromiseProvider *pro
     if (RetainPtr userInfo = dynamic_objc_cast<WKPromisedAttachmentContext>(provider.userInfo))
         return [userInfo fileName];
 
-    if (m_promisedImageDragData)
-        return m_promisedImageDragData->filename.createNSString().autorelease();
+    if (RetainPtr imageContext = dynamic_objc_cast<WKPromisedImageContext>(provider.userInfo))
+        return [imageContext fileName];
 
     return nil;
 }
@@ -4834,20 +4903,18 @@ void WebViewImpl::writeToURLForFilePromiseProvider(NSFilePromiseProvider *provid
         return;
     }
 
-    if (m_promisedImageDragData) {
-        RetainPtr<NSData> data;
-        Ref image = m_promisedImageDragData->image;
-        if (image->data() && !image->data()->isEmpty())
-            data = protect(image->data())->makeContiguous()->createNSData();
-        if (!data && !m_promisedImageDragData->url.isEmpty()) {
-            RetainPtr imageURL = adoptNS([[NSURL alloc] initWithString:m_promisedImageDragData->url.createNSString().get()]);
+    if (RetainPtr imageContext = dynamic_objc_cast<WKPromisedImageContext>(provider.userInfo)) {
+        String imageURLString { [imageContext url] };
+        RetainPtr data = [imageContext data];
+        if (!data && !imageURLString.isEmpty()) {
+            RetainPtr imageURL = adoptNS([[NSURL alloc] initWithString:[imageContext url]]);
             data = [NSData dataWithContentsOfURL:imageURL.get()];
         }
         if (data) {
             NSError *error = nil;
             if ([data writeToURL:fileURL options:NSDataWritingAtomic error:&error]) {
-                if (!m_promisedImageDragData->url.isEmpty())
-                    FileSystem::setMetadataURL(fileURL.path, m_promisedImageDragData->url);
+                if (!imageURLString.isEmpty())
+                    FileSystem::setMetadataURL(fileURL.path, imageURLString);
                 completionHandler(nil);
             } else
                 completionHandler(error);
@@ -4918,6 +4985,10 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
 
     // The call below could release the view.
     auto protector = m_view.get();
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    [appKitGestureController() didReceiveDragStart];
+#endif
 
     if (RefPtr frame = WebFrameProxy::webFrame(item.rootFrameID)) {
         // FIXME: The `dragLocationInWindowCoordinates` is in window coordinates (equivalent to root view), but `convertPointToMainFrameCoordinates`
@@ -4996,8 +5067,15 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
                     [defaultDraggingItem setDraggingFrame:draggingFrame contents:dragNSImage];
                     draggingItems = @[ defaultDraggingItem.get() ];
                 } else if (canUseFilePromiseForImageDrag) {
-                    RetainPtr imageUTI = protectedThis->m_promisedImageDragData->imageUTI.createNSString();
+                    auto& promisedImageDragData = *protectedThis->m_promisedImageDragData;
+                    RetainPtr imageUTI = promisedImageDragData.imageUTI.createNSString();
                     RetainPtr provider = adoptNS([[NSFilePromiseProvider alloc] initWithFileType:imageUTI.get() delegate:(id<NSFilePromiseProviderDelegate>)view.get()]);
+                    RetainPtr<NSData> imageData;
+                    Ref image = promisedImageDragData.image;
+                    if (image->data() && !image->data()->isEmpty())
+                        imageData = protect(image->data())->makeContiguous()->createNSData();
+                    RetainPtr context = adoptNS([[WKPromisedImageContext alloc] initWithFileName:promisedImageDragData.filename.createNSString() data:imageData url:promisedImageDragData.url.createNSString()]);
+                    [provider setUserInfo:context];
                     RetainPtr defaultDraggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:provider.get()]);
                     [defaultDraggingItem setDraggingFrame:draggingFrame contents:dragNSImage];
                     draggingItems = @[ defaultDraggingItem.get() ];
@@ -5097,6 +5175,7 @@ void WebViewImpl::setPromisedDataForImage(Ref<WebCore::Image>&& image, const Str
     String filenameWithExtension = filename;
     if (!matchesExtensionOrEquivalent(filename, extension))
         filenameWithExtension = makeString(filename, '.', extension);
+    filenameWithExtension = filenameByFixingIllegalCharacters(filenameWithExtension.createNSString());
 
     String uti = image->uti();
 
@@ -5672,16 +5751,18 @@ void WebViewImpl::magnifyWithEvent(NSEvent *event)
 
     Ref gestureController = ensureGestureController();
 
+    auto magnification = event.magnification;
+    auto phase = WebEventFactory::phaseForEvent(event);
 #if ENABLE(MAC_GESTURE_EVENTS)
     if (gestureController->hasActiveMagnificationGesture()) {
-        gestureController->handleMagnificationGestureEvent(event, [m_view.get() convertPoint:event.locationInWindow fromView:nil]);
+        gestureController->handleMagnificationGesture(magnification, phase, [m_view.get() convertPoint:event.locationInWindow fromView:nil]);
         return;
     }
 
     if (auto webEvent = NativeWebGestureEvent::create(event, m_view.getAutoreleased()))
         m_page->handleGestureEvent(*webEvent);
 #else
-    gestureController->handleMagnificationGestureEvent(event, [m_view.get() convertPoint:event.locationInWindow fromView:nil]);
+    gestureController->handleMagnificationGesture(magnification, phase, [m_view.get() convertPoint:event.locationInWindow fromView:nil]);
 #endif
 }
 
@@ -5712,16 +5793,51 @@ void WebViewImpl::rotateWithEvent(NSEvent *event)
 }
 #endif
 
-void WebViewImpl::gestureEventWasNotHandledByWebCore(NSEvent *event)
+#if ENABLE(MAC_GESTURE_EVENTS)
+
+void WebViewImpl::gestureEventWasNotHandledByWebCore(const NativeWebGestureEvent& event)
 {
-    [m_view.get() _web_gestureEventWasNotHandledByWebCore:event];
+    if (RetainPtr nativeEvent = event.nativeEvent()) {
+        [m_view.get() _web_gestureEventWasNotHandledByWebCore:nativeEvent];
+        return;
+    }
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    if (event.type() == WebEventType::GestureChange && event.kind() == NativeWebGestureEvent::Kind::Magnification && event.gestureScale())
+        [appKitGestureController() transformGestureWasNotHandledByContent];
+#endif
+
+    if (event.kind() != NativeWebGestureEvent::Kind::Magnification || !event.allowsNativeZoom())
+        return;
+
+    auto eventPhase = WebEventFactory::toNativeEventPhase(event.phase());
+    auto locationInWindow = [m_view.get() convertPoint:event.position() toView:nil];
+
+    [m_view.get() _web_magnificationGestureEventWasNotHandledByWebCoreWithPhase:eventPhase magnification:event.gestureScale() locationInWindow:locationInWindow];
 }
+
+#endif
 
 void WebViewImpl::gestureEventWasNotHandledByWebCoreFromViewOnly(NSEvent *event)
 {
+    if (event.type != NSEventTypeMagnify)
+        return;
+
+    applyNativeMagnification(event.magnification, WebEventFactory::phaseForEvent(event), [m_view.get() convertPoint:event.locationInWindow fromView:nil]);
+}
+
+void WebViewImpl::magnificationGestureEventWasNotHandledByWebCoreFromViewOnly(NSEventPhase phase, CGFloat magnification, NSPoint locationInWindow)
+{
+    applyNativeMagnification(magnification, WebEventFactory::phaseForNativeEventPhase(phase), [m_view.get() convertPoint:locationInWindow fromView:nil], WebEventInputSource::Automation);
+}
+
+void WebViewImpl::applyNativeMagnification(float magnification, WebEventPhase phase, FloatPoint originInViewCoordinates, WebEventInputSource inputSource)
+{
 #if ENABLE(MAC_GESTURE_EVENTS)
     if (m_allowsMagnification && m_gestureController)
-        m_gestureController->gestureEventWasNotHandledByWebCore(event, [m_view.get() convertPoint:event.locationInWindow fromView:nil]);
+        m_gestureController->handleMagnificationGesture(magnification, phase, originInViewCoordinates, inputSource);
+#else
+    UNUSED_PARAM(inputSource);
 #endif
 }
 
@@ -6976,7 +7092,7 @@ void WebViewImpl::mouseUp(NSEvent *event, WebEventInputSource inputSource, WebCo
 
     setLastMouseDownEvent(nil);
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
 #endif
 
@@ -7726,7 +7842,7 @@ void WebViewImpl::didFinishPresentation(WKRevealItemPresenter *presenter)
 
 #if ENABLE(IMAGE_ANALYSIS)
 
-CocoaImageAnalyzer* WebViewImpl::ensureImageAnalyzer()
+VKCImageAnalyzer* WebViewImpl::ensureImageAnalyzer()
 {
     if (!m_imageAnalyzer) {
         lazyInitialize(m_imageAnalyzerQueue, WorkQueue::create("WebKit image analyzer queue"_s));
@@ -7736,16 +7852,16 @@ CocoaImageAnalyzer* WebViewImpl::ensureImageAnalyzer()
     return m_imageAnalyzer.get();
 }
 
-int32_t WebViewImpl::processImageAnalyzerRequest(CocoaImageAnalyzerRequest *request, CompletionHandler<void(RetainPtr<CocoaImageAnalysis>&&, NSError *)>&& completion)
+int32_t WebViewImpl::processImageAnalyzerRequest(VKCImageAnalyzerRequest *request, CompletionHandler<void(RetainPtr<VKCImageAnalysis>&&, NSError *)>&& completion)
 {
-    return [protect(ensureImageAnalyzer()) processRequest:request progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion)](CocoaImageAnalysis *result, NSError *error) mutable {
+    return [protect(ensureImageAnalyzer()) processRequest:request progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion)](VKCImageAnalysis *result, NSError *error) mutable {
         callOnMainRunLoop([completion = WTF::move(completion), result = RetainPtr { result }, error = RetainPtr { error }] mutable {
             completion(WTF::move(result), error.get());
         });
     }).get()];
 }
 
-static RetainPtr<CocoaImageAnalyzerRequest> createImageAnalyzerRequest(CGImageRef image, const URL& imageURL, const URL& pageURL, VKAnalysisTypes types)
+static RetainPtr<VKCImageAnalyzerRequest> createImageAnalyzerRequest(CGImageRef image, const URL& imageURL, const URL& pageURL, VKAnalysisTypes types)
 {
     auto request = createImageAnalyzerRequest(image, types);
     [request setImageURL:imageURL.createNSURL().get()];
@@ -7768,17 +7884,12 @@ void WebViewImpl::requestTextRecognition(const URL& imageURL, ShareableBitmap::H
 
     RetainPtr cgImage = imageBitmap->createPlatformImage(DontCopyBackingStore);
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
     if (!targetLanguageIdentifier.isEmpty())
         return requestVisualTranslation(protect(ensureImageAnalyzer()).get(), imageURL.createNSURL().get(), sourceLanguageIdentifier, targetLanguageIdentifier, cgImage.get(), WTF::move(completion));
-#else
-    UNUSED_PARAM(sourceLanguageIdentifier);
-    UNUSED_PARAM(targetLanguageIdentifier);
-#endif
 
     auto request = createImageAnalyzerRequest(cgImage.get(), imageURL, [NSURL _web_URLWithWTFString:m_page->currentURL()], VKAnalysisTypeText);
     auto startTime = MonotonicTime::now();
-    processImageAnalyzerRequest(request.get(), [completion = WTF::move(completion), startTime](RetainPtr<CocoaImageAnalysis>&& analysis, NSError *) mutable {
+    processImageAnalyzerRequest(request.get(), [completion = WTF::move(completion), startTime](RetainPtr<VKCImageAnalysis>&& analysis, NSError *) mutable {
         auto result = makeTextRecognitionResult(analysis.get());
         RELEASE_LOG(ImageAnalysis, "Image analysis completed in %.0f ms (found text? %d)", (MonotonicTime::now() - startTime).milliseconds(), !result.isEmpty());
         completion(WTF::move(result));
@@ -7795,7 +7906,7 @@ void WebViewImpl::computeHasVisualSearchResults(const URL& imageURL, ShareableBi
     RetainPtr cgImage = imageBitmap.createPlatformImage(DontCopyBackingStore);
     auto request = createImageAnalyzerRequest(cgImage.get(), imageURL, [NSURL _web_URLWithWTFString:m_page->currentURL()], VKAnalysisTypeVisualSearch);
     auto startTime = MonotonicTime::now();
-    [protect(ensureImageAnalyzer()) processRequest:request.get() progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion), startTime] (CocoaImageAnalysis *analysis, NSError *) mutable {
+    [protect(ensureImageAnalyzer()) processRequest:request.get() progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion), startTime] (VKCImageAnalysis *analysis, NSError *) mutable {
         BOOL result = [analysis hasResultsForAnalysisTypes:VKAnalysisTypeVisualSearch];
         RetainPtr loop = CFRunLoopGetMain();
         CFRunLoopPerformBlock(loop.get(), RetainPtr { bridge_cast(NSEventTrackingRunLoopMode) }.get(), makeBlockPtr([completion = WTF::move(completion), result, startTime] () mutable {
@@ -7810,7 +7921,7 @@ void WebViewImpl::computeHasVisualSearchResults(const URL& imageURL, ShareableBi
 
 bool WebViewImpl::imageAnalysisOverlayViewHasCursorAtPoint(NSPoint locationInView) const
 {
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     return [m_imageAnalysisOverlayView interactableItemExistsAtPoint:locationInView];
 #else
     UNUSED_PARAM(locationInView);
@@ -7820,7 +7931,7 @@ bool WebViewImpl::imageAnalysisOverlayViewHasCursorAtPoint(NSPoint locationInVie
 
 void WebViewImpl::beginTextRecognitionForVideoInElementFullscreen(ShareableBitmap::Handle&& bitmapHandle, WebCore::FloatRect bounds)
 {
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     auto imageBitmap = ShareableBitmap::create(WTF::move(bitmapHandle));
     if (!imageBitmap)
         return;
@@ -7830,7 +7941,7 @@ void WebViewImpl::beginTextRecognitionForVideoInElementFullscreen(ShareableBitma
         return;
 
     auto request = WebKit::createImageAnalyzerRequest(image.get(), VKAnalysisTypeText);
-    m_currentImageAnalysisRequestID = processImageAnalyzerRequest(request.get(), [weakThis = WeakPtr { *this }, bounds](RetainPtr<CocoaImageAnalysis>&& result, NSError *error) {
+    m_currentImageAnalysisRequestID = processImageAnalyzerRequest(request.get(), [weakThis = WeakPtr { *this }, bounds](RetainPtr<VKCImageAnalysis>&& result, NSError *error) {
         CheckedPtr checkedThis = weakThis.get();
         if (!checkedThis || !checkedThis->m_currentImageAnalysisRequestID)
             return;
@@ -7850,14 +7961,14 @@ void WebViewImpl::beginTextRecognitionForVideoInElementFullscreen(ShareableBitma
 
 void WebViewImpl::cancelTextRecognitionForVideoInElementFullscreen()
 {
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     if (auto identifier = std::exchange(m_currentImageAnalysisRequestID, 0))
         [m_imageAnalyzer cancelRequestID:identifier];
     uninstallImageAnalysisOverlayView();
 #endif
 }
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 void WebViewImpl::installImageAnalysisOverlayView(RetainPtr<VKCImageAnalysis>&& analysis)
 {
@@ -7913,7 +8024,7 @@ void WebViewImpl::fulfillDeferredImageAnalysisOverlayViewHierarchyTask()
         task();
 }
 
-#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#endif // ENABLE(IMAGE_ANALYSIS)
 
 #if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
 
@@ -8066,7 +8177,7 @@ void WebViewImpl::updateScrollPocket()
         [view addSubview:m_topScrollPocket.get()];
         for (NSView *pocketContainer in m_viewsAboveScrollPocket.get())
             [m_topScrollPocket addElementContainer:pocketContainer];
-        updateScrollPocketVisibilityWhenScrolledToTop();
+        updateScrollPocketVisibilityWhenScrolledToTopAndNonEditable();
         updatePrefersSolidColorHardPocket();
     } else
         captureView = [m_topScrollPocket captureView];
@@ -8195,6 +8306,11 @@ void WebViewImpl::showCaptionDisplaySettings(WebCore::HTMLMediaElementIdentifier
 #endif
 
 #if HAVE(APPKIT_GESTURES_SUPPORT)
+void WebViewImpl::setUpGestureController()
+{
+    [m_appKitGestureController setUp];
+}
+
 void WebViewImpl::addTextSelectionManager()
 {
     [m_textSelectionController addTextSelectionManager];
@@ -8241,7 +8357,9 @@ void WebViewImpl::setRefreshController(NSRefreshController *refreshController)
     if (m_refreshController) {
         [[m_refreshController refreshControl] removeFromSuperview];
         m_topScrollStretchForRefreshController = 0;
+        m_refreshControllerIsTracking = false;
         m_refreshControllerMask = nil;
+        m_suppressRefreshControllerUpdates = false;
     }
 
     m_refreshController = refreshController;
@@ -8277,6 +8395,10 @@ void WebViewImpl::setRefreshController(NSRefreshController *refreshController)
 void WebViewImpl::applyRefreshControllerHeight(CGFloat height, bool animated)
 {
     m_topScrollStretchForRefreshController = height;
+
+    if (!height && m_cachedTopScrollStretch > 0)
+        m_suppressRefreshControllerUpdates = true;
+
     if (CheckedPtr scrollingCoordinator = m_page->scrollingCoordinatorProxy())
         scrollingCoordinator->setTopScrollStretchForRefreshController(height);
 }
@@ -8323,7 +8445,8 @@ void WebViewImpl::updateRefreshControllerFrame()
         [m_refreshControllerMask setPath:maskPath.get()];
     }
 
-    [[m_refreshController refreshControl] update];
+    if (!m_suppressRefreshControllerUpdates)
+        [[m_refreshController refreshControl] update];
 
     if (CheckedPtr scrollingCoordinator = m_page->scrollingCoordinatorProxy())
         scrollingCoordinator->setRefreshControllerSnappingThreshold(refreshControllerSnappingThreshold());
@@ -8335,6 +8458,10 @@ void WebViewImpl::topScrollStretchDidChange(CGFloat topScrollStretch)
         return;
 
     m_cachedTopScrollStretch = topScrollStretch;
+
+    if (m_suppressRefreshControllerUpdates && !topScrollStretch)
+        m_suppressRefreshControllerUpdates = false;
+
     if (m_refreshController)
         updateRefreshControllerFrame();
 }
@@ -8346,20 +8473,70 @@ void WebViewImpl::updateRefreshControllerForWheelEvent(NSEvent *event)
 
     // Track whether this scroll gesture began at the top of the page.
     // Only allow refresh control activation for gestures that started at top.
-    if (event.phase == NSEventPhaseBegan)
+    if (event.phase == NSEventPhaseBegan) {
         m_canShowRefreshController = pageIsScrolledToTop();
+        m_suppressRefreshControllerUpdates = false;
+    }
+
+    // Prevent momentum scrolls from triggering the refresh control. Only an active,
+    // ongoing scroll should trigger the control.
+    auto shouldTrackEventForRefreshControl = [](NSEvent *event, bool wasTracking) {
+        if (event.momentumPhase != NSEventPhaseNone)
+            return false;
+
+        switch (event.phase) {
+        case NSEventPhaseBegan:
+        case NSEventPhaseChanged:
+        case NSEventPhaseNone:
+        case NSEventPhaseStationary:
+            return true;
+        case NSEventPhaseCancelled:
+        case NSEventPhaseEnded:
+            return false;
+        case NSEventPhaseMayBegin:
+            return wasTracking;
+        }
+        return false;
+    };
+    m_refreshControllerIsTracking = shouldTrackEventForRefreshControl(event, m_refreshControllerIsTracking);
 }
 
 #if HAVE(APPKIT_GESTURES_SUPPORT)
-void WebViewImpl::updateRefreshControllerForPanGesture(NSGestureRecognizerState state)
+void WebViewImpl::updateRefreshControllerForPanGesture(NSGestureRecognizerState state, RefreshControllerEligibility eligibility)
 {
     if (!m_refreshController)
         return;
 
+    if (eligibility == RefreshControllerEligibility::Ineligible) {
+        m_refreshControllerIsTracking = false;
+        m_canShowRefreshController = false;
+        m_suppressRefreshControllerUpdates = true;
+        return;
+    }
+
     // Track whether this scroll gesture began at the top of the page.
     // Only allow refresh control activation for gestures that started at top.
-    if (state == NSGestureRecognizerStateBegan)
+    if (state == NSGestureRecognizerStateBegan) {
         m_canShowRefreshController = pageIsScrolledToTop();
+        m_suppressRefreshControllerUpdates = false;
+    }
+
+    // Prevent momentum scrolls from triggering the refresh control. Only an active,
+    // ongoing scroll should trigger the control.
+    auto shouldTrackEventForRefreshControl = [](NSGestureRecognizerState state, bool wasTracking) {
+        switch (state) {
+        case NSGestureRecognizerStateBegan:
+        case NSGestureRecognizerStateChanged:
+            return true;
+        case NSGestureRecognizerStateCancelled:
+        case NSGestureRecognizerStateEnded:
+        case NSGestureRecognizerStateFailed:
+            return false;
+        case NSGestureRecognizerStatePossible:
+            return wasTracking;
+        }
+    };
+    m_refreshControllerIsTracking = shouldTrackEventForRefreshControl(state, m_refreshControllerIsTracking);
 }
 #endif
 

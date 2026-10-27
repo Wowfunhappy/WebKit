@@ -76,6 +76,7 @@
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <wtf/FileSystem.h>
 #import "TextCheckerState.h"
+#import "WebEventFactory.h"
 #import "WebProcessProxy.h"
 #import "WebUserContentControllerProxy.h"
 #import "WebKit2Initialize.h"
@@ -2517,7 +2518,7 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
     }
 
     if (auto *gestureController = [self _wkEnsureGestureController])
-        gestureController->handleMagnificationGestureEvent(event, [self convertPoint:[event locationInWindow] fromView:nil]);
+        gestureController->handleMagnificationGesture(event.magnification, WebEventFactory::phaseForEvent(event), [self convertPoint:[event locationInWindow] fromView:nil]);
 }
 
 // ported from WebViewImpl::smartMagnifyWithEvent (double-tap / two-finger

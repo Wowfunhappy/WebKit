@@ -44,7 +44,6 @@
 #include "IntersectionObserverCallback.h"
 #include "IntersectionObserverEntry.h"
 #include "JSNodeCustom.h"
-#include "LegacyRenderSVGModelObject.h"
 #include "LegacyRenderSVGRoot.h"
 #include "LocalDOMWindow.h"
 #include "Logging.h"
@@ -53,9 +52,7 @@
 #include "RenderBlock.h"
 #include "RenderBoxInlines.h"
 #include "RenderInline.h"
-#include "RenderLineBreak.h"
 #include "RenderObjectInlines.h"
-#include "RenderSVGModelObject.h"
 #include "RenderSVGRoot.h"
 #include "RenderView.h"
 #include "SVGRenderSupport.h"
@@ -68,6 +65,7 @@
 #include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/AbstractSlotVisitorInlines.h>
 #include <ranges>
+#include <wtf/ScopedLambda.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
@@ -245,7 +243,35 @@ String IntersectionObserver::scrollMargin() const
 
 bool IntersectionObserver::isObserving(const Element& element) const
 {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    Locker locker { m_observationTargetsLock };
+#endif
     return m_observationTargets.contains(element);
+}
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+Vector<Ref<Element>> IntersectionObserver::observationTargets() const
+{
+    Locker locker { m_observationTargetsLock };
+    return copyToVectorOf<Ref<Element>>(m_observationTargets);
+}
+
+Vector<Ref<Element>> IntersectionObserver::takeAllTargets()
+{
+    Locker locker { m_observationTargetsLock };
+    auto targets = copyToVectorOf<Ref<Element>>(m_observationTargets);
+    m_observationTargets.clear();
+    m_targetsWaitingForFirstObservation.clear();
+    return targets;
+}
+#endif
+
+Vector<GCReachableRef<Element>> IntersectionObserver::takeTargetsWaitingForFirstObservation()
+{
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    Locker locker { m_observationTargetsLock };
+#endif
+    return std::exchange(m_targetsWaitingForFirstObservation, { });
 }
 
 void IntersectionObserver::observe(Element& target)
@@ -255,12 +281,17 @@ void IntersectionObserver::observe(Element& target)
 
     target.ensureIntersectionObserverData().registrations.append({ *this, std::nullopt });
     bool hadObservationTargets = hasObservationTargets();
-    m_observationTargets.add(target);
+    {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        Locker locker { m_observationTargetsLock };
+#endif
+        m_observationTargets.add(target);
 
-    // Per the specification, we should dispatch at least one observation for the target. For this reason, we make sure to keep the
-    // target alive until this first observation. This, in turn, will keep the IntersectionObserver's JS wrapper alive via
-    // isReachableFromOpaqueRoots(), so the callback stays alive.
-    m_targetsWaitingForFirstObservation.append(target);
+        // Per the specification, we should dispatch at least one observation for the target. For this reason, we make sure to keep the
+        // target alive until this first observation. This, in turn, will keep the IntersectionObserver's JS wrapper alive via
+        // isReachableFromOpaqueRoots(), so the callback stays alive.
+        m_targetsWaitingForFirstObservation.append(target);
+    }
 
     RefPtr document = trackingDocument();
     if (!hadObservationTargets)
@@ -273,9 +304,14 @@ void IntersectionObserver::unobserve(Element& target)
     if (!removeTargetRegistration(target))
         return;
 
-    bool removed = m_observationTargets.remove(&target);
-    ASSERT_UNUSED(removed, removed);
-    m_targetsWaitingForFirstObservation.removeFirstMatching([&](auto& pendingTarget) { return pendingTarget.ptr() == &target; });
+    {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        Locker locker { m_observationTargetsLock };
+#endif
+        bool removed = m_observationTargets.remove(&target);
+        ASSERT_UNUSED(removed, removed);
+        m_targetsWaitingForFirstObservation.removeFirstMatching([&](auto& pendingTarget) { return pendingTarget.ptr() == &target; });
+    }
 
     if (!hasObservationTargets()) {
         if (RefPtr document = trackingDocument())
@@ -286,7 +322,7 @@ void IntersectionObserver::unobserve(Element& target)
 void IntersectionObserver::disconnect()
 {
     if (!hasObservationTargets()) {
-        ASSERT(m_targetsWaitingForFirstObservation.isEmpty());
+        ASSERT(!hasTargetsWaitingForFirstObservation());
         return;
     }
 
@@ -297,13 +333,26 @@ void IntersectionObserver::disconnect()
 
 auto IntersectionObserver::takeRecords() -> TakenRecords
 {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    Locker locker { m_observationTargetsLock };
+#endif
     return { WTF::move(m_queuedEntries), WTF::move(m_pendingTargets) };
 }
 
 void IntersectionObserver::targetDestroyed(Element& target)
 {
-    m_observationTargets.remove(target);
-    m_targetsWaitingForFirstObservation.removeFirstMatching([&](auto& pendingTarget) { return pendingTarget.ptr() == &target; });
+    {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        Locker locker { m_observationTargetsLock };
+#endif
+        m_observationTargets.remove(target);
+#ifdef RC_REMOVE_SEC_ACCEL_3
+        m_targetsWaitingForFirstObservation.removeFirstMatching([&](auto& pendingTarget) { return pendingTarget.ptr() == &target; });
+#else
+        ASSERT(!m_targetsWaitingForFirstObservation.containsIf([&](auto& pendingTarget) { return pendingTarget.ptr() == &target; }));
+#endif
+    }
+
     if (!hasObservationTargets()) {
         if (RefPtr document = trackingDocument())
             document->removeIntersectionObserver(*this);
@@ -324,12 +373,19 @@ bool IntersectionObserver::removeTargetRegistration(Element& target)
 
 void IntersectionObserver::removeAllTargets()
 {
+#ifdef RC_REMOVE_SEC_ACCEL_3
     for (Ref target : m_observationTargets) {
         bool removed = removeTargetRegistration(target);
         ASSERT_UNUSED(removed, removed);
     }
     m_observationTargets.clear();
     m_targetsWaitingForFirstObservation.clear();
+#else
+    for (Ref target : takeAllTargets()) {
+        bool removed = removeTargetRegistration(target);
+        ASSERT_UNUSED(removed, removed);
+    }
+#endif
 }
 
 void IntersectionObserver::rootDestroyed()
@@ -355,135 +411,6 @@ static void expandRootBoundsWithRootMargin(FloatRect& rootBounds, const Intersec
     };
 
     rootBounds.expand(rootMarginEdges);
-}
-
-// Given a rectangle in the coordinate space of rendererOrFrame, compute the visible
-// rectangle in the content coordinate space of the root's (main frame) RenderView.
-// This is done by computing the visible rectangle in the nearest frame, then its
-// parent frame, ... up to the main frame.
-//
-// If rendererOrFrame is a:
-// * Renderer: rect is in the coordinate space of the renderer.
-// * Frame: rect is in the coordinate space of the frame's owner renderer.
-//   This is only used in Site Isolation mode, when the frame is out-of-process
-//   and its owner renderer is not available.
-//
-// targetSecurityOrigin is the security origin of the target (the element that
-// originates the very first rect)
-static std::optional<LayoutRect> computeClippedRectInRootContentsSpace(const LayoutRect& rect, const SecurityOrigin& targetSecurityOrigin, Variant<const RenderElement*, const Frame*> rendererOrFrame, std::optional<IntersectionObserverMarginBox> scrollMargin)
-{
-    RefPtr rendererOrFrameSecurityOrigin = WTF::visit(WTF::makeVisitor(
-        [&] (const RenderElement* renderer) { return Ref<const Frame>(renderer->frame())->frameDocumentSecurityOrigin(); },
-        [&] (const Frame* frame) { return frame->frameDocumentSecurityOrigin(); }
-    ), rendererOrFrame);
-
-    // targetSecurityOrigin is the security origin of the target (the element that originates the very first rect)
-    // Scroll margin should not propagate past the first cross-origin frame in the chain leading to the main frame.
-    // e.g given the chain: main frame <- cross-origin frame <- same-origin frame 2 <- same-origin frame 1 <- target
-    // then scroll margin is applied to same-origin frame 1/2 but not to cross-origin and main frames.
-    // Hence, clear out the scroll margin when we see a cross-origin frame.
-    bool isSameOriginDomain = [&] () {
-        if (rendererOrFrameSecurityOrigin)
-            return rendererOrFrameSecurityOrigin->isSameOriginDomain(targetSecurityOrigin);
-
-        return false;
-    }();
-    if (!isSameOriginDomain)
-        scrollMargin.reset();
-
-    RefPtr<const Frame> enclosingFrame = WTF::visit(WTF::makeVisitor(
-        [&] (const RenderElement* renderer) { return static_cast<const Frame*>(&renderer->frame()); },
-        [&] (const Frame* frame) { return static_cast<const Frame*>(frame->tree().parent()); }
-    ), rendererOrFrame);
-
-    if (!enclosingFrame)
-        return std::nullopt;
-
-    RefPtr<const FrameView> enclosingFrameView = enclosingFrame->virtualView();
-    ASSERT(enclosingFrameView);
-    if (!enclosingFrameView)
-        return std::nullopt;
-
-    auto absoluteClippedRect = WTF::visit(WTF::makeVisitor(
-        [&] (const RenderElement* renderer) {
-            auto visibleRects = renderer->computeVisibleRectsInContainer(
-                { rect },
-                &renderer->view(),
-                {
-                    .hasPositionFixedDescendant = false,
-                    .dirtyRectIsFlipped = false,
-                    .descendantNeedsEnclosingIntRect = false,
-                    .options = {
-                        VisibleRectContext::Option::UseEdgeInclusiveIntersection,
-                        VisibleRectContext::Option::ApplyCompositedClips,
-                        VisibleRectContext::Option::ApplyCompositedContainerScrolls
-                    },
-                    .scrollMargin = scrollMargin
-                }
-            );
-
-            return visibleRects.transform([] (auto&& repaintRects) { return repaintRects.clippedOverflowRect; } );
-        },
-        [&] (const Frame* frame) -> std::optional<LayoutRect> {
-            // This rect is in coordinate space of parent frame. It doesn't account for
-            // scroll margin, which is fine as this codepath is only reached when Site
-            // Isolation is enabled, and the frame is cross-origin. Scroll margin doesn't
-            // get applied to cross-origin frames.
-            auto visibleRectInParentFrame = enclosingFrameView->visibleRectOfChild(*frame);
-            if (!visibleRectInParentFrame)
-                return std::nullopt;
-
-            // rect is in coordinate space of the frame's owner renderer,
-            // it needs to be converted to parent frame's coordinate space first before intersecting.
-            auto absoluteRect = LayoutRect { enclosingFrameView->childFrameOwnerToRootContentTransform(*frame).mapRect(rect) };
-            if (!absoluteRect.edgeInclusiveIntersect(*visibleRectInParentFrame))
-                return std::nullopt;
-
-            return std::make_optional(absoluteRect);
-    }), rendererOrFrame);
-
-    if (!absoluteClippedRect)
-        return std::nullopt;
-
-    // Stop here if there are no more parent frames to traverse to.
-    RefPtr enclosingFrameParent = enclosingFrame->parent();
-    if (!enclosingFrameParent)
-        return absoluteClippedRect;
-
-    RefPtr enclosingFrameParentView = enclosingFrameParent->virtualView();
-    if (!enclosingFrameParentView)
-        return absoluteClippedRect;
-
-    // The computed visible rect is in the coordinate space of enclosingFrame.
-    // But only the iframe's viewport is visible, so clip by the iframe's viewport.
-
-    // Compute the frame's viewport (this is in the coordinate space of enclosingFrame too.)
-    auto frameRect = enclosingFrameView->layoutViewportRect();
-    if (scrollMargin) {
-        auto scrollMarginEdges = LayoutBoxExtent {
-            LayoutUnit(Style::evaluate<int>(scrollMargin->top(), frameRect.height(), Style::ZoomNeeded { })),
-            LayoutUnit(Style::evaluate<int>(scrollMargin->right(), frameRect.width(), Style::ZoomNeeded { })),
-            LayoutUnit(Style::evaluate<int>(scrollMargin->bottom(), frameRect.height(), Style::ZoomNeeded { })),
-            LayoutUnit(Style::evaluate<int>(scrollMargin->left(), frameRect.width(), Style::ZoomNeeded { })),
-        };
-        frameRect.expand(scrollMarginEdges);
-    }
-
-    if (!absoluteClippedRect->edgeInclusiveIntersect(frameRect))
-        return std::nullopt;
-
-    // Then convert it to the view coordinate space of enclosingFrame.
-    // This is now the visible portion in enclosingFrame's owner renderer's content box.
-    absoluteClippedRect = LayoutRect { enclosingFrameView->contentsToView(*absoluteClippedRect) };
-
-    if (RefPtr ownerRenderer = enclosingFrame->ownerRenderer()) {
-        // Adjust for borders and/or padding of the owner renderer box.
-        absoluteClippedRect->moveBy(ownerRenderer->contentBoxLocation());
-        return computeClippedRectInRootContentsSpace(*absoluteClippedRect, targetSecurityOrigin, ownerRenderer.get(), scrollMargin);
-    }
-
-    absoluteClippedRect->moveBy(enclosingFrameParentView->childFrameOwnerContentBoxLocation(*enclosingFrame));
-    return computeClippedRectInRootContentsSpace(*absoluteClippedRect, targetSecurityOrigin, enclosingFrame.get(), WTF::move(scrollMargin));
 }
 
 // Equivalent to FrameView::convertFromContainingView.
@@ -623,27 +550,7 @@ auto IntersectionObserver::computeIntersectionState(const IntersectionObserverRe
         expandRootBoundsWithRootMargin(intersectionState.rootBounds, rootMarginBox(), rootUsedZoom);
     }
 
-    auto localTargetBounds = [&]() -> LayoutRect {
-        if (CheckedPtr renderBox = dynamicDowncast<RenderBox>(*targetRenderer))
-            return renderBox->borderBoundingBox();
-
-        if (is<RenderInline>(targetRenderer)) {
-            Vector<LayoutRect> rects;
-            targetRenderer->boundingRects(rects, { });
-            return unionRect(rects);
-        }
-
-        if (CheckedPtr renderLineBreak = dynamicDowncast<RenderLineBreak>(targetRenderer.get()))
-            return renderLineBreak->linesBoundingBox();
-
-        if (CheckedPtr svgModelObject = dynamicDowncast<RenderSVGModelObject>(*targetRenderer))
-            return svgModelObject->borderBoxRectEquivalent();
-
-        if (CheckedPtr legacySVGModelObject = dynamicDowncast<LegacyRenderSVGModelObject>(*targetRenderer))
-            return enclosingLayoutRect(legacySVGModelObject->strokeBoundingBox());
-
-        return { };
-    }();
+    auto localTargetBounds = targetRenderer->localBoundsForIntersection();
 
     auto rootRelativeTargetRect = [&]() -> std::optional<LayoutRect> {
         if (targetRenderer->isSkippedContent())
@@ -662,7 +569,6 @@ auto IntersectionObserver::computeIntersectionState(const IntersectionObserverRe
                         VisibleRectContext::Option::ApplyCompositedClips,
                         VisibleRectContext::Option::ApplyCompositedContainerScrolls
                     },
-                    .scrollMargin = { }
                 }
             );
             if (!result)
@@ -670,7 +576,32 @@ auto IntersectionObserver::computeIntersectionState(const IntersectionObserverRe
             return result->clippedOverflowRect;
         }
 
-        return computeClippedRectInRootContentsSpace(localTargetBounds, protect(protect(target)->document().securityOrigin()), targetRenderer, scrollMarginBox());
+        // Scroll margin should not propagate past the first cross-origin frame in the chain leading to the main frame.
+        // e.g given the chain: main <- cross-origin <- same-origin 2 <- same-origin 1 <- target
+        // then scroll margin is applied to same-origin frame 1/2 but not to cross-origin and main frames.
+        // Clips are visited from the target's frame outwards, so stop applying scroll margin once we see a cross-origin frame.
+        Ref targetSecurityOrigin = target.document().securityOrigin();
+        auto& scrollMargin = scrollMarginBox();
+        bool hasSeenCrossOriginFrame = false;
+        auto applyScrollMargin = scopedLambda<std::optional<LayoutRect>(const Frame&, const LayoutRect&)>([&](const Frame& frame, const LayoutRect& clipRect) -> std::optional<LayoutRect> {
+            if (!hasSeenCrossOriginFrame) {
+                RefPtr frameSecurityOrigin = frame.frameDocumentSecurityOrigin();
+                hasSeenCrossOriginFrame = !frameSecurityOrigin || !frameSecurityOrigin->isSameOriginDomain(targetSecurityOrigin);
+            }
+            if (hasSeenCrossOriginFrame)
+                return std::nullopt;
+
+            auto adjustedClipRect = clipRect;
+            adjustedClipRect.expand(LayoutBoxExtent {
+                Style::evaluate<LayoutUnit>(scrollMargin.top(), clipRect.height(), Style::ZoomNeeded { }),
+                Style::evaluate<LayoutUnit>(scrollMargin.right(), clipRect.width(), Style::ZoomNeeded { }),
+                Style::evaluate<LayoutUnit>(scrollMargin.bottom(), clipRect.height(), Style::ZoomNeeded { }),
+                Style::evaluate<LayoutUnit>(scrollMargin.left(), clipRect.width(), Style::ZoomNeeded { })
+            });
+            return adjustedClipRect;
+        });
+
+        return targetRenderer->computeClippedRectInMainFrameContentCoordinates(localTargetBounds, applyScrollMargin);
     }();
 
     auto rootLocalIntersectionRect = intersectionState.rootBounds;
@@ -754,13 +685,29 @@ auto IntersectionObserver::updateObservations(const Frame& hostFrame) -> NeedNot
 
     auto needNotify = NeedNotify::No;
 
+    // Cache Document::isFullyActive() because it's expensive, and it's likely that observation
+    // targets all belong to a handful of documents.
+    auto isDocumentFullyActive = [cache = WeakHashMap<Document, bool, WeakPtrImplWithEventTargetData> { }] (const Document &document) mutable {
+        auto isFullyActive = cache.ensure(document, [&] () {
+            return document.isFullyActive();
+        }).iterator->value;
+
+        // Invariant: the fully active status of a document can't change when updating observations.
+        ASSERT(isFullyActive == document.isFullyActive());
+        return isFullyActive;
+    };
+
     // Iterate on a copy of m_observationTargets, in case something in the loop mutates it.
-    auto observationTargets = m_observationTargets;
-    for (Ref target : observationTargets) {
+#ifdef RC_REMOVE_SEC_ACCEL_3
+    auto observationTargets = copyToVectorOf<Ref<Element>>(this->observationTargets());
+#else
+    auto observationTargets = this->observationTargets();
+#endif
+    for (const auto& target : observationTargets) {
         // Per HTML spec, "update the rendering" step (which includes "run the update intersection
-        // observations") should only occur for fully active documents. Hence skip updating the
-        // target if its document is not fully active.
-        if (!root() && !target->document().isFullyActive())
+        // observations") only occurs for fully active documents. Hence skip updating the target if
+        // its document is not fully active.
+        if (!root() && !isDocumentFullyActive(target->document()))
             continue;
 
         auto& targetRegistrations = target->intersectionObserverDataIfExists()->registrations;
@@ -853,17 +800,21 @@ std::optional<ReducedResolutionSeconds> IntersectionObserver::nowTimestamp() con
 
 void IntersectionObserver::appendQueuedEntry(Ref<IntersectionObserverEntry>&& entry)
 {
-    m_pendingTargets.append(entry->target());
+    {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        Locker locker { m_observationTargetsLock };
+#endif
+        m_pendingTargets.append(entry->target());
+    }
     m_queuedEntries.append(WTF::move(entry));
 }
 
 void IntersectionObserver::notify()
 {
     if (m_queuedEntries.isEmpty()) {
-        ASSERT(m_pendingTargets.isEmpty());
+        ASSERT(!hasPendingTargets());
         return;
     }
-
 
     if (RefPtr context = m_callback->scriptExecutionContext()) {
         if (RefPtr document = dynamicDowncast<Document>(context.get())) {
@@ -875,7 +826,7 @@ void IntersectionObserver::notify()
     }
 
     auto takenRecords = takeRecords();
-    auto targetsWaitingForFirstObservation = std::exchange(m_targetsWaitingForFirstObservation, { });
+    auto targetsWaitingForFirstObservation = takeTargetsWaitingForFirstObservation();
 
     // FIXME: The JSIntersectionObserver wrapper should be kept alive as long as the intersection observer can fire events.
     ASSERT(m_callback->hasCallback());
@@ -901,6 +852,10 @@ void IntersectionObserver::notify()
 
 bool IntersectionObserver::isReachableFromOpaqueRoots(JSC::AbstractSlotVisitor& visitor) const
 {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    Locker locker { m_observationTargetsLock };
+#endif
+
     for (auto& target : m_observationTargets) {
         if (containsWebCoreOpaqueRoot(visitor, target))
             return true;

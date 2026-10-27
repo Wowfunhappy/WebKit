@@ -56,6 +56,8 @@ public:
         tls_protocol_version_t minimumTLSProtocol { tls_protocol_version_TLSv12 };
         ServerTrust serverTrust { ServerTrust::Native };
         bool acceptsAnyCertificate { false };
+        // CocoaCurlTLSState::presentsPreferredIdentity.
+        bool presentsPreferredIdentity { false };
         RetainPtr<CFDictionaryRef> configuredProxySettings;
         Vector<CocoaCurlProxyFilterResult> proxyFilterResults;
         // How long a connection may take, less the time the client takes to answer the questions put to it while

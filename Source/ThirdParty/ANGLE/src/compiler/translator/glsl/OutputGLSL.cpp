@@ -4,11 +4,11 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "compiler/translator/glsl/OutputGLSL.h"
+
+#include <array>
+
+#include "common/unsafe_buffers.h"
 
 #include "compiler/translator/Compiler.h"
 
@@ -85,42 +85,37 @@ void TOutputGLSL::visitSymbol(TIntermSymbol *node)
 ImmutableString TOutputGLSL::translateTextureFunction(const ImmutableString &name,
                                                       const ShCompileOptions &option)
 {
-    // Check WEBGL_video_texture invocation first.
-    if (name == "textureVideoWEBGL")
-    {
-        if (option.takeVideoTextureAsExternalOES)
-        {
-            // TODO(http://anglebug.com/42262534): Implement external image situation.
-            UNIMPLEMENTED();
-            return ImmutableString("");
-        }
-        else
-        {
-            // Use "texture" instead of "texture2D" to match the translation
-            // of samplerVideoWEBGL to sampler2D and the GLSL version's texture function naming.
-            ASSERT(sh::IsGLSL150OrNewer(getShaderOutput()));
-            return ImmutableString("texture");
-        }
-    }
-
     ASSERT(sh::IsGLSL150OrNewer(getShaderOutput()));
-    static const char *legacyToCoreRename[] = {
-        "texture2D", "texture", "texture2DProj", "textureProj", "texture2DLod", "textureLod",
-        "texture2DProjLod", "textureProjLod", "texture2DRect", "texture", "texture2DRectProj",
-        "textureProj", "textureCube", "texture", "textureCubeLod", "textureLod",
-        // Extensions
-        "texture2DLodEXT", "textureLod", "texture2DProjLodEXT", "textureProjLod",
-        "textureCubeLodEXT", "textureLod", "texture2DGradEXT", "textureGrad",
-        "texture2DProjGradEXT", "textureProjGrad", "textureCubeGradEXT", "textureGrad", "texture3D",
-        "texture", "texture3DProj", "textureProj", "texture3DLod", "textureLod", "texture3DProjLod",
-        "textureProjLod", "shadow2DEXT", "texture", "shadow2DProjEXT", "textureProj", nullptr,
-        nullptr};
+    static constexpr std::array<std::array<const char *, 2>, 20> kLegacyToCoreRename = {{
 
-    for (int i = 0; legacyToCoreRename[i] != nullptr; i += 2)
+        {"texture2D", "texture"},
+        {"texture2DProj", "textureProj"},
+        {"texture2DLod", "textureLod"},
+        {"texture2DProjLod", "textureProjLod"},
+        {"texture2DRect", "texture"},
+        {"texture2DRectProj", "textureProj"},
+        {"textureCube", "texture"},
+        {"textureCubeLod", "textureLod"},
+        // Extensions
+        {"texture2DLodEXT", "textureLod"},
+        {"texture2DProjLodEXT", "textureProjLod"},
+        {"textureCubeLodEXT", "textureLod"},
+        {"texture2DGradEXT", "textureGrad"},
+        {"texture2DProjGradEXT", "textureProjGrad"},
+        {"textureCubeGradEXT", "textureGrad"},
+        {"texture3D", "texture"},
+        {"texture3DProj", "textureProj"},
+        {"texture3DLod", "textureLod"},
+        {"texture3DProjLod", "textureProjLod"},
+        {"shadow2DEXT", "texture"},
+        {"shadow2DProjEXT", "textureProj"},
+    }};
+
+    for (const auto &rename : kLegacyToCoreRename)
     {
-        if (name == legacyToCoreRename[i])
+        if (name == rename[0])
         {
-            return ImmutableString(legacyToCoreRename[i + 1]);
+            return ImmutableString(rename[1]);
         }
     }
 

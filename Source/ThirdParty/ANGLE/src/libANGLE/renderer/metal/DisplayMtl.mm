@@ -6,15 +6,12 @@
 
 // DisplayMtl.mm: Metal implementation of DisplayImpl
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/metal/DisplayMtl.h"
 #include <sys/param.h>
 
 #include "common/apple_platform_utils.h"
 #include "common/system_utils.h"
+#include "common/unsafe_buffers.h"
 #include "gpu_info_util/SystemInfo.h"
 #include "libANGLE/Context.h"
 #include "libANGLE/Display.h"
@@ -351,11 +348,10 @@ egl::Error DisplayMtl::waitNative(const gl::Context *context, EGLint engine)
 
 egl::Error DisplayMtl::waitUntilWorkScheduled()
 {
-    for (auto context : mState.contextMap)
-    {
-        auto contextMtl = GetImplAs<ContextMtl>(context.second);
+    mState.contextMap.forEach([](gl::Context *context) {
+        auto contextMtl = GetImplAs<ContextMtl>(context);
         contextMtl->flushCommandBuffer(mtl::WaitUntilScheduled);
-    }
+    });
     return egl::NoError();
 }
 
@@ -796,6 +792,15 @@ void DisplayMtl::ensureCapsInitialized() const
     mNativeCaps.maxViewportWidth     = mNativeCaps.max2DTextureSize;
     mNativeCaps.maxViewportHeight    = mNativeCaps.max2DTextureSize;
 
+    if (!mFeatures.limitMaxVisibilityQueryOffset.enabled && supportsAppleGPUFamily(7))
+    {
+        mMaxVisibilityQueryOffset = 262136;
+    }
+    else
+    {
+        mMaxVisibilityQueryOffset = 65528;
+    }
+
     // MSAA
     mNativeCaps.maxSamples             = mFormatTable.getMaxSamples();
     mNativeCaps.maxSampleMaskWords     = 1;
@@ -1210,6 +1215,11 @@ void DisplayMtl::initializeFeatures()
     }
 
     ANGLE_FEATURE_CONDITION((&mFeatures), allowGenMultipleMipsPerPass, true);
+
+    // TODO(anglebug.com/537661068): using visibility query offset > 65528 causes bugs in the Apple
+    // Silicon driver.
+    ANGLE_FEATURE_CONDITION((&mFeatures), limitMaxVisibilityQueryOffset, true);
+
     ANGLE_FEATURE_CONDITION((&mFeatures), forceBufferGPUStorage, false);
     ANGLE_FEATURE_CONDITION((&mFeatures), hasExplicitMemBarrier, (isOSX || isCatalyst) && !isARM);
     ANGLE_FEATURE_CONDITION((&mFeatures), hasDepthAutoResolve, supportsEitherGPUFamily(3, 2));
@@ -1443,7 +1453,7 @@ bool DisplayMtl::isAMDBronzeDriver() const
 
     for (size_t i = 0; i < ArraySize(kMTLBronzeDeviceNames); ++i)
     {
-        if ([[mMetalDevice name] hasSuffix:kMTLBronzeDeviceNames[i]])
+        if (ANGLE_UNSAFE_TODO([[mMetalDevice name] hasSuffix:kMTLBronzeDeviceNames[i]]))
         {
             mIsAMDBronze = true;
             break;

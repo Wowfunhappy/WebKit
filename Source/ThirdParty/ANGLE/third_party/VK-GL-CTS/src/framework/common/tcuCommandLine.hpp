@@ -201,6 +201,12 @@ public:
     //! Get watchdog enable status (--deqp-watchdog)
     bool isWatchDogEnabled(void) const;
 
+    //! Get watchdog total test case time limit in seconds (--deqp-watchdog-total-time-limit)
+    int getWatchDogTotalTime(void) const;
+
+    //! Get watchdog per iteration time limit in seconds time limit in seconds (--deqp-watchdog-interval-time-limit)
+    int getWatchDogIntervalTime(void) const;
+
     //! Get crash handling enable status (--deqp-crashhandler)
     bool isCrashHandlingEnabled(void) const;
 
@@ -349,6 +355,12 @@ public:
     //! Define default size for single pipeline ( Vulkan SC )
     int getPipelineDefaultSize(void) const;
 
+    //! Path to a single amber test
+    const char *getAmberTestPath(void) const;
+
+    //! Path to a file containing a list of amber tests
+    const char *getAmberListFilePath(void) const;
+
     //! Path to offline pipeline compiler executable
     const char *getPipelineCompilerPath(void) const;
 
@@ -367,6 +379,9 @@ public:
     //! Prefix for offline pipeline compiler input files
     const char *getPipelineCompilerFilePrefix(void) const;
 
+    //! TCP port used for main process<->subprocess IPC (0 if not set; assigned automatically by the main process)
+    int getIPCPort(void) const;
+
     // Print logs of video operations to stdout
     bool getVideoLogPrint(void) const;
 
@@ -382,11 +397,14 @@ public:
     //! File that provides a default set of application parameters
     const char *getAppParamsInputFilePath(void) const;
 
-    //! Perform tests for devices implementing compute-only functionality
-    bool isComputeOnly(void) const;
-
     //! Allows you to use vendor-specific configuration
     bool isVendorSpecific() const;
+
+    //! Define device fault test case(s) to launch in subprocess
+    const char *getDeviceFaultSubprocessCount() const;
+
+    //! Define test case(s) to run
+    const char *getCasePath() const;
 
     /*--------------------------------------------------------------------*//*!
      * \brief Creates case list filter
@@ -399,6 +417,8 @@ public:
      * --deqp-caselist-file
      * --deqp-caselist-resource
      * --deqp-stdin-caselist
+     *
+     * --deqp-amber* overrides --deqp-case* options, if specified.
      *
      * Throws std::invalid_argument if parsing fails.
      *//*--------------------------------------------------------------------*/

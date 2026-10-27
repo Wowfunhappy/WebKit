@@ -86,6 +86,16 @@ bool LegacyExtensionPrivacy::value(const String& name)
     return extensionKey.isNull() || values(extensionKey).get(name);
 }
 
+bool LegacyExtensionPrivacy::allowsNetworkPrediction()
+{
+    return value(networkPredictionEnabled);
+}
+
+bool LegacyExtensionPrivacy::allowsHyperlinkAuditing()
+{
+    return value(hyperlinkAuditingEnabled);
+}
+
 Ref<JSON::Object> LegacyExtensionPrivacy::details(const String& extensionKey, const String& name)
 {
     auto controller = controllingExtension(name);

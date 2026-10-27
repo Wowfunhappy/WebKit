@@ -64,7 +64,6 @@ messages -> WebPageProxy {
     RelayAriaNotifyNotification(struct WebCore::AriaNotifyData notificationData)
     RelayLiveRegionNotification(struct WebCore::LiveRegionAnnouncementData notificationData)
 #endif
-    SetAccessibilityMode(enum:uint8_t WebCore::AccessibilityMode mode)
 
 #if PLATFORM(COCOA) || PLATFORM(GTK)
     ShowValidationMessage(WebCore::IntRect anchorRect, String message, std::optional<WebCore::FrameIdentifier> rootFrameID)
@@ -364,7 +363,9 @@ messages -> WebPageProxy {
 
     # Drag and drop messages
 #if PLATFORM(COCOA) && ENABLE(DRAG_SUPPORT)
+#if defined(RC_REMOVE_SEC_ACCEL_3)
     PropagateDragAndDrop(struct WebKit::DragEventForwardingData forwardingData, String dragStorageName, WebCore::DragData dragData)
+#endif // defined(RC_REMOVE_SEC_ACCEL_3)
     StartDrag(struct WebCore::DragItem dragItem, WebCore::ShareableBitmapHandle dragImage, std::optional<WebCore::NodeIdentifier> nodeID, std::optional<WebCore::FrameIdentifier> frameID)
     SetPromisedDataForImage(String pasteboardName, WebCore::SharedMemory::Handle imageHandle, String filename, String extension, String title, String url, String visibleURL, WebCore::SharedMemory::Handle archiveHandle, String originIdentifier)
 #endif
@@ -637,6 +638,10 @@ messages -> WebPageProxy {
 
 #if PLATFORM(MAC)
     ChangeUniversalAccessZoomFocus(WebCore::IntRect viewRect, WebCore::IntRect caretRect)
+#endif
+
+#if ENABLE(APPLE_PAY)
+    [EnabledBy=ApplePayEnabled] DidCompleteApplePayPayment()
 #endif
 
 #if ENABLE(APPLE_PAY_AMS_UI)

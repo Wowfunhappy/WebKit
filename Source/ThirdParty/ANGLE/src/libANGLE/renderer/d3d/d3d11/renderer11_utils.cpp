@@ -7,11 +7,8 @@
 // renderer11_utils.cpp: Conversion functions and other utility routines
 // specific to the D3D11 renderer.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/d3d11/renderer11_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include <algorithm>
 
@@ -1384,7 +1381,6 @@ void GenerateCaps(ID3D11Device *device,
     extensions->baseVertexBaseInstanceShaderBuiltinANGLE = true;
     extensions->drawElementsBaseVertexOES                = true;
     extensions->drawElementsBaseVertexEXT                = true;
-    extensions->videoTextureWEBGL = true;
 
     // D3D11 cannot support reading depth texture as a luminance texture.
     // It treats it as a red-channel-only texture.
@@ -1454,14 +1450,6 @@ void GenerateCaps(ID3D11Device *device,
         // this maybe touble for RGB32 format.
         caps->textureBufferOffsetAlignment = 16;
     }
-
-#ifdef ANGLE_ENABLE_WINDOWS_UWP
-    // Setting a non-zero divisor on attribute zero doesn't work on certain Windows Phone 8-era
-    // devices. We should prevent developers from doing this on ALL Windows Store devices. This will
-    // maintain consistency across all Windows devices. We allow non-zero divisors on attribute zero
-    // if the Client Version >= 3, since devices affected by this issue don't support ES3+.
-    limitations->attributeZeroRequiresZeroDivisorInEXT = true;
-#endif
 }
 
 }  // namespace d3d11_gl
@@ -1996,18 +1984,18 @@ void SetPositionLayerTexCoord3DVertex(PositionLayerTexCoord3DVertex *vertex,
 
 BlendStateKey::BlendStateKey()
 {
-    memset(this, 0, sizeof(BlendStateKey));
+    ANGLE_UNSAFE_TODO(memset(this, 0, sizeof(BlendStateKey)));
     blendStateExt = gl::BlendStateExt();
 }
 
 BlendStateKey::BlendStateKey(const BlendStateKey &other)
 {
-    memcpy(this, &other, sizeof(BlendStateKey));
+    ANGLE_UNSAFE_TODO(memcpy(this, &other, sizeof(BlendStateKey)));
 }
 
 bool operator==(const BlendStateKey &a, const BlendStateKey &b)
 {
-    return memcmp(&a, &b, sizeof(BlendStateKey)) == 0;
+    return ANGLE_UNSAFE_TODO(memcmp(&a, &b, sizeof(BlendStateKey))) == 0;
 }
 
 bool operator!=(const BlendStateKey &a, const BlendStateKey &b)
@@ -2017,12 +2005,12 @@ bool operator!=(const BlendStateKey &a, const BlendStateKey &b)
 
 RasterizerStateKey::RasterizerStateKey()
 {
-    memset(this, 0, sizeof(RasterizerStateKey));
+    ANGLE_UNSAFE_TODO(memset(this, 0, sizeof(RasterizerStateKey)));
 }
 
 bool operator==(const RasterizerStateKey &a, const RasterizerStateKey &b)
 {
-    return memcmp(&a, &b, sizeof(RasterizerStateKey)) == 0;
+    return ANGLE_UNSAFE_TODO(memcmp(&a, &b, sizeof(RasterizerStateKey))) == 0;
 }
 
 bool operator!=(const RasterizerStateKey &a, const RasterizerStateKey &b)
@@ -2233,8 +2221,6 @@ void InitializeFeatures(const Renderer11DeviceCaps &deviceCaps,
     // to work around a slow fxc compile performance issue with dynamic uniform indexing.
     ANGLE_FEATURE_CONDITION(features, allowTranslateUniformBlockToStructuredBuffer,
                             IsWindows10OrLater());
-
-    ANGLE_FEATURE_CONDITION(features, supportsNonConstantLoopIndexing, true);
 }
 
 void InitializeFrontendFeatures(const DXGI_ADAPTER_DESC &adapterDesc,
@@ -2281,22 +2267,22 @@ TextureHelper11::~TextureHelper11() {}
 
 void TextureHelper11::getDesc(D3D11_TEXTURE2D_DESC *desc) const
 {
-    static_cast<ID3D11Texture2D *>(mData->object)->GetDesc(desc);
+    static_cast<ID3D11Texture2D *>(get())->GetDesc(desc);
 }
 
 void TextureHelper11::getDesc(D3D11_TEXTURE3D_DESC *desc) const
 {
-    static_cast<ID3D11Texture3D *>(mData->object)->GetDesc(desc);
+    static_cast<ID3D11Texture3D *>(get())->GetDesc(desc);
 }
 
 void TextureHelper11::getDesc(D3D11_BUFFER_DESC *desc) const
 {
-    static_cast<ID3D11Buffer *>(mData->object)->GetDesc(desc);
+    static_cast<ID3D11Buffer *>(get())->GetDesc(desc);
 }
 
 void TextureHelper11::initDesc(const D3D11_TEXTURE2D_DESC &desc2D)
 {
-    mData->resourceType = ResourceType::Texture2D;
+    data().resourceType = ResourceType::Texture2D;
     mExtents.width      = static_cast<int>(desc2D.Width);
     mExtents.height     = static_cast<int>(desc2D.Height);
     mExtents.depth      = 1;
@@ -2305,7 +2291,7 @@ void TextureHelper11::initDesc(const D3D11_TEXTURE2D_DESC &desc2D)
 
 void TextureHelper11::initDesc(const D3D11_TEXTURE3D_DESC &desc3D)
 {
-    mData->resourceType = ResourceType::Texture3D;
+    data().resourceType = ResourceType::Texture3D;
     mExtents.width      = static_cast<int>(desc3D.Width);
     mExtents.height     = static_cast<int>(desc3D.Height);
     mExtents.depth      = static_cast<int>(desc3D.Depth);
@@ -2314,7 +2300,7 @@ void TextureHelper11::initDesc(const D3D11_TEXTURE3D_DESC &desc3D)
 
 void TextureHelper11::initDesc(const D3D11_BUFFER_DESC &descBuffer)
 {
-    mData->resourceType = ResourceType::Buffer;
+    data().resourceType = ResourceType::Buffer;
     mExtents.width      = static_cast<int>(descBuffer.ByteWidth);
     mExtents.height     = 1;
     mExtents.depth      = 1;
@@ -2323,7 +2309,7 @@ void TextureHelper11::initDesc(const D3D11_BUFFER_DESC &descBuffer)
 
 TextureHelper11 &TextureHelper11::operator=(TextureHelper11 &&other)
 {
-    std::swap(mData, other.mData);
+    swapData(other);
     std::swap(mExtents, other.mExtents);
     std::swap(mFormatSet, other.mFormatSet);
     std::swap(mSampleCount, other.mSampleCount);
@@ -2341,12 +2327,12 @@ TextureHelper11 &TextureHelper11::operator=(const TextureHelper11 &other)
 
 bool TextureHelper11::operator==(const TextureHelper11 &other) const
 {
-    return mData->object == other.mData->object;
+    return get() == other.get();
 }
 
 bool TextureHelper11::operator!=(const TextureHelper11 &other) const
 {
-    return mData->object != other.mData->object;
+    return get() != other.get();
 }
 
 bool UsePresentPathFast(const Renderer11 *renderer,

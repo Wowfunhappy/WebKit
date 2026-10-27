@@ -73,6 +73,19 @@ private func makeMTLTextureFromImageAsset(
 
     let pixelFormat = imageAsset.pixelFormat
 
+    #if !RC_REMOVE_SEC_ACCEL_3
+    // textureCubeDescriptor takes a single `size`, so a cube built from `width` has
+    // nowhere to put a different `height`. Reject the mismatch here rather than letting
+    // the upload region below describe an extent the texture does not have.
+    if imageAsset.textureType == .typeCube, imageAsset.width != imageAsset.height {
+        logError(
+            "rejecting cube image asset with non-square dimensions "
+                + "\(imageAsset.width)x\(imageAsset.height)"
+        )
+        return nil
+    }
+    #endif
+
     let (textureDescriptor, sliceCount) =
         switch imageAsset.textureType {
         case .typeCube:
@@ -118,6 +131,7 @@ private func makeMTLTextureFromImageAsset(
             return
         }
 
+        #if RC_REMOVE_SEC_ACCEL_3
         func uploadSlice(face: Int, mipLevel: Int, bytesOffset: Int, bytesPerRow: Int, bytesPerImage: Int) {
             let mipWidth = mipDimension(imageAsset.width, level: mipLevel)
             let mipHeight = mipDimension(imageAsset.height, level: mipLevel)
@@ -130,6 +144,57 @@ private func makeMTLTextureFromImageAsset(
                 bytesPerImage: bytesPerImage
             )
         }
+        #else
+        func uploadSlice(face: Int, mipLevel: Int, bytesOffset: Int, bytesPerRow: Int, bytesPerImage: Int) -> Bool {
+            let mipWidth = mipDimension(imageAsset.width, level: mipLevel)
+            let mipHeight = mipDimension(imageAsset.height, level: mipLevel)
+
+            // The region is derived from imageAsset but it is written into mtlTexture,
+            // whose extent came from textureDescriptor. replace(region:) does not bounds
+            // check in release builds, so the two must not be allowed to disagree.
+            let destinationWidth = mipDimension(mtlTexture.width, level: mipLevel)
+            let destinationHeight = mipDimension(mtlTexture.height, level: mipLevel)
+            guard mipLevel < mtlTexture.mipmapLevelCount,
+                mipWidth <= destinationWidth,
+                mipHeight <= destinationHeight
+            else {
+                logError(
+                    "rejecting texture level \(mipLevel) face \(face): region "
+                        + "\(mipWidth)x\(mipHeight) escapes the \(destinationWidth)x\(destinationHeight) "
+                        + "extent of destination level \(mipLevel) of "
+                        + "\(mtlTexture.mipmapLevelCount)"
+                )
+                return false
+            }
+
+            let (rowBytes, rowOverflow) = mipWidth.multipliedReportingOverflow(by: bytesPerPixel)
+            let (rowSpan, spanOverflow) = (mipHeight - 1).multipliedReportingOverflow(by: bytesPerRow)
+            let (lastRowStart, startOverflow) = bytesOffset.addingReportingOverflow(rowSpan)
+            let (windowEnd, endOverflow) = lastRowStart.addingReportingOverflow(rowBytes)
+            guard !rowOverflow, !spanOverflow, !startOverflow, !endOverflow,
+                bytesOffset >= 0,
+                bytesPerRow >= rowBytes,
+                windowEnd <= textureBytes.count
+            else {
+                logError(
+                    "rejecting texture level \(mipLevel) face \(face): source window "
+                        + "[\(bytesOffset), \(windowEnd)) (bytesPerRow \(bytesPerRow)) escapes the "
+                        + "\(textureBytes.count)-byte asset"
+                )
+                return false
+            }
+
+            unsafe mtlTexture.replace(
+                region: MTLRegionMake2D(0, 0, mipWidth, mipHeight),
+                mipmapLevel: mipLevel,
+                slice: face,
+                withBytes: unsafe baseAddress.advanced(by: bytesOffset),
+                bytesPerRow: bytesPerRow,
+                bytesPerImage: 0
+            )
+            return true
+        }
+        #endif
 
         if !layout.isEmpty {
             // Use the pre-computed per-mip layout transmitted over IPC.
@@ -140,6 +205,7 @@ private func makeMTLTextureFromImageAsset(
                 for mipLevel in 0..<mipLevelsInData {
                     let info = layout[mipLevel]
                     // dataOffset covers all slices; advance by bytesPerImage per face.
+                    #if RC_REMOVE_SEC_ACCEL_3
                     uploadSlice(
                         face: face,
                         mipLevel: mipLevel,
@@ -147,6 +213,23 @@ private func makeMTLTextureFromImageAsset(
                         bytesPerRow: info.byteCountPerRow,
                         bytesPerImage: info.byteCountPerImage
                     )
+                    #else
+                    let (faceOffset, faceOverflow) = face.multipliedReportingOverflow(by: info.byteCountPerImage)
+                    let (bytesOffset, offsetOverflow) = info.dataOffset.addingReportingOverflow(faceOffset)
+                    guard !faceOverflow, !offsetOverflow,
+                        uploadSlice(
+                            face: face,
+                            mipLevel: mipLevel,
+                            bytesOffset: bytesOffset,
+                            bytesPerRow: info.byteCountPerRow,
+                            bytesPerImage: info.byteCountPerImage
+                        )
+                    else {
+                        logError("aborting layout-driven texture upload after invalid level \(mipLevel) face \(face)")
+                        mipLevelsInData = 0
+                        return
+                    }
+                    #endif
                 }
             }
         } else {
@@ -190,6 +273,7 @@ private func makeMTLTextureFromImageAsset(
                     let mipHeight = mipDimension(imageAsset.height, level: mipLevel)
                     let bytesPerRow = mipWidth * bytesPerPixel
                     let bytesPerImage = bytesPerRow * mipHeight
+                    #if RC_REMOVE_SEC_ACCEL_3
                     uploadSlice(
                         face: face,
                         mipLevel: mipLevel,
@@ -197,6 +281,25 @@ private func makeMTLTextureFromImageAsset(
                         bytesPerRow: bytesPerRow,
                         bytesPerImage: bytesPerImage
                     )
+                    #else
+                    // The bounds uploadSlice checks are all implied by the byte accounting
+                    // above, but that reasoning lives in a different loop (and, for cubes, in
+                    // the square check before the descriptor is built), so do not silently
+                    // discard a rejection: a partial upload must not be reported as success.
+                    guard
+                        uploadSlice(
+                            face: face,
+                            mipLevel: mipLevel,
+                            bytesOffset: offset,
+                            bytesPerRow: bytesPerRow,
+                            bytesPerImage: bytesPerImage
+                        )
+                    else {
+                        logError("aborting texture upload after invalid level \(mipLevel) face \(face)")
+                        mipLevelsInData = 0
+                        return
+                    }
+                    #endif
                     offset += bytesPerImage
                 }
             }
@@ -1103,7 +1206,14 @@ extension WKBridgeReceiver {
                     layout: textureData.layout
                 )
             else {
+                #if RC_REMOVE_SEC_ACCEL_3
                 fatalError("Could not make metal texture from environment asset data")
+                #else
+                // makeMTLTextureFromImageAsset rejects assets a compromised WebContent
+                // process can construct, so a rejection must not take down the GPU process.
+                logError("could not make metal texture from environment asset data")
+                return
+                #endif
             }
 
             let cubeMTLTextureDescriptor = try self.skyboxGenerator.makeDescriptor(
@@ -1852,6 +1962,8 @@ private func fromWKBridgeDataType(_ dataType: WKBridgeDataType) -> ShaderGraph.D
     }
 }
 
+#if RC_REMOVE_SEC_ACCEL_3
+
 private func makeCGColor3(colorSpace: CGColorSpace, _ a: CGFloat, _ b: CGFloat, _ c: CGFloat) -> CGColor {
     // rdar://177971578 - CG should provide an API for not requiring unsafe
     guard let cs = unsafe CGColor(colorSpace: colorSpace, components: [a, b, c, 1.0]) else {
@@ -1868,18 +1980,63 @@ private func makeCGColor4(colorSpace: CGColorSpace, _ a: CGFloat, _ b: CGFloat, 
     return cs
 }
 
-private func fromWKBridgeConstant(_ constant: WKBridgeConstantContainer) -> ShaderGraph.Value {
-    let values = constant.constantValues
+private func bridgeColorSpace(named name: String?) -> CGColorSpace {
     // Resolve the color space from the transmitted name, falling back to extendedLinearSRGB.
     // USD color3f/color4f values are in linear sRGB, so extendedLinearSRGB is the correct fallback.
     // swift-format-ignore: NeverForceUnwrap
     guard
         let colorSpace =
-            (constant.colorSpaceName.flatMap { CGColorSpace(name: $0 as CFString) }
+            (name.flatMap { CGColorSpace(name: $0 as CFString) }
                 ?? CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
     else {
         fatalError("extendedLinearSRGB could not be constructed, should never occur")
     }
+    return colorSpace
+}
+
+#else
+
+private let cgColorComponentCount = 3
+
+private func makeCGColor3(colorSpace: CGColorSpace, _ a: CGFloat, _ b: CGFloat, _ c: CGFloat) -> CGColor {
+    makeCGColor4(colorSpace: colorSpace, a, b, c, 1.0)
+}
+
+private func makeCGColor4(colorSpace: CGColorSpace, _ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat) -> CGColor {
+    guard colorSpace.numberOfComponents == cgColorComponentCount else {
+        fatalError("colorSpace \(colorSpace) has \(colorSpace.numberOfComponents) components, expected \(cgColorComponentCount)")
+    }
+    // rdar://177971578 - CG should provide an API for not requiring unsafe
+    guard let cs = unsafe CGColor(colorSpace: colorSpace, components: [a, b, c, d]) else {
+        fatalError("\(a) \(b) \(c) \(d) could not form a CGColor with colorSpace \(colorSpace)")
+    }
+    return cs
+}
+
+private func bridgeColorSpace(named name: String?) -> CGColorSpace {
+    // Resolve the color space from the transmitted name, falling back to extendedLinearSRGB.
+    // USD color3f/color4f values are in linear sRGB, so extendedLinearSRGB is the correct fallback.
+    if let name, let colorSpace = CGColorSpace(name: name as CFString) {
+        if colorSpace.model == .rgb && colorSpace.numberOfComponents == cgColorComponentCount {
+            return colorSpace
+        }
+        logError(
+            "rejecting color space \"\(name)\": model \(colorSpace.model.rawValue) with "
+                + "\(colorSpace.numberOfComponents) components, expected a "
+                + "\(cgColorComponentCount)-component RGB space"
+        )
+    }
+    guard let fallback = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) else {
+        fatalError("extendedLinearSRGB could not be constructed, should never occur")
+    }
+    return fallback
+}
+
+#endif // RC_REMOVE_SEC_ACCEL_3
+
+private func fromWKBridgeConstant(_ constant: WKBridgeConstantContainer) -> ShaderGraph.Value {
+    let values = constant.constantValues
+    let colorSpace = bridgeColorSpace(named: constant.colorSpaceName)
 
     switch constant.constant {
     case .bool:
@@ -2300,6 +2457,14 @@ final class USDModelLoader {
 
     func loadModel(data: Foundation.Data, mimeType: String) -> Bool {
         resetLoaderState()
+
+        #if !RC_REMOVE_SEC_ACCEL_3
+        if ModelAssetPolicy.referencesExternalAssets(modelData: data) {
+            logError("rejecting model document that references assets outside itself")
+            return false
+        }
+        #endif
+
         do {
             self.stage = try USDStage(data, type: usdStageType(forMIMEType: mimeType))
             guard let stage = self.stage else {

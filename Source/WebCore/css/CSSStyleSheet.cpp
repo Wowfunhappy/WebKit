@@ -75,6 +75,18 @@ private:
 
     CSSStyleSheet* NODELETE styleSheet() const final { return m_styleSheet.get(); }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    // CSSStyleSheet::item() lazily creates the child wrappers, so it must not be reached from the
+    // GC marker threads; the sheet is the list's opaque root anyway.
+    WebCoreOpaqueRoot opaqueRootForGCThread() const final
+    {
+        SUPPRESS_UNCOUNTED_LOCAL CSSStyleSheet* styleSheet = m_styleSheet.get();
+        if (!styleSheet)
+            return WebCoreOpaqueRoot { nullptr };
+        return styleSheet->opaqueRootForGCThread();
+    }
+#endif // RC_REMOVE_SEC_ACCEL_3
+
     SingleThreadWeakPtr<CSSStyleSheet> m_styleSheet;
 };
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleSheetCSSRuleList);
@@ -273,7 +285,12 @@ void CSSStyleSheet::forEachStyleScope(NOESCAPE const Function<void(Style::Scope&
         apply(*scope);
         return;
     }
+
+#ifdef RC_REMOVE_SEC_ACCEL_3
     for (Ref treeScope : m_adoptingTreeScopes)
+#else
+    for (const auto& treeScope : copyToVectorOf<Ref<ContainerNode>>(m_adoptingTreeScopes))
+#endif
         apply(styleScopeFor(treeScope));
 }
 
@@ -289,6 +306,9 @@ WebCoreOpaqueRoot CSSStyleSheet::opaqueRootForGCThread()
     if (m_ownerNode)
         return root(m_ownerNode.get());
     if (SUPPRESS_UNCOUNTED_LOCAL SUPPRESS_UNCHECKED_LOCAL CSSImportRule* ownerRule = m_ownerRule.get()) {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        Locker ruleLocker { ownerRule->opaqueRootLockForGC() };
+#endif
         if (auto* parentSheet = ownerRule->parentStyleSheet())
             return parentSheet->opaqueRootForGCThread();
     }
@@ -338,6 +358,8 @@ unsigned CSSStyleSheet::length() const
 
 CSSRule* CSSStyleSheet::item(unsigned index)
 {
+    ASSERT_WITH_SECURITY_IMPLICATION(isMainThread());
+
     unsigned ruleCount = length();
     if (index >= ruleCount)
         return nullptr;
@@ -565,6 +587,7 @@ ExceptionOr<void> CSSStyleSheet::replaceSync(String&& text)
     // Try to use the cache in the case where contents is replaced before the stylesheet is attached to the document.
     if (isDetached() && m_childRuleCSSOMWrappers.isEmpty()) {
         auto key = Style::StyleSheetContentsCache::Key { text, m_contents->parserContext() };
+#ifdef RC_REMOVE_SEC_ACCEL_3
         auto cachedContents = Style::StyleSheetContentsCache::singleton().get(key);
         if (cachedContents) {
             protect(m_contents)->unregisterClient(this);
@@ -576,6 +599,34 @@ ExceptionOr<void> CSSStyleSheet::replaceSync(String&& text)
                 Style::StyleSheetContentsCache::singleton().add(WTF::move(key), m_contents);
         }
         return { };
+#else
+        if (RefPtr cachedContents = Style::StyleSheetContentsCache::singleton().get(key)) {
+            protect(m_contents)->unregisterClient(this);
+            m_contents = cachedContents.releaseNonNull();
+            protect(m_contents)->registerClient(this);
+            return { };
+        }
+
+        // Contents that are shared with other stylesheets or published to the cache have to stay
+        // immutable, so parse into fresh contents instead of replacing the rules in place.
+        auto contentsForReplacement = [&] -> Ref<StyleSheetContents> {
+            if (m_contents->hasOneClient() && !m_contents->isInMemoryCache()) {
+                protect(m_contents)->clearRules();
+                return m_contents;
+            }
+            Ref contents = StyleSheetContents::create(m_contents->parserContext());
+            protect(m_contents)->unregisterClient(this);
+            m_contents = contents.copyRef();
+            contents->registerClient(this);
+            contents->checkLoaded();
+            return contents;
+        }();
+
+        contentsForReplacement->parseString(WTF::move(text));
+        if (contentsForReplacement->isCacheable())
+            Style::StyleSheetContentsCache::singleton().add(WTF::move(key), WTF::move(contentsForReplacement));
+        return { };
+#endif // RC_REMOVE_SEC_ACCEL_3
     }
 
     RuleMutationScope mutationScope(this, RuleReplace);

@@ -4,13 +4,12 @@
 // found in the LICENSE file.
 //
 
+#include "common/unsafe_buffers.h"
 #include "compiler/translator/IntermNode.h"
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
 
 #include "compiler/translator/util.h"
 
+#include <array>
 #include <limits>
 
 #include "common/span.h"
@@ -34,7 +33,7 @@ namespace sh
 namespace
 {
 // [primarySize-1][secondarySize-1] is the GL type with a basic type of float.
-constexpr GLenum kFloatGLType[4][4] = {
+static constexpr std::array<std::array<GLenum, 4>, 4> kFloatGLType = {{
     // float1xS only makes sense for S == 1
     {
         GL_FLOAT,
@@ -63,14 +62,15 @@ constexpr GLenum kFloatGLType[4][4] = {
         GL_FLOAT_MAT4x3,
         GL_FLOAT_MAT4,
     },
-};
+}};
 // [primarySize-1] is the GL type with a basic type of int.
-constexpr GLenum kIntGLType[4] = {GL_INT, GL_INT_VEC2, GL_INT_VEC3, GL_INT_VEC4};
+static constexpr std::array<GLenum, 4> kIntGLType = {GL_INT, GL_INT_VEC2, GL_INT_VEC3, GL_INT_VEC4};
 // [primarySize-1] is the GL type with a basic type of uint.
-constexpr GLenum kUIntGLType[4] = {GL_UNSIGNED_INT, GL_UNSIGNED_INT_VEC2, GL_UNSIGNED_INT_VEC3,
-                                   GL_UNSIGNED_INT_VEC4};
+static constexpr std::array<GLenum, 4> kUIntGLType = {GL_UNSIGNED_INT, GL_UNSIGNED_INT_VEC2,
+                                                      GL_UNSIGNED_INT_VEC3, GL_UNSIGNED_INT_VEC4};
 // [primarySize-1] is the GL type with a basic type of bool.
-constexpr GLenum kBoolGLType[4] = {GL_BOOL, GL_BOOL_VEC2, GL_BOOL_VEC3, GL_BOOL_VEC4};
+static constexpr std::array<GLenum, 4> kBoolGLType = {GL_BOOL, GL_BOOL_VEC2, GL_BOOL_VEC3,
+                                                      GL_BOOL_VEC4};
 
 bool IsInterpolationIn(TQualifier qualifier)
 {
@@ -413,8 +413,6 @@ GLenum GLVariableType(const TType &type)
             return GL_UNSIGNED_INT_IMAGE_BUFFER;
         case EbtAtomicCounter:
             return GL_UNSIGNED_INT_ATOMIC_COUNTER;
-        case EbtSamplerVideoWEBGL:
-            return GL_SAMPLER_VIDEO_IMAGE_WEBGL;
         case EbtPixelLocalANGLE:
         case EbtIPixelLocalANGLE:
         case EbtUPixelLocalANGLE:
@@ -859,7 +857,6 @@ bool IsOutputHLSL(ShShaderOutput output)
 {
     switch (output)
     {
-        case SH_HLSL_3_0_OUTPUT:
         case SH_HLSL_4_1_OUTPUT:
             return true;
         default:
@@ -975,7 +972,7 @@ size_t FindFieldIndex(const TFieldList &fieldList, const char *fieldName)
 {
     for (size_t fieldIndex = 0; fieldIndex < fieldList.size(); ++fieldIndex)
     {
-        if (strcmp(fieldList[fieldIndex]->name().data(), fieldName) == 0)
+        if (ANGLE_UNSAFE_TODO(strcmp(fieldList[fieldIndex]->name().data(), fieldName)) == 0)
         {
             return fieldIndex;
         }

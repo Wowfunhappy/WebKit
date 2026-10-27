@@ -440,8 +440,10 @@ private:
             case NewArrayBuffer:
             case NewInternalFieldObject:
             case NewPromise:
+#ifdef RC_REMOVE_SEC_ACCEL_3
             case NewTypedArray:
             case NewTypedArrayBuffer:
+#endif
             case NewRegExp:
             case NewRegExpUntyped:
             case NewStringObject:
@@ -466,8 +468,16 @@ private:
             case NewBoundFunction:
             case AllocatePropertyStorage:
             case ReallocatePropertyStorage:
+#ifdef RC_REMOVE_SEC_ACCEL_3
                 // Nodes that allocate get to set their epoch because for those nodes we know
                 // that they will be the newest object in the heap.
+#else
+                // Set the node's epoch to current so that store barriers are not needed on the results
+                // of these nodes until the next epoch bump. In order for that to be sound, no GC safepoint
+                // can execute between the allocation of the node's result and the next doesGC() node.
+                // Once a doesGC() node is encountered (and therefore a GC safepoint could be executed)
+                // the allocation becomes discoverable by the collector and so barriers are needed.
+#endif
                 m_node->setEpoch(m_currentEpoch);
                 break;
                 
@@ -477,6 +487,13 @@ private:
                 m_node->setEpoch(Epoch());
                 break;
                 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            // These allocate, but their operations can GC after the result cell exists
+            // (setFromArrayLike runs accessors; JSArrayBuffer::finishCreation calls
+            // Heap::addReference), so the collector may already have traced the result.
+            case NewTypedArray:
+            case NewTypedArrayBuffer:
+#endif
             default:
                 // For nodes that aren't guaranteed to allocate, we say that their return value
                 // (if there is one) could be arbitrarily old.

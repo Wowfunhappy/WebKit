@@ -367,6 +367,16 @@ public:
         return typeInfo().hasStaticPropertyTable() && !staticPropertiesReified();
     }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    // Because get and getConcurrently consult only the property table, a structure whose static
+    // property table has not been reified can still own the property. Any lookup that concludes
+    // the property is absent from this structure must consult the static property table too.
+    bool hasNonReifiedStaticProperty(PropertyName propertyName) const
+    {
+        return hasNonReifiedStaticProperties() && findPropertyHashEntry(propertyName);
+    }
+#endif
+
     bool isNonExtensibleOrHasNonConfigurableProperties() const
     {
         return didPreventExtensions() || hasNonConfigurableProperties();
@@ -782,7 +792,7 @@ public:
         const HashTable* table;
         const HashTableValue* value;
     };
-    std::optional<PropertyHashEntry> findPropertyHashEntry(PropertyName) const;
+    JS_EXPORT_PRIVATE std::optional<PropertyHashEntry> findPropertyHashEntry(PropertyName) const;
     
     DECLARE_EXPORT_INFO;
 

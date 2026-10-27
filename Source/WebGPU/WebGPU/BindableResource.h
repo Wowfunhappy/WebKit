@@ -105,7 +105,48 @@ struct IndexBufferAndIndexData {
     IndexData indexData;
 };
 
+// Records an indirect draw so its call can be GPU-encoded into the bundle's ICB slot at executeBundles() time.
+struct IndirectDrawData {
+    uint64_t renderCommand { 0 };
+    RefPtr<Buffer> indirectBuffer;
+    uint64_t indirectOffset { 0 };
+    uint32_t minVertexCount { UINT32_MAX };
+    uint32_t minInstanceCount { UINT32_MAX };
+    RefPtr<Buffer> indexBuffer; // nullptr for non-indexed
+    MTLIndexType indexType { MTLIndexTypeUInt16 };
+    NSUInteger indexBufferOffset { 0 };
+    MTLPrimitiveType primitiveType { MTLPrimitiveTypeTriangle };
+    bool isIndexed { false };
+    // Skip re-encoding while the source buffers' generations are unchanged.
+    bool encodedAtLeastOnce { false };
+    uint64_t lastIndirectGeneration { 0 };
+    uint64_t lastIndexGeneration { 0 };
+};
+
+using IndirectDrawForSlotContainer = HashMap<uint64_t, IndirectDrawData, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+// An indexed indirect draw whose baked ICB slot was reused rather than re-encoded, retained until commit so
+// its index buffer can be revalidated if those indices changed after the slot was baked.
+struct ReusedIndirectIndexedDraw {
+    RefPtr<Buffer> indirectBuffer;
+    uint64_t indirectOffset { 0 };
+    uint64_t indexBufferOffset { 0 };
+    uint64_t indirectGeneration { 0 };
+    uint64_t indexGeneration { 0 };
+    uint32_t minVertexCount { UINT32_MAX };
+    MTLIndexType indexType { MTLIndexTypeUInt16 };
+    MTLPrimitiveType primitiveType { MTLPrimitiveTypeTriangle };
+
+    friend bool operator==(const ReusedIndirectIndexedDraw&, const ReusedIndirectIndexedDraw&) = default;
+};
+#endif // RC_REMOVE_SEC_ACCEL_3
+
+#ifdef RC_REMOVE_SEC_ACCEL_3
 using DrawIndexCacheContainerKey = std::array<uint32_t, 5>;
+#else
+using DrawIndexCacheContainerKey = std::array<uint32_t, 6>;
+#endif // RC_REMOVE_SEC_ACCEL_3
 inline void add(Hasher& hasher, const DrawIndexCacheContainerKey& input)
 {
     for (auto value : input)
@@ -123,6 +164,9 @@ struct DrawIndexCacheContainerValue {
             uint32_t icb2;
         };
     };
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    int32_t clampedBaseVertex { 0 };
+#endif // RC_REMOVE_SEC_ACCEL_3
     DrawIndexCacheContainerValue() { }
     DrawIndexCacheContainerValue(const DrawIndexCacheContainerKey& key)
         : firstIndex(key[0])
@@ -130,13 +174,21 @@ struct DrawIndexCacheContainerValue {
         , primitiveOffsetWithIndexType(key[2])
         , icb1(key[3])
         , icb2(key[4])
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        , clampedBaseVertex(static_cast<int32_t>(key[5]))
+#endif // RC_REMOVE_SEC_ACCEL_3
     {
     }
     uint32_t primitiveOffset() { return static_cast<MTLIndexType>(primitiveOffsetWithIndexType & 0x1); }
     MTLIndexType indexType() { return static_cast<MTLIndexType>(primitiveOffsetWithIndexType & 0x2); }
 };
 
-using DrawIndexCacheContainer = HashMap<GenericHashKey<DrawIndexCacheContainerKey>, uint32_t>;
+struct DrawIndexValidationCacheEntry {
+    uint32_t vertexCount { 0 };
+    uint64_t indexContentsGeneration { 0 };
+};
+
+using DrawIndexCacheContainer = HashMap<GenericHashKey<DrawIndexCacheContainerKey>, DrawIndexValidationCacheEntry>;
 using DrawIndexCacheContainerIterator = DrawIndexCacheContainer::const_iterator;
 
 using TrackedResourceContainer = HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;

@@ -128,7 +128,7 @@ std::shared_ptr<ShaderTranslateTask> ShaderGL::compile(const gl::Context *contex
 
     options->initGLPosition = true;
 
-    const bool isHardened = context->isWebGL() || context->isHardenedContext();
+    const bool isHardened = context->isHardenedContext();
     if (isHardened || (features.initFragmentOutputVariables.enabled &&
                        mState.getShaderType() == gl::ShaderType::Fragment))
     {
@@ -238,11 +238,6 @@ std::shared_ptr<ShaderTranslateTask> ShaderGL::compile(const gl::Context *contex
         options->rewriteTexelFetchOffsetToTexelFetch = true;
     }
 
-    if (features.regenerateStructNames.enabled)
-    {
-        options->regenerateStructNames = true;
-    }
-
     if (features.rewriteRowMajorMatrices.enabled)
     {
         options->rewriteRowMajorMatrices = true;
@@ -268,6 +263,11 @@ std::shared_ptr<ShaderTranslateTask> ShaderGL::compile(const gl::Context *contex
         options->scalarizeVecAndMatConstructorArgs = true;
     }
 
+    if (features.avoidComplexExpressionsInStructConstructor.enabled)
+    {
+        options->avoidComplexExpressionsInStructConstructor = true;
+    }
+
     if (features.explicitFragmentLocations.enabled)
     {
         options->explicitFragmentLocations = true;
@@ -286,6 +286,11 @@ std::shared_ptr<ShaderTranslateTask> ShaderGL::compile(const gl::Context *contex
     if (features.expandFragmentOutputsToVec4.enabled)
     {
         options->expandFragmentOutputsToVec4 = true;
+    }
+
+    if (features.limitOutputVaryingsTo256AtCompileTime.enabled)
+    {
+        options->limitOutputVaryingsTo256 = true;
     }
 
     return std::shared_ptr<ShaderTranslateTask>(

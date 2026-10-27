@@ -108,6 +108,7 @@ private:
     void restart(WebCore::ResourceRequest&&);
     void updateMetrics(const WebCore::NetworkLoadMetrics&);
     bool cookiesBlocked();
+    void disallowCookiesWithoutFirstPartyDomain(WebCore::ResourceRequest&) const;
     void storeReceivedCookies(Vector<String>&&, const String& remoteAddress, const WebCore::RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&&);
     Vector<uint8_t> downloadResumeData() const;
     void publishResponse();
@@ -158,6 +159,7 @@ private:
     Vector<uint8_t> m_sniffPrefix;
     bool m_isMainResource { false };
     bool m_needsCertificateInfo { false };
+    const bool m_isDataTaskForAPI { false };
     bool m_cookieBlockingLatched { false };
     struct HeldCookies {
         Vector<String> fields;

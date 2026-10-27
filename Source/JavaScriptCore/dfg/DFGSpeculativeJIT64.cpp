@@ -191,6 +191,9 @@ void SpeculativeJIT::cachedGetById(Node* node, CodeOrigin codeOrigin, JSValueReg
 
     addGetById(gen, slowPath.get());
     addSlowPathGenerator(WTF::move(slowPath));
+    addSlowPathGeneratorLambda([=, this]() mutable {
+        gen.generateDataICSlowPath(*this);
+    });
 }
 
 void SpeculativeJIT::cachedGetByIdWithThis(Node* node, CodeOrigin codeOrigin, JSValueRegs baseRegs, JSValueRegs thisRegs, JSValueRegs resultRegs, CacheableIdentifier identifier, bool needsBaseAndThisCellCheck)
@@ -227,6 +230,9 @@ void SpeculativeJIT::cachedGetByIdWithThis(Node* node, CodeOrigin codeOrigin, JS
 
     addGetByIdWithThis(gen, slowPath.get());
     addSlowPathGenerator(WTF::move(slowPath));
+    addSlowPathGeneratorLambda([=, this]() mutable {
+        gen.generateDataICSlowPath(*this);
+    });
 }
 
 void SpeculativeJIT::nonSpeculativeNonPeepholeCompareNullOrUndefined(Edge operand)
@@ -1017,7 +1023,11 @@ void SpeculativeJIT::emitCall(Node* node)
                 nativeFunction = uncheckedDowncast<NativeExecutable>(executable)->function();
         }
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
         if (nativeFunction && !vm().isDebuggerHookInjected()) {
+#else
+        if (nativeFunction && !isTail && !vm().isDebuggerHookInjected()) {
+#endif
             auto emitCallTarget = [&]() {
                 emitFunctionPrologue();
                 emitPutToCallFrameHeader(nullptr, CallFrameSlot::codeBlock);
@@ -1039,6 +1049,7 @@ void SpeculativeJIT::emitCall(Node* node)
                 emitFunctionEpilogue();
             };
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
             if (isTail) {
                 emitStoreCallSiteIndex(callSite);
                 CallFrameShuffler(*this, shuffleData).prepareForTailCall();
@@ -1047,6 +1058,7 @@ void SpeculativeJIT::emitCall(Node* node)
                 useChildren(node);
                 return;
             }
+#endif
 
             auto done = jump();
             auto callTarget = label();
@@ -7542,6 +7554,9 @@ void SpeculativeJIT::compileInById(Node* node)
 
     addInById(gen, slowPath.get());
     addSlowPathGenerator(WTF::move(slowPath));
+    addSlowPathGeneratorLambda([=, this]() mutable {
+        gen.generateDataICSlowPath(*this);
+    });
 
     blessedBooleanResult(resultRegs.payloadGPR(), node);
 }
@@ -8275,6 +8290,9 @@ void SpeculativeJIT::cachedPutById(Node*, CodeOrigin codeOrigin, GPRReg baseGPR,
 
     addPutById(gen, slowPath.get());
     addSlowPathGenerator(WTF::move(slowPath));
+    addSlowPathGeneratorLambda([=, this]() mutable {
+        gen.generateDataICSlowPath(*this);
+    });
 }
 
 void SpeculativeJIT::compilePutPrivateNameById(Node* node)

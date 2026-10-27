@@ -7,11 +7,8 @@
 //   ANGLE GL state serialization.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 #include "libANGLE/capture/serialize.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/Color.h"
 #include "common/MemoryBuffer.h"
@@ -120,7 +117,8 @@ class [[nodiscard]] GroupScope
     {
         constexpr size_t kBufSize = 255;
         char buf[kBufSize + 1]    = {};
-        snprintf(buf, kBufSize, "%s%s%03d", name.c_str(), name.empty() ? "" : " ", index);
+        ANGLE_UNSAFE_TODO(
+            snprintf(buf, kBufSize, "%s%s%03d", name.c_str(), name.empty() ? "" : " ", index));
         mJson->startGroup(buf);
     }
 
@@ -688,7 +686,6 @@ void SerializeContextState(JsonSerializer *json, const gl::State &state)
     json->addScalar("PrimitiveRestartEnabled", state.isPrimitiveRestartEnabled());
     json->addScalar("MultisamplingEnabled", state.isMultisamplingEnabled());
     json->addScalar("SampleAlphaToOneEnabled", state.isSampleAlphaToOneEnabled());
-    json->addScalar("CoverageModulation", state.getCoverageModulation());
     json->addScalar("FramebufferSRGB", state.getFramebufferSRGB());
     json->addScalar("RobustResourceInitEnabled", state.isRobustResourceInitEnabled());
     json->addScalar("ProgramBinaryCacheEnabled", state.isProgramBinaryCacheEnabled());

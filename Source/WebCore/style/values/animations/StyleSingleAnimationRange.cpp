@@ -31,37 +31,46 @@
 #include "StyleBuilderChecking.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+DeprecatedCSSValueConversion.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 
 namespace WebCore {
 namespace Style {
 
-static RefPtr<CSSNumericValue> toCSSNumericValue(const LengthPercentage<>& offset)
+static RefPtr<CSSNumericValue> toCSSNumericValue(const SingleAnimationRangeEdgeOffset& offset, ZoomFactor zoom)
 {
-    // FIXME: This will fail for calc().
-    return offset.isPercentOrCalculated()
-        ? CSSNumericFactory::percent(offset.tryPercentage()->value)
-        : CSSNumericFactory::px(offset.tryFixed()->resolveZoom(Style::ZoomNeeded { }));
+    return WTF::switchOn(offset,
+        [&](const SingleAnimationRangeEdgeOffset::Fixed& fixed) -> RefPtr<CSSNumericValue> {
+            return CSSNumericFactory::px(Style::evaluate<double>(fixed, zoom));
+        },
+        [](const SingleAnimationRangeEdgeOffset::Percentage& percentage) -> RefPtr<CSSNumericValue> {
+            return CSSNumericFactory::percent(percentage.value);
+        },
+        [&](const SingleAnimationRangeEdgeOffset::Calc&) -> RefPtr<CSSNumericValue> {
+            // FIXME: This should try to construct a CSSMathValue.
+            return nullptr;
+        }
+    );
 }
 
-TimelineRangeValue SingleAnimationRangeStart::toTimelineRangeValue() const
+TimelineRangeValue SingleAnimationRangeStart::toTimelineRangeValue(ZoomFactor zoom) const
 {
     if (m_name == SingleAnimationRangeName::Normal)
         return convertSingleAnimationRangeNameToRangeString(m_name);
 
     return TimelineRangeOffset {
         convertSingleAnimationRangeNameToRangeString(m_name),
-        toCSSNumericValue(m_offset),
+        toCSSNumericValue(m_offset, zoom),
     };
 }
 
-TimelineRangeValue SingleAnimationRangeEnd::toTimelineRangeValue() const
+TimelineRangeValue SingleAnimationRangeEnd::toTimelineRangeValue(ZoomFactor zoom) const
 {
     if (m_name == SingleAnimationRangeName::Normal)
         return convertSingleAnimationRangeNameToRangeString(m_name);
 
     return TimelineRangeOffset {
         convertSingleAnimationRangeNameToRangeString(m_name),
-        toCSSNumericValue(m_offset),
+        toCSSNumericValue(m_offset, zoom),
     };
 }
 

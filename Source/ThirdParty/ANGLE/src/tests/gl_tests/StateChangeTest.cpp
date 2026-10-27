@@ -16,6 +16,7 @@
 #include "test_utils/gl_raii.h"
 #include "util/random_utils.h"
 
+#include <array>
 #include <thread>
 
 using namespace angle;
@@ -188,9 +189,6 @@ TEST_P(StateChangeTest, FramebufferIncompleteWithTexStorage)
 // Test that caching works when color attachments change with CompressedTexImage2D.
 TEST_P(StateChangeTestES3, FramebufferIncompleteWithCompressedTex)
 {
-    // ETC texture formats are not supported on Mac OpenGL. http://anglebug.com/42262497
-    ANGLE_SKIP_TEST_IF(IsMac() && IsDesktopOpenGL());
-
     glBindFramebuffer(GL_FRAMEBUFFER, mFramebuffer);
     glBindTexture(GL_TEXTURE_2D, mTextures[0]);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
@@ -2260,7 +2258,7 @@ TEST_P(SimpleStateChangeTest, DrawRepeatUnalignedVboChange)
     glBindBuffer(GL_ARRAY_BUFFER, positionBuffer);
     glBufferData(GL_ARRAY_BUFFER, sizeof(posData), posData, GL_STATIC_DRAW);
 
-    GLBuffer colorBuffers[kRepeat];
+    std::array<GLBuffer, kRepeat> colorBuffers;
     constexpr size_t colorOffset                = 1;
     const GLfloat colorData[]                   = {0.515f, 0.515f, 0.515f, 1.0f};
     constexpr size_t colorBufferSize            = colorOffset + sizeof(colorData);
@@ -2289,7 +2287,7 @@ TEST_P(SimpleStateChangeTest, DrawRepeatUnalignedVboChange)
 
     // draw and get drawing results
     constexpr size_t kRenderSize = kWindowSize * kWindowSize;
-    std::array<GLColor, kRenderSize> pixelBufs[kRepeat];
+    std::array<std::array<GLColor, kRenderSize>, kRepeat> pixelBufs;
 
     for (uint32_t i = 0; i < kRepeat; i++)
     {
@@ -4260,7 +4258,7 @@ TEST_P(SimpleStateChangeTestES3, MultipleSamplersWithSingleTextureObject)
     // Create 2 samplers with NEAREST filtering.
     constexpr GLsizei kNumSamplers = 2;
     // We create/bind an extra sampler w/o bound tex object for testing purposes
-    GLSampler samplers[kNumSamplers + 1];
+    std::array<GLSampler, kNumSamplers + 1> samplers;
     // Set samplers to initially have same state w/ NEAREST filter mode
     for (uint32_t i = 0; i < kNumSamplers + 1; ++i)
     {
@@ -4813,9 +4811,9 @@ void main()
     glEnableVertexAttribArray(positionLoc);
 
     glUseProgram(program);
-    constexpr float kValue1[4] = {0.1f, 0.2f, 0.3f, 0.4f};
+    static constexpr std::array<float, 4> kValue1 = {0.1f, 0.2f, 0.3f, 0.4f};
 
-    glUniform4fv(valueLoc, 1, kValue1);
+    glUniform4fv(valueLoc, 1, kValue1.data());
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     EXPECT_GL_NO_ERROR();
@@ -4834,8 +4832,8 @@ void main()
     GLenum drawBuffers[] = {GL_NONE};
     glDrawBuffers(1, drawBuffers);
 
-    constexpr float kValue2[4] = {0.5f, 0.6f, 0.7f, 0.9f};
-    glUniform4fv(valueLoc, 1, kValue2);
+    static constexpr std::array<float, 4> kValue2 = {0.5f, 0.6f, 0.7f, 0.9f};
+    glUniform4fv(valueLoc, 1, kValue2.data());
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     EXPECT_GL_NO_ERROR();
@@ -4921,9 +4919,9 @@ void main()
     glEnableVertexAttribArray(positionLoc);
 
     glUseProgram(program);
-    constexpr float kValue1[4] = {0.1f, 0.2f, 0.3f, 0.4f};
+    static constexpr std::array<float, 4> kValue1 = {0.1f, 0.2f, 0.3f, 0.4f};
 
-    glUniform4fv(valueLoc, 1, kValue1);
+    glUniform4fv(valueLoc, 1, kValue1.data());
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     EXPECT_GL_NO_ERROR();
@@ -4942,8 +4940,8 @@ void main()
     GLenum drawBuffers[] = {GL_NONE};
     glDrawBuffers(1, drawBuffers);
 
-    constexpr float kValue2[4] = {0.5f, 0.6f, 0.7f, 0.9f};
-    glUniform4fv(valueLoc, 1, kValue2);
+    static constexpr std::array<float, 4> kValue2 = {0.5f, 0.6f, 0.7f, 0.9f};
+    glUniform4fv(valueLoc, 1, kValue2.data());
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     EXPECT_GL_NO_ERROR();
@@ -5502,12 +5500,6 @@ class WebGL2ValidationStateChangeTest : public ValidationStateChangeTest
 class ValidationStateChangeTestES31 : public ANGLETest<>
 {};
 
-class WebGLComputeValidationStateChangeTest : public ANGLETest<>
-{
-  public:
-    WebGLComputeValidationStateChangeTest() { setWebGLCompatibilityEnabled(true); }
-};
-
 class RobustBufferAccessWebGL2ValidationStateChangeTest : public WebGL2ValidationStateChangeTest
 {
   protected:
@@ -6063,76 +6055,6 @@ TEST_P(ValidationStateChangeTestES31, RebindVertexBufferShouldPickupBufferChange
     eglDestroyContext(display, context2);
 }
 
-// Tests that changing a vertex binding with glVertexAttribDivisor updates the buffer size check.
-TEST_P(WebGLComputeValidationStateChangeTest, DrawPastEndOfBufferWithDivisor)
-{
-    // Initialize program and set up state.
-    ANGLE_GL_PROGRAM(program, kColorVS, kColorFS);
-
-    glUseProgram(program);
-    GLint positionLoc = glGetAttribLocation(program, "position");
-    ASSERT_NE(-1, positionLoc);
-    GLint colorLoc = glGetAttribLocation(program, "color");
-    ASSERT_NE(-1, colorLoc);
-
-    // Create a user vertex array.
-    GLVertexArray vao;
-    glBindVertexArray(vao);
-
-    const std::array<Vector3, 6> &quadVertices = GetQuadVertices();
-    const size_t posBufferSize                 = quadVertices.size() * sizeof(Vector3);
-
-    GLBuffer posBuffer;
-    glBindBuffer(GL_ARRAY_BUFFER, posBuffer);
-    glBufferData(GL_ARRAY_BUFFER, posBufferSize, quadVertices.data(), GL_STATIC_DRAW);
-
-    // Start with position enabled.
-    glVertexAttribPointer(positionLoc, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-    glEnableVertexAttribArray(positionLoc);
-
-    std::vector<GLColor> blueVertices(6, GLColor::blue);
-    const size_t blueBufferSize = sizeof(GLColor) * 6;
-
-    GLBuffer blueBuffer;
-    glBindBuffer(GL_ARRAY_BUFFER, blueBuffer);
-    glBufferData(GL_ARRAY_BUFFER, blueBufferSize, blueVertices.data(), GL_STATIC_DRAW);
-
-    // Start with color enabled at an unused binding.
-    constexpr GLint kUnusedBinding = 3;
-    ASSERT_NE(colorLoc, kUnusedBinding);
-    ASSERT_NE(positionLoc, kUnusedBinding);
-    glVertexAttribFormat(colorLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0);
-    glVertexAttribBinding(colorLoc, kUnusedBinding);
-    glBindVertexBuffer(kUnusedBinding, blueBuffer, 0, sizeof(GLColor));
-    glEnableVertexAttribArray(colorLoc);
-
-    // Make binding 'colorLoc' use a small buffer.
-    std::vector<GLColor> greenVertices(6, GLColor::green);
-    const size_t greenBufferSize = sizeof(GLColor) * 3;
-    GLBuffer greenBuffer;
-    glBindBuffer(GL_ARRAY_BUFFER, greenBuffer);
-    glBufferData(GL_ARRAY_BUFFER, greenBufferSize, greenVertices.data(), GL_STATIC_DRAW);
-    glBindVertexBuffer(colorLoc, greenBuffer, 0, sizeof(GLColor));
-
-    ASSERT_GL_NO_ERROR();
-
-    // Draw without a mapped buffer. Should succeed.
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    ASSERT_GL_NO_ERROR();
-    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
-
-    // Change divisor with VertexAttribDivisor. Should fail.
-    glVertexAttribDivisor(colorLoc, 0);
-    ASSERT_GL_NO_ERROR();
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION) << "draw with small buffer should fail.";
-
-    // Do a small draw. Should succeed.
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    ASSERT_GL_NO_ERROR();
-    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
-}
-
 // Tests state changes with uniform block validation.
 TEST_P(WebGL2ValidationStateChangeTest, UniformBlockNegativeAPI)
 {
@@ -6370,7 +6292,7 @@ void main()
     GLFramebuffer floatFramebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, floatFramebuffer);
 
-    GLTexture floatTextures[2];
+    std::array<GLTexture, 2> floatTextures;
     for (int i = 0; i < 2; ++i)
     {
         glBindTexture(GL_TEXTURE_2D, floatTextures[i]);
@@ -6386,7 +6308,7 @@ void main()
     GLFramebuffer intFramebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, intFramebuffer);
 
-    GLTexture intTextures[2];
+    std::array<GLTexture, 2> intTextures;
     for (int i = 0; i < 2; ++i)
     {
         glBindTexture(GL_TEXTURE_2D, intTextures[i]);
@@ -7244,7 +7166,7 @@ void main()
     // binding.
 
     constexpr size_t kProgramCount = 2;
-    GLuint programs[kProgramCount] = {program1, program2};
+    std::array<GLuint, kProgramCount> programs = {program1, program2};
     for (size_t i = 0; i < kProgramCount; ++i)
     {
         glUseProgram(programs[i]);
@@ -11922,9 +11844,6 @@ ANGLE_INSTANTIATE_TEST_ES3(RobustBufferAccessWebGL2ValidationStateChangeTest);
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ValidationStateChangeTestES31);
 ANGLE_INSTANTIATE_TEST_ES31(ValidationStateChangeTestES31);
-
-GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(WebGLComputeValidationStateChangeTest);
-ANGLE_INSTANTIATE_TEST_ES31(WebGLComputeValidationStateChangeTest);
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VertexAttribArrayStateChangeTest);
 ANGLE_INSTANTIATE_TEST_ES3(VertexAttribArrayStateChangeTest);

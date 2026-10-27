@@ -291,6 +291,12 @@ static constexpr double maximumHLSPlaybackRate = 2;
 static constexpr auto mediaSourceBlobProtocol = "blob"_s;
 #endif
 
+#if ENABLE(REMOVE_ALL_RESTRICTIONS_ON_AUDIBILITY_CHANGE)
+static constexpr MediaElementSession::BehaviorRestrictions restrictionsToRemoveOnAudibilityChange = MediaElementSession::AllRestrictions;
+#else
+static constexpr MediaElementSession::BehaviorRestrictions restrictionsToRemoveOnAudibilityChange = MediaElementSession::AllRestrictions & ~MediaElementSession::RequireUserGestureToControlControlsManager;
+#endif
+
 using namespace HTMLNames;
 
 String convertEnumerationToString(HTMLMediaElement::ReadyState enumerationValue)
@@ -2106,6 +2112,7 @@ void HTMLMediaElement::loadResource(const URL& initialURL, const ContentType& in
         .contentType = WTF::move(contentType),
         .requiresRemotePlayback = !!m_remotePlaybackConfiguration,
         .supportsLimitedMatroska = limitedMatroskaSupportEnabled(),
+        .disableTeardownOnVisibilityChange = protect(document())->quirks().shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk(),
 #if ENABLE(MEDIA_SOURCE)
         .supportsProgressMonitoringOverride = protect(document())->quirks().needsSupportsProgressMonitoring() ? std::optional<bool> { true } : std::nullopt,
 #endif
@@ -2653,7 +2660,7 @@ void HTMLMediaElement::audioTrackEnabledChanged(AudioTrack& track)
     if (m_audioTracks && m_audioTracks->contains(track))
         m_audioTracks->scheduleChangeEvent();
     if (processingUserGestureForMedia())
-        removeBehaviorRestrictionsAfterFirstUserGesture(MediaElementSession::AllRestrictions & ~MediaElementSession::RequireUserGestureToControlControlsManager);
+        removeBehaviorRestrictionsAfterFirstUserGesture(restrictionsToRemoveOnAudibilityChange);
     checkForAudioAndVideo();
 }
 
@@ -3286,6 +3293,9 @@ void HTMLMediaElement::durationChanged()
     if (m_textTracks)
         m_textTracks->setDuration(durationMediaTime());
     scheduleEvent(eventNames().durationchangeEvent);
+
+    // Every engine derives its seekable range from the duration, one way or another.
+    seekableRangesChanged();
 }
 
 void HTMLMediaElement::applyConfiguration(const RemotePlaybackConfiguration& configuration)
@@ -4113,8 +4123,10 @@ void HTMLMediaElement::seekTask()
     }
     time = seekableRanges->ranges().nearest(time);
 
-    m_sentEndEvent = false;
     m_lastSeekTime = time;
+    // A seek landing on the end of the media leaves the element in ended playback, so 'ended' must not fire a second time.
+    if (!endedPlayback())
+        m_sentEndEvent = false;
     m_pendingSeekType = thisSeekType;
     setSeeking(true);
 
@@ -4847,7 +4859,7 @@ ExceptionOr<void> HTMLMediaElement::setVolume(double volume)
 
     if (!m_volumeLocked) {
         if (volume && processingUserGestureForMedia())
-            removeBehaviorRestrictionsAfterFirstUserGesture(MediaElementSession::AllRestrictions & ~MediaElementSession::RequireUserGestureToControlControlsManager);
+            removeBehaviorRestrictionsAfterFirstUserGesture(restrictionsToRemoveOnAudibilityChange);
 
         m_volume = volume;
         m_volumeInitialized = true;
@@ -4907,7 +4919,7 @@ void HTMLMediaElement::setMutedInternal(bool muted, ForceMuteChange forceChange)
     if (mutedStateChanged || !m_explicitlyMuted) {
 
         if (processingUserGestureForMedia()) {
-            removeBehaviorRestrictionsAfterFirstUserGesture(MediaElementSession::AllRestrictions & ~MediaElementSession::RequireUserGestureToControlControlsManager);
+            removeBehaviorRestrictionsAfterFirstUserGesture(restrictionsToRemoveOnAudibilityChange);
 
             if (hasAudio() && muted)
                 userDidInterfereWithAutoplay();
@@ -8929,6 +8941,11 @@ void HTMLMediaElement::mediaPlayerBufferedTimeRangesChanged()
     });
 }
 
+void HTMLMediaElement::mediaPlayerSeekableTimeRangesChanged()
+{
+    seekableRangesChanged();
+}
+
 void HTMLMediaElement::removeBehaviorRestrictionsAfterFirstUserGesture(MediaElementSession::BehaviorRestrictions mask)
 {
     MediaElementSession::BehaviorRestrictions restrictionsToRemove = mask &
@@ -9965,6 +9982,10 @@ void HTMLMediaElement::addClient(HTMLMediaElementClient& client)
 {
     ASSERT(!m_clients.contains(client));
     m_clients.add(client);
+
+    // The seekable range may have last changed long before this client subscribed, so hand it the
+    // current one now rather than leaving it to wait for a change that may never come.
+    client.seekableRangesChanged();
 }
 
 void HTMLMediaElement::removeClient(const HTMLMediaElementClient& client)
@@ -10029,6 +10050,13 @@ void HTMLMediaElement::mediaSessionCaptionsEnabledChanged()
 {
     m_clients.forEach([](auto& client) {
         client.captionsEnabledChanged();
+    });
+}
+
+void HTMLMediaElement::seekableRangesChanged()
+{
+    m_clients.forEach([](auto& client) {
+        client.seekableRangesChanged();
     });
 }
 

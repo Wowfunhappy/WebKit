@@ -206,10 +206,10 @@ void HTMLMediaElement::setMediaPlayerPresentedExternally(bool presented, uint64_
 
 void HTMLMediaElement::stopMediaPlayerRestreams() { MediaRestreamSource::elementDestroyed(*this); }
 
-MediaTime MediaSourcePrivateGStreamer::currentTime() const
+MediaTime MediaSourcePrivateGStreamer::platformCurrentTime() const
 {
     MediaTime time;
-    callOnMainThreadAndWait([&] { time = MediaSourcePrivate::currentTime(); });
+    callOnMainThreadAndWait([&] { time = MediaSourcePrivate::platformCurrentTime(); });
     return time;
 }
 

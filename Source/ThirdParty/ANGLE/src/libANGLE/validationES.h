@@ -153,7 +153,7 @@ bool ValidateBindRenderbufferBase(const Context *context,
 bool ValidateFramebufferParameteriBase(const Context *context,
                                        angle::EntryPoint entryPoint,
                                        GLenum target,
-                                       GLenum pname,
+                                       FramebufferParameter pnamePacked,
                                        GLint param);
 bool ValidateFramebufferRenderbufferBase(const Context *context,
                                          angle::EntryPoint entryPoint,
@@ -508,7 +508,7 @@ bool ValidateGetFramebufferAttachmentParameterivBase(const Context *context,
 bool ValidateGetFramebufferParameterivBase(const Context *context,
                                            angle::EntryPoint entryPoint,
                                            GLenum target,
-                                           GLenum pname,
+                                           FramebufferParameter pnamePacked,
                                            const GLint *params);
 
 bool ValidateGetBufferParameterBase(const Context *context,
@@ -638,14 +638,11 @@ ANGLE_INLINE bool ValidateColorMasksForSharedExponentColorBuffers(const BlendSta
 {
     // Get a mask of draw buffers that have color writemasks
     // incompatible with shared exponent color buffers.
-    // The compatible writemasks are RGBA, RGB0, 000A, 0000.
-    const BlendStateExt::ColorMaskStorage::Type rgbEnabledBits =
-        blendState.expandColorMaskValue(true, true, true, false);
-    const BlendStateExt::ColorMaskStorage::Type colorMaskNoAlphaBits =
-        blendState.getColorMaskBits() & rgbEnabledBits;
+    // The compatible writemasks are RGBA and 0000.
     const DrawBufferMask incompatibleDiffMask =
-        BlendStateExt::ColorMaskStorage::GetDiffMask(colorMaskNoAlphaBits, 0) &
-        BlendStateExt::ColorMaskStorage::GetDiffMask(colorMaskNoAlphaBits, rgbEnabledBits);
+        BlendStateExt::ColorMaskStorage::GetDiffMask(blendState.getColorMaskBits(), 0) &
+        BlendStateExt::ColorMaskStorage::GetDiffMask(blendState.getColorMaskBits(),
+                                                     blendState.getAllColorMaskBits());
 
     const DrawBufferMask sharedExponentBufferMask =
         framebuffer->getActiveSharedExponentColorAttachmentDrawBufferMask();

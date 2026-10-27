@@ -339,7 +339,7 @@ fn collect_user_variable(
     }
 }
 
-fn mapped_name(name: &Name) -> String {
+fn mapped_name(name: &Name, user_prefix: &'static str) -> String {
     // GLSL ES 3.00.6 section 3.9: the maximum length of an identifier is 1024 characters.
     const MAX_ESSL_IDENTIFIER_LENGTH: usize = 1024;
 
@@ -350,9 +350,9 @@ fn mapped_name(name: &Name) -> String {
         // have as long names and could conflict.
         NameSource::ShaderInterface
             if !name.name.is_empty()
-                && name.name.len() + USER_SYMBOL_PREFIX.len() <= MAX_ESSL_IDENTIFIER_LENGTH =>
+                && name.name.len() + user_prefix.len() <= MAX_ESSL_IDENTIFIER_LENGTH =>
         {
-            USER_SYMBOL_PREFIX
+            user_prefix
         }
         NameSource::Temporary => panic!(
             "Internal error: Should not collect reflection info for shader-private variables and \
@@ -593,7 +593,6 @@ fn to_gl_type(
                         },
                         ImageDimension::External => (gl::SAMPLER_EXTERNAL_OES, gl::FLOAT),
                         ImageDimension::ExternalY2Y => (gl::SAMPLER_EXTERNAL_2D_Y2Y_EXT, gl::FLOAT),
-                        ImageDimension::Video => (gl::SAMPLER_VIDEO_IMAGE_WEBGL, gl::FLOAT),
                         ImageDimension::PixelLocal => panic!(
                             "Internal error: Pixel local storage should be transformed already"
                         ),
@@ -733,7 +732,7 @@ fn new_common_shader_variable(
         gl_type,
         gl_precision,
         name: name.name.to_string(),
-        mapped_name: mapped_name(name),
+        mapped_name: mapped_name(name, USER_VARIABLE_PREFIX),
         struct_or_block_name: "".to_string(),
         mapped_struct_or_block_name: "".to_string(),
         fields: vec![],
@@ -772,7 +771,7 @@ fn new_common_shader_variable(
         var.struct_or_block_name = struct_name.name.to_string();
         // Mapped name is only used for interface blocks
         if *specialization == StructSpecialization::InterfaceBlock {
-            var.mapped_struct_or_block_name = mapped_name(struct_name);
+            var.mapped_struct_or_block_name = mapped_name(struct_name, USER_BLOCK_PREFIX);
         }
         let field_inherit = inherit.accumulate_is_patch(decorations.has(Decoration::Patch));
         var.fields =
@@ -983,7 +982,7 @@ fn new_interface_block(
 
     let mut var = InterfaceBlock {
         name: block_name.name.to_string(),
-        mapped_name: mapped_name(block_name),
+        mapped_name: mapped_name(block_name, USER_BLOCK_PREFIX),
         instance_name: variable.name.name.to_string(),
         fields: vec![],
         static_use: variable.is_static_use,
@@ -994,6 +993,7 @@ fn new_interface_block(
         binding: get_decoration_value!(variable.decorations, Decoration::Binding)
             .map(|binding| binding as i32)
             .unwrap_or(-1),
+        is_row_major: variable.decorations.has(Decoration::MatrixPacking(MatrixPacking::RowMajor)),
         readonly: true,
         id: 0,
     };

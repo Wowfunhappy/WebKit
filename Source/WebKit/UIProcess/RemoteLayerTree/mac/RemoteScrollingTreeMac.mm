@@ -29,6 +29,7 @@
 #if PLATFORM(MAC) && ENABLE(UI_SIDE_COMPOSITING)
 
 #import "Logging.h"
+#import "RemoteLayerTreeHost.h"
 #import "RemoteLayerTreeNode.h"
 #import "RemoteScrollingCoordinatorProxy.h"
 #import "RemoteScrollingTreeCocoa.h"
@@ -40,6 +41,7 @@
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/ScrollingThread.h>
 #import <WebCore/ScrollingTreeFixedNodeCocoa.h>
+#import <WebCore/ScrollingTreeFrameScrollingNodeMac.h>
 #import <WebCore/ScrollingTreeOverflowScrollProxyNode.h>
 #import <WebCore/ScrollingTreePositionedNode.h>
 #import <WebCore/WebCoreCALayerExtras.h>
@@ -527,6 +529,53 @@ RefPtr<ScrollingTreeNode> RemoteScrollingTreeMac::scrollingNodeForPoint(FloatPoi
 
     LOG_WITH_STREAM(UIHitTesting, stream << "RemoteScrollingTreeMac " << this << " scrollingNodeForPoint " << point << " found no scrollable layers; using root node");
     return rootScrollingNode;
+}
+
+static void collectHitTestableScrollbarLayers(const ScrollingTreeNode& node, HashSet<RetainPtr<CALayer>>& scrollbarLayers)
+{
+    if (RefPtr scrollingNode = dynamicDowncast<ScrollingTreeScrollingNode>(node)) {
+        for (RetainPtr layer : scrollingNode->hitTestableScrollbarLayers())
+            scrollbarLayers.add(WTF::move(layer));
+    }
+
+    for (const Ref<ScrollingTreeNode>& child : node.children())
+        collectHitTestableScrollbarLayers(child, scrollbarLayers);
+}
+
+bool RemoteScrollingTreeMac::isPointInScrollbar(FloatPoint locationInViewCoordinates)
+{
+    RefPtr rootScrollingNode = rootNode();
+    if (!rootScrollingNode)
+        return false;
+
+    HitTestLocker hitTestLocker { *this };
+
+    CheckedPtr scrollingCoordinatorProxy = this->scrollingCoordinatorProxy();
+    if (!scrollingCoordinatorProxy)
+        return false;
+
+    const auto* layerTreeHost = scrollingCoordinatorProxy->layerTreeHost();
+    if (!layerTreeHost)
+        return false;
+
+    RetainPtr viewCoordinateLayer = layerTreeHost->rootLayer();
+    if (!viewCoordinateLayer)
+        return false;
+
+    HashSet<RetainPtr<CALayer>> scrollbarLayers;
+    collectHitTestableScrollbarLayers(*rootScrollingNode, scrollbarLayers);
+    if (scrollbarLayers.isEmpty())
+        return false;
+
+    Vector<LayerAndPoint, 16> layersAtPoint;
+    collectDescendantLayersAtPoint(layersAtPoint, viewCoordinateLayer, locationInViewCoordinates, [&scrollbarLayers](CALayer *layer, CGPoint localPoint) {
+        return scrollbarLayers.contains(layer) || layerEventRegionContainsPoint(layer, localPoint);
+    });
+
+    if (layersAtPoint.isEmpty())
+        return false;
+
+    return scrollbarLayers.contains(layersAtPoint.last().layer);
 }
 
 #if ENABLE(WHEEL_EVENT_REGIONS)

@@ -1272,6 +1272,12 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
                     return BindGroup::createInvalid(*this);
                 }
                 Ref externalTexture = WebGPU::fromAPI(wgpuExternalTexture);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+                if (&externalTexture->device() != this) {
+                    VALIDATION_ERROR(@"External texture was created from a different device");
+                    return BindGroup::createInvalid(*this);
+                }
+#endif // RC_REMOVE_SEC_ACCEL_3
                 auto textureData = createExternalTextureFromPixelBuffer(externalTexture->pixelBuffer(), externalTexture->colorSpace());
                 id<MTLTexture> texture0 = textureData.texture0 ?: placeholderTexture(WGPUTextureFormat_BGRA8Unorm);
                 auto metalStage = metalRenderStage(stage);
@@ -1494,8 +1500,33 @@ bool BindGroup::rebindSamplersIfNeeded() const
 
 bool BindGroup::updateExternalTextures(ExternalTexture& externalTexture)
 {
+#ifdef RC_REMOVE_SEC_ACCEL_3
     if (!m_bindGroupLayout || externalTexture.openCommandEncoderCount())
         return false;
+#else
+    if (m_renderBundleConsumerCount)
+        return false;
+
+    if (!m_bindGroupLayout || &externalTexture.device() != m_device.ptr())
+        return false;
+
+    bool foundBoundExternalTexture = false;
+    for (auto& resource : m_resources) {
+        for (auto& resourceUsage : resource.resourceUsages) {
+            auto* boundExternalTexture = std::get_if<RefPtr<const ExternalTexture>>(&resourceUsage.resource);
+            if (!boundExternalTexture || !*boundExternalTexture)
+                continue;
+
+            if (boundExternalTexture->get() != &externalTexture || (*boundExternalTexture)->openCommandEncoderCount())
+                return false;
+
+            foundBoundExternalTexture = true;
+        }
+    }
+
+    if (!foundBoundExternalTexture)
+        return false;
+#endif // RC_REMOVE_SEC_ACCEL_3
 
     Ref device = m_device;
     auto textureData = device->createExternalTextureFromPixelBuffer(externalTexture.pixelBuffer(), externalTexture.colorSpace());

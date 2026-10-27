@@ -32,9 +32,11 @@
 #include "NetworkProcess.h"
 #include "NetworkProcessProxyMessages.h"
 #include "NetworkSession.h"
+#include "SecurityFlags.h"
 #include "WebSharedWorker.h"
 #include "WebSharedWorkerObjectConnectionMessages.h"
 #include "WebSharedWorkerServer.h"
+#include <WebCore/Site.h>
 #include <WebCore/WorkerFetchResult.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -91,8 +93,21 @@ NetworkSession* WebSharedWorkerServerConnection::session()
 
 void WebSharedWorkerServerConnection::requestSharedWorker(WebCore::SharedWorkerKey&& sharedWorkerKey, WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier, WebCore::TransferredMessagePort&& port, WebCore::WorkerOptions&& workerOptions)
 {
-    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, WebCore::RegistrableDomain::uncheckedCreateFromHost(sharedWorkerKey.origin.topOrigin.host())) != NetworkProcess::AllowCookieAccess::Terminate);
+    // The claimed top origin decides which process runs this worker, via WebSharedWorker::topSite() and
+    // WebProcessPool::establishRemoteWorkerContextConnectionToNetworkProcess. Validate the whole site rather
+    // than just its registrable domain: a compromised process that forges only the scheme names a site no
+    // process owns, so the UI process launches a new one committed to it. rdar://183347241
+    //
+    // Skip the check when the top origin is opaque: every opaque origin collapses to the same Site, so there
+    // is nothing to compare against. Ordinary content reaches this, since a top-level document sandboxed by
+    // CSP has an opaque origin and may name a data: worker script.
+    WebCore::Site topSite { sharedWorkerKey.origin.topOrigin };
+    if (!topSite.protocol().isEmpty())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartySite(m_webProcessIdentifier, topSite));
+
     MESSAGE_CHECK(sharedWorkerObjectIdentifier.processIdentifier() == m_webProcessIdentifier);
+    MESSAGE_CHECK(port.first.processIdentifier == m_webProcessIdentifier);
+    MESSAGE_CHECK(port.second.processIdentifier == m_webProcessIdentifier);
     MESSAGE_CHECK(sharedWorkerKey.name == workerOptions.name);
     CONNECTION_RELEASE_LOG("requestSharedWorker: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING, sharedWorkerObjectIdentifier.toString().utf8().data());
     if (CheckedPtr session = this->session())

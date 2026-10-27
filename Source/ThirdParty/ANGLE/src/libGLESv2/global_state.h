@@ -68,10 +68,10 @@ ANGLE_INLINE ScopedContextMutexLock TryLockCurrentContext(Thread *thread)
 }
 
 // Tries to lock "ContextMutex" of the Context with "contextID" if it is valid.
-ANGLE_INLINE ScopedContextMutexLock TryLockContext(Display *display, gl::ContextID contextID)
+ANGLE_INLINE ScopedContextMutexLock TryLockContext(const Display *display, gl::ContextID contextID)
 {
     ASSERT(kIsContextMutexEnabled);
-    gl::Context *context = GetContextIfValid(display, contextID);
+    const gl::Context *context = GetContextIfValid(display, contextID);
     return context != nullptr ? ScopedContextMutexLock(context->getContextMutex())
                               : ScopedContextMutexLock();
 }
@@ -98,9 +98,13 @@ ANGLE_INLINE ScopedContextMutexLock LockAndTryMergeContextMutexes(gl::Context *c
 
 #if !defined(ANGLE_ENABLE_CONTEXT_MUTEX)
 #    define ANGLE_EGL_SCOPED_CONTEXT_LOCK(EP, THREAD, ...)
+#    define ANGLE_EGL_SCOPED_CONTEXT_LOCK_DPY(EP, THREAD, DPY, ...)
 #else
 #    define ANGLE_EGL_SCOPED_CONTEXT_LOCK(EP, THREAD, ...) \
         egl::ScopedContextMutexLock shareContextLock = GetContextLock_##EP(THREAD, ##__VA_ARGS__)
+#    define ANGLE_EGL_SCOPED_CONTEXT_LOCK_DPY(EP, THREAD, DPY, ...) \
+        egl::ScopedContextMutexLock shareContextLock =              \
+            GetContextLock_##EP(THREAD, DPY, ##__VA_ARGS__)
 #endif
 
 }  // namespace egl
@@ -150,6 +154,20 @@ ANGLE_INLINE Context *GetValidGlobalContext()
 #else
     return gCurrentValidContext;
 #endif
+}
+
+ANGLE_INLINE Context *GetContext(GLeglDisplayANGLE dpy, GLeglContextANGLE ctx)
+{
+    egl::Display *dpyPacked = egl::PackParam<egl::Display *>(static_cast<EGLDisplay>(dpy));
+    ASSERT(dpyPacked);
+    ContextID ctxPacked = egl::PackParam<ContextID>(static_cast<EGLContext>(ctx));
+    return dpyPacked->getContext(ctxPacked);
+}
+
+ANGLE_INLINE Context *GetValidContext(GLeglDisplayANGLE dpy, GLeglContextANGLE ctx)
+{
+    Context *context = GetContext(dpy, ctx);
+    return (context && !context->isContextLost()) ? context : nullptr;
 }
 
 // Generate a context lost error on the context if it is non-null and lost.

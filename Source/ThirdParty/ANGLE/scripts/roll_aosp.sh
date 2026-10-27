@@ -52,7 +52,6 @@ function generate_Android_bp_file() {
             # Disable all backends except Vulkan
             "angle_enable_vulkan = true"
             "angle_enable_gl = false"
-            "angle_enable_d3d9 = false"
             "angle_enable_d3d11 = false"
             "angle_enable_null = false"
             "angle_enable_metal = false"
@@ -78,6 +77,9 @@ function generate_Android_bp_file() {
             "angle_test_enable_system_egl = true"
             "build_angle_end2end_tests_library = true"
             "build_angle_trace_tests = false"
+
+            # Disable Perfetto
+            "angle_enable_perfetto = false"
 
             # This has no effect in Android.bp file, but is listed here to make the point.
             # The actual flags are added in generate_android_bp.py file.
@@ -111,7 +113,7 @@ function generate_Android_bp_file() {
         gn desc ${GN_OUTPUT_DIRECTORY} --format=json "*" > ${GN_OUTPUT_DIRECTORY}/desc.$abi.json
     done
 
-    python3 scripts/generate_android_bp.py \
+    vpython3 scripts/generate_android_bp.py \
         --gn_json_arm=${GN_OUTPUT_DIRECTORY}/desc.arm.json \
         --gn_json_arm64=${GN_OUTPUT_DIRECTORY}/desc.arm64.json \
         --gn_json_x86=${GN_OUTPUT_DIRECTORY}/desc.x86.json \
@@ -130,7 +132,7 @@ function generate_angle_commit_file() {
     # variable is set to {rolling_to} git hash, and that can be used by below
     # script commit_id.py as the ANGLE_COMMIT_HASH written to the angle_commit.h.
     # See b/348044346.
-    python3 src/commit_id.py \
+    vpython3 src/commit_id.py \
         gen \
         angle_commit.h
 }
@@ -334,7 +336,7 @@ find third_party -wholename "*/_gclient_*" -delete
 rm -rf "third_party/zlib"
 
 # Sync all of ANGLE's deps so that 'gn gen' works
-python3 scripts/bootstrap.py
+vpython3 scripts/bootstrap.py
 gclient sync --reset --force --delete_unversioned_trees
 
 # Delete outdir to ensure a clean gn run.
@@ -358,6 +360,7 @@ done
 # Delete the .git files in each dep so that it can be copied to this repo. Some deps like jsoncpp
 # have multiple layers of deps so delete everything before adding them.
 for dep in "${copy_to_aosp_paths[@]}"; do
+   git rm -rf --cached --ignore-unmatch "$dep"
    rm -rf "$dep"/.git
 done
 

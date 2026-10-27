@@ -489,6 +489,12 @@ bool MacApplication::isAdobeInstaller()
     return isAdobeInstaller;
 }
 
+bool MacApplication::isCaptiveNetworkAssistant()
+{
+    static bool isCaptiveNetworkAssistant = applicationBundleIsEqualTo("com.apple.CaptiveNetworkAssistant"_s);
+    return isCaptiveNetworkAssistant;
+}
+
 bool MacApplication::isMiniBrowser()
 {
     static bool isMiniBrowser = applicationBundleIsEqualTo("org.webkit.MiniBrowser"_s);
@@ -653,6 +659,12 @@ bool IOSApplication::isDOFUSTouch()
 {
     static bool isDOFUSTouch = applicationBundleIsEqualTo("com.ankama.dofustouch"_s);
     return isDOFUSTouch;
+}
+
+bool IOSApplication::isMoonPlayer()
+{
+    static bool isMoonPlayer = applicationBundleIsEqualTo("com.innovis.moonplayer"_s);
+    return isMoonPlayer;
 }
 
 bool IOSApplication::isMyRideK12()

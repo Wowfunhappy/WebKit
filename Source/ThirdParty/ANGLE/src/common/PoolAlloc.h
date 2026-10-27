@@ -10,10 +10,6 @@
 #ifndef COMMON_POOLALLOC_H_
 #define COMMON_POOLALLOC_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 // This include MUST precede the ANGLE_WITH_ASAN / ANGLE_WITH_TSAN check below
 // to define those macros.
 #include "common/platform.h"
@@ -52,7 +48,7 @@
 #include "common/mathutil.h"
 #include "common/span.h"
 #ifdef ANGLE_PLATFORM_APPLE
-#    if __has_include(<WebKitAdditions/ANGLEAllocProfile.h>)
+#    if __has_include(<CoreFoundation/CFPriv.h>) // Matches USE_APPLE_INTERNAL_SDK in WTF.
 #        include <WebKitAdditions/ANGLEAllocProfile.h>
 #    endif
 #endif

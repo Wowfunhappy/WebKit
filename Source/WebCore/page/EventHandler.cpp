@@ -472,6 +472,9 @@ void EventHandler::clear()
     clearElementUnderMouse();
     m_lastElementUnderMouse = nullptr;
     m_lastMouseMoveEventSubframe = nullptr;
+#if PLATFORM(MAC)
+    m_trackedPointerSubframe = nullptr;
+#endif
     m_lastScrollbarUnderMouse = nullptr;
     m_clickCount = 0;
     m_clickNode = nullptr;
@@ -496,8 +499,7 @@ void EventHandler::clear()
     m_dragTarget = nullptr;
     m_shouldOnlyFireDragOverEvent = false;
 #endif
-    m_lastKnownMousePosition = std::nullopt;
-    m_lastKnownMouseGlobalPosition = { };
+    clearLastKnownMousePosition();
     m_mousePressNode = nullptr;
     m_mousePressed = false;
     m_capturesDragging = false;
@@ -742,8 +744,11 @@ bool EventHandler::handleMousePressEventDoubleClick(const MouseEventWithHitTestR
 #if ENABLE(DRAG_SUPPORT)
         m_dragStartSelection = getWeakSimpleRangeFromSelection(m_frame->selection().selection());
 #endif
-    } else if (mouseDownMayStartSelect())
+    } else if (mouseDownMayStartSelect() && event.event().inputSource() != MouseEventInputSource::Automation) {
+        // If the event is an Automation event, avoid interfering with the platform text interaction,
+        // which handles selection itself.
         selectClosestWordFromHitTestResult(event.hitTestResult(), shouldAppendTrailingWhitespace(event, protect(m_frame)));
+    }
 
     return true;
 }
@@ -765,14 +770,6 @@ bool EventHandler::handleMousePressEventTripleClick(const MouseEventWithHitTestR
     }
 
     return expandAndUpdateSelectionForMouseDownIfNeeded(*targetNode, newSelection, TextGranularity::ParagraphGranularity);
-}
-
-static uint64_t textDistance(const Position& start, const Position& end)
-{
-    auto range = makeSimpleRange(start, end);
-    if (!range)
-        return 0;
-    return characterCount(*range, TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions);
 }
 
 bool EventHandler::handleMousePressEventSingleClick(const MouseEventWithHitTestResults& event)
@@ -819,14 +816,7 @@ bool EventHandler::handleMousePressEventSingleClick(const MouseEventWithHitTestR
         if (!frame->editor().behavior().shouldConsiderSelectionAsDirectional() && pos.isNotNull()) {
             // See <rdar://problem/3668157> REGRESSION (Mail): shift-click deselects when selection
             // was created right-to-left
-            Position start = newSelection.start();
-            Position end = newSelection.end();
-            int distanceToStart = textDistance(start, pos);
-            int distanceToEnd = textDistance(pos, end);
-            if (distanceToStart <= distanceToEnd)
-                newSelection = VisibleSelection(end, pos);
-            else
-                newSelection = VisibleSelection(start, pos);
+            newSelection = VisibleSelection(newSelection.endpointToPreserveWhenExtendedTo(pos), pos);
         } else {
             if (newSelection.directionality() == Directionality::Strong) {
                 RefPtr baseNode = newSelection.isBaseFirst() ? newSelection.base().computeNodeAfterPosition() : newSelection.base().computeNodeBeforePosition();
@@ -1998,7 +1988,8 @@ std::optional<RemoteFrameGeometryTransformer> EventHandler::geometryTransformerF
 static Scrollbar* scrollbarForMouseEvent(const MouseEventWithHitTestResults& mouseEvent, LocalFrameView* view)
 {
     if (view) {
-        if (auto* scrollbar = view->scrollbarAtPoint(flooredIntPoint(mouseEvent.event().position())))
+        const auto tolerance = mouseEvent.event().inputSource() == MouseEventInputSource::Automation ? ScrollbarHitTestTolerance::Expanded : ScrollbarHitTestTolerance::None;
+        if (auto* scrollbar = view->scrollbarAtPoint(flooredIntPoint(mouseEvent.event().position()), tolerance))
             return scrollbar;
     }
     return mouseEvent.scrollbar();
@@ -2016,6 +2007,14 @@ HandleUserInputEventResult EventHandler::handleMousePressEvent(const PlatformMou
     Ref frame = m_frame.get();
     RefPtr protectedView { frame->view() };
 
+#if ENABLE(DRAG_SUPPORT)
+    auto pendingDragState = pendingDragStateToPreserveAcross(platformMouseEvent);
+    auto restoreDragState = makeScopeExit([&] {
+        if (pendingDragState)
+            restorePendingDragState(*pendingDragState);
+    });
+#endif
+
     if (InspectorInstrumentation::handleMousePress(frame)) {
         invalidateClick();
         return true;
@@ -2024,6 +2023,10 @@ HandleUserInputEventResult EventHandler::handleMousePressEvent(const PlatformMou
     RefPtr page = frame->page();
     if (!page)
         return false;
+
+#if PLATFORM(MAC)
+    page->pointerCaptureController().mouseButtonWillBePressed(platformMouseEvent);
+#endif
 
 #if ENABLE(POINTER_LOCK)
     if (auto& pointerLockController = page->pointerLockController(); pointerLockController.isLocked()) {
@@ -2547,11 +2550,26 @@ HandleUserInputEventResult EventHandler::handleMouseReleaseEvent(const PlatformM
     Ref frame = m_frame.get();
     RefPtr protectedView { frame->view() };
 
+#if ENABLE(DRAG_SUPPORT)
+    auto pendingDragState = pendingDragStateToPreserveAcross(platformMouseEvent);
+    auto restoreDragState = makeScopeExit([&] {
+        if (pendingDragState)
+            restorePendingDragState(*pendingDragState);
+    });
+#endif
+
     frame->selection().setCaretBlinkingSuspended(false);
 
     RefPtr page = frame->page();
     if (!page)
         return false;
+
+#if PLATFORM(MAC)
+    auto notifyPointerCaptureController = makeScopeExit([frame, page, &platformMouseEvent] {
+        if (frame->isRootFrame())
+            page->pointerCaptureController().mouseButtonWasReleased(platformMouseEvent);
+    });
+#endif
 
 #if ENABLE(POINTER_LOCK)
     if (auto& pointerLockController = page->pointerLockController(); pointerLockController.isLocked()) {
@@ -2950,6 +2968,67 @@ DragEventTargetData EventHandler::performDragAndDrop(const PlatformMouseEvent& e
         dataTransfer->makeInvalidForSecurity();
     }
     return preventedDefault ? DragEventHandled::Yes : DragEventHandled::No;
+}
+
+bool EventHandler::isSynthesizedContextMenuPressDuringPendingDrag(const PlatformMouseEvent& event) const
+{
+    return event.inputSource() == MouseEventInputSource::Automation
+        && event.button() == MouseButton::Right
+        && m_mousePressed
+        && m_mouseDownMayStartDrag
+        && m_mouseDownEvent.canInitiateDrag() == PlatformMouseEvent::CanInitiateDrag::Yes;
+}
+
+std::optional<EventHandler::PendingDragState> EventHandler::pendingDragStateToPreserveAcross(const PlatformMouseEvent& event) const
+{
+    if (!isSynthesizedContextMenuPressDuringPendingDrag(event))
+        return std::nullopt;
+
+    return PendingDragState {
+        .mousePressed = m_mousePressed,
+        .capturesDragging = m_capturesDragging,
+        .mouseDownMayStartDrag = m_mouseDownMayStartDrag,
+        .mouseDownMayStartSelect = m_mouseDownMayStartSelect,
+        .mouseDownMayStartAutoscroll = m_mouseDownMayStartAutoscroll,
+        .mouseDownWasInSubframe = m_mouseDownWasInSubframe,
+        .mouseDownTimestamp = m_mouseDownTimestamp,
+        .mouseDownContentsPosition = m_mouseDownContentsPosition,
+        .mouseDownEvent = m_mouseDownEvent,
+        .dragStartPosition = m_dragStartPosition,
+        .dragStateSource = dragState().source,
+        .mousePressNode = m_mousePressNode,
+        .capturingMouseEventsElement = m_capturingMouseEventsElement,
+        .eventHandlerWillResetCapturingMouseEventsElement = m_eventHandlerWillResetCapturingMouseEventsElement,
+        .isCapturingRootElementForMouseEvents = m_isCapturingRootElementForMouseEvents,
+        .selectionInitiationState = m_selectionInitiationState,
+        .immediateActionStage = m_immediateActionStage,
+    };
+}
+
+void EventHandler::restorePendingDragState(const PendingDragState& state)
+{
+    m_mousePressed = state.mousePressed;
+    m_capturesDragging = state.capturesDragging;
+    m_mouseDownMayStartDrag = state.mouseDownMayStartDrag;
+    m_mouseDownMayStartSelect = state.mouseDownMayStartSelect;
+    m_mouseDownMayStartAutoscroll = state.mouseDownMayStartAutoscroll;
+    m_mouseDownWasInSubframe = state.mouseDownWasInSubframe;
+    m_mouseDownTimestamp = state.mouseDownTimestamp;
+    m_mouseDownContentsPosition = state.mouseDownContentsPosition;
+    m_mouseDownEvent = state.mouseDownEvent;
+    m_dragStartPosition = state.dragStartPosition;
+    m_mousePressNode = state.mousePressNode;
+    m_selectionInitiationState = state.selectionInitiationState;
+    m_immediateActionStage = state.immediateActionStage;
+
+    if (RefPtr dragStateSource = state.dragStateSource; dragStateSource && dragStateSource->isConnected())
+        setDragStateSource(dragStateSource.get());
+
+    // Assigned directly rather than through setCapturingMouseEventsElement(), which forces the other two
+    // back to false; the point here is to put all three back exactly as the press left them.
+    m_capturingMouseEventsElement = state.capturingMouseEventsElement;
+    m_eventHandlerWillResetCapturingMouseEventsElement = state.eventHandlerWillResetCapturingMouseEventsElement;
+    m_isCapturingRootElementForMouseEvents = state.isCapturingRootElementForMouseEvents;
 }
 
 void EventHandler::clearDragState()
@@ -3580,7 +3659,8 @@ HandleUserInputEventResult EventHandler::handleWheelEventInternal(const Platform
     auto allowsScrollingState = SetForScope(m_currentWheelEventAllowsScrolling, processingSteps.contains(WheelEventProcessingSteps::SynchronousScrolling));
     
     setFrameWasScrolledByUser();
-    setLastKnownMousePosition(event.position(), event.globalPosition(), LastKnownMousePositionSource::Wheel);
+    if (event.inputSource() == MouseEventInputSource::UserDriven)
+        setLastKnownMousePosition(event.position(), event.globalPosition(), LastKnownMousePositionSource::Wheel);
 
     if (m_frame->isMainFrame()) {
         RefPtr page = m_frame->page();
@@ -3885,8 +3965,15 @@ bool EventHandler::sendContextMenuEvent(const PlatformMouseEvent& event)
     // Caret blinking is normally un-suspended in handleMouseReleaseEvent, but we
     // won't receive that event once the context menu is up.
     frame->selection().setCaretBlinkingSuspended(false);
-    // Clear mouse press state to avoid initiating a drag while context menu is up.
-    m_mousePressed = false;
+
+#if ENABLE(DRAG_SUPPORT)
+    auto isSynthesized = isSynthesizedContextMenuPressDuringPendingDrag(event);
+#else
+    auto isSynthesized = false;
+#endif
+
+    if (!isSynthesized)
+        m_mousePressed = false;
 
     const auto flooredEventPosition = flooredIntPoint(event.position());
     LayoutPoint viewportPos = view->windowToContents(flooredEventPosition);
@@ -3897,7 +3984,7 @@ bool EventHandler::sendContextMenuEvent(const PlatformMouseEvent& event)
     if (mouseEvent.scrollbar() || view->scrollbarAtPoint(flooredEventPosition))
         return false;
 
-    auto shouldSelectOnContextualMenuClick = frame->editor().behavior().shouldSelectOnContextualMenuClick() && event.inputSource() == MouseEventInputSource::UserDriven;
+    auto shouldSelectOnContextualMenuClick = frame->editor().behavior().shouldSelectOnContextualMenuClick() && (event.inputSource() == MouseEventInputSource::UserDriven || event.controlKey());
 
     if (shouldSelectOnContextualMenuClick && !frame->selection().contains(viewportPos)) {
         m_mouseDownMayStartSelect = true; // context menu events are always allowed to perform a selection
@@ -4064,6 +4151,9 @@ void EventHandler::fakeMouseMoveEventTimerFired()
 {
     ASSERT(!m_mousePressed);
 
+    if (!m_lastKnownMousePosition)
+        return;
+
     Ref frame = m_frame.get();
     if (!frame->view())
         return;
@@ -4072,7 +4162,7 @@ void EventHandler::fakeMouseMoveEventTimerFired()
         return;
 
     auto modifiers = PlatformKeyboardEvent::currentStateOfModifierKeys();
-    PlatformMouseEvent fakeMouseMoveEvent(valueOrDefault(m_lastKnownMousePosition), m_lastKnownMouseGlobalPosition, MouseButton::None, PlatformEvent::Type::MouseMoved, 0, modifiers, MonotonicTime::now(), 0, SyntheticClickType::NoTap, MouseEventInputSource::UserDriven);
+    PlatformMouseEvent fakeMouseMoveEvent(*m_lastKnownMousePosition, m_lastKnownMouseGlobalPosition, MouseButton::None, PlatformEvent::Type::MouseMoved, 0, modifiers, MonotonicTime::now(), 0, SyntheticClickType::NoTap, MouseEventInputSource::UserDriven);
     mouseMoved(fakeMouseMoveEvent);
 }
 #endif // !ENABLE(IOS_TOUCH_EVENTS)
@@ -5704,6 +5794,32 @@ void EventHandler::setLastKnownMousePosition(const DoublePoint& position, const 
     m_lastKnownMousePosition = position;
     m_lastKnownMouseGlobalPosition = globalPosition;
     m_lastKnownMousePositionSource = WTF::move(source);
+}
+
+void EventHandler::clearLastKnownMousePosition()
+{
+    m_lastKnownMousePosition = std::nullopt;
+    m_lastKnownMouseGlobalPosition = { };
+    m_lastKnownMousePositionSource = std::nullopt;
+}
+
+void EventHandler::mousePointerDidDisappear()
+{
+    auto position = valueOrDefault(m_lastKnownMousePosition);
+    auto globalPosition = m_lastKnownMouseGlobalPosition;
+    clearLastKnownMousePosition();
+
+    updateLastScrollbarUnderMouse(nullptr, SetOrClearLastScrollbar::Clear);
+
+    Ref frame = m_frame.get();
+    RefPtr document = frame->document();
+    if (!document || !frame->view())
+        return;
+
+    auto modifiers = PlatformKeyboardEvent::currentStateOfModifierKeys();
+    PlatformMouseEvent syntheticEvent(position, globalPosition, MouseButton::None, PlatformEvent::Type::NoType, 0, modifiers, MonotonicTime::now(), 0, SyntheticClickType::NoTap, MouseEventInputSource::UserDriven);
+    updateMouseEventTargetNode(eventNames().mousemoveEvent, nullptr, syntheticEvent, FireMouseOverOut::Yes);
+    document->updateHoverActiveState(hoverTimerHitType, nullptr);
 }
 
 void EventHandler::setImmediateActionStage(ImmediateActionStage stage)

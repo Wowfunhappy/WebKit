@@ -53,6 +53,7 @@
 #import "WebsiteDataStore.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKInspectorInternal.h"
+#import <WebCore/AXObjectTypes.h>
 #import <WebCore/BoxSides.h>
 #import <WebCore/Color.h>
 #import <WebCore/NowPlayingInfo.h>
@@ -538,6 +539,18 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
         return playbackSessionManager->wirelessVideoPlaybackDisabled();
 #endif
     return false;
+}
+
+- (double)_maximumSeekableTime
+{
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    if (RefPtr playbackSessionManager = _page->playbackSessionManager()) {
+        auto ranges = playbackSessionManager->seekableRanges();
+        if (ranges.length())
+            return ranges.maximumBufferedTime().toDouble();
+    }
+#endif
+    return std::numeric_limits<double>::quiet_NaN();
 }
 
 - (void)_doAfterProcessingAllPendingMouseEvents:(dispatch_block_t)action
@@ -1049,6 +1062,16 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
 #endif
 }
 
++ (BOOL)_isAccessibilityEnabledForTesting
+{
+    return !WebCore::isAccessibilityModeOff(WebKit::WebProcessProxy::accessibilityModeForWebContent());
+}
+
++ (void)_resetAccessibilityModeForTesting
+{
+    WebKit::WebProcessProxy::resetAccessibilityModeForTesting();
+}
+
 - (void)_setMediaVolumeForTesting:(float)mediaVolume
 {
     _page->setMediaVolume(mediaVolume);
@@ -1175,7 +1198,7 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
 #endif
 }
 
-- (void)_startMonitoringWheelEventsForTesting:(void(^)(void))completionHandler
+- (void)_startMonitoringWheelEventsForTestingWithCompletionHandler:(void(^)(void))completionHandler
 {
     RefPtr pageForTesting = _page->pageForTesting();
     if (!pageForTesting)
@@ -1186,13 +1209,24 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     });
 }
 
-- (void)_waitForWheelEventsToCompleteForTesting:(void(^)(void))completionHandler
+- (void)_waitForWheelEventsToCompleteForTestingWithCompletionHandler:(void(^)(void))completionHandler
 {
     RefPtr pageForTesting = _page->pageForTesting();
     if (!pageForTesting)
         return completionHandler();
 
-    pageForTesting->waitForWheelEventsToCompleteForTesting([completionHandler = makeBlockPtr(completionHandler)] {
+    pageForTesting->waitForWheelEventsToCompleteForTesting(false, [completionHandler = makeBlockPtr(completionHandler)] {
+        completionHandler();
+    });
+}
+
+- (void)_waitForWheelEventsAndMomentumToCompleteForTestingWithCompletionHandler:(void(^)(void))completionHandler
+{
+    RefPtr pageForTesting = _page->pageForTesting();
+    if (!pageForTesting)
+        return completionHandler();
+
+    pageForTesting->waitForWheelEventsToCompleteForTesting(true, [completionHandler = makeBlockPtr(completionHandler)] {
         completionHandler();
     });
 }
@@ -1258,8 +1292,13 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     Ref connection = process->connection();
 
 #if HAVE(LIBPROC)
+#ifdef RC_REMOVE_SEC_ACCEL_3
     // This approach should work on macOS outside of Apple Internal builds.
     if (auto pid = connection->remoteProcessID()) {
+#else
+    // The connection's peer pid is unavailable for ExtensionKit processes.
+    if (auto pid = process->processID()) {
+#endif // RC_REMOVE_SEC_ACCEL_3
         char path[PROC_PIDPATHINFO_MAXSIZE] = "\0";
         int length = proc_pidpath(pid, path, sizeof(path));
         if (length > 0) {

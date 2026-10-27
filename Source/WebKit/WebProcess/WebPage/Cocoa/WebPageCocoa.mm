@@ -65,6 +65,7 @@
 #import <WebCore/AccessibilityObject.h>
 #import <WebCore/AccessibilityScrollView.h>
 #import <WebCore/AnimationTimelinesController.h>
+#import <WebCore/BoundaryPointInlines.h>
 #import <WebCore/CSSKeywordValue.h>
 #import <WebCore/Chrome.h>
 #import <WebCore/ChromeClient.h>
@@ -144,6 +145,7 @@
 #import <WebCore/UTIRegistry.h>
 #import <WebCore/UTIUtilities.h>
 #import <WebCore/UserTypingGestureIndicator.h>
+#import <WebCore/VisibleSelection.h>
 #import <WebCore/VisibleUnits.h>
 #import <WebCore/WebAccessibilityObjectWrapperMac.h>
 #import <WebCore/markup.h>
@@ -1073,7 +1075,7 @@ private:
     Vector<String> m_types;
 };
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 void WebPage::replaceImageForRemoveBackground(const ElementContext& elementContext, const Vector<String>& types, std::span<const uint8_t> data)
 {
@@ -1143,7 +1145,7 @@ void WebPage::replaceImageForRemoveBackground(const ElementContext& elementConte
     protect(frame->selection())->setSelection(newSelectionRange, restoreSelectionOptions);
 }
 
-#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#endif // ENABLE(IMAGE_ANALYSIS)
 
 void WebPage::replaceSelectionWithPasteboardData(const Vector<String>& types, std::span<const uint8_t> data)
 {
@@ -1200,12 +1202,12 @@ std::pair<URL, DidFilterLinkDecoration> WebPage::applyLinkDecorationFilteringWit
         return isLinkDecorationFilteringEnabled(mainFrame->loader().policyDocumentLoader());
     }();
 
+    if (!url.hasQuery())
+        return { url, DidFilterLinkDecoration::No };
+
     RefPtr document = mainFrame ? mainFrame->document() : nullptr;
     bool isConsistentQueryParameterFilteringQuirkEnabled = document && (document->quirks().needsConsistentQueryParameterFilteringQuirk(document->url()) || document->quirks().needsConsistentQueryParameterFilteringQuirk(url));
     if (!hasOptedInToLinkDecorationFiltering && !m_page->settings().filterLinkDecorationByDefaultEnabled() && !isConsistentQueryParameterFilteringQuirkEnabled)
-        return { url, DidFilterLinkDecoration::No };
-
-    if (!url.hasQuery())
         return { url, DidFilterLinkDecoration::No };
 
     auto sanitizedURL = url;
@@ -1229,7 +1231,10 @@ std::pair<URL, DidFilterLinkDecoration> WebPage::applyLinkDecorationFilteringWit
         return isEmptyOrFoundDomain && isEmptyOrFoundPath;
     });
 
-    if (!removedParameters.isEmpty() && trigger != LinkDecorationFilteringTrigger::Unspecified) {
+    if (removedParameters.isEmpty())
+        return { url, DidFilterLinkDecoration::No };
+
+    if (trigger != LinkDecorationFilteringTrigger::Unspecified) {
         if (trigger == LinkDecorationFilteringTrigger::Navigation)
             send(Messages::WebPageProxy::DidApplyLinkDecorationFiltering(url, sanitizedURL));
         auto removedParametersString = makeStringByJoining(removedParameters, ", "_s);
@@ -1274,6 +1279,9 @@ URL WebPage::allowedQueryParametersForAdvancedPrivacyProtections(const URL& url)
 void WebPage::setMediaPlaybackEnvironment(const String& environment)
 {
     m_mediaPlaybackEnvironment = environment;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    assertIsMainRunLoop();
+#endif
     if (RefPtr gpuProcessConnection = WebProcess::singleton().existingGPUProcessConnection())
         gpuProcessConnection->setMediaPlaybackEnvironment(identifier(), environment);
 }
@@ -1281,6 +1289,9 @@ void WebPage::setMediaPlaybackEnvironment(const String& environment)
 void WebPage::setDisplayCaptureEnvironment(const String& environment)
 {
     m_displayCaptureEnvironment = environment;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    assertIsMainRunLoop();
+#endif
     if (RefPtr gpuProcessConnection = WebProcess::singleton().existingGPUProcessConnection())
         gpuProcessConnection->setDisplayCaptureEnvironment(identifier(), environment);
 }
@@ -2425,7 +2436,7 @@ bool WebPage::shouldAllowSingleClickToChangeSelection(WebCore::Node& targetNode,
     if (RefPtr editableRoot = newSelection.rootEditableElement(); editableRoot && editableRoot == targetNode.rootEditableElement()) {
         // FIXME: This logic should be made consistent for both macOS and iOS.
 #if PLATFORM(MAC)
-        return inputSource != WebCore::MouseEventInputSource::Automation;
+        return targetNode.shouldSelectOnMouseDown() || inputSource != WebCore::MouseEventInputSource::Automation;
 #else
         // Text interaction gestures will handle selection in the case where we are already editing the node. In the case where we're
         // just starting to focus an editable element by tapping on it, only change the selection if we weren't already showing an
@@ -2787,9 +2798,27 @@ void WebPage::setSelectionRange(WebCore::IntPoint point, WebCore::TextGranularit
     m_initialSelection = range;
 }
 
-void WebPage::updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, TextInteractionSource source, CompletionHandler<void(bool)>&& callback)
+static bool isPointOverLink(WebCore::LocalFrame& frame, const WebCore::IntPoint& pointInRootView)
+{
+    RefPtr view = frame.view();
+    if (!view)
+        return false;
+
+    static constexpr OptionSet hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::AllowVisibleChildFrameContentOnly };
+    return frame.eventHandler().hitTestResultAtPoint(view->rootViewToContents(pointInRootView), hitType).isOverLink();
+}
+
+void WebPage::updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, TextInteractionSource source, SelectionExtentAnchor anchor, CompletionHandler<void(bool)>&& callback)
 {
     SetForScope userIsInteractingChange { m_userIsInteracting, true };
+
+    if (anchor == SelectionExtentAnchor::CurrentSelection) {
+        // The previous gesture's initial range must not outlive this one, even if this update bails out early.
+        m_initialSelection = std::nullopt;
+
+        if (m_page->localMainFrame())
+            updateFocusBeforeSelectingTextAtLocation(point);
+    }
 
     RefPtr frame = m_page->focusController().focusedOrMainFrame();
     if (!frame)
@@ -2797,15 +2826,32 @@ void WebPage::updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point,
 
 #if ENABLE(PDF_PLUGIN) && ENABLE(TWO_PHASE_CLICKS)
     if (RefPtr pluginView = focusedPluginViewForFrame(*frame)) {
-        auto movedEndpoint = pluginView->extendInitialSelection(point, granularity);
+        auto movedEndpoint = pluginView->extendInitialSelection(point, granularity, anchor);
         return callback(movedEndpoint == SelectionEndpoint::End);
     }
 #endif // ENABLE(PDF_PLUGIN) && ENABLE(TWO_PHASE_CLICKS)
 
+    if (anchor == SelectionExtentAnchor::CurrentSelection && isPointOverLink(*frame, point))
+        return callback(false);
+
     auto position = visiblePositionInFocusedNodeForPoint(*frame, point, isInteractingWithFocusedElement);
     auto newRange = rangeForGranularityAtPoint(*frame, point, granularity, isInteractingWithFocusedElement);
 
-    if (position.isNull() || !m_initialSelection || !newRange)
+    if (position.isNull() || !newRange)
+        return callback(false);
+
+    // A gesture that begins by extending has no gesture-start range to measure from; it anchors on the
+    // endpoint of the existing selection that a shift-click would keep. Collapsing the anchor down to
+    // that endpoint makes the extent logic below reproduce shift-click, both for this update and for any
+    // drag that follows.
+    if (anchor == SelectionExtentAnchor::CurrentSelection) {
+        auto anchorPosition = frame->selection().selection().endpointToPreserveWhenExtendedTo(position.deepEquivalent());
+        VisibleSelection anchorSelection { anchorPosition.isNotNull() ? anchorPosition : position.deepEquivalent(), Affinity::Upstream };
+        anchorSelection.expandUsingGranularity(granularity);
+        m_initialSelection = anchorSelection.firstRange();
+    }
+
+    if (!m_initialSelection)
         return callback(false);
 
 #if PLATFORM(IOS_FAMILY)
@@ -2817,13 +2863,24 @@ void WebPage::updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point,
 
     VisiblePosition selectionStart = initialSelectionStartPosition;
     VisiblePosition selectionEnd = initialSelectionEndPosition;
-    if (position > initialSelectionEndPosition)
+    bool endIsMoving = true;
+    if (position > initialSelectionEndPosition) {
         selectionEnd = makeDeprecatedLegacyPosition(newRange->end);
-    else if (position < initialSelectionStartPosition)
+    } else if (position < initialSelectionStartPosition) {
         selectionStart = makeDeprecatedLegacyPosition(newRange->start);
+        endIsMoving = false;
+    }
 
-    if (auto range = makeSimpleRange(selectionStart, selectionEnd))
-        protect(frame->selection())->setSelectedRange(range, Affinity::Upstream, WebCore::FrameSelection::ShouldCloseTyping::Yes, UserTriggered::Yes);
+    auto selectionStartBoundary = makeBoundaryPoint(selectionStart);
+    auto selectionEndBoundary = makeBoundaryPoint(selectionEnd);
+    if (selectionStartBoundary && selectionEndBoundary && &selectionStartBoundary->document() == &selectionEndBoundary->document()) {
+        VisibleSelection newSelection {
+            (endIsMoving ? selectionStart : selectionEnd).deepEquivalent(),
+            (endIsMoving ? selectionEnd : selectionStart).deepEquivalent(),
+            Affinity::Upstream
+        };
+        protect(frame->selection())->setSelectedVisibleSelection(newSelection, WebCore::FrameSelection::ShouldCloseTyping::Yes, UserTriggered::Yes);
+    }
 
 #if PLATFORM(MAC)
     // AppKit's selection gesture has no edge-autoscroll equivalent to UIKit's `UITextAutoscrolling`,
@@ -2855,7 +2912,7 @@ void WebPage::updateSelectionWithExtentPointAndBoundary(WebCore::IntPoint point,
     }
 #endif // PLATFORM(IOS_FAMILY)
 
-    callback(selectionStart == initialSelectionStartPosition);
+    callback(endIsMoving);
 }
 
 void WebPage::updateSelectionWithExtentPoint(WebCore::IntPoint point, bool isInteractingWithFocusedElement, RespectSelectionAnchor respectSelectionAnchor, CompletionHandler<void(bool)>&& callback)
@@ -2954,14 +3011,14 @@ void WebPage::cancelAutoscroll()
 #endif
 }
 
-void WebPage::selectTextWithGranularityAtPoint(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, CompletionHandler<void()>&& completionHandler)
+void WebPage::selectTextWithGranularityAtPoint(WebCore::IntPoint point, WebCore::TextGranularity granularity, bool isInteractingWithFocusedElement, CompletionHandler<void(bool preventedByPage)>&& completionHandler)
 {
     SetForScope userIsInteractingChange { m_userIsInteracting, true };
 
 #if PLATFORM(IOS_FAMILY)
     if (!m_potentialTapNode) {
         setSelectionRange(point, granularity, isInteractingWithFocusedElement);
-        completionHandler();
+        completionHandler(false);
         return;
     }
 
@@ -2971,15 +3028,32 @@ void WebPage::selectTextWithGranularityAtPoint(WebCore::IntPoint point, WebCore:
     m_selectionChangedHandler = [point, granularity, isInteractingWithFocusedElement, completionHandler = WTF::move(completionHandler), weakThis = WeakPtr { *this }]() mutable {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis) {
-            completionHandler();
+            completionHandler(false);
             return;
         }
         protectedThis->setSelectionRange(point, granularity, isInteractingWithFocusedElement);
-        completionHandler();
+        completionHandler(false);
     };
 #else
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    // AppKit begins word and paragraph selections for gesture double clicks on its own. A page keeps a mouse double
+    // click from selecting by preventing the default action of its mouse press, so honor the latest synthetic press.
+    // Clicks are committed before AppKit begins the selection, so this is the double click's first press (or its
+    // second, when it is delivered as a double click).
+    if (granularity != TextGranularity::CharacterGranularity) {
+        if (m_lastSyntheticMousePressPreventedSelection) {
+            // Keep the rest of the gesture from extending a selection that it never made.
+            m_initialSelection = std::nullopt;
+            completionHandler(true);
+            return;
+        }
+
+        // Otherwise, the second press's pending click would land on the new selection.
+        cancelPotentialClick();
+    }
+#endif
     setSelectionRange(point, granularity, isInteractingWithFocusedElement);
-    completionHandler();
+    completionHandler(false);
 #endif
 }
 
@@ -2988,13 +3062,20 @@ void WebPage::selectTextWithGranularityAtPoint(WebCore::IntPoint point, WebCore:
 static void dispatchSyntheticMouseMove(LocalFrame& localFrame, const WebCore::FloatPoint& location, OptionSet<WebEventModifier> modifiers, WebCore::PointerID pointerId, WebCore::MouseEventInputSource inputSource)
 {
     auto roundedAdjustedPoint = roundedIntPoint(location);
+    auto movementDelta = [&] -> WebCore::DoublePoint {
+        if (inputSource != WebCore::MouseEventInputSource::Automation)
+            return { };
+        auto lastKnownPosition = localFrame.eventHandler().lastKnownMousePosition();
+        return WebCore::DoublePoint(location - lastKnownPosition);
+    }();
     auto mouseEvent = PlatformMouseEvent(
         roundedAdjustedPoint, roundedAdjustedPoint,
         MouseButton::None, PlatformEvent::Type::MouseMoved, 0,
         platform(modifiers), MonotonicTime::now(),
         WebCore::ForceAtClick, WebCore::SyntheticClickType::OneFingerTap,
         inputSource,
-        pointerId
+        pointerId,
+        movementDelta
     );
     localFrame.eventHandler().dispatchSyntheticMouseMove(mouseEvent);
 }
@@ -3057,7 +3138,8 @@ void WebPage::handleSyntheticClick(std::optional<WebCore::FrameIdentifier> frame
         return;
     }
     contentChangeObserver->stopContentObservation();
-    callOnMainRunLoop([protectedThis = Ref { *this }, targetNode = Ref<Node>(nodeRespondingToClick), location, modifiers, observedContentChange, pointerId, frameID] {
+    dispatchDeferredSyntheticClickIfNeeded();
+    m_deferredSyntheticClick = [protectedThis = Ref { *this }, targetNode = Ref<Node>(nodeRespondingToClick), location, modifiers, observedContentChange, pointerId, frameID] {
         if (protectedThis->m_isClosed || !protectedThis->corePage())
             return;
 
@@ -3072,7 +3154,17 @@ void WebPage::handleSyntheticClick(std::optional<WebCore::FrameIdentifier> frame
         }
         LOG(ContentObservation, "handleSyntheticClick: calling completeSyntheticClick -> click.");
         protectedThis->completeSyntheticClick(frameID, targetNode, location, modifiers, WebCore::SyntheticClickType::OneFingerTap, pointerId);
+    };
+    callOnMainRunLoop([protectedThis = Ref { *this }, generation = ++m_deferredSyntheticClickGeneration] {
+        if (generation == protectedThis->m_deferredSyntheticClickGeneration)
+            protectedThis->dispatchDeferredSyntheticClickIfNeeded();
     });
+}
+
+void WebPage::dispatchDeferredSyntheticClickIfNeeded()
+{
+    if (auto dispatch = std::exchange(m_deferredSyntheticClick, { }))
+        dispatch();
 }
 
 Awaitable<std::optional<WebCore::RemoteUserInputEventData>> WebPage::potentialTapAtPosition(std::optional<WebCore::FrameIdentifier> frameID, WebKit::TapIdentifier requestID, WebCore::FloatPoint position, bool shouldRequestMagnificationInformation, WebKit::WebEventInputSource inputSource)
@@ -3153,7 +3245,9 @@ Awaitable<std::optional<WebCore::RemoteUserInputEventData>> WebPage::potentialTa
     co_return std::nullopt;
 }
 
-Awaitable<std::optional<WebCore::FrameIdentifier>> WebPage::commitPotentialTap(std::optional<WebCore::FrameIdentifier> frameID, OptionSet<WebEventModifier> modifiers, TransactionID lastLayerTreeTransactionId, WebCore::PointerID pointerId)
+static RefPtr<LocalDOMWindow> windowWithDoubleClickEventListener(RefPtr<LocalFrame>);
+
+Awaitable<std::optional<WebCore::FrameIdentifier>> WebPage::commitPotentialTap(std::optional<WebCore::FrameIdentifier> frameID, OptionSet<WebEventModifier> modifiers, TransactionID lastLayerTreeTransactionId, WebCore::PointerID pointerId, CompletesDoubleClick completesDoubleClick)
 {
     RefPtr frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(m_potentialTapNode.get());
     RefPtr remoteFrame = frameOwner ? dynamicDowncast<RemoteFrame>(frameOwner->contentFrame()) : nullptr;
@@ -3173,6 +3267,19 @@ Awaitable<std::optional<WebCore::FrameIdentifier>> WebPage::commitPotentialTap(s
 
     RefPtr localRootFrame = this->localRootFrame(frameID);
 
+    auto reportFailedTap = [&] {
+#if ENABLE(FOCUS_ADJUSTMENT_IN_SYNTHETIC_CLICK)
+        if (localRootFrame) {
+            m_page->focusController().setFocusedElement(nullptr, localRootFrame.get(), { .trigger = FocusTrigger::Click });
+
+            // Clearing the focused element can run script that closes the page.
+            if (m_isClosed)
+                return;
+        }
+#endif // ENABLE(FOCUS_ADJUSTMENT_IN_SYNTHETIC_CLICK)
+        commitPotentialTapFailed();
+    };
+
     if (invalidTargetForSingleClick) {
 #if PLATFORM(IOS_FAMILY)
         if (localRootFrame) {
@@ -3183,7 +3290,7 @@ Awaitable<std::optional<WebCore::FrameIdentifier>> WebPage::commitPotentialTap(s
         }
 #endif
 
-        commitPotentialTapFailed();
+        reportFailedTap();
         co_return std::nullopt;
     }
 
@@ -3197,7 +3304,7 @@ Awaitable<std::optional<WebCore::FrameIdentifier>> WebPage::commitPotentialTap(s
     RefPtr frameRespondingToClick = nodeRespondingToClick ? nodeRespondingToClick->document().frame() : nullptr;
 
     if (!frameRespondingToClick) {
-        commitPotentialTapFailed();
+        reportFailedTap();
         co_return std::nullopt;
     }
 
@@ -3209,10 +3316,20 @@ Awaitable<std::optional<WebCore::FrameIdentifier>> WebPage::commitPotentialTap(s
         co_return std::nullopt;
     }
 
-    if (m_potentialTapNode == nodeRespondingToClick)
-        handleSyntheticClick(frameID, *nodeRespondingToClick, adjustedPoint, modifiers, pointerId);
-    else
+    auto respondsToDoubleClick = [&] {
+        FloatPoint adjustedDoubleClickPoint;
+        return localRootFrame->nodeRespondingToDoubleClickEvent(m_potentialTapLocation, adjustedDoubleClickPoint) || windowWithDoubleClickEventListener(localRootFrame);
+    };
+
+    bool syntheticClickMayBeHandledAsDoubleClick = m_potentialTapInputSource == WebCore::MouseEventInputSource::Automation;
+
+    if (m_potentialTapNode != nodeRespondingToClick)
         commitPotentialTapFailed();
+    else if (completesDoubleClick == CompletesDoubleClick::Yes && syntheticClickMayBeHandledAsDoubleClick && respondsToDoubleClick()) {
+        dispatchDeferredSyntheticClickIfNeeded();
+        completeSyntheticClick(frameID, *nodeRespondingToClick, adjustedPoint, modifiers, WebCore::SyntheticClickType::OneFingerTap, pointerId, 2);
+    } else
+        handleSyntheticClick(frameID, *nodeRespondingToClick, adjustedPoint, modifiers, pointerId);
 #endif // ENABLE(TWO_PHASE_CLICKS)
 
     m_potentialTapNode = nullptr;
@@ -3245,10 +3362,17 @@ void WebPage::cancelPotentialTap()
         ContentChangeObserver::didCancelPotentialTap(*localMainFrame);
 #endif
     cancelPotentialTapInFrame(m_mainFrame);
+
+#if ENABLE(FOCUS_ADJUSTMENT_IN_SYNTHETIC_CLICK)
+    dispatchDeferredSyntheticClickIfNeeded();
+#endif
 }
 
 void WebPage::didHandleTapAsHover()
 {
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    m_lastSyntheticMousePressPreventedSelection = false;
+#endif
     invokePendingSyntheticClickCallback(SyntheticClickResult::Hover);
     send(Messages::WebPageProxy::DidHandleTapAsHover());
 }
@@ -3372,6 +3496,10 @@ void WebPage::invokePendingSyntheticClickCallback(SyntheticClickResult result)
 
 void WebPage::commitPotentialTapFailed()
 {
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    m_lastSyntheticMousePressPreventedSelection = false;
+#endif
+
     if (auto selectionChangedHandler = std::exchange(m_selectionChangedHandler, { }))
         selectionChangedHandler();
 
@@ -3388,7 +3516,7 @@ void WebPage::commitPotentialTapFailed()
     send(Messages::WebPageProxy::DidNotHandleTapAsClick(roundedIntPoint(m_potentialTapLocation)));
 }
 
-void WebPage::completeSyntheticClick(std::optional<WebCore::FrameIdentifier> frameID, Node& nodeRespondingToClick, const WebCore::FloatPoint& location, OptionSet<WebEventModifier> modifiers, SyntheticClickType syntheticClickType, WebCore::PointerID pointerId)
+void WebPage::completeSyntheticClick(std::optional<WebCore::FrameIdentifier> frameID, Node& nodeRespondingToClick, const WebCore::FloatPoint& location, OptionSet<WebEventModifier> modifiers, SyntheticClickType syntheticClickType, WebCore::PointerID pointerId, int clickCount)
 {
     SetForScope completeSyntheticClickScope { m_completingSyntheticClick, true };
     IntPoint roundedAdjustedPoint = roundedIntPoint(location);
@@ -3418,10 +3546,22 @@ void WebPage::completeSyntheticClick(std::optional<WebCore::FrameIdentifier> fra
     // FIXME: Pass caps lock state.
     auto platformModifiers = platform(modifiers);
 
-    auto pressEvent = PlatformMouseEvent { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::MousePressed, 1, platformModifiers, MonotonicTime::now(), WebCore::ForceAtClick, syntheticClickType, m_potentialTapInputSource, pointerId };
+    auto pressEvent = PlatformMouseEvent { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::MousePressed, clickCount, platformModifiers, MonotonicTime::now(), WebCore::ForceAtClick, syntheticClickType, m_potentialTapInputSource, pointerId };
+
+    // FIXME: <https://webkit.org/b/314881> For input sources where pointer events may not have already been
+    // dispatched upstream by other compat paths, the pointer events that are dispatched in response to this
+    // synthetic click will not carry the correct `buttons` value, so we account for that here.
+    bool becomesPointerEvents = m_potentialTapInputSource == WebCore::MouseEventInputSource::Automation;
+    if (becomesPointerEvents)
+        pressEvent.setButtons(1);
     bool handledPress = localRootFrame->eventHandler().handleMousePressEvent(pressEvent).wasHandled();
     if (m_isClosed)
         return;
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    RefPtr frameRespondingToClick = nodeRespondingToClick.document().frame();
+    m_lastSyntheticMousePressPreventedSelection = frameRespondingToClick && !frameRespondingToClick->eventHandler().mouseDownMayStartSelect();
+#endif
 
     if (auto selectionChangedHandler = std::exchange(m_selectionChangedHandler, { }))
         selectionChangedHandler();
@@ -3430,7 +3570,7 @@ void WebPage::completeSyntheticClick(std::optional<WebCore::FrameIdentifier> fra
         clearSelectionAfterTapIfNeeded();
 #endif
 
-    auto releaseEvent = PlatformMouseEvent { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::MouseReleased, 1, platformModifiers, MonotonicTime::now(), ForceAtClick, syntheticClickType, m_potentialTapInputSource, pointerId };
+    auto releaseEvent = PlatformMouseEvent { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::MouseReleased, clickCount, platformModifiers, MonotonicTime::now(), 0.0, syntheticClickType, m_potentialTapInputSource, pointerId };
     bool handledRelease = localRootFrame->eventHandler().handleMouseReleaseEvent(releaseEvent).wasHandled();
     if (m_isClosed)
         return;
@@ -3444,9 +3584,12 @@ void WebPage::completeSyntheticClick(std::optional<WebCore::FrameIdentifier> fra
         if (document->quirks().needsYouTubeMouseOutQuirk()) {
             if (RefPtr frame = document->frame()) {
                 PlatformMouseEvent event { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::NoType, 0, platformModifiers, MonotonicTime::now(), 0, WebCore::SyntheticClickType::NoTap, m_potentialTapInputSource, pointerId };
+                RefPtr<Element> newHoveredNode;
                 if (!nodeRespondingToClick.isConnected())
                     frame->eventHandler().dispatchSyntheticMouseMove(event);
-                frame->eventHandler().dispatchSyntheticMouseOut(event);
+                else
+                    newHoveredNode = nodeRespondingToClick.parentElementInComposedTree();
+                frame->eventHandler().dispatchSyntheticMouseOut(event, newHoveredNode.get());
             }
         }
     }
@@ -3525,7 +3668,13 @@ void WebPage::handleDoubleTapForDoubleClickAtPoint(const IntPoint& point, Option
     auto platformInputSource = platform(inputSource);
     auto syntheticClickType = coreSyntheticClickType(webSyntheticClickType);
     auto roundedAdjustedPoint = roundedIntPoint(adjustedPoint);
-    frameRespondingToDoubleClick->eventHandler().handleMousePressEvent(PlatformMouseEvent(roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::MousePressed, 2, platformModifiers, MonotonicTime::now(), 0, syntheticClickType, platformInputSource));
+
+    bool becomesPointerEvents = platformInputSource == WebCore::MouseEventInputSource::Automation;
+    auto pressEvent = PlatformMouseEvent { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::MousePressed, 2, platformModifiers, MonotonicTime::now(), becomesPointerEvents ? WebCore::ForceAtClick : 0.0, syntheticClickType, platformInputSource };
+    if (becomesPointerEvents)
+        pressEvent.setButtons(1);
+
+    frameRespondingToDoubleClick->eventHandler().handleMousePressEvent(pressEvent);
     if (m_isClosed)
         return;
     frameRespondingToDoubleClick->eventHandler().handleMouseReleaseEvent(PlatformMouseEvent(roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::MouseReleased, 2, platformModifiers, MonotonicTime::now(), 0, syntheticClickType, platformInputSource));

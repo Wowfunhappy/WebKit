@@ -446,6 +446,8 @@ public:
     bool didLoadAppInitiatedRequest();
     bool didLoadNonAppInitiatedRequest();
 
+    bool isDisplayCaptureCapabilityActive();
+
     size_t userScriptInjectedCount() const;
     void injectUserScript(JSStringRef);
 
@@ -491,6 +493,7 @@ public:
     }
 
     void setHasMouseDeviceForTesting(bool);
+    void setHasFakePaymentUIForTesting(bool);
     void exitImmersive();
 
 private:

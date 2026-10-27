@@ -334,6 +334,8 @@ interface TestRunner {
     boolean didLoadAppInitiatedRequest();
     boolean didLoadNonAppInitiatedRequest();
 
+    boolean isDisplayCaptureCapabilityActive();
+
 
     undefined injectUserScript(DOMString string);
     readonly attribute unsigned long userScriptInjectedCount;
@@ -373,6 +375,9 @@ interface TestRunner {
     readonly attribute boolean canModifyResourceMonitorList;
 
     undefined setHasMouseDeviceForTesting(boolean hasMouseDevice);
+
+    // Apple Pay
+    undefined setHasFakePaymentUIForTesting(boolean hasFakePaymentUI);
 
     // Immersive models
     undefined exitImmersive();

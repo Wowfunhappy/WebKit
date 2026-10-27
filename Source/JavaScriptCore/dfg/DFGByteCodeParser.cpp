@@ -859,10 +859,6 @@ private:
         m_hasAnyForceOSRExits |= (node->op() == ForceOSRExit);
 
         m_currentBlock->append(node);
-        if (node->isTuple()) {
-            node->setTupleOffset(m_graph.m_tupleData.size());
-            m_graph.m_tupleData.grow(m_graph.m_tupleData.size() + node->tupleSize());
-        }
         if (clobbersExitState(m_graph, node))
             m_exitOK = false;
         return node;
@@ -10205,7 +10201,7 @@ void ByteCodeParser::parseBlock(unsigned limit)
                 // op_get_from_scope for a global property should walk the
                 // proto chain of the global object searching for the desired property
                 GetByStatus::LookupMode lookupMode = GetByStatus::LookupMode::Normal;
-                GetByStatus status = GetByStatus::computeFor(globalObject, structure, identifier, lookupMode);
+                GetByStatus status = GetByStatus::computeFor(m_inlineStackTop->m_profiledBlock, m_currentIndex, globalObject, structure, identifier, lookupMode);
 
                 if (status.state() != GetByStatus::Simple
                     || status.numVariants() != 1
@@ -10390,7 +10386,7 @@ void ByteCodeParser::parseBlock(unsigned limit)
 
                 PutByStatus status;
                 if (uid)
-                    status = PutByStatus::computeFor(globalObject, structure, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_inlineStackTop->m_profiledBlock, uid), false, PrivateFieldPutKind::none());
+                    status = PutByStatus::computeFor(m_inlineStackTop->m_profiledBlock, m_currentIndex, globalObject, structure, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_inlineStackTop->m_profiledBlock, uid), false, PrivateFieldPutKind::none());
                 else
                     status = PutByStatus(PutByStatus::LikelyTakesSlowPath);
                 if (status.numVariants() != 1

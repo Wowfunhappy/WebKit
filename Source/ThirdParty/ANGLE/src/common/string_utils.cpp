@@ -7,11 +7,8 @@
 //   String helper functions.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "common/string_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -32,7 +29,8 @@ bool EndsWithSuffix(const char *str,
                     const char *suffix,
                     const size_t suffixLen)
 {
-    return suffixLen <= strLen && strncmp(str + strLen - suffixLen, suffix, suffixLen) == 0;
+    return suffixLen <= strLen &&
+           ANGLE_UNSAFE_TODO(strncmp(str + strLen - suffixLen, suffix, suffixLen)) == 0;
 }
 
 }  // anonymous namespace
@@ -43,11 +41,26 @@ namespace angle
 const char kWhitespaceASCII[] = " \f\n\r\t\v";
 
 std::vector<std::string> SplitString(const std::string &input,
-                                     const std::string &delimiters,
+                                     const std::string_view &delimiters,
                                      WhitespaceHandling whitespace,
                                      SplitResult resultType)
 {
-    std::vector<std::string> result;
+    std::vector<std::string_view> views =
+        SplitStringView(input, delimiters, whitespace, resultType);
+    std::vector<std::string> result(views.size());
+    for (size_t i = 0; i < views.size(); i++)
+    {
+        result[i] = std::string(views[i]);
+    }
+    return result;
+}
+
+std::vector<std::string_view> SplitStringView(const std::string_view &input,
+                                              const std::string_view &delimiters,
+                                              WhitespaceHandling whitespace,
+                                              SplitResult resultType)
+{
+    std::vector<std::string_view> result;
     if (input.empty())
     {
         return result;
@@ -58,7 +71,7 @@ std::vector<std::string> SplitString(const std::string &input,
     {
         auto end = input.find_first_of(delimiters, start);
 
-        std::string piece;
+        std::string_view piece;
         if (end == std::string::npos)
         {
             piece = input.substr(start);
@@ -72,7 +85,7 @@ std::vector<std::string> SplitString(const std::string &input,
 
         if (whitespace == TRIM_WHITESPACE)
         {
-            piece = TrimString(piece, kWhitespaceASCII);
+            piece = TrimStringView(piece, kWhitespaceASCII);
         }
 
         if (resultType == SPLIT_WANT_ALL || !piece.empty())
@@ -105,6 +118,11 @@ void SplitStringAlongWhitespace(const std::string &input, std::vector<std::strin
 }
 
 std::string TrimString(const std::string &input, const std::string &trimChars)
+{
+    return std::string(TrimStringView(input, trimChars));
+}
+
+std::string_view TrimStringView(const std::string_view &input, const std::string &trimChars)
 {
     auto begin = input.find_first_not_of(trimChars);
     if (begin == std::string::npos)
@@ -163,7 +181,8 @@ bool HexStringToUInt(const std::string_view &input, unsigned int *uintOut)
 
     std::string_view inputWithOffset = input.substr(offset);
     const auto result                = std::from_chars(
-        inputWithOffset.data(), inputWithOffset.data() + inputWithOffset.size(), *uintOut, 16);
+        inputWithOffset.data(), ANGLE_UNSAFE_TODO(inputWithOffset.data() + inputWithOffset.size()),
+        *uintOut, 16);
     if (result.ec != std::errc{})
     {
         return false;
@@ -171,7 +190,7 @@ bool HexStringToUInt(const std::string_view &input, unsigned int *uintOut)
 
     // A successful conversion should consume the entire input string view.
     // If result.ptr is not at the end, it means there were extra characters.
-    if (result.ptr != inputWithOffset.data() + inputWithOffset.size())
+    if (result.ptr != ANGLE_UNSAFE_TODO(inputWithOffset.data() + inputWithOffset.size()))
     {
         return false;
     }
@@ -198,22 +217,22 @@ bool ReadFileToString(const std::string &path, std::string *stringOut)
 
 bool BeginsWith(const std::string &str, const std::string &prefix)
 {
-    return strncmp(str.c_str(), prefix.c_str(), prefix.length()) == 0;
+    return ANGLE_UNSAFE_TODO(strncmp(str.c_str(), prefix.c_str(), prefix.length())) == 0;
 }
 
 bool BeginsWith(const std::string &str, const char *prefix)
 {
-    return strncmp(str.c_str(), prefix, strlen(prefix)) == 0;
+    return ANGLE_UNSAFE_TODO(strncmp(str.c_str(), prefix, strlen(prefix))) == 0;
 }
 
 bool BeginsWith(const char *str, const char *prefix)
 {
-    return strncmp(str, prefix, strlen(prefix)) == 0;
+    return ANGLE_UNSAFE_TODO(strncmp(str, prefix, strlen(prefix))) == 0;
 }
 
 bool BeginsWith(const std::string &str, const std::string &prefix, const size_t prefixLength)
 {
-    return strncmp(str.c_str(), prefix.c_str(), prefixLength) == 0;
+    return ANGLE_UNSAFE_TODO(strncmp(str.c_str(), prefix.c_str(), prefixLength)) == 0;
 }
 
 bool EndsWith(const std::string &str, const std::string &suffix)
@@ -338,44 +357,77 @@ std::vector<std::string> GetCachedStringsFromEnvironmentVarOrAndroidProperty(
     return SplitString(environment, separator, TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
 }
 
-// glob can have * as wildcard
-bool NamesMatchWithWildcard(const char *glob, const char *name)
+bool IsGlobPattern(const std::string_view &pattern)
 {
-    // Find the first * in glob.
-    const char *firstWildcard = strchr(glob, '*');
+    return std::any_of(pattern.begin(), pattern.end(),
+                       [](const char c) { return c == '?' || c == '*'; });
+}
 
-    // If there are no wildcards, match the strings precisely.
-    if (firstWildcard == nullptr)
-    {
-        return strcmp(glob, name) == 0;
-    }
+bool NamesMatchWithWildcard(const std::string_view &glob, const std::string_view &name)
+{
+    // This function implements a linear-time string globbing algorithm based on
+    // https://research.swtch.com/glob.
+    // It is mostly taken from the implementation in gtest.cc.
 
-    // Otherwise, match up to the wildcard first.
-    size_t preWildcardLen = firstWildcard - glob;
-    if (strncmp(glob, name, preWildcardLen) != 0)
+    using StringIter = std::string_view::iterator;
+
+    StringIter nameIter        = name.begin();
+    const StringIter nameBegin = name.begin();
+    const StringIter nameEnd   = name.end();
+
+    StringIter globIter      = glob.begin();
+    const StringIter globEnd = glob.end();
+
+    StringIter globNext = globIter;
+    StringIter nameNext = nameIter;
+
+    while (globIter < globEnd || nameIter < nameEnd)
     {
+        if (globIter < globEnd)
+        {
+            switch (*globIter)
+            {
+                default:  // Match an ordinary character.
+                    if (nameIter < nameEnd && *nameIter == *globIter)
+                    {
+                        ++globIter;
+                        ++nameIter;
+                        continue;
+                    }
+                    break;
+
+                case '?':  // Match any single character.
+                    if (nameIter < nameEnd)
+                    {
+                        ++globIter;
+                        ++nameIter;
+                        continue;
+                    }
+                    break;
+
+                case '*':
+                    // Match zero or more characters. Start by skipping over the wildcard
+                    // and matching zero characters from name. If that fails, restart and
+                    // match one more character than the last attempt.
+                    globNext = globIter;
+                    nameNext = nameIter + 1;
+                    ++globIter;
+                    continue;
+            }
+        }
+
+        // Failed to match a character. Restart if possible.
+        if (nameBegin < nameNext && nameNext <= nameEnd)
+        {
+            globIter = globNext;
+            nameIter = nameNext;
+            continue;
+        }
+
         return false;
     }
 
-    const char *postWildcardRef = glob + preWildcardLen + 1;
-
-    // As a small optimization, if the wildcard is the last character in glob, accept the match
-    // already.
-    if (postWildcardRef[0] == '\0')
-    {
-        return true;
-    }
-
-    // Try to match the wildcard with a number of characters.
-    for (size_t matchSize = 0; name[matchSize] != '\0'; ++matchSize)
-    {
-        if (NamesMatchWithWildcard(postWildcardRef, name + matchSize))
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return true;
 }
 
 std::vector<uint8_t> HexStringToUintVector(const std::string_view &hexStr)

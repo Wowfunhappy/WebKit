@@ -4191,17 +4191,6 @@ CallCapture CaptureCopySubTextureCHROMIUM(const State &glState,
     return CallCapture(angle::EntryPoint::GLCopySubTextureCHROMIUM, std::move(paramBuffer));
 }
 
-CallCapture CaptureCoverageModulationCHROMIUM(const State &glState,
-                                              bool isCallValid,
-                                              GLenum components)
-{
-    ParamBuffer paramBuffer;
-
-    paramBuffer.addEnumParam("components", GLESEnum::AllEnums, ParamType::TGLenum, components);
-
-    return CallCapture(angle::EntryPoint::GLCoverageModulationCHROMIUM, std::move(paramBuffer));
-}
-
 CallCapture CaptureLoseContextCHROMIUM(const State &glState,
                                        bool isCallValid,
                                        GraphicsResetStatus currentPacked,
@@ -7936,7 +7925,7 @@ CallCapture CaptureTexStorage3DEXT(const State &glState,
 
 CallCapture CaptureTexStorageAttribs2DEXT(const State &glState,
                                           bool isCallValid,
-                                          GLenum target,
+                                          TextureType targetPacked,
                                           GLsizei levels,
                                           GLenum internalformat,
                                           GLsizei width,
@@ -7945,7 +7934,7 @@ CallCapture CaptureTexStorageAttribs2DEXT(const State &glState,
 {
     ParamBuffer paramBuffer;
 
-    paramBuffer.addEnumParam("target", GLESEnum::TextureTarget, ParamType::TGLenum, target);
+    paramBuffer.addValueParam("targetPacked", ParamType::TTextureType, targetPacked);
     paramBuffer.addValueParam("levels", ParamType::TGLsizei, levels);
     paramBuffer.addEnumParam("internalformat", GLESEnum::SizedInternalFormat, ParamType::TGLenum,
                              internalformat);
@@ -7956,8 +7945,8 @@ CallCapture CaptureTexStorageAttribs2DEXT(const State &glState,
     if (isCallValid)
     {
         InitParamValue(ParamType::TGLintConstPointer, attrib_list, &attrib_listParam.value);
-        CaptureTexStorageAttribs2DEXT_attrib_list(glState, target, levels, internalformat, width,
-                                                  height, attrib_list, &attrib_listParam);
+        CaptureTexStorageAttribs2DEXT_attrib_list(glState, targetPacked, levels, internalformat,
+                                                  width, height, attrib_list, &attrib_listParam);
     }
     else
     {
@@ -7971,7 +7960,7 @@ CallCapture CaptureTexStorageAttribs2DEXT(const State &glState,
 
 CallCapture CaptureTexStorageAttribs3DEXT(const State &glState,
                                           bool isCallValid,
-                                          GLenum target,
+                                          TextureType targetPacked,
                                           GLsizei levels,
                                           GLenum internalformat,
                                           GLsizei width,
@@ -7981,7 +7970,7 @@ CallCapture CaptureTexStorageAttribs3DEXT(const State &glState,
 {
     ParamBuffer paramBuffer;
 
-    paramBuffer.addEnumParam("target", GLESEnum::TextureTarget, ParamType::TGLenum, target);
+    paramBuffer.addValueParam("targetPacked", ParamType::TTextureType, targetPacked);
     paramBuffer.addValueParam("levels", ParamType::TGLsizei, levels);
     paramBuffer.addEnumParam("internalformat", GLESEnum::SizedInternalFormat, ParamType::TGLenum,
                              internalformat);
@@ -7993,8 +7982,9 @@ CallCapture CaptureTexStorageAttribs3DEXT(const State &glState,
     if (isCallValid)
     {
         InitParamValue(ParamType::TGLintConstPointer, attrib_list, &attrib_listParam.value);
-        CaptureTexStorageAttribs3DEXT_attrib_list(glState, target, levels, internalformat, width,
-                                                  height, depth, attrib_list, &attrib_listParam);
+        CaptureTexStorageAttribs3DEXT_attrib_list(glState, targetPacked, levels, internalformat,
+                                                  width, height, depth, attrib_list,
+                                                  &attrib_listParam);
     }
     else
     {
@@ -8593,14 +8583,13 @@ CallCapture CaptureReadnPixelsKHR(const State &glState,
 CallCapture CaptureFramebufferParameteriMESA(const State &glState,
                                              bool isCallValid,
                                              GLenum target,
-                                             GLenum pname,
+                                             FramebufferParameter pnamePacked,
                                              GLint param)
 {
     ParamBuffer paramBuffer;
 
     paramBuffer.addEnumParam("target", GLESEnum::FramebufferTarget, ParamType::TGLenum, target);
-    paramBuffer.addEnumParam("pname", GLESEnum::FramebufferParameterName, ParamType::TGLenum,
-                             pname);
+    paramBuffer.addValueParam("pnamePacked", ParamType::TFramebufferParameter, pnamePacked);
     paramBuffer.addValueParam("param", ParamType::TGLint, param);
 
     return CallCapture(angle::EntryPoint::GLFramebufferParameteriMESA, std::move(paramBuffer));
@@ -8609,20 +8598,20 @@ CallCapture CaptureFramebufferParameteriMESA(const State &glState,
 CallCapture CaptureGetFramebufferParameterivMESA(const State &glState,
                                                  bool isCallValid,
                                                  GLenum target,
-                                                 GLenum pname,
+                                                 FramebufferParameter pnamePacked,
                                                  GLint *params)
 {
     ParamBuffer paramBuffer;
 
     paramBuffer.addEnumParam("target", GLESEnum::FramebufferTarget, ParamType::TGLenum, target);
-    paramBuffer.addEnumParam("pname", GLESEnum::FramebufferAttachmentParameterName,
-                             ParamType::TGLenum, pname);
+    paramBuffer.addValueParam("pnamePacked", ParamType::TFramebufferParameter, pnamePacked);
 
     ParamCapture paramsParam("params", ParamType::TGLintPointer);
     if (isCallValid)
     {
         InitParamValue(ParamType::TGLintPointer, params, &paramsParam.value);
-        CaptureGetFramebufferParameterivMESA_params(glState, target, pname, params, &paramsParam);
+        CaptureGetFramebufferParameterivMESA_params(glState, target, pnamePacked, params,
+                                                    &paramsParam);
     }
     else
     {

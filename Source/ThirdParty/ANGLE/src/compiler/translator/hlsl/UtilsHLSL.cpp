@@ -93,7 +93,6 @@ HLSLTextureGroup TextureGroup(const TBasicType type, TLayoutImageInternalFormat 
     switch (type)
     {
         case EbtSampler2D:
-        case EbtSamplerVideoWEBGL:
             return HLSL_TEXTURE_2D;
         case EbtSamplerCube:
             return HLSL_TEXTURE_CUBE;
@@ -841,6 +840,7 @@ TString Decorate(const ImmutableString &string)
 
 TString DecorateVariableIfNeeded(const TVariable &variable)
 {
+    const TQualifier qualifier = variable.getType().getQualifier();
     if (variable.symbolType() == SymbolType::AngleInternal ||
         variable.symbolType() == SymbolType::BuiltIn || variable.symbolType() == SymbolType::Empty)
     {
@@ -854,7 +854,9 @@ TString DecorateVariableIfNeeded(const TVariable &variable)
     // For user defined variables, combine variable name with unique id
     // so variables of the same name in different scopes do not get overwritten.
     else if (variable.symbolType() == SymbolType::UserDefined &&
-             variable.getType().getQualifier() == EvqTemporary)
+             (qualifier == EvqTemporary || qualifier == EvqGlobal || qualifier == EvqConst ||
+              qualifier == EvqParamIn || qualifier == EvqParamOut || qualifier == EvqParamInOut ||
+              qualifier == EvqParamConst))
     {
         return Decorate(variable.name()) + str(variable.uniqueId().get());
     }
@@ -885,14 +887,8 @@ TString TypeString(const TType &type)
     const TStructure *structure = type.getStruct();
     if (structure)
     {
-        if (structure->symbolType() != SymbolType::Empty)
-        {
-            return StructNameString(*structure);
-        }
-        else  // Nameless structure, define in place
-        {
-            return StructureHLSL::defineNameless(*structure);
-        }
+        ASSERT(structure->symbolType() != SymbolType::Empty);
+        return StructNameString(*structure);
     }
     else if (type.isMatrix())
     {
@@ -967,8 +963,6 @@ TString TypeString(const TType &type)
                 return "samplerCUBE";
             case EbtSamplerExternalOES:
                 return "sampler2D";
-            case EbtSamplerVideoWEBGL:
-                return "sampler2D";
             default:
                 break;
         }
@@ -980,10 +974,7 @@ TString TypeString(const TType &type)
 
 TString StructNameString(const TStructure &structure)
 {
-    if (structure.symbolType() == SymbolType::Empty)
-    {
-        return "";
-    }
+    ASSERT(structure.symbolType() != SymbolType::Empty);
 
     // For structures at global scope we use a consistent
     // translation so that we can link between shader stages.
@@ -1000,10 +991,7 @@ TString QualifiedStructNameString(const TStructure &structure,
                                   bool useStd140Packing,
                                   bool forcePadding)
 {
-    if (structure.symbolType() == SymbolType::Empty)
-    {
-        return "";
-    }
+    ASSERT(structure.symbolType() != SymbolType::Empty);
 
     TString prefix = "";
 

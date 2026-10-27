@@ -13,6 +13,8 @@
 #include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/gl/RendererGL.h"
 
+#include "common/base/anglebase/containers/mru_cache.h"
+
 namespace angle
 {
 struct FeaturesGL;
@@ -45,6 +47,8 @@ class ContextGL : public ContextImpl
               const std::shared_ptr<RendererGL> &renderer,
               RobustnessVideoMemoryPurgeStatus robustnessVideoMemoryPurgeStatus);
     ~ContextGL() override;
+
+    void onDestroy(const gl::Context *context) override;
 
     angle::Result initialize(const angle::ImageLoadContext &imageLoadContext) override;
 
@@ -91,9 +95,6 @@ class ContextGL : public ContextImpl
 
     // Semaphore creation.
     SemaphoreImpl *createSemaphore() override;
-
-    // Overlay creation.
-    OverlayImpl *createOverlay(const gl::OverlayState &state) override;
 
     // Flush and finish.
     angle::Result flush(const gl::Context *context) override;
@@ -287,8 +288,6 @@ class ContextGL : public ContextImpl
 
     void setMaxShaderCompilerThreads(GLuint count) override;
 
-    void validateState() const;
-
     void setNeedsFlushBeforeDeleteTextures();
     void flushIfNecessaryBeforeDeleteTextures();
 
@@ -298,7 +297,22 @@ class ContextGL : public ContextImpl
 
     const gl::Debug &getDebug() const { return mState.getDebug(); }
 
+    angle::Result getDepthInitPBO(const gl::Context *context,
+                                  size_t requestedSize,
+                                  GLenum type,
+                                  GLuint *pboIdOut);
+    void tickGC();
+
   private:
+    enum StateType
+    {
+        GlobalState,
+        VAOState,
+        Count,
+    };
+    using StateTypes = angle::BitSet<StateType::Count>;
+    void validateState(StateTypes statesToValidate);
+
     angle::Result setDrawArraysState(const gl::Context *context,
                                      GLint first,
                                      GLsizei count,
@@ -318,6 +332,29 @@ class ContextGL : public ContextImpl
     std::shared_ptr<RendererGL> mRenderer;
 
     RobustnessVideoMemoryPurgeStatus mRobustnessVideoMemoryPurgeStatus;
+
+  private:
+    struct PixelBufferGL
+    {
+        const FunctionsGL *functions = nullptr;
+        GLuint bufferID              = 0;
+        size_t size                  = 0;
+        uint32_t lifetimeCounter     = 0;
+
+        PixelBufferGL(const FunctionsGL *functions);
+        ~PixelBufferGL();
+
+        PixelBufferGL(PixelBufferGL &&other);
+        PixelBufferGL &operator=(PixelBufferGL &&other);
+
+        PixelBufferGL(const PixelBufferGL &)            = delete;
+        PixelBufferGL &operator=(const PixelBufferGL &) = delete;
+    };
+
+    using DepthInitPBOCache = angle::base::HashingMRUCache<GLenum, PixelBufferGL>;
+    // Keyed by the GLenum type passed to getDepthInitPBO (e.g. GL_UNSIGNED_INT_24_8,
+    // GL_FLOAT_32_UNSIGNED_INT_24_8_REV).
+    DepthInitPBOCache mDepthInitPBOs;
 };
 
 }  // namespace rx

@@ -46,6 +46,10 @@
 #include "DisplayCaptureSessionManager.h"
 #endif
 
+#if ENABLE(EXTENSION_CAPABILITIES)
+#include "MediaCapability.h"
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -200,13 +204,13 @@ void WebPageProxyTesting::startMonitoringWheelEventsForTesting(CompletionHandler
     sendWithAsyncReply(Messages::WebPageTesting::StartMonitoringWheelEventsForTesting(), WTF::move(completionHandler));
 }
 
-void WebPageProxyTesting::waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&& completionHandler)
+void WebPageProxyTesting::waitForWheelEventsToCompleteForTesting(bool expectMomentumEnd, CompletionHandler<void()>&& completionHandler)
 {
     if (!page().hasRunningProcess()) {
         completionHandler();
         return;
     }
-    sendWithAsyncReply(Messages::WebPageTesting::WaitForWheelEventsToCompleteForTesting(), WTF::move(completionHandler));
+    sendWithAsyncReply(Messages::WebPageTesting::WaitForWheelEventsToCompleteForTesting(expectMomentumEnd), WTF::move(completionHandler));
 }
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
@@ -218,6 +222,14 @@ void WebPageProxyTesting::setIndexOfGetDisplayMediaDeviceSelectedForTesting(std:
 void WebPageProxyTesting::setSystemCanPromptForGetDisplayMediaForTesting(bool canPrompt)
 {
     DisplayCaptureSessionManager::singleton().setSystemCanPromptForTesting(canPrompt);
+}
+#endif
+
+#if ENABLE(EXTENSION_CAPABILITIES)
+bool WebPageProxyTesting::isDisplayCaptureCapabilityActive() const
+{
+    RefPtr capability = page().displayCaptureCapability();
+    return capability && capability->isActivatingOrActive();
 }
 #endif
 

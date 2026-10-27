@@ -112,6 +112,7 @@ static constexpr std::pair<ASCIILiteral, SDKAlignedBehavior> sdkAlignedBehaviorN
     { "ScrollPocketInFullscreen"_s, SDKAlignedBehavior::ScrollPocketInFullscreen },
     { "IgnorePageLocationDuringHardPocketEligibilityCheck"_s, SDKAlignedBehavior::IgnorePageLocationDuringHardPocketEligibilityCheck },
     { "AdjustColorExtensionsForHorizontalBannerViewOverlays"_s, SDKAlignedBehavior::AdjustColorExtensionsForHorizontalBannerViewOverlays },
+    { "NoMediaLayerTeardownOnPageVisibilityChangeQuirk"_s, SDKAlignedBehavior::NoMediaLayerTeardownOnPageVisibilityChangeQuirk },
     { "NetworkProcessInheritsNetworkAccessFromUIProcess"_s, SDKAlignedBehavior::NetworkProcessInheritsNetworkAccessFromUIProcess },
     { "BoxPackAccountsForBoxDirection"_s, SDKAlignedBehavior::BoxPackAccountsForBoxDirection },
     { "BlockOrUpgradeMixedContent"_s, SDKAlignedBehavior::BlockOrUpgradeMixedContent },
@@ -196,6 +197,7 @@ static void disableAdditionalSDKAlignedBehaviors(SDKAlignedBehaviors& behaviors)
             SDKAlignedBehavior::ExposePartitionFromWKHTTPCookieStoreAPI,
             SDKAlignedBehavior::MediaSessionPauseOnInterruption,
             SDKAlignedBehavior::AdjustColorExtensionsForHorizontalBannerViewOverlays,
+            SDKAlignedBehavior::NoMediaLayerTeardownOnPageVisibilityChangeQuirk,
         });
     }
 

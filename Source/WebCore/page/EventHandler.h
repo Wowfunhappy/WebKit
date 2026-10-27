@@ -190,6 +190,8 @@ public:
     bool mousePressed() const { return m_mousePressed; }
     Node* mousePressNode() const { return m_mousePressNode; }
 
+    WEBCORE_EXPORT bool NODELETE mouseDownMayStartSelect() const;
+
     WEBCORE_EXPORT ScrollableArea* focusedScrollableArea() const;
 
     WEBCORE_EXPORT void setCapturingMouseEventsElement(RefPtr<Element>&&);
@@ -218,7 +220,7 @@ public:
     void resizeLayerDestroyed();
 
     // FIXME: Each Frame has an EventHandler, and not every event goes to all frames, so this position can be stale. It should probably be stored on Page.
-    DoublePoint NODELETE lastKnownMousePosition() const;
+    WEBCORE_EXPORT DoublePoint NODELETE lastKnownMousePosition() const;
     DoublePoint lastKnownMouseGlobalPosition() const { return m_lastKnownMouseGlobalPosition; }
     Cursor currentMouseCursor() const { return m_currentMouseCursor; }
 
@@ -254,6 +256,7 @@ public:
     void wheelEventWasProcessedByMainThread(const PlatformWheelEvent&, OptionSet<EventHandling>);
 
     WEBCORE_EXPORT void NODELETE setLastKnownMousePosition(const DoublePoint& position, const DoublePoint& globalPosition, std::optional<LastKnownMousePositionSource>&& = std::nullopt);
+    WEBCORE_EXPORT void mousePointerDidDisappear();
 
     bool handlePasteGlobalSelection();
 
@@ -289,8 +292,13 @@ public:
 #endif
 
 #if ENABLE(TWO_PHASE_CLICKS)
-    WEBCORE_EXPORT void dispatchSyntheticMouseOut(const PlatformMouseEvent&);
+    WEBCORE_EXPORT void dispatchSyntheticMouseOut(const PlatformMouseEvent&, Node* newHoveredNode = nullptr);
     WEBCORE_EXPORT void dispatchSyntheticMouseMove(const PlatformMouseEvent&);
+#endif
+
+#if PLATFORM(MAC)
+    WEBCORE_EXPORT HandleUserInputEventResult dispatchTrackedPointerEvent(const PlatformMouseEvent&);
+    WEBCORE_EXPORT HandleUserInputEventResult cancelTrackedPointer(const DoublePoint& positionInRootView, PointerID);
 #endif
 
 #if ENABLE(CONTEXT_MENU_EVENT)
@@ -497,6 +505,8 @@ private:
     static bool isKeyboardOptionTab(const FocusEventData&);
     static bool eventInvertsTabsToLinksClientCallResult(const FocusEventData&);
 
+    void clearLastKnownMousePosition();
+
 #if !ENABLE(IOS_TOUCH_EVENTS)
     void fakeMouseMoveEventTimerFired();
     void cancelFakeMouseMoveEvent();
@@ -664,7 +674,6 @@ private:
     bool NODELETE shouldSendMouseEventsToInactiveWindows() const;
 
     bool canMouseDownStartSelect(const MouseEventWithHitTestResults&);
-    bool NODELETE mouseDownMayStartSelect() const;
 
     std::optional<RemoteFrameGeometryTransformer> geometryTransformerForRemoteFrame(RemoteFrame*);
 
@@ -710,6 +719,9 @@ private:
     WeakPtr<Element, WeakPtrImplWithEventTargetData> m_mouseMoveTargetOverride;
     Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>, 31> m_ancestorsOfLastElementUnderMouse;
     RefPtr<LocalFrame> m_lastMouseMoveEventSubframe;
+#if PLATFORM(MAC)
+    RefPtr<Frame> m_trackedPointerSubframe;
+#endif
     SingleThreadWeakPtr<Scrollbar> m_lastScrollbarUnderMouse;
     Cursor m_currentMouseCursor;
 
@@ -743,6 +755,32 @@ private:
 #endif
 
 #if ENABLE(DRAG_SUPPORT)
+    // Click bookkeeping (`m_clickNode`, `m_clickCount`) is deliberately absent: a context menu should
+    // invalidate the pending click rather than preserve it, so the synthesized pair is left free to clear it.
+    struct PendingDragState {
+        bool mousePressed { false };
+        CapturesDragging capturesDragging;
+        bool mouseDownMayStartDrag { false };
+        bool mouseDownMayStartSelect { false };
+        bool mouseDownMayStartAutoscroll { false };
+        bool mouseDownWasInSubframe { false };
+        MonotonicTime mouseDownTimestamp;
+        IntPoint mouseDownContentsPosition;
+        PlatformMouseEvent mouseDownEvent;
+        LayoutPoint dragStartPosition;
+        RefPtr<Element> dragStateSource;
+        RefPtr<Node> mousePressNode;
+        RefPtr<Element> capturingMouseEventsElement;
+        bool eventHandlerWillResetCapturingMouseEventsElement { false };
+        bool isCapturingRootElementForMouseEvents { false };
+        SelectionInitiationState selectionInitiationState { HaveNotStartedSelection };
+        ImmediateActionStage immediateActionStage { ImmediateActionStage::None };
+    };
+
+    bool isSynthesizedContextMenuPressDuringPendingDrag(const PlatformMouseEvent&) const;
+    std::optional<PendingDragState> pendingDragStateToPreserveAcross(const PlatformMouseEvent&) const;
+    void restorePendingDragState(const PendingDragState&);
+
     LayoutPoint m_dragStartPosition;
     std::optional<WeakSimpleRange> m_dragStartSelection;
     RefPtr<Element> m_dragTarget;

@@ -366,6 +366,7 @@ void WebDownloadCurlClient::beginTransfer()
             options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, value);
     }
     options.connectionURL = m_connectionURL;
+    options.presentsPreferredIdentity = true;
     if (m_cachedEntry)
         addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());
     if (auto body = m_request.httpBody())

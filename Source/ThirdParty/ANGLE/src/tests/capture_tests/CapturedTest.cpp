@@ -7,6 +7,7 @@
 #include "test_utils/ANGLETest.h"
 
 #include "test_utils/gl_raii.h"
+#include "util/EGLWindow.h"
 #include "util/random_utils.h"
 #include "util/shader_utils.h"
 #include "util/test_utils.h"
@@ -679,11 +680,214 @@ void main()
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                  kWhiteData.data());
 
+    // Bind non-default framebuffer during capture restore default to test framebuffer binding
+    // tracking in the tracer
+    GLTexture fboColor;
+    glBindTexture(GL_TEXTURE_2D, fboColor);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboColor, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    ASSERT_GL_NO_ERROR();
+
     // Empty frames to reach capture end.
     for (int i = 0; i < 10; i++)
     {
         swapBuffers();
     }
+}
+
+// Test external sync detection and drop. AR camera titles import GL/EGL sync objects from
+// the camera side that never pass through the captured context's GL/EGL entry points.
+// When the trace later waits/destroys one of these sync objects, replay would generate
+// "Sync object does not exist" errors. This verifies the detection works and that the
+// trace warning comment is properly emitted in its place. We can test this because EGL sync objects
+// are validated at the display level but capture's "emitted sync" checking is done per share group.
+// So we create a second, non-shared context to create the sync after the main context's MEC runs.
+// The main context then consumes it, the call is valid, but its sync ID was never tracked by this
+// capture so it gets dropped.
+TEST_P(CapturedTest, ExternalEGLSync)
+{
+    EGLWindow *window = getEGLWindow();
+    EGLDisplay dpy    = window->getDisplay();
+    EGLConfig config  = window->getConfig();
+
+    ANGLE_SKIP_TEST_IF(!IsEGLDisplayExtensionEnabled(dpy, "EGL_KHR_fence_sync"));
+    ANGLE_SKIP_TEST_IF(!IsEGLDisplayExtensionEnabled(dpy, "EGL_KHR_wait_sync"));
+
+    static constexpr char kVS[] = R"(attribute vec4 a_position;
+varying vec2 v_texCoord;
+void main()
+{
+    gl_Position = a_position;
+    v_texCoord = a_position.xy * 0.5 + 0.5;
+})";
+    static constexpr char kFS[] = R"(precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D s_texture;
+void main()
+{
+    gl_FragColor = texture2D(s_texture, v_texCoord);
+})";
+
+    // Create program and texture before capture start to be captured by MEC as starting
+    // resources
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+    glUniform1i(glGetUniformLocation(program, "s_texture"), 0);
+
+    constexpr GLsizei kSize = 2;
+    const std::vector<GLColor> kBlueData(kSize * kSize, GLColor::blue);
+    GLTexture texture;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 kBlueData.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    ASSERT_GL_NO_ERROR();
+
+    // Create a second non-shared context (different share group) with its own pbuffer surface
+    // before capture start so it setup is not in the main context's captured frames
+    EGLint pbufferAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    EGLSurface auxSurface   = eglCreatePbufferSurface(dpy, config, pbufferAttribs);
+    ASSERT_EGL_SUCCESS();
+    EGLContext auxContext = window->createContext(EGL_NO_CONTEXT, nullptr);
+    ASSERT_EGL_SUCCESS();
+
+    // Frame 1, before capture starts
+    drawQuad(program, "a_position", 0.5f);
+    swapBuffers();
+
+    // Frame 2, capture starts. Create EGL fence sync on the other (non-shared) context.
+    // The sync is created after main context's MEC and on a different share group, so
+    // the main capture never sees its creation
+    EGLSurface mainSurface = window->getSurface();
+    EGLContext mainContext = window->getContext();
+    EXPECT_EGL_TRUE(eglMakeCurrent(dpy, auxSurface, auxSurface, auxContext));
+    EGLSyncKHR externalSync = eglCreateSyncKHR(dpy, EGL_SYNC_FENCE_KHR, nullptr);
+    glFlush();
+    EXPECT_EGL_TRUE(eglMakeCurrent(dpy, mainSurface, mainSurface, mainContext));
+    ASSERT_NE(externalSync, EGL_NO_SYNC_KHR);
+
+    // Main context tries to wait on the external sync. These calls are valid but specify a sync
+    // ID this trace never created so both should be dropped with comments
+    EXPECT_EGL_TRUE(eglWaitSyncKHR(dpy, externalSync, 0));
+    drawQuad(program, "a_position", 0.5f);
+    swapBuffers();
+
+    EXPECT_EGL_TRUE(eglDestroySyncKHR(dpy, externalSync));
+    drawQuad(program, "a_position", 0.5f);
+    swapBuffers();
+
+    // Empty frames to reach capture end
+    for (int i = 0; i < 10; i++)
+    {
+        swapBuffers();
+    }
+
+    eglDestroySurface(dpy, auxSurface);
+    eglDestroyContext(dpy, auxContext);
+}
+
+// Regression test for capturing traces with zero-sized binary data (empty angledata file)
+TEST_P(CapturedTest, NoBinaryData)
+{
+    // Swap before the first captured frame so setup gets its own frame.
+    swapBuffers();
+
+    glClearColor(0.1f, 0.2f, 0.3f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0, 0, 16, 16);
+    swapBuffers();
+
+    glClearColor(0.4f, 0.5f, 0.6f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, 8, 8);
+    glDisable(GL_SCISSOR_TEST);
+
+    // Empty frames to reach capture end.
+    for (int i = 0; i < 10; i++)
+    {
+        swapBuffers();
+    }
+    ASSERT_GL_NO_ERROR();
+}
+
+// Regression test for MEC surface-reference leak causing AR camera-feed trace failures.
+// Camera AR apps keep a side context in the render context's share group. When capture starts,
+// MEC loops through all side contexts making each current on the window surface to serialize
+// it. If we don't then release these afterwards there remains a dangling reference and the app
+// can no longer make it current on any thread, causing EGL_BAD_ACCESS/"Surface can only be
+// current on one thread" errors and invalid 'glBindFramebuffer(0xFFFFFFFF)' calls in the trace.
+// Test capture and replay of glClientWaitSync.
+TEST_P(CapturedTest, ClientWaitSync)
+{
+    // We need GLES 3.0 for fence sync
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
+
+    // Swap before the first captured frame so setup gets its own frame.
+    swapBuffers();
+
+    GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    ASSERT_NE(sync, nullptr);
+
+    // Force a flush and finish to guarantee the sync is signaled
+    glFlush();
+    glFinish();
+
+    GLenum status = glClientWaitSync(sync, 0, 0);
+    EXPECT_EQ(status, static_cast<GLenum>(GL_ALREADY_SIGNALED));
+
+    glDeleteSync(sync);
+
+    // Empty frames to reach capture end
+    for (int i = 0; i < 10; i++)
+    {
+        swapBuffers();
+    }
+    ASSERT_GL_NO_ERROR();
+}
+
+// Regression test for non-frame boundary swaps. Some side-contexts call SwapBuffers on
+// Pbuffer surfaces in addition to the swaps done on the main EGL_WINDOW, and these side-swaps
+// must not be treated as capture frame boundaries. This test interleaves 1x1-pbuffer swaps
+// with window swaps
+TEST_P(CapturedTest, NonFrameBoundarySwaps)
+{
+    EGLWindow *window      = getEGLWindow();
+    EGLDisplay dpy         = window->getDisplay();
+    EGLConfig config       = window->getConfig();
+    EGLSurface mainSurface = window->getSurface();
+    EGLContext mainContext = window->getContext();
+
+    // Small aux pbuffer acting like a side-context's surface
+    EGLint pbufferAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    EGLSurface sideSurface  = eglCreatePbufferSurface(dpy, config, pbufferAttribs);
+    ASSERT_EGL_SUCCESS();
+
+    // Frame 1, before capture starts
+    swapBuffers();
+
+    // Captured starts. Before each real window swap, swap the 1x1 pbuffer on the same context
+    for (int i = 0; i < 10; i++)
+    {
+        ASSERT_EGL_TRUE(eglMakeCurrent(dpy, sideSurface, sideSurface, mainContext));
+        glClear(GL_COLOR_BUFFER_BIT);
+        EXPECT_EGL_TRUE(eglSwapBuffers(dpy, sideSurface));
+
+        ASSERT_EGL_TRUE(eglMakeCurrent(dpy, mainSurface, mainSurface, mainContext));
+        glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        swapBuffers();
+    }
+
+    ASSERT_EGL_TRUE(eglMakeCurrent(dpy, mainSurface, mainSurface, mainContext));
+    eglDestroySurface(dpy, sideSurface);
+    ASSERT_GL_NO_ERROR();
 }
 
 #if defined(CAPTURE_TESTS_AHB_SUPPORT)
@@ -799,6 +1003,54 @@ void main()
     AHardwareBuffer_release(blueAHB);
 }
 #endif  // defined(CAPTURE_TESTS_AHB_SUPPORT)
+
+// This test's trace output is intentionally excluded from the output comparison
+TEST_P(CapturedTest, MECSurfaceRelease)
+{
+    EGLWindow *window      = getEGLWindow();
+    EGLDisplay dpy         = window->getDisplay();
+    EGLConfig config       = window->getConfig();
+    EGLSurface surface     = window->getSurface();
+    EGLContext mainContext = window->getContext();
+
+    // Create a side context in the main context's share group representing the AR app's camera
+    // context
+    EGLContext sideContext = window->createContext(mainContext, nullptr);
+    ASSERT_EGL_SUCCESS();
+    ASSERT_NE(sideContext, EGL_NO_CONTEXT);
+
+    EGLint pbufferAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    EGLSurface sidePbuffer  = eglCreatePbufferSurface(dpy, config, pbufferAttribs);
+    ASSERT_EGL_SUCCESS();
+
+    ASSERT_EGL_TRUE(eglMakeCurrent(dpy, sidePbuffer, sidePbuffer, sideContext));
+    glClear(GL_COLOR_BUFFER_BIT);
+    ASSERT_EGL_TRUE(eglMakeCurrent(dpy, surface, surface, mainContext));
+
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    // Swap and start capture while the side context is live in our share group. MEC will make
+    // it current for capturing its state
+    swapBuffers();
+
+    // Detach and reacquire the window surface. If MEC left a side context reference to the window
+    // surface it will fail with EGL_BAD_ACCESS
+    ASSERT_EGL_TRUE(eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+    EGLBoolean reacquired = eglMakeCurrent(dpy, surface, surface, mainContext);
+    EXPECT_EGL_TRUE(reacquired);
+
+    if (reacquired)
+    {
+        // Reach capture end
+        for (int i = 0; i < 10; i++)
+        {
+            swapBuffers();
+        }
+    }
+
+    eglDestroySurface(dpy, sidePbuffer);
+    eglDestroyContext(dpy, sideContext);
+}
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(CapturedTest);
 // Capture is only supported on the Vulkan backend

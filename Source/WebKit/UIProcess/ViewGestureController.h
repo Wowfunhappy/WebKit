@@ -28,6 +28,7 @@
 #include "MessageReceiver.h"
 #include "NativeWebWheelEvent.h"
 #include "SameDocumentNavigationType.h"
+#include "WebEvent.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/BoxExtents.h>
 #include <WebCore/Color.h>
@@ -83,7 +84,6 @@ class Navigation;
 
 #if PLATFORM(MAC)
 typedef WebKit::NativeWebWheelEvent PlatformScrollEvent;
-typedef NSEvent *PlatformMagnificationEvent;
 #elif PLATFORM(GTK)
 typedef struct {
     WebCore::FloatSize delta;
@@ -109,6 +109,8 @@ using WebBackForwardListWrapper = WebBackForwardList;
 class WebBackForwardListItem;
 class WebPageProxy;
 class WebProcessProxy;
+
+enum class WebEventPhase : uint8_t;
 
 class ViewGestureController final : public IPC::MessageReceiver, public RefCounted<ViewGestureController> {
     WTF_MAKE_TZONE_ALLOCATED(ViewGestureController);
@@ -153,6 +155,8 @@ public:
     bool shouldIgnorePinnedState() { return m_pendingSwipeTracker.shouldIgnorePinnedState(); }
     void setShouldIgnorePinnedState(bool ignore) { m_pendingSwipeTracker.setShouldIgnorePinnedState(ignore); }
 
+    bool canBeginOrContinueSwipe() const { return hasActiveSwipeGesture() || m_pendingSwipeTracker.isPending(); }
+
     bool isPhysicallySwipingLeft(SwipeDirection) const;
 
     double NODELETE magnification() const;
@@ -164,10 +168,8 @@ public:
 #endif
 
 #if PLATFORM(MAC)
-    void handleMagnificationGestureEvent(PlatformMagnificationEvent, WebCore::FloatPoint origin);
+    void handleMagnificationGesture(double scale, WebEventPhase, WebCore::FloatPoint originInViewCoordinates, WebEventInputSource = WebEventInputSource::UserDriven);
     void handleSmartMagnificationGesture(WebCore::FloatPoint gestureLocationInViewCoordinates);
-
-    void gestureEventWasNotHandledByWebCore(PlatformMagnificationEvent, WebCore::FloatPoint origin);
 
     void setCustomSwipeViews(Vector<RetainPtr<NSView>> views) { m_customSwipeViews = WTF::move(views); }
     bool hasCustomSwipeViews() const { return !m_customSwipeViews.isEmpty(); }
@@ -357,6 +359,8 @@ private:
         bool shouldIgnorePinnedState() { return m_shouldIgnorePinnedState; }
         void setShouldIgnorePinnedState(bool ignore) { m_shouldIgnorePinnedState = ignore; }
 
+        bool isPending() const { return m_state != State::None; }
+
     private:
 
         bool tryToStartSwipe(PlatformScrollEvent);
@@ -424,6 +428,7 @@ private:
 
     double m_initialMagnification { 1 };
     WebCore::FloatPoint m_initialMagnificationOrigin;
+    std::optional<WebEventInputSource> m_magnificationGestureInputSource;
 #endif
 
 #if PLATFORM(MAC)

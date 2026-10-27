@@ -505,6 +505,16 @@ static ShouldIgnoreMouseEvent dispatchPointerEventIfNeeded(Element& element, con
         UNUSED_PARAM(platformEvent);
 #endif
 
+#if PLATFORM(MAC)
+        // A tracked pointer's events are dispatched as its press happens, so the mouse events synthesized for
+        // the same press must not derive them a second time.
+        if (!isAnyClick(mouseEvent) && mouseEvent.type() != eventNames().contextmenuEvent && pointerCaptureController.mouseEventBelongsToTrackedPointer(platformEvent)) {
+            if (isCompatibilityMouseEvent(mouseEvent) && pointerCaptureController.preventsCompatibilityMouseEventsForIdentifier(platformEvent.pointerId()))
+                return ShouldIgnoreMouseEvent::Yes;
+            return ShouldIgnoreMouseEvent::No;
+        }
+#endif
+
         // FIXME: <https://webkit.org/b/314881> This early-return is using synthetic click type
         // and input source to approximate "pointer events for this interaction have already been
         // dispatched upstream by other compat paths."
@@ -3350,12 +3360,14 @@ void Element::setInvokedPopover(RefPtr<Element>&& element)
     invalidateStyle();
 }
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
 inline void ShadowRoot::setHost(Element* host)
 {
     m_host = host;
     m_shadowIncludingRoot = host ? &host->shadowIncludingRoot() : this;
 }
 
+#endif
 void Element::addShadowRoot(Ref<ShadowRoot>&& newShadowRoot)
 {
     ASSERT(!newShadowRoot->hasChildNodes());
@@ -3370,7 +3382,11 @@ void Element::addShadowRoot(Ref<ShadowRoot>&& newShadowRoot)
 
         m_shadowRoot = WTF::move(newShadowRoot);
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
         shadowRoot->setHost(this);
+#else
+        shadowRoot->setHost(*this);
+#endif
         shadowRoot->setParentTreeScope(protect(treeScope()));
 
         NodeVector postInsertionNotificationTargets;
@@ -3407,6 +3423,13 @@ void Element::removeShadowRootSlow(ShadowRoot& oldRoot)
 
     oldRoot.setHost(nullptr);
     oldRoot.setParentTreeScope(protect(document()));
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    // Nodes in the shadow tree cached Node::m_shadowIncludingRoot pointing at this host (or at an
+    // ancestor host). Now that the shadow tree is detached, those pointers would dangle if anything
+    // outside of ElementRareData keeps the shadow tree alive past this element's destruction.
+    if (!oldRoot.hasOneRef())
+        oldRoot.updateShadowIncludingRootForSubtree();
+#endif
 }
 
 static bool canAttachAuthorShadowRoot(const Element& element)

@@ -7,11 +7,8 @@
 //   Helper class for doing matrix math.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "Matrix.h"
+#include "common/unsafe_buffers.h"
 
 #define _USE_MATH_DEFINES
 #include <math.h>

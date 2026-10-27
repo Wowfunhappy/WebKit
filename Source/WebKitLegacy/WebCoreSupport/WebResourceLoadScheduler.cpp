@@ -407,6 +407,8 @@ void WebResourceLoadScheduler::startPingLoad(LocalFrame& frame, ResourceRequest&
     // PingHandle manages its own lifetime, deleting itself when its purpose has been fulfilled.
     // PingHandle::start(frame.loader().networkingContext(), request, options.credentials != FetchOptions::Credentials::Omit, options.redirect == FetchOptions::Redirect::Follow, WTF::move(completionHandler)); // AQUAWEBKIT: webRequest, below.
     auto* interceptor = LegacyLoadInterceptor::singleton(); // AQUAWEBKIT: Safari 7 extensions' webRequest for the ping.
+    if (interceptor && interceptor->refusesPing(request)) // AQUAWEBKIT: and their privacy.websites.hyperlinkAuditingEnabled.
+        return completionHandler(FrameLoader::cancelledError(request), { });
     PingHandle::start(frame.loader().networkingContext(), request, options.credentials != FetchOptions::Credentials::Omit, options.redirect == FetchOptions::Redirect::Follow, WTF::move(completionHandler), interceptor ? interceptor->pingLoad(frame, request, options) : nullptr);
 }
 

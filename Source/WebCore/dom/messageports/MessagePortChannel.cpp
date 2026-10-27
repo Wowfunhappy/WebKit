@@ -85,6 +85,10 @@ void MessagePortChannel::entanglePortWithProcess(const MessagePortIdentifier& po
 
     ASSERT(!m_processes[i] || *m_processes[i] == process);
     m_processes[i] = process;
+
+    if (m_status[i] == MessagePortStatus::Unclaimed)
+        m_status[i] = MessagePortStatus::Open;
+
     m_entangledToProcessProtectors[i] = this;
     m_pendingMessagePortTransfers[i].remove(*this);
 }
@@ -98,7 +102,7 @@ void MessagePortChannel::disentanglePort(const MessagePortIdentifier& port)
     ASSERT(port == m_ports[0] || port == m_ports[1]);
     size_t i = port == m_ports[0] ? 0 : 1;
 
-    ASSERT(m_processes[i] || m_isClosed[i]);
+    ASSERT(m_processes[i] || m_status[i] != MessagePortStatus::Open);
     m_processes[i] = std::nullopt;
     m_pendingMessagePortTransfers[i].add(*this);
 
@@ -107,15 +111,17 @@ void MessagePortChannel::disentanglePort(const MessagePortIdentifier& port)
     auto protectedThis = WTF::move(m_entangledToProcessProtectors[i]);
 }
 
-void MessagePortChannel::closePort(const MessagePortIdentifier& port)
+void MessagePortChannel::closePort(const MessagePortIdentifier& port, MessagePortStatus status)
 {
     ASSERT(isMainThread());
+    ASSERT(status != MessagePortStatus::Open);
 
     ASSERT(port == m_ports[0] || port == m_ports[1]);
     size_t i = port == m_ports[0] ? 0 : 1;
 
     m_processes[i] = std::nullopt;
-    m_isClosed[i] = true;
+    if (m_status[i] != MessagePortStatus::Closed)
+        m_status[i] = status;
 
     m_pendingMessages[i].clear();
     m_pendingMessagePortTransfers[i].clear();
@@ -123,17 +129,17 @@ void MessagePortChannel::closePort(const MessagePortIdentifier& port)
     m_entangledToProcessProtectors[i] = nullptr;
 }
 
-bool MessagePortChannel::postMessageToRemote(MessageWithMessagePorts&& message, const MessagePortIdentifier& remoteTarget)
+bool MessagePortChannel::postMessageToRemote(MessageWithMessagePorts&& message, const MessagePortIdentifier& remoteTarget, CompletionHandlerCallingScope&& blobURLsInFlight)
 {
     ASSERT(isMainThread());
 
     ASSERT(remoteTarget == m_ports[0] || remoteTarget == m_ports[1]);
     size_t i = remoteTarget == m_ports[0] ? 0 : 1;
 
-    if (m_isClosed[i])
+    if (m_status[i] != MessagePortStatus::Open)
         return false;
 
-    m_pendingMessages[i].append(WTF::move(message));
+    m_pendingMessages[i].append({ WTF::move(message), WTF::move(blobURLsInFlight) });
     LOG(MessagePorts, "MessagePortChannel %s (%p) now has %zu messages pending on port %s", logString().utf8().data(), this, m_pendingMessages[i].size(), remoteTarget.logString().utf8().data());
 
     if (m_pendingMessages[i].size() == 1) {
@@ -161,15 +167,21 @@ void MessagePortChannel::takeAllMessagesForPort(const MessagePortIdentifier& por
 
     ASSERT(m_pendingMessageProtectors[i] == this);
 
-    Vector<MessageWithMessagePorts> result;
-    result.swap(m_pendingMessages[i]);
+    auto pendingMessages = std::exchange(m_pendingMessages[i], { });
 
     ++m_messageBatchesInFlight;
 
-    LOG(MessagePorts, "There are %zu messages to take for port %s. Taking them now, messages in flight is now %" PRIu64, result.size(), port.logString().utf8().data(), m_messageBatchesInFlight);
+    LOG(MessagePorts, "There are %zu messages to take for port %s. Taking them now, messages in flight is now %" PRIu64, pendingMessages.size(), port.logString().utf8().data(), m_messageBatchesInFlight);
 
-    auto size = result.size();
-    callback(WTF::move(result), [size, port, protectedThis = WTF::move(m_pendingMessageProtectors[i])] {
+    auto size = pendingMessages.size();
+    auto messages = WTF::map(pendingMessages, [](auto& pendingMessage) {
+        return WTF::move(pendingMessage.first);
+    });
+    auto blobURLsInFlight = WTF::map(WTF::move(pendingMessages), [](auto&& pendingMessage) {
+        return WTF::move(pendingMessage.second);
+    });
+
+    callback(WTF::move(messages), [size, port, blobURLsInFlight = WTF::move(blobURLsInFlight), protectedThis = WTF::move(m_pendingMessageProtectors[i])] {
         UNUSED_PARAM(port);
 #if LOG_DISABLED
         UNUSED_PARAM(size);

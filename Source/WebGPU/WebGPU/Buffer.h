@@ -54,6 +54,7 @@ namespace WebGPU {
 class CommandBuffer;
 class CommandEncoder;
 class Device;
+class Queue;
 
 // https://gpuweb.github.io/gpuweb/#gpubuffer
 class Buffer : public WGPUBufferImpl, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Buffer>, public CanBorrow, public TrackedResource {
@@ -110,16 +111,19 @@ public:
     void setCommandEncoder(CommandEncoder&, bool mayModifyBuffer = false) const;
     std::span<uint8_t> getBufferContents();
 
-    bool NODELETE indirectIndexedBufferRequiresRecomputation(MTLIndexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount) const;
+    bool NODELETE indirectIndexedBufferRequiresRecomputation(MTLIndexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, uint64_t indexContentsGeneration) const;
     bool NODELETE indirectBufferRequiresRecomputation(uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount) const;
 
     void NODELETE indirectBufferRecomputed(uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, bool committed = false);
-    void NODELETE indirectIndexedBufferRecomputed(MTLIndexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, bool committed = false);
+    void NODELETE indirectIndexedBufferRecomputed(MTLIndexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, uint64_t indexContentsGeneration, bool committed = false);
 
-    std::optional<DrawIndexCacheContainerIterator> canSkipDrawIndexedValidation(uint32_t firstIndex, uint32_t indexCount, uint32_t vertexCount, MTLIndexType, uint32_t primitiveOffset, id<MTLIndirectCommandBuffer> = nil) const;
+    std::optional<DrawIndexCacheContainerIterator> canSkipDrawIndexedValidation(uint32_t firstIndex, uint32_t indexCount, uint32_t vertexCount, int32_t baseVertex, MTLIndexType, uint32_t primitiveOffset, id<MTLIndirectCommandBuffer> = nil) const;
     uint64_t drawIndexedCacheInvalidationCount() const { return m_drawIndexedCacheInvalidationCount; }
-    void drawIndexedValidated(uint64_t invalidationCountAtDispatch, uint32_t firstIndex, uint32_t indexCount, uint32_t vertexCount, MTLIndexType, uint32_t primitiveOffset, id<MTLIndirectCommandBuffer> = nil);
+    void drawIndexedValidated(uint64_t invalidationCountAtDispatch, uint32_t firstIndex, uint32_t indexCount, uint32_t vertexCount, int32_t baseVertex, MTLIndexType, uint32_t primitiveOffset, uint64_t validationGeneration, id<MTLIndirectCommandBuffer> = nil);
     void skippedDrawIndexedValidation(CommandEncoder&, DrawIndexCacheContainerIterator);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    void skippedBundleIndirectDrawValidation(CommandEncoder&, ReusedIndirectIndexedDraw&&);
+#endif // RC_REMOVE_SEC_ACCEL_3
     void skippedDrawIndirectIndexedValidation(CommandEncoder&, Buffer*, MTLIndexType, uint32_t indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, MTLPrimitiveType);
     void skippedDrawIndirectValidation(CommandEncoder&, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount);
 
@@ -128,10 +132,26 @@ public:
 
     void indirectBufferInvalidated(CommandEncoder* = nullptr);
     void indirectBufferInvalidated(CommandEncoder&);
+    // Bumped whenever the contents change in a way that invalidates a previously GPU-encoded indirect draw.
+    uint64_t contentsGeneration() const { return m_contentsGeneration; }
+    uint64_t indexContentsGeneration() const { return m_indexContentsGeneration; }
+    void indexBufferContentsModified(uint32_t maxUintValue, uint16_t maxUshortValue)
+    {
+        ++m_indexContentsGeneration;
+        m_indexValueUpperBoundUint = std::max(m_indexValueUpperBoundUint, maxUintValue);
+        m_indexValueUpperBoundUshort = std::max<uint32_t>(m_indexValueUpperBoundUshort, maxUshortValue);
+    }
+    bool allIndexValuesBelow(MTLIndexType indexType, uint32_t vertexCount) const
+    {
+        return (indexType == MTLIndexTypeUInt16 ? m_indexValueUpperBoundUshort : m_indexValueUpperBoundUint) < vertexCount;
+    }
     void removeSkippedValidationCommandEncoder(uint64_t);
     bool mustTakeSlowIndexValidationPath() const { return m_mustTakeSlowIndexValidationPath; }
     void clearMustTakeSlowIndexValidationPath();
     void takeSlowIndexValidationPath(CommandBuffer&, uint32_t firstIndex, uint32_t indexCount, MTLIndexType, uint32_t primitiveOffset, uint32_t vertexCount);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    void takeSlowBundleIndirectDrawValidationPath(CommandBuffer&, const ReusedIndirectIndexedDraw&);
+#endif // RC_REMOVE_SEC_ACCEL_3
     bool needsIndexValidation(uint32_t, uint16_t);
 
 private:
@@ -146,6 +166,13 @@ private:
     void decrementBufferMapCount();
     void takeSlowIndirectIndexValidationPath(CommandBuffer&, Buffer&, MTLIndexType, uint32_t indexBufferOffsetInBytes, uint32_t indirectOffset, uint32_t minVertexCount, MTLPrimitiveType);
     void takeSlowIndirectValidationPath(uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount);
+    void clearIndexBufferForCommandBuffer(CommandBuffer&);
+    id<MTLBuffer> _Nullable snapshotRangeBeforeClear(Queue&, NSUInteger offset, NSUInteger size);
+    void restoreSnapshotAfterCommit(CommandBuffer&, Queue&, id<MTLBuffer> _Nullable snapshot, NSUInteger offset);
+    void invalidateDrawIndexedCache(CommandEncoder* = nullptr);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    bool hasPendingRecordedIndexWrite() const;
+#endif // RC_REMOVE_SEC_ACCEL_3
 
     id<MTLBuffer> m_buffer { nil };
     id<MTLBuffer> _Nullable m_indirectBuffer { nil };
@@ -162,14 +189,25 @@ private:
     MappedRanges m_mappedRanges;
     WGPUMapModeFlags m_mapMode { WGPUMapMode_None };
     uint64_t m_drawIndexedCacheInvalidationCount { 0 };
+#ifdef RC_REMOVE_SEC_ACCEL_3
     uint32_t m_maxUnsignedIndex { 0 };
     uint16_t m_maxUshortIndex { 0 };
     uint32_t m_maxValidatedUnsignedIndex { 0 };
     uint16_t m_maxValidatedUshortIndex { 0 };
+#else
+    // The smallest vertex count that any entry currently in m_drawIndexedCache was proven against by
+    // the clamp shader, or 0 if any of them used a negative baseVertex. Only meaningful while
+    // m_drawIndexedCache is non-empty.
+    uint32_t m_minValidatedVertexCount { UINT32_MAX };
+#endif // RC_REMOVE_SEC_ACCEL_3
 
     struct IndirectArgsCache {
         uint64_t indirectOffset { UINT64_MAX };
         uint64_t indexBufferOffsetInBytes { UINT64_MAX };
+        // Generation of the index buffer's contents when the indexed-indirect clamp was encoded. The
+        // verdict is cached here, on the indirect buffer, but it was reached by inspecting a different
+        // buffer, so nothing this buffer tracks notices when those index values change.
+        uint64_t indexContentsGeneration { UINT64_MAX };
         uint32_t minVertexCount { 0 };
         uint32_t minInstanceCount { 0 };
         MTLIndexType indexType { MTLIndexTypeUInt16 };
@@ -186,7 +224,19 @@ private:
     const Ref<Device> m_device;
     mutable HashMap<uint64_t, uint32_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_gpuResourceMap;
     HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_skippedValidationCommandEncoders;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    mutable HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_pendingIndexWriteCommandEncoders; // NOLINT
+#endif // RC_REMOVE_SEC_ACCEL_3
     bool m_mustTakeSlowIndexValidationPath { false };
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    // Identity of the command buffer this buffer was last cleared for, so that several failed validations
+    // sharing one command buffer do not each capture a "prior" copy and queue a restore of it.
+    uintptr_t m_clearedForCommandBuffer { 0 }; // NOLINT
+#endif // RC_REMOVE_SEC_ACCEL_3
+    uint64_t m_contentsGeneration { 0 }; // NOLINT
+    uint64_t m_indexContentsGeneration { 0 }; // NOLINT
+    uint32_t m_indexValueUpperBoundUint { 0 }; // NOLINT
+    uint16_t m_indexValueUpperBoundUshort { 0 }; // NOLINT
 #if CPU(X86_64) && (PLATFORM(MAC) || PLATFORM(MACCATALYST))
     bool m_mappedAtCreation { false };
 #endif

@@ -1567,6 +1567,11 @@ bool TestRunner::didLoadNonAppInitiatedRequest()
     return postSynchronousPageMessageReturningBoolean("DidLoadNonAppInitiatedRequest");
 }
 
+bool TestRunner::isDisplayCaptureCapabilityActive()
+{
+    return postSynchronousPageMessageReturningBoolean("IsDisplayCaptureCapabilityActive");
+}
+
 void TestRunner::setIsSpeechRecognitionPermissionGranted(bool granted)
 {
     postSynchronousPageMessage("SetIsSpeechRecognitionPermissionGranted", granted);
@@ -1606,6 +1611,11 @@ bool TestRunner::shouldDumpAllFrameScrollPositions() const
 void TestRunner::setHasMouseDeviceForTesting(bool hasMouseDevice)
 {
     postSynchronousPageMessage("SetHasMouseDeviceForTesting", hasMouseDevice);
+}
+
+void TestRunner::setHasFakePaymentUIForTesting(bool hasFakePaymentUI)
+{
+    postSynchronousPageMessage("SetHasFakePaymentUIForTesting", hasFakePaymentUI);
 }
 
 void TestRunner::exitImmersive()

@@ -20,10 +20,8 @@ namespace WebCore {
 // RFC 6265 5.2: the name-value pair is everything before the first ';', and the attributes are read
 // from what follows it.
 // A field carrying no SameSite attribute leaves the cookie unrestricted, which is what
-// Cookie::SameSitePolicy::None means and what an NSHTTPCookie with no SameSite property carries;
-// sameSiteExplicitlyNone tells that apart from the attribute written out as "None", which the caller
-// admits only from a secure origin.
-static std::optional<Cookie> parseSetCookieField(const String& field, bool& sameSiteExplicitlyNone, bool& partitioned)
+// Cookie::SameSitePolicy::None means and what an NSHTTPCookie with no SameSite property carries.
+static std::optional<Cookie> parseSetCookieField(const String& field, bool& partitioned)
 {
     auto separator = field.find(';');
     // CFNetwork reads a value that opens with a double quote through its closing quote, a ';' inside it included.
@@ -97,7 +95,6 @@ static std::optional<Cookie> parseSetCookieField(const String& field, bool& same
         } else if (equalLettersIgnoringASCIICase(name, "path"_s))
             cookie.path = !value.isEmpty() && value.startsWith('/') ? value : emptyString();
         else if (equalLettersIgnoringASCIICase(name, "samesite"_s) && assignmentPosition != notFound) {
-            sameSiteExplicitlyNone = equalLettersIgnoringASCIICase(value, "none"_s);
             // A value naming no policy leaves the cookie unrestricted, as NSHTTPCookie's own reading does.
             cookie.sameSite = equalLettersIgnoringASCIICase(value, "strict"_s) ? Cookie::SameSitePolicy::Strict
                 : equalLettersIgnoringASCIICase(value, "lax"_s) ? Cookie::SameSitePolicy::Lax : Cookie::SameSitePolicy::None;
@@ -135,9 +132,8 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url, co
             }
         }
     }
-    bool explicitNone = false;
     bool partitioned = false;
-    auto parsed = parseSetCookieField(parsedField, explicitNone, partitioned);
+    auto parsed = parseSetCookieField(parsedField, partitioned);
     if (!parsed)
         return std::nullopt;
     auto& cookie = *parsed;
@@ -167,7 +163,7 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url, co
     if (cookie.path.isEmpty())
         cookie.path = CookieUtil::defaultPathForURL(url);
     bool secureOrigin = url.protocolIs("https"_s) || url.protocolIs("wss"_s);
-    if ((cookie.secure && !secureOrigin) || (explicitNone && !cookie.secure) || (partitioned && !cookie.secure))
+    if ((cookie.secure && !secureOrigin) || (partitioned && !cookie.secure))
         return std::nullopt;
     if (partitioned && !partition.isEmpty())
         cookie.partitionKey = partition;

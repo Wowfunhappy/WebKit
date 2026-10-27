@@ -2,7 +2,7 @@
 
 ## The project
 
-Backport modern WebKit (currently 625.1.29.11.27) to run on macOS 10.9.5 Mavericks under the **stock, unmodified Safari 7.0.6** (WebKit 9537.78.2). Branch `mavericks-backport`, origin `github.com/wowfunhappy/webkit`, based on upstream `safari-7625.1.29.11-branch` at `2756e8be58521b10c8e8bff8da1f13d97f2eae27`. The exact fork points may change in the future as we continue to track upstream; if they do, update this document.
+Backport modern WebKit (currently 625.2.8.11.9) to run on macOS 10.9.5 Mavericks under the **stock, unmodified Safari 7.0.6** (WebKit 9537.78.2). Branch `mavericks-backport`, origin `github.com/wowfunhappy/webkit`, based on upstream `safari-7625.2.8.11-branch` at `d8d69da3c7a9472604d643a6fd589f58c4331453`. The exact fork points may change in the future as we continue to track upstream; if they do, update this document.
 
 - Checkout: `/Users/jonathan/Desktop/webkit`.
 - `AquaWebKitSupport/` holds all the 10.9 glue: `polyfill/` (the layer), `deps/` (vendored third-party, built by `build_deps.sh` into the gitignored `deps/build/`), `toolchain/`, `bootstrap.sh`, `build.sh`, `install.sh` (name-shifts the 4 built frameworks into place), `scripts/check-backport-markers.sh`. `AquaWebKitSupport/README.md` has the layout.

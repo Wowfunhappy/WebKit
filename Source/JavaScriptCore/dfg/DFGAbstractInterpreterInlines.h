@@ -3835,6 +3835,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
         case PhantomNewArrayBuffer:
         case PhantomCreateRest:
             break;
+#ifdef RC_REMOVE_SEC_ACCEL_3
         default:
             if (!m_graph.canDoFastSpread(node, forNode(node->child1()))) {
                 if (node->child1().useKind() == SetObjectUse) {
@@ -3864,10 +3865,35 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
                 didFoldClobberWorld();
             break;
         }
+#else
+        default: {
+            Graph::ProtocolWatchResult watch = Graph::ProtocolWatchResult::Unwatchable;
+            if (node->child1().useKind() == ArrayUse)
+                watch = m_graph.tryWatchArrayIteratorProtocol(node->child1().node(), forNode(node->child1())).first;
+            else if (node->child1().useKind() == SetObjectUse)
+                watch = m_graph.tryWatchSetIteratorProtocol(node->child1().node(), forNode(node->child1())).first;
+
+            switch (watch) {
+            case Graph::ProtocolWatchResult::Proven:
+                didFoldClobberWorld();
+                break;
+            case Graph::ProtocolWatchResult::Unwatchable:
+                clobberWorld();
+                break;
+            default:
+                RELEASE_ASSERT_NOT_REACHED();
+            }
+            break;
+        }
+        }
+#endif // RC_REMOVE_SEC_ACCEL_3
+
 
         {
             RegisteredStructureSet structureSet;
             structureSet.add(m_graph.registerStructure(m_vm.cellButterflyStructure(CopyOnWriteArrayWithContiguous)));
+            // FIXME: SetObjectUse and PhantomCreateRest always allocate a fresh CopyOnWriteArrayWithContiguous so they can't have an
+            // cellButterflyOnlyAtomStringsStructure.
             structureSet.add(m_graph.registerStructure(m_vm.cellButterflyOnlyAtomStringsStructure.get()));
             setForNode(node, structureSet);
         }
@@ -4564,7 +4590,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
                     auto& variant = status[0];
                     if (!variant.conditionSet().isEmpty()) {
                         ASSERT(variant.structureSet().size() == 1);
-                        auto attempToFold = [&] {
+                        auto attemptToFold = [&] {
                             for (auto& condition : variant.conditionSet()) {
                                 switch (condition.kind()) {
                                 case PropertyCondition::Presence: {
@@ -4588,7 +4614,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
                             return false;
                         };
 
-                        if (attempToFold())
+                        if (attemptToFold())
                             break;
 
                         clobberWorld();
@@ -6162,13 +6188,19 @@ void AbstractInterpreter<AbstractStateType>::forAllValues(
         NodeFlowProjection::forEach(
             m_state.block()->at(i),
             [&] (NodeFlowProjection nodeProjection) {
+                if (nodeProjection->isTuple()) {
+                    for (unsigned index = 0; index < nodeProjection->tupleSize(); ++index)
+                        functor(forTupleNode(nodeProjection, index));
+                    return;
+                }
                 functor(forNode(nodeProjection));
             });
     }
     if (m_graph.m_form == SSA) {
         for (NodeFlowProjection node : m_state.block()->ssa->liveAtHead) {
-            if (node.isStillValid())
-                functor(forNode(node));
+            if (!node.isStillValid() || node->isTuple())
+                continue;
+            functor(forNode(node));
         }
     }
     for (size_t i = m_state.size(); i--;)
@@ -6249,6 +6281,8 @@ void AbstractInterpreter<AbstractStateType>::dump(PrintStream& out)
     UncheckedKeyHashSet<NodeFlowProjection> seen;
     if (m_graph.m_form == SSA) {
         for (NodeFlowProjection node : m_state.block()->ssa->liveAtHead) {
+            if (node->isTuple())
+                continue;
             seen.add(node);
             AbstractValue& value = forNode(node);
             if (value.isClear())
@@ -6260,6 +6294,15 @@ void AbstractInterpreter<AbstractStateType>::dump(PrintStream& out)
         NodeFlowProjection::forEach(
             m_state.block()->at(i), [&] (NodeFlowProjection nodeProjection) {
                 seen.add(nodeProjection);
+                if (nodeProjection->isTuple()) {
+                    for (unsigned index = 0; index < nodeProjection->tupleSize(); ++index) {
+                        AbstractValue& value = forTupleNode(nodeProjection, index);
+                        if (value.isClear())
+                            continue;
+                        out.print(comma, nodeProjection, "<<"_s, index, ":"_s, value);
+                    }
+                    return;
+                }
                 AbstractValue& value = forNode(nodeProjection);
                 if (value.isClear())
                     return;
@@ -6268,7 +6311,7 @@ void AbstractInterpreter<AbstractStateType>::dump(PrintStream& out)
     }
     if (m_graph.m_form == SSA) {
         for (NodeFlowProjection node : m_state.block()->ssa->liveAtTail) {
-            if (seen.contains(node))
+            if (node->isTuple() || seen.contains(node))
                 continue;
             AbstractValue& value = forNode(node);
             if (value.isClear())

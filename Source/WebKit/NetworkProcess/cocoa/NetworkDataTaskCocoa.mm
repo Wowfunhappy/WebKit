@@ -35,6 +35,7 @@
 #import "NetworkIssueReporter.h"
 #import "NetworkProcess.h"
 #import "NetworkSessionCocoa.h"
+#import "SecurityFlags.h"
 #import "WebPrivacyHelpers.h"
 #import <WebCore/AdvancedPrivacyProtections.h>
 #import <WebCore/AuthenticationChallenge.h>
@@ -197,6 +198,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     , m_isForMainResourceNavigationForAnyFrame(!!parameters.mainResourceNavigationDataForAnyFrame)
     , m_sourceOrigin(parameters.sourceOrigin)
     , m_requiredCookiesVersion(parameters.requiredCookiesVersion)
+    , m_advancedPrivacyProtections(parameters.advancedPrivacyProtections)
 {
     auto request = parameters.request;
     auto url = request.url();
@@ -223,6 +225,11 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         // FIXME: Support Digest authentication, and Proxy-Authorization.
         applyBasicAuthorizationHeader(request, m_initialCredential);
     }
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129() && WebCore::RegistrableDomain(request.firstPartyForCookies()).isEmpty())
+        request.setAllowCookies(false);
+#endif
 
     auto thirdPartyCookieBlockingDecision = requestThirdPartyCookieBlockingDecision(request);
     restrictRequestReferrerToOriginIfNeeded(request);
@@ -323,10 +330,21 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         ASSERT(!m_sessionWrapper->session.get().configuration.URLCredentialStorage);
         break;
     case WebCore::StoredCredentialsPolicy::DoNotUse:
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        if (SecurityFlags::radar183065569())
+            ASSERT(!m_sessionWrapper->session.get().configuration.URLCredentialStorage);
+        else {
+            RetainPtr<NSURLSessionConfiguration> effectiveConfiguration = m_sessionWrapper->session.get().configuration;
+            effectiveConfiguration.get().URLCredentialStorage = nil;
+            [m_task _adoptEffectiveConfiguration:effectiveConfiguration.get()];
+        }
+        break;
+#else
         RetainPtr<NSURLSessionConfiguration> effectiveConfiguration = m_sessionWrapper->session.get().configuration;
         effectiveConfiguration.get().URLCredentialStorage = nil;
         [m_task _adoptEffectiveConfiguration:effectiveConfiguration.get()];
         break;
+#endif
     };
 
     RELEASE_ASSERT(!m_sessionWrapper->dataTaskMap.contains([m_task taskIdentifier]));
@@ -529,6 +547,10 @@ void NetworkDataTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&
                 return completionHandler({ });
             if (!request.isNull())
                 protectedThis->restrictRequestReferrerToOriginIfNeeded(request);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+            if (SecurityFlags::radar176384129() && WebCore::RegistrableDomain(request.firstPartyForCookies()).isEmpty())
+                request.setAllowCookies(false);
+#endif
             protectedThis->m_previousRequest = request;
             completionHandler(WTF::move(request));
         });

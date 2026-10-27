@@ -68,7 +68,7 @@ public:
     void unlinkOrUpgradeImpl(VM&, CodeBlock* oldCodeBlock, CodeBlock* newCodeBlock);
     void relink(VM&, JSFunction*);
 
-    void clear(); // AQUAWEBKIT: 319570@main (webkit.org/b/322226).
+    void clear();
     void visitWeak(VM&);
 
 private:
@@ -110,7 +110,6 @@ public:
         return result;
     }
 
-    // AQUAWEBKIT: 319570@main (webkit.org/b/322226).
     void clear()
     {
         for (auto& entry : m_entries)

@@ -4,13 +4,11 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "compiler/translator/wgsl/TranslatorWGSL.h"
+#include "common/unsafe_buffers.h"
 
 #include <iostream>
+#include <string_view>
 #include <variant>
 
 #include "GLSLANG/ShaderLang.h"
@@ -34,7 +32,6 @@
 #include "compiler/translator/tree_ops/RewriteArrayOfArrayOfOpaqueUniforms.h"
 #include "compiler/translator/tree_ops/RewriteStructSamplers.h"
 #include "compiler/translator/tree_ops/SeparateDeclarations.h"
-#include "compiler/translator/tree_ops/SeparateStructFromUniformDeclarations.h"
 #include "compiler/translator/tree_ops/wgsl/EmulateMutableFunctionParams.h"
 #include "compiler/translator/tree_ops/wgsl/PullExpressionsIntoFunctions.h"
 #include "compiler/translator/tree_ops/wgsl/RewriteMixedTypeMathExprs.h"
@@ -183,7 +180,6 @@ class OutputWGSLTraverser : public TIntermTraverser
         EmitTypeConfig typeConfig;
         bool isParameter                                     = false;
         std::optional<WgslPointerAddressSpace> emitAsPointer = std::nullopt;
-        bool disableStructSpecifier                          = false;
         bool isDeclaration                                   = false;
         bool isGlobalScope                                   = false;
     };
@@ -277,7 +273,7 @@ void OutputWGSLTraverser::groupedTraverse(TIntermNode &node)
 
 void OutputWGSLTraverser::emitNameOf(const VarDecl &decl)
 {
-    WriteNameOf(mSink, decl.symbolType, decl.symbolName);
+    WriteNameOf(mSink, decl.symbolType, decl.symbolName, kUserVariableNamePrefix);
 }
 
 void OutputWGSLTraverser::emitIndentation()
@@ -337,12 +333,12 @@ void OutputWGSLTraverser::visitSymbol(TIntermSymbol *symbolNode)
         if (mRewritePipelineVarOutput->IsInputVar(var.uniqueId()))
         {
             mSink << kBuiltinInputStructName << ".";
-            WriteNameOf(mSink, var);
+            WriteNameOf(mSink, var, kUserVariableNamePrefix);
         }
         else if (mRewritePipelineVarOutput->IsOutputVar(var.uniqueId()))
         {
             mSink << kBuiltinOutputStructName << ".";
-            WriteNameOf(mSink, var);
+            WriteNameOf(mSink, var, kUserVariableNamePrefix);
         }
         else
         {
@@ -358,7 +354,7 @@ void OutputWGSLTraverser::visitSymbol(TIntermSymbol *symbolNode)
             {
                 mSink << "(*";
             }
-            WriteNameOf(mSink, var);
+            WriteNameOf(mSink, var, kUserVariableNamePrefix);
             if (needsDereference)
             {
                 mSink << ")";
@@ -438,7 +434,7 @@ const TConstantUnion *OutputWGSLTraverser::emitConstantUnionArray(
     const size_t size)
 {
     const TConstantUnion *constUnionIterated = constUnion;
-    for (size_t i = 0; i < size; i++, constUnionIterated++)
+    for (size_t i = 0; i < size; i++, ANGLE_UNSAFE_TODO(constUnionIterated++))
     {
         emitSingleConstant(constUnionIterated);
 
@@ -1266,7 +1262,7 @@ void OutputWGSLTraverser::emitStructIndexNoUnwrapping(TIntermBinary *binaryNode)
 
     groupedTraverse(leftNode);
     mSink << ".";
-    WriteNameOf(mSink, getDirectField(leftNode, rightNode));
+    WriteNameOf(mSink, getDirectField(leftNode, rightNode), kUserVariableNamePrefix);
 }
 
 bool OutputWGSLTraverser::visitBinary(Visit, TIntermBinary *binaryNode)
@@ -1489,8 +1485,8 @@ bool OutputWGSLTraverser::visitSwitch(Visit, TIntermSwitch *switchNode)
                  nextCaseStmt++)
             {
             }
-            angle::Span<TIntermNode *> stmtListView(&stmtList.getSequence()->at(currStmt),
-                                                    nextCaseStmt - currStmt);
+            auto stmtListView = ANGLE_UNSAFE_TODO(angle::Span<TIntermNode *>(
+                &stmtList.getSequence()->at(currStmt), nextCaseStmt - currStmt));
             emitBlock(stmtListView);
             mSink << "\n";
 
@@ -1543,7 +1539,7 @@ void OutputWGSLTraverser::emitFunctionName(const TFunction &func)
     {
         mSink << "ANGLEfunc" << func.uniqueId().get();
     }
-    WriteNameOf(mSink, func);
+    WriteNameOf(mSink, func, kUserVariableNamePrefix);
 }
 
 void OutputWGSLTraverser::emitFunctionSignature(const TFunction &func)
@@ -1635,10 +1631,10 @@ void OutputWGSLTraverser::emitTextureBuiltin(const TOperator op, const TIntermSe
     ImmutableString wgslTextureVarName("");
     ImmutableString wgslSamplerVarName("");
 
-    constexpr char k2DCoordsSwizzle[] = ".xy";
-    constexpr char k3DCoordsSwizzle[] = ".xyz";
+    constexpr std::string_view k2DCoordsSwizzle = ".xy";
+    constexpr std::string_view k3DCoordsSwizzle = ".xyz";
 
-    constexpr char kPossibleElems[] = "xyzw";
+    constexpr std::string_view kPossibleElems = "xyzw";
 
     // MonomorphizeUnsupportedFunctions() and RewriteStructSamplers() ensure that this is a
     // reference to the global sampler.
@@ -1899,11 +1895,11 @@ void OutputWGSLTraverser::emitTextureBuiltin(const TOperator op, const TIntermSe
         // Finally, set the swizzle for extracting coordinates from the p vector.
         if (IsSampler2D(samplerType) || IsSampler2DArray(samplerType))
         {
-            coordsSwizzle = ImmutableString(k2DCoordsSwizzle);
+            coordsSwizzle = ImmutableString(k2DCoordsSwizzle.data(), k2DCoordsSwizzle.size());
         }
         else if (IsSampler3D(samplerType) || IsSamplerCube(samplerType))
         {
-            coordsSwizzle = ImmutableString(k3DCoordsSwizzle);
+            coordsSwizzle = ImmutableString(k3DCoordsSwizzle.data(), k3DCoordsSwizzle.size());
         }
     }
 
@@ -2198,8 +2194,8 @@ bool OutputWGSLTraverser::emitBlock(angle::Span<TIntermNode *> nodes)
 
 bool OutputWGSLTraverser::visitBlock(Visit, TIntermBlock *blockNode)
 {
-    return emitBlock(
-        angle::Span(blockNode->getSequence()->data(), blockNode->getSequence()->size()));
+    return emitBlock(ANGLE_UNSAFE_TODO(
+        angle::Span(blockNode->getSequence()->data(), blockNode->getSequence()->size())));
 }
 
 bool OutputWGSLTraverser::visitGlobalQualifierDeclaration(Visit,
@@ -2270,7 +2266,6 @@ void OutputWGSLTraverser::emitStructDeclaration(const TType &type)
         EmitVariableDeclarationConfig evdConfig;
         evdConfig.typeConfig.addressSpace =
             isInUniformAddressSpace ? WgslAddressSpace::Uniform : WgslAddressSpace::NonUniform;
-        evdConfig.disableStructSpecifier = true;
         emitVariableDeclaration({field->symbolType(), field->name(), *fieldType}, evdConfig);
         mSink << ",\n";
     }
@@ -2291,8 +2286,7 @@ void OutputWGSLTraverser::emitVariableDeclaration(const VarDecl &decl,
         return;
     }
 
-    if (basicType == TBasicType::EbtStruct && decl.type.isStructSpecifier() &&
-        !evdConfig.disableStructSpecifier)
+    if (basicType == TBasicType::EbtStruct && decl.type.isStructSpecifier())
     {
         // TODO(anglebug.com/42267100): in WGSL structs probably can't be declared in
         // function parameters or in uniform declarations or in variable declarations, or
@@ -2812,15 +2806,8 @@ bool TranslatorWGSL::preTranslateTreeModifications(TIntermBlock *root,
 
     if (aggregateTypesUsedForUniforms > 0)
     {
-        if (!SeparateStructFromUniformDeclarations(this, root, &getSymbolTable()))
-        {
-            return false;
-        }
-
-        int removedUniformsCount;
-
         // Requires MonomorphizeUnsupportedFunctions() to have been run already.
-        if (!RewriteStructSamplers(this, root, &getSymbolTable(), &removedUniformsCount))
+        if (!RewriteStructSamplers(this, root, &getSymbolTable()))
         {
             return false;
         }

@@ -17,6 +17,7 @@
 #include "libANGLE/Error.h"
 #include "libANGLE/FramebufferAttachment.h"
 #include "libANGLE/RefCountObject.h"
+#include "libANGLE/angletypes.h"
 #include "libANGLE/formatutils.h"
 
 namespace rx
@@ -46,9 +47,10 @@ struct ImageSourceAttributes
     // Corresponding to |EGL_GL_TEXTURE_ZOFFSET| value in attributes of |eglCreateImage|
     uint32_t zoffset = 0;
 
-    gl::SourceImageIndex toSourceIndex(const gl::OwnImageIndex &ownIndex) const;
-    gl::SourceLevel toSourceLevel(gl::OwnLevel ownLevel) const;
-    gl::SourceLayer toSourceLayer(gl::OwnLayer ownLayer) const;
+    gl::OwnerImageIndex toOwnerIndex(const gl::ImageIndex &ownIndex) const;
+    gl::OwnerLevel toOwnerLevel(gl::LevelIndex ownLevel) const;
+    gl::OwnerLayer toOwnerLayer(gl::LayerIndex ownLayer) const;
+    gl::OwnerLayer toOwnerDepth(const gl::Offset &offset) const;
 };
 
 // Only currently Renderbuffers and Textures can be bound with images. This makes the relationship
@@ -166,7 +168,7 @@ struct ImageState : private angle::NonCopyable
 
     EGLLabelKHR label;
     EGLenum target;
-    gl::ImageIndex imageIndex;
+    gl::OwnerImageIndex imageIndex;
     ImageSibling *source;
 
     gl::Format format;
@@ -232,7 +234,7 @@ class Image final : public ThreadSafeRefCountObject, public LabeledObject
 
     ContextMutex *getContextMutex() const { return mContextMutex; }
 
-    const gl::ImageIndex &getSourceImageIndex() const { return mState.imageIndex; }
+    const gl::OwnerImageIndex &getSourceImageIndex() const { return mState.imageIndex; }
 
   private:
     friend class ImageSibling;

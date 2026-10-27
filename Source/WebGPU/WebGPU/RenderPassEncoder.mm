@@ -56,11 +56,13 @@ if (!m_renderCommandEncoder || !m_parentEncoder->isValid() || !protect(m_parentE
     return; \
 }
 
-#define CHECKED_SET_PSO(commandEncoder, makePso, ...) \
+#define CHECKED_SET_PSO(commandEncoder, device, makePso, ...) \
 if (id<MTLRenderPipelineState> pso = makePso) \
     [commandEncoder setRenderPipelineState:pso]; \
-else \
-    return __VA_ARGS__;
+else { \
+    protect(device)->loseTheDevice(WGPUDeviceLostReason_Undefined); \
+    return __VA_ARGS__; \
+}
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderPassEncoder);
 
@@ -149,13 +151,21 @@ RenderPassEncoder::RenderPassEncoder(id<MTLRenderCommandEncoder> renderCommandEn
         if (texture.isDestroyed())
             m_parentEncoder->makeSubmitInvalid();
 
+#ifdef RC_REMOVE_SEC_ACCEL_3
         texture.setPreviouslyCleared();
+#else
+        texture.setProvisionallyCleared(m_parentEncoder);
+#endif // RC_REMOVE_SEC_ACCEL_3
         addResourceToActiveResources(texture, BindGroupEntryUsage::Attachment);
         m_rasterSampleCount = texture.sampleCount();
         if (attachment.resolveTarget || attachment.resolveTexture) {
             auto texture = attachment.resolveTarget ? TextureOrTextureView(fromAPI(attachment.resolveTarget)) : TextureOrTextureView(fromAPI(attachment.resolveTexture));
             texture.setCommandEncoder(m_parentEncoder);
+#ifdef RC_REMOVE_SEC_ACCEL_3
             texture.setPreviouslyCleared();
+#else
+            texture.setProvisionallyCleared(m_parentEncoder);
+#endif // RC_REMOVE_SEC_ACCEL_3
             addResourceToActiveResources(texture, BindGroupEntryUsage::Attachment);
         }
 
@@ -179,7 +189,11 @@ RenderPassEncoder::RenderPassEncoder(id<MTLRenderCommandEncoder> renderCommandEn
 
     if (const auto* attachment = descriptor.depthStencilAttachment) {
         auto textureView = attachment->view ? TextureOrTextureView(fromAPI(attachment->view)) : TextureOrTextureView(fromAPI(attachment->texture));
+#ifdef RC_REMOVE_SEC_ACCEL_3
         textureView.setPreviouslyCleared();
+#else
+        textureView.setProvisionallyCleared(m_parentEncoder);
+#endif // RC_REMOVE_SEC_ACCEL_3
         textureView.setCommandEncoder(m_parentEncoder);
         id<MTLTexture> depthTexture = textureView.isDestroyed() ? nil : textureView.texture();
         if (textureView.width() && !m_renderTargetWidth) {
@@ -621,6 +635,7 @@ bool RenderPassEncoder::executePreDrawCommands(uint32_t firstInstance, uint32_t 
                 ASSERT(resource.mtlResources.size() == resource.resourceUsages.size());
                 for (size_t i = 0, sz = resource.mtlResources.size(); i < sz; ++i) {
                     auto& resourceUsage = resource.resourceUsages[i];
+                    m_parentEncoder->addResidentResource(resource.mtlResources[i]);
                     addResourceToActiveResources(resourceUsage.resource, resourceUsage.usage);
                     setCommandEncoder(resourceUsage.resource);
                 }
@@ -782,12 +797,26 @@ RenderPassEncoder::DrawIndexResult RenderPassEncoder::clampIndexBufferToValidVal
 
     auto primitiveOffset = primitiveType == MTLPrimitiveTypeLineStrip || primitiveType == MTLPrimitiveTypeTriangleStrip ? 1u : 0u;
     auto effectiveMinVertexCount = minVertexCount == RenderBundleEncoder::invalidVertexInstanceCount ? minVertexCount : (minVertexCount - baseVertex);
-    if (auto it = apiIndexBuffer->canSkipDrawIndexedValidation(firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset)) {
+    if (auto it = apiIndexBuffer->canSkipDrawIndexedValidation(firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset)) {
         if (apiIndexBuffer->didReadOOB())
             return DrawIndexResult { IndexCall::Skip, nil, 0 };
 
         apiIndexBuffer->skippedDrawIndexedValidation(encoder.parentEncoder(), *it);
         return DrawIndexResult { IndexCall::Draw, nil, 0 };
+    }
+
+#ifdef RC_REMOVE_SEC_ACCEL_3
+    if (!apiIndexBuffer->didReadOOB() && apiIndexBuffer->allIndexValuesBelow(indexType, effectiveMinVertexCount)) {
+#else
+    // A negative baseVertex additionally requires every index to be >= -baseVertex, but the buffer only
+    // tracks an upper bound on its index values, so the clamp shader is still required in that case.
+    if (!apiIndexBuffer->didReadOOB() && baseVertex >= 0 && apiIndexBuffer->allIndexValuesBelow(indexType, effectiveMinVertexCount)) {
+#endif // RC_REMOVE_SEC_ACCEL_3
+        apiIndexBuffer->drawIndexedValidated(apiIndexBuffer->drawIndexedCacheInvalidationCount(), firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, apiIndexBuffer->indexContentsGeneration());
+        if (auto it = apiIndexBuffer->canSkipDrawIndexedValidation(firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset)) {
+            apiIndexBuffer->skippedDrawIndexedValidation(encoder.parentEncoder(), *it);
+            return DrawIndexResult { IndexCall::Draw, nil, 0 };
+        }
     }
 
     auto indexCountInBytes = checkedProduct<size_t>(indexSizeInBytes, indexCount);
@@ -810,7 +839,7 @@ RenderPassEncoder::DrawIndexResult RenderPassEncoder::clampIndexBufferToValidVal
 
     id<MTLRenderCommandEncoder> renderCommandEncoder = encoder.renderCommandEncoder();
     auto [indexedIndirectBuffer, indexedIndirectBufferOffset] = device.getQueue()->newTemporaryBufferWithBytes(unsafeMakeSpan(typedCast<uint8_t>(indirectArguments), sizeof(indirectArguments)), false);
-    CHECKED_SET_PSO(renderCommandEncoder, device.indexBufferClampPipeline(indexType, rasterSampleCount), DrawIndexResult { IndexCall::Skip, nil, 0 });
+    CHECKED_SET_PSO(renderCommandEncoder, device, device.indexBufferClampPipeline(indexType, rasterSampleCount), DrawIndexResult { IndexCall::Skip, nil, 0 });
     encoder.setVertexBuffer(renderCommandEncoder, indexBuffer, indexBufferOffsetInBytes, 0);
     encoder.setVertexBuffer(renderCommandEncoder, indexedIndirectBuffer, indexedIndirectBufferOffset, 1);
     uint32_t data[] = {
@@ -825,12 +854,13 @@ RenderPassEncoder::DrawIndexResult RenderPassEncoder::clampIndexBufferToValidVal
 
     auto encoderHandle = device.getQueue()->retainCounterSampleBuffer(encoder.parentEncoder());
     auto invalidationCount = apiIndexBuffer->drawIndexedCacheInvalidationCount();
-    [encoder.parentEncoder().commandBuffer() addCompletedHandler:[encoderHandle, protectedDevice = protect(device), firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset, invalidationCount, refIndexBuffer = protect(*apiIndexBuffer), indexedIndirectBuffer, indexedIndirectBufferOffset](id<MTLCommandBuffer> completedCommandBuffer) mutable {
+    uint64_t validationGeneration = apiIndexBuffer->indexContentsGeneration();
+    [encoder.parentEncoder().commandBuffer() addCompletedHandler:[encoderHandle, protectedDevice = protect(device), firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, invalidationCount, validationGeneration, refIndexBuffer = protect(*apiIndexBuffer), indexedIndirectBuffer, indexedIndirectBufferOffset](id<MTLCommandBuffer> completedCommandBuffer) mutable {
         if (completedCommandBuffer.status != MTLCommandBufferStatusCompleted) {
             protectedDevice->getQueue()->releaseCounterSampleBuffer(encoderHandle);
             return;
         }
-        protectedDevice->getQueue()->scheduleWork([encoderHandle, protectedDevice, firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset, invalidationCount, refIndexBuffer = WTF::move(refIndexBuffer), indexedIndirectBuffer, indexedIndirectBufferOffset]() mutable {
+        protectedDevice->getQueue()->scheduleWork([encoderHandle, protectedDevice, firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, invalidationCount, validationGeneration, refIndexBuffer = WTF::move(refIndexBuffer), indexedIndirectBuffer, indexedIndirectBufferOffset]() mutable {
             protectedDevice->getQueue()->releaseCounterSampleBuffer(encoderHandle);
             if (!indexedIndirectBuffer.contents || indexedIndirectBuffer.length < sizeof(WebKitMTLDrawIndexedPrimitivesIndirectArguments) + indexedIndirectBufferOffset)
                 return;
@@ -838,7 +868,7 @@ RenderPassEncoder::DrawIndexResult RenderPassEncoder::clampIndexBufferToValidVal
             auto* offsetContents = static_cast<uint8_t*>(indexedIndirectBuffer.contents) + indexedIndirectBufferOffset;
             auto& args = *static_cast<WebKitMTLDrawIndexedPrimitivesIndirectArguments*>(static_cast<void*>(offsetContents));
             refIndexBuffer->didReadOOB(args.lostOrOOBRead);
-            refIndexBuffer->drawIndexedValidated(invalidationCount, firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset);
+            refIndexBuffer->drawIndexedValidated(invalidationCount, firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, validationGeneration);
         });
     }];
 
@@ -851,20 +881,24 @@ RenderPassEncoder::DrawIndexResult RenderPassEncoder::clampIndexBufferToValidVal
     return clampIndexBufferToValidValues(indexCount, instanceCount, baseVertex, firstInstance, indexType, indexBufferOffsetInBytes, m_indexBuffer.get(), minVertexCount, minInstanceCount, *this, m_device.get(), m_rasterSampleCount, m_primitiveType);
 }
 
-static void checkForIndirectDrawDeviceLost(Device &device, RenderPassEncoder &encoder, id<MTLBuffer> indirectBuffer)
+static void checkForIndirectDrawDeviceLost(Device &device, RenderPassEncoder &encoder, id<MTLBuffer> indirectBuffer, uint64_t indirectBufferOffset = 0, id<MTLBuffer> alsoRetain = nil)
 {
     auto encoderHandle = device.getQueue()->retainCounterSampleBuffer(encoder.parentEncoder());
-    [encoder.parentEncoder().commandBuffer() addCompletedHandler:[encoderHandle, protectedDevice = protect(device), indirectBuffer](id<MTLCommandBuffer> completedCommandBuffer) {
+    [encoder.parentEncoder().commandBuffer() addCompletedHandler:[encoderHandle, protectedDevice = protect(device), indirectBuffer, indirectBufferOffset, alsoRetain](id<MTLCommandBuffer> completedCommandBuffer) {
         if (completedCommandBuffer.status != MTLCommandBufferStatusCompleted) {
             protectedDevice->getQueue()->releaseCounterSampleBuffer(encoderHandle);
             return;
         }
-        protectedDevice->getQueue()->scheduleWork([encoderHandle, indirectBuffer, protectedDevice]() mutable {
+        protectedDevice->getQueue()->scheduleWork([encoderHandle, indirectBuffer, indirectBufferOffset, alsoRetain, protectedDevice]() mutable {
             protectedDevice->getQueue()->releaseCounterSampleBuffer(encoderHandle);
-            if (!indirectBuffer.contents || indirectBuffer.length != sizeof(WebKitMTLDrawPrimitivesIndirectArguments))
+            (void)alsoRetain; // Held only to keep a companion scratch buffer alive until GPU completion.
+            // The clamped args live at indirectBufferOffset (0 for a per-Buffer slot, non-zero for per-draw scratch).
+            auto checkedEnd = checkedSum<uint64_t>(indirectBufferOffset, sizeof(WebKitMTLDrawPrimitivesIndirectArguments));
+            if (!indirectBuffer.contents || checkedEnd.hasOverflowed() || checkedEnd.value() > indirectBuffer.length)
                 return;
 
-            auto& args = *static_cast<WebKitMTLDrawPrimitivesIndirectArguments*>(indirectBuffer.contents);
+            auto* contents = static_cast<uint8_t*>(indirectBuffer.contents) + indirectBufferOffset;
+            auto& args = *static_cast<WebKitMTLDrawPrimitivesIndirectArguments*>(static_cast<void*>(contents));
             if (args.lostOrOOBRead)
                 protectedDevice->loseTheDevice(WGPUDeviceLostReason_Undefined);
         });
@@ -883,16 +917,18 @@ std::pair<id<MTLBuffer>, uint64_t> RenderPassEncoder::clampIndirectIndexBufferTo
     id<MTLBuffer> indirectBuffer = indexedIndirectBuffer.indirectBuffer();
     auto indexSize = indexType == MTLIndexTypeUInt16 ? sizeof(uint16_t) : sizeof(uint32_t);
     auto checkedOffsetPlusSize = checkedSum<uint32_t>(indexBufferOffsetInBytes, indexSize);
-    if (!indirectBuffer || !minVertexCount || !minInstanceCount || checkedOffsetPlusSize.hasOverflowed() || checkedOffsetPlusSize.value() >= indexBuffer.length)
+    // '>' not '>=': offset + indexSize == length is a valid single-element index buffer
+    if (!indirectBuffer || !minVertexCount || !minInstanceCount || checkedOffsetPlusSize.hasOverflowed() || checkedOffsetPlusSize.value() > indexBuffer.length)
         return std::make_pair(nil, 0ull);
 
-    if (!indexedIndirectBuffer.indirectIndexedBufferRequiresRecomputation(indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount)) {
+    uint64_t indexContentsGeneration = apiIndexBuffer->indexContentsGeneration();
+    if (!indexedIndirectBuffer.indirectIndexedBufferRequiresRecomputation(indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount, indexContentsGeneration)) {
         indexedIndirectBuffer.skippedDrawIndirectIndexedValidation(encoder.parentEncoder(), apiIndexBuffer, indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount, primitiveType);
         return std::make_pair(indexedIndirectBuffer.indirectIndexedBuffer(), 0ull);
     }
 
     id<MTLRenderCommandEncoder> renderCommandEncoder = encoder.renderCommandEncoder();
-    CHECKED_SET_PSO(renderCommandEncoder, device.indexedIndirectBufferClampPipeline(rasterSampleCount), std::make_pair(nil, 0ull));
+    CHECKED_SET_PSO(renderCommandEncoder, device, device.indexedIndirectBufferClampPipeline(rasterSampleCount), std::make_pair(nil, 0ull));
     uint32_t indexBufferCount = static_cast<uint32_t>((indexBuffer.length - indexBufferOffsetInBytes) / indexSize);
     encoder.setVertexBuffer(renderCommandEncoder, indexedIndirectBuffer.buffer(), indirectOffset, 0);
     encoder.setVertexBuffer(renderCommandEncoder, indexedIndirectBuffer.indirectIndexedBuffer(), 0, 1);
@@ -904,7 +940,7 @@ std::pair<id<MTLBuffer>, uint64_t> RenderPassEncoder::clampIndirectIndexBufferTo
 
     if (encoder.splitRenderPass())
         renderCommandEncoder = encoder.renderCommandEncoder();
-    CHECKED_SET_PSO(renderCommandEncoder, device.indexBufferClampPipeline(indexType, rasterSampleCount), std::make_pair(nil, 0ull));
+    CHECKED_SET_PSO(renderCommandEncoder, device, device.indexBufferClampPipeline(indexType, rasterSampleCount), std::make_pair(nil, 0ull));
     encoder.setVertexBuffer(renderCommandEncoder, indexBuffer, indexBufferOffsetInBytes, 0);
     encoder.setVertexBuffer(renderCommandEncoder, indexedIndirectBuffer.indirectIndexedBuffer(), 0, 1);
     auto primitiveOffset = primitiveType == MTLPrimitiveTypeLineStrip || primitiveType == MTLPrimitiveTypeTriangleStrip ? 1u : 0u;
@@ -914,10 +950,10 @@ std::pair<id<MTLBuffer>, uint64_t> RenderPassEncoder::clampIndirectIndexBufferTo
     encoder.emitMemoryBarrier(renderCommandEncoder);
 
     splitEncoder = true;
-    indexedIndirectBuffer.indirectIndexedBufferRecomputed(indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount);
-    encoder.parentEncoder().addOnCommitHandler([weakBuffer = ThreadSafeWeakPtr { indexedIndirectBuffer }, indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount](CommandBuffer&, CommandEncoder&) {
+    indexedIndirectBuffer.indirectIndexedBufferRecomputed(indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount, indexContentsGeneration);
+    encoder.parentEncoder().addOnCommitHandler([weakBuffer = ThreadSafeWeakPtr { indexedIndirectBuffer }, indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount, indexContentsGeneration](CommandBuffer&, CommandEncoder&) {
         if (RefPtr buffer = weakBuffer.get())
-            buffer->indirectIndexedBufferRecomputed(indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount, true);
+            buffer->indirectIndexedBufferRecomputed(indexType, indexBufferOffsetInBytes, indirectOffset, minVertexCount, minInstanceCount, indexContentsGeneration, true);
         return true;
     });
     checkForIndirectDrawDeviceLost(device, encoder, indirectBuffer);
@@ -945,7 +981,7 @@ std::pair<id<MTLBuffer>, uint64_t> RenderPassEncoder::clampIndirectBufferToValid
 
     id<MTLRenderCommandEncoder> renderCommandEncoder = encoder.renderCommandEncoder();
     id<MTLRenderPipelineState> renderPipelineState = device.indirectBufferClampPipeline(rasterSampleCount);
-    CHECKED_SET_PSO(renderCommandEncoder, renderPipelineState, std::make_pair(nil, 0ull));
+    CHECKED_SET_PSO(renderCommandEncoder, device, renderPipelineState, std::make_pair(nil, 0ull));
     encoder.setVertexBuffer(renderCommandEncoder, indirectBuffer.buffer(), indirectOffset, 0);
     encoder.setVertexBuffer(renderCommandEncoder, indirectBuffer.indirectBuffer(), 0, 1);
     uint32_t data[] = { minVertexCount, minInstanceCount };
@@ -969,6 +1005,85 @@ std::pair<id<MTLBuffer>, uint64_t> RenderPassEncoder::clampIndirectBufferToValid
 {
     return clampIndirectBufferToValidValues(indirectBuffer, indirectOffset, minVertexCount, minInstanceCount, m_device.get(), m_rasterSampleCount, *this, splitEncoder);
 }
+
+// --- Batched indirect clamp (executeBundles only) ------------------------------------------------
+// These mirror clampIndirect*ToValidValues but write caller-supplied per-draw scratch and emit no
+// internal memory barrier, so executeBundles can batch one barrier around all draws instead of per draw.
+
+// Zeroed scratch is required because the clamp shaders write lostOrOOBRead only on failure.
+std::pair<id<MTLBuffer>, uint64_t> RenderPassEncoder::newZeroedIndirectScratch(Device& device, size_t size)
+{
+    Vector<uint8_t> zero(size);
+    zeroSpan(zero.mutableSpan());
+    return device.getQueue()->newTemporaryBufferWithBytes(zero.mutableSpan(), false);
+}
+
+// One dispatch; writes the clamped MTLDrawPrimitivesIndirectArguments (+lostOrOOBRead) into finalScratch.
+bool RenderPassEncoder::clampIndirectBufferDispatchBatched(Buffer& indirectBuffer, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, Device& device, uint32_t rasterSampleCount, RenderPassEncoder& encoder, id<MTLBuffer> finalScratch, uint64_t finalScratchOffset)
+{
+    id<MTLRenderCommandEncoder> renderCommandEncoder = encoder.renderCommandEncoder();
+    id<MTLRenderPipelineState> pso = device.indirectBufferClampPipeline(rasterSampleCount);
+    if (!pso)
+        return false;
+    [renderCommandEncoder setRenderPipelineState:pso];
+    encoder.setVertexBuffer(renderCommandEncoder, indirectBuffer.buffer(), indirectOffset, 0);
+    encoder.setVertexBuffer(renderCommandEncoder, finalScratch, finalScratchOffset, 1);
+    uint32_t data[] = { minVertexCount, minInstanceCount };
+    encoder.setVertexBytes(renderCommandEncoder, asByteSpan(data), 2);
+    [renderCommandEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:1];
+    checkForIndirectDrawDeviceLost(device, encoder, finalScratch, finalScratchOffset);
+    return true;
+}
+
+// Indexed dispatch-1: clamps args into finalScratch and writes a thread-count record into
+// intermediateScratch (consumed by dispatch-2). Returns indexBufferCount.
+bool RenderPassEncoder::clampIndirectIndexBufferDispatch1Batched(Buffer* apiIndexBuffer, Buffer& indexedIndirectBuffer, MTLIndexType indexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minInstanceCount, Device& device, uint32_t rasterSampleCount, RenderPassEncoder& encoder, id<MTLBuffer> finalScratch, uint64_t finalScratchOffset, id<MTLBuffer> intermediateScratch, uint64_t intermediateScratchOffset, uint32_t& outIndexBufferCount)
+{
+    id<MTLBuffer> indexBuffer = apiIndexBuffer ? apiIndexBuffer->buffer() : nil;
+    if (!indexBuffer)
+        return false;
+    auto indexSize = indexType == MTLIndexTypeUInt16 ? sizeof(uint16_t) : sizeof(uint32_t);
+    auto checkedOffsetPlusSize = checkedSum<uint32_t>(indexBufferOffsetInBytes, indexSize);
+    // The bound is '>' not '>=': offset + indexSize == length is a valid single-element buffer.
+    if (!minInstanceCount || checkedOffsetPlusSize.hasOverflowed() || checkedOffsetPlusSize.value() > indexBuffer.length)
+        return false;
+    id<MTLRenderCommandEncoder> renderCommandEncoder = encoder.renderCommandEncoder();
+    id<MTLRenderPipelineState> pso = device.indexedIndirectBufferClampPipeline(rasterSampleCount);
+    if (!pso)
+        return false;
+    [renderCommandEncoder setRenderPipelineState:pso];
+    outIndexBufferCount = static_cast<uint32_t>((indexBuffer.length - indexBufferOffsetInBytes) / indexSize);
+    encoder.setVertexBuffer(renderCommandEncoder, indexedIndirectBuffer.buffer(), indirectOffset, 0);
+    encoder.setVertexBuffer(renderCommandEncoder, finalScratch, finalScratchOffset, 1);
+    encoder.setVertexBuffer(renderCommandEncoder, intermediateScratch, intermediateScratchOffset, 2);
+    uint32_t indirectData[] = { outIndexBufferCount, minInstanceCount };
+    encoder.setVertexBytes(renderCommandEncoder, asByteSpan(indirectData), 3);
+    [renderCommandEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:1];
+    // Device-loss flag lives in intermediateScratch; also retain finalScratch until GPU completion.
+    checkForIndirectDrawDeviceLost(device, encoder, intermediateScratch, intermediateScratchOffset, finalScratch);
+    return true;
+}
+
+// Indexed dispatch-2: read-clamps finalScratch against the actual index buffer contents.
+bool RenderPassEncoder::clampIndirectIndexBufferDispatch2Batched(Buffer* apiIndexBuffer, MTLIndexType indexType, NSUInteger indexBufferOffsetInBytes, uint32_t minVertexCount, MTLPrimitiveType primitiveType, uint32_t indexBufferCount, Device& device, uint32_t rasterSampleCount, RenderPassEncoder& encoder, id<MTLBuffer> finalScratch, uint64_t finalScratchOffset, id<MTLBuffer> intermediateScratch, uint64_t intermediateScratchOffset)
+{
+    id<MTLBuffer> indexBuffer = apiIndexBuffer ? apiIndexBuffer->buffer() : nil;
+    if (!indexBuffer)
+        return false;
+    id<MTLRenderCommandEncoder> renderCommandEncoder = encoder.renderCommandEncoder();
+    id<MTLRenderPipelineState> pso = device.indexBufferClampPipeline(indexType, rasterSampleCount);
+    if (!pso)
+        return false;
+    [renderCommandEncoder setRenderPipelineState:pso];
+    encoder.setVertexBuffer(renderCommandEncoder, indexBuffer, indexBufferOffsetInBytes, 0);
+    encoder.setVertexBuffer(renderCommandEncoder, finalScratch, finalScratchOffset, 1);
+    auto primitiveOffset = primitiveType == MTLPrimitiveTypeLineStrip || primitiveType == MTLPrimitiveTypeTriangleStrip ? 1u : 0u;
+    uint32_t data[] = { minVertexCount == RenderBundleEncoder::invalidVertexInstanceCount ? minVertexCount - primitiveOffset : minVertexCount, primitiveOffset, indexBufferCount - 1 };
+    encoder.setVertexBytes(renderCommandEncoder, asByteSpan(data), 2);
+    [renderCommandEncoder drawPrimitives:MTLPrimitiveTypePoint indirectBuffer:intermediateScratch indirectBufferOffset:intermediateScratchOffset];
+    return true;
+}
+
 
 static NSUInteger NODELETE verticesPerPrimitive(MTLPrimitiveType primitiveType)
 {
@@ -1238,6 +1353,30 @@ void RenderPassEncoder::executeBundles(Vector<Ref<RenderBundle>>&& bundles)
     float minDepth = m_viewport ? m_viewport->znear : 0.f;
     float maxDepth = m_viewport ? m_viewport->zfar : 1.f;
 
+    // Run in two phases across ALL bundles so the whole call needs at most one memory barrier: first
+    // validate every bundle and GPU-encode its ICB slots, then a single barrier, then execute every
+    // bundle's ICB. Per-bundle encode→barrier→execute would emit one barrier per bundle.
+    bool needsBarrierBeforeExecute = false;
+    // Indirect draws across all bundles are collected here and processed in phases after the bundle loop
+    // (all dispatch-1s → barrier → all dispatch-2s → barrier → all ICB encodes). Each draw uses its own
+    // scratch, so draws never conflict and need no per-draw barrier.
+    struct IndirectEncodeWork {
+        RetainPtr<RenderBundleICBWithResources> icb;
+        uint64_t slotIndex { 0 };
+        WebGPU::IndirectDrawData* data { nullptr };
+        RefPtr<WebGPU::Buffer> indirectBuffer;
+        RefPtr<WebGPU::Buffer> indexBuffer;
+        uint64_t indirectGeneration { 0 };
+        uint64_t indexGeneration { 0 };
+        bool clamps { false }; // false => read raw app args (no min-count clamp required)
+        // Per-draw scratch, filled in phase A when clamps == true:
+        RetainPtr<id<MTLBuffer>> finalScratch { };
+        uint64_t finalScratchOffset { 0 };
+        RetainPtr<id<MTLBuffer>> intermediateScratch { }; // indexed only
+        uint64_t intermediateScratchOffset { 0 };
+        uint32_t indexBufferCount { 0 };
+    };
+    Vector<IndirectEncodeWork> indirectWork;
     for (auto bundle : bundles) {
         if (!isValidToUseWith(bundle, *this)) {
             makeInvalid([NSString stringWithFormat:@"executeBundles: render bundle is not valid, reason = %@", bundle->lastError()]);
@@ -1261,7 +1400,6 @@ void RenderPassEncoder::executeBundles(Vector<Ref<RenderBundle>>&& bundles)
             return bundle->rebindSamplersIfNeeded();
         });
         if (!bundle->requiresCommandReplay()) {
-            bool splitPass = false;
             for (RenderBundleICBWithResources* icb in bundle->renderBundlesResources()) {
                 auto& hashMap = *icb.minVertexCountForDrawCommand;
                 for (auto& [commandIndex, data] : hashMap) {
@@ -1275,14 +1413,14 @@ void RenderPassEncoder::executeBundles(Vector<Ref<RenderBundle>>&& bundles)
                     if (!indexBuffer)
                         continue;
                     auto effectiveMinVertexCount = minVertexCount == RenderBundleEncoder::invalidVertexInstanceCount ? minVertexCount : (minVertexCount - baseVertex);
-                    if (auto it = indexBuffer->canSkipDrawIndexedValidation(firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset, icb.indirectCommandBuffer); it && !indexBuffer->didReadOOB(icb.indirectCommandBuffer)) {
+                    if (auto it = indexBuffer->canSkipDrawIndexedValidation(firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, icb.indirectCommandBuffer); it && !indexBuffer->didReadOOB(icb.indirectCommandBuffer)) {
                         indexBuffer->skippedDrawIndexedValidation(m_parentEncoder, *it);
                         continue;
                     }
 
                     id<MTLRenderPipelineState> renderPipelineState = protect(m_device)->icbCommandClampPipeline(data.indexType, m_rasterSampleCount);
                     id<MTLBuffer> indirectCommandBufferContainer = icb.indirectCommandBufferContainer;
-                    CHECKED_SET_PSO(commandEncoder, renderPipelineState);
+                    CHECKED_SET_PSO(commandEncoder, m_device, renderPipelineState);
                     setVertexBytes(commandEncoder, asByteSpan(data.indexData), 0);
                     m_parentEncoder->addBuffer(indirectCommandBufferContainer);
                     setVertexBuffer(commandEncoder, indirectCommandBufferContainer, 0, 1);
@@ -1296,29 +1434,215 @@ void RenderPassEncoder::executeBundles(Vector<Ref<RenderBundle>>&& bundles)
 
                     auto encoderHandle = m_device->getQueue()->retainCounterSampleBuffer(m_parentEncoder);
                     auto invalidationCount = indexBuffer->drawIndexedCacheInvalidationCount();
-                    [m_parentEncoder->commandBuffer() addCompletedHandler:[encoderHandle, protectedDevice = protect(m_device), firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset, invalidationCount, refIndexBuffer = protect(*indexBuffer), icb](id<MTLCommandBuffer> completedCommandBuffer) mutable {
+                    uint64_t validationGeneration = indexBuffer->indexContentsGeneration();
+                    [m_parentEncoder->commandBuffer() addCompletedHandler:[encoderHandle, protectedDevice = protect(m_device), firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, invalidationCount, validationGeneration, refIndexBuffer = protect(*indexBuffer), icb](id<MTLCommandBuffer> completedCommandBuffer) mutable {
                         if (completedCommandBuffer.status != MTLCommandBufferStatusCompleted) {
                             protectedDevice->getQueue()->releaseCounterSampleBuffer(encoderHandle);
                             return;
                         }
 
-                        protectedDevice->getQueue()->scheduleWork([encoderHandle, protectedDevice, icb, firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset, invalidationCount, refIndexBuffer = WTF::move(refIndexBuffer)]() mutable {
+                        protectedDevice->getQueue()->scheduleWork([encoderHandle, protectedDevice, icb, firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, invalidationCount, validationGeneration, refIndexBuffer = WTF::move(refIndexBuffer)]() mutable {
                             protectedDevice->getQueue()->releaseCounterSampleBuffer(encoderHandle);
                             id<MTLBuffer> outOfBoundsReadFlag = icb.outOfBoundsReadFlag;
                             refIndexBuffer->didReadOOB(*static_cast<uint32_t*>(outOfBoundsReadFlag.contents), icb.indirectCommandBuffer);
-                            refIndexBuffer->drawIndexedValidated(invalidationCount, firstIndex, indexCount, effectiveMinVertexCount, indexType, primitiveOffset, icb.indirectCommandBuffer);
+                            refIndexBuffer->drawIndexedValidated(invalidationCount, firstIndex, indexCount, effectiveMinVertexCount, baseVertex, indexType, primitiveOffset, validationGeneration, icb.indirectCommandBuffer);
                         });
                     }];
-                    splitPass = true;
+                    needsBarrierBeforeExecute = true;
                 }
             }
-            if (splitPass) {
-                emitMemoryBarrier(commandEncoder);
-                splitPass = splitRenderPass();
-                commandEncoder = renderCommandEncoder();
+            // Collect this bundle's indirect draws for phased processing. A draw whose indirect+index
+            // buffers are unchanged since it was last encoded is skipped wholesale (contentsGeneration cache).
+            for (RenderBundleICBWithResources* icb in bundle->renderBundlesResources()) {
+                auto& indirectMap = *icb.indirectDrawsForSlot;
+                for (auto& [slotIndex, data] : indirectMap) {
+                    RefPtr indirectBuffer = data.indirectBuffer.get();
+                    if (!indirectBuffer || indirectBuffer->isDestroyed())
+                        continue;
+                    RefPtr indexBuffer = data.indexBuffer.get();
+                    if (data.isIndexed && indexBuffer && indexBuffer->isDestroyed())
+                        continue;
+
+                    uint64_t indirectGeneration = indirectBuffer->contentsGeneration();
+                    uint64_t indexGeneration = indexBuffer ? indexBuffer->indexContentsGeneration() : 0;
+                    // Unlike the cache above, this needs no didReadOOB() check: the slot holds arguments the
+                    // encode kernel already clamped, not app-authored counts an OOB scan had to vet, so equal
+                    // generations mean the baked command is still in bounds.
+                    if (data.encodedAtLeastOnce && data.lastIndirectGeneration == indirectGeneration && data.lastIndexGeneration == indexGeneration) {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+                        if (data.isIndexed && indexBuffer) {
+                            indexBuffer->skippedBundleIndirectDrawValidation(m_parentEncoder, ReusedIndirectIndexedDraw {
+                                .indirectBuffer = indirectBuffer,
+                                .indirectOffset = data.indirectOffset,
+                                .indexBufferOffset = data.indexBufferOffset,
+                                .indirectGeneration = indirectGeneration,
+                                .indexGeneration = indexGeneration,
+                                .minVertexCount = data.minVertexCount,
+                                .indexType = data.indexType,
+                                .primitiveType = data.primitiveType,
+                            });
+                        }
+#endif // RC_REMOVE_SEC_ACCEL_3
+                        continue;
+                    }
+
+                    bool clamps = data.isIndexed || !(data.minVertexCount == RenderBundleEncoder::invalidVertexInstanceCount && data.minInstanceCount == RenderBundleEncoder::invalidVertexInstanceCount);
+                    indirectWork.append(IndirectEncodeWork {
+                        .icb = icb,
+                        .slotIndex = slotIndex,
+                        .data = &data,
+                        .indirectBuffer = indirectBuffer,
+                        .indexBuffer = indexBuffer,
+                        .indirectGeneration = indirectGeneration,
+                        .indexGeneration = indexGeneration,
+                        .clamps = clamps,
+                    });
+                }
             }
         }
+    }
 
+    // Phase A: run every clamping draw's dispatch-1 (indexed) / single dispatch (non-indexed) into its own
+    // per-draw scratch. Non-clamping draws read the app's raw args directly. No barriers here.
+    bool anyClampDispatched = false;
+    for (auto& work : indirectWork) {
+        if (!work.clamps)
+            continue;
+        commandEncoder = renderCommandEncoder();
+        if (!commandEncoder)
+            break;
+        auto& data = *work.data;
+        Ref indirectBuffer = *work.indirectBuffer;
+        if (data.isIndexed) {
+            auto [finalScratch, finalOffset] = newZeroedIndirectScratch(m_device.get(), sizeof(WebKitMTLDrawIndexedPrimitivesIndirectArguments));
+            auto [interScratch, interOffset] = newZeroedIndirectScratch(m_device.get(), sizeof(WebKitMTLDrawPrimitivesIndirectArguments));
+            if (!finalScratch || !interScratch)
+                continue;
+            uint32_t indexBufferCount = 0;
+            if (!clampIndirectIndexBufferDispatch1Batched(work.indexBuffer.get(), indirectBuffer, data.indexType, data.indexBufferOffset, data.indirectOffset, data.minInstanceCount, m_device.get(), m_rasterSampleCount, *this, finalScratch, finalOffset, interScratch, interOffset, indexBufferCount))
+                continue;
+            work.finalScratch = finalScratch;
+            work.finalScratchOffset = finalOffset;
+            work.intermediateScratch = interScratch;
+            work.intermediateScratchOffset = interOffset;
+            work.indexBufferCount = indexBufferCount;
+            m_parentEncoder->addBuffer(finalScratch);
+            m_parentEncoder->addBuffer(interScratch);
+        } else {
+            auto [finalScratch, finalOffset] = newZeroedIndirectScratch(m_device.get(), sizeof(WebKitMTLDrawPrimitivesIndirectArguments));
+            if (!finalScratch)
+                continue;
+            if (!clampIndirectBufferDispatchBatched(indirectBuffer, data.indirectOffset, data.minVertexCount, data.minInstanceCount, m_device.get(), m_rasterSampleCount, *this, finalScratch, finalOffset))
+                continue;
+            work.finalScratch = finalScratch;
+            work.finalScratchOffset = finalOffset;
+            m_parentEncoder->addBuffer(finalScratch);
+        }
+        anyClampDispatched = true;
+        needsBarrierBeforeExecute = true;
+    }
+
+    // Barrier between all dispatch-1s and all indexed dispatch-2s (dispatch-2 reads dispatch-1's output).
+    bool anyIndexedClamp = false;
+    for (auto& work : indirectWork) {
+        if (work.clamps && work.data->isIndexed && work.intermediateScratch) {
+            anyIndexedClamp = true;
+            break;
+        }
+    }
+    if (anyIndexedClamp) {
+        emitMemoryBarrier(commandEncoder);
+        if (splitRenderPass())
+            commandEncoder = renderCommandEncoder();
+    }
+
+    // Phase B: run every indexed draw's dispatch-2 (per-index bounds clamp). No barriers.
+    for (auto& work : indirectWork) {
+        if (!work.clamps || !work.data->isIndexed || !work.intermediateScratch)
+            continue;
+        commandEncoder = renderCommandEncoder();
+        if (!commandEncoder)
+            break;
+        auto& data = *work.data;
+        clampIndirectIndexBufferDispatch2Batched(work.indexBuffer.get(), data.indexType, data.indexBufferOffset, data.minVertexCount, data.primitiveType, work.indexBufferCount, m_device.get(), m_rasterSampleCount, *this, work.finalScratch.get(), work.finalScratchOffset, work.intermediateScratch.get(), work.intermediateScratchOffset);
+    }
+
+    // Barrier between the clamp dispatches and the ICB encode kernels that read their clamped output.
+    if (anyClampDispatched) {
+        emitMemoryBarrier(commandEncoder);
+        if (splitRenderPass())
+            commandEncoder = renderCommandEncoder();
+    }
+
+    // Phase C: GPU-encode each indirect draw into its ICB slot, reading its clamped scratch or the app's
+    // raw args. No barriers between encodes — each writes a distinct ICB slot.
+    for (auto& work : indirectWork) {
+        commandEncoder = renderCommandEncoder();
+        if (!commandEncoder)
+            break;
+        auto& data = *work.data;
+        RenderBundleICBWithResources* icb = work.icb.get();
+
+        id<MTLBuffer> clampedArgs = nil;
+        uint64_t clampedArgsOffset = 0;
+        if (work.clamps) {
+            if (!work.finalScratch)
+                continue;
+            clampedArgs = work.finalScratch.get();
+            clampedArgsOffset = work.finalScratchOffset;
+        } else {
+            clampedArgs = work.indirectBuffer->buffer();
+            clampedArgsOffset = data.indirectOffset;
+        }
+        if (!clampedArgs)
+            continue;
+
+        id<MTLRenderPipelineState> encodePipeline = protect(m_device)->icbIndirectEncodePipeline(data.isIndexed, data.indexType, m_rasterSampleCount);
+        CHECKED_SET_PSO(commandEncoder, m_device, encodePipeline);
+
+        m_parentEncoder->addBuffer(clampedArgs);
+        setVertexBuffer(commandEncoder, clampedArgs, clampedArgsOffset, 0);
+        [commandEncoder useResource:clampedArgs usage:MTLResourceUsageRead stages:MTLRenderStageVertex];
+
+        id<MTLBuffer> indirectCommandBufferContainer = icb.indirectCommandBufferContainer;
+        m_parentEncoder->addBuffer(indirectCommandBufferContainer);
+        setVertexBuffer(commandEncoder, indirectCommandBufferContainer, 0, 1);
+
+        if (data.isIndexed) {
+            id<MTLBuffer> mtlIndexBuffer = work.indexBuffer ? work.indexBuffer->buffer() : nil;
+            if (!mtlIndexBuffer)
+                continue;
+            auto indexSizeInBytes = data.indexType == MTLIndexTypeUInt16 ? sizeof(uint16_t) : sizeof(uint32_t);
+            m_parentEncoder->addBuffer(mtlIndexBuffer);
+            setVertexBuffer(commandEncoder, mtlIndexBuffer, 0, 2);
+            [commandEncoder useResource:mtlIndexBuffer usage:MTLResourceUsageRead stages:MTLRenderStageVertex];
+            uint32_t slotData[] = { static_cast<uint32_t>(work.slotIndex), static_cast<uint32_t>(data.primitiveType), static_cast<uint32_t>(data.indexBufferOffset / indexSizeInBytes) };
+            setVertexBytes(commandEncoder, asByteSpan(slotData), 3);
+        } else {
+            uint32_t slotData[] = { static_cast<uint32_t>(work.slotIndex), static_cast<uint32_t>(data.primitiveType) };
+            setVertexBytes(commandEncoder, asByteSpan(slotData), 2);
+        }
+
+        m_parentEncoder->addICB(icb.indirectCommandBuffer);
+        [commandEncoder useResource:icb.indirectCommandBuffer usage:MTLResourceUsageRead | MTLResourceUsageWrite stages:MTLRenderStageVertex];
+        m_parentEncoder->addBuffer(icb.outOfBoundsReadFlag);
+        [commandEncoder useResource:icb.outOfBoundsReadFlag usage:MTLResourceUsageWrite stages:MTLRenderStageVertex];
+
+        [commandEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:1];
+        data.encodedAtLeastOnce = true;
+        data.lastIndirectGeneration = work.indirectGeneration;
+        data.lastIndexGeneration = work.indexGeneration;
+        needsBarrierBeforeExecute = true;
+    }
+
+    // Single barrier: order every ICB write above before every executeCommandsInBuffer: below.
+    if (needsBarrierBeforeExecute) {
+        emitMemoryBarrier(commandEncoder);
+        if (splitRenderPass())
+            commandEncoder = renderCommandEncoder();
+    }
+
+    for (auto bundle : bundles) {
         incrementDrawCount(bundle->drawCount());
 
         for (const auto& resource : bundle->resources()) {
@@ -1328,6 +1652,7 @@ void RenderPassEncoder::executeBundles(Vector<Ref<RenderBundle>>&& bundles)
             ASSERT(resource.mtlResources.size() == resource.resourceUsages.size());
             for (size_t i = 0, resourceCount = resource.mtlResources.size(); i < resourceCount; ++i) {
                 auto& resourceUsage = resource.resourceUsages[i];
+                m_parentEncoder->addResidentResource(resource.mtlResources[i]);
                 addResourceToActiveResources(resourceUsage.resource, resourceUsage.usage);
                 setCommandEncoder(resourceUsage.resource);
             }
@@ -1497,6 +1822,7 @@ void RenderPassEncoder::setBindGroup(uint32_t groupIndex, const BindGroup* group
         ASSERT(resource.mtlResources.size() == resource.resourceUsages.size());
         for (size_t i = 0, sz = resource.mtlResources.size(); i < sz; ++i) {
             auto& resourceUsage = resource.resourceUsages[i];
+            parentEncoder->addResidentResource(resource.mtlResources[i]);
             addResourceToActiveResources(resourceUsage.resource, resourceUsage.usage);
             setCommandEncoder(resourceUsage.resource);
         }

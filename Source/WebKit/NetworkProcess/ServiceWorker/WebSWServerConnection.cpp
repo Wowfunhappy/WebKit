@@ -37,6 +37,7 @@
 #include "NetworkSession.h"
 #include "NetworkStorageManager.h"
 #include "RemoteWorkerType.h"
+#include "SecurityFlags.h"
 #include "SharedBufferReference.h"
 #include "SharedPreferencesForWebProcess.h"
 #include "WebFrameProxyFromNetworkProcessMessages.h" // AQUAWEBKIT: fetchTaskReceivedMainResourceResponse below (webkit.org/b/322485).
@@ -385,7 +386,7 @@ void WebSWServerConnection::startFetch(ServiceWorkerFetchTask& task, SWServerWor
     worker.whenActivated(WTF::move(runServerWorkerAndStartFetch));
 }
 
-void WebSWServerConnection::postMessageToServiceWorker(ServiceWorkerIdentifier destinationIdentifier, MessageWithMessagePorts&& message, const ServiceWorkerOrClientIdentifier& sourceIdentifier)
+void WebSWServerConnection::postMessageToServiceWorker(ServiceWorkerIdentifier destinationIdentifier, MessageWithMessagePorts&& message, const ServiceWorkerOrClientIdentifier& sourceIdentifier, Vector<URL>&& blobURLs)
 {
     RefPtr server = this->server();
     if (!server)
@@ -407,8 +408,12 @@ void WebSWServerConnection::postMessageToServiceWorker(ServiceWorkerIdentifier d
     if (!sourceData)
         return;
 
+    CompletionHandlerCallingScope blobURLsInFlight;
+    if (RefPtr connection = m_networkConnectionToWebProcess.get())
+        blobURLsInFlight = connection->retainBlobURLsWhileMessageIsInFlight(blobURLs);
+
     // It's possible this specific worker cannot be re-run (e.g. its registration has been removed)
-    server->runServiceWorkerIfNecessary(destinationIdentifier, [protectedThis = Ref { *this }, destinationIdentifier, message = WTF::move(message), sourceData = WTF::move(*sourceData)](auto* contextConnection) mutable {
+    server->runServiceWorkerIfNecessary(destinationIdentifier, [protectedThis = Ref { *this }, destinationIdentifier, message = WTF::move(message), sourceData = WTF::move(*sourceData), blobURLsInFlight = WTF::move(blobURLsInFlight)](auto* contextConnection) mutable {
         if (!contextConnection)
             return;
 
@@ -420,7 +425,12 @@ void WebSWServerConnection::postMessageToServiceWorker(ServiceWorkerIdentifier d
         CheckedRef registry = networkProcess->messagePortChannelRegistry();
         for (auto& transferredPort : message.transferredPorts)
             registry->recordPendingTransferDestination(transferredPort.first, contextConnection->webProcessIdentifier());
-        sendToContextProcess(*contextConnection, Messages::WebSWContextManagerConnection::PostMessageToServiceWorker { destinationIdentifier, WTF::move(message), WTF::move(sourceData) });
+
+        if (!blobURLsInFlight) {
+            sendToContextProcess(*contextConnection, Messages::WebSWContextManagerConnection::PostMessageToServiceWorker { destinationIdentifier, WTF::move(message), WTF::move(sourceData) });
+            return;
+        }
+        Ref { downcast<WebSWServerToContextConnection>(*contextConnection) }->sendWithAsyncReply(Messages::WebSWContextManagerConnection::PostMessageToServiceWorkerAndNotifyWhenDispatched { destinationIdentifier, WTF::move(message), WTF::move(sourceData) }, [blobURLsInFlight = WTF::move(blobURLsInFlight)] { });
     });
 }
 
@@ -488,13 +498,16 @@ void WebSWServerConnection::scheduleUnregisterJobInServer(ServiceWorkerJobIdenti
     server->scheduleUnregisterJob(ServiceWorkerJobDataIdentifier { identifier(), jobIdentifier }, *registration, contextIdentifier, WTF::move(clientURL));
 }
 
-void WebSWServerConnection::postMessageToServiceWorkerClient(ScriptExecutionContextIdentifier destinationContextIdentifier, const MessageWithMessagePorts& message, ServiceWorkerIdentifier sourceIdentifier, const SecurityOriginData& sourceOrigin)
+void WebSWServerConnection::postMessageToServiceWorkerClient(ScriptExecutionContextIdentifier destinationContextIdentifier, const MessageWithMessagePorts& message, ServiceWorkerIdentifier sourceIdentifier, const SecurityOriginData& sourceOrigin, CompletionHandlerCallingScope&& blobURLsInFlight)
 {
     RefPtr server = this->server();
     if (!server)
         return;
 
-    server->postMessageToServiceWorkerClient(destinationContextIdentifier, message, sourceIdentifier, sourceOrigin, [protectedThis = Ref { *this }] (auto destinationContextIdentifier, auto& message, auto sourceServiceWorkerData, auto& sourceOrigin) {
+    // FIXME: When the destination client is still being created, SWServer::postMessageToServiceWorkerClient queues the
+    // message in m_clientsToBeCreatedById without invoking this callback, so blobURLsInFlight is destroyed here rather
+    // than once releaseServiceWorkerClientPendingMessage has flushed the message to the client.
+    server->postMessageToServiceWorkerClient(destinationContextIdentifier, message, sourceIdentifier, sourceOrigin, [protectedThis = Ref { *this }, &blobURLsInFlight] (auto destinationContextIdentifier, auto& message, auto sourceServiceWorkerData, auto& sourceOrigin) {
         // PostMessageToServiceWorkerClient follows a different flow than normal MessagePort post message.
         // We pre-record the destination so impending message checks pass.
         RefPtr networkProcess = protectedThis->networkProcess();
@@ -503,7 +516,11 @@ void WebSWServerConnection::postMessageToServiceWorkerClient(ScriptExecutionCont
         CheckedRef registry = networkProcess->messagePortChannelRegistry();
         for (auto& transferredPort : message.transferredPorts)
             registry->recordPendingTransferDestination(transferredPort.first, destinationContextIdentifier.processIdentifier());
-        protectedThis->send(Messages::WebSWClientConnection::PostMessageToServiceWorkerClient { destinationContextIdentifier, message, sourceServiceWorkerData, sourceOrigin }, 0);
+        if (!blobURLsInFlight) {
+            protectedThis->send(Messages::WebSWClientConnection::PostMessageToServiceWorkerClient { destinationContextIdentifier, message, sourceServiceWorkerData, sourceOrigin }, 0);
+            return;
+        }
+        protectedThis->sendWithAsyncReply(Messages::WebSWClientConnection::PostMessageToServiceWorkerClientAndNotifyWhenDispatched { destinationContextIdentifier, message, sourceServiceWorkerData, sourceOrigin }, [blobURLsInFlight = WTF::move(blobURLsInFlight)] { }, 0);
     });
 }
 
@@ -1077,7 +1094,12 @@ bool WebSWServerConnection::checkTopOrigin(const WebCore::SecurityOriginData& or
         return false;
 
     RefPtr networkProcess = networkConnectionToWebProcess->networkProcess();
-    MESSAGE_CHECK_WITH_RETURN_VALUE(networkProcess->allowsFirstPartyForCookies(networkConnectionToWebProcess->webProcessIdentifier(), WebCore::RegistrableDomain::uncheckedCreateFromHost(origin.host())) != NetworkProcess::AllowCookieAccess::Terminate, false);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    if (SecurityFlags::radar176384129())
+        MESSAGE_CHECK_WITH_RETURN_VALUE(networkProcess->allowsFirstPartyForCookies(networkConnectionToWebProcess->webProcessIdentifier(), WebCore::RegistrableDomain::uncheckedCreateFromHost(origin.host())), false);
+    else
+#endif
+        MESSAGE_CHECK_WITH_RETURN_VALUE(networkProcess->allowsFirstPartyForCookiesLegacy(networkConnectionToWebProcess->webProcessIdentifier(), WebCore::RegistrableDomain::uncheckedCreateFromHost(origin.host())) != NetworkProcess::AllowCookieAccess::Terminate, false);
     return true;
 }
 

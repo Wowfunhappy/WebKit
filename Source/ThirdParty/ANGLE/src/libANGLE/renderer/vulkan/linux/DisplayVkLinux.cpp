@@ -7,11 +7,8 @@
 //    Implements the class methods for DisplayVkLinux.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 #include "libANGLE/renderer/vulkan/linux/DisplayVkLinux.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/linux/dma_buf_utils.h"
 #include "libANGLE/renderer/vulkan/linux/DeviceVkLinux.h"
@@ -62,15 +59,15 @@ std::vector<VkDrmFormatModifierPropertiesEXT> DisplayVkLinux::getDrmModifiers(
     formatProperties.sType               = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
     formatProperties.pNext               = &formatModifierPropertiesList;
 
-    vkGetPhysicalDeviceFormatProperties2(renderer->getPhysicalDevice(), vkFormat,
-                                         &formatProperties);
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2, renderer->getPhysicalDevice(), vkFormat,
+            &formatProperties);
 
     std::vector<VkDrmFormatModifierPropertiesEXT> formatModifierProperties(
         formatModifierPropertiesList.drmFormatModifierCount);
     formatModifierPropertiesList.pDrmFormatModifierProperties = formatModifierProperties.data();
 
-    vkGetPhysicalDeviceFormatProperties2(renderer->getPhysicalDevice(), vkFormat,
-                                         &formatProperties);
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2, renderer->getPhysicalDevice(), vkFormat,
+            &formatProperties);
 
     return formatModifierProperties;
 }
@@ -87,7 +84,7 @@ bool DisplayVkLinux::supportsDrmModifiers(VkPhysicalDevice device, VkFormat vkFo
     formatProperties.sType               = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
     formatProperties.pNext               = &formatModifierPropertiesList;
 
-    vkGetPhysicalDeviceFormatProperties2(device, vkFormat, &formatProperties);
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2, device, vkFormat, &formatProperties);
 
     // If there is at least one DRM format modifier, it is supported
     return formatModifierPropertiesList.drmFormatModifierCount > 0;
@@ -208,7 +205,8 @@ egl::Error DisplayVkLinux::queryDmaBufModifiers(EGLint drmFormat,
     if (maxModifiers > 0)
     {
         maxModifiers = std::min(maxModifiers, drmModifiersSize);
-        std::memcpy(modifiers, drmModifiers.data(), maxModifiers * sizeof(drmModifiers[0]));
+        ANGLE_UNSAFE_TODO(
+            std::memcpy(modifiers, drmModifiers.data(), maxModifiers * sizeof(drmModifiers[0])));
     }
 
     return egl::NoError();

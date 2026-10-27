@@ -120,6 +120,7 @@ http/tests/gzip-content-encoding [ Skip ]
 http/tests/cookies/same-site [ Skip ]
 http/tests/ssl/curl [ Skip ]
 model-element [ Skip ]
+sar3/model-element [ Skip ]
 http/tests/model [ Skip ]
 http/wpt/model-element [ Skip ]
 http/tests/security/model-element [ Skip ]
@@ -139,6 +140,9 @@ ipc/mac [ Skip ]
 ipc/restrictedendpoints/mac [ Skip ]
 webanimations/threaded-animations [ Skip ]
 tiled-drawing/mac [ Skip ]
+
+http/wpt/webrtc/av1-packetizer-large-encoded-frame-no-crash.html [ Skip ]
+http/wpt/webrtc/script-transform-oversized-frame.html [ Skip ]
 
 # Requires async overflow scrolling
 compositing/shared-backing/overflow-scroll [ Skip ]
@@ -262,6 +266,12 @@ fast/shapes/shape-outside-floats/shape-outside-imagedata-overflow.html [ Skip ]
 [ Debug ] security/text-decode-long-strings.html [ Skip ]
 [ Debug ] media/media-source/media-source-evict-invalid-time-crash.html [ Skip ]
 
+# These hit debug-only assertions in UniqueIDBDatabase teardown, so we skip them there.
+# <rdar://186427316>
+[ Debug ] storage/indexeddb/clear-data-with-stalled-abort-crash.html [ Skip ]
+[ Debug ] storage/indexeddb/close-database-with-stalled-abort-crash.html [ Skip ]
+[ Debug ] storage/indexeddb/delete-database-with-stalled-abort-crash.html [ Skip ]
+
 # Only iOS supports QuickLook
 quicklook [ Skip ]
 http/tests/quicklook [ Skip ]
@@ -319,6 +329,10 @@ imported/w3c/web-platform-tests/html/cross-origin-embedder-policy/cache-storage-
 fast/frames/frame-append-body-child-crash.html [ Slow ]
 [ Debug ] fast/frames/lots-of-objects.html [ Slow ]
 [ Debug ] fast/frames/lots-of-iframes.html [ Slow ]
+
+# Builds a 10000 link aria-labelledby chain, which has to be long enough to overflow the stack on
+# release builds, so it is unavoidably slow to walk in a debug build.
+[ Debug ] accessibility/accessible-name-chain-depth-no-crash.html [ Slow ]
 
 # This test is failing in all major browser engines as of Sept 2022. The reason is that the Reporting-Endpoints header
 # is served on the parent of the reporting frame, not the reporting frame.
@@ -704,6 +718,7 @@ imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customiz
 imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/select-button-text-and-icon-clipping.html [ ImageOnlyFailure ]
 # Overflow handling differences.
 imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/select-overflow-x.tentative.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/select-clipping.html [ ImageOnlyFailure ]
 # The picker-icon's negative margin glyph adjustment (margin-block-start: -0.25em) shifts the icon, which the reference doesn't account for.
 imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/select-display-block.tentative.html [ ImageOnlyFailure ]
 
@@ -1801,7 +1816,7 @@ imported/w3c/web-platform-tests/css/css-grid/subgrid/subgrid-button.html [ Image
 
 # grid-lanes
 imported/w3c/web-platform-tests/css/css-grid/grid-lanes/grid-lanes-grid-template-columns-computed-withcontent.html [ Failure ]
-[ Debug ] imported/w3c/web-platform-tests/css/css-grid/grid-lanes/animation/flow-tolerance-interpolation.html [ Pass Crash ]
+[ Debug ] imported/w3c/web-platform-tests/css/css-grid/grid-lanes/animation/fit-tolerance-interpolation.html [ Pass Crash ]
 webkit.org/b/316453 imported/w3c/web-platform-tests/css/css-grid/grid-lanes/animation/grid-template-columns-001.html [ Crash ]
 imported/w3c/web-platform-tests/css/css-grid/grid-lanes/animation/grid-template-rows-001.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/css-grid/grid-lanes/alignment/column-fill-reverse-align-content-001.html [ ImageOnlyFailure ]
@@ -3683,9 +3698,6 @@ fast/css/css2-system-color.html [ Skip ]
 # Test disabled in r64074 after dropping -khtml prefix support
 fast/css/limited-vendor-prefix-behavior.html [ Skip ]
 
-# Test disabled in r42420 since it hits test-only release assert
-fast/dom/gc-8.html [ Skip ]
-
 # Test disabled in r27657
 fast/dom/Window/window-resize-nan.html [ Skip ]
 
@@ -4992,6 +5004,17 @@ webkit.org/b/292182 webgl/2.0.y/conformance/textures/misc/texture-video-transpar
 webkit.org/b/292182 webgl/2.0.y/conformance2/rendering/clipping-wide-points.html [ Failure Pass ]
 
 webkit.org/b/313392 webgl/2.0.y/conformance2/textures/misc/tex-image-10bpc.html
+
+# To be fixed failures after "Update WebGL conformance tests 2026-07-18 (f15a73f727d8ee66a3ec6d0bed9f02f08cacc2c1)"
+webkit.org/b/320901 webgl/1.0.x/conformance/attribs/gl-get-attrib-location-errors.html [ Failure ]
+webkit.org/b/320901 webgl/1.0.x/conformance/glsl/misc/shader-with-double-underscore.html [ Failure ]
+webkit.org/b/320901 webgl/1.0.x/conformance/textures/misc/tex-image-svg-image-no-natural-width-and-height.html [ Failure ]
+webkit.org/b/320901 webgl/1.0.x/conformance/uniforms/gl-get-uniform-location-errors.html [ Failure ]
+webkit.org/b/320901 webgl/2.0.y/conformance/attribs/gl-get-attrib-location-errors.html [ Failure ]
+webkit.org/b/320901 webgl/2.0.y/conformance/glsl/misc/shader-with-double-underscore.html [ Failure ]
+webkit.org/b/320901 webgl/2.0.y/conformance/textures/misc/tex-image-svg-image-no-natural-width-and-height.html [ Failure ]
+webkit.org/b/320901 webgl/2.0.y/conformance/uniforms/gl-get-uniform-location-errors.html [ Failure ]
+webkit.org/b/320901 webgl/2.0.y/conformance2/rendering/blitframebuffer-test.html [ Failure ]
 
 # Until more platforms ship with WebGL GPUP
 webgl/webgl-fail-platform-context-creation-no-crash.html [ Failure Pass ]
@@ -8262,3 +8285,10 @@ webkit.org/b/317017 imported/w3c/web-platform-tests/largest-contentful-paint/mul
 
 imported/w3c/web-platform-tests/preload/preload-csp.sub.html [ Skip ] # Different hash generated on each run
 imported/w3c/web-platform-tests/preload/modulepreload-multiple.html [ Failure Pass ]
+
+# IPC testing is disabled in Release builds
+[ Release ] http/tests/ipc/provisional-page-forged-provisional-url-message-check.html [ Skip ]
+
+# BackgroundFetchAPI is not stable yet
+imported/w3c/web-platform-tests/background-fetch/abort.https.window.html [ Skip ]
+imported/w3c/web-platform-tests/background-fetch/match.https.window.html [ Failure ]

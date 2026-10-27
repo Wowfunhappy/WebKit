@@ -8,6 +8,8 @@
 #    pragma allow_unsafe_buffers
 #endif
 
+#include <array>
+
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
@@ -155,7 +157,7 @@ void main()
         glMapBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0, sizeof(float) * 24, GL_MAP_READ_BIT);
     ASSERT_NE(nullptr, mappedBuffer);
 
-    const GLfloat expect[] = {
+    static constexpr std::array<GLfloat, 24> expect = {
         -1.0f, 1.0f, 0.5f, 1.0f, -1.0f, -1.0f, 0.5f, 1.0f, 1.0f, -1.0f, 0.5f, 1.0f,
         -1.0f, 1.0f, 0.5f, 1.0f, 1.0f,  -1.0f, 0.5f, 1.0f, 1.0f, 1.0f,  0.5f, 1.0f,
     };
@@ -219,9 +221,6 @@ void main()
 
 TEST_P(TransformFeedbackTest, ZeroSizedViewport)
 {
-    // http://anglebug.com/42263715
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
-
     // Set the program's transform feedback varyings (just gl_Position)
     std::vector<std::string> tfVaryings;
     tfVaryings.push_back("gl_Position");
@@ -366,7 +365,7 @@ void main() {
     ASSERT_NE(0u, program2);
 
     // XFB buffers
-    GLBuffer xfbBuffers[4];
+    std::array<GLBuffer, 4> xfbBuffers;
     constexpr GLsizei kInitSize = 4 * 1024;
     for (int i = 0; i < 4; ++i)
     {
@@ -478,7 +477,7 @@ void main() {
     ASSERT_NE(0u, program2);
 
     // XFB buffers
-    GLBuffer xfbBuffers[4];
+    std::array<GLBuffer, 4> xfbBuffers;
     constexpr GLsizei kInitSize = 4 * 1024;
     for (int i = 0; i < 4; ++i)
     {
@@ -576,9 +575,6 @@ void main() {
 // old position)
 TEST_P(TransformFeedbackTest, BufferRebinding)
 {
-    // http://anglebug.com/42263715
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
-
     glDisable(GL_DEPTH_TEST);
 
     // Set the program's transform feedback varyings (just gl_Position)
@@ -653,12 +649,6 @@ TEST_P(TransformFeedbackTest, BufferRebinding)
 // afterward.
 TEST_P(TransformFeedbackTest, RecordAndDraw)
 {
-    // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
-    ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
-
-    // Fails on Mac GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac());
-
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -730,9 +720,6 @@ TEST_P(TransformFeedbackTest, SpanMultipleRenderPasses)
 {
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
-
-    // Fails on Mac GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac());
 
     // anglebug.com/42263967
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
@@ -826,9 +813,6 @@ TEST_P(TransformFeedbackTest, UseAsUBOThenUpdateThenCapture)
 
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
-
-    // Fails on Mac GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac());
 
     const std::array<uint32_t, 12> kInitialData = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
     const std::array<uint32_t, 12> kUpdateData  = {
@@ -986,9 +970,6 @@ TEST_P(TransformFeedbackTest, ClearWhileRecordingDoesNotContribute)
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
 
-    // Fails on Mac GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac());
-
     // anglebug.com/42263973
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
 
@@ -1026,9 +1007,6 @@ TEST_P(TransformFeedbackTest, CopyWhileRecordingDoesNotContribute)
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
 
-    // Fails on Mac GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac());
-
     // anglebug.com/42263973
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
 
@@ -1062,9 +1040,6 @@ TEST_P(TransformFeedbackTest, BlitWhileRecordingDoesNotContribute)
 {
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
-
-    // Fails on Mac GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac());
 
     // anglebug.com/42263973
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
@@ -1164,9 +1139,6 @@ TEST_P(TransformFeedbackTest, TooSmallBuffers)
 // Test that buffer binding happens only on the current transform feedback object
 TEST_P(TransformFeedbackTest, BufferBinding)
 {
-    // http://anglebug.com/42263715
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
-
     // Reset any state
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
     glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, 0);
@@ -1368,9 +1340,6 @@ TEST_P(TransformFeedbackTest, InactiveStructureVarying)
 // Test that multiple paused transform feedbacks do not generate errors or crash
 TEST_P(TransformFeedbackTest, MultiplePaused)
 {
-    // Crashes on Mac Intel GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
-
     const size_t drawSize = 1024;
     std::vector<float> transformFeedbackData(drawSize);
     for (size_t i = 0; i < drawSize; i++)
@@ -1420,11 +1389,11 @@ void main(void)
     glEnable(GL_DEPTH_TEST);
     ASSERT_GL_NO_ERROR();
 
-    GLuint transformFeedbacks[transformFeedbackCount];
-    glGenTransformFeedbacks(transformFeedbackCount, transformFeedbacks);
+    std::array<GLuint, transformFeedbackCount> transformFeedbacks;
+    glGenTransformFeedbacks(transformFeedbackCount, transformFeedbacks.data());
 
-    GLuint buffers[transformFeedbackCount];
-    glGenBuffers(transformFeedbackCount, buffers);
+    std::array<GLuint, transformFeedbackCount> buffers;
+    glGenBuffers(transformFeedbackCount, buffers.data());
 
     for (size_t i = 0; i < transformFeedbackCount; i++)
     {
@@ -1458,9 +1427,6 @@ void main(void)
 // contexts returns the correct results.  Helps expose bugs in ANGLE's virtual contexts.
 TEST_P(TransformFeedbackTest, MultiContext)
 {
-    // These tests are flaky, do not lift these unless you find the root cause and the fix.
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
-
     ANGLE_SKIP_TEST_IF(IsLinux() && IsAMD() && IsOpenGL());
 
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
@@ -1491,7 +1457,7 @@ TEST_P(TransformFeedbackTest, MultiContext)
         GLuint program;
         GLuint query;
         GLuint buffer;
-        size_t primitiveCounts[passCount];
+        std::array<size_t, passCount> primitiveCounts;
     };
     static constexpr uint32_t kContextCount = 32;
     ContextInfo contexts[kContextCount];
@@ -1642,9 +1608,6 @@ TEST_P(TransformFeedbackTest, PackingBug)
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
 
-    // TODO(anglebug.com/40096747): Timing out on ARM-based Apple DTKs.
-    ANGLE_SKIP_TEST_IF(IsMac() && IsARM64() && IsDesktopOpenGL());
-
     // TODO(jmadill): With points and rasterizer discard?
     constexpr char kVS[] =
         "#version 300 es\n"
@@ -1776,8 +1739,6 @@ TEST_P(TransformFeedbackTest, TwoUnreferencedInFragShader)
 {
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
-    // TODO(anglebug.com/40096747): Failing on ARM-based Apple DTKs.
-    ANGLE_SKIP_TEST_IF(IsMac() && IsARM64() && IsDesktopOpenGL());
 
     // TODO(jmadill): With points and rasterizer discard?
     constexpr char kVS[] =
@@ -1844,9 +1805,6 @@ TEST_P(TransformFeedbackTest, TwoUnreferencedInFragShader)
 // glBeginTransformFeedback is called
 TEST_P(TransformFeedbackTest, OffsetResetOnBeginTransformFeedback)
 {
-    // http://anglebug.com/42263637
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac() && IsAMD());
-
     // http://anglebug.com/42263637
     ANGLE_SKIP_TEST_IF(IsNexus5X() && IsOpenGLES());
 
@@ -2555,9 +2513,6 @@ TEST_P(TransformFeedbackTest, NonExistentTransformFeedbackVarying)
 // nonexistent varying is prefixed with "gl_".
 TEST_P(TransformFeedbackTest, NonExistentTransformFeedbackVaryingWithGLPrefix)
 {
-    // TODO(anglebug.com/40096747): Failing on ARM-based Apple DTKs.
-    ANGLE_SKIP_TEST_IF(IsMac() && IsARM64() && IsDesktopOpenGL());
-
     std::vector<std::string> tfVaryings;
     tfVaryings.push_back("gl_Bogus");
 
@@ -2658,9 +2613,6 @@ TEST_P(TransformFeedbackTest, NoTransformFeedbackVaryingsInUse)
 // Test that you can pause transform feedback without drawing first.
 TEST_P(TransformFeedbackTest, SwitchProgramBeforeDraw)
 {
-    // TODO(anglebug.com/40096747): Failing on ARM-based Apple DTKs.
-    ANGLE_SKIP_TEST_IF(IsMac() && IsARM64() && IsDesktopOpenGL());
-
     std::vector<std::string> tfVaryings;
     tfVaryings.push_back("gl_Position");
     compileDefaultProgram(tfVaryings, GL_INTERLEAVED_ATTRIBS);
@@ -2936,9 +2888,6 @@ TEST_P(TransformFeedbackTest, OverrunWithPause)
     // TODO(anglebug.com/40096690) This fails after the upgrade to the 26.20.100.7870 driver.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsIntel() && IsVulkan());
 
-    // Fails on Mac Intel GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
-
     const std::vector<GLfloat> vertices = {
         -1.0f, 1.0f, 0.5f, 1.0f, -1.0f, -1.0f, 0.5f, 1.0f, 1.0f, -1.0f, 0.5f, 1.0f,
         -1.0f, 1.0f, 0.5f, 1.0f, 1.0f,  -1.0f, 0.5f, 1.0f, 1.0f, 1.0f,  0.5f, 1.0f,
@@ -3016,12 +2965,6 @@ TEST_P(TransformFeedbackTest, OverrunWithMultiplePauseAndResume)
 
     // Fails on Windows Intel GL drivers. http://anglebug.com/42263296
     ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsWindows());
-
-    // Fails on Mac AMD GL drivers. http://anglebug.com/40644736
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsAMD() && IsMac());
-
-    // Crashes on Mac Intel GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
 
     const std::vector<GLfloat> vertices = {
         -1.0f, 1.0f, 0.5f, 1.0f, -1.0f, -1.0f, 0.5f, 1.0f, 1.0f, -1.0f, 0.5f, 1.0f,
@@ -3140,9 +3083,6 @@ TEST_P(TransformFeedbackTest, EndThenBindNewBufferAndRestart)
 // feedback buffers, as they were not "dirty".
 TEST_P(TransformFeedbackTest, DrawWithoutTransformFeedbackThenWith)
 {
-    // Fails on Mac Intel GL drivers. http://anglebug.com/42263565
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
-
     constexpr char kVS[] =
         R"(#version 300 es
 in float in_value;
@@ -3545,8 +3485,8 @@ TEST_P(TransformFeedbackTestES32, PrimitivesWrittenAndGenerated)
     // begins or ends, as well as testing render pass restarts with the queries active and begin and
     // end of queries outside or mid render pass.
     constexpr size_t kQueryCount = 3;
-    GLQuery primitivesWrittenQueries[kQueryCount];
-    GLQuery primitivesGeneratedQueries[kQueryCount];
+    std::array<GLQuery, kQueryCount> primitivesWrittenQueries;
+    std::array<GLQuery, kQueryCount> primitivesGeneratedQueries;
 
     GLTexture texture;
     glBindTexture(GL_TEXTURE_2D, texture);
@@ -3594,12 +3534,12 @@ TEST_P(TransformFeedbackTestES32, PrimitivesWrittenAndGenerated)
     }
     EXPECT_GL_NO_ERROR();
 
-    constexpr GLuint kPrimitivesWrittenExpected[kQueryCount] = {
+    static constexpr std::array<GLuint, kQueryCount> kPrimitivesWrittenExpected = {
         3 + 4,
         7 + 8 + 9,
         11 + 12,
     };
-    constexpr GLuint kPrimitivesGeneratedExpected[kQueryCount] = {
+    static constexpr std::array<GLuint, kQueryCount> kPrimitivesGeneratedExpected = {
         4 + 5 + 6 + 7 + 8,
         9 + 10,
         11 + 12,
@@ -4126,11 +4066,11 @@ void main()
     std::vector<std::string> tfVaryings     = {"VSBlock1.b", "d", "looseVarying"};
     constexpr size_t kCapturedVaryingsCount = 3;
     constexpr std::array<size_t, kCapturedVaryingsCount> kCaptureSizes = {8, 9, 4};
-    const std::vector<float> kExpected[kCapturedVaryingsCount]         = {
+    const std::array<std::vector<float>, kCapturedVaryingsCount> kExpected = {{
         {0.27, 0.30, 0.33, 0.36, 0.39, 0.42, 0.45, 0.48},
         {0.63, 0.66, 0.69, 0.72, 0.75, 0.78, 0.81, 0.84, 0.87},
         {0.25, 0.5, 0.75, 1.0},
-    };
+    }};
 
     ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(program, kVS, kFS, tfVaryings, GL_INTERLEAVED_ATTRIBS);
     EXPECT_GL_NO_ERROR();
@@ -4225,11 +4165,11 @@ void main()
     std::vector<std::string> tfVaryings                                = {"a", "b", "c"};
     constexpr size_t kCapturedVaryingsCount                            = 3;
     constexpr std::array<size_t, kCapturedVaryingsCount> kCaptureSizes = {1, 2, 1};
-    const std::vector<float> kExpected[kCapturedVaryingsCount]         = {
+    const std::array<std::vector<float>, kCapturedVaryingsCount> kExpected = {{
         {0.25},
         {0.5, 0.75},
         {1.0},
-    };
+    }};
 
     ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(program, kVS, kFS, tfVaryings, GL_SEPARATE_ATTRIBS);
     EXPECT_GL_NO_ERROR();
@@ -4480,13 +4420,13 @@ void main (void)
     void *resultBuffer =
         glMapBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0, maxResults * 4, GL_MAP_READ_BIT);
     const float *actual        = reinterpret_cast<const float *>(resultBuffer);
-    constexpr float expected[] = {
+    static constexpr std::array<float, 10> expected = {
         22,  24, 26, 28, 30, 32,  // from first draw, 2 triangles
         36,  38, 40,              // from second draw, 1 triangle
         100,                      // initial value
     };
 
-    for (size_t i = 0; i < ArraySize(expected); ++i)
+    for (size_t i = 0; i < expected.size(); ++i)
     {
         EXPECT_EQ(actual[i], expected[i]) << "i:" << i;
     }
@@ -5289,6 +5229,65 @@ TEST_P(TransformFeedbackTest, StaleBufferBindingInactiveXfb)
     ASSERT_GL_NO_ERROR();
 }
 
+// Test that deleting a buffer bound to a transform feedback slot, and then drawing with a different
+// program that has transform feedback varyings (causing a default-uniform descriptor-set cache
+// miss) while transform feedback is inactive, doesn't cause a use-after-free.
+TEST_P(TransformFeedbackTest, StaleBufferBindingInactiveXfbWithUniforms)
+{
+    std::vector<std::string> tfVaryings = {"gl_Position"};
+    constexpr char kVS1[]               = R"(#version 300 es
+in vec4 a_position;
+uniform vec4 uOff;
+void main() {
+    gl_Position = a_position + uOff;
+})";
+    ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(program1, kVS1, essl3_shaders::fs::Red(), tfVaryings,
+                                        GL_INTERLEAVED_ATTRIBS);
+    ASSERT_NE(0u, program1);
+    glUseProgram(program1);
+
+    GLBuffer buf0;
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER, buf0);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, 1024, nullptr, GL_DYNAMIC_COPY);
+
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, buf0);
+
+    GLint uOffLocation = glGetUniformLocation(program1, "uOff");
+    ASSERT_NE(-1, uOffLocation);
+    glUniform4f(uOffLocation, 0.0f, 0.0f, 0.0f, 0.0f);
+
+    glBeginTransformFeedback(GL_TRIANGLES);
+    drawQuad(program1, "a_position", 0.5f);
+    glEndTransformFeedback();
+
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, 0);
+    buf0.reset();
+
+    // Create a new program with TF varyings and a uniform to force a descriptor set cache miss.
+    constexpr char kVS2[] = R"(#version 300 es
+in vec4 a_position;
+uniform vec4 uOff2;
+void main() {
+    gl_Position = a_position + uOff2;
+})";
+    ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(program2, kVS2, essl3_shaders::fs::Green(), tfVaryings,
+                                        GL_INTERLEAVED_ATTRIBS);
+    ASSERT_NE(0u, program2);
+    glUseProgram(program2);
+
+    GLint uOff2Location = glGetUniformLocation(program2, "uOff2");
+    ASSERT_NE(-1, uOff2Location);
+    glUniform4f(uOff2Location, 0.0f, 0.0f, 0.0f, 0.0f);
+
+    // Regular draw while TF inactive, but still using a program that was compiled with transform
+    // feedback to trigger a default-uniform descriptor-set cache miss.
+    drawQuad(program2, "a_position", 0.5f);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    ASSERT_GL_NO_ERROR();
+}
+
 class TransformFeedbackTestVkEvent : public TransformFeedbackTest
 {};
 
@@ -5531,6 +5530,40 @@ TEST_P(TransformFeedbackTest, BindBufferBaseWhileActive)
     EXPECT_GL_NO_ERROR();
 }
 
+class HardenedTransformFeedbackTest : public TransformFeedbackTest
+{
+  public:
+    HardenedTransformFeedbackTest() { setHardenedContextEnabled(true); }
+};
+
+// Using a buffer as both transform feedback output and vertex input is undefined behaviour.
+// Hardened contexts should reject this like WebGL contexts do.
+TEST_P(HardenedTransformFeedbackTest, VertexBufferBoundForTransformFeedback)
+{
+    std::vector<std::string> tfVaryings;
+    tfVaryings.push_back("gl_Position");
+    compileDefaultProgram(tfVaryings, GL_INTERLEAVED_ATTRIBS);
+    GLint positionLocation = glGetAttribLocation(mProgram, essl1_shaders::PositionAttrib());
+
+    glUseProgram(mProgram);
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, 3 * sizeof(GLfloat), nullptr, GL_STATIC_DRAW);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(positionLocation);
+
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, buffer);
+    glBeginTransformFeedback(GL_POINTS);
+    EXPECT_GL_NO_ERROR();
+
+    glDrawArrays(GL_POINTS, 0, 1);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);  // should return GL_INVALID_OPERATION
+
+    glEndTransformFeedback();
+    EXPECT_GL_NO_ERROR();
+}
+
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TransformFeedbackTest);
 ANGLE_INSTANTIATE_TEST_ES3_AND_ES31_AND_ES32_AND(
     TransformFeedbackTest,
@@ -5581,4 +5614,8 @@ GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TransformFeedbackTestVkEvent);
 ANGLE_INSTANTIATE_TEST_ES3_AND(
     TransformFeedbackTestVkEvent,
     ES3_VULKAN().enable(Feature::UseVkEventForBufferBarrier).disable(Feature::RecycleVkEvent));
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(HardenedTransformFeedbackTest);
+ANGLE_INSTANTIATE_TEST_ES3(HardenedTransformFeedbackTest);
+
 }  // anonymous namespace

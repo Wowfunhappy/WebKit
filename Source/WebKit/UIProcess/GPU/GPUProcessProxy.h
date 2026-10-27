@@ -72,12 +72,14 @@ enum class ProcessTerminationReason : uint8_t;
 
 class SandboxExtensionHandle;
 class WebPageProxy;
+class WebProcessPool;
 class WebProcessProxy;
 class WebsiteDataStore;
 
 struct CoreIPCAuditToken;
 struct GPUProcessConnectionParameters;
 struct GPUProcessCreationParameters;
+namespace SecurityFlags { struct Storage; }
 struct SharedPreferencesForWebProcess;
 
 class GPUProcessProxy final : public AuxiliaryProcessProxy {
@@ -94,6 +96,7 @@ public:
     void createGPUProcessConnection(WebProcessProxy&, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&);
 
     void sharedPreferencesForWebProcessDidChange(WebProcessProxy&, SharedPreferencesForWebProcess&&, CompletionHandler<void()>&&);
+    void securityFlagsDidChange(const SecurityFlags::Storage&);
 
     void updateProcessAssertion();
 
@@ -138,7 +141,7 @@ public:
 #endif
 
     void updatePreferences(WebProcessProxy&);
-    void updateScreenPropertiesIfNeeded();
+    void updateScreenPropertiesIfNeeded(WebProcessPool&);
 
     void childConnectionDidBecomeUnresponsive();
 

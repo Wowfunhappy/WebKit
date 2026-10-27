@@ -12,6 +12,7 @@
 
 #include "libANGLE/validationES2_autogen.h"
 
+#include <array>
 #include <cstdint>
 
 #include "common/BinaryStream.h"
@@ -236,8 +237,6 @@ bool IsValidCopyTextureSourceTarget(const Context *context, TextureType type)
             return context->getExtensions().textureRectangleANGLE;
         case TextureType::External:
             return context->getExtensions().EGLImageExternalOES;
-        case TextureType::VideoImage:
-            return context->getExtensions().videoTextureWEBGL;
         default:
             return false;
     }
@@ -840,6 +839,113 @@ bool ValidateWebGLName(const Context *context, angle::EntryPoint entryPoint, con
     return true;
 }
 
+bool ValidateFramebufferTexture2DTarget(const Context *context,
+                                        angle::EntryPoint entryPoint,
+                                        Texture *tex,
+                                        TextureTarget textarget,
+                                        GLint level)
+{
+    const Caps &caps = context->getCaps();
+
+    switch (textarget)
+    {
+        case TextureTarget::_2D:
+        {
+            if (level > log2(caps.max2DTextureSize))
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kInvalidMipLevel);
+                return false;
+            }
+            if (tex->getType() != TextureType::_2D)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kInvalidTextureTarget);
+                return false;
+            }
+        }
+        break;
+
+        case TextureTarget::Rectangle:
+        {
+            if (level != 0)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kInvalidMipLevel);
+                return false;
+            }
+            if (tex->getType() != TextureType::Rectangle)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
+                return false;
+            }
+        }
+        break;
+
+        case TextureTarget::CubeMapNegativeX:
+        case TextureTarget::CubeMapNegativeY:
+        case TextureTarget::CubeMapNegativeZ:
+        case TextureTarget::CubeMapPositiveX:
+        case TextureTarget::CubeMapPositiveY:
+        case TextureTarget::CubeMapPositiveZ:
+        {
+            if (level > log2(caps.maxCubeMapTextureSize))
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kInvalidMipLevel);
+                return false;
+            }
+            if (tex->getType() != TextureType::CubeMap)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
+                return false;
+            }
+        }
+        break;
+
+        case TextureTarget::_2DMultisample:
+        {
+            if (context->getClientVersion() < ES_3_1 &&
+                !context->getExtensions().textureMultisampleANGLE)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION,
+                                       kMultisampleTextureExtensionOrES31Required);
+                return false;
+            }
+
+            if (level != 0)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kLevelNotZero);
+                return false;
+            }
+            if (tex->getType() != TextureType::_2DMultisample)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
+                return false;
+            }
+        }
+        break;
+
+        case TextureTarget::External:
+        {
+            if (!context->getExtensions().YUVTargetEXT)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kYUVTargetExtensionRequired);
+                return false;
+            }
+
+            if (tex->getType() != TextureType::External)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
+                return false;
+            }
+        }
+        break;
+
+        default:
+            ANGLE_VALIDATION_ERROR(GL_INVALID_ENUM, kInvalidTextureTarget);
+            return false;
+    }
+
+    return true;
+}
+
 bool ValidateSrcBlendFunc(const PrivateState &state,
                           ErrorSet *errors,
                           angle::EntryPoint entryPoint,
@@ -951,7 +1057,6 @@ bool ValidateES2TexImageParameters(const Context *context,
     switch (texType)
     {
         case TextureType::_2D:
-        case TextureType::VideoImage:
             if (width > (caps.max2DTextureSize >> level) ||
                 height > (caps.max2DTextureSize >> level))
             {
@@ -1497,6 +1602,88 @@ bool ValidateES2TexImageParameters(const Context *context,
                     return false;
             }
         }
+        else
+        {
+            // Checking format combination also applies to TexSubImage commands, albeit with the
+            // existing texture's internalformat arg instead of an input.
+            // From the ES 2.0 spec:
+            // The same constraints and errors apply to the TexSubImage commands' argument format
+            // and the internalformat of the texture array being respecified as apply to the format
+            // and internalformat arguments of its TexImage counterparts.
+            //
+            // The original valid combinations for ES 2.0 come from Table 3.4 in the spec, where the
+            // internal format is expected to match the base format. However, some extensions allow
+            // additional internal formats which do not necessarily match the base format, and more
+            // valid combinations. Some such extensions are as follows:
+            // - GL_ANGLE_rgbx_internal_format
+            // - GL_OES_required_internalformat
+            // - GL_EXT_sRGB
+            // - GL_EXT_texture_format_BGRA8888
+            // - GL_EXT_texture_storage
+            // - GL_EXT_texture_type_2_10_10_10_REV
+            const GLenum textureInternalFormat =
+                texture->getFormat(target, level).info->sizedInternalFormat;
+            bool isValidCombination;
+            switch (textureInternalFormat)
+            {
+                case GL_RGB8:
+                {
+                    isValidCombination =
+                        (format == GL_RGB && (type == GL_UNSIGNED_BYTE ||
+                                              (type == GL_UNSIGNED_INT_2_10_10_10_REV_EXT &&
+                                               context->getExtensions().requiredInternalformatOES &&
+                                               context->getExtensions().textureType2101010REVEXT)));
+                    break;
+                }
+                case GL_RGB565:
+                {
+                    isValidCombination = (format == GL_RGB &&
+                                          (type == GL_UNSIGNED_SHORT_5_6_5 ||
+                                           (type == GL_UNSIGNED_BYTE &&
+                                            context->getExtensions().requiredInternalformatOES) ||
+                                           (type == GL_UNSIGNED_INT_2_10_10_10_REV_EXT &&
+                                            context->getExtensions().requiredInternalformatOES &&
+                                            context->getExtensions().textureType2101010REVEXT)));
+                    break;
+                }
+                case GL_RGB5_A1:
+                {
+                    isValidCombination = (format == GL_RGBA &&
+                                          (type == GL_UNSIGNED_SHORT_5_5_5_1 ||
+                                           (type == GL_UNSIGNED_BYTE &&
+                                            context->getExtensions().requiredInternalformatOES) ||
+                                           (type == GL_UNSIGNED_INT_2_10_10_10_REV_EXT &&
+                                            context->getExtensions().requiredInternalformatOES &&
+                                            context->getExtensions().textureType2101010REVEXT)));
+                    break;
+                }
+                case GL_RGBA4:
+                {
+                    isValidCombination = (format == GL_RGBA &&
+                                          (type == GL_UNSIGNED_SHORT_4_4_4_4 ||
+                                           (type == GL_UNSIGNED_BYTE &&
+                                            context->getExtensions().requiredInternalformatOES)));
+                    break;
+                }
+                default:
+                {
+                    // If the internal format does not correspond to a core ES 2.0 format
+                    // combination, the extension checks for it are expected to have been performed
+                    // during the texture definition. Therefore, their respective combinations,
+                    // along with the core internal format with no new combinations, can be simply
+                    // checked via the lookup table in ValidES3FormatCombination().
+                    isValidCombination =
+                        ValidES3FormatCombination(format, type, textureInternalFormat);
+                    break;
+                }
+            }
+
+            if (!isValidCombination)
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kInvalidFormatCombination);
+                return false;
+            }
+        }
     }
 
     if (isSubImage)
@@ -1508,15 +1695,11 @@ bool ValidateES2TexImageParameters(const Context *context,
             return false;
         }
 
-        bool formatsMatch = format == textureInternalFormat.format;
-        if (!formatsMatch && textureInternalFormat.sizedInternalFormat == GL_RGBX8_ANGLE)
-        {
-            // ANGLE_rgbx_internal_format allows GL_RGBA to be uploaded to GL_RGBX8_ANGLE textures
-            // even if the base format is GL_RGB.
-            formatsMatch = format == GL_RGBA;
-        }
-
-        if (!formatsMatch)
+        // ANGLE_rgbx_internal_format allows GL_RGBA to be uploaded to GL_RGBX8_ANGLE textures
+        // even if the base format is GL_RGB.
+        const GLenum textureSizedInternalFormat = textureInternalFormat.sizedInternalFormat;
+        bool isFormatSpecialCase                = textureSizedInternalFormat == GL_RGBX8_ANGLE;
+        if (!isFormatSpecialCase && format != textureInternalFormat.format)
         {
             ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureFormatMismatch);
             return false;
@@ -1524,37 +1707,17 @@ bool ValidateES2TexImageParameters(const Context *context,
 
         if (context->isWebGL())
         {
-            const GLenum textureSizedInternalFormat = textureInternalFormat.sizedInternalFormat;
-            auto isValid                            = false;
-
-            if (textureSizedInternalFormat == GL_RGBX8_ANGLE)
-            {
-                // Special case: As per extension ANGLE_rgbx_internal_format,
-                // ANGLE_rgbx_internal_format allows GL_RGB/GL_UNSIGNED_BYTE and
-                // GL_RGBA/GL_UNSIGNED_BYTE to be uploaded to GL_RGBX8_ANGLE textures even if sized
-                // internal formats mismatch.
-                isValid = (type == GL_UNSIGNED_BYTE && (format == GL_RGB || format == GL_RGBA));
-            }
-            else
-            {
-                if (format == GL_BGRA_EXT)
-                {
-                    // GL_BGRA_EXT is registered as a sized format in ANGLE, which can cause
-                    // GetInternalFormatInfo to return it as an alias for GL_BGRA8_EXT. We
-                    // check both GetSizedFormatInternal (which resolves to the canonical
-                    // sized format) and GetInternalFormatInfo (which might return GL_BGRA_EXT
-                    // itself) to handle all cases.
-                    isValid = (GetSizedFormatInternal(format, type) == textureSizedInternalFormat ||
-                               GetInternalFormatInfo(format, type).sizedInternalFormat ==
-                                   textureSizedInternalFormat);
-                }
-                else
-                {
-                    isValid = (GetInternalFormatInfo(format, type).sizedInternalFormat ==
-                               textureSizedInternalFormat);
-                }
-            }
-            if (!isValid)
+            // For valid GL_RGBX8_ANGLE combinations, GetInternalFormatInfo returns as either
+            // GL_RGB8 or GL_RGBA8.
+            // GL_BGRA_EXT is registered as a sized format in ANGLE, which can
+            // cause GetInternalFormatInfo to return it as an alias for GL_BGRA8_EXT. We check both
+            // GetSizedFormatInternal (which resolves to the canonical sized format) and
+            // GetInternalFormatInfo (which might return GL_BGRA_EXT itself) to handle all cases.
+            bool isSizedFormatSpecialCase = textureSizedInternalFormat == GL_RGBX8_ANGLE ||
+                                            textureSizedInternalFormat == GL_BGRA8_EXT;
+            if (!isSizedFormatSpecialCase &&
+                textureSizedInternalFormat !=
+                    GetInternalFormatInfo(format, type).sizedInternalFormat)
             {
                 ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTypeMismatch);
                 return false;
@@ -1911,7 +2074,7 @@ bool ValidateCompressedTexImage(const Context *context,
             return false;
         }
 
-        if (context->isWebGL() || context->isHardenedContext())
+        if (context->isHardenedContext())
         {
             if (ANGLE_UNLIKELY(pixelUnpackBuffer->hasTFBBindingConflict()))
             {
@@ -2167,7 +2330,7 @@ bool ValidateCompressedTexSubImage(const Context *context,
             return false;
         }
 
-        if (context->isWebGL() || context->isHardenedContext())
+        if (context->isHardenedContext())
         {
             if (ANGLE_UNLIKELY(pixelUnpackBuffer->hasTFBBindingConflict()))
             {
@@ -2925,8 +3088,9 @@ bool ValidateBlitFramebufferANGLE(const Context *context,
         }
     }
 
-    GLenum masks[]       = {GL_DEPTH_BUFFER_BIT, GL_STENCIL_BUFFER_BIT};
-    GLenum attachments[] = {GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT};
+    static constexpr std::array<GLenum, 2> masks = {GL_DEPTH_BUFFER_BIT, GL_STENCIL_BUFFER_BIT};
+    static constexpr std::array<GLenum, 2> attachments = {GL_DEPTH_ATTACHMENT,
+                                                          GL_STENCIL_ATTACHMENT};
     for (size_t i = 0; i < 2; i++)
     {
         if (mask & masks[i])
@@ -3389,7 +3553,7 @@ bool ValidateMapBufferBase(const Context *context,
         }
     }
 
-    if (context->isWebGL() || context->isHardenedContext())
+    if (context->isHardenedContext())
     {
         if (buffer->hasTFBBindingConflict())
         {
@@ -3453,26 +3617,6 @@ bool ValidateBindUniformLocationCHROMIUM(const Context *context,
     {
         // Error already generated.
         return false;
-    }
-
-    return true;
-}
-
-bool ValidateCoverageModulationCHROMIUM(const PrivateState &state,
-                                        ErrorSet *errors,
-                                        angle::EntryPoint entryPoint,
-                                        GLenum components)
-{
-    switch (components)
-    {
-        case GL_RGB:
-        case GL_RGBA:
-        case GL_ALPHA:
-        case GL_NONE:
-            break;
-        default:
-            errors->validationError(entryPoint, GL_INVALID_ENUM, kInvalidCoverageComponents);
-            return false;
     }
 
     return true;
@@ -3934,7 +4078,7 @@ bool ValidateBufferData(const Context *context,
     }
 
     // Do some additional WebGL-specific validation
-    if (ANGLE_UNLIKELY(context->isWebGL() || context->isHardenedContext()))
+    if (ANGLE_UNLIKELY(context->isHardenedContext()))
     {
         if (buffer->hasTFBBindingConflict())
         {
@@ -4006,7 +4150,7 @@ bool ValidateBufferSubData(const Context *context,
     }
 
     // Do some additional WebGL-specific validation
-    if (ANGLE_UNLIKELY(context->isWebGL() || context->isHardenedContext()))
+    if (ANGLE_UNLIKELY(context->isHardenedContext()))
     {
         if (buffer->hasTFBBindingConflict())
         {
@@ -5470,108 +5614,15 @@ bool ValidateFramebufferTexture2D(const Context *context,
         Texture *tex = context->getTexture(texture);
         ASSERT(tex);
 
-        const Caps &caps = context->getCaps();
-
-        switch (textarget)
+        if (!ValidateFramebufferTexture2DTarget(context, entryPoint, tex, textarget, level))
         {
-            case TextureTarget::_2D:
-            {
-                if (level > log2(caps.max2DTextureSize))
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kInvalidMipLevel);
-                    return false;
-                }
-                if (tex->getType() != TextureType::_2D)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kInvalidTextureTarget);
-                    return false;
-                }
-            }
-            break;
+            return false;
+        }
 
-            case TextureTarget::Rectangle:
-            {
-                if (level != 0)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kInvalidMipLevel);
-                    return false;
-                }
-                if (tex->getType() != TextureType::Rectangle)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
-                    return false;
-                }
-            }
-            break;
-
-            case TextureTarget::CubeMapNegativeX:
-            case TextureTarget::CubeMapNegativeY:
-            case TextureTarget::CubeMapNegativeZ:
-            case TextureTarget::CubeMapPositiveX:
-            case TextureTarget::CubeMapPositiveY:
-            case TextureTarget::CubeMapPositiveZ:
-            {
-                if (level > log2(caps.maxCubeMapTextureSize))
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kInvalidMipLevel);
-                    return false;
-                }
-                if (tex->getType() != TextureType::CubeMap)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
-                    return false;
-                }
-            }
-            break;
-
-            case TextureTarget::_2DMultisample:
-            {
-                if (context->getClientVersion() < ES_3_1 &&
-                    !context->getExtensions().textureMultisampleANGLE)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION,
-                                           kMultisampleTextureExtensionOrES31Required);
-                    return false;
-                }
-
-                if (level != 0)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_VALUE, kLevelNotZero);
-                    return false;
-                }
-                if (tex->getType() != TextureType::_2DMultisample)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
-                    return false;
-                }
-            }
-            break;
-
-            case TextureTarget::External:
-            {
-                if (!context->getExtensions().YUVTargetEXT)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kYUVTargetExtensionRequired);
-                    return false;
-                }
-
-                if (attachment != GL_COLOR_ATTACHMENT0)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kInvalidAttachment);
-                    return false;
-                }
-
-                if (tex->getType() != TextureType::External)
-                {
-                    ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kTextureTargetMismatch);
-                    return false;
-                }
-            }
-            break;
-
-            default:
-                ANGLE_VALIDATION_ERROR(GL_INVALID_ENUM, kInvalidTextureTarget);
-                return false;
+        if (textarget == TextureTarget::External && attachment != GL_COLOR_ATTACHMENT0)
+        {
+            ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kInvalidAttachment);
+            return false;
         }
     }
 
@@ -5906,6 +5957,12 @@ bool ValidateTexStorage3DEXT(const Context *context,
                              GLsizei height,
                              GLsizei depth)
 {
+    if (context->getClientVersion() < ES_3_0 && !context->getExtensions().texture3DOES)
+    {
+        ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kES3Required);
+        return false;
+    }
+
     return ValidateTexStorage3D(context, entryPoint, type, levels, internalformat, width, height,
                                 depth);
 }
@@ -5916,27 +5973,7 @@ bool ValidateVertexAttribDivisorANGLE(const PrivateState &privateState,
                                       GLuint index,
                                       GLuint divisor)
 {
-    if (index >= static_cast<GLuint>(privateState.getCaps().maxVertexAttributes))
-    {
-        errors->validationError(entryPoint, GL_INVALID_VALUE, kIndexExceedsMaxVertexAttribute);
-        return false;
-    }
-
-    if (privateState.getLimitations().attributeZeroRequiresZeroDivisorInEXT)
-    {
-        if (index == 0 && divisor != 0)
-        {
-            errors->validationError(entryPoint, GL_INVALID_OPERATION,
-                                    kAttributeZeroRequiresDivisorLimitation);
-
-            // We also output an error message to the debugger window if tracing is active, so
-            // that developers can see the error message.
-            ERR() << kAttributeZeroRequiresDivisorLimitation;
-            return false;
-        }
-    }
-
-    return true;
+    return ValidateVertexAttribDivisor(privateState, errors, entryPoint, index, divisor);
 }
 
 bool ValidateVertexAttribDivisorEXT(const PrivateState &privateState,
@@ -5945,13 +5982,7 @@ bool ValidateVertexAttribDivisorEXT(const PrivateState &privateState,
                                     GLuint index,
                                     GLuint divisor)
 {
-    if (index >= static_cast<GLuint>(privateState.getCaps().maxVertexAttributes))
-    {
-        errors->validationError(entryPoint, GL_INVALID_VALUE, kIndexExceedsMaxVertexAttribute);
-        return false;
-    }
-
-    return true;
+    return ValidateVertexAttribDivisor(privateState, errors, entryPoint, index, divisor);
 }
 
 bool ValidateTexImage3DOES(const Context *context,
@@ -6059,18 +6090,27 @@ bool ValidateFramebufferTexture2DMultisampleEXT(const Context *context,
         return false;
     }
 
-    // EXT_multisampled_render_to_texture returns INVALID_OPERATION when a sample number higher than
-    // the maximum sample number supported by this format is passed.
-    // The getMaxSamples method is only guaranteed to be valid when the context is ES3.
-    if (texture.value != 0 && context->getClientVersion() >= ES_3_0)
+    if (texture.value != 0)
     {
-        Texture *tex                  = context->getTexture(texture);
-        GLenum sizedInternalFormat    = tex->getFormat(textarget, level).info->sizedInternalFormat;
-        const TextureCaps &formatCaps = context->getTextureCaps().get(sizedInternalFormat);
-        if (static_cast<GLuint>(samples) > formatCaps.sampleCounts.getMaxSamples())
+        Texture *tex = context->getTexture(texture);
+
+        if (!ValidateFramebufferTexture2DTarget(context, entryPoint, tex, textarget, level))
         {
-            ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kSamplesOutOfRange);
             return false;
+        }
+
+        // EXT_multisampled_render_to_texture returns INVALID_OPERATION when a sample number higher
+        // than the maximum sample number supported by this format is passed.
+        // The getMaxSamples method is only guaranteed to be valid when the context is ES3.
+        if (context->getClientVersion() >= ES_3_0)
+        {
+            GLenum sizedInternalFormat = tex->getFormat(textarget, level).info->sizedInternalFormat;
+            const TextureCaps &formatCaps = context->getTextureCaps().get(sizedInternalFormat);
+            if (static_cast<GLuint>(samples) > formatCaps.sampleCounts.getMaxSamples())
+            {
+                ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, kSamplesOutOfRange);
+                return false;
+            }
         }
     }
 
@@ -6189,11 +6229,6 @@ void RecordBindTextureTypeError(const Context *context,
             ASSERT(!context->getExtensions().EGLImageExternalOES &&
                    !context->getExtensions().EGLStreamConsumerExternalNV);
             ANGLE_VALIDATION_ERROR(GL_INVALID_ENUM, kExternalTextureNotSupported);
-            break;
-
-        case TextureType::VideoImage:
-            ASSERT(!context->getExtensions().videoTextureWEBGL);
-            ANGLE_VALIDATION_ERROR(GL_INVALID_ENUM, kExtensionNotEnabled);
             break;
 
         case TextureType::Buffer:

@@ -120,8 +120,8 @@ public:
 
     id<MTLBlitCommandEncoder> ensureBlitCommandEncoder();
     void finalizeBlitCommandEncoder();
-    static void clearTextureIfNeeded(const WGPUImageCopyTexture&, NSUInteger, const Device&, id<MTLBlitCommandEncoder>);
-    static void clearTextureIfNeeded(Texture&, NSUInteger, NSUInteger, const Device&, id<MTLBlitCommandEncoder>);
+    static void clearTextureIfNeeded(const WGPUImageCopyTexture&, NSUInteger, const Device&, id<MTLBlitCommandEncoder>, const CommandEncoder* _Nullable owningCommandEncoder = nullptr);
+    static void clearTextureIfNeeded(Texture&, NSUInteger, NSUInteger, const Device&, id<MTLBlitCommandEncoder>, const CommandEncoder* _Nullable owningCommandEncoder = nullptr);
     void clearTextureIfNeeded(const WGPUImageCopyTexture&, NSUInteger) HAS_SWIFTCXX_THUNK;
     void makeInvalid(NSString*);
     void makeSubmitInvalid(NSString* = nil);
@@ -137,6 +137,7 @@ public:
     void addICB(id<MTLIndirectCommandBuffer>);
     void addTexture(id<MTLTexture>);
     void addTexture(const Texture&);
+    void addResidentResource(id<MTLResource>);
     void addSampler(const Sampler&);
     id<MTLCommandBuffer> _Nullable NODELETE commandBuffer() const;
     void setExistingEncoder(id<MTLCommandEncoder>);
@@ -157,6 +158,9 @@ public:
     bool useResidencySet(id<MTLResidencySet>);
 #endif
     void skippedDrawIndexedValidation(uint64_t bufferIdentifier, DrawIndexCacheContainerIterator);
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    void skippedBundleIndirectDrawValidation(uint64_t bufferIdentifier, ReusedIndirectIndexedDraw&&);
+#endif // RC_REMOVE_SEC_ACCEL_3
     void rebindSamplersPreCommit(const BindGroup&);
 
 private:
@@ -195,6 +199,9 @@ private:
     NSMutableSet<id<MTLCounterSampleBuffer>> * _Nullable m_retainedTimestampBuffers { nil };
     Vector<Function<bool(CommandBuffer&, CommandEncoder&)>> m_onCommitHandlers;
     HashMap<uint64_t, Vector<std::pair<DrawIndexCacheContainerValue, uint32_t>>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_skippedDrawIndexedValidationKeys;
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    HashMap<uint64_t, Vector<ReusedIndirectIndexedDraw>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_reusedIndirectIndexedDraws;
+#endif // RC_REMOVE_SEC_ACCEL_3
     Vector<Ref<const BindGroup>> m_bindGroups;
     Vector<Ref<const Buffer>> m_trackedBuffers;
     Vector<Ref<const Texture>> m_trackedTextures;
@@ -207,7 +214,13 @@ private:
     id<MTLSharedEvent> _Nullable m_sharedEvent { nil };
     uint64_t m_sharedEventSignalValue { 0 };
     const Ref<Device> m_device;
+#ifdef RC_REMOVE_SEC_ACCEL_3
     uint64_t m_uniqueId;
+#else
+    // const so that a constructor which forgets to initialize this is a compile error rather than
+    // an uninitialized read in ~CommandEncoder(). rdar://178679545
+    const uint64_t m_uniqueId;
+#endif
 #if ENABLE(WEBGPU_BY_DEFAULT)
     uint32_t m_currentResidencySetCount { 0 };
 #endif

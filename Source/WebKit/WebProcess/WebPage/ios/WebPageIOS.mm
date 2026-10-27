@@ -779,6 +779,13 @@ WebCore::IntPoint WebPage::accessibilityRemoteFrameOffset()
 
 bool WebPage::platformCanHandleRequest(const WebCore::ResourceRequest& request)
 {
+    // CFNetwork's built-in protocols always handle these schemes, and a custom NSURLProtocol can
+    // only add handling, never take it away. Materializing the NSURLRequest just to ask is very
+    // expensive for URLs with a long query.
+    auto& url = request.url();
+    if (url.protocolIsInHTTPFamily() || url.protocolIsFile() || url.protocolIsData() || url.protocolIsAbout())
+        return true;
+
     RetainPtr nsRequest = request.nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
     if (!nsRequest.get().URL)
         return false;
@@ -2148,10 +2155,8 @@ void WebPage::replaceDictatedText(const String& oldText, const String& newText)
     if (frame->selection().isNone())
         return;
 
-    Ref editor = frame->editor();
-
-    if (editor->hasComposition()) {
-        editor->setComposition(newText, { }, { }, { }, newText.length(), newText.length());
+    if (frame->selection().isRange()) {
+        protect(frame->editor())->deleteSelectionWithSmartDelete(false);
         return;
     }
 
@@ -2162,13 +2167,7 @@ void WebPage::replaceDictatedText(const String& oldText, const String& newText)
     // We don't want to notify the client that the selection has changed until we are done inserting the new text.
     IgnoreSelectionChangeForScope ignoreSelectionChanges { *frame };
     protect(frame->selection())->setSelectedRange(*range, Affinity::Upstream, WebCore::FrameSelection::ShouldCloseTyping::Yes);
-    editor->deleteSelectionWithSmartDelete(false);
-
-    // Avoid dispatching a spurious compositionend by calling setComposition with empty text.
-    if (newText.isEmpty())
-        return;
-
-    editor->setComposition(newText, { }, { }, { }, newText.length(), newText.length());
+    protect(frame->editor())->insertText(newText, 0);
 }
 
 void WebPage::willInsertFinalDictationResult()
@@ -2806,6 +2805,7 @@ void WebPage::emitDeferredFocusedElementUpdate(PendingFocusedElementUpdate&& pen
         return;
 
     information->preventScroll = pending.options.preventScroll;
+    information->preventInputViewPresentation = pending.options.preventInputViewPresentation;
     information->isFocusingWithValidationMessage = pending.isFocusingWithValidationMessage;
     send(Messages::WebPageProxy::ElementDidFocus(information.value(), pending.userIsInteracting, pending.recentlyBlurredElementSnapshot, pending.activityStateChanges, UserData(WebProcess::singleton().transformObjectsToHandles(pending.userData.get()).get())));
 }

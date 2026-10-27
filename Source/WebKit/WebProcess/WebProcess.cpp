@@ -421,6 +421,10 @@ WebProcess::WebProcess()
 
     WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
     WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
+
+    WebCore::AXObjectCache::setSyncModeToOtherProcessesCallback([](WebCore::AccessibilityMode mode) {
+        WebProcess::singleton().send(Messages::WebProcessProxy::AccessibilityModeDidChange(mode), 0);
+    });
     LegacyExtensionContent::singleton().initialize(*this); // AQUAWEBKIT: Safari 7 extensions' browser namespace.
 }
 
@@ -1080,6 +1084,9 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
 {
     m_hasEverHadAnyWebPages = true;
 
+    // Read before the parameters are moved from.
+    auto accessibilityMode = parameters.accessibilityMode;
+
     auto addResult = m_pageMap.ensure(pageID, [&] {
         return WebPage::create(pageID, WTF::move(parameters));
     });
@@ -1089,6 +1096,9 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
     // link) the WebPage gets created both in the synchronous handler and through the normal way.
     if (addResult.isNewEntry) {
 #if ENABLE(GPU_PROCESS)
+#ifndef RC_REMOVE_SEC_ACCEL_3
+        assertIsMainRunLoop();
+#endif
         if (RefPtr gpuProcessConnection = m_gpuProcessConnection)
             page->gpuProcessConnectionDidBecomeAvailable(*gpuProcessConnection);
 #endif
@@ -1103,6 +1113,9 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
 #endif
     } else
         page->reinitializeWebPage(WTF::move(parameters));
+
+    // Bring this process up to the mode the UI process says web content should be in.
+    setAccessibilityMode(accessibilityMode);
 
     if (m_hasPendingAccessibilityUnsuspension) {
         m_hasPendingAccessibilityUnsuspension = false;
@@ -1554,6 +1567,9 @@ WebLoaderStrategy& WebProcess::webLoaderStrategy()
 GPUProcessConnection& WebProcess::ensureGPUProcessConnection()
 {
     RELEASE_ASSERT(RunLoop::isMain());
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    assertIsMainRunLoop();
+#endif
 
     // If we've lost our connection to the GPU process (e.g. it crashed) try to re-establish it.
     if (!m_gpuProcessConnection) {
@@ -1566,13 +1582,28 @@ GPUProcessConnection& WebProcess::ensureGPUProcessConnection()
         if (gpuConnection->ignoreInvalidMessageForTesting())
             gpuConnection->setIgnoreInvalidMessageForTesting();
 #endif
+#ifdef RC_REMOVE_SEC_ACCEL_3
         m_gpuProcessConnection = GPUProcessConnection::create(WTF::move(gpuConnection));
+#else
+        {
+            Locker locker { m_gpuProcessConnectionLock };
+            m_gpuProcessConnection = GPUProcessConnection::create(WTF::move(gpuConnection));
+        }
+#endif
         protect(parentProcessConnection())->send(Messages::WebProcessProxy::CreateGPUProcessConnection(m_gpuProcessConnection->identifier(),  WTF::move(connectionIdentifiers->client)), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
         for (auto& page : m_pageMap.values())
             page->gpuProcessConnectionDidBecomeAvailable(Ref { *m_gpuProcessConnection });
     }
     return *m_gpuProcessConnection;
 }
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+RefPtr<GPUProcessConnection> WebProcess::existingGPUProcessConnectionOffMainThread() WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+{
+    Locker locker { m_gpuProcessConnectionLock };
+    return m_gpuProcessConnection;
+}
+#endif
 
 Seconds WebProcess::gpuProcessTimeoutDuration() const
 {
@@ -1582,8 +1613,19 @@ Seconds WebProcess::gpuProcessTimeoutDuration() const
 
 void WebProcess::gpuProcessConnectionClosed()
 {
+#ifdef RC_REMOVE_SEC_ACCEL_3
     ASSERT(m_gpuProcessConnection);
     m_gpuProcessConnection = nullptr;
+#else
+    assertIsMainRunLoop();
+    ASSERT(m_gpuProcessConnection);
+    // Keeps the connection alive until after the lock is released.
+    RefPtr<GPUProcessConnection> closedConnection;
+    {
+        Locker locker { m_gpuProcessConnectionLock };
+        closedConnection = std::exchange(m_gpuProcessConnection, nullptr);
+    }
+#endif
 
     for (auto& page : m_pageMap.values())
         page->gpuProcessConnectionWasDestroyed();
@@ -1596,6 +1638,9 @@ void WebProcess::gpuProcessConnectionClosed()
 
 void WebProcess::gpuProcessConnectionDidBecomeUnresponsive()
 {
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    assertIsMainRunLoop();
+#endif
     ASSERT(m_gpuProcessConnection);
     protect(parentProcessConnection())->send(Messages::WebProcessProxy::GPUProcessConnectionDidBecomeUnresponsive(m_gpuProcessConnection->identifier()), 0);
 }
@@ -1650,6 +1695,25 @@ void WebProcess::modelProcessConnectionClosed(ModelProcessConnection& connection
 void WebProcess::setEnhancedAccessibility(bool flag)
 {
     WebCore::AXObjectCache::setEnhancedUserInterfaceAccessibility(flag);
+}
+
+void WebProcess::setAccessibilityMode(WebCore::AccessibilityMode mode)
+{
+    if (WebCore::isAccessibilityModeOff(mode)) {
+        // Accessibility is never turned back off in production. The only transition to Off is
+        // AXObjectCache::disableAccessibilityForTesting, which deliberately doesn't sync to other
+        // processes. So receiving Off here just means this process isn't being asked to turn on.
+        return;
+    }
+
+    // RequireSettingOnly, not None. This runs downstream of IPC mode transitions or webpage creation,
+    // both of which may not have an actual client set. Assume that because a peer has seen a client that
+    // allows for isolated tree enablement, we will too.
+    auto preconditions = mode == WebCore::AccessibilityMode::AXThread
+        ? WebCore::AXObjectCache::AXThreadModePreconditions::RequireSettingOnly
+        : WebCore::AXObjectCache::AXThreadModePreconditions::RequireClientAndSetting;
+
+    WebCore::AXObjectCache::enableAccessibility(preconditions);
 }
 
 void WebProcess::startMemorySampler(SandboxExtension::Handle&& sampleLogFileHandle, const String& sampleLogFilePath, const double interval)

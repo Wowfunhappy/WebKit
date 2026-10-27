@@ -358,6 +358,9 @@ void WebsiteDataStore::registerProcess(WebProcessProxy& process)
 {
     ASSERT(process.pageCount() || process.provisionalPageCount() || process.remotePageCount());
     m_processes.add(process);
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    m_cachedIsOptInCookiePartitioningEnabled = std::nullopt;
+#endif
 }
 
 void WebsiteDataStore::unregisterProcess(WebProcessProxy& process)
@@ -2751,11 +2754,15 @@ void WebsiteDataStore::download(const DownloadProxy& downloadProxy, const String
     std::optional<NavigatingToAppBoundDomain> isAppBound = NavigatingToAppBoundDomain::No;
     WebCore::ResourceRequest updatedRequest(downloadProxy.request());
     std::optional<WebCore::SecurityOriginData> topOrigin;
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
     // Request's firstPartyForCookies will be used as Original URL of the download request.
     // We set the value to top level document's URL.
     if (RefPtr initiatingPage = downloadProxy.originatingPage()) {
 #if ENABLE(APP_BOUND_DOMAINS)
         isAppBound = initiatingPage->isTopFrameNavigatingToAppBoundDomain();
+#endif
+#if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
+        advancedPrivacyProtections = initiatingPage->advancedPrivacyProtectionsPolicies();
 #endif
 
         auto& initiatingPageURL = initiatingPage->pageLoadState().url();
@@ -2771,7 +2778,7 @@ void WebsiteDataStore::download(const DownloadProxy& downloadProxy, const String
             updatedRequest.setHTTPUserAgent(WebPageProxy::standardUserAgent());
     }
     updatedRequest.setIsTopSite(false);
-    protect(networkProcess())->send(Messages::NetworkProcess::DownloadRequest(m_sessionID, downloadProxy.downloadID(), updatedRequest, topOrigin, isAppBound, suggestedFilename), 0);
+    protect(networkProcess())->send(Messages::NetworkProcess::DownloadRequest(m_sessionID, downloadProxy.downloadID(), updatedRequest, topOrigin, isAppBound, advancedPrivacyProtections, suggestedFilename), 0);
 }
 
 void WebsiteDataStore::resumeDownload(const DownloadProxy& downloadProxy, const API::Data& resumeData, const String& path, CallDownloadDidStart callDownloadDidStart)

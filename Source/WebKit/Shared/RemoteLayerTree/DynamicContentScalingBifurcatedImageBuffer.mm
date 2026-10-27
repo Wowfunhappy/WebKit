@@ -79,6 +79,13 @@ void DynamicContentScalingBifurcatedImageBuffer::releaseGraphicsContext()
     m_context = nullptr;
 }
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+bool DynamicContentScalingBifurcatedImageBuffer::hasGraphicsContext() const
+{
+    return m_context || ImageBuffer::hasGraphicsContext() || m_dynamicContentScalingBackend->hasGraphicsContext();
+}
+#endif // RC_REMOVE_SEC_ACCEL_3
+
 }
 
 #endif // ENABLE(RE_DYNAMIC_CONTENT_SCALING)

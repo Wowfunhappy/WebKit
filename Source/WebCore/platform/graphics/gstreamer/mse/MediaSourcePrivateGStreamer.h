@@ -60,7 +60,7 @@ public:
     virtual ~MediaSourcePrivateGStreamer();
 
     // AQUAWEBKIT: worker time queries read the GStreamer player on its main dispatcher.
-    MediaTime currentTime() const final;
+    MediaTime platformCurrentTime() const final;
     bool timeIsProgressing() const final;
     void setPlayer(MediaPlayerPrivateInterface*) final;
     RefPtr<MediaPlayerPrivateInterface> player() const final;

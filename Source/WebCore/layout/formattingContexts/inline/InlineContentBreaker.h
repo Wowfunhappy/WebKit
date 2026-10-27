@@ -27,6 +27,7 @@
 
 #include <WebCore/FormattingConstraints.h>
 #include <WebCore/LayoutUnits.h>
+#include <WebCore/TextUtil.h>
 
 namespace WebCore {
 
@@ -157,7 +158,7 @@ public:
         bool hasWrapOpportunityAtPreviousPosition { false };
     };
     Result processInlineContent(const ContinuousContent&, const LineStatus&);
-    void setHyphenationDisabled(bool hyphenationIsDisabled) { n_hyphenationIsDisabled = hyphenationIsDisabled; }
+    void setHyphenationDisabled(bool hyphenationIsDisabled) { m_hyphenationIsDisabled = hyphenationIsDisabled; }
     void setIsMinimumInIntrinsicWidthMode(bool isMinimumInIntrinsicWidthMode) { m_isMinimumInIntrinsicWidthMode = isMinimumInIntrinsicWidthMode; }
 
 private:
@@ -179,24 +180,25 @@ private:
         std::optional<BreakingPosition> breakingPosition { }; // Where we actually break this overflowing content.
     };
     OverflowingTextContent processOverflowingContentWithText(const ContinuousContent&, const LineStatus&) const;
-    std::optional<Result> simplifiedMinimumInstrinsicWidthBreak(const ContinuousContent&, const LineStatus&) const;
+    std::optional<Result> simplifiedMinimumIntrinsicWidthBreak(const ContinuousContent&, const LineStatus&) const;
     std::optional<PartialRun> tryBreakingTextRun(const ContinuousContent::RunList& runs, const CandidateTextRunForBreaking&, InlineLayoutUnit availableWidth, const LineStatus&) const;
     std::optional<OverflowingTextContent::BreakingPosition> tryBreakingOverflowingRun(const LineStatus&, const ContinuousContent::RunList&, size_t overflowingRunIndex, InlineLayoutUnit nonOverflowingContentWidth) const;
     std::optional<OverflowingTextContent::BreakingPosition> tryBreakingPreviousNonOverflowingRuns(const LineStatus&, const ContinuousContent::RunList&, size_t overflowingRunIndex, InlineLayoutUnit nonOverflowingContentWidth) const;
     std::optional<OverflowingTextContent::BreakingPosition> tryBreakingNextOverflowingRuns(const LineStatus&, const ContinuousContent::RunList&, size_t overflowingRunIndex, InlineLayoutUnit nonOverflowingContentWidth) const;
     std::optional<OverflowingTextContent::BreakingPosition> tryHyphenationAcrossOverflowingInlineTextItems(const LineStatus&, const ContinuousContent::RunList&, size_t overflowingRunIndex) const;
 
-    enum class WordBreakRule : uint8_t {
-        AtArbitraryPositionWithinWords,
-        AtArbitraryPosition,
-        AtHyphenationOpportunities
-    };
-    EnumSet<WordBreakRule> wordBreakBehavior(const Style::ComputedStyle&, bool hasWrapOpportunityAtPreviousPosition) const;
+    using WordBreakRule = TextUtil::WordBreakRule;
+    EnumSet<WordBreakRule> wordBreakBehavior(const Style::ComputedStyle& style, bool hasWrapOpportunityAtPreviousPosition) const
+    {
+        return TextUtil::wordBreakBehavior(style, hasWrapOpportunityAtPreviousPosition,
+            m_isMinimumInIntrinsicWidthMode ? TextUtil::IsMinimumInIntrinsicWidthMode::Yes : TextUtil::IsMinimumInIntrinsicWidthMode::No,
+            m_hyphenationIsDisabled ? TextUtil::HyphenationIsDisabled::Yes : TextUtil::HyphenationIsDisabled::No);
+    }
     bool isMinimumInIntrinsicWidthMode() const { return m_isMinimumInIntrinsicWidthMode; }
 
 private:
     bool m_isMinimumInIntrinsicWidthMode { false };
-    bool n_hyphenationIsDisabled { false };
+    bool m_hyphenationIsDisabled { false };
 };
 
 inline InlineContentBreaker::ContinuousContent::Run::Run(const InlineItem& inlineItem, const Style::ComputedStyle& style, InlineLayoutUnit offset, InlineLayoutUnit contentWidth, InlineLayoutUnit textSpacingAdjustment)

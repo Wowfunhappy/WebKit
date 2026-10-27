@@ -946,6 +946,7 @@ CURLcode CocoaCurlTransfer::sslContextCallback(CURL* easy, void* context, void* 
     transfer.m_tls = std::make_shared<CocoaCurlTLSState>();
     auto& state = *transfer.m_tls;
     state.url = transfer.connectionURL();
+    state.presentsPreferredIdentity = transfer.m_options.presentsPreferredIdentity;
     state.acceptedChain = transfer.m_options.acceptedCertificateChain;
     state.allowedTrust = transfer.m_options.allowedServerTrust;
     // keychain access is an asynchronous native operation; no SSL handle crosses into its work queue.
@@ -1001,6 +1002,33 @@ CURLcode CocoaCurlTransfer::sslContextCallback(CURL* easy, void* context, void* 
                     transfer->m_tls->evaluated = true;
                     transfer->resumeTransfer();
                 });
+            });
+        });
+        return true;
+    };
+    // The keychain lookup and the chain's trust evaluation leave the curl worker, as signing does.
+    state.requestPreferredIdentity = [weakTransfer = WeakPtr { transfer }] {
+        RefPtr transfer = weakTransfer.get();
+        if (!transfer || !transfer->m_running)
+            return false;
+        ++transfer->m_clientInteractions;
+        transfer->m_timer.stop();
+        auto url = transfer->m_tls->url.isolatedCopy();
+        static NeverDestroyed<Ref<ConcurrentWorkQueue>> lookupQueue = ConcurrentWorkQueue::create("Cocoa keychain identity preference"_s);
+        lookupQueue.get()->dispatch([transfer = WTF::move(transfer), url = WTF::move(url)]() mutable {
+            auto preferred = CocoaCurlTLSState::preferredIdentity(url);
+            Ref worker { transfer->m_scheduler->runLoop() };
+            worker->dispatch([transfer = WTF::move(transfer), preferred = WTF::move(preferred)]() mutable {
+                --transfer->m_clientInteractions;
+                if (!transfer->m_running)
+                    return;
+                if (preferred) {
+                    transfer->m_tls->identity = WTF::move(preferred->identity);
+                    transfer->m_tls->clientCertificates = WTF::move(preferred->certificates);
+                    transfer->m_tls->identityAnswered = true;
+                }
+                transfer->m_tls->preferredIdentityResolved = true;
+                transfer->resumeTransfer();
             });
         });
         return true;

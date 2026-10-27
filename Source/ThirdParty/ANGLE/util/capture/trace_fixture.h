@@ -18,6 +18,7 @@
 
 #include "angle_gl.h"
 #include "common/frame_capture_binary_data.h"
+#include "common/frame_capture_shared.h"
 #include "trace_interface.h"
 #include "traces_export.h"
 
@@ -228,6 +229,10 @@ const uint8_t *GetBinaryData(const size_t offset);
 void InitializeBinaryDataLoader();
 
 void UpdateClientArrayPointer(int arrayIndex, const void *data, uint64_t size);
+void UpdateClientArrayPointerWithOffset(int arrayIndex,
+                                        const void *data,
+                                        uint64_t size,
+                                        uint64_t offset);
 void UpdateClientBufferData(GLuint bufferID, const void *source, GLsizei size);
 void UpdateClientBufferDataWithOffset(GLuint bufferID,
                                       const void *source,
@@ -278,6 +283,7 @@ void CreateShaderProgramv(GLenum type,
                           GLuint shaderProgram);
 void FenceSync(GLenum condition, GLbitfield flags, uintptr_t fenceSync);
 void FenceSync2(GLenum condition, GLbitfield flags, uintptr_t fenceSync);
+GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout, GLenum capturedReturnValue);
 void UpdateEGLImageData(GLuint imageID, GLsizei width, GLsizei height, const void *imageData);
 void CreateEGLImage(EGLDisplay dpy,
                     EGLContext ctx,

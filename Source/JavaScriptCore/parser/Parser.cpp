@@ -2872,8 +2872,9 @@ template <class TreeBuilder> bool Parser<LexerType>::parseFunctionInfo(TreeBuild
     const int minimumSourceLengthToCache = functionBodyType == StandardFunctionBodyBlock ? 16 : 8;
     std::unique_ptr<SourceProviderCacheItem> newInfo;
     int sourceLength = functionInfo.endOffset - functionInfo.startOffset;
+    SourceProviderCacheItemCreationParameters parameters;
+    bool hasPrecomputedFreeVariables = false;
     if (TreeBuilder::CanUseFunctionCache && m_functionCache && sourceLength > minimumSourceLengthToCache) {
-        SourceProviderCacheItemCreationParameters parameters;
         parameters.endFunctionOffset = functionInfo.endOffset;
         parameters.lastTokenLine = location.line;
         parameters.lastTokenStartOffset = location.startOffset;
@@ -2888,12 +2889,13 @@ template <class TreeBuilder> bool Parser<LexerType>::parseFunctionInfo(TreeBuild
             parameters.tokenType = m_token.m_type;
         }
         functionScope->fillParametersForSourceProviderCache(parameters, nonLocalCapturesFromParameterExpressions);
+        hasPrecomputedFreeVariables = true;
         newInfo = SourceProviderCacheItem::create(parameters);
     }
 
     bool functionScopeWasStrictMode = functionScope->strictMode();
     
-    popScope(functionScope, TreeBuilder::NeedsFreeVariableInfo);
+    popScope(functionScope, TreeBuilder::NeedsFreeVariableInfo, hasPrecomputedFreeVariables, parameters.freeVariables());
     
     if (functionBodyType != ArrowFunctionBodyExpression)
         consumeOrFail(CLOSEBRACE, "Expected a closing '}' after a ", stringForFunctionMode(mode), " body");
@@ -4275,6 +4277,63 @@ template <typename TreeBuilder> bool Parser<LexerType>::isSimpleAssignmentTarget
 }
 
 template <typename LexerType>
+template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseDestructuringAssignment(TreeBuilder& context, SavePoint& savePoint, const JSTokenLocation& location, bool isPossiblePattern)
+{
+    SavePointWithError expressionErrorLocation = swapSavePointForError(context, savePoint);
+    auto pattern = tryParseDestructuringPatternExpression(context, AssignmentContext::AssignmentExpression);
+
+    // The reason why we use restoreSavePointWithError only when isPossiblePattern = true is that
+    // this can produce better error message.
+    if (isPossiblePattern && (!pattern || !match(EQUAL))) {
+        restoreSavePointWithError(context, expressionErrorLocation);
+        propagateError();
+    }
+    failIfFalse(pattern, "Cannot parse assignment pattern");
+    consumeOrFail(EQUAL, "Expected '=' following assignment pattern");
+    auto rhs = parseAssignmentExpression(context);
+    if (!rhs)
+        propagateError();
+    return context.createDestructuringAssignment(location, pattern, rhs);
+}
+
+template <typename LexerType>
+template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseArrowFunctionCandidate(TreeBuilder& context, SavePoint& savePoint, const JSTokenLocation& location, bool isArrowFunctionToken, bool wasOpenParen, size_t usedVariablesSize, bool& shouldReturnResult)
+{
+    SavePointWithError errorRestorationSavePoint = swapSavePointForError(context, savePoint);
+    bool isAsync = false;
+    if (matchContextualKeyword(m_vm.propertyNames->async)) {
+        next();
+        if (!m_lexer->hasLineTerminatorBeforeToken() && (match(OPENPAREN) || matchSpecIdentifier()))
+            isAsync = true;
+        else {
+            // This is async => ... case. So this "async" is not a contextual keyword, it is parameter name.
+            restoreSavePoint(context, savePoint);
+        }
+    }
+
+    if (isArrowFunctionParameters(context)) {
+        if (wasOpenParen)
+            currentScope()->revertToPreviousUsedVariables(usedVariablesSize);
+        shouldReturnResult = true;
+        return parseArrowFunctionExpression(context, isAsync, location);
+    }
+
+    // The reason why we use propagateError only when isArrowFunctionToken = true is that
+    // this can produce better error message than restoring it to errorRestorationSavePoint.
+    if (isArrowFunctionToken && hasError()) [[unlikely]] {
+        shouldReturnResult = true;
+        return 0;
+    }
+
+    restoreSavePointWithError(context, errorRestorationSavePoint);
+    if (isArrowFunctionToken) [[unlikely]] {
+        shouldReturnResult = true;
+        failDueToUnexpectedToken();
+    }
+    return 0;
+}
+
+template <typename LexerType>
 template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseAssignmentExpression(TreeBuilder& context)
 {
     ASSERT(!hasError());
@@ -4325,56 +4384,18 @@ template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseAssignmen
     if (maybeValidArrowFunctionStart && !match(EOFTOK)) {
         bool isArrowFunctionToken = match(ARROWFUNCTION);
         if (!lhs || isArrowFunctionToken) {
-            SavePointWithError errorRestorationSavePoint = swapSavePointForError(context, *savePoint);
-            bool isAsync = false;
-            if (matchContextualKeyword(m_vm.propertyNames->async)) {
-                next();
-                if (!m_lexer->hasLineTerminatorBeforeToken() && (match(OPENPAREN) || matchSpecIdentifier()))
-                    isAsync = true;
-                else {
-                    // This is async => ... case. So this "async" is not a contextual keyword, it is parameter name.
-                    restoreSavePoint(context, *savePoint);
-                }
-            }
-
-            if (isArrowFunctionParameters(context)) {
-                if (wasOpenParen)
-                    currentScope()->revertToPreviousUsedVariables(usedVariablesSize);
-                return parseArrowFunctionExpression(context, isAsync, location);
-            }
-
-            // The reason why we use propagateError only when isArrowFunctionToken = true is that
-            // this can produce better error message than restoring it to errorRestorationSavePoint.
-            if (isArrowFunctionToken)
-                propagateError();
-
-            restoreSavePointWithError(context, errorRestorationSavePoint);
-            if (isArrowFunctionToken) [[unlikely]]
-                failDueToUnexpectedToken();
+            bool shouldReturnResult = false;
+            TreeExpression result = parseArrowFunctionCandidate(context, *savePoint, location, isArrowFunctionToken, wasOpenParen, usedVariablesSize, shouldReturnResult);
+            if (shouldReturnResult)
+                return result;
         }
     }
 
     if (!lhs && !maybeAssignmentPattern)
         propagateError();
 
-    if (maybeAssignmentPattern && (!lhs || (match(EQUAL) && context.isObjectOrArrayLiteral(lhs)))) {
-        bool isPossiblePattern = !lhs;
-        SavePointWithError expressionErrorLocation = swapSavePointForError(context, *savePoint);
-        auto pattern = tryParseDestructuringPatternExpression(context, AssignmentContext::AssignmentExpression);
-
-        // The reason why we use restoreSavePointWithError only when isPossiblePattern = true is that
-        // this can produce better error message.
-        if (isPossiblePattern && (!pattern || !match(EQUAL))) {
-            restoreSavePointWithError(context, expressionErrorLocation);
-            propagateError();
-        }
-        failIfFalse(pattern, "Cannot parse assignment pattern");
-        consumeOrFail(EQUAL, "Expected '=' following assignment pattern");
-        auto rhs = parseAssignmentExpression(context);
-        if (!rhs)
-            propagateError();
-        return context.createDestructuringAssignment(location, pattern, rhs);
-    }
+    if (maybeAssignmentPattern && (!lhs || (match(EQUAL) && context.isObjectOrArrayLiteral(lhs))))
+        return parseDestructuringAssignment(context, *savePoint, location, !lhs);
 
     failIfFalse(lhs, "Cannot parse expression");
     if (initialNonLHSCount != m_parserState.nonLHSCount) {
@@ -4680,9 +4701,9 @@ namedProperty:
         JSToken identToken = m_token;
 
         if (wasUnescapedIdent && !isGeneratorMethodParseMode(parseMode) && (*ident == m_vm.propertyNames->get || *ident == m_vm.propertyNames->set))
-            nextExpectIdentifier(LexerFlags::IgnoreReservedWords);
+            next(LexerFlags::IgnoreReservedWords);
         else
-            nextExpectIdentifier(TreeBuilder::DontBuildKeywords | LexerFlags::IgnoreReservedWords);
+            next(TreeBuilder::DontBuildKeywords | LexerFlags::IgnoreReservedWords);
 
         if (!isGeneratorMethodParseMode(parseMode) && !isAsyncMethodParseMode(parseMode) && match(COLON)) {
             next();
@@ -5410,7 +5431,20 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseMemberExpres
     TreeExpression base = 0;
     JSTextPosition expressionStart = tokenStartPosition();
     JSTokenLocation location = tokenLocation();
-    Vector<JSTextPosition, 4> newTokenStartPositions;
+
+    // No need to accumulate newTokenStartPositions if the builder is SyntaxChecker.
+    struct IgnoredPositions {
+        void append(const JSTextPosition&) { ++m_size; }
+        JSTextPosition operator[](size_t) const { return { }; }
+        size_t size() const { return m_size; }
+    private:
+        unsigned m_size { 0 };
+    };
+    static_assert(!std::is_same_v<TreeBuilder, SyntaxChecker>
+        || requires (TreeBuilder& builder, TreeExpression expression, const JSTokenLocation& newLocation) { builder.createNewExpr(newLocation, expression, 0, 0, 0); },
+        "SyntaxChecker::createNewExpr is expected to accept ints instead of JSTextPositions and ignore them.");
+
+    std::conditional_t<std::is_same_v<TreeBuilder, SyntaxChecker>, IgnoredPositions, Vector<JSTextPosition, 4>> newTokenStartPositions;
     while (match(NEW)) {
         newTokenStartPositions.append(tokenStartPosition());
         next();
@@ -5611,7 +5645,7 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseMemberExpres
             case DOT: {
                 m_parserState.nonTrivialExpressionCount++;
                 JSTextPosition expressionDivot = tokenStartPosition();
-                nextExpectIdentifier(TreeBuilder::DontBuildKeywords | LexerFlags::IgnoreReservedWords);
+                next(TreeBuilder::DontBuildKeywords | LexerFlags::IgnoreReservedWords);
                 const Identifier* ident = m_token.m_data.ident;
                 auto type = DotType::Name;
                 if (match(PRIVATENAME)) {

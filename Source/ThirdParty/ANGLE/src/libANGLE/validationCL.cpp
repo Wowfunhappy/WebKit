@@ -227,15 +227,14 @@ cl_int ValidateMemoryProperties(cl_context context,
             case CL_EXTERNAL_MEMORY_HANDLE_DMA_BUF_KHR:
             case CL_EXTERNAL_MEMORY_HANDLE_OPAQUE_FD_KHR:
             {
-                // just validate the basics for dma_buf and posix fd for now
-                uint32_t fdDmaBuf = *reinterpret_cast<uint32_t *>(pMemoryHandle->value);
                 if (host_ptr != nullptr)
                 {
                     // CL_INVALID_HOST_PTR if properties includes a supported external memory handle
                     // and host_ptr is not NULL
                     return CL_INVALID_HOST_PTR;
                 }
-                if (fdDmaBuf < 0)
+                // Ensure cl_properties is signed or cast to a signed type before comparison
+                if (static_cast<std::intptr_t>(pMemoryHandle->value) < 0)
                 {
                     return CL_INVALID_PROPERTY;
                 }
@@ -243,7 +242,6 @@ cl_int ValidateMemoryProperties(cl_context context,
             }
             default:
             {
-                ASSERT(false);  // should not reach here
                 return CL_INVALID_PROPERTY;
             }
         }
@@ -1447,6 +1445,49 @@ cl_int ValidateGetProgramInfo(cl_program program,
         }
     }
 
+    // CL_INVALID_PROGRAM_EXECUTABLE if param_name is CL_PROGRAM_NUM_KERNELS,
+    // CL_PROGRAM_KERNEL_NAMES, CL_PROGRAM_SCOPE_GLOBAL_CTORS_PRESENT, or
+    // CL_PROGRAM_SCOPE_GLOBAL_DTORS_PRESENT and a successful program executable has not been built
+    // for at least one device in the list of devices associated with program.
+    if (param_name == ProgramInfo::NumKernels || param_name == ProgramInfo::KernelNames ||
+        param_name == ProgramInfo::ScopeGlobalCtorsPresent ||
+        param_name == ProgramInfo::ScopeGlobalDtorsPresent)
+    {
+        std::vector<cl_device_id> associatedDevices;
+        size_t associatedDeviceCount = 0;
+        bool isAnyDeviceProgramBuilt = false;
+        if (ANGLE_UNLIKELY(
+                IsError(prog.getInfo(ProgramInfo::Devices, 0, nullptr, &associatedDeviceCount))))
+        {
+            return CL_INVALID_PROGRAM;
+        }
+        associatedDevices.resize(associatedDeviceCount / sizeof(cl_device_id));
+        if (ANGLE_UNLIKELY(IsError(prog.getInfo(ProgramInfo::Devices, associatedDeviceCount,
+                                                associatedDevices.data(), nullptr))))
+        {
+            return CL_INVALID_PROGRAM;
+        }
+        for (const cl_device_id &device : associatedDevices)
+        {
+            cl_build_status status = CL_BUILD_NONE;
+            if (ANGLE_UNLIKELY(IsError(prog.getBuildInfo(
+                    device, ProgramBuildInfo::Status, sizeof(cl_build_status), &status, nullptr))))
+            {
+                return CL_INVALID_PROGRAM;
+            }
+
+            if (status == CL_BUILD_SUCCESS)
+            {
+                isAnyDeviceProgramBuilt = true;
+                break;
+            }
+        }
+        if (!isAnyDeviceProgramBuilt)
+        {
+            return CL_INVALID_PROGRAM_EXECUTABLE;
+        }
+    }
+
     return CL_SUCCESS;
 }
 
@@ -1704,6 +1745,22 @@ cl_int ValidateSetKernelArg(cl_kernel kernel,
                 // CL_INVALID_MEM_OBJECT for an argument declared to be a memory object
                 // when the specified arg_value is not a valid memory object.
                 return CL_INVALID_MEM_OBJECT;
+            }
+
+            if ((image->cast<Image>().getFlags().intersects(CL_MEM_READ_ONLY)) &&
+                (krnl.getInfo().args[arg_index].accessQualifier == CL_KERNEL_ARG_ACCESS_WRITE_ONLY))
+            {
+                // CL_INVALID_ARG_VALUE when an image is created with CL_MEM_READ_ONLY is passed to
+                // a write_only kernel argument
+                return CL_INVALID_ARG_VALUE;
+            }
+
+            if ((image->cast<Image>().getFlags().intersects(CL_MEM_WRITE_ONLY)) &&
+                (krnl.getInfo().args[arg_index].accessQualifier == CL_KERNEL_ARG_ACCESS_READ_ONLY))
+            {
+                // CL_INVALID_ARG_VALUE when an image is created with CL_MEM_WRITE_ONLY is passed to
+                // a read_only kernel argument
+                return CL_INVALID_ARG_VALUE;
             }
 
             if (arg_size != sizeof(cl_mem))
@@ -3330,7 +3387,8 @@ cl_int ValidateCreateImage(cl_context context,
     const size_t sliceSize = imageHeight * rowPitch;
 
     // CL_INVALID_IMAGE_DESCRIPTOR if values specified in image_desc are not valid.
-    switch (FromCLenum<MemObjectType>(image_desc->image_type))
+    const MemObjectType memObjectType = FromCLenum<MemObjectType>(image_desc->image_type);
+    switch (memObjectType)
     {
         case MemObjectType::Image1D:
             if (image_desc->image_width == 0u)
@@ -3503,6 +3561,31 @@ cl_int ValidateCreateImage(cl_context context,
         return CL_INVALID_HOST_PTR;
     }
 
+    // CL_IMAGE_FORMAT_NOT_SUPPORTED
+    // if there are no devices in context that support image_format
+    cl_uint memObjectTypeFormatCount = 0;
+    if (IsError(ctx.getSupportedImageFormats(flags, memObjectType, 0, nullptr,
+                                             &memObjectTypeFormatCount)))
+    {
+        return CL_IMAGE_FORMAT_NOT_SUPPORTED;
+    }
+    std::vector<cl_image_format> supportedFormats;
+    supportedFormats.resize(memObjectTypeFormatCount);
+    if (ANGLE_UNLIKELY(IsError(ctx.getSupportedImageFormats(
+            flags, memObjectType, memObjectTypeFormatCount, supportedFormats.data(), nullptr))))
+    {
+        return CL_OUT_OF_RESOURCES;
+    }
+    cl_image_format formatOfInterest = *image_format;
+    if (std::find_if(
+            supportedFormats.begin(), supportedFormats.end(),
+            [&formatOfInterest](const auto &format) {
+                return formatOfInterest.image_channel_order == format.image_channel_order &&
+                       formatOfInterest.image_channel_data_type == format.image_channel_data_type;
+            }) == supportedFormats.end())
+    {
+        return CL_IMAGE_FORMAT_NOT_SUPPORTED;
+    }
     return CL_SUCCESS;
 }
 
@@ -4421,6 +4504,18 @@ cl_int ValidateSetContextDestructorCallback(cl_context context,
                                                                           void *user_data),
                                             const void *user_data)
 {
+    if (!Context::IsValid(context))
+    {
+        // CL_INVALID_CONTEXT if context is not a valid context.
+        return CL_INVALID_CONTEXT;
+    }
+
+    if (pfn_notify == nullptr)
+    {
+        // CL_INVALID_VALUE if pfn_notify is NULL.
+        return CL_INVALID_VALUE;
+    }
+
     return CL_SUCCESS;
 }
 

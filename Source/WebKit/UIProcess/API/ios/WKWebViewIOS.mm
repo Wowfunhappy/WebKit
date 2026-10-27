@@ -634,6 +634,9 @@ static CGSize roundScrollViewContentSize(const WebKit::WebPageProxy& page, CGSiz
 - (void)_didFinishLoadingDataForCustomContentProviderWithSuggestedFilename:(const String&)suggestedFilename data:(NSData *)data
 {
     ASSERT(_customContentView);
+    if (!_customContentView)
+        return;
+
     [_customContentView web_setContentProviderData:data suggestedFilename:suggestedFilename.createNSString().get() completionHandler:^{
         _page->didLayoutForCustomContentProvider();
     }];
@@ -2982,7 +2985,7 @@ static CGFloat liveResizeMinimumWidthDifference()
         return;
 
     _perProcessState.didDeferUpdateVisibleContentRectsForAnyReason = YES;
-    _pendingInteractiveObscuredInsetsChangeTimer = RunLoop::mainSingleton().dispatchAfter(delay, [retainedSelf = retainPtr(self)] {
+    _pendingInteractiveObscuredInsetsChangeTimer = RunLoop::mainSingleton().scheduleTimer(delay, [retainedSelf = retainPtr(self)] {
         retainedSelf->_pendingInteractiveObscuredInsetsChangeTimer = nullptr;
         [retainedSelf _scheduleVisibleContentRectUpdate];
     });
@@ -5479,14 +5482,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (Class)_printFormatterClass
 {
     return [_WKWebViewPrintFormatter class];
-}
-
-- (id <_WKWebViewPrintProvider>)_printProvider
-{
-    RetainPtr printProvider = _customContentView ? _customContentView.get() : _contentView.get();
-    if ([printProvider conformsToProtocol:@protocol(_WKWebViewPrintProvider)])
-        return (id<_WKWebViewPrintProvider>)printProvider.autorelease();
-    return nil;
 }
 
 @end

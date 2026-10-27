@@ -1,6 +1,7 @@
 // The privacy API of Safari 7 extensions: browser settings an extension controls, as Chrome's ChromeSettings.
 // `network.networkPredictionEnabled` covers the DNS prefetching and the preconnections pages ask for, and
-// `websites.hyperlinkAuditingEnabled` the pings of <a ping>; network processes enforce both.
+// `websites.hyperlinkAuditingEnabled` the pings of <a ping>. Network processes enforce both for WebKit 2 pages,
+// and LegacyExtensionViewNetwork for the WebKit 1 extension views.
 //
 // A setting's value is that of the most recently loaded extension that set it, Safari loading its extensions in
 // the order they were installed, and true, the browser's, when none did. An extension's value persists until the
@@ -33,6 +34,8 @@ public:
     void clear(const String& extensionKey, const String& name);
 
     void sendSettings(NetworkProcessProxy&);
+    bool allowsNetworkPrediction();
+    bool allowsHyperlinkAuditing();
     // Called with a setting's name when its value or the extension controlling it changes.
     void setChangeObserver(Function<void(const String& name)>&& observer) { m_changeObserver = WTF::move(observer); }
 

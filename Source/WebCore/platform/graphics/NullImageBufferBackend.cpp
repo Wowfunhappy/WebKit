@@ -42,8 +42,26 @@ NullImageBufferBackend::~NullImageBufferBackend() = default;
 
 NullGraphicsContext& NullImageBufferBackend::context()
 {
+#ifdef RC_REMOVE_SEC_ACCEL_3
     return m_context;
+#else
+    if (!m_context)
+        m_context = makeUnique<NullGraphicsContext>();
+    return *m_context;
+#endif // RC_REMOVE_SEC_ACCEL_3
 }
+
+#ifndef RC_REMOVE_SEC_ACCEL_3
+void NullImageBufferBackend::releaseGraphicsContext()
+{
+    m_context = nullptr;
+}
+
+bool NullImageBufferBackend::hasGraphicsContext() const
+{
+    return !!m_context;
+}
+#endif // RC_REMOVE_SEC_ACCEL_3
 
 RefPtr<NativeImage> NullImageBufferBackend::copyNativeImage()
 {

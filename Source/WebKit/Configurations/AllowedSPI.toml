@@ -193,6 +193,15 @@ selectors = [
 ]
 requires = ["ENABLE_SCRIPT_TRACKING_PRIVACY_PROTECTIONS"]
 
+[[not-web-essential]]
+# Same request as above: this is WebPrivacy, which audit-spi should stop
+# tracking as SPI.
+request = "rdar://157886589"
+selectors = [
+    {name = "requestDisabledSecurityFlags:", class = "?"},
+]
+requires = ["ENABLE_ADVANCED_PRIVACY_PROTECTIONS"]
+
 [[temporary-usage]]
 request = "rdar://157888734"
 cleanup = "rdar://157888769"
@@ -265,13 +274,6 @@ selectors = [
     { name = "requestProofreadingReviewOfString:range:language:options:completionHandler:", class = "UITextChecker" },
 ]
 
- [[temporary-usage]]
- request = "rdar://165789536"
- cleanup = "rdar://179184814"
- selectors = [
-     { name = "requestGrammarCheckingOfString:range:waitForAllResults:completionHandler:", class = "UITextChecker" },
- ]
-
 [[temporary-usage]]
 request = "rdar://165789536"
 cleanup = "rdar://165842824"
@@ -303,14 +305,6 @@ selectors = [
 ]
 requires = ["PLATFORM_VISION"]
 
-[[staging]]
-request = "rdar://170178645"
-selectors = [
-    { name = "screenCaptureWithEnvironment:", class = "BEProcessCapability" },
-]
-requires = ["ENABLE_EXTENSION_CAPABILITIES"]
-requires-sdk = ["iOS <= 26.*"]
-
 [[temporary-usage]]
 request = "rdar://171730075"
 cleanup = "rdar://171730140"
@@ -336,13 +330,6 @@ selectors = [
     { name = "setPresentingAppProcessIdentifier:", class = "?" },
 ]
 requires = ["ENABLE_AIRPLAY_PICKER", "ENABLE_WIRELESS_PLAYBACK_MEDIA_PLAYER"]
-
-[[staging]]
-request = "rdar://161102071"
-selectors = [
-    { name = "setAllowsTypeSelect:", class = "UIContextMenuConfiguration" },
-]
-requires = ["HAVE_UICONTEXTMENUCONFIGURATION_ALLOWTYPESELECT_SUPPORT"]
 
 [[not-web-essential]]
 request = "rdar://171940190"

@@ -68,6 +68,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/Pasteboard.h>
 #import <WebCore/Quirks.h>
+#import <WebCore/RemoteUserInputEventData.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/TextAlternativeWithRange.h>
 #import <WebCore/UniversalAccessZoom.h>
@@ -224,26 +225,36 @@ void WebPageProxy::windowAndViewFramesChanged(const FloatRect& viewFrameInWindow
 
         protect(legacyMainFrameProcess())->sendWithAsyncReply(
             Messages::WebPage::WindowAndViewFramesChanged(*m_viewWindowCoordinates),
-            [this, protectedThis, viewFrameInWindowCoordinates]() {
-                updateMouseEventTargetAfterWindowAndViewFramesChanged(viewFrameInWindowCoordinates);
+            [this, protectedThis]() {
+                updateMouseEventTargetAfterWindowAndViewFramesChanged();
             },
             webPageIDInMainFrameProcess()
         );
     });
 }
 
-void WebPageProxy::updateMouseEventTargetAfterWindowAndViewFramesChanged(const FloatRect& viewFrameInWindowCoordinates)
+void WebPageProxy::updateMouseEventTargetAfterWindowAndViewFramesChanged()
 {
     RetainPtr window = platformWindow();
+#ifdef RC_REMOVE_SEC_ACCEL_3
+    NSPoint macMouseLocationInWindow = [window mouseLocationOutsideOfEventStream];
+    NSPoint macMouseLocationInScreen = [NSEvent mouseLocation];
+#else
+    // Only report global cursor location when the window is focused and the cursor is within the view
+    RefPtr pageClient = this->pageClient();
+    if (!pageClient || ![window isKeyWindow])
+        return;
 
+    NSPoint macMouseLocationInWindow = [window mouseLocationOutsideOfEventStream];
+    NSPoint macMouseLocationInScreen = [window convertPointToScreen:macMouseLocationInWindow];
+    if (!pageClient->rootViewToScreen(WebCore::IntRect({ }, viewSize())).contains(WebCore::IntPoint(macMouseLocationInScreen)))
+        return;
+#endif
     // The origin of mac coordinate system is the bottom left corner. We need to convert
     // the point to the web coordinate system which has an origin of the top left corner.
-    auto macMouseLocationInWindow = [window mouseLocationOutsideOfEventStream];
-
     auto webMouseLocationInWindow = DoublePoint(macMouseLocationInWindow.x, [window frame].size.height - macMouseLocationInWindow.y);
 
-    // do same conversion as above
-    auto macMouseLocationInScreen = [NSEvent mouseLocation];
+    // do same coordinate system conversion from bottom left corner to top left corner origin
     auto webMouseLocationInScreen = DoublePoint(macMouseLocationInScreen.x, [[NSScreen mainScreen] frame].size.height - macMouseLocationInScreen.y);
     protect(legacyMainFrameProcess())->send(Messages::WebPage::UpdateMouseEventTargetAfterWindowAndViewFramesChanged(webMouseLocationInWindow, webMouseLocationInScreen), webPageIDInMainFrameProcess());
 }
@@ -310,6 +321,16 @@ bool WebPageProxy::readSelectionFromPasteboard(const String& pasteboardName)
 
 #if ENABLE(DRAG_SUPPORT)
 
+static bool isPromisedImageDragExtension(const String& extension)
+{
+    if (extension.isEmpty())
+        return false;
+
+    RetainPtr type = [UTType typeWithFilenameExtension:extension.createNSString()];
+
+    return [type conformsToType:UTTypeImage] || [type conformsToType:UTTypePDF];
+}
+
 void WebPageProxy::setPromisedDataForImage(IPC::Connection& connection, const String& pasteboardName, SharedMemory::Handle&& imageHandle, const String& filename, const String& extension,
     const String& title, const String& url, const String& visibleURL, SharedMemory::Handle&& archiveHandle, const String& originIdentifier)
 {
@@ -317,6 +338,7 @@ void WebPageProxy::setPromisedDataForImage(IPC::Connection& connection, const St
     MESSAGE_CHECK_URL(url);
     MESSAGE_CHECK_URL(visibleURL);
     MESSAGE_CHECK(extension == FileSystem::lastComponentOfPathIgnoringTrailingSlash(extension), connection);
+    MESSAGE_CHECK(isPromisedImageDragExtension(extension), connection);
 
     auto sharedMemoryImage = SharedMemory::map(WTF::move(imageHandle), SharedMemory::Protection::ReadOnly);
     if (!sharedMemoryImage)
@@ -1057,7 +1079,7 @@ void WebPageProxy::showImageInQuickLookPreviewPanel(ShareableBitmap& imageBitmap
 
 #endif // ENABLE(IMAGE_ANALYSIS)
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 void WebPageProxy::handleContextMenuCopySubject(const String& preferredMIMEType)
 {
@@ -1082,7 +1104,7 @@ void WebPageProxy::handleContextMenuCopySubject(const String& preferredMIMEType)
     [pasteboard setData:data.get() forType:pasteboardType.get()];
 }
 
-#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#endif // ENABLE(IMAGE_ANALYSIS)
 
 #if ENABLE(WRITING_TOOLS)
 
@@ -1226,6 +1248,17 @@ void WebPageProxy::interruptSyntheticMomentumScrolling()
         WebEventInputSource::Automation
     };
     handleNativeWheelEvent(NativeWebWheelEvent { cancelEvent });
+}
+
+void WebPageProxy::dispatchTrackedPointerEvent(std::optional<FrameIdentifier> frameID, WebEventPhase phase, const FloatPoint& locationInRootView, OptionSet<WebEventModifier> modifiers, CompletionHandler<void(bool)>&& completionHandler)
+{
+    sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DispatchTrackedPointerEvent(frameID, phase, locationInRootView, modifiers), Messages::WebPage::DispatchTrackedPointerEvent::Reply { [weakThis = WeakPtr { *this }, phase, modifiers, completionHandler = WTF::move(completionHandler)](bool wasCanceled, std::optional<RemoteUserInputEventData> remoteUserInputEventData) mutable {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis || !remoteUserInputEventData)
+            return completionHandler(wasCanceled);
+
+        protectedThis->dispatchTrackedPointerEvent(remoteUserInputEventData->targetFrameID, phase, FloatPoint { remoteUserInputEventData->transformedPoint }, modifiers, WTF::move(completionHandler));
+    } });
 }
 
 } // namespace WebKit

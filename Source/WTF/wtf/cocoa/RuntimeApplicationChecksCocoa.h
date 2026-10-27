@@ -146,6 +146,7 @@ enum class SDKAlignedBehavior {
     ScrollPocketInFullscreen,
     IgnorePageLocationDuringHardPocketEligibilityCheck,
     AdjustColorExtensionsForHorizontalBannerViewOverlays,
+    NoMediaLayerTeardownOnPageVisibilityChangeQuirk,
     NetworkProcessInheritsNetworkAccessFromUIProcess,
     // AQUAWEBKIT: -webkit-box-pack start/end follow box-direction, and overflowing children are packed.
     BoxPackAccountsForBoxDirection,
@@ -198,6 +199,7 @@ namespace MacApplication {
 
 WTF_EXPORT_PRIVATE bool isAdobeInstaller();
 WTF_EXPORT_PRIVATE bool isAppleMail();
+WTF_EXPORT_PRIVATE bool isCaptiveNetworkAssistant();
 WTF_EXPORT_PRIVATE bool isMiniBrowser();
 WTF_EXPORT_PRIVATE bool isQuickenEssentials();
 WTF_EXPORT_PRIVATE bool isSafari();
@@ -237,6 +239,7 @@ WTF_EXPORT_PRIVATE bool isWebProcess();
 WTF_EXPORT_PRIVATE bool isMobileStore();
 WTF_EXPORT_PRIVATE bool isUNIQLOApp();
 WTF_EXPORT_PRIVATE bool isDOFUSTouch();
+WTF_EXPORT_PRIVATE bool isMoonPlayer();
 WTF_EXPORT_PRIVATE bool isMyRideK12();
 WTF_EXPORT_PRIVATE bool isTableau();
 WTF_EXPORT_PRIVATE bool isTubular();

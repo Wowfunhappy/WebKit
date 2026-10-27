@@ -223,6 +223,9 @@
 #include "SVGSVGElement.h"
 #include "SWClientConnection.h"
 #include "ScriptController.h"
+#ifndef RC_REMOVE_SEC_ACCEL_3
+#include "ScriptDisallowedScope.h"
+#endif // RC_REMOVE_SEC_ACCEL_3
 #include "ScriptExecutionContextInlines.h"
 #include "ScriptedAnimationController.h"
 #include "ScrollTimeline.h"
@@ -632,6 +635,7 @@ void Internals::resetToConsistentState(Page& page)
     page.setDefersLoading(false);
     page.setResourceCachingDisabledByWebInspector(false);
     page.setConsoleMessageListenerForTesting(nullptr);
+    page.setQuirksSubframeURLForTesting({ });
 
     RefPtr localMainFrame = page.localMainFrame();
     if (!localMainFrame)
@@ -7318,9 +7322,7 @@ void Internals::installImageOverlay(Element& element, Vector<ImageOverlayLine>&&
         , blocks.map([] (auto& block) {
             return TextRecognitionBlockData { block.text, getQuad(block) };
         })
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
         , TextRecognitionResult::extractAttributedString(fakeImageAnalysisResultForTesting(lines).get())
-#endif
     });
 #else
     UNUSED_PARAM(blocks);
@@ -7565,16 +7567,29 @@ void Internals::setCookie(CookieData&& cookieData)
     if (!page)
         return;
 
-    page->cookieJar().setRawCookie(*document, CookieData::toCookie(WTF::move(cookieData)), ShouldPartitionCookie::No);
+    page->cookieJar().setRawCookie(*document, document->cookieURL(), CookieData::toCookie(WTF::move(cookieData)), ShouldPartitionCookie::No);
+}
+
+void Internals::deleteCookie(const String& cookieName)
+{
+    RefPtr document = contextDocument();
+    if (!document)
+        return;
+
+    RefPtr page = document->page();
+    if (!page)
+        return;
+
+    page->cookieJar().deleteCookie(*document, document->cookieURL(), cookieName, [] { });
 }
 
 auto Internals::getCookies() const -> Vector<CookieData>
 {
-    auto* document = contextDocument();
+    RefPtr document = contextDocument();
     if (!document)
         return { };
 
-    auto* page = document->page();
+    RefPtr page = document->page();
     if (!page)
         return { };
 
@@ -8246,6 +8261,9 @@ String Internals::dumpStyleResolvers()
 
     dumpResolver("document resolver"_s, document->styleScope().resolver());
 
+#ifndef RC_REMOVE_SEC_ACCEL_3
+    ScriptDisallowedScope::InMainThread scriptDisallowedScope;
+#endif // RC_REMOVE_SEC_ACCEL_3
     for (auto& shadowRoot : document->inDocumentShadowRoots()) {
         auto name = shadowRoot.mode() == ShadowRootMode::UserAgent ? "shadow root resolver (user agent)"_s : "shadow root resolver (author)"_s;
         dumpResolver(name, const_cast<ShadowRoot&>(shadowRoot).styleScope().resolver());
@@ -8591,6 +8609,17 @@ void Internals::setTopDocumentURLForQuirks(const String& urlString)
 
     protect(document->page())->settings().setNeedsSiteSpecificQuirks(true);
     document->quirks().setTopDocumentURLForTesting(URL { urlString });
+}
+
+void Internals::setSubframeURLForQuirks(const String& urlString)
+{
+    RefPtr document = contextDocument();
+    if (!document || !document->page())
+        return;
+
+    Ref page = *protect(document->page());
+    page->settings().setNeedsSiteSpecificQuirks(true);
+    page->setQuirksSubframeURLForTesting(URL { urlString });
 }
 
 #if ENABLE(DAMAGE_TRACKING)

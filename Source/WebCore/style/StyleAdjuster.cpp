@@ -95,6 +95,17 @@
 #include "DocumentFullscreen.h"
 #endif
 
+#if USE(APPLE_INTERNAL_SDK)
+#include <WebKitAdditions/StyleAdjusterAdditions.cpp>
+#else
+namespace WebCore {
+namespace Style {
+static inline void adjustForManipulationSurfaceQuirk(ComputedStyle&) { }
+static inline void adjustForBoxAnnotationQuirk(ComputedStyle&) { }
+} // namespace Style
+} // namespace WebCore
+#endif
+
 namespace WebCore {
 namespace Style {
 
@@ -995,6 +1006,30 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             style.setOverflowY(Overflow::Auto);
     }
 
+    if (documentQuirks.needsGoogleDocsNavigationWidgetScrollQuirk()) {
+        static MainThreadNeverDestroyed<const AtomString> className("navigation-widget-content"_s);
+        if (style.visibility() == Visibility::Hidden && m_parentStyle.visibility() == Visibility::Visible && m_element->hasClassName(className))
+            style.setVisibility(Visibility::Visible);
+    }
+
+    if (documentQuirks.needsWebExScrollabilityQuirk()) {
+        // Ignore overflow: hidden on the body and #wrapper so the page remains
+        // scrollable, and drop the width constraints on #wrapper so the desktop
+        // layout fits the viewport.
+        static MainThreadNeverDestroyed<const AtomString> wrapperID("wrapper"_s);
+        bool isWrapper = m_element->idForStyleResolution() == wrapperID;
+        if (m_element->hasTagName(bodyTag) || isWrapper) {
+            if (style.overflowX() == Overflow::Hidden)
+                style.setOverflowX(Overflow::Auto);
+            if (style.overflowY() == Overflow::Hidden)
+                style.setOverflowY(Overflow::Auto);
+        }
+        if (isWrapper) {
+            style.setMinWidth(CSS::Keyword::Auto { });
+            style.setMaxWidth(CSS::Keyword::None { });
+        }
+    }
+
     if (documentQuirks.needsGeforcenowWarningDisplayNoneQuirk()) {
         static MainThreadNeverDestroyed<const AtomString> overlayClassName("cdk-overlay-container"_s);
         static MainThreadNeverDestroyed<const AtomString> unsupportedClassName("unsupported-scenario-container"_s);
@@ -1021,6 +1056,14 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             style.setAlignItems(Style::AlignItems { CSS::Keyword::Center { } });
         }
     }
+
+    // google.com/maps/embed rdar://184166392
+    if (documentQuirks.needsGoogleMapsEmbedManipulationSurfaceQuirk())
+        adjustForManipulationSurfaceQuirk(style);
+
+    // box.com rdar://187475153
+    if (documentQuirks.needsBoxAnnotationQuirk(protect(*m_element)))
+        adjustForBoxAnnotationQuirk(style);
 
 #if PLATFORM(IOS_FAMILY)
     if (documentQuirks.needsGoogleMapsScrollingQuirk()) {
@@ -1070,6 +1113,10 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             style.setFlexShrink({ 2 });
         }
     }
+
+    // tiktok.com rdar://problem/183445905
+    if (documentQuirks.needsTikTokCaptchaSliderTouchActionQuirk(protect(*m_element)))
+        style.setUsedTouchAction(CSS::Keyword::None { });
 
 #if ENABLE(VIDEO)
     if (documentQuirks.needsFullscreenDisplayNoneQuirk()) {
