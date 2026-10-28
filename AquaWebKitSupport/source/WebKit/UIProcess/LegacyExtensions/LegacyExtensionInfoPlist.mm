@@ -55,6 +55,9 @@ void loadInfoPlist(const URL& root, CompletionHandler<void(InfoPlist&&)>&& compl
             NSDictionary *plist = data ? [NSPropertyListSerialization propertyListWithData:data.get() options:NSPropertyListImmutable format:nil error:nil] : nil;
             if ([plist isKindOfClass:NSDictionary.class]) {
                 infoPlist.websiteAccess = websiteAccess(plist);
+                NSDictionary *chrome = plist[@"Chrome"];
+                NSString *globalPage = [chrome isKindOfClass:NSDictionary.class] ? chrome[@"Global Page"] : nil;
+                infoPlist.hasGlobalPage = [globalPage isKindOfClass:NSString.class] && globalPage.length;
                 infoPlist.declarativeNetRequest = manifestEntry(plist, @"declarative_net_request");
                 infoPlist.mimeTypesHandler = manifestEntry(plist, @"mime_types_handler");
                 if (NSString *devToolsPage = plist[@"WebExtensionDevtoolsPage"]; [devToolsPage isKindOfClass:NSString.class])

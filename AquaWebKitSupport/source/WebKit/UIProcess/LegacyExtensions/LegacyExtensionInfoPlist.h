@@ -11,6 +11,7 @@ namespace WebKit::LegacyExtensions {
 
 struct InfoPlist {
     WebsiteAccess websiteAccess;
+    bool hasGlobalPage { false };
     // The `declarative_net_request` entry, with a WebExtension manifest's keys (`rule_resources`, each with
     // `id`, `enabled` and `path`).
     RefPtr<JSON::Object> declarativeNetRequest;

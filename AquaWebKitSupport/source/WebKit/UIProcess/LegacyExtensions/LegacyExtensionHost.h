@@ -18,6 +18,7 @@
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/Deque.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/Expected.h>
@@ -122,7 +123,10 @@ public:
     void contentRuleListNotification(WebPageProxy&, const URL&, const WebCore::ContentRuleListResults&);
 
     // WebKit 1 host contexts.
-    void didClearWindowObject(const void* frame, JSC::JSGlobalObject&, const URL& documentURL);
+    void didClearWindowObject(const void* frame, JSC::JSGlobalObject&, const URL& documentURL, bool isGlobalPage);
+    void globalPageViewCreated(const void* frame, const URL&);
+    void globalPageDocumentLoaded(const void* frame);
+    void globalPageLoadFailed(const void* frame);
     void frameWillBeDestroyed(const void* frame);
     void postFromHostContext(uint64_t hostContextIdentifier, const String& message, RefPtr<WebCore::SharedBuffer>&& data);
     // Whether a WebKit 1 host context is valid: its document is still its view's, which keeps the extension.
@@ -170,6 +174,32 @@ private:
         bool operator==(const Endpoint&) const = default;
     };
     static const String& extensionKeyOf(const Endpoint&);
+
+    enum class BackgroundState : uint8_t { Unknown, NoGlobalPage, Waiting, Loaded, Failed };
+    struct ExtensionLoad {
+        uint64_t identifier { 0 };
+        std::optional<bool> hasGlobalPage;
+        BackgroundState documentState { BackgroundState::Waiting };
+        const void* globalPageFrame { nullptr };
+        BackgroundState state() const
+        {
+            return !hasGlobalPage ? BackgroundState::Unknown : *hasGlobalPage ? documentState : BackgroundState::NoGlobalPage;
+        }
+    };
+
+    struct PendingMessageRoute {
+        Endpoint sender;
+        String extensionKey;
+        String message;
+    };
+
+    struct PendingEvent {
+        String extensionKey;
+        uint64_t loadIdentifier;
+        Function<void()> dispatch;
+        Function<void()> cancel;
+    };
+    using PendingTask = Variant<PendingMessageRoute, PendingEvent>;
 
     // The two ends of a port or a one-shot message can be contexts of different extensions.
     struct Port {
@@ -224,7 +254,12 @@ private:
     void setUserContentExtensionRoots(IPC::Connection&, Vector<String>&& roots);
     void updateUserContentExtensions(const Vector<URL>& latestRoots = { });
 
-    void route(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr);
+    void route(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr, bool isPendingTask = false);
+    bool shouldDeferMessageRoute(const Endpoint&, const String& extensionKey, JSON::Object&) const;
+    bool shouldDeferExtension(const String&) const;
+    void flushPendingTasks();
+    void performAfterBackgroundContentLoads(const String&, Function<void()>&&, Function<void()>&& cancel = [] { });
+    void dispatchPendingEvent(PendingEvent&&);
     void routeConnect(const Endpoint&, const String& extensionKey, JSON::Object&);
     void routePost(const Endpoint&, const String& message, const String& portID);
     // `error` is the runtime.lastError of the other ends' onDisconnect.
@@ -306,6 +341,11 @@ private:
 
     HashMap<uint64_t, Ref<HostContext>> m_hostContexts;
     HashMap<const void*, uint64_t> m_hostContextByFrame;
+    HashMap<String, ExtensionLoad> m_extensionLoads;
+    Deque<PendingTask> m_pendingTasks;
+    Deque<PendingTask> m_tasksBeingFlushed;
+    bool m_isFlushingPendingTasks { false };
+    bool m_pendingTasksNeedFlush { false };
     HashMap<WebCore::FrameIdentifier, uint64_t> m_hostContextByRemoteFrame;
     // The frame and URL of each document an extension context has posted from, as its web content process
     // reports them.

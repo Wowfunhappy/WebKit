@@ -9,6 +9,10 @@
 #import <WebCore/BroadcastChannelRegistry.h>
 #import <WebCore/DOMWrapperWorld.h>
 #import <WebCore/Document.h>
+#import <WebCore/Event.h>
+#import <WebCore/EventListener.h>
+#import <WebCore/EventLoop.h>
+#import <WebCore/EventNames.h>
 #import <WebCore/DatabaseProvider.h>
 #import <WebCore/JSDOMWindow.h>
 #import <WebCore/LocalFrameInlines.h>
@@ -17,7 +21,9 @@
 #import <WebCore/ScriptController.h>
 #import <WebCore/StorageNamespaceProvider.h>
 #import <WebCore/StorageMap.h>
+#import <wtf/HashMap.h>
 #import <wtf/NeverDestroyed.h>
+#import <wtf/URL.h>
 #import <wtf/WeakHashMap.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -170,10 +176,91 @@ WebCore::BroadcastChannelRegistry* WebLegacyExtensionBroadcastChannelRegistry()
     return broadcastChannelRegistry().get();
 }
 
+struct GlobalPageDocument {
+    WeakPtr<WebCore::Document, WebCore::WeakPtrImplWithEventTargetData> document;
+    bool receivedDOMContentLoaded { false };
+};
+
+static HashMap<WebFrame *, GlobalPageDocument>& globalPageDocuments()
+{
+    static NeverDestroyed<HashMap<WebFrame *, GlobalPageDocument>> documents;
+    return documents;
+}
+
+static bool isGlobalPage(WebFrame *frame)
+{
+    return ![frame parentFrame] && [[[frame webView] preferencesIdentifier] isEqualToString:@"ExtensionGlobalPage"];
+}
+
+static void registerGlobalPageView(WebFrame *frame, const URL& url)
+{
+    if (!url.protocolIs("safari-extension"_s))
+        return;
+    if (globalPageDocuments().ensure(frame, [] { return GlobalPageDocument { }; }).isNewEntry)
+        observer->globalPageViewCreated((__bridge const void*)frame, url.createCFURL().get());
+}
+
+static void observeGlobalPageProgress()
+{
+    // Progress starts with the provisional data source installed; failure clears it before progress finishes.
+    static NeverDestroyed<RetainPtr<id>> started { [[NSNotificationCenter defaultCenter] addObserverForName:WebViewProgressStartedNotification object:nil queue:nil usingBlock:^(NSNotification *notification) {
+        WebView *view = notification.object;
+        WebFrame *frame = view.mainFrame;
+        if (observer && isGlobalPage(frame))
+            registerGlobalPageView(frame, URL { view.mainFrameURL });
+    }] };
+    static NeverDestroyed<RetainPtr<id>> finished { [[NSNotificationCenter defaultCenter] addObserverForName:WebViewProgressFinishedNotification object:nil queue:nil usingBlock:^(NSNotification *notification) {
+        WebView *view = notification.object;
+        WebFrame *frame = view.mainFrame;
+        if (!observer || !isGlobalPage(frame))
+            return;
+        auto iterator = globalPageDocuments().find(frame);
+        if (iterator != globalPageDocuments().end() && !iterator->value.receivedDOMContentLoaded)
+            observer->globalPageLoadFailed((__bridge const void*)frame);
+    }] };
+}
+
+class GlobalPageDOMContentLoadedListener final : public WebCore::EventListener {
+public:
+    explicit GlobalPageDOMContentLoadedListener(WebFrame *frame)
+        : EventListener(NativeEventListenerType)
+        , m_frame(frame)
+    {
+    }
+
+private:
+    void handleEvent(WebCore::ScriptExecutionContext& context, WebCore::Event& event) final
+    {
+        RetainPtr frame = m_frame.get();
+        if (!frame)
+            return;
+        auto iterator = globalPageDocuments().find(frame.get());
+        if (!event.isTrusted() || iterator == globalPageDocuments().end() || iterator->value.document.get() != &context)
+            return;
+        iterator->value.receivedDOMContentLoaded = true;
+        // The host selects listeners after the document's DOMContentLoaded handlers finish.
+        context.eventLoop().queueTask(WebCore::TaskSource::DOMManipulation, [frame = m_frame, document = iterator->value.document] {
+            RetainPtr webFrame = frame.get();
+            if (!webFrame)
+                return;
+            RefPtr currentFrame = core(webFrame.get());
+            if (!currentFrame || currentFrame->document() != document.get())
+                return;
+            auto iterator = globalPageDocuments().find(webFrame.get());
+            if (observer && document && iterator != globalPageDocuments().end() && iterator->value.document == document)
+                observer->globalPageDocumentLoaded((__bridge const void*)webFrame.get());
+        });
+    }
+
+    WeakObjCPtr<WebFrame> m_frame;
+};
+
 void WebSetLegacyExtensionPageObserver(const WebLegacyExtensionPageObserver* newObserver)
 {
-    if (newObserver && !observer)
+    if (newObserver && !observer) {
         registerExtensionViewPreferenceDefaults();
+        observeGlobalPageProgress();
+    }
     observer = newObserver;
 }
 
@@ -187,12 +274,21 @@ void WebLegacyExtensionPageObserverDidClearWindowObject(WebFrame *webFrame)
     RefPtr document = frame->document();
     if (!document)
         return;
+    bool globalPage = isGlobalPage(webFrame);
+    if (globalPage && document->url().protocolIs("safari-extension"_s)) {
+        registerGlobalPageView(webFrame, document->url());
+        auto& state = globalPageDocuments().find(webFrame)->value;
+        state.document = *document;
+        state.receivedDOMContentLoaded = false;
+        document->addEventListener(WebCore::eventNames().DOMContentLoadedEvent, adoptRef(*new GlobalPageDOMContentLoadedListener(webFrame)));
+    }
     auto* globalObject = frame->script().globalObject(WebCore::mainThreadNormalWorldSingleton());
-    observer->didClearWindowObject((__bridge const void*)webFrame, toGlobalRef(globalObject), document->url().createCFURL().get());
+    observer->didClearWindowObject((__bridge const void*)webFrame, toGlobalRef(globalObject), document->url().createCFURL().get(), globalPage);
 }
 
 void WebLegacyExtensionPageObserverFrameWillBeDestroyed(WebFrame *webFrame)
 {
+    globalPageDocuments().remove(webFrame);
     if (observer)
         observer->frameWillBeDestroyed((__bridge const void*)webFrame);
 }

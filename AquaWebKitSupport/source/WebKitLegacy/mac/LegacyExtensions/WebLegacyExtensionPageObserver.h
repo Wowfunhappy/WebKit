@@ -6,6 +6,7 @@
 #pragma once
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <stdbool.h>
 #include <JavaScriptCore/JSBase.h>
 
 #ifdef __cplusplus
@@ -14,8 +15,11 @@ extern "C" {
 
 typedef struct {
     // `frame` identifies a WebFrame for as long as frameWillBeDestroyed has not been called for it.
-    void (*didClearWindowObject)(const void* frame, JSGlobalContextRef, CFURLRef documentURL);
+    void (*didClearWindowObject)(const void* frame, JSGlobalContextRef, CFURLRef documentURL, bool isGlobalPage);
     void (*frameWillBeDestroyed)(const void* frame);
+    void (*globalPageViewCreated)(const void* frame, CFURLRef);
+    void (*globalPageDocumentLoaded)(const void* frame);
+    void (*globalPageLoadFailed)(const void* frame);
 } WebLegacyExtensionPageObserver;
 
 __attribute__((visibility("default"))) void WebSetLegacyExtensionPageObserver(const WebLegacyExtensionPageObserver*);
