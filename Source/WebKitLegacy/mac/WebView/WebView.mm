@@ -55,6 +55,8 @@
 #import "WebDataSourceInternal.h"
 #import "WebDatabaseManagerPrivate.h"
 #import "WebDatabaseProvider.h"
+// AQUAWEBKIT: extension views select the default session's network storage providers lazily.
+#import "WebLegacyExtensionPageObserver.h"
 #import "WebDefaultEditingDelegate.h"
 #import "WebDefaultPolicyDelegate.h"
 #import "WebDefaultUIDelegate.h"
@@ -1805,6 +1807,8 @@ static void WebKitInitializeGamepadProviderIfNecessary()
     pageConfiguration.pluginInfoProvider = WebPluginInfoProvider::singleton();
     pageConfiguration.storageNamespaceProvider = _private->group->storageNamespaceProvider();
     pageConfiguration.visitedLinkStore = _private->group->visitedLinkStore();
+    // AQUAWEBKIT: Safari assigns extension preferences after Page creation.
+    WebConfigureLegacyExtensionStorage(self, pageConfiguration);
     _private->page = WebCore::Page::create(WTF::move(pageConfiguration));
     storageProvider->setPage(*_private->page);
 

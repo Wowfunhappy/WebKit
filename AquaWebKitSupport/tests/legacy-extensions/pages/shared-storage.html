@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Shared extension storage</title>
+<h1>Shared extension storage</h1>
+<p>Install Shared Storage A and B, show both extension bars, then run. Fixture databases named “dict” are reset.</p>
+<button id="run">Run storage tests</button>
+<pre id="output">Ready</pre>
+<script>
+'use strict';
+let serial = 0;
+const pending = new Map();
+const output = document.getElementById('output');
+window.__results = { status: 'ready', tests: {} };
+function render() { output.textContent = JSON.stringify(window.__results, null, 2); }
+addEventListener('message', event => {
+    if (event.source !== window || !event.data || event.data.kind !== 'shared-storage-response') return;
+    const request = pending.get(event.data.id);
+    if (!request || request.fixture !== event.data.fixture) return;
+    clearTimeout(request.timer);
+    pending.delete(event.data.id);
+    event.data.error ? request.reject(new Error(event.data.error)) : request.resolve(event.data.value);
+});
+function rpc(fixture, target, op, args = {}) {
+    const id = ++serial;
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Timeout: ${fixture}/${target}/${op}`)); }, 30000);
+        pending.set(id, { fixture, resolve, reject, timer });
+        window.postMessage({ kind: 'shared-storage-request', fixture, id, command: Object.assign({ target, op }, args) }, location.origin);
+    });
+}
+function check(name, condition, detail) {
+    window.__results.tests[name] = { pass: !!condition, detail };
+    render();
+    if (!condition) throw new Error(name);
+}
+window.storageRPC = rpc;
+window.runSharedStorage = async function() {
+    if (window.__results.status === 'running') return;
+    window.__results = { status: 'running', tests: {}, run: Date.now().toString(36) };
+    const key = 'shared-storage-' + window.__results.run;
+    const a = (target, op, args) => rpc('a', target, op, args);
+    const b = (target, op, args) => rpc('b', target, op, args);
+    try {
+        for (const fixture of ['a', 'b']) {
+            await rpc(fixture, 'global', 'open');
+            await rpc(fixture, 'global', 'delete');
+            // Reset both views independently so a split implementation starts empty too.
+            await rpc(fixture, 'tab', 'delete');
+        }
+        const ag = await a('global', 'info'), at = await a('tab', 'info'), ab = await a('bar', 'info');
+        const bg = await b('global', 'info'), bt = await b('tab', 'info'), bb = await b('bar', 'info');
+        check('origin-identity', ag.origin === at.origin && ag.origin === ab.origin && bg.origin === bt.origin && bg.origin === bb.origin && ag.origin !== bg.origin, { ag, at, ab, bg, bt, bb });
+        await a('frame', 'info');
+        await a('tab', 'arm', { key });
+        await a('bar', 'arm', { key });
+        await a('global', 'set', { key, value: 'global' });
+        const firstEvent = await a('tab', 'event', { key });
+        check('localStorage-global-to-tab', await a('tab', 'get', { key }) === 'global', firstEvent);
+        check('storage-event-global-to-tab', firstEvent.key === key && firstEvent.oldValue === null && firstEvent.newValue === 'global' && firstEvent.url === ag.url && firstEvent.sameStorage, firstEvent);
+        const barEvent = await a('bar', 'event', { key });
+        check('localStorage-global-to-bar', await a('bar', 'get', { key }) === 'global' && barEvent.newValue === 'global', barEvent);
+        await a('global', 'arm', { key });
+        await a('tab', 'set', { key, value: 'tab' });
+        const secondEvent = await a('global', 'event', { key });
+        check('localStorage-tab-to-global', await a('global', 'get', { key }) === 'tab', secondEvent);
+        check('storage-event-tab-to-global', secondEvent.oldValue === 'global' && secondEvent.newValue === 'tab' && secondEvent.url === at.url && secondEvent.sameStorage, secondEvent);
+        check('no-event-in-writer', !(await a('tab', 'events')).some(e => e.key === key && e.newValue === 'tab') && !(await a('global', 'events')).some(e => e.key === key && e.newValue === 'global'), true);
+        await a('tab', 'workerPut', { key: 'tab-worker', value: { title: 'tab-worker' }, blob: 'tab worker blob' });
+        let state = await a('global', 'snapshot');
+        check('module-worker-tab-to-global', state.databases.some(db => db.name === 'dict') && state.records.some(r => r.title === 'tab-worker' && r.blob.text === 'tab worker blob' && r.bytes.join() === '1,9,255'), state);
+        await a('global', 'put', { key: 'global', value: { title: 'global' }, blob: 'global blob' });
+        await a('global', 'workerPut', { key: 'global-worker', value: { title: 'global-worker' }, blob: 'global worker blob' });
+        state = await a('tab', 'snapshot');
+        check('global-and-worker-to-tab', state.records.some(r => r.title === 'global' && r.blob.text === 'global blob') && state.records.some(r => r.title === 'global-worker' && r.blob.text === 'global worker blob'), state);
+        state = await a('bar', 'snapshot');
+        check('indexedDB-bar', state.records.length === 3, state);
+        state = await a('frame', 'snapshot');
+        check('same-origin-frame', state.records.length === 3 && await a('frame', 'get', { key }) === 'tab', state);
+        for (const target of ['global', 'tab', 'bar']) {
+            const local = await b(target, 'get', { key });
+            state = await b(target, 'snapshot');
+            const events = await b(target, 'events');
+            check('isolation-' + target, local === null && !state.databases.some(db => db.name === 'dict') && !events.some(e => e.key === key), { local, state, events });
+        }
+        await b('global', 'put', { key: 'b', value: { title: 'extension-b' } });
+        state = await a('tab', 'snapshot');
+        check('isolation-b-write', !state.records.some(r => r.title === 'extension-b'), state);
+        await a('global', 'delete');
+        state = await a('tab', 'snapshot');
+        check('delete-global-to-tab', !state.databases.some(db => db.name === 'dict'), state);
+        await a('global', 'put', { key: 'again', value: { title: 'again' } });
+        await a('tab', 'delete');
+        state = await a('global', 'snapshot');
+        check('delete-tab-to-global', !state.databases.some(db => db.name === 'dict'), state);
+        await a('global', 'remove', { key });
+        window.__results.status = 'passed';
+    } catch (error) {
+        window.__results.status = 'failed';
+        window.__results.error = String(error.stack || error);
+    }
+    render();
+};
+window.prepareStorageRecovery = async () => {
+    window.__results.recovery = { status: 'preparing' };
+    try {
+        await rpc('a', 'global', 'arm', { key: 'recovery-key' });
+        await rpc('a', 'tab', 'set', { key: 'recovery-key', value: 'before-crash' });
+        await rpc('a', 'global', 'event', { key: 'recovery-key' });
+        await rpc('a', 'global', 'workerPutPersistent', { key: 'before', value: { title: 'before-crash' }, blob: 'before-crash' });
+        window.__results.recovery = { status: 'prepared' };
+    } catch (error) { window.__results.recovery = { status: 'failed', error: String(error.stack || error) }; }
+    render();
+};
+window.checkStorageRecovery = async () => {
+    try {
+        const state = await rpc('a', 'global', 'snapshot');
+        check('recovery-persistent-data', state.records.some(r => r.title === 'before-crash'), state);
+        await rpc('a', 'global', 'workerPutPersistent', { key: 'after', value: { title: 'after-crash' }, blob: 'after-crash' });
+        const tab = await rpc('a', 'tab', 'snapshot');
+        check('recovery-existing-worker', tab.records.some(r => r.title === 'after-crash' && r.blob.text === 'after-crash'), tab);
+        await rpc('a', 'global', 'arm', { key: 'recovery-key' });
+        await rpc('a', 'tab', 'set', { key: 'recovery-key', value: 'after-crash' });
+        const event = await rpc('a', 'global', 'event', { key: 'recovery-key' });
+        check('recovery-storage-event', event.newValue === 'after-crash' && await rpc('a', 'global', 'get', { key: 'recovery-key' }) === 'after-crash', event);
+        window.__results.recovery.status = 'passed';
+    } catch (error) { window.__results.recovery = { status: 'failed', error: String(error.stack || error) }; }
+    render();
+};
+document.getElementById('run').onclick = window.runSharedStorage;
+</script>

@@ -175,6 +175,12 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionSaveAsPDF.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionTabCapture.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewConnection.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewStorage.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionStorageNamespace.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionStorageArea.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionStorageAreaMap.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionIDBConnection.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionFileSystemStorageConnection.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewNetwork.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp

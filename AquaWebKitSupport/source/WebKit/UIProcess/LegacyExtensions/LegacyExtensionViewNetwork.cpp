@@ -4,6 +4,7 @@
 #include "LegacyExtensionErrors.h"
 #include "LegacyExtensionHost.h"
 #include "LegacyExtensionPrivacy.h"
+#include "LegacyExtensionViewConnection.h"
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
 #include <WebCore/CocoaCookie.h>
@@ -371,8 +372,30 @@ void LegacyExtensionViewNetwork::completed(Load& load, const ResourceResponse& r
 
 // A ResourceLoader's load.
 
+bool LegacyExtensionViewNetwork::needsStorageConnection(ResourceLoader& loader, const ResourceRequest& request) const
+{
+    RefPtr frame = loader.frame();
+    if (!frame || !frame->isMainFrame() || loader.options().mode != FetchOptions::Mode::Navigate)
+        return false;
+    RefPtr document = frame->document();
+    if (!request.url().protocolIs(extensionScheme) && !(document && document->url().protocolIs(extensionScheme)))
+        return false;
+    return !LegacyExtensionViewConnection::singleton().connection(Site { request.url() });
+}
+
 bool LegacyExtensionViewNetwork::interceptStart(ResourceLoader& loader)
 {
+    if (needsStorageConnection(loader, loader.request())) {
+        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(Site { loader.request().url() }, [weakLoader = WeakPtr { loader }](bool allowed) {
+            RefPtr loader = weakLoader.get();
+            if (!loader || loader->reachedTerminalState())
+                return;
+            if (!allowed)
+                return loader->cancel(cancellationError(loader->request()));
+            loader->start();
+        });
+        return true;
+    }
     if (m_resumingStarts.remove(loader))
         return false;
     if (m_listeners.isEmpty() || !isInterceptable(loader.request().url()))
@@ -438,6 +461,21 @@ void LegacyExtensionViewNetwork::restart(ResourceLoader& loader)
 // own webRequest steps.
 bool LegacyExtensionViewNetwork::interceptRedirection(ResourceLoader& loader, ResourceRequest& request, ResourceResponse& redirectResponse, CompletionHandler<void(ResourceRequest&&)>& completionHandler)
 {
+    if (needsStorageConnection(loader, request)) {
+        Site site { request.url() };
+        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(site, [this, weakLoader = WeakPtr { loader }, request = WTF::move(request), redirectResponse = WTF::move(redirectResponse), completionHandler = WTF::move(completionHandler)](bool allowed) mutable {
+            RefPtr loader = weakLoader.get();
+            if (!loader || loader->reachedTerminalState())
+                return completionHandler({ });
+            if (!allowed) {
+                loader->cancel(cancellationError(request));
+                return completionHandler({ });
+            }
+            if (!interceptRedirection(*loader, request, redirectResponse, completionHandler))
+                continueRedirection(*loader, WTF::move(request), redirectResponse, WTF::move(completionHandler));
+        });
+        return true;
+    }
     RefPtr load = m_loads.get(loader);
     if (!load)
         return false;

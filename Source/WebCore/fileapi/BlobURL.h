@@ -48,7 +48,9 @@ class SecurityOrigin;
 class BlobURL {
 public:
     static URL createPublicURL(SecurityOrigin*);
-    static URL createInternalURL();
+    // AQUAWEBKIT: the legacy extension IDB client transfers blobs through the network BlobRegistry.
+    // static URL createInternalURL();
+    WEBCORE_EXPORT static URL createInternalURL();
 
     WEBCORE_EXPORT static URL getOriginURL(const URL&);
     static bool isSecureBlobURL(const URL&);

@@ -27,16 +27,25 @@ __attribute__((visibility("default"))) void WebSetLegacyExtensionPageObserver(co
 #ifdef __cplusplus
 namespace WebCore {
 class BroadcastChannelRegistry;
+class DatabaseProvider;
+class StorageNamespaceProvider;
+class PageConfiguration;
 }
 
 // The registry of the default session's BroadcastChannels for WebKit 1 views, which the UI-process router
 // shares with WebKit 2 (WebBroadcastChannelRegistry::getOrCreate).
 __attribute__((visibility("default"))) void WebSetLegacyExtensionBroadcastChannelRegistry(WebCore::BroadcastChannelRegistry&);
 WebCore::BroadcastChannelRegistry* WebLegacyExtensionBroadcastChannelRegistry();
+__attribute__((visibility("default"))) void WebSetLegacyExtensionStorageProviders(WebCore::DatabaseProvider&, WebCore::StorageNamespaceProvider&);
 #endif
 
 #ifdef __OBJC__
 @class WebFrame;
+@class WebView;
+
+#ifdef __cplusplus
+void WebConfigureLegacyExtensionStorage(WebView *, WebCore::PageConfiguration&);
+#endif
 
 void WebLegacyExtensionPageObserverDidClearWindowObject(WebFrame *);
 void WebLegacyExtensionPageObserverFrameWillBeDestroyed(WebFrame *);

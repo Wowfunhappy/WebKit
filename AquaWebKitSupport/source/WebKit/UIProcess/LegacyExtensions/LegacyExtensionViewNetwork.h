@@ -79,6 +79,7 @@ private:
     using ResponseCompletion = CompletionHandler<void(ResponseVerdict&&)>;
 
     // LegacyLoadInterceptor.
+    bool needsStorageConnection(WebCore::ResourceLoader&, const WebCore::ResourceRequest&) const;
     bool interceptStart(WebCore::ResourceLoader&) final;
     bool interceptRedirection(WebCore::ResourceLoader&, WebCore::ResourceRequest&, WebCore::ResourceResponse& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&) final;
     bool interceptResponse(WebCore::ResourceLoader&, WebCore::ResourceResponse&, CompletionHandler<void()>&) final;

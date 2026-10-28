@@ -58,14 +58,19 @@ public:
     void setSessionStorageQuota(unsigned quota) { m_sessionStorageQuota = quota; }
     virtual void cloneSessionStorageNamespaceForPage(Page&, Page&) { RELEASE_ASSERT_NOT_REACHED(); }
 
+    // AQUAWEBKIT: per-view legacy extension providers delegate namespaces to the selected store.
+    WEBCORE_EXPORT StorageNamespace& localStorageNamespace(PAL::SessionID);
+    WEBCORE_EXPORT StorageNamespace& transientLocalStorageNamespace(SecurityOrigin&, PAL::SessionID);
+
 protected:
     StorageNamespace* optionalLocalStorageNamespace() { return m_localStorageNamespace.get(); }
     unsigned sessionStorageQuota() const { return m_sessionStorageQuota; }
 
 private:
     friend class Internals;
-    WEBCORE_EXPORT StorageNamespace& localStorageNamespace(PAL::SessionID);
-    StorageNamespace& transientLocalStorageNamespace(SecurityOrigin&, PAL::SessionID);
+    // AQUAWEBKIT: namespace accessors are public for provider delegation above.
+    // WEBCORE_EXPORT StorageNamespace& localStorageNamespace(PAL::SessionID);
+    // StorageNamespace& transientLocalStorageNamespace(SecurityOrigin&, PAL::SessionID);
 
     virtual Ref<StorageNamespace> createLocalStorageNamespace(unsigned quota, PAL::SessionID) = 0;
     virtual Ref<StorageNamespace> createTransientLocalStorageNamespace(SecurityOrigin&, unsigned quota, PAL::SessionID) = 0;

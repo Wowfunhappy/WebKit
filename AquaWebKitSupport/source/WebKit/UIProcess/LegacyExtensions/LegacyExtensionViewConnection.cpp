@@ -1,5 +1,6 @@
 #include "config.h"
 #include "LegacyExtensionViewConnection.h"
+#include "LegacyExtensionViewStorage.h"
 
 #include "Decoder.h"
 #include "HandleMessage.h"
@@ -325,28 +326,36 @@ private:
     void requestSharedWorker(const SharedWorkerKey& key, SharedWorkerObjectIdentifier identifier, TransferredMessagePort&& port, const WorkerOptions& options) final
     {
         LegacyExtensionViewMessagePorts::singleton().messagePortSentToRemote(port.first);
-        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier, port = WTF::move(port), options]() mutable {
+        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier, port = WTF::move(port), options](bool allowed) mutable {
+            if (!allowed)
+                return;
             LegacyExtensionViewConnection::singleton().send(Messages::WebSharedWorkerServerConnection::RequestSharedWorker { key, identifier, WTF::move(port), options });
         });
     }
 
     void sharedWorkerObjectIsGoingAway(const SharedWorkerKey& key, SharedWorkerObjectIdentifier identifier) final
     {
-        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier] {
+        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier](bool allowed) {
+            if (!allowed)
+                return;
             LegacyExtensionViewConnection::singleton().send(Messages::WebSharedWorkerServerConnection::SharedWorkerObjectIsGoingAway { key, identifier });
         });
     }
 
     void suspendForBackForwardCache(const SharedWorkerKey& key, SharedWorkerObjectIdentifier identifier) final
     {
-        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier] {
+        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier](bool allowed) {
+            if (!allowed)
+                return;
             LegacyExtensionViewConnection::singleton().send(Messages::WebSharedWorkerServerConnection::SuspendForBackForwardCache { key, identifier });
         });
     }
 
     void resumeForBackForwardCache(const SharedWorkerKey& key, SharedWorkerObjectIdentifier identifier) final
     {
-        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier] {
+        LegacyExtensionViewConnection::singleton().whenFirstPartyAllowed(firstParty(key), [key, identifier](bool allowed) {
+            if (!allowed)
+                return;
             LegacyExtensionViewConnection::singleton().send(Messages::WebSharedWorkerServerConnection::ResumeForBackForwardCache { key, identifier });
         });
     }
@@ -364,42 +373,26 @@ void LegacyExtensionViewConnection::install()
     SharedWorkerProvider::setSharedProvider(LegacyExtensionViewSharedWorkers::singleton());
     WebLockRegistry::setSharedRegistry(sessionDataStore()->webLockRegistry());
     WebSetLegacyExtensionBroadcastChannelRegistry(LegacyExtensionViewBroadcastChannels::singleton());
+    installLegacyExtensionViewStorage();
 }
 
-// A message holds references to its arguments, so one waiting for the connection waits encoded, as
-// AuxiliaryProcessProxy's do.
-template<typename Message> void LegacyExtensionViewConnection::send(Message&& message)
+void LegacyExtensionViewConnection::whenFirstPartyAllowed(const Site& site, Function<void(bool)>&& sendMessages)
 {
-    if (RefPtr connection = m_connection) {
-        connection->send(std::forward<Message>(message), 0);
-        return;
-    }
-    auto encoder = makeUniqueRef<IPC::Encoder>(Message::name(), 0);
-    message.encode(encoder.get());
-    m_pendingMessages.append({ WTF::move(encoder), std::nullopt });
-    connect();
-}
-
-template<typename Message, typename CompletionHandler> void LegacyExtensionViewConnection::sendWithAsyncReply(Message&& message, CompletionHandler&& completionHandler)
-{
-    if (RefPtr connection = m_connection) {
-        connection->sendWithAsyncReply(std::forward<Message>(message), std::forward<CompletionHandler>(completionHandler), 0);
-        return;
-    }
-    auto encoder = makeUniqueRef<IPC::Encoder>(Message::name(), 0);
-    message.encode(encoder.get());
-    m_pendingMessages.append({ WTF::move(encoder), IPC::Connection::makeAsyncReplyHandler<Message>(std::forward<CompletionHandler>(completionHandler)) });
-    connect();
-}
-
-void LegacyExtensionViewConnection::whenFirstPartyAllowed(const Site& site, Function<void()>&& sendMessages)
-{
+    m_firstParties.add(site);
     if (m_allowedFirstParties.contains(site))
-        return sendMessages();
-    auto addResult = m_messagesAwaitingFirstParty.add(site, Vector<Function<void()>> { });
+        return sendMessages(true);
+    auto addResult = m_messagesAwaitingFirstParty.add(site, Vector<Function<void(bool)>> { });
     addResult.iterator->value.append(WTF::move(sendMessages));
     if (!addResult.isNewEntry)
         return;
+    if (m_connection)
+        allowFirstParty(site);
+    else
+        connect();
+}
+
+void LegacyExtensionViewConnection::allowFirstParty(const Site& site)
+{
     // The network process takes the first party on its connection to this process, which a message on this
     // connection does not overtake: the waiting messages go once it replies.
     sessionDataStore()->networkProcess().sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies { Process::identifier(), site, LoadedWebArchive::No }, [site, generation = m_connectionGeneration] {
@@ -408,15 +401,35 @@ void LegacyExtensionViewConnection::whenFirstPartyAllowed(const Site& site, Func
             return;
         connection.m_allowedFirstParties.add(site);
         for (auto& sendMessages : connection.m_messagesAwaitingFirstParty.take(site))
-            sendMessages();
+            sendMessages(true);
     });
+}
+
+void LegacyExtensionViewConnection::allowFilesAccess(const Vector<String>& paths, CompletionHandler<void()>&& completionHandler)
+{
+    if (!m_connection) {
+        m_pendingFileAccess.append({ paths, WTF::move(completionHandler) });
+        connect();
+        return;
+    }
+    sessionDataStore()->networkProcess().sendWithAsyncReply(Messages::NetworkProcess::AllowFilesAccessFromWebProcess { Process::identifier(), paths }, WTF::move(completionHandler));
+}
+
+void LegacyExtensionViewConnection::sendEncoded(UniqueRef<IPC::Encoder>&& encoder)
+{
+    if (RefPtr connection = m_connection)
+        connection->sendMessage(WTF::move(encoder), { });
+    else {
+        m_pendingMessages.append({ WTF::move(encoder), std::nullopt });
+        connect();
+    }
 }
 
 // As WebsiteDataStore::getNetworkProcessConnection does for a web process, a request the network process fails is
 // tried once more on the next run loop iteration, with a new network process if the failed one is still the session's.
 void LegacyExtensionViewConnection::connect(ShouldRetryOnFailure shouldRetryOnFailure)
 {
-    if (m_isConnecting)
+    if (m_connection || m_isConnecting)
         return;
     m_isConnecting = true;
     Ref dataStore = sessionDataStore();
@@ -442,16 +455,35 @@ void LegacyExtensionViewConnection::didConnect(std::optional<IPC::Connection::Ha
             return;
         }
         // Each waiting reply handler is called without a reply, as in AuxiliaryProcessProxy::replyToPendingMessages.
-        for (auto& message : std::exchange(m_pendingMessages, { })) {
+        ++m_connectionGeneration;
+        m_allowedFirstParties.clear();
+        auto awaitingFirstParty = std::exchange(m_messagesAwaitingFirstParty, { });
+        auto pendingMessages = std::exchange(m_pendingMessages, { });
+        auto pendingFileAccess = std::exchange(m_pendingFileAccess, { });
+        LegacyExtensionViewMessagePorts::singleton().connectionClosed();
+        legacyExtensionViewStorageConnectionClosed();
+        for (auto& access : pendingFileAccess)
+            access.completionHandler();
+        for (auto& message : pendingMessages) {
             if (message.asyncReplyHandler && message.asyncReplyHandler->completionHandler)
                 message.asyncReplyHandler->completionHandler(nullptr, nullptr);
         }
-        LegacyExtensionViewMessagePorts::singleton().connectionClosed();
+        for (auto& callbacks : awaitingFirstParty.values()) {
+            for (auto& callback : callbacks)
+                callback(false);
+        }
         return;
     }
     Ref connection = IPC::Connection::createClientConnection(IPC::Connection::Identifier { WTF::move(*handle) });
     m_connection = connection.copyRef();
     connection->open(*this);
+    for (auto& access : std::exchange(m_pendingFileAccess, { }))
+        allowFilesAccess(access.paths, WTF::move(access.completionHandler));
+    for (auto& site : copyToVector(m_firstParties)) {
+        m_messagesAwaitingFirstParty.add(site, Vector<Function<void(bool)>> { });
+        allowFirstParty(site);
+    }
+    reconnectLegacyExtensionViewStorage();
     if (std::exchange(m_needsChannelRegistration, false))
         LegacyExtensionViewBroadcastChannels::singleton().registerChannelsWithNetworkProcess();
     for (auto& message : std::exchange(m_pendingMessages, { })) {
@@ -464,6 +496,8 @@ void LegacyExtensionViewConnection::didConnect(std::optional<IPC::Connection::Ha
 
 void LegacyExtensionViewConnection::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
+    if (dispatchLegacyExtensionViewStorageMessage(connection, decoder))
+        return;
     if (decoder.messageReceiverName() == Messages::NetworkProcessConnection::messageReceiverName()) {
         auto& ports = LegacyExtensionViewMessagePorts::singleton();
         if (decoder.messageName() == Messages::NetworkProcessConnection::MessagesAvailableForPort::name())
@@ -488,12 +522,16 @@ void LegacyExtensionViewConnection::didClose(IPC::Connection& connection)
 {
     if (m_connection != &connection)
         return;
-    connection.invalidate();
     m_connection = nullptr;
     ++m_connectionGeneration;
     m_allowedFirstParties.clear();
-    m_messagesAwaitingFirstParty.clear();
+    auto awaitingFirstParty = std::exchange(m_messagesAwaitingFirstParty, { });
     LegacyExtensionViewMessagePorts::singleton().connectionClosed();
+    legacyExtensionViewStorageConnectionClosed();
+    for (auto& callbacks : awaitingFirstParty.values()) {
+        for (auto& callback : callbacks)
+            callback(false);
+    }
     m_needsChannelRegistration = true;
     connect();
 }

@@ -69,7 +69,9 @@ class UniqueIDBDatabaseTransaction;
 
 class IDBResultData {
 public:
-    static IDBResultData error(const IDBResourceIdentifier&, const IDBError&);
+    // AQUAWEBKIT: network blob preparation errors reach the legacy extension IDB request.
+    // static IDBResultData error(const IDBResourceIdentifier&, const IDBError&);
+    WEBCORE_EXPORT static IDBResultData error(const IDBResourceIdentifier&, const IDBError&);
     static IDBResultData openDatabaseSuccess(const IDBResourceIdentifier&, IDBServer::UniqueIDBDatabaseConnection&);
     static IDBResultData openDatabaseUpgradeNeeded(const IDBResourceIdentifier&, IDBServer::UniqueIDBDatabaseTransaction&, IDBServer::UniqueIDBDatabaseConnection&);
     static IDBResultData deleteDatabaseSuccess(const IDBResourceIdentifier&, const IDBDatabaseInfo&);
