@@ -2026,7 +2026,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
     }
 
     if (method == "tabs.get"_s) {
-        RefPtr page = pageForTabID(numberArgument(0));
+        RefPtr page = pageForTabReference(objectArgument(0).get());
         if (!page)
             return resultToHostContext(context, callID, JSON::Value::null());
         resultWithTab(context, callID, *page);

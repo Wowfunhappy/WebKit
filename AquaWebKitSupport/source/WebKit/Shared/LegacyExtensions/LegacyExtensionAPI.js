@@ -925,7 +925,7 @@ if (isHost) {
 
     browser.tabs = {
         get(...args) {
-            return withOptionalCallback(args, tabId => callRouter("tabs.get", tabId).then(tab => {
+            return withOptionalCallback(args, async tabId => callRouter("tabs.get", tabReference(tabId)).then(tab => {
                 if (!tab)
                     throw new Error(`No tab with id: ${tabId}.`);
                 return tab;
@@ -1837,7 +1837,7 @@ if (typeof native.createMediaSession === "function") {
 }
 if (isHost) {
     aqua.mediaPlayer = Object.assign(aqua.mediaPlayer || {}, {
-        prepareHandoff: tab => callRouter("aqua.mediaPlayer.prepareHandoff", tabReference(tab)),
+        prepareHandoff: async tab => callRouter("aqua.mediaPlayer.prepareHandoff", tabReference(tab)),
         cancelHandoff: ticket => callRouter("aqua.mediaPlayer.cancelHandoff", ticket),
     });
     // A connection to the Web Inspector backend of a tab, whose messages are this WebKit's Web Inspector protocol

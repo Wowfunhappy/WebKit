@@ -186,11 +186,11 @@ Returns the element's shadow root whether it is open or closed. Content-script w
 { id, url, title, status /* "loading" | "complete" */, incognito, hidden, audible, mutedInfo: { muted } }
 ```
 
-`url` is the URL of the page the tab shows, as in Chrome: the main frame's last committed URL, or for an error page the URL that failed to load; a navigation in progress has not changed it. `url` and `title` are present only when the extension sees the page, as Safari 7's own `SafariBrowserTab` shows them: a page of the extension, or, with any website access, a blank page or a page within it. `tabs.onUpdated` leaves them out of `changeInfo` for such a tab, and does not fire for a change of nothing else. `status` is `"loading"` while any load is in progress. `hidden` is whether the tab is hidden with `tabs.hide`. `audible` is whether the page is playing audio, muted or not. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information.
+`url` is the URL of the page the tab shows, as in Chrome: the main frame's last committed URL, or for an error page the URL that failed to load; a navigation in progress has not changed it. `url` and `title` are present only when the extension sees the page, as Safari 7's own `SafariBrowserTab` shows them: a page of the extension, or, with any website access, a blank page or a page within it. `tabs.onUpdated` leaves them out of `changeInfo` for such a tab, and does not fire for a change of nothing else. `status` is `"loading"` while any load is in progress. `hidden` is whether the tab is hidden with `tabs.hide`. `audible` is whether the page is playing audio, muted or not. There is no `index`, `windowId`, `active`, or `favIconUrl`; use `safari.application` for window and tab-order information and `tabs.get` for each `SafariBrowserTab`'s ID.
 
-### `tabs.get(tabId)` → `Promise<Tab>`
+### `tabs.get(tab)` → `Promise<Tab>`
 
-Rejects with `"No tab with id: <tabId>."` if the tab does not exist.
+`tab` is a tab ID or, in a page with Safari's extension API, a `SafariBrowserTab`; the result's `id` is that tab's ID. Rejects with `"No tab with id: <tabId>."` for an ID that names no open tab, and with a `TypeError` for a `SafariBrowserTab` of no open window.
 
 ### `tabs.update(tabId, { url, muted })` → `Promise<Tab>`
 
@@ -243,7 +243,7 @@ Removes every sheet this extension inserted into the target documents whose sour
 
 ### `tabs.hide(tabIds)` → `Promise<number[]>`
 
-Hides tabs from Safari's tab bar without closing them, as Firefox's `tabs.hide` does, and resolves to the IDs of the tabs it hid. A hidden tab's page keeps running as a background tab's does. `tabIds` is a tab or an array of tabs; a tab is a tab ID or, in a page with Safari's extension API, a `SafariBrowserTab`. A tab already hidden, the selected tab of a window, and a tab of a window showing all its tabs (View > Show All Tabs) are not hidden. A tab that names no open tab rejects the call with `Invalid tab ID: <tabId>`.
+Hides tabs from Safari's tab bar without closing them, as Firefox's `tabs.hide` does, and resolves to the IDs of the tabs it hid. A hidden tab's page keeps running as a background tab's does. `tabIds` is a tab or an array of tabs; a tab is a tab ID or, in a page with Safari's extension API, a `SafariBrowserTab`. A tab already hidden, the selected tab of a window, and a tab of a window showing all its tabs (View > Show All Tabs) are not hidden. An ID that names no open tab rejects the call with `Invalid tab ID: <tabId>`; a `SafariBrowserTab` of no open window rejects it with a `TypeError`.
 
 ### `tabs.show(tabIds)` → `Promise<void>`
 
