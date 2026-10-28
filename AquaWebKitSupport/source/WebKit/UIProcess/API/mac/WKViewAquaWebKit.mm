@@ -46,7 +46,7 @@
 #import "WKView.h"
 // WKViewPrivate.h carries the Safari-7 WKView SPI declarations implemented
 // below (the WKContentAnchor enum, the view-in-window deferral family, the async drawing-area
-// size-update pair, and the automatic-substitution flags).
+// size-update pair).
 #import "WKViewPrivate.h"
 #import <WebKit/WKShareSheet.h>
 
@@ -66,8 +66,7 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 // LOG_ERROR, used by the spelling/substitutions panel actions below.
 #import "Logging.h"
-// process-global TextChecker state, which the automatic quote/dash
-// substitution SPI below reads and writes.
+// Process-global TextChecker state behind the spelling, grammar and substitution accessors and toggles below.
 #import "TextChecker.h"
 // pinch/smart magnify and swipe navigation (see the magnification section below).
 #import "ViewGestureController.h"
@@ -2626,18 +2625,27 @@ WEBCORE_COMMAND(yankAndSelect)
     _wkState->page->capitalizeWord();
 }
 
-// automatic quote/dash substitution SPI, declared in WKViewPrivate.h and sent
-// unguarded by Safari 7's substitutions plumbing. Ported from
-// WebViewImpl::isAutomaticQuoteSubstitutionEnabled / setAutomaticQuoteSubstitutionEnabled /
-// isAutomaticDashSubstitutionEnabled / setAutomaticDashSubstitutionEnabled: the flags live in the
-// process-global TextChecker state (persisted to user defaults by TextCheckerMac), and a change is
-// pushed to the WebContent process via WebProcessProxy::updateTextCheckerState.
+// AppKit's Substitutions panel and Spelling and Grammar panel read and set these flags.
+// As in WebViewImpl, TextChecker holds the process-global flags and each setter pushes them to the page's WebContent process.
+- (BOOL)isGrammarCheckingEnabled
+{
+    return TextChecker::state().contains(TextCheckerState::GrammarCheckingEnabled);
+}
+
+- (void)setGrammarCheckingEnabled:(BOOL)flag
+{
+    if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::GrammarCheckingEnabled))
+        return;
+
+    TextChecker::setGrammarCheckingEnabled(flag);
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
 - (BOOL)isAutomaticQuoteSubstitutionEnabled
 {
     return TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled);
 }
 
-// see -isAutomaticQuoteSubstitutionEnabled above (ported from WebViewImpl::setAutomaticQuoteSubstitutionEnabled).
 - (void)setAutomaticQuoteSubstitutionEnabled:(BOOL)flag
 {
     if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled))
@@ -2647,19 +2655,45 @@ WEBCORE_COMMAND(yankAndSelect)
     protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
-// see -isAutomaticQuoteSubstitutionEnabled above (ported from WebViewImpl::isAutomaticDashSubstitutionEnabled).
 - (BOOL)isAutomaticDashSubstitutionEnabled
 {
     return TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled);
 }
 
-// see -isAutomaticQuoteSubstitutionEnabled above (ported from WebViewImpl::setAutomaticDashSubstitutionEnabled).
 - (void)setAutomaticDashSubstitutionEnabled:(BOOL)flag
 {
     if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled))
         return;
 
     TextChecker::setAutomaticDashSubstitutionEnabled(flag);
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
+- (BOOL)isAutomaticLinkDetectionEnabled
+{
+    return TextChecker::state().contains(TextCheckerState::AutomaticLinkDetectionEnabled);
+}
+
+- (void)setAutomaticLinkDetectionEnabled:(BOOL)flag
+{
+    if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticLinkDetectionEnabled))
+        return;
+
+    TextChecker::setAutomaticLinkDetectionEnabled(flag);
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
+- (BOOL)isAutomaticTextReplacementEnabled
+{
+    return TextChecker::state().contains(TextCheckerState::AutomaticTextReplacementEnabled);
+}
+
+- (void)setAutomaticTextReplacementEnabled:(BOOL)flag
+{
+    if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticTextReplacementEnabled))
+        return;
+
+    TextChecker::setAutomaticTextReplacementEnabled(flag);
     protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 

@@ -74,14 +74,6 @@ typedef enum {
 - (void)forceAsyncDrawingAreaSizeUpdate:(NSSize)size;
 - (void)waitForAsyncDrawingAreaSizeUpdate;
 
-// AQUAWEBKIT: automatic-substitution SPI Safari 7 sends to its WKView unguarded
-// (Edit > Substitutions state and preferences plumbing). Upstream keeps these on
-// WebViewImpl; this tree's standalone WKView implements them directly.
-- (BOOL)isAutomaticQuoteSubstitutionEnabled;
-- (void)setAutomaticQuoteSubstitutionEnabled:(BOOL)flag;
-- (BOOL)isAutomaticDashSubstitutionEnabled;
-- (void)setAutomaticDashSubstitutionEnabled:(BOOL)flag;
-
 + (void)hideWordDefinitionWindow;
 
 @property (readwrite) NSSize minimumSizeForAutoLayout;
