@@ -11,6 +11,7 @@
 #include "LegacyExtensionHiddenTabs.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionInfoPlist.h"
+#include "LegacyExtensionInput.h"
 #include "LegacyExtensionInspector.h"
 #include "LegacyExtensionJavaScript.h"
 #include "LegacyExtensionMimeHandlers.h"
@@ -1892,6 +1893,30 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         resultToHostContext(context, callID, ticket.isEmpty() ? nullptr : JSON::Value::create(ticket).ptr(), ticket.isEmpty() ? "no-source"_s : String { });
         return;
     }
+    // aqua.input: dispatchMouseEvent(tab, event), dispatchKeyEvent(tab, event) and insertText(tab, text).
+    if (method == "aqua.input.dispatchMouseEvent"_s || method == "aqua.input.dispatchKeyEvent"_s || method == "aqua.input.insertText"_s) {
+        RefPtr page = pageForTabReference(objectArgument(0).get());
+        if (!page)
+            return resultToHostContext(context, callID, nullptr, "No tab with this id."_s);
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, method, page = page.releaseNonNull(), input = argument(1)](const LegacyExtensions::WebsiteAccess& access) {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            auto finish = [this, context, callID](LegacyExtensions::InputResult&& result) {
+                if (m_hostContexts.contains(context->identifier))
+                    resultToHostContext(context, callID, nullptr, result ? String() : result.error());
+            };
+            if (method == "aqua.input.insertText"_s)
+                return finish(LegacyExtensions::insertText(page, context->extensionKey, access, input ? input->asString() : String()));
+            RefPtr event = input ? input->asObject() : nullptr;
+            if (!event)
+                return finish(makeUnexpected("An input event is an object."_s));
+            if (method == "aqua.input.dispatchMouseEvent"_s)
+                return LegacyExtensions::dispatchMouseEvent(page, context->extensionKey, access, *event, WTF::move(finish));
+            LegacyExtensions::dispatchKeyEvent(page, context->extensionKey, access, *event, WTF::move(finish));
+        });
+        return;
+    }
+
     // aqua.inspector: attach(tab), detach(tab) and sendMessage(tab, message).
     if (method == "aqua.inspector.attach"_s || method == "aqua.inspector.detach"_s || method == "aqua.inspector.sendMessage"_s) {
         RefPtr page = pageForTabReference(objectArgument(0).get());
@@ -2043,7 +2068,7 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, page = page.releaseNonNull(), options, blur](const LegacyExtensions::WebsiteAccess& access) {
             if (!m_hostContexts.contains(context->identifier))
                 return;
-            if (access.level != LegacyExtensions::WebsiteAccess::Level::All || !access.includesSecurePages)
+            if (!access.coversEverySite())
                 return resultToHostContext(context, callID, nullptr, "Missing host permission for the tab"_s);
             if (page->isClosed())
                 return resultToHostContext(context, callID, nullptr, makeString("Invalid tab ID: "_s, tabIDForPage(page)));

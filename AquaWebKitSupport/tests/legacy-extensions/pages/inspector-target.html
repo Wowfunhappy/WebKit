@@ -1,4 +1,35 @@
 <!DOCTYPE html>
-<!-- The page inspector.safariextension attaches aqua.inspector to. -->
+<!-- The page inspector.safariextension attaches aqua.inspector to and gives aqua.input events. A button at
+     (20, 20) to (120, 60), a text field at (20, 80) to (220, 110) that Safari does not complete, a link at (20, 130) to (220, 160) whose
+     clicks the page prevents, a select at (20, 180) to (220, 210) and a line of text at (20, 230) to
+     (420, 250), in CSS pixels of the viewport; the page scrolls. Every input event it receives lands in window.__log as
+     [type, isTrusted, details]: a key event's key, an input event's value, and a mouse event's
+     [clientX, clientY, button, buttons, movementX, movementY]. A context menu is prevented while
+     window.__preventContextMenu is true. -->
 <title>inspector-target</title>
-<p>inspector-target</p>
+<style>
+body { margin: 0; height: 3000px; }
+#button { position: fixed; left: 20px; top: 20px; width: 100px; height: 40px; }
+#field { position: fixed; left: 20px; top: 80px; width: 200px; height: 30px; box-sizing: border-box; }
+#link { position: fixed; left: 20px; top: 130px; width: 200px; height: 30px; display: block; background: #eef; }
+#select { position: fixed; left: 20px; top: 180px; width: 200px; height: 30px; }
+#text { position: fixed; left: 20px; top: 230px; width: 400px; height: 20px; margin: 0; font: 16px monospace; }
+</style>
+<button id="button">button</button>
+<input id="field" autocomplete="off">
+<a id="link" href="inspector-target.html?dragged">link</a>
+<select id="select"><option>one</option><option>two</option></select>
+<p id="text">abcdefghijklmnopqrstuvwxyz</p>
+<script>
+window.__log = [];
+window.__preventContextMenu = true;
+document.getElementById("link").addEventListener("click", event => event.preventDefault());
+for (const type of ["mousedown", "mouseup", "click", "mousemove", "keydown", "keyup", "input", "wheel", "contextmenu", "dragstart", "dragend"]) {
+    document.addEventListener(type, event => {
+        const details = event.key !== undefined ? event.key : event.type === "input" ? event.target.value : [event.clientX, event.clientY, event.button, event.buttons, event.movementX, event.movementY];
+        window.__log.push([event.type, event.isTrusted, details]);
+        if (event.type === "contextmenu" && window.__preventContextMenu)
+            event.preventDefault();
+    }, true);
+}
+</script>

@@ -23,6 +23,8 @@ struct WebsiteAccess {
     // Whether the extension whose key is `extensionKey` sees a document or load at the URL: a web URL within the
     // access, one of the extension's own files, or a URL of no site (data:, about:, and blob: by its origin).
     bool allowsForExtension(const String& extensionKey, const URL&) const;
+    // Whether the access is to every site, secure pages included: what reading a whole tab takes.
+    bool coversEverySite() const { return level == Level::All && includesSecurePages; }
     // The access as UserContentURLPattern strings, one per scheme and host.
     Vector<String> urlPatterns() const;
 

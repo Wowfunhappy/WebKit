@@ -1857,6 +1857,25 @@ if (isHost) {
         onMessage: trackedEvent("aqua.inspector.onMessage"),
         onDetach: trackedEvent("aqua.inspector.onDetach"),
     };
+    // User input to a tab, as AppKit events its web view handles (EXTENSION-AQUA-API.md).
+    const inputEvent = (event, name) => {
+        if (!event || typeof event !== "object")
+            throw new TypeError(`A ${name} is an object`);
+        return event;
+    };
+    aqua.input = {
+        dispatchMouseEvent: async (tab, event) => {
+            await callRouter("aqua.input.dispatchMouseEvent", tabReference(tab), inputEvent(event, "mouse event"));
+        },
+        dispatchKeyEvent: async (tab, event) => {
+            await callRouter("aqua.input.dispatchKeyEvent", tabReference(tab), inputEvent(event, "key event"));
+        },
+        insertText: async (tab, text) => {
+            if (typeof text !== "string")
+                throw new TypeError("Inserted text is a string");
+            await callRouter("aqua.input.insertText", tabReference(tab), text);
+        },
+    };
 }
 // Every method of a namespace and of its nested namespaces checks that the context is valid when called, and
 // every event when read, as Chrome's bindings do (api_binding.cc RunAPIBindingHandlerCallback, GetEventObject).

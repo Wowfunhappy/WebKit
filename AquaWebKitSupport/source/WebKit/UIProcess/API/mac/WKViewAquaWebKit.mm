@@ -94,6 +94,15 @@
 #import <WebCore/FloatRect.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
+#import <WebCore/LoaderNSURLExtras.h>
+#import <WebCore/Pasteboard.h>
+#import <WebCore/PasteboardCustomData.h>
+#import <WebCore/PromisedAttachmentInfo.h>
+#import <pal/spi/mac/NSPasteboardSPI.h>
+#import "APIAttachment.h"
+#import "WKErrorInternal.h"
+#import <WebCore/TextAlternativeWithRange.h>
+#import <WebCore/TextUndoInsertionMarkupMac.h>
 #import <pal/spi/mac/NSTextInputContextSPI.h>
 // needed so the WKView NSTextInputClient implementation can insert text, drive
 // inline-IME composition, and answer the synchronous text-input queries 10.9 AppKit makes (#63).
@@ -182,6 +191,32 @@ static bool waitForTextInputReply(WebPageProxy& page, Message&& message, ReplyHa
 }
 
 // Per-view ownership and AppKit event-interpretation state.
+// The promised-file contexts WebViewImpl.mm defines, which drags out of the view carry.
+@interface WKPromisedAttachmentContext : NSObject
+- (instancetype)initWithIdentifier:(NSString *)identifier fileName:(NSString *)fileName;
+@property (nonatomic, readonly) NSString *fileName;
+@property (nonatomic, readonly) NSString *attachmentIdentifier;
+@end
+
+@interface WKPromisedImageContext : NSObject
+- (instancetype)initWithFileName:(NSString *)fileName data:(NSData *)data url:(NSString *)url;
+@property (nonatomic, readonly) NSString *fileName;
+@property (nonatomic, readonly) NSData *data;
+@property (nonatomic, readonly) NSString *url;
+@end
+
+// Mirrors WebViewImpl::PromisedImageDragData, with the image's bytes, which are all the page client has of it.
+struct WKPromisedImageDragData {
+    RetainPtr<NSData> imageData;
+    RetainPtr<NSString> filename;
+    RetainPtr<NSString> title;
+    RetainPtr<NSString> url;
+    RetainPtr<NSString> visibleURL;
+    RetainPtr<NSString> imageUTI;
+    RetainPtr<NSData> archiveData;
+    RetainPtr<NSString> originIdentifier;
+};
+
 struct WKViewState {
     std::unique_ptr<WebKit::PageClient> pageClient;
     RefPtr<WebKit::WebPageProxy> page;
@@ -193,19 +228,14 @@ struct WKViewState {
     bool allowsMagnification { false };
     bool allowsBackForwardNavigationGestures { false };
     RefPtr<WebKit::ViewGestureController> gestureController;
-    // promised-file drag state (drag an image out of the page to the Finder).
-    // Mirrors WebViewImpl's m_promisedImage / m_promisedFilename / m_promisedURL. The image bytes are
-    // kept as NSData rather than a WebCore::Image because that is all the PageClient hands us and all
-    // -namesOfPromisedFilesDroppedAtDestination: needs to write the file.
-    RetainPtr<NSData> promisedImageData;
-    RetainPtr<NSData> promisedArchiveData;
-    RetainPtr<NSString> promisedImageUTI;
-    RetainPtr<NSString> promisedFilename;
-    RetainPtr<NSString> promisedURL;
-#if ENABLE(DRAG_SUPPORT)
-    // the originating mouse-down event, needed by the classic
-    // -[NSView dragImage:...event:...] API to start an HTML5 drag session.
+    // mirrors WebViewImpl::m_promisedImageDragData: the image a drag out of the page promises as a file.
+    std::optional<WKPromisedImageDragData> promisedImageDragData;
+    // mirrors WebViewImpl::m_lastMouseDownEvent: the left mouse-down until its mouse-up, which starts a drag
+    // session or a window drag.
     RetainPtr<NSEvent> lastMouseDownEvent;
+    // mirrors WebViewImpl::m_ignoresMouseDraggedEvents: set once a drag session ends, until the next mouse-down.
+    bool ignoresMouseDraggedEvents { false };
+#if ENABLE(DRAG_SUPPORT)
     // mirrors WebViewImpl::m_initialNumberOfValidItemsForDrop.
     NSInteger initialNumberOfValidItemsForDrop { 0 };
 #endif
@@ -282,7 +312,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 - (void)stopSpeaking:(id)sender;
 @end
 
-@interface WKView () <WKShareSheetDelegate> {
+@interface WKView () <WKShareSheetDelegate, NSDraggingSource, NSFilePromiseProviderDelegate> {
     WKViewState *_wkState;
     WKBrowsingContextController *_browsingContextController;
     // cached intrinsic content size for the auto-layout SPI Mail's
@@ -838,6 +868,12 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     return [super inputContext];
 }
 
+// The view's input context whatever the page's editor state, as WKView's.
+- (NSTextInputContext *)_web_superInputContext
+{
+    return [super inputContext];
+}
+
 - (void)_aquaWebKitExecuteSavedKeypressCommands
 {
     if (!_wkState || !_wkState->page)
@@ -956,7 +992,18 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 {
     if (!_wkState || !_wkState->page)
         return;
-    NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [(NSAttributedString *)string string] : (NSString *)string;
+    // As WebViewImpl::insertText: text from the keyboard layout's key bindings is saved for the key event, which
+    // performs it after keydown; text from an input method, which has the page's composition, or from outside key
+    // interpretation is inserted now.
+    NSString *s;
+    Vector<WebCore::TextAlternativeWithRange> dictationAlternatives;
+    bool registerUndoGroup = false;
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        WebCore::collectDictationTextAlternatives(string, dictationAlternatives);
+        registerUndoGroup = WebCore::shouldRegisterInsertionUndoGroup(string);
+        s = [(NSAttributedString *)string string];
+    } else
+        s = (NSString *)string;
     if (!s)
         return;
     auto* parameters = _wkState->interpretKeyEventsParameters;
@@ -969,7 +1016,12 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
         return;
     }
     String eventText = makeStringByReplacingAll(String(s), NSBackTabCharacter, NSTabCharacter);
-    _wkState->page->insertTextAsync(eventText, replacementRange, InsertTextOptions { });
+    InsertTextOptions options;
+    options.registerUndoGroup = registerUndoGroup;
+    if (!dictationAlternatives.isEmpty())
+        _wkState->page->insertDictatedTextAsync(eventText, replacementRange, dictationAlternatives, WTF::move(options));
+    else
+        _wkState->page->insertTextAsync(eventText, replacementRange, WTF::move(options));
     if (parameters)
         parameters->eventInterpretationHadSideEffects = true;
 }
@@ -1071,11 +1123,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     WebCore::KeypressCommand command(String::fromLatin1(sel_getName(selector)));
     parameters->commands.append(command);
     _wkState->page->registerKeypressCommandName(command.commandName);
-}
-- (BOOL)conformsToProtocol:(Protocol *)protocol
-{
-    if (protocol == @protocol(NSTextInputClient)) return YES;
-    return [super conformsToProtocol:protocol];
 }
 // the UI-process half of the WK2 remote-accessibility bridge. WebKit2 renders
 // the page in another process, so the AX tree Safari's window exposes has to be stitched across
@@ -1798,18 +1845,33 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     _wkState->page->handleMouseEvent(webEvent); \
 }
 
-// mouseDown is explicit (not via the macro) so it can retain the
-// originating event for the classic drag-image API used to start HTML5 drags.
+// mouseDown, mouseUp and mouseDragged are explicit (not via the macro) for the state WebViewImpl's keep: the
+// last mouse-down, and the mouse-dragged events a finished drag session ignores.
 - (void)mouseDown:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super mouseDown:event]; return; }
-#if ENABLE(DRAG_SUPPORT)
     _wkState->lastMouseDownEvent = event;
-#endif
+    _wkState->ignoresMouseDraggedEvents = false;
     WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
     _wkState->page->handleMouseEvent(webEvent);
 }
-WKV_FORWARD_MOUSE(mouseUp)
+
+- (void)mouseUp:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super mouseUp:event]; return; }
+    _wkState->lastMouseDownEvent = nil;
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
+    _wkState->page->handleMouseEvent(webEvent);
+}
+
+- (void)mouseDragged:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super mouseDragged:event]; return; }
+    if (_wkState->ignoresMouseDraggedEvents)
+        return;
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
+    _wkState->page->handleMouseEvent(webEvent);
+}
 // mouseMoved is explicit (not via the macro) because it needs a filter the
 // other forwards don't: while this view is first responder, the window routes mouseMoved events
 // to it from anywhere in the window (not just over the tracking area installed in the designated
@@ -1823,7 +1885,6 @@ WKV_FORWARD_MOUSE(mouseUp)
     WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
     _wkState->page->handleMouseEvent(webEvent);
 }
-WKV_FORWARD_MOUSE(mouseDragged)
 WKV_FORWARD_MOUSE(rightMouseDown)
 WKV_FORWARD_MOUSE(rightMouseUp)
 WKV_FORWARD_MOUSE(rightMouseDragged)
@@ -1850,9 +1911,7 @@ WKV_FORWARD_MOUSE(mouseExited)
 #if ENABLE(DRAG_SUPPORT)
 // HTML5 drag-and-drop for WKView. Safari 7 drives WebKit2 through WKView,
 // whose input pipeline is written here rather than in WebViewImpl, so the drag source and
-// destination are wired directly to WebPageProxy. Mirrors WebViewImpl, using the classic
-// -[NSView dragImage:...] API (NSFilePromiseProvider / beginDraggingSession are 10.12+, already
-// gated out of WebViewImpl::startDrag).
+// destination are wired directly to WebPageProxy. Mirrors WebViewImpl.
 
 // map an NSDragOperation to a WebCore::DragOperation mask for the hand-written WKView drag pipeline (mirrors WebViewImpl).
 static OptionSet<WebCore::DragOperation> wkCoreDragOperationMask(NSDragOperation operation)
@@ -2146,53 +2205,126 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
     return YES;
 }
 
-// NSDraggingSource (classic informal protocol, paired with -dragImage:...).
-- (NSDragOperation)draggingSourceOperationMaskForLocal:(BOOL)isLocal
+// NSDraggingSource. Mirrors WebViewImpl::dragSourceOperationMask.
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context
 {
-    // file-input drags advertise Copy only; otherwise allow the generic source operations.
-    if (!isLocal || (_wkState && _wkState->page && _wkState->page->currentDragIsOverFileInput()))
+    if (context == NSDraggingContextOutsideApplication || _wkState->page->currentDragIsOverFileInput())
         return NSDragOperationCopy;
     return NSDragOperationGeneric | NSDragOperationMove | NSDragOperationCopy;
 }
 
-// classic NSDraggingSource drag-ended callback that pairs with -dragImage:... (the 10.12+ session API is unused here).
-- (void)draggedImage:(NSImage *)image endedAt:(NSPoint)screenPoint operation:(NSDragOperation)operation
+- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation
 {
-    if (!_wkState || !_wkState->page)
-        return;
-    NSWindow *window = [self window];
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    NSPoint windowPoint = window ? [window convertScreenToBase:screenPoint] : screenPoint;
-ALLOW_DEPRECATED_DECLARATIONS_END
-    _wkState->page->dragEnded(WebCore::IntPoint(windowPoint), WebCore::IntPoint(WebCore::globalPoint(windowPoint, window)), wkCoreDragOperationMask(operation));
+    [self _wkSendDragEndToPageAtWindowPoint:[[self window] convertRectFromScreen:NSMakeRect(screenPoint.x, screenPoint.y, 0, 0)].origin operation:operation];
 }
 
-// Called by AquaWebKitPageClient::startDrag once the drag image is ready.
-- (void)_wk_beginDragWithImage:(NSImage *)image atWindowPoint:(NSPoint)windowPoint
+// Mirrors WebViewImpl::sendDragEndToPage.
+- (void)_wkSendDragEndToPageAtWindowPoint:(NSPoint)windowPoint operation:(NSDragOperation)operation
 {
-    if (!_wkState || !_wkState->page)
+    // Prevent queued mouseDragged events from coming after the drag and fake mouseUp event.
+    _wkState->ignoresMouseDraggedEvents = true;
+
+    WebCore::IntPoint clientLocation([self convertPoint:windowPoint fromView:nil]);
+    _wkState->page->dragEnded(clientLocation, WebCore::IntPoint(WebCore::globalPoint(windowPoint, [self window])), wkCoreDragOperationMask(operation));
+}
+
+// Called by AquaWebKitPageClient::startDrag once the drag image is ready. Mirrors WebViewImpl::startDrag: the
+// session starts from the last mouse-down, and a drag no mouse-down started is cancelled. The drag of an
+// extension's input, which no pointing device holds, ends at once with no operation where it started, as a
+// session cancelled at its start ends. dragLocation is in the view's flipped coordinates, the bottom-left of
+// the image.
+- (void)_wk_beginDragWithImage:(NSImage *)dragImage atLocation:(NSPoint)dragLocation promisedAttachmentInfo:(const WebCore::PromisedAttachmentInfo&)promisedAttachmentInfo frameID:(std::optional<WebCore::FrameIdentifier>)frameID
+{
+    Ref page = *_wkState->page;
+    // The web process announces an image's promise just ahead of the drag it belongs to, which takes it.
+    auto promisedImageDragData = std::exchange(_wkState->promisedImageDragData, std::nullopt);
+    RetainPtr lastMouseDownEvent = _wkState->lastMouseDownEvent;
+    if (!lastMouseDownEvent) {
+        page->dragCancelled();
         return;
-    // windowPoint is item.dragLocationInWindowCoordinates: a WebCore window coordinate
-    // (top-left origin, relative to this view's content — the WebProcess has no toolbar/
-    // window offset). WKView is isFlipped == YES, so its own coordinate system is already
-    // top-left with the same origin; the WebCore point maps to a WKView point with NO
-    // conversion. -dragImage:at: takes that location directly. (Mirrors both reference
-    // paths: WebViewImpl::startDrag hands dragLocationInMainFrameCoordinates straight to
-    // -dragImage:at:, and WK1 WebDragClient::startDrag does the same with
-    // dragLocationInContentCoordinates.)
+    }
+    if ([self _aquaWebKitIsExtensionInputEvent:lastMouseDownEvent.get()]) {
+        [self _wkSendDragEndToPageAtWindowPoint:[lastMouseDownEvent locationInWindow] operation:NSDragOperationNone];
+        return;
+    }
+
+    // clientDragLocation is the bottom-left of the image, but setDraggingFrame: expects a top-left origin.
+    NSSize size = [dragImage size];
+    NSRect draggingFrame = NSMakeRect(dragLocation.x, dragLocation.y - size.height, size.width, size.height);
+
+    bool isImageDrag = promisedImageDragData.has_value();
+    bool canUseFilePromiseForImageDrag = isImageDrag && [promisedImageDragData->imageUTI length];
+
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:NSDragPboard];
-    // WebCore has already written the drag data to NSDragPboard; the dummy type just
-    // guarantees the source pasteboard advertises at least one registered type.
-    [pasteboard setString:@"" forType:WebKit::PasteboardTypes::WebDummyPboardType];
-    NSEvent *event = _wkState->lastMouseDownEvent.get();
-    if (!event)
-        event = [NSApp currentEvent];
-    if (!event)
-        return;
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    // start the OS drag via the classic -dragImage:... API (beginDraggingSession is 10.12+).
-    [self dragImage:image at:windowPoint offset:NSZeroSize event:event pasteboard:pasteboard source:self slideBack:YES];
-ALLOW_DEPRECATED_DECLARATIONS_END
+    RetainPtr<NSDraggingItem> draggingItem;
+
+    // beginDraggingSessionWithItems: clears the pasteboard and populates it with UTI-typed data
+    // from NSPasteboardItems. We restore the legacy-typed pasteboard data afterwards so that WP
+    // read paths (which expect legacy types) can find this data in the original order.
+    RetainPtr<NSArray> savedLegacyPasteboardTypes;
+    RetainPtr<NSMutableDictionary> savedLegacyPasteboardData;
+
+    if (promisedAttachmentInfo) {
+        RefPtr attachment = page->attachmentForIdentifier(promisedAttachmentInfo.attachmentIdentifier);
+        if (!attachment) {
+            page->dragCancelled();
+            return;
+        }
+        RetainPtr utiType = attachment->utiType().createNSString();
+        if (![utiType length]) {
+            page->dragCancelled();
+            return;
+        }
+        RetainPtr provider = adoptNS([[NSFilePromiseProvider alloc] initWithFileType:utiType.get() delegate:self]);
+        RetainPtr context = adoptNS([[WKPromisedAttachmentContext alloc] initWithIdentifier:promisedAttachmentInfo.attachmentIdentifier.createNSString().get() fileName:attachment->fileName().createNSString().get()]);
+        [provider setUserInfo:context.get()];
+        draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:provider.get()]);
+    } else if (canUseFilePromiseForImageDrag) {
+        RetainPtr provider = adoptNS([[NSFilePromiseProvider alloc] initWithFileType:promisedImageDragData->imageUTI.get() delegate:self]);
+        RetainPtr context = adoptNS([[WKPromisedImageContext alloc] initWithFileName:promisedImageDragData->filename.get() data:promisedImageDragData->imageData.get() url:promisedImageDragData->url.get()]);
+        [provider setUserInfo:context.get()];
+        draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:provider.get()]);
+    } else {
+        // NSPasteboardItem here is a placeholder to satisfy the NSDraggingItem initializer.
+        // The real data lives in the saved legacy state and is restored once the drag session starts.
+        savedLegacyPasteboardTypes = adoptNS([[pasteboard types] copy]);
+        savedLegacyPasteboardData = adoptNS([[NSMutableDictionary alloc] init]);
+        for (NSString *type in [pasteboard types]) {
+            if (NSData *data = [pasteboard dataForType:type])
+                [savedLegacyPasteboardData setObject:data forKey:type];
+        }
+        RetainPtr pasteboardItem = adoptNS([[NSPasteboardItem alloc] init]);
+        [pasteboardItem setData:[NSData data] forType:(__bridge NSString *)kUTTypeData];
+        draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem.get()]);
+    }
+    [draggingItem setDraggingFrame:draggingFrame contents:dragImage];
+
+    [self beginDraggingSessionWithItems:@[ draggingItem.get() ] event:lastMouseDownEvent.get() source:self];
+
+    if (promisedAttachmentInfo) {
+        for (auto& [type, data] : promisedAttachmentInfo.additionalTypesAndData)
+            [pasteboard setData:protect(*data)->createNSData().get() forType:type.createNSString().get()];
+        // FIXME: should we plumb the frameID for promised blobs?
+        page->didStartDrag();
+    } else if (isImageDrag) {
+        [self _wkWritePromisedImageDragData:*promisedImageDragData toPasteboard:pasteboard];
+        if (page->sessionID().isEphemeral())
+            [pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:WebCore::pasteboardExpirationDelay.seconds()]];
+        page->didStartDrag(frameID);
+    } else {
+        if ([savedLegacyPasteboardTypes count]) {
+            [pasteboard clearContents];
+            [pasteboard addTypes:savedLegacyPasteboardTypes.get() owner:nil];
+            for (NSString *type in savedLegacyPasteboardTypes.get()) {
+                if (NSData *data = [savedLegacyPasteboardData objectForKey:type])
+                    [pasteboard setData:data forType:type];
+            }
+            if (page->sessionID().isEphemeral())
+                [pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:WebCore::pasteboardExpirationDelay.seconds()]];
+        }
+        [pasteboard setString:@"" forType:WebKit::PasteboardTypes::WebDummyPboardType];
+        page->didStartDrag(frameID);
+    }
 }
 #endif // ENABLE(DRAG_SUPPORT) — HTML5 drag source/destination wired up here for the WKView input path
 
@@ -2327,6 +2459,74 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _wkState->keyDownEventBeingResent = nil;
 }
 
+// The mouse-down WebViewImpl::startWindowDrag hands -[NSWindow performWindowDragWithEvent:].
+- (NSEvent *)_aquaWebKitLastMouseDownEvent
+{
+    return _wkState->lastMouseDownEvent.get();
+}
+
+// Input an extension gives the page (LegacyExtensionInput.mm). Its events are marked as an extension's, as
+// WebAutomationSession marks its own: the page's drag of an extension's mouse-down starts no drag session,
+// AquaWebKitPageClient shows no native menu for them, and its doneWithKeyEvent passes a key the page leaves
+// unhandled no further.
+static const void* extensionInputEventKey = &extensionInputEventKey;
+
+- (BOOL)_aquaWebKitIsExtensionInputEvent:(NSEvent *)event
+{
+    return !!objc_getAssociatedObject(event, extensionInputEventKey);
+}
+
+// As -mouseDown: and the other mouse handlers deliver an event, reporting `buttons` as the buttons held down,
+// where WebEventFactory reads the hardware's, and completing once the page has processed every pending mouse
+// event.
+- (void)_aquaWebKitHandleExtensionMouseEvent:(NSEvent *)event buttons:(unsigned short)buttons completionHandler:(void (^)(void))completionHandler
+{
+    objc_setAssociatedObject(event, extensionInputEventKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (event.type == NSEventTypeLeftMouseDown) {
+        _wkState->lastMouseDownEvent = event;
+        _wkState->ignoresMouseDraggedEvents = false;
+    } else if (event.type == NSEventTypeLeftMouseUp)
+        _wkState->lastMouseDownEvent = nil;
+    else if (event.type == NSEventTypeLeftMouseDragged && _wkState->ignoresMouseDraggedEvents) {
+        completionHandler();
+        return;
+    }
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
+    WebKit::WebMouseEvent& mouseEvent = webEvent;
+    mouseEvent = WebKit::WebMouseEvent({ mouseEvent.type(), mouseEvent.modifiers(), mouseEvent.timestamp(), mouseEvent.authorizationToken() }, mouseEvent.button(), buttons, mouseEvent.position(), mouseEvent.globalPosition(), mouseEvent.deltaX(), mouseEvent.deltaY(), mouseEvent.deltaZ(), mouseEvent.clickCount(), mouseEvent.force(), mouseEvent.inputSource(), mouseEvent.canInitiateDrag(), mouseEvent.syntheticClickType(), mouseEvent.eventNumber(), mouseEvent.menuTypeForEvent(), mouseEvent.gestureWasCancelled(), mouseEvent.unadjustedMovementDelta(), mouseEvent.coalescedEvents(), mouseEvent.predictedEvents());
+    Ref page = *_wkState->page;
+    page->handleMouseEvent(webEvent);
+    page->doAfterProcessingAllPendingMouseEvents([completionHandler = makeBlockPtr(completionHandler)] {
+        completionHandler();
+    });
+}
+
+// -keyDown:, -keyUp: or -flagsChanged:, completing once the page has processed every pending key event.
+- (void)_aquaWebKitHandleExtensionKeyEvent:(NSEvent *)event completionHandler:(void (^)(void))completionHandler
+{
+    objc_setAssociatedObject(event, extensionInputEventKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    Ref page = *_wkState->page;
+    if (event.type == NSEventTypeKeyDown)
+        [self keyDown:event];
+    else if (event.type == NSEventTypeKeyUp)
+        [self keyUp:event];
+    else
+        [self flagsChanged:event];
+    page->doAfterProcessingAllPendingKeyEvents([completionHandler = makeBlockPtr(completionHandler)] {
+        completionHandler();
+    });
+}
+
+- (void)_aquaWebKitHandleExtensionWheelEvent:(NSEvent *)event
+{
+    [self scrollWheel:event];
+}
+
+- (void)_aquaWebKitInsertExtensionText:(NSString *)text
+{
+    [self insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+}
+
 // Edit menu items dispatch action selectors to the first responder.
 // Forward them to WebPageProxy::executeEditCommand, mirroring WebViewImpl's
 // WEBCORE_COMMAND forwarding for the same selectors.
@@ -2420,12 +2620,11 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
 // its WebViewImpl counterpart; the work itself lives in ViewGestureController
 // (UIProcess/mac/ViewGestureControllerMac.mm), which needs only a WebPageProxy.
 
-// Drops the image a promised-file drag is holding, as WebViewImpl::clearPromisedDragImage does; the
-// page client calls it when the main frame commits a new load.
-- (void)_wkClearPromisedDragImage
+// Mirrors WebViewImpl::clearPromisedImageDragData; the page client calls it when the main frame commits a new
+// load, and when the drag the promise was for does not start.
+- (void)_wkClearPromisedImageDragData
 {
-    if (_wkState)
-        _wkState->promisedImageData = nil;
+    _wkState->promisedImageDragData.reset();
 }
 
 // The controller as it stands, for callers that must not bring one into being: AquaWebKitPageClient
@@ -2534,145 +2733,127 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
         gestureController->handleSmartMagnificationGesture([self convertPoint:[event locationInWindow] fromView:nil]);
 }
 
-// promised-file drags — dragging an image out of a page onto the Finder or the
-// Desktop to save it. WebCore offers the image as a "promise": the page puts a promise type on the
-// drag pasteboard, and the destination asks for the actual bytes only once the drop happens.
-//
-// Ported from WebViewImpl::setPromisedDataForImage / provideDataForPasteboard /
-// namesOfPromisedFilesDroppedAtDestination, using the classic promised-file API. NSFilePromiseProvider
-// (the modern replacement, and what upstream reaches for first) is 10.12+, while its 10.9-era
-// predecessor -namesOfPromisedFilesDroppedAtDestination: is present and is what the rest of this drag
-// pipeline uses — the drag source here is the classic -[NSView dragImage:...] path for the same reason.
+// promised-file drags — dragging an image out of a page onto the Finder or the Desktop to save it.
+// Ported from WebViewImpl::setPromisedDataForImage, writePromisedImageDragDataToPasteboard and the
+// NSFilePromiseProviderDelegate methods WKWebView forwards to it.
 
-// does not overwrite an existing file; appends -1, -2, ... like WebViewImpl's
-// pathWithUniqueFilenameForPath.
-static RetainPtr<NSString> wkUniquePathForPath(NSString *path)
+static bool wkMatchesExtensionOrEquivalent(const String& filename, const String& extension)
 {
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path])
-        return path;
+    return filename.endsWithIgnoringASCIICase(makeString('.', extension))
+        || (equalLettersIgnoringASCIICase(extension, "jpeg"_s) && filename.endsWithIgnoringASCIICase(".jpg"_s));
+}
 
-    RetainPtr lastComponent = [path lastPathComponent];
-    RetainPtr extension = [lastComponent pathExtension];
-    RetainPtr stem = [retainPtr([path stringByDeletingLastPathComponent])
-        stringByAppendingPathComponent:retainPtr([lastComponent stringByDeletingPathExtension]).get()];
+static NSError *wkUnknownError()
+{
+    return [NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:nil];
+}
 
-    for (unsigned i = 1; ; ++i) {
-        RetainPtr candidate = adoptNS([[NSString alloc] initWithFormat:@"%@-%u", stem.get(), i]);
-        RetainPtr full = [extension length] ? [candidate stringByAppendingPathExtension:extension.get()] : candidate.get();
-        if (![[NSFileManager defaultManager] fileExistsAtPath:full.get()])
-            return full;
+// Called from AquaWebKitPageClient::setPromisedDataForImage, ahead of the drag that carries the promise, which
+// takes it.
+- (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(const String&)filename extension:(const String&)extension title:(NSString *)title url:(NSString *)url visibleURL:(NSString *)visibleURL archiveBuffer:(NSData *)archiveData originIdentifier:(NSString *)originIdentifier
+{
+    String filenameWithExtension = filename;
+    if (!wkMatchesExtensionOrEquivalent(filename, extension))
+        filenameWithExtension = makeString(filename, '.', extension);
+    filenameWithExtension = filenameByFixingIllegalCharacters(filenameWithExtension.createNSString().get());
+
+    _wkState->promisedImageDragData = WKPromisedImageDragData {
+        .imageData = imageData,
+        .filename = filenameWithExtension.createNSString(),
+        .title = title,
+        .url = url,
+        .visibleURL = visibleURL,
+        .imageUTI = uti,
+        .archiveData = archiveData,
+        .originIdentifier = originIdentifier,
+    };
+}
+
+- (void)_wkWritePromisedImageDragData:(const WKPromisedImageDragData&)data toPasteboard:(NSPasteboard *)pasteboard
+{
+    NSString *visibleURLString = data.visibleURL.get();
+    NSString *titleString = data.title.get();
+
+    [pasteboard setString:visibleURLString forType:WebCore::legacyStringPasteboardTypeSingleton()];
+    [pasteboard setString:visibleURLString forType:WebKit::PasteboardTypes::WebURLPboardType];
+    [pasteboard setString:titleString forType:WebKit::PasteboardTypes::WebURLNamePboardType];
+    [pasteboard setPropertyList:@[@[visibleURLString], @[titleString]] forType:WebKit::PasteboardTypes::WebURLsWithTitlesPboardType];
+
+    NSURL *nsURL = [NSURL URLWithString:visibleURLString];
+    if (NSURL *baseCocoaURL = [nsURL baseURL])
+        [pasteboard setPropertyList:@[[nsURL relativeString], [baseCocoaURL absoluteString]] forType:WebCore::legacyURLPasteboardTypeSingleton()];
+    else if (nsURL)
+        [pasteboard setPropertyList:@[[nsURL absoluteString], @""] forType:WebCore::legacyURLPasteboardTypeSingleton()];
+    else
+        [pasteboard setPropertyList:@[@"", @""] forType:WebCore::legacyURLPasteboardTypeSingleton()];
+
+    if ([data.imageUTI length] && [data.imageData length])
+        [pasteboard setData:data.imageData.get() forType:data.imageUTI.get()];
+
+    RetainPtr image = adoptNS([[NSImage alloc] initWithData:data.imageData.get()]);
+    if (NSData *tiffData = [image TIFFRepresentation])
+        [pasteboard setData:tiffData forType:WebCore::legacyTIFFPasteboardTypeSingleton()];
+
+    if (data.archiveData) {
+        [pasteboard setData:data.archiveData.get() forType:(__bridge NSString *)kUTTypeWebArchive];
+        [pasteboard setData:data.archiveData.get() forType:WebKit::PasteboardTypes::WebArchivePboardType];
+    }
+
+    if ([data.originIdentifier length]) {
+        WebCore::PasteboardCustomData customData;
+        customData.setOrigin(data.originIdentifier.get());
+        [pasteboard setData:customData.createSharedBuffer()->createNSData().get() forType:@(WebCore::PasteboardCustomData::cocoaType().characters())];
     }
 }
 
-// called from AquaWebKitPageClient::setPromisedDataForImage. Puts the promise type on
-// the drag pasteboard (with this view as owner, so -pasteboard:provideDataForType: is asked for the
-// bytes lazily) and remembers what was promised.
-- (void)_wkSetPromisedImageData:(NSData *)imageData
-                            uti:(NSString *)uti
-                       filename:(NSString *)filename
-                            url:(NSString *)url
-                  archiveBuffer:(NSData *)archiveData
-                 pasteboardName:(NSString *)pasteboardName
+// NSFilePromiseProviderDelegate. Ported from WebViewImpl::fileNameForFilePromiseProvider.
+- (NSString *)filePromiseProvider:(NSFilePromiseProvider *)filePromiseProvider fileNameForType:(NSString *)fileType
 {
-    if (!_wkState)
-        return;
+    if (auto userInfo = dynamic_objc_cast<WKPromisedAttachmentContext>(filePromiseProvider.userInfo))
+        return [userInfo fileName];
 
-    _wkState->promisedImageData = imageData;
-    _wkState->promisedArchiveData = archiveData;
-    _wkState->promisedImageUTI = uti;
-    _wkState->promisedFilename = filename;
-    _wkState->promisedURL = url;
+    if (auto imageContext = dynamic_objc_cast<WKPromisedImageContext>(filePromiseProvider.userInfo))
+        return [imageContext fileName];
 
-    RetainPtr pasteboard = [NSPasteboard pasteboardWithName:pasteboardName];
-    RetainPtr types = adoptNS([[NSMutableArray alloc] initWithObjects:WebCore::legacyFilesPromisePasteboardTypeSingleton(), nil]);
-    if ([uti length] && [imageData length])
-        [types addObject:uti];
-    [types addObjectsFromArray:(archiveData ? WebKit::PasteboardTypes::forImagesWithArchiveSingleton() : WebKit::PasteboardTypes::forImagesSingleton())];
-
-    [pasteboard clearContents];
-    [pasteboard addTypes:types.get() owner:self];
-
-    // The promise itself: the extension the destination should expect.
-    [pasteboard setPropertyList:@[ retainPtr([filename pathExtension]).get() ]
-                        forType:WebCore::legacyFilesPromisePasteboardTypeSingleton()];
-
-    if (archiveData) {
-        [pasteboard setData:archiveData forType:WebKit::PasteboardTypes::WebArchivePboardType];
-        [pasteboard setData:archiveData forType:(__bridge NSString *)kUTTypeWebArchive];
-    }
+    return nil;
 }
 
-// NSPasteboardOwner -- supply the promised bytes when the destination asks.
-// Ported from WebViewImpl::provideDataForPasteboard.
-- (void)pasteboard:(NSPasteboard *)pasteboard provideDataForType:(NSString *)type
+// NSFilePromiseProviderDelegate. Ported from WebViewImpl::writeToURLForFilePromiseProvider.
+- (void)filePromiseProvider:(NSFilePromiseProvider *)filePromiseProvider writePromiseToURL:(NSURL *)fileURL completionHandler:(void (^)(NSError *))completionHandler
 {
-    if (!_wkState || !_wkState->promisedImageData)
+    if (auto userInfo = dynamic_objc_cast<WKPromisedAttachmentContext>(filePromiseProvider.userInfo)) {
+        if (RefPtr attachment = _wkState->page->attachmentForIdentifier([userInfo attachmentIdentifier])) {
+            attachment->doWithFileWrapper([fileURL = RetainPtr { fileURL }, completionHandler](NSFileWrapper *fileWrapper) {
+                NSError *attachmentWritingError = nil;
+                if ([fileWrapper writeToURL:fileURL.get() options:0 originalContentsURL:nil error:&attachmentWritingError])
+                    completionHandler(nil);
+                else
+                    completionHandler(attachmentWritingError);
+            });
+            return;
+        }
+        completionHandler(wkUnknownError());
         return;
-
-    if (_wkState->promisedImageUTI && [type isEqualToString:_wkState->promisedImageUTI.get()]) {
-        [pasteboard setData:_wkState->promisedImageData.get() forType:type];
-        return;
     }
 
-    if ([type isEqualToString:WebCore::legacyTIFFPasteboardTypeSingleton()]) {
-        RetainPtr image = adoptNS([[NSImage alloc] initWithData:_wkState->promisedImageData.get()]);
-        if (RetainPtr tiff = [image TIFFRepresentation])
-            [pasteboard setData:tiff.get() forType:WebCore::legacyTIFFPasteboardTypeSingleton()];
-    }
-}
-
-// NSPasteboardOwner -- another owner took the pasteboard; drop what we promised so
-// we cannot serve stale bytes. Ported from WebViewImpl::pasteboardChangedOwner.
-- (void)pasteboardChangedOwner:(NSPasteboard *)pasteboard
-{
-    if (!_wkState)
-        return;
-    _wkState->promisedImageData = nil;
-    _wkState->promisedArchiveData = nil;
-    _wkState->promisedImageUTI = nil;
-    _wkState->promisedFilename = nil;
-    _wkState->promisedURL = nil;
-}
-
-// the drop landed -- write the promised image into the destination directory and
-// return the filename. Ported from WebViewImpl::namesOfPromisedFilesDroppedAtDestination.
-- (NSArray *)namesOfPromisedFilesDroppedAtDestination:(NSURL *)dropDestination
-{
-    if (!_wkState)
-        return nil;
-
-    RetainPtr<NSFileWrapper> wrapper;
-    if (_wkState->promisedImageData)
-        wrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:_wkState->promisedImageData.get()]);
-    else if ([_wkState->promisedURL length]) {
-        RetainPtr url = adoptNS([[NSURL alloc] initWithString:_wkState->promisedURL.get()]);
-        wrapper = adoptNS([[NSFileWrapper alloc] initWithURL:url.get() options:NSFileWrapperReadingImmediate error:nil]);
+    if (auto imageContext = dynamic_objc_cast<WKPromisedImageContext>(filePromiseProvider.userInfo)) {
+        String imageURLString { [imageContext url] };
+        RetainPtr data = [imageContext data];
+        if (!data && !imageURLString.isEmpty())
+            data = [NSData dataWithContentsOfURL:adoptNS([[NSURL alloc] initWithString:[imageContext url]]).get()];
+        if (data) {
+            NSError *error = nil;
+            if ([data writeToURL:fileURL options:NSDataWritingAtomic error:&error]) {
+                if (!imageURLString.isEmpty())
+                    FileSystem::setMetadataURL(fileURL.path, imageURLString);
+                completionHandler(nil);
+            } else
+                completionHandler(error);
+            return;
+        }
     }
 
-    if (!wrapper) {
-        LOG_ERROR("Failed to create image file.");
-        return nil;
-    }
-
-    if ([_wkState->promisedFilename length])
-        [wrapper setPreferredFilename:_wkState->promisedFilename.get()];
-
-    RetainPtr path = [retainPtr([dropDestination path]) stringByAppendingPathComponent:retainPtr([wrapper preferredFilename]).get()];
-    path = wkUniquePathForPath(path.get());
-
-    if (![wrapper writeToURL:[NSURL fileURLWithPath:path.get() isDirectory:NO]
-                     options:NSFileWrapperWritingWithNameUpdating
-         originalContentsURL:nil
-                       error:nullptr]) {
-        LOG_ERROR("Failed to write the promised image file.");
-        return nil;
-    }
-
-    // Tag the saved file with where it came from, matching WebViewImpl.
-    if ([_wkState->promisedURL length])
-        FileSystem::setMetadataURL(String(path.get()), String(_wkState->promisedURL.get()));
-
-    return @[retainPtr([path lastPathComponent]).get()];
+    completionHandler(wkUnknownError());
 }
 
 // Edit > Spelling and Grammar, and Edit > Speech. Safari 7 dispatches these

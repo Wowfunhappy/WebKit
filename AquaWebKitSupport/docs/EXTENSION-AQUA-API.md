@@ -1,16 +1,17 @@
 # The `aqua` API for Safari 7 extensions
 
-This WebKit gives Safari 7 legacy extensions an `aqua` namespace for media handoff and Web Inspector access, alongside the `browser`
+This WebKit gives Safari 7 legacy extensions an `aqua` namespace for media handoff, Web Inspector access and user input, alongside the `browser`
 namespace described in [EXTENSION-BROWSER-API.md](EXTENSION-BROWSER-API.md), which also defines the host and
 content contexts used here.
 
 Sources: `AquaWebKitSupport/source/WebKit/Shared/LegacyExtensions/LegacyExtensionAPI.js` (the JavaScript API),
 `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionHost.{h,cpp}` (the UI process side) and
 `AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSource.cpp`, with
-`AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionInspector.{h,cpp}` for `aqua.inspector`. Manual tests:
+`AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionInspector.{h,cpp}` for `aqua.inspector`, and
+`LegacyExtensionInput.{h,mm}` beside it for `aqua.input`. Manual tests:
 `AquaWebKitSupport/tests/legacy-extensions/QUICKTIME.md`.
 
-`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`. `aqua.inspector` is in extension pages only.
+`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`. `aqua.inspector` and `aqua.input` are in extension pages only.
 
 ## aqua.mediaPlayer
 
@@ -149,3 +150,16 @@ The backend's top level has the `Target` and `Browser` domains. A page's own dom
 
 A session is the tab's only frontend. The backend's domains keep one state for all of a page's frontends and send each response to each of them, so an extension attaches only to a tab with no other frontend, and opening the tab's Web Inspector ends the session. When the session ends, the backend resets what the extension enabled or overrode. A session also ends when its extension is unloaded or reloaded, without `onDetach`.
 
+## aqua.input
+
+User input an extension gives a tab. Each event is an AppKit event that the tab's web view handles as it handles the user's own: the view's `mouseDown:`, `keyDown:`, `scrollWheel:` and the rest, and `insertText:replacementRange:` for text, whether or not the tab is the one its window shows. Pages receive it as the user's input: trusted DOM events, and mouse and key events carry a user gesture; inserted text carries none, as text an input method commits outside a key event carries none. The tab needs no focus, and its window is not brought forward. As with WebKit's own simulated input, no native menu opens: the page receives `contextmenu` and `<select>` events, and no context menu or popup menu appears, whether a mouse event or a key such as an arrow on a select would open one. A drag of the page's content that an extension's mouse-down starts ends at once, with no drop, where it started: the page receives `dragstart` and then `dragend`, and no drag-and-drop session starts, since no pointing device holds it. The view then ignores `mouseDragged` events until the next `mouseDown`, as it does after the user's drag. A drag that selects text selects it, as the user's does. A key the page leaves unhandled goes no further: no menu key equivalent, no other view.
+
+A tab is a tab ID, or a `SafariBrowserTab` of an open window. Methods return promises. A mouse or key event's promise resolves once the page has processed every pending event of its kind. Inserted text is sent to the page at once, ahead of anything the extension sends after it. A wheel event's promise resolves once the event is handed to the page, and the page may handle it after input the extension sends later. Methods reject when the extension's Website Access is not All with Include Secure Pages, or when the tab shows or is loading a page the extension does not see, as `aqua.inspector.attach` does.
+
+| Method | Contract |
+| --- | --- |
+| `dispatchMouseEvent(tab, event)` | `event.type` is `"mouseDown"`, `"mouseUp"`, `"mouseMoved"`, `"mouseDragged"` or `"scrollWheel"`. `x` and `y` are the point in the tab's viewport in CSS pixels, which the page's zoom and scale map to the view. `button` is `"left"` (the default), `"right"` or `"middle"`; `clickCount` defaults to 1 for down and up. A `scrollWheel` event scrolls by `deltaX` and `deltaY` pixels, positive toward the right and the bottom, as a wheel event's deltas are. |
+| `dispatchKeyEvent(tab, event)` | `event.type` is `"keyDown"`, `"keyUp"` or `"flagsChanged"`. `keyCode` is the macOS virtual key code, `characters` the text the key produces and `charactersIgnoringModifiers` its text without modifiers (by default `characters`); `isRepeat` marks an auto-repeat. A key down goes through the view's key bindings, so Return is `insertNewline:` and a character is `insertText:`. Input methods compose only the keyboard's own events: a character key down inserts its `characters`, and while the page has an input method's composition, the input method commits it first. |
+| `insertText(tab, text)` | Inserts `text` where the page's selection is, as an input method commits text. |
+
+Every event takes `modifiers`, a list of `"shift"`, `"control"`, `"option"`, `"command"` and `"capsLock"`. A click is a `mouseDown` and a `mouseUp`; a drag is a `mouseDown`, `mouseDragged` events and a `mouseUp`. A mouse event reports the buttons the tab's input from extensions holds down, from its `mouseDown` events until their `mouseUp`, or the `buttons` mask the event gives, as `MouseEvent.buttons` spells it; and its movement from the previous mouse event's point. As with the user's own input, a page whose window is not active, which includes every tab its window does not show, receives a move only while a button is held.

@@ -50,6 +50,7 @@
 #import "WebColorPickerMac.h"
 #import "WebDataListSuggestionsDropdownMac.h"
 #import "WebDateTimePickerMac.h"
+#import "NativeWebMouseEvent.h"
 #import "WebContextMenuProxyMac.h"
 #import "WebPageProxy.h"
 #import "APIPageConfiguration.h"
@@ -72,7 +73,7 @@
 // An internal bridge between this page client and its view, not Safari-7-facing SPI, so it is
 // declared here. setPromisedDataForImage below is the only caller.
 @interface NSView (WKViewPromisedImageData)
-- (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(NSString *)filename url:(NSString *)url archiveBuffer:(NSData *)archiveData pasteboardName:(NSString *)pasteboardName;
+- (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(const String&)filename extension:(const String&)extension title:(NSString *)title url:(NSString *)url visibleURL:(NSString *)visibleURL archiveBuffer:(NSData *)archiveData originIdentifier:(NSString *)originIdentifier;
 @end
 #import <WebCore/CGWindowUtilities.h>
 #import <WebCore/ColorCocoa.h> // colorFromCocoaColor, for accentColor() below.
@@ -110,7 +111,7 @@
 // controller without creating one, as WebViewImpl::gestureController() does.
 @interface NSView (WKViewAquaWebKitGestureController)
 - (WebKit::ViewGestureController *)_wkExistingGestureController;
-- (void)_wkClearPromisedDragImage;
+- (void)_wkClearPromisedImageDragData;
 @end
 #endif
 // The pieces navigator.clipboard's permission menu needs (see requestDOMPasteAccess).
@@ -156,7 +157,7 @@
 // session once startDrag has built the drag image. Declared here so the page
 // client can invoke it on its NSView.
 @interface NSView (WKViewDragSource)
-- (void)_wk_beginDragWithImage:(NSImage *)image atWindowPoint:(NSPoint)windowPoint;
+- (void)_wk_beginDragWithImage:(NSImage *)dragImage atLocation:(NSPoint)dragLocation promisedAttachmentInfo:(const WebCore::PromisedAttachmentInfo&)promisedAttachmentInfo frameID:(std::optional<WebCore::FrameIdentifier>)frameID;
 @end
 #endif
 
@@ -171,6 +172,9 @@
 // after the page declines a key-down it got first crack at via -[WKView performKeyEquivalent:].
 @interface NSView (WKViewKeyResend)
 - (void)_aquaWebKitResendUnhandledKeyDownEvent:(NSEvent *)event;
+- (BOOL)_aquaWebKitIsExtensionInputEvent:(NSEvent *)event;
+- (NSEvent *)_aquaWebKitLastMouseDownEvent;
+- (NSTextInputContext *)_web_superInputContext;
 @end
 
 // WKView's title-attribute tooltip setter (classic -addToolTipRect:/
@@ -852,6 +856,8 @@ private:
     RetainPtr<NSView> m_layerHostingView;
     RetainPtr<WKEditorUndoTarget> m_undoTarget;
     bool m_inSecureInputState { false };
+    // Whether the view's -inputContext is one: the page's editor state is content-editable.
+    bool m_exposesInputContext { false };
 #if ENABLE(FULLSCREEN_API)
     AquaWebKitFullScreenManagerProxyClient m_fullScreenClient;
 #endif
@@ -1153,7 +1159,7 @@ void AquaWebKitPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameP
 void AquaWebKitPageClient::didCommitLoadForMainFrame(const String&, bool)
 {
     dismissContentRelativeChildWindows();
-    [m_view _wkClearPromisedDragImage];
+    [m_view _wkClearPromisedImageDragData];
 }
 #if ENABLE(PDF_HUD)
 void AquaWebKitPageClient::createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&)
@@ -1198,20 +1204,12 @@ void AquaWebKitPageClient::didChangeContentSize(const WebCore::IntSize&)
 void AquaWebKitPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot)
 { }
 #endif
-// Hand the OS drag session off to the WKView. Mirrors
-// WebViewImpl::startDrag, except a promised-attachment drag is cancelled rather
-// than attempted: the modern path carries that promise via NSFilePromiseProvider
-// (10.12+), and WKView's classic promised-file pasteboard has no carrier for it.
-void AquaWebKitPageClient::startDrag(const WebCore::DragItem& item, WebCore::ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&)
+// Hand the OS drag session off to the WKView. Mirrors WebViewImpl::startDrag.
+void AquaWebKitPageClient::startDrag(const WebCore::DragItem& item, WebCore::ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>& frameID)
 {
     auto bitmap = WebCore::ShareableBitmap::create(WTF::move(dragImageHandle));
-    if (!bitmap || !m_view || !m_page) {
-        if (m_page)
-            m_page->dragCancelled();
-        return;
-    }
-
-    if (item.promisedAttachmentInfo) {
+    if (!bitmap) {
+        [m_view _wkClearPromisedImageDragData];
         m_page->dragCancelled();
         return;
     }
@@ -1222,8 +1220,7 @@ void AquaWebKitPageClient::startDrag(const WebCore::DragItem& item, WebCore::Sha
     size.scale(1.0 / m_page->deviceScaleFactor());
     [dragNSImage setSize:size];
 
-    m_page->didStartDrag();
-    [m_view _wk_beginDragWithImage:dragNSImage.get() atWindowPoint:NSMakePoint(item.dragLocationInWindowCoordinates.x(), item.dragLocationInWindowCoordinates.y())];
+    [m_view _wk_beginDragWithImage:dragNSImage.get() atLocation:NSMakePoint(item.dragLocationInWindowCoordinates.x(), item.dragLocationInWindowCoordinates.y()) promisedAttachmentInfo:item.promisedAttachmentInfo frameID:frameID];
 }
 #endif
 void AquaWebKitPageClient::setCursor(const WebCore::Cursor& cursor)
@@ -1349,10 +1346,8 @@ extern "C" OSStatus EnableSecureEventInput(void);
 extern "C" OSStatus DisableSecureEventInput(void);
 
 #if PLATFORM(COCOA)
-// Enable secure event input while a web password field is focused — the
-// keylogger protection AppKit gives native password fields. Mirrors
-// WebViewImpl::updateSecureInputState; editorState().isInPasswordField is populated by
-// WebPage.cpp from input->isPasswordField().
+// Enable secure event input and limit the input sources to Roman ones while a web password field is focused,
+// as AppKit does for native password fields. Mirrors WebViewImpl::updateSecureInputState.
 void AquaWebKitPageClient::updateSecureInputState()
 {
     if (![[m_view window] isKeyWindow] || !isViewFocused()) {
@@ -1362,12 +1357,19 @@ void AquaWebKitPageClient::updateSecureInputState()
         }
         return;
     }
+    // WKView has a single input context for all editable areas (except for plug-ins).
+    NSTextInputContext *context = [m_view _web_superInputContext];
     bool isInPasswordField = m_page && m_page->editorState().isInPasswordField;
     if (isInPasswordField) {
         if (!m_inSecureInputState)
             EnableSecureEventInput();
-    } else if (m_inSecureInputState)
-        DisableSecureEventInput();
+        static NeverDestroyed<RetainPtr<NSArray>> romanInputSources = adoptNS([[NSArray alloc] initWithObjects:&NSAllRomanInputSourcesLocaleIdentifier count:1]);
+        [context setAllowedInputSourceLocales:romanInputSources.get().get()];
+    } else {
+        if (m_inSecureInputState)
+            DisableSecureEventInput();
+        [context setAllowedInputSourceLocales:nil];
+    }
     m_inSecureInputState = isInPasswordField;
 }
 #endif
@@ -1388,7 +1390,7 @@ void AquaWebKitPageClient::notifyInputContextAboutDiscardedComposition()
         return;
 
     // Inform the input method that we won't have an inline input area despite having been asked to.
-    [[m_view inputContext] discardMarkedText];
+    [[m_view _web_superInputContext] discardMarkedText];
 }
 #endif
 #if PLATFORM(COCOA)
@@ -1416,6 +1418,16 @@ void AquaWebKitPageClient::selectionDidChange()
 {
     if (!m_page)
         return;
+
+    // As WebHTMLView's _updateSelectionForInputManager: let AppKit cache a potentially changed input context, which
+    // 10.9's AppKit reads when it updates its windows. WebCore routinely sets the selection to None when editing,
+    // and IMs become unhappy when an input context suddenly turns nil, see bug 26009.
+    bool exposesInputContext = m_page->editorState().isContentEditable;
+    if (exposesInputContext != m_exposesInputContext) {
+        m_exposesInputContext = exposesInputContext;
+        if (m_page->editorState().selectionType != WebCore::SelectionType::None)
+            [NSApp updateWindows];
+    }
 
     BOOL fontPanelIsVisible = NSFontPanel.sharedFontPanelExists && NSFontPanel.sharedFontPanel.visible;
     if (!fontPanelIsVisible && !(m_page->isEditable() && m_page->editorState().isContentRichlyEditable))
@@ -1461,32 +1473,13 @@ RefPtr<ViewSnapshot> AquaWebKitPageClient::takeViewSnapshot(std::optional<WebCor
 #if USE(APPKIT)
 void AquaWebKitPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
 {
-    // Hand the promise to WKView, which owns the drag pasteboard and serves
-    // -pasteboard:provideDataForType: / -namesOfPromisedFilesDroppedAtDestination: (see the
-    // promised-file section of WKViewAquaWebKit.mm) — this hop is what puts the promise type on the
-    // drag pasteboard, and with it dragging an image out of a page to the Finder produces the file.
-    // PageClientImpl routes this to WebViewImpl the same way; WKView just is not backed by one.
-    UNUSED_PARAM(title);
-    UNUSED_PARAM(visibleURL);
-    UNUSED_PARAM(originIdentifier);
-
-    if (!m_view)
-        return;
-
+    // PageClientImpl routes this to WebViewImpl::setPromisedDataForImage with the image the buffer makes; the
+    // view's promise needs the image's bytes and its UTI, which the filename extension WebCore passes names.
+    UNUSED_PARAM(pasteboardName);
     RetainPtr imageData = imageBuffer->makeContiguous()->createNSData();
     RetainPtr archiveData = archiveBuffer ? archiveBuffer->makeContiguous()->createNSData() : RetainPtr<NSData> { };
-
-    // The UTI the destination will ask for. WebCore gives us the filename extension; map it here rather
-    // than carrying a WebCore::Image across, which is all WebViewImpl uses its copy for.
-    RetainPtr uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension,
-        extension.createCFString().get(), nullptr));
-
-    [m_view _wkSetPromisedImageData:imageData.get()
-                                uti:(__bridge NSString *)uti.get()
-                           filename:filename.createNSString().get()
-                                url:url.createNSString().get()
-                      archiveBuffer:archiveData.get()
-                     pasteboardName:pasteboardName.createNSString().get()];
+    RetainPtr uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, extension.createCFString().get(), nullptr));
+    [m_view _wkSetPromisedImageData:imageData.get() uti:(__bridge NSString *)uti.get() filename:filename extension:extension title:title.createNSString().get() url:url.createNSString().get() visibleURL:visibleURL.createNSString().get() archiveBuffer:archiveData.get() originIdentifier:originIdentifier.createNSString().get()];
 }
 #endif
 WebCore::IntPoint AquaWebKitPageClient::accessibilityScreenToRootView(const WebCore::IntPoint& point)
@@ -1517,6 +1510,9 @@ void AquaWebKitPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent& event,
     NSEvent *nativeEvent = event.nativeEvent();
     if (!nativeEvent || [nativeEvent type] != NSEventTypeKeyDown)
         return;
+    // A key an extension gives the page goes no further, as a DevTools-synthesized key does in Chrome.
+    if ([m_view _aquaWebKitIsExtensionInputEvent:nativeEvent])
+        return;
     if (wasEventHandled) {
         [NSCursor setHiddenUntilMouseMoves:YES];
         return;
@@ -1539,15 +1535,76 @@ void AquaWebKitPageClient::doneDeferringTouchMove(bool preventNativeGestures)
 void AquaWebKitPageClient::doneDeferringTouchEnd(bool preventNativeGestures)
 { }
 #endif
+// Whether the mouse-down or key event the page is processing, which a menu the page shows answers, is an
+// extension's (LegacyExtensionInput.mm). Input from an extension shows no native menu, as WebPageProxy shows
+// none for WebAutomationSession's simulated input: the menu's nested run loop holds the input that follows it.
+static bool isProcessingExtensionInput(WebPageProxy& page, NSView *view)
+{
+    if (auto* event = page.popupMenuClient().currentlyProcessedMouseDownEvent(); event && [view _aquaWebKitIsExtensionInputEvent:event->nativeEvent()])
+        return true;
+    return page.isProcessingKeyboardEvents() && [view _aquaWebKitIsExtensionInputEvent:page.firstQueuedKeyEvent().nativeEvent()];
+}
+
+// The popup menu of a select an extension's input opens: shown and dismissed at once, keeping the selection,
+// as a cancelled native popup reports.
+class ExtensionInputPopupMenuProxy final : public WebPopupMenuProxy {
+public:
+    static Ref<ExtensionInputPopupMenuProxy> create(WebPopupMenuProxy::Client& client)
+    {
+        return adoptRef(*new ExtensionInputPopupMenuProxy(client));
+    }
+
+private:
+    explicit ExtensionInputPopupMenuProxy(WebPopupMenuProxy::Client& client)
+        : WebPopupMenuProxy(client)
+    {
+    }
+
+    void showPopupMenu(const WebCore::IntRect&, WebCore::TextDirection, double, const Vector<WebPopupItem>&, const PlatformPopupMenuData&, int32_t selectedIndex) final
+    {
+        if (CheckedPtr client = this->client())
+            client->valueChangedForPopupMenu(this, selectedIndex);
+    }
+    void hidePopupMenu() final { }
+};
+
 RefPtr<WebPopupMenuProxy> AquaWebKitPageClient::createPopupMenuProxy(WebPageProxy& page)
 {
+    if (isProcessingExtensionInput(page, m_view))
+        return ExtensionInputPopupMenuProxy::create(protect(page.popupMenuClient()));
     // Back the WKView path's <select> dropdowns with the standard AppKit popup proxy
     // (PageClientImpl does the same).
     return WebPopupMenuProxyMac::create(m_view, protect(page.popupMenuClient()));
 }
 #if ENABLE(CONTEXT_MENUS)
+// The context menu of an extension's input: shown and dismissed at once.
+class ExtensionInputContextMenuProxy final : public WebContextMenuProxy {
+public:
+    static Ref<ExtensionInputContextMenuProxy> create(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
+    {
+        return adoptRef(*new ExtensionInputContextMenuProxy(page, WTF::move(frameInfo), WTF::move(context), userData));
+    }
+
+private:
+    ExtensionInputContextMenuProxy(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
+        : WebContextMenuProxy(page, WTF::move(frameInfo), WTF::move(context), userData)
+    {
+    }
+
+    void show() final
+    {
+        if (RefPtr page = this->page())
+            page->clearWaitingForContextMenuToShow();
+    }
+    void showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&&) final { }
+    NSMenu *platformMenu() const final { return nil; }
+    RetainPtr<NSArray> platformData() const final { return nil; }
+};
+
 Ref<WebContextMenuProxy> AquaWebKitPageClient::createContextMenuProxy(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
 {
+    if (isProcessingExtensionInput(page, m_view))
+        return ExtensionInputContextMenuProxy::create(page, WTF::move(frameInfo), WTF::move(context), userData);
     // Back right-click / control-click menus with the standard AppKit context-menu proxy
     // (PageClientImpl does the same).
     return WebContextMenuProxyMac::create(m_view, page, WTF::move(frameInfo), WTF::move(context), userData);
@@ -1712,11 +1769,9 @@ void AquaWebKitPageClient::showPlatformContextMenu(NSMenu *menu, WebCore::IntPoi
 { [menu popUpMenuPositioningItem:nil atLocation:location inView:m_view]; }
 #endif
 #if PLATFORM(MAC)
-// WebViewImpl passes the mouse-down it recorded; this client is only reached
-// synchronously from that event's dispatch (InspectorFrontendHost.startWindowDrag off a mousedown
-// listener, -webkit-app-region:drag), so the application's current event is that same event.
+// The mouse-down the view recorded, as WebViewImpl::startWindowDrag passes it.
 void AquaWebKitPageClient::startWindowDrag()
-{ [[m_view window] performWindowDragWithEvent:[NSApp currentEvent]]; }
+{ [[m_view window] performWindowDragWithEvent:[m_view _aquaWebKitLastMouseDownEvent]]; }
 #endif
 #if PLATFORM(MAC)
 void AquaWebKitPageClient::setShouldSuppressFirstResponderChanges(bool)

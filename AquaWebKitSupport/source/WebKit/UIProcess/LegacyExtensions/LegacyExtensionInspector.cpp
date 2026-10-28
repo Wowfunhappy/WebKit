@@ -88,7 +88,7 @@ auto LegacyExtensionInspector::attach(WebPageProxy& page, const String& extensio
     auto tabID = tabIDForPage(page);
     if (page.isClosed())
         return makeUnexpected(makeString("No tab with id: "_s, tabID, '.'));
-    if (access.level != LegacyExtensions::WebsiteAccess::Level::All || !access.includesSecurePages)
+    if (!access.coversEverySite())
         return makeUnexpected("Missing host permission for the tab"_s);
     if (m_sessions.contains(page.identifier()))
         return makeUnexpected(makeString("An inspector session is already attached to the tab with id: "_s, tabID, '.'));

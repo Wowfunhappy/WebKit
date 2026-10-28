@@ -603,10 +603,13 @@ WK_POLYFILL_ADD_METHODS(NSWindow)
     contentFrame.size.height -= titleBarHeight;
     return contentFrame;
 }
+// Drags the window by the mouse-down `event` begins, from the event's screen location, while the left button
+// stays down.
 - (void)performWindowDragWithEvent:(NSEvent *)event
 {
-    (void)event;
-    NSPoint startMouse = [NSEvent mouseLocation];
+    if (!event || !([NSEvent pressedMouseButtons] & 1))
+        return;
+    NSPoint startMouse = event.window ? [event.window convertRectToScreen:NSMakeRect(event.locationInWindow.x, event.locationInWindow.y, 0, 0)].origin : event.locationInWindow;
     NSRect startFrame = [self frame];
     while (YES) {
         @autoreleasepool {
