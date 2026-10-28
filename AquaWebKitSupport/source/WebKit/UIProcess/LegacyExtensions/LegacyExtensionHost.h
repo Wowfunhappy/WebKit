@@ -128,6 +128,9 @@ public:
     // Whether a WebKit 1 host context is valid: its document is still its view's, which keeps the extension.
     bool isHostContextValid(uint64_t hostContextIdentifier) const { return m_hostContexts.contains(hostContextIdentifier); }
 
+    // An event of an extension, to its listening host contexts.
+    void dispatchExtensionEvent(const String& extensionKey, const String& eventName, Ref<JSON::Array>&& arguments);
+
     // A devtools event, to the listening devtools pages of the inspected tab whose extensions `allows` admits.
     void dispatchDevToolsEvent(double inspectedTabID, const String& eventName, Ref<JSON::Array>&& arguments, Function<bool(const LegacyExtensions::WebsiteAccess&, const String& extensionKey)>&& allows);
 

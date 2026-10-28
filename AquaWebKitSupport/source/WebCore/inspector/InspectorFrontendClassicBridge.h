@@ -47,7 +47,7 @@ inline bool inspectorFrontendIsClassic()
 // A native user script is exempt from the frontend page's `script-src 'self'` CSP, which its own
 // resources satisfy under the inspector-resource:// scheme both ports serve them from.
 //
-// Seven parts:
+// Eight parts:
 //  1. Unified titlebar+toolbar chrome (#52/#66/#69). Adds the measured Aqua gradient + a 22px
 //     #wk-titlebar strip as body's first child (stock 56px toolbar untouched below it), the window
 //     title fed from InspectorFrontendHost.inspectedURLChanged, and background mousedowns routed to
@@ -177,6 +177,27 @@ inline bool inspectorFrontendIsClassic()
 //     spells, and pings and beacons to Other. The rename lands on the wire so the frontend's own Type
 //     table stays stock -- FrameTreeElement's folder-grouping heuristic counts the resources of every
 //     key in it.
+//  8. Inspector extensions. WebKit's inspector extensions (API::InspectorExtension, which Safari 7
+//     extensions' devtools pages are) reach the frontend as InspectorFrontendAPI.registerExtension,
+//     unregisterExtension, evaluateScriptForExtension and reloadForExtension, the entry points the in-tree
+//     WebInspectorExtensionController.js answers, with its results: nothing or an ErrorCode string, and
+//     {result} or {error} for an evaluation. The classic frontend has none, so the bridge answers them over
+//     its own commands: an evaluation runs in the main world of the frame _frameForFrameURL() picks, as
+//     the frames and execution contexts the frontend is told of name them, once they exist;
+//     reloadForExtension's userAgent overrides the user agent, also in provisional targets, until the
+//     extension reloads without one or is unregistered. Its injectedScript is Page.reload's
+//     scriptToEvaluateOnLoad, which the page agent runs in each frame of the document the reload commits
+//     only. While the reload lasts -- until a main-frame commit, the agent's
+//     Page.scriptToEvaluateOnLoadEnded without loadWillContinueInAnotherProcess (which the bridge consumes),
+//     or the end of the target it moved to -- the first page target created in another process takes the
+//     script as Page.setScriptToEvaluateInNextDocument. The classic frontend sets neither.
+//     Each main-frame navigation goes to InspectorFrontendHost.inspectedPageDidNavigate() while an extension
+//     is registered, as the in-tree controller sends it. While one is, the bridge also keeps a record of
+//     each request of the page target from the Network events, the main frame's current document's once it
+//     finishes, which
+//     the UI process reads with InspectorFrontendAPI.devToolsNetworkArchive() and
+//     devToolsNetworkContent(), and posts each finished one to the `devToolsNetwork` script message handler
+//     while an extension is registered (LegacyExtensionDevTools.mm).
 inline const char* classicInspectorFrontendBridgeScriptUTF8()
 {
     return R"WKIB((function(){
@@ -196,13 +217,14 @@ document.addEventListener('DOMContentLoaded',function(){window.addEventListener(
 (function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var provisionalTargets=Object.create(null);var pendingQueue=[];var nextWireId=1;var outerCalls=Object.create(null);var innerCalls=Object.create(null);
 function sendToBackend(method,params){var wid=nextWireId++;outerCalls[wid]={};origSend(JSON.stringify({id:wid,method:method,params:params}));}
 function wrapFor(targetId,inner){var wid=nextWireId++;outerCalls[wid]={targetId:targetId,innerId:inner.id};return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:targetId,message:JSON.stringify(inner)}});}
-function sendFromBridge(targetId,method,params,callback){var iid=nextWireId++;innerCalls[iid]={callback:callback};var m={id:iid,method:method};if(params)m.params=params;origSend(wrapFor(targetId,m));}
+function sendFromBridge(targetId,method,params,callback){var iid=nextWireId++;innerCalls[iid]={callback:callback,targetId:targetId};var m={id:iid,method:method};if(params)m.params=params;origSend(wrapFor(targetId,m));}
 var outstanding=Object.create(null);var origDisp=null;
 function trackCall(t,frontendId,method,params){var iid=nextWireId++;innerCalls[iid]={frontendId:frontendId,method:method,params:params};(outstanding[t]||(outstanding[t]=Object.create(null)))[iid]=true;return iid;}
 function sendFrontendMessage(msg){var t=currentTargetId;var carry=wkBridgeCommands[msg.method];if(carry)return carry(msg,t);if(msg.id!==undefined)msg.id=trackCall(t,msg.id,msg.method,msg.params);origSend(wrapFor(t,msg));}
 function failCommand(t,iid,text){var o=outstanding[t];if(!o||!o[iid])return;delete o[iid];var c=innerCalls[iid];delete innerCalls[iid];origDisp({id:c.frontendId,error:{code:-32000,message:text}});if(c.done)c.done();}
 function failSoon(t,iid,text){Promise.resolve().then(function(){failCommand(t,iid,text);});}
-function failTarget(t,text){var o=outstanding[t];delete outstanding[t];if(o)for(var iid in o){var c=innerCalls[iid];delete innerCalls[iid];origDisp({id:c.frontendId,error:{code:-32000,message:text}});if(c.done)c.done();}}
+function failTarget(t,text){var o=outstanding[t];delete outstanding[t];if(o)for(var iid in o){var c=innerCalls[iid];delete innerCalls[iid];origDisp({id:c.frontendId,error:{code:-32000,message:text}});if(c.done)c.done();}
+for(var bid in innerCalls){var b=innerCalls[bid];if(b.frontendId!==undefined||b.targetId!==t)continue;delete innerCalls[bid];if(b.callback)b.callback({message:text});}}
 function answer(frontendId,error,result){Promise.resolve().then(function(){origDisp(error?{id:frontendId,error:{code:-32000,message:error}}:{id:frontendId,result:result});});}
 function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++){if(q[i].fromBridge)sendFromBridge(currentTargetId,q[i].method,q[i].params);else sendFrontendMessage(q[i]);}}
 var targetState=[];var pendingBreakpoints=Object.create(null);var persistentSetters={'Debugger.setBreakpointsActive':1,'Debugger.setPauseOnExceptions':1};
@@ -222,7 +244,7 @@ var documentRequested=false;
 function requestDocument(){if(documentRequested)return;documentRequested=true;sendFromBridge(currentTargetId,'DOM.getDocument');}
 function targetCreated(info){var id=info.targetId;
 if(info.type!=='page'){if(info.isPaused)sendToBackend('Target.resume',{targetId:id});return;}
-if(info.isProvisional){provisionalTargets[id]=[];initializeTarget(id);if(info.isPaused)sendToBackend('Target.resume',{targetId:id});return;}
+if(info.isProvisional){provisionalTargets[id]=[];initializeTarget(id);if(wkExt.reload&&!wkExt.reload.handedTo)wkExtHandReloadScript(id);if(info.isPaused)sendToBackend('Target.resume',{targetId:id});return;}
 if(!currentTargetId)sendToBackend('Target.setPauseOnStart',{pauseOnStart:true});
 currentTargetId=id;flushQueue();requestDocument();}
 var wkRequestTimes=Object.create(null);
@@ -309,7 +331,7 @@ var wkLoadMarks={'Page.domContentEventFired':'MarkDOMContent','Page.loadEventFir
 var wkReplyNames={'Runtime.getProperties':{properties:'result'},'Runtime.getDisplayableProperties':{properties:'result'}};
 var wkReplyFixes={'Page.getCookies':function(r){r.cookies.forEach(function(c){c.size=c.name.length+c.value.length;});},
 'DOM.getEventListenersForNode':function(r){r.listeners.forEach(function(l){l.handlerBody='function '+(l.handlerName||'')+'() {}';});},
-'Page.getResourceTree':function(r){wkMainFrameId=r.frameTree.frame.id;},
+'Page.getResourceTree':function(r){wkMainFrameId=r.frameTree.frame.id;wkFrameTree(r.frameTree);},
 'DOM.resolveNode':function(r,p){if(p.objectGroup===wkNodePropertiesGroup)wkNodeProperties.objects[r.object.objectId]=true;},
 'Runtime.callFunctionOn':function(r,p){if(wkNodeProperties.objects[p.objectId])wkNodeProperties.lists[r.result.objectId]=true;},
 'Runtime.getProperties':wkNotePrototypes,'Runtime.getDisplayableProperties':wkNotePrototypes};
@@ -352,6 +374,48 @@ var end=toPosition(out.length);r.endLine=end.line;r.endColumn=end.column;}
 function wkStyleKey(id){return id.styleSheetId+'/'+id.ordinal;}
 var ruleStyleIds=Object.create(null);
 function wkRuleDeclarationText(t){if(t.indexOf('\n')<0)return t;var e=t.length;while(e&&/\s/.test(t[e-1]))e--;var tail=t.substring(e),nl=tail.lastIndexOf('\n');return t.substring(0,e)+'\n'+(nl<0?'':tail.substring(nl+1));}
+var wkExt={ids:Object.create(null),count:0,frames:Object.create(null),contexts:Object.create(null),loading:Object.create(null),finished:[],nextRecordId:1,walltimeOffset:null,page:null,userAgentOwner:null,reload:null};
+function wkFrameTree(tree){var f=tree.frame;wkExt.frames[f.id]={url:f.url,parentId:f.parentId,loaderId:f.loaderId};(tree.childFrames||[]).forEach(wkFrameTree);}
+function wkExtCommand(method,params){return new Promise(function(resolve,reject){if(!currentTargetId)return reject('ContextDestroyed');sendFromBridge(currentTargetId,method,params,function(error,result){if(error)reject(error);else resolve(result);});});}
+function wkExtFrameForFrameURL(frameURL){var ids=Object.keys(wkExt.frames);if(!frameURL)return ids.filter(function(id){return !wkExt.frames[id].parentId;})[0];
+function find(adjust){return ids.filter(function(id){try{var known=new URL(wkExt.frames[id].url);}catch(e){return false;}if(adjust)adjust(known);return known.toString()===frameURL;})[0];}
+var id=find();if(id)return id;var wanted=new URL(frameURL);if(wanted.hash.length)return;id=find(function(u){u.hash='';});if(id||wanted.search.length)return id;return find(function(u){u.hash='';u.search='';});}
+function wkExtRetry(predicate){return new Promise(function(resolve){var tries=0;(function attempt(){var r=predicate();if(r!==undefined||++tries>=100)return resolve(r);setTimeout(attempt,100);})();});}
+function wkExtHandReloadScript(targetId){wkExt.reload.handedTo=targetId;sendFromBridge(targetId,'Page.setScriptToEvaluateInNextDocument',{source:wkExt.reload.script});}
+function wkExtSetUserAgent(owner,value){wkExt.userAgentOwner=owner;var params=owner?{value:value}:{};setTargetState('Page.overrideUserAgent',owner?{method:'Page.overrideUserAgent',params:params}:null);for(var tid in provisionalTargets)sendFromBridge(tid,'Page.overrideUserAgent',params);if(currentTargetId)sendFromBridge(currentTargetId,'Page.overrideUserAgent',params);}
+function wkExtReloadEnded(){var reload=wkExt.reload;wkExt.reload=null;if(reload&&reload.handedTo)sendFromBridge(reload.handedTo,'Page.setScriptToEvaluateInNextDocument',{});}
+function wkExtSetRequest(record,request){record.url=request.url;record.method=request.method;if(request.headers)record.requestHeaders=request.headers;if(request.postData!==undefined)record.postData=request.postData;else delete record.postData;}
+function wkExtFinish(key){var entry=wkExt.loading[key];delete wkExt.loading[key];if(!entry)return;if(entry.isLogged)wkExt.finished.push(entry);if(wkExt.count&&window.webkit&&webkit.messageHandlers&&webkit.messageHandlers.devToolsNetwork)webkit.messageHandlers.devToolsNetwork.postMessage(JSON.stringify(entry.record));}
+function wkExtObserve(im,t){var m=im.method,p=im.params;if(!m||!p)return;
+if(m==='Page.frameNavigated'){var f=p.frame;if(f.parentId){wkExt.frames[f.id]={url:f.url,parentId:f.parentId,loaderId:f.loaderId};return;}wkExt.frames=Object.create(null);wkExt.frames[f.id]={url:f.url,loaderId:f.loaderId};wkExt.contexts=Object.create(null);wkExtReloadEnded();if(!wkExt.count)return;wkExt.page={url:f.url,loaderId:f.loaderId};wkExt.finished=wkExt.finished.filter(function(e){return e.record.loaderId===f.loaderId;});for(var k in wkExt.loading)wkExt.loading[k].isLogged=wkExt.loading[k].record.loaderId===f.loaderId;if(wkExt.count)IFH.inspectedPageDidNavigate(f.url);return;}
+if(m==='Page.frameAttached'){wkExt.frames[p.frameId]={url:'',parentId:p.parentFrameId};return;}
+if(m==='Page.frameDetached'){delete wkExt.frames[p.frameId];delete wkExt.contexts[p.frameId];return;}
+if(m==='Runtime.executionContextCreated'){var c=p.context;if(c.type==='normal'||c.isPageContext)wkExt.contexts[c.frameId]=c.id;return;}
+if(!wkExt.count)return;
+if(m==='Page.domContentEventFired'||m==='Page.loadEventFired'){if(wkExt.page)wkExt.page[m==='Page.loadEventFired'?'loadTimestamp':'domContentLoadedTimestamp']=p.timestamp;return;}
+if(m.indexOf('Network.')!==0||p.requestId===undefined)return;var key=t+'\n'+p.requestId,entry=wkExt.loading[key],r;
+if(m==='Network.requestWillBeSent'){if(typeof p.timestamp==='number'&&typeof p.walltime==='number')wkExt.walltimeOffset=p.walltime-p.timestamp;
+if(p.redirectResponse&&entry){r=entry.record;var redirect={url:r.url,method:r.method,response:p.redirectResponse};if(r.requestHeaders)redirect.requestHeaders=r.requestHeaders;if(typeof p.timestamp==='number')redirect.timestamp=p.timestamp;r.redirects.push(redirect);wkExtSetRequest(r,p.request);return;}
+r={id:wkExt.nextRecordId++,frameId:p.frameId,loaderId:p.loaderId,redirects:[]};if(p.type!==undefined)r.type=p.type;if(typeof p.timestamp==='number')r.timestamp=p.timestamp;if(typeof p.walltime==='number')r.walltime=p.walltime;wkExtSetRequest(r,p.request);wkExt.loading[key]={record:r,targetId:t,requestId:p.requestId,isLogged:true};return;}
+if(m==='Network.requestServedFromMemoryCache'){var res=p.resource;r={id:wkExt.nextRecordId++,frameId:p.frameId,loaderId:p.loaderId,type:res.type,url:res.url,method:'GET',requestHeaders:{},redirects:[],fromMemoryCache:true,cachedBodySize:res.bodySize||0};if(res.response)r.response=res.response;if(typeof p.timestamp==='number'){r.timestamp=p.timestamp;r.finishedTimestamp=p.timestamp;if(wkExt.walltimeOffset!==null)r.walltime=p.timestamp+wkExt.walltimeOffset;}wkExt.loading[key]={record:r,targetId:t,requestId:p.requestId,isLogged:true};return wkExtFinish(key);}
+if(!entry)return;r=entry.record;
+if(m==='Network.responseReceived'){if(p.response)r.response=p.response;if(p.type!==undefined)r.type=p.type;if(typeof p.timestamp==='number')r.responseTimestamp=p.timestamp;return;}
+if(m==='Network.dataReceived'){r.dataLength=(r.dataLength||0)+(p.dataLength||0);r.encodedDataLength=(r.encodedDataLength||0)+(p.encodedDataLength||0);return;}
+if(m==='Network.loadingFinished'||m==='Network.loadingFailed'){if(typeof p.timestamp==='number')r.finishedTimestamp=p.timestamp;if(p.metrics)r.metrics=p.metrics;if(m==='Network.loadingFailed'){r.failureText=p.errorText;r.canceled=!!p.canceled;}wkExtFinish(key);}}
+var wkExtAPI={
+registerExtension:function(extensionID){if(wkExt.ids[extensionID])return 'RegistrationFailed';wkExt.ids[extensionID]=true;if(!wkExt.count++){var main=wkExtFrameForFrameURL();if(main!==undefined)wkExt.page={url:wkExt.frames[main].url,loaderId:wkExt.frames[main].loaderId};}},
+unregisterExtension:function(extensionID){if(!wkExt.ids[extensionID])return 'InvalidRequest';delete wkExt.ids[extensionID];if(!--wkExt.count){wkExt.loading=Object.create(null);wkExt.finished=[];wkExt.page=null;}if(wkExt.userAgentOwner===extensionID)wkExtSetUserAgent(null);},
+evaluateScriptForExtension:function(extensionID,scriptSource,options){options=options||{};if(!wkExt.ids[extensionID])return 'InvalidRequest';if(options.contextSecurityOrigin||options.useContentScriptContext)return 'NotImplemented';
+return wkExtRetry(function(){return wkExtFrameForFrameURL(options.frameURL);}).then(function(frameId){if(frameId===undefined)return 'InvalidRequest';return wkExtRetry(function(){return wkExt.contexts[frameId];}).then(function(contextId){return contextId===undefined?'ContextDestroyed':contextId;});}).then(function(contextId){if(typeof contextId==='string')return contextId;
+return wkExtCommand('Runtime.evaluate',{expression:scriptSource,objectGroup:'extension-evaluation',includeCommandLineAPI:true,returnByValue:true,generatePreview:false,saveResult:false,contextId:contextId}).then(function(payload){return payload.wasThrown?{error:payload.result.description}:{result:payload.result.value};},function(error){return error&&error.message?{error:error.message}:'ContextDestroyed';});});},
+reloadForExtension:function(extensionID,options){options=options||{};if(!wkExt.ids[extensionID])return 'InvalidRequest';
+if(options.userAgent)wkExtSetUserAgent(extensionID,options.userAgent);
+else if(wkExt.userAgentOwner===extensionID)wkExtSetUserAgent(null);
+wkExtReloadEnded();var reloadParams={ignoreCache:!!options.ignoreCache};if(options.injectedScript){reloadParams.scriptToEvaluateOnLoad='(function(){'+options.injectedScript+'})()';wkExt.reload={script:reloadParams.scriptToEvaluateOnLoad,handedTo:null};}return wkExtCommand('Page.reload',reloadParams).then(function(){return {};},function(){return 'InternalError';});},
+devToolsNetworkArchive:function(){return JSON.stringify({records:wkExt.finished.map(function(e){return e.record;}),page:wkExt.page});},
+devToolsNetworkContent:function(recordId){var entry=null;for(var i=0;i<wkExt.finished.length;i++)if(wkExt.finished[i].record.id===recordId)entry=wkExt.finished[i];
+return new Promise(function(resolve){if(!entry)return resolve(JSON.stringify(null));sendFromBridge(entry.targetId,'Network.getResponseBody',{requestId:entry.requestId},function(error,result){resolve(JSON.stringify(error||!result?{url:entry.record.url,encoding:'',content:null}:{url:entry.record.url,encoding:result.base64Encoded?'base64':'',content:result.body}));});});}};
+document.addEventListener('DOMContentLoaded',function(){for(var name in wkExtAPI)InspectorFrontendAPI[name]=wkExtAPI[name];});
 IFH.sendMessageToBackend=function(messageStr){
 var msg=JSON.parse(messageStr);var fix=wkRequestFixes[msg.method];if(fix&&!(msg=fix(msg)))return;var dom=msg.method.split('.')[0];
 if(msg.method==='CSS.setStyleText'&&ruleStyleIds[wkStyleKey(msg.params.styleId)])msg.params.text=wkRuleDeclarationText(msg.params.text);
@@ -360,12 +424,12 @@ if(recordTargetState(msg)){for(var tid in provisionalTargets)sendFromBridge(tid,
 if(!currentTargetId){pendingQueue.push(msg);return;}
 sendFrontendMessage(msg);};
 var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;origDisp=v.dispatch.bind(v);
-function deliver(im,t){var c=null;if(im.id!==undefined){var o=outstanding[t];if(!o||!o[im.id])return;delete o[im.id];c=innerCalls[im.id];delete innerCalls[im.id];im.id=c.frontendId;fixReply(c.method,im.result,c.params);}if(im.id!==undefined&&pendingBreakpoints[im.id]){var bp=pendingBreakpoints[im.id];delete pendingBreakpoints[im.id];if(im.result)setTargetState('breakpoint:'+im.result.breakpointId,bp);}var ef=im.method&&wkEventFixes[im.method];if(ef)ef(im.params);fixNetworkTimes(im);fixPayload(im);origDisp(im);if(c&&c.done)c.done();
+function deliver(im,t){if(im.method==='Page.scriptToEvaluateOnLoadEnded'){if(!im.params.loadWillContinueInAnotherProcess)wkExtReloadEnded();return;}if(im.method)wkExtObserve(im,t);var c=null;if(im.id!==undefined){var o=outstanding[t];if(!o||!o[im.id])return;delete o[im.id];c=innerCalls[im.id];delete innerCalls[im.id];im.id=c.frontendId;fixReply(c.method,im.result,c.params);}if(im.id!==undefined&&pendingBreakpoints[im.id]){var bp=pendingBreakpoints[im.id];delete pendingBreakpoints[im.id];if(im.result)setTargetState('breakpoint:'+im.result.breakpointId,bp);}var ef=im.method&&wkEventFixes[im.method];if(ef)ef(im.params);fixNetworkTimes(im);fixPayload(im);origDisp(im);if(c&&c.done)c.done();
 var mark=im.method&&wkLoadMarks[im.method];if(mark&&wkMainFrameId!==null&&wkRecording())origDisp({method:'Timeline.eventRecorded',params:{record:{type:mark,startTime:im.params.timestamp*1000,frameId:wkMainFrameId,data:{}}}});}
 v.dispatch=function(message){var obj=(typeof message==='string')?JSON.parse(message):message;var p=obj.params;
 if(obj.method==='Target.targetCreated'){targetCreated(p.targetInfo);return;}
 if(obj.method==='Target.didCommitProvisionalTarget'){var held=provisionalTargets[p.newTargetId];delete provisionalTargets[p.newTargetId];failTarget(p.oldTargetId,'Target was replaced');currentTargetId=p.newTargetId;wkNodeFrames=Object.create(null);wkInspectorSheets=Object.create(null);wkForgetObjects();held.forEach(function(im){try{deliver(im,p.newTargetId);}catch(e){setTimeout(function(){throw e;},0);}});return;}
-if(obj.method==='Target.targetDestroyed'){delete provisionalTargets[p.targetId];failTarget(p.targetId,'Target was destroyed');return;}
+if(obj.method==='Target.targetDestroyed'){if(wkExt.reload&&wkExt.reload.handedTo===p.targetId)wkExtReloadEnded();delete provisionalTargets[p.targetId];failTarget(p.targetId,'Target was destroyed');return;}
 if(obj.id!==undefined){var w=outerCalls[obj.id];delete outerCalls[obj.id];if(!w)return;if(w.frontendId!==undefined){obj.id=w.frontendId;return origDisp(obj);}if(obj.error&&w.targetId!==undefined){var ic=innerCalls[w.innerId];if(ic&&ic.frontendId===undefined){delete innerCalls[w.innerId];if(ic.callback)ic.callback(obj.error);}else failCommand(w.targetId,w.innerId,obj.error.message);}return;}
 if(obj.method==='Target.dispatchMessageFromTarget'){var im=JSON.parse(p.message);if(im.id!==undefined&&innerCalls[im.id]&&innerCalls[im.id].frontendId===undefined){var bc=innerCalls[im.id];delete innerCalls[im.id];if(bc.callback)bc.callback(im.error,im.result);return;}var held=provisionalTargets[p.targetId];if(held){held.push(im);return;}if(p.targetId!==currentTargetId&&im.id===undefined)return;return deliver(im,p.targetId);}
 return origDisp(message);};}}});

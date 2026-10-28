@@ -170,6 +170,34 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self.reply('{"authenticated":true}', 'application/json')
             realm = 'legacy-extension-test' if path.startswith('/auth-basic') else 'legacy-extension-cancel'
             return self.reply('{"authenticated":false}', 'application/json', status=401, headers=[('WWW-Authenticate', f'Basic realm="{realm}"')])
+        # devtools.safariextension's redirected reload: /devtools-bounce shows pages/devtools.html, or, once
+        # /devtools-bounce/arm has armed it, redirects once to the same page on the other host, 127.0.0.1.
+        # An image that holds devtools-slow.html's load event for three seconds.
+        if path.startswith('/devtools-slow.png'):
+            time.sleep(3)
+            return self.reply(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), 'image/png')
+        # /devtools-nocontent shows pages/devtools.html, or, once /devtools-nocontent/arm has armed it, answers one
+        # request with 204, so a reload of it commits nothing.
+        if path == '/devtools-nocontent/arm':
+            DEVTOOLS_BOUNCE['nocontent'] = True
+            return self.reply('armed')
+        if path.startswith('/devtools-nocontent'):
+            if DEVTOOLS_BOUNCE.pop('nocontent', False):
+                return self.reply('', status=204)
+            with open(os.path.join(ROOT, 'pages', 'devtools.html'), 'rb') as page:
+                return self.reply(page.read(), 'text/html')
+        # A page whose response takes three seconds, a navigation devtools.safariextension reloads over.
+        if path.startswith('/devtools-slow-document'):
+            time.sleep(3)
+            return self.reply(b'<!doctype html><title>slow document</title><p>slow document</p>', 'text/html')
+        if path == '/devtools-bounce/arm':
+            DEVTOOLS_BOUNCE['armed'] = True
+            return self.reply('armed')
+        if path.startswith('/devtools-bounce'):
+            if DEVTOOLS_BOUNCE.pop('armed', False):
+                return self.reply('', status=302, headers=[('Location', 'http://127.0.0.1:8843/devtools.html?landed')])
+            with open(os.path.join(ROOT, 'pages', 'devtools.html'), 'rb') as page:
+                return self.reply(page.read(), 'text/html')
         if path.startswith('/moved-script'):
             return self.reply('', status=302, headers=[('Location', '/res/moved-original.js')])
         if path.startswith('/cookie-hop'):
@@ -305,6 +333,7 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 # Counts the connections opened to 8845, which only <link rel=preconnect> opens.
 PRECONNECTS = {'count': 0}
+DEVTOOLS_BOUNCE = {}
 
 
 class PreconnectHandler(socketserver.BaseRequestHandler):

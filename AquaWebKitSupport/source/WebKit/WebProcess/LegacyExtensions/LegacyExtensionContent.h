@@ -72,7 +72,6 @@ private:
     void setMimeHandlers(String&&);
     void invalidateExtensionPage(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier);
     void setPrintsBackgrounds(WebCore::PageIdentifier, bool);
-    void executionContextForFrameURL(WebCore::PageIdentifier, String&& frameURL, CompletionHandler<void(std::optional<int>, URL&&)>&&);
 
     WebCore::DOMWrapperWorld* contentScriptWorld(const String& extensionKey) const;
     String extensionKeyForWorld(WebFrame&, WebCore::DOMWrapperWorld&) const;

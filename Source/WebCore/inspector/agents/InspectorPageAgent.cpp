@@ -155,6 +155,10 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::disable()
     std::ignore = setShowRulers(false);
 #endif
     std::ignore = overrideUserAgent(nullString());
+    m_nextDocumentScript = { }; // AQUAWEBKIT: the document scripts end with the frontend that set them.
+    m_reloadLoader = nullptr; // AQUAWEBKIT: see above.
+    m_reloadScript = { }; // AQUAWEBKIT: see above.
+    m_documentScript = { }; // AQUAWEBKIT: see above.
     std::ignore = setEmulatedMedia(emptyString());
     overridePrefersColorScheme(std::nullopt);
 
@@ -185,7 +189,8 @@ double InspectorPageAgent::timestamp()
     return protect(environment())->executionStopwatch().elapsedTime().seconds();
 }
 
-Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::reload(std::optional<bool>&& ignoreCache, std::optional<bool>&& revalidateAllResources)
+// Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::reload(std::optional<bool>&& ignoreCache, std::optional<bool>&& revalidateAllResources)
+Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::reload(std::optional<bool>&& ignoreCache, std::optional<bool>&& revalidateAllResources, const String& scriptToEvaluateOnLoad) // AQUAWEBKIT: binds scriptToEvaluateOnLoad to the reload's loader.
 {
     OptionSet<ReloadOption> reloadOptions;
     if (ignoreCache && *ignoreCache)
@@ -197,6 +202,11 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::reload(std::optiona
     if (!localMainFrame)
         return makeUnexpected("main frame is not local"_s);
     localMainFrame->loader().reload(reloadOptions);
+
+    // AQUAWEBKIT: the reload's loader awaits its navigation policy, or has already been handed to the load.
+    auto& frameLoader = localMainFrame->loader();
+    m_reloadLoader = frameLoader.policyDocumentLoader() ? frameLoader.policyDocumentLoader() : frameLoader.provisionalDocumentLoader();
+    m_reloadScript = scriptToEvaluateOnLoad; // AQUAWEBKIT: see above.
 
     return { };
 }
@@ -571,6 +581,14 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::setBootstrapScript(
     return { };
 }
 
+// AQUAWEBKIT: the script of the document the main frame commits next; frameNavigated() adopts it.
+Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::setScriptToEvaluateInNextDocument(const String& source)
+{
+    m_nextDocumentScript = source;
+
+    return { };
+}
+
 Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>>> InspectorPageAgent::searchInResource(const Inspector::Protocol::Network::FrameId& frameId, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Inspector::Protocol::Network::RequestId& requestId)
 {
     Inspector::Protocol::ErrorString errorString;
@@ -687,6 +705,13 @@ void InspectorPageAgent::loadEventFired()
 
 void InspectorPageAgent::frameNavigated(LocalFrame& frame)
 {
+    if (frame.isMainFrame()) { // AQUAWEBKIT: a main-frame commit ends the previous document's script and adopts its own, ahead of the new document's window clear: the bound reload's, or else the next document's.
+        RefPtr reloadLoader = std::exchange(m_reloadLoader, nullptr);
+        auto reloadScript = std::exchange(m_reloadScript, { });
+        auto nextDocumentScript = std::exchange(m_nextDocumentScript, { });
+        m_documentScript = reloadLoader && reloadLoader == frame.loader().documentLoader() ? reloadScript : nextDocumentScript;
+    } // AQUAWEBKIT: closes the main-frame block above.
+
     m_frontendDispatcher->frameNavigated(buildObjectForFrame(&frame));
 }
 
@@ -718,8 +743,14 @@ LocalFrame* InspectorPageAgent::assertFrame(Inspector::Protocol::ErrorString& er
     return m_inspectedPage->inspectorController().identifierRegistry().assertFrame(errorString, frameId);
 }
 
-void InspectorPageAgent::loaderDetachedFromFrame(DocumentLoader& loader)
+// void InspectorPageAgent::loaderDetachedFromFrame(DocumentLoader& loader)
+void InspectorPageAgent::loaderDetachedFromFrame(DocumentLoader& loader, LoadWillContinueInAnotherProcess loadWillContinueInAnotherProcess) // AQUAWEBKIT: see the declaration.
 {
+    if (m_reloadLoader == &loader) { // AQUAWEBKIT: a reload that ends without committing takes its script with it, and says whether its load moves to another process.
+        m_reloadLoader = nullptr;
+        m_reloadScript = { };
+        m_frontendDispatcher->scriptToEvaluateOnLoadEnded(loadWillContinueInAnotherProcess == LoadWillContinueInAnotherProcess::Yes);
+    } // AQUAWEBKIT: closes the reload block above.
     m_inspectedPage->inspectorController().identifierRegistry().takeLoader(loader);
 }
 
@@ -774,7 +805,8 @@ void InspectorPageAgent::didClearWindowObjectInWorld(LocalFrame& frame, DOMWrapp
     if (&world != &mainThreadNormalWorldSingleton())
         return;
 
-    if (m_bootstrapScript.isEmpty())
+    // if (m_bootstrapScript.isEmpty())
+    if (m_bootstrapScript.isEmpty() && m_documentScript.isEmpty()) // AQUAWEBKIT: the document's script runs too.
         return;
 
     if (auto* pageRuntimeAgent = Ref { m_instrumentingAgents.get() }->enabledPageRuntimeAgent()) {
@@ -782,7 +814,11 @@ void InspectorPageAgent::didClearWindowObjectInWorld(LocalFrame& frame, DOMWrapp
             return;
     }
 
-    frame.script().evaluateIgnoringException(ScriptSourceCode(m_bootstrapScript, JSC::SourceTaintedOrigin::Untainted, URL { "web-inspector://bootstrap.js"_str }));
+    // frame.script().evaluateIgnoringException(ScriptSourceCode(m_bootstrapScript, JSC::SourceTaintedOrigin::Untainted, URL { "web-inspector://bootstrap.js"_str }));
+    if (!m_bootstrapScript.isEmpty()) // AQUAWEBKIT: the document's script can be set without a bootstrap script.
+        frame.script().evaluateIgnoringException(ScriptSourceCode(m_bootstrapScript, JSC::SourceTaintedOrigin::Untainted, URL { "web-inspector://bootstrap.js"_str }));
+    if (!m_documentScript.isEmpty()) // AQUAWEBKIT: setScriptToEvaluateInNextDocument's script, in each frame of the document it was set for.
+        frame.script().evaluateIgnoringException(ScriptSourceCode(m_documentScript, JSC::SourceTaintedOrigin::Untainted, URL { "web-inspector://document.js"_str }));
 }
 
 void InspectorPageAgent::didPaint(RenderObject& renderer, const LayoutRect& rect)

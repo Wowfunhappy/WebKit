@@ -142,7 +142,8 @@
             "description": "Reloads the main frame of the inspected page.",
             "parameters": [
                 { "name": "ignoreCache", "type": "boolean", "optional": true, "description": "If true, the page is reloaded from its origin without using cached resources." },
-                { "name": "revalidateAllResources", "type": "boolean", "optional": true, "description": "If true, all cached subresources will be revalidated when the main resource loads. Otherwise, only expired cached subresources will be revalidated (the default behavior for most WebKit clients)." }
+                { "name": "revalidateAllResources", "type": "boolean", "optional": true, "description": "If true, all cached subresources will be revalidated when the main resource loads. Otherwise, only expired cached subresources will be revalidated (the default behavior for most WebKit clients)." },
+                { "name": "scriptToEvaluateOnLoad", "type": "string", "optional": true, "description": "A script to evaluate in the document this reload commits: in the main world of each of its frames, as the frame's global object is created and ahead of its own scripts. A reload that commits no document evaluates it nowhere." }
             ]
         },
         {
@@ -222,6 +223,14 @@
             "targetTypes": ["page"],
             "parameters": [
                 { "name": "source", "type": "string", "optional": true, "description": "If `source` is provided (and not empty), it will be injected into all future global objects as soon as they're created. Omitting `source` will stop this from happening." }
+            ]
+        },
+        {
+            "name": "setScriptToEvaluateInNextDocument",
+            "description": "Sets the script to evaluate in the document the main frame commits next: in the main world of each of that document's frames, as the frame's global object is created and ahead of its own scripts, until the main frame commits another document. A page target a reload creates in another process takes the reload's script this way.",
+            "targetTypes": ["page"],
+            "parameters": [
+                { "name": "source", "type": "string", "optional": true, "description": "The script. Omitting `source` sets none for the next document." }
             ]
         },
         {
@@ -344,6 +353,14 @@
             "description": "Fired once navigation of the frame has completed. Frame is now associated with the new loader.",
             "parameters": [
                 { "name": "frame", "$ref": "Frame", "description": "Frame object." }
+            ]
+        },
+        {
+            "name": "scriptToEvaluateOnLoadEnded",
+            "description": "Fired when a reload given a `scriptToEvaluateOnLoad` ends without committing a document.",
+            "targetTypes": ["page"],
+            "parameters": [
+                { "name": "loadWillContinueInAnotherProcess", "type": "boolean", "description": "Whether the reload's load continues in another process, as a provisional page target." }
             ]
         },
         {

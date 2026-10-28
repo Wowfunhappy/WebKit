@@ -1840,6 +1840,23 @@ if (isHost) {
         prepareHandoff: tab => callRouter("aqua.mediaPlayer.prepareHandoff", tabReference(tab)),
         cancelHandoff: ticket => callRouter("aqua.mediaPlayer.cancelHandoff", ticket),
     });
+    // A connection to the Web Inspector backend of a tab, whose messages are this WebKit's Web Inspector protocol
+    // as JSON text.
+    aqua.inspector = {
+        attach: async tab => {
+            await callRouter("aqua.inspector.attach", tabReference(tab));
+        },
+        detach: async tab => {
+            await callRouter("aqua.inspector.detach", tabReference(tab));
+        },
+        sendMessage: async (tab, message) => {
+            if (typeof message !== "string")
+                throw new TypeError("An inspector message is a string");
+            await callRouter("aqua.inspector.sendMessage", tabReference(tab), message);
+        },
+        onMessage: trackedEvent("aqua.inspector.onMessage"),
+        onDetach: trackedEvent("aqua.inspector.onDetach"),
+    };
 }
 // Every method of a namespace and of its nested namespaces checks that the context is valid when called, and
 // every event when read, as Chrome's bindings do (api_binding.cc RunAPIBindingHandlerCallback, GetEventObject).

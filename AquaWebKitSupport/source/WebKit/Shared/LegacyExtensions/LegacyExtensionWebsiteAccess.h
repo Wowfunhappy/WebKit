@@ -20,6 +20,9 @@ struct WebsiteAccess {
 
     // Whether a web URL is within the access: https and wss only with Include Secure Pages.
     bool allows(const URL&) const;
+    // Whether the extension whose key is `extensionKey` sees a document or load at the URL: a web URL within the
+    // access, one of the extension's own files, or a URL of no site (data:, about:, and blob: by its origin).
+    bool allowsForExtension(const String& extensionKey, const URL&) const;
     // The access as UserContentURLPattern strings, one per scheme and host.
     Vector<String> urlPatterns() const;
 

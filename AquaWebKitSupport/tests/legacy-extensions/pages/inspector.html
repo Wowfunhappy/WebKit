@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!--
+The driver of inspector.safariextension: aqua.inspector.
+
+On load the page asks the extension's global page to run its cases, which open background tabs of
+inspector-target.html and close them; their outcome lands in window.__results as
+{ done, pass, cases: { name: { ok, ... } } }. Keep this tab first in its window.
+
+ask(op) runs one of the global page's other operations on this tab (attachSelf, selfStatus, detachSelf); its
+answer lands in window.__answers[op]. With ?manual the cases do not run on load.
+-->
+<title>inspector</title>
+<script>
+window.__results = { done: false };
+window.__answers = {};
+window.addEventListener("message", event => {
+    if (event.source !== window || !event.data || !event.data.inspectorResult)
+        return;
+    const { op, result } = event.data.inspectorResult;
+    if (op === "run")
+        window.__results = result;
+    else
+        window.__answers[op] = result;
+});
+function ask(op) {
+    delete window.__answers[op];
+    window.postMessage({ inspector: op }, "*");
+}
+function run() {
+    window.__results = { done: false };
+    ask("run");
+}
+if (!location.search.includes("manual"))
+    window.addEventListener("load", run);
+</script>

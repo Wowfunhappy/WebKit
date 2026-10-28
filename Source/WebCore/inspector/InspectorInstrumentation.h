@@ -81,6 +81,7 @@ class LocalDOMWindow;
 class DOMWrapperWorld;
 class Document;
 class DocumentLoader;
+enum class LoadWillContinueInAnotherProcess : bool; // AQUAWEBKIT: loaderDetachedFromFrame's argument.
 class DocumentThreadableLoader;
 class EventListener;
 class HTTPHeaderMap;
@@ -249,7 +250,8 @@ public:
     static void frameDetachedFromParent(LocalFrame&);
     static void didCommitLoad(LocalFrame&, DocumentLoader*);
     static void frameDocumentUpdated(LocalFrame&);
-    static void loaderDetachedFromFrame(LocalFrame&, DocumentLoader&);
+    // static void loaderDetachedFromFrame(LocalFrame&, DocumentLoader&);
+    static void loaderDetachedFromFrame(LocalFrame&, DocumentLoader&, LoadWillContinueInAnotherProcess); // AQUAWEBKIT: whether the loader's load moves to another process.
     static void frameStartedLoading(LocalFrame&);
     static void frameStoppedLoading(LocalFrame&);
     static void didCompleteRenderingFrame(LocalFrame&);
@@ -473,7 +475,8 @@ private:
     static void frameDetachedFromParentImpl(InstrumentingAgents&, LocalFrame&);
     static void didCommitLoadImpl(InstrumentingAgents&, LocalFrame&, DocumentLoader*);
     static void frameDocumentUpdatedImpl(InstrumentingAgents&, LocalFrame&);
-    static void loaderDetachedFromFrameImpl(InstrumentingAgents&, DocumentLoader&);
+    // static void loaderDetachedFromFrameImpl(InstrumentingAgents&, DocumentLoader&);
+    static void loaderDetachedFromFrameImpl(InstrumentingAgents&, DocumentLoader&, LoadWillContinueInAnotherProcess); // AQUAWEBKIT: see loaderDetachedFromFrame.
     static void frameStartedLoadingImpl(InstrumentingAgents&, LocalFrame&);
     static void didCompleteRenderingFrameImpl(InstrumentingAgents&, LocalFrame&);
     static void frameStoppedLoadingImpl(InstrumentingAgents&, LocalFrame&);
@@ -1293,10 +1296,12 @@ inline void InspectorInstrumentation::frameDocumentUpdated(LocalFrame& frame)
     frameDocumentUpdatedImpl(protect(instrumentingAgents(frame)), frame);
 }
 
-inline void InspectorInstrumentation::loaderDetachedFromFrame(LocalFrame& frame, DocumentLoader& loader)
+// inline void InspectorInstrumentation::loaderDetachedFromFrame(LocalFrame& frame, DocumentLoader& loader)
+inline void InspectorInstrumentation::loaderDetachedFromFrame(LocalFrame& frame, DocumentLoader& loader, LoadWillContinueInAnotherProcess loadWillContinueInAnotherProcess) // AQUAWEBKIT: see the declaration.
 {
     FAST_RETURN_IF_NO_FRONTENDS(void());
-    loaderDetachedFromFrameImpl(protect(instrumentingAgents(frame)), loader);
+    // loaderDetachedFromFrameImpl(protect(instrumentingAgents(frame)), loader);
+    loaderDetachedFromFrameImpl(protect(instrumentingAgents(frame)), loader, loadWillContinueInAnotherProcess); // AQUAWEBKIT: see the declaration.
 }
 
 inline void InspectorInstrumentation::frameStartedLoading(LocalFrame& frame)

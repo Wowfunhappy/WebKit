@@ -11,6 +11,7 @@
 #include "LegacyExtensionHiddenTabs.h"
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionInfoPlist.h"
+#include "LegacyExtensionInspector.h"
 #include "LegacyExtensionJavaScript.h"
 #include "LegacyExtensionMimeHandlers.h"
 #include "LegacyExtensionPrivacy.h"
@@ -720,6 +721,7 @@ void LegacyExtensionHost::setUserContentExtensionRoots(IPC::Connection& connecti
 
 void LegacyExtensionHost::webProcessWillShutDown(WebProcessProxy& process)
 {
+    LegacyExtensionInspector::singleton().webProcessWillShutDown(process);
     if (m_userContentExtensionRoots.remove(process.coreProcessIdentifier()))
         updateUserContentExtensions();
 }
@@ -1890,6 +1892,29 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         resultToHostContext(context, callID, ticket.isEmpty() ? nullptr : JSON::Value::create(ticket).ptr(), ticket.isEmpty() ? "no-source"_s : String { });
         return;
     }
+    // aqua.inspector: attach(tab), detach(tab) and sendMessage(tab, message).
+    if (method == "aqua.inspector.attach"_s || method == "aqua.inspector.detach"_s || method == "aqua.inspector.sendMessage"_s) {
+        RefPtr page = pageForTabReference(objectArgument(0).get());
+        if (!page)
+            return resultToHostContext(context, callID, nullptr, "No tab with this id."_s);
+        if (method == "aqua.inspector.sendMessage"_s) {
+            RefPtr message = argument(1);
+            auto result = LegacyExtensionInspector::singleton().sendMessage(*page, context.extensionKey, message ? message->asString() : String());
+            return resultToHostContext(context, callID, nullptr, result ? String() : result.error());
+        }
+        if (method == "aqua.inspector.detach"_s) {
+            auto result = LegacyExtensionInspector::singleton().detach(*page, context.extensionKey);
+            return resultToHostContext(context, callID, nullptr, result ? String() : result.error());
+        }
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, page = page.releaseNonNull()](const LegacyExtensions::WebsiteAccess& access) {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            auto result = LegacyExtensionInspector::singleton().attach(page, context->extensionKey, access);
+            resultToHostContext(context, callID, nullptr, result ? String() : result.error());
+        });
+        return;
+    }
+
     if (method == "aqua.mediaPlayer.cancelHandoff"_s) {
         RefPtr value = argument(0);
         MediaRestreamServer::singleton().cancelHandoff(value ? value->asString() : String { }, context.extensionKey);
@@ -2307,6 +2332,7 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
         m_retiredRoots.ensure(extensionKey, [] { return HashSet<String> { }; }).iterator->value.add(previousRoot.string());
         // The pages tabs show of the copy Safari replaced.
         invalidateExtensionPages(extensionKey, root);
+        LegacyExtensionInspector::singleton().extensionDidUnload(extensionKey);
     }
     m_websiteAccessRoots.set(extensionKey, root);
     if (RefPtr declarativeNetRequest = m_declarativeNetRequests.take(extensionKey))
@@ -2334,6 +2360,7 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
 void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
 {
     LegacyExtensionDevTools::singleton().extensionDidUnload(extensionKey);
+    LegacyExtensionInspector::singleton().extensionDidUnload(extensionKey);
     MediaRestreamServer::singleton().cancelPreparedHandoffs(extensionKey);
     LegacyExtensionHiddenTabs::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionMimeHandlers::singleton().extensionDidUnload(extensionKey);
@@ -2467,6 +2494,20 @@ void LegacyExtensionHost::dispatchNavigationEvent(const String& eventName, Ref<J
     dispatchEvent(eventName, url, WTF::move(arguments), nullptr);
 }
 
+void LegacyExtensionHost::dispatchExtensionEvent(const String& extensionKey, const String& eventName, Ref<JSON::Array>&& arguments)
+{
+    auto listeners = hostContextsListeningTo(extensionKey, eventName, { });
+    if (listeners.isEmpty())
+        return;
+    auto event = JSON::Object::create();
+    event->setString("t"_s, "event"_s);
+    event->setString("name"_s, eventName);
+    event->setArray("args"_s, WTF::move(arguments));
+    auto message = event->toJSONString();
+    for (auto& endpoint : listeners)
+        deliver(endpoint, extensionKey, message);
+}
+
 void LegacyExtensionHost::dispatchDevToolsEvent(double inspectedTabID, const String& eventName, Ref<JSON::Array>&& arguments, Function<bool(const LegacyExtensions::WebsiteAccess&, const String& extensionKey)>&& allows)
 {
     Vector<Ref<HostContext>> listeners;
@@ -2588,6 +2629,7 @@ void LegacyExtensionHost::pageWillClose(WebPageProxy& page)
 void LegacyExtensionHost::tabWillClose(WebPageProxy& page)
 {
     LegacyExtensionHiddenTabs::singleton().pageWillClose(page);
+    LegacyExtensionInspector::singleton().tabWillClose(page);
     if (auto observer = tabObservers().take(page.identifier()))
         page.pageLoadState().removeObserver(*observer);
     for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
@@ -2626,7 +2668,7 @@ void LegacyExtensionHost::didCommitLoad(WebPageProxy& page, WebFrameProxy& frame
         didCommitMainFrameNavigation(page);
         for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
             declarativeNetRequest->resetActionCount(tabIDForPage(page));
-        LegacyExtensionDevTools::singleton().didCommitLoad(page, url);
+        LegacyExtensionInspector::singleton().mainFrameURLDidChange(page, url);
     }
 
     // The frame's subframes, and every context of the frame's other documents, are gone.
@@ -2708,7 +2750,7 @@ void LegacyExtensionHost::didStartProvisionalLoad(WebPageProxy& page, WebFramePr
     if (MediaRestreamServer::singleton().isDetached(page))
         return;
     if (frame.isMainFrame())
-        LegacyExtensionDevTools::singleton().didStartProvisionalLoad(page);
+        LegacyExtensionInspector::singleton().mainFrameURLDidChange(page, url);
     dispatchNavigationEvent("webNavigation.onBeforeNavigate"_s, navigationDetails(page, frame, url), url);
 }
 

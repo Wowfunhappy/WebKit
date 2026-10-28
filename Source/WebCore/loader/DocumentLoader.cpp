@@ -1591,7 +1591,8 @@ void DocumentLoader::detachFromFrame(LoadWillContinueInAnotherProcess loadWillCo
     if (auto navigationID = std::exchange(m_navigationID, { }))
         frame->loader().client().documentLoaderDetached(*navigationID, loadWillContinueInAnotherProcess);
 
-    InspectorInstrumentation::loaderDetachedFromFrame(*frame, *this);
+    // InspectorInstrumentation::loaderDetachedFromFrame(*frame, *this);
+    InspectorInstrumentation::loaderDetachedFromFrame(*frame, *this, loadWillContinueInAnotherProcess); // AQUAWEBKIT: the page agent reports whether a reload's load moves to another process.
 
     observeFrame(nullptr);
 }

@@ -34,6 +34,7 @@
 #include "APIUIClient.h"
 #include "InspectorBrowserAgent.h"
 #include "LegacyExtensionDevTools.h" // AQUAWEBKIT: the Safari 7 extension devtools hooks below.
+#include "LegacyExtensionInspector.h" // AQUAWEBKIT: the Safari 7 extension aqua.inspector hook below.
 #include "MessageSenderInlines.h"
 #include "PageClient.h"
 #include "WebAutomationSession.h"
@@ -148,6 +149,8 @@ void WebInspectorUIProxy::connect()
 
     m_showMessageSent = true;
     m_ignoreFirstBringToFront = true;
+
+    LegacyExtensionInspector::singleton().localInspectorWillOpen(*inspectedPage); // AQUAWEBKIT: a Safari 7 extension's aqua.inspector session of the tab ends ahead of Show, so the inspector is the tab's only frontend.
 
     createFrontendPage();
 

@@ -4,7 +4,7 @@ This WebKit gives Safari 7 legacy extensions (`.safariextension` bundles) a `bro
 
 The engine provides only what needs the engine. Anything an extension can build from `safari.*` or the web platform, such as `runtime.getURL`, `storage`, `tabs.query`, `tabs.create`, and menus, is left to the extension's own platform layer (the uBlock Origin port's `browser-safari.js`, for example, builds these on top).
 
-Extensions also get the `aqua` namespace for media handoff; see [EXTENSION-AQUA-API.md](EXTENSION-AQUA-API.md).
+Extensions also get the `aqua` namespace for media handoff and Web Inspector access; see [EXTENSION-AQUA-API.md](EXTENSION-AQUA-API.md).
 
 Not provided: the `ip` field of `webRequest` details, and the `documentId`, `documentLifecycle`, and `frameType` fields Chrome added after MV2.
 
@@ -23,7 +23,7 @@ Sources:
 | tabs.captureTab, tabs.saveAsPDF, dns | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionTabCapture.{h,mm}`, `LegacyExtensionSaveAsPDF.{h,mm}`, `LegacyExtensionDNS.{h,cpp}` |
 | Clipboard | writes: `WebLegacyExtensionPageObserver.mm` (WebKit 1 preferences) and `LegacyExtensionContent.cpp` (web content pages); reads: `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm` |
 | WebKit 1 page hooks | `AquaWebKitSupport/source/WebKitLegacy/mac/LegacyExtensions/WebLegacyExtensionPageObserver.mm` |
-| devtools | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionDevTools.{h,mm}`, with hooks in `Source/WebKit/UIProcess/Inspector/WebInspectorUIProxy.cpp` |
+| devtools | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionDevTools.{h,mm}`, with hooks in `Source/WebKit/UIProcess/Inspector/WebInspectorUIProxy.cpp`, on WebKit's inspector extensions (`API::InspectorExtension`); the Web Inspector frontend's part is in `AquaWebKitSupport/source/WebCore/inspector/InspectorFrontendClassicBridge.h` |
 | Relative URLs in extension documents | `AquaWebKitSupport/source/WTF/wtf/LegacyExtensionURL.{h,cpp}` |
 | WebKit 1 views' BroadcastChannels, message ports, shared workers and Web Locks | `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionViewConnection.{h,cpp}` |
 | Test extension and server | `AquaWebKitSupport/tests/legacy-extensions/` |
@@ -624,7 +624,7 @@ Removes the cookie `cookies.get` would return. Resolves with `null` when there i
 <string>devtools.html</string>
 ```
 
-While a tab's Web Inspector is open, every [loaded](#loaded-extensions) extension that names a devtools page has one for that tab, in a hidden WebKit 1 view in Safari's process, where Safari 7 hosts the extension's global page. It opens with the inspector, or when the extension loads while the inspector is open, and closes with the inspector or when the extension unloads. An extension with no global page, bar, popover, or content script is never loaded: Safari serves none of its files, so no URL carries the per-launch root its devtools page would load from. The devtools page is a host context of the extension: it has every host namespace, exchanges messages and ports with the extension's other contexts (as a sender it carries only `url`), and has `browser.devtools`. Safari's `safari` object is not defined in it.
+While a tab's Web Inspector is open, every [loaded](#loaded-extensions) extension that names a devtools page has one for that tab, in a hidden WebKit 1 view in Safari's process, where Safari 7 hosts the extension's global page. The extension is an inspector extension of that tab's Web Inspector, as a WebExtension with a devtools page is in WebKit: the page opens once the inspector has loaded and registered the extension, or when the extension loads while the inspector is open, and closes with the inspector or when the extension unloads. An extension with no global page, bar, popover, or content script is never loaded: Safari serves none of its files, so no URL carries the per-launch root its devtools page would load from. The devtools page is a host context of the extension: it has every host namespace, exchanges messages and ports with the extension's other contexts (as a sender it carries only `url`), and has `browser.devtools`. Safari's `safari` object is not defined in it.
 
 The devtools methods follow Chrome's conventions, not the general ones above: each takes a trailing callback or, without one, returns a Promise, and reports failures in Chrome's records rather than through `runtime.lastError`:
 
@@ -656,8 +656,8 @@ A frame matches `frameURL` as in WebKit's Web Inspector: by its URL, else, when 
 
 Reloads the inspected tab, from the origin when `ignoreCache` is `true`, as Chrome's does; a string argument is taken as `userAgent`. Returns `undefined`. Nothing happens when the extension's website access does not cover the page.
 
-- `userAgent` replaces the user agent of the page's requests and its `navigator.userAgent` until the same extension reloads without one or the inspector closes, including in a web process the page moves to.
-- `injectedScript` runs, wrapped in a function, in the main world of every frame of the reloaded page as the frame's global object is created, ahead of the page's scripts, until the tab's next navigation starts, including in a web process the reload moves the page to.
+- `userAgent` replaces the user agent of the page's requests and its `navigator.userAgent` until the same extension reloads without one, the extension unloads, or the inspector closes, including in a web process the page moves to.
+- `injectedScript` runs, wrapped in a function, in the main world of every frame of the reloaded page, as the frame's global object is created and ahead of the page's scripts, including in a web process the reload moves the page to; documents the tab shows after it run without it.
 
 ### `devtools.network.onRequestFinished`
 
@@ -665,7 +665,7 @@ Reloads the inspected tab, from the origin when `ignoreCache` is `true`, as Chro
 
 ### `devtools.network.getHAR([callback])`
 
-The HAR 1.2 log of the requests that finished and that the extension may see, as Chrome's network log keeps them with Preserve log off: the requests of the main frame's current document, from when the inspector's first devtools page opened, which is when the inspector opens unless no loaded extension had a devtools page then. A main-frame navigation drops the requests of the documents before it.
+The HAR 1.2 log of the requests that finished and that the extension may see, as Chrome's network log keeps them with Preserve log off: the requests of the main frame's current document, from when the inspector registered the first extension with a devtools page, as the page opens. A main-frame navigation drops the requests of the documents before it.
 
 ```js
 { version: "1.2", creator: { name: "WebKit Web Inspector", version: "1.0" }, pages, entries }
@@ -683,7 +683,7 @@ Entries are as WebKit's Web Inspector exports them: `startedDateTime`, `time`, `
 
 ### Not provided
 
-`devtools.panels` is not provided: Safari 7's Web Inspector, the frontend this WebKit serves, has no extension tabs, since its `InspectorFrontendAPI` has none of the extension entry points of WebKit's current frontend (`WebInspectorExtensionController`), and its document's Content Security Policy, `default-src 'self'`, admits no frame from another origin, as an extension's panel page is. Neither are `devtools.inspectedWindow.getResources`, `devtools.network.addRequestHeaders`, `devtools.performance`, `devtools.recorder`, or `devtools.languageServices`.
+`devtools.panels` is not provided: Safari 7's Web Inspector, the frontend this WebKit serves, has no extension tabs, and its document's Content Security Policy, `default-src 'self'`, admits no frame from another origin, as an extension's panel page is. Neither are `devtools.inspectedWindow.getResources`, `devtools.network.addRequestHeaders`, `devtools.performance`, `devtools.recorder`, or `devtools.languageServices`.
 
 ## Clipboard (host contexts only)
 

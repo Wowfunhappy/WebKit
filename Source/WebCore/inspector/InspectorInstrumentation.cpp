@@ -934,10 +934,12 @@ void InspectorInstrumentation::frameDocumentUpdatedImpl(InstrumentingAgents& ins
         pageDOMDebuggerAgent->frameDocumentUpdated(frame);
 }
 
-void InspectorInstrumentation::loaderDetachedFromFrameImpl(InstrumentingAgents& instrumentingAgents, DocumentLoader& loader)
+// void InspectorInstrumentation::loaderDetachedFromFrameImpl(InstrumentingAgents& instrumentingAgents, DocumentLoader& loader)
+void InspectorInstrumentation::loaderDetachedFromFrameImpl(InstrumentingAgents& instrumentingAgents, DocumentLoader& loader, LoadWillContinueInAnotherProcess loadWillContinueInAnotherProcess) // AQUAWEBKIT: see the declaration.
 {
     if (CheckedPtr inspectorPageAgent = instrumentingAgents.enabledPageAgent())
-        inspectorPageAgent->loaderDetachedFromFrame(loader);
+        // inspectorPageAgent->loaderDetachedFromFrame(loader);
+        inspectorPageAgent->loaderDetachedFromFrame(loader, loadWillContinueInAnotherProcess); // AQUAWEBKIT: see the declaration.
 }
 
 void InspectorInstrumentation::frameStartedLoadingImpl(InstrumentingAgents& instrumentingAgents, LocalFrame& frame)

@@ -400,7 +400,8 @@ void ProxyingPageAgent::getResourceTree(Ref<GetResourceTreeCallback>&& callback)
 }
 
 // FIXME: <https://webkit.org/b/308898> Forward emulation overrides to all WebContent processes.
-CommandResult<void> ProxyingPageAgent::reload(std::optional<bool>&&, std::optional<bool>&&)
+// CommandResult<void> ProxyingPageAgent::reload(std::optional<bool>&&, std::optional<bool>&&)
+CommandResult<void> ProxyingPageAgent::reload(std::optional<bool>&&, std::optional<bool>&&, const String&) // AQUAWEBKIT: Page.reload's scriptToEvaluateOnLoad.
 {
     return { };
 }
@@ -445,6 +446,12 @@ CommandResultOf<String, bool> ProxyingPageAgent::getResourceContent(const Protoc
 CommandResult<void> ProxyingPageAgent::setBootstrapScript(const String&)
 {
     return { };
+}
+
+// AQUAWEBKIT: InspectorPageAgent::setScriptToEvaluateInNextDocument has no cross-process form.
+CommandResult<void> ProxyingPageAgent::setScriptToEvaluateInNextDocument(const String&)
+{
+    return makeUnexpected("Not yet implemented under Site Isolation"_s);
 }
 
 // FIXME: <https://webkit.org/b/308896> Cross-process resource search with result aggregation.

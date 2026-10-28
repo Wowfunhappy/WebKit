@@ -14,6 +14,5 @@ messages -> LegacyExtensionContent {
     EvictMemoryCache()
     SetMimeHandlers(String handlers)
     SetPrintsBackgrounds(WebCore::PageIdentifier pageID, bool printsBackgrounds)
-    ExecutionContextForFrameURL(WebCore::PageIdentifier pageID, String frameURL) -> (std::optional<int> executionContextID, URL frameURL)
     InvalidateExtensionPage(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID)
 }

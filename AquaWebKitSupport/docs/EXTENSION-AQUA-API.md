@@ -1,15 +1,16 @@
 # The `aqua` API for Safari 7 extensions
 
-This WebKit gives Safari 7 legacy extensions an `aqua` namespace for media handoff, alongside the `browser`
+This WebKit gives Safari 7 legacy extensions an `aqua` namespace for media handoff and Web Inspector access, alongside the `browser`
 namespace described in [EXTENSION-BROWSER-API.md](EXTENSION-BROWSER-API.md), which also defines the host and
 content contexts used here.
 
 Sources: `AquaWebKitSupport/source/WebKit/Shared/LegacyExtensions/LegacyExtensionAPI.js` (the JavaScript API),
 `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionHost.{h,cpp}` (the UI process side) and
-`AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSource.cpp`. Manual tests:
+`AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSource.cpp`, with
+`AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionInspector.{h,cpp}` for `aqua.inspector`. Manual tests:
 `AquaWebKitSupport/tests/legacy-extensions/QUICKTIME.md`.
 
-`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`.
+`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`. `aqua.inspector` is in extension pages only.
 
 ## aqua.mediaPlayer
 
@@ -118,3 +119,33 @@ The helper owns source selection, optional `resolveSource(url)`, source-mode pre
 The helper's behavior and defaults can be changed by an extension update. Native capabilities can also be used directly without loading the helper.
 
 The external `AquaWebKit-Extensions/lib/HLSPlaylistRelay.js`, packaged as `relay.js`, provides the optional `relayPlaylists` policy. It preserves HLS renditions and metadata, rewrites playlist references to owned endpoints, and fetches media playlists on receiver requests. Media segments remain original remote URLs; no decoding or re-encoding is involved. Unrequested renditions are not polled. This keeps legacy receiver HTTP compatibility outside WebKit.
+
+## aqua.inspector
+
+A connection from an extension to the Web Inspector backend of a tab. The extension is a frontend of the tab's backend, as WebKit's own Web Inspector is: what it sends is the Web Inspector protocol of this WebKit, and it receives every message the backend sends. The protocol is the one this build's Web Inspector speaks, described by the domain files in `Source/JavaScriptCore/inspector/protocol/` and used by `Source/WebInspectorUI`; it is not a stable API and changes as WebKit does. It is not the Chrome DevTools Protocol.
+
+```js
+aqua.inspector.onMessage.addListener((tabId, message) => {
+    const { method, params } = JSON.parse(message);
+    if (method === "Target.targetCreated" && params.targetInfo.type === "page")
+        pageTarget = params.targetInfo.targetId;
+});
+await aqua.inspector.attach(tabId);
+await aqua.inspector.sendMessage(tabId, JSON.stringify({ id: 1, method: "Target.sendMessageToTarget",
+    params: { targetId: pageTarget, message: JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression: "document.title" } }) } }));
+```
+
+A tab is a tab ID, or a `SafariBrowserTab` of an open window. Methods return promises.
+
+| Member | Contract |
+| --- | --- |
+| `attach(tab)` | Connects the extension to the tab's backend. While it connects, the backend announces the tab's targets with `Target.targetCreated` messages, which reach `onMessage` before the promise resolves. Rejects when the extension's Website Access is not All with Include Secure Pages, when the tab shows or is loading a page the extension does not see (one whose URL is not a web URL, one of the extension's own pages, or a `data:`, `about:` or `blob:` URL), when an extension is attached to the tab, and when another frontend, such as the tab's Web Inspector, is connected to it. |
+| `detach(tab)` | Disconnects the extension. Rejects when the extension is not attached to the tab. |
+| `sendMessage(tab, message)` | Hands the backend one message, a string of JSON text, as Web Inspector sends it. Rejects when the extension is not attached to the tab. |
+| `onMessage` | `(tabId, message)`: each message of the backend, as JSON text, in the order the backend sends them. |
+| `onDetach` | `(tabId, reason)`: the session ended other than by `detach`. `reason` is `"target_closed"` when the tab closed, its web process exited, or it began to show a page the extension does not see, and `"replaced_with_inspector"` when the user opened the tab's Web Inspector. |
+
+The backend's top level has the `Target` and `Browser` domains. A page's own domains (`Runtime`, `Page`, `Network`, `DOM` and the rest) are its page target's: commands go to the target in `Target.sendMessageToTarget`, and the target's messages come back in `Target.dispatchMessageFromTarget`. A cross-site navigation creates a provisional page target, which `Target.didCommitProvisionalTarget` makes the page's target.
+
+A session is the tab's only frontend. The backend's domains keep one state for all of a page's frontends and send each response to each of them, so an extension attaches only to a tab with no other frontend, and opening the tab's Web Inspector ends the session. When the session ends, the backend resets what the extension enabled or overrode. A session also ends when its extension is unloaded or reloaded, without `onDetach`.
+

@@ -252,9 +252,6 @@ if (NOT EXISTS "${AQUAWEBKIT_DEPS}/lib/libots.a")
         "Run AquaWebKitSupport/deps/build_deps.sh.")
 endif ()
 
-# OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)
-
 # OFF — the value the GStreamer-engine ports (GTK, WPE) inherit, rather than the ON
 # that Apple's Mac build can afford because AVFoundation implements the legacy CDM there. MediaPlayer.cpp
 # gates the AVFoundation engines out on this port, leaving MediaPlayerPrivateGStreamer as the only

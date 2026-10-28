@@ -46,8 +46,6 @@
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/MemoryCache.h>
 #include <WebCore/Page.h>
-#include <WebCore/PageInspectorController.h>
-#include <WebCore/WebInjectedScriptManager.h>
 #include <WebCore/RunJavaScriptParameters.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/Settings.h>
@@ -844,45 +842,6 @@ void LegacyExtensionContent::setPrintsBackgrounds(WebCore::PageIdentifier pageID
     RefPtr page = webPage ? webPage->corePage() : nullptr;
     if (page)
         page->settings().setShouldPrintBackgrounds(printsBackgrounds);
-}
-
-// devtools.inspectedWindow.eval's frameURL: the frame of the page that upstream's
-// WebInspectorExtensionController._frameForFrameURL would pick, by its document's URL, else without the
-// document's fragment when frameURL has none, else also without its query when frameURL has neither; and the
-// execution context of its main world, the identifier the page's inspector reports for it in
-// Runtime.executionContextCreated. The inspector numbers a global object when first asked and creates its
-// injected script only when a command uses it.
-void LegacyExtensionContent::executionContextForFrameURL(WebCore::PageIdentifier pageID, String&& frameURL, CompletionHandler<void(std::optional<int>, URL&&)>&& completionHandler)
-{
-    RefPtr webPage = WebProcess::singleton().webPage(pageID);
-    RefPtr page = webPage ? webPage->corePage() : nullptr;
-    if (!page)
-        return completionHandler(std::nullopt, { });
-    Vector<Ref<WebCore::LocalFrame>> frames;
-    for (RefPtr frame = &page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        if (RefPtr localFrame = dynamicDowncast<WebCore::LocalFrame>(frame); localFrame && localFrame->document())
-            frames.append(localFrame.releaseNonNull());
-    }
-    URL wanted { frameURL };
-    auto find = [&](NOESCAPE const Function<void(URL&)>& adjust) -> RefPtr<WebCore::LocalFrame> {
-        for (auto& frame : frames) {
-            URL known = protect(frame->document())->url();
-            adjust(known);
-            if (known.string() == wanted.string())
-                return frame.ptr();
-        }
-        return nullptr;
-    };
-    RefPtr frame = find([](URL&) { });
-    if (!frame && !wanted.hasFragmentIdentifier()) {
-        frame = find([](URL& url) { url.removeFragmentIdentifier(); });
-        if (!frame && !wanted.hasQuery())
-            frame = find([](URL& url) { url.removeQueryAndFragmentIdentifier(); });
-    }
-    auto* globalObject = frame ? frame->script().globalObject(WebCore::mainThreadNormalWorldSingleton()) : nullptr;
-    if (!globalObject)
-        return completionHandler(std::nullopt, { });
-    completionHandler(page->inspectorController().injectedScriptManager().injectedScriptIdFor(globalObject), URL { protect(frame->document())->url() });
 }
 
 void LegacyExtensionContent::invalidateExtensionPage(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID)

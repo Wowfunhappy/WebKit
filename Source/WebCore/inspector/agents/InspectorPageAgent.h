@@ -53,6 +53,7 @@ namespace WebCore {
 
 class DOMWrapperWorld;
 class DocumentLoader;
+enum class LoadWillContinueInAnotherProcess : bool; // AQUAWEBKIT: loaderDetachedFromFrame's argument.
 class Frame;
 class InspectorOverlay;
 class LocalFrame;
@@ -76,7 +77,8 @@ public:
     // PageBackendDispatcherHandler
     Inspector::Protocol::ErrorStringOr<void> enable();
     Inspector::Protocol::ErrorStringOr<void> disable();
-    Inspector::Protocol::ErrorStringOr<void> reload(std::optional<bool>&& ignoreCache, std::optional<bool>&& revalidateAllResources);
+    // Inspector::Protocol::ErrorStringOr<void> reload(std::optional<bool>&& ignoreCache, std::optional<bool>&& revalidateAllResources);
+    Inspector::Protocol::ErrorStringOr<void> reload(std::optional<bool>&& ignoreCache, std::optional<bool>&& revalidateAllResources, const String& scriptToEvaluateOnLoad); // AQUAWEBKIT: Page.reload's scriptToEvaluateOnLoad.
     Inspector::Protocol::ErrorStringOr<void> overrideUserAgent(const String&);
     Inspector::Protocol::ErrorStringOr<void> overrideSetting(Inspector::Protocol::Page::Setting, std::optional<bool>&& value);
     Inspector::Protocol::ErrorStringOr<void> overrideUserPreference(Inspector::Protocol::Page::UserPreferenceName, std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);
@@ -86,6 +88,7 @@ public:
     void getResourceTree(Ref<GetResourceTreeCallback>&&);
     Inspector::Protocol::ErrorStringOr<std::tuple<String, bool /* base64Encoded */>> getResourceContent(const Inspector::Protocol::Network::FrameId&, const String& url);
     Inspector::Protocol::ErrorStringOr<void> setBootstrapScript(const String& source);
+    Inspector::Protocol::ErrorStringOr<void> setScriptToEvaluateInNextDocument(const String& source); // AQUAWEBKIT: the script devtools.inspectedWindow.reload's injectedScript gives the reloaded document.
     Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>>> searchInResource(const Inspector::Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Inspector::Protocol::Network::RequestId&);
     Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::SearchResult>>> searchInResources(const String&, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex);
 #if !PLATFORM(IOS_FAMILY)
@@ -107,7 +110,8 @@ public:
     void loadEventFired();
     void frameNavigated(LocalFrame&);
     void frameDetached(LocalFrame&);
-    void loaderDetachedFromFrame(DocumentLoader&);
+    // void loaderDetachedFromFrame(DocumentLoader&);
+    void loaderDetachedFromFrame(DocumentLoader&, LoadWillContinueInAnotherProcess); // AQUAWEBKIT: a reload with a script reports its end.
     void accessibilitySettingsDidChange();
     void defaultUserPreferencesDidChange();
 #if ENABLE(DARK_MODE_CSS)
@@ -148,6 +152,10 @@ private:
     String m_userAgentOverride;
     AtomString m_emulatedMedia;
     String m_bootstrapScript;
+    String m_nextDocumentScript; // AQUAWEBKIT: setScriptToEvaluateInNextDocument's script, which the main frame's next document adopts as m_documentScript.
+    RefPtr<DocumentLoader> m_reloadLoader; // AQUAWEBKIT: the loader of a reload with a scriptToEvaluateOnLoad, until the main frame next commits.
+    String m_reloadScript; // AQUAWEBKIT: that reload's script, which its document adopts as m_documentScript.
+    String m_documentScript; // AQUAWEBKIT: the script of the main frame's current document.
     bool m_isFirstLayoutAfterOnLoad { false };
     bool m_showPaintRects { false };
 };

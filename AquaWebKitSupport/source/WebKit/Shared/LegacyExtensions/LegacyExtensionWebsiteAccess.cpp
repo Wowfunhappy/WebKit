@@ -28,6 +28,17 @@ bool WebsiteAccess::allows(const URL& url) const
     });
 }
 
+bool WebsiteAccess::allowsForExtension(const String& extensionKey, const URL& url) const
+{
+    if (url.protocolIs("safari-extension"_s))
+        return url.host() == extensionKey;
+    if (url.protocolIsData() || url.protocolIsAbout())
+        return true;
+    if (url.protocolIsBlob())
+        return allows(URL { url.path().toString() });
+    return allows(url);
+}
+
 Vector<String> WebsiteAccess::urlPatterns() const
 {
     Vector<String> hosts;

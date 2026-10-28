@@ -2,13 +2,16 @@
 //
 // An extension whose Info.plist names a `WebExtensionDevtoolsPage` gets that page, for each tab whose Web
 // Inspector is open, as a hidden WebKit 1 view in this process, as Safari 7 hosts the extension's global page;
-// the router makes it a host context of the extension with the devtools API. The page lives while both the
-// inspector and the extension do. While an inspector has devtools pages, its devtools session is a frontend of
-// the tab's WebPageInspectorController besides the inspector's own, as remote inspection and automation are:
-// through the tab's page target it evaluates code (Runtime.evaluate with the Command Line API, which shares the
-// inspector's inspected node), reloads the tab, and records the Network domain's events, from which
-// devtools.network describes each request as a HAR entry. The backend sends every response to every
-// frontend, so the session's commands carry negative ids, which no inspector frontend uses.
+// the router makes it a host context of the extension with the devtools API. Each such extension is an
+// inspector extension of the tab's Web Inspector (API::InspectorExtension), registered once the frontend has
+// loaded, as upstream's WebExtensionContext registers a devtools page's extension; its page opens then and lives
+// while both the inspector and the extension do. The frontend acts for it over its own connection to the page:
+// evaluating code (Runtime.evaluate with the Command Line API, which shares the inspector's inspected node),
+// reloading the tab, and reporting main-frame navigations. The Network domain's requests, which
+// devtools.network describes as HAR entries, come from the frontend too: it answers for them when the UI process
+// runs its InspectorFrontendAPI functions in the inspector page, and posts each finished request to the
+// page's `devToolsNetwork` script message handler. The classic frontend's half of all this is
+// InspectorFrontendClassicBridge.h's.
 
 #pragma once
 
@@ -44,10 +47,6 @@ public:
 
     // The inspected tab of a devtools page of the extension whose WebKit 1 main frame `frame` is.
     std::optional<double> inspectedTabForFrame(const void* frame, const String& extensionKey) const;
-
-    // A main-frame navigation of a page starts, and one commits.
-    void didStartProvisionalLoad(WebPageProxy&);
-    void didCommitLoad(WebPageProxy&, const URL&);
 
     // devtools.* router calls from a devtools page of the extension, for the inspected tab.
     using CallResult = Expected<RefPtr<JSON::Value>, String>;
