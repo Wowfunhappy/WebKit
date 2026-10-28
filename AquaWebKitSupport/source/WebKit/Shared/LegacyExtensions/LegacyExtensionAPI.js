@@ -122,6 +122,8 @@ class Event {
             } catch (error) {
                 console.error(error);
             }
+            if (!native.isValid())
+                break;
         }
     }
 }
@@ -228,8 +230,9 @@ const didReceiveOneShotMessage = ({ msgId, msg, sender, external }) => {
             result = callback(msg, sender, sendResponse);
         } catch (error) {
             console.error(error);
-            continue;
         }
+        if (!native.isValid())
+            break;
         if (result === true)
             willRespondAsynchronously = true;
         else if (result && typeof result.then === "function") {
@@ -367,17 +370,26 @@ const dispatchWebRequestEvent = async (event, details) => {
         }
         let result;
         try {
-            if (hasExtraInfo(entry, "asyncBlocking"))
-                result = await new Promise(resolve => callback(listenerDetails, resolve));
-            else {
+            if (hasExtraInfo(entry, "asyncBlocking")) {
+                result = new Promise(resolve => callback(listenerDetails, resolve));
+                if (!native.isValid())
+                    break;
+                result = await result;
+            } else {
                 result = callback(listenerDetails);
+                if (!native.isValid())
+                    break;
                 if (blocking && result && typeof result.then === "function")
                     result = await result;
             }
         } catch (error) {
             console.error(error);
+            if (!native.isValid())
+                break;
             continue;
         }
+        if (!native.isValid())
+            break;
         if (!blocking || !result || typeof result !== "object")
             continue;
         if (result.cancel === true)
@@ -458,7 +470,12 @@ const dispatchProxyRequest = async (event, details) => {
         if (!hasExtraInfo(entry, "requestHeaders"))
             delete listenerDetails.requestHeaders;
         try {
-            const result = await entry.callback(listenerDetails);
+            let result = entry.callback(listenerDetails);
+            if (!native.isValid())
+                break;
+            result = await result;
+            if (!native.isValid())
+                break;
             if (result === undefined)
                 continue;
             if (result === null) {
@@ -476,7 +493,11 @@ const dispatchProxyRequest = async (event, details) => {
             }
             answers.push(answer);
         } catch (error) {
+            if (!native.isValid())
+                break;
             proxyErrorEvent._fire({ message: errorMessage(error), fileName: error && error.sourceURL, lineNumber: error && error.line, stack: error && error.stack });
+            if (!native.isValid())
+                break;
         }
     }
     return { proxy: answers };
@@ -1919,6 +1940,8 @@ if (Object.keys(aqua).length)
 Object.defineProperty(globalThis, "browser", { value: browser, writable: true, configurable: true, enumerable: false });
 
 return (json, bytes) => {
+    if (!native.isValid())
+        return;
     const message = JSON.parse(json);
     const handler = receiverTable()[message.t];
     if (handler)

@@ -77,7 +77,12 @@ ASCIILiteral resourceType(const ResourceRequest& request, FetchOptions::Destinat
 
 bool isInterceptable(const URL& url)
 {
-    return url.protocolIsInHTTPFamily() || url.protocolIs("ws"_s) || url.protocolIs("wss"_s) || url.protocolIs("safari-extension"_s);
+    return isHTTPOrWebSocket(url) || url.protocolIs("safari-extension"_s);
+}
+
+bool isHTTPOrWebSocket(const URL& url)
+{
+    return url.protocolIsInHTTPFamily() || url.protocolIs("ws"_s) || url.protocolIs("wss"_s);
 }
 
 // A WebExtensions match pattern (https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns),

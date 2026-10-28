@@ -129,8 +129,8 @@ public:
     void globalPageLoadFailed(const void* frame);
     void frameWillBeDestroyed(const void* frame);
     void postFromHostContext(uint64_t hostContextIdentifier, const String& message, RefPtr<WebCore::SharedBuffer>&& data);
-    // Whether a WebKit 1 host context is valid: its document is still its view's, which keeps the extension.
-    bool isHostContextValid(uint64_t hostContextIdentifier) const { return m_hostContexts.contains(hostContextIdentifier); }
+    // Whether a host context is registered and the router has not invalidated it.
+    bool isHostContextValid(uint64_t hostContextIdentifier) const;
 
     // An event of an extension, to its listening host contexts.
     void dispatchExtensionEvent(const String& extensionKey, const String& eventName, Ref<JSON::Array>&& arguments);

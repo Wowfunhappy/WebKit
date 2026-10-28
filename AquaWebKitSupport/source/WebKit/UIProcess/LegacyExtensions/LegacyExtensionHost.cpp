@@ -877,6 +877,12 @@ void LegacyExtensionHost::frameWillBeDestroyed(const void* frame)
     flushPendingTasks();
 }
 
+bool LegacyExtensionHost::isHostContextValid(uint64_t hostContextIdentifier) const
+{
+    RefPtr context = m_hostContexts.get(hostContextIdentifier);
+    return context && !context->isInvalidated;
+}
+
 void LegacyExtensionHost::postFromHostContext(uint64_t hostContextIdentifier, const String& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
     RefPtr context = m_hostContexts.get(hostContextIdentifier);
@@ -1495,7 +1501,7 @@ bool LegacyExtensionHost::deliverNow(const Endpoint& endpoint, const String& ext
     Markable<WebCore::FrameIdentifier> frameID = endpoint.frameID;
     Markable<WebCore::ScriptExecutionContextIdentifier> documentID = endpoint.documentID;
     if (RefPtr context = endpoint.host) {
-        if (!m_hostContexts.contains(context->identifier) || context->isInvalidated)
+        if (!isHostContextValid(context->identifier))
             return false;
         if (!context->frameID) {
             auto* globalObject = context->globalObject.get();
@@ -3000,7 +3006,7 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, Ref<J
     auto qualifiedName = eventName == LegacyExtensions::proxyOnRequest ? eventName : makeString("webRequest."_s, eventName);
     // An extension's own resources are visible only to that extension; a web request, only to the extensions
     // whose website access covers it. A context whose extension's website access is still being read hears
-    // the event once it is read, and one whose extension's global page is still loading, once it has loaded.
+    // the event once it is read.
     URL requestURL { details->getString("url"_s) };
     auto owningExtension = extensionKeyForURL(requestURL);
     Vector<Ref<HostContext>> listeners;
@@ -3021,10 +3027,6 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, Ref<J
             continue;
         } else if (!iterator->value.allows(requestURL))
             continue;
-        if (shouldDeferExtension(context->extensionKey)) {
-            waitingListeners.append(context);
-            continue;
-        }
         listeners.append(context);
     }
 
@@ -3041,19 +3043,10 @@ void LegacyExtensionHost::dispatchWebRequestEvent(const String& eventName, Ref<J
     arguments->pushObject(WTF::move(details));
     event->setArray("args"_s, WTF::move(arguments));
 
-    auto deliverOnceAllowed = [this, requestURL, isOwnResource = !owningExtension.isNull()](Ref<HostContext>&& context, const String& message, Function<void(bool)>&& didDeliverFunction) {
+    auto deliverOnceAllowed = [this, requestURL, isOwnResource = !owningExtension.isNull()](Ref<HostContext>&& context, const String& message, Function<void(bool)>&& didDeliver) {
         auto extensionKey = context->extensionKey;
-        auto didDeliver = createSharedTask<void(bool)>(WTF::move(didDeliverFunction));
-        auto deliverWithAccess = [this, requestURL, isOwnResource, context = WTF::move(context), message, didDeliver]() mutable {
-            auto extensionKey = context->extensionKey;
-            withWebsiteAccess(extensionKey, [this, requestURL, isOwnResource, context = WTF::move(context), message, didDeliver](const LegacyExtensions::WebsiteAccess& access) mutable {
-                didDeliver->run(m_hostContexts.contains(context->identifier) && (isOwnResource || access.allows(requestURL)) && deliverNow(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message));
-            });
-        };
-        if (!shouldDeferExtension(extensionKey))
-            return deliverWithAccess();
-        performAfterBackgroundContentLoads(extensionKey, WTF::move(deliverWithAccess), [didDeliver] {
-            didDeliver->run(false);
+        withWebsiteAccess(extensionKey, [this, requestURL, isOwnResource, context = WTF::move(context), message, didDeliver = WTF::move(didDeliver)](const LegacyExtensions::WebsiteAccess& access) mutable {
+            didDeliver(m_hostContexts.contains(context->identifier) && (isOwnResource || access.allows(requestURL)) && deliverNow(Endpoint { context.ptr(), std::nullopt }, context->extensionKey, message));
         });
     };
 

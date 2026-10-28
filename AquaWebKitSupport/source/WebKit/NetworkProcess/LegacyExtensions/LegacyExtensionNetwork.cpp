@@ -491,6 +491,9 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
 // verdict's field instead, an empty field standing for a removed one.
 bool LegacyExtensionNetwork::interceptRequestHeaders(NetworkLoadChecker& checker, ResourceRequest& request, ContentSecurityPolicyClient* client, NetworkLoadChecker::ValidationHandler& handler)
 {
+    if (!isHTTPOrWebSocket(request.url()))
+        return false;
+
     Vector<GeneratedField> generatedFields;
     if (hasOption(onBeforeSendHeaders, extraHeadersOption) || hasOption(onSendHeaders, extraHeadersOption))
         generatedFields = LegacyExtensions::generatedFields(request, cookieHeader(checker, request));
@@ -543,8 +546,8 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
     if (m_listeners.isEmpty() || !isInterceptable(redirectResponse.url()))
         return false;
     m_redirectResponses.set(checker, makeUnique<ResourceResponse>(redirectResponse));
-    // A redirect an extension made has no response headers of its own to report.
-    if (isExtensionRedirect)
+    // onHeadersReceived applies only to HTTP(S) and WebSocket network redirects; extension-made redirects report onBeforeRedirect.
+    if (isExtensionRedirect || !isHTTPOrWebSocket(redirectResponse.url()))
         return false;
 
     auto details = requestDetails(checker, request.isNull() ? redirectRequest : request);
@@ -627,8 +630,9 @@ bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, Re
     auto details = responseDetails(loader, response, false);
     if (RefPtr task = curlTask(loader); task && task->heldCookies())
         setSetCookieFields(details, *task->heldCookies());
-    // A redirect a load does not follow has had its onHeadersReceived as a redirect.
-    if (response.type() == ResourceResponse::Type::Opaqueredirect) {
+    // Extension files have no header events; a redirect the load does not follow reports
+    // its onHeadersReceived in interceptRedirection.
+    if (!isHTTPOrWebSocket(response.url()) || response.type() == ResourceResponse::Type::Opaqueredirect) {
         if (observes(onResponseStarted))
             notify(onResponseStarted, details->toJSONString());
         return false;
@@ -687,6 +691,11 @@ bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& load
         return false;
 
     auto details = responseDetails(loader, entry->response(), true);
+    if (!isHTTPOrWebSocket(entry->response().url())) {
+        if (observes(onResponseStarted))
+            notify(onResponseStarted, details->toJSONString());
+        return false;
+    }
     if (!blocks(onHeadersReceived, details)) {
         if (observes(onHeadersReceived))
             notify(onHeadersReceived, details->toJSONString());

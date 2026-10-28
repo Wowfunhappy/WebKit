@@ -52,5 +52,6 @@ void WebConfigureLegacyExtensionStorage(WebView *, WebCore::PageConfiguration&);
 #endif
 
 void WebLegacyExtensionPageObserverDidClearWindowObject(WebFrame *);
+void WebLegacyExtensionPageObserverDidFailLoad(WebFrame *);
 void WebLegacyExtensionPageObserverFrameWillBeDestroyed(WebFrame *);
 #endif

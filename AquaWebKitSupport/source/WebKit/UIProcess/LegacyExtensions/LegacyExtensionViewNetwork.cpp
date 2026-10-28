@@ -274,6 +274,9 @@ void LegacyExtensionViewNetwork::beforeRequest(Ref<Load>&& load, ResourceRequest
 // removes one sends the verdict's field instead.
 void LegacyExtensionViewNetwork::beforeSendHeaders(Ref<Load>&& load, ResourceRequest&& request, RequestCompletion&& completion)
 {
+    if (!isHTTPOrWebSocket(request.url()))
+        return completion({ RequestVerdict::Kind::Proceed, WTF::move(request), { }, { } });
+
     Vector<GeneratedField> fields;
     if (m_listeners.hasOption(onBeforeSendHeaders, extraHeadersOption) || m_listeners.hasOption(onSendHeaders, extraHeadersOption))
         fields = generatedFields(request, generatedCookie(load, request));
@@ -307,6 +310,9 @@ void LegacyExtensionViewNetwork::beforeSendHeaders(Ref<Load>&& load, ResourceReq
 // rewrites the response to a 302 Found to it.
 void LegacyExtensionViewNetwork::headersReceived(Ref<Load>&& load, ResourceResponse&& response, RefPtr<CocoaCurlResourceHandle>&& curl, bool isRedirect, ResponseCompletion&& completion)
 {
+    if (!isHTTPOrWebSocket(response.url()))
+        return completion({ false, WTF::move(response), { } });
+
     auto details = responseDetails(load, response);
     if (curl && curl->heldCookies())
         setSetCookieFields(details, *curl->heldCookies());
@@ -793,7 +799,7 @@ RefPtr<LegacyLoadInterceptor::Load> LegacyExtensionViewNetwork::pingLoad(LocalFr
     return LegacyExtensionViewPing::create(load.releaseNonNull());
 }
 
-// A synchronous load reports its events, and no listener's verdict holds it.
+// A synchronous load reports its events and proceeds independently of listener verdicts.
 class LegacyExtensionViewSynchronousLoad final : public LegacyLoadInterceptor::SynchronousLoad {
 public:
     static Ref<LegacyExtensionViewSynchronousLoad> create(Ref<LegacyExtensionViewNetwork::Load>&& load) { return adoptRef(*new LegacyExtensionViewSynchronousLoad(WTF::move(load))); }
@@ -808,7 +814,7 @@ private:
     {
         auto& network = LegacyExtensionViewNetwork::singleton();
         if (!response.isNull() && isInterceptable(response.url())) {
-            if (network.m_listeners.observes(onHeadersReceived))
+            if (isHTTPOrWebSocket(response.url()) && network.m_listeners.observes(onHeadersReceived))
                 network.notify(onHeadersReceived, network.responseDetails(m_load, response));
             network.responseStarted(m_load, response);
         }
@@ -830,15 +836,17 @@ RefPtr<LegacyLoadInterceptor::SynchronousLoad> LegacyExtensionViewNetwork::willL
     }
     if (m_listeners.observes(onBeforeRequest))
         notify(onBeforeRequest, WTF::move(details));
-    Vector<GeneratedField> fields;
-    if (m_listeners.hasOption(onBeforeSendHeaders, extraHeadersOption) || m_listeners.hasOption(onSendHeaders, extraHeadersOption))
-        fields = generatedFields(request, generatedCookie(*load, request));
-    for (auto eventName : { onBeforeSendHeaders, onSendHeaders }) {
-        if (!m_listeners.observes(eventName))
-            continue;
-        auto details = this->details(*load);
-        details->setArray("requestHeaders"_s, requestHeadersWithFields(request, fields));
-        notify(eventName, WTF::move(details));
+    if (isHTTPOrWebSocket(request.url())) {
+        Vector<GeneratedField> fields;
+        if (m_listeners.hasOption(onBeforeSendHeaders, extraHeadersOption) || m_listeners.hasOption(onSendHeaders, extraHeadersOption))
+            fields = generatedFields(request, generatedCookie(*load, request));
+        for (auto eventName : { onBeforeSendHeaders, onSendHeaders }) {
+            if (!m_listeners.observes(eventName))
+                continue;
+            auto details = this->details(*load);
+            details->setArray("requestHeaders"_s, requestHeadersWithFields(request, fields));
+            notify(eventName, WTF::move(details));
+        }
     }
     return LegacyExtensionViewSynchronousLoad::create(load.releaseNonNull());
 }

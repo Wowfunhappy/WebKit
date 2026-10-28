@@ -178,7 +178,6 @@ WebCore::BroadcastChannelRegistry* WebLegacyExtensionBroadcastChannelRegistry()
 
 struct GlobalPageDocument {
     WeakPtr<WebCore::Document, WebCore::WeakPtrImplWithEventTargetData> document;
-    bool receivedDOMContentLoaded { false };
 };
 
 static HashMap<WebFrame *, GlobalPageDocument>& globalPageDocuments()
@@ -202,21 +201,12 @@ static void registerGlobalPageView(WebFrame *frame, const URL& url)
 
 static void observeGlobalPageProgress()
 {
-    // Progress starts with the provisional data source installed; failure clears it before progress finishes.
+    // Progress starts with the provisional data source installed.
     static NeverDestroyed<RetainPtr<id>> started { [[NSNotificationCenter defaultCenter] addObserverForName:WebViewProgressStartedNotification object:nil queue:nil usingBlock:^(NSNotification *notification) {
         WebView *view = notification.object;
         WebFrame *frame = view.mainFrame;
         if (observer && isGlobalPage(frame))
             registerGlobalPageView(frame, URL { view.mainFrameURL });
-    }] };
-    static NeverDestroyed<RetainPtr<id>> finished { [[NSNotificationCenter defaultCenter] addObserverForName:WebViewProgressFinishedNotification object:nil queue:nil usingBlock:^(NSNotification *notification) {
-        WebView *view = notification.object;
-        WebFrame *frame = view.mainFrame;
-        if (!observer || !isGlobalPage(frame))
-            return;
-        auto iterator = globalPageDocuments().find(frame);
-        if (iterator != globalPageDocuments().end() && !iterator->value.receivedDOMContentLoaded)
-            observer->globalPageLoadFailed((__bridge const void*)frame);
     }] };
 }
 
@@ -237,7 +227,6 @@ private:
         auto iterator = globalPageDocuments().find(frame.get());
         if (!event.isTrusted() || iterator == globalPageDocuments().end() || iterator->value.document.get() != &context)
             return;
-        iterator->value.receivedDOMContentLoaded = true;
         // The host selects listeners after the document's DOMContentLoaded handlers finish.
         context.eventLoop().queueTask(WebCore::TaskSource::DOMManipulation, [frame = m_frame, document = iterator->value.document] {
             RetainPtr webFrame = frame.get();
@@ -279,11 +268,16 @@ void WebLegacyExtensionPageObserverDidClearWindowObject(WebFrame *webFrame)
         registerGlobalPageView(webFrame, document->url());
         auto& state = globalPageDocuments().find(webFrame)->value;
         state.document = *document;
-        state.receivedDOMContentLoaded = false;
         document->addEventListener(WebCore::eventNames().DOMContentLoadedEvent, adoptRef(*new GlobalPageDOMContentLoadedListener(webFrame)));
     }
     auto* globalObject = frame->script().globalObject(WebCore::mainThreadNormalWorldSingleton());
     observer->didClearWindowObject((__bridge const void*)webFrame, toGlobalRef(globalObject), document->url().createCFURL().get(), globalPage);
+}
+
+void WebLegacyExtensionPageObserverDidFailLoad(WebFrame *frame)
+{
+    if (observer && isGlobalPage(frame))
+        observer->globalPageLoadFailed((__bridge const void*)frame);
 }
 
 void WebLegacyExtensionPageObserverFrameWillBeDestroyed(WebFrame *webFrame)

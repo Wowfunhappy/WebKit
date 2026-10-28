@@ -76,18 +76,6 @@ struct ContentContextNative {
     String root;
 };
 
-static RefPtr<WebCore::Document> documentForNative(const ContentContextNative& native)
-{
-    if (!native.world || !LegacyExtensionContent::singleton().isContextLive(*native.world, native.root))
-        return nullptr;
-    RefPtr frame = WebFrame::webFrame(native.frameID);
-    RefPtr coreFrame = frame ? frame->coreLocalFrame() : nullptr;
-    RefPtr document = coreFrame ? coreFrame->document() : nullptr;
-    if (!document || document->identifier() != native.documentIdentifier)
-        return nullptr;
-    return document;
-}
-
 // Tells the router that a document with extension contexts enters the back/forward cache. The document is
 // suspended before its frame commits the next document, and the message goes ahead of that commit's on the
 // same connection, so the router closes the document's channels with Chrome's error for a cached page.
@@ -146,6 +134,22 @@ static Vector<ExtensionContext>& extensionContexts()
     return contexts;
 }
 
+static RefPtr<WebCore::Document> documentForNative(const ContentContextNative& native)
+{
+    if (!native.world || !LegacyExtensionContent::singleton().isContextLive(*native.world, native.root))
+        return nullptr;
+    RefPtr frame = WebFrame::webFrame(native.frameID);
+    RefPtr coreFrame = frame ? frame->coreLocalFrame() : nullptr;
+    RefPtr document = coreFrame ? coreFrame->document() : nullptr;
+    if (!document || document->identifier() != native.documentIdentifier)
+        return nullptr;
+    if (std::ranges::any_of(extensionContexts(), [&](auto& context) {
+        return context.isInvalidated && context.document == document.get() && context.world.get() == native.world.get();
+    }))
+        return nullptr;
+    return document;
+}
+
 static JSValueRef contentContextSend(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef*)
 {
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
@@ -162,11 +166,7 @@ static JSValueRef contentContextSend(JSContextRef context, JSObjectRef, JSObject
 static JSValueRef contentContextIsValid(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t, const JSValueRef[], JSValueRef*)
 {
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
-    RefPtr document = documentForNative(*native);
-    bool isInvalidated = document && std::ranges::any_of(extensionContexts(), [&](auto& extensionContext) {
-        return extensionContext.isInvalidated && extensionContext.document == document.get() && extensionContext.world.get() == native->world.get();
-    });
-    return JSValueMakeBoolean(context, document && !isInvalidated);
+    return JSValueMakeBoolean(context, !!documentForNative(*native));
 }
 
 // insertCSS(code, isAuthorLevel, url) and removeCSS(code): a style sheet of the context's document
@@ -249,8 +249,7 @@ static JSValueRef contentContextFrameID(JSContextRef context, JSObjectRef, JSObj
 
 // withClipboardWriteAccess(callback): calls callback with the context's page allowed to write the clipboard,
 // as javaScriptCanAccessClipboard allows a WebExtension's pages, and returns its result. The page's own
-// setting is back in place once the callback returns. A context whose document is gone calls it under the
-// page's own rules.
+// setting is back in place once the callback returns.
 static JSValueRef contentContextWithClipboardWriteAccess(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t, const JSValueRef arguments[], JSValueRef* exception)
 {
     JSObjectRef callback = JSValueToObject(context, arguments[0], nullptr);
@@ -258,7 +257,7 @@ static JSValueRef contentContextWithClipboardWriteAccess(JSContextRef context, J
     RefPtr document = documentForNative(*native);
     RefPtr page = document ? document->page() : nullptr;
     if (!page)
-        return JSObjectCallAsFunction(context, callback, nullptr, 0, nullptr, exception);
+        return JSValueMakeUndefined(context);
 
     auto& settings = page->settings();
     bool pageAllowsClipboardAccess = settings.javaScriptCanAccessClipboard();
@@ -312,12 +311,13 @@ static std::optional<uint64_t> parentMediaPlayerHandoff(JSContextRef context, si
 
 // A promise a native function returns, which a callback settles.
 struct NativePromise {
+    ContentContextNative native;
     JSRetainPtr<JSGlobalContextRef> context;
     JSObjectRef resolve;
     JSObjectRef reject;
 
-    NativePromise(JSContextRef context, JSObjectRef resolve, JSObjectRef reject)
-        : context(JSContextGetGlobalContext(context)), resolve(resolve), reject(reject)
+    NativePromise(const ContentContextNative& native, JSContextRef context, JSObjectRef resolve, JSObjectRef reject)
+        : native(native), context(JSContextGetGlobalContext(context)), resolve(resolve), reject(reject)
     {
         JSValueProtect(context, resolve);
         JSValueProtect(context, reject);
@@ -331,11 +331,15 @@ struct NativePromise {
 
     void resolveWith(JSValueRef value)
     {
+        if (!documentForNative(native))
+            return;
         JSObjectCallAsFunction(context.get(), resolve, nullptr, 1, &value, nullptr);
     }
 
     void rejectWith(const String& message)
     {
+        if (!documentForNative(native))
+            return;
         auto string = adopt(JSStringCreateWithUTF8CString(message.utf8().data()));
         JSValueRef argument = JSValueMakeString(context.get(), string.get());
         JSValueRef error = JSObjectMakeError(context.get(), 1, &argument, nullptr);
@@ -469,8 +473,8 @@ static JSValueRef contentContextWithMediaPlayerHandoff(JSContextRef context, JSO
     auto promise = JSObjectMakeDeferredPromise(context, &resolve, &reject, exception);
     if (!promise)
         return JSValueMakeUndefined(context);
-    auto pending = std::make_unique<NativePromise>(context, resolve, reject);
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    auto pending = std::make_unique<NativePromise>(*native, context, resolve, reject);
     auto callback = argumentCount && JSValueIsObject(context, arguments[0]) ? JSValueToObject(context, arguments[0], nullptr) : nullptr;
     auto parent = parentMediaPlayerHandoff(context, argumentCount, arguments, 1, *native);
     RefPtr document = documentForNative(*native);
@@ -570,8 +574,8 @@ static JSValueRef contentContextMimeHandlerStream(JSContextRef context, JSObject
     auto promise = JSObjectMakeDeferredPromise(context, &resolve, &reject, exception);
     if (!promise)
         return JSValueMakeUndefined(context);
-    auto pending = std::make_unique<NativePromise>(context, resolve, reject);
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    auto pending = std::make_unique<NativePromise>(*native, context, resolve, reject);
     RefPtr handlerDocument = mimeHandlerDocument(*native);
     RefPtr loader = handlerDocument ? handlerDocument->loader() : nullptr;
     RefPtr page = handlerDocument ? handlerDocument->page() : nullptr;
@@ -592,7 +596,9 @@ static JSValueRef contentContextMimeHandlerStream(JSContextRef context, JSObject
     info->setDouble("tabId"_s, static_cast<double>(webPage->webPageProxyIdentifier().toUInt64()));
 
     handlerDocument->whenBodyIsComplete([pending = WTF::move(pending), info = info->toJSONString(), native = *native](RefPtr<WebCore::FragmentedSharedBuffer>&& body) mutable {
-        if (!body || !documentForNative(native))
+        if (!documentForNative(native))
+            return;
+        if (!body)
             return pending->rejectWith("The stream failed."_s);
         JSContextRef context = pending->context.get();
         auto json = adopt(JSStringCreateWithUTF8CString(info.utf8().data()));

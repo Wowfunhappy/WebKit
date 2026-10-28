@@ -733,6 +733,8 @@ void WebFrameLoaderClient::dispatchDidCommitLoad(std::optional<WebCore::HasInsec
 
 void WebFrameLoaderClient::dispatchDidFailProvisionalLoad(const WebCore::ResourceError& error, WebCore::WillContinueLoading, WebCore::WillInternallyHandleFailure)
 {
+    WebLegacyExtensionPageObserverDidFailLoad(m_webFrame.get()); // AQUAWEBKIT: reports Safari 7 global-page navigation failures.
+
     m_webFrame->_private->provisionalURL = nullptr;
 
     RetainPtr webView = getWebView(m_webFrame.get());
@@ -749,6 +751,8 @@ void WebFrameLoaderClient::dispatchDidFailProvisionalLoad(const WebCore::Resourc
 
 void WebFrameLoaderClient::dispatchDidFailLoad(const WebCore::ResourceError& error)
 {
+    WebLegacyExtensionPageObserverDidFailLoad(m_webFrame.get()); // AQUAWEBKIT: reports Safari 7 global-page navigation failures.
+
     ASSERT(!m_webFrame->_private->provisionalURL);
 
     RetainPtr webView = getWebView(m_webFrame.get());

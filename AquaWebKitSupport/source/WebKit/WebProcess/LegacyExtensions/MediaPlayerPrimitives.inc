@@ -128,7 +128,7 @@ struct NativeMediaSource : std::enable_shared_from_this<NativeMediaSource> {
     {
         JSObjectRef resolve, reject;
         closedPromise = JSObjectMakeDeferredPromise(context, &resolve, &reject, nullptr);
-        ended = std::make_unique<NativePromise>(context, resolve, reject);
+        ended = std::make_unique<NativePromise>(owner->native, context, resolve, reject);
         MediaRestreamSession::singleton().setDidEnd(identifier, [self = shared_from_this()] {
             self->closed = true;
             self->clearProvider();
@@ -219,16 +219,18 @@ static JSObjectRef mediaSourceHandle(JSContextRef context, const std::shared_ptr
 
 static JSValueRef mediaSourceCommand(JSContextRef context, JSObjectRef, JSObjectRef object, size_t count, const JSValueRef arguments[], JSValueRef* exception)
 {
+    if (!JSValueIsObjectOfClass(context, object, mediaSourceClass())) {
+        auto message = adopt(JSStringCreateWithUTF8CString("invalid-handle"));
+        JSValueRef argument = JSValueMakeString(context, message.get());
+        *exception = JSObjectMakeError(context, 1, &argument, nullptr);
+        return JSValueMakeUndefined(context);
+    }
+    auto source = *static_cast<std::shared_ptr<NativeMediaSource>*>(JSObjectGetPrivate(object));
     JSObjectRef resolve, reject;
     auto promise = JSObjectMakeDeferredPromise(context, &resolve, &reject, exception);
     if (!promise)
         return JSValueMakeUndefined(context);
-    auto pending = std::make_unique<NativePromise>(context, resolve, reject);
-    if (!JSValueIsObjectOfClass(context, object, mediaSourceClass())) {
-        pending->rejectWith("invalid-handle"_s);
-        return promise;
-    }
-    auto source = *static_cast<std::shared_ptr<NativeMediaSource>*>(JSObjectGetPrivate(object));
+    auto pending = std::make_unique<NativePromise>(source->owner->native, context, resolve, reject);
     auto operation = LegacyExtensions::stringArgument(context, count, arguments, 0);
     if (!documentForNative(source->owner->native)) {
         pending->rejectWith("no-source"_s);
@@ -350,16 +352,18 @@ static JSValueRef mediaSourceCommand(JSContextRef context, JSObjectRef, JSObject
 
 static JSValueRef mediaSessionCommand(JSContextRef context, JSObjectRef, JSObjectRef object, size_t count, const JSValueRef arguments[], JSValueRef* exception)
 {
+    if (!JSValueIsObjectOfClass(context, object, mediaSessionClass())) {
+        auto message = adopt(JSStringCreateWithUTF8CString("invalid-handle"));
+        JSValueRef argument = JSValueMakeString(context, message.get());
+        *exception = JSObjectMakeError(context, 1, &argument, nullptr);
+        return JSValueMakeUndefined(context);
+    }
+    auto session = *static_cast<std::shared_ptr<NativeMediaSession>*>(JSObjectGetPrivate(object));
     JSObjectRef resolve, reject;
     auto promise = JSObjectMakeDeferredPromise(context, &resolve, &reject, exception);
     if (!promise)
         return JSValueMakeUndefined(context);
-    auto pending = std::make_unique<NativePromise>(context, resolve, reject);
-    if (!JSValueIsObjectOfClass(context, object, mediaSessionClass())) {
-        pending->rejectWith("invalid-handle"_s);
-        return promise;
-    }
-    auto session = *static_cast<std::shared_ptr<NativeMediaSession>*>(JSObjectGetPrivate(object));
+    auto pending = std::make_unique<NativePromise>(session->native, context, resolve, reject);
     auto operation = LegacyExtensions::stringArgument(context, count, arguments, 0);
     if (operation == "close"_s) {
         session->close();
@@ -516,8 +520,8 @@ static JSValueRef contentContextCreateMediaSession(JSContextRef context, JSObjec
     auto promise = JSObjectMakeDeferredPromise(context, &resolve, &reject, exception);
     if (!promise)
         return JSValueMakeUndefined(context);
-    auto pending = std::make_unique<NativePromise>(context, resolve, reject);
     auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(object));
+    auto pending = std::make_unique<NativePromise>(*native, context, resolve, reject);
     RefPtr document = documentForNative(*native);
     auto* global = toJS(context);
     JSC::JSLockHolder lock(global->vm());

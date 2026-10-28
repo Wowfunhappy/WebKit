@@ -85,6 +85,7 @@ struct GeneratedField {
 // The WebExtensions resource type of a request.
 ASCIILiteral resourceType(const WebCore::ResourceRequest&, WebCore::FetchOptions::Destination, bool isMainFrameLoad);
 bool isInterceptable(const URL&);
+bool isHTTPOrWebSocket(const URL&);
 double timeStamp();
 
 Ref<JSON::Array> headersArray(const WebCore::HTTPHeaderMap&);
