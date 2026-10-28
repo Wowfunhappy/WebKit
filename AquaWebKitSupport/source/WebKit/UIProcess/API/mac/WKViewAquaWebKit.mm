@@ -90,11 +90,13 @@
 #import "WKBrowsingContextGroupPrivate.h"
 #import <WebCore/ActivityState.h>
 #import <WebCore/ColorCocoa.h>
+#import <WebCore/Editor.h>
 #import <WebCore/FloatPoint.h>
 #import <WebCore/FloatRect.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
 #import <WebCore/LoaderNSURLExtras.h>
+#import <WebCore/LocalizedStrings.h>
 #import <WebCore/Pasteboard.h>
 #import <WebCore/PasteboardCustomData.h>
 #import <WebCore/PromisedAttachmentInfo.h>
@@ -117,6 +119,8 @@
 #import <WebCore/WebCoreFullScreenWindow.h>
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/WeakObjCPtr.h>
 #import <wtf/Vector.h>
 // Services support — advertise the web selection to AppKit's Services
 // machinery (the app-menu Services submenu and the context-menu services). The standalone
@@ -160,6 +164,7 @@ namespace WebKit {
 std::unique_ptr<PageClient> createAquaWebKitPageClient(NSView *view);
 void setAquaWebKitPageClientPage(PageClient&, WebPageProxy *);
 void aquaWebKitPageClientViewWillDeallocate(PageClient&);
+void aquaWebKitPageClientViewWillMoveToAnotherWindow(PageClient&);
 void aquaWebKitPageClientViewDidChangeBackingProperties(PageClient&);
 void setAquaWebKitPageClientWindowOcclusionDetectionEnabled(PageClient&, bool);
 bool aquaWebKitPageClientWindowOcclusionDetectionEnabled(PageClient&);
@@ -220,6 +225,7 @@ struct WKPromisedImageDragData {
 struct WKViewState {
     std::unique_ptr<WebKit::PageClient> pageClient;
     RefPtr<WebKit::WebPageProxy> page;
+    HashMap<String, Vector<RetainPtr<id<NSValidatedUserInterfaceItem>>>> validationMap;
     WKViewInterpretKeyEventsParameters* interpretKeyEventsParameters { nullptr };
     // pinch-to-zoom / smart-magnify / swipe-navigation state, mirroring
     // WebViewImpl's m_allowsMagnification, m_allowsBackForwardNavigationGestures and
@@ -310,6 +316,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 @interface NSApplication (WKAquaWebKitSpeech)
 - (void)speakString:(NSString *)string;
 - (void)stopSpeaking:(id)sender;
+- (BOOL)isSpeaking;
 @end
 
 @interface WKView () <WKShareSheetDelegate, NSDraggingSource, NSFilePromiseProviderDelegate> {
@@ -440,11 +447,9 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidMoveNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidResizeNotification object:nil];
     [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
-    // give the WebContent pid's remote-UI registration back before the view
-    // that owned it goes away (the matching half of the registration made when its token arrived).
-    [self _aquaWebKitUpdateRemoteAccessibilityRegistration:NO];
-    // WebViewImpl closes the page while its PageClient is alive.
+    // configurationRef: can release an unconfigured view; configured views close with their PageClient alive.
     if (_wkState) {
+        [self _aquaWebKitUpdateRemoteAccessibilityRegistration:NO];
         aquaWebKitPageClientViewWillDeallocate(*_wkState->pageClient);
         _wkState->page->close();
     }
@@ -468,8 +473,6 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 // Safari-7 auto-layout SPI -setMinimumSizeForAutoLayout: (declared in WKViewPrivate.h), ported from WebViewImpl.
 - (void)setMinimumSizeForAutoLayout:(NSSize)minimumSizeForAutoLayout
 {
-    if (!_wkState || !_wkState->page)
-        return;
     // Matches WebViewImpl::setMinimumSizeForAutoLayout: a positive minimum width enables
     // auto-sizing (the web process lays out at >= this width and reports the content height
     // back via intrinsicContentSizeDidChange), and the main frame becomes non-scrollable so
@@ -482,8 +485,6 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 // auto-layout SPI getter for the configured minimum layout size (ported from WebViewImpl).
 - (NSSize)minimumSizeForAutoLayout
 {
-    if (!_wkState || !_wkState->page)
-        return NSZeroSize;
     auto size = _wkState->page->minimumSizeForAutoLayout();
     return NSMakeSize(size.width(), size.height());
 }
@@ -491,14 +492,13 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 // auto-layout SPI — let auto-sizing expand to fill the view height (ported from WebViewImpl for Mail).
 - (void)setShouldExpandToViewHeightForAutoLayout:(BOOL)shouldExpand
 {
-    if (_wkState && _wkState->page)
-        _wkState->page->setAutoSizingShouldExpandToViewHeight(shouldExpand);
+    _wkState->page->setAutoSizingShouldExpandToViewHeight(shouldExpand);
 }
 
 // auto-layout SPI getter mirroring WebViewImpl::shouldExpandToViewHeightForAutoLayout.
 - (BOOL)shouldExpandToViewHeightForAutoLayout
 {
-    return _wkState && _wkState->page ? _wkState->page->autoSizingShouldExpandToViewHeight() : NO;
+    return _wkState->page->autoSizingShouldExpandToViewHeight();
 }
 
 // called by AquaWebKitPageClient::intrinsicContentSizeDidChange when the web
@@ -508,7 +508,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // A content width below the minimum layout width means the content flowed to fit, so report the
     // width as flexible; otherwise report it so auto-layout reserves space. Matches WebViewImpl.
     NSSize size = intrinsicContentSize;
-    if (_wkState && _wkState->page && intrinsicContentSize.width < _wkState->page->minimumSizeForAutoLayout().width())
+    if (intrinsicContentSize.width < _wkState->page->minimumSizeForAutoLayout().width())
         size.width = NSViewNoIntrinsicMetric;
     _intrinsicContentSize = size;
     [self invalidateIntrinsicContentSize];
@@ -576,7 +576,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 }
 
 - (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { [self release]; return nil; }
-- (WKPageRef)pageRef { return _wkState ? WebKit::toAPI(_wkState->page.get()) : nullptr; }
+- (WKPageRef)pageRef { return WebKit::toAPI(_wkState->page.get()); }
 
 // QuickLook previews use Safari's cookies (WKBrowsingContextController), so their data store prevents
 // cross-site tracking exactly when Safari 7 does: for any account cookie accept policy but Always.
@@ -615,7 +615,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // can load/observe via the controller (or pull its pageRef for the C SPI).
 - (WKBrowsingContextController *)browsingContextController
 {
-    if (!_browsingContextController && _wkState && _wkState->page)
+    if (!_browsingContextController)
         _browsingContextController = [[WKBrowsingContextController alloc] _initWithPageRef:WebKit::toAPI(_wkState->page.get())];
     return _browsingContextController;
 }
@@ -637,7 +637,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     // before super updates it (mirrors the 537 setFrameSize: ordering).
     bool frameSizeUpdatesEnabled = ![self frameSizeUpdatesDisabled];
     NSPoint newFrameOrigin = NSZeroPoint;
-    if (!frameSizeUpdatesEnabled && _wkState) {
+    if (!frameSizeUpdatesEnabled) {
         newFrameOrigin = _wkState->frameOrigin;
         if (isWKContentAnchorRight(_wkState->contentAnchor))
             newFrameOrigin.x += [self frame].size.width - newSize.width;
@@ -647,7 +647,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
     [super setFrameSize:newSize];
 
-    if (frameSizeUpdatesEnabled && _wkState && _wkState->page) {
+    if (frameSizeUpdatesEnabled) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height), wkTakeScrollOffsetAdjustment(_wkState));
         // keep the clipped view-exposed-rect matched to the new visible rect.
@@ -661,17 +661,16 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     // content stays pinned to the anchored corner, and the outermost re-enable (or the next
     // enabled-state resize) puts it back. This view is flipped, so the top-left-origin math of
     // the 537 shift (rootLayer.position = -newFrameOrigin) carries over directly.
-    CALayer *renderLayer = (_wkState && _wkState->pageClient) ? _wkState->pageClient->acceleratedCompositingRootLayer() : nil;
+    CALayer *renderLayer = _wkState->pageClient->acceleratedCompositingRootLayer();
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     if (frameSizeUpdatesEnabled) {
-        if (_wkState && !NSEqualPoints(_wkState->frameOrigin, NSZeroPoint)) {
+        if (!NSEqualPoints(_wkState->frameOrigin, NSZeroPoint)) {
             _wkState->frameOrigin = NSZeroPoint;
             [renderLayer setPosition:CGPointZero];
         }
     } else {
-        if (_wkState)
-            _wkState->frameOrigin = newFrameOrigin;
+        _wkState->frameOrigin = newFrameOrigin;
         [renderLayer setPosition:CGPointMake(-newFrameOrigin.x, -newFrameOrigin.y)];
     }
     [CATransaction commit];
@@ -683,7 +682,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     // honor the frame-size-updates gate here too — while Safari has called
     // -disableFrameSizeUpdates, no frame change reaches the drawing area until
     // -enableFrameSizeUpdates pushes the settled size.
-    if (![self frameSizeUpdatesDisabled] && _wkState && _wkState->page) {
+    if (![self frameSizeUpdatesDisabled]) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(frame.size.width, frame.size.height), wkTakeScrollOffsetAdjustment(_wkState));
     }
@@ -715,13 +714,11 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // BKWKViewTiling sends -setShouldClipToVisibleRect:YES unguarded when wiring up its page.
 - (BOOL)shouldClipToVisibleRect
 {
-    return _wkState ? _wkState->shouldClipToVisibleRect : NO;
+    return _wkState->shouldClipToVisibleRect;
 }
 
 - (void)setShouldClipToVisibleRect:(BOOL)clipsToVisibleRect
 {
-    if (!_wkState)
-        return;
     _wkState->shouldClipToVisibleRect = clipsToVisibleRect;
     [self _updateViewExposedRect];
 }
@@ -732,8 +729,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // enables it before attaching the view to a window) does not stay clipped to an empty rect.
 - (void)_updateViewExposedRect
 {
-    if (!_wkState || !_wkState->page)
-        return;
     CGRect exposedRect = NSRectToCGRect([self visibleRect]);
     _wkState->page->setViewExposedRect(_wkState->shouldClipToVisibleRect ? std::optional<WebCore::FloatRect>(exposedRect) : std::nullopt);
 }
@@ -753,14 +748,13 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // top-left-aligned — the anchor holds throughout the animation, not across the final repaint.
 - (void)setContentAnchor:(WKContentAnchor)contentAnchor
 {
-    if (_wkState)
-        _wkState->contentAnchor = contentAnchor;
+    _wkState->contentAnchor = contentAnchor;
 }
 
-// content-anchor getter; pageless WKViews (no _wkState) report the default top-left anchor.
+// Content-anchor getter.
 - (WKContentAnchor)contentAnchor
 {
-    return _wkState ? _wkState->contentAnchor : WKContentAnchorTopLeft;
+    return _wkState->contentAnchor;
 }
 
 // async drawing-area size-update SPI, declared in WKViewPrivate.h and sent
@@ -776,8 +770,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // there is no exposed rect to refresh.)
 - (void)forceAsyncDrawingAreaSizeUpdate:(NSSize)size
 {
-    if (!_wkState || !_wkState->page)
-        return;
     if (RefPtr drawingArea = _wkState->page->drawingArea()) {
         drawingArea->setSize(WebCore::IntSize(size.width, size.height), wkTakeScrollOffsetAdjustment(_wkState));
         drawingArea->waitForDidUpdateGeometry(WTF::Seconds { });
@@ -791,8 +783,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // the 500ms didUpdateBackingStoreStateTimeout into two half-timeout waits.
 - (void)waitForAsyncDrawingAreaSizeUpdate
 {
-    if (!_wkState || !_wkState->page)
-        return;
     if (RefPtr drawingArea = _wkState->page->drawingArea()) {
         drawingArea->waitForDidUpdateGeometry(WTF::Seconds::fromMilliseconds(250));
         drawingArea->waitForDidUpdateGeometry(WTF::Seconds::fromMilliseconds(250));
@@ -805,15 +795,12 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // opens a Reading List item.
 - (void)setUnderlayColor:(NSColor *)underlayColor
 {
-    if (_wkState && _wkState->page)
-        _wkState->page->setUnderlayColor(WebCore::colorFromCocoaColor(underlayColor));
+    _wkState->page->setUnderlayColor(WebCore::colorFromCocoaColor(underlayColor));
 }
 
 - (NSColor *)underlayColor
 {
-    if (_wkState && _wkState->page)
-        return WebCore::cocoaColorOrNil(_wkState->page->underlayColor()).autorelease();
-    return nil;
+    return WebCore::cocoaColorOrNil(_wkState->page->underlayColor()).autorelease();
 }
 
 // the drawsBackground / drawsTransparentBackground properties declared in WKView.h, mirroring
@@ -822,8 +809,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // to ReaderWKView so Reader's dimmed backdrop shows around the article.
 - (void)setDrawsBackground:(BOOL)drawsBackground
 {
-    if (!_wkState || !_wkState->page)
-        return;
     std::optional<WebCore::Color> backgroundColor;
     if (!drawsBackground)
         backgroundColor = WebCore::Color(WebCore::Color::transparentBlack);
@@ -833,8 +818,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (BOOL)drawsBackground
 {
-    if (!_wkState || !_wkState->page)
-        return YES;
     auto& backgroundColor = _wkState->page->backgroundColor();
     return !backgroundColor || backgroundColor.value().isVisible();
 }
@@ -863,7 +846,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (NSTextInputContext *)inputContext
 {
-    if (!_wkState || !_wkState->page || !_wkState->page->editorState().isContentEditable)
+    if (!_wkState->page->editorState().isContentEditable)
         return nil;
     return [super inputContext];
 }
@@ -876,8 +859,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (void)_aquaWebKitExecuteSavedKeypressCommands
 {
-    if (!_wkState || !_wkState->page)
-        return;
     auto* parameters = _wkState->interpretKeyEventsParameters;
     if (!parameters || parameters->commands.isEmpty())
         return;
@@ -897,8 +878,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     [self _aquaWebKitExecuteSavedKeypressCommands];
     if (actualRange)
         *actualRange = EditingRange();
-    if (!_wkState || !_wkState->page)
-        return nil;
     auto& state = _wkState->page->editorState();
     if (!state.isContentEditable || state.isInPasswordField)
         return nil;
@@ -921,8 +900,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (NSUInteger)characterIndexForPoint:(NSPoint)point
 {
     [self _aquaWebKitExecuteSavedKeypressCommands];
-    if (!_wkState || !_wkState->page)
-        return 0;
     if (NSWindow *window = [self window])
         point = [window convertPointFromScreen:point];
     point = [self convertPoint:point fromView:nil];
@@ -948,8 +925,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     }
     if (actualRange)
         *actualRange = EditingRange();
-    if (!_wkState || !_wkState->page)
-        return NSZeroRect;
 
     struct Result {
         WebCore::IntRect rect;
@@ -970,8 +945,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (BOOL)hasMarkedText
 {
-    if (!_wkState || !_wkState->page)
-        return NO;
     if (_wkState->interpretKeyEventsParameters) {
         BOOL result = _wkState->page->editorState().hasComposition;
         if (result) {
@@ -990,8 +963,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange
 {
-    if (!_wkState || !_wkState->page)
-        return;
     // As WebViewImpl::insertText: text from the keyboard layout's key bindings is saved for the key event, which
     // performs it after keydown; text from an input method, which has the page's composition, or from outside key
     // interpretation is inserted now.
@@ -1030,10 +1001,9 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 {
     [self _aquaWebKitExecuteSavedKeypressCommands];
     auto result = Box<EditingRange>::create();
-    if (_wkState && _wkState->page)
-        waitForTextInputReply(*_wkState->page, Messages::WebPage::GetMarkedRangeAsync(), [result](const EditingRange& range) {
-            *result = range;
-        });
+    waitForTextInputReply(*_wkState->page, Messages::WebPage::GetMarkedRangeAsync(), [result](const EditingRange& range) {
+        *result = range;
+    });
     return *result;
 }
 
@@ -1041,10 +1011,9 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 {
     [self _aquaWebKitExecuteSavedKeypressCommands];
     auto result = Box<EditingRange>::create();
-    if (_wkState && _wkState->page)
-        waitForTextInputReply(*_wkState->page, Messages::WebPage::GetSelectedRangeAsync(), [result](const EditingRange& range, const EditingRange&) {
-            *result = range;
-        });
+    waitForTextInputReply(*_wkState->page, Messages::WebPage::GetSelectedRangeAsync(), [result](const EditingRange& range, const EditingRange&) {
+        *result = range;
+    });
     return *result;
 }
 
@@ -1058,8 +1027,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (void)setMarkedText:(id)string selectedRange:(NSRange)newSelectedRange replacementRange:(NSRange)replacementRange
 {
-    if (!(_wkState && _wkState->page))
-        return;
     [self _aquaWebKitExecuteSavedKeypressCommands];
     if (auto* parameters = _wkState->interpretKeyEventsParameters) {
         parameters->eventInterpretationHadSideEffects = true;
@@ -1101,8 +1068,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (void)unmarkText
 {
-    if (!_wkState || !_wkState->page)
-        return;
     [self _aquaWebKitExecuteSavedKeypressCommands];
     if (auto* parameters = _wkState->interpretKeyEventsParameters) {
         parameters->eventInterpretationHadSideEffects = true;
@@ -1111,9 +1076,14 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     _wkState->page->confirmCompositionAsync();
 }
 
+- (void)_web_superDoCommandBySelector:(SEL)selector
+{
+    [super doCommandBySelector:selector];
+}
+
 - (void)doCommandBySelector:(SEL)selector
 {
-    auto* parameters = _wkState ? _wkState->interpretKeyEventsParameters : nullptr;
+    auto* parameters = _wkState->interpretKeyEventsParameters;
     if (parameters)
         parameters->consumedByIM = false;
     if (!parameters || _wkState->page->editorState().hasComposition) {
@@ -1136,8 +1106,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // selectors verified against this host's AppKit), so nothing here is a polyfill.
 - (void)_aquaWebKitSetAccessibilityWebProcessToken:(NSData *)token processIdentifier:(pid_t)pid
 {
-    if (!_wkState || !_wkState->page)
-        return;
     if (pid != _wkState->page->legacyMainFrameProcess().processID())
         return;
 
@@ -1150,16 +1118,12 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // tree; unregistering on teardown is the matching half (upstream's updateRemoteAccessibilityRegistration).
 - (void)_aquaWebKitUpdateRemoteAccessibilityRegistration:(BOOL)registerProcess
 {
-    if (!_wkState)
-        return;
-
     // When the tree is connected/disconnected the registration has to be updated with the remote
     // process's pid. On the way out that pid comes from the remote element itself, because by then the
     // process may be gone and the page can no longer name it (upstream does exactly this).
     pid_t pid = 0;
     if (registerProcess) {
-        if (_wkState->page)
-            pid = _wkState->page->legacyMainFrameProcess().processID();
+        pid = _wkState->page->legacyMainFrameProcess().processID();
     } else {
         pid = [_wkState->remoteAccessibilityChild processIdentifier];
         _wkState->remoteAccessibilityChild = nil;
@@ -1179,8 +1143,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // (re)established, exactly as upstream does from viewDidMoveToWindow and didRelaunchProcess.
 - (void)_aquaWebKitRegisterUIProcessAccessibilityTokens
 {
-    if (!_wkState || !_wkState->page)
-        return;
     RetainPtr<NSData> elementToken = [NSAccessibilityRemoteUIElement remoteTokenForLocalUIElement:self];
     RetainPtr<NSData> windowToken = [NSAccessibilityRemoteUIElement remoteTokenForLocalUIElement:[self window]];
     _wkState->page->registerUIProcessAccessibilityTokens({ makeVector(elementToken.get()) }, { makeVector(windowToken.get()) });
@@ -1201,8 +1163,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     // do not need the web process, so they do not trigger initialization (upstream excludes them
     // for the same reason).
     if (![attribute isEqualToString:NSAccessibilityParentAttribute] && ![attribute isEqualToString:NSAccessibilityPositionAttribute]) {
-        if (_wkState && _wkState->page)
-            Ref { _wkState->page->configuration().processPool() }->initializeAccessibilityIfNecessary();
+        Ref { _wkState->page->configuration().processPool() }->initializeAccessibilityIfNecessary();
     }
 #endif // closes the INITIALIZE_ACCESSIBILITY_ON_DEMAND guard (see above).
 
@@ -1219,7 +1180,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // accessibility starting.
 - (void)_wk_updateWindowAndViewFrames
 {
-    if (!_wkState || !_wkState->page || _wkState->didScheduleWindowAndViewFrameUpdate)
+    if (_wkState->didScheduleWindowAndViewFrameUpdate)
         return;
     _wkState->didScheduleWindowAndViewFrameUpdate = true;
     RunLoop::mainSingleton().dispatch([view = RetainPtr { self }] {
@@ -1245,7 +1206,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     [self _aquaWebKitEnableAccessibilityIfNecessary:attribute];
 
     if ([attribute isEqualToString:NSAccessibilityChildrenAttribute]) {
-        id child = _wkState ? _wkState->remoteAccessibilityChild.get() : nil;
+        id child = _wkState->remoteAccessibilityChild.get();
         return child ? @[child] : nil;
     }
     if ([attribute isEqualToString:NSAccessibilityRoleAttribute])
@@ -1265,7 +1226,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (id)accessibilityFocusedUIElement
 {
     [self _aquaWebKitEnableAccessibilityIfNecessary:nil];
-    return _wkState ? _wkState->remoteAccessibilityChild.get() : nil;
+    return _wkState->remoteAccessibilityChild.get();
 }
 
 - (id)accessibilityHitTest:(NSPoint)point
@@ -1281,8 +1242,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (NSView *)fullScreenPlaceholderView
 {
 #if ENABLE(FULLSCREEN_API)
-    if (_wkState && _wkState->pageClient)
-        return aquaWebKitPageClientFullScreenPlaceholderView(*_wkState->pageClient);
+    return aquaWebKitPageClientFullScreenPlaceholderView(*_wkState->pageClient);
 #endif // closes the FULLSCREEN_API guard on -fullScreenPlaceholderView (see above).
     return nil;
 }
@@ -1317,9 +1277,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 }
 
 - (void)updateLayer {}
-// Basic init methods for non-page WKView instances (e.g. title bar button)
-- (id)init { return [super init]; }
-- (id)initWithFrame:(NSRect)frame { return [super initWithFrame:frame]; }
 - (BOOL)isFlipped { return YES; }
 - (BOOL)canChangeFrameLayout:(WKFrameRef)f { return NO; }
 // printing, mirroring WebViewImpl::printOperationWithPrintInfo — build a
@@ -1348,7 +1305,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // (DrawingAreaProxy.h:102), so the web process scroll-compensates the resize itself.
 - (void)setFrame:(NSRect)r andScrollBy:(NSSize)o
 {
-    if (_wkState && !NSEqualSizes(o, NSZeroSize))
+    if (!NSEqualSizes(o, NSZeroSize))
         _wkState->scrollOffsetAdjustment = o;
 
     [super setFrame:r];
@@ -1365,26 +1322,23 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // fenced new-size layout swaps in aligned to the view.
 - (void)disableFrameSizeUpdates
 {
-    if (_wkState)
-        _wkState->frameSizeUpdatesDisabledCount++;
+    _wkState->frameSizeUpdatesDisabledCount++;
 }
 
 // decrement the gate; on reaching zero push the settled frame size and clear the anchor shift (see -disableFrameSizeUpdates).
 - (void)enableFrameSizeUpdates
 {
-    if (!_wkState || !_wkState->frameSizeUpdatesDisabledCount)
+    if (!_wkState->frameSizeUpdatesDisabledCount)
         return;
 
     // Only the outermost enable resumes frame-size updates.
     if (--_wkState->frameSizeUpdatesDisabledCount)
         return;
 
-    if (_wkState->page) {
-        if (RefPtr drawingArea = _wkState->page->drawingArea())
-            drawingArea->setSize(WebCore::IntSize([self frame].size.width, [self frame].size.height), wkTakeScrollOffsetAdjustment(_wkState));
-    }
+    if (RefPtr drawingArea = _wkState->page->drawingArea())
+        drawingArea->setSize(WebCore::IntSize([self frame].size.width, [self frame].size.height), wkTakeScrollOffsetAdjustment(_wkState));
     _wkState->frameOrigin = NSZeroPoint;
-    if (CALayer *renderLayer = _wkState->pageClient ? _wkState->pageClient->acceleratedCompositingRootLayer() : nil) {
+    if (CALayer *renderLayer = _wkState->pageClient->acceleratedCompositingRootLayer()) {
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
         [renderLayer setPosition:CGPointZero];
@@ -1392,10 +1346,10 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     }
 }
 
-// gate query (537-verbatim semantics); pageless WKViews report the default enabled state.
+// Frame-size-updates gate query, matching the 537 implementation.
 - (BOOL)frameSizeUpdatesDisabled
 {
-    return _wkState && _wkState->frameSizeUpdatesDisabledCount > 0;
+    return _wkState->frameSizeUpdatesDisabledCount > 0;
 }
 // +hideWordDefinitionWindow stub; Safari 7 sends it unguarded to dismiss the dictionary definition panel.
 + (void)hideWordDefinitionWindow {}
@@ -1409,9 +1363,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // WebViewImpl::validRequestorForSendAndReturnTypes / writeSelectionToPasteboard / readSelectionFromPasteboard.
 - (id)validRequestorForSendType:(NSString *)sendType returnType:(NSString *)returnType
 {
-    if (!_wkState || !_wkState->page)
-        return [[self nextResponder] validRequestorForSendType:sendType returnType:returnType];
-
     // consult the page's EditorState to decide which send types the current selection offers to Services.
     const WebKit::EditorState& editorState = _wkState->page->editorState();
     bool isValidSendType = !sendType;
@@ -1438,8 +1389,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // -writeSelectionToPasteboard: hands the web selection to the chosen Service (ported from WebViewImpl::writeSelectionToPasteboard).
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pasteboard types:(NSArray *)types
 {
-    if (!_wkState || !_wkState->page)
-        return NO;
     [pasteboard clearContents];
     [pasteboard addTypes:types owner:nil];
     for (NSString *type in types) {
@@ -1456,8 +1405,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // -readSelectionFromPasteboard: lets a Service replace the web selection (ported from WebViewImpl::readSelectionFromPasteboard).
 - (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pasteboard
 {
-    if (!_wkState || !_wkState->page)
-        return NO;
     return _wkState->page->readSelectionFromPasteboard([pasteboard name]);
 }
 
@@ -1475,16 +1422,14 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (BOOL)becomeFirstResponder
 {
     BOOL result = [super becomeFirstResponder];
-    if (_wkState && _wkState->page)
-        _wkState->page->activityStateDidChange(WebCore::ActivityState::IsFocused);
+    _wkState->page->activityStateDidChange(WebCore::ActivityState::IsFocused);
     return result;
 }
 
 // clear ActivityState::IsFocused on resign so the page's FocusController matches first-responder state (#138).
 - (BOOL)resignFirstResponder
 {
-    if (_wkState && _wkState->page)
-        _wkState->page->activityStateDidChange(WebCore::ActivityState::IsFocused);
+    _wkState->page->activityStateDidChange(WebCore::ActivityState::IsFocused);
     return [super resignFirstResponder];
 }
 
@@ -1503,13 +1448,20 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     [super renewGState];
 }
 
+// WebViewImpl::viewWillMoveToWindowImpl clears commands while the old window's undo manager is reachable.
+- (void)viewWillMoveToWindow:(NSWindow *)window
+{
+    if (window != [self window])
+        aquaWebKitPageClientViewWillMoveToAnotherWindow(*_wkState->pageClient);
+    [super viewWillMoveToWindow:window];
+}
+
 // (re)register the window observers and push this view's activity state to the
 // page. Safari's tab swap removes the inactive tab's WKView from the window and re-adds it on
 // switch-back; the activityStateDidChange below is the WebPage::SetActivityState IPC that makes
 // WebContent send a fresh layer-tree commit for the re-attached view.
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
-    if (!_wkState || !_wkState->page) return;
 
     WebKit::LegacyExtensionHiddenTabs::singleton().webViewDidMoveToWindow(*_wkState->page, [self window]);
 
@@ -1623,8 +1575,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // instead of an out-of-window/in-window flicker.
 - (void)beginDeferringViewInWindowChanges
 {
-    if (!_wkState)
-        return;
     if (_wkState->shouldDeferViewInWindowChanges) {
         NSLog(@"beginDeferringViewInWindowChanges was called while already deferring view-in-window changes!");
         return;
@@ -1636,8 +1586,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // end the deferral and push the coalesced IsInWindow change (ported from WebViewImpl::endDeferringViewInWindowChanges).
 - (void)endDeferringViewInWindowChanges
 {
-    if (!_wkState)
-        return;
     if (!_wkState->shouldDeferViewInWindowChanges) {
         NSLog(@"endDeferringViewInWindowChanges was called without beginDeferringViewInWindowChanges!");
         return;
@@ -1646,8 +1594,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     _wkState->shouldDeferViewInWindowChanges = false;
 
     if (_wkState->viewInWindowChangeWasDeferred) {
-        if (_wkState->page)
-            _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
+        _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
         _wkState->viewInWindowChangeWasDeferred = false;
     }
 }
@@ -1659,8 +1606,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // content-inset machinery, so there is nothing to flush.)
 - (void)endDeferringViewInWindowChangesSync
 {
-    if (!_wkState)
-        return;
     if (!_wkState->shouldDeferViewInWindowChanges) {
         NSLog(@"endDeferringViewInWindowChangesSync was called without beginDeferringViewInWindowChanges!");
         return;
@@ -1669,8 +1614,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
     _wkState->shouldDeferViewInWindowChanges = false;
 
     if (_wkState->viewInWindowChangeWasDeferred) {
-        if (_wkState->page)
-            _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
+        _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
         _wkState->viewInWindowChangeWasDeferred = false;
     }
 }
@@ -1678,7 +1622,7 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // deferral-state getter (ported from WebViewImpl::isDeferringViewInWindowChanges; declared in WKViewPrivate.h).
 - (BOOL)isDeferringViewInWindowChanges
 {
-    return _wkState && _wkState->shouldDeferViewInWindowChanges;
+    return _wkState->shouldDeferViewInWindowChanges;
 }
 // upstream closes its #if ENABLE(MAC_GESTURE_EVENTS) guard (which wraps
 // -rotateWithEvent:) with this #endif here. MAC_GESTURE_EVENTS is unavailable on 10.9, so the guard
@@ -1691,23 +1635,19 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (void)viewDidHide
 {
     [super viewDidHide];
-    if (_wkState && _wkState->page)
-        _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
+    _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
 }
 
 // mirror -viewDidHide: recompute visibility when this view (or an ancestor) unhides.
 - (void)viewDidUnhide
 {
     [super viewDidUnhide];
-    if (_wkState && _wkState->page)
-        _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
+    _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
 }
 
 // read the current window's (or main screen's) backing scale and push it to the page.
 - (void)_wk_updateIntrinsicDeviceScaleFactor
 {
-    if (!_wkState || !_wkState->page)
-        return;
     NSWindow *window = [self window];
     _wkState->page->setIntrinsicDeviceScaleFactor(window ? [window backingScaleFactor] : [[NSScreen mainScreen] backingScaleFactor]);
 }
@@ -1723,8 +1663,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (void)_wk_windowDidChangeScreen:(NSNotification *)notification
 {
     UNUSED_PARAM(notification);
-    if (!_wkState || !_wkState->page)
-        return;
     NSScreen *screen = [[self window] screen] ?: [NSScreen mainScreen];
     CGDirectDisplayID displayID = [[[screen deviceDescription] objectForKey:@"NSScreenNumber"] unsignedIntValue];
     if (!displayID)
@@ -1737,8 +1675,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (void)_wk_windowDidChangeOcclusionState:(NSNotification *)notification
 {
     UNUSED_PARAM(notification);
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->activityStateDidChange(WebCore::ActivityState::IsVisible);
 }
 
@@ -1747,8 +1683,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (void)_wk_windowDidOrderOnScreen:(NSNotification *)notification
 {
     UNUSED_PARAM(notification);
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::WindowIsActive });
 }
 
@@ -1757,8 +1691,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (void)_wk_windowDidOrderOffScreen:(NSNotification *)notification
 {
     UNUSED_PARAM(notification);
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::WindowIsActive });
 }
 
@@ -1767,8 +1699,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (void)_wk_windowDidChangeMiniaturization:(NSNotification *)notification
 {
     UNUSED_PARAM(notification);
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->activityStateDidChange(WebCore::ActivityState::IsVisible);
 }
 
@@ -1777,8 +1707,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 - (void)_wk_activeSpaceDidChange:(NSNotification *)notification
 {
     UNUSED_PARAM(notification);
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->activityStateDidChange(WebCore::ActivityState::IsVisible);
 }
 
@@ -1786,8 +1714,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // WebViewImpl::windowDidBecomeKey/windowDidResignKey.
 - (void)_wk_windowDidChangeKeyState:(NSNotification *)notification
 {
-    if (!_wkState || !_wkState->page)
-        return;
     NSWindow *window = [self window];
     if (!window)
         return;
@@ -1803,21 +1729,19 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 {
     [super viewDidChangeBackingProperties];
     [self _wk_updateIntrinsicDeviceScaleFactor];
-    if (_wkState && _wkState->pageClient)
-        aquaWebKitPageClientViewDidChangeBackingProperties(*_wkState->pageClient);
+    aquaWebKitPageClientViewDidChangeBackingProperties(*_wkState->pageClient);
 }
 
 // WKViewPrivate.h's occlusion-detection switch, carried through to the page
 // client that reads window.occlusionState.
 - (void)setWindowOcclusionDetectionEnabled:(BOOL)flag
 {
-    if (_wkState && _wkState->pageClient)
-        setAquaWebKitPageClientWindowOcclusionDetectionEnabled(*_wkState->pageClient, flag);
+    setAquaWebKitPageClientWindowOcclusionDetectionEnabled(*_wkState->pageClient, flag);
 }
 
 - (BOOL)windowOcclusionDetectionEnabled
 {
-    return (_wkState && _wkState->pageClient) ? aquaWebKitPageClientWindowOcclusionDetectionEnabled(*_wkState->pageClient) : YES;
+    return aquaWebKitPageClientWindowOcclusionDetectionEnabled(*_wkState->pageClient);
 }
 
 // the WebContent layer tree is hosted on a dedicated layer-hosting subview
@@ -1840,7 +1764,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 #define WKV_FORWARD_MOUSE(SEL_NAME) \
 - (void)SEL_NAME:(NSEvent *)event \
 { \
-    if (!_wkState || !_wkState->page) { [super SEL_NAME:event]; return; } \
     WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven); \
     _wkState->page->handleMouseEvent(webEvent); \
 }
@@ -1849,7 +1772,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // last mouse-down, and the mouse-dragged events a finished drag session ignores.
 - (void)mouseDown:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super mouseDown:event]; return; }
     _wkState->lastMouseDownEvent = event;
     _wkState->ignoresMouseDraggedEvents = false;
     WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
@@ -1858,7 +1780,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (void)mouseUp:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super mouseUp:event]; return; }
     _wkState->lastMouseDownEvent = nil;
     WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
     _wkState->page->handleMouseEvent(webEvent);
@@ -1866,7 +1787,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 
 - (void)mouseDragged:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super mouseDragged:event]; return; }
     if (_wkState->ignoresMouseDraggedEvents)
         return;
     WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
@@ -1879,7 +1799,6 @@ static void followSafariTrackingPreventionForQuickLookPreviews()
 // coordinates. Matches Safari 7 WebKit2's -[WKView mouseMoved:] and WebViewImpl::mouseMoved().
 - (void)mouseMoved:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super mouseMoved:event]; return; }
     if (self == [[self window] firstResponder] && !NSPointInRect([self convertPoint:[event locationInWindow] fromView:nil], [self visibleRect]))
         return;
     WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebEventInputSource::UserDriven);
@@ -1903,7 +1822,6 @@ WKV_FORWARD_MOUSE(mouseExited)
 // a dictionary lookup at the tap location.
 - (void)quickLookWithEvent:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super quickLookWithEvent:event]; return; }
     NSPoint locationInViewCoordinates = [self convertPoint:[event locationInWindow] fromView:nil];
     _wkState->page->performDictionaryLookupAtLocation(WebCore::FloatPoint(locationInViewCoordinates));
 }
@@ -2126,8 +2044,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 // NSDraggingDestination for WKView — drops route directly into WebPageProxy.
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info
 {
-    if (!_wkState || !_wkState->page)
-        return NSDragOperationNone;
     auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
     dragData.setPromisedFileMIMETypes(wkPromisedFileMIMETypes(self, info));
     _wkState->page->resetCurrentDragInformation();
@@ -2139,8 +2055,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 // NSDraggingDestination -draggingUpdated: for WKView, mirroring WebViewImpl::draggingUpdated.
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info
 {
-    if (!_wkState || !_wkState->page)
-        return NSDragOperationNone;
     auto& page = *_wkState->page;
     auto dragData = wkDragDataFromInfo(self, info, page);
     dragData.setPromisedFileMIMETypes(wkPromisedFileMIMETypes(self, info));
@@ -2166,8 +2080,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 // NSDraggingDestination -draggingExited: for WKView — routes into WebPageProxy.
 - (void)draggingExited:(id<NSDraggingInfo>)info
 {
-    if (!_wkState || !_wkState->page)
-        return;
     auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
     _wkState->page->dragExited(dragData);
     _wkState->page->resetCurrentDragInformation();
@@ -2184,8 +2096,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 // NSDraggingDestination drop handler, mirroring WebViewImpl::performDragOperation.
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)info
 {
-    if (!_wkState || !_wkState->page)
-        return NO;
     auto& page = *_wkState->page;
     auto dragData = Box<WebCore::DragData>::create(wkDragDataFromInfo(self, info, page));
 
@@ -2331,7 +2241,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 // forward scroll-wheel NSEvents into the page.
 - (void)scrollWheel:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super scrollWheel:event]; return; }
     WebKit::NativeWebWheelEvent webEvent(event, self);
 
     // give the two-finger back/forward swipe first refusal, exactly as
@@ -2348,7 +2257,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 
 - (void)keyDown:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super keyDown:event]; return; }
     // We could be receiving a key down from AppKit if we re-sent an event the page left
     // unhandled and it maps to an action that is currently unavailable (mirrors
     // WebViewImpl::keyDown); the page has already seen it, so pass it to super.
@@ -2378,7 +2286,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 
 - (void)keyUp:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super keyUp:event]; return; }
     WTF::Vector<WebCore::KeypressCommand> commands;
     WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
     _wkState->page->handleKeyboardEvent(webEvent);
@@ -2386,7 +2293,6 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 
 - (void)flagsChanged:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page) { [super flagsChanged:event]; return; }
     // Don't make an event from the num lock and function keys (mirrors
     // WebViewImpl::eventKeyCodeIsZeroOrNumLockOrFn). A keyCode-0 flagsChanged — which virtual
     // keyboards (VMware) emit for bare modifier presses — maps to windows keyCode 65 ('A'), so a
@@ -2406,7 +2312,7 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 // still fire.
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
-    if (!_wkState || !_wkState->page || [event type] != NSEventTypeKeyDown)
+    if ([event type] != NSEventTypeKeyDown)
         return [super performKeyEquivalent:event];
 
     // A nested event loop during dispatch can release the current event; keep it alive.
@@ -2450,7 +2356,7 @@ static bool wkHandleLegacyFilesPasteboard(id<NSDraggingInfo> draggingInfo, Box<W
 // m_keyDownEventBeingResent re-send in WebViewImpl::doneWithKeyEvent.
 - (void)_aquaWebKitResendUnhandledKeyDownEvent:(NSEvent *)event
 {
-    if (!_wkState || _wkState->keyDownEventBeingResent)
+    if (_wkState->keyDownEventBeingResent)
         return;
     RetainPtr<WKView> protector = self; // re-sending the event may destroy this view
     _wkState->keyDownEventBeingResent = event;
@@ -2527,33 +2433,198 @@ static const void* extensionInputEventKey = &extensionInputEventKey;
     [self insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
 }
 
-// Edit menu items dispatch action selectors to the first responder.
-// Forward them to WebPageProxy::executeEditCommand, mirroring WebViewImpl's
-// WEBCORE_COMMAND forwarding for the same selectors.
-- (void)selectAll:(id)sender
+typedef HashMap<SEL, String> SelectorNameMap;
+
+// Map selectors into Editor command names.
+// This is not needed for any selectors that have the same name as the Editor command.
+static const SelectorNameMap& selectorExceptionMap()
 {
-    if (!_wkState || !_wkState->page) return;
-    _wkState->page->selectAll();
+    static NeverDestroyed<SelectorNameMap> map;
+
+    struct SelectorAndCommandName {
+        SEL selector;
+        ASCIILiteral commandName;
+    };
+
+    static const SelectorAndCommandName names[] = {
+        { @selector(insertNewlineIgnoringFieldEditor:), "InsertNewline"_s },
+        { @selector(insertParagraphSeparator:), "InsertNewline"_s },
+        { @selector(insertTabIgnoringFieldEditor:), "InsertTab"_s },
+        { @selector(pageDown:), "MovePageDown"_s },
+        { @selector(pageDownAndModifySelection:), "MovePageDownAndModifySelection"_s },
+        { @selector(pageUp:), "MovePageUp"_s },
+        { @selector(pageUpAndModifySelection:), "MovePageUpAndModifySelection"_s },
+        { @selector(scrollPageDown:), "ScrollPageForward"_s },
+        { @selector(scrollPageUp:), "ScrollPageBackward"_s },
+        { @selector(_pasteAsQuotation:), "PasteAsQuotation"_s },
+    };
+
+    for (auto& name : names)
+        map.get().add(name.selector, name.commandName);
+
+    return map;
 }
 
-#define WKV_EDIT_ACTION(SEL_NAME, COMMAND) \
-- (void)SEL_NAME:(id)sender \
-{ \
-    if (!_wkState || !_wkState->page) return; \
-    _wkState->page->executeEditCommand(WTF::String(COMMAND ## _s), WTF::String()); \
+static String commandNameForSelector(SEL selector)
+{
+    // Check the exception map first.
+    static const SelectorNameMap& exceptionMap = selectorExceptionMap();
+    SelectorNameMap::const_iterator it = exceptionMap.find(selector);
+    if (it != exceptionMap.end())
+        return it->value;
+
+    // Remove the trailing colon.
+    // No need to capitalize the command name since Editor command names are
+    // not case sensitive.
+    auto selectorName = unsafeSpan(sel_getName(selector));
+    if (selectorName.size() < 2 || selectorName[selectorName.size() - 1] != ':')
+        return String();
+    return String(selectorName.first(selectorName.size() - 1));
 }
-WKV_EDIT_ACTION(copy,            "Copy")
-WKV_EDIT_ACTION(cut,             "Cut")
-WKV_EDIT_ACTION(paste,           "Paste")
-WKV_EDIT_ACTION(pasteAsPlainText,"PasteAsPlainText")
-WKV_EDIT_ACTION(undo,            "Undo")
-WKV_EDIT_ACTION(redo,            "Redo")
-// Edit > Transformations. Upstream routes these through WebViewImpl's
-// WEBCORE_COMMAND list; same executeEditCommand names.
-WKV_EDIT_ACTION(uppercaseWord,   "UppercaseWord")
-WKV_EDIT_ACTION(lowercaseWord,   "LowercaseWord")
-WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
-#undef WKV_EDIT_ACTION
+
+- (void)_aquaWebKitValidateEditingAction:(NSMenuItem *)item completionHandler:(void (^)(BOOL))completionHandler
+{
+    auto command = commandNameForSelector(item.action);
+    if (!WebCore::Editor::commandIsSupportedFromMenuOrKeyBinding(command)) {
+        completionHandler([self validateUserInterfaceItem:item]);
+        return;
+    }
+    _wkState->page->validateCommand(command, [completionHandler = makeBlockPtr(completionHandler)](bool enabled, int32_t) {
+        completionHandler(enabled);
+    });
+}
+
+// WKWebViewMac's WEBCORE_COMMAND actions forward through WebViewImpl's selector-to-command mapping.
+#define WEBCORE_COMMAND(command) \
+- (void)command:(id)sender \
+{ \
+    _wkState->page->executeEditCommand(commandNameForSelector(_cmd), { }); \
+}
+
+WEBCORE_COMMAND(alignCenter)
+WEBCORE_COMMAND(alignJustified)
+WEBCORE_COMMAND(alignLeft)
+WEBCORE_COMMAND(alignRight)
+WEBCORE_COMMAND(copy)
+WEBCORE_COMMAND(copyFont)
+WEBCORE_COMMAND(cut)
+WEBCORE_COMMAND(delete)
+WEBCORE_COMMAND(deleteBackward)
+WEBCORE_COMMAND(deleteBackwardByDecomposingPreviousCharacter)
+WEBCORE_COMMAND(deleteForward)
+WEBCORE_COMMAND(deleteToBeginningOfLine)
+WEBCORE_COMMAND(deleteToBeginningOfParagraph)
+WEBCORE_COMMAND(deleteToEndOfLine)
+WEBCORE_COMMAND(deleteToEndOfParagraph)
+WEBCORE_COMMAND(deleteToMark)
+WEBCORE_COMMAND(deleteWordBackward)
+WEBCORE_COMMAND(deleteWordForward)
+WEBCORE_COMMAND(ignoreSpelling)
+WEBCORE_COMMAND(indent)
+WEBCORE_COMMAND(insertBacktab)
+WEBCORE_COMMAND(insertLineBreak)
+WEBCORE_COMMAND(insertNewline)
+WEBCORE_COMMAND(insertNewlineIgnoringFieldEditor)
+WEBCORE_COMMAND(insertParagraphSeparator)
+WEBCORE_COMMAND(insertTab)
+WEBCORE_COMMAND(insertTabIgnoringFieldEditor)
+WEBCORE_COMMAND(makeTextWritingDirectionLeftToRight)
+WEBCORE_COMMAND(makeTextWritingDirectionNatural)
+WEBCORE_COMMAND(makeTextWritingDirectionRightToLeft)
+WEBCORE_COMMAND(moveBackward)
+WEBCORE_COMMAND(moveBackwardAndModifySelection)
+WEBCORE_COMMAND(moveDown)
+WEBCORE_COMMAND(moveDownAndModifySelection)
+WEBCORE_COMMAND(moveForward)
+WEBCORE_COMMAND(moveForwardAndModifySelection)
+WEBCORE_COMMAND(moveLeft)
+WEBCORE_COMMAND(moveLeftAndModifySelection)
+WEBCORE_COMMAND(moveParagraphBackwardAndModifySelection)
+WEBCORE_COMMAND(moveParagraphForwardAndModifySelection)
+WEBCORE_COMMAND(moveRight)
+WEBCORE_COMMAND(moveRightAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfDocument)
+WEBCORE_COMMAND(moveToBeginningOfDocumentAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfLine)
+WEBCORE_COMMAND(moveToBeginningOfLineAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfParagraph)
+WEBCORE_COMMAND(moveToBeginningOfParagraphAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfSentence)
+WEBCORE_COMMAND(moveToBeginningOfSentenceAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfDocument)
+WEBCORE_COMMAND(moveToEndOfDocumentAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfLine)
+WEBCORE_COMMAND(moveToEndOfLineAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfParagraph)
+WEBCORE_COMMAND(moveToEndOfParagraphAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfSentence)
+WEBCORE_COMMAND(moveToEndOfSentenceAndModifySelection)
+WEBCORE_COMMAND(moveToLeftEndOfLine)
+WEBCORE_COMMAND(moveToLeftEndOfLineAndModifySelection)
+WEBCORE_COMMAND(moveToRightEndOfLine)
+WEBCORE_COMMAND(moveToRightEndOfLineAndModifySelection)
+WEBCORE_COMMAND(moveUp)
+WEBCORE_COMMAND(moveUpAndModifySelection)
+WEBCORE_COMMAND(moveWordBackward)
+WEBCORE_COMMAND(moveWordBackwardAndModifySelection)
+WEBCORE_COMMAND(moveWordForward)
+WEBCORE_COMMAND(moveWordForwardAndModifySelection)
+WEBCORE_COMMAND(moveWordLeft)
+WEBCORE_COMMAND(moveWordLeftAndModifySelection)
+WEBCORE_COMMAND(moveWordRight)
+WEBCORE_COMMAND(moveWordRightAndModifySelection)
+WEBCORE_COMMAND(outdent)
+WEBCORE_COMMAND(pageDown)
+WEBCORE_COMMAND(pageDownAndModifySelection)
+WEBCORE_COMMAND(pageUp)
+WEBCORE_COMMAND(pageUpAndModifySelection)
+WEBCORE_COMMAND(paste)
+WEBCORE_COMMAND(pasteAsPlainText)
+WEBCORE_COMMAND(scrollPageDown)
+WEBCORE_COMMAND(scrollPageUp)
+WEBCORE_COMMAND(pasteFont)
+WEBCORE_COMMAND(scrollLineDown)
+WEBCORE_COMMAND(scrollLineUp)
+WEBCORE_COMMAND(scrollToBeginningOfDocument)
+WEBCORE_COMMAND(scrollToEndOfDocument)
+WEBCORE_COMMAND(selectAll)
+WEBCORE_COMMAND(selectLine)
+WEBCORE_COMMAND(selectParagraph)
+WEBCORE_COMMAND(selectSentence)
+WEBCORE_COMMAND(selectToMark)
+WEBCORE_COMMAND(selectWord)
+WEBCORE_COMMAND(setMark)
+WEBCORE_COMMAND(subscript)
+WEBCORE_COMMAND(superscript)
+WEBCORE_COMMAND(swapWithMark)
+WEBCORE_COMMAND(takeFindStringFromSelection)
+WEBCORE_COMMAND(transpose)
+WEBCORE_COMMAND(underline)
+WEBCORE_COMMAND(unscript)
+WEBCORE_COMMAND(yank)
+WEBCORE_COMMAND(yankAndSelect)
+
+#undef WEBCORE_COMMAND
+
+- (void)centerSelectionInVisibleArea:(id)sender
+{
+    _wkState->page->centerSelectionInVisibleArea();
+}
+
+- (void)uppercaseWord:(id)sender
+{
+    _wkState->page->uppercaseWord();
+}
+
+- (void)lowercaseWord:(id)sender
+{
+    _wkState->page->lowercaseWord();
+}
+
+- (void)capitalizeWord:(id)sender
+{
+    _wkState->page->capitalizeWord();
+}
 
 // automatic quote/dash substitution SPI, declared in WKViewPrivate.h and sent
 // unguarded by Safari 7's substitutions plumbing. Ported from
@@ -2573,8 +2644,7 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
         return;
 
     TextChecker::setAutomaticQuoteSubstitutionEnabled(flag);
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // see -isAutomaticQuoteSubstitutionEnabled above (ported from WebViewImpl::isAutomaticDashSubstitutionEnabled).
@@ -2590,8 +2660,7 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
         return;
 
     TextChecker::setAutomaticDashSubstitutionEnabled(flag);
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // Edit ▸ Substitutions menu actions for the quote/dash pair, ported from
@@ -2602,16 +2671,14 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
 - (void)toggleAutomaticQuoteSubstitution:(id)sender
 {
     TextChecker::setAutomaticQuoteSubstitutionEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled));
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // see -toggleAutomaticQuoteSubstitution: above (ported from WebViewImpl::toggleAutomaticDashSubstitution).
 - (void)toggleAutomaticDashSubstitution:(id)sender
 {
     TextChecker::setAutomaticDashSubstitutionEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled));
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // pinch-to-zoom, double-tap smart zoom and the two-finger back/forward swipe.
@@ -2632,14 +2699,12 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
 // directly (wheelEventWasNotHandledByWebCore, didRestoreScrollPosition).
 - (WebKit::ViewGestureController *)_wkExistingGestureController
 {
-    return _wkState ? _wkState->gestureController.get() : nullptr;
+    return _wkState->gestureController.get();
 }
 
 // ported from WebViewImpl::ensureGestureController.
 - (WebKit::ViewGestureController *)_wkEnsureGestureController
 {
-    if (!_wkState || !_wkState->page)
-        return nullptr;
     if (!_wkState->gestureController)
         _wkState->gestureController = WebKit::ViewGestureController::create(*_wkState->page);
     return _wkState->gestureController.get();
@@ -2648,21 +2713,18 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
 // ported from WebViewImpl::setAllowsMagnification / allowsMagnification.
 - (BOOL)allowsMagnification
 {
-    return _wkState && _wkState->allowsMagnification;
+    return _wkState->allowsMagnification;
 }
 
 - (void)setAllowsMagnification:(BOOL)allowsMagnification
 {
-    if (_wkState)
-        _wkState->allowsMagnification = allowsMagnification;
+    _wkState->allowsMagnification = allowsMagnification;
 }
 
 // ported from WebViewImpl::magnification -- the live gesture's scale while a pinch
 // is in flight, otherwise the page scale factor.
 - (double)magnification
 {
-    if (!_wkState || !_wkState->page)
-        return 1;
     if (RefPtr gestureController = _wkState->gestureController)
         return gestureController->magnification();
     return _wkState->page->pageScaleFactor();
@@ -2674,8 +2736,6 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
     if (magnification <= 0 || std::isnan(magnification) || std::isinf(magnification))
         [NSException raise:NSInvalidArgumentException format:@"Magnification should be a positive number"];
 
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->scalePageInViewCoordinates(magnification, WebCore::roundedIntPoint(WebCore::FloatPoint(point)));
 }
 
@@ -2685,8 +2745,6 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
     if (magnification <= 0 || std::isnan(magnification) || std::isinf(magnification))
         [NSException raise:NSInvalidArgumentException format:@"Magnification should be a positive number"];
 
-    if (!_wkState || !_wkState->page)
-        return;
     WebCore::FloatPoint viewCenter(NSMidX([self bounds]), NSMidY([self bounds]));
     _wkState->page->scalePageInViewCoordinates(magnification, WebCore::roundedIntPoint(viewCenter));
 }
@@ -2695,13 +2753,11 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
 // navigation snapshots recorded and implicit rubber-band control to detect the pinned edge.
 - (BOOL)allowsBackForwardNavigationGestures
 {
-    return _wkState && _wkState->allowsBackForwardNavigationGestures;
+    return _wkState->allowsBackForwardNavigationGestures;
 }
 
 - (void)setAllowsBackForwardNavigationGestures:(BOOL)allowsBackForwardNavigationGestures
 {
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->allowsBackForwardNavigationGestures = allowsBackForwardNavigationGestures;
     _wkState->page->setShouldRecordNavigationSnapshots(allowsBackForwardNavigationGestures);
     _wkState->page->setShouldUseImplicitRubberBandControl(allowsBackForwardNavigationGestures);
@@ -2856,6 +2912,13 @@ static NSError *wkUnknownError()
     completionHandler(wkUnknownError());
 }
 
+// WebViewImpl::toggleAutomaticLinkDetection.
+- (void)toggleAutomaticLinkDetection:(id)sender
+{
+    TextChecker::setAutomaticLinkDetectionEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticLinkDetectionEnabled));
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
 // Edit > Spelling and Grammar, and Edit > Speech. Safari 7 dispatches these
 // action selectors down the responder chain to the web view, which is what enables the submenu
 // while the web view is first responder; the Safari-537-era WKView implements them all. Each is
@@ -2877,8 +2940,6 @@ static NSError *wkUnknownError()
         return;
     }
 
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->advanceToNextMisspelling(true);
     [spellingPanel orderFront:sender];
 }
@@ -2886,8 +2947,6 @@ static NSError *wkUnknownError()
 // ported from WebViewImpl::checkSpelling.
 - (void)checkSpelling:(id)sender
 {
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->advanceToNextMisspelling(false);
 }
 
@@ -2895,8 +2954,6 @@ static NSError *wkUnknownError()
 // replacement as the sender's selected cell.
 - (void)changeSpelling:(id)sender
 {
-    if (!_wkState || !_wkState->page)
-        return;
     RetainPtr word = [[sender selectedCell] stringValue];
     _wkState->page->changeSpellingToWord(word.get());
 }
@@ -2905,40 +2962,34 @@ static NSError *wkUnknownError()
 - (void)toggleContinuousSpellChecking:(id)sender
 {
     TextChecker::setContinuousSpellCheckingEnabled(!TextChecker::state().contains(TextCheckerState::ContinuousSpellCheckingEnabled));
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // ported from WebViewImpl::toggleGrammarChecking.
 - (void)toggleGrammarChecking:(id)sender
 {
     TextChecker::setGrammarCheckingEnabled(!TextChecker::state().contains(TextCheckerState::GrammarCheckingEnabled));
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // ported from WebViewImpl::toggleAutomaticSpellingCorrection.
 - (void)toggleAutomaticSpellingCorrection:(id)sender
 {
     TextChecker::setAutomaticSpellingCorrectionEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticSpellingCorrectionEnabled));
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // ported from WebViewImpl::toggleAutomaticTextReplacement.
 - (void)toggleAutomaticTextReplacement:(id)sender
 {
     TextChecker::setAutomaticTextReplacementEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticTextReplacementEnabled));
-    if (_wkState && _wkState->page)
-        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+    protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
 }
 
 // ported from WebViewImpl::toggleSmartInsertDelete -- this one is page state,
 // not TextChecker state, so it needs no updateTextCheckerState push.
 - (void)toggleSmartInsertDelete:(id)sender
 {
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->setSmartInsertDeleteEnabled(!_wkState->page->isSmartInsertDeleteEnabled());
 }
 
@@ -2963,8 +3014,6 @@ static NSError *wkUnknownError()
 // the whole document) is fetched asynchronously and handed to NSApplication's speech synthesis.
 - (void)startSpeaking:(id)sender
 {
-    if (!_wkState || !_wkState->page)
-        return;
     _wkState->page->getSelectionOrContentsAsString([](const WTF::String& string) {
         if (!string)
             return;
@@ -2988,65 +3037,118 @@ static NSMenuItem *wkMenuItem(id <NSValidatedUserInterfaceItem> item)
     return (NSMenuItem *)item;
 }
 
-// menu validation for the Substitutions toggles, ported from the
-// Safari-537-era -[WKView validateUserInterfaceItem:] cases (checkbox state from the TextChecker
-// flag; enabled only over editable content, matching WebViewImpl). Every other action falls
-// through to YES, which is what AppKit's responds-to-selector default validation gives this
-// WKView's remaining menu actions (copy:/cut:/paste:/undo:/redo:/selectAll:).
-- (BOOL)validateUserInterfaceItem:(id <NSValidatedUserInterfaceItem>)item
+// WebViewImpl's validation and asynchronous menu/toolbar updates. This 10.9 WKView owns its state,
+// so the reply holds a weak view in place of WebViewImpl's weak implementation pointer.
+- (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item
 {
     SEL action = [item action];
 
-    // validate the Automatic Quote Substitution toggle: checkbox from the TextChecker flag, enabled only over editable content.
+    if (action == @selector(showGuessPanel:)) {
+        if (RetainPtr menuItem = wkMenuItem(item))
+            [menuItem setTitle:WebCore::contextMenuItemTagShowSpellingPanel(![[[NSSpellChecker sharedSpellChecker] spellingPanel] isVisible]).createNSString().get()];
+        return _wkState->page->editorState().isContentEditable;
+    }
+
+    if (action == @selector(checkSpelling:) || action == @selector(changeSpelling:))
+        return _wkState->page->editorState().isContentEditable;
+
+    if (action == @selector(toggleContinuousSpellChecking:)) {
+        bool enabled = TextChecker::isContinuousSpellCheckingAllowed();
+        bool checked = enabled && TextChecker::state().contains(TextCheckerState::ContinuousSpellCheckingEnabled);
+        [protect(wkMenuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return enabled;
+    }
+
+    if (action == @selector(toggleGrammarChecking:)) {
+        bool checked = TextChecker::state().contains(TextCheckerState::GrammarCheckingEnabled);
+        [protect(wkMenuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return true;
+    }
+
+    if (action == @selector(toggleAutomaticSpellingCorrection:)) {
+        bool enable = _wkState->page->editorState().canEnableAutomaticSpellingCorrection;
+        protect(wkMenuItem(item)).get().state = TextChecker::state().contains(TextCheckerState::AutomaticSpellingCorrectionEnabled) && enable ? NSControlStateValueOn : NSControlStateValueOff;
+        return enable;
+    }
+
+    if (action == @selector(orderFrontSubstitutionsPanel:)) {
+        if (RetainPtr menuItem = wkMenuItem(item))
+            [menuItem setTitle:WebCore::contextMenuItemTagShowSubstitutions(![[[NSSpellChecker sharedSpellChecker] substitutionsPanel] isVisible]).createNSString().get()];
+        return _wkState->page->editorState().isContentEditable;
+    }
+
+    if (action == @selector(toggleSmartInsertDelete:)) {
+        bool checked = _wkState->page->isSmartInsertDeleteEnabled();
+        [protect(wkMenuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return _wkState->page->editorState().isContentEditable;
+    }
+
     if (action == @selector(toggleAutomaticQuoteSubstitution:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled);
-        [wkMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
-        return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
+        [protect(wkMenuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return _wkState->page->editorState().isContentEditable;
     }
 
-    // validate the Automatic Dash Substitution toggle: checkbox from the TextChecker flag, enabled only over editable content.
     if (action == @selector(toggleAutomaticDashSubstitution:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled);
-        [wkMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
-        return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
+        [protect(wkMenuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return _wkState->page->editorState().isContentEditable;
     }
 
-    // the Spelling and Grammar / Substitutions toggles above show a checkmark
-    // for their current state. Each reads the same flag its action writes.
-    struct { SEL action; TextCheckerState flag; } checkedToggles[] = {
-        { @selector(toggleContinuousSpellChecking:),   TextCheckerState::ContinuousSpellCheckingEnabled },
-        { @selector(toggleGrammarChecking:),           TextCheckerState::GrammarCheckingEnabled },
-        { @selector(toggleAutomaticSpellingCorrection:), TextCheckerState::AutomaticSpellingCorrectionEnabled },
-        { @selector(toggleAutomaticTextReplacement:),  TextCheckerState::AutomaticTextReplacementEnabled },
-    };
-    for (auto& toggle : checkedToggles) {
-        if (action != toggle.action)
-            continue;
-        [wkMenuItem(item) setState:TextChecker::state().contains(toggle.flag) ? NSControlStateValueOn : NSControlStateValueOff];
-        return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
+    if (action == @selector(toggleAutomaticLinkDetection:)) {
+        bool checked = TextChecker::state().contains(TextCheckerState::AutomaticLinkDetectionEnabled);
+        [protect(wkMenuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return _wkState->page->editorState().isContentEditable;
     }
 
-    // smart insert/delete is page state rather than TextChecker state.
-    if (action == @selector(toggleSmartInsertDelete:)) {
-        bool checked = _wkState && _wkState->page && _wkState->page->isSmartInsertDeleteEnabled();
-        [wkMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
-        return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
+    if (action == @selector(toggleAutomaticTextReplacement:)) {
+        bool checked = TextChecker::state().contains(TextCheckerState::AutomaticTextReplacementEnabled);
+        [protect(wkMenuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return _wkState->page->editorState().isContentEditable;
     }
 
-    // the spelling actions and the case transformations only apply to editable
-    // content; the panels and Speech apply whenever there is a page.
-    if (action == @selector(checkSpelling:) || action == @selector(changeSpelling:)
-        || action == @selector(uppercaseWord:) || action == @selector(lowercaseWord:)
-        || action == @selector(capitalizeWord:))
-        return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
+    if (action == @selector(uppercaseWord:) || action == @selector(lowercaseWord:) || action == @selector(capitalizeWord:))
+        return _wkState->page->editorState().selectionType == WebCore::SelectionType::Range && _wkState->page->editorState().isContentEditable;
 
-    if (action == @selector(showGuessPanel:) || action == @selector(orderFrontSubstitutionsPanel:)
-        || action == @selector(startSpeaking:) || action == @selector(stopSpeaking:))
-        return _wkState && _wkState->page;
+    if (action == @selector(stopSpeaking:))
+        return [NSApp isSpeaking];
 
-    return YES;
+    // The centerSelectionInVisibleArea: selector is enabled if there's a selection range or if there's an insertion point in an editable area.
+    if (action == @selector(centerSelectionInVisibleArea:))
+        return _wkState->page->editorState().selectionType == WebCore::SelectionType::Range || (_wkState->page->editorState().isContentEditable && _wkState->page->editorState().selectionType == WebCore::SelectionType::Caret);
+
+    // Next, handle editor commands. Start by returning true for anything that is not an editor command.
+    // Returning true is the default thing to do in an AppKit validate method for any selector that is not recognized.
+    String commandName = commandNameForSelector([item action]);
+    if (!WebCore::Editor::commandIsSupportedFromMenuOrKeyBinding(commandName))
+        return true;
+
+    // Add this item to the vector of items for a given command that are awaiting validation.
+    auto addResult = _wkState->validationMap.add(commandName, Vector<RetainPtr<id<NSValidatedUserInterfaceItem>>> { });
+    addResult.iterator->value.append(item);
+    if (addResult.isNewEntry) {
+        // If we are not already awaiting validation for this command, start the asynchronous validation process.
+        // FIXME: Theoretically, there is a race here; when we get the answer it might be old, from a previous time
+        // we asked for the same command; there is no guarantee the answer is still valid.
+        _wkState->page->validateCommand(commandName, [weakSelf = WeakObjCPtr<WKView> { self }, commandName](bool isEnabled, int32_t state) {
+            RetainPtr view = weakSelf.get();
+            if (!view)
+                return;
+            for (auto& item : view->_wkState->validationMap.take(commandName)) {
+                RetainPtr menuItem = wkMenuItem(item.get());
+                RetainPtr toolbarItem = dynamic_objc_cast<NSToolbarItem>((NSObject *)item.get());
+                [menuItem setState:state];
+                [menuItem setEnabled:isEnabled];
+                [toolbarItem setEnabled:isEnabled];
+            }
+        });
+    }
+
+    // Treat as enabled until the web process replies and the menu/toolbar items are updated.
+    // FIXME <rdar://problem/8803459>: This means disabled items will flash enabled at first for a moment.
+    // But returning NO here would be worse; that would make keyboard commands such as command-C fail.
+    return true;
 }
-
 @end
 // upstream WKView.mm ends with the lines below. This reimplementation opens no
 // ALLOW_DEPRECATED_DECLARATIONS block and no PLATFORM(MAC) guard, so they are kept commented out

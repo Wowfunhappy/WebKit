@@ -1870,6 +1870,11 @@ if (isHost) {
         dispatchKeyEvent: async (tab, event) => {
             await callRouter("aqua.input.dispatchKeyEvent", tabReference(tab), inputEvent(event, "key event"));
         },
+        performEditingAction: async (tab, action) => {
+            if (typeof action !== "string")
+                throw new TypeError("An editing action is a selector name string");
+            await callRouter("aqua.input.performEditingAction", tabReference(tab), action);
+        },
         insertText: async (tab, text) => {
             if (typeof text !== "string")
                 throw new TypeError("Inserted text is a string");

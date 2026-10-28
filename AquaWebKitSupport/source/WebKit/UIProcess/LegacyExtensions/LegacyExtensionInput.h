@@ -27,6 +27,7 @@ namespace WebKit::LegacyExtensions {
 using InputResult = Expected<void, String>;
 void dispatchMouseEvent(WebPageProxy&, const String& extensionKey, const WebsiteAccess&, const JSON::Object&, CompletionHandler<void(InputResult&&)>&&);
 void dispatchKeyEvent(WebPageProxy&, const String& extensionKey, const WebsiteAccess&, const JSON::Object&, CompletionHandler<void(InputResult&&)>&&);
+void performEditingAction(WebPageProxy&, const String& extensionKey, const WebsiteAccess&, const String& action, CompletionHandler<void(InputResult&&)>&&);
 InputResult insertText(WebPageProxy&, const String& extensionKey, const WebsiteAccess&, const String&);
 
 } // namespace WebKit::LegacyExtensions

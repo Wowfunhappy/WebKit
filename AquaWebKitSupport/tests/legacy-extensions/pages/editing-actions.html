@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Editing actions</title>
+<style>
+body { margin: 32px; font: 18px sans-serif; color: #17233a; background: #f5f7fb; }
+input, textarea, [contenteditable] { display: block; margin: 16px 0; padding: 12px; width: 600px; font: 20px monospace; background: white; }
+[contenteditable] { min-height: 80px; border: 1px solid #aaa; }
+pre { white-space: pre-wrap; font: 14px monospace; }
+</style>
+<h1>Editing actions</h1>
+<p id="bodyText">Select this page body: copper, silver, gold.</p>
+<input id="field" autocomplete="off" value="Field selection">
+<textarea id="area">Textarea selection</textarea>
+<div id="editor" contenteditable="true">Rich editor selection</div>
+<pre id="results">Ready for the legacy extension.</pre>
+<script>
+// inspector.safariextension's global page performs the action; AppleScript reads the resulting state.
+window.__events = [];
+window.__answers = {};
+window.__customClipboard = false;
+window.addEventListener("message", event => {
+    if (event.source === window && event.data && event.data.inspectorResult) {
+        const { op, result } = event.data.inspectorResult;
+        window.__answers[op] = result;
+        document.getElementById("results").textContent = JSON.stringify({ result, events: window.__events }, null, 2);
+    }
+});
+for (const type of ["copy", "cut", "paste", "beforeinput", "input"]) {
+    document.addEventListener(type, event => {
+        const data = event.clipboardData;
+        window.__events.push({ type, trusted: event.isTrusted, text: data ? data.getData("text/plain") : null,
+            inputType: event.inputType || null, active: navigator.userActivation.isActive });
+        if (window.__customClipboard && (type === "copy" || type === "cut")) {
+            data.setData("text/plain", "DOM " + type + " payload");
+            event.preventDefault();
+        }
+    });
+}
+window.requestInput = (method, argument, url) => {
+    const op = url ? "inputTab" : "inputSelf";
+    delete window.__answers[op];
+    window.postMessage({ inspector: op, input: { method, argument, url } }, "*");
+};
+window.state = () => ({ field: field.value, range: [field.selectionStart, field.selectionEnd],
+    selection: getSelection().toString(), editor: editor.textContent, events: window.__events,
+    answers: window.__answers, focused: document.activeElement.id, hasFocus: document.hasFocus() });
+</script>

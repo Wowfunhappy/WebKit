@@ -132,12 +132,17 @@
 #import <QuartzCore/QuartzCore.h>
 #import <AppKit/AppKit.h>
 #import <wtf/RetainPtr.h>
-#import <wtf/SortedArrayMap.h>
 // BEGIN/END_BLOCK_OBJC_EXCEPTIONS around the constraint re-activation the
 // full-screen client performs, and objc_getClass for the autoresizing-constraint test it filters
 // with (both mirroring WKFullScreenWindowController).
 #import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
+
+@interface WKResponderChainSink : NSResponder
+- (id)initWithResponderChain:(NSResponder *)chain;
+- (void)detach;
+- (bool)didReceiveUnhandledCommand;
+@end
 
 // A layer-HOSTING subview for the WebContent render layer (the Safari-537
 // WKView "_layerHostingView"/WKFlippedView design; see the m_layerHostingView member comment).
@@ -175,6 +180,7 @@
 - (BOOL)_aquaWebKitIsExtensionInputEvent:(NSEvent *)event;
 - (NSEvent *)_aquaWebKitLastMouseDownEvent;
 - (NSTextInputContext *)_web_superInputContext;
+- (void)_web_superDoCommandBySelector:(SEL)selector;
 @end
 
 // WKView's title-attribute tooltip setter (classic -addToolTipRect:/
@@ -381,6 +387,7 @@ public:
     NSView *fullScreenPlaceholderView() const { return m_fullScreenClient.placeholderView(); }
 #endif
     void viewDidChangeBackingProperties();
+    void viewWillMoveToAnotherWindow();
     void setWindowOcclusionDetectionEnabled(bool enabled) { m_windowOcclusionDetectionEnabled = enabled; }
     bool windowOcclusionDetectionEnabled() const { return m_windowOcclusionDetectionEnabled; }
 private:
@@ -1269,6 +1276,11 @@ void AquaWebKitPageClient::registerEditCommand(Ref<WebEditCommandProxy>&& comman
     if (!actionName.isEmpty())
         [undoManager setActionName:actionName.createNSString().get()];
 }
+void AquaWebKitPageClient::viewWillMoveToAnotherWindow()
+{
+    clearAllEditCommands();
+}
+
 void AquaWebKitPageClient::clearAllEditCommands()
 {
     [[m_view undoManager] removeAllActionsWithTarget:m_undoTarget.get()];
@@ -1302,42 +1314,13 @@ void AquaWebKitPageClient::accessibilityWebProcessTokenReceived(std::span<const 
 }
 #endif
 #if PLATFORM(COCOA)
-// Map an AppKit responder scroll selector to its WebCore Editor command.
-// These are the always-enabled (non-editable) scrolling commands that the WebContent-side
-// keypress path (WebPage::executeKeypressCommandsInternal) deliberately does NOT handle and
-// instead forwards to the UIProcess responder fallback. Upstream WKWebView implements these
-// as NSResponder action methods that route through WebViewImpl::commandNameForSelector; the
-// scrollPageDown:/scrollPageUp: pair needs the same name-exception WebViewImpl uses, while the
-// rest equal the command name minus the trailing colon (Editor command names are case-insensitive).
-static String scrollCommandNameForSavedSelector(const String& selector)
-{
-    static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, ASCIILiteral>>({
-        { "scrollLineDown:"_s, "ScrollLineDown"_s },
-        { "scrollLineUp:"_s, "ScrollLineUp"_s },
-        { "scrollPageDown:"_s, "ScrollPageForward"_s },
-        { "scrollPageUp:"_s, "ScrollPageBackward"_s },
-        { "scrollToBeginningOfDocument:"_s, "ScrollToBeginningOfDocument"_s },
-        { "scrollToEndOfDocument:"_s, "ScrollToEndOfDocument"_s },
-    }) };
-    if (auto commandName = map.tryGet(selector))
-        return *commandName;
-    return String();
-}
-
 bool AquaWebKitPageClient::executeSavedCommandBySelector(const String& selector)
 {
-    // The IPC fallback (WebPageProxy::executeSavedCommandBySelector ->
-    // _web_superDoCommandBySelector:) lands on WKWebView's NSResponder action methods upstream, and
-    // Safari's WKView has none — so resolve the scroll selector to its Editor command and execute it
-    // on the page here, as those action methods would. Selectors outside the map are unhandled
-    // (false) and bubble to Safari's own responder handling.
-    if (!m_page)
-        return false;
-    String commandName = scrollCommandNameForSavedSelector(selector);
-    if (commandName.isEmpty())
-        return false;
-    m_page->executeEditCommand(commandName, String());
-    return true;
+    // The sink records unhandled commands and suppresses NSBeep.
+    RetainPtr<WKResponderChainSink> sink = adoptNS([[WKResponderChainSink alloc] initWithResponderChain:m_view]);
+    [m_view _web_superDoCommandBySelector:NSSelectorFromString(selector.createNSString().get())];
+    [sink detach];
+    return ![sink didReceiveUnhandledCommand];
 }
 #endif
 // HIToolbox secure-event-input, forward-declared to keep <Carbon/Carbon.h> and
@@ -2288,6 +2271,11 @@ void setAquaWebKitPageClientPage(PageClient& client, WebPageProxy* page)
 void aquaWebKitPageClientViewWillDeallocate(PageClient& client)
 {
     static_cast<AquaWebKitPageClient&>(client).viewWillDeallocate();
+}
+
+void aquaWebKitPageClientViewWillMoveToAnotherWindow(PageClient& client)
+{
+    static_cast<AquaWebKitPageClient&>(client).viewWillMoveToAnotherWindow();
 }
 
 void aquaWebKitPageClientViewDidChangeBackingProperties(PageClient& client)

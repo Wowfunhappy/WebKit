@@ -2051,8 +2051,8 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         resultToHostContext(context, callID, ticket.isEmpty() ? nullptr : JSON::Value::create(ticket).ptr(), ticket.isEmpty() ? "no-source"_s : String { });
         return;
     }
-    // aqua.input: dispatchMouseEvent(tab, event), dispatchKeyEvent(tab, event) and insertText(tab, text).
-    if (method == "aqua.input.dispatchMouseEvent"_s || method == "aqua.input.dispatchKeyEvent"_s || method == "aqua.input.insertText"_s) {
+    // aqua.input: user input and editing actions for a tab.
+    if (method == "aqua.input.dispatchMouseEvent"_s || method == "aqua.input.dispatchKeyEvent"_s || method == "aqua.input.insertText"_s || method == "aqua.input.performEditingAction"_s) {
         RefPtr page = pageForTabReference(objectArgument(0).get());
         if (!page)
             return resultToHostContext(context, callID, nullptr, "No tab with this id."_s);
@@ -2065,6 +2065,8 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
             };
             if (method == "aqua.input.insertText"_s)
                 return finish(LegacyExtensions::insertText(page, context->extensionKey, access, input ? input->asString() : String()));
+            if (method == "aqua.input.performEditingAction"_s)
+                return LegacyExtensions::performEditingAction(page, context->extensionKey, access, input ? input->asString() : String(), WTF::move(finish));
             RefPtr event = input ? input->asObject() : nullptr;
             if (!event)
                 return finish(makeUnexpected("An input event is an object."_s));

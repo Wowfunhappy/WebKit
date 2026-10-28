@@ -15,6 +15,7 @@
 - (void)_aquaWebKitHandleExtensionKeyEvent:(NSEvent *)event completionHandler:(void (^)(void))completionHandler;
 - (void)_aquaWebKitHandleExtensionWheelEvent:(NSEvent *)event;
 - (void)_aquaWebKitInsertExtensionText:(NSString *)text;
+- (void)_aquaWebKitValidateEditingAction:(NSMenuItem *)item completionHandler:(void (^)(BOOL))completionHandler;
 @end
 
 // NSEvent SPI WebAutomationSession's wheel events take their window by.
@@ -207,6 +208,58 @@ void dispatchKeyEvent(WebPageProxy& page, const String& extensionKey, const Webs
     [view _aquaWebKitHandleExtensionKeyEvent:nsEvent.get() completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)] mutable {
         completionHandler({ });
     }).get()];
+}
+
+// The Edit menu's text, selection and history actions.
+static bool isEditingAction(const String& action)
+{
+    static constexpr ASCIILiteral actions[] = {
+        "selectAll:"_s, "copy:"_s, "cut:"_s, "paste:"_s, "pasteAsPlainText:"_s, "delete:"_s,
+        "undo:"_s, "redo:"_s, "uppercaseWord:"_s, "lowercaseWord:"_s, "capitalizeWord:"_s,
+    };
+    for (auto name : actions) {
+        if (action == name)
+            return true;
+    }
+    return false;
+}
+
+void performEditingAction(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access, const String& action, CompletionHandler<void(InputResult&&)>&& completionHandler)
+{
+    if (auto result = checkAccess(page, extensionKey, access); !result)
+        return completionHandler(WTF::move(result));
+    if (!isEditingAction(action))
+        return completionHandler(makeUnexpected(makeString("Unsupported editing action: "_s, action)));
+
+    RetainPtr view = viewOfPage(page);
+    SEL selector = NSSelectorFromString(action.createNSString().get());
+    RetainPtr<NSResponder> target = view.get();
+    while (target && ![target respondsToSelector:selector])
+        target = [target nextResponder];
+    if (!target)
+        return completionHandler(makeUnexpected(makeString("No target for editing action: "_s, action)));
+
+    RetainPtr item = adoptNS([[NSMenuItem alloc] initWithTitle:@"" action:selector keyEquivalent:@""]);
+    [item setTarget:target.get()];
+    auto perform = [page = Ref { page }, target, item, extensionKey, access, action, selector, completionHandler = WTF::move(completionHandler)](BOOL enabled) mutable {
+        if (auto result = checkAccess(page, extensionKey, access); !result)
+            return completionHandler(WTF::move(result));
+        if (!enabled)
+            return completionHandler(makeUnexpected(makeString("Editing action is disabled: "_s, action)));
+        [NSApp sendAction:selector to:target.get() from:item.get()];
+        completionHandler({ });
+    };
+
+    // NSMenu prefers validateMenuItem: to validateUserInterfaceItem: on its action target.
+    if ([target respondsToSelector:@selector(validateMenuItem:)])
+        return perform([(id<NSMenuItemValidation>)target.get() validateMenuItem:item.get()]);
+    if (target.get() == view.get()) {
+        [view _aquaWebKitValidateEditingAction:item.get() completionHandler:makeBlockPtr(WTF::move(perform)).get()];
+        return;
+    }
+    if ([target respondsToSelector:@selector(validateUserInterfaceItem:)])
+        return perform([(id<NSUserInterfaceValidations>)target.get() validateUserInterfaceItem:item.get()]);
+    perform(YES);
 }
 
 InputResult insertText(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access, const String& text)
