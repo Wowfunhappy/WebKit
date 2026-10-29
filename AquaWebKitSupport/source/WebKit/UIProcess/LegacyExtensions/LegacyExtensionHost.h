@@ -53,6 +53,7 @@ class Navigation;
 namespace WebKit {
 
 class LegacyExtensionCookieObserver;
+class LegacyExtensionDialog;
 class LegacyExtensionDeclarativeNetRequest;
 class NetworkProcessProxy;
 class WebBackForwardListItem;
@@ -134,6 +135,7 @@ public:
 
     // An event of an extension, to its listening host contexts.
     void dispatchExtensionEvent(const String& extensionKey, const String& eventName, Ref<JSON::Array>&& arguments);
+    void dispatchDialogOpened(LegacyExtensionDialog&, Ref<JSON::Object>&&);
 
     // A devtools event, to the listening devtools pages of the inspected tab whose extensions `allows` admits.
     void dispatchDevToolsEvent(double inspectedTabID, const String& eventName, Ref<JSON::Array>&& arguments, Function<bool(const LegacyExtensions::WebsiteAccess&, const String& extensionKey)>&& allows);

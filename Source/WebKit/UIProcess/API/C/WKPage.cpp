@@ -66,6 +66,7 @@
 #include "DownloadProxy.h"
 #include "GeolocationPermissionRequestProxy.h"
 #include "JavaScriptEvaluationResult.h"
+#include "LegacyExtensionDialog.h" // AQUAWEBKIT: Safari 7's synchronous dialogs for extensions.
 #include "LegacySessionStateCoding.h"
 #include "Logging.h"
 #include "MediaKeySystemPermissionRequest.h"
@@ -2174,6 +2175,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
         void runJavaScriptAlert(WebPageProxy& page, const String& message, WebFrameProxy* frame, FrameInfoData&& frameInfo, Function<void()>&& completionHandler) final
         {
+            auto extensionDialog = LegacyExtensionDialog::createForSynchronousCallback(page, LegacyExtensionDialog::Type::Alert, !m_client.runJavaScriptAlert, message); // AQUAWEBKIT: Safari 7's synchronous panel, for extensions to see and answer.
             if (m_client.runJavaScriptAlert) {
                 RefPtr<RunJavaScriptAlertResultListener> listener = RunJavaScriptAlertResultListener::create(WTF::move(completionHandler));
                 RefPtr<API::SecurityOrigin> securityOrigin = API::SecurityOrigin::create(frameInfo.securityOrigin);
@@ -2200,6 +2202,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
         void runJavaScriptConfirm(WebPageProxy& page, const String& message, WebFrameProxy* frame, FrameInfoData&& frameInfo, Function<void(bool)>&& completionHandler) final
         {
+            auto extensionDialog = LegacyExtensionDialog::createForSynchronousCallback(page, LegacyExtensionDialog::Type::Confirm, !m_client.runJavaScriptConfirm, message); // AQUAWEBKIT: Safari 7's synchronous panel, for extensions to see and answer.
             if (m_client.runJavaScriptConfirm) {
                 RefPtr<RunJavaScriptConfirmResultListener> listener = RunJavaScriptConfirmResultListener::create(WTF::move(completionHandler));
                 RefPtr<API::SecurityOrigin> securityOrigin = API::SecurityOrigin::create(frameInfo.securityOrigin);
@@ -2227,6 +2230,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
         void runJavaScriptPrompt(WebPageProxy& page, const String& message, const String& defaultValue, WebFrameProxy* frame, FrameInfoData&& frameInfo, Function<void(const String&)>&& completionHandler) final
         {
+            auto extensionDialog = LegacyExtensionDialog::createForSynchronousCallback(page, LegacyExtensionDialog::Type::Prompt, !m_client.runJavaScriptPrompt, message, defaultValue); // AQUAWEBKIT: Safari 7's synchronous panel, for extensions to see and answer.
             if (m_client.runJavaScriptPrompt) {
                 RefPtr<RunJavaScriptPromptResultListener> listener = RunJavaScriptPromptResultListener::create(WTF::move(completionHandler));
                 RefPtr<API::SecurityOrigin> securityOrigin = API::SecurityOrigin::create(frameInfo.securityOrigin);
@@ -2347,6 +2351,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
         void runBeforeUnloadConfirmPanel(WebKit::WebPageProxy& page, WTF::String&& message, WebKit::WebFrameProxy* frame, FrameInfoData&&, Function<void(bool)>&& completionHandler) final
         {
+            auto extensionDialog = LegacyExtensionDialog::createForSynchronousCallback(page, LegacyExtensionDialog::Type::BeforeUnload, !m_client.runBeforeUnloadConfirmPanel, message); // AQUAWEBKIT: Safari 7's synchronous panel, with WebCore's message, for extensions to see and answer.
             // AQUAWEBKIT: Safari 7 prints the page's beforeunload string under its own question
             // ("%@\n\n%@" in Safari::BrowserPageUIClient::runBeforeUnloadConfirmPanel); Safari 26 shows none of it.
             if (WTF::MacApplication::isSafari())

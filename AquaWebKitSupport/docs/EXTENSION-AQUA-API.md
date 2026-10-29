@@ -1,6 +1,6 @@
 # The `aqua` API for Safari 7 extensions
 
-This WebKit gives Safari 7 legacy extensions an `aqua` namespace for media handoff, Web Inspector access and user input, alongside the `browser`
+This WebKit gives Safari 7 legacy extensions an `aqua` namespace for media handoff, Web Inspector access, user input and JavaScript dialogs, alongside the `browser`
 namespace described in [EXTENSION-BROWSER-API.md](EXTENSION-BROWSER-API.md), which also defines the host and
 content contexts used here.
 
@@ -8,10 +8,10 @@ Sources: `AquaWebKitSupport/source/WebKit/Shared/LegacyExtensions/LegacyExtensio
 `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionHost.{h,cpp}` (the UI process side) and
 `AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/mse/MediaRestreamSource.cpp`, with
 `AquaWebKitSupport/source/WebKit/UIProcess/LegacyExtensions/LegacyExtensionInspector.{h,cpp}` for `aqua.inspector`, and
-`LegacyExtensionInput.{h,mm}` beside it for `aqua.input`. Manual tests:
+`LegacyExtensionInput.{h,mm}` and `LegacyExtensionDialog.{h,mm}` beside it for `aqua.input` and `aqua.dialog`. Manual tests:
 `AquaWebKitSupport/tests/legacy-extensions/QUICKTIME.md`.
 
-`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`. `aqua.inspector` and `aqua.input` are in extension pages only.
+`aqua` is a non-enumerable global in extension content scripts and extension pages. `aqua.mediaPlayer.createSession` and `withHandoff` are in content scripts and extension pages loaded in tabs or frames, where media elements are available. Extension pages also have `prepareHandoff` and `cancelHandoff` for dispatching a handoff from browser chrome. Web pages cannot see `aqua`. `aqua.inspector`, `aqua.input` and `aqua.dialog` are in extension pages only.
 
 ## aqua.mediaPlayer
 
@@ -164,3 +164,23 @@ A tab is a tab ID, or a `SafariBrowserTab` of an open window. Methods return pro
 | `insertText(tab, text)` | Inserts `text` where the page's selection is, as an input method commits text. |
 
 Every event takes `modifiers`, a list of `"shift"`, `"control"`, `"option"`, `"command"` and `"capsLock"`. A click is a `mouseDown` and a `mouseUp`; a drag is a `mouseDown`, `mouseDragged` events and a `mouseUp`. A mouse event reports the buttons the tab's input from extensions holds down, from its `mouseDown` events until their `mouseUp`, or the `buttons` mask the event gives, as `MouseEvent.buttons` spells it; and its movement from the previous mouse event's point. As with the user's own input, a page whose window is not active, which includes every tab its window does not show, receives a move only while a button is held.
+
+## aqua.dialog
+
+JavaScript dialogs a tab's page opens. Safari presents its own panel, and an answer presses that panel's button, as the user's click does. Website Access must be All with Include Secure Pages, and the extension must see the tab's committed and provisional pages, as `aqua.input` requires. This applies to both events and answers.
+
+```js
+aqua.dialog.onOpen.addListener(async (tabId, dialog) => {
+    if (dialog.type === "prompt")
+        await aqua.dialog.answer(tabId, { accept: true, text: "An answer" });
+});
+```
+
+| Member | Contract |
+| --- | --- |
+| `onOpen` | `(tabId, dialog)`, where `dialog` has `type` (`"alert"`, `"confirm"`, `"prompt"` or `"beforeunload"`) and `message`. A prompt also has `defaultText`. The event is sent once Safari opens the panel; a suppressed dialog sends none. `message` is the page's string, including for beforeunload, whose visible panel uses Safari's generic question. |
+| `answer(tab, { accept, text })` | Returns a promise. `tab` is a tab ID or a `SafariBrowserTab` of an open window. `accept` is a required boolean: true presses OK or Leave Page, false presses Cancel or Stay on Page. Both choices close an alert through its OK button. An accepted prompt returns the optional string `text`; omitting it preserves the text currently in its field, initially `defaultText`. Dismissing a prompt returns an empty string, as Safari 7's Cancel button does. `text` has no effect on other dialogs or on a dismissed prompt. |
+
+The promise resolves after the button receives the press; Safari returns the result to the page when its modal callback finishes. An answer rejects if the tab has no open dialog, if another answer has already claimed it, or if access is denied. The first answer wins, including when two extensions answer. The user can answer before an extension does; a subsequent answer rejects. A closed tab's panel stays until the user answers it, and answers for the tab reject. Safari may bring a background tab forward when its dialog opens. Run listeners in the global page: an extension page sharing the blocked web process cannot run JavaScript until the page's dialog returns.
+
+Tests: run `AquaWebKitSupport/tests/legacy-extensions/server.py`, install the sibling `AquaWebKit-Extensions` workspace's `dialog.safariextension`, `dialog-second.safariextension`, `dialog-limited.safariextension` and `dialog-insecure.safariextension` in Extension Builder, then run `python3 AquaWebKitSupport/tests/legacy-extensions/check-dialog.py`. The driver saves page results and screenshots under `/tmp/aqua-dialog-results`.

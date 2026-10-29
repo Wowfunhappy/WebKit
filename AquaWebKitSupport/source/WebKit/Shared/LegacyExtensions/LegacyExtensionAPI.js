@@ -1878,6 +1878,16 @@ if (isHost) {
         onMessage: trackedEvent("aqua.inspector.onMessage"),
         onDetach: trackedEvent("aqua.inspector.onDetach"),
     };
+    aqua.dialog = {
+        onOpen: trackedEvent("aqua.dialog.onOpen"),
+        answer: async (tab, answer) => {
+            if (!answer || typeof answer !== "object" || typeof answer.accept !== "boolean")
+                throw new TypeError("A dialog answer requires a boolean accept");
+            if (answer.text !== undefined && typeof answer.text !== "string")
+                throw new TypeError("Prompt text is a string");
+            await callRouter("aqua.dialog.answer", tabReference(tab), { accept: answer.accept, text: answer.text });
+        },
+    };
     // User input to a tab, as AppKit events its web view handles (EXTENSION-AQUA-API.md).
     const inputEvent = (event, name) => {
         if (!event || typeof event !== "object")

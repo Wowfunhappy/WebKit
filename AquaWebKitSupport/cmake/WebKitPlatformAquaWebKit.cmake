@@ -165,6 +165,7 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebsiteAccess.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionClipboard.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionDevTools.mm
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionDialog.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionDNS.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionHiddenTabs.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionInfoPlist.mm

@@ -38,7 +38,7 @@ static WeakHashMap<WebPageProxy, PointerState>& pointerStates()
     return states;
 }
 
-static InputResult checkAccess(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access)
+InputResult checkInputAccess(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access)
 {
     auto tabID = page.identifier().toUInt64();
     if (page.isClosed())
@@ -122,7 +122,7 @@ static RetainPtr<NSEvent> wheelEvent(NSView *view, NSPoint location, NSEventModi
 
 void dispatchMouseEvent(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access, const JSON::Object& event, CompletionHandler<void(InputResult&&)>&& completionHandler)
 {
-    if (auto result = checkAccess(page, extensionKey, access); !result)
+    if (auto result = checkInputAccess(page, extensionKey, access); !result)
         return completionHandler(WTF::move(result));
     NSView *view = viewOfPage(page);
 
@@ -184,7 +184,7 @@ void dispatchMouseEvent(WebPageProxy& page, const String& extensionKey, const We
 
 void dispatchKeyEvent(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access, const JSON::Object& event, CompletionHandler<void(InputResult&&)>&& completionHandler)
 {
-    if (auto result = checkAccess(page, extensionKey, access); !result)
+    if (auto result = checkInputAccess(page, extensionKey, access); !result)
         return completionHandler(WTF::move(result));
     NSView *view = viewOfPage(page);
 
@@ -226,7 +226,7 @@ static bool isEditingAction(const String& action)
 
 void performEditingAction(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access, const String& action, CompletionHandler<void(InputResult&&)>&& completionHandler)
 {
-    if (auto result = checkAccess(page, extensionKey, access); !result)
+    if (auto result = checkInputAccess(page, extensionKey, access); !result)
         return completionHandler(WTF::move(result));
     if (!isEditingAction(action))
         return completionHandler(makeUnexpected(makeString("Unsupported editing action: "_s, action)));
@@ -242,7 +242,7 @@ void performEditingAction(WebPageProxy& page, const String& extensionKey, const 
     RetainPtr item = adoptNS([[NSMenuItem alloc] initWithTitle:@"" action:selector keyEquivalent:@""]);
     [item setTarget:target.get()];
     auto perform = [page = Ref { page }, target, item, extensionKey, access, action, selector, completionHandler = WTF::move(completionHandler)](BOOL enabled) mutable {
-        if (auto result = checkAccess(page, extensionKey, access); !result)
+        if (auto result = checkInputAccess(page, extensionKey, access); !result)
             return completionHandler(WTF::move(result));
         if (!enabled)
             return completionHandler(makeUnexpected(makeString("Editing action is disabled: "_s, action)));
@@ -264,7 +264,7 @@ void performEditingAction(WebPageProxy& page, const String& extensionKey, const 
 
 InputResult insertText(WebPageProxy& page, const String& extensionKey, const WebsiteAccess& access, const String& text)
 {
-    if (auto result = checkAccess(page, extensionKey, access); !result)
+    if (auto result = checkInputAccess(page, extensionKey, access); !result)
         return result;
     [viewOfPage(page) _aquaWebKitInsertExtensionText:text.createNSString().get()];
     return { };

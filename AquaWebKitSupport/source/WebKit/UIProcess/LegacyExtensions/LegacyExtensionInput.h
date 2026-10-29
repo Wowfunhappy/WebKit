@@ -25,6 +25,7 @@ class WebPageProxy;
 namespace WebKit::LegacyExtensions {
 
 using InputResult = Expected<void, String>;
+InputResult checkInputAccess(WebPageProxy&, const String& extensionKey, const WebsiteAccess&);
 void dispatchMouseEvent(WebPageProxy&, const String& extensionKey, const WebsiteAccess&, const JSON::Object&, CompletionHandler<void(InputResult&&)>&&);
 void dispatchKeyEvent(WebPageProxy&, const String& extensionKey, const WebsiteAccess&, const JSON::Object&, CompletionHandler<void(InputResult&&)>&&);
 void performEditingAction(WebPageProxy&, const String& extensionKey, const WebsiteAccess&, const String& action, CompletionHandler<void(InputResult&&)>&&);

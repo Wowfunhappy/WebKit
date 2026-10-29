@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8"><title>Aqua dialog fixture</title>
+<style>body{font:18px Helvetica;margin:24px}button{padding:12px}pre{white-space:pre-wrap}</style>
+<h1>Aqua dialog fixture</h1><button id="gesture">Interact with this page</button><pre id="state"></pre>
+<script>
+window.dialogState = { returned: false, value: null, clicks: 0 };
+window.dialogReplies = {};
+let nextRequest = 0;
+window.addEventListener("message", event => {
+    if (event.source === window && event.data && event.data.dialogReply)
+        dialogReplies[event.data.dialogReply.id] = event.data.dialogReply.result;
+});
+window.dialogCommand = (request) => {
+    const id = ++nextRequest;
+    window.postMessage({ dialogRequest: { fixture: "dialog", ...request, id } }, "*");
+    return id;
+};
+function render() { document.getElementById("state").textContent = JSON.stringify(dialogState, null, 2); }
+document.getElementById("gesture").onclick = () => { ++dialogState.clicks; render(); };
+window.openDialog = (type, message = "Message: " + type, defaultText = "seed") => {
+    dialogState = { returned: false, value: null, clicks: dialogState.clicks, type };
+    render();
+    setTimeout(() => {
+        if (type === "alert") { alert(message); dialogState.value = "undefined"; }
+        if (type === "confirm") dialogState.value = confirm(message);
+        if (type === "prompt") dialogState.value = prompt(message, defaultText);
+        dialogState.returned = true;
+        render();
+    }, 100);
+};
+window.armBeforeUnload = () => { window.onbeforeunload = () => "page supplied beforeunload message"; };
+render();
+</script>

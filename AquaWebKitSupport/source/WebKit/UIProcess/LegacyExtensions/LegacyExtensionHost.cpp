@@ -7,6 +7,7 @@
 #include "LegacyExtensionDNS.h"
 #include "LegacyExtensionDeclarativeNetRequest.h"
 #include "LegacyExtensionDevTools.h"
+#include "LegacyExtensionDialog.h"
 #include "LegacyExtensionErrors.h"
 #include "LegacyExtensionHiddenTabs.h"
 #include "LegacyExtensionHostMessages.h"
@@ -2057,6 +2058,22 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         resultToHostContext(context, callID, ticket.isEmpty() ? nullptr : JSON::Value::create(ticket).ptr(), ticket.isEmpty() ? "no-source"_s : String { });
         return;
     }
+    if (method == "aqua.dialog.answer"_s) {
+        RefPtr page = pageForTabReference(objectArgument(0).get());
+        if (!page)
+            return resultToHostContext(context, callID, nullptr, "No tab with this id."_s);
+        RefPtr answer = objectArgument(1);
+        if (!answer)
+            return resultToHostContext(context, callID, nullptr, "A dialog answer is an object."_s);
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, page = page.releaseNonNull(), answer](const LegacyExtensions::WebsiteAccess& access) {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            auto result = LegacyExtensionDialog::answer(page, context->extensionKey, access, *answer);
+            resultToHostContext(context, callID, nullptr, result ? String() : result.error());
+        });
+        return;
+    }
+
     // aqua.input: user input and editing actions for a tab.
     if (method == "aqua.input.dispatchMouseEvent"_s || method == "aqua.input.dispatchKeyEvent"_s || method == "aqua.input.insertText"_s || method == "aqua.input.performEditingAction"_s) {
         RefPtr page = pageForTabReference(objectArgument(0).get());
@@ -2682,6 +2699,28 @@ void LegacyExtensionHost::dispatchExtensionEvent(const String& extensionKey, con
         for (auto& endpoint : hostContextsListeningTo(extensionKey, eventName, { }))
             deliver(endpoint, extensionKey, message);
     });
+}
+
+void LegacyExtensionHost::dispatchDialogOpened(LegacyExtensionDialog& dialog, Ref<JSON::Object>&& details)
+{
+    auto arguments = JSON::Array::create();
+    arguments->pushDouble(tabIDForPage(dialog.page()));
+    arguments->pushObject(WTF::move(details));
+    auto event = JSON::Object::create();
+    event->setString("t"_s, "event"_s);
+    event->setString("name"_s, "aqua.dialog.onOpen"_s);
+    event->setArray("args"_s, WTF::move(arguments));
+    auto message = event->toJSONString();
+    for (auto& extensionKey : copyToVector(m_extensionLoads.keys())) {
+        performAfterBackgroundContentLoads(extensionKey, [this, extensionKey, weakDialog = WeakPtr { dialog }, message] {
+            CheckedPtr dialog = weakDialog.get();
+            auto access = m_websiteAccess.find(extensionKey);
+            if (!dialog || !dialog->isOpen() || access == m_websiteAccess.end() || !LegacyExtensions::checkInputAccess(dialog->page(), extensionKey, access->value))
+                return;
+            for (auto& endpoint : hostContextsListeningTo(extensionKey, "aqua.dialog.onOpen"_s, { }))
+                deliver(endpoint, extensionKey, message);
+        });
+    }
 }
 
 void LegacyExtensionHost::dispatchDevToolsEvent(double inspectedTabID, const String& eventName, Ref<JSON::Array>&& arguments, Function<bool(const LegacyExtensions::WebsiteAccess&, const String& extensionKey)>&& allows)
