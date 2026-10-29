@@ -283,6 +283,16 @@ void ResourceLoader::start()
     m_handle = ResourceHandle::create(protect(frameLoader->networkingContext()), m_request, this, m_defersLoading, m_options.sniffContent == ContentSniffingPolicy::SniffContent, m_options.contentEncodingSniffingPolicy, WTF::move(sourceOrigin), isMainFrameNavigation);
 }
 
+// AQUAWEBKIT: curl reads the initiating document's existing NavigationRequester for navigation cookies.
+SecurityOrigin* ResourceLoader::cookieRequestSecurityOrigin() const
+{
+    if (m_options.mode == FetchOptions::Mode::Navigate && m_documentLoader) {
+        if (auto& requester = m_documentLoader->triggeringAction().requester())
+            return requester->securityOrigin.ptr();
+    }
+    return nullptr;
+}
+
 void ResourceLoader::setDefersLoading(bool defers)
 {
     if (m_options.defersLoadingPolicy == DefersLoadingPolicy::DisallowDefersLoading)

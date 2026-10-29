@@ -69,6 +69,8 @@ header: <WebCore/ResourceRequest.h>
     bool m_didFilterLinkDecoration;
     bool m_isPrivateTokenUsageByThirdPartyAllowed;
     bool m_wasSchemeOptimisticallyUpgraded;
+    # AQUAWEBKIT: request cookie permission context.
+    Vector<URL> m_cookieRequestRedirectChain;
 };
 
 header: <WebCore/AttributedString.h>

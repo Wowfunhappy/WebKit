@@ -37,6 +37,8 @@ struct SameSiteInfo {
     bool isSameSite { false };
     bool isTopSite { false };
     bool isSafeHTTPMethod { false };
+    // AQUAWEBKIT: an authorized extension top level supplies the native cookie policy context.
+    bool relaxLegacyExtensionThirdPartyBlocking { false };
 };
 
 } // namespace WebCore

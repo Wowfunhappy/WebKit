@@ -14,6 +14,7 @@
 #include "LegacyExtensionHostMessages.h"
 #include "LegacyExtensionJavaScript.h"
 #include "LegacyExtensionScheme.h"
+#include "NetworkConnectionToWebProcessMessages.h"
 #include "SharedBufferReference.h"
 #include "WebFrame.h"
 #include "WebPage.h"
@@ -693,6 +694,34 @@ void LegacyExtensionContent::initialize(WebProcess& process)
 {
     LegacyExtensions::registerExtensionScheme();
     process.addMessageReceiver(Messages::LegacyExtensionContent::messageReceiverName(), *this);
+}
+
+// SecurityPolicy keeps canonical origins and case-insensitive destination entries, including duplicate grants.
+void LegacyExtensionContent::didAddOriginAccessAllowListEntry(const String& sourceOrigin, const String& protocol, const String& host, bool subdomains)
+{
+    Ref origin = WebCore::SecurityOrigin::createFromString(sourceOrigin);
+    if (origin->isOpaque())
+        return;
+    m_originAccessGrants.append({ origin->toString(), protocol.convertToASCIILowercase(), host.convertToASCIILowercase(), subdomains });
+}
+
+void LegacyExtensionContent::didRemoveOriginAccessAllowListEntry(const String& sourceOrigin, const String& protocol, const String& host, bool subdomains)
+{
+    Ref origin = WebCore::SecurityOrigin::createFromString(sourceOrigin);
+    if (origin->isOpaque())
+        return;
+    m_originAccessGrants.removeFirst(OriginAccessGrant { origin->toString(), protocol.convertToASCIILowercase(), host.convertToASCIILowercase(), subdomains });
+}
+
+void LegacyExtensionContent::didResetOriginAccessAllowLists()
+{
+    m_originAccessGrants.clear();
+}
+
+void LegacyExtensionContent::replayOriginAccessAllowLists(IPC::Connection& connection) const
+{
+    for (auto& grant : m_originAccessGrants)
+        connection.send(Messages::NetworkConnectionToWebProcess::AddOriginAccessAllowListEntry { grant.sourceOrigin, grant.destinationProtocol, grant.destinationHost, grant.allowDestinationSubdomains }, 0);
 }
 
 static String extensionKeyForURL(const URL& url)

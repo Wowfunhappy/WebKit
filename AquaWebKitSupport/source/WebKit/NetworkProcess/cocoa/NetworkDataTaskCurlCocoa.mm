@@ -97,6 +97,8 @@ Ref<NetworkDataTask> NetworkDataTaskCurlCocoa::create(NetworkSession& session, N
 NetworkDataTaskCurlCocoa::NetworkDataTaskCurlCocoa(NetworkSession& session, NetworkDataTaskClient& client, const NetworkLoadParameters& parameters)
     : NetworkDataTask(session, client, parameters.request, parameters.storedCredentialsPolicy, parameters.shouldClearReferrerOnHTTPSToHTTPRedirect, parameters.isMainFrameNavigation, parameters.isInitiatedByDedicatedWorker)
     , m_request(parameters.request)
+    , m_sourceOrigin(parameters.mainResourceNavigationDataForAnyFrame && parameters.mainResourceNavigationDataForAnyFrame->requester
+        ? parameters.mainResourceNavigationDataForAnyFrame->requester->securityOrigin.ptr() : parameters.sourceOrigin.get())
     , m_frameID(parameters.webFrameID.asOptional())
     , m_pageID(parameters.webPageID.asOptional())
     , m_webPageProxyID(parameters.webPageProxyID.asOptional())
@@ -172,47 +174,45 @@ NetworkDataTaskCurlCocoa::~NetworkDataTaskCurlCocoa()
 
 
 
-// A Safari 7 extension page is a tab's top-level safari-extension: document, and its loads relax
-// third-party cookie blocking as the pages upstream gives a WebExtension do
-// (WebExtensionContext::webViewConfiguration).
-static ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking(NetworkSession& session, const ResourceRequest& request, std::optional<WebPageProxyIdentifier> webPageProxyID)
+// Website Access supplies the extension top level's cookie permission.
+static ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking(NetworkSession& session, const ResourceRequest& request, const SecurityOrigin* sourceOrigin, std::optional<WebPageProxyIdentifier> webPageProxyID)
 {
-    if (request.firstPartyForCookies().protocolIs("safari-extension"_s))
+    if (cookieRequestSameSiteInfo(request, sourceOrigin).relaxLegacyExtensionThirdPartyBlocking)
         return ShouldRelaxThirdPartyCookieBlocking::Yes;
     return session.networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID);
 }
 
-static bool storageBlocksCookies(NetworkSession& session, const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID)
+static bool storageBlocksCookies(NetworkSession& session, const ResourceRequest& request, const SecurityOrigin* sourceOrigin, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID)
 {
     auto* storage = session.networkStorageSession();
-    return storage && storage->shouldBlockCookies(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(session, request, webPageProxyID), IsKnownCrossSiteTracker::No);
+    return storage && storage->shouldBlockCookies(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(session, request, sourceOrigin, webPageProxyID), IsKnownCrossSiteTracker::No);
 }
 
-static String cookieHeaderValue(NetworkSession& session, const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID)
+static String cookieHeaderValue(NetworkSession& session, const ResourceRequest& request, const SecurityOrigin* sourceOrigin, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID)
 {
     auto* storage = session.networkStorageSession();
     if (!storage)
         return { };
-    return storage->cookieRequestHeaderFieldValue(request.firstPartyForCookies(), cookieRequestSameSiteInfo(request), request.url(), frameID, pageID, request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, shouldRelaxThirdPartyCookieBlocking(session, request, webPageProxyID), IsKnownCrossSiteTracker::No).first;
+    return storage->cookieRequestHeaderFieldValue(request.firstPartyForCookies(), cookieRequestSameSiteInfo(request, sourceOrigin), request.url(), frameID, pageID, request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, shouldRelaxThirdPartyCookieBlocking(session, request, sourceOrigin, webPageProxyID), IsKnownCrossSiteTracker::No).first;
 }
 
-String NetworkDataTaskCurlCocoa::cookieHeader(NetworkSession& session, const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID, StoredCredentialsPolicy storedCredentialsPolicy, bool cookieBlockingLatched)
+String NetworkDataTaskCurlCocoa::cookieHeader(NetworkSession& session, const ResourceRequest& request, const SecurityOrigin* sourceOrigin, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID, StoredCredentialsPolicy storedCredentialsPolicy, bool cookieBlockingLatched)
 {
-    if (!request.allowCookies() || storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless || cookieBlockingLatched || storageBlocksCookies(session, request, frameID, pageID, webPageProxyID))
+    if (!request.allowCookies() || storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless || cookieBlockingLatched || storageBlocksCookies(session, request, sourceOrigin, frameID, pageID, webPageProxyID))
         return { };
-    return cookieHeaderValue(session, request, frameID, pageID, webPageProxyID);
+    return cookieHeaderValue(session, request, sourceOrigin, frameID, pageID, webPageProxyID);
 }
 
 String NetworkDataTaskCurlCocoa::cookieHeader(const ResourceRequest& request) const
 {
-    return cookieHeader(*m_session, request, m_frameID, m_pageID, m_webPageProxyID, m_storedCredentialsPolicy, m_cookieBlockingLatched);
+    return cookieHeader(*m_session, request, m_sourceOrigin.get(), m_frameID, m_pageID, m_webPageProxyID, m_storedCredentialsPolicy, m_cookieBlockingLatched);
 }
 
 bool NetworkDataTaskCurlCocoa::cookiesBlocked()
 {
     if (!m_request.allowCookies() || m_storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless)
         return true;
-    m_cookieBlockingLatched |= storageBlocksCookies(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID);
+    m_cookieBlockingLatched |= storageBlocksCookies(*m_session, m_request, m_sourceOrigin.get(), m_frameID, m_pageID, m_webPageProxyID);
     return m_cookieBlockingLatched;
 }
 
@@ -228,7 +228,7 @@ void NetworkDataTaskCurlCocoa::setup()
     // The jar's Cookie field goes on the wire only, as CFNetwork adds it; a Cookie field the request carries, as a
     // Safari 7 extension's onBeforeSendHeaders sets it, is sent as it is.
     if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        if (auto cookie = cookieHeaderValue(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID); !cookie.isEmpty())
+        if (auto cookie = cookieHeaderValue(*m_session, m_request, m_sourceOrigin.get(), m_frameID, m_pageID, m_webPageProxyID); !cookie.isEmpty())
             options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
     }
     options.contentEncodingSniffingPolicy = m_contentEncodingSniffingPolicy;
@@ -310,7 +310,7 @@ void NetworkDataTaskCurlCocoa::start()
 {
     if (m_state != State::Running)
         return;
-    bool ignoreDynamicHSTS = m_storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless || storageBlocksCookies(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID);
+    bool ignoreDynamicHSTS = m_storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless || storageBlocksCookies(*m_session, m_request, m_sourceOrigin.get(), m_frameID, m_pageID, m_webPageProxyID);
     // A retargeted connection takes its server's HSTS policy without a redirect the load would report.
     if (!m_connectionURL.isNull()) {
         if (m_connectionURL.protocolIs("http"_s) && !ignoreDynamicHSTS && downcast<NetworkSessionCocoa>(*m_session).httpStrictTransportSecurityStore().shouldUpgrade(m_connectionURL)) {
@@ -416,13 +416,13 @@ void NetworkDataTaskCurlCocoa::storeHeldCookies(std::optional<Vector<String>>&& 
     storeReceivedCookies(WTF::move(held->fields), held->remoteAddress, held->resolvedCNAMEDomain, [](auto&&) { });
 }
 
-void NetworkDataTaskCurlCocoa::storeCookies(NetworkSession& session, const ResourceRequest& request, const Vector<String>& fields, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID, bool capExpiry)
+void NetworkDataTaskCurlCocoa::storeCookies(NetworkSession& session, const ResourceRequest& request, const SecurityOrigin* sourceOrigin, const Vector<String>& fields, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, std::optional<WebPageProxyIdentifier> webPageProxyID, bool capExpiry)
 {
     auto* storage = session.networkStorageSession();
     if (!storage)
         return;
-    auto sameSite = SameSiteInfo::create(request);
-    auto blockingDecision = storage->thirdPartyCookieBlockingDecisionForRequest(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(session, request, webPageProxyID), IsKnownCrossSiteTracker::No);
+    auto sameSite = cookieResponseSameSiteInfo(request, sourceOrigin);
+    auto blockingDecision = storage->thirdPartyCookieBlockingDecisionForRequest(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking(session, request, sourceOrigin, webPageProxyID), IsKnownCrossSiteTracker::No);
     String cookiePartition = storage->isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(request.firstPartyForCookies()) : String { };
     for (const auto& field : fields) {
         auto cookie = parseHTTPSetCookie(field, request.url(), cookiePartition);
@@ -433,18 +433,18 @@ void NetworkDataTaskCurlCocoa::storeCookies(NetworkSession& session, const Resou
         // NetworkTaskCocoa's cookiesByCappingExpiry, over its week-long m_ageCapForCNAMECloakedCookies.
         if (capExpiry)
             cookie = Cookie { NetworkStorageSession::capExpiryOfPersistentCookie(cookie->createNSHTTPCookie().get(), 24_h * 7).get() };
-        storage->setCookie(*cookie, request.url(), request.firstPartyForCookies());
+        storage->setCookie(*cookie, request.url(), sameSite.relaxLegacyExtensionThirdPartyBlocking ? request.url() : request.firstPartyForCookies());
     }
 }
 
 void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
-    storeCookies(*m_session, m_request, fields, m_frameID, m_pageID, m_webPageProxyID, shouldCapCookieExpiryForThirdPartyCloaking(*m_session, m_request, remoteAddress, resolvedCNAMEDomain));
+    storeCookies(*m_session, m_request, m_sourceOrigin.get(), fields, m_frameID, m_pageID, m_webPageProxyID, shouldCapCookieExpiryForThirdPartyCloaking(*m_session, m_request, remoteAddress, resolvedCNAMEDomain));
     if (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         completion(std::nullopt);
         return;
     }
-    completion(cookieHeaderValue(*m_session, m_request, m_frameID, m_pageID, m_webPageProxyID));
+    completion(cookieHeaderValue(*m_session, m_request, m_sourceOrigin.get(), m_frameID, m_pageID, m_webPageProxyID));
 }
 
 
@@ -498,6 +498,7 @@ void NetworkDataTaskCurlCocoa::redirect()
     if (m_cookieBlockingLatched && m_storedCredentialsPolicy != StoredCredentialsPolicy::EphemeralStateless
         && NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(m_request.firstPartyForCookies(), url, m_request.url()))
         m_cookieBlockingLatched = false;
+    request.appendCookieRequestRedirectURL(m_request.url());
     request.setURL(URL { url });
     // Any cross-site redirect makes a request not same-site, as CachedResourceLoader::updateRequestAfterRedirection
     // decides it.

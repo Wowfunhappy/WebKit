@@ -6,6 +6,9 @@
 #import "platform/network/curl/CookieUtil.h"
 #import "PublicSuffixStore.h"
 #import "ResourceRequest.h"
+#import "OriginAccessPatterns.h"
+#import "SecurityOrigin.h"
+#import "SecurityPolicy.h"
 #import <algorithm>
 #import <cmath>
 #import <limits>
@@ -185,33 +188,70 @@ String cookiePartitionForTopLevelURL(const URL& url)
     return NetworkStorageSession::cookiePartitionIdentifier(url);
 }
 
-SameSiteInfo cookieRequestSameSiteInfo(const ResourceRequest& request)
+static URL cookiePermissionURL(const URL& url)
+{
+    URL result { url };
+    if (result.protocolIs("ws"_s))
+        result.setProtocol("http"_s);
+    else if (result.protocolIs("wss"_s))
+        result.setProtocol("https"_s);
+    return result;
+}
+
+static bool extensionAllowsCookies(const SecurityOrigin& extension, const URL& url)
+{
+    if (extension.protocol() != "safari-extension"_s)
+        return false;
+    auto target = cookiePermissionURL(url);
+    return target.protocolIsInHTTPFamily() && SecurityPolicy::isAccessAllowed(extension, target, EmptyOriginAccessPatterns::singleton());
+}
+
+SameSiteInfo cookieResponseSameSiteInfo(const ResourceRequest& request, const SecurityOrigin* initiator)
 {
     auto info = SameSiteInfo::create(request);
+    if ((!initiator || initiator->protocol() != "safari-extension"_s) && !request.firstPartyForCookies().protocolIs("safari-extension"_s))
+        return info;
+    Ref firstParty = SecurityOrigin::create(request.firstPartyForCookies());
+    auto everyURLMatches = [&](auto&& predicate) {
+        return predicate(request.url()) && std::ranges::all_of(request.cookieRequestRedirectChain(), predicate);
+    };
+    bool initiatorAllows = initiator && everyURLMatches([&](const URL& url) { return extensionAllowsCookies(*initiator, url); });
+    bool extensionEmbedsInitiator = initiator && extensionAllowsCookies(firstParty, URL { initiator->toString() });
+    bool embeddedInitiatorAllows = extensionEmbedsInitiator && everyURLMatches([&](const URL& url) {
+        return extensionAllowsCookies(firstParty, url) && initiator->isSameSiteAs(SecurityOrigin::create(cookiePermissionURL(url)));
+    });
+    info.isSameSite |= initiatorAllows || embeddedInitiatorAllows;
+    info.relaxLegacyExtensionThirdPartyBlocking = extensionAllowsCookies(firstParty, request.url());
+    return info;
+}
+
+SameSiteInfo cookieRequestSameSiteInfo(const ResourceRequest& request, const SecurityOrigin* initiator)
+{
+    auto info = cookieResponseSameSiteInfo(request, initiator);
     info.isTopSite = info.isTopSite && info.isSafeHTTPMethod;
     return info;
 }
 
+void storeHTTPResponseCookies(NetworkStorageSession& storage, const ResourceRequest& request, const SecurityOrigin* sourceOrigin, const Vector<String>& fields)
+{
+    if (!request.allowCookies())
+        return;
+    auto sameSite = cookieResponseSameSiteInfo(request, sourceOrigin);
+    auto blockingDecision = storage.thirdPartyCookieBlockingDecisionForRequest(request, std::nullopt, std::nullopt, sameSite.relaxLegacyExtensionThirdPartyBlocking ? ShouldRelaxThirdPartyCookieBlocking::Yes : ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No);
+    String cookiePartition = storage.isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(request.firstPartyForCookies()) : String { };
+    for (auto& field : fields) {
+        auto cookie = parseHTTPSetCookie(field, request.url(), cookiePartition);
+        if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite)
+            && (blockingDecision != ThirdPartyCookieBlockingDecision::AllExceptPartitioned || !cookie->partitionKey.isEmpty()))
+            storage.setCookie(*cookie, request.url(), sameSite.relaxLegacyExtensionThirdPartyBlocking ? request.url() : request.firstPartyForCookies());
+    }
+}
+
 } // namespace WebCore
 
-// the Objective-C WebSocket transport shares WebCore's per-field parser.
+// The +[NSHTTPCookie _cookieForSetCookieString:forURL:partition:] polyfill parses DOM cookie writes with this.
 extern "C" WEBCORE_EXPORT CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef field, CFURLRef url, CFStringRef partition)
 {
     auto cookie = WebCore::parseHTTPSetCookie(String(field), URL(url), partition ? String(partition) : String { });
     return cookie ? (CFTypeRef)cookie->createNSHTTPCookie().leakRef() : nullptr;
-}
-
-extern "C" WEBCORE_EXPORT CFStringRef WebCoreCookiePartitionIdentifier(CFURLRef topLevelURL)
-{
-    return WebCore::cookiePartitionForTopLevelURL(URL(topLevelURL)).createCFString().leakRef();
-}
-
-extern "C" WEBCORE_EXPORT void WebCoreCookieStorageSetHTTPResponseCookies(CFTypeRef storageValue, CFArrayRef cookies, CFURLRef responseURL, CFURLRef firstPartyURL, bool sameSite, bool topLevel)
-{
-    NSHTTPCookieStorage *storage = (NSHTTPCookieStorage *)storageValue;
-    for (NSHTTPCookie *cookie in (NSArray *)cookies) {
-        if (WebCore::Cookie(cookie).sameSite != WebCore::Cookie::SameSitePolicy::None && !sameSite && !topLevel)
-            continue;
-        [storage setCookies:@[cookie] forURL:(NSURL *)responseURL mainDocumentURL:(NSURL *)firstPartyURL];
-    }
 }

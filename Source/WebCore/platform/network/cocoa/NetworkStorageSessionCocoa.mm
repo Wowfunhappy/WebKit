@@ -390,7 +390,8 @@ RetainPtr<NSArray> NetworkStorageSession::httpCookiesForURL(CFHTTPCookieStorageR
 #else
     RetainPtr<NSString> partitionKey;
 #endif
-    return cookiesForURLFromStorage(nsCookieStorage.get(), url, firstParty, sameSiteInfo, thirdPartyCookieBlockingDecision, partitionKey.get());
+    // return cookiesForURLFromStorage(nsCookieStorage.get(), url, firstParty, sameSiteInfo, thirdPartyCookieBlockingDecision, partitionKey.get());
+    return cookiesForURLFromStorage(nsCookieStorage.get(), url, sameSiteInfo && sameSiteInfo->relaxLegacyExtensionThirdPartyBlocking ? url : firstParty, sameSiteInfo, thirdPartyCookieBlockingDecision, partitionKey.get()); // AQUAWEBKIT: native cookie policy and CHIPS use their respective first-party contexts.
 }
 
 RetainPtr<NSHTTPCookie> NetworkStorageSession::capExpiryOfPersistentCookie(NSHTTPCookie *cookie, Seconds cap)
@@ -429,6 +430,9 @@ NSHTTPCookie *NetworkStorageSession::setCookiePartition(NSHTTPCookie *cookie, NS
 
 RetainPtr<NSArray> NetworkStorageSession::cookiesForURL(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention applyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker) const
 {
+    // AQUAWEBKIT: network cookies honor the authorized extension top-level context.
+    if (sameSiteInfo.relaxLegacyExtensionThirdPartyBlocking)
+        shouldRelaxThirdPartyCookieBlocking = ShouldRelaxThirdPartyCookieBlocking::Yes;
     auto thirdPartyCookieBlockingDecision = thirdPartyCookieBlockingDecisionForRequest(firstParty, url, frameID, pageID, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker);
     if (applyTrackingPrevention == ApplyTrackingPrevention::Yes && thirdPartyCookieBlockingDecision == ThirdPartyCookieBlockingDecision::All)
         return nil;

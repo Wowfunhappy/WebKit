@@ -223,6 +223,7 @@ private:
     void wasBlocked(ResourceHandle*) override;
     void cannotShowURL(ResourceHandle*) override;
     bool shouldUseCredentialStorage(ResourceHandle*) override { return shouldUseCredentialStorage(); }
+    SecurityOrigin* cookieRequestSecurityOrigin() const final; // AQUAWEBKIT: expose the existing navigation requester to curl cookies.
     void didReceiveAuthenticationChallenge(ResourceHandle*, const AuthenticationChallenge&) override;
 #if USE(PROTECTION_SPACE_AUTH_CALLBACK)
     void canAuthenticateAgainstProtectionSpaceAsync(ResourceHandle*, const ProtectionSpace&, CompletionHandler<void(bool)>&&) override;

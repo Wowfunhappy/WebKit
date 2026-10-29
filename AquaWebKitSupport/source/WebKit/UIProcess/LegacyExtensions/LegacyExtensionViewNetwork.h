@@ -19,6 +19,7 @@
 
 namespace WebCore {
 class CocoaCurlResourceHandle;
+class SecurityOrigin;
 class LocalFrame;
 }
 
@@ -47,6 +48,7 @@ private:
         double parentFrameId { -1 };
         String documentURL;
         String initiator;
+        RefPtr<WebCore::SecurityOrigin> sourceOrigin;
         bool isMainFrameLoad { false };
         bool isRedirected { false };
         unsigned internalRedirectCount { 0 };

@@ -23,7 +23,6 @@
 #import <WebCore/HTTPStrictTransportSecurityStore.h>
 #import <WebCore/ResourceError.h>
 #import <WebCore/ResourceLoaderOptions.h>
-#import <WebCore/SameSiteInfo.h>
 #import <WebCore/SecurityOrigin.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/Site.h>
@@ -66,6 +65,7 @@ public:
         client->m_storageID = transfer.storage->sessionID();
         client->m_pool = WTF::move(transfer.pool);
         client->m_request = WTF::move(transfer.request);
+        client->m_sourceOrigin = WTF::move(transfer.sourceOrigin);
         client->m_connectionURL = WTF::move(transfer.connectionURL);
         client->m_allowCredentials = transfer.allowStoredCredentials;
         client->m_transfer = WTF::move(transfer.connection);
@@ -126,6 +126,7 @@ private:
     RetainPtr<WebDownload> m_download;
     RetainPtr<id> m_delegate;
     ResourceRequest m_request;
+    RefPtr<SecurityOrigin> m_sourceOrigin;
     RetainPtr<NSDictionary> m_resume;
     RetainPtr<NSString> m_path;
     RetainPtr<NSString> m_directory;
@@ -361,7 +362,7 @@ void WebDownloadCurlClient::beginTransfer()
     options.request = m_request;
     // The jar's Cookie field goes on the wire only, as CFNetwork adds it.
     if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+        auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request, m_sourceOrigin.get()), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
         if (!value.isEmpty())
             options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, value);
     }
@@ -385,7 +386,7 @@ void WebDownloadCurlClient::beginTransfer()
     m_transfer->start();
 }
 
-// a download keeps the same per-response native cookie policy as a document load.
+// Downloads and ResourceHandle share response cookie acceptance and Website Access policy.
 void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     if (m_finished || !m_storage) {
@@ -393,22 +394,12 @@ void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, int, co
         return;
     }
     auto& storage = *m_storage;
-    if (m_request.allowCookies()) {
-        auto sameSite = SameSiteInfo::create(m_request);
-        auto blockingDecision = storage.thirdPartyCookieBlockingDecisionForRequest(m_request, std::nullopt, std::nullopt, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No);
-        String cookiePartition = storage.isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(m_request.firstPartyForCookies()) : String { };
-        for (auto& field : fields) {
-            auto cookie = parseHTTPSetCookie(field, m_request.url(), cookiePartition);
-            if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite)
-                && (blockingDecision != ThirdPartyCookieBlockingDecision::AllExceptPartitioned || !cookie->partitionKey.isEmpty()))
-                storage.setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
-        }
-    }
+    storeHTTPResponseCookies(storage, m_request, m_sourceOrigin.get(), fields);
     if (!m_request.allowCookies() || m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         completion(std::nullopt);
         return;
     }
-    auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+    auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request, m_sourceOrigin.get()), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
     completion(WTF::move(value));
 }
 void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion)
@@ -533,6 +524,7 @@ void WebDownloadCurlClient::redirect()
         fail(NSURLErrorNoPermissionsToReadFile, @"You do not have permission to access the requested resource.");
         return;
     }
+    redirected.appendCookieRequestRedirectURL(m_request.url());
     redirected.setURL(WTF::move(target));
     // Any cross-site redirect makes a request not same-site, as CachedResourceLoader::updateRequestAfterRedirection
     // decides it.

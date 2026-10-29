@@ -55,6 +55,10 @@ void ResourceRequest::updateFromDelegatePreservingOldProperties(const ResourceRe
     bool isHiddenFromInspector = hiddenFromInspector();
     auto oldRequester = requester();
     auto oldInitiatorIdentifier = initiatorIdentifier();
+    // AQUAWEBKIT: delegate redirects retain every URL used for cookie permission checks.
+    auto oldCookieRedirectChain = cookieRequestRedirectChain();
+    if (url() != delegateProvidedRequest.url())
+        oldCookieRedirectChain.append(url());
     auto oldInspectorInitiatorNodeIdentifier = inspectorInitiatorNodeIdentifier();
     auto oldAppInitiatedValue = isAppInitiated();
     auto oldPrivacyProxyFailClosedForUnreachableNonMainHosts = privacyProxyFailClosedForUnreachableNonMainHosts();
@@ -72,6 +76,8 @@ void ResourceRequest::updateFromDelegatePreservingOldProperties(const ResourceRe
     setHiddenFromInspector(isHiddenFromInspector);
     setRequester(oldRequester);
     setInitiatorIdentifier(oldInitiatorIdentifier);
+    // AQUAWEBKIT: cookie authority follows the originating load.
+    setCookieRequestRedirectChain(WTF::move(oldCookieRedirectChain));
     if (oldInspectorInitiatorNodeIdentifier)
         setInspectorInitiatorNodeIdentifier(*oldInspectorInitiatorNodeIdentifier);
     setIsAppInitiated(oldAppInitiatedValue);

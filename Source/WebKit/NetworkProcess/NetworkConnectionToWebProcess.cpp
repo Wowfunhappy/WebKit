@@ -199,6 +199,9 @@ NetworkConnectionToWebProcess::~NetworkConnectionToWebProcess()
 {
     RELEASE_ASSERT(RunLoop::isMain());
 
+    // AQUAWEBKIT: native origin grants share the lifetime of their owning web-process connection.
+    LegacyExtensionNetwork::singleton().resetOriginAccessAllowLists(*this);
+
     m_connection->invalidate();
 
     // This may call hasUploadStateChanged().
@@ -1862,17 +1865,20 @@ bool NetworkConnectionToWebProcess::allowsOriginAccessAllowListIPC(IPC::Decoder&
 
 void NetworkConnectionToWebProcess::addOriginAccessAllowListEntry(const String& sourceOrigin, const String& destinationProtocol, const String& destinationHost, bool allowDestinationSubdomains)
 {
-    SecurityPolicy::addOriginAccessAllowlistEntry(SecurityOrigin::createFromString(sourceOrigin).get(), destinationProtocol, destinationHost, allowDestinationSubdomains);
+    // SecurityPolicy::addOriginAccessAllowlistEntry(SecurityOrigin::createFromString(sourceOrigin).get(), destinationProtocol, destinationHost, allowDestinationSubdomains);
+    LegacyExtensionNetwork::singleton().addOriginAccessAllowListEntry(*this, sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains); // AQUAWEBKIT: native grants retain their connection owner.
 }
 
 void NetworkConnectionToWebProcess::removeOriginAccessAllowListEntry(const String& sourceOrigin, const String& destinationProtocol, const String& destinationHost, bool allowDestinationSubdomains)
 {
-    SecurityPolicy::removeOriginAccessAllowlistEntry(SecurityOrigin::createFromString(sourceOrigin).get(), destinationProtocol, destinationHost, allowDestinationSubdomains);
+    // SecurityPolicy::removeOriginAccessAllowlistEntry(SecurityOrigin::createFromString(sourceOrigin).get(), destinationProtocol, destinationHost, allowDestinationSubdomains);
+    LegacyExtensionNetwork::singleton().removeOriginAccessAllowListEntry(*this, sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains); // AQUAWEBKIT: removal applies to this connection's contribution.
 }
 
 void NetworkConnectionToWebProcess::resetOriginAccessAllowLists()
 {
-    SecurityPolicy::resetOriginAccessAllowlists();
+    // SecurityPolicy::resetOriginAccessAllowlists();
+    LegacyExtensionNetwork::singleton().resetOriginAccessAllowLists(*this); // AQUAWEBKIT: reset preserves grants owned by other connections.
 }
 
 std::optional<NetworkActivityTracker> NetworkConnectionToWebProcess::startTrackingResourceLoad(PageIdentifier pageID, WebCore::ResourceLoaderIdentifier resourceID, bool isTopResource)

@@ -409,7 +409,8 @@ void WebResourceLoadScheduler::startPingLoad(LocalFrame& frame, ResourceRequest&
     auto* interceptor = LegacyLoadInterceptor::singleton(); // AQUAWEBKIT: Safari 7 extensions' webRequest for the ping.
     if (interceptor && interceptor->refusesPing(request)) // AQUAWEBKIT: and their privacy.websites.hyperlinkAuditingEnabled.
         return completionHandler(FrameLoader::cancelledError(request), { });
-    PingHandle::start(frame.loader().networkingContext(), request, options.credentials != FetchOptions::Credentials::Omit, options.redirect == FetchOptions::Redirect::Follow, WTF::move(completionHandler), interceptor ? interceptor->pingLoad(frame, request, options) : nullptr);
+    RefPtr document = frame.document(); // AQUAWEBKIT: ping cookie permission uses the initiating document's origin.
+    PingHandle::start(frame.loader().networkingContext(), request, options.credentials != FetchOptions::Credentials::Omit, options.redirect == FetchOptions::Redirect::Follow, WTF::move(completionHandler), interceptor ? interceptor->pingLoad(frame, request, options) : nullptr, document ? &document->securityOrigin() : nullptr);
 }
 
 bool WebResourceLoadScheduler::isOnLine() const

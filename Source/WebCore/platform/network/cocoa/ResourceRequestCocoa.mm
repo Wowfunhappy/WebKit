@@ -77,6 +77,8 @@ ResourceRequest::ResourceRequest(ResourceRequestPlatformData&& platformData, boo
 
     setShouldBlockThirdPartyStorage(shouldBlockThirdPartyStorage);
     setHiddenFromInspector(hiddenFromInspector);
+    // AQUAWEBKIT: restore loader-owned cookie permission context from IPC.
+    setCookieRequestRedirectChain(WTF::move(platformData.m_cookieRequestRedirectChain));
 }
 
 ResourceRequestData ResourceRequest::getRequestDataToSerialize() const
@@ -131,7 +133,9 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
         useAdvancedPrivacyProtections(),
         didFilterLinkDecoration(),
         isPrivateTokenUsageByThirdPartyAllowed(),
-        wasSchemeOptimisticallyUpgraded()
+        // wasSchemeOptimisticallyUpgraded()
+        wasSchemeOptimisticallyUpgraded(), // AQUAWEBKIT: platform IPC includes the cookie permission context.
+        cookieRequestRedirectChain()
     };
 }
 

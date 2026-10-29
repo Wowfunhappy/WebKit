@@ -34,6 +34,7 @@
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/SecurityOrigin.h>
+#include <WebCore/SecurityPolicy.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/ProcessID.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -80,6 +81,36 @@ LegacyExtensionNetwork& LegacyExtensionNetwork::singleton()
 {
     static NeverDestroyed<LegacyExtensionNetwork> network;
     return network;
+}
+
+// Each connection contributes the entries held by its injected bundle's process-local SecurityPolicy.
+void LegacyExtensionNetwork::addOriginAccessAllowListEntry(NetworkConnectionToWebProcess& connection, const String& sourceOrigin, const String& protocol, const String& host, bool subdomains)
+{
+    Ref origin = SecurityOrigin::createFromString(sourceOrigin);
+    if (origin->isOpaque())
+        return;
+    auto& grants = m_originAccessGrants.ensure(&connection, [] { return Vector<OriginAccessGrant> { }; }).iterator->value;
+    grants.append({ origin->toString(), protocol.convertToASCIILowercase(), host.convertToASCIILowercase(), subdomains });
+    SecurityPolicy::addOriginAccessAllowlistEntry(origin, protocol, host, subdomains);
+}
+
+void LegacyExtensionNetwork::removeOriginAccessAllowListEntry(NetworkConnectionToWebProcess& connection, const String& sourceOrigin, const String& protocol, const String& host, bool subdomains)
+{
+    Ref origin = SecurityOrigin::createFromString(sourceOrigin);
+    if (origin->isOpaque())
+        return;
+    auto iterator = m_originAccessGrants.find(&connection);
+    if (iterator == m_originAccessGrants.end() || !iterator->value.removeFirst(OriginAccessGrant { origin->toString(), protocol.convertToASCIILowercase(), host.convertToASCIILowercase(), subdomains }))
+        return;
+    SecurityPolicy::removeOriginAccessAllowlistEntry(origin, protocol, host, subdomains);
+    if (iterator->value.isEmpty())
+        m_originAccessGrants.remove(iterator);
+}
+
+void LegacyExtensionNetwork::resetOriginAccessAllowLists(NetworkConnectionToWebProcess& connection)
+{
+    for (auto& grant : m_originAccessGrants.take(&connection))
+        SecurityPolicy::removeOriginAccessAllowlistEntry(SecurityOrigin::createFromString(grant.sourceOrigin), grant.destinationProtocol, grant.destinationHost, grant.allowDestinationSubdomains);
 }
 
 void LegacyExtensionNetwork::initialize(NetworkProcess& networkProcess)
@@ -163,6 +194,11 @@ String LegacyExtensionNetwork::requestIdentifier(NetworkLoadChecker& checker)
     return makeString(getCurrentProcessID(), '-', identifier);
 }
 
+static SecurityOrigin* requestSourceOrigin(const NetworkResourceLoadParameters& parameters)
+{
+    return parameters.navigationRequester ? parameters.navigationRequester->securityOrigin.ptr() : parameters.sourceOrigin.get();
+}
+
 Ref<JSON::Object> LegacyExtensionNetwork::requestDetails(NetworkLoadChecker& checker, const ResourceRequest& request)
 {
     RefPtr loader = checker.m_networkResourceLoader.get();
@@ -184,7 +220,7 @@ Ref<JSON::Object> LegacyExtensionNetwork::requestDetails(NetworkLoadChecker& che
             details->setString("documentUrl"_s, documentURL.string());
     } else if (!checker.m_frameURL.isEmpty())
         details->setString("documentUrl"_s, checker.m_frameURL.string());
-    if (RefPtr origin = checker.origin(); origin && !isMainFrameLoad)
+    if (RefPtr origin = loader && loader->parameters().navigationRequester ? requestSourceOrigin(loader->parameters()) : checker.origin(); origin && !isMainFrameLoad)
         details->setString("initiator"_s, origin->toString());
     return details;
 }
@@ -205,8 +241,8 @@ Ref<JSON::Object> LegacyExtensionNetwork::loaderDetails(NetworkResourceLoader& l
     if (!loader.isMainFrameLoad()) {
         if (auto documentURL = documentURLForLoad(parameters, resourceType(request, parameters.options.destination, false)); !documentURL.isEmpty())
             details->setString("documentUrl"_s, documentURL.string());
-        if (parameters.sourceOrigin)
-            details->setString("initiator"_s, parameters.sourceOrigin->toString());
+        if (RefPtr origin = requestSourceOrigin(parameters))
+            details->setString("initiator"_s, origin->toString());
     }
     return details;
 }
@@ -248,7 +284,7 @@ String LegacyExtensionNetwork::cookieHeader(NetworkLoadChecker& checker, const R
         frameID = loader->parameters().webFrameID;
         pageID = loader->parameters().webPageID;
     }
-    return NetworkDataTaskCurlCocoa::cookieHeader(*session, request, frameID, pageID, checker.m_webPageProxyID ? std::optional { *checker.m_webPageProxyID } : std::nullopt, checker.storedCredentialsPolicy());
+    return NetworkDataTaskCurlCocoa::cookieHeader(*session, request, loader ? requestSourceOrigin(loader->parameters()) : checker.origin(), frameID, pageID, checker.m_webPageProxyID ? std::optional { *checker.m_webPageProxyID } : std::nullopt, checker.storedCredentialsPolicy());
 }
 
 // The request a web process approves after a redirect; true when it goes where the load's latest redirect,
@@ -302,6 +338,7 @@ void LegacyExtensionNetwork::redirect(NetworkResourceLoader& loader, ResourceReq
     if (RefPtr checker = loader.m_networkLoadChecker; checker && loadsInPlace(loader, url))
         return redirectInPlace(*checker, loader, WTF::move(request), redirectResponse, url);
     auto redirectRequest = request.redirectedRequest(redirectResponse, loader.parameters().shouldClearReferrerOnHTTPSToHTTPRedirect);
+    redirectRequest.appendCookieRequestRedirectURL(response.url());
     if (loader.isMainFrameLoad())
         redirectRequest.setFirstPartyForCookies(URL { redirectRequest.url() });
     if (RefPtr checker = loader.m_networkLoadChecker) {
@@ -449,6 +486,7 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
             auto redirectResponse = internalRedirectResponse(request.url(), redirectURL);
             if (isMainFrameLoad && !checker->isRedirected()) {
                 auto originalRequest = request;
+                request.appendCookieRequestRedirectURL(request.url());
                 request.setURL(WTF::move(redirectURL));
                 m_extensionRedirects.add(*checker);
                 m_extensionRedirectTargets.set(*checker, request.url());
@@ -465,6 +503,7 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
                 addResponseFields(details, redirectResponse);
                 notify(onBeforeRedirect, details->toJSONString());
             }
+            request.appendCookieRequestRedirectURL(request.url());
             request.setURL(WTF::move(redirectURL));
             if (checker->isRedirected())
                 m_extensionRedirectTargets.set(*checker, request.url());

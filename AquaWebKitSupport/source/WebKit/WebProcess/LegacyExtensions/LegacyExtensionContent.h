@@ -44,6 +44,11 @@ public:
 
     void initialize(WebProcess&);
 
+    void didAddOriginAccessAllowListEntry(const String&, const String&, const String&, bool);
+    void didRemoveOriginAccessAllowListEntry(const String&, const String&, const String&, bool);
+    void didResetOriginAccessAllowLists();
+    void replayOriginAccessAllowLists(IPC::Connection&) const;
+
     // Safari withdraws an extension's user content when it disables or reloads the extension: once no user
     // content controller holds user content of the copy of the extension at `root` (any, if empty) in a
     // content-script world, the world's contexts of that copy are inert, and the router ends their ports and
@@ -62,6 +67,14 @@ public:
     void removeStyleSheets(WebCore::Document&, const String& extensionKey, const String& source);
 
 private:
+    struct OriginAccessGrant {
+        String sourceOrigin;
+        String destinationProtocol;
+        String destinationHost;
+        bool allowDestinationSubdomains;
+        bool operator==(const OriginAccessGrant&) const = default;
+    };
+
     struct InjectedStyleSheet {
         String extensionKey;
         WebCore::UserStyleSheet styleSheet;
@@ -79,6 +92,7 @@ private:
 
     WeakHashMap<WebCore::Document, Vector<InjectedStyleSheet>, WebCore::WeakPtrImplWithEventTargetData> m_injectedStyleSheets;
     Vector<String> m_reportedUserContentExtensionRoots;
+    Vector<OriginAccessGrant> m_originAccessGrants;
 };
 
 } // namespace WebKit

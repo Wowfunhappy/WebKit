@@ -48,6 +48,7 @@ class ResourceHandle;
 class ResourceError;
 class ResourceRequest;
 class ResourceResponse;
+class SecurityOrigin; // AQUAWEBKIT: navigation cookie origin supplied by the loader.
 class SharedBuffer;
 
 enum CacheStoragePolicy {
@@ -92,6 +93,9 @@ public:
 #if PLATFORM(IOS_FAMILY)
     virtual RetainPtr<CFDictionaryRef> connectionProperties(ResourceHandle*) { return nullptr; }
 #endif
+
+    // AQUAWEBKIT: the load supplies a separate initiator for the curl cookie path.
+    virtual SecurityOrigin* cookieRequestSecurityOrigin() const { return nullptr; }
 };
 
 }

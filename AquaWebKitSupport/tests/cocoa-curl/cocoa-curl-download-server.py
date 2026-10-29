@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deterministic loopback download/range/auth fixture; never changes system routing."""
 import argparse, base64, gzip, json, pathlib, socket, threading
+from http.cookies import SimpleCookie
 BODY = bytes(range(256)) * 8192
 LOCK = threading.Lock()
 PRIVATE_TRANSFERS = {}
@@ -30,6 +31,19 @@ def main():
             status = '200 OK'
             fields = {'Content-Type': 'application/octet-stream', 'ETag': '"download-v1"', 'Accept-Ranges': 'bytes'}
             body = BODY
+            extra_fields = []
+            if path == '/cookie-handoff':
+                fields['Content-Type'] = 'application/json'
+                fields['Cache-Control'] = 'no-store'
+                if headers.get('authorization') != 'Basic ' + base64.b64encode(b'cookie-test:cookie-password').decode():
+                    status = '401 Unauthorized'
+                    fields['WWW-Authenticate'] = 'Basic realm="cookie handoff"'
+                    body = b'authentication handoff'
+                else:
+                    cookies = SimpleCookie(headers.get('cookie', ''))
+                    body = json.dumps({'cookies': {name: cookie.value for name, cookie in cookies.items()}}).encode()
+                    extra_fields = [('Set-Cookie', 'extck_handoff_written_' + kind + '=1; Path=/; SameSite=' + attribute + '; HttpOnly')
+                                    for kind, attribute in [('none', 'None'), ('lax', 'Lax'), ('strict', 'Strict')]]
             if path == '/private-page':
                 fields['Content-Type'] = 'text/html'
                 fields['Set-Cookie'] = 'download-owner=private; Path=/; HttpOnly; SameSite=Strict'
@@ -64,10 +78,14 @@ def main():
                         body = gzip.compress(body)
             fields['Content-Length'] = str(len(body))
             fields['Connection'] = 'close'
-            response = ('HTTP/1.1 ' + status + '\r\n' + ''.join(name + ': ' + value + '\r\n' for name, value in fields.items()) + '\r\n').encode('ascii')
+            response = ('HTTP/1.1 ' + status + '\r\n' + ''.join(name + ': ' + value + '\r\n' for name, value in list(fields.items()) + extra_fields) + '\r\n').encode('ascii')
             client.sendall(response)
             if method != 'HEAD':
-                if path.startswith('/private-file') and status.startswith(('200 ', '206 ')):
+                if path == '/cookie-handoff' and status == '401 Unauthorized':
+                    # The first byte publishes the response; the remaining body waits for the download's retry.
+                    client.sendall(body[:1])
+                    client.recv(1)
+                elif path.startswith('/private-file') and status.startswith(('200 ', '206 ')):
                     with LOCK:
                         turn = PRIVATE_TRANSFERS.get(path, 0) + 1
                         PRIVATE_TRANSFERS[path] = turn

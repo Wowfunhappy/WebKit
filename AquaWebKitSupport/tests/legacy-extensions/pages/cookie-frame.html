@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Local cookie fixture</title>
+<script src="/cookie-exercise.js"></script>
+<h1>Local cookie fixture</h1>
+<script>
+window.cookieResults = [];
+addEventListener('message', event => {
+    if (event.data && event.data.cookieResult) cookieResults.push(event.data.cookieResult);
+});
+window.addCookieFrame = function(url) {
+    const frame = document.createElement('iframe');
+    frame.cookieLoaded = false;
+    frame.onload = () => frame.cookieLoaded = true;
+    frame.src = url;
+    document.body.appendChild(frame);
+    return frame;
+};
+</script>

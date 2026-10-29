@@ -66,6 +66,10 @@ public:
 
     void initialize(NetworkProcess&);
 
+    void addOriginAccessAllowListEntry(NetworkConnectionToWebProcess&, const String&, const String&, const String&, bool);
+    void removeOriginAccessAllowListEntry(NetworkConnectionToWebProcess&, const String&, const String&, const String&, bool);
+    void resetOriginAccessAllowLists(NetworkConnectionToWebProcess&);
+
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     // Each returns true when it has taken the load's continuation to wait for the extensions. A request or
@@ -185,6 +189,14 @@ private:
     Ref<JSON::Object> responseDetails(NetworkResourceLoader&, const WebCore::ResourceResponse&, bool fromCache);
 
     WeakPtr<NetworkProcess> m_networkProcess;
+    struct OriginAccessGrant {
+        String sourceOrigin;
+        String destinationProtocol;
+        String destinationHost;
+        bool allowDestinationSubdomains;
+        bool operator==(const OriginAccessGrant&) const = default;
+    };
+    HashMap<NetworkConnectionToWebProcess*, Vector<OriginAccessGrant>> m_originAccessGrants;
     LegacyExtensions::WebRequestListeners m_listeners;
     WeakHashMap<NetworkLoadChecker, uint64_t> m_checkerRequestIdentifiers;
     uint64_t m_nextRequestIdentifier { 1 };

@@ -69,10 +69,15 @@ CocoaCurlResourceHandle::CocoaCurlResourceHandle(ResourceHandle& handle, Network
     , m_queue(queue)
     , m_dispatcher(adoptNS([[WebCoreResourceHandleAsOperationQueueDelegate alloc] initWithHandle:&handle messageQueue:RefPtr { queue }]))
     , m_request(redirectedRequest ? WTF::move(*redirectedRequest) : handle.firstRequest())
+    , m_sourceOrigin(handle.d->m_sourceOrigin)
     , m_redirects(handle.redirectCount())
     , m_deferred(handle.d->m_defersLoading)
     , m_allowCredentials(allowStoredCredentials)
 {
+    if (auto* client = handle.client()) {
+        if (auto* origin = client->cookieRequestSecurityOrigin())
+            m_sourceOrigin = origin;
+    }
     m_connectionURL = applyExternalURLRewrite(m_request);
     if (m_allowCredentials && m_request.url().protocolIsInHTTPFamily()) {
         if (handle.d->m_user.isEmpty() && handle.d->m_password.isEmpty())
@@ -180,7 +185,7 @@ void CocoaCurlResourceHandle::beginTransfer()
     options.request = m_request;
     // The jar's Cookie field goes on the wire only, as CFNetwork adds it.
     if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        auto cookie = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+        auto cookie = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request, m_sourceOrigin.get()), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
         if (!cookie.isEmpty())
             options.request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
     }
@@ -234,22 +239,13 @@ void CocoaCurlResourceHandle::curlReceivedCookies(Vector<String>&& fields, int s
         completion(std::nullopt);
         return;
     }
-    auto value = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+    auto value = m_storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request, m_sourceOrigin.get()), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
     completion(WTF::move(value));
 }
 void CocoaCurlResourceHandle::storeCookies(const Vector<String>& fields)
 {
-    if (!m_storage || !m_request.allowCookies())
-        return;
-    auto sameSite = SameSiteInfo::create(m_request);
-    auto blockingDecision = m_storage->thirdPartyCookieBlockingDecisionForRequest(m_request, std::nullopt, std::nullopt, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No);
-    String cookiePartition = m_storage->isOptInCookiePartitioningEnabled() ? cookiePartitionForTopLevelURL(m_request.firstPartyForCookies()) : String { };
-    for (auto& field : fields) {
-        auto cookie = parseHTTPSetCookie(field, m_request.url(), cookiePartition);
-        if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite)
-            && (blockingDecision != ThirdPartyCookieBlockingDecision::AllExceptPartitioned || !cookie->partitionKey.isEmpty()))
-            m_storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
-    }
+    if (m_storage)
+        storeHTTPResponseCookies(*m_storage, m_request, m_sourceOrigin.get(), fields);
 }
 void CocoaCurlResourceHandle::storeHeldCookies(std::optional<Vector<String>>&& fields)
 {
@@ -338,6 +334,7 @@ void CocoaCurlResourceHandle::redirect()
         return;
     }
     auto request = m_request;
+    request.appendCookieRequestRedirectURL(m_request.url());
     request.setURL(WTF::move(url));
     // Any cross-site redirect makes a request not same-site, as CachedResourceLoader::updateRequestAfterRedirection
     // decides it.
@@ -806,6 +803,6 @@ std::optional<CocoaCurlDownloadTransfer> CocoaCurlResourceHandle::takeDownload()
         completion = std::exchange(m_continuation, nullptr);
     else if (std::exchange(m_holdsDelivery, false) && m_connection)
         completion = [connection = m_connection] { connection->setHoldsDelivery(false); };
-    return CocoaCurlDownloadTransfer { std::exchange(m_connection, nullptr), m_pool.copyRef(), m_storage, m_request, m_connectionURL, m_response, WTF::move(completion), std::exchange(m_sniffed, { }), m_allowCredentials, m_result };
+    return CocoaCurlDownloadTransfer { std::exchange(m_connection, nullptr), m_pool.copyRef(), m_storage, m_request, m_sourceOrigin, m_connectionURL, m_response, WTF::move(completion), std::exchange(m_sniffed, { }), m_allowCredentials, m_result };
 }
 }

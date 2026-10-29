@@ -28,7 +28,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 
-namespace WebCore { struct CocoaCurlTLSState; }
+namespace WebCore { class SecurityOrigin; struct CocoaCurlTLSState; }
 
 namespace WebKit {
 
@@ -69,13 +69,13 @@ public:
 
     // The Cookie field an exchange of a request generates: none while cookies are blocked for it. The
     // task's own answers what its next exchange sends, which its cookie-blocking latch also governs.
-    static String cookieHeader(NetworkSession&, const WebCore::ResourceRequest&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, WebCore::StoredCredentialsPolicy, bool cookieBlockingLatched = false);
+    static String cookieHeader(NetworkSession&, const WebCore::ResourceRequest&, const WebCore::SecurityOrigin*, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, WebCore::StoredCredentialsPolicy, bool cookieBlockingLatched = false);
     String cookieHeader(const WebCore::ResourceRequest&) const;
 
     // A response's Set-Cookie fields, stored for the request as an exchange of this task stores its own. `capExpiry`
     // caps a persistent cookie's lifetime, for a response that shouldCapCookieExpiryForThirdPartyCloaking says
     // reached a third party through a CNAME or an address.
-    static void storeCookies(NetworkSession&, const WebCore::ResourceRequest&, const Vector<String>& fields, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, bool capExpiry);
+    static void storeCookies(NetworkSession&, const WebCore::ResourceRequest&, const WebCore::SecurityOrigin*, const Vector<String>& fields, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, bool capExpiry);
     static bool shouldCapCookieExpiryForThirdPartyCloaking(NetworkSession&, const WebCore::ResourceRequest&, const String& remoteAddress, const WebCore::RegistrableDomain& resolvedCNAMEDomain);
 
     // The Set-Cookie fields of a response held for Safari 7 extensions' onHeadersReceived. Storing them
@@ -122,6 +122,7 @@ private:
     void finish(int, const String&, const WebCore::ResourceError& = { });
 
     WebCore::ResourceRequest m_request;
+    RefPtr<WebCore::SecurityOrigin> m_sourceOrigin;
     // The URL a WKExternalURLRewrite has the current request connect to (WebCore's ExternalURLRewrite.h);
     // null for m_request's own.
     URL m_connectionURL;

@@ -33,6 +33,7 @@
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/SecurityOrigin.h> // AQUAWEBKIT: retain the ping document's cookie initiator.
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/Timer.h>
 #include <wtf/CompletionHandler.h>
@@ -48,9 +49,10 @@ class PingHandle final : public RefCountedAndCanMakeWeakPtr<PingHandle>, private
     WTF_MAKE_NONCOPYABLE(PingHandle);
 public:
     // static void start(WebCore::NetworkingContext* networkingContext, const WebCore::ResourceRequest& request, bool shouldUseCredentialStorage, bool shouldFollowRedirects, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler) // AQUAWEBKIT: webRequest, below.
-    static void start(WebCore::NetworkingContext* networkingContext, const WebCore::ResourceRequest& request, bool shouldUseCredentialStorage, bool shouldFollowRedirects, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler, RefPtr<WebCore::LegacyLoadInterceptor::Load>&& webRequest = nullptr)
+    static void start(WebCore::NetworkingContext* networkingContext, const WebCore::ResourceRequest& request, bool shouldUseCredentialStorage, bool shouldFollowRedirects, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler, RefPtr<WebCore::LegacyLoadInterceptor::Load>&& webRequest = nullptr, RefPtr<WebCore::SecurityOrigin>&& cookieSourceOrigin = nullptr)
     {
         Ref handle = adoptRef(*new PingHandle(request, shouldUseCredentialStorage, shouldFollowRedirects));
+        handle->m_cookieSourceOrigin = WTF::move(cookieSourceOrigin); // AQUAWEBKIT: the initiating document follows every ping exchange.
         handle->m_webRequest = WTF::move(webRequest); // AQUAWEBKIT: Safari 7 extensions' webRequest for the ping.
         handle->start(networkingContext, [handle, completionHandler = WTF::move(completionHandler)](const WebCore::ResourceError& error, const WebCore::ResourceResponse& response) mutable {
             completionHandler(error, response);
@@ -68,6 +70,8 @@ public:
     }
 
 private:
+    WebCore::SecurityOrigin* cookieRequestSecurityOrigin() const final { return m_cookieSourceOrigin.get(); } // AQUAWEBKIT: curl cookie context.
+
     PingHandle(const WebCore::ResourceRequest& request, bool shouldUseCredentialStorage, bool shouldFollowRedirects)
         : m_currentRequest(request)
         , m_timeoutTimer(*this, &PingHandle::timeoutTimerFired)
@@ -191,5 +195,6 @@ private:
     bool m_shouldFollowRedirects;
     CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)> m_completionHandler;
     RefPtr<WebCore::LegacyLoadInterceptor::Load> m_webRequest; // AQUAWEBKIT: Safari 7 extensions' webRequest for the ping.
+    RefPtr<WebCore::SecurityOrigin> m_cookieSourceOrigin; // AQUAWEBKIT: the ping document's origin survives response-verdict restarts.
     RefPtr<WebCore::NetworkingContext> m_networkingContext; // AQUAWEBKIT: the context a ping webRequest redirects starts its new load in.
 };

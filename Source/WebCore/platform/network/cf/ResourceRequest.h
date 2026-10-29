@@ -48,6 +48,8 @@ struct ResourceRequestPlatformData {
     bool m_didFilterLinkDecoration { false };
     bool m_isPrivateTokenUsageByThirdPartyAllowed { false };
     bool m_wasSchemeOptimisticallyUpgraded { false };
+    // AQUAWEBKIT: platform IPC retains network cookie permission context.
+    Vector<URL> m_cookieRequestRedirectChain;
 };
 
 using ResourceRequestData = Variant<ResourceRequestBase::RequestData, ResourceRequestPlatformData>;

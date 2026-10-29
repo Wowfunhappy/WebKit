@@ -18,6 +18,7 @@ OBJC_CLASS WebCoreResourceHandleAsOperationQueueDelegate;
 
 namespace WebCore {
 class ResourceHandle;
+class SecurityOrigin;
 
 // Whether curl loads the request: an http(s) request that no NSURLProtocol class the application registered
 // claims. NSURLConnection and NSURLDownload load a claimed request through its class.
@@ -30,6 +31,7 @@ struct CocoaCurlDownloadTransfer {
     Ref<CocoaCurlConnectionPool> pool;
     WeakPtr<NetworkStorageSession> storage;
     ResourceRequest request;
+    RefPtr<SecurityOrigin> sourceOrigin;
     // The URL the transfer connects to in place of request's (ExternalURLRewrite.h); null for request's own.
     URL connectionURL;
     CocoaCurlTransferResponse response;
@@ -98,6 +100,7 @@ private:
     RetainPtr<WebCoreResourceHandleAsOperationQueueDelegate> m_dispatcher;
     RefPtr<CocoaCurlConnection> m_connection;
     ResourceRequest m_request;
+    RefPtr<SecurityOrigin> m_sourceOrigin;
     // The URL a WKExternalURLRewrite has the current request connect to (ExternalURLRewrite.h); null for
     // m_request's own.
     URL m_connectionURL;

@@ -12,6 +12,7 @@
 #include <WebCore/CookieJar.h>
 #include <WebCore/Credential.h>
 #include <WebCore/Document.h>
+#include <WebCore/DocumentLoader.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/FrameTree.h>
@@ -24,6 +25,7 @@
 #include <WebCore/ResourceLoader.h>
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/SecurityOrigin.h>
+#include <WebCore/SubresourceLoader.h>
 #include <wtf/ProcessID.h>
 
 namespace WebKit {
@@ -106,6 +108,8 @@ RefPtr<LegacyExtensionViewNetwork::Load> LegacyExtensionViewNetwork::createLoad(
         load->documentURL = document->url().string();
         load->initiator = document->securityOrigin().toString();
     }
+    if (RefPtr frameDocument = frame->document())
+        load->sourceOrigin = &frameDocument->securityOrigin();
     load->networkingContext = frame->loader().networkingContext();
     load->url = request.url();
     load->method = request.httpMethod();
@@ -145,7 +149,7 @@ String LegacyExtensionViewNetwork::generatedCookie(const Load& load, const Resou
     auto* storage = networkingContext ? networkingContext->storageSession() : nullptr;
     if (!storage || !request.allowCookies() || !cocoaCurlLoadsRequest(request))
         return { };
-    return storage->cookieRequestHeaderFieldValue(request.firstPartyForCookies(), cookieRequestSameSiteInfo(request), request.url(), std::nullopt, std::nullopt, request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+    return storage->cookieRequestHeaderFieldValue(request.firstPartyForCookies(), cookieRequestSameSiteInfo(request, load.sourceOrigin.get()), request.url(), std::nullopt, std::nullopt, request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
 }
 
 void LegacyExtensionViewNetwork::notify(ASCIILiteral eventName, Ref<JSON::Object>&& details)
@@ -250,6 +254,7 @@ void LegacyExtensionViewNetwork::beforeRequest(Ref<Load>&& load, ResourceRequest
 
         auto redirectResponse = internalRedirectResponse(request.url(), redirectURL);
         if (load->isMainFrameLoad && !load->isRedirected) {
+            request.appendCookieRequestRedirectURL(request.url());
             request.setURL(WTF::move(redirectURL));
             return completion({ RequestVerdict::Kind::MainFrameRedirect, WTF::move(request), WTF::move(redirectResponse), { } });
         }
@@ -261,6 +266,7 @@ void LegacyExtensionViewNetwork::beforeRequest(Ref<Load>&& load, ResourceRequest
             addResponseFields(details, redirectResponse);
             notify(onBeforeRedirect, WTF::move(details));
         }
+        request.appendCookieRequestRedirectURL(request.url());
         request.setURL(WTF::move(redirectURL));
         load->url = request.url();
         if (!isInterceptable(request.url()))
@@ -413,6 +419,12 @@ bool LegacyExtensionViewNetwork::interceptStart(ResourceLoader& loader)
         load = createLoad(frame.get(), loader.request(), loader.options().destination, isMainFrameLoad, makeString(getCurrentProcessID(), '-', loader.identifier()->toUInt64()));
         if (!load)
             return false;
+        if (RefPtr subresourceLoader = dynamicDowncast<SubresourceLoader>(loader); subresourceLoader && subresourceLoader->origin())
+            load->sourceOrigin = subresourceLoader->origin();
+        if (loader.options().mode == FetchOptions::Mode::Navigate) {
+            if (RefPtr documentLoader = loader.documentLoader(); documentLoader && documentLoader->triggeringAction().requester())
+                load->sourceOrigin = documentLoader->triggeringAction().requester()->securityOrigin.ptr();
+        }
         m_loads.set(loader, *load);
     }
 
@@ -574,6 +586,7 @@ bool LegacyExtensionViewNetwork::interceptResponse(ResourceLoader& loader, Resou
         RefPtr frame = loader->frame();
         bool shouldClearReferrer = !frame || !frame->loader().networkingContext() || frame->loader().networkingContext()->shouldClearReferrerOnHTTPSToHTTPRedirect();
         auto redirectRequest = request.redirectedRequest(verdict.response, shouldClearReferrer);
+        redirectRequest.appendCookieRequestRedirectURL(verdict.response.url());
         if (load->isMainFrameLoad)
             redirectRequest.setFirstPartyForCookies(URL { redirectRequest.url() });
         followRedirect(*loader, WTF::move(load), WTF::move(redirectRequest), WTF::move(verdict.response), [weakLoader = WTF::move(weakLoader)](ResourceRequest&& request) {
@@ -722,6 +735,7 @@ private:
                 return completionHandler(WTF::move(verdict.response), { }, ResourceError { errorDomainWebKitInternal, 0, verdict.target, "Load cannot follow more than 20 redirections"_s });
             protectedThis->m_handle = nullptr;
             auto redirectRequest = protectedThis->m_request.redirectedRequest(verdict.response, false);
+            redirectRequest.appendCookieRequestRedirectURL(verdict.response.url());
             Network::singleton().willSendRequest(protectedThis->m_load.copyRef(), WTF::move(redirectRequest), verdict.response, [response = verdict.response, protectedThis, completionHandler = WTF::move(completionHandler)](Network::RequestVerdict&& verdict) mutable {
                 if (verdict.kind == Network::RequestVerdict::Kind::Fail)
                     return completionHandler(WTF::move(response), { }, WTF::move(verdict.error));

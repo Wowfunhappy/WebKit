@@ -36,6 +36,7 @@
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <WebCore/Blob.h>
 #include <WebCore/CookieJar.h>
+#include <WebCore/CocoaCookie.h> // AQUAWEBKIT: network cookie policy for the legacy handshake.
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/DocumentPage.h>
 #include <WebCore/ExceptionCode.h>
@@ -281,8 +282,9 @@ void WebSocketChannel::didOpenSocketStream(SocketStreamHandle& handle)
         // ThreadableWebSocketChannel::webSocketConnectRequest gives the WebKit 2 handshake, not the document navigation's.
         cookieRequestHeaderFieldProxy = CookieJar::cookieRequestHeaderFieldProxy(*m_document, m_handshake->httpURLForAuthenticationAndCookies());
         ResourceRequest handshakeRequest { URL { m_handshake->url() } };
+        handshakeRequest.setFirstPartyForCookies(m_document->firstPartyForCookies()); // AQUAWEBKIT: the handshake carries its extension top-level cookie context.
         FrameLoader::addSameSiteInfoToRequestIfNeeded(handshakeRequest, m_document.get());
-        cookieRequestHeaderFieldProxy->sameSiteInfo = SameSiteInfo::create(handshakeRequest);
+        cookieRequestHeaderFieldProxy->sameSiteInfo = cookieRequestSameSiteInfo(handshakeRequest, &m_document->securityOrigin()); // AQUAWEBKIT: Website Access applies to network cookies.
     } // AQUAWEBKIT: closes the handshake cookie proxy above.
     handle.sendHandshake(WTF::move(handshakeMessage), WTF::move(cookieRequestHeaderFieldProxy), [this, protectedThis = Ref { *this }] (bool success, bool didAccessSecureCookies) {
         if (!success)

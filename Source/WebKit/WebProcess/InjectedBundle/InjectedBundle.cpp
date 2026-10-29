@@ -29,6 +29,7 @@
 #include "APIArray.h"
 #include "APIData.h"
 #include "InjectedBundleScriptWorld.h"
+#include "LegacyExtensionContent.h" // AQUAWEBKIT: retain native Website Access entries for connection recovery.
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
 #include "NetworkSessionCreationParameters.h"
@@ -149,18 +150,24 @@ void InjectedBundle::addOriginAccessAllowListEntry(const String& sourceOrigin, c
 {
     SecurityPolicy::addOriginAccessAllowlistEntry(SecurityOrigin::createFromString(sourceOrigin).get(), destinationProtocol, destinationHost, allowDestinationSubdomains);
     WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::AddOriginAccessAllowListEntry { sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains }, 0);
+    // AQUAWEBKIT: record after connection creation so initial replay sends each grant once.
+    LegacyExtensionContent::singleton().didAddOriginAccessAllowListEntry(sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains);
 }
 
 void InjectedBundle::removeOriginAccessAllowListEntry(const String& sourceOrigin, const String& destinationProtocol, const String& destinationHost, bool allowDestinationSubdomains)
 {
     SecurityPolicy::removeOriginAccessAllowlistEntry(SecurityOrigin::createFromString(sourceOrigin).get(), destinationProtocol, destinationHost, allowDestinationSubdomains);
     WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::RemoveOriginAccessAllowListEntry { sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains }, 0);
+    // AQUAWEBKIT: replay reflects native permission revocation.
+    LegacyExtensionContent::singleton().didRemoveOriginAccessAllowListEntry(sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains);
 }
 
 void InjectedBundle::resetOriginAccessAllowLists()
 {
     SecurityPolicy::resetOriginAccessAllowlists();
     WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::ResetOriginAccessAllowLists { }, 0);
+    // AQUAWEBKIT: reset clears the native entries retained for replay.
+    LegacyExtensionContent::singleton().didResetOriginAccessAllowLists();
 }
 
 void InjectedBundle::setAsynchronousSpellCheckingEnabled(bool enabled)

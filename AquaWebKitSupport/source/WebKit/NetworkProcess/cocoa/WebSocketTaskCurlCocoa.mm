@@ -21,12 +21,14 @@
 #import <WebCore/AuthenticationChallenge.h>
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/ClientOrigin.h>
+#import <WebCore/CocoaCookie.h>
 #import <WebCore/CocoaCurlSocketStream.h>
 #import <WebCore/CocoaCurlTLS.h>
 #import <WebCore/CocoaCurlTransfer.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/ProtectionSpace.h>
 #import <WebCore/ResourceError.h>
+#import <WebCore/SecurityOrigin.h>
 #import <WebCore/ThreadableWebSocketChannel.h>
 #import <dlfcn.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
@@ -338,6 +340,7 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifi
     , m_sessionSet(WTF::move(sessionSet))
     , m_partition(request.cachePartition())
     , m_storedCredentialsPolicy(storedCredentialsPolicy)
+    , m_clientOrigin(clientOrigin.clientOrigin.securityOrigin())
     , m_isInitiatedByDedicatedWorker(isInitiatedByDedicatedWorker)
     , m_request(request)
     , m_protocol(protocol)
@@ -383,6 +386,8 @@ bool WebSocketTask::updateCookieBlocking(const ResourceRequest& request)
         return m_cookiesBlocked;
     if (!m_cookiesBlocked) {
         auto relax = session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID.asOptional());
+        if (cookieRequestSameSiteInfo(request, m_clientOrigin.ptr()).relaxLegacyExtensionThirdPartyBlocking)
+            relax = ShouldRelaxThirdPartyCookieBlocking::Yes;
         auto decision = storage->thirdPartyCookieBlockingDecisionForRequest(request, m_frameID, m_pageID, relax, NetworkSession::isRequestToKnownCrossSiteTracker(request), m_isInitiatedByDedicatedWorker == IsInitiatedByDedicatedWorker::Yes);
         m_cookiesBlocked = NetworkStorageSession::shouldBlockCookies(decision);
     }
@@ -397,7 +402,7 @@ String WebSocketTask::cookieHeader() const
         return { };
     ResourceRequest cookieRequest = m_request;
     cookieRequest.setURL(httpURL(m_request.url()));
-    return NetworkDataTaskCurlCocoa::cookieHeader(*session, cookieRequest, m_frameID, m_pageID, m_webPageProxyID.asOptional(), m_storedCredentialsPolicy, m_cookiesBlocked);
+    return NetworkDataTaskCurlCocoa::cookieHeader(*session, cookieRequest, m_clientOrigin.ptr(), m_frameID, m_pageID, m_webPageProxyID.asOptional(), m_storedCredentialsPolicy, m_cookiesBlocked);
 }
 
 // A handshake response's Set-Cookie fields reach the session's storage as a network task's do.
@@ -413,7 +418,7 @@ void WebSocketTask::storeCookies(const Vector<String>& fields)
     // The address of a connection made through a proxy is the proxy's, which says nothing of the origin.
     bool capExpiry = !m_forwardingProxyAuthorization && m_stream
         && NetworkDataTaskCurlCocoa::shouldCapCookieExpiryForThirdPartyCloaking(*session, cookieRequest, m_stream->remoteAddress(), { });
-    NetworkDataTaskCurlCocoa::storeCookies(*session, cookieRequest, fields, m_frameID, m_pageID, m_webPageProxyID.asOptional(), capExpiry);
+    NetworkDataTaskCurlCocoa::storeCookies(*session, cookieRequest, m_clientOrigin.ptr(), fields, m_frameID, m_pageID, m_webPageProxyID.asOptional(), capExpiry);
 }
 
 void WebSocketTask::resume()
@@ -1321,6 +1326,7 @@ bool WebSocketTask::followRedirect()
     }
 
     ResourceRequest newRequest = m_request;
+    newRequest.appendCookieRequestRedirectURL(m_request.url());
     newRequest.setURL(URL { newURL });
     // The Cookie field belongs to the hop that sent it; the next hop's is looked up for its own URL.
     newRequest.removeHTTPHeaderField(HTTPHeaderName::Cookie);

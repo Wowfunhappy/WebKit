@@ -102,9 +102,9 @@ for t in "${TESTS[@]}"; do
     # <WebKitLegacy/X.h> resolves through the build's WebKitLegacy framework-header map.
     FLAGS="$FLAGS -F$BUILD/lib -I$BUILD/Source/WebKitLegacy/WebKitLegacy-framework-headers.hmap"
     POLY_LINK=("$POLY/libpolyfill.a")
-    # This test exercises CFNetwork replacements as well as the WebCore API. Its C SPI calls
+    # Cookie tests exercise CFNetwork replacements as well as the WebCore API. Their C SPI calls
     # need the same definitions and soft-link registry as a WebKit framework.
-    if [ "$t" = cocoa-curl-cookies ]; then
+    if [ "$t" = cocoa-curl-cookies ] || [ "$t" = cocoa-curl-extension-cookies ] || [ "$t" = cocoa-curl-extension-cookie-handoff ]; then
         (cd "$OUT" && "$TC/llvm-ar" x "$POLY/libpolyfill.a" CFNetwork.o) || exit 1
         POLY_LINK=("$OUT/CFNetwork.o" "$POLY/libpolyfill.a" "-Wl,-force_load,$POLY/libwk_marker.a")
     fi

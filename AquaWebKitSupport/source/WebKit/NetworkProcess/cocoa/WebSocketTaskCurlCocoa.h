@@ -33,6 +33,7 @@ OBJC_CLASS WKWebSocketConnectionAuthentication;
 
 namespace WebCore {
 class AuthenticationChallenge;
+class SecurityOrigin;
 class CocoaCurlSocketStream;
 struct ClientOrigin;
 enum class IsInitiatedByDedicatedWorker : bool;
@@ -141,6 +142,7 @@ private:
     String m_partition;
     WebCore::StoredCredentialsPolicy m_storedCredentialsPolicy;
     WebCore::SecurityOriginData m_topOrigin;
+    Ref<WebCore::SecurityOrigin> m_clientOrigin;
     WebCore::IsInitiatedByDedicatedWorker m_isInitiatedByDedicatedWorker;
     // The proxy.onRequest answers for the handshake (LegacyExtensionNetwork::interceptWebSocket).
     Vector<WebCore::CocoaCurlProxyFilterResult> m_proxyFilterResults;

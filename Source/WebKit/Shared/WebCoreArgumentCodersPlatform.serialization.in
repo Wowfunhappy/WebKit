@@ -304,6 +304,8 @@ header: <WebCore/ResourceRequest.h>
     [BitField] bool m_isPrivateTokenUsageByThirdPartyAllowed;
     [BitField] bool m_wasSchemeOptimisticallyUpgraded;
     WebCore::IPAddressSpace m_targetAddressSpace;
+    # AQUAWEBKIT: request cookie permission context.
+    Vector<URL> m_cookieRequestRedirectChain;
 };
 
 #if USE(SOUP)
@@ -1360,6 +1362,8 @@ struct WebCore::SameSiteInfo {
     bool isSameSite;
     bool isTopSite;
     bool isSafeHTTPMethod;
+    # AQUAWEBKIT: the network loader supplies the extension cookie permission locally.
+    [NotSerialized] bool relaxLegacyExtensionThirdPartyBlocking;
 };
 
 [RefCounted] class WebCore::FormData {

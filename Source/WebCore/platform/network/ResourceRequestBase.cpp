@@ -68,6 +68,11 @@ void ResourceRequestBase::setAsIsolatedCopy(const ResourceRequest& other)
     setCachePolicy(other.cachePolicy());
     setTimeoutInterval(other.timeoutInterval());
     setFirstPartyForCookies(other.firstPartyForCookies().isolatedCopy());
+    // AQUAWEBKIT: worker copies retain cookie permission context.
+    Vector<URL> cookieRedirectChain;
+    for (auto& url : other.cookieRequestRedirectChain())
+        cookieRedirectChain.append(url.isolatedCopy());
+    setCookieRequestRedirectChain(WTF::move(cookieRedirectChain));
     setHTTPMethod(other.httpMethod().isolatedCopy());
     setPriority(other.priority());
     setRequester(other.requester());
@@ -751,6 +756,10 @@ bool equalIgnoringHeaderFields(const ResourceRequestBase& a, const ResourceReque
         return false;
     
     if (a.firstPartyForCookies() != b.firstPartyForCookies())
+        return false;
+
+    // AQUAWEBKIT: request equality includes network cookie authority.
+    if (a.cookieRequestRedirectChain() != b.cookieRequestRedirectChain())
         return false;
 
     if (a.isSameSite() != b.isSameSite())
