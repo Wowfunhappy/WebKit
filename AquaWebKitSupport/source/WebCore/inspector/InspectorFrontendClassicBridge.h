@@ -71,7 +71,10 @@ inline bool inspectorFrontendIsClassic()
 //     receiving that dispatch. The bridge's own reply is dropped, and the frontend's later
 //     DOMTreeManager.requestDocument() issues its own DOM.getDocument, so every node id the frontend
 //     holds is still issued after the id reset that call performs. It asks once per page target, the
-//     lifetime of that target's m_documentRequested.
+//     lifetime of that target's m_documentRequested. Until the frontend's own DOM.getDocument has been
+//     answered for a target, and again after its DOM.documentUpdated, that target's DOM events other
+//     than DOM.inspect are dropped: the nodes they name were pushed only to the bridge, and the classic
+//     backend sent none before the frontend asked for the document.
 //     A navigation that changes process arrives as a provisional page target, handled as today's
 //     TargetManager handles it: targets start paused (Target.setPauseOnStart), and a provisional one
 //     receives the frontend's per-target state -- every domain it enabled, a running Timeline
@@ -424,7 +427,8 @@ if(recordTargetState(msg)){for(var tid in provisionalTargets)sendFromBridge(tid,
 if(!currentTargetId){pendingQueue.push(msg);return;}
 sendFrontendMessage(msg);};
 var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;origDisp=v.dispatch.bind(v);
-function deliver(im,t){if(im.method==='Page.scriptToEvaluateOnLoadEnded'){if(!im.params.loadWillContinueInAnotherProcess)wkExtReloadEnded();return;}if(im.method)wkExtObserve(im,t);var c=null;if(im.id!==undefined){var o=outstanding[t];if(!o||!o[im.id])return;delete o[im.id];c=innerCalls[im.id];delete innerCalls[im.id];im.id=c.frontendId;fixReply(c.method,im.result,c.params);}if(im.id!==undefined&&pendingBreakpoints[im.id]){var bp=pendingBreakpoints[im.id];delete pendingBreakpoints[im.id];if(im.result)setTargetState('breakpoint:'+im.result.breakpointId,bp);}var ef=im.method&&wkEventFixes[im.method];if(ef)ef(im.params);fixNetworkTimes(im);fixPayload(im);origDisp(im);if(c&&c.done)c.done();
+var wkFrontendDocuments=Object.create(null);
+function deliver(im,t){if(im.method==='Page.scriptToEvaluateOnLoadEnded'){if(!im.params.loadWillContinueInAnotherProcess)wkExtReloadEnded();return;}if(im.method==='DOM.documentUpdated')delete wkFrontendDocuments[t];else if(im.method&&im.method.indexOf('DOM.')===0&&im.method!=='DOM.inspect'&&!wkFrontendDocuments[t])return;if(im.method)wkExtObserve(im,t);var c=null;if(im.id!==undefined){var o=outstanding[t];if(!o||!o[im.id])return;delete o[im.id];c=innerCalls[im.id];delete innerCalls[im.id];im.id=c.frontendId;if(c.method==='DOM.getDocument'&&c.frontendId!==undefined&&im.result)wkFrontendDocuments[t]=true;fixReply(c.method,im.result,c.params);}if(im.id!==undefined&&pendingBreakpoints[im.id]){var bp=pendingBreakpoints[im.id];delete pendingBreakpoints[im.id];if(im.result)setTargetState('breakpoint:'+im.result.breakpointId,bp);}var ef=im.method&&wkEventFixes[im.method];if(ef)ef(im.params);fixNetworkTimes(im);fixPayload(im);origDisp(im);if(c&&c.done)c.done();
 var mark=im.method&&wkLoadMarks[im.method];if(mark&&wkMainFrameId!==null&&wkRecording())origDisp({method:'Timeline.eventRecorded',params:{record:{type:mark,startTime:im.params.timestamp*1000,frameId:wkMainFrameId,data:{}}}});}
 v.dispatch=function(message){var obj=(typeof message==='string')?JSON.parse(message):message;var p=obj.params;
 if(obj.method==='Target.targetCreated'){targetCreated(p.targetInfo);return;}

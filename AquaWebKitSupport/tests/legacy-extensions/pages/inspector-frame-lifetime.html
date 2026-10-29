@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Inspector frame lifetime</title>
+<h1>Inspector frame lifetime</h1>
+<button onclick="addFrame('same', 0)">Add same origin</button>
+<button onclick="addFrame('cross', 0)">Add cross origin</button>
+<button onclick="addFrame('same', 2)">Add nested same origin</button>
+<button onclick="addFrame('cross', 2)">Add nested cross origin</button>
+<button onclick="removeFrame()">Remove iframe</button>
+<pre id="status">Ready</pre>
+<script>
+var serial = 0;
+var parameters = new URLSearchParams(location.search);
+function report(event, detail) {
+    var result = { event: event, detail: detail, url: location.href, serial: serial };
+    document.getElementById('status').textContent = JSON.stringify(result);
+    console.log('frame-lifetime', result);
+    fetch('http://localhost:8843/report?inspector-frame-lifetime=' + encodeURIComponent(JSON.stringify(result)));
+    return result;
+}
+function addFrame(mode, depth) {
+    if (document.getElementById('victim'))
+        throw new Error('Remove the existing frame first');
+    ++serial;
+    var frame = document.createElement('iframe');
+    frame.id = 'victim';
+    frame.name = 'lifetime-' + serial + '-' + depth;
+    var host = mode === 'cross' && location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+    frame.src = 'http://' + host + ':8843/inspector-frame-lifetime.html?child=' + depth + '&mode=' + mode + '&serial=' + serial;
+    frame.onload = function () { report('loaded', { mode: mode, depth: depth }); };
+    document.body.appendChild(frame);
+    return report('added', { mode: mode, depth: depth });
+}
+function removeFrame() {
+    report('removing', document.querySelectorAll('iframe').length);
+    document.getElementById('victim').remove();
+    return report('removed', document.querySelectorAll('iframe').length);
+}
+if (parameters.has('child')) {
+    document.title += ' child ' + parameters.get('child');
+    var depth = Number(parameters.get('child'));
+    if (depth)
+        addFrame(parameters.get('mode'), depth - 1);
+}
+</script>

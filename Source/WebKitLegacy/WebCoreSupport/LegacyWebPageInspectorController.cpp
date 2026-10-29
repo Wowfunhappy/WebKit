@@ -258,6 +258,10 @@ void LegacyWebPageInspectorController::willDestroyFrame(const WebCore::LocalFram
 
 void LegacyWebPageInspectorController::willDestroyPage(const WebCore::Page& page)
 {
+    // AQUAWEBKIT: the page target owns the channel the page's inspector controller holds, and the page outlives
+    // this call, so the target ends that connection before the channel goes away with it.
+    if (auto* target = m_targets.get(PageTarget::identifier(page)))
+        target->disconnect();
     removeTarget(PageTarget::identifier(page));
 
     disconnectAllFrontends();
@@ -277,9 +281,6 @@ void LegacyWebPageInspectorController::removeTarget(const String& targetID)
         return;
 
     protect(targetAgent())->targetDestroyed(protect(*it->value));
-    // AQUAWEBKIT: the target owns the channel its page or frame inspector controller holds; a
-    // connected target ends that connection before the channel goes away with it.
-    it->value->disconnect();
     m_targets.remove(it);
 }
 

@@ -1830,15 +1830,9 @@ static void WebKitInitializeGamepadProviderIfNecessary()
 
     _private->inspectorController = LegacyWebPageInspectorController::create(*_private->page);
 #if ENABLE(REMOTE_INSPECTOR)
-    // AQUAWEBKIT: the in-process legacy WebView has no system RemoteInspector debuggable.
-    // Safari browses with WKWebView (multi-process); a WebKitLegacy WebView serves auxiliary
-    // chrome (e.g. the Preferences window NIB unarchives one via initWithCoder:). Remote
-    // inspection of such a WebView goes through the webinspectord XPC service, which is
-    // absent/protocol-incompatible on 10.9, and registerTarget()/setInspectable() cross into the
-    // deployed JavaScriptCore. This port's Web Inspector uses the WKWebView/WebContent path.
-    //   _private->inspectorDebuggable = LegacyWebPageDebuggable::create(*_private->inspectorController, *_private->page);
-    //   _private->inspectorDebuggable->init();
-    //   _private->inspectorDebuggable->setInspectable(true);
+    _private->inspectorDebuggable = LegacyWebPageDebuggable::create(*_private->inspectorController, *_private->page);
+    _private->inspectorDebuggable->init();
+    _private->inspectorDebuggable->setInspectable(true);
 #endif
 
     _private->page->setCanStartMedia([self window]);
@@ -2710,11 +2704,7 @@ static bool fastDocumentTeardownEnabled()
     if (!_private || _private->closed)
         return;
 
-    // AQUAWEBKIT: a Mac legacy WebView has no RemoteInspector debuggable (see
-    // _commonInitializationWithFrameName; 10.9 has no webinspectord), so _private->inspectorDebuggable is null.
-    // _private->inspectorDebuggable->detachFromPage();
-    if (_private->inspectorDebuggable)
-        _private->inspectorDebuggable->detachFromPage();
+    _private->inspectorDebuggable->detachFromPage();
     _private->inspectorController->willDestroyPage(*_private->page);
 
     [[NSNotificationCenter defaultCenter] postNotificationName:WebViewWillCloseNotification object:self];
@@ -2957,17 +2947,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)allowsRemoteInspection
 {
-    // AQUAWEBKIT: inspectorDebuggable is null on Mac (see -[WebView _close]); report not-inspectable.
-    // return _private->inspectorDebuggable->inspectable();
-    return _private->inspectorDebuggable ? _private->inspectorDebuggable->inspectable() : NO;
+    return _private->inspectorDebuggable->inspectable();
 }
 
 - (void)setAllowsRemoteInspection:(BOOL)allow
 {
-    // AQUAWEBKIT: inspectorDebuggable is null on Mac (see -[WebView _close]); nothing to configure.
-    // _private->inspectorDebuggable->setInspectable(allow);
-    if (_private->inspectorDebuggable)
-        _private->inspectorDebuggable->setInspectable(allow);
+    _private->inspectorDebuggable->setInspectable(allow);
 }
 
 - (void)setShowingInspectorIndication:(BOOL)showing
