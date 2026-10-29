@@ -24,6 +24,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "GStreamerCommon.h"
+#include "GStreamerResourceURI.h" // AQUAWEBKIT: the private transport URI encloses the WebCore resource URL.
 #include "GUniquePtrGStreamer.h"
 #include "HTTPHeaderNames.h"
 #include "MediaPlayerPrivateGStreamer.h"
@@ -918,9 +919,9 @@ static gboolean webKitWebSrcUnLockStop(GstBaseSrc* baseSrc)
 
 static bool urlHasSupportedProtocol(const URL& url)
 {
-    // AQUAWEBKIT: "cid" too; see webKitWebSrcGetProtocols() below. (#69)
+    // AQUAWEBKIT: WebCore loads the URL enclosed by the private transport URI.
     // return url.isValid() && (url.protocolIsInHTTPFamily() || url.protocolIsBlob());
-    return url.isValid() && (url.protocolIsInHTTPFamily() || url.protocolIsBlob() || url.protocolIs("cid"_s));
+    return url.isValid();
 }
 
 // uri handler interface
@@ -932,16 +933,17 @@ static GstURIType webKitWebSrcUriGetType(GType)
 
 const gchar* const* webKitWebSrcGetProtocols(GType)
 {
-    // AQUAWEBKIT: "cid" (Content-ID, RFC 2392) too. Apple Mail renders inline audio/video attachments as
-    // <video>/<audio src="cid:...">, and CachedResourceLoader, which this source fetches through, resolves cid:. (#69)
+    // AQUAWEBKIT: one fixed protocol selects WebCore loading for application resource schemes.
     // static std::array<const char*, 4> protocols { "http", "https", "blob" };
-    static std::array<const char*, 5> protocols { "http", "https", "blob", "cid" };
+    static std::array<const char*, 5> protocols { "http", "https", "blob", "webkit-resource" };
     return protocols.data();
 }
 
 static URL convertPlaybinURI(String&& uriString)
 {
-    return URL { WTF::move(uriString) };
+    // AQUAWEBKIT: requests and source URI queries use the enclosed resource URL.
+    // return URL { WTF::move(uriString) };
+    return webCoreURLFromGStreamerURI(WTF::move(uriString));
 }
 
 static gchar* webKitWebSrcGetUri(GstURIHandler* handler)

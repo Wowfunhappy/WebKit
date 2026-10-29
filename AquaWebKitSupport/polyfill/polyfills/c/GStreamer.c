@@ -1,5 +1,4 @@
-// GStreamer: this port's GStreamer configuration, applied through the environment knobs
-// upstream already reads, so Source/WebCore/platform/graphics/gstreamer stays byte-upstream.
+// GStreamer configuration through the environment options its WebCore backend reads.
 //
 // libpolyfill.a is force-loaded into every WebKit binary, so this constructor runs at image load —
 // well before gst_init(), GStreamerRegistryScanner's singleton, and registerWebKitGStreamerElements(),
@@ -17,7 +16,7 @@ static size_t wk_key_length(const char *element, size_t length)
 }
 
 // Adds `element` to the comma-separated list in `variable` unless an element with the same key is
-// already there, so an explicit setting in the environment wins and "acid" does not count as "cid".
+// already there, preserving an explicit setting in the environment.
 static void wk_merge_list_element(const char *variable, const char *element)
 {
     const char *existing = getenv(variable);
@@ -54,17 +53,12 @@ static void wk_merge_list_element(const char *variable, const char *element)
 // WEBKIT_GST_ENABLE_HLS_SUPPORT: upstream leaves native HLS off unless this is "1", and off both skips
 // the application/x-hls mapping in GStreamerRegistryScanner (so
 // canPlayType("application/vnd.apple.mpegurl") answers "") and demotes the hlsdemux factory to
-// GST_RANK_NONE in registerWebKitGStreamerElements. Without it a plain <video src="....m3u8"> fails
-// with MEDIA_ERR_SRC_NOT_SUPPORTED; with it, MPEG-TS, fMP4/CMAF and AES-128 playlists all play.
+// GST_RANK_NONE in registerWebKitGStreamerElements. "1" lets a plain <video src="....m3u8"> play
+// MPEG-TS, fMP4/CMAF and AES-128 playlists.
 // AquaWebKitSupport/deps ships hlsdemux2 (libgstadaptivedemux2), and the mapping stays gated on a demuxer being registered.
 //
 // WEBKIT_GST_USE_PLAYBIN3: upstream builds regular playback on the legacy playbin unless this is "1". HLS
 // plays through hlsdemux2, which is streams-aware and needs playbin3 (decodebin3) above it.
-//
-// WEBKIT_GST_ALLOWED_URI_PROTOCOLS: adds "cid" (Content-ID, RFC 2392) to isProtocolAllowed's set.
-// GStreamer is the sole media engine here and Apple Mail renders inline audio/video attachments as
-// <video>/<audio src="cid:...">; WebKitWebSrc loads those through WebCore's CachedResourceLoader, the
-// same path that already resolves cid: for inline <img>, which performs its own origin checks. (#69)
 //
 // GST_PLUGIN_FEATURE_RANK + WEBKIT_GST_CAN_PLAY_USAC: the AAC decoder is gst-plugins-bad's fdkaacdec
 // on the FDK AAC library AquaWebKitSupport/deps ships, ranked above gst-libav's avdec_aac. FDK decodes
@@ -79,10 +73,6 @@ __attribute__((constructor)) static void wk_gstreamer_env_init(void)
     setenv("WEBKIT_GST_ENABLE_HLS_SUPPORT", "1", 0);
     setenv("WEBKIT_GST_USE_PLAYBIN3", "1", 0);
     setenv("WEBKIT_GST_CAN_PLAY_USAC", "1", 0);
-
-    // Upstream unions this list with its built-in protocol set, so append rather than replace:
-    // clobbering it would drop protocols an embedder had already asked for.
-    wk_merge_list_element("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "cid");
 
     // GST_RANK_PRIMARY + 1.
     wk_merge_list_element("GST_PLUGIN_FEATURE_RANK", "fdkaacdec:257");

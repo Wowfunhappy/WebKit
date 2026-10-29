@@ -9,6 +9,7 @@
 #import <WebCore/BroadcastChannelRegistry.h>
 #import <WebCore/DOMWrapperWorld.h>
 #import <WebCore/Document.h>
+#import <WebCore/DocumentPage.h>
 #import <WebCore/Event.h>
 #import <WebCore/EventListener.h>
 #import <WebCore/EventLoop.h>
@@ -195,8 +196,12 @@ static void registerGlobalPageView(WebFrame *frame, const URL& url)
 {
     if (!url.protocolIs("safari-extension"_s))
         return;
-    if (globalPageDocuments().ensure(frame, [] { return GlobalPageDocument { }; }).isNewEntry)
+    if (globalPageDocuments().ensure(frame, [] { return GlobalPageDocument { }; }).isNewEntry) {
+        // Safari keeps its global page out of any window; an extension's global page may still start media.
+        Ref page { *core(frame)->page() };
+        page->setCanStartMedia(true);
         observer->globalPageViewCreated((__bridge const void*)frame, url.createCFURL().get());
+    }
 }
 
 static void observeGlobalPageProgress()

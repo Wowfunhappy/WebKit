@@ -173,6 +173,140 @@ Ref<URLSessionMediaResourceLoader> URLSessionMediaResourceLoader::create(Ref<Pla
     return adoptRef(*new URLSessionMediaResourceLoader(WTF::move(loader)));
 }
 
+class NonHTTPMediaResource final : public PlatformMediaResource {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(NonHTTPMediaResource);
+public:
+    static Ref<NonHTTPMediaResource> create(Ref<PlatformMediaResource>&&, uint64_t requestedOffset);
+
+    ~NonHTTPMediaResource()
+    {
+        ensureOnMainThread([resource = WTF::move(m_resource)] {
+            resource->setClient(nullptr);
+            resource->shutdown();
+        });
+    }
+
+    bool didPassAccessControlCheck() const final { return m_resource->didPassAccessControlCheck(); }
+
+    void shutdown() final
+    {
+        ensureOnMainThread([resource = m_resource.copyRef()] {
+            resource->setClient(nullptr);
+            resource->shutdown();
+        });
+    }
+
+private:
+    explicit NonHTTPMediaResource(Ref<PlatformMediaResource>&& resource)
+        : m_resource(WTF::move(resource))
+    {
+    }
+
+    Ref<PlatformMediaResource> m_resource;
+};
+
+class NonHTTPMediaResourceClient final : public PlatformMediaResourceClient {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(NonHTTPMediaResourceClient);
+public:
+    NonHTTPMediaResourceClient(NonHTTPMediaResource& resource, uint64_t requestedOffset)
+        : m_resource(resource)
+        , m_requestedOffset(requestedOffset)
+    {
+    }
+
+private:
+    void responseReceived(PlatformMediaResource&, const ResourceResponse& response, CompletionHandler<void(ShouldContinuePolicyCheck)>&& completionHandler) final
+    {
+        RefPtr resource = m_resource.get();
+        RefPtr client = resource ? resource->client() : nullptr;
+        if (!client)
+            return completionHandler(ShouldContinuePolicyCheck::No);
+
+        auto forwardedResponse = response;
+        auto length = response.expectedContentLength();
+        bool wholeRepresentation = !response.httpStatusCode() || (isHttpOkStatus(response.httpStatusCode()) && !response.contentRange().isValid());
+        if (m_requestedOffset && wholeRepresentation && length > 0 && m_requestedOffset < static_cast<uint64_t>(length)) {
+            m_bytesToSkip = m_requestedOffset;
+            forwardedResponse.setHTTPStatusCode(httpStatus206PartialContent);
+            forwardedResponse.setHTTPHeaderField(HTTPHeaderName::ContentRange, makeString("bytes "_s, m_requestedOffset, '-', length - 1, '/', length));
+            forwardedResponse.setHTTPHeaderField(HTTPHeaderName::ContentLength, makeString(length - m_requestedOffset));
+            forwardedResponse.setExpectedContentLength(length - m_requestedOffset);
+        }
+        client->responseReceived(*resource, forwardedResponse, WTF::move(completionHandler));
+    }
+
+    void redirectReceived(PlatformMediaResource&, ResourceRequest&& request, const ResourceResponse& response, CompletionHandler<void(ResourceRequest&&)>&& completionHandler) final
+    {
+        RefPtr resource = m_resource.get();
+        if (RefPtr client = resource ? resource->client() : nullptr)
+            client->redirectReceived(*resource, WTF::move(request), response, WTF::move(completionHandler));
+        else
+            completionHandler(WTF::move(request));
+    }
+
+    bool shouldCacheResponse(PlatformMediaResource&, const ResourceResponse& response) final
+    {
+        RefPtr resource = m_resource.get();
+        if (RefPtr client = resource ? resource->client() : nullptr)
+            return client->shouldCacheResponse(*resource, response);
+        return true;
+    }
+
+    void dataSent(PlatformMediaResource&, unsigned long long bytesSent, unsigned long long totalBytes) final
+    {
+        RefPtr resource = m_resource.get();
+        if (RefPtr client = resource ? resource->client() : nullptr)
+            client->dataSent(*resource, bytesSent, totalBytes);
+    }
+
+    void dataReceived(PlatformMediaResource&, const SharedBuffer& data) final
+    {
+        auto skip = std::min<uint64_t>(m_bytesToSkip, data.size());
+        m_bytesToSkip -= skip;
+        if (skip == data.size())
+            return;
+        RefPtr resource = m_resource.get();
+        if (RefPtr client = resource ? resource->client() : nullptr) {
+            if (skip)
+                client->dataReceived(*resource, data.getContiguousData(skip, data.size() - skip));
+            else
+                client->dataReceived(*resource, data);
+        }
+    }
+
+    void accessControlCheckFailed(PlatformMediaResource&, const ResourceError& error) final
+    {
+        RefPtr resource = m_resource.get();
+        if (RefPtr client = resource ? resource->client() : nullptr)
+            client->accessControlCheckFailed(*resource, error);
+    }
+
+    void loadFailed(PlatformMediaResource&, const ResourceError& error) final
+    {
+        RefPtr resource = m_resource.get();
+        if (RefPtr client = resource ? resource->client() : nullptr)
+            client->loadFailed(*resource, error);
+    }
+
+    void loadFinished(PlatformMediaResource&, const NetworkLoadMetrics& metrics) final
+    {
+        RefPtr resource = m_resource.get();
+        if (RefPtr client = resource ? resource->client() : nullptr)
+            client->loadFinished(*resource, metrics);
+    }
+
+    const ThreadSafeWeakPtr<NonHTTPMediaResource> m_resource;
+    const uint64_t m_requestedOffset;
+    uint64_t m_bytesToSkip { 0 };
+};
+
+Ref<NonHTTPMediaResource> NonHTTPMediaResource::create(Ref<PlatformMediaResource>&& source, uint64_t requestedOffset)
+{
+    Ref resource = adoptRef(*new NonHTTPMediaResource(WTF::move(source)));
+    resource->m_resource->setClient(adoptRef(*new NonHTTPMediaResourceClient(resource, requestedOffset)));
+    return resource;
+}
+
 // The loader the session holds. The session lets go of its loader on whichever thread releases the session last, its
 // internal queue or a source's streaming thread; this reference carries that release to the main thread, where the
 // media element's loader, a destruction observer of its document, is released.
@@ -226,11 +360,15 @@ Ref<GuaranteedSerialFunctionDispatcher> URLSessionMediaResourceLoader::targetDis
 RefPtr<PlatformMediaResource> URLSessionMediaResourceLoader::requestResource(ResourceRequest&& request, LoadOptions options)
 {
     ASSERT(isMainThread());
-    // A response crosses the session as an NSURLResponse, which carries a status only for an HTTP URL (see
-    // ResourceResponse::initNSURLResponse()), and only an HTTP server can ignore a range. Other schemes (blob:, data:)
-    // load through the media element's loader directly.
-    if (!request.url().protocolIsInHTTPFamily())
-        return m_loader->requestResource(WTF::move(request), options);
+    // Non-HTTP resources expose the requested byte window using the AVF resource loader's offset contract.
+    if (!request.url().protocolIsInHTTPFamily()) {
+        auto range = parseRange(request.httpHeaderField(HTTPHeaderName::Range), RangeAllowWhitespace::No);
+        uint64_t requestedOffset = range ? range->start.value_or(0) : 0;
+        RefPtr resource = m_loader->requestResource(WTF::move(request), options);
+        if (!resource)
+            return nullptr;
+        return NonHTTPMediaResource::create(resource.releaseNonNull(), requestedOffset);
+    }
     // WebCoreNSURLSession answers a range from the copy of a resource whose server ignored the range only when the
     // range is closed, the form AVFoundation sends, and the resource fits maximumSynthesizedResourceSize. An open range
     // is closed at the resource's length, from a response that states it or a whole body that completed.

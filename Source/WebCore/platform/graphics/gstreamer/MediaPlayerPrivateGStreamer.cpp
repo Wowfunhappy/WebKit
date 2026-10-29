@@ -34,6 +34,7 @@
 #include "AdaptiveStreamGStreamer.h" // AQUAWEBKIT: see setLiveStream().
 #include "GStreamerCaptureDeviceManager.h"
 #include "GStreamerCommon.h"
+#include "GStreamerResourceURI.h" // AQUAWEBKIT: application resource URIs select the WebCore source.
 #include "GStreamerQuirks.h"
 #include "GStreamerRegistryScanner.h"
 #include "GraphicsContext.h"
@@ -370,10 +371,13 @@ void MediaPlayerPrivateGStreamer::load(const String& urlString)
         return;
     }
 
+    // AQUAWEBKIT: setPlaybinURL routes application resources through WebCore's resource loader.
+    /*
     if (!isProtocolAllowed(url)) {
         loadingFailed(MediaPlayer::NetworkState::FormatError, MediaPlayer::ReadyState::HaveNothing, true);
         return;
     }
+    */ // AQUAWEBKIT: setPlaybinURL selects the resource transport.
 
     if (!ensureGStreamerInitialized()) {
         loadingFailed(MediaPlayer::NetworkState::FormatError, MediaPlayer::ReadyState::HaveNothing, true);
@@ -1353,7 +1357,9 @@ void MediaPlayerPrivateGStreamer::setPlaybinURL(const URL& url)
 
     m_url = URL { cleanURLString };
     GST_INFO_OBJECT(pipeline(), "Load %s", m_url.string().utf8().data());
-    g_object_set(m_pipeline.get(), "uri", m_url.string().utf8().data(), nullptr);
+    // AQUAWEBKIT: playbin selects the source using its transport URI; m_url identifies the resource.
+    // g_object_set(m_pipeline.get(), "uri", m_url.string().utf8().data(), nullptr);
+    g_object_set(m_pipeline.get(), "uri", gStreamerPlaybinURL(m_url).string().utf8().data(), nullptr);
 }
 
 static void setSyncOnClock(GstElement* element, bool sync)
@@ -3563,7 +3569,9 @@ bool MediaPlayerPrivateGStreamer::loadNextLocation()
 
         GUniqueOutPtr<gchar> playbinURLStr;
         g_object_get(m_pipeline.get(), "current-uri", &playbinURLStr.outPtr(), nullptr);
-        URL playbinURL { String(byteCast<char8_t>(unsafeSpan(playbinURLStr.get()))) };
+        // AQUAWEBKIT: redirects compare resource URLs after removing the source selection wrapper.
+        // URL playbinURL { String(byteCast<char8_t>(unsafeSpan(playbinURLStr.get()))) };
+        URL playbinURL = webCoreURLFromGStreamerURI(String(byteCast<char8_t>(unsafeSpan(playbinURLStr.get()))));
 
         if (playbinURL == newURL) {
             GST_DEBUG_OBJECT(pipeline(), "Playbin already handled redirection.");

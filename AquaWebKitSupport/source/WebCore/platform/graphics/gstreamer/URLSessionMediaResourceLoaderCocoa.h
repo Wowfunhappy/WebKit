@@ -12,10 +12,8 @@ OBJC_CLASS WebCoreURLSessionMediaResourceDelegate;
 
 namespace WebCore {
 
-// The media loader the GStreamer player's sources use on Cocoa. It loads through a WebCoreNSURLSession over the
-// player's media resource loader, the session Cocoa's media engine loads through, so each resource keeps that
-// session's contract: a closed byte range answered with the whole resource is served from one in-memory copy
-// by RangeResponseGenerator.
+// HTTP resources use WebCoreNSURLSession and RangeResponseGenerator. Non-HTTP resources use the
+// WebCore media loader with the requested byte window of a whole representation.
 class URLSessionMediaResourceLoader final
     : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<URLSessionMediaResourceLoader, WTF::DestructionThread::Main>
     , public PlatformMediaResourceLoader {
