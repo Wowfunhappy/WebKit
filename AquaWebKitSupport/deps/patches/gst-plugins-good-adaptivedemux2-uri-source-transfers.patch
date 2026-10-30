@@ -4,6 +4,10 @@
 # pushes: its http-headers event for status, redirect and headers, a BYTES seek for a range, an
 # error message or EOS for the end. The element's context requests go up through the demuxer.
 #
+# The URI-source backend resolves arbitrary resource schemes through the host's
+# URI mapper in its loader context. Non-HTTP responses use GFile transfer status
+# semantics. The libsoup backend retains its manifest protocol requirements.
+#
 # Applied by build_deps with patch -p1.
 --- a/ext/adaptivedemux2/downloadhelper.c
 +++ b/ext/adaptivedemux2/downloadhelper.c
@@ -64,10 +68,12 @@
    g_free (transfer->read_buffer);
    g_free (transfer);
  }
-@@ -194,6 +221,478 @@
+@@ -192,6 +219,511 @@
+       transfer_new_common (dh, request, blocking);
+   transfer->msg = msg;
    return transfer_task_new_for_transfer (transfer);
- }
- 
++}
++
 +static GTask *
 +transfer_task_new_element (DownloadHelper * dh, DownloadRequest * request,
 +    gboolean blocking)
@@ -263,6 +269,8 @@
 +  }
 +
 +  gst_structure_get_uint (http_headers, "http-status-code", &status_code);
++  /* Non-HTTP resource responses use the same success status as GFile transfers. */
++  status_code = status_code ? status_code : SOUP_STATUS_OK;
 +  request->status_code = status_code;
 +
 +  redirect_uri = gst_structure_get_string (http_headers, "redirection-uri");
@@ -443,6 +451,34 @@
 +  return GST_BUS_DROP;
 +}
 +
++/* The loader context supplies the host's transport URI mapping. */
++static gchar *
++element_transfer_uri (DownloadHelper * dh, const gchar * uri)
++{
++  GstContext *context = NULL;
++  gchar *(*mapper) (const gchar *) = NULL;
++  gchar *transport_uri;
++
++  if (dh->owner != NULL) {
++    context = gst_element_get_context (dh->owner, "webkit.resource-loader");
++    if (context == NULL) {
++      gst_element_post_message (dh->owner,
++          gst_message_new_need_context (GST_OBJECT_CAST (dh->owner),
++              "webkit.resource-loader"));
++      context = gst_element_get_context (dh->owner, "webkit.resource-loader");
++    }
++  }
++  if (context != NULL) {
++    const GValue *value = gst_structure_get_value (
++        gst_context_get_structure (context), "uri-mapper");
++    if (value != NULL)
++      mapper = g_value_get_pointer (value);
++  }
++  transport_uri = mapper != NULL ? mapper (uri) : g_strdup (uri);
++  gst_clear_context (&context);
++  return transport_uri;
++}
++
 +/* Called on the transfer thread, without the transfer lock */
 +static gboolean
 +element_transfer_start_cb (gpointer user_data)
@@ -455,13 +491,16 @@
 +  GstPad *srcpad;
 +  GstBus *bus;
 +  GError *error = NULL;
++  gchar *transport_uri;
 +
 +  if (g_cancellable_is_cancelled (transfer->cancellable)) {
 +    element_transfer_schedule_teardown (transfer_task);
 +    return G_SOURCE_REMOVE;
 +  }
 +
-+  src = gst_element_make_from_uri (GST_URI_SRC, request->uri, NULL, &error);
++  transport_uri = element_transfer_uri (transfer->dh, request->uri);
++  src = gst_element_make_from_uri (GST_URI_SRC, transport_uri, NULL, &error);
++  g_free (transport_uri);
 +  if (src == NULL)
 +    goto failed;
 +  gst_object_ref_sink (src);
@@ -538,12 +577,10 @@
 +  element_transfer_finish_locked (transfer_task, error);
 +  download_request_unlock (request);
 +  return G_SOURCE_REMOVE;
-+}
-+
+ }
+
  static void
- release_transfer_task_by_ref (GTask ** transfer_task)
- {
-@@ -808,6 +1307,12 @@
+@@ -808,6 +1340,12 @@
        g_async_queue_new_full ((GDestroyNotify) g_object_unref);
    dh->transfer_requests_source = NULL;
  
@@ -556,37 +593,40 @@
    /* libsoup 3.0 (not 2.74 or 3.1) dispatches using a single source attached
     * when the session is created, so we need to ensure it matches here. */
    g_main_context_push_thread_default (dh->transfer_context);
-@@ -855,11 +1360,18 @@
+@@ -855,8 +1393,21 @@
  
    g_free (dh->referer);
    g_free (dh->user_agent);
 +  g_ptr_array_unref (dh->element_transfers);
  
    g_free (dh);
- }
- 
- void
-+downloadhelper_set_owner (DownloadHelper * dh, GstElement * owner)
++}
++
++gboolean
++downloadhelper_uses_uri_sources (DownloadHelper * dh)
 +{
-+  dh->owner = owner;
++  return dh->session == NULL;
 +}
 +
 +void
- downloadhelper_set_referer (DownloadHelper * dh, const gchar * referer)
- {
-   g_mutex_lock (&dh->transfer_lock);
-@@ -910,6 +1422,10 @@
++downloadhelper_set_owner (DownloadHelper * dh, GstElement * owner)
++{
++  dh->owner = owner;
+ }
+
+ void
+@@ -909,6 +1460,10 @@
+   SoupCookie *cookie_obj;
    CookieAddData *data;
    GSource *source;
- 
++
 +  /* Without libsoup, the URI source elements apply their own cookies */
 +  if (dh->session == NULL)
 +    return;
-+
+
    soup_uri = gst_soup_uri_new (uri);
    if (soup_uri == NULL) {
-     GST_WARNING ("Couldn't parse cookie origin URI %s, ignoring cookie %s",
-@@ -976,6 +1492,15 @@
+@@ -976,6 +1531,15 @@
    if (transfer->is_file_transfer) {
      g_file_read_async (transfer->file, G_PRIORITY_DEFAULT,
          transfer->cancellable, on_file_ready, transfer_task);
@@ -602,7 +642,7 @@
    } else {
      _soup_session_send_async (dh->session, transfer->msg, transfer->cancellable,
          on_request_sent, transfer_task);
-@@ -1044,6 +1569,7 @@
+@@ -1044,6 +1608,7 @@
  {
    int i;
    GThread *transfer_thread = NULL;
@@ -610,7 +650,7 @@
  
    GST_DEBUG ("Stopping DownloadHelper loop");
  
-@@ -1124,7 +1650,22 @@
+@@ -1124,7 +1689,22 @@
    }
  
    g_array_set_size (dh->active_transfers, 0);
@@ -633,7 +673,7 @@
  }
  
  gboolean
-@@ -1160,6 +1701,40 @@
+@@ -1160,6 +1740,40 @@
  
      transfer_task = transfer_task_new_file (dh, request, blocking);
      g_mutex_lock (&dh->transfer_lock);
@@ -676,10 +716,12 @@
          (flags & DOWNLOAD_FLAG_HEADERS_ONLY) ? SOUP_METHOD_HEAD :
 --- a/ext/adaptivedemux2/downloadhelper.h
 +++ b/ext/adaptivedemux2/downloadhelper.h
-@@ -51,6 +51,7 @@
+@@ -51,6 +51,9 @@
  
  void downloadhelper_free (DownloadHelper * dh);
  
++gboolean downloadhelper_uses_uri_sources (DownloadHelper * dh);
++
 +void downloadhelper_set_owner (DownloadHelper * dh, GstElement * owner);
  void downloadhelper_set_referer (DownloadHelper * dh, const gchar *referer);
  void downloadhelper_set_user_agent (DownloadHelper * dh, const gchar *user_agent);
@@ -694,6 +736,16 @@
    demux->priv->segment_seqnum = gst_util_seqnum_next ();
    demux->have_group_id = FALSE;
    demux->group_id = G_MAXUINT;
+@@ -1058,7 +1059,8 @@
+     GST_DEBUG_OBJECT (demux, "Fetched manifest at URI: %s (base: %s)",
+         demux->manifest_uri, GST_STR_NULL (demux->manifest_base_uri));
+
+-    if (!g_str_has_prefix (demux->manifest_uri, "data:")
++    if (!downloadhelper_uses_uri_sources (demux->download_helper)
++        && !g_str_has_prefix (demux->manifest_uri, "data:")
+         && !g_str_has_prefix (demux->manifest_uri, "http://")
+         && !g_str_has_prefix (demux->manifest_uri, "https://")
+         && !g_str_has_prefix (demux->manifest_uri, "file://")) {
 --- a/ext/adaptivedemux2/gstadaptivedemuxelement.c
 +++ b/ext/adaptivedemux2/gstadaptivedemuxelement.c
 @@ -37,10 +37,9 @@

@@ -1,0 +1,143 @@
+--- a/ext/adaptivedemux2/gstadaptivedemux-private.h
++++ b/ext/adaptivedemux2/gstadaptivedemux-private.h
+@@ -123,6 +123,11 @@
+   /* TRUE if percent changed and message should be posted */
+   gboolean percent_changed;
+   gint percent;
++
++  /* Query snapshots never hold a streaming or scheduler lock while read. */
++  GMutex query_lock;
++  gint query_percent;
++  gboolean query_busy;
+ 
+   /* Serialises buffering message posting to avoid out-of-order
+    * posting */
+--- a/ext/adaptivedemux2/gstadaptivedemux.c
++++ b/ext/adaptivedemux2/gstadaptivedemux.c
+@@ -642,6 +642,9 @@
+   g_cond_init (&demux->priv->tracks_add);
+ 
+   g_mutex_init (&demux->priv->buffering_lock);
++  g_mutex_init (&demux->priv->query_lock);
++  demux->priv->query_percent = -1;
++  demux->priv->query_busy = TRUE;
+ 
+   demux->priv->periods = g_queue_new ();
+ 
+@@ -706,6 +709,7 @@
+   g_mutex_clear (&demux->priv->segment_lock);
+ 
+   g_mutex_clear (&demux->priv->buffering_lock);
++  g_mutex_clear (&demux->priv->query_lock);
+ 
+   gst_adaptive_demux_loop_unref (demux->priv->scheduler_task);
+ 
+@@ -1514,6 +1518,11 @@
+   demux->priv->percent = -1;
+   demux->priv->is_buffering = TRUE;
+ 
++  g_mutex_lock (&demux->priv->query_lock);
++  demux->priv->query_percent = -1;
++  demux->priv->query_busy = TRUE;
++  g_mutex_unlock (&demux->priv->query_lock);
++
+   demux->have_group_id = FALSE;
+   demux->group_id = G_MAXUINT;
+   demux->priv->segment_seqnum = gst_util_seqnum_next ();
+@@ -1851,6 +1860,16 @@
+   return NULL;
+ }
+ 
++/* TRACKS_LOCK held. The snapshot lock covers only local values. */
++static void
++demux_update_buffering_query_locked (GstAdaptiveDemux * demux)
++{
++  g_mutex_lock (&demux->priv->query_lock);
++  demux->priv->query_percent = demux->priv->percent;
++  demux->priv->query_busy = demux->priv->is_buffering;
++  g_mutex_unlock (&demux->priv->query_lock);
++}
++
+ /* TRACKS_LOCK hold */
+ void
+ demux_update_buffering_locked (GstAdaptiveDemux * demux)
+@@ -1918,8 +1937,10 @@
+   demux->current_level_time_audio = audio_level_time;
+   GST_OBJECT_UNLOCK (demux);
+ 
+-  if (min_percent < 0 && !all_eos)
++  if (min_percent < 0 && !all_eos) {
++    demux_update_buffering_query_locked (demux);
+     return;
++  }
+ 
+   if (min_percent > 100 || all_eos)
+     percent = 100;
+@@ -1946,6 +1967,8 @@
+   if (demux->priv->percent_changed)
+     GST_DEBUG_OBJECT (demux, "Percent changed, %d %% is_buffering:%d", percent,
+         demux->priv->is_buffering);
++
++  demux_update_buffering_query_locked (demux);
+ }
+ 
+ /* With TRACKS_LOCK held */
+@@ -2748,6 +2771,24 @@
+ }
+ 
+ static gboolean
++gst_adaptive_demux_handle_query_buffering (GstAdaptiveDemux * demux,
++    GstQuery * query)
++{
++  gint percent;
++  gboolean busy;
++
++  g_mutex_lock (&demux->priv->query_lock);
++  percent = demux->priv->query_percent;
++  busy = demux->priv->query_busy;
++  g_mutex_unlock (&demux->priv->query_lock);
++
++  gst_query_set_buffering_percent (query, percent < 0 || busy,
++      MAX (percent, 0));
++  gst_query_set_buffering_stats (query, GST_BUFFERING_STREAM, -1, -1, -1);
++  return TRUE;
++}
++
++static gboolean
+ gst_adaptive_demux_src_query (GstPad * pad, GstObject * parent,
+     GstQuery * query)
+ {
+@@ -2758,6 +2799,8 @@
+     return FALSE;
+ 
+   switch (query->type) {
++    case GST_QUERY_BUFFERING:
++      return gst_adaptive_demux_handle_query_buffering (demux, query);
+     case GST_QUERY_DURATION:{
+       GstFormat fmt;
+       GstClockTime duration = GST_CLOCK_TIME_NONE;
+@@ -2846,23 +2889,7 @@
+ 
+   switch (GST_QUERY_TYPE (query)) {
+     case GST_QUERY_BUFFERING:
+-    {
+-      GstFormat format;
+-      gst_query_parse_buffering_range (query, &format, NULL, NULL, NULL);
+-
+-      if (!demux->output_period) {
+-        if (format != GST_FORMAT_TIME) {
+-          GST_DEBUG_OBJECT (demux,
+-              "No period setup yet, can't answer non-TIME buffering queries");
+-          return FALSE;
+-        }
+-
+-        GST_DEBUG_OBJECT (demux,
+-            "No period setup yet, but still answering buffering query");
+-        return TRUE;
+-      }
+-      break;
+-    }
++      return gst_adaptive_demux_handle_query_buffering (demux, query);
+     case GST_QUERY_SEEKING:
+     {
+       /* Source pads might not be present early on which would cause the default

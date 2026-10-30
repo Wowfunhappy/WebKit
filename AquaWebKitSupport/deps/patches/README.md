@@ -477,6 +477,15 @@ adaptivedemux2's download helper fetches `file://` URIs through GFile and everyt
 
 Each such transfer links the element's src pad to a pad of its own and gives the element a private bus. The element's `http-headers` event (the structure souphttpsrc sends: status code, redirection URI, request and response headers) sets the request's status, redirect, headers, `Content-Length` and, for a partial response, the `Content-Range` start; a source without one delivers data with status 200. A range goes to the element as a BYTES seek, its stop exclusive. The element's buffers become the request's data, clipped to the range; its EOS or error message ends the transfer. Its context requests are posted through the demuxer, which is in the pipeline, so WebKit hands `webkitwebsrc` its loader. The streaming thread only records the outcome: the helper's own thread stops the element and completes the transfer, as it completes the soup and file transfers, so no transfer is completed while its request lock is held. Header-only requests (dashdemux2's clock sync) are refused, as for `file://`. With no libsoup there is no cookie jar, so `downloadhelper_add_cookie` returns before it parses anything, and the element applies the cookies of the loader it loads through.
 
+The URI-source backend accepts the resource schemes its host routes. Its
+`webkit.resource-loader` context supplies a `uri-mapper` function using WebKit's
+shared playbin URI conversion, so each variant, segment, initialization map, key
+and subtitle request selects the same resource transport as a top-level load.
+The source requests the existing loader/player context for the actual fetch.
+Non-HTTP response status zero maps to the downloader's successful GFile status;
+HTTP status and range errors retain their existing meanings. The libsoup backend
+keeps its manifest scheme restriction.
+
 ## gst-plugins-good-adaptivedemux2-hls-codec-change-new-parser.patch
 
 **Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/gstadaptivedemux-stream.c`, `gstadaptivedemux-stream.h`, `hls/gsthlsdemux.c`, `hls/gsthlsdemux-stream.c`, `hls/m3u8.c`, `hls/m3u8.h`
@@ -634,3 +643,18 @@ Maps FFmpeg's UT Video codec to `video/x-utvideo`, exposing the existing encoder
 ## gst-plugins-good-rtpmp4gpay-channel-count.patch
 
 MPEG-4 Generic RTP advertises the audio channel count from negotiated caps, or the AudioSpecificConfig mapping when caps omit it. The AAC channel configuration code is an index, including 7.1 layouts at indices 7 and 12. Program Config Element layouts use the caps channel count. Explicit-frequency AudioSpecificConfig reads the 24-bit frequency before the channel configuration, as the syntax requires. `tests/legacy-extensions/check-rtp-audio-config.py` covers both eight-channel configurations, stereo and explicit sample rates.
+
+
+## gst-plugins-good-adaptivedemux2-buffering-query.patch
+
+**Target:** gst-plugins-good 1.28.7, `ext/adaptivedemux2/gstadaptivedemux.c` and its private header.
+
+Element and source-pad BUFFERING queries match queue2 in queue mode: they report
+busy, the smoothed percentage, and STREAM statistics for every format. An initial
+percentage of -1 reports busy at 0%. The range fields remain untouched.
+
+Queries read `query_percent` and `query_busy` under a dedicated mutex. Buffering
+updates publish the existing `percent` and `is_buffering` values with `tracks_lock`
+held; reset publishes the initial values. The snapshot lock covers only these
+copies, and readers release it before writing the query. No streaming, scheduler,
+manifest or output lock is acquired by the query handler.

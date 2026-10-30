@@ -1609,6 +1609,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-container-track-id.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-container-track-id.patch" ) \
       || { echo "gst-plugins-good adaptivedemux2 container-track-id patch failed to apply"; exit 1; }
+    # adaptivedemux2: answer buffering queries from the output queues. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-buffering-query.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-buffering-query.patch" ) \
+      || { echo "FATAL: gst-plugins-good adaptivedemux2 buffering query patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
         -Dorc=enabled -Dadaptivedemux2=enabled -Dhls-crypto=openssl ) || exit 1
