@@ -4,6 +4,7 @@
 #include "WebErrors.h"
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/CocoaCurlTransfer.h>
+#include <WebCore/CocoaCurlResourceRequest.h>
 #include <WebCore/FormData.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/HTTPHeaderMap.h>
@@ -11,6 +12,8 @@
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/RegistrableDomain.h>
+#include <WebCore/CocoaCurlProxyConfiguration.h>
 #include <WebCore/WebCoreURLResponse.h>
 #include <wtf/URLParser.h>
 #include <wtf/WallTime.h>
@@ -19,6 +22,245 @@
 namespace WebKit::LegacyExtensions {
 
 using namespace WebCore;
+
+bool observesWebSocket(const WebRequestListeners& listeners)
+{
+    for (auto event : { proxyOnRequest, onBeforeRequest, onBeforeSendHeaders, onSendHeaders, onHeadersReceived, onBeforeRedirect, onAuthRequired, onResponseStarted, onCompleted, onErrorOccurred }) {
+        if (listeners.observes(event))
+            return true;
+    }
+    return false;
+}
+
+bool isWebSocketTransportHeader(const String& name)
+{
+    for (auto field : { "host"_s, "sec-websocket-key"_s, "sec-websocket-version"_s, "sec-websocket-protocol"_s, "sec-websocket-extensions"_s,
+        "authorization"_s, "proxy-authorization"_s, "connection"_s, "upgrade"_s, "content-length"_s, "transfer-encoding"_s,
+        "pragma"_s, "cache-control"_s, "proxy-connection"_s }) {
+        if (equalIgnoringASCIICase(name, field))
+            return true;
+    }
+    return false;
+}
+
+static bool isWebSocketHiddenHeader(const String& name)
+{
+    return isWebSocketTransportHeader(name) && !equalLettersIgnoringASCIICase(name, "upgrade"_s)
+        && !equalLettersIgnoringASCIICase(name, "connection"_s) && !equalLettersIgnoringASCIICase(name, "sec-websocket-version"_s);
+}
+
+static HTTPHeaderMap visibleWebSocketHeaders(const ResourceRequest& request)
+{
+    HTTPHeaderMap visible;
+    for (auto& field : request.httpHeaderFields()) {
+        if (!isWebSocketHiddenHeader(field.key))
+            visible.add(field.key, field.value);
+    }
+    return visible;
+}
+
+WebSocketHandshake::WebSocketHandshake(WebRequestListeners& listeners, Ref<JSON::Object>&& details, bool incognito, Notify&& notify, Dispatch&& dispatch)
+    : m_listeners(listeners)
+    , m_details(WTF::move(details))
+    , m_incognito(incognito)
+    , m_notify(WTF::move(notify))
+    , m_dispatch(WTF::move(dispatch))
+{
+}
+
+Ref<JSON::Object> WebSocketHandshake::details() const
+{
+    auto result = JSON::Object::create();
+    for (auto& [key, value] : m_details.get())
+        result->setValue(key, value.copyRef());
+    result->setDouble("timeStamp"_s, timeStamp());
+    return result;
+}
+
+void WebSocketHandshake::dispatch(ASCIILiteral event, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&& completion)
+{
+    if (!m_listeners.blocks(event, details)) {
+        if (m_listeners.observes(event))
+            m_notify(event, WTF::move(details));
+        return completion(nullptr);
+    }
+    m_dispatch(event, WTF::move(details), WTF::move(completion));
+}
+
+bool WebSocketHandshake::observesRequestHeaders() const
+{
+    return m_listeners.observes(onBeforeSendHeaders) || m_listeners.observes(onSendHeaders);
+}
+
+bool WebSocketHandshake::observesResponseHeaders() const
+{
+    return m_listeners.observes(onHeadersReceived);
+}
+
+void WebSocketHandshake::willSendRequest(ResourceRequest&& request, const ResourceResponse& redirect, CompletionHandler<void(ResourceRequest&&, Vector<CocoaCurlProxyFilterResult>&&)>&& completion)
+{
+    if (m_complete)
+        return completion({ }, { });
+    if (!redirect.isNull() && m_listeners.observes(onBeforeRedirect)) {
+        auto event = details();
+        addResponseFields(event, redirect);
+        event->setString("redirectUrl"_s, request.url().string());
+        m_notify(onBeforeRedirect, WTF::move(event));
+    }
+    m_details->setString("url"_s, request.url().string());
+    RefPtr<JSON::Object> proxy;
+    if (m_listeners.observes(proxyOnRequest)) {
+        proxy = details();
+        proxy->setBoolean("fromCache"_s, false);
+        proxy->setBoolean("incognito"_s, m_incognito);
+        proxy->setBoolean("thirdParty"_s, !request.firstPartyForCookies().isEmpty() && !RegistrableDomain(request.firstPartyForCookies()).matches(request.url()));
+        if (m_listeners.hasOption(proxyOnRequest, requestHeadersOption))
+            proxy->setArray("requestHeaders"_s, headersArray(visibleWebSocketHeaders(request)));
+    }
+    auto before = [this, protectedThis = Ref { *this }, request = WTF::move(request), completion = WTF::move(completion)](Vector<CocoaCurlProxyFilterResult>&& proxies) mutable {
+        if (m_complete)
+            return completion({ }, { });
+        dispatch(onBeforeRequest, details(), [this, protectedThis, request = WTF::move(request), proxies = WTF::move(proxies), completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+            if (m_complete)
+                return completion({ }, { });
+            if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
+                didComplete("net::ERR_BLOCKED_BY_CLIENT"_s);
+                return completion({ }, { });
+            }
+            completion(WTF::move(request), WTF::move(proxies));
+        });
+    };
+    if (!proxy)
+        return before({ });
+    dispatch(proxyOnRequest, proxy.releaseNonNull(), [before = WTF::move(before)](RefPtr<JSON::Object>&& verdict) mutable {
+        RefPtr answers = verdict ? verdict->getArray("proxy"_s) : nullptr;
+        before(answers ? proxyFilterResults(*answers) : Vector<CocoaCurlProxyFilterResult> { });
+    });
+}
+
+void WebSocketHandshake::willSendHeaders(ResourceRequest&& request, CompletionHandler<void(ResourceRequest&&)>&& completion)
+{
+    if (m_complete)
+        return completion({ });
+    if (!observesRequestHeaders())
+        return completion(WTF::move(request));
+    auto event = details();
+    event->setArray("requestHeaders"_s, headersArray(visibleWebSocketHeaders(request)));
+    dispatch(onBeforeSendHeaders, WTF::move(event), [this, protectedThis = Ref { *this }, request = WTF::move(request), completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+        if (m_complete)
+            return completion({ });
+        if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
+            didComplete("net::ERR_BLOCKED_BY_CLIENT"_s);
+            return completion({ });
+        }
+        if (RefPtr headers = verdict ? verdict->getArray("requestHeaders"_s) : nullptr) {
+            HTTPHeaderMap edited;
+            for (auto& field : headerMap(*headers)) {
+                if (!isWebSocketTransportHeader(field.key))
+                    edited.add(field.key, field.value);
+            }
+            for (auto& field : request.httpHeaderFields()) {
+                if (isWebSocketTransportHeader(field.key))
+                    edited.set(field.key, field.value);
+            }
+            request.setHTTPHeaderFields(WTF::move(edited));
+        }
+        if (m_listeners.observes(onSendHeaders)) {
+            auto event = details();
+            event->setArray("requestHeaders"_s, headersArray(visibleWebSocketHeaders(request)));
+            m_notify(onSendHeaders, WTF::move(event));
+        }
+        completion(WTF::move(request));
+    });
+}
+
+void WebSocketHandshake::didReceiveResponse(ResourceResponse&& response, Vector<String>&& cookies, CompletionHandler<void(ResourceResponse&&, Vector<String>&&)>&& completion)
+{
+    if (m_complete)
+        return completion({ }, { });
+    m_response = response;
+    m_responseCookies = cookies;
+    if (!m_listeners.observes(onHeadersReceived))
+        return completion(WTF::move(response), WTF::move(cookies));
+    auto event = details();
+    addResponseFields(event, response);
+    setSetCookieFields(event, cookies);
+    dispatch(onHeadersReceived, WTF::move(event), [this, protectedThis = Ref { *this }, response = WTF::move(response), cookies = WTF::move(cookies), completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+        if (m_complete)
+            return completion({ }, { });
+        if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
+            didComplete("net::ERR_BLOCKED_BY_CLIENT"_s);
+            return completion({ }, { });
+        }
+        if (RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr) {
+            response = responseWithHeaders(response, *headers, IsMainResourceLoad::No);
+            cookies = setCookieFields(*headers);
+        }
+        m_response = response;
+        m_responseCookies = cookies;
+        completion(WTF::move(response), WTF::move(cookies));
+    });
+}
+
+void WebSocketHandshake::authenticate(const AuthenticationChallenge& challenge, CompletionHandler<void(bool, bool, const Credential&)>&& completion)
+{
+    if (m_complete)
+        return completion(true, false, { });
+    auto event = details();
+    addResponseFields(event, challenge.failureResponse());
+    setSetCookieFields(event, m_responseCookies);
+    auto& space = challenge.protectionSpace();
+    event->setString("scheme"_s, authenticationSchemeName(challenge));
+    event->setString("realm"_s, space.realm());
+    auto challenger = JSON::Object::create();
+    challenger->setString("host"_s, space.host());
+    challenger->setDouble("port"_s, space.port());
+    event->setObject("challenger"_s, WTF::move(challenger));
+    event->setBoolean("isProxy"_s, space.isProxy());
+    dispatch(onAuthRequired, WTF::move(event), [this, protectedThis = Ref { *this }, completion = WTF::move(completion)](RefPtr<JSON::Object>&& verdict) mutable {
+        if (m_complete)
+            return completion(true, false, { });
+        if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
+            didComplete("net::ERR_BLOCKED_BY_CLIENT"_s);
+            return completion(true, false, { });
+        }
+        if (RefPtr credentials = verdict ? verdict->getObject("authCredentials"_s) : nullptr)
+            return completion(false, true, Credential { credentials->getString("username"_s), credentials->getString("password"_s), CredentialPersistence::ForSession });
+        completion(false, false, { });
+    });
+}
+
+void WebSocketHandshake::didValidateResponse(const ResourceResponse& response, bool connected)
+{
+    if (m_response.isNull()) {
+        m_response = response;
+        if (auto cookie = response.httpHeaderField(HTTPHeaderName::SetCookie); !cookie.isEmpty())
+            m_responseCookies.append(WTF::move(cookie));
+    }
+    didComplete(connected ? emptyString() : "net::ERR_INVALID_RESPONSE"_s);
+}
+
+void WebSocketHandshake::didComplete(const String& error)
+{
+    if (std::exchange(m_complete, true))
+        return;
+    if (!error.isEmpty()) {
+        if (m_listeners.observes(onErrorOccurred)) {
+            auto event = details();
+            event->setString("error"_s, error);
+            m_notify(onErrorOccurred, WTF::move(event));
+        }
+        return;
+    }
+    for (auto name : { onResponseStarted, onCompleted }) {
+        if (m_listeners.observes(name)) {
+            auto event = details();
+            addResponseFields(event, m_response);
+            setSetCookieFields(event, m_responseCookies);
+            m_notify(name, WTF::move(event));
+        }
+    }
+}
 
 ASCIILiteral resourceType(const ResourceRequest& request, FetchOptions::Destination destination, bool isMainFrameLoad)
 {
@@ -344,7 +586,7 @@ Ref<JSON::Array> requestHeadersWithFields(const ResourceRequest& request, const 
     auto listenerRequest = request;
     for (auto& field : fields) {
         if (field.shown.isEmpty())
-            listenerRequest.removeHTTPHeaderField(field.name);
+            removeCocoaCurlRequestHeader(listenerRequest, field.name);
         else
             listenerRequest.setHTTPHeaderField(field.name, field.shown);
     }
@@ -359,7 +601,7 @@ String applyRequestHeaders(ResourceRequest& request, JSON::Array& headers, Vecto
         auto sent = request.httpHeaderField(field.name);
         if (sent.isEmpty() == field.shown.isEmpty() && (sent.isEmpty() || sent == field.shown)) {
             if (field.carried.isNull())
-                request.removeHTTPHeaderField(field.name);
+                removeCocoaCurlRequestHeader(request, field.name);
             else
                 request.setHTTPHeaderField(field.name, field.carried);
             continue;

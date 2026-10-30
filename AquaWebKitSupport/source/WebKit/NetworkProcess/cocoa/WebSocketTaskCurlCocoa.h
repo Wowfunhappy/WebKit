@@ -34,6 +34,7 @@ OBJC_CLASS WKWebSocketConnectionAuthentication;
 namespace WebCore {
 class AuthenticationChallenge;
 class SecurityOrigin;
+class LegacyWebSocketHandshake;
 class CocoaCurlSocketStream;
 struct ClientOrigin;
 enum class IsInitiatedByDedicatedWorker : bool;
@@ -102,9 +103,11 @@ private:
 
     void sendHandshake();
     bool completeHandshake(std::span<const uint8_t> header);
-    bool parseStatusLine(std::span<const uint8_t> header, int& statusCode, size_t& lineLength);
+    bool validateHandshakeResponse(unsigned extensionsFields, unsigned acceptFields, unsigned protocolFields);
+    bool parseStatusLine(std::span<const uint8_t> header, WebCore::ResourceResponse&, size_t& lineLength);
     bool followRedirect();
     bool authenticate();
+    bool continueAuthentication(std::optional<WebCore::Credential>&&);
     bool holdConnectionAfterRefusal();
     void resetConnection();
     void continueWithHandshakeRequest(WebCore::ResourceRequest&&, int status);
@@ -133,6 +136,10 @@ private:
     void teardownTransport();
     void closeTransport();
 
+    RefPtr<WebCore::LegacyWebSocketHandshake> m_webRequest;
+    bool m_responsePending { false };
+    bool m_authenticationPending { false };
+    bool m_responseEOF { false };
     WeakPtr<NetworkSocketChannel> m_channel;
     TaskIdentifier m_identifier;
     Markable<WebPageProxyIdentifier> m_webPageProxyID;

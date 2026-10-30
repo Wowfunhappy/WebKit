@@ -8,6 +8,7 @@
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/AuthenticationClient.h>
 #include <WebCore/CocoaCookie.h>
+#include <WebCore/CocoaCurlResourceRequest.h>
 #include <WebCore/CocoaCurlResourceHandle.h>
 #include <WebCore/CookieJar.h>
 #include <WebCore/Credential.h>
@@ -76,7 +77,7 @@ static void retarget(ResourceRequest& request, const ResourceResponse& redirectR
     if (!protocolHostAndPortAreEqual(redirectResponse.url(), target)) {
         request.clearHTTPAuthorization();
         request.clearHTTPOrigin();
-        request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
+        removeCocoaCurlRequestHeader(request, HTTPHeaderName::Cookie);
     }
 }
 
@@ -171,7 +172,7 @@ void LegacyExtensionViewNetwork::willSendRequest(Ref<Load>&& load, ResourceReque
 {
     // An extension's Cookie edit is its exchange's alone: a redirect generates its own.
     if (auto editedCookie = std::exchange(load->editedCookie, String()); !editedCookie.isNull() && request.httpHeaderField(HTTPHeaderName::Cookie) == editedCookie)
-        request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
+        removeCocoaCurlRequestHeader(request, HTTPHeaderName::Cookie);
     load->url = request.url();
     load->method = request.httpMethod();
     if (!redirectResponse.isNull()) {
@@ -865,44 +866,23 @@ RefPtr<LegacyLoadInterceptor::SynchronousLoad> LegacyExtensionViewNetwork::willL
     return LegacyExtensionViewSynchronousLoad::create(load.releaseNonNull());
 }
 
-// onBeforeRequest for a WebSocket handshake.
-// proxy.onRequest, then onBeforeRequest, for a WebSocket handshake.
-bool LegacyExtensionViewNetwork::interceptWebSocket(Document& document, const URL& url, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&)>&& completionHandler)
+bool LegacyExtensionViewNetwork::interceptWebSocket(Document& document, const URL& url, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&, RefPtr<LegacyWebSocketHandshake>&&)>&& completion)
 {
-    if (!m_listeners.observes(onBeforeRequest) && !m_listeners.observes(proxyOnRequest))
+    if (!observesWebSocket(m_listeners))
         return false;
     ResourceRequest request { URL { url } };
-    request.setHTTPMethod("GET"_s);
+    request.setFirstPartyForCookies(document.firstPartyForCookies());
     RefPtr load = createLoad(document.frame(), request, FetchOptions::Destination::EmptyString, false, makeString(getCurrentProcessID(), "-ws-"_s, m_nextIdentifier++));
     if (!load)
         return false;
     load->type = "websocket"_s;
     load->documentURL = { };
-    auto beforeRequest = [this, load](Vector<CocoaCurlProxyFilterResult>&& proxyFilterResults, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&)>&& completionHandler) {
-        auto details = this->details(*load);
-        if (!m_listeners.blocks(onBeforeRequest, details)) {
-            if (m_listeners.observes(onBeforeRequest))
-                notify(onBeforeRequest, WTF::move(details));
-            return completionHandler(true, WTF::move(proxyFilterResults));
-        }
-        dispatch(onBeforeRequest, WTF::move(details), [proxyFilterResults = WTF::move(proxyFilterResults), completionHandler = WTF::move(completionHandler)](RefPtr<JSON::Object>&& verdict) mutable {
-            completionHandler(!verdict || !verdict->getBoolean("cancel"_s).value_or(false), WTF::move(proxyFilterResults));
-        });
-    };
-    if (RefPtr details = proxyRequestDetails(*load, request)) {
-        dispatch(proxyOnRequest, details.releaseNonNull(), [beforeRequest = WTF::move(beforeRequest), completionHandler = WTF::move(completionHandler)](RefPtr<JSON::Object>&& response) mutable {
-            RefPtr answers = response ? response->getArray("proxy"_s) : nullptr;
-            beforeRequest(answers ? LegacyExtensions::proxyFilterResults(*answers) : Vector<CocoaCurlProxyFilterResult> { }, WTF::move(completionHandler));
-        });
-        return true;
-    }
-    auto details = this->details(*load);
-    if (!m_listeners.blocks(onBeforeRequest, details)) {
-        if (m_listeners.observes(onBeforeRequest))
-            notify(onBeforeRequest, WTF::move(details));
-        return false;
-    }
-    beforeRequest({ }, WTF::move(completionHandler));
+    RefPtr<LegacyWebSocketHandshake> handshake = adoptRef(*new LegacyExtensions::WebSocketHandshake(m_listeners, details(*load), false,
+        [this](ASCIILiteral event, Ref<JSON::Object>&& details) { notify(event, WTF::move(details)); },
+        [this](ASCIILiteral event, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&& completion) { dispatch(event, WTF::move(details), WTF::move(completion)); }));
+    handshake->willSendRequest(WTF::move(request), { }, [handshake, completion = WTF::move(completion)](ResourceRequest&& request, Vector<CocoaCurlProxyFilterResult>&& proxies) mutable {
+        completion(!request.isNull(), WTF::move(proxies), WTF::move(handshake));
+    });
     return true;
 }
 

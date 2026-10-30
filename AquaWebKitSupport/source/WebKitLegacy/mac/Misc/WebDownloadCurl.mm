@@ -12,6 +12,7 @@
 #import <WebCore/CocoaCurlConnection.h>
 #import <WebCore/CocoaCurlResourceHandle.h>
 #import <WebCore/CocoaCookie.h>
+#import <WebCore/CocoaCurlResourceRequest.h>
 #import <WebCore/Cookie.h>
 #import <WebCore/DNS.h>
 #import <WebCore/ExternalURLRewrite.h>
@@ -536,13 +537,13 @@ void WebDownloadCurlClient::redirect()
         redirected.setHTTPMethod("GET"_s);
         redirected.setHTTPBody(nullptr);
         for (auto header : { HTTPHeaderName::ContentLength, HTTPHeaderName::ContentType, HTTPHeaderName::ContentEncoding, HTTPHeaderName::ContentLanguage, HTTPHeaderName::ContentLocation, HTTPHeaderName::TransferEncoding })
-            redirected.removeHTTPHeaderField(header);
+            removeCocoaCurlRequestHeader(redirected, header);
     }
     if (m_request.url().protocolIs("https"_s) && !redirected.url().protocolIs("https"_s))
         redirected.clearHTTPReferrer();
     if (!SecurityOrigin::create(redirected.url())->isSameOriginAs(SecurityOrigin::create(m_request.url()).get())) {
-        redirected.removeHTTPHeaderField(HTTPHeaderName::Authorization);
-        redirected.removeHTTPHeaderField(HTTPHeaderName::Origin);
+        removeCocoaCurlRequestHeader(redirected, HTTPHeaderName::Authorization);
+        removeCocoaCurlRequestHeader(redirected, HTTPHeaderName::Origin);
     }
     if ([m_delegate respondsToSelector:@selector(download:willSendRequest:redirectResponse:)]) {
         RetainPtr approved = [m_delegate download:m_download.get() willSendRequest:redirected.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody) redirectResponse:m_response.response.nsURLResponse()];

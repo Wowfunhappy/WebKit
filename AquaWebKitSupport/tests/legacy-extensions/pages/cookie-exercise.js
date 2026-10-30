@@ -121,3 +121,25 @@ async function cookieResponseRedirect(options) {
     }
     return fetch(options.url, {credentials: 'include'}).then(response => response.json());
 }
+
+function cookieWebSocketProbe(options) {
+    return new Promise(resolve => {
+        const result = {url: options.url, opened: false, error: false, messages: []};
+        const socket = new WebSocket(options.url, options.protocol || []);
+        window.cookieProbeSocket = socket;
+        const timer = setTimeout(() => {
+            result.timeout = true;
+            socket.close();
+            resolve(result);
+        }, 10000);
+        socket.onopen = () => { result.opened = true; };
+        socket.onerror = () => { result.error = true; };
+        socket.onmessage = event => { result.messages.push(JSON.parse(event.data)); };
+        socket.onclose = event => {
+            clearTimeout(timer);
+            result.code = event.code;
+            result.wasClean = event.wasClean;
+            resolve(result);
+        };
+    });
+}

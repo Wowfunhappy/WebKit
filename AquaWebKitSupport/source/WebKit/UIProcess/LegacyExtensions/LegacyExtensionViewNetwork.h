@@ -95,7 +95,7 @@ private:
     bool refusesPing(const WebCore::ResourceRequest&) const final;
     RefPtr<WebCore::LegacyLoadInterceptor::Load> pingLoad(WebCore::LocalFrame&, const WebCore::ResourceRequest&, const WebCore::FetchOptions&) final;
     RefPtr<WebCore::LegacyLoadInterceptor::SynchronousLoad> willLoadSynchronously(WebCore::FrameLoader&, const WebCore::ResourceRequest&, const WebCore::FetchOptions&) final;
-    bool interceptWebSocket(WebCore::Document&, const URL&, CompletionHandler<void(bool, Vector<WebCore::CocoaCurlProxyFilterResult>&&)>&&) final;
+    bool interceptWebSocket(WebCore::Document&, const URL&, CompletionHandler<void(bool, Vector<WebCore::CocoaCurlProxyFilterResult>&&, RefPtr<WebCore::LegacyWebSocketHandshake>&&)>&&) final;
 
     RefPtr<Load> createLoad(WebCore::LocalFrame*, const WebCore::ResourceRequest&, WebCore::FetchOptions::Destination, bool isMainFrameLoad, String&& requestId);
     Ref<JSON::Object> details(const Load&) const;

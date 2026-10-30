@@ -14,6 +14,7 @@ namespace WebCore {
 
 class AuthenticationChallenge;
 class Document;
+class Credential;
 class FrameLoader;
 class LocalFrame;
 class ResourceError;
@@ -23,6 +24,19 @@ class ResourceRequest;
 class ResourceResponse;
 struct CocoaCurlProxyFilterResult;
 struct FetchOptions;
+
+class LegacyWebSocketHandshake : public RefCounted<LegacyWebSocketHandshake> {
+public:
+    virtual ~LegacyWebSocketHandshake() = default;
+    virtual bool observesRequestHeaders() const = 0;
+    virtual bool observesResponseHeaders() const = 0;
+    virtual void willSendRequest(ResourceRequest&&, const ResourceResponse& redirect, CompletionHandler<void(ResourceRequest&&, Vector<CocoaCurlProxyFilterResult>&&)>&&) = 0;
+    virtual void willSendHeaders(ResourceRequest&&, CompletionHandler<void(ResourceRequest&&)>&&) = 0;
+    virtual void didReceiveResponse(ResourceResponse&&, Vector<String>&& cookies, CompletionHandler<void(ResourceResponse&&, Vector<String>&&)>&&) = 0;
+    virtual void authenticate(const AuthenticationChallenge&, CompletionHandler<void(bool cancel, bool handled, const Credential&)>&&) = 0;
+    virtual void didComplete(const String& error) = 0;
+    virtual void didValidateResponse(const ResourceResponse&, bool connected) = 0;
+};
 
 class WEBCORE_EXPORT LegacyLoadInterceptor {
 public:
@@ -78,7 +92,7 @@ public:
 
     // A WebSocket's handshake, which opens its connection once the handler is called with true, routed by the
     // proxy filters' answers it is called with.
-    virtual bool interceptWebSocket(Document&, const URL&, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&)>&&) = 0;
+    virtual bool interceptWebSocket(Document&, const URL&, CompletionHandler<void(bool, Vector<CocoaCurlProxyFilterResult>&&, RefPtr<LegacyWebSocketHandshake>&&)>&&) = 0;
 
 protected:
     // The loader's own steps, which a held load resumes with.

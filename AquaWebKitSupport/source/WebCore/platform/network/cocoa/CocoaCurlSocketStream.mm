@@ -14,6 +14,13 @@
 #include <wtf/MonotonicTime.h>
 #include <wtf/text/MakeString.h>
 
+#include "LegacyLoadInterceptor.h"
+#include "ResourceRequest.h"
+#include "HTTPParsers.h"
+#include "ResourceResponse.h"
+#include <wtf/text/StringBuilder.h>
+#include <wtf/text/StringToIntegerConversion.h>
+
 namespace WebCore {
 
 Ref<CocoaCurlSocketStream> CocoaCurlSocketStream::create(Options&& options, Client&& client)
@@ -369,7 +376,9 @@ void CocoaCurlSocketStream::open()
     dispatch_source_set_event_handler(m_writeSource, ^{
         // Suspended first: what the client writes next decides whether it is armed again.
         suspendWriteSource();
-        if (m_client.canSendMore)
+        if (!m_webSocketOutput.isEmpty())
+            flushWebSocketHandshake();
+        else if (m_client.canSendMore)
             m_client.canSendMore();
     });
     dispatch_resume(m_readSource);
@@ -399,13 +408,17 @@ void CocoaCurlSocketStream::readAvailable()
             return;
         }
         if (!received) {
+            if (RefPtr handshake = std::exchange(m_webSocketHandshake, nullptr))
+                handshake->didComplete("net::ERR_CONNECTION_CLOSED"_s);
             if (m_client.didClose)
                 m_client.didClose();
             return;
         }
-        if (m_client.didReceiveData)
+        if (m_webSocketHandshake && !m_webSocketResponseReceived && m_webSocketHandshake->observesResponseHeaders())
+            receiveWebSocketHandshake(std::span { buffer, received });
+        else if (m_client.didReceiveData)
             m_client.didReceiveData(std::span { buffer, received });
-        if (!m_curl)
+        if (!m_curl || m_webSocketReadSuspended)
             return;
     }
 }
@@ -415,6 +428,33 @@ std::optional<size_t> CocoaCurlSocketStream::send(std::span<const uint8_t> data)
     ASSERT(isMainThread());
     if (!m_curl || !m_readSource)
         return 0;
+    if (m_webSocketHandshake && !std::exchange(m_webSocketRequestSent, true) && m_webSocketHandshake->observesRequestHeaders()) {
+        auto lines = String { byteCast<Latin1Character>(data) }.split('\n');
+        ResourceRequest request { URL { m_options.url } };
+        for (size_t i = 1; i < lines.size(); ++i) {
+            auto& line = lines[i];
+            auto colon = line.find(':');
+            if (colon != notFound)
+                request.setHTTPHeaderField(line.left(colon), line.substring(colon + 1).trim(isASCIIWhitespace<char16_t>));
+        }
+        m_webSocketHandshake->willSendHeaders(WTF::move(request), [this, protectedThis = Ref { *this }, requestLine = lines[0]](ResourceRequest&& request) {
+            if (!m_webSocketHandshake || !m_client.didReceiveData)
+                return;
+            if (request.isNull()) {
+                fail(CURLE_ABORTED_BY_CALLBACK, "WebSocket connection was blocked by an extension"_s);
+                return;
+            }
+            StringBuilder message;
+            message.append(requestLine, '\n');
+            for (auto& field : request.httpHeaderFields())
+                message.append(field.key, ": "_s, field.value, "\r\n"_s);
+            message.append("\r\n"_s);
+            auto bytes = message.toString().latin1();
+            m_webSocketOutput = Vector<uint8_t> { byteCast<uint8_t>(bytes.span()) };
+            flushWebSocketHandshake();
+        });
+        return data.size();
+    }
     size_t sent = 0;
     auto code = curl_easy_send(m_curl, data.data(), data.size(), &sent);
     if (code == CURLE_AGAIN) {
@@ -426,6 +466,115 @@ std::optional<size_t> CocoaCurlSocketStream::send(std::span<const uint8_t> data)
     if (sent < data.size())
         resumeWriteSource();
     return sent;
+}
+
+void CocoaCurlSocketStream::setWebSocketHandshake(RefPtr<LegacyWebSocketHandshake>&& handshake)
+{
+    m_webSocketHandshake = WTF::move(handshake);
+}
+
+void CocoaCurlSocketStream::didValidateWebSocketHandshake(const ResourceResponse& response, bool connected)
+{
+    if (RefPtr handshake = std::exchange(m_webSocketHandshake, nullptr))
+        handshake->didValidateResponse(response, connected);
+}
+
+void CocoaCurlSocketStream::flushWebSocketHandshake()
+{
+    while (!m_webSocketOutput.isEmpty()) {
+        auto sent = send(m_webSocketOutput.span().subspan(m_webSocketOutputOffset));
+        if (!sent) {
+            fail(CURLE_SEND_ERROR, "WebSocket handshake write failed"_s);
+            return;
+        }
+        if (!*sent)
+            return;
+        m_webSocketOutputOffset += *sent;
+        if (m_webSocketOutputOffset == m_webSocketOutput.size()) {
+            m_webSocketOutput.clear();
+            m_webSocketOutputOffset = 0;
+        }
+    }
+}
+
+void CocoaCurlSocketStream::resumeWebSocketRead()
+{
+    if (std::exchange(m_webSocketReadSuspended, false) && m_readSource)
+        dispatch_resume(m_readSource);
+}
+
+void CocoaCurlSocketStream::receiveWebSocketHandshake(std::span<const uint8_t> data)
+{
+    m_webSocketInput.append(data);
+    auto text = String { byteCast<Latin1Character>(m_webSocketInput.span()) };
+    auto headerEnd = text.find("\r\n\r\n"_s);
+    if (headerEnd == notFound)
+        return;
+    auto statusLine = text.left(text.find("\r\n"_s));
+    auto firstSpace = statusLine.find(' ');
+    auto secondSpace = firstSpace == notFound ? notFound : statusLine.find(' ', firstSpace + 1);
+    ResourceResponse response;
+    response.setURL(URL { m_options.url });
+    if (firstSpace != notFound)
+        response.setHTTPVersion(statusLine.left(firstSpace));
+    if (secondSpace != notFound) {
+        response.setHTTPStatusCode(parseInteger<int>(statusLine.substring(firstSpace + 1, secondSpace - firstSpace - 1)).value_or(0));
+        response.setHTTPStatusText(statusLine.substring(secondSpace + 1));
+    }
+    Vector<String> cookies;
+    auto fields = m_webSocketInput.span().subspan(text.find('\n') + 1, headerEnd + 3 - text.find('\n'));
+    for (; !fields.empty(); fields = fields.subspan(1)) {
+        String failure;
+        StringView name;
+        String value;
+        auto consumed = parseHTTPHeader(fields, failure, name, value);
+        if (!consumed) {
+            fail(CURLE_WEIRD_SERVER_REPLY, failure);
+            return;
+        }
+        fields = fields.subspan(consumed);
+        if (name.isEmpty())
+            break;
+        if (equalLettersIgnoringASCIICase(name, "set-cookie"_s))
+            cookies.append(value);
+        else {
+            auto key = name.toString();
+            auto existing = response.httpHeaderField(key);
+            response.setHTTPHeaderField(key, existing.isEmpty() ? value : makeString(existing, ", "_s, value));
+        }
+    }
+    m_webSocketReadSuspended = true;
+    dispatch_suspend(m_readSource);
+    m_webSocketHandshake->didReceiveResponse(ResourceResponse { response }, Vector<String> { cookies },
+        [this, protectedThis = Ref { *this }, response, cookies, original = std::exchange(m_webSocketInput, { }), headerEnd, statusLine](ResourceResponse&& approved, Vector<String>&& approvedCookies) {
+            if (!m_webSocketHandshake || !m_client.didReceiveData)
+                return;
+            if (approved.isNull()) {
+                fail(CURLE_ABORTED_BY_CALLBACK, "WebSocket connection was blocked by an extension"_s);
+                return;
+            }
+            Vector<uint8_t> rewritten;
+            auto header = original.span().first(headerEnd + 4);
+            if (response.httpHeaderFields() != approved.httpHeaderFields() || cookies != approvedCookies) {
+                StringBuilder message;
+                message.append(statusLine, "\r\n"_s);
+                for (auto& field : approved.httpHeaderFields()) {
+                    if (!equalLettersIgnoringASCIICase(field.key, "set-cookie"_s))
+                        message.append(field.key, ": "_s, field.value, "\r\n"_s);
+                }
+                for (auto& cookie : approvedCookies)
+                    message.append("Set-Cookie: "_s, cookie, "\r\n"_s);
+                message.append("\r\n"_s);
+                auto bytes = message.toString().latin1();
+                rewritten = Vector<uint8_t> { byteCast<uint8_t>(bytes.span()) };
+                header = rewritten.span();
+            }
+            m_webSocketResponseReceived = true;
+            m_client.didReceiveData(header);
+            resumeWebSocketRead();
+            if (m_client.didReceiveData && original.size() > headerEnd + 4)
+                m_client.didReceiveData(original.span().subspan(headerEnd + 4));
+        });
 }
 
 void CocoaCurlSocketStream::resumeWriteSource()
@@ -449,6 +598,8 @@ void CocoaCurlSocketStream::suspendWriteSource()
 void CocoaCurlSocketStream::fail(int code, const String& description)
 {
     ASSERT(isMainThread());
+    if (RefPtr handshake = std::exchange(m_webSocketHandshake, nullptr))
+        handshake->didComplete("net::ERR_FAILED"_s);
     // Only the failure is delivered: nothing else reaches a client whose connection has failed.
     m_client.didOpen = { };
     m_client.didReceiveData = { };
@@ -469,6 +620,11 @@ void CocoaCurlSocketStream::fail(int code, const String& description)
 void CocoaCurlSocketStream::close()
 {
     ASSERT(isMainThread());
+    if (RefPtr handshake = std::exchange(m_webSocketHandshake, nullptr))
+        handshake->didComplete("net::ERR_ABORTED"_s);
+    m_webSocketInput.clear();
+    m_webSocketOutput.clear();
+    resumeWebSocketRead();
     cocoaCurlSocketGateCancel(m_gate);
     m_client = Client { };
     // The connect queue stops waiting, and the handshake fails on the descriptor the gate shut.

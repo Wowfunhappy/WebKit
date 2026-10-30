@@ -33,6 +33,7 @@
 
 #include "SocketStreamHandle.h"
 #include "SocketStreamHandleImpl.h"
+#include "SocketStreamHandleImplCurl.h" // AQUAWEBKIT: the curl handshake reports webRequest's outcome at native validation.
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <WebCore/Blob.h>
 #include <WebCore/CookieJar.h>
@@ -460,6 +461,7 @@ bool WebSocketChannel::processBuffer()
         if (headerLength <= 0)
             return false;
         if (m_handshake->mode() == WebSocketHandshake::Connected) {
+            legacyWebSocketHandshakeDidValidate(*m_handle, m_handshake->serverHandshakeResponse(), true); // AQUAWEBKIT: webRequest completes after the channel validates the upgrade.
             LegacyWebSocketInspectorInstrumentation::didReceiveWebSocketHandshakeResponse(m_document.get(), m_progressIdentifier, m_handshake->serverHandshakeResponse());
             String serverSetCookie = m_handshake->serverSetCookie();
             if (!serverSetCookie.isEmpty()) {
@@ -473,6 +475,7 @@ bool WebSocketChannel::processBuffer()
             return !m_buffer.isEmpty();
         }
         ASSERT(m_handshake->mode() == WebSocketHandshake::Failed);
+        legacyWebSocketHandshakeDidValidate(*m_handle, m_handshake->serverHandshakeResponse(), false); // AQUAWEBKIT: webRequest reports the channel's failed handshake validation.
         LOG(Network, "WebSocketChannel %p Connection failed", this);
         skipBuffer(headerLength);
         m_shouldDiscardReceivedData = true;

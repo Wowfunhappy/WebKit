@@ -8,6 +8,8 @@
 #include "LegacyExtensionWebsiteAccess.h"
 #include <WebCore/FetchOptions.h>
 #include <WebCore/HTTPHeaderNames.h>
+#include <WebCore/LegacyLoadInterceptor.h>
+#include <WebCore/ResourceResponse.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
@@ -72,6 +74,35 @@ private:
     // As "<event>:<option>".
     HashSet<String> m_listenerOptions;
     HashMap<String, Vector<BlockingListener>> m_blockingListeners;
+};
+
+bool observesWebSocket(const WebRequestListeners&);
+bool isWebSocketTransportHeader(const String&);
+
+class WebSocketHandshake final : public WebCore::LegacyWebSocketHandshake {
+public:
+    using Notify = Function<void(ASCIILiteral, Ref<JSON::Object>&&)>;
+    using Dispatch = Function<void(ASCIILiteral, Ref<JSON::Object>&&, CompletionHandler<void(RefPtr<JSON::Object>&&)>&&)>;
+    WebSocketHandshake(WebRequestListeners&, Ref<JSON::Object>&&, bool incognito, Notify&&, Dispatch&&);
+    bool observesRequestHeaders() const final;
+    bool observesResponseHeaders() const final;
+    void willSendRequest(WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, CompletionHandler<void(WebCore::ResourceRequest&&, Vector<WebCore::CocoaCurlProxyFilterResult>&&)>&&) final;
+    void willSendHeaders(WebCore::ResourceRequest&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, Vector<String>&&, CompletionHandler<void(WebCore::ResourceResponse&&, Vector<String>&&)>&&) final;
+    void authenticate(const WebCore::AuthenticationChallenge&, CompletionHandler<void(bool, bool, const WebCore::Credential&)>&&) final;
+    void didComplete(const String&) final;
+    void didValidateResponse(const WebCore::ResourceResponse&, bool connected) final;
+private:
+    Ref<JSON::Object> details() const;
+    void dispatch(ASCIILiteral, Ref<JSON::Object>&&, CompletionHandler<void(RefPtr<JSON::Object>&&)>&&);
+    WebRequestListeners& m_listeners;
+    Ref<JSON::Object> m_details;
+    WebCore::ResourceResponse m_response;
+    Vector<String> m_responseCookies;
+    bool m_incognito;
+    bool m_complete { false };
+    Notify m_notify;
+    Dispatch m_dispatch;
 };
 
 // A field the network layer adds to a request without one, as the request carries it and as an

@@ -9,6 +9,9 @@ import os
 import re
 import ssl
 import struct
+import socket
+import socketserver
+import select
 import threading
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -46,6 +49,10 @@ class Handler(BaseHTTPRequestHandler):
                 'origin': self.headers.get('Origin'),
                 'host': self.headers.get('Host'),
                 'secure': self.server.secure,
+                'cookieHeader': self.headers.get('Cookie', ''),
+                'testHeader': self.headers.get('X-Cookie-Probe'),
+                'handshakeHeaders': dict(self.headers),
+                'headerOrder': list(self.headers.keys()),
                 'cookies': {name: item.value for name, item in cookies.items()
                             if name.startswith('extck_')}}
 
@@ -104,21 +111,55 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if url.path == '/ws':
+        if url.path == '/ws-redirect':
+            target = query.get('to', [''])[0]
+            parsed = urlsplit(target)
+            local = parsed.hostname in ('localhost', '127.0.0.1', 'ext-cookie.test') or (parsed.hostname or '').endswith('.ext-cookie.test')
+            status = int(query.get('status', ['302'])[0])
+            if not local or parsed.scheme not in ('ws', 'wss') or status not in (301, 302, 303, 307, 308):
+                return self.reply(400, {'error': 'Expected a local WS(S) redirect and redirect status'})
+            return self.reply(status, snapshot, [('Location', target)])
+        if url.path in ('/ws', '/ws-auth'):
+            if url.path == '/ws-auth' and self.headers.get('Authorization') != 'Basic ' + base64.b64encode(b'cookie-ws:cookie-password').decode():
+                return self.reply(401, snapshot, [('WWW-Authenticate', 'Basic realm="Cookie WebSocket"')])
             key = self.headers.get('Sec-WebSocket-Key')
             if not key:
                 return self.reply(400, {'error': 'Expected WebSocket handshake'})
             accept = base64.b64encode(hashlib.sha1(
                 (key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode('ascii')).digest()).decode('ascii')
             self.send_response(101)
-            self.send_header('Upgrade', 'websocket')
+            self.send_header('Upgrade', 'invalid' if query.get('badUpgrade') == ['1'] else 'websocket')
             self.send_header('Connection', 'Upgrade')
             self.send_header('Sec-WebSocket-Accept', accept)
+            if 'cookie-protocol' in self.headers.get('Sec-WebSocket-Protocol', '').split(', '):
+                self.send_header('Sec-WebSocket-Protocol', 'cookie-protocol')
             self.end_headers()
+            if query.get('hold') == ['1']:
+                self.wfile.flush()
+                self.connection.settimeout(20)
+                try:
+                    received = self.connection.recv(65536)
+                    log_event(self.server, {'websocketEnd': {'id': query.get('id', [''])[0], 'clientBytes': len(received)}})
+                except socket.timeout:
+                    log_event(self.server, {'websocketEnd': {'id': query.get('id', [''])[0], 'timeout': True}})
+                self.close_connection = True
+                return
             body = json.dumps(snapshot, sort_keys=True).encode('utf-8')
             prefix = bytes([0x81, len(body)]) if len(body) < 126 else bytes([0x81, 126]) + struct.pack('!H', len(body))
             self.wfile.write(prefix + body + bytes([0x88, 2, 3, 232]))
             self.wfile.flush()
+            self.connection.settimeout(20)
+            try:
+                close = self.rfile.read(2)
+                if len(close) == 2 and close[0] == 0x88 and close[1] & 0x80 and (close[1] & 0x7f) <= 125:
+                    mask = self.rfile.read(4)
+                    payload = self.rfile.read(close[1] & 0x7f)
+                    log_event(self.server, {'websocketClose': {'id': query.get('id', [''])[0],
+                              'complete': len(mask) == 4 and len(payload) == (close[1] & 0x7f)}})
+                    if self.server.secure:
+                        self.connection.unwrap().close()
+            except OSError:
+                pass
             self.close_connection = True
             return
         if url.path == '/redirect':
@@ -135,7 +176,7 @@ class Handler(BaseHTTPRequestHandler):
             for name, attribute in [('unspecified', ''), ('none', '; SameSite=None'),
                                     ('lax', '; SameSite=Lax'), ('strict', '; SameSite=Strict')]:
                 for http_only in (False, True):
-                    cookie = prefix + '_' + name + ('_http' if http_only else '') + '=1; Path=/; Max-Age=3600' + attribute
+                    cookie = prefix + '_' + name + ('_http' if http_only else '') + '=1; Path=/; Max-Age=86400' + attribute
                     if self.server.secure:
                         cookie += '; Secure'
                     if http_only:
@@ -144,8 +185,58 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200, snapshot, headers)
 
 
+class HandshakeProxy(socketserver.StreamRequestHandler):
+    def handle(self):
+        first = self.rfile.readline().decode('latin1').strip().split(' ', 2)
+        if len(first) != 3:
+            return
+        method, target, version = first
+        headers = []
+        while True:
+            line = self.rfile.readline()
+            if line in (b'\r\n', b'\n', b''):
+                break
+            headers.append(line)
+        fields = dict(line.decode('latin1').strip().split(': ', 1) for line in headers if b': ' in line)
+        authorization = next((v for k, v in fields.items() if k.lower() == 'proxy-authorization'), '')
+        authorized = authorization == 'Basic ' + base64.b64encode(b'cookie-proxy:proxy-password').decode()
+        log_event(self.server, {'proxy': {'port': self.server.server_address[1], 'method': method, 'target': target, 'authorized': authorized}})
+        if not authorized:
+            self.wfile.write(b'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Cookie Proxy"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            return
+        parsed = urlsplit('http://' + target if method == 'CONNECT' else target)
+        if parsed.hostname not in ('localhost', '127.0.0.1', 'ext-cookie.test') or parsed.port not in (8877, 8878):
+            self.wfile.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
+            return
+        with socket.create_connection(('127.0.0.1', parsed.port), timeout=10) as upstream:
+            if method == 'CONNECT':
+                self.wfile.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
+                self.wfile.flush()
+            else:
+                path = parsed.path + ('?' + parsed.query if parsed.query else '')
+                upstream.sendall((method + ' ' + path + ' ' + version + '\r\n').encode('latin1') + b''.join(line for line in headers if not line.lower().startswith((b'proxy-authorization:', b'proxy-connection:'))) + b'\r\n')
+            while True:
+                ready, _, _ = select.select([self.connection, upstream], [], [], 20)
+                if not ready:
+                    return
+                for source in ready:
+                    try:
+                        data = source.recv(65536)
+                        if not data:
+                            return
+                        (upstream if source is self.connection else self.connection).sendall(data)
+                    except (OSError, ConnectionError):
+                        return
+
+
+class ProxyServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--websocket-proxies', nargs=2, type=int, default=[], metavar=('FIRST_PORT', 'NEXT_PORT'))
     parser.add_argument('--http-port', type=int, default=8877)
     parser.add_argument('--https-port', type=int, default=8878)
     parser.add_argument('--cert', required=True)
@@ -165,11 +256,20 @@ def main():
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(args.cert, args.key)
     https.socket = context.wrap_socket(https.socket, server_side=True)
+    proxies = []
+    for port in args.websocket_proxies:
+        proxy = ProxyServer(('127.0.0.1', port), HandshakeProxy)
+        proxy.log_path = log_path
+        proxies.append(proxy)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
     threading.Thread(target=http.serve_forever, daemon=True).start()
     print('Loopback HTTP/WS :%d and HTTPS/WSS :%d' % (args.http_port, args.https_port), flush=True)
     try:
         https.serve_forever()
     finally:
+        for proxy in proxies:
+            proxy.shutdown()
+            proxy.server_close()
         http.shutdown()
         http.server_close()
         https.server_close()

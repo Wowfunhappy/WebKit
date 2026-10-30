@@ -34,6 +34,8 @@ enum ssl_verify_result_t : int;
 namespace WebCore {
 
 struct CocoaCurlTLSState;
+class LegacyWebSocketHandshake;
+class ResourceResponse;
 
 class WEBCORE_EXPORT CocoaCurlSocketStream final : public ThreadSafeRefCounted<CocoaCurlSocketStream, WTF::DestructionThread::Main> {
 public:
@@ -88,6 +90,8 @@ public:
     static Ref<CocoaCurlSocketStream> create(Options&&, Client&&);
     ~CocoaCurlSocketStream();
 
+    void setWebSocketHandshake(RefPtr<LegacyWebSocketHandshake>&&);
+    void didValidateWebSocketHandshake(const ResourceResponse&, bool connected);
     void start();
     void close();
     // The bytes curl took, which may be fewer than offered (canSendMore follows once the socket drains), or null
@@ -113,9 +117,20 @@ private:
     void connectFinished(CURLcode, curl_socket_t);
     void open();
     void readAvailable();
+    void receiveWebSocketHandshake(std::span<const uint8_t>);
+    void flushWebSocketHandshake();
+    void resumeWebSocketRead();
     void resumeWriteSource();
     void suspendWriteSource();
     void fail(int code, const String& description);
+
+    RefPtr<LegacyWebSocketHandshake> m_webSocketHandshake;
+    bool m_webSocketRequestSent { false };
+    bool m_webSocketReadSuspended { false };
+    bool m_webSocketResponseReceived { false };
+    Vector<uint8_t> m_webSocketOutput;
+    size_t m_webSocketOutputOffset { 0 };
+    Vector<uint8_t> m_webSocketInput;
 
     Options m_options;
     Client m_client; // Main thread only.

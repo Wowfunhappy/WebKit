@@ -347,18 +347,40 @@ const decodeRequestBody = details => {
     }
 };
 
-// webRequest listeners run in registration order; their blocking responses merge as Chrome merges
-// the responses of one extension: any cancel wins, the first redirect and the first credentials win,
-// header rewrites stack.
+// Header changes are deltas from the original fields, with request fields keyed by name and response
+// fields by name and value, as in Chromium's CalculateOnBeforeSendHeadersDelta/CalculateOnHeadersReceivedDelta.
+const mergeWebRequestHeaders = (kind, original, proposed, pending, extraHeaders) => {
+    const visible = header => extraHeaders || !isExtraHeader(kind, header);
+    const before = original.filter(visible);
+    const after = proposed.filter(visible);
+    const name = header => String(header.name).toLowerCase();
+    const value = header => JSON.stringify([header.value, header.binaryValue]);
+    if (kind === "requestHeaders") {
+        const names = new Set(before.concat(after).map(name));
+        const changed = new Set([...names].filter(key =>
+            JSON.stringify(before.filter(header => name(header) === key).map(value)) !==
+            JSON.stringify(after.filter(header => name(header) === key).map(value))));
+        return pending.filter(header => !changed.has(name(header))).concat(after.filter(header => changed.has(name(header))));
+    }
+    const same = (a, b) => name(a) === name(b) && value(a) === value(b);
+    const deleted = before.filter(header => !after.some(other => same(header, other)));
+    const added = after.filter(header => !before.some(other => same(header, other)));
+    const remaining = pending.filter(header => !deleted.some(other => same(header, other)));
+    return remaining.concat(added.filter(header => !remaining.some(other => same(header, other))));
+};
+
+// Each listener receives its own copy of the event details. Any cancel wins; the first redirect and
+// credentials win.
 const dispatchWebRequestEvent = async (event, details) => {
-    decodeRequestBody(details);
+    const serializedDetails = JSON.stringify(details);
     const response = {};
     for (const entry of event._listeners.slice()) {
         const { callback, filter } = entry;
         if (!filterMatches(filter, details))
             continue;
         const blocking = isBlocking(entry);
-        const listenerDetails = Object.assign({}, details);
+        const listenerDetails = JSON.parse(serializedDetails);
+        decodeRequestBody(listenerDetails);
         for (const name of optionalDetails) {
             if (!hasExtraInfo(entry, name))
                 delete listenerDetails[name];
@@ -401,9 +423,8 @@ const dispatchWebRequestEvent = async (event, details) => {
         for (const kind of Object.keys(extraHeaderNames)) {
             if (!Array.isArray(result[kind]))
                 continue;
-            const headers = extraHeaders || !Array.isArray(details[kind]) ? result[kind] : result[kind].filter(header => !isExtraHeader(kind, header)).concat(details[kind].filter(header => isExtraHeader(kind, header)));
-            response[kind] = headers;
-            details[kind] = headers;
+            const original = Array.isArray(details[kind]) ? details[kind] : [];
+            response[kind] = mergeWebRequestHeaders(kind, original, result[kind], response[kind] || original, extraHeaders);
         }
     }
     return response;

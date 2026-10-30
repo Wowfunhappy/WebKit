@@ -101,6 +101,12 @@ def prepare():
         (path / 'global.html').write_text('<!doctype html><script src="exercise.js"></script><script src="global.js"></script>')
         (path / 'global.js').write_text('''browser.runtime.onMessage.addListener(message => {
     if (message.cookieTest === 'global') return cookieExercise(message.options);
+    if (message.cookieTest === 'global-websocket') return cookieWebSocketProbe(message.options);
+    if (message.cookieTest === 'global-websocket-control') {
+        if (message.action === 'close') window.cookieProbeSocket.close();
+        else setTimeout(() => location.replace('global.html?wsNavigation=' + message.id), 0);
+        return Promise.resolve({queued:true});
+    }
     if (message.cookieTest === 'global-navigation') return cookieParentNavigation(message.options);
     if (message.cookieTest === 'global-response-redirect') return cookieResponseRedirect(message.options);
     if (message.cookieTest === 'global-worker') return cookieWorker(message.options, false);
@@ -108,7 +114,7 @@ def prepare():
     if (message.cookieTest === 'ping') return Promise.resolve({href:location.href});
 });
 fetch('http://localhost:8877/report', {method:'POST', headers:{'Content-Type':'application/json'},
-body:JSON.stringify({ready:''' + json.dumps(name) + ''', page:new URL('page.html', location.href).href})});
+body:JSON.stringify({ready:''' + json.dumps(name) + ''', page:new URL('page.html', location.href).href, navigation:new URL(location.href).searchParams.get('wsNavigation')})});
 ''')
         (path / 'page.html').write_text('<!doctype html><title>Aqua Cookie ' + name + '</title><script src="exercise.js"></script><h1>Aqua Cookie ' + name + '</h1>')
         (path / 'bar.html').write_text('<!doctype html><script src="exercise.js"></script><script src="bar.js"></script>Cookie fixture')

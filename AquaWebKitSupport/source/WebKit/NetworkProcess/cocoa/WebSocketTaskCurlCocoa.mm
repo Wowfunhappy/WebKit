@@ -22,6 +22,7 @@
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/ClientOrigin.h>
 #import <WebCore/CocoaCookie.h>
+#import <WebCore/CocoaCurlResourceRequest.h>
 #import <WebCore/CocoaCurlSocketStream.h>
 #import <WebCore/CocoaCurlTLS.h>
 #import <WebCore/CocoaCurlTransfer.h>
@@ -350,8 +351,10 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifi
     // same-origin connection.
     if (clientOrigin.topOrigin == clientOrigin.clientOrigin)
         m_topOrigin = clientOrigin.topOrigin;
-    if (RefPtr connection = channel.m_connectionToWebProcess.get())
+    if (RefPtr connection = channel.m_connectionToWebProcess.get()) {
         m_proxyFilterResults = LegacyExtensionNetwork::singleton().takeWebSocketProxyFilterResults(*connection, channel.m_identifier);
+        m_webRequest = LegacyExtensionNetwork::singleton().takeWebSocketHandshake(*connection, channel.m_identifier);
+    }
     // As WebSocketTaskCocoa decides it: a stateless connection, or one third-party cookie blocking covers, sends and
     // stores no cookies.
     m_cookiesBlocked = storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless;
@@ -367,6 +370,8 @@ WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifi
 
 WebSocketTask::~WebSocketTask()
 {
+    if (RefPtr handshake = std::exchange(m_webRequest, nullptr))
+        handshake->didComplete("net::ERR_ABORTED"_s);
     closeTransport();
 }
 
@@ -656,29 +661,35 @@ void WebSocketTask::sendHandshake()
     auto resource = resourceName(url);
     auto target = m_forwardingProxyAuthorization ? makeString("ws://"_s, host, resource) : resource;
 
-    StringBuilder request;
-    request.append("GET "_s, target, " HTTP/1.1\r\n"_s);
-    request.append("Host: "_s, host, "\r\n"_s);
-    request.append("Upgrade: websocket\r\n"_s);
-    request.append("Connection: Upgrade\r\n"_s);
-    request.append("Sec-WebSocket-Key: "_s, key, "\r\n"_s);
-    request.append("Sec-WebSocket-Version: 13\r\n"_s);
-    if (!m_protocol.isEmpty())
-        request.append("Sec-WebSocket-Protocol: "_s, m_protocol, "\r\n"_s);
-    if (m_forwardingProxyAuthorization && !m_forwardingProxyAuthorization->isEmpty())
-        request.append("Proxy-Authorization: "_s, *m_forwardingProxyAuthorization, "\r\n"_s);
-    for (auto& field : m_request.httpHeaderFields()) {
-        if (equalLettersIgnoringASCIICase(field.key, "host"_s) || equalLettersIgnoringASCIICase(field.key, "upgrade"_s) || equalLettersIgnoringASCIICase(field.key, "connection"_s)
-            || equalLettersIgnoringASCIICase(field.key, "content-length"_s) || equalLettersIgnoringASCIICase(field.key, "sec-websocket-key"_s) || equalLettersIgnoringASCIICase(field.key, "sec-websocket-version"_s)
-            || equalLettersIgnoringASCIICase(field.key, "sec-websocket-protocol"_s) || equalLettersIgnoringASCIICase(field.key, "sec-websocket-extensions"_s))
-            continue;
-        request.append(field.key, ": "_s, field.value, "\r\n"_s);
-    }
-    request.append("\r\n"_s);
-
-    // Each field value is octets, one per character, as the HTTP transport writes them.
-    auto bytes = request.toString().latin1();
-    write({ Vector<uint8_t> { byteCast<uint8_t>(bytes.span()) }, { } });
+    auto send = [protectedThis = Ref { *this }, target, host, key](ResourceRequest&& request) {
+        if (protectedThis->m_state != State::Handshaking)
+            return;
+        if (request.isNull())
+            return protectedThis->fail("WebSocket connection was blocked by an extension"_s);
+        StringBuilder message;
+        message.append("GET "_s, target, " HTTP/1.1\r\n"_s);
+        message.append("Host: "_s, host, "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: "_s, key, "\r\nSec-WebSocket-Version: 13\r\n"_s);
+        if (!protectedThis->m_protocol.isEmpty())
+            message.append("Sec-WebSocket-Protocol: "_s, protectedThis->m_protocol, "\r\n"_s);
+        if (protectedThis->m_forwardingProxyAuthorization && !protectedThis->m_forwardingProxyAuthorization->isEmpty())
+            message.append("Proxy-Authorization: "_s, *protectedThis->m_forwardingProxyAuthorization, "\r\n"_s);
+        for (auto& field : request.httpHeaderFields()) {
+            bool carried = equalLettersIgnoringASCIICase(field.key, "authorization"_s) || equalLettersIgnoringASCIICase(field.key, "pragma"_s) || equalLettersIgnoringASCIICase(field.key, "cache-control"_s);
+            if (carried || !LegacyExtensions::isWebSocketTransportHeader(field.key))
+                message.append(field.key, ": "_s, field.value, "\r\n"_s);
+        }
+        message.append("\r\n"_s);
+        auto bytes = message.toString().latin1();
+        protectedThis->write({ Vector<uint8_t> { byteCast<uint8_t>(bytes.span()) }, { } });
+    };
+    if (m_webRequest && m_webRequest->observesRequestHeaders()) {
+        ResourceRequest visible = m_request;
+        visible.setHTTPHeaderField(HTTPHeaderName::Upgrade, "websocket"_s);
+        visible.setHTTPHeaderField(HTTPHeaderName::Connection, "Upgrade"_s);
+        visible.setHTTPHeaderField(HTTPHeaderName::SecWebSocketVersion, "13"_s);
+        m_webRequest->willSendHeaders(WTF::move(visible), WTF::move(send));
+    } else
+        send(ResourceRequest { m_request });
 }
 
 void WebSocketTask::write(Outgoing&& outgoing)
@@ -753,6 +764,7 @@ void WebSocketTask::close(int32_t code, const String& reason)
 {
     if (m_state != State::Open) {
         teardownTransport();
+        deliverClose(ThreadableWebSocketChannel::CloseEventCodeAbnormalClosure, { });
         return;
     }
     m_state = State::Closing;
@@ -777,6 +789,8 @@ void WebSocketTask::sendCloseFrame(uint16_t code, std::span<const uint8_t> reaso
 void WebSocketTask::receive(std::span<const uint8_t> data)
 {
     m_inBuffer.append(data);
+    if (m_responsePending || m_authenticationPending)
+        return;
     if (m_state == State::Handshaking) {
         if (m_discardedBodyBytes) {
             size_t skipped = std::min(m_discardedBodyBytes, m_inBuffer.size());
@@ -803,6 +817,15 @@ void WebSocketTask::receive(std::span<const uint8_t> data)
 // The peer ended the connection.
 void WebSocketTask::handleEndOfConnection()
 {
+    if (m_responsePending) {
+        m_responseEOF = true;
+        closeTransport();
+        return;
+    }
+    if (m_authenticationPending) {
+        resetConnection();
+        return;
+    }
     // A connection held for a credential that closes is replaced once the credential is chosen.
     if (m_awaitingCredential && m_state == State::Handshaking) {
         resetConnection();
@@ -839,7 +862,7 @@ static bool hasValidHTTPVersion(std::span<const uint8_t> version)
 
 // The status line as 10.9 CFNetwork accepts one: no non-ASCII character, no embedded null, CRLF-terminated within
 // 1024 bytes, an HTTP version of at least 1.1, and a three-digit status code.
-bool WebSocketTask::parseStatusLine(std::span<const uint8_t> header, int& statusCode, size_t& lineLength)
+bool WebSocketTask::parseStatusLine(std::span<const uint8_t> header, ResourceResponse& response, size_t& lineLength)
 {
     static constexpr size_t maximumLength = 1024;
     std::optional<size_t> firstSpace;
@@ -894,21 +917,20 @@ bool WebSocketTask::parseStatusLine(std::span<const uint8_t> header, int& status
         }
         code = code * 10 + (header[i] - '0');
     }
-    statusCode = code;
+    response.setHTTPStatusCode(code);
+    response.setHTTPVersion(String { byteCast<Latin1Character>(header.first(*firstSpace)) });
+    response.setHTTPStatusText(String { byteCast<Latin1Character>(header.subspan(*secondSpace + 1, length - *secondSpace - 3)) });
     lineLength = length;
     return true;
 }
 
 bool WebSocketTask::completeHandshake(std::span<const uint8_t> header)
 {
-    int statusCode = 0;
+    ResourceResponse response(URL { m_request.url() }, String(), 0, String());
     size_t statusLineLength = 0;
-    if (!parseStatusLine(header, statusCode, statusLineLength))
+    if (!parseStatusLine(header, response, statusLineLength))
         return false;
 
-    ResourceResponse response(URL { m_request.url() }, String(), 0, String());
-    response.setHTTPStatusCode(statusCode);
-    response.setHTTPVersion("HTTP/1.1"_s);
     Vector<String> setCookieFields;
     unsigned extensionsFields = 0;
     unsigned acceptFields = 0;
@@ -938,13 +960,45 @@ bool WebSocketTask::completeHandshake(std::span<const uint8_t> header)
         auto existing = response.httpHeaderField(name);
         response.setHTTPHeaderField(name, existing.isEmpty() ? value : makeString(existing, ", "_s, value));
     }
-    if (extensionsFields > 1 || acceptFields > 1 || protocolFields > 1) {
-        failProtocol("WebSocket handshake response repeats a Sec-WebSocket header field"_s);
+    if (m_webRequest) {
+        m_responsePending = true;
+        m_webRequest->didReceiveResponse(ResourceResponse { response }, WTF::move(setCookieFields),
+            [protectedThis = Ref { *this }, original = WTF::move(response), extensionsFields, acceptFields, protocolFields](ResourceResponse&& response, Vector<String>&& cookies) mutable {
+                if (protectedThis->m_state == State::Closed)
+                    return;
+                protectedThis->m_responsePending = false;
+                bool eof = std::exchange(protectedThis->m_responseEOF, false);
+                if (response.isNull()) {
+                    protectedThis->fail("WebSocket connection was blocked by an extension"_s);
+                    return;
+                }
+                if (response.httpHeaderFields() != original.httpHeaderFields()) {
+                    extensionsFields = response.httpHeaderField(HTTPHeaderName::SecWebSocketExtensions).isEmpty() ? 0 : 1;
+                    acceptFields = response.httpHeaderField(HTTPHeaderName::SecWebSocketAccept).isEmpty() ? 0 : 1;
+                    protocolFields = response.httpHeaderField(HTTPHeaderName::SecWebSocketProtocol).isEmpty() ? 0 : 1;
+                }
+                protectedThis->m_response = WTF::move(response);
+                protectedThis->storeCookies(cookies);
+                if (protectedThis->validateHandshakeResponse(extensionsFields, acceptFields, protocolFields)) {
+                    protectedThis->parseFrames();
+                    if (eof)
+                        protectedThis->handleEndOfConnection();
+                }
+            });
         return false;
     }
     m_response = WTF::move(response);
     storeCookies(setCookieFields);
+    return validateHandshakeResponse(extensionsFields, acceptFields, protocolFields);
+}
 
+bool WebSocketTask::validateHandshakeResponse(unsigned extensionsFields, unsigned acceptFields, unsigned protocolFields)
+{
+    if (extensionsFields > 1 || acceptFields > 1 || protocolFields > 1) {
+        failProtocol("WebSocket handshake response repeats a Sec-WebSocket header field"_s);
+        return false;
+    }
+    auto statusCode = m_response.httpStatusCode();
     if (statusCode == 301 || statusCode == 302 || statusCode == 303 || statusCode == 307 || statusCode == 308)
         return followRedirect();
     if (statusCode == 401)
@@ -994,6 +1048,8 @@ bool WebSocketTask::completeHandshake(std::span<const uint8_t> header)
     if (RetainPtr exchange = std::exchange(m_connectionAuthentication, nullptr); exchange && ![exchange.get() completeForToken:challengeToken(m_response, String([exchange.get() scheme])).get()])
         return handshakeFailed(statusCode);
 
+    if (RefPtr handshake = std::exchange(m_webRequest, nullptr))
+        handshake->didComplete({ });
     m_state = State::Open;
     m_didConnect = true;
     if (RefPtr channel = m_channel.get()) {
@@ -1126,9 +1182,39 @@ static Vector<ParsedChallenge> authenticationChallenges(const String& field)
 
 // A server challenge is answered with the credential the user, or the session's credential storage, supplies; the
 // schemes are offered strongest first, the order 10.9 NSURLSession puts them in.
+static NSString *authenticationMethodForScheme(const String&);
+
 bool WebSocketTask::authenticate()
 {
-    if (RetainPtr exchange = std::exchange(m_connectionAuthentication, nullptr)) {
+    if (!m_webRequest)
+        return continueAuthentication(std::nullopt);
+    auto challenges = authenticationChallenges(m_response.httpHeaderField("WWW-Authenticate"_s));
+    for (CFStringRef scheme : { kCFHTTPAuthenticationSchemeNegotiate, kCFHTTPAuthenticationSchemeNTLM, kCFHTTPAuthenticationSchemeDigest, kCFHTTPAuthenticationSchemeBasic }) {
+        String name = scheme;
+        auto challenge = std::ranges::find_if(challenges, [&](auto& candidate) { return equalIgnoringASCIICase(candidate.scheme, name); });
+        if (challenge == challenges.end())
+            continue;
+        auto& url = m_request.url();
+        RetainPtr space = adoptNS([[NSURLProtectionSpace alloc] initWithHost:url.host().createNSString().get() port:url.port().value_or(isSecureURL(url) ? 443 : 80)
+            protocol:isSecureURL(url) ? @"https" : @"http" realm:challenge->realm.createNSString().get() authenticationMethod:authenticationMethodForScheme(name)]);
+        AuthenticationChallenge offered(ProtectionSpace(space.get()), { }, m_authenticationFailureCount, m_response, { });
+        m_authenticationPending = true;
+        m_webRequest->authenticate(offered, [protectedThis = Ref { *this }](bool cancel, bool handled, const Credential& credential) {
+            if (protectedThis->m_state == State::Closed)
+                return;
+            protectedThis->m_authenticationPending = false;
+            if (cancel)
+                return protectedThis->fail("WebSocket connection was blocked by an extension"_s);
+            protectedThis->continueAuthentication(handled ? std::optional { credential } : std::nullopt);
+        });
+        return false;
+    }
+    return handshakeFailed(401);
+}
+
+bool WebSocketTask::continueAuthentication(std::optional<Credential>&& extensionCredential)
+{
+    if (RetainPtr exchange = std::exchange(m_connectionAuthentication, nullptr); exchange && !extensionCredential) {
         // The server's answer to the exchange's last message, on the connection that sent it: the exchange goes on
         // without asking anyone, and this 401 does not refuse the credential.
         if (RetainPtr token = challengeToken(m_response, String([exchange.get() scheme])); [token.get() length]) {
@@ -1138,7 +1224,7 @@ bool WebSocketTask::authenticate()
             m_connectionAuthentication = WTF::move(exchange);
             ResourceRequest next = m_request;
             next.setHTTPHeaderField(HTTPHeaderName::Authorization, String(authorization));
-            next.removeHTTPHeaderField(HTTPHeaderName::Cookie);
+            removeCocoaCurlRequestHeader(next, HTTPHeaderName::Cookie);
             RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, next = WTF::move(next)]() mutable {
                 protectedThis->continueWithHandshakeRequest(WTF::move(next), 401);
             });
@@ -1170,6 +1256,11 @@ bool WebSocketTask::authenticate()
         m_awaitingCredential = true;
     else
         resetConnection();
+
+    if (extensionCredential) {
+        continueWithCredential(WTF::move(extensionCredential), 0);
+        return false;
+    }
 
     // A URL that carries its own userinfo, or a credential the session holds for the space, answers the first
     // challenge directly: only a challenge nothing answers reaches the user.
@@ -1307,7 +1398,7 @@ void WebSocketTask::continueWithCredential(std::optional<Credential>&& credentia
     ResourceRequest authenticatedRequest = m_request;
     authenticatedRequest.setURL(WTF::move(hopURL));
     authenticatedRequest.setHTTPHeaderField(HTTPHeaderName::Authorization, authorization);
-    authenticatedRequest.removeHTTPHeaderField(HTTPHeaderName::Cookie);
+    removeCocoaCurlRequestHeader(authenticatedRequest, HTTPHeaderName::Cookie);
     continueWithHandshakeRequest(WTF::move(authenticatedRequest), 401);
 }
 
@@ -1329,9 +1420,9 @@ bool WebSocketTask::followRedirect()
     newRequest.appendCookieRequestRedirectURL(m_request.url());
     newRequest.setURL(URL { newURL });
     // The Cookie field belongs to the hop that sent it; the next hop's is looked up for its own URL.
-    newRequest.removeHTTPHeaderField(HTTPHeaderName::Cookie);
+    removeCocoaCurlRequestHeader(newRequest, HTTPHeaderName::Cookie);
     if (!areSameOrigin(m_request.url(), newURL))
-        newRequest.removeHTTPHeaderField(HTTPHeaderName::Authorization);
+        removeCocoaCurlRequestHeader(newRequest, HTTPHeaderName::Authorization);
     // Fetch: a request whose origin is not the redirect target's carries an opaque origin from there on.
     if (newRequest.hasHTTPHeaderField(HTTPHeaderName::Origin) && !areSameOrigin(m_request.url(), newURL))
         newRequest.setHTTPHeaderField(HTTPHeaderName::Origin, "null"_s);
@@ -1343,9 +1434,20 @@ bool WebSocketTask::followRedirect()
             m_cookiesBlocked = false;
     } else
         updateCookieBlocking(newRequest);
-    RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, newRequest = WTF::move(newRequest), status = m_response.httpStatusCode()]() mutable {
-        protectedThis->continueWithHandshakeRequest(WTF::move(newRequest), status);
-    });
+    auto proceed = [protectedThis = Ref { *this }, status = m_response.httpStatusCode()](ResourceRequest&& request, Vector<CocoaCurlProxyFilterResult>&& proxies) {
+        RunLoop::mainSingleton().dispatch([protectedThis, status, request = WTF::move(request), proxies = WTF::move(proxies)]() mutable {
+            if (protectedThis->m_state == State::Closed)
+                return;
+            if (request.isNull())
+                return protectedThis->fail("WebSocket connection was blocked by an extension"_s);
+            protectedThis->m_proxyFilterResults = WTF::move(proxies);
+            protectedThis->continueWithHandshakeRequest(WTF::move(request), status);
+        });
+    };
+    if (m_webRequest)
+        m_webRequest->willSendRequest(WTF::move(newRequest), m_response, WTF::move(proceed));
+    else
+        proceed(WTF::move(newRequest), { });
     return false;
 }
 
@@ -1596,6 +1698,8 @@ void WebSocketTask::fail(const String& reason)
 {
     if (m_state == State::Closed)
         return;
+    if (RefPtr handshake = std::exchange(m_webRequest, nullptr))
+        handshake->didComplete("net::ERR_FAILED"_s);
     bool deliver = !m_didClose;
     teardownTransport();
     RefPtr channel = m_channel.get();
@@ -1619,6 +1723,8 @@ void WebSocketTask::deliverClose(unsigned short code, const String& reason)
 // task's send completions arrive: the channel may be ending the task from its own destructor.
 void WebSocketTask::teardownTransport()
 {
+    if (RefPtr handshake = std::exchange(m_webRequest, nullptr))
+        handshake->didComplete("net::ERR_ABORTED"_s);
     m_state = State::Closed;
     closeTransport();
     Vector<CompletionHandler<void()>> completions;

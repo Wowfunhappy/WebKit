@@ -22,6 +22,7 @@
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/CocoaCurlProxyConfiguration.h>
 #include <WebCore/WebSocketIdentifier.h>
+#include <WebCore/LegacyLoadInterceptor.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NetworkLoadMetrics.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
@@ -119,6 +120,7 @@ public:
     // A ping's task, which its checker's answers route.
     void didCreatePingTask(NetworkLoadChecker&, NetworkDataTask&);
     // The proxy.onRequest answers for a WebSocket's handshake, which its task's route takes.
+    RefPtr<WebCore::LegacyWebSocketHandshake> takeWebSocketHandshake(NetworkConnectionToWebProcess&, WebCore::WebSocketIdentifier);
     Vector<WebCore::CocoaCurlProxyFilterResult> takeWebSocketProxyFilterResults(NetworkConnectionToWebProcess&, WebCore::WebSocketIdentifier);
 
 private:
@@ -220,6 +222,7 @@ private:
     WeakHashSet<NetworkResourceLoader> m_resumingCacheEntries;
     WeakHashMap<NetworkResourceLoader, String> m_loadErrors;
     WeakHashMap<NetworkConnectionToWebProcess, HashSet<uint64_t>> m_pendingWebSockets;
+    WeakHashMap<NetworkConnectionToWebProcess, HashMap<uint64_t, RefPtr<WebCore::LegacyWebSocketHandshake>>> m_webSocketHandshakes;
     // Keyed by the load's request identifier, and each filter's to its load's.
     HashMap<uint64_t, Ref<FilteredResponse>> m_filteredResponses;
     HashMap<uint64_t, uint64_t> m_responseFilterRequests;

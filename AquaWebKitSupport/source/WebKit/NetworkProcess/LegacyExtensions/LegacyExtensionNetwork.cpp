@@ -25,6 +25,7 @@
 #include <WebCore/Credential.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/CocoaCookie.h>
+#include <WebCore/CocoaCurlResourceRequest.h>
 #include <WebCore/CookieJar.h>
 #include <WebCore/HTTPHeaderMap.h>
 #include <WebCore/HTTPStatusCodes.h>
@@ -69,7 +70,7 @@ static ResourceRequest retargetedRedirectRequest(const ResourceRequest& request,
     retargeted.setFirstPartyForCookies(isMainFrameLoad ? URL { target } : URL { redirectRequest.firstPartyForCookies() });
     retargeted.setIsSameSite(redirectRequest.isSameSite() && SecurityOrigin::create(target)->isSameSiteAs(source));
     if (!SecurityOrigin::create(target)->isSameOriginAs(source.get()))
-        retargeted.removeHTTPHeaderField(HTTPHeaderName::Cookie);
+        removeCocoaCurlRequestHeader(retargeted, HTTPHeaderName::Cookie);
     if (auto authorization = redirectedRequest.httpHeaderField(HTTPHeaderName::Authorization); !authorization.isNull()
         && linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::AuthorizationHeaderOnSameOriginRedirects)
         && protocolHostAndPortAreEqual(redirectedRequest.url(), target))
@@ -376,7 +377,7 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
     auto redirectResponse = m_redirectResponses.take(checker);
     // An extension's Cookie edit is its exchange's alone: a redirect generates its own.
     if (auto editedCookie = m_editedCookies.take(checker); !editedCookie.isNull() && request.httpHeaderField(HTTPHeaderName::Cookie) == editedCookie)
-        request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
+        removeCocoaCurlRequestHeader(request, HTTPHeaderName::Cookie);
     if (m_listeners.isEmpty() || !isInterceptable(request.url()))
         return false;
 
@@ -777,15 +778,8 @@ Vector<CocoaCurlProxyFilterResult> LegacyExtensionNetwork::takeWebSocketProxyFil
     return iterator->value.take(identifier.toUInt64());
 }
 
-// A WebSocket's handshake, as Firefox's channel for it: proxy.onRequest, then onBeforeRequest. The proxy.onRequest
-// answers act on the route the socket's task resolves (WebSocketTask).
-bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& connection, const ResourceRequest& request, WebCore::WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, const ClientOrigin& clientOrigin, Function<void()>&& createChannel)
+static Ref<JSON::Object> webSocketDetails(WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, const String& initiator, const ResourceRequest& request)
 {
-    if (auto iterator = m_webSocketProxyFilterResults.find(connection); iterator != m_webSocketProxyFilterResults.end())
-        iterator->value.remove(identifier.toUInt64());
-    if (!observes(onBeforeRequest) && !observes(proxyOnRequest))
-        return false;
-
     auto details = JSON::Object::create();
     details->setString("requestId"_s, makeString(getCurrentProcessID(), "-ws-"_s, identifier.toUInt64()));
     details->setString("url"_s, request.url().string());
@@ -795,78 +789,52 @@ bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& c
     details->setDouble("tabId"_s, static_cast<double>(webPageProxyID.toUInt64()));
     details->setDouble("frameId"_s, frameID ? static_cast<double>(frameID->toUInt64()) : 0);
     details->setDouble("parentFrameId"_s, 0);
-    details->setString("initiator"_s, clientOrigin.clientOrigin.toString());
+    details->setString("initiator"_s, initiator);
+    return details;
+}
 
-    auto beforeRequestBlocks = blocks(onBeforeRequest, details);
-    RefPtr<JSON::Object> proxyRequestDetails;
-    if (observes(proxyOnRequest)) {
-        proxyRequestDetails = JSON::Object::create();
-        for (auto& [key, value] : details.get())
-            proxyRequestDetails->setValue(key, value.copyRef());
-        proxyRequestDetails->setBoolean("fromCache"_s, false);
-        proxyRequestDetails->setBoolean("incognito"_s, connection.sessionID().isEphemeral());
-        proxyRequestDetails->setBoolean("thirdParty"_s, !clientOrigin.topOrigin.isNull() && !RegistrableDomain(clientOrigin.topOrigin).matches(request.url()));
-        if (hasOption(proxyOnRequest, requestHeadersOption))
-            proxyRequestDetails->setArray("requestHeaders"_s, headersArray(request.httpHeaderFields()));
-    }
-    bool proxyRequestBlocks = proxyRequestDetails && blocks(proxyOnRequest, *proxyRequestDetails);
-    if (!beforeRequestBlocks && !proxyRequestBlocks) {
-        if (proxyRequestDetails)
-            notify(proxyOnRequest, proxyRequestDetails->toJSONString());
-        if (observes(onBeforeRequest))
-            notify(onBeforeRequest, details->toJSONString());
+RefPtr<LegacyWebSocketHandshake> LegacyExtensionNetwork::takeWebSocketHandshake(NetworkConnectionToWebProcess& connection, WebSocketIdentifier identifier)
+{
+    auto iterator = m_webSocketHandshakes.find(connection);
+    return iterator == m_webSocketHandshakes.end() ? nullptr : iterator->value.take(identifier.toUInt64());
+}
+
+bool LegacyExtensionNetwork::interceptWebSocket(NetworkConnectionToWebProcess& connection, const ResourceRequest& request, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, const ClientOrigin& clientOrigin, Function<void()>&& createChannel)
+{
+    if (!observesWebSocket(m_listeners))
         return false;
-    }
-
-    // A socket waiting on the extensions is pending until it opens or fails.
+    RefPtr<LegacyWebSocketHandshake> handshake = adoptRef(*new LegacyExtensions::WebSocketHandshake(m_listeners,
+        webSocketDetails(identifier, webPageProxyID, frameID, clientOrigin.clientOrigin.toString(), request), connection.sessionID().isEphemeral(),
+        [this](ASCIILiteral event, Ref<JSON::Object>&& details) { notify(event, details->toJSONString()); },
+        [this](ASCIILiteral event, Ref<JSON::Object>&& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&& completion) { dispatch(event, details->toJSONString(), WTF::move(completion)); }));
+    m_webSocketHandshakes.ensure(connection, [] { return HashMap<uint64_t, RefPtr<LegacyWebSocketHandshake>> { }; }).iterator->value.set(identifier.toUInt64(), handshake);
     m_pendingWebSockets.ensure(connection, [] { return HashSet<uint64_t> { }; }).iterator->value.add(identifier.toUInt64());
-    auto finish = [this, weakConnection = WeakPtr { connection }, identifier, createChannel = WTF::move(createChannel)](const String& error) mutable {
+    handshake->willSendRequest(ResourceRequest { request }, { }, [this, handshake, weakConnection = WeakPtr { connection }, identifier, createChannel = WTF::move(createChannel)](ResourceRequest&& request, Vector<CocoaCurlProxyFilterResult>&& proxies) mutable {
         RefPtr connection = weakConnection.get();
-        if (!connection)
-            return;
-        auto iterator = m_pendingWebSockets.find(*connection);
-        if (iterator == m_pendingWebSockets.end() || !iterator->value.remove(identifier.toUInt64()))
-            return;
-        Ref ipcConnection = connection->connection();
-        if (!ipcConnection->isValid())
-            return;
-        if (!error.isNull()) {
-            if (auto results = m_webSocketProxyFilterResults.find(*connection); results != m_webSocketProxyFilterResults.end())
-                results->value.remove(identifier.toUInt64());
-            ipcConnection->send(Messages::WebSocketChannel::DidReceiveMessageError { error }, identifier.toUInt64());
-            ipcConnection->send(Messages::WebSocketChannel::DidClose { 1006, emptyString() }, identifier.toUInt64());
+        if (!connection) {
+            handshake->didComplete("net::ERR_ABORTED"_s);
             return;
         }
-        createChannel();
-    };
-    auto beforeRequest = [this, details, finish = WTF::move(finish)]() mutable {
-        if (!blocks(onBeforeRequest, details)) {
-            if (observes(onBeforeRequest))
-                notify(onBeforeRequest, details->toJSONString());
-            return finish({ });
-        }
-        dispatch(onBeforeRequest, details->toJSONString(), [finish = WTF::move(finish)](RefPtr<JSON::Object>&& verdict) mutable {
-            finish(verdict && verdict->getBoolean("cancel"_s).value_or(false) ? "WebSocket connection was blocked by an extension"_s : String());
-        });
-    };
-    if (!proxyRequestBlocks) {
-        if (proxyRequestDetails)
-            notify(proxyOnRequest, proxyRequestDetails->toJSONString());
-        beforeRequest();
-        return true;
-    }
-    dispatch(proxyOnRequest, proxyRequestDetails->toJSONString(), [this, weakConnection = WeakPtr { connection }, identifier, beforeRequest = WTF::move(beforeRequest)](RefPtr<JSON::Object>&& response) mutable {
-        RefPtr connection = weakConnection.get();
-        if (!connection)
-            return;
         auto pending = m_pendingWebSockets.find(*connection);
-        if (pending == m_pendingWebSockets.end() || !pending->value.contains(identifier.toUInt64()))
+        if (pending == m_pendingWebSockets.end() || !pending->value.remove(identifier.toUInt64()))
             return;
-        if (RefPtr answers = response ? response->getArray("proxy"_s) : nullptr) {
-            if (auto results = LegacyExtensions::proxyFilterResults(*answers); !results.isEmpty())
-                m_webSocketProxyFilterResults.ensure(*connection, [] { return HashMap<uint64_t, Vector<CocoaCurlProxyFilterResult>> { }; }).iterator->value.set(identifier.toUInt64(), WTF::move(results));
+        if (!connection->connection().isValid()) {
+            handshake->didComplete("net::ERR_ABORTED"_s);
+            takeWebSocketHandshake(*connection, identifier);
+            return;
         }
-        beforeRequest();
+        if (request.isNull()) {
+            takeWebSocketHandshake(*connection, identifier);
+            connection->connection().send(Messages::WebSocketChannel::DidReceiveMessageError { "WebSocket connection was blocked by an extension"_s }, identifier.toUInt64());
+            connection->connection().send(Messages::WebSocketChannel::DidClose { 1006, emptyString() }, identifier.toUInt64());
+            return;
+        }
+        m_webSocketProxyFilterResults.ensure(*connection, [] { return HashMap<uint64_t, Vector<CocoaCurlProxyFilterResult>> { }; }).iterator->value.set(identifier.toUInt64(), WTF::move(proxies));
+        createChannel();
+        if (auto unclaimed = takeWebSocketHandshake(*connection, identifier)) {
+            unclaimed->didComplete("net::ERR_FAILED"_s);
+            takeWebSocketProxyFilterResults(*connection, identifier);
+        }
     });
     return true;
 }
@@ -937,6 +905,10 @@ bool LegacyExtensionNetwork::didReceivePendingWebSocketMessage(NetworkConnection
     // A socket closed before it opened reports an abnormal closure.
     if (decoder.messageName() == IPC::MessageName::NetworkSocketChannel_Close) {
         iterator->value.remove(decoder.destinationID());
+        if (auto handshakes = m_webSocketHandshakes.find(connection); handshakes != m_webSocketHandshakes.end()) {
+            if (RefPtr handshake = handshakes->value.take(decoder.destinationID()))
+                handshake->didComplete("net::ERR_ABORTED"_s);
+        }
         if (auto results = m_webSocketProxyFilterResults.find(connection); results != m_webSocketProxyFilterResults.end())
             results->value.remove(decoder.destinationID());
         connection.connection().send(Messages::WebSocketChannel::DidClose { 1006, emptyString() }, decoder.destinationID());

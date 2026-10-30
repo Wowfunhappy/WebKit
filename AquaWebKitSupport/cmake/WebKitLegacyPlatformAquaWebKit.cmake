@@ -21,6 +21,7 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${AQUAWEBKIT_SUPPORT}/source/WebKitLegacy/mac/LegacyExtensions"
     "${AQUAWEBKIT_SUPPORT}/source/WebKitLegacy/mac/Misc"
     "${AQUAWEBKIT_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport"
+    "${AQUAWEBKIT_SUPPORT}/source/WebKitLegacy/WebCoreSupport"
     "${AQUAWEBKIT_DEPS}/include"
 )
 

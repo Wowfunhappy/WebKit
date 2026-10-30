@@ -33,9 +33,6 @@ def compare_row(row):
         if 'error' in operation:
             continue
         wire = operation['value']
-        if kind == 'websocket':
-            check(expected <= wire['cookies'].keys(), 'WebSocket wire cookies remain independent of HTTP-only header verdicts', wire=wire)
-            continue
         events = [event for event in row['events']
                   if urlsplit(event['url']).netloc == wire['host']
                   and urlsplit(event['url']).path + ('?' + urlsplit(event['url']).query
@@ -56,7 +53,7 @@ def compare_row(row):
               kind=kind, generated=generated, sent=sent, expected=wanted)
         if row['mode'] == 'origin':
             check(wire['origin'] == 'http://127.0.0.1:8877', 'Origin verdict reaches wire', kind=kind, wire=wire)
-    return dict(checks=checks, failures=failures, unsupported=['WebSocket generated-header comparison: the bridge exposes only onBeforeRequest for handshakes'])
+    return dict(checks=checks, failures=failures)
 
 
 def main():

@@ -30,6 +30,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "SocketStreamHandleImpl.h"
+#include "SocketStreamHandleImplCurl.h"
 
 // A WebSocket handshake is a TLS connection like any other, so it presents what the rest of this
 // port's network layer presents: CocoaCurlSocketStream, libcurl in CONNECT_ONLY mode with the ClientHello
@@ -49,11 +50,25 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <wtf/Lock.h>
+#include <wtf/HashMap.h>
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
+
+static auto& webSocketHandshakes()
+{
+    static NeverDestroyed<HashMap<SocketStreamHandle*, RefPtr<CocoaCurlSocketStream>>> handshakes;
+    return handshakes.get();
+}
+
+void legacyWebSocketHandshakeDidValidate(SocketStreamHandle& handle, const ResourceResponse& response, bool connected)
+{
+    if (auto stream = webSocketHandshakes().take(&handle))
+        stream->didValidateWebSocketHandshake(response, connected);
+}
 
 // ----- SocketStreamHandleImpl -----
 
@@ -71,27 +86,37 @@ SocketStreamHandleImpl::SocketStreamHandleImpl(const URL& url, SocketStreamHandl
     URL httpsURL { makeString("https://"_s, m_url.host()) };
     m_httpsURL = httpsURL.createCFURL();
 
-    // Don't check for HSTS violation for ephemeral sessions since
-    // HSTS state should not transfer between regular and private browsing.
-    if (url.protocolIs("ws"_s)
-        && !sessionID.isEphemeral()
-        && _CFNetworkIsKnownHSTSHostWithSession(m_httpsURL.get(), nullptr)) {
-        // Call this asynchronously because the socket stream is not fully constructed at this point.
-        callOnMainThread([this, protectedThis = Ref { *this }] {
-            m_client.didFailSocketStream(*this, SocketStreamError(0, m_url.string(), "WebSocket connection failed because it violates HTTP Strict Transport Security."_s));
+    auto rejectsHSTS = [this, protectedThis = Ref { *this }, sessionID](const RefPtr<LegacyWebSocketHandshake>& handshake) {
+        if (!m_url.protocolIs("ws"_s) || sessionID.isEphemeral() || !_CFNetworkIsKnownHSTSHostWithSession(m_httpsURL.get(), nullptr))
+            return false;
+        if (handshake)
+            handshake->didComplete("net::ERR_FAILED"_s);
+        callOnMainThread([this, protectedThis] {
+            if (state() != Closed)
+                m_client.didFailSocketStream(*this, SocketStreamError(0, m_url.string(), "WebSocket connection failed because it violates HTTP Strict Transport Security."_s));
         });
-        return;
-    }
+        return true;
+    };
 
     // Safari 7 extensions' webRequest decides the handshake first, for the document of the WebSocketChannel,
     // this handle's only client. A blocked handshake fails as the HSTS check above fails one.
     if (auto* interceptor = LegacyLoadInterceptor::singleton()) {
         Ref document = *static_cast<WebSocketChannel&>(m_client).document();
-        auto continueHandshake = [this, protectedThis = Ref { *this }](bool proceed, Vector<CocoaCurlProxyFilterResult>&& proxyFilterResults) {
-            if (state() == Closed)
+        auto continueHandshake = [this, protectedThis = Ref { *this }, rejectsHSTS](bool proceed, Vector<CocoaCurlProxyFilterResult>&& proxyFilterResults, RefPtr<LegacyWebSocketHandshake>&& handshake) {
+            if (state() == Closed) {
+                if (handshake)
+                    handshake->didComplete("net::ERR_ABORTED"_s);
                 return;
-            if (proceed)
-                return connect(WTF::move(proxyFilterResults));
+            }
+            if (proceed) {
+                if (rejectsHSTS(handshake))
+                    return;
+                connect(WTF::move(proxyFilterResults));
+                if (handshake)
+                    webSocketHandshakes().set(this, m_transport);
+                m_transport->setWebSocketHandshake(WTF::move(handshake));
+                return;
+            }
             callOnMainThread([this, protectedThis] {
                 if (state() != Closed)
                     m_client.didFailSocketStream(*this, SocketStreamError(0, m_url.string(), "WebSocket connection was blocked by an extension"_s));
@@ -101,13 +126,15 @@ SocketStreamHandleImpl::SocketStreamHandleImpl(const URL& url, SocketStreamHandl
             return;
     }
 
-    connect({ });
+    if (!rejectsHSTS(nullptr))
+        connect({ });
 }
 
 SocketStreamHandleImpl::~SocketStreamHandleImpl()
 {
     LOG(Network, "SocketStreamHandle %p dtor", this);
 
+    webSocketHandshakes().remove(this);
     if (m_transport)
         m_transport->close();
 }
@@ -160,6 +187,7 @@ void SocketStreamHandleImpl::transportDidClose()
 void SocketStreamHandleImpl::transportDidFail(int code, const String& description)
 {
     Ref protectedThis { *this };
+    webSocketHandshakes().remove(this);
     m_client.didFailSocketStream(*this, SocketStreamError(code, m_url.string(), description));
 }
 
@@ -174,6 +202,7 @@ void SocketStreamHandleImpl::platformClose()
 {
     LOG(Network, "SocketStreamHandle %p platformClose", this);
 
+    webSocketHandshakes().remove(this);
     if (auto transport = std::exchange(m_transport, nullptr))
         transport->close();
     m_client.didCloseSocketStream(*this);

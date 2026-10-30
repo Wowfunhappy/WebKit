@@ -32,6 +32,7 @@
 #import <WebCore/CocoaCurlTLS.h>
 #import <WebCore/ExternalURLRewrite.h>
 #import <WebCore/CocoaCookie.h>
+#import <WebCore/CocoaCurlResourceRequest.h>
 #import <WebCore/CocoaCurlMultipartHandle.h>
 #import <WebCore/CocoaMIMESniffing.h>
 #import <WebCore/Site.h>
@@ -509,13 +510,13 @@ void NetworkDataTaskCurlCocoa::redirect()
         request.setHTTPMethod("GET"_s);
         clearCocoaCurlHTTPBody(request);
         for (auto name : { HTTPHeaderName::ContentLength, HTTPHeaderName::ContentType, HTTPHeaderName::ContentEncoding, HTTPHeaderName::ContentLanguage, HTTPHeaderName::ContentLocation, HTTPHeaderName::TransferEncoding })
-            request.removeHTTPHeaderField(name);
+            removeCocoaCurlRequestHeader(request, name);
     }
     if (m_shouldClearReferrerOnHTTPSToHTTPRedirect && !url.protocolIs("https"_s) && request.httpReferrer().startsWithIgnoringASCIICase("https:"_s))
         request.clearHTTPReferrer();
     if (!SecurityOrigin::create(url)->isSameOriginAs(SecurityOrigin::create(m_request.url()).get())) {
-        request.removeHTTPHeaderField(HTTPHeaderName::Authorization);
-        request.removeHTTPHeaderField(HTTPHeaderName::Origin);
+        removeCocoaCurlRequestHeader(request, HTTPHeaderName::Authorization);
+        removeCocoaCurlRequestHeader(request, HTTPHeaderName::Origin);
         m_authMethod = CURLAUTH_NONE;
         m_authUser = emptyString();
         m_authPassword = emptyString();

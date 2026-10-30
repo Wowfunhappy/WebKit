@@ -986,6 +986,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyConfiguration.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyResolver.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlResourceHandle.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlResourceRequest.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlScheduler.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlSocketGate.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlSocketStream.h
