@@ -120,8 +120,6 @@
 
 #if PLATFORM(MAC)
 #include "LocalDefaultSystemAppearance.h"
-#include "GraphicsLayerCA.h" // AQUAWEBKIT: identify the native compositor's sampling boundaries.
-#include "PlatformCALayerCocoa.h" // AQUAWEBKIT: the legacy compositor has explicit CSS sorting boundaries.
 #endif
 
 #if ENABLE(THREADED_ANIMATIONS)
@@ -631,14 +629,7 @@ void RenderLayerBacking::createPrimaryGraphicsLayer()
         layerName = makeString(StringView(layerName).left(maxLayerNameLength), "..."_s);
     m_graphicsLayer = createGraphicsLayer(layerName, m_isFrameLayerWithTiledBacking ? GraphicsLayer::Type::PageTiledBacking : GraphicsLayer::Type::Normal);
 
-    // AQUAWEBKIT: explicit native CSS sorting boundaries also flatten children above page tiles.
-    bool needsTileFlatteningLayer = m_isFrameLayerWithTiledBacking;
-#if PLATFORM(MAC)
-    if (auto* layer = dynamicDowncast<GraphicsLayerCA>(m_graphicsLayer.get()); layer && is<PlatformCALayerCocoa>(*layer->platformCALayer()) && PlatformCALayerCocoa::needsExplicitDepthSorting())
-        needsTileFlatteningLayer = false;
-#endif // AQUAWEBKIT: native Cocoa tile containment.
-    // if (m_isFrameLayerWithTiledBacking) {
-    if (needsTileFlatteningLayer) { // AQUAWEBKIT: keep the page background in the children's sampling surface.
+    if (m_isFrameLayerWithTiledBacking) {
         m_childContainmentLayer = createGraphicsLayer("Page TiledBacking containment"_s);
         m_graphicsLayer->addChild(*m_childContainmentLayer);
     }
@@ -917,13 +908,6 @@ void RenderLayerBacking::updateBackdropFiltersGeometry()
 
 bool RenderLayerBacking::updateBackdropRoot()
 {
-#if PLATFORM(MAC)
-    // AQUAWEBKIT: 10.9 backgroundFilters sample only up to the nearest CALayer that is not a CATransformLayer,
-    // so this layer passes sampling through when it lies below the backdrop root's outermost layer.
-    if (auto* layer = dynamicDowncast<GraphicsLayerCA>(m_graphicsLayer.get()))
-        layer->setPassesBackdropSampling(m_owningLayer.hasBackdropFilterDescendantsWithoutRoot() && (!m_owningLayer.isBackdropRoot() || m_contentsContainmentLayer));
-#endif // AQUAWEBKIT: closes the backdrop sampling block above.
-
     // Don't try to make the RenderView's layer a backdrop root if it's going to
     // paint into the window since it won't work (WebKitLegacy only).
     bool willBeBackdropRoot = m_owningLayer.isBackdropRoot() && !paintsIntoWindow();
@@ -4041,11 +4025,6 @@ bool RenderLayerBacking::paintsIntoWindow() const
         return false;
 
     if (m_owningLayer.isRenderViewLayer()) {
-#if PLATFORM(MAC)
-        // AQUAWEBKIT: native backgroundFilters sample composited page pixels in WebKit1.
-        if (m_owningLayer.hasBackdropFilterDescendantsWithoutRoot() && PlatformCALayerCocoa::needsExplicitDepthSorting())
-            return false;
-#endif // AQUAWEBKIT: window painting cannot supply a layer's background filters.
 #if PLATFORM(IOS_FAMILY) || USE(COORDINATED_GRAPHICS)
         if (compositor().inForcedCompositingMode())
             return false;

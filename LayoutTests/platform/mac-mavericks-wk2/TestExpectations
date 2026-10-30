@@ -616,9 +616,9 @@ editing/spelling/grammar-correction-shown-clicking-multiword-phrase.html [ Skip 
 # sets a value; with Tahoe's metrics the centre misses the day field.
 fast/forms/date/date-editable-components/date-editable-components-component-set-updates-color.html [ Skip ]
 
-# 10.9 Core Animation's backgroundFilters output does not contribute to a layer shadow, while the mask or
-# masksToBounds needed to shape that output also clips a shadow generated from the layer's own content.
-imported/w3c/web-platform-tests/css/filter-effects/drop-shadow-currentcolor-dynamic-003.html [ ImageOnlyFailure ]
+# PlatformCAFilters::setFiltersOnLayer maps drop-shadow to layer shadow properties and returns no
+# CAFilter, so the backdrop's filter array is empty and has no fill to cast the shadow from.
+imported/w3c/web-platform-tests/css/filter-effects/drop-shadow-currentcolor-dynamic-003.html [ Skip ]
 
 
 # Maintainer scope decision 2026-10-18: 10.9 Core Animation's asynchronous tile rasterizer differs from synchronous
@@ -672,10 +672,6 @@ svg/animations/animateMotion-accumulate-2a.svg [ ImageOnlyFailure ]
 svg/animations/animateMotion-accumulate-2b.svg [ ImageOnlyFailure ]
 svg/dom-paint-order/deep-nesting-with-transforms.html [ ImageOnlyFailure ]
 
-# 10.9 Core Animation blends a background filter through a rounded shape mask as dst * (255 - m) >> 8 inside the mask's
-# bounding box, so pixels the shape leaves uncovered there come out one level darker: 717 pixels with WebKitTestRunner
-# against the test's allowance of 710 (696 with DumpRenderTree).
-css3/filters/backdrop/backdrop-filter-uneven-corner-radii.html [ ImageOnlyFailure ]
 # The cookie-storage polyfill provides the system CFNetwork partitioned cookie storage; upstream enables these where the system CFNetwork does.
 http/tests/resourceLoadStatistics/only-partitioned-third-party-cookies.https.html [ Pass ]
 http/tests/resourceLoadStatistics/only-partitioned-cookies-after-redirect.https.html [ Pass ]

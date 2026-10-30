@@ -28,7 +28,6 @@
 
 #import "FloatConversion.h"
 #import "PlatformCALayerCocoa.h"
-#import <WebCore/WebBackdropLayerAquaWebKit.h> // AQUAWEBKIT: WebKit's stand-in for CABackdropLayer.
 #import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockObjCExceptions.h>
@@ -214,7 +213,6 @@ void PlatformCAFilters::updatePresentationModifiers(const FilterOperations& filt
 
 void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOperations& filters, bool backdropIsOpaque)
 {
-    bool isBackdropLayer = is_objc<WebBackdropLayerAquaWebKit>(layer); // AQUAWEBKIT: WebKit's stand-in for CABackdropLayer.
     if (!filters.size()) {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         [layer setFilters:nil];
@@ -312,8 +310,7 @@ void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOper
             const auto& blurOperation = downcast<BlurFilterOperation>(filterOperation);
             CAFilter *filter = [CAFilter filterWithType:kCAFilterGaussianBlur];
             [filter setValue:@(blurOperation.stdDeviation()) forKey:@"inputRadius"];
-            // if (is_objc<CABackdropLayer>(layer)) {
-            if (isBackdropLayer) { // AQUAWEBKIT: WebKit's stand-in for CABackdropLayer.
+            if (is_objc<CABackdropLayer>(layer)) {
 #if PLATFORM(VISION)
                 // FIXME: https://bugs.webkit.org/show_bug.cgi?id=275965
                 UNUSED_PARAM(backdropIsOpaque);

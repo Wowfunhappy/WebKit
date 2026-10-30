@@ -82,7 +82,6 @@ static constexpr auto transformKeyPath = "transform"_s;
 static constexpr auto opacityKeyPath = "opacity"_s;
 static constexpr auto backgroundColorKeyPath = "backgroundColor"_s;
 static constexpr auto filterKeyPathPrefix = "filters.filter_"_s;
-static constexpr auto backgroundFilterKeyPathPrefix = "backgroundFilters.filter_"_s; // AQUAWEBKIT: native backdrop animation property.
 static constexpr auto backdropFiltersKeyPath = "backdropFilters"_s;
 
 String PlatformCAAnimation::makeGroupKeyPath()
@@ -105,9 +104,6 @@ String PlatformCAAnimation::makeKeyPath(AnimatedProperty animatedProperty, Filte
     case AnimatedProperty::Filter:
         return makeString(filterKeyPathPrefix, index, '.', PlatformCAFilters::animatedFilterPropertyName(filterOperationType));
     case AnimatedProperty::WebkitBackdropFilter:
-        // AQUAWEBKIT: compositor-created backdrop animations address native background filters directly.
-        if (filterOperationType != FilterOperation::Type::None)
-            return makeString(backgroundFilterKeyPathPrefix, index, '.', PlatformCAFilters::animatedFilterPropertyName(filterOperationType));
         return backdropFiltersKeyPath;
     case AnimatedProperty::Invalid:
         ASSERT_NOT_REACHED();
@@ -119,14 +115,10 @@ String PlatformCAAnimation::makeKeyPath(AnimatedProperty animatedProperty, Filte
 
 static bool isValidFilterKeyPath(const String& keyPath)
 {
-    // AQUAWEBKIT: apply the same index/property validation to native backdrop paths.
-    auto prefix = keyPath.startsWith(backgroundFilterKeyPathPrefix) ? backgroundFilterKeyPathPrefix : filterKeyPathPrefix;
-    // if (!keyPath.startsWith(filterKeyPathPrefix))
-    if (!keyPath.startsWith(prefix))
+    if (!keyPath.startsWith(filterKeyPathPrefix))
         return false;
 
-    // size_t underscoreIndex = filterKeyPathPrefix.length();
-    size_t underscoreIndex = prefix.length(); // AQUAWEBKIT: validated foreground or background prefix.
+    size_t underscoreIndex = filterKeyPathPrefix.length();
     auto dotIndex = keyPath.find('.', underscoreIndex);
     if (dotIndex == notFound || dotIndex <= underscoreIndex)
         return false;

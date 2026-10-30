@@ -1488,10 +1488,8 @@ void RenderLayerCompositor::computeCompositingRequirements(RenderLayer* ancestor
     ASSERT(!layer.hasNotIsolatedCompositedBlendingDescendants() || layer.hasNotIsolatedBlendingDescendants());
 
     bool isBackdropRoot = layer.isBackdropRoot();
-    bool hadBackdropFilterDescendantsWithoutRoot = layer.hasBackdropFilterDescendantsWithoutRoot(); // AQUAWEBKIT: see below.
     layer.setHasBackdropFilterDescendantsWithoutRoot(currentState.hasBackdropFilterDescendantsWithoutRoot);
-    // if (layer.isBackdropRoot() != isBackdropRoot)
-    if (layer.isBackdropRoot() != isBackdropRoot || layer.hasBackdropFilterDescendantsWithoutRoot() != hadBackdropFilterDescendantsWithoutRoot) // AQUAWEBKIT: RenderLayerBacking::updateBackdropRoot() also marks the layers between a backdrop and its root.
+    if (layer.isBackdropRoot() != isBackdropRoot)
         layer.setNeedsCompositingConfigurationUpdate();
 
     // Now check for reasons to become composited that depend on the state of descendant layers.

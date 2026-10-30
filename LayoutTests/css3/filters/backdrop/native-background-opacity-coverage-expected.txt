@@ -1,3 +1,0 @@
-opacity 0.5, mask present: true
-opacity 1, mask present: false
-opacity 0.5 again, mask present: true

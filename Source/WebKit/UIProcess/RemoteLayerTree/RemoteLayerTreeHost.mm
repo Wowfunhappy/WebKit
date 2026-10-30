@@ -24,7 +24,6 @@
  */
 
 #import "config.h"
-#import <WebCore/WebBackdropLayerAquaWebKit.h> // AQUAWEBKIT: backend-owned native backdrop surfaces.
 #import "RemoteLayerTreeHost.h"
 
 #import "AuxiliaryProcessProxy.h"
@@ -460,8 +459,7 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
         return makeWithLayer(adoptNS([[CATransformLayer alloc] init]));
 
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
-        // return makeWithLayer(adoptNS([[CABackdropLayer alloc] init]));
-        return makeWithLayer(adoptNS([[WebBackdropLayerAquaWebKit alloc] init])); // AQUAWEBKIT: preserves native CALayer API semantics.
+        return makeWithLayer(adoptNS([[CABackdropLayer alloc] init]));
 
 #if HAVE(CORE_MATERIAL)
     case PlatformCALayer::LayerType::LayerTypeMaterialLayer:

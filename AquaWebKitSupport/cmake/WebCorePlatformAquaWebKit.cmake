@@ -447,7 +447,6 @@ AQUAWEBKIT_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES
 # GStreamer Cocoa glue follows USE_GSTREAMER below; unified sources stay in Source/.
 list(APPEND WebCore_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/cocoa/AquaWebKitWebCoreGlue.mm
-    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerAquaWebKit.mm
     # MediaRecorder's MP4 container writer, which packages the frames MediaRecorderPrivateEncoder
     # compresses. MediaRecorderPrivateWriter.cpp reaches its header by bare name, so the directory
     # goes on the include path below. Its own translation unit: it includes FFmpeg's headers, whose
@@ -500,7 +499,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 )
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h
-    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerAquaWebKit.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/html/LegacyExtensionMimeHandlerDocument.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/loader/LegacyLoadInterceptor.h

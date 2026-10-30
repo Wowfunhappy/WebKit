@@ -1068,6 +1068,13 @@ probe_control_character_glyphs() {
         "$T/control_character_glyphs"
 }
 
+probe_backdrop_layer() {
+    "$CLANG" $HOST $INC -fno-objc-arc -o "$T/backdrop_layer" "$TBEHAV/QuartzCore-backdrop-layer.m" \
+        -framework AppKit -framework QuartzCore -framework Foundation "$OUT/libpolyfill_classes.dylib" \
+        $PROBE_LIBS &&
+        "$T/backdrop_layer"
+}
+
 probe_calayer_hierarchy() {
     prepare_method_objects QuartzCore &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/calayer_hierarchy" "$TBEHAV/CALayer-hierarchy.m" \
@@ -1227,6 +1234,7 @@ run_probe audiounit_max_frames "$@"
 run_probe character_clusters "$@"
 run_probe cluster_fallback "$@"
 run_probe logical_order "$@"
+run_probe backdrop_layer "$@"
 run_probe calayer_hierarchy "$@"
 run_probe singular_transform "$@"
 run_probe frame_rate_range "$@"

@@ -1831,8 +1831,6 @@ compositing/canvas/accelerated-canvas-compositing-size-limit.html [ Skip ]
 compositing/clipping/border-radius-overflow-hidden-stacking-context.html [ Skip ]
 compositing/visibility/root-visibility-toggle.html [ Skip ]
 
-# Backdrop-filter rendering is outside this port's scope (the shared graphics policy).
-compositing/filters/backdrop-filter-root-element-no-backdrop-root.html [ Skip ]
 compositing/layer-creation/will-change-on-normal-flow-content.html [ Skip ]
 
 # AppKit subframe scrollbars do not add WK2's 15-pixel RTL layer translation.
@@ -2806,6 +2804,17 @@ webkit.org/b/309370 fast/css/vertical-text-overflow-ellipsis-text-align-center.h
 
 # Upstream skips unprefixed backdrop filter on WK1 (58c630a^ mac-wk1:3003); WebKitLegacy's
 # CSSUnprefixedBackdropFilterEnabled default is false.
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-backdrop-filter.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-clip-path.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-filter.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-mix-blend-mode.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-backdrop-root-opacity.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-edge-clipping.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-edge-pixels.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-paint-order.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-plus-filter-2.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filters-opacity.html [ Skip ]
+compositing/filters/backdrop-filter-root-element-no-backdrop-root.html [ Skip ]
 css3/filters/backdrop-filter-page-scale.html [ Skip ]
 css3/filters/hidpi-backdrop-filter-rasterization-scale.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-masking/clip-path/clip-path-svg-text-backdrop-filter.html [ Skip ]
@@ -2870,9 +2879,6 @@ imported/w3c/web-platform-tests/css/filter-effects/inheritance.html [ Skip ]
 imported/w3c/web-platform-tests/css/filter-effects/parsing/backdrop-filter-computed.html [ Skip ]
 imported/w3c/web-platform-tests/css/filter-effects/parsing/backdrop-filter-parsing-valid.html [ Skip ]
 imported/w3c/web-platform-tests/css/filter-effects/repaint-added-backdrop-filter.html [ Skip ]
-
-# WebKitLegacy scrolls frames on the main thread; there is no scrolling-thread frame scrolling to test.
-css3/filters/backdrop/native-background-scrolled-iframe.html [ Skip ]
 
 # Upstream DumpRenderTree does not expose testRunner.setUseDarkAppearanceForTesting().
 svg/custom/svg-image-dark-mode-dynamic.html [ Skip ]
@@ -3033,3 +3039,12 @@ imported/w3c/web-platform-tests/css/css-backgrounds/border-image-repeat-round.ht
 # which its run loop drops, so WorkerOrWorkletThread's deferred destroy never runs (identical on WebKit main).
 # WebKit runs each test in a fresh web process.
 fast/workers/worker-terminate-forever.html [ Skip ]
+
+# WebKitLegacy leaves unprefixed backdrop-filter off; these tests and references draw no backdrop.
+css3/filters/backdrop/backdrop-blur-and-subsequent-elements.html [ Pass ]
+css3/filters/backdrop/backdrop-filter-nested.html [ Pass ]
+
+# Test-harness exception: DRT snapshots synchronously from these tests' rAF callback. Upstream
+# Page::updateRendering skips the Animations step on reentry, leaving the native pause action queued.
+compositing/reflections/animation-inside-reflection.html [ Skip ]
+compositing/reflections/nested-reflection-animated.html [ Skip ]
