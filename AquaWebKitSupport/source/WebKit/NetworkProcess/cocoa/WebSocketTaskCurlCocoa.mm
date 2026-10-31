@@ -36,6 +36,7 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/MainThread.h>
 #import <wtf/TZoneMallocInlines.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/Base64.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/StringToIntegerConversion.h>
@@ -736,7 +737,8 @@ void WebSocketTask::sendFrame(uint8_t opcode, std::span<const uint8_t> payload, 
 // (RFC 6455 5.5.1), and none goes out before the server's handshake response has been validated (RFC 6455 4.1).
 void WebSocketTask::sendString(std::span<const uint8_t> utf8, CompletionHandler<void()>&& callback)
 {
-    if (String::fromUTF8(utf8).isNull())
+    auto text = adoptNS([[NSString alloc] initWithBytes:utf8.data() length:utf8.size() encoding:NSUTF8StringEncoding]);
+    if (!text)
         return callback();
     if (m_state == State::Closed || m_sentClose)
         return callback();
@@ -966,8 +968,6 @@ bool WebSocketTask::completeHandshake(std::span<const uint8_t> header)
             [protectedThis = Ref { *this }, original = WTF::move(response), extensionsFields, acceptFields, protocolFields](ResourceResponse&& response, Vector<String>&& cookies) mutable {
                 if (protectedThis->m_state == State::Closed)
                     return;
-                protectedThis->m_responsePending = false;
-                bool eof = std::exchange(protectedThis->m_responseEOF, false);
                 if (response.isNull()) {
                     protectedThis->fail("WebSocket connection was blocked by an extension"_s);
                     return;
@@ -977,19 +977,31 @@ bool WebSocketTask::completeHandshake(std::span<const uint8_t> header)
                     acceptFields = response.httpHeaderField(HTTPHeaderName::SecWebSocketAccept).isEmpty() ? 0 : 1;
                     protocolFields = response.httpHeaderField(HTTPHeaderName::SecWebSocketProtocol).isEmpty() ? 0 : 1;
                 }
-                protectedThis->m_response = WTF::move(response);
-                protectedThis->storeCookies(cookies);
-                if (protectedThis->validateHandshakeResponse(extensionsFields, acceptFields, protocolFields)) {
-                    protectedThis->parseFrames();
-                    if (eof)
-                        protectedThis->handleEndOfConnection();
-                }
+                protectedThis->completeHandshakeResponse(WTF::move(response), cookies, extensionsFields, acceptFields, protocolFields);
             });
         return false;
     }
+    completeHandshakeResponse(WTF::move(response), setCookieFields, extensionsFields, acceptFields, protocolFields);
+    return false;
+}
+
+void WebSocketTask::completeHandshakeResponse(ResourceResponse&& response, const Vector<String>& cookies, unsigned extensionsFields, unsigned acceptFields, unsigned protocolFields)
+{
     m_response = WTF::move(response);
-    storeCookies(setCookieFields);
-    return validateHandshakeResponse(extensionsFields, acceptFields, protocolFields);
+    m_responsePending = true;
+    storeCookies(cookies);
+    // NSURLSession delivers its delegate event after cookie storage publishes changes on this queue.
+    dispatch_async(mainDispatchQueueSingleton(), makeBlockPtr([protectedThis = Ref { *this }, extensionsFields, acceptFields, protocolFields] {
+        if (protectedThis->m_state == State::Closed)
+            return;
+        protectedThis->m_responsePending = false;
+        bool eof = std::exchange(protectedThis->m_responseEOF, false);
+        if (protectedThis->validateHandshakeResponse(extensionsFields, acceptFields, protocolFields)) {
+            protectedThis->parseFrames();
+            if (eof)
+                protectedThis->handleEndOfConnection();
+        }
+    }).get());
 }
 
 bool WebSocketTask::validateHandshakeResponse(unsigned extensionsFields, unsigned acceptFields, unsigned protocolFields)

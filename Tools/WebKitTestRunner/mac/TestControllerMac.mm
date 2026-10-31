@@ -44,6 +44,9 @@
 #import <WebKit/WKWebViewConfiguration.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/_WKDataTask.h>
+#import <WebKit/_WKDataTaskDelegate.h>
+#import <wtf/BlockPtr.h>
 #import <mach-o/dyld.h>
 #import <pal/spi/cocoa/PassKitSPI.h>
 #import <pal/spi/mac/NSApplicationSPI.h>
@@ -65,6 +68,35 @@
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler
 {
     completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+}
+@end
+
+// AQUAWEBKIT: content-rule HTTP fetches use the port's HTTP/2-capable transport.
+@interface WKTRDataTaskDelegate : NSObject <_WKDataTaskDelegate> {
+@public
+    RetainPtr<NSMutableData> data;
+    RetainPtr<NSURLResponse> response;
+    BlockPtr<void(NSData *, NSURLResponse *, NSError *)> completion;
+}
+@end
+
+@implementation WKTRDataTaskDelegate
+- (void)dataTask:(_WKDataTask *)task didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))handler
+{
+    handler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+}
+- (void)dataTask:(_WKDataTask *)task didReceiveResponse:(NSURLResponse *)newResponse decisionHandler:(void (^)(_WKDataTaskResponsePolicy))handler
+{
+    response = newResponse;
+    handler(_WKDataTaskResponsePolicyAllow);
+}
+- (void)dataTask:(_WKDataTask *)task didReceiveData:(NSData *)bytes
+{
+    [data.get() appendData:bytes];
+}
+- (void)dataTask:(_WKDataTask *)task didCompleteWithError:(NSError *)error
+{
+    completion(data.get(), response.get(), error);
 }
 @end
 
@@ -272,6 +304,8 @@ void TestController::configureContentExtensionForTest(const TestInvocation& test
 
     __block RetainPtr<NSString> contentExtensionString;
     __block bool doneFetchingContentExtension = false;
+    // AQUAWEBKIT: 10.9 NSURLSession cannot fetch rule lists from an HTTP/2 server.
+/*
     auto delegate = adoptNS([WKTRSessionDelegate new]);
     NSURLSession *session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration] delegate:delegate.get() delegateQueue:[NSOperationQueue mainQueue]];
     NSURLSessionDataTask *task = [session dataTaskWithRequest:[NSURLRequest requestWithURL:filterURL] completionHandler:^(NSData * data, NSURLResponse *response, NSError *error) {
@@ -282,6 +316,26 @@ void TestController::configureContentExtensionForTest(const TestInvocation& test
         doneFetchingContentExtension = true;
     }];
     [task resume];
+*/
+    auto completion = makeBlockPtr(^(NSData *data, NSURLResponse *response, NSError *error) {
+        ASSERT(data);
+        ASSERT(response);
+        ASSERT(!error);
+        contentExtensionString = adoptNS([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]);
+        doneFetchingContentExtension = true;
+    });
+    if ([filterURL.scheme isEqualToString:@"http"] || [filterURL.scheme isEqualToString:@"https"]) {
+        auto delegate = adoptNS([WKTRDataTaskDelegate new]);
+        delegate->data = adoptNS([NSMutableData new]);
+        delegate->completion = completion;
+        [mainWebView()->platformView() _dataTaskWithRequest:[NSURLRequest requestWithURL:filterURL] completionHandler:^(_WKDataTask *task) {
+            task.delegate = delegate.get();
+        }];
+    } else {
+        auto delegate = adoptNS([WKTRSessionDelegate new]);
+        NSURLSession *session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration] delegate:delegate.get() delegateQueue:[NSOperationQueue mainQueue]];
+        [[session dataTaskWithRequest:[NSURLRequest requestWithURL:filterURL] completionHandler:completion.get()] resume];
+    }
     platformRunUntil(doneFetchingContentExtension, noTimeout);
 
     __block bool doneCompiling = false;

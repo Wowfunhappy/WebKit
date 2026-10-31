@@ -103,6 +103,7 @@ private:
 
     void sendHandshake();
     bool completeHandshake(std::span<const uint8_t> header);
+    void completeHandshakeResponse(WebCore::ResourceResponse&&, const Vector<String>& cookies, unsigned extensionsFields, unsigned acceptFields, unsigned protocolFields);
     bool validateHandshakeResponse(unsigned extensionsFields, unsigned acceptFields, unsigned protocolFields);
     bool parseStatusLine(std::span<const uint8_t> header, WebCore::ResourceResponse&, size_t& lineLength);
     bool followRedirect();
