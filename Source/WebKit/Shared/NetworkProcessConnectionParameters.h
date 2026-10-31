@@ -39,6 +39,8 @@ struct NetworkProcessConnectionParameters {
     SharedPreferencesForWebProcess sharedPreferencesForWebProcess;
     // AQUAWEBKIT: UI authorization for the native injected-bundle origin access API.
     bool allowsInjectedBundleOriginAccessAllowListIPC { false };
+    // AQUAWEBKIT: the pool authorizes HTTPS allowances from its web-process networking state.
+    bool usesWebProcessNetworkingState { false };
 #if ENABLE(IPC_TESTING_API)
     bool ignoreInvalidMessageForTesting { false };
 #endif

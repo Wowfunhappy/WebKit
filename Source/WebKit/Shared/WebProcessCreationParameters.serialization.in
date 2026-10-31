@@ -27,6 +27,8 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
 
 [RValue, DebugDecodingFailure] struct WebKit::WebProcessCreationParameters {
     WebKit::AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
+    # AQUAWEBKIT: the UI process supplies the client's networking state ownership.
+    bool usesWebProcessNetworkingState;
     String injectedBundlePath;
     WebKit::SandboxExtensionHandle injectedBundlePathExtensionHandle;
     Vector<WebKit::SandboxExtensionHandle> additionalSandboxExtensionHandles;

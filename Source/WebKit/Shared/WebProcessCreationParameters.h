@@ -85,6 +85,8 @@ namespace WebKit {
 
 struct WebProcessCreationParameters {
     AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
+    // AQUAWEBKIT: native HTTPS allowances belong to this process for web-process networking clients.
+    bool usesWebProcessNetworkingState { false };
     String injectedBundlePath;
     SandboxExtension::Handle injectedBundlePathExtensionHandle;
     Vector<SandboxExtension::Handle> additionalSandboxExtensionHandles;

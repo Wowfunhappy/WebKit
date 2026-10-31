@@ -514,6 +514,8 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     MemoryPressureHandler::ReliefLogger::setLoggingEnabled(parameters.shouldEnableMemoryPressureReliefLogging);
 #endif
 
+    // AQUAWEBKIT: the creation parameters select the native request state used by HTTPS loads.
+    m_usesWebProcessNetworkingState = parameters.usesWebProcessNetworkingState;
     platformInitializeWebProcess(parameters);
 
     // Match the QoS of the UIProcess and the scrolling thread but use a slightly lower priority.

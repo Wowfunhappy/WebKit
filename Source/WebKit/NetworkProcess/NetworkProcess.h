@@ -527,6 +527,9 @@ public:
 
     void NODELETE setDefaultRequestTimeoutInterval(double);
 
+    // AQUAWEBKIT: authorized web-process networking state shares the UI process's certificate-exception store.
+    void allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo&, const String& host);
+
 #if PLATFORM(COCOA)
     // AQUAWEBKIT: the certificate a user accepted for a host (see
     // allowSpecificHTTPSCertificateForHost), kept on the process rather than on one session. One
@@ -615,8 +618,8 @@ private:
     void setCacheModel(CacheModel);
     void setCacheModelSynchronouslyForTesting(CacheModel, CompletionHandler<void()>&&);
 // #if !PLATFORM(COCOA)
-    // AQUAWEBKIT: unconditional; NetworkProcessCocoa.mm implements the Cocoa half.
-    void allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo&, const String& host);
+    // AQUAWEBKIT: the certificate-exception setter is public.
+    // void allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo&, const String& host);
 // #endif
     void allowTLSCertificateChainForLocalPCMTesting(PAL::SessionID, const WebCore::CertificateInfo&);
     void flushCookies(PAL::SessionID, CompletionHandler<void()>&&);

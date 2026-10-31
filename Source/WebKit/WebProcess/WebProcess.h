@@ -293,6 +293,11 @@ public:
 
     NetworkProcessConnection& ensureNetworkProcessConnection();
 
+    // AQUAWEBKIT: a scheduled HTTPS load transfers its native certificate allowance on this connection.
+#if PLATFORM(COCOA)
+    void applyHTTPSCertificateAllowance(const URL&, IPC::Connection&);
+#endif
+
     void networkProcessConnectionClosed(NetworkProcessConnection*);
     NetworkProcessConnection* existingNetworkProcessConnection() { return m_networkProcessConnection.get(); }
     WebLoaderStrategy& NODELETE webLoaderStrategy() LIFETIME_BOUND;
@@ -835,6 +840,7 @@ private:
     HashMap<WebCore::PageIdentifier, Ref<WebPage>> m_pageMap;
     HashMap<PageGroupIdentifier, Ref<WebPageGroupProxy>> m_pageGroupMap;
     const RefPtr<InjectedBundle> m_injectedBundle;
+    bool m_usesWebProcessNetworkingState { false }; // AQUAWEBKIT: the pool selects native request state ownership.
 
     EventDispatcher m_eventDispatcher;
 #if PLATFORM(IOS_FAMILY)

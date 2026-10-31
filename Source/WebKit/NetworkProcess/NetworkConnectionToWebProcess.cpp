@@ -158,6 +158,7 @@ NetworkConnectionToWebProcess::NetworkConnectionToWebProcess(NetworkProcess& net
     , m_originAccessPatterns(makeUniqueRef<NetworkOriginAccessPatterns>())
     , m_sharedPreferencesForWebProcess(parameters.sharedPreferencesForWebProcess)
     , m_allowsInjectedBundleOriginAccessAllowListIPC(parameters.allowsInjectedBundleOriginAccessAllowListIPC) // AQUAWEBKIT: UI-derived native-bundle capability.
+    , m_usesWebProcessNetworkingState(parameters.usesWebProcessNetworkingState) // AQUAWEBKIT: the pool selects web-process networking state.
 #if ENABLE(IPC_TESTING_API)
     , m_ipcTester(IPCTester::create())
 #endif
@@ -1862,6 +1863,15 @@ bool NetworkConnectionToWebProcess::allowsOriginAccessAllowListIPC(IPC::Decoder&
 {
     return m_allowsInjectedBundleOriginAccessAllowListIPC || m_sharedPreferencesForWebProcess.allowTestOnlyOriginAccessAllowListIPC;
 }
+
+// AQUAWEBKIT: only pools selecting web-process networking state can supply native allowances.
+#if PLATFORM(COCOA)
+void NetworkConnectionToWebProcess::applyWebProcessHTTPSCertificateAllowance(const WebCore::CertificateInfo& certificate, const String& host)
+{
+    MESSAGE_CHECK(m_usesWebProcessNetworkingState);
+    m_networkProcess->allowSpecificHTTPSCertificateForHost(m_sessionID, certificate, host);
+}
+#endif
 
 void NetworkConnectionToWebProcess::addOriginAccessAllowListEntry(const String& sourceOrigin, const String& destinationProtocol, const String& destinationHost, bool allowDestinationSubdomains)
 {

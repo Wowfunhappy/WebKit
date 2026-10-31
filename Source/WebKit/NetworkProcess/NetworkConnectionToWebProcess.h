@@ -85,6 +85,7 @@ namespace WebCore {
 class BlobDataFileReference;
 class BlobPart;
 class BlobRegistryImpl;
+class CertificateInfo; // AQUAWEBKIT: web-process networking state includes native HTTPS allowances.
 class LoginStatus;
 class MockContentFilterSettings;
 class ResourceError;
@@ -308,6 +309,11 @@ private:
 
     // AQUAWEBKIT: test preferences and native-bundle authorization independently permit these APIs.
     bool allowsOriginAccessAllowListIPC(IPC::Decoder&) const;
+
+    // AQUAWEBKIT: the UI-authorized networking model permits native HTTPS allowances.
+#if PLATFORM(COCOA)
+    void applyWebProcessHTTPSCertificateAllowance(const WebCore::CertificateInfo&, const String&);
+#endif
 
     // Message handlers.
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
@@ -586,6 +592,7 @@ private:
     SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
     // AQUAWEBKIT: connection authority is independent of mutable web preferences.
     const bool m_allowsInjectedBundleOriginAccessAllowListIPC;
+    const bool m_usesWebProcessNetworkingState; // AQUAWEBKIT: the UI process authorizes this connection's networking state.
     HashSet<String> m_allowedFilePaths;
 #if ENABLE(IPC_TESTING_API)
     const Ref<IPCTester> m_ipcTester;

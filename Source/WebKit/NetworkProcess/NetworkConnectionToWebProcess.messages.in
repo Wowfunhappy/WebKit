@@ -27,6 +27,11 @@
 ]
 messages -> NetworkConnectionToWebProcess WantsDispatchMessage {
 
+    // AQUAWEBKIT: authorized web-process networking state supplies the allowance before its load.
+#if PLATFORM(COCOA)
+    [ExceptionForEnabledBy] ApplyWebProcessHTTPSCertificateAllowance(WebCore::CertificateInfo certificate, String host)
+#endif
+
     ScheduleResourceLoad(struct WebKit::NetworkResourceLoadParameters resourceLoadParameters, std::optional<WebKit::NetworkResourceLoadIdentifier> existingLoaderToResume)
     PerformSynchronousLoad(struct WebKit::NetworkResourceLoadParameters resourceLoadParameters) -> (WebCore::ResourceError error, WebCore::ResourceResponse response, Vector<uint8_t> data) Synchronous
     TestProcessIncomingSyncMessagesWhenWaitingForSyncReply(WebKit::WebPageProxyIdentifier pageID) -> (bool handled) Synchronous

@@ -36,12 +36,18 @@
 #include "WKPageGroup.h"
 #include "WKPreferencesRefPrivate.h"
 #include "WebPageGroup.h"
+#include "WebProcessPool.h" // AQUAWEBKIT: WKContext records the client networking model.
 #include "WebUserContentControllerProxy.h"
 
 // Deprecated functions that should be removed from the framework once nobody uses them.
 
-void WKContextSetUsesNetworkProcess(WKContextRef, bool)
+// AQUAWEBKIT: the pool retains the client's web-process networking state requirement.
+// void WKContextSetUsesNetworkProcess(WKContextRef, bool)
+// {
+// }
+void WKContextSetUsesNetworkProcess(WKContextRef context, bool usesNetworkProcess)
 {
+    WebKit::toImpl(context)->setUsesNetworkProcess(usesNetworkProcess); // AQUAWEBKIT: the pool owns the networking-model selection.
 }
 
 // AQUAWEBKIT: Safari 7 picks its process model through this. The shared secondary process, which a

@@ -341,6 +341,8 @@ void NetworkProcessProxy::getNetworkProcessConnection(WebProcessProxy& webProces
     parameters.sharedPreferencesForWebProcess = *webProcessProxy.sharedPreferencesForWebProcess();
     // AQUAWEBKIT: the embedder authorizes native bundle APIs through its process-pool configuration.
     parameters.allowsInjectedBundleOriginAccessAllowListIPC = !webProcessProxy.processPool().injectedBundlePath().isEmpty();
+    // AQUAWEBKIT: the pool's explicit networking model authorizes native HTTPS allowances.
+    parameters.usesWebProcessNetworkingState = webProcessProxy.processPool().usesWebProcessNetworkingState();
     for (Ref page : webProcessProxy.mainPages()) {
         parameters.allowedWebPageProxyIdentifiers.append(page->identifier());
         if (page->configuration().shouldRelaxThirdPartyCookieBlocking() == ShouldRelaxThirdPartyCookieBlocking::Yes)

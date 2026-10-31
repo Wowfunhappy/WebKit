@@ -27,6 +27,7 @@
 #import "WebProcess.h"
 
 #import "AccessibilitySupportSPI.h"
+#import "APICertificateInfo.h" // AQUAWEBKIT: scheduled HTTPS loads carry native certificate allowances.
 #import "AdditionalFonts.h"
 #import "ArgumentCodersCocoa.h"
 #import "CoreIPCAuditToken.h"
@@ -218,6 +219,11 @@ SOFT_LINK_FRAMEWORK_IN_UMBRELLA(ApplicationServices, HIServices)
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_SOURCE(WebKit, HIServices, _AXSetAuditTokenIsAuthenticatedCallback, void, (AXAuditTokenIsAuthenticatedCallback callback), (callback))
 #endif
 
+// AQUAWEBKIT: Foundation exposes the certificate chain allowed for a host in this process.
+@interface NSURLRequest (AquaWebKitHTTPSCertificateAllowance)
++ (NSArray *)allowsSpecificHTTPSCertificateForHost:(NSString *)host;
+@end
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -389,6 +395,18 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
 #endif
 
     PAL::softLinkVideoToolboxVTRestrictVideoDecoders(flags, allowedCodecTypeList.span().data(), allowedCodecTypeList.size());
+}
+
+// AQUAWEBKIT: HTTPS loads consult native allowances for clients selecting web-process networking.
+void WebProcess::applyHTTPSCertificateAllowance(const URL& url, IPC::Connection& connection)
+{
+    if (!m_usesWebProcessNetworkingState || !url.protocolIs("https"_s))
+        return;
+
+    auto host = url.host().toString();
+    RetainPtr chain = [NSURLRequest allowsSpecificHTTPSCertificateForHost:host.createNSString().get()];
+    if (chain)
+        connection.send(Messages::NetworkConnectionToWebProcess::ApplyWebProcessHTTPSCertificateAllowance(API::CertificateInfo::create((__bridge CFArrayRef)chain.get())->certificateInfo(), host), 0);
 }
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)

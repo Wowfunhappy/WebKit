@@ -24,6 +24,8 @@ struct WebKit::NetworkProcessConnectionParameters {
     WebKit::SharedPreferencesForWebProcess sharedPreferencesForWebProcess;
     # AQUAWEBKIT: preserve UI authorization on each network connection.
     bool allowsInjectedBundleOriginAccessAllowListIPC;
+    # AQUAWEBKIT: the UI process authorizes the pool's web-process networking state.
+    bool usesWebProcessNetworkingState;
 #if ENABLE(IPC_TESTING_API)
     bool ignoreInvalidMessageForTesting;
 #endif

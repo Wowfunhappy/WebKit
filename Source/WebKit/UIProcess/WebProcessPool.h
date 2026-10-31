@@ -245,6 +245,10 @@ public:
 
     const String& injectedBundlePath() const { return m_configuration->injectedBundlePath(); }
 
+    // AQUAWEBKIT: clients selecting web-process networking use its native request state.
+    void setUsesNetworkProcess(bool usesNetworkProcess) { m_usesWebProcessNetworkingState = !usesNetworkProcess; }
+    bool usesWebProcessNetworkingState() const { return m_usesWebProcessNetworkingState; }
+
     Ref<DownloadProxy> download(WebsiteDataStore&, WebPageProxy* initiatingPage, const WebCore::ResourceRequest&, const std::optional<FrameInfoData>&, const String& suggestedFilename = { });
     Ref<DownloadProxy> resumeDownload(WebsiteDataStore&, WebPageProxy* initiatingPage, const API::Data& resumeData, const String& path, CallDownloadDidStart);
 
@@ -910,6 +914,7 @@ private:
 #endif
 
     bool m_processTerminationEnabled { true };
+    bool m_usesWebProcessNetworkingState { false }; // AQUAWEBKIT: WKContextSetUsesNetworkProcess selects the state owner.
 
     bool m_memoryCacheDisabled { false };
     bool m_javaScriptConfigurationFileEnabled { false };
