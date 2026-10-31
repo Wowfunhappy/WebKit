@@ -516,12 +516,7 @@ void LegacyExtensionDeclarativeNetRequest::loadDeclarativeNetRequestRules(Comple
         applyDeclarativeNetRequestRules();
     };
 
-    // The dynamic rules store opens only once the extension has a storage directory.
     auto addDynamicAndStaticRules = [this, protectedThis = Ref { *this }, addStaticRulesets = WTF::move(addStaticRulesets), allJSONData]() mutable {
-        if (!m_dynamicRulesStore && !FileSystem::fileExists(storageDirectory())) {
-            m_dynamicRulesIDs.clear();
-            return addStaticRulesets();
-        }
         declarativeNetRequestDynamicRulesStore()->getRulesWithRuleIDs({ }, [this, protectedThis = Ref { *this }, addStaticRulesets = WTF::move(addStaticRulesets), allJSONData](RefPtr<JSON::Array> rules, const String&) mutable {
             if (!rules || !rules->length()) {
                 m_dynamicRulesIDs.clear();
