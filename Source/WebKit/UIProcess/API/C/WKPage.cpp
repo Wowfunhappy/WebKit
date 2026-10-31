@@ -1353,7 +1353,6 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             // RELEASE_ASSERT(!m_client.didFailToInitializePlugin_deprecatedForUseWithV0);
             // RELEASE_ASSERT(!m_client.didDetectXSSForFrame);
             // RELEASE_ASSERT(!m_client.didNewFirstVisuallyNonEmptyLayout_unavailable);
-            // RELEASE_ASSERT(!m_client.willGoToBackForwardListItem);
             // RELEASE_ASSERT(!m_client.interactionOccurredWhileProcessUnresponsive);
             // RELEASE_ASSERT(!m_client.pluginDidFail_deprecatedForUseWithV1);
             // RELEASE_ASSERT(!m_client.didReceiveIntentForFrame_unavailable);
@@ -1485,6 +1484,14 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             m_client.didChangeBackForwardList(toAPI(&page), toAPI(addedItem), toAPI(removedItemsArray.get()), m_client.base.clientInfo);
         }
         
+        // AQUAWEBKIT: the version 1 loader slot receives the bundle's history-navigation data.
+        // RELEASE_ASSERT(!m_client.willGoToBackForwardListItem);
+        void willGoToBackForwardListItem(WebPageProxy& page, WebBackForwardListItem& item, API::Object* userData) override
+        {
+            if (m_client.willGoToBackForwardListItem)
+                m_client.willGoToBackForwardListItem(toAPI(&page), toAPI(&item), toAPI(userData), m_client.base.clientInfo);
+        }
+
         bool shouldKeepCurrentBackForwardListItemInList(WebKit::WebPageProxy& page, WebKit::WebBackForwardListItem& item) override
         {
             if (!m_client.shouldKeepCurrentBackForwardListItemInList)
@@ -4143,7 +4150,6 @@ WK_EXPORT WKWebsiteDataStoreRef WKContextGetOriginDataManager(WKContextRef);
 WK_EXPORT void WKOriginDataManagerGetOrigins(WKWebsiteDataStoreRef, WK601OriginDataTypes, void*, WK109StorageManagerGetOriginsFunction);
 WK_EXPORT void WKOriginDataManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef, WK601OriginDataTypes, WKSecurityOriginRef, void*, WK109StorageManagerDidClearFunction);
 WK_EXPORT void WKOriginDataManagerDeleteAllEntries(WKWebsiteDataStoreRef, WK601OriginDataTypes, void*, WK109StorageManagerDidClearFunction);
-WK_EXPORT bool WKBundleBackForwardListItemIsInPageCache(void*);
 WK_EXPORT void WKBundlePageSetDiagnosticLoggingClient(void*, void*);
 }
 extern "C" {
@@ -4275,7 +4281,6 @@ void WKOriginDataManagerDeleteAllEntries(WKWebsiteDataStoreRef store, WK601Origi
         callback(nullptr, context);
     });
 }
-bool WKBundleBackForwardListItemIsInPageCache(void*) { return false; }
 void WKBundlePageSetDiagnosticLoggingClient(void*, void*) {}
 }
 

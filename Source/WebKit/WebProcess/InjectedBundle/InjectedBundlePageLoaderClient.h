@@ -81,6 +81,9 @@ public:
 
     void willInjectUserScriptForFrame(WebKit::WebPage&, WebKit::WebFrame&, WebCore::DOMWrapperWorld&) final;
 
+    // AQUAWEBKIT: the bundle decides history navigation and supplies UI client data.
+    bool shouldGoToBackForwardListItem(WebPage&, InjectedBundleBackForwardListItem&, RefPtr<API::Object>&) override;
+
     bool shouldForceUniversalAccessFromLocalURL(WebPage&, const WTF::String&) override;
 
     void featuresUsedInPage(WebPage&, const Vector<WTF::String>&) override;

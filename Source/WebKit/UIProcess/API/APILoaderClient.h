@@ -64,6 +64,8 @@ public:
     // DidFirstLayoutForFrame; iBooks' loader client sequences its chapter transitions on it.
     virtual void didFirstLayoutForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }
     virtual void didReachLayoutMilestone(WebKit::WebPageProxy&, OptionSet<WebCore::LayoutMilestone>) { }
+    // AQUAWEBKIT: the legacy loader receives history navigation with bundle userData.
+    virtual void willGoToBackForwardListItem(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem&, API::Object*) { }
     virtual bool shouldKeepCurrentBackForwardListItemInList(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem&) { return true; }
     // AQUAWEBKIT: Safari 7 receives process responsiveness through its loader client.
     virtual void processDidBecomeUnresponsive(WebKit::WebPageProxy&) { }

@@ -36,6 +36,8 @@
 #include "FrameInfoData.h"
 #include "IPCTestingAPI.h"
 #include "InjectedBundle.h"
+// AQUAWEBKIT: the bundle receives the actual navigation HistoryItem.
+#include "InjectedBundleBackForwardListItem.h"
 #include "InjectedBundleDOMWindowExtension.h"
 #include "LegacyExtensionContent.h" // AQUAWEBKIT: dispatchDidClearWindowObjectInWorld below.
 #include "Logging.h"
@@ -1508,7 +1510,14 @@ WebCore::ShouldGoToHistoryItem WebLocalFrameLoaderClient::shouldGoToHistoryItem(
     if (!webPage)
         return ShouldGoToHistoryItem::No;
 
-    auto sendSyncResult = webPage->sendSync(Messages::WebPageProxy::ShouldGoToBackForwardListItemSync(item.itemID()));
+    // AQUAWEBKIT: same-document traversal carries the bundle's decision and userData.
+    Ref bundleItem = InjectedBundleBackForwardListItem::create(Ref { item });
+    RefPtr<API::Object> userData;
+    if (!webPage->injectedBundleLoaderClient().shouldGoToBackForwardListItem(*webPage, bundleItem, userData))
+        return ShouldGoToHistoryItem::No;
+
+    // auto sendSyncResult = webPage->sendSync(Messages::WebPageProxy::ShouldGoToBackForwardListItemSync(item.itemID()));
+    auto sendSyncResult = webPage->sendSync(Messages::WebPageProxy::ShouldGoToBackForwardListItemSync(item.itemID(), UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()))));
     auto [shouldGo] = sendSyncResult.takeReplyOr(ShouldGoToHistoryItem::No);
     return shouldGo;
 }
@@ -1526,7 +1535,16 @@ void WebLocalFrameLoaderClient::shouldGoToHistoryItemAsync(HistoryItem& item, Co
         return;
     }
 
-    webPage->sendWithAsyncReply(Messages::WebPageProxy::ShouldGoToBackForwardListItem(item.itemID(), item.isInBackForwardCache()), WTF::move(completionHandler));
+    // AQUAWEBKIT: the bundle decides first and its userData accompanies an allowed traversal.
+    Ref bundleItem = InjectedBundleBackForwardListItem::create(Ref { item });
+    RefPtr<API::Object> userData;
+    if (!webPage->injectedBundleLoaderClient().shouldGoToBackForwardListItem(*webPage, bundleItem, userData)) {
+        completionHandler(ShouldGoToHistoryItem::No);
+        return;
+    }
+
+    // webPage->sendWithAsyncReply(Messages::WebPageProxy::ShouldGoToBackForwardListItem(item.itemID(), item.isInBackForwardCache()), WTF::move(completionHandler));
+    webPage->sendWithAsyncReply(Messages::WebPageProxy::ShouldGoToBackForwardListItem(item.itemID(), item.isInBackForwardCache(), UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()))), WTF::move(completionHandler));
 }
 
 void WebLocalFrameLoaderClient::dispatchGoToBackForwardItemAtIndex(int steps, FrameLoadType frameLoadType)

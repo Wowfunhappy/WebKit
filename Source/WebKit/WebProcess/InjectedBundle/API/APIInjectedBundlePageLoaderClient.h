@@ -91,6 +91,9 @@ public:
 
     virtual void willInjectUserScriptForFrame(WebKit::WebPage&, WebKit::WebFrame&, WebCore::DOMWrapperWorld&) { }
 
+    // AQUAWEBKIT: the bundle decides history navigation and supplies UI client data.
+    virtual bool shouldGoToBackForwardListItem(WebKit::WebPage&, WebKit::InjectedBundleBackForwardListItem&, RefPtr<API::Object>&) { return true; }
+
     virtual bool shouldForceUniversalAccessFromLocalURL(WebKit::WebPage&, const WTF::String&) { return false; }
 
     virtual void featuresUsedInPage(WebKit::WebPage&, const Vector<WTF::String>&) { }

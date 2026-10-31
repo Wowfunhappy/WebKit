@@ -44,6 +44,8 @@ WK_EXPORT WKStringRef WKBundleBackForwardListItemCopyTitle(WKBundleBackForwardLi
 WK_EXPORT WKStringRef WKBundleBackForwardListItemCopyTarget(WKBundleBackForwardListItemRef item) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKBundleBackForwardListItemIsTargetItem(WKBundleBackForwardListItemRef item) WK_C_API_DEPRECATED;
 
+// AQUAWEBKIT: Safari 7 uses the page-cache name for the HistoryItem cache query.
+WK_EXPORT bool WKBundleBackForwardListItemIsInPageCache(WKBundleBackForwardListItemRef item);
 WK_EXPORT bool WKBundleBackForwardListItemIsInBackForwardCache(WKBundleBackForwardListItemRef item) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKBundleBackForwardListItemHasCachedPageExpired(WKBundleBackForwardListItemRef item) WK_C_API_DEPRECATED;
 

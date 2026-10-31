@@ -27,55 +27,86 @@
 #include "WKBundleBackForwardListItem.h"
 
 #include "APIArray.h"
+// AQUAWEBKIT: the bundle item API exposes retained HistoryItems.
+#include "InjectedBundleBackForwardListItem.h"
 #include "WKBundleAPICast.h"
+
+// AQUAWEBKIT: bundle item casts use the WebKit API wrapper.
+using namespace WebKit;
 
 WKTypeID WKBundleBackForwardListItemGetTypeID()
 {
-    return WebKit::toAPI(API::Object::Type::Null);
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return WebKit::toAPI(API::Object::Type::Null);
+    return toAPI(InjectedBundleBackForwardListItem::APIType);
 }
 
 bool WKBundleBackForwardListItemIsSame(WKBundleBackForwardListItemRef itemRef1, WKBundleBackForwardListItemRef itemRef2)
 {
-    return false;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return false;
+    return toImpl(itemRef1)->item() == toImpl(itemRef2)->item();
 }
 
 WKURLRef WKBundleBackForwardListItemCopyOriginalURL(WKBundleBackForwardListItemRef itemRef)
 {
-    return nullptr;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return nullptr;
+    return toCopiedURLAPI(toImpl(itemRef)->originalURL());
 }
 
 WKURLRef WKBundleBackForwardListItemCopyURL(WKBundleBackForwardListItemRef itemRef)
 {
-    return nullptr;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return nullptr;
+    return toCopiedURLAPI(toImpl(itemRef)->url());
 }
 
 WKStringRef WKBundleBackForwardListItemCopyTitle(WKBundleBackForwardListItemRef itemRef)
 {
-    return nullptr;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return nullptr;
+    return toCopiedAPI(toImpl(itemRef)->title());
 }
 
 WKStringRef WKBundleBackForwardListItemCopyTarget(WKBundleBackForwardListItemRef itemRef)
 {
-    return nullptr;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return nullptr;
+    return toCopiedAPI(toImpl(itemRef)->target().string());
 }
 
 bool WKBundleBackForwardListItemIsTargetItem(WKBundleBackForwardListItemRef itemRef)
 {
-    return false;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return false;
+    return toImpl(itemRef)->isTargetItem();
 }
 
 bool WKBundleBackForwardListItemIsInBackForwardCache(WKBundleBackForwardListItemRef itemRef)
 {
-    return false;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return false;
+    return toImpl(itemRef)->isInBackForwardCache();
+}
+
+// AQUAWEBKIT: Safari 7 queries the HistoryItem cache state through this entry point.
+bool WKBundleBackForwardListItemIsInPageCache(WKBundleBackForwardListItemRef itemRef)
+{
+    return toImpl(itemRef)->isInBackForwardCache();
 }
 
 bool WKBundleBackForwardListItemHasCachedPageExpired(WKBundleBackForwardListItemRef itemRef)
 {
-    return false;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return false;
+    return toImpl(itemRef)->hasCachedPageExpired();
 }
 
 WKArrayRef WKBundleBackForwardListItemCopyChildren(WKBundleBackForwardListItemRef itemRef)
 {
-    return nullptr;
+    // AQUAWEBKIT: the result comes from the wrapped HistoryItem.
+    // return nullptr;
+    return toAPI(toImpl(itemRef)->children().leakRef());
 }
 

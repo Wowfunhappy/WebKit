@@ -31,6 +31,8 @@
 #include "APIError.h"
 #include "APIURL.h"
 #include "APIURLRequest.h"
+// AQUAWEBKIT: history navigation supplies the bundle with a retained item.
+#include "InjectedBundleBackForwardListItem.h"
 #include "InjectedBundleDOMWindowExtension.h"
 #include "InjectedBundleScriptWorld.h"
 #include "Safari7StandardWorldBindings.h" // AQUAWEBKIT: globalObjectIsAvailableForFrame below.
@@ -53,7 +55,20 @@ InjectedBundlePageLoaderClient::InjectedBundlePageLoaderClient(const WKBundlePag
 {
     initialize(client);
     // Deprecated callbacks.
-    ASSERT(!m_client.shouldGoToBackForwardListItem);
+    // AQUAWEBKIT: shouldGoToBackForwardListItem participates in history navigation.
+    // ASSERT(!m_client.shouldGoToBackForwardListItem);
+}
+
+// AQUAWEBKIT: the bundle owns its returned userData until this client adopts it.
+bool InjectedBundlePageLoaderClient::shouldGoToBackForwardListItem(WebPage& page, InjectedBundleBackForwardListItem& item, RefPtr<API::Object>& userData)
+{
+    if (!m_client.shouldGoToBackForwardListItem)
+        return true;
+
+    WKTypeRef userDataToPass = nullptr;
+    bool result = m_client.shouldGoToBackForwardListItem(toAPI(&page), toAPI(&item), &userDataToPass, m_client.base.clientInfo);
+    userData = adoptRef(toImpl(userDataToPass));
+    return result;
 }
 
 void InjectedBundlePageLoaderClient::willLoadURLRequest(WebPage& page, const ResourceRequest& request, API::Object* userData)

@@ -1036,8 +1036,12 @@ public:
     RefPtr<API::Navigation> goToBackForwardItem(WebBackForwardListItem&, IsSessionRestoreNavigation = IsSessionRestoreNavigation::No);
     void tryRestoreScrollPosition();
     void didChangeBackForwardList(WebBackForwardListItem* addedItem, Vector<Ref<WebBackForwardListItem>>&& removed);
-    void shouldGoToBackForwardListItem(WebCore::BackForwardItemIdentifier, bool inBackForwardCache, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
-    void shouldGoToBackForwardListItemSync(WebCore::BackForwardItemIdentifier, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
+    // AQUAWEBKIT: the sending process resolves bundle userData for the loader client.
+    //    void shouldGoToBackForwardListItem(WebCore::BackForwardItemIdentifier, bool inBackForwardCache, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
+    void shouldGoToBackForwardListItem(IPC::Connection&, WebCore::BackForwardItemIdentifier, bool inBackForwardCache, const UserData&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
+    // AQUAWEBKIT: the sending process resolves bundle userData for the loader client.
+    //    void shouldGoToBackForwardListItemSync(WebCore::BackForwardItemIdentifier, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
+    void shouldGoToBackForwardListItemSync(IPC::Connection&, WebCore::BackForwardItemIdentifier, const UserData&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
     void goToBackForwardItemAtIndex(int32_t steps, WebCore::FrameLoadType);
 
     bool shouldKeepCurrentBackForwardListItemInList(WebBackForwardListItem&);

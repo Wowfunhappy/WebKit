@@ -3131,11 +3131,17 @@ void WebPageProxy::updateCanGoBackAndForward()
     pageLoadState->setCanGoForward(transaction, backForwardList().forwardItem());
 }
 
-void WebPageProxy::shouldGoToBackForwardListItem(BackForwardItemIdentifier itemID, bool inBackForwardCache, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler)
+// AQUAWEBKIT: the loader client receives the bundle's userData before navigation proceeds.
+// void WebPageProxy::shouldGoToBackForwardListItem(BackForwardItemIdentifier itemID, bool inBackForwardCache, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler)
+void WebPageProxy::shouldGoToBackForwardListItem(IPC::Connection& connection, BackForwardItemIdentifier itemID, bool inBackForwardCache, const UserData& userData, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler)
 {
     RefPtr protectedPageClient { pageClient() };
 
     if (RefPtr item = backForwardList().itemForID(itemID)) {
+        // AQUAWEBKIT: bundle handles resolve in the process that sends the traversal.
+        if (m_loaderClient)
+            m_loaderClient->willGoToBackForwardListItem(*this, *item, WebProcessProxy::fromConnection(connection)->transformHandlesToObjects(protect(userData.object()).get()).get());
+
         auto innerHandler = [protectedPageClient = WTF::move(protectedPageClient), completionHandler = WTF::move(completionHandler)] (bool result) mutable {
             completionHandler(result ? WebCore::ShouldGoToHistoryItem::Yes : WebCore::ShouldGoToHistoryItem::No);
         };
@@ -3147,9 +3153,13 @@ void WebPageProxy::shouldGoToBackForwardListItem(BackForwardItemIdentifier itemI
     completionHandler(WebCore::ShouldGoToHistoryItem::ItemUnknown);
 }
 
-void WebPageProxy::shouldGoToBackForwardListItemSync(BackForwardItemIdentifier itemID, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler)
+// AQUAWEBKIT: same-document traversal carries the bundle's userData.
+// void WebPageProxy::shouldGoToBackForwardListItemSync(BackForwardItemIdentifier itemID, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler)
+void WebPageProxy::shouldGoToBackForwardListItemSync(IPC::Connection& connection, BackForwardItemIdentifier itemID, const UserData& userData, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler)
 {
-    shouldGoToBackForwardListItem(itemID, false, WTF::move(completionHandler));
+    // AQUAWEBKIT: both traversal paths deliver the bundle payload.
+    // shouldGoToBackForwardListItem(itemID, false, WTF::move(completionHandler));
+    shouldGoToBackForwardListItem(connection, itemID, false, userData, WTF::move(completionHandler));
 }
 
 void WebPageProxy::goToBackForwardItemAtIndex(int32_t steps, FrameLoadType frameLoadType)

@@ -521,12 +521,13 @@ set(AQUAWEBKIT_WITHHELD_WEBKIT_SOURCES
     "UIProcess/Automation/WebAutomationSession.cpp @no-unify-when(bundle<=8) @cost:8"
 )
 
-# Safari 7's icon database and injected-bundle policy clients, the WKConnection channel, plus
-# standalone automation.
+# Safari 7's icon database, injected-bundle back/forward items and policy clients, the
+# WKConnection channel, plus standalone automation.
 set(AQUAWEBKIT_ADDED_WEBKIT_SOURCES
     "UIProcess/Automation/WebAutomationSession.cpp @no-unify @cost:8"
     "UIProcess/WebIconDatabase.cpp"
     "UIProcess/WebProcessPoolIconDatabase.cpp"
+    "WebProcess/InjectedBundle/InjectedBundleBackForwardListItem.cpp"
     "WebProcess/InjectedBundle/InjectedBundleNavigationAction.cpp"
     "WebProcess/InjectedBundle/InjectedBundlePagePolicyClient.cpp"
     "Shared/WebConnection.cpp"

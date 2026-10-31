@@ -244,8 +244,12 @@ messages -> WebPageProxy {
 #endif
 
     # BackForward messages
-    ShouldGoToBackForwardListItem(WebCore::BackForwardItemIdentifier itemID, bool inBackForwardCache) -> (enum:uint8_t WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem)
-    ShouldGoToBackForwardListItemSync(WebCore::BackForwardItemIdentifier itemID) -> (enum:uint8_t WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem) Synchronous
+    # AQUAWEBKIT: history traversal carries the injected bundle's userData.
+    #    ShouldGoToBackForwardListItem(WebCore::BackForwardItemIdentifier itemID, bool inBackForwardCache) -> (enum:uint8_t WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem)
+    ShouldGoToBackForwardListItem(WebCore::BackForwardItemIdentifier itemID, bool inBackForwardCache, WebKit::UserData userData) -> (enum:uint8_t WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem)
+    # AQUAWEBKIT: history traversal carries the injected bundle's userData.
+    #    ShouldGoToBackForwardListItemSync(WebCore::BackForwardItemIdentifier itemID) -> (enum:uint8_t WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem) Synchronous
+    ShouldGoToBackForwardListItemSync(WebCore::BackForwardItemIdentifier itemID, WebKit::UserData userData) -> (enum:uint8_t WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem) Synchronous
     GoToBackForwardItemAtIndex(int32_t steps, enum:uint8_t WebCore::FrameLoadType frameLoadType)
 
     # Undo/Redo messages
