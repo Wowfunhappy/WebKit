@@ -1,0 +1,25 @@
+# READY has no streaming tasks. A pad requested during decodebin3's shutdown must
+# stay inactive after multiqueue reaches READY, just like its existing pads.
+--- a/plugins/elements/gstmultiqueue.c
++++ b/plugins/elements/gstmultiqueue.c
+@@ -3619,17 +3619,17 @@
+ 
+   GST_MULTI_QUEUE_MUTEX_UNLOCK (mqueue);
+ 
+-  /* only activate the pads when we are not in the NULL state
++  /* only activate the pads when we are in a streaming state
+    * and add the pad under the state_lock to prevent state changes
+    * between activating and adding */
+   g_rec_mutex_lock (GST_STATE_GET_LOCK (mqueue));
+-  if (GST_STATE_TARGET (mqueue) != GST_STATE_NULL) {
++  if (GST_STATE_TARGET (mqueue) >= GST_STATE_PAUSED) {
+     gst_pad_set_active (srcpad, TRUE);
+     gst_pad_set_active (sinkpad, TRUE);
+   }
+   gst_element_add_pad (GST_ELEMENT (mqueue), srcpad);
+   gst_element_add_pad (GST_ELEMENT (mqueue), sinkpad);
+-  if (GST_STATE_TARGET (mqueue) != GST_STATE_NULL) {
++  if (GST_STATE_TARGET (mqueue) >= GST_STATE_PAUSED) {
+     gst_single_queue_start (mqueue, sq);
+   }
+   g_rec_mutex_unlock (GST_STATE_GET_LOCK (mqueue));

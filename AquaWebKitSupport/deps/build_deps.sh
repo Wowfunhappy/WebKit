@@ -1482,6 +1482,14 @@ GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled
 # running pipelines against the shipped runtime.
 d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore) || exit 1
 if prepare "$d"; then
+    # multiqueue: requested pads obey READY's inactive-pad contract. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-multiqueue-ready-pad-activation.patch" \
+        && patch -p1 < "$HERE/patches/gstreamer-multiqueue-ready-pad-activation.patch" ) \
+      || { echo "gstreamer multiqueue READY activation patch failed to apply"; exit 1; }
+    # GstPad: upstream df4a8353 rechecks flushing between probe groups. The patch retains monorepo paths.
+    ( cd "$d" && patch -p3 --dry-run < "$HERE/patches/gstreamer-pad-push-probe-deactivation.patch" \
+        && patch -p3 < "$HERE/patches/gstreamer-pad-push-probe-deactivation.patch" ) \
+      || { echo "gstreamer pad probe-deactivation patch failed to apply"; exit 1; }
     # queue2: SEGMENT_DONE ends the data like EOS for buffering, as in multiqueue. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" \
         && patch -p1 < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" ) \
@@ -1529,6 +1537,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin3-keep-unblocked-eos-stream.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin3-keep-unblocked-eos-stream.patch" ) \
       || { echo "gst-plugins-base decodebin3 unblocked-EOS patch failed to apply"; exit 1; }
+    # decodebin3: slot allocation takes multiqueue state before selection. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin3-slot-lock-order.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin3-slot-lock-order.patch" ) \
+      || { echo "gst-plugins-base decodebin3 slot lock-order patch failed to apply"; exit 1; }
     # video-format: 2-bit alpha unpacks to the full 16-bit range. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" ) \

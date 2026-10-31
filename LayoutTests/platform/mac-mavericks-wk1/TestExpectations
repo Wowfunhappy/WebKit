@@ -6,6 +6,12 @@
 
 # --- Suites and tests this port cannot run -------------------------------------------------------
 
+# DumpRenderTree has no setOriginQuotaRatioEnabled binding; WebKitLegacy's InProcessIDBServer
+# grants space synchronously, so these WKTR quota-round-trip fixtures cannot arrange a stalled abort.
+storage/indexeddb/clear-data-with-stalled-abort-crash.html [ Skip ]
+storage/indexeddb/close-database-with-stalled-abort-crash.html [ Skip ]
+storage/indexeddb/delete-database-with-stalled-abort-crash.html [ Skip ]
+
 # These require WebKitTestRunner's dumpPolicyDelegateCallbacks and queueLoad external-URL policy;
 # upstream DumpRenderTree provides neither (api-sets-flag-basic.html names the required harness).
 loader/navigation-policy/should-open-external-urls/ [ Skip ]
@@ -31,6 +37,8 @@ webkit.org/b/161056 gamepad/gamepad-visibility-1.html [ Skip ]
 # SharedWorker never connects: WebKitLegacy installs no SharedWorkerProvider, so WebCore's
 # DummySharedWorkerProvider (SharedWorkerProvider.cpp) answers every connection.
 http/tests/workers/shared [ Skip ]
+# DumpRenderTree uses the same provider; this fixture exercises WK2's top-origin IPC validation.
+fast/workers/shared-worker-file-url-top-origin.html [ Skip ]
 # This mixed fixture waits for SharedWorker before its dedicated-worker subtest.
 imported/w3c/web-platform-tests/FileAPI/BlobURL/cross-partition-worker-creation.https.html [ Skip ]
 imported/w3c/web-platform-tests/FileAPI/blob/Blob-newobject.any.sharedworker.html [ Skip ]
@@ -1194,6 +1202,8 @@ http/wpt/webcodecs/encoder-decoder-vp9-I420.html [ Skip ]
 http/wpt/webcodecs/encoder-task-failing.html [ Skip ]
 http/wpt/webcodecs/h264-encoder-default-config.https.any.html [ Skip ]
 http/wpt/webcodecs/h264-encoder-default-config.https.any.worker.html [ Skip ]
+http/wpt/webcodecs/h264-encoder-quality-latency-profiles.https.any.html [ Skip ]
+http/wpt/webcodecs/h264-encoder-quality-latency-profiles.https.any.worker.html [ Skip ]
 http/wpt/webcodecs/h264_small-size.any.html [ Skip ]
 http/wpt/webcodecs/hevc-decoder-annexb.https.any.html [ Skip ]
 http/wpt/webcodecs/hevc-decoder-annexb.https.any.worker.html [ Skip ]

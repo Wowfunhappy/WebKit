@@ -1,0 +1,60 @@
+# Input-side slot allocation takes multiqueue state before decodebin selection.
+# Output tasks need selection while multiqueue state changes join them.
+--- a/gst/playback/gstdecodebin3.c
++++ b/gst/playback/gstdecodebin3.c
+@@ -1005,9 +1005,11 @@
+               gst_object_unref (input->active_stream);
+             input->active_stream = stream;
+             /* We have the beginning of a stream, get a multiqueue slot and link to it */
++            GST_STATE_LOCK (input->dbin->multiqueue);
+             SELECTION_LOCK (input->dbin);
+             gst_decodebin_input_link_to_slot (input);
+             SELECTION_UNLOCK (input->dbin);
++            GST_STATE_UNLOCK (input->dbin->multiqueue);
+           } else {
+             gst_object_unref (stream);
+           }
+@@ -1213,6 +1215,9 @@
+   /* Re-use existing streams if/when possible */
+   GST_FIXME_OBJECT (dbin, "Re-use existing input streams if/when possible");
+ 
++  /* Requesting a slot takes multiqueue's state lock. Take it before the
++   * selection lock: a state change joins output tasks that need selection. */
++  GST_STATE_LOCK (dbin->multiqueue);
+   /* Unblock all input streams and link to a slot if needed */
+   SELECTION_LOCK (dbin);
+   tmp = dbin->input_streams;
+@@ -1265,6 +1270,7 @@
+     }
+   }
+   SELECTION_UNLOCK (dbin);
++  GST_STATE_UNLOCK (dbin->multiqueue);
+ 
+   if (unused_slot_sinkpads) {
+     for (tmp = unused_slot_sinkpads; tmp; tmp = tmp->next) {
+@@ -1388,7 +1394,7 @@
+ {
+   GstDecodebin3 *dbin = inp->dbin;
+   DecodebinInputStream *input = NULL;
+-  MultiQueueSlot *slot;
++  MultiQueueSlot *slot = NULL;
+ 
+   if (!GST_PAD_IS_SRC (pad))
+     return;
+@@ -1410,7 +1416,15 @@
+ 
+   GST_DEBUG_OBJECT (pad, "Remove input stream %p", input);
+ 
+-  slot = gst_decodebin_get_slot_for_input_stream_locked (dbin, input);
++  /* Only inspect existing slots: reset may already have freed them all. */
++  for (GList * iter = dbin->slots; iter; iter = iter->next) {
++    MultiQueueSlot *candidate = iter->data;
++
++    if (candidate->input == input) {
++      slot = candidate;
++      break;
++    }
++  }
+   remove_input_stream (dbin, input);
+ 
+   if (slot && slot->is_drained)

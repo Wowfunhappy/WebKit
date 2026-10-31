@@ -7,6 +7,65 @@ over-strict behavior in GStreamer's **own** source — never a workaround that b
 - Is the thing you are trying to fix _really_ broken upstream for hundreds of thousands of users without anyone noticing? If not, it's probably a bug in our code, which we should fix in our code.
 - Is it possible to upgrade to a newer version of the dependency instead of patching the old one? If so, it's probably better to upgrade.
 
+## gstreamer-multiqueue-ready-pad-activation.patch
+
+**Target:** GStreamer 1.28.7, `plugins/elements/gstmultiqueue.c`
+
+A requested multiqueue pad activates and starts a streaming task only when the
+target state is PAUSED or PLAYING. This follows GStreamer's
+[state contract](https://gstreamer.freedesktop.org/documentation/additional/design/states.html):
+READY has inactive pads and stopped streaming threads, including pads requested
+after a PAUSED-to-READY transition.
+
+During decodebin3 shutdown, an incoming track can request a multiqueue pad after
+the child reaches READY and before the bin deactivates its inputs. Starting that
+pad in READY leaves a streaming task alive when `gst_decodebin3_reset()` takes
+the selection lock and frees its slots. Slot destruction joins the task, while
+the task's stream-start probe waits for that same selection lock. The WK1
+`mediasource-detach.html` timeout has this lock cycle.
+
+`AquaWebKitSupport/tests/multiqueue-pad-states.sh` checks pad and task state in
+NULL, READY, PAUSED, PLAYING and after returning to READY, then recreates the
+track-announcement window through decodebin3's normal input path 1000 times.
+
+## gst-plugins-base-decodebin3-slot-lock-order.patch
+
+**Target:** gst-plugins-base 1.28.7, `gst/playback/gstdecodebin3.c`
+
+Input-side slot allocation takes multiqueue's state lock before decodebin's
+selection lock. Multiqueue's PAUSED-to-READY transition owns its state lock while
+joining output tasks, whose stream-start probes need the selection lock. Taking
+the locks in the opposite order while a new track requests a pad forms a
+three-thread cycle. A repeated WK1 `mediasource-detach.html` run captures all three
+waiters. This order covers stream-start and input unblocking, which can allocate
+a slot. The nested state acquisition inside multiqueue is recursive. Pad removal
+examines only the existing slot whose input matches the removed stream, under
+the selection lock; reset can leave that list empty. This lookup follows
+[MR !12859](https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/12859)
+and retains the existing drained-slot removal.
+
+## gstreamer-pad-push-probe-deactivation.patch
+
+**Target:** GStreamer 1.28.7, `gst/gstpad.c` and `tests/check/gst/gstpad.c`
+
+This is upstream commit
+[df4a8353acda5b08f80a6ccfecb747ab4e8d5589](https://gitlab.freedesktop.org/gstreamer/gstreamer/-/commit/df4a8353acda5b08f80a6ccfecb747ab4e8d5589),
+from open MR !12859 for issue #4138, including its tests. The commit is retained
+verbatim after the provenance header and applies to 1.28.7 without fuzz; the
+recipe uses `-p3` for its monorepo paths.
+
+`gst_pad_push_data()` rechecks flushing after each of its three sticky-event
+checks. Sticky-event handling and probe callbacks release the pad object lock,
+allowing deactivation to clear the sticky events. Each recheck returns
+`GST_FLOW_FLUSHING` before a later probe group or the peer receives the data.
+The upstream `test_push_flushing_in_block_probe` and
+`test_push_flushing_in_buffer_probe` cover buffers and buffer lists.
+
+`AquaWebKitSupport/tests/multiqueue-pad-states.sh` treats WARNING and CRITICAL
+logs as fatal. It checks deactivation during blocking and ordinary probes,
+with successful relinking controls, then runs the pad-state and decodebin
+teardown cases.
+
 ## gst-plugins-bad-vtenc-h264-profile-caps.patch
 
 **Target:** gst-plugins-bad 1.28.7, `sys/applemedia/vtenc.c`
