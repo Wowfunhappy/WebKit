@@ -74,6 +74,8 @@ fast/history/site-isolation/go-back-then-navigate-subframe.html [ Skip ]
 fast/replaced/pdf-as-embed-with-no-mime-type-is-not-blank.html [ Skip ]
 fast/replaced/pdf-iframe-load-crash.html [ Skip ]
 fast/text-extraction/debug-text-extraction-basic.html [ Skip ]
+fast/text-extraction/debug-text-extraction-scrolling.html [ Skip ]
+fast/text-extraction/debug-text-extraction-svg-sprite-sheet.html [ Skip ]
 
 # The WebContent profile imports 10.9's system.sb, which grants com.apple.cfprefsd.agent and .daemon to every process;
 # 10.9's direct mode is set only by an environment variable read when CoreFoundation starts and has no read-only mode.

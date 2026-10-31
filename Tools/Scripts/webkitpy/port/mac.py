@@ -30,6 +30,7 @@
 import logging
 import os
 import re
+from collections import OrderedDict
 
 from webkitcorepy import Version
 
@@ -80,18 +81,28 @@ class MacPort(DarwinPort):
     # FIXME: This is a work-around for Rosetta, remove once <https://bugs.webkit.org/show_bug.cgi?id=213761> is resolved
     def expectations_dict(self, device_type=None):
         result = super(MacPort, self).expectations_dict(device_type=device_type)
-        # AQUAWEBKIT: platform/mac-wk1/TestExpectations opens with a block skipping every top-level
-        # suite, because Apple's bots do not run DumpRenderTree on Mac. This port does, so its WebKit1 port
-        # reads that file with the block's lines blanked; every later line, and its line number, is kept.
-        if self._version == 'mavericks' and self.is_webkitlegacy():
-            wk1_expectations = self._filesystem.join(self._webkit_baseline_path('mac-wk1'), 'TestExpectations')
-            if wk1_expectations in result:
-                lines = result[wk1_expectations].split('\n')
-                if '# Skip all tests on Mac wk1' in lines:
-                    start = lines.index('# Skip all tests on Mac wk1')
-                    end = lines.index('', start) if '' in lines[start:] else len(lines)
-                    lines[start:end] = [''] * (end - start)
-                    result[wk1_expectations] = '\n'.join(lines)
+        if self._version == 'mavericks':
+            # AQUAWEBKIT: SAR3 overrides upstream platform files but precedes this port's capability exclusions.
+            sar3_expectations = self._filesystem.join(self.layout_tests_dir(), 'sar3', 'TestExpectations')
+            if sar3_expectations in result:
+                paths = [path for path in result if path != sar3_expectations]
+                mavericks_prefix = self._filesystem.join(self.layout_tests_dir(), 'platform', 'mac-mavericks')
+                insertion_index = next((index for index, path in enumerate(paths) if path.startswith(mavericks_prefix)), len(paths))
+                paths.insert(insertion_index, sar3_expectations)
+                result = OrderedDict((path, result[path]) for path in paths)
+
+            # AQUAWEBKIT: platform/mac-wk1/TestExpectations opens with a block skipping every top-level
+            # suite, because Apple's bots do not run DumpRenderTree on Mac. This port does, so its WebKit1 port
+            # reads that file with the block's lines blanked; every later line, and its line number, is kept.
+            if self.is_webkitlegacy():
+                wk1_expectations = self._filesystem.join(self._webkit_baseline_path('mac-wk1'), 'TestExpectations')
+                if wk1_expectations in result:
+                    lines = result[wk1_expectations].split('\n')
+                    if '# Skip all tests on Mac wk1' in lines:
+                        start = lines.index('# Skip all tests on Mac wk1')
+                        end = lines.index('', start) if '' in lines[start:] else len(lines)
+                        lines[start:end] = [''] * (end - start)
+                        result[wk1_expectations] = '\n'.join(lines)
         if self.architecture() == 'x86_64' and self.host.platform.architecture() == 'arm64':
             rosetta_expectations = self._filesystem.join(self.layout_tests_dir(), 'platform', 'mac', 'TestExpectationsRosetta')
             if self._filesystem.exists(rosetta_expectations):

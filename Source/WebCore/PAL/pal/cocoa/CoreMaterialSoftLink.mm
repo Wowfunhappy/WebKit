@@ -32,9 +32,7 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, CoreMaterial, PAL_EXPORT)
 
-// AQUAWEBKIT: the CoreMaterial framework MTMaterialLayer is absent on macOS 10.9; it soft-links optionally and resolves to nil here.
-// SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, CoreMaterial, MTMaterialLayer, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, CoreMaterial, MTMaterialLayer, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, CoreMaterial, MTMaterialLayer, PAL_EXPORT)
 
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMaterial, MTCoreMaterialRecipeNone, NSString *, PAL_EXPORT)
 

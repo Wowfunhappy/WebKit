@@ -2736,7 +2736,10 @@ void InitializeFeatures(const FunctionsGL *functions, angle::FeaturesGL *feature
     ANGLE_FEATURE_CONDITION(features, recreateMipmapLevelsBeforeGenerate, isMesa);
 
     // http://crbug.com/498828605
-    ANGLE_FEATURE_CONDITION(features, expandFragmentOutputsToVec4, isAMD && isMesa);
+    // AQUAWEBKIT: Apple Software Renderer leaves missing fragment output components uninitialized.
+    // ANGLE_FEATURE_CONDITION(features, expandFragmentOutputsToVec4, isAMD && isMesa);
+    ANGLE_FEATURE_CONDITION(features, expandFragmentOutputsToVec4,
+                            (isAMD && isMesa) || isMavericksSoftwareRenderer);
 
     // https://github.com/flutter/flutter/issues/47164
     // https://github.com/flutter/flutter/issues/47804

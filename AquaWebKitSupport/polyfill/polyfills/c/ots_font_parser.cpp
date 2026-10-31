@@ -1099,10 +1099,8 @@ CFDataRef accommodateLayoutReaders(CFDataRef font)
 // out, and a collection with no font left is refused; WebCore finds a collection's font by its PostScript
 // name. The TTC puts every font's directory before every table, as the collections this OS ships do, so
 // OTS reads each font of it back, and writes a table the fonts share byte for byte once.
-CFDataRef sanitizeCollection(CFDataRef data, uint32_t fontCount)
+CFDataRef sanitizeCollection(const uint8_t* bytes, size_t length, uint32_t fontCount)
 {
-    const uint8_t *bytes = CFDataGetBytePtr(data);
-    size_t length = static_cast<size_t>(CFDataGetLength(data));
     if (!fontCount || 12 + 4 * static_cast<uint64_t>(fontCount) > maximumSanitizedFontSize)
         return NULL;
 
@@ -1229,9 +1227,19 @@ extern "C" CFDataRef wk_ots_sanitize_font(CFDataRef data)
     if (length <= 0)
         return NULL;
 
+    // CoreText accepts data after a WOFF container. OTS validates the complete declared container,
+    // including every table and metadata range, without interpreting those trailing bytes.
+    const uint8_t* bytes = CFDataGetBytePtr(data);
+    if (length >= 44 && readBE32(bytes) == OTS_TAG('w', 'O', 'F', 'F')) {
+        uint32_t containerLength = readBE32(bytes + 8);
+        if (containerLength > static_cast<uint64_t>(length))
+            return NULL;
+        length = containerLength;
+    }
+
     // OTS reads the file whole, carrying AAT tables into the sanitized sfnt for validation against its glyph
     // count and sibling tables. A file it refuses read whole is refused.
-    CFDataRef pass1 = processFont(CFDataGetBytePtr(data), static_cast<size_t>(length),
+    CFDataRef pass1 = processFont(bytes, static_cast<size_t>(length),
         static_cast<uint32_t>(-1), kAllPreservedMask);
     if (!pass1)
         return NULL;
@@ -1240,7 +1248,7 @@ extern "C" CFDataRef wk_ots_sanitize_font(CFDataRef data)
     if (CFDataGetLength(pass1) >= 12 && readBE32(CFDataGetBytePtr(pass1)) == OTS_TAG('t', 't', 'c', 'f')) {
         uint32_t fontCount = readBE32(CFDataGetBytePtr(pass1) + 8);
         CFRelease(pass1);
-        sanitized = sanitizeCollection(data, fontCount);
+        sanitized = sanitizeCollection(bytes, static_cast<size_t>(length), fontCount);
     } else {
         sanitized = validateSanitizedFont(pass1);
         if (sanitized)

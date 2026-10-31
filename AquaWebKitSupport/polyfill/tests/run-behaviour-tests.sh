@@ -897,6 +897,11 @@ probe_font_data_descriptors() {
             /Library/Fonts/Skia.ttf
 }
 
+probe_woff_container_length() {
+    "$CLANG" $MODERN $INC -o "$T/woff_container_length" "$TBEHAV/CoreText-woff-container-length.c" $PROBE_LIBS &&
+        "$T/woff_container_length" "$REPO/LayoutTests/resources/Ahem.woff"
+}
+
 probe_feature_clear() {
     "$CLANG" $MODERN $INC -o "$T/feature_clear" "$TBEHAV/CoreText-feature-clear.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics -lc++ &&
@@ -1197,6 +1202,7 @@ run_probe optical_size "$@"
 run_probe face_selection "$@"
 run_probe font_provenance "$@"
 run_probe font_data_descriptors "$@"
+run_probe woff_container_length "$@"
 run_probe font_collections "$@"
 run_probe h264_parameter_sets "$@"
 run_probe encode_cadence "$@"

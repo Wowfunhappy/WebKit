@@ -39,6 +39,7 @@ from webkitpy.common.system.executive_mock import MockExecutive, MockExecutive2,
 from webkitpy.common.system.platforminfo_mock import MockPlatformInfo
 from webkitpy.common.system.systemhost_mock import MockSystemHost
 from webkitpy.common.version_name_map import VersionNameMap
+from webkitpy.layout_tests.models.test_expectations import PASS, SKIP, SLOW, TestExpectations
 
 
 class MacTest(darwin_testcase.DarwinTest):
@@ -75,6 +76,39 @@ class MacTest(darwin_testcase.DarwinTest):
         self.assertNotIn(opening, ''.join(value for key, value in port.expectations_dict().items() if key != path))
         if path in port.expectations_dict():
             self.assertEqual(port.expectations_dict()[path], opening + rest)
+
+    def test_mavericks_sar3_expectation_precedence(self):
+        for version in ('mavericks', 'sonoma'):
+            with self.subTest(version=version):
+                port = self.make_port(port_name='mac-' + version, options=MockOptions(driver_names=['WebKitTestRunner'], configuration='Release'))
+                fs = port.host.filesystem
+                capability_test = 'sar3/fast/webgpu/test.html'
+                upstream_override_test = 'sar3/fast/text/test.html'
+                tests = [capability_test, upstream_override_test]
+                for test in tests:
+                    fs.write_text_file(fs.join(port.layout_tests_dir(), test), '')
+                generic = port.path_to_generic_test_expectations_file()
+                upstream = fs.join(port.layout_tests_dir(), 'platform', 'mac-wk2', 'TestExpectations')
+                sar3 = fs.join(port.layout_tests_dir(), 'sar3', 'TestExpectations')
+                mavericks = fs.join(port.layout_tests_dir(), 'platform', 'mac-mavericks', 'TestExpectations')
+                fs.write_text_file(generic, '')
+                fs.write_text_file(upstream, upstream_override_test + ' [ Skip ]\n')
+                fs.write_text_file(sar3, capability_test + ' [ Slow ]\n' + upstream_override_test + ' [ Pass ]\n')
+                fs.write_text_file(mavericks, 'sar3/fast/webgpu [ Skip ]\n')
+                port._sar3_tests_enabled = lambda: True
+
+                expectations = TestExpectations(port, tests)
+                expectations.parse_all_expectations()
+                model = expectations.model()
+                self.assertEqual(model.has_modifier(capability_test, SKIP), version == 'mavericks')
+                self.assertEqual(model.has_modifier(capability_test, SLOW), version != 'mavericks')
+                self.assertFalse(model.has_modifier(upstream_override_test, SKIP))
+                self.assertEqual(model.get_expectations(upstream_override_test), {PASS})
+                paths = list(port.expectations_dict())
+                self.assertLess(paths.index(generic), paths.index(upstream))
+                self.assertLess(paths.index(upstream), paths.index(sar3))
+                if version == 'mavericks':
+                    self.assertLess(paths.index(sar3), paths.index(mavericks))
 
     def test_versions(self):
         # Note: these tests don't need to be exhaustive as long as we get path coverage.

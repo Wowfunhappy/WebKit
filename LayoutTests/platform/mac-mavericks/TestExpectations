@@ -29,6 +29,9 @@ accessibility-isolated-tree [ Skip ]
 css-dark-mode [ Skip ]
 fast/webgpu [ Skip ]
 http/tests/webgpu [ Skip ]
+# SAR3's separate test root bypasses the WebGPU exclusions above; ENABLE_WEBGPU is OFF.
+# Upstream platform/win/TestExpectations excludes fast/webgpu and http/tests/webgpu for the same capability gap.
+sar3/fast/webgpu [ Skip ]
 
 # Outside this suite's scope by maintainer decision: the modern Inspector frontend tests (this port runs
 # Safari 7's own frontend). Accessibility is excluded further down.
