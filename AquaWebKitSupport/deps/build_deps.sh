@@ -1951,7 +1951,12 @@ mkdir -p "$DEST/lib/gio/modules"
 cp -p "$HTTPD_STAGE/bin/httpd" "$DEST/bin/"
 echo "bin/httpd" >> "$GAP_UNLINKED"
 # The Darwin configuration's modules are built into this Apache executable.
-awk '$1 != "LoadModule"' "$HTTPD_CONFIG" > "$DEST/httpd.conf"
+# Keep-alive occupies prefork workers; reserve six for concurrent host connections.
+awk '
+    $1 == "StartServers" || $1 == "MinSpareServers" { $2 = 6 }
+    $1 == "MaxSpareServers" { $2 = 12 }
+    $1 != "LoadModule"
+' "$HTTPD_CONFIG" > "$DEST/httpd.conf"
 # headers (WebKit's own link deps + the GStreamer/GLib trees WebCore compiles against).
 # -p carries each staged file's mtime across, and mtime is what ninja compares: the staged
 # tree only restamps a header when its package actually rebuilds, so a rerun that changes
