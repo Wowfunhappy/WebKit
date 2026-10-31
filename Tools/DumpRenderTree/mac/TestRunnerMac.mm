@@ -1155,7 +1155,7 @@ void TestRunner::removeAllWebNotificationPermissions()
 
 void TestRunner::simulateWebNotificationClick(JSValueRef jsNotification)
 {
-    NSString *notificationID = [[mainFrame webView] _notificationIDForTesting:jsNotification];
+    uint64_t notificationID = [[mainFrame webView] _notificationIDForTesting:jsNotification];
     m_hasPendingWebNotificationClick = true;
     dispatch_async(mainDispatchQueueSingleton(), ^{
         if (!m_hasPendingWebNotificationClick)

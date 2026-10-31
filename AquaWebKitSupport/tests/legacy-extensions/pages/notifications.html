@@ -1,0 +1,6 @@
+<!doctype html><meta charset="utf-8"><title>Notification test controller</title><pre id="results"></pre>
+<script>
+var notificationReplies = [];
+window.addEventListener('notification-reply', event => { notificationReplies.push(JSON.parse(event.detail)); document.getElementById('results').textContent = JSON.stringify(notificationReplies, null, 2); });
+function notificationCommand(command) { window.dispatchEvent(new CustomEvent('notification-command', { detail: JSON.stringify(command) })); }
+</script>

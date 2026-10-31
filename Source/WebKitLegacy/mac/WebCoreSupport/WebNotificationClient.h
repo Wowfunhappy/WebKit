@@ -45,6 +45,8 @@ public:
     WebNotificationClient(WebView *);
     WebView *webView() { return m_webView; }
     void clearNotificationPermissionState();
+    // AQUAWEBKIT: the provider's numeric identifier for a WebCore notification.
+    uint64_t notificationIDForTesting(const WTF::UUID&);
 
 private:
     bool show(WebCore::ScriptExecutionContext&, WebCore::NotificationData&&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&) final;

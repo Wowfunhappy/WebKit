@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Author</key>
+	<string>WebKit</string>
+	<key>Builder Version</key>
+	<string>9537.78.2</string>
+	<key>CFBundleDisplayName</key>
+	<string>Extension Notifications Test</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.webkit.extension-notifications-test</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>Chrome</key>
+	<dict>
+		<key>Bars</key>
+		<array>
+			<dict>
+				<key>Filename</key>
+				<string>bar.html</string>
+				<key>Identifier</key>
+				<string>notification-bar</string>
+				<key>Label</key>
+				<string>Notification Test</string>
+			</dict>
+		</array>
+		<key>Global Page</key>
+		<string>global.html</string>
+		<key>Popovers</key>
+		<array>
+			<dict>
+				<key>Filename</key>
+				<string>popover.html</string>
+				<key>Height</key>
+				<integer>180</integer>
+				<key>Identifier</key>
+				<string>notifications-popover</string>
+				<key>Width</key>
+				<integer>320</integer>
+			</dict>
+		</array>
+		<key>Toolbar Items</key>
+		<array>
+			<dict>
+				<key>Identifier</key>
+				<string>notifications-button</string>
+				<key>Image</key>
+				<string>button.png</string>
+				<key>Label</key>
+				<string>Notifications Test</string>
+				<key>Popover</key>
+				<string>notifications-popover</string>
+			</dict>
+		</array>
+	</dict>
+	<key>Content</key>
+	<dict>
+		<key>Scripts</key>
+		<dict>
+			<key>Start</key>
+			<array>
+				<string>content.js</string>
+			</array>
+		</dict>
+		<key>Whitelist</key>
+		<array>
+			<string>http://127.0.0.1/*</string>
+			<string>https://localhost/*</string>
+		</array>
+	</dict>
+	<key>Description</key>
+	<string>Notification permissions and event delivery in extension contexts.</string>
+	<key>DeveloperIdentifier</key>
+	<string>WDAOQFIKHZ</string>
+	<key>ExtensionInfoDictionaryVersion</key>
+	<string>1.0</string>
+	<key>Permissions</key>
+	<dict>
+		<key>Website Access</key>
+		<dict>
+			<key>Include Secure Pages</key>
+			<true/>
+			<key>Level</key>
+			<string>All</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

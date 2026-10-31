@@ -44,7 +44,9 @@
 - (NSString *)lang;
 - (NSString *)dir;
 - (WebSecurityOrigin *)origin;
-- (NSString *)notificationID;
+// AQUAWEBKIT: Safari 7 uses the uint64_t notification provider ABI.
+// - (NSString *)notificationID;
+- (uint64_t)notificationID;
 
 - (void)dispatchShowEvent;
 - (void)dispatchCloseEvent;

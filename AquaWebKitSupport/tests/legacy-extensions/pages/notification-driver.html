@@ -1,0 +1,27 @@
+<!doctype html><meta charset="utf-8"><title>WK1 notification provider events</title><pre id="results"></pre>
+<script>
+if (window.testRunner) {
+    testRunner.dumpAsText();
+    testRunner.waitUntilDone();
+    testRunner.grantWebNotificationPermission(location.origin);
+    const report = text => document.getElementById('results').textContent += text + '\n';
+    report((Notification.permission === 'granted' ? 'PASS' : 'FAIL') + ' permission granted');
+    const notification = new Notification('Provider event test');
+    notification.onshow = () => {
+        report('PASS show');
+        testRunner.simulateWebNotificationClick(notification);
+    };
+    notification.onclick = () => {
+        report('PASS click');
+        notification.close();
+    };
+    notification.onclose = () => {
+        report('PASS close');
+        testRunner.notifyDone();
+    };
+    notification.onerror = () => {
+        report('FAIL error');
+        testRunner.notifyDone();
+    };
+}
+</script>

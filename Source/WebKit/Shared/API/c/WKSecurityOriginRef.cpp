@@ -29,6 +29,7 @@
 #include "APISecurityOrigin.h"
 #include "WKAPICast.h"
 #include <WebCore/SecurityOriginData.h>
+#include <wtf/text/MakeString.h> // AQUAWEBKIT: makeString for WKSecurityOriginCreate.
 
 WKTypeID WKSecurityOriginGetTypeID()
 {
@@ -53,7 +54,12 @@ WKSecurityOriginRef WKSecurityOriginCreate(WKStringRef protocol, WKStringRef hos
     std::optional<uint16_t> validPort;
     if (port && port <= std::numeric_limits<uint16_t>::max())
         validPort = port;
-    return WebKit::toAPILeakingRef(API::SecurityOrigin::create(protect(WebKit::toImpl(protocol))->string(), protect(WebKit::toImpl(host))->string(), validPort));
+    // AQUAWEBKIT: Safari 7 compares these origins with canonical document origins, so the tuple is parsed as a URL and a default port is dropped.
+    // return WebKit::toAPILeakingRef(API::SecurityOrigin::create(protect(WebKit::toImpl(protocol))->string(), protect(WebKit::toImpl(host))->string(), validPort));
+    auto origin = WebCore::SecurityOriginData::fromURLWithoutStrictOpaqueness(URL { makeString(protect(WebKit::toImpl(protocol))->string(), "://"_s, protect(WebKit::toImpl(host))->string(), '/') });
+    if (validPort && !WTF::isDefaultPortForProtocol(*validPort, origin.protocol()))
+        origin.setPort(validPort);
+    return WebKit::toAPILeakingRef(API::SecurityOrigin::create(origin));
 }
 
 WKStringRef WKSecurityOriginCopyDatabaseIdentifier(WKSecurityOriginRef securityOrigin)

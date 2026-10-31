@@ -37,6 +37,13 @@
 #import <WebCore/ScriptExecutionContext.h>
 #import <wtf/RefPtr.h>
 
+// AQUAWEBKIT: Safari 7 identifies WK1 notifications with process-local integers.
+static uint64_t generateNotificationID()
+{
+    static uint64_t uniqueNotificationID = 1;
+    return uniqueNotificationID++;
+}
+
 #endif
 
 @interface WebNotificationPrivate : NSObject
@@ -44,6 +51,8 @@
 @public
 #if ENABLE(NOTIFICATIONS)
     std::optional<WebCore::NotificationData> _internal;
+    // AQUAWEBKIT: the provider identifier stays stable for the notification's lifetime.
+    uint64_t _notificationID;
 #endif
 }
 @end
@@ -60,6 +69,8 @@
         return nil;
     _private = [[WebNotificationPrivate alloc] init];
     _private->_internal = WTF::move(coreNotification);
+    // AQUAWEBKIT: the numeric provider ID accompanies WebCore's UUID.
+    _private->_notificationID = generateNotificationID();
     return self;
 }
 @end
@@ -147,10 +158,14 @@
 #endif
 }
 
-- (NSString *)notificationID
+// AQUAWEBKIT: Safari 7 uses the uint64_t notification provider ABI.
+// - (NSString *)notificationID
+- (uint64_t)notificationID
 {
 #if ENABLE(NOTIFICATIONS)
-    return _private->_internal->notificationID.toString().createNSString().autorelease();
+    // AQUAWEBKIT: all provider calls use the same numeric identifier.
+    // return _private->_internal->notificationID.toString().createNSString().autorelease();
+    return _private->_notificationID;
 #else
     return 0;
 #endif

@@ -65,7 +65,7 @@
 {
     ASSERT(_registeredWebViews.contains((__bridge CFTypeRef)webView));
 
-    String notificationID([notification notificationID]);
+    uint64_t notificationID = [notification notificationID];
     _notifications.add(notificationID, notification);
     _notificationViewMap.add(notificationID, (__bridge CFTypeRef)webView);
 
@@ -74,41 +74,41 @@
 
 - (void)cancelNotification:(WebNotification *)notification
 {
-    String notificationID([notification notificationID]);
+    uint64_t notificationID = [notification notificationID];
     ASSERT(_notifications.contains(notificationID));
 
-    [(__bridge WebView *)_notificationViewMap.get(notificationID) _notificationsDidClose:@[[notification notificationID]]];
+    [(__bridge WebView *)_notificationViewMap.get(notificationID) _notificationsDidClose:@[@([notification notificationID])]];
 }
 
 - (void)notificationDestroyed:(WebNotification *)notification
 {
-    _notifications.remove(String([notification notificationID]));
-    _notificationViewMap.remove(String([notification notificationID]));
+    _notifications.remove([notification notificationID]);
+    _notificationViewMap.remove([notification notificationID]);
 }
 
 - (void)clearNotifications:(NSArray *)notificationIDs
 {
-    for (NSString *nsNotificationID in notificationIDs) {
-        String notificationID(nsNotificationID);
+    for (NSNumber *nsNotificationID in notificationIDs) {
+        uint64_t notificationID = [nsNotificationID unsignedLongLongValue];
         RetainPtr<WebNotification> notification = _notifications.take(notificationID);
         _notificationViewMap.remove(notificationID);
     }
 }
 
-- (void)webView:(WebView *)webView didShowNotification:(NSString *)notificationID
+- (void)webView:(WebView *)webView didShowNotification:(uint64_t)notificationID
 {
-    [_notifications.get(String(notificationID))dispatchShowEvent];
+    [_notifications.get(notificationID) dispatchShowEvent];
 }
 
-- (void)webView:(WebView *)webView didClickNotification:(NSString *)notificationID
+- (void)webView:(WebView *)webView didClickNotification:(uint64_t)notificationID
 {
-    [_notifications.get(String(notificationID)) dispatchClickEvent];
+    [_notifications.get(notificationID) dispatchClickEvent];
 }
 
 - (void)webView:(WebView *)webView didCloseNotifications:(NSArray *)notificationIDs
 {
-    for (NSString *nsNotificationID in notificationIDs) {
-        String notificationID(nsNotificationID);
+    for (NSNumber *nsNotificationID in notificationIDs) {
+        uint64_t notificationID = [nsNotificationID unsignedLongLongValue];
         NotificationIDMap::iterator it = _notifications.find(notificationID);
         ASSERT(it != _notifications.end());
         [it->value.get() dispatchCloseEvent];
@@ -117,11 +117,10 @@
     }
 }
 
-- (void)simulateWebNotificationClick:(NSString *)nsNotificationID
+- (void)simulateWebNotificationClick:(uint64_t)notificationID
 {
-    String notificationID(nsNotificationID);
     ASSERT(_notifications.contains(notificationID));
-    [(__bridge WebView *)_notificationViewMap.get(notificationID) _notificationDidClick:nsNotificationID];
+    [(__bridge WebView *)_notificationViewMap.get(notificationID) _notificationDidClick:notificationID];
 }
 
 - (WebNotificationPermission)policyForOrigin:(WebSecurityOrigin *)origin

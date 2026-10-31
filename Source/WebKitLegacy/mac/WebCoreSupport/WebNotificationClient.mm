@@ -89,6 +89,12 @@ void WebNotificationClient::notificationObjectDestroyed(WebCore::NotificationDat
     [[m_webView _notificationProvider] notificationDestroyed:webNotification.get()];
 }
 
+// AQUAWEBKIT: tests use the same numeric identifier Safari's provider receives.
+uint64_t WebNotificationClient::notificationIDForTesting(const WTF::UUID& notificationID)
+{
+    return [m_notificationMap.get(notificationID) notificationID];
+}
+
 void WebNotificationClient::notificationControllerDestroyed()
 {
     delete this;

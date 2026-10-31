@@ -132,7 +132,9 @@
 - (id)_initWithString:(NSString *)originString
 {
     auto origin = WebCore::SecurityOrigin::createFromString(originString);
-    return adoptNS([[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:origin.ptr()]).autorelease();
+    // AQUAWEBKIT: an initializer returns its receiver with retained ownership.
+    // return adoptNS([[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:origin.ptr()]).autorelease();
+    return [self _initWithWebCoreSecurityOrigin:origin.ptr()];
 }
 
 - (WebCore::SecurityOrigin *)_core

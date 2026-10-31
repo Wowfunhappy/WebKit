@@ -10191,12 +10191,16 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::St
     return nil;
 }
 
-- (void)_notificationDidShow:(NSString *)notificationID
+// AQUAWEBKIT: Safari 7 passes numeric provider identifiers.
+// - (void)_notificationDidShow:(NSString *)notificationID
+- (void)_notificationDidShow:(uint64_t)notificationID
 {
     [[self _notificationProvider] webView:self didShowNotification:notificationID];
 }
 
-- (void)_notificationDidClick:(NSString *)notificationID
+// AQUAWEBKIT: Safari 7 passes numeric provider identifiers.
+// - (void)_notificationDidClick:(NSString *)notificationID
+- (void)_notificationDidClick:(uint64_t)notificationID
 {
     [[self _notificationProvider] webView:self didClickNotification:notificationID];
 }
@@ -10206,7 +10210,9 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::St
     [[self _notificationProvider] webView:self didCloseNotifications:notificationIDs];
 }
 
-- (NSString *)_notificationIDForTesting:(JSValueRef)jsNotification
+// AQUAWEBKIT: the test identifier matches the numeric provider ABI.
+// - (NSString *)_notificationIDForTesting:(JSValueRef)jsNotification
+- (uint64_t)_notificationIDForTesting:(JSValueRef)jsNotification
 {
 #if ENABLE(NOTIFICATIONS)
     RefPtr page = _private->page;
@@ -10214,9 +10220,13 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::St
         return 0;
     JSContextRef context = [[self mainFrame] globalContext];
     auto* notification = WebCore::JSNotification::toWrapped(toJS(context)->vm(), toJS(toJS(context), jsNotification));
-    return notification->identifier().toString().createNSString().autorelease();
+    // AQUAWEBKIT: resolve WebCore's UUID to the identifier the WK1 provider receives.
+    // return notification->identifier().toString().createNSString().autorelease();
+    return static_cast<WebNotificationClient*>(WebCore::NotificationController::clientFrom(*page))->notificationIDForTesting(notification->identifier());
 #else
-    return nil;
+    // AQUAWEBKIT: zero is the empty numeric provider identifier.
+    // return nil;
+    return 0;
 #endif
 }
 
