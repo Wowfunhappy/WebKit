@@ -668,6 +668,20 @@ probe_url_request_coding() {
         "$T/url_request_coding"
 }
 
+probe_dictionary_subscript() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN -fno-objc-arc -DHOST_CALLER -dynamiclib \
+            -o "$T/dictionary_subscript_host.dylib" "$TBEHAV/Foundation-dictionary-subscript.m" \
+            -framework Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -Wno-nonnull \
+            -o "$T/dictionary_subscript" "$TBEHAV/Foundation-dictionary-subscript.m" \
+            "$T/dictionary_subscript_host.dylib" "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/dictionary_subscript"
+}
+
 probe_url_request_attribution() {
     prepare_method_objects Foundation &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_request_attribution" "$TBEHAV/Foundation-url-request-attribution.m" \
@@ -1173,6 +1187,7 @@ run_probe session_invalidation "$@"
 run_probe skip_preferred_client_certificate_lookup "$@"
 run_probe secure_coding "$@"
 run_probe url_request_coding "$@"
+run_probe dictionary_subscript "$@"
 run_probe url_request_attribution "$@"
 run_probe dd_secure_coding "$@"
 run_probe dd_mac_action "$@"

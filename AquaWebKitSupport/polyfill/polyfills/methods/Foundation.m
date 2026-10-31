@@ -52,6 +52,17 @@ extern CFIndex CFHTTPCookieStorageGetCookieAcceptPolicy(CFHTTPCookieStorageRef);
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
+// A nil subscript value removes the key. The concrete dictionary classes inherit this setter.
+WK_POLYFILL_REPLACE_METHODS(NSMutableDictionary)
+- (void)setObject:(id)object forKeyedSubscript:(id<NSCopying>)key
+{
+    if (!object)
+        [self removeObjectForKey:key];
+    else
+        WK_ORIGINAL_METHOD(void, (id, id<NSCopying>), object, key);
+}
+@end
+
 // NSString's 10.9 address predicate rejects bracketed IPv6, although WTF::URL::host() supplies
 // that URL representation. The modern predicate must recognize both bare and bracketed literals.
 // The shared parser also serves native cookie domain classification.
