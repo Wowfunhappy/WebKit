@@ -266,9 +266,10 @@ list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
     "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc"
 )
 
-# IPC serialization for the two API types whose C SPI is restored for Safari 7
-# (WKPageGroup* and WKSerializedScriptValue).
+# IPC serialization for the API types whose C SPI is restored for Safari 7
+# (WKCertificateInfo, WKPageGroup* and WKSerializedScriptValue).
 list(APPEND WebKit_SERIALIZATION_IN_FILES
+    Shared/API/APICertificateInfo.serialization.in
     Shared/API/APIPageGroupHandle.serialization.in
     Shared/API/APISerializedScriptValue.serialization.in
 )

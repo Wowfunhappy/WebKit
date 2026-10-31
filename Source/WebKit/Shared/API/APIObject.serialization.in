@@ -29,6 +29,8 @@ header: "ObjCObjectGraph.h"
 [RefCounted, CustomHeader] class API::Object subclasses {
     API::Array
     API::Boolean
+    # AQUAWEBKIT: Safari 7 posts WKCertificateInfo values to its injected bundle.
+    API::CertificateInfo
     API::Data
     API::Dictionary
     API::Double
