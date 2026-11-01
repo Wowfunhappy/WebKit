@@ -65,18 +65,16 @@ static void backdropApply3x3(double pixel[4], const double m[9])
 }
 
 // One device-space pixel (unpremultiplied, unclamped between filters) through one filter, as 10.9's compositor
-// computes it, including its defaults for unset inputs. A blur of radius r stands in as a move of
-// r^2 / (r^2 + 1) of the way to the backdrop's average colour, weighted by how much of the backdrop that colour
-// covers, when the caller supplies it, and otherwise as a darkening of 25% * r^2 / (r^2 + 1).
-static void backdropApplyFilter(CAFilter *filter, double pixel[4], const double *backdrop)
+// computes it, including its defaults for unset inputs. A blur stands in as a darkening of 25% * r^2 / (r^2 + 1).
+static void backdropApplyFilter(CAFilter *filter, double pixel[4])
 {
     NSString *type = [filter type];
     double luma = backdropPixelLuma(pixel), color[4];
     if ([type isEqualToString:@"gaussianBlur"]) {
         double radius = fmax(backdropNumber(filter, @"inputRadius", 0), 0);
-        double strength = radius * radius / (radius * radius + 1);
+        double scale = 1 - .25 * radius * radius / (radius * radius + 1);
         for (int i = 0; i < 3; ++i)
-            pixel[i] = backdrop ? pixel[i] + (backdrop[i] - pixel[i]) * strength * backdrop[3] : pixel[i] * (1 - .25 * strength);
+            pixel[i] *= scale;
     } else if ([type isEqualToString:@"colorMatrix"]) {
         float m[20];
         if (!backdropMatrix([filter valueForKey:@"inputColorMatrix"], m))
@@ -145,12 +143,12 @@ static void backdropApplyFilter(CAFilter *filter, double pixel[4], const double 
 }
 
 // The chain's output for a uniform grey backdrop x, composited over that backdrop.
-static void backdropChainOutput(NSArray *filters, double x, const double *backdrop, double out[3])
+static void backdropChainOutput(NSArray *filters, double x, double out[3])
 {
     double pixel[4] = { x, x, x, 1 };
     for (CAFilter *filter in filters) {
         if ([filter isKindOfClass:NSClassFromString(@"CAFilter")] && [filter isEnabled])
-            backdropApplyFilter(filter, pixel, backdrop);
+            backdropApplyFilter(filter, pixel);
     }
     double alpha = fmin(fmax(pixel[3], 0), 1);
     for (int i = 0; i < 3; ++i)
@@ -159,12 +157,12 @@ static void backdropChainOutput(NSArray *filters, double x, const double *backdr
 
 // A translucent fill maps each channel x to x * (1 - alpha) + color * alpha. When the chain's output on black,
 // mid-grey and white is such a map, the fill reproduces it; otherwise the fill matches the chain at mid-grey.
-static BOOL backdropFillColor(NSArray *filters, const double *backdrop, double rgba[4])
+static BOOL backdropFillColor(NSArray *filters, double rgba[4])
 {
     double black[3], middle[3], white[3];
-    backdropChainOutput(filters, 0, backdrop, black);
-    backdropChainOutput(filters, .5, backdrop, middle);
-    backdropChainOutput(filters, 1, backdrop, white);
+    backdropChainOutput(filters, 0, black);
+    backdropChainOutput(filters, .5, middle);
+    backdropChainOutput(filters, 1, white);
     double scale = white[0] - black[0];
     BOOL exact = scale >= 0 && scale <= 1;
     for (int i = 0; i < 3; ++i) {
@@ -185,46 +183,18 @@ static BOOL backdropFillColor(NSArray *filters, const double *backdrop, double r
     return rgba[3] > 0;
 }
 
-// The backdrop's average colours, in bands along its longer side, as WebKit samples the content beneath it.
-// Alpha is how much of the band that content covers; an unknown band has no colour.
-enum { backdropMaximumBands = 8 };
-
-typedef struct {
-    unsigned count;
-    BOOL vertical;
-    BOOL known[backdropMaximumBands];
-    double rgba[backdropMaximumBands][4];
-} BackdropBands;
-
-typedef struct {
-    double time;
-    double rgba[backdropMaximumBands][4];
-} BackdropSample;
-
-// One fill colour per band; without bands, one fill for an unknown backdrop.
-static void backdropFillColors(NSArray *filters, const BackdropBands *bands, double rgba[backdropMaximumBands][4])
+// A layer with filters keeps a colour pair even when it draws nothing, so 10.9 renders `colors` animations on it.
+static CGColorRef backdropCreateFill(NSArray *filters)
 {
-    if (!bands->count) {
-        backdropFillColor(filters, NULL, rgba[0]);
-        return;
-    }
-    for (unsigned band = 0; band < bands->count; ++band)
-        backdropFillColor(filters, bands->known[band] ? bands->rgba[band] : NULL, rgba[band]);
-}
-
-static NSArray *backdropColorArray(const double rgba[backdropMaximumBands][4], unsigned bands)
-{
-    NSMutableArray *colors = [NSMutableArray arrayWithCapacity:MAX(bands, 2u)];
+    double rgba[4] = { 0, 0, 0, 0 };
+    if (!filters.count)
+        return NULL;
+    backdropFillColor(filters, rgba);
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-    for (unsigned band = 0; band < MAX(bands, 2u); ++band) {
-        const double *fill = rgba[MIN(band, bands - 1)];
-        CGFloat components[4] = { fill[0], fill[1], fill[2], fill[3] };
-        CGColorRef color = CGColorCreate(space, components);
-        [colors addObject:(id)color];
-        CGColorRelease(color);
-    }
+    CGFloat components[4] = { rgba[0], rgba[1], rgba[2], rgba[3] };
+    CGColorRef color = CGColorCreate(space, components);
     CGColorSpaceRelease(space);
-    return colors;
+    return color;
 }
 
 static NSString * const backdropFillAnimationKey = @"wkBackdropFill";
@@ -235,16 +205,19 @@ static NSString * const backdropFillTailKey = @"wkBackdropFillTail";
 static const double backdropSampleTolerance = .5 / 255;
 static const double backdropSampleResolution = .001;
 
+typedef struct {
+    double time;
+    double rgba[4];
+} BackdropSample;
+
 static BOOL backdropSamplesClose(const BackdropSample *expected, const BackdropSample *start, const BackdropSample *end)
 {
     double fraction = end->time > start->time ? (expected->time - start->time) / (end->time - start->time) : 0;
-    for (unsigned band = 0; band < backdropMaximumBands; ++band) {
-        const double *from = start->rgba[band], *to = end->rgba[band], *at = expected->rgba[band];
-        for (int i = 0; i < 4; ++i) {
-            double a = from[i] * (i < 3 ? from[3] : 1), b = to[i] * (i < 3 ? to[3] : 1);
-            if (fabs(a + (b - a) * fraction - at[i] * (i < 3 ? at[3] : 1)) > backdropSampleTolerance)
-                return NO;
-        }
+    for (int i = 0; i < 4; ++i) {
+        double a = start->rgba[i] * (i < 3 ? start->rgba[3] : 1), b = end->rgba[i] * (i < 3 ? end->rgba[3] : 1);
+        double actual = expected->rgba[i] * (i < 3 ? expected->rgba[3] : 1);
+        if (fabs(a + (b - a) * fraction - actual) > backdropSampleTolerance)
+            return NO;
     }
     return YES;
 }
@@ -436,85 +409,133 @@ static double backdropLocalTimeForProgress(CAMediaTimingFunction *function, doub
     return (low + high) / 2;
 }
 
-static NSArray *backdropFillValues(NSData *samples, unsigned bands, NSArray **keyTimes)
+static NSArray *backdropFillValues(NSData *samples, NSArray **keyTimes)
 {
     const BackdropSample *sampled = samples.bytes;
     NSUInteger count = samples.length / sizeof(BackdropSample);
     double start = sampled[0].time, length = sampled[count - 1].time - start;
 
     // A sample without fill carries the next filled sample's colour at zero alpha, so alpha fades without a hue swing.
-    double carry[backdropMaximumBands][3] = { { 0 } };
-    for (unsigned band = 0; band < bands; ++band) {
-        for (NSUInteger i = count; i-- > 0;) {
-            if (sampled[i].rgba[band][3] > 0) {
-                memcpy(carry[band], sampled[i].rgba[band], sizeof(carry[band]));
-                break;
-            }
+    double carry[3] = { 0, 0, 0 };
+    for (NSUInteger i = count; i-- > 0;) {
+        if (sampled[i].rgba[3] > 0) {
+            memcpy(carry, sampled[i].rgba, sizeof(carry));
+            break;
         }
     }
     NSMutableArray *values = [NSMutableArray arrayWithCapacity:count];
     NSMutableArray *times = [NSMutableArray arrayWithCapacity:count];
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     for (NSUInteger i = count; i-- > 0;) {
-        double fills[backdropMaximumBands][4];
-        for (unsigned band = 0; band < bands; ++band) {
-            if (sampled[i].rgba[band][3] > 0)
-                memcpy(carry[band], sampled[i].rgba[band], sizeof(carry[band]));
-            memcpy(fills[band], carry[band], sizeof(carry[band]));
-            fills[band][3] = sampled[i].rgba[band][3];
-        }
-        [values insertObject:backdropColorArray(fills, bands) atIndex:0];
+        if (sampled[i].rgba[3] > 0)
+            memcpy(carry, sampled[i].rgba, sizeof(carry));
+        CGFloat components[4] = { carry[0], carry[1], carry[2], sampled[i].rgba[3] };
+        CGColorRef color = CGColorCreate(space, components);
+        [values insertObject:@[(id)color, (id)color] atIndex:0];
         [times insertObject:@(length > 0 ? (sampled[i].time - start) / length : (double)i / (count - 1)) atIndex:0];
+        CGColorRelease(color);
     }
+    CGColorSpaceRelease(space);
     *keyTimes = times;
     return values;
 }
 
-// Samples archive as device-space components, NSNull for an unknown band; CGColor does not archive.
-static NSDictionary *backdropSamplesArchive(NSDictionary *samples)
+// The filter chain as 10.9 applies it to WebKit's images of the backdrop. 10.9's blur has no inputNormalizeEdges;
+// for an opaque backdrop its inputHardEdges renormalizes the same way.
+static NSArray *backdropImageFilters(NSArray *filters)
 {
-    if (!samples)
-        return nil;
-    NSMutableArray *bands = [NSMutableArray array];
-    for (id color in samples[@"colors"]) {
-        double rgba[4];
-        if (backdropDeviceColor(color, rgba))
-            [bands addObject:@[@(rgba[0]), @(rgba[1]), @(rgba[2]), @(rgba[3])]];
-        else
-            [bands addObject:NSNull.null];
+    NSMutableArray *result = [NSMutableArray arrayWithCapacity:filters.count];
+    for (id filter in filters) {
+        CAFilter *copy = [[filter copy] autorelease];
+        if ([copy isKindOfClass:NSClassFromString(@"CAFilter")] && [[copy type] isEqualToString:@"gaussianBlur"]
+            && [[copy valueForKey:@"inputNormalizeEdges"] boolValue])
+            [copy setValue:@YES forKey:@"inputHardEdges"];
+        [result addObject:copy];
     }
-    return @{ @"bands": bands, @"vertical": @([samples[@"vertical"] boolValue]) };
+    return result;
 }
 
-static NSDictionary *backdropSamplesFromArchive(NSDictionary *archive)
+static NSString * const backdropImagesKey = @"wkBackdropImages";
+static NSString * const backdropImageFadeKey = @"wkBackdropImageFade";
+static const double backdropImageFadeDuration = .1;
+
+// Once an image has faded in, the images beneath it are covered and leave; once one has faded out, it leaves.
+@interface WKPolyfillBackdropImageFade : NSObject {
+    CALayer *_image;
+    BOOL _fadesOut;
+}
+@end
+
+@implementation WKPolyfillBackdropImageFade
+- (id)initWithImage:(CALayer *)image fadesOut:(BOOL)fadesOut
 {
-    if (!archive)
-        return nil;
-    NSMutableArray *colors = [NSMutableArray array];
-    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-    for (id band in archive[@"bands"]) {
-        if (band == NSNull.null) {
-            [colors addObject:band];
-            continue;
+    if ((self = [super init])) {
+        _image = [image retain];
+        _fadesOut = fadesOut;
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_image release];
+    [super dealloc];
+}
+
+- (void)animationDidStop:(CAAnimation *)animation finished:(BOOL)finished
+{
+    if (!finished)
+        return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (_fadesOut) {
+        [_image removeAllAnimations];
+        [_image removeFromSuperlayer];
+    } else {
+        for (CALayer *covered in [[_image.superlayer.sublayers copy] autorelease]) {
+            if (covered == _image)
+                break;
+            [covered removeAllAnimations];
+            [covered removeFromSuperlayer];
         }
-        CGFloat components[4] = { [band[0] doubleValue], [band[1] doubleValue], [band[2] doubleValue], [band[3] doubleValue] };
-        CGColorRef color = CGColorCreate(space, components);
-        [colors addObject:(id)color];
-        CGColorRelease(color);
     }
-    CGColorSpaceRelease(space);
-    return @{ @"colors": colors, @"vertical": archive[@"vertical"] };
+    [CATransaction commit];
+}
+@end
+
+static void backdropFadeImage(CALayer *image, BOOL fadesOut)
+{
+    CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+    CALayer *presented = image.presentationLayer;
+    fade.fromValue = @(fadesOut ? (presented ?: image).opacity : 0);
+    fade.toValue = @(fadesOut ? 0 : 1);
+    fade.duration = backdropImageFadeDuration;
+    fade.delegate = [[[WKPolyfillBackdropImageFade alloc] initWithImage:image fadesOut:fadesOut] autorelease];
+    image.opacity = fadesOut ? 0 : 1;
+    [image addAnimation:fade forKey:backdropImageFadeKey];
 }
 
+// The layer holding a backdrop's images, which its `sublayers` leaves out.
+@interface WKPolyfillBackdropImages : CALayer
+@end
+
+@implementation WKPolyfillBackdropImages
+@end
+
+// The backdrop shows WebKit's images of the content beneath it (aquaWebKitBackdropImage) through the filter
+// chain, in a rasterized sublayer at the images' resolution. An image after the backdrop's first fades in over
+// the ones before it, and they fade out when WebKit sends none. Where no image covers it, its fill stands in for
+// the chain.
 WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     NSArray *_backdropFilters;
-    NSDictionary *_backdropSamples;
-    BackdropBands _bands;
+    WKPolyfillBackdropImages *_images;
     NSMutableArray *_unkeyedFilterAnimations;
     BOOL _fillAnimationNeedsUpdate;
     BOOL _windowServerAware;
+    BOOL _showedImage;
 }
 @property(nonatomic) BOOL windowServerAware;
-@property(nonatomic, copy) NSDictionary *aquaWebKitBackdropSamples;
+- (void)setAquaWebKitBackdropImage:(NSDictionary *)image;
 @end
 
 @implementation CABackdropLayer
@@ -526,8 +547,6 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
         CABackdropLayer *other = layer;
         [CATransaction lock];
         _backdropFilters = [other->_backdropFilters copy];
-        _backdropSamples = [other->_backdropSamples copy];
-        _bands = other->_bands;
         [CATransaction unlock];
         _windowServerAware = other->_windowServerAware;
     }
@@ -537,7 +556,10 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 - (id)initWithCoder:(NSCoder *)coder
 {
     if ((self = [super initWithCoder:coder])) {
-        self.aquaWebKitBackdropSamples = backdropSamplesFromArchive([coder decodeObjectForKey:@"wkBackdropSamples"]);
+        _images = [[coder decodeObjectForKey:backdropImagesKey] retain];
+        if (_images)
+            [super insertSublayer:_images atIndex:0];
+        _showedImage = _images.sublayers.count > 0;
         self.filters = [coder decodeObjectForKey:@"wkBackdropFilters"];
         _windowServerAware = [coder decodeBoolForKey:@"wkWindowServerAware"];
     }
@@ -548,14 +570,16 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 {
     [super encodeWithCoder:coder];
     [coder encodeObject:self.filters forKey:@"wkBackdropFilters"];
-    [coder encodeObject:backdropSamplesArchive(self.aquaWebKitBackdropSamples) forKey:@"wkBackdropSamples"];
+    [coder encodeObject:_images forKey:backdropImagesKey];
     [coder encodeBool:_windowServerAware forKey:@"wkWindowServerAware"];
 }
 
 - (void)dealloc
 {
     [_backdropFilters release];
-    [_backdropSamples release];
+    for (CALayer *image in _images.sublayers)
+        [image removeAllAnimations];
+    [_images release];
     [_unkeyedFilterAnimations release];
     [super dealloc];
 }
@@ -568,66 +592,64 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     return filters;
 }
 
-// Every filters, samples and fill change happens under the transaction lock, which also guards
-// initWithLayer:'s reads for presentation copies.
+// Filters change under the transaction lock, which also guards initWithLayer:'s read for presentation copies.
 - (void)setFilters:(NSArray *)filters
 {
     NSArray *copy = [filters copy];
+    CGColorRef color = backdropCreateFill(copy);
     [CATransaction lock];
     [_backdropFilters release];
     _backdropFilters = copy;
-    [self updateFill];
-    [CATransaction unlock];
-}
-
-// WebKit's samples of the content beneath the backdrop: { colors: [CGColor or NSNull], vertical: BOOL }.
-- (NSDictionary *)aquaWebKitBackdropSamples
-{
-    [CATransaction lock];
-    NSDictionary *samples = [[_backdropSamples retain] autorelease];
-    [CATransaction unlock];
-    return samples;
-}
-
-- (void)setAquaWebKitBackdropSamples:(NSDictionary *)samples
-{
-    BackdropBands bands = { 0, [samples[@"vertical"] boolValue], { NO }, { { 0 } } };
-    for (id color in samples[@"colors"]) {
-        if (bands.count == backdropMaximumBands)
-            break;
-        bands.known[bands.count] = backdropDeviceColor(color, bands.rgba[bands.count]);
-        ++bands.count;
-    }
-    NSDictionary *copy = [samples copy];
-    [CATransaction lock];
-    [_backdropSamples release];
-    _backdropSamples = copy;
-    _bands = bands;
-    [self updateFill];
-    [CATransaction unlock];
-}
-
-// A layer with filters keeps its colours even when it draws nothing, so 10.9 renders `colors` animations on it.
-// Called with the transaction lock held.
-- (void)updateFill
-{
-    unsigned bands = MAX(_bands.count, 1u);
-    double fills[backdropMaximumBands][4] = { { 0 } };
-    backdropFillColors(_backdropFilters, &_bands, fills);
-    NSMutableArray *locations = nil;
-    if (bands > 1) {
-        locations = [NSMutableArray arrayWithCapacity:bands];
-        for (unsigned band = 0; band < bands; ++band)
-            [locations addObject:@((band + .5) / bands)];
-    }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    [super setColors:_backdropFilters.count ? backdropColorArray(fills, bands) : nil];
-    [super setLocations:locations];
-    [super setStartPoint:_bands.vertical ? CGPointMake(.5, 0) : CGPointMake(0, .5)];
-    [super setEndPoint:_bands.vertical ? CGPointMake(.5, 1) : CGPointMake(1, .5)];
+    [super setColors:color ? @[(id)color, (id)color] : nil];
+    _images.filters = backdropImageFilters(copy);
     [CATransaction commit];
+    [CATransaction unlock];
+    if (color)
+        CGColorRelease(color);
     [self setNeedsFillAnimation];
+}
+
+// { image: CGImage, rect: NSValue of the CGRect it covers in this layer's coordinates }, or nil for none.
+- (void)setAquaWebKitBackdropImage:(NSDictionary *)sample
+{
+    id contents = sample[@"image"];
+    CGRect rect;
+    [sample[@"rect"] getValue:&rect];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (!sample) {
+        for (CALayer *image in _images.sublayers) {
+            if (image.opacity)
+                backdropFadeImage(image, YES);
+        }
+        [CATransaction commit];
+        return;
+    }
+    if (!_images) {
+        _images = [[WKPolyfillBackdropImages alloc] init];
+        _images.anchorPoint = CGPointZero;
+        _images.bounds = self.bounds;
+        _images.position = self.bounds.origin;
+        _images.shouldRasterize = YES;
+        [CATransaction lock];
+        _images.filters = backdropImageFilters(_backdropFilters);
+        [CATransaction unlock];
+        [super insertSublayer:_images atIndex:0];
+        [self setNeedsFillAnimation];
+    }
+    // Twice the images' density preserves all they hold.
+    _images.rasterizationScale = fmin(2 * CGImageGetWidth((CGImageRef)contents) / rect.size.width, fmax(self.contentsScale, 1));
+    CALayer *image = [CALayer layer];
+    image.anchorPoint = CGPointZero;
+    image.frame = rect;
+    image.contents = contents;
+    [_images addSublayer:image];
+    if (_showedImage)
+        backdropFadeImage(image, NO);
+    _showedImage = YES;
+    [CATransaction commit];
 }
 
 - (double)currentTime
@@ -663,13 +685,69 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 - (void)layoutSublayers
 {
     [super layoutSublayers];
-    if (!_fillAnimationNeedsUpdate)
-        return;
-    _fillAnimationNeedsUpdate = NO;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    [self updateFillAnimation];
+    _images.bounds = self.bounds;
+    _images.position = self.bounds.origin;
+    if (_fillAnimationNeedsUpdate) {
+        _fillAnimationNeedsUpdate = NO;
+        [self updateFillAnimation];
+    }
     [CATransaction commit];
+}
+
+// The images sit beneath the caller's sublayers, which are all `sublayers` lists, on this layer and its
+// presentation copies.
+- (BOOL)holdsImages
+{
+    return [[super sublayers].firstObject isKindOfClass:[WKPolyfillBackdropImages class]];
+}
+
+- (NSArray *)sublayers
+{
+    NSArray *sublayers = [super sublayers];
+    if (![self holdsImages])
+        return sublayers;
+    NSArray *callers = [sublayers subarrayWithRange:NSMakeRange(1, sublayers.count - 1)];
+    return callers.count ? callers : nil;
+}
+
+- (void)setSublayers:(NSArray *)sublayers
+{
+    [super setSublayers:sublayers];
+    if (_images)
+        [super insertSublayer:_images atIndex:0];
+}
+
+- (void)insertSublayer:(CALayer *)layer atIndex:(unsigned)index
+{
+    [super insertSublayer:layer atIndex:index + ([self holdsImages] ? 1 : 0)];
+}
+
+- (void)insertSublayer:(CALayer *)layer below:(CALayer *)sibling
+{
+    if (sibling)
+        [super insertSublayer:layer below:sibling];
+    else
+        [self insertSublayer:layer atIndex:0];
+}
+
+// The images run copies of the filter animations, which their filters carry under the same names. Without
+// them, rasterization keeps the blurred result until the images or filters change; 10.9 renders a rasterized
+// layer's filter animation late, starting from a frame at its model value.
+- (void)updateImageAnimations:(NSArray *)animations now:(double)now
+{
+    _images.shouldRasterize = !animations.count;
+    for (NSString *key in _images.animationKeys)
+        [_images removeAnimationForKey:key];
+    NSUInteger index = 0;
+    for (CAAnimation *source in animations) {
+        CAAnimation *animation = [[source copy] autorelease];
+        animation.delegate = nil;
+        if (!animation.beginTime)
+            animation.beginTime = now;
+        [_images addAnimation:animation forKey:[NSString stringWithFormat:@"wkBackdropFilter%lu", (unsigned long)index++]];
+    }
 }
 
 // Mirrors the filter animations into keyframe animations of `colors` over this layer's time: one across their
@@ -680,20 +758,19 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     [super removeAnimationForKey:backdropFillAnimationKey];
     [super removeAnimationForKey:backdropFillTailKey];
     NSArray *animations = [self filterAnimations];
-    if (!animations.count)
-        return;
     BOOL uncommitted = YES;
     for (CAAnimation *animation in animations)
         uncommitted = uncommitted && !animation.beginTime;
     double now = uncommitted ? 0 : [self currentTime];
+    [self updateImageAnimations:animations now:now];
+    if (!animations.count)
+        return;
 
     CALayer *modelZero = [CALayer layer], *modelOne = [CALayer layer], *standIn = [CALayer layer], *sample = [CALayer layer];
     modelOne.zPosition = 1;
     [CATransaction lock];
     NSArray *modelFilters = [[_backdropFilters retain] autorelease];
-    BackdropBands bands = _bands;
     [CATransaction unlock];
-    unsigned bandCount = MAX(bands.count, 1u);
     NSMutableArray *pristine = [NSMutableArray arrayWithCapacity:modelFilters.count];
     for (id filter in modelFilters)
         [pristine addObject:[[filter copy] autorelease]];
@@ -823,8 +900,8 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
             }
             sample.filters = filters;
         }
-        BackdropSample result = { time, { { 0 } } };
-        backdropFillColors(sample.filters, &bands, result.rgba);
+        BackdropSample result = { time, { 0, 0, 0, 0 } };
+        backdropFillColor(sample.filters, result.rgba);
         return result;
     };
 
@@ -867,7 +944,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     if (periodicTail) {
         NSData *tailSamples = backdropSampleSpan(tailStart, tailStart + tailLength, anchors, evaluate);
         CAKeyframeAnimation *tail = [CAKeyframeAnimation animationWithKeyPath:@"colors"];
-        tail.values = backdropFillValues(tailSamples, bandCount, &keyTimes);
+        tail.values = backdropFillValues(tailSamples, &keyTimes);
         tail.keyTimes = keyTimes;
         tail.beginTime = uncommitted ? 0 : tailStart;
         tail.timeOffset = uncommitted ? fmod(tailLength - fmod(tailStart, tailLength), tailLength) : 0;
@@ -878,7 +955,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     double end = fmax(tailStart, start + backdropSampleResolution);
     NSData *samples = backdropSampleSpan(start, end, anchors, evaluate);
     CAKeyframeAnimation *fill = [CAKeyframeAnimation animationWithKeyPath:@"colors"];
-    fill.values = backdropFillValues(samples, bandCount, &keyTimes);
+    fill.values = backdropFillValues(samples, &keyTimes);
     fill.keyTimes = keyTimes;
     fill.beginTime = uncommitted ? 0 : start;
     fill.duration = end - start;

@@ -80,6 +80,7 @@ class HTMLVideoElement;
 class Image;
 class ImageBuffer;
 class Model;
+class NativeImage; // AQUAWEBKIT: see setBackdropSample.
 class Settings;
 class TiledBacking;
 class TimingFunction;
@@ -314,10 +315,21 @@ public:
 
     virtual void setBackdropFiltersRect(const FloatRoundedRect& backdropFiltersRect) { m_backdropFiltersRect = backdropFiltersRect; }
     const FloatRoundedRect& backdropFiltersRect() const LIFETIME_BOUND { return m_backdropFiltersRect; }
-    // AQUAWEBKIT: 10.9's backdrop layer cannot sample the window, so it draws the average colours of the
-    // content WebKit paints beneath it, in bands along its longer side; a band is absent where that content
-    // includes a contents layer, filter or mask the sampler does not render.
-    virtual void setBackdropSamples(Vector<std::optional<Color>>&&, bool /* vertical */) { }
+    // AQUAWEBKIT: 10.9's backdrop layer cannot sample the window, so it shows the backdrop filters over an
+    // image of the content WebKit paints beneath it, covering `rect` in the backdrop layer's coordinates. The
+    // image is transparent where that content includes a contents layer, filter or mask the sampler does not
+    // render. A backdrop without a blur of at least a pixel has no image.
+    virtual void setBackdropSample(RefPtr<NativeImage>&&, const FloatRect& /* rect */) { }
+    // The keyframes of the backdrop-filter animations this layer runs.
+    virtual Vector<FilterOperations> backdropFilterAnimationKeyframes() const { return { }; }
+    // Whether this layer runs an opacity or a transform animation, which its opacity and transform do not follow;
+    // its client gives the values the animations have now.
+    virtual bool animatesOpacity() const { return false; }
+    virtual bool animatesTransform() const { return false; }
+    // Whether an opacity or transform animation of this layer is playing, changing it without rendering updates.
+    virtual bool playsOpacityOrTransformAnimation() const { return false; }
+    // Whether the platform layer tree shows this layer's sublayers.
+    virtual bool commitsSublayers() const { return true; }
     virtual bool hasUncommittedContentChanges(const FloatRect&) const { return false; }
     virtual bool paintContentsLayerForBackdropSampling(GraphicsContext&) const { return !usesContentsLayer(); }
 

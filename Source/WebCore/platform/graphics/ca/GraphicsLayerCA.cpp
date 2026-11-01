@@ -985,14 +985,50 @@ void GraphicsLayerCA::setBackdropFiltersRect(const FloatRoundedRect& backdropFil
 }
 
 // AQUAWEBKIT: samples arrive during the flush that commits them.
-void GraphicsLayerCA::setBackdropSamples(Vector<std::optional<Color>>&& colors, bool vertical)
+void GraphicsLayerCA::setBackdropSample(RefPtr<NativeImage>&& image, const FloatRect& rect)
 {
-    if (colors == m_backdropSamples && vertical == m_backdropSamplesVertical)
+    if (image == m_backdropSample && rect == m_backdropSampleRect)
         return;
 
-    m_backdropSamples = WTF::move(colors);
-    m_backdropSamplesVertical = vertical;
-    noteLayerPropertyChanged(BackdropSamplesChanged, DontScheduleFlush);
+    m_backdropSample = WTF::move(image);
+    m_backdropSampleRect = rect;
+    noteLayerPropertyChanged(BackdropSampleChanged, DontScheduleFlush);
+}
+
+// AQUAWEBKIT: the sampler sizes a backdrop's image for the blurs its animations run through.
+Vector<FilterOperations> GraphicsLayerCA::backdropFilterAnimationKeyframes() const
+{
+    Vector<FilterOperations> keyframes;
+    for (auto& animation : m_backdropFilterAnimationKeyframes.values())
+        keyframes.appendVector(animation);
+    return keyframes;
+}
+
+// AQUAWEBKIT: see GraphicsLayer::animatesOpacity.
+bool GraphicsLayerCA::animatesOpacity() const
+{
+    return std::ranges::any_of(m_animations, [](auto& animation) {
+        return animation.m_property == AnimatedProperty::Opacity && !animation.m_pendingRemoval;
+    });
+}
+
+// AQUAWEBKIT: see GraphicsLayer::animatesTransform.
+bool GraphicsLayerCA::animatesTransform() const
+{
+    return isRunningTransformAnimation();
+}
+
+// AQUAWEBKIT: see GraphicsLayer::playsOpacityOrTransformAnimation. updateAnimations applies only the animations
+// that are not superseded; until the commit that applies the layer's animation changes, any animation that will
+// play counts.
+bool GraphicsLayerCA::playsOpacityOrTransformAnimation() const
+{
+    if (!(m_uncommittedChanges & AnimationChanged))
+        return m_appliesPlayingOpacityOrTransformAnimation;
+    return std::ranges::any_of(m_animations, [&](auto& animation) {
+        return (animation.m_property == AnimatedProperty::Opacity || animatedPropertyIsTransformOrRelated(animation.m_property))
+            && (animation.m_playState == PlayState::Playing || animation.m_playState == PlayState::PlayPending) && !animation.m_pendingRemoval;
+    });
 }
 
 // AQUAWEBKIT: whether what this layer draws within `rect`, in its own coordinates, changes in this commit.
@@ -1271,6 +1307,13 @@ bool GraphicsLayerCA::addAnimation(const GraphicsLayerKeyframeValueList& valueLi
     else if (valueList.property() == AnimatedProperty::WebkitBackdropFilter) {
         if (supportsAcceleratedFilterAnimations())
             createdAnimations = createFilterAnimationsFromKeyframes(valueList, anim, animationName, Seconds { timeOffset }, keyframesShouldUseAnimationWideTimingFunction);
+        // AQUAWEBKIT: see backdropFilterAnimationKeyframes.
+        if (createdAnimations) {
+            Vector<FilterOperations> keyframes;
+            for (size_t index = 0; index < valueList.size(); ++index)
+                keyframes.append(downcast<GraphicsLayerFilterAnimationValue>(valueList.at(index)).value());
+            m_backdropFilterAnimationKeyframes.set(animationName, WTF::move(keyframes));
+        }
     }
     else
         createdAnimations = createAnimationFromKeyframes(valueList, anim, animationName, Seconds { timeOffset }, keyframesShouldUseAnimationWideTimingFunction);
@@ -1313,6 +1356,8 @@ void GraphicsLayerCA::removeAnimation(const String& animationName, std::optional
             noteLayerPropertyChanged(AnimationChanged | CoverageRectChanged);
         }
     }
+    if (!property || *property == AnimatedProperty::WebkitBackdropFilter) // AQUAWEBKIT: see backdropFilterAnimationKeyframes.
+        m_backdropFilterAnimationKeyframes.remove(animationName);
 }
 
 void GraphicsLayerCA::transformRelatedPropertyDidChange()
@@ -1999,6 +2044,7 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
     ++childCommitState.treeDepth;
     if (structuralLayerPurpose() != NoStructuralLayer)
         ++childCommitState.treeDepth;
+    m_sublayersBeyondMaxTreeDepth = childCommitState.treeDepth > cMaxLayerTreeDepth; // AQUAWEBKIT: see commitsSublayers.
 
     bool layerTypeChanged = false;
     commitLayerTypeChangesBeforeSublayers(childCommitState, pageScaleFactor, layerTypeChanged);
@@ -2333,8 +2379,8 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     if (m_uncommittedChanges & BackdropFiltersRectChanged)
         updateBackdropFiltersRect();
 
-    if (m_uncommittedChanges & BackdropSamplesChanged) // AQUAWEBKIT: see setBackdropSamples.
-        updateBackdropSamples();
+    if (m_uncommittedChanges & BackdropSampleChanged) // AQUAWEBKIT: see setBackdropSample.
+        updateBackdropSample();
 
     if (m_uncommittedChanges & BlendModeChanged)
         updateBlendMode();
@@ -2864,16 +2910,16 @@ void GraphicsLayerCA::updateBackdropFilters(CommitState& commitState)
 
     if (makeLayer) {
         updateBackdropFiltersRect();
-        updateBackdropSamples(); // AQUAWEBKIT: see setBackdropSamples.
+        updateBackdropSample(); // AQUAWEBKIT: see setBackdropSample.
         noteSublayersChanged(DontScheduleFlush);
     }
 }
 
-// AQUAWEBKIT: see setBackdropSamples. Replicas sit over other content, so their clones have no samples.
-void GraphicsLayerCA::updateBackdropSamples()
+// AQUAWEBKIT: see setBackdropSample. Replicas sit over other content, so their clones have no sample.
+void GraphicsLayerCA::updateBackdropSample()
 {
     if (RefPtr backdropLayer = m_backdropLayer)
-        backdropLayer->setBackdropSamples(m_backdropSamples, m_backdropSamplesVertical);
+        backdropLayer->setBackdropSample(m_backdropSample ? m_backdropSample->platformImage().get() : nullptr, m_backdropSampleRect);
 }
 
 void GraphicsLayerCA::updateBackdropFiltersRect()
@@ -3610,6 +3656,8 @@ void GraphicsLayerCA::updateAnimations()
             animation.m_beginTime = currentTime;
         prepareAnimationForAddition(animation, Additive::No);
         setAnimationOnLayer(animation);
+        if (animation.m_property == AnimatedProperty::Opacity && animation.m_playState == PlayState::Playing) // AQUAWEBKIT: see playsOpacityOrTransformAnimation.
+            m_appliesPlayingOpacityOrTransformAnimation = true;
     };
 
     enum class TransformationMatrixSource { UseIdentityMatrix, AskClient };
@@ -3665,6 +3713,7 @@ void GraphicsLayerCA::updateAnimations()
     m_animations.removeAllMatching([&](LayerPropertyAnimation animation) {
         return animation.m_pendingRemoval;
     });
+    m_appliesPlayingOpacityOrTransformAnimation = false; // AQUAWEBKIT: see playsOpacityOrTransformAnimation.
 
     // Now that our list of animations is current, we can separate animations by property so that
     // we can apply them in order. We only need to apply the last animation applied for a given
@@ -3745,6 +3794,8 @@ void GraphicsLayerCA::updateAnimations()
                 }
                 prepareAnimationForAddition(*animation);
                 caAnimations.append(animation->m_animation);
+                if (animation->m_playState == PlayState::Playing) // AQUAWEBKIT: see playsOpacityOrTransformAnimation.
+                    m_appliesPlayingOpacityOrTransformAnimation = true;
             }
 
             // If we have an animation with an explicit begin time that does not fill backwards and starts with a delay,
@@ -4880,7 +4931,7 @@ ASCIILiteral GraphicsLayerCA::layerChangeAsString(LayerChange layerChange)
     case LayerChange::TonemappingEnabledChanged: return "TonemappingEnabledChanged"_s;
 #endif
     case LayerChange::ShadowPathChanged: return "ShadowPathChanged"_s;
-    case LayerChange::BackdropSamplesChanged: return "BackdropSamplesChanged"_s; // AQUAWEBKIT: see setBackdropSamples.
+    case LayerChange::BackdropSampleChanged: return "BackdropSampleChanged"_s; // AQUAWEBKIT: see setBackdropSample.
     }
     ASSERT_NOT_REACHED();
     return ""_s;

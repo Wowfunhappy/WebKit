@@ -1,24 +1,34 @@
 #include "config.h"
 #include "BackdropSamplerAquaWebKit.h"
 
+#include "CSSFilterRenderer.h"
 #include "Color.h"
+#include "FEGaussianBlur.h"
 #include "FilterOperations.h"
+#include "FilterResults.h"
 #include "FloatQuad.h"
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
 #include "ImageBuffer.h"
 #include "PixelBuffer.h"
 #include "TransformationMatrix.h"
+#include <wtf/NeverDestroyed.h>
+#include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(BackdropSampler);
+WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(BackdropSampler::Inputs);
 
-// The content beneath a backdrop is painted at a scale that makes its longer side this many pixels, and
-// averaged into up to this many bands along that side.
-static constexpr float sampleResolution = 128;
-static constexpr unsigned maximumBands = 8;
+// The content beneath a backdrop is painted at two pixels per standard deviation of the smallest blur its chain
+// shows, which holds all that blur leaves of it, and at most this many pixels along the image's longer side.
+static constexpr float pixelsPerDeviation = 2;
+static constexpr float maximumSampleLength = 256;
+// The content beneath a blur of under a pixel, which barely changes it, shows through the backdrop's fill.
+static constexpr float minimumSampledDeviation = 1;
+// The backdrop layer fades each image in over this time.
+static constexpr Seconds minimumPaintInterval = 100_ms;
 
 using ScrollGeometries = BackdropSampler::ScrollGeometries;
 
@@ -40,9 +50,13 @@ static FloatSize layerSize(const GraphicsLayer& layer, const ScrollGeometries& g
     return geometry != geometries.end() && geometry->value.size ? *geometry->value.size : layer.size();
 }
 
+// A layer whose transform animates sits where the animation has it now, as GraphicsLayerCA places it for its
+// coverage rect.
 static TransformationMatrix anchoredTransform(const GraphicsLayer& layer)
 {
-    const auto& matrix = layer.transform();
+    auto matrix = layer.transform();
+    if (layer.animatesTransform())
+        layer.client().getCurrentTransform(&layer, matrix);
     if (matrix.isIdentity())
         return matrix;
     FloatPoint3D anchor = layer.anchorPoint();
@@ -54,13 +68,22 @@ static TransformationMatrix anchoredTransform(const GraphicsLayer& layer)
     return result;
 }
 
-// Maps a point in `layer`'s bounds coordinates into its parent's, as GraphicsLayerCA lays layers out.
-static TransformationMatrix layerToParent(const GraphicsLayer& layer, const ScrollGeometries& geometries)
+// The sublayers Core Animation shows; past its maximum tree depth, GraphicsLayerCA commits none.
+static const Vector<Ref<GraphicsLayer>>& shownChildren(const GraphicsLayer& layer)
+{
+    static NeverDestroyed<Vector<Ref<GraphicsLayer>>> none;
+    return layer.commitsSublayers() ? layer.children() : none.get();
+}
+
+// Maps a point in `layer`'s bounds coordinates into its parent's, as GraphicsLayerCA lays layers out. Without
+// its transform, it maps the layer's animation extent, which the transform already applies to.
+static TransformationMatrix layerToParent(const GraphicsLayer& layer, const ScrollGeometries& geometries, bool withTransform = true)
 {
     TransformationMatrix transform;
     auto position = layerPosition(layer, geometries);
     transform.translate(position.x(), position.y());
-    transform.multiply(anchoredTransform(layer));
+    if (withTransform)
+        transform.multiply(anchoredTransform(layer));
     if (auto* parent = layer.parent(); parent && !parent->childrenTransform().isIdentity()) {
         FloatPoint3D anchor = parent->anchorPoint();
         anchor.scale(parent->size().width(), parent->size().height(), 1);
@@ -85,10 +108,22 @@ static TransformationMatrix layerToRoot(const GraphicsLayer& layer, const Scroll
     return transform;
 }
 
+// Gaussian blurs compose into one whose variance is the sum of theirs.
+static float blurDeviation(const FilterOperations& filters)
+{
+    float variance = 0;
+    for (auto& operation : filters) {
+        if (operation->type() == FilterOperation::Type::Blur) {
+            float deviation = downcast<BlurFilterOperation>(operation.get()).stdDeviation();
+            variance += deviation * deviation;
+        }
+    }
+    return std::sqrt(variance);
+}
+
 namespace {
 
-// A layer whose filters or mask change its colours, which the sampler does not render. Blur keeps a layer's
-// average colour, so a filter chain of blurs paints unfiltered.
+// A layer whose filters or mask change its colours, which the sampler does not render. Blurs it renders.
 static bool hasUnrenderedEffects(const GraphicsLayer& layer)
 {
     if (layer.maskLayer())
@@ -103,13 +138,16 @@ static bool hasUnrenderedEffects(const GraphicsLayer& layer)
 // Paints, in paint order, the backdrop root and every layer beneath `target` within it into `context`, whose
 // transform maps root coordinates to the sample. Each layer's opacity and blend mode composite its content and
 // sublayers as one group, as in Core Animation; a layer that draws a single primitive applies them to it
-// directly. Contents and effects it cannot paint are recorded as unknown regions. Without a context it paints
-// nothing and lists the layers it would paint, noting any whose content there changes in this commit.
+// directly. Layers whose opacity or transform animates paint as the animations have them now. Contents and effects
+// it cannot paint are listed as unknown regions. Without a context it paints nothing and lists the layers it would
+// paint, noting any whose content there changes in this commit, and any playing animation that reaches the sample.
 class BeneathPainter {
 public:
-    BeneathPainter(const GraphicsLayer& target, GraphicsContext* context, const ScrollGeometries& geometries)
+    BeneathPainter(const GraphicsLayer& target, GraphicsContext* context, const AffineTransform& rootToPixels, const IntSize& size, const ScrollGeometries& geometries)
         : m_target(target)
         , m_context(context)
+        , m_rootToPixels(rootToPixels)
+        , m_size(size)
         , m_geometries(geometries)
     {
     }
@@ -119,11 +157,12 @@ public:
         TransformationMatrix parentToRoot;
         if (auto* parent = backdropRoot.parent())
             parentToRoot = layerToRoot(*parent, m_geometries);
-        visit(backdropRoot, parentToRoot, clip, 1, true);
+        visit(backdropRoot, parentToRoot, clip, FloatRect::infiniteRect(), 1, true);
     }
 
-    const Vector<FloatRect>& unknownRegions() const { return m_unknownRegions; }
+    const Vector<FloatRect>& unknownRegions() const LIFETIME_BOUND { return m_unknownRegions; }
     bool foundChanges() const { return m_foundChanges; }
+    bool foundPlayingAnimation() const { return m_foundPlayingAnimation; }
     Vector<BackdropSampler::Source> takeSources() { return WTF::move(m_sources); }
 
 private:
@@ -142,7 +181,7 @@ private:
             if (auto identifier = layer.primaryLayerID())
                 m_sources.append(source(layer, *identifier, toRoot, bounds, opacity, true));
         }
-        for (auto& child : layer.children()) {
+        for (auto& child : shownChildren(layer)) {
             TransformationMatrix childToRoot = toRoot;
             childToRoot.multiply(layerToParent(child, m_geometries));
             covered.unite(coverUnrendered(child, childToRoot, opacity * child->opacity()));
@@ -150,33 +189,58 @@ private:
         return covered;
     }
 
-    void visit(const GraphicsLayer& layer, const TransformationMatrix& parentToRoot, FloatRect clip, float opacity, bool isBackdropRoot)
+    // `clip` is where the layer's painting reaches the sample, within `masks`, its ancestors' clips.
+    void visit(const GraphicsLayer& layer, const TransformationMatrix& parentToRoot, FloatRect clip, FloatRect masks, float opacity, bool isBackdropRoot)
     {
         if (&layer == &m_target) {
             m_reachedTarget = true;
             return;
         }
-        // The backdrop sees a backdrop root's content before the root's own opacity, blend mode, filters and
-        // mask apply.
-        float layerOpacity = isBackdropRoot ? 1 : layer.opacity();
-        if (layerOpacity <= 0)
-            return;
-        opacity *= layerOpacity;
-
         TransformationMatrix toRoot = parentToRoot;
         if (layer.parent())
             toRoot.multiply(layerToParent(layer, m_geometries));
         FloatRect bounds { layerBoundsOrigin(layer, m_geometries), layerSize(layer, m_geometries) };
-        if (layer.masksToBounds()) {
-            clip.intersect(toRoot.mapRect(bounds));
-            if (clip.isEmpty())
-                return;
+        if (!m_context && !isBackdropRoot && layer.playsOpacityOrTransformAnimation())
+            noteAnimation(layer, parentToRoot, toRoot, clip);
+
+        // The backdrop sees a backdrop root's content before the root's own opacity, blend mode, filters and
+        // mask apply.
+        float layerOpacity = 1;
+        if (!isBackdropRoot) {
+            layerOpacity = layer.opacity();
+            if (layer.animatesOpacity())
+                layer.client().getCurrentOpacity(&layer, layerOpacity);
         }
+        if (layerOpacity <= 0)
+            return;
+        opacity *= layerOpacity;
+        std::optional<FloatRect> ownMask;
+        if (layer.masksToBounds())
+            ownMask = toRoot.mapRect(bounds);
         if (!isBackdropRoot && hasUnrenderedEffects(layer)) {
-            auto covered = intersection(coverUnrendered(layer, toRoot, opacity), clip);
+            auto covered = intersection(coverUnrendered(layer, toRoot, opacity), ownMask ? intersection(clip, *ownMask) : clip);
             if (m_context)
                 m_unknownRegions.append(covered);
             return;
+        }
+
+        // Content up to three standard deviations of a layer's blur outside the sample reaches into it.
+        if (float deviation = isBackdropRoot ? 0 : blurDeviation(layer.filters()); deviation > 0) {
+            auto layerToRoot = toRoot.toAffineTransform();
+            auto reach = clip;
+            reach.inflate(3 * deviation * std::max(layerToRoot.xScale(), layerToRoot.yScale()));
+            reach.intersect(masks);
+            if (m_context) {
+                paintBlurred(layer, parentToRoot, toRoot, clip, reach, masks, opacity, layerOpacity, deviation);
+                return;
+            }
+            clip = reach;
+        }
+        if (ownMask) {
+            clip.intersect(*ownMask);
+            masks.intersect(*ownMask);
+            if (clip.isEmpty())
+                return;
         }
 
         std::optional<FloatRect> localClip;
@@ -190,8 +254,8 @@ private:
                 m_sources.append(source(layer, *identifier, toRoot, bounds, opacity, false));
                 m_foundChanges = m_foundChanges || (layer.contentsAreVisible() && layer.hasUncommittedContentChanges(*localClip));
             }
-            for (auto& child : layer.children()) {
-                visit(child, toRoot, clip, opacity, false);
+            for (auto& child : shownChildren(layer)) {
+                visit(child, toRoot, clip, masks, opacity, false);
                 if (m_reachedTarget)
                     return;
             }
@@ -201,13 +265,13 @@ private:
         auto& context = *m_context;
         bool blends = !isBackdropRoot && layer.blendMode() != BlendMode::Normal;
         bool drawsOwnContent = localClip && layer.contentsAreVisible();
-        bool drawsOnePrimitive = layer.children().isEmpty() && !layer.drawsContent() && layer.backgroundColor().isVisible() != layer.usesContentsLayer();
+        bool drawsOnePrimitive = shownChildren(layer).isEmpty() && !layer.drawsContent() && layer.backgroundColor().isVisible() != layer.usesContentsLayer();
         bool groups = (blends || layerOpacity < 1) && !drawsOnePrimitive;
         std::optional<GraphicsContextStateSaver> groupSaver;
         if (groups) {
             // Core Graphics sizes a transparency layer to the clip.
             groupSaver.emplace(context);
-            context.clip(layer.children().isEmpty() ? intersection(toRoot.mapRect(bounds), clip) : clip);
+            context.clip(shownChildren(layer).isEmpty() ? intersection(toRoot.mapRect(bounds), clip) : clip);
             if (blends)
                 context.beginTransparencyLayer(CompositeOperator::SourceOver, layer.blendMode());
             if (layerOpacity < 1)
@@ -228,11 +292,11 @@ private:
             if (layer.drawsContent())
                 layer.paintGraphicsLayerContents(context, *localClip, GraphicsLayerPaintBehavior::DefaultAsynchronousImageDecode);
             if (!layer.paintContentsLayerForBackdropSampling(context))
-                m_unknownRegions.append(intersection(toRoot.mapRect(layer.contentsRect()), clip));
+                m_unknownRegions.append(intersection(toRoot.mapRect(intersection(layer.contentsRect(), layer.contentsClippingRect().rect())), clip));
         }
 
-        for (auto& child : layer.children()) {
-            visit(child, toRoot, clip, opacity, false);
+        for (auto& child : shownChildren(layer)) {
+            visit(child, toRoot, clip, masks, opacity, false);
             if (m_reachedTarget)
                 break;
         }
@@ -245,26 +309,122 @@ private:
         }
     }
 
+    // The bounds of a layer and its sublayers, in root coordinates.
+    FloatRect subtreeBounds(const GraphicsLayer& layer, const TransformationMatrix& toRoot)
+    {
+        FloatRect bounds = toRoot.mapRect(FloatRect { layerBoundsOrigin(layer, m_geometries), layerSize(layer, m_geometries) });
+        for (auto& child : shownChildren(layer)) {
+            TransformationMatrix childToRoot = toRoot;
+            childToRoot.multiply(layerToParent(child, m_geometries));
+            bounds.unite(subtreeBounds(child, childToRoot));
+        }
+        return bounds;
+    }
+
+    // A playing animation reaches the sample when what it changes does: the bounds the layer and its sublayers
+    // sweep, or for an opacity animation its subtree, grown by the reach of the layer's blur.
+    void noteAnimation(const GraphicsLayer& layer, const TransformationMatrix& parentToRoot, const TransformationMatrix& toRoot, const FloatRect& clip)
+    {
+        FloatRect reached = subtreeBounds(layer, toRoot);
+        if (auto extent = layer.animationExtent()) {
+            TransformationMatrix extentToRoot = parentToRoot;
+            extentToRoot.multiply(layerToParent(layer, m_geometries, false));
+            reached.unite(extentToRoot.mapRect(*extent));
+        }
+        if (float deviation = blurDeviation(layer.filters()); deviation > 0) {
+            auto layerToRoot = toRoot.toAffineTransform();
+            reached.inflate(3 * deviation * std::max(layerToRoot.xScale(), layerToRoot.yScale()));
+        }
+        m_foundPlayingAnimation = m_foundPlayingAnimation || reached.intersects(clip);
+    }
+
+    // Paints a layer with blur filters, without its effects as a backdrop root paints, within `reach` into a
+    // buffer of its own that extends the sample by the blur's reach. It blurs that at the sample's scale and
+    // composites it within `clip` with the layer's opacity and blend mode.
+    void paintBlurred(const GraphicsLayer& layer, const TransformationMatrix& parentToRoot, const TransformationMatrix& toRoot, const FloatRect& clip, const FloatRect& reach, const FloatRect& masks, float opacity, float layerOpacity, float deviation)
+    {
+        auto& context = *m_context;
+        auto pixelsToRoot = m_rootToPixels.inverse();
+        if (!pixelsToRoot)
+            return;
+        auto layerToPixels = m_rootToPixels * toRoot.toAffineTransform();
+        FloatSize pixelDeviation { deviation * static_cast<float>(layerToPixels.xScale()), deviation * static_cast<float>(layerToPixels.yScale()) };
+        int margin = std::ceil(3 * std::max(pixelDeviation.width(), pixelDeviation.height()));
+        IntSize size = m_size + IntSize { 2 * margin, 2 * margin };
+        RefPtr buffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+        if (!buffer)
+            return;
+        AffineTransform rootToLayerPixels;
+        rootToLayerPixels.translate(margin, margin);
+        rootToLayerPixels.multiply(m_rootToPixels);
+        auto& layerContext = buffer->context();
+        layerContext.setImageInterpolationQuality(context.imageInterpolationQuality());
+        layerContext.concatCTM(rootToLayerPixels);
+        {
+            SetForScope contextScope(m_context, &layerContext);
+            SetForScope transformScope(m_rootToPixels, rootToLayerPixels);
+            SetForScope sizeScope(m_size, size);
+            visit(layer, parentToRoot, reach, masks, opacity, true);
+        }
+
+        Vector<Ref<FilterFunction>> functions;
+        functions.append(FEGaussianBlur::create(pixelDeviation.width(), pixelDeviation.height(), EdgeModeType::None));
+        FloatRect region { { }, size };
+        auto filter = CSSFilterRenderer::create(WTF::move(functions), FilterGeometry { region, region, { 1, 1 } }, FilterRenderingMode::Software, { });
+        FilterResults results;
+        GraphicsContextStateSaver saver(context);
+        context.clip(clip);
+        context.concatCTM(*pixelsToRoot);
+        context.translate(-margin, -margin);
+        context.setAlpha(layerOpacity);
+        context.setCompositeOperation(CompositeOperator::SourceOver, layer.blendMode());
+        context.drawFilteredImageBuffer(buffer.get(), region, filter, results);
+    }
+
     const GraphicsLayer& m_target;
     GraphicsContext* m_context;
+    AffineTransform m_rootToPixels;
+    IntSize m_size;
     const ScrollGeometries& m_geometries;
     Vector<FloatRect> m_unknownRegions;
     Vector<BackdropSampler::Source> m_sources;
     bool m_reachedTarget { false };
     bool m_foundChanges { false };
+    bool m_foundPlayingAnimation { false };
 };
 
 }
 
-void BackdropSampler::sampleBackdrop(GraphicsLayer& root, GraphicsLayer& target, const FloatRect& visibleRect, const Color& viewBackground, const ScrollGeometries& geometries, HashMap<PlatformLayerIdentifier, Inputs>& inputs)
+BackdropSampler::BackdropSampler(Function<void()>&& scheduleRenderingUpdate)
+    : m_scheduleRenderingUpdate(WTF::move(scheduleRenderingUpdate))
+    , m_timer([this] { m_scheduleRenderingUpdate(); })
+{
+}
+
+void BackdropSampler::sampleBackdrop(GraphicsLayer& root, GraphicsLayer& target, const FloatRect& visibleRect, const Color& viewBackground, const ScrollGeometries& geometries, HashMap<PlatformLayerIdentifier, State>& states)
 {
     auto targetIdentifier = target.primaryLayerID();
     if (!targetIdentifier)
         return;
 
-    auto rect = layerToRoot(target, geometries).mapRect(target.backdropFiltersRect().rect());
-    if (rect.isEmpty())
+    // The image is painted in the backdrop layer's coordinates. A backdrop without a blur shows its fill.
+    auto backdropRect = target.backdropFiltersRect().rect();
+    FloatRect bounds { { }, backdropRect.size() };
+    auto backdropToRoot = layerToRoot(target, geometries);
+    backdropToRoot.translate(backdropRect.x(), backdropRect.y());
+    auto rootToBackdrop = backdropToRoot.inverse();
+    // The image holds what the smallest blur the chain animates through shows, and reaches as far as its largest.
+    float minimumDeviation = blurDeviation(target.backdropFilters()), maximumDeviation = minimumDeviation;
+    for (auto& keyframe : target.backdropFilterAnimationKeyframes()) {
+        float deviation = blurDeviation(keyframe);
+        minimumDeviation = std::min(minimumDeviation, deviation);
+        maximumDeviation = std::max(maximumDeviation, deviation);
+    }
+    auto rect = backdropToRoot.mapRect(bounds);
+    if (rect.isEmpty() || !rootToBackdrop || maximumDeviation < minimumSampledDeviation) {
+        target.setBackdropSample(nullptr, { });
         return;
+    }
 
     // A backdrop sees up to its nearest backdrop-root ancestor, clipped as that ancestor is and to the view.
     GraphicsLayer* backdropRoot = &root;
@@ -281,77 +441,103 @@ void BackdropSampler::sampleBackdrop(GraphicsLayer& root, GraphicsLayer& target,
     }
     Color base = backdropRoot == &root ? viewBackground : Color::transparentBlack;
 
-    // The samples change only when what they are painted from does.
-    BeneathPainter finder(target, nullptr, geometries);
+    // The image changes only when what it is painted from does.
+    BeneathPainter finder(target, nullptr, { }, { }, geometries);
     if (!clip.isEmpty())
         finder.paint(*backdropRoot, clip);
-    Inputs current { rect, clip, backdropRoot->primaryLayerID(), base, finder.takeSources() };
-    auto previous = m_inputs.find(*targetIdentifier);
-    bool changed = finder.foundChanges() || previous == m_inputs.end() || previous->value != current;
-    inputs.set(*targetIdentifier, WTF::move(current));
+    Inputs current { backdropToRoot, bounds.size(), minimumDeviation, maximumDeviation, clip, backdropRoot->primaryLayerID(), base, finder.takeSources() };
+    auto previous = m_states.find(*targetIdentifier);
+    bool changed = finder.foundChanges() || previous == m_states.end() || previous->value.pending || *previous->value.inputs != current;
+    State state { makeUnique<Inputs>(WTF::move(current)), previous == m_states.end() ? MonotonicTime { } : previous->value.painted };
+    auto now = MonotonicTime::now();
+    if (changed) {
+        if (auto wait = state.painted + minimumPaintInterval - now; wait > 0_s) {
+            state.pending = true;
+            changed = false;
+            if (!m_timer.isActive() || m_timer.nextFireInterval() > wait)
+                m_timer.startOneShot(wait);
+        } else
+            state.painted = now;
+    }
+    // Core Animation changes a layer whose opacity or transform animation plays without a rendering update, so
+    // while one reaches the sample, or moves the backdrop, the sampler looks again each interval.
+    bool animationPlays = finder.foundPlayingAnimation();
+    for (auto* layer = &target; layer && !animationPlays; layer = layer->parent())
+        animationPlays = layer->playsOpacityOrTransformAnimation();
+    if (animationPlays && !m_timer.isActive())
+        m_timer.startOneShot(minimumPaintInterval);
+    states.set(*targetIdentifier, WTF::move(state));
     if (!changed)
         return;
 
-    float scale = sampleResolution / std::max(rect.width(), rect.height());
-    IntSize size { std::max(1, static_cast<int>(std::ceil(rect.width() * scale))), std::max(1, static_cast<int>(std::ceil(rect.height() * scale))) };
+    // The image covers what the view shows of the backdrop and the blur's reach around it. A backdrop the view
+    // does not show keeps its image.
+    auto visible = intersection(rootToBackdrop->mapRect(clip), bounds);
+    if (visible.isEmpty())
+        return;
+    auto sampleRect = visible;
+    sampleRect.inflate(3 * maximumDeviation);
+    sampleRect.intersect(bounds);
+    float scale = std::min({ 1.f, maximumSampleLength / std::max(sampleRect.width(), sampleRect.height()) });
+    if (minimumDeviation > 0)
+        scale = std::min(scale, pixelsPerDeviation / minimumDeviation);
+    IntSize size { std::max(1, static_cast<int>(std::ceil(sampleRect.width() * scale))), std::max(1, static_cast<int>(std::ceil(sampleRect.height() * scale))) };
+    sampleRect.setSize(FloatSize { size } / scale);
     RefPtr buffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
         return;
     auto& context = buffer->context();
-    // An average needs no high-quality resampling of the images painted into it. Only the backdrop's visible
-    // part has content, so the rest of the sample stays transparent and carries no weight.
+    // The blur hides the difference high-quality resampling of the images painted into it would make.
     context.setImageInterpolationQuality(InterpolationQuality::Low);
-    context.scale(scale);
-    context.translate(-rect.x(), -rect.y());
+    AffineTransform rootToPixels;
+    rootToPixels.scale(scale);
+    rootToPixels.translate(-sampleRect.x(), -sampleRect.y());
+    rootToPixels.multiply(rootToBackdrop->toAffineTransform());
+    context.concatCTM(rootToPixels);
     context.fillRect(clip, base);
-    BeneathPainter painter(target, &context, geometries);
-    if (!clip.isEmpty())
-        painter.paint(*backdropRoot, clip);
+    BeneathPainter painter(target, &context, rootToPixels, size, geometries);
+    painter.paint(*backdropRoot, clip);
+    for (auto& region : painter.unknownRegions())
+        context.clearRect(region);
 
-    RefPtr pixels = buffer->getPixelBuffer({ AlphaPremultiplication::Premultiplied, PixelFormat::RGBA8, DestinationColorSpace::SRGB() }, IntRect { { }, size });
-    if (!pixels)
-        return;
-
-    bool vertical = size.height() > size.width();
-    int along = vertical ? size.height() : size.width(), across = vertical ? size.width() : size.height();
-    unsigned bands = std::clamp<unsigned>(std::round(static_cast<float>(along) / across), 1, maximumBands);
-    Vector<std::optional<Color>> colors;
-    for (unsigned band = 0; band < bands; ++band) {
-        int start = along * band / bands, end = std::max(start + 1, static_cast<int>(along * (band + 1) / bands));
-        FloatRect bandRect = vertical
-            ? FloatRect { rect.x(), rect.y() + start / scale, rect.width(), (end - start) / scale }
-            : FloatRect { rect.x() + start / scale, rect.y(), (end - start) / scale, rect.height() };
-        if (std::ranges::any_of(painter.unknownRegions(), [&](auto& region) { return region.intersects(bandRect); })) {
-            colors.append(std::nullopt);
-            continue;
-        }
-        // Coverage counts the visible pixels only.
-        double sum[4] = { 0, 0, 0, 0 }, count = 0;
-        for (int a = start; a < end; ++a) {
-            for (int c = 0; c < across; ++c) {
-                int x = vertical ? c : a, y = vertical ? a : c;
-                if (!clip.contains(FloatPoint { rect.x() + (x + .5f) / scale, rect.y() + (y + .5f) / scale }))
-                    continue;
-                ++count;
-                size_t offset = (static_cast<size_t>(y) * size.width() + x) * 4;
-                for (int i = 0; i < 4; ++i)
-                    sum[i] += pixels->item(offset + i);
+    // Beyond what the view shows, the image repeats the pixels at its edge, as the blur clamps at the view's.
+    auto pixel = [&](float coordinate, float origin) {
+        return (coordinate - origin) * scale;
+    };
+    int left = std::clamp(static_cast<int>(std::ceil(pixel(visible.x(), sampleRect.x()))), 0, size.width() - 1);
+    int top = std::clamp(static_cast<int>(std::ceil(pixel(visible.y(), sampleRect.y()))), 0, size.height() - 1);
+    int right = std::clamp(static_cast<int>(std::floor(pixel(visible.maxX(), sampleRect.x()))), left + 1, size.width());
+    int bottom = std::clamp(static_cast<int>(std::floor(pixel(visible.maxY(), sampleRect.y()))), top + 1, size.height());
+    if (left || top || right < size.width() || bottom < size.height()) {
+        IntRect whole { { }, size };
+        RefPtr pixels = buffer->getPixelBuffer({ AlphaPremultiplication::Premultiplied, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, whole);
+        if (!pixels)
+            return;
+        auto bytes = pixels->bytes();
+        for (int y = 0; y < size.height(); ++y) {
+            int sourceY = std::clamp(y, top, bottom - 1);
+            for (int x = 0; x < size.width(); ++x) {
+                int sourceX = std::clamp(x, left, right - 1);
+                if (sourceX != x || sourceY != y)
+                    memcpySpan(bytes.subspan((static_cast<size_t>(y) * size.width() + x) * 4, 4), bytes.subspan((static_cast<size_t>(sourceY) * size.width() + sourceX) * 4, 4));
             }
         }
-        auto channel = [&](int i) {
-            return static_cast<uint8_t>(std::lround(sum[3] > 0 ? 255 * sum[i] / sum[3] : 0));
-        };
-        colors.append(Color { SRGBA<uint8_t> { channel(0), channel(1), channel(2), static_cast<uint8_t>(count ? std::lround(sum[3] / count) : 0) } });
+        buffer->putPixelBuffer(*pixels, whole);
     }
-    target.setBackdropSamples(WTF::move(colors), vertical);
+
+    if (RefPtr image = ImageBuffer::sinkIntoNativeImage(WTF::move(buffer)))
+        target.setBackdropSample(WTF::move(image), sampleRect);
 }
 
-// A layer whose contents are not visible hides its backdrop layer.
+// A layer whose contents are not visible hides its backdrop layer, and a transparent layer whose opacity does not
+// animate hides its subtree.
 static void collectBackdropLayers(GraphicsLayer& layer, Vector<Ref<GraphicsLayer>>& layers)
 {
+    if (layer.opacity() <= 0 && !layer.animatesOpacity())
+        return;
     if (!layer.backdropFilters().isEmpty() && layer.contentsAreVisible())
         layers.append(layer);
-    for (auto& child : layer.children())
+    for (auto& child : shownChildren(layer))
         collectBackdropLayers(child, layers);
 }
 
@@ -359,13 +545,13 @@ void BackdropSampler::sample(GraphicsLayer& root, const FloatRect& visibleRect, 
 {
     Vector<Ref<GraphicsLayer>> layers;
     collectBackdropLayers(root, layers);
-    HashMap<PlatformLayerIdentifier, Inputs> inputs;
+    HashMap<PlatformLayerIdentifier, State> states;
     if (!layers.isEmpty()) {
         auto geometries = scrollGeometries();
         for (auto& layer : layers)
-            sampleBackdrop(root, layer, visibleRect, viewBackground, geometries, inputs);
+            sampleBackdrop(root, layer, visibleRect, viewBackground, geometries, states);
     }
-    m_inputs = WTF::move(inputs);
+    m_states = WTF::move(states);
 }
 
 }

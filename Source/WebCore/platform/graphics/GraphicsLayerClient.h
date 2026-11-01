@@ -101,6 +101,9 @@ public:
     // Provides current transform (taking transform-origin and animations into account). Input matrix has been
     // initialized to identity already. Returns false if the layer has no transform.
     virtual bool getCurrentTransform(const GraphicsLayer*, TransformationMatrix&) const { return false; }
+    // AQUAWEBKIT: the opacity, with animations, the layer's opacity is set from. Returns false if the client does
+    // not set it.
+    virtual bool getCurrentOpacity(const GraphicsLayer*, float&) const { return false; }
 
     // Allows the client to modify a layer position used during the visibleRect calculation, for example to ignore
     // scroll overhang.

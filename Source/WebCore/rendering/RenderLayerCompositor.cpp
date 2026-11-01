@@ -837,7 +837,7 @@ void RenderLayerCompositor::flushPendingLayerChanges(bool isFlushRoot)
             // which AsyncScrollingCoordinator::reconcileScrollingState and
             // RenderLayerBacking::setLocationOfScrolledContents apply to their GraphicsLayers only afterwards.
             if (!m_backdropSampler)
-                m_backdropSampler = makeUnique<BackdropSampler>();
+                m_backdropSampler = makeUnique<BackdropSampler>([this] { scheduleRenderingUpdate(); });
             m_backdropSampler->sample(*rootLayer, visibleRectForLayerFlushing(), m_renderView.frameView().baseBackgroundColor(), [&] {
                 BackdropSampler::ScrollGeometries geometries;
                 Ref frameView = m_renderView.frameView();

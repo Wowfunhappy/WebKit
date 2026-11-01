@@ -4,6 +4,7 @@
 #include "FloatRect.h"
 #include "GraphicsTypes.h"
 #include "PlatformLayerIdentifier.h"
+#include "Timer.h"
 #include "TransformationMatrix.h"
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
@@ -14,11 +15,15 @@ namespace WebCore {
 
 class GraphicsLayer;
 
-// Gives each displayed layer with backdrop filters under a root the average colours of the content painted
-// beneath its backdrop rect, up to its backdrop root, and repaints them only when that content changes.
+// Gives each displayed layer with blurring backdrop filters under a root an image of the content painted beneath
+// its backdrop rect, up to its backdrop root, and repaints it when that content changes, at most once per 100 ms.
+// A change within that time of the last image is painted once it has passed, in a rendering update the sampler
+// schedules.
 class BackdropSampler {
     WTF_MAKE_TZONE_ALLOCATED(BackdropSampler);
 public:
+    explicit BackdropSampler(Function<void()>&& scheduleRenderingUpdate);
+
     // Where scrolled layers sit at the scroll positions being committed, overriding their GraphicsLayers.
     struct ScrollGeometry {
         std::optional<FloatPoint> position;
@@ -44,9 +49,13 @@ public:
         friend bool operator==(const Source&, const Source&) = default;
     };
 
-    // Everything a backdrop's samples are painted from.
+    // Everything a backdrop's image is painted from.
     struct Inputs {
-        FloatRect rect;
+        WTF_MAKE_STRUCT_TZONE_ALLOCATED(Inputs);
+        TransformationMatrix backdropToRoot;
+        FloatSize size;
+        float minimumDeviation;
+        float maximumDeviation;
         FloatRect clip;
         std::optional<PlatformLayerIdentifier> backdropRoot;
         Color viewBackground;
@@ -55,9 +64,17 @@ public:
     };
 
 private:
-    void sampleBackdrop(GraphicsLayer& root, GraphicsLayer& target, const FloatRect& visibleRect, const Color& viewBackground, const ScrollGeometries&, HashMap<PlatformLayerIdentifier, Inputs>&);
+    struct State {
+        std::unique_ptr<Inputs> inputs;
+        MonotonicTime painted;
+        bool pending { false };
+    };
 
-    HashMap<PlatformLayerIdentifier, Inputs> m_inputs;
+    void sampleBackdrop(GraphicsLayer& root, GraphicsLayer& target, const FloatRect& visibleRect, const Color& viewBackground, const ScrollGeometries&, HashMap<PlatformLayerIdentifier, State>&);
+
+    HashMap<PlatformLayerIdentifier, State> m_states;
+    Function<void()> m_scheduleRenderingUpdate;
+    Timer m_timer;
 };
 
 }
