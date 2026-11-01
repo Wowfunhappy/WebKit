@@ -218,6 +218,7 @@ public:
     virtual void setIsBackdropRoot(bool) = 0;
     virtual bool backdropRootIsOpaque() const = 0;
     virtual void setBackdropRootIsOpaque(bool) = 0;
+    virtual void setBackdropSamples(const Vector<std::optional<Color>>&, bool /* vertical */) { } // AQUAWEBKIT: see GraphicsLayer.
 
     virtual bool isHidden() const = 0;
     virtual void setHidden(bool) = 0;

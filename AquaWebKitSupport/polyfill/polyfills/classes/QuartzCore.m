@@ -65,16 +65,18 @@ static void backdropApply3x3(double pixel[4], const double m[9])
 }
 
 // One device-space pixel (unpremultiplied, unclamped between filters) through one filter, as 10.9's compositor
-// computes it, including its defaults for unset inputs. A blur stands in as a darkening of 25% * r^2 / (r^2 + 1).
-static void backdropApplyFilter(CAFilter *filter, double pixel[4])
+// computes it, including its defaults for unset inputs. A blur of radius r stands in as a move of
+// r^2 / (r^2 + 1) of the way to the backdrop's average colour, weighted by how much of the backdrop that colour
+// covers, when the caller supplies it, and otherwise as a darkening of 25% * r^2 / (r^2 + 1).
+static void backdropApplyFilter(CAFilter *filter, double pixel[4], const double *backdrop)
 {
     NSString *type = [filter type];
     double luma = backdropPixelLuma(pixel), color[4];
     if ([type isEqualToString:@"gaussianBlur"]) {
         double radius = fmax(backdropNumber(filter, @"inputRadius", 0), 0);
-        double scale = 1 - .25 * radius * radius / (radius * radius + 1);
+        double strength = radius * radius / (radius * radius + 1);
         for (int i = 0; i < 3; ++i)
-            pixel[i] *= scale;
+            pixel[i] = backdrop ? pixel[i] + (backdrop[i] - pixel[i]) * strength * backdrop[3] : pixel[i] * (1 - .25 * strength);
     } else if ([type isEqualToString:@"colorMatrix"]) {
         float m[20];
         if (!backdropMatrix([filter valueForKey:@"inputColorMatrix"], m))
@@ -143,12 +145,12 @@ static void backdropApplyFilter(CAFilter *filter, double pixel[4])
 }
 
 // The chain's output for a uniform grey backdrop x, composited over that backdrop.
-static void backdropChainOutput(NSArray *filters, double x, double out[3])
+static void backdropChainOutput(NSArray *filters, double x, const double *backdrop, double out[3])
 {
     double pixel[4] = { x, x, x, 1 };
     for (CAFilter *filter in filters) {
         if ([filter isKindOfClass:NSClassFromString(@"CAFilter")] && [filter isEnabled])
-            backdropApplyFilter(filter, pixel);
+            backdropApplyFilter(filter, pixel, backdrop);
     }
     double alpha = fmin(fmax(pixel[3], 0), 1);
     for (int i = 0; i < 3; ++i)
@@ -157,12 +159,12 @@ static void backdropChainOutput(NSArray *filters, double x, double out[3])
 
 // A translucent fill maps each channel x to x * (1 - alpha) + color * alpha. When the chain's output on black,
 // mid-grey and white is such a map, the fill reproduces it; otherwise the fill matches the chain at mid-grey.
-static BOOL backdropFillColor(NSArray *filters, double rgba[4])
+static BOOL backdropFillColor(NSArray *filters, const double *backdrop, double rgba[4])
 {
     double black[3], middle[3], white[3];
-    backdropChainOutput(filters, 0, black);
-    backdropChainOutput(filters, .5, middle);
-    backdropChainOutput(filters, 1, white);
+    backdropChainOutput(filters, 0, backdrop, black);
+    backdropChainOutput(filters, .5, backdrop, middle);
+    backdropChainOutput(filters, 1, backdrop, white);
     double scale = white[0] - black[0];
     BOOL exact = scale >= 0 && scale <= 1;
     for (int i = 0; i < 3; ++i) {
@@ -183,18 +185,46 @@ static BOOL backdropFillColor(NSArray *filters, double rgba[4])
     return rgba[3] > 0;
 }
 
-// A layer with filters keeps a colour pair even when it draws nothing, so 10.9 renders `colors` animations on it.
-static CGColorRef backdropCreateFill(NSArray *filters)
+// The backdrop's average colours, in bands along its longer side, as WebKit samples the content beneath it.
+// Alpha is how much of the band that content covers; an unknown band has no colour.
+enum { backdropMaximumBands = 8 };
+
+typedef struct {
+    unsigned count;
+    BOOL vertical;
+    BOOL known[backdropMaximumBands];
+    double rgba[backdropMaximumBands][4];
+} BackdropBands;
+
+typedef struct {
+    double time;
+    double rgba[backdropMaximumBands][4];
+} BackdropSample;
+
+// One fill colour per band; without bands, one fill for an unknown backdrop.
+static void backdropFillColors(NSArray *filters, const BackdropBands *bands, double rgba[backdropMaximumBands][4])
 {
-    double rgba[4] = { 0, 0, 0, 0 };
-    if (!filters.count)
-        return NULL;
-    backdropFillColor(filters, rgba);
+    if (!bands->count) {
+        backdropFillColor(filters, NULL, rgba[0]);
+        return;
+    }
+    for (unsigned band = 0; band < bands->count; ++band)
+        backdropFillColor(filters, bands->known[band] ? bands->rgba[band] : NULL, rgba[band]);
+}
+
+static NSArray *backdropColorArray(const double rgba[backdropMaximumBands][4], unsigned bands)
+{
+    NSMutableArray *colors = [NSMutableArray arrayWithCapacity:MAX(bands, 2u)];
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-    CGFloat components[4] = { rgba[0], rgba[1], rgba[2], rgba[3] };
-    CGColorRef color = CGColorCreate(space, components);
+    for (unsigned band = 0; band < MAX(bands, 2u); ++band) {
+        const double *fill = rgba[MIN(band, bands - 1)];
+        CGFloat components[4] = { fill[0], fill[1], fill[2], fill[3] };
+        CGColorRef color = CGColorCreate(space, components);
+        [colors addObject:(id)color];
+        CGColorRelease(color);
+    }
     CGColorSpaceRelease(space);
-    return color;
+    return colors;
 }
 
 static NSString * const backdropFillAnimationKey = @"wkBackdropFill";
@@ -205,19 +235,16 @@ static NSString * const backdropFillTailKey = @"wkBackdropFillTail";
 static const double backdropSampleTolerance = .5 / 255;
 static const double backdropSampleResolution = .001;
 
-typedef struct {
-    double time;
-    double rgba[4];
-} BackdropSample;
-
 static BOOL backdropSamplesClose(const BackdropSample *expected, const BackdropSample *start, const BackdropSample *end)
 {
     double fraction = end->time > start->time ? (expected->time - start->time) / (end->time - start->time) : 0;
-    for (int i = 0; i < 4; ++i) {
-        double a = start->rgba[i] * (i < 3 ? start->rgba[3] : 1), b = end->rgba[i] * (i < 3 ? end->rgba[3] : 1);
-        double actual = expected->rgba[i] * (i < 3 ? expected->rgba[3] : 1);
-        if (fabs(a + (b - a) * fraction - actual) > backdropSampleTolerance)
-            return NO;
+    for (unsigned band = 0; band < backdropMaximumBands; ++band) {
+        const double *from = start->rgba[band], *to = end->rgba[band], *at = expected->rgba[band];
+        for (int i = 0; i < 4; ++i) {
+            double a = from[i] * (i < 3 ? from[3] : 1), b = to[i] * (i < 3 ? to[3] : 1);
+            if (fabs(a + (b - a) * fraction - at[i] * (i < 3 ? at[3] : 1)) > backdropSampleTolerance)
+                return NO;
+        }
     }
     return YES;
 }
@@ -409,44 +436,85 @@ static double backdropLocalTimeForProgress(CAMediaTimingFunction *function, doub
     return (low + high) / 2;
 }
 
-static NSArray *backdropFillValues(NSData *samples, NSArray **keyTimes)
+static NSArray *backdropFillValues(NSData *samples, unsigned bands, NSArray **keyTimes)
 {
     const BackdropSample *sampled = samples.bytes;
     NSUInteger count = samples.length / sizeof(BackdropSample);
     double start = sampled[0].time, length = sampled[count - 1].time - start;
 
     // A sample without fill carries the next filled sample's colour at zero alpha, so alpha fades without a hue swing.
-    double carry[3] = { 0, 0, 0 };
-    for (NSUInteger i = count; i-- > 0;) {
-        if (sampled[i].rgba[3] > 0) {
-            memcpy(carry, sampled[i].rgba, sizeof(carry));
-            break;
+    double carry[backdropMaximumBands][3] = { { 0 } };
+    for (unsigned band = 0; band < bands; ++band) {
+        for (NSUInteger i = count; i-- > 0;) {
+            if (sampled[i].rgba[band][3] > 0) {
+                memcpy(carry[band], sampled[i].rgba[band], sizeof(carry[band]));
+                break;
+            }
         }
     }
     NSMutableArray *values = [NSMutableArray arrayWithCapacity:count];
     NSMutableArray *times = [NSMutableArray arrayWithCapacity:count];
-    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     for (NSUInteger i = count; i-- > 0;) {
-        if (sampled[i].rgba[3] > 0)
-            memcpy(carry, sampled[i].rgba, sizeof(carry));
-        CGFloat components[4] = { carry[0], carry[1], carry[2], sampled[i].rgba[3] };
-        CGColorRef color = CGColorCreate(space, components);
-        [values insertObject:@[(id)color, (id)color] atIndex:0];
+        double fills[backdropMaximumBands][4];
+        for (unsigned band = 0; band < bands; ++band) {
+            if (sampled[i].rgba[band][3] > 0)
+                memcpy(carry[band], sampled[i].rgba[band], sizeof(carry[band]));
+            memcpy(fills[band], carry[band], sizeof(carry[band]));
+            fills[band][3] = sampled[i].rgba[band][3];
+        }
+        [values insertObject:backdropColorArray(fills, bands) atIndex:0];
         [times insertObject:@(length > 0 ? (sampled[i].time - start) / length : (double)i / (count - 1)) atIndex:0];
-        CGColorRelease(color);
     }
-    CGColorSpaceRelease(space);
     *keyTimes = times;
     return values;
 }
 
+// Samples archive as device-space components, NSNull for an unknown band; CGColor does not archive.
+static NSDictionary *backdropSamplesArchive(NSDictionary *samples)
+{
+    if (!samples)
+        return nil;
+    NSMutableArray *bands = [NSMutableArray array];
+    for (id color in samples[@"colors"]) {
+        double rgba[4];
+        if (backdropDeviceColor(color, rgba))
+            [bands addObject:@[@(rgba[0]), @(rgba[1]), @(rgba[2]), @(rgba[3])]];
+        else
+            [bands addObject:NSNull.null];
+    }
+    return @{ @"bands": bands, @"vertical": @([samples[@"vertical"] boolValue]) };
+}
+
+static NSDictionary *backdropSamplesFromArchive(NSDictionary *archive)
+{
+    if (!archive)
+        return nil;
+    NSMutableArray *colors = [NSMutableArray array];
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    for (id band in archive[@"bands"]) {
+        if (band == NSNull.null) {
+            [colors addObject:band];
+            continue;
+        }
+        CGFloat components[4] = { [band[0] doubleValue], [band[1] doubleValue], [band[2] doubleValue], [band[3] doubleValue] };
+        CGColorRef color = CGColorCreate(space, components);
+        [colors addObject:(id)color];
+        CGColorRelease(color);
+    }
+    CGColorSpaceRelease(space);
+    return @{ @"colors": colors, @"vertical": archive[@"vertical"] };
+}
+
 WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     NSArray *_backdropFilters;
+    NSDictionary *_backdropSamples;
+    BackdropBands _bands;
     NSMutableArray *_unkeyedFilterAnimations;
     BOOL _fillAnimationNeedsUpdate;
     BOOL _windowServerAware;
 }
 @property(nonatomic) BOOL windowServerAware;
+@property(nonatomic, copy) NSDictionary *aquaWebKitBackdropSamples;
 @end
 
 @implementation CABackdropLayer
@@ -456,7 +524,11 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 {
     if ((self = [super initWithLayer:layer]) && [layer isKindOfClass:[CABackdropLayer class]]) {
         CABackdropLayer *other = layer;
-        _backdropFilters = [other.filters copy];
+        [CATransaction lock];
+        _backdropFilters = [other->_backdropFilters copy];
+        _backdropSamples = [other->_backdropSamples copy];
+        _bands = other->_bands;
+        [CATransaction unlock];
         _windowServerAware = other->_windowServerAware;
     }
     return self;
@@ -465,6 +537,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 - (id)initWithCoder:(NSCoder *)coder
 {
     if ((self = [super initWithCoder:coder])) {
+        self.aquaWebKitBackdropSamples = backdropSamplesFromArchive([coder decodeObjectForKey:@"wkBackdropSamples"]);
         self.filters = [coder decodeObjectForKey:@"wkBackdropFilters"];
         _windowServerAware = [coder decodeBoolForKey:@"wkWindowServerAware"];
     }
@@ -475,12 +548,14 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 {
     [super encodeWithCoder:coder];
     [coder encodeObject:self.filters forKey:@"wkBackdropFilters"];
+    [coder encodeObject:backdropSamplesArchive(self.aquaWebKitBackdropSamples) forKey:@"wkBackdropSamples"];
     [coder encodeBool:_windowServerAware forKey:@"wkWindowServerAware"];
 }
 
 - (void)dealloc
 {
     [_backdropFilters release];
+    [_backdropSamples release];
     [_unkeyedFilterAnimations release];
     [super dealloc];
 }
@@ -493,20 +568,65 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     return filters;
 }
 
+// Every filters, samples and fill change happens under the transaction lock, which also guards
+// initWithLayer:'s reads for presentation copies.
 - (void)setFilters:(NSArray *)filters
 {
     NSArray *copy = [filters copy];
-    CGColorRef color = backdropCreateFill(copy);
     [CATransaction lock];
     [_backdropFilters release];
     _backdropFilters = copy;
+    [self updateFill];
+    [CATransaction unlock];
+}
+
+// WebKit's samples of the content beneath the backdrop: { colors: [CGColor or NSNull], vertical: BOOL }.
+- (NSDictionary *)aquaWebKitBackdropSamples
+{
+    [CATransaction lock];
+    NSDictionary *samples = [[_backdropSamples retain] autorelease];
+    [CATransaction unlock];
+    return samples;
+}
+
+- (void)setAquaWebKitBackdropSamples:(NSDictionary *)samples
+{
+    BackdropBands bands = { 0, [samples[@"vertical"] boolValue], { NO }, { { 0 } } };
+    for (id color in samples[@"colors"]) {
+        if (bands.count == backdropMaximumBands)
+            break;
+        bands.known[bands.count] = backdropDeviceColor(color, bands.rgba[bands.count]);
+        ++bands.count;
+    }
+    NSDictionary *copy = [samples copy];
+    [CATransaction lock];
+    [_backdropSamples release];
+    _backdropSamples = copy;
+    _bands = bands;
+    [self updateFill];
+    [CATransaction unlock];
+}
+
+// A layer with filters keeps its colours even when it draws nothing, so 10.9 renders `colors` animations on it.
+// Called with the transaction lock held.
+- (void)updateFill
+{
+    unsigned bands = MAX(_bands.count, 1u);
+    double fills[backdropMaximumBands][4] = { { 0 } };
+    backdropFillColors(_backdropFilters, &_bands, fills);
+    NSMutableArray *locations = nil;
+    if (bands > 1) {
+        locations = [NSMutableArray arrayWithCapacity:bands];
+        for (unsigned band = 0; band < bands; ++band)
+            [locations addObject:@((band + .5) / bands)];
+    }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    [super setColors:color ? @[(id)color, (id)color] : nil];
+    [super setColors:_backdropFilters.count ? backdropColorArray(fills, bands) : nil];
+    [super setLocations:locations];
+    [super setStartPoint:_bands.vertical ? CGPointMake(.5, 0) : CGPointMake(0, .5)];
+    [super setEndPoint:_bands.vertical ? CGPointMake(.5, 1) : CGPointMake(1, .5)];
     [CATransaction commit];
-    [CATransaction unlock];
-    if (color)
-        CGColorRelease(color);
     [self setNeedsFillAnimation];
 }
 
@@ -569,7 +689,11 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 
     CALayer *modelZero = [CALayer layer], *modelOne = [CALayer layer], *standIn = [CALayer layer], *sample = [CALayer layer];
     modelOne.zPosition = 1;
-    NSArray *modelFilters = self.filters;
+    [CATransaction lock];
+    NSArray *modelFilters = [[_backdropFilters retain] autorelease];
+    BackdropBands bands = _bands;
+    [CATransaction unlock];
+    unsigned bandCount = MAX(bands.count, 1u);
     NSMutableArray *pristine = [NSMutableArray arrayWithCapacity:modelFilters.count];
     for (id filter in modelFilters)
         [pristine addObject:[[filter copy] autorelease]];
@@ -699,8 +823,8 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
             }
             sample.filters = filters;
         }
-        BackdropSample result = { time, { 0, 0, 0, 0 } };
-        backdropFillColor(sample.filters, result.rgba);
+        BackdropSample result = { time, { { 0 } } };
+        backdropFillColors(sample.filters, &bands, result.rgba);
         return result;
     };
 
@@ -743,7 +867,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     if (periodicTail) {
         NSData *tailSamples = backdropSampleSpan(tailStart, tailStart + tailLength, anchors, evaluate);
         CAKeyframeAnimation *tail = [CAKeyframeAnimation animationWithKeyPath:@"colors"];
-        tail.values = backdropFillValues(tailSamples, &keyTimes);
+        tail.values = backdropFillValues(tailSamples, bandCount, &keyTimes);
         tail.keyTimes = keyTimes;
         tail.beginTime = uncommitted ? 0 : tailStart;
         tail.timeOffset = uncommitted ? fmod(tailLength - fmod(tailStart, tailLength), tailLength) : 0;
@@ -754,7 +878,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     double end = fmax(tailStart, start + backdropSampleResolution);
     NSData *samples = backdropSampleSpan(start, end, anchors, evaluate);
     CAKeyframeAnimation *fill = [CAKeyframeAnimation animationWithKeyPath:@"colors"];
-    fill.values = backdropFillValues(samples, &keyTimes);
+    fill.values = backdropFillValues(samples, bandCount, &keyTimes);
     fill.keyTimes = keyTimes;
     fill.beginTime = uncommitted ? 0 : start;
     fill.duration = end - start;

@@ -314,6 +314,12 @@ public:
 
     virtual void setBackdropFiltersRect(const FloatRoundedRect& backdropFiltersRect) { m_backdropFiltersRect = backdropFiltersRect; }
     const FloatRoundedRect& backdropFiltersRect() const LIFETIME_BOUND { return m_backdropFiltersRect; }
+    // AQUAWEBKIT: 10.9's backdrop layer cannot sample the window, so it draws the average colours of the
+    // content WebKit paints beneath it, in bands along its longer side; a band is absent where that content
+    // includes a contents layer, filter or mask the sampler does not render.
+    virtual void setBackdropSamples(Vector<std::optional<Color>>&&, bool /* vertical */) { }
+    virtual bool hasUncommittedContentChanges(const FloatRect&) const { return false; }
+    virtual bool paintContentsLayerForBackdropSampling(GraphicsContext&) const { return !usesContentsLayer(); }
 
     BlendMode blendMode() const { return m_blendMode; }
     virtual void setBlendMode(BlendMode blendMode) { m_blendMode = blendMode; }

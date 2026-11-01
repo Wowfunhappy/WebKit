@@ -46,6 +46,7 @@
 #include "Image.h"
 #include "Logging.h"
 #include "Model.h"
+#include "NativeImage.h" // AQUAWEBKIT: see paintContentsLayerForBackdropSampling.
 #include "PlatformCAAnimationCocoa.h"
 #include "PlatformCAFilters.h"
 #include "PlatformCALayer.h"
@@ -981,6 +982,66 @@ void GraphicsLayerCA::setBackdropFiltersRect(const FloatRoundedRect& backdropFil
 
     GraphicsLayer::setBackdropFiltersRect(backdropFiltersRect);
     noteLayerPropertyChanged(BackdropFiltersRectChanged);
+}
+
+// AQUAWEBKIT: samples arrive during the flush that commits them.
+void GraphicsLayerCA::setBackdropSamples(Vector<std::optional<Color>>&& colors, bool vertical)
+{
+    if (colors == m_backdropSamples && vertical == m_backdropSamplesVertical)
+        return;
+
+    m_backdropSamples = WTF::move(colors);
+    m_backdropSamplesVertical = vertical;
+    noteLayerPropertyChanged(BackdropSamplesChanged, DontScheduleFlush);
+}
+
+// AQUAWEBKIT: whether what this layer draws within `rect`, in its own coordinates, changes in this commit.
+bool GraphicsLayerCA::hasUncommittedContentChanges(const FloatRect& rect) const
+{
+    static constexpr LayerChangeFlags contentChanges = DrawsContentChanged | BackgroundColorChanged | OpacityChanged
+        | ContentsImageChanged | ContentsPlatformLayerChanged | ContentsColorLayerChanged | ContentsRectsChanged
+        | ContentsNeedsDisplay | ContentsVisibilityChanged | FiltersChanged | MaskLayerChanged | BlendModeChanged;
+    if (m_uncommittedChanges & contentChanges)
+        return true;
+    if (!(m_uncommittedChanges & DirtyRectsChanged))
+        return false;
+    return m_needsFullRepaint || std::ranges::any_of(m_dirtyRects, [&](auto& dirtyRect) { return dirtyRect.intersects(rect); });
+}
+
+// AQUAWEBKIT: the solid colours and images the contents layer shows once this commit lands. An image buffer's
+// contents are not drawn here.
+bool GraphicsLayerCA::paintContentsLayerForBackdropSampling(GraphicsContext& context) const
+{
+    switch (m_contentsLayerPurpose) {
+    case ContentsLayerPurpose::None:
+        return true;
+    case ContentsLayerPurpose::BackgroundColor: {
+        GraphicsContextStateSaver saver(context);
+        context.clip(m_contentsClippingRect.rect());
+        context.fillRect(m_contentsRect, m_contentsSolidColor);
+        return true;
+    }
+    case ContentsLayerPurpose::Image: {
+        if (m_pendingContentsImageBuffer)
+            return false;
+        RefPtr image = m_pendingContentsImage;
+        if (!image) {
+            RefPtr contentsLayer = m_contentsLayer;
+            CFTypeRef contents = contentsLayer ? contentsLayer->contents() : nullptr;
+            if (!contents || CFGetTypeID(contents) != CGImageGetTypeID())
+                return false;
+            image = NativeImage::create(RetainPtr { static_cast<CGImageRef>(const_cast<void*>(contents)) });
+        }
+        if (!image)
+            return false;
+        GraphicsContextStateSaver saver(context);
+        context.clip(m_contentsClippingRect.rect());
+        context.drawNativeImage(*image, m_contentsRect, FloatRect { { }, image->size() });
+        return true;
+    }
+    default:
+        return false;
+    }
 }
 
 void GraphicsLayerCA::setBlendMode(BlendMode blendMode)
@@ -2272,6 +2333,9 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     if (m_uncommittedChanges & BackdropFiltersRectChanged)
         updateBackdropFiltersRect();
 
+    if (m_uncommittedChanges & BackdropSamplesChanged) // AQUAWEBKIT: see setBackdropSamples.
+        updateBackdropSamples();
+
     if (m_uncommittedChanges & BlendModeChanged)
         updateBlendMode();
 
@@ -2800,8 +2864,16 @@ void GraphicsLayerCA::updateBackdropFilters(CommitState& commitState)
 
     if (makeLayer) {
         updateBackdropFiltersRect();
+        updateBackdropSamples(); // AQUAWEBKIT: see setBackdropSamples.
         noteSublayersChanged(DontScheduleFlush);
     }
+}
+
+// AQUAWEBKIT: see setBackdropSamples. Replicas sit over other content, so their clones have no samples.
+void GraphicsLayerCA::updateBackdropSamples()
+{
+    if (RefPtr backdropLayer = m_backdropLayer)
+        backdropLayer->setBackdropSamples(m_backdropSamples, m_backdropSamplesVertical);
 }
 
 void GraphicsLayerCA::updateBackdropFiltersRect()
@@ -4808,6 +4880,7 @@ ASCIILiteral GraphicsLayerCA::layerChangeAsString(LayerChange layerChange)
     case LayerChange::TonemappingEnabledChanged: return "TonemappingEnabledChanged"_s;
 #endif
     case LayerChange::ShadowPathChanged: return "ShadowPathChanged"_s;
+    case LayerChange::BackdropSamplesChanged: return "BackdropSamplesChanged"_s; // AQUAWEBKIT: see setBackdropSamples.
     }
     ASSERT_NOT_REACHED();
     return ""_s;

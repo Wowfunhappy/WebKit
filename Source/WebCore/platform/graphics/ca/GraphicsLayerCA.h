@@ -138,6 +138,10 @@ public:
 
     WEBCORE_EXPORT bool setBackdropFilters(const FilterOperations&) override;
     WEBCORE_EXPORT void setBackdropFiltersRect(const FloatRoundedRect&) override;
+    // AQUAWEBKIT: see GraphicsLayer::setBackdropSamples.
+    WEBCORE_EXPORT void setBackdropSamples(Vector<std::optional<Color>>&&, bool vertical) override;
+    WEBCORE_EXPORT bool hasUncommittedContentChanges(const FloatRect&) const override;
+    WEBCORE_EXPORT bool paintContentsLayerForBackdropSampling(GraphicsContext&) const override;
     WEBCORE_EXPORT void setIsBackdropRoot(bool) override;
 
     WEBCORE_EXPORT void setBlendMode(BlendMode) override;
@@ -535,6 +539,7 @@ private:
     void updateFilters();
     void updateBackdropFilters(CommitState&);
     void updateBackdropFiltersRect();
+    void updateBackdropSamples(); // AQUAWEBKIT: see setBackdropSamples.
     void updateBackdropRoot();
     void updateShadowPath();
 
@@ -681,6 +686,7 @@ private:
         TonemappingEnabledChanged               = 1LLU << 48,
 #endif
         ShadowPathChanged                       = 1LLU << 49,
+        BackdropSamplesChanged                  = 1LLU << 50, // AQUAWEBKIT: see setBackdropSamples.
     };
     typedef uint64_t LayerChangeFlags;
     static ASCIILiteral layerChangeAsString(LayerChange);
@@ -710,6 +716,9 @@ private:
     RefPtr<PlatformCALayer> m_contentsLayer; // A layer used for inner content, like image and video
     RefPtr<PlatformCALayer> m_contentsShapeMaskLayer; // Used to clip the content layer with non-trivial corner radii.
     RefPtr<PlatformCALayer> m_backdropLayer; // The layer used for backdrop rendering, if necessary.
+    // AQUAWEBKIT: see setBackdropSamples.
+    Vector<std::optional<Color>> m_backdropSamples;
+    bool m_backdropSamplesVertical { false };
 
     // References to clones of our layers, for replicated layers.
     struct LayerClones {

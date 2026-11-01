@@ -794,6 +794,19 @@ void PlatformCALayerCocoa::setBackdropRootIsOpaque(bool backdropRootIsOpaque)
     m_backdropRootIsOpaque = backdropRootIsOpaque;
 }
 
+// AQUAWEBKIT: 10.9's CABackdropLayer takes the samples as one value, with NSNull for an unknown band.
+void PlatformCALayerCocoa::setBackdropSamples(const Vector<std::optional<Color>>& colors, bool vertical)
+{
+    auto samples = adoptNS([[NSMutableArray alloc] initWithCapacity:colors.size()]);
+    for (auto& color : colors) {
+        if (color)
+            [samples addObject:(__bridge id)cachedCGColor(*color).get()];
+        else
+            [samples addObject:NSNull.null];
+    }
+    [m_layer setValue:@{ @"colors": samples.get(), @"vertical": @(vertical) } forKey:@"aquaWebKitBackdropSamples"];
+}
+
 bool PlatformCALayerCocoa::isHidden() const
 {
     return [m_layer isHidden];

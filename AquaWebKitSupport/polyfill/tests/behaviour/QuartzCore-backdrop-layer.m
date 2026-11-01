@@ -415,6 +415,58 @@ int main(void)
         compareBands("blur 12 at alpha .5", YES);
         puts("PASS blur darkening");
 
+        // With the backdrop's average colours from WebKit, a blur moves r^2 / (r^2 + 1) of the way to them.
+        CGColorRef sampledWhite = color(1, 1, 1, 1), sampledRed = color(.8, .2, .1, 1);
+        backdrop.filters = @[blur12];
+        [backdrop setValue:@{ @"colors": @[(id)sampledWhite], @"vertical": @NO } forKey:@"aquaWebKitBackdropSamples"];
+        CGColorRef whiteVeil = color(1, 1, 1, blurAlpha(12) * 4);
+        expectedFill.backgroundColor = whiteVeil;
+        CGColorRelease(whiteVeil);
+        compareBands("blur toward a sampled white", YES);
+        backdrop.filters = @[blur12, colorMatrixFilter(.5, 0, 1)];
+        double halfAlpha = 1 - (1 - blurAlpha(12) * 4) * .5, halfGrey = .5 * blurAlpha(12) * 4 / halfAlpha;
+        CGColorRef halfVeil = color(halfGrey, halfGrey, halfGrey, halfAlpha);
+        expectedFill.backgroundColor = halfVeil;
+        CGColorRelease(halfVeil);
+        compareBands("sampled blur, then a dimming matrix", YES);
+
+        // Two samples fill two bands across the layer's longer side.
+        backdrop.filters = @[blur12];
+        [backdrop setValue:@{ @"colors": @[(id)sampledWhite, (id)sampledRed], @"vertical": @NO } forKey:@"aquaWebKitBackdropSamples"];
+        expectedFill.backgroundColor = nil;
+        runFor(.1);
+        NSBitmapImageRep *banded = capture(bands);
+        NSUInteger left[4], right[4];
+        [banded getPixel:left atX:10 y:30];
+        [banded getPixel:right atX:140 y:30];
+        assert(left[1] > 240 && left[2] > 240 && left[3] > 240);
+        assert(right[1] > 190 && right[2] < 70 && right[3] < 50);
+        assert([[backdrop valueForKey:@"aquaWebKitBackdropSamples"][@"colors"] count] == 2);
+
+        // A sampled layer archives; the copy keeps its bands.
+        CABackdropLayer *archived = [NSKeyedUnarchiver unarchiveObjectWithData:[NSKeyedArchiver archivedDataWithRootObject:backdrop]];
+        NSArray *archivedColors = [archived valueForKey:@"aquaWebKitBackdropSamples"][@"colors"];
+        assert(archivedColors.count == 2);
+        NSColor *archivedRed = [[NSColor colorWithCGColor:(CGColorRef)archivedColors[1]] colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+        assert(fabs(archivedRed.redComponent - .8) < .01 && fabs(archivedRed.greenComponent - .2) < .01);
+
+        // An unknown band keeps the darkening; a half-covering sample halves the veil.
+        [backdrop setValue:@{ @"colors": @[NSNull.null], @"vertical": @NO } forKey:@"aquaWebKitBackdropSamples"];
+        expectBlack(blurAlpha(12));
+        compareBands("unknown band", YES);
+        CGColorRef halfWhite = color(1, 1, 1, .5);
+        [backdrop setValue:@{ @"colors": @[(id)halfWhite], @"vertical": @NO } forKey:@"aquaWebKitBackdropSamples"];
+        CGColorRelease(halfWhite);
+        CGColorRef halfCovered = color(1, 1, 1, blurAlpha(12) * 4 * .5);
+        expectedFill.backgroundColor = halfCovered;
+        CGColorRelease(halfCovered);
+        compareBands("half-covering sample", YES);
+        expectedFill.backgroundColor = nil;
+        [backdrop setValue:nil forKey:@"aquaWebKitBackdropSamples"];
+        CGColorRelease(sampledWhite);
+        CGColorRelease(sampledRed);
+        puts("PASS blur veils toward sampled backdrop colours");
+
         // Paused filter animations: the native layer runs the same animation on its own filters.
         CAFilter *identity = named(colorMatrixFilter(1, 0, 1));
         CAFilter *dim = named(colorMatrixFilter(.4, 0, 1));

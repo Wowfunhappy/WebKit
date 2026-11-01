@@ -462,6 +462,8 @@ list(APPEND WebCore_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.cpp
     # Scroll anchoring suppression the Web Clip plug-in's injected bundle holds.
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/ScrollAnchoringSuppressionHandle.cpp
+    # The content beneath each backdrop-filter layer, which RenderLayerCompositor hands to 10.9's backdrop layer.
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/ca/BackdropSamplerAquaWebKit.cpp
 )
 # SafariReaderMozillaReadability.cpp evaluates Readability and the script that builds the article
 # document from it as one source.
@@ -496,6 +498,7 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${AQUAWEBKIT_SUPPORT}/source/WebCore/loader"
     "${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/network/cocoa"
     "${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/mediarecorder"
+    "${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/graphics/ca"
 )
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h

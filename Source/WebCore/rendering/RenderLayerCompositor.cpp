@@ -27,6 +27,7 @@
 #include "RenderLayerCompositor.h"
 
 #include "AsyncScrollingCoordinator.h"
+#include "BackdropSamplerAquaWebKit.h" // AQUAWEBKIT: see flushPendingLayerChanges.
 #include "BorderData.h"
 #include "BorderShape.h"
 #include "CSSPropertyNames.h"
@@ -831,6 +832,40 @@ void RenderLayerCompositor::flushPendingLayerChanges(bool isFlushRoot)
         SetForScope flushingLayersScope(m_flushingLayers, true);
 
         if (RefPtr rootLayer = rootGraphicsLayer()) {
+            // AQUAWEBKIT: 10.9's compositor cannot sample beneath a backdrop layer, so WebKit samples the
+            // content it paints there. Scrolled layers are placed at the scroll positions this flush commits,
+            // which AsyncScrollingCoordinator::reconcileScrollingState and
+            // RenderLayerBacking::setLocationOfScrolledContents apply to their GraphicsLayers only afterwards.
+            if (!m_backdropSampler)
+                m_backdropSampler = makeUnique<BackdropSampler>();
+            m_backdropSampler->sample(*rootLayer, visibleRectForLayerFlushing(), m_renderView.frameView().baseBackgroundColor(), [&] {
+                BackdropSampler::ScrollGeometries geometries;
+                Ref frameView = m_renderView.frameView();
+                if (RefPtr scrolledContentsLayer = m_scrolledContentsLayer; scrolledContentsLayer && hasCoordinatedScrolling()) {
+                    auto scrollPosition = frameView->scrollPosition();
+                    FloatPoint scrollPositionForFixed = frameView->scrollPositionForFixedPosition();
+                    auto insetTop = frameView->obscuredContentInsets().top();
+                    geometries.add(scrolledContentsLayer.get(), BackdropSampler::ScrollGeometry { FloatPoint(-scrollPosition), std::nullopt, std::nullopt });
+                    if (RefPtr counterScrollingLayer = fixedRootBackgroundLayer())
+                        geometries.add(counterScrollingLayer.get(), BackdropSampler::ScrollGeometry { scrollPositionForFixed, std::nullopt, std::nullopt });
+                    if (RefPtr insetClipLayer = m_clipLayer) {
+                        auto rect = insetClipLayerRect();
+                        geometries.add(insetClipLayer.get(), BackdropSampler::ScrollGeometry { rect.location(), std::nullopt, rect.size() });
+                    }
+                    if (RefPtr headerLayer = m_layerForHeader)
+                        geometries.add(headerLayer.get(), BackdropSampler::ScrollGeometry { FloatPoint(scrollPositionForFixed.x(), LocalFrameView::yPositionForHeaderLayer(scrollPosition, insetTop)), std::nullopt, std::nullopt });
+                    if (RefPtr footerLayer = m_layerForFooter)
+                        geometries.add(footerLayer.get(), BackdropSampler::ScrollGeometry { FloatPoint(scrollPositionForFixed.x(), LocalFrameView::yPositionForFooterLayer(scrollPosition, insetTop, frameView->totalContentsSize().height(), frameView->footerHeight())), std::nullopt, std::nullopt });
+                }
+                for (auto& weakLayer : m_scrollingNodeToLayerMap.values()) {
+                    auto* layer = weakLayer.get();
+                    auto* backing = layer ? layer->backing() : nullptr;
+                    auto* scrollableArea = layer ? layer->scrollableArea() : nullptr;
+                    if (backing && scrollableArea && backing->scrollContainerLayer())
+                        geometries.add(backing->scrollContainerLayer(), BackdropSampler::ScrollGeometry { std::nullopt, FloatPoint(scrollableArea->scrollOffset()), std::nullopt });
+                }
+                return geometries;
+            });
 #if ENABLE(ASYNC_SCROLLING) && ENABLE(SCROLLING_THREAD)
             LayerTreeHitTestLocker layerLocker(scrollingCoordinator());
 #endif
