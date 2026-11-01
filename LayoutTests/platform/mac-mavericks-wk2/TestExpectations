@@ -687,3 +687,8 @@ imported/w3c/web-platform-tests/css/css-backgrounds/background-size/background-s
 
 # The WPT report endpoint can publish a valid CSP report after this test's 20 x 50 ms polling window expires.
 http/wpt/fetch/csp-reports-bypass-csp-checks.html [ Skip ]
+
+# The tiled-CA drawing area runs the scrolling-thread tree: a rendering update that starts while passive wheel events
+# still wait on the main run loop applies the scroll positions of the later deltas first, so the horizontal-delta
+# listener can read the final scrollY and no later scroll event differs from it.
+fast/scrolling/mac/vertical-scroll-with-horizontal-deviation.html [ Skip ]
