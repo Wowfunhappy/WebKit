@@ -25,8 +25,8 @@ WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(BackdropSampler::Inputs);
 // shows, which holds all that blur leaves of it, and at most this many pixels along the image's longer side.
 static constexpr float pixelsPerDeviation = 2;
 static constexpr float maximumSampleLength = 256;
-// The content beneath a blur of under a pixel, which barely changes it, shows through the backdrop's fill.
-static constexpr float minimumSampledDeviation = 1;
+// The content beneath a blur of under two pixels shows through the backdrop's fill.
+static constexpr float minimumSampledDeviation = 2;
 // The backdrop layer fades each image in over this time.
 static constexpr Seconds minimumPaintInterval = 100_ms;
 

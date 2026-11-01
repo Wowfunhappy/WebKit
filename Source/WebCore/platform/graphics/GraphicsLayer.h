@@ -318,7 +318,7 @@ public:
     // AQUAWEBKIT: 10.9's backdrop layer cannot sample the window, so it shows the backdrop filters over an
     // image of the content WebKit paints beneath it, covering `rect` in the backdrop layer's coordinates. The
     // image is transparent where that content includes a contents layer, filter or mask the sampler does not
-    // render. A backdrop without a blur of at least a pixel has no image.
+    // render. A backdrop without a blur of at least two pixels has no image.
     virtual void setBackdropSample(RefPtr<NativeImage>&&, const FloatRect& /* rect */) { }
     // The keyframes of the backdrop-filter animations this layer runs.
     virtual Vector<FilterOperations> backdropFilterAnimationKeyframes() const { return { }; }
