@@ -271,7 +271,6 @@ public:
 
     void didChangePlatformLayerForLayer(const GraphicsLayer*) override;
     bool getCurrentTransform(const GraphicsLayer*, TransformationMatrix&) const override;
-    bool getCurrentOpacity(const GraphicsLayer*, float&) const override; // AQUAWEBKIT: see GraphicsLayerClient.
 
     bool isFlushingLayers() const override;
     bool isTrackingRepaints() const override;

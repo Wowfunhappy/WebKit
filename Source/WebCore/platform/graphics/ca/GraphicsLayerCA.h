@@ -138,15 +138,6 @@ public:
 
     WEBCORE_EXPORT bool setBackdropFilters(const FilterOperations&) override;
     WEBCORE_EXPORT void setBackdropFiltersRect(const FloatRoundedRect&) override;
-    // AQUAWEBKIT: see GraphicsLayer::setBackdropSample.
-    WEBCORE_EXPORT void setBackdropSample(RefPtr<NativeImage>&&, const FloatRect&) override;
-    WEBCORE_EXPORT Vector<FilterOperations> backdropFilterAnimationKeyframes() const override;
-    WEBCORE_EXPORT bool animatesOpacity() const override;
-    WEBCORE_EXPORT bool animatesTransform() const override;
-    WEBCORE_EXPORT bool playsOpacityOrTransformAnimation() const override;
-    bool commitsSublayers() const override { return !m_sublayersBeyondMaxTreeDepth; }
-    WEBCORE_EXPORT bool hasUncommittedContentChanges(const FloatRect&) const override;
-    WEBCORE_EXPORT bool paintContentsLayerForBackdropSampling(GraphicsContext&) const override;
     WEBCORE_EXPORT void setIsBackdropRoot(bool) override;
 
     WEBCORE_EXPORT void setBlendMode(BlendMode) override;
@@ -544,7 +535,6 @@ private:
     void updateFilters();
     void updateBackdropFilters(CommitState&);
     void updateBackdropFiltersRect();
-    void updateBackdropSample(); // AQUAWEBKIT: see setBackdropSample.
     void updateBackdropRoot();
     void updateShadowPath();
 
@@ -691,7 +681,6 @@ private:
         TonemappingEnabledChanged               = 1LLU << 48,
 #endif
         ShadowPathChanged                       = 1LLU << 49,
-        BackdropSampleChanged                   = 1LLU << 50, // AQUAWEBKIT: see setBackdropSample.
     };
     typedef uint64_t LayerChangeFlags;
     static ASCIILiteral layerChangeAsString(LayerChange);
@@ -721,12 +710,6 @@ private:
     RefPtr<PlatformCALayer> m_contentsLayer; // A layer used for inner content, like image and video
     RefPtr<PlatformCALayer> m_contentsShapeMaskLayer; // Used to clip the content layer with non-trivial corner radii.
     RefPtr<PlatformCALayer> m_backdropLayer; // The layer used for backdrop rendering, if necessary.
-    // AQUAWEBKIT: see setBackdropSample.
-    RefPtr<NativeImage> m_backdropSample;
-    FloatRect m_backdropSampleRect;
-    HashMap<String, Vector<FilterOperations>> m_backdropFilterAnimationKeyframes;
-    bool m_sublayersBeyondMaxTreeDepth { false };
-    bool m_appliesPlayingOpacityOrTransformAnimation { false };
 
     // References to clones of our layers, for replicated layers.
     struct LayerClones {

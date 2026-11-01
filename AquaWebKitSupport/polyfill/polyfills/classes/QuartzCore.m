@@ -440,102 +440,13 @@ static NSArray *backdropFillValues(NSData *samples, NSArray **keyTimes)
     return values;
 }
 
-// The filter chain as 10.9 applies it to WebKit's images of the backdrop. 10.9's blur has no inputNormalizeEdges;
-// for an opaque backdrop its inputHardEdges renormalizes the same way.
-static NSArray *backdropImageFilters(NSArray *filters)
-{
-    NSMutableArray *result = [NSMutableArray arrayWithCapacity:filters.count];
-    for (id filter in filters) {
-        CAFilter *copy = [[filter copy] autorelease];
-        if ([copy isKindOfClass:NSClassFromString(@"CAFilter")] && [[copy type] isEqualToString:@"gaussianBlur"]
-            && [[copy valueForKey:@"inputNormalizeEdges"] boolValue])
-            [copy setValue:@YES forKey:@"inputHardEdges"];
-        [result addObject:copy];
-    }
-    return result;
-}
-
-static NSString * const backdropImagesKey = @"wkBackdropImages";
-static NSString * const backdropImageFadeKey = @"wkBackdropImageFade";
-static const double backdropImageFadeDuration = .1;
-
-// Once an image has faded in, the images beneath it are covered and leave; once one has faded out, it leaves.
-@interface WKPolyfillBackdropImageFade : NSObject {
-    CALayer *_image;
-    BOOL _fadesOut;
-}
-@end
-
-@implementation WKPolyfillBackdropImageFade
-- (id)initWithImage:(CALayer *)image fadesOut:(BOOL)fadesOut
-{
-    if ((self = [super init])) {
-        _image = [image retain];
-        _fadesOut = fadesOut;
-    }
-    return self;
-}
-
-- (void)dealloc
-{
-    [_image release];
-    [super dealloc];
-}
-
-- (void)animationDidStop:(CAAnimation *)animation finished:(BOOL)finished
-{
-    if (!finished)
-        return;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    if (_fadesOut) {
-        [_image removeAllAnimations];
-        [_image removeFromSuperlayer];
-    } else {
-        for (CALayer *covered in [[_image.superlayer.sublayers copy] autorelease]) {
-            if (covered == _image)
-                break;
-            [covered removeAllAnimations];
-            [covered removeFromSuperlayer];
-        }
-    }
-    [CATransaction commit];
-}
-@end
-
-static void backdropFadeImage(CALayer *image, BOOL fadesOut)
-{
-    CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
-    CALayer *presented = image.presentationLayer;
-    fade.fromValue = @(fadesOut ? (presented ?: image).opacity : 0);
-    fade.toValue = @(fadesOut ? 0 : 1);
-    fade.duration = backdropImageFadeDuration;
-    fade.delegate = [[[WKPolyfillBackdropImageFade alloc] initWithImage:image fadesOut:fadesOut] autorelease];
-    image.opacity = fadesOut ? 0 : 1;
-    [image addAnimation:fade forKey:backdropImageFadeKey];
-}
-
-// The layer holding a backdrop's images, which its `sublayers` leaves out.
-@interface WKPolyfillBackdropImages : CALayer
-@end
-
-@implementation WKPolyfillBackdropImages
-@end
-
-// The backdrop shows WebKit's images of the content beneath it (aquaWebKitBackdropImage) through the filter
-// chain, in a rasterized sublayer at the images' resolution. An image after the backdrop's first fades in over
-// the ones before it, and they fade out when WebKit sends none. Where no image covers it, its fill stands in for
-// the chain.
 WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     NSArray *_backdropFilters;
-    WKPolyfillBackdropImages *_images;
     NSMutableArray *_unkeyedFilterAnimations;
     BOOL _fillAnimationNeedsUpdate;
     BOOL _windowServerAware;
-    BOOL _showedImage;
 }
 @property(nonatomic) BOOL windowServerAware;
-- (void)setAquaWebKitBackdropImage:(NSDictionary *)image;
 @end
 
 @implementation CABackdropLayer
@@ -545,9 +456,7 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 {
     if ((self = [super initWithLayer:layer]) && [layer isKindOfClass:[CABackdropLayer class]]) {
         CABackdropLayer *other = layer;
-        [CATransaction lock];
-        _backdropFilters = [other->_backdropFilters copy];
-        [CATransaction unlock];
+        _backdropFilters = [other.filters copy];
         _windowServerAware = other->_windowServerAware;
     }
     return self;
@@ -556,10 +465,6 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 - (id)initWithCoder:(NSCoder *)coder
 {
     if ((self = [super initWithCoder:coder])) {
-        _images = [[coder decodeObjectForKey:backdropImagesKey] retain];
-        if (_images)
-            [super insertSublayer:_images atIndex:0];
-        _showedImage = _images.sublayers.count > 0;
         self.filters = [coder decodeObjectForKey:@"wkBackdropFilters"];
         _windowServerAware = [coder decodeBoolForKey:@"wkWindowServerAware"];
     }
@@ -570,16 +475,12 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 {
     [super encodeWithCoder:coder];
     [coder encodeObject:self.filters forKey:@"wkBackdropFilters"];
-    [coder encodeObject:_images forKey:backdropImagesKey];
     [coder encodeBool:_windowServerAware forKey:@"wkWindowServerAware"];
 }
 
 - (void)dealloc
 {
     [_backdropFilters release];
-    for (CALayer *image in _images.sublayers)
-        [image removeAllAnimations];
-    [_images release];
     [_unkeyedFilterAnimations release];
     [super dealloc];
 }
@@ -592,7 +493,6 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     return filters;
 }
 
-// Filters change under the transaction lock, which also guards initWithLayer:'s read for presentation copies.
 - (void)setFilters:(NSArray *)filters
 {
     NSArray *copy = [filters copy];
@@ -603,53 +503,11 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     [super setColors:color ? @[(id)color, (id)color] : nil];
-    _images.filters = backdropImageFilters(copy);
     [CATransaction commit];
     [CATransaction unlock];
     if (color)
         CGColorRelease(color);
     [self setNeedsFillAnimation];
-}
-
-// { image: CGImage, rect: NSValue of the CGRect it covers in this layer's coordinates }, or nil for none.
-- (void)setAquaWebKitBackdropImage:(NSDictionary *)sample
-{
-    id contents = sample[@"image"];
-    CGRect rect;
-    [sample[@"rect"] getValue:&rect];
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    if (!sample) {
-        for (CALayer *image in _images.sublayers) {
-            if (image.opacity)
-                backdropFadeImage(image, YES);
-        }
-        [CATransaction commit];
-        return;
-    }
-    if (!_images) {
-        _images = [[WKPolyfillBackdropImages alloc] init];
-        _images.anchorPoint = CGPointZero;
-        _images.bounds = self.bounds;
-        _images.position = self.bounds.origin;
-        _images.shouldRasterize = YES;
-        [CATransaction lock];
-        _images.filters = backdropImageFilters(_backdropFilters);
-        [CATransaction unlock];
-        [super insertSublayer:_images atIndex:0];
-        [self setNeedsFillAnimation];
-    }
-    // Twice the images' density preserves all they hold.
-    _images.rasterizationScale = fmin(2 * CGImageGetWidth((CGImageRef)contents) / rect.size.width, fmax(self.contentsScale, 1));
-    CALayer *image = [CALayer layer];
-    image.anchorPoint = CGPointZero;
-    image.frame = rect;
-    image.contents = contents;
-    [_images addSublayer:image];
-    if (_showedImage)
-        backdropFadeImage(image, NO);
-    _showedImage = YES;
-    [CATransaction commit];
 }
 
 - (double)currentTime
@@ -685,69 +543,13 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
 - (void)layoutSublayers
 {
     [super layoutSublayers];
+    if (!_fillAnimationNeedsUpdate)
+        return;
+    _fillAnimationNeedsUpdate = NO;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    _images.bounds = self.bounds;
-    _images.position = self.bounds.origin;
-    if (_fillAnimationNeedsUpdate) {
-        _fillAnimationNeedsUpdate = NO;
-        [self updateFillAnimation];
-    }
+    [self updateFillAnimation];
     [CATransaction commit];
-}
-
-// The images sit beneath the caller's sublayers, which are all `sublayers` lists, on this layer and its
-// presentation copies.
-- (BOOL)holdsImages
-{
-    return [[super sublayers].firstObject isKindOfClass:[WKPolyfillBackdropImages class]];
-}
-
-- (NSArray *)sublayers
-{
-    NSArray *sublayers = [super sublayers];
-    if (![self holdsImages])
-        return sublayers;
-    NSArray *callers = [sublayers subarrayWithRange:NSMakeRange(1, sublayers.count - 1)];
-    return callers.count ? callers : nil;
-}
-
-- (void)setSublayers:(NSArray *)sublayers
-{
-    [super setSublayers:sublayers];
-    if (_images)
-        [super insertSublayer:_images atIndex:0];
-}
-
-- (void)insertSublayer:(CALayer *)layer atIndex:(unsigned)index
-{
-    [super insertSublayer:layer atIndex:index + ([self holdsImages] ? 1 : 0)];
-}
-
-- (void)insertSublayer:(CALayer *)layer below:(CALayer *)sibling
-{
-    if (sibling)
-        [super insertSublayer:layer below:sibling];
-    else
-        [self insertSublayer:layer atIndex:0];
-}
-
-// The images run copies of the filter animations, which their filters carry under the same names. Without
-// them, rasterization keeps the blurred result until the images or filters change; 10.9 renders a rasterized
-// layer's filter animation late, starting from a frame at its model value.
-- (void)updateImageAnimations:(NSArray *)animations now:(double)now
-{
-    _images.shouldRasterize = !animations.count;
-    for (NSString *key in _images.animationKeys)
-        [_images removeAnimationForKey:key];
-    NSUInteger index = 0;
-    for (CAAnimation *source in animations) {
-        CAAnimation *animation = [[source copy] autorelease];
-        animation.delegate = nil;
-        if (!animation.beginTime)
-            animation.beginTime = now;
-        [_images addAnimation:animation forKey:[NSString stringWithFormat:@"wkBackdropFilter%lu", (unsigned long)index++]];
-    }
 }
 
 // Mirrors the filter animations into keyframe animations of `colors` over this layer's time: one across their
@@ -758,19 +560,16 @@ WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CAGradientLayer {
     [super removeAnimationForKey:backdropFillAnimationKey];
     [super removeAnimationForKey:backdropFillTailKey];
     NSArray *animations = [self filterAnimations];
+    if (!animations.count)
+        return;
     BOOL uncommitted = YES;
     for (CAAnimation *animation in animations)
         uncommitted = uncommitted && !animation.beginTime;
     double now = uncommitted ? 0 : [self currentTime];
-    [self updateImageAnimations:animations now:now];
-    if (!animations.count)
-        return;
 
     CALayer *modelZero = [CALayer layer], *modelOne = [CALayer layer], *standIn = [CALayer layer], *sample = [CALayer layer];
     modelOne.zPosition = 1;
-    [CATransaction lock];
-    NSArray *modelFilters = [[_backdropFilters retain] autorelease];
-    [CATransaction unlock];
+    NSArray *modelFilters = self.filters;
     NSMutableArray *pristine = [NSMutableArray arrayWithCapacity:modelFilters.count];
     for (id filter in modelFilters)
         [pristine addObject:[[filter copy] autorelease]];

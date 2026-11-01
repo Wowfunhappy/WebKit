@@ -794,17 +794,6 @@ void PlatformCALayerCocoa::setBackdropRootIsOpaque(bool backdropRootIsOpaque)
     m_backdropRootIsOpaque = backdropRootIsOpaque;
 }
 
-// AQUAWEBKIT: 10.9's CABackdropLayer takes the image and the rect it covers as one value.
-void PlatformCALayerCocoa::setBackdropSample(CFTypeRef image, const FloatRect& rect)
-{
-    if (!image) {
-        [m_layer setValue:nil forKey:@"aquaWebKitBackdropImage"];
-        return;
-    }
-    CGRect covered = rect;
-    [m_layer setValue:@{ @"image": (__bridge id)image, @"rect": [NSValue valueWithBytes:&covered objCType:@encode(CGRect)] } forKey:@"aquaWebKitBackdropImage"];
-}
-
 bool PlatformCALayerCocoa::isHidden() const
 {
     return [m_layer isHidden];

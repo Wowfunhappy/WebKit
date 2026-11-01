@@ -99,7 +99,6 @@ public:
     void setIsBackdropRoot(bool) final;
     bool backdropRootIsOpaque() const final;
     void setBackdropRootIsOpaque(bool) final;
-    void setBackdropSample(CFTypeRef image, const FloatRect&) final; // AQUAWEBKIT: see GraphicsLayer.
 
     bool isHidden() const override;
     void setHidden(bool) override;

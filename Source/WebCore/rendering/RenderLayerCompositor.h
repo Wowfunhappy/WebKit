@@ -42,7 +42,6 @@ namespace WebCore {
 
 class DisplayRefreshMonitorFactory;
 class FixedPositionViewportConstraints;
-class BackdropSampler; // AQUAWEBKIT: see flushPendingLayerChanges.
 class GraphicsLayer;
 class LayerOverlapMap;
 class RenderEmbeddedObject;
@@ -664,8 +663,6 @@ private:
     unsigned m_layersWithTiledBackingCount { 0 };
     unsigned m_layerFlushCount { 0 };
     unsigned m_compositingUpdateCount { 0 };
-
-    std::unique_ptr<BackdropSampler> m_backdropSampler; // AQUAWEBKIT: see flushPendingLayerChanges.
 
     RootLayerAttachment m_rootLayerAttachment { RootLayerUnattached };
 

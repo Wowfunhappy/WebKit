@@ -4700,17 +4700,6 @@ bool RenderLayerBacking::getCurrentTransform(const GraphicsLayer* graphicsLayer,
     return false;
 }
 
-// AQUAWEBKIT: see GraphicsLayerClient::getCurrentOpacity; updateOpacity sets the primary layer's opacity this way.
-bool RenderLayerBacking::getCurrentOpacity(const GraphicsLayer* graphicsLayer, float& opacity) const
-{
-    if (graphicsLayer != m_graphicsLayer.get())
-        return false;
-
-    auto animatedStyle = renderer().animatedStyle();
-    opacity = compositingOpacity(Style::evaluate<float>(animatedStyle->opacity()));
-    return true;
-}
-
 bool RenderLayerBacking::isFlushingLayers() const
 {
     return static_cast<GraphicsLayerClient&>(compositor()).isFlushingLayers();
