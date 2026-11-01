@@ -1099,12 +1099,13 @@ platform/mac/media/encrypted-media/fps-requestMediaKeySystemAccess.html [ Skip ]
 # that already skips media/media-allowed-codecs.html above; platform/glib/TestExpectations:3561-3564.
 media/media-source/media-source-allowed-codecs.html [ Skip ]
 
-# Worker MediaSource needs a thread-safe MediaSource, which WebMediaStrategy::hasThreadSafeMediaSourceSupport
-# ties to media running in the GPU process. UseGPUProcessForMediaEnabled defaults true only under
-# "ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)" (UnifiedWebPreferences.yaml), so upstream turns it off
-# for every GStreamer port, and MediaSource.canConstructInDedicatedWorker is false here. The generic
-# TestExpectations skips this directory; platform/mac-wk2 re-enables it for the AVFoundation stack.
-imported/w3c/web-platform-tests/media-source/dedicated-worker [ Skip ]
+# MediaSource.canConstructInDedicatedWorker is true here: WebMediaStrategy::hasThreadSafeMediaSourceSupport
+# follows USE(AVFOUNDATION), and the GStreamer MediaSource backend runs a worker's calls on the main thread.
+# platform/mac-wk2 re-enables this directory. SourceBufferChangeTypeEnabled is off under USE(GSTREAMER)
+# (UnifiedWebPreferences.yaml), and these three call SourceBuffer.changeType().
+imported/w3c/web-platform-tests/media-source/dedicated-worker/mediasource-worker-handle-transfer.html [ Skip ]
+imported/w3c/web-platform-tests/media-source/dedicated-worker/mediasource-worker-play.html [ Skip ]
+imported/w3c/web-platform-tests/media-source/dedicated-worker/mediasource-worker-play-terminate-worker.html [ Skip ]
 
 webkit.org/b/227934 media/media-source/media-webm-vorbis-partial.html [ Skip ]
 media/media-source/media-detachablemse-append.html [ Skip ] # platform/gtk skips it; wpe records [ Timeout Pass ].
@@ -1135,11 +1136,11 @@ webkit.org/b/285921 media/media-source/media-source-seek-past-end.html [ Skip ]
 webkit.org/b/224067 media/media-source/media-source-timestampoffset-trim.html [ Skip ]
 webkit.org/b/218317 media/media-source/media-source-trackid-change.html [ Skip ]
 
-# WebKit's own worker MediaSource tests, on the canConstructInDedicatedWorker mechanism above. Run
-# with --skipped=ignore they report "EXPECTED (ManagedMediaSource.canConstructInDedicatedWorker ==
-# 'true'), OBSERVED 'false'" and then "error message from worker: MSE not supported", which is that
-# preference resolving false for every GStreamer port rather than anything specific to this one.
-media/media-source/worker/media-managedmse-worker.html [ Skip ]
+# platform/glib records [ Pass Failure Timeout ]: a seek flushing a slot while decodebin3 plugs its decoder parks the stream-start in playsink's pad block.
+webkit.org/b/244776 media/media-source/media-source-unnecessary-seek-seeked.html [ Skip ]
+
+# GStreamer reports a track's language as its ISO 639-1 code (getLanguageCode() in TrackPrivateBaseGStreamer.cpp
+# converts with gst_tag_get_language_code_iso_639_1()): "en" where this test expects AVFoundation's "eng".
 media/media-source/worker/media-managedmse-tracks-worker.html [ Skip ]
 
 # libgcrypt's Ed25519 field operations abort on a small-order point's short affine coordinates.

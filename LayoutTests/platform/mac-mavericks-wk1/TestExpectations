@@ -2442,6 +2442,7 @@ webkit.org/b/309645 http/tests/referrer-policy/no-referrer/cross-origin-navigati
 
 # WebKitLegacy defaults MediaSourceInWorkerEnabled to false and uses the non-thread-safe MediaStrategy.
 media/media-source/worker/media-source-worker-logger-observer-crash.html [ Skip ]
+media/media-source/worker/media-managedmse-worker.html [ Skip ]
 
 # Upstream WK1 native scrollbar capture can precede the reference document's focus scroll.
 webkit.org/b/312190 compositing/accelerated-layers-after-back-2.html [ Skip ]
