@@ -3283,7 +3283,11 @@ IGNORE_WARNINGS_END
 
 #if PLATFORM(MAC)
         if (!_private->flagsChangedEventMonitor) {
-            __block RetainPtr<WebHTMLView> weakSelf = self;
+            // __block RetainPtr<WebHTMLView> weakSelf = self;
+            // AQUAWEBKIT: the handler holds the view weakly. A subframe's view is closed while it is still in a
+            // window, and -viewDidMoveToWindow ignores a closed view, so this monitor is removed only by
+            // -[WebHTMLViewPrivate dealloc]; a strong capture would keep the view from ever reaching it.
+            WeakObjCPtr<WebHTMLView> weakSelf = self;
             _private->flagsChangedEventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged handler:^(NSEvent *flagsChangedEvent) {
                 [weakSelf.get() _postFakeMouseMovedEventForFlagsChangedEvent:flagsChangedEvent];
                 return flagsChangedEvent;

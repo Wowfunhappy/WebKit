@@ -2821,6 +2821,35 @@ WK_POLYFILL_ADD_METHODS(NSURLCredentialStorage)
 }
 @end
 
+// -[NSURLSessionConfiguration URLCredentialStorage]: Foundation documents a default session's value as the
+// shared credential storage object, and callers tell the shared store from a session's own by identity
+// (NetworkSessionCocoa keeps the user's permanent credentials when clearing the shared one). 10.9's
+// __NSCFURLSessionConfiguration answers a configuration on the default storage session with a fresh
+// NSURLCredentialStorage around the shared CFURLCredentialStorage on every call. A credential storage keeps
+// the CF storage it wraps in its _internal ivar; when that is the shared one, this answers with the shared
+// object itself.
+static id wk_cfCredentialStorageOf(NSURLCredentialStorage *storage)
+{
+    static Ivar internal;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        internal = class_getInstanceVariable([NSURLCredentialStorage class], "_internal");
+    });
+    return storage ? object_getIvar(storage, internal) : nil;
+}
+
+WK_POLYFILL_REPLACE_METHODS_ON(NSURLSessionConfiguration, "__NSCFURLSessionConfiguration")
+- (NSURLCredentialStorage *)URLCredentialStorage
+{
+    NSURLCredentialStorage *storage = WK_ORIGINAL_METHOD(NSURLCredentialStorage *, ());
+    NSURLCredentialStorage *shared = [NSURLCredentialStorage sharedCredentialStorage];
+    id cfStorage = wk_cfCredentialStorageOf(storage);
+    if (storage != shared && cfStorage && cfStorage == wk_cfCredentialStorageOf(shared))
+        return shared;
+    return storage;
+}
+@end
+
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLProtectionSpace _webKitPropertyListData] / -_initWithWebKitPropertyListData: and the

@@ -750,15 +750,12 @@ RetainPtr<WebView> createWebViewAndOffscreenWindow()
     // Put it at -10000, -10000 in "flipped coordinates", since WebCore and the DOM use flipped coordinates.
     NSScreen *firstScreen = [[NSScreen screens] firstObject];
     NSRect windowRect = (showWebView) ? NSOffsetRect(rect, 100, 100) : NSOffsetRect(rect, -10000, [firstScreen frame].size.height - rect.size.height + 10000);
-    // AQUAWEBKIT: the window this creates is owned until it is closed, and the mainWindow global
-    // names only the main one. Assigning every window here made each window.open() drop the sole
-    // reference to the previous popup's window; nothing else on 10.9 retains an off-screen borderless
-    // window, so it was deallocated along with its contentView -- and with it the popup's WebView and
-    // Page. A script that opened two windows in one turn was then holding a window whose document could
-    // no longer load anything, and the re-parenting below could put the main WebView into a popup's
-    // window. setReleasedWhenClosed:YES makes -close the release, and every window already reaches one:
-    // -[UIDelegate webViewClose:], the per-test loop over DumpRenderTreeWindow.openWindows, and
-    // destroyGlobalWebViewAndOffscreenWindow.
+    // AQUAWEBKIT: each window this creates owns itself until it is closed, and the mainWindow global names
+    // only the main one (createGlobalWebViewAndOffscreenWindow). Nothing else on 10.9 retains an off-screen
+    // borderless window, so a window.open() window must not depend on mainWindow to stay alive.
+    // setReleasedWhenClosed:YES makes -close autorelease the window, and every window reaches a -close inside
+    // runTest, whose per-test pool drains it: -[UIDelegate webViewClose:], the per-test loop over
+    // DumpRenderTreeWindow.openWindows, and destroyGlobalWebViewAndOffscreenWindow.
     RetainPtr<NSWindow> window = adoptNS([[DumpRenderTreeWindow alloc] initWithContentRect:windowRect styleMask:NSBorderlessWindowMask backing:NSBackingStoreBuffered defer:YES]);
     [window setReleasedWhenClosed:YES];
     [window setColorSpace:[firstScreen colorSpace]];
@@ -815,10 +812,10 @@ RetainPtr<WebView> createWebViewAndOffscreenWindow()
     }
 #endif
 
-    // GStreamer reports page-volume adjustments through volume-change events.
+    // AQUAWEBKIT: GStreamer reports page-volume adjustments through volume-change events.
 #if !USE(GSTREAMER)
     [webView setMediaVolume:0];
-#endif
+#endif // AQUAWEBKIT: closes the GStreamer guard above.
     return webView;
 }
 
@@ -916,7 +913,8 @@ static void setWebPreferencesForTestOptions(WebPreferences *preferences, const W
             [preferences _setStringPreferenceForTestingWithValue:toNS(value).get() forKey:toNS(WTR::TestOptions::toWebKitLegacyPreferenceKey(key)).get()];
     }];
 
-    // Cookie deletion completes asynchronously. Start the next fixture after both test sessions are clear.
+    // AQUAWEBKIT: cookie deletion completes asynchronously, so the next fixture starts once both test sessions
+    // are clear.
     __block bool cookiesCleared = false;
     __block bool waitingForCookies = false;
     [WebPreferences _clearNetworkLoaderSession:^{
@@ -1114,7 +1112,14 @@ static void runTestingServerLoop()
         if (handleControlCommand(std::span { filenameBuffer }))
             continue;
 
+        // AQUAWEBKIT: each test drains its own autorelease pool. runTest's setup runs outside any inner pool,
+        // and what 10.9's frameworks autorelease there (+[NSUserDefaults standardUserDefaults] for every
+        // preference WebPreferences reads, WebKitLegacy's references to the WebView being replaced, the
+        // window -close releases) would otherwise stay in the process-lifetime pool with every replaced
+        // WebView and window behind it.
+        @autoreleasepool {
         runTest(filenameBuffer.data());
+        } // AQUAWEBKIT: closes the pool above.
 
         if (printTestCount) {
             ++testCount;
@@ -1700,7 +1705,7 @@ void dump()
         } else
             printf("ERROR: nil result from %s", methodNameStringForFailedTest());
 
-        // The buffer includes MIME responses independently of resource load callback logging.
+        // AQUAWEBKIT: the buffer includes MIME responses independently of resource load callback logging.
         // if (gTestRunner->shouldDumpResourceLoadCallbacks())
         gTestRunner->dumpResourceLoadCallbacks();
 

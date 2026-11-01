@@ -257,18 +257,16 @@ static const CFIndex wk_coreAnimationCommitOrder = 2000000;
 // THE COMMIT GATE. "After the commit" is only a bracket if a commit happened. A PostCommit handler is the
 // tail of a pair whose head is some change the caller has just made and expects to be on screen; running it
 // on a pass where nothing committed hands the caller a completion for work that has not happened, which is
-// an inversion rather than a wider bracket. Nothing about registering a handler makes a transaction exist,
-// so a pass with no commit is an ordinary case that has to be recognised, not assumed away.
+// an inversion rather than a wider bracket. Registering a handler opens this thread's implicit transaction,
+// as CA's own registration does (see +addCommitHandler:forPhase:), so the registering pass ends in a commit;
+// the gate establishes that the commit it sees is that one and not another thread's.
 //
 // The signal is CA's own commit counter. 10.9's QuartzCore exports CAGetTransactionCounter(), which returns a
 // process-global int that CA increments once per COMMITTED transaction. Measured on 10.9.5 (13F34): reading
 // it creates no transaction; [CATransaction begin] and layer mutations leave it alone; each [CATransaction
 // commit] and each [CATransaction flush] that had a transaction to flush adds one; a flush with nothing
-// pending adds nothing. That is exactly "a commit happened", observed rather than predicted — which is why
-// this is used in preference to probing +[CATransaction currentState] for a PENDING transaction: the counter
-// also catches a commit performed explicitly during the pass, and it does not depend on where the probe sits
-// relative to WebKit's own RenderingUpdate observer (which shares order 2000000-1 and is where the pending
-// transaction is usually created).
+// pending adds nothing. That is exactly "a commit happened", observed rather than predicted, including a
+// commit performed explicitly during the pass.
 //
 // So each queued handler records the counter at registration, and a second per-thread observer records it
 // again each time the thread WAKES (kCFRunLoopAfterWaiting). The drain observer, at CA's order + 1, runs a
@@ -288,10 +286,8 @@ static const CFIndex wk_coreAnimationCommitOrder = 2000000;
 // The wake reading, rather than one taken just below CA's commit observer, is what makes an EXPLICIT commit
 // count: [CATransaction commit]/[CATransaction flush] happens in the middle of a pass, so a reading taken
 // below CA's commit observer is already past it and the handler would sit queued until some later implicit
-// commit. Both readings were built and run against this translation unit on 10.9.5: the below-CA reading
-// strands a handler registered before an explicit commit, the wake reading releases it on the same pass.
-// If a thread's run loop never sleeps, the wake reading simply goes stale and the gate falls back to the
-// registration test alone — later than CA, never earlier.
+// commit. If a thread's run loop never sleeps, the wake reading simply goes stale and the gate falls back to
+// the registration test alone — later than CA, never earlier.
 WK_SYSTEM_FN("QuartzCore", unsigned int, CAGetTransactionCounter, (void));
 
 static unsigned int wk_caTransactionCounter(void)
@@ -451,6 +447,10 @@ static WKCommitHandlerQueue *wk_commitHandlerQueueForCurrentThread(void)
     return queue;
 }
 
+@interface CATransaction (WKCommitHandlerActivate)
++ (void)activate;
+@end
+
 WK_POLYFILL_ADD_METHODS(CATransaction)
 + (void)addCommitHandler:(void (^)(void))handler forPhase:(NSInteger)phase
 {
@@ -458,6 +458,11 @@ WK_POLYFILL_ADD_METHODS(CATransaction)
         return;
     // kCATransactionPhasePreLayout = 0, PreCommit = 1, PostCommit = 2.
     enum { wkPostCommitPhase = 2 };
+    // CA's registration (CA::Transaction::set_commit_handler, the single-handler form of this method) calls
+    // CA::Transaction::ensure_implicit when no transaction is open, so the handler always has a commit to
+    // belong to. 10.9's +[CATransaction activate] is CA::Transaction::ensure() followed by ensure_implicit()
+    // when no level is open.
+    [CATransaction activate];
     WKCommitHandlerQueue *queue = wk_commitHandlerQueueForCurrentThread();
     // With no observer that can fire before the next commit, the last moment this thread offers that is
     // still on the pre side of that commit is now.

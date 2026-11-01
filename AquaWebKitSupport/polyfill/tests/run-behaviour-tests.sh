@@ -1124,6 +1124,26 @@ probe_frame_rate_range() {
         "$T/frame_rate_range"
 }
 
+probe_commit_handler_transaction() {
+    prepare_method_objects QuartzCore &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/commit_handler_transaction" "$TBEHAV/QuartzCore-commit-handler-transaction.m" \
+            "$OBJ/methods/QuartzCore.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework QuartzCore -framework Foundation "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/commit_handler_transaction"
+}
+
+probe_session_credential_storage() {
+    prepare_method_objects Foundation &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/session_credential_storage" "$TBEHAV/Foundation-session-credential-storage.m" \
+            "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/session_credential_storage"
+}
+
 probe_audiounit_max_frames() {
     "$CLANG" $HOST -Wno-deprecated-declarations $INC -o "$T/audiounit_max_frames" "$TBEHAV/AudioUnit-max-frames.c" \
         $PROBE_LIBS -framework AudioUnit -framework CoreAudio &&
@@ -1189,6 +1209,7 @@ run_probe secure_coding "$@"
 run_probe url_request_coding "$@"
 run_probe dictionary_subscript "$@"
 run_probe url_request_attribution "$@"
+run_probe session_credential_storage "$@"
 run_probe dd_secure_coding "$@"
 run_probe dd_mac_action "$@"
 run_probe dd_result_categories "$@"
@@ -1259,6 +1280,7 @@ run_probe backdrop_layer "$@"
 run_probe calayer_hierarchy "$@"
 run_probe singular_transform "$@"
 run_probe frame_rate_range "$@"
+run_probe commit_handler_transaction "$@"
 run_probe shape_glyphs_context "$@"
 run_probe css_family_language "$@"
 run_probe clipped_glyphs "$@"

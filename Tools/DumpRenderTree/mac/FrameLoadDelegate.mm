@@ -140,7 +140,7 @@ IGNORE_WARNINGS_END
 
 - (void)dumpAfterWaitAttributeIsRemoved:(id)dummy
 {
-    // Multiple subframe load completions share one pending reftest poll.
+    // AQUAWEBKIT: multiple subframe load completions share one pending reftest poll.
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(dumpAfterWaitAttributeIsRemoved:) object:nil];
 #if PLATFORM(IOS_FAMILY)
     WebThreadLock();
@@ -177,6 +177,7 @@ IGNORE_WARNINGS_END
 
 - (void)resetToConsistentState
 {
+    // AQUAWEBKIT: a reftest poll pending from the previous test does not outlive it.
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(dumpAfterWaitAttributeIsRemoved:) object:nil];
     accessibilityController->resetToConsistentState();
 }
