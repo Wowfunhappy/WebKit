@@ -307,20 +307,13 @@ public:
 
     WTF_EXPORT_PRIVATE String listActiveTimersForLogging() const;
 
-    // AQUAWEBKIT: the main run loop's GLib context pump dispatches the queued functions between
-    // two iterations of the context, the order GLib's dispatcher source gives the GLib ports, and holds
-    // the outer cycle after its drain when a function asked for the rest of a cycle to wait for the run
-    // loop's observers.
-    WTF_EXPORT_PRIVATE void performWork();
-    bool wasFunctionDispatchSuspended() const { return m_wasFunctionDispatchSuspended; }
-
 private:
     class Holder;
     static ThreadSpecific<Holder, CanBeGCThread::False>& runLoopHolder();
 
     RunLoop();
 
-    // void performWork(); // AQUAWEBKIT: public above, the main run loop's GLib context pump calls it.
+    void performWork();
 
     void registerTimer(TimerBase&);
     void unregisterTimer(TimerBase&);
@@ -343,7 +336,6 @@ private:
 
     bool m_isFunctionDispatchSuspended { false };
     bool m_hasSuspendedFunctions { false };
-    bool m_wasFunctionDispatchSuspended { false }; // AQUAWEBKIT: see wasFunctionDispatchSuspended().
 
 #if USE(WINDOWS_EVENT_LOOP)
     static LRESULT CALLBACK RunLoopWndProc(HWND, UINT, WPARAM, LPARAM);

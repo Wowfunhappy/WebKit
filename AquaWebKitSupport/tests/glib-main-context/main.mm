@@ -60,9 +60,17 @@ static void runUntil(bool (^done)(), double seconds)
             CFRunLoopStop(CFRunLoopGetMain());
     });
     CFRunLoopAddObserver(CFRunLoopGetMain(), completionObserver, kCFRunLoopCommonModes);
-    NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:seconds];
-    while (!done() && [limit timeIntervalSinceNow] > 0)
-        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:limit];
+    // WebContent runs -[NSRunLoop run], whose passes have no limit date; a CF timer bounds the wait.
+    __block bool timedOut = false;
+    CFRunLoopTimerRef limitTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + seconds, 0, 0, 0, ^(CFRunLoopTimerRef) {
+        timedOut = true;
+        CFRunLoopStop(CFRunLoopGetMain());
+    });
+    CFRunLoopAddTimer(CFRunLoopGetMain(), limitTimer, kCFRunLoopCommonModes);
+    while (!done() && !timedOut)
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
+    CFRunLoopTimerInvalidate(limitTimer);
+    CFRelease(limitTimer);
     CFRunLoopObserverInvalidate(completionObserver);
     CFRelease(completionObserver);
 }
@@ -112,7 +120,7 @@ struct SharedTimerUnderLoad {
             g_main_context_wakeup(g_main_context_default());
             MonotonicTime deadline = MonotonicTime::now() + 2_s;
             while (!pollerPaused && MonotonicTime::now() < deadline)
-                usleep(1000);
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, false);
         }
         auto& sharedTimer = WebCore::MainThreadSharedTimer::singleton();
         sharedTimer.setFiredFunction(nullptr);
@@ -170,7 +178,8 @@ struct BusBurstSource {
     static constexpr unsigned messageCount = 200;
     unsigned messages[messageCount];
     unsigned delivered, followed, outOfOrder, overtaken;
-    unsigned observerPasses, messagesAtFirstObserver, observersDuringBurst;
+    unsigned observerPasses, observedMessage, messagesWithoutObserver;
+    MonotonicTime start, end;
 };
 
 struct NestedDrainSource {
@@ -210,7 +219,7 @@ int main()
         g_main_context_wakeup(g_main_context_default());
         MonotonicTime pauseDeadline = MonotonicTime::now() + 2_s;
         while (!pollerPaused && MonotonicTime::now() < pauseDeadline)
-            usleep(1000);
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, false);
         check(pollerPaused, "the descriptor poller is blocked before timer delivery");
         static bool timeoutOnMainThread;
         fired = { };
@@ -520,7 +529,7 @@ int main()
             if (read(fd, &byte, 1) == 1) {
                 if (followed != delivered) {
                     ++overtaken;
-                    if (!suspendOnDelivery || !RunLoop::mainSingleton().wasFunctionDispatchSuspended() || followed + 1 != delivered)
+                    if (!suspendOnDelivery || followed + 1 != delivered)
                         ++unexpectedOvertakes;
                 }
                 ++delivered;
@@ -559,7 +568,8 @@ int main()
         check(delivered == 200 && followed == delivered && backlogTime < 500, "a default-priority backlog and all its RunLoop work drain promptly");
         check(!overtaken && !outOfOrder, "RunLoop work queued by a dispatch runs before the next dispatch in FIFO order");
 
-        // Suspended RunLoop work completes between deliveries; the outer cycle holds after the drain.
+        // A suspended RunLoop batch runs after the next delivery, as GLib dispatches its sources while
+        // the dispatcher source holds its functions.
         static unsigned passesAtFirstSuspendedDelivery, passesAtLastSuspendedDelivery, overtakenBefore;
         overtakenBefore = overtaken;
         suspendOnDelivery = true;
@@ -597,6 +607,10 @@ int main()
             },
             [](GSource* source, GSourceFunc, gpointer) -> gboolean {
                 auto* bus = reinterpret_cast<BusBurstSource*>(source);
+                if (!bus->delivered)
+                    bus->start = MonotonicTime::now();
+                else if (bus->observedMessage != bus->delivered)
+                    ++bus->messagesWithoutObserver;
                 if (bus->followed != bus->delivered)
                     ++bus->overtaken;
                 unsigned message = bus->messages[bus->delivered];
@@ -605,6 +619,8 @@ int main()
                 RunLoop::mainSingleton().dispatch([bus, message] {
                     if (message != bus->followed++)
                         ++bus->outOfOrder;
+                    if (bus->followed == BusBurstSource::messageCount)
+                        bus->end = MonotonicTime::now();
                 });
                 return bus->delivered < BusBurstSource::messageCount ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
             },
@@ -617,19 +633,19 @@ int main()
         CFRunLoopObserverRef busObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, true, 1999999, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
             if (!bus->delivered)
                 return;
-            if (!bus->observerPasses++)
-                bus->messagesAtFirstObserver = bus->delivered;
-            if (bus->delivered < BusBurstSource::messageCount)
-                ++bus->observersDuringBurst;
+            ++bus->observerPasses;
+            bus->observedMessage = bus->delivered;
         });
         CFRunLoopAddObserver(CFRunLoopGetMain(), busObserver, kCFRunLoopCommonModes);
         g_source_attach(&bus->source, g_main_context_default());
         runUntil(^{ return bus->delivered == BusBurstSource::messageCount && bus->followed == bus->delivered && bus->observerPasses; }, 2);
-        printf("bus burst: %u messages, %u at first rendering observer, %u observers during burst, %u RunLoop overtakes\n",
-            bus->delivered, bus->messagesAtFirstObserver, bus->observersDuringBurst, bus->overtaken);
-        check(bus->delivered == BusBurstSource::messageCount && bus->observerPasses
-            && bus->messagesAtFirstObserver == BusBurstSource::messageCount && !bus->observersDuringBurst,
-            "all 200 bus messages drain before the first rendering observer after delivery starts");
+        double burstTime = (bus->end - bus->start).milliseconds();
+        printf("bus burst: %u messages in %.1f ms, %u rendering observer passes, %u messages without an observer pass since the previous one, %u RunLoop overtakes\n",
+            bus->delivered, burstTime, bus->observerPasses, bus->messagesWithoutObserver, bus->overtaken);
+        check(bus->delivered == BusBurstSource::messageCount && bus->end && burstTime < 500,
+            "200 bus messages and their RunLoop callbacks complete within 500 ms");
+        check(!bus->messagesWithoutObserver,
+            "the rendering observers run between two GLib iterations, one bus message per run-loop pass");
         check(bus->followed == bus->delivered && !bus->outOfOrder && !bus->overtaken,
             "bus messages and their RunLoop callbacks complete in FIFO order before the next message");
         CFRunLoopObserverInvalidate(busObserver);
@@ -637,7 +653,76 @@ int main()
         g_source_destroy(&bus->source);
         g_source_unref(&bus->source);
 
-        // The first GLib dispatch stays outstanding through its nested RunLoop continuation.
+        // After a suspension the rendering observers run before the next GLib source and the held
+        // function, as RunLoopGLib notifies BeforeWaiting before each GLib iteration; GLib dispatches
+        // while RunLoop function dispatch is suspended.
+        static GSource* follower;
+        static bool suspended, observerAfterSuspension, heldFunctionRan, followerRan, followerBeforeHeldFunction;
+        static bool observerBeforeFollower, observerBeforeHeldFunction;
+        static GSourceFuncs followerFunctions {
+            nullptr, nullptr,
+            [](GSource*, GSourceFunc, gpointer) -> gboolean {
+                followerRan = true;
+                followerBeforeHeldFunction = !heldFunctionRan;
+                observerBeforeFollower = observerAfterSuspension;
+                return G_SOURCE_REMOVE;
+            },
+            nullptr, nullptr, nullptr
+        };
+        CFRunLoopObserverRef suspensionObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, true, 1999999, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+            if (suspended)
+                observerAfterSuspension = true;
+        });
+        CFRunLoopAddObserver(CFRunLoopGetMain(), suspensionObserver, kCFRunLoopCommonModes);
+        follower = g_source_new(&followerFunctions, sizeof(GSource));
+        g_source_set_priority(follower, RunLoopSourcePriority::RunLoopDispatcher);
+        g_source_attach(follower, g_main_context_default());
+        g_idle_add_full(RunLoopSourcePriority::RunLoopDispatcher, [](gpointer) -> gboolean {
+            RunLoop::mainSingleton().dispatch([] {
+                heldFunctionRan = true;
+                observerBeforeHeldFunction = observerAfterSuspension;
+            });
+            RunLoop::mainSingleton().suspendFunctionDispatchForCurrentCycle();
+            suspended = true;
+            g_source_set_ready_time(follower, 0);
+            return G_SOURCE_REMOVE;
+        }, nullptr, nullptr);
+        runUntil(^{ return followerRan && heldFunctionRan; }, 2);
+        check(followerRan && heldFunctionRan && followerBeforeHeldFunction,
+            "a GLib source dispatches while RunLoop function dispatch is suspended for the cycle");
+        check(observerBeforeFollower && observerBeforeHeldFunction,
+            "after a suspension the rendering observers run before the next GLib source and the held function");
+        CFRunLoopObserverInvalidate(suspensionObserver);
+        CFRelease(suspensionObserver);
+        g_source_unref(follower);
+
+        // GLib keeps dispatching while RunLoop work reposts itself, as each GLib iteration on the GLib
+        // ports dispatches the RunLoop's dispatcher source and the other sources of its priority.
+        static MonotonicTime fairnessStart, fairnessGLibDispatch;
+        static bool fairnessReposting;
+        static unsigned fairnessReposts;
+        static void (*fairnessRepost)() = [] {
+            ++fairnessReposts;
+            if (MonotonicTime::now() - fairnessStart < 100_ms)
+                RunLoop::mainSingleton().dispatch([] { fairnessRepost(); });
+            else
+                fairnessReposting = false;
+        };
+        fairnessStart = MonotonicTime::now();
+        fairnessReposting = true;
+        RunLoop::mainSingleton().dispatch([] { fairnessRepost(); });
+        g_idle_add_full(RunLoopSourcePriority::RunLoopDispatcher, [](gpointer) -> gboolean {
+            if (fairnessReposting)
+                fairnessGLibDispatch = MonotonicTime::now();
+            return G_SOURCE_REMOVE;
+        }, nullptr, nullptr);
+        runUntil(^{ return !fairnessReposting; }, 2);
+        printf("self-reposting RunLoop work: %u functions, GLib source dispatched %.2f ms into the reposting\n", fairnessReposts, fairnessGLibDispatch ? (fairnessGLibDispatch - fairnessStart).milliseconds() : -1.0);
+        check(fairnessGLibDispatch && fairnessGLibDispatch - fairnessStart < 10_ms,
+            "a GLib source dispatches within 10 ms while RunLoop work keeps reposting");
+
+        // A RunLoop function that spins a nested loop: GLib keeps iterating inside it, as a nested GLib
+        // loop iterates the context on the GLib ports, and no GLib dispatch runs inside another.
         static GSourceFuncs nestedDrainFunctions {
             [](GSource* source, gint* timeout) -> gboolean {
                 *timeout = -1;
@@ -675,10 +760,9 @@ int main()
                         CFRunLoopSourceInvalidate(test->controlSource);
                         CFRelease(test->controlSource);
                         test->controlSource = nullptr;
-                        --test->dispatchDepth;
                     });
-                } else
-                    --test->dispatchDepth;
+                }
+                --test->dispatchDepth;
                 return test->delivered < NestedDrainSource::rounds ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
             },
             nullptr, nullptr, nullptr
@@ -689,7 +773,7 @@ int main()
         g_main_context_wakeup(g_main_context_default());
         pauseDeadline = MonotonicTime::now() + 2_s;
         while (!pollerPaused && MonotonicTime::now() < pauseDeadline)
-            usleep(1000);
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, false);
         CFRunLoopObserverRef nestedObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
             if (nestedDrain->nested)
                 ++nestedDrain->nestedWaits;
@@ -705,13 +789,16 @@ int main()
                 ++test.nestedDispatches;
             return G_SOURCE_REMOVE;
         }, nestedDrain);
-        // A short common-mode pass prepares the timeout before the ready source is attached.
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, false);
-        double armedDeadlineDelay = CFRunLoopGetNextTimerFireDate(CFRunLoopGetMain(), kCFRunLoopDefaultMode) - CFAbsoluteTimeGetCurrent();
+        // Short common-mode passes prepare the timeout before the ready source is attached.
+        double armedDeadlineDelay;
+        do {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0005, false);
+            armedDeadlineDelay = CFRunLoopGetNextTimerFireDate(CFRunLoopGetMain(), kCFRunLoopDefaultMode) - CFAbsoluteTimeGetCurrent();
+        } while (!(armedDeadlineDelay > 0 && armedDeadlineDelay <= 0.005) && MonotonicTime::now() - nestedDrain->timeoutAdded < 3_ms);
         bool nestedDeadlineArmed = armedDeadlineDelay > 0 && armedDeadlineDelay <= 0.005;
         g_source_attach(&nestedDrain->source, g_main_context_default());
         runUntil(^{ return nestedDrain->nestedEnd && nestedDrain->delivered == NestedDrainSource::rounds && nestedDrain->timeoutFires; }, 2);
-        printf("nested GLib drain: deadline armed %.2f ms ahead, %u rounds, maximum dispatch depth %u, %u nested dispatches, %.2f ms nested loop, %u control callouts, %u nested waits, timeout %.2f ms after add / %.2f ms after nested loop\n",
+        printf("nested loop: deadline armed %.2f ms ahead, %u rounds, maximum dispatch depth %u, %u nested dispatches, %.2f ms nested loop, %u control callouts, %u nested waits, timeout %.2f ms after add / %.2f ms after nested loop\n",
             armedDeadlineDelay * 1000,
             nestedDrain->delivered, nestedDrain->maxDispatchDepth, nestedDrain->nestedDispatches,
             (nestedDrain->nestedEnd - nestedDrain->nestedStart).milliseconds(), nestedDrain->controlCallouts, nestedDrain->nestedWaits,
@@ -719,13 +806,13 @@ int main()
         check(nestedDeadlineArmed && nestedDrain->deadlinePendingAtEntry && pollerPaused
             && nestedDrain->controlCallouts && !nestedDrain->nestedWaits
             && nestedDrain->nestedEnd - nestedDrain->nestedStart >= 30_ms,
-            "a prearmed 5 ms GLib deadline falls due during a 30 ms nested default-mode loop inside a drain's RunLoop callback");
+            "a prearmed 5 ms GLib deadline falls due during a 30 ms nested default-mode loop inside a RunLoop callback");
         check(nestedDrain->delivered == NestedDrainSource::rounds && !nestedDrain->dispatchDepth
-            && nestedDrain->maxDispatchDepth == 1 && !nestedDrain->nestedDispatches,
-            "GLib dispatch does not reenter the drain while its RunLoop callback spins a nested loop");
+            && nestedDrain->maxDispatchDepth == 1 && nestedDrain->nestedDispatches,
+            "GLib iterates inside a RunLoop callback's nested loop without dispatching inside another dispatch");
         check(nestedDrain->timeoutFires == 1 && nestedDrain->timeoutOnMainThread && nestedDrain->nestedEnd
-            && nestedDrain->timeoutFired >= nestedDrain->nestedEnd && nestedDrain->timeoutFired - nestedDrain->timeoutAdded < 500_ms,
-            "the GLib timeout fires once on the main thread after the nested loop returns");
+            && nestedDrain->timeoutFired < nestedDrain->nestedEnd && nestedDrain->timeoutFired - nestedDrain->timeoutAdded < 500_ms,
+            "the GLib timeout fires once on the main thread inside the nested loop");
         if (!nestedDrain->timeoutFires)
             g_source_remove(nestedTimeout);
         CFRunLoopObserverInvalidate(nestedObserver);

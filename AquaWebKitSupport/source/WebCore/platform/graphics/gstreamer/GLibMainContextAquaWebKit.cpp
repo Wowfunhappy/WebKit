@@ -1,8 +1,13 @@
-// The main thread drains GLib sources at dispatcher priority or above, with RunLoop work between
-// iterations. Suspended work holds the outer cycle after the drain; idle work yields through
-// RunLoop::dispatch. GLib deadlines use one main-thread timer whose fire time only moves earlier.
-// The helper polls descriptors only, with an infinite timeout. Before-waiting and exit observers
-// prepare sources added on the main thread.
+// The main thread serves GLib's default context from a mach-port run-loop source of its own. A
+// run-loop pass performs one signaled version-0 source, such as the RunLoop's dispatcher, and then
+// handles one port message, so the RunLoop's functions run before the pass's GLib iteration, the
+// order GLib gives the RunLoop's dispatcher source, attached first, and later sources of its
+// priority. Each message runs one context iteration and returns to the run loop, so the run
+// loop's observers run between two iterations, as RunLoopGLib's before-waiting notification does
+// on every GLib iteration; the pump posts itself another message while a GLib source is ready.
+// GLib deadlines use one main-thread timer whose fire time only moves earlier. The helper polls
+// descriptors only, with an infinite timeout. Before-waiting and exit observers prepare sources
+// added on the main thread.
 
 #include "config.h"
 #include "GLibMainContextAquaWebKit.h"
@@ -13,6 +18,7 @@
 #include <atomic>
 #include <cerrno>
 #include <fcntl.h>
+#include <mach/mach.h>
 #include <glib.h>
 #include <mutex>
 #include <optional>
@@ -24,7 +30,6 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
-#include <wtf/glib/RunLoopSourcePriority.h>
 #include <wtf/Threading.h>
 #include <wtf/Vector.h>
 
@@ -56,6 +61,15 @@ public:
             static_cast<MainContextPump*>(info)->prepareBeforeWaitingOrExit();
         }, &observerContext));
         CFRunLoopAddObserver(CFRunLoopGetMain(), m_observer.get(), kCFRunLoopCommonModes);
+
+        CFMachPortContext portContext { };
+        portContext.info = this;
+        m_port = adoptCF(CFMachPortCreate(kCFAllocatorDefault, [](CFMachPortRef, void*, CFIndex, void* info) {
+            static_cast<MainContextPump*>(info)->iterate();
+        }, &portContext, nullptr));
+        m_portName = CFMachPortGetPort(m_port.get());
+        m_source = adoptCF(CFMachPortCreateRunLoopSource(kCFAllocatorDefault, m_port.get(), 0));
+        CFRunLoopAddSource(CFRunLoopGetMain(), m_source.get(), kCFRunLoopCommonModes);
 
         Thread::create("GLib main context poller"_s, [this] {
             pollLoop();
@@ -105,11 +119,13 @@ private:
 
     void queueIteration()
     {
-        if (!m_iterationQueued.exchange(true)) {
-            RunLoop::mainSingleton().dispatch([this] {
-                iterate();
-            });
-        }
+        if (m_iterationQueued.exchange(true))
+            return;
+        mach_msg_header_t header { };
+        header.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_COPY_SEND, 0);
+        header.msgh_size = sizeof(header);
+        header.msgh_remote_port = m_portName;
+        mach_msg(&header, MACH_SEND_MSG | MACH_SEND_TIMEOUT, sizeof(header), 0, MACH_PORT_NULL, 0, MACH_PORT_NULL);
     }
 
     void iterate()
@@ -117,33 +133,17 @@ private:
         ASSERT(isMainThread());
         m_iterationQueued = false;
         disarm();
-        auto& runLoop = RunLoop::mainSingleton();
-        bool suspended = false;
-        while (true) {
-            int timeout = prepareAndQuery();
-            pollNow();
-            bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
-            if (dispatched)
-                g_main_context_dispatch(m_context);
-            clearResults();
-            // g_main_context_prepare() reports the priority of the sources ready before polling; it
-            // reports G_MAXINT when only descriptor sources are ready, which the check found.
-            bool idle = dispatched && m_maxPriority != G_MAXINT && m_maxPriority > RunLoopSourcePriority::RunLoopDispatcher;
-            if (!dispatched || idle) {
-                if (suspended)
-                    runLoop.suspendFunctionDispatchForCurrentCycle();
-                arm(dispatched || suspended ? 0 : timeout);
-                return;
-            }
-            // The RunLoop's queued functions run before the next messages. A function that suspends
-            // the rest of the cycle holds the ones behind it for one call; they run in the next.
-            do {
-                runLoop.performWork();
-                if (!runLoop.wasFunctionDispatchSuspended())
-                    break;
-                suspended = true;
-            } while (true);
+        int timeout = prepareAndQuery();
+        pollNow();
+        bool dispatched = g_main_context_check(m_context, m_maxPriority, m_fds.mutableSpan().data(), m_fds.size());
+        if (dispatched)
+            g_main_context_dispatch(m_context);
+        clearResults();
+        if (dispatched) {
+            prepareBeforeWaitingOrExit();
+            return;
         }
+        arm(timeout);
     }
 
     void prepareBeforeWaitingOrExit()
@@ -156,8 +156,8 @@ private:
         arm(timeout);
     }
 
-    // The helper polls only while the main thread is not iterating the context; a run of the pump
-    // owns the context's descriptors from its first prepare to its last arm().
+    // The helper polls only while the main thread is not iterating the context; an iteration owns
+    // the context's descriptors from its prepare to its arm().
     void disarm()
     {
         m_deadlineTimer.stop();
@@ -237,6 +237,9 @@ private:
 
     GMainContext* m_context { nullptr };
     RetainPtr<CFRunLoopObserverRef> m_observer;
+    RetainPtr<CFMachPortRef> m_port;
+    mach_port_t m_portName { MACH_PORT_NULL };
+    RetainPtr<CFRunLoopSourceRef> m_source;
     std::optional<MonotonicTime> m_nextFireTime;
     RunLoop::Timer m_deadlineTimer { RunLoop::mainSingleton(), "GLib main context"_s, [this] {
         m_nextFireTime.reset();
