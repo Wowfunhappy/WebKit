@@ -41,6 +41,17 @@
  * when its parameter sets and its own slices bear that out; a session whose encoder writes a sample they do not
  * keeps the encoder's labels from then on.
  *
+ * kVTEncodeFrameOptionKey_ForceKeyFrame makes a frame a keyframe. 10.9's H.264 encoder ignores it on the frame
+ * submitted right after a keyframe and encodes that frame as a NotSync non-IDR picture, while every other forced
+ * frame comes out an IDR (measured; no frame option changes that, and of the session properties only a
+ * MaxKeyFrameInterval of 1, under which every frame is an IDR, except under low-latency usage, which ignores the
+ * interval). In any other session, before a forced frame, the
+ * frames already submitted are completed up to the latest when its output has not come out, and while the latest
+ * output is a keyframe the same image is submitted as a frame of the polyfill's own, half way in time between that
+ * keyframe and the forced frame and with that half as its duration. Those frames' outputs are never delivered and
+ * they do not count toward the session's cadence; the IDR after them starts a new group of pictures, so nothing
+ * delivered refers to them.
+ *
  * Per-session state lives in an associated object on the session and goes with it. Each frame's
  * refcon is wrapped; 10.9 delivers a frame's output on the thread that submits or completes it and
  * discards the frames still queued when the session is invalidated or released without calling back
@@ -119,6 +130,7 @@ typedef size_t (*WKCVPixelBufferGetBytesPerRowOfPlaneFunction)(CFTypeRef, size_t
 typedef int32_t (*WKCVPixelBufferPoolCreateFunction)(CFAllocatorRef, CFDictionaryRef, CFDictionaryRef, CFTypeRef *);
 typedef int32_t (*WKCVPixelBufferPoolCreatePixelBufferFunction)(CFAllocatorRef, CFTypeRef, CFTypeRef *);
 typedef OSStatus (*WKVTSessionCopyPropertyFunction)(CFTypeRef, CFStringRef, CFAllocatorRef, void *);
+typedef OSStatus (*WKVTCompressionSessionCompleteFramesFunction)(WKVTCompressionSessionRef, WKCMTime);
 typedef Boolean (*WKCVPixelBufferIsPlanarFunction)(CFTypeRef);
 typedef size_t (*WKCVPixelBufferGetPlaneCountFunction)(CFTypeRef);
 typedef size_t (*WKCVPixelBufferGetWidthOfPlaneFunction)(CFTypeRef, size_t);
@@ -258,6 +270,7 @@ WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVBufferGetAttachments)
 WK_CADENCE_FUNCTION(kWKCoreVideoImage, CVBufferSetAttachments)
 
 WK_CADENCE_FUNCTION(kWKVideoToolboxImage, VTSessionCopyProperty)
+WK_CADENCE_FUNCTION(kWKVideoToolboxImage, VTCompressionSessionCompleteFrames)
 
 // Every image that force-loads this file has its own copy of it, and a session one image creates may be
 // encoded from another, so the association key is a registered selector: the same address in every image.
@@ -283,6 +296,8 @@ typedef struct WKCadenceFrame {
     void *sourceFrameRefCon;
     int durationSupplied;
     int baselineRequested;
+    int separatesKeyFrames;
+    int64_t serial;
 } WKCadenceFrame;
 
 typedef struct {
@@ -301,6 +316,11 @@ typedef struct {
     WKCMFormatDescriptionRef baselineFormat;
     unsigned nalLengthSize;
     int baselineRefused;
+    int64_t submittedFrames;
+    int lowLatencyUsage;
+    int lastSubmittedIsKeyFrame;
+    int lastSubmittedIsOut;
+    WKCMTime lastSubmittedPresentationTime;
 } WKCadenceSession;
 
 static void wk_cadence_session_free(void *pointer, void *info)
@@ -660,15 +680,34 @@ static WKCMSampleBufferRef wk_cadence_copy_sample(WKCMSampleBufferRef sampleBuff
     return copy;
 }
 
+static int wk_cadence_sample_is_sync(WKCMSampleBufferRef sampleBuffer)
+{
+    CFArrayRef attachments = wk_system_CMSampleBufferGetSampleAttachmentsArray()(sampleBuffer, false);
+    if (!attachments || !CFArrayGetCount(attachments))
+        return 1;
+    CFDictionaryRef first = CFArrayGetValueAtIndex(attachments, 0);
+    CFTypeRef notSync = first && CFGetTypeID(first) == CFDictionaryGetTypeID() ? CFDictionaryGetValue(first, CFSTR("NotSync")) : NULL;
+    return !notSync || (CFGetTypeID(notSync) == CFBooleanGetTypeID() && !CFBooleanGetValue(notSync));
+}
+
 static void wk_cadence_output(void *outputCallbackRefCon, void *sourceFrameRefCon, OSStatus status,
     uint32_t infoFlags, WKCMSampleBufferRef sampleBuffer)
 {
     WKCadenceSession *session = outputCallbackRefCon;
     WKCadenceFrame *frame = sourceFrameRefCon;
+    int isSync = sampleBuffer && wk_cadence_sample_is_sync(sampleBuffer);
     os_unfair_lock_lock(&session->lock);
     frame->previous->next = frame->next;
     frame->next->previous = frame->previous;
+    if (frame->serial == session->submittedFrames) {
+        session->lastSubmittedIsOut = 1;
+        session->lastSubmittedIsKeyFrame = isSync;
+    }
     os_unfair_lock_unlock(&session->lock);
+    if (frame->separatesKeyFrames) {
+        free(frame);
+        return;
+    }
     void *callerRefCon = frame->sourceFrameRefCon;
     int durationSupplied = frame->durationSupplied;
     int baselineRequested = frame->baselineRequested;
@@ -724,6 +763,15 @@ static CFMutableDictionaryRef wk_encode_copy_low_latency_specification(CFDiction
     return specification;
 }
 
+static int wk_encode_specification_has_low_latency_usage(CFDictionaryRef encoderSpecification)
+{
+    CFTypeRef usage = encoderSpecification ? CFDictionaryGetValue(encoderSpecification, CFSTR("EncoderUsage")) : NULL;
+    int value = 0;
+    if (usage && CFGetTypeID(usage) == CFNumberGetTypeID())
+        CFNumberGetValue(usage, kCFNumberIntType, &value);
+    return value == 1;
+}
+
 OSStatus VTCompressionSessionCreate(CFAllocatorRef allocator, int32_t width, int32_t height, uint32_t codecType,
     CFDictionaryRef encoderSpecification, CFDictionaryRef sourceImageBufferAttributes,
     CFAllocatorRef compressedDataAllocator, WKVTCompressionOutputCallback outputCallback,
@@ -750,6 +798,7 @@ OSStatus VTCompressionSessionCreate(CFAllocatorRef allocator, int32_t width, int
     session->outstanding.next = &session->outstanding;
     session->width = width;
     session->height = height;
+    session->lowLatencyUsage = wk_encode_specification_has_low_latency_usage(encoderSpecification);
 
     OSStatus status = wk_system_VTCompressionSessionCreate()(allocator, width, height, codecType, encoderSpecification,
         sourceImageBufferAttributes, compressedDataAllocator, wk_cadence_output, session, compressionSessionOut);
@@ -977,6 +1026,89 @@ static CFTypeRef wk_encode_copy_colour_stated_frame(WKVTCompressionSessionRef co
     return stated;
 }
 
+static int wk_encode_frame_forces_key_frame(CFDictionaryRef frameProperties)
+{
+    CFTypeRef force = frameProperties ? CFDictionaryGetValue(frameProperties, CFSTR("EncoderForceKeyframe")) : NULL;
+    return force && CFGetTypeID(force) == CFBooleanGetTypeID() && CFBooleanGetValue(force);
+}
+
+static int wk_encode_session_encodes_only_key_frames(WKVTCompressionSessionRef compressionSession, WKCadenceSession *session)
+{
+    if (session->lowLatencyUsage)
+        return 0;
+    CFTypeRef value = NULL;
+    if (wk_system_VTSessionCopyProperty()(compressionSession, CFSTR("MaxKeyFrameInterval"), kCFAllocatorDefault, &value) || !value)
+        return 0;
+    int interval = 0;
+    if (CFGetTypeID(value) == CFNumberGetTypeID())
+        CFNumberGetValue(value, kCFNumberIntType, &interval);
+    CFRelease(value);
+    return interval == 1;
+}
+
+// Submits |imageBuffer| as the polyfill's own frames until the latest frame submitted is known not to be a keyframe,
+// so the frame at |presentationTimeStamp| about to be forced to one does not follow a keyframe.
+static OSStatus wk_encode_separate_from_key_frame(WKVTCompressionSessionRef compressionSession, WKCadenceSession *session,
+    CFTypeRef imageBuffer, WKCMTime presentationTimeStamp)
+{
+    if (!wk_time_is_numeric(presentationTimeStamp) || wk_encode_session_encodes_only_key_frames(compressionSession, session))
+        return noErr;
+    Float64 seconds = wk_system_CMTimeGetSeconds()(presentationTimeStamp);
+    for (;;) {
+        os_unfair_lock_lock(&session->lock);
+        int64_t submitted = session->submittedFrames;
+        int isOut = session->lastSubmittedIsOut;
+        WKCMTime previous = session->lastSubmittedPresentationTime;
+        os_unfair_lock_unlock(&session->lock);
+        if (!submitted || !wk_time_is_numeric(previous))
+            return noErr;
+        if (!isOut) {
+            OSStatus status = wk_system_VTCompressionSessionCompleteFrames()(compressionSession, previous);
+            if (status)
+                return status;
+        }
+        os_unfair_lock_lock(&session->lock);
+        int followsKeyFrame = session->lastSubmittedIsOut && session->lastSubmittedIsKeyFrame;
+        os_unfair_lock_unlock(&session->lock);
+        if (!followsKeyFrame)
+            return noErr;
+
+        Float64 previousSeconds = wk_system_CMTimeGetSeconds()(previous);
+        enum { kNanosecondTimescale = 1000000000 };
+        Float64 half = (seconds - previousSeconds) / 2;
+        WKCMTime separatorTime = { (int64_t)((previousSeconds + half) * kNanosecondTimescale), kNanosecondTimescale, WKCMTimeFlagsValid, 0 };
+        WKCMTime separatorDuration = { (int64_t)(half * kNanosecondTimescale), kNanosecondTimescale, WKCMTimeFlagsValid, 0 };
+        if (separatorDuration.value <= 0)
+            return noErr;
+
+        WKCadenceFrame *separator = calloc(1, sizeof(*separator));
+        if (!separator)
+            wk_patch_fail("VTCompressionSessionEncodeFrame", "no memory for a frame's cadence");
+        separator->separatesKeyFrames = 1;
+        os_unfair_lock_lock(&session->lock);
+        separator->serial = ++session->submittedFrames;
+        session->lastSubmittedIsKeyFrame = 0;
+        session->lastSubmittedIsOut = 0;
+        session->lastSubmittedPresentationTime = separatorTime;
+        separator->next = &session->outstanding;
+        separator->previous = session->outstanding.previous;
+        separator->previous->next = separator;
+        session->outstanding.previous = separator;
+        os_unfair_lock_unlock(&session->lock);
+
+        OSStatus status = wk_system_VTCompressionSessionEncodeFrame()(compressionSession, imageBuffer, separatorTime,
+            separatorDuration, NULL, separator, NULL);
+        if (status) {
+            os_unfair_lock_lock(&session->lock);
+            separator->previous->next = separator->next;
+            separator->next->previous = separator->previous;
+            os_unfair_lock_unlock(&session->lock);
+            free(separator);
+            return status;
+        }
+    }
+}
+
 OSStatus VTCompressionSessionEncodeFrame(WKVTCompressionSessionRef compressionSession, CFTypeRef imageBuffer,
     WKCMTime presentationTimeStamp, WKCMTime duration, CFDictionaryRef frameProperties, void *sourceFrameRefCon,
     uint32_t *infoFlagsOut)
@@ -1005,6 +1137,16 @@ OSStatus VTCompressionSessionEncodeFrame(WKVTCompressionSessionRef compressionSe
         converted = colourStated;
     }
 
+    CFTypeRef submitted = converted ? converted : imageBuffer;
+    if (wk_encode_frame_forces_key_frame(frameProperties)) {
+        OSStatus separatorStatus = wk_encode_separate_from_key_frame(compressionSession, session, submitted, presentationTimeStamp);
+        if (separatorStatus) {
+            if (converted)
+                CFRelease(converted);
+            return separatorStatus;
+        }
+    }
+
     WKCadenceFrame *frame = calloc(1, sizeof(*frame));
     if (!frame)
         wk_patch_fail("VTCompressionSessionEncodeFrame", "no memory for a frame's cadence");
@@ -1029,13 +1171,17 @@ OSStatus VTCompressionSessionEncodeFrame(WKVTCompressionSessionRef compressionSe
         }
         ++session->frameCount;
     }
+    frame->serial = ++session->submittedFrames;
+    session->lastSubmittedIsKeyFrame = 0;
+    session->lastSubmittedIsOut = 0;
+    session->lastSubmittedPresentationTime = presentationTimeStamp;
     frame->next = &session->outstanding;
     frame->previous = session->outstanding.previous;
     frame->previous->next = frame;
     session->outstanding.previous = frame;
     os_unfair_lock_unlock(&session->lock);
 
-    OSStatus status = wk_system_VTCompressionSessionEncodeFrame()(compressionSession, converted ? converted : imageBuffer,
+    OSStatus status = wk_system_VTCompressionSessionEncodeFrame()(compressionSession, submitted,
         presentationTimeStamp, duration, frameProperties, frame, infoFlagsOut);
     if (converted)
         CFRelease(converted);

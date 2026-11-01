@@ -10,12 +10,10 @@
 ; It is therefore written in the vocabulary 10.9's compiler accepts -- `(import "system.sb")`,
 ; `iokit-open` rather than iokit-open-service/iokit-open-user-client, no with-filter, no
 ; file-map-executable, no message filters -- and grants what this port's GPU process actually
-; does: DOM and canvas rasterization, WebGL, and Web Audio output. Media playback, capture and WebRTC
-; codecs all stay in the web process (CaptureAudio/Video/DisplayInGPUProcessEnabled and
-; WebRTCPlatformCodecsInGPUProcessEnabled key on ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS, and
-; UseGPUProcessForMediaEnabled on upstream's own GStreamer term; the web process
-; profile holds the camera and microphone grants), so upstream's AVFoundation playback, capture and
-; codec grants -- and the camera, microphone and TCC rules that go with them -- have no counterpart here.
+; does: DOM and canvas rasterization, WebGL, Web Audio output, camera, microphone and display
+; capture, and the WebRTC platform codecs. Media playback stays in the web process
+; (UseGPUProcessForMediaEnabled keys on upstream's own GStreamer term), so upstream's AVFoundation
+; playback grants have no counterpart here.
 ;
 ; The font, ColorSync and CoreGraphics rules are the ones the recovered 10.9 WebProcess profile
 ; carries, because rasterizing is the work that moved: the same CoreText and CoreGraphics paths
@@ -153,6 +151,48 @@
 (allow mach-lookup
        (global-name "com.apple.audio.audiohald")
        (global-name "com.apple.audio.coreaudiod"))
+
+;; Microphone capture: CoreAudioCaptureUnit opens the default input device through a voice-processing
+;; unit. Upstream gates device-microphone on the "com.apple.webkit.microphone" extension, which cannot
+;; function on this OS: coreaudiod evaluates a client's device-microphone access once, when the client
+;; first registers, and holds that answer for the life of the HAL connection, and this process registers
+;; for Web Audio output before any capture grant exists. So the grant is static; user consent is the
+;; getUserMedia permission prompt.
+(allow device-microphone)
+
+;; Camera capture: AVVideoCaptureSource reaches the camera through CoreMediaIO's DAL plug-ins, which talk
+;; to a per-plug-in assistant daemon rather than to the device: VDC for USB video-class cameras, AVC for
+;; FireWire, IIDCVideo for IIDC, AppleCamera for built-in ISP cameras. launchd starts one on demand, so
+;; reaching it costs a job-creation as well as the mach-lookup; the literals are the four daemons behind
+;; the four services, spelled as the kernel resolves them. CoreMediaIO scans and loads its plug-ins from
+;; the DAL directory and reads the com.apple.cmio preferences, which this OS's cfprefsd checks as a read
+;; of the user's plist. As upstream does, all of it requires the "com.apple.webkit.camera" extension
+;; GPUProcessProxy::updateSandboxAccess issues when a page is granted the camera; device enumeration runs
+;; in the UI process, so this process first touches CoreMediaIO after that grant.
+(allow mach-lookup
+    (require-all
+        (extension "com.apple.webkit.camera")
+        (require-any
+            (global-name "com.apple.cmio.VDCAssistant")
+            (global-name "com.apple.cmio.AVCAssistant")
+            (global-name "com.apple.cmio.IIDCVideoAssistant")
+            (global-name "com.apple.cmio.AppleCameraAssistant"))))
+(allow job-creation
+    (require-all
+        (extension "com.apple.webkit.camera")
+        (require-any
+            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/VDC.plugin/Contents/Resources/VDCAssistant")
+            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/AVC.plugin/Contents/Resources/AVCAssistant")
+            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/IIDC.plugin/Contents/Resources/IIDCVideoAssistant")
+            (literal "/Library/CoreMediaIO/Plug-Ins/DAL/AppleCamera.plugin/Contents/Resources/AppleCameraAssistant"))))
+(allow file-read*
+    (require-all
+        (extension "com.apple.webkit.camera")
+        (require-any
+            (subpath "/Library/CoreMediaIO/Plug-Ins/DAL")
+            (home-literal "/Library/Preferences/com.apple.cmio.plist"))))
+(allow device-camera
+    (extension "com.apple.webkit.camera"))
 
 ;; Preferences this process reads for itself. CoreMedia, which the audio output path loads, reads its
 ;; preference file directly on this OS; upstream grants the com.apple.coremedia domain.

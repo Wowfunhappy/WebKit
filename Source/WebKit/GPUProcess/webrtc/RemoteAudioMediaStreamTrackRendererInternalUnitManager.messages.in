@@ -23,11 +23,11 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
 
-[
-    DispatchedFrom=WebContent,
-    DispatchedTo=GPU,
-    EnabledBy=UseGPUProcessForMediaEnabled
-]
+# AQUAWEBKIT: MediaStream audio renders in the GPU process wherever audio capture runs there, which on this port's GStreamer build is without UseGPUProcessForMediaEnabled.
+#     DispatchedFrom=WebContent,
+#     DispatchedTo=GPU,
+#     EnabledBy=UseGPUProcessForMediaEnabled
+[ DispatchedFrom=WebContent, DispatchedTo=GPU, EnabledBy=CaptureAudioInGPUProcessEnabled ]
 messages -> RemoteAudioMediaStreamTrackRendererInternalUnitManager {
     CreateUnit(WebKit::AudioMediaStreamTrackRendererInternalUnitIdentifier identifier, String deviceID) -> (std::optional<WebCore::CAAudioStreamDescription> description, uint64_t frameChunkSize)
     DeleteUnit(WebKit::AudioMediaStreamTrackRendererInternalUnitIdentifier identifier)

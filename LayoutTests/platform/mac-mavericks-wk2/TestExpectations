@@ -220,19 +220,6 @@ imported/w3c/web-platform-tests/encrypted-media/clearkey-mp4-playback-retrieve-p
 # Upstream Cocoa Cookie Store flake (platform/mac-sonoma/TestExpectations).
 webkit.org/b/288847 imported/w3c/web-platform-tests/cookiestore/cookieStore_event_delete.https.window.html [ Skip ]
 
-# These three force CaptureAudioInGPUProcessEnabled/CaptureVideoInGPUProcessEnabled in their own
-# headers, so the harness default cannot reach them. This build provisions the GPU process for
-# rasterization only -- its sandbox profile grants no camera, microphone or AVFoundation -- and
-# UseGPUProcessForMediaEnabled is off because the media engine is GStreamer in the web process, which
-# leaves the GPU process refusing every capture message gated on it. Measured: captureInGPUProcess
-# sends RemoteAudioMediaStreamTrackRendererInternalUnitManager_CreateUnit, the GPU process answers
-# didReceiveInvalidMessage and has the web process terminated; the other two end their tracks with
-# "A MediaStreamTrack ended due to a capture failure". Audio capture in the GPU process is a capability
-# this build does not have.
-fast/mediastream/captureInGPUProcess.html [ Skip ]
-fast/mediastream/media-stream-track-interrupted.html [ Skip ]
-fast/mediastream/media-stream-video-track-interrupted-from-audio.html [ Skip ]
-
 # The now-playing identifier these two tests read back is recorded by MediaSessionManagerCocoa::
 # updateNowPlayingInfo after its isMediaRemoteFrameworkAvailable() check, and
 # /System/Library/PrivateFrameworks/MediaRemote.framework does not exist on 10.9
@@ -545,11 +532,17 @@ imported/w3c/web-platform-tests/css/css-values/ch-unit-004.html [ Skip ]
 
 # These drive the mock capture devices through WebKitTestRunner-only C API (the WKMockMediaDevice calls,
 # WKPageSetMockCaptureDevicesInterrupted, WKPageTriggerMockCaptureConfigurationChange). Upstream keys where those
-# calls go on USE(GSTREAMER), which sends them to the web process, while WebKitTestRunner captures video in the GPU
-# process here. Only tests reach that API, so the tests are skipped (maintainer decision).
+# calls go on USE(GSTREAMER), which sends them to the web process, while WebKitTestRunner captures video and audio in
+# the GPU process here. Only tests reach that API, so the tests are skipped (maintainer decision).
 fast/mediastream/camera-unknown-facing-mode.html [ Skip ]
 fast/mediastream/configurationchange-defer-and-abort.html [ Skip ]
 fast/mediastream/default-camera-test.html [ Skip ]
+fast/mediastream/device-change-event-2.html [ Skip ]
+fast/mediastream/MediaDevices-addEventListener.html [ Skip ]
+fast/mediastream/media-stream-track-interrupted.html [ Skip ]
+fast/mediastream/media-stream-video-track-interrupted-from-audio.html [ Skip ]
+fast/mediastream/microphone-change-while-capturing.html [ Skip ]
+fast/mediastream/microphone-change-while-muted.html [ Skip ]
 fast/mediastream/getDisplayMedia-max-constraints4.html [ Skip ]
 fast/mediastream/getDisplayMedia-max-constraints5.html [ Skip ]
 fast/mediastream/media-stream-video-track-interrupted.html [ Skip ]

@@ -861,6 +861,18 @@ probe_decode_colour_description() {
         "$T/decode_colour_description"
 }
 
+probe_decode_error_contract() {
+    "$CLANG" $MODERN $INC -o "$T/decode_error_contract" "$TBEHAV/VideoToolbox-decode-error-contract.c" $PROBE_LIBS \
+        -framework VideoToolbox -framework CoreVideo &&
+        "$T/decode_error_contract"
+}
+
+probe_force_key_frame() {
+    "$CLANG" $MODERN $INC -o "$T/force_key_frame" "$TBEHAV/VideoToolbox-force-key-frame.c" $PROBE_LIBS \
+        -framework VideoToolbox -framework CoreVideo &&
+        "$T/force_key_frame"
+}
+
 probe_encode_low_latency() {
     "$CLANG" $MODERN $INC -o "$T/encode_low_latency" "$TBEHAV/VideoToolbox-low-latency.c" $PROBE_LIBS \
         -framework VideoToolbox -framework CoreVideo &&
@@ -1243,6 +1255,8 @@ run_probe font_collections "$@"
 run_probe h264_parameter_sets "$@"
 run_probe encode_cadence "$@"
 run_probe decode_colour_description "$@"
+run_probe decode_error_contract "$@"
+run_probe force_key_frame "$@"
 run_probe encode_low_latency "$@"
 run_probe pixel_buffer_conformer "$@"
 run_probe public_suffix "$@"

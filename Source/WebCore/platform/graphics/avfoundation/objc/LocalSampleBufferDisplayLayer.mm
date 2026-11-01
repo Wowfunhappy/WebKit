@@ -390,11 +390,13 @@ static inline CGAffineTransform transformationMatrixForVideoFrame(VideoFrame& vi
         return CGAffineTransformIdentity;
 
 // AQUAWEBKIT: the negated Mac angle is calibrated for a layer hosted in the GPU process's
-// CAContext, whose geometry is not flipped. Here the layer lives in the web process, inside the
-// TiledCoreAnimationDrawingArea hosting layer (and WebKitLegacy's flipped hosting view), whose flipped
-// geometry mirrors a rotation, so the angle keeps the frame's own sign.
+// CAContext, whose geometry is not flipped; the layer is hosted there when media runs in the GPU
+// process, which UseGPUProcessForMediaEnabled's default ties to !USE(GSTREAMER). On this GStreamer
+// port the layer lives in the web process, inside the TiledCoreAnimationDrawingArea hosting layer (and
+// WebKitLegacy's flipped hosting view), whose flipped geometry mirrors a rotation, so the angle keeps
+// the frame's own sign.
 // #if PLATFORM(MAC)
-#if PLATFORM(MAC) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)
+#if PLATFORM(MAC) && !USE(GSTREAMER)
     int rotationAngle = -static_cast<int>(videoFrame.rotation());
 #else
     int rotationAngle = static_cast<int>(videoFrame.rotation());

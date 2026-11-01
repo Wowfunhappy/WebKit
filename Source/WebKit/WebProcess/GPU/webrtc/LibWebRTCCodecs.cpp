@@ -44,6 +44,8 @@
 #include <WebCore/Page.h>
 #include <WebCore/PlatformMediaSessionManager.h>
 #include <WebCore/Settings.h>
+#include <WebCore/HEVCUtilitiesCocoa.h> // AQUAWEBKIT: see videoCodecTypeFromWebCodec.
+#include <WebCore/PlatformMediaCapabilitiesInfo.h> // AQUAWEBKIT: see videoCodecTypeFromWebCodec.
 #include <WebCore/VP9UtilitiesCocoa.h>
 #include <WebCore/VideoFrameCV.h>
 #include <wtf/MainThread.h>
@@ -111,8 +113,16 @@ std::optional<WebCore::VideoCodecType> LibWebRTCCodecs::videoCodecTypeFromWebCod
         return WebCore::VideoCodecType::AV1;
     }
 
-    if (codec.startsWith("hev1."_s) || codec.startsWith("hvc1."_s))
+    // AQUAWEBKIT: the GPU process decodes HEVC with VideoToolbox, which on this OS has no HEVC decoder; a
+    // codec VideoToolbox cannot decode is decoded in this process, as VP9 is without its hardware decoder.
+    // if (codec.startsWith("hev1."_s) || codec.startsWith("hvc1."_s))
+    //     return WebCore::VideoCodecType::H265;
+    if (codec.startsWith("hev1."_s) || codec.startsWith("hvc1."_s)) {
+        auto parameters = WebCore::parseHEVCCodecParameters(codec);
+        if (!parameters || !WebCore::validateHEVCParameters(*parameters, false, false))
+            return { };
         return WebCore::VideoCodecType::H265;
+    } // AQUAWEBKIT: closes the HEVC block above.
 
     return { };
 }

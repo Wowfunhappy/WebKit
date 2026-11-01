@@ -129,14 +129,6 @@ add_compile_definitions(
     ENABLE_NETWORK_ISSUE_REPORTING=0
 )
 
-# This port's own flag, not an upstream one. The GPU process here is provisioned for rasterization and
-# Web Audio output: its profile (AquaWebKitSupport/sandbox/com.apple.WebKit.GPUProcess.sb.in) grants DOM
-# and canvas rasterization, WebGL and CoreAudio output, and no camera, microphone or AVFoundation access.
-# Camera and microphone capture and the WebRTC platform codecs therefore run in the web process, which
-# holds those grants, and the GPU-process defaults for them key on this flag. Display capture needs only
-# the window server, which that profile grants, so it runs in the GPU process as on every Mac.
-add_compile_definitions(ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS=1)
-
 # PlatformHave.h turns the Cookie Store API on by default from a macOS 15.4 deployment target, which
 # is a ship-date gate rather than a capability one: this engine carries the whole implementation
 # (Source/WebCore/Modules/cookie-store), and CookieStoreAPIEnabled is a stable preference whose only

@@ -1803,6 +1803,8 @@ CaptureAudioInGPUProcessEnabled:
   defaultValue:
     WebKit:
       default: WebKit::defaultCaptureAudioInGPUProcessEnabled()
+  # AQUAWEBKIT: RemoteAudioMediaStreamTrackRendererInternalUnitManager's messages are enabled by this preference.
+  sharedPreferenceForWebProcess: true
 
 CaptureVideoInGPUProcessEnabled:
   type: bool
@@ -1815,10 +1817,7 @@ CaptureVideoInGPUProcessEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      # AQUAWEBKIT: video capture runs in the web process here, which holds the camera grant;
-      # see ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake.
-      # "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
-      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
+      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
       default: false
 
 CaretBrowsingEnabled:
@@ -10009,10 +10008,7 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # AQUAWEBKIT: the WebRTC platform codecs run in the web process here; see
-      # ENABLE_GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS in AquaWebKitSupport/cmake/OptionsMacAquaWebKit.cmake.
-      # "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
-      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_WITHOUT_CAPTURE_AND_CODECS)": true
+      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
       default: false
     WebCore:
       default: false

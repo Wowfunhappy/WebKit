@@ -229,6 +229,8 @@ public:
 
     bool initialize()
     {
+        if (m_initialized)
+            return !m_failed;
         if (!m_context || !m_context->pb || !m_packet) {
             m_failed = true;
             return false;
@@ -245,6 +247,7 @@ public:
             m_failed = true;
             return false;
         }
+        m_initialized = true;
         return true;
     }
 
@@ -423,9 +426,11 @@ private:
         return size;
     }
 
+    // Tracks join before allTracksAdded() initializes the muxer, which sets up each stream's timing then;
+    // like an AVAssetWriter that has started writing, an initialized writer takes no further tracks.
     AVStream* addStream(enum AVCodecID codecID)
     {
-        if (!m_context || !m_context->pb || m_headerWritten || m_streams.size() >= std::numeric_limits<uint8_t>::max())
+        if (!m_context || !m_context->pb || m_initialized || m_streams.size() >= std::numeric_limits<uint8_t>::max())
             return nullptr;
         AVStream* stream = avformat_new_stream(m_context, nullptr);
         if (!stream)
@@ -463,6 +468,7 @@ private:
     std::optional<PendingVideoSample> m_pendingVideoSample;
     Vector<bool> m_streamHasSamples;
     Vector<std::optional<AudioTimeline>> m_audioTimelines;
+    bool m_initialized { false };
     bool m_headerWritten { false };
     bool m_movieHeaderWritten { false };
     bool m_failed { false };

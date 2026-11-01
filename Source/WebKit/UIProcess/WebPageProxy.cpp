@@ -15309,11 +15309,7 @@ void WebPageProxy::willStartCapture(UserMediaPermissionRequestProxy& request, Co
 
 #if ENABLE(GPU_PROCESS)
     Ref preferences = m_preferences;
-    // AQUAWEBKIT: display capture is routed to the GPU process on its own preference, and here
-    // it is the only kind that is: camera and microphone capture stay in the web process, so the two
-    // terms upstream reads would skip the grant the GPU process checks in willStartCapture.
-    // if (!preferences->captureVideoInGPUProcessEnabled() && !preferences->captureAudioInGPUProcessEnabled())
-    if (!preferences->captureVideoInGPUProcessEnabled() && !preferences->captureAudioInGPUProcessEnabled() && !preferences->useGPUProcessForDisplayCapture())
+    if (!preferences->captureVideoInGPUProcessEnabled() && !preferences->captureAudioInGPUProcessEnabled())
         return callback();
 
     Ref gpuProcess = protect(configuration().processPool())->ensureGPUProcess();
@@ -15323,10 +15319,7 @@ void WebPageProxy::willStartCapture(UserMediaPermissionRequestProxy& request, Co
 
     if (RefPtr frame = WebFrameProxy::webFrame(request.frameID())) {
         auto webProcessIdentifier = frame->process().coreProcessIdentifier();
-        // AQUAWEBKIT: the GPU process is granted only the kinds of capture it hosts, as the
-        // gpuProcessDidExit() re-grant does; see the display capture term above.
-        // gpuProcess->updateCaptureAccess(request.requiresAudioCapture(), request.requiresVideoCapture(), request.requiresDisplayCapture(), webProcessIdentifier, identifier(), WTF::move(callback));
-        gpuProcess->updateCaptureAccess(request.requiresAudioCapture() && preferences->captureAudioInGPUProcessEnabled(), request.requiresVideoCapture() && preferences->captureVideoInGPUProcessEnabled(), request.requiresDisplayCapture() && preferences->useGPUProcessForDisplayCapture(), webProcessIdentifier, identifier(), WTF::move(callback));
+        gpuProcess->updateCaptureAccess(request.requiresAudioCapture(), request.requiresVideoCapture(), request.requiresDisplayCapture(), webProcessIdentifier, identifier(), WTF::move(callback));
         gpuProcess->updateCaptureOrigin(request.topLevelDocumentSecurityOrigin().data(), webProcessIdentifier);
     } else
         return callback();

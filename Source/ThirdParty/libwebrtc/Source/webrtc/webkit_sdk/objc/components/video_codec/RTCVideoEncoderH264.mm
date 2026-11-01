@@ -624,18 +624,6 @@ uint32_t computeFramerate(uint32_t proposedFramerate, uint32_t maxAllowedFramera
   CMTime presentationTimeStamp = CMTimeMake(frame.timeStampNs / webrtc::kNumNanosecsPerMillisec, 1000);
   CFDictionaryRef frameProperties = nullptr;
   if (isKeyframeRequired) {
-    // AQUAWEBKIT: 10.9's software encoder can answer ForceKeyFrame with a non-sync intra picture.
-    // A drained, freshly configured session starts with an IDR and supplies its decoder description.
-    OSStatus flushStatus = VTCompressionSessionCompleteFrames(_vtCompressionSession, kCMTimeInvalid);
-    if (flushStatus != noErr ||
-        [self resetCompressionSessionWithPixelFormat:CVPixelBufferGetPixelFormatType(pixelBuffer)] != WEBRTC_VIDEO_CODEC_OK) {
-      CVBufferRelease(pixelBuffer);
-      if (_errorCallback) {
-        _errorCallback(flushStatus != noErr ? flushStatus : ErrorCallbackDefaultValue);
-      }
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-    _needsToSendDescription = true;
     CFTypeRef keys[] = {kVTEncodeFrameOptionKey_ForceKeyFrame};
     CFTypeRef values[] = {kCFBooleanTrue};
     frameProperties = CreateCFTypeDictionary(keys, values, 1);
@@ -668,6 +656,11 @@ uint32_t computeFramerate(uint32_t proposedFramerate, uint32_t maxAllowedFramera
   } else {
     status = 1;
   }
+  // AQUAWEBKIT: 10.9's H.264 encoder holds about ten frames before emitting one unless the session asks for
+  // low-latency usage, and a VideoEncoder client waits for each frame's output with at most four frames in
+  // flight. Each frame is completed as it is submitted.
+  if (status == noErr && _vtCompressionSession)
+    VTCompressionSessionCompleteFrames(_vtCompressionSession, presentationTimeStamp);
   if (frameProperties) {
     CFRelease(frameProperties);
   }

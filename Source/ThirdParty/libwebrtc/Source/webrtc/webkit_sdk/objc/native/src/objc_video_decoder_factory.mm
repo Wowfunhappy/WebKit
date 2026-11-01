@@ -105,8 +105,8 @@ std::unique_ptr<VideoDecoder> ObjCVideoDecoderFactory::Create(
     // subtype (pc/codec_vendor.cc NegotiateCodecs takes `theirs->name`), which SDP allows in any case.
     // WebKit maps a format to a codec case-insensitively where it takes that mapping:
     // LibWebRTCCodecs.cpp's createVideoDecoder compares with equalIgnoringASCIICase. That entry point
-    // belongs to the GPU process codec path, which this port does not take, so this loop is the whole
-    // mapping here. -createDecoder: still receives the factory's own RTCVideoCodecInfo.
+    // takes the codecs the GPU process decodes; the codecs this factory decodes in the web process are
+    // mapped by this loop. -createDecoder: still receives the factory's own RTCVideoCodecInfo.
     // if ([codecName isEqualToString:codecInfo.name]) {
     if ([codecName caseInsensitiveCompare:codecInfo.name] == NSOrderedSame) {
       id<RTCVideoDecoder> decoder = [decoder_factory_ createDecoder:codecInfo];

@@ -17,6 +17,14 @@
  * as a sample carrying the copy, its data, timing and attachments shared. Whether a session can accept
  * a description is answered for that description's copy.
  *
+ * VTDecompressionSessionDecodeFrame's contract is that an error return means the output callback is not
+ * called for that frame. 10.9 breaks it for frames its decoder rejects: the decoder's thread calls the
+ * output callback with the error and VTDecompressionSessionDecodeFrame returns the same error (measured: a
+ * zeroed or truncated H.264 sample gives one callback with -12348 or -8969 and that return). The session's
+ * output callback goes through a trampoline; an error delivery for the frame being decoded (its
+ * sourceFrameRefCon and presentation time) is held until the call returns, and dropped when the call
+ * returns an error, delivered otherwise. One arriving after an error return is dropped.
+ *
  * Per-session state lives in an associated object on the session and goes with it. Plain C, with the
  * frameworks' types declared locally and their entry points taken from the loaded images' own symbol
  * tables: deps/build_deps.sh compiles this file into the gap archive force-loaded into every media dylib,
@@ -29,6 +37,7 @@
 #include <dlfcn.h>
 #include <os/lock.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,7 +69,12 @@ typedef struct WKOpaqueVTDecompressionSession *WKVTDecompressionSessionRef;
 typedef struct WKOpaqueCMFormatDescription *WKCMFormatDescriptionRef;
 typedef struct WKOpaqueCMSampleBuffer *WKCMSampleBufferRef;
 typedef struct WKOpaqueCMBlockBuffer *WKCMBlockBufferRef;
-typedef struct WKVTDecompressionOutputCallbackRecord WKVTDecompressionOutputCallbackRecord;
+typedef void (*WKVTDecompressionOutputCallback)(void *decompressionOutputRefCon, void *sourceFrameRefCon, OSStatus status,
+    uint32_t infoFlags, void *imageBuffer, WKCMTime presentationTimeStamp, WKCMTime presentationDuration);
+typedef struct WKVTDecompressionOutputCallbackRecord {
+    WKVTDecompressionOutputCallback decompressionOutputCallback;
+    void *decompressionOutputRefCon;
+} WKVTDecompressionOutputCallbackRecord;
 
 typedef OSStatus (*WKVTDecompressionSessionCreateFunction)(CFAllocatorRef, WKCMFormatDescriptionRef, CFDictionaryRef,
     CFDictionaryRef, const WKVTDecompressionOutputCallbackRecord *, WKVTDecompressionSessionRef *);
@@ -77,6 +91,7 @@ typedef WKCMBlockBufferRef (*WKCMSampleBufferGetDataBufferFunction)(WKCMSampleBu
 typedef Boolean (*WKCMSampleBufferDataIsReadyFunction)(WKCMSampleBufferRef);
 typedef OSStatus (*WKCMSampleBufferMakeDataReadyFunction)(WKCMSampleBufferRef);
 typedef CFIndex (*WKCMSampleBufferGetNumSamplesFunction)(WKCMSampleBufferRef);
+typedef WKCMTime (*WKCMSampleBufferGetPresentationTimeStampFunction)(WKCMSampleBufferRef);
 typedef OSStatus (*WKCMSampleBufferGetSampleSizeArrayFunction)(WKCMSampleBufferRef, CFIndex, size_t *, CFIndex *);
 typedef OSStatus (*WKCMSampleBufferGetSampleTimingInfoArrayFunction)(WKCMSampleBufferRef, CFIndex, WKCMSampleTimingInfo *, CFIndex *);
 typedef CFArrayRef (*WKCMSampleBufferGetSampleAttachmentsArrayFunction)(WKCMSampleBufferRef, Boolean);
@@ -147,6 +162,7 @@ WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetDataBuffer)
 WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferDataIsReady)
 WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferMakeDataReady)
 WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetNumSamples)
+WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetPresentationTimeStamp)
 WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetSampleSizeArray)
 WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetSampleTimingInfoArray)
 WK_VTDECODE_FUNCTION(kWKCoreMediaImage, CMSampleBufferGetSampleAttachmentsArray)
@@ -444,11 +460,26 @@ static WKCMFormatDescriptionRef wk_format_copy_in_range(WKCMFormatDescriptionRef
 
 // ---- Sessions ------------------------------------------------------------------------------------------
 
-// The session's last-seen sample description and the copy it decodes as (NULL when it needs none).
+// The frame VTDecompressionSessionDecodeFrame is decoding or has just failed, and its held error delivery.
+typedef struct {
+    int active;
+    int returnedError;
+    void *sourceFrameRefCon;
+    WKCMTime presentationTimeStamp;
+    int held;
+    OSStatus heldStatus;
+    uint32_t heldInfoFlags;
+    WKCMTime heldPresentationDuration;
+} WKVTDecodeFrameInFlight;
+
+// The session's last-seen sample description and the copy it decodes as (NULL when it needs none), the
+// caller's output callback, and the frame in VTDecompressionSessionDecodeFrame.
 typedef struct {
     os_unfair_lock lock;
     WKCMFormatDescriptionRef format;
     WKCMFormatDescriptionRef inRangeFormat;
+    WKVTDecompressionOutputCallbackRecord outputCallback;
+    WKVTDecodeFrameInFlight frame;
 } WKVTDecodeSession;
 
 static void wk_vtdecode_session_free(void *pointer, void *info)
@@ -511,12 +542,46 @@ static WKCMFormatDescriptionRef wk_vtdecode_copy_in_range_format(WKVTDecodeSessi
     return inRangeFormat;
 }
 
+static bool wk_vtdecode_same_time(WKCMTime a, WKCMTime b)
+{
+    return a.value == b.value && a.timescale == b.timescale && a.flags == b.flags && a.epoch == b.epoch;
+}
+
+// The session's output callback: an error for the frame in VTDecompressionSessionDecodeFrame waits for
+// that call to settle, and one for a frame whose call returned an error is dropped.
+static void wk_vtdecode_output(void *decompressionOutputRefCon, void *sourceFrameRefCon, OSStatus status, uint32_t infoFlags,
+    void *imageBuffer, WKCMTime presentationTimeStamp, WKCMTime presentationDuration)
+{
+    WKVTDecodeSession *session = decompressionOutputRefCon;
+    if (status != noErr) {
+        os_unfair_lock_lock(&session->lock);
+        WKVTDecodeFrameInFlight *frame = &session->frame;
+        bool forFrame = frame->active && !frame->held && frame->sourceFrameRefCon == sourceFrameRefCon
+            && wk_vtdecode_same_time(frame->presentationTimeStamp, presentationTimeStamp);
+        bool drop = forFrame && frame->returnedError;
+        if (drop)
+            frame->active = 0;
+        else if (forFrame) {
+            frame->held = 1;
+            frame->heldStatus = status;
+            frame->heldInfoFlags = infoFlags;
+            frame->heldPresentationDuration = presentationDuration;
+        }
+        os_unfair_lock_unlock(&session->lock);
+        if (forFrame)
+            return;
+    }
+    session->outputCallback.decompressionOutputCallback(session->outputCallback.decompressionOutputRefCon, sourceFrameRefCon,
+        status, infoFlags, imageBuffer, presentationTimeStamp, presentationDuration);
+}
+
 OSStatus VTDecompressionSessionCreate(CFAllocatorRef allocator, WKCMFormatDescriptionRef videoFormatDescription,
     CFDictionaryRef videoDecoderSpecification, CFDictionaryRef destinationImageBufferAttributes,
     const WKVTDecompressionOutputCallbackRecord *outputCallback, WKVTDecompressionSessionRef *decompressionSessionOut)
 {
     enum { kAVC1 = 0x61766331 };
-    if (!videoFormatDescription || wk_system_CMFormatDescriptionGetMediaSubType()(videoFormatDescription) != kAVC1) {
+    bool isAVC1 = videoFormatDescription && wk_system_CMFormatDescriptionGetMediaSubType()(videoFormatDescription) == kAVC1;
+    if (!videoFormatDescription || ((!outputCallback || !outputCallback->decompressionOutputCallback) && !isAVC1)) {
         return wk_system_VTDecompressionSessionCreate()(allocator, videoFormatDescription, videoDecoderSpecification,
             destinationImageBufferAttributes, outputCallback, decompressionSessionOut);
     }
@@ -526,11 +591,18 @@ OSStatus VTDecompressionSessionCreate(CFAllocatorRef allocator, WKCMFormatDescri
         wk_patch_fail("VTDecompressionSessionCreate", "no memory for the session's state");
     session->lock = OS_UNFAIR_LOCK_INIT;
     session->format = (WKCMFormatDescriptionRef)CFRetain(videoFormatDescription);
-    session->inRangeFormat = wk_format_copy_in_range(videoFormatDescription);
+    session->inRangeFormat = isAVC1 ? wk_format_copy_in_range(videoFormatDescription) : NULL;
+    WKVTDecompressionOutputCallbackRecord trampoline = { 0 };
+    if (outputCallback && outputCallback->decompressionOutputCallback) {
+        session->outputCallback = *outputCallback;
+        trampoline.decompressionOutputCallback = wk_vtdecode_output;
+        trampoline.decompressionOutputRefCon = session;
+    }
 
     OSStatus status = wk_system_VTDecompressionSessionCreate()(allocator,
         session->inRangeFormat ? session->inRangeFormat : videoFormatDescription, videoDecoderSpecification,
-        destinationImageBufferAttributes, outputCallback, decompressionSessionOut);
+        destinationImageBufferAttributes, trampoline.decompressionOutputCallback ? &trampoline : outputCallback,
+        decompressionSessionOut);
     if (status || !decompressionSessionOut || !*decompressionSessionOut) {
         wk_vtdecode_session_free(session, NULL);
         return status;
@@ -623,10 +695,31 @@ OSStatus VTDecompressionSessionDecodeFrame(WKVTDecompressionSessionRef decompres
     if (inRangeFormat && !inRangeSample)
         return -12904; // kVTAllocationFailedErr
 
+    bool tracksDeliveries = session && session->outputCallback.decompressionOutputCallback && sampleBuffer;
+    if (tracksDeliveries) {
+        WKCMTime presentationTimeStamp = wk_system_CMSampleBufferGetPresentationTimeStamp()(sampleBuffer);
+        os_unfair_lock_lock(&session->lock);
+        session->frame = (WKVTDecodeFrameInFlight) { 1, 0, sourceFrameRefCon, presentationTimeStamp, 0, 0, 0, { 0, 0, 0, 0 } };
+        os_unfair_lock_unlock(&session->lock);
+    }
     OSStatus status = wk_system_VTDecompressionSessionDecodeFrame()(decompressionSession,
         inRangeSample ? inRangeSample : sampleBuffer, decodeFlags, sourceFrameRefCon, infoFlagsOut);
     if (inRangeSample)
         CFRelease(inRangeSample);
+    if (tracksDeliveries) {
+        os_unfair_lock_lock(&session->lock);
+        WKVTDecodeFrameInFlight frame = session->frame;
+        if (status != noErr && !frame.held)
+            session->frame.returnedError = 1;
+        else
+            session->frame.active = 0;
+        os_unfair_lock_unlock(&session->lock);
+        if (frame.held && status == noErr) {
+            session->outputCallback.decompressionOutputCallback(session->outputCallback.decompressionOutputRefCon,
+                frame.sourceFrameRefCon, frame.heldStatus, frame.heldInfoFlags, NULL, frame.presentationTimeStamp,
+                frame.heldPresentationDuration);
+        }
+    }
     return status;
 }
 

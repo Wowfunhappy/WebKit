@@ -161,8 +161,8 @@ std::vector<SdpVideoFormat> ObjCVideoEncoderFactory::GetImplementations() const 
 // subtype (pc/codec_vendor.cc NegotiateCodecs takes `theirs->name`), which SDP allows in any case.
 // WebKit maps a format to a codec case-insensitively where it takes that mapping:
 // LibWebRTCCodecs.cpp's createVideoEncoder reaches VideoCodecType::H264 from "H264" and "h264" alike.
-// That entry point belongs to the GPU process codec path, which this port does not take, so the ObjC
-// factory below is the whole mapping here. Its own -createEncoder: dispatches with -isEqualToString:
+// That entry point takes the codecs the GPU process encodes; the codecs this factory encodes in the web
+// process are mapped by the factory below. Its own -createEncoder: dispatches with -isEqualToString:
 // and RTCVideoEncoderH264's -initWithCodecInfo: RTC_CHECKs the name, so the codec info it is given
 // carries the factory's spelling of the codec the format names.
 static RTCVideoCodecInfo *codecInfoWithFactorySpelling(RTCVideoCodecInfo *info, NSArray<RTCVideoCodecInfo *> *supportedCodecs) {
