@@ -27,6 +27,7 @@
 
 #import "LaunchLogHook.h"
 #import "Logging.h"
+#import "MainQueueServicingAquaWebKit.h" // AQUAWEBKIT: see serviceMainQueueAtRunLoopExit() below.
 #import "WKCrashReporter.h"
 #import "WebKitServiceNames.h"
 #import "XPCEndpointMessages.h"
@@ -317,6 +318,7 @@ int XPCServiceMain(int, const char**)
 #endif
     }
 
+    serviceMainQueueAtRunLoopExit(); // AQUAWEBKIT: 10.9's XNU hides the GCD main queue's pending wake-up from one-pass runs; see MainQueueServicingAquaWebKit.h.
     xpc_main(XPCServiceEventHandler);
     return 0;
 }

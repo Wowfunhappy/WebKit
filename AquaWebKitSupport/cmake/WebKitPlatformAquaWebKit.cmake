@@ -617,6 +617,7 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/NetworkProcess/cocoa/WebSocketTaskCurlCocoa.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/NetworkProcess/PrivateClickMeasurement/cocoa/PrivateClickMeasurementCurlLoadTask.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.mm
+    ${AQUAWEBKIT_SUPPORT}/source/WebKit/Shared/Cocoa/MainQueueServicingAquaWebKit.mm
     ${AQUAWEBKIT_SUPPORT}/source/WebKit/UIProcess/Cocoa/CocoaCurlLegacyDownload.mm
 )
 # Serialization inputs are joined onto ${WEBKIT_DIR}, so the overlay file is named relative to it.
