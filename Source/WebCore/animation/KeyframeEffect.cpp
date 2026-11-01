@@ -2397,8 +2397,17 @@ void KeyframeEffect::applyPendingAcceleratedActionsOrUpdateTimingProperties()
         m_lastRecordedAcceleratedAction = AcceleratedAction::Play;
         applyPendingAcceleratedActions();
         m_pendingAcceleratedActions.clear();
-    } else
+    } else {
+        // AQUAWEBKIT: GraphicsLayerCA applies the last-added of stacked transform animations, so a running
+        // accelerated effect whose pending actions leave its animation in place is re-added as well, after the
+        // effects beneath it.
+        bool addsOrRemovesAnimation = m_pendingAcceleratedActions.containsIf([](auto action) {
+            return action == AcceleratedAction::Play || action == AcceleratedAction::UpdateProperties || action == AcceleratedAction::Stop;
+        });
+        if (!addsOrRemovesAnimation && isRunningAccelerated() && getComputedTiming().phase == AnimationEffectPhase::Active)
+            m_pendingAcceleratedActions.insert(0, AcceleratedAction::UpdateProperties);
         applyPendingAcceleratedActions();
+    } // AQUAWEBKIT: closes the block above.
 }
 
 void KeyframeEffect::applyPendingAcceleratedActions()
