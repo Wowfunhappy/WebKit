@@ -684,3 +684,6 @@ imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies.
 # Maintainer scope decision 2026-09-15: pixel near miss. The scaled image's bottom edge differs from the reference by
 # one level at 205 pixels in one run of four.
 imported/w3c/web-platform-tests/css/css-backgrounds/background-size/background-size-cover.xht [ Skip ]
+
+# The WPT report endpoint can publish a valid CSP report after this test's 20 x 50 ms polling window expires.
+http/wpt/fetch/csp-reports-bypass-csp-checks.html [ Skip ]

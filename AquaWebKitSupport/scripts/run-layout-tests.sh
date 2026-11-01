@@ -225,7 +225,7 @@ export __XPC_DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH"
 # flaky is skipped, explicitly selected tests included. A --results-directory among the passed arguments
 # comes after the default and overrides it.
 "$ROOT/AquaWebKitSupport/toolchain/build/python3/bin/python3" "$ROOT/Tools/Scripts/run-webkit-tests" \
-    "$PORT_FLAG" --no-build --no-new-test-results --release --root="$TEST_PRODUCTS/bin" \
+    "$PORT_FLAG" --no-build --no-new-test-results --no-show-results --release --root="$TEST_PRODUCTS/bin" \
     --results-directory="$ROOT/WebKitBuild/Release/bin/layout-test-results" \
     --additional-env-var="__XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=$__XPC_WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS" \
     $WORKERS "$@" --skip-failing-tests --skipped=always --no-retry-failures 9>&-

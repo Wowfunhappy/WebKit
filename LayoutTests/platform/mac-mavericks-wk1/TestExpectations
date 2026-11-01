@@ -3058,3 +3058,7 @@ css3/filters/backdrop/backdrop-filter-nested.html [ Pass ]
 # Page::updateRendering skips the Animations step on reentry, leaving the native pause action queued.
 compositing/reflections/animation-inside-reflection.html [ Skip ]
 compositing/reflections/nested-reflection-animated.html [ Skip ]
+
+# DumpRenderTree forces a repaint inside dump() before setting done. This test reinserts an iframe
+# from rAF, whose synchronous load completion reenters dump() and desynchronizes subsequent results.
+fonts/font-cache-memory-pressure-crash.html [ Skip ]
