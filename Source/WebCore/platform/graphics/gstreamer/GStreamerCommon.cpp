@@ -320,6 +320,9 @@ std::optional<WebCore::IntSize> getDisplaySize(WebCore::IntSize originalSize, in
     return computedSize;
 }
 
+// AQUAWEBKIT: upstream main's isProtocolAllowed(); a URL without a protocol, such as the empty URL a
+// MediaSourceHandle load falls back to, is not allowed.
+/*
 bool isProtocolAllowed(const WTF::URL& url)
 {
     HashSet<String> allowedProtocols = { "blob"_s, "data"_s, "file"_s, "http"_s, "https"_s };
@@ -348,6 +351,37 @@ bool isProtocolAllowed(const WTF::URL& url)
 
     return isAllowed;
 }
+*/
+static bool isProtocolAllowedByEnvironment(StringView protocol)
+{
+    auto additionalProtocols = StringView::fromLatin1(std::getenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS"));
+    for (auto additionalProtocol : additionalProtocols.split(',')) {
+        if (additionalProtocol.trim(deprecatedIsSpaceOrNewline).toString().convertToLowercaseWithoutLocale() == protocol)
+            return true;
+    }
+    return false;
+}
+
+bool isProtocolAllowed(const WTF::URL& url)
+{
+    static NeverDestroyed<HashSet<String>> allowedProtocols = std::initializer_list<String> {
+        "blob"_s, "data"_s, "file"_s, "http"_s, "https"_s,
+#if ENABLE(MEDIA_SOURCE)
+        "mediasourceblob"_s,
+#endif
+#if ENABLE(MEDIA_STREAM)
+        "mediastream"_s,
+#endif
+    };
+
+    auto protocol = url.protocol();
+    bool isAllowed = !protocol.isEmpty() && (allowedProtocols->contains<StringViewHashTranslator>(protocol) || isProtocolAllowedByEnvironment(protocol));
+
+    GST_DEBUG("URL: %s", url.string().utf8().data());
+    GST_DEBUG("Requested protocol: %s (allowed: %s)", protocol.utf8().data(), isAllowed ? "yes" : "no");
+
+    return isAllowed;
+} // AQUAWEBKIT: closes upstream main's isProtocolAllowed() above.
 #endif
 
 std::optional<TrackID> getStreamIdFromPad(const GRefPtr<GstPad>& pad)

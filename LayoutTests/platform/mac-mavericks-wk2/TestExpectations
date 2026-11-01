@@ -111,6 +111,9 @@ fast/images/animated-heics-verify.html [ Pass ]
 # where the test passes.
 media/media-source/media-source-reopen.html [ Pass ]
 
+# Upstream's GStreamer MSE race (webkit.org/b/325856): video.seeking is false after the seek on ~4% of GTK runs.
+webkit.org/b/325856 media/media-source/media-managedmse-resume-after-seek.html [ Skip ]
+
 # platform/mac skips the WPT encrypted-media suite as unimplemented (webkit.org/b/158836): Apple's
 # ports carry no ClearKey. This port's CDM set is ClearKey and Widevine over the GStreamer engine, so
 # the ClearKey half of the suite runs here, under the per-test skips below.

@@ -129,9 +129,10 @@ void SourceBufferPrivateGStreamer::resetParserStateInternal()
 
 void SourceBufferPrivateGStreamer::removedFromMediaSource()
 {
-    // AQUAWEBKIT: worker DOM calls share the GStreamer sample dispatcher.
+    // AQUAWEBKIT: worker DOM calls share the GStreamer sample dispatcher. The call holds the media
+    // source until the main thread has torn down the AppendPipeline, whose tracks unregister from it.
     if (!isMainThread())
-        return callOnMainThreadAndWait([&] { removedFromMediaSource(); });
+        return callOnMainThreadAndWait([&, mediaSource = m_mediaSource.get()] { removedFromMediaSource(); });
     ASSERT(isMainThread());
 
     for (auto& [_, track] : tracks())
@@ -358,12 +359,10 @@ void SourceBufferPrivateGStreamer::unregisterTrack(TrackID trackId)
 {
     ASSERT(isMainThread());
 
-    // AQUAWEBKIT: worker teardown can outlive the owning media source's track registry.
-    // RefPtr mediaSource = m_mediaSource.get();
-    // ASSERT(mediaSource);
-    // downcast<MediaSourcePrivateGStreamer>(mediaSource)->unregisterTrack(trackId);
-    if (RefPtr mediaSource = m_mediaSource.get())
-        downcast<MediaSourcePrivateGStreamer>(mediaSource)->unregisterTrack(trackId);
+    RefPtr mediaSource = m_mediaSource.get();
+    ASSERT(mediaSource);
+
+    downcast<MediaSourcePrivateGStreamer>(mediaSource)->unregisterTrack(trackId);
 }
 
 size_t SourceBufferPrivateGStreamer::platformMaximumBufferSize() const
@@ -487,9 +486,10 @@ RefPtr<MediaPlayerPrivateGStreamerMSE> SourceBufferPrivateGStreamer::player() co
 
 void SourceBufferPrivateGStreamer::detach()
 {
-    // AQUAWEBKIT: worker DOM calls share the GStreamer sample dispatcher.
+    // AQUAWEBKIT: worker DOM calls share the GStreamer sample dispatcher. The call holds the media
+    // source whose tracks it flushes and detaches.
     if (!isMainThread())
-        return callOnMainThreadAndWait([&] { detach(); });
+        return callOnMainThreadAndWait([&, mediaSource = m_mediaSource.get()] { detach(); });
     for (auto& track : m_tracks)
         flush(track.first);
 
