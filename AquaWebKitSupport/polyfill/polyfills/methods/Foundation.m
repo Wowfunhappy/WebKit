@@ -1494,8 +1494,8 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
 @end
 
 // The Comment a cookie carries the attribute in is the server's field, so no reader is ever handed the
-// encoded form: -comment and -properties give back the comment the server sent, and -description prints
-// that one. The attribute reaches a caller under its own modern name instead.
+// encoded form: -comment and -properties give back the comment the server sent. The attribute reaches a
+// caller under its own modern name instead.
 WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
 - (NSString *)comment
 {
@@ -1533,18 +1533,6 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
         decoded[@"StoragePartition"] = partition;
     return decoded;
 #pragma clang diagnostic pop
-}
-- (NSString *)description
-{
-    NSString *description = WK_ORIGINAL_METHOD(NSString *, ());
-    NSString *raw = wk_rawCookieComment(self);
-    NSString *sameSite = [(NSString *)wk_sameSiteCopyValue((CFStringRef)raw) autorelease];
-    NSString *partition = [(NSString *)wk_cookieBlobCopyPartition((CFStringRef)raw) autorelease];
-    if (!sameSite && !partition)
-        return description;
-    NSString *server = [(NSString *)wk_sameSiteCopyServerComment((CFStringRef)raw) autorelease];
-    return [description stringByReplacingOccurrencesOfString:[NSString stringWithFormat:@" comment:\"%@\"", raw]
-                                                  withString:server ? [NSString stringWithFormat:@" comment:\"%@\"", server] : @""];
 }
 + (NSHTTPCookie *)cookieWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
 {

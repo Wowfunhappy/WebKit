@@ -36,6 +36,8 @@
 #import <stdio.h>
 #import <stdlib.h>
 #import <string.h>
+#import <sys/syscall.h>
+#import <unistd.h>
 
 // A registry that cannot record an entry has no degraded mode. The polyfill is already compiled in and
 // WebKit's selrefs are already pointing at it, so a dropped entry does not fall back to anything --
@@ -132,6 +134,31 @@ static bool wk_is_registered_name(const char *name)
         return false;
     for (unsigned i = hash & (WK_NAME_SLOTS - 1); wk_name_slots[i]; i = (i + 1) & (WK_NAME_SLOTS - 1))
         if (!strcmp(wk_name_slots[i], name))
+            return true;
+    return false;
+}
+
+// The registered public SELs, exactly, for reading the method lists of shared-cache images, whose
+// method names the cache stores as the canonical SEL pointers (10.9's dyld preoptimizes them, and
+// sel_registerName answers the same pointer for any name the cache holds). Comparing pointers there
+// reads no name strings, which the sweep would otherwise page in from every framework in the process.
+// Written by wk_register_selector and read by the sweep, both under wk_reg_lock.
+static SEL wk_sel_slots[WK_NAME_SLOTS];
+
+static void wk_note_registered_sel(SEL sel)
+{
+    unsigned i = wk_sel_hash(sel) & (WK_NAME_SLOTS - 1);
+    while (wk_sel_slots[i])
+        i = (i + 1) & (WK_NAME_SLOTS - 1);
+    wk_sel_slots[i] = sel;
+}
+
+static bool wk_is_registered_sel(SEL sel)
+{
+    if (!WK_FILTER_TEST(wk_sel_filter, wk_sel_hash(sel)))
+        return false;
+    for (unsigned i = wk_sel_hash(sel) & (WK_NAME_SLOTS - 1); wk_sel_slots[i]; i = (i + 1) & (WK_NAME_SLOTS - 1))
+        if (wk_sel_slots[i] == sel)
             return true;
     return false;
 }
@@ -511,17 +538,60 @@ static const struct wk_raw_class_ro *wk_unrealized_ro(const struct wk_raw_class 
     return (ro->flags & WK_RW_REALIZED) ? NULL : ro;
 }
 
+// The address range of the dyld shared cache this process maps, from the cache's own header: the start
+// the kernel reports for the shared region plus the extent of the cache's mappings. Images inside it are
+// the ones whose method names are canonical SELs (see wk_sel_slots). Empty when no cache is mapped.
+struct wk_cache_header {
+    char magic[16];
+    uint32_t mappingOffset;
+    uint32_t mappingCount;
+};
+
+struct wk_cache_mapping {
+    uint64_t address;
+    uint64_t size;
+    uint64_t fileOffset;
+    uint32_t maxProt;
+    uint32_t initProt;
+};
+
+static uintptr_t wk_cache_start, wk_cache_end;
+
+static void wk_note_shared_cache_range(void)
+{
+    uint64_t start = 0;
+    if (syscall(SYS_shared_region_check_np, &start) != 0 || !start)
+        return;
+    const struct wk_cache_header *header = (const struct wk_cache_header *)(uintptr_t)start;
+    const struct wk_cache_mapping *mappings =
+        (const struct wk_cache_mapping *)((const char *)header + header->mappingOffset);
+    uint64_t slide = start - mappings[0].address;
+    uint64_t end = 0;
+    for (uint32_t i = 0; i < header->mappingCount; i++)
+        if (mappings[i].address + mappings[i].size > end)
+            end = mappings[i].address + mappings[i].size;
+    wk_cache_start = (uintptr_t)start;
+    wk_cache_end = (uintptr_t)(end + slide);
+}
+
+static bool wk_is_shared_cache_image(const struct mach_header *mh)
+{
+    return (uintptr_t)mh >= wk_cache_start && (uintptr_t)mh < wk_cache_end;
+}
+
 // Whether a method list names a registered public selector. Method names are C strings whether or not
-// the runtime has uniqued them yet.
-static bool wk_raw_list_may_register(const struct wk_raw_method_list *list)
+// the runtime has uniqued them yet; a shared-cache image's are canonical SELs and are compared as such.
+static bool wk_raw_list_may_register(const struct wk_raw_method_list *list, bool canonicalNames)
 {
     if (!list)
         return false;
     uint32_t entsize = list->entsizeAndFlags & ~3u;
     const char *entry = (const char *)&list->first;
-    for (uint32_t i = 0; i < list->count; i++, entry += entsize)
-        if (wk_is_registered_name(((const struct wk_raw_method *)entry)->name))
+    for (uint32_t i = 0; i < list->count; i++, entry += entsize) {
+        const char *name = ((const struct wk_raw_method *)entry)->name;
+        if (canonicalNames ? wk_is_registered_sel((SEL)name) : wk_is_registered_name(name))
             return true;
+    }
     return false;
 }
 
@@ -584,12 +654,13 @@ static void wk_note_image_categories(const struct mach_header *mh)
         getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_catlist", &size);
     if (!categories)
         return;
+    bool canonicalNames = wk_is_shared_cache_image(mh);
     for (unsigned long i = 0; i < size / sizeof(*categories); i++) {
         // A category's class is NULL while it is a weak-linked class this OS lacks; once the runtime has
         // read the image it also nils that category's catlist entry, as its own unload pass expects.
         const struct wk_raw_category *category = categories[i];
-        if (category && category->cls && (wk_raw_list_may_register(category->instanceMethods)
-                                          || wk_raw_list_may_register(category->classMethods)))
+        if (category && category->cls && (wk_raw_list_may_register(category->instanceMethods, canonicalNames)
+                                          || wk_raw_list_may_register(category->classMethods, canonicalNames)))
             wk_note_category_target(category->cls);
     }
 }
@@ -607,14 +678,14 @@ static void wk_note_loaded_categories(void)
 // Whether wk_alias_class could find a registered selector on the class or its metaclass. A class the
 // runtime has realized is asked through its method lists; one it has not is answered from the metadata
 // realizing it would read, so a class nothing here concerns stays unrealized.
-static bool wk_class_may_register(const struct wk_raw_class *cls)
+static bool wk_class_may_register(const struct wk_raw_class *cls, bool canonicalNames)
 {
     const struct wk_raw_class_ro *ro = wk_unrealized_ro(cls);
     const struct wk_raw_class_ro *metaRO = ro ? wk_unrealized_ro(cls->isa) : NULL;
     if (!ro || !metaRO)
         return true;
-    return wk_raw_list_may_register(ro->baseMethods) || wk_raw_list_may_register(metaRO->baseMethods)
-        || wk_is_category_target(cls);
+    return wk_raw_list_may_register(ro->baseMethods, canonicalNames)
+        || wk_raw_list_may_register(metaRO->baseMethods, canonicalNames) || wk_is_category_target(cls);
 }
 
 static const char *wk_raw_class_name(const struct wk_raw_class *cls)
@@ -636,9 +707,10 @@ static void wk_alias_image(const struct mach_header *mh, int from, int to)
     if (!classes)
         return;
     bool webKitImage = wk_is_webkit_image(mh);
+    bool canonicalNames = wk_is_shared_cache_image(mh);
     for (unsigned long i = 0; i < size / sizeof(*classes); i++) {
         wk_stat_classes++;
-        if (!wk_class_may_register(classes[i]))
+        if (!wk_class_may_register(classes[i], canonicalNames))
             continue;
         Class cls = objc_getClass(wk_raw_class_name(classes[i]));
         if (!cls)
@@ -710,6 +782,7 @@ static SEL wk_register_selector(SEL pub)
     WK_FILTER_SET(wk_name_filter, wk_name_hash(name));
     wk_note_registered_name(name);
     WK_FILTER_SET(wk_sel_filter, wk_sel_hash(pub));
+    wk_note_registered_sel(pub);
     // Publishes the stores above to every reader that acquire-loads wk_count.
     __atomic_store_n(&wk_count, slot + 1, __ATOMIC_RELEASE);
     return priv;
@@ -822,6 +895,9 @@ static int wk_collected_count;
 // image can be mapped at its address. Guarded by wk_reg_lock.
 static const struct mach_header **wk_launch_images;
 static uint32_t wk_launch_image_count;
+// Set while the constructor has yet to read the launch images' blocks and sweep them. Guarded by
+// wk_reg_lock.
+static bool wk_launch_sweep_pending;
 
 static int wk_compare_headers(const void *a, const void *b)
 {
@@ -872,34 +948,28 @@ static void wk_patch_loaded_images(void)
         wk_patch(_dyld_get_image_header(i));
 }
 
-// Reads an image's blocks. Callable only once the ObjC runtime has that image's classes: at
-// constructor time for everything in the launch batch, and from wk_image_initializing for an image
-// that arrives later (inside the add-image callback the runtime cannot see the arriving image's
-// classes yet — see the note above wk_image_initializing — and a block is a class).
-//
-// Returns the registry count from which this call aliased every loaded image — mh among them, since
-// dyld lists an image from the moment it is mapped — or -1 when it read no blocks.
-static int wk_collect(const struct mach_header *mh)
+// Registers one image's blocks and installs their bodies, without the alias sweep or the patch. Returns
+// whether it read any. Callable only once the ObjC runtime has that image's classes: at constructor
+// time for everything in the launch batch, and from wk_image_initializing for an image that arrives
+// later (inside the add-image callback the runtime cannot see the arriving image's classes yet — see
+// the note above wk_image_initializing — and a block is a class). Caller holds wk_reg_lock.
+static bool wk_collect_blocks(const struct mach_header *mh)
 {
     unsigned long size = 0;
     const struct wk_methods_entry *e =
         (const struct wk_methods_entry *)getsectiondata((const struct mach_header_64 *)mh,
                                                          "__DATA", "__wk_methods", &size);
     if (!e)
-        return -1;
+        return false;
     int n = (int)(size / sizeof(struct wk_methods_entry));
-    pthread_mutex_lock(&wk_reg_lock);
     for (int i = 0; i < wk_collected_count; i++)
-        if (wk_collected[i] == mh) {
-            pthread_mutex_unlock(&wk_reg_lock);
-            return -1;
-        }
+        if (wk_collected[i] == mh)
+            return false;
     if (wk_collected_count >= WK_MAX_BLOCK_IMAGES)
         wk_registry_full("images carry polyfill blocks", WK_MAX_BLOCK_IMAGES, "WK_MAX_BLOCK_IMAGES",
                          e[0].placeholder);
     wk_collected[wk_collected_count++] = mh;
 
-    int before = wk_count;
     for (int i = 0; i < n; i++) {
         Class placeholder = wk_placeholder_class(&e[i]);
         wk_register_side(placeholder, e[i].intent);
@@ -916,9 +986,24 @@ static int wk_collect(const struct mach_header *mh)
                              "WK_MAX_BLOCKS", e[i].placeholder);
         wk_deferred[wk_deferred_count++] = &e[i];
     }
-    // The selectors just registered have never been looked for in the classes already loaded, nor
-    // rewritten in the WebKit images already patched. Classes from images that arrive later are covered
-    // by wk_image_initializing, their selrefs by wk_add_image.
+    return true;
+}
+
+// Reads an image's blocks, then aliases every loaded image for the entries they add and patches every
+// WebKit image: the selectors just registered have never been looked for in the classes already loaded,
+// nor rewritten in the WebKit images already patched. Classes from images that arrive later are covered
+// by wk_image_initializing, their selrefs by wk_add_image.
+//
+// Returns the registry count from which this call aliased every loaded image — mh among them, since
+// dyld lists an image from the moment it is mapped — or -1 when it read no blocks.
+static int wk_collect(const struct mach_header *mh)
+{
+    pthread_mutex_lock(&wk_reg_lock);
+    int before = wk_count;
+    if (!wk_collect_blocks(mh)) {
+        pthread_mutex_unlock(&wk_reg_lock);
+        return -1;
+    }
     wk_alias_loaded_images(before, wk_count);
     wk_patch_loaded_images();
     pthread_mutex_unlock(&wk_reg_lock);
@@ -986,6 +1071,13 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
 {
     (void)state;
     for (uint32_t i = 0; i < count; i++) {
+        // The constructor's own sweep covers every launch image; the notifications that registering the
+        // handler delivers for them while that sweep is still to run have nothing to add.
+        pthread_mutex_lock(&wk_reg_lock);
+        bool coveredByLaunchSweep = wk_launch_sweep_pending && wk_find_launch_image(info[i].imageLoadAddress);
+        pthread_mutex_unlock(&wk_reg_lock);
+        if (coveredByLaunchSweep)
+            continue;
         // Blocks an arriving image carries (WebKit.framework's, when it is loaded after WebCore) are
         // read here, the first point the runtime has the image's classes. Reading them aliases every
         // loaded image, this one included, for the entries they add, so this image's own sweep below
@@ -1045,21 +1137,33 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
     // aliased by its own notification, and one that arrives before the registry is published is aliased
     // by the sweep, since dyld has it listed by the time the notification can fire. Registering
     // afterwards would leave a window in which a concurrent dlopen is covered by neither. Registration
-    // dispatches each image whose initializers are running, this one among them; the loop below covers
-    // every other loaded image.
+    // dispatches each image whose initializers are running, this one among them; those are launch
+    // images, which the sweep below covers.
     uint64_t t0 = mach_absolute_time();
+    wk_note_shared_cache_range();
     pthread_mutex_lock(&wk_reg_lock);
     wk_note_launch_images();
+    wk_launch_sweep_pending = true;
     pthread_mutex_unlock(&wk_reg_lock);
     _dyld_register_func_for_remove_image(wk_remove_image);
     wk_watch_for_images();
     uint32_t c = _dyld_image_count();
-    // Registers and installs every block, aliases each newly registered selector across every image
-    // loaded so far — before any patching, so a rewritten selref that reaches a class this layer did not
-    // polyfill finds that class's own method instead of dying — and then patches every WebKit image.
-    // The launch batch's classes are all known to the runtime by the time any initializer runs.
+    // Registers and installs the blocks of every launch image, then aliases every registered selector
+    // across every image loaded so far in one sweep — before any patching, so a rewritten selref that
+    // reaches a class this layer did not polyfill finds that class's own method instead of dying — and
+    // then patches every WebKit image. The launch batch's classes are all known to the runtime by the
+    // time any initializer runs.
+    pthread_mutex_lock(&wk_reg_lock);
+    int before = wk_count;
+    bool collected = false;
     for (uint32_t i = 0; i < c; i++)
-        wk_collect(_dyld_get_image_header(i));
+        collected |= wk_collect_blocks(_dyld_get_image_header(i));
+    if (collected) {
+        wk_alias_loaded_images(before, wk_count);
+        wk_patch_loaded_images();
+    }
+    wk_launch_sweep_pending = false;
+    pthread_mutex_unlock(&wk_reg_lock);
     uint64_t t1 = mach_absolute_time();
     // Patches images dlopen'd later (fires immediately for already-loaded ones; patch is idempotent
     // since a rewritten wk_ selref no longer matches any public selector).
