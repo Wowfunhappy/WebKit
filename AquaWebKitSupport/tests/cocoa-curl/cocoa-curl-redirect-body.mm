@@ -1,4 +1,5 @@
 #include "config.h"
+#include <WebCore/CocoaCurlResourceRequest.h>
 #include <WebCore/CocoaCurlTransfer.h>
 #include <WebCore/FormData.h>
 #include <wtf/MainThread.h>
@@ -29,7 +30,7 @@ int main()
             redirected.setURL(URL { "http://127.0.0.1/target"_s });
             redirected.setHTTPMethod("GET"_s);
             clearCocoaCurlHTTPBody(redirected);
-            redirected.removeHTTPHeaderField(HTTPHeaderName::ContentLength);
+            removeCocoaCurlRequestHeader(redirected, HTTPHeaderName::ContentLength);
             RetainPtr output = adoptNS([redirected.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody) mutableCopy]);
             redirected.updateFromDelegatePreservingOldProperties(ResourceRequest(output.get()));
             bool passed = ![output HTTPBody] && ![output HTTPBodyStream] && !redirected.httpBody()
