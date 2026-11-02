@@ -18,6 +18,7 @@
 #include <wtf/URLParser.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/Base64.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebKit::LegacyExtensions {
 
@@ -372,7 +373,26 @@ static bool matchPatternMatches(StringView pattern, const URL& url)
     size_t pathStart = rest.find('/');
     if (pathStart == notFound)
         return false;
-    auto host = rest.left(pathStart);
+    auto authority = rest.left(pathStart);
+    // A pattern's host may name a port, which the URL's effective port, its own or its scheme's default, must
+    // equal; a host alone matches any port.
+    size_t hostEnd = authority.startsWith('[') ? authority.find(']') : authority.find(':');
+    if (hostEnd != notFound && authority.startsWith('['))
+        ++hostEnd;
+    auto host = hostEnd == notFound ? authority : authority.left(hostEnd);
+    if (hostEnd != notFound && hostEnd < authority.length()) {
+        auto portText = authority.substring(hostEnd + 1);
+        if (authority[hostEnd] != ':' || portText.isEmpty() || !portText.containsOnly<isASCIIDigit>() || host == "*"_s)
+            return false;
+        auto patternPort = parseInteger<uint16_t>(portText);
+        if (!patternPort)
+            return false;
+        auto effectivePort = url.port();
+        if (!effectivePort && (url.protocolIsInHTTPFamily() || url.protocolIs("ws"_s) || url.protocolIs("wss"_s)))
+            effectivePort = defaultPortForProtocol(url.protocol());
+        if (effectivePort != patternPort)
+            return false;
+    }
     auto urlHost = url.host();
     if (host.startsWith("*."_s)) {
         auto domain = host.substring(2);

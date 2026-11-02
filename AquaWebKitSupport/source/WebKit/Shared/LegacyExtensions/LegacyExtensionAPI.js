@@ -287,23 +287,47 @@ const tabReferenceOrCurrent = tab => {
 
 const escapeForRegExp = string => string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// A pattern's host may name a port, which the URL's effective port, its own or its scheme's default, must equal;
+// a host alone matches any port. The path part matches the URL's path, query and fragment.
+const defaultPorts = { "http:": "80", "https:": "443", "ws:": "80", "wss:": "443" };
 const compileMatchPattern = pattern => {
     if (pattern === "<all_urls>")
         return /^(?:https?|wss?|ftp|file|data|safari-extension):/;
     const match = /^(\*|[a-z][a-z0-9+.-]*):\/\/(\*|\*\.[^/*]+|[^/*]+)?(\/.*)$/.exec(pattern);
     if (!match)
         return null;
-    const [, scheme, host = "", path] = match;
-    const schemeSource = scheme === "*" ? "(?:https?|wss?)" : escapeForRegExp(scheme);
-    let hostSource;
-    if (host === "*")
-        hostSource = "[^/]*";
-    else if (host.startsWith("*."))
-        hostSource = `(?:[^/]*\\.)?${escapeForRegExp(host.slice(2))}(?::\\d+)?`;
-    else
-        hostSource = `${escapeForRegExp(host)}(?::\\d+)?`;
-    const pathSource = path.split("*").map(escapeForRegExp).join(".*");
-    return new RegExp(`^${schemeSource}://${hostSource}${pathSource}$`);
+    const [, scheme, authority = "", path] = match;
+    const authorityMatch = /^(\[[^\]]*\]|[^:]*)(?::(\d+))?$/.exec(authority);
+    if (!authorityMatch || (authorityMatch[1] === "*" && authorityMatch[2] !== undefined))
+        return null;
+    const host = authorityMatch[1].toLowerCase();
+    const port = authorityMatch[2] === undefined ? undefined : String(Number.parseInt(authorityMatch[2], 10));
+    if (port !== undefined && Number(port) > 0xffff)
+        return null;
+    const pathPattern = new RegExp(`^${path.split("*").map(escapeForRegExp).join(".*")}$`);
+    return {
+        test(url) {
+            let parsed;
+            try {
+                parsed = new URL(url);
+            } catch {
+                return false;
+            }
+            const protocol = parsed.protocol.slice(0, -1);
+            if (scheme === "*" ? !["http", "https", "ws", "wss"].includes(protocol) : protocol !== scheme)
+                return false;
+            if (port !== undefined && (parsed.port || defaultPorts[parsed.protocol]) !== port)
+                return false;
+            const hostname = parsed.hostname.toLowerCase();
+            if (host.startsWith("*.")) {
+                const domain = host.slice(2);
+                if (hostname !== domain && !hostname.endsWith(`.${domain}`))
+                    return false;
+            } else if (host !== "*" && hostname !== host)
+                return false;
+            return pathPattern.test(parsed.pathname + parsed.search + parsed.hash);
+        },
+    };
 };
 
 const compiledFilters = new WeakMap();

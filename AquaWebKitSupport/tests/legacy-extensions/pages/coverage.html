@@ -96,6 +96,22 @@ settle('worker-blocked', new Promise(resolve => {
     w.onerror = () => resolve('error');
     setTimeout(() => resolve('no-error'), 1000);
 }));
+// Match patterns with and without a port. Each pattern's listener reports the requests it receives and redirects
+// them to /res/port-matched.json; a request no pattern matches reaches its own server on 8843, 8846 or 8080, or
+// none on 443.
+const portCases = {
+    'port-subdomain-same-port': 'http://www.web-platform.test:8843/res/port-subdomain/x.json',
+    'port-subdomain-other-port': 'http://www.web-platform.test:8846/res/port-subdomain/x.json',
+    'port-wildcard-any-port': 'http://www1.web-platform.test:8846/res/port-any/x.json',
+    'port-wildcard-bare-domain': 'http://web-platform.test:8843/res/port-any/x.json',
+    'port-443-default': 'https://web-platform.test/res/port-default/x.json',
+    'port-80-vs-8080': 'http://web-platform.test:8080/res/port-80/x.json',
+};
+const portFetches = Object.entries(portCases).map(([name, url]) => settle(name, fetch(url).then(r => new URL(r.url).pathname === '/res/port-matched.json' ? 'matched' : 'loaded:' + r.status)));
+settle('port-reports', Promise.all(portFetches).then(() => new Promise(resolve => setTimeout(resolve, 500))).then(() => fetch('/log')).then(r => r.json()).then(log => {
+    const seen = log.filter(entry => entry.path.startsWith('/report?port-pattern=')).map(entry => JSON.parse(decodeURIComponent(entry.path.split('=').slice(1).join('='))).url);
+    return Object.entries(portCases).filter(([, url]) => seen.includes(url)).map(([name]) => name);
+}));
 window.addEventListener('load', () => {
     results['img-blocked'] = document.getElementById('img-blocked').naturalWidth ? 'loaded' : 'blocked';
     results['img-allowed'] = document.getElementById('img-allowed').naturalWidth ? 'loaded' : 'blocked';
