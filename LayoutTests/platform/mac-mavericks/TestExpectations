@@ -1107,6 +1107,9 @@ imported/w3c/web-platform-tests/media-source/dedicated-worker/mediasource-worker
 imported/w3c/web-platform-tests/media-source/dedicated-worker/mediasource-worker-play.html [ Skip ]
 imported/w3c/web-platform-tests/media-source/dedicated-worker/mediasource-worker-play-terminate-worker.html [ Skip ]
 
+# Upstream's GStreamer MSE race (webkit.org/b/325856): video.seeking is false after the seek on ~4% of GTK runs.
+webkit.org/b/325856 media/media-source/media-managedmse-resume-after-seek.html [ Skip ]
+
 webkit.org/b/227934 media/media-source/media-webm-vorbis-partial.html [ Skip ]
 media/media-source/media-detachablemse-append.html [ Skip ] # platform/gtk skips it; wpe records [ Timeout Pass ].
 webkit.org/b/285595 media/video-seek-after-end-play.html [ Skip ]
