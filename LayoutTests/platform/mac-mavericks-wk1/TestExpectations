@@ -3063,3 +3063,9 @@ compositing/reflections/nested-reflection-animated.html [ Skip ]
 # DumpRenderTree forces a repaint inside dump() before setting done. This test reinserts an iframe
 # from rAF, whose synchronous load completion reenters dump() and desynchronizes subsequent results.
 fonts/font-cache-memory-pressure-crash.html [ Skip ]
+
+# Upstream 278864@main (webkit.org/b/274239) runs SVGResourcesCache::clientWillBeRemovedFromTree's resource checks
+# ahead of the parent-resource invalidation, so removing the text run inside a <mask>'s <text> after the mask has
+# painted leaves the mask's cached bounds stale. DumpRenderTree's synchronous display paints before this test's
+# change; upstream platform/mac-wk1 skips svg wholesale.
+svg/repaint/text-mask-update.svg [ Skip ]
