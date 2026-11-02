@@ -3069,3 +3069,13 @@ fonts/font-cache-memory-pressure-crash.html [ Skip ]
 # painted leaves the mask's cached bounds stale. DumpRenderTree's synchronous display paints before this test's
 # change; upstream platform/mac-wk1 skips svg wholesale.
 svg/repaint/text-mask-update.svg [ Skip ]
+
+# These tests navigate from a body script, before js-test.js calls waitUntilDone at DOMContentLoaded.
+# WebKitLegacy decides that navigation's policy synchronously through DumpRenderTree's delegate, so
+# when the parser has yielded, the new load cancels the first document's, and DumpRenderTree dumps
+# that document on its didFailLoadWithError. WebKitTestRunner's asynchronous policy decision lets the
+# first document finish parsing first.
+http/tests/websocket/tests/hybi/websocket-samesite-lax-not-sent-cross-site.html [ Skip ]
+http/tests/websocket/tests/hybi/websocket-samesite-none-sent-cross-site.html [ Skip ]
+http/tests/websocket/tests/hybi/websocket-samesite-sent-same-site.html [ Skip ]
+http/tests/websocket/tests/hybi/websocket-samesite-strict-not-sent-cross-site.html [ Skip ]
