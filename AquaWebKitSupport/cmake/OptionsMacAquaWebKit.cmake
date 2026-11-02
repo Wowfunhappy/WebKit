@@ -76,6 +76,7 @@ set(ICU_DATA_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH
 # before FULL_VERSION, and the prefix before MAJOR_VERSION for the short version (9625.1.29.11.27 and
 # 9625 on 10.9). The frameworks take them from CMake's MACOSX_FRAMEWORK_* variables, and the XPC
 # services from WEBKIT_VERSION and WEBKIT_VERSION_MAJOR.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/Configurations/Version.xcconfig")
 file(STRINGS "${CMAKE_SOURCE_DIR}/Configurations/Version.xcconfig" _aquawebkit_version_lines
     REGEX "^(MAJOR|MINOR|TINY|MICRO|NANO)_VERSION = [0-9]+;")
 foreach (_line IN LISTS _aquawebkit_version_lines)
@@ -89,6 +90,17 @@ set(MACOSX_FRAMEWORK_BUNDLE_VERSION
 set(MACOSX_FRAMEWORK_SHORT_VERSION_STRING "${_aquawebkit_system_version_prefix}${_aquawebkit_MAJOR}")
 set(WEBKIT_VERSION "${MACOSX_FRAMEWORK_BUNDLE_VERSION}")
 set(WEBKIT_VERSION_MAJOR "${MACOSX_FRAMEWORK_SHORT_VERSION_STRING}")
+
+# The Safari release a WebKit version ships in, which the user agent names. Each Safari major spans
+# three WebKit majors, and MINOR_VERSION counts the point releases from that major's first:
+# 7622.1 = 26.0, 7622.2 = 26.1, 7623.1 = 26.2, 7624.3 = 26.6, 7625.1 = 27.0, 7625.2 = 27.1.
+math(EXPR _aquawebkit_safari_major "26 + (${_aquawebkit_MAJOR} - 622) / 3")
+math(EXPR _aquawebkit_safari_minor "2 * ((${_aquawebkit_MAJOR} - 622) % 3) + ${_aquawebkit_MINOR} - 1")
+file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/AquaWebKitSafariVersion.h"
+    CONTENT "#define AQUAWEBKIT_SAFARI_VERSION \"${_aquawebkit_safari_major}.${_aquawebkit_safari_minor}\"\n")
+unset(_aquawebkit_safari_major)
+unset(_aquawebkit_safari_minor)
+
 foreach (_part IN ITEMS version_lines MAJOR MINOR TINY MICRO NANO system_version_prefix)
     unset(_aquawebkit_${_part})
 endforeach ()

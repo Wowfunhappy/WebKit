@@ -29,14 +29,16 @@
 #if PLATFORM(MAC)
 
 #import <wtf/text/MakeString.h>
+#import "AquaWebKitSafariVersion.h" // AQUAWEBKIT: AQUAWEBKIT_SAFARI_VERSION, generated from Version.xcconfig.
 
 namespace WebCore {
 
 // AQUAWEBKIT: an application name that names Safari ("Version/<version> Safari/<build>", as Safari 7
-// passes) names the Safari release this WebKit ships in. The application's other tokens stay.
+// passes) names the Safari release this WebKit ships in, which OptionsMacAquaWebKit.cmake derives from
+// Version.xcconfig. The application's other tokens stay.
 ASCIILiteral safariApplicationNameForUserAgent()
 {
-    return "Version/27.1 Safari/605.1.15"_s;
+    return "Version/" AQUAWEBKIT_SAFARI_VERSION " Safari/605.1.15"_s;
 }
 
 static String applicationNameWithCurrentSafariVersion(const String& applicationName)
