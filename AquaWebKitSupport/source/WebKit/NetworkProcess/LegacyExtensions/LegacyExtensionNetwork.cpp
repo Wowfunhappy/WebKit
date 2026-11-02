@@ -16,6 +16,9 @@
 #include "NetworkLoad.h"
 #include "NetworkProcess.h"
 #include "NetworkResourceLoader.h"
+#include "NetworkSession.h"
+#include "ServiceWorkerNavigationPreloader.h"
+#include "ServiceWorkerSoftUpdateLoader.h"
 #include "SharedBufferReference.h"
 #include "WebErrors.h"
 #include "WebResourceLoaderMessages.h"
@@ -135,7 +138,7 @@ void LegacyExtensionNetwork::setProxyConfiguration(String&& configuration)
 
 Vector<CocoaCurlProxyFilterResult> LegacyExtensionNetwork::proxyFilterResults(NetworkDataTaskCurlCocoa& task, const URL& url)
 {
-    if (m_proxyAnswers.isEmptyIgnoringNullReferences())
+    if (m_proxyAnswers.isEmptyIgnoringNullReferences() && m_clientLoads.isEmptyIgnoringNullReferences())
         return { };
     for (auto& loader : m_loaders) {
         RefPtr networkLoad = loader.m_networkLoad;
@@ -146,6 +149,15 @@ Vector<CocoaCurlProxyFilterResult> LegacyExtensionNetwork::proxyFilterResults(Ne
         if (iterator == m_proxyAnswers.end() || !equalIgnoringFragmentIdentifier(iterator->value.url, url))
             return { };
         return iterator->value.results;
+    }
+    for (auto entry : m_clientLoads) {
+        RefPtr networkLoad = clientNetworkLoad(entry.key, entry.value);
+        if (!networkLoad || networkLoad->m_task.get() != &task)
+            continue;
+        auto& answers = entry.value->proxyAnswers;
+        if (!answers || !equalIgnoringFragmentIdentifier(answers->url, url))
+            return { };
+        return answers->results;
     }
     for (auto entry : m_pingTasks) {
         if (entry.value.get().get() != &task)
@@ -181,11 +193,20 @@ void LegacyExtensionNetwork::dispatch(ASCIILiteral eventName, const String& deta
     });
 }
 
+// The <n> of a load's requestId: its loader's identifier, or a fresh one for a request a load starts after a service
+// worker took an earlier one, which has its own lifecycle.
+uint64_t LegacyExtensionNetwork::loadRequestIdentifier(NetworkResourceLoader& loader) const
+{
+    if (auto identifier = m_restartedRequestIdentifiers.get(loader))
+        return identifier;
+    return loader.identifier().toUInt64();
+}
+
 String LegacyExtensionNetwork::requestIdentifier(NetworkLoadChecker& checker)
 {
     uint64_t identifier;
     if (RefPtr loader = checker.m_networkResourceLoader.get())
-        identifier = loader->identifier().toUInt64();
+        identifier = loadRequestIdentifier(*loader);
     else {
         identifier = m_checkerRequestIdentifiers.ensure(checker, [&] {
             return m_nextRequestIdentifier++;
@@ -198,6 +219,18 @@ String LegacyExtensionNetwork::requestIdentifier(NetworkLoadChecker& checker)
 static SecurityOrigin* requestSourceOrigin(const NetworkResourceLoadParameters& parameters)
 {
     return parameters.navigationRequester ? parameters.navigationRequester->securityOrigin.ptr() : parameters.sourceOrigin.get();
+}
+
+// A service worker's script belongs to its registration, not to the frame that registers or updates it, as Chrome
+// reports it: no tab, no frame and no document.
+static void detachServiceWorkerScript(JSON::Object& details, FetchOptions::Destination destination)
+{
+    if (destination != FetchOptions::Destination::Serviceworker)
+        return;
+    details.setDouble("tabId"_s, -1);
+    details.setDouble("frameId"_s, -1);
+    details.setDouble("parentFrameId"_s, -1);
+    details.remove("documentUrl"_s);
 }
 
 Ref<JSON::Object> LegacyExtensionNetwork::requestDetails(NetworkLoadChecker& checker, const ResourceRequest& request)
@@ -223,6 +256,7 @@ Ref<JSON::Object> LegacyExtensionNetwork::requestDetails(NetworkLoadChecker& che
         details->setString("documentUrl"_s, checker.m_frameURL.string());
     if (RefPtr origin = loader && loader->parameters().navigationRequester ? requestSourceOrigin(loader->parameters()) : checker.origin(); origin && !isMainFrameLoad)
         details->setString("initiator"_s, origin->toString());
+    detachServiceWorkerScript(details, checker.m_options.destination);
     return details;
 }
 
@@ -231,7 +265,7 @@ Ref<JSON::Object> LegacyExtensionNetwork::loaderDetails(NetworkResourceLoader& l
     auto& parameters = loader.parameters();
     auto& request = loader.originalRequest();
     auto details = JSON::Object::create();
-    details->setString("requestId"_s, makeString(getCurrentProcessID(), '-', loader.identifier().toUInt64()));
+    details->setString("requestId"_s, makeString(getCurrentProcessID(), '-', loadRequestIdentifier(loader)));
     details->setString("url"_s, currentURL(loader).string());
     details->setString("method"_s, request.httpMethod());
     details->setString("type"_s, resourceType(request, parameters.options.destination, loader.isMainFrameLoad()));
@@ -245,6 +279,7 @@ Ref<JSON::Object> LegacyExtensionNetwork::loaderDetails(NetworkResourceLoader& l
         if (RefPtr origin = requestSourceOrigin(parameters))
             details->setString("initiator"_s, origin->toString());
     }
+    detachServiceWorkerScript(details, parameters.options.destination);
     return details;
 }
 
@@ -302,6 +337,75 @@ bool LegacyExtensionNetwork::continueWillSendRequest(NetworkResourceLoader& load
     if (redirect.body && !request.httpBody() && request.url() == redirect.url && request.httpMethod() == redirect.method)
         request.setHTTPBody(WTF::move(redirect.body));
     return isExtensionRedirect;
+}
+
+// A request the extensions saw ends as aborted when a service worker takes it, and its StreamFilters fail, before
+// any of the service worker's answer reaches the page. Nothing of that answer is reported, as nothing is for a
+// request a service worker takes from the start; a request it leaves to the network starts the load's events again.
+void LegacyExtensionNetwork::serviceWorkerWillHandle(NetworkResourceLoader& loader)
+{
+    if (!m_loaders.remove(loader))
+        return;
+    // The request's URL, which the checker took from the request the web process approved.
+    RefPtr checker = loader.m_networkLoadChecker;
+    auto url = checker ? checker->m_url : currentURL(loader);
+    m_takenRequests.add(loader);
+    if (RefPtr response = m_filteredResponses.get(loadRequestIdentifier(loader))) {
+        response->filter->fail("The response came from a service worker."_s);
+        removeFilteredResponse(*response);
+    }
+    m_loadErrors.remove(loader);
+    m_loadersWithDeliveredBody.remove(loader);
+    if (!observes(onErrorOccurred) || !isInterceptable(url))
+        return;
+    auto details = loaderDetails(loader);
+    details->setString("url"_s, url.string());
+    details->setBoolean("fromCache"_s, false);
+    details->setString("error"_s, "net::ERR_ABORTED"_s);
+    notify(onErrorOccurred, details->toJSONString());
+}
+
+// The checks of NetworkLoadChecker::checkRequest do not apply to the request a service worker leaves to the network,
+// as upstream sends it there unchecked; the extensions' verdicts do. A request a verdict changes is checked as any
+// other request is.
+bool LegacyExtensionNetwork::interceptServiceWorkerFallback(NetworkResourceLoader& loader, ResourceRequest& request)
+{
+    RefPtr checker = loader.m_networkLoadChecker;
+    // A request the extensions saw that no service worker took was decided when it was checked.
+    if (!checker || m_listeners.isEmpty() || m_loaders.contains(loader))
+        return false;
+    m_uncheckedRequests.add(*checker);
+    NetworkLoadChecker::ValidationHandler handler = [this, weakLoader = WeakPtr { loader }](NetworkLoadChecker::RequestOrRedirectionTripletOrError&& result) {
+        RefPtr loader = weakLoader.get();
+        if (RefPtr checker = loader ? loader->m_networkLoadChecker : nullptr)
+            m_uncheckedRequests.remove(*checker);
+        if (!loader)
+            return;
+        WTF::switchOn(result,
+            [&](ResourceError& error) {
+                if (!error.isCancellation())
+                    loader->didFailLoading(error);
+            },
+            [&](NetworkLoadChecker::RedirectionTriplet& triplet) {
+                loader->m_isWaitingContinueWillSendRequestForCachedRedirect = true;
+                loader->willSendRedirectedRequest(WTF::move(triplet.request), WTF::move(triplet.redirectRequest), WTF::move(triplet.redirectResponse), [](auto) { });
+            },
+            [&](ResourceRequest& request) {
+                loader->restartNetworkLoad(WTF::move(request), [](auto) { });
+            });
+    };
+    if (!interceptRequest(*checker, request, &loader, handler))
+        handler(WTF::move(request));
+    return true;
+}
+
+// A blocking listener's verdict lets a request on: through the rest of the checker's checks, or to the network.
+void LegacyExtensionNetwork::continueRequest(NetworkLoadChecker& checker, ResourceRequest&& request, ContentSecurityPolicyClient* client, NetworkLoadChecker::ValidationHandler&& handler)
+{
+    if (m_uncheckedRequests.contains(checker))
+        return handler(WTF::move(request));
+    m_resumingRequests.add(checker);
+    checker.checkRequest(WTF::move(request), client, WTF::move(handler));
 }
 
 // WebKit fails a subresource's redirect to a data: URL, which only a document's load decodes itself.
@@ -372,8 +476,13 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
         handler(cancellationError(request));
         return true;
     }
-    if (RefPtr loader = checker.m_networkResourceLoader.get())
-        m_loaders.add(*loader);
+    // A load's first request the extensions see can follow a redirect a service worker answered, which no event reports.
+    bool isFirstRequest = false;
+    if (RefPtr loader = checker.m_networkResourceLoader.get()) {
+        isFirstRequest = m_loaders.add(*loader).isNewEntry;
+        if (isFirstRequest && m_takenRequests.remove(*loader))
+            m_restartedRequestIdentifiers.set(*loader, m_nextRestartedRequestIdentifier++);
+    }
     auto redirectResponse = m_redirectResponses.take(checker);
     // An extension's Cookie edit is its exchange's alone: a redirect generates its own.
     if (auto editedCookie = m_editedCookies.take(checker); !editedCookie.isNull() && request.httpHeaderField(HTTPHeaderName::Cookie) == editedCookie)
@@ -381,7 +490,7 @@ bool LegacyExtensionNetwork::interceptRequest(NetworkLoadChecker& checker, Resou
     if (m_listeners.isEmpty() || !isInterceptable(request.url()))
         return false;
 
-    if (checker.isRedirected() && observes(onBeforeRedirect)) {
+    if (checker.isRedirected() && !isFirstRequest && observes(onBeforeRedirect)) {
         auto details = requestDetails(checker, request);
         details->setString("url"_s, checker.m_previousURL.string());
         details->setString("redirectUrl"_s, request.url().string());
@@ -434,8 +543,7 @@ bool LegacyExtensionNetwork::interceptProxyRequest(NetworkLoadChecker& checker, 
         ContentSecurityPolicyClient* client = hasClient ? loader.get() : nullptr;
         if (interceptBeforeRequest(*checker, request, client, handler))
             return;
-        m_resumingRequests.add(*checker);
-        checker->checkRequest(WTF::move(request), client, WTF::move(handler));
+        continueRequest(*checker, WTF::move(request), client, WTF::move(handler));
     });
     return true;
 }
@@ -506,21 +614,21 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
             }
             request.appendCookieRequestRedirectURL(request.url());
             request.setURL(WTF::move(redirectURL));
+            // A request a verdict changes is not the one a service worker left to the network.
+            m_uncheckedRequests.remove(*checker);
             if (checker->isRedirected())
                 m_extensionRedirectTargets.set(*checker, request.url());
             else
                 checkAsRequestFor(*checker, request.url());
             if (isInterceptable(request.url()) && (interceptProxyRequest(*checker, request, client, handler) || interceptBeforeRequest(*checker, request, client, handler)))
                 return;
-            m_resumingRequests.add(*checker);
-            checker->checkRequest(WTF::move(request), client, WTF::move(handler));
+            continueRequest(*checker, WTF::move(request), client, WTF::move(handler));
             return;
         }
 
         if (interceptRequestHeaders(*checker, request, client, handler))
             return;
-        m_resumingRequests.add(*checker);
-        checker->checkRequest(WTF::move(request), client, WTF::move(handler));
+        continueRequest(*checker, WTF::move(request), client, WTF::move(handler));
     });
     return true;
 }
@@ -561,6 +669,7 @@ bool LegacyExtensionNetwork::interceptRequestHeaders(NetworkLoadChecker& checker
         if (RefPtr headers = response ? response->getArray("requestHeaders"_s) : nullptr) {
             if (auto editedCookie = applyRequestHeaders(request, *headers, generatedFields); !editedCookie.isNull())
                 m_editedCookies.set(*checker, editedCookie);
+            m_uncheckedRequests.remove(*checker);
         }
 
         if (observes(onSendHeaders)) {
@@ -568,8 +677,7 @@ bool LegacyExtensionNetwork::interceptRequestHeaders(NetworkLoadChecker& checker
             details->setArray("requestHeaders"_s, requestHeadersWithFields(request, generatedFields));
             notify(onSendHeaders, details->toJSONString());
         }
-        m_resumingRequests.add(*checker);
-        checker->checkRequest(WTF::move(request), hasClient ? loader.get() : nullptr, WTF::move(handler));
+        continueRequest(*checker, WTF::move(request), hasClient ? loader.get() : nullptr, WTF::move(handler));
     });
     return true;
 }
@@ -583,6 +691,10 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
     bool isExtensionRedirect = m_extensionRedirects.remove(checker);
     if (!isExtensionRedirect)
         m_extensionRedirectTargets.remove(checker);
+    // A redirect a service worker answers is not reported; the redirected request starts the load's events again.
+    RefPtr redirectLoader = checker.m_networkResourceLoader.get();
+    if (redirectLoader && !m_loaders.contains(*redirectLoader))
+        return false;
     if (m_listeners.isEmpty() || !isInterceptable(redirectResponse.url()))
         return false;
     m_redirectResponses.set(checker, makeUnique<ResourceResponse>(redirectResponse));
@@ -593,7 +705,6 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
     auto details = requestDetails(checker, request.isNull() ? redirectRequest : request);
     details->setString("url"_s, redirectResponse.url().string());
     addResponseFields(details, redirectResponse);
-    RefPtr redirectLoader = checker.m_networkResourceLoader.get();
     if (RefPtr task = redirectLoader ? curlTask(*redirectLoader) : nullptr; task && task->heldCookies())
         setSetCookieFields(details, *task->heldCookies());
     // The redirect's cookies are stored before the redirect is followed, so its request carries them.
@@ -661,7 +772,7 @@ bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, Re
 {
     if (m_resumingResponses.remove(loader))
         return false;
-    if (m_listeners.isEmpty() || !isInterceptable(response.url()))
+    if (m_listeners.isEmpty() || !m_loaders.contains(loader) || !isInterceptable(response.url()))
         return false;
     // A successful revalidation reaches the extensions as the cached response.
     if (loader.m_cacheEntryForValidation && response.httpStatusCode() == httpStatus304NotModified)
@@ -727,7 +838,7 @@ bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& load
 {
     if (m_resumingCacheEntries.remove(loader))
         return false;
-    if (m_listeners.isEmpty() || !entry || !isInterceptable(entry->response().url()))
+    if (m_listeners.isEmpty() || !m_loaders.contains(loader) || !entry || !isInterceptable(entry->response().url()))
         return false;
 
     auto details = responseDetails(loader, entry->response(), true);
@@ -768,6 +879,379 @@ bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& load
         loader->didRetrieveCacheEntry(WTF::move(entry));
     });
     return true;
+}
+
+// A navigation's preload and a service worker's update check.
+
+Ref<LegacyExtensionNetwork::ClientLoad> LegacyExtensionNetwork::createClientLoad(ClientLoadKind kind, Ref<JSON::Object>&& details, PAL::SessionID sessionID)
+{
+    return adoptRef(*new ClientLoad(kind, makeString(getCurrentProcessID(), kind == ClientLoadKind::Preload ? "-preload-"_s : "-update-"_s, m_nextClientLoadIdentifier++), WTF::move(details), sessionID));
+}
+
+Ref<JSON::Object> LegacyExtensionNetwork::clientDetails(ClientLoad& load, const URL& url)
+{
+    auto details = JSON::Object::create();
+    for (auto& [key, value] : load.details.get())
+        details->setValue(key, value.copyRef());
+    details->setString("requestId"_s, load.requestId);
+    details->setString("url"_s, url.string());
+    details->setString("method"_s, load.request.httpMethod());
+    details->setDouble("timeStamp"_s, timeStamp());
+    return details;
+}
+
+RefPtr<NetworkLoad> LegacyExtensionNetwork::clientNetworkLoad(NetworkLoadClient& client, ClientLoad& load)
+{
+    if (load.kind == ClientLoadKind::Preload)
+        return static_cast<ServiceWorkerNavigationPreloader&>(client).m_networkLoad;
+    return static_cast<ServiceWorkerSoftUpdateLoader&>(client).m_networkLoad;
+}
+
+RefPtr<NetworkDataTaskCurlCocoa> LegacyExtensionNetwork::clientCurlTask(ClientLoad& load, NetworkLoad* networkLoad)
+{
+    RefPtr networkProcess = m_networkProcess.get();
+    CheckedPtr session = networkProcess && networkLoad ? networkProcess->networkSession(load.sessionID) : nullptr;
+    if (!session || !NetworkDataTaskCurlCocoa::canHandle(*session, networkLoad->parameters()))
+        return nullptr;
+    return static_cast<NetworkDataTaskCurlCocoa*>(networkLoad->m_task.get());
+}
+
+// The loader whose fetch task creates a preload: the preload's request is the loader's, sent while the service
+// worker decides, or for it. Its type, tab and frame are the loader's.
+void LegacyExtensionNetwork::willCreatePreload(NetworkResourceLoader& loader)
+{
+    m_preloadLoader = WeakPtr { loader };
+}
+
+bool LegacyExtensionNetwork::interceptPreloadRequest(ServiceWorkerNavigationPreloader& preloader)
+{
+    if (m_resumingClientRequests.remove(preloader))
+        return false;
+    RefPtr loader = std::exchange(m_preloadLoader, nullptr).get();
+    CheckedPtr session = preloader.m_session.get();
+    if (!loader || !session || m_listeners.isEmpty() || !isInterceptable(preloader.m_parameters.request.url()))
+        return false;
+
+    auto details = loaderDetails(*loader);
+    for (auto key : { "requestId"_s, "url"_s, "method"_s, "timeStamp"_s })
+        details->remove(key);
+    Ref load = createClientLoad(ClientLoadKind::Preload, WTF::move(details), session->sessionID());
+    load->origin = requestSourceOrigin(loader->parameters());
+    load->frameID = preloader.m_parameters.webFrameID.asOptional();
+    load->pageID = preloader.m_parameters.webPageID.asOptional();
+    load->webPageProxyID = preloader.m_parameters.webPageProxyID.asOptional();
+    load->storedCredentialsPolicy = preloader.m_parameters.storedCredentialsPolicy;
+    m_clientLoads.set(preloader, load.copyRef());
+
+    checkClientRequest(load.copyRef(), ResourceRequest { preloader.m_parameters.request }, [this, weakPreloader = WeakPtr { preloader }, load](ClientRequestResult&& result) mutable {
+        RefPtr preloader = weakPreloader.get();
+        if (!preloader || load->ended)
+            return;
+        WTF::switchOn(result,
+            [&](ResourceRequest& request) {
+                preloader->m_parameters.request = WTF::move(request);
+                m_resumingClientRequests.add(*preloader);
+                preloader->start();
+            },
+            // A preload follows no redirect: the redirect is its response, which the service worker or the navigation follows.
+            [&](URL& redirectURL) {
+                load->isInternalRedirect = true;
+                preloader->willSendRedirectedRequest({ }, { }, internalRedirectResponse(load->request.url(), redirectURL), [](auto) { });
+            },
+            [&](ResourceError& error) {
+                preloader->didFailLoading(error);
+            });
+    });
+    return true;
+}
+
+// An update check's request, decided before its loader is created: a check the extensions cancel or redirect fails,
+// as a service worker script's redirect does.
+void LegacyExtensionNetwork::willSoftUpdate(NetworkSession& session, const URL& scopeURL, ResourceRequest&& request, SoftUpdateRequestHandler&& handler)
+{
+    if (m_listeners.isEmpty() || !isInterceptable(request.url()))
+        return handler(WTF::move(request));
+
+    auto details = JSON::Object::create();
+    details->setString("type"_s, "script"_s);
+    details->setDouble("tabId"_s, -1);
+    details->setDouble("frameId"_s, -1);
+    details->setDouble("parentFrameId"_s, -1);
+    Ref origin = SecurityOrigin::create(scopeURL);
+    details->setString("initiator"_s, origin->toString());
+    Ref load = createClientLoad(ClientLoadKind::SoftUpdate, WTF::move(details), session.sessionID());
+    load->origin = WTF::move(origin);
+
+    checkClientRequest(load.copyRef(), WTF::move(request), [this, load, handler = WTF::move(handler)](ClientRequestResult&& result) mutable {
+        WTF::switchOn(result,
+            [&](ResourceRequest& request) {
+                m_creatingSoftUpdate = load.copyRef();
+                handler(WTF::move(request));
+                // A check whose session went away has no loader.
+                if (std::exchange(m_creatingSoftUpdate, nullptr))
+                    endClientLoad(load, ResourceError { ResourceError::Type::Cancellation });
+            },
+            // As ServiceWorkerSoftUpdateLoader::willSendRedirectedRequest fails a redirected check.
+            [&](URL&) {
+                ResourceError error { ResourceError::Type::Cancellation };
+                endClientLoad(load, error);
+                handler(makeUnexpected(WTF::move(error)));
+            },
+            [&](ResourceError& error) {
+                endClientLoad(load, error);
+                handler(makeUnexpected(WTF::move(error)));
+            });
+    });
+}
+
+void LegacyExtensionNetwork::didCreateSoftUpdateLoader(ServiceWorkerSoftUpdateLoader& loader)
+{
+    if (RefPtr load = std::exchange(m_creatingSoftUpdate, nullptr))
+        m_clientLoads.set(loader, load.releaseNonNull());
+}
+
+// proxy.onRequest, onBeforeRequest, onBeforeSendHeaders and onSendHeaders, as for a load's request; the handler
+// receives the request to send, the URL an onBeforeRequest verdict redirects it to, or the error it fails with.
+void LegacyExtensionNetwork::checkClientRequest(Ref<ClientLoad>&& load, ResourceRequest&& request, ClientRequestHandler&& handler)
+{
+    load->request = request;
+    if (!observes(proxyOnRequest) || !request.url().protocolIsInHTTPFamily())
+        return checkClientBeforeRequest(WTF::move(load), WTF::move(request), WTF::move(handler));
+    auto details = clientDetails(load, request.url());
+    details->setBoolean("fromCache"_s, false);
+    details->setBoolean("incognito"_s, load->sessionID.isEphemeral());
+    details->setBoolean("thirdParty"_s, !request.firstPartyForCookies().isEmpty() && !RegistrableDomain(request.firstPartyForCookies()).matches(request.url()));
+    if (auto documentURL = details->getString("documentUrl"_s); !documentURL.isNull())
+        details->setString("originUrl"_s, documentURL);
+    if (hasOption(proxyOnRequest, requestHeadersOption))
+        details->setArray("requestHeaders"_s, headersArray(request.httpHeaderFields()));
+    if (!blocks(proxyOnRequest, details))
+        return checkClientBeforeRequest(WTF::move(load), WTF::move(request), WTF::move(handler));
+    dispatch(proxyOnRequest, details->toJSONString(), [this, load = WTF::move(load), request = WTF::move(request), handler = WTF::move(handler)](RefPtr<JSON::Object>&& response) mutable {
+        if (load->ended)
+            return handler(ResourceError { ResourceError::Type::Cancellation });
+        if (RefPtr answers = response ? response->getArray("proxy"_s) : nullptr) {
+            if (auto results = LegacyExtensions::proxyFilterResults(*answers); !results.isEmpty())
+                load->proxyAnswers = ProxyAnswers { request.url(), WTF::move(results) };
+        }
+        checkClientBeforeRequest(WTF::move(load), WTF::move(request), WTF::move(handler));
+    });
+}
+
+void LegacyExtensionNetwork::checkClientBeforeRequest(Ref<ClientLoad>&& load, ResourceRequest&& request, ClientRequestHandler&& handler)
+{
+    auto details = clientDetails(load, request.url());
+    if (hasOption(onBeforeRequest, requestBodyOption)) {
+        if (auto body = requestBody(request))
+            details->setObject("requestBody"_s, body.releaseNonNull());
+    }
+    if (!blocks(onBeforeRequest, details)) {
+        if (observes(onBeforeRequest))
+            notify(onBeforeRequest, details->toJSONString());
+        return checkClientRequestHeaders(WTF::move(load), WTF::move(request), WTF::move(handler));
+    }
+    dispatch(onBeforeRequest, details->toJSONString(), [this, load = WTF::move(load), request = WTF::move(request), handler = WTF::move(handler)](RefPtr<JSON::Object>&& response) mutable {
+        if (load->ended)
+            return handler(ResourceError { ResourceError::Type::Cancellation });
+        if (response && response->getBoolean("cancel"_s).value_or(false))
+            return handler(cancellationError(request));
+        if (URL redirectURL { response ? response->getString("redirectUrl"_s) : String() }; redirectURL.isValid() && redirectURL != request.url()) {
+            if (observes(onBeforeRedirect)) {
+                auto details = clientDetails(load, request.url());
+                details->setString("redirectUrl"_s, redirectURL.string());
+                addResponseFields(details, internalRedirectResponse(request.url(), redirectURL));
+                notify(onBeforeRedirect, details->toJSONString());
+            }
+            return handler(WTF::move(redirectURL));
+        }
+        checkClientRequestHeaders(WTF::move(load), WTF::move(request), WTF::move(handler));
+    });
+}
+
+void LegacyExtensionNetwork::checkClientRequestHeaders(Ref<ClientLoad>&& load, ResourceRequest&& request, ClientRequestHandler&& handler)
+{
+    if (!isHTTPOrWebSocket(request.url()))
+        return handler(WTF::move(request));
+    Vector<GeneratedField> generatedFields;
+    if (hasOption(onBeforeSendHeaders, extraHeadersOption) || hasOption(onSendHeaders, extraHeadersOption)) {
+        RefPtr networkProcess = m_networkProcess.get();
+        CheckedPtr session = networkProcess ? networkProcess->networkSession(load->sessionID) : nullptr;
+        generatedFields = LegacyExtensions::generatedFields(request, session ? NetworkDataTaskCurlCocoa::cookieHeader(*session, request, load->origin.get(), load->frameID, load->pageID, load->webPageProxyID, load->storedCredentialsPolicy) : String { });
+    }
+    auto details = clientDetails(load, request.url());
+    details->setArray("requestHeaders"_s, requestHeadersWithFields(request, generatedFields));
+    if (!blocks(onBeforeSendHeaders, details)) {
+        if (observes(onBeforeSendHeaders))
+            notify(onBeforeSendHeaders, details->toJSONString());
+        if (observes(onSendHeaders))
+            notify(onSendHeaders, details->toJSONString());
+        load->request = request;
+        return handler(WTF::move(request));
+    }
+    dispatch(onBeforeSendHeaders, details->toJSONString(), [this, load = WTF::move(load), request = WTF::move(request), handler = WTF::move(handler), generatedFields = WTF::move(generatedFields)](RefPtr<JSON::Object>&& response) mutable {
+        if (load->ended)
+            return handler(ResourceError { ResourceError::Type::Cancellation });
+        if (response && response->getBoolean("cancel"_s).value_or(false))
+            return handler(cancellationError(request));
+        if (RefPtr headers = response ? response->getArray("requestHeaders"_s) : nullptr)
+            applyRequestHeaders(request, *headers, generatedFields);
+        if (observes(onSendHeaders)) {
+            auto details = clientDetails(load, request.url());
+            details->setArray("requestHeaders"_s, requestHeadersWithFields(request, generatedFields));
+            notify(onSendHeaders, details->toJSONString());
+        }
+        load->request = request;
+        handler(WTF::move(request));
+    });
+}
+
+// onHeadersReceived and onResponseStarted, for a preload's or an update check's response from the network or the
+// cache. A successful revalidation reaches the extensions as the cached response.
+bool LegacyExtensionNetwork::interceptClientResponse(NetworkLoadClient& client, ResourceResponse& response, PrivateRelayed privateRelayed, ResponseCompletionHandler& completionHandler)
+{
+    if (m_resumingClientResponses.remove(client))
+        return false;
+    RefPtr load = m_clientLoads.get(client);
+    if (!load || load->ended)
+        return false;
+    if (response.httpStatusCode() == httpStatus304NotModified) {
+        bool hasCacheEntry = load->kind == ClientLoadKind::Preload ? !!static_cast<ServiceWorkerNavigationPreloader&>(client).m_cacheEntry : !!static_cast<ServiceWorkerSoftUpdateLoader&>(client).m_cacheEntry;
+        if (hasCacheEntry)
+            return false;
+    }
+    if (std::exchange(load->isInternalRedirect, false)) {
+        didStartClientResponse(*load, response);
+        return false;
+    }
+
+    auto details = clientDetails(*load, response.url());
+    addResponseFields(details, response);
+    RefPtr networkLoad = clientNetworkLoad(client, *load);
+    if (RefPtr task = clientCurlTask(*load, networkLoad.get()); task && task->heldCookies())
+        setSetCookieFields(details, *task->heldCookies());
+    if (!isHTTPOrWebSocket(response.url()) || !blocks(onHeadersReceived, details)) {
+        if (isHTTPOrWebSocket(response.url()) && observes(onHeadersReceived))
+            notify(onHeadersReceived, details->toJSONString());
+        didStartClientResponse(*load, response);
+        return false;
+    }
+
+    dispatch(onHeadersReceived, details->toJSONString(), [this, weakClient = WeakPtr { client }, load = load.releaseNonNull(), response = WTF::move(response), privateRelayed, completionHandler = WTF::move(completionHandler)](RefPtr<JSON::Object>&& verdict) mutable {
+        RefPtr client = weakClient.get();
+        if (!client || load->ended)
+            return completionHandler(PolicyAction::Ignore);
+        RefPtr networkLoad = clientNetworkLoad(*client, load);
+        RefPtr task = clientCurlTask(load, networkLoad.get());
+        if (RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr; headers && task && task->heldCookies())
+            task->storeHeldCookies(setCookieFields(*headers));
+        // The loader fails before the network load's own cancellation can reach it.
+        if (verdict && verdict->getBoolean("cancel"_s).value_or(false)) {
+            if (task)
+                task->discardHeldCookies();
+            if (networkLoad)
+                networkLoad->clearClient();
+            client->didFailLoading(cancellationError(load->request));
+            return completionHandler(PolicyAction::Ignore);
+        }
+        if (RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr)
+            response = responseWithHeaders(response, *headers, load->details->getString("type"_s) == "main_frame"_s ? IsMainResourceLoad::Yes : IsMainResourceLoad::No);
+        if (URL redirectURL { verdict ? verdict->getString("redirectUrl"_s) : String() }; redirectURL.isValid())
+            response = redirectedResponse(response, redirectURL);
+        didStartClientResponse(load, response);
+        m_resumingClientResponses.add(*client);
+        client->didReceiveResponse(WTF::move(response), privateRelayed, WTF::move(completionHandler));
+    });
+    return true;
+}
+
+// An update check's response from the cache, which its loader validates without receiving it.
+bool LegacyExtensionNetwork::interceptSoftUpdateCacheEntry(ServiceWorkerSoftUpdateLoader& loader, NetworkCache::Entry& entry)
+{
+    if (m_resumingClientResponses.remove(loader))
+        return false;
+    RefPtr load = m_clientLoads.get(loader);
+    if (!load || load->ended)
+        return false;
+    auto details = clientDetails(*load, entry.response().url());
+    addResponseFields(details, entry.response());
+    if (!isHTTPOrWebSocket(entry.response().url()) || !blocks(onHeadersReceived, details)) {
+        if (isHTTPOrWebSocket(entry.response().url()) && observes(onHeadersReceived))
+            notify(onHeadersReceived, details->toJSONString());
+        didStartClientResponse(*load, entry.response());
+        return false;
+    }
+
+    dispatch(onHeadersReceived, details->toJSONString(), [this, weakLoader = WeakPtr { loader }, load = load.releaseNonNull(), entry = makeUnique<NetworkCache::Entry>(entry)](RefPtr<JSON::Object>&& verdict) mutable {
+        RefPtr loader = weakLoader.get();
+        if (!loader || load->ended)
+            return;
+        if (verdict && verdict->getBoolean("cancel"_s).value_or(false))
+            return loader->fail(cancellationError(load->request));
+        auto response = entry->response();
+        RefPtr headers = verdict ? verdict->getArray("responseHeaders"_s) : nullptr;
+        if (headers)
+            response = responseWithHeaders(response, *headers, IsMainResourceLoad::No);
+        URL redirectURL { verdict ? verdict->getString("redirectUrl"_s) : String() };
+        if (redirectURL.isValid())
+            response = redirectedResponse(response, redirectURL);
+        CheckedPtr session = loader->m_session.get();
+        RefPtr cache = session ? session->cache() : nullptr;
+        if ((headers || redirectURL.isValid()) && cache) {
+            RefPtr<FragmentedSharedBuffer> buffer = entry->buffer();
+            entry = cache->makeEntry(load->request, response, entry->privateRelayed(), WTF::move(buffer));
+        }
+        didStartClientResponse(load, entry->response());
+        m_resumingClientResponses.add(*loader);
+        loader->loadWithCacheEntry(*entry);
+    });
+    return true;
+}
+
+// A redirect response ends a preload, which never follows it; an update check fails on it.
+void LegacyExtensionNetwork::didStartClientResponse(ClientLoad& load, const ResourceResponse& response)
+{
+    load.response = response;
+    if (response.isRedirection() && response.httpHeaderFields().contains(HTTPHeaderName::Location)) {
+        if (!response.httpHeaderFields().contains(String { "Non-Authoritative-Reason"_s }) && observes(onBeforeRedirect)) {
+            auto details = clientDetails(load, response.url());
+            details->setString("redirectUrl"_s, URL { response.url(), response.httpHeaderField(HTTPHeaderName::Location) }.string());
+            addResponseFields(details, response);
+            notify(onBeforeRedirect, details->toJSONString());
+        }
+        if (load.kind == ClientLoadKind::Preload)
+            endClientLoad(load, { });
+        return;
+    }
+    if (observes(onResponseStarted)) {
+        auto details = clientDetails(load, response.url());
+        addResponseFields(details, response);
+        notify(onResponseStarted, details->toJSONString());
+    }
+}
+
+void LegacyExtensionNetwork::clientLoadDidEnd(NetworkLoadClient& client, const ResourceError& error)
+{
+    if (RefPtr load = m_clientLoads.get(client))
+        endClientLoad(*load, error);
+}
+
+// onCompleted, or onErrorOccurred with the error's name.
+void LegacyExtensionNetwork::endClientLoad(ClientLoad& load, const ResourceError& error)
+{
+    if (std::exchange(load.ended, true))
+        return;
+    auto eventName = error.isNull() ? onCompleted : onErrorOccurred;
+    auto& url = load.response.isNull() ? load.request.url() : load.response.url();
+    if (!observes(eventName) || !isInterceptable(url))
+        return;
+    auto details = clientDetails(load, url);
+    if (error.isNull())
+        addResponseFields(details, load.response);
+    else {
+        details->setBoolean("fromCache"_s, isFromCache(load.response));
+        details->setString("error"_s, LegacyExtensions::networkErrorName(error));
+    }
+    notify(eventName, details->toJSONString());
 }
 
 Vector<CocoaCurlProxyFilterResult> LegacyExtensionNetwork::takeWebSocketProxyFilterResults(NetworkConnectionToWebProcess& connection, WebCore::WebSocketIdentifier identifier)
@@ -851,18 +1335,25 @@ bool LegacyExtensionNetwork::interceptAuthenticationChallenge(NetworkLoad& netwo
     auto scheme = authenticationSchemeName(challenge);
     if (scheme.isNull())
         return false;
-    RefPtr<NetworkResourceLoader> loader;
+    // The challenge's load is one the extensions have seen, or a preload's or an update check's.
+    RefPtr<JSON::Object> loadDetails;
     for (auto& candidate : m_loaders) {
         if (candidate.m_networkLoad == &networkLoad) {
-            loader = &candidate;
+            loadDetails = loaderDetails(candidate);
             break;
         }
     }
-    if (!loader)
+    for (auto entry : m_clientLoads) {
+        if (loadDetails)
+            break;
+        if (!entry.value->ended && clientNetworkLoad(entry.key, entry.value) == &networkLoad)
+            loadDetails = clientDetails(entry.value, networkLoad.currentRequest().url());
+    }
+    if (!loadDetails)
         return false;
 
     auto& protectionSpace = challenge.protectionSpace();
-    auto details = loaderDetails(*loader);
+    Ref details = loadDetails.releaseNonNull();
     addResponseFields(details, challenge.failureResponse());
     details->setString("scheme"_s, scheme);
     if (!protectionSpace.realm().isEmpty())
@@ -890,7 +1381,7 @@ bool LegacyExtensionNetwork::interceptAuthenticationChallenge(NetworkLoad& netwo
 
 void LegacyExtensionNetwork::loaderDidFail(NetworkResourceLoader& loader, const ResourceError& error)
 {
-    if (RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64()))
+    if (RefPtr response = m_filteredResponses.get(loadRequestIdentifier(loader)))
         response->error = LegacyExtensions::networkErrorName(error);
     if (!observes(onErrorOccurred))
         return;
@@ -924,7 +1415,7 @@ void LegacyExtensionNetwork::loaderDidFinish(NetworkResourceLoader& loader, Netw
     auto url = currentURL(loader);
     auto error = m_loadErrors.take(loader);
     auto eventName = succeeded ? onCompleted : onErrorOccurred;
-    if (!observes(eventName))
+    if (!m_loaders.contains(loader) || !observes(eventName))
         return;
     if (!isInterceptable(url))
         return;
@@ -965,7 +1456,7 @@ void LegacyExtensionNetwork::createResponseFilter(uint64_t filterID, uint64_t re
     };
     RefPtr<NetworkResourceLoader> loader;
     for (auto& candidate : m_loaders) {
-        if (candidate.identifier().toUInt64() == requestIdentifier) {
+        if (loadRequestIdentifier(candidate) == requestIdentifier) {
             loader = &candidate;
             break;
         }
@@ -1043,7 +1534,7 @@ void LegacyExtensionNetwork::removeFilteredResponse(FilteredResponse& response)
 
 bool LegacyExtensionNetwork::deferCleanup(NetworkResourceLoader& loader, NetworkResourceLoader::LoadResult result)
 {
-    RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64());
+    RefPtr response = m_filteredResponses.get(loadRequestIdentifier(loader));
     if (!response)
         return false;
     if (response->filter->hasFinishedOutput()) {
@@ -1083,7 +1574,7 @@ URL LegacyExtensionNetwork::currentURL(NetworkResourceLoader& loader) const
 
 bool LegacyExtensionNetwork::filterResponseData(NetworkResourceLoader& loader, const FragmentedSharedBuffer& buffer)
 {
-    RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64());
+    RefPtr response = m_filteredResponses.get(loadRequestIdentifier(loader));
     if (!response) {
         if (m_loaders.contains(loader))
             m_loadersWithDeliveredBody.add(loader);
@@ -1095,7 +1586,7 @@ bool LegacyExtensionNetwork::filterResponseData(NetworkResourceLoader& loader, c
 
 bool LegacyExtensionNetwork::finishFilteredResponse(NetworkResourceLoader& loader, const NetworkLoadMetrics& metrics)
 {
-    RefPtr response = m_filteredResponses.get(loader.identifier().toUInt64());
+    RefPtr response = m_filteredResponses.get(loadRequestIdentifier(loader));
     if (!response) {
         if (m_loaders.contains(loader))
             m_loadersWithDeliveredBody.add(loader);
@@ -1111,7 +1602,7 @@ bool LegacyExtensionNetwork::finishFilteredResponse(NetworkResourceLoader& loade
 
 bool LegacyExtensionNetwork::filtersResponse(NetworkResourceLoader& loader) const
 {
-    return m_filteredResponses.contains(loader.identifier().toUInt64());
+    return m_filteredResponses.contains(loadRequestIdentifier(loader));
 }
 
 auto LegacyExtensionNetwork::filterSynchronousReply(NetworkConnectionToWebProcess& connection, ResourceLoaderIdentifier coreIdentifier, SynchronousReply&& reply) -> SynchronousReply

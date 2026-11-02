@@ -50,6 +50,7 @@ class NetworkSession;
 class ServiceWorkerSoftUpdateLoader final : public NetworkLoadClient, public RefCounted<ServiceWorkerSoftUpdateLoader> {
     WTF_MAKE_TZONE_ALLOCATED(ServiceWorkerSoftUpdateLoader);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ServiceWorkerSoftUpdateLoader);
+    friend class LegacyExtensionNetwork; // AQUAWEBKIT: Safari 7 extensions' webRequest decides a cached response before the loader validates it.
 public:
     using Handler = CompletionHandler<void(WebCore::WorkerFetchResult&&)>;
     static Ref<ServiceWorkerSoftUpdateLoader> create(NetworkSession&, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);

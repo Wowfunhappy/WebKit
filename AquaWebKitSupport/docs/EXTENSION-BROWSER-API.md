@@ -399,9 +399,9 @@ A `Cookie` header an `onBeforeSendHeaders` verdict changes or removes is the one
 - `formData`: for a `POST` whose body is `application/x-www-form-urlencoded` or `multipart/form-data`, an object mapping each field name to an array of its values. A file field's value is its filename.
 - `raw`: for any other body, or a form body that does not parse, an array of `{ bytes: ArrayBuffer }` and `{ file: path }` elements.
 
-Common fields: `requestId`, `url`, `method`, `type`, `timeStamp`, `tabId` (`-1` for a load that belongs to no tab, such as one from a WebKit 1 extension view), `frameId` (`0` for the main frame of a tab or a WebKit 1 view), `parentFrameId`, and, for subresources, `documentUrl` and `initiator` (the requesting origin).
+Common fields: `requestId`, `url`, `method`, `type`, `timeStamp`, `tabId` (`-1` for a load that belongs to no tab, such as one from a WebKit 1 extension view or a service worker), `frameId` (`0` for the main frame of a tab or a WebKit 1 view, `-1` for a network process load no tab makes), `parentFrameId`, and, for subresources, `documentUrl` and `initiator` (the requesting origin).
 
-`requestId` is a string, stable for a load across its events: `"<network pid>-<n>"`, `"<network pid>-ping-<n>"` for pings and beacons, `"<network pid>-ws-<n>"` for WebSockets. A WebKit 1 view's loads use the Safari process's pid, and `"<pid>-sync-<n>"` for synchronous requests.
+`requestId` is a string, stable for a load across its events: `"<network pid>-<n>"`, `"<network pid>-ping-<n>"` for pings and beacons, `"<network pid>-ws-<n>"` for WebSockets, `"<network pid>-preload-<n>"` for navigation preloads and `"<network pid>-update-<n>"` for service worker update checks. A WebKit 1 view's loads use the Safari process's pid, and `"<pid>-sync-<n>"` for synchronous requests.
 
 `type` is one of the `browser.webRequest.ResourceType` values: `main_frame`, `sub_frame`, `stylesheet`, `script`, `image`, `font`, `object`, `xmlhttprequest` (XHR, fetch, and EventSource), `ping` (pings and beacons), `csp_report`, `media`, `websocket`, `other`. Workers, worklets, and JSON modules are `script`, and XSLT is `stylesheet`.
 
@@ -415,6 +415,8 @@ WebSocket `redirectUrl` verdicts are ignored in both request and response stages
 
 
 A successful cache revalidation (a `304` for a cached entry) reports the cached response, with `fromCache: true`, not the `304`.
+
+A request a service worker takes reports nothing of the service worker's answer: a page's request it takes from the start reports no events, and a request already reported, such as a navigation a network redirect sends into the service worker's scope, ends with `onErrorOccurred` `net::ERR_ABORTED` as the service worker receives it; its StreamFilters fail with "The response came from a service worker." before any of the answer reaches the page. A request the service worker leaves to the network reports its events from `onBeforeRequest`, under a new `requestId` when the service worker took a reported request first, and blocking verdicts act on it: the request the service worker leaves goes to the network as WebKit sends it, and a request a verdict changes, by a header edit or a `redirectUrl`, is checked, CORS included, as any other request is. The service worker's own requests report `tabId`, `frameId` and `parentFrameId` `-1`, as every request no tab makes does, and so does the fetch of a service worker's script for `register()` or `update()`, which belongs to the registration rather than to the page that asks. A navigation's preload, which WebKit sends for navigation preload and while a stopped service worker starts, is a request of its own (`requestId` `"<network pid>-preload-<n>"`), with the navigation's `type`, `tabId` and `frameId`: blocking verdicts act on it, a redirect, from the network or a verdict, is its response and ends it with `onBeforeRedirect` then `onCompleted`, and the navigation or the service worker follows it. A service worker's update check is a `script` request (`"<network pid>-update-<n>"`, `tabId` `-1`, `initiator` the registration's scope origin); a redirect, the network's or a verdict's, fails it with `net::ERR_ABORTED`, as WebKit fails a redirected update check. Neither has a body to filter.
 
 ### Blocking verdicts
 
@@ -471,7 +473,7 @@ The handlers are event handler attributes; `addEventListener` works too. A metho
 
 Several filters of one load chain, as Firefox chains them: the filter attached last reads the body first, and what it writes is the input of the filter attached before it.
 
-The filter fails with `"Invalid request ID"` when no load of the network process has the `requestId`, when the extension's website access does not cover the load, when a service worker answers the load, or when the page has already received some of its body. A WebKit 1 view's loads, pings, and WebSockets have no body to filter. A load that fails or is cancelled fails its filters with its `net::` error name, and one a service worker turns out to answer fails them with `"The response came from a service worker."`; a page a service worker serves reaches `webRequest` only through the service worker's own requests.
+The filter fails with `"Invalid request ID"` when no load of the network process has the `requestId`, when the extension's website access does not cover the load, when a service worker answers the load, or when the page has already received some of its body. A WebKit 1 view's loads, pings, and WebSockets have no body to filter. A load that fails or is cancelled fails its filters with its `net::` error name, and one a service worker takes fails them with `"The response came from a service worker."` when the service worker receives it.
 
 ### `webRequest.handlerBehaviorChanged()` → `Promise<void>`
 

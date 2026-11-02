@@ -5,7 +5,8 @@
 // the same points WebKit applies its own content rules: NetworkLoadChecker::checkRequest (onBeforeRequest
 // and onBeforeSendHeaders, for every request and redirect, pings included), checkRedirection and the
 // response (onHeadersReceived, for a redirect and for a network or cache response), and a WebSocket's
-// creation.
+// creation. A request a service worker leaves to the network, a navigation's preload and a service worker's
+// update check reach the network without NetworkLoadChecker; their loaders ask here before they are sent.
 //
 // webRequest.filterResponseData attaches StreamFilters to a load: the body its web process would receive goes
 // through them first, from the network or the cache alike. The network cache stores the body as the network
@@ -26,7 +27,9 @@
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NetworkLoadMetrics.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
+#include <pal/SessionID.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/Expected.h>
 #include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
 #include <wtf/Markable.h>
@@ -53,6 +56,9 @@ class NetworkConnectionToWebProcess;
 class NetworkLoad;
 class NetworkDataTaskCurlCocoa;
 class NetworkProcess;
+class NetworkSession;
+class ServiceWorkerNavigationPreloader;
+class ServiceWorkerSoftUpdateLoader;
 
 namespace NetworkCache {
 class Entry;
@@ -90,6 +96,25 @@ public:
     bool holdsReceivedCookies() const { return m_listeners.hasOption(LegacyExtensions::onHeadersReceived, LegacyExtensions::extraHeadersOption); }
 
     bool continueWillSendRequest(NetworkResourceLoader&, WebCore::ResourceRequest&);
+    // A service worker takes the load's approved request, which ends a request the extensions have seen with
+    // onErrorOccurred net::ERR_ABORTED.
+    void serviceWorkerWillHandle(NetworkResourceLoader&);
+    // The request a service worker leaves to the network, which starts the load's events again; true when the
+    // extensions take its continuation, which then restarts or fails the load.
+    bool interceptServiceWorkerFallback(NetworkResourceLoader&, WebCore::ResourceRequest&);
+
+    // A navigation's preload and a service worker's update check reach the network outside a NetworkResourceLoader.
+    // Each is a request of its own: its events begin before it is sent and end with its own onCompleted or
+    // onErrorOccurred. A preload is created for the loader that willCreatePreload names, its request decided in
+    // interceptPreloadRequest; an update check's request is decided in willSoftUpdate, before its loader exists.
+    void willCreatePreload(NetworkResourceLoader&);
+    bool interceptPreloadRequest(ServiceWorkerNavigationPreloader&);
+    using SoftUpdateRequestHandler = CompletionHandler<void(Expected<WebCore::ResourceRequest, WebCore::ResourceError>&&)>;
+    void willSoftUpdate(NetworkSession&, const URL& scopeURL, WebCore::ResourceRequest&&, SoftUpdateRequestHandler&&);
+    void didCreateSoftUpdateLoader(ServiceWorkerSoftUpdateLoader&);
+    bool interceptClientResponse(NetworkLoadClient&, WebCore::ResourceResponse&, PrivateRelayed, ResponseCompletionHandler&);
+    bool interceptSoftUpdateCacheEntry(ServiceWorkerSoftUpdateLoader&, NetworkCache::Entry&);
+    void clientLoadDidEnd(NetworkLoadClient&, const WebCore::ResourceError&);
 
     bool interceptAuthenticationChallenge(NetworkLoad&, const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, ChallengeCompletionHandler&);
 
@@ -171,6 +196,7 @@ private:
     RefPtr<NetworkDataTaskCurlCocoa> curlTask(NetworkResourceLoader&);
     String cookieHeader(NetworkLoadChecker&, const WebCore::ResourceRequest&);
 
+    void continueRequest(NetworkLoadChecker&, WebCore::ResourceRequest&&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&&);
     bool interceptProxyRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
     bool interceptBeforeRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
     static void checkAsRequestFor(NetworkLoadChecker&, const URL&);
@@ -186,6 +212,7 @@ private:
     void dispatch(ASCIILiteral eventName, const String& details, CompletionHandler<void(RefPtr<JSON::Object>&&)>&&);
 
     String requestIdentifier(NetworkLoadChecker&);
+    uint64_t loadRequestIdentifier(NetworkResourceLoader&) const;
     Ref<JSON::Object> requestDetails(NetworkLoadChecker&, const WebCore::ResourceRequest&);
     Ref<JSON::Object> loaderDetails(NetworkResourceLoader&);
     Ref<JSON::Object> responseDetails(NetworkResourceLoader&, const WebCore::ResourceResponse&, bool fromCache);
@@ -206,7 +233,16 @@ private:
     WeakHashSet<NetworkLoadChecker> m_resumingRedirections;
     WeakHashSet<NetworkDataTaskClient> m_resumingChallenges;
     // The loads whose requests the extensions have seen, which an authentication challenge's load is one of.
+    // A load's events begin with its first request the extensions see, and a request a service worker takes ends
+    // them: a request a service worker answers from the start has none.
     WeakHashSet<NetworkResourceLoader> m_loaders;
+    // The loads whose seen request a service worker took, and the identifiers of the requests they started after it,
+    // from 2^62, which the network process's NetworkResourceLoadIdentifier counter does not reach.
+    WeakHashSet<NetworkResourceLoader> m_takenRequests;
+    WeakHashMap<NetworkResourceLoader, uint64_t> m_restartedRequestIdentifiers;
+    uint64_t m_nextRestartedRequestIdentifier { 1ull << 62 };
+    // The checkers of requests a service worker leaves to the network, which their verdicts send there directly.
+    WeakHashSet<NetworkLoadChecker> m_uncheckedRequests;
     WeakHashSet<NetworkLoadChecker> m_extensionRedirects;
     WeakHashMap<NetworkLoadChecker, unsigned> m_internalRedirectCounts;
     WeakHashMap<NetworkLoadChecker, String> m_editedCookies;
@@ -236,6 +272,52 @@ private:
         Vector<WebCore::CocoaCurlProxyFilterResult> results;
     };
     WeakHashMap<NetworkLoadChecker, ProxyAnswers> m_proxyAnswers;
+
+    // A preload's or an update check's request, its details, and where its events stand.
+    enum class ClientLoadKind : uint8_t { Preload, SoftUpdate };
+    struct ClientLoad : RefCounted<ClientLoad> {
+        ClientLoad(ClientLoadKind kind, String&& requestId, Ref<JSON::Object>&& details, PAL::SessionID sessionID)
+            : kind(kind)
+            , requestId(WTF::move(requestId))
+            , details(WTF::move(details))
+            , sessionID(sessionID)
+        {
+        }
+        ClientLoadKind kind;
+        String requestId;
+        // type, tabId, frameId, parentFrameId, and documentUrl and initiator when the request has them.
+        Ref<JSON::Object> details;
+        PAL::SessionID sessionID;
+        RefPtr<WebCore::SecurityOrigin> origin;
+        std::optional<WebCore::FrameIdentifier> frameID;
+        std::optional<WebCore::PageIdentifier> pageID;
+        std::optional<WebPageProxyIdentifier> webPageProxyID;
+        WebCore::StoredCredentialsPolicy storedCredentialsPolicy { WebCore::StoredCredentialsPolicy::Use };
+        WebCore::ResourceRequest request;
+        WebCore::ResourceResponse response;
+        std::optional<ProxyAnswers> proxyAnswers;
+        // An onBeforeRequest redirect, reported as it is made, whose response is the request's.
+        bool isInternalRedirect { false };
+        bool ended { false };
+    };
+    using ClientRequestResult = Variant<WebCore::ResourceRequest, URL, WebCore::ResourceError>;
+    using ClientRequestHandler = CompletionHandler<void(ClientRequestResult&&)>;
+    Ref<ClientLoad> createClientLoad(ClientLoadKind, Ref<JSON::Object>&&, PAL::SessionID);
+    Ref<JSON::Object> clientDetails(ClientLoad&, const URL&);
+    RefPtr<NetworkLoad> clientNetworkLoad(NetworkLoadClient&, ClientLoad&);
+    RefPtr<NetworkDataTaskCurlCocoa> clientCurlTask(ClientLoad&, NetworkLoad*);
+    void checkClientRequest(Ref<ClientLoad>&&, WebCore::ResourceRequest&&, ClientRequestHandler&&);
+    void checkClientBeforeRequest(Ref<ClientLoad>&&, WebCore::ResourceRequest&&, ClientRequestHandler&&);
+    void checkClientRequestHeaders(Ref<ClientLoad>&&, WebCore::ResourceRequest&&, ClientRequestHandler&&);
+    void didStartClientResponse(ClientLoad&, const WebCore::ResourceResponse&);
+    void endClientLoad(ClientLoad&, const WebCore::ResourceError&);
+    WeakHashMap<NetworkLoadClient, Ref<ClientLoad>> m_clientLoads;
+    WeakHashSet<NetworkLoadClient> m_resumingClientRequests;
+    WeakHashSet<NetworkLoadClient> m_resumingClientResponses;
+    uint64_t m_nextClientLoadIdentifier { 1 };
+    // The loader whose preload is being created, and the update check whose loader is.
+    WeakPtr<NetworkResourceLoader> m_preloadLoader;
+    RefPtr<ClientLoad> m_creatingSoftUpdate;
     WeakHashMap<NetworkLoadChecker, ThreadSafeWeakPtr<NetworkDataTask>> m_pingTasks;
     WeakHashMap<NetworkConnectionToWebProcess, HashMap<uint64_t, Vector<WebCore::CocoaCurlProxyFilterResult>>> m_webSocketProxyFilterResults;
     bool m_networkPredictionEnabled { true };

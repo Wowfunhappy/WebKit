@@ -27,6 +27,7 @@
 #include "ServiceWorkerNavigationPreloader.h"
 
 #include "DownloadManager.h"
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: Safari 7 extensions' webRequest hooks below.
 #include "Logging.h"
 #include "NetworkCache.h"
 #include "NetworkLoad.h"
@@ -62,6 +63,8 @@ ServiceWorkerNavigationPreloader::ServiceWorkerNavigationPreloader(NetworkSessio
 void ServiceWorkerNavigationPreloader::start()
 {
     if (m_isStarted)
+        return;
+    if (LegacyExtensionNetwork::singleton().interceptPreloadRequest(*this)) // AQUAWEBKIT: Safari 7 extensions' webRequest decides the preload's request first.
         return;
     m_isStarted = true;
 
@@ -112,6 +115,7 @@ ServiceWorkerNavigationPreloader::~ServiceWorkerNavigationPreloader() = default;
 void ServiceWorkerNavigationPreloader::cancel()
 {
     m_isCancelled = true;
+    LegacyExtensionNetwork::singleton().clientLoadDidEnd(*this, ResourceError { ResourceError::Type::Cancellation }); // AQUAWEBKIT: Safari 7 extensions' webRequest.onErrorOccurred.
     if (m_responseCompletionHandler)
         m_responseCompletionHandler(PolicyAction::Ignore);
     if (RefPtr networkLoad = m_networkLoad)
@@ -170,6 +174,8 @@ void ServiceWorkerNavigationPreloader::willSendRedirectedRequest(ResourceRequest
 
 void ServiceWorkerNavigationPreloader::didReceiveResponse(ResourceResponse&& response, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
 {
+    if (LegacyExtensionNetwork::singleton().interceptClientResponse(*this, response, PrivateRelayed::No, completionHandler)) // AQUAWEBKIT: Safari 7 extensions' webRequest.onHeadersReceived; the preload ignores PrivateRelayed.
+        return;
     RELEASE_LOG(ServiceWorker, "ServiceWorkerNavigationPreloader::didReceiveResponse %p", this);
 
     m_didReceiveResponseOrError = true;
@@ -201,6 +207,7 @@ void ServiceWorkerNavigationPreloader::didReceiveBuffer(const FragmentedSharedBu
 void ServiceWorkerNavigationPreloader::didFinishLoading(const NetworkLoadMetrics& networkLoadMetrics)
 {
     RELEASE_LOG(ServiceWorker, "ServiceWorkerNavigationPreloader::didFinishLoading %p", this);
+    LegacyExtensionNetwork::singleton().clientLoadDidEnd(*this, { }); // AQUAWEBKIT: Safari 7 extensions' webRequest.onCompleted.
 
     m_networkLoadMetrics = networkLoadMetrics;
     didComplete();
@@ -209,6 +216,7 @@ void ServiceWorkerNavigationPreloader::didFinishLoading(const NetworkLoadMetrics
 void ServiceWorkerNavigationPreloader::didFailLoading(const ResourceError& error)
 {
     RELEASE_LOG(ServiceWorker, "ServiceWorkerNavigationPreloader::didFailLoading %p", this);
+    LegacyExtensionNetwork::singleton().clientLoadDidEnd(*this, error); // AQUAWEBKIT: Safari 7 extensions' webRequest.onErrorOccurred.
 
     m_didReceiveResponseOrError = true;
     m_error = error;

@@ -1639,6 +1639,7 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
             if (RefPtr networkLoad = std::exchange(m_networkLoad, nullptr))
                 networkLoad->clearClient();
             m_serviceWorkerFetchTask = WTF::move(serviceWorkerFetchTask);
+            LegacyExtensionNetwork::singleton().serviceWorkerWillHandle(*this); // AQUAWEBKIT: Safari 7 extensions' webRequest ends a request a service worker answers.
             return completionHandler({ });
         }
         LOADER_RELEASE_LOG("continueWillSendRequest: Navigation is not using service workers");
@@ -1648,6 +1649,8 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
     if (m_serviceWorkerFetchTask) {
         LOADER_RELEASE_LOG("continueWillSendRequest: Continuing fetch task with redirect (fetchIdentifier=%" PRIu64 ")", m_serviceWorkerFetchTask->fetchIdentifier().toUInt64());
         protect(m_serviceWorkerFetchTask)->continueFetchTaskWith(WTF::move(newRequest));
+        if (m_serviceWorkerFetchTask) // AQUAWEBKIT: Safari 7 extensions' webRequest ends a request a service worker answers; a task with no service worker left continued on the network.
+            LegacyExtensionNetwork::singleton().serviceWorkerWillHandle(*this);
         return completionHandler({ });
     }
 
@@ -2311,6 +2314,8 @@ void NetworkResourceLoader::serviceWorkerDidNotHandle(ServiceWorkerFetchTask* fe
             networkLoad->updateRequestAfterRedirection(newRequest);
 
         LOADER_RELEASE_LOG("serviceWorkerDidNotHandle: Restarting network load for redirect");
+        if (LegacyExtensionNetwork::singleton().interceptServiceWorkerFallback(*this, newRequest)) // AQUAWEBKIT: Safari 7 extensions' webRequest decides the request a service worker leaves to the network.
+            return;
         restartNetworkLoad(WTF::move(newRequest), [] (auto) { });
         return;
     }

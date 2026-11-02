@@ -28,6 +28,7 @@
 
 #include "Connection.h"
 #include "FormDataReference.h"
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: the preload below.
 #include "Logging.h"
 #include "NetworkLoad.h"
 #include "NetworkOriginAccessPatterns.h"
@@ -140,6 +141,7 @@ ServiceWorkerFetchTask::ServiceWorkerFetchTask(WebSWServerConnection& swServerCo
     if (canUsePreloader && (m_shouldRaceNetworkAndFetchHandler || !isWorkerReady || registration.navigationPreloadState().enabled)) {
         NetworkLoadParameters parameters = loader.parameters().networkLoadParameters();
         parameters.request = m_currentRequest;
+        LegacyExtensionNetwork::singleton().willCreatePreload(loader); // AQUAWEBKIT: Safari 7 extensions' webRequest reports the preload as a request for the loader's frame.
         m_preloader = ServiceWorkerNavigationPreloader::create(*session, WTF::move(parameters), registration.navigationPreloadState(), loader.shouldCaptureExtraNetworkLoadMetrics());
         session->addNavigationPreloaderTask(*this);
 
@@ -477,13 +479,14 @@ void ServiceWorkerFetchTask::continueFetchTaskWith(ResourceRequest&& request)
 {
     SWFETCH_RELEASE_LOG("continueFetchTaskWith: (hasServiceWorkerConnection=%d)", !!m_serviceWorkerConnection);
     Ref loader = *m_loader;
+    m_currentRequest = WTF::move(request); // AQUAWEBKIT: a task the service worker no longer answers continues on the network with the redirected request (takeRequest below).
     if (!m_serviceWorkerConnection) {
         loader->serviceWorkerDidNotHandle(this);
         return;
     }
     if (m_timeoutTimer)
         m_timeoutTimer->startOneShot(loader->connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
-    m_currentRequest = WTF::move(request);
+    // m_currentRequest = WTF::move(request); // AQUAWEBKIT: assigned above, before the early return.
     startFetch();
 }
 
@@ -535,7 +538,8 @@ void ServiceWorkerFetchTask::preloadResponseIsReady()
 {
     if (m_shouldRaceNetworkAndFetchHandler && !m_wasHandled) {
         ASSERT(m_preloader);
-        if (!m_preloader->response().isSuccessful()) {
+        // if (!m_preloader->response().isSuccessful()) {
+        if (!m_preloader->response().isSuccessful() && !m_isLoadingFromPreloader) { // AQUAWEBKIT: once the fetch handler has declined (loadResponseFromPreloader), the race's network outcome, a failure or a redirect included, is the load's.
             cancelPreloadIfNecessary();
             return;
         }

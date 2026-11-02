@@ -3008,10 +3008,16 @@ void LegacyExtensionHost::didCreateNavigationTarget(WebPageProxy& sourcePage, We
 
 // webRequest.
 
+// A request no tab makes, such as a service worker's, belongs to no frame: its tabId, frameId and parentFrameId are -1.
 static void normalizeWebRequestDetails(JSON::Object& details)
 {
     auto tabID = details.getDouble("tabId"_s);
-    details.setDouble("tabId"_s, pageForTabID(tabID) ? *tabID : -1);
+    if (!pageForTabID(tabID)) {
+        details.setDouble("tabId"_s, -1);
+        details.setDouble("frameId"_s, -1);
+        details.setDouble("parentFrameId"_s, -1);
+        return;
+    }
 
     auto rawFrameID = details.getDouble("frameId"_s).value_or(0);
     auto rawParentFrameID = details.getDouble("parentFrameId"_s).value_or(0);

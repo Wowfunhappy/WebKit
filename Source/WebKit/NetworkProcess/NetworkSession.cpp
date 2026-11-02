@@ -41,6 +41,7 @@
 #include "NetworkSessionCreationParameters.h"
 #include "NetworkStorageManager.h"
 #include "NotificationManagerMessageHandlerMessages.h"
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: softUpdate below.
 #include "PingLoad.h"
 #include "PrivateClickMeasurementClientImpl.h"
 #include "PrivateClickMeasurementManager.h"
@@ -58,6 +59,7 @@
 #include <WebCore/CookieJar.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SWServer.h>
+#include <WebCore/WorkerFetchResult.h> // AQUAWEBKIT: softUpdate below.
 #include <numeric>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/StdLibExtras.h>
@@ -974,7 +976,17 @@ void NetworkSession::recordHTTPSConnectionTiming(const NetworkLoadMetrics& metri
 
 void NetworkSession::softUpdate(ServiceWorkerJobData&& jobData, bool shouldRefreshCache, WebCore::ResourceRequest&& request, CompletionHandler<void(WebCore::WorkerFetchResult&&)>&& completionHandler)
 {
-    m_softUpdateLoaders.add(ServiceWorkerSoftUpdateLoader::create(*this, WTF::move(jobData), shouldRefreshCache, WTF::move(request), WTF::move(completionHandler)));
+    // m_softUpdateLoaders.add(ServiceWorkerSoftUpdateLoader::create(*this, WTF::move(jobData), shouldRefreshCache, WTF::move(request), WTF::move(completionHandler)));
+    // AQUAWEBKIT: Safari 7 extensions' webRequest decides an update check's request before its loader is created.
+    auto scopeURL = jobData.scopeURL;
+    LegacyExtensionNetwork::singleton().willSoftUpdate(*this, scopeURL, WTF::move(request), [weakThis = WeakPtr { *this }, jobData = WTF::move(jobData), shouldRefreshCache, completionHandler = WTF::move(completionHandler)](Expected<WebCore::ResourceRequest, WebCore::ResourceError>&& request) mutable {
+        CheckedPtr session = weakThis.get();
+        if (!session)
+            return completionHandler(workerFetchError(WebCore::ResourceError { WebCore::ResourceError::Type::Cancellation }));
+        if (!request)
+            return completionHandler(workerFetchError(WTF::move(request.error())));
+        session->m_softUpdateLoaders.add(ServiceWorkerSoftUpdateLoader::create(*session, WTF::move(jobData), shouldRefreshCache, WTF::move(*request), WTF::move(completionHandler)));
+    });
 }
 
 void NetworkSession::createContextConnection(const WebCore::Site& site, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, WebCore::CrossOriginEmbedderPolicyValue workerCrossOriginEmbedderPolicy, CompletionHandler<void()>&& completionHandler)

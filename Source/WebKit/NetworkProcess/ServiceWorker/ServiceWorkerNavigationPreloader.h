@@ -48,6 +48,7 @@ class NetworkSession;
 class ServiceWorkerNavigationPreloader final : public NetworkLoadClient, public RefCounted<ServiceWorkerNavigationPreloader> {
     WTF_MAKE_TZONE_ALLOCATED(ServiceWorkerNavigationPreloader);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ServiceWorkerNavigationPreloader);
+    friend class LegacyExtensionNetwork; // AQUAWEBKIT: Safari 7 extensions' webRequest decides the preload's request before it starts.
 public:
     static Ref<ServiceWorkerNavigationPreloader> create(NetworkSession&, NetworkLoadParameters&&, const WebCore::NavigationPreloadState&, bool shouldCaptureExtraNetworkLoadMetrics);
     ~ServiceWorkerNavigationPreloader();

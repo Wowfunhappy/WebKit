@@ -26,6 +26,7 @@
 #include "config.h"
 #include "ServiceWorkerSoftUpdateLoader.h"
 
+#include "LegacyExtensionNetwork.h" // AQUAWEBKIT: Safari 7 extensions' webRequest hooks below.
 #include "Logging.h"
 #include "NetworkCache.h"
 #include "NetworkLoad.h"
@@ -55,6 +56,7 @@ ServiceWorkerSoftUpdateLoader::ServiceWorkerSoftUpdateLoader(NetworkSession& ses
     , m_session(session)
 {
     ASSERT(!request.isConditional());
+    LegacyExtensionNetwork::singleton().didCreateSoftUpdateLoader(*this); // AQUAWEBKIT: the update check whose request Safari 7 extensions' webRequest decided.
 
     if (RefPtr cache = session.cache()) {
         // We set cache policy to disable speculative loading/async revalidation from the cache.
@@ -95,6 +97,7 @@ ServiceWorkerSoftUpdateLoader::ServiceWorkerSoftUpdateLoader(NetworkSession& ses
 
 ServiceWorkerSoftUpdateLoader::~ServiceWorkerSoftUpdateLoader()
 {
+    LegacyExtensionNetwork::singleton().clientLoadDidEnd(*this, ResourceError { ResourceError::Type::Cancellation }); // AQUAWEBKIT: Safari 7 extensions' webRequest.onErrorOccurred for a check that goes away unfinished.
     if (m_completionHandler)
         m_completionHandler(workerFetchError(ResourceError { ResourceError::Type::Cancellation }));
 }
@@ -104,12 +107,15 @@ void ServiceWorkerSoftUpdateLoader::fail(ResourceError&& error)
     if (!m_completionHandler)
         return;
 
+    LegacyExtensionNetwork::singleton().clientLoadDidEnd(*this, error); // AQUAWEBKIT: Safari 7 extensions' webRequest.onErrorOccurred.
     m_completionHandler(workerFetchError(WTF::move(error)));
     didComplete();
 }
 
 void ServiceWorkerSoftUpdateLoader::loadWithCacheEntry(NetworkCache::Entry& entry)
 {
+    if (LegacyExtensionNetwork::singleton().interceptSoftUpdateCacheEntry(*this, entry)) // AQUAWEBKIT: Safari 7 extensions' webRequest.onHeadersReceived for a cached script.
+        return;
     auto error = processResponse(entry.response());
     if (!error.isNull()) {
         fail(WTF::move(error));
@@ -148,6 +154,8 @@ void ServiceWorkerSoftUpdateLoader::willSendRedirectedRequest(ResourceRequest&&,
 
 void ServiceWorkerSoftUpdateLoader::didReceiveResponse(ResourceResponse&& response, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
 {
+    if (LegacyExtensionNetwork::singleton().interceptClientResponse(*this, response, PrivateRelayed::No, completionHandler)) // AQUAWEBKIT: Safari 7 extensions' webRequest.onHeadersReceived; the check ignores PrivateRelayed.
+        return;
     m_certificateInfo = *response.certificateInfo();
     if (response.httpStatusCode() == httpStatus304NotModified && m_cacheEntry) {
         loadWithCacheEntry(*m_cacheEntry);
@@ -201,6 +209,7 @@ void ServiceWorkerSoftUpdateLoader::didReceiveBuffer(const WebCore::FragmentedSh
 
 void ServiceWorkerSoftUpdateLoader::didFinishLoading(const WebCore::NetworkLoadMetrics&)
 {
+    LegacyExtensionNetwork::singleton().clientLoadDidEnd(*this, { }); // AQUAWEBKIT: Safari 7 extensions' webRequest.onCompleted.
     if (RefPtr decoder = m_decoder)
         m_script.append(decoder->flush());
     m_completionHandler({ ScriptBuffer { m_script.toString() }, m_jobData.scriptURL, m_certificateInfo, m_contentSecurityPolicy, m_crossOriginEmbedderPolicy, m_referrerPolicy, { } });
