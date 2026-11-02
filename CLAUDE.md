@@ -18,6 +18,10 @@ Backport modern WebKit (currently 625.2.8.11.9) to run on macOS 10.9.5 Mavericks
 
 **Waiting for the user is NEVER correct. There is no exception, in any circumstance.** It is not a status, a state, or a fallback — it does not exist. You do not stop for permission, a decision, a preference, a confirmation, an adjudication, or because a change is someone else's. "Blocked on the user", "needs your call", "yours to resolve", "I'll leave that to you" are all the same failure. If two courses are defensible, take the more correct one and execute; being wrong and corrected is always better than waiting and being right. Anything you could have fixed and instead handed back is the failure — the report does not redeem it. Report what you DID, never what you are waiting on.
 
+**Never end a turn with a question, an offer, or a choice for the user.** "Should I keep going?", "want me to…?", "I'd do X first, unless you prefer Y" are all stopping. Decide, do the work, and report what you did.
+
+**Anything that needs the user's approval and does not already have it is a no.** This covers every rule here or in memory that asks for approval. Never request it and never stop over it: treat the answer as no, take the best route that does not need it, and finish.
+
 **"Impossible / platform limitation / systemic / architectural fork / needs a huge subsystem" is never a reason to stop.** That conclusion is almost always a wrong dead-end from incomplete investigation. Sanity-check it against known facts — if a feature demonstrably shipped and worked, your "it fundamentally requires X" premise is false. Keep digging until you actually understand it.
 
 **If a bug does not reproduce on modern macOS, upstream's code is correct and the defect is in one of our own divergences — therefore fixable.** Never write anything off as "systemic", "intermittent", or "Heisenbug". Those describe difficulty, not impossibility. Option-tuning that only shifts or widens a crash is diagnosis, not a fix.
@@ -77,6 +81,7 @@ Run the `adversarial-hack-reviewer` agent on **every** bug fix, hack removal, gu
 - Verdicts are **binding**. REJECTED means do not commit and do not report done. Disagreement goes back to the reviewer with evidence (SendMessage), never around it and never by stopping to wait for the user.
 - Give it real adversarial material: name the hunks you are least sure of and say what you did *not* prove.
 - **Every finding is fixed in the same change**, related or not. Its mandate is codebase-wide. NOTHING is out of scope. If the reviewer finds a problem, it is automatically in scope for you to fix.
+- **Everything the reviewer rules is part of the current task, including follow-ups it schedules for after a commit.** Approving a commit does not end the work: each follow-up it names is the next thing you start, in the same turn, and the turn does not end while one is outstanding. The size of the work, how rarely the bug matters, and its distance from the original request change nothing. Your final message reports these as done.
 - Its approval does not mean the user's problem is solved. It judges hacks and divergences; only a measurement judges "fast", and only the user's scenario judges "fixed".
 
 ## Divergence and the polyfill layer
