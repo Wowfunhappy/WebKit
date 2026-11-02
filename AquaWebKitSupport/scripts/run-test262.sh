@@ -10,14 +10,17 @@
 #         bash AquaWebKitSupport/scripts/run-test262.sh -o test/built-ins/Temporal -o test/intl402/Temporal
 #         bash AquaWebKitSupport/scripts/run-test262.sh --failing-files
 #
-# With no arguments it runs what upstream's runner runs by default: every test under JSTests/test262/test,
-# filtered by JSTests/test262/config.yaml. A run is judged against upstream's JSTests/test262/expectations.yaml
-# plus this port's AquaWebKitSupport/tests/test262/expectations.yaml, whose entries take a path's place;
-# the two are merged into $AQUAWEBKIT_TEST262_DIR/expectations.yaml at each run, unless the arguments name
-# an expectations file (-e) or ignore expectations (-x). Only failures outside the expectations count, and
-# the exit status is 1 when there is one. The runner writes
-# its results (results.yaml, summary.txt, index.html) to $AQUAWEBKIT_TEST262_DIR/test262-results
-# (default: WebKitBuild/Test262); --stats and --failing-files read the last run's results from there.
+# With no test selection (-o, -f, -F, -l, -S, --stats) it runs this port's scope, filtered by
+# JSTests/test262/config.yaml: intl402 and the built-ins that call into the bundled ICU (localeCompare,
+# normalize, case conversion, the toLocale* methods), and Date and Temporal, whose time-zone rules come from
+# that ICU's tz data, whose local zone comes from the system, and whose wall clock is libpolyfill's
+# clock_gettime.
+# A run is judged against upstream's JSTests/test262/expectations.yaml plus this port's
+# AquaWebKitSupport/tests/test262/expectations.yaml, whose entries take a path's place; the two are merged
+# into $AQUAWEBKIT_TEST262_DIR/expectations.yaml at each run, unless the arguments name an expectations file
+# (-e) or ignore expectations (-x). Only failures outside the expectations count, and the exit status is 1
+# when there is one. The runner writes its results (results.yaml, summary.txt, index.html) to
+# $AQUAWEBKIT_TEST262_DIR/test262-results (default: WebKitBuild/Test262); --stats and --failing-files read the last run's results from there.
 # --save, which rewrites the checked-in expectations, is refused. The run names the build it tests when
 # it starts and in its last line.
 set -uo pipefail
@@ -27,6 +30,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHILD_PROCESSES=2
 ARGS=()
 OWN_EXPECTATIONS=""
+OWN_SELECTION=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --child-processes=*|-p=*) CHILD_PROCESSES="${1#*=}" ;;
@@ -39,6 +43,13 @@ while [ $# -gt 0 ]; do
                     exit 1 ;;
                 -e|--e|-e=*|--e=*|-ex*|--ex*|-x|--x|-ignore-e*|--ignore-e*)
                     OWN_EXPECTATIONS=1 ;;
+            esac
+            case "$1" in
+                -*)
+                    name="$(printf '%s' "${1#-}" | tr '[:upper:]' '[:lower:]')"; name="${name#-}"; name="${name%%=*}"
+                    case "$name" in
+                        o|te*|f|fe*|fa*|l|la*|s|st*|sk*) OWN_SELECTION=1 ;;
+                    esac ;;
             esac
             ARGS+=("$1") ;;
     esac
@@ -147,6 +158,18 @@ if [ -z "$OWN_EXPECTATIONS" ]; then
     ' "$ROOT/JSTests/test262/expectations.yaml" "$ROOT/AquaWebKitSupport/tests/test262/expectations.yaml" \
         "$PRODUCTS/expectations.yaml" || exit 1
     ARGS+=(--expectations="$PRODUCTS/expectations.yaml")
+fi
+if [ -z "$OWN_SELECTION" ]; then
+    for dir in test/intl402 \
+        test/built-ins/String/prototype/localeCompare test/built-ins/String/prototype/normalize \
+        test/built-ins/String/prototype/toLocaleLowerCase test/built-ins/String/prototype/toLocaleUpperCase \
+        test/built-ins/String/prototype/toLowerCase test/built-ins/String/prototype/toUpperCase \
+        test/built-ins/Number/prototype/toLocaleString test/built-ins/BigInt/prototype/toLocaleString \
+        test/built-ins/Array/prototype/toLocaleString test/built-ins/TypedArray/prototype/toLocaleString \
+        test/built-ins/TypedArrayConstructors/prototype/toLocaleString \
+        test/built-ins/Date test/staging/sm/Date test/built-ins/Temporal test/staging/Temporal; do
+        ARGS+=(--test-only="$dir")
+    done
 fi
 cd "$PRODUCTS" || exit 1
 PWD="$PRODUCTS" /usr/bin/perl "$ROOT/Tools/Scripts/test262-runner" \
