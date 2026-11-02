@@ -2360,7 +2360,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         {
             auto extensionDialog = LegacyExtensionDialog::createForSynchronousCallback(page, LegacyExtensionDialog::Type::BeforeUnload, !m_client.runBeforeUnloadConfirmPanel, message); // AQUAWEBKIT: Safari 7's synchronous panel, with WebCore's message, for extensions to see and answer.
             // AQUAWEBKIT: Safari 7 prints the page's beforeunload string under its own question
-            // ("%@\n\n%@" in Safari::BrowserPageUIClient::runBeforeUnloadConfirmPanel); Safari 26 shows none of it.
+            // ("%@\n\n%@" in Safari::BrowserPageUIClient::runBeforeUnloadConfirmPanel); Safari 27 shows none of it.
             if (WTF::MacApplication::isSafari())
                 message = emptyString();
             if (m_client.runBeforeUnloadConfirmPanel) {

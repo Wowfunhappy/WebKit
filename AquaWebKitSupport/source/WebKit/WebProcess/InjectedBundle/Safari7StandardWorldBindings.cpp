@@ -1,4 +1,4 @@
-// Page-visible bindings Safari 7's injected bundle adds to the standard world. Safari 26 exposes none
+// Page-visible bindings Safari 7's injected bundle adds to the standard world. Safari 27 exposes none
 // of them.
 //
 // Safari::BrowserBundlePageLoaderClient::globalObjectIsAvailableForFrame defines, through

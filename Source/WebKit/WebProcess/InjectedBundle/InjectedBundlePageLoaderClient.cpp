@@ -290,7 +290,7 @@ void InjectedBundlePageLoaderClient::globalObjectIsAvailableForFrame(WebPage& pa
 
     RefPtr<InjectedBundleScriptWorld> injectedWorld = InjectedBundleScriptWorld::getOrCreate(world);
     m_client.globalObjectIsAvailableForFrame(toAPI(&page), toAPI(&frame), toAPI(injectedWorld.get()), m_client.base.clientInfo);
-    removeSafari7StandardWorldBindings(frame, world); // AQUAWEBKIT: removes the page-visible bindings Safari 7's bundle just defined, which Safari 26 lacks.
+    removeSafari7StandardWorldBindings(frame, world); // AQUAWEBKIT: removes the page-visible bindings Safari 7's bundle just defined, which Safari 27 lacks.
 }
 
 void InjectedBundlePageLoaderClient::serviceWorkerGlobalObjectIsAvailableForFrame(WebPage& page, WebFrame& frame, DOMWrapperWorld& world)

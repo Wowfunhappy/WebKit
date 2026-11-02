@@ -36,7 +36,7 @@ namespace WebCore {
 // passes) names the Safari release this WebKit ships in. The application's other tokens stay.
 ASCIILiteral safariApplicationNameForUserAgent()
 {
-    return "Version/26.0 Safari/605.1.15"_s;
+    return "Version/27.1 Safari/605.1.15"_s;
 }
 
 static String applicationNameWithCurrentSafariVersion(const String& applicationName)
