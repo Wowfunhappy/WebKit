@@ -1110,6 +1110,10 @@ imported/w3c/web-platform-tests/media-source/dedicated-worker/mediasource-worker
 # Upstream's GStreamer MSE race (webkit.org/b/325856): video.seeking is false after the seek on ~4% of GTK runs.
 webkit.org/b/325856 media/media-source/media-managedmse-resume-after-seek.html [ Skip ]
 
+# The cleanups stop video1's and video2's tracks, so both lay out at 300x150 and video3 lands inside the viewport;
+# "video3 2" expects false and holds only while no rendering update runs before the check.
+fast/mediastream/mediaPlayer-visibility.html [ Skip ]
+
 webkit.org/b/227934 media/media-source/media-webm-vorbis-partial.html [ Skip ]
 media/media-source/media-detachablemse-append.html [ Skip ] # platform/gtk skips it; wpe records [ Timeout Pass ].
 webkit.org/b/285595 media/video-seek-after-end-play.html [ Skip ]
