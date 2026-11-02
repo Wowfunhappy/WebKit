@@ -429,14 +429,15 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawConicGradient,
 
     size_t samples = wk_conicRampSamples(context, center);
     uint8_t *ramp = (uint8_t *)calloc(samples, layout.pixelBytes);
-    CGContextRef strip = ramp ? CGBitmapContextCreate(ramp, samples, 1, layout.bitsPerComponent, samples * layout.pixelBytes, space,
-        layout.bitmapInfo) : NULL;
-    if (strip) {
-        CGContextDrawLinearGradient(strip, gradient, CGPointMake(0, 0), CGPointMake(samples, 0),
-            kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
-        CGContextRelease(strip);
-        wk_paintConicGradient(context, ramp, samples, &layout, center, angle);
-    }
+    if (!ramp)
+        abort();
+    CGContextRef strip = CGBitmapContextCreate(ramp, samples, 1, layout.bitsPerComponent, samples * layout.pixelBytes, space, layout.bitmapInfo);
+    if (!strip)
+        abort();
+    CGContextDrawLinearGradient(strip, gradient, CGPointMake(0, 0), CGPointMake(samples, 0),
+        kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
+    CGContextRelease(strip);
+    wk_paintConicGradient(context, ramp, samples, &layout, center, angle);
     free(ramp);
     CGColorSpaceRelease(space);
 }
@@ -523,7 +524,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
     if (!locations) {
         evenLocations = (CGFloat *)malloc(count * sizeof(CGFloat));
         if (!evenLocations)
-            return CGGradientCreateWithColorComponents(space, components, NULL, count);
+            abort();
         for (size_t stop = 0; stop < count; stop++)
             evenLocations[stop] = (CGFloat)stop / (CGFloat)(count - 1);
         locations = evenLocations;
@@ -535,13 +536,8 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
     size_t maxStops = (count - 1) * (samples + 1) + 1;
     CGFloat *newComponents = (CGFloat *)malloc(maxStops * stride * sizeof(CGFloat));
     CGFloat *newLocations = (CGFloat *)malloc(maxStops * sizeof(CGFloat));
-    if (!newComponents || !newLocations) {
-        free(newComponents);
-        free(newLocations);
-        CGGradientRef fallback = CGGradientCreateWithColorComponents(space, components, locations, count);
-        free(evenLocations);
-        return fallback;
-    }
+    if (!newComponents || !newLocations)
+        abort();
 
     // Emitted per SEGMENT: each segment contributes its start stop (carrying the colour that segment
     // needs) and any intermediates, and the final stop is appended at the end. A stop with alpha 0
@@ -1137,24 +1133,38 @@ static void wk_matchNarrowRows(const wk_rgb_match *shared, const uint8_t *from, 
 }
 
 // CGContextDrawLinearGradient and CGContextDrawRadialGradient — DELIBERATE REPLACEMENTS of present 10.9
-// functions, for 8-bit bitmap contexts whose colour space is not the gradient's. 10.9's bitmap rasterizer
-// matches the gradient's colours to the context and then dithers the matched values, so a stretch between
-// two equal stops is dithered too: sRGB 0,128,0 matched into the 8-bit linear-sRGB buffer of an SVG filter
-// is 55.03, which 4% of the stretch stores as 56 (sRGB 129), while 1.5% of its zero red stores as 1 (sRGB
-// 13). Modern CoreGraphics leaves that stretch one colour and still dithers the ramps.
+// functions, for 8-bit bitmap contexts whose colour space is not the gradient's, and for radial gradients
+// drawn into IOSurface contexts.
 //
-// So the gradient is drawn over the clip's device bounds twice: undithered into a 16-bit bitmap of its own
-// colour space, and natively into an 8-bit bitmap of the context's, which 10.9 dithers in the context's own
-// quantization. The 16-bit bitmap is matched into the context's space at 8 bits through the pair's
-// parametric match, or when ColorSync gives none, into a 16-bit bitmap of that space and rounded to 8 bits.
-// A pixel where the undithered gradient varies -- differs from a neighbour -- takes the native draw's
-// dithered colour; one where it is flat keeps the matched colour. The result is drawn into the context, a
-// band of rows at a time. An extended-range gradient space is drawn into a floating-point bitmap and not
-// dithered, since an 8-bit bitmap cannot hold its out-of-range components. The bands are transparent outside
-// the gradient's extent, so the route is taken under a blend mode that leaves the destination unchanged
-// beneath a transparent source, and without a shadow, which the native draw casts from the gradient's
-// coverage.
+// 10.9's bitmap rasterizer matches the gradient's colours to the context and then dithers the matched
+// values, so a stretch between two equal stops is dithered too: sRGB 0,128,0 matched into the 8-bit
+// linear-sRGB buffer of an SVG filter is 55.03, which 4% of the stretch stores as 56 (sRGB 129), while 1.5%
+// of its zero red stores as 1 (sRGB 13). Modern CoreGraphics leaves that stretch one colour and still
+// dithers the ramps. So such a gradient is drawn undithered into a 16-bit bitmap of its own colour space,
+// and natively into an 8-bit bitmap of the context's, which 10.9 dithers in the context's own quantization.
+// The 16-bit bitmap is matched into the context's space at 8 bits through the pair's parametric match, or
+// when ColorSync gives none, into a 16-bit bitmap of that space and rounded to 8 bits. A pixel where the
+// undithered gradient varies -- differs from a neighbour -- takes the native draw's dithered colour; one
+// where it is flat keeps the matched colour. An extended-range gradient space is drawn into a
+// floating-point bitmap and not dithered, since an 8-bit bitmap cannot hold its out-of-range components.
+//
+// 10.9 draws into an IOSurface context, and into the context Core Animation hands an asynchronously
+// drawing layer, through QuartzCore's renderer. Concentric circles reach it as CA::CG::DrawRadialGradient,
+// which on GPU hardware leaves much of the clip unpainted: a 400x704 mask of radial-gradient(1px at -10px
+// -10px, transparent 0, white 1px) stays largely transparent. Every radial gradient drawn there is rasterized
+// by a bitmap of the context's RGB colour space, through the matching above where it applies, or of the
+// gradient's RGB space or device RGB under a context of another model, which the image draw then matches.
+//
+// The bitmaps cover the clip's device bounds, a band of rows at a time, and are drawn into the context
+// as images under its own clip, alpha, blend mode and style. Under a style, which only an IOSurface draw takes
+// here, the bounds are outset by the style's reach and the bands make up one image, so the style applies once
+// to the whole draw, as QuartzCore composites a styled gradient over the whole clip. Without one, a bitmap is
+// transparent where the gradient does not paint, so under a blend mode that changes the destination beneath a
+// transparent source the image is clipped to the gradient's coverage, drawn as an opaque white gradient of
+// the same geometry and clipped by rects: a mask clip under such a mode lowers QuartzCore's pixels outside it by
+// a level per draw.
 extern bool CGContextGetAllowsDithering(CGContextRef);
+extern void CGContextSetAllowsDithering(CGContextRef, bool);
 extern CGBlendMode CGContextGetBlendMode(CGContextRef);
 extern CGColorRenderingIntent CGContextGetRenderingIntent(CGContextRef);
 typedef struct CGStyle *CGStyleRef;
@@ -1189,16 +1199,41 @@ typedef struct {
 
 static void wk_drawGradientDirectly(CGContextRef context, const wk_gradient_draw *draw);
 
-// A bitmap of `space` covering `band` of device space, with the gradient drawn into it under `ctm`.
-static CGContextRef wk_createGradientBand(const wk_gradient_draw *draw, CGColorSpaceRef space, CGRect band, CGAffineTransform ctm,
-    size_t bitsPerComponent, CGBitmapInfo bitmapInfo)
+static const CGBitmapInfo wk_gradientWideInfo = kCGBitmapByteOrder16Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
+static const CGBitmapInfo wk_gradientFloatInfo = kCGBitmapFloatComponents | kCGBitmapByteOrder32Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
+static const CGBitmapInfo wk_gradientNarrowInfo = kCGBitmapByteOrder32Little | (CGBitmapInfo)kCGImageAlphaPremultipliedFirst;
+
+// `clip` outset by the reach of `style` into it: a style paints around what it is drawn with, so the drawing
+// it shadows into `clip` lies within this rect. CGStyleGetDrawBoundingBox outsets a base-space rect.
+static CGRect wk_styleReachOfClip(CGContextRef context, CGStyleRef style, CGRect clip)
 {
-    CGContextRef bitmap = CGBitmapContextCreate(NULL, (size_t)band.size.width, (size_t)band.size.height, bitsPerComponent, 0, space, bitmapInfo);
-    if (!bitmap)
-        return NULL;
+    CGAffineTransform ctm = CGContextGetCTM(context);
+    CGRect reach = CGStyleGetDrawBoundingBox(style, CGRectApplyAffineTransform(clip, ctm));
+    if (CGRectIsNull(reach) || CGRectIsInfinite(reach))
+        return clip;
+    return CGRectApplyAffineTransform(reach, CGAffineTransformInvert(ctm));
+}
+
+// Draws the gradient into `bitmap`, which covers `band` of device space, under `ctm`, dithered and
+// matched as `context` dithers and matches.
+static void wk_drawGradientInBand(CGContextRef bitmap, CGContextRef context, const wk_gradient_draw *draw, CGRect band,
+    CGAffineTransform ctm)
+{
+    CGContextSetAllowsDithering(bitmap, CGContextGetAllowsDithering(context));
+    CGContextSetRenderingIntent(bitmap, CGContextGetRenderingIntent(context));
     CGContextTranslateCTM(bitmap, -band.origin.x, -band.origin.y);
     CGContextConcatCTM(bitmap, ctm);
     wk_drawGradientDirectly(bitmap, draw);
+}
+
+// A bitmap of `space` covering `band` of device space, with the gradient drawn into it.
+static CGContextRef wk_createGradientBand(CGContextRef context, const wk_gradient_draw *draw, CGColorSpaceRef space, CGRect band,
+    CGAffineTransform ctm, size_t bitsPerComponent, CGBitmapInfo bitmapInfo)
+{
+    CGContextRef bitmap = CGBitmapContextCreate(NULL, (size_t)band.size.width, (size_t)band.size.height, bitsPerComponent, 0, space, bitmapInfo);
+    if (!bitmap)
+        abort();
+    wk_drawGradientInBand(bitmap, context, draw, band, ctm);
     return bitmap;
 }
 
@@ -1225,81 +1260,210 @@ static void wk_ditherGradientRamps(CGContextRef exact, CGContextRef native, CGCo
     }
 }
 
-static bool wk_drawGradientInItsColorSpace(CGContextRef context, const wk_gradient_draw *draw)
+// Fills `out`, an 8-bit BGRA bitmap of `contextSpace` covering `band`, with the gradient matched from its own
+// colour space, the ramps dithered as `context` dithers them.
+static void wk_matchGradientIntoBand(CGContextRef out, CGContextRef context, const wk_gradient_draw *draw, CGColorSpaceRef gradientSpace,
+    CGColorSpaceRef contextSpace, const wk_rgb_match *match, bool extended, CGRect band, CGAffineTransform ctm)
 {
-    if (WK_SYSTEM(CGContextGetType)(context) != WK_CG_CONTEXT_TYPE_BITMAP)
+    size_t width = (size_t)band.size.width, rows = (size_t)band.size.height;
+    CGContextRef exact = wk_createGradientBand(context, draw, gradientSpace, band, ctm, extended ? 32 : 16,
+        extended ? wk_gradientFloatInfo : wk_gradientWideInfo);
+    if (match)
+        wk_matchWideRows(match, CGBitmapContextGetData(exact), CGBitmapContextGetBytesPerRow(exact), CGBitmapContextGetData(out),
+            CGBitmapContextGetBytesPerRow(out), width, rows);
+    else {
+        CGImageRef exactImage = wk_createImageOverBitmap(exact);
+        CGContextRef matched = exactImage ? wk_createBitmapWithImage(exactImage, contextSpace, 16, wk_gradientWideInfo) : NULL;
+        if (!matched)
+            abort();
+        wk_roundRowsTo8Bit(CGBitmapContextGetData(matched), CGBitmapContextGetBytesPerRow(matched), CGBitmapContextGetData(out),
+            CGBitmapContextGetBytesPerRow(out), width, rows);
+        CGContextRelease(matched);
+        CGImageRelease(exactImage);
+    }
+    if (!extended) {
+        CGContextRef native = wk_createGradientBand(context, draw, contextSpace, band, ctm, 8, wk_gradientNarrowInfo);
+        wk_ditherGradientRamps(exact, native, out);
+        CGContextRelease(native);
+    }
+    CGContextRelease(exact);
+}
+
+// The gradient's coverage of `band`, as gray rows of its width: 255 where it paints, 0 where it does not. NULL
+// when it covers every pixel.
+static uint8_t *wk_createGradientCoverage(const wk_gradient_draw *draw, CGRect band, CGAffineTransform ctm)
+{
+    size_t width = (size_t)band.size.width, rows = (size_t)band.size.height;
+    uint8_t *data = calloc(rows, width);
+    CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
+    const CGFloat white[] = { 1, 1, 1, 1 };
+    wk_gradient_draw shape = *draw;
+    shape.gradient = CGGradientCreateWithColorComponents(gray, white, NULL, 2);
+    CGContextRef mask = data ? CGBitmapContextCreate(data, width, rows, 8, width, gray, (CGBitmapInfo)kCGImageAlphaNone) : NULL;
+    if (!mask || !shape.gradient)
+        abort();
+    CGContextSetAllowsDithering(mask, false);
+    CGContextTranslateCTM(mask, -band.origin.x, -band.origin.y);
+    CGContextConcatCTM(mask, ctm);
+    wk_drawGradientDirectly(mask, &shape);
+    CGContextRelease(mask);
+    CGGradientRelease(shape.gradient);
+    CGColorSpaceRelease(gray);
+    for (size_t i = 0; i < width * rows; i++) {
+        if (data[i] != 255)
+            return data;
+    }
+    free(data);
+    return NULL;
+}
+
+static void wk_freeBitmapData(void *info, void *data)
+{
+    (void)info;
+    free(data);
+}
+
+static void wk_releaseBitmapOfImage(void *info, const void *data, size_t size)
+{
+    (void)data;
+    (void)size;
+    CGContextRelease((CGContextRef)info);
+}
+
+// Clips `context`, whose CTM is the identity, to the pixels `coverage` selects (gray rows from the top of `band`),
+// a rect for each run of a row. Answers whether it selects any.
+static bool wk_clipToGradientCoverage(CGContextRef context, CGRect band, const uint8_t *coverage)
+{
+    size_t width = (size_t)band.size.width, rows = (size_t)band.size.height, count = 0;
+    for (size_t i = 0; i < width * rows; i++)
+        count += coverage[i] && (i % width == 0 || !coverage[i - 1]);
+    if (!count)
         return false;
-    CGColorSpaceRef contextSpace = CGBitmapContextGetColorSpace(context);
+    CGRect *runs = malloc(count * sizeof(CGRect));
+    if (!runs)
+        abort();
+    count = 0;
+    for (size_t row = 0; row < rows; row++) {
+        const uint8_t *samples = coverage + row * width;
+        for (size_t x = 0; x < width; x++) {
+            if (!samples[x])
+                continue;
+            size_t first = x;
+            while (x < width && samples[x])
+                x++;
+            runs[count++] = CGRectMake(band.origin.x + (CGFloat)first, CGRectGetMaxY(band) - (CGFloat)(row + 1), (CGFloat)(x - first), 1);
+        }
+    }
+    CGContextClipToRects(context, runs, count);
+    free(runs);
+    return true;
+}
+
+// Draws the pixels of `bitmap` into `band` of `context`, whose CTM is the identity, within `coverage` when there
+// is one. An IOSurface context queues its drawing, so the image retains `bitmap`.
+static void wk_drawGradientBitmap(CGContextRef context, CGContextRef bitmap, CGRect band, const uint8_t *coverage)
+{
+    size_t width = (size_t)band.size.width, rows = (size_t)band.size.height;
+    CGContextRetain(bitmap);
+    CGDataProviderRef provider = CGDataProviderCreateWithData(bitmap, CGBitmapContextGetData(bitmap),
+        CGBitmapContextGetBytesPerRow(bitmap) * rows, wk_releaseBitmapOfImage);
+    CGImageRef image = provider ? CGImageCreate(width, rows, CGBitmapContextGetBitsPerComponent(bitmap), CGBitmapContextGetBitsPerPixel(bitmap),
+        CGBitmapContextGetBytesPerRow(bitmap), CGBitmapContextGetColorSpace(bitmap), CGBitmapContextGetBitmapInfo(bitmap), provider, NULL, false,
+        kCGRenderingIntentDefault) : NULL;
+    if (!image)
+        abort();
+    CGDataProviderRelease(provider);
+    CGContextSaveGState(context);
+    if (!coverage || wk_clipToGradientCoverage(context, band, coverage))
+        CGContextDrawImage(context, band, image);
+    CGContextRestoreGState(context);
+    CGImageRelease(image);
+}
+
+// Answers whether the draw is this route's; a draw that is not goes to 10.9's own definition.
+static bool wk_drawGradientInBands(CGContextRef context, const wk_gradient_draw *draw)
+{
     CGColorSpaceRef gradientSpace = draw->gradient ? CGGradientGetColorSpace(draw->gradient) : NULL;
-    if (!contextSpace || !gradientSpace || CGBitmapContextGetBitsPerComponent(context) != 8
-        || (CGBitmapContextGetBitmapInfo(context) & kCGBitmapFloatComponents) || !CGContextGetAllowsDithering(context)
-        || !wk_transparentSourceKeepsDestination(CGContextGetBlendMode(context)) || CGContextGetStyle(context)
-        || CGColorSpaceGetModel(gradientSpace) != kCGColorSpaceModelRGB
-        || CGColorSpaceGetModel(contextSpace) != kCGColorSpaceModelRGB
-        || WK_ORIGINAL(CGColorSpaceEqualToColorSpace)(gradientSpace, contextSpace))
+    if (!gradientSpace)
+        return false;
+    int type = WK_SYSTEM(CGContextGetType)(context);
+    bool surface = false, narrow = true;
+    CGColorSpaceRef contextSpace;
+    CGRect bounds = CGRectInfinite;
+    if (type == WK_CG_CONTEXT_TYPE_BITMAP) {
+        contextSpace = CGBitmapContextGetColorSpace(context);
+        narrow = CGBitmapContextGetBitsPerComponent(context) == 8 && !(CGBitmapContextGetBitmapInfo(context) & kCGBitmapFloatComponents);
+        bounds = CGRectMake(0, 0, CGBitmapContextGetWidth(context), CGBitmapContextGetHeight(context));
+    } else if (draw->radial && wk_drawsThroughCoreAnimationIOSurface(context)) {
+        surface = true;
+        contextSpace = CGContextGetColorSpace(context);
+        if (type == WK_CG_CONTEXT_TYPE_IOSURFACE)
+            bounds = CGRectMake(0, 0, CGIOSurfaceContextGetWidth(context), CGIOSurfaceContextGetHeight(context));
+    } else
+        return false;
+    bool contextIsRGB = contextSpace && CGColorSpaceGetModel(contextSpace) == kCGColorSpaceModelRGB;
+    bool gradientIsRGB = CGColorSpaceGetModel(gradientSpace) == kCGColorSpaceModelRGB;
+    bool matches = narrow && CGContextGetAllowsDithering(context) && contextIsRGB && gradientIsRGB
+        && !WK_ORIGINAL(CGColorSpaceEqualToColorSpace)(gradientSpace, contextSpace);
+    CGStyleRef style = CGContextGetStyle(context);
+    if (!surface && (!matches || style))
         return false;
 
+    // A singular CTM paints nothing.
     CGAffineTransform ctm = CGContextGetCTM(context);
-    CGRect bounds = CGRectMake(0, 0, CGBitmapContextGetWidth(context), CGBitmapContextGetHeight(context));
-    CGRect device = CGRectIntersection(CGRectApplyAffineTransform(CGContextGetClipBoundingBox(context), ctm), bounds);
+    CGRect clip = CGContextGetClipBoundingBox(context);
+    if (!(ctm.a * ctm.d - ctm.b * ctm.c) || CGRectIsNull(clip) || CGRectIsEmpty(clip))
+        return true;
+    CGRect device = CGRectIntegral(CGRectApplyAffineTransform(style ? wk_styleReachOfClip(context, style, clip) : clip, ctm));
+    if (!style)
+        device = CGRectIntersection(device, bounds);
     if (CGRectIsNull(device) || CGRectIsEmpty(device))
         return true;
-    device = CGRectIntegral(device);
 
-    bool extended = wk_colorSpaceUsesExtendedRange(gradientSpace);
-    const CGBitmapInfo wideInfo = kCGBitmapByteOrder16Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
-    const CGBitmapInfo floatInfo = kCGBitmapFloatComponents | kCGBitmapByteOrder32Host | (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
-    const CGBitmapInfo outInfo = kCGBitmapByteOrder32Little | (CGBitmapInfo)kCGImageAlphaPremultipliedFirst;
-    size_t width = (size_t)device.size.width, bandRows = wk_conversionBandRows(width);
+    size_t width = (size_t)device.size.width, height = (size_t)device.size.height, rowBytes = width * 4;
+    size_t bandRows = wk_conversionBandRows(width);
+    bool clipsToCoverage = !style && !wk_transparentSourceKeepsDestination(CGContextGetBlendMode(context));
+    CGColorSpaceRef bandSpace = contextIsRGB ? CGColorSpaceRetain(contextSpace) : gradientIsRGB ? CGColorSpaceRetain(gradientSpace)
+        : CGColorSpaceCreateDeviceRGB();
+    uint8_t *whole = NULL;
+    if (style) {
+        whole = calloc(height, rowBytes);
+        if (!whole)
+            abort();
+    }
 
-    const wk_rgb_match *match = extended ? NULL : wk_rgbMatch(gradientSpace, contextSpace, CGContextGetRenderingIntent(context));
+    bool extended = matches && wk_colorSpaceUsesExtendedRange(gradientSpace);
+    const wk_rgb_match *match = matches && !extended ? wk_rgbMatch(gradientSpace, contextSpace, CGContextGetRenderingIntent(context)) : NULL;
     CGContextSaveGState(context);
     CGContextConcatCTM(context, CGAffineTransformInvert(ctm));
     CGContextSetInterpolationQuality(context, kCGInterpolationNone);
-    for (CGFloat bandTop = CGRectGetMaxY(device); bandTop > CGRectGetMinY(device); bandTop -= (CGFloat)bandRows) {
-        CGFloat rows = fmin((CGFloat)bandRows, bandTop - CGRectGetMinY(device));
-        CGRect band = CGRectMake(device.origin.x, bandTop - rows, device.size.width, rows);
-        CGContextRef exact = wk_createGradientBand(draw, gradientSpace, band, ctm, extended ? 32 : 16, extended ? floatInfo : wideInfo);
-        CGImageRef exactImage = exact && !match ? wk_createImageOverBitmap(exact) : NULL;
-        CGContextRef matched = exactImage ? wk_createBitmapWithImage(exactImage, contextSpace, 16, wideInfo) : NULL;
-        CGContextRef out = (match && exact) || matched ? CGBitmapContextCreate(NULL, width, (size_t)rows, 8, width * 4, contextSpace, outInfo) : NULL;
-        CGImageRef outImage = NULL;
-        if (out) {
-            if (match)
-                wk_matchWideRows(match, CGBitmapContextGetData(exact), CGBitmapContextGetBytesPerRow(exact), CGBitmapContextGetData(out),
-                    CGBitmapContextGetBytesPerRow(out), width, (size_t)rows);
-            else
-                wk_roundRowsTo8Bit(CGBitmapContextGetData(matched), CGBitmapContextGetBytesPerRow(matched), CGBitmapContextGetData(out),
-                    CGBitmapContextGetBytesPerRow(out), width, (size_t)rows);
-            CGContextRef native = extended ? NULL : wk_createGradientBand(draw, contextSpace, band, ctm, 8, outInfo);
-            if (native) {
-                wk_ditherGradientRamps(exact, native, out);
-                CGContextRelease(native);
-            }
-            outImage = wk_createImageOverBitmap(out);
+    for (size_t first = 0; first < height; first += bandRows) {
+        size_t rows = MIN(bandRows, height - first);
+        CGRect band = CGRectMake(device.origin.x, CGRectGetMaxY(device) - (CGFloat)(first + rows), device.size.width, (CGFloat)rows);
+        CGContextRef out = CGBitmapContextCreate(whole ? whole + first * rowBytes : NULL, width, rows, 8, rowBytes, bandSpace, wk_gradientNarrowInfo);
+        if (!out)
+            abort();
+        if (matches)
+            wk_matchGradientIntoBand(out, context, draw, gradientSpace, contextSpace, match, extended, band, ctm);
+        else
+            wk_drawGradientInBand(out, context, draw, band, ctm);
+        if (!whole) {
+            uint8_t *coverage = clipsToCoverage ? wk_createGradientCoverage(draw, band, ctm) : NULL;
+            wk_drawGradientBitmap(context, out, band, coverage);
+            free(coverage);
         }
-        if (outImage) {
-            CGContextDrawImage(context, band, outImage);
-            CGImageRelease(outImage);
-        } else {
-            // A band whose bitmaps could not be made is the native draw within it.
-            CGContextSaveGState(context);
-            CGContextClipToRect(context, band);
-            CGContextConcatCTM(context, ctm);
-            wk_drawGradientDirectly(context, draw);
-            CGContextRestoreGState(context);
-        }
-        if (out)
-            CGContextRelease(out);
-        if (matched)
-            CGContextRelease(matched);
-        if (exactImage)
-            CGImageRelease(exactImage);
-        if (exact)
-            CGContextRelease(exact);
+        CGContextRelease(out);
+    }
+    if (whole) {
+        CGContextRef bitmap = CGBitmapContextCreateWithData(whole, width, height, 8, rowBytes, bandSpace, wk_gradientNarrowInfo, wk_freeBitmapData, NULL);
+        if (!bitmap)
+            abort();
+        wk_drawGradientBitmap(context, bitmap, device, NULL);
+        CGContextRelease(bitmap);
     }
     CGContextRestoreGState(context);
     wk_releaseRGBMatch(match);
+    CGColorSpaceRelease(bandSpace);
     return true;
 }
 
@@ -1307,13 +1471,8 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawLinearGradient,
     (CGContextRef context, CGGradientRef gradient, CGPoint startPoint, CGPoint endPoint, CGGradientDrawingOptions options))
 {
     wk_gradient_draw draw = { gradient, false, startPoint, 0, endPoint, 0, options };
-    if (!context || !wk_drawGradientInItsColorSpace(context, &draw))
+    if (!context || !wk_drawGradientInBands(context, &draw))
         wk_drawGradientDirectly(context, &draw);
-}
-
-static void wk_freeMaskData(void *info, const void *data, size_t size)
-{
-    free((void *)data);
 }
 
 // Fills the clip with the gradient's colour at location 0 (`start`) or 1: the gradient drawn linearly across
@@ -1323,25 +1482,18 @@ static void wk_fillWithGradientEnd(CGContextRef context, CGGradientRef gradient,
     CGFloat edge = start ? CGRectGetMaxX(device) + 1 : CGRectGetMinX(device) - 1;
     wk_gradient_draw past = { gradient, false, CGPointMake(edge - (start ? 0 : 1), 0), 0, CGPointMake(edge + (start ? 1 : 0), 0), 0,
         start ? kCGGradientDrawsBeforeStartLocation : kCGGradientDrawsAfterEndLocation };
-    if (!wk_drawGradientInItsColorSpace(context, &past))
+    if (!wk_drawGradientInBands(context, &past))
         wk_drawGradientDirectly(context, &past);
 }
 
-// Fills the device pixels of `box` that `mask` (rows from the top of `box`) selects. The image owns `mask`.
+// Fills the device pixels of `box` that `mask` (gray rows from the top of `box`) selects, and frees `mask`.
 static void wk_fillMaskWithGradientEnd(CGContextRef context, CGGradientRef gradient, CGRect box, uint8_t *mask, bool start)
 {
-    size_t width = (size_t)box.size.width, height = (size_t)box.size.height;
-    CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
-    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, mask, width * height, wk_freeMaskData);
-    CGImageRef image = CGImageCreate(width, height, 8, 8, width, gray, (CGBitmapInfo)kCGImageAlphaNone, provider, NULL, false,
-        kCGRenderingIntentDefault);
     CGContextSaveGState(context);
-    CGContextClipToMask(context, box, image);
-    wk_fillWithGradientEnd(context, gradient, box, start);
+    if (wk_clipToGradientCoverage(context, box, mask))
+        wk_fillWithGradientEnd(context, gradient, box, start);
     CGContextRestoreGState(context);
-    CGImageRelease(image);
-    CGDataProviderRelease(provider);
-    CGColorSpaceRelease(gray);
+    free(mask);
 }
 
 // The shading of concentric circles with radii `startRadius` < `endRadius` < `startRadius` + 2e-6, sampled at the
@@ -1356,15 +1508,10 @@ static void wk_drawThinRadialGradient(CGContextRef context, CGGradientRef gradie
     CGRect clip = CGContextGetClipBoundingBox(context);
     if (CGRectIsNull(clip) || CGRectIsEmpty(clip) || CGRectIsInfinite(clip) || !(toDevice.a * toDevice.d - toDevice.b * toDevice.c))
         return;
-    // A style paints around what it is drawn with, so the shading is drawn as far beyond the clip as the style
-    // reaches into it. CGStyleGetDrawBoundingBox outsets a base-space rect by that reach.
+    // The shading is drawn as far beyond the clip as a style reaches into it.
     CGStyleRef style = CGContextGetStyle(context);
-    if (style) {
-        CGAffineTransform ctm = CGContextGetCTM(context);
-        CGRect reach = CGStyleGetDrawBoundingBox(style, CGRectApplyAffineTransform(clip, ctm));
-        if (!CGRectIsNull(reach) && !CGRectIsInfinite(reach))
-            clip = CGRectApplyAffineTransform(reach, CGAffineTransformInvert(ctm));
-    }
+    if (style)
+        clip = wk_styleReachOfClip(context, style, clip);
     CGAffineTransform toUser = CGAffineTransformInvert(toDevice);
     CGRect device = CGRectIntegral(CGRectApplyAffineTransform(clip, toDevice));
     if (CGRectIsEmpty(device))
@@ -1466,7 +1613,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawRadialGradient,
         }
     }
     wk_gradient_draw draw = { gradient, true, startCenter, startRadius, endCenter, endRadius, options };
-    if (!context || !wk_drawGradientInItsColorSpace(context, &draw))
+    if (!context || !wk_drawGradientInBands(context, &draw))
         wk_drawGradientDirectly(context, &draw);
 }
 

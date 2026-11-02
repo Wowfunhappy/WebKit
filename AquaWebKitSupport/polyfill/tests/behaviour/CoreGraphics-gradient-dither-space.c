@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef void (*DrawLinearFn)(CGContextRef, CGGradientRef, CGPoint, CGPoint, CGGradientDrawingOptions);
@@ -223,8 +224,9 @@ int main(void)
         CGGradientRelease(dark);
     }
 
-    // Under the copy blend mode the bitmap's transparent surroundings would clear the destination, so the
-    // draw is 10.9's own: a gradient without extension over an opaque fill.
+    // Under the copy blend mode a gradient without extension replaces the pixels it covers and leaves the rest.
+    const CGFloat translucentComponents[] = { 1, 1, 1, 0.5, 0, 0, 1, 0.5 };
+    CGGradientRef translucent = CGGradientCreateWithColorComponents(sRGB, translucentComponents, NULL, 2);
     CGContextRef copied = createBitmap(linear), copiedStock = createBitmap(linear);
     for (int pass = 0; pass < 2; pass++) {
         CGContextRef context = pass ? copiedStock : copied;
@@ -233,14 +235,23 @@ int main(void)
         CGContextFillRect(context, CGRectMake(0, 0, kWidth, kHeight));
         CGContextSetBlendMode(context, kCGBlendModeCopy);
         if (pass)
-            systemLinear(context, ramp, CGPointMake(20, 0), CGPointMake(60, 0), 0);
+            systemLinear(context, translucent, CGPointMake(20, 0), CGPointMake(60, 0), 0);
         else
-            CGContextDrawLinearGradient(context, ramp, CGPointMake(20, 0), CGPointMake(60, 0), 0);
+            CGContextDrawLinearGradient(context, translucent, CGPointMake(20, 0), CGPointMake(60, 0), 0);
     }
-    check(!memcmp(CGBitmapContextGetData(copied), CGBitmapContextGetData(copiedStock), kWidth * kHeight * 4),
-        "under the copy blend mode the draw is 10.9's own");
+    const unsigned char *copiedPixels = CGBitmapContextGetData(copied), *stockPixels = CGBitmapContextGetData(copiedStock);
+    int coverageDiffers = 0, largestCopied = 0;
+    for (size_t i = 0; i < kWidth * kHeight; i++) {
+        coverageDiffers += (copiedPixels[i * 4 + 3] == 255) != (stockPixels[i * 4 + 3] == 255);
+        for (int c = 0; c < 4; c++)
+            largestCopied = fmax(largestCopied, abs(copiedPixels[i * 4 + c] - stockPixels[i * 4 + c]));
+    }
+    printf("  copy blend mode: %d pixels covered differently from 10.9, largest difference %d\n", coverageDiffers, largestCopied);
+    check(!coverageDiffers && largestCopied <= 1 && !countOther(copied, 61, kWidth, matched),
+        "under the copy blend mode the pixels covered are 10.9's, within a level");
     CGContextRelease(copied);
     CGContextRelease(copiedStock);
+    CGGradientRelease(translucent);
 
     CGContextRef own = createBitmap(sRGB), ownStock = createBitmap(sRGB);
     CGContextDrawLinearGradient(own, ramp, CGPointMake(0, 0), CGPointMake(kWidth, 0), kExtend);
