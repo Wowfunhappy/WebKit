@@ -1888,3 +1888,26 @@ compositing/reflections/nested-reflection-transformed.html [ Skip ]
 # the line wrapping from upstream 6e13cbd3fc1b. With async overflow scrolling off, as in the test runners,
 # composited scrollers with legacy scrollbars paint no scrollbars, as upstream's compositing/overflow baselines record.
 compositing/reflections/nested-reflection-on-overflow.html [ Skip ]
+
+# Their baselines record a timeout and no passing subtest, so each run waits out the harness timeout (27-135 s)
+# to reproduce a recorded failure (maintainer decision: test time).
+imported/w3c/web-platform-tests/content-security-policy/img-src/css-filter-blocked.tentative.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/inside-worker/dedicatedworker-worker-src.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/resource-hints/prefetch-allowed-by-any-directive.sub.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/resource-hints/prefetch-allowed-with-conflicting-permissive-policies.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/resource-hints/prefetch-blocked-by-default-multiple-policies.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/resource-hints/prefetch-blocked-by-default.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/resource-hints/prefetch-generate-directives.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/securitypolicyviolation/linenumber.tentative.html [ Skip ]
+imported/w3c/web-platform-tests/content-security-policy/style-src/import-style-blocked.sub.html [ Skip ]
+imported/w3c/web-platform-tests/fetch/local-network-access/dedicated-worker.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/fetch/local-network-access/shared-worker.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/fetch/local-network-access/webtransport.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/html/browsers/browsing-the-web/navigating-across-documents/replace-before-load/a-user-click-during-pageshow.html [ Skip ]
+imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/same-document-traversal-cross-document-traversal.html [ Skip ]
+imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/same-document-traversal-same-document-traversal-hashchange.html [ Skip ]
+imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/same-document-traversal-same-document-traversal-pushstate.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/webapi/esm-integration/worker-import-source-phase.tentative.html [ Skip ]
+imported/w3c/web-platform-tests/webrtc/simulcast/av1.https.html [ Skip ]
+imported/w3c/web-platform-tests/webrtc/simulcast/getStats.https.html [ Skip ]
+imported/w3c/web-platform-tests/webrtc/simulcast/setParameters-maxFramerate.https.html [ Skip ]

@@ -2569,9 +2569,9 @@ webgl/webgl-visible-after-context-restore.html [ Skip ]
 # WK1) waits on a decode that only display triggers.
 fast/images/stopped-animation-deleted-image.html [ Skip ]
 
-# Software-rendered antialiased stress fixture; passes in ~105–108 s.
-webgl/1.0.x/conformance/reading/read-pixels-test.html [ Slow ]
-webgl/2.0.y/conformance/reading/read-pixels-test.html [ Slow ]
+# Software-rendered antialiased stress fixture; passes in ~110-145 s (maintainer decision: test time).
+webgl/1.0.x/conformance/reading/read-pixels-test.html [ Skip ]
+webgl/2.0.y/conformance/reading/read-pixels-test.html [ Skip ]
 
 # Upstream mac-wk1 records Pass/Timeout (291807@main); nested-worker cleanup retains both WorkerThread objects.
 webkit.org/b/289369 fast/workers/dedicated-worker-lifecycle.html [ Skip ]
@@ -3079,3 +3079,10 @@ http/tests/websocket/tests/hybi/websocket-samesite-lax-not-sent-cross-site.html 
 http/tests/websocket/tests/hybi/websocket-samesite-none-sent-cross-site.html [ Skip ]
 http/tests/websocket/tests/hybi/websocket-samesite-sent-same-site.html [ Skip ]
 http/tests/websocket/tests/hybi/websocket-samesite-strict-not-sent-cross-site.html [ Skip ]
+
+# Their baselines record a timeout and no passing subtest, so each run waits out the harness timeout (27-135 s)
+# to reproduce a recorded failure (maintainer decision: test time).
+imported/w3c/web-platform-tests/fetch/local-network-access/fetch.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/fetch/local-network-access/iframe-opener.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/fetch/local-network-access/service-worker.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/fetch/local-network-access/websocket.tentative.https.html [ Skip ]
