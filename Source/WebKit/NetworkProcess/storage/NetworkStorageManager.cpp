@@ -1541,6 +1541,10 @@ void NetworkStorageManager::deleteDataForRegistrableDomains(OptionSet<WebsiteDat
 
     workQueue().dispatch([this, protectedThis = Ref { *this }, types, domains = crossThreadCopy(domains), completionHandler = WTF::move(completionHandler)]() mutable {
         auto deletedOrigins = deleteDataOnDisk(types, -WallTime::infinity(), [&domains](auto& origin) {
+            // AQUAWEBKIT: a Safari extension keeps its own storage in this manager, through LegacyExtensionViewConnection.
+            // It is not website data, and ITP, which asks for this deletion, acts on the web.
+            if (origin.clientOrigin.protocol() == "safari-extension"_s)
+                return false;
             auto domain = WebCore::RegistrableDomain::uncheckedCreateFromHost(origin.clientOrigin.host());
             return domains.contains(domain);
         });
