@@ -137,6 +137,7 @@
     const media = new MediaSource();
     if (params.get('airplay')?.startsWith('route')) {
         video.src = URL.createObjectURL(media);
+        const originalRouteSource = video.src;
         if (!params.has('routeChangeOnly'))
             video.addEventListener('webkitplaybacktargetavailabilitychanged', () => {});
         let routeGeneration = 0;
@@ -198,7 +199,9 @@
                 if (params.has('routeRecoveryHTTP')) {
                     video.srcObject = null;
                     video.src = '/quicktime-media/plain.mp4';
-                } else if (params.get('disconnect') === 'sync')
+                } else if (params.get('disconnect') === 'original')
+                    video.src = originalRouteSource;
+                else if (params.get('disconnect') === 'sync')
                     replaceRouteSource();
                 else if (params.get('disconnect') !== 'none')
                     setTimeout(replaceRouteSource, 300);

@@ -46,7 +46,7 @@ cases = [
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('cases', nargs='*')
 selected = parser.parse_args().cases
-if any(name not in [case[0] for case in cases] for name in selected):
+if any(name not in [case[0] for case in cases] + ['returned-control'] for name in selected):
     parser.error('Unknown case')
 baseline = windows()
 print('BASELINE_WINDOWS', sorted(baseline), flush=True)
@@ -116,4 +116,32 @@ for name, parameters, expected in cases:
     wait(lambda: float(qt('get current time of MOVIE')) > start + 3)
     qt('close MOVIE saving no')
     wait(lambda: windows() == baseline)
+
+# A Play after setup returns control to the page, so closing the receiver leaves the page's later pause alone.
+if not selected or 'returned-control' in selected:
+    title = 'returned-control-' + str(time.time_ns())
+    url = 'http://127.0.0.1:8843/quicktime.html?' + urllib.parse.urlencode(dict(source='mse.mp4', airplay='route', disconnect='original', sourceMode='direct', routeSetupTimeout=0, title=title))
+    osa('tell application "Safari" to make new document with properties {URL:' + json.dumps(url) + '}')
+    wait(lambda: osa('tell application "Safari" to get URL of current tab of front window') == url)
+    window_id = osa('tell application "Safari" to get id of front window')
+    wait(lambda: js('Boolean(document.querySelector("#video")?.readyState>=2 && document.querySelector("#open-media-player"))') == 'true')
+    original = js('video.src')
+    js('video.play()')
+    js('document.querySelector("#open-media-player").click()')
+    wait(lambda: js('document.querySelector("#media-player-result").textContent').startswith('{'))
+    owned = wait(lambda: windows() - baseline)
+    movie = 'document of window id ' + str(next(iter(owned)))
+    wait(lambda: js('video.webkitCurrentPlaybackTargetIsWireless') == 'true')
+    time.sleep(1)
+    js('video.play()')
+    wait(lambda: js('video.webkitCurrentPlaybackTargetIsWireless') == 'false')
+    wait(lambda: js('video.src') == original)
+    time.sleep(1)
+    js('video.pause()')
+    osa('tell application "QuickTime Player" to close ' + movie + ' saving no')
+    wait(lambda: windows() == baseline)
+    time.sleep(3)
+    assert js('video.paused') == 'true', 'Closing the receiver restarted a page that took control back'
+    osa('tell application "Safari" to close current tab of window id ' + window_id)
+    print('returned-control ok', flush=True)
 print('PASS source modes, restoration, audio, seeking and tab closure', flush=True)
