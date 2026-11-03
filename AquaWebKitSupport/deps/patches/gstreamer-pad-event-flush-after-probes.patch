@@ -1,0 +1,27 @@
+# A flush-start sent while a pad's probes run reaches only the peer linked then. See patches/README.md.
+--- a/gst/gstpad.c
++++ b/gst/gstpad.c
+@@ -5735,6 +5735,10 @@
+           && (GST_EVENT_IS_SERIALIZED (event))) {
+         push_changed_sticky_events_before (pad, event);
+       }
++
++      /* Probes and sticky event handling release the pad lock. */
++      if (G_UNLIKELY (GST_PAD_IS_FLUSHING (pad)))
++        goto flushed;
+       break;
+     }
+   }
+@@ -5752,6 +5756,12 @@
+     push_changed_sticky_events_before (pad, event);
+   }
+ 
++  /* A flush-start sent while the pad lock was released reached only the peer
++   * linked at that time. */
++  if (G_UNLIKELY (GST_PAD_IS_FLUSHING (pad)) && event_type != GST_EVENT_FLUSH_START
++      && event_type != GST_EVENT_FLUSH_STOP)
++    goto flushed;
++
+   /* the pad offset might've been changed by any of the probes above. It
+    * would've been taken into account when repushing any of the sticky events
+    * above but not for our current event here */

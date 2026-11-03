@@ -348,6 +348,15 @@ A partitioned encrypted block (WebM Encryption, 4.6) carries n partition offsets
 
 When a track's ContentEncodings make it `application/x-webm-enc`, the demuxer requests the `drm-preferred-decryption-system-id` context as qtdemux does in `gst_qtdemux_request_protection_context()`: a context query upstream, then a `need-context` message on the bus, each carrying `track-id`, `available-stream-encryption-systems` (the unspecified system, filtered by available decryptors) and `stream-encryption-events` (the track's queued protection events, which hold its ContentEncKeyIDs). An application learns a WebM stream's initialization data from that request, as it does an MP4 stream's; WebKit's regular playback raises the media element's `encrypted` event from it.
 
+## gstreamer-pad-event-flush-after-probes.patch
+
+**Target:** `gstreamer-1.28.7`, `gst/gstpad.c`, applied after `gstreamer-pad-push-probe-deactivation.patch`
+**Applied to:** libgstreamer (`GstPad`)
+
+`gst_pad_push_event_unchecked()` releases the pad lock while it runs an event's probes. A flush-start sent in that time marks the pad flushing and reaches only the peer linked then. decodebin3 creates, links and activates a decoder from the CAPS probe on a multiqueue source pad, so a flush-start in that time leaves the decoder chain not flushing. The event then travels into that chain until a blocking probe holds it, such as playsink's reconfigure block, with the multiqueue's stream lock held. `gst_multi_queue_sink_event()` waits for that lock when it pauses the task, and nothing can release the block.
+
+The function returns `GST_FLOW_FLUSHING` after each probe group, as `gst_pad_push_data()` does for buffers. A sticky event stays pending and is delivered after flush-stop. Flush events keep travelling. `AquaWebKitSupport/tests/gst-pad-flush-event-probe` covers both probe groups.
+
 ## gstreamer-queue2-segment-done-completes-buffering.patch
 
 **Target:** `gstreamer-1.28.7`, `plugins/elements/gstqueue2.c`, `plugins/elements/gstqueue2.h`

@@ -1490,6 +1490,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p3 --dry-run < "$HERE/patches/gstreamer-pad-push-probe-deactivation.patch" \
         && patch -p3 < "$HERE/patches/gstreamer-pad-push-probe-deactivation.patch" ) \
       || { echo "gstreamer pad probe-deactivation patch failed to apply"; exit 1; }
+    # GstPad: events recheck flushing after their probes, as buffers do above. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-pad-event-flush-after-probes.patch" \
+        && patch -p1 < "$HERE/patches/gstreamer-pad-event-flush-after-probes.patch" ) \
+      || { echo "gstreamer pad event flush patch failed to apply"; exit 1; }
     # queue2: SEGMENT_DONE ends the data like EOS for buffering, as in multiqueue. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" \
         && patch -p1 < "$HERE/patches/gstreamer-queue2-segment-done-completes-buffering.patch" ) \
