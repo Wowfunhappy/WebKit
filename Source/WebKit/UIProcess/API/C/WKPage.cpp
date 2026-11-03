@@ -4231,12 +4231,20 @@ void WKApplicationCacheManagerDeleteAllEntries(WKWebsiteDataStoreRef) { }
 void WKApplicationCacheManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef, WKSecurityOriginRef) { }
 void WKApplicationCacheManagerGetApplicationCacheOrigins(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
 
+// What a site stores through script that is not local storage: 10.9's Safari clears and lists all of it as databases,
+// the one kind of it the WebKit it was written against had.
+static OptionSet<WebKit::WebsiteDataType> wk109DatabaseTypes()
+{
+    return { WebKit::WebsiteDataType::WebSQLDatabases, WebKit::WebsiteDataType::IndexedDBDatabases, WebKit::WebsiteDataType::DOMCache,
+        WebKit::WebsiteDataType::ServiceWorkerRegistrations, WebKit::WebsiteDataType::FileSystem, WebKit::WebsiteDataType::MediaKeys };
+}
+
 void WKDatabaseManagerDeleteAllDatabases(WKWebsiteDataStoreRef store)
 {
-    protect(toImpl(store))->removeData(WebKit::WebsiteDataType::WebSQLDatabases, WallTime::fromRawSeconds(0), [] { });
+    protect(toImpl(store))->removeData(wk109DatabaseTypes(), WallTime::fromRawSeconds(0), [] { });
 }
-void WKDatabaseManagerDeleteDatabasesForOrigin(WKWebsiteDataStoreRef store, WKSecurityOriginRef origin) { wk109RemoveForOrigin(store, WebKit::WebsiteDataType::WebSQLDatabases, origin); }
-void WKDatabaseManagerGetDatabaseOrigins(WKWebsiteDataStoreRef store, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithOrigins(store, WebKit::WebsiteDataType::WebSQLDatabases, context, callback); }
+void WKDatabaseManagerDeleteDatabasesForOrigin(WKWebsiteDataStoreRef store, WKSecurityOriginRef origin) { wk109RemoveForOrigin(store, wk109DatabaseTypes(), origin); }
+void WKDatabaseManagerGetDatabaseOrigins(WKWebsiteDataStoreRef store, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithOrigins(store, wk109DatabaseTypes(), context, callback); }
 
 // MediaPlayerPrivateAVFoundationObjC is the only engine implementing originsInMediaCache and
 // clearMediaCache, and MediaPlayer registers it only under !USE(GSTREAMER). GStreamer is this
