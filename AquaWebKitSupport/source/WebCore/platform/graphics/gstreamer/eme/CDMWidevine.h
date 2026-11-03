@@ -127,7 +127,8 @@ private:
 class CDMInstanceSessionWidevine final : public CDMInstanceSessionProxy {
 public:
     explicit CDMInstanceSessionWidevine(CDMInstanceWidevine& parent)
-        : CDMInstanceSessionProxy(parent) { }
+        : CDMInstanceSessionProxy(parent)
+        , m_parent(parent) { }
     ~CDMInstanceSessionWidevine();
 
     void requestLicense(LicenseType, KeyGroupingStrategy, const String& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&&) final;
@@ -165,6 +166,8 @@ private:
     void waitForPromise(CDMInstanceWidevine&, uint32_t promiseID, CompletionHandler<void(SuccessValue)>&&);
     void failPendingPromises();
 
+    // A session keeps working after the page lets go of the MediaKeys that created it, whose instance this is.
+    const Ref<CDMInstanceWidevine> m_parent;
     String m_sessionID;
     KeyStore m_keyStore;
     WeakPtr<CDMInstanceSessionClient> m_client;

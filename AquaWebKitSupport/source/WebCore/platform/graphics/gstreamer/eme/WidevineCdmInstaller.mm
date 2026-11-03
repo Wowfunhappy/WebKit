@@ -98,6 +98,7 @@ namespace WebCore {
 // ------------------------------------------------------------------------------------------
 // Fetching
 
+// The body stays on disk, mapped: a Firefox archive is hundreds of megabytes.
 static RetainPtr<NSData> fetch(const String& url, NSTimeInterval timeout)
 {
     RetainPtr nsURL = adoptNS([[NSURL alloc] initWithString:url.createNSString().get()]);
@@ -109,9 +110,9 @@ static RetainPtr<NSData> fetch(const String& url, NSTimeInterval timeout)
     __block RetainPtr<NSData> body;
     __block RetainPtr<NSURLResponse> response;
     auto finished = adoptOSObject(dispatch_semaphore_create(0));
-    RetainPtr task = [[NSURLSession sharedSession] dataTaskWithRequest:request.get() completionHandler:^(NSData *data, NSURLResponse *taskResponse, NSError *error) {
+    RetainPtr task = [[NSURLSession sharedSession] downloadTaskWithRequest:request.get() completionHandler:^(NSURL *location, NSURLResponse *taskResponse, NSError *error) {
         if (!error) {
-            body = data;
+            body = [NSData dataWithContentsOfURL:location options:NSDataReadingMappedAlways error:nil];
             response = taskResponse;
         }
         dispatch_semaphore_signal(finished.get());
@@ -154,7 +155,7 @@ static std::optional<ManifestEntry> fetchManifest(const String& firefoxVersion, 
     return entry;
 }
 
-static bool matchesDigest(std::span<const uint8_t> bytes, const String& expected)
+static String digestOf(std::span<const uint8_t> bytes)
 {
     std::array<uint8_t, CC_SHA512_DIGEST_LENGTH> digest { };
     CC_SHA512(bytes.data(), bytes.size(), digest.data());
@@ -162,7 +163,12 @@ static bool matchesDigest(std::span<const uint8_t> bytes, const String& expected
     StringBuilder builder;
     for (auto byte : digest)
         builder.append(hex(byte, 2, Lowercase));
-    return equalIgnoringASCIICase(builder.toString(), expected);
+    return builder.toString();
+}
+
+static bool matchesDigest(std::span<const uint8_t> bytes, const String& expected)
+{
+    return equalIgnoringASCIICase(digestOf(bytes), expected);
 }
 
 // ------------------------------------------------------------------------------------------
@@ -296,8 +302,42 @@ static bool copyFirefoxFiles(const String& source, const String& destination)
     return copy(firefoxApplicationInfo) && copy(firefoxLicense);
 }
 
+static String gapLibraryDigest()
+{
+    auto gapLibrary = FileSystem::readEntireFile(gapLibrarySourcePath());
+    return gapLibrary ? digestOf(gapLibrary->span()) : String { };
+}
+
+static String unrunnableModuleRecordPath(const String& root)
+{
+    return FileSystem::pathByAppendingComponent(root, ".unrunnable-module"_s);
+}
+
+// A module this gap library cannot run stays unrunnable until the module, Firefox or the gap library
+// changes, and only the manifest is needed to learn that the module has not.
+static void recordUnrunnableModule(const String& root, const ManifestEntry& firefox, const String& buildID, const ManifestEntry& module)
+{
+    auto record = makeString(firefox.version, '\n', buildID, '\n', module.version, '\n', gapLibraryDigest()).utf8();
+    FileSystem::overwriteEntireFile(unrunnableModuleRecordPath(root), byteCast<uint8_t>(record.span()));
+}
+
+static bool currentModuleIsRecordedUnrunnable(const String& root, const ManifestEntry& firefox)
+{
+    auto contents = FileSystem::readEntireFile(unrunnableModuleRecordPath(root));
+    if (!contents)
+        return false;
+    auto fields = String::fromUTF8(byteCast<char8_t>(contents->span())).split('\n');
+    if (fields.size() != 4 || fields[0] != firefox.version || fields[3] != gapLibraryDigest())
+        return false;
+    auto manifest = fetchManifest(firefox.version, fields[1]);
+    return manifest && manifest->version == fields[2];
+}
+
 static std::optional<WidevineCdmModule> install(const String& root, const ManifestEntry& firefox, const std::optional<WidevineCdmModule>& cached)
 {
+    if (currentModuleIsRecordedUnrunnable(root, firefox))
+        return std::nullopt;
+
     auto staging = makeString(root, "/.staging-"_s, getCurrentProcessID());
     FileSystem::deleteNonEmptyDirectory(staging);
     if (!FileSystem::makeAllDirectories(staging))
@@ -350,6 +390,7 @@ static std::optional<WidevineCdmModule> install(const String& root, const Manife
     auto prepared = prepareWidevineCdmImage(module->image, gapLibraryLoadPath, gapLibrarySourcePath());
     if (!prepared) {
         WTFLogAlways("Widevine: the module cannot run on this system -- %s", prepared.error().utf8().data());
+        recordUnrunnableModule(root, firefox, buildID, *manifest);
         return std::nullopt;
     }
     auto gapLibrary = FileSystem::readEntireFile(gapLibrarySourcePath());

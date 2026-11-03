@@ -333,8 +333,7 @@ CDMInstanceSessionWidevine::~CDMInstanceSessionWidevine()
 
 CDMInstanceWidevine* CDMInstanceSessionWidevine::parentInstance() const
 {
-    auto instance = cdmInstanceProxy();
-    return static_cast<CDMInstanceWidevine*>(instance.get());
+    return m_parent.ptr();
 }
 
 void CDMInstanceSessionWidevine::didCreateSession(const String& sessionID)

@@ -102,13 +102,14 @@ cc_queue "$CLANG" -c $MODERN $INC -DWK_POLYFILL_UNIT=mechanism -o "$OBJ/mech/wk_
 cc_queue "$CLANG" -c $HOST               -o "$OBJ/mech/wk_image_marker.o"    "$MECH/wk_image_marker.c"
 
 echo "### compiling polyfills/cdm (the Widevine CDM's libSystem gap library)"
-# Exported (no HIDDEN): another image binds to these. getentropy, aligned_alloc, pthread_qos and os_log
-# are the layer's own shared sources, compiled a second time with their exports intact.
+# Exported (no HIDDEN): another image binds to these. getentropy, aligned_alloc, pthread_qos, os_log and
+# clock_gettime are the layer's own shared sources, compiled a second time with their exports intact.
 CDMCF="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 $WARN -I$PF/shared/include"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/getentropy.o"    "$PF/shared/getentropy.c"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/aligned_alloc.o" "$PF/shared/aligned_alloc.c"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/pthread_qos.o" "$PF/shared/pthread_qos.c"
 cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/os_log.o" "$PF/shared/os_log.c"
+cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/time.o" "$PF/shared/time.c"
 for f in "$PF"/cdm/*.c; do
     cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
 done

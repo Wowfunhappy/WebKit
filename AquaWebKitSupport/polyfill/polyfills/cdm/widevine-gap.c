@@ -3,14 +3,15 @@
  *
  * This one file is built into libwidevinegap.dylib, which is installed beside the module and
  * named by the load command WidevineCdmImage repoints; every import the host cannot resolve is
- * bound here instead. getentropy(), aligned_alloc(), the pthread QoS calls and os_log come from
- * their own sources in this layer and are linked into the same dylib, so what is below is the rest.
+ * bound here instead. getentropy(), aligned_alloc(), the pthread QoS calls, os_log and clock_gettime()
+ * come from their own sources in this layer and are linked into the same dylib, so what is below is the rest.
  *
  * Plain C with no wk_polyfill.h: nothing here is loaded into a WebKit image, and the definitions
  * are exported on purpose -- they exist to be bound to from another image.
  */
 
 #include <errno.h>
+#include <stdbool.h>
 #include <mach-o/loader.h>
 #include <pthread.h>
 #include <sched.h>
@@ -43,4 +44,27 @@ EXPORT void os_release(void *object)
 {
 	if (object)
 		_os_object_release(object);
+}
+
+/* os_signpost is 10.14's: no log enables signposts here, and a call site checks before it emits. */
+EXPORT bool os_signpost_enabled(void *log);
+
+EXPORT bool os_signpost_enabled(void *log)
+{
+	(void)log;
+	return false;
+}
+
+EXPORT void _os_signpost_emit_with_name_impl(void *dso, void *log, uint8_t type, uint64_t identifier, const char *name, const char *format, uint8_t *buffer, uint32_t size);
+
+EXPORT void _os_signpost_emit_with_name_impl(void *dso, void *log, uint8_t type, uint64_t identifier, const char *name, const char *format, uint8_t *buffer, uint32_t size)
+{
+	(void)dso;
+	(void)log;
+	(void)type;
+	(void)identifier;
+	(void)name;
+	(void)format;
+	(void)buffer;
+	(void)size;
 }
