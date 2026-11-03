@@ -8,8 +8,7 @@
 // under global alpha and the multiply blend mode, a shadow, a linear-sRGB gradient, and a transparency layer;
 // QuartzCore antialiases the clip's edge in its own way. Each blend mode that changes the destination beneath a
 // transparent source leaves pixels the gradient does not cover untouched, in a surface and in an 8-bit bitmap of
-// another colour space, and 64 draws leave them byte-exact; pixels it covers under plus-darker in a surface are
-// 10.9's surface draw, which composites that mode as copy for every draw; under a shadow as well a surface is byte-identical to 10.9's own draw into a surface. A
+// another colour space, and 64 draws leave them byte-exact; under a shadow as well a surface is byte-identical to 10.9's own draw into a surface, or for plus-darker within three levels of the bitmap's. A
 // bitmap under a shadow is 10.9's own draw. A surface wider than one band holds, with a shadow and under the
 // copy blend mode too. A gray gradient holds, a gray surface takes the route, a singular CTM paints nothing, and
 // an asymmetric hard-stop gradient in an asynchronously drawing layer lands where it belongs at contents scales
@@ -25,6 +24,7 @@ CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size
 extern void *CGContextGetDelegate(CGContextRef);
 extern void CGContextDelegateSetCallback(void *, int, void (*)(void));
 typedef void (*DrawRadialFn)(CGContextRef, CGGradientRef, CGPoint, CGFloat, CGPoint, CGFloat, CGGradientDrawingOptions);
+typedef void (*DrawLinearFn)(CGContextRef, CGGradientRef, CGPoint, CGPoint, CGGradientDrawingOptions);
 
 static const CGBitmapInfo kBGRA = (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little;
 static const CGGradientDrawingOptions kBoth = kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation;
@@ -51,6 +51,7 @@ static void *systemSymbol(const char *name)
 // QuartzCore's radial entry: slot 22 of the context delegate takes concentric circles and offset ones, and slot 9
 // offset ones as well. With these installed the context paints no radial gradient of its own.
 static int gRadialHits;
+// Also counts slot 21, the linear entry.
 static int countRadialHit(void)
 {
     gRadialHits++;
@@ -228,36 +229,6 @@ static const struct { CGBlendMode mode; const char *name; } kDestructiveModes[] 
 };
 enum { kDestructiveModeCount = sizeof(kDestructiveModes) / sizeof(kDestructiveModes[0]), kStyledTolerance = 0 };
 
-// QuartzCore composites plus-darker as copy for every draw into a surface, fills too, so a pixel the gradient covers
-// is 10.9's surface draw; one it does not cover keeps the destination.
-static void checkPlusDarker(Scene scene, const char *name)
-{
-    Target ours = createTarget(true, kSide, kSide, gSRGB), stock = createTarget(true, kSide, kSide, gSRGB);
-    Target coverage = createTarget(false, kSide, kSide, gSRGB), untouched = createTarget(true, kSide, kSide, gSRGB);
-    Scene copied = scene;
-    copied.blendMode = kCGBlendModeCopy;
-    drawScene(ours.context, scene, CGContextDrawRadialGradient);
-    drawScene(stock.context, scene, gSystem);
-    drawScene(coverage.context, copied, gSystem);
-    CGContextSetRGBFillColor(untouched.context, 1, 0, 1, 1);
-    CGContextFillRect(untouched.context, CGRectMake(0, 0, kSide, kSide));
-    Target *targets[] = { &ours, &stock, &coverage, &untouched };
-    for (size_t i = 0; i < 4; i++)
-        readTarget(targets[i]);
-    int covered = 0, wrongCovered = 0, wrongOutside = 0;
-    for (size_t i = 0; i < kSide * kSide; i++) {
-        bool inside = memcmp(coverage.pixels + i * 4, untouched.pixels + i * 4, 4) != 0;
-        covered += inside;
-        wrongCovered += inside && memcmp(ours.pixels + i * 4, stock.pixels + i * 4, 4);
-        wrongOutside += !inside && memcmp(ours.pixels + i * 4, untouched.pixels + i * 4, 4);
-    }
-    char what[200];
-    snprintf(what, sizeof(what), "%s: of %d covered pixels %d differ from 10.9's surface draw, %d outside changed", name, covered, wrongCovered, wrongOutside);
-    check(covered && !wrongCovered && !wrongOutside, what);
-    for (size_t i = 0; i < 4; i++)
-        releaseTarget(targets[i]);
-}
-
 static bool gAsyncDrawn;
 static int gAsyncHits[2];
 static CGGradientRef gHardStop, gMask;
@@ -290,6 +261,9 @@ int main(void)
             return 1;
         const CGFloat maskComponents[] = { 0, 0, 0, 0, 1, 1, 1, 1 };
         gMask = CGGradientCreateWithColorComponents(gSRGB, maskComponents, NULL, 2);
+        const CGFloat rampComponents[] = { 1, 0, 0, 1, 0, 0, 1, 0.5 };
+        CGGradientRef gRamp2 = CGGradientCreateWithColorComponents(gSRGB, rampComponents, NULL, 2);
+        DrawLinearFn systemLinear = (DrawLinearFn)systemSymbol("_CGContextDrawLinearGradient");
 
         {
             enum { kWidth = 400, kHeight = 704 };
@@ -324,6 +298,42 @@ int main(void)
             releaseTarget(&hooked);
         }
 
+        {
+            // Native linear gradients take delegate slot 21. One extended both ways stays there, where a GPU draws it
+            // correctly; another extension takes the bands.
+            static const struct { CGGradientDrawingOptions options; const char *name; int nativeHits; } linears[] = {
+                { kBoth, "both extensions", 1 }, { 0, "no extension", 0 },
+                { kCGGradientDrawsBeforeStartLocation, "before start", 0 }, { kCGGradientDrawsAfterEndLocation, "after end", 0 },
+            };
+            for (size_t i = 0; i < sizeof(linears) / sizeof(linears[0]); i++) {
+                Target hooked = createTarget(true, kSide, kSide, gSRGB);
+                CGContextDelegateSetCallback(CGContextGetDelegate(hooked.context), 21, (void (*)(void))countRadialHit);
+                gRadialHits = 0;
+                CGContextDrawLinearGradient(hooked.context, gMask, CGPointMake(30, 0), CGPointMake(90, 0), linears[i].options);
+                char what[120];
+                snprintf(what, sizeof(what), "linear, %s: QuartzCore's linear entry taken %d times", linears[i].name, gRadialHits);
+                check(gRadialHits == linears[i].nativeHits, what);
+                CGContextFlush(hooked.context);
+                releaseTarget(&hooked);
+
+                Target surface = createTarget(true, kSide, kSide, gSRGB), bitmap = createTarget(false, kSide, kSide, gSRGB);
+                for (int pass = 0; pass < 2; pass++) {
+                    CGContextRef c = pass ? bitmap.context : surface.context;
+                    CGContextSetRGBFillColor(c, 1, 0, 1, 1);
+                    CGContextFillRect(c, CGRectMake(0, 0, kSide, kSide));
+                    CGContextSetBlendMode(c, kCGBlendModeMultiply);
+                    (pass ? systemLinear : CGContextDrawLinearGradient)(c, gRamp2, CGPointMake(30, 0), CGPointMake(90, 0), linears[i].options);
+                }
+                readTarget(&surface);
+                readTarget(&bitmap);
+                int largest = largestDifference(&surface, &bitmap, CGAffineTransformIdentity, 0);
+                snprintf(what, sizeof(what), "linear, %s, multiply: within 5 of 10.9's bitmap draw (largest %d)", linears[i].name, largest);
+                check(largest <= 5, what);
+                releaseTarget(&surface);
+                releaseTarget(&bitmap);
+            }
+        }
+
         static const struct { const char *name; Scene scene; } scenes[] = {
             { "rotated, scaled, elliptical clip", { false, false, false, false, kCGBlendModeNormal, 0, NULL } },
             { "multiply under global alpha 0.6", { false, false, false, false, kCGBlendModeMultiply, 0.6, NULL } },
@@ -353,10 +363,7 @@ int main(void)
             snprintf(name, sizeof(name), "%s, partial coverage, surface", kDestructiveModes[i].name);
             Scene partial = { true, true, false, false, kDestructiveModes[i].mode, 0, NULL };
             checkRoute(partial, name);
-            if (kDestructiveModes[i].mode == kCGBlendModePlusDarker)
-                checkPlusDarker(partial, name);
-            else
-                checkScene(partial, name, false, 0, 2);
+            checkScene(partial, name, false, 0, 2);
 
             // An 8-bit bitmap of another colour space takes the same route.
             Target ours = createTarget(false, kSide, kSide, gSRGB), stock = createTarget(false, kSide, kSide, gSRGB);
@@ -376,12 +383,15 @@ int main(void)
             Scene styled = partial;
             styled.shadow = true;
             checkRoute(styled, name);
-            checkScene(styled, name, true, 0, kStyledTolerance);
+            if (kDestructiveModes[i].mode == kCGBlendModePlusDarker)
+                checkScene(styled, name, false, 0.9, 3);
+            else
+                checkScene(styled, name, true, 0, kStyledTolerance);
         }
 
         {
-            // Repeated draws leave pixels the gradient does not cover exact: in a surface, a mask clip would lower
-            // them a level per draw.
+            // Repeated draws leave pixels the gradient does not cover exact: under the software renderer a mask clip
+            // would lower them a level per draw.
             enum { kDraws = 64 };
             const CGFloat components[] = { 1, 0, 0, 1, 0, 0, 1, 0.5 };
             CGGradientRef gradient = CGGradientCreateWithColorComponents(gSRGB, components, NULL, 2);

@@ -38,6 +38,7 @@
 #include "EventHandler.h"
 #include "FocusController.h"
 #include "FrameSelection.h"
+#include "GraphicsLayer.h" // AQUAWEBKIT: GraphicsLayer::supportsBlendMode.
 #include "HTMLAnchorElement.h"
 #include "HTMLBodyElement.h"
 #include "HTMLHtmlElement.h"
@@ -1066,8 +1067,35 @@ inline void RenderCounter::rendererStyleChanged(RenderElement& renderer, const S
     rendererStyleChangedSlowCase(renderer, oldStyle, newStyle);
 }
 
+// AQUAWEBKIT: blending descendants need the transparency layers around them on the surface read-back reaches. An inline
+// box's fill layers blend with what is beneath it, as mix-blend-mode does.
+static bool usesBlendModeLayersCannotComposite(const Style::ComputedStyle& style)
+{
+    if (!GraphicsLayer::supportsBlendMode(style.blendMode()))
+        return true;
+    for (auto& layer : style.backgroundLayers().usedValues()) {
+        if (!GraphicsLayer::supportsBlendMode(layer.blendMode()))
+            return true;
+    }
+    return false;
+}
+
+bool RenderElement::hasDescendantOfBlendModeLayersCannotComposite() const
+{
+    if (!document().hasBlendModeLayersCannotComposite())
+        return false;
+    for (auto& descendant : descendantsOfType<RenderElement>(*this)) {
+        if (usesBlendModeLayersCannotComposite(descendant.style()))
+            return true;
+    }
+    return false;
+}
+
 void RenderElement::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
+    if (usesBlendModeLayersCannotComposite(style())) // AQUAWEBKIT: the sticky document flag.
+        document().setHasBlendModeLayersCannotComposite();
+
     RefPtr protectedElement = element();
     if (protectedElement && protectedElement->shouldNotifyTextManipulationControllerIfDisplayed() && !isSkippedContent()) {
         protectedElement->clearShouldNotifyTextManipulationControllerIfDisplayed();

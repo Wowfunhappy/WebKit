@@ -2212,6 +2212,10 @@ void RenderLayerCompositor::layerStyleChanged(Style::Difference diff, RenderLaye
 
     const auto& newStyle = layer.renderer().style();
 
+    // AQUAWEBKIT: requiresCompositingLayer makes descendants of a mode layers cannot composite paint flat.
+    if (oldStyle && GraphicsLayer::supportsBlendMode(oldStyle->blendMode()) != GraphicsLayer::supportsBlendMode(newStyle.blendMode()))
+        layer.setDescendantsNeedCompositingRequirementsTraversal();
+
     if (hasContentCompositingLayers()) {
         if (diff >= Style::DifferenceResult::LayoutOutOfFlowMovementOnly) {
             layer.setNeedsPostLayoutCompositingUpdate();
@@ -3310,6 +3314,19 @@ bool RenderLayerCompositor::requiresCompositingLayer(const RenderLayer& layer, R
         || requiresCompositingForPlugin(renderer, queryData)
         || requiresCompositingForOverflowScrolling(*renderer.layer(), queryData)
         || requiresCompositingForAnchorPositioning(*renderer.layer())) {
+        // AQUAWEBKIT: mix-blend-mode makes a flat group, so an element of a blend mode layers cannot composite and its
+        // descendants paint into the ancestor's backing, except content that only has a layer to show it. Overlap, which
+        // does not come through here, keeps a layer above what it overlaps.
+        for (auto* ancestor = renderer.document().hasBlendModeLayersCannotComposite() ? &layer : nullptr; ancestor; ancestor = ancestor->parent()) {
+            if (ancestor->hasBlendMode() && !GraphicsLayer::supportsBlendMode(ancestor->blendMode()) && !ancestor->isRenderViewLayer()) {
+                bool showsContentsThroughLayer = requiresCompositingForVideo(renderer)
+                    || (renderer.isRenderHTMLCanvas() && canvasCompositingStrategy(renderer) == CanvasAsLayerContents)
+                    || requiresCompositingForModel(renderer) || requiresCompositingForFrame(renderer, queryData) || requiresCompositingForPlugin(renderer, queryData);
+                if (!showsContentsThroughLayer)
+                    return false;
+                break;
+            }
+        }
         queryData.intrinsic = true;
         return true;
     }

@@ -101,13 +101,14 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 
 #if USE(APPKIT)
 // AQUAWEBKIT: CoreAnimation's asynchronous drawing hands -drawInContext: a deferred recording
-// context (CGContextGetType answers kCGContextTypeUnknown and CGBitmapContextGetData is null), and this
-// OS's CoreGraphics does not carry a CGStyle through that recording: ordinary drawing and
-// CGContextSetShadowWithColor replay from it, a focus ring is dropped. WK2 tile layers take
+// context (CGContextGetType answers kCGContextTypeUnknown and CGBitmapContextGetData is null), and under
+// the software renderer this OS's QuartzCore does not carry a CGStyle through that recording: ordinary drawing and
+// CGContextSetShadowWithColor replay from it, a focus ring is dropped; a GPU draws the ring. WK2 tile layers take
 // drawsAsynchronously from AcceleratedDrawingEnabled, which WebKit turns on, so the two focus-ring call
 // sites run their upstream drawing through here: it hands `draw` a bitmap-backed stand-in for the part
-// of `destination` its clip can show, and composites those pixels back one for one.
-void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef))
+// of `destination` its clip can show, and composites those pixels back one for one. BackgroundPainter's fill layers
+// of blend modes QuartzCore does not implement blend through here as well.
+void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef), BitmapBackedColorSpace bitmapColorSpace)
 {
     CGRect clip = CGContextGetClipBoundingBox(destination);
     if (CGRectIsEmpty(clip))
@@ -119,11 +120,12 @@ void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContex
     if (!width || !height)
         return;
 
-    RetainPtr colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
+    RetainPtr<CGColorSpaceRef> colorSpace = bitmapColorSpace == BitmapBackedColorSpace::Destination ? CGContextGetColorSpace(destination) : nullptr;
+    if (!colorSpace)
+        colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
     RetainPtr scratch = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
         static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
-    if (!scratch)
-        return;
+    RELEASE_ASSERT(scratch);
 
     // The scratch's pixels are the destination's device space with deviceRect's origin at the bitmap's
     // origin, so `draw` works in the destination's user space and lands on the destination's pixel grid.
@@ -136,8 +138,7 @@ void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContex
     draw(scratch.get());
 
     RetainPtr image = adoptCF(CGBitmapContextCreateImage(scratch.get()));
-    if (!image)
-        return;
+    RELEASE_ASSERT(image);
     CGContextStateSaver stateSaver(destination);
     CGContextConcatCTM(destination, CGAffineTransformInvert(deviceFromUser));
     CGContextDrawImage(destination, deviceRect, image.get());

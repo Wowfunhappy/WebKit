@@ -440,6 +440,12 @@ probe_cg_radial_iosurface() {
         "$T/cg_radial_iosurface"
 }
 
+probe_cg_blend_read_back() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -Wno-four-char-constants -o "$T/cg_blend_read_back" \
+        "$TBEHAV/CoreGraphics-blend-read-back.m" $PROBE_LIBS -framework Cocoa -framework QuartzCore &&
+        "$T/cg_blend_read_back"
+}
+
 probe_cg_layer_context_colorspace() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/cg_layer_context_colorspace" \
         "$TBEHAV/CoreGraphics-layer-context-colorspace.m" $PROBE_LIBS -framework Cocoa -framework QuartzCore &&
@@ -1202,6 +1208,7 @@ run_probe cg_iosurface_image_matching "$@"
 run_probe cg_gradient_dither_space "$@"
 run_probe cg_radial_coinciding "$@"
 run_probe cg_radial_iosurface "$@"
+run_probe cg_blend_read_back "$@"
 run_probe cg_linear_srgb "$@"
 run_probe accelerate_converter_ramp "$@"
 run_probe cg_layer_context_colorspace "$@"

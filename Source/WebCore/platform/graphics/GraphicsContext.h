@@ -321,6 +321,9 @@ public:
 
     WEBCORE_EXPORT virtual void beginTransparencyLayer(float opacity);
     WEBCORE_EXPORT virtual void beginTransparencyLayer(CompositeOperator, BlendMode = BlendMode::Normal);
+    // AQUAWEBKIT: a layer holding draws of a blend mode 10.9's QuartzCore does not implement. The polyfill layer
+    // composites those through a read-back of a surface, which an offscreen layer has none of.
+    WEBCORE_EXPORT virtual void beginBlendingGroupTransparencyLayer(float opacity) { beginTransparencyLayer(opacity); }
     WEBCORE_EXPORT virtual void endTransparencyLayer();
     bool isInTransparencyLayer() const { return (m_transparencyLayerCount > 0); }
 

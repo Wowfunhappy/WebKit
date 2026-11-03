@@ -13,6 +13,7 @@
 #include <limits.h>
 #include "wk_font_catalog.h"
 #include "wk_helpers.h"
+#include "wk_coregraphics.h"
 #include "VariableFontInstancer.h"
 #include "wk_colr.h"
 #include "wk_font_image.h"
@@ -6939,6 +6940,13 @@ static CGRect wk_colrGlyphBounds(const wk_color_font *f, CGGlyph glyph)
 
 WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context))
 {
+    wk_blend_read_back readBack;
+    if (wk_blendReadBackBegin(context, &readBack)) {
+        CTFontDrawGlyphs(font, glyphs, positions, count, context);
+        wk_blendReadBackEnd(&readBack);
+        return;
+    }
+
     // A font with neither an sbix nor a COLR table has no glyph this layer draws, so the whole run goes to
     // CoreText. Past this point it may. A glyph carrying an sbix record is never handed to the original:
     // this OS decodes an sbix strike in ImageIO, and a strike's bytes are a downloadable font's bytes. A

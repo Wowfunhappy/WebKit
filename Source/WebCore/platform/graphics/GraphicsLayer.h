@@ -517,6 +517,8 @@ public:
 
     static bool NODELETE supportsLayerType(Type);
     static bool NODELETE supportsContentsTiling();
+    // AQUAWEBKIT: whether this port's layers composite the blend mode.
+    WEBCORE_EXPORT static bool supportsBlendMode(BlendMode);
 
     WEBCORE_EXPORT void updateDebugIndicators();
 

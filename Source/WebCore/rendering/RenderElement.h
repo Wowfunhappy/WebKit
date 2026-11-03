@@ -223,6 +223,7 @@ public:
     inline bool hasFilter() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasBackdropFilter() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasBlendMode() const; // Defined in RenderElementStyleInlines.h.
+    bool hasDescendantOfBlendModeLayersCannotComposite() const; // AQUAWEBKIT: decides which transparency layers GraphicsContext marks.
     inline bool hasShapeOutside() const; // Defined in RenderElementStyleInlines.h.
 
     IntBoxExtent computeFilterOutsets() const;

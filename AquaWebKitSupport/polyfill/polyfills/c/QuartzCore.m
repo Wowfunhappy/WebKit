@@ -31,9 +31,8 @@ WK_POLYFILL_CONST("QuartzCore", CALayerCornerCurve, kCACornerCurveCircular, @"ci
 // --- CoreAnimation CAFilter HSL (non-separable) blend-mode names (10.10+) -----------------
 // 10.9's QuartzCore has the separable blend modes (multiply/overlay/screen/...) but not the four HSL
 // ones (CSS mix-blend-mode: hue/saturation/color/luminosity). PlatformCAFiltersCocoa references all of
-// them; define the missing four so it links. 10.9's CoreAnimation does not implement these filters, so
-// CAFilter rejects the unknown name and the blend degrades to normal compositing — the separable modes
-// (which 10.9 does support) are unaffected.
+// them; define the missing four so it links. CAFilter accepts these names and QuartzCore composites them as
+// normal, on a GPU as well as in software.
 WK_POLYFILL_CONST("QuartzCore", PolyNSStringConst, kCAFilterHueBlendMode, @"hueBlendMode");
 WK_POLYFILL_CONST("QuartzCore", PolyNSStringConst, kCAFilterSaturationBlendMode, @"saturationBlendMode");
 WK_POLYFILL_CONST("QuartzCore", PolyNSStringConst, kCAFilterColorBlendMode, @"colorBlendMode");

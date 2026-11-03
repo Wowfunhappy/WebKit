@@ -314,11 +314,6 @@ void ControlMac::drawCellFocusRingInternal(GraphicsContext& context, const Float
     drawCellFocusRingInView(context, rect, cell, view.get());
 }
 
-// AQUAWEBKIT: defined in GraphicsContextCocoa.mm -- runs the drawing against a bitmap-backed
-// stand-in for the destination, because this OS's CoreGraphics drops a CGStyle from CoreAnimation's
-// asynchronous drawing context.
-void wkDrawInBitmapBackedContext(CGContextRef, void (^)(CGContextRef));
-
 void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell)
 {
     // AQUAWEBKIT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.

@@ -130,6 +130,21 @@ static RepaintMap& NODELETE repaintRectMap()
     return map;
 }
 
+// AQUAWEBKIT: 10.9's QuartzCore composites these as normal, and a Core Image filter in a WindowServer-hosted context
+// kills WindowServer.
+bool GraphicsLayer::supportsBlendMode(BlendMode blendMode)
+{
+    switch (blendMode) {
+    case BlendMode::Hue:
+    case BlendMode::Saturation:
+    case BlendMode::Color:
+    case BlendMode::Luminosity:
+        return false;
+    default:
+        return true;
+    }
+}
+
 #if !USE(CA) && !USE(COORDINATED_GRAPHICS)
 bool GraphicsLayer::supportsLayerType(Type type)
 {
