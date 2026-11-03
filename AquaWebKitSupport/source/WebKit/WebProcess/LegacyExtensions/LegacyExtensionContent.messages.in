@@ -3,7 +3,9 @@
 # webRequest, the mimeHandler viewers extensions supply, as a JSON array of
 # {mimeType, extensionKey, handlerURL, canEmbed}, whether one page prints backgrounds, for tabs.saveAsPDF, and
 # the execution context of the main world of a page's frame, found by its URL, for devtools.inspectedWindow.eval,
-# and the invalidation of an extension page whose extension Safari disabled or reloaded.
+# the invalidation of an extension page whose extension Safari disabled or reloaded, the files of each extension
+# web pages can and cannot use, as a JSON array of {root, accessible, inaccessible}, and the end of the world
+# scripting.executeScript made for an extension with no content scripts.
 [
     DispatchedFrom=UI,
     DispatchedTo=WebContent,
@@ -13,6 +15,8 @@ messages -> LegacyExtensionContent {
     Deliver(WebCore::FrameIdentifier frameID, std::optional<WebCore::ScriptExecutionContextIdentifier> documentID, String extensionKey, String message, IPC::SharedBufferReference data)
     EvictMemoryCache()
     SetMimeHandlers(String handlers)
+    SetResourcePolicies(String policies)
+    RemoveScriptingWorld(String extensionKey)
     SetPrintsBackgrounds(WebCore::PageIdentifier pageID, bool printsBackgrounds)
     InvalidateExtensionPage(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID)
 }

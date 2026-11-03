@@ -317,6 +317,9 @@ CachedResourceHandle<CachedCSSStyleSheet> CachedResourceLoader::requestUserCSSSt
     ASSERT(document());
     if (RefPtr document = this->document())
         request.resourceRequest().setShouldBlockThirdPartyStorage(document->shouldBlockThirdPartyStorage());
+    // AQUAWEBKIT: as requestResource does. The first party is part of the memory cache's key, and CachedResource::load fills in an empty one. Safari 7 extensions' injected style sheets reach this with @import.
+    if (RefPtr document = this->document())
+        request.resourceRequest().setFirstPartyForCookies(document->firstPartyForCookies());
 
     Ref memoryCache = MemoryCache::singleton();
     if (request.allowsCaching()) {

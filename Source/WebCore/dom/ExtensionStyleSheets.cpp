@@ -34,6 +34,7 @@
 #include "FrameDestructionObserverInlines.h"
 #include "HTMLLinkElement.h"
 #include "HTMLStyleElement.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: createExtensionsStyleSheet below.
 #include "ProcessingInstruction.h"
 #include "SVGStyleElement.h"
 #include "Settings.h"
@@ -69,6 +70,7 @@ static Ref<CSSStyleSheet> createExtensionsStyleSheet(Document& document, URL url
     auto styleSheet = CSSStyleSheet::create(contents.get(), document, true);
 
     contents->setIsUserStyleSheet(level == UserStyleLevel::User);
+    LegacyExtensionResourceAccess::StyleSheetParseScope legacyExtensionParseScope { url, text }; // AQUAWEBKIT: a Safari 7 extension's injected style sheet exposes the files it names.
     contents->parseString(text);
 
     return styleSheet;

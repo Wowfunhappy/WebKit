@@ -26,6 +26,7 @@
 #include "config.h"
 #include "OriginAccessPatterns.h"
 
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: anyPatternMatches below.
 #include "UserContentURLPattern.h"
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
@@ -62,6 +63,10 @@ void OriginAccessPatternsForWebProcess::allowAccessTo(const UserContentURLPatter
 
 bool OriginAccessPatternsForWebProcess::anyPatternMatches(const URL& url) const
 {
+    // AQUAWEBKIT: a Safari 7 extension's `web_inaccessible_resources` overrides its files' patterns.
+    if (auto access = LegacyExtensionResourceAccess::accessOverride(url))
+        return *access;
+
     Locker locker { originAccessPatternLock };
     for (const auto& pattern : originAccessPatterns()) {
         if (pattern.matches(url))

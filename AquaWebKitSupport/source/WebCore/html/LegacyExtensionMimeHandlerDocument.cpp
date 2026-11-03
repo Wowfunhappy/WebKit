@@ -12,6 +12,7 @@
 #include "HTMLNames.h"
 #include "JSBlob.h"
 #include "JSDOMGlobalObject.h"
+#include "LegacyExtensionResourceAccess.h"
 #include "LocalFrame.h"
 #include "RawDataDocumentParser.h"
 #include "SecurityOrigin.h"
@@ -174,6 +175,7 @@ void LegacyExtensionMimeHandlerDocument::createDocumentStructure()
     m_handlerFrameOwner = HTMLIFrameElement::create(iframeTag, *this);
     m_handlerFrameOwner->setAttribute(styleAttr, "width: 100%; height: 100%; border: 0; display: block;"_s);
     m_handlerFrameOwner->setAttribute(allowfullscreenAttr, emptyAtom());
+    LegacyExtensionResourceAccess::expose(m_handler.handlerURL);
     m_handlerFrameOwner->setAttribute(srcAttr, AtomString { m_handler.handlerURL.string() });
     body->appendChild(*m_handlerFrameOwner);
 

@@ -33,6 +33,7 @@
 #include "EventNames.h"
 #include "EventSender.h"
 #include "HTMLNames.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: childrenChanged below.
 #include "MediaQueryParser.h"
 #include "MediaQueryParserContext.h"
 #include "NodeDocument.h"
@@ -153,6 +154,7 @@ void HTMLStyleElement::removingSteps(RemovalType removalType, ContainerNode& old
 void HTMLStyleElement::childrenChanged(const ChildChange& change)
 {
     HTMLElement::childrenChanged(change);
+    LegacyExtensionResourceAccess::styleElementChildrenChanged(*this, change.source == ChildChange::Source::Clone); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     m_styleSheetOwner.childrenChanged(*this);
 }
 

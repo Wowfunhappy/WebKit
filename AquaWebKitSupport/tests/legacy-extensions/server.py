@@ -141,6 +141,43 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             else:
                 body = '{"ok":true}'
             return self.reply(body, types.get(ext, 'application/octet-stream'))
+        # check-resource-access.py: a server's redirect to any URL, and pages under the headers the checks need.
+        if path.startswith('/to-url?'):
+            target = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)['to'][0]
+            return self.reply('', status=302, headers=[('Location', target)])
+        if path.startswith('/set-other-root?'):
+            Handler.other_root = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)['root'][0]
+            return self.reply('', 'text/plain')
+        if path.startswith('/other-root'):
+            return self.reply(getattr(Handler, 'other_root', ''), 'text/plain')
+        if path.startswith('/ra-frame-target'):
+            body = '<!doctype html><title>target</title><script>parent.postMessage({ raTarget: location.href, origin: self.origin }, "*");</script>'
+            headers = [('Cross-Origin-Embedder-Policy', 'require-corp')] if 'coep' in path else []
+            return self.reply(body, 'text/html', headers=headers)
+        if path.startswith('/ra-frame-sub.html'):
+            body = '''<!doctype html><title>frame subresources</title><script src="/ra-sub-script.js"></script><script>
+fetch('/ra-sub-header.txt').then(response => response.text()).then(header => parent.postMessage({ raTarget: `${window.__subScript} ${header}`, origin: self.origin }, '*'));
+</script>'''
+            return self.reply(body, 'text/html', headers=[('Cross-Origin-Embedder-Policy', 'require-corp')])
+        if path.startswith('/ra-sub-script.js'):
+            return self.reply('window.__subScript = "not-redirected";', 'text/javascript')
+        if path.startswith('/ra-sub-redirected.js'):
+            return self.reply('window.__subScript = "redirected";', 'text/javascript')
+        if path.startswith('/ra-sub-header.txt'):
+            return self.reply(self.headers.get('Accept-Language', 'no-header'), 'text/plain')
+        if path.startswith('/ra-fr-header-verdict'):
+            return self.reply('<!doctype html><title>server answer</title>', 'text/html')
+        if path.startswith('/resource-access-coep'):
+            with open(os.path.join(ROOT, 'pages', 'resource-access.html'), 'rb') as f:
+                return self.reply(f.read(), 'text/html', headers=[('Cross-Origin-Embedder-Policy', 'require-corp')])
+        if path.startswith('/scripting-csp') or path.startswith('/scripting-no-content'):
+            with open(os.path.join(ROOT, 'pages', 'scripting.html'), 'rb') as f:
+                return self.reply(f.read(), 'text/html', headers=[('Content-Security-Policy', "script-src 'self'; frame-src 'self'")])
+        if path.startswith('/scripting-slow-script.js'):
+            time.sleep(3)
+            return self.reply('window.slowScriptDone = true;', 'text/javascript')
+        if path.startswith('/scripting-slow'):
+            return self.reply('<!doctype html><title>slow</title><script src="/scripting-slow-script.js"></script><p>slow</p>', 'text/html')
         if path.startswith('/csp-page'):
             with open(os.path.join(ROOT, 'pages', 'csp.html'), 'rb') as f:
                 body = f.read()

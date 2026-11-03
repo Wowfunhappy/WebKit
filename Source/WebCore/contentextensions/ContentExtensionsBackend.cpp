@@ -32,6 +32,7 @@
 #include "ChromeClient.h"
 #include "CompiledContentExtension.h"
 #include "ContentExtension.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: processContentRuleListsForLoad below.
 #include "ContentExtensionsDebugging.h"
 #include "ContentRuleListMatchedRule.h"
 #include "ContentRuleListResults.h"
@@ -317,6 +318,13 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
                 if (initiatingDocumentLoader.allowsActiveContentRuleListActionsForURL(contentRuleListIdentifier, url)) {
                     if (results.summary.blockedLoad)
                         return;
+
+                    // AQUAWEBKIT: a navigation is not checked as a subresource is, so a rule's redirect to a Safari 7 extension's file no page can use fails here, however the rule forms the URL.
+                    if (!LegacyExtensionResourceAccess::ruleMayRedirect(url, redirectAction, m_contentExtensions.get(contentRuleListIdentifier)->extensionBaseURL())) {
+                        results.summary.blockedLoad = true;
+                        result.blockedLoad = true;
+                        return;
+                    }
 
                     result.redirected = true;
                     results.summary.redirected = true;

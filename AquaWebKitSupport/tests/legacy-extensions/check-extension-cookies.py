@@ -89,6 +89,8 @@ def prepare():
         info = dict(template)
         info.update(CFBundleDisplayName='Aqua Cookie ' + name, CFBundleIdentifier='org.webkit.aqua-cookie-' + name)
         info['Chrome'] = {'Global Page': 'global.html'}
+        # cookie-frame.html embeds the fixture's page.
+        info['web_accessible_resources'] = ['page.html']
         if name == 'all':
             info['Chrome']['Bars'] = [{'File':'bar.html', 'Filename':'bar.html', 'Identifier':'cookieBar', 'Label':'Cookie fixture'}]
             info['Chrome']['Popovers'] = [{'Filename':'popover.html', 'Identifier':'cookiePopover', 'Width':240.0, 'Height':100.0}]

@@ -51,6 +51,8 @@ public:
     // extension's rules to load.
     using CallResult = Expected<RefPtr<JSON::Value>, String>;
     void performCall(const String& method, RefPtr<JSON::Value>&& argument, Function<bool(double tabID)>&& tabExists, CompletionHandler<void(CallResult&&)>&&);
+    // Called with the paths of the extension's files the rules redirect to, which pages then load, whenever rules are compiled.
+    void setExtensionPathObserver(Function<void(Vector<String>&&)>&& observer) { m_extensionPathObserver = WTF::move(observer); }
     // Called with a tab's action count whenever it changes while the extension displays it.
     void setActionCountObserver(Function<void(double tabID, double count)>&& observer) { m_actionCountObserver = WTF::move(observer); }
 
@@ -120,6 +122,7 @@ private:
     std::unique_ptr<RunLoop::Timer> m_purgeMatchedRulesTimer;
     HashMap<double, double> m_actionCounts;
     Function<void(double, double)> m_actionCountObserver;
+    Function<void(Vector<String>&&)> m_extensionPathObserver;
     bool m_hasLoadedRules { false };
     Vector<Function<void()>> m_callsWaitingForRules;
 };

@@ -23,6 +23,7 @@
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSLock.h>
 #include <WebCore/ActiveDOMObject.h>
+#include <WebCore/CommonVM.h>
 #include <WebCore/ContextDestructionObserverInlines.h>
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/DocumentInlines.h>
@@ -30,13 +31,18 @@
 #include <WebCore/HTMLFrameOwnerElement.h>
 #include <WebCore/HTMLMediaElement.h>
 #include <WebCore/SecurityOrigin.h>
+#include <JavaScriptCore/CallData.h>
+#include <JavaScriptCore/JSNativeStdFunction.h>
+#include <JavaScriptCore/JSONObject.h>
 #include <JavaScriptCore/JSRetainPtr.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <JavaScriptCore/JSStringRef.h>
 #include <wtf/Expected.h>
 #include <wtf/HashSet.h>
 #include <cmath>
 #include <vector>
 #include <WebCore/JSDOMWindow.h>
+#include <WebCore/JSDOMExceptionHandling.h>
 #include <WebCore/JSElement.h>
 #include <WebCore/JSTextTrack.h>
 #include <WebCore/JSWindowProxy.h>
@@ -182,6 +188,7 @@ static JSValueRef contentContextInsertCSS(JSContextRef context, JSObjectRef, JSO
         return JSValueMakeUndefined(context);
     bool isAuthorLevel = argumentCount > 1 && JSValueToBoolean(context, arguments[1]);
     URL url { LegacyExtensions::stringArgument(context, argumentCount, arguments, 2) };
+    WebCore::LegacyExtensionResourceAccess::exposeURLsInStyleText(code, native->extensionKey);
     LegacyExtensionContent::singleton().insertStyleSheet(*document, native->extensionKey, WebCore::UserStyleSheet { code, url.protocolIs(extensionScheme) ? url : URL { }, { }, { }, WebCore::UserContentInjectedFrames::InjectInAllFrames, WebCore::UserContentMatchParentFrame::Never, isAuthorLevel ? WebCore::UserStyleLevel::Author : WebCore::UserStyleLevel::User });
     return JSValueMakeUndefined(context);
 }
@@ -217,6 +224,194 @@ static JSValueRef contentContextExecuteScript(JSContextRef context, JSObjectRef,
         completionValue = toRef(globalObject, result.value());
     });
     return completionValue;
+}
+
+// Calls back a context with the value of scripting.executeScript's script, once, whatever the script's value then
+// does; with null when the script threw, its promise rejected, or the promise is collected unsettled.
+class InjectionCompletion : public RefCounted<InjectionCompletion> {
+public:
+    static Ref<InjectionCompletion> create(JSContextRef context, JSObjectRef callback)
+    {
+        return adoptRef(*new InjectionCompletion(context, callback));
+    }
+
+    // The garbage collector can destroy this, while the JavaScript API cannot be used.
+    ~InjectionCompletion()
+    {
+        RunLoop::mainSingleton().dispatch([context = m_context, callback = m_callback, isComplete = m_isComplete] {
+            if (!isComplete) {
+                JSValueRef argument = JSValueMakeNull(context);
+                JSObjectCallAsFunction(context, callback, nullptr, 1, &argument, nullptr);
+            }
+            JSValueUnprotect(context, callback);
+            JSGlobalContextRelease(context);
+        });
+    }
+
+    bool isComplete() const { return m_isComplete; }
+
+    void complete(std::optional<JSC::JSValue> value)
+    {
+        if (std::exchange(m_isComplete, true))
+            return;
+        auto* globalObject = toJS(m_context);
+        JSC::JSLockHolder lock(globalObject->vm());
+        JSValueRef argument = value ? toRef(globalObject, *value) : JSValueMakeNull(m_context);
+        JSObjectCallAsFunction(m_context, m_callback, nullptr, 1, &argument, nullptr);
+    }
+
+private:
+    InjectionCompletion(JSContextRef context, JSObjectRef callback)
+        : m_context(JSGlobalContextRetain(JSContextGetGlobalContext(context)))
+        , m_callback(callback)
+    {
+        JSValueProtect(m_context, m_callback);
+    }
+
+    JSGlobalContextRef m_context;
+    JSObjectRef m_callback;
+    bool m_isComplete { false };
+};
+
+static void completeInjection(Ref<InjectionCompletion>&& completion, RefPtr<WebCore::Document>&& document, WebCore::ValueOrException&& result)
+{
+    // ScriptController also reports a failure from the finalizer of a promise collected unsettled, where no script can run.
+    if (!result) {
+        RunLoop::mainSingleton().dispatch([completion = WTF::move(completion), document = WTF::move(document), message = result.error().message] {
+            if (completion->isComplete())
+                return;
+            if (document)
+                document->addConsoleMessage(JSC::MessageSource::JS, JSC::MessageLevel::Error, message);
+            completion->complete(std::nullopt);
+        });
+        return;
+    }
+    // ScriptController's wait for a function's promise reads the page's `then`, whose exception it leaves pending for
+    // a caller with no script running. Here, this context's script is running.
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(WebCore::commonVM());
+    if (auto* exception = scope.exception()) {
+        scope.clearException();
+        RefPtr frame = document ? document->frame() : nullptr;
+        if (auto* globalObject = frame ? frame->script().globalObject(WebCore::mainThreadNormalWorldSingleton()) : nullptr)
+            WebCore::reportException(globalObject, exception);
+        return completion->complete(std::nullopt);
+    }
+    completion->complete(result.value());
+}
+
+// A file's script gives its completion value, which is not an async function's: it waits for a thenable as
+// ScriptController does for one, with functions of the target world, the only ones a page's `then` can reach.
+static void awaitInjectionValue(WebCore::LocalFrame& frame, WebCore::DOMWrapperWorld& world, RefPtr<WebCore::Document>&& document, JSC::JSValue value, Ref<InjectionCompletion>&& completion)
+{
+    auto* globalObject = frame.script().globalObject(world);
+    if (!globalObject || !value.isObject())
+        return completion->complete(value);
+    auto& vm = globalObject->vm();
+    JSC::JSLockHolder lock(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+    auto then = value.get(globalObject, vm.propertyNames->then);
+    if (scope.exception()) {
+        scope.clearException();
+        return completion->complete(std::nullopt);
+    }
+    auto callData = JSC::getCallData(then);
+    if (callData.type == JSC::CallData::Type::None)
+        return completion->complete(value);
+    auto* fulfill = JSC::JSNativeStdFunction::create(vm, globalObject, 1, String { }, [completion](JSC::JSGlobalObject*, JSC::CallFrame* callFrame) {
+        completion->complete(callFrame->argument(0));
+        return JSC::JSValue::encode(JSC::jsUndefined());
+    });
+    auto* reject = JSC::JSNativeStdFunction::create(vm, globalObject, 1, String { }, [completion, document = WTF::move(document)](JSC::JSGlobalObject* rejectGlobalObject, JSC::CallFrame* callFrame) {
+        // The page's rejection reason can throw when it is read.
+        auto rejectScope = DECLARE_TOP_EXCEPTION_SCOPE(rejectGlobalObject->vm());
+        auto message = callFrame->argument(0).toWTFString(rejectGlobalObject);
+        rejectScope.clearException();
+        if (document && !message.isNull())
+            document->addConsoleMessage(JSC::MessageSource::JS, JSC::MessageLevel::Error, message);
+        completion->complete(std::nullopt);
+        return JSC::JSValue::encode(JSC::jsUndefined());
+    });
+    JSC::MarkedArgumentBuffer arguments;
+    arguments.append(fulfill);
+    arguments.append(reject);
+    JSC::call(globalObject, then, callData, value, arguments);
+    if (scope.exception()) {
+        scope.clearException();
+        completion->complete(std::nullopt);
+    }
+}
+
+// runInjection(details, callback): runs scripting.executeScript's script in the context's world, or the page's own
+// when details.isMainWorld, as upstream runs user agent scripts, which a page's Content Security Policy does not
+// govern. details has functionSource and args, each argument as JSON, or sources, run in order; a function runs as
+// upstream's callAsyncJavaScript runs one. The callback receives the value of the function or of the last source.
+static JSValueRef contentContextRunInjection(JSContextRef context, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef*)
+{
+    auto* native = static_cast<ContentContextNative*>(JSObjectGetPrivate(thisObject));
+    // The JavaScript API dropped the lock to call this.
+    JSC::JSLockHolder lock(WebCore::commonVM());
+    JSObjectRef callback = argumentCount > 1 ? JSValueToObject(context, arguments[1], nullptr) : nullptr;
+    if (!callback || !JSObjectIsFunction(context, callback))
+        return JSValueMakeUndefined(context);
+    Ref completion = InjectionCompletion::create(context, callback);
+
+    RefPtr document = documentForNative(*native);
+    RefPtr frame = document ? document->frame() : nullptr;
+    auto detailsValue = JSON::Value::parseJSON(LegacyExtensions::stringArgument(context, argumentCount, arguments, 0));
+    RefPtr details = detailsValue ? detailsValue->asObject() : nullptr;
+    if (!frame || !details) {
+        completion->complete(std::nullopt);
+        return JSValueMakeUndefined(context);
+    }
+
+    Ref<WebCore::DOMWrapperWorld> world { details->getBoolean("isMainWorld"_s).value_or(false) ? WebCore::mainThreadNormalWorldSingleton() : *native->world };
+    bool userGesture = details->getBoolean("userGesture"_s).value_or(false);
+
+    if (auto functionSource = details->getString("functionSource"_s); !functionSource.isNull()) {
+        WebCore::ArgumentMap argumentMap;
+        StringBuilder names;
+        if (RefPtr args = details->getArray("args"_s)) {
+            for (auto& arg : *args) {
+                auto name = makeString('a', argumentMap.size());
+                if (!names.isEmpty())
+                    names.append(',');
+                names.append(name);
+                argumentMap.set(WTF::move(name), [json = arg->asString()](JSC::JSGlobalObject& globalObject) {
+                    return JSC::JSONParse(&globalObject, json);
+                });
+            }
+        }
+        frame->script().executeAsynchronousUserAgentScriptInWorld(world, { makeString("return ("_s, functionSource, "\n)("_s, names.toString(), ");"_s), JSC::SourceTaintedOrigin::Untainted, URL { }, true, WTF::move(argumentMap), userGesture, WebCore::RemoveTransientActivation::Yes }, [completion, document](WebCore::ValueOrException result) mutable {
+            completeInjection(completion.copyRef(), WTF::move(document), WTF::move(result));
+        });
+        // A page's `then` that threw when ScriptController called it.
+        auto* globalObject = frame->script().globalObject(world);
+        auto scope = DECLARE_TOP_EXCEPTION_SCOPE(globalObject->vm());
+        if (auto* exception = scope.exception()) {
+            scope.clearException();
+            WebCore::reportException(globalObject, exception);
+            completion->complete(std::nullopt);
+        }
+        return JSValueMakeUndefined(context);
+    }
+
+    RefPtr sources = details->getArray("sources"_s);
+    if (!sources || !sources->length()) {
+        completion->complete(std::nullopt);
+        return JSValueMakeUndefined(context);
+    }
+    for (size_t index = 0; index < sources->length(); ++index) {
+        bool isLast = index + 1 == sources->length();
+        frame->script().executeAsynchronousUserAgentScriptInWorld(world, { sources->get(index)->asString(), JSC::SourceTaintedOrigin::Untainted, URL { }, false, std::nullopt, userGesture, WebCore::RemoveTransientActivation::Yes }, [&](WebCore::ValueOrException result) {
+            if (!isLast)
+                return;
+            if (!result)
+                return completion->complete(std::nullopt);
+            awaitInjectionValue(*frame, world, RefPtr { document }, result.value(), completion.copyRef());
+        });
+    }
+    return JSValueMakeUndefined(context);
 }
 
 // isProcessingUserGesture(): whether the caller runs inside a user gesture, which a call it makes carries on as
@@ -650,6 +845,7 @@ static JSClassRef contentContextNativeClass(LegacyExtensions::ContextKind kind)
             { "removeCSS", contentContextRemoveCSS, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "frameId", contentContextFrameID, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { "executeScript", contentContextExecuteScript, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+            { "runInjection", contentContextRunInjection, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
             { nullptr, nullptr, 0 },
         };
         JSClassDefinition definition = kJSClassDefinitionEmpty;
@@ -693,6 +889,7 @@ LegacyExtensionContent& LegacyExtensionContent::singleton()
 void LegacyExtensionContent::initialize(WebProcess& process)
 {
     LegacyExtensions::registerExtensionScheme();
+    WebCore::LegacyExtensionResourceAccess::setClient(this);
     process.addMessageReceiver(Messages::LegacyExtensionContent::messageReceiverName(), *this);
 }
 
@@ -731,6 +928,19 @@ static String extensionKeyForURL(const URL& url)
     return url.host().toString();
 }
 
+// The world scripting.executeScript runs an extension's "ISOLATED" scripts in when the extension has no content
+// scripts, and the root of the extension's files, as user content tells of an extension that has them.
+struct ScriptingWorld {
+    RefPtr<InjectedBundleScriptWorld> world;
+    String root;
+};
+
+static HashMap<String, ScriptingWorld>& scriptingWorlds()
+{
+    static NeverDestroyed<HashMap<String, ScriptingWorld>> worlds;
+    return worlds;
+}
+
 // The extension a content-script world belongs to: the one whose safari-extension:// URLs the world's
 // user content has. A world Safari withdrew holds none.
 static String extensionKeyOfContentWorld(WebCore::DOMWrapperWorld& world)
@@ -743,6 +953,12 @@ static String extensionKeyOfContentWorld(WebCore::DOMWrapperWorld& world)
         if (extensionKey.isEmpty() && &candidate == bundleWorld.get())
             extensionKey = extensionKeyForURL(script ? script->url() : styleSheet->url());
     });
+    if (extensionKey.isEmpty()) {
+        for (auto& [scriptingKey, scriptingWorld] : scriptingWorlds()) {
+            if (scriptingWorld.world.get() == bundleWorld.get())
+                return scriptingKey;
+        }
+    }
     return extensionKey;
 }
 
@@ -774,6 +990,12 @@ static Vector<String> contentWorldRoots(WebCore::DOMWrapperWorld& world)
         roots.removeAll(root);
         roots.append(WTF::move(root));
     });
+    if (roots.isEmpty()) {
+        for (auto& scriptingWorld : scriptingWorlds().values()) {
+            if (scriptingWorld.world.get() == bundleWorld.get())
+                roots.append(scriptingWorld.root);
+        }
+    }
     return roots;
 }
 
@@ -792,7 +1014,63 @@ WebCore::DOMWrapperWorld* LegacyExtensionContent::contentScriptWorld(const Strin
         if (!world && extensionKeyForURL(script ? script->url() : styleSheet->url()) == extensionKey)
             world = &candidate.coreWorld();
     });
+    if (!world) {
+        if (auto iterator = scriptingWorlds().find(extensionKey); iterator != scriptingWorlds().end())
+            world = &iterator->value.world->coreWorld();
+    }
     return world;
+}
+
+// The extension's Info.plist can still be unread, or its policy behind this message in the connection. The root of an
+// extension this process has no content from is one a page made up, and has no policy to wait for. One wait answers for a
+// root: a root the host has replaced gets no policy, however often a page asks.
+void LegacyExtensionContent::policyNeeded(const String& root)
+{
+    auto roots = userContentExtensionRoots();
+    auto key = WebCore::LegacyExtensionResourceAccess::policyKeyOfRoot(root);
+    bool isContentRoot = std::ranges::any_of(roots, [&](auto& contentRoot) {
+        return WebCore::LegacyExtensionResourceAccess::policyKeyOfRoot(contentRoot) == key;
+    });
+    if (!isContentRoot || !m_rootsWaitedForPolicy.add(key).isNewEntry)
+        return;
+    RefPtr connection = WebProcess::singleton().parentProcessConnection();
+    if (!connection)
+        return;
+    auto [policies] = connection->sendSync(Messages::LegacyExtensionHost::SetUserContentExtensionRootsAndWait(WTF::move(roots)), 0).takeReplyOr(String { });
+    setResourcePolicies(WTF::move(policies));
+}
+
+String LegacyExtensionContent::extensionKeyOfWorld(WebCore::DOMWrapperWorld& world)
+{
+    return extensionKeyOfContentWorld(world);
+}
+
+void LegacyExtensionContent::setResourcePolicies(String&& json)
+{
+    auto value = JSON::Value::parseJSON(json);
+    RefPtr array = value ? value->asArray() : nullptr;
+    if (!array)
+        return;
+    auto strings = [](RefPtr<JSON::Array>&& list) {
+        Vector<String> result;
+        if (list) {
+            for (auto& item : *list)
+                result.append(item->asString());
+        }
+        return result;
+    };
+    Vector<WebCore::LegacyExtensionResourceAccess::Policy> policies;
+    for (auto& entry : *array) {
+        if (RefPtr policy = entry->asObject())
+            policies.append({ policy->getString("root"_s), strings(policy->getArray("accessible"_s)), strings(policy->getArray("inaccessible"_s)) });
+    }
+    WebCore::LegacyExtensionResourceAccess::setPolicies(policies);
+}
+
+void LegacyExtensionContent::removeScriptingWorld(String&& extensionKey)
+{
+    if (scriptingWorlds().remove(extensionKey))
+        userContentDidChange();
 }
 
 String LegacyExtensionContent::extensionKeyForWorld(WebFrame& frame, WebCore::DOMWrapperWorld& world) const
@@ -953,8 +1231,12 @@ void LegacyExtensionContent::replyWithoutContext(WebCore::FrameIdentifier frameI
         document = nullptr;
     URL documentURL = document ? document->url() : URL { };
 
-    if (type == "exec"_s || type == "css"_s) {
+    if (type == "exec"_s || type == "css"_s || type == "scriptingExec"_s) {
         RefPtr world = contentScriptWorld(extensionKey);
+        if (document && !world && type == "scriptingExec"_s) {
+            auto& scriptingWorld = scriptingWorlds().add(extensionKey, ScriptingWorld { InjectedBundleScriptWorld::create(ContentWorldIdentifier::generate()), object->getString("root"_s) }).iterator->value;
+            world = &scriptingWorld.world->coreWorld();
+        }
         if (document && world) {
             auto* globalObject = coreFrame->script().globalObject(*world);
             if (globalObject && LegacyExtensions::deliver(*globalObject, message))

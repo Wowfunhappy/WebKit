@@ -32,6 +32,7 @@
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "LocalFrame.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: parseAuthorStyleSheet below.
 #include "MediaList.h"
 #include "NodeDocument.h"
 #include "OriginAccessPatterns.h"
@@ -424,6 +425,7 @@ bool StyleSheetContents::parseAuthorStyleSheet(const CachedCSSStyleSheet* cached
         return false;
     }
 
+    LegacyExtensionResourceAccess::StyleSheetParseScope legacyExtensionParseScope { LegacyExtensionResourceAccess::extensionStyleSheetURL(cachedStyleSheet->response()), sheetText }; // AQUAWEBKIT: a Safari 7 extension's file exposes the files it names.
     CSSParser::parseStyleSheet(sheetText, parserContext(), *this);
     return true;
 }

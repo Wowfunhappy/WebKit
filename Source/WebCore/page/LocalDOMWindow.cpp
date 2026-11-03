@@ -97,6 +97,7 @@
 #include "JSExecState.h"
 #include "JSPushSubscription.h"
 #include "KeyboardEvent.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: setLocation and createWindow below.
 #include "LocalFrame.h"
 #include "LocalFrameInlines.h"
 #include "LocalFrameLoaderClient.h"
@@ -2838,6 +2839,8 @@ void LocalDOMWindow::setLocation(LocalDOMWindow& activeWindow, const URL& comple
     if (!passesSetLocationSecurityChecks(activeWindow, completedURL, navigationState))
         return;
 
+    LegacyExtensionResourceAccess::exposeFromCallingWorld(completedURL); // AQUAWEBKIT: a Safari 7 content script navigating to its extension's page; the navigation starts after the script returns.
+
     RefPtr activeDocument = activeWindow.document();
     if (!activeDocument)
         return;
@@ -2876,6 +2879,8 @@ ExceptionOr<RefPtr<Frame>> LocalDOMWindow::createWindow(const String& urlString,
     URL completedURL = urlString.isEmpty() ? URL({ }, emptyString()) : protect(firstFrame.document())->encodingParseURL(urlString);
     if (!completedURL.isEmpty() && !completedURL.isValid())
         return Exception { ExceptionCode::SyntaxError };
+
+    LegacyExtensionResourceAccess::exposeFromCallingWorld(completedURL); // AQUAWEBKIT: a Safari 7 content script opening its extension's page.
 
     WindowFeatures windowFeatures = initialWindowFeatures;
 

@@ -46,6 +46,19 @@ static RefPtr<JSON::Object> manifestEntry(NSDictionary *plist, NSString *key)
     return value ? value->asObject() : nullptr;
 }
 
+static Vector<String> stringList(NSDictionary *plist, NSString *key)
+{
+    Vector<String> strings;
+    NSArray *list = plist[key];
+    if (![list isKindOfClass:NSArray.class])
+        return strings;
+    for (id item in list) {
+        if ([item isKindOfClass:NSString.class])
+            strings.append(String(item));
+    }
+    return strings;
+}
+
 void loadInfoPlist(const URL& root, CompletionHandler<void(InfoPlist&&)>&& completionHandler)
 {
     RetainPtr request = [NSURLRequest requestWithURL:URL(root, "Info.plist"_s).createNSURL().get()];
@@ -62,6 +75,8 @@ void loadInfoPlist(const URL& root, CompletionHandler<void(InfoPlist&&)>&& compl
                 infoPlist.mimeTypesHandler = manifestEntry(plist, @"mime_types_handler");
                 if (NSString *devToolsPage = plist[@"WebExtensionDevtoolsPage"]; [devToolsPage isKindOfClass:NSString.class])
                     infoPlist.devToolsPage = devToolsPage;
+                infoPlist.webAccessibleResources = stringList(plist, @"web_accessible_resources");
+                infoPlist.webInaccessibleResources = stringList(plist, @"web_inaccessible_resources");
             }
             completionHandler(WTF::move(infoPlist));
         });

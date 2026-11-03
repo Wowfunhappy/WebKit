@@ -34,6 +34,7 @@
 #include "FrameDestructionObserverInlines.h"
 #include "JSDOMBinding.h"
 #include "JSDOMPromiseDeferred.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: resolve below.
 #include "LoadableModuleScript.h"
 #include "LocalFrame.h"
 #include "MIMETypeRegistry.h"
@@ -152,10 +153,20 @@ JSC::Identifier ScriptModuleLoader::resolve(JSC::JSGlobalObject* jsGlobalObject,
         return { };
     }
 
+    // AQUAWEBKIT: a Safari 7 extension's fetched module, or its content script, exposes what it imports. Not what a page's import map chose, and not as a page's own script with an extension's file as its base.
+    auto noteLegacyExtensionImport = [&](const URL& url) {
+        if (!url.protocolIs("safari-extension"_s) || url != parseURLLikeModuleSpecifier(specifier, baseURL))
+            return;
+        bool importerIsFetchedModule = importerModuleKey.isString() && m_requestURLToResponseURLMap.contains(asString(importerModuleKey)->value(jsGlobalObject));
+        LegacyExtensionResourceAccess::moduleDidResolve(url, baseURL, importerIsFetchedModule);
+    };
+
     if (!useImportMap) {
         URL asURL = parseURLLikeModuleSpecifier(specifier, baseURL);
-        if (!asURL.isNull())
+        if (!asURL.isNull()) {
+            noteLegacyExtensionImport(asURL); // AQUAWEBKIT: above.
             return JSC::Identifier::fromString(vm, asURL.string());
+        } // AQUAWEBKIT: closes the block the line above needs.
     }
 
     auto result = resolveModuleSpecifier(*protect(m_context), m_ownerType, jsGlobalObject->importMap(), specifier, baseURL);
@@ -167,6 +178,7 @@ JSC::Identifier ScriptModuleLoader::resolve(JSC::JSGlobalObject* jsGlobalObject,
         return { };
     }
 
+    noteLegacyExtensionImport(*result); // AQUAWEBKIT: above.
     return JSC::Identifier::fromString(vm, result->string());
 }
 

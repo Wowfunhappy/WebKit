@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Stock probe</title>
+<p>Read by stock-probe.safariextension. ES5, so it also runs under stock Safari 7.</p>
+<script>
+window.__results = { done: false };
+var R = window.__results;
+function step(name, run, next) {
+    var finished = false;
+    var done = function (value) {
+        if (finished)
+            return;
+        finished = true;
+        R[name] = value;
+        next();
+    };
+    setTimeout(function () { done('timeout'); }, 4000);
+    try {
+        run(done);
+    } catch (error) {
+        done('throw:' + error.name);
+    }
+}
+function xhr(url, async) {
+    return function (done) {
+        var request = new XMLHttpRequest();
+        request.open('GET', url, async);
+        request.onload = function () { done('read:' + request.responseText.replace(/\s+$/, '').slice(0, 30)); };
+        request.onerror = function () { done('fail'); };
+        request.send();
+        if (!async)
+            done('read:' + request.responseText.replace(/\s+$/, '').slice(0, 30));
+    };
+}
+function image(url) {
+    return function (done) {
+        var element = new Image();
+        element.onload = function () {
+            var canvas = document.createElement('canvas');
+            canvas.width = element.naturalWidth;
+            canvas.height = element.naturalHeight;
+            var context = canvas.getContext('2d');
+            context.drawImage(element, 0, 0);
+            try {
+                context.getImageData(0, 0, 1, 1);
+                done('loaded,pixels');
+            } catch (error) {
+                done('loaded,tainted');
+            }
+        };
+        element.onerror = function () { done('fail'); };
+        element.src = url;
+    };
+}
+function script(url) {
+    return function (done) {
+        var element = document.createElement('script');
+        element.onload = function () { done('ran,toString:' + (typeof probePrivateFunction === 'function' ? String(probePrivateFunction).slice(0, 30) : 'none')); };
+        element.onerror = function () { done('fail'); };
+        element.src = url;
+        document.head.appendChild(element);
+    };
+}
+function style(url) {
+    return function (done) {
+        var before = document.styleSheets.length;
+        var element = document.createElement('link');
+        element.rel = 'stylesheet';
+        element.href = url;
+        document.head.appendChild(element);
+        var tries = 0;
+        var poll = function () {
+            if (document.styleSheets.length > before) {
+                var sheet = document.styleSheets[document.styleSheets.length - 1];
+                try {
+                    done('applied,rules:' + (sheet.cssRules ? sheet.cssRules.length : 'null'));
+                } catch (error) {
+                    done('applied,rules-blocked');
+                }
+                return;
+            }
+            if (++tries > 30)
+                return done('not-applied');
+            setTimeout(poll, 100);
+        };
+        poll();
+    };
+}
+function frame(url) {
+    return function (done) {
+        var element = document.createElement('iframe');
+        var listener = function (event) {
+            if (event.data === 'probe-frame-loaded')
+                done('loaded');
+        };
+        window.addEventListener('message', listener);
+        element.src = url;
+        document.body.appendChild(element);
+        setTimeout(function () { done('blocked'); }, 2500);
+    };
+}
+function run() {
+    var extensionRoot = document.documentElement.getAttribute('data-root');
+    R.root = extensionRoot;
+    if (!extensionRoot) {
+        R.done = true;
+        return;
+    }
+    var steps = [
+        ['pageAsyncXHR', xhr(extensionRoot + 'private.txt', true)],
+        ['pageSyncXHR', xhr(extensionRoot + 'private.txt', false)],
+        ['pageImage', image(extensionRoot + 'private.png')],
+        ['pageScript', script(extensionRoot + 'private.js')],
+        ['pageStyle', style(extensionRoot + 'private.css')],
+        ['pageFrame', frame(extensionRoot + 'frame.html')],
+    ];
+    var index = 0;
+    var next = function () {
+        if (index === steps.length) {
+            R.own = document.documentElement.getAttribute('data-own');
+            R.done = true;
+            return;
+        }
+        var current = steps[index++];
+        step(current[0], current[1], next);
+    };
+    next();
+}
+setTimeout(run, 500);
+</script>

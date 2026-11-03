@@ -23,6 +23,7 @@
  */
 
 #include "config.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: the setters below.
 #include "PropertySetCSSDescriptors.h"
 
 #include "CSSPropertyNames.h"
@@ -86,6 +87,7 @@ String PropertySetCSSDescriptors::cssText() const
 
 ExceptionOr<void> PropertySetCSSDescriptors::setCssText(const String& text)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(text); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     StyleAttributeMutationScope mutationScope { parentElement() };
     if (!willMutate())
         return { };
@@ -139,6 +141,7 @@ bool PropertySetCSSDescriptors::isPropertyImplicit(const String& propertyName)
 
 ExceptionOr<void> PropertySetCSSDescriptors::setProperty(const String& propertyName, const String& value, const String& priority)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(value); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     StyleAttributeMutationScope mutationScope { parentElement() };
 
     auto propertyID = cssPropertyID(propertyName);
@@ -201,6 +204,7 @@ String PropertySetCSSDescriptors::getPropertyValueInternal(CSSPropertyID propert
 
 ExceptionOr<void> PropertySetCSSDescriptors::setPropertyInternal(CSSPropertyID propertyID, const String& value, IsImportant important)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(value); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     StyleAttributeMutationScope mutationScope { parentElement() };
     if (!willMutate())
         return { };

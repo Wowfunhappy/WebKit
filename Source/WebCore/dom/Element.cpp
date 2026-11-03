@@ -100,6 +100,7 @@
 #include "KeyframeAnimationOptions.h"
 #include "KeyframeEffect.h"
 #include "LargestContentfulPaintData.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: notifyAttributeChangedCommon below.
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
@@ -2338,6 +2339,8 @@ String Element::userInfo() const
 
 ALWAYS_INLINE void Element::notifyAttributeChangedCommon(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason reason)
 {
+    LegacyExtensionResourceAccess::attributeWillChange(*this, name, newValue, reason == AttributeModificationReason::ByCloning); // AQUAWEBKIT: a Safari 7 content script exposing its extension's file; attributeChanged can load it.
+
     attributeChanged(name, oldValue, newValue, reason);
 
     if (isDefinedCustomElement()) [[unlikely]]

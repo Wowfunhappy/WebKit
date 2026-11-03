@@ -201,6 +201,7 @@ private:
     bool interceptBeforeRequest(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
     static void checkAsRequestFor(NetworkLoadChecker&, const URL&);
     bool interceptRequestHeaders(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::ValidationHandler&);
+    void exposeRedirectTarget(NetworkLoadChecker&, const JSON::Object* verdict, const URL&);
     void redirect(NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);
     bool loadsInPlace(NetworkResourceLoader&, const URL&);
     void redirectInPlace(NetworkLoadChecker&, NetworkResourceLoader&, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, const URL&);

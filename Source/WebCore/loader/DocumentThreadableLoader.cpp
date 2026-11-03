@@ -47,6 +47,7 @@
 #include "FrameLoader.h"
 #include "InspectorInstrumentation.h"
 #include "InspectorNetworkAgent.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: the constructor below.
 #include "LegacySchemeRegistry.h"
 #include "LoaderStrategy.h"
 #include "LocalDOMWindow.h"
@@ -161,10 +162,14 @@ DocumentThreadableLoader::DocumentThreadableLoader(Document& document, Threadabl
         m_options.httpHeadersToKeep = httpHeadersToKeepFromCleaning(request.httpHeaderFields());
 
     bool shouldDisableCORS = false;
+    bool isLegacyExtensionOwnRead = LegacyExtensionResourceAccess::callerOwns(request.url()); // AQUAWEBKIT: a Safari 7 content script reading its extension's file.
     if (page) {
-        shouldDisableCORS = page->hasInjectedUserScript() && LegacySchemeRegistry::isUserExtensionScheme(request.url().protocol());
+        // shouldDisableCORS = page->hasInjectedUserScript() && LegacySchemeRegistry::isUserExtensionScheme(request.url().protocol());
+        shouldDisableCORS = isLegacyExtensionOwnRead; // AQUAWEBKIT: only the content script's own extension is exempt.
         shouldDisableCORS |= page->shouldDisableCorsForRequestTo(request.url());
     }
+    URL legacyExtensionOwnReadURL = isLegacyExtensionOwnRead ? request.url() : URL { }; // AQUAWEBKIT: outlives the move of the request below.
+    LegacyExtensionResourceAccess::OwnReadScope legacyExtensionOwnReadScope { isLegacyExtensionOwnRead ? &legacyExtensionOwnReadURL : nullptr }; // AQUAWEBKIT: for the load this constructor starts.
 
     if (shouldDisableCORS) {
         m_options.mode = FetchOptions::Mode::NoCors;
@@ -673,6 +678,12 @@ void DocumentThreadableLoader::loadRequest(ResourceRequest&& request, SecurityCh
         return;
     }
 
+    // AQUAWEBKIT: CachedResourceLoader checks an asynchronous load and its redirects; a Safari 7 extension's file answers every origin's CORS check, as upstream's extension scheme handler does, so this is the check of where a synchronous one ended.
+    if (response.url().protocolIs("safari-extension"_s) && !protect(securityOrigin())->canDisplay(response.url(), OriginAccessPatternsForWebProcess::singleton())) {
+        logErrorAndFail(ResourceError(errorDomainWebKitInternal, 0, response.url(), "Not allowed to load this resource."_s, ResourceError::Type::AccessControl));
+        return;
+    } // AQUAWEBKIT: closes the block above.
+
     if (!shouldPerformSecurityChecks()) {
         // FIXME: FrameLoader::loadSynchronously() does not tell us whether a redirect happened or not, so we guess by comparing the
         // request and response URLs. This isn't a perfect test though, since a server can serve a redirect to the same URL that was
@@ -715,7 +726,9 @@ void DocumentThreadableLoader::loadRequest(ResourceRequest&& request, SecurityCh
     if (options().initiatorContext == InitiatorContext::Worker)
         finishedTimingForWorkerLoad(resourceTiming);
     else {
-        if (RefPtr window = document->window())
+        // if (RefPtr window = document->window())
+        // AQUAWEBKIT: as ResourceTimingInformation::shouldAddResourceTiming keeps asynchronous loads of other schemes out, so a Safari 7 extension's URL stays out of the page's timeline.
+        if (RefPtr window = document->window(); window && requestURL.protocolIsInHTTPFamily())
             protect(window->performance())->addResourceTiming(WTF::move(resourceTiming));
     }
 

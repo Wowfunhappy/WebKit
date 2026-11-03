@@ -424,16 +424,25 @@ void LegacyExtensionDeclarativeNetRequest::compileDeclarativeNetRequestRules(NSM
 
         // A content rule list's extension-path redirect replaces the URL's whole path, which drops Safari 7's
         // per-launch /<token>/; each one is a redirect to the extension file's URL instead.
+        NSMutableArray<NSString *> *extensionPaths = [NSMutableArray array];
         allConvertedRules = mapObjects<NSArray>(allConvertedRules, ^id(id, NSDictionary *rule) {
             NSDictionary *action = dynamic_objc_cast<NSDictionary>(rule[@"action"]);
             NSString *extensionPath = dynamic_objc_cast<NSString>(dynamic_objc_cast<NSDictionary>(action[@"redirect"])[@"extension-path"]);
             if (!extensionPath)
                 return rule;
+            // Paths are patterns to the web process; `*` in a file's name is not one.
+            if ([extensionPath rangeOfString:@"*"].location == NSNotFound)
+                [extensionPaths addObject:extensionPath];
             NSMutableDictionary *redirectedAction = [action mutableCopy];
             redirectedAction[@"redirect"] = @{ @"url": URL(URL { root }, extensionPath).string().createNSString().get() };
             NSMutableDictionary *redirectedRule = [rule mutableCopy];
             redirectedRule[@"action"] = redirectedAction;
             return redirectedRule;
+        });
+
+        callOnMainRunLoop([protectedThis, paths = makeVector<String>(extensionPaths)]() mutable {
+            if (protectedThis->m_extensionPathObserver)
+                protectedThis->m_extensionPathObserver(WTF::move(paths));
         });
 
         // As in Chrome, no rule matches a request for an extension's files.

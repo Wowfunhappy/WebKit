@@ -31,6 +31,7 @@
 #include "CSSURLValue.h"
 #include "DeprecatedCSSOMPrimitiveValue.h"
 #include "Document.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: completeURL below.
 
 namespace WebCore {
 namespace CSS {
@@ -102,6 +103,10 @@ std::optional<URL> completeURL(const WTF::String& string, const CSSParserContext
         return { };
 
     result.modifiers.loadedFromOpaqueSource = context.loadedFromOpaqueSource;
+
+    // AQUAWEBKIT: a Safari 7 extension's style sheet exposes the files it names, while its own text is parsed.
+    if (result.resolved.protocolIs("safari-extension"_s))
+        LegacyExtensionResourceAccess::styleURLDidResolve(result.resolved);
 
     return result;
 }

@@ -112,6 +112,7 @@ private:
     void didFinishPingLoad(WebCore::ResourceLoaderIdentifier pingLoadIdentifier, WebCore::ResourceError&&, WebCore::ResourceResponse&&);
     void didFinishPreconnection(WebCore::ResourceLoaderIdentifier preconnectionIdentifier, WebCore::ResourceError&&);
     void setOnLineState(bool isOnLine);
+    void exposeLegacyExtensionResource(URL&&); // AQUAWEBKIT: NetworkProcessConnection.messages.in.
     void cookieAcceptPolicyChanged(WebCore::HTTPCookieAcceptPolicy);
 
     void messagesAvailableForPort(const WebCore::MessagePortIdentifier&);

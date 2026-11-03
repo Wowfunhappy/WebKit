@@ -45,6 +45,7 @@ A **devtools page** is a host context too: the page an extension's Info.plist na
 | `browser.runtime.getFrameId` | no | yes |
 | `browser.dom` | no | yes |
 | `browser.tabs` | yes | no |
+| `browser.scripting` | yes | no |
 | `browser.dns` | yes | no |
 | `browser.webNavigation` | yes | no |
 | `browser.webRequest` | yes | no |
@@ -301,6 +302,21 @@ Tab events go to every extension's host contexts that listen for them, with `url
 | `tabs.onUpdated` | `(tabId, changeInfo, tab)`; `changeInfo` is one of `{ status: "loading" }` with `url` when the URL changed, `{ status: "complete" }`, `{ title }`, `{ hidden }`, `{ audible }`, `{ mutedInfo }` |
 | `tabs.onRemoved` | `(tabId, { windowId: -1, isWindowClosing: false })` |
 
+## `browser.scripting` (host contexts only)
+
+### `scripting.executeScript({ target, files | func, args, world, injectImmediately })` → `Promise<InjectionResult[]>`
+
+Runs a script in frames of a tab, with [Chrome's API](https://developer.chrome.com/docs/extensions/reference/api/scripting#method-executeScript).
+
+- `target` has `tabId`, and at most one of `frameIds`, `documentIds` and `allFrames: true`. With none of them, the script runs in the main frame. The call rejects when the tab, a named frame or a named document does not exist.
+- `files` lists paths within the extension, resolved from its root, which run in order; the result is the last one's completion value. `func` is a function whose source runs in the target, called with `args`, each passed as JSON. A function cannot use anything of its scope in the extension.
+- `world` is `"ISOLATED"` (default) or `"MAIN"`. `"ISOLATED"` is the extension's content-script world, created when the extension has no content scripts; its globals and `browser` namespace stay available to later scripts in the document. `"MAIN"` is the page's own world, where the script shares the page's globals and has no extension API.
+- The page's Content Security Policy does not block the script in either world. In `"MAIN"`, what the script itself then does is the page's: its `eval` or inline scripts follow the page's policy.
+- Without `injectImmediately: true`, the script waits for `DOMContentLoaded` and one more task, as `document_idle` does.
+- The Promise resolves with one `{ frameId, documentId, result }` per frame that ran the script, main frame first. `frameId` is `0` for the main frame. `documentId` identifies that document and can be passed in `target.documentIds`. A promise or other thenable is waited for, and `result` is converted as [`tabs.executeScript`](#tabsexecutescripttabid--code--file-frameid-allframes-matchaboutblank-runat---promiseany) converts it. A script that throws, or a promise that rejects, gives `null` and reports to the frame's console.
+- A frame is a target under the same website access rule as `tabs.executeScript`. A frame the call names, or the main frame, that the extension cannot reach rejects the call; `allFrames` leaves out other such frames. `about:blank` and `about:srcdoc` documents are targets by their origin. A frame showing an extension page gives `"Cannot access the contents of an extension page."`.
+- The call rejects when no frame ran the script, and a call made during a user gesture runs the script with that gesture.
+
 ## `browser.dns` (host contexts only)
 
 ### `dns.resolve(hostname, flags)` → `Promise<{ addresses, canonicalName, isTRR }>`
@@ -423,7 +439,7 @@ A request a service worker takes reports nothing of the service worker's answer:
 | Verdict | Effect |
 | --- | --- |
 | `{ cancel: true }` in `onBeforeRequest` | The load fails with `net::ERR_BLOCKED_BY_CLIENT`, as a load WebKit's content rules block does; a main-frame navigation shows Safari's error page for it. A WebSocket fails and closes with code `1006`. |
-| `{ redirectUrl }` in `onBeforeRequest` | A main-frame navigation follows a `307 Internal Redirect` to the new URL, keeping its method and body, so the address and history show it. Any other request loads the new URL in place, as WebKit's content rules redirect one, after `onBeforeRedirect` and the new URL's own `onBeforeRequest`, and is checked as a request for the new URL: a cross-origin XHR or fetch redirected to a `data:` URL or to an extension file succeeds as it does in Chrome, and a `data:` URL answers with status 200. An invalid URL is ignored. After 20 such redirects the load fails. |
+| `{ redirectUrl }` in `onBeforeRequest` | A main-frame or frame navigation follows a `307 Internal Redirect` to the new URL, keeping its method and body, so the address and history show it and its document has that URL and origin. Any other request loads the new URL in place, as WebKit's content rules redirect one, after `onBeforeRedirect` and the new URL's own `onBeforeRequest`, and is checked as a request for the new URL: a cross-origin XHR or fetch redirected to a `data:` URL or to an extension file succeeds as it does in Chrome, and a `data:` URL answers with status 200. An invalid URL is ignored. After 20 such redirects the load fails. |
 | `{ cancel: true }` in `onBeforeSendHeaders` | As `cancel` in `onBeforeRequest`. |
 | `{ requestHeaders }` in `onBeforeSendHeaders` | Replaces the request's header fields. |
 | `{ cancel: true }` in `onHeadersReceived` | As `cancel` in `onBeforeRequest`. |
@@ -434,7 +450,7 @@ A request a service worker takes reports nothing of the service worker's answer:
 
 An `onAuthRequired` challenge no verdict answers goes to Safari's own authentication sheet. Only HTTP and proxy authentication reach `onAuthRequired`: `basic`, `digest`, `ntlm`, `negotiate`, or the first token of the challenge header for another scheme.
 
-A redirect an extension makes may go to any scheme, as Chrome allows: a navigation can be sent to one of the extension's own pages. WebKit fails a subresource's redirect to a `data:` URL, so a subresource sent to `data:` loads it in place, after `onBeforeRedirect`. A main-frame navigation to a `data:` URL is refused, as WebKit refuses every top-level `data:` document the page did not load itself.
+A redirect an extension makes may go to any scheme, as Chrome allows: a navigation can be sent to one of the extension's own pages. WebKit fails a subresource's redirect to a `data:` URL, so a subresource sent to `data:` loads it in place, after `onBeforeRedirect`. A main-frame or frame navigation to a `data:` URL is refused, as WebKit refuses a document load's redirect to `data:`.
 
 Fields that do not apply to the event are ignored: `requestHeaders` outside `onBeforeSendHeaders`, `responseHeaders` outside `onHeadersReceived`, and `redirectUrl` outside `onBeforeRequest` and `onHeadersReceived`.
 
@@ -719,10 +735,43 @@ These need no API calls.
 - **Relative URLs in extension documents.** Safari 7 serves an extension's files at `safari-extension://<key>/<token>/<path>`, where `<token>` is fixed for each Safari launch. In an extension document, relative references resolve within `safari-extension://<key>/<token>/` as a WebExtension's resolve within its origin: a root-relative reference such as `/js/app.js` resolves under it, and dot-segments stop at it, so `../styles/a.css` from a root-level page is `styles/a.css`. `/x.js`, `./x.js` and `../x.js` from a root-level page name the same file, including for ES module identity.
 - **Shared storage in WebKit 1 extension views.** Global pages, popovers, bars and devtools pages use the default persistent session's network-process storage for `localStorage` and IndexedDB, shared with tabs and frames of the same `safari-extension://<key>` origin; dedicated workers share IndexedDB. Storage events reach the other views of that origin; different extensions remain isolated, and `sessionStorage` belongs to each Page.
 - **BroadcastChannel, SharedWorker and Web Locks in the WebKit 1 views.** The global page, popovers and bars have them, as WebKit 2 views do, and share them with the extension's pages in tabs and frames: a channel reaches all of the extension's pages, `new SharedWorker(url)` connects every page to one worker, and a lock held by one page holds for all. Safari's process takes part in the default session's channels, message ports and shared workers over a network process connection of its own, and uses that session's lock manager.
-- **`safari-extension:` is a secure scheme that bypasses Content Security Policy.** An extension's resources load into pages whatever the page's CSP allows.
+- **`safari-extension:` is a secure scheme that bypasses Content Security Policy.** A file a web page can use (see [Files web pages can use](#files-web-pages-can-use)) loads whatever the page's CSP allows.
 - **Inline scripts from content scripts ignore the page's CSP.** An inline classic or module script, import map, or speculation rules element that a content-script world inserts runs even where the page's CSP forbids inline script, just as that world's own fetches, WebSockets, and workers are not subject to the page's CSP.
 - **Blobs in the global page.** `blob:` URLs and `FileReader` work in the WebKit 1 global page; the extension scheme is registered with the Safari process's scheme registry.
 - **`beforeload` for scripts.** Classic and module `<script>` loads dispatch the cancelable `beforeload` event, which Safari 7 content blockers rely on.
+
+## Files web pages can use
+
+An extension's own pages and content scripts can read all of its files. A web page, or another extension's page, can load a file only once the extension has exposed it, and can then use it as any page can use a file of its own origin, including with `fetch`, `import()`, canvas and `cssRules`. Paths are matched as Safari's file protocol resolves them: `web_inaccessible_resources` matches without regard to case, percent-encoding, or the code points HFS+ ignores in a name, and a path with an encoded separator never loads in a page. Knowing a file's URL gives a page nothing else. An extension exposes a file by doing what puts it in a page:
+
+- A content script writes the file's full URL into a URL attribute of an element in a frame's document or a template's, such as `src`, `srcset` or `href`, whether directly or through `innerHTML`.
+- A content script names the file's URL in CSS it writes: a `style` attribute, the `style` object, `insertRule`, `replaceSync`, or the text of a `<style>` element.
+- A content script navigates to the file with `location` or `window.open`.
+- The text of a style sheet the extension injects, or of one of its exposed `.css` files, names one of the extension's files with `url()` or `@import`. CSS added to such a sheet later, and `var()` values from the page, expose nothing.
+- An exposed module, or a content script, imports the file by its own URL. What a page's import map chooses exposes nothing.
+- A `webRequest` listener of the extension that owns the file redirects a request to it.
+- A `declarativeNetRequest` rule redirects to the file by `extensionPath`.
+- The file is the handler page of a `mime_types_handler` entry.
+
+A file the extension exposes at run time stays exposed to every page of that web content process until the process exits; a file only a rule redirected to closes again when the rule goes. A content script's own `fetch` or `XMLHttpRequest` exposes nothing, nor do `runtime.getURL`, `safari.extension.baseURI`, cloning an element, reading style, or parsing text with `DOMParser`. A URL passed to a page as text, by `postMessage` or in a `data-` attribute, does not expose the file; declare such a file in Info.plist. A `webRequest` redirect or `declarativeNetRequest` rule that leads to another extension's file, or to a file listed in `web_inaccessible_resources`, fails the load.
+
+Two Info.plist keys override this, each an array of path patterns within the extension, in which `*` matches any run of characters:
+
+```xml
+<key>web_accessible_resources</key>
+<array>
+    <string>public/*</string>
+</array>
+<key>web_inaccessible_resources</key>
+<array>
+    <string>public/private.json</string>
+    <string>config/*</string>
+</array>
+```
+
+- `web_accessible_resources` is a WebExtension manifest's key, in its Manifest V2 form: every web page can use these files, without the extension exposing them.
+- `web_inaccessible_resources` names files no web page can use, whatever the extension does. A content script that puts one in a page gets a failed load. It takes precedence over `web_accessible_resources`.
+- Neither key affects the extension's own pages, or its content scripts' `fetch` and `XMLHttpRequest`.
 
 ## Packaging notes for Safari 7
 
@@ -741,6 +790,8 @@ Safari 7's extension resource protocol has limits that apply to every file in th
 The startup fixture set contains `messaging-a.safariextension`, `messaging-b.safariextension`, `messaging-failed.safariextension` and `startup-pages/README.md` with the exact procedure. Its independent server serves `http://127.0.0.1:8867/startup.html`: content scripts record document-start messages and ports, and global pages register runtime and blocking webRequest listeners in `DOMContentLoaded`. Messaging A's `startup.html` popover also records its launch-time message/port order. Restore the fixture tab on a cold launch and refresh its global snapshots to check the document-start messages. The missing-global-page fixture records both initial and repeated receiving-end errors; `bootstrap.html` exercises external scripts needed by both global pages during startup. Repeat the checks after reload and disable/enable.
 
 `check-webrequest-readiness.py` locates `webrequest-readiness.safariextension` through `AQUAWEBKIT_EXTENSIONS_DIR`, defaulting to the sibling workspace. Run `prepare`, `cert` and `serve`, follow its certificate instructions, and install the working copy in Extension Builder. Use matching options for `configure --reload` and `check`: `module` checks module startup, fetches and HTTP/HTTPS tabs; `--filter`, `--nonblocking` and `no-module` select controls. `normal`, `startup` and `preload` check request timing and verdicts; `failed` checks navigation failure, and `--wk2 --resource-stages` checks extension-tab requests and resource events.
+
+`check-resource-access.py` runs what a page can do with an extension's files, and `browser.scripting`, against `resource-access.safariextension`, `scripting.safariextension` and `scripting-no-content.safariextension`, with `server.py` running. `pages/stock-probe.html` with `stock-probe.safariextension` records the same reads in ES5, which also runs under stock Safari 7.
 
 `api-test.safariextension` exercises every namespace against the local server (`server.py`, ports 8843 and 8844, 8845, which counts preconnections, and 8846 and 8080, which the coverage page's match-pattern port cases load under the `web-platform.test` names `/etc/hosts` maps to 127.0.0.1). `response-filter.safariextension` rewrites `/filter/` responses and sets the privacy settings `pages/filter.html` asks for (results in `window.__results`). `mime-handler.safariextension` displays `/mime/` PDFs and reports reads to the server log; `/mime/embed.html` embeds one, and `/mime-options/false` and `/mime-options/true` set its option. `limited-access.safariextension` has website access to `localhost` alone. `access-boundaries.safariextension`, also limited to `localhost`, checks from `http://localhost:8843/access.html` that executeScript, insertCSS, `tabs.update`, tab URLs and titles, and webNavigation keep within that access (results in the server log as `access-boundaries`); its PDF handler shows `access-blob-pdf.html`'s blob: PDF from `localhost` and not from `127.0.0.1` (`access-viewer` in the server log). `declarative-net-request.safariextension` applies rules to `pages/dnr.html` (results in `window.__results`; API calls in the server log as `dnr-api`). `proxy.safariextension` sets `proxy.settings` and answers `proxy.onRequest` for `pages/proxy.html` against the test proxies of `proxy.py` (HTTP on 8856, HTTP requiring `Proxy-Authorization` on 8857, SOCKS5 checking the credentials a client offers on 8858, HTTPS on 8860, nothing on 8859), using hosts under `.proxy-test`, which resolve nowhere; each case's `pass` collects in `window.__results`, and `window.__done` is set at the end. The HTTPS proxy cases connect through it when its certificate, `build/proxy-tls/cert.pem`, is trusted (`security add-trusted-cert -r trustRoot -p ssl -k ~/Library/Keychains/login.keychain build/proxy-tls/cert.pem`), and check that the loads fail when it is not. A content blocker that drops third-party pings, such as uBlock Origin, cancels the page's beacon after `onRequest` has answered for it (`onBeforeRequest` follows `onRequest`), so `onRequestBeacon` passes with such extensions turned off. `check-system-proxy-failover.py` points the primary network service at a PAC file answering `PROXY 127.0.0.1:8859; PROXY 127.0.0.1:8856` for `.proxy-test` hosts (and the service's own route for every other host), opens `pages/system-proxy.html`, which checks that a load and a page's WebSocket reach their host through 8856, prints its results and restores the service's settings; it needs `sudo` without a password.
 

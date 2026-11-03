@@ -19,5 +19,6 @@ messages -> LegacyExtensionHost {
     CompleteRestream(uint64_t identifier)
     EndRestream(uint64_t identifier)
     SetUserContentExtensionRoots(Vector<String> roots)
+    SetUserContentExtensionRootsAndWait(Vector<String> roots) -> (String resourcePolicies) Synchronous
     Post(WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL documentURL, String extensionKey, String message, IPC::SharedBufferReference data)
 }

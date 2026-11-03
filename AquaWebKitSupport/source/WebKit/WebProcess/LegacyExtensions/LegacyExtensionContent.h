@@ -16,7 +16,9 @@
 #include <WebCore/UserStyleSheet.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
+#include <wtf/HashSet.h>
 #include <wtf/Vector.h>
+#include <WebCore/LegacyExtensionResourceAccess.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/text/WTFString.h>
 
@@ -35,7 +37,7 @@ namespace WebKit {
 class WebFrame;
 class WebProcess;
 
-class LegacyExtensionContent final : public IPC::MessageReceiver {
+class LegacyExtensionContent final : public IPC::MessageReceiver, public WebCore::LegacyExtensionResourceAccess::Client {
 public:
     static LegacyExtensionContent& singleton();
 
@@ -83,6 +85,10 @@ private:
     void deliver(WebCore::FrameIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier>, String&& extensionKey, String&& message, IPC::SharedBufferReference&&);
     void evictMemoryCache();
     void setMimeHandlers(String&&);
+    void setResourcePolicies(String&&);
+    void removeScriptingWorld(String&&);
+    String extensionKeyOfWorld(WebCore::DOMWrapperWorld&) final;
+    void policyNeeded(const String& root) final;
     void invalidateExtensionPage(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier);
     void setPrintsBackgrounds(WebCore::PageIdentifier, bool);
 
@@ -92,6 +98,7 @@ private:
 
     WeakHashMap<WebCore::Document, Vector<InjectedStyleSheet>, WebCore::WeakPtrImplWithEventTargetData> m_injectedStyleSheets;
     Vector<String> m_reportedUserContentExtensionRoots;
+    HashSet<String> m_rootsWaitedForPolicy;
     Vector<OriginAccessGrant> m_originAccessGrants;
 };
 

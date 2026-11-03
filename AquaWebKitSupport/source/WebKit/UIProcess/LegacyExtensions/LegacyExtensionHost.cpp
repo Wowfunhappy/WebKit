@@ -56,6 +56,7 @@
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/UserGestureIndicator.h>
+#include <wtf/CallbackAggregator.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OptionSet.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -695,9 +696,10 @@ void LegacyExtensionHost::webProcessCreated(WebProcessProxy& process)
     process.addMessageReceiver(Messages::LegacyExtensionHost::messageReceiverName(), *this);
 }
 
-void LegacyExtensionHost::webProcessDidInitialize(WebProcessProxy& process)
+void LegacyExtensionHost::webProcessWillInitialize(WebProcessProxy& process)
 {
     LegacyExtensionMimeHandlers::singleton().sendHandlers(process);
+    process.send(Messages::LegacyExtensionContent::SetResourcePolicies(m_resourcePoliciesJSON), 0);
 }
 
 // An extension whose content scripts or style sheets a web process holds is loaded: Safari adds them to every
@@ -717,6 +719,56 @@ void LegacyExtensionHost::setUserContentExtensionRoots(IPC::Connection& connecti
     else
         m_userContentExtensionRoots.set(processIdentifier, roots);
     updateUserContentExtensions(roots);
+}
+
+// A process whose load asks about a file of an extension it has content from, without its resource policy, waits here:
+// Info.plist is read in this process, which the wait does not block.
+void LegacyExtensionHost::setUserContentExtensionRootsAndWait(IPC::Connection& connection, Vector<String>&& roots, CompletionHandler<void(String&&)>&& completionHandler)
+{
+    auto extensionKeys = roots.map([](auto& root) {
+        return URL { root }.host().toString();
+    });
+    setUserContentExtensionRoots(connection, WTF::move(roots));
+    auto aggregator = CallbackAggregator::create([this, completionHandler = WTF::move(completionHandler)]() mutable {
+        completionHandler(String { m_resourcePoliciesJSON });
+    });
+    for (auto& extensionKey : extensionKeys) {
+        withWebsiteAccess(extensionKey, [aggregator](const LegacyExtensions::WebsiteAccess&) {
+        });
+    }
+}
+
+void LegacyExtensionHost::setResourcePolicy(const URL& root, Vector<String>&& accessible, Vector<String>&& inaccessible)
+{
+    m_resourcePolicies.set(root.string(), WebCore::LegacyExtensionResourceAccess::Policy { root.string(), WTF::move(accessible), WTF::move(inaccessible) });
+    broadcastResourcePolicies();
+}
+
+// This process's WebKit 1 extension views, and web processes from here on, get a policy with the files rules name now.
+void LegacyExtensionHost::broadcastResourcePolicies()
+{
+    auto stringArray = [](const Vector<String>& strings) {
+        auto array = JSON::Array::create();
+        for (auto& string : strings)
+            array->pushString(string);
+        return array;
+    };
+    Vector<WebCore::LegacyExtensionResourceAccess::Policy> policies;
+    auto json = JSON::Array::create();
+    for (auto& declared : m_resourcePolicies.values()) {
+        auto policy = declared;
+        policy.accessible.appendVector(m_ruleResourcePaths.get(policy.root));
+        auto description = JSON::Object::create();
+        description->setString("root"_s, policy.root);
+        description->setArray("accessible"_s, stringArray(policy.accessible));
+        description->setArray("inaccessible"_s, stringArray(policy.inaccessible));
+        json->pushObject(WTF::move(description));
+        policies.append(WTF::move(policy));
+    }
+    WebCore::LegacyExtensionResourceAccess::setPolicies(policies);
+    m_resourcePoliciesJSON = json->toJSONString();
+    for (Ref pool : WebProcessPool::allProcessPools())
+        pool->sendToAllProcesses(Messages::LegacyExtensionContent::SetResourcePolicies(m_resourcePoliciesJSON));
 }
 
 void LegacyExtensionHost::webProcessWillShutDown(WebProcessProxy& process)
@@ -2394,6 +2446,99 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
+    if (method == "scripting.executeScript"_s) {
+        auto tabID = numberArgument(0);
+        RefPtr page = pageForTabID(tabID);
+        RefPtr details = objectArgument(1);
+        URL root { details ? details->getString("root"_s) : String() };
+        if (!details || !root.protocolIs("safari-extension"_s) || root.host() != context.extensionKey)
+            return resultToHostContext(context, callID, nullptr, "Invalid call."_s);
+        if (!page)
+            return resultToHostContext(context, callID, nullptr, makeString("No tab with id: "_s, tabID.value_or(0), '.'));
+        auto routerCallID = m_nextIdentifier++;
+        auto request = JSON::Object::create();
+        request->setString("t"_s, "scriptingExec"_s);
+        request->setDouble("callId"_s, static_cast<double>(routerCallID));
+        request->setString("root"_s, root.string());
+        request->setString("world"_s, details->getString("world"_s));
+        request->setBoolean("injectImmediately"_s, details->getBoolean("injectImmediately"_s).value_or(false));
+        request->setBoolean("userGesture"_s, details->getBoolean("userGesture"_s).value_or(false));
+        auto functionSource = details->getString("functionSource"_s);
+        RefPtr list = details->getArray(functionSource.isNull() ? "sources"_s : "args"_s);
+        if (!list)
+            return resultToHostContext(context, callID, nullptr, "Invalid call."_s);
+        if (!functionSource.isNull())
+            request->setString("functionSource"_s, functionSource);
+        request->setArray(functionSource.isNull() ? "sources"_s : "args"_s, list.releaseNonNull());
+
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, method, routerCallID, requestMessage = request->toJSONString(), page = page.releaseNonNull(), details, tabID = *tabID](const LegacyExtensions::WebsiteAccess& access) mutable {
+            if (!m_hostContexts.contains(context->identifier))
+                return;
+            page->getAllFrames([this, context = WTF::move(context), callID, method, routerCallID, requestMessage = WTF::move(requestMessage), access, details = WTF::move(details), tabID](auto&& tree) mutable {
+                if (!m_hostContexts.contains(context->identifier))
+                    return;
+                struct Frame {
+                    FrameInfoData info;
+                    double frameId;
+                    String documentId;
+                };
+                Vector<Frame> frames;
+                if (tree) {
+                    forEachFrameInTree(*tree, -1, [&](auto& info, double) {
+                        frames.append({ info, info.isMainFrame ? 0 : static_cast<double>(info.frameID.toUInt64()), info.documentID ? info.documentID->toString() : String() });
+                    });
+                }
+                RefPtr frameIds = details->getArray("frameIds"_s);
+                RefPtr documentIds = details->getArray("documentIds"_s);
+                bool allFrames = details->getBoolean("allFrames"_s).value_or(false);
+                Vector<size_t> selected;
+                if (frameIds) {
+                    for (auto& value : *frameIds) {
+                        auto frameId = value->asDouble().value_or(-1);
+                        auto index = frames.findIf([&](auto& frame) { return frame.frameId == frameId; });
+                        if (index == notFound)
+                            return resultToHostContext(context, callID, nullptr, makeString("No frame with id "_s, frameId, " in tab with id "_s, tabID, '.'));
+                        selected.appendIfNotContains(index);
+                    }
+                } else if (documentIds) {
+                    for (auto& value : *documentIds) {
+                        auto documentId = value->asString();
+                        auto index = frames.findIf([&](auto& frame) { return frame.documentId == documentId; });
+                        if (index == notFound)
+                            return resultToHostContext(context, callID, nullptr, makeString("No document with id "_s, documentId, " in tab with id "_s, tabID, '.'));
+                        selected.appendIfNotContains(index);
+                    }
+                }
+                bool isFrameNamed = frameIds || documentIds;
+                if (!isFrameNamed) {
+                    for (size_t index = 0; index < frames.size(); ++index) {
+                        if (allFrames || frames[index].info.isMainFrame)
+                            selected.append(index);
+                    }
+                }
+                Vector<RouterCall::ScriptingTarget> targets;
+                for (auto index : selected) {
+                    auto& frame = frames[index];
+                    if (!canScriptFrame(access, context->extensionKey, frame.info)) {
+                        // Chrome's error for a page whose URL the extension does not see (kCannotAccessPage).
+                        if (isFrameNamed || frame.info.isMainFrame)
+                            return resultToHostContext(context, callID, nullptr, "Cannot access contents of the page. Extension manifest must request permission to access the respective host."_s);
+                        continue;
+                    }
+                    if (auto endpoint = tabFrameEndpoint(frame.info, context->extensionKey))
+                        targets.append({ WTF::move(*endpoint), frame.frameId, frame.documentId, nullptr });
+                }
+                if (targets.isEmpty())
+                    return resultToHostContext(context, callID, nullptr, "No frame with this id."_s);
+                auto endpoints = targets.map([](auto& target) { return target.endpoint; });
+                m_routerCalls.add(routerCallID, RouterCall { context.ptr(), callID, method, endpoints, JSON::Array::create(), { }, WTF::move(targets) });
+                for (auto& endpoint : endpoints)
+                    deliver(endpoint, context->extensionKey, requestMessage);
+            });
+        });
+        return;
+    }
+
     resultToHostContext(context, callID, nullptr, makeString("Unsupported method "_s, method));
 }
 
@@ -2415,6 +2560,11 @@ void LegacyExtensionHost::routeCallResult(const Endpoint& from, JSON::Object& me
     } else if (call.method == "tabs.executeScript"_s) {
         auto result = message.getValue("result"_s);
         call.results->pushValue(result ? result.releaseNonNull() : JSON::Value::null());
+    } else if (call.method == "scripting.executeScript"_s) {
+        if (auto index = call.scriptingTargets.findIf([&](auto& target) { return target.endpoint == from; }); index != notFound) {
+            auto result = message.getValue("result"_s);
+            call.scriptingTargets[index].result = result ? result.releaseNonNull() : JSON::Value::null();
+        }
     }
     finishRouterCallIfComplete(*callID);
 }
@@ -2427,6 +2577,20 @@ void LegacyExtensionHost::finishRouterCallIfComplete(uint64_t callID)
     auto call = m_routerCalls.take(iterator);
     if (!call.caller || !m_hostContexts.contains(call.caller->identifier))
         return;
+    if (call.method == "scripting.executeScript"_s) {
+        for (auto& target : call.scriptingTargets) {
+            if (!target.result)
+                continue;
+            auto injectionResult = JSON::Object::create();
+            injectionResult->setDouble("frameId"_s, target.frameId);
+            injectionResult->setString("documentId"_s, target.documentId);
+            injectionResult->setValue("result"_s, target.result.releaseNonNull());
+            call.results->pushObject(WTF::move(injectionResult));
+        }
+        if (!call.results->length())
+            return resultToHostContext(*call.caller, call.callerCallID, nullptr, call.error.isNull() ? "The frame was removed."_s : call.error);
+        return resultToHostContext(*call.caller, call.callerCallID, RefPtr<JSON::Value> { call.results.get() });
+    }
     // A call fails when no frame ran it; frames that could not run it are left out of the results.
     if (!call.error.isNull() && (call.method != "tabs.executeScript"_s || !call.results->length()))
         return resultToHostContext(*call.caller, call.callerCallID, nullptr, call.error);
@@ -2523,6 +2687,8 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
     if (!root.isValid() || m_websiteAccessRoots.get(extensionKey) == root || isRetiredRoot(extensionKey, root))
         return;
     if (auto previousRoot = m_websiteAccessRoots.get(extensionKey); previousRoot.isValid()) {
+        for (Ref pool : WebProcessPool::allProcessPools())
+            pool->sendToAllProcesses(Messages::LegacyExtensionContent::RemoveScriptingWorld(extensionKey));
         m_retiredRoots.ensure(extensionKey, [] { return HashSet<String> { }; }).iterator->value.add(previousRoot.string());
         // The pages tabs show of the copy Safari replaced.
         invalidateExtensionPages(extensionKey, root);
@@ -2542,6 +2708,7 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
         auto iterator = m_extensionLoads.find(extensionKey);
         if (iterator == m_extensionLoads.end() || iterator->value.identifier != loadIdentifier)
             return;
+        setResourcePolicy(root, WTF::move(infoPlist.webAccessibleResources), WTF::move(infoPlist.webInaccessibleResources));
         m_websiteAccess.set(extensionKey, WTF::move(infoPlist.websiteAccess));
         auto& loaded = m_websiteAccess.find(extensionKey)->value;
         loadDeclarativeNetRequest(extensionKey, root, WTF::move(infoPlist.declarativeNetRequest), loaded);
@@ -2560,6 +2727,8 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
 
 void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
 {
+    for (Ref pool : WebProcessPool::allProcessPools())
+        pool->sendToAllProcesses(Messages::LegacyExtensionContent::RemoveScriptingWorld(extensionKey));
     LegacyExtensionDevTools::singleton().extensionDidUnload(extensionKey);
     LegacyExtensionInspector::singleton().extensionDidUnload(extensionKey);
     MediaRestreamServer::singleton().cancelPreparedHandoffs(extensionKey);
@@ -2613,6 +2782,10 @@ void LegacyExtensionHost::updateContentRuleListActionPatterns(WebPageProxy& page
 void LegacyExtensionHost::loadDeclarativeNetRequest(const String& extensionKey, const URL& root, RefPtr<JSON::Object>&& declarativeNetRequestEntry, const LegacyExtensions::WebsiteAccess& websiteAccess)
 {
     Ref declarativeNetRequest = LegacyExtensionDeclarativeNetRequest::create(extensionKey, root, WTF::move(declarativeNetRequestEntry), websiteAccess);
+    declarativeNetRequest->setExtensionPathObserver([this, root](Vector<String>&& paths) {
+        m_ruleResourcePaths.set(root.string(), WTF::move(paths));
+        broadcastResourcePolicies();
+    });
     declarativeNetRequest->setActionCountObserver([this, extensionKey](double tabID, double count) {
         auto arguments = JSON::Array::create();
         arguments->pushDouble(tabID);
@@ -3148,8 +3321,17 @@ void LegacyExtensionHost::routeWebRequestResponse(const HostContext& context, JS
     if (RefPtr result = message.getObject("result"_s)) {
         if (result->getBoolean("cancel"_s).value_or(false))
             call.response->setBoolean("cancel"_s, true);
-        if (auto redirectURL = result->getString("redirectUrl"_s); !redirectURL.isNull() && call.response->getString("redirectUrl"_s).isNull())
+        if (auto redirectURL = result->getString("redirectUrl"_s); !redirectURL.isNull() && call.response->getString("redirectUrl"_s).isNull()) {
             call.response->setString("redirectUrl"_s, redirectURL);
+            // Like a redirect in Chrome to a file that is not web accessible, one to another extension's file or to
+            // one no page can use fails the load, whichever process goes on to load it.
+            if (URL target { redirectURL }; target.protocolIs("safari-extension"_s)) {
+                if (target.host() == context.extensionKey && !WebCore::LegacyExtensionResourceAccess::isInaccessible(target))
+                    call.response->setBoolean("exposesRedirectTarget"_s, true);
+                else
+                    call.response->setBoolean("cancel"_s, true);
+            }
+        }
         if (RefPtr credentials = result->getObject("authCredentials"_s); credentials && !call.response->getObject("authCredentials"_s))
             call.response->setObject("authCredentials"_s, credentials.releaseNonNull());
         if (RefPtr headers = result->getArray("requestHeaders"_s))

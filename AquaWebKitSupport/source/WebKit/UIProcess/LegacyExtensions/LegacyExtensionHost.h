@@ -13,6 +13,7 @@
 #include "LegacyExtensionWebsiteAccess.h"
 #include "MessageReceiver.h"
 #include <JavaScriptCore/Weak.h>
+#include <WebCore/LegacyExtensionResourceAccess.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/ProcessIdentifier.h>
@@ -85,7 +86,8 @@ public:
 
     void webProcessCreated(WebProcessProxy&);
     // A web process's state, sent once it is initialized.
-    void webProcessDidInitialize(WebProcessProxy&);
+    // Before the web process runs anything: an injected bundle adds user content as it initializes.
+    void webProcessWillInitialize(WebProcessProxy&);
     void webProcessWillShutDown(WebProcessProxy&);
     void networkProcessCreated(NetworkProcessProxy&);
     void networkProcessDidTerminate(NetworkProcessProxy&);
@@ -224,6 +226,14 @@ private:
         Vector<Endpoint> pendingEndpoints;
         RefPtr<JSON::Array> results;
         String error;
+        // scripting.executeScript: its frames in tree order, and each one's result once it has run.
+        struct ScriptingTarget {
+            Endpoint endpoint;
+            double frameId { 0 };
+            String documentId;
+            RefPtr<JSON::Value> result;
+        };
+        Vector<ScriptingTarget> scriptingTargets;
     };
 
     struct WebRequestCall {
@@ -254,6 +264,10 @@ private:
     void endRestream(IPC::Connection&, uint64_t);
     void post(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&& documentURL, String&& extensionKey, String&& message, IPC::SharedBufferReference&& data);
     void setUserContentExtensionRoots(IPC::Connection&, Vector<String>&& roots);
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void setUserContentExtensionRootsAndWait(IPC::Connection&, Vector<String>&& roots, CompletionHandler<void(String&&)>&&);
+    void setResourcePolicy(const URL& root, Vector<String>&& accessible, Vector<String>&& inaccessible);
+    void broadcastResourcePolicies();
     void updateUserContentExtensions(const Vector<URL>& latestRoots = { });
 
     void route(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr, bool isPendingTask = false);
@@ -372,6 +386,10 @@ private:
     HashMap<String, Ref<LegacyExtensionCookieObserver>> m_cookieObservers;
     HashMap<String, LegacyExtensions::WebsiteAccess> m_websiteAccess;
     HashMap<String, URL> m_websiteAccessRoots;
+    // What each extension's Info.plist declares, and the paths of the files its declarativeNetRequest rules redirect to, by root.
+    HashMap<String, WebCore::LegacyExtensionResourceAccess::Policy> m_resourcePolicies;
+    HashMap<String, Vector<String>> m_ruleResourcePaths;
+    String m_resourcePoliciesJSON { "[]"_s };
     // The roots of the extensions whose user content each web process holds, and the extension keys and roots
     // that makes loaded.
     HashMap<WebCore::ProcessIdentifier, Vector<URL>> m_userContentExtensionRoots;

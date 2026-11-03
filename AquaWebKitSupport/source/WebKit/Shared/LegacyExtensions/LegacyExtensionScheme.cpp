@@ -11,6 +11,9 @@ void registerExtensionScheme()
     WebCore::LegacySchemeRegistry::registerURLSchemeAsSecure(scheme);
     WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(scheme);
     WebCore::LegacySchemeRegistry::registerURLSchemeAsBypassingContentSecurityPolicy(scheme);
+    // See WebCore::LegacyExtensionResourceAccess.
+    WebCore::LegacySchemeRegistry::registerAsCanDisplayOnlyIfCanRequest(scheme);
+    WebCore::LegacySchemeRegistry::registerURLSchemeAsCORSEnabled(scheme);
 }
 
 } // namespace WebKit::LegacyExtensions

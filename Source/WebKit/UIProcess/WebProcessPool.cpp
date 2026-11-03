@@ -1114,8 +1114,8 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     parameters.urlSchemesRegisteredAsWebExtensions = copyToVector(WebExtensionMatchPattern::extensionSchemes());
 #endif
 
+    LegacyExtensionHost::singleton().webProcessWillInitialize(process); // AQUAWEBKIT: Safari 7 extensions' mimeHandler viewers and resource policies, before the injected bundle adds their user content.
     process.initializeWebProcess(WTF::move(parameters));
-    LegacyExtensionHost::singleton().webProcessDidInitialize(process); // AQUAWEBKIT: Safari 7 extensions' mimeHandler viewers.
 
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
     setMediaAccessibilityPreferences(process);

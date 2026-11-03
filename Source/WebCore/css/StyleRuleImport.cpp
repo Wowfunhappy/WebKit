@@ -20,6 +20,7 @@
  */
 
 #include "config.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: requestStyleSheet below.
 #include "StyleRuleImport.h"
 
 #include "CSSStyleSheet.h"
@@ -121,6 +122,8 @@ void StyleRuleImport::requestStyleSheet()
         absURL = URL(m_parentStyleSheet->baseURL(), m_strHref);
     else
         absURL = document->encodingParseURL(m_strHref);
+
+    LegacyExtensionResourceAccess::styleURLDidResolve(absURL); // AQUAWEBKIT: an @import in a Safari 7 extension's style sheet, while its text is parsed.
 
     // Check for a cycle in our import chain.  If we encounter a stylesheet
     // in our parent chain with the same URL, then just bail.

@@ -9984,6 +9984,9 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
                     adjustAdvancedPrivacyProtectionsIfNeeded(*policies);
                 }
             }
+            // AQUAWEBKIT: NavigationState gives a frame's navigation the default policies, which carry declarativeNetRequest's patterns; Safari 7's C policy client gives none.
+            if (!frame->isMainFrame() && !navigation->websitePolicies())
+                navigation->setWebsitePolicies(protect(m_configuration->defaultWebsitePolicies())->copy());
             receivedNavigationActionPolicyDecision(processInitiatingNavigation, policyAction, navigation.get(), WTF::move(navigationAction), processSwapRequestedByClient, frame, frameInfo, wasNavigationIntercepted, WTF::move(message), WTF::move(completionHandler));
         };
 

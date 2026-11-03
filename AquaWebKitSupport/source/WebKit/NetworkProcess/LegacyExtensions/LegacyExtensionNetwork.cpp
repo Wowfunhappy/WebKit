@@ -7,6 +7,7 @@
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
 #include "LegacyExtensionScheme.h"
+#include "MessageFlags.h"
 #include "MessageNames.h"
 #include "MessageSenderInlines.h"
 #include "NetworkCache.h"
@@ -14,6 +15,7 @@
 #include "NetworkConnectionToWebProcess.h"
 #include "NetworkDataTaskCurlCocoa.h"
 #include "NetworkLoad.h"
+#include "NetworkProcessConnectionMessages.h"
 #include "NetworkProcess.h"
 #include "NetworkResourceLoader.h"
 #include "NetworkSession.h"
@@ -323,6 +325,31 @@ String LegacyExtensionNetwork::cookieHeader(NetworkLoadChecker& checker, const R
     return NetworkDataTaskCurlCocoa::cookieHeader(*session, request, loader ? requestSourceOrigin(loader->parameters()) : checker.origin(), frameID, pageID, checker.m_webPageProxyID ? std::optional { *checker.m_webPageProxyID } : std::nullopt, checker.storedCredentialsPolicy());
 }
 
+// A parent's embedder policy judges what an extension's redirect leads to; the redirect is no server's response.
+static void answerParentEmbedderPolicy(const NetworkResourceLoader& loader, ResourceResponse& redirectResponse)
+{
+    auto& policy = loader.parameters().parentCrossOriginEmbedderPolicy;
+    if (policy.value != CrossOriginEmbedderPolicyValue::UnsafeNone || policy.reportOnlyValue != CrossOriginEmbedderPolicyValue::UnsafeNone)
+        redirectResponse.setHTTPHeaderField(HTTPHeaderName::CrossOriginEmbedderPolicy, "require-corp"_s);
+}
+
+// The web process checks where a redirect goes as it checks any load; the verdict of the extension whose file a
+// redirect goes to exposes the file.
+void LegacyExtensionNetwork::exposeRedirectTarget(NetworkLoadChecker& checker, const JSON::Object* verdict, const URL& url)
+{
+    if (!verdict || !verdict->getBoolean("exposesRedirectTarget"_s).value_or(false))
+        return;
+    RefPtr loader = checker.m_networkResourceLoader.get();
+    if (!loader)
+        return;
+    // It reaches the web process before a synchronous load's reply. This connection keeps
+    // SendOption::DispatchMessageEvenWhenWaitingForSyncReply for replies to such messages, and a synchronous load's request is not one.
+    auto encoder = makeUniqueRef<IPC::Encoder>(Messages::NetworkProcessConnection::ExposeLegacyExtensionResource::name(), 0);
+    Messages::NetworkProcessConnection::ExposeLegacyExtensionResource(url).encode(encoder.get());
+    encoder->setShouldDispatchMessageWhenWaitingForSyncReply(IPC::ShouldDispatchWhenWaitingForSyncReply::Yes);
+    loader->connectionToWebProcess().connection().sendMessage(WTF::move(encoder), { });
+}
+
 // The request a web process approves after a redirect; true when it goes where the load's latest redirect,
 // one an extension made, sent it, which Chrome lets be any scheme. A navigation's internal redirect comes back without its body:
 // a request still going to the redirect's URL with its method sends the redirect's body.
@@ -440,6 +467,7 @@ void LegacyExtensionNetwork::redirect(NetworkResourceLoader& loader, ResourceReq
         request.makeUnconditional();
     auto redirectResponse = redirectedResponse(response, url);
     redirectResponse.setSource(ResourceResponse::Source::Unknown);
+    answerParentEmbedderPolicy(loader, redirectResponse);
     if (RefPtr checker = loader.m_networkLoadChecker; checker && loadsInPlace(loader, url))
         return redirectInPlace(*checker, loader, WTF::move(request), redirectResponse, url);
     auto redirectRequest = request.redirectedRequest(redirectResponse, loader.parameters().shouldClearReferrerOnHTTPSToHTTPRedirect);
@@ -593,12 +621,16 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
         URL redirectURL { response ? response->getString("redirectUrl"_s) : String() };
         if (redirectURL.isValid() && redirectURL != request.url()) {
             auto redirectResponse = internalRedirectResponse(request.url(), redirectURL);
-            if (isMainFrameLoad && !checker->isRedirected()) {
+            // A navigation goes to the new URL, so its document has that URL and origin.
+            if ((isMainFrameLoad || checker->m_options.destination == FetchOptions::Destination::Iframe) && !checker->isRedirected()) {
+                if (loader)
+                    answerParentEmbedderPolicy(*loader, redirectResponse);
                 auto originalRequest = request;
                 request.appendCookieRequestRedirectURL(request.url());
                 request.setURL(WTF::move(redirectURL));
                 m_extensionRedirects.add(*checker);
                 m_extensionRedirectTargets.set(*checker, request.url());
+                exposeRedirectTarget(*checker, response.get(), request.url());
                 if (RefPtr body = request.httpBody())
                     m_internalRedirectBodies.set(*checker, InternalRedirectBody { request.url(), request.httpMethod(), WTF::move(body) });
                 return handler(NetworkLoadChecker::RedirectionTriplet { WTF::move(originalRequest), WTF::move(request), WTF::move(redirectResponse) });
@@ -616,6 +648,7 @@ bool LegacyExtensionNetwork::interceptBeforeRequest(NetworkLoadChecker& checker,
             request.setURL(WTF::move(redirectURL));
             // A request a verdict changes is not the one a service worker left to the network.
             m_uncheckedRequests.remove(*checker);
+            exposeRedirectTarget(*checker, response.get(), request.url());
             if (checker->isRedirected())
                 m_extensionRedirectTargets.set(*checker, request.url());
             else
@@ -758,6 +791,7 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
                     redirectResponse.setHTTPHeaderField(HTTPHeaderName::Location, target.string());
                 redirectRequest = retargetedRedirectRequest(request, redirectRequest, redirectResponse, loader ? loader->parameters().shouldClearReferrerOnHTTPSToHTTPRedirect : true, checker->m_requestLoadType == NetworkLoadChecker::LoadType::MainFrame);
                 m_extensionRedirectTargets.set(*checker, redirectRequest.url());
+                exposeRedirectTarget(*checker, verdict.get(), redirectRequest.url());
             }
         }
         m_redirectResponses.set(*checker, makeUnique<ResourceResponse>(redirectResponse));
@@ -770,6 +804,15 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
 // onHeadersReceived and onResponseStarted, for a response from the network.
 bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, ResourceResponse& response, PrivateRelayed privateRelayed, ResponseCompletionHandler& completionHandler)
 {
+    // The web process decides which pages load an extension's file, as upstream's extension scheme handler answers
+    // any load it lets through.
+    if (response.url().protocolIs("safari-extension"_s)) {
+        response.setHTTPHeaderField(HTTPHeaderName::CrossOriginResourcePolicy, "cross-origin"_s);
+        response.setHTTPHeaderField(HTTPHeaderName::AccessControlAllowOrigin, "*"_s);
+        // Upstream's handler answers in the web process, where no parent's embedder policy governs the navigation.
+        loader.m_parameters.parentCrossOriginEmbedderPolicy = { };
+    }
+
     if (m_resumingResponses.remove(loader))
         return false;
     if (m_listeners.isEmpty() || !m_loaders.contains(loader) || !isInterceptable(response.url()))
@@ -818,6 +861,8 @@ bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, Re
             response = responseWithHeaders(response, *headers, loader->originalRequest().requester() == ResourceRequestRequester::Main ? IsMainResourceLoad::Yes : IsMainResourceLoad::No);
         }
         if (URL redirectURL { verdict ? verdict->getString("redirectUrl"_s) : String() }; redirectURL.isValid()) {
+            if (RefPtr checker = loader->m_networkLoadChecker)
+                exposeRedirectTarget(*checker, verdict.get(), redirectURL);
             RunLoop::mainSingleton().dispatch([this, weakLoader = WTF::move(weakLoader), response = WTF::move(response), redirectURL = WTF::move(redirectURL)] {
                 RefPtr loader = weakLoader.get();
                 if (loader && loader->m_networkLoad)
@@ -870,6 +915,8 @@ bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& load
         if (URL redirectURL { verdict ? verdict->getString("redirectUrl"_s) : String() }; redirectURL.isValid()) {
             auto request = loader->m_networkLoad ? loader->m_networkLoad->currentRequest() : loader->originalRequest();
             request.setURL(URL { entry->response().url() });
+            if (RefPtr checker = loader->m_networkLoadChecker)
+                exposeRedirectTarget(*checker, verdict.get(), redirectURL);
             redirect(*loader, WTF::move(request), entry->response(), redirectURL);
             return;
         }

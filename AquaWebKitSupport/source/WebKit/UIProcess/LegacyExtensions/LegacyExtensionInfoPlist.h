@@ -21,6 +21,11 @@ struct InfoPlist {
     // `WebExtensionDevtoolsPage`, a WebExtension manifest's `devtools_page`: the path of the extension's devtools
     // page within it.
     String devToolsPage;
+    // The files web pages can use whatever the extension does (`web_accessible_resources`) and cannot use whatever
+    // it does (`web_inaccessible_resources`), as path patterns within the extension. See
+    // WebCore::LegacyExtensionResourceAccess.
+    Vector<String> webAccessibleResources;
+    Vector<String> webInaccessibleResources;
 };
 
 // The Info.plist of the extension whose files are at `root` (safari-extension://<key>/<token>/); empty when it

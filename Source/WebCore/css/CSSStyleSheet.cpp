@@ -33,6 +33,7 @@
 #include "JSDOMPromiseDeferred.h"
 #include "JSNodeCustomInlines.h"
 #include "Logging.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: insertRule and replaceSync below.
 #include "MediaList.h"
 #include "MediaQueryParser.h"
 #include "Node.h"
@@ -392,6 +393,7 @@ bool CSSStyleSheet::canAccessRules() const
 
 ExceptionOr<unsigned> CSSStyleSheet::insertRule(const String& ruleString, unsigned index)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(ruleString); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     LOG_WITH_STREAM(StyleSheets, stream << "CSSStyleSheet " << this << " insertRule() " << ruleString << " at " << index);
 
     ASSERT(m_childRuleCSSOMWrappers.isEmpty() || m_childRuleCSSOMWrappers.size() == m_contents->ruleCount());
@@ -581,6 +583,7 @@ void CSSStyleSheet::replace(String&& text, Ref<DeferredPromise>&& promise)
 // https://w3c.github.io/csswg-drafts/cssom-1/#dom-cssstylesheet-replacesync
 ExceptionOr<void> CSSStyleSheet::replaceSync(String&& text)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(text); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     if (!m_wasConstructedByJS)
         return Exception { ExceptionCode::NotAllowedError, "This CSSStyleSheet object was not constructed by JavaScript"_s };
 

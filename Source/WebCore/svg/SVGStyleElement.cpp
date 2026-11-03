@@ -21,6 +21,7 @@
  */
 
 #include "config.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: childrenChanged below.
 #include "SVGStyleElement.h"
 
 #include "CSSStyleSheet.h"
@@ -124,6 +125,7 @@ void SVGStyleElement::removingSteps(RemovalType removalType, ContainerNode& oldP
 void SVGStyleElement::childrenChanged(const ChildChange& change)
 {
     SVGElement::childrenChanged(change);
+    LegacyExtensionResourceAccess::styleElementChildrenChanged(*this, change.source == ChildChange::Source::Clone); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     m_styleSheetOwner.childrenChanged(*this);
 }
 

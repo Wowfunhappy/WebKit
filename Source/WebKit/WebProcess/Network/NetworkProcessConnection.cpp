@@ -26,6 +26,7 @@
 #include "config.h"
 #include "NetworkProcessConnection.h"
 
+#include <WebCore/LegacyExtensionResourceAccess.h> // AQUAWEBKIT: exposeLegacyExtensionResource below.
 #include "LibWebRTCNetwork.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"
@@ -249,6 +250,12 @@ void NetworkProcessConnection::didFinishPreconnection(WebCore::ResourceLoaderIde
 {
     protect(WebProcess::singleton().webLoaderStrategy())->didFinishPreconnection(preconnectionIdentifier, WTF::move(error));
 }
+
+// AQUAWEBKIT: NetworkProcessConnection.messages.in.
+void NetworkProcessConnection::exposeLegacyExtensionResource(URL&& url)
+{
+    WebCore::LegacyExtensionResourceAccess::expose(url);
+} // AQUAWEBKIT: closes the function above.
 
 void NetworkProcessConnection::setOnLineState(bool isOnLine)
 {

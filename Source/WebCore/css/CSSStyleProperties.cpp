@@ -36,6 +36,7 @@
 #include "InspectorInstrumentation.h"
 #include "JSDOMGlobalObject.h"
 #include "JSDOMWindowBase.h"
+#include "LegacyExtensionResourceAccess.h" // AQUAWEBKIT: the setters below.
 #include "LocalDOMWindow.h"
 #include "MutableStyleProperties.h"
 #include "Quirks.h"
@@ -369,6 +370,7 @@ String PropertySetCSSStyleProperties::cssText() const
 
 ExceptionOr<void> PropertySetCSSStyleProperties::setCssText(const String& text)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(text); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     StyleAttributeMutationScope mutationScope { parentElement() };
     if (!willMutate())
         return { };
@@ -432,6 +434,7 @@ bool PropertySetCSSStyleProperties::isPropertyImplicit(const String& propertyNam
 
 ExceptionOr<void> PropertySetCSSStyleProperties::setProperty(const String& propertyName, const String& value, const String& priority)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(value); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     StyleAttributeMutationScope mutationScope { parentElement() };
 
     CSSPropertyID propertyID = cssPropertyID(propertyName);
@@ -502,6 +505,7 @@ String PropertySetCSSStyleProperties::getPropertyValueInternal(CSSPropertyID pro
 
 ExceptionOr<void> PropertySetCSSStyleProperties::setPropertyInternal(CSSPropertyID propertyID, const String& value, IsImportant important)
 {
+    LegacyExtensionResourceAccess::styleTextFromScript(value); // AQUAWEBKIT: a Safari 7 content script's CSS text.
     StyleAttributeMutationScope mutationScope { parentElement() };
     if (!willMutate())
         return { };

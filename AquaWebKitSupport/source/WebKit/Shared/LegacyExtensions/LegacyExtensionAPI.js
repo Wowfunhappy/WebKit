@@ -824,6 +824,19 @@ if (!isHost) {
         send({ t: "result", callId, result: result === undefined ? null : result });
     }) : unreachable(callId);
 
+    // scripting.executeScript. The value is a page's own in the "MAIN" world: it is read here only as data, so
+    // nothing of this world reaches the page's getters and proxies, and the native side waits for its promise.
+    const didReceiveScriptingExecute = ({ callId, sources, functionSource, args, world, injectImmediately, userGesture }) => {
+        const run = () => native.runInjection(JSON.stringify({ sources, functionSource, args, isMainWorld: world === "MAIN", userGesture: !!userGesture }), value => {
+            const result = injectionResult(value);
+            send({ t: "result", callId, result: result === undefined ? null : result });
+        });
+        if (injectImmediately)
+            run();
+        else
+            runWhen("document_idle", run);
+    };
+
     // A file's style sheet is based at the file; code's, as upstream's, has a URL of its own.
     const didReceiveStyleSheet = ({ callId, op, code, origin, url, runAt, matchAboutBlank }) => isReachable(matchAboutBlank) ? runWhen(runAt || "document_idle", () => {
         if (op === "insert")
@@ -849,6 +862,7 @@ if (!isHost) {
 
     Object.assign(receiverTable(), {
         exec: didReceiveExecuteScript,
+        scriptingExec: didReceiveScriptingExecute,
         css: didReceiveStyleSheet,
     });
 }
@@ -1075,6 +1089,58 @@ if (isHost) {
 
     // Firefox's dns.
     const resolveFlags = ["allow_name_collisions", "bypass_cache", "canonical_name", "disable_ipv4", "disable_ipv6", "disable_trr", "offline", "priority_low", "priority_medium", "speculate"];
+    // The checks and messages of Chrome's scripting API.
+    const scriptingTarget = target => {
+        if (!target || typeof target !== "object" || typeof target.tabId !== "number")
+            throw new TypeError("Error in invocation of scripting.executeScript: 'target.tabId' must be a number.");
+        const { tabId, frameIds, documentIds, allFrames } = target;
+        if (frameIds !== undefined && documentIds !== undefined)
+            throw new Error("Cannot specify both 'frameIds' and 'documentIds'.");
+        if (allFrames && frameIds !== undefined)
+            throw new Error("Cannot specify both 'allFrames' and 'frameIds'.");
+        if (allFrames && documentIds !== undefined)
+            throw new Error("Cannot specify both 'allFrames' and 'documentIds'.");
+        if (frameIds !== undefined && !(Array.isArray(frameIds) && frameIds.every(Number.isInteger)))
+            throw new TypeError("Error in invocation of scripting.executeScript: 'target.frameIds' must be an array of integers.");
+        if (documentIds !== undefined && !(Array.isArray(documentIds) && documentIds.every(id => typeof id === "string")))
+            throw new TypeError("Error in invocation of scripting.executeScript: 'target.documentIds' must be an array of strings.");
+        return { tabId, frameIds, documentIds, allFrames: allFrames === true };
+    };
+    browser.scripting = {
+        executeScript(...args) {
+            return withOptionalCallback(args, async (details = {}) => {
+                const userGesture = native.isProcessingUserGesture();
+                const { tabId, frameIds, documentIds, allFrames } = scriptingTarget(details.target);
+                const world = details.world === undefined ? "ISOLATED" : details.world;
+                if (world !== "ISOLATED" && world !== "MAIN")
+                    throw new TypeError(`Error in invocation of scripting.executeScript: Value must be one of ISOLATED, MAIN.`);
+                if ((details.func === undefined) === (details.files === undefined))
+                    throw new Error("Exactly one of 'func' and 'files' must be specified.");
+                if (details.func !== undefined && typeof details.func !== "function")
+                    throw new TypeError("Error in invocation of scripting.executeScript: 'func' must be a function.");
+                if (details.args !== undefined && details.func === undefined)
+                    throw new Error("'args' may not be used with file injections.");
+                if (details.args !== undefined && !Array.isArray(details.args))
+                    throw new TypeError("Error in invocation of scripting.executeScript: 'args' must be an array.");
+                const request = { frameIds, documentIds, allFrames, world, injectImmediately: details.injectImmediately === true, userGesture, root: resourceURL("") };
+                if (details.func !== undefined) {
+                    request.functionSource = Function.prototype.toString.call(details.func);
+                    request.args = (details.args || []).map(argument => {
+                        const json = JSON.stringify(argument);
+                        return json === undefined ? "null" : json;
+                    });
+                } else {
+                    if (!Array.isArray(details.files) || !details.files.length || !details.files.every(file => typeof file === "string"))
+                        throw new Error("At least one file must be specified.");
+                    request.sources = await Promise.all(details.files.map(file => resourceText(file).catch(() => {
+                        throw new Error(`Could not load file: '${file}'.`);
+                    })));
+                }
+                return callRouter("scripting.executeScript", tabId, request);
+            });
+        },
+    };
+
     browser.dns = {
         resolve(...args) {
             return withOptionalCallback(args, (hostname, flags = null) => {
@@ -1781,6 +1847,9 @@ function receiverTable() {
                     pending.resolve(result);
             },
             exec({ callId }) {
+                send({ t: "result", callId, error: "Cannot access the contents of an extension page." });
+            },
+            scriptingExec({ callId }) {
                 send({ t: "result", callId, error: "Cannot access the contents of an extension page." });
             },
             css({ callId }) {

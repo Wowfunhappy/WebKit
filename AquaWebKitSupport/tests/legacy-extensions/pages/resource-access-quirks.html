@@ -1,0 +1,30 @@
+<title>Resource access in quirks mode</title>
+<script>
+window.__results = { done: false };
+const R = window.__results;
+const attribute = async name => {
+    for (let i = 0; i < 200 && !document.documentElement.hasAttribute(`data-${name}`); ++i)
+        await new Promise(resolve => setTimeout(resolve, 50));
+    return document.documentElement.getAttribute(`data-${name}`);
+};
+const parseAsStyleSheet = url => new Promise(resolve => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.onload = link.onerror = resolve;
+    link.href = url;
+    document.head.append(link);
+    setTimeout(resolve, 1500);
+});
+const read = url => fetch(url).then(async response => `read:${(await response.text()).trim()}`, () => 'failed');
+(async () => {
+    R.quirks = document.compatMode;
+    const extensionRoot = await attribute('root');
+    window.dispatchEvent(new Event('ra-expose-js'));
+    await attribute('exposedJS');
+    await parseAsStyleSheet(`${extensionRoot}n5-exposed.js`);
+    R.exposedJSAsSheet = await read(`${extensionRoot}n5-secret.txt`);
+    await parseAsStyleSheet(`${extensionRoot}declared/n5-data.txt`);
+    R.declaredTextAsSheet = await read(`${extensionRoot}n5-secret2.txt`);
+    R.done = true;
+})();
+</script>

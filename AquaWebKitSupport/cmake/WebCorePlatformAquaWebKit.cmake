@@ -456,6 +456,8 @@ list(APPEND WebCore_SOURCES
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.cpp
     # The documents of Safari 7 extensions' mimeHandler viewers.
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/html/LegacyExtensionMimeHandlerDocument.cpp
+    # The files of Safari 7 extensions that web pages can use.
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/loader/LegacyExtensionResourceAccess.cpp
     # Safari 7 extensions' webRequest for the loads WebKit 1 makes.
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/loader/LegacyLoadInterceptor.cpp
     # The article document Safari 7's Reader article finder runs against.
@@ -501,6 +503,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/dom/LegacyExtensionStyleSheets.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/html/LegacyExtensionMimeHandlerDocument.h
+    ${AQUAWEBKIT_SUPPORT}/source/WebCore/loader/LegacyExtensionResourceAccess.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/loader/LegacyLoadInterceptor.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/page/SafariReaderMozillaReadability.h
     ${AQUAWEBKIT_SUPPORT}/source/WebCore/platform/ScrollAnchoringSuppressionHandle.h
