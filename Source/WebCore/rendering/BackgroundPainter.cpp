@@ -186,7 +186,7 @@ template<typename Layers> void BackgroundPainter::paintFillLayersImpl(const Colo
                 BackgroundPainter bitmapPainter { m_renderer, bitmapPaintInfo };
                 for (auto& layer : fillLayers.usedValues() | std::views::reverse)
                     bitmapPainter.paintFillLayerImpl(color, FillLayerToPaint<typename Layers::value_type> { .layer = layer, .isLast = &layer == &fillLayers.usedLast(), .zoom = zoom }, rect, bleedAvoidance, { }, { }, op, backgroundObject, BaseBackgroundColorSkip);
-            }, BitmapBackedColorSpace::Destination);
+            });
             return;
         }
 #endif // AQUAWEBKIT: closes the bitmap route above.

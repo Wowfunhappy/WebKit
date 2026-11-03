@@ -100,15 +100,11 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 #endif
 
 #if USE(APPKIT)
-// AQUAWEBKIT: CoreAnimation's asynchronous drawing hands -drawInContext: a deferred recording
-// context (CGContextGetType answers kCGContextTypeUnknown and CGBitmapContextGetData is null), and under
-// the software renderer this OS's QuartzCore does not carry a CGStyle through that recording: ordinary drawing and
-// CGContextSetShadowWithColor replay from it, a focus ring is dropped; a GPU draws the ring. WK2 tile layers take
-// drawsAsynchronously from AcceleratedDrawingEnabled, which WebKit turns on, so the two focus-ring call
-// sites run their upstream drawing through here: it hands `draw` a bitmap-backed stand-in for the part
-// of `destination` its clip can show, and composites those pixels back one for one. BackgroundPainter's fill layers
-// of blend modes QuartzCore does not implement blend through here as well.
-void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef), BitmapBackedColorSpace bitmapColorSpace)
+// AQUAWEBKIT: BackgroundPainter's fill layers of blend modes QuartzCore does not implement blend through here, as does a
+// cell's focus ring under the software renderer, whose AppKit-drawn mask the polyfill layer cannot carry past the
+// drawable: it hands `draw` a bitmap-backed stand-in for the part of `destination` its clip can show, and composites
+// those pixels back one for one.
+void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef))
 {
     CGRect clip = CGContextGetClipBoundingBox(destination);
     if (CGRectIsEmpty(clip))
@@ -120,7 +116,7 @@ void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContex
     if (!width || !height)
         return;
 
-    RetainPtr<CGColorSpaceRef> colorSpace = bitmapColorSpace == BitmapBackedColorSpace::Destination ? CGContextGetColorSpace(destination) : nullptr;
+    RetainPtr<CGColorSpaceRef> colorSpace = CGContextGetColorSpace(destination);
     if (!colorSpace)
         colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
     RetainPtr scratch = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
@@ -130,7 +126,7 @@ void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContex
     // The scratch's pixels are the destination's device space with deviceRect's origin at the bitmap's
     // origin, so `draw` works in the destination's user space and lands on the destination's pixel grid.
     // Its base CTM maps the destination's base space onto those same pixels, because CoreGraphics
-    // measures a focus-ring style's radius in base space and a HiDPI context's scale lives there.
+    // measures a style in base space and a HiDPI context's scale lives there.
     CGAffineTransform scratchFromDevice = CGAffineTransformMakeTranslation(-deviceRect.origin.x, -deviceRect.origin.y);
     CGContextConcatCTM(scratch.get(), CGAffineTransformConcat(deviceFromUser, scratchFromDevice));
     CGAffineTransform deviceFromBase = CGAffineTransformConcat(CGAffineTransformInvert(getUserToBaseCTM(destination)), deviceFromUser);
@@ -177,8 +173,6 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     focusRingStyle.accumulate = -1;
     auto style = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color).get()));
 
-    // AQUAWEBKIT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
-    wkDrawInBitmapBackedContext(this->platformContext(), ^(CGContextRef platformContext) {
     CGContextStateSaver stateSaver(platformContext);
 
     CGContextSetStyle(platformContext, style.get());
@@ -186,7 +180,6 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     CGContextAddPath(platformContext, path.platformPath());
 
     CGContextFillPath(platformContext);
-    }); // AQUAWEBKIT: closes the bitmap-backed drawing block opened above.
 }
 
 void GraphicsContextCG::drawFocusRing(const Vector<FloatRect>& rects, float outlineWidth, const Color& color, float zoomFactor)

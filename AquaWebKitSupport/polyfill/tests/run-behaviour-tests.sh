@@ -434,6 +434,11 @@ probe_cg_radial_coinciding() {
         "$T/cg_radial_coinciding"
 }
 
+probe_cg_focus_ring() {
+    "$CLANG" $MODERN $INC -fno-objc-arc -Wno-four-char-constants -o "$T/cg_focus_ring" \
+        "$TBEHAV/CoreGraphics-focus-ring.m" $PROBE_LIBS -framework Cocoa -framework QuartzCore &&
+        "$T/cg_focus_ring"
+}
 probe_cg_radial_iosurface() {
     "$CLANG" $MODERN $INC -fno-objc-arc -Wno-four-char-constants -o "$T/cg_radial_iosurface" \
         "$TBEHAV/CoreGraphics-radial-iosurface.m" $PROBE_LIBS -framework Cocoa -framework QuartzCore &&
@@ -1208,6 +1213,7 @@ run_probe cg_iosurface_image_matching "$@"
 run_probe cg_gradient_dither_space "$@"
 run_probe cg_radial_coinciding "$@"
 run_probe cg_radial_iosurface "$@"
+run_probe cg_focus_ring "$@"
 run_probe cg_blend_read_back "$@"
 run_probe cg_linear_srgb "$@"
 run_probe accelerate_converter_ramp "$@"

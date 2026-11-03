@@ -6942,8 +6942,12 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
 {
     wk_blend_read_back readBack;
     if (wk_blendReadBackBegin(context, &readBack)) {
-        CTFontDrawGlyphs(font, glyphs, positions, count, context);
+        CTFontDrawGlyphs(font, glyphs, positions, count, readBack.target);
         wk_blendReadBackEnd(&readBack);
+        if (wk_blendReadBackTextClipBegin(&readBack)) {
+            CTFontDrawGlyphs(font, glyphs, positions, count, context);
+            wk_blendReadBackTextClipEnd(&readBack);
+        }
         return;
     }
 

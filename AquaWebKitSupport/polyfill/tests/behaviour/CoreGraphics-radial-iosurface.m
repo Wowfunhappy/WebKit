@@ -8,7 +8,7 @@
 // under global alpha and the multiply blend mode, a shadow, a linear-sRGB gradient, and a transparency layer;
 // QuartzCore antialiases the clip's edge in its own way. Each blend mode that changes the destination beneath a
 // transparent source leaves pixels the gradient does not cover untouched, in a surface and in an 8-bit bitmap of
-// another colour space, and 64 draws leave them byte-exact; under a shadow as well a surface is byte-identical to 10.9's own draw into a surface, or for plus-darker within three levels of the bitmap's. A
+// another colour space, and 64 draws leave them byte-exact; under a shadow as well a surface holds 10.9's own draw into a surface, or for plus-darker within three levels of the bitmap's. A
 // bitmap under a shadow is 10.9's own draw. A surface wider than one band holds, with a shadow and under the
 // copy blend mode too. A gray gradient holds, a gray surface takes the route, a singular CTM paints nothing, and
 // an asymmetric hard-stop gradient in an asynchronously drawing layer lands where it belongs at contents scales
@@ -21,6 +21,7 @@
 #include <stdio.h>
 
 CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo);
+extern size_t wk_coreAnimationTextureLimit(void);
 extern void *CGContextGetDelegate(CGContextRef);
 extern void CGContextDelegateSetCallback(void *, int, void (*)(void));
 typedef void (*DrawRadialFn)(CGContextRef, CGGradientRef, CGPoint, CGFloat, CGPoint, CGFloat, CGGradientDrawingOptions);
@@ -152,13 +153,16 @@ typedef struct {
     CGBlendMode blendMode;
     CGFloat alpha;
     CGColorSpaceRef gradientSpace;
+    bool oneColour;
 } Scene;
 
 static void drawScene(CGContextRef context, Scene scene, DrawRadialFn draw)
 {
     CGContextSetRGBFillColor(context, 1, 0, 1, 1);
     CGContextFillRect(context, CGRectMake(0, 0, kSide, kSide));
-    const CGFloat components[] = { 1, 0, 0, 1, 0, 0, 1, 0.5 };
+    const CGFloat ramp[] = { 1, 0, 0, 1, 0, 0, 1, 0.5 };
+    const CGFloat flat[] = { 0, 0, 1, 0.5, 0, 0, 1, 0.5 };
+    const CGFloat *components = scene.oneColour ? flat : ramp;
     CGGradientRef gradient = CGGradientCreateWithColorComponents(scene.gradientSpace ? scene.gradientSpace : gSRGB, components, NULL, 2);
     CGContextConcatCTM(context, sceneTransform());
     CGContextAddEllipseInRect(context, CGRectMake(5, 10, 90, 80));
@@ -358,6 +362,10 @@ int main(void)
             checkScene(scene, name, false, 0.9, 2);
         }
 
+        // 10.9's draw under a shadow holds QuartzCore's gradient colours and the archive's the bitmap's, which a GPU's
+        // radial renderer sets apart.
+        int styledTolerance = wk_coreAnimationTextureLimit() ? 0 : 8;
+
         for (size_t i = 0; i < kDestructiveModeCount; i++) {
             char name[120];
             snprintf(name, sizeof(name), "%s, partial coverage, surface", kDestructiveModes[i].name);
@@ -386,7 +394,15 @@ int main(void)
             if (kDestructiveModes[i].mode == kCGBlendModePlusDarker)
                 checkScene(styled, name, false, 0.9, 3);
             else
-                checkScene(styled, name, true, 0, kStyledTolerance);
+                checkScene(styled, name, true, 0, styledTolerance);
+
+            // With one colour, no interpolation stands between the two draws.
+            if (kDestructiveModes[i].mode != kCGBlendModePlusDarker) {
+                snprintf(name, sizeof(name), "%s under a shadow, one colour", kDestructiveModes[i].name);
+                Scene oneColour = styled;
+                oneColour.oneColour = true;
+                checkScene(oneColour, name, true, 0, 2);
+            }
         }
 
         {
@@ -478,8 +494,9 @@ int main(void)
                 readTarget(&bitmap);
                 int largest = largestDifference(&surface, &bitmap, CGAffineTransformIdentity, 0);
                 char what[160];
-                snprintf(what, sizeof(what), "%s: within 2 of 10.9's bitmap draw (largest %d)", cases[i].what, largest);
-                check(largest <= 2, what);
+                int allowed = cases[i].shadow && !wk_coreAnimationTextureLimit() ? 3 : 2;
+                snprintf(what, sizeof(what), "%s: within %d of 10.9's bitmap draw (largest %d)", cases[i].what, allowed, largest);
+                check(largest <= allowed, what);
                 releaseTarget(&surface);
                 releaseTarget(&bitmap);
             }

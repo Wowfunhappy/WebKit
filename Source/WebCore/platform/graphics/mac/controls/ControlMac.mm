@@ -316,11 +316,16 @@ void ControlMac::drawCellFocusRingInternal(GraphicsContext& context, const Float
 
 void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell)
 {
-    // AQUAWEBKIT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
-    wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef scratch) {
-    GraphicsContextCG scratchContext(scratch);
-    // RetainPtr cgContext = context.platformContext();
-    RetainPtr cgContext = scratchContext.platformContext();
+    // AQUAWEBKIT: this OS's software renderer drops a focus ring's CGStyle; see wkDrawInBitmapBackedContext.
+    if (wk_dropsFocusRingStyle(context.platformContext())) {
+        wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef scratch) {
+            GraphicsContextCG scratchContext(scratch);
+            drawCellFocusRing(scratchContext, rect, deviceScaleFactor, style, cell);
+        });
+        return;
+    } // AQUAWEBKIT: closes the software renderer's route above.
+
+    RetainPtr cgContext = context.platformContext();
     CGContextStateSaver stateSaver(cgContext.get());
 
     CGFocusRingStyle focusRingStyle;
@@ -339,10 +344,8 @@ void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& re
     CGContextSetStyle(cgContext.get(), cgStyle.get());
 
     CGContextBeginTransparencyLayerWithRect(cgContext.get(), rect, nullptr);
-    // drawCellFocusRingInternal(context, rect, deviceScaleFactor, style, cell);
-    drawCellFocusRingInternal(scratchContext, rect, deviceScaleFactor, style, cell); // AQUAWEBKIT: the cell mask draws into the stand-in opened above.
+    drawCellFocusRingInternal(context, rect, deviceScaleFactor, style, cell);
     CGContextEndTransparencyLayer(cgContext.get());
-    }); // AQUAWEBKIT: closes the bitmap-backed drawing block opened above.
 }
 
 void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell, bool drawCell)

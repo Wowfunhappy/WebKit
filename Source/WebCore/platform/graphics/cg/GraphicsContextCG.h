@@ -33,6 +33,7 @@
 
 #if USE(APPKIT)
 extern "C" bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef); // AQUAWEBKIT: the polyfill layer's own predicate.
+extern "C" bool wk_dropsFocusRingStyle(CGContextRef); // AQUAWEBKIT: the polyfill layer's own predicate.
 #endif // AQUAWEBKIT: closes the declaration above.
 
 namespace WebCore {
@@ -40,8 +41,7 @@ namespace WebCore {
 #if USE(APPKIT)
 // AQUAWEBKIT: hands `draw` a bitmap-backed stand-in for the part of `destination` its clip can show, and composites
 // those pixels back one for one; see GraphicsContextCocoa.mm.
-enum class BitmapBackedColorSpace : bool { DeviceRGB, Destination };
-void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef), BitmapBackedColorSpace = BitmapBackedColorSpace::DeviceRGB);
+void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef));
 #endif // AQUAWEBKIT: closes the declaration above.
 
 class WEBCORE_EXPORT GraphicsContextCG : public GraphicsContext {

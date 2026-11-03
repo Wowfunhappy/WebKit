@@ -412,7 +412,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawConicGradient,
         return;
     wk_blend_read_back readBack;
     if (wk_blendReadBackBegin(context, &readBack)) {
-        CGContextDrawConicGradient(context, gradient, center, angle);
+        CGContextDrawConicGradient(readBack.target, gradient, center, angle);
         wk_blendReadBackEnd(&readBack);
         return;
     }
@@ -653,6 +653,13 @@ WK_SYSTEM_FN("CoreGraphics", int, CGContextGetType, (CGContextRef));
 extern void *CGContextGetDelegate(CGContextRef);
 extern void *CGContextDelegateGetInfo(void *);
 extern void *CGContextGetRenderingState(CGContextRef);
+extern bool CGContextGetAllowsAntialiasing(CGContextRef);
+extern bool CGContextGetAllowsFontAntialiasing(CGContextRef);
+extern void CGContextSetAllowsFontAntialiasing(CGContextRef, bool);
+extern bool CGContextGetAllowsFontSmoothing(CGContextRef);
+extern bool CGContextGetAllowsFontSubpixelPositioning(CGContextRef);
+extern bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef);
+extern CGTextDrawingMode CGContextGetTextDrawingMode(CGContextRef);
 extern void *CGContextCopyTopGState(CGContextRef);
 extern void CGGStateRelease(void *);
 
@@ -1483,9 +1490,10 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawLinearGradient,
 {
     wk_blend_read_back readBack;
     bool readingBack = wk_blendReadBackBegin(context, &readBack);
+    CGContextRef target = readingBack ? readBack.target : context;
     wk_gradient_draw draw = { gradient, false, startPoint, 0, endPoint, 0, options, readingBack };
-    if (!context || !wk_drawGradientInBands(context, &draw))
-        wk_drawGradientDirectly(context, &draw);
+    if (!target || !wk_drawGradientInBands(target, &draw))
+        wk_drawGradientDirectly(target, &draw);
     if (readingBack)
         wk_blendReadBackEnd(&readBack);
 }
@@ -1620,7 +1628,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawRadialGradient,
 {
     wk_blend_read_back readBack;
     if (wk_blendReadBackBegin(context, &readBack)) {
-        CGContextDrawRadialGradient(context, gradient, startCenter, startRadius, endCenter, endRadius, options);
+        CGContextDrawRadialGradient(readBack.target, gradient, startCenter, startRadius, endCenter, endRadius, options);
         wk_blendReadBackEnd(&readBack);
         return;
     }
@@ -2438,19 +2446,25 @@ static CGImageRef wk_imageForDestinationColorSpace(CGImageRef image, CGColorSpac
 // clipped to its own share of the destination.
 WK_SYSTEM_FN("OpenGL", int, CGLChoosePixelFormat, (const int *, void **, int *));
 WK_SYSTEM_FN("OpenGL", int, CGLDestroyPixelFormat, (void *));
+WK_SYSTEM_FN("OpenGL", int, CGLCreateContext, (void *, void *, void **));
+WK_SYSTEM_FN("OpenGL", int, CGLDestroyContext, (void *));
 extern bool CGContextGetShouldAntialias(CGContextRef);
 
 static bool wk_hasAcceleratedCoreAnimationRenderer_storage;
 static pthread_once_t wk_acceleratedCoreAnimationRendererOnce = PTHREAD_ONCE_INIT;
 static void wk_build_acceleratedCoreAnimationRenderer(void)
 {
-    // The pixel format CA::CG::IOSurfaceRenderer::acquire chooses with (its static attributes: colour size
-    // 32, accelerated, no recovery, offline renderers allowed, 1262).
+    // CA::CG::IOSurfaceRenderer::acquire's sequence, which falls to its SWContext when either step fails. Its static
+    // attributes: colour size 32, accelerated, no recovery, offline renderers allowed, 1262.
     static const int acquireAttributes[] = { 8, 32, 73, 72, 96, 1262, 0 };
     void *pixelFormat = NULL;
     int formats = 0;
     if (!WK_SYSTEM(CGLChoosePixelFormat)(acquireAttributes, &pixelFormat, &formats) && pixelFormat) {
-        wk_hasAcceleratedCoreAnimationRenderer_storage = formats > 0;
+        void *glContext = NULL;
+        if (formats > 0 && !WK_SYSTEM(CGLCreateContext)(pixelFormat, NULL, &glContext) && glContext) {
+            wk_hasAcceleratedCoreAnimationRenderer_storage = true;
+            WK_SYSTEM(CGLDestroyContext)(glContext);
+        }
         WK_SYSTEM(CGLDestroyPixelFormat)(pixelFormat);
     }
 }
@@ -2520,6 +2534,11 @@ bool wk_drawsThroughCoreAnimationIOSurface(CGContextRef context)
         && wk_contextDelegateVTable(context) == wk_coreAnimationIOSurfaceDelegateVTable;
 }
 
+bool wk_dropsFocusRingStyle(CGContextRef context)
+{
+    return !wk_hasAcceleratedCoreAnimationRenderer() && wk_drawsThroughCoreAnimationIOSurface(context);
+}
+
 // An 8-bit bitmap context of another RGB colour space than a premultiplied 8-bit RGB image draws the image's
 // per-space image, as an IOSurface context does. 10.9's bitmap route unpremultiplies at 8 bits and matches
 // through an 8-bit table, which lands opaque levels up to 0.55 of a level from exact -- sRGB 7 becomes
@@ -2545,7 +2564,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawImage, (CGContextRef con
 {
     wk_blend_read_back readBack;
     if (wk_blendReadBackBegin(context, &readBack)) {
-        CGContextDrawImage(context, rect, image);
+        CGContextDrawImage(readBack.target, rect, image);
         wk_blendReadBackEnd(&readBack);
         return;
     }
@@ -2961,7 +2980,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDrawTiledImage, (CGContextRe
 {
     wk_blend_read_back readBack;
     if (wk_blendReadBackBegin(context, &readBack)) {
-        CGContextDrawTiledImage(context, rect, image);
+        CGContextDrawTiledImage(readBack.target, rect, image);
         wk_blendReadBackEnd(&readBack);
         return;
     }
@@ -3198,6 +3217,9 @@ static struct wk_surface_layer *wk_popSurfaceLayer(CGContextRef context)
 
 static bool wk_beginReadBack(CGContextRef context, CGBlendMode mode, wk_blend_read_back *readBack);
 static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha);
+static bool wk_blendModeTakesReadBack(CGBlendMode mode);
+static bool wk_dropsStyle(CGStyleRef style);
+static bool wk_isFocusRing(CGStyleRef style);
 
 // Answers whether the layer was opened here, with no offscreen.
 static bool wk_beginSurfaceLayer(CGContextRef context, CFDictionaryRef auxiliaryInfo)
@@ -3216,8 +3238,16 @@ static bool wk_beginSurfaceLayer(CGContextRef context, CFDictionaryRef auxiliary
         }
     }
     wk_blend_read_back readBack;
-    if (wk_blendReadBackBegin(context, &readBack))
-        wk_pushSurfaceLayer(context, wk_layerOffscreenUnderReadBack, &readBack, 1);
+    CGStyleRef style = CGContextGetStyle(context);
+    CGFloat alpha = CGContextGetAlpha(context);
+    if ((wk_blendModeTakesReadBack(CGContextGetBlendMode(context)) || (style && wk_dropsStyle(style))) && !wk_insideOffscreenSurfaceLayer(context)
+        && wk_beginReadBack(context, CGContextGetBlendMode(context), &readBack)) {
+        // A focus ring's threshold reads its mask's alpha, so the mask stays opaque and the alpha applies to the ring.
+        bool focusRing = style && wk_isFocusRing(style);
+        if (focusRing)
+            CGContextSetAlpha(context, 1);
+        wk_pushSurfaceLayer(context, wk_layerOffscreenUnderReadBack, &readBack, focusRing ? alpha : 1);
+    }
     else
         wk_pushSurfaceLayer(context, wk_layerOffscreen, NULL, 1);
     return false;
@@ -3265,7 +3295,7 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextEndTransparencyLayer, (CGCon
         WK_ORIGINAL(CGContextEndTransparencyLayer)(context);
         wk_transparencyLayerEnded(context);
         if (layer && layer->kind == wk_layerOffscreenUnderReadBack)
-            wk_blendReadBackEnd(&layer->readBack);
+            wk_endReadBack(&layer->readBack, layer->alpha);
     }
     if (layer) {
         CGContextRelease(context);
@@ -3277,10 +3307,18 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextEndTransparencyLayer, (CGCon
 // renderer computes plus-darker as max(0, D + S - 1) on all four premultiplied channels. A draw under one of them
 // into a surface runs with the blend mode normal over a cleared destination, so the surface then holds its source;
 // the destination read beforehand and that source are composited under the mode in a CG bitmap, and the result
-// replaces the destination, unclipped, since the source already carries the clip's coverage. A style moves to the CG
-// bitmap, which composites a shadow and then its source; that source is read unclipped, for what casts a shadow into
-// the clip from outside it, and the clip applies when the result replaces the destination.
+// replaces the destination, unclipped, since the source already carries the clip's coverage. A transparency layer's
+// style moves to the CG bitmap, which composites a shadow and then its source; that source is read unclipped, and the
+// clip applies when the result replaces the destination.
+//
+// A primitive under a style draws in a CG bitmap the whole way, holding a copy of the context's graphics state, so CG's
+// own reach paints what a shape past the drawable casts into it. QuartzCore's software renderer drops a focus ring's
+// style, so a primitive under one draws this way under any blend mode, and a transparency layer reads back.
 extern void CGContextResetClip(CGContextRef);
+extern void *CGContextCopyTopGState(CGContextRef);
+extern void CGContextReplaceTopGState(CGContextRef, void *);
+extern CGAffineTransform CGContextGetBaseCTM(CGContextRef);
+extern void CGContextSetBaseCTM(CGContextRef, CGAffineTransform);
 extern void *CGContextGetDelegate(CGContextRef);
 extern void *CGContextDelegateGetInfo(void *);
 WK_SYSTEM_FN("IOSurface", size_t, IOSurfaceGetBytesPerElement, (IOSurfaceRef));
@@ -3298,6 +3336,43 @@ static bool wk_blendModeTakesReadBack(CGBlendMode mode)
     default:
         return false;
     }
+}
+
+extern int CGStyleGetType(CGStyleRef);
+extern const void *CGStyleGetData(CGStyleRef);
+extern CGColorRef CGStyleGetColor(CGStyleRef);
+extern CGStyleRef CGStyleCreateFocusRingWithColor(const void *, CGColorRef);
+enum { wk_styleTypeFocusRing = 2 };
+
+typedef struct {
+    unsigned version;
+    int tint;
+    int ordering;
+    CGFloat alpha, radius, threshold;
+    CGRect bounds;
+    int accumulate;
+} wk_focus_ring_style;
+
+static bool wk_isFocusRing(CGStyleRef style)
+{
+    return CGStyleGetType(style) == wk_styleTypeFocusRing;
+}
+
+static bool wk_dropsStyle(CGStyleRef style)
+{
+    return wk_isFocusRing(style) && !wk_hasAcceleratedCoreAnimationRenderer();
+}
+
+// CG's bitmap ignores global alpha on a focus ring, and a surface multiplies the ring's own alpha by it, under every
+// blend mode. Sets the focus ring `style` on `bitmap` with that alpha, which leaves the bitmap's global alpha at 1.
+static void wk_setFocusRingAtAlpha(CGContextRef bitmap, CGStyleRef style, CGFloat alpha)
+{
+    wk_focus_ring_style data = *(const wk_focus_ring_style *)CGStyleGetData(style);
+    data.alpha *= alpha;
+    CGStyleRef scaled = CGStyleCreateFocusRingWithColor(&data, CGStyleGetColor(style));
+    CGContextSetStyle(bitmap, scaled);
+    CFRelease(scaled);
+    CGContextSetAlpha(bitmap, 1);
 }
 
 // Rows of `region` of the context's drawable: CA::CG::IOSurfaceContextDelegate keeps its IOSurfaceDrawable at offset
@@ -3379,6 +3454,7 @@ static bool wk_beginReadBack(CGContextRef context, CGBlendMode mode, wk_blend_re
     if (CGRectIsNull(region) || CGRectIsEmpty(region) || !(ctm.a * ctm.d - ctm.b * ctm.c))
         return false;
     readBack->context = context;
+    readBack->target = context;
     readBack->mode = mode;
     readBack->region = region;
     CGContextFlush(context);
@@ -3403,14 +3479,104 @@ static bool wk_beginReadBack(CGContextRef context, CGBlendMode mode, wk_blend_re
     return true;
 }
 
+// `blends` composites over the destination in the bitmap; otherwise the bitmap holds the draw alone, which reaches the
+// context under the context's own blend mode.
+static bool wk_beginStyledDraw(CGContextRef context, CGBlendMode mode, bool blends, wk_blend_read_back *readBack)
+{
+    wk_surface_drawable drawable;
+    if (!wk_contextDrawable(context, &drawable))
+        return false;
+    CGAffineTransform ctm = CGContextGetCTM(context);
+    CGRect region = CGRectIntersection(CGRectIntegral(CGRectApplyAffineTransform(CGContextGetClipBoundingBox(context), ctm)),
+        CGRectMake(0, 0, drawable.width, drawable.height));
+    if (CGRectIsNull(region) || CGRectIsEmpty(region) || !(ctm.a * ctm.d - ctm.b * ctm.c))
+        return false;
+    CGColorSpaceRef space = CGContextGetColorSpace(context);
+    size_t width = (size_t)region.size.width, rows = (size_t)region.size.height;
+    CGContextRef bitmap = CGBitmapContextCreate(NULL, width, rows, 8, width * 4, space, wk_gradientNarrowInfo);
+    if (!bitmap)
+        abort();
+    readBack->context = context;
+    readBack->target = bitmap;
+    readBack->mode = mode;
+    readBack->region = region;
+    readBack->destination = NULL;
+    readBack->style = NULL;
+    readBack->blends = blends;
+    if (blends) {
+        CGContextFlush(context);
+        CGImageRef destination = wk_createReadBackImage(readBack, wk_copyDrawableRegion(readBack), space);
+        CGContextSetInterpolationQuality(bitmap, kCGInterpolationNone);
+        WK_ORIGINAL(CGContextDrawImage)(bitmap, CGRectMake(0, 0, width, rows), destination);
+        CGImageRelease(destination);
+    }
+
+    void *state = CGContextCopyTopGState(context);
+    CGContextReplaceTopGState(bitmap, state);
+    CGGStateRelease(state);
+    readBack->textPosition = CGContextGetTextPosition(context);
+    readBack->textMode = CGContextGetTextDrawingMode(context);
+    CGContextSetTextMatrix(bitmap, CGContextGetTextMatrix(context));
+    CGContextSetTextPosition(bitmap, readBack->textPosition.x, readBack->textPosition.y);
+    CGContextSetAllowsAntialiasing(bitmap, CGContextGetAllowsAntialiasing(context));
+    CGContextSetAllowsDithering(bitmap, CGContextGetAllowsDithering(context));
+    CGContextSetAllowsFontAntialiasing(bitmap, CGContextGetAllowsFontAntialiasing(context));
+    CGContextSetAllowsFontSmoothing(bitmap, CGContextGetAllowsFontSmoothing(context));
+    CGContextSetAllowsFontSubpixelPositioning(bitmap, CGContextGetAllowsFontSubpixelPositioning(context));
+    CGContextSetAllowsFontSubpixelQuantization(bitmap, CGContextGetAllowsFontSubpixelQuantization(context));
+    CGAffineTransform toBitmap = CGAffineTransformMakeTranslation(-region.origin.x, -region.origin.y);
+    CGContextConcatCTM(bitmap, CGAffineTransformConcat(CGAffineTransformConcat(ctm, toBitmap), CGAffineTransformInvert(ctm)));
+    CGContextSetBaseCTM(bitmap, CGAffineTransformConcat(CGContextGetBaseCTM(context), toBitmap));
+    CGContextResetClip(bitmap);
+    if (!blends)
+        CGContextSetBlendMode(bitmap, kCGBlendModeNormal);
+    CGStyleRef style = CGContextGetStyle(context);
+    if (wk_isFocusRing(style))
+        wk_setFocusRingAtAlpha(bitmap, style, CGContextGetAlpha(context));
+    if (!CGContextIsPathEmpty(context)) {
+        CGPathRef path = CGContextCopyPath(context);
+        CGContextAddPath(bitmap, path);
+        CGPathRelease(path);
+    }
+    return true;
+}
+
+static void wk_endStyledDraw(wk_blend_read_back *readBack)
+{
+    CGContextRef context = readBack->context, bitmap = readBack->target;
+    if (CGContextIsPathEmpty(bitmap))
+        CGContextBeginPath(context);
+    CGPoint textPosition = CGContextGetTextPosition(bitmap);
+    CGContextSetTextPosition(context, textPosition.x, textPosition.y);
+    CGImageRef image = CGBitmapContextCreateImage(bitmap);
+    CGContextSaveGState(context);
+    CGContextConcatCTM(context, CGAffineTransformInvert(CGContextGetCTM(context)));
+    CGContextSetStyle(context, NULL);
+    CGContextSetInterpolationQuality(context, kCGInterpolationNone);
+    CGContextSetAlpha(context, 1);
+    if (readBack->blends)
+        CGContextSetBlendMode(context, kCGBlendModeCopy);
+    CGContextDrawImage(context, readBack->region, image);
+    CGContextRestoreGState(context);
+    CGImageRelease(image);
+    CGContextRelease(bitmap);
+}
+
 bool wk_blendReadBackBegin(CGContextRef context, wk_blend_read_back *readBack)
 {
     readBack->context = NULL;
     if (!context)
         return false;
     CGBlendMode mode = CGContextGetBlendMode(context);
-    if (!wk_blendModeTakesReadBack(mode) || !wk_drawsThroughCoreAnimationIOSurface(context) || wk_insideOffscreenSurfaceLayer(context))
+    CGStyleRef style = CGContextGetStyle(context);
+    bool takesReadBack = wk_blendModeTakesReadBack(mode), dropsStyle = style && wk_dropsStyle(style);
+    if ((!takesReadBack && !dropsStyle) || !wk_drawsThroughCoreAnimationIOSurface(context))
         return false;
+    bool blends = (takesReadBack || (dropsStyle && mode != kCGBlendModeNormal)) && !wk_insideOffscreenSurfaceLayer(context);
+    if (!blends && !dropsStyle)
+        return false;
+    if (style)
+        return wk_beginStyledDraw(context, mode, blends, readBack);
     return wk_beginReadBack(context, mode, readBack);
 }
 
@@ -3433,8 +3599,15 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
     WK_ORIGINAL(CGContextDrawImage)(bitmap, all, destinationImage);
     CGContextSetBlendMode(bitmap, readBack->mode);
     CGContextSetAlpha(bitmap, alpha);
-    if (readBack->style)
-        CGContextSetStyle(bitmap, (CGStyleRef)readBack->style);
+    if (readBack->style) {
+        // CoreGraphics measures a style in base space.
+        CGAffineTransform base = CGContextGetBaseCTM(context);
+        CGContextSetBaseCTM(bitmap, CGAffineTransformMakeScale(hypot(base.a, base.b), hypot(base.c, base.d)));
+        if (wk_isFocusRing((CGStyleRef)readBack->style))
+            wk_setFocusRingAtAlpha(bitmap, (CGStyleRef)readBack->style, alpha);
+        else
+            CGContextSetStyle(bitmap, (CGStyleRef)readBack->style);
+    }
     WK_ORIGINAL(CGContextDrawImage)(bitmap, all, sourceImage);
     CGImageRef result = CGBitmapContextCreateImage(bitmap);
     wk_beginUnclippedDeviceDraw(context, kCGBlendModeCopy);
@@ -3461,14 +3634,62 @@ static void wk_endReadBack(wk_blend_read_back *readBack, CGFloat alpha)
 
 void wk_blendReadBackEnd(wk_blend_read_back *readBack)
 {
-    wk_endReadBack(readBack, 1);
+    if (readBack->target != readBack->context)
+        wk_endStyledDraw(readBack);
+    else
+        wk_endReadBack(readBack, 1);
 }
+
+bool wk_blendReadBackTextClipBegin(wk_blend_read_back *readBack)
+{
+    if (readBack->target == readBack->context || readBack->textMode < kCGTextFillClip)
+        return false;
+    CGContextRef context = readBack->context;
+    readBack->style = CGContextGetStyle(context);
+    CFRetain(readBack->style);
+    readBack->mode = CGContextGetBlendMode(context);
+    CGContextSetStyle(context, NULL);
+    CGContextSetBlendMode(context, kCGBlendModeNormal);
+    CGContextSetTextDrawingMode(context, kCGTextClip);
+    CGContextSetTextPosition(context, readBack->textPosition.x, readBack->textPosition.y);
+    return true;
+}
+
+void wk_blendReadBackTextClipEnd(wk_blend_read_back *readBack)
+{
+    CGContextRef context = readBack->context;
+    CGContextSetTextDrawingMode(context, readBack->textMode);
+    CGContextSetBlendMode(context, readBack->mode);
+    CGContextSetStyle(context, (CGStyleRef)readBack->style);
+    CFRelease(readBack->style);
+}
+
+#define WK_READ_BACK_TEXT_DRAW(NAME, PARAMS, ARGUMENTS) \
+    WK_POLYFILL_REPLACES("CoreGraphics", void, NAME, PARAMS) \
+    { \
+        wk_blend_read_back readBack; \
+        CGContextRef original = context; \
+        bool active = wk_blendReadBackBegin(context, &readBack); \
+        if (active) \
+            context = readBack.target; \
+        WK_ORIGINAL(NAME) ARGUMENTS; \
+        if (active) { \
+            wk_blendReadBackEnd(&readBack); \
+            context = original; \
+            if (wk_blendReadBackTextClipBegin(&readBack)) { \
+                WK_ORIGINAL(NAME) ARGUMENTS; \
+                wk_blendReadBackTextClipEnd(&readBack); \
+            } \
+        } \
+    }
 
 #define WK_READ_BACK_DRAW(NAME, PARAMS, ARGUMENTS) \
     WK_POLYFILL_REPLACES("CoreGraphics", void, NAME, PARAMS) \
     { \
         wk_blend_read_back readBack; \
         bool active = wk_blendReadBackBegin(context, &readBack); \
+        if (active) \
+            context = readBack.target; \
         WK_ORIGINAL(NAME) ARGUMENTS; \
         if (active) \
             wk_blendReadBackEnd(&readBack); \
@@ -3488,12 +3709,12 @@ WK_READ_BACK_DRAW(CGContextDrawShading, (CGContextRef context, CGShadingRef shad
 WK_READ_BACK_DRAW(CGContextDrawLayerInRect, (CGContextRef context, CGRect rect, CGLayerRef layer), (context, rect, layer))
 WK_READ_BACK_DRAW(CGContextDrawPDFPage, (CGContextRef context, CGPDFPageRef page), (context, page))
 WK_READ_BACK_DRAW(CGContextDrawLayerAtPoint, (CGContextRef context, CGPoint point, CGLayerRef layer), (context, point, layer))
-WK_READ_BACK_DRAW(CGContextShowGlyphsAtPositions, (CGContextRef context, const CGGlyph *glyphs, const CGPoint *positions, size_t count), (context, glyphs, positions, count))
-WK_READ_BACK_DRAW(CGContextShowGlyphs, (CGContextRef context, const CGGlyph *glyphs, size_t count), (context, glyphs, count))
-WK_READ_BACK_DRAW(CGContextShowGlyphsAtPoint, (CGContextRef context, CGFloat x, CGFloat y, const CGGlyph *glyphs, size_t count), (context, x, y, glyphs, count))
-WK_READ_BACK_DRAW(CGContextShowGlyphsWithAdvances, (CGContextRef context, const CGGlyph *glyphs, const CGSize *advances, size_t count), (context, glyphs, advances, count))
-WK_READ_BACK_DRAW(CGContextShowText, (CGContextRef context, const char *string, size_t length), (context, string, length))
-WK_READ_BACK_DRAW(CGContextShowTextAtPoint, (CGContextRef context, CGFloat x, CGFloat y, const char *string, size_t length), (context, x, y, string, length))
+WK_READ_BACK_TEXT_DRAW(CGContextShowGlyphsAtPositions, (CGContextRef context, const CGGlyph *glyphs, const CGPoint *positions, size_t count), (context, glyphs, positions, count))
+WK_READ_BACK_TEXT_DRAW(CGContextShowGlyphs, (CGContextRef context, const CGGlyph *glyphs, size_t count), (context, glyphs, count))
+WK_READ_BACK_TEXT_DRAW(CGContextShowGlyphsAtPoint, (CGContextRef context, CGFloat x, CGFloat y, const CGGlyph *glyphs, size_t count), (context, x, y, glyphs, count))
+WK_READ_BACK_TEXT_DRAW(CGContextShowGlyphsWithAdvances, (CGContextRef context, const CGGlyph *glyphs, const CGSize *advances, size_t count), (context, glyphs, advances, count))
+WK_READ_BACK_TEXT_DRAW(CGContextShowText, (CGContextRef context, const char *string, size_t length), (context, string, length))
+WK_READ_BACK_TEXT_DRAW(CGContextShowTextAtPoint, (CGContextRef context, CGFloat x, CGFloat y, const char *string, size_t length), (context, x, y, string, length))
 
 // The display's Metal device, absent from 10.9 CoreGraphics along with Metal itself (see Metal.c). nil
 // is the same "this display has no Metal device" answer MTLCreateSystemDefaultDevice gives, and ANGLE's
