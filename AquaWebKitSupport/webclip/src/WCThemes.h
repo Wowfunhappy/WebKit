@@ -111,6 +111,8 @@ NSString *WCLocalizedString(const char *key);
 - (NSRect)innerBezelFrame;
 - (NSRect)innerBezelRect;
 - (NSPoint)flipperButtonOriginInFrame:(NSRect)frame;
+- (CGFloat)flipperMargin;
+- (NSPoint)openPageButtonOriginInFrame:(NSRect)frame buttonWidth:(CGFloat)width;
 - (NSPoint)doneButtonOriginInFrame:(NSRect)frame;
 - (NSPoint)resizerOrigin:(NSRect)frame;
 - (int)resizerImageInsetX;

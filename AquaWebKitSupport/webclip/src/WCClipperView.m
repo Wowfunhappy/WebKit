@@ -245,6 +245,7 @@ static const NSInteger WCDesktopWidgetWindowLevel = 98;
 @end
 
 static NSImage *flipperImage;
+static NSImage *openPageImage;
 
 // The clipped page is remote layers, so the views of the page window are layer-backed.
 static void addLayerBackedSubview(NSView *parent, NSView *view)
@@ -280,6 +281,8 @@ static NSRect rectFromPageRect(id value)
     WCErrorView *_errorView;
     NSButton *_flipButton;
     NSImageView *_flipperImageView;
+    NSButton *_openPageButton;
+    NSImageView *_openPageImageView;
     WCDoneButton *_lockCameraButton;
     NSTimer *_progressTimer;
     NSView *_resizer;
@@ -334,6 +337,39 @@ static NSRect rectFromPageRect(id value)
     if (!flipperImage)
         flipperImage = [NSImage wc_PNGNamed:@"flipper"];
     return flipperImage;
+}
+
+// The flipper's art, with an arrow to the upper right on its disc in place of the "i".
++ (NSImage *)openPageImage
+{
+    if (!openPageImage) {
+        NSImage *flipper = [self flipperImage];
+        NSSize size = [flipper size];
+        openPageImage = [NSImage imageWithSize:size flipped:NO drawingHandler:^BOOL(NSRect rect) {
+            [flipper drawInRect:rect fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1];
+
+            NSGraphicsContext *context = [NSGraphicsContext currentContext];
+            [context saveGraphicsState];
+            [context setCompositingOperation:NSCompositeCopy];
+            [[NSColor colorWithCalibratedWhite:0 alpha:0.5] set];
+            [[NSBezierPath bezierPathWithOvalInRect:NSInsetRect(rect, 3, 3)] fill];
+            [context restoreGraphicsState];
+
+            CGFloat low = 5.5;
+            CGFloat high = 11.5;
+            NSBezierPath *arrow = [NSBezierPath bezierPath];
+            [arrow moveToPoint:NSMakePoint(low, low)];
+            [arrow lineToPoint:NSMakePoint(high, high)];
+            [arrow moveToPoint:NSMakePoint(high - 4, high)];
+            [arrow lineToPoint:NSMakePoint(high, high)];
+            [arrow lineToPoint:NSMakePoint(high, high - 4)];
+            [arrow setLineWidth:1.5];
+            [[NSColor whiteColor] set];
+            [arrow stroke];
+            return YES;
+        }];
+    }
+    return openPageImage;
 }
 
 - (WebClipper *)controller
@@ -1037,6 +1073,8 @@ static void widgetWindowDidChange(uint32_t type, void *data, uint32_t, void *, i
         hidden = _hasScreenshot;
     [_flipButton setHidden:hidden];
     [_flipperImageView setHidden:hidden];
+    [_openPageButton setHidden:hidden];
+    [_openPageImageView setHidden:hidden];
 }
 
 - (void)removeScreenshot
@@ -1139,7 +1177,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
         [window callWebScriptMethod:@"resizeAndMoveTo" withArguments:[NSArray arrayWithObjects:
             [NSNumber numberWithFloat:screenX],
             [NSNumber numberWithFloat:screenY],
-            [NSNumber numberWithFloat:(float)(constrained.width + -1.0)],
+            [NSNumber numberWithFloat:(float)constrained.width],
             [NSNumber numberWithFloat:(float)constrained.height],
             nil]];
     } else {
@@ -1204,6 +1242,10 @@ static const CGFloat WCMaximumClipperLength = 20000;
     NSPoint flipperOriginInTheme = [self convertPoint:flipperOrigin toView:_currentTheme];
     [_flipButton setFrameOrigin:flipperOrigin];
     [_flipperImageView setFrameOrigin:NSMakePoint(flipperOriginInTheme.x, flipperOriginInTheme.y - flipButtonHeight)];
+    NSPoint openPageOrigin = [_currentTheme openPageButtonOriginInFrame:clipFrame buttonWidth:[_flipButton frame].size.width];
+    NSPoint openPageOriginInTheme = [self convertPoint:openPageOrigin toView:_currentTheme];
+    [_openPageButton setFrameOrigin:openPageOrigin];
+    [_openPageImageView setFrameOrigin:NSMakePoint(openPageOriginInTheme.x, openPageOriginInTheme.y - flipButtonHeight)];
     [_resizer setFrameOrigin:[_currentTheme resizerOrigin:clipFrame]];
     [self placeReloadSpinner];
     [self updateDashboardControlRegions];
@@ -1352,6 +1394,7 @@ static const CGFloat WCMaximumClipperLength = 20000;
     [_currentTheme setDoneButton:_lockCameraButton];
     [_currentTheme setDashboardWebView:[[self controller] dashboardWebView]];
     addLayerBackedSubview(_currentTheme, _flipperImageView);
+    addLayerBackedSubview(_currentTheme, _openPageImageView);
     [_resizer setFrameSize:[_currentTheme resizerFrameSize]];
     addLayerBackedSubview(self, _currentTheme);
     [self placeTheme];
@@ -1366,7 +1409,15 @@ static const CGFloat WCMaximumClipperLength = 20000;
     NSBitmapImageRep *representation = [_currentTheme bitmapImageRepForCachingDisplayInRect:frame];
     [representation setSize:frame.size];
     memset([representation bitmapData], 0, [representation bytesPerRow] * [representation pixelsHigh]);
+    // The buttons that fade with the pointer show in the snapshot only while the pointer is over the clip.
+    BOOL hidesFadingButtons = ![self mouseIsOver];
+    if (hidesFadingButtons) {
+        [_flipperImageView setHidden:YES];
+        [_openPageImageView setHidden:YES];
+    }
     [_currentTheme displayRectIgnoringOpacity:[_currentTheme bounds] inContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:representation]];
+    if (hidesFadingButtons)
+        [self updateFlipperVisibility];
     [image addRepresentation:representation];
     return image;
 }
@@ -1798,6 +1849,11 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     [self flipToBack];
 }
 
+- (void)openPage:(id)sender
+{
+    [[self windowScriptObject] callWebScriptMethod:@"openURL" withArguments:[NSArray arrayWithObjects:[[self controller] URLString], nil]];
+}
+
 - (void)updateProgress
 {
     _progressPeriodCount = _progressPeriodCount == 3 ? 0 : _progressPeriodCount + 1;
@@ -2166,6 +2222,18 @@ static NSPoint pageScrollFromResult(id result)
     [_flipperImageView setFrameSize:[[[self class] flipperImage] size]];
     [_flipperImageView setAutoresizingMask:NSViewMaxYMargin];
 
+    _openPageButton = [[NSButton alloc] init];
+    [_openPageButton setBordered:NO];
+    [_openPageButton setButtonType:NSMomentaryChangeButton];
+    [_openPageButton setTarget:self];
+    [_openPageButton setAction:@selector(openPage:)];
+    [_openPageButton setFrameSize:[[[self class] openPageImage] size]];
+    [_openPageButton setTitle:@""];
+
+    _openPageImageView = [[NSImageView alloc] init];
+    [_openPageImageView setFrameSize:[[[self class] openPageImage] size]];
+    [_openPageImageView setAutoresizingMask:NSViewMaxYMargin];
+
     _resizer = [[NSView alloc] init];
     [_resizer setHidden:YES];
 
@@ -2175,6 +2243,7 @@ static NSPoint pageScrollFromResult(id result)
     [_voidView addSubview:_pageCover];
     addLayerBackedSubview(self, _clipView);
     addLayerBackedSubview(self, _flipButton);
+    addLayerBackedSubview(self, _openPageButton);
     addLayerBackedSubview(self, _lockCameraButton);
     addLayerBackedSubview(self, _resizer);
     addLayerBackedSubview(self, _statusTextField);
@@ -2232,6 +2301,9 @@ static NSPoint pageScrollFromResult(id result)
         NSRect flipButton = [self convertRect:[_flipButton bounds] fromView:_flipButton];
         if (![_flipButton isHiddenOrHasHiddenAncestor] && NSMouseInRect(mouse, flipButton, [self isFlipped]))
             return _flipButton;
+        NSRect openPageButton = [self convertRect:[_openPageButton bounds] fromView:_openPageButton];
+        if (![_openPageButton isHiddenOrHasHiddenAncestor] && NSMouseInRect(mouse, openPageButton, [self isFlipped]))
+            return _openPageButton;
         return hit;
     }
     NSRect lockButton = [self convertRect:[_lockCameraButton bounds] fromView:_lockCameraButton];
@@ -2243,11 +2315,18 @@ static NSPoint pageScrollFromResult(id result)
     return _clipView;
 }
 
-- (void)fadeButtonWithOpacity:(float)opacity
+- (void)setOverlayButtonImagesWithOpacity:(float)opacity
 {
     NSColor *color = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:opacity];
     [_flipperImageView setImage:[[[self class] flipperImage] wc_tintedImageWithColor:color]];
+    [_openPageImageView setImage:[[[self class] openPageImage] wc_tintedImageWithColor:color]];
+}
+
+- (void)fadeButtonWithOpacity:(float)opacity
+{
+    [self setOverlayButtonImagesWithOpacity:opacity];
     [_flipperImageView display];
+    [_openPageImageView display];
 }
 
 - (void)updateFlipper
@@ -2257,8 +2336,7 @@ static NSPoint pageScrollFromResult(id result)
 
 - (void)mouseEnteredOrExited:(BOOL)entered
 {
-    NSColor *color = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:entered ? 0.001 : 0.5];
-    [_flipperImageView setImage:[[[self class] flipperImage] wc_tintedImageWithColor:color]];
+    [self setOverlayButtonImagesWithOpacity:entered ? 0.001 : 0.5];
     if (!entered)
         [self updateStandIn];
     [[self windowScriptObject] callWebScriptMethod:entered ? @"iFadeIn" : @"iFadeOut" withArguments:[NSArray array]];

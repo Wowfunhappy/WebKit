@@ -17,8 +17,7 @@ static const CGFloat WCPlainShadowOpacity = 0.5;
 
 @implementation WCPlainTheme
 
-// The shadow's extent beyond Glass's outer rim; the right border includes the plug-in view's column
-// the widget window clips.
+// The shadow's extent beyond Glass's outer rim.
 + (int)borderLeft
 {
     return 7;
@@ -26,7 +25,7 @@ static const CGFloat WCPlainShadowOpacity = 0.5;
 
 + (int)borderRight
 {
-    return 8;
+    return 7;
 }
 
 + (int)borderTop
@@ -77,7 +76,7 @@ static const CGFloat WCPlainShadowOpacity = 0.5;
 
 - (int)innerBezelWidth
 {
-    return 13;
+    return 14;
 }
 
 - (int)innerBezelHeight
@@ -85,13 +84,13 @@ static const CGFloat WCPlainShadowOpacity = 0.5;
     return 14;
 }
 
-// The page's rounded rect in the theme, which the widget window ends one column short of the plug-in view.
+// The page's rounded rect in the theme.
 - (NSRect)pageRect
 {
     NSRect bounds = [self bounds];
     int left = [self clipInsetLeft];
     int top = [self clipInsetTop];
-    return NSMakeRect(left, top, NSWidth(bounds) - left - (left - 1), NSHeight(bounds) - top - [self clipInsetBottom]);
+    return NSMakeRect(left, top, NSWidth(bounds) - 2 * left, NSHeight(bounds) - top - [self clipInsetBottom]);
 }
 
 // Clears the theme outside the page's rounded rect, which leaves the page those corners, and casts the
@@ -174,7 +173,7 @@ static NSImage *sPegboardRightShine;
 
 + (int)borderRight
 {
-    return 25;
+    return 20;
 }
 
 + (int)borderTop
@@ -448,6 +447,11 @@ static NSImage *sTornResize;
 - (int)themeID
 {
     return WCThemeTornEdge;
+}
+
+- (CGFloat)flipperMargin
+{
+    return 4;
 }
 
 - (NSPoint)flipperButtonOriginInFrame:(NSRect)frame

@@ -90,6 +90,19 @@
     return NSMakePoint(frame.origin.x + frame.size.width + -22.0, frame.origin.y + 5.0);
 }
 
+// The visible space between the flipper and what bounds it on the right.
+- (CGFloat)flipperMargin
+{
+    return 5;
+}
+
+// Left of the flipper, with the flipper's margin between them.
+- (NSPoint)openPageButtonOriginInFrame:(NSRect)frame buttonWidth:(CGFloat)width
+{
+    NSPoint flipper = [self flipperButtonOriginInFrame:frame];
+    return NSMakePoint(flipper.x - [self flipperMargin] - width, flipper.y);
+}
+
 // Centers the Done button horizontally in the frame, at doneButtonInsetY below the frame's top.
 - (NSPoint)doneButtonOriginInFrame:(NSRect)frame
 {
@@ -407,7 +420,7 @@ static NSImage *glassBottomMiddle;
 
 + (int)borderRight
 {
-    return 12;
+    return 11;
 }
 
 + (int)borderTop
@@ -1011,6 +1024,11 @@ static NSImage *vintageBottomRight;
 - (int)themeID
 {
     return WCThemeVintageCorners;
+}
+
+- (CGFloat)flipperMargin
+{
+    return 4;
 }
 
 - (NSRect)controlRegion

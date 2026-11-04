@@ -13,11 +13,3 @@
                       </div>
                     </td>
                       <td class="selection" id ="pegboardOption" onDblClick='pegboardIcon_onDblClick(this);'  onclick='pegboardIcon_onclick(this);'>
-@@ -73,6 +72,7 @@
-                 
-         <div id="audio" class="label"><input type="checkbox" id="audioCheckbox" onclick='audio_onclick(this);'><label for="audioCheckbox" id="audioLabel"/></div>
-         <div id="glassButtons">
-+          <div id="visit"></div>
-           <div id="editPosition"></div>
-           <div id="done"></div>
-         </div>
