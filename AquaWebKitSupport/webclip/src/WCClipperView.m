@@ -1805,8 +1805,9 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     }];
 }
 
-// A reloaded page takes the previous page's place once it is set up at the clip's place: the clip has
-// settled and the images in it have loaded, its scroll has landed and it has presented what it shows there.
+// A reloaded page takes the previous page's place a second after it is set up at the clip's place: the
+// clip has settled and the images in it have loaded, its scroll has landed and it has presented what it
+// shows there.
 - (void)showReloadedPageWhenSetUp
 {
     if (!_previousPageView || _isHidden || _isLoading || !_shouldClearScreenshotOnRentry)
@@ -1814,13 +1815,15 @@ static const double WCSignatureDeadlineMilliseconds = 10000;
     WKWebView *webView = _webView;
     [self layoutPageViewportWithCompletionHandler:^{
         [webView _doAfterNextPresentationUpdate:^{
-            if (webView != _webView || !_previousPageView || _isHidden || _isLoading || !_shouldClearScreenshotOnRentry)
-                return;
-            BOOL edits = _editsWhenReloaded;
-            [self clearScreenshot];
-            _shouldClearScreenshotOnRentry = NO;
-            if (edits)
-                [self editCameraPosition];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                if (webView != _webView || !_previousPageView || _isHidden || _isLoading || !_shouldClearScreenshotOnRentry)
+                    return;
+                BOOL edits = _editsWhenReloaded;
+                [self clearScreenshot];
+                _shouldClearScreenshotOnRentry = NO;
+                if (edits)
+                    [self editCameraPosition];
+            });
         }];
     }];
 }
