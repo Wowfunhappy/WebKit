@@ -184,12 +184,119 @@ static void checkConcurrentTeardown(void)
     puts("PASS 1000 concurrent decodebin track announcements and teardowns");
 }
 
+typedef struct {
+    GstPad *source;
+    gint armed;
+    gint popped;
+} PoppedEventContext;
+
+static gboolean acceptEvent(GstPad *pad, GstObject *parent, GstEvent *event)
+{
+    (void)pad;
+    (void)parent;
+    gst_event_unref(event);
+    return TRUE;
+}
+
+static gboolean acceptQuery(GstPad *pad, GstObject *parent, GstQuery *query)
+{
+    if (GST_QUERY_TYPE(query) != GST_QUERY_ACCEPT_CAPS)
+        return gst_pad_query_default(pad, parent, query);
+    gst_query_set_accept_caps_result(query, TRUE);
+    return TRUE;
+}
+
+// Multiqueue logs this line on its streaming thread right after taking an object off the queue.
+static void holdPoppedObject(GstDebugCategory *category, GstDebugLevel level, const gchar *file, const gchar *function, gint line, GObject *object, GstDebugMessage *message, gpointer data)
+{
+    (void)category;
+    (void)level;
+    (void)file;
+    (void)function;
+    (void)line;
+    (void)object;
+    PoppedEventContext *context = data;
+    if (!g_atomic_int_get(&context->armed) || !g_str_has_prefix(gst_debug_message_get(message), "newid:"))
+        return;
+    g_atomic_int_set(&context->armed, 0);
+    g_atomic_int_set(&context->popped, 1);
+    while (!GST_PAD_IS_FLUSHING(context->source))
+        g_usleep(1000);
+    g_usleep(100000);
+}
+
+static gpointer sendFlushStart(gpointer data)
+{
+    g_assert_true(gst_pad_send_event(data, gst_event_new_flush_start()));
+    return NULL;
+}
+
+static void checkFlushOfPoppedStickyEvent(void)
+{
+    GstElement *queue = gst_element_factory_make("multiqueue", NULL);
+    g_assert_nonnull(queue);
+    g_assert_cmpint(gst_element_set_state(queue, GST_STATE_PAUSED), !=, GST_STATE_CHANGE_FAILURE);
+    GstPad *sink = gst_element_request_pad_simple(queue, "sink_%u");
+    GstPad *source = gst_element_get_static_pad(queue, "src_0");
+    GstPad *consumer = gst_pad_new("consumer", GST_PAD_SINK);
+    gst_pad_set_event_function(consumer, acceptEvent);
+    gst_pad_set_query_function(consumer, acceptQuery);
+    gst_pad_set_active(consumer, TRUE);
+    g_assert_cmpint(gst_pad_link(source, consumer), ==, GST_PAD_LINK_OK);
+    PoppedEventContext context = {source, 0, 0};
+    gst_debug_add_log_function(holdPoppedObject, &context, NULL);
+    gst_debug_set_threshold_for_name("multiqueue", GST_LEVEL_LOG);
+    gst_debug_remove_log_function(gst_debug_log_default);
+
+    g_assert_true(gst_pad_send_event(sink, gst_event_new_stream_start("stream")));
+    GstCaps *first = gst_caps_from_string("video/x-h264,width=1");
+    g_assert_true(gst_pad_send_event(sink, gst_event_new_caps(first)));
+    GstSegment segment;
+    gst_segment_init(&segment, GST_FORMAT_TIME);
+    g_assert_true(gst_pad_send_event(sink, gst_event_new_segment(&segment)));
+    GstEvent *pushed;
+    while (!(pushed = gst_pad_get_sticky_event(source, GST_EVENT_SEGMENT, 0)))
+        g_usleep(1000);
+    gst_event_unref(pushed);
+
+    g_atomic_int_set(&context.armed, 1);
+    GstCaps *second = gst_caps_from_string("video/x-h264,width=2");
+    g_assert_true(gst_pad_send_event(sink, gst_event_new_caps(second)));
+    while (!g_atomic_int_get(&context.popped))
+        g_usleep(1000);
+    GThread *flush = g_thread_new("flush-start", sendFlushStart, sink);
+    g_thread_join(flush);
+    g_assert_true(gst_pad_send_event(sink, gst_event_new_flush_stop(FALSE)));
+    GstCaps *current = gst_pad_get_current_caps(source);
+    g_assert_true(gst_caps_is_equal(current, second));
+    gst_caps_unref(current);
+    gst_caps_unref(first);
+    gst_caps_unref(second);
+
+    gst_debug_set_threshold_for_name("multiqueue", GST_LEVEL_NONE);
+    gst_pad_unlink(source, consumer);
+    gst_pad_set_active(consumer, FALSE);
+    gst_element_set_state(queue, GST_STATE_NULL);
+    gst_debug_remove_log_function(holdPoppedObject);
+    gst_debug_add_log_function(gst_debug_log_default, NULL, NULL);
+    gst_object_unref(consumer);
+    gst_object_unref(source);
+    gst_element_release_request_pad(queue, sink);
+    gst_object_unref(sink);
+    gst_object_unref(queue);
+    puts("PASS a flush keeps the sticky event multiqueue had popped");
+}
+
 int main(int argc, char **argv)
 {
     g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_WARNING | G_LOG_LEVEL_CRITICAL);
     gst_init(&argc, &argv);
     if (argc == 2 && !g_strcmp0(argv[1], "probe")) {
         checkProbeDeactivation();
+        return 0;
+    }
+    if (argc == 2 && !g_strcmp0(argv[1], "popped")) {
+        checkFlushOfPoppedStickyEvent();
         return 0;
     }
     if (argc == 2 && !g_strcmp0(argv[1], "concurrent")) {
@@ -201,6 +308,7 @@ int main(int argc, char **argv)
         return 0;
     }
     checkProbeDeactivation();
+    checkFlushOfPoppedStickyEvent();
     if (checkPadStates())
         return 1;
     checkDecodebinTeardown();

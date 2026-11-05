@@ -1,0 +1,19 @@
+--- a/plugins/elements/gstmultiqueue.c	2026-11-05 12:40:27.000000000 -0500
++++ b/plugins/elements/gstmultiqueue.c	2026-11-05 12:40:27.000000000 -0500
+@@ -2441,8 +2441,15 @@
+ 
+ out_flushing:
+   {
+-    if (object && !is_query)
++    if (object && !is_query) {
++      /* Upstream resends a sticky event only when it changes, so this one stays
++       * on the pad, as in gst_single_queue_flush_queue(). */
++      if (GST_IS_EVENT (object) && GST_EVENT_IS_STICKY (object)
++          && GST_EVENT_TYPE (object) != GST_EVENT_SEGMENT
++          && GST_EVENT_TYPE (object) != GST_EVENT_EOS)
++        gst_pad_store_sticky_event (srcpad, GST_EVENT_CAST (object));
+       gst_mini_object_unref (object);
++    }
+ 
+     GST_MULTI_QUEUE_MUTEX_LOCK (mq);
+     sq->last_query = FALSE;

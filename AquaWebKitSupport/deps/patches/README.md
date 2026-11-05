@@ -354,6 +354,15 @@ A partitioned encrypted block (WebM Encryption, 4.6) carries n partition offsets
 
 When a track's ContentEncodings make it `application/x-webm-enc`, the demuxer requests the `drm-preferred-decryption-system-id` context as qtdemux does in `gst_qtdemux_request_protection_context()`: a context query upstream, then a `need-context` message on the bus, each carrying `track-id`, `available-stream-encryption-systems` (the unspecified system, filtered by available decryptors) and `stream-encryption-events` (the track's queued protection events, which hold its ContentEncKeyIDs). An application learns a WebM stream's initialization data from that request, as it does an MP4 stream's; WebKit's regular playback raises the media element's `encrypted` event from it.
 
+## gstreamer-multiqueue-flush-keeps-popped-sticky-event.patch
+
+**Target:** `gstreamer-1.28.7`, `plugins/elements/gstmultiqueue.c`, applied after `gstreamer-multiqueue-ready-pad-activation.patch`
+**Applied to:** libgstcoreelements (multiqueue, decodebin3's stream queue)
+
+`gst_single_queue_flush_queue()` stores the sticky events it discards on the source pad, because upstream resends a sticky event only when it changes. `gst_multi_queue_loop()` takes each object off the queue before checking `sq->flushing`, and its `out_flushing` path unrefs an object it already holds. A flush in that window loses a CAPS event. decodebin3 configures its output from that event, so the stream that follows the flush has no decoder (`not-linked`) or a decoder with no caps (`not-negotiated`), and a seek made during startup never prerolls.
+
+The patch gives `out_flushing` the same rule as `gst_single_queue_flush_queue()`. `AquaWebKitSupport/tests/multiqueue-pad-states.sh popped` holds the streaming thread in that window through a log function and checks the source pad's caps after the flush.
+
 ## gstreamer-pad-event-flush-after-probes.patch
 
 **Target:** `gstreamer-1.28.7`, `gst/gstpad.c`, applied after `gstreamer-pad-push-probe-deactivation.patch`

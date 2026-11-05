@@ -1486,6 +1486,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-multiqueue-ready-pad-activation.patch" \
         && patch -p1 < "$HERE/patches/gstreamer-multiqueue-ready-pad-activation.patch" ) \
       || { echo "gstreamer multiqueue READY activation patch failed to apply"; exit 1; }
+    # multiqueue: a flush keeps the sticky event its streaming thread had popped. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-multiqueue-flush-keeps-popped-sticky-event.patch" \
+        && patch -p1 < "$HERE/patches/gstreamer-multiqueue-flush-keeps-popped-sticky-event.patch" ) \
+      || { echo "gstreamer multiqueue popped sticky event patch failed to apply"; exit 1; }
     # GstPad: upstream df4a8353 rechecks flushing between probe groups. The patch retains monorepo paths.
     ( cd "$d" && patch -p3 --dry-run < "$HERE/patches/gstreamer-pad-push-probe-deactivation.patch" \
         && patch -p3 < "$HERE/patches/gstreamer-pad-push-probe-deactivation.patch" ) \
