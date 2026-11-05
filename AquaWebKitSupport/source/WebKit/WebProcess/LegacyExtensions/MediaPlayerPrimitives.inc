@@ -117,7 +117,7 @@ struct NativeMediaSource : std::enable_shared_from_this<NativeMediaSource> {
             JSValueMakeString(context.get(), path.get()),
             sourceCompletion(context.get(), [weakRequest = std::weak_ptr { request }](String text) {
                 if (auto pending = weakRequest.lock())
-                    pending->finish(text.length() <= 1024 * 1024 ? WTF::move(text) : String { });
+                    pending->finish(text.length() <= 64 * 1024 * 1024 ? WTF::move(text) : String { });
             })
         };
         JSValueRef error = nullptr;

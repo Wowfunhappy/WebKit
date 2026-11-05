@@ -23,6 +23,8 @@
 #import <dispatch/dispatch.h>
 #import <fcntl.h>
 #import <sys/socket.h>
+#import <errno.h>
+#import <signal.h>
 #import <unistd.h>
 #import <charconv>
 #import <map>
@@ -40,6 +42,13 @@
 }
 - (instancetype)initWithCallback:(WTF::Function<void()>&&)callback;
 @end
+
+// NSRunningApplication's properties update through LaunchServices state owned by the main thread, and the monitor queue
+// asks this from its own thread.
+static bool playerHasExited(pid_t pid)
+{
+    return kill(pid, 0) == -1 && errno == ESRCH;
+}
 
 @implementation AquaMediaPlayerApplicationObserver
 - (instancetype)initWithCallback:(WTF::Function<void()>&&)callback
@@ -265,7 +274,6 @@ struct MediaRestreamServer::Impl {
     };
     std::vector<Handoff> handoffs;
     struct Cleanup {
-        RetainPtr<NSRunningApplication> application;
         pid_t pid;
         std::string url;
         std::vector<int32_t> previousWindows;
@@ -278,12 +286,6 @@ struct MediaRestreamServer::Impl {
         std::optional<MonotonicTime> deadline;
     };
     std::vector<std::shared_ptr<Cleanup>> cleanups;
-    struct UnconfirmedDirect {
-        RetainPtr<NSRunningApplication> application;
-        pid_t pid;
-        std::string url;
-    };
-    std::vector<UnconfirmedDirect> unconfirmedDirect;
     struct Opening {
         CompletionHandler<void(Expected<URL, String>&&)> completion;
         URL url;
@@ -663,7 +665,7 @@ struct MediaRestreamServer::Impl {
             monitorQueue->dispatch([this, cleanup, acquired]() mutable {
                 bool finished = false;
                 @autoreleasepool {
-                    if (cleanup->application.get().terminated)
+                    if (playerHasExited(cleanup->pid))
                         finished = true;
                     else if (auto movies = movieWindows(cleanup->pid, std::nullopt)) {
                         auto matches = [&](auto& movie) {
@@ -693,7 +695,6 @@ struct MediaRestreamServer::Impl {
                         cleanup->window = acquired;
                     if (finished) {
                         cleanup->finished = true;
-                        std::erase_if(unconfirmedDirect, [&](auto& item) { return item.pid == cleanup->pid && item.url == cleanup->url; });
                         std::erase(cleanups, cleanup);
                         if (cleanup->completion)
                             cleanup->completion(true, false);
@@ -706,17 +707,10 @@ struct MediaRestreamServer::Impl {
 
     void queueCleanup(const std::shared_ptr<Session>& session, const std::shared_ptr<Opening>& opening)
     {
-        if (opening && !opening->uniqueURL && opening->sent.load()) {
-            auto matches = [&](auto& item) { return item.pid == session->playerPID && item.url == session->url; };
-            if (session->window || opening->rejected)
-                std::erase_if(unconfirmedDirect, matches);
-            else if (std::none_of(unconfirmedDirect.begin(), unconfirmedDirect.end(), matches))
-                unconfirmedDirect.push_back({ session->application, session->playerPID, session->url });
-        }
         if (!session->tracksMovie || (!session->window && (!opening || (!opening->uniqueURL && !opening->acknowledgedDocument) || !opening->sent.load())))
             return;
         if (!session->cleanup) {
-            session->cleanup = std::make_shared<Cleanup>(Cleanup { session->application, session->playerPID, session->url, opening ? opening->previousWindows : std::vector<int32_t> { }, session->window });
+            session->cleanup = std::make_shared<Cleanup>(Cleanup { session->playerPID, session->url, opening ? opening->previousWindows : std::vector<int32_t> { }, session->window });
             cleanups.push_back(session->cleanup);
         } else {
             if (session->cleanup->finished)
@@ -774,8 +768,8 @@ struct MediaRestreamServer::Impl {
             String failure = "application-unavailable"_s;
             @autoreleasepool {
                 pid_t pid = session->playerPID;
-                auto previous = session->application.get().terminated ? std::nullopt : session->tracksMovie ? movieWindows(pid, std::nullopt, opening->deadline) : std::optional<std::vector<MovieWindow>> { std::vector<MovieWindow> { } };
-                retry = !previous && !session->application.get().terminated;
+                auto previous = playerHasExited(pid) ? std::nullopt : session->tracksMovie ? movieWindows(pid, std::nullopt, opening->deadline) : std::optional<std::vector<MovieWindow>> { std::vector<MovieWindow> { } };
+                retry = !previous && !playerHasExited(pid);
                 bool existing = previous && std::any_of(previous->begin(), previous->end(), [&](auto& movie) { return movie.known && movie.url == session->url; });
                 if (existing)
                     failure = "application-busy"_s;
@@ -861,7 +855,7 @@ struct MediaRestreamServer::Impl {
                 auto pid = session->playerPID;
                 if (MonotonicTime::now() >= opening->deadline)
                     error = "application-timeout"_s;
-                else if (session->application.get().terminated)
+                else if (playerHasExited(pid))
                     error = "application-unavailable"_s;
                 else if (!session->tracksMovie)
                     ready = true;
@@ -939,7 +933,7 @@ struct MediaRestreamServer::Impl {
             std::map<const Session*, MovieWindowLookup> results;
             for (auto& session : owners) {
                 auto pid = session->playerPID;
-                results.emplace(session.get(), session->application.get().terminated ? MovieWindowLookup { true, std::nullopt } : movieWindow(pid, *session->window, std::nullopt));
+                results.emplace(session.get(), playerHasExited(pid) ? MovieWindowLookup { true, std::nullopt } : movieWindow(pid, *session->window, std::nullopt));
             }
             callOnMainThread([this, owners = WTF::move(owners), results = WTF::move(results), revisions = WTF::move(revisions)] {
                 querying = false;
@@ -1075,7 +1069,6 @@ MediaRestreamServer::MediaRestreamServer() : m_impl(std::make_unique<Impl>())
     auto* server = m_impl.get();
     server->applicationObserver = adoptNS([[AquaMediaPlayerApplicationObserver alloc] initWithCallback:[server] {
         callOnMainThread([server] {
-            std::erase_if(server->unconfirmedDirect, [](auto& item) { return item.application.get().terminated; });
             std::vector<std::shared_ptr<Impl::Session>> ended;
             for (auto& [token, session] : server->sessions) {
                 if (session->application.get().terminated)
@@ -1163,8 +1156,6 @@ void MediaRestreamServer::open(IPC::Connection& connection, uint64_t identifier,
         if (!application)
             return completion(makeUnexpected("application-unavailable"_s));
         auto pid = application.processIdentifier;
-        if (std::any_of(m_impl->unconfirmedDirect.begin(), m_impl->unconfirmedDirect.end(), [&](auto& item) { return item.pid == pid && item.url == session->url; }))
-            return completion(makeUnexpected("application-start-uncertain"_s));
         if (std::any_of(m_impl->cleanups.begin(), m_impl->cleanups.end(), [&](auto& cleanup) { return cleanup->pid == pid && cleanup->url == session->url; }))
             return completion(makeUnexpected("application-busy"_s));
         session->application = application;
@@ -1364,7 +1355,7 @@ void MediaRestreamServer::control(IPC::Connection& connection, uint64_t identifi
         m_impl->monitorQueue->dispatch([session, command = command.isolatedCopy(), value, completion = WTF::move(completion)]() mutable {
             bool succeeded = false;
             @autoreleasepool {
-                auto windows = !session->cancelled->load() && !session->application.get().terminated ? movieWindows(session->playerPID, std::nullopt) : std::nullopt;
+                auto windows = !session->cancelled->load() && !playerHasExited(session->playerPID) ? movieWindows(session->playerPID, std::nullopt) : std::nullopt;
                 bool owned = windows && std::any_of(windows->begin(), windows->end(), [&](auto& window) {
                     return window.identifier == *session->window && window.known && window.url == session->url;
                 });
@@ -1402,8 +1393,7 @@ void MediaRestreamServer::activate(IPC::Connection& connection, uint64_t identif
         m_impl->monitorQueue->dispatch([session, acquired, completion = WTF::move(completion)]() mutable {
             Expected<bool, String> present { false };
             @autoreleasepool {
-                auto application = session->application.get();
-                if (application && !application.terminated) {
+                if (session->playerPID && !playerHasExited(session->playerPID)) {
                     if (!session->tracksMovie)
                         present = true;
                     else if (acquired) {

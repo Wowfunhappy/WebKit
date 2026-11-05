@@ -209,7 +209,7 @@ if case == 'cancel-query':
     reply = result()
     print('REOPEN_AFTER_CANCELLATION', reply, flush=True)
 if case in ('startup-timeout', 'delayed-file-timeout', 'query-timeout'):
-    expected = 'application-timeout' if case == 'query-timeout' else 'application-start-uncertain'
+    expected = {'query-timeout': 'application-timeout', 'startup-timeout': 'player-readiness-timeout'}.get(case, 'application-start-uncertain')
     assert reply.get('error') == expected, reply
     if case == 'query-timeout':
         assert not any('open' in json.loads(line) for line in records()[before:]), 'Receiver opened before it could be queried'

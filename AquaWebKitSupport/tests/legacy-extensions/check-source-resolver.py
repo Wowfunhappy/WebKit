@@ -36,14 +36,14 @@ def result():
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-all_modes = ['identity', 'initial-reload', 'initial-replaced', 'direct-reload', 'playlist', 'reject', 'invalid', 'oversized', 'timeout', 'delay', 'reload', 'timeout-replaced']
+all_modes = ['identity', 'initial-reload', 'initial-replaced', 'direct-reload', 'playlist', 'reject', 'invalid', 'oversized', 'timeout', 'delay', 'reload', 'timeout-replaced', 'no-direct', 'no-direct-route', 'no-direct-replaced']
 parser.add_argument('modes', nargs='*', default=all_modes)
 modes = parser.parse_args().modes
 if any(mode not in all_modes for mode in modes):
     parser.error('Unknown resolver mode')
 baseline = windows()
 for mode in modes:
-    if mode in ['delay', 'reload', 'timeout-replaced']:
+    if mode in ['delay', 'reload', 'timeout-replaced', 'no-direct-route']:
         source_parameters = 'mse.mp4&airplay=route'
     else:
         source_parameters = 'index.m3u8'
@@ -59,7 +59,7 @@ for mode in modes:
     source = js('video.currentSrc')
     resolved_source = source
     js('document.querySelector("#open-media-player").click()')
-    if mode in ['delay', 'reload', 'direct-reload', 'timeout-replaced']:
+    if mode in ['delay', 'reload', 'direct-reload', 'timeout-replaced', 'no-direct-replaced']:
         wait(lambda: js('document.querySelector("#media-player-result").dataset.resolving') == 'true')
         if mode in ['reload', 'direct-reload']:
             resolved_source = js('video.currentSrc')
@@ -68,7 +68,18 @@ for mode in modes:
             js('video.src="/quicktime-media/plain.mp4?replacement";video.load()')
     value = wait(result)
     print(mode, value, flush=True)
-    if mode in ['identity', 'initial-reload', 'direct-reload', 'playlist', 'reload']:
+    if mode in ['no-direct', 'no-direct-route']:
+        assert value['method'] == 'restream', value
+        assert js('video.paused') == 'false', 'Capture needs the source playing'
+        owned = wait(lambda: windows() - baseline)
+        assert len(owned) == 1, owned
+        movie = 'document of window id ' + str(next(iter(owned)))
+        start = float(osa('tell application "QuickTime Player" to get current time of ' + movie))
+        wait(lambda: float(osa('tell application "QuickTime Player" to get current time of ' + movie)) > start + 4)
+        osa('tell application "QuickTime Player" to close ' + movie + ' saving no')
+        wait(lambda: windows() == baseline)
+        osa('tell application "Safari" to close current tab of front window')
+    elif mode in ['identity', 'initial-reload', 'direct-reload', 'playlist', 'reload']:
         assert value['method'] == 'url', value
         if mode in ['identity', 'initial-reload']:
             assert value['url'] == source, value
@@ -101,7 +112,7 @@ for mode in modes:
                     return True
             wait(released)
     else:
-        assert value.get('error') == ('no-source' if mode in ['initial-replaced', 'delay', 'timeout-replaced'] else 'source-resolution-failed'), value
+        assert value.get('error') == ('no-source' if mode in ['initial-replaced', 'delay', 'timeout-replaced', 'no-direct-replaced'] else 'source-resolution-failed'), value
         assert windows() == baseline, 'Resolver failure opened a receiver'
         osa('tell application "Safari" to close current tab of front window')
 print('PASS source resolution, full seek, tab closure, cleanup and error paths', flush=True)

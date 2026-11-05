@@ -106,9 +106,8 @@ checks repeated natural MediaSource loops and subsequent finalization.
 Use `check-external-handoff.py mse.mp4 --expect restream --without-controls` to verify the placard on a controls-less video whose page CSS hides the native-controls wrapper, including a newly added showing caption track. Inspect both screenshots for the handoff message and caption restoration.
 
 `check-route-handoff.py` exercises a site that supplies its external URL in response
-to the wireless presentation event. It checks original URL delivery despite a supplied title, initial position/rate,
-rapid play/pause, overlapping seeks, receiver
-clock feedback, same-source reload, source detachment and playback after tab closure.
+to the wireless presentation event. It checks original URL delivery despite a supplied title, initial rate with `synchronize: true`,
+independent browser and receiver timelines, same-source reload, source detachment and playback after tab closure.
 Use `--paused` for initial pause intent, `--route route-timeout` for an unhandled
 route request. Timeout fallback should restore local capture; paused capture
 should reject without starting local playback. `--route route-rejected` checks
@@ -134,6 +133,8 @@ Direct media preserves the original URL and the receiver’s native audio choice
 
 With QuickTime quit, run `check-player-startup.py` to suspend the newly launched receiver for two seconds and verify one movie opens and continues after tab closure. Run it again with QuickTime quit and `--cancel` to hold the receiver while changing the source; no movie should appear after it resumes. Startup queries share the handoff deadline; ordinary receiver monitoring keeps its short timeout.
 
-`check-source-resolver.py` exercises the generic extension source resolver: unchanged direct URLs, a supplied master playlist with remote children, full seeking, playback after tab closure, endpoint cleanup, malformed/rejected/oversized output, timeout, and source replacement during an asynchronous resolution. The test extension's `resolve=` query controls these cases.
+`check-hls-live-webvtt.py` serves a live playlist with a WebVTT rendition and checks load time, cue alignment with the picture, and startup against the same stream with `--no-subtitles`. `--mode late` delays one subtitle fragment, `--mode missing` makes one return 404, `first-missing` the first one, and `playlist-missing` and `playlist-missing-later` the subtitle playlist; `--fault-video` applies `late` and `missing` to a video fragment. `--text-mode cycle` and `rapid-toggle` toggle the track during playback, and `--teardown-stress` closes or navigates pages while it toggles. `--encrypt`, `--encrypt-subtitles` and `--bad-padding` serve AES-128 media with a bad PKCS7 fragment. `--stable-url` reuses one page URL across runs, for the network cache's speculative loads. `--window` sets the live window and `--playlist` selects other MPEG-TS media.
+
+`check-source-resolver.py` exercises the generic extension source resolver: unchanged direct URLs, a supplied master playlist with remote children, full seeking, playback after tab closure, endpoint cleanup, malformed/rejected/oversized output, timeout, source replacement during an asynchronous resolution, and capture after a `{direct: false}` result. The test extension's `resolve=` query controls these cases.
 
 `check-handoff-dispatch.py` checks host-prepared tickets, delivery after closing a busy tab, single-use claims, cancellation, expiry, and tab/document isolation using the generic receiver fixture.

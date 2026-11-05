@@ -41,7 +41,7 @@ def windows():
 
 baseline = windows()
 title = 'Route title / 100% — captions'
-parameters = {'source': args.source, 'airplay': args.route, 'title': title, 'disconnect': 'none' if args.return_inline == 'controlled' else args.return_inline or args.fallback_disconnect}
+parameters = {'source': args.source, 'airplay': args.route, 'title': title, 'synchronize': 'true', 'disconnect': 'none' if args.return_inline == 'controlled' else args.return_inline or args.fallback_disconnect}
 if args.route_timeout_seconds is not None:
     parameters['routeTimeout'] = args.route_timeout_seconds
 url = 'http://127.0.0.1:8843/quicktime.html?' + urllib.parse.urlencode(parameters)
@@ -70,6 +70,28 @@ if args.route == 'route-rejected':
     assert result.get('error') == 'application-start-uncertain', result
     assert js('video.paused') == 'true'
     assert baseline.issubset(windows()), 'Unrelated receiver closed'
+    # A start the receiver's error dialog blocks does not block a later one for the same URL.
+    def attempt():
+        js('document.querySelector("#media-player-result").textContent="pending";video.play();document.querySelector("#open-media-player").click()')
+        return json.loads(wait(lambda: (lambda value: value if value.startswith('{') else None)(js('document.querySelector("#media-player-result").textContent'))))
+    js('video.src="/quicktime-media/plain.mp4";video.load();video.play()')
+    wait(lambda: js('!video.paused && video.readyState>=2') == 'true')
+    blocked = attempt()
+    assert blocked.get('error') == 'application-start-uncertain', blocked
+    def clear_dialogs():
+        return osa('tell application "System Events" to tell process "QuickTime Player"\nset found to 0\nrepeat with w in windows\nif subrole of w is "AXDialog" then\nclick button 1 of w\nset found to found + 1\nend if\nend repeat\nreturn found\nend tell') == '0'
+    wait(clear_dialogs, 20)
+    time.sleep(1)
+    wait(lambda: js('video.readyState>=2') == 'true')
+    retried = attempt()
+    print('BLOCKED', blocked, 'RETRIED', retried, flush=True)
+    if retried.get('error') == 'application-busy':
+        # The receiver opened the queued request once its dialog closed; that movie is not ours.
+        for identifier in windows() - baseline:
+            osa('tell application "QuickTime Player" to close document of window id ' + str(identifier) + ' saving no')
+        retried = attempt()
+        print('RETRIED AFTER CLOSE', retried, flush=True)
+    assert retried.get('method') == 'url', retried
 elif args.route != 'route':
     if args.paused:
         assert result.get('error') == 'not-playing', result
@@ -91,49 +113,29 @@ else:
         return abs(float(qt('get rate of MOVIE'))) > .001
     assert result['url'] == js('video.currentSrc'), result
     assert qt('get name of MOVIE') == 'plain.mp4'
-    assert float(qt('get current time of MOVIE')) >= 9.5
     wait(lambda: playing() == (not args.paused))
     if not args.paused:
         initial = float(qt('get current time of MOVIE'))
         wait(lambda: float(qt('get current time of MOVIE')) > initial + 1)
     assert abs(float(qt('get rate of MOVIE')) - (0 if args.paused else 1.25)) < .05
-    js('video.pause();video.play()')
-    wait(lambda: playing())
-    time.sleep(3)
-    assert playing()
-    js('video.play();video.pause()')
-    wait(lambda: not playing())
-    js('video.playbackRate=2;video.play()')
-    wait(lambda: abs(float(qt('get rate of MOVIE')) - 2) < .05)
-    js('video.playbackRate=1;video.currentTime=30')
-    wait(lambda: 29.5 <= float(qt('get current time of MOVIE')) < 40)
+    # Browser and receiver timelines are independent.
+    before = float(qt('get current time of MOVIE'))
+    js('video.currentTime=(' + str(before) + '+20)%50')
+    time.sleep(2)
+    assert 0 <= float(qt('get current time of MOVIE')) - before < 8
+    assert not args.paused == playing()
+    browser = float(js('video.currentTime'))
     qt('set current time of MOVIE to 15')
-    wait(lambda: 14.5 <= float(js('video.currentTime')) < 25)
-    qt('pause MOVIE')
-    wait(lambda: js('video.paused') == 'true')
+    time.sleep(1)
+    assert abs(float(js('video.currentTime')) - browser) < 1
     qt('play MOVIE')
-    wait(lambda: js('!video.paused') == 'true')
-    js('video.currentTime=25;video.pause()')
-    wait(lambda: 24.5 <= float(qt('get current time of MOVIE')) < 27 and not playing())
-    assert abs(float(js('video.currentTime')) - 25) < 1
-    js('video.currentTime=20;video.currentTime=30;video.playbackRate=1.5;video.play()')
-    wait(lambda: 29.5 <= float(qt('get current time of MOVIE')) < 40 and abs(float(qt('get rate of MOVIE'))-1.5)<.05)
-    js('video.playbackRate=0')
-    wait(lambda: abs(float(qt('get rate of MOVIE'))) < .01)
-    stationary = float(qt('get current time of MOVIE'))
-    time.sleep(3)
-    assert abs(float(qt('get current time of MOVIE')) - stationary) < .2
-    assert js('video.paused') == 'false'
-    js('video.playbackRate=1')
+    time.sleep(1)
+    assert js('video.paused') == 'true'
     before = float(qt('get current time of MOVIE'))
     js('video.load()')
     wait(lambda: float(qt('get current time of MOVIE')) > before + 3)
     assert windows() - baseline == owned
     assert js('video.webkitCurrentPlaybackTargetIsWireless') == 'true'
-    js('video.pause()')
-    wait(lambda: not playing())
-    js('video.play()')
-    wait(lambda: playing())
     if args.return_inline:
         qt('pause MOVIE')
         qt('set current time of MOVIE to 20')
@@ -151,8 +153,8 @@ else:
             wait(lambda: js('video.paused') == 'true', 25)
         else:
             wait(lambda: js('video.currentSrc.startsWith("blob:") && video.readyState>=2 && !video.seeking') == 'true')
-            assert 19 <= float(js('video.currentTime')) < 30
-            assert js('video.paused') == str(args.paused).lower()
+            # The page's replacement source is a different resource, so the helper leaves it to the page.
+            assert js('video.paused') == 'true'
         js('video.play()')
         before = float(js('video.currentTime'))
         wait(lambda: float(js('video.currentTime')) > before + 2)
@@ -168,7 +170,7 @@ else:
     before = float(qt('get current time of MOVIE'))
     wait(lambda: float(qt('get current time of MOVIE')) > before + 2)
     qt('close MOVIE saving no')
-    print('PASS original URL, initial state, rapid controls, seeking, same-source reload, changed-source detachment and tab closure', flush=True)
+    print('PASS original URL, initial state, independent timelines, same-source reload, changed-source detachment and tab closure', flush=True)
     raise SystemExit(0)
 for identifier in windows() - baseline:
     osa('tell application "QuickTime Player" to close document of window id ' + str(identifier) + ' saving no')
