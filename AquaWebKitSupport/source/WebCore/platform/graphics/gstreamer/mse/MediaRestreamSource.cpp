@@ -306,6 +306,26 @@ bool MediaRestreamSource::requiresCapture(HTMLMediaElement& element)
         || (element.player() && is<MediaPlayerPrivateGStreamerMSE>(element.player()->playerPrivate()));
 }
 
+std::optional<bool> MediaRestreamSource::videoDrawsBlackInQuickTime(HTMLMediaElement& element)
+{
+    if (element.readyState() < HTMLMediaElement::HAVE_METADATA)
+        return std::nullopt;
+    if (!element.hasVideo())
+        return false;
+    auto* player = playbackBackend(element);
+    if (!player)
+        return false;
+    switch (MediaRestreamCapture::videoColorimetry(player->pipeline())) {
+    case MediaRestreamCapture::VideoColorimetry::NotNegotiated:
+        return std::nullopt;
+    case MediaRestreamCapture::VideoColorimetry::Displayable:
+        return false;
+    case MediaRestreamCapture::VideoColorimetry::DrawsBlack:
+        return true;
+    }
+    return std::nullopt;
+}
+
 MediaRestreamSource::MediaRestreamSource(HTMLMediaElement& element, GstElement* pipeline)
     : m_element(element), m_document(element.document()), m_player(element.player()), m_backend(element.player()->playerPrivate()), m_pipeline(pipeline), m_initialURL(element.currentSrc()), m_presentationOwner(element.mediaPlayerPresentationOwner())
 

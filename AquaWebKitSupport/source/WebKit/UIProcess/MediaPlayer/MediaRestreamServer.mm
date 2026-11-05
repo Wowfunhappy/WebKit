@@ -271,6 +271,7 @@ struct MediaRestreamServer::Impl {
         String ticket;
         String extensionKey;
         MonotonicTime deadline;
+        bool settled { false };
     };
     std::vector<Handoff> handoffs;
     struct Cleanup {
@@ -994,7 +995,7 @@ struct MediaRestreamServer::Impl {
     }
     bool ownsPage(const WebPageProxy& page) const
     {
-        return std::any_of(handoffs.begin(), handoffs.end(), [&](auto& handoff) { return handoff.page.ptr() == &page; })
+        return std::any_of(handoffs.begin(), handoffs.end(), [&](auto& handoff) { return handoff.page.ptr() == &page && !handoff.settled; })
             || std::any_of(sessions.begin(), sessions.end(), [&](auto& entry) { return entry.second->page.ptr() == &page && !entry.second->pageReleased; });
     }
 
@@ -1027,7 +1028,7 @@ struct MediaRestreamServer::Impl {
 
     void releaseUnopenedSources(WebPageProxy& page)
     {
-        if (!detachedPages.contains(&page) || std::any_of(handoffs.begin(), handoffs.end(), [&](auto& handoff) { return handoff.page.ptr() == &page; }))
+        if (!detachedPages.contains(&page) || std::any_of(handoffs.begin(), handoffs.end(), [&](auto& handoff) { return handoff.page.ptr() == &page && !handoff.settled; }))
             return;
         std::vector<std::shared_ptr<Session>> unused;
         for (auto& [token, session] : sessions) {
@@ -1340,6 +1341,25 @@ void MediaRestreamServer::endHandoff(IPC::Connection& connection, uint64_t ident
             m_impl->closeDetachedPageIfUnowned(page);
             return;
         }
+    }
+}
+
+void MediaRestreamServer::setHandoffSettled(IPC::Connection& connection, uint64_t identifier, bool settled)
+{
+    for (auto& handoff : m_impl->handoffs) {
+        RefPtr process = handoff.process.get();
+        if (handoff.identifier != identifier || !process || !process->hasConnection(connection))
+            continue;
+        handoff.settled = settled;
+        if (!settled)
+            return;
+        Ref page = handoff.page;
+        for (auto& [token, session] : m_impl->sessions) {
+            if (session->page.ptr() == page.ptr())
+                m_impl->releaseCompletedSource(session);
+        }
+        m_impl->closeDetachedPageIfUnowned(page);
+        return;
     }
 }
 

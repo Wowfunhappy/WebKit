@@ -101,6 +101,12 @@ int main(int argc, char** argv)
     auto capture = MediaRestreamCapture::create(playback, {
         [&](double start, double end, double rate, double offset, Ref<SharedBuffer>&& data, CompletionHandler<void()>&& completion) {
             auto payload = data->span();
+            if (auto* path = getenv("CAPTURE_WRITE_FIRST_FRAGMENT"); path && !count) {
+                if (auto* file = fopen(path, "wb")) {
+                    fwrite(payload.data(), 1, payload.size(), file);
+                    fclose(file);
+                }
+            }
             bool valid = std::isfinite(start) && std::isfinite(end) && end > start && std::round(end - start) <= 3
                 && std::isfinite(rate) && rate > 0 && std::isfinite(offset)
                 && (!count || std::abs(start - lastEnd) < .000001) && !payload.empty() && !(payload.size() % 188);
@@ -168,12 +174,20 @@ int main(int argc, char** argv)
         g_object_set(delay, "sleep-time", static_cast<guint>(0), nullptr);
         gst_object_unref(delay);
     }
+    if (auto* expected = getenv("CAPTURE_EXPECT_VIDEO_COLORIMETRY")) {
+        bool drawsBlack = MediaRestreamCapture::videoColorimetry(playback) == MediaRestreamCapture::VideoColorimetry::DrawsBlack;
+        if (drawsBlack != !strcmp(expected, "draws-black")) {
+            fprintf(stderr, "Expected video colorimetry %s\n", expected);
+            failed = done = true;
+        }
+    }
     auto started = std::chrono::steady_clock::now();
     auto deadline = started + std::chrono::seconds(atoi(argv[2]));
     auto report = started + std::chrono::seconds(30);
     bool stalled = false;
     bool cancelled = false;
     bool continuationSent = false;
+    unsigned finishAfter = getenv("CAPTURE_FINISH_INPUT_AFTER") ? atoi(getenv("CAPTURE_FINISH_INPUT_AFTER")) : 0;
     unsigned stallSeconds = getenv("CAPTURE_MAIN_STALL") ? atoi(getenv("CAPTURE_MAIN_STALL")) : 0;
     while ((!done || !deliveries.empty()) && std::chrono::steady_clock::now() < deadline) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, .02, true);
@@ -201,6 +215,15 @@ int main(int argc, char** argv)
             if (selected)
                 gst_object_unref(selected);
             gst_object_unref(sink);
+        }
+        if (finishAfter && std::chrono::steady_clock::now() - started > std::chrono::seconds(finishAfter)) {
+            finishAfter = 0;
+            auto before = std::chrono::steady_clock::now();
+            capture->finishInput();
+            auto blocked = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
+            fprintf(stderr, "finishInput blocked %.3f seconds\n", blocked);
+            if (blocked > .25)
+                failed = done = true;
         }
         if (stallSeconds && !stalled && std::chrono::steady_clock::now() - started > std::chrono::seconds(5)) {
             stalled = true;

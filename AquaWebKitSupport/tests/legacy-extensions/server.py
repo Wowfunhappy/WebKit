@@ -68,6 +68,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             time.sleep(3)
             with open(os.path.join(ROOT, 'pages', 'quicktime-captions.vtt'), 'rb') as captions:
                 return self.reply(captions.read(), 'text/vtt; charset=utf-8')
+        # Media whose first bytes take a while, for a source whose format is not known yet.
+        if path.startswith('/delayed-quicktime-media/'):
+            time.sleep(8)
+            path = path.replace('/delayed-quicktime-media/', '/quicktime-media/', 1)
         if path.startswith('/quicktime-media/'):
             if urllib.parse.parse_qs(urllib.parse.urlsplit(path).query).get('delay') == ['3']:
                 time.sleep(3)

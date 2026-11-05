@@ -5,12 +5,13 @@ import json
 import math
 import os
 import pathlib
+import re
 import resource
 import shlex
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['all', 'video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps', 'post-eos'], default='all')
+parser.add_argument('--case', choices=['all', 'no-audio', 'no-audio-finish', 'rgb', 'srgb', 'video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps', 'post-eos'], default='all')
 parser.add_argument('--seconds', type=int, default=20)
 parser.add_argument('--skip-build', action='store_true')
 parser.add_argument('--main-stall', type=int, default=0, help='Block main-thread delivery after five seconds')
@@ -21,6 +22,23 @@ if args.seconds < 8:
     parser.error('--seconds must be at least 8')
 if args.cancel_after_stall and not args.main_stall:
     parser.error('--cancel-after-stall requires --main-stall')
+def stream_times(transport):
+    first, last = {}, {}
+    for offset in range(0, len(transport) - 187, 188):
+        packet = transport[offset:offset + 188]
+        if not packet[1] & 0x40:
+            continue
+        pid = ((packet[1] & 31) << 8) | packet[2]
+        start = 4 + (packet[4] + 1 if packet[3] & 0x20 else 0)
+        header = packet[start:start + 14]
+        if header[:3] != b'\0\0\1' or header[3] < 0xc0:
+            continue
+        time = (((header[9] & 0xe) << 29) | (header[10] << 22) | ((header[11] & 0xfe) << 14) | (header[12] << 7) | (header[13] >> 1)) / 90000
+        first.setdefault(pid, time)
+        last[pid] = time
+    return first, last
+
+
 root = pathlib.Path(__file__).resolve().parents[3]
 source = root / 'AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/mse'
 out = pathlib.Path(__file__).resolve().parent / 'build/capture-stability'
@@ -65,7 +83,7 @@ for directory in (gst, jsc):
 env = dict(os.environ, CAPTURE_MAIN_STALL=str(args.main_stall), CAPTURE_CONSUMER_DELAY=str(args.consumer_delay), DYLD_LIBRARY_PATH=str(libs), GST_REGISTRY_FORK='no', GST_PLUGIN_SYSTEM_PATH_1_0=str(root / 'AquaWebKitSupport/deps/build/lib/gstreamer-1.0'))
 if args.cancel_after_stall:
     env['CAPTURE_CANCEL_AFTER_STALL'] = '1'
-cases = ['video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps', 'post-eos'] if args.case == 'all' else [args.case]
+cases = ['video', 'sparse', 'low-rate', 'video-tail', 'audio-tail', 'surround', 'fractional', 'hd', '4k', 'initial-gaps', 'post-eos', 'no-audio', 'no-audio-finish', 'rgb', 'srgb'] if args.case == 'all' else [args.case]
 for case in cases:
     video_seconds = 4 if case == 'audio-tail' else args.seconds
     audio_seconds = 4 if case == 'video-tail' else args.seconds
@@ -74,13 +92,18 @@ for case in cases:
     channels = 6 if case == 'surround' else 2
     pipeline = 'playsink name=ps video-sink="fakesink sync=true" audio-sink="fakesink sync=true" '
     if case != 'surround':
-        pipeline += f'videotestsrc pattern=snow num-buffers={math.ceil(video_seconds * rate_n / rate_d)} ! video/x-raw,format=I420,width={width},height={height},framerate={rate_n}/{rate_d} ! '
+        # A page that has played for a while starts its capture well into the playback's running time.
+        offset = ' timestamp-offset=30000000000' if case == 'no-audio' else ''
+        video_format = 'BGRA' if case == 'rgb' else 'I420'
+        color = ',colorimetry=2:3:7:1' if case == 'srgb' else ''
+        pipeline += f'videotestsrc pattern=snow{offset} num-buffers={math.ceil(video_seconds * rate_n / rate_d)} ! video/x-raw,format={video_format},width={width},height={height},framerate={rate_n}/{rate_d}{color} ! '
         if case == 'sparse':
             pipeline += 'identity drop-probability=0.98 ! '
         if case == 'initial-gaps':
             pipeline += 'identity name=startupDelay sleep-time=1000000 ! '
         pipeline += 'ps.video_sink '
-    pipeline += f'audiotestsrc timestamp-offset={600000000 if case == "initial-gaps" else 0} num-buffers={math.ceil(audio_seconds * 48000 / 1024)} ! audio/x-raw,format=F32LE,rate=48000,channels={channels} ! ps.audio_sink'
+    if not case.startswith('no-audio'):
+        pipeline += f'audiotestsrc timestamp-offset={600000000 if case == "initial-gaps" else 0} num-buffers={math.ceil(audio_seconds * 48000 / 1024)} ! audio/x-raw,format=F32LE,rate=48000,channels={channels} ! ps.audio_sink'
     limit = max(120, args.seconds * 8)
     print('RUN', case, args.seconds, 'seconds', flush=True)
     case_env = dict(env)
@@ -90,4 +113,21 @@ for case in cases:
         case_env['CAPTURE_POST_EOS_STREAM_START'] = '1'
     if case == 'surround':
         case_env['CAPTURE_EXPECT_CHANNELS'] = '6'
+    fragment = out / (case + '-first.ts')
+    fragment.unlink(missing_ok=True)
+    case_env['CAPTURE_WRITE_FIRST_FRAGMENT'] = str(fragment)
+    if case == 'no-audio-finish':
+        case_env['CAPTURE_FINISH_INPUT_AFTER'] = '4'
+    if case in ('rgb', 'srgb'):
+        case_env['CAPTURE_EXPECT_VIDEO_COLORIMETRY'] = 'draws-black' if case == 'srgb' else 'displayable'
     subprocess.run([str(out / 'test'), pipeline, str(limit)], env=case_env, timeout=limit + 30, check=True)
+    if case.startswith('no-audio'):
+        first, last = stream_times(fragment.read_bytes())
+        # Silence starts with the video and carries no more than this fragment's own span.
+        assert abs(first[0x41] - first[0x42]) < .1, ('Silent audio misaligned', first)
+        assert last[0x42] - first[0x42] < 3, ('Silent audio burst', first, last)
+    if case in ('rgb', 'srgb'):
+        caps = subprocess.run([str(root / 'AquaWebKitSupport/deps/build/bin/gst-launch-1.0'), '-v', 'filesrc', f'location={fragment}', '!', 'tsdemux', '!', 'h264parse', '!', 'fakesink'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=dict(os.environ, GST_PLUGIN_SYSTEM_PATH=str(root / 'AquaWebKitSupport/deps/build/lib/gstreamer-1.0')), timeout=60).stdout.decode()
+        colorimetry = re.findall(r'video/x-h264.*?colorimetry=\(string\)([^,]+)', caps)
+        assert colorimetry and colorimetry[-1] in ('bt709', 'bt601'), ('Output colorimetry QuickTime Player cannot show', colorimetry)

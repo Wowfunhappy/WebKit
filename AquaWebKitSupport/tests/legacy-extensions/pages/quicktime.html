@@ -184,7 +184,7 @@
                     const selectSource = () => {
                         if (generation === routeGeneration && video.webkitCurrentPlaybackTargetIsWireless) {
                             video.srcObject = null;
-                            video.src = '/quicktime-media/' + (params.get('airplay') === 'route-rejected' ? 'missing.mp4' : 'plain.mp4');
+                            video.src = '/quicktime-media/' + (params.get('airplay') === 'route-rejected' ? 'missing.mp4' : params.get('routeMedia') || 'plain.mp4');
                         }
                     };
                     if (params.has('routeDelay'))

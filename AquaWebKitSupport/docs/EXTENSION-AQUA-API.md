@@ -41,7 +41,7 @@ All operations return promises.
 
 | Method | Contract |
 | --- | --- |
-| `inspect()` | Returns `sources` (safe native HTTP(S) candidates), `requiresCapture`, `canConnect`, and `tracksValid`. Selected external text tracks require capture. |
+| `inspect()` | Returns `sources` (safe native HTTP(S) candidates), `requiresCapture`, `canConnect`, `tracksValid`, and `quickTimeDrawsBlack`: whether QuickTime Player on OS X 10.9 would draw the source's video black when given its URL, or `null` until its format is known. Selected external text tracks require capture. |
 | `present(mode, message?)` | `opening` suppresses physical inline audio/video and shows the supplied plain-text opening label; `external` shows the handoff placard; `inline` releases presentation and disconnects any route. |
 | `connect(message?)` | Selects a virtual external route, suppresses inline output, and emits native wireless/connecting notifications. The page may select its remote source. Remote-playback opt-out rejects this operation. |
 | `confirmConnection()` | Marks the selected route connected after the media backend has metadata. Duration, current time, seekability and readiness remain the actual browser backend's state. |

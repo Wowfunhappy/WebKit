@@ -37,6 +37,8 @@ public:
     static void disconnectIndependentPlayback(HTMLMediaElement&);
     static void cancelPending(HTMLMediaElement&, uint64_t owner);
     static bool requiresCapture(HTMLMediaElement&);
+    // Whether QuickTime Player on OS X 10.9 would draw this video black when given its URL. Empty until its format is known.
+    static std::optional<bool> videoDrawsBlackInQuickTime(HTMLMediaElement&);
     static bool canNegotiateRemotePlayback(HTMLMediaElement&);
     static bool allowsExternalPlayback(const HTMLMediaElement&);
     static unsigned textTrackCount(HTMLMediaElement&);

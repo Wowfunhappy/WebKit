@@ -30,6 +30,7 @@ struct NativeMediaSession : std::enable_shared_from_this<NativeMediaSession> {
     uint64_t identifier { nextMediaPlayerHandoffIdentifier() };
     bool closed { false };
     bool connected { false };
+    bool holdSettled { false };
     Vector<std::weak_ptr<NativeMediaSource>> sources;
     RunLoop::Timer unusedLease;
 
@@ -48,6 +49,7 @@ struct NativeMediaSession : std::enable_shared_from_this<NativeMediaSession> {
     }
     void close();
     void playerClosed();
+    void updatePageHold();
     void disconnect()
     {
         connected = false;
@@ -65,6 +67,7 @@ struct NativeMediaSource : std::enable_shared_from_this<NativeMediaSource> {
     bool publishesResources { false };
     bool opened { false };
     bool accepted { false };
+    bool completed { false };
     bool closed { false };
     std::unique_ptr<NativePromise> ended;
     JSObjectRef closedPromise { nullptr };
@@ -131,6 +134,7 @@ struct NativeMediaSource : std::enable_shared_from_this<NativeMediaSource> {
         ended = std::make_unique<NativePromise>(owner->native, context, resolve, reject);
         MediaRestreamSession::singleton().setDidEnd(identifier, [self = shared_from_this()] {
             self->closed = true;
+            self->owner->updatePageHold();
             self->clearProvider();
             if (self->accepted)
                 self->owner->playerClosed();
@@ -138,6 +142,7 @@ struct NativeMediaSource : std::enable_shared_from_this<NativeMediaSource> {
             self->ended = nullptr;
         });
         owner->sources.append(weak_from_this());
+        owner->updatePageHold();
     }
 };
 
@@ -169,6 +174,26 @@ void NativeMediaSession::close()
             element->setMediaPlayerPresentedExternally(false, identifier);
     }
     WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::EndMediaPlayerHandoff(identifier), 0);
+}
+
+// A closed tab's document stays only for what still needs it: a receiver not yet open, a capture still producing, or
+// resources served from this page. An open tab keeps its session usable, as this changes only what a closed tab waits for.
+void NativeMediaSession::updatePageHold()
+{
+    bool settled = false;
+    for (auto& weakSource : sources) {
+        auto source = weakSource.lock();
+        if (!source || source->closed)
+            continue;
+        if (!source->accepted || (source->capture ? !source->completed : source->publishesResources || source->localResources)) {
+            settled = false;
+            break;
+        }
+        settled = true;
+    }
+    if (closed || std::exchange(holdSettled, settled) == settled)
+        return;
+    WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::SetMediaPlayerHandoffSettled(identifier, settled), 0);
 }
 
 void NativeMediaSession::playerClosed()
@@ -268,6 +293,7 @@ static JSValueRef mediaSourceCommand(JSContextRef context, JSObjectRef, JSObject
         source->clearProvider();
         if (callback) {
             source->publishesResources = true;
+            source->owner->updatePageHold();
             source->providerContext = JSContextGetGlobalContext(context);
             source->provider = callback;
             source->providerTimeout = Seconds { *timeout };
@@ -296,6 +322,7 @@ static JSValueRef mediaSourceCommand(JSContextRef context, JSObjectRef, JSObject
             return promise;
         }
         source->publishesResources = true;
+        source->owner->updatePageHold();
         std::optional<IPC::SharedBufferReference> bytes;
         if (data) bytes.emplace(data);
         connection->sendWithAsyncReply(Messages::LegacyExtensionHost::SetMediaResource(source->identifier, options->getString("name"_s), options->getString("type"_s), bytes), [pending = WTF::move(pending)](Expected<URL, String>&& result) mutable {
@@ -321,6 +348,7 @@ static JSValueRef mediaSourceCommand(JSContextRef context, JSObjectRef, JSObject
                 return pending->rejectWith("player-closed"_s);
             source->accepted = true;
             source->owner->unusedLease.stop();
+            source->owner->updatePageHold();
             pending->resolveWith(JSValueMakeUndefined(pending->context.get()));
         }, 0);
     } else if (operation == "state"_s) {
@@ -391,6 +419,10 @@ static JSValueRef mediaSessionCommand(JSContextRef context, JSObjectRef, JSObjec
         }
         result->setArray("sources"_s, WTF::move(urls));
         result->setBoolean("requiresCapture"_s, externalTracks || WebCore::MediaRestreamSource::requiresCapture(media));
+        if (auto drawsBlack = WebCore::MediaRestreamSource::videoDrawsBlackInQuickTime(media))
+            result->setBoolean("quickTimeDrawsBlack"_s, *drawsBlack);
+        else
+            result->setValue("quickTimeDrawsBlack"_s, JSON::Value::null());
         result->setBoolean("canConnect"_s, session->tracks.isEmpty() && WebCore::MediaRestreamSource::canNegotiateRemotePlayback(media));
         result->setBoolean("tracksValid"_s, WebCore::MediaRestreamSource::validateTextTracks(media, session->tracks));
         pending->resolveWith(mediaJSON(context, result->toJSONString()));
@@ -457,6 +489,14 @@ static JSValueRef mediaSessionCommand(JSContextRef context, JSObjectRef, JSObjec
                     return pending->rejectWith(result ? "no-source"_s : result.error());
                 }
                 source->url = *result;
+                if (source->capture) {
+                    MediaRestreamSession::singleton().setDidComplete(source->identifier, [weakSource = std::weak_ptr<NativeMediaSource>(source)] {
+                        if (auto source = weakSource.lock()) {
+                            source->completed = true;
+                            source->owner->updatePageHold();
+                        }
+                    });
+                }
                 MediaRestreamSession::singleton().accept(source->identifier);
                 pending->resolveWith(mediaSourceHandle(pending->context.get(), source));
             }, 0);

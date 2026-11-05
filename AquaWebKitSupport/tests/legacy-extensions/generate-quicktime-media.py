@@ -27,6 +27,11 @@ for filename, mux in [('plain.mp4', 'mp4mux'), ('mse.mp4', 'mp4mux fragment-dura
         '! vtenc_h264 max-keyframe-interval=60 ! h264parse ! queue ! mux.video_0 '
         'audiotestsrc num-buffers=2813 samplesperbuffer=1024 ! audio/x-raw,rate=48000,channels=2 '
         '! fdkaacenc bitrate=128000 ! aacparse ! queue ! mux.audio_0')
+run(f'mp4mux name=mux fragment-duration=2000 streamable=true ! filesink location={out / "av-short.mp4"} '
+    'videotestsrc num-buffers=240 pattern=smpte ! video/x-raw,format=NV12,width=640,height=360,framerate=30/1 '
+    '! x264enc speed-preset=ultrafast key-int-max=60 bitrate=1500 ! h264parse ! queue ! mux.video_0 '
+    'audiotestsrc num-buffers=376 samplesperbuffer=1024 ! audio/x-raw,rate=48000,channels=2 '
+    '! fdkaacenc bitrate=128000 ! aacparse ! queue ! mux.audio_0')
 run(f'mp4mux name=mux fragment-duration=2000 streamable=true ! filesink location={out}/noise.mp4 '
     'videotestsrc num-buffers=300 pattern=snow ! video/x-raw,format=I420,width=640,height=360,framerate=30/1 '
     '! x264enc speed-preset=ultrafast pass=qual quantizer=10 bitrate=240000 vbv-buf-capacity=1000 key-int-max=60 ! video/x-h264,profile=baseline ! h264parse ! queue ! mux.video_0 '

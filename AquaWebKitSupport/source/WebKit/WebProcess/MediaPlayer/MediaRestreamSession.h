@@ -21,6 +21,7 @@ public:
     void stop(uint64_t);
     void accept(uint64_t);
     void setDidEnd(uint64_t, Function<void()>&&);
+    void setDidComplete(uint64_t identifier, Function<void()>&& callback) { m_didComplete.set(identifier, WTF::move(callback)); }
     bool contains(uint64_t identifier) const { return m_sources.contains(identifier) || m_reserved.contains(identifier); }
 private:
     void streamDescription(uint64_t, CompletionHandler<void(String&&)>&&);
@@ -35,6 +36,7 @@ private:
     uint64_t m_nextIdentifier { 1 };
     HashMap<uint64_t, Ref<WebCore::MediaRestreamSource>> m_sources;
     HashMap<uint64_t, Function<void()>> m_didEnd;
+    HashMap<uint64_t, Function<void()>> m_didComplete;
     HashSet<uint64_t> m_completed;
     HashSet<uint64_t> m_reserved;
     HashMap<uint64_t, std::shared_ptr<PlaylistProvider>> m_playlistProviders;

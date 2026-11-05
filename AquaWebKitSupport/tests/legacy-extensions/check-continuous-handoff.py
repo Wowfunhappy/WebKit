@@ -105,10 +105,10 @@ playlist = read(media_url)
 if '#EXT-X-STREAM-INF:' in playlist:
     media_url = urllib.parse.urljoin(media_url, next(line for line in playlist.splitlines() if line and not line.startswith('#')))
     playlist = read(media_url)
-assert '#EXT-X-PLAYLIST-TYPE:' not in playlist
+assert '#EXT-X-PLAYLIST-TYPE:EVENT' in playlist and '#EXT-X-ENDLIST' not in playlist
 assert '#EXT-X-MEDIA-SEQUENCE:' in playlist
 if args.loop:
-    wait_for(lambda: discontinuities(read(media_url)) >= 2)
+    wait_for(lambda: discontinuities(read(media_url)) >= 2, 180)
     print('Capture continues across automatic source loops', flush=True)
 if args.stop_loop:
     js('video.loop=false')

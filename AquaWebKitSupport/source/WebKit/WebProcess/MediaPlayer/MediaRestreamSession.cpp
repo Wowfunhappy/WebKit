@@ -145,6 +145,8 @@ void MediaRestreamSession::reportCompleted(uint64_t identifier)
     if (!m_completed.remove(identifier))
         return;
     WebProcess::singleton().parentProcessConnection()->send(Messages::LegacyExtensionHost::CompleteRestream(identifier), 0);
+    if (auto callback = m_didComplete.take(identifier))
+        callback();
 }
 
 void MediaRestreamSession::ended(uint64_t identifier)
@@ -152,6 +154,7 @@ void MediaRestreamSession::ended(uint64_t identifier)
     m_playlistProviders.remove(identifier);
     m_reserved.remove(identifier);
     m_completed.remove(identifier);
+    m_didComplete.remove(identifier);
     m_sources.remove(identifier);
     if (auto callback = m_didEnd.take(identifier))
         callback();

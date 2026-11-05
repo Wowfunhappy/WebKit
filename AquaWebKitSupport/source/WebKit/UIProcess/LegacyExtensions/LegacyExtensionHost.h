@@ -254,6 +254,7 @@ private:
     void beginMediaPlayerHandoff(IPC::Connection&, WebCore::FrameIdentifier, uint64_t request, uint64_t parent, String&& ticket, String&& extensionKey, CompletionHandler<void(Expected<bool, String>&&)>&&);
     void controlMediaPlayer(IPC::Connection&, uint64_t, String&&, double, CompletionHandler<void(bool)>&&);
     void endMediaPlayerHandoff(IPC::Connection&, uint64_t request);
+    void setMediaPlayerHandoffSettled(IPC::Connection&, uint64_t, bool);
     void publishMediaSource(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, URL&&, String&& extensionKey, uint64_t request, uint64_t identifier, URL&&, String&& playlist, String&& title, String&& codec, CompletionHandler<void(Expected<URL, String>&&)>&&);
     void openPublishedMedia(IPC::Connection&, uint64_t, String&& application, String&& adapter, double timeout, CompletionHandler<void(Expected<URL, String>&&)>&&);
     void mediaPlayerState(IPC::Connection&, uint64_t, CompletionHandler<void(Expected<String, String>&&)>&&);

@@ -47,6 +47,14 @@ The uneven-endings fixture has shorter audio than video. `short-audio.mp4` has t
 
 `check-capture-startup-buffer.py` delays a selected subtitle track for eight seconds and checks that its load event preserves the minimum live startup buffer of three target durations. It uses the generic test receiver and an isolated HTTP fixture server.
 
+`check-capture-colorimetry.py` compares the picture QuickTime Player shows for each declared colorimetry against a BT.709 reference, by capture and for handed-off MP4 and HLS, for sources playing, paused, never loaded and named for a route. It also checks the direct-only refusal, another receiver's URL, a source the page replaces during the start, a failed capture, an undecodable source and a slow one.
+
+`check-capture-no-audio.py` checks that a capture of a source with no audio track opens and plays in QuickTime Player while the source is still producing, and `check-capture-stability.py --case no-audio` checks its silent track natively.
+
+`check-page-release.py` closes tabs during direct, relayed and capture handoffs: the page goes when nothing needs it, the receiver plays on, and an open tab's session stays usable.
+
+`check-mse-loop.py` checks a looping Media Source video across repeated wraps, data appended after a wrap, and data appended while the end of stream is still playing out.
+
 `source=encrypted.mp4` exercises the public ClearKey fixture through the page's normal EME session and browser decoder. Start handoff immediately after playback starts: the fixture is about two seconds long. Verify video in the resulting short stream. Protected decoder buffers that cannot be read by the encoder reject with `unsupported-source`.
 
 Add `subtitles=1` for a showing English TextTrack with overlapping cues. `subtitles=external` loads `quicktime-captions.vtt`; `subtitles=delayed` delays its response by three seconds. Inspect the master, `media.m3u8`, subtitle playlists, and timestamp-mapped WebVTT. Check full overlapping cue intervals, layout, cue edits/removals, regions, delayed tracks, and future cues. Published subtitle segments are immutable.

@@ -83,20 +83,21 @@ for i in range(0, len(data), 188):
     payload = packet[offset:]
     if len(payload) >= 4 and payload[:3] == b'\0\0\1' and 0xc0 <= payload[3] <= 0xdf:
         audio_packets += 1
+assert audio_packets
+pcm = out / (args.selection + '.f32')
+gst = rig.parents[2] / 'AquaWebKitSupport/deps/build/bin/gst-launch-1.0'
+subprocess.run([str(gst), '-q', 'filesrc', 'location=' + str(media), '!', 'tsdemux', '!', 'aacparse', '!', 'avdec_aac', '!', 'audioconvert', '!', 'audio/x-raw,format=F32LE,rate=48000,channels=1', '!', 'filesink', 'location=' + str(pcm)], env=dict(os.environ, GST_REGISTRY_FORK='no'), check=True, timeout=30)
+samples = array.array('f', pcm.read_bytes())[2048:]
+assert len(samples) > 12000
 if args.selection == 'disabled':
-    assert not audio_packets, 'Disabled source audio reappeared in handoff'
-else:
-    assert audio_packets
-    pcm = out / (args.selection + '.f32')
-    gst = rig.parents[2] / 'AquaWebKitSupport/deps/build/bin/gst-launch-1.0'
-    subprocess.run([str(gst), '-q', 'filesrc', 'location=' + str(media), '!', 'tsdemux', '!', 'aacparse', '!', 'avdec_aac', '!', 'audioconvert', '!', 'audio/x-raw,format=F32LE,rate=48000,channels=1', '!', 'filesink', 'location=' + str(pcm)], env=dict(os.environ, GST_REGISTRY_FORK='no'), check=True, timeout=30)
-    samples = array.array('f', pcm.read_bytes())[2048:]
-    assert len(samples) > 12000
-    crossings = sum(a <= 0 < b for a, b in zip(samples, samples[1:]))
-    frequency = crossings * 48000 / len(samples)
+    # QuickTime Player needs an audio track, and the disabled source audio stays out of it.
+    assert max(abs(sample) for sample in samples) < .001, 'Disabled source audio reappeared in handoff'
+crossings = sum(a <= 0 < b for a, b in zip(samples, samples[1:]))
+frequency = crossings * 48000 / len(samples)
+if args.selection != 'disabled':
     expected = 440 if args.selection == 'en' else 880
     assert abs(frequency - expected) < 3, (frequency, expected)
-    print('DECODED', args.selection, frequency, flush=True)
+print('DECODED', args.selection, frequency, flush=True)
 osa('tell application "Safari" to close current tab of window id ' + window_id)
 wait(lambda: read(url).decode().count('#EXTINF:') > playlist.count('#EXTINF:') + 2)
 osa('tell application id "org.aqua.webkit.media-handoff-receiver" to quit')

@@ -1072,6 +1072,11 @@ void LegacyExtensionHost::endMediaPlayerHandoff(IPC::Connection& connection, uin
     MediaRestreamServer::singleton().endHandoff(connection, request);
 }
 
+void LegacyExtensionHost::setMediaPlayerHandoffSettled(IPC::Connection& connection, uint64_t request, bool settled)
+{
+    MediaRestreamServer::singleton().setHandoffSettled(connection, request, settled);
+}
+
 void LegacyExtensionHost::publishMediaSource(IPC::Connection& connection, WebCore::FrameIdentifier frameID, WebCore::ScriptExecutionContextIdentifier documentID, URL&& documentURL, String&& extensionKey, uint64_t request, uint64_t identifier, URL&& url, String&& playlist, String&& title, String&& codec, CompletionHandler<void(Expected<URL, String>&&)>&& completion)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameID);

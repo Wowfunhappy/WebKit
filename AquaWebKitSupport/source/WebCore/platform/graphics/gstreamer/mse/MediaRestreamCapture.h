@@ -17,6 +17,8 @@ public:
         Function<void()> interrupted;
         Function<void()> failed;
     };
+    enum class VideoColorimetry : uint8_t { NotNegotiated, Displayable, DrawsBlack };
+    static VideoColorimetry videoColorimetry(GstElement*);
     static std::shared_ptr<MediaRestreamCapture> create(GstElement*, Callbacks&&, bool includeAudio = true, const IntSize& maximumSize = { }, const String& videoCodec = { }, std::shared_ptr<MediaRestreamFrameQueue> = nullptr);
     ~MediaRestreamCapture();
     void stop();

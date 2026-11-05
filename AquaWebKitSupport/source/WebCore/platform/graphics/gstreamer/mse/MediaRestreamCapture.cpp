@@ -49,6 +49,19 @@ bool accountBuffer(GstBuffer* buffer, const std::shared_ptr<Budget>& budget, uin
     return true;
 }
 
+// QuickTime Player on OS X 10.9 draws black for H.264 whose VUI names these.
+bool transferDrawsBlack(GstVideoTransferFunction transfer)
+{
+    return transfer == GST_VIDEO_TRANSFER_SRGB || transfer == GST_VIDEO_TRANSFER_BT2020_12 || transfer == GST_VIDEO_TRANSFER_BT2020_10
+        || transfer == GST_VIDEO_TRANSFER_SMPTE2084 || transfer == GST_VIDEO_TRANSFER_ARIB_STD_B67;
+}
+
+bool primariesDrawBlack(GstVideoColorPrimaries primaries)
+{
+    return primaries == GST_VIDEO_COLOR_PRIMARIES_BT2020 || primaries == GST_VIDEO_COLOR_PRIMARIES_SMPTEST428
+        || primaries == GST_VIDEO_COLOR_PRIMARIES_SMPTERP431 || primaries == GST_VIDEO_COLOR_PRIMARIES_SMPTEEG432;
+}
+
 GRefPtr<GstElement> findPlaySink(GstElement* pipeline)
 {
     GUniquePtr<GstIterator> iterator(gst_bin_iterate_recurse(GST_BIN(pipeline)));
@@ -100,6 +113,9 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
     };
     Vector<std::unique_ptr<Track>> tracks;
     GRefPtr<GstElement> playbackPipeline;
+    static constexpr int silentAudioRate = 48000;
+    GRefPtr<GstElement> silentAudio;
+    uint64_t silentFrames { 0 };
     gulong sinkRemoved { 0 };
     uint64_t audioPackets { 0 };
     GstAudioInfo audioFormat { };
@@ -390,9 +406,36 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
             track.lastVideoCaps = caps;
         }
         track.pushedBuffer = true;
+        auto end = GST_BUFFER_PTS(buffer.get()) + (GST_BUFFER_DURATION_IS_VALID(buffer.get()) ? GST_BUFFER_DURATION(buffer.get()) : 0);
         gst_app_src_set_caps(GST_APP_SRC(track.source.get()), caps);
         if (gst_app_src_push_buffer(GST_APP_SRC(track.source.get()), buffer.leakRef()) != GST_FLOW_OK)
-            fail();
+            return fail();
+        if (track.video && silentAudio)
+            pushSilence(end);
+    }
+
+    void pushSilence(GstClockTime end)
+    {
+        if (end <= captureStart)
+            return;
+        auto target = gst_util_uint64_scale(end - captureStart, silentAudioRate, GST_SECOND);
+        while (silentFrames < target) {
+            auto count = std::min<uint64_t>(target - silentFrames, silentAudioRate);
+            GRefPtr silence = adoptGRef(gst_buffer_new_allocate(nullptr, count * GST_AUDIO_INFO_BPF(&audioFormat), nullptr));
+            if (!silence || !accountBuffer(silence.get(), rawBudget, inputBudget))
+                return fail();
+            {
+                GstMappedBuffer mapped(silence.get(), GST_MAP_WRITE);
+                if (!mapped)
+                    return fail();
+                gst_audio_format_info_fill_silence(audioFormat.finfo, mapped.data(), mapped.size());
+            }
+            GST_BUFFER_PTS(silence.get()) = captureStart + gst_util_uint64_scale(silentFrames, GST_SECOND, silentAudioRate);
+            GST_BUFFER_DURATION(silence.get()) = gst_util_uint64_scale(count, GST_SECOND, silentAudioRate);
+            silentFrames += count;
+            if (gst_app_src_push_buffer(GST_APP_SRC(silentAudio.get()), silence.leakRef()) != GST_FLOW_OK)
+                return fail();
+        }
     }
 
     void pushGap(Track& track, GRefPtr<GstEvent>&& event, GstCaps* caps)
@@ -489,6 +532,8 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
                     pushGap(*track, WTF::move(gap), track->lastVideoCaps.get());
                 }
                 gst_app_src_end_of_stream(GST_APP_SRC(track->source.get()));
+                if (silentAudio)
+                    gst_app_src_end_of_stream(GST_APP_SRC(silentAudio.get()));
             }
         }
     }
@@ -637,8 +682,8 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
                 "width", G_TYPE_INT, width, "height", G_TYPE_INT, height,
                 "pixel-aspect-ratio", GST_TYPE_FRACTION, GST_VIDEO_INFO_PAR_N(&info), GST_VIDEO_INFO_PAR_D(&info),
                 "framerate", GST_TYPE_FRACTION, frameRate, frameScale, nullptr));
+            auto color = info.colorimetry;
             if (frames) {
-                auto color = info.colorimetry;
                 // JPEG uses full-range BT.601; UT Video's YUV formats encode
                 // limited-range BT.601 or BT.709, identified by their FourCC.
                 color.range = videoCodec == "jpeg"_s ? GST_VIDEO_COLOR_RANGE_0_255 : GST_VIDEO_COLOR_RANGE_16_235;
@@ -646,16 +691,32 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
                     color.matrix = GST_VIDEO_COLOR_MATRIX_BT601;
                 else if (color.matrix != GST_VIDEO_COLOR_MATRIX_BT601 && color.matrix != GST_VIDEO_COLOR_MATRIX_BT709)
                     color.matrix = GST_VIDEO_COLOR_MATRIX_BT709;
-                GUniquePtr<char> colorimetry(gst_video_colorimetry_to_string(&color));
-                gst_caps_set_simple(outputVideoCaps.get(), "colorimetry", G_TYPE_STRING, colorimetry.get(), nullptr);
+            } else {
+                if (GST_VIDEO_INFO_IS_RGB(&info))
+                    color.range = GST_VIDEO_COLOR_RANGE_16_235;
+                if (color.matrix != GST_VIDEO_COLOR_MATRIX_BT601 && color.matrix != GST_VIDEO_COLOR_MATRIX_BT709)
+                    color.matrix = GST_VIDEO_COLOR_MATRIX_BT709;
+                // videoconvert leaves pixels alone for these, as its gamma and primaries modes are none.
+                if (transferDrawsBlack(color.transfer))
+                    color.transfer = GST_VIDEO_TRANSFER_BT709;
+                if (primariesDrawBlack(color.primaries))
+                    color.primaries = GST_VIDEO_COLOR_PRIMARIES_BT709;
             }
+            GUniquePtr<char> colorimetry(gst_video_colorimetry_to_string(&color));
+            gst_caps_set_simple(outputVideoCaps.get(), "colorimetry", G_TYPE_STRING, colorimetry.get(), nullptr);
         }
+        // QuickTime Player on OS X 10.9 never finishes opening an unfinished HLS playlist without audio.
+        bool addSilentAudio = videoPad && !audioPad && !frames;
         GRefPtr<GstCaps> outputAudioCaps;
-        if (audioPad) {
-            GRefPtr caps = adoptGRef(gst_pad_get_current_caps(audioPad.get()));
+        if (audioPad || addSilentAudio) {
             gst_audio_info_init(&audioFormat);
-            if (!caps || !gst_audio_info_from_caps(&audioFormat, caps.get()))
-                return false;
+            if (addSilentAudio)
+                gst_audio_info_set_format(&audioFormat, GST_AUDIO_FORMAT_S16LE, silentAudioRate, 2, nullptr);
+            else {
+                GRefPtr caps = adoptGRef(gst_pad_get_current_caps(audioPad.get()));
+                if (!caps || !gst_audio_info_from_caps(&audioFormat, caps.get()))
+                    return false;
+            }
             GstAudioInfo output;
             gst_audio_info_init(&output);
             gst_audio_info_set_format(&output, GST_AUDIO_FORMAT_S16LE, 48000, audioFormat.channels, audioFormat.position);
@@ -680,7 +741,7 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
             if (!frames)
                 description.append("! h264parse config-interval=-1 name=videoparser ! segments.video "_s);
         }
-        if (audioPad) {
+        if (audioPad || addSilentAudio) {
             description.append("appsrc name=audio format=time ! audioconvert ! audioresample ! audiorate skip-to-first=true ! capsfilter name=audioformat ! fdkaacenc name=audioencoder header-period=1 ! audio/mpeg,mpegversion=4,profile=lc,stream-format="_s);
             description.append(frames ? "raw ! identity name=audioparser ! appsink name=audiooutput sync=false async=false "_s : "adts ! identity name=audioparser ! segments.audio_0 "_s);
         }
@@ -695,7 +756,7 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
             GRefPtr format = adoptGRef(gst_bin_get_by_name(GST_BIN(pipeline.get()), "audioformat"));
             g_object_set(format.get(), "caps", outputAudioCaps.get(), nullptr);
             GRefPtr encoder = adoptGRef(gst_bin_get_by_name(GST_BIN(pipeline.get()), "audioencoder"));
-            g_object_set(encoder.get(), "bitrate", 160000 * audioFormat.channels, nullptr);
+            g_object_set(encoder.get(), "bitrate", addSilentAudio ? 64000 : 160000 * audioFormat.channels, nullptr);
             GRefPtr encoderPad = adoptGRef(gst_element_get_static_pad(encoder.get(), "sink"));
             if (!gst_pad_query_accept_caps(encoderPad.get(), outputAudioCaps.get()))
                 return false;
@@ -769,16 +830,13 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
         }, this, nullptr);
         for (bool video : { true, false }) {
             auto pad = video ? videoPad : audioPad;
-            if (!pad)
+            bool silent = !video && addSilentAudio;
+            if (!pad && !silent)
                 continue;
-            auto track = std::make_unique<Track>();
-            track->pad = WTF::move(pad);
-            track->video = video;
-            gst_segment_init(&track->segment, GST_FORMAT_TIME);
-            track->source = adoptGRef(gst_bin_get_by_name(GST_BIN(pipeline.get()), video ? "video" : "audio"));
-            g_object_set(track->source.get(), "block", FALSE, "max-bytes", inputBudget, nullptr);
+            GRefPtr source = adoptGRef(gst_bin_get_by_name(GST_BIN(pipeline.get()), video ? "video" : "audio"));
+            g_object_set(source.get(), "block", FALSE, "max-bytes", inputBudget, nullptr);
             if (video)
-                g_object_set(track->source.get(), "max-buffers", static_cast<guint64>(2), "leaky-type", GST_APP_LEAKY_TYPE_DOWNSTREAM, nullptr);
+                g_object_set(source.get(), "max-buffers", static_cast<guint64>(2), "leaky-type", GST_APP_LEAKY_TYPE_DOWNSTREAM, nullptr);
             GRefPtr parser = adoptGRef(gst_bin_get_by_name(GST_BIN(pipeline.get()), video ? "videoparser" : "audioparser"));
             GRefPtr parserPad = adoptGRef(gst_element_get_static_pad(parser.get(), "src"));
             if (!video) {
@@ -844,6 +902,16 @@ struct MediaRestreamCapture::Impl : std::enable_shared_from_this<Impl> {
                 gst_buffer_unref(original);
                 return GST_PAD_PROBE_OK;
             }, this, nullptr);
+            if (silent) {
+                gst_app_src_set_caps(GST_APP_SRC(source.get()), outputAudioCaps.get());
+                silentAudio = WTF::move(source);
+                continue;
+            }
+            auto track = std::make_unique<Track>();
+            track->pad = WTF::move(pad);
+            track->video = video;
+            gst_segment_init(&track->segment, GST_FORMAT_TIME);
+            track->source = WTF::move(source);
             tracks.append(WTF::move(track));
         }
         if (gst_element_set_state(pipeline.get(), GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
@@ -984,6 +1052,26 @@ MediaRestreamCapture::~MediaRestreamCapture() { stop(); }
 void MediaRestreamCapture::stop() { m_impl->stop(); }
 bool MediaRestreamCapture::finishInput() { return m_impl->finishInput(); }
 bool MediaRestreamCapture::inputEnded() const { return m_impl->inputCompleted; }
+MediaRestreamCapture::VideoColorimetry MediaRestreamCapture::videoColorimetry(GstElement* pipeline)
+{
+    auto sink = pipeline ? findPlaySink(pipeline) : nullptr;
+    GstElement* selectedVideoSink = nullptr;
+    if (sink)
+        g_object_get(sink.get(), "video-sink", &selectedVideoSink, nullptr);
+    GRefPtr videoSink = adoptGRef(selectedVideoSink);
+    GRefPtr pad = videoSink ? adoptGRef(gst_element_get_static_pad(videoSink.get(), "sink")) : nullptr;
+    GRefPtr caps = pad ? adoptGRef(gst_pad_get_current_caps(pad.get())) : nullptr;
+    GstVideoInfo info;
+    gst_video_info_init(&info);
+    if (!caps || !gst_video_info_from_caps(&info, caps.get()))
+        return VideoColorimetry::NotNegotiated;
+    if (GST_VIDEO_INFO_IS_RGB(&info))
+        return VideoColorimetry::Displayable;
+    auto& color = info.colorimetry;
+    return color.matrix == GST_VIDEO_COLOR_MATRIX_BT2020 || transferDrawsBlack(color.transfer) || primariesDrawBlack(color.primaries)
+        ? VideoColorimetry::DrawsBlack : VideoColorimetry::Displayable;
+}
+
 std::shared_ptr<MediaRestreamCapture> MediaRestreamCapture::create(GstElement* playback, Callbacks&& callbacks, bool includeAudio, const IntSize& maximumSize, const String& videoCodec, std::shared_ptr<MediaRestreamFrameQueue> frames)
 {
     auto impl = std::make_shared<Impl>();
