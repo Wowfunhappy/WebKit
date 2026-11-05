@@ -459,7 +459,10 @@ void MediaPlayerPrivateGStreamerMSE::didPreroll()
 void MediaPlayerPrivateGStreamerMSE::didEnd()
 {
     MediaPlayerPrivateGStreamer::didEnd();
-    tearDown(false);
+    // tearDown(false);
+    // AQUAWEBKIT: a looping element seeks from inside didEnd(), and that seek completes on this pipeline.
+    if (!m_isSeeking)
+        tearDown(false);
 }
 
 const PlatformTimeRanges& MediaPlayerPrivateGStreamerMSE::buffered() const

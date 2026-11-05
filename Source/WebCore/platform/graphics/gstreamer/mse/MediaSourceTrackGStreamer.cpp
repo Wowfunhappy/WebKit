@@ -68,6 +68,14 @@ bool MediaSourceTrackGStreamer::isReadyForMoreSamples()
     return !queue->isFull();
 }
 
+// AQUAWEBKIT: see TrackQueue::hasEndOfStream().
+bool MediaSourceTrackGStreamer::hasEndOfStream()
+{
+    ASSERT(isMainThread());
+    DataMutexLocker queue { m_queueDataMutex };
+    return queue->hasEndOfStream();
+}
+
 void MediaSourceTrackGStreamer::notifyWhenReadyForMoreSamples(TrackQueue::LowLevelHandler&& handler)
 {
     ASSERT(isMainThread());

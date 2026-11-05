@@ -61,6 +61,10 @@ void TrackQueue::enqueueObject(GRefPtr<GstMiniObject>&& object)
         GST_DEBUG("TrackQueue for '%" PRIu64 "': Putting object event in the queue: %" GST_PTR_FORMAT ". notEmptyCallback currently %s.",
             m_trackId, object.get(),
             m_notEmptyCallback ? "set, will be called" : "unset");
+        // AQUAWEBKIT: see hasEndOfStream().
+        IGNORE_WARNINGS_BEGIN("cast-align");
+        m_hasEndOfStream |= GST_EVENT_TYPE(object.get()) == GST_EVENT_EOS;
+        IGNORE_WARNINGS_END;
     }
     if (!m_notEmptyCallback)
         m_queue.append(WTF::move(object));
@@ -78,6 +82,7 @@ void TrackQueue::clear()
 {
     ASSERT(isMainThread());
     m_queue.clear();
+    m_hasEndOfStream = false; // AQUAWEBKIT: see hasEndOfStream().
     GST_DEBUG("TrackQueue for '%" PRIu64 "': Emptied.", m_trackId);
     // Notify main thread of low level reached if it proceeds.
     checkLowLevel();

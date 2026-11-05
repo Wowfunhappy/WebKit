@@ -50,6 +50,7 @@ public:
     DataMutex<TrackQueue>& queueDataMutex() LIFETIME_BOUND { return m_queueDataMutex; }
 
     bool isReadyForMoreSamples();
+    bool hasEndOfStream(); // AQUAWEBKIT: see TrackQueue::hasEndOfStream().
 
     void notifyWhenReadyForMoreSamples(TrackQueue::LowLevelHandler&&);
 

@@ -107,9 +107,10 @@ fast/events/contextmenu-lookup-action-for-image.html [ Skip ]
 # so ImageDecoderGStreamer decodes the sequence, and the frame counts and durations match the baseline.
 fast/images/animated-heics-verify.html [ Pass ]
 
-# platform/mac-wk2 expects a timeout here for Apple's AVFoundation MSE; this port's MSE is the GStreamer engine,
-# where the test passes.
+# platform/mac-wk2 expects timeouts here for Apple's AVFoundation MSE; this port's MSE is the GStreamer engine,
+# where the tests pass.
 media/media-source/media-source-reopen.html [ Pass ]
+media/media-source/media-source-real-play-after-eos.html [ Pass ]
 
 # platform/mac skips the WPT encrypted-media suite as unimplemented (webkit.org/b/158836): Apple's
 # ports carry no ClearKey. This port's CDM set is ClearKey and Widevine over the GStreamer engine, so
@@ -485,7 +486,9 @@ http/wpt/webcodecs/h264_small-size.any.html [ Skip ]
 # waits for the second one after it. Pages observe the same final size.
 media/media-source/media-source-resize.html [ Skip ]
 
-# SiteIsolation selects the remote layer tree, whose scrolling thread requires modern CATransaction APIs.
+# Site isolation, and this media test's header, select the remote layer tree, whose scrolling thread requires modern
+# CATransaction APIs.
+http/tests/media/media-source/media-source-video-fit-fill.html [ Skip ]
 http/tests/site-isolation/ [ Skip ]
 http/wpt/site-isolation/ [ Skip ]
 fast/events/site-isolation/ [ Skip ]

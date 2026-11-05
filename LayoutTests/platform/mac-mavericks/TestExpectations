@@ -784,6 +784,20 @@ webkit.org/b/278914 imported/w3c/web-platform-tests/html/semantics/embedded-cont
 webkit.org/b/311050 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/playing-the-media-resource/fragmented-mp4-end.html [ Skip ]
 webkit.org/b/256782 imported/w3c/web-platform-tests/mediacapture-streams/MediaStream-MediaElement-preload-none.https.html [ Skip ]
 
+# The GStreamer ports record these image failures (platform/glib:608 and platform/glib:1834).
+webkit.org/b/261335 media/media-source/media-managedmse-seek.html [ Skip ]
+webkit.org/b/234352 media/media-source/media-source-video-renders.html [ Skip ]
+
+# The expected output is AVFoundation's, where readyState passes HaveCurrentData during the appends. This port's MSE
+# player holds it at HaveMetadata until the pipeline prerolls (MediaPlayerPrivateGStreamerMSE::setReadyState), so the
+# test waits for, and logs, each load's first canplaythrough.
+platform/mac/media/media-source/media-source-change-source.html [ Skip ]
+
+# platform/mac skips this on the Cocoa port (platform/mac:1949). Video frames reach the canvas colour-matched from
+# their primaries, so the red fixture reads (247, 36) where the decoder gives (253, 0, 0), and the test's wait for a
+# nonzero green channel ends on the red frame.
+webkit.org/b/259712 media/media-source/media-source-paint-after-display-none.html [ Skip ]
+
 # platform/glib:4453 records this test [ Pass Timeout ] on the GStreamer ports.
 webkit.org/b/312714 media/media-source/media-source-webm-configuration-framerate.html [ Skip ]
 

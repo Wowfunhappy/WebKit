@@ -51,6 +51,8 @@ public:
     // For producer thread (main-thread):
     void enqueueObject(GRefPtr<GstMiniObject>&&);
     bool isFull() const { return durationEnqueued() >= s_durationEnqueuedHighWaterLevel; }
+    // AQUAWEBKIT: whether an EOS event was enqueued since the queue was last emptied by a flush.
+    bool hasEndOfStream() const { return m_hasEndOfStream; }
     void notifyWhenLowLevel(LowLevelHandler&&);
     void clear();
     void flush();
@@ -83,6 +85,7 @@ private:
     Deque<GRefPtr<GstMiniObject>> m_queue;
     LowLevelHandler m_lowLevelCallback;
     NotEmptyHandler m_notEmptyCallback;
+    bool m_hasEndOfStream { false }; // AQUAWEBKIT: see hasEndOfStream().
 };
 
 }

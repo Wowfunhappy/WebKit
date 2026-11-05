@@ -1474,11 +1474,6 @@ imported/w3c/web-platform-tests/webrtc/RTCDataChannel-GC.html [ Skip ]
 # (platform/glib/TestExpectations:5232), and platform/gtk's baseline holds this port's failure.
 webkit.org/b/306474 imported/w3c/web-platform-tests/fetch/range/sw-416.https.window.html [ Skip ]
 
-# Upstream records the two extra EVENT(canplaythrough) lines (platform/mac-wk2/TestExpectations). The
-# GStreamer MSE player this port runs holds readyState below HaveCurrentData until preroll
-# (MediaPlayerPrivateGStreamerMSE::setReadyState), so the test takes its canplaythrough wait each pass.
-webkit.org/b/212091 platform/mac/media/media-source/media-source-change-source.html [ Skip ]
-
 # Maintainer scope decisions: internal display-list dumps and OT-SVG removal.
 # The SVG table is dropped, so the two display lists are identical.
 fast/text/glyph-display-lists/glyph-display-list-svg-unshared.html [ Skip ]

@@ -102,6 +102,14 @@ Ref<MediaPromise> SourceBufferPrivateGStreamer::appendInternal(Ref<SharedBuffer>
     if (RefPtr player = this->player())
         GST_DEBUG_OBJECT(player->pipeline(), "Appending %zu bytes", data->size());
 
+    // AQUAWEBKIT: a pad and the elements below it take data after EOS only once flushed, and a flush drops what
+    // they hold, so a track that has its EOS restarts from the current position. A pipeline that ended is rebuilt
+    // on reopening and its tracks have no EOS.
+    for (auto& [trackId, track] : m_tracks) {
+        if (track->hasEndOfStream())
+            reenqueSamples(trackId);
+    }
+
     ASSERT(!m_appendPromise);
     m_appendPromise.emplace();
     gpointer bufferData = const_cast<uint8_t*>(data->span().data());
