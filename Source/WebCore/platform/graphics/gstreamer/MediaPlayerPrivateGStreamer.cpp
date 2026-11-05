@@ -295,6 +295,7 @@ void MediaPlayerPrivateGStreamer::tearDown(bool clearMediaPlayer)
         m_audioSink = nullptr;
         m_platformAudioSink = nullptr; // AQUAWEBKIT: see createAudioSink().
         m_textSink = nullptr;
+        m_adaptiveDemux = nullptr; // AQUAWEBKIT: see m_adaptiveDemux.
         m_pipeline = nullptr;
     }
 
@@ -1350,6 +1351,7 @@ MediaPlayerPrivateGStreamer::ChangePipelineStateResult MediaPlayerPrivateGStream
 
 void MediaPlayerPrivateGStreamer::setPlaybinURL(const URL& url)
 {
+    m_adaptiveDemux = nullptr; // AQUAWEBKIT: see m_adaptiveDemux.
     // Clean out everything after file:// url path.
     String cleanURLString(url.string());
     if (url.protocolIsFile())
@@ -1946,12 +1948,37 @@ void MediaPlayerPrivateGStreamer::updateEnabledAudioTrack()
     }
 }
 
+// AQUAWEBKIT: see InbandTextTrackPrivateGStreamer::setMode().
+void MediaPlayerPrivateGStreamer::updateEnabledTextTrack()
+{
+    if (m_isLegacyPlaybin || !m_adaptiveDemux)
+        return;
+
+    // The first showing track, otherwise the first hidden one.
+    InbandTextTrackPrivateGStreamer* wantedTrack = nullptr;
+    for (auto& pair : m_textTracks) {
+        auto& track = pair.value.get();
+        auto mode = track.mode();
+        if (mode == InbandTextTrackPrivate::Mode::Disabled)
+            continue;
+        bool isShowing = mode == InbandTextTrackPrivate::Mode::Showing;
+        bool wantedIsShowing = wantedTrack && wantedTrack->mode() == InbandTextTrackPrivate::Mode::Showing;
+        if (!wantedTrack || (isShowing && !wantedIsShowing) || (isShowing == wantedIsShowing && track.trackIndex() < wantedTrack->trackIndex()))
+            wantedTrack = &track;
+    }
+    m_wantedTextStreamId = wantedTrack ? std::optional<TrackID> { wantedTrack->streamId() } : std::nullopt;
+    playbin3SendSelectStreamsIfAppropriate();
+}
+
 void MediaPlayerPrivateGStreamer::playbin3SendSelectStreamsIfAppropriate()
 {
     ASSERT(!m_isLegacyPlaybin);
 
     bool haveDifferentStreamIds = (m_wantedAudioStreamId != m_currentAudioStreamId || m_wantedVideoStreamId != m_currentVideoStreamId);
-    bool shouldSendSelectStreams = !m_waitingForStreamsSelectedEvent && haveDifferentStreamIds && m_currentState == GST_STATE_PLAYING;
+    // bool shouldSendSelectStreams = !m_waitingForStreamsSelectedEvent && haveDifferentStreamIds && m_currentState == GST_STATE_PLAYING;
+    // AQUAWEBKIT: see m_adaptiveDemux. Its text selection follows the track's mode in any state.
+    bool adaptiveSelectionChanged = m_adaptiveDemux && (m_adaptiveDemuxNeedsSelection || m_wantedTextStreamId != m_currentTextStreamId);
+    bool shouldSendSelectStreams = !m_waitingForStreamsSelectedEvent && ((haveDifferentStreamIds && m_currentState == GST_STATE_PLAYING) || adaptiveSelectionChanged);
     GST_DEBUG_OBJECT(m_pipeline.get(), "Checking if to send SELECT_STREAMS, m_waitingForStreamsSelectedEvent = %s, haveDifferentStreamIds = %s, m_currentState = %s... shouldSendSelectStreams = %s",
         boolForPrinting(m_waitingForStreamsSelectedEvent), boolForPrinting(haveDifferentStreamIds), gst_state_get_name(m_currentState), boolForPrinting(shouldSendSelectStreams));
     if (!shouldSendSelectStreams)
@@ -1972,7 +1999,8 @@ void MediaPlayerPrivateGStreamer::playbin3SendSelectStreamsIfAppropriate()
         auto track = m_textTracks.get(m_wantedTextStreamId.value());
         m_requestedTextStreamId = m_wantedTextStreamId;
         streams = g_list_append(streams, g_strdup(track->gstStreamId().utf8().data()));
-    }
+    } else if (m_adaptiveDemux) // AQUAWEBKIT: see m_adaptiveDemux.
+        m_requestedTextStreamId = std::nullopt;
 
 #if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
     // AQUAWEBKIT: see m_id3MetadataStreamIds.
@@ -1984,7 +2012,19 @@ void MediaPlayerPrivateGStreamer::playbin3SendSelectStreamsIfAppropriate()
         return;
 
     m_waitingForStreamsSelectedEvent = true;
-    gst_element_send_event(m_pipeline.get(), gst_event_new_select_streams(streams));
+    // gst_element_send_event(m_pipeline.get(), gst_event_new_select_streams(streams));
+    // AQUAWEBKIT: see m_adaptiveDemux. Handling the event waits for the demuxer's scheduler thread, which can be waiting
+    // for this thread in handleStreamCollectionMessage(), so the event never blocks here: a selection answering a
+    // collection goes from the posting thread, as the collection is handled, and any other from a GStreamer thread.
+    if (m_adaptiveDemuxNeedsSelection)
+        m_collectionSelection = adoptGRef(gst_event_new_select_streams(streams));
+    else if (m_adaptiveDemux) {
+        gst_element_call_async(m_adaptiveDemux.get(), [](GstElement* demux, gpointer event) {
+            gst_element_send_event(demux, GST_EVENT_CAST(event));
+        }, gst_event_new_select_streams(streams), nullptr);
+    } else
+        gst_element_send_event(m_pipeline.get(), gst_event_new_select_streams(streams));
+    m_adaptiveDemuxNeedsSelection = false; // AQUAWEBKIT: closes the choice above.
     g_list_free_full(streams, reinterpret_cast<GDestroyNotify>(g_free));
 }
 
@@ -2101,6 +2141,7 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
     m_id3MetadataStreamIds.clear(); // AQUAWEBKIT: see m_id3MetadataStreamIds.
 #endif // AQUAWEBKIT: closes the reset above.
     unsigned length = gst_stream_collection_get_size(m_streamCollection.get());
+    auto previousRequestedTextStreamId = m_requestedTextStreamId; // AQUAWEBKIT: see m_adaptiveDemux.
     // AQUAWEBKIT: of each type, the track the collection flags GST_STREAM_FLAG_SELECT, an HLS DEFAULT rendition, starts
     // out selected, as AVFoundation selects it; without one, the first.
     unsigned defaultAudioTrackIndex = 0, defaultVideoTrackIndex = 0, defaultTextTrackIndex = 0;
@@ -2157,6 +2198,21 @@ void MediaPlayerPrivateGStreamer::updateTracks([[maybe_unused]] const GRefPtr<Gs
             GST_WARNING("Unknown track type found for stream %" PRIu64 "", parsedStreamId.value_or(0)); // AQUAWEBKIT: see parsedStreamId.
     }
 #undef CREATE_OR_SELECT_TRACK
+
+    // AQUAWEBKIT: see m_adaptiveDemux. The demuxer posts its collection and, unless a selection arrives while that
+    // message is handled here, makes a default selection that includes a text stream no track has asked for.
+    if (GST_IS_ELEMENT(collectionOwner.get())) {
+        auto* factory = gst_element_get_factory(GST_ELEMENT_CAST(collectionOwner.get()));
+        auto factoryName = factory ? StringView::fromLatin1(gst_plugin_feature_get_name(GST_PLUGIN_FEATURE_CAST(factory))) : StringView { };
+        if (factoryName == "hlsdemux2"_s) {
+            m_adaptiveDemux = GST_ELEMENT_CAST(collectionOwner.get());
+            m_adaptiveDemuxNeedsSelection = true;
+            m_waitingForStreamsSelectedEvent = false;
+        }
+    }
+    if (m_adaptiveDemux)
+        m_requestedTextStreamId = previousRequestedTextStreamId; // The demuxer has not been asked for the default.
+    updateEnabledTextTrack();
 }
 
 void MediaPlayerPrivateGStreamer::handleStreamCollectionMessage(GstMessage* message)
@@ -2202,6 +2258,9 @@ void MediaPlayerPrivateGStreamer::handleStreamCollectionMessage(GstMessage* mess
             return AbortableTaskQueue::Void();
         });
     }
+    // AQUAWEBKIT: see m_adaptiveDemux. The demuxer's post of its collection returns after this, so it does not default.
+    if (auto selection = std::exchange(m_collectionSelection, nullptr))
+        gst_element_send_event(GST_ELEMENT_CAST(GST_MESSAGE_SRC(message)), selection.leakRef());
     GST_DEBUG_OBJECT(pipeline(), "Updating tracks DONE");
 }
 
@@ -2961,9 +3020,9 @@ void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
     g_signal_connect(parsebin, "autoplug-continue", G_CALLBACK(+[](GstElement*, GstPad*, GstCaps* caps, gpointer userData) -> gboolean {
         auto player = reinterpret_cast<MediaPlayerPrivateGStreamer*>(userData);
         player->determineContainerTypeFromCaps(caps);
-        // AQUAWEBKIT: the text sink takes WebVTT as it is (TextSinkGStreamer.cpp), as playsink takes the subtitle
-        // formats playbin3 names to uridecodebin3; parsing it to text/x-raw would discard its STYLE blocks and
-        // cue classes, which webvttenc cannot write back.
+        // AQUAWEBKIT: this also configures the parsebin inside hlsdemux2, which gives the text sink WebVTT as it is
+        // (TextSinkGStreamer.cpp); parsing it to text/x-raw would discard its STYLE blocks and cue classes, which
+        // webvttenc cannot write back.
         if (!gst_caps_is_empty(caps) && gst_structure_has_name(gst_caps_get_structure(caps, 0), "application/x-subtitle-vtt"))
             return FALSE;
         return TRUE;
@@ -3328,7 +3387,10 @@ void MediaPlayerPrivateGStreamer::updateStates()
             [[fallthrough]];
         case GST_STATE_PLAYING: {
             bool isLooping = player && player->isLooping();
-            if (m_wasBuffering) {
+            // if (m_wasBuffering) {
+            // AQUAWEBKIT: an adaptive demuxer posts buffering only when its percent changes, so one message can be all
+            // that announces a stall.
+            if (m_wasBuffering || m_isBuffering) {
                 GST_TRACE("[Buffering] m_isBuffering: %s --> %s", boolForPrinting(m_wasBuffering), boolForPrinting(m_isBuffering));
 
                 if (!m_isBuffering) {
@@ -3635,9 +3697,14 @@ void MediaPlayerPrivateGStreamer::recalculateDurationIfNeeded() const
         if (RefPtr player = m_player.get())
             player->durationChanged();
     };
-    // AQUAWEBKIT: an infinite duration is finalized to the position only once the stream has ended.
+    // AQUAWEBKIT: an infinite duration is finalized to the position only once the stream has ended. Position follows
+    // duration at the end, so it comes from the sinks or the last known position here.
     // if (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now)) {
     if ((m_isEndReached && !currentDuration.isFinite()) || (currentDuration.isValid() && currentDuration < now)) {
+        if (!now.isFinite()) {
+            GstClockTime sinkPosition = gstreamerPositionFromSinks();
+            now = GST_CLOCK_TIME_IS_VALID(sinkPosition) ? MediaTime(sinkPosition, GST_SECOND) : m_cachedPosition;
+        }
         cacheNewDuration(now);
         return;
     }

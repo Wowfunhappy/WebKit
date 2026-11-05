@@ -1,0 +1,662 @@
+# Sparse tracks do not hold back the output: hlsdemux2 flags text renditions sparse, as playsink and the
+# stream synchronizer honour, and a dry one neither gates output nor counts as buffering. A dry sparse track
+# ends with the other streams. A text-only stream beside them recovers from lost sync by itself, and stops
+# when it has ended or cannot be fetched, without an EOS that tears down the output in mid-playback.
+# Each WebVTT fragment carries its segment's stream time, which paces its fetching.
+# The last playlist of a live stream continues the live timeline, which parsing would restart at 0.
+# A WebVTT fragment whose segment left the playlist during its download does not cost the segment after it.
+# The output task checks for a stop immediately before waiting, with the lock held up to the wait.
+# A seek does not wait on a stopped rendition without a playlist, which never gets one. A snap seek prefers
+# a video stream, as gst-plugins-good 1.29.2 does.
+# A deselected sparse output is flushed before its removal, so no buffer meets it in multiqueue.
+# Deselecting a stream that stopped by itself still deactivates its tracks' pads, so its caps come back.
+--- a/ext/adaptivedemux2/gstadaptivedemux-stream.c
++++ b/ext/adaptivedemux2/gstadaptivedemux-stream.c
+@@ -38,6 +38,7 @@
+ 
+ static void gst_adaptive_demux2_stream_finalize (GObject * object);
+ static void gst_adaptive_demux2_stream_error (GstAdaptiveDemux2Stream * stream);
++static gboolean gst_adaptive_demux2_stream_is_text_beside_others (GstAdaptiveDemux2Stream * stream);
+ static GstFlowReturn
+ gst_adaptive_demux2_stream_data_received_default (GstAdaptiveDemux2Stream *
+     stream, GstBuffer * buffer);
+@@ -343,6 +344,14 @@
+     return;
+   }
+ 
++  /* Text that has left the live window is skipped, without moving the other
++   * streams to the live head */
++  if (ret == GST_ADAPTIVE_DEMUX_FLOW_LOST_SYNC
++      && gst_adaptive_demux2_stream_has_only_text (stream)) {
++    stream->discont = TRUE;
++    ret = GST_ADAPTIVE_DEMUX_FLOW_RESTART_FRAGMENT;
++  }
++
+   /* Handle all the possible flow returns here: */
+   if (ret == GST_ADAPTIVE_DEMUX_FLOW_LOST_SYNC) {
+     /* We lost sync, seek back to live and return */
+@@ -1663,6 +1672,55 @@
+   return ret;
+ }
+ 
++gboolean
++gst_adaptive_demux2_stream_has_only_text (GstAdaptiveDemux2Stream * stream)
++{
++  GList *iter;
++
++  if (stream->tracks == NULL)
++    return FALSE;
++  for (iter = stream->tracks; iter; iter = iter->next) {
++    GstAdaptiveDemuxTrack *track = iter->data;
++    if (track->type != GST_STREAM_TYPE_TEXT)
++      return FALSE;
++  }
++  return TRUE;
++}
++
++/* A stream of text beside other streams is not what the presentation waits for:
++ * it can stop with nothing more to give, and its dry tracks end with the others */
++static gboolean
++gst_adaptive_demux2_stream_is_text_beside_others (GstAdaptiveDemux2Stream * stream)
++{
++  GList *iter;
++
++  if (!gst_adaptive_demux2_stream_has_only_text (stream))
++    return FALSE;
++  for (iter = stream->demux->input_period->streams; iter; iter = iter->next) {
++    GstAdaptiveDemux2Stream *other = iter->data;
++    if (other != stream && !gst_adaptive_demux2_stream_has_only_text (other))
++      return TRUE;
++  }
++  return FALSE;
++}
++
++/* Losing a stream that carries only text does not end the presentation */
++gboolean
++gst_adaptive_demux2_stream_abandon_text (GstAdaptiveDemux2Stream * stream)
++{
++  if (!gst_adaptive_demux2_stream_is_text_beside_others (stream))
++    return FALSE;
++
++  if (stream->state != GST_ADAPTIVE_DEMUX2_STREAM_STATE_STOPPED) {
++    GST_ELEMENT_WARNING (stream->demux, RESOURCE, NOT_FOUND,
++        (_("Couldn't download fragments")),
++        ("Ending text stream %s after download failures",
++            GST_OBJECT_NAME (stream)));
++  }
++  gst_adaptive_demux2_stream_stop (stream);
++  return TRUE;
++}
++
+ static void
+ gst_adaptive_demux2_stream_error (GstAdaptiveDemux2Stream * stream)
+ {
+@@ -1670,6 +1728,9 @@
+   GstMessage *msg;
+   GstStructure *details;
+ 
++  if (gst_adaptive_demux2_stream_abandon_text (stream))
++    return;
++
+   details = gst_structure_new_empty ("details");
+   gst_structure_set (details, "http-status-code", G_TYPE_UINT,
+       stream->last_status_code, NULL);
+@@ -1722,6 +1783,12 @@
+     }
+   }
+ 
++  if (demux->segment.rate > 0.0
++      && gst_adaptive_demux2_stream_is_text_beside_others (stream)) {
++    gst_adaptive_demux2_stream_stop (stream);
++    return;
++  }
++
+   if (demux->priv->outputs) {
+     GstEvent *eos = gst_event_new_eos ();
+ 
+@@ -1915,6 +1982,14 @@
+     stream)
+ {
+   GstAdaptiveDemux *demux = stream->demux;
++  GstAdaptiveDemux2StreamClass *klass =
++      GST_ADAPTIVE_DEMUX2_STREAM_GET_CLASS (stream);
++
++  /* A stream's own media can end while the presentation stays live */
++  if (klass->media_has_ended && klass->media_has_ended (stream)) {
++    gst_adaptive_demux2_stream_end_of_manifest (stream);
++    return;
++  }
+ 
+   if (gst_adaptive_demux_is_live (demux) && (demux->segment.rate == 1.0
+           || gst_adaptive_demux2_stream_in_live_seek_range (demux, stream))) {
+--- a/ext/adaptivedemux2/gstadaptivedemux-stream.h
++++ b/ext/adaptivedemux2/gstadaptivedemux-stream.h
+@@ -145,6 +145,14 @@
+   GstFlowReturn (*data_received) (GstAdaptiveDemux2Stream * stream, GstBuffer * buffer);
+ 
+   gboolean      (*has_next_fragment)  (GstAdaptiveDemux2Stream * stream);
++
++  /**
++   * media_has_ended:
++   * @stream: #GstAdaptiveDemux2Stream
++   *
++   * Optional. Whether this stream's own media has ended, even if the presentation is live.
++   */
++  gboolean      (*media_has_ended) (GstAdaptiveDemux2Stream * stream);
+   GstFlowReturn (*advance_fragment) (GstAdaptiveDemux2Stream * stream);
+ 
+   GstFlowReturn (*stream_seek)     (GstAdaptiveDemux2Stream * stream,
+@@ -327,6 +335,8 @@
+ 
+   gboolean starting_fragment;
+   gboolean first_fragment_buffer;
++  /* the segment during which this stream's sparse track ended with the others */
++  guint32 ended_sparse_seqnum;
+   gint64 download_start_time;
+   gint64 download_total_bytes;
+   gint64 download_end_offset;
+@@ -360,6 +370,8 @@
+ 
+ GType    gst_adaptive_demux2_stream_get_type (void);
+ 
++gboolean gst_adaptive_demux2_stream_has_only_text (GstAdaptiveDemux2Stream * stream);
++gboolean gst_adaptive_demux2_stream_abandon_text (GstAdaptiveDemux2Stream * stream);
+ void gst_adaptive_demux2_stream_start (GstAdaptiveDemux2Stream * stream);
+ 
+ void gst_adaptive_demux2_stream_queue_event (GstAdaptiveDemux2Stream * stream,
+--- a/ext/adaptivedemux2/gstadaptivedemux-track.c
++++ b/ext/adaptivedemux2/gstadaptivedemux-track.c
+@@ -511,6 +511,18 @@
+   }
+ }
+ 
++/* Ends a track that is waiting for data its stream will not deliver */
++void
++gst_adaptive_demux_track_end_locked (GstAdaptiveDemuxTrack * track)
++{
++  GstEvent *eos = gst_event_new_eos ();
++
++  gst_event_set_seqnum (eos, track->demux->priv->segment_seqnum);
++  track->eos = TRUE;
++  track_queue_data_locked (track->demux, track, (GstMiniObject *) eos, 0,
++      GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, FALSE);
++}
++
+ static GstFlowReturn
+ _track_sink_chain_function (GstPad * pad, GstObject * parent,
+     GstBuffer * buffer)
+--- a/ext/adaptivedemux2/gstadaptivedemux-private.h
++++ b/ext/adaptivedemux2/gstadaptivedemux-private.h
+@@ -239,6 +239,7 @@
+ 
+ GstMiniObject * gst_adaptive_demux_track_dequeue_data_locked (GstAdaptiveDemux * demux, GstAdaptiveDemuxTrack * track, gboolean check_sticky_events);
+ void gst_adaptive_demux_track_flush (GstAdaptiveDemuxTrack * track);
++void gst_adaptive_demux_track_end_locked (GstAdaptiveDemuxTrack * track);
+ void gst_adaptive_demux_track_drain_to (GstAdaptiveDemuxTrack * track, GstClockTime drain_running_time);
+ void gst_adaptive_demux_track_update_next_position (GstAdaptiveDemuxTrack * track);
+ void gst_adaptive_demux_track_update_level_locked (GstAdaptiveDemuxTrack * track);
+--- a/ext/adaptivedemux2/gstadaptivedemux.c
++++ b/ext/adaptivedemux2/gstadaptivedemux.c
+@@ -1896,7 +1896,8 @@
+         track->eos, GST_TIME_ARGS (track->level_time),
+         GST_TIME_ARGS (track->buffering_threshold));
+ 
+-    if (track->active && track->selected) {
++    if (track->active && track->selected
++        && !(track->flags & GST_STREAM_FLAG_SPARSE)) {
+       if (!track->eos) {
+         gint cur_percent;
+ 
+@@ -2351,32 +2352,45 @@
+   if (IS_SNAP_SEEK (flags)) {
+     GstAdaptiveDemux2Stream *default_stream = NULL;
+     GstAdaptiveDemux2Stream *stream = NULL;
++    GstAdaptiveDemux2Stream *video_stream = NULL;
+     GList *iter;
+     /*
+      * Handle snap seeks as follows:
+-     * 1) do the snap seeking a (random) active stream
+-     * 1.1) If none are active yet (early-seek), pick a random default one
++     * 1) do the snap seeking on a video stream (if available)
++     * 1.1) If no video stream is active, use any active stream
++     * 1.2) If none are active yet (early-seek), pick a random default one
+      * 2) use the final position on this stream to seek
+      *    on the other streams to the same position
+      *
+      * We can't snap at all streams at the same time as they might end in
+-     * different positions, so just pick one and align all others to that
+-     * position.
++     * different positions, so we prefer to snap on the video stream (to find
++     * keyframes) and align all others to that position. This prevents
++     * subtitle/audio tracks with long segments from forcing seeks to their
++     * segment boundaries.
+      */
+ 
+-    /* Pick a random active stream on which to do the stream seek */
++    /* Pick a video stream (preferred) or any active stream for snap seeking */
+     for (iter = demux->output_period->streams; iter; iter = iter->next) {
+       GstAdaptiveDemux2Stream *cand = iter->data;
+       if (gst_adaptive_demux2_stream_is_selected_locked (cand)) {
+-        stream = cand;
+-        break;
++        /* Prefer video streams for snapping to keyframes */
++        if (cand->stream_type & GST_STREAM_TYPE_VIDEO) {
++          video_stream = cand;
++          break;
++        }
++        /* Keep first selected stream as fallback */
++        if (stream == NULL)
++          stream = cand;
+       }
+       if (default_stream == NULL
+           && gst_adaptive_demux2_stream_is_default_locked (cand))
+         default_stream = cand;
+     }
+ 
+-    if (stream == NULL)
++    /* Use video stream if found, otherwise fallback to any stream */
++    if (video_stream != NULL)
++      stream = video_stream;
++    else if (stream == NULL)
+       stream = default_stream;
+ 
+     if (stream) {
+@@ -2409,6 +2423,12 @@
+ 
+       /* Handle fragment info waiting on BUSY */
+       while (flow_ret == GST_ADAPTIVE_DEMUX_FLOW_BUSY) {
++        /* A stopped stream has no playlist to snap in, and none will arrive
++         * while this holds the scheduler. The seek keeps its target */
++        if (stream->state != GST_ADAPTIVE_DEMUX2_STREAM_STATE_WAITING_PREPARE) {
++          flow_ret = GST_FLOW_OK;
++          break;
++        }
+         if (!gst_adaptive_demux2_stream_wait_prepared (stream))
+           break;
+         flow_ret = gst_adaptive_demux2_stream_update_fragment_info (stream);
+@@ -2612,11 +2632,14 @@
+       }
+ 
+       gst_adaptive_demux2_stream_start (stream);
+-    } else if (is_running && !should_be_running) {
++    } else if (!should_be_running) {
+       /* Stream should not be running and needs stopping */
+-      gst_adaptive_demux2_stream_stop (stream);
++      if (is_running)
++        gst_adaptive_demux2_stream_stop (stream);
+ 
+-      /* Set all track sinkpads to inactive for this stream */
++      /* Set all track sinkpads to inactive for this stream, including one that
++       * stopped by itself. The output drops the track's stored events, and
++       * activating the pads again is what has upstream resend them */
+       for (trackiter = stream->tracks; trackiter; trackiter = trackiter->next) {
+         GstAdaptiveDemuxTrack *track =
+             (GstAdaptiveDemuxTrack *) trackiter->data;
+@@ -3378,6 +3401,14 @@
+       if (stream != NULL && !gst_adaptive_demux2_stream_is_running (stream))
+         gst_adaptive_demux_track_flush (slot->track);
+ 
++      /* Playbin removes this output on the streams-selected below, during
++       * playback. A sparse buffer still in multiqueue would meet that removal,
++       * and multiqueue would then refuse the track's next stream until a flush */
++      if (slot->track->flags & GST_STREAM_FLAG_SPARSE) {
++        gst_pad_push_event (slot->pad, gst_event_new_flush_start ());
++        gst_pad_push_event (slot->pad, gst_event_new_flush_stop (FALSE));
++      }
++
+       tmp = demux->priv->outputs = g_list_remove (demux->priv->outputs, slot);
+       gst_adaptive_demux_output_slot_free (demux, slot);
+     } else
+@@ -3505,12 +3536,59 @@
+ 
+ }
+ 
++static gboolean
++stop_stream_of_ended_sparse_track (GstAdaptiveDemux2Stream * stream)
++{
++  if (stream->ended_sparse_seqnum == stream->demux->priv->segment_seqnum)
++    gst_adaptive_demux2_stream_stop (stream);
++  return G_SOURCE_REMOVE;
++}
++
++/* Called when no other output has timed data. Without any other output, sparse
++ * data is the presentation and is worth waiting for. Returns TRUE if it ended
++ * the dry sparse tracks that remain after the other outputs have ended */
++static gboolean
++end_dry_sparse_tracks_locked (GstAdaptiveDemux * demux)
++{
++  GList *tmp;
++  gboolean other_outputs = FALSE;
++
++  for (tmp = demux->priv->outputs; tmp; tmp = tmp->next) {
++    OutputSlot *slot = (OutputSlot *) tmp->data;
++    if (!(slot->track->flags & GST_STREAM_FLAG_SPARSE))
++      other_outputs = TRUE;
++  }
++  if (!other_outputs)
++    return FALSE;
++
++  for (tmp = demux->priv->outputs; tmp; tmp = tmp->next) {
++    OutputSlot *slot = (OutputSlot *) tmp->data;
++    GstAdaptiveDemuxTrack *track = slot->track;
++    GstAdaptiveDemux2Stream *stream;
++
++    if (!(track->flags & GST_STREAM_FLAG_SPARSE) || track->eos
++        || track->next_position != GST_CLOCK_STIME_NONE)
++      continue;
++
++    gst_adaptive_demux_track_end_locked (track);
++    stream = find_stream_for_track_locked (demux, track);
++    if (stream != NULL && gst_adaptive_demux2_stream_is_running (stream)) {
++      stream->ended_sparse_seqnum = demux->priv->segment_seqnum;
++      gst_adaptive_demux_loop_call (demux->priv->scheduler_task,
++          (GSourceFunc) stop_stream_of_ended_sparse_track,
++          gst_object_ref (stream), (GDestroyNotify) gst_object_unref);
++    }
++  }
++  return TRUE;
++}
++
+ static void
+ gst_adaptive_demux_output_loop (GstAdaptiveDemux * demux)
+ {
+   GList *tmp;
+   GstClockTimeDiff global_output_position = GST_CLOCK_STIME_NONE;
+   gboolean wait_for_data = FALSE;
++  gboolean sparse_track_dry;
+   gboolean all_tracks_empty;
+   GstFlowReturn ret;
+ 
+@@ -3531,8 +3609,15 @@
+   ret = GST_FLOW_OK;
+   global_output_position = GST_CLOCK_STIME_NONE;
+   all_tracks_empty = TRUE;
++  sparse_track_dry = FALSE;
+ 
+   if (wait_for_data) {
++    /* Everything since the last check can have released the lock, and the
++     * signal for a stop arriving then reached nobody */
++    if (demux->priv->flushing) {
++      ret = GST_FLOW_FLUSHING;
++      goto pause;
++    }
+     GST_DEBUG_OBJECT (demux, "Waiting for data");
+     g_cond_wait (&demux->priv->tracks_add, &demux->priv->tracks_lock);
+     GST_DEBUG_OBJECT (demux, "Done waiting for data");
+@@ -3591,7 +3676,11 @@
+     } else if (!track->eos) {
+       GST_DEBUG_ID (track->id, "Need timed data");
+       all_tracks_empty = FALSE;
+-      wait_for_data = track->waiting_add = TRUE;
++      track->waiting_add = TRUE;
++      if (track->flags & GST_STREAM_FLAG_SPARSE)
++        sparse_track_dry = TRUE;
++      else
++        wait_for_data = TRUE;
+     } else {
+       GST_DEBUG_ID (track->id, "Track is EOS, not waiting for timed data");
+ 
+@@ -3601,6 +3690,15 @@
+     }
+   }
+ 
++  /* Other streams do not wait for sparse data while they have data to output,
++   * and a presentation ends with them */
++  if (sparse_track_dry && global_output_position == GST_CLOCK_STIME_NONE
++      && !wait_for_data) {
++    if (end_dry_sparse_tracks_locked (demux))
++      goto restart;
++    wait_for_data = TRUE;
++  }
++
+   if (wait_for_data)
+     goto restart;
+ 
+--- a/ext/adaptivedemux2/hls/gsthlsdemux.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux.c
+@@ -402,10 +402,17 @@
+       continue;
+ 
+     GstFlowReturn flow_ret;
++    gboolean awaits_first_playlist = FALSE;
+ 
+     while ((flow_ret =
+             gst_hls_demux_stream_seek (stream, rate >= 0, flags, target_pos,
+                 &current_pos) == GST_ADAPTIVE_DEMUX_FLOW_BUSY)) {
++      /* A stopped stream loads no playlist. Its restart looks up its position
++       * in the first one */
++      if (stream->state != GST_ADAPTIVE_DEMUX2_STREAM_STATE_WAITING_PREPARE) {
++        awaits_first_playlist = TRUE;
++        break;
++      }
+       if (!gst_adaptive_demux2_stream_wait_prepared (GST_ADAPTIVE_DEMUX2_STREAM
+               (stream))) {
+         GST_DEBUG_OBJECT (hlsdemux,
+@@ -414,6 +421,9 @@
+       }
+     }
+ 
++    if (awaits_first_playlist)
++      continue;
++
+     if (flow_ret != GST_FLOW_OK) {
+       GST_ERROR_OBJECT (stream, "Failed to seek on stream");
+       return FALSE;
+--- a/ext/adaptivedemux2/hls/gsthlsdemux-playlist-loader.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux-playlist-loader.c
+@@ -479,6 +479,10 @@
+       priv->error_cb (pl, priv->loading_playlist_uri, priv->userdata);
+   }
+ 
++  /* The error callback may have given up on this playlist */
++  if (priv->state == PLAYLIST_LOADER_STATE_STOPPED)
++    return;
++
+   /* The error callback may have provided a new playlist to load, which
+    * will have scheduled a state update immediately. In that case,
+    * don't trigger our own delayed retry */
+--- a/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
++++ b/ext/adaptivedemux2/hls/gsthlsdemux-stream.c
+@@ -61,6 +61,8 @@
+ static GstFlowReturn gst_hls_demux_stream_data_received (GstAdaptiveDemux2Stream
+     * stream, GstBuffer * buffer);
+ 
++static gboolean gst_hls_demux_stream_media_has_ended (GstAdaptiveDemux2Stream
++    * stream);
+ static gboolean gst_hls_demux_stream_has_next_fragment (GstAdaptiveDemux2Stream
+     * stream);
+ static GstFlowReturn
+@@ -100,6 +102,8 @@
+       gst_hls_demux_stream_submit_request;
+   adaptivedemux2stream_class->has_next_fragment =
+       gst_hls_demux_stream_has_next_fragment;
++  adaptivedemux2stream_class->media_has_ended =
++      gst_hls_demux_stream_media_has_ended;
+   adaptivedemux2stream_class->stream_seek = gst_hls_demux_stream_seek;
+   adaptivedemux2stream_class->advance_fragment =
+       gst_hls_demux_stream_advance_fragment;
+@@ -1126,6 +1130,15 @@
+       hls_stream->current_segment, stream->demux->segment.rate > 0);
+ }
+ 
++static gboolean
++gst_hls_demux_stream_media_has_ended (GstAdaptiveDemux2Stream * stream)
++{
++  GstHLSDemuxStream *hls_stream = (GstHLSDemuxStream *) stream;
++
++  return hls_stream->playlist
++      && !GST_HLS_MEDIA_PLAYLIST_IS_LIVE (hls_stream->playlist);
++}
++
+ static GstFlowReturn
+ gst_hls_demux_stream_advance_fragment (GstAdaptiveDemux2Stream * stream)
+ {
+@@ -1133,6 +1146,11 @@
+   GstHLSDemux *hlsdemux = (GstHLSDemux *) stream->demux;
+   GstM3U8MediaSegment *new_segment = NULL;
+ 
++  if (hlsdemux_stream->segment_replaced_in_download) {
++    hlsdemux_stream->segment_replaced_in_download = FALSE;
++    return GST_FLOW_OK;
++  }
++
+   /* If we're playing partial segments, we need to continue
+    * doing that. We can only swap back to a full segment on a
+    * segment boundary */
+@@ -1335,7 +1353,25 @@
+               demux->main_stream->playlist, &found_segment_discont)) {
+         GST_DEBUG_OBJECT (stream,
+             "Could not do fallback synchronization of rendition stream to variant stream");
+-        goto lost_sync;
++        if (!gst_adaptive_demux2_stream_has_only_text
++            (GST_ADAPTIVE_DEMUX2_STREAM_CAST (stream)))
++          goto lost_sync;
++        /* The other streams keep their place. This one continues from its own
++         * position in the playlist it can no longer relate to the last one */
++        found_segment_discont = TRUE;
++        if (stream->current_segment) {
++          gst_m3u8_media_segment_unref (stream->current_segment);
++          stream->current_segment = NULL;
++        }
++        {
++          GstClockTime position =
++              GST_ADAPTIVE_DEMUX2_STREAM_CAST (stream)->current_position;
++          GstM3U8MediaSegment *first =
++              g_ptr_array_index (new_playlist->segments, 0);
++          first->stream_time =
++              GST_CLOCK_TIME_IS_VALID (position) ? (GstClockTimeDiff) position : 0;
++          gst_hls_media_playlist_recalculate_stream_time (new_playlist, first);
++        }
+       }
+     }
+   } else {
+@@ -1399,6 +1435,12 @@
+     }
+ 
+     if (new_segment) {
++      /* Timed containers correct a wrong match from the timestamps they contain.
++       * WebVTT does not, so the replacement is yet to be fetched */
++      stream->segment_replaced_in_download =
++          GST_ADAPTIVE_DEMUX2_STREAM_CAST (stream)->download_active
++          && new_segment->sequence != stream->current_segment->sequence
++          && stream->parser_type == GST_HLS_PARSER_WEBVTT;
+       if (new_segment->discont_sequence !=
+           stream->current_segment->discont_sequence)
+         gst_hls_demux_add_time_mapping (demux, new_segment->discont_sequence,
+@@ -1508,7 +1550,8 @@
+   if (hls_stream->is_variant) {
+     GstHLSDemux *demux = GST_HLS_DEMUX_STREAM_GET_DEMUX (hls_stream);
+     gst_hls_demux_handle_variant_playlist_update_error (demux, playlist_uri);
+-  } else {
++  } else if (!gst_adaptive_demux2_stream_abandon_text
++      (GST_ADAPTIVE_DEMUX2_STREAM_CAST (hls_stream))) {
+     GstHLSDemux *demux = GST_HLS_DEMUX_STREAM_GET_DEMUX (hls_stream);
+     GST_ELEMENT_ERROR (demux, STREAM, FAILED,
+         (_("Internal data stream error.")),
+@@ -1586,6 +1629,9 @@
+   GstM3U8PartialSegment *part = NULL;
+   gboolean discont;
+ 
++  /* The fragment this concerned ended without reaching advance_fragment */
++  hlsdemux_stream->segment_replaced_in_download = FALSE;
++
+   /* Return BUSY if no playlist is loaded yet. Even if
+    * we switched and another playlist is loading,
+    * we'll keep trying to load one */
+@@ -1638,7 +1684,11 @@
+       if (gst_hls_media_playlist_has_lost_sync (hlsdemux_stream->playlist,
+               stream->current_position)) {
+         GST_WARNING_OBJECT (stream, "Lost SYNC !");
+-        return GST_ADAPTIVE_DEMUX_FLOW_LOST_SYNC;
++        if (!gst_adaptive_demux2_stream_has_only_text (stream))
++          return GST_ADAPTIVE_DEMUX_FLOW_LOST_SYNC;
++        stream->current_position = ((GstM3U8MediaSegment *)
++            g_ptr_array_index (hlsdemux_stream->playlist->segments,
++                0))->stream_time;
+       }
+       GST_DEBUG_OBJECT (stream,
+           "Looking up segment for position %" GST_TIME_FORMAT,
+@@ -1680,7 +1730,12 @@
+       GST_DEBUG_OBJECT (stream,
+           "Partial segment idx %d is not available in current playlist",
+           hlsdemux_stream->part_idx);
+-      return GST_ADAPTIVE_DEMUX_FLOW_LOST_SYNC;
++      if (!gst_adaptive_demux2_stream_has_only_text (stream))
++        return GST_ADAPTIVE_DEMUX_FLOW_LOST_SYNC;
++      gst_m3u8_media_segment_unref (hlsdemux_stream->current_segment);
++      hlsdemux_stream->current_segment = NULL;
++      hlsdemux_stream->in_partial_segments = FALSE;
++      return gst_hls_demux_stream_update_fragment_info (stream);
+     }
+ 
+     if (hlsdemux_stream->part_idx >= file->partial_segments->len) {
+@@ -1765,7 +1820,8 @@
+   /* Other info could come from the part when playing partial segments */
+ 
+   if (part == NULL) {
+-    if (hlsdemux_stream->reset_pts || discont || demux->segment.rate < 0.0) {
++    if (hlsdemux_stream->reset_pts || discont || demux->segment.rate < 0.0
++        || hlsdemux_stream->parser_type == GST_HLS_PARSER_WEBVTT) {
+       stream->fragment.stream_time = file->stream_time;
+     }
+     stream->fragment.uri = g_strdup (file->uri);
+@@ -1774,7 +1830,8 @@
+       stream->fragment.range_end = file->offset + file->size - 1;
+     stream->fragment.duration = file->duration;
+   } else {
+-    if (hlsdemux_stream->reset_pts || discont || demux->segment.rate < 0.0) {
++    if (hlsdemux_stream->reset_pts || discont || demux->segment.rate < 0.0
++        || hlsdemux_stream->parser_type == GST_HLS_PARSER_WEBVTT) {
+       stream->fragment.stream_time = part->stream_time;
+     }
+     stream->fragment.uri = g_strdup (part->uri);
+--- a/ext/adaptivedemux2/hls/gsthlsdemux-stream.h
++++ b/ext/adaptivedemux2/hls/gsthlsdemux-stream.h
+@@ -80,6 +80,9 @@
+ 
+   /* Whether the underlying playlist was fetched on creation */
+   gboolean playlist_fetched;
++  /* the segment being downloaded left the playlist, and the next segment
++   * replaced it as current */
++  gboolean segment_replaced_in_download;
+   GstClockTime playlist_last_update_time;
+ 
+   /* Playlist loading helper */
+--- a/ext/adaptivedemux2/hls/m3u8.c
++++ b/ext/adaptivedemux2/hls/m3u8.c
+@@ -2455,8 +2455,13 @@
+     *discont = g_strcmp0 (res->uri, cand->uri) != 0;
+   }
+ 
+-  /* Carry over reference stream time */
+-  if (res->stream_time == GST_CLOCK_STIME_NONE) {
++  /* Carry over reference stream time. The last playlist of a live stream is
++   * parsed as starting at 0, and continues the live timeline */
++  playlist->on_live_timeline = GST_HLS_MEDIA_PLAYLIST_IS_LIVE (reference)
++      || reference->on_live_timeline;
++  if (res->stream_time == GST_CLOCK_STIME_NONE
++      || (playlist->on_live_timeline
++          && cand->stream_time != GST_CLOCK_STIME_NONE)) {
+     GstClockTimeDiff stream_time_offset = 0;
+     /* If there is a PDT on both segments, adjust the stream time
+      * by the difference to align them precisely (hopefully).
+@@ -2477,7 +2482,7 @@
+     gst_m3u8_media_segment_fill_partial_stream_times (res);
+   }
+ 
+-  if (GST_HLS_MEDIA_PLAYLIST_IS_LIVE (playlist))
++  if (GST_HLS_MEDIA_PLAYLIST_IS_LIVE (playlist) || playlist->on_live_timeline)
+     gst_hls_media_playlist_recalculate_stream_time (playlist, res);
+   /* If the playlist didn't specify a reference discont sequence number, we
+    * carry over the one from the reference segment */
+--- a/ext/adaptivedemux2/hls/m3u8.h
++++ b/ext/adaptivedemux2/hls/m3u8.h
+@@ -134,6 +134,8 @@
+ 
+   gboolean reloaded;		/* If TRUE, this indicates that this playlist
+ 				 * was reloaded but had identical content */
++  gboolean on_live_timeline;    /* synchronized to a live playlist, or to one
++                                 * that continued a live timeline */
+ 
+   /* Server-Control directive values */
+   GstClockTime skip_boundary;   /* Skip Boundary from CAN-SKIP-UNTIL */

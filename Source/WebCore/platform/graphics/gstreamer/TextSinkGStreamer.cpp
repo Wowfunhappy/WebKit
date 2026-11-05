@@ -138,6 +138,15 @@ static gboolean webkitTextSinkQuery(GstElement* element, GstQuery* query)
     }
 }
 
+// AQUAWEBKIT: playsink sets sync on a custom text sink before activating its chain. This restores the choice from
+// webkitTextSinkConstructed().
+static GstStateChangeReturn webkitTextSinkChangeState(GstElement* element, GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
+        gst_base_sink_set_sync(GST_BASE_SINK_CAST(WEBKIT_TEXT_SINK(element)->priv->appSink.get()), false);
+    return GST_ELEMENT_CLASS(webkit_text_sink_parent_class)->change_state(element, transition);
+}
+
 static void webkit_text_sink_class_init(WebKitTextSinkClass* klass)
 {
     auto* gobjectClass = G_OBJECT_CLASS(klass);
@@ -149,6 +158,7 @@ static void webkit_text_sink_class_init(WebKitTextSinkClass* klass)
 
     gobjectClass->constructed = GST_DEBUG_FUNCPTR(webkitTextSinkConstructed);
     elementClass->query = GST_DEBUG_FUNCPTR(webkitTextSinkQuery);
+    elementClass->change_state = GST_DEBUG_FUNCPTR(webkitTextSinkChangeState); // AQUAWEBKIT: see webkitTextSinkChangeState().
 }
 
 GstElement* webkitTextSinkNew(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player)

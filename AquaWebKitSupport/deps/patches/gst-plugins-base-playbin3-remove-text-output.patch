@@ -1,0 +1,72 @@
+# Deselecting a text track pushes EOS on its output, and a text stream that ended waits in the stream
+# synchronizer until the other streams end, holding its pad's stream lock. Releasing that pad deactivates
+# it, which waits for the lock, so playbin3 removing the text output of a running pipeline hangs. A flush
+# wakes the synchronizer. remove_combiner() releases the combiner's pads, and forgets them on their decoded
+# pads so that a removal does not release them again. decodebin3 can reuse a decoded pad that outlived the
+# combiner without adding it again, so a new combiner links the decoded pads of its type.
+--- a/gst/playback/gstplaysink.c
++++ b/gst/playback/gstplaysink.c
+@@ -4720,6 +4720,7 @@
+ void
+ gst_play_sink_release_pad (GstPlaySink * playsink, GstPad * pad)
+ {
++  GstPad *text_target = NULL;
+   GstPad **res = NULL;
+   gboolean untarget = TRUE;
+ 
+@@ -4749,7 +4750,18 @@
+ 
+   if (*res) {
+     GST_DEBUG_OBJECT (playsink, "deactivate pad %" GST_PTR_FORMAT, *res);
++    /* A text stream that ended waits in the stream synchronizer, holding its
++     * stream lock, until the other streams end or a flush arrives. The text
++     * chain stays for a later stream, so the flush also ends behind the pad */
++    if (pad == playsink->text_pad)
++      text_target = gst_ghost_pad_get_target (GST_GHOST_PAD_CAST (*res));
++    if (text_target)
++      gst_pad_send_event (*res, gst_event_new_flush_start ());
+     gst_pad_set_active (*res, FALSE);
++    if (text_target) {
++      gst_pad_send_event (text_target, gst_event_new_flush_stop (FALSE));
++      gst_object_unref (text_target);
++    }
+     if (untarget) {
+       GST_DEBUG_OBJECT (playsink, "untargeting pad %" GST_PTR_FORMAT, *res);
+       gst_ghost_pad_set_target (GST_GHOST_PAD_CAST (*res), NULL);
+--- a/gst/playback/gstplaybin3.c
++++ b/gst/playback/gstplaybin3.c
+@@ -2256,7 +2256,13 @@
+   /* Go over all sink pads and release them ! */
+   for (n = 0; n < combine->inputpads->len; n++) {
+     GstPad *sinkpad = g_ptr_array_index (combine->inputpads, n);
++    GList *iter;
+ 
++    for (iter = playbin->source_pads; iter; iter = iter->next) {
++      SourcePad *sourcepad = iter->data;
++      if (sourcepad->combine_sinkpad == sinkpad)
++        sourcepad->combine_sinkpad = NULL;
++    }
+     gst_element_release_request_pad (combine->combiner, sinkpad);
+   }
+   g_ptr_array_set_size (combine->inputpads, 0);
+@@ -2622,9 +2628,20 @@
+         /* Create combiner if needed and link it */
+         create_combiner (playbin, combine);
+         if (combine->combiner) {
++          GList *iter;
++
+           res = gst_pad_link (combine->srcpad, combine->sinkpad);
+           GST_DEBUG_OBJECT (playbin, "linked type %s, result: %d",
+               gst_stream_type_get_name (combine->stream_type), res);
++          /* decodebin3 reuses a decoded pad that outlived the previous combiner,
++           * without adding it again */
++          for (iter = playbin->source_pads; iter; iter = iter->next) {
++            SourcePad *sourcepad = iter->data;
++            if (sourcepad->stream_type == combine->stream_type
++                && sourcepad->combine_sinkpad == NULL)
++              sourcepad->combine_sinkpad =
++                  combiner_control_pad (playbin, combine, sourcepad->pad);
++          }
+           if (res != GST_PAD_LINK_OK) {
+             GST_ELEMENT_ERROR (playbin, CORE, PAD,
+                 ("Internal playbin error."),

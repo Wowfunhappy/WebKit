@@ -1,0 +1,17 @@
+# An output's ghost pad does not take a sticky EOS from the target it is given. A caps event still pending when
+# EOS reaches the multiqueue pad sets up the output with EOS already stored there; a ghost pad marked EOS refuses
+# those caps, and each relink then restarts the pad's sticky events without end.
+--- a/gst/playback/gstdecodebin3.c
++++ b/gst/playback/gstdecodebin3.c
+@@ -3777,6 +3777,11 @@
+ {
+   GstPad *gpad = GST_PAD_CAST (user_data);
+ 
++  /* An output set up for a caps event that reaches a pad already holding EOS
++   * still has to take those caps, and a pad marked EOS refuses them */
++  if (GST_EVENT_TYPE (*event) == GST_EVENT_EOS)
++    return TRUE;
++
+   GST_DEBUG_OBJECT (gpad, "store sticky event %" GST_PTR_FORMAT, *event);
+   gst_pad_store_sticky_event (gpad, *event);
+ 

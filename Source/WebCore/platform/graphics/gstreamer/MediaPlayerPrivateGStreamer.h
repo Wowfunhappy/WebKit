@@ -240,6 +240,7 @@ public:
     // Used for the non-MSE case.
     void updateEnabledVideoTrack();
     void updateEnabledAudioTrack();
+    void updateEnabledTextTrack(); // AQUAWEBKIT: see InbandTextTrackPrivateGStreamer::setMode().
     void playbin3SendSelectStreamsIfAppropriate();
 
     void updateVideoOrientation(const GstTagList*);
@@ -743,6 +744,11 @@ private:
     std::optional<TrackID> m_requestedAudioStreamId; // Expected in the next STREAMS_SELECTED message.
     std::optional<TrackID> m_requestedVideoStreamId;
     std::optional<TrackID> m_requestedTextStreamId;
+    // AQUAWEBKIT: an adaptive demuxer fetches each rendition it selects, so it takes its selection directly; playbin3
+    // extends a selection it forwards with every stream its text combiner could take.
+    GRefPtr<GstElement> m_adaptiveDemux;
+    bool m_adaptiveDemuxNeedsSelection { false };
+    GRefPtr<GstEvent> m_collectionSelection;
 
 #if ENABLE(WEB_AUDIO)
     RefPtr<AudioSourceProviderGStreamer> m_audioSourceProvider;

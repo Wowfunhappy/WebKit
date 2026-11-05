@@ -1545,10 +1545,18 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin3-slot-lock-order.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin3-slot-lock-order.patch" ) \
       || { echo "gst-plugins-base decodebin3 slot lock-order patch failed to apply"; exit 1; }
+    # decodebin3: an output's ghost pad takes no sticky EOS from its target. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin3-output-target-eos.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin3-output-target-eos.patch" ) \
+      || { echo "FATAL: gst-plugins-base decodebin3 output target EOS patch failed to apply"; exit 1; }
     # video-format: 2-bit alpha unpacks to the full 16-bit range. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" ) \
       || { echo "gst-plugins-base video-format 2-bit alpha patch failed to apply"; exit 1; }
+    # playbin3: a running pipeline can stop selecting its text stream. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-playbin3-remove-text-output.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-playbin3-remove-text-output.patch" ) \
+      || { echo "FATAL: gst-plugins-base playbin3 text output patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled ) || exit 1
     prepared "$d"
@@ -1629,6 +1637,14 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-buffering-query.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-buffering-query.patch" ) \
       || { echo "FATAL: gst-plugins-good adaptivedemux2 buffering query patch failed to apply"; exit 1; }
+    # adaptivedemux2: a sparse text track does not hold back the other streams. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-sparse-text.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-sparse-text.patch" ) \
+      || { echo "FATAL: gst-plugins-good adaptivedemux2 sparse text patch failed to apply"; exit 1; }
+    # hlsdemux2: validate the PKCS7 padding of a decrypted fragment. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-pkcs7-padding.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-hls-pkcs7-padding.patch" ) \
+      || { echo "FATAL: gst-plugins-good hlsdemux2 PKCS7 padding patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
         -Dorc=enabled -Dadaptivedemux2=enabled -Dhls-crypto=openssl ) || exit 1

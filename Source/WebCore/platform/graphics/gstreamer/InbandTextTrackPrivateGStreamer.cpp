@@ -55,9 +55,11 @@ InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index,
     ensureTextTrackDebugCategoryInitialized();
 }
 
-InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstStream>&& stream)
+// InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstStream>&& stream)
+InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstStream>&& stream) // AQUAWEBKIT: see create().
     : InbandTextTrackPrivate(CueFormat::WebVTT)
-    , TrackPrivateBaseGStreamer(nullptr, GStreamerTrackType::Text, this, index, WTF::move(stream))
+    // , TrackPrivateBaseGStreamer(nullptr, GStreamerTrackType::Text, this, index, WTF::move(stream))
+    , TrackPrivateBaseGStreamer(WTF::move(player), GStreamerTrackType::Text, this, index, WTF::move(stream)) // AQUAWEBKIT: see create().
 {
     ensureTextTrackDebugCategoryInitialized();
 
@@ -77,6 +79,17 @@ InbandTextTrackPrivate::Kind InbandTextTrackPrivateGStreamer::kind() const
 bool InbandTextTrackPrivateGStreamer::isDefault() const
 {
     return hlsTextTrackIsDefault(m_data->m_stream.get());
+}
+
+// AQUAWEBKIT: as MediaPlayerPrivateAVFoundation::configureInbandTracks enables a legible option only for a showing
+// or hidden track, a text stream fetched separately is selected only while its track wants it.
+void InbandTextTrackPrivateGStreamer::setMode(Mode mode)
+{
+    if (mode == this->mode())
+        return;
+    InbandTextTrackPrivate::setMode(mode);
+    if (RefPtr player = m_data->m_player.get())
+        player->updateEnabledTextTrack();
 }
 
 void InbandTextTrackPrivateGStreamer::tagsChanged(GRefPtr<GstTagList>&& tags)

@@ -47,9 +47,12 @@ public:
         return create(index, WTF::move(pad), id);
     }
 
-    static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstStream>&& stream)
+    // static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstStream>&& stream)
+    // AQUAWEBKIT: a stream's track reports its mode to the player, which selects the stream; see setMode().
+    static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstStream>&& stream)
     {
-        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTF::move(stream)));
+        // return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTF::move(stream)));
+        return adoptRef(*new InbandTextTrackPrivateGStreamer(WTF::move(player), index, WTF::move(stream))); // AQUAWEBKIT: see above.
     }
 
     // Kind kind() const final { return m_kind; }
@@ -57,6 +60,7 @@ public:
     // AQUAWEBKIT: a track the container marks as the one to play by default, read from its GstStream's
     // flags (see AudioTrackPrivateGStreamer::kind).
     bool isDefault() const final;
+    void setMode(Mode) final; // AQUAWEBKIT: see InbandTextTrackPrivateGStreamer.cpp.
     TrackID id() const final;
     std::optional<String> trackUID() const final { return std::nullopt; }
     String label() const final;
@@ -69,7 +73,8 @@ public:
 
 private:
     InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstPad>&&, TrackID);
-    InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstStream>&&);
+    // InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstStream>&&);
+    InbandTextTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstStream>&&); // AQUAWEBKIT: see create().
 
     void notifyTrackOfSample();
 

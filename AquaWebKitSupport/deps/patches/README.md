@@ -293,6 +293,12 @@ one-frame video track reaches EOS during preroll before the audio's first buffer
 good, and a looping `<video>` of it stalled (WPT `video_loop_base`). Only a stream still blocked,
 which has delivered nothing, is removed.
 
+## gst-plugins-base-decodebin3-output-target-eos.patch
+
+**Target:** gst-plugins-base 1.28.7, `gst/playback/gstdecodebin3.c`
+
+`decode_pad_set_target` copies its target's sticky events to the output's ghost pad. decodebin3 sets up an output on a caps event, and such an event can still be pending when EOS reaches the multiqueue pad. A copied EOS marks the ghost pad EOS, which refuses the caps, so they never reach the pad the relink checks against, and `check_sticky` restarts without end on the multiqueue thread. The copy leaves EOS out, as EOS follows through the pad itself.
+
 ## gst-plugins-base-video-format-2bit-alpha.patch
 
 **Target:** gst-plugins-base 1.28.7, `gst-libs/gst/video/video-format.c`
@@ -726,3 +732,48 @@ updates publish the existing `percent` and `is_buffering` values with `tracks_lo
 held; reset publishes the initial values. The snapshot lock covers only these
 copies, and readers release it before writing the query. No streaming, scheduler,
 manifest or output lock is acquired by the query handler.
+
+## gst-plugins-good-adaptivedemux2-sparse-text.patch
+
+**Target:** gst-plugins-good 1.28.7, `ext/adaptivedemux2/gstadaptivedemux.c`, `gstadaptivedemux-private.h`, `gstadaptivedemux-stream.c`, `gstadaptivedemux-stream.h`, `gstadaptivedemux-track.c`, `hls/gsthlsdemux.c`, `hls/gsthlsdemux-playlist-loader.c`, `hls/gsthlsdemux-stream.c`, `hls/gsthlsdemux-stream.h`, `hls/m3u8.c`, `hls/m3u8.h`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the buffering-query patch
+
+`hlsdemux2` flags a text rendition `GST_STREAM_FLAG_SPARSE`, and playsink and the stream synchronizer honour that, but the output loop treated a track with no timed data alike for every type, so a subtitle fragment that was late held back audio and video. A dry sparse track makes the loop wait only when no other output remains, which is a presentation of sparse data, and buffering levels leave sparse tracks out. When the other outputs have ended, a dry sparse track ends with them and its stream stops, so a subtitle request still out does not hold back the element's end.
+
+A text stream can stop by itself while selected, with its tracks' sink pads active. Deselecting drops the track's stored events, caps among them, and parsebin resends caps only when those pads are activated again, which a new decodebin3 slot needs before it exposes an output. So `handle_stream_selection` deactivates the pads of any stream that should not run, not only of one it stops.
+
+Playbin3 releases a deselected track's output while handling `streams-selected`, and a pad being released returns `GST_FLOW_FLUSHING`. A buffer still in multiqueue at that moment leaves its queue returning `GST_FLOW_FLUSHING` to the next stream on that slot, until a flush from upstream, and the output loop stops all tracks on that return. So before the EOS of a sparse output no longer used, the deselect flushes it. Other tracks go without: a flush makes an audio or video sink lose its state, and the text sink has async state changes off.
+
+A stream carrying only text, beside streams that do not, does not act for the presentation. It pushes no EOS in mid-playback, which decodebin3 and playbin3 answer by tearing down the text output, and which can overtake a fragment pushed just before it:
+- A fragment that left the live window while downloading is dropped, and the stream goes on from its position or the playlist's first segment. A playlist that matches neither the stream's last one nor the variant's is adopted from the stream's position, and a partial segment that has gone falls back to looking up the position. Other streams still report lost sync, which seeks the demuxer to the live head.
+- After exhausting its fragment retries, or when its rendition playlist cannot be fetched, it posts one warning and stops with its playlist loader. Selecting the track again restarts it. Variants, audio renditions and text-only presentations keep their errors.
+
+`gst_adaptive_demux2_stream_handle_playlist_eos` asks whether the presentation is live, so a rendition whose own playlist had `EXT-X-ENDLIST` while the variant continued waited for a manifest update that could not help. A `media_has_ended` stream vfunc, which HLS answers from the stream's own playlist, ends it there. In forward playback `gst_adaptive_demux2_stream_end_of_manifest` stops a text stream beside others, and any other stream reaches EOS.
+
+`MediaPlayerPrivateGStreamer::configureParsebin` stops parsebin at `application/x-subtitle-vtt`, so each WebVTT fragment reaches its track as one unparsed buffer. hlsdemux2 assigns a fragment a stream time only at a discontinuity and relies on a parser for the rest, so every WebVTT fragment takes its segment's or part's stream time. A track level measured from those times paces the stream's fetching. subparse reads neither value from its input.
+
+The last playlist of a live stream, the one that gains `EXT-X-ENDLIST`, continues the live timeline. `gst_hls_media_playlist_parse` gives a playlist without live semantics stream times from 0, and `gst_hls_media_playlist_sync_to_playlist` carried a reference's time only to a segment with none, so cues mapped through it landed at the start of the timeline. A playlist's `on_live_timeline` records that it was synchronized to a live playlist or to one that continued a live timeline.
+
+`gst_hls_demux_stream_handle_playlist_update` matches the current segment in a new playlist best-effort, relying on the embedded timestamps checked later, and can replace a segment that has left the playlist with the next one while the old one is downloading. Audio and video correct that from their timestamps. A WebVTT fragment has nothing that does, so advancing after it lost the replacement: a rendition selected again restarts from its out-of-date playlist, which made this routine. A WebVTT stream stays on the replacement instead of advancing.
+
+`check_and_handle_selection_update_locked` releases the tracks lock while it posts `streams-selected`, and other paths in the loop drop it too. `gst_adaptive_demux_stop_tasks` signals `tracks_add` once, so a stop arriving in such a window reached no waiter and the output loop then waited forever, with the seek or state change that asked for the stop joined to it. The loop checks for a stop immediately before waiting, holding the lock up to the wait.
+
+`gst_hls_demux_seek` and the snap path of `gst_adaptive_demux_handle_seek_event` wait on a stream that returns BUSY. A seek stops the streams first, and a stopped rendition without a playlist loads none, so a seek landing while a newly selected rendition fetched its first playlist spun forever on the seeking thread. The seek skips such a stream, whose restart looks up its position in the first playlist, and a snap seek keeps its target. A snap seek prefers a video stream, a backport from gst-plugins-good 1.29.2.
+
+## gst-plugins-base-playbin3-remove-text-output.patch
+
+**Target:** gst-plugins-base 1.28.7, `gst/playback/gstplaysink.c`, `gst/playback/gstplaybin3.c`
+**Applied to:** libgstplayback
+
+The player selects a text stream only while its track is showing or hidden, so playbin3 removes the text output of a running pipeline when captions go off.
+
+`gst_adaptive_demux_output_slot_free` pushes EOS on a deselected track's output, and a stream that ended waits in the stream synchronizer until the other streams end or a flush arrives, holding its pad's stream lock. `gst_play_sink_release_pad` deactivates the pad, which waits for that lock, while the demuxer's output task, which feeds the other streams, is posting the `streams-selected` that caused the release. Releasing the text pad sends flush-start first, which wakes the synchronizer, and flush-stop to its target after deactivating it, because the text chain stays for a later stream.
+
+`remove_combiner` releases the combiner's pads and clears them on their decoded pads, so a decoded pad's later removal does not release them again. When captions come back, decodebin3 can reuse a decoded pad that outlived the combiner without adding it again, so `reconfigure_output` links every decoded pad of the type to the new combiner.
+
+## gst-plugins-good-adaptivedemux2-hls-pkcs7-padding.patch
+
+**Target:** gst-plugins-good 1.28.7, `ext/adaptivedemux2/hls/gsthlsdemux-stream.c`
+**Applied to:** libgstadaptivedemux2 (`hlsdemux2`), after the sparse text patch
+
+Backport from gst-plugins-good's main branch. The last byte of a decrypted fragment sized its PKCS7 padding unchecked, so a bad byte or an empty buffer could wrap the size given to `gst_buffer_resize`. A fragment with a padding byte of 0, or above the block size or the buffer, is rejected with a flow error, and this port also posts a decrypt error, or ends a text-only stream as a failed download does. Upstream's flow error alone stops the stream and leaves playback stalled with nothing reported.

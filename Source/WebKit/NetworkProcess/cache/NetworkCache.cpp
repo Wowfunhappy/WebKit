@@ -370,7 +370,10 @@ static bool inline canRequestUseSpeculativeRevalidation(const WebCore::ResourceR
     if (request.isConditional())
         return false;
 
-    if (request.requester() == WebCore::ResourceRequestRequester::XHR || request.requester() == WebCore::ResourceRequestRequester::Fetch)
+    // if (request.requester() == WebCore::ResourceRequestRequester::XHR || request.requester() == WebCore::ResourceRequestRequester::Fetch)
+    // AQUAWEBKIT: GStreamer's media fragments reach the network process through MediaResourceLoader. Replaying an earlier
+    // visit's would fetch old media and subtitles the player has not asked for.
+    if (request.requester() == WebCore::ResourceRequestRequester::XHR || request.requester() == WebCore::ResourceRequestRequester::Fetch || request.requester() == WebCore::ResourceRequestRequester::Media)
         return false;
 
     switch (request.cachePolicy()) {
