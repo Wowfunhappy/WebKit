@@ -390,6 +390,6 @@ if __name__ == '__main__':
     preconnect = ThreadingTCPServer(('127.0.0.1', 8845), PreconnectHandler)
     threading.Thread(target=preconnect.serve_forever, daemon=True).start()
     # Ports a match pattern names, or does not, for the coverage page's port cases.
-    for port in (8846, 8080):
+    for port in (8846, 8847):
         threading.Thread(target=ThreadingHTTPServer(('127.0.0.1', port), Handler).serve_forever, daemon=True).start()
     ThreadingHTTPServer(('127.0.0.1', 8843), Handler).serve_forever()
