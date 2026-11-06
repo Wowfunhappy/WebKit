@@ -543,7 +543,11 @@ Bindings::RootObject* ScriptController::bindingRootObject()
 
     if (!m_bindingRootObject) {
         JSLockHolder lock(commonVM());
-        m_bindingRootObject = Bindings::RootObject::create(nullptr, globalObject(pluginWorldSingleton()));
+        // m_bindingRootObject = Bindings::RootObject::create(nullptr, globalObject(pluginWorldSingleton()));
+        // AQUAWEBKIT: creating the window proxy dispatches didClearWindowObject, whose client can ask for this root; the root that call installs is the one bridge objects hold and teardown must invalidate.
+        auto* bindingGlobalObject = globalObject(pluginWorldSingleton());
+        if (!m_bindingRootObject)
+            m_bindingRootObject = Bindings::RootObject::create(nullptr, bindingGlobalObject);
     }
     return m_bindingRootObject.get();
 }
