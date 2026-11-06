@@ -1,0 +1,10 @@
+CONSOLE MESSAGE: Not allowed to load local resource: safari-extension://test4
+CONSOLE MESSAGE: Not allowed to request resource
+CONSOLE MESSAGE: Fetch API cannot load safari-extension://test4 due to access control checks.
+This test ensures that XHR/Fetch will bypass CORS for user extension URLS in case the page is running user scripts.
+
+
+PASS Bypassing CORS on synchronous XHR - should trigger a CORS error message
+PASS Bypassing CORS on synchronous XHR - should not trigger a CORS error message
+PASS Bypassing CORS on asynchronous fetch - should not trigger a CORS error message
+

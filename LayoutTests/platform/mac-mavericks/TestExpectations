@@ -1925,3 +1925,9 @@ imported/w3c/web-platform-tests/wasm/webapi/esm-integration/worker-import-source
 imported/w3c/web-platform-tests/webrtc/simulcast/av1.https.html [ Skip ]
 imported/w3c/web-platform-tests/webrtc/simulcast/getStats.https.html [ Skip ]
 imported/w3c/web-platform-tests/webrtc/simulcast/setParameters-maxFramerate.https.html [ Skip ]
+
+# nph-load-then-wait.cgi writes the 4 KB body in 1 KB pieces. When they reach XMLHttpRequest in separate reads less
+# than 50 ms apart, XMLHttpRequestProgressEventThrottle defers the loaded == total progress event and flushes it with
+# the DONE readystatechange, after readyState is 4, so the test's abort() finds a finished request and no abort event
+# fires. A body that arrives in one read passes; a loaded machine splits it.
+http/tests/xmlhttprequest/onabort-response-getters.html [ Skip ]

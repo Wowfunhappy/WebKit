@@ -692,3 +692,7 @@ fast/scrolling/mac/vertical-scroll-with-horizontal-deviation.html [ Skip ]
 # Their baselines record a timeout and no passing subtest, so each run waits out the harness timeout (27-135 s)
 # to reproduce a recorded failure (maintainer decision: test time).
 imported/w3c/web-platform-tests/fetch/metadata/embed.https.sub.tentative.html [ Skip ]
+
+# Upstream records this as flaky on Apple's iOS port (platform/ios, webkit.org/b/237603): the shared worker's logs
+# sometimes miss the harness's logging timeout.
+webkit.org/b/237603 imported/w3c/web-platform-tests/content-security-policy/connect-src/shared-worker-connect-src-blocked.sub.html [ Skip ]
