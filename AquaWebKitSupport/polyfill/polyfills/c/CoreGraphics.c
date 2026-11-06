@@ -1427,16 +1427,24 @@ static bool wk_drawGradientInBands(CGContextRef context, const wk_gradient_draw 
     if (!surface && (!matches || style))
         return false;
 
-    // A singular CTM paints nothing.
+    // A CTM whose determinant is zero or not finite paints nothing, as 10.9's own draw does; one whose translation
+    // is not finite is 10.9's to draw.
     CGAffineTransform ctm = CGContextGetCTM(context);
+    CGFloat determinant = ctm.a * ctm.d - ctm.b * ctm.c;
+    if (!determinant || !isfinite(determinant))
+        return true;
+    if (!isfinite(ctm.tx) || !isfinite(ctm.ty))
+        return false;
     CGRect clip = CGContextGetClipBoundingBox(context);
-    if (!(ctm.a * ctm.d - ctm.b * ctm.c) || CGRectIsNull(clip) || CGRectIsEmpty(clip))
+    if (CGRectIsNull(clip) || CGRectIsEmpty(clip))
         return true;
     CGRect device = CGRectIntegral(CGRectApplyAffineTransform(style ? wk_styleReachOfClip(context, style, clip) : clip, ctm));
     if (!style)
         device = CGRectIntersection(device, bounds);
     if (CGRectIsNull(device) || CGRectIsEmpty(device))
         return true;
+    if (!isfinite(device.origin.x) || !isfinite(device.origin.y) || !isfinite(device.size.width) || !isfinite(device.size.height))
+        return false;
 
     size_t width = (size_t)device.size.width, height = (size_t)device.size.height, rowBytes = width * 4;
     size_t bandRows = wk_conversionBandRows(width);
@@ -1527,9 +1535,19 @@ static void wk_fillMaskWithGradientEnd(CGContextRef context, CGGradientRef gradi
 static void wk_drawThinRadialGradient(CGContextRef context, CGGradientRef gradient, CGPoint center, CGFloat startRadius,
     CGFloat endRadius, CGGradientDrawingOptions options)
 {
+    // A transform whose determinant is zero or not finite paints nothing, as 10.9's own draw does; one whose
+    // translation is not finite is 10.9's to draw.
     CGAffineTransform toDevice = CGContextGetUserSpaceToDeviceSpaceTransform(context);
+    CGFloat determinant = toDevice.a * toDevice.d - toDevice.b * toDevice.c;
+    if (!determinant || !isfinite(determinant))
+        return;
+    if (!isfinite(toDevice.tx) || !isfinite(toDevice.ty)) {
+        wk_gradient_draw draw = { gradient, true, center, startRadius, center, endRadius, options };
+        wk_drawGradientDirectly(context, &draw);
+        return;
+    }
     CGRect clip = CGContextGetClipBoundingBox(context);
-    if (CGRectIsNull(clip) || CGRectIsEmpty(clip) || CGRectIsInfinite(clip) || !(toDevice.a * toDevice.d - toDevice.b * toDevice.c))
+    if (CGRectIsNull(clip) || CGRectIsEmpty(clip) || CGRectIsInfinite(clip))
         return;
     // The shading is drawn as far beyond the clip as a style reaches into it.
     CGStyleRef style = CGContextGetStyle(context);

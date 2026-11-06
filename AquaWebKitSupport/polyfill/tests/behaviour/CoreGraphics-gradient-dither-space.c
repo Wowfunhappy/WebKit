@@ -5,7 +5,8 @@
 // stays dithered, a gamma-1 ramp drawn into sRGB deviates from its exact encoding no more than 10.9's
 // draw does, a gamma-1 conic gradient into sRGB keeps every level, and a gradient drawn into its own colour
 // space is untouched. A conic gradient of Adobe RGB green drawn into an Adobe RGB
-// bitmap keeps that green, which a DeviceRGB ramp clips.
+// bitmap keeps that green, which a DeviceRGB ramp clips. Under a CTM scaled by infinity or NaN nothing is painted; under one
+// translated by infinity or NaN each draw paints what 10.9's own draw paints.
 #include <CoreGraphics/CoreGraphics.h>
 #include <mach-o/dyld.h>
 #include <stdbool.h>
@@ -276,6 +277,52 @@ int main(void)
         CGContextRelease(conic);
         CGGradientRelease(green);
         CGColorSpaceRelease(adobe);
+    }
+
+    // A CTM scaled by infinity or NaN (WebCore's 1 / aspectRatio of an elliptical gradient with no extent)
+    // paints nothing, as 10.9's own draw does.
+    {
+        const CGFloat scales[] = { INFINITY, NAN };
+        for (size_t i = 0; i < 2; i++) {
+            const unsigned char clear[4] = { 0, 0, 0, 0 };
+            CGContextRef context = createBitmap(linear);
+            CGContextScaleCTM(context, 1, scales[i]);
+            CGContextDrawRadialGradient(context, hard, CGPointMake(0, 0), 0, CGPointMake(0, 0), 50, kExtend);
+            CGContextDrawRadialGradient(context, hard, CGPointMake(0, 0), 0, CGPointMake(0, 0), 0, kExtend);
+            CGContextDrawLinearGradient(context, hard, CGPointMake(0, 0), CGPointMake(kWidth, 0), kExtend);
+            check(!countOther(context, 0, kWidth, clear), i ? "a NaN-scaled CTM paints nothing" : "an infinitely scaled CTM paints nothing");
+            CGContextRelease(context);
+        }
+    }
+
+    // Under a CTM translated by infinity or NaN, each draw paints what 10.9's own draw paints.
+    {
+        const CGFloat offsets[] = { INFINITY, NAN };
+        const char *names[2][3] = {
+            { "an infinitely translated radial matches 10.9's draw", "an infinitely translated zero-width radial matches 10.9's draw",
+                "an infinitely translated linear matches 10.9's draw" },
+            { "a NaN-translated radial matches 10.9's draw", "a NaN-translated zero-width radial matches 10.9's draw",
+                "a NaN-translated linear matches 10.9's draw" },
+        };
+        for (size_t i = 0; i < 2; i++) {
+            for (int kind = 0; kind < 3; kind++) {
+                CGContextRef archive = createBitmap(linear), stock = createBitmap(linear);
+                CGContextTranslateCTM(archive, offsets[i], 0);
+                CGContextTranslateCTM(stock, offsets[i], 0);
+                CGFloat endRadius = kind ? 0 : 50;
+                if (kind < 2) {
+                    CGContextDrawRadialGradient(archive, hard, CGPointMake(0, 0), 0, CGPointMake(0, 0), endRadius, kExtend);
+                    // The replacement widens a zero-width radial by 1e-6, as modern CoreGraphics does.
+                    systemRadial(stock, hard, CGPointMake(0, 0), 0, CGPointMake(0, 0), kind ? 1e-6 : endRadius, kExtend);
+                } else {
+                    CGContextDrawLinearGradient(archive, hard, CGPointMake(0, 0), CGPointMake(kWidth, 0), kExtend);
+                    systemLinear(stock, hard, CGPointMake(0, 0), CGPointMake(kWidth, 0), kExtend);
+                }
+                check(!memcmp(CGBitmapContextGetData(archive), CGBitmapContextGetData(stock), kWidth * kHeight * 4), names[i][kind]);
+                CGContextRelease(archive);
+                CGContextRelease(stock);
+            }
+        }
     }
 
     CGGradientRelease(hard);
