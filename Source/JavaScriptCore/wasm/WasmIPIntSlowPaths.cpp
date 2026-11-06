@@ -219,6 +219,11 @@ static inline RefPtr<Wasm::JITCallee> jitCompileAndSetHeuristics(Wasm::IPIntCall
         Locker locker { tierUpCounter.m_lock };
         switch (tierUpCounter.compilationStatus(memoryMode)) {
         case Wasm::IPIntTierUpCounter::CompilationStatus::NotCompiled:
+            // AQUAWEBKIT: releaseBBQCallee resets this status while the retired BBQCallee is still alive, and neither prologue OSR nor a loop or epilogue lookup made before the reset reuses it; finding it here defers instead of compiling a BBQCallee over it.
+            if (calleeGroup.tryGetBBQCalleeForLoopOSRConcurrently(instance->vm(), functionIndex)) {
+                tierUpCounter.optimizeAfterWarmUp();
+                break;
+            } // AQUAWEBKIT: closes the block above.
             compile = true;
             tierUpCounter.setCompilationStatus(memoryMode, Wasm::IPIntTierUpCounter::CompilationStatus::Compiling);
             break;
