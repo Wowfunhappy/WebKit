@@ -5,6 +5,10 @@
 
 #if PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
+#import "CocoaCurlConnection.h"
+#import "ResourceError.h"
+#import "ResourceLoaderOptions.h"
+#import "SharedBuffer.h"
 #import "WidevineCdmArchive.h"
 #import "WidevineCdmImage.h"
 #import "WidevineFirefoxArchive.h"
@@ -19,14 +23,15 @@
 #import <wtf/FileSystem.h>
 #import <wtf/HexNumber.h>
 #import <wtf/NeverDestroyed.h>
-#import <wtf/OSObjectPtr.h>
 #import <wtf/ProcessID.h>
 #import <wtf/RunLoop.h>
 #import <wtf/Scope.h>
 #import <wtf/WorkQueue.h>
+#import <wtf/ThreadSafeRefCounted.h>
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/MakeString.h>
+#import <wtf/threads/BinarySemaphore.h>
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/StringToIntegerConversion.h>
 
@@ -98,32 +103,126 @@ namespace WebCore {
 // ------------------------------------------------------------------------------------------
 // Fetching
 
+// A download over the transport page loads take -- the system proxy settings, BoringSSL and the native
+// trust evaluation -- on a connection pool of its own, following redirects. Everything but run() happens
+// on the pool's run loop.
+class WidevineCdmDownload final : public ThreadSafeRefCounted<WidevineCdmDownload>, public CocoaCurlTransferClient {
+public:
+    static Ref<WidevineCdmDownload> create(URL&& url, NSTimeInterval timeout, FileSystem::FileHandle&& file)
+    {
+        return adoptRef(*new WidevineCdmDownload(WTF::move(url), timeout, WTF::move(file)));
+    }
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
+    // Waits for a 200 response's whole body to be written and the file closed.
+    bool run()
+    {
+        ASSERT(!pool().runLoop().isCurrent());
+        pool().runLoop().dispatch([download = Ref { *this }] { download->begin(); });
+        m_finished.wait();
+        return m_succeeded;
+    }
+
+private:
+    WidevineCdmDownload(URL&& url, NSTimeInterval timeout, FileSystem::FileHandle&& file)
+        : m_url(WTF::move(url))
+        , m_timeout(timeout)
+        , m_file(WTF::move(file))
+    {
+    }
+
+    static CocoaCurlConnectionPool& pool()
+    {
+        static NeverDestroyed<Ref<CocoaCurlConnectionPool>> pool(CocoaCurlConnectionPool::create());
+        return pool.get();
+    }
+
+    void begin()
+    {
+        CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
+        options.request = ResourceRequest(URL { m_url });
+        options.request.setTimeoutInterval(m_timeout);
+        options.request.setAllowCookies(false);
+        m_transfer = CocoaCurlTransfer::create(pool().scheduler(), *this, WTF::move(options));
+        m_transfer->start();
+    }
+
+    void detachTransfer()
+    {
+        if (RefPtr transfer = std::exchange(m_transfer, nullptr))
+            transfer->invalidateClient();
+    }
+
+    void complete(bool succeeded)
+    {
+        detachTransfer();
+        m_file = { };
+        m_succeeded = succeeded;
+        m_finished.signal();
+    }
+
+    void curlReceivedCookies(Vector<String>&&, int, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
+    void curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion) final
+    {
+        auto& received = response.response;
+        auto location = received.httpHeaderField(HTTPHeaderName::Location);
+        if (received.isRedirection() && !location.isEmpty() && m_redirects < ResourceLoaderOptions { }.maxRedirectCount) {
+            ++m_redirects;
+            m_url = URL { m_url, location };
+            detachTransfer();
+            completion();
+            begin();
+            return;
+        }
+        if (received.httpStatusCode() != 200)
+            complete(false);
+        completion();
+    }
+    void curlReceivedInformationalResponse(ResourceResponse&&) final { }
+    void curlReceivedData(const SharedBuffer& data) final
+    {
+        if (!m_transfer)
+            return;
+        if (m_file.write(data.span()) != data.size()) {
+            complete(false);
+            return;
+        }
+        m_transfer->didConsumeData(data.size());
+    }
+    void curlSentData(uint64_t, uint64_t) final { }
+    void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion) final { completion(nullptr, nullptr); }
+    void curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion) final
+    {
+        auto tls = m_transfer ? m_transfer->tlsState() : nullptr;
+        completion(tls && tls->trusted);
+    }
+    void curlCompleted(const ResourceError& error, const NetworkLoadMetrics&) final
+    {
+        if (!error.isNull())
+            WTFLogAlways("Widevine: %s: %s", m_url.string().utf8().data(), error.localizedDescription().utf8().data());
+        complete(error.isNull());
+    }
+
+    URL m_url;
+    NSTimeInterval m_timeout;
+    FileSystem::FileHandle m_file;
+    RefPtr<CocoaCurlTransfer> m_transfer;
+    unsigned m_redirects { 0 };
+    bool m_succeeded { false };
+    BinarySemaphore m_finished;
+};
+
 // The body stays on disk, mapped: a Firefox archive is hundreds of megabytes.
 static RetainPtr<NSData> fetch(const String& url, NSTimeInterval timeout)
 {
-    RetainPtr nsURL = adoptNS([[NSURL alloc] initWithString:url.createNSString().get()]);
-    if (!nsURL)
+    auto [path, file] = FileSystem::openTemporaryFile("WidevineCdmDownload"_s);
+    if (!file)
         return nullptr;
-    RetainPtr request = adoptNS([[NSMutableURLRequest alloc] initWithURL:nsURL.get()]);
-    [request setTimeoutInterval:timeout];
-
-    __block RetainPtr<NSData> body;
-    __block RetainPtr<NSURLResponse> response;
-    auto finished = adoptOSObject(dispatch_semaphore_create(0));
-    RetainPtr task = [[NSURLSession sharedSession] downloadTaskWithRequest:request.get() completionHandler:^(NSURL *location, NSURLResponse *taskResponse, NSError *error) {
-        if (!error) {
-            body = [NSData dataWithContentsOfURL:location options:NSDataReadingMappedAlways error:nil];
-            response = taskResponse;
-        }
-        dispatch_semaphore_signal(finished.get());
-    }];
-    [task resume];
-    dispatch_semaphore_wait(finished.get(), DISPATCH_TIME_FOREVER);
-
-    RetainPtr httpResponse = dynamic_objc_cast<NSHTTPURLResponse>(response.get());
-    if (httpResponse && [httpResponse statusCode] != 200)
+    auto removeFile = makeScopeExit([&] { FileSystem::deleteFile(path); });
+    if (!WidevineCdmDownload::create(URL { url }, timeout, WTF::move(file))->run())
         return nullptr;
-    return body;
+    return [NSData dataWithContentsOfFile:path.createNSString().get() options:NSDataReadingMappedAlways error:nil];
 }
 
 static std::optional<ManifestEntry> fetchManifest(const String& firefoxVersion, const String& buildID)
