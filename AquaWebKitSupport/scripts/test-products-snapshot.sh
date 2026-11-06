@@ -27,7 +27,7 @@ TEST_PRODUCTS_KEPT=""
 # over it.
 snapshot_test_products() {
     local build="$ROOT/WebKitBuild/Release" product changed status link
-    local runtime="${AQUAWEBKIT_CLANG:-$ROOT/AquaWebKitSupport/toolchain/build/clang}/lib"
+    local runtime="$ROOT/AquaWebKitSupport/deps/build/lib"
     if ! take_products_lock try shared; then
         TEST_PRODUCTS_KEPT="a build is changing WebKitBuild/Release"
     elif [ ! -f "$PRODUCTS_COMPLETE" ]; then

@@ -414,7 +414,7 @@ bash "$HERE/stage-headers.sh"
 echo "### Deploying private C++ runtime into JavaScriptCore.framework ($JSC_LIBS)"
 mkdir -p "$(s "$JSC_LIBS")"
 for lib in libc++.1.dylib libc++abi.1.dylib; do
-    cp -f "$TC/lib/$lib" "$(s "$JSC_LIBS")/$lib"
+    cp -f "$RUNTIME_SRC/$lib" "$(s "$JSC_LIBS")/$lib"
     int_or_die -id "$JSC_LIBS/$lib" "$(s "$JSC_LIBS")/$lib"
 done
 # libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too); both also

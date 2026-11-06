@@ -49,7 +49,7 @@ WEBCLIP_WIDGET_SCRIPT="$WEBCLIP_WIDGET/WebClip.js"
 WEBCLIP_WIDGET_PAGE="$WEBCLIP_WIDGET/WebClip.html"
 WEBCLIP_WIDGET_STYLE_SHEET="$WEBCLIP_WIDGET/WebClip.css"
 
-# #68: the private C++ runtime (libc++/libc++abi from the clang-22 toolchain) and the polyfill
+# #68: the private C++ runtime (libc++/libc++abi from deps/build_deps.sh's LLVM runtimes build) and the polyfill
 # ObjC-classes dylib live INSIDE the framework bundles, so the product is fully self-contained —
 # nothing in /usr/local and no separate top-level runtime dir. Both homes are under
 # /System/Library/[Private]Frameworks, which the sandbox grants read to (the #18 reason these can't

@@ -35,6 +35,7 @@
 #   BoringSSL (in-tree, shared)        -> curl TLS, WebCore SSL APIs and HLS AES-128 keys
 #   libpsl 0.21.5 (shared, ICU)        -> public-suffix rejection in curl's cookie store
 #   zstd 1.5.7 (shared)                 -> the zstd content encoding curl decodes
+#   LLVM runtimes 22.1.1 (shared)       -> the deployed libc++ and libc++abi every C++ image binds
 #   nghttp2 1.70.0 + libcurl 8.22.0     -> HTTP/2 networking, on that shared BoringSSL
 #   Apache httpd 2.4.68                -> layout-test HTTP/HTTPS, with the toolchain's OpenSSL
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
@@ -345,8 +346,16 @@ mkdir -p "$VBIN"
 LENIENT='-Wno-implicit-function-declaration -Wno-implicit-int'
 # These go through ccache too (see the cache setup above); "$CCACHE" is empty when there is none,
 # which leaves the exec line exactly as it was.
-printf '#!/bin/sh\nexec %s "%s/bin/clang" --no-default-config %s "$@"\n'   "$CCACHE" "$TC" "$LENIENT" > "$VBIN/cc";  chmod +x "$VBIN/cc"
-printf '#!/bin/sh\nexec %s "%s/bin/clang++" --no-default-config %s "$@"\n' "$CCACHE" "$TC" "$LENIENT" > "$VBIN/cxx"; chmod +x "$VBIN/cxx"
+# write_stable <file>: stdin becomes <file> only when it differs from what is there, so a wrapper keeps
+# its mtime -- the identity ccache's default compiler_check gives the compiler -- across runs.
+write_stable() {
+  cat > "$1.next" || return 1
+  if cmp -s "$1.next" "$1"; then rm -f "$1.next"; else mv -f "$1.next" "$1"; fi
+}
+printf '#!/bin/sh\nexec %s "%s/bin/clang" --no-default-config %s "$@"\n'   "$CCACHE" "$TC" "$LENIENT" | write_stable "$VBIN/cc" || exit 1
+chmod +x "$VBIN/cc"
+printf '#!/bin/sh\nexec %s "%s/bin/clang++" --no-default-config %s "$@"\n' "$CCACHE" "$TC" "$LENIENT" | write_stable "$VBIN/cxx" || exit 1
+chmod +x "$VBIN/cxx"
 CC_VANILLA="$VBIN/cc"
 CXX_VANILLA="$VBIN/cxx"
 
@@ -396,6 +405,7 @@ recipe_key() {
   { printf '%s\n' "$section"
     for p in $names; do /usr/bin/shasum -a 256 "$HERE/$p"; done
     printf '%s\n' "$CFLAGS" "$CXXFLAGS" "$OBJCFLAGS" "$LDFLAGS"
+    [ -z "${CXX_RUNTIME:-}" ] || printf 'CXX_RUNTIME=%s\n' "$CXX_RUNTIME"
     # A setting a section reads by name, hashed for the sections that name it. Two are reached
     # through another name: the vanilla compiler wrappers carry $LENIENT, and "$MESON" is the pin.
     case "$section" in *BoringSSL*|*BORINGSSL*|*hls-crypto=openssl*)
@@ -849,8 +859,7 @@ GAP_LITERALS="$GAPDIR/gap-literals.txt"
 GAP_BUILDINFO="$GAPDIR/gap-buildinfo.txt"
 { printf 'cflags\t%s\n' "${GAPCFLAGS//$SHARED/\$SHARED}"
   printf 'clang\t%s\n' "$("$TC/bin/clang" --version | head -1)"; } > "$GAP_BUILDINFO"
-# The deployed images the force_load never reaches, relative to deps/build: the libc++ pair this
-# script copies and the layout-test httpd.
+# The deployed images the force_load never reaches, relative to deps/build: the layout-test httpd.
 GAP_UNLINKED="$GAPDIR/gap-unlinked.txt"
 : > "$GAP_UNLINKED"
 
@@ -899,12 +908,61 @@ if [ -n "$GAP_CHANGED" ] || [ -f "$GAP_RELINK" ]; then
     tr '\n' '\0' < "$RUN/drop" | xargs -0 rm -f
 fi
 
+echo "==== LLVM runtimes 22.1.1 (libc++, libc++abi) ===="
+# The C++ runtime WebKit and every C++ image below run against, from the release the in-tree clang is,
+# in the toolchain copy's shape: built against the 10.9 headers, libc++ depending on libc++abi without
+# re-exporting it, both @rpath. The libc functions 10.9 lacks that libc++ calls come from the gap
+# archive, force-loaded and private to each image; compiler-rt supplies __muloti4 hidden. libunwind
+# builds for libc++abi's configuration only: deployment binds the unwinder references to 10.9's.
+LLVM_TARBALL="$SRC/llvm-project-22.1.1.src.tar.xz"
+[ -f "$LLVM_TARBALL" ] || fetch https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.1/llvm-project-22.1.1.src.tar.xz "$LLVM_TARBALL" || exit 1
+echo "9c6f37f6f5f68d38f435d25f770fc48c62d92b2412205767a16dac2c942f0c95  $LLVM_TARBALL" | /usr/bin/shasum -a 256 -c - > /dev/null \
+    || { echo "FATAL: $LLVM_TARBALL does not match the pinned llvmorg-22.1.1 digest" >&2; exit 1; }
+d="$SCRATCH/build-llvm-runtimes"
+key=$(recipe_key "$LINENO") || exit 1
+if [ ! -f "$d/.prepared" ] || [ "$(cat "$d/.recipe" 2>/dev/null)" != "$key" ]; then
+    rm -rf "${d:?}"; mkdir -p "$d"
+    tar xJf "$LLVM_TARBALL" -C "$d" --strip-components=1 \
+        llvm-project-22.1.1.src/{runtimes,libcxx,libcxxabi,libunwind,libc,cmake,llvm/cmake,llvm/utils/llvm-lit,llvm/utils/lit} || exit 1
+    printf '%s\n' "$key" > "$d/.recipe"
+fi
+if prepare "$d"; then
+    ( cd "$d" && env -u SDKROOT -u CFLAGS -u CXXFLAGS -u CPPFLAGS -u LDFLAGS "$CMAKE" -S runtimes -B out -G Ninja \
+        -DCMAKE_MAKE_PROGRAM="$NINJA" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+        ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+        -DCMAKE_OSX_SYSROOT=/ -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        "-DCMAKE_C_FLAGS=--no-default-config -isysroot / -I$SHARED/include" \
+        "-DCMAKE_CXX_FLAGS=--no-default-config -isysroot / -I$SHARED/include" \
+        "-DCMAKE_SHARED_LINKER_FLAGS=--no-default-config -isysroot / -Wl,-force_load,$GAP_A -framework CoreFoundation" \
+        "-DCMAKE_EXE_LINKER_FLAGS=--no-default-config -isysroot /" -DCMAKE_INSTALL_NAME_DIR=@rpath \
+        "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi;libunwind" -DLLVM_INCLUDE_TESTS=OFF \
+        -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXXABI_INCLUDE_TESTS=OFF -DLIBUNWIND_INCLUDE_TESTS=OFF \
+        -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DLIBCXX_ENABLE_STATIC=OFF -DLIBCXXABI_ENABLE_STATIC=OFF \
+        -DLIBCXXABI_USE_LLVM_UNWINDER=ON -DLIBCXX_USE_COMPILER_RT=ON -DLIBCXXABI_USE_COMPILER_RT=ON ) || exit 1
+    prepared "$d"
+fi
+( "$NINJA" -C "$d/out" -j2 cxx cxxabi ) || exit 1
+# Every C++ link below resolves its runtime against this pair, the one the collect step deploys:
+# clang++-deps carries clang++.cfg's link set with this directory in place of the toolchain's, and
+# the links that name their runtime themselves name this directory. recipe_key holds it, so a package
+# linked below is configured against it.
+CXX_RUNTIME="$d/out/lib"
+printf '%s\n' "-L$CXX_RUNTIME" "-Wl,-rpath,$CXX_RUNTIME" -lunwind -lc++abi -lobjc \
+    '-framework CoreFoundation' '-framework Security' '-framework CoreServices' | write_stable "$VBIN/clang++-deps.cfg" || exit 1
+printf '#!/bin/sh\nexec "%s/bin/clang++" --no-default-config --config="%s" "$@"\n' "$TC" "$VBIN/clang++-deps.cfg" \
+    | write_stable "$VBIN/clang++-deps" || exit 1
+chmod +x "$VBIN/clang++-deps"
+CXX_BIN="$VBIN/clang++-deps"
+export CXX="${CCACHE:+$CCACHE }$CXX_BIN"
+export OBJCXX="$CXX"
+
 echo "==== BoringSSL (ThirdParty/libwebrtc's copy) ===="
 # curl and WebCore exchange SSL_CTX/SSL objects and must bind the same shared ssl/crypto.
 # HLS uses this same libcrypto through the OpenSSL-compatible EVP API. The vendored
 # CMake project builds conventional libssl/libcrypto with its pregenerated assembly.
 # The vanilla compiler has no automatic C++ runtime link set, so both runtime libraries
-# are explicit, from the same toolchain whose dylibs the collect step deploys.
+# are explicit, from the runtimes build whose pair the collect step deploys.
 d="$SCRATCH/build-boringssl"
 key=$(recipe_key "$LINENO") || exit 1
 if [ "$(cat "$d/.recipe" 2>/dev/null)" != "$key" ]; then rm -rf "$d" "$BORINGSSL_TREE"; fi
@@ -923,16 +981,16 @@ if prepare "$d"; then
         -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF \
         "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0" "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
         "-DCMAKE_ASM_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
-        -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$TC/bin/clang++" \
         -DCMAKE_C_COMPILER_ARG1=--no-default-config -DCMAKE_CXX_COMPILER_ARG1=--no-default-config \
         -DCMAKE_ASM_COMPILER="$CC_BIN" -DCMAKE_ASM_COMPILER_ARG1=--no-default-config \
         ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
         -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
         -DCMAKE_OSX_SYSROOT="$SDK" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_OSX_ARCHITECTURES=x86_64 \
         -DCMAKE_INSTALL_NAME_DIR=@rpath -DCMAKE_BUILD_WITH_INSTALL_NAME_DIR=ON \
-        -DCMAKE_BUILD_RPATH="$STAGE/lib;$TC/lib" \
-        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS -L$TC/lib -lc++ -lc++abi -Wl,-headerpad_max_install_names" \
-        -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS -L$TC/lib -lc++ -lc++abi" ) || exit 1
+        -DCMAKE_BUILD_RPATH="$STAGE/lib;$CXX_RUNTIME" \
+        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS -L$CXX_RUNTIME -lc++ -lc++abi -Wl,-headerpad_max_install_names" \
+        -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS -L$CXX_RUNTIME -lc++ -lc++abi" ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$NINJA" -C out -j2 ssl crypto \
@@ -994,7 +1052,7 @@ d=$(get https://github.com/rockdaboot/libpsl/releases/download/0.21.5/libpsl-0.2
 if prepare "$d"; then
     ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" \
         LIBICU_CFLAGS="-I$STAGE/include -DU_DISABLE_RENAMING=1" LIBICU_LIBS="-L$STAGE/lib -licucore.78" \
-        LDFLAGS="$LDFLAGS -L$TC/lib -Wl,-rpath,$TC/lib -Wl,-rpath,$STAGE/lib" \
+        LDFLAGS="$LDFLAGS -L$CXX_RUNTIME -Wl,-rpath,$CXX_RUNTIME -Wl,-rpath,$STAGE/lib" \
         LIBS="-lc++ -lc++abi" ./configure --prefix="$STAGE" --disable-static --enable-shared \
         --enable-runtime=libicu --enable-builtin --disable-nls --disable-gtk-doc --disable-man ) || exit 1
     prepared "$d"
@@ -1070,7 +1128,7 @@ if prepare "$d"; then
         && patch -p1 < "$HERE/patches/curl-share-session-cache-size.patch" ) || exit 1
     ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" PKG_CONFIG=/usr/bin/false \
         CPPFLAGS="-I$STAGE/include -DCURL_TLS_SESSION_SIZE=256" \
-        LDFLAGS="-L$STAGE/lib $LDFLAGS -L$TC/lib -Wl,-rpath,$STAGE/lib -Wl,-rpath,$TC/lib -Wl,-headerpad_max_install_names -F$SDK/System/Library/PrivateFrameworks" \
+        LDFLAGS="-L$STAGE/lib $LDFLAGS -L$CXX_RUNTIME -Wl,-rpath,$STAGE/lib -Wl,-rpath,$CXX_RUNTIME -Wl,-headerpad_max_install_names -F$SDK/System/Library/PrivateFrameworks" \
         LIBS="-lc++ -lc++abi -framework Heimdal" ./configure --prefix="$STAGE" --bindir="$STAGE/libexec" \
         --enable-shared --disable-static \
         --with-openssl="$STAGE" --with-nghttp2="$STAGE" --with-zlib \
@@ -2038,18 +2096,16 @@ for l in libgpg-error.a libgcrypt.a libtasn1.a \
 done
 
 # Nothing here links 10.9's /usr/lib/libc++.1.dylib: it predates the C++17 symbols this C++
-# needs, and one process must not carry two C++ runtimes. clang++.cfg points every C++ link at
-# the toolchain's own (@rpath/libc++.1.dylib and friends) -- the same runtime WebKit's own
-# frameworks bind, so a loaded WebKit and its media stack share one copy. The pair stages
-# here so the collect loop deploys it next to them and the runtime is self-contained
-# -- the deployed set loads with the toolchain directory absent. The UNWINDER is not
+# needs, and one process must not carry two C++ runtimes. Every C++ link here and WebKit's resolve
+# @rpath/libc++.1.dylib and friends against the LLVM runtimes build above, so a loaded WebKit and its
+# media stack share one copy. The pair stages here so the collect loop deploys it next to them and the runtime is
+# self-contained -- the deployed set loads with the toolchain directory absent. The UNWINDER is not
 # copied: a process must have exactly one _Unwind_* implementation and system frames
 # always drive /usr/lib/system/libunwind.dylib, so every @rpath/libunwind.1.dylib
 # reference is bound to the system unwinder instead (fixed up in the collect loop;
 # AquaWebKitSupport/scripts/stage-frameworks.sh enforces the same rule when it stages the tree).
-for cxxlib in libc++.1.dylib libc++abi.1.dylib; do
-  cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib" || exit 1
-  echo "lib/$cxxlib" >> "$GAP_UNLINKED"
+for cxxlib in libc++ libc++abi; do
+  cp "$SCRATCH/build-llvm-runtimes/out/lib/$cxxlib.1.0.dylib" "$STAGE/lib/$cxxlib.1.dylib" || exit 1
 done
 
 # Shared dylibs: each real file deploys UNDER ITS MAJORED INSTALL-NAME BASENAME (the
@@ -2076,7 +2132,7 @@ normalize() {  # normalize <file> <rpath-to-libdir>: @rpath deps, strip abs rpat
     "$INT" -change /usr/lib/libc++abi.dylib "@rpath/libc++abi.1.dylib" "$f" || exit 1
   fi
   # single-unwinder rule (see the C++ runtime staging comment above): the toolchain's
-  # clang++.cfg links @rpath/libunwind.1.dylib; bind it to the system unwinder.
+  # The C++ link set links @rpath/libunwind.1.dylib; bind it to the system unwinder.
   if "$CCTOOLS/otool" -L "$f" | grep '@rpath/libunwind\.1\.dylib' > /dev/null; then
     "$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$f" || exit 1
   fi

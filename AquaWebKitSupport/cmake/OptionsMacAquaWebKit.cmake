@@ -489,22 +489,12 @@ set(AQUAWEBKIT_TC "${AQUAWEBKIT_TC}" CACHE INTERNAL "clang-22 toolchain root")
 # link libc++ DYNAMICALLY (one shared copy) rather than statically into every
 # dylib. Static libc++ per-dylib gives WebCore and JavaScriptCore each their own copy of libc++'s
 # locale/iostream global state; destroying a std::stringstream then corrupts across copies and
-# crashes WebContent. These are the clang-22 toolchain's libc++/libc++abi
-# (install_name @rpath/libc++.1.dylib); the postbuild deploys a private copy next to the
-# frameworks and points an LC_RPATH at it so the system's old 10.9 libc++ is NOT used.
-link_libraries(${AQUAWEBKIT_TC}/lib/libc++.1.dylib)
-link_libraries(${AQUAWEBKIT_TC}/lib/libc++abi.1.dylib)
-# clang++.cfg puts -L<toolchain>/lib on every C++ link, so CMake's ABI detection records that
-# directory as an implicit one -- a kind it will not order into a target's runtime search path.
-# deps/build/lib is on that path for everything that links a GStreamer dylib and carries the media
-# runtime's own copies of these two, so CMake sees a name it cannot safely resolve. Spelling the
-# toolchain directory as explicit lets it order the two, ahead of deps/build/lib.
-# C and ObjC targets need it too: link_libraries() puts the toolchain's libc++ on every link, and its
-# own dependency libc++abi carries an @rpath install name, so a target CMake gives no rpath to cannot
-# load at all.
-foreach (_aquaWebKitLang C CXX OBJC OBJCXX)
-    list(REMOVE_ITEM CMAKE_${_aquaWebKitLang}_IMPLICIT_LINK_DIRECTORIES "${AQUAWEBKIT_TC}/lib")
-endforeach ()
+# crashes WebContent. These are the pair deps/build_deps.sh builds and staging deploys
+# (install_name @rpath/libc++.1.dylib), so a link resolves against the exports it runs with; the
+# postbuild deploys a private copy next to the frameworks and points an LC_RPATH at it so the
+# system's old 10.9 libc++ is NOT used.
+link_libraries(${AQUAWEBKIT_DEPS}/lib/libc++.1.dylib)
+link_libraries(${AQUAWEBKIT_DEPS}/lib/libc++abi.1.dylib)
 
 # WebKit intends RTTI disabled everywhere (Xcode's GCC_ENABLE_CPP_RTTI=NO covers ObjC++ too), but
 # WebKitCompilerFlags.cmake applies -fno-rtti to CXX alone, leaving OBJCXX (.mm) with RTTI on. That
