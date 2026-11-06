@@ -74,7 +74,12 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
 {
     GRefPtr<GstCaps> caps = adoptGRef(gst_caps_new_empty());
 
+    // The structures without a protection system match a stream whose initialization segment has no
+    // pssh box, as the Thunder decryptor's do. The active key system picks between this element and
+    // the Widevine decryptor; rank puts this element ahead of the Widevine video decoder.
     for (const auto& mediaType : GStreamerEMEUtilities::s_cencEncryptionMediaTypes) {
+        gst_caps_append_structure(caps.get(), gst_structure_new("application/x-cenc", "original-media-type", G_TYPE_STRING,
+            mediaType.characters(), nullptr));
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-cenc", "original-media-type", G_TYPE_STRING,
             mediaType.characters(), "protection-system", G_TYPE_STRING, GStreamerEMEUtilities::s_ClearKeyUUID.characters(), nullptr));
     }

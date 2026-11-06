@@ -75,16 +75,21 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
 {
     GRefPtr<GstCaps> caps = adoptGRef(gst_caps_new_empty());
 
+    // An initialization segment without a pssh box leaves qtdemux no protection system to name, and
+    // parsebin and decodebin3 match fixed caps as a subset of the template, so each media type has a
+    // structure without one, as the Thunder decryptor publishes. Those structures and the WebM ones
+    // match whatever encrypted the stream; the active key system picks between this element and the
+    // ClearKey one.
     for (const auto& mediaType : GStreamerEMEUtilities::s_cencEncryptionMediaTypes) {
         if (isWidevineDecodedMediaType(mediaType))
             continue;
 
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-cenc", "original-media-type", G_TYPE_STRING,
+            mediaType.characters(), nullptr));
+        gst_caps_append_structure(caps.get(), gst_structure_new("application/x-cenc", "original-media-type", G_TYPE_STRING,
             mediaType.characters(), "protection-system", G_TYPE_STRING, GStreamerEMEUtilities::s_WidevineUUID.characters(), nullptr));
     }
 
-    // WebM carries no protection system in its caps, so these structures match any encrypted
-    // WebM stream; the active key system picks between this element and the ClearKey one.
     for (const auto& mediaType : GStreamerEMEUtilities::s_webmEncryptionMediaTypes) {
         if (isWidevineDecodedMediaType(mediaType))
             continue;

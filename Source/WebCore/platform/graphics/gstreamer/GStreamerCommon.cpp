@@ -623,12 +623,12 @@ void registerWebKitGStreamerElements()
         gst_element_register(nullptr, "webkitclearkey", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_CK_DECRYPT);
         // AQUAWEBKIT: the Widevine decryptor. Which of the two decryptors serves a stream
         // is decided by the active key system in MediaPlayerPrivateGStreamer's autoplug-select
-        // handler, not by rank, so one with no CDM behind it is never plugged.
+        // handler, so one with no CDM behind it is never plugged.
         gst_element_register(nullptr, "webkitwidevine", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_WV_DECRYPT);
-        // AQUAWEBKIT: encrypted H.264 and VP9, which the CDM decodes itself. Its sink
-        // caps are the media types the decryptor beside it leaves out, so the two never contend
-        // for a stream.
-        gst_element_register(nullptr, "webkitwidevinevideodec", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_WV_VIDEO_DECODE);
+        // AQUAWEBKIT: encrypted H.264, VP8, VP9 and AV1, which the CDM decodes itself. The ClearKey
+        // decryptor takes the same caps. parsebin exposes a pad on reaching a decoder without
+        // emitting autoplug-select, so the decryptors outrank this element to be tried first.
+        gst_element_register(nullptr, "webkitwidevinevideodec", GST_RANK_PRIMARY, WEBKIT_TYPE_MEDIA_WV_VIDEO_DECODE);
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)

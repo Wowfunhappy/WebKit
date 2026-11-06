@@ -3000,18 +3000,17 @@ void MediaPlayerPrivateGStreamer::processTableOfContentsEntry(GstTocEntry* entry
 }
 
 #if ENABLE(ENCRYPTED_MEDIA)
-// AQUAWEBKIT: the elements whose sink caps do not on their own say which key system they
+// AQUAWEBKIT: the decryptors whose sink caps do not on their own say which key system they
 // serve, so an autoplug handler has to ask the CDM (see configureParsebin).
 static bool isKeySystemBoundDecryptor(StringView factoryName)
 {
-    return factoryName == "webkitclearkey"_s || factoryName == "webkitwidevine"_s || factoryName == "webkitwidevinevideodec"_s;
+    return factoryName == "webkitclearkey"_s || factoryName == "webkitwidevine"_s;
 }
 
-// AQUAWEBKIT: pairs those elements with the key system in play (see configureParsebin).
+// AQUAWEBKIT: pairs those decryptors with the key system in play (see configureParsebin).
 static bool keySystemBoundDecryptorMatches(StringView factoryName, const String& keySystem)
 {
-    bool isWidevineElement = factoryName == "webkitwidevine"_s || factoryName == "webkitwidevinevideodec"_s;
-    return isWidevineElement == GStreamerEMEUtilities::isWidevineKeySystem(keySystem);
+    return (factoryName == "webkitwidevine"_s) == GStreamerEMEUtilities::isWidevineKeySystem(keySystem);
 }
 #endif
 
@@ -3040,12 +3039,13 @@ void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
                 return skipAutoPlug;
 
 #if ENABLE(ENCRYPTED_MEDIA)
-            // AQUAWEBKIT: this port builds two CENC decryptors and a Widevine video
-            // decoder. A cenc stream whose caps name no protection system, and every WebM
-            // structure the three of them publish, intersect all of their sink templates, so caps
-            // alone cannot say which belongs on a stream. The CDM the page created does, and this
-            // runs on a streaming thread, so it waits for one the way the
-            // drm-preferred-decryption-system-id handler does.
+            // AQUAWEBKIT: this port builds two CENC decryptors. Their sink templates carry
+            // structures without a protection system, so any cenc or WebM stream of a media type
+            // both handle matches both, whether or not its caps name a system; for the media types
+            // the Widevine CDM decodes, only the ClearKey decryptor matches, and this decides
+            // whether it is plugged. Caps alone cannot say which belongs on a stream. The CDM the
+            // page created does, and this runs on a streaming thread, so it waits for one the way
+            // the drm-preferred-decryption-system-id handler does.
             if (isKeySystemBoundDecryptor(name)) {
                 if (!player->isCDMAttached())
                     player->waitForCDMAttachment();
