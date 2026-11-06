@@ -19,7 +19,8 @@
 //     registry, because those classes may live in a different image -- see lookupPolyfillClass.
 //
 // Scope: this file ships in libpolyfill.a, which is linked only into WebKit's own binaries, so the
-// overrides apply to WebKit's lookups alone. A host app loading WebKit is unaffected.
+// overrides apply to WebKit's lookups alone. A host app loading WebKit is unaffected. It also ships in
+// libwidevinegap.dylib, where its overrides serve that library's own lookups and are not exported.
 
 #include "wk_polyfill.h"
 
@@ -283,7 +284,7 @@ static int handleCanSeeProvider(void *handle, struct wk_polyfill_entry *entry)
     return provider != NULL && handle == provider;
 }
 
-// dlsym for WebKit's own binaries (see the header comment: the archive is linked nowhere else).
+// dlsym for WebKit's own binaries (see the header comment), and for libwidevinegap.dylib's own lookups.
 //
 // A registered name resolves to OUR definition -- the same one a link-time reference binds under
 // force_load -- so soft-linking (SOFT_LINK_CONSTANT/FUNCTION) and link-time references give the same

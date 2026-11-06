@@ -102,19 +102,18 @@ cc_queue "$CLANG" -c $MODERN $INC -DWK_POLYFILL_UNIT=mechanism -o "$OBJ/mech/wk_
 cc_queue "$CLANG" -c $HOST               -o "$OBJ/mech/wk_image_marker.o"    "$MECH/wk_image_marker.c"
 
 echo "### compiling polyfills/cdm (the Widevine CDM's libSystem gap library)"
-# Exported (no HIDDEN): another image binds to these. getentropy, aligned_alloc, pthread_qos, os_log and
-# clock_gettime are the layer's own shared sources, compiled a second time with their exports intact.
-CDMCF="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 $WARN -I$PF/shared/include"
-cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/getentropy.o"    "$PF/shared/getentropy.c"
-cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/aligned_alloc.o" "$PF/shared/aligned_alloc.c"
-cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/pthread_qos.o" "$PF/shared/pthread_qos.c"
-cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/os_log.o" "$PF/shared/os_log.c"
-cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/time.o" "$PF/shared/time.c"
+# Exported (no HIDDEN): another image binds to these. Every shared source, c/libSystem.m and the registry
+# runtime its macros need are compiled a second time, with the flags libpolyfill.a's copies take otherwise.
+for f in "$PF"/shared/*.c; do
+    cc_queue "$CLANG" -c $SHAREDCF -DWK_POLYFILL_REGISTERED $INC -o "$OBJ/cdm/shared-$(basename "${f%.c}").o" "$f"
+done
+cc_queue "$CLANG" -c $MODERN $CINC -o "$OBJ/cdm/libSystem.o" "$PF/c/libSystem.m"
+cc_queue "$CLANG" -c $HOST $INC -o "$OBJ/cdm/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
 for f in "$PF"/cdm/*.c; do
-    cc_queue "$CLANG" -c $CDMCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
+    cc_queue "$CLANG" -c $SHAREDCF -o "$OBJ/cdm/$(basename "${f%.c}").o" "$f"
 done
 echo "### compiling the Widevine backend's private verification-path adapter"
-cc_queue "$CLANG" -c $CDMCF -o "$OBJ/widevine/WidevineHostPaths.o" \
+cc_queue "$CLANG" -c $SHAREDCF -o "$OBJ/widevine/WidevineHostPaths.o" \
     "$REPO/AquaWebKitSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineHostPaths.c"
 cc_wait
 
@@ -182,9 +181,25 @@ ar_stable "$OUT/libwtf_compat.a" "$OBJ"/jsc/*.o
 
 echo "### libwidevinegap.dylib"
 # Installed beside the downloaded module by WebCore's WidevineCdmInstaller, which is also what points
-# the module at it.
-"$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
-    -install_name @loader_path/libwidevinegap.dylib "$OBJ"/cdm/*.o "$OBJ"/widevine/*.o -o "$OUT/libwidevinegap.dylib.tmp"
+# the module at it: at the imports this host lacks, and at the verification adapter's dladdr and
+# proc_pidpath, so libSystem.m's dladdr is local to its object. The layer's calls bind to the layer's
+# definitions, as in every image the layer is linked into; a definition of a name its provider on this
+# host already exports (a REPLACES), and the layer's own helpers, stay out of the export table.
+# host-exports reads each name's provider out of a first link's registry.
+link_gap() {  # $1 = output, $2 = unexported-symbols list, remaining args = object files
+    local out="$1" unexported="$2"; shift 2
+    "$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
+        -install_name @loader_path/libwidevinegap.dylib "$@" \
+        -Wl,-unexported_symbols_list,"$unexported" -Wl,-unexported_symbol,'_wk_*' -Wl,-unexported_symbol,'___mpls_*' \
+        -framework Foundation -framework CoreFoundation -lobjc -o "$out"
+}
+printf '_dladdr\n' > "$OBJ/cdm-local.txt"
+"$CCTOOLS/nmedit" -R "$OBJ/cdm-local.txt" "$OBJ/cdm/libSystem.o"
+"$CLANG" $HOST $INC -o "$OBJ/host-exports" "$MECH/host-exports.c"
+: > "$OBJ/cdm-unexported.txt"
+link_gap "$OBJ/libwidevinegap-registry.dylib" "$OBJ/cdm-unexported.txt" "$OBJ"/cdm/*.o
+"$CCTOOLS/nm" -gUj "$OBJ"/cdm/*.o | sort -u | "$OBJ/host-exports" "$OBJ/libwidevinegap-registry.dylib" > "$OBJ/cdm-unexported.txt"
+link_gap "$OUT/libwidevinegap.dylib.tmp" "$OBJ/cdm-unexported.txt" "$OBJ"/cdm/*.o "$OBJ"/widevine/*.o
 tmp_stable "$OUT/libwidevinegap.dylib"
 
 echo "### pasteboard-expiration"

@@ -1,23 +1,14 @@
 /*
- * The entry points Google's Widevine CDM imports from libSystem that 10.9 does not have.
- *
- * This one file is built into libwidevinegap.dylib, which is installed beside the module and
- * named by the load command WidevineCdmImage repoints; every import the host cannot resolve is
- * bound here instead. getentropy(), aligned_alloc(), the pthread QoS calls, os_log and clock_gettime()
- * come from their own sources in this layer and are linked into the same dylib, so what is below is the rest.
+ * The libSystem entry points Google's Widevine CDM imports that neither c/libSystem.m nor shared/
+ * provides. libwidevinegap.dylib links this file with both, compiled with their exports intact;
+ * see the README.
  *
  * Plain C with no wk_polyfill.h: nothing here is loaded into a WebKit image, and the definitions
  * are exported on purpose -- they exist to be bound to from another image.
  */
 
-#include <errno.h>
-#include <stdbool.h>
 #include <mach-o/loader.h>
-#include <pthread.h>
-#include <sched.h>
-#include <sys/resource.h>
 #include <mach-o/swap.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #define EXPORT __attribute__((visibility("default")))
@@ -33,38 +24,4 @@ EXPORT void swap_linkedit_data_command(struct linkedit_data_command *ld, enum NX
 	ld->cmdsize = OSSwapInt32(ld->cmdsize);
 	ld->dataoff = OSSwapInt32(ld->dataoff);
 	ld->datasize = OSSwapInt32(ld->datasize);
-}
-
-/* 10.10's os_release, over the os_object release 10.9's libdispatch already has. */
-extern void _os_object_release(void *object);
-
-EXPORT void os_release(void *object);
-
-EXPORT void os_release(void *object)
-{
-	if (object)
-		_os_object_release(object);
-}
-
-/* os_signpost is 10.14's: no log enables signposts here, and a call site checks before it emits. */
-EXPORT bool os_signpost_enabled(void *log);
-
-EXPORT bool os_signpost_enabled(void *log)
-{
-	(void)log;
-	return false;
-}
-
-EXPORT void _os_signpost_emit_with_name_impl(void *dso, void *log, uint8_t type, uint64_t identifier, const char *name, const char *format, uint8_t *buffer, uint32_t size);
-
-EXPORT void _os_signpost_emit_with_name_impl(void *dso, void *log, uint8_t type, uint64_t identifier, const char *name, const char *format, uint8_t *buffer, uint32_t size)
-{
-	(void)dso;
-	(void)log;
-	(void)type;
-	(void)identifier;
-	(void)name;
-	(void)format;
-	(void)buffer;
-	(void)size;
 }

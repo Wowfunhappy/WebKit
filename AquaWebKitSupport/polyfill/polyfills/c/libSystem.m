@@ -923,9 +923,6 @@ WK_POLYFILL_ABSENT(NULL, kern_return_t, thread_get_register_pointer_values,
 // has no C spelling.
 __asm__(
     ".globl ____chkstk_darwin\n"
-    // -fvisibility=hidden does not reach a .globl inside inline asm, so say it here: this is a
-    // libSystem-namespace name and must not become a public export of the WebKit frameworks.
-    ".private_extern ____chkstk_darwin\n"
     "____chkstk_darwin:\n"
     "  pushq  %rcx\n"
     "  pushq  %rax\n"

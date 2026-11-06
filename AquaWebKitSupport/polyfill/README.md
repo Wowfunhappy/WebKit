@@ -32,11 +32,18 @@ named after the system framework or library that owns the symbols** (the first a
 | `shared/` | `libpolyfill.a` **and** the vendored non-WebKit builds (`deps/build_deps.sh`, `toolchain/scripts/build_python3.sh`) | Plain C compiled against the host headers, with no `wk_polyfill.h` dependency: the libc gap-fills (`shared/LICENSE`, wrapper headers in `shared/include/`) and this port's own. A registry entry may be added under `#ifdef WK_POLYFILL_REGISTERED`, which only this layer's build defines — that is how `jit.c`'s deliberate `mmap` override shows up in `WK_POLYFILL_REPORT`. Put a polyfill here only when something outside WebKit compiles it. |
 | `webkit/` | `libpolyfill_webkit.a`, force-loaded into **WebKit.framework** only (ARC) | Units whose ObjC classes must register in WebKit alone: `task_metrics.mm` (NSURLSession task metrics, recorded by a delegate relay on WebKit's sessions). |
 | `jsc/` | `libwtf_compat.a`, force-loaded into **JavaScriptCore** only | The WTF C++ entry points Safari 7 binds by mangled name. |
-| `cdm/` | `libwidevinegap.dylib`, loaded by the Widevine CDM | Missing libSystem entry points. |
+| `cdm/` | `libwidevinegap.dylib`, loaded by the Widevine CDM | The libSystem entry points neither `c/libSystem.m` nor `shared/` covers. |
 
-The CDM library also packages the Widevine backend's private `WidevineHostPaths.c` adapter from
-`source/WebCore/platform/graphics/gstreamer/eme/`. Its scoped path functions supply the CDM's
-verification identities and are compiled separately from the system polyfills.
+The CDM library is every `shared/` source and `c/libSystem.m` with the registry runtime, compiled a
+second time with their exports intact, plus `cdm/` and the Widevine backend's private
+`WidevineHostPaths.c` adapter from `source/WebCore/platform/graphics/gstreamer/eme/`, whose scoped
+path functions supply the CDM's verification identities. The module binds only the imports this
+host cannot resolve to it, plus `dladdr` and `proc_pidpath` to the adapter's, so `libSystem.m`'s
+`dladdr` is local to its object and the layer's other calls of `dladdr` bind to the adapter's. The
+layer's calls otherwise bind to the layer's definitions, as in every image it is linked into; a
+definition of a name its provider on this host already exports (every `WK_POLYFILL_REPLACES`) and the
+layer's `wk_` helpers are not exported. The adapter reaches 10.9's functions by image lookup, apart
+from the layer's `dlopen` and `dlsym`.
 
 ## Adding a polyfill
 

@@ -33,8 +33,11 @@
 // see the force_load block in Source/cmake/WebKitMacros.cmake.
 //
 // WHY IT ONLY AFFECTS WEBKIT. The archive is static and goes only into WebKit's own binaries, so a
-// host app that loads WebKit keeps binding to the system's symbols. Nothing here is exported
-// (build-polyfill.sh compiles with -fvisibility=hidden).
+// host app that loads WebKit keeps binding to the system's symbols. Nothing in it is exported
+// (build-polyfill.sh compiles with -fvisibility=hidden and demotes every global with nmedit -p).
+// libwidevinegap.dylib compiles libSystem.m and shared/ again with their exports intact for the
+// Widevine CDM, which binds to it only the imports this host cannot resolve; its REPLACES definitions
+// are not exported.
 //
 // The first argument names who owns the symbol on 10.9 — used to resolve WK_ORIGINAL, and by
 // WK_POLYFILL_REPORT to ask whether 10.9 has it there: a framework name ("CoreText"), an absolute path

@@ -19,13 +19,27 @@ static char *host_path;
 static void *cdm_base;
 static void *host_base;
 
+/* The system functions, looked up in the images that define them. The pre-dlopen dyld API reaches them
+ * without dlopen and dlsym, which the polyfill layer linked into this library replaces. */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static void *system_function(const char *image, const char *symbol)
+{
+    for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
+        const char *name = _dyld_get_image_name(i);
+        if (!name || strcmp(name, image))
+            continue;
+        NSSymbol found = NSLookupSymbolInImage(_dyld_get_image_header(i), symbol, NSLOOKUPSYMBOLINIMAGE_OPTION_RETURN_ON_ERROR);
+        return found ? NSAddressOfSymbol(found) : NULL;
+    }
+    return NULL;
+}
+#pragma clang diagnostic pop
+
 static void resolve_system_functions(void)
 {
-    void *library = dlopen("/usr/lib/libSystem.B.dylib", RTLD_NOW | RTLD_LOCAL);
-    if (library) {
-        system_dladdr = dlsym(library, "dladdr");
-        system_proc_pidpath = dlsym(library, "proc_pidpath");
-    }
+    system_dladdr = (int (*)(const void *, Dl_info *))system_function("/usr/lib/system/libdyld.dylib", "_dladdr");
+    system_proc_pidpath = (int (*)(int, void *, uint32_t))system_function("/usr/lib/system/libsystem_kernel.dylib", "_proc_pidpath");
 }
 
 /* Called once, before VerifyCdmHost_0 starts its worker. These strings live with the module. */
