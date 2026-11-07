@@ -1936,6 +1936,15 @@ void WebPageProxy::close()
 
     WEBPAGEPROXY_RELEASE_LOG(Loading, "close:");
 
+#if HAVE(DISPLAY_LINK)
+    // AQUAWEBKIT: a closing page returns its full-speed request while hasRunningProcess() still holds,
+    // and no hysteresis callback follows to register it again.
+    internals().wheelEventActivityHysteresis.cancel();
+    if (hasRunningProcess() && m_displayID && m_registeredForFullSpeedUpdates)
+        protect(legacyMainFrameProcess())->setDisplayLinkForDisplayWantsFullSpeedUpdates(*m_displayID, false);
+    m_registeredForFullSpeedUpdates = false;
+#endif
+
     m_isClosed = true;
 
     LegacyExtensionHost::singleton().pageWillClose(*this); // AQUAWEBKIT: close the document's extension ports; detached tabs have already emitted tabs.onRemoved.
@@ -14149,16 +14158,6 @@ void WebPageProxy::stopAllURLSchemeTasks(WebProcessProxy* process)
 
 void WebPageProxy::resetState(ResetStateReason resetStateReason)
 {
-#if HAVE(DISPLAY_LINK)
-    // AQUAWEBKIT: balance the DisplayLink full-speed registration when the page is
-    // invalidated (tab close / page destruction). Nothing else decrements it on this path, and
-    // DisplayLink::removeInfoForClientIfUnused drops the client only once the count reaches zero.
-    // Mirrors the deregistration windowScreenDidChange() already performs.
-    if (hasRunningProcess() && m_displayID && m_registeredForFullSpeedUpdates)
-        protect(legacyMainFrameProcess())->setDisplayLinkForDisplayWantsFullSpeedUpdates(*m_displayID, false);
-    m_registeredForFullSpeedUpdates = false;
-#endif
-
     m_mainFrame = nullptr;
     m_focusedFrame = nullptr;
     m_suspendedPageKeptToPreventFlashing = nullptr;
@@ -14383,6 +14382,11 @@ void WebPageProxy::resetStateAfterProcessExited(ProcessTerminationReason termina
 
     m_userScriptsNotified = false;
     m_hasActiveAnimatedScroll = false;
+#if HAVE(DISPLAY_LINK)
+    // AQUAWEBKIT: a navigation swap leaves this process alive, so the page returns its full-speed request to it here.
+    if (m_displayID && m_registeredForFullSpeedUpdates)
+        protect(legacyMainFrameProcess())->setDisplayLinkForDisplayWantsFullSpeedUpdates(*m_displayID, false);
+#endif
     m_registeredForFullSpeedUpdates = false;
     internals().sleepDisablers.clear();
 

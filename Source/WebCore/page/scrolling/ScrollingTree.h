@@ -256,7 +256,8 @@ public:
     Lock& treeLock() LIFETIME_BOUND WTF_RETURNS_LOCK(m_treeLock) { return m_treeLock; }
 
     WEBCORE_EXPORT void windowScreenDidChange(PlatformDisplayID, std::optional<FramesPerSecond> nominalFramesPerSecond);
-    PlatformDisplayID displayID();
+    // PlatformDisplayID displayID();
+    WEBCORE_EXPORT PlatformDisplayID displayID(); // AQUAWEBKIT: WebKit's EventDispatcher::noteWheelActivity reads it.
     WEBCORE_EXPORT virtual void displayDidRefresh(PlatformDisplayID) { }
 
     WEBCORE_EXPORT void willProcessWheelEvent();
