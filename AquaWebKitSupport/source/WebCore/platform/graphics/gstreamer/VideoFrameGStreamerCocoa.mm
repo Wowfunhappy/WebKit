@@ -145,7 +145,7 @@ RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::displayLayerPixelBuffe
         auto unmap = makeScopeExit([&] { gst_video_frame_unmap(&frame); });
         if (CVPixelBufferLockBaseAddress(pixelBuffer.get(), 0) != kCVReturnSuccess)
             return nullptr;
-        auto unlock = makeScopeExit([&] { CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), 0); });
+        auto unlock = makeScopeExit([pixelBuffer] { CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), 0); });
         auto* destination = static_cast<uint8_t*>(CVPixelBufferGetBaseAddress(pixelBuffer.get()));
         auto destinationStride = CVPixelBufferGetBytesPerRow(pixelBuffer.get());
         auto plane = [&](unsigned index, int row) {
