@@ -149,6 +149,7 @@ typedef NSUInteger NSOverlayScrollerState;
 - (void)endLiveResize;
 - (void)beginScrollGesture;
 - (void)endScrollGesture;
+- (void)endTrackingInScrollerImp:(NSScrollerImp *)scrollerImp; // AQUAWEBKIT: 10.9 AppKit's end of scroller tracking, see ScrollbarsControllerMac::mouseIsDownInScrollbar().
 + (void)_updateAllScrollerImpPairsForNewRecommendedScrollerStyle:(NSScrollerStyle)newRecommendedScrollerStyle;
 @end
 

@@ -722,10 +722,15 @@ void ScrollbarsControllerMac::mouseIsDownInScrollbar(Scrollbar* scrollbar, bool 
 
     if (RetainPtr painter = scrollerImpForScrollbar(*scrollbar)) {
         [painter setTracking:mouseIsDown];
-        if (mouseIsDown)
-            [m_scrollerImpPair beginScrollGesture];
-        else
-            [m_scrollerImpPair endScrollGesture];
+        // if (mouseIsDown)
+        //     [m_scrollerImpPair beginScrollGesture];
+        // else
+        //     [m_scrollerImpPair endScrollGesture];
+        // AQUAWEBKIT: 10.9's NSScrollerImpPair treats a scroll gesture as catching the overlay scroller, which
+        // then expands under a resting pointer and stays expanded until hidden. A press on the scroller ends the
+        // way NSScroller's tracking does; the tracking flag alone keeps the scroller shown while pressed.
+        if (!mouseIsDown)
+            [m_scrollerImpPair endTrackingInScrollerImp:painter.get()];
     }
 }
 
