@@ -128,7 +128,7 @@ RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pixelBufferFromSample(
         auto unmap = makeScopeExit([&] { gst_video_frame_unmap(&frame); });
         if (CVPixelBufferLockBaseAddress(pixelBuffer.get(), 0) != kCVReturnSuccess)
             return nullptr;
-        auto unlock = makeScopeExit([&] { CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), 0); });
+        auto unlock = makeScopeExit([pixelBuffer] { CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), 0); });
         auto copyRows = [&](unsigned plane, uint8_t* destination, size_t destinationStride, size_t rowBytes, size_t rows) {
             auto* source = static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, plane));
             auto sourceStride = GST_VIDEO_FRAME_PLANE_STRIDE(&frame, plane);
