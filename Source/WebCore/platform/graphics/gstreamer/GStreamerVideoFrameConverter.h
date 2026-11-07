@@ -35,6 +35,7 @@
 #include <wtf/RetainPtr.h>
 typedef struct CF_BRIDGED_TYPE(id) __CVBuffer* CVPixelBufferRef;
 typedef struct __CVPixelBufferPool* CVPixelBufferPoolRef;
+typedef struct _GstVideoInfo GstVideoInfo;
 #endif
 
 namespace WebCore {
@@ -59,6 +60,8 @@ public:
 #if PLATFORM(COCOA)
     // AQUAWEBKIT: packed RGB and planar YUV samples back Cocoa rendering and IPC.
     RetainPtr<CVPixelBufferRef> pixelBufferFromSample(const GRefPtr<GstSample>&, PlatformVideoColorSpace);
+    // AQUAWEBKIT: video-range 4:2:2 frames for Mavericks' display layer, see VideoFrameGStreamerCocoa.mm.
+    RetainPtr<CVPixelBufferRef> displayLayerPixelBufferFromSample(const GRefPtr<GstSample>&, const GstVideoInfo&, PlatformVideoColorSpace);
 #endif
 
 private:
@@ -102,6 +105,7 @@ private:
         RetainPtr<CVPixelBufferPoolRef> pool;
         MonotonicTime lastUse;
     };
+    RetainPtr<CVPixelBufferRef> pooledPixelBuffer(IntSize, OSType); // AQUAWEBKIT: shared by the two conversions above.
     Lock m_cvPixelBufferPoolLock;
     HashMap<std::pair<uint64_t, uint32_t>, CVPixelBufferPoolEntry> m_cvPixelBufferPools WTF_GUARDED_BY_LOCK(m_cvPixelBufferPoolLock);
 #endif

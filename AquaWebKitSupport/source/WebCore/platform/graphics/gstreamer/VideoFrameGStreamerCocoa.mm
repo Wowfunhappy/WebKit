@@ -87,6 +87,83 @@ RefPtr<VideoFrame> MediaPlayerPrivateGStreamer::rotatedVideoFrame()
 // GStreamerVideoFrameConverter.cpp's s_releaseUnusedPipelinesTimerInterval, for the same kind of resource.
 static constexpr Seconds releaseUnusedPixelBufferPoolInterval = 30_s;
 
+RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pooledPixelBuffer(IntSize size, OSType pixelFormat)
+{
+    // A pool serves one size and format, as in ImageTransferSessionVT::setSize.
+    RetainPtr<CVPixelBufferPoolRef> pool;
+    {
+        Locker locker { m_cvPixelBufferPoolLock };
+        auto now = MonotonicTime::now();
+        m_cvPixelBufferPools.removeIf([&](auto& entry) {
+            return now - entry.value.lastUse > releaseUnusedPixelBufferPoolInterval;
+        });
+        std::pair<uint64_t, uint32_t> key { (static_cast<uint64_t>(size.width()) << 32) | static_cast<uint32_t>(size.height()), pixelFormat };
+        auto iterator = m_cvPixelBufferPools.find(key);
+        if (iterator == m_cvPixelBufferPools.end()) {
+            auto result = createIOSurfaceCVPixelBufferPool(size.width(), size.height(), pixelFormat);
+            if (!result)
+                return nullptr;
+            iterator = m_cvPixelBufferPools.add(key, CVPixelBufferPoolEntry { WTF::move(*result), now }).iterator;
+        }
+        iterator->value.lastUse = now;
+        pool = iterator->value.pool;
+    }
+    auto result = createCVPixelBufferFromPool(pool.get());
+    if (!result)
+        return nullptr;
+    return WTF::move(*result);
+}
+
+static bool sampleIsDirectlyConvertible(GstSample* sample, const GstVideoInfo& info, IntSize presentationSize)
+{
+    return gst_caps_features_contains(gst_caps_get_features(gst_sample_get_caps(sample), 0), GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY)
+        && presentationSize == IntSize { GST_VIDEO_INFO_WIDTH(&info), GST_VIDEO_INFO_HEIGHT(&info) };
+}
+
+static void packRowAs422(const uint8_t* luma, const uint8_t* u, const uint8_t* v, size_t chromaStep, uint8_t* destination, int width)
+{
+    for (int x = 0; x < width; x += 2) {
+        auto chroma = x / 2 * chromaStep;
+        destination[2 * x] = u[chroma];
+        destination[2 * x + 1] = luma[x];
+        destination[2 * x + 2] = v[chroma];
+        destination[2 * x + 3] = luma[x + 1 < width ? x + 1 : x];
+    }
+}
+
+RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::displayLayerPixelBufferFromSample(const GRefPtr<GstSample>& sample, const GstVideoInfo& info, PlatformVideoColorSpace colorSpace)
+{
+    @autoreleasepool {
+        auto format = GST_VIDEO_INFO_FORMAT(&info);
+        IntSize size { GST_VIDEO_INFO_WIDTH(&info), GST_VIDEO_INFO_HEIGHT(&info) };
+        auto pixelBuffer = pooledPixelBuffer(size, kCVPixelFormatType_422YpCbCr8);
+        if (!pixelBuffer)
+            return nullptr;
+        GstVideoFrame frame;
+        if (!gst_video_frame_map(&frame, &info, gst_sample_get_buffer(sample.get()), GST_MAP_READ))
+            return nullptr;
+        auto unmap = makeScopeExit([&] { gst_video_frame_unmap(&frame); });
+        if (CVPixelBufferLockBaseAddress(pixelBuffer.get(), 0) != kCVReturnSuccess)
+            return nullptr;
+        auto unlock = makeScopeExit([pixelBuffer] { CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), 0); });
+        auto* destination = static_cast<uint8_t*>(CVPixelBufferGetBaseAddress(pixelBuffer.get()));
+        auto destinationStride = CVPixelBufferGetBytesPerRow(pixelBuffer.get());
+        auto plane = [&](unsigned index, int row) {
+            return static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, index)) + static_cast<ptrdiff_t>(row) * GST_VIDEO_FRAME_PLANE_STRIDE(&frame, index);
+        };
+        for (int y = 0; y < size.height(); ++y) {
+            auto* luma = plane(0, y);
+            auto* u = plane(1, y / 2);
+            const uint8_t* v = format == GST_VIDEO_FORMAT_NV12 ? u + 1 : plane(2, y / 2);
+            size_t chromaStep = format == GST_VIDEO_FORMAT_NV12 ? 2 : 1;
+            packRowAs422(luma, u, v, chromaStep, destination + y * destinationStride, size.width());
+        }
+        CVBufferRemoveAllAttachments(pixelBuffer.get());
+        attachColorSpaceToPixelBuffer(colorSpace, pixelBuffer.get());
+        return pixelBuffer;
+    }
+}
+
 RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pixelBufferFromSample(const GRefPtr<GstSample>& sample, PlatformVideoColorSpace colorSpace)
 {
     @autoreleasepool {
@@ -99,29 +176,9 @@ RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pixelBufferFromSample(
         OSType pixelFormat = format == GST_VIDEO_FORMAT_BGRA ? kCVPixelFormatType_32BGRA
             : colorSpace.fullRange.value_or(false) ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
         IntSize size { GST_VIDEO_INFO_WIDTH(&info), GST_VIDEO_INFO_HEIGHT(&info) };
-        // A pool serves one size and format, as in ImageTransferSessionVT::setSize.
-        RetainPtr<CVPixelBufferPoolRef> pool;
-        {
-            Locker locker { m_cvPixelBufferPoolLock };
-            auto now = MonotonicTime::now();
-            m_cvPixelBufferPools.removeIf([&](auto& entry) {
-                return now - entry.value.lastUse > releaseUnusedPixelBufferPoolInterval;
-            });
-            std::pair<uint64_t, uint32_t> key { (static_cast<uint64_t>(size.width()) << 32) | static_cast<uint32_t>(size.height()), pixelFormat };
-            auto iterator = m_cvPixelBufferPools.find(key);
-            if (iterator == m_cvPixelBufferPools.end()) {
-                auto result = createIOSurfaceCVPixelBufferPool(size.width(), size.height(), pixelFormat);
-                if (!result)
-                    return nullptr;
-                iterator = m_cvPixelBufferPools.add(key, CVPixelBufferPoolEntry { WTF::move(*result), now }).iterator;
-            }
-            iterator->value.lastUse = now;
-            pool = iterator->value.pool;
-        }
-        auto result = createCVPixelBufferFromPool(pool.get());
-        if (!result)
+        auto pixelBuffer = pooledPixelBuffer(size, pixelFormat);
+        if (!pixelBuffer)
             return nullptr;
-        auto pixelBuffer = WTF::move(*result);
         GstVideoFrame frame;
         if (!gst_video_frame_map(&frame, &info, gst_sample_get_buffer(sample.get()), GST_MAP_READ))
             return nullptr;
@@ -171,12 +228,9 @@ CVPixelBufferRef VideoFrameGStreamer::pixelBuffer() const
 {
     Locker locker { m_cvPixelBufferLock };
     if (!m_cvPixelBuffer) {
-        auto* features = gst_caps_get_features(gst_sample_get_caps(m_sample.get()), 0);
-        IntSize size { GST_VIDEO_INFO_WIDTH(&m_info.info), GST_VIDEO_INFO_HEIGHT(&m_info.info) };
         auto format = pixelFormat();
         bool directFormat = format == GST_VIDEO_FORMAT_BGRA || format == GST_VIDEO_FORMAT_NV12 || format == GST_VIDEO_FORMAT_I420;
-        auto sample = directFormat && size == presentationSize()
-            && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY)
+        auto sample = directFormat && sampleIsDirectlyConvertible(m_sample.get(), m_info.info, presentationSize())
             ? m_sample : const_cast<VideoFrameGStreamer*>(this)->downloadSample(GST_VIDEO_FORMAT_BGRA);
         if (sample)
             m_cvPixelBuffer = GStreamerVideoFrameConverter::singleton().pixelBufferFromSample(sample, colorSpace());
@@ -299,8 +353,13 @@ void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
     }
     if (!m_videoLayerPageIsVisible || m_inlineVideoOutputSuppressed)
         return;
-    Ref<VideoFrame> frame = VideoFrameGStreamer::createWrappedSample(sample);
-    RetainPtr pixelBuffer = frame->pixelBuffer();
+    Ref frame = VideoFrameGStreamer::createWrappedSample(sample);
+    auto format = GST_VIDEO_INFO_FORMAT(&frame->info());
+    auto colorSpace = frame->colorSpace();
+    // Video-range 4:2:0 is repacked as 4:2:2 for the display layer.
+    bool packsAs422 = (format == GST_VIDEO_FORMAT_NV12 || format == GST_VIDEO_FORMAT_I420) && !colorSpace.fullRange.value_or(false)
+        && sampleIsDirectlyConvertible(sample.get(), frame->info(), frame->presentationSize());
+    RetainPtr pixelBuffer = packsAs422 ? GStreamerVideoFrameConverter::singleton().displayLayerPixelBufferFromSample(sample, frame->info(), colorSpace) : RetainPtr { static_cast<VideoFrame&>(frame.get()).pixelBuffer() };
     if (!pixelBuffer)
         return;
     auto [mirrored, rotation] = videoFrameTransformation(orientation);
