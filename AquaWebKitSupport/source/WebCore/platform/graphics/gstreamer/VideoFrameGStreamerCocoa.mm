@@ -11,13 +11,15 @@
 #include "DestinationColorSpace.h"
 #include "GStreamerCommon.h"
 #include "GStreamerVideoFrameConverter.h"
-#include "MediaPlayerPrivateGStreamer.h"
 #include "LocalSampleBufferDisplayLayer.h"
+#include "MediaPlayerPrivateGStreamer.h"
 #include "VideoFrameCV.h"
 #include "VideoLayerManagerObjC.h"
-#include <QuartzCore/CALayer.h>
+#include <AVFoundation/AVSampleBufferDisplayLayer.h>
 #include <CoreVideo/CVPixelBuffer.h>
+#include <QuartzCore/CALayer.h>
 #include <gst/video/video-frame.h>
+#include <pal/cf/CoreMediaSoftLink.h>
 #include <wtf/Scope.h>
 
 // Shared with MediaPlayerPrivateMediaStreamAVFObjC.mm.
@@ -200,6 +202,13 @@ void MediaPlayerPrivateGStreamer::createSampleBufferDisplayLayer()
     // GstBaseSink delivers preroll and clock-scheduled frames, including after pause/seek.
     sampleBufferDisplayLayer->setRenderPolicy(SampleBufferDisplayLayer::RenderPolicy::Immediately);
     sampleBufferDisplayLayer->initialize(false, { }, m_shouldMaintainAspectRatio, [](bool) { });
+    // Frames are displayed immediately, so the control timebase stays stopped; Mavericks' display
+    // layer polls at the display refresh rate while its timebase runs.
+    CMTimebaseRef timebase = nullptr;
+    if (PAL::CMTimebaseCreateWithSourceClock(kCFAllocatorDefault, PAL::CMClockGetHostTimeClock(), &timebase) == noErr) {
+        PAL::CMTimebaseSetRate(timebase, 0);
+        [(AVSampleBufferDisplayLayer *)sampleBufferDisplayLayer->displayLayer() setControlTimebase:adoptCF(timebase).get()];
+    }
     m_videoLayerManager->setVideoLayer(sampleBufferDisplayLayer->rootLayer(), { });
     m_videoLayerBoundsObserver = adoptNS([[WebRootSampleBufferBoundsChangeListener alloc] initWithCallback:[weakThis = ThreadSafeWeakPtr { *this }] {
         if (RefPtr self = weakThis.get())
@@ -305,8 +314,8 @@ void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
         return;
     auto [mirrored, rotation] = videoFrameTransformation(orientation);
     // LocalSampleBufferDisplayLayer takes presentation times on the host clock (MonotonicTime), as
-    // capture and WebRTC frames carry them; GstBaseSink has already clock-scheduled this frame, so it
-    // presents now. AVSampleBufferDisplayLayer schedules its layout commits at the sample's time.
+    // capture and WebRTC frames carry them; GstBaseSink has already clock-scheduled this frame, which
+    // is enqueued for immediate display.
     auto displayFrame = VideoFrameCV::create(MediaTime::createWithDouble(MonotonicTime::now().secondsSinceEpoch().value()), mirrored, rotation, WTF::move(pixelBuffer));
     m_sampleBufferDisplayLayer->enqueueVideoFrame(displayFrame);
 }
