@@ -5223,6 +5223,10 @@ bool EventHandler::beginKeyboardScrollGesture(KeyboardScrollingAnimator* animato
 {
     if (animator && animator->beginKeyboardScrollGesture(direction, granularity, isKeyRepeat)) {
         protect(m_frame->page())->setCurrentKeyboardScrollingAnimator(animator);
+        // AQUAWEBKIT: an unfocused page never receives the key-up that ends a held-key scroll, as with a key event delivered
+        // after focus moved, so there the key acts as pressed and released.
+        if (!protect(m_frame->page())->focusController().isFocused())
+            animator->handleKeyUpEvent();
         return true;
     }
 

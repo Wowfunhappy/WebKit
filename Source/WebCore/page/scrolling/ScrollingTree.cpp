@@ -326,6 +326,7 @@ void ScrollingTree::removeNode(ScrollingNodeID nodeID, ScrollingTreeFrameHosting
 {
     m_latchingController.nodeWasRemoved(nodeID);
     if (auto node = m_nodeMap.take(nodeID)) {
+        setScrollAnimationInProgressForNode(nodeID, false); // AQUAWEBKIT: a removed node's animation ends with it, so nothing keeps servicing it.
         {
             Locker locker { m_frameIDMapLock };
             auto nodeList = m_nodeMapPerFrame.find(node->frameIdentifier());
@@ -575,8 +576,12 @@ bool ScrollingTree::updateTreeFromStateNodeRecursive(const ScrollingStateNode* s
 void ScrollingTree::removeAllNodes()
 {
     auto nodes = std::exchange(m_nodeMap, { });
-    for (auto iter : nodes)
+    // for (auto iter : nodes)
+    //     Ref { iter.value }->willBeDestroyed();
+    for (auto iter : nodes) { // AQUAWEBKIT: as in removeNode, a removed node's animation ends with it.
+        setScrollAnimationInProgressForNode(iter.key, false);
         Ref { iter.value }->willBeDestroyed();
+    }
 
     m_nodeMap.clear();
     {

@@ -3426,6 +3426,12 @@ void Page::setActivityState(OptionSet<ActivityState> activityState)
         stopKeyboardScrollAnimation();
     }
 
+    // AQUAWEBKIT: a page that loses focus never receives the key-up that ends its keyboard scroll, so focus loss ends it the same way.
+    if ((changed & ActivityState::IsFocused) && !(m_activityState & ActivityState::IsFocused)) {
+        if (CheckedPtr animator = m_currentKeyboardScrollingAnimator.get())
+            animator->handleKeyUpEvent();
+    }
+
     if (RefPtr document = localMainFrame ? localMainFrame->document() : nullptr) {
         if (CheckedPtr cache = document->existingAXObjectCache())
             cache->onPageActivityStateChange(m_activityState);
