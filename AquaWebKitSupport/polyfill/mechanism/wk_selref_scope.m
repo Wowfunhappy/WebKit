@@ -458,6 +458,28 @@ static bool wk_is_placeholder(Class cls)
     return strncmp(class_getName(cls), "WKPolyfill_", 11) == 0;
 }
 
+// A class's method lists put a category's methods ahead of the ones they shadow, so the first own
+// method named `sel` is the one a send runs. An alias the class already owns is left alone unless it
+// points at a later own method of that name: then a category attached since the alias was made shadows
+// it, and the alias follows to the method that now answers the public selector.
+static void wk_repoint_shadowed_alias(Method *methods, unsigned int n, unsigned int winner, SEL priv, IMP imp)
+{
+    SEL sel = method_getName(methods[winner]);
+    Method alias = NULL;
+    for (unsigned int k = 0; k < n && !alias; k++)
+        if (method_getName(methods[k]) == priv)
+            alias = methods[k];
+    if (!alias || method_getImplementation(alias) == imp)
+        return;
+    IMP aliased = method_getImplementation(alias);
+    for (unsigned int k = winner + 1; k < n; k++) {
+        if (method_getName(methods[k]) == sel && method_getImplementation(methods[k]) == aliased) {
+            method_setImplementation(alias, imp);
+            return;
+        }
+    }
+}
+
 static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
 {
     unsigned int n = 0;
@@ -480,7 +502,8 @@ static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
                 break;   // a REPLACE body is already in this class's chain — let it win (see above)
             IMP realIMP = method_getImplementation(methods[i]);
             const char *types = method_getTypeEncoding(methods[i]);
-            class_addMethod(cls, wk_priv[j], realIMP, types);
+            if (!class_addMethod(cls, wk_priv[j], realIMP, types))
+                wk_repoint_shadowed_alias(methods, n, i, wk_priv[j], realIMP);
             // Invalidates the wk_original_of memo: this class's chain answers differently now.
             __atomic_fetch_add(&wk_install_generation, 1, __ATOMIC_RELEASE);
             break;
@@ -730,6 +753,41 @@ static void wk_alias_image(const struct mach_header *mh, int from, int to)
         wk_stat_realized++;
         wk_alias_class(cls, from, to, webKitImage);                  // instance methods
         wk_alias_class(object_getClass(cls), from, to, webKitImage); // class methods, on the metaclass
+    }
+}
+
+// The classes of other images that an image's categories give a registered selector. A category in an
+// image loaded after launch attaches its methods to a class whose own image was swept before they
+// existed, so that class is aliased again for them.
+static void wk_alias_category_targets(const struct mach_header *mh, int from, int to)
+{
+    if (from >= to)
+        return;
+    unsigned long size = 0;
+    struct wk_raw_category *const *categories = (struct wk_raw_category *const *)
+        getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_catlist", &size);
+    if (!categories)
+        return;
+    bool canonicalNames = wk_is_shared_cache_image(mh);
+    for (unsigned long i = 0; i < size / sizeof(*categories); i++) {
+        const struct wk_raw_category *category = categories[i];
+        if (!category || !category->cls)
+            continue;
+        bool instanceSide = wk_raw_list_may_register(category->instanceMethods, canonicalNames);
+        bool classSide = wk_raw_list_may_register(category->classMethods, canonicalNames);
+        if (!instanceSide && !classSide)
+            continue;
+        const struct mach_header *classImage = _dyld_get_image_header_containing_address(category->cls);
+        if (classImage == mh)
+            continue;   // the image's own sweep reads its classes with their categories attached
+        Class cls = objc_getClass(wk_raw_class_name(category->cls));
+        if (!cls)
+            continue;
+        bool webKitImage = wk_is_webkit_image(classImage);
+        if (instanceSide)
+            wk_alias_class(cls, from, to, webKitImage);
+        if (classSide)
+            wk_alias_class(object_getClass(cls), from, to, webKitImage);
     }
 }
 
@@ -1108,8 +1166,10 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
         // sees a REPLACE body on its target before it looks at the target's subclasses. A launch image
         // is swept only when the drain installed a body (see wk_launch_images).
         bool installed = wk_install_deferred();
-        if (installed || !wk_find_launch_image(info[i].imageLoadAddress))
+        if (installed || !wk_find_launch_image(info[i].imageLoadAddress)) {
             wk_alias_image(info[i].imageLoadAddress, 0, swept < 0 ? wk_count : swept);
+            wk_alias_category_targets(info[i].imageLoadAddress, 0, swept < 0 ? wk_count : swept);
+        }
         pthread_mutex_unlock(&wk_reg_lock);
     }
     return NULL;

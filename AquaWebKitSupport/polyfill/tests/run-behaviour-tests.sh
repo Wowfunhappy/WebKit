@@ -463,6 +463,23 @@ probe_cg_layer_context_colorspace() {
         "$T/cg_layer_context_colorspace"
 }
 
+probe_selref_dlopen() {
+    build_selref_object &&
+        "$CLANG" $MODERN $INC -dynamiclib -o "$T/selref_dlopen_fixture.dylib" "$POLY/tests/mechanism/wk_selref_dlopen_fixture.m" -lobjc &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=selref_dlopen -o "$T/selref_dlopen" "$POLY/tests/mechanism/wk_selref_dlopen.m" \
+            "$OBJ/mech/wk_selref_scope.o" -Wl,-force_load,"$OUT/libwk_marker.a" $PROBE_LIBS &&
+        "$T/selref_dlopen" "$T/selref_dlopen_fixture.dylib"
+}
+
+probe_selref_dlopen_category() {
+    build_selref_object &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=selref_dlopen_category -o "$T/selref_dlopen_category" "$POLY/tests/mechanism/wk_selref_dlopen_category.m" \
+            "$OBJ/mech/wk_selref_scope.o" -Wl,-force_load,"$OUT/libwk_marker.a" $PROBE_LIBS &&
+        "$CLANG" $MODERN $INC -bundle -bundle_loader "$T/selref_dlopen_category" \
+            -o "$T/selref_dlopen_category_fixture.bundle" "$POLY/tests/mechanism/wk_selref_dlopen_category_fixture.m" -lobjc &&
+        "$T/selref_dlopen_category" "$T/selref_dlopen_category_fixture.bundle"
+}
+
 probe_coreimage_builtins() {
     prepare_method_objects CoreImage &&
         "$CLANG" $MODERN $INC -fno-objc-arc -Wno-four-char-constants -o "$T/coreimage_builtins" "$TBEHAV/CoreImage-builtins.m" \
@@ -1226,6 +1243,8 @@ run_probe cg_linear_srgb "$@"
 run_probe accelerate_converter_ramp "$@"
 run_probe cg_layer_context_colorspace "$@"
 run_probe coreimage_builtins "$@"
+run_probe selref_dlopen "$@"
+run_probe selref_dlopen_category "$@"
 run_probe cg_live_image "$@"
 run_probe cg_iosurface_image_reference "$@"
 run_probe cg_iosurface_premultiplied_sanitize "$@"

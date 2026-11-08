@@ -13,12 +13,12 @@
 // -[PDFPage drawWithBox:toContext:] (10.12+) via the classic -[PDFPage drawWithBox:] (10.4+), which
 // renders into the CURRENT NSGraphicsContext. Wrap the passed CGContext as current for the duration of
 // the draw, restoring the prior context after — the CTM the caller applied to `context` is honored.
-WK_POLYFILL_ADD_METHODS(PDFPage)
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "PDFPage")
 - (void)drawWithBox:(PDFDisplayBox)box toContext:(CGContextRef)context
 {
     NSGraphicsContext *priorContext = [NSGraphicsContext currentContext];
     [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:(void *)context flipped:NO]];
-    [self drawWithBox:box];
+    [(PDFPage *)self drawWithBox:box];
     [NSGraphicsContext setCurrentContext:priorContext];
 }
 @end
@@ -30,7 +30,7 @@ WK_POLYFILL_ADD_METHODS(PDFPage)
 // itself: a PDFAnnotationLink resolves to its own real -URL/-destination, every other annotation class
 // falls to these base-class bodies, whose truthful answer is nil (a non-link annotation has no link
 // target). WKPrintingView's printed-PDF link preservation walks annotations exactly this way.
-WK_POLYFILL_ADD_METHODS(PDFAnnotation)
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "PDFAnnotation")
 - (NSURL *)URL { return nil; }
 - (PDFDestination *)destination { return nil; }
 @end
@@ -173,7 +173,7 @@ static id wk_objectFromPDFObject(CGPDFObjectRef object, CFMutableSetRef path)
     return nil;
 }
 
-WK_POLYFILL_ADD_METHODS(PDFAnnotation)
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "PDFAnnotation")
 - (id)valueForAnnotationKey:(PDFAnnotationKey)key
 {
     if (![key length])
@@ -182,29 +182,22 @@ WK_POLYFILL_ADD_METHODS(PDFAnnotation)
     // The API's key is PDF name syntax; the file's dictionary is keyed by the bare name.
     NSString *bareKey = [key hasPrefix:@"/"] ? [key substringFromIndex:1] : key;
 
-    if ([self respondsToSelector:@selector(sourceDictionary)]) {
-        CGPDFDictionaryRef dictionary = [self sourceDictionary];
-        CGPDFObjectRef object = NULL;
-        if (dictionary && CGPDFDictionaryGetObject(dictionary, [bareKey UTF8String], &object)) {
-            CFMutableSetRef path = CFSetCreateMutable(kCFAllocatorDefault, 0, NULL);
-            id value = wk_objectFromPDFObject(object, path);
-            CFRelease(path);
-            if (value)
-                return value;
-        }
+    CGPDFDictionaryRef sourceDictionary = [(PDFAnnotation *)self sourceDictionary];
+    CGPDFObjectRef object = NULL;
+    if (sourceDictionary && CGPDFDictionaryGetObject(sourceDictionary, [bareKey UTF8String], &object)) {
+        CFMutableSetRef path = CFSetCreateMutable(kCFAllocatorDefault, 0, NULL);
+        id value = wk_objectFromPDFObject(object, path);
+        CFRelease(path);
+        if (value)
+            return value;
     }
 
-    if ([self respondsToSelector:@selector(dictionaryRef)]) {
-        NSDictionary *dictionary = (NSDictionary *)[self dictionaryRef];
-        if ([dictionary isKindOfClass:[NSDictionary class]]) {
-            id value = [dictionary objectForKey:key];
-            if (value)
-                return value;
-        }
-    }
+    id value = [(NSDictionary *)[(PDFAnnotation *)self dictionaryRef] objectForKey:key];
+    if (value)
+        return value;
 
     if ([bareKey isEqualToString:@"Subtype"]) {
-        NSString *type = [self type];
+        NSString *type = [(PDFAnnotation *)self type];
         return type ? [@"/" stringByAppendingString:type] : nil;
     }
 
@@ -216,10 +209,10 @@ WK_POLYFILL_ADD_METHODS(PDFAnnotation)
 // -[PDFView documentScrollView]: the scroll view PDFKit builds inside a PDFView to host its pages.
 // 10.9's PDFView builds it at init (a PDFViewScrollView around -documentView), so it is the document
 // view's enclosing scroll view. WebKitLegacy's WebPDFView observes that scroll view's clip view.
-WK_POLYFILL_ADD_METHODS(PDFView)
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "PDFView")
 - (NSScrollView *)documentScrollView
 {
-    return [[self documentView] enclosingScrollView];
+    return [[(PDFView *)self documentView] enclosingScrollView];
 }
 @end
 

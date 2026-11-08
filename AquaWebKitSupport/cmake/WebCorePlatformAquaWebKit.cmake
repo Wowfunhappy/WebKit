@@ -27,6 +27,11 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 # WebCore.xcconfig and WebKit.xcconfig each pass -weak-lwebrtc.
 list(REMOVE_ITEM WebCore_LIBRARIES webrtc)
 
+# Upstream's Mac CMake links the Quartz umbrella, which loads QuartzComposer, ImageKit, QuickLookUI,
+# QuartzFilters and PDFKit into every process that links WebCore. The Cocoa build links none of it:
+# WebCore soft-links PDFKit and QuickLookUI out of the umbrella when it first uses them.
+list(REMOVE_ITEM WebCore_LIBRARIES ${QUARTZ_LIBRARY})
+
 # The imported LibXslt target pairs with vendored libxml2; the SDK weak lookup selects system libxslt.
 macro(_AQUAWEBKIT_FINALIZE_WEBCORE_TARGET _target)
     get_target_property(_aquawebkit_webcore_link_options ${_target} LINK_OPTIONS)
