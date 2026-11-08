@@ -166,7 +166,7 @@ probe_date_components_formatter() {
 
 probe_declared_types() {
     "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/declared_types" "$TBEHAV/UniformTypeIdentifiers-declared-types.m" \
-        -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
+        $PROBE_LIBS -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" &&
         "$T/declared_types"
 }
 

@@ -12,6 +12,8 @@ extern CFArrayRef _UTTypeCopyAllTagsWithClass(CFStringRef inUTI, CFStringRef inT
 // Every type identifier LaunchServices has a declaration for, also exported only under its private
 // spelling on this OS. Used by +_enumerateAllDeclaredTypesUsingBlock: below.
 extern CFArrayRef _UTCopyDeclaredTypeIdentifiers(void);
+// The identifiers a type directly conforms to, from LaunchServices' database. Used by -_parentTypes below.
+extern CFArrayRef UTTypeCopyParentIdentifiers(CFStringRef inUTI);
 
 // The types this OS's LaunchServices does not declare: see wk_declared_types.h. The class answers every
 // question about those types from that table and every other type from LaunchServices.
@@ -180,16 +182,15 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     return t;
 }
 // -tags (11.0+): the type's tags, keyed by tag class. MIMETypeRegistry::preferredExtensionForMIMEType
-// indexes it with UTTagClassFilenameExtension and PlatformPasteboardMac with com.apple.nspboard-type. A
-// type LaunchServices declares answers every tag class of its declaration's UTTypeTagSpecification, each as
-// an array (a declaration may give a single string), and a wk_declared_types.h type LaunchServices declares
-// without a MIME type (the fonts) adds the table's. A table type LaunchServices does not declare answers
-// from the table; any other identifier (a dynamic one) answers its extension and MIME type tags.
+// indexes it with UTTagClassFilenameExtension and PlatformPasteboardMac with com.apple.nspboard-type. The
+// four tag classes LaunchServices defines come from its database, each as an array, which answers the same
+// in any process; a declaration LaunchServices can read back adds any other tag class it carries, and
+// wk_declared_types.h supplies the extension and MIME type of its types where LaunchServices has none (the
+// HEIF family, and the fonts' MIME types).
 - (NSDictionary *)tags
 {
     if (!_identifier) return [NSDictionary dictionary];
     NSMutableDictionary *tags = [NSMutableDictionary dictionary];
-    const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
     CFDictionaryRef declaration = UTTypeCopyDeclaration((__bridge CFStringRef)_identifier);
     if (declaration) {
         CFTypeRef specification = CFDictionaryGetValue(declaration, kUTTypeTagSpecificationKey);
@@ -203,29 +204,23 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
             }
         }
         CFRelease(declaration);
-        if (declared && declared->mimeType && ![tags objectForKey:@"public.mime-type"])
-            [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->mimeType] forKey:@"public.mime-type"];
-        return tags;
     }
-    if (declared) {
-        if (declared->filenameExtension)
-            [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->filenameExtension] forKey:@"public.filename-extension"];
-        if (declared->mimeType)
-            [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->mimeType] forKey:@"public.mime-type"];
-        return tags;
+    CFStringRef tagClasses[] = { kUTTagClassFilenameExtension, kUTTagClassMIMEType, kUTTagClassNSPboardType, kUTTagClassOSType };
+    for (size_t i = 0; i < sizeof(tagClasses) / sizeof(tagClasses[0]); i++) {
+        NSString *tagClass = (__bridge NSString *)tagClasses[i];
+        [tags removeObjectForKey:tagClass];
+        CFArrayRef values = _UTTypeCopyAllTagsWithClass((__bridge CFStringRef)_identifier, tagClasses[i]);
+        if (!values)
+            continue;
+        if (CFArrayGetCount(values))
+            [tags setObject:[NSArray arrayWithArray:(__bridge NSArray *)values] forKey:tagClass];
+        CFRelease(values);
     }
-    CFArrayRef extensions = _UTTypeCopyAllTagsWithClass((__bridge CFStringRef)_identifier, kUTTagClassFilenameExtension);
-    if (extensions) {
-        if (CFArrayGetCount(extensions))
-            [tags setObject:(__bridge NSArray *)extensions forKey:@"public.filename-extension"];
-        CFRelease(extensions);
-    }
-    CFArrayRef mimeTypes = _UTTypeCopyAllTagsWithClass((__bridge CFStringRef)_identifier, kUTTagClassMIMEType);
-    if (mimeTypes) {
-        if (CFArrayGetCount(mimeTypes))
-            [tags setObject:(__bridge NSArray *)mimeTypes forKey:@"public.mime-type"];
-        CFRelease(mimeTypes);
-    }
+    const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
+    if (declared && declared->filenameExtension && ![tags objectForKey:@"public.filename-extension"])
+        [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->filenameExtension] forKey:@"public.filename-extension"];
+    if (declared && declared->mimeType && ![tags objectForKey:@"public.mime-type"])
+        [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->mimeType] forKey:@"public.mime-type"];
     return tags;
 }
 - (BOOL)conformsToType:(UTType *)other
@@ -265,17 +260,15 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 // typeIdentifierForPasteboardType. Without them, Safari raises NSInvalidArgumentException on copy.
 //
 // These are the same two questions the C UTTypeIsDeclared/UTTypeIsDynamic answer, and they are
-// implemented the same way here so this layer cannot disagree with itself — see the note there.
-// "declared" is LaunchServices' answer (UTTypeCopyDeclaration, present on 10.9), not the "dyn."
-// prefix: the prefix test called public.webp declared, and on this host it is not, which is exactly
-// what canWritePasteboardType asks about.
+// implemented the same way here so this layer cannot disagree with itself — see the note there:
+// "declared" is LaunchServices knowing a bundle that declares the type (UTTypeCopyDeclaringBundleURL).
 - (BOOL)isDeclared
 {
     if (!_identifier) return NO;
     if (wkDeclaredTypeWithIdentifier(_identifier)) return YES;
-    CFDictionaryRef declaration = UTTypeCopyDeclaration((__bridge CFStringRef)_identifier);
-    if (!declaration) return NO;
-    CFRelease(declaration);
+    CFURLRef declaringBundle = UTTypeCopyDeclaringBundleURL((__bridge CFStringRef)_identifier);
+    if (!declaringBundle) return NO;
+    CFRelease(declaringBundle);
     return YES;
 }
 // A dynamic UTI is by construction one LaunchServices synthesised under the "dyn." prefix, so the
@@ -287,32 +280,25 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 }
 // _parentTypes (11.0+ SPI, pal/spi/cocoa/UniformTypeIdentifiersSPI.h): the types this type directly
 // conforms to. UTIUtilities' mimeTypeFromUTITree walks it when a type is neither declared nor dynamic.
-// Answered from the LaunchServices declaration's kUTTypeConformsToKey (a single identifier or an array
-// of them) — the same registry the modern framework reads. No declaration means no known parents, and
-// nil is what the caller's walk expects then.
+// Answered from LaunchServices' database (UTTypeCopyParentIdentifiers), which answers the same in any
+// process; a type it knows no parents for answers nil, which is what the caller's walk expects then.
 - (NSOrderedSet *)_parentTypes
 {
     if (!_identifier) return nil;
     const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
     if (declared)
         return [NSOrderedSet orderedSetWithObject:[UTType typeWithIdentifier:(__bridge NSString *)declared->conformsTo]];
-    CFDictionaryRef declaration = UTTypeCopyDeclaration((__bridge CFStringRef)_identifier);
-    if (!declaration) return nil;
-    CFTypeRef conformsTo = CFDictionaryGetValue(declaration, kUTTypeConformsToKey);
+    CFArrayRef identifiers = UTTypeCopyParentIdentifiers((__bridge CFStringRef)_identifier);
+    if (!identifiers) return nil;
     NSMutableOrderedSet *parents = [NSMutableOrderedSet orderedSet];
-    NSArray *identifiers = nil;
-    if (conformsTo && CFGetTypeID(conformsTo) == CFStringGetTypeID())
-        identifiers = [NSArray arrayWithObject:(__bridge NSString *)conformsTo];
-    else if (conformsTo && CFGetTypeID(conformsTo) == CFArrayGetTypeID())
-        identifiers = (__bridge NSArray *)conformsTo;
-    for (id identifier in identifiers) {
+    for (id identifier in (__bridge NSArray *)identifiers) {
         if (![identifier isKindOfClass:[NSString class]])
             continue;
         UTType *parent = [UTType typeWithIdentifier:identifier];
         if (parent)
             [parents addObject:parent];
     }
-    CFRelease(declaration);
+    CFRelease(identifiers);
     return parents;
 }
 // _enumerateAllDeclaredTypesUsingBlock: (11.0+ SPI, pal/spi/cocoa/UniformTypeIdentifiersSPI.h): every

@@ -8,19 +8,21 @@
 #include <CoreServices/CoreServices.h>
 
 // LaunchServices UTType predicates added after 10.9 (10.9's LaunchServices has the rest of the UTType
-// API — UTTypeConformsTo/UTTypeCopyPreferredTagWithClass/UTTypeCopyDeclaration/etc. — but not these
-// two). Both questions ARE answerable on 10.9, so ask LaunchServices rather than guessing:
+// API — UTTypeConformsTo/UTTypeCopyPreferredTagWithClass/UTTypeCopyDeclaringBundleURL/etc. — but not
+// these two). Both questions ARE answerable on 10.9, so ask LaunchServices rather than guessing:
 //
-//   declared — UTTypeCopyDeclaration returns the declaring bundle's UTI declaration, and nil for a UTI
-//     no installed bundle declares. That is what "declared" means, and it is not a heuristic: on this
-//     host public.png/public.jpeg/com.adobe.pdf are declared while public.webp, public.heic and
-//     public.avif are NOT, which no name-shaped rule predicts.
+//   declared — UTTypeCopyDeclaringBundleURL names the bundle that declares a UTI, and nil for one no
+//     installed bundle declares: on this host public.png and com.adobe.pdf are declared while
+//     public.webp, public.heic and public.avif are not. LaunchServices answers it from its database,
+//     like the type's tags and conformance; the declaration itself (UTTypeCopyDeclaration) it reads from
+//     the declaring bundle's Info.plist, which a sandboxed process may not open (Xcode.app declares
+//     public.css here), and which some declaring bundles do not answer for (public.cd-media).
 //   dynamic — a dynamic UTI is by construction one LaunchServices synthesised under the "dyn." prefix
 //     (UTTypeCreatePreferredIdentifierForTag mints them), so the prefix IS the test.
 //
 // -[UTType isDeclared]/-[UTType isDynamic] in classes/UniformTypeIdentifiers.m ask LaunchServices the same
 // way, and also answer declared for the modern types that class declares itself (the HEIF family).
-WK_SYSTEM_FN("CoreServices", CFDictionaryRef, UTTypeCopyDeclaration, (CFStringRef));
+WK_SYSTEM_FN("CoreServices", CFURLRef, UTTypeCopyDeclaringBundleURL, (CFStringRef));
 
 WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDynamic, (CFStringRef inUTI))
 {
@@ -31,10 +33,10 @@ WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDeclared, (CFStringRef inUTI
 {
     if (!inUTI)
         return false;
-    CFDictionaryRef declaration = WK_SYSTEM(UTTypeCopyDeclaration)(inUTI);
-    if (!declaration)
+    CFURLRef declaringBundle = WK_SYSTEM(UTTypeCopyDeclaringBundleURL)(inUTI);
+    if (!declaringBundle)
         return false;
-    CFRelease(declaration);
+    CFRelease(declaringBundle);
     return true;
 }
 
