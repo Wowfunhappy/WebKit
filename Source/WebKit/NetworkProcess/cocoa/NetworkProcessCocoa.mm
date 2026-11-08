@@ -309,9 +309,10 @@ void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHa
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
     // AQUAWEBKIT: this port's HSTS policies live in its own store, which a serial queue writes, so
-    // the flush that carries the session's cookies to disk before the process suspends carries its
-    // policies too. The store answers on the main thread once its queue has drained, which keeps the
-    // queue's wait for the directory's cross-process lock off this thread.
+    // the flush that carries the session's cookies to disk before the process suspends or closes
+    // carries its policies too. The store writes the policies it holds on that queue and answers on
+    // the main thread, which keeps the write's wait for the directory's cross-process lock off this
+    // thread.
     auto aggregator = CallbackAggregator::create(WTF::move(completionHandler));
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(networkSession(sessionID)))
         session->httpStrictTransportSecurityStore().flush([aggregator] { });

@@ -199,6 +199,7 @@
 #import <WebCore/HTMLOListElement.h>
 #import <WebCore/HTMLUListElement.h>
 #import <WebCore/HTMLVideoElement.h>
+#import <WebCore/HTTPStrictTransportSecurityStore.h> // AQUAWEBKIT: flushed at termination.
 #import <WebCore/HistoryController.h>
 #import <WebCore/HistoryItem.h>
 #import <WebCore/JSCSSStyleDeclaration.h>
@@ -5463,6 +5464,10 @@ IGNORE_WARNINGS_END
         [WebPluginDatabase closeSharedDatabase];
 
     WebKit::WebStorageNamespaceProvider::closeLocalStorage();
+
+    // AQUAWEBKIT: this port's HSTS store writes the policies it receives in batches, so the batch in
+    // hand reaches the file before the process exits, as local storage's does above.
+    WebCore::HTTPStrictTransportSecurityStore::flushAll();
 }
 #endif // !PLATFORM(IOS_FAMILY)
 
