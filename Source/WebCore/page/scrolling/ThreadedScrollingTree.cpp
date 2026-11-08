@@ -578,7 +578,10 @@ void ThreadedScrollingTree::displayDidRefreshOnScrollingThread()
 
     switch (m_state) {
     case SynchronizationState::Idle: {
-        if (m_renderingUpdateWasScheduled) {
+        // AQUAWEBKIT: a pending scroll update means a rendering update follows as soon as the main thread runs, so a
+        // main thread busy in script hands layer positions to this thread the same way a scheduled update does.
+        // if (m_renderingUpdateWasScheduled) {
+        if (m_renderingUpdateWasScheduled || hasPendingScrollUpdates()) {
             m_state = SynchronizationState::WaitingForRenderingUpdate;
             constexpr auto maxStartRenderingUpdateDelay = 1_ms;
             scheduleDelayedRenderingUpdateDetectionTimer(maxStartRenderingUpdateDelay);
