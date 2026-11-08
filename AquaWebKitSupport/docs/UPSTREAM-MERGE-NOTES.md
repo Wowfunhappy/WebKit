@@ -34,6 +34,17 @@ lists every `SDKAlignedBehavior` in enum order, for apps' Info.plist overrides
 removes or reorders an entry. Update the table to match the enum, and gate any new upstream behavior that
 Apple's internal additions hold in the same file.
 
+## The user agent's Safari version
+
+The user agent names the Safari release that shipped the merged WebKit version. The first configure after
+a merge changes `Configurations/Version.xcconfig`, so `AquaWebKitSupport/scripts/safari-version.py`
+looks the new version up in Apple's [Safari Release Notes](https://developer.apple.com/documentation/safari-release-notes)
+index and in the Safari packages of Apple's software update catalog, and rewrites
+`AquaWebKitSupport/cmake/SafariVersion.txt`; commit that file with the merge. The catalog keeps only each
+OS's newest Safari, and that file keeps a past lookup. Configure fails while neither record lists a
+release for the version, so merge a release line once Apple has shipped it. When two releases list the
+same build, the script prints both and takes the higher.
+
 ## New `USE(GLIB)` blocks that assume GLib *is* the platform
 
 We define `USE(GLIB)` for gstreamer, but mostly use Cocoa APIs. Be mindful of any new or changed `#if USE(GLIB)` blocks which activate on Cocoa and either won't compile or displace a Cocoa subsystem we need.

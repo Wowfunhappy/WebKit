@@ -73,7 +73,7 @@ set(ICU_UC_LIBRARY   "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH
 set(ICU_DATA_LIBRARY "${AQUAWEBKIT_DEPS}/lib/libicucore.78.dylib" CACHE FILEPATH "" FORCE)
 
 # Bundle versions are Version.xcconfig's Production ones: the system version prefix, x for macOS 10.x,
-# before FULL_VERSION, and the prefix before MAJOR_VERSION for the short version (9625.1.29.11.27 and
+# before FULL_VERSION, and the prefix before MAJOR_VERSION for the short version (9625.2.8.11.9 and
 # 9625 on 10.9). The frameworks take them from CMake's MACOSX_FRAMEWORK_* variables, and the XPC
 # services from WEBKIT_VERSION and WEBKIT_VERSION_MAJOR.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/Configurations/Version.xcconfig")
@@ -91,17 +91,34 @@ set(MACOSX_FRAMEWORK_SHORT_VERSION_STRING "${_aquawebkit_system_version_prefix}$
 set(WEBKIT_VERSION "${MACOSX_FRAMEWORK_BUNDLE_VERSION}")
 set(WEBKIT_VERSION_MAJOR "${MACOSX_FRAMEWORK_SHORT_VERSION_STRING}")
 
-# The Safari release a WebKit version ships in, which the user agent names. Each Safari major spans
-# three WebKit majors, and MINOR_VERSION counts the point releases from that major's first:
-# 7622.1 = 26.0, 7622.2 = 26.1, 7623.1 = 26.2, 7624.3 = 26.6, 7625.1 = 27.0, 7625.2 = 27.1.
-math(EXPR _aquawebkit_safari_major "26 + (${_aquawebkit_MAJOR} - 622) / 3")
-math(EXPR _aquawebkit_safari_minor "2 * ((${_aquawebkit_MAJOR} - 622) % 3) + ${_aquawebkit_MINOR} - 1")
+# The Safari release this WebKit version shipped in, which the user agent names. Apple records it in the
+# Safari Release Notes index and the software update catalog; SafariVersion.txt holds the WebKit version
+# and the release scripts/safari-version.py found there for it, looked up again when Version.xcconfig moves.
+set(_aquawebkit_full_version "${_aquawebkit_MAJOR}.${_aquawebkit_MINOR}.${_aquawebkit_TINY}.${_aquawebkit_MICRO}.${_aquawebkit_NANO}")
+set(_aquawebkit_safari_version_file "${CMAKE_SOURCE_DIR}/AquaWebKitSupport/cmake/SafariVersion.txt")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_aquawebkit_safari_version_file}")
+set(_aquawebkit_safari_record "")
+if (EXISTS "${_aquawebkit_safari_version_file}")
+    file(STRINGS "${_aquawebkit_safari_version_file}" _aquawebkit_safari_record LIMIT_COUNT 1)
+endif ()
+if (_aquawebkit_safari_record MATCHES "^([0-9.]+) ([0-9.]+)$" AND CMAKE_MATCH_1 STREQUAL _aquawebkit_full_version)
+    set(_aquawebkit_safari_version "${CMAKE_MATCH_2}")
+else ()
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/AquaWebKitSupport/scripts/safari-version.py" "${_aquawebkit_full_version}"
+        OUTPUT_VARIABLE _aquawebkit_safari_version
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _aquawebkit_safari_lookup_result)
+    if (NOT _aquawebkit_safari_lookup_result EQUAL 0)
+        message(FATAL_ERROR "No Safari release found for WebKit ${_aquawebkit_full_version}; the user agent names one.")
+    endif ()
+    file(WRITE "${_aquawebkit_safari_version_file}" "${_aquawebkit_full_version} ${_aquawebkit_safari_version}\n")
+endif ()
 file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/AquaWebKitSafariVersion.h"
-    CONTENT "#define AQUAWEBKIT_SAFARI_VERSION \"${_aquawebkit_safari_major}.${_aquawebkit_safari_minor}\"\n")
-unset(_aquawebkit_safari_major)
-unset(_aquawebkit_safari_minor)
+    CONTENT "#define AQUAWEBKIT_SAFARI_VERSION \"${_aquawebkit_safari_version}\"\n")
 
-foreach (_part IN ITEMS version_lines MAJOR MINOR TINY MICRO NANO system_version_prefix)
+foreach (_part IN ITEMS version_lines MAJOR MINOR TINY MICRO NANO system_version_prefix full_version
+         safari_version_file safari_record safari_version safari_lookup_result)
     unset(_aquawebkit_${_part})
 endforeach ()
 unset(_line)
