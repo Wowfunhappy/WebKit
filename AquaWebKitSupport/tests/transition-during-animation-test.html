@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>transition during animation</title>
+<style>
+body { font: 15px Helvetica, sans-serif; margin: 30px; }
+#target { display: inline-block; padding: 4px; font-size: 28px; color: black; text-decoration: none;
+          transition: all .2s ease-in-out; }
+#target.hover { background-image: linear-gradient(red, red); background-repeat: no-repeat; background-size: 100% 2px;
+                background-position: bottom 5px left 0; animation: draw-underline ease-in-out 300ms 1; }
+@keyframes draw-underline { 0% { background-position: bottom 5px left -160px; } 100% { background-position: bottom 5px left 0; } }
+#banner { margin: 20px 0; padding: 10px; font-weight: bold; }
+pre { font: 12px Menlo, monospace; }
+</style>
+</head>
+<body>
+<p>The projectzero.google navigation underline (github #218): <code>transition: all</code> on a link whose hover state
+starts a keyframe animation of <code>background-position</code>. Click Run, or wait two seconds. The underline should
+end at the bottom of the link; the log shows <code>background-position-y</code> on every frame.</p>
+<a id="target" href="#" onclick="return false">projects</a>
+<button onclick="run()">Run</button>
+<div id="banner">waiting</div>
+<pre id="log"></pre>
+<script>
+function run() {
+    var target = document.getElementById('target');
+    target.classList.remove('hover');
+    getComputedStyle(target).backgroundPositionY;
+    var rows = [], start = performance.now(), worst = null;
+    target.classList.add('hover');
+    function frame() {
+        var elapsed = performance.now() - start;
+        var style = getComputedStyle(target);
+        rows.push(Math.round(elapsed) + ' ms  y=' + style.backgroundPositionY + '  x=' + style.backgroundPositionX);
+        if (elapsed > 300 && elapsed < 480 && style.backgroundPositionY != 'calc(100% - 5px)' && !worst)
+            worst = Math.round(elapsed) + ' ms: ' + style.backgroundPositionY;
+        if (elapsed < 600) {
+            requestAnimationFrame(frame);
+            return;
+        }
+        var banner = document.getElementById('banner');
+        banner.textContent = worst ? 'JUMP: background-position-y after the animation ended was ' + worst
+                                   : 'STEADY: background-position-y stayed calc(100% - 5px) after the animation ended';
+        banner.style.background = worst ? '#fcc' : '#cfc';
+        document.title = worst ? 'JUMP' : 'STEADY';
+        document.getElementById('log').textContent = navigator.userAgent + '\n' + rows.join('\n');
+    }
+    requestAnimationFrame(frame);
+}
+setTimeout(run, 2000);
+</script>
+</body>
+</html>
