@@ -14,6 +14,11 @@ fast/scrolling/mac/momentum-then-programmatic-missing-tiles.html [ Skip ]
 fast/scrolling/mac/scrollbars/select-overlay-scrollbar-hovered.html [ Skip ]
 fast/scrolling/mac/scrollbars/svg-foreign-object-overlay-scrollbar-hovered.html [ Skip ]
 
+# The expected dump needs the first caches.has("") to resolve before WKTR's immediate fullscreenchange; the
+# two IPC paths land 1 ms apart, and under a loaded run the fullscreen one can win. The crash it guards does
+# not occur.
+fast/html/crash-marquee-fullscreen.html [ Skip ]
+
 # Synchronous EventSender gestures race asynchronous StartDrag/DragEnded IPC.
 webkit.org/b/311928 fast/css/user-drag-none.html [ Skip ]
 
