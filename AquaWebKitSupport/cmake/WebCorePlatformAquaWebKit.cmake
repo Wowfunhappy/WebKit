@@ -948,8 +948,7 @@ list(REMOVE_ITEM WebCore_SOURCES
 )
 
 
-# upstream's 5051d18 moved TextIndicatorWindow to WebKitLegacy but left both files
-# in PlatformMac.cmake's lists, so the CMake Mac port names two paths WebCore no longer ships.
+# PlatformMac.cmake's lists name TextIndicatorWindow.{mm,h}, which live in WebKitLegacy.
 list(REMOVE_ITEM WebCore_SOURCES page/mac/TextIndicatorWindow.mm)
 list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS page/mac/TextIndicatorWindow.h)
 

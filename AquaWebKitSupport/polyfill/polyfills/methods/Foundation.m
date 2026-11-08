@@ -3272,16 +3272,13 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
 // This is the property with which CFNetwork streams a download STRAIGHT INTO the file the client
 // nominated, instead of into a private temp file it only reveals at completion. WebKit sets it in
 // NetworkDataTaskCocoa::setPendingDownloadLocation and Download::resume; 10.9's NSURLSession has no
-// such property, so the bytes went to /var/folders/.../CFNetworkDownload_XXXXXX.tmp and only arrived
-// at the destination once the download finished.
+// such property.
 //
-// That is not cosmetic on this port, because Safari 7 requires the partial file to exist WHILE the
-// download runs. It nominates <name>.download/<name> inside a bundle directory it creates itself
-// (its persisted DownloadEntryPath, e.g. ~/Downloads/bigfile.bin.download/bigfile.bin), and
-// -[DownloadProgressEntry resume] takes [[self downloadFile] path], requires -fileExistsAtPath: on
-// it, and hands that same path to -[WebDownload _initWithResumeInformation:delegate:path:] so
-// CFNetwork can append the rest. With the bytes in CFNetwork's temp file the bundle held nothing but
-// Info.plist, so resume was never even offered and "Show in Finder" reported the file had moved.
+// Safari 7 requires the partial file to exist WHILE the download runs. It nominates
+// <name>.download/<name> inside a bundle directory it creates itself (its persisted DownloadEntryPath,
+// e.g. ~/Downloads/bigfile.bin.download/bigfile.bin), and -[DownloadProgressEntry resume] takes
+// [[self downloadFile] path], requires -fileExistsAtPath: on it, and hands that same path to
+// -[WebDownload _initWithResumeInformation:delegate:path:] so CFNetwork can append the rest.
 //
 // 10.9 has the pieces to do exactly what the property does, and CFNetwork's own NSURLSession resume
 // path (-[__NSCFLocalDownloadTask initWithSession:resumeData:ident:bridge:]) uses them: a download

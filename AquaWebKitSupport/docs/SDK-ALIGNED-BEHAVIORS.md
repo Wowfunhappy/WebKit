@@ -41,8 +41,8 @@ the SDK check.
   reported on standard error (`AquaWebKitSDKAlignedBehaviors: …`) and ignored.
 - The key is read from the app's main bundle when WebKit first asks, which can be before
   `applicationDidFinishLaunching:`. Nothing needs to be called.
-- Upstream adds, renames and removes behaviors. After a WebKit update, check standard error for names
-  that no longer exist.
+- Upstream adds, renames and removes behaviors. After a WebKit update, check standard error for unknown
+  names.
 
 Some behaviors change what WebKit expects of the app rather than how pages behave. For example,
 `EnableUserScriptAndUserStyleInterning` shares one copy of each user script and user style sheet's

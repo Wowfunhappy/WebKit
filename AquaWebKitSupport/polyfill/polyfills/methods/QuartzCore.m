@@ -219,7 +219,7 @@ WK_POLYFILL_ADD_METHODS(CALayer)
 // throws NSInvalidArgumentException, which aborted Safari from TiledCoreAnimationDrawingAreaProxy::
 // createFence and permanently wedged window-resize propagation).
 //
-// 10.9's CoreAnimation has NO hook inside a commit. Audited on 10.9.5 (13F34): CATransaction's whole
+// 10.9's CoreAnimation has NO hook inside a commit. On 10.9.5 (13F34), CATransaction's whole
 // method list is +begin/+commit/+flush/+synchronize/+activate/+lock/+setCompletionBlock: and friends —
 // nothing phase-related — and QuartzCore exports no commit callback either; the commit itself is
 // CA::Transaction::commit, an internal C++ entry point. What IS observable is WHERE that commit happens:

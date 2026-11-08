@@ -1,7 +1,7 @@
 // Legacy WTF entry points for Safari 7.0.6 on macOS 10.9.5. Safari's WebKit binds
 // against the WTF C++ API of its era (currentTime, monotonicallyIncreasingTime, the
 // threadID-based thread calls, callOnMainThread/cancelCallOnMainThread, the
-// atomically-initialized static mutex, ...); modern WTF (615) no longer exports
+// atomically-initialized static mutex, ...); modern WTF does not export
 // these, so this unit defines them. Force-loaded into JavaScriptCore.
 
 #include <pthread.h>

@@ -46,8 +46,7 @@ macro(AQUAWEBKIT_FILTER_SOURCE_LIST _frameworkDir _listVar _listEntry _withheldV
         endif ()
     endforeach ()
 
-    # Every withheld entry must have matched an upstream line verbatim. A miss means upstream renamed,
-    # re-annotated or dropped that entry, and the withholding no longer says what it used to.
+    # Every withheld entry must match an upstream line verbatim.
     foreach (_aquaWebKitWithheld IN LISTS ${_withheldVar})
         list(FIND _aquaWebKitSeen "${_aquaWebKitWithheld}" _aquaWebKitFound)
         if (_aquaWebKitFound EQUAL -1)

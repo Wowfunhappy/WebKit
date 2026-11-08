@@ -6270,7 +6270,7 @@ static const wk_shaping_context *wk_shapingContext(CTFontRef font)
     return (const wk_shaping_context *)(void *)CFDataGetBytePtr(cached);
 }
 
-// CFLocale.h declares this on 10.9; the SDK's header no longer does.
+// 10.9's CFLocale.h declares this; the build SDK's does not.
 extern Boolean CFLocaleGetLanguageRegionEncodingForLocaleIdentifier(CFStringRef localeIdentifier, LangCode *languageCode,
     RegionCode *regionCode, ScriptCode *scriptCode, CFStringEncoding *stringEncoding);
 
