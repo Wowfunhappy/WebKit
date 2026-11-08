@@ -12,6 +12,12 @@ detection, `git merge-tree`, and wire protocol v2. Put it first on `PATH` for th
 export PATH="$PWD/AquaWebKitSupport/toolchain/build/git/bin:$PATH"
 ```
 
+## Merge the commit Apple shipped
+
+Merge the `.11` sub-branch commit of the Safari build the current macOS ships, not a branch tip that
+has moved past it. [SAFARI-RELEASE-BRANCHES.md](SAFARI-RELEASE-BRANCHES.md) describes the branches and
+how to find that commit.
+
 ## `AQUAWEBKIT` comments
 
 ```
