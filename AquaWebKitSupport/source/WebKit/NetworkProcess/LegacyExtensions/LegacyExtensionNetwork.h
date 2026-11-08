@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include "LegacyExtensionFilteredMultipart.h"
 #include "LegacyExtensionResponseFilter.h"
 #include "LegacyExtensionWebRequest.h"
 #include "MessageReceiver.h"
@@ -86,6 +87,7 @@ public:
     bool interceptRedirection(NetworkLoadChecker&, WebCore::ResourceRequest&, WebCore::ResourceRequest& redirectRequest, WebCore::ResourceResponse& redirectResponse, WebCore::ContentSecurityPolicyClient*, NetworkLoadChecker::RedirectionValidationHandler&);
     bool interceptResponse(NetworkResourceLoader&, WebCore::ResourceResponse&, PrivateRelayed, ResponseCompletionHandler&);
     bool interceptCachedResponse(NetworkResourceLoader&, std::unique_ptr<NetworkCache::Entry>&);
+    bool interceptCachedResponseHeaders(NetworkResourceLoader&, std::unique_ptr<NetworkCache::Entry>&);
     bool interceptWebSocket(NetworkConnectionToWebProcess&, const WebCore::ResourceRequest&, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, const WebCore::ClientOrigin&, Function<void()>&& createChannel);
     // A WebSocket waiting on the extensions has no channel yet: the web process closing it cancels the
     // wait, and its other channel messages have nothing to act on.
@@ -130,6 +132,10 @@ public:
     // True when a load that succeeded keeps its loader until its StreamFilters end the body, which then cleans it
     // up; a load that fails or is cancelled fails its filters.
     bool deferCleanup(NetworkResourceLoader&, NetworkResourceLoader::LoadResult);
+    // True when the web process lets go of a load whose StreamFilters ended the body it receives while the
+    // network still sends the response: the load goes on, kept alive, to the response's end, which reports its
+    // onCompleted or onErrorOccurred, as Firefox's channel goes on after its filter closes.
+    bool keepsLoadAfterFilteredBody(NetworkResourceLoader&) const;
     // A synchronous load's reply, which carries its whole body: its StreamFilters take the body and the reply
     // waits for their output.
     using SynchronousReply = CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse, Vector<uint8_t>&&)>;
@@ -176,6 +182,10 @@ private:
         Markable<WebCore::ResourceLoaderIdentifier> coreIdentifier;
         WeakPtr<NetworkResourceLoader> loader;
         RefPtr<LegacyExtensionResponseFilter> filter;
+        // Whether the response the web process receives has been seen, and for a multipart response, what splits
+        // the filters' output into its parts.
+        bool hasResponse { false };
+        RefPtr<LegacyExtensionFilteredMultipart> multipart;
         bool inputFinished { false };
         bool cleanupIsDeferred { false };
         uint64_t bytesTransferredOverNetwork { 0 };
@@ -191,6 +201,9 @@ private:
     RefPtr<FilteredResponse> filteredResponse(uint64_t filterID) const;
     void sendFilterEvent(uint64_t filterID, ASCIILiteral event, RefPtr<WebCore::SharedBuffer>&&, const String& error);
     void outputFilteredResponse(uint64_t requestIdentifier, RefPtr<WebCore::SharedBuffer>&&);
+    void deliverFilteredOutput(FilteredResponse&, NetworkResourceLoader&, RefPtr<WebCore::SharedBuffer>&&);
+    LegacyExtensionMultipartSplit splitFilteredMultipart(FilteredResponse&, NetworkResourceLoader&, const WebCore::ResourceResponse&);
+    bool interceptResponseHeaders(NetworkResourceLoader&, WebCore::ResourceResponse&, PrivateRelayed, ResponseCompletionHandler&);
     void removeFilteredResponse(FilteredResponse&);
     bool hasOption(ASCIILiteral eventName, ASCIILiteral option) const { return m_listeners.hasOption(eventName, option); }
     RefPtr<NetworkDataTaskCurlCocoa> curlTask(NetworkResourceLoader&);
@@ -258,6 +271,15 @@ private:
     WeakHashSet<NetworkResourceLoader> m_resumingResponses;
     WeakHashSet<NetworkResourceLoader> m_resumingCacheEntries;
     WeakHashMap<NetworkResourceLoader, String> m_loadErrors;
+    // The response each load's header events reported, and their fromCache, which its onCompleted or
+    // onErrorOccurred reports: a cached response, or the network's first response, before any later part of a
+    // multipart response.
+    struct ReportedResponse {
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ReportedResponse);
+        WebCore::ResourceResponse response;
+        bool fromCache { false };
+    };
+    WeakHashMap<NetworkResourceLoader, std::unique_ptr<ReportedResponse>> m_reportedResponses;
     WeakHashMap<NetworkConnectionToWebProcess, HashSet<uint64_t>> m_pendingWebSockets;
     WeakHashMap<NetworkConnectionToWebProcess, HashMap<uint64_t, RefPtr<WebCore::LegacyWebSocketHandshake>>> m_webSocketHandshakes;
     // Keyed by the load's request identifier, and each filter's to its load's.

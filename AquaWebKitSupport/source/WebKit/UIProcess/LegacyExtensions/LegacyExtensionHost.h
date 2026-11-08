@@ -243,11 +243,13 @@ private:
     };
 
     // A StreamFilter: the host context that attached it, which names it `contextFilterID`, the network process
-    // whose load it filters, and how many of its data events the context has dispatched.
+    // whose load it filters, or a WebKit 1 view's load (LegacyExtensionViewNetwork), and how many of its data
+    // events the context has dispatched.
     struct ResponseFilter {
         uint64_t hostContextIdentifier { 0 };
         String contextFilterID;
         WeakPtr<NetworkProcessProxy> networkProcess;
+        bool filtersViewLoad { false };
         uint64_t dispatched { 0 };
     };
 

@@ -84,6 +84,10 @@ public:
     void storeHeldCookies(std::optional<Vector<String>>&& = std::nullopt);
     void discardHeldCookies() { m_heldCookies = std::nullopt; }
 
+    // The body reaches the client as the network sends it, a multipart response's parts unsplit, for Safari 7
+    // extensions' StreamFilters. False once the parser has read some of the body.
+    bool deliverUnsplitBody();
+
 private:
     NetworkDataTaskCurlCocoa(NetworkSession&, NetworkDataTaskClient&, const NetworkLoadParameters&);
     // native cookie policy runs before internal curl authentication exchanges.
@@ -174,6 +178,8 @@ private:
     bool m_proxyResponseApproved { false };
     RefPtr<CurlNetworkScheduler> m_scheduler;
     std::unique_ptr<WebCore::CurlMultipartHandle> m_multipart;
+    bool m_deliversUnsplitBody { false };
+    bool m_hasSplitBody { false };
     bool m_waitingForMultipartPolicy { false };
     // The connection's delivery is held while a response published after body bytes awaits policy.
     bool m_holdsDelivery { false };

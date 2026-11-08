@@ -885,7 +885,7 @@ void NetworkDataTaskCurlCocoa::decidePolicy(PolicyAction policy)
         download->didCreateDestination(m_pendingDownloadLocation);
     }
     m_useResponse = true;
-    if (!m_isDownloadSink)
+    if (!m_isDownloadSink && !m_deliversUnsplitBody)
         m_multipart = createCocoaCurlMultipartHandle(*this, m_response);
     if (!m_sniffPrefix.isEmpty()) {
         RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, prefix = SharedBuffer::create(std::exchange(m_sniffPrefix, { }))] {
@@ -916,6 +916,7 @@ void NetworkDataTaskCurlCocoa::deliverData(const SharedBuffer& data)
         if (auto download = m_session->networkProcess().downloadManager().download(*m_pendingDownloadID))
             download->didReceiveData(*written, m_downloadedBytes, m_downloadExpectedBytes);
     } else if (m_multipart) {
+        m_hasSplitBody = true;
         m_multipart->didReceiveMessage(data.span());
         if (m_multipart->hasError())
             finish(NSURLErrorCannotParseResponse, "Invalid multipart response"_s);
@@ -923,6 +924,15 @@ void NetworkDataTaskCurlCocoa::deliverData(const SharedBuffer& data)
         client->didReceiveData(data);
     else
         cancel();
+}
+
+bool NetworkDataTaskCurlCocoa::deliverUnsplitBody()
+{
+    if (m_hasSplitBody)
+        return false;
+    m_deliversUnsplitBody = true;
+    m_multipart = nullptr;
+    return true;
 }
 
 void NetworkDataTaskCurlCocoa::holdDelivery()
@@ -934,21 +944,7 @@ void NetworkDataTaskCurlCocoa::holdDelivery()
 
 void NetworkDataTaskCurlCocoa::didReceiveHeaderFromMultipart(Vector<String>&& fields)
 {
-    ResourceResponse response = m_response;
-    for (const auto& field : fields) {
-        auto colon = field.find(':');
-        if (colon == notFound)
-            continue;
-        auto name = field.left(colon);
-        auto value = field.substring(colon + 1).trim(deprecatedIsSpaceOrNewline);
-        if (!isValidHTTPToken(name) || !isValidHTTPHeaderValue(value)) {
-            finish(NSURLErrorCannotParseResponse, "Invalid multipart header"_s);
-            return;
-        }
-        response.setHTTPHeaderField(name, value);
-    }
-    auto contentType = response.httpHeaderField(HTTPHeaderName::ContentType);
-    setCocoaCurlContentType(response, contentType);
+    auto response = cocoaCurlMultipartPartResponse(m_response, fields);
     m_waitingForMultipartPolicy = true;
     holdDelivery();
     // The parser enters WaitingForHeaderProcessing after returning from this callback.

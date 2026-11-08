@@ -5,6 +5,7 @@
 #include "config.h"
 #include "CocoaCurlMultipartHandle.h"
 
+#include "CocoaCurlTransfer.h"
 #include "ParsedContentType.h"
 #include "ResourceResponse.h"
 #include <wtf/StdLibExtras.h>
@@ -22,6 +23,22 @@ std::unique_ptr<CurlMultipartHandle> createCocoaCurlMultipartHandle(CurlMultipar
     if (boundary.isEmpty())
         return nullptr;
     return makeUnique<CurlMultipartHandle>(client, makeString("--"_s, boundary).latin1());
+}
+
+ResourceResponse cocoaCurlMultipartPartResponse(const ResourceResponse& multipartResponse, const Vector<String>& headerLines)
+{
+    ResourceResponse response = multipartResponse;
+    for (auto& line : headerLines) {
+        auto field = line.trim([](auto c) { return c == '\r' || c == '\n'; });
+        auto colon = field.find(':');
+        if (colon == notFound)
+            continue;
+        auto name = field.left(colon);
+        auto value = field.substring(colon + 1).trim([](auto c) { return c == ' ' || c == '\t'; });
+        response.setHTTPHeaderField(name, value);
+    }
+    setCocoaCurlContentType(response, response.httpHeaderField(HTTPHeaderName::ContentType));
+    return response;
 }
 
 } // namespace WebCore

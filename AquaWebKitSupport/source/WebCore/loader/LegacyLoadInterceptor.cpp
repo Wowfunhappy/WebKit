@@ -2,6 +2,7 @@
 #include "LegacyLoadInterceptor.h"
 
 #include "ResourceHandle.h"
+#include "ResourceHandleInternal.h"
 #include "ResourceLoader.h"
 
 namespace WebCore {
@@ -37,6 +38,14 @@ void LegacyLoadInterceptor::stopNetworkLoad(ResourceLoader& loader)
         handle->clearClient();
         handle->cancel();
     }
+}
+
+RefPtr<ResourceHandle> LegacyLoadInterceptor::takeNetworkLoad(ResourceLoader& loader, ResourceHandleClient& client)
+{
+    RefPtr handle = std::exchange(loader.m_handle, nullptr);
+    if (handle)
+        handle->d->m_client = &client;
+    return handle;
 }
 
 } // namespace WebCore

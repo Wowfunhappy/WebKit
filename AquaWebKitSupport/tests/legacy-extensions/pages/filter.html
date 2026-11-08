@@ -5,7 +5,10 @@
      Results collect in window.__results. Also load http://localhost:8843/filter/page.html in a tab showing a
      127.0.0.1 page (a filtered navigation to another site), leave /filter/slow.txt mid-load (a cancelled
      filter, which the extension's filterErrors then lists), and leave /filter/held.txt within five seconds of
-     loading it, after which loading it again comes from the cache (the server's log has one request for it). -->
+     loading it, after which loading it again comes from the cache (the server's log has one request for it).
+     early.txt's filter ends the body at its start (earlyMs short, earlyCompletions one onCompleted after the
+     network's three seconds); parts.png's two image parts end as 3x2.
+     results.views has the extension's filters of its own global page's and popover's loads (WebKit 1 views). -->
 <a id="ping" href="#pinged" ping="/ping-record">ping</a>
 <script>
 'use strict';
@@ -45,6 +48,18 @@ const preconnectWith = async value => {
 };
 
 (async () => {
+    // filter.html?revalidations reports what the extension recorded for cached.txt and revalidated.txt loads,
+    // such as main-frame navigations to them, and runs nothing else.
+    // filter.html?handlerBehaviorChanged empties the memory caches, so that the next load of a cached response
+    // comes from the disk cache.
+    if (location.search === '?handlerBehaviorChanged') {
+        window.__results = { emptied: await ask({ handlerBehaviorChanged: true }) };
+        return;
+    }
+    if (location.search === '?revalidations') {
+        window.__results = { revalidations: await ask({ revalidations: true }) };
+        return;
+    }
     const results = {};
     results.script = await text('/filter/script.txt');
     results.prefix = await text('/filter/prefix.txt');
@@ -60,8 +75,36 @@ const preconnectWith = async value => {
     xhr.open('GET', '/filter/sync.txt', false);
     xhr.send();
     results.sync = xhr.responseText;
+    const earlyStart = Date.now();
+    results.early = await text('/filter/early.txt');
+    results.earlyMs = Date.now() - earlyStart;
+    results.parts = await new Promise(resolve => {
+        const image = new Image();
+        image.src = `/filter/parts.png?${Math.random()}`;
+        document.body.append(image);
+        setTimeout(() => resolve(`${image.naturalWidth}x${image.naturalHeight}`), 3000);
+    });
+    results.earlyCompletions = (await ask({ earlyCompletions: true })).map(entry => ({ event: entry.event, afterMs: entry.time - earlyStart, error: entry.error }));
     results.invalid = await ask({ invalid: true });
     results.filterErrors = await ask({ filterErrors: true });
+    await new Promise(resolve => {
+        const frame = document.createElement('iframe');
+        frame.src = '/filter/part-headers.txt';
+        document.body.append(frame);
+        setTimeout(() => {
+            frame.remove();
+            resolve();
+        }, 2000);
+    });
+    // A 304 revalidation reports the cached response in both onHeadersReceived and onCompleted.
+    results.revalidatedFirst = await text('/filter/revalidated.txt');
+    results.revalidatedSecond = await text('/filter/revalidated.txt');
+    results.cancelFirst = await text('/filter/cached.txt?cancel').catch(error => error.name);
+    results.cancelSecond = await text('/filter/cached.txt?cancel').catch(error => error.name);
+    results.revalidations = await ask({ revalidations: true });
+    results.views = await ask({ viewLoads: true });
+    // onCompleted reports the multipart response's own headers, the same for a tab and a WebKit 1 view.
+    results.partHeaderCompletions = await ask({ partHeaderCompletions: true });
 
     results.pingDefault = await pingWith(undefined);
     results.pingOff = await pingWith(false);

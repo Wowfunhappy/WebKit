@@ -8,11 +8,13 @@ import http.server
 import json
 import os
 import socketserver
+import struct
 import subprocess
 import sys
 import threading
 import time
 import urllib.parse
+import zlib
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 LOG = []
@@ -301,6 +303,23 @@ fetch('/ra-sub-header.txt').then(response => response.text()).then(header => par
     def filtered(self, name):
         if name == 'page.html':
             return self.reply('<!doctype html><title>filtered</title><p id="text">REPLACE-ME</p>', 'text/html; charset=utf-8')
+        # Framed in response-filter.safariextension's global page and popover: reports its text and its script's.
+        if name == 'frame.html':
+            return self.reply('<!doctype html><title>filtered frame</title><p id="body">REPLACE-ME</p>'
+                              '<script src="frame-script.js?view"></script>'
+                              '<script>parent.postMessage({ filterFrame: { text: document.getElementById("body").textContent, '
+                              'script: typeof text === "string" ? text : null } }, "*");</script>', 'text/html; charset=utf-8')
+        # Revalidated on every load: a 304 answers a request that has the ETag.
+        if name == 'revalidated.txt':
+            self.cacheable = True
+            if self.headers.get('If-None-Match') == '"v1"':
+                self.send_response(304)
+                self.send_header('ETag', '"v1"')
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('X-Revalidation', '304')
+                self.end_headers()
+                return
+            return self.reply('REPLACE-ME revalidated', 'text/plain', headers=[('Cache-Control', 'no-cache'), ('ETag', '"v1"'), ('X-Revalidation', '200')])
         if name in ('cached.txt', 'held.txt'):
             self.cacheable = True
             return self.reply('REPLACE-ME ' + name, 'text/plain', headers=[('Cache-Control', 'max-age=600')])
@@ -320,6 +339,57 @@ fetch('/ra-sub-header.txt').then(response => response.text()).then(header => par
             return
         if name == 'empty.txt':
             return self.reply('', 'text/plain')
+        # early.txt takes about three seconds, which the filter that ends the page's body at its start does not wait for.
+        if name == 'early.txt':
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', str(8 * 1024))
+            self.end_headers()
+            for index in range(8):
+                self.wfile.write(b'e' * 1024)
+                self.wfile.flush()
+                time.sleep(0.4)
+            return
+        # Header cases for multipart part responses: a line with no colon, an invalid field name, and outer
+        # Content-Length, Set-Cookie and X-Outer fields the parts lack.
+        if name == 'part-headers.txt':
+            parts = [b'--p\r\nContent-Type: text/plain\r\nno colon here\r\nX-Part: one\r\n\r\nfirst\r\n',
+                     b'--p\r\nContent-Type: text/plain\r\nBad Name: two\r\nX-Part: two\r\n\r\nsecond\r\n',
+                     b'--p\r\nX-Part: three\r\n\r\nthird\r\n--p--\r\n']
+            self.send_response(200)
+            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=p')
+            self.send_header('Content-Length', str(sum(len(part) for part in parts)))
+            self.send_header('Set-Cookie', 'outer=1')
+            self.send_header('X-Outer', 'outer')
+            self.end_headers()
+            for part in parts:
+                self.wfile.write(part)
+                self.wfile.flush()
+                time.sleep(0.3)
+            return
+        # Two document parts; the second reports its text to its parent.
+        if name == 'page-parts.html':
+            self.send_response(200)
+            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=part')
+            self.end_headers()
+            for body in (b'<!doctype html><p id="body">REPLACE-ME one</p>',
+                         b'<!doctype html><p id="body">REPLACE-ME two</p><script>parent.postMessage({ filterFrame: { text: document.getElementById("body").textContent, script: null } }, "*");</script>'):
+                self.wfile.write(b'--part\r\nContent-Type: text/html\r\n\r\n' + body + b'\r\n')
+                self.wfile.flush()
+                time.sleep(0.5)
+            self.wfile.write(b'--part--\r\n')
+            return
+        # Two image parts, 1x1 then 3x2, the second sent after a pause.
+        if name == 'parts.png':
+            self.send_response(200)
+            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=part')
+            self.end_headers()
+            for width, height in ((1, 1), (3, 2)):
+                self.wfile.write(b'--part\r\nContent-Type: image/png\r\n\r\n' + png(width, height) + b'\r\n')
+                self.wfile.flush()
+                time.sleep(0.5)
+            self.wfile.write(b'--part--\r\n')
+            return
         return self.reply('var text = "REPLACE-ME";', 'text/plain')
 
     def do_OPTIONS(self):
@@ -340,6 +410,14 @@ fetch('/ra-sub-header.txt').then(response => response.text()).then(header => par
             with open(os.path.join(ROOT, 'pages', 'messaging.html'), 'rb') as page:
                 return self.reply(page.read(), 'text/html')
         self.reply('ok')
+
+
+def png(width, height):
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+    rows = b''.join(b'\x00' + b'\xff\x00\x00' * width for _ in range(height))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
 
 
 class WebSocketHandler(socketserver.BaseRequestHandler):

@@ -65,6 +65,9 @@ public:
     const Vector<String>* heldCookies() const { return m_heldCookies ? &*m_heldCookies : nullptr; }
     void storeHeldCookies(std::optional<Vector<String>>&& = std::nullopt);
     void discardHeldCookies() { m_heldCookies = std::nullopt; }
+    // The body reaches the client as the network sends it, a multipart response's parts unsplit, for Safari 7
+    // extensions' StreamFilters. False once the parser has read some of the body.
+    bool deliverUnsplitBody();
 private:
     CocoaCurlResourceHandle(ResourceHandle&, NetworkStorageSession&, bool allowStoredCredentials, SynchronousLoaderMessageQueue*, std::optional<ResourceRequest>&&);
     void beginTransfer();
@@ -132,6 +135,8 @@ private:
     std::optional<Vector<String>> m_heldCookies;
     Vector<uint8_t> m_sniffed;
     std::unique_ptr<CurlMultipartHandle> m_multipart;
+    bool m_deliversUnsplitBody { false };
+    bool m_hasSplitBody { false };
     // The shared-cache entry a conditional request is revalidating.
     RetainPtr<NSCachedURLResponse> m_cachedEntry;
     // The body of a response the shared cache may store, while it stays within the cache's size limit.

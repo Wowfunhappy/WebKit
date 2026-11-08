@@ -301,6 +301,8 @@ void ResourceLoader::setDefersLoading(bool defers)
     m_defersLoading = defers;
     if (RefPtr handle = m_handle)
         handle->setDefersLoading(defers);
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && !defers) // AQUAWEBKIT: a Safari 7 extension's StreamFilter output waits while the loader defers, as its handle's data does.
+        interceptor->loaderDidResume(*this);
 
     platformStrategies()->loaderStrategy()->setDefersLoading(*this, defers);
 }
@@ -345,12 +347,17 @@ void ResourceLoader::loadDataURL()
         auto dataSize = decodeResult->data.size();
         ResourceResponse dataResponse = ResourceResponse::dataURLResponse(url, decodeResult.value());
         this->didReceiveResponse(WTF::move(dataResponse), [this, protectedThis = WTF::move(protectedThis), dataSize, data = SharedBuffer::create(WTF::move(decodeResult->data))]() {
+            auto* interceptor = LegacyLoadInterceptor::singleton(); // AQUAWEBKIT: a Safari 7 extension's StreamFilter reads the body of a load an extension sent to a data: URL.
             if (!this->reachedTerminalState() && dataSize && m_request.httpMethod() != "HEAD"_s)
-                this->didReceiveBuffer(data, dataSize, DataPayloadWholeResource);
+                // this->didReceiveBuffer(data, dataSize, DataPayloadWholeResource);
+                if (!interceptor || !interceptor->interceptResponseData(*this, data, dataSize)) // AQUAWEBKIT: as above.
+                    this->didReceiveBuffer(data, dataSize, DataPayloadWholeResource);
 
             if (!this->reachedTerminalState()) {
                 NetworkLoadMetrics emptyMetrics;
-                this->didFinishLoading(emptyMetrics);
+                // this->didFinishLoading(emptyMetrics);
+                if (!interceptor || !interceptor->interceptFinish(*this, emptyMetrics)) // AQUAWEBKIT: as above.
+                    this->didFinishLoading(emptyMetrics);
             }
         });
     });
@@ -799,18 +806,22 @@ void ResourceLoader::didReceiveResponseAsync(ResourceHandle*, ResourceResponse&&
 
 void ResourceLoader::didReceiveData(ResourceHandle*, const SharedBuffer& buffer, int encodedDataLength)
 {
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && interceptor->interceptResponseData(*this, buffer, encodedDataLength)) // AQUAWEBKIT: a Safari 7 extension's StreamFilter reads a WebKit 1 load's body.
+        return;
     didReceiveData(buffer, encodedDataLength, DataPayloadBytes);
 }
 
 void ResourceLoader::didReceiveBuffer(ResourceHandle*, const FragmentedSharedBuffer& buffer, int encodedDataLength)
 {
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && interceptor->interceptResponseData(*this, buffer, encodedDataLength)) // AQUAWEBKIT: a Safari 7 extension's StreamFilter reads a WebKit 1 load's body.
+        return;
     didReceiveBuffer(buffer, encodedDataLength, DataPayloadBytes);
 }
 
 void ResourceLoader::didFinishLoading(ResourceHandle*, const NetworkLoadMetrics& metrics)
 {
-    if (auto* interceptor = LegacyLoadInterceptor::singleton()) // AQUAWEBKIT: webRequest for a WebKit 1 load.
-        interceptor->loaderDidFinish(*this);
+    if (auto* interceptor = LegacyLoadInterceptor::singleton(); interceptor && interceptor->interceptFinish(*this, metrics)) // AQUAWEBKIT: webRequest for a WebKit 1 load; a StreamFilter ends the body it filters.
+        return;
     didFinishLoading(metrics);
 }
 

@@ -59,6 +59,7 @@
 #include <wtf/CallbackAggregator.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OptionSet.h>
+#include <wtf/ProcessID.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #include <wtf/RunLoop.h>
 #include <wtf/SetForScope.h>
@@ -973,8 +974,11 @@ void LegacyExtensionHost::hostContextDidGoAway(HostContext& context, ContextIsRe
             filterIDs.append(filterID);
     }
     for (auto filterID : filterIDs) {
-        if (RefPtr networkProcess = m_responseFilters.get(filterID).networkProcess.get())
-            networkProcess->send(Messages::LegacyExtensionNetwork::DisconnectResponseFilter(filterID, m_responseFilters.get(filterID).dispatched), 0);
+        auto& filter = m_responseFilters.find(filterID)->value;
+        if (filter.filtersViewLoad)
+            LegacyExtensionViewNetwork::singleton().disconnectResponseFilter(filterID, filter.dispatched);
+        else if (RefPtr networkProcess = filter.networkProcess.get())
+            networkProcess->send(Messages::LegacyExtensionNetwork::DisconnectResponseFilter(filterID, filter.dispatched), 0);
         removeResponseFilter(filterID);
     }
 
@@ -3466,8 +3470,9 @@ void LegacyExtensionNetworkProxy::responseFilterEvent(uint64_t filterID, String&
 }
 
 // webRequest.filterResponseData. A context names its filters and attaches each to a load by the load's
-// requestId, "<network process pid>-<n>"; loads of no network process, such as pings and WebSockets, have
-// requestIds of another form, and no filter attaches to them.
+// requestId, "<pid>-<n>": a load of the network process with that pid, or, with this process's pid, a WebKit 1
+// view's load. Pings, WebSockets and synchronous loads have requestIds of other forms, and no filter attaches
+// to them.
 
 void LegacyExtensionHost::routeResponseFilter(HostContext& context, JSON::Object& message, RefPtr<WebCore::SharedBuffer>&& data)
 {
@@ -3482,11 +3487,17 @@ void LegacyExtensionHost::routeResponseFilter(HostContext& context, JSON::Object
             return;
         auto filterID = m_nextIdentifier++;
         m_responseFilterIDs.set(key, filterID);
-        m_responseFilters.set(filterID, ResponseFilter { context.identifier, contextFilterID, nullptr, 0 });
         auto requestID = message.getString("requestId"_s);
         size_t separator = requestID.find('-');
         auto processID = separator == notFound ? std::nullopt : parseInteger<int>(StringView { requestID }.left(separator));
         auto requestIdentifier = separator == notFound ? std::nullopt : parseInteger<uint64_t>(StringView { requestID }.substring(separator + 1));
+        bool filtersViewLoad = processID && *processID == getCurrentProcessID();
+        m_responseFilters.set(filterID, ResponseFilter { context.identifier, contextFilterID, nullptr, filtersViewLoad });
+        auto access = m_websiteAccess.find(context.extensionKey);
+        if (filtersViewLoad) {
+            LegacyExtensionViewNetwork::singleton().createResponseFilter(filterID, requestID, context.extensionKey, access != m_websiteAccess.end() ? &access->value : nullptr);
+            return;
+        }
         RefPtr<NetworkProcessProxy> networkProcess;
         for (Ref candidate : NetworkProcessProxy::allNetworkProcesses()) {
             if (processID && candidate->processID() == *processID)
@@ -3498,7 +3509,6 @@ void LegacyExtensionHost::routeResponseFilter(HostContext& context, JSON::Object
         }
         auto iterator = m_responseFilters.find(filterID);
         iterator->value.networkProcess = *networkProcess;
-        auto access = m_websiteAccess.find(context.extensionKey);
         networkProcess->send(Messages::LegacyExtensionNetwork::CreateResponseFilter(filterID, *requestIdentifier, context.extensionKey, access != m_websiteAccess.end() ? access->value.toJSON()->toJSONString() : String { }), 0);
         return;
     }
@@ -3507,11 +3517,28 @@ void LegacyExtensionHost::routeResponseFilter(HostContext& context, JSON::Object
     auto iterator = m_responseFilters.find(filterID);
     if (!filterID || iterator == m_responseFilters.end())
         return;
+    auto dispatched = integerIdentifier(message.getDouble("dispatched"_s).value_or(0)).value_or(0);
+    iterator->value.dispatched = std::max(iterator->value.dispatched, dispatched);
+    if (iterator->value.filtersViewLoad) {
+        auto& viewNetwork = LegacyExtensionViewNetwork::singleton();
+        if (operation == "write"_s)
+            viewNetwork.writeResponseFilter(filterID, data ? data.releaseNonNull() : WebCore::SharedBuffer::create(), dispatched);
+        else if (operation == "suspend"_s)
+            viewNetwork.suspendResponseFilter(filterID);
+        else if (operation == "resume"_s)
+            viewNetwork.resumeResponseFilter(filterID);
+        else if (operation == "close"_s) {
+            viewNetwork.closeResponseFilter(filterID);
+            removeResponseFilter(filterID);
+        } else if (operation == "disconnect"_s) {
+            viewNetwork.disconnectResponseFilter(filterID, dispatched);
+            removeResponseFilter(filterID);
+        }
+        return;
+    }
     RefPtr networkProcess = iterator->value.networkProcess.get();
     if (!networkProcess)
         return;
-    auto dispatched = integerIdentifier(message.getDouble("dispatched"_s).value_or(0)).value_or(0);
-    iterator->value.dispatched = std::max(iterator->value.dispatched, dispatched);
     if (operation == "write"_s)
         networkProcess->send(Messages::LegacyExtensionNetwork::WriteResponseFilter(filterID, IPC::SharedBufferReference { WTF::move(data) }, dispatched), 0);
     else if (operation == "suspend"_s)

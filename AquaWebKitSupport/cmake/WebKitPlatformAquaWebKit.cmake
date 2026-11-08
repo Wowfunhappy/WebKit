@@ -159,7 +159,9 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 )
 list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionErrors.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionFilteredMultipart.mm
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionJavaScript.cpp
+    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionResponseFilter.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionScheme.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebRequest.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/Shared/LegacyExtensions/LegacyExtensionWebsiteAccess.cpp
@@ -187,7 +189,6 @@ list(APPEND WebKit_SOURCES
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/UIProcess/LegacyExtensions/LegacyExtensionViewNetwork.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/WebProcess/LegacyExtensions/LegacyExtensionContent.cpp
     ${AQUAWEBKIT_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionNetwork.cpp
-    ${AQUAWEBKIT_LEGACY_EXTENSIONS}/NetworkProcess/LegacyExtensions/LegacyExtensionResponseFilter.cpp
 )
 # declarativeNetRequest calls WebKit's WebExtension helpers, whose definitions are ARC's.
 list(APPEND WebKit_ARC_SOURCES

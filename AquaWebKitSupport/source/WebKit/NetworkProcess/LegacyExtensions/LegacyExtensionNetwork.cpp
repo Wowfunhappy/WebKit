@@ -802,7 +802,25 @@ bool LegacyExtensionNetwork::interceptRedirection(NetworkLoadChecker& checker, R
 }
 
 // onHeadersReceived and onResponseStarted, for a response from the network.
+// The response the page receives. A filtered multipart response reaches the filters unsplit.
 bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, ResourceResponse& response, PrivateRelayed privateRelayed, ResponseCompletionHandler& completionHandler)
+{
+    if (interceptResponseHeaders(loader, response, privateRelayed, completionHandler))
+        return true;
+    // The response the header events reported; a revalidation's 304 reaches them as the cached response, which
+    // interceptCachedResponse records.
+    if (loader.m_response.isNull() && m_loaders.contains(loader) && !(loader.m_cacheEntryForValidation && response.httpStatusCode() == httpStatus304NotModified))
+        m_reportedResponses.set(loader, makeUnique<ReportedResponse>(ReportedResponse { response, false }));
+    if (RefPtr filtered = m_filteredResponses.get(loadRequestIdentifier(loader)); filtered && !std::exchange(filtered->hasResponse, true)) {
+        if (splitFilteredMultipart(*filtered, loader, response) == LegacyExtensionMultipartSplit::SplitByNetworkLoad) {
+            filtered->filter->fail("Invalid request ID"_s);
+            removeFilteredResponse(*filtered);
+        }
+    }
+    return false;
+}
+
+bool LegacyExtensionNetwork::interceptResponseHeaders(NetworkResourceLoader& loader, ResourceResponse& response, PrivateRelayed privateRelayed, ResponseCompletionHandler& completionHandler)
 {
     // The web process decides which pages load an extension's file, as upstream's extension scheme handler answers
     // any load it lets through.
@@ -816,6 +834,9 @@ bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, Re
     if (m_resumingResponses.remove(loader))
         return false;
     if (m_listeners.isEmpty() || !m_loaders.contains(loader) || !isInterceptable(response.url()))
+        return false;
+    // A multipart response's later parts are no HTTP responses of their own, which Chrome and Firefox report once.
+    if (!loader.m_response.isNull())
         return false;
     // A successful revalidation reaches the extensions as the cached response.
     if (loader.m_cacheEntryForValidation && response.httpStatusCode() == httpStatus304NotModified)
@@ -879,7 +900,15 @@ bool LegacyExtensionNetwork::interceptResponse(NetworkResourceLoader& loader, Re
 }
 
 // onHeadersReceived and onResponseStarted, for a response from the network cache.
+// A cached response, which the load reports in its header events and its onCompleted.
 bool LegacyExtensionNetwork::interceptCachedResponse(NetworkResourceLoader& loader, std::unique_ptr<NetworkCache::Entry>& entry)
+{
+    if (entry && m_loaders.contains(loader))
+        m_reportedResponses.set(loader, makeUnique<ReportedResponse>(ReportedResponse { entry->response(), true }));
+    return interceptCachedResponseHeaders(loader, entry);
+}
+
+bool LegacyExtensionNetwork::interceptCachedResponseHeaders(NetworkResourceLoader& loader, std::unique_ptr<NetworkCache::Entry>& entry)
 {
     if (m_resumingCacheEntries.remove(loader))
         return false;
@@ -1461,16 +1490,20 @@ void LegacyExtensionNetwork::loaderDidFinish(NetworkResourceLoader& loader, Netw
     m_loadersWithDeliveredBody.remove(loader);
     auto url = currentURL(loader);
     auto error = m_loadErrors.take(loader);
+    auto reportedResponse = m_reportedResponses.take(loader);
+    auto& response = reportedResponse ? reportedResponse->response : loader.m_response;
+    bool fromCache = reportedResponse ? reportedResponse->fromCache : isFromCache(loader.m_response);
     auto eventName = succeeded ? onCompleted : onErrorOccurred;
     if (!m_loaders.contains(loader) || !observes(eventName))
         return;
     if (!isInterceptable(url))
         return;
     auto details = loaderDetails(loader);
-    if (succeeded)
-        addResponseFields(details, loader.m_response);
-    else {
-        details->setBoolean("fromCache"_s, isFromCache(loader.m_response));
+    if (succeeded) {
+        addResponseFields(details, response);
+        details->setBoolean("fromCache"_s, fromCache);
+    } else {
+        details->setBoolean("fromCache"_s, fromCache);
         if (!error.isNull())
             details->setString("error"_s, error);
         else
@@ -1530,19 +1563,70 @@ void LegacyExtensionNetwork::createResponseFilter(uint64_t filterID, uint64_t re
     }).iterator->value;
     if (!response->filter->canAttach())
         return reject();
+    if (!loader->m_response.isNull() && !std::exchange(response->hasResponse, true) && splitFilteredMultipart(response, *loader, loader->m_response) == LegacyExtensionMultipartSplit::SplitByNetworkLoad)
+        return reject();
     response->filter->attach(filterID);
     m_responseFilterRequests.set(filterID, requestIdentifier);
 }
 
-// The filters' output: the body the web process receives, then its end, with the network's metrics when the
-// network finished first; a synchronous load's reply carries the whole output. A loader whose cleanup waited on
-// the output is cleaned up after it.
+LegacyExtensionMultipartSplit LegacyExtensionNetwork::splitFilteredMultipart(FilteredResponse& filtered, NetworkResourceLoader& loader, const ResourceResponse& response)
+{
+    auto requestIdentifier = filtered.requestIdentifier;
+    RefPtr multipart = LegacyExtensionFilteredMultipart::create(response, [this, requestIdentifier](ResourceResponse&& partResponse, CompletionHandler<void(bool)>&& completionHandler) mutable {
+        RefPtr filtered = m_filteredResponses.get(requestIdentifier);
+        RefPtr loader = filtered ? filtered->loader.get() : nullptr;
+        if (!loader)
+            return completionHandler(false);
+        loader->didReceiveResponse(WTF::move(partResponse), PrivateRelayed::No, [completionHandler = WTF::move(completionHandler)](PolicyAction action) mutable {
+            completionHandler(action == PolicyAction::Use);
+        });
+    }, [this, requestIdentifier](Ref<SharedBuffer>&& data) {
+        RefPtr filtered = m_filteredResponses.get(requestIdentifier);
+        if (RefPtr loader = filtered ? filtered->loader.get() : nullptr)
+            deliverFilteredOutput(*filtered, *loader, WTF::move(data));
+    }, [this, requestIdentifier](const ResourceError& error) {
+        RefPtr filtered = m_filteredResponses.get(requestIdentifier);
+        RefPtr loader = filtered ? filtered->loader.get() : nullptr;
+        if (!loader)
+            return;
+        if (error.isNull())
+            return deliverFilteredOutput(*filtered, *loader, nullptr);
+        loader->didFailLoading(error);
+    });
+    if (!multipart)
+        return LegacyExtensionMultipartSplit::None;
+    RefPtr task = curlTask(loader);
+    if (!task)
+        return LegacyExtensionMultipartSplit::None;
+    // A synchronous load's reply carries one body, which has no parts to split the filters' output into.
+    if (loader.isSynchronous() || !task->deliverUnsplitBody())
+        return LegacyExtensionMultipartSplit::SplitByNetworkLoad;
+    filtered.multipart = WTF::move(multipart);
+    return LegacyExtensionMultipartSplit::SplitsFilterOutput;
+}
+
+// The filters' output, a multipart response's split into its parts: the body the web process receives, then its
+// end, with the network's metrics when the network finished first; a synchronous load's reply carries the whole
+// output. A loader whose cleanup waited on the output is cleaned up after it.
 void LegacyExtensionNetwork::outputFilteredResponse(uint64_t requestIdentifier, RefPtr<SharedBuffer>&& data)
 {
     RefPtr response = m_filteredResponses.get(requestIdentifier);
     RefPtr loader = response ? response->loader.get() : nullptr;
     if (!loader)
         return;
+    if (RefPtr multipart = response->multipart) {
+        if (data)
+            multipart->receive(*data);
+        else
+            multipart->finish();
+        return;
+    }
+    deliverFilteredOutput(*response, *loader, WTF::move(data));
+}
+
+void LegacyExtensionNetwork::deliverFilteredOutput(FilteredResponse& filtered, NetworkResourceLoader& loader, RefPtr<SharedBuffer>&& data)
+{
+    Ref response = filtered;
     if (response->synchronousReply) {
         if (data) {
             response->synchronousBody.append(data->span());
@@ -1552,8 +1636,8 @@ void LegacyExtensionNetwork::outputFilteredResponse(uint64_t requestIdentifier, 
     } else if (data) {
         IPC::SharedBufferReference reference { data.releaseNonNull() };
         reference.transferOwnershipToReceiver(MemoryLedger::Default);
-        RefPtr networkLoad = loader->m_networkLoad;
-        loader->send(Messages::WebResourceLoader::DidReceiveData(WTF::move(reference), networkLoad ? networkLoad->bytesTransferredOverNetwork() : response->bytesTransferredOverNetwork));
+        RefPtr networkLoad = loader.m_networkLoad;
+        loader.send(Messages::WebResourceLoader::DidReceiveData(WTF::move(reference), networkLoad ? networkLoad->bytesTransferredOverNetwork() : response->bytesTransferredOverNetwork));
         return;
     } else {
         NetworkLoadMetrics metrics;
@@ -1561,11 +1645,11 @@ void LegacyExtensionNetwork::outputFilteredResponse(uint64_t requestIdentifier, 
             metrics = *response->metrics;
         else
             metrics.markComplete();
-        loader->send(Messages::WebResourceLoader::DidFinishResourceLoad(metrics));
+        loader.send(Messages::WebResourceLoader::DidFinishResourceLoad(metrics));
     }
     if (response->cleanupIsDeferred) {
-        removeFilteredResponse(*response);
-        loader->cleanup(NetworkResourceLoader::LoadResult::Success);
+        removeFilteredResponse(response.get());
+        loader.cleanup(NetworkResourceLoader::LoadResult::Success);
     }
 }
 
@@ -1577,6 +1661,12 @@ void LegacyExtensionNetwork::removeFilteredResponse(FilteredResponse& response)
     for (auto filterID : response.filter->filterIDs())
         m_responseFilterRequests.remove(filterID);
     m_filteredResponses.remove(response.requestIdentifier);
+}
+
+bool LegacyExtensionNetwork::keepsLoadAfterFilteredBody(NetworkResourceLoader& loader) const
+{
+    RefPtr response = m_filteredResponses.get(loadRequestIdentifier(loader));
+    return response && response->filter->hasFinishedOutput() && !response->inputFinished && !response->synchronousReply && loader.m_networkLoad;
 }
 
 bool LegacyExtensionNetwork::deferCleanup(NetworkResourceLoader& loader, NetworkResourceLoader::LoadResult result)

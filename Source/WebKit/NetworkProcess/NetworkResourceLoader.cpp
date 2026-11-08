@@ -668,6 +668,11 @@ void NetworkResourceLoader::abort()
         protect(connectionToWebProcess())->transferKeptAliveLoad(*this);
         return;
     }
+    if (!m_isKeptAlive && LegacyExtensionNetwork::singleton().keepsLoadAfterFilteredBody(*this)) { // AQUAWEBKIT: a Safari 7 extension's StreamFilter ended the body the page receives; the response goes on to its end.
+        m_isKeptAlive = true;
+        protect(connectionToWebProcess())->transferKeptAliveLoad(*this);
+        return;
+    }
 
     if (auto task = WTF::move(m_serviceWorkerFetchTask)) {
         LOADER_RELEASE_LOG("abort: Cancelling pending service worker fetch task (fetchIdentifier=%" PRIu64 ")", task->fetchIdentifier().toUInt64());

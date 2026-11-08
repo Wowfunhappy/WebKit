@@ -23,11 +23,14 @@
 #include <WebCore/NetworkingContext.h>
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceHandle.h>
+#include <WebCore/ResourceHandleClient.h>
 #include <WebCore/ResourceLoader.h>
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SubresourceLoader.h>
 #include <wtf/ProcessID.h>
+#include <wtf/RunLoop.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
@@ -561,8 +564,31 @@ void LegacyExtensionViewNetwork::redirectInPlace(ResourceLoader& loader, Load& l
 // load and goes through the loader's redirect steps, as a 302 Found to the new location.
 bool LegacyExtensionViewNetwork::interceptResponse(ResourceLoader& loader, ResourceResponse& response, CompletionHandler<void()>& completionHandler)
 {
+    if (interceptResponseHeaders(loader, response, completionHandler))
+        return true;
+    responseWillReachLoader(loader, response);
+    return false;
+}
+
+// A filtered multipart response reaches the filters unsplit.
+void LegacyExtensionViewNetwork::responseWillReachLoader(ResourceLoader& loader, const ResourceResponse& response)
+{
+    RefPtr filtered = m_filteredResponses.get(loader);
+    if (!filtered || std::exchange(filtered->hasResponse, true))
+        return;
+    if (splitFilteredMultipart(*filtered, loader, response) == LegacyExtensionMultipartSplit::SplitByNetworkLoad) {
+        removeFilteredResponse(*filtered);
+        filtered->filter->fail("Invalid request ID"_s);
+    }
+}
+
+bool LegacyExtensionViewNetwork::interceptResponseHeaders(ResourceLoader& loader, ResourceResponse& response, CompletionHandler<void()>& completionHandler)
+{
     RefPtr load = m_loads.get(loader);
     if (!load || !isInterceptable(response.url()))
+        return false;
+    // A multipart response's later parts are no HTTP responses of their own, which Chrome and Firefox report once.
+    if (!loader.response().isNull())
         return false;
     headersReceived(*load, WTF::move(response), curlHandle(loader), false, [this, weakLoader = WeakPtr { loader }, load = Ref { *load }, completionHandler = WTF::move(completionHandler)](ResponseVerdict&& verdict) mutable {
         RefPtr loader = weakLoader.get();
@@ -574,6 +600,7 @@ bool LegacyExtensionViewNetwork::interceptResponse(ResourceLoader& loader, Resou
         }
         if (!verdict.target.isValid()) {
             responseStarted(load, verdict.response);
+            responseWillReachLoader(*loader, verdict.response);
             return loader->didReceiveResponse(WTF::move(verdict.response), WTF::move(completionHandler));
         }
 
@@ -647,16 +674,312 @@ bool LegacyExtensionViewNetwork::interceptAuthenticationChallenge(ResourceLoader
     return true;
 }
 
-void LegacyExtensionViewNetwork::loaderDidFinish(ResourceLoader& loader)
+bool LegacyExtensionViewNetwork::interceptResponseData(ResourceLoader& loader, const FragmentedSharedBuffer& buffer, long long encodedDataLength)
 {
+    if (RefPtr response = m_filteredResponses.get(loader)) {
+        // -1 is a length the network does not know.
+        if (encodedDataLength < 0)
+            response->encodedDataLengthIsKnown = false;
+        else
+            response->pendingEncodedDataLength += encodedDataLength;
+        response->filter->receive(buffer.makeContiguous());
+        return true;
+    }
+    if (RefPtr load = m_loads.get(loader))
+        load->hasDeliveredBody = true;
+    return false;
+}
+
+// onCompleted, once the loader receives the end of the body.
+bool LegacyExtensionViewNetwork::interceptFinish(ResourceLoader& loader, const NetworkLoadMetrics& metrics)
+{
+    if (RefPtr response = m_filteredResponses.get(loader)) {
+        if (!response->inputFinished) {
+            response->inputFinished = true;
+            response->metrics = metrics;
+            response->filter->finishInput();
+        }
+        return true;
+    }
     if (auto load = m_loads.take(loader))
         completed(*load, load->response, { });
+    return false;
 }
 
 void LegacyExtensionViewNetwork::loaderDidFail(ResourceLoader& loader, const ResourceError& error)
 {
+    if (RefPtr response = m_filteredResponses.get(loader)) {
+        removeFilteredResponse(*response);
+        response->filter->fail(networkErrorName(error));
+    }
     if (auto load = m_loads.take(loader))
         completed(*load, load->response, error);
+}
+
+// The network load of a load whose StreamFilters ended its loader's body while the network still sent the response.
+class LegacyExtensionViewDetachedLoad final : public RefCounted<LegacyExtensionViewDetachedLoad>, public ResourceHandleClient {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(LegacyExtensionViewDetachedLoad);
+public:
+    static Ref<LegacyExtensionViewDetachedLoad> create(Ref<LegacyExtensionViewNetwork::Load>&& load) { return adoptRef(*new LegacyExtensionViewDetachedLoad(WTF::move(load))); }
+
+    void setHandle(Ref<ResourceHandle>&& handle) { m_handle = WTF::move(handle); }
+
+private:
+    explicit LegacyExtensionViewDetachedLoad(Ref<LegacyExtensionViewNetwork::Load>&& load)
+        : m_load(WTF::move(load))
+    {
+    }
+
+    void end(const ResourceError& error)
+    {
+        Ref protectedThis { *this };
+        if (RefPtr handle = std::exchange(m_handle, nullptr))
+            handle->clearClient();
+        auto& network = LegacyExtensionViewNetwork::singleton();
+        network.completed(m_load, m_load->response, error);
+        network.m_detachedLoads.remove(*this);
+    }
+
+    void willSendRequestAsync(ResourceHandle*, ResourceRequest&&, ResourceResponse&&, CompletionHandler<void(ResourceRequest&&)>&& completionHandler) final { completionHandler({ }); }
+    void didReceiveResponseAsync(ResourceHandle*, ResourceResponse&&, CompletionHandler<void()>&& completionHandler) final { completionHandler(); }
+    void didReceiveData(ResourceHandle*, const SharedBuffer&, int) final { }
+    void didReceiveBuffer(ResourceHandle*, const FragmentedSharedBuffer&, int) final { }
+    void didFinishLoading(ResourceHandle*, const NetworkLoadMetrics&) final { end({ }); }
+    void didFail(ResourceHandle*, const ResourceError& error) final { end(error); }
+    void wasBlocked(ResourceHandle*) final { end(ResourceError { ResourceError::Type::Cancellation }); }
+    void cannotShowURL(ResourceHandle*) final { end(ResourceError { ResourceError::Type::Cancellation }); }
+#if USE(PROTECTION_SPACE_AUTH_CALLBACK)
+    void canAuthenticateAgainstProtectionSpaceAsync(ResourceHandle*, const ProtectionSpace&, CompletionHandler<void(bool)>&& completionHandler) final { completionHandler(false); }
+#endif
+
+    Ref<LegacyExtensionViewNetwork::Load> m_load;
+    RefPtr<ResourceHandle> m_handle;
+};
+
+// webRequest.filterResponseData.
+
+void LegacyExtensionViewNetwork::createResponseFilter(uint64_t filterID, const String& requestID, const String& extensionKey, const WebsiteAccess* access)
+{
+    auto reject = [&] {
+        LegacyExtensionHost::singleton().dispatchResponseFilterEvent(filterID, "error"_s, nullptr, "Invalid request ID"_s);
+    };
+    if (!filterID || m_responseFilters.contains(filterID))
+        return reject();
+    RefPtr<ResourceLoader> loader;
+    RefPtr<Load> load;
+    for (auto [candidate, candidateLoad] : m_loads) {
+        if (candidateLoad->requestId == requestID) {
+            loader = &candidate;
+            load = candidateLoad.ptr();
+            break;
+        }
+    }
+    if (!loader || loader->reachedTerminalState() || load->hasDeliveredBody)
+        return reject();
+    auto& url = load->url;
+    if (url.protocolIs(extensionScheme) ? url.host() != extensionKey : !access || !access->allows(url))
+        return reject();
+
+    Ref response = m_filteredResponses.ensure(*loader, [&] {
+        Ref response = FilteredResponse::create();
+        response->loader = *loader;
+        response->filter = LegacyExtensionResponseFilter::create([](uint64_t filterID, ASCIILiteral event, RefPtr<SharedBuffer>&& data, const String& error) {
+            LegacyExtensionHost::singleton().dispatchResponseFilterEvent(filterID, String { event }, WTF::move(data), error);
+        }, [this, weakResponse = WeakPtr { response.get() }](RefPtr<SharedBuffer>&& data) {
+            if (RefPtr response = weakResponse.get())
+                outputFilteredResponse(*response, WTF::move(data));
+        });
+        return response;
+    }).iterator->value;
+    if (!response->filter->canAttach())
+        return reject();
+    if (!loader->response().isNull() && !std::exchange(response->hasResponse, true) && splitFilteredMultipart(response, *loader, loader->response()) == LegacyExtensionMultipartSplit::SplitByNetworkLoad)
+        return reject();
+    response->filter->attach(filterID);
+    m_responseFilters.set(filterID, response);
+}
+
+LegacyExtensionMultipartSplit LegacyExtensionViewNetwork::splitFilteredMultipart(FilteredResponse& filtered, ResourceLoader& loader, const ResourceResponse& response)
+{
+    RefPtr multipart = LegacyExtensionFilteredMultipart::create(response, [weakResponse = WeakPtr { filtered }](ResourceResponse&& partResponse, CompletionHandler<void(bool)>&& proceed) mutable {
+        RefPtr response = weakResponse.get();
+        if (!response)
+            return proceed(false);
+        singleton().queueFilteredPart(*response, { WTF::move(partResponse), WTF::move(proceed), nullptr, std::nullopt });
+    }, [weakResponse = WeakPtr { filtered }](Ref<SharedBuffer>&& data) {
+        if (RefPtr response = weakResponse.get())
+            singleton().queueFilteredPart(*response, { std::nullopt, nullptr, WTF::move(data), std::nullopt });
+    }, [weakResponse = WeakPtr { filtered }](const ResourceError& error) {
+        if (RefPtr response = weakResponse.get())
+            singleton().queueFilteredPart(*response, { std::nullopt, nullptr, nullptr, error });
+    });
+    if (!multipart)
+        return LegacyExtensionMultipartSplit::None;
+    // A load with no handle, such as a data: URL's, has nothing that splits its body; CFNetwork splits the body
+    // of a load it makes itself.
+    RefPtr handle = loader.handle();
+    if (!handle)
+        return LegacyExtensionMultipartSplit::None;
+    RefPtr curl = handle->cocoaCurlHandle();
+    if (!curl || !curl->deliverUnsplitBody())
+        return LegacyExtensionMultipartSplit::SplitByNetworkLoad;
+    filtered.multipart = WTF::move(multipart);
+    return LegacyExtensionMultipartSplit::SplitsFilterOutput;
+}
+
+void LegacyExtensionViewNetwork::queueFilteredPart(FilteredResponse& response, FilteredResponse::Part&& part)
+{
+    response.parts.append(WTF::move(part));
+    scheduleFilteredOutputDelivery(response);
+}
+
+long long LegacyExtensionViewNetwork::takeEncodedDataLength(FilteredResponse& response)
+{
+    return response.encodedDataLengthIsKnown ? std::exchange(response.pendingEncodedDataLength, 0) : -1;
+}
+
+void LegacyExtensionViewNetwork::writeResponseFilter(uint64_t filterID, Ref<SharedBuffer>&& data, uint64_t dispatched)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->write(filterID, WTF::move(data), dispatched);
+}
+
+void LegacyExtensionViewNetwork::closeResponseFilter(uint64_t filterID)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->close(filterID);
+}
+
+void LegacyExtensionViewNetwork::disconnectResponseFilter(uint64_t filterID, uint64_t dispatched)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->disconnect(filterID, dispatched);
+}
+
+void LegacyExtensionViewNetwork::suspendResponseFilter(uint64_t filterID)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->suspend(filterID);
+}
+
+void LegacyExtensionViewNetwork::resumeResponseFilter(uint64_t filterID)
+{
+    if (RefPtr response = filteredResponse(filterID))
+        response->filter->resume(filterID);
+}
+
+// The filters' output, which an extension's call can produce while its script runs, reaches the loader from the
+// main run loop.
+void LegacyExtensionViewNetwork::outputFilteredResponse(FilteredResponse& response, RefPtr<SharedBuffer>&& data)
+{
+    response.output.append(WTF::move(data));
+    scheduleFilteredOutputDelivery(response);
+}
+
+void LegacyExtensionViewNetwork::loaderDidResume(ResourceLoader& loader)
+{
+    if (RefPtr response = m_filteredResponses.get(loader); response && (!response->output.isEmpty() || !response->parts.isEmpty()))
+        scheduleFilteredOutputDelivery(*response);
+}
+
+void LegacyExtensionViewNetwork::scheduleFilteredOutputDelivery(FilteredResponse& response)
+{
+    if (std::exchange(response.isDeliveryScheduled, true))
+        return;
+    RunLoop::mainSingleton().dispatch([this, response = Ref { response }] {
+        response->isDeliveryScheduled = false;
+        deliverFilteredOutput(response);
+    });
+}
+
+void LegacyExtensionViewNetwork::deliverFilteredOutput(FilteredResponse& response)
+{
+    Ref protectedResponse { response };
+    while (true) {
+        RefPtr loader = response.loader.get();
+        if (!loader || loader->reachedTerminalState() || m_filteredResponses.get(*loader) != &response)
+            return discardFilteredOutput(response);
+        if (loader->defersLoading())
+            return;
+        if (!response.parts.isEmpty()) {
+            auto part = response.parts.takeFirst();
+            if (part.response) {
+                CompletionHandler<void()> proceed = [proceed = WTF::move(part.proceed)]() mutable {
+                    proceed(true);
+                };
+                if (!interceptResponse(*loader, *part.response, proceed))
+                    loader->didReceiveResponse(WTF::move(*part.response), WTF::move(proceed));
+            } else if (part.data)
+                loader->didReceiveBuffer(*part.data, takeEncodedDataLength(response), DataPayloadBytes);
+            else if (part.end) {
+                if (part.end->isNull())
+                    finishFilteredLoad(response, *loader);
+                else
+                    loader->didFail(*part.end);
+                return;
+            }
+            continue;
+        }
+        if (response.output.isEmpty())
+            return;
+        RefPtr data = response.output.takeFirst();
+        if (RefPtr multipart = response.multipart) {
+            if (data)
+                multipart->receive(*data);
+            else
+                multipart->finish();
+            continue;
+        }
+        if (data) {
+            loader->didReceiveBuffer(*data, takeEncodedDataLength(response), DataPayloadBytes);
+            continue;
+        }
+        finishFilteredLoad(response, *loader);
+        return;
+    }
+}
+
+// Output no loader receives any more; the parts waiting on a part's response go no further.
+void LegacyExtensionViewNetwork::discardFilteredOutput(FilteredResponse& response)
+{
+    response.output.clear();
+    for (auto& part : std::exchange(response.parts, { })) {
+        if (part.proceed)
+            part.proceed(false);
+    }
+}
+
+// The filters' output ends the loader's body. A network load still sending the response goes on to the response's
+// end, which reports the load's onCompleted or onErrorOccurred, as Firefox's channel goes on after its filter
+// closes.
+void LegacyExtensionViewNetwork::finishFilteredLoad(FilteredResponse& response, ResourceLoader& loader)
+{
+    removeFilteredResponse(response);
+    NetworkLoadMetrics metrics;
+    if (response.metrics)
+        metrics = *response.metrics;
+    else
+        metrics.markComplete();
+    if (!response.inputFinished) {
+        if (RefPtr load = m_loads.get(loader)) {
+            Ref detachedLoad = LegacyExtensionViewDetachedLoad::create(*load);
+            if (RefPtr handle = takeNetworkLoad(loader, detachedLoad.get())) {
+                m_loads.remove(loader);
+                detachedLoad->setHandle(handle.releaseNonNull());
+                m_detachedLoads.add(WTF::move(detachedLoad));
+            }
+        }
+    }
+    if (!interceptFinish(loader, metrics))
+        loader.didFinishLoading(metrics);
+}
+
+void LegacyExtensionViewNetwork::removeFilteredResponse(FilteredResponse& response)
+{
+    for (auto filterID : response.filter->filterIDs())
+        m_responseFilters.remove(filterID);
+    if (RefPtr loader = response.loader.get())
+        m_filteredResponses.remove(*loader);
 }
 
 // A ping, beacon or report.

@@ -218,6 +218,7 @@ private:
 
     // AQUAWEBKIT: the Cocoa curl policy adapter owns the legacy HTTP handle state.
     friend class CocoaCurlResourceHandle;
+    friend class LegacyLoadInterceptor; // AQUAWEBKIT: Safari 7 extensions' webRequest hands a WebKit 1 load's network load to another client.
     friend class ResourceHandleInternal;
     std::unique_ptr<ResourceHandleInternal> d;
 };

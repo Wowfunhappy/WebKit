@@ -2,13 +2,17 @@
 // bars, which WebKit 1 loads in the Safari process. A load belongs to an extension view when the view's main
 // frame shows one of the extension's pages, or is navigating to one. Its events go to the router as the
 // network process's do for WebKit 2 loads, with tabId -1 and frameId naming the view's frame (0 for its main
-// frame), and it waits on blocking listeners at the points LegacyLoadInterceptor names.
+// frame), and it waits on blocking listeners at the points LegacyLoadInterceptor names. The StreamFilters of
+// webRequest.filterResponseData read a load's body in place of its loader, which receives their output.
 
 #pragma once
 
+#include "LegacyExtensionFilteredMultipart.h"
+#include "LegacyExtensionResponseFilter.h"
 #include "LegacyExtensionWebRequest.h"
 #include <WebCore/CocoaCurlProxyConfiguration.h>
 #include <WebCore/LegacyLoadInterceptor.h>
+#include <WebCore/NetworkLoadMetrics.h>
 #include <WebCore/NetworkingContext.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
@@ -25,6 +29,7 @@ class LocalFrame;
 
 namespace WebKit {
 
+class LegacyExtensionViewDetachedLoad;
 class LegacyExtensionViewPing;
 
 class LegacyExtensionViewNetwork final : public WebCore::LegacyLoadInterceptor {
@@ -33,8 +38,19 @@ public:
 
     void setListeners(const Vector<String>& observedEvents, const Vector<String>& listenerOptions, const String& blockingListeners);
 
+    // webRequest.filterResponseData. A filter attaches to the ResourceLoader load whose requestId it names, when
+    // the extension sees the load and its loader has received none of the body; its events go to
+    // LegacyExtensionHost::dispatchResponseFilterEvent.
+    void createResponseFilter(uint64_t filterID, const String& requestID, const String& extensionKey, const LegacyExtensions::WebsiteAccess*);
+    void writeResponseFilter(uint64_t filterID, Ref<WebCore::SharedBuffer>&&, uint64_t dispatched);
+    void closeResponseFilter(uint64_t filterID);
+    void disconnectResponseFilter(uint64_t filterID, uint64_t dispatched);
+    void suspendResponseFilter(uint64_t filterID);
+    void resumeResponseFilter(uint64_t filterID);
+
 private:
     friend class NeverDestroyed<LegacyExtensionViewNetwork>;
+    friend class LegacyExtensionViewDetachedLoad;
     friend class LegacyExtensionViewPing;
     friend class LegacyExtensionViewSynchronousLoad;
     LegacyExtensionViewNetwork() = default;
@@ -61,6 +77,38 @@ private:
         URL proxyAnswersURL;
         Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults;
         WebCore::ResourceResponse response;
+        // Whether the loader has received some of the body, which no filter can attach to any more.
+        bool hasDeliveredBody { false };
+    };
+
+    // The StreamFilters of one load. Their output reaches the loader in tasks of the main run loop, as the
+    // network's data does, and waits while the loader defers its load. The end of their output finishes the
+    // load, with the network's metrics when the network finished first.
+    struct FilteredResponse : RefCounted<FilteredResponse>, CanMakeWeakPtr<FilteredResponse> {
+        static Ref<FilteredResponse> create() { return adoptRef(*new FilteredResponse); }
+        WeakPtr<WebCore::ResourceLoader> loader;
+        RefPtr<LegacyExtensionResponseFilter> filter;
+        // Whether the response the loader receives has been seen, and for a multipart response, what splits the
+        // filters' output into its parts.
+        bool hasResponse { false };
+        RefPtr<LegacyExtensionFilteredMultipart> multipart;
+        bool inputFinished { false };
+        std::optional<WebCore::NetworkLoadMetrics> metrics;
+        // The network's encoded bytes the loader has not been told of, unless the network does not count them.
+        long long pendingEncodedDataLength { 0 };
+        bool encodedDataLengthIsKnown { true };
+        // Output not yet delivered: chunks, then null for the end.
+        Deque<RefPtr<WebCore::SharedBuffer>> output;
+        // The parts split from a multipart response's output, not yet delivered: a part's response, which the parts
+        // after it wait on, a chunk of a part's body, or the end of the parts with its error.
+        struct Part {
+            std::optional<WebCore::ResourceResponse> response;
+            CompletionHandler<void(bool)> proceed;
+            RefPtr<WebCore::SharedBuffer> data;
+            std::optional<WebCore::ResourceError> end;
+        };
+        Deque<Part> parts;
+        bool isDeliveryScheduled { false };
     };
 
     struct RequestVerdict {
@@ -85,8 +133,12 @@ private:
     bool interceptStart(WebCore::ResourceLoader&) final;
     bool interceptRedirection(WebCore::ResourceLoader&, WebCore::ResourceRequest&, WebCore::ResourceResponse& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&) final;
     bool interceptResponse(WebCore::ResourceLoader&, WebCore::ResourceResponse&, CompletionHandler<void()>&) final;
+    bool interceptResponseHeaders(WebCore::ResourceLoader&, WebCore::ResourceResponse&, CompletionHandler<void()>&);
+    void responseWillReachLoader(WebCore::ResourceLoader&, const WebCore::ResourceResponse&);
     bool interceptAuthenticationChallenge(WebCore::ResourceLoader&, const WebCore::AuthenticationChallenge&) final;
-    void loaderDidFinish(WebCore::ResourceLoader&) final;
+    bool interceptResponseData(WebCore::ResourceLoader&, const WebCore::FragmentedSharedBuffer&, long long encodedDataLength) final;
+    bool interceptFinish(WebCore::ResourceLoader&, const WebCore::NetworkLoadMetrics&) final;
+    void loaderDidResume(WebCore::ResourceLoader&) final;
     void loaderDidFail(WebCore::ResourceLoader&, const WebCore::ResourceError&) final;
     bool holdsReceivedCookies(const WebCore::ResourceHandle&) final;
     Vector<WebCore::CocoaCurlProxyFilterResult> proxyFilterResults(const WebCore::ResourceHandle&, const URL&) final;
@@ -125,12 +177,27 @@ private:
     void redirectInPlace(WebCore::ResourceLoader&, Load&, const WebCore::ResourceResponse& redirectResponse, const URL&);
     void restart(WebCore::ResourceLoader&);
 
+    RefPtr<FilteredResponse> filteredResponse(uint64_t filterID) const { return m_responseFilters.get(filterID); }
+    void outputFilteredResponse(FilteredResponse&, RefPtr<WebCore::SharedBuffer>&&);
+    void scheduleFilteredOutputDelivery(FilteredResponse&);
+    void deliverFilteredOutput(FilteredResponse&);
+    void finishFilteredLoad(FilteredResponse&, WebCore::ResourceLoader&);
+    LegacyExtensionMultipartSplit splitFilteredMultipart(FilteredResponse&, WebCore::ResourceLoader&, const WebCore::ResourceResponse&);
+    void queueFilteredPart(FilteredResponse&, FilteredResponse::Part&&);
+    void discardFilteredOutput(FilteredResponse&);
+    static long long takeEncodedDataLength(FilteredResponse&);
+    void removeFilteredResponse(FilteredResponse&);
+
     LegacyExtensions::WebRequestListeners m_listeners;
     WeakHashMap<WebCore::ResourceLoader, Ref<Load>> m_loads;
     // The loaders entering start() again with the request their webRequest steps approved.
     WeakHashSet<WebCore::ResourceLoader> m_resumingStarts;
     WeakHashSet<WebCore::ResourceLoader> m_resumingChallenges;
     WeakHashSet<LegacyExtensionViewPing> m_pings;
+    WeakHashMap<WebCore::ResourceLoader, Ref<FilteredResponse>> m_filteredResponses;
+    // Each filter's load.
+    HashMap<uint64_t, Ref<FilteredResponse>> m_responseFilters;
+    HashSet<Ref<LegacyExtensionViewDetachedLoad>> m_detachedLoads;
     uint64_t m_nextIdentifier { 1 };
 };
 

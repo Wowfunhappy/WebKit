@@ -551,7 +551,8 @@ void CocoaCurlResourceHandle::publishResponse()
             return;
         loader->m_waitingForPolicy = false;
         loader->m_useResponse = true;
-        loader->m_multipart = createCocoaCurlMultipartHandle(loader.get(), loader->m_response.response);
+        if (!loader->m_deliversUnsplitBody)
+            loader->m_multipart = createCocoaCurlMultipartHandle(loader.get(), loader->m_response.response);
         auto callback = [loader] {
             if (loader->m_cancelled || !loader->m_handle)
                 return;
@@ -615,12 +616,13 @@ void CocoaCurlResourceHandle::holdDelivery()
 void CocoaCurlResourceHandle::deliver(std::span<const uint8_t> bytes)
 {
     if (m_cacheBody) {
-        if (m_multipart || !cocoaCurlCacheAcceptsLength(m_storage.get(), m_cacheBody->size() + bytes.size()))
+        if (m_multipart || m_deliversUnsplitBody || !cocoaCurlCacheAcceptsLength(m_storage.get(), m_cacheBody->size() + bytes.size()))
             m_cacheBody.reset();
         else
             m_cacheBody->append(bytes);
     }
     if (m_multipart) {
+        m_hasSplitBody = true;
         m_multipart->didReceiveMessage(bytes);
         if (m_multipart->hasError())
             fail(NSURLErrorCannotParseResponse, "Invalid multipart response"_s);
@@ -628,27 +630,17 @@ void CocoaCurlResourceHandle::deliver(std::span<const uint8_t> bytes)
     }
     didReceiveDataFromMultipart(bytes);
 }
+bool CocoaCurlResourceHandle::deliverUnsplitBody()
+{
+    if (m_hasSplitBody)
+        return false;
+    m_deliversUnsplitBody = true;
+    m_multipart = nullptr;
+    return true;
+}
 void CocoaCurlResourceHandle::didReceiveHeaderFromMultipart(Vector<String>&& fields)
 {
-    ResourceResponse response = m_response.response;
-    for (auto& rawField : fields) {
-        // Each field arrives as the header line the multipart parser read, its terminator included.
-        auto field = rawField.trim([](auto c) { return c == '\r' || c == '\n'; });
-        auto colon = field.find(':');
-        if (colon == notFound) {
-            fail(NSURLErrorCannotParseResponse, "Invalid multipart header"_s);
-            return;
-        }
-        auto name = field.left(colon);
-        auto value = field.substring(colon + 1).trim([](auto c) { return c == ' ' || c == '\t'; });
-        if (!isValidHTTPToken(name) || !isValidHTTPHeaderValue(value)) {
-            fail(NSURLErrorCannotParseResponse, "Invalid multipart header"_s);
-            return;
-        }
-        response.setHTTPHeaderField(name, value);
-    }
-    auto type = response.httpHeaderField(HTTPHeaderName::ContentType);
-    setCocoaCurlContentType(response, type);
+    auto response = cocoaCurlMultipartPartResponse(m_response.response, fields);
     m_waitingForPolicy = true;
     holdDelivery();
     auto callback = [loader = Ref { *this }, response = WTF::move(response)]() mutable {

@@ -548,10 +548,11 @@ const dispatchProxyRequest = async (event, details) => {
     return { proxy: answers };
 };
 
-// webRequest.filterResponseData's StreamFilter, as Firefox's: the network process sends the filter its response's
-// body, and what the filter writes is the body the page receives. While the filter is suspended, events already
-// on their way wait here. Each message back reports how many data events have been dispatched, so a disconnect
-// lets the network process pass on the chunks the extension never handled.
+// webRequest.filterResponseData's StreamFilter, as Firefox's: the process that loads the response (the network
+// process, or the Safari process for a WebKit 1 view's load) sends the filter its body, and what the filter writes
+// is the body the page receives. While the filter is suspended, events already on their way wait here. Each
+// message back reports how many data events have been dispatched, so a disconnect lets that process pass on the
+// chunks the extension never handled.
 const streamFilters = new Map();
 
 class StreamFilter extends EventTarget {

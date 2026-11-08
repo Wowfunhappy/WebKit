@@ -1,6 +1,6 @@
 // The loads WebKit 1 makes in its own process, as Safari 7 extensions' webRequest sees them. WebKit installs an
 // interceptor in the Safari process; WebKit 1's loaders tell it of each load where they hand a request to
-// the network, receive a redirect, a response or an authentication challenge, and finish. Each intercept
+// the network, receive a redirect, a response, an authentication challenge or the body, and finish. Each intercept
 // returns true when the interceptor has taken the load's continuation.
 
 #pragma once
@@ -15,10 +15,13 @@ namespace WebCore {
 class AuthenticationChallenge;
 class Document;
 class Credential;
+class FragmentedSharedBuffer;
 class FrameLoader;
 class LocalFrame;
+class NetworkLoadMetrics;
 class ResourceError;
 class ResourceHandle;
+class ResourceHandleClient;
 class ResourceLoader;
 class ResourceRequest;
 class ResourceResponse;
@@ -50,7 +53,12 @@ public:
     virtual bool interceptRedirection(ResourceLoader&, ResourceRequest&, ResourceResponse& redirectResponse, CompletionHandler<void(ResourceRequest&&)>&) = 0;
     virtual bool interceptResponse(ResourceLoader&, ResourceResponse&, CompletionHandler<void()>&) = 0;
     virtual bool interceptAuthenticationChallenge(ResourceLoader&, const AuthenticationChallenge&) = 0;
-    virtual void loaderDidFinish(ResourceLoader&) = 0;
+    // A chunk of the body the network delivers, and the body's end. The interceptor that takes them hands the
+    // loader the body and the end that replace them.
+    virtual bool interceptResponseData(ResourceLoader&, const FragmentedSharedBuffer&, long long encodedDataLength) = 0;
+    virtual bool interceptFinish(ResourceLoader&, const NetworkLoadMetrics&) = 0;
+    // The loader stopped deferring its load; the interceptor delivers what it held meanwhile.
+    virtual void loaderDidResume(ResourceLoader&) = 0;
     virtual void loaderDidFail(ResourceLoader&, const ResourceError&) = 0;
 
     // Whether the Set-Cookie fields of the handle's responses wait for their onHeadersReceived verdict, which
@@ -100,6 +108,8 @@ protected:
     static void continueAuthenticationChallenge(ResourceLoader&, const AuthenticationChallenge&);
     // Ends the loader's network load without telling the loader.
     static void stopNetworkLoad(ResourceLoader&);
+    // Takes the loader's network load, which goes on and tells the client of the rest of the response.
+    static RefPtr<ResourceHandle> takeNetworkLoad(ResourceLoader&, ResourceHandleClient&);
 };
 
 } // namespace WebCore
