@@ -74,6 +74,9 @@ EventDispatcher::EventDispatcher(WebProcess& process)
     , m_momentumEventDispatcher(WTF::makeUnique<MomentumEventDispatcher>(*this))
     , m_observerID(DisplayLinkObserverID::generate())
 #endif
+#if ENABLE(ASYNC_SCROLLING) && ENABLE(SCROLLING_THREAD) && HAVE(DISPLAY_LINK)
+    , m_wheelActivityObserverID(DisplayLinkObserverID::generate()) // AQUAWEBKIT: see noteWheelActivity.
+#endif
 {
 }
 
@@ -166,6 +169,9 @@ void EventDispatcher::internalWheelEvent(PageIdentifier pageID, const WebWheelEv
 #endif
 
         scrollingTree->willProcessWheelEvent();
+#if HAVE(DISPLAY_LINK)
+        noteWheelActivity(scrollingTree->displayID()); // AQUAWEBKIT: see noteWheelActivity.
+#endif
 
         ScrollingThread::dispatch([scrollingTree, wheelEvent, platformWheelEvent, processingSteps, useMainThreadForScrolling, pageID, wheelEventOrigin, this, protectedThis = Ref { *this }] {
             if (useMainThreadForScrolling) {
@@ -417,5 +423,68 @@ void EventDispatcher::flushMomentumEventLoggingSoon()
 }
 #endif
 #endif // ENABLE(MOMENTUM_EVENT_DISPATCHER)
+
+#if ENABLE(ASYNC_SCROLLING) && ENABLE(SCROLLING_THREAD) && HAVE(DISPLAY_LINK)
+// AQUAWEBKIT: wheel activity keeps this process's own display link observer running on each display it touches, so refresh
+// ticks reach the scrolling thread while the main thread has none registered. The window is RemoteLayerTreeEventDispatcher's
+// wheel hysteresis.
+static constexpr Seconds wheelActivityDisplayLinkDuration { 500_ms };
+
+void EventDispatcher::noteWheelActivity(PlatformDisplayID displayID)
+{
+    ASSERT(!RunLoop::isMain());
+
+    if (!displayID)
+        return;
+
+    if (!m_lastWheelActivityTimeByDisplay.set(displayID, MonotonicTime::now()).isNewEntry)
+        return;
+
+    if (m_lastWheelActivityTimeByDisplay.size() == 1)
+        scheduleWheelActivityCheck(wheelActivityDisplayLinkDuration);
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebProcessProxy::StartDisplayLink(m_wheelActivityObserverID, displayID, WebCore::FullSpeedFramesPerSecond), 0);
+}
+
+void EventDispatcher::scheduleWheelActivityCheck(Seconds delay)
+{
+    queue().dispatchAfter(delay, [weakThis = WeakPtr { *this }] {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->wheelActivityCheckFired();
+    });
+}
+
+bool EventDispatcher::hasScrollAnimationOnDisplay(PlatformDisplayID displayID)
+{
+    Locker locker { m_scrollingTreesLock };
+    for (auto& scrollingTree : m_scrollingTrees.values()) {
+        if (scrollingTree->displayID() == displayID && scrollingTree->hasNodeWithActiveScrollAnimations())
+            return true;
+    }
+    return false;
+}
+
+// A display keeps its observer while its scrolling trees still animate after the last wheel event, as a rubber-band release does.
+void EventDispatcher::wheelActivityCheckFired()
+{
+    auto now = MonotonicTime::now();
+    auto nextCheck = wheelActivityDisplayLinkDuration;
+    Vector<PlatformDisplayID> idleDisplays;
+    for (auto& [displayID, lastActivityTime] : m_lastWheelActivityTimeByDisplay) {
+        auto sinceLastActivity = now - lastActivityTime;
+        if (sinceLastActivity < wheelActivityDisplayLinkDuration)
+            nextCheck = std::min(nextCheck, wheelActivityDisplayLinkDuration - sinceLastActivity);
+        else if (!hasScrollAnimationOnDisplay(displayID))
+            idleDisplays.append(displayID);
+    }
+
+    for (auto displayID : idleDisplays) {
+        m_lastWheelActivityTimeByDisplay.remove(displayID);
+        protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebProcessProxy::StopDisplayLink(m_wheelActivityObserverID, displayID), 0);
+    }
+
+    if (!m_lastWheelActivityTimeByDisplay.isEmpty())
+        scheduleWheelActivityCheck(nextCheck);
+}
+#endif // AQUAWEBKIT: closes the guard above.
 
 } // namespace WebKit

@@ -187,6 +187,16 @@ private:
     std::unique_ptr<MomentumEventDispatcher> m_momentumEventDispatcher;
     DisplayLinkObserverID m_observerID;
 #endif
+
+#if ENABLE(ASYNC_SCROLLING) && ENABLE(SCROLLING_THREAD) && HAVE(DISPLAY_LINK)
+    // AQUAWEBKIT: see EventDispatcher::noteWheelActivity.
+    void noteWheelActivity(WebCore::PlatformDisplayID);
+    void scheduleWheelActivityCheck(Seconds);
+    void wheelActivityCheckFired();
+    bool hasScrollAnimationOnDisplay(WebCore::PlatformDisplayID);
+    DisplayLinkObserverID m_wheelActivityObserverID;
+    HashMap<WebCore::PlatformDisplayID, MonotonicTime> m_lastWheelActivityTimeByDisplay;
+#endif // AQUAWEBKIT: closes the guard above.
 };
 
 } // namespace WebKit

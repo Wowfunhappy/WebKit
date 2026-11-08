@@ -14149,16 +14149,6 @@ void WebPageProxy::stopAllURLSchemeTasks(WebProcessProxy* process)
 
 void WebPageProxy::resetState(ResetStateReason resetStateReason)
 {
-#if HAVE(DISPLAY_LINK)
-    // AQUAWEBKIT: balance the DisplayLink full-speed registration when the page is
-    // invalidated (tab close / page destruction). Nothing else decrements it on this path, and
-    // DisplayLink::removeInfoForClientIfUnused drops the client only once the count reaches zero.
-    // Mirrors the deregistration windowScreenDidChange() already performs.
-    if (hasRunningProcess() && m_displayID && m_registeredForFullSpeedUpdates)
-        protect(legacyMainFrameProcess())->setDisplayLinkForDisplayWantsFullSpeedUpdates(*m_displayID, false);
-    m_registeredForFullSpeedUpdates = false;
-#endif
-
     m_mainFrame = nullptr;
     m_focusedFrame = nullptr;
     m_suspendedPageKeptToPreventFlashing = nullptr;
