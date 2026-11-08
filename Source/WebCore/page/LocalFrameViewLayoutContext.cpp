@@ -50,7 +50,6 @@
 #include "RenderLayer.h"
 #include "RenderLayerCompositor.h"
 #include "RenderLayerModelObject.h"
-#include "RenderLayerScrollableArea.h" // AQUAWEBKIT: applyDeferredScrollClamps().
 #include "RenderLayoutState.h"
 #include "RenderSVGText.h"
 #include "RenderObjectInlines.h"
@@ -197,60 +196,10 @@ void LocalFrameViewLayoutContext::interleavedLayout()
 
     Ref protectedView(view());
 
-    // AQUAWEBKIT: see deferScrollClamp().
-    auto scrollClamping = protectedView->scrollClamping();
-    protectedView->setScrollClamping(ScrollClamping::Unclamped);
-    m_viewHasDeferredScrollClamp = true;
-
     performLayout(false);
-
-    protectedView->setScrollClamping(scrollClamping); // AQUAWEBKIT: see deferScrollClamp().
 
     Style::DocumentScope::LayoutDependencyUpdateContext layoutDependencyUpdateContext;
     document()->styleScope().invalidateForLayoutDependencies(layoutDependencyUpdateContext);
-}
-
-// AQUAWEBKIT: see the declaration.
-void LocalFrameViewLayoutContext::deferScrollClamp(RenderBox& box)
-{
-    m_boxesWithDeferredScrollClamp.add(box);
-}
-
-// AQUAWEBKIT: see the declaration.
-void LocalFrameViewLayoutContext::applyDeferredScrollClamps()
-{
-    applyDeferredViewScrollClamp();
-    applyDeferredBoxScrollClamps();
-}
-
-// AQUAWEBKIT: the clamp of ScrollView::updateScrollbars(), or AppKit's for a view with a platform widget.
-void LocalFrameViewLayoutContext::applyDeferredViewScrollClamp()
-{
-    if (!std::exchange(m_viewHasDeferredScrollClamp, false))
-        return;
-
-    Ref view = this->view();
-    disableSetNeedsLayout();
-    view->commitContentsSizeToPlatformWidget();
-    enableSetNeedsLayout();
-    if (view->prohibitsScrolling() || view->isRubberBandInProgress())
-        return;
-
-    auto scrollPosition = view->scrollPosition();
-    auto clampedScrollPosition = view->adjustScrollPositionWithinRange(scrollPosition);
-    if (clampedScrollPosition != scrollPosition)
-        view->scrollToPositionWithoutAnimation(clampedScrollPosition);
-}
-
-// AQUAWEBKIT: the clamp of RenderLayerScrollableArea::updateScrollInfoAfterLayout().
-void LocalFrameViewLayoutContext::applyDeferredBoxScrollClamps()
-{
-    auto boxes = std::exchange(m_boxesWithDeferredScrollClamp, { });
-    for (auto& box : boxes) {
-        CheckedPtr layer = box.layer();
-        if (CheckedPtr scrollableArea = layer ? layer->scrollableArea() : nullptr)
-            scrollableArea->clampScrollOffsetAfterLayout();
-    }
 }
 
 void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPositions)
@@ -323,8 +272,6 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
         RenderTreeNeedsLayoutChecker checker(*renderView());
 #endif
         layoutRoot->layout();
-        if (!document()->isInStyleInterleavedLayout()) // AQUAWEBKIT: see deferScrollClamp().
-            applyDeferredBoxScrollClamps();
 #if ENABLE(TEXT_AUTOSIZING)
         {
             CheckedPtr renderView = this->renderView();
@@ -376,8 +323,6 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
             if (view().hasOneRef())
                 return;
         }
-        if (!document()->isInStyleInterleavedLayout()) // AQUAWEBKIT: see deferScrollClamp().
-            applyDeferredViewScrollClamp();
     }
     {
         SetForScope layoutPhase(m_layoutPhase, LayoutPhase::InPostLayout);

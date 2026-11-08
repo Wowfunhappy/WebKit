@@ -67,6 +67,7 @@ public:
     void scrollerDidLayout();
 
     void clearAnchor(bool includeAncestors = false);
+    void updateBeforeStyleRecalc(); // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925).
     void updateBeforeLayout();
     void adjustScrollPositionForAnchoring();
 
@@ -136,6 +137,8 @@ private:
 
     bool m_isUpdatingScrollPositionForAnchoring { false };
     bool m_isQueuedForScrollPositionUpdate { false };
+    bool m_wasQueuedBeforeStyleRecalc { false }; // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925).
+    bool m_choseAnchorBeforeStyleRecalc { false }; // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925).
     bool m_anchoringSuppressedByStyleChange { false };
     unsigned m_inScrollEventCount { 0 };
     unsigned m_suppressionCount { 0 };

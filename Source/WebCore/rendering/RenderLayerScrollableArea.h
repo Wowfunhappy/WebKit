@@ -149,7 +149,6 @@ public:
 
     void updateScrollbarSteps();
     std::optional<ScrollbarUpdateScope> updateScrollInfoAfterLayout();
-    void clampScrollOffsetAfterLayout(); // AQUAWEBKIT: see LocalFrameViewLayoutContext::deferScrollClamp().
 
     bool scroll(ScrollDirection, ScrollGranularity, unsigned stepCount = 1);
 

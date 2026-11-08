@@ -420,23 +420,11 @@ void ScrollView::setContentsSize(const IntSize& newSize)
     if (contentsSize() == newSize)
         return;
     m_contentsSize = newSize;
-    // if (platformWidget())
-    //     platformSetContentsSize();
-    // AQUAWEBKIT: AppKit clamps the scroll position to a smaller document view, so an unclamped view leaves its
-    // document view at the old size until commitContentsSizeToPlatformWidget().
-    if (platformWidget()) {
-        if (scrollClamping() == ScrollClamping::Clamped)
-            platformSetContentsSize();
-    } else if (!m_prohibitsScrollingWhenChangingContentSizeCount)
-        updateScrollbars(scrollPosition());
-    updateOverhangAreas();
-}
-
-// AQUAWEBKIT: see setContentsSize().
-void ScrollView::commitContentsSizeToPlatformWidget()
-{
     if (platformWidget())
         platformSetContentsSize();
+    else if (!m_prohibitsScrollingWhenChangingContentSizeCount)
+        updateScrollbars(scrollPosition());
+    updateOverhangAreas();
 }
 
 ScrollPosition ScrollView::maximumScrollPosition() const

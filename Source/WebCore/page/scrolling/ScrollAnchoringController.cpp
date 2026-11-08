@@ -166,6 +166,11 @@ void ScrollAnchoringController::clearAnchor(bool includeAncestors)
     if (m_isUpdatingScrollPositionForAnchoring)
         return;
 
+    // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925). A style-interleaved layout can clamp the scroll position to content
+    // whose style is only partially resolved. Keep the anchor so the adjustment after the final layout restores the position.
+    if (RefPtr document = frameView().frame().document(); document && document->isInStyleInterleavedLayout())
+        return;
+
     m_anchorObject = nullptr;
     m_lastAnchorOffset = { };
 
@@ -193,6 +198,7 @@ void ScrollAnchoringController::invalidate()
     m_anchorObject = nullptr;
     m_lastAnchorOffset = { };
 
+    m_wasQueuedBeforeStyleRecalc = false; // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925).
     if (m_isQueuedForScrollPositionUpdate) {
         m_isQueuedForScrollPositionUpdate = false;
         protect(frameView())->dequeueScrollableAreaForScrollAnchoringUpdate(m_owningScrollableArea);
@@ -320,7 +326,10 @@ bool ScrollAnchoringController::findPriorityCandidate(Document& document)
         return false;
 
     RefPtr focusedElement = document.focusedElement();
-    if (focusedElement && isEditableNode(*focusedElement)) {
+    // if (focusedElement && isEditableNode(*focusedElement)) {
+    // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925). Anchors are also chosen before style recalc, from the last layout,
+    // so use the style that layout used.
+    if (focusedElement && focusedElement->computeEditability(Node::UserSelectAllTreatment::NotEditable, Node::ShouldUpdateStyle::DoNotUpdate) != Node::Editability::ReadOnly) {
         if (CheckedPtr candidate = priorityCandidateForElement(focusedElement)) {
             auto status = examinePriorityCandidate(*candidate);
             if (isViableStatus(status)) {
@@ -583,10 +592,29 @@ void ScrollAnchoringController::updateBeforeLayout()
         return;
     }
 
+    // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925) from here to the matching close below.
+    bool isInStyleInterleavedLayout = scrollerBox->document().isInStyleInterleavedLayout();
+
+    if (m_isQueuedForScrollPositionUpdate && std::exchange(m_wasQueuedBeforeStyleRecalc, false) && !isInStyleInterleavedLayout) {
+        // The style update didn't need the anchor chosen before it. Choose as usual, after the render tree update.
+        m_isQueuedForScrollPositionUpdate = false;
+        protect(frameView())->dequeueScrollableAreaForScrollAnchoringUpdate(m_owningScrollableArea);
+        if (m_choseAnchorBeforeStyleRecalc) {
+            m_anchorObject = nullptr;
+            m_lastAnchorOffset = { };
+        }
+    }
+    // AQUAWEBKIT: closes the webkit.org/b/328099 hunk above.
+
     if (m_isQueuedForScrollPositionUpdate) {
         m_anchoringSuppressedByStyleChange |= anchoringSuppressedByStyleChange();
         return;
     }
+
+    // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925). Style-interleaved layouts run during style resolution, where
+    // anchors can't be chosen.
+    if (isInStyleInterleavedLayout)
+        return;
 
     auto scrollPosition = m_owningScrollableArea->scrollPosition();
     auto isRubberBanding = [&]() {
@@ -618,6 +646,23 @@ void ScrollAnchoringController::updateBeforeLayout()
     m_isQueuedForScrollPositionUpdate = true;
 }
 
+// AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925). Style-interleaved layouts run during style resolution, where anchors
+// can't be chosen, and see content whose style is only partially resolved. Choose the anchor before style resolution,
+// from the geometry of the last layout.
+void ScrollAnchoringController::updateBeforeStyleRecalc()
+{
+    if (m_isQueuedForScrollPositionUpdate)
+        return;
+
+    bool hadAnchor = !!m_anchorObject;
+    updateBeforeLayout();
+    if (!m_isQueuedForScrollPositionUpdate)
+        return;
+
+    m_wasQueuedBeforeStyleRecalc = true;
+    m_choseAnchorBeforeStyleRecalc = !hadAnchor;
+}
+
 // https://drafts.csswg.org/css-scroll-anchoring/#scroll-adjustment
 void ScrollAnchoringController::adjustScrollPositionForAnchoring()
 {
@@ -631,6 +676,7 @@ void ScrollAnchoringController::adjustScrollPositionForAnchoring()
     }
 
     auto queued = std::exchange(m_isQueuedForScrollPositionUpdate, false);
+    m_wasQueuedBeforeStyleRecalc = false; // AQUAWEBKIT: webkit.org/b/328099 (WebKit PR 79925).
     if (!m_anchorObject || !queued)
         return;
 

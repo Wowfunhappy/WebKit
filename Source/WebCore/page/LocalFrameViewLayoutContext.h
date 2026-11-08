@@ -81,16 +81,6 @@ public:
     bool NODELETE needsLayout(OptionSet<LayoutOptions> layoutOptions = { }) const;
 
     void interleavedLayout();
-    // AQUAWEBKIT: a style-interleaved layout lays out a render tree that lacks the renderers under query containers and
-    // anchor-positioned elements whose descendants' style resolution is deferred, so the scroll clamps it would make
-    // wait for a layout of the complete tree. Each replays in the layout phase of the clamp it stands in for.
-    // Upstream has the same defect; LayoutTests/platform/mac-mavericks/fast/scrolling/scroll-position-across-interleaved-layout.html
-    // covers it. Remove this mechanism in the future: after each upstream merge, revert it and check whether that test
-    // passes without it.
-    void deferScrollClamp(RenderBox&);
-    void applyDeferredScrollClamps();
-    void applyDeferredViewScrollClamp();
-    void applyDeferredBoxScrollClamps();
 
     // We rely on the side-effects of layout, like compositing updates, to update state in various subsystems
     // whose dependencies are poorly defined. This call triggers such updates.
@@ -295,8 +285,6 @@ private:
     std::unique_ptr<UpdateScrollInfoAfterLayoutTransaction> m_updateScrollInfoAfterLayoutTransaction;
     SingleThreadWeakHashMap<RenderBlock, Vector<SingleThreadWeakPtr<RenderBox>>> m_containersWithDescendantsNeedingTransformUpdate;
     SingleThreadWeakHashSet<RenderBox> m_percentHeightIgnoreList;
-    SingleThreadWeakHashSet<RenderBox> m_boxesWithDeferredScrollClamp; // AQUAWEBKIT: see deferScrollClamp().
-    bool m_viewHasDeferredScrollClamp { false }; // AQUAWEBKIT: see deferScrollClamp().
     Vector<AnchorScrollAdjuster> m_anchorScrollAdjusters;
     std::optional<TextBoxTrim> m_textBoxTrim;
     std::optional<SubtreeScrollbarChangesState> m_subtreeScrollbarChangesState;
