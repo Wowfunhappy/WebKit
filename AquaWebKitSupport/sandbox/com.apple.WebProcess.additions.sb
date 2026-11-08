@@ -78,7 +78,6 @@
     (global-name "com.apple.DiskArbitration.diskarbitrationd")
     (global-name "com.apple.FileCoordination")
     (global-name "com.apple.awdd")
-    (global-name "com.apple.dock.server")
     (global-name "com.apple.system.opendirectoryd.api")
     (global-name "com.apple.tccd.system")
     (global-name "com.apple.PowerManagement.control")
@@ -88,6 +87,11 @@
     (global-name "com.apple.coremedia.endpointstream.xpc")
     (global-name "com.apple.coremedia.endpointplaybacksession.xpc")
     (global-name "com.apple.coremedia.endpointpicker.xpc"))
+
+;; -[NSApplication init] looks up the Dock in every process at launch; the web process stays off it.
+(deny mach-lookup
+    (global-name "com.apple.dock.server")
+    (with no-report))
 
 ;; Upstream restricts the system logger to root.
 (deny mach-lookup

@@ -1422,7 +1422,9 @@ WK_POLYFILL_ABSENT(NULL, void, xpc_connection_set_oneshot_instance, (xpc_connect
 }
 
 // An os_transaction owns a native launchd transaction. The dispatch object's finalizer
-// ends the transaction held in its context when the last reference is released.
+// ends the transaction held in its context when the last reference is released. Whether the
+// transaction makes the process dirty is launchd's to decide: in a job with EnableTransactions,
+// vproc_transaction_begin turns on dirty tracking itself, and elsewhere it only counts.
 WK_SYSTEM_FN(NULL, void *, vproc_transaction_begin, (void *));
 WK_SYSTEM_FN(NULL, void, vproc_transaction_end, (void *, void *));
 
@@ -1433,8 +1435,6 @@ static void wk_endTransaction(void *context)
 
 WK_POLYFILL_ABSENT(NULL, void *, os_transaction_create, (const char *description))
 {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ _vproc_transactions_enable(); });
     dispatch_queue_t transaction = dispatch_queue_create(description ? description : "com.apple.webkit.os-transaction", DISPATCH_QUEUE_SERIAL);
     if (!transaction)
         return NULL;
