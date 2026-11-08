@@ -463,6 +463,23 @@ probe_cg_layer_context_colorspace() {
         "$T/cg_layer_context_colorspace"
 }
 
+probe_task_metrics_relay() {
+    build_selref_object &&
+        "$CLANGXX" -c $MODERN $INC -fobjc-arc -DWK_POLYFILL_UNIT=task_metrics -o "$OBJ/methods/task_metrics.o" "$PF/webkit/task_metrics.mm" &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/task_metrics_relay" "$TBEHAV/Foundation-task-metrics-relay.m" \
+            "$OBJ/methods/task_metrics.o" "$OBJ/mech/wk_selref_scope.o" -Wl,-force_load,"$OUT/libwk_marker.a" \
+            "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS &&
+        "$T/task_metrics_relay"
+}
+
+probe_selref_alias_dispatch() {
+    build_selref_object &&
+        "$CLANGXX" $MODERN $INC -x objective-c++ -fno-objc-arc -DWK_POLYFILL_UNIT=selref_alias_dispatch -o "$T/selref_alias_dispatch" \
+            "$POLY/tests/mechanism/wk_selref_alias_dispatch.m" -x none "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" $PROBE_LIBS &&
+        "$T/selref_alias_dispatch"
+}
+
 probe_selref_dlopen() {
     build_selref_object &&
         "$CLANG" $MODERN $INC -dynamiclib -o "$T/selref_dlopen_fixture.dylib" "$POLY/tests/mechanism/wk_selref_dlopen_fixture.m" -lobjc &&
@@ -1244,6 +1261,8 @@ run_probe cg_linear_srgb "$@"
 run_probe accelerate_converter_ramp "$@"
 run_probe cg_layer_context_colorspace "$@"
 run_probe coreimage_builtins "$@"
+run_probe task_metrics_relay "$@"
+run_probe selref_alias_dispatch "$@"
 run_probe selref_dlopen "$@"
 run_probe selref_dlopen_category "$@"
 run_probe cg_live_image "$@"

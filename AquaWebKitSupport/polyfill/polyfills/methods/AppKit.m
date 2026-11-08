@@ -2004,7 +2004,8 @@ WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 // chosen service, or with nil when the menu closed without a choice (read off ShareKit's disassembly).
 // So the popover form shows that menu and calls the completion with the same service once it returns.
 // The service is observed through the picker's delegate: for the duration of the menu a relay stands in
-// as the delegate, records the choice, and hands every delegate message on to the client's delegate.
+// as the delegate, records the choice, and hands every delegate message on to the client's delegate,
+// which the picker's -delegate and -setDelegate: read and replace behind it.
 // The relay also captures the menu as it begins tracking, which is what -hide cancels; outside that
 // window nothing is on screen and -hide has nothing to do.
 @interface NSSharingServicePicker (WKPolyfillSharePopoverSPI)
@@ -2018,6 +2019,7 @@ WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 }
 - (id)initWithDelegate:(id<NSSharingServicePickerDelegate>)delegate;
 - (id<NSSharingServicePickerDelegate>)delegate;
+- (void)setDelegate:(id<NSSharingServicePickerDelegate>)delegate;
 - (NSSharingService *)chosenService;
 - (void)cancelTracking;
 @end
@@ -2042,6 +2044,7 @@ WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 }
 
 - (id<NSSharingServicePickerDelegate>)delegate { return _delegate; }
+- (void)setDelegate:(id<NSSharingServicePickerDelegate>)delegate { _delegate = delegate; }
 - (NSSharingService *)chosenService { return _chosenService; }
 
 - (void)wk_menuDidBeginTracking:(NSNotification *)notification
@@ -2079,6 +2082,44 @@ WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 
 static const void *kWKSharePickerRelayKey = &kWKSharePickerRelayKey;
 
+// The picker's own delegate accessors, which this file's -delegate and -setDelegate: sends do not reach.
+static id wk_sharePickerOwnDelegate(NSSharingServicePicker *picker)
+{
+    struct wk_original getter = wk_original_of(picker, @selector(wk_delegate));
+    return ((id (*)(id, SEL))getter.imp)(picker, getter.sel);
+}
+
+static void wk_sharePickerSetOwnDelegate(NSSharingServicePicker *picker, id delegate)
+{
+    struct wk_original setter = wk_original_of(picker, @selector(wk_setDelegate:));
+    ((void (*)(id, SEL, id))setter.imp)(picker, setter.sel, delegate);
+}
+
+static WKPolyfillSharePickerRelay *wk_sharePickerInstalledRelay(NSSharingServicePicker *picker)
+{
+    WKPolyfillSharePickerRelay *relay = objc_getAssociatedObject(picker, kWKSharePickerRelayKey);
+    return relay && wk_sharePickerOwnDelegate(picker) == relay ? relay : nil;
+}
+
+WK_POLYFILL_REPLACE_METHODS(NSSharingServicePicker)
+
+- (id<NSSharingServicePickerDelegate>)delegate
+{
+    WKPolyfillSharePickerRelay *relay = wk_sharePickerInstalledRelay(self);
+    return relay ? [relay delegate] : WK_ORIGINAL_METHOD(id, ());
+}
+
+- (void)setDelegate:(id<NSSharingServicePickerDelegate>)delegate
+{
+    WKPolyfillSharePickerRelay *relay = wk_sharePickerInstalledRelay(self);
+    if (relay)
+        [relay setDelegate:delegate];
+    else
+        WK_ORIGINAL_METHOD(void, (id), delegate);
+}
+
+@end
+
 WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 
 - (void)showPopoverRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge completion:(void (^)(NSSharingService *))completion
@@ -2086,15 +2127,15 @@ WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
     [[self retain] autorelease];
     void (^completionCopy)(NSSharingService *) = [[completion copy] autorelease];
 
-    WKPolyfillSharePickerRelay *relay = [[[WKPolyfillSharePickerRelay alloc] initWithDelegate:[self delegate]] autorelease];
-    [self setDelegate:relay];
+    WKPolyfillSharePickerRelay *relay = [[[WKPolyfillSharePickerRelay alloc] initWithDelegate:wk_sharePickerOwnDelegate(self)] autorelease];
+    wk_sharePickerSetOwnDelegate(self, relay);
     objc_setAssociatedObject(self, kWKSharePickerRelayKey, relay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     [self showRelativeToRect:rect ofView:view preferredEdge:preferredEdge];
 
     objc_setAssociatedObject(self, kWKSharePickerRelayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    if ([self delegate] == relay)
-        [self setDelegate:[relay delegate]];
+    if (wk_sharePickerOwnDelegate(self) == relay)
+        wk_sharePickerSetOwnDelegate(self, [relay delegate]);
 
     if (completionCopy)
         completionCopy([relay chosenService]);

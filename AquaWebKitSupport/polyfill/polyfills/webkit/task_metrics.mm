@@ -191,8 +191,16 @@ static void wkNoteResponse(NSURLSessionTaskTransactionMetrics *transaction, NSUR
 WK_POLYFILL_REPLACE_METHODS_ON(NSURLSession, "__NSCFURLSession")
 + (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)configuration delegate:(id<NSURLSessionDelegate>)delegate delegateQueue:(NSOperationQueue *)queue
 {
-    id relay = delegate ? [[WKPolyfillURLSessionMetricsRelay alloc] initWithDelegate:delegate] : nil;
+    id relay = [[WKPolyfillURLSessionMetricsRelay alloc] initWithDelegate:delegate];
     return WK_ORIGINAL_METHOD(NSURLSession *, (NSURLSessionConfiguration *, id, NSOperationQueue *), configuration, relay, queue);
+}
+
+// A session without a delegate, which records its tasks' metrics through a relay standing in for none.
++ (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)configuration
+{
+    id relay = [[WKPolyfillURLSessionMetricsRelay alloc] initWithDelegate:nil];
+    struct wk_original creator = wk_original_of(self, @selector(wk_sessionWithConfiguration:delegate:delegateQueue:));
+    return ((NSURLSession *(*)(id, SEL, NSURLSessionConfiguration *, id, NSOperationQueue *))creator.imp)(self, creator.sel, configuration, relay, nil);
 }
 
 // -delegate answers the object the caller handed to the creator above, not the relay standing in for it.

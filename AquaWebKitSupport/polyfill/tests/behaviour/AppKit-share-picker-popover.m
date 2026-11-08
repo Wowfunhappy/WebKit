@@ -1,5 +1,7 @@
 // The share picker's popover form shows 10.9's services menu, reports the choice to its completion,
-// and -hide closes the menu while it is up.
+// and -hide closes the menu while it is up. While the menu is up the picker's delegate is still the
+// client's: reading it answers the client's object, and replacing it moves later delegate messages to the
+// replacement without losing the choice.
 //
 // Each case acts once the services menu has begun tracking, and the chosen-service case drives the menu
 // with keystrokes posted to this process, so it needs the window server session this VM runs in but no
@@ -101,9 +103,11 @@ int main(void)
 
         __block BOOL menuTracked = NO;
         __block BOOL delegateForwarded = NO;
+        __block BOOL delegateReadWhileShown = NO;
         id observer = afterMenuBeginsTracking(^{
             menuTracked = YES;
             id current = [picker delegate];
+            delegateReadWhileShown = current == delegate;
             delegateForwarded = [current respondsToSelector:@selector(sharingServicePicker:delegateForSharingService:)]
                 && [(id<NSSharingServicePickerDelegate>)current sharingServicePicker:picker delegateForSharingService:[NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail]] == (id)delegate;
             [picker hide];
@@ -125,6 +129,7 @@ int main(void)
 
         check("the services menu was shown", menuTracked);
         check("delegate messages reach the client's delegate while shown", delegateForwarded);
+        check("the picker's delegate reads as the client's while shown", delegateReadWhileShown);
         check("hide closed the menu and the completion ran once", completionCount == 1);
         check("the completion reports no service", !completedService);
         check("the delegate heard that nothing was chosen", delegate.chooseCount == 1 && delegate.choseNothing);
@@ -164,6 +169,38 @@ int main(void)
         check("the service's delegate came from the client's delegate", choosingDelegate.serviceDelegateRequests > 0);
         check("the chosen service ran", handlerRan);
         check("the client's delegate is back in place after a choice", [choosingPicker delegate] == choosingDelegate);
+
+        // The client replaces the delegate while the menu is up, then the user chooses.
+        ProbeDelegate *firstDelegate = [ProbeDelegate new];
+        ProbeDelegate *replacementDelegate = [ProbeDelegate new];
+        firstDelegate.offeredService = [[[NSSharingService alloc] initWithTitle:@"Probe" image:[NSImage imageNamed:NSImageNameShareTemplate] alternateImage:nil handler:^{ }] autorelease];
+        replacementDelegate.offeredService = firstDelegate.offeredService;
+        NSSharingServicePicker *replacingPicker = [[NSSharingServicePicker alloc] initWithItems:@[ [NSURL URLWithString:@"https://webkit.org/"] ]];
+        [replacingPicker setDelegate:firstDelegate];
+        __block BOOL replacementRead = NO;
+        id replaceObserver = afterMenuBeginsTracking(^{
+            [replacingPicker setDelegate:replacementDelegate];
+            replacementRead = [replacingPicker delegate] == replacementDelegate;
+            postKey(125);
+            postKey(36);
+        });
+        CFRunLoopTimerRef replaceStuckTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 10, 0, 0, 0, ^(__unused CFRunLoopTimerRef timer) {
+            [replacingPicker hide];
+        });
+        CFRunLoopAddTimer(CFRunLoopGetCurrent(), replaceStuckTimer, kCFRunLoopCommonModes);
+
+        __block NSSharingService *replacedCompletedService = nil;
+        [replacingPicker showPopoverRelativeToRect:NSMakeRect(10, 10, 1, 1) ofView:view preferredEdge:NSMinYEdge completion:^(NSSharingService *service) {
+            replacedCompletedService = [service retain];
+        }];
+        [[NSNotificationCenter defaultCenter] removeObserver:replaceObserver];
+        CFRunLoopTimerInvalidate(replaceStuckTimer);
+        CFRelease(replaceStuckTimer);
+
+        check("a delegate set while shown reads back while shown", replacementRead);
+        check("the replacement delegate heard the choice, the first did not", replacementDelegate.chooseCount == 1 && !firstDelegate.chooseCount);
+        check("the completion still reports the chosen service", replacedCompletedService && replacedCompletedService == replacementDelegate.chosenService);
+        check("the replacement delegate stays in place", [replacingPicker delegate] == replacementDelegate);
     }
     return failures ? 1 : 0;
 }

@@ -42,8 +42,8 @@
 // land its [super ...] back in the body (see wk_original_of in wk_selref_scope.m).
 //
 // A polyfilled selector is rewritten by NAME across every WebKit image, so every class WebKit sends it
-// to must answer the private selector. A class that implements the real method itself gets its own
-// implementation aliased under the private name automatically (wk_alias_class); only a class that
+// to must answer the private selector. A class that implements the real method itself answers the
+// private name through an alias to it automatically (wk_alias_class); only a class that
 // LACKS the method needs a block.
 #ifndef WK_SELREF_SCOPE_H
 #define WK_SELREF_SCOPE_H

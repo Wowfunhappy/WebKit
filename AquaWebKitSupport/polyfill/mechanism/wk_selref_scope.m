@@ -24,6 +24,7 @@
 
 #import "wk_selref_scope.h"
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <mach-o/dyld.h>
@@ -36,6 +37,8 @@
 #import <stdio.h>
 #import <stdlib.h>
 #import <string.h>
+#import <errno.h>
+#import <sys/mman.h>
 #import <sys/syscall.h>
 #import <unistd.h>
 
@@ -219,8 +222,7 @@ static long wk_stat_refs, wk_stat_rewritten;
 static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // ---------------------------------------------------------------------------------------------
-// Class-correct aliasing: a class that HAS the real method also gets its own implementation under the
-// private selector.
+// Class-correct aliasing: a class that HAS the real method also answers the private selector.
 //
 // The rewrite is by NAME: every `foo` selref in a WebKit image becomes `wk_foo`, and a selref carries
 // no class. That is exactly right when WebKit sends `foo` to the one class whose `foo` is missing on
@@ -228,51 +230,35 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // lacks it here, and to NSURLRequest, which has it). A class that DOES have the real method would
 // otherwise be sent a `wk_foo` it does not implement -> unrecognized selector.
 //
-// So as each image arrives, every registered public selector that a class of that image implements
-// ITSELF is installed a second time under the private name, bound to that class's own IMP and type
-// encoding. Declaring a method polyfill therefore does not require knowing which other classes share
-// the name — it is correct by construction for every class, including ones nobody thought to list.
-//
-// This is deliberately load-time work rather than a +resolveInstanceMethod:/+resolveClassMethod: hook
-// on the unrecognized-selector path. Those are methods of NSObject: replacing their implementations
-// would install a patched ObjC runtime in every process that loads WebKit — Mail, iBooks, Xcode — to
-// paper over an ambiguity that only this layer's own by-name rewrite creates. The rewrite is what turns
-// `foo` into `wk_foo` for classes it did not mean, so the rewrite's own load-time pass is where that is
-// answered.
+// So as each image arrives, every class of that image that implements a registered public selector
+// ITSELF gets an alias under the private name, with the public method's type encoding: a stub that sends
+// on as the public selector would (see "Alias trampolines" below). Declaring a method polyfill therefore
+// does not require knowing which other classes share the name — it is correct by construction for every
+// class, including ones nobody thought to list. A category in an image loaded later that gives an
+// already-swept class a registered selector has that class aliased again (wk_alias_category_targets).
 //
 // Nothing is ever added under a PUBLIC selector: the only method installed anywhere is wk_<name>, which
 // nothing outside WebKit's rewritten images ever sends. A host app's respondsToSelector: for the public
-// name keeps answering exactly what the class really says.
-//
-// The unit is the class as its own image defines it, with the categories loaded by the time that image
-// is swept: `wk_foo` has to find 10.9's real `foo`, and a class's real API ships with the class. A
-// category an image loaded later bolts onto a class already swept is not covered. Audited on 10.9.5
-// across a 180-image process: of every class implementing one of the registered selectors, exactly two
-// got it from another image -- -[NSString containsString:] via ISSupport and -[NSArray containsString:]
-// via QTKit. NSString carries this layer's own wk_containsString: either way, and nothing sends
-// containsString: to an NSArray.
+// name keeps answering exactly what the class really says, and no NSObject resolver is involved.
 //
 // The class's OWN methods (class_copyMethodList), not class_getInstanceMethod: an inherited method is
-// aliased on the class that defines it and subclasses inherit the alias along with it, and — the reason
-// it matters — class_getInstanceMethod consults the resolver, so asking it would send
-// +resolveInstanceMethod: to every class in the process for every selector the class does not have.
-// Pass a metaclass to alias class methods.
+// aliased on the class that defines it and subclasses inherit the alias along with it, and
+// class_getInstanceMethod consults the resolver, so asking it would send +resolveInstanceMethod: to every
+// class in the process for every selector the class does not have. Pass a metaclass to alias class
+// methods.
 //
-// A class that implements the real public selector ITSELF gets wk_<name> bound to that real IMP, via
-// class_addMethod. On an ADD block's target the body is installed first, so class_addMethod is a no-op
-// there and the body keeps serving WebKit's rewritten call. A DIFFERENT class that merely shares the
-// selector name has no wk_<name> of its own, so it gets one bound to its real method (the by-name
-// selref rewrite must not hijack another class's method).
+// On an ADD block's target the body is installed first, so the alias is never added there and the body
+// keeps serving WebKit's rewritten call. A DIFFERENT class that merely shares the selector name has no
+// wk_<name> of its own, so it gets an alias reaching its real method (the by-name selref rewrite must not
+// hijack another class's method). If an ADD target turns out to implement the public selector after all,
+// the body shadows 10.9's — the same mistake as a shadowing C gap-fill.
 //
-// If an ADD target turns out to implement the public selector after all, the body shadows 10.9's — the
-// same mistake as a shadowing C gap-fill.
-//
-// INTENT DECIDES WHAT HAPPENS TO A SUBCLASS OF THE TARGET. Aliasing a class's own IMP under wk_<name>
-// puts that IMP in FRONT of an inherited body, because the class's own method list is searched first.
+// INTENT DECIDES WHAT HAPPENS TO A SUBCLASS OF THE TARGET. An alias on a class puts that class's own
+// method in FRONT of an inherited body, because the class's own method list is searched first.
 // For an ADD that is right: 10.9 has no such method, so any class carrying the name is an unrelated
 // class whose real method the by-name rewrite must not hijack. For a REPLACE it inverts the polyfill —
 // the body exists precisely to shadow a method 10.9 HAS, and the classes most likely to implement that
-// method are the target's own subclasses. Aliasing there hands the subclass back its own IMP and the
+// method are the target's own subclasses. Aliasing there hands the subclass back its own method and the
 // body never runs. Measured on 10.9.5: -[NSPanel initWithContentRect:styleMask:backing:defer:],
 // -[NSSavePanel initWithContentRect:…], -[_NSPopoverWindow initWithContentRect:…] / -setContentView:,
 // -[NSCarbonWindow setStyleMask:] all shadow their NSWindow polyfill this way, and NSURL's
@@ -281,7 +267,7 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // So a class whose chain already answers the private selector with a REPLACE body is NOT aliased: the
 // body keeps serving the rewritten call on every such subclass and calls through to that subclass's
 // own implementation. An UNRELATED class (no body in its chain: -[NSScrollView setContentView:],
-// -[NSBox setContentView:]) is aliased exactly as before.
+// -[NSBox setContentView:]) is aliased.
 //
 // ONE EXCEPTION, and it is not a carve-out but the same rule applied honestly: a class defined in a
 // WEBKIT image. Those classes' own sends are rewritten too, so they are participants in the wk_ chain,
@@ -316,18 +302,6 @@ static IMP wk_own_imp(Class cls, SEL sel)
             imp = method_getImplementation(methods[i]);
     free(methods);
     return imp;
-}
-
-// Ordinary method lookup for `sel` starting at `cls`, done by hand so it never consults
-// +resolveInstanceMethod: the way class_getMethodImplementation does.
-static IMP wk_chain_imp(Class cls, SEL sel)
-{
-    for (Class c = cls; c; c = class_getSuperclass(c)) {
-        IMP imp = wk_own_imp(c, sel);
-        if (imp)
-            return imp;
-    }
-    return NULL;
 }
 
 // Published like the registry: bodies are appended under wk_reg_lock and the count release-stored, so
@@ -374,27 +348,34 @@ static Class wk_replace_body_owner(Class cls, SEL priv)
 // Correct for: plain target class; a multi-level system chain (NSSavePanel : NSPanel : NSWindow); one
 // WebKit override; a WebKit override sitting on a system subclass; a WebKit subclass that merely inherits
 // an aliased override; and two WebKit overrides stacked in one chain. No class list, no assumption about
-// which classes exist, and resolver-free throughout. Each chain carries one REPLACE body per selector,
-// which is what makes "the first body up the chain" the running one.
-// Memo over wk_original_of. The answer is a pure function of (receiver's class, private selector)
-// between method installations: the registry is append-only and an installed body never moves, so an
-// entry only goes stale when an image-load event installs methods (wk_alias_class / wk_install_side),
-// each of which bumps the generation. WK_ORIGINAL_METHOD runs on hot paths — every NSURL construction
-// and every request stamp goes through a REPLACE body — and the full search below costs several
-// class_copyMethodList allocations per call, so the memo is what keeps a call-through at
-// one-hash-probe cost. Per-entry seqlock, no lock on the read path; a writer that loses the claim
-// simply doesn't cache, and the search it already ran supplies its answer.
+// which classes exist. Each chain carries one REPLACE body per selector, which is what makes "the first
+// body up the chain" the running one.
+//
+// The implementation itself comes from the runtime on every call (class_getMethodImplementation from the
+// class found above), so a method another library exchanges or adds after the first call is the one that
+// runs; the search never ends without one, since the body's class chain implements the public selector,
+// so the runtime's resolver is never consulted.
+//
+// Memo over the search. Which class to look the public selector up from is a pure function of (receiver's
+// class, private selector) between our method installations: the registry is append-only and an installed
+// body never moves, so an entry only goes stale when an image-load event installs methods (wk_alias_class /
+// wk_install_side), each of which bumps the generation. WK_ORIGINAL_METHOD runs on hot paths — every NSURL
+// construction and every request stamp goes through a REPLACE body — and the search costs several
+// class_copyMethodList allocations, so the memo is what keeps a call-through at one hash probe and one
+// runtime cache lookup. Per-entry seqlock, no lock on the read path; a writer that loses the claim simply
+// doesn't cache, and the search it already ran supplies its answer.
 enum { WK_ORIG_MEMO_SLOTS = 256 };   // power of two
 struct wk_orig_memo {
     uint32_t seq;        // odd while a writer is mid-update
     uint32_t gen;
     Class cls;
     SEL priv;
-    IMP imp;
+    Class lookupClass;
     SEL pub;
 };
 static struct wk_orig_memo wk_orig_memo[WK_ORIG_MEMO_SLOTS];
-static uint32_t wk_install_generation = 1;
+// Read by the alias entries' cache check as well (see wk_alias_entry).
+uint32_t wk_install_generation __attribute__((visibility("hidden"))) = 1;
 
 static unsigned wk_orig_memo_slot(Class cls, SEL priv)
 {
@@ -409,10 +390,13 @@ struct wk_original wk_original_of(id receiver, SEL privateSelector)
     struct wk_orig_memo *memo = &wk_orig_memo[wk_orig_memo_slot(start, privateSelector)];
     uint32_t seq = __atomic_load_n(&memo->seq, __ATOMIC_ACQUIRE);
     if (!(seq & 1) && memo->cls == start && memo->priv == privateSelector && memo->gen == generation) {
-        struct wk_original cached = { memo->imp, memo->pub };
+        Class lookupClass = memo->lookupClass;
+        SEL cachedPub = memo->pub;
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
-        if (__atomic_load_n(&memo->seq, __ATOMIC_ACQUIRE) == seq)
+        if (__atomic_load_n(&memo->seq, __ATOMIC_ACQUIRE) == seq) {
+            struct wk_original cached = { class_getMethodImplementation(lookupClass, cachedPub), cachedPub };
             return cached;
+        }
     }
 
     SEL pub = NULL;
@@ -434,31 +418,20 @@ struct wk_original wk_original_of(id receiver, SEL privateSelector)
         if (wk_own_imp(c, privateSelector))
             overrideOwner = c;   // keep the LAST, which is the one closest to bodyClass
 
-    IMP imp = overrideOwner ? wk_chain_imp(class_getSuperclass(overrideOwner), pub)
-                            : wk_chain_imp(start, pub);
-    if (!imp)
-        imp = wk_chain_imp(start, pub);
-    if (!imp) {
-        // A REPLACE asserts 10.9 HAS the method; a receiver whose chain lacks it has nothing to call
-        // through to.
-        fprintf(stderr, "[wk_selref_scope] FATAL: no implementation of %s below the REPLACE body on %s.\n",
-                sel_getName(pub), class_getName(start));
-        fflush(stderr);
-        abort();
-    }
+    Class lookupClass = overrideOwner ? class_getSuperclass(overrideOwner) : start;
 
     uint32_t current = __atomic_load_n(&memo->seq, __ATOMIC_RELAXED);
     if (!(current & 1) && __atomic_compare_exchange_n(&memo->seq, &current, current + 1, false,
                                                       __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
         memo->cls = start;
         memo->priv = privateSelector;
-        memo->imp = imp;
+        memo->lookupClass = lookupClass;
         memo->pub = pub;
         memo->gen = generation;
         __atomic_store_n(&memo->seq, current + 2, __ATOMIC_RELEASE);
     }
 
-    struct wk_original original = { imp, pub };
+    struct wk_original original = { class_getMethodImplementation(lookupClass, pub), pub };
     return original;
 }
 
@@ -467,26 +440,321 @@ static bool wk_is_placeholder(Class cls)
     return strncmp(class_getName(cls), "WKPolyfill_", 11) == 0;
 }
 
-// A class's method lists put a category's methods ahead of the ones they shadow, so the first own
-// method named `sel` is the one a send runs. An alias the class already owns is left alone unless it
-// points at a later own method of that name: then a category attached since the alias was made shadows
-// it, and the alias follows to the method that now answers the public selector.
-static void wk_repoint_shadowed_alias(Method *methods, unsigned int n, unsigned int winner, SEL priv, IMP imp)
+// ---------------------------------------------------------------------------------------------
+// Alias trampolines.
+//
+// A rewritten send that reaches an alias has to do what the public send would: run whatever the receiver's
+// class answers for the public selector at that moment — an override in a class the runtime created below
+// the alias's class (KVO's notifying subclasses), a method another library exchanged or added since, the
+// forwarding machinery — with the public selector as _cmd. So an alias is a stub carrying (class, public
+// SEL, private SEL), and what it decides and remembers is structural only, never an implementation.
+//
+// The rule is wk_original_of's, with the alias's class in place of the body's class. When a class strictly
+// below it in the receiver's chain owns the private selector, the send can only be that class's
+// implementation reaching up through [super wk_foo]: the answer is the runtime's implementation of the
+// public selector from that class's superclass, looked up per call. Otherwise it is an ordinary send, and
+// the stub hands the public selector to objc_msgSend (objc_msgSend_stret), so the runtime's own method
+// cache, which the runtime flushes itself, does the rest.
+//
+// Each alias also remembers, for one receiver class (seq, gen, cls under a seqlock), that a send from it is
+// an ordinary one, which the entry checks before saving any register. The entry reads pub and priv at
+// offsets 8 and 16 and that record at offsets 24-32.
+struct wk_alias_context {
+    Class owner;
+    SEL pub;
+    SEL priv;
+    uint32_t seq;        // odd while a writer is mid-update
+    uint32_t gen;
+    Class cls;
+};
+
+// The class closest to the alias's class, strictly below it in `start`'s chain, that owns the private
+// selector, or Nil.
+static Class wk_alias_override_owner(Class start, const struct wk_alias_context *context)
 {
-    SEL sel = method_getName(methods[winner]);
-    Method alias = NULL;
-    for (unsigned int k = 0; k < n && !alias; k++)
-        if (method_getName(methods[k]) == priv)
-            alias = methods[k];
-    if (!alias || method_getImplementation(alias) == imp)
+    Class overrideOwner = Nil;
+    for (Class c = start; c && c != context->owner; c = class_getSuperclass(c))
+        if (wk_own_imp(c, context->priv))
+            overrideOwner = c;   // keep the LAST, which is the one closest to the alias's class
+    return overrideOwner;
+}
+
+// Memo over wk_alias_override_owner, keyed by (receiver's class, alias) and invalidated by the same install
+// generation as wk_original_of's: per-entry seqlock, no lock on the read path.
+enum { WK_ALIAS_MEMO_SLOTS = 2048 };   // power of two
+struct wk_alias_memo {
+    uint32_t seq;        // odd while a writer is mid-update
+    uint32_t gen;
+    Class cls;
+    const struct wk_alias_context *context;
+    Class overrideOwner;
+};
+static struct wk_alias_memo wk_alias_memo[WK_ALIAS_MEMO_SLOTS];
+
+static Class wk_alias_memoized_override_owner(Class start, const struct wk_alias_context *context, uint32_t generation)
+{
+    uintptr_t a = (uintptr_t)start, b = (uintptr_t)context;
+    struct wk_alias_memo *memo = &wk_alias_memo[((a >> 4) ^ (a >> 13) ^ (b >> 4) ^ (b >> 11)) & (WK_ALIAS_MEMO_SLOTS - 1)];
+    uint32_t seq = __atomic_load_n(&memo->seq, __ATOMIC_ACQUIRE);
+    if (!(seq & 1) && memo->cls == start && memo->context == context && memo->gen == generation) {
+        Class cached = memo->overrideOwner;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&memo->seq, __ATOMIC_ACQUIRE) == seq)
+            return cached;
+    }
+
+    Class overrideOwner = wk_alias_override_owner(start, context);
+
+    uint32_t current = __atomic_load_n(&memo->seq, __ATOMIC_RELAXED);
+    if (!(current & 1) && __atomic_compare_exchange_n(&memo->seq, &current, current + 1, false,
+                                                      __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        memo->cls = start;
+        memo->context = context;
+        memo->overrideOwner = overrideOwner;
+        memo->gen = generation;
+        __atomic_store_n(&memo->seq, current + 2, __ATOMIC_RELEASE);
+    }
+    return overrideOwner;
+}
+
+static void wk_alias_note_ordinary(struct wk_alias_context *context, Class cls, uint32_t generation)
+{
+    uint32_t current = __atomic_load_n(&context->seq, __ATOMIC_RELAXED);
+    if ((current & 1) || !__atomic_compare_exchange_n(&context->seq, &current, current + 1, false,
+                                                      __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
         return;
-    IMP aliased = method_getImplementation(alias);
-    for (unsigned int k = winner + 1; k < n; k++) {
-        if (method_getName(methods[k]) == sel && method_getImplementation(methods[k]) == aliased) {
-            method_setImplementation(alias, imp);
-            return;
+    context->cls = cls;
+    context->gen = generation;
+    __atomic_store_n(&context->seq, current + 2, __ATOMIC_RELEASE);
+}
+
+// Where the entry jumps, with the public selector as _cmd: objc_msgSend (objc_msgSend_stret when the result
+// travels through a hidden pointer) for an ordinary send, the runtime's implementation above the override
+// for a super send.
+IMP wk_alias_resolve(id receiver, struct wk_alias_context *context, long stret) __attribute__((used, visibility("hidden")));
+IMP wk_alias_resolve(id receiver, struct wk_alias_context *context, long stret)
+{
+    Class start = object_getClass(receiver);
+    uint32_t generation = __atomic_load_n(&wk_install_generation, __ATOMIC_ACQUIRE);
+    Class overrideOwner = wk_alias_memoized_override_owner(start, context, generation);
+    if (!overrideOwner) {
+        wk_alias_note_ordinary(context, start, generation);
+        return stret ? (IMP)objc_msgSend_stret : (IMP)objc_msgSend;
+    }
+    Class lookupClass = class_getSuperclass(overrideOwner);
+    return stret ? class_getMethodImplementation_stret(lookupClass, context->pub)
+                 : class_getMethodImplementation(lookupClass, context->pub);
+}
+
+// The shared entry. A stub arrives with its context in r11. The sender passed self in rdi and _cmd in rsi,
+// or, for a method returning its result through a hidden pointer, the result's address in rdi, self in rsi
+// and _cmd in rdx; _cmd is always the alias's private selector, which an object pointer never equals, so
+// the register holding it tells the two apart. Each path first checks whether this receiver's class is the
+// one the alias last found sending ordinarily, using only r10, r11 and a saved rax (x86-64 keeps loads in
+// order, so the seqlock read needs no fence); a tagged pointer, whose class is not its first word, always
+// resolves. A resolve keeps every register an argument can travel in (rax carries a variadic call's
+// vector-register count).
+void wk_alias_entry(void);
+#define WK_ALIAS_ENTRY_ORDINARY(SELF, SELF8, CMD, SEND, MISS) \
+    "    testb $1, " SELF8 "\n"                     \
+    "    jnz " MISS "\n"                            \
+    "    pushq %rax\n"                              \
+    "    movl 24(%r11), %eax\n"                     \
+    "    testl $1, %eax\n"                          \
+    "    jnz 1f\n"                                  \
+    "    movq (" SELF "), %r10\n"                   \
+    "    cmpq 32(%r11), %r10\n"                     \
+    "    jne 1f\n"                                  \
+    "    movl 28(%r11), %r10d\n"                    \
+    "    cmpl _wk_install_generation(%rip), %r10d\n" \
+    "    jne 1f\n"                                  \
+    "    cmpl 24(%r11), %eax\n"                     \
+    "    jne 1f\n"                                  \
+    "    popq %rax\n"                               \
+    "    movq 8(%r11), " CMD "\n"                   \
+    "    jmpq *" SEND "@GOTPCREL(%rip)\n"           \
+    "1:  popq %rax\n"
+#define WK_ALIAS_ENTRY_SAVE                         \
+    "    pushq %rbp\n"                              \
+    "    movq %rsp, %rbp\n"                         \
+    "    subq $0xd0, %rsp\n"                        \
+    "    movq %rdi, 0x00(%rsp)\n"                   \
+    "    movq %rsi, 0x08(%rsp)\n"                   \
+    "    movq %rdx, 0x10(%rsp)\n"                   \
+    "    movq %rcx, 0x18(%rsp)\n"                   \
+    "    movq %r8, 0x20(%rsp)\n"                    \
+    "    movq %r9, 0x28(%rsp)\n"                    \
+    "    movq %rax, 0x30(%rsp)\n"                   \
+    "    movq %r11, 0x38(%rsp)\n"                   \
+    "    movdqa %xmm0, 0x40(%rsp)\n"                \
+    "    movdqa %xmm1, 0x50(%rsp)\n"                \
+    "    movdqa %xmm2, 0x60(%rsp)\n"                \
+    "    movdqa %xmm3, 0x70(%rsp)\n"                \
+    "    movdqa %xmm4, 0x80(%rsp)\n"                \
+    "    movdqa %xmm5, 0x90(%rsp)\n"                \
+    "    movdqa %xmm6, 0xa0(%rsp)\n"                \
+    "    movdqa %xmm7, 0xb0(%rsp)\n"
+#define WK_ALIAS_ENTRY_RESTORE                      \
+    "    movq %rax, %r10\n"                         \
+    "    movq 0x00(%rsp), %rdi\n"                   \
+    "    movq 0x08(%rsp), %rsi\n"                   \
+    "    movq 0x10(%rsp), %rdx\n"                   \
+    "    movq 0x18(%rsp), %rcx\n"                   \
+    "    movq 0x20(%rsp), %r8\n"                    \
+    "    movq 0x28(%rsp), %r9\n"                    \
+    "    movq 0x30(%rsp), %rax\n"                   \
+    "    movq 0x38(%rsp), %r11\n"                   \
+    "    movdqa 0x40(%rsp), %xmm0\n"                \
+    "    movdqa 0x50(%rsp), %xmm1\n"                \
+    "    movdqa 0x60(%rsp), %xmm2\n"                \
+    "    movdqa 0x70(%rsp), %xmm3\n"                \
+    "    movdqa 0x80(%rsp), %xmm4\n"                \
+    "    movdqa 0x90(%rsp), %xmm5\n"                \
+    "    movdqa 0xa0(%rsp), %xmm6\n"                \
+    "    movdqa 0xb0(%rsp), %xmm7\n"
+__asm__(
+    "    .text\n"
+    "    .private_extern _wk_alias_entry\n"
+    "    .globl _wk_alias_entry\n"
+    "    .p2align 4\n"
+    "_wk_alias_entry:\n"
+    "    cmpq 16(%r11), %rsi\n"
+    "    jne 3f\n"
+    WK_ALIAS_ENTRY_ORDINARY("%rdi", "%dil", "%rsi", "_objc_msgSend", "2f")
+    "2:\n"
+    WK_ALIAS_ENTRY_SAVE
+    "    movq %r11, %rsi\n"
+    "    xorl %edx, %edx\n"
+    "    callq _wk_alias_resolve\n"
+    WK_ALIAS_ENTRY_RESTORE
+    "    movq 8(%r11), %rsi\n"
+    "    leave\n"
+    "    jmpq *%r10\n"
+    "3:\n"
+    WK_ALIAS_ENTRY_ORDINARY("%rsi", "%sil", "%rdx", "_objc_msgSend_stret", "4f")
+    "4:\n"
+    WK_ALIAS_ENTRY_SAVE
+    "    movq %rsi, %rdi\n"
+    "    movq %r11, %rsi\n"
+    "    movl $1, %edx\n"
+    "    callq _wk_alias_resolve\n"
+    WK_ALIAS_ENTRY_RESTORE
+    "    movq 8(%r11), %rdx\n"
+    "    leave\n"
+    "    jmpq *%r10\n");
+
+// Stubs: movabs r11, context; movabs r10, entry; jmp r10. A sweep writes its stubs into pages that are
+// writable and not executable, then makes those pages executable and not writable before installing any
+// of them (wk_alias_install_pending), and never writes to them again; the next sweep starts a new page.
+// Stubs and contexts live as long as the class they are installed on, which for a class carrying ObjC
+// metadata is the process. Everything here runs under wk_reg_lock.
+enum { WK_ALIAS_STUB_SIZE = 32, WK_ALIAS_STUB_PAGE = 4096 };
+static uint8_t *wk_alias_stub_page;               // the page being written, or NULL
+static size_t wk_alias_stub_used;
+static uint8_t **wk_alias_unsealed_pages;
+static size_t wk_alias_unsealed_count, wk_alias_unsealed_capacity;
+
+struct wk_pending_alias {
+    Class cls;
+    SEL priv;
+    IMP stub;
+    const char *types;
+};
+static struct wk_pending_alias *wk_pending_aliases;
+static size_t wk_pending_alias_count, wk_pending_alias_capacity;
+
+static void *wk_grow(void *array, size_t *capacity, size_t elementSize)
+{
+    size_t newCapacity = *capacity ? *capacity * 2 : 64;
+    void *grown = realloc(array, newCapacity * elementSize);
+    if (!grown)
+        abort();
+    *capacity = newCapacity;
+    return grown;
+}
+
+static IMP wk_alias_stub(Class owner, int j)
+{
+    struct wk_alias_context *context = calloc(1, sizeof(*context));
+    if (!context)
+        abort();
+    context->owner = owner;
+    context->pub = wk_pub[j];
+    context->priv = wk_priv[j];
+
+    if (!wk_alias_stub_page || wk_alias_stub_used + WK_ALIAS_STUB_SIZE > WK_ALIAS_STUB_PAGE) {
+        void *page = mmap(NULL, WK_ALIAS_STUB_PAGE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (page == MAP_FAILED) {
+            fprintf(stderr, "[wk_selref_scope] FATAL: cannot map memory for alias stubs (errno %d).\n", errno);
+            fflush(stderr);
+            abort();
+        }
+        if (wk_alias_unsealed_count == wk_alias_unsealed_capacity)
+            wk_alias_unsealed_pages = wk_grow(wk_alias_unsealed_pages, &wk_alias_unsealed_capacity, sizeof(*wk_alias_unsealed_pages));
+        wk_alias_unsealed_pages[wk_alias_unsealed_count++] = page;
+        wk_alias_stub_page = page;
+        wk_alias_stub_used = 0;
+    }
+    uint8_t *stub = wk_alias_stub_page + wk_alias_stub_used;
+    wk_alias_stub_used += WK_ALIAS_STUB_SIZE;
+
+    void *entry = (void *)wk_alias_entry;
+    stub[0] = 0x49;
+    stub[1] = 0xbb;
+    memcpy(stub + 2, &context, 8);
+    stub[10] = 0x49;
+    stub[11] = 0xba;
+    memcpy(stub + 12, &entry, 8);
+    stub[20] = 0x41;
+    stub[21] = 0xff;
+    stub[22] = 0xe2;
+    memset(stub + 23, 0xcc, WK_ALIAS_STUB_SIZE - 23);
+    return (IMP)(void *)stub;
+}
+
+static void wk_alias_add_pending(Class cls, SEL priv, IMP stub, const char *types)
+{
+    if (wk_pending_alias_count == wk_pending_alias_capacity)
+        wk_pending_aliases = wk_grow(wk_pending_aliases, &wk_pending_alias_capacity, sizeof(*wk_pending_aliases));
+    wk_pending_aliases[wk_pending_alias_count++] = (struct wk_pending_alias) { cls, priv, stub, types };
+}
+
+static bool wk_alias_is_pending(Class cls, SEL priv)
+{
+    for (size_t k = 0; k < wk_pending_alias_count; k++)
+        if (wk_pending_aliases[k].cls == cls && wk_pending_aliases[k].priv == priv)
+            return true;
+    return false;
+}
+
+// Makes the sweep's stub pages executable and installs its aliases.
+static void wk_alias_install_pending(void)
+{
+    if (!wk_pending_alias_count)
+        return;
+    for (size_t k = 0; k < wk_alias_unsealed_count; k++) {
+        if (mprotect(wk_alias_unsealed_pages[k], WK_ALIAS_STUB_PAGE, PROT_READ | PROT_EXEC)) {
+            fprintf(stderr, "[wk_selref_scope] FATAL: cannot make alias stubs executable (errno %d).\n", errno);
+            fflush(stderr);
+            abort();
         }
     }
+    wk_alias_unsealed_count = 0;
+    wk_alias_stub_page = NULL;
+    for (size_t k = 0; k < wk_pending_alias_count; k++)
+        class_addMethod(wk_pending_aliases[k].cls, wk_pending_aliases[k].priv, wk_pending_aliases[k].stub, wk_pending_aliases[k].types);
+    wk_pending_alias_count = 0;
+    // Invalidates the memos: these classes' chains answer differently now.
+    __atomic_fetch_add(&wk_install_generation, 1, __ATOMIC_RELEASE);
+}
+
+// Whether a class's own method list already carries a method named `sel`.
+static bool wk_method_list_has(Method *methods, unsigned int n, SEL sel)
+{
+    for (unsigned int k = 0; k < n; k++)
+        if (method_getName(methods[k]) == sel)
+            return true;
+    return false;
 }
 
 static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
@@ -509,12 +777,8 @@ static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
                 break;
             if (!clsFromWebKitImage && wk_replace_sel[j] && wk_replace_body_owner(cls, wk_priv[j]))
                 break;   // a REPLACE body is already in this class's chain — let it win (see above)
-            IMP realIMP = method_getImplementation(methods[i]);
-            const char *types = method_getTypeEncoding(methods[i]);
-            if (!class_addMethod(cls, wk_priv[j], realIMP, types))
-                wk_repoint_shadowed_alias(methods, n, i, wk_priv[j], realIMP);
-            // Invalidates the wk_original_of memo: this class's chain answers differently now.
-            __atomic_fetch_add(&wk_install_generation, 1, __ATOMIC_RELEASE);
+            if (!wk_method_list_has(methods, n, wk_priv[j]) && !wk_alias_is_pending(cls, wk_priv[j]))
+                wk_alias_add_pending(cls, wk_priv[j], wk_alias_stub(cls, j), method_getTypeEncoding(methods[i]));
             break;
         }
     }
@@ -809,6 +1073,7 @@ static void wk_alias_loaded_images(int from, int to)
     uint32_t c = _dyld_image_count();
     for (uint32_t i = 0; i < c; i++)
         wk_alias_image(_dyld_get_image_header(i), from, to);
+    wk_alias_install_pending();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1191,6 +1456,7 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
         if (installed || !wk_find_launch_image(info[i].imageLoadAddress)) {
             wk_alias_image(info[i].imageLoadAddress, 0, swept < 0 ? wk_count : swept);
             wk_alias_category_targets(info[i].imageLoadAddress, 0, swept < 0 ? wk_count : swept);
+            wk_alias_install_pending();
         }
         pthread_mutex_unlock(&wk_reg_lock);
     }
