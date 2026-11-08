@@ -248,10 +248,16 @@ WK_POLYFILL_ADD_METHODS(CALayer)
 //     instead. That is earlier than the commit, never after it (CFRunLoop collects the observers for an
 //     activity ONCE, as that activity's callouts begin, so an observer created during them first fires
 //     in the NEXT pass; measured on 10.9.5).
+//   - So does a pre handler registered after this pass's pre side has run and before the commit it
+//     precedes: from an observer at the pre observer's own order added after the pre observer's last
+//     re-insertion, which is where WebKit's rendering-update observers sit, created on demand. CFRunLoop
+//     runs observers of equal order in the order they were added, so no position at that order runs
+//     after such an observer, and the commit about to happen is the one the handler precedes. A pre
+//     handler registered from inside another pre handler runs at registration the same way.
 //   - A post handler on a thread that commits explicitly and then never returns to its run loop does not
 //     run.
-//   - A handler registered from inside another handler runs at the next commit rather than at the end of
-//     the current one, which upstream CA prohibits outright.
+//   - A post handler registered from inside a post handler waits for the following commit; upstream CA
+//     prohibits registering from inside a handler outright.
 static const CFIndex wk_coreAnimationCommitOrder = 2000000;
 
 // THE COMMIT GATE. "After the commit" is only a bracket if a commit happened. A PostCommit handler is the
@@ -312,6 +318,7 @@ typedef struct {
     CFRunLoopObserverRef postObserver;  // above CA's commit observer: drains what a commit released
     unsigned int counterAtWake;
     bool observersAreLive;              // a pass has begun since the observers were created
+    bool preSideHasRun;                 // the pre observer has fired and the post observer has not since
 } WKCommitHandlerQueue;
 
 static pthread_key_t wk_commitHandlerQueueKey;
@@ -360,6 +367,7 @@ static void wk_beginRunLoopPass(CFRunLoopObserverRef observer, CFRunLoopActivity
     WKCommitHandlerQueue *queue = (WKCommitHandlerQueue *)info;
     queue->counterAtWake = wk_caTransactionCounter();
     queue->observersAreLive = true;
+    queue->preSideHasRun = false;
     CFRunLoopRef runLoop = CFRunLoopGetCurrent();
     CFRunLoopRemoveObserver(runLoop, queue->preObserver, kCFRunLoopCommonModes);
     CFRunLoopAddObserver(runLoop, queue->preObserver, kCFRunLoopCommonModes);
@@ -373,11 +381,11 @@ static void wk_runPendingPreCommitHandlers(CFRunLoopObserverRef observer, CFRunL
     (void)observer;
     (void)activity;
     WKCommitHandlerQueue *queue = (WKCommitHandlerQueue *)info;
+    queue->preSideHasRun = true;
     if (![queue->preHandlers count])
         return;
-    // Take the batch out first: a handler that registers another one queues it for the next commit instead
-    // of extending this callout (upstream CA rejects that registration outright, so no caller can be
-    // relying on either behaviour).
+    // Take the batch out first, so the loop runs exactly the handlers queued before this callout; one a
+    // handler registers runs at registration (see the registration below).
     NSArray *batch = [queue->preHandlers copy];
     [queue->preHandlers removeAllObjects];
     @autoreleasepool {
@@ -392,6 +400,7 @@ static void wk_runPendingPostCommitHandlers(CFRunLoopObserverRef observer, CFRun
     (void)observer;
     (void)activity;
     WKCommitHandlerQueue *queue = (WKCommitHandlerQueue *)info;
+    queue->preSideHasRun = false;
     if (![queue->postHandlers count])
         return;
     unsigned int now = wk_caTransactionCounter();
@@ -466,7 +475,7 @@ WK_POLYFILL_ADD_METHODS(CATransaction)
     WKCommitHandlerQueue *queue = wk_commitHandlerQueueForCurrentThread();
     // With no observer that can fire before the next commit, the last moment this thread offers that is
     // still on the pre side of that commit is now.
-    if (phase != wkPostCommitPhase && !queue->observersAreLive) {
+    if (phase != wkPostCommitPhase && (!queue->observersAreLive || queue->preSideHasRun)) {
         handler();
         return;
     }

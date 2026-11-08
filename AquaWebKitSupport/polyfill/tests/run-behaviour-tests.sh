@@ -1209,6 +1209,16 @@ probe_commit_handler_transaction() {
         "$T/commit_handler_transaction"
 }
 
+probe_commit_handler_pre_order() {
+    prepare_method_objects QuartzCore &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/commit_handler_pre_order" "$TBEHAV/QuartzCore-commit-handler-pre-order.m" \
+            "$OBJ/methods/QuartzCore.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework QuartzCore -framework Foundation "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
+        "$T/commit_handler_pre_order"
+}
+
 probe_session_credential_storage() {
     prepare_method_objects Foundation &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/session_credential_storage" "$TBEHAV/Foundation-session-credential-storage.m" \
@@ -1367,6 +1377,7 @@ run_probe calayer_hierarchy "$@"
 run_probe singular_transform "$@"
 run_probe frame_rate_range "$@"
 run_probe commit_handler_transaction "$@"
+run_probe commit_handler_pre_order "$@"
 run_probe shape_glyphs_context "$@"
 run_probe css_family_language "$@"
 run_probe clipped_glyphs "$@"
