@@ -13,7 +13,6 @@
 #include <wtf/CompletionHandler.h>
 
 namespace WebCore {
-class SQLiteDatabase;
 class HTTPStrictTransportSecurityStore {
     WTF_MAKE_TZONE_ALLOCATED(HTTPStrictTransportSecurityStore);
 public:
@@ -26,11 +25,11 @@ public:
     WEBCORE_EXPORT HashSet<String> hosts() const;
     WEBCORE_EXPORT void removeHost(const String&);
     WEBCORE_EXPORT void removeModifiedSince(WallTime);
-    // Answers once every write this store has queued has run, so a policy it accepted is on disk. A
-    // queued write waits on the directory's cross-process lock, so the caller waits for that too: the
-    // form taking a completion handler keeps that wait on the storage queue and answers on the main
-    // thread, and is the one a process-lifecycle path takes. The blocking form asserts it is not called
-    // from the storage queue, where it would wait on itself.
+    // Writes every policy this store has accepted and the file does not yet hold, and answers once it
+    // is on disk. The write waits on the directory's cross-process lock, so the caller waits for that
+    // too: the form taking a completion handler keeps that wait on the storage queue and answers on the
+    // main thread, and is the one the network process's suspend and close paths take. The blocking form
+    // asserts it is not called from the storage queue, where it would wait on itself.
     WEBCORE_EXPORT void flush();
     WEBCORE_EXPORT void flush(CompletionHandler<void()>&&);
 private:

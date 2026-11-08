@@ -5,6 +5,8 @@
 #import "HTTPStrictTransportSecurityStore.h"
 
 // policy lookups read an in-memory snapshot loaded when the store is created; a serial WorkQueue carries event-driven cross-process refreshes and writes.
+// A received policy is answered from memory at once and reaches the file with the others received
+// within persistenceDelay, or sooner through flush() or at process exit.
 #import "HTTPParsers.h"
 #import "FileMonitor.h"
 #import "Logging.h"
@@ -30,6 +32,8 @@
 
 namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(HTTPStrictTransportSecurityStore);
+// CFNetwork's DiskHSTSStorage persists its policies on the same interval.
+static constexpr Seconds persistenceDelay { 5_s };
 String HTTPStrictTransportSecurityStore::defaultStorageDirectory(const String& baseDirectory)
 {
     if (!baseDirectory.isEmpty())
@@ -52,9 +56,9 @@ String HTTPStrictTransportSecurityStore::defaultStorageDirectory(const String& b
     return String(url.get().absoluteURL.path);
 }
 // The stored file and its monitors are reached under persistenceLock: by the creating thread for the
-// initial load, and by the queue for every later refresh, write and for final destruction. The policies
-// are a property list, which any thread can read, so a store answers from the stored policies as soon as
-// it exists.
+// initial load, by the queue for every later refresh, write and for final destruction, and by the exiting
+// thread for the write at exit. The policies are a property list, which any thread can read, so a store
+// answers from the stored policies as soon as it exists.
 struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<State> {
     struct Mutation {
         enum class Kind { Set, Remove, RemoveModifiedSince };
@@ -190,24 +194,28 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
             return;
         refresh();
     }
-    // The storage queue is serial, so a barrier dispatched onto it runs after every pass queued before
-    // it: once that barrier has run, each of those has written what it carried. A pass waits on the
-    // directory's cross-process advisory lock, so the caller that waits for the barrier waits for that
-    // lock too -- which the asynchronous form below exists to keep off a caller's thread.
+    // A flush runs a write pass on the storage queue, which persists every mutation made before it, and
+    // answers once that pass is done; a scheduled pass that runs later finds nothing left to carry. The
+    // pass waits on the directory's cross-process advisory lock, so the caller waits for that lock too
+    // -- which the asynchronous form below exists to keep off a caller's thread.
     void flush()
     {
         if (path.isEmpty())
             return;
         RELEASE_ASSERT(!queue->isCurrent());
         BinarySemaphore drained;
-        queue->dispatch([&drained] { drained.signal(); });
+        queue->dispatch([this, &drained] {
+            write();
+            drained.signal();
+        });
         drained.wait();
     }
     void flush(CompletionHandler<void()>&& completion)
     {
         if (path.isEmpty())
             return completion();
-        queue->dispatch([completion = WTF::move(completion)]() mutable {
+        queue->dispatch([state = shared_from_this(), completion = WTF::move(completion)]() mutable {
+            state->write();
             RunLoop::mainSingleton().dispatch(WTF::move(completion));
         });
     }
@@ -220,19 +228,23 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
             if (path.isEmpty())
                 return;
             pending.append(WTF::move(mutation));
+            if (std::exchange(writeScheduled, true))
+                return;
         }
-        queue->dispatch([state = shared_from_this()] { state->write(); });
+        queue->dispatchAfter(persistenceDelay, [state = shared_from_this()] { state->write(); });
     }
     // A mutation leaves |pending| once the file holds it, so |entries| answers with it either way and
     // one pass persists everything this owner has queued.
     void write()
     {
         Locker locker { persistenceLock };
-        // Each mutation queues a pass and the first pass to run persists every mutation queued behind
-        // it, so the passes after it have nothing to carry. A pass with nothing to persist does no
-        // I/O: it creates neither the directory nor the lock file and replaces no policy file.
+        // A pass persists every mutation queued before it runs, so a scheduled pass that a flush has
+        // run ahead of has nothing to carry. A pass with nothing to persist does no I/O: it creates
+        // neither the directory nor the lock file and replaces no policy file. A mutation made once
+        // this pass has begun schedules the next one.
         {
             Locker memoryLocker { memoryLock };
+            writeScheduled = false;
             if (pending.isEmpty())
                 return;
         }
@@ -261,6 +273,9 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
             mutation->apply(storedEntries);
             carried.append(WTF::move(*mutation));
         }
+        // A policy past its expiry does not make its host a Known HSTS Host (RFC 6797, section 8.1.1).
+        auto now = WallTime::now();
+        storedEntries.removeIf([&](const auto& item) { return item.value.expires <= now; });
         auto returnCarriedMutations = [&] {
             Locker memoryLocker { memoryLock };
             while (!carried.isEmpty())
@@ -280,8 +295,12 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
             returnCarriedMutations();
             return;
         }
-        // The atomic replacement gives the file a new identity, so its monitor is re-established.
-        refreshLocked();
+        // The atomic replacement gives the file a new identity, so its monitor is re-established. The
+        // file holds |storedEntries|, and the directory lock keeps every other writer out until this
+        // version is recorded.
+        storedMonitor = nullptr;
+        monitorFile(path, storedMonitor);
+        storedVersion = version(path);
         publish();
     }
     const String directory;
@@ -290,6 +309,7 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
     Lock memoryLock;
     HashMap<String, Entry> entries WTF_GUARDED_BY_LOCK(memoryLock);
     Deque<Mutation> pending WTF_GUARDED_BY_LOCK(memoryLock);
+    bool writeScheduled WTF_GUARDED_BY_LOCK(memoryLock) { false };
     Lock persistenceLock;
     HashMap<String, Entry> storedEntries WTF_GUARDED_BY_LOCK(persistenceLock);
     std::unique_ptr<FileMonitor> directoryMonitor WTF_GUARDED_BY_LOCK(persistenceLock);
@@ -298,6 +318,30 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
     std::unique_ptr<FileMonitor> storedMonitor WTF_GUARDED_BY_LOCK(persistenceLock);
     FileVersion storedVersion WTF_GUARDED_BY_LOCK(persistenceLock);
     bool observed WTF_GUARDED_BY_LOCK(persistenceLock) { false };
+
+    // Every owner of a stored directory in this process shares one State, so a policy one owner
+    // records is the answer every other owner gives.
+    static inline Lock sharedLock;
+    static HashMap<String, std::weak_ptr<State>>& shared() WTF_REQUIRES_LOCK(sharedLock)
+    {
+        static NeverDestroyed<HashMap<String, std::weak_ptr<State>>> states;
+        return states.get();
+    }
+    // At exit each State with a file writes what it holds on the exiting thread, as CFNetwork's
+    // HSTSCache::persistAtExit does.
+    static void persistAtExit()
+    {
+        Vector<std::shared_ptr<State>> states;
+        {
+            Locker locker { sharedLock };
+            for (auto& state : shared().values()) {
+                if (auto existing = state.lock())
+                    states.append(WTF::move(existing));
+            }
+        }
+        for (auto& state : states)
+            state->write();
+    }
 };
 
 HTTPStrictTransportSecurityStore::HTTPStrictTransportSecurityStore(const String& directory, Access access)
@@ -312,16 +356,17 @@ HTTPStrictTransportSecurityStore::HTTPStrictTransportSecurityStore(const String&
         state->initialize();
         return state;
     };
-    // A directory with no policy file is per-instance; every owner of a stored directory in this
-    // process shares one State, so a policy one owner records is the answer every other owner gives.
+    // A store with no directory keeps its policies in memory, for itself alone.
     if (directory.isEmpty()) {
         m_state = make();
         return;
     }
-    static NeverDestroyed<HashMap<String, std::weak_ptr<State>>> shared;
-    static NeverDestroyed<Lock> sharedLock;
-    Locker locker { sharedLock.get() };
-    auto& slot = shared.get().add(directory, std::weak_ptr<State> { }).iterator->value;
+    Locker locker { State::sharedLock };
+    static bool persistsAtExit = false;
+    if (!std::exchange(persistsAtExit, true))
+        atexit([] { State::persistAtExit(); });
+    State::shared().removeIf([](const auto& item) { return item.value.expired(); });
+    auto& slot = State::shared().add(directory, std::weak_ptr<State> { }).iterator->value;
     if (auto existing = slot.lock()) {
         m_state = WTF::move(existing);
         return;
