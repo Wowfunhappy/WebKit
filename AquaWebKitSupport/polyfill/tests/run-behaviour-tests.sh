@@ -476,7 +476,8 @@ probe_selref_dlopen_category() {
         "$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=selref_dlopen_category -o "$T/selref_dlopen_category" "$POLY/tests/mechanism/wk_selref_dlopen_category.m" \
             "$OBJ/mech/wk_selref_scope.o" -Wl,-force_load,"$OUT/libwk_marker.a" $PROBE_LIBS &&
         "$CLANG" $MODERN $INC -bundle -bundle_loader "$T/selref_dlopen_category" \
-            -o "$T/selref_dlopen_category_fixture.bundle" "$POLY/tests/mechanism/wk_selref_dlopen_category_fixture.m" -lobjc &&
+            -o "$T/selref_dlopen_category_fixture.bundle" "$POLY/tests/mechanism/wk_selref_dlopen_category_fixture.m" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" -lobjc &&
         "$T/selref_dlopen_category" "$T/selref_dlopen_category_fixture.bundle"
 }
 

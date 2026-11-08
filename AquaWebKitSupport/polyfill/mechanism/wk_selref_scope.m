@@ -85,8 +85,8 @@ static bool wk_replace_sel[WK_MAX_SEL];
 // reader cannot reach yet merely sends it into a lookup that finds nothing, which is what no filter
 // would have done anyway. Bits are only ever set, never cleared, matching the append-only registry.
 enum { WK_FILTER_BITS = 16384 };
-static unsigned char wk_name_filter[WK_FILTER_BITS / 8];   // keyed on the selector NAME (wk_patch)
-static unsigned char wk_sel_filter[WK_FILTER_BITS / 8];    // keyed on the canonical SEL (wk_alias_class)
+static unsigned char wk_name_filter[WK_FILTER_BITS / 8];   // keyed on the selector NAME
+static unsigned char wk_sel_filter[WK_FILTER_BITS / 8];    // keyed on the canonical SEL
 
 static unsigned wk_name_hash32(const char *s)
 {
@@ -101,9 +101,9 @@ static unsigned wk_name_hash(const char *s)
     return wk_name_hash32(s) & (WK_FILTER_BITS - 1);
 }
 
-// SELs are canonical pointers (sel_registerName on the writer side, method_getName of a realized
-// class's method on the reader side), so hashing the pointer is sound. The low 4 bits carry no
-// entropy (allocation alignment); fold in higher bits instead.
+// Every SEL hashed here is canonical: sel_registerName on the writer side, and on the reader side a
+// realized method's name, a shared-cache method-list name or a uniqued selref. So hashing the pointer
+// is sound. The low 4 bits carry no entropy (allocation alignment); fold in higher bits instead.
 static unsigned wk_sel_hash(SEL sel)
 {
     uintptr_t p = (uintptr_t)(const void *)sel;
@@ -150,29 +150,38 @@ static bool wk_is_registered_name(const char *name)
     return wk_registered_name_index(name, hash, wk_count) >= 0;
 }
 
-// The registered public SELs, exactly, for reading the method lists of shared-cache images, whose
-// method names the cache stores as the canonical SEL pointers (10.9's dyld preoptimizes them, and
-// sel_registerName answers the same pointer for any name the cache holds). Comparing pointers there
-// reads no name strings, which the sweep would otherwise page in from every framework in the process.
-// Written by wk_register_selector and read by the sweep, both under wk_reg_lock.
-static SEL wk_sel_slots[WK_NAME_SLOTS];
+// The registered public SELs, exactly: registry index + 1 by SEL hash, or 0 for an empty slot. Method
+// lists of shared-cache images store their names as the canonical SEL pointers (10.9's dyld preoptimizes
+// them, and sel_registerName answers the same pointer for any name the cache holds), and so do the
+// selrefs of an image the runtime has read, so comparing pointers there reads no name strings, which
+// would otherwise be paged in from every framework in the process. Filled and read like wk_name_slots.
+static int wk_sel_slots[WK_NAME_SLOTS];
 
-static void wk_note_registered_sel(SEL sel)
+static void wk_note_registered_sel(SEL sel, int index)
 {
     unsigned i = wk_sel_hash(sel) & (WK_NAME_SLOTS - 1);
-    while (wk_sel_slots[i])
+    while (__atomic_load_n(&wk_sel_slots[i], __ATOMIC_RELAXED))
         i = (i + 1) & (WK_NAME_SLOTS - 1);
-    wk_sel_slots[i] = sel;
+    __atomic_store_n(&wk_sel_slots[i], index + 1, __ATOMIC_RELAXED);
+}
+
+// The registry index of `sel` among the first `count` entries, or -1.
+static int wk_registered_sel_index(SEL sel, int count)
+{
+    for (unsigned i = wk_sel_hash(sel) & (WK_NAME_SLOTS - 1);; i = (i + 1) & (WK_NAME_SLOTS - 1)) {
+        int entry = __atomic_load_n(&wk_sel_slots[i], __ATOMIC_RELAXED);
+        if (!entry)
+            return -1;
+        if (entry - 1 < count && wk_pub[entry - 1] == sel)
+            return entry - 1;
+    }
 }
 
 static bool wk_is_registered_sel(SEL sel)
 {
     if (!WK_FILTER_TEST(wk_sel_filter, wk_sel_hash(sel)))
         return false;
-    for (unsigned i = wk_sel_hash(sel) & (WK_NAME_SLOTS - 1); wk_sel_slots[i]; i = (i + 1) & (WK_NAME_SLOTS - 1))
-        if (wk_sel_slots[i] == sel)
-            return true;
-    return false;
+    return wk_registered_sel_index(sel, wk_count) >= 0;
 }
 
 // Synchronisation.
@@ -852,7 +861,7 @@ static SEL wk_register_selector(SEL pub)
     WK_FILTER_SET(wk_name_filter, wk_name_hash(name));
     wk_note_registered_name(name, slot);
     WK_FILTER_SET(wk_sel_filter, wk_sel_hash(pub));
-    wk_note_registered_sel(pub);
+    wk_note_registered_sel(pub, slot);
     // Publishes the stores above to every reader that acquire-loads wk_count.
     __atomic_store_n(&wk_count, slot + 1, __ATOMIC_RELEASE);
     return priv;
@@ -1097,18 +1106,31 @@ static void wk_patch(const struct mach_header *mh)
         return;
     int n = (int)(size / sizeof(void *));
     __atomic_fetch_add(&wk_stat_refs, n, __ATOMIC_RELAXED);
+    unsigned long namesSize = 0;
+    const char *names = (const char *)getsectiondata((const struct mach_header_64 *)mh, "__TEXT", "__objc_methname", &namesSize);
     for (int i = 0; i < n; i++) {
-        // Match by NAME, not just pointer: for an image dlopen'd AFTER launch, dyld runs this add-image
-        // callback BEFORE objc uniques the image's selrefs, so refs[i] still points to the image's local
-        // methname string (not the canonical SEL) — a pointer compare would miss it. strcmp catches both
-        // states; a selref always points to a valid C string (methname before uniquing, SEL after). After
-        // we rewrite to wk_priv, objc's later uniquing reads "wk_<name>" and re-derives the same private
-        // SEL, so the rewrite sticks.
+        // Until objc uniques the image, a selref points at the image's own __objc_methname string; after,
+        // at the canonical SEL, which is the image's own string only for a name this image registered
+        // first. So a selref pointing anywhere else is the canonical SEL, and the pointer identifies it.
         const char *s = (const char *)refs[i];
+        if (!(s >= names && s < names + namesSize)) {
+            SEL sel = (SEL)refs[i];
+            if (!WK_FILTER_TEST(wk_sel_filter, wk_sel_hash(sel)))
+                continue;
+            int j = wk_registered_sel_index(sel, count);
+            if (j >= 0) {
+                refs[i] = (void *)wk_priv[j];
+                __atomic_fetch_add(&wk_stat_rewritten, 1, __ATOMIC_RELAXED);
+            }
+            continue;
+        }
+        // Otherwise match by NAME: for an image dlopen'd AFTER launch, dyld runs the add-image callback
+        // BEFORE objc uniques the image's selrefs, so refs[i] still points to the image's local methname
+        // string (not the canonical SEL) — a pointer compare would miss it. After we rewrite to wk_priv,
+        // objc's later uniquing reads "wk_<name>" and re-derives the same private SEL, so the rewrite sticks.
         unsigned hash = wk_name_hash32(s);
         if (!WK_FILTER_TEST(wk_name_filter, hash & (WK_FILTER_BITS - 1)))
-            continue;   // definitely not a registered name — see the prefilter note. This also makes
-                        // the add-image replay of an already-patched image cheap: a rewritten ref
+            continue;   // definitely not a registered name — see the prefilter note. A rewritten ref
                         // reads "wk_<name>", whose bit is not set.
         int j = wk_registered_name_index(s, hash, count);
         if (j >= 0) {

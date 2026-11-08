@@ -1,16 +1,19 @@
 // Aliasing for categories that arrive with a dlopen'd image and attach to classes of an image swept
 // earlier (here the probe itself). A category giving such a class a registered selector it lacked gets
 // the private alias, and a category overriding a method the class already had moves the alias to the
-// override, so the rewritten selector and the public one keep answering alike.
+// override, so the rewritten selector and the public one keep answering alike. Also the selref rewrite
+// itself: the probe's own reference to a selector whose canonical name lives in the shared cache, and
+// the reference of a WebKit-marked image that arrives before the runtime has uniqued its selrefs.
 //
-// The fixture (wk_selref_dlopen_category_fixture.m) is a bundle loaded against this executable whose
-// only content is the two categories.
+// The fixture (wk_selref_dlopen_category_fixture.m) is a WebKit-marked bundle loaded against this
+// executable: the two categories and one selector reference.
 #include "wk_selref_scope.h"
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <stdio.h>
+#include <string.h>
 
 static int wk_failures;
 static void check(int ok, const char *what)
@@ -20,10 +23,17 @@ static void check(int ok, const char *what)
         wk_failures++;
 }
 
-// Registers -selrefCategoryProbeValue; the target class never exists, so only aliasing is exercised.
+// Registers -selrefCategoryProbeValue and -isFlipped; the target class never exists, so only aliasing
+// and the selref rewrite are exercised.
 WK_POLYFILL_ADD_METHODS_ON(NSObject, "WKCategoryProbeAbsentTarget")
 - (int)selrefCategoryProbeValue { return -1; }
+- (BOOL)isFlipped { return NO; }
 @end
+
+static SEL probeSharedCacheSelector(void)
+{
+    return @selector(isFlipped);
+}
 
 @interface WKCategoryProbePlain : NSObject
 @end
@@ -58,6 +68,8 @@ int main(int argc, char **argv)
 
     Class plain = objc_getClass("WKCategoryProbePlain");
     Class overridden = objc_getClass("WKCategoryProbeOverridden");
+    check(!strcmp(sel_getName(probeSharedCacheSelector()), "wk_isFlipped"),
+          "a launch image's reference to a shared-cache selector is rewritten");
     check(sendPrivate(plain) == 0, "test premise: the plain class has no alias before the dlopen");
     check(sendPrivate(overridden) == 1, "test premise: the overridden class is aliased to its own method");
 
@@ -68,6 +80,9 @@ int main(int argc, char **argv)
 
     check(sendPrivate(plain) == 7, "a category's new method is aliased on a class swept earlier");
     check(sendPrivate(overridden) == 8, "a category's override moves the existing alias to the override");
+    SEL (*fixtureSelector)(void) = (SEL (*)(void))dlsym(handle, "wk_fixture_probe_selector");
+    check(fixtureSelector && !strcmp(sel_getName(fixtureSelector()), "wk_selrefCategoryProbeValue"),
+          "a dlopen'd WebKit image's selector reference is rewritten");
 
     if (wk_failures) {
         printf("wk_selref_dlopen_category: %d FAILURE(S)\n", wk_failures);
