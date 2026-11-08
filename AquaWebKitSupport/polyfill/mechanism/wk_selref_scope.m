@@ -69,20 +69,20 @@ static int wk_count;                    // PUBLICATION POINT — see the synchro
 enum { WK_MAX_REPLACE_BODIES = 128 };
 static IMP wk_replace_body[WK_MAX_REPLACE_BODIES];
 static int wk_replace_body_count;
+// Whether registry entry j has a REPLACE body, which only a REPLACE block registering it installs. A chain
+// can carry a body for that entry's private selector only then. Written and read under wk_reg_lock.
+static bool wk_replace_sel[WK_MAX_SEL];
 
 // Prefilters over the registry, so the two hot loops (every selref of every WebKit image in wk_patch,
 // every method of every class in wk_alias_class) pay one bit test for the overwhelmingly common case
-// of a name that is not registered, instead of a linear scan of the registry. Measured in Safari's UI
-// process at launch: 267,740 methods and 28,656 selrefs (the latter twice — the add-image registration
-// replays the constructor's sweep) against 144 entries, ~70 ms of which the filters remove all but a
-// few ms.
+// of a name that is not registered, instead of a registry lookup.
 //
 // The guarantee is one-sided: a clear bit means NO entry has this name/SEL, so skipping is safe; a set
-// bit means only "scan the registry", which stays the sole authority. Bits are set before the entry is
+// bit means only "look it up in the registry", which stays the sole authority. Bits are set before the entry is
 // published through wk_count (release-store), so any reader that can reach an entry can also see its
 // bits — the same happens-before edge the arrays rely on. The reverse order would be a correctness
 // bug: a reachable entry whose bit is not yet visible would be skipped. A bit set for an entry the
-// reader cannot reach yet merely sends it into a scan that finds nothing, which is what no filter
+// reader cannot reach yet merely sends it into a lookup that finds nothing, which is what no filter
 // would have done anyway. Bits are only ever set, never cleared, matching the append-only registry.
 enum { WK_FILTER_BITS = 16384 };
 static unsigned char wk_name_filter[WK_FILTER_BITS / 8];   // keyed on the selector NAME (wk_patch)
@@ -113,18 +113,33 @@ static unsigned wk_sel_hash(SEL sel)
 #define WK_FILTER_SET(f, h)  ((f)[(h) >> 3] |= (unsigned char)(1u << ((h) & 7)))
 #define WK_FILTER_TEST(f, h) ((f)[(h) >> 3] & (1u << ((h) & 7)))
 
-// The registered public names, exactly, for the alias sweep's reading of method lists the runtime has not
-// realized: a name that passes wk_name_filter is looked up here. Written by wk_register_selector and read
-// by the sweep, both under wk_reg_lock.
+// The registered public names, exactly: registry index + 1 by name hash, or 0 for an empty slot. The alias
+// sweep looks up a name that passes wk_name_filter here under wk_reg_lock, for method lists the runtime has
+// not realized, and wk_patch looks up selrefs without the lock. Slots are filled like the registry's
+// arrays, before the entry is published through wk_count, so a reader skips an index at or above the
+// count it acquire-loaded.
 enum { WK_NAME_SLOTS = 2 * WK_MAX_SEL };   // power of two
-static const char *wk_name_slots[WK_NAME_SLOTS];
+static int wk_name_slots[WK_NAME_SLOTS];
 
-static void wk_note_registered_name(const char *name)
+static void wk_note_registered_name(const char *name, int index)
 {
     unsigned i = wk_name_hash32(name) & (WK_NAME_SLOTS - 1);
-    while (wk_name_slots[i])
+    while (__atomic_load_n(&wk_name_slots[i], __ATOMIC_RELAXED))
         i = (i + 1) & (WK_NAME_SLOTS - 1);
-    wk_name_slots[i] = name;
+    __atomic_store_n(&wk_name_slots[i], index + 1, __ATOMIC_RELAXED);
+}
+
+// The registry index of `name` among the first `count` entries, or -1. `hash` is wk_name_hash32(name).
+static int wk_registered_name_index(const char *name, unsigned hash, int count)
+{
+    for (unsigned i = hash & (WK_NAME_SLOTS - 1);; i = (i + 1) & (WK_NAME_SLOTS - 1)) {
+        int entry = __atomic_load_n(&wk_name_slots[i], __ATOMIC_RELAXED);
+        if (!entry)
+            return -1;
+        int j = entry - 1;
+        if (j < count && (name == wk_pubname[j] || !strcmp(name, wk_pubname[j])))
+            return j;
+    }
 }
 
 static bool wk_is_registered_name(const char *name)
@@ -132,10 +147,7 @@ static bool wk_is_registered_name(const char *name)
     unsigned hash = wk_name_hash32(name);
     if (!WK_FILTER_TEST(wk_name_filter, hash & (WK_FILTER_BITS - 1)))
         return false;
-    for (unsigned i = hash & (WK_NAME_SLOTS - 1); wk_name_slots[i]; i = (i + 1) & (WK_NAME_SLOTS - 1))
-        if (!strcmp(wk_name_slots[i], name))
-            return true;
-    return false;
+    return wk_registered_name_index(name, hash, wk_count) >= 0;
 }
 
 // The registered public SELs, exactly, for reading the method lists of shared-cache images, whose
@@ -464,7 +476,7 @@ static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
             // targets, and the block itself receives no sends.
             if (wk_is_placeholder(cls))
                 break;
-            if (!clsFromWebKitImage && wk_replace_body_owner(cls, wk_priv[j]))
+            if (!clsFromWebKitImage && wk_replace_sel[j] && wk_replace_body_owner(cls, wk_priv[j]))
                 break;   // a REPLACE body is already in this class's chain — let it win (see above)
             IMP realIMP = method_getImplementation(methods[i]);
             const char *types = method_getTypeEncoding(methods[i]);
@@ -780,7 +792,7 @@ static SEL wk_register_selector(SEL pub)
     wk_priv[slot] = priv;
     // The entry's filter bits, before the entry is reachable (see the prefilter note).
     WK_FILTER_SET(wk_name_filter, wk_name_hash(name));
-    wk_note_registered_name(name);
+    wk_note_registered_name(name, slot);
     WK_FILTER_SET(wk_sel_filter, wk_sel_hash(pub));
     wk_note_registered_sel(pub);
     // Publishes the stores above to every reader that acquire-loads wk_count.
@@ -795,8 +807,11 @@ static void wk_register_side(Class side, int intent)
     unsigned int n = 0;
     Method *methods = class_copyMethodList(side, &n);
     for (unsigned int i = 0; i < n; i++) {
-        wk_register_selector(method_getName(methods[i]));
+        SEL priv = wk_register_selector(method_getName(methods[i]));
         if (intent == WK_METHODS_REPLACE) {
+            for (int j = 0; j < wk_count; j++)
+                if (wk_priv[j] == priv)
+                    wk_replace_sel[j] = true;
             IMP imp = method_getImplementation(methods[i]);
             if (!wk_is_replace_body(imp)) {
                 if (wk_replace_body_count >= WK_MAX_REPLACE_BODIES)
@@ -1032,16 +1047,16 @@ static void wk_patch(const struct mach_header *mh)
         // we rewrite to wk_priv, objc's later uniquing reads "wk_<name>" and re-derives the same private
         // SEL, so the rewrite sticks.
         const char *s = (const char *)refs[i];
-        if (!WK_FILTER_TEST(wk_name_filter, wk_name_hash(s)))
+        unsigned hash = wk_name_hash32(s);
+        if (!WK_FILTER_TEST(wk_name_filter, hash & (WK_FILTER_BITS - 1)))
             continue;   // definitely not a registered name — see the prefilter note. This also makes
                         // the add-image replay of an already-patched image cheap: a rewritten ref
                         // reads "wk_<name>", whose bit is not set.
-        for (int j = 0; j < count; j++)
-            if (refs[i] == (void *)wk_pub[j] || strcmp(s, wk_pubname[j]) == 0) {
-                refs[i] = (void *)wk_priv[j];
-                __atomic_fetch_add(&wk_stat_rewritten, 1, __ATOMIC_RELAXED);
-                break;
-            }
+        int j = wk_registered_name_index(s, hash, count);
+        if (j >= 0) {
+            refs[i] = (void *)wk_priv[j];
+            __atomic_fetch_add(&wk_stat_rewritten, 1, __ATOMIC_RELAXED);
+        }
     }
 }
 

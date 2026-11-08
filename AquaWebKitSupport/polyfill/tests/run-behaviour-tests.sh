@@ -352,6 +352,12 @@ probe_timebase() {
         "$T/timebase"
 }
 
+probe_atexit() {
+    "$CLANG" $MODERN $INC -DWK_ATEXIT_BUNDLE -bundle -o "$T/atexit_bundle" "$TBEHAV/libSystem-atexit.c" &&
+        "$CLANG" $MODERN $INC -o "$T/atexit" "$TBEHAV/libSystem-atexit.c" $PROBE_LIBS &&
+        "$T/atexit" "$T/atexit_bundle"
+}
+
 probe_color_timebase() {
     "$CLANG" $MODERN $INC -Wno-unguarded-availability -Wno-unguarded-availability-new \
         -o "$T/color_timebase" "$TBEHAV/CoreMedia-color-timebase.c" \
@@ -1198,6 +1204,7 @@ run_probe key_public_half "$@"
 run_probe ec_public_point "$@"
 run_probe gcrypt_ec_public_point "$@"
 run_probe timebase "$@"
+run_probe atexit "$@"
 run_probe color_timebase "$@"
 run_probe clonefile "$@"
 run_probe pthread_qos "$@"

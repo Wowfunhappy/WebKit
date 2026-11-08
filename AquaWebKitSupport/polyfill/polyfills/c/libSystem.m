@@ -388,16 +388,25 @@ WK_POLYFILL_REPLACES(NULL, int, dladdr, (const void *address, Dl_info *info))
     return found;
 }
 
+#pragma mark - atexit
+
+// 10.9's atexit registers the function with dladdr(func)->dli_fbase as its image, so __cxa_finalize runs
+// it when that image unloads. That dladdr is the system one, whose symbol scan touches all of WebCore's
+// symbol table, ~4 ms of every process launch for libgpg-error's constructor. The image header comes
+// from dyld's segment ranges instead, and the entry joins the same list through __cxa_atexit.
+extern int __cxa_atexit(void (*)(void *), void *, void *);
+
+WK_POLYFILL_REPLACES(NULL, int, atexit, (void (*func)(void)))
+{
+    return __cxa_atexit((void (*)(void *))func, NULL, (void *)_dyld_get_image_header_containing_address((const void *)func));
+}
+
 #pragma mark - dyld image identity and the shared cache (10.10+)
 
-// The image an address belongs to. dladdr already answers exactly this question -- dli_fbase is the
-// mach header of the image containing the address -- and is 10.9 API.
+// The image an address belongs to: 10.9's dyld answers it from its segment ranges.
 WK_POLYFILL_ABSENT(NULL, const struct mach_header *, dyld_image_header_containing_address, (const void *address))
 {
-    Dl_info info;
-    if (!dladdr(address, &info))
-        return NULL;
-    return (const struct mach_header *)info.dli_fbase;
+    return _dyld_get_image_header_containing_address(address);
 }
 
 // The mach header behind a dlopen handle. 10.9's handle is an opaque dyld pointer with no public way

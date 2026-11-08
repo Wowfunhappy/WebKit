@@ -47,10 +47,6 @@ WK_POLYFILL_ADD_METHODS(CIFilter)
 + (CIFilter<CICompositeOperation> *)luminosityBlendModeFilter { return wk_builtinFilter(@"CILuminosityBlendMode"); }
 + (CIFilter<CIStripesGenerator> *)stripesGeneratorFilter { return wk_builtinFilter(@"CIStripesGenerator"); }
 
-// -[CIFilter outputImage] (10.10+): the filter's kCIOutputImageKey value. 10.9's built-in filters each
-// implement -outputImage, and keep their own.
-- (CIImage *)outputImage { return [self valueForKey:kCIOutputImageKey]; }
-
 // The CIFilterBuiltins protocols' typed properties (10.15+) set the filter's input keys.
 - (void)setWidth:(float)width { [self setValue:@(width) forKey:@"inputWidth"]; }
 - (void)setSharpness:(float)sharpness { [self setValue:@(sharpness) forKey:@"inputSharpness"]; }
