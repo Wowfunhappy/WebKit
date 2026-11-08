@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>virtual list scroll clamp</title>
+<style>
+html, body { margin: 0; height: 100%; }
+#app { container-type: inline-size; height: 100%; display: flex; flex-direction: column; }
+#scroller { flex: 1; overflow-y: auto; }
+.row { height: 64px; border-bottom: 1px solid #ccc; box-sizing: border-box; padding: 8px; font: 14px sans-serif; }
+@container (width > 500px) { .row { padding-left: 24px; } }
+#hud { position: fixed; right: 30px; top: 8px; background: #ff0; font: bold 16px monospace; padding: 4px; z-index: 9; }
+</style>
+</head>
+<body>
+<div id="hud"></div>
+<div id="app"><div id="scroller"><div id="list"></div></div></div>
+<script>
+// A keyed virtual list in an overflow scroller under a size query container, the shape of a claude.ai
+// transcript. Each change of the visible range replaces both spacers with new elements and changes a style
+// outside the container, so the next style update lays out the container's contents before the new spacers
+// and rows have renderers. That layout is shorter than the list, and it clamps the scroll position.
+// The page loads scrolled to the bottom; then wheel up slowly. "jumps" counts scroll changes over 2000 px
+// that the page did not request itself. PASS in the title: the load-time bottom position held.
+// `?anchor=none` sets overflow-anchor: none on the scroller (it then jumps to the top).
+const N = 3000, H = 64, OVERSCAN = 6;
+const scroller = document.getElementById("scroller"), list = document.getElementById("list"), hud = document.getElementById("hud");
+if (location.search.includes("anchor=none"))
+    scroller.style.overflowAnchor = "none";
+const rows = new Map();
+let range = "", jumps = 0, events = 0, last = null, requested = null;
+const log = window.__virtLog = [];
+
+function spacer(height)
+{
+    const element = document.createElement("div");
+    element.style.height = height + "px";
+    return element;
+}
+
+function render()
+{
+    const scrollTop = scroller.scrollTop, clientHeight = scroller.clientHeight;
+    const first = Math.max(0, Math.floor(scrollTop / H) - OVERSCAN);
+    const lastIndex = Math.min(N - 1, Math.ceil((scrollTop + clientHeight) / H) + OVERSCAN);
+    if (range === first + ":" + lastIndex)
+        return;
+    range = first + ":" + lastIndex;
+
+    for (const [index, element] of rows) {
+        if (index < first || index > lastIndex) {
+            element.remove();
+            rows.delete(index);
+        }
+    }
+    const top = spacer(first * H), bottom = spacer((N - 1 - lastIndex) * H);
+    if (list.firstChild && !list.firstChild.classList.contains("row"))
+        list.firstChild.replaceWith(top);
+    else
+        list.prepend(top);
+    if (list.lastChild && list.lastChild !== top && !list.lastChild.classList.contains("row"))
+        list.lastChild.replaceWith(bottom);
+    else
+        list.append(bottom);
+    let previous = top;
+    for (let index = first; index <= lastIndex; ++index) {
+        let element = rows.get(index);
+        if (!element) {
+            element = document.createElement("div");
+            element.className = "row";
+            element.textContent = "Message " + index;
+            rows.set(index, element);
+            previous.after(element);
+        }
+        previous = element;
+    }
+
+    document.documentElement.style.setProperty("--tick", String(Math.random()));
+    document.documentElement.getAnimations();
+}
+
+function updateHUD()
+{
+    hud.textContent = "top " + Math.round(scroller.scrollTop) + " jumps " + jumps + " events " + events;
+}
+
+function scrollToRequested(position)
+{
+    requested = position;
+    scroller.scrollTop = position;
+}
+
+scroller.addEventListener("scroll", () => {
+    ++events;
+    const scrollTop = scroller.scrollTop;
+    if (last !== null && Math.abs(scrollTop - last) > 2000 && (requested === null || Math.abs(scrollTop - requested) > 2)) {
+        ++jumps;
+        log.push(Math.round(last) + "->" + Math.round(scrollTop));
+    }
+    requested = null;
+    last = scrollTop;
+    render();
+    updateHUD();
+});
+
+render();
+scrollToRequested(scroller.scrollHeight);
+last = scroller.scrollTop;
+render();
+updateHUD();
+
+requestAnimationFrame(() => requestAnimationFrame(() => {
+    const bottom = scroller.scrollHeight - scroller.clientHeight;
+    document.title = (Math.abs(scroller.scrollTop - bottom) <= 1 ? "PASS" : "FAIL") + " top " + Math.round(scroller.scrollTop) + " of " + bottom;
+}));
+</script>
+</body>
+</html>
