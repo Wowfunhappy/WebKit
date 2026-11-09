@@ -1667,6 +1667,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" ) \
       || { echo "gst-plugins-good osxaudio device-buffer patch failed to apply"; exit 1; }
+    # osxaudio: a paused sink stops its AudioUnit. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-pause-stops-unit.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-pause-stops-unit.patch" ) \
+      || { echo "gst-plugins-good osxaudio pause patch failed to apply"; exit 1; }
     # adaptivedemux2: fetch through URI source elements without libsoup. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-adaptivedemux2-uri-source-transfers.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-adaptivedemux2-uri-source-transfers.patch" ) \

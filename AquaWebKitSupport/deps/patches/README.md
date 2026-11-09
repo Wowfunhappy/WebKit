@@ -551,6 +551,15 @@ The sink does not need the write: `gst_osx_audio_sink_io_proc()` — "HALOutput 
 
 A source keeps it. `gst_core_audio_initialize()` sizes `recBufferList` from the size it reads back, so a source asks for the packet it wants; its device is an input device, which no other unit in a WebKit process drives.
 
+## gst-plugins-good-osxaudio-pause-stops-unit.patch
+
+**Target:** `gst-plugins-good-1.28.7`, `sys/osxaudio/gstosxcoreaudiohal.c`
+**Applied to:** libgstosxaudio (osxaudiosink and osxaudiosrc; the HAL pause implementation serves both)
+
+`gst_core_audio_pause_processing_impl()` leaves a paused HAL output unit running and has its render callback write silence (`io_proc_dropping`). Core Audio's IO thread then keeps waking the process for as long as the sink is paused: measured on 10.9 with a paused YouTube video, about 90 IO cycles a second, all of them `AUHAL::AUIOProc` driven by `coreaudiod`. Upstream's reason, in the comment the patch replaces, is that the render callback cannot be removed from inside the render-notify callback; that concerns the IO thread, not the thread that pauses.
+
+The ring buffer pauses (`gst_audio_ring_buffer_pause_unlocked()`) from a streaming or state-change thread, under its object lock and after releasing its waiters, exactly as `gst_audio_ring_buffer_stop()` stops, and the sink's render callback takes that lock only to signal a waiter. The patch has pause stop the unit with `gst_core_audio_io_proc_stop()`, the stop path's own call, which stops the AudioUnit and then removes its render callback. Resuming goes through `gst_core_audio_io_proc_start()`, which installs the callback again and starts the unit. The S/PDIF passthrough path already removes its IO proc on pause and is unchanged.
+
 ## gst-plugins-good-adaptivedemux2-uri-source-transfers.patch
 
 **Target:** `gst-plugins-good-1.28.7`, `ext/adaptivedemux2/downloadhelper.c`, `downloadhelper.h`, `gstadaptivedemux.c`, `gstadaptivedemuxelement.c`

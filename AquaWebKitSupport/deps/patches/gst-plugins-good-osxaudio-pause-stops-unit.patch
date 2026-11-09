@@ -1,0 +1,30 @@
+osxaudio: stop the AudioUnit when the ring buffer pauses
+
+A paused HAL output unit kept running and fed silence, so Core Audio's IO
+thread woke the process about 90 times a second for as long as the sink was
+paused. The ring buffer pauses under its object lock with its waiters
+released, exactly as it stops, so the render callback cannot be waiting on
+that lock, and AudioOutputUnitStop is as safe here as in the stop path.
+
+--- a/sys/osxaudio/gstosxcoreaudiohal.c	2026-09-07 15:11:13.000000000 -0400
++++ b/sys/osxaudio/gstosxcoreaudiohal.c	2026-11-09 17:18:12.000000000 -0500
+@@ -1007,15 +1007,10 @@
+     GST_DEBUG_OBJECT (core_audio,
+         "osx ring buffer pause ioproc: %p device_id %lu",
+         core_audio->element->io_proc, (gulong) core_audio->device_id);
+-    if (core_audio->io_proc_active) {
+-      /* CoreAudio isn't threadsafe enough to remove the render callback in the
+-       * render notify callback, so we pause by having the callback drop
+-       * samples or feed silence. See:
+-       * http://lists.apple.com/archives/Coreaudio-api/2006/Mar/msg00010.html
+-       * https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/4155
+-       */
+-      g_atomic_int_set (&core_audio->io_proc_dropping, TRUE);
+-    }
++    /* The ring buffer pauses from a streaming or state-change thread under its
++     * object lock, with its waiters released, as it stops; the AudioUnit stops
++     * as it does on stop, and its render callback is removed once it has. */
++    gst_core_audio_io_proc_stop (core_audio);
+   }
+   return TRUE;
+ }
