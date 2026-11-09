@@ -560,7 +560,8 @@ bool HTMLPlugInElement::canLoadURL(const URL& completeURL) const
         RefPtr documentLoader = frame ? frame->loader().documentLoader() : nullptr;
         RefPtr userContentProvider = frame ? frame->userContentProvider() : nullptr;
         if (page && documentLoader && userContentProvider) {
-            auto results = userContentProvider->processContentRuleListsForLoad(*page, completeURL, ContentExtensions::ResourceType::Other, *documentLoader);
+            // auto results = userContentProvider->processContentRuleListsForLoad(*page, completeURL, ContentExtensions::ResourceType::Other, *documentLoader);
+            auto results = userContentProvider->processContentRuleListsForLoad(*page, completeURL, ContentExtensions::ResourceType::Other, *documentLoader, { }, "GET"_s); // AQUAWEBKIT: the method of the load being checked.
             if (results.shouldBlock())
                 return false;
         }

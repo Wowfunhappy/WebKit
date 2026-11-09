@@ -586,7 +586,8 @@ void DocumentLoader::handleSubstituteDataLoadNow()
     if (page && userContentProvider) {
         // We intentionally do nothing with the results of this call.
         // We want the CSS to be loaded for us, but we ignore any attempt to block or upgrade the connection since there is no connection.
-        userContentProvider->processContentRuleListsForLoad(*page, response.url(), frame->isMainFrame() ? ContentExtensions::ResourceType::TopDocument : ContentExtensions::ResourceType::ChildDocument, *this);
+        // userContentProvider->processContentRuleListsForLoad(*page, response.url(), frame->isMainFrame() ? ContentExtensions::ResourceType::TopDocument : ContentExtensions::ResourceType::ChildDocument, *this);
+        userContentProvider->processContentRuleListsForLoad(*page, response.url(), frame->isMainFrame() ? ContentExtensions::ResourceType::TopDocument : ContentExtensions::ResourceType::ChildDocument, *this, { }, request().httpMethod()); // AQUAWEBKIT: the method of the load being checked.
     }
 #endif
 

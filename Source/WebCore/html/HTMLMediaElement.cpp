@@ -2044,7 +2044,8 @@ void HTMLMediaElement::loadResource(const URL& initialURL, const ContentType& in
     RefPtr documentLoader = frame->loader().documentLoader();
     RefPtr userContentProvider = frame->userContentProvider();
     if (documentLoader && userContentProvider) {
-        if (userContentProvider->processContentRuleListsForLoad(*page, url, ContentExtensions::ResourceType::Media, *documentLoader).shouldBlock()) {
+        // if (userContentProvider->processContentRuleListsForLoad(*page, url, ContentExtensions::ResourceType::Media, *documentLoader).shouldBlock()) {
+        if (userContentProvider->processContentRuleListsForLoad(*page, url, ContentExtensions::ResourceType::Media, *documentLoader, { }, "GET"_s).shouldBlock()) { // AQUAWEBKIT: the method of the load being checked.
             mediaLoadingFailed(MediaPlayer::NetworkState::FormatError);
             return;
         }

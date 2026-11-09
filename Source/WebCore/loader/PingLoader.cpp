@@ -81,7 +81,8 @@ static bool processContentRuleListsForLoad(const LocalFrame& frame, ResourceRequ
     if (!userContentProvider)
         return false;
 
-    auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), resourceType, *documentLoader);
+    // auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), resourceType, *documentLoader);
+    auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), resourceType, *documentLoader, { }, request.httpMethod()); // AQUAWEBKIT: the method of the load being checked.
     bool shouldBlock = results.shouldBlock();
     ContentExtensions::applyResultsToRequest(WTF::move(results), page.get(), request);
     return shouldBlock;

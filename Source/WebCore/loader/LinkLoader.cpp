@@ -313,7 +313,8 @@ void LinkLoader::preconnectIfNeeded(const LinkLoadParameters& params, Document& 
     RefPtr frame = document.frame();
     RefPtr userContentProvider = frame ? frame->userContentProvider() : nullptr;
     if (page && documentLoader && userContentProvider) {
-        auto results = userContentProvider->processContentRuleListsForLoad(*page, params.href, ContentExtensions::ResourceType::Ping, *documentLoader);
+        // auto results = userContentProvider->processContentRuleListsForLoad(*page, params.href, ContentExtensions::ResourceType::Ping, *documentLoader);
+        auto results = userContentProvider->processContentRuleListsForLoad(*page, params.href, ContentExtensions::ResourceType::Ping, *documentLoader, { }, request.httpMethod()); // AQUAWEBKIT: the method of the load being checked.
         if (results.shouldBlock())
             return;
         ContentExtensions::applyResultsToRequest(WTF::move(results), page.get(), request);

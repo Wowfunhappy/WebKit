@@ -423,7 +423,8 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
     RefPtr page = frameLoader ? frameLoader->frame().page() : nullptr;
     RefPtr documentLoader = m_documentLoader;
     if (!redirectResponse.isNull() && frameLoader && page && userContentProvider && documentLoader) {
-        auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), m_resourceType, *documentLoader, redirectResponse.url());
+        // auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), m_resourceType, *documentLoader, redirectResponse.url());
+        auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), m_resourceType, *documentLoader, redirectResponse.url(), request.httpMethod()); // AQUAWEBKIT: the method of the load being checked.
         bool shouldBlock = results.shouldBlock();
         ContentExtensions::applyResultsToRequest(WTF::move(results), page.get(), request);
         if (shouldBlock) {

@@ -3821,7 +3821,8 @@ ResourceLoaderIdentifier FrameLoader::loadResourceSynchronously(const ResourceRe
         RefPtr page = frame->page();
         RefPtr documentLoader = m_documentLoader;
         if (page && userContentProvider && documentLoader) {
-            auto results = userContentProvider->processContentRuleListsForLoad(*page, newRequest.url(), ContentExtensions::ResourceType::Fetch, *documentLoader);
+            // auto results = userContentProvider->processContentRuleListsForLoad(*page, newRequest.url(), ContentExtensions::ResourceType::Fetch, *documentLoader);
+            auto results = userContentProvider->processContentRuleListsForLoad(*page, newRequest.url(), ContentExtensions::ResourceType::Fetch, *documentLoader, { }, newRequest.httpMethod()); // AQUAWEBKIT: the method of the load being checked.
             bool shouldBlock = results.shouldBlock();
             ContentExtensions::applyResultsToRequest(WTF::move(results), page.get(), newRequest);
             if (shouldBlock) {
@@ -4652,6 +4653,24 @@ void FrameLoader::loadDifferentDocumentItem(HistoryItem& item, HistoryItem* from
 
     SetForScope continuingLoadGuard(m_currentLoadContinuingState, shouldTreatAsContinuingLoad != ShouldTreatAsContinuingLoad::No ? LoadContinuingState::ContinuingWithHistoryItem : LoadContinuingState::NotContinuing);
 
+#if ENABLE(CONTENT_EXTENSIONS)
+    // AQUAWEBKIT: an entry that the content rule lists redirect to another site is loaded again rather than restored
+    // from the back/forward cache, so this process loads the request its client approves, as a swapped-in one does.
+    if (RefPtr page = frame->page(); page && item.isInBackForwardCache()) {
+        RefPtr currentLoader = m_documentLoader;
+        RefPtr userContentProvider = frame->userContentProvider();
+        if (currentLoader && userContentProvider && currentLoader->hasActiveContentRuleListActions()) {
+            auto resourceType = frame->isMainFrame() ? ContentExtensions::ResourceType::TopDocument : ContentExtensions::ResourceType::ChildDocument;
+            auto results = userContentProvider->processContentRuleListsForLoad(*page, item.url(), resourceType, *currentLoader, { }, item.formData() ? "POST"_s : "GET"_s);
+            URL redirectedURL = item.url();
+            for (auto& pair : results.summary.redirectActions)
+                pair.first.modifyURL(redirectedURL, pair.second);
+            if (results.summary.redirected && RegistrableDomain { item.url() } != RegistrableDomain { redirectedURL })
+                BackForwardCache::singleton().remove(item);
+        }
+    }
+#endif
+
     if (CheckedPtr cachedPage = BackForwardCache::singleton().get(item, protect(frame->page()).get())) {
         RefPtr documentLoader = cachedPage->documentLoader();
         m_client->updateCachedDocumentLoader(*documentLoader);
@@ -5173,7 +5192,8 @@ void FrameLoader::prefetchDNSIfNeeded(const URL& url)
     if (!userContentProvider)
         return;
 
-    auto results = userContentProvider->processContentRuleListsForLoad(*page, url, ContentExtensions::ResourceType::Ping, *documentLoader);
+    // auto results = userContentProvider->processContentRuleListsForLoad(*page, url, ContentExtensions::ResourceType::Ping, *documentLoader);
+    auto results = userContentProvider->processContentRuleListsForLoad(*page, url, ContentExtensions::ResourceType::Ping, *documentLoader, { }, "GET"_s); // AQUAWEBKIT: the method of the load being checked.
     if (results.shouldBlock())
         return;
 #endif

@@ -82,7 +82,8 @@ std::optional<ThreadableWebSocketChannel::ValidatedURL> ThreadableWebSocketChann
         RefPtr userContentProvider = frame ? frame->userContentProvider() : nullptr;
         RefPtr documentLoader = document.loader();
         if (userContentProvider && documentLoader) {
-            auto results = userContentProvider->processContentRuleListsForLoad(*page, validatedURL.url, ContentExtensions::ResourceType::WebSocket, *documentLoader);
+            // auto results = userContentProvider->processContentRuleListsForLoad(*page, validatedURL.url, ContentExtensions::ResourceType::WebSocket, *documentLoader);
+            auto results = userContentProvider->processContentRuleListsForLoad(*page, validatedURL.url, ContentExtensions::ResourceType::WebSocket, *documentLoader, { }, "GET"_s); // AQUAWEBKIT: the method of the load being checked.
             if (results.shouldBlock())
                 return { };
 

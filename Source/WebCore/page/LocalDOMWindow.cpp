@@ -2991,7 +2991,8 @@ ExceptionOr<RefPtr<WindowProxy>> LocalDOMWindow::open(LocalDOMWindow& activeWind
     RefPtr userContentProvider = firstFrame->userContentProvider();
     RefPtr firstFrameDocumentLoader = firstFrameDocument ? firstFrameDocument->loader() : nullptr;
     if (firstFrameDocument && page && userContentProvider && firstFrameDocumentLoader) {
-        auto results = userContentProvider->processContentRuleListsForLoad(*page, firstFrameDocument->encodingParseURL(urlString), ContentExtensions::ResourceType::Popup, *firstFrameDocumentLoader);
+        // auto results = userContentProvider->processContentRuleListsForLoad(*page, firstFrameDocument->encodingParseURL(urlString), ContentExtensions::ResourceType::Popup, *firstFrameDocumentLoader);
+        auto results = userContentProvider->processContentRuleListsForLoad(*page, firstFrameDocument->encodingParseURL(urlString), ContentExtensions::ResourceType::Popup, *firstFrameDocumentLoader, { }, "GET"_s); // AQUAWEBKIT: the method of the load being checked.
         if (results.shouldBlock())
             return RefPtr<WindowProxy> { nullptr };
     }

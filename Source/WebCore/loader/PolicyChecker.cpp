@@ -335,10 +335,16 @@ void PolicyChecker::checkNavigationPolicy(ResourceRequest&& request, const Resou
     if (RefPtr documentLoader = frame->loader().documentLoader(); page && userContentProvider && documentLoader && documentLoader->hasActiveContentRuleListActions()) {
         // FIXME: <https://webkit.org/b/297553> Ideally, we should be doing this in CachedResourceLoader.
         auto resourceType = frame->isMainFrame() ? ContentExtensions::ResourceType::TopDocument : ContentExtensions::ResourceType::ChildDocument;
-        auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), resourceType, *documentLoader);
+        // auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), resourceType, *documentLoader);
+        auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), resourceType, *documentLoader, { }, request.httpMethod()); // AQUAWEBKIT: the method of the load being checked.
 
+        URL urlBeforeContentRuleLists = request.url(); // AQUAWEBKIT: compared below.
         // Only apply the results if a cross origin redirect will occur. See https://webkit.org/b/297077 and https://webkit.org/b/297554.
         ContentExtensions::applyResultsToRequestIfCrossOriginRedirect(WTF::move(results), page.get(), request);
+        // AQUAWEBKIT: a navigation the client lets this process go on with loads the request the client was asked
+        // about, as one it moves to another process does, so the provisional load starts at the redirected URL.
+        if (request.url() != urlBeforeContentRuleLists && loader == frameLoader->policyDocumentLoader())
+            loader->request() = ResourceRequest(request);
     }
 #endif
 
