@@ -184,7 +184,7 @@ static LocalFrame& stubFrameForSafariReaderDetection(Page& page, bool firefoxOff
     if (RefPtr body = document->body())
         protect(document->documentElement())->replaceChild((firefoxOffersReaderView ? stubArticleBody : stubEmptyBody).get()->cloneNode(true), *body);
     document->updateLayoutIgnorePendingStylesheets();
-    return frame;
+    return *stubPage.get()->localMainFrame();
 }
 
 static WeakHashMap<Document, Ref<Page>, WeakPtrImplWithEventTargetData>& articlePages()
