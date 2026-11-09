@@ -686,11 +686,14 @@ static JSValueRef contentContextWithMediaPlayerHandoff(JSContextRef context, JSO
 #include "MediaPlayerPrimitives.inc"
 
 // The roots of the extensions whose content scripts and style sheets this process holds,
-// safari-extension://<key>/<token>/, from which the router knows those extensions are loaded.
+// safari-extension://<key>/<token>/, from which the router knows those extensions are loaded. The scripts an
+// extension registers for the page's own world are the router's, and are not Safari's content.
 static Vector<String> userContentExtensionRoots()
 {
     Vector<String> roots;
-    WebUserContentController::forEachUserContentOfAllControllers([&](auto&, auto* script, auto* styleSheet) {
+    WebUserContentController::forEachUserContentOfAllControllers([&](auto& world, auto* script, auto* styleSheet) {
+        if (world.coreWorld().isNormal())
+            return;
         auto& url = script ? script->url() : styleSheet->url();
         auto path = url.path();
         size_t tokenEnd = path.find('/', 1);
@@ -1011,7 +1014,7 @@ WebCore::DOMWrapperWorld* LegacyExtensionContent::contentScriptWorld(const Strin
 {
     WebCore::DOMWrapperWorld* world = nullptr;
     WebUserContentController::forEachUserContentOfAllControllers([&](auto& candidate, auto* script, auto* styleSheet) {
-        if (!world && extensionKeyForURL(script ? script->url() : styleSheet->url()) == extensionKey)
+        if (!world && !candidate.coreWorld().isNormal() && extensionKeyForURL(script ? script->url() : styleSheet->url()) == extensionKey)
             world = &candidate.coreWorld();
     });
     if (!world) {

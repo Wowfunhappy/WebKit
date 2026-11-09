@@ -25,10 +25,12 @@
 #include "LegacyExtensionViewNetwork.h"
 #include "LegacyExtensionNetworkMessages.h"
 #include "LegacyExtensionNetworkProxyMessages.h"
+#include "APIContentWorld.h"
 #include "APIHTTPCookieStore.h"
 #include "APINavigation.h"
 #include "APINavigationClient.h"
 #include "APIPageConfiguration.h"
+#include "APIUserScript.h"
 #include "APIWebsitePolicies.h"
 #include "FrameTreeNodeData.h"
 #include "NetworkProcessProxy.h"
@@ -43,6 +45,7 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include "InjectUserScriptImmediately.h"
 #include "WebUserContentControllerProxy.h"
 #include "WebsiteDataStore.h"
 #include <JavaScriptCore/APICast.h>
@@ -57,6 +60,7 @@
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/UserGestureIndicator.h>
 #include <wtf/CallbackAggregator.h>
+#include <wtf/FileSystem.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OptionSet.h>
 #include <wtf/ProcessID.h>
@@ -770,6 +774,343 @@ void LegacyExtensionHost::broadcastResourcePolicies()
     m_resourcePoliciesJSON = json->toJSONString();
     for (Ref pool : WebProcessPool::allProcessPools())
         pool->sendToAllProcesses(Messages::LegacyExtensionContent::SetResourcePolicies(m_resourcePoliciesJSON));
+}
+
+// A host, as a match pattern and a website access pattern name one ("*", "*.example.com" or "example.com"), for
+// the URLs both name, or null where they share none.
+static String intersectPatternHosts(const String& first, const String& second)
+{
+    if (first == "*"_s)
+        return second;
+    if (second == "*"_s)
+        return first;
+    bool firstWild = first.startsWith("*."_s);
+    bool secondWild = second.startsWith("*."_s);
+    auto firstBase = firstWild ? first.substring(2) : first;
+    auto secondBase = secondWild ? second.substring(2) : second;
+    if (firstBase == secondBase)
+        return firstWild && secondWild ? first : firstBase;
+    if (secondWild && firstBase.endsWith(makeString('.', secondBase)))
+        return first;
+    if (firstWild && secondBase.endsWith(makeString('.', firstBase)))
+        return second;
+    return { };
+}
+
+// A registered content script's match patterns, as UserContentURLPattern strings, narrowed to the URLs the
+// extension's website access reaches, as Chrome runs a registered script only where the extension has host
+// permissions.
+static Vector<String> registeredScriptAllowlist(const Vector<String>& matches, const LegacyExtensions::WebsiteAccess& access)
+{
+    Vector<String> allowlist;
+    for (auto& match : matches) {
+        auto pattern = match == "<all_urls>"_s ? "*://*/*"_s : match.convertToASCIILowercase();
+        auto schemeEnd = pattern.find("://"_s);
+        if (schemeEnd == notFound)
+            continue;
+        auto pathStart = pattern.find('/', schemeEnd + 3);
+        if (pathStart == notFound)
+            continue;
+        auto scheme = pattern.left(schemeEnd);
+        auto host = pattern.substring(schemeEnd + 3, pathStart - schemeEnd - 3);
+        auto path = pattern.substring(pathStart);
+        for (auto& accessPattern : access.urlPatterns()) {
+            auto accessSchemeEnd = accessPattern.find("://"_s);
+            auto accessScheme = accessPattern.left(accessSchemeEnd);
+            if (accessScheme != "http"_s && accessScheme != "https"_s)
+                continue;
+            if (scheme != "*"_s && scheme != accessScheme)
+                continue;
+            auto accessHost = accessPattern.substring(accessSchemeEnd + 3, accessPattern.find('/', accessSchemeEnd + 3) - accessSchemeEnd - 3);
+            auto commonHost = intersectPatternHosts(host, accessHost);
+            if (commonHost.isNull())
+                continue;
+            auto entry = makeString(accessScheme, "://"_s, commonHost, path);
+            if (!allowlist.contains(entry))
+                allowlist.append(WTF::move(entry));
+        }
+    }
+    return allowlist;
+}
+
+// The definitions of the scripts an extension registered with persistAcrossSessions, with the version of the extension
+// that registered them (LegacyExtensions::InfoPlist::version). Each time Safari loads the extension they are restored,
+// their files read from the copy it loads, when it is the same version; another version clears them, as upstream's
+// WebExtensionContext clears its registered scripts when the version or the bundle changes.
+static String registeredContentScriptsPath(const String& extensionKey)
+{
+    return FileSystem::pathByAppendingComponent(LegacyExtensions::storageDirectory(extensionKey), "RegisteredContentScripts.json"_s);
+}
+
+// A registered content script as getRegisteredContentScripts describes it: without the text of its files.
+static Ref<JSON::Object> registeredScriptDefinition(const JSON::Object& script)
+{
+    auto definition = JSON::Object::create();
+    for (auto& name : script.keys()) {
+        if (name == "sources"_s)
+            continue;
+        if (auto value = script.getValue(name))
+            definition->setValue(name, value.releaseNonNull());
+    }
+    return definition;
+}
+
+void LegacyExtensionHost::persistRegisteredContentScripts(const String& extensionKey)
+{
+    auto persisted = JSON::Array::create();
+    if (RefPtr registered = m_registeredContentScripts.get(extensionKey)) {
+        for (auto& value : *registered) {
+            RefPtr script = value->asObject();
+            if (script && script->getBoolean("persistAcrossSessions"_s).value_or(true))
+                persisted->pushObject(registeredScriptDefinition(*script));
+        }
+    }
+    auto path = registeredContentScriptsPath(extensionKey);
+    if (!persisted->length()) {
+        FileSystem::deleteFile(path);
+        return;
+    }
+    auto file = JSON::Object::create();
+    file->setString("version"_s, m_extensionVersions.get(extensionKey));
+    file->setArray("scripts"_s, WTF::move(persisted));
+    FileSystem::makeAllDirectories(LegacyExtensions::storageDirectory(extensionKey));
+    auto json = file->toJSONString().utf8();
+    FileSystem::overwriteEntireFile(path, byteCast<uint8_t>(json.span()));
+}
+
+// The persisted scripts of the extension Safari loaded at `root`, each with its files read from that copy; one whose
+// file is gone is left out. Until they are restored, the extension's scripting calls for registered scripts wait.
+void LegacyExtensionHost::restoreRegisteredContentScripts(const String& extensionKey, const URL& root, const String& version)
+{
+    auto contents = FileSystem::readEntireFile(registeredContentScriptsPath(extensionKey));
+    auto value = contents ? JSON::Value::parseJSON(String::fromUTF8(contents->span())) : nullptr;
+    RefPtr file = value ? value->asObject() : nullptr;
+    RefPtr scripts = file ? file->getArray("scripts"_s) : nullptr;
+    if (!file || !scripts || file->getString("version"_s) != version) {
+        FileSystem::deleteFile(registeredContentScriptsPath(extensionKey));
+        finishRestoringContentScripts(extensionKey);
+        return;
+    }
+    Vector<Ref<JSON::Object>> definitions;
+    for (auto& entry : *scripts) {
+        if (RefPtr definition = entry->asObject())
+            definitions.append(definition.releaseNonNull());
+    }
+    auto texts = std::make_shared<Vector<Vector<String>>>(definitions.size());
+    auto aggregator = CallbackAggregator::create([this, extensionKey, root, definitions, texts] {
+        if (m_websiteAccessRoots.get(extensionKey) != root || !m_restoringContentScripts.contains(extensionKey))
+            return;
+        RefPtr registered = m_registeredContentScripts.get(extensionKey);
+        auto restored = registered ? registered.releaseNonNull() : JSON::Array::create();
+        for (size_t index = 0; index < definitions.size(); ++index) {
+            auto& definition = definitions[index];
+            RefPtr js = definition->getArray("js"_s);
+            auto& files = (*texts)[index];
+            if (!js || !js->length() || files.size() != js->length() || files.contains(String()))
+                continue;
+            auto sources = JSON::Array::create();
+            for (size_t file = 0; file < files.size(); ++file) {
+                auto source = JSON::Object::create();
+                source->setString("url"_s, URL { root, js->get(file)->asString() }.string());
+                source->setString("source"_s, files[file]);
+                sources->pushObject(WTF::move(source));
+            }
+            auto script = registeredScriptDefinition(definition);
+            script->setArray("sources"_s, WTF::move(sources));
+            restored->pushObject(WTF::move(script));
+        }
+        if (restored->length())
+            m_registeredContentScripts.set(extensionKey, WTF::move(restored));
+        finishRestoringContentScripts(extensionKey);
+    });
+    for (size_t index = 0; index < definitions.size(); ++index) {
+        RefPtr js = definitions[index]->getArray("js"_s);
+        if (!js)
+            continue;
+        (*texts)[index].resize(js->length());
+        for (size_t file = 0; file < js->length(); ++file) {
+            LegacyExtensions::loadExtensionFile(root, js->get(file)->asString(), [aggregator, texts, index, file](String&& text) {
+                (*texts)[index][file] = WTF::move(text);
+            });
+        }
+    }
+}
+
+void LegacyExtensionHost::finishRestoringContentScripts(const String& extensionKey)
+{
+    m_restoringContentScripts.remove(extensionKey);
+    updateRegisteredUserScripts(extensionKey);
+    for (auto& waiter : m_contentScriptWaiters.take(extensionKey))
+        waiter();
+}
+
+// scripting's registered content scripts: each call changes the extension's list at once, as Chrome checks it.
+void LegacyExtensionHost::performContentScriptsCall(HostContext& context, double callID, const String& method, RefPtr<JSON::Value>&& argument)
+{
+    auto& extensionKey = context.extensionKey;
+    Vector<Ref<JSON::Object>> scripts;
+    if (RefPtr registered = m_registeredContentScripts.get(extensionKey)) {
+        for (auto& value : *registered) {
+            if (RefPtr script = value->asObject())
+                scripts.append(script.releaseNonNull());
+        }
+    }
+    auto indexOf = [&](const String& id) {
+        return scripts.findIf([&](auto& script) {
+            return script->getString("id"_s) == id;
+        });
+    };
+    RefPtr list = argument ? argument->asArray() : nullptr;
+    auto reply = [&](RefPtr<JSON::Value>&& result, const String& error = { }) {
+        if (m_hostContexts.contains(context.identifier))
+            resultToHostContext(context, callID, WTF::move(result), error);
+    };
+    auto listedIds = [&] {
+        Vector<String> ids;
+        for (auto& value : *list)
+            ids.append(value->asString());
+        return ids;
+    };
+
+    if (method == "scripting.getRegisteredContentScripts"_s) {
+        auto ids = list ? listedIds() : Vector<String> { };
+        auto described = JSON::Array::create();
+        for (auto& script : scripts) {
+            if (!list || ids.contains(script->getString("id"_s)))
+                described->pushObject(registeredScriptDefinition(script));
+        }
+        return reply(WTF::move(described));
+    }
+
+    if (method == "scripting.registerContentScripts"_s) {
+        if (!list)
+            return reply(nullptr, "Invalid call."_s);
+        HashSet<String> ids;
+        for (auto& script : scripts)
+            ids.add(script->getString("id"_s));
+        Vector<Ref<JSON::Object>> added;
+        for (auto& value : *list) {
+            RefPtr script = value->asObject();
+            if (!script)
+                return reply(nullptr, "Invalid call."_s);
+            auto id = script->getString("id"_s);
+            if (!ids.add(id).isNewEntry)
+                return reply(nullptr, makeString("Duplicate script ID '"_s, id, '\''));
+            added.append(script.releaseNonNull());
+        }
+        scripts.appendVector(WTF::move(added));
+    } else if (method == "scripting.updateContentScripts"_s) {
+        if (!list)
+            return reply(nullptr, "Invalid call."_s);
+        Vector<std::pair<size_t, Ref<JSON::Object>>> updates;
+        for (auto& value : *list) {
+            RefPtr changes = value->asObject();
+            auto id = changes ? changes->getString("id"_s) : String();
+            auto index = indexOf(id);
+            if (!changes || index == notFound)
+                return reply(nullptr, makeString("Script with ID '"_s, id, "' does not exist or is not fully registered"_s));
+            auto merged = JSON::Object::create();
+            for (auto& name : scripts[index]->keys()) {
+                if (auto field = scripts[index]->getValue(name))
+                    merged->setValue(name, field.releaseNonNull());
+            }
+            for (auto& name : changes->keys()) {
+                if (auto field = changes->getValue(name))
+                    merged->setValue(name, field.releaseNonNull());
+            }
+            RefPtr matches = merged->getArray("matches"_s);
+            RefPtr js = merged->getArray("js"_s);
+            if (!matches || !matches->length())
+                return reply(nullptr, makeString("Script with ID '"_s, id, "' must specify 'matches'"_s));
+            if (!js || !js->length())
+                return reply(nullptr, makeString("Script with ID '"_s, id, "' must specify at least one 'css' or 'js' file."_s));
+            updates.append({ index, WTF::move(merged) });
+        }
+        for (auto& [index, merged] : updates)
+            scripts[index] = WTF::move(merged);
+    } else if (method == "scripting.unregisterContentScripts"_s) {
+        if (!list)
+            scripts.clear();
+        else {
+            auto ids = listedIds();
+            for (auto& id : ids) {
+                if (indexOf(id) == notFound)
+                    return reply(nullptr, makeString("Nonexistent script ID '"_s, id, '\''));
+            }
+            scripts.removeAllMatching([&](auto& script) {
+                return ids.contains(script->getString("id"_s));
+            });
+        }
+    } else
+        return reply(nullptr, makeString("Unsupported method "_s, method));
+
+    if (scripts.isEmpty())
+        m_registeredContentScripts.remove(extensionKey);
+    else {
+        auto registered = JSON::Array::create();
+        for (auto& script : scripts)
+            registered->pushObject(script.copyRef());
+        m_registeredContentScripts.set(extensionKey, WTF::move(registered));
+    }
+    persistRegisteredContentScripts(extensionKey);
+    updateRegisteredUserScripts(extensionKey);
+    reply(nullptr);
+}
+
+// The scripts each loaded extension registered for the page's own world are user scripts of that world in every tab
+// page's user content controller, as declarativeNetRequest's rule lists are, and a new page's controller gets them
+// (pageWasCreated); upstream's WebExtensionContext::addInjectedContent adds a WebExtension's registered scripts so. A
+// script whose matches the extension's website access leaves nothing of runs nowhere.
+void LegacyExtensionHost::updateRegisteredUserScripts(const String& extensionKey)
+{
+    auto controllers = userContentControllers();
+    for (auto& userScript : m_registeredUserScripts.take(extensionKey)) {
+        for (auto& controller : controllers)
+            controller->removeUserScript(userScript);
+    }
+    RefPtr registered = m_registeredContentScripts.get(extensionKey);
+    auto access = m_websiteAccess.find(extensionKey);
+    auto root = m_websiteAccessRoots.get(extensionKey);
+    if (!registered || access == m_websiteAccess.end() || !root.isValid())
+        return;
+    Vector<Ref<API::UserScript>> userScripts;
+    for (auto& value : *registered) {
+        RefPtr script = value->asObject();
+        if (!script)
+            continue;
+        auto strings = [&](ASCIILiteral name) {
+            Vector<String> list;
+            if (RefPtr array = script->getArray(name)) {
+                for (auto& item : *array) {
+                    if (auto string = item->asString(); !string.isNull())
+                        list.append(string == "<all_urls>"_s ? "*://*/*"_s : string);
+                }
+            }
+            return list;
+        };
+        auto allowlist = registeredScriptAllowlist(strings("matches"_s), access->value);
+        RefPtr sources = script->getArray("sources"_s);
+        if (allowlist.isEmpty() || !sources)
+            continue;
+        auto blocklist = strings("excludeMatches"_s);
+        auto injectionTime = script->getString("runAt"_s) == "document_start"_s ? WebCore::UserScriptInjectionTime::DocumentStart : WebCore::UserScriptInjectionTime::DocumentEnd;
+        auto frames = script->getBoolean("allFrames"_s).value_or(false) ? WebCore::UserContentInjectedFrames::InjectInAllFrames : WebCore::UserContentInjectedFrames::InjectInTopFrameOnly;
+        auto matchParentFrame = script->getBoolean("matchOriginAsFallback"_s).value_or(false) ? WebCore::UserContentMatchParentFrame::ForOpaqueOrigins : WebCore::UserContentMatchParentFrame::Never;
+        for (auto& sourceValue : *sources) {
+            RefPtr source = sourceValue->asObject();
+            URL url { source ? source->getString("url"_s) : String() };
+            if (!source || extensionRoot(url) != root)
+                continue;
+            userScripts.append(API::UserScript::create(WebCore::UserScript { source->getString("source"_s), WTF::move(url), Vector<String> { allowlist },
+                Vector<String> { blocklist }, injectionTime, frames, matchParentFrame }, API::ContentWorld::pageContentWorldSingleton()));
+        }
+    }
+    for (auto& controller : controllers) {
+        for (auto& userScript : userScripts)
+            controller->addUserScript(userScript, InjectUserScriptImmediately::No);
+    }
+    if (!userScripts.isEmpty())
+        m_registeredUserScripts.set(extensionKey, WTF::move(userScripts));
 }
 
 void LegacyExtensionHost::webProcessWillShutDown(WebProcessProxy& process)
@@ -1908,6 +2249,23 @@ void LegacyExtensionHost::performCall(HostContext& context, JSON::Object& call)
         return;
     }
 
+    // scripting's content scripts registered for the page's own world, once the extension's Info.plist is read and
+    // the scripts it registered in an earlier session are restored.
+    if (method == "scripting.registerContentScripts"_s || method == "scripting.updateContentScripts"_s
+        || method == "scripting.unregisterContentScripts"_s || method == "scripting.getRegisteredContentScripts"_s) {
+        withWebsiteAccess(context.extensionKey, [this, context = Ref { context }, callID, method, callArgument = argument(0)](const LegacyExtensions::WebsiteAccess&) mutable {
+            auto extensionKey = context->extensionKey;
+            auto call = [this, context = WTF::move(context), callID, method, callArgument = WTF::move(callArgument)]() mutable {
+                performContentScriptsCall(context, callID, method, WTF::move(callArgument));
+            };
+            if (m_restoringContentScripts.contains(extensionKey))
+                m_contentScriptWaiters.ensure(extensionKey, [] { return Vector<Function<void()>> { }; }).iterator->value.append(WTF::move(call));
+            else
+                call();
+        });
+        return;
+    }
+
     // Chrome's contract: memory-cache hits never reach webRequest, so a changed listener empties the
     // memory caches, the UI process's for its WebKit 1 pages and every web process's.
     if (method == "webRequest.handlerBehaviorChanged"_s) {
@@ -2702,7 +3060,13 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
         // The pages tabs show of the copy Safari replaced.
         invalidateExtensionPages(extensionKey, root);
         LegacyExtensionInspector::singleton().extensionDidUnload(extensionKey);
-    }
+        // The copy Safari loads in its place has the scripts persisted for its version, read from its files.
+        m_registeredContentScripts.remove(extensionKey);
+        m_contentScriptWaiters.remove(extensionKey);
+        m_restoringContentScripts.add(extensionKey);
+        updateRegisteredUserScripts(extensionKey);
+    } else if (!m_registeredContentScripts.contains(extensionKey))
+        m_restoringContentScripts.add(extensionKey);
     m_websiteAccessRoots.set(extensionKey, root);
     auto loadIdentifier = m_nextIdentifier++;
     m_extensionLoads.set(extensionKey, ExtensionLoad { loadIdentifier });
@@ -2727,6 +3091,11 @@ void LegacyExtensionHost::loadWebsiteAccess(const String& extensionKey, const UR
         for (auto& waiter : m_websiteAccessWaiters.take(extensionKey))
             waiter(loaded);
         LegacyExtensionDevTools::singleton().extensionDidLoad(extensionKey, root, infoPlist.devToolsPage);
+        m_extensionVersions.set(extensionKey, infoPlist.version);
+        if (m_restoringContentScripts.contains(extensionKey))
+            restoreRegisteredContentScripts(extensionKey, root, infoPlist.version);
+        else
+            updateRegisteredUserScripts(extensionKey);
         m_extensionLoads.find(extensionKey)->value.hasGlobalPage = infoPlist.hasGlobalPage;
         updateNetworkListeners();
         updateCookieObservers();
@@ -2751,6 +3120,11 @@ void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
     if (m_websiteAccess.remove(extensionKey))
         updateNetworkListeners();
     updateCookieObservers();
+    m_registeredContentScripts.remove(extensionKey);
+    m_restoringContentScripts.remove(extensionKey);
+    m_contentScriptWaiters.remove(extensionKey);
+    m_extensionVersions.remove(extensionKey);
+    updateRegisteredUserScripts(extensionKey);
     flushPendingTasks();
     RefPtr declarativeNetRequest = m_declarativeNetRequests.take(extensionKey);
     if (!declarativeNetRequest)
@@ -2766,17 +3140,17 @@ void LegacyExtensionHost::extensionDidUnload(const String& extensionKey)
 // its website access is where its redirect and modifyHeaders rules act, as a WebExtension's host permissions
 // are for its declarativeNetRequestWithHostAccess rules.
 
-Vector<Ref<WebUserContentControllerProxy>> LegacyExtensionHost::userContentControllers() const
+Vector<Ref<WebUserContentControllerProxy>> LegacyExtensionHost::userContentControllers()
 {
     Vector<Ref<WebUserContentControllerProxy>> controllers;
     for (auto identifier : tabObservers().keys()) {
         RefPtr page = WebProcessProxy::webPage(identifier);
         if (!page)
             continue;
-        Ref controller = page->userContentController();
-        if (!controllers.containsIf([&](auto& other) { return other.ptr() == controller.ptr(); }))
-            controllers.append(WTF::move(controller));
+        m_controllersWithExtensionContent.add(page->userContentController());
     }
+    for (auto& controller : m_controllersWithExtensionContent)
+        controllers.append(controller);
     return controllers;
 }
 
@@ -2947,14 +3321,17 @@ void LegacyExtensionHost::pageWasCreated(WebPageProxy& page)
         LegacyExtensionHost::singleton().reportTabUpdate(page, WTF::move(changeInfo));
     });
     page.pageLoadState().addObserver(observer.get());
-    bool controllerHasRules = userContentControllers().containsIf([&](auto& controller) {
-        return controller.ptr() == &page.userContentController();
-    });
+    bool controllerHasRules = m_controllersWithExtensionContent.contains(page.userContentController());
+    m_controllersWithExtensionContent.add(page.userContentController());
     tabObservers().set(page.identifier(), WTF::move(observer));
     updateContentRuleListActionPatterns(page);
     if (!controllerHasRules) {
         for (auto& declarativeNetRequest : m_declarativeNetRequests.values())
             declarativeNetRequest->addDeclarativeNetRequestRules(page.userContentController());
+        for (auto& userScripts : m_registeredUserScripts.values()) {
+            for (auto& userScript : userScripts)
+                page.userContentController().addUserScript(userScript, InjectUserScriptImmediately::No);
+        }
     }
 
     auto visibleArguments = JSON::Array::create();

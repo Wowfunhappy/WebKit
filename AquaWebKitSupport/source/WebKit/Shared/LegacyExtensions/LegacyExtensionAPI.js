@@ -1140,7 +1140,123 @@ if (isHost) {
                 return callRouter("scripting.executeScript", tabId, request);
             });
         },
+        registerContentScripts(...args) {
+            return withOptionalCallback(args, async scripts => {
+                if (!Array.isArray(scripts))
+                    throw new TypeError("Error in invocation of scripting.registerContentScripts: 'scripts' must be an array.");
+                const checked = scripts.map(script => registeredScript(script));
+                await callRouter("scripting.registerContentScripts", await Promise.all(checked.map(withSources)));
+            });
+        },
+        updateContentScripts(...args) {
+            return withOptionalCallback(args, async scripts => {
+                if (!Array.isArray(scripts))
+                    throw new TypeError("Error in invocation of scripting.updateContentScripts: 'scripts' must be an array.");
+                // What changes of each script, checked as when it is registered; the router merges it into the
+                // script registered, and checks the result.
+                const changes = scripts.map(script => registeredScriptFields(script));
+                await callRouter("scripting.updateContentScripts", await Promise.all(changes.map(change => change.js ? withSources(change) : change)));
+            });
+        },
+        getRegisteredContentScripts(...args) {
+            return withOptionalCallback(args, async (filter = {}) => {
+                return callRouter("scripting.getRegisteredContentScripts", registeredScriptIds(filter, "getRegisteredContentScripts"));
+            });
+        },
+        unregisterContentScripts(...args) {
+            return withOptionalCallback(args, async (filter = {}) => {
+                await callRouter("scripting.unregisterContentScripts", registeredScriptIds(filter, "unregisterContentScripts"));
+            });
+        },
     };
+
+    // A registered content script as Chrome checks and describes it (scripting.registerContentScripts), with the
+    // fields Chrome fills in. Scripts are registered for the page's own world only: the isolated world's content
+    // scripts are those Safari injects for the extension. The router checks IDs against the scripts registered.
+    function registeredScriptId(script) {
+        if (!script || typeof script !== "object" || typeof script.id !== "string")
+            throw new TypeError("Error in invocation of scripting.registerContentScripts: 'id' must be a string.");
+        if (!script.id.length)
+            throw new Error("Script's ID must not be empty");
+        if (script.id.startsWith("_"))
+            throw new Error(`Script's ID '${script.id}' must not start with '_'`);
+        return script.id;
+    }
+
+    function registeredScriptFields(script) {
+        const id = registeredScriptId(script);
+        const strings = name => {
+            const value = script[name];
+            if (value === undefined)
+                return undefined;
+            if (!Array.isArray(value) || !value.every(item => typeof item === "string"))
+                throw new TypeError(`Error in invocation of scripting.registerContentScripts: '${name}' must be an array of strings.`);
+            return value;
+        };
+        const fields = { id };
+        for (const name of ["matches", "excludeMatches", "js"]) {
+            const value = strings(name);
+            if (value !== undefined)
+                fields[name] = value;
+        }
+        const css = strings("css");
+        if (css && css.length)
+            throw new Error(`Script with ID '${id}' cannot register 'css': only scripts for the "MAIN" world can be registered.`);
+        if (script.runAt !== undefined) {
+            if (!["document_start", "document_end", "document_idle"].includes(script.runAt))
+                throw new TypeError("Error in invocation of scripting.registerContentScripts: Value must be one of document_end, document_idle, document_start.");
+            fields.runAt = script.runAt;
+        }
+        if (script.world !== undefined) {
+            if (script.world !== "MAIN")
+                throw new Error(`Script with ID '${id}' must be for the "MAIN" world: Safari injects the extension's isolated-world content scripts.`);
+            fields.world = script.world;
+        }
+        for (const name of ["allFrames", "matchOriginAsFallback", "persistAcrossSessions"]) {
+            if (script[name] !== undefined)
+                fields[name] = script[name] === true;
+        }
+        return fields;
+    }
+
+    function registeredScript(script) {
+        const fields = registeredScriptFields(script);
+        const { id } = fields;
+        if (!fields.matches || !fields.matches.length)
+            throw new Error(`Script with ID '${id}' must specify 'matches'`);
+        if (!fields.js || !fields.js.length)
+            throw new Error(`Script with ID '${id}' must specify at least one 'css' or 'js' file.`);
+        if (fields.world !== "MAIN")
+            throw new Error(`Script with ID '${id}' must be for the "MAIN" world: Safari injects the extension's isolated-world content scripts.`);
+        return {
+            id,
+            matches: fields.matches,
+            excludeMatches: fields.excludeMatches || [],
+            js: fields.js,
+            allFrames: fields.allFrames === true,
+            matchOriginAsFallback: fields.matchOriginAsFallback === true,
+            runAt: fields.runAt || "document_idle",
+            world: "MAIN",
+            persistAcrossSessions: fields.persistAcrossSessions !== false,
+        };
+    }
+
+    async function withSources(script) {
+        const sources = await Promise.all(script.js.map(file => resourceText(file).then(source => ({ url: resourceURL(file), source }), () => {
+            throw new Error(`Could not load file: '${file}'.`);
+        })));
+        return { ...script, sources };
+    }
+
+    function registeredScriptIds(filter, method) {
+        if (filter === null || typeof filter !== "object")
+            throw new TypeError(`Error in invocation of scripting.${method}: 'filter' must be an object.`);
+        if (filter.ids === undefined)
+            return null;
+        if (!Array.isArray(filter.ids) || !filter.ids.every(id => typeof id === "string"))
+            throw new TypeError(`Error in invocation of scripting.${method}: 'ids' must be an array of strings.`);
+        return filter.ids;
+    }
 
     browser.dns = {
         resolve(...args) {

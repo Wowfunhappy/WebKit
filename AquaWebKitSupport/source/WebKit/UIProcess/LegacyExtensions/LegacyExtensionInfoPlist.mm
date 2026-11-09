@@ -7,7 +7,9 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/RunLoop.h>
+#import <wtf/SHA1.h>
 #import <wtf/cocoa/SpanCocoa.h>
+#import <wtf/text/MakeString.h>
 
 namespace WebKit::LegacyExtensions {
 
@@ -77,8 +79,30 @@ void loadInfoPlist(const URL& root, CompletionHandler<void(InfoPlist&&)>&& compl
                     infoPlist.devToolsPage = devToolsPage;
                 infoPlist.webAccessibleResources = stringList(plist, @"web_accessible_resources");
                 infoPlist.webInaccessibleResources = stringList(plist, @"web_inaccessible_resources");
+                NSString *bundleVersion = plist[@"CFBundleVersion"];
+                NSString *shortVersion = plist[@"CFBundleShortVersionString"];
+                SHA1 hash;
+                hash.addBytes(span(data.get()));
+                infoPlist.version = makeString([bundleVersion isKindOfClass:NSString.class] ? String(bundleVersion) : String(), '/',
+                    [shortVersion isKindOfClass:NSString.class] ? String(shortVersion) : String(), '/', hash.computeHexDigest().span());
             }
             completionHandler(WTF::move(infoPlist));
+        });
+    }).get()];
+    [task resume];
+}
+
+void loadExtensionFile(const URL& root, const String& path, CompletionHandler<void(String&&)>&& completionHandler)
+{
+    URL url { root, path };
+    if (!url.string().startsWith(root.string())) {
+        completionHandler({ });
+        return;
+    }
+    RetainPtr request = [NSURLRequest requestWithURL:url.createNSURL().get()];
+    RetainPtr task = [NSURLSession.sharedSession dataTaskWithRequest:request.get() completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)](NSData *data, NSURLResponse *, NSError *error) mutable {
+        RunLoop::mainSingleton().dispatch([completionHandler = WTF::move(completionHandler), data = RetainPtr { data }, failed = !!error]() mutable {
+            completionHandler(data && !failed ? String::fromUTF8(span(data.get())) : String());
         });
     }).get()];
     [task resume];

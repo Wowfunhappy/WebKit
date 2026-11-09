@@ -30,6 +30,7 @@
 #include <wtf/RefCounted.h>
 #include <wtf/URL.h>
 #include <wtf/WeakHashMap.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC {
@@ -49,6 +50,7 @@ struct Cookie;
 
 namespace API {
 class Navigation;
+class UserScript;
 }
 
 namespace WebKit {
@@ -120,9 +122,10 @@ public:
     // An event of a StreamFilter an extension context attached to a network process's load.
     void dispatchResponseFilterEvent(uint64_t filterID, const String& event, RefPtr<WebCore::SharedBuffer>&&, const String& error);
 
-    // declarativeNetRequest: the controllers of the pages extensions' rules apply to, and the rule lists a
-    // page's load matched.
-    Vector<Ref<WebUserContentControllerProxy>> userContentControllers() const;
+    // declarativeNetRequest and registered content scripts: the user content controllers extensions' rule lists and
+    // scripts are added to and removed from, those of the tab pages and every one a tab page had, as a page group
+    // keeps its controller, and what it holds, when its last tab closes; and the rule lists a page's load matched.
+    Vector<Ref<WebUserContentControllerProxy>> userContentControllers();
     void contentRuleListNotification(WebPageProxy&, const URL&, const WebCore::ContentRuleListResults&);
 
     // WebKit 1 host contexts.
@@ -271,6 +274,11 @@ private:
     void setUserContentExtensionRootsAndWait(IPC::Connection&, Vector<String>&& roots, CompletionHandler<void(String&&)>&&);
     void setResourcePolicy(const URL& root, Vector<String>&& accessible, Vector<String>&& inaccessible);
     void broadcastResourcePolicies();
+    void updateRegisteredUserScripts(const String& extensionKey);
+    void performContentScriptsCall(HostContext&, double callID, const String& method, RefPtr<JSON::Value>&& argument);
+    void persistRegisteredContentScripts(const String& extensionKey);
+    void restoreRegisteredContentScripts(const String& extensionKey, const URL& root, const String& version);
+    void finishRestoringContentScripts(const String& extensionKey);
     void updateUserContentExtensions(const Vector<URL>& latestRoots = { });
 
     void route(const Endpoint&, const String& extensionKey, const String& message, RefPtr<WebCore::SharedBuffer>&& data = nullptr, bool isPendingTask = false);
@@ -393,6 +401,16 @@ private:
     HashMap<String, WebCore::LegacyExtensionResourceAccess::Policy> m_resourcePolicies;
     HashMap<String, Vector<String>> m_ruleResourcePaths;
     String m_resourcePoliciesJSON { "[]"_s };
+    // Each loaded extension's scripts registered for the page's own world (scripting.registerContentScripts), as
+    // LegacyExtensionAPI.js describes them with their sources, and the user scripts tab pages' controllers hold of them.
+    HashMap<String, Ref<JSON::Array>> m_registeredContentScripts;
+    HashMap<String, Vector<Ref<API::UserScript>>> m_registeredUserScripts;
+    WeakHashSet<WebUserContentControllerProxy> m_controllersWithExtensionContent;
+    // The extensions whose scripts of an earlier session are being restored, and their scripting calls that wait for
+    // them; each loaded extension's version, as its Info.plist gives it.
+    HashSet<String> m_restoringContentScripts;
+    HashMap<String, Vector<Function<void()>>> m_contentScriptWaiters;
+    HashMap<String, String> m_extensionVersions;
     // The roots of the extensions whose user content each web process holds, and the extension keys and roots
     // that makes loaded.
     HashMap<WebCore::ProcessIdentifier, Vector<URL>> m_userContentExtensionRoots;
